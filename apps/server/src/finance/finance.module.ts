@@ -1,5 +1,9 @@
 import { Module } from '@nestjs/common';
+import { AdvertisingModule } from '../advertising/advertising.module';
 import { AnalyticsModule } from '../analytics/analytics.module';
+import { ChannelsModule } from '../channels/channels.module';
+import { InventoryModule } from '../inventory/inventory.module';
+import { FinanceReportExportController } from './controllers/finance-report-export.controller';
 import { ProfitLossController } from './controllers/profit-loss.controller';
 import { ProfitLossService } from './services/profit-loss.service';
 import { SalesAnalysisController } from './controllers/sales-analysis.controller';
@@ -16,14 +20,19 @@ import { MasterProductContributionRepositoryAdapter } from './adapter/out/reposi
 import { MASTER_PRODUCT_CONTRIBUTION_READ_PORT } from './application/port/in/master-product-contribution-read.port';
 import { MASTER_PRODUCT_CONTRIBUTION_REPOSITORY_PORT } from './application/port/out/repository/master-product-contribution.repository.port';
 import { MasterProductContributionReadService } from './application/service/master-product-contribution-read.service';
+import { FinanceReportExportService } from './report-export/finance-report-export.service';
 
 @Module({
   imports: [
     AnalyticsModule,
+    AdvertisingModule,
+    ChannelsModule,
+    InventoryModule,
     ProfitabilityEvidenceModule,
   ],
   controllers: [
     ProfitLossController,
+    FinanceReportExportController,
     SalesAnalysisController,
     SupplierPaymentsController,
     SalesPlansController,
@@ -38,6 +47,7 @@ import { MasterProductContributionReadService } from './application/service/mast
     SettlementsService,
     MasterProductContributionRepositoryAdapter,
     MasterProductContributionReadService,
+    FinanceReportExportService,
     {
       provide: MASTER_PRODUCT_CONTRIBUTION_REPOSITORY_PORT,
       useExisting: MasterProductContributionRepositoryAdapter,

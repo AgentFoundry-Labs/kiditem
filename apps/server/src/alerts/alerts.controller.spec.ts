@@ -12,7 +12,7 @@ const ALERT_ID = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
 
 function makeService() {
   return {
-    findAll: vi.fn().mockResolvedValue([]),
+    list: vi.fn().mockResolvedValue([]),
     dismiss: vi.fn().mockResolvedValue(undefined),
   };
 }
@@ -24,7 +24,7 @@ describe('AlertsController', () => {
 
     await controller.findAll(ORGANIZATION_ID);
 
-    expect(service.findAll).toHaveBeenCalledWith(ORGANIZATION_ID);
+    expect(service.list).toHaveBeenCalledWith(ORGANIZATION_ID);
   });
 
   it('dismisses using both the route id and authenticated organization', async () => {

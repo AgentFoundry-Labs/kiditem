@@ -23,11 +23,26 @@ function harness(options = {}) {
   const tasks = [];
   const batches = options.batches ?? [{ attempts: [member(A), member(B)] }];
   let reads = 0;
+  let cancellations = 0;
+  let cancelRequests = 0;
   const batch = context.KidItemKeywordRankBatch.create({
     kind: options.kind ?? 'wing',
     request: options.request ?? (async (environmentId, path, init) => {
-      calls.push(['read', environmentId, path, plain(init)]);
-      return { ok: true, json: async () => batches[Math.min(reads++, batches.length - 1)] };
+      const cancel = path.endsWith('/batch-attempts/cancel');
+      calls.push([cancel ? 'cancel' : 'read', environmentId, path, plain(init)]);
+      if (cancel && options.cancelRequestGate && cancelRequests++ === 0) {
+        await options.cancelRequestGate.promise;
+      }
+      return {
+        ok: true,
+        json: async () => {
+          const value = batches[Math.min(reads++, batches.length - 1)];
+          if (!cancel) return value;
+          if (options.cancelTransform) return options.cancelTransform(value, cancellations++);
+          return { ...value, attempts: value.attempts.map((attempt) =>
+            attempt.state === 'RUNNING' ? { ...attempt, state: 'FAILED' } : attempt) };
+        },
+      };
     }),
     sourceOwner: {
       run: async (value) => {
@@ -35,6 +50,10 @@ function harness(options = {}) {
         return options.run ? options.run(value) : { terminalState: 'COMPLETE' };
       },
       fail: async (value) => { calls.push(['fail', plain(value)]); return { terminalState: 'FAILED' }; },
+      cancelLocal: async (value) => {
+        calls.push(['cancelLocal', plain(value)]);
+        await options.cancelLocal?.(value);
+      },
     },
     sleep: async (ms) => { calls.push(['sleep', ms]); await options.sleep?.(ms); },
     randomDelayMs: (min, max) => { calls.push(['delay', min, max]); return min; },
@@ -90,7 +109,140 @@ test('explicit cancellation stops dispatch and fails only fresh RUNNING members,
   running.resolve();
   await Promise.all(h.tasks);
   assert.deepEqual(h.calls.filter(([name]) => name === 'run').map(([, value]) => value.attemptId), [A]);
-  assert.deepEqual(h.calls.filter(([name]) => name === 'fail').map(([, value]) => [value.attemptId, value.code]), [[A, 'COLLECTION_CANCELLED'], [B, 'COLLECTION_CANCELLED']]);
+  assert.equal(h.calls.filter(([name]) => name === 'cancel').length, 1);
+  assert.deepEqual(h.calls.filter(([name]) => name === 'cancelLocal').map(([, value]) => value), [
+    { environmentId: 'office', attemptIds: [A, B, C] },
+  ]);
+  assert.equal(h.calls.some(([name]) => name === 'fail'), false);
+});
+
+test('large SERP cancellation uses bounded server chunks, preserves terminal members, and replays without dispatch', async () => {
+  const attemptId = (index) => `20000000-0000-4000-8000-${String(index).padStart(12, '0')}`;
+  const initial = Array.from({ length: 121 }, (_, index) => {
+    if (index === 0) return member(attemptId(index), 'COMPLETE');
+    if (index === 1) return { ...member(attemptId(index), 'FAILED'), errorCode: 'SERP_CAPTURE_FAILED' };
+    return member(attemptId(index));
+  });
+  const responses = [];
+  let current = initial;
+  while (current.some((attempt) => attempt.state === 'RUNNING')) {
+    let cancelled = 0;
+    current = current.map((attempt) => {
+      if (attempt.state !== 'RUNNING' || cancelled++ >= 50) return attempt;
+      return { ...attempt, state: 'FAILED', errorCode: 'COLLECTION_CANCELLED' };
+    });
+    responses.push({ attempts: current });
+  }
+  const h = harness({ kind: 'serp', batches: responses,
+    cancelTransform: (value) => value });
+
+  assert.deepEqual(plain(await h.batch.cancel(input)), { success: true });
+  await Promise.all(h.tasks);
+  assert.equal(h.calls.filter(([name]) => name === 'cancel').length, 3);
+  assert.deepEqual(h.calls.filter(([name]) => name === 'cancelLocal')
+    .map(([, value]) => [value.environmentId, value.attemptIds.length]), [
+      ['office', 52], ['office', 102], ['office', 121],
+    ]);
+  assert.equal(h.calls.filter(([name]) => name === 'fail').length, 0);
+  assert.equal(h.calls.filter(([name]) => name === 'cancel')
+    .every(([, environmentId, path, init]) => environmentId === 'office'
+      && path === '/api/ads/keyword-rank/serp/batch-attempts/cancel'
+      && init.method === 'POST' && init.headers['Idempotency-Key'] === KEY), true);
+  const final = responses.at(-1).attempts;
+  assert.equal(final[0].state, 'COMPLETE');
+  assert.equal(final[1].state, 'FAILED');
+  assert.equal(final[1].errorCode, 'SERP_CAPTURE_FAILED');
+  assert.equal(final.some((attempt) => attempt.state === 'RUNNING'), false);
+  const localCancels = h.calls.filter(([name]) => name === 'cancelLocal')
+    .map(([, value]) => value.attemptIds);
+  assert.equal(localCancels[0].includes(initial[100].attemptId), false);
+  assert.equal(localCancels[1].includes(initial[100].attemptId), true);
+
+  assert.deepEqual(plain(await h.batch.cancel(input)), { success: true });
+  assert.equal(h.calls.filter(([name]) => name === 'cancel').length, 4);
+  assert.deepEqual(h.calls.filter(([name]) => name === 'cancelLocal')
+    .map(([, value]) => value.attemptIds.length), [52, 102, 121, 121]);
+  assert.equal(h.calls.filter(([name]) => name === 'fail').length, 0);
+});
+
+test('cancellation stops when the server makes no monotonic progress', async () => {
+  const h = harness({ batches: [{ attempts: [member(A)] }],
+    cancelTransform: (value) => value });
+  assert.deepEqual(plain(await h.batch.cancel(input)), { success: true });
+  await Promise.allSettled(h.tasks);
+  assert.equal(h.calls.filter(([name]) => name === 'cancel').length, 2);
+  assert.equal(h.calls.filter(([name]) => name === 'cancelLocal').length, 2);
+  assert.equal(h.calls.filter(([name]) => name === 'fail').length, 0);
+});
+
+test('acknowledges after the first cancel chunk while later replays remain in keep-alive', async () => {
+  const cleanup = deferred();
+  const remaining = deferred();
+  const initial = { attempts: [member(A), member(B)] };
+  const terminal = { attempts: [member(A, 'FAILED'), member(B, 'FAILED')] };
+  const h = harness({ batches: [initial, terminal], cancelTransform: async (value, index) => {
+    if (index === 1) await remaining.promise;
+    return value;
+  }, cancelLocal: async () => cleanup.promise });
+
+  const accepted = await h.batch.cancel(input);
+  assert.deepEqual(plain(accepted), { success: true });
+  assert.equal(h.calls.filter(([name]) => name === 'cancel').length, 1);
+  assert.equal(h.calls.filter(([name]) => name === 'cancelLocal').length, 1);
+
+  cleanup.resolve();
+  await new Promise(setImmediate);
+  assert.equal(h.calls.filter(([name]) => name === 'cancel').length, 2);
+  remaining.resolve();
+  await Promise.all(h.tasks);
+  assert.equal(h.calls.filter(([name]) => name === 'cancelLocal').length, 2);
+});
+
+test('a first cancel transport error rejects without local cleanup', async () => {
+  const h = harness({ request: async (environmentId, path, init) => {
+    const cancel = path.endsWith('/batch-attempts/cancel');
+    h?.calls?.push?.([cancel ? 'cancel' : 'read', environmentId, path, plain(init)]);
+    return { ok: cancel ? false : true, json: async () => ({ attempts: [member(A)] }) };
+  } });
+  await assert.rejects(h.batch.cancel(input), /순위 수집 취소 실패/);
+  assert.equal(h.calls.filter(([name]) => name === 'cancelLocal').length, 0);
+});
+
+test('a background cancellation error leaves the owner running and permits retry', async () => {
+  const h = harness({ batches: [{ attempts: [member(A)] }],
+    cancelTransform: (value) => value });
+  assert.deepEqual(plain(await h.batch.cancel(input)), { success: true });
+  await Promise.allSettled(h.tasks);
+  assert.deepEqual(plain(await h.batch.cancel(input)), { success: true });
+  await Promise.allSettled(h.tasks);
+  assert.equal(h.calls.filter(([name]) => name === 'cancel').length, 4);
+  assert.equal(h.calls.filter(([name]) => name === 'fail').length, 0);
+});
+
+test('deduplicates concurrent cancellation until background cleanup finishes, then permits a new retry', async () => {
+  const firstResponse = deferred();
+  const cleanup = deferred();
+  const h = harness({ cancelRequestGate: firstResponse, cancelLocal: async () => cleanup.promise });
+
+  const first = h.batch.cancel(input);
+  const second = h.batch.cancel(input);
+  await new Promise(setImmediate);
+  assert.equal(h.calls.filter(([name]) => name === 'cancel').length, 1);
+
+  firstResponse.resolve();
+  assert.deepEqual(plain(await first), { success: true });
+  assert.deepEqual(plain(await second), { success: true });
+  const duringCleanup = h.batch.cancel(input);
+  assert.deepEqual(plain(await duringCleanup), { success: true });
+  assert.equal(h.calls.filter(([name]) => name === 'cancel').length, 1);
+  assert.equal(h.tasks.length, 1);
+
+  cleanup.resolve();
+  await Promise.all(h.tasks);
+  assert.deepEqual(plain(await h.batch.cancel(input)), { success: true });
+  assert.equal(h.calls.filter(([name]) => name === 'cancel').length, 2);
+  assert.equal(h.tasks.length, 2);
+  await Promise.all(h.tasks);
 });
 
 test('empty receipts and Wing never enrich; nonempty COMPLETE SERP replay still dispatches enrichment', async () => {
@@ -137,7 +289,8 @@ test('an explicit later cancel may cancel the exact still-RUNNING owner after an
   await Promise.all(h.tasks);
   await new Promise(setImmediate);
   await h.batch.cancel(input);
-  assert.deepEqual(h.calls.filter(([name]) => name === 'fail').map(([, value]) => [value.attemptId, value.code]), [[B, 'COLLECTION_INTERRUPTED'], [A, 'COLLECTION_CANCELLED']]);
+  assert.deepEqual(h.calls.filter(([name]) => name === 'fail').map(([, value]) => [value.attemptId, value.code]), [[B, 'COLLECTION_INTERRUPTED']]);
+  assert.equal(h.calls.filter(([name]) => name === 'cancel').length, 1);
 });
 
 test('cancel marks the batch before cancelling active enrichment and skips terminal keyword members', async () => {
@@ -174,7 +327,8 @@ test('cancellation during pacing prevents the next owner and enrichment', async 
   released.resolve();
   await Promise.all(h.tasks);
   assert.deepEqual(h.calls.filter(([name]) => name === 'run').map(([, value]) => value.attemptId), [A]);
-  assert.deepEqual(h.calls.filter(([name]) => name === 'fail').map(([, value]) => value.attemptId), [B]);
+  assert.deepEqual(h.calls.filter(([name]) => name === 'fail').map(([, value]) => value.attemptId), []);
+  assert.equal(h.calls.filter(([name]) => name === 'cancel').length, 1);
   assert.equal(enriched, false);
 });
 

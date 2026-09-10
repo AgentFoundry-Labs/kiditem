@@ -21,7 +21,8 @@ supports explicit Wing page automation.
   `http://kiditem-office`.
 - Resolve the active profile from the verified external sender origin. Never
   trust a message-provided environment id or keep one global API/token pair.
-- Data sync posts to `/api/ads/extension/sync`.
+- Ad-center collection uses its named source-owner attempt APIs; the retired
+  generic extension sync endpoint is not a producer path.
 - Approved queued ad actions are fetched from `/api/ads/actions`.
 - Full catalog collection uses the account-scoped server-owned attempt
   contract. The owner API defines start, upload, terminal, and status semantics;

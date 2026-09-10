@@ -1,10 +1,10 @@
-import { issueBrowserCollectionRunId } from '@/lib/browser-collection-session';
 import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extension-bridge';
 import { apiClient } from '@/lib/api-client';
 import { downloadBlob } from '@/lib/browser-download';
 import type { OrderCollectionConversionResult } from './order-collection-api';
 import {
   createOrderCollectionExtensionError,
+  orderCollectionExtensionRunFields,
   type OrderCollectionExtensionRun,
   type OrderCollectionFailureResponse,
 } from './order-collection-extension';
@@ -37,8 +37,8 @@ export async function collectGsshopXlsxFromExtension(run?: OrderCollectionExtens
     {
       action: 'collectGsshopOrders',
       date: run?.date,
-      runId: await issueBrowserCollectionRunId(run?.runId),
-      deferTerminal: Boolean(run?.runId),
+      // attemptId/deferTerminal: true are included by shared fenced run fields.
+      ...orderCollectionExtensionRunFields(run),
     },
     150000, // GS 는 조회+상세 fetch 후 클라이언트 엑셀 조립이라 넉넉히
   );
@@ -53,7 +53,7 @@ export async function collectGsshopXlsxFromExtension(run?: OrderCollectionExtens
 export async function convertGsshopToSellpiaFile(
   xlsxBase64: string,
   fileName: string,
-  options?: { download?: boolean },
+  options?: { download?: boolean; run?: OrderCollectionExtensionRun },
 ): Promise<OrderCollectionConversionResult> {
   const bin = atob(xlsxBase64);
   const bytes = new Uint8Array(bin.length);
@@ -67,6 +67,10 @@ export async function convertGsshopToSellpiaFile(
   const response = await apiClient.fetchRaw('/api/orders/collection/gsshop/convert', {
     method: 'POST',
     body: formData,
+    headers: options?.run ? {
+      'x-order-collection-attempt-id': options.run.attemptId,
+      'x-source-attempt-token': options.run.attemptToken,
+    } : undefined,
   });
   if (!response.ok) {
     const body = (await response.clone().json().catch(() => null)) as { message?: unknown } | null;

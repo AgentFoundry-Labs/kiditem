@@ -13,7 +13,7 @@ class PurchaseOrderItemDto {
  * organizationId 는 `req.authUser.organizationId` 에서 주입 — DTO 에는 포함하지 않는다.
  */
 export class PurchaseOrderActionBodyDto {
-  @IsIn(['create', 'updateStatus', 'delete', 'submit', 'reconcileSubmission', 'previewRocket', 'exportRocketWorkbook', 'getActiveRocketWorkbook', 'downloadRocketWorkbook', 'abandonRocketWorkbook', 'listSavedRocketPos', 'loadSavedRocketCollection'])
+  @IsIn(['create', 'updateStatus', 'delete', 'submit', 'reconcileSubmission', 'previewRocket', 'convertRocketConfirmationWorkbook', 'exportRocketWorkbook', 'getActiveRocketWorkbook', 'downloadRocketWorkbook', 'abandonRocketWorkbook', 'listSavedRocketPos', 'loadSavedRocketCollection'])
   action: string;
 
   @ValidateIf(o => o.action === 'create')
@@ -99,7 +99,7 @@ export class PurchaseOrderActionBodyDto {
   @IsIn(['advisory', 'fresh'])
   inventoryRequirement?: 'advisory' | 'fresh';
 
-  @ValidateIf(o => o.action === 'exportRocketWorkbook')
+  @ValidateIf(o => ['convertRocketConfirmationWorkbook', 'exportRocketWorkbook'].includes(o.action))
   @IsString() @MinLength(2)
   requestJson?: string;
 

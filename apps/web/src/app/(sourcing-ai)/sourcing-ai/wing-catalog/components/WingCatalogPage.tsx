@@ -241,7 +241,6 @@ export function WingCatalogPage() {
       const params = new URLSearchParams(window.location.search);
       params.set('keyword', normalizedKeyword);
       if (run) params.set('sourceAttempt', run.attemptId);
-      params.delete('operationRun');
       window.history.replaceState(
         {},
         '',

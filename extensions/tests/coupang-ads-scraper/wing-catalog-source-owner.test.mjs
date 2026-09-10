@@ -34,12 +34,14 @@ async function harness(options = {}) {
       }
       return Response.json(attempt());
     },
-    searchWingCatalogProducts: async (message) => {
+    wingSearchCollector: {
+      collect: async (message) => {
       searches.push(message);
       if (options.search) return options.search(message);
       return { success: true, tabId: 7, rows: Array.from({ length: 102 }, (_, index) => ({
         productId: String(index), productName: '연필', salePrice: 1000, rating: 4.5,
       })) };
+      },
     },
   });
   context.globalThis = context;
@@ -58,7 +60,7 @@ test('owner plan keeps keyword order, 100-row cap, mapping and per-keyword ACK r
   const h = await harness({ losses: 2 });
   const result = await h.context.runSourcingWingCatalog(h.input);
   assert.equal(result.state, 'COMPLETE');
-  assert.deepEqual(h.searches.map((s) => [s.keyword, s.maxPages, s.collectionRunId]),
+  assert.deepEqual(h.searches.map((s) => [s.keyword, s.maxPages, s.attemptId]),
     [['A Pencil', 2, attemptId], ['클레이', 2, attemptId]]);
   const chunks = h.requests.filter((r) => r.path.endsWith('/chunks'));
   assert.equal(chunks.length, 4);

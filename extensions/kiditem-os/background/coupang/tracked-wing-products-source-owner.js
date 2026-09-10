@@ -139,6 +139,31 @@
     const sessions = options.sessions;
     const activeExecutions = new Map();
 
+    async function isActive(attemptId, environmentId) {
+      if (typeof sessions.isActive === "function") {
+        return sessions.isActive(attemptId, environmentId, PRODUCER);
+      }
+      const session = await sessions.get(attemptId).catch(() => null);
+      return session?.environmentId === environmentId && session.producer === PRODUCER;
+    }
+
+    function cancellationError() {
+      const error = ownerError("COLLECTION_CANCELLED", "Tracked Wing collection was cancelled by the user.");
+      error.cancellationPending = true;
+      return error;
+    }
+
+    function stoppedOutcome(attemptId, completedKeywordCount = 0) {
+      return {
+        success: false,
+        attemptId,
+        terminalState: "RUNNING",
+        completedKeywordCount,
+        cancellationPending: true,
+        errorCode: "COLLECTION_CANCELLED",
+      };
+    }
+
     function launch(environmentId, work) {
       let tracked;
       tracked = Promise.resolve()
@@ -218,6 +243,8 @@
       }
       const session = persisted[0];
       if (!session) return null;
+      if (typeof sessions.isActive === "function" &&
+        !(await sessions.isActive(session.attemptId, environmentId, PRODUCER))) return null;
       const plan = await readAttemptControl(environmentId, session.attemptId);
       if (plan) return plan;
       await sessions.remove(session.attemptId);
@@ -286,8 +313,9 @@
         const captured = new Map();
         if (plan.products.length > 0) {
           for (const keyword of plan.keywords) {
+            if (!(await isActive(plan.attemptId, environmentId))) return stoppedOutcome(plan.attemptId, completedKeywords);
             if (!(await sessions.get(plan.attemptId))) {
-              throw ownerError("COLLECTION_CANCELLED", "Tracked Wing collection was cancelled by the user.");
+              throw cancellationError();
             }
             await sessions.progress(plan.attemptId, {
               current: completedKeywords,
@@ -296,6 +324,7 @@
               failed: failedKeywords,
               label: keyword,
             });
+            if (!(await isActive(plan.attemptId, environmentId))) return stoppedOutcome(plan.attemptId, completedKeywords);
             let collected;
             try {
               collected = await options.collectKeyword({
@@ -306,9 +335,11 @@
                 collectionTabId,
               });
             } catch {
+              if (!(await isActive(plan.attemptId, environmentId))) return stoppedOutcome(plan.attemptId, completedKeywords);
               failedKeywords += 1;
               continue;
             }
+            if (!(await isActive(plan.attemptId, environmentId))) return stoppedOutcome(plan.attemptId, completedKeywords);
             if (Number.isInteger(collected?.tabId)) collectionTabId = collected.tabId;
             if (collected?.attentionRequired) {
               const message = String(
@@ -328,7 +359,7 @@
               };
             }
             if (collected?.cancelled) {
-              throw ownerError("COLLECTION_CANCELLED", "Tracked Wing collection was cancelled by the user.");
+              throw cancellationError();
             }
             if (collected?.success !== true) {
               failedKeywords += 1;
@@ -361,8 +392,9 @@
           );
         }
         if (!(await sessions.get(plan.attemptId))) {
-          throw ownerError("COLLECTION_CANCELLED", "Tracked Wing collection was cancelled by the user.");
+          throw cancellationError();
         }
+        if (!(await isActive(plan.attemptId, environmentId))) return stoppedOutcome(plan.attemptId, completedKeywords);
         const items = [...captured.values()];
         const failures = plan.products
           .filter((product) => !captured.has(product.productId))
@@ -387,6 +419,7 @@
           failedProductCount: 0,
         };
       } catch (error) {
+        if (error?.cancellationPending) return stoppedOutcome(plan.attemptId, completedKeywords);
         let terminalState = "RUNNING";
         let failure = failureFrom(
           error,

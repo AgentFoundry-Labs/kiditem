@@ -45,11 +45,7 @@ export class ProductOperationsDataStatusService {
         sellpia: facts.sellpia,
         advertising: facts.advertising,
         mapping: {
-          status: mappingRequiredProductCount > 0
-            ? 'MISSING'
-            : facts.mappingReady
-              ? 'READY'
-              : 'STALE',
+          status: facts.mappingReady ? 'READY' : 'STALE',
           generation: facts.formulaState.mappingGeneration,
         },
       },

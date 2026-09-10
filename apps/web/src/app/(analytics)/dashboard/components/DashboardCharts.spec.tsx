@@ -1,14 +1,28 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+const chartCaptures = vi.hoisted(() => ({
+  areaData: [] as unknown[],
+  tooltipFormatters: [] as Array<(value: unknown, name: unknown) => unknown>,
+}));
 
 vi.mock('recharts', async () => {
   type MockProps = {
     children?: React.ReactNode;
     height?: string | number;
     initialDimension?: { width: number; height: number };
+    data?: unknown;
+    formatter?: (value: unknown, name: unknown) => unknown;
   };
   const ChartPart = ({ children }: MockProps) => <div>{children}</div>;
+  const AreaChart = ({ children, data }: MockProps) => {
+    chartCaptures.areaData.push(data);
+    return <div>{children}</div>;
+  };
+  const Tooltip = ({ children, formatter }: MockProps) => {
+    if (formatter) chartCaptures.tooltipFormatters.push(formatter);
+    return <div>{children}</div>;
+  };
   const ResponsiveContainer = ({ children, height, initialDimension }: MockProps) => (
     <div
       data-testid="responsive-container"
@@ -22,9 +36,9 @@ vi.mock('recharts', async () => {
   return {
     XAxis: ChartPart,
     YAxis: ChartPart,
-    Tooltip: ChartPart,
+    Tooltip,
     CartesianGrid: ChartPart,
-    AreaChart: ChartPart,
+    AreaChart,
     Area: ChartPart,
     BarChart: ChartPart,
     Bar: ChartPart,
@@ -33,7 +47,12 @@ vi.mock('recharts', async () => {
   };
 });
 
-import { DashboardCharts } from './DashboardCharts';
+import { DashboardCharts, EvidenceTooltip } from './DashboardCharts';
+
+beforeEach(() => {
+  chartCaptures.areaData.length = 0;
+  chartCaptures.tooltipFormatters.length = 0;
+});
 
 const trend = [
   {
@@ -43,6 +62,28 @@ const trend = [
     adCost: 30_000,
     profitRate: 0,
     adRate: 25,
+    evidence: { revenue: null, profit: null, adCost: null },
+  },
+];
+
+const trendWithUnavailableGap = [
+  {
+    date: '2026-04-18',
+    revenue: null,
+    profit: null,
+    adCost: null,
+    profitRate: null,
+    adRate: null,
+    evidence: { revenue: null, profit: null, adCost: null },
+  },
+  {
+    date: '2026-04-19',
+    revenue: 0,
+    profit: 0,
+    adCost: 0,
+    profitRate: 0,
+    adRate: 0,
+    evidence: { revenue: null, profit: null, adCost: null },
   },
 ];
 
@@ -99,5 +140,79 @@ describe('DashboardCharts', () => {
     );
 
     expectPositiveInitialDimension();
+  });
+
+  it('keeps nullable gaps and explicit zeroes in both chart datasets', () => {
+    render(
+      <DashboardCharts
+        chartTab="revenue"
+        dailyTrend={trendWithUnavailableGap}
+        adChartData={trendWithUnavailableGap}
+        benchmarkData={null}
+        hasTrend
+      />,
+    );
+
+    expect(chartCaptures.areaData).toEqual([trendWithUnavailableGap]);
+    expect(chartCaptures.tooltipFormatters[0]?.(null, 'profitRate')).toEqual(['—', '이익률']);
+    expect(chartCaptures.tooltipFormatters[0]?.(0, 'profitRate')).toEqual(['0.0%', '이익률']);
+  });
+
+  it('renders unavailable ad values as dashes without changing explicit zeroes', () => {
+    render(
+      <DashboardCharts
+        chartTab="ad"
+        dailyTrend={trendWithUnavailableGap}
+        adChartData={trendWithUnavailableGap}
+        benchmarkData={null}
+        hasTrend
+      />,
+    );
+
+    expect(chartCaptures.areaData).toEqual([trendWithUnavailableGap]);
+    expect(chartCaptures.tooltipFormatters[0]?.(null, 'adCost')).toEqual(['—', '광고비']);
+    expect(chartCaptures.tooltipFormatters[0]?.(0, 'adCost')).toEqual(['₩0', '광고비']);
+  });
+
+  it('shows actual tooltip values with units alongside their evidence', () => {
+    render(
+      <EvidenceTooltip
+        active
+        payload={[{
+          dataKey: 'revenue',
+          value: 120_000,
+          payload: trend[0],
+        }, {
+          dataKey: 'profitRate',
+          value: 0,
+          payload: trend[0],
+        }]}
+      />,
+    );
+
+    expect(screen.getByText('매출 · ₩120,000')).toBeInTheDocument();
+    expect(screen.getByText('이익률 · 0.0%')).toBeInTheDocument();
+    expect(screen.getByText(/매출 근거 · 근거 정보 없음/)).toBeInTheDocument();
+  });
+
+  it('keeps a measured value neutral when the benchmark average is unavailable', () => {
+    render(
+      <DashboardCharts
+        chartTab="benchmark"
+        dailyTrend={trend}
+        adChartData={trend}
+        benchmarkData={[{
+          name: '광고비율',
+          my: 12.6,
+          avg: null,
+          unit: '%',
+          invertGood: true,
+        }]}
+        hasTrend
+      />,
+    );
+
+    expect(screen.getByText('12.6%')).toHaveClass('text-slate-700');
+    expect(screen.getByText('비교 기준 없음')).toBeInTheDocument();
   });
 });

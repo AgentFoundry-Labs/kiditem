@@ -5,6 +5,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { friendlyError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
+import { useSellpiaInventorySourceOwner } from '@/app/(inventory)/_shared/sellpia-inventory-source-owner';
 import {
   createPurchaseOrderSubmissionIdempotencyKey,
   submitPurchaseOrderWithFreshnessRecovery,
@@ -13,9 +14,16 @@ import {
 
 export function usePurchaseOrderSubmission() {
   const queryClient = useQueryClient();
+  const { start: startSellpiaInventorySource } = useSellpiaInventorySourceOwner({ enabled: true });
   const mutation = useMutation({
     mutationFn: (input: SubmitPurchaseOrderRequest) =>
       submitPurchaseOrderWithFreshnessRecovery(input, {
+        dependencies: {
+          requestRefresh: async () => {
+            const attempt = await startSellpiaInventorySource('purchase_preflight');
+            return { requestedGeneration: attempt.generation };
+          },
+        },
         onRefreshRequested: () => queryClient.invalidateQueries({
           queryKey: queryKeys.inventory.freshness(),
         }),

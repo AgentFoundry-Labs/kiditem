@@ -1,6 +1,6 @@
 // Application service for `/api/ads/keyword-rank/*` — 키워드 트래커 CRUD 와
 // 순위 추이/최신 SERP 읽기. ingest 는 `KeywordRankIngestHandler` 가
-// `AdSyncService.sync` dispatch 를 통해 처리한다.
+// the keyword source-owner repository and handler.
 
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import {

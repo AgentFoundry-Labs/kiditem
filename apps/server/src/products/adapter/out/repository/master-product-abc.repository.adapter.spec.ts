@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD } from '@kiditem/shared/product-abc';
+import { PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD } from '@kiditem/shared/product-abc';
 import { MasterProductAbcRepositoryAdapter } from './master-product-abc.repository.adapter';
 import type { ProductAbcPublicationInput } from '../../../application/port/out/repository/master-product-abc.repository.port';
 
@@ -22,10 +22,11 @@ function publication(overrides: Partial<ProductAbcPublicationInput> = {}): Produ
       sellpia: {
         selectedComplete: sourceView(sellpiaRunId, '12'),
       },
-      advertising: {
-        selectedComplete: sourceView(advertisingRunId, '18'),
-      },
+    advertising: {
+      selectedComplete: sourceView(advertisingRunId, '18'),
     },
+    },
+    saleAgeInputs: [{ masterProductId: productId, mappingValid: false, saleStartDate: null }],
     targetProductIds: [productId],
     candidates: [],
     calculatedAt: new Date('2026-09-01T00:00:00.000Z'),
@@ -55,7 +56,7 @@ function stateRow(overrides: Record<string, unknown> = {}) {
     publishedAdvertisingSourceImportRunId: null,
     publishedMappingGeneration: null,
     mappingGeneration: '7',
-    formulaJson: PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD,
+    formulaJson: PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
     ...overrides,
   };
 }
@@ -73,6 +74,7 @@ describe('MasterProductAbcRepositoryAdapter', () => {
       }),
       masterProductAbcEvaluation: { deleteMany: vi.fn(), createMany: vi.fn() },
       masterProduct: { updateMany: vi.fn() },
+      channelListing: { findMany: vi.fn(async () => []) },
     };
     const prisma = { $transaction: vi.fn(async (work) => work(tx)) };
     const repository = new MasterProductAbcRepositoryAdapter(prisma as never);
@@ -106,6 +108,7 @@ describe('MasterProductAbcRepositoryAdapter', () => {
       }),
       masterProductAbcEvaluation: { deleteMany: vi.fn(), createMany: vi.fn() },
       masterProduct: { updateMany: vi.fn() },
+      channelListing: { findMany: vi.fn(async () => []) },
     };
     const prisma = {
       $transaction: vi.fn(async (work) => work(tx)),

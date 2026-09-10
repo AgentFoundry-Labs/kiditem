@@ -11,10 +11,29 @@ const product = JSON.parse(fs.readFileSync('extensions/tests/fixtures/1688-produ
 const flush = async () => { for (let i = 0; i < 100; i++) await Promise.resolve(); };
 const clone = (value) => JSON.parse(JSON.stringify(value));
 
-function fixture({ pageUrl = product.source_url, loseBegin = false, loseComplete = false, holdFail = false, detailHtml = '' } = {}) {
-  const values = { kiditem_environment_profiles_v1: { local: { accessToken: 'auth-token' } } };
+function fixture({
+  pageUrl = product.source_url,
+  loseBegin = false,
+  loseComplete = false,
+  failureAckFailures = 0,
+  holdBegin = false,
+  holdAcceptedBegin = false,
+  holdFail = false,
+  holdFirstRead = false,
+  failResponseState = 'FAILED',
+  omitFailState = false,
+  failureLeavesRunning = false,
+  detailHtml = '',
+  values: sharedValues,
+  attempts: sharedAttempts,
+} = {}) {
+  const values = sharedValues || { kiditem_environment_profiles_v1: { local: { accessToken: 'auth-token' } } };
   const listeners = [], tabRemoved = [], timers = new Map(), requests = [], triggers = [], attempts = new Map();
-  let serial = 0, lostBegin = false, lostComplete = false;
+  let serial = 0, lostBegin = false, lostComplete = false, readHeld = false;
+  let failureAckFailuresRemaining = failureAckFailures;
+  let releaseBegin;
+  const beginHeld = new Promise((resolve) => { releaseBegin = resolve; });
+  const ownerAttempts = sharedAttempts || attempts;
   let releaseFailure;
   const failureHeld = new Promise((resolve) => { releaseFailure = resolve; });
   const storage = {
@@ -40,22 +59,42 @@ function fixture({ pageUrl = product.source_url, loseBegin = false, loseComplete
       let response = {};
       if (url.endsWith('/attempts')) {
         const key = new Headers(init.headers).get('idempotency-key');
-        if (!attempts.has(key)) attempts.set(key, { attemptId: randomUUID(), attemptToken: randomUUID(), state: 'RUNNING', plan: { sourceUrl: body.sourceUrl }, expiresAt: new Date(Date.now() + 120000).toISOString() });
-        response = attempts.get(key);
+        if (holdBegin && !ownerAttempts.has(key)) await beginHeld;
+        if (!ownerAttempts.has(key)) {
+          ownerAttempts.set(key, { attemptId: randomUUID(), attemptToken: randomUUID(), state: 'RUNNING', plan: { sourceUrl: body.sourceUrl }, expiresAt: new Date(Date.now() + 120000).toISOString() });
+          if (holdAcceptedBegin) await beginHeld;
+        }
+        response = ownerAttempts.get(key);
         if (loseBegin && !lostBegin) { lostBegin = true; throw new TypeError('begin response lost'); }
+      } else if (/\/attempts\/[^/]+$/.test(url)) {
+        if (holdFirstRead && !readHeld) { readHeld = true; await beginHeld; }
+        response = [...ownerAttempts.values()].find((attempt) => url.endsWith(`/${attempt.attemptId}`)) || {};
       } else if (url.endsWith('/complete')) {
-        response = { state: 'COMPLETE' };
+        const attempt = [...ownerAttempts.values()].find((candidate) => url.endsWith(`/${candidate.attemptId}/complete`));
+        response = { attemptId: attempt?.attemptId, state: 'COMPLETE' };
+        if (attempt) attempt.state = 'COMPLETE';
         if (loseComplete && !lostComplete) { lostComplete = true; throw new TypeError('complete response lost'); }
-      } else if (url.endsWith('/fail')) { if (holdFail) await failureHeld; response = { state: 'FAILED' }; }
+      } else if (url.endsWith('/fail')) {
+        if (holdFail) await failureHeld;
+        const attempt = [...ownerAttempts.values()].find((candidate) => url.endsWith(`/${candidate.attemptId}/fail`));
+        response = { attemptId: attempt?.attemptId, ...(omitFailState ? {} : { state: failResponseState }) };
+        if (failureAckFailuresRemaining > 0) {
+          failureAckFailuresRemaining -= 1;
+          throw new TypeError('failure acknowledgement lost');
+        }
+        if (attempt && !failureLeavesRunning) attempt.state = 'FAILED';
+      }
       return { ok: true, status: 200, json: async () => clone(response), text: async () => detailHtml };
     },
   });
   for (const name of [...SOURCING_WORKER_MODULES, 'worker.js']) vm.runInContext(fs.readFileSync(path.join(root, name), 'utf8'), context, { filename: name });
-  return { requests, triggers, values, timers, async event(message, tabId = 7) {
+  return { requests, triggers, values, timers, context, ownerAttempts, async event(message, tabId = 7) {
     return new Promise((resolve) => { for (const listener of listeners) listener(message, { tab: { id: tabId, url: pageUrl } }, resolve); });
   }, collect() { return this.event({ type: 'COLLECT_CURRENT', tabId: 7, environmentId: 'local' }); },
   close() { for (const listener of tabRemoved) listener(7); },
   releaseFailure,
+  releaseBegin,
+  releaseRead: releaseBegin,
   timeout() { for (const [id, timer] of timers) if (timer.ms === 20000) { timers.delete(id); timer.fn(); } },
   };
 }
@@ -113,6 +152,250 @@ test('20-second timeout and page close fail the owner; old or wrong-tab events c
   env.close(); await flush(); assert.equal((await retry).ok, false);
   assert.equal(env.requests.filter((r) => r.url.endsWith('/complete')).length, 0);
   assert.equal(env.requests.filter((r) => r.url.endsWith('/fail')).length, 2);
+});
+
+test('environment cancellation fences pending product events without closing the operator tab', async () => {
+  const env = fixture();
+  const result = env.collect();
+  await flush();
+  const attemptId = env.triggers[0].attemptId;
+  const sourcingDomain = env.context.KidItemDomains.forProducer('sourcing.product');
+
+  await sourcingDomain.cancelAdditionalCollections('local');
+  assert.deepEqual(JSON.parse(JSON.stringify(await env.event({ type: 'PRODUCT_DATA', attemptId, data: product }))), {
+    ok: false,
+    error: '수집 환경 또는 시도를 확인할 수 없습니다.',
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(await env.event({ type: 'EXTRACTION_COMPLETE', attemptId, hadDescription: false }))), {
+    ok: false,
+    error: '수집 환경 또는 시도를 확인할 수 없습니다.',
+  });
+  await flush();
+
+  assert.deepEqual(clone(await result), { ok: false, error: '상품 추출이 취소되었습니다.' });
+  assert.equal(env.requests.filter((request) => request.url.endsWith('/complete')).length, 0);
+  assert.equal(env.requests.filter((request) => request.url.endsWith('/fail')).length, 1);
+});
+
+test('persists only a stop correlation, retries cancellation after service-worker restart, and permits a fresh execution', async () => {
+  const values = { kiditem_environment_profiles_v1: { local: { accessToken: 'auth-token' } } };
+  const ownerAttempts = new Map();
+  const first = fixture({ values, attempts: ownerAttempts, failureAckFailures: 6, failureLeavesRunning: true });
+  const firstResult = first.collect();
+  await flush();
+  const oldAttemptId = first.triggers[0].attemptId;
+  await first.context.KidItemDomains.forProducer('sourcing.product').cancelAdditionalCollections('local');
+  await flush();
+  assert.deepEqual(clone(await firstResult), { ok: false, error: '상품 추출이 취소되었습니다.' });
+
+  const correlationKey = 'sourcing_product_attempt:local:7';
+  assert.deepEqual(Object.keys(values[correlationKey]).sort(), [
+    'attemptId', 'environmentId', 'idempotencyKey', 'stopIntent',
+  ]);
+  assert.equal(values[correlationKey].attemptId, oldAttemptId);
+  assert.equal(values[correlationKey].stopIntent, true);
+  assert.equal('attemptToken' in values[correlationKey], false);
+  assert.equal('sourceUrl' in values[correlationKey], false);
+
+  // Auth handoff is explicit: no owner retry is attempted while disconnected.
+  delete values.kiditem_environment_profiles_v1.local.accessToken;
+  const restarted = fixture({ values, attempts: ownerAttempts });
+  assert.equal(
+    await restarted.context.KidItemDomains.forProducer('sourcing.product')
+      .retryAdditionalCollections('local'),
+    false,
+  );
+  assert.equal(values[correlationKey].stopIntent, true);
+
+  values.kiditem_environment_profiles_v1.local.accessToken = 'auth-token-restored';
+  assert.equal(
+    await restarted.context.KidItemDomains.forProducer('sourcing.product')
+      .retryAdditionalCollections('local'),
+    true,
+  );
+  assert.equal(values[correlationKey], null);
+  assert.equal(restarted.triggers.length, 0, 'cancellation-only retry must not resume provider extraction');
+  assert.equal(restarted.requests.filter((request) => request.url.endsWith('/complete')).length, 0);
+  assert.equal(ownerAttempts.get([...ownerAttempts.keys()][0]).state, 'FAILED');
+
+  const fresh = restarted.collect();
+  await flush();
+  assert.equal(restarted.triggers.length, 1);
+  assert.notEqual(restarted.triggers[0].attemptId, oldAttemptId);
+  assert.equal(ownerAttempts.size, 2);
+  assert.equal(
+    await restarted.context.KidItemDomains.forProducer('sourcing.product')
+      .retryAdditionalCollections('local'),
+    true,
+  );
+  assert.equal((await restarted.event({
+    type: 'PRODUCT_DATA', attemptId: oldAttemptId, data: product,
+  })).ok, false, 'old provider events cannot complete the fresh execution');
+  restarted.close();
+  await flush();
+  assert.equal((await fresh).ok, false);
+});
+
+test('late begin acknowledgement after dashboard close is fenced and failed without a completion', async () => {
+  const values = { kiditem_environment_profiles_v1: { local: { accessToken: 'auth-token' } } };
+  const ownerAttempts = new Map();
+  const env = fixture({ values, attempts: ownerAttempts, holdBegin: true });
+  const result = env.collect();
+  await flush();
+  assert.equal(env.requests.filter((request) => request.url.endsWith('/attempts')).length, 1);
+
+  // Fence synchronously before releasing the begin response, as a last-tab
+  // dashboard close can race the owner acknowledgement.
+  env.close();
+  env.releaseBegin();
+  await flush();
+  assert.deepEqual(clone(await result), { ok: false, error: '상품 수집 탭이 닫혔습니다.' });
+  assert.equal(env.triggers.length, 0);
+  assert.equal(env.requests.filter((request) => request.url.endsWith('/complete')).length, 0);
+  assert.equal(env.requests.filter((request) => request.url.endsWith('/fail')).length, 1);
+  assert.equal([...ownerAttempts.values()][0].state, 'FAILED');
+  assert.equal(values['sourcing_product_attempt:local:7'], null);
+});
+
+test('persists the validated source URL until a begin acknowledgement is recovered after restart', async () => {
+  const values = { kiditem_environment_profiles_v1: { local: { accessToken: 'auth-token' } } };
+  const ownerAttempts = new Map();
+  const env = fixture({ values, attempts: ownerAttempts, holdAcceptedBegin: true });
+  const result = env.collect();
+  await flush();
+  const key = 'sourcing_product_attempt:local:7';
+  assert.equal(ownerAttempts.size, 1, 'the owner accepted the idempotent begin before the response was held');
+  assert.deepEqual(clone(values[key]), {
+    environmentId: 'local',
+    attemptId: null,
+    idempotencyKey: values[key].idempotencyKey,
+    stopIntent: false,
+    sourceUrl: product.source_url,
+  });
+  env.close();
+  await flush();
+  assert.equal(values[key].stopIntent, true);
+
+  const restarted = fixture({ values, attempts: ownerAttempts });
+  assert.equal(
+    await restarted.context.KidItemDomains.forProducer('sourcing.product')
+      .retryAdditionalCollections('local'),
+    true,
+  );
+  assert.equal(values[key], null);
+  assert.equal(restarted.triggers.length, 0);
+  assert.deepEqual(JSON.parse(restarted.requests.find((request) => request.url.endsWith('/attempts')).body), {
+    sourceUrl: product.source_url,
+  });
+
+  env.releaseBegin();
+  await flush();
+  assert.deepEqual(clone(await result), { ok: false, error: '상품 수집 탭이 닫혔습니다.' });
+});
+
+test('a stale retry read cannot clear a fresh same-tab correlation after the fresh run replaces it', async () => {
+  const values = { kiditem_environment_profiles_v1: { local: { accessToken: 'auth-token' } } };
+  const ownerAttempts = new Map();
+  const oldKey = randomUUID();
+  const oldAttemptId = randomUUID();
+  ownerAttempts.set(oldKey, {
+    attemptId: oldAttemptId,
+    attemptToken: randomUUID(),
+    state: 'RUNNING',
+    plan: { sourceUrl: product.source_url },
+    expiresAt: new Date(Date.now() + 120000).toISOString(),
+  });
+  const key = 'sourcing_product_attempt:local:7';
+  values[key] = { environmentId: 'local', attemptId: oldAttemptId, idempotencyKey: oldKey, stopIntent: true };
+  const env = fixture({ values, attempts: ownerAttempts, holdFirstRead: true });
+  const retry = env.context.KidItemDomains.forProducer('sourcing.product').retryAdditionalCollections('local');
+  await flush();
+  assert.equal(env.requests.filter((request) => /\/attempts\/[^/]+$/.test(request.url)).length, 1);
+
+  const fresh = env.collect();
+  await flush();
+  await flush();
+  const freshKey = values[key].idempotencyKey;
+  assert.notEqual(freshKey, oldKey);
+  assert.equal(values[key].stopIntent, false);
+  const freshAttemptId = env.triggers[0].attemptId;
+  assert.ok(freshAttemptId);
+
+  env.releaseRead();
+  await flush();
+  assert.equal(await retry, true);
+  assert.equal(values[key].idempotencyKey, freshKey);
+  assert.equal(values[key].attemptId, freshAttemptId);
+  assert.equal(values[key].stopIntent, false);
+  env.close();
+  await flush();
+  assert.equal((await fresh).ok, false);
+});
+
+test('cancel includes a persisted active correlation and settles it through the owner', async () => {
+  const values = { kiditem_environment_profiles_v1: { local: { accessToken: 'auth-token' } } };
+  const ownerAttempts = new Map();
+  const idempotencyKey = randomUUID();
+  const attemptId = randomUUID();
+  ownerAttempts.set(idempotencyKey, {
+    attemptId,
+    attemptToken: randomUUID(),
+    state: 'RUNNING',
+    plan: { sourceUrl: product.source_url },
+    expiresAt: new Date(Date.now() + 120000).toISOString(),
+  });
+  const key = 'sourcing_product_attempt:local:7';
+  values[key] = { environmentId: 'local', attemptId, idempotencyKey, stopIntent: false };
+  const env = fixture({ values, attempts: ownerAttempts });
+  assert.equal(await env.context.KidItemDomains.forProducer('sourcing.product').cancelAdditionalCollections('local'), true);
+  assert.equal(values[key], null);
+  assert.equal(await env.context.KidItemDomains.forProducer('sourcing.product').retryAdditionalCollections('local'), true);
+});
+
+test('auth loss leaves a fenced persisted active correlation for the later retry hook', async () => {
+  const values = { kiditem_environment_profiles_v1: { local: {} } };
+  const ownerAttempts = new Map();
+  const idempotencyKey = randomUUID();
+  const attemptId = randomUUID();
+  ownerAttempts.set(idempotencyKey, {
+    attemptId,
+    attemptToken: randomUUID(),
+    state: 'RUNNING',
+    plan: { sourceUrl: product.source_url },
+    expiresAt: new Date(Date.now() + 120000).toISOString(),
+  });
+  const key = 'sourcing_product_attempt:local:7';
+  values[key] = { environmentId: 'local', attemptId, idempotencyKey, stopIntent: false };
+  const env = fixture({ values, attempts: ownerAttempts });
+  assert.equal(await env.context.KidItemDomains.forProducer('sourcing.product').cancelAdditionalCollections('local'), false);
+  assert.equal(values[key].stopIntent, true);
+  assert.equal(env.requests.some((request) => request.url.endsWith('/fail')), false);
+  values.kiditem_environment_profiles_v1.local.accessToken = 'auth-restored';
+  assert.equal(await env.context.KidItemDomains.forProducer('sourcing.product').retryAdditionalCollections('local'), true);
+  assert.equal(values[key], null);
+});
+
+test('does not clear a stopped correlation when the owner fail response is missing or still RUNNING', async () => {
+  for (const options of [{ omitFailState: true }, { failResponseState: 'RUNNING' }]) {
+    const values = { kiditem_environment_profiles_v1: { local: { accessToken: 'auth-token' } } };
+    const ownerAttempts = new Map();
+    const idempotencyKey = randomUUID();
+    const attemptId = randomUUID();
+    ownerAttempts.set(idempotencyKey, {
+      attemptId,
+      attemptToken: randomUUID(),
+      state: 'RUNNING',
+      plan: { sourceUrl: product.source_url },
+      expiresAt: new Date(Date.now() + 120000).toISOString(),
+    });
+    const key = 'sourcing_product_attempt:local:7';
+    values[key] = { environmentId: 'local', attemptId, idempotencyKey, stopIntent: true };
+    const env = fixture({ values, attempts: ownerAttempts, failureLeavesRunning: true, ...options });
+    assert.equal(await env.context.KidItemDomains.forProducer('sourcing.product').cancelAdditionalCollections('local'), false);
+    assert.equal(await env.context.KidItemDomains.forProducer('sourcing.product').retryAdditionalCollections('local'), false);
+    assert.equal(values[key].idempotencyKey, idempotencyKey);
+    assert.equal(values[key].stopIntent, true);
+  }
 });
 
 test('search preserves the current query/fragment and finishes on its only product event without candidate enrichment', async () => {

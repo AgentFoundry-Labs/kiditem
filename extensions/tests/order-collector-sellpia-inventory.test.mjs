@@ -8,11 +8,8 @@ import { fileURLToPath } from 'node:url';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const backgroundRoot = path.join(repoRoot, 'extensions/kiditem-os/background/orders');
 const collectorPath = path.join(backgroundRoot, 'sellpia-inventory.js');
-const collectionSessionPath = path.join(repoRoot, 'extensions/kiditem-os/background/collection-session.js');
-const lifecyclePath = path.join(backgroundRoot, 'order-collection-lifecycle.js');
 const workerPath = path.join(backgroundRoot, 'worker.js');
 const manifestPath = path.join(repoRoot, 'extensions/kiditem-os/manifest.json');
-const RUN_ID = '0d7f4724-7d5b-4fea-80e3-184dd66884eb';
 const PAGE_URL = 'https://kiditem.sellpia.com/product_list_total.html';
 const SNAPSHOT_URL = 'https://kiditem.sellpia.com/product_search.ajax.html';
 
@@ -235,57 +232,6 @@ function createRuntime({
   return { calls, chrome, collector, collection, storage, tabs };
 }
 
-function createRealLifecycle(browser) {
-  const context = vm.createContext({
-    chrome: browser.chrome,
-    console,
-    crypto: { randomUUID: () => 'must-not-be-used' },
-    structuredClone,
-  });
-  vm.runInContext(sourceOrFail(collectionSessionPath), context, {
-    filename: collectionSessionPath,
-  });
-  vm.runInContext(sourceOrFail(lifecyclePath), context, { filename: lifecyclePath });
-  let timestamp = 100;
-  const sessions = context.KidItemCollectionSession.create({
-    chrome: browser.chrome,
-    storageKey: 'collectionSessions',
-    webUrlPatterns: ['http://localhost:3000/*'],
-    now: () => timestamp++,
-  });
-  const lifecycle = context.KidItemOrderCollectionLifecycle.create({
-    sessions,
-    producer: 'inventory.sellpia',
-    classification: 'background_preferred',
-    restartStrategy: 'extension',
-    requireRunId: true,
-    forceDeferredTerminal: true,
-    deferredLabel: 'Sellpia snapshot collected · import in progress',
-    classifyFailure(result) {
-      if (result?.errorCode === 'sellpia_login_required') return 'marketplace_login';
-      if (result?.errorCode === 'sellpia_background_timeout') return 'background_timeout';
-      return null;
-    },
-  });
-  return { lifecycle, sessions };
-}
-
-function inventoryMessage() {
-  return {
-    action: 'collectSellpiaInventory',
-    runId: RUN_ID,
-    deferTerminal: false,
-    environmentId: 'local',
-  };
-}
-
-function inventoryIdentity() {
-  return {
-    sourceOrigin: 'https://kiditem.sellpia.com',
-    sourceAccountKey: 'kiditem',
-  };
-}
-
 test('declares the JSON capability, fixed endpoint, full-snapshot fields, and no Excel path', () => {
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
   const source = sourceOrFail(collectorPath);
@@ -297,12 +243,19 @@ test('declares the JSON capability, fixed endpoint, full-snapshot fields, and no
     path.join(repoRoot, 'extensions/kiditem-os/background/service-worker.js'),
   );
   assert.match(entrySource, /importScripts\([\s\S]*["']orders\/sellpia-inventory\.js["']/);
+  assert.match(entrySource, /importScripts\([\s\S]*["']orders\/sellpia-inventory-source-owner\.js["']/);
   assert.doesNotMatch(worker, /^importScripts\(/m);
   assert.match(worker, /collectSellpiaInventoryJsonV1:\s*true/);
+  assert.match(worker, /sellpiaInventorySourceOwnerV1:\s*true/);
   assert.doesNotMatch(worker, /collectSellpiaInventoryV2:\s*true/);
-  assert.match(worker, /msg\?\.action === ["']collectSellpiaInventory["']/);
-  assert.match(worker, /producer:\s*["']inventory\.sellpia["']/);
-  assert.match(worker, /forceDeferredTerminal:\s*true/);
+  assert.match(worker, /collectSellpiaInventory:\s*\{/);
+  assert.match(worker, /KidItemSellpiaInventorySourceOwner\.parseAction/);
+  assert.match(
+    sourceOrFail(path.join(backgroundRoot, 'sellpia-inventory-source-owner.js')),
+    /PRODUCER = ["']inventory\.sellpia["']/,
+  );
+  assert.doesNotMatch(worker, /runSellpiaInventoryCollection/);
+  assert.doesNotMatch(worker, /\/api\/sellpia-product-sales\/attempts/);
   assert.match(source, /https:\/\/kiditem\.sellpia\.com\/product_list_total\.html/);
   assert.match(source, /\/product_search\.ajax\.html/);
   assert.match(source, /mode:\s*["']soldout_manager["']/);
@@ -512,39 +465,17 @@ test('maps bounded fetch aborts to background attention without retaining the ta
   assert.equal(runtime.tabs.length, 0);
 });
 
-test('requires the caller run ID, preserves login ownership, restarts cleanly, and defers success', async () => {
-  const state = { login: true };
-  const browser = createRuntime({ document: pageDocument(state) });
-  const { lifecycle } = createRealLifecycle(browser);
-  const collect = (collection) => browser.collector.collect(collection);
-
-  const invalid = await lifecycle.run(
-    { action: 'collectSellpiaInventory', runId: 'invalid' },
-    inventoryIdentity(),
-    collect,
+test('collector stays separate from the owner lifecycle and preserves login ownership for replay', async () => {
+  const sourceOwner = sourceOrFail(
+    path.join(backgroundRoot, 'sellpia-inventory-source-owner.js'),
   );
-  assert.equal(invalid.success, false);
-  assert.equal(browser.tabs.length, 0);
+  const worker = sourceOrFail(workerPath);
 
-  const login = await lifecycle.run(inventoryMessage(), inventoryIdentity(), collect);
-  assert.equal(login.collectionSession.status, 'attention_required');
-  assert.equal(login.collectionSession.attention.reason, 'marketplace_login');
-  assert.equal(browser.tabs.length, 1);
-  const loginTabId = browser.tabs[0].id;
-
-  state.login = false;
-  const restarted = await lifecycle.run(inventoryMessage(), inventoryIdentity(), collect);
-  assert.equal(restarted.success, true);
-  assert.equal(restarted.runId, RUN_ID);
-  assert.equal(restarted.collectionSession.status, 'running');
-  assert.equal(restarted.collectionSession.progress.label, 'Sellpia snapshot collected · import in progress');
-  assert.ok(browser.calls.remove.includes(loginTabId));
-  assert.equal(browser.tabs.length, 0);
-
-  const finalized = await lifecycle.finalize(
-    RUN_ID,
-    'succeeded',
-    'Sellpia inventory import completed',
-  );
-  assert.equal(finalized.status, 'succeeded');
+  assert.match(sourceOwner, /attemptId/);
+  assert.match(sourceOwner, /x-source-attempt-token/);
+  assert.match(sourceOwner, /sellpia-inventory-snapshot-v1\.json/);
+  assert.match(sourceOwner, /contentChecksum === requested\.contentChecksum/);
+  assert.match(sourceOwner, /SOURCE_OWNER_UNAVAILABLE/);
+  assert.doesNotMatch(sourceOwner, /sellpia-profitability-v1/);
+  assert.doesNotMatch(worker, /collectSellpiaProductProfit\(attempt\.plan\.from/);
 });

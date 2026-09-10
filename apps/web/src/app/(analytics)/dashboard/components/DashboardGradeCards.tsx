@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { cn, formatNumber } from '@/lib/utils';
+import { DashboardDataBasis, type DashboardMetricBasis } from './DashboardDataBasis';
 import type { DashboardInventorySummary } from '@kiditem/shared/dashboard';
 
 type ProductAbcGrade = 'A' | 'B' | 'C';
@@ -18,8 +19,8 @@ const GRADE_LABELS: Record<ProductAbcGrade, string> = { A: '고수익 핵심', B
 
 export function DashboardGradeCards({
   gradeCount, classifiedProductCount, unclassifiedProductCount, abcStatusCount, abcContributionProfit, abcFormula, gradeChanges,
-}: DashboardGradeCardsProps) {
-  const changes = gradeChanges ?? { upgraded: 0, downgraded: 0, total: 0 };
+  basis,
+}: DashboardGradeCardsProps & { basis?: DashboardMetricBasis | null }) {
   const sourceAttention = abcStatusCount.SOURCE_UNMAPPED
     + abcStatusCount.SELLPIA_SOURCE_STALE
     + abcStatusCount.AD_SOURCE_STALE;
@@ -31,12 +32,15 @@ export function DashboardGradeCards({
     </div>
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
       {(['A', 'B', 'C'] as const).map((grade) => <GradeCard key={grade} grade={grade} count={gradeCount[grade]} total={classifiedProductCount} contribution={abcContributionProfit.amountByGrade[grade]} />)}
-      <StatusCard label="평가 대기" count={abcStatusCount.INSUFFICIENT_EVIDENCE} description="유효 관측일 30일 이상부터 평가 가능" href="/product-hub?abcGrade=unclassified" tone="sky" />
+      <StatusCard label="평가 대기" count={abcStatusCount.INSUFFICIENT_EVIDENCE} description="유효 매핑의 최초 판매일로부터 30일 경과 후 평가 가능" href="/product-hub?abcGrade=unclassified" tone="sky" />
       <StatusCard label="원천 확인 필요" count={sourceAttention} description="셀피아·광고비 수집 또는 매핑을 확인" href="/product-hub?dataStatus=abc" tone="amber" />
     </div>
+    {basis && <DashboardDataBasis basis={basis} className="px-1" />}
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 text-xs text-slate-500">
       <Link href="/product-hub" className="font-semibold text-emerald-700 hover:underline">계산 완료 {formatNumber(abcStatusCount.READY)}개</Link>
-      <span aria-hidden="true">·</span><span>최근 7일 상승 {formatNumber(changes.upgraded)} / 하락 {formatNumber(changes.downgraded)}</span>
+      {gradeChanges
+        ? <><span aria-hidden="true">·</span><span>최근 7일 상승 {formatNumber(gradeChanges.upgraded)} / 하락 {formatNumber(gradeChanges.downgraded)}</span></>
+        : <><span aria-hidden="true">·</span><span>최근 7일 변화 —</span></>}
       <span className="hidden lg:inline" aria-hidden="true">·</span>
       <span className="text-slate-400">{abcFormula ? `절대평가 v${abcFormula.version} · 반감기 ${abcFormula.halfLifeDays}일` : '상품 관리에서 등급 새로고침을 실행하세요.'}</span>
     </div>

@@ -51,7 +51,7 @@ test('root commands keep the optional Python runtime out of the default developm
   assert.equal(scripts['setup:macos'], 'node scripts/setup-macos-development.mjs');
   assert.match(scripts['dev:core'], /npm run dev/);
   assert.match(scripts['dev:core'], /npm run dev:server/);
-  assert.match(scripts['dev:core'], /OPERATION_RUNTIME_WORKER_ENABLED=1/);
+  assert.doesNotMatch(scripts['dev:core'], /OPERATION_RUNTIME_WORKER_ENABLED/);
   assert.match(scripts['dev:core'], /--kill-others-on-fail/);
   assert.doesNotMatch(scripts['dev:core'], /dev:agents/);
   assert.equal(scripts['dev:all'], 'node scripts/run-local-development.mjs');

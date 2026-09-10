@@ -65,7 +65,7 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
     async function publishEmpty(organizationId: string) {
       const attempt = await owner.beginAttempt(organizationId, 'inventory-depletion-fixture');
       await owner.submitAttempt(organizationId, attempt.attemptId, {
-        attemptToken: attempt.attemptToken, parserVersion: 'sellpia-profitability-v1',
+        attemptToken: attempt.attemptToken, parserVersion: 'sellpia-profitability-v2',
         providerBackedEmptyProof: true, coveredMonths: attempt.plan.coveredMonths,
         provenance: { source: 'sellpia_stat_prd_profit', costBasis: 'ORDER_TIME_SUPPLY_COST', vatIncluded: true },
         products: [],
@@ -97,6 +97,26 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
         fileName: 'other-sellpia-option-products.xlsx',
         fileHash: 'foreign-inventory-hash',
         lastVerifiedAt: new Date('2026-07-18T00:00:00.000Z'),
+      },
+    });
+    await prisma.sellpiaInventoryState.update({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+      data: { lastCompletedImportRunId: ownRun.id },
+    });
+    await prisma.sellpiaInventoryState.upsert({
+      where: { organizationId: OTHER_ORGANIZATION_ID },
+      create: {
+        organizationId: OTHER_ORGANIZATION_ID,
+        requestedGeneration: 1n,
+        verifiedGeneration: 1n,
+        lastVerifiedAt: new Date('2026-07-18T00:00:00.000Z'),
+        lastCompletedImportRunId: foreignRun.id,
+      },
+      update: {
+        requestedGeneration: 1n,
+        verifiedGeneration: 1n,
+        lastVerifiedAt: new Date('2026-07-18T00:00:00.000Z'),
+        lastCompletedImportRunId: foreignRun.id,
       },
     });
 
@@ -167,6 +187,10 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
         lastVerifiedAt: new Date('2026-07-17T03:00:00.000Z'),
       },
     });
+    await prisma.sellpiaInventoryState.update({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+      data: { lastCompletedImportRunId: importRun.id },
+    });
     await prisma.sellpiaInventorySku.createMany({
       data: [
         inventory('REORDER', 200, importRun.id),
@@ -199,11 +223,12 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
     const completeMonths = previousKstYearMonths(12);
     const rows = completeMonths.flatMap((yearMonth, index) => {
       const calendarMonth = Number(yearMonth.slice(5, 7));
+      const coverage = fullCalendarMonthCoverage(yearMonth);
       return [
-        metricSales('REORDER', yearMonth, 400, 1_000),
-        metricSales('DEAD', yearMonth, index < 10 ? 20 : 0, 1_000),
-        metricSales('SUMMER', yearMonth, [6, 7, 8].includes(calendarMonth) ? 100 : 1, 1_000),
-        metricSales('ANOMALY', yearMonth, index === 0 ? 60_000 : 0, 50),
+        { ...metricSales('REORDER', yearMonth, 400, 1_000), ...coverage },
+        { ...metricSales('DEAD', yearMonth, index < 10 ? 20 : 0, 1_000), ...coverage },
+        { ...metricSales('SUMMER', yearMonth, [6, 7, 8].includes(calendarMonth) ? 100 : 1, 1_000), ...coverage },
+        { ...metricSales('ANOMALY', yearMonth, index === 0 ? 60_000 : 0, 50), ...coverage },
       ];
     });
     await prisma.sellpiaProductMonthlySales.createMany({ data: rows });
@@ -409,13 +434,17 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
   });
 
   it('uses physical available stock for depletion', async () => {
-    await seedInventoryState(prisma, new Date('2026-07-17T04:00:00.000Z'));
+    const inventoryRunId = await seedInventoryState(
+      prisma,
+      new Date('2026-07-17T04:00:00.000Z'),
+    );
     const sku = await prisma.sellpiaInventorySku.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         code: 'COMMITTED',
         name: 'Committed inventory',
         currentStock: 100,
+        lastImportRunId: inventoryRunId,
       },
     });
     await prisma.sellpiaProductMonthlySales.createMany({
@@ -423,6 +452,7 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
         ...sales('COMMITTED', '', null),
         yearMonth,
         orderQty: 100,
+        ...fullCalendarMonthCoverage(yearMonth),
       })),
     });
 
@@ -441,14 +471,31 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
 });
 
 async function seedInventoryState(prisma: PrismaClient, verifiedAt: Date) {
+  const run = await prisma.sourceImportRun.create({
+    data: {
+      organizationId: TEST_ORGANIZATION_ID,
+      sourceType: 'sellpia_inventory',
+      channelAccountId: null,
+      fileName: 'sellpia-inventory-fixture.json',
+      fileHash: 'c'.repeat(64),
+      status: 'completed',
+      rowCount: 0,
+      importedAt: verifiedAt,
+      lastVerifiedAt: verifiedAt,
+      verificationCount: 1,
+      freshnessGeneration: 1n,
+    },
+  });
   await prisma.sellpiaInventoryState.create({
     data: {
       organizationId: TEST_ORGANIZATION_ID,
       requestedGeneration: 1n,
       verifiedGeneration: 1n,
       lastVerifiedAt: verifiedAt,
+      lastCompletedImportRunId: run.id,
     },
   });
+  return run.id;
 }
 
 function inventory(
@@ -502,6 +549,19 @@ function metricSales(
     orderAmount: orderQty * salePrice,
     productName: `Metrics ${productCode}`,
     salePrice,
+  };
+}
+
+function fullCalendarMonthCoverage(yearMonth: string) {
+  const [year, month] = yearMonth.split('-').map(Number);
+  const coverageStartDate = new Date(Date.UTC(year!, month! - 1, 1));
+  return {
+    coverageStartDate,
+    coverageEndDate: new Date(Date.UTC(
+      coverageStartDate.getUTCFullYear(),
+      coverageStartDate.getUTCMonth() + 1,
+      0,
+    )),
   };
 }
 

@@ -25,6 +25,7 @@ export type MasterProductAbcFormulaStateRecord = Readonly<{
 
 export type MasterProductAbcCandidateRecord = Readonly<{
   masterProductId: string;
+  saleStartDate: string;
   abcGrade: ProductAbcGrade;
   validObservationDays: number;
   gradeBasisCutoffDate: string;
@@ -62,6 +63,11 @@ export type ProductAbcPublicationInput = Readonly<{
     sellpia: MasterProductAbcSourceFence;
     advertising: MasterProductAbcSourceFence;
   }>;
+  saleAgeInputs: readonly Readonly<{
+    masterProductId: string;
+    mappingValid: boolean;
+    saleStartDate: string | null;
+  }>[];
   targetProductIds: readonly string[];
   candidates: readonly MasterProductAbcCandidateRecord[];
   calculatedAt: Date;

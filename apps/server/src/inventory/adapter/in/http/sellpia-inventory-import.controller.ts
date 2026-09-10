@@ -51,19 +51,10 @@ export class SellpiaInventoryImportController {
         fileName: file.originalname,
         mimeType: file.mimetype,
       },
-      execution: dto.kind === 'browser'
-        ? {
-            kind: 'browser',
-            claimToken: dto.claimToken!,
-            activeGeneration: dto.activeGeneration!,
-            trigger: dto.trigger!,
-            sourceOrigin: dto.sourceOrigin!,
-            sourceAccountKey: dto.sourceAccountKey!,
-          }
-        : {
-            kind: 'manual',
-            manualFreshExportConfirmed: dto.manualFreshExportConfirmed!,
-          },
+      execution: {
+        kind: 'manual',
+        manualFreshExportConfirmed: dto.manualFreshExportConfirmed,
+      },
     });
   }
 }

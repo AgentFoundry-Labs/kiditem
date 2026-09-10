@@ -1,6 +1,7 @@
 import type {
   CoupangCatalogChunkKind,
   CoupangCatalogCollectionErrorRequest,
+  CoupangCatalogCollectionPauseRequest,
   CoupangCatalogCollectionRun,
   CoupangCatalogCollectionPermit,
   FinalizeCoupangCatalogCollectionRequest,
@@ -40,6 +41,14 @@ export interface ChannelCatalogCollectionPort {
     runId: string;
     attemptToken: string;
     request: CoupangCatalogCollectionErrorRequest;
+  }): Promise<CoupangCatalogCollectionRun>;
+
+  pause(input: {
+    organizationId: string;
+    channelAccountId: string;
+    runId: string;
+    attemptToken: string;
+    request: CoupangCatalogCollectionPauseRequest;
   }): Promise<CoupangCatalogCollectionRun>;
 
   finalize(input: {

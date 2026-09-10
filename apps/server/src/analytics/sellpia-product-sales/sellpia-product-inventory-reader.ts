@@ -56,7 +56,11 @@ export class SellpiaProductInventoryReader {
       },
     });
     const kst = new Date(Date.now() + 9 * 60 * 60 * 1_000);
-    const targetCutoff = new Date(Date.UTC(kst.getUTCFullYear(), kst.getUTCMonth(), 0)).toISOString().slice(0, 10);
+    const targetCutoff = new Date(Date.UTC(
+      kst.getUTCFullYear(),
+      kst.getUTCMonth(),
+      kst.getUTCDate() - 1,
+    )).toISOString().slice(0, 10);
     const [evidence, state] = await Promise.all([
       this.evidence.load({ organizationId, targetCutoff }),
       this.prisma.masterProductAbcFormulaState.findUnique({ where: { organizationId } }),
@@ -73,8 +77,8 @@ export class SellpiaProductInventoryReader {
         abcGrade,
         evaluation,
         displayStatus: productAbcDisplayStatus(evaluation !== null, mappingValid, {
-          ...evidence.sources, formulaState: { publishedAt: state?.publishedAt ?? null },
-        }, product.createdAt),
+          ...evidence.sources, actualCutoff: evidence.actualCutoff,
+        }, currentById.get(product.id)?.saleStartDate ?? null),
         formulaRevision: state?.formulaRevision ?? 0,
         publicationRevision: state?.publicationRevision ?? 0,
         officialCutoffDate: evaluation?.gradeBasisCutoffDate ?? state?.officialCutoffDate?.toISOString().slice(0, 10) ?? null,

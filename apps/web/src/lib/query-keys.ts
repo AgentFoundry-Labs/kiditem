@@ -88,6 +88,8 @@ export const queryKeys = {
     importRunList: (params: Record<string, string>) =>
       [...queryKeys.inventory.importRuns(), params] as const,
     freshness: () => [...queryKeys.inventory.all, 'sellpia-freshness'] as const,
+    sellpiaSourceAttempt: (organizationId: string, attemptId: string, environmentKey: string) =>
+      [...queryKeys.inventory.all, 'sellpia-source-attempt', organizationId, environmentKey, attemptId] as const,
     currentBasis: () => [...queryKeys.inventory.all, 'sellpia-current-basis'] as const,
     history: () => [...queryKeys.inventory.all, 'sellpia-history'] as const,
     historyList: (params: Record<string, string>) =>
@@ -125,9 +127,17 @@ export const queryKeys = {
   },
   ads: {
     all: ['ads'] as const,
+    keywordSource: () => [...queryKeys.ads.all, 'keyword-source'] as const,
+    campaignSource: () => [...queryKeys.ads.all, 'campaign-source'] as const,
+    profitabilitySource: () => [...queryKeys.ads.all, 'profitability-source'] as const,
+    accountDailyKpiSource: () => [...queryKeys.ads.all, 'account-daily-kpi-source'] as const,
+    accountDailyKpiAttempt: (attemptId: string) =>
+      [...queryKeys.ads.all, 'account-daily-kpi-attempt', attemptId] as const,
     list: () => [...queryKeys.ads.all, 'list'] as const,
     products: (period?: string) => [...queryKeys.ads.all, 'products', period] as const,
     campaigns: (period?: string) => [...queryKeys.ads.all, 'campaigns', period] as const,
+    manualReports: (from: string, to: string) =>
+      [...queryKeys.ads.all, 'manual-reports', from, to] as const,
     campaignSyncStatus: () => [...queryKeys.ads.all, 'campaign-sync-status'] as const,
     keywords: (period?: string) => [...queryKeys.ads.all, 'keywords', period] as const,
     campaignProducts: (channelAccountId: string, campaignIdentity: string, period?: string) =>
@@ -155,7 +165,6 @@ export const queryKeys = {
   orders: {
     all: ['orders'] as const,
     pipeline: (params?: Record<string, string>) => [...queryKeys.orders.all, 'pipeline', params] as const,
-    scheduledSync: (dateHour: string) => [...queryKeys.orders.all, 'scheduledSync', dateHour] as const,
     action: (action: string) => [...queryKeys.orders.all, 'action', action] as const,
     rocketPoSource: (channelAccountId: string) => [...queryKeys.orders.all, 'rocket-po-source', channelAccountId] as const,
     rocketSavedPoLists: () => [...queryKeys.orders.all, 'rocket-saved-po-list'] as const,
@@ -394,10 +403,6 @@ export const queryKeys = {
     duplicate: (title: string) =>
       [...queryKeys.contentWorkspaces.all, 'duplicate', title] as const,
   },
-  deletionPassword: {
-    all: ['deletion-password'] as const,
-    status: () => [...queryKeys.deletionPassword.all, 'status'] as const,
-  },
   channelListings: {
     all: ['channel-listings'] as const,
     list: (params: Record<string, string>) =>
@@ -441,8 +446,8 @@ export const queryKeys = {
   },
   browserCollection: {
     all: ['browser-collection'] as const,
-    session: (runId: string) =>
-      [...queryKeys.browserCollection.all, 'session', runId] as const,
+    session: (attemptId: string) =>
+      [...queryKeys.browserCollection.all, 'session', attemptId] as const,
   },
   settlements: {
     all: ['settlements'] as const,

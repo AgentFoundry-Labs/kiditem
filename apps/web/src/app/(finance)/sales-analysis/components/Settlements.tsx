@@ -19,9 +19,11 @@ import {
   RefreshCw,
   Receipt,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatKRW } from '@/lib/utils';
+import { downloadSettlementReconcileReport } from '@/lib/finance-report-export';
 import { usePeriodSelector } from '@/hooks/usePeriodSelector';
 import PeriodSelector from '@/components/ui/PeriodSelector';
 
@@ -370,16 +372,8 @@ export default function Settlements() {
             <button
               onClick={() => {
                 if (!reconcile) return;
-                import("xlsx").then((XLSX) => {
-                  const ws = XLSX.utils.json_to_sheet(reconcile.details.map((d) => ({
-                    상품명: d.productName, SKU: d.sku, 손익매출: d.plRevenue,
-                    주문합계: d.orderTotal, 차이: d.revenueDiff,
-                    손익건수: d.plOrderCount, 주문건수: d.orderCount,
-                    상태: d.status === 'matched' ? '매칭' : d.status === 'minor_diff' ? '소차이' : '불일치',
-                  })));
-                  const wb = XLSX.utils.book_new();
-                  XLSX.utils.book_append_sheet(wb, ws, "정산대사");
-                  XLSX.writeFile(wb, `정산대사_${reconcile.period}.xlsx`);
+                void downloadSettlementReconcileReport(reconcile.period).catch((err) => {
+                  toast.error(err instanceof Error ? err.message : '정산 대사 내보내기에 실패했습니다.');
                 });
               }}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 text-white text-xs rounded-md hover:bg-green-700"

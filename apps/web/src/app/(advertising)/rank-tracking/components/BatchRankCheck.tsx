@@ -39,6 +39,7 @@ export default function BatchRankCheck({
   const [starting, setStarting] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [dispatchError, setDispatchError] = useState<string | null>(null);
+  const [cancelError, setCancelError] = useState<string | null>(null);
   const observed = useRef("");
   const queryKey = [...queryKeys.ads.keywordRank(), "batch", batchKey];
   const owner = useQuery({
@@ -81,6 +82,16 @@ export default function BatchRankCheck({
     }
   }, [signature, onCompleted]);
 
+  useEffect(() => {
+    if (
+      cancelError &&
+      attempts.length > 0 &&
+      !attempts.some((attempt) => attempt.state === "RUNNING")
+    ) {
+      setCancelError(null);
+    }
+  }, [attempts, cancelError]);
+
   const start = async () => {
     if (!extensionId || starting) return;
     setStarting(true);
@@ -119,11 +130,12 @@ export default function BatchRankCheck({
   const cancel = async () => {
     if (!extensionId || !batchKey || cancelling) return;
     setCancelling(true);
+    setCancelError(null);
     try {
       await cancelWingRankBatch(extensionId, batchKey);
       await owner.refetch();
     } catch (error) {
-      setDispatchError(
+      setCancelError(
         error instanceof Error
           ? error.message
           : "중단 결과를 확인하지 못했습니다.",
@@ -149,13 +161,20 @@ export default function BatchRankCheck({
             </span>
           )}
           {failures.length > 0 && (
-            <p>실패 {failures.length}건 · 이전 정상 데이터는 유지됩니다.</p>
+            <details open className="mt-1 min-w-0 max-w-full">
+              <summary className="cursor-pointer">
+                실패 {failures.length}건 · 이전 정상 데이터는 유지됩니다.
+              </summary>
+              <ul className="mt-1 max-h-48 max-w-full list-disc space-y-0.5 overflow-y-auto overflow-x-hidden pl-4 pr-2">
+                {failures.map((attempt) => (
+                  <li key={attempt.attemptId} className="break-words">
+                    {attempt.keyword}: {" "}
+                    {attempt.errorMessage ?? attempt.errorCode ?? "수집 실패"}
+                  </li>
+                ))}
+              </ul>
+            </details>
           )}
-          {failures.map((attempt) => (
-            <p key={attempt.attemptId}>
-              {attempt.keyword}: {attempt.errorMessage}
-            </p>
-          ))}
         </div>
       )}
       <button
@@ -215,6 +234,18 @@ export default function BatchRankCheck({
       {(dispatchError || owner.isError) && (
         <p role="alert" className="text-sm text-amber-700">
           {dispatchError || "서버의 수집 결과를 확인하지 못했습니다."}
+          <button
+            type="button"
+            onClick={() => void owner.refetch()}
+            className="ml-2 underline"
+          >
+            결과 다시 확인
+          </button>
+        </p>
+      )}
+      {cancelError && (
+        <p role="alert" className="text-sm text-amber-700">
+          {cancelError}
           <button
             type="button"
             onClick={() => void owner.refetch()}

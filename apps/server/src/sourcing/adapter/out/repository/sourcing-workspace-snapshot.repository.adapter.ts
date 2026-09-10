@@ -1,7 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import type { ActiveOperationAttemptTransaction } from '../../../../operations/application/port/active-browser-attempt-transaction';
 import type {
   SourcingWorkspaceSnapshotRepositoryPort,
   SourcingWorkspaceSnapshotRow,
@@ -97,49 +96,6 @@ export class SourcingWorkspaceSnapshotRepositoryAdapter implements SourcingWorks
     return toRow(row);
   }
 
-  async upsertInAttempt(
-    transaction: ActiveOperationAttemptTransaction,
-    input: {
-      organizationId: string;
-      scope: SourcingWorkspaceSnapshotScope;
-      businessDate: Date;
-      projectionVersion?: string;
-      inputHash?: string;
-      payload: Record<string, unknown>;
-      expiresAt?: Date | null;
-    },
-  ): Promise<SourcingWorkspaceSnapshotRow> {
-    const row = await asTransaction(transaction).sourcingWorkspaceSnapshot.upsert({
-      where: {
-        organizationId_scope_businessDate_projectionVersion_inputHash: {
-          organizationId: input.organizationId,
-          scope: input.scope,
-          businessDate: input.businessDate,
-          projectionVersion: input.projectionVersion ?? 'legacy',
-          inputHash: input.inputHash ?? '',
-        },
-      },
-      create: {
-        organizationId: input.organizationId,
-        scope: input.scope,
-        businessDate: input.businessDate,
-        projectionVersion: input.projectionVersion ?? 'legacy',
-        inputHash: input.inputHash ?? '',
-        payload: input.payload as Prisma.InputJsonValue,
-        expiresAt: input.expiresAt ?? null,
-      },
-      update: {
-        payload: input.payload as Prisma.InputJsonValue,
-        expiresAt: input.expiresAt ?? null,
-      },
-    });
-    return toRow(row);
-  }
-
-}
-
-function asTransaction(transaction: ActiveOperationAttemptTransaction): Prisma.TransactionClient {
-  return transaction as Prisma.TransactionClient;
 }
 
 function toRow(row: {

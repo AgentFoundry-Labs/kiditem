@@ -75,7 +75,6 @@ describe("AGENT_DEFINITIONS", () => {
       ],
       channel_operations: [
         "channels.register_confirmed_listing",
-        "channels.submit_coupang_listing",
         "channels.submit_wing_thumbnail",
       ],
       advertising: [],

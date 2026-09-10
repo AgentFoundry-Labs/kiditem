@@ -17,8 +17,9 @@ take mutation authority from them.
 - Products owns `MasterProduct` ABC evaluation, publication, current grade, and
   history. Analytics may read the stored result and expose reporting views, but
   it does not calculate or store a second grade and does not trigger refresh.
-- ABC profitability evidence uses only the latest compatible complete monthly
-  facts. Sellpia rows are eligible only with explicit
+- ABC profitability evidence uses only the latest compatible complete source
+  periods, including an exact partial month through the selected cutoff.
+  Sellpia rows are eligible only with explicit
   `ORDER_TIME_SUPPLY_COST` and VAT-included provenance; legacy or unknown-cost
   facts remain readable for depletion but are not ABC evidence.
 

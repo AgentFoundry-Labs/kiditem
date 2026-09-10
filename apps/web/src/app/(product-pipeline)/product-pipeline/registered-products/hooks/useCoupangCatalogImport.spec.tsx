@@ -9,6 +9,9 @@ const ACCOUNT_ID = '00000000-0000-4000-8000-000000000001';
 const ATTEMPT_ID = '00000000-0000-4000-8000-000000000002';
 const KEY = '00000000-0000-4000-8000-000000000003';
 const TOKEN = '00000000-0000-4000-8000-000000000004';
+const CHILD_ATTEMPT_ID = '00000000-0000-4000-8000-000000000005';
+const CHILD_KEY = '00000000-0000-4000-8000-000000000006';
+const RETRY_ATTEMPT_ID = '00000000-0000-4000-8000-000000000007';
 const STORAGE_KEY = 'kiditem:coupang-catalog-import:active-attempt';
 const permit = {
   attemptId: ATTEMPT_ID, attemptToken: TOKEN, state: 'RUNNING',
@@ -34,20 +37,65 @@ vi.mock('@/lib/coupang-catalog-extension', () => ({
   startCoupangCatalogBrowser: mocks.startBrowser,
   getCoupangCatalogBrowserStatus: mocks.getBrowserStatus,
 }));
-vi.mock('../lib/channel-listings-api', () => ({
+vi.mock('../lib/channel-listings-api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/channel-listings-api')>()),
   channelListingsApi: {
     startCoupangCatalogCollection: mocks.begin,
     getCoupangCatalogCollection: mocks.read,
     failCoupangCatalogCollection: mocks.fail,
   },
 }));
-function setup(linkedAttemptId: string | null = null) {
+function setup(
+  linkedAttemptId: string | null = null,
+  stage: 'full' | 'basics' | 'details' = 'full',
+) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   const wrapper = ({ children }: { children: ReactNode }) =>
     <QueryClientProvider client={client}>{children}</QueryClientProvider>;
-  const view = renderHook(() => useCoupangCatalogImport(ACCOUNT_ID, linkedAttemptId), { wrapper });
+  const view = renderHook(() => useCoupangCatalogImport(ACCOUNT_ID, linkedAttemptId, stage), { wrapper });
   return { ...view, client };
 }
+
+function completedBasicsRoot() {
+  return {
+    ...owner,
+    state: 'COMPLETE' as const,
+    phase: 'finished' as const,
+    plan: {
+      ...owner.plan,
+      stage: 'basics' as const,
+      rootAttemptId: ATTEMPT_ID,
+      detailsIdempotencyKey: CHILD_KEY,
+    },
+    currentAttemptId: ATTEMPT_ID,
+    currentStage: 'basics' as const,
+    overallState: 'RUNNING' as const,
+    finishedAt: '2030-01-01T00:01:00.000Z',
+  };
+}
+
+function retryBasicsPermit() {
+  return {
+    ...permit,
+    attemptId: RETRY_ATTEMPT_ID,
+    plan: {
+      ...permit.plan,
+      stage: 'basics' as const,
+      rootAttemptId: RETRY_ATTEMPT_ID,
+      detailsIdempotencyKey: '00000000-0000-4000-8000-000000000008',
+    },
+  };
+}
+
+function rememberBasicsRoot() {
+  localStorage.setItem(`${STORAGE_KEY}:basics`, JSON.stringify({
+    channelAccountId: ACCOUNT_ID,
+    attemptId: ATTEMPT_ID,
+    idempotencyKey: KEY,
+    stage: 'basics',
+  }));
+}
+
 beforeEach(() => {
   localStorage.clear();
   vi.resetAllMocks();
@@ -55,6 +103,7 @@ beforeEach(() => {
   mocks.read.mockResolvedValue(owner);
   mocks.startBrowser.mockResolvedValue('extension-id');
   mocks.detect.mockResolvedValue('extension-id');
+  mocks.send.mockResolvedValue({ success: true, cancelled: true });
   mocks.getBrowserStatus.mockResolvedValue({ attemptId: ATTEMPT_ID, active: true, attention: null });
   mocks.fail.mockResolvedValue(undefined);
 });
@@ -81,6 +130,220 @@ it('uses a new key only for an explicit start after a known terminal owner', asy
   await act(async () => { await result.current.start(); });
   expect(mocks.begin.mock.calls[0][2]).not.toBe(KEY);
   expect(mocks.startBrowser).toHaveBeenCalledWith({ permit: nextPermit });
+});
+
+it('stops a completed basics root locally before expiry and retries with a fresh key', async () => {
+  const basicsRoot = completedBasicsRoot();
+  const retryPermit = retryBasicsPermit();
+  rememberBasicsRoot();
+  mocks.read.mockResolvedValue(basicsRoot);
+  mocks.begin.mockResolvedValue(retryPermit);
+  mocks.getBrowserStatus.mockResolvedValue({
+    attemptId: ATTEMPT_ID,
+    active: true,
+    attention: null,
+    currentAttemptId: ATTEMPT_ID,
+    currentStage: 'basics',
+    overallState: 'RUNNING',
+    rootAttemptId: ATTEMPT_ID,
+  });
+  const { result, client } = setup(null, 'basics');
+
+  await waitFor(() => expect(result.current.serverStatus?.state).toBe('COMPLETE'));
+  await act(async () => { await result.current.cancel(); });
+
+  expect(mocks.send).toHaveBeenCalledWith(
+    'extension-id',
+    { action: 'cancelCoupangCatalogImport', attemptId: ATTEMPT_ID },
+  );
+  expect(mocks.begin).not.toHaveBeenCalled();
+  expect(mocks.fail).not.toHaveBeenCalled();
+  expect(client.getQueryData(queryKeys.coupangCatalogImports.run(ACCOUNT_ID, ATTEMPT_ID)))
+    .toEqual(basicsRoot);
+
+  await act(async () => { await result.current.start(); });
+
+  expect(mocks.begin).toHaveBeenCalledWith(
+    ACCOUNT_ID,
+    { collectorVersion: 'wing-inventory-v1', stage: 'basics' },
+    expect.not.stringMatching(new RegExp(`^${KEY}$`)),
+  );
+  expect(mocks.startBrowser).toHaveBeenCalledWith({ permit: retryPermit });
+  expect(mocks.fail).not.toHaveBeenCalled();
+  expect(result.current.activeAttempt?.attemptId).toBe(RETRY_ATTEMPT_ID);
+});
+
+it('keeps status reads passive and preflights an extension-only close after remount', async () => {
+  const basicsRoot = completedBasicsRoot();
+  const retryPermit = retryBasicsPermit();
+  rememberBasicsRoot();
+  mocks.read.mockResolvedValue(basicsRoot);
+  mocks.begin.mockResolvedValue(retryPermit);
+  mocks.getBrowserStatus.mockResolvedValue({
+    attemptId: ATTEMPT_ID,
+    active: false,
+    attention: null,
+    currentAttemptId: ATTEMPT_ID,
+    currentStage: 'basics',
+    overallState: 'RUNNING',
+    rootAttemptId: ATTEMPT_ID,
+  });
+
+  const first = setup(null, 'basics');
+  await waitFor(() => expect(first.result.current.serverStatus?.state).toBe('COMPLETE'));
+  first.unmount();
+  expect(mocks.send).not.toHaveBeenCalled();
+
+  const second = setup(null, 'basics');
+  await waitFor(() => expect(second.result.current.serverStatus?.state).toBe('COMPLETE'));
+  await act(async () => { await second.result.current.start(); });
+
+  expect(mocks.send).toHaveBeenCalledTimes(1);
+  expect(mocks.send).toHaveBeenCalledWith(
+    'extension-id',
+    { action: 'cancelCoupangCatalogImport', attemptId: ATTEMPT_ID },
+  );
+  expect(mocks.begin).toHaveBeenCalledWith(
+    ACCOUNT_ID,
+    { collectorVersion: 'wing-inventory-v1', stage: 'basics' },
+    expect.not.stringMatching(new RegExp(`^${KEY}$`)),
+  );
+  expect(mocks.fail).not.toHaveBeenCalled();
+});
+
+it('holds a fresh start when the preflight cancel ACK is not positive', async () => {
+  const basicsRoot = completedBasicsRoot();
+  rememberBasicsRoot();
+  mocks.read.mockResolvedValue(basicsRoot);
+  mocks.send.mockResolvedValue({ success: true, cancelled: false });
+  const { result } = setup(null, 'basics');
+
+  await waitFor(() => expect(result.current.serverStatus?.state).toBe('COMPLETE'));
+  await act(async () => {
+    await expect(result.current.start()).rejects.toThrow('중단 응답을 확인하지 못했습니다');
+  });
+
+  expect(mocks.begin).not.toHaveBeenCalled();
+  expect(mocks.fail).not.toHaveBeenCalled();
+});
+
+it('holds a fresh start when a details child appears during the preflight read', async () => {
+  const basicsRoot = completedBasicsRoot();
+  const childRoot = {
+    ...basicsRoot,
+    currentAttemptId: CHILD_ATTEMPT_ID,
+    currentStage: 'details' as const,
+  };
+  let childAdmitted = false;
+  rememberBasicsRoot();
+  mocks.read.mockImplementation(async () => childAdmitted ? childRoot : basicsRoot);
+  const { result } = setup(null, 'basics');
+
+  await waitFor(() => expect(result.current.serverStatus?.state).toBe('COMPLETE'));
+  childAdmitted = true;
+  await act(async () => {
+    await expect(result.current.start()).rejects.toThrow('상세 수집 상태를 확인한 뒤 다시 시도해주세요');
+  });
+
+  expect(mocks.send).not.toHaveBeenCalled();
+  expect(mocks.begin).not.toHaveBeenCalled();
+  expect(mocks.fail).not.toHaveBeenCalled();
+});
+
+it('starts and remembers a fresh basics root after a completed details child', async () => {
+  localStorage.setItem(`${STORAGE_KEY}:basics`, JSON.stringify({
+    channelAccountId: ACCOUNT_ID,
+    attemptId: ATTEMPT_ID,
+    idempotencyKey: KEY,
+    stage: 'basics',
+  }));
+  const rootOwner = {
+    ...owner,
+    state: 'COMPLETE' as const,
+    plan: {
+      ...owner.plan,
+      stage: 'basics' as const,
+      rootAttemptId: ATTEMPT_ID,
+      detailsIdempotencyKey: CHILD_KEY,
+    },
+    rootAttemptId: ATTEMPT_ID,
+    currentAttemptId: CHILD_ATTEMPT_ID,
+    currentStage: 'details' as const,
+    overallState: 'COMPLETE' as const,
+  };
+  const childOwner = {
+    ...rootOwner,
+    attemptId: CHILD_ATTEMPT_ID,
+    idempotencyKey: CHILD_KEY,
+    plan: {
+      ...rootOwner.plan,
+      stage: 'details' as const,
+      basicAttemptId: ATTEMPT_ID,
+    },
+    currentAttemptId: CHILD_ATTEMPT_ID,
+  };
+  const retryPermit = {
+    ...permit,
+    attemptId: RETRY_ATTEMPT_ID,
+    plan: { ...permit.plan, stage: 'basics' as const },
+  };
+  mocks.read.mockImplementation(async (_accountId, attemptId) =>
+    attemptId === CHILD_ATTEMPT_ID ? childOwner : rootOwner,
+  );
+  mocks.begin.mockResolvedValue(retryPermit);
+  const { result } = setup(null, 'basics');
+
+  await waitFor(() => expect(result.current.chainOverallState).toBe('COMPLETE'));
+  await act(async () => { await result.current.start(); });
+
+  expect(mocks.begin).toHaveBeenCalledWith(
+    ACCOUNT_ID,
+    { collectorVersion: 'wing-inventory-v1', stage: 'basics' },
+    expect.not.stringMatching(new RegExp(`^${CHILD_KEY}$`)),
+  );
+  expect(mocks.startBrowser).toHaveBeenCalledWith({ permit: retryPermit });
+  expect(result.current.activeAttempt?.attemptId).toBe(RETRY_ATTEMPT_ID);
+  expect(JSON.parse(localStorage.getItem(`${STORAGE_KEY}:basics`)!)).toMatchObject({
+    channelAccountId: ACCOUNT_ID,
+    attemptId: RETRY_ATTEMPT_ID,
+    stage: 'basics',
+  });
+});
+
+it('never reopens a terminal FAILED owner even when its error is marked recoverable', async () => {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify({ channelAccountId: ACCOUNT_ID, attemptId: ATTEMPT_ID, idempotencyKey: KEY }));
+  mocks.read.mockResolvedValue({
+    ...owner,
+    state: 'FAILED',
+    error: { code: 'RATE_LIMITED', message: '다시 시도해주세요.', recoverable: true, notBefore: null },
+  });
+  const nextPermit = { ...permit, attemptId: '00000000-0000-4000-8000-000000000005' };
+  mocks.begin.mockResolvedValue(nextPermit);
+  const { result } = setup();
+
+  await waitFor(() => expect(result.current.serverStatus?.state).toBe('FAILED'));
+  await act(async () => { await result.current.start(); });
+
+  expect(mocks.begin.mock.calls[0][2]).not.toBe(KEY);
+  expect(mocks.begin.mock.calls[0][0]).toBe(ACCOUNT_ID);
+  expect(mocks.startBrowser).toHaveBeenCalledWith({ permit: nextPermit });
+});
+
+it('drops an old owner immediately when the selected account changes', async () => {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify({ channelAccountId: ACCOUNT_ID, attemptId: ATTEMPT_ID, idempotencyKey: KEY }));
+  const otherAccount = '00000000-0000-4000-8000-000000000009';
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  const wrapper = ({ children }: { children: ReactNode }) =>
+    <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+  const view = renderHook(
+    ({ accountId }: { accountId: string }) => useCoupangCatalogImport(accountId, null, 'full'),
+    { initialProps: { accountId: ACCOUNT_ID }, wrapper },
+  );
+
+  await waitFor(() => expect(view.result.current.serverStatus?.attemptId).toBe(ATTEMPT_ID));
+  view.rerender({ accountId: otherAccount });
+  await waitFor(() => expect(view.result.current.activeAttempt).toBeNull());
+  expect(view.result.current.serverStatus).toBeNull();
 });
 
 it('saves a pending key before begin and reuses it after an unknown ACK and reload without auto-starting', async () => {
@@ -142,19 +405,34 @@ it('cancels with the recovered owner permit even when the extension is missing',
   expect(mocks.syncAlert).not.toHaveBeenCalled();
 });
 
-it.each(['FAILED', 'COMPLETE'])('reconciles a lost failure ACK with owner %s before best-effort browser cleanup', async (state) => {
-  mocks.fail.mockImplementation(async () => {
-    expect(mocks.send).not.toHaveBeenCalled();
-    mocks.read.mockResolvedValue({ ...owner, state });
-    throw new Error('lost fail ACK');
-  });
+it('does not claim cancellation when browser cancellation is not acknowledged', async () => {
   mocks.send.mockRejectedValue(new Error('extension gone'));
   const { result } = setup(ATTEMPT_ID);
   await waitFor(() => expect(result.current.serverStatus?.state).toBe('RUNNING'));
-  await act(async () => { await result.current.cancel(); });
-  expect(result.current.serverStatus?.state).toBe(state);
-  expect(mocks.fail).toHaveBeenCalledTimes(1);
+  await act(async () => { await expect(result.current.cancel()).rejects.toThrow('extension gone'); });
+  expect(result.current.serverStatus?.state).toBe('RUNNING');
+  expect(mocks.fail).not.toHaveBeenCalled();
   expect(mocks.send).toHaveBeenCalledWith('extension-id', { action: 'cancelCoupangCatalogImport', attemptId: ATTEMPT_ID });
+});
+
+it('rejects an unknown browser cancellation ACK before mutating the owner', async () => {
+  mocks.send.mockResolvedValue(undefined);
+  const { result } = setup(ATTEMPT_ID);
+  await waitFor(() => expect(result.current.serverStatus?.state).toBe('RUNNING'));
+  await act(async () => {
+    await expect(result.current.cancel()).rejects.toThrow('중단 응답을 확인하지 못했습니다');
+  });
+  expect(mocks.fail).not.toHaveBeenCalled();
+});
+
+it('rejects a partial browser cancellation ACK before mutating the owner', async () => {
+  mocks.send.mockResolvedValue({ success: true });
+  const { result } = setup(ATTEMPT_ID);
+  await waitFor(() => expect(result.current.serverStatus?.state).toBe('RUNNING'));
+  await act(async () => {
+    await expect(result.current.cancel()).rejects.toThrow('중단 응답을 확인하지 못했습니다');
+  });
+  expect(mocks.fail).not.toHaveBeenCalled();
 });
 
 it('does not claim cancellation when fail ACK is unknown and the owner remains RUNNING', async () => {

@@ -40,6 +40,7 @@ export type ProductOperationsDataStatusFacts = {
     masterProductId: string;
     abcGrade: 'A' | 'B' | 'C' | null;
     mappingValid: boolean;
+    saleStartDate: string | null;
   }>;
 };
 

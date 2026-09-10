@@ -38,9 +38,10 @@ const ALERT = {
   href: '/sourcing-ai/market',
 };
 const LIVE_SOURCE_KEY = 'douyin.live_commerce';
+const LIVE_PAGE_URL = 'https://live.douyin.com/fixture';
 const LIVE_PLAN: SourcingBrowserSourceAttemptPlan = {
   source: 'douyin',
-  pageUrl: 'https://live.douyin.com/fixture',
+  pageUrl: LIVE_PAGE_URL,
   maxProducts: 100,
 };
 const LIVE_PLAN_CHECKSUM = checksum(LIVE_PLAN);
@@ -50,6 +51,30 @@ const LIVE_ALERT = {
   title: '도우인 라이브 수집 실패',
   href: '/sourcing-ai/market',
 };
+const TIKTOK_SOURCE_KEY = 'tiktok.creative';
+const TIKTOK_PLAN = {
+  source: TIKTOK_SOURCE_KEY,
+  targets: ['all'],
+};
+const TIKTOK_PLAN_CHECKSUM = checksum(TIKTOK_PLAN);
+const TIKTOK_ALERT = {
+  sourceType: TIKTOK_SOURCE_KEY,
+  dedupeKey: 'source:tiktok-creative',
+  title: 'TikTok 크리에이티브 트렌드 수집 실패',
+  href: '/sourcing-ai/market',
+};
+
+function recentHistoryDates(): { dayOne: Date; dayTwo: Date } {
+  // These repository reads use a KST-inclusive seven-day window. Keep the
+  // historical replacement cases relative to the test clock so they remain
+  // inside that window as wall-clock time advances.
+  const kstNow = new Date(Date.now() + 9 * 60 * 60 * 1000);
+  const [year, month, day] = kstNow.toISOString().slice(0, 10).split('-').map(Number);
+  return {
+    dayOne: new Date(Date.UTC(year, month - 1, day - 2)),
+    dayTwo: new Date(Date.UTC(year, month - 1, day - 1)),
+  };
+}
 
 describe('Sourcing browser source owner (PostgreSQL)', () => {
   let prisma: PrismaClient;
@@ -368,12 +393,13 @@ describe('Sourcing browser source owner (PostgreSQL)', () => {
   it('uses only the current COMPLETE generation for 1688 rows, including explicit zero snapshots', async () => {
     const history = new TrendCollectionRepositoryAdapter(prisma as unknown as PrismaService);
     const recommendation = new SourcingRecommendationSourceRepositoryAdapter(prisma as unknown as PrismaService);
+    const capturedAt = recentHistoryDates().dayOne;
     const readOffers = () => recommendation.listLatestOfferObservations({
       organizationId: TEST_ORGANIZATION_ID, cutoffAt: new Date(), lookbackDays: 7, limit: 10,
     });
 
     const offerBaseline = await begin('reader-offer-baseline');
-    await complete(offerBaseline, 'reader-offer-baseline');
+    await owner.completeAttempt(completeInput(offerBaseline, 'reader-offer-baseline', capturedAt));
     await expect(history.find1688HotHistory({ organizationId: TEST_ORGANIZATION_ID, days: 7 }))
       .resolves.toHaveLength(1);
     await expect(readOffers()).resolves.toMatchObject({
@@ -397,7 +423,7 @@ describe('Sourcing browser source owner (PostgreSQL)', () => {
 
     const offerZero = await begin('reader-offer-zero');
     await owner.completeAttempt({
-      ...completeInput(offerZero, 'reader-offer-zero'),
+      ...completeInput(offerZero, 'reader-offer-zero', capturedAt),
       output: map1688HotProductsToAuthorizedOutput({
         permit: permitFor(offerZero),
         rows: [],
@@ -422,6 +448,118 @@ describe('Sourcing browser source owner (PostgreSQL)', () => {
       .resolves.toHaveLength(1);
     await expect(history.findProductSnapshots({ organizationId: TEST_ORGANIZATION_ID, days: 7, source: 'douyin' }))
       .resolves.toEqual([]);
+  });
+
+  it('reads the newest COMPLETE 1688 publication for each historical date, excluding failed and empty replacements', async () => {
+    const history = new TrendCollectionRepositoryAdapter(prisma as unknown as PrismaService);
+    const { dayOne, dayTwo } = recentHistoryDates();
+
+    const first = await begin('history-day-one');
+    await complete1688At(first, dayOne, 'old-day-one');
+    const second = await begin('history-day-two');
+    await complete1688At(second, dayTwo, 'day-two');
+    const replacement = await begin('history-day-one-replacement');
+    await complete1688At(replacement, dayOne, 'new-day-one');
+
+    const failed = await begin('history-day-three-failed');
+    await expect(history.find1688HotHistory({ organizationId: TEST_ORGANIZATION_ID, days: 7 }))
+      .resolves.toEqual(expect.arrayContaining([
+        expect.objectContaining({ businessDate: dayOne, offerId: 'new-day-one' }),
+        expect.objectContaining({ businessDate: dayTwo, offerId: 'day-two' }),
+      ]));
+    await owner.failAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      attemptId: failed.attemptId,
+      attemptToken: failed.attemptToken,
+      code: 'SOURCE_COLLECTION_FAILED',
+      message: 'provider timeout',
+      failureAlert: ALERT,
+    });
+    await expect(history.find1688HotHistory({ organizationId: TEST_ORGANIZATION_ID, days: 7 }))
+      .resolves.toEqual(expect.arrayContaining([
+        expect.objectContaining({ businessDate: dayOne, offerId: 'new-day-one' }),
+        expect.objectContaining({ businessDate: dayTwo, offerId: 'day-two' }),
+      ]));
+    await expect(history.find1688HotHistory({ organizationId: TEST_ORGANIZATION_ID, days: 7 }))
+      .resolves.not.toEqual(expect.arrayContaining([expect.objectContaining({ offerId: 'old-day-one' })]));
+
+    const empty = await begin('history-day-two-empty');
+    await owner.completeAttempt({
+      ...completeInput(empty, 'history-day-two-empty'),
+      sourceWindowEndAt: dayTwo,
+      output: map1688HotProductsToAuthorizedOutput({
+        permit: permitFor(empty),
+        rows: [],
+        qualityReport: { source: SOURCE_KEY, completeSnapshot: true },
+      }),
+    });
+    await expect(history.find1688HotHistory({ organizationId: TEST_ORGANIZATION_ID, days: 7 }))
+      .resolves.toEqual([expect.objectContaining({ businessDate: dayOne, offerId: 'new-day-one' })]);
+  });
+
+  it('reads the newest COMPLETE TikTok publication for each date and fences an empty replacement to its date', async () => {
+    const history = new TrendCollectionRepositoryAdapter(prisma as unknown as PrismaService);
+    const { dayOne, dayTwo } = recentHistoryDates();
+
+    const first = await beginTiktok('tiktok-history-day-one');
+    await completeTiktokAt(first, dayOne, 'old-day-one');
+    const second = await beginTiktok('tiktok-history-day-two');
+    await completeTiktokAt(second, dayTwo, 'day-two');
+    const replacement = await beginTiktok('tiktok-history-day-one-replacement');
+    await completeTiktokAt(replacement, dayOne, 'new-day-one');
+
+    await expect(history.findTiktokCcHistory({ organizationId: TEST_ORGANIZATION_ID, days: 7 }))
+      .resolves.toEqual(expect.arrayContaining([
+        expect.objectContaining({ businessDate: dayOne, entityKey: 'new-day-one' }),
+        expect.objectContaining({ businessDate: dayTwo, entityKey: 'day-two' }),
+      ]));
+
+    const empty = await beginTiktok('tiktok-history-day-two-empty');
+    await owner.completeAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      attemptId: empty.attemptId,
+      attemptToken: empty.attemptToken,
+      planChecksum: empty.planChecksum,
+      contentChecksum: 'tiktok-history-day-two-empty',
+      output: mapTrendTypedRecordsToAuthorizedOutput({
+        permit: permitFor(empty),
+        typedRecords: [],
+        qualityReport: { source: TIKTOK_SOURCE_KEY, completeSnapshot: true },
+      }),
+      sourceWindowEndAt: dayTwo,
+      failureAlert: TIKTOK_ALERT,
+    });
+    await expect(history.findTiktokCcHistory({ organizationId: TEST_ORGANIZATION_ID, days: 7 }))
+      .resolves.toEqual([expect.objectContaining({ businessDate: dayOne, entityKey: 'new-day-one' })]);
+  });
+
+  it('keeps live-commerce history across dates while replacing only the same room/date scope', async () => {
+    const history = new LiveCommerceRepositoryAdapter(prisma as unknown as PrismaService);
+    const { dayOne, dayTwo } = recentHistoryDates();
+
+    const first = await beginLive('live-history-day-one');
+    await completeLive(first, 'live-history-day-one', true, dayOne);
+    const second = await beginLive('live-history-day-two');
+    await completeLive(second, 'live-history-day-two', true, dayTwo);
+    const replacement = await beginLive('live-history-day-one-empty-products');
+    await completeLive(replacement, 'live-history-day-one-empty-products', false, dayOne);
+
+    await expect(history.findBroadcastSnapshots({ organizationId: TEST_ORGANIZATION_ID, days: 7, source: 'douyin' }))
+      .resolves.toHaveLength(2);
+    await expect(history.findProductSnapshots({ organizationId: TEST_ORGANIZATION_ID, days: 7, source: 'douyin' }))
+      .resolves.toEqual([expect.objectContaining({ businessDate: dayTwo, productId: 'fixture-product' })]);
+
+    const failed = await beginLive('live-history-day-three-failed');
+    await owner.failAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      attemptId: failed.attemptId,
+      attemptToken: failed.attemptToken,
+      code: 'SOURCE_COLLECTION_FAILED',
+      message: 'provider timeout',
+      failureAlert: LIVE_ALERT,
+    });
+    await expect(history.findProductSnapshots({ organizationId: TEST_ORGANIZATION_ID, days: 7, source: 'douyin' }))
+      .resolves.toHaveLength(1);
   });
 
   it('replays an incomplete terminal report atomically without facts and rejects conflicting failed terminal content', async () => {
@@ -512,6 +650,34 @@ describe('Sourcing browser source owner (PostgreSQL)', () => {
     return owner.completeAttempt(completeInput(attempt, contentChecksum));
   }
 
+  function complete1688At(attempt: SourcingBrowserSourceAttempt, businessDate: Date, offerId: string) {
+    const output = map1688HotProductsToAuthorizedOutput({
+      permit: permitFor(attempt),
+      rows: [{
+        organizationId: TEST_ORGANIZATION_ID,
+        businessDate,
+        offerId,
+        sourceKeyword: '铅笔',
+        rank: 1,
+        title: offerId,
+        priceCny: 12,
+        monthlySales: 20,
+        repurchaseRate: null,
+        tradeScore: null,
+        supplierName: null,
+        imageUrl: null,
+        sourceUrl: null,
+        capturedAt: businessDate,
+      }],
+      qualityReport: { source: SOURCE_KEY, completeSnapshot: true },
+    });
+    return owner.completeAttempt({
+      ...completeInput(attempt, `history-${offerId}`),
+      output,
+      sourceWindowEndAt: businessDate,
+    });
+  }
+
   async function beginLive(idempotencyKey: string) {
     const { attempt } = await owner.beginAttempt({
       organizationId: TEST_ORGANIZATION_ID,
@@ -531,12 +697,31 @@ describe('Sourcing browser source owner (PostgreSQL)', () => {
     return attempt;
   }
 
+  async function beginTiktok(idempotencyKey: string) {
+    const { attempt } = await owner.beginAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      sourceKey: TIKTOK_SOURCE_KEY,
+      scopeKey: 'default',
+      targetKey: 'all',
+      idempotencyKey,
+      requestFingerprint: checksum(TIKTOK_PLAN),
+      plan: TIKTOK_PLAN,
+      planChecksum: TIKTOK_PLAN_CHECKSUM,
+      requestedByUserId: TEST_USER_ID,
+      collectorKey: 'extension-tiktok-creative',
+      collectorVersion: 'test/v1',
+      expiresInMs: 60_000,
+      failureAlert: TIKTOK_ALERT,
+    });
+    return attempt;
+  }
+
   function completeLive(
     attempt: SourcingBrowserSourceAttempt,
     contentChecksum: string,
     includeProduct: boolean,
+    capturedAt = new Date('2026-09-04T00:00:00.000Z'),
   ) {
-    const capturedAt = new Date('2026-09-04T00:00:00.000Z');
     return owner.completeAttempt({
       organizationId: TEST_ORGANIZATION_ID,
       attemptId: attempt.attemptId,
@@ -563,7 +748,7 @@ describe('Sourcing browser source owner (PostgreSQL)', () => {
               startedAt: null,
               endedAt: null,
               coverImageUrl: null,
-              sourceUrl: LIVE_PLAN.pageUrl,
+              sourceUrl: LIVE_PAGE_URL,
               capturedAt,
             },
           },
@@ -591,6 +776,43 @@ describe('Sourcing browser source owner (PostgreSQL)', () => {
       sourceWindowStartAt: null,
       sourceWindowEndAt: capturedAt,
       failureAlert: LIVE_ALERT,
+    });
+  }
+
+  function completeTiktokAt(attempt: SourcingBrowserSourceAttempt, businessDate: Date, entityKey: string) {
+    return owner.completeAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      attemptId: attempt.attemptId,
+      attemptToken: attempt.attemptToken,
+      planChecksum: attempt.planChecksum,
+      contentChecksum: `tiktok-history-${entityKey}`,
+      output: mapTrendTypedRecordsToAuthorizedOutput({
+        permit: permitFor(attempt),
+        typedRecords: [{
+          kind: 'tiktok_creative',
+          row: {
+            organizationId: TEST_ORGANIZATION_ID,
+            ingestionRunId: attempt.attemptId,
+            businessDate,
+            region: 'US',
+            trendType: 'hashtag',
+            entityKey,
+            rank: 1,
+            label: entityKey,
+            industry: null,
+            sourceKeyword: null,
+            postCount: null,
+            viewCount: null,
+            growthPct: null,
+            thumbnailUrl: null,
+            sourceUrl: null,
+            capturedAt: businessDate,
+          },
+        }],
+        qualityReport: { source: TIKTOK_SOURCE_KEY, completeSnapshot: true },
+      }),
+      sourceWindowEndAt: businessDate,
+      failureAlert: TIKTOK_ALERT,
     });
   }
 
@@ -626,28 +848,34 @@ function beginInput(idempotencyKey: string) {
   };
 }
 
-function completeInput(attempt: SourcingBrowserSourceAttempt, contentChecksum: string) {
+function completeInput(
+  attempt: SourcingBrowserSourceAttempt,
+  contentChecksum: string,
+  capturedAt = new Date('2026-09-04T00:00:00.000Z'),
+) {
   return {
     organizationId: TEST_ORGANIZATION_ID,
     attemptId: attempt.attemptId,
     attemptToken: attempt.attemptToken,
     planChecksum: attempt.planChecksum,
     contentChecksum,
-    output: outputFor(attempt),
+    output: outputFor(attempt, capturedAt),
     sourceWindowStartAt: null,
-    sourceWindowEndAt: new Date('2026-09-04T00:00:00.000Z'),
+    sourceWindowEndAt: capturedAt,
     failureAlert: ALERT,
   };
 }
 
-function outputFor(attempt: SourcingBrowserSourceAttempt) {
-  const capturedAt = new Date('2026-09-04T00:00:00.000Z');
+function outputFor(
+  attempt: SourcingBrowserSourceAttempt,
+  capturedAt = new Date('2026-09-04T00:00:00.000Z'),
+) {
   const permit = permitFor(attempt);
   return map1688HotProductsToAuthorizedOutput({
     permit,
     rows: [{
       organizationId: TEST_ORGANIZATION_ID,
-      businessDate: new Date('2026-09-04T00:00:00.000Z'),
+      businessDate: capturedAt,
       offerId: `offer-${attempt.attemptId}`,
       sourceKeyword: '铅笔',
       rank: 1,

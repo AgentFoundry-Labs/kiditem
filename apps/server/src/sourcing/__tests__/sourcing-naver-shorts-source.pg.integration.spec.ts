@@ -53,7 +53,7 @@ describe('Naver/Shorts public collection owner (disposable PostgreSQL)', () => {
   it('publishes Shorts once, replays without IO after seed drift, retains prior COMPLETE on failure and replaces confirmed empty coverage', async () => {
     const controller = new TrendCollectionController(service, new TrendQueryService(history));
     const first = await controller.collect({ sources: ['shorts'] }, organizationId, { id: TEST_USER_ID } as never, 'first');
-    expect(first.results[0]).toMatchObject({ source: 'shorts', ok: true, state: 'COMPLETE', collected: 1 });
+    expect(first.results[0], JSON.stringify(first.results[0])).toMatchObject({ source: 'shorts', ok: true, state: 'COMPLETE', collected: 1 });
     expect(fetchTrending).toHaveBeenCalledWith(expect.objectContaining({ limit: 50, publishedWithinDays: 30,
       keywords: expect.arrayContaining(['문구', '완구']) }));
     expect(await history.findShortsHistory({ organizationId, days: 7 })).toMatchObject([
@@ -74,7 +74,9 @@ describe('Naver/Shorts public collection owner (disposable PostgreSQL)', () => {
     expect((await service.collect(organizationId, ['shorts'], TEST_USER_ID, 'empty')).results[0])
       .toMatchObject({ state: 'COMPLETE', collected: 0 });
     expect(await history.findShortsHistory({ organizationId, days: 7 })).toEqual([]);
-    expect(await prisma.operationRun.count()).toBe(0);
+    expect((await prisma.$queryRaw<Array<{ absent: boolean }>>`
+      SELECT to_regclass('public.operation_runs') IS NULL AS absent
+    `)[0]?.absent).toBe(true);
     expect(await prisma.masterProductAbcEvaluation.count()).toBe(0);
     expect(await prisma.alert.findMany({ where: { organizationId, type: 'source_failure' } }))
       .toMatchObject([{ status: 'RESOLVED' }]);
@@ -117,7 +119,9 @@ describe('Naver/Shorts public collection owner (disposable PostgreSQL)', () => {
       .toMatchObject({ attempt: { state: 'FAILED' }, payload: null });
     expect(await analysis.getAnalysisSnapshot(organizationId, input)).toEqual(first.payload);
     expect(await prisma.sourcingWorkspaceSnapshot.count({ where: { scope: 'keyword_analysis' } })).toBe(0);
-    expect(await prisma.operationRun.count()).toBe(0);
+    expect((await prisma.$queryRaw<Array<{ absent: boolean }>>`
+      SELECT to_regclass('public.operation_runs') IS NULL AS absent
+    `)[0]?.absent).toBe(true);
   });
 
   it('persists and replays all 50 valid compare inputs without truncation and rejects 51 before IO', async () => {

@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   classifyChannelRecipeSuggestion,
+  inferRecipeQuantity,
+  isBarcodeEvidenceNameCompatible,
   type ChannelRecipeSuggestionInput,
 } from './channel-recipe-suggestion';
 
@@ -32,6 +34,25 @@ const input = (overrides: Partial<ChannelRecipeSuggestionInput> = {}): ChannelRe
   similarityEvidence: [],
   manualMatchEvidence: [],
   ...overrides,
+});
+
+describe('inferRecipeQuantity', () => {
+  it.each([
+    ['퓨어 클리어 슬라임 투명 9개 x 150g', 9],
+    ['KY I&D 할로윈호박열쇠고리24개입 40*35mm 주황', 24],
+    ['논노 베이커리 주물럭 말랑이 랜덤발송 8개 75g', 8],
+    ['감자빵 말랑이 노랑 6개 75g', 6],
+    ['KY I&D 색칠하는에어글라이더5개입 49 x 46 cm', 5],
+    ['손에 묻지않는 크레파스 1개 24색', 1],
+    ['1.5개입', 1],
+  ])('does not treat physical measures or decimal prefixes as pack multipliers: %s',
+    (title, quantity) => {
+      expect(inferRecipeQuantity([title])).toBe(quantity);
+    });
+
+  it('returns null when explicit pack quantities disagree', () => {
+    expect(inferRecipeQuantity(['상품 2개입', '옵션 3개입'])).toBeNull();
+  });
 });
 
 describe('classifyChannelRecipeSuggestion', () => {
@@ -260,6 +281,149 @@ describe('classifyChannelRecipeSuggestion', () => {
       automationDecision: 'auto_apply',
       recommendedQuantity: 1,
     });
+  });
+
+  it.each([
+    [0.35, true],
+    [0.349, false],
+  ])('applies the barcode/name admissibility boundary at %s', (score, expected) => {
+    expect(isBarcodeEvidenceNameCompatible(score)).toBe(expected);
+  });
+
+  it('rejects a mismatched barcode while retaining a valid name candidate', () => {
+    const result = classifyChannelRecipeSuggestion(input({
+      barcodeEvidence: [{
+        kind: 'unique_physical_barcode',
+        channelValue: '001234567890',
+        normalizedValue: '001234567890',
+        nameCompatibilityScore: 0,
+        sku: sku({
+          sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000102',
+          code: 'SP-002',
+          name: '전혀 다른 상품',
+        }),
+      }],
+      similarityEvidence: [{
+        kind: 'normalized_name',
+        channelValue: '키즈 식판',
+        normalizedValue: '키즈식판',
+        score: 1,
+        sku: sku(),
+      }],
+    }));
+
+    expect(result).toMatchObject({
+      status: 'high_confidence_name',
+      automationDecision: 'auto_apply',
+      proposals: [{ sellpiaInventorySkuId: sku().sellpiaInventorySkuId }],
+    });
+    expect(result.proposals).toHaveLength(1);
+  });
+
+  it('does not let a rejected barcode conflict with a valid code', () => {
+    const result = classifyChannelRecipeSuggestion(input({
+      codeEvidence: [{
+        kind: 'seller_sku_code',
+        channelValue: 'SP-001',
+        sku: sku(),
+      }],
+      barcodeEvidence: [{
+        kind: 'unique_physical_barcode',
+        channelValue: '001234567890',
+        normalizedValue: '001234567890',
+        nameCompatibilityScore: 0.349,
+        sku: sku({
+          sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000102',
+          code: 'SP-002',
+          name: '전혀 다른 상품',
+        }),
+      }],
+    }));
+
+    expect(result).toMatchObject({
+      status: 'unique_code',
+      automationDecision: 'auto_apply',
+    });
+  });
+
+  it('blocks a valid code and valid barcode that resolve to different SKUs', () => {
+    const result = classifyChannelRecipeSuggestion(input({
+      codeEvidence: [{
+        kind: 'seller_sku_code',
+        channelValue: 'SP-001',
+        sku: sku(),
+      }],
+      barcodeEvidence: [{
+        kind: 'unique_physical_barcode',
+        channelValue: '001234567890',
+        normalizedValue: '001234567890',
+        nameCompatibilityScore: 0.35,
+        sku: sku({
+          sellpiaInventorySkuId: '00000000-0000-0000-0000-000000000102',
+          code: 'SP-002',
+        }),
+      }],
+    }));
+
+    expect(result.status).toBe('conflict');
+    expect(result.automationDecision).toBe('blocked');
+  });
+
+  it('does not let a rejected barcode override a confirmed manual alias', () => {
+    const result = classifyChannelRecipeSuggestion(input({
+      manualMatchEvidence: [{
+        channelValue: '키즈 식판',
+        normalizedValue: '키즈식판',
+        quantity: 1,
+        sku: sku(),
+      }],
+      barcodeEvidence: [{
+        kind: 'unique_physical_barcode',
+        channelValue: '001234567890',
+        normalizedValue: '001234567890',
+        nameCompatibilityScore: 0,
+        sku: sku({
+          sellpiaInventorySkuId: '00000000-0000-0000-0000-000000000102',
+          code: 'SP-002',
+          name: '전혀 다른 상품',
+        }),
+      }],
+    }));
+
+    expect(result).toMatchObject({
+      status: 'confirmed_manual_match_alias',
+      automationDecision: 'auto_apply',
+      recommendedQuantity: 1,
+    });
+  });
+
+  it('preserves an existing recipe when barcode evidence is rejected', () => {
+    const result = classifyChannelRecipeSuggestion(input({
+      existingComponents: [{
+        sellpiaInventorySkuId: sku().sellpiaInventorySkuId,
+        code: sku().code,
+        quantity: 2,
+        source: 'manual',
+        confirmedBy: '00000000-0000-4000-8000-000000000201',
+        confirmedAt: '2026-07-18T00:00:00.000Z',
+      }],
+      barcodeEvidence: [{
+        kind: 'unique_physical_barcode',
+        channelValue: '001234567890',
+        normalizedValue: '001234567890',
+        nameCompatibilityScore: 0,
+        sku: sku({
+          sellpiaInventorySkuId: '00000000-0000-0000-0000-000000000102',
+          code: 'SP-002',
+          name: '전혀 다른 상품',
+        }),
+      }],
+    }));
+
+    expect(result.status).toBe('already_configured');
+    expect(result.automationDecision).toBe('already_configured');
+    expect(result.existingComponents).toHaveLength(1);
+    expect(result.proposals).toEqual([]);
   });
 
   it('auto-applies one strict unique normalized product-and-option pair', () => {

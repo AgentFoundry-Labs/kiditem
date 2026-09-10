@@ -2,241 +2,50 @@
 
 import {
   BrowserCollectionCommandSchema,
-  BrowserCollectionRunIdSchema,
-  BrowserCollectionRunIssueResponseSchema,
   BrowserCollectionSessionViewSchema,
   type BrowserCollectionCommand,
-  type BrowserCollectionProducer,
   type BrowserCollectionSessionView,
 } from '@kiditem/shared/browser-collection-session';
 import type { QueryClient } from '@tanstack/react-query';
-import { apiClient } from './api-client';
 import {
   detectBrowserCollectionExtensionIds,
   sendToExtension,
 } from './extension-bridge';
-import {
-  requireAttentionOperationAlert,
-  startOperationAlert,
-  updateOperationAlert,
-} from './operation-alerts';
 import { queryKeys } from './query-keys';
 
-type BrowserCollectionInputIdentity =
-  BrowserCollectionSessionView['inputIdentity'];
 export type BrowserCollectionControlAction = Exclude<
   BrowserCollectionCommand['action'],
-  'listCollectionSessions' | 'getCollectionSession' | 'finalizeCollectionSession'
+  'listCollectionSessions' | 'getCollectionSession'
 >;
 
-const BROWSER_COLLECTION_TYPE = 'browser_collection';
-const BROWSER_COLLECTION_SOURCE_TYPE = 'browser_collection_session';
-
-export const browserCollectionOperationKey = (runId: string) =>
-  `browser-collection:${runId}`;
-
-export async function issueBrowserCollectionRunId(
-  existingRunId?: string | null,
-): Promise<string> {
-  if (existingRunId) return BrowserCollectionRunIdSchema.parse(existingRunId);
-  const response = await apiClient.post<unknown>('/api/browser-collection-runs', {});
-  return BrowserCollectionRunIssueResponseSchema.parse(response).runId;
-}
-
-export function browserCollectionRunIdFromOperationKey(
-  operationKey: string | null | undefined,
-): string | null {
-  const prefix = 'browser-collection:';
-  if (!operationKey?.startsWith(prefix)) return null;
-  const parsed = BrowserCollectionRunIdSchema.safeParse(
-    operationKey.slice(prefix.length),
-  );
-  return parsed.success ? parsed.data : null;
-}
-
-function progressRatio(
-  progress: BrowserCollectionSessionView['progress'],
-): number | null {
-  if (progress.total === 0) return null;
-  return Math.min(1, (progress.completed + progress.failed) / progress.total);
-}
-
-function alertMetadata(session: BrowserCollectionSessionView) {
-  return {
-    browserCollection: true,
-    runId: session.runId,
-    producer: session.producer,
-    collectionAttempt: session.attempt,
-    collectionUpdatedAt: session.updatedAt,
-    attentionReason: session.attention?.reason ?? null,
-  };
-}
-
-function terminalMessage(session: BrowserCollectionSessionView): string | null {
-  if (
-    session.producer === 'inventory.sellpia'
-    && session.status === 'succeeded'
-  ) {
-    return 'Sellpia 현재고 동기화가 완료되었습니다.';
-  }
-  return session.progress.label;
-}
-
-type BrowserCollectionOrdering = Pick<
-  BrowserCollectionSessionView,
-  'attempt' | 'updatedAt'
->;
-
-export function isBrowserCollectionOrderingNewer(
-  candidate: BrowserCollectionOrdering,
-  current: BrowserCollectionOrdering | null | undefined,
+export function isBrowserCollectionSessionLocallyRunning(
+  session: BrowserCollectionSessionView,
 ): boolean {
-  if (!current) return true;
-  if (candidate.attempt !== current.attempt) {
-    return candidate.attempt > current.attempt;
-  }
-  return candidate.updatedAt > current.updatedAt;
+  return (
+    session.attention === null &&
+    (
+      session.progress.total === 0 ||
+      session.progress.completed + session.progress.failed < session.progress.total
+    )
+  );
 }
 
 export function preferBrowserCollectionSession(
   current: BrowserCollectionSessionView | null | undefined,
   candidate: BrowserCollectionSessionView | null,
 ): BrowserCollectionSessionView | null {
-  if (!candidate) return current ?? null;
-  return isBrowserCollectionOrderingNewer(candidate, current)
-    ? candidate
-    : (current ?? candidate);
+  return candidate ?? current ?? null;
 }
 
 export function updateBrowserCollectionSessionCache(
   queryClient: QueryClient,
   candidate: BrowserCollectionSessionView,
 ): boolean {
-  let updated = false;
   queryClient.setQueryData<BrowserCollectionSessionView | null>(
-    queryKeys.browserCollection.session(candidate.runId),
-    (current) => {
-      if (!isBrowserCollectionOrderingNewer(candidate, current)) return current;
-      updated = true;
-      return candidate;
-    },
+    queryKeys.browserCollection.session(candidate.attemptId),
+    candidate,
   );
-  return updated;
-}
-
-function startInput(
-  session: BrowserCollectionSessionView,
-  metadata: ReturnType<typeof alertMetadata>,
-) {
-  return {
-    operationKey: browserCollectionOperationKey(session.runId),
-    type: BROWSER_COLLECTION_TYPE,
-    title: session.producer,
-    sourceType: BROWSER_COLLECTION_SOURCE_TYPE,
-    sourceId: session.producer,
-    href: '/',
-    metadata,
-  };
-}
-
-async function updateForSession(
-  operationKey: string,
-  session: BrowserCollectionSessionView,
-  metadata: ReturnType<typeof alertMetadata>,
-) {
-  const progress = progressRatio(session.progress);
-  switch (session.status) {
-    case 'attention_required':
-      return requireAttentionOperationAlert(operationKey, {
-        message: session.attention?.message ?? null,
-        progress,
-        severity: 'warning',
-        metadata,
-      });
-    case 'succeeded':
-      return updateOperationAlert(operationKey, {
-        status: 'succeeded',
-        message: terminalMessage(session),
-        progress: 1,
-        severity: 'info',
-        metadata,
-      });
-    case 'failed':
-      return updateOperationAlert(operationKey, {
-        status: 'failed',
-        message: terminalMessage(session),
-        progress,
-        severity: 'error',
-        metadata,
-      });
-    case 'cancelled':
-      return updateOperationAlert(operationKey, {
-        status: 'cancelled',
-        message: terminalMessage(session),
-        progress,
-        severity: 'info',
-        metadata,
-      });
-    default:
-      return null;
-  }
-}
-
-export async function syncBrowserCollectionAlert(
-  session: BrowserCollectionSessionView,
-): Promise<void> {
-  const parsed = BrowserCollectionSessionViewSchema.parse(session);
-  if (parsed.status === 'idle') return;
-
-  const operationKey = browserCollectionOperationKey(parsed.runId);
-  const metadata = alertMetadata(parsed);
-  if (parsed.status === 'running') {
-    await startOperationAlert({
-      ...startInput(parsed, metadata),
-      progress: progressRatio(parsed.progress),
-    });
-    return;
-  }
-
-  const updated = await updateForSession(operationKey, parsed, metadata);
-  if (updated) return;
-
-  await startOperationAlert(startInput(parsed, metadata));
-  await updateForSession(operationKey, parsed, metadata);
-}
-
-export async function recordMissingBrowserCollection(
-  producer: BrowserCollectionProducer,
-  inputIdentity: BrowserCollectionInputIdentity,
-  existingRunId?: string,
-): Promise<{ runId: string }> {
-  const runId = await issueBrowserCollectionRunId(existingRunId);
-  const now = Date.now();
-  BrowserCollectionSessionViewSchema.parse({
-    runId,
-    producer,
-    classification: 'background_safe',
-    status: 'attention_required',
-    attempt: 1,
-    restartStrategy: 'web',
-    progress: {
-      current: 0,
-      total: 0,
-      completed: 0,
-      failed: 0,
-      label: null,
-    },
-    inputIdentity,
-    attention: {
-      reason: 'extension_missing',
-      message: '브라우저 수집 익스텐션을 찾을 수 없습니다.',
-      canOpenTab: false,
-    },
-    startedAt: now,
-    updatedAt: now,
-    finishedAt: null,
-  });
-  return { runId };
+  return true;
 }
 
 function parseSession(value: unknown): BrowserCollectionSessionView | null {
@@ -271,14 +80,11 @@ async function sendCommandToAllExtensions(
 function preferNewestSessions(
   sessions: BrowserCollectionSessionView[],
 ): BrowserCollectionSessionView[] {
-  const byRunId = new Map<string, BrowserCollectionSessionView>();
+  const byAttemptId = new Map<string, BrowserCollectionSessionView>();
   for (const session of sessions) {
-    const current = byRunId.get(session.runId);
-    if (isBrowserCollectionOrderingNewer(session, current)) {
-      byRunId.set(session.runId, session);
-    }
+    byAttemptId.set(session.attemptId, session);
   }
-  return [...byRunId.values()];
+  return [...byAttemptId.values()];
 }
 
 export async function listBrowserCollectionSessions(): Promise<
@@ -299,51 +105,34 @@ export async function listBrowserCollectionSessions(): Promise<
 }
 
 export async function findBrowserCollectionSession(
-  runId: string,
+  attemptId: string,
 ): Promise<BrowserCollectionSessionView | null> {
   const command = BrowserCollectionCommandSchema.parse({
     action: 'getCollectionSession',
-    runId,
+    attemptId,
   });
   const responses = await sendCommandToAllExtensions(command);
   const sessions = responses.flatMap((response) => {
     const parsed = parseSession(response);
-    return parsed?.runId === runId ? [parsed] : [];
+    return parsed?.attemptId === attemptId ? [parsed] : [];
   });
   return preferNewestSessions(sessions)[0] ?? null;
 }
 
 export async function sendBrowserCollectionControl(
-  runId: string,
+  attemptId: string,
   action: BrowserCollectionControlAction,
 ): Promise<BrowserCollectionSessionView | null> {
-  const command = BrowserCollectionCommandSchema.parse({ action, runId });
+  const command = BrowserCollectionCommandSchema.parse({ action, attemptId });
   const responses = await sendCommandToAllExtensions(command);
   const sessions = responses.flatMap((response) => {
     const parsed = parseSession(response);
-    return parsed?.runId === runId ? [parsed] : [];
+    return parsed?.attemptId === attemptId ? [parsed] : [];
   });
   const failure = responses.find(isExtensionFailure);
   if (failure && typeof failure.error === 'string') {
     throw new Error(failure.error);
   }
 
-  let current: BrowserCollectionSessionView | null =
-    preferNewestSessions(sessions)[0] ?? null;
-  if (!current) current = await findBrowserCollectionSession(runId);
-  if (action !== 'cancelCollectionSession' || current?.status === 'cancelled') {
-    return current;
-  }
-
-  for (let attempt = 0; attempt < 12; attempt += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 250));
-    current = preferBrowserCollectionSession(
-      current,
-      await findBrowserCollectionSession(runId),
-    );
-    if (current?.status === 'cancelled') return current;
-  }
-  throw new Error(
-    '브라우저 수집 중단 상태를 확인하지 못했습니다. 확장프로그램을 새로고침한 뒤 다시 시도해주세요.',
-  );
+  return preferNewestSessions(sessions)[0] ?? await findBrowserCollectionSession(attemptId);
 }

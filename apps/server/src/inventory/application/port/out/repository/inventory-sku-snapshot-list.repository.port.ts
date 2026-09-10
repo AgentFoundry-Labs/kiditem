@@ -14,7 +14,7 @@ export const INVENTORY_SKU_SNAPSHOT_LIST_REPOSITORY_PORT = Symbol(
 
 export type InventorySkuSnapshotRepositoryQuery = {
   skip: number;
-  take: number;
+  take?: number;
   query?: string;
   stockStatus: InventorySkuStockStatus;
   activeStatus: SellpiaInventorySkuActiveStatus;

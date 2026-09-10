@@ -15,6 +15,8 @@ import { resetSourcingDisplayState } from "./v0.1.30/005_reset_sourcing_display_
 import { deleteLegacyChannelDerivedMasterProducts } from "./v0.1.30/006_delete_legacy_channel_derived_master_products";
 import { resetAbsoluteProductAbc } from "./v0.1.31/001_reset_absolute_product_abc";
 import { initializeAbsoluteProductAbcFormula } from "./v0.1.31/002_initialize_absolute_product_abc_formula";
+import { prepareOperationAutomationCutoverMigration } from "./v0.1.31/003_prepare_operation_automation_cutover";
+import { removeRetiredCapabilityOperationRefs } from "./v0.1.31/004_remove_retired_capability_operation_refs";
 import type { DataMigration } from "./types";
 
 export {
@@ -43,6 +45,8 @@ export const dataMigrations: readonly DataMigration[] = [
   resetSourcingDisplayState,
   deleteLegacyChannelDerivedMasterProducts,
   resetAbsoluteProductAbc,
+  prepareOperationAutomationCutoverMigration,
+  removeRetiredCapabilityOperationRefs,
   initializeAbsoluteProductAbcFormula,
 ];
 

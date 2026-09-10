@@ -62,15 +62,12 @@ export class DashboardInventoryRepositoryAdapter
   ): Promise<AbcStatusCountRow[]> {
     const kst = new Date(Date.now() + 9 * 60 * 60 * 1_000);
     const targetCutoff = new Date(Date.UTC(kst.getUTCFullYear(), kst.getUTCMonth(), 0)).toISOString().slice(0, 10);
-    const [rows, evidence, state] = await Promise.all([
+    const [rows, evidence] = await Promise.all([
       this.prisma.masterProduct.findMany({
         where: { organizationId, isActive: true },
-        select: { id: true, createdAt: true, abcEvaluation: { select: { id: true } } },
+        select: { id: true, abcEvaluation: { select: { id: true } } },
       }),
       this.evidence.load({ organizationId, targetCutoff }),
-      this.prisma.masterProductAbcFormulaState.findUnique({
-        where: { organizationId }, select: { publishedAt: true },
-      }),
     ]);
     const products = new Map(evidence.products.map((product) => [product.masterProductId, product]));
     const counts = new Map<AbcStatusCountRow['displayStatus'], number>();
@@ -78,8 +75,8 @@ export class DashboardInventoryRepositoryAdapter
       const displayStatus = productAbcDisplayStatus(
         row.abcEvaluation !== null,
         products.get(row.id)?.mappingValid ?? false,
-        { ...evidence.sources, formulaState: { publishedAt: state?.publishedAt ?? null } },
-        row.createdAt,
+        { ...evidence.sources, actualCutoff: evidence.actualCutoff },
+        products.get(row.id)?.saleStartDate ?? null,
       );
       counts.set(displayStatus, (counts.get(displayStatus) ?? 0) + 1);
     }
@@ -142,10 +139,8 @@ export class DashboardInventoryRepositoryAdapter
       severity: a.severity,
       title: a.title,
       message: a.message,
-      operationKey: a.operationKey,
       sourceType: a.sourceType,
       href: a.href,
-      progress: a.progress,
       targetType: a.targetType,
       targetId: a.targetId,
       isRead: a.isRead,

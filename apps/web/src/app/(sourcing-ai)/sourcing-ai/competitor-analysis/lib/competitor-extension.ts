@@ -78,6 +78,52 @@ export interface CompetitorCatalogCollectionReply {
   error?: string;
 }
 
+function parseCompetitorCatalogCollectionReply(
+  value: unknown,
+): CompetitorCatalogCollectionReply {
+  const record = isRecord(value) ? value : null;
+  if (
+    !record ||
+    typeof record.success !== 'boolean' ||
+    typeof record.attemptId !== 'string' ||
+    (record.terminalState !== 'RUNNING' &&
+      record.terminalState !== 'COMPLETE' &&
+      record.terminalState !== 'FAILED')
+  ) {
+    throw new Error('KIDITEM 쿠팡 확장프로그램이 경쟁 판매자 수집 결과를 올바르게 반환하지 않았습니다.');
+  }
+  const reply: CompetitorCatalogCollectionReply = {
+    success: record.success,
+    attemptId: record.attemptId,
+    terminalState: record.terminalState,
+  };
+  if (record.retryRequired !== undefined) {
+    if (typeof record.retryRequired !== 'boolean') throw new Error('KIDITEM 쿠팡 확장프로그램이 경쟁 판매자 수집 결과를 올바르게 반환하지 않았습니다.');
+    reply.retryRequired = record.retryRequired;
+  }
+  if (record.attentionRequired !== undefined) {
+    if (typeof record.attentionRequired !== 'boolean') throw new Error('KIDITEM 쿠팡 확장프로그램이 경쟁 판매자 수집 결과를 올바르게 반환하지 않았습니다.');
+    reply.attentionRequired = record.attentionRequired;
+  }
+  if (record.capturedTargetCount !== undefined) {
+    if (typeof record.capturedTargetCount !== 'number' || !Number.isInteger(record.capturedTargetCount) || record.capturedTargetCount < 0) throw new Error('KIDITEM 쿠팡 확장프로그램이 경쟁 판매자 수집 결과를 올바르게 반환하지 않았습니다.');
+    reply.capturedTargetCount = record.capturedTargetCount;
+  }
+  if (record.errorCode !== undefined) {
+    if (typeof record.errorCode !== 'string') throw new Error('KIDITEM 쿠팡 확장프로그램이 경쟁 판매자 수집 결과를 올바르게 반환하지 않았습니다.');
+    reply.errorCode = record.errorCode;
+  }
+  if (record.error !== undefined) {
+    if (typeof record.error !== 'string') throw new Error('KIDITEM 쿠팡 확장프로그램이 경쟁 판매자 수집 결과를 올바르게 반환하지 않았습니다.');
+    reply.error = record.error;
+  }
+  return reply;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 export async function requireCompetitorCatalogExtension(): Promise<string> {
   const gate = await detectCompetitorExtensionGate();
   if (gate.status === 'ready') return gate.extensionId;
@@ -101,18 +147,7 @@ export async function collectCompetitorCatalogFromExtension(input: {
     },
     null,
   );
-  if (!response || typeof response !== 'object' || Array.isArray(response)) {
-    throw new Error('KIDITEM 쿠팡 확장프로그램이 경쟁 판매자 수집 결과를 올바르게 반환하지 않았습니다.');
-  }
-  const reply = response as Record<string, unknown>;
-  if (
-    typeof reply.success !== 'boolean'
-    || typeof reply.attemptId !== 'string'
-    || !['RUNNING', 'COMPLETE', 'FAILED'].includes(reply.terminalState as string)
-  ) {
-    throw new Error('KIDITEM 쿠팡 확장프로그램이 경쟁 판매자 수집 결과를 올바르게 반환하지 않았습니다.');
-  }
-  return reply as CompetitorCatalogCollectionReply;
+  return parseCompetitorCatalogCollectionReply(response);
 }
 
 export function isVersionAtLeast(current: string, minimum: string): boolean {

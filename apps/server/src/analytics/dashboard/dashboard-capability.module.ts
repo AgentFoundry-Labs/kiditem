@@ -1,21 +1,18 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { ProfitabilityEvidenceModule } from '../../finance/profitability-evidence.module';
+import { AdvertisingModule } from '../../advertising/advertising.module';
 import { AnalyticsOverviewCapabilityAdapter } from './adapter/in/agent/analytics-overview-capability.adapter';
 import { ProfitCalculationRepositoryAdapter } from './adapter/out/repository/profit-calculation.repository.adapter';
-import { AdAggregationRepositoryAdapter } from './adapter/out/repository/ad-aggregation.repository.adapter';
 import { WingAdSummaryRepositoryAdapter } from './adapter/out/repository/wing-ad-summary.repository.adapter';
 import { DashboardSalesRepositoryAdapter } from './adapter/out/repository/dashboard-sales.repository.adapter';
-import { DashboardAdRepositoryAdapter } from './adapter/out/repository/dashboard-ad.repository.adapter';
 import { DashboardTrendRepositoryAdapter } from './adapter/out/repository/dashboard-trend.repository.adapter';
 import { WingTrafficAggregationRepositoryAdapter } from './adapter/out/repository/wing-traffic-aggregation.repository.adapter';
 import { DashboardInventoryRepositoryAdapter } from './adapter/out/repository/dashboard-inventory.repository.adapter';
 import { ANALYTICS_OVERVIEW_CAPABILITY_PORT } from './application/port/in/analytics-overview-capability.port';
 import { PROFIT_CALCULATION_REPOSITORY_PORT } from './application/port/out/repository/profit-calculation.repository.port';
-import { AD_AGGREGATION_REPOSITORY_PORT } from './application/port/out/repository/ad-aggregation.repository.port';
 import { WING_AD_SUMMARY_REPOSITORY_PORT } from './application/port/out/repository/wing-ad-summary.repository.port';
 import { DASHBOARD_SALES_REPOSITORY_PORT } from './application/port/out/repository/dashboard-sales.repository.port';
-import { DASHBOARD_AD_REPOSITORY_PORT } from './application/port/out/repository/dashboard-ad.repository.port';
 import { DASHBOARD_TREND_REPOSITORY_PORT } from './application/port/out/repository/dashboard-trend.repository.port';
 import { WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT } from './application/port/out/repository/wing-traffic-aggregation.repository.port';
 import { DASHBOARD_INVENTORY_REPOSITORY_PORT } from './application/port/out/repository/dashboard-inventory.repository.port';
@@ -27,10 +24,8 @@ import { DashboardTrendService } from './application/service/dashboard-trend.ser
 
 const repositoryAdapters = [
   ProfitCalculationRepositoryAdapter,
-  AdAggregationRepositoryAdapter,
   WingAdSummaryRepositoryAdapter,
   DashboardSalesRepositoryAdapter,
-  DashboardAdRepositoryAdapter,
   DashboardTrendRepositoryAdapter,
   WingTrafficAggregationRepositoryAdapter,
   DashboardInventoryRepositoryAdapter,
@@ -38,10 +33,8 @@ const repositoryAdapters = [
 
 const repositoryPorts = [
   { provide: PROFIT_CALCULATION_REPOSITORY_PORT, useExisting: ProfitCalculationRepositoryAdapter },
-  { provide: AD_AGGREGATION_REPOSITORY_PORT, useExisting: AdAggregationRepositoryAdapter },
   { provide: WING_AD_SUMMARY_REPOSITORY_PORT, useExisting: WingAdSummaryRepositoryAdapter },
   { provide: DASHBOARD_SALES_REPOSITORY_PORT, useExisting: DashboardSalesRepositoryAdapter },
-  { provide: DASHBOARD_AD_REPOSITORY_PORT, useExisting: DashboardAdRepositoryAdapter },
   { provide: DASHBOARD_TREND_REPOSITORY_PORT, useExisting: DashboardTrendRepositoryAdapter },
   { provide: WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT, useExisting: WingTrafficAggregationRepositoryAdapter },
   { provide: DASHBOARD_INVENTORY_REPOSITORY_PORT, useExisting: DashboardInventoryRepositoryAdapter },
@@ -56,7 +49,7 @@ const dashboardServices = [
 ];
 
 @Module({
-  imports: [PrismaModule, ProfitabilityEvidenceModule],
+  imports: [PrismaModule, ProfitabilityEvidenceModule, AdvertisingModule],
   providers: [
     ...repositoryAdapters,
     ...dashboardServices,

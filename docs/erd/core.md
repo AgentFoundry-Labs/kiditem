@@ -173,6 +173,7 @@ erDiagram
     Int formulaRevision
     Int publicationRevision
     DateTime gradeBasisCutoffDate
+    DateTime saleStartDate
     String sellpiaSourceImportRunId FK
     String advertisingSourceImportRunId FK
     BigInt sellpiaGeneration
@@ -248,6 +249,7 @@ erDiagram
     String id PK
     String organizationId FK
     String sourceType
+    String rankKeyword
     String channelAccountId FK
     String fileName
     String fileHash
@@ -404,7 +406,6 @@ erDiagram
 | Organization | organization | referenced by external | AI | ThumbnailRegistrationAttempt |
 | Organization | organization | referenced by external | AI | ThumbnailTracking |
 | Organization | organization | referenced by external | AI | ThumbnailTrackingDailySnapshot |
-| Organization | organization | referenced by external | Automation | WorkflowTemplate |
 | Organization | organization | referenced by external | Channels | ChannelAccountDailyKpiSnapshot |
 | Organization | organization | referenced by external | Channels | ChannelAdListingProductMonthlyFact |
 | Organization | organization | referenced by external | Channels | ChannelAdTargetDailySnapshot |
@@ -437,10 +438,12 @@ erDiagram
 | Organization | organization | referenced by external | Inventory | Warehouse |
 | Organization | organization | referenced by external | Orders | CoupangDirectPoSnapshot |
 | Organization | organization | referenced by external | Orders | Order |
+| Organization | organization | referenced by external | Orders | OrderCollectionArtifact |
 | Organization | organization | referenced by external | Orders | OrderLineItem |
 | Organization | organization | referenced by external | Orders | OrderReturn |
 | Organization | organization | referenced by external | Orders | OrderReturnLineItem |
 | Organization | organization | referenced by external | Orders | Review |
+| Organization | organization | referenced by external | Orders | ReviewCollectionChunk |
 | Organization | organization | referenced by external | Orders | SellpiaOrderTransmissionIntent |
 | Organization | organization | referenced by external | Orders | SellpiaOrderTransmissionIntentReconciliation |
 | Organization | organization | referenced by external | Orders | Settlement |
@@ -492,9 +495,6 @@ erDiagram
 | Organization | organization | referenced by external | System | ActivityEvent |
 | Organization | organization | referenced by external | System | Alert |
 | Organization | organization | referenced by external | System | BusinessRule |
-| Organization | organization | referenced by external | System | OperationRun |
-| Organization | organization | referenced by external | System | OperationRunCheckpoint |
-| Organization | organization | referenced by external | System | OperationSchedule |
 | Organization | organization | referenced by external | System | RulesEvaluationApplication |
 | Organization | organization | referenced by external | System | SystemSetting |
 | SourceImportRun | lastCompletedImportRun | referenced by external | Inventory | SellpiaInventoryState |
@@ -502,9 +502,18 @@ erDiagram
 | SourceImportRun | sourceImportRun | referenced by external | Channels | ChannelAdListingProductMonthlyFact |
 | SourceImportRun | sourceImportRun | referenced by external | Channels | ChannelAdTargetDailySnapshot |
 | SourceImportRun | sourceImportRun | referenced by external | Channels | ChannelScrapeRun |
+| SourceImportRun | sourceImportRun | referenced by external | Channels | ChannelScrapeSnapshot |
+| SourceImportRun | sourceImportRun | referenced by external | Channels | CoupangKeywordRankDailySnapshot |
+| SourceImportRun | sourceImportRun | referenced by external | Channels | CoupangKeywordSerpDailySnapshot |
+| SourceImportRun | sourceImportRun | referenced by external | Channels | CoupangWingSalesRankDailySnapshot |
 | SourceImportRun | sourceImportRun | referenced by external | Channels | RocketPoCatalogSnapshot |
 | SourceImportRun | sourceImportRun | referenced by external | Channels | SellpiaProductMonthlySales |
+| SourceImportRun | sourceImportRun | referenced by external | Channels | SellpiaSalesDailySnapshot |
+| SourceImportRun | sourceImportRun | referenced by external | Inventory | CoupangShipmentDateSummary |
 | SourceImportRun | sourceImportRun | referenced by external | Orders | Order |
+| SourceImportRun | sourceImportRun | referenced by external | Orders | OrderCollectionArtifact |
+| SourceImportRun | sourceImportRun | referenced by external | Orders | Review |
+| SourceImportRun | sourceImportRun | referenced by external | Orders | ReviewCollectionChunk |
 | SourceImportRun | sourceImportRun | referenced by external | Supply | RocketPurchaseConfirmation |
 | SourceImportRun | sourceImportRun | referenced by external | Supply | RocketPurchaseConfirmationTransmission |
 | User | activeSyncOwner | referenced by external | Inventory | SellpiaInventoryState |
@@ -516,7 +525,6 @@ erDiagram
 | User | claimedBy | referenced by external | AI | DetailPageImageRenderIntent |
 | User | confirmer | referenced by external | Supply | RocketPurchaseConfirmation |
 | User | createdBy | referenced by external | AI | DetailPageImageArtifact |
-| User | createdBy | referenced by external | System | OperationSchedule |
 | User | createdByUser | referenced by external | AI | ContentAsset |
 | User | createdByUser | referenced by external | AI | ContentWorkspace |
 | User | createdByUser | referenced by external | AI | ContentWorkspaceThumbnailSelection |
@@ -532,7 +540,6 @@ erDiagram
 | User | releaser | referenced by external | Supply | RocketPurchaseConfirmation |
 | User | requestedBy | referenced by external | AI | DetailPageImageRenderIntent |
 | User | requestedBy | referenced by external | Sourcing | SourcingReviewBatch |
-| User | requestedBy | referenced by external | System | OperationRun |
 | User | requestedByUser | referenced by external | Channels | ChannelListingDeletionOperation |
 | User | requestedByUser | referenced by external | Sourcing | ProductRegistrationExecution |
 | User | requestedByUser | referenced by external | Sourcing | SourcingDecisionBatch |
@@ -540,6 +547,5 @@ erDiagram
 | User | reviewedByUser | referenced by external | Supply | ProcurementTestIntent |
 | User | triggeredByUser | referenced by external | AI | ContentGeneration |
 | User | triggeredByUser | referenced by external | AI | ThumbnailGeneration |
-| User | triggeredByUser | referenced by external | Automation | WorkflowRun |
 | User | triggeredByUser | referenced by external | Sourcing | SourcingCandidate |
 | User | triggeredByUser | referenced by external | Sourcing | SourcingEvidenceIngestionRun |

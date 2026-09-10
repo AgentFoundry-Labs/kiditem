@@ -45,13 +45,39 @@
     const wire = root.KidItemSourcingAttemptWire.create({
       chrome, sourcePath: path, requestFailureMessage: "키워드 순위 저장 결과를 확인하지 못했습니다",
     });
+
+    async function isActive(attemptId, environmentId) {
+      if (typeof sessions.isActive === "function") {
+        return sessions.isActive(attemptId, environmentId, source.producer);
+      }
+      const session = await sessions.getOwned(attemptId, environmentId).catch(() => null);
+      return session?.producer === source.producer;
+    }
+
+    async function stoppedOutcome(attemptId, read) {
+      const terminal = await read().catch(() => null);
+      if (terminal && terminal.state !== "RUNNING") return result(terminal);
+      return {
+        success: false,
+        attemptId,
+        terminalState: "RUNNING",
+        cancellationPending: true,
+        errorCode: "COLLECTION_CANCELLED",
+      };
+    }
     function connection(environmentId, attemptId) {
       const config = { apiBase: "", headers: { "Content-Type": "application/json" },
         request: (path, init) => request(environmentId, path, init) };
       return {
         read: () => wire.requestJson(config, `${path}/${encodeURIComponent(attemptId)}`, { method: "GET" })
           .then((value) => parseResult(value, attemptId)),
-        submit: (attempt, submission) => wire.terminal(config, attempt, submission, (value) => parseResult(value, attemptId)),
+        submit: (attempt, submission, { allowAfterFence = false } = {}) => wire.terminal(
+          config,
+          attempt,
+          submission,
+          (value) => parseResult(value, attemptId),
+          allowAfterFence ? {} : { shouldContinue: () => isActive(attemptId, environmentId) },
+        ),
       };
     }
     async function collectAttempt({ environmentId, attemptId }) {
@@ -74,6 +100,7 @@
         throw new Error(`INVALID_OR_EXPIRED_${source.errorPrefix}_PLAN`);
       }
       await sessions.start({ environmentId, attemptId, producer: source.producer });
+      if (!(await isActive(attemptId, environmentId))) return stoppedOutcome(attemptId, read);
       let capture;
       try {
         capture = kind === "identity"
@@ -82,6 +109,7 @@
       } catch (error) {
         capture = { success: false, error: error?.message };
       }
+      if (!(await isActive(attemptId, environmentId))) return stoppedOutcome(attemptId, read);
       if (capture?.cancelled) return result(await read());
       const submission = capture?.success === true
         ? { method: "PUT", suffix: "", body: kind === "identity" ? {
@@ -98,16 +126,18 @@
           `${source.errorPrefix}_CAPTURE_FAILED`, "쿠팡 키워드 순위 수집에 실패했습니다.",
         ) };
       let terminal;
+      if (!(await isActive(attemptId, environmentId))) return stoppedOutcome(attemptId, read);
       try {
         terminal = await submit(attempt, submission);
       } catch (error) {
+        if (!(await isActive(attemptId, environmentId))) return stoppedOutcome(attemptId, read);
         // A missing ACK is not a source failure. Read this exact owner before
         // showing an outcome; never send a contradictory failure submission.
         terminal = await read().catch(() => null);
         if (terminal?.state === "RUNNING" && submission.method === "PUT" && [400, 422].includes(error?.status)) {
           // The owner rejected the payload before publication. Only this
           // definitive rejection permits a different, explicit failure result.
-          terminal = await submit(attempt, { method: "POST", suffix: "/fail", body: wire.failure(
+            terminal = await submit(attempt, { method: "POST", suffix: "/fail", body: wire.failure(
             { code: `${source.errorPrefix}_RESPONSE_INVALID`, message: error.message },
             `${source.errorPrefix}_RESPONSE_INVALID`, "키워드 순위 응답 형식이 올바르지 않습니다.",
           ) }).catch(() => null);
@@ -149,7 +179,7 @@
         terminal = attempt;
         if (attempt.state === "RUNNING") {
           try {
-            terminal = await owner.submit(attempt, { method: "POST", suffix: "/fail", body: { code, message } });
+            terminal = await owner.submit(attempt, { method: "POST", suffix: "/fail", body: { code, message } }, { allowAfterFence: true });
           } catch (error) {
             terminal = await owner.read().catch(() => null);
             if (!terminal || terminal.state === "RUNNING") throw error;
@@ -166,7 +196,16 @@
       if (session?.producer !== source.producer) return null;
       return fail({ environmentId, attemptId, code: "COLLECTION_CANCELLED", message: "키워드 순위 수집이 취소되었습니다." });
     }
-    return Object.freeze({ run, cancel, fail });
+    async function cancelLocal({ environmentId, attemptIds }) {
+      const allowed = new Set(attemptIds);
+      const owned = await sessions.list(environmentId);
+      for (const session of owned) {
+        if (session.producer === source.producer && allowed.has(session.attemptId)) {
+          await sessions.cancel(session.attemptId, { closeManagedTab: true });
+        }
+      }
+    }
+    return Object.freeze({ run, cancel, cancelLocal, fail });
   }
   root.KidItemKeywordRankSourceOwner = Object.freeze({ create, parseStart });
 })(globalThis);

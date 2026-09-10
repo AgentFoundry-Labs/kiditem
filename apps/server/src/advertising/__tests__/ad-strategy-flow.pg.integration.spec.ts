@@ -19,6 +19,7 @@ import {
 describe('AdStrategy flow (PG integration)', () => {
   let prisma: PrismaClient;
   let service: AdStrategyService;
+  let inventoryImportRunByOrganization = new Map<string, string>();
 
   async function seedOrderWithLineItems(
     client: PrismaClient,
@@ -131,6 +132,7 @@ describe('AdStrategy flow (PG integration)', () => {
         name: `Sellpia ${params.suffix}`,
         currentStock: sellableStock,
         purchasePrice: params.costPrice ?? 5000,
+        lastImportRunId: inventoryImportRunByOrganization.get(params.organizationId),
       },
     });
     const listing = await prisma.channelListing.create({
@@ -232,16 +234,35 @@ describe('AdStrategy flow (PG integration)', () => {
   beforeEach(async () => {
     await resetDb(prisma);
     await seedBaseFixture(prisma);
-    await prisma.sellpiaInventoryState.createMany({
-      data: [TEST_ORGANIZATION_ID, OTHER_ORGANIZATION_ID].map(
-        (organizationId) => ({
+    inventoryImportRunByOrganization = new Map();
+    for (const organizationId of [TEST_ORGANIZATION_ID, OTHER_ORGANIZATION_ID]) {
+      const verifiedAt = new Date();
+      const inventoryRun = await prisma.sourceImportRun.create({
+        data: {
+          organizationId,
+          sourceType: 'sellpia_inventory',
+          channelAccountId: null,
+          fileName: 'advertising-strategy-inventory.json',
+          fileHash: `advertising-strategy-inventory-${organizationId}`,
+          status: 'completed',
+          rowCount: 0,
+          importedAt: verifiedAt,
+          lastVerifiedAt: verifiedAt,
+          verificationCount: 1,
+          freshnessGeneration: 1n,
+        },
+      });
+      inventoryImportRunByOrganization.set(organizationId, inventoryRun.id);
+      await prisma.sellpiaInventoryState.create({
+        data: {
           organizationId,
           requestedGeneration: 1n,
           verifiedGeneration: 1n,
-          lastVerifiedAt: new Date(),
-        }),
-      ),
-    });
+          lastVerifiedAt: verifiedAt,
+          lastCompletedImportRunId: inventoryRun.id,
+        },
+      });
+    }
   });
 
   describe('getRules / getWeeklyPlan — 3-grade listing scenario', () => {

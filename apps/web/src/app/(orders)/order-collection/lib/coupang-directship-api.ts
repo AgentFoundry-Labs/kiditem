@@ -1,10 +1,13 @@
 import * as XLSX from 'xlsx';
-import { issueBrowserCollectionRunId } from '@/lib/browser-collection-session';
 import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extension-bridge';
 import { apiClient } from '@/lib/api-client';
 import { downloadBlob } from '@/lib/browser-download';
 import type { OrderCollectionConversionResult } from './order-collection-api';
 import type { OrderCollectionExtensionRun } from './order-collection-extension';
+import {
+  coupangDirectOwnerAttemptHeaders,
+  readCoupangDirectCapture,
+} from './coupang-directship-source-owner';
 import type {
   CoupangDirectOrderCollectionRequest,
   CoupangDirectOrderItem,
@@ -20,9 +23,6 @@ export type CoupangDirectData = Pick<
 
 interface CoupangCollectResponse {
   success?: boolean;
-  pos?: CoupangDirectPo[];
-  centers?: CoupangDirectData['centers'];
-  count?: number;
   error?: string;
 }
 
@@ -46,8 +46,21 @@ export interface CoupangDirectConversionResult {
  * order-collector 확장으로 쿠팡 공급사허브의 "발주확정(PA)" 발주를 수집한다.
  * 발주목록(po-web) + 발주별 품목(/scm 상세) + 센터주소(po-web) 를 모아 운송유형(쉽먼트/밀크런)까지 담아 온다.
  */
-export async function collectCoupangDirectFromExtension(run?: OrderCollectionExtensionRun): Promise<CoupangDirectData> {
-  const extensionId = run?.extensionId ?? await detectOrderCollectionExtensionId();
+export async function collectCoupangDirectFromExtension(run: OrderCollectionExtensionRun): Promise<CoupangDirectData> {
+  // A completed owner is durable server state. Calendar reloads must be able
+  // to read that capture even when the extension/page that performed the
+  // provider capture is no longer available.
+  if (!run.extensionId && run.sourceOwner === 'coupang_directship') {
+    const owner = await readCoupangDirectCapture(run.attemptId);
+    if (owner.attempt.state !== 'COMPLETE') {
+      throw new Error('쿠팡직배송 원본 저장이 완료되지 않았습니다.');
+    }
+    return {
+      pos: owner.capture.pos,
+      centers: owner.capture.centers,
+    };
+  }
+  const extensionId = run.extensionId ?? await detectOrderCollectionExtensionId();
   if (!extensionId) {
     throw new Error(
       '주문수집 확장프로그램이 필요합니다. extensions/kiditem-os 를 Chrome 에 로드하고 supplier.coupang.com 에 로그인한 뒤 다시 시도하세요.',
@@ -57,16 +70,22 @@ export async function collectCoupangDirectFromExtension(run?: OrderCollectionExt
     extensionId,
     {
       action: 'collectCoupangDirectOrders',
-      date: run?.date,
-      runId: await issueBrowserCollectionRunId(run?.runId),
-      deferTerminal: Boolean(run?.runId),
+      date: run.date ?? null,
+      attemptId: run.attemptId,
     },
     240000, // 발주별 /scm 상세 fetch 가 많아 넉넉히
   );
-  if (!res?.success || !Array.isArray(res.pos)) {
+  if (!res?.success) {
     throw new Error(res?.error ?? '쿠팡직배송 발주 수집에 실패했습니다.');
   }
-  return { pos: res.pos, centers: res.centers ?? {} };
+  const owner = await readCoupangDirectCapture(run.attemptId);
+  if (owner.attempt.state !== 'COMPLETE') {
+    throw new Error('쿠팡직배송 원본 저장이 완료되지 않았습니다.');
+  }
+  return {
+    pos: owner.capture.pos,
+    centers: owner.capture.centers,
+  };
 }
 
 /** 수집한 발주 데이터를 운송유형별로 백엔드에서 셀피아 양식(.xls, 서식/시트 유지)으로 생성. */
@@ -77,11 +96,15 @@ export async function convertCoupangDirectToSellpiaFile(
     channelAccountId: string;
     download?: boolean;
     signal?: AbortSignal;
+    run?: OrderCollectionExtensionRun;
   },
 ): Promise<CoupangDirectConversionResult> {
   const res = await apiClient.fetchRaw('/api/orders/collection/coupang-directship/convert', {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: {
+      'content-type': 'application/json',
+      ...(options.run ? coupangDirectOwnerAttemptHeaders(options.run) : {}),
+    },
     body: JSON.stringify({
       channelAccountId: options.channelAccountId,
       pos: data.pos,

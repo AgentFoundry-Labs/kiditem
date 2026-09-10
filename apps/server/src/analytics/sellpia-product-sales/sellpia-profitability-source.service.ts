@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import {
   ConflictException,
   Injectable,
+  NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
 import {
@@ -49,6 +50,7 @@ import {
 import type {
   SellpiaProfitabilityAttempt,
   SellpiaProfitabilityAttemptControl,
+  SellpiaProfitabilityAttemptSummary,
   SellpiaProfitabilityCompleteGeneration,
   SellpiaProfitabilitySourceStatus,
 } from '@kiditem/shared/source-import';
@@ -212,8 +214,9 @@ export class SellpiaProfitabilitySourceService
           providerBackedEmptyProof: normalized.providerBackedEmptyProof,
           coveredMonths: normalized.coveredMonths,
           qualityReport: {
-            contract: 'sellpia-profitability-v1',
+            contract: PARSER_VERSION,
             parserVersion: PARSER_VERSION,
+            correctedCostEvidence: true,
             provenance: {
               source: 'sellpia_stat_prd_profit',
               costBasis: 'ORDER_TIME_SUPPLY_COST',
@@ -382,6 +385,21 @@ export class SellpiaProfitabilitySourceService
       timeout: TRANSACTION_TIMEOUT_MS,
       isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead,
     });
+  }
+
+  /**
+   * Token-free exact-attempt read for the browser owner after a lost terminal
+   * response. The write fence remains available only through control reads.
+   */
+  async readAttemptStatus(
+    organizationId: string,
+    attemptId: string,
+  ): Promise<SellpiaProfitabilityAttemptSummary> {
+    const attempt = await this.prisma.sourceImportRun.findFirst({
+      where: { id: attemptId, organizationId, sourceType: SOURCE_TYPE },
+    }) as SourceAttemptRecord | null;
+    if (!attempt) throw new NotFoundException('SOURCE_ATTEMPT_NOT_FOUND');
+    return toAttemptSummary(attempt, new Date());
   }
 
   /**

@@ -3,12 +3,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Download, Loader2, X } from 'lucide-react';
 import { cn, formatNumber } from '@/lib/utils';
+import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
 import {
   DEFAULT_REVIEW_COLLECTION_MONTHS,
   REVIEW_COLLECTION_MONTH_OPTIONS,
   cancelCoupangReviewCollection,
   detectReviewExtensionGate,
   getCoupangReviewCollectionStatus,
+  recoverCoupangReviewCollection,
   reviewExtensionGateMessage,
   runCoupangReviewCollection,
   type ReviewCollectionStatus,
@@ -36,23 +38,24 @@ export function CoupangReviewCollectSection({ onCollected }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const notifiedRunIdRef = useRef<string | null>(null);
+  const idempotencyKeyRef = useRef<string | null>(null);
+  const attemptControlRef = useRef<{ runId: string; attemptToken: string } | null>(null);
 
   const isRunning = status?.status === 'running';
 
   useEffect(() => {
     let cancelled = false;
-    detectReviewExtensionGate().then((gate) => {
+    detectReviewExtensionGate().then(async (gate) => {
       if (cancelled) return;
       setGateMessage(reviewExtensionGateMessage(gate));
-      setExtensionId(gate.status === 'ready' ? gate.extensionId : null);
-      if (gate.status === 'ready') {
-        // 페이지를 떠났다 돌아와도 진행 중인 수집을 다시 붙잡는다.
-        getCoupangReviewCollectionStatus(gate.extensionId)
-          .then((current) => {
-            if (!cancelled && current.status !== 'idle') setStatus(current);
-          })
-          .catch(() => undefined);
+      if (gate.status !== 'ready') {
+        setExtensionId(null);
+        return;
       }
+      setExtensionId(gate.extensionId);
+      const recovered = await recoverCoupangReviewCollection(gate.extensionId).catch(() => null);
+      if (cancelled || !recovered || recovered.status === 'idle') return;
+      setStatus(recovered);
     });
     return () => {
       cancelled = true;
@@ -64,7 +67,18 @@ export function CoupangReviewCollectSection({ onCollected }: Props) {
     const runId = status?.runId ?? null;
     const timer = window.setInterval(() => {
       getCoupangReviewCollectionStatus(extensionId, runId)
-        .then(setStatus)
+        .then((nextStatus) => {
+          setStatus((currentStatus) => {
+            // A late read from an older poll must not replace a newer attempt.
+            if (currentStatus?.runId !== runId || nextStatus.runId !== runId) {
+              return currentStatus;
+            }
+            const control = attemptControlRef.current;
+            return control?.runId === nextStatus.runId
+              ? { ...nextStatus, attemptToken: control.attemptToken }
+              : nextStatus;
+          });
+        })
         .catch(() => undefined);
     }, POLL_INTERVAL_MS);
     return () => window.clearInterval(timer);
@@ -75,6 +89,8 @@ export function CoupangReviewCollectSection({ onCollected }: Props) {
     const runId = status.runId ?? null;
     if (notifiedRunIdRef.current === runId) return;
     notifiedRunIdRef.current = runId;
+    idempotencyKeyRef.current = null;
+    attemptControlRef.current = null;
     onCollected();
   }, [status, onCollected]);
 
@@ -83,8 +99,20 @@ export function CoupangReviewCollectSection({ onCollected }: Props) {
     setError(null);
     setStarting(true);
     notifiedRunIdRef.current = null;
+    attemptControlRef.current = null;
     try {
-      const response = await runCoupangReviewCollection(extensionId, months);
+      idempotencyKeyRef.current ??= createSecureRandomUuid();
+      const response = await runCoupangReviewCollection(
+        extensionId,
+        months,
+        idempotencyKeyRef.current,
+      );
+      if (response.runId && response.attemptToken) {
+        attemptControlRef.current = {
+          runId: response.runId,
+          attemptToken: response.attemptToken,
+        };
+      }
       setStatus(response);
     } catch (e) {
       setError(e instanceof Error ? e.message : '쿠팡 리뷰 수집 시작 실패');
@@ -95,9 +123,18 @@ export function CoupangReviewCollectSection({ onCollected }: Props) {
 
   const cancel = useCallback(async () => {
     if (!extensionId) return;
-    await cancelCoupangReviewCollection(extensionId, status?.runId ?? null).catch(
-      () => undefined,
-    );
+    setError(null);
+    const runId = status?.runId ?? null;
+    const control = attemptControlRef.current;
+    try {
+      await cancelCoupangReviewCollection(
+        extensionId,
+        runId,
+        control?.runId === runId ? control.attemptToken : null,
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '쿠팡 리뷰 수집 중단 실패');
+    }
   }, [extensionId, status?.runId]);
 
   const total = status?.total ?? 0;

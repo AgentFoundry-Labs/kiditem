@@ -78,11 +78,12 @@ function fixture({ capture = observation, requestHook } = {}) {
     storageKey: "sessions",
     webUrlPatterns: [],
   });
+  const sessionApi = sessions;
   let state = "RUNNING";
   let failureReceipt = {};
   const owner = context.KidItemCoupangShipmentSummarySourceOwner.create({
     chrome,
-    sessions,
+    sessions: sessionApi,
     request: async (environmentId, path, init) => {
       calls.push({ environmentId, path, ...init });
       const response = (body, status = 200) => ({
@@ -113,7 +114,7 @@ function fixture({ capture = observation, requestHook } = {}) {
     },
     collect: async (options) => {
       collected.push(options);
-      await sessions.attachTab(attemptId, {
+      await sessionApi.attachTab(attemptId, {
         tabId: 42,
         windowId: 7,
         closeOnCancel: true,
@@ -125,7 +126,7 @@ function fixture({ capture = observation, requestHook } = {}) {
     owner,
     calls,
     collected,
-    sessions,
+    sessions: sessionApi,
     storage,
     removedTabs,
     focusedTabs,
@@ -175,6 +176,30 @@ test("lost complete responses replay the identical body and recover only from th
     f.calls.some((call) => call.path.endsWith("/fail")),
     false,
   );
+});
+
+test("a persisted stop fence blocks the second normal terminal PUT after a 503", async () => {
+  let putCount = 0;
+  const f = fixture({
+    requestHook: async ({ init, response }) => {
+      if (init.method !== "PUT") return null;
+      putCount += 1;
+      if (putCount === 1) {
+        await f.sessions.requestCancellation(attemptId, "office");
+        return response({ message: "temporary" }, 503);
+      }
+      return null;
+    },
+  });
+
+  const result = await f.owner.run({ environmentId: "office", attemptId });
+
+  assert.equal(result.success, false);
+  assert.equal(result.terminalState, "RUNNING");
+  assert.equal(result.errorCode, "SOURCE_RESULT_UNCONFIRMED");
+  assert.equal(putCount, 1);
+  assert.equal(f.calls.filter((call) => call.method === "PUT").length, 1);
+  assert.deepEqual(f.removedTabs, [42]);
 });
 
 test("login failure is submitted to the owner, while owner refusal never becomes success", async () => {

@@ -69,10 +69,6 @@ export const CapabilityResultReceiptWireSchema = z4
       id: z4.string().min(1).max(128),
       version: z4.string().min(1).max(128).nullable(),
     }).strict()).max(50),
-    operationRefs: z4.array(z4.object({
-      kind: z4.string().min(1).max(64),
-      id: z4.string().min(1).max(128),
-    }).strict()).max(50),
   })
   .strict();
 

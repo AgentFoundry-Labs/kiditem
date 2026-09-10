@@ -65,12 +65,6 @@ export interface ScrapeRunErrorFinalize {
   err: unknown;
 }
 
-export interface AdCollectStatusSummary {
-  lastCollectedAt: Date | null;
-  campaignScrapeRunCount: number;
-  productScrapeRunCount: number;
-}
-
 export interface ExtensionStatusLatestListing {
   isOfferWinner: boolean | null;
   lastObservedAt: Date;
@@ -108,13 +102,10 @@ export interface ChannelScrapeRepositoryPort {
   /** Best-effort error finalize; swallows secondary finalize errors. */
   finalizeRunOnError(input: ScrapeRunErrorFinalize): Promise<void>;
 
-  // Reads — used by AdCollectService for the operations dashboard.
-  findAdCollectStatus(organizationId: string): Promise<AdCollectStatusSummary>;
-
   /**
    * Single-pass read of every column the extension-status endpoint needs:
    * listing count, latest per-listing winner state, raw snapshot count,
-   * latest run, and the wing-kpi row. Used by `AdSyncService.getExtensionStatus`.
+   * latest run, and the wing-kpi row. Used by `AdvertisingExtensionService`.
    */
   findExtensionStatusSnapshot(
     organizationId: string,

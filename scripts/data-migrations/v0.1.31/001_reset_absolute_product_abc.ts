@@ -3,7 +3,7 @@ import type { DataMigration } from "../types";
 export const resetAbsoluteProductAbc: DataMigration = {
   id: "v0.1.31:001_reset_absolute_product_abc",
   releaseVersion: "0.1.31",
-  name: "Reset legacy product ABC persistence before absolute V1",
+  name: "Reset legacy product ABC persistence before current absolute formula",
   phase: "pre-schema",
   async run(tx) {
     const deletedGradeHistories = await tx.masterProductAbcGradeHistory.deleteMany();

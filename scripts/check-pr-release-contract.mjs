@@ -8,8 +8,21 @@ function repoRoot() {
   return path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 }
 
-function git(args) {
-  return execFileSync('git', args, { encoding: 'utf8' }).trim();
+function git(args, cwd = repoRoot()) {
+  return execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
+}
+
+function gitBytes(args, cwd = repoRoot()) {
+  return execFileSync('git', args, { cwd, encoding: 'buffer' });
+}
+
+function gitSucceeds(args, cwd = repoRoot()) {
+  try {
+    execFileSync('git', args, { cwd, stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function parseArgs(argv) {
@@ -130,6 +143,98 @@ export function migrationReleaseFromPath(file) {
   return match?.[1] ?? null;
 }
 
+const APPLIED_MIGRATION_BASELINE_PREFIX = /^\s*(?:[-*]\s*)?Applied migration baseline\s*:/i;
+const FULL_COMMIT_SHA = /^[0-9a-f]{40}$/;
+
+export function parseAppliedMigrationBaselines(prBody) {
+  const declarations = [];
+  const errors = [];
+  const seenPaths = new Set();
+  for (const [index, line] of String(prBody ?? '').split(/\r?\n/).entries()) {
+    if (!APPLIED_MIGRATION_BASELINE_PREFIX.test(line)) continue;
+    const match = line.match(
+      /^\s*(?:[-*]\s*)?Applied migration baseline\s*:\s*(\S+)\s+(\S+)\s*$/i,
+    );
+    if (!match) {
+      errors.push(`Applied migration baseline line ${index + 1} is malformed.`);
+      continue;
+    }
+    const [, commit, migrationPath] = match;
+    if (seenPaths.has(migrationPath)) {
+      errors.push(`Applied migration baseline for ${migrationPath} is duplicated.`);
+      continue;
+    }
+    seenPaths.add(migrationPath);
+    declarations.push({ commit, path: migrationPath });
+  }
+  return { declarations, errors };
+}
+
+function hasExactMigrationRegistration(indexText, importPath) {
+  const escaped = importPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(?:from|import\\s*\\()\\s*["']${escaped}["']`).test(indexText);
+}
+
+export function verifyAppliedMigrationBaseline({
+  root,
+  head,
+  migrationPath,
+  baselineCommit,
+  expectedRelease,
+  candidateBytes,
+}) {
+  const errors = [];
+  const migration = migrationNameFromPath(migrationPath);
+  if (!migration || migration.release !== expectedRelease) {
+    errors.push(`${migrationPath} is not the canonical migration path for release v${expectedRelease}.`);
+    return { errors };
+  }
+  if (!FULL_COMMIT_SHA.test(baselineCommit ?? '')) {
+    errors.push(`${migrationPath} baseline must use a full 40-character commit SHA.`);
+    return { errors };
+  }
+  let resolvedCommit = '';
+  try {
+    resolvedCommit = git(['rev-parse', '--verify', `${baselineCommit}^{commit}`], root);
+  } catch {
+    resolvedCommit = '';
+  }
+  if (resolvedCommit !== baselineCommit) {
+    errors.push(`${migrationPath} baseline commit ${baselineCommit} does not exist as a commit.`);
+    return { errors };
+  }
+  if (!head || !gitSucceeds(['merge-base', '--is-ancestor', baselineCommit, head], root)) {
+    errors.push(`${migrationPath} baseline commit ${baselineCommit} is not an ancestor of checked head ${head || '<missing>'}.`);
+    return { errors };
+  }
+
+  let baselineVersion;
+  let baselineIndex;
+  let baselineBytes;
+  try {
+    baselineVersion = git(['show', `${baselineCommit}:VERSION`], root);
+    baselineIndex = git(['show', `${baselineCommit}:scripts/data-migrations/index.ts`], root);
+    baselineBytes = gitBytes(['show', `${baselineCommit}:${migrationPath}`], root);
+  } catch {
+    errors.push(`${migrationPath} baseline commit ${baselineCommit} does not contain the required release artifacts.`);
+    return { errors };
+  }
+  if (baselineVersion.trim() !== expectedRelease) {
+    errors.push(
+      `${migrationPath} baseline commit ${baselineCommit} has VERSION ${baselineVersion.trim() || '<missing>'}, expected ${expectedRelease}.`,
+    );
+  }
+  const expectedImportPath = `./v${expectedRelease}/${migration.basename}`;
+  if (!hasExactMigrationRegistration(baselineIndex, expectedImportPath)) {
+    errors.push(`${migrationPath} is not registered in the baseline migration index at ${baselineCommit}.`);
+  }
+  if (!Buffer.isBuffer(candidateBytes) || !Buffer.isBuffer(baselineBytes)
+    || !candidateBytes.equals(baselineBytes)) {
+    errors.push(`${migrationPath} candidate bytes differ from the immutable baseline at ${baselineCommit}.`);
+  }
+  return { errors };
+}
+
 function migrationNameFromPath(file) {
   const release = migrationReleaseFromPath(file);
   if (!release) return null;
@@ -179,6 +284,9 @@ export function analyzePrReleaseContract({
   migrationIndex,
   allowHistoricalMigrationVersions = false,
   deletedFiles = [],
+  root = repoRoot(),
+  head = 'HEAD',
+  candidateBytesByPath = new Map(),
 }) {
   const errors = [];
   const requiredReasons = classifyFiles(files);
@@ -205,6 +313,12 @@ export function analyzePrReleaseContract({
   }
 
   const deletedFileSet = new Set(deletedFiles);
+  const { declarations: baselineDeclarations, errors: baselineDeclarationErrors } =
+    parseAppliedMigrationBaselines(prBody);
+  errors.push(...baselineDeclarationErrors);
+  const declarationsByPath = new Map(
+    baselineDeclarations.map((declaration) => [declaration.path, declaration]),
+  );
   const migrationFiles = files
     .filter((file) => /^scripts\/data-migrations\/v[^/]+\/[^/]+\.ts$/.test(file))
     .filter((file) => !deletedFileSet.has(file))
@@ -221,12 +335,52 @@ export function analyzePrReleaseContract({
       isSemver(version) &&
       compareSemver(migration.release, base) > 0 &&
       compareSemver(migration.release, version) <= 0;
-    if (!isCurrentRelease && !isHistoricalPromotionRelease) {
+    const isHistoricalMigration =
+      isSemver(migration.release) &&
+      isSemver(version) &&
+      compareSemver(migration.release, version) < 0;
+    if (!isCurrentRelease && !isHistoricalPromotionRelease && !isHistoricalMigration) {
       errors.push(`${file} release v${migration.release} does not match root VERSION ${version}.`);
     }
+    const declaration = declarationsByPath.get(file);
     const expectedImportPath = `./v${migration.release}/${migration.basename}`;
     if (!migrationIndex.includes(expectedImportPath)) {
       errors.push(`${file} is not registered in scripts/data-migrations/index.ts.`);
+    }
+    if (declaration && !hasExactMigrationRegistration(migrationIndex, expectedImportPath)) {
+      errors.push(`${file} is not exactly registered in the candidate migration index.`);
+    }
+
+    if (!isCurrentRelease && !isHistoricalPromotionRelease && !declaration) {
+      errors.push(`${file} is an applied historical migration and requires an Applied migration baseline declaration.`);
+    }
+    if (declaration) {
+      const candidateBytes = candidateBytesByPath instanceof Map
+        ? candidateBytesByPath.get(file)
+        : candidateBytesByPath[file];
+      const verification = verifyAppliedMigrationBaseline({
+        root,
+        head,
+        migrationPath: file,
+        baselineCommit: declaration.commit,
+        expectedRelease: migration.release,
+        candidateBytes,
+      });
+      errors.push(...verification.errors);
+    }
+  }
+
+  for (const declaration of baselineDeclarations) {
+    const migration = migrationNameFromPath(declaration.path);
+    if (!migration) {
+      errors.push(`${declaration.path} is not a canonical data migration path.`);
+      continue;
+    }
+    if (!files.includes(declaration.path) && !deletedFileSet.has(declaration.path)) {
+      errors.push(`Applied migration baseline ${declaration.path} does not match a changed migration file.`);
+    }
+    if (deletedFileSet.has(declaration.path)) {
+      errors.push(`${declaration.path} is declared as an applied migration baseline but is deleted or renamed.`);
     }
   }
 
@@ -247,6 +401,20 @@ function main() {
   const prBody = readPrBody(args);
   const prMetadata = readPrMetadata({ event: args.event });
   const allowHistoricalMigrationVersions = isDevelopToMainPromotion(prMetadata);
+  const candidateBytesByPath = new Map();
+  for (const file of files) {
+    if (!/^scripts\/data-migrations\/v[^/]+\/[^/]+\.ts$/.test(file)) continue;
+    try {
+      candidateBytesByPath.set(
+        file,
+        args.head
+          ? gitBytes(['show', `${head}:${file}`], root)
+          : readFileSync(path.join(root, file)),
+      );
+    } catch {
+      candidateBytesByPath.set(file, undefined);
+    }
+  }
   const result = analyzePrReleaseContract({
     files,
     prBody,
@@ -255,6 +423,9 @@ function main() {
     migrationIndex: readFileSync(path.join(root, 'scripts/data-migrations/index.ts'), 'utf8'),
     allowHistoricalMigrationVersions,
     deletedFiles,
+    root,
+    head,
+    candidateBytesByPath,
   });
 
   if (result.errors.length === 0) {

@@ -12,6 +12,7 @@ import {
   canonicalProviderRowsChecksum,
   ProfitabilityAdImportRepositoryAdapter,
   PROFITABILITY_SOURCE_TYPE,
+  profitabilityCoverageForKstYesterday,
 } from '../adapter/out/repository/profitability-ad-import.repository.adapter';
 import { lockProductMapping } from '../../common/product-mapping-generation';
 import type { PrismaClient } from '@prisma/client';
@@ -42,6 +43,106 @@ describe('Advertising profitability source owner (PostgreSQL)', () => {
     await seedBaseFixture(prisma);
     await seedAccount(prisma, TEST_ORGANIZATION_ID, 'account-a', 'ADVERTISER-A', 'A');
     await seedAccount(prisma, TEST_ORGANIZATION_ID, 'account-b', 'ADVERTISER-B', 'B');
+  });
+
+  it('freezes exact partial-month coverage and proves allocations over that period', async () => {
+    const coverage = profitabilityCoverageForKstYesterday(new Date());
+    const cutoffPeriod = coverage.periods.at(-1)!;
+    const attempt = await owner.beginAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      idempotencyKey: FIRST_KEY,
+    });
+
+    expect(attempt.accounts).toHaveLength(2);
+    expect(attempt.accounts[0]?.slices).toHaveLength(12);
+    expect(attempt.accounts[0]?.slices.at(-1)).toMatchObject({
+      from: cutoffPeriod.from,
+      to: cutoffPeriod.to,
+      businessDates: cutoffPeriod.businessDates,
+    });
+    await expect(prisma.sourceImportRun.findUnique({ where: { id: attempt.attemptId } }))
+      .resolves.toMatchObject({
+        coverageStartDate: new Date(`${coverage.from}T00:00:00.000Z`),
+        coverageEndDate: new Date(`${coverage.to}T00:00:00.000Z`),
+        coveredMonths: coverage.months,
+      });
+
+    const frozenFacts = await prisma.channelAdListingProductMonthlyFact.findMany({
+      where: { organizationId: TEST_ORGANIZATION_ID, sourceImportRunId: attempt.attemptId },
+    });
+    const cutoffFacts = frozenFacts.filter((fact) =>
+      fact.month.toISOString().slice(0, 7) === cutoffPeriod.month);
+    expect(cutoffFacts).toHaveLength(2);
+    expect(cutoffFacts.every((fact) =>
+      fact.coveredStartDate.toISOString().slice(0, 10) === cutoffPeriod.from
+      && fact.coveredEndDate.toISOString().slice(0, 10) === cutoffPeriod.to
+      && fact.observedTargetDayCount === 0)).toBe(true);
+
+    await uploadAllSlices(owner, attempt);
+    const published = await owner.finalizeAttempt(fence(attempt));
+    expect(published).toMatchObject({
+      latestComplete: {
+        coveredThrough: coverage.to,
+        qualitySummary: {
+          providerSpendKrw: 168,
+          allocatedSpendKrw: 168,
+        },
+      },
+      status: 'READY',
+    });
+
+    const receipts = await prisma.channelScrapeRun.findMany({
+      where: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceImportRunId: attempt.attemptId,
+        periodEnd: new Date(`${coverage.to}T00:00:00.000Z`),
+      },
+    });
+    expect(receipts).toHaveLength(2);
+    expect(receipts.every((receipt) => {
+      const meta = receipt.metaJson as { businessDates?: unknown };
+      return receipt.periodStart?.toISOString().slice(0, 10) === cutoffPeriod.from
+        && receipt.periodEnd?.toISOString().slice(0, 10) === cutoffPeriod.to
+        && JSON.stringify(meta.businessDates) === JSON.stringify(cutoffPeriod.businessDates);
+    })).toBe(true);
+
+    const publishedFacts = await prisma.channelAdListingProductMonthlyFact.findMany({
+      where: { organizationId: TEST_ORGANIZATION_ID, sourceImportRunId: attempt.attemptId },
+    });
+    const publishedCutoffFacts = publishedFacts.filter((fact) =>
+      fact.month.toISOString().slice(0, 7) === cutoffPeriod.month);
+    expect(publishedCutoffFacts.every((fact) =>
+      fact.coveredStartDate.toISOString().slice(0, 10) === cutoffPeriod.from
+      && fact.coveredEndDate.toISOString().slice(0, 10) === cutoffPeriod.to
+      && fact.observedTargetDayCount === cutoffPeriod.businessDates.length
+      && fact.allocatedSpend === 7n)).toBe(true);
+  });
+
+  it('preserves the previous complete snapshot when the partial-cutoff attempt fails', async () => {
+    const coverage = profitabilityCoverageForKstYesterday(new Date());
+    const first = await owner.beginAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      idempotencyKey: FIRST_KEY,
+    });
+    await uploadAllSlices(owner, first);
+    await expect(owner.finalizeAttempt(fence(first))).resolves.toMatchObject({
+      latestComplete: { sourceImportRunId: first.attemptId, coveredThrough: coverage.to },
+      status: 'READY',
+    });
+
+    const failed = await owner.beginAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      idempotencyKey: SECOND_KEY,
+    });
+    await expect(owner.failAttempt({
+      ...fence(failed),
+      code: 'PROVIDER_FAILED',
+      message: 'provider unavailable',
+    })).resolves.toMatchObject({
+      latestAttempt: { attemptId: failed.attemptId, state: 'FAILED' },
+      latestComplete: { sourceImportRunId: first.attemptId, coveredThrough: coverage.to },
+      status: 'STALE',
+    });
   });
 
   it('does not expose a generation until every planned account and slice is complete', async () => {
@@ -623,6 +724,7 @@ async function seedAccount(
 function plannedUploads(plan: AdvertisingProfitabilityPlan): AdvertisingProfitabilitySliceUpload[] {
   let sequence = 0;
   return plan.accounts.flatMap((account) => account.slices.map((slice) => {
+    const isFirstSlice = slice.sliceId === account.slices[0]?.sliceId;
     const row = {
       businessDate: slice.businessDates[0]!,
       externalOptionId: account.externalAccountId === 'account-a'
@@ -631,7 +733,7 @@ function plannedUploads(plan: AdvertisingProfitabilityPlan): AdvertisingProfitab
           ? 'AD-OPTION-B'
           : 'AD-OPTION-C',
       adSpend: account.externalAccountId === 'account-c'
-        ? slice.sliceId.endsWith('2025-09-30') ? 1 : 0
+        ? isFirstSlice ? 1 : 0
         : 7,
       impressions: 10,
       clicks: 2,
@@ -640,7 +742,7 @@ function plannedUploads(plan: AdvertisingProfitabilityPlan): AdvertisingProfitab
       adRevenue: 70,
     };
     const rows = account.externalAccountId === 'account-c'
-      && !slice.sliceId.endsWith('2025-09-30')
+      && !isFirstSlice
       ? []
       : [row];
     return {

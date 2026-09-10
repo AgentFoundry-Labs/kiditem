@@ -16,8 +16,8 @@ Public availability is exactly the latest published physical stock.
   4000 during local verification.
 - The operator is signed in to the intended KidItem organization and to
   `https://kiditem.sellpia.com` in Chrome.
-- `extensions/kiditem-os` version `0.1.79` or newer is loaded and its ping
-  advertises `collectSellpiaInventoryJsonV1: true`.
+- The current worktree's `extensions/kiditem-os` is loaded and its ping
+  advertises `sellpiaInventorySourceOwnerV1: true`.
 - The organization has confirmed the fixed source binding:
   `https://kiditem.sellpia.com` / `kiditem`. Only an owner or admin can confirm
   it. The authenticated organization and user come from the KidItem session;
@@ -29,15 +29,15 @@ or the KidItem organization is ambiguous.
 ## State And Ownership
 
 `SellpiaInventoryState` is one organization-scoped row. Inventory alone owns
-freshness derivation, the browser claim lease, publication, and the opaque
+freshness derivation, fixed source-attempt expiry, publication, and the opaque
 `freshnessFence`.
 
 | State | Meaning | Operator action |
 |---|---|---|
 | `fresh` | A completed full snapshot was verified less than 10 minutes ago and no newer generation is pending. | Continue normal work. |
-| `refresh_required` | There is no verified snapshot, the 10-minute TTL elapsed, or a newer generation was requested. | Leave an authenticated KidItem tab open; automatic coordination claims it when due. |
-| `syncing` | One user owns a live 90-second claim lease. | Other tabs join and observe. Only the owner may cancel. |
-| `failed` | The requested generation failed after the last verified generation. | Open the freshness drawer, correct the typed failure, and choose **다시 갱신**. |
+| `refresh_required` | There is no verified snapshot, the 10-minute TTL elapsed, or a newer generation was requested. | Explicitly start collection from the owning screen. |
+| `syncing` | An Inventory source attempt is within its fixed five-minute expiry. | Observe or resume the same attempt; do not create a competing collection. |
+| `failed` | The requested generation failed after the last verified generation. | Correct the displayed failure and explicitly retry. |
 
 Exactly 10 minutes is stale. The server owns TTL, generation, lease, and
 confirmation clocks. Public generation values are decimal strings even
@@ -58,38 +58,41 @@ persists a hold. Never edit `currentStock` to imitate shipment.
    read-only SKU collection, URL-authoritative filters, and confirmed
    destinations. Matching views display the shared state without replacing the
    active matching-center UI.
-2. Confirm that the drawer shows origin `https://kiditem.sellpia.com` and
+2. Confirm that the Inventory source action shows origin `https://kiditem.sellpia.com` and
    account `kiditem`.
 3. As an owner or admin, choose **출처 연결 확인**.
-4. Confirm the state becomes claimable. Do not edit the database to create or
+4. Confirm the source binding is confirmed. Do not edit the database to create or
    change a binding.
 
-## Normal Automatic Flow
+## Explicit Browser Collection
 
-1. The web coordinator polls the organization freshness state every 15
-   seconds. Multiple KidItem tabs use a per-organization browser lock and the
-   server's atomic claim, so only one tab can own the collection.
-2. When a request is due, the winner claims a 90-second lease and sends a
-   heartbeat every 20 seconds. Other tabs receive the same `syncing` state but
-   cannot control the claim.
+1. The owning screen begins an Inventory source attempt with an idempotency
+   key at `/api/inventory/sellpia-source/attempts`. Inventory fixes the source,
+   generation, token and five-minute expiry before browser capture.
+2. The screen sends the attempt identity to the extension. A lost response or
+   page reload resumes the same RUNNING attempt. There is no Operation claim,
+   heartbeat, automatic TTL collector or background recovery runtime.
 3. The extension uses the already authenticated Chrome session. It loads
    `product_list_total.html` without stealing focus and posts the fixed
    `mode=soldout_manager`, `soldout_include=Y`, `limit=0` request directly to
    `product_search.ajax.html`. It does not generate or download Excel.
 4. The extension rejects login HTML, wrong origin/path, invalid or empty JSON,
    duplicate product-option identities, incomplete rows, more than 20,000
-   rows, oversized data, and timed-out/network responses. It returns only the
-   normalized, identity-sorted, versioned snapshot to the KidItem tab.
-5. The authenticated KidItem tab serializes and uploads that JSON snapshot to
-   `POST /api/inventory/sellpia-sync/import` with its claim token, generation,
-   trigger, and fixed source identity.
+   rows, oversized data, and timed-out/network responses. It preserves the
+   normalized, identity-sorted, versioned snapshot contract.
+5. The extension uploads directly to the issued attempt's `/complete` route.
+   The owner checks the attempt token, organization and content checksum.
+   Uncertain delivery is resolved by reading that exact attempt, not by
+   assuming failure or beginning another collection.
 6. Inventory validates the version, row count, ordering, identities, and row
    fields again, evaluates bounded quality evidence, and publishes in one
    fenced transaction. Known product codes absent from a valid new snapshot
    stay identifiable but become inactive with stock zero.
-7. Publication rotates the opaque fence, completes the generation, invalidates
-   stock/history queries, and updates the compact status. File imports and
-   pre-download collection failures appear in the same history.
+7. Publication rotates the opaque fence and completes the generation with
+   stock/provenance and Alert resolution in one transaction. The existing web
+   invalidation path refreshes consumer queries. Failure preserves the prior
+   snapshot and updates source status/Alert atomically. Collection does not
+   publish ABC grades.
 
 Orders collected from one or many malls do not request a refresh by themselves.
 Before the extension submits a generated file, the server persists an
@@ -100,7 +103,8 @@ acceptance finalizes the intent. Explicit confirmed non-submission aborts it for
 a safe retry, while an unknown result requires audited reconciliation. KidItem
 does not pre-check local stock before upload. Sellpia validates the workbook,
 and a rejection is shown with its provider error and no Inventory recovery
-action. Inventory continues on its TTL/manual/purchase-preflight schedule.
+action. Inventory marks expired evidence stale; collection remains explicit,
+including the existing purchase-preflight recovery action.
 
 Internal operation links return to the screen that owns the action: mall
 collection to `/order-collection`, channel order results to `/orders`, channel
@@ -118,11 +122,10 @@ Order transmission recovery renders in the existing generated-file flow on
 `/order-collection`. It updates only that file's Orders-owned transmission
 state and does not route the operator to Inventory synchronization.
 
-An identical source artifact is not republished. The first post-order identical hash
-schedules one `same_hash_confirmation` at least three minutes later. The next
-identical collection verifies the generation; it does not create a third loop.
-Normal TTL/manual verification of an unchanged file verifies the existing run
-without stock mutation.
+Each explicit browser collection has a distinct generation even when content
+matches. Its checksum still protects same-attempt replay. Attested manual
+imports retain their existing file-hash duplicate/reverification contract;
+that input-path rule is not a consumer's stock-selection policy.
 
 ## Manual Fallback And Attestation
 
@@ -130,11 +133,11 @@ Use manual import only when automatic collection cannot be restored promptly.
 
 1. In Sellpia, generate a new full option-product Excel export immediately
    before the fallback.
-2. Open the freshness drawer, choose the file under **수동 파일 가져오기**,
-   and check **이 파일이 방금 Sellpia에서 내보낸 최신 재고 파일임을
-   확인합니다**.
-3. Submit and wait for the same server validation, quality, publication, and
-   history path as an automatic import.
+2. Submit through the retained authenticated manual import endpoint
+   `POST /api/inventory/sellpia-sync/import` with the explicit fresh-export
+   attestation. The removed freshness drawer is not a supported entrypoint.
+3. Wait for the same server validation, quality, publication and history path
+   as browser collection; never bypass it with direct database writes.
 
 The attestation records the authenticated actor and time. It does not bypass
 file validation, quality thresholds, tenant scope, generation fencing, or the
@@ -145,17 +148,17 @@ status green.
 
 | Failure | Safe recovery |
 |---|---|
-| Source binding unconfirmed | Owner/admin confirms only the fixed origin/account in the drawer. Do not insert the state row manually. |
+| Source binding unconfirmed | Owner/admin explicitly confirms only the fixed origin/account through the Inventory source action. Do not insert the state row manually. |
 | `sellpia_login_required` | Sign in to the intended Sellpia account in Chrome, return to KidItem, and choose **다시 갱신**. Do not copy cookies to the server. |
 | Extension absent | Load/re-enable `extensions/kiditem-os`, confirm it responds, then retry. |
-| Extension outdated | Reload/update to version `0.1.79` or newer and confirm `collectSellpiaInventoryJsonV1` before retrying. |
+| Extension outdated | Reload/update the worktree extension and confirm `sellpiaInventorySourceOwnerV1` before retrying. |
 | `sellpia_download_contract_drift` | Stop automatic use. Inspect the fixed Sellpia JSON endpoint and response shape; update the extension contract with tests before retrying. Do not fall back to a blind click. |
 | `sellpia_invalid_workbook` or HTML response | Automatic flow: confirm the fixed endpoint returned a complete versioned JSON snapshot. Manual recovery: confirm the file is a fresh XLS/XLSX/CSV full option-product export. Retry after login/session recovery. |
 | Timeout/network failure | Confirm Chrome connectivity and the Sellpia page, then retry. Repeated failures may use the attested manual fallback. |
 | Quality hard block | Compare the fresh export with the prior completed snapshot. Row loss or active-code loss of at least 30% is blocked. Correct the export/source issue and retry; never accept by editing rows. |
 | Quality warning | Review missing name/barcode/price, duplicate barcode, 10–30% snapshot churn, and inactive confirmed-recipe references. Warnings are keyed by file hash and do not auto-change recipes. |
-| Another tab owns the lease | Wait and observe. Only `activeSync.canControl` may cancel. Closing the owner tab stops its heartbeat; the claim becomes reclaimable only after server expiry. |
-| Lease lost or expired | Let the current worker stop. After expiry a new tab may claim the pending generation. Never reuse a stale token. |
+| Another attempt is running | Observe or resume that exact attempt; admission rejects competing collection. Closing a tab does not change its fixed expiry. |
+| Attempt expired | Explicitly retry with a new attempt. The owner rejects expired or older terminal submissions; do not reuse a stale token. |
 | Sellpia order workbook rejected | Show the exact Sellpia error. Correct the workbook/provider-side issue and retry; Sellpia performs order-level duplicate validation. Do not run Inventory synchronization as recovery. |
 | Purchase blocked by `SELLPIA_SYNC_REQUIRED` | The purchase UI joins/requests automatic sync, waits for one fresh generation, and retries the exact submission once with the same idempotency key. This purchase rule does not apply to order workbook submission. |
 | Purchase item inactive/reference invalid | Correct the purchase item or confirmed recipe. Do not retry automatically. |
@@ -172,7 +175,7 @@ An agent may:
 - read freshness/status/history and sanitized quality counts;
 - verify extension version/capability and the presence of an authenticated
   Sellpia page without reading credential fields;
-- request or join a refresh, observe a lease, and owner-cancel when explicitly
+- explicitly start or resume collection and observe its owner attempt when
   authorized;
 - run deterministic tests, builds, scanners, schema generation, and the guarded
   local data migration;
@@ -188,8 +191,7 @@ An agent must not:
   screenshot, or log;
 - edit `currentStock`, freshness rows, source runs, attempts, or confirmed
   recipes directly to clear an error;
-- reuse a stale claim token, bypass owner controls, or cancel another user's
-  lease;
+- reuse a stale attempt token or bypass owner controls;
 - retry an ambiguous provider submission or imply that a request proves
   external acceptance;
 - call a Rocket marketplace provider or mutate Sellpia physical stock from the
@@ -258,7 +260,7 @@ Freshness: <fresh|refresh_required|syncing|failed>; requested <n>; verified <n>
 Collection: automatic/manual; <published|same_hash_verified|same_hash_confirmation_scheduled|failed>
 Artifact: <sanitized file name or download-before-failure>; rows <count>
 Quality: warnings <count>; hard block <yes/no>; previous snapshot preserved <yes/no>
-Lease: owner-only control / heartbeat / expiry-reclaim evidence <executed or test-backed>
+Attempt: identity / idempotency / fixed-expiry / older-terminal rejection <executed or test-backed>
 Order transmission independence: <no Inventory read/request/invalidation/action; executed or test-backed>
 Purchase gate/retry/reconcile: <executed or test-backed>; provider calls <count or not invoked>
 Rocket: transmission finalization boundary verified <yes/no>; Inventory generation not required <yes/no>; physical stock write not invoked

@@ -38,6 +38,11 @@ function createSessionSpy() {
       },
       async attachTab(runId, input) { calls.attachTab.push({ runId, ...structuredClone(input) }); },
       async progress(runId, input) { calls.progress.push({ runId, ...structuredClone(input) }); },
+      async isActive(attemptId) { return stored.has(attemptId) && !stored.get(attemptId).cancelRequested; },
+      async requestCancellation(attemptId) {
+        const session = stored.get(attemptId);
+        if (session) session.cancelRequested = true;
+      },
       async succeed(runId) { calls.succeed.push(runId); },
       async fail(runId) { calls.fail.push(runId); },
       async cancel(runId) { calls.cancel.push(runId); },

@@ -9,6 +9,128 @@
 
 ## Classification
 
+### Approved Wing catalog staged-publication amendment (2026-09-09)
+
+The user approved full listing-basic publication followed by full-detail JSON
+traversal with successful complete-product enrichment, including detail/media preservation and
+product management, matching and registered-product screen verification.
+The September 9 amendment in
+`2026-09-08-extension-collection-deepening-design.md` owns this changed catalog
+contract and supersedes earlier all-or-nothing basic/detail catalog wording.
+Atomic publication remains mandatory for the whole basic listing and each
+complete detail product. Partial detail enrichment never certifies full completion;
+non-catalog source owners and explicit ABC publication are unchanged.
+
+### Approved Coupang OpenAPI removal (2026-09-07)
+
+KidItem does not use Coupang OpenAPI. Remove server-direct provider calls and
+their reachable HTTP, UI, automatic synchronization and Agent entrypoints,
+including product/order sync, registration/deletion result verification, order
+confirmation, invoice transmission and return approval. Trace the paths retained
+by `cf65e34d3`; removing notification wrappers alone is not completion.
+
+Reuse existing validated extension/source-owner paths where they provide the
+same capability. Otherwise expose the action as unsupported, not disconnected,
+retryable or successfully completed. Do not invent collectors or runtimes, or
+treat browser evidence alone as authoritative confirmation of a remote mutation.
+
+Remove dedicated OpenAPI credential settings, clients, DI and unreachable code.
+Preserve ChannelAccount and collection account identifiers, browser-session
+credentials, Wing/advertising collection semantics and internal HTTP transport.
+Shared encryption remains where browser account storage still needs it. This
+cross-owner removal does not alter the approved ABC or Inventory contracts.
+Remove the deletion-only password settings and service when no supported
+mutation consumes them; do not suggest that setting a password enables the
+unsupported deletion action. Leave existing stored configuration untouched.
+
+Acceptance traces consumers through the actual UI/Agent/HTTP interfaces and
+asserts that direct OpenAPI calls and automatic triggers are absent, unsupported
+actions fail explicitly without IO, and existing collection/owner paths remain
+usable. Include the delta in integrated review and regression tests. Make no
+actual OpenAPI calls or operating-database changes for verification.
+
+### Approved Inventory consumer contract (2026-09-07)
+
+Inventory owns official snapshot selection, publication and freshness decisions.
+Reuse its existing purpose-specific read interfaces; remove duplicated source
+selection/status policy from consumers without moving their business decisions
+into Inventory or combining all reads into one large query.
+
+Running or failed collection preserves the last COMPLETE quantities and their
+actual basis, but exposes the unsuccessful/current collection and freshness
+state. Uncollected stock is unknown, not zero. Successful validated publication
+atomically advances stock and publication provenance; each read's quantities
+and basis identify the same publication. Older attempts cannot overwrite a
+newer publication. Preserve purchase freshness gates and transaction-time
+revalidation.
+
+Ordinary stock reads do not depend on file-format validation. Keep validation
+at collection/input boundaries. Trace filename/hash callers before removal;
+retain integrity, duplicate-submission and replay evidence actually protecting
+an existing contract. Preserve collector behavior and reuse the existing
+publication-success cache invalidation path for every affected consumer.
+
+Acceptance uses real consumer interfaces to verify last-good preservation,
+running/failure/freshness display, success refresh, unknown versus zero, and
+late-result rejection. Include these in the existing integrated review and QA;
+do not add a layer, state or runtime without a demonstrated unmet need.
+
+### Approved collection clarification (2026-09-06)
+
+Sellpia full refresh preserves current stock plus profit for the 401 inclusive
+days ending yesterday. Stock and profit remain independent owner collections;
+full refresh only invokes both. There is no separate ABC-only collection:
+general reads and ABC consume the same validated source evidence. Collection
+completion never invokes ABC publication.
+
+The approved 2026-09-07 update removes the completed-month cutoff: ABC targets
+KST yesterday and uses the latest at most 12 calendar-month buckets, including
+the exact partial cutoff month. This is not an invented daily series or a
+rolling-365-day proration. Each selected bucket needs authoritative revenue,
+order-time supply cost and advertising for its exact start/end dates. The
+Evaluation period section defines weighting and normalization in formula 2.
+Do not allocate monthly totals to days or infer zero from absent data. Explicit
+refresh and last-good-grade preservation remain.
+
+The existing 401-day Sellpia collection remains the shared source. Live
+2026-09-07 inspection reproduced 5 cost mismatches among 256 rows for September
+1–6 and 129 among 1,393 rows for the full 401 days; revenue and quantity sums
+matched. Sellpia's displayed order-time-cost option selects `total_in_amount`,
+not the graph cost tuple. Keeping the 401-day sales window fixed and narrowing
+the purchase window exposed costs omitted from graph buckets with no orders
+(4 September and 3 August rows in the inspected periods). These observations
+do not authorize distributing the missing total across days or months.
+
+Repair the same source collection by reading exact period `total_in_amount`
+and `total_in_qty` against its fixed 401-day product set. Reconcile period sums
+to the full-window totals and verify unchanged identities, revenue and quantity
+across reads. Missing rows, inconsistent totals, or changing source evidence
+fail the attempt rather than fabricate a complete snapshot. Keep the provider's
+order-time-cost option; do not substitute current purchase price times quantity.
+Version the corrected parser/provenance so old graph-cost captures cannot be
+accepted as sufficient evidence by the new formula. Live browser verification
+on 2026-09-07 held sales at 2025-08-02 through 2026-09-06 and queried all 14
+intersecting purchase-month periods. All 1,393 product/option identities,
+revenues and order quantities stayed unchanged; each product's period cost and
+purchase-quantity sums exactly matched its 401-day totals (zero mismatches,
+no tolerance or rounding correction). This proves the provider-period repair,
+not the still-required installed-extension → owner → consumer integration QA.
+
+No existing Kakao-to-Sellpia converter or validated sample is available. Preserve
+the collected original and report conversion as unsupported; do not invent an
+Orders mapping or publish guessed canonical orders.
+
+All Excel conversion runs on the server, including order converters and Wing
+inventory export. The browser and extension capture and transport original data
+and download server-generated files only; there is no browser-conversion
+exception or client assertion that conversion succeeded. Preserve the existing
+converter's field mapping and file semantics with characterization tests.
+
+Converted files are generated for download, not permanently stored in
+the database. Lost-response recovery may regenerate a conversion; it does not
+justify persisting converted bytes or a second output lifecycle. This does not
+remove the approved retention of Kakao's unsupported original capture.
+
 This is a declared platform-seam reconstruction across browser collection,
 source ingestion, Operations, Automation, work notifications, and product ABC
 publication. It is intentionally larger than one business domain because the
@@ -182,6 +304,13 @@ those outcomes belong only to the source owner attempt.
 Cancel asks the domain Adapter to submit a non-actionable `FAILED` result to the
 owner and clears local control state only after that terminal write succeeds.
 The session itself never terminalizes canonical work.
+
+The common Browser I/O Module owns managed tabs, navigation, login wait and
+message transport only. Source-specific Adapters own resume/complete/cancel
+policy and call the source owner. Its final Interface has no source-result
+interpretation, session succeed/fail/restart behavior, or `keepSessionRunning`
+escape hatch. Preserve existing browser actions and timing when moving callers;
+this is responsibility removal, not a new Runner.
 
 ### One source-owner write path
 
@@ -493,7 +622,7 @@ Each load captures the latest selected `COMPLETE` generation for every required
 source and computes:
 
 ```text
-targetCutoff = end of the latest closed KST evaluation month
+targetCutoff = yesterday's KST calendar date
 
 evaluationCutoff = min(
   targetCutoff,
@@ -502,7 +631,7 @@ evaluationCutoff = min(
 )
 ```
 
-Sellpia and Advertising are the dated source inputs in formula V1. Mapping is
+Sellpia and Advertising are the dated source inputs in the current formula. Mapping is
 represented by its generation in the source vector, not by an invented cutoff.
 If either dated source has no `COMPLETE` manifest, `evaluationCutoff` is
 absent.
@@ -543,7 +672,7 @@ Persistence and publication fence.
 
 ### Business value
 
-V1 uses the best currently available operating-profit approximation:
+The current formula uses the best currently available operating-profit approximation:
 
 ```text
 operatingProfit = revenue - orderTimeSupplyCost - advertisingSpend
@@ -551,7 +680,7 @@ operatingProfit = revenue - orderTimeSupplyCost - advertisingSpend
 
 Marketplace commission, delivery/fulfillment, return loss, and other costs are
 added to this same subtraction only after authoritative source data exists.
-They are not stored as invented zero-valued formula inputs in V1.
+They are not stored as invented zero-valued formula inputs.
 
 ### Eligibility
 
@@ -563,24 +692,77 @@ An official grade is calculated only when all conditions hold:
 - the cost provenance is `ORDER_TIME_SUPPLY_COST`;
 - VAT provenance is known;
 - advertising evidence is `OBSERVED`, `CONFIRMED_ZERO`, or `NOT_APPLIED`;
-- at least 30 valid observation days exist.
+- at least 30 calendar days have elapsed from the product's verified sale start
+  to the evaluation cutoff;
+- the entire selected evaluation period has complete, valid source evidence;
+  data sufficiency has no separate minimum observation-day count.
 
 Advertising `MISSING` or `STALE` is never treated as zero. Source abnormality
 follows the Coherent Source Snapshot contract and never creates another grade
 or Evaluation.
 
-Products with fewer than 30 valid days show the UI label `NEW` with the
-read-time reason `INSUFFICIENT_EVIDENCE`, create no normal Evaluation row, and
-have no official A/B/C. Revenue, operating profit, and separate contribution
-metrics still display for the evidence that exists.
+Sale start is the earliest valid `saleStartedAt` among channel listings validly
+mapped to that master product within the organization. Use the source's actual
+date, normalize to its KST calendar day, and measure elapsed calendar days to
+the evaluation cutoff, not the wall clock. Day 29 is ineligible; day 30 is
+eligible for the separate evidence check. Invalid calendar values, future dates
+relative to the cutoff, and unconfirmed or foreign mappings do not contribute
+to the minimum date. No valid date means insufficient evidence, not an inferred
+sale start from local creation time, the first sale row, or collection coverage.
 
-Valid observation days count only closed collectible periods where Sellpia,
-advertising (including confirmed zero), and mapping evidence are all valid.
+Honor the documented source format rather than requiring an offset on every
+valid date. Korean Wing `wing_app_data` supplies `yyyy-MM-ddTHH:mm:ss` without
+an offset, as specified by the [Coupang product query contract](https://developers.coupang.com/ko/api/products/querying-product).
+Validate that source's calendar/time components and use its KST local day;
+offset-bearing timestamps are converted to KST. Do not apply an assumed timezone
+to an unknown source's local timestamp. The approved operating-clone read-only
+format audit found 2 Wing local timestamps and 1,684 missing dates; it did not
+change or backfill either group.
+
+The approved 2026-09-09 staged-catalog correction preserves the same provider
+`saleStartedAt` in detail capture. The verified Wing stage tags
+`coupang_catalog_details` and `coupang_catalog_basics` use that same KST rule;
+the latter may retain the detail date after a basics refresh. Unknown source
+tags remain excluded from naive timestamp interpretation. Do not substitute
+`createdOn` or backfill missing dates outside normal owner capture.
+
+A verified sale age under 30 days shows `NEW` / `INSUFFICIENT_EVIDENCE` and
+does not publish a new official grade. Unknown sale age is insufficient
+evidence, not proof that the product is new. Source abnormality or insufficient
+evidence preserves any last normal grade. Actual revenue, operating profit,
+and separate contribution metrics remain readable independently of eligibility.
+
+Evidence sufficiency checks the complete, preselected evaluation interval:
+Sellpia, advertising (including confirmed zero or explicit non-application),
+mapping, cost and VAT provenance must all be valid for that interval. Do not
+shorten the interval around missing buckets, fill unexplained gaps with zero,
+or treat an old sale start as evidence of coverage. A valid evaluation interval
+shorter than 30 days may qualify once sale age reaches 30 days; an empty
+interval cannot. Covered days remain a measurement and weighting denominator,
+not an age or minimum-evidence threshold. Zero-sales periods require explicit
+applicable coverage evidence, not sale age alone.
+
+This two-gate policy was approved on 2026-09-07 and supersedes the earlier
+minimum-30-valid-observation-days policy and temporary zero-observation gate.
+Record it in formula payload version 2 and evaluation
+provenance; do not add a parallel evaluator or compatibility path. Publication
+must recheck the relevant sale/mapping inputs as well as existing revision and
+source-generation fences so a changed sale date cannot publish a stale result.
+Store the normalized sale start used by each normal Evaluation as its date
+provenance. Derive elapsed age from that date and the evaluation cutoff rather
+than persisting a second age counter; shared publication provenance stays in
+FormulaState once per organization.
 
 ### Evaluation period
 
-- Exclude the current in-progress KST month.
-- Use at most the most recent 12 complete calendar months.
+- End at KST yesterday; do not wait for the current month to close.
+- Use at most the most recent 12 calendar-month buckets including the cutoff
+  month. Intersect bucket boundaries with the selected source coverage and
+  cutoff before validation; never shorten around a missing bucket.
+- Include the partial cutoff month only with exact same-period source totals.
+  Use the actual covered start/end dates and inclusive day count, without
+  prorating a larger monthly total. Advertising collection/allocations must
+  cover these same dates, not stop at the previous month end.
 - Apply exponential time weighting with a 90-day half-life.
 - Normalize weighted operating profit to a 30-day velocity.
 - Include a no-sales month as a valid zero period only when its collection
@@ -606,8 +788,10 @@ lossPersistence
     / sum(weight_i * coveredDays_i)
 ```
 
-The current source is monthly, so loss persistence is a monthly
-operating-profit estimate over each bucket's covered days.
+The source is period-aggregated, so loss persistence remains an estimate from
+each monthly or partial-month bucket's operating-profit sign, weighted by that
+bucket's actual covered days. The midpoint age for the 90-day half-life uses
+the same actual boundaries. These calculations do not assert daily profits.
 
 ### Fixed anchors
 
@@ -1038,6 +1222,43 @@ failed/truncated enumeration cannot certify completion. No automatic
 continuation, partial COMPLETE, new worker or child workflow is introduced.
 Existing provider filters, limits, normalization and retry behavior remain.
 
+Implementation boundary: `coupang_ad_keyword` has one RUNNING attempt per
+organization/account and a fixed 24-hour expiry without renewal. Admission
+freezes the existing default/selected account, advertiser identity and yesterday
+KST's seven-day window. The first campaign/group roster is immutable; each
+group's ad roster is frozen on its first visit, preserving the collector's lazy
+provider IO order. Resume reads these receipts from the owner, not
+`sessionStorage`. Missing identity, truncated enumeration or a failed metrics/
+registered-keywords request cannot become confirmed empty coverage.
+
+Use the existing SourceImportRun plus private ChannelScrapeRun/chunks and
+generation-tagged ChannelAdTargetDailySnapshot facts. Finalize publishes only
+manifest/terminal metadata and the source Alert in one transaction. Retain
+`adGroupId` on staged contributions and aggregate the existing public targetKey
+at read: identically named groups must remain independently replaceable.
+Status/read replies contain safe metadata; only the authenticated worker control
+read receives the token and frozen queue. External page messages carry attemptId
+only. Reopening a page or recovering a service worker never resumes provider IO.
+
+The campaign collector's existing optional single-group keyword capture must
+also move behind its campaign owner before legacy keyword writes are retired.
+Its failure must not fail the campaign, and a proven empty group must not clear
+sibling groups. The standalone checkpoint is not a completed keyword cutover
+until this producer and both current keyword readers use COMPLETE coverage.
+
+One Advertising-local published keyword snapshot Module hides COMPLETE
+selection, full-account/auxiliary-group precedence, actual capture/cutoff
+ordering with deterministic ties, confirmed-empty scope and aggregation behind
+a small Interface. Deepen the existing selector; do not create a parallel
+selector or generic snapshot framework. Both existing campaign keyword rollups
+and decision-target reads consume that Interface and delete their independent
+keyword newest-row selection. Historical action references remain historical.
+
+Verify publication through these actual consumer Interfaces: no staged rows,
+previous COMPLETE after failure, account-wide empty replacement, group-only
+empty replacement with siblings preserved, and no regression from delayed older
+completion. Owner/helper tests alone do not establish a usable source path.
+
 ### Shadow daily admission exception (approved 2026-09-06)
 
 Shadow retains its existing organization/KST-day paid-IO limit: a failed or
@@ -1106,9 +1327,16 @@ there is no new Worker, screen, or extension collector.
   thresholds have unit tests;
 - one product's grade is unchanged when unrelated products are added/removed;
 - no population/rank/contribution metric enters grade calculation;
-- fewer than 30 valid days yields no official grade;
+- verified sale age below 30 elapsed cutoff days yields no new official grade;
+- missing/invalid sale dates are not inferred; earliest valid mapped channel
+  sale date, 29/30-day boundary and changed-date publication fencing are tested;
+- complete valid periods under 30 days can qualify; old sale age does not
+  validate missing periods, invalid costs or stale advertising;
 - missing/stale advertising never becomes zero or automatic C;
-- current month is excluded and at most 12 complete months are used;
+- cutoff is KST yesterday with at most 12 calendar-month buckets, including an
+  exact partial cutoff month, with no daily allocation of monthly totals;
+- corrected Sellpia period costs reconcile to the 401-day totals, including
+  graph-zero/order-zero cost-bearing buckets; failed reconciliation is not COMPLETE;
 - confirmed zero months count while unproven empty months are stale;
 - all metrics use one common evaluation cutoff, and FormulaState persists the
   current publication provenance once per organization;
@@ -1204,3 +1432,138 @@ Their useful source-domain details remain reference material. Their relative
 ABC, reliability/calibration, Operation ledger, child workflow, outbox,
 Workflow runtime, and server Panel projection are not implementation
 requirements after this cutover.
+
+## 2026-09-10 approved amendment — dashboard partial aggregation
+
+This amendment supersedes the dashboard's whole-period-or-null display policy.
+The user selected visual option 2 and explicitly applied the policy to every
+dashboard card, chart, table, derived metric, comparison and snapshot/status
+value. The subsequent source/ABC amendment below defines the separately
+approved execution and publication changes; the score formula stays fixed.
+
+- Keep the user's selected filter. Each metric uses the maximal valid dates
+  for its own required sources; multiple-source metrics use their exact date
+  intersection. Never shrink all metrics to a global shortest interval.
+- Revenue, cost and advertising entering profit use identical dates. Ratios
+  use the same dates for numerator and denominator. Current/prior comparisons
+  expose both calculation bases; missing dates are not zero or silently
+  replaced by another range's cached values.
+- Include explicit collected zero days. Exclude missing, invalid or failed
+  source dates. Non-empty valid subsets display numbers with partial status;
+  only an empty computable subset displays no data. Query failures remain
+  errors and do not become no-data or zero responses.
+  The period-basis wire contract carries optional `queryFailedSources` names
+  separately from the sources used for a value. A failed required query with
+  no usable input uses `unverified`, no included dates and all selected dates
+  missing; normal empty collection does not carry a query failure. Preserve
+  independent successful values and show the failed source explicitly. Raw
+  exception messages stay in server logs, not the public evidence payload.
+- Every value exposes an unambiguous calculation basis: selected range,
+  actual included dates/day count, missing dates and source identity. Internal
+  holes must remain visible rather than implying a continuous min/max range.
+  Common explanations may cover groups only when their bases truly match.
+- Snapshot values such as inventory, product counts and ABC read stored
+  owner results and retain useful available values with their actual as-of
+  and source validity. They are not force-fit into period aggregation.
+- Use the selected main-metrics-left/data-status-right composition. The
+  status panel retains per-source coverage, missing dates and existing
+  explicit collection entrypoints. Its reference numbers are mock data;
+  replace its unavailable-profit placeholder with real partial aggregation.
+- Reporting scope: analytics/dashboard, its Sellpia sales read model, their
+  focused shared dashboard contract and dashboard UI. Related source/ABC
+  owner changes follow the amendment below; unrelated cleanup stays excluded.
+
+Regression evidence must cover partial numbers, different source cutoffs,
+internal holes, true zero, no common dates, current/prior bases, snapshot
+validity, failed reads and rendered card/chart/table basis labels. Source
+owner, extension and browser-lifetime acceptance remains separately required.
+
+## 2026-09-10 approved amendment — valid historical evidence and source units
+
+The user explicitly extends the previous reporting-only scope to Products'
+ABC execution/publication and source-owner confirmation where current gates
+prevent valid evidence from being used. Validity and freshness are distinct.
+This section supersedes an unconditional yesterday-cutoff/latest-attempt
+requirement elsewhere in this active design, not the integrity requirements
+inside a selected evaluation period or source unit.
+
+### ABC execution and publication
+
+- Preserve formula weights, score/grade thresholds, minimum selling age,
+  account/organization/mapping/provenance checks and complete evaluation
+  coverage. Do not disable requiresCompleteEvaluationPeriod or skip holes.
+- Select the newest common compatible cutoff for verified complete source
+  evidence. An actual cutoff before yesterday is publishable when all
+  evidence through that actual cutoff satisfies the existing evaluation
+  contract. Persist and display the actual cutoff separately from desired
+  latest cutoff/freshness.
+- A newer RUNNING/FAILED collection alone does not invalidate a previous
+  compatible complete source. Actual source correction/invalidation, account
+  identity or mapping changes still invalidate incompatible evidence.
+- Publication must not move an official result backward to an older cutoff.
+  Failures or freshness gaps do not erase the last valid grade. Retained
+  results expose their real cutoff and latest-data-not-applied status.
+- Internal evaluation holes do not produce a new grade by dropping dates.
+  Retain the last still-valid result, if any, and show new partial performance
+  separately. If no valid result exists, expose the reason instead of
+  inventing a grade. Source collection still never triggers ABC implicitly.
+
+### Source-owner confirmed units
+
+- Existing verified published dates remain immediately readable even when a
+  later date is missing or a newer collection attempt runs or fails.
+- A independently verifiable complete date may be confirmed inside the source
+  owner's transaction and exposed through its published read interface even
+  when other dates in the collection fail. Readers never bypass the owner or
+  query staging/raw facts directly. Batch outcome and confirmed-date outcome
+  are distinct; do not label a failed/incomplete batch COMPLETE.
+- Preserve organization/account identity, checksums, all pages and last-page
+  evidence for that date, explicit zero evidence, provenance, fencing,
+  duplicate/replacement and concurrent-write protections.
+- A partially captured day is never a whole-day total. Non-date-separable
+  period sources retain their verified period unit, without prorating totals
+  into invented days. Inspect each source contract before applying a change;
+  do not assume every collector shares Wing's current all-date gate.
+- For Wing, separate day validation/publication from period-summary evidence.
+  Recollection atomically replaces only a fully validated matching day,
+  preserves other normal dates, and does not let a stale attempt overwrite a
+  newer confirmed date. The complete period manifest remains independently
+  validated when a whole-period outcome is claimed.
+
+Source-specific implementation decisions from the September 10 contract audit:
+
+- Wing uses one immutable `WingTrafficDailyConfirmation` per attempt/account/
+  date. The highest confirmed generation wins before current-identity
+  validation; there is no second mutable current-pointer authority. Complete
+  pages, canonical date facts and confirmation commit atomically. Account
+  identity is checked under a row lock in that transaction. Exact-range period
+  evidence remains a separate whole-batch proof.
+- Coupang account daily advertising KPI receipts are independently complete
+  single-date v2 inputs. Reuse `ChannelAccountDailyKpiSnapshot` as their canonical
+  date publication rather than introducing another confirmation/pointer model.
+  Add an organization-scoped nullable source-attempt FK with an indexed access
+  path and explicit restrictive deletion policy; retain the existing raw
+  snapshot provenance FK. Valid v2 receipt, audit snapshot/chunk, canonical
+  upsert and stable receipt ACK share one source-owner transaction. Current
+  account identity is locked and checked; compare freshness generations before
+  replacement. Legacy v1 inputs remain audit/replay-only availability-unknown.
+  Reads use the canonical publication with matching source/snapshot provenance,
+  not unconfirmed receipt rows and not the whole-attempt COMPLETE predicate.
+- Each source's readiness and actual cutoff derive from valid canonical dates
+  for the current identity. READY requires all dates in its existing required
+  coverage window. A newer failed/running attempt is separate state and does
+  not demote still-complete valid coverage. Partial coverage remains explicit.
+- Versioned post-schema backfills admit only fully proven pre-existing COMPLETE
+  v2 evidence, retain ambiguous evidence without publication, and never replace
+  a newer canonical generation. They are idempotent and registered in the open
+  release train. Historical failed/staged inputs are not promoted by backfill.
+- Sellpia sales is one complete all-seller report for the requested range;
+  normalized day rows alone do not prove independently separable captures.
+  Preserve its atomic complete-report publication and dated sentinel evidence.
+  Do not split a malformed report into accepted partial days.
+
+Regression gates include missing latest day, an internal hole, newer failed
+collection with prior complete evidence, a partial page/day, explicit zero,
+empty source intersection, changed mapping/account, duplicate replacement,
+concurrent publication and official ABC cutoff non-regression. Update outdated
+tests that require yesterday unconditionally; retain integrity regressions.

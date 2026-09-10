@@ -29,7 +29,6 @@ function makeServices() {
     },
     campaigns: {
       getCampaigns: vi.fn(),
-      getCampaignSyncStatus: vi.fn(),
       getTrends: vi.fn(),
     },
     strategy: {
@@ -41,14 +40,8 @@ function makeServices() {
       registerCampaign: vi.fn(),
     },
     benchmark: { getDiagnosis: vi.fn() },
-    collect: { startCollection: vi.fn(), getStatus: vi.fn() },
-    sync: {
-      sync: vi.fn(),
+    extension: {
       getExtensionStatus: vi.fn(),
-      getScrapeTargets: vi.fn(),
-      createScrapeTarget: vi.fn(),
-      markScraped: vi.fn(),
-      deleteScrapeTarget: vi.fn(),
     },
     action: {
       getActions: vi.fn(),
@@ -78,8 +71,7 @@ function makeControllers(svcs = makeServices()) {
   const strategyCtrl = new AdvertisingStrategyController(svcs.strategy as any);
   const diagnosticsCtrl = new AdvertisingDiagnosticsController(svcs.benchmark as any);
   const ingestCtrl = new AdvertisingIngestController(
-    svcs.collect as any,
-    svcs.sync as any,
+    svcs.extension as any,
   );
   const actionCtrl = new AdvertisingActionsController(svcs.action as any);
   const executionCtrl = new AdvertisingExecutionController(svcs.execution as any);
@@ -146,14 +138,6 @@ describe('AdvertisingController — defaults + body transformations', () => {
     const { ctrl, svcs } = makeCampaignsController();
     ctrl.getCampaigns({} as any, COMPANY);
     expect(svcs.campaigns.getCampaigns).toHaveBeenCalledWith('7d', COMPANY);
-  });
-
-  it('GET /campaigns/sync-status uses the authenticated organization scope', () => {
-    const { ctrl, svcs } = makeCampaignsController();
-
-    ctrl.getCampaignSyncStatus(COMPANY);
-
-    expect(svcs.campaigns.getCampaignSyncStatus).toHaveBeenCalledWith(COMPANY);
   });
 
   it('GET /campaigns/trends passes an inclusive custom date range', () => {
@@ -236,25 +220,17 @@ describe('AdvertisingController — defaults + body transformations', () => {
   });
 });
 
-describe('AdvertisingController — POST /scrape-targets dispatch', () => {
-  it('action=markScraped → sync.markScraped(id, organizationId)', () => {
+describe('AdvertisingController — extension status', () => {
+  it('retains the status read while exposing no generic extension write method', () => {
     const { ctrl, svcs } = makeIngestController();
-    ctrl.handleScrapeTarget({ action: 'markScraped', id: 'target-1' } as any, COMPANY);
-    expect(svcs.sync.markScraped).toHaveBeenCalledWith('target-1', COMPANY);
-  });
 
-  it('create body → sync.createScrapeTarget(url, label, category, organizationId)', () => {
-    const { ctrl, svcs } = makeIngestController();
-    ctrl.handleScrapeTarget(
-      { url: 'https://example.com', label: 'L', category: 'C' } as any,
-      COMPANY,
-    );
-    expect(svcs.sync.createScrapeTarget).toHaveBeenCalledWith(
-      'https://example.com',
-      'L',
-      'C',
-      COMPANY,
-    );
+    ctrl.extensionStatus(COMPANY);
+
+    expect(svcs.extension.getExtensionStatus).toHaveBeenCalledWith(COMPANY);
+    expect('extensionSync' in Object.getPrototypeOf(ctrl)).toBe(false);
+    expect('getScrapeTargets' in Object.getPrototypeOf(ctrl)).toBe(false);
+    expect('handleScrapeTarget' in Object.getPrototypeOf(ctrl)).toBe(false);
+    expect('deleteScrapeTarget' in Object.getPrototypeOf(ctrl)).toBe(false);
   });
 });
 

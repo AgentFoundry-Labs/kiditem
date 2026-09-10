@@ -12,6 +12,9 @@ const ORGANIZATION_ID = '00000000-0000-4000-8000-000000000001';
 const PRODUCT_ID = '00000000-0000-4000-8000-000000000002';
 const SELLPIA_RUN_ID = '00000000-0000-4000-8000-000000000010';
 const ADVERTISING_RUN_ID = '00000000-0000-4000-8000-000000000011';
+const LISTING_ID = '00000000-0000-4000-8000-000000000031';
+const MULTI_MASTER_PRODUCT_ID = '00000000-0000-4000-8000-000000000003';
+const INVALID_MAPPING_PRODUCT_ID = '00000000-0000-4000-8000-000000000004';
 
 const MONTHS = [
   '2025-09', '2025-10', '2025-11', '2025-12', '2026-01', '2026-02',
@@ -31,8 +34,9 @@ function sellpiaGeneration(overrides: Record<string, unknown> = {}) {
     coverage: { from: '2025-09-01', to: '2026-08-31', coveredMonths: MONTHS },
     capturedAt: '2026-09-02T00:00:00.000Z',
     quality: {
-      contract: 'sellpia-profitability-v1',
-      parserVersion: 'sellpia-profitability-v1',
+      contract: 'sellpia-profitability-v2',
+      parserVersion: 'sellpia-profitability-v2',
+      correctedCostEvidence: true,
       contentChecksum: 'a'.repeat(64),
       contentByteCount: 1,
       includedRowCount: MONTHS.length,
@@ -175,7 +179,9 @@ function advertisingGeneration(overrides: Record<string, unknown> = {}) {
       coveredEndDate: monthEnd(month),
       wholeRecipeWeight: 1,
       allocatedSpend: 1_000,
-      observedTargetDayCount: 30,
+      observedTargetDayCount: new Date(
+        Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0),
+      ).getUTCDate(),
       mappingGeneration: '3',
     })),
     ...overrides,
@@ -209,6 +215,27 @@ function makeService(input: {
         input.products ?? [{ id: PRODUCT_ID, isActive: true, _count: { inventorySkus: 1 } }],
       ),
     },
+    channelListing: {
+      findMany: vi.fn().mockResolvedValue([{
+        id: LISTING_ID,
+        rawJson: { saleStartedAt: '2025-09-01' },
+        options: [{
+          inventoryComponents: [{
+            quantity: 1,
+            sellpiaInventorySku: {
+              isActive: true,
+              masterProductId: PRODUCT_ID,
+              masterProduct: { isActive: true },
+            },
+          }],
+        }],
+      }]),
+    },
+    $queryRaw: vi.fn().mockResolvedValue([{
+      listingId: LISTING_ID,
+      source: null,
+      saleStartedAt: '2025-09-01',
+    }]),
     masterProductAbcFormulaState: {
       findUnique: vi.fn().mockResolvedValue(
         input.mappingGeneration === null
@@ -255,6 +282,203 @@ describe('ProfitabilityEvidence', () => {
       expect.any(Function),
       { isolationLevel: 'RepeatableRead' },
     );
+  });
+
+  it('keeps a full collection-slice fact readable without crediting product observation days', async () => {
+    const { service } = makeService();
+
+    const result = await service.load({
+      organizationId: ORGANIZATION_ID,
+      targetCutoff: '2026-08-31',
+    });
+
+    expect(result.products[0]).toMatchObject({
+      validObservationDays: 365,
+      formulaReadyFacts: {
+        monthlyFacts: expect.arrayContaining([
+          expect.objectContaining({
+            yearMonth: '2026-08',
+            coverageStartDate: '2026-08-01',
+            coverageEndDate: '2026-08-31',
+            coveredDays: 31,
+            recognizedRevenue: 100_000,
+            orderTimeSupplyCost: 40_000,
+          }),
+        ]),
+      },
+    });
+  });
+
+  it('retains legacy cost amounts but blocks official evaluation evidence', async () => {
+    const legacy = sellpiaGeneration({
+      quality: {
+        ...sellpiaGeneration().quality,
+        contract: 'sellpia-profitability-v1',
+        parserVersion: 'sellpia-profitability-v1',
+        correctedCostEvidence: false,
+      },
+    });
+    const { service } = makeService({
+      sellpiaCatalog: sellpiaCatalog({ completeGenerations: [legacy] }),
+      sellpiaFacts: sellpiaFacts({ generation: legacy }),
+    });
+
+    const result = await service.load({
+      organizationId: ORGANIZATION_ID,
+      targetCutoff: '2026-08-31',
+    });
+
+    expect(result.products[0]).toMatchObject({
+      evaluationPeriodComplete: false,
+      formulaReadyFacts: {
+        monthlyFacts: expect.arrayContaining([
+          expect.objectContaining({ recognizedRevenue: 100_000, orderTimeSupplyCost: 40_000 }),
+        ]),
+      },
+    });
+  });
+
+  it('selects the declared partial cutoff interval and counts its exact days', async () => {
+    const sellpiaGenerationWithPartialCutoff = sellpiaGeneration({
+      coverage: {
+        from: '2025-09-01',
+        to: '2026-08-15',
+        coveredMonths: MONTHS,
+      },
+    });
+    const sellpia = sellpiaFacts({
+      generation: sellpiaGenerationWithPartialCutoff,
+      facts: sellpiaFacts().facts.map((fact: { yearMonth: string }) => fact.yearMonth === '2026-08'
+        ? { ...fact, coverageEndDate: '2026-08-15' }
+        : fact),
+    });
+    const advertisingSummaryWithPartialCutoff = advertisingSummary({
+      coveredThrough: '2026-08-15',
+    });
+    const advertising = advertisingGeneration({
+      summary: advertisingSummaryWithPartialCutoff,
+      allocations: advertisingGeneration().allocations.map((fact: { month: string }) => fact.month === '2026-08'
+        ? { ...fact, coveredEndDate: '2026-08-15', observedTargetDayCount: 15 }
+        : fact),
+    });
+    const { service } = makeService({
+      sellpiaCatalog: {
+        ...sellpiaCatalog({ completeGenerations: [sellpiaGenerationWithPartialCutoff] }),
+        latestAttempt: {
+          ...sellpiaCatalog().latestAttempt,
+          plan: { from: '2025-09-01', to: '2026-08-15', coveredMonths: MONTHS },
+        },
+      },
+      sellpiaFacts: sellpia,
+      advertisingSnapshot: {
+        ...advertisingSnapshot({ completeGenerations: [advertisingSummaryWithPartialCutoff] }),
+        latestComplete: advertisingSummaryWithPartialCutoff,
+        latestAttempt: {
+          ...advertisingSnapshot().latestAttempt,
+          coverageEndDate: '2026-08-15',
+        },
+      },
+      advertisingGeneration: advertising,
+    });
+
+    const result = await service.load({
+      organizationId: ORGANIZATION_ID,
+      targetCutoff: '2026-08-15',
+    });
+
+    expect(result.products[0]).toMatchObject({
+      evaluationPeriodComplete: true,
+      validObservationDays: 349,
+    });
+    expect(result.products[0].formulaReadyFacts?.monthlyFacts.at(-1)).toMatchObject({
+      yearMonth: '2026-08',
+      coverageStartDate: '2026-08-01',
+      coverageEndDate: '2026-08-15',
+      coveredDays: 15,
+    });
+  });
+
+  it('retains amounts but rejects a bucket whose fact boundary misses the declared cutoff', async () => {
+    const sellpiaGenerationWithPartialCutoff = sellpiaGeneration({
+      coverage: { from: '2025-09-01', to: '2026-08-15', coveredMonths: MONTHS },
+    });
+    const { service } = makeService({
+      sellpiaCatalog: {
+        ...sellpiaCatalog({ completeGenerations: [sellpiaGenerationWithPartialCutoff] }),
+        latestAttempt: {
+          ...sellpiaCatalog().latestAttempt,
+          plan: { from: '2025-09-01', to: '2026-08-15', coveredMonths: MONTHS },
+        },
+      },
+      sellpiaFacts: sellpiaFacts({
+        generation: sellpiaGenerationWithPartialCutoff,
+        facts: sellpiaFacts().facts.map((fact: { yearMonth: string }) => fact.yearMonth === '2026-08'
+          ? { ...fact, coverageEndDate: '2026-08-14' }
+          : fact),
+      }),
+      advertisingSnapshot: {
+        ...advertisingSnapshot(),
+        latestAttempt: { ...advertisingSnapshot().latestAttempt, coverageEndDate: '2026-08-15' },
+      },
+      advertisingGeneration: advertisingGeneration({
+        summary: advertisingSummary({ coveredThrough: '2026-08-15' }),
+        allocations: advertisingGeneration().allocations.map((fact: { month: string }) => fact.month === '2026-08'
+          ? { ...fact, coveredEndDate: '2026-08-15', observedTargetDayCount: 15 }
+          : fact),
+      }),
+    });
+
+    const result = await service.load({
+      organizationId: ORGANIZATION_ID,
+      targetCutoff: '2026-08-15',
+    });
+
+    expect(result.products[0].evaluationPeriodComplete).toBe(false);
+    expect(result.products[0].formulaReadyFacts?.monthlyFacts.at(-1)).toMatchObject({
+      yearMonth: '2026-08',
+      coverageEndDate: '2026-08-14',
+      recognizedRevenue: 100_000,
+    });
+  });
+
+  it('keeps a daily Sellpia source ending after the monthly ABC cutoff while bounding facts at month-end', async () => {
+    const generation = sellpiaGeneration({
+      coverage: {
+        from: '2025-09-01',
+        to: '2026-09-03',
+        coveredMonths: [...MONTHS, '2026-09'],
+      },
+    });
+    const { service } = makeService({
+      sellpiaCatalog: {
+        ...sellpiaCatalog({ completeGenerations: [generation] }),
+        latestAttempt: {
+          ...sellpiaCatalog().latestAttempt,
+          plan: {
+            from: '2025-09-01',
+            to: '2026-09-03',
+            coveredMonths: [...MONTHS, '2026-09'],
+          },
+        },
+      },
+      sellpiaFacts: sellpiaFacts({ generation }),
+    });
+
+    const result = await service.load({
+      organizationId: ORGANIZATION_ID,
+      targetCutoff: '2026-08-31',
+    });
+
+    expect(result.actualCutoff).toBe('2026-08-31');
+    expect(result.sourceVector.sellpia.coverageEndDate).toBe('2026-09-03');
+    expect(result.sources.sellpia).toMatchObject({
+      status: 'READY',
+      actualCutoff: '2026-08-31',
+    });
+    expect(result.products[0].formulaReadyFacts?.monthlyFacts.at(-1)).toMatchObject({
+      yearMonth: '2026-08',
+      coverageEndDate: '2026-08-31',
+    });
   });
 
   it('counts only the shared partial-month coverage days', async () => {
@@ -445,7 +669,7 @@ describe('ProfitabilityEvidence', () => {
     expect(result.products[0].formulaReadyFacts).toBeNull();
   });
 
-  it('fills a manifest-covered no-row month with a proven zero for a mapped product', async () => {
+  it('does not infer a product zero from a manifest-covered month without a product fact', async () => {
     const completeFacts = sellpiaFacts();
     const missingMonth = '2026-08';
     const { service } = makeService({
@@ -462,16 +686,12 @@ describe('ProfitabilityEvidence', () => {
     const missing = result.products[0].formulaReadyFacts?.monthlyFacts
       .find((fact: { yearMonth: string }) => fact.yearMonth === missingMonth);
 
-    expect(missing).toMatchObject({
-      yearMonth: missingMonth,
-      recognizedRevenue: 0,
-      orderTimeSupplyCost: 0,
-      advertisingSpend: 1_000,
-      coveredDays: 31,
-    });
+    expect(missing).toBeUndefined();
+    expect(result.products[0].validObservationDays).toBe(334);
+    expect(result.products[0].formulaReadyFacts?.monthlyFacts).toHaveLength(11);
   });
 
-  it('fills an entirely empty manifest window for a product mapped in the same generation', async () => {
+  it('does not establish observation for a mapped product without product facts', async () => {
     const completeFacts = sellpiaFacts({ facts: [] });
     const { service } = makeService({
       sellpiaFacts: completeFacts,
@@ -485,17 +705,96 @@ describe('ProfitabilityEvidence', () => {
 
     expect(result.products[0]).toMatchObject({
       mappingValid: true,
-      formulaReadyFacts: {
-        monthlyFacts: expect.arrayContaining([
-          expect.objectContaining({
-            yearMonth: '2026-08',
-            recognizedRevenue: 0,
-            orderTimeSupplyCost: 0,
-          }),
-        ]),
-      },
+      validObservationDays: 0,
+      formulaReadyFacts: null,
     });
-    expect(result.products[0].formulaReadyFacts.monthlyFacts).toHaveLength(12);
+  });
+
+  it('preserves valid, multi-master, invalid-mapping, and unmapped fact semantics', async () => {
+    const products = [
+      { id: PRODUCT_ID, isActive: true, _count: { inventorySkus: 1 } },
+      { id: MULTI_MASTER_PRODUCT_ID, isActive: true, _count: { inventorySkus: 1 } },
+      { id: INVALID_MAPPING_PRODUCT_ID, isActive: true, _count: { inventorySkus: 1 } },
+    ];
+    const { service, sellpia, prisma } = makeService({ products });
+    prisma.channelListing.findMany.mockResolvedValue([{
+      id: LISTING_ID,
+      rawJson: { saleStartedAt: '2025-09-01' },
+      options: [{
+        inventoryComponents: [
+          {
+            quantity: 1,
+            sellpiaInventorySku: {
+              isActive: true,
+              masterProductId: PRODUCT_ID,
+              masterProduct: { isActive: true },
+            },
+          },
+          {
+            quantity: 1,
+            sellpiaInventorySku: {
+              isActive: true,
+              masterProductId: MULTI_MASTER_PRODUCT_ID,
+              masterProduct: { isActive: true },
+            },
+          },
+        ],
+      }],
+    }]);
+    const completeFacts = sellpiaFacts();
+    const multiMasterFacts = completeFacts.facts.map((fact: Record<string, unknown>) => ({
+      ...fact,
+      masterProductId: MULTI_MASTER_PRODUCT_ID,
+      sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000021',
+      productCode: 'SKU-MULTI',
+    }));
+    const invalidMappingFact = {
+      ...completeFacts.facts[0],
+      masterProductId: INVALID_MAPPING_PRODUCT_ID,
+      sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000022',
+      productCode: 'SKU-INVALID-MAPPING',
+    };
+    sellpia.readGenerationFacts.mockResolvedValue({
+      generation: completeFacts.generation,
+      facts: [...completeFacts.facts, ...multiMasterFacts, invalidMappingFact],
+      unmappedFacts: [{
+        sourceImportRunId: SELLPIA_RUN_ID,
+        sellpiaInventorySkuId: null,
+        masterProductId: null,
+        productCode: 'SKU-UNMAPPED',
+        optionCode: '',
+        yearMonth: '2026-08',
+        coverageStartDate: '2026-08-01',
+        coverageEndDate: '2026-08-31',
+        revenue: 100,
+        orderTimeSupplyCost: 40,
+        costBasis: 'ORDER_TIME_SUPPLY_COST',
+        vatIncluded: true,
+        capturedAt: '2026-09-02T00:00:00.000Z',
+        reason: 'SOURCE_UNMAPPED',
+      }],
+    });
+
+    const result = await service.load({
+      organizationId: ORGANIZATION_ID,
+      targetCutoff: '2026-08-31',
+    });
+
+    expect(sellpia.readGenerationFacts).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      sourceImportRunId: SELLPIA_RUN_ID,
+      masterProductIds: [PRODUCT_ID, MULTI_MASTER_PRODUCT_ID],
+      yearMonths: MONTHS,
+    });
+    expect(result.products.map((product: { masterProductId: string }) => product.masterProductId))
+      .toEqual([PRODUCT_ID, MULTI_MASTER_PRODUCT_ID, INVALID_MAPPING_PRODUCT_ID]);
+    expect(result.products[0].formulaReadyFacts.monthlyFacts).toHaveLength(MONTHS.length);
+    expect(result.products[1].formulaReadyFacts.monthlyFacts).toHaveLength(MONTHS.length);
+    expect(result.products[2]).toMatchObject({
+      mappingValid: false,
+      validObservationDays: 0,
+      formulaReadyFacts: null,
+    });
   });
 
   it('keeps zero allocated advertising spend as confirmed zero despite observed coverage days', async () => {

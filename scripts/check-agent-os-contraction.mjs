@@ -339,9 +339,9 @@ function capabilityCatalogFindings(files) {
   const keys = capabilityFiles.flatMap(capabilityKeys);
   const sourcingCount = keys.filter((key) => key.startsWith("sourcing.")).length;
   const findings = [];
-  if (keys.length !== 14) {
+  if (keys.length !== 13) {
     findings.push(
-      "apps/server/src: Capability catalog must define exactly fourteen definitions (found " +
+      "apps/server/src: Capability catalog must define exactly thirteen definitions (found " +
         keys.length +
         ")",
     );

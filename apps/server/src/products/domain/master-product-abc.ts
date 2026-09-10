@@ -1,5 +1,7 @@
 import {
-  PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD,
+  PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
+  parseProductAbcDateToKstCalendarDate,
+  productAbcSaleAgeDays,
   type ProductAbcFormulaPayload,
 } from '@kiditem/shared/product-abc';
 
@@ -28,8 +30,10 @@ export type MasterProductAbcFormulaReadyMonthlyFact = Readonly<{
 
 export type MasterProductAbcFormulaReadyFacts = Readonly<{
   masterProductId: string;
-  /** The final day of the latest complete KST month in the source snapshot. */
+  /** The latest closed KST calendar day in the source snapshot. */
   cutoffDate: Date | string;
+  saleStartDate: string | null;
+  evaluationPeriodComplete: boolean;
   monthlyFacts: readonly MasterProductAbcFormulaReadyMonthlyFact[];
 }>;
 
@@ -40,6 +44,7 @@ export type MasterProductAbcCandidateInput = Readonly<{
 
 export type MasterProductAbcCandidate = Readonly<{
   masterProductId: string;
+  saleStartDate: string;
   abcGrade: 'A' | 'B' | 'C';
   validObservationDays: number;
   gradeBasisCutoffDate: string;
@@ -66,7 +71,7 @@ export type MasterProductAbcAnchor = Readonly<{
  * this reference keeps fixtures and callers on the same immutable definition;
  * the evaluator never maintains a second copy of its literals.
  */
-export { PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD };
+export { PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD };
 
 /**
  * Evaluate exactly one product from formula-ready monthly facts.
@@ -80,6 +85,9 @@ export function evaluateMasterProductAbc(
 ): MasterProductAbcCandidate {
   const formula = input.formula;
   const formulaReadyFacts = input.facts;
+  const normalizedSaleStartDate = parseProductAbcDateToKstCalendarDate(
+    formulaReadyFacts.saleStartDate,
+  );
   const facts = selectFacts(formulaReadyFacts, formula);
   const metrics = calculateMetrics(facts, formulaReadyFacts.cutoffDate, formula);
 
@@ -126,6 +134,7 @@ export function evaluateMasterProductAbc(
 
   return {
     masterProductId: formulaReadyFacts.masterProductId,
+    saleStartDate: normalizedSaleStartDate!,
     abcGrade,
     validObservationDays: metrics.validObservationDays,
     gradeBasisCutoffDate: calendarDate(formulaReadyFacts.cutoffDate),
@@ -170,26 +179,30 @@ function selectFacts(
   input: MasterProductAbcFormulaReadyFacts,
   formula: ProductAbcFormulaPayload,
 ): readonly NormalizedFact[] {
-  if (formula.excludeCurrentKstMonth !== true) {
-    throw new Error('formula must exclude the current KST month');
+  if (formula.includePartialCutoffMonth !== true) {
+    throw new Error('formula must include the partial cutoff month');
   }
   if (!Number.isFinite(formula.halfLifeDays) || formula.halfLifeDays <= 0) {
     throw new Error('formula half-life is invalid');
   }
-  if (!Number.isInteger(formula.maxCompleteMonths) || formula.maxCompleteMonths <= 0) {
+  if (!Number.isInteger(formula.maxCalendarMonths) || formula.maxCalendarMonths <= 0) {
     throw new Error('formula month window is invalid');
   }
   if (!input || typeof input.masterProductId !== 'string' || input.masterProductId.length === 0) {
     throw new Error('formula-ready product identity is required');
   }
+  if (formula.requiresCompleteEvaluationPeriod && input.evaluationPeriodComplete !== true) {
+    throw new Error('evaluation period is incomplete');
+  }
+  const saleAgeDays = productAbcSaleAgeDays(input.saleStartDate, calendarDate(input.cutoffDate));
+  if (saleAgeDays === null || saleAgeDays < formula.minimumSaleAgeDays) {
+    throw new Error('sale age is insufficient');
+  }
   const cutoffDay = kstEpochDay(input.cutoffDate);
   const cutoffMonth = yearMonthForEpochDay(cutoffDay);
-  if (cutoffDay !== kstEpochDay(`${cutoffMonth}-${String(daysInMonth(cutoffMonth)).padStart(2, '0')}`)) {
-    throw new Error('cutoff must be the final day of a complete KST month');
-  }
   const firstMonth = shiftYearMonth(
     cutoffMonth,
-    -(formula.maxCompleteMonths - 1),
+    -(formula.maxCalendarMonths - 1),
   );
   const rawFacts = input.monthlyFacts;
   if (!Array.isArray(rawFacts)) throw new Error('formula-ready monthly facts are required');
@@ -219,7 +232,7 @@ function selectFacts(
       throw new Error(`invalid covered days ${month}`);
     }
     const spanDays = coverageEndDay - coverageStartDay + 1;
-    if (coveredDays > spanDays) throw new Error(`covered days exceed coverage ${month}`);
+    if (coveredDays !== spanDays) throw new Error(`covered days do not match coverage ${month}`);
 
     validateProvenance(rawFact.provenance, month);
     const recognizedRevenue = finiteAmount(rawFact.recognizedRevenue, `recognized revenue ${month}`);
@@ -240,9 +253,7 @@ function selectFacts(
 
   selected.sort((left, right) => left.yearMonth.localeCompare(right.yearMonth));
   const validObservationDays = selected.reduce((sum, fact) => sum + fact.coveredDays, 0);
-  if (validObservationDays < formula.minimumObservationDays) {
-    throw new Error('insufficient complete observation days');
-  }
+  if (!(validObservationDays > 0)) throw new Error('observation days are empty');
   return selected;
 }
 

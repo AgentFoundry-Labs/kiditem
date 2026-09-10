@@ -13,7 +13,7 @@ function modelBlock(schema, model) {
   return tail.slice(0, end + 2);
 }
 
-test("absolute ABC persistence keeps only publication-ready V1 state", async () => {
+test("absolute ABC persistence keeps only publication-ready current state", async () => {
   const core = await read("prisma/models/core.prisma");
   const formulaVersion = modelBlock(core, "MasterProductAbcFormulaVersion");
   const formulaState = modelBlock(core, "MasterProductAbcFormulaState");
@@ -100,7 +100,7 @@ test("absolute ABC persistence keeps only publication-ready V1 state", async () 
   assert.doesNotMatch(core, /MasterProductAbcPolicy|ABC_V2|quantile|calibration/i);
 });
 
-test("the 0.1.31 reset is followed only by un-published V1 installation", async () => {
+test("the 0.1.31 reset is followed only by un-published current installation", async () => {
   const [registry, reset, initialize] = await Promise.all([
     read("scripts/data-migrations/index.ts"),
     read("scripts/data-migrations/v0.1.31/001_reset_absolute_product_abc.ts"),
@@ -118,7 +118,7 @@ test("the 0.1.31 reset is followed only by un-published V1 installation", async 
     "masterProductAbcFormulaVersion",
   ]) assert.match(reset, new RegExp(`${table}\\.deleteMany`));
   assert.match(reset, /abcGrade:\s*null/);
-  assert.match(initialize, /PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD_HASH/);
+  assert.match(initialize, /PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH/);
   assert.match(initialize, /formulaRevision:\s*1/);
   assert.match(initialize, /publicationRevision:\s*0/);
   assert.doesNotMatch(initialize, /masterProductAbcEvaluation|masterProductAbcGradeHistory|abcGrade/);

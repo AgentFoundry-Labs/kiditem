@@ -178,8 +178,10 @@ describe('Readiness Wing source owner boundary', () => {
   });
 
   it('hands off auth before frozen admission and dispatch, then waits for persisted per-keyword results', async () => {
+    const open = vi.spyOn(window, 'open').mockReturnValue(null);
     const h = setup();
     await h.start();
+    expect(open).not.toHaveBeenCalled();
     const begin = h.requests.find(
       ({ url, init }) => url.endsWith(path) && init.method === 'POST',
     );
@@ -197,16 +199,15 @@ describe('Readiness Wing source owner boundary', () => {
       h.events.indexOf('collectAdvertisingWingRankBatch'),
     );
     expect(h.result.current.pendingKey).toBe('wing_kpi');
-    expect(h.result.current.activeSession).toBeNull();
     expect(h.refetchReadiness).not.toHaveBeenCalled();
     expect(toast.success).not.toHaveBeenCalled();
     const action = vi
       .mocked(toast.info)
       .mock.calls.find(([, options]) => options?.action)?.[1]?.action;
     expect(action).toMatchObject({ label: '진행 보기' });
-    const open = vi.spyOn(window, 'open').mockReturnValue(null);
     if (action && typeof action === 'object' && 'onClick' in action)
       action.onClick({} as never);
+    expect(open).toHaveBeenCalledTimes(1);
     expect(open).toHaveBeenCalledWith(
       `/rank-tracking?rankBatch=${key}`,
       '_blank',

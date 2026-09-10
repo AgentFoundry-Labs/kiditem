@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import { SellpiaProfitabilitySourceService } from './sellpia-profitability-source.service';
-import { MAX_GENERATION_FACT_ROWS } from './sellpia-profitability-source.internal';
+import {
+  freezeFacts,
+  MAX_GENERATION_FACT_ROWS,
+  normalizeSubmission,
+} from './sellpia-profitability-source.internal';
 
 const ORGANIZATION_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const ATTEMPT_ID = '11111111-1111-4111-8111-111111111111';
@@ -23,13 +27,14 @@ function run(overrides: Record<string, unknown> = {}) {
       to: '2026-08-31',
       coveredMonths: ['2025-09', '2026-08'],
     },
-    parserVersion: 'sellpia-profitability-v1',
+    parserVersion: 'sellpia-profitability-v2',
     contentChecksum: 'a'.repeat(64),
     contentByteCount: 128,
     rowCount: 1,
     qualityReport: {
-      contract: 'sellpia-profitability-v1',
-      parserVersion: 'sellpia-profitability-v1',
+      contract: 'sellpia-profitability-v2',
+      parserVersion: 'sellpia-profitability-v2',
+      correctedCostEvidence: true,
       contentChecksum: 'a'.repeat(64),
       contentByteCount: 128,
       includedRowCount: 1,
@@ -77,6 +82,7 @@ function makeService(input: {
     },
   };
   const prisma = {
+    sourceImportRun: tx.sourceImportRun,
     $transaction: vi.fn(async (callback: (client: typeof tx) => Promise<unknown>) => callback(tx)),
   };
   const service = new SellpiaProfitabilitySourceService(
@@ -106,6 +112,55 @@ function fact(overrides: Record<string, unknown> = {}) {
 }
 
 describe('Sellpia profitability source deep read', () => {
+  it('accepts only corrected v2 submissions while keeping v1 read compatibility separate', () => {
+    const body = {
+      parserVersion: 'sellpia-profitability-v2',
+      providerBackedEmptyProof: true,
+      coveredMonths: ['2026-08'],
+      provenance: {
+        source: 'sellpia_stat_prd_profit' as const,
+        costBasis: 'ORDER_TIME_SUPPLY_COST' as const,
+        vatIncluded: true as const,
+      },
+      products: [],
+    };
+
+    expect(normalizeSubmission(body)).toMatchObject({
+      parserVersion: 'sellpia-profitability-v2',
+      providerBackedEmptyProof: true,
+    });
+    expect(() => normalizeSubmission({
+      ...body,
+      parserVersion: 'sellpia-profitability-v1',
+    } as never)).toThrow('PARSER_VERSION_MISMATCH');
+  });
+
+  it('verifies provider totals against the normalized monthly facts', () => {
+    expect(() => freezeFacts(
+      ATTEMPT_ID,
+      { from: '2026-06-01', to: '2026-06-30', coveredMonths: ['2026-06'] },
+      [{
+        productCode: 'SKU-1',
+        optionCode: '',
+        productName: '상품',
+        salePrice: 1000,
+        buyPrice: 600,
+        totalOrderAmount: 1000,
+        totalOrderQty: 2,
+        totalInAmount: 401,
+        totalInQty: 1,
+        months: [{
+          yearMonth: '2026-06',
+          orderAmount: 1000,
+          orderQty: 2,
+          inAmount: 400,
+          inQty: 1,
+        }],
+      }] as never,
+      [],
+    )).toThrow('PROVIDER_TOTALS_MISMATCH');
+  });
+
   it('returns an organization-fenced latest attempt and bounded COMPLETE catalog', async () => {
     const { service, tx } = makeService({ completed: [run()] });
 
@@ -128,6 +183,34 @@ describe('Sellpia profitability source deep read', () => {
       where: expect.objectContaining({ organizationId: ORGANIZATION_ID }),
       take: 5,
     }));
+  });
+
+  it('keeps legacy graph-cost generations readable but marks them ineligible for corrected evidence', async () => {
+    const legacyQuality = { ...(run().qualityReport as Record<string, unknown>) };
+    delete legacyQuality.correctedCostEvidence;
+    const legacy = run({
+      parserVersion: 'sellpia-profitability-v1',
+      qualityReport: {
+        ...legacyQuality,
+        contract: 'sellpia-profitability-v1',
+        parserVersion: 'sellpia-profitability-v1',
+      },
+    });
+    const { service } = makeService({ completed: [legacy] });
+
+    await expect(service.readGenerationCatalog({
+      organizationId: ORGANIZATION_ID,
+      limit: 1,
+    })).resolves.toMatchObject({
+      completeGenerations: [{
+        sourceImportRunId: ATTEMPT_ID,
+        quality: {
+          contract: 'sellpia-profitability-v1',
+          parserVersion: 'sellpia-profitability-v1',
+          correctedCostEvidence: false,
+        },
+      }],
+    });
   });
 
   it('marks a current prior COMPLETE generation stale while a newer attempt is RUNNING', async () => {
@@ -203,6 +286,22 @@ describe('Sellpia profitability source deep read', () => {
     }) });
     await expect(expired.service.readAttemptControl(ORGANIZATION_ID, ATTEMPT_ID))
       .rejects.toThrow('ATTEMPT_EXPIRED');
+  });
+
+  it('reads an exact attempt status without exposing the owner token', async () => {
+    const { service, tx } = makeService({ latestAttempt: run({ status: 'failed' }) });
+
+    await expect(service.readAttemptStatus(ORGANIZATION_ID, ATTEMPT_ID)).resolves.toMatchObject({
+      attemptId: ATTEMPT_ID,
+      state: 'FAILED',
+    });
+    expect(tx.sourceImportRun.findFirst).toHaveBeenCalledWith({
+      where: {
+        id: ATTEMPT_ID,
+        organizationId: ORGANIZATION_ID,
+        sourceType: 'sellpia_product_profitability',
+      },
+    });
   });
 
   it('reads only exact-generation facts and keeps unmapped rows separate', async () => {

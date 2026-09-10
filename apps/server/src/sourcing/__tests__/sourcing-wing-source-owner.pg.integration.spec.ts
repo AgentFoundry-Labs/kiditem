@@ -50,7 +50,9 @@ describe('Wing source owner HTTP with disposable PostgreSQL', () => {
     expect(terminal).toMatchObject({ state: 'COMPLETE' });
     expect(terminal).not.toHaveProperty('attemptToken');
     await expect(controller.getWingCatalogSnapshot('a pencil', organizationId)).resolves.toMatchObject({ items: [item] });
-    expect(await prisma.operationRun.count()).toBe(0);
+    expect((await prisma.$queryRaw<Array<{ absent: boolean }>>`
+      SELECT to_regclass('public.operation_runs') IS NULL AS absent
+    `)[0]?.absent).toBe(true);
     expect(await prisma.masterProductAbcEvaluation.count()).toBe(0);
   });
 

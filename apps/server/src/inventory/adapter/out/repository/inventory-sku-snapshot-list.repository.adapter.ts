@@ -123,14 +123,47 @@ implements InventorySkuSnapshotListRepositoryPort {
     query: InventorySkuSnapshotRepositoryQuery,
   ) {
     return this.prisma.$transaction(async (transaction) => {
-      const where = snapshotWhere(organizationId, query);
-      const [rows, total, summaryRows, state] = await Promise.all([
+      const state = await transaction.sellpiaInventoryState.findUnique({
+        where: { organizationId },
+        select: { lastCompletedImportRunId: true },
+      });
+      const latestImport = state?.lastCompletedImportRunId
+        ? await transaction.sourceImportRun.findFirst({
+            where: {
+              id: state.lastCompletedImportRunId,
+              organizationId,
+              sourceType: SOURCE_TYPE,
+              channelAccountId: null,
+              status: 'completed',
+            },
+            select: IMPORT_RUN_SELECT,
+          })
+        : null;
+      if (!latestImport) {
+        return {
+          rows: [],
+          total: 0,
+          summary: {
+            totalSkus: 0,
+            linkedSkus: 0,
+            unlinkedSkus: 0,
+            inStockSkus: 0,
+            outOfStockSkus: 0,
+            totalUnits: 0,
+            pricedAssetValue: 0,
+            unpricedSkuCount: 0,
+          },
+          latestImport: null,
+        };
+      }
+      const where = snapshotWhere(organizationId, query, latestImport.id);
+      const [rows, total, summaryRows] = await Promise.all([
         transaction.sellpiaInventorySku.findMany({
           where,
           select: snapshotSelect(organizationId),
           orderBy: [{ code: 'asc' }, { id: 'asc' }],
           skip: query.skip,
-          take: query.take,
+          ...(query.take === undefined ? {} : { take: query.take }),
         }),
         transaction.sellpiaInventorySku.count({ where }),
         transaction.$queryRaw<SummaryRow[]>`
@@ -177,53 +210,13 @@ implements InventorySkuSnapshotListRepositoryPort {
             ))::bigint AS "unlinkedSkus"
           FROM sellpia_inventory_skus sku
           WHERE sku.organization_id = ${organizationId}::uuid
-            ${activeStatusSql(query.activeStatus)}
-        `,
-        transaction.sellpiaInventoryState.findUnique({
-          where: { organizationId },
-          select: { lastCompletedImportRunId: true },
-        }),
+            ${activeStatusSql(query.activeStatus, latestImport.id)}
+          `,
       ]);
       const summary = summaryRows[0] ?? emptySummaryRow();
-      // Publication can make an older hash run current again, so chronology is
-      // not an authoritative snapshot basis.
-      const latestImport = state?.lastCompletedImportRunId
-        ? await transaction.sourceImportRun.findFirst({
-            where: {
-              id: state.lastCompletedImportRunId,
-              organizationId,
-              sourceType: SOURCE_TYPE,
-              channelAccountId: null,
-              status: 'completed',
-            },
-            select: IMPORT_RUN_SELECT,
-          })
-        : null;
-      const importRunIds = [...new Set(rows
-        .map(({ lastImportRunId }) => lastImportRunId)
-        .filter((id): id is string => id !== null))];
-      const rowImportRuns = importRunIds.length > 0
-        ? await transaction.sourceImportRun.findMany({
-            where: {
-              id: { in: importRunIds },
-              organizationId,
-              sourceType: SOURCE_TYPE,
-              channelAccountId: null,
-              status: 'completed',
-            },
-            select: { id: true, importedAt: true },
-          })
-        : [];
-      const importedAtByRunId = new Map(
-        rowImportRuns.map((run) => [run.id, run.importedAt]),
-      );
 
       return {
         rows: rows.map((row): InventorySkuSnapshotRepositoryRow => {
-          const verifiedImportRunId = row.lastImportRunId !== null
-            && importedAtByRunId.has(row.lastImportRunId)
-            ? row.lastImportRunId
-            : null;
           const { linkedProducts, linkedChannelOptions } = linkedDestinations(
             row.channelListingOptionInventoryComponents,
           );
@@ -237,10 +230,8 @@ implements InventorySkuSnapshotListRepositoryPort {
             purchasePrice: row.purchasePrice,
             salePrice: row.salePrice,
             isActive: row.isActive,
-            lastImportRunId: verifiedImportRunId,
-            lastImportedAt: verifiedImportRunId
-              ? importedAtByRunId.get(verifiedImportRunId) ?? null
-              : null,
+            lastImportRunId: latestImport.id,
+            lastImportedAt: latestImport.importedAt,
             linkedChannelOptionCount: linkedChannelOptions.length,
             linkedProductCount: linkedProducts.length,
             linkedProducts,
@@ -264,36 +255,55 @@ implements InventorySkuSnapshotListRepositoryPort {
   }
 
   async getSnapshot(organizationId: string, sellpiaInventorySkuId: string) {
-    const row = await this.prisma.sellpiaInventorySku.findFirst({
-      where: { id: sellpiaInventorySkuId, organizationId },
-      select: snapshotDetailSelect(organizationId),
-    });
-    if (!row) return null;
-    const verifiedImport = row.lastImportRun?.sourceType === SOURCE_TYPE
-      && row.lastImportRun.channelAccountId === null
-      && row.lastImportRun.status === 'completed'
-      ? row.lastImportRun
-      : null;
-    const { linkedProducts, linkedChannelOptions } = linkedDestinations(
-      row.channelListingOptionInventoryComponents,
-    );
-    return {
-      sellpiaInventorySkuId: row.id,
-      code: row.code,
-      name: row.name,
-      optionName: row.optionName,
-      barcode: row.barcode,
-      currentStock: row.currentStock,
-      purchasePrice: row.purchasePrice,
-      salePrice: row.salePrice,
-      isActive: row.isActive,
-      lastImportRunId: verifiedImport?.id ?? null,
-      lastImportedAt: verifiedImport?.importedAt ?? null,
-      linkedChannelOptionCount: linkedChannelOptions.length,
-      linkedProductCount: linkedProducts.length,
-      linkedProducts,
-      linkedChannelOptions,
-    } satisfies InventorySkuSnapshotRepositoryRow;
+    return this.prisma.$transaction(async (transaction) => {
+      const state = await transaction.sellpiaInventoryState.findUnique({
+        where: { organizationId },
+        select: { lastCompletedImportRunId: true },
+      });
+      const publishedRunId = state?.lastCompletedImportRunId
+        ? await transaction.sourceImportRun.findFirst({
+            where: {
+              id: state.lastCompletedImportRunId,
+              organizationId,
+              sourceType: SOURCE_TYPE,
+              channelAccountId: null,
+              status: 'completed',
+            },
+            select: { id: true },
+          })
+        : null;
+      if (!publishedRunId) return null;
+
+      const row = await transaction.sellpiaInventorySku.findFirst({
+        where: {
+          id: sellpiaInventorySkuId,
+          organizationId,
+          lastImportRunId: publishedRunId.id,
+        },
+        select: snapshotDetailSelect(organizationId),
+      });
+      if (!row) return null;
+      const { linkedProducts, linkedChannelOptions } = linkedDestinations(
+        row.channelListingOptionInventoryComponents,
+      );
+      return {
+        sellpiaInventorySkuId: row.id,
+        code: row.code,
+        name: row.name,
+        optionName: row.optionName,
+        barcode: row.barcode,
+        currentStock: row.currentStock,
+        purchasePrice: row.purchasePrice,
+        salePrice: row.salePrice,
+        isActive: row.isActive,
+        lastImportRunId: row.lastImportRun?.id ?? null,
+        lastImportedAt: row.lastImportRun?.importedAt ?? null,
+        linkedChannelOptionCount: linkedChannelOptions.length,
+        linkedProductCount: linkedProducts.length,
+        linkedProducts,
+        linkedChannelOptions,
+      } satisfies InventorySkuSnapshotRepositoryRow;
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
   }
 
   async listImportRuns(
@@ -371,10 +381,12 @@ function linkedDestinations(components: ChannelOptionComponentDestination[]) {
 function snapshotWhere(
   organizationId: string,
   query: InventorySkuSnapshotRepositoryQuery,
+  publishedRunId: string,
 ): Prisma.SellpiaInventorySkuWhereInput {
   const search = query.query?.trim();
   return {
     organizationId,
+    lastImportRunId: publishedRunId,
     ...(query.activeStatus === 'active'
       ? { isActive: true }
       : query.activeStatus === 'inactive'
@@ -422,10 +434,14 @@ function activeComponentWhere(organizationId: string) {
 
 function activeStatusSql(
   status: InventorySkuSnapshotRepositoryQuery['activeStatus'],
+  publishedRunId: string,
 ): Prisma.Sql {
-  if (status === 'active') return Prisma.sql`AND sku.is_active = TRUE`;
-  if (status === 'inactive') return Prisma.sql`AND sku.is_active = FALSE`;
-  return Prisma.empty;
+  const activeSql = status === 'active'
+    ? Prisma.sql`AND sku.is_active = TRUE`
+    : status === 'inactive'
+      ? Prisma.sql`AND sku.is_active = FALSE`
+      : Prisma.empty;
+  return Prisma.sql`AND sku.last_import_run_id = ${publishedRunId}::uuid ${activeSql}`;
 }
 
 function mapImportRun(row: ImportRunRow): SellpiaImportRunRepositoryRow {

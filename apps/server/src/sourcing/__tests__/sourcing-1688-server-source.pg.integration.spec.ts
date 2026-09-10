@@ -140,7 +140,9 @@ describe('1688 server source owner HTTP with disposable PostgreSQL', () => {
       tradeScore: 4.8, repurchaseRate: '20%', supplierName: 'factory', score: 88 });
     expect(await controller.searchKeywords(organizationId, user as never, 'keyword-first', { keywords: ['A Pencil', '儿童餐盘'] })).toEqual(first);
     expect(keywordProvider.openSession).toHaveBeenCalledTimes(1);
-    expect(await prisma.operationRun.count()).toBe(0);
+    expect((await prisma.$queryRaw<Array<{ absent: boolean }>>`
+      SELECT to_regclass('public.operation_runs') IS NULL AS absent
+    `)[0]?.absent).toBe(true);
     expect(await prisma.sourcingRecommendationRun.count()).toBe(0);
     expect(await prisma.masterProductAbcEvaluation.count()).toBe(0);
   });

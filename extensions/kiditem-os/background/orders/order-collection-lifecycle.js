@@ -38,6 +38,7 @@
     return {
       success: false,
       cancelled: true,
+      errorCode: "COLLECTION_CANCELLED",
       error: "Order collection was cancelled",
       attemptId,
       collectionSession,
@@ -62,6 +63,26 @@
     const succeededLabel = options.succeededLabel || "주문 파일 생성 완료";
     if (typeof producer !== "string" || producer.length < 1) {
       throw new Error("Collection producer is required");
+    }
+
+    async function isLocallyActive(attemptId, environmentId) {
+      if (typeof sessions.getOwned === "function") {
+        let current;
+        try {
+          current = await sessions.getOwned(attemptId, environmentId);
+        } catch {
+          return false;
+        }
+        if (!current || current.producer !== producer) return false;
+      } else if (typeof sessions.isActive !== "function") {
+        return true;
+      }
+      if (typeof sessions.isActive !== "function") return true;
+      try {
+        return (await sessions.isActive(attemptId, environmentId, producer)) !== false;
+      } catch {
+        return false;
+      }
     }
 
     function attentionReason(value, inputIdentity) {
@@ -119,11 +140,16 @@
         }
         return attemptId;
       }
-      await sessions.start({
+      const started = await sessions.start({
         attemptId,
         environmentId,
         producer,
       });
+      if (started === null || started === false) {
+        const error = new Error("Order collection was cancelled");
+        error.code = "COLLECTION_CANCELLED";
+        throw error;
+      }
       return attemptId;
     }
 
@@ -132,6 +158,9 @@
       try {
         attemptId = await begin(message, inputIdentity);
       } catch (error) {
+        if (error?.code === "COLLECTION_CANCELLED") {
+          return cancelledResult(messageAttemptId(message), null);
+        }
         return withFailureEvidence(
           {
             success: false,
@@ -149,6 +178,12 @@
         // and published session contract contains attemptId only.
         runId: attemptId,
         environmentId: message.environmentId,
+        async assertActive() {
+          return isLocallyActive(attemptId, message.environmentId);
+        },
+        isActive() {
+          return isLocallyActive(attemptId, message.environmentId);
+        },
         async attachTab(tab, attachment = {}) {
           if (!Number.isInteger(tab?.id) || !Number.isInteger(tab?.windowId)) {
             throw new Error("Order collection tab is unavailable");
@@ -174,11 +209,16 @@
       });
 
       try {
-        const result = (await operation(collection)) || {};
-        const current = await sessions.get(attemptId);
-        if (!current) {
+        if (!(await isLocallyActive(attemptId, message.environmentId))) {
           return cancelledResult(attemptId, null);
         }
+        const result = (await operation(collection)) || {};
+        const active = await isLocallyActive(attemptId, message.environmentId);
+        if (!active) {
+          return cancelledResult(attemptId, null);
+        }
+        const current = await sessions.get(attemptId);
+        if (!current) return cancelledResult(attemptId, null);
         const resultAttention = attentionReason(result, inputIdentity);
         if (resultAttention) {
           const collectionSession = await sessions.requireAttention(attemptId, {
@@ -209,10 +249,12 @@
           ? withFailureEvidence(response, inputIdentity, result)
           : response;
       } catch (error) {
-        const current = await sessions.get(attemptId);
-        if (!current) {
+        const active = await isLocallyActive(attemptId, message.environmentId);
+        if (!active) {
           return cancelledResult(attemptId, null);
         }
+        const current = await sessions.get(attemptId);
+        if (!current) return cancelledResult(attemptId, null);
         const errorAttention = attentionReason(error, inputIdentity);
         if (errorAttention) {
           const message = errorMessage(error);

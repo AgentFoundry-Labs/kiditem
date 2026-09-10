@@ -26,7 +26,7 @@ beforeEach(async () => {
 });
 
 describe('Rules deterministic evaluation application', () => {
-  it('evaluates and applies synchronously without creating an OperationRun', async () => {
+  it('evaluates and applies synchronously without the removed operation runtime', async () => {
     const product = await prisma!.masterProduct.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
@@ -93,14 +93,16 @@ describe('Rules deterministic evaluation application', () => {
     await expect(Promise.all([
       prisma!.masterProduct.findUniqueOrThrow({ where: { id: product.id }, select: { healthScore: true } }),
       prisma!.masterProduct.findUniqueOrThrow({ where: { id: otherProduct.id }, select: { healthScore: true } }),
-      prisma!.operationRun.count({ where: { organizationId: TEST_ORGANIZATION_ID } }),
+      prisma!.$queryRaw<Array<{ absent: boolean }>>`
+        SELECT to_regclass('public.operation_runs') IS NULL AS absent
+      `,
       prisma!.activityEvent.count({ where: { organizationId: TEST_ORGANIZATION_ID } }),
       prisma!.alert.count({ where: { organizationId: TEST_ORGANIZATION_ID, type: 'rule_violation' } }),
       prisma!.$queryRaw<Array<{ count: bigint }>>`SELECT COUNT(*)::bigint AS count FROM rules_evaluation_applications`,
     ])).resolves.toEqual([
       { healthScore: 75 },
       { healthScore: null },
-      0,
+      [{ absent: true }],
       1,
       1,
       [{ count: 1n }],

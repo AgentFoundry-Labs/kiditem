@@ -14,7 +14,6 @@ import { AGENT_DEFINITIONS } from '../../domain/agent-definition.registry';
 import { AgentOsError } from '../../domain/agent-os.errors';
 import {
   hasCapabilityApprovalPolicyDrift,
-  isOwnerKnownFailureCode,
   ownerInvocationKey,
 } from '../../domain/capability/capability-invocation.policy';
 import type { AgentCapabilityRegistry } from './agent-capability-registry.service';
@@ -187,7 +186,7 @@ export class CapabilityMutationDispatcher
           organizationId: invocation.organizationId,
           invocationId: invocation.id,
           error: {
-            code: knownFailureCode(error),
+            code: 'OWNER_KNOWN_FAILURE',
             message: boundedMessage(
               error.message,
               'Owner reported a known failure before commit.',
@@ -246,20 +245,10 @@ function isKnownNoCommitOwnerFailure(
   );
 }
 
-function knownFailureCode(
-  error: Error & { readonly knownNoCommit: true },
-) {
-  const code = (error as { readonly code?: unknown }).code;
-  return isOwnerKnownFailureCode(code)
-    ? code
-    : 'OWNER_KNOWN_FAILURE';
-}
-
 function ownerResultReceipt(result: CapabilityResultEnvelope): CapabilityResultReceipt {
   return CapabilityResultReceiptSchema.parse({
     summary: result.summary,
     resourceRefs: result.resourceRefs,
-    operationRefs: result.operationRefs,
   });
 }
 

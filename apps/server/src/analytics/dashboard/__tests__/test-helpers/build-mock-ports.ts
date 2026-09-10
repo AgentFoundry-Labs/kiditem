@@ -6,39 +6,24 @@
 // One builder per port file under
 // `apps/server/src/analytics/dashboard/application/port/out/`.
 
-import { vi } from 'vitest';
+import { vi, type Mocked } from 'vitest';
 import type { ProfitCalculationRepositoryPort } from '../../application/port/out/repository/profit-calculation.repository.port';
-import type { AdAggregationRepositoryPort } from '../../application/port/out/repository/ad-aggregation.repository.port';
 import type { WingAdSummaryRepositoryPort } from '../../application/port/out/repository/wing-ad-summary.repository.port';
 import type { DashboardSalesRepositoryPort } from '../../application/port/out/repository/dashboard-sales.repository.port';
-import type { DashboardAdRepositoryPort } from '../../application/port/out/repository/dashboard-ad.repository.port';
 import type { DashboardTrendRepositoryPort } from '../../application/port/out/repository/dashboard-trend.repository.port';
 import type { WingTrafficAggregationRepositoryPort } from '../../application/port/out/repository/wing-traffic-aggregation.repository.port';
 import type { DashboardInventoryRepositoryPort } from '../../application/port/out/repository/dashboard-inventory.repository.port';
 
-export type MockProfitCalculationRepo = {
-  [K in keyof ProfitCalculationRepositoryPort]: ReturnType<typeof vi.fn>;
-};
+export type MockProfitCalculationRepo = Mocked<ProfitCalculationRepositoryPort>;
 
 export function buildMockProfitCalculationRepo(): MockProfitCalculationRepo {
   return {
     calculateForRange: vi.fn(),
+    calculateDailyForRange: vi.fn(),
   };
 }
 
-export type MockAdAggregationRepo = {
-  [K in keyof AdAggregationRepositoryPort]: ReturnType<typeof vi.fn>;
-};
-
-export function buildMockAdAggregationRepo(): MockAdAggregationRepo {
-  return {
-    aggregateForRange: vi.fn(),
-  };
-}
-
-export type MockWingAdSummaryRepo = {
-  [K in keyof WingAdSummaryRepositoryPort]: ReturnType<typeof vi.fn>;
-};
+export type MockWingAdSummaryRepo = Mocked<WingAdSummaryRepositoryPort>;
 
 export function buildMockWingAdSummaryRepo(): MockWingAdSummaryRepo {
   return {
@@ -46,9 +31,7 @@ export function buildMockWingAdSummaryRepo(): MockWingAdSummaryRepo {
   };
 }
 
-export type MockDashboardSalesRepo = {
-  [K in keyof DashboardSalesRepositoryPort]: ReturnType<typeof vi.fn>;
-};
+export type MockDashboardSalesRepo = Mocked<DashboardSalesRepositoryPort>;
 
 export function buildMockDashboardSalesRepo(): MockDashboardSalesRepo {
   return {
@@ -58,19 +41,7 @@ export function buildMockDashboardSalesRepo(): MockDashboardSalesRepo {
   };
 }
 
-export type MockDashboardAdRepo = {
-  [K in keyof DashboardAdRepositoryPort]: ReturnType<typeof vi.fn>;
-};
-
-export function buildMockDashboardAdRepo(): MockDashboardAdRepo {
-  return {
-    fetchDailyAdCost: vi.fn(),
-  };
-}
-
-export type MockDashboardTrendRepo = {
-  [K in keyof DashboardTrendRepositoryPort]: ReturnType<typeof vi.fn>;
-};
+export type MockDashboardTrendRepo = Mocked<DashboardTrendRepositoryPort>;
 
 export function buildMockDashboardTrendRepo(): MockDashboardTrendRepo {
   return {
@@ -79,9 +50,7 @@ export function buildMockDashboardTrendRepo(): MockDashboardTrendRepo {
   };
 }
 
-export type MockWingTrafficAggregationRepo = {
-  [K in keyof WingTrafficAggregationRepositoryPort]: ReturnType<typeof vi.fn>;
-};
+export type MockWingTrafficAggregationRepo = Mocked<WingTrafficAggregationRepositoryPort>;
 
 export function buildMockWingTrafficAggregationRepo(): MockWingTrafficAggregationRepo {
   return {
@@ -93,9 +62,7 @@ export function buildMockWingTrafficAggregationRepo(): MockWingTrafficAggregatio
   };
 }
 
-export type MockDashboardInventoryRepo = {
-  [K in keyof DashboardInventoryRepositoryPort]: ReturnType<typeof vi.fn>;
-};
+export type MockDashboardInventoryRepo = Mocked<DashboardInventoryRepositoryPort>;
 
 export function buildMockDashboardInventoryRepo(): MockDashboardInventoryRepo {
   return {

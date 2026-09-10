@@ -99,6 +99,54 @@ describe('campaign account + identity selection', () => {
     expect(onSelect).not.toHaveBeenCalled();
   });
 
+  it('keeps unknown ratios unavailable while preserving observed zero values and ROAS color', () => {
+    const unknown = {
+      ...campaign('11111111-1111-4111-8111-111111111111', 'campaign:unknown-ratios'),
+      campaignName: '비율 미수집 캠페인',
+      metrics: {
+        spend: 0,
+        revenue: 0,
+        impressions: 0,
+        clicks: 0,
+        conversions: 0,
+        roas: null,
+        ctr: null,
+        cvr: null,
+      },
+    } satisfies AdCampaignSnapshot;
+    const zero = {
+      ...campaign('22222222-2222-4222-8222-222222222222', 'campaign:zero-ratios'),
+      campaignName: '0 비율 캠페인',
+      metrics: {
+        ...metrics,
+        roas: 0,
+        ctr: 0,
+        cvr: 0,
+      },
+    } satisfies AdCampaignSnapshot;
+
+    render(wrapper(
+      <CampaignTable
+        campaigns={[unknown, zero]}
+        sortBy="revenue"
+        onSortChange={vi.fn()}
+        selectedCampaign={null}
+        onSelectCampaign={vi.fn()}
+      />,
+    ));
+
+    const unknownRow = screen.getByRole('row', { name: /비율 미수집 캠페인/ });
+    expect(within(unknownRow).getAllByText('0')).toHaveLength(5);
+    expect(within(unknownRow).getAllByText('-')).toHaveLength(3);
+    const unknownRoas = within(unknownRow).getAllByRole('cell')[3]!;
+    expect(unknownRoas.className).not.toMatch(/text-(emerald|green|orange|red)-\d+/);
+
+    const zeroRow = screen.getByRole('row', { name: /0 비율 캠페인/ });
+    expect(within(zeroRow).getByText('0%')).toBeInTheDocument();
+    expect(within(zeroRow).getAllByText('0.00%')).toHaveLength(2);
+    expect(within(zeroRow).getAllByRole('cell')[3]).toHaveClass('text-red-600');
+  });
+
   it('requests drill-down by account and stable identity without campaignName', async () => {
     render(wrapper(
       <ProductDrilldown

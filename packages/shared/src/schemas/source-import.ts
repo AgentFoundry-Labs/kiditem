@@ -65,6 +65,8 @@ export const SourceImportTypeSchema = z.enum([
   'sellpia_inventory',
   'sellpia_product_profitability',
   'coupang_wing_catalog',
+  'coupang_wing_catalog_basics',
+  'coupang_wing_catalog_details',
   'coupang_rocket_catalog_seed',
   'coupang_rocket_po_catalog',
   'coupang_rocket_matching_csv',
@@ -80,7 +82,7 @@ const DateOnlySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 export const SellpiaProfitabilityPlanSchema = z.object({
   from: DateOnlySchema,
   to: DateOnlySchema,
-  coveredMonths: z.array(z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/)).min(1).max(12),
+  coveredMonths: z.array(z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/)).min(1).max(15),
 }).strict();
 export type SellpiaProfitabilityPlan = z.infer<typeof SellpiaProfitabilityPlanSchema>;
 

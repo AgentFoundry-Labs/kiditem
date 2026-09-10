@@ -7,9 +7,8 @@ import { SellochWholesaleCoupangMatches } from './SellochWholesaleCoupangMatches
 import { SellochWholesaleKeywordSearch } from './SellochWholesaleKeywordSearch';
 import type { Sourcing1688SearchSnapshot } from '@kiditem/shared/sourcing';
 
-const mocks = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), wake: vi.fn() }));
+const mocks = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }));
 vi.mock('@/lib/api-client', () => ({ apiClient: { getParsed: mocks.get, post: mocks.post } }));
-vi.mock('@/lib/extension-bridge', () => ({ wakeBrowserOperationRuntime: mocks.wake }));
 vi.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ user: { organizationId: 'org-1' } }) }));
 
 const cutoff = '2026-08-14T00:00:00.000Z';
@@ -56,7 +55,6 @@ describe('1688 source commands and durable screen reads', () => {
       throw new Error(`Unexpected GET ${path}`);
     });
     mocks.post.mockResolvedValue({ attempts: [], result: null });
-    mocks.wake.mockResolvedValue(undefined);
   });
   afterEach(() => { cleanup(); clients.splice(0).forEach((client) => client.clear()); });
 
@@ -69,7 +67,6 @@ describe('1688 source commands and durable screen reads', () => {
     expect(mocks.post).toHaveBeenCalledWith('/api/sourcing/wholesale/1688/keyword-search',
       { keywords: keywordTargets.slice(0, 6).map((target) => target.keyword) },
       expect.objectContaining({ headers: { 'Idempotency-Key': expect.any(String) } }));
-    expect(mocks.wake).toHaveBeenCalledTimes(1);
   });
 
   it('sends at most 24 original ordered image target IDs without waking the keyword browser', async () => {
@@ -80,7 +77,6 @@ describe('1688 source commands and durable screen reads', () => {
     await waitFor(() => expect(mocks.post).toHaveBeenCalledTimes(1));
     expect(mocks.post).toHaveBeenCalledWith('/api/sourcing/wholesale/1688/image-matches',
       { targetIds: Array.from({ length: 24 }, (_, i) => `product-${i}::`) }, expect.anything());
-    expect(mocks.wake).not.toHaveBeenCalled();
   });
 
   it.each(['keyword', 'image'])('reload retains prior COMPLETE %s offers and shows durable failure and cutoff', async (kind) => {

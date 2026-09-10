@@ -16,6 +16,7 @@ import {
   makeTestPrisma,
   resetDb,
   seedBaseFixture,
+  OTHER_ORGANIZATION_ID as OTHER_ORG,
   TEST_ORGANIZATION_ID as ORG,
   TEST_USER_ID as USER,
 } from '../../test-helpers/real-prisma';
@@ -34,6 +35,7 @@ import { WingRankSourceRepository } from '../adapter/out/repository/wing-rank-so
 describe('Retained rank ordered admission/read incoming HTTP + PostgreSQL', () => {
   let prisma: PrismaClient;
   let app: INestApplication;
+  let httpUrl: string;
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
@@ -88,6 +90,11 @@ describe('Retained rank ordered admission/read incoming HTTP + PostgreSQL', () =
       },
     );
     await app.init();
+    // Keep one real listener for the whole fixture. Passing an unbound
+    // HttpServer to supertest makes each request lazily listen/close it;
+    // concurrent admission and rendezvous tests can race that lifecycle.
+    await app.listen(0, '127.0.0.1');
+    httpUrl = await app.getUrl();
   });
   afterAll(async () => {
     vi.useRealTimers();
@@ -131,35 +138,92 @@ describe('Retained rank ordered admission/read incoming HTTP + PostgreSQL', () =
     }
   });
   const begin = (source: string, key: string) =>
-    request(app.getHttpServer())
+    request(httpUrl)
       .post(`/api/ads/keyword-rank/${source}/batch-attempts`)
       .set('x-test-org', ORG)
       .set('Idempotency-Key', key)
       .send({});
   const read = (source: string, key: string, org = ORG) =>
-    request(app.getHttpServer())
+    request(httpUrl)
       .get(`/api/ads/keyword-rank/${source}/batch-attempts`)
       .set('x-test-org', org)
       .set('Idempotency-Key', key);
+  const cancel = (source: string, key: string, org = ORG) =>
+    request(httpUrl)
+      .post(`/api/ads/keyword-rank/${source}/batch-attempts/cancel`)
+      .set('x-test-org', org)
+      .set('Idempotency-Key', key);
   const control = (source: string, id: string) =>
-    request(app.getHttpServer())
+    request(httpUrl)
       .get(`/api/ads/keyword-rank/${source}/attempts/${id}`)
       .set('x-test-org', ORG);
   const single = (source: string, key: string, keyword: string) =>
-    request(app.getHttpServer())
+    request(httpUrl)
       .post(`/api/ads/keyword-rank/${source}/attempts`)
       .set('x-test-org', ORG)
       .set('Idempotency-Key', key)
       .send({ keyword, maxPages: source === 'serp' ? 2 : 5 });
   const fail = async (source: string, id: string) => {
     const attempt = (await control(source, id).expect(200)).body;
-    return request(app.getHttpServer())
+    return request(httpUrl)
       .post(`/api/ads/keyword-rank/${source}/attempts/${id}/fail`)
       .set('x-test-org', ORG)
       .set('x-source-attempt-token', attempt.attemptToken)
       .send({ code: 'PROVIDER_FAILED', message: 'Provider interrupted.' })
       .expect(201);
   };
+  const capturePayload = (source: string, attempt: { keyword: string }) =>
+    source === 'serp'
+      ? {
+          keyword: attempt.keyword,
+          capturedAt: new Date().toISOString(),
+          pagesScanned: 2,
+          items: [
+            {
+              rank: 1,
+              page: 1,
+              positionInPage: 1,
+              isAd: false,
+              vendorItemId: 'OWN',
+              productId: 'P1',
+              name: '슬라임 상품',
+            },
+            {
+              rank: 2,
+              page: 2,
+              positionInPage: 1,
+              isAd: false,
+              vendorItemId: 'MISS',
+              productId: 'P2',
+              name: '문구 상품',
+            },
+          ],
+          pagination: {
+            requestedMaxPages: 2,
+            stoppedAtPage: 2,
+            stopReason: 'page_limit',
+          },
+        }
+      : {
+          keyword: attempt.keyword,
+          capturedAt: new Date().toISOString(),
+          pagesScanned: 1,
+          collectedCount: 0,
+          totalResults: null,
+          items: [],
+          proof: {
+            maxPages: 5,
+            stopReason: 'empty_page',
+            pages: [
+              {
+                searchPage: 0,
+                itemCount: 0,
+                nextSearchPage: null,
+                resultArrayObserved: true,
+              },
+            ],
+          },
+        };
   const seedTrackers = () =>
     prisma.coupangKeywordTracker.createMany({
       data: [
@@ -175,61 +239,101 @@ describe('Retained rank ordered admission/read incoming HTTP + PostgreSQL', () =
         },
       ],
     });
+  const seedLargeBatch = async (source: string) => {
+    const keywords = Array.from(
+      { length: 121 },
+      (_, index) => `batch-${source}-${index}`,
+    );
+    if (source === 'serp') {
+      await prisma.coupangKeywordTracker.createMany({
+        data: keywords.map((keyword) => ({
+          organizationId: ORG,
+          keyword,
+          maxPages: 2,
+          createdAt: new Date('2026-09-01T00:00:00Z'),
+        })),
+      });
+      return keywords;
+    }
+    await prisma.channelListingOption.updateMany({
+      where: { organizationId: ORG },
+      data: { isActive: false },
+    });
+    const account = await prisma.channelAccount.findFirstOrThrow({
+      where: { organizationId: ORG },
+    });
+    const externalIds = keywords.map((_, index) => `BATCH-${index}`);
+    await prisma.channelListing.createMany({
+      data: externalIds.map((externalId, index) => ({
+        organizationId: ORG,
+        channelAccountId: account.id,
+        externalId,
+        channelName: `Batch 상품 ${index}`,
+      })),
+    });
+    const listings = await prisma.channelListing.findMany({
+      where: { organizationId: ORG, externalId: { in: externalIds } },
+      select: { id: true, externalId: true },
+    });
+    await prisma.channelListingOption.createMany({
+      data: listings.map(({ id, externalId }) => ({
+        organizationId: ORG,
+        listingId: id,
+        externalOptionId: externalId,
+      })),
+    });
+    await prisma.coupangRepresentativeKeywordOverride.createMany({
+      data: externalIds.map((vendorItemId, index) => ({
+        organizationId: ORG,
+        vendorItemId,
+        keyword: keywords[index],
+      })),
+    });
+    return keywords;
+  };
+  const seedOtherBatch = async (source: string) => {
+    const keyword = `batch-${source}-isolated`;
+    if (source === 'serp') {
+      await prisma.coupangKeywordTracker.updateMany({
+        where: { organizationId: ORG, keyword: { startsWith: `batch-${source}-` } },
+        data: { enabled: false },
+      });
+      await prisma.coupangKeywordTracker.create({
+        data: { organizationId: ORG, keyword, maxPages: 2 },
+      });
+      return;
+    }
+    await prisma.channelListingOption.updateMany({
+      where: { organizationId: ORG },
+      data: { isActive: false },
+    });
+    const account = await prisma.channelAccount.findFirstOrThrow({
+      where: { organizationId: ORG },
+    });
+    const externalId = 'BATCH-ISOLATED';
+    const listing = await prisma.channelListing.create({
+      data: {
+        organizationId: ORG,
+        channelAccountId: account.id,
+        externalId,
+        channelName: 'Isolated batch 상품',
+      },
+    });
+    await prisma.channelListingOption.create({
+      data: {
+        organizationId: ORG,
+        listingId: listing.id,
+        externalOptionId: externalId,
+      },
+    });
+    await prisma.coupangRepresentativeKeywordOverride.create({
+      data: { organizationId: ORG, vendorItemId: externalId, keyword },
+    });
+  };
   const complete = async (source: string, id: string) => {
     const attempt = (await control(source, id).expect(200)).body;
-    const payload =
-      source === 'serp'
-        ? {
-            keyword: attempt.keyword,
-            capturedAt: new Date().toISOString(),
-            pagesScanned: 2,
-            items: [
-              {
-                rank: 1,
-                page: 1,
-                positionInPage: 1,
-                isAd: false,
-                vendorItemId: 'OWN',
-                productId: 'P1',
-                name: '슬라임 상품',
-              },
-              {
-                rank: 2,
-                page: 2,
-                positionInPage: 1,
-                isAd: false,
-                vendorItemId: 'MISS',
-                productId: 'P2',
-                name: '문구 상품',
-              },
-            ],
-            pagination: {
-              requestedMaxPages: 2,
-              stoppedAtPage: 2,
-              stopReason: 'page_limit',
-            },
-          }
-        : {
-            keyword: attempt.keyword,
-            capturedAt: new Date().toISOString(),
-            pagesScanned: 1,
-            collectedCount: 0,
-            totalResults: null,
-            items: [],
-            proof: {
-              maxPages: 5,
-              stopReason: 'empty_page',
-              pages: [
-                {
-                  searchPage: 0,
-                  itemCount: 0,
-                  nextSearchPage: null,
-                  resultArrayObserved: true,
-                },
-              ],
-            },
-          };
-    const response = await request(app.getHttpServer())
+    const payload = capturePayload(source, attempt);
+    const response = await request(httpUrl)
       .put(`/api/ads/keyword-rank/${source}/attempts/${id}`)
       .set('x-test-org', ORG)
       .set('x-source-attempt-token', attempt.attemptToken)
@@ -292,7 +396,7 @@ describe('Retained rank ordered admission/read incoming HTTP + PostgreSQL', () =
 
   it('freezes the exact Wing pending selection and assignments once, preserving counts, order and replay after drift', async () => {
     const targets = (
-      await request(app.getHttpServer())
+      await request(httpUrl)
         .get('/api/ads/keyword-rank/wing-targets')
         .set('x-test-org', ORG)
         .expect(200)
@@ -399,7 +503,7 @@ describe('Retained rank ordered admission/read incoming HTTP + PostgreSQL', () =
         source === 'serp'
           ? ['슬라임', '문구']
           : (
-              await request(app.getHttpServer())
+              await request(httpUrl)
                 .get('/api/ads/keyword-rank/wing-targets')
                 .set('x-test-org', ORG)
                 .expect(200)
@@ -412,7 +516,7 @@ describe('Retained rank ordered admission/read incoming HTTP + PostgreSQL', () =
       const key = randomUUID();
       await begin(source, key).expect(409);
       await read(source, key).expect(404);
-      const firstStatus = await request(app.getHttpServer())
+      const firstStatus = await request(httpUrl)
         .get(`/api/ads/keyword-rank/${source}/source`)
         .query({ keyword: publicTargets[0] })
         .set('x-test-org', ORG)
@@ -422,7 +526,7 @@ describe('Retained rank ordered admission/read incoming HTTP + PostgreSQL', () =
       const admitted = (await begin(source, key).expect(201)).body;
       await single(source, key, publicTargets[0]).expect(409);
       await read(source, key, randomUUID()).expect(404);
-      await request(app.getHttpServer())
+      await request(httpUrl)
         .post(`/api/ads/keyword-rank/${source}/batch-attempts`)
         .set('x-test-org', ORG)
         .set('Idempotency-Key', key)
@@ -501,7 +605,7 @@ describe('Retained rank ordered admission/read incoming HTTP + PostgreSQL', () =
       ).toEqual(['COMPLETE', 'FAILED']);
       expect(response.attempts[0].plan).toEqual(first.plan);
       expect((await begin(source, key).expect(201)).body).toEqual(response);
-      const exact = await request(app.getHttpServer())
+      const exact = await request(httpUrl)
         .get(
           `/api/ads/keyword-rank/${source}/attempts/${first.attemptId}/capture`,
         )
@@ -510,7 +614,7 @@ describe('Retained rank ordered admission/read incoming HTTP + PostgreSQL', () =
       expect(exact.body.capture).toEqual(payload);
       expect(
         (
-          await request(app.getHttpServer())
+          await request(httpUrl)
             .get(`/api/ads/keyword-rank/${source}/source`)
             .query({ keyword: first.keyword })
             .set('x-test-org', ORG)
@@ -558,6 +662,72 @@ describe('Retained rank ordered admission/read incoming HTTP + PostgreSQL', () =
       expect(replies.map((reply) => reply.status)).toEqual([201, 201]);
       expect(replies[0].body).toEqual(replies[1].body);
       await begin(source, randomUUID()).expect(409);
+    },
+  );
+
+  it.each(['serp', 'wing'])(
+    '%s cancels more than 120 members in bounded replays with expiry alerts and exact fences',
+    async (source) => {
+      await seedLargeBatch(source);
+      const key = randomUUID();
+      const admitted = (await begin(source, key).expect(201)).body;
+      expect(admitted.attempts).toHaveLength(121);
+      const [completedAttempt, failedAttempt, expiredAttempt] = admitted.attempts;
+      const lateAttempt = admitted.attempts[100];
+      const lateControl = (
+        await control(source, lateAttempt.attemptId).expect(200)
+      ).body;
+
+      await complete(source, completedAttempt.attemptId);
+      await fail(source, failedAttempt.attemptId);
+      await prisma.sourceImportRun.update({
+        where: { id: expiredAttempt.attemptId },
+        data: { expiresAt: new Date(Date.now() - 1_000) },
+      });
+
+      await seedOtherBatch(source);
+      const otherKey = randomUUID();
+      const other = (await begin(source, otherKey).expect(201)).body;
+      expect(other.attempts).toHaveLength(1);
+      await cancel(source, key, OTHER_ORG).expect(404);
+
+      const first = (await cancel(source, key).expect(201)).body;
+      expect(first.attempts.filter((attempt: { state: string }) => attempt.state === 'RUNNING')).toHaveLength(69);
+      expect(first.attempts[0].state).toBe('COMPLETE');
+      expect(first.attempts[1]).toMatchObject({ state: 'FAILED', errorCode: 'PROVIDER_FAILED' });
+      expect(first.attempts[2]).toMatchObject({ state: 'FAILED', errorCode: 'ATTEMPT_EXPIRED' });
+
+      const second = (await cancel(source, key).expect(201)).body;
+      expect(second.attempts.filter((attempt: { state: string }) => attempt.state === 'RUNNING')).toHaveLength(19);
+      const third = (await cancel(source, key).expect(201)).body;
+      expect(third.attempts.filter((attempt: { state: string }) => attempt.state === 'RUNNING')).toHaveLength(0);
+      expect((await cancel(source, key).expect(201)).body).toEqual(third);
+
+      const expiredAlert = await prisma.alert.findFirstOrThrow({
+        where: { organizationId: ORG, attemptId: expiredAttempt.attemptId },
+      });
+      expect(expiredAlert).toMatchObject({
+        status: 'OPEN',
+        sourceType: source === 'serp' ? 'coupang_keyword_serp' : 'coupang_wing_rank',
+        message: expect.stringContaining('ATTEMPT_EXPIRED'),
+      });
+      expect(await prisma.alert.findFirst({
+        where: { organizationId: ORG, attemptId: lateAttempt.attemptId },
+      })).toBeNull();
+      expect((await read(source, otherKey).expect(200)).body.attempts.map(
+        (attempt: { state: string }) => attempt.state,
+      )).toEqual(['RUNNING']);
+
+      const lateResponse = await request(httpUrl)
+        .put(`/api/ads/keyword-rank/${source}/attempts/${lateAttempt.attemptId}`)
+        .set('x-test-org', ORG)
+        .set('x-source-attempt-token', lateControl.attemptToken)
+        .send(capturePayload(source, lateControl));
+      expect(lateResponse.status).toBe(409);
+      expect((await read(source, key).expect(200)).body.attempts[100]).toMatchObject({
+        state: 'FAILED',
+        errorCode: 'COLLECTION_CANCELLED',
+      });
     },
   );
 

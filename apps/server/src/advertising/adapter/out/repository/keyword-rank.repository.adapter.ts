@@ -2,7 +2,7 @@
 //
 // Tracker mutations use `updateMany`/`deleteMany` with `(id, organizationId)`
 // predicate + tenant-scoped re-read so a cross-tenant id never leaks into the
-// response (scrape-target adapter pattern). Rank facts are idempotent on
+// response (repository adapter pattern). Rank facts are idempotent on
 // `(organizationId, keyword, vendorItemId, businessDate)`; the SERP capture is
 // idempotent on `(organizationId, keyword, businessDate)` with
 // latest-capture-wins overwrite semantics.

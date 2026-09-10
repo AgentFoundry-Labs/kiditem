@@ -2,7 +2,7 @@
 //
 // All consumers under apps/server/src and apps/web/src use subpath imports
 // (e.g. `@kiditem/shared/product`, `@kiditem/shared/errors`,
-// `@kiditem/shared/security`, `@kiditem/shared/panel`). The root barrel is
+// `@kiditem/shared/security`). The root barrel is
 // frozen by `scripts/check-shared-root-imports.sh` and is being shrunk in
 // batches per the Reconstruction Export Policy in packages/shared/AGENTS.md.
 // Do NOT add new exports here — register a new subpath in
@@ -39,7 +39,6 @@ export {
   OrderStatusSchema,
   OrderPipelineStatusSchema,
   OrderListLineItemSchema,
-  DeliveryCompanySchema,
   OrderListItemSchema,
   OrderListResponseSchema,
   OrderStatsResponseSchema,
@@ -56,21 +55,12 @@ export type {
   OrderStatus,
   OrderPipelineStatus,
   OrderListLineItem,
-  DeliveryCompany,
   OrderListItem,
   OrderListResponse,
   OrderStatsResponse,
   OrderActionResponse,
   OrderPipelineResponse,
 } from './schemas/order.js';
-
-// Workflow
-export { WorkflowTemplateSchema, WorkflowRunSchema, WorkflowStepRunSchema } from './schemas/workflow.js';
-export type { WorkflowTemplate, WorkflowRun, WorkflowStepRun } from './schemas/workflow.js';
-
-// Marketplace
-export { ConfigurableParamSchema, MarketplaceCatalogItemSchema } from './schemas/marketplace.js';
-export type { ConfigurableParam, MarketplaceCatalogItem, WorkflowCatalogItem, AgentCatalogItem } from './schemas/marketplace.js';
 
 // Dashboard
 export {
@@ -233,18 +223,3 @@ export type {
   AdExtensionStatus,
   AdCollectStatus,
 } from './schemas/ads.js';
-
-// Action Task
-export {
-  ActionTaskSchema,
-  ActionTaskRelatedProductSchema,
-  ActionTaskSourceAlertSchema,
-  ActionTaskListSchema,
-} from './schemas/action-task.js';
-export type {
-  ActionTask,
-  ActionTaskRelatedProduct,
-  ActionTaskSourceAlert,
-  ActionTaskList,
-  ActionTaskExecuteResponse,
-} from './schemas/action-task.js';

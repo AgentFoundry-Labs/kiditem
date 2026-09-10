@@ -38,13 +38,14 @@ describe('Wing catalog private staging and atomic publication (public service + 
     prisma = makeTestPrisma();
     await prisma.$connect();
     alerts = new SourceFailureAlerts(new AlertsRepository(prisma as never));
+    const publisher = new ChannelCatalogPublicationRepositoryAdapter(
+      prisma as never,
+      new AiCatalogMediaPublicationRepositoryAdapter(),
+      alerts,
+    );
     collection = new ChannelCatalogCollectionService(
-      new ChannelCatalogCollectionRepositoryAdapter(prisma as never, alerts),
-      new ChannelCatalogPublicationRepositoryAdapter(
-        prisma as never,
-        new AiCatalogMediaPublicationRepositoryAdapter(),
-        alerts,
-      ),
+      new ChannelCatalogCollectionRepositoryAdapter(prisma as never, alerts, publisher),
+      publisher,
     );
     listings = new ChannelListingQueryService(new ChannelListingRepositoryAdapter(prisma as never));
   });
@@ -370,13 +371,14 @@ describe('Wing catalog private staging and atomic publication (public service + 
     measured.$on('query', (event) => {
       statements.push(event.query);
     });
+    const measuredPublisher = new ChannelCatalogPublicationRepositoryAdapter(
+      measured as never,
+      new AiCatalogMediaPublicationRepositoryAdapter(),
+      alerts,
+    );
     const owner = new ChannelCatalogCollectionService(
-      new ChannelCatalogCollectionRepositoryAdapter(measured as never, alerts),
-      new ChannelCatalogPublicationRepositoryAdapter(
-        measured as never,
-        new AiCatalogMediaPublicationRepositoryAdapter(),
-        alerts,
-      ),
+      new ChannelCatalogCollectionRepositoryAdapter(measured as never, alerts, measuredPublisher),
+      measuredPublisher,
     );
     try {
       const started = performance.now();

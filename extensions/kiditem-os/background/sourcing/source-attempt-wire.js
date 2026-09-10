@@ -33,8 +33,19 @@
       return body;
     }
 
-    async function requestJsonWithRetry(config, path, init, parse = (value) => value) {
+    async function requestJsonWithRetry(
+      config,
+      path,
+      init,
+      parse = (value) => value,
+      options = {},
+    ) {
       for (let attempt = 0; ; attempt += 1) {
+        if (typeof options.shouldContinue === "function" && !(await options.shouldContinue())) {
+          const error = new Error(options.cancelMessage || "Collection cancelled");
+          error.code = options.cancelCode || "COLLECTION_CANCELLED";
+          throw error;
+        }
         try {
           return parse(await requestJson(config, path, init));
         } catch (error) {
@@ -44,12 +55,18 @@
       }
     }
 
-    async function terminal(config, plan, { method, suffix, body }, parse = (value) => value) {
+    async function terminal(
+      config,
+      plan,
+      { method, suffix, body },
+      parse = (value) => value,
+      options = {},
+    ) {
       return requestJsonWithRetry(config, `${sourcePath}/${encodeURIComponent(plan.attemptId)}${suffix}`, {
         method,
         headers: { ...config.headers, "x-source-attempt-token": plan.attemptToken },
         body: JSON.stringify(body),
-      }, parse);
+      }, parse, options);
     }
 
     return Object.freeze({

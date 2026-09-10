@@ -5,6 +5,7 @@ import type { PrismaClient } from '@prisma/client';
 import request from 'supertest';
 import {
   afterAll,
+  afterEach,
   beforeAll,
   beforeEach,
   describe,
@@ -50,7 +51,9 @@ describe('Wing COMPLETE provenance through public Readiness HTTP + PostgreSQL', 
       providers: [
         {
           provide: ReadinessService,
-          useValue: new ReadinessService(prisma as never),
+          useValue: new ReadinessService(prisma as never, {
+            readPublished: async () => ({ channelAccountId: '', rows: [] }),
+          }),
         },
         { provide: WingRankSourceRepository, useValue: owner },
       ],
@@ -68,12 +71,15 @@ describe('Wing COMPLETE provenance through public Readiness HTTP + PostgreSQL', 
     await app?.close();
     await prisma?.$disconnect();
   });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
   beforeEach(async () => {
     vi.useRealTimers();
-    await resetDb(prisma);
-    await seedBaseFixture(prisma);
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date('2026-09-06T03:00:00Z'));
+    await resetDb(prisma);
+    await seedBaseFixture(prisma);
     const account = await prisma.channelAccount.create({
       data: {
         organizationId: ORG,

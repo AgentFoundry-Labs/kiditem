@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD } from '@kiditem/shared/product-abc';
+import { PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD } from '@kiditem/shared/product-abc';
 import { MasterProductAbcService } from './master-product-abc.service';
 import type {
   ProductAbcPublicationInput,
@@ -27,7 +27,7 @@ const state = {
   publishedAdvertisingSourceImportRunId: null,
   publishedMappingGeneration: null,
   mappingGeneration: '7',
-  formula: PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD,
+  formula: PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
 };
 
 function monthlyFact(input: {
@@ -59,6 +59,9 @@ function snapshot(
     revenue: number;
     cost: number;
     advertisingSpend?: number;
+    mappingValid?: boolean;
+    selling?: boolean;
+    saleStartDate?: string | null;
   }[],
   overrides: Partial<ProfitabilityEvidenceSnapshot> = {},
 ): ProfitabilityEvidenceSnapshot {
@@ -100,12 +103,16 @@ function snapshot(
     },
     products: products.map((product) => ({
       masterProductId: product.masterProductId,
-      selling: true,
-      mappingValid: true,
+      selling: product.selling ?? true,
+      mappingValid: product.mappingValid ?? true,
+      saleStartDate: product.saleStartDate ?? '2026-07-01',
+      evaluationPeriodComplete: true,
       validObservationDays: 30,
       formulaReadyFacts: {
         masterProductId: product.masterProductId,
         cutoffDate: '2026-08-31',
+        saleStartDate: product.saleStartDate ?? '2026-07-01',
+        evaluationPeriodComplete: true,
         monthlyFacts: [monthlyFact(product)],
       },
     })),
@@ -146,7 +153,7 @@ function serviceWith(
 describe('MasterProductAbcService', () => {
   beforeEach(() => {
     vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-09-04T00:00:00.000Z'));
+    vi.setSystemTime(new Date('2026-09-01T00:00:00.000Z'));
   });
 
   afterEach(() => {
@@ -208,6 +215,59 @@ describe('MasterProductAbcService', () => {
       .toEqual([productA, productB]);
     expect(publication.candidates.map((candidate) => candidate.abcGrade))
       .toEqual(['A', 'B']);
+  });
+
+  it('publishes mapped candidates while excluding a stable invalid mapping', async () => {
+    const products = repository({
+      listCurrentAbcTargetIds: vi.fn().mockResolvedValue([productA, productB]),
+    });
+    const { service } = serviceWith(products, snapshot([
+      { masterProductId: productA, revenue: 1_000_000, cost: 200_000 },
+      {
+        masterProductId: productB,
+        revenue: 500_000,
+        cost: 300_000,
+        mappingValid: false,
+      },
+    ]));
+
+    await expect(service.recalculate({ organizationId })).resolves.toMatchObject({
+      outcome: 'PUBLISHED',
+      classifiedProductCount: 1,
+      unclassifiedProductCount: 1,
+    });
+    const publication = products.publish.mock.calls[0]![0] as ProductAbcPublicationInput;
+    expect(publication.targetProductIds).toEqual([productA, productB]);
+    expect(publication.candidates.map((candidate) => candidate.masterProductId))
+      .toEqual([productA]);
+    expect(publication.saleAgeInputs).toEqual([
+      { masterProductId: productA, mappingValid: true, saleStartDate: '2026-07-01' },
+      { masterProductId: productB, mappingValid: false, saleStartDate: '2026-07-01' },
+    ]);
+  });
+
+  it('publishes a prior-month ABC evaluation when Sellpia coverage continues through yesterday', async () => {
+    const products = repository();
+    const evidence = snapshot([{
+      masterProductId: productA,
+      revenue: 1_000_000,
+      cost: 200_000,
+    }], {
+      sourceVector: {
+        ...snapshot([], {}).sourceVector,
+        sellpia: {
+          ...snapshot([], {}).sourceVector.sellpia,
+          coverageEndDate: '2026-09-03',
+        },
+      },
+    });
+    const { service } = serviceWith(products, evidence);
+
+    await expect(service.recalculate({ organizationId })).resolves.toMatchObject({
+      outcome: 'PUBLISHED',
+      officialCutoff: '2026-08-31',
+    });
+    expect(products.publish).toHaveBeenCalledTimes(1);
   });
 
   it('captures the complete target set before loading profitability evidence', async () => {
@@ -279,7 +339,7 @@ describe('MasterProductAbcService', () => {
     expect(products.publish).toHaveBeenCalledTimes(1);
   });
 
-  it('does not publish a candidate for a new product with fewer than thirty valid days', async () => {
+  it('publishes a complete 29-day period once sale age is at least thirty days', async () => {
     const products = repository();
     const { service } = serviceWith(products, snapshot([{
       masterProductId: productA,
@@ -290,8 +350,48 @@ describe('MasterProductAbcService', () => {
         masterProductId: productA,
         selling: true,
         mappingValid: true,
+        saleStartDate: '2026-07-01',
+        evaluationPeriodComplete: true,
         validObservationDays: 29,
-        formulaReadyFacts: null,
+        formulaReadyFacts: {
+          masterProductId: productA,
+          cutoffDate: '2026-08-31',
+          saleStartDate: '2026-07-01',
+          evaluationPeriodComplete: true,
+          monthlyFacts: [monthlyFact({ revenue: 1_000_000, cost: 200_000 })],
+        },
+      }],
+    }));
+
+    await expect(service.recalculate({ organizationId })).resolves.toMatchObject({
+      outcome: 'PUBLISHED',
+      classifiedProductCount: 1,
+      unclassifiedProductCount: 0,
+    });
+    expect(products.publish.mock.calls[0]![0].candidates).toHaveLength(1);
+  });
+
+  it('keeps observed amounts but does not publish a candidate without product-period evidence', async () => {
+    const products = repository();
+    const { service } = serviceWith(products, snapshot([{
+      masterProductId: productA,
+      revenue: 1_000_000,
+      cost: 200_000,
+    }], {
+      products: [{
+        masterProductId: productA,
+        selling: true,
+        mappingValid: true,
+        saleStartDate: '2026-07-01',
+        evaluationPeriodComplete: false,
+        validObservationDays: 0,
+        formulaReadyFacts: {
+          masterProductId: productA,
+          cutoffDate: '2026-08-31',
+          saleStartDate: '2026-07-01',
+          evaluationPeriodComplete: false,
+          monthlyFacts: [monthlyFact({ revenue: 1_000_000, cost: 200_000 })],
+        },
       }],
     }));
 

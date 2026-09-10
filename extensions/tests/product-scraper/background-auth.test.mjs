@@ -25,6 +25,9 @@ const liveCommerceCollectorSource = fs.readFileSync(liveCommerceCollectorPath, '
 const manifest = JSON.parse(
   fs.readFileSync(path.resolve('extensions/kiditem-os/manifest.json'), 'utf8'),
 );
+const detailProductFixture = JSON.parse(
+  fs.readFileSync(path.resolve('extensions/tests/fixtures/1688-product-detail-v1.json'), 'utf8'),
+);
 
 function createStorage(initial = {}, notify = () => {}) {
   const values = { ...initial };
@@ -86,6 +89,8 @@ function loadBackground(initialStorage = {}, plannedResponses = []) {
   const fetchCalls = [];
   const dispatchedEvents = [];
   const tabUrls = new Map();
+  const ownerAttempts = new Map();
+  const attemptsByIdempotencyKey = new Map();
 
   const context = {
     crypto: { randomUUID },
@@ -124,9 +129,12 @@ function loadBackground(initialStorage = {}, plannedResponses = []) {
         sendMessage: (tabId, message, callback) => {
           callback?.({ ok: true });
           if (message.type === 'TRIGGER_EXTRACT') queueMicrotask(() => {
+            const sourceUrl = tabUrls.get(tabId) || detailProductFixture.source_url;
             for (const listener of runtimeListeners) listener({ type: 'PRODUCT_DATA', attemptId: message.attemptId,
-              data: { source_url: tabUrls.get(tabId), source_platform: '1688', page_type: 'search', total_found: 0 } },
+              data: { ...detailProductFixture, source_url: sourceUrl } },
             { tab: { id: tabId } }, () => {});
+            for (const listener of runtimeListeners) listener({ type: 'EXTRACTION_COMPLETE', attemptId: message.attemptId, hadDescription: false },
+              { tab: { id: tabId } }, () => {});
           });
         },
       },
@@ -137,13 +145,47 @@ function loadBackground(initialStorage = {}, plannedResponses = []) {
       fetchCalls.push({ url, init });
       const planned = plannedResponses.shift() ?? { status: 200 };
       const status = planned.status ?? 200;
+      const requestBody = init?.body ? JSON.parse(init.body) : {};
+      let responseBody = planned.json;
+      if (responseBody === undefined && status >= 200 && status < 300) {
+        if (url.endsWith('/attempts')) {
+          const idempotencyKey = new Headers(init?.headers).get('idempotency-key');
+          let attempt = attemptsByIdempotencyKey.get(idempotencyKey);
+          if (!attempt) {
+            attempt = {
+              attemptId: randomUUID(),
+              attemptToken: randomUUID(),
+              state: 'RUNNING',
+              plan: { sourceUrl: requestBody.sourceUrl },
+              expiresAt: new Date(Date.now() + 120000).toISOString(),
+            };
+            attemptsByIdempotencyKey.set(idempotencyKey, attempt);
+            ownerAttempts.set(attempt.attemptId, attempt);
+          }
+          responseBody = attempt;
+        } else {
+          const terminalMatch = url.match(/\/attempts\/([^/]+)\/(complete|fail)$/);
+          const readMatch = url.match(/\/attempts\/([^/]+)$/);
+          const attemptId = terminalMatch?.[1] || readMatch?.[1];
+          const attempt = attemptId ? ownerAttempts.get(attemptId) : undefined;
+          if (terminalMatch?.[2] === 'complete') {
+            if (attempt) attempt.state = 'COMPLETE';
+            responseBody = { attemptId, state: 'COMPLETE' };
+          } else if (terminalMatch?.[2] === 'fail') {
+            if (attempt) attempt.state = 'FAILED';
+            responseBody = { attemptId, state: 'FAILED' };
+          } else if (readMatch) {
+            responseBody = attempt || {};
+          } else {
+            responseBody = {};
+          }
+        }
+      }
       return {
         ok: status >= 200 && status < 300,
         status,
         text: async () => planned.body ?? '',
-        json: async () => planned.json ?? (url.endsWith('/attempts')
-          ? { attemptId: randomUUID(), attemptToken: randomUUID(), state: 'RUNNING' }
-          : { state: 'COMPLETE' }),
+        json: async () => responseBody,
       };
     },
     Headers,
@@ -178,7 +220,22 @@ function loadBackground(initialStorage = {}, plannedResponses = []) {
     storageApi: storage,
     runtimeListeners,
     tabUrls,
+    ownerAttempts,
   };
+}
+
+function assertSuccessfulProductIngest(env, expectedCount = 1) {
+  const completeCalls = env.fetchCalls.filter(({ url }) => url.endsWith('/complete'));
+  const failedCalls = env.fetchCalls.filter(({ url }) => url.endsWith('/fail'));
+  assert.equal(completeCalls.length, expectedCount);
+  assert.equal(failedCalls.length, 0);
+  for (const call of completeCalls) {
+    assert.equal(call.init.method, 'PUT');
+    const body = JSON.parse(call.init.body);
+    assert.equal(body.hadDescription, false);
+    assert.equal(body.product.page_type, 'detail');
+    assert.match(body.product.source_url, /^https:\/\/detail\.1688\.com\/offer\//);
+  }
 }
 
 function collectProduct(env, product, environmentId) {
@@ -382,10 +439,12 @@ test('stores office auth and routes requests to the office API origin', async ()
   );
 
   assert.equal(response?.success, true);
-  await collectProduct(env,
+  const result = await collectProduct(env,
     { source_url: 'https://detail.1688.com/offer/607635921546.html' },
     'office',
   );
+  assert.equal(result.ok, true);
+  assertSuccessfulProductIngest(env);
   assert.equal(
     env.fetchCalls[0].url,
     'http://kiditem-office/api/sourcing/extension/product-data/attempts',
@@ -416,11 +475,13 @@ test('sends the stored token as Bearer auth to the sourcing ingest API', async (
     },
   });
 
-  await collectProduct(env,
+  const result = await collectProduct(env,
     { source_url: 'https://detail.1688.com/offer/607635921546.html' },
     'local',
   );
 
+  assert.equal(result.ok, true);
+  assertSuccessfulProductIngest(env);
   assert.equal(env.fetchCalls.length, 2);
   const headers = new Headers(env.fetchCalls[0].init.headers);
   assert.equal(headers.get('content-type'), 'application/json');
@@ -465,6 +526,7 @@ test('requests web resync and retries once after 401 with a changed token', asyn
   const result = await pending;
 
   assert.equal(result.ok, true);
+  assertSuccessfulProductIngest(env);
   assert.equal(env.fetchCalls.length, 3);
   assert.equal(
     new Headers(env.fetchCalls[1].init.headers).get('authorization'),
@@ -499,6 +561,7 @@ test('coalesces concurrent 401 refresh signals and retries each request once', a
   const results = await Promise.all([first, second]);
 
   assert.deepEqual(results.map((result) => result.ok), [true, true]);
+  assertSuccessfulProductIngest(env, 2);
   assert.equal(env.fetchCalls.length, 6);
   assert.deepEqual(env.dispatchedEvents, ['kiditem:extension-auth-required']);
 });

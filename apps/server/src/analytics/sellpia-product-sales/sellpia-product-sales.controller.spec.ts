@@ -60,6 +60,28 @@ describe('SellpiaProductSalesController', () => {
     expect(source.readAttemptControl).toHaveBeenCalledWith(ORGANIZATION_ID, ATTEMPT_ID);
   });
 
+  it('reads an exact terminal attempt without exposing its owner token', async () => {
+    const source = {
+      readAttemptStatus: vi.fn().mockResolvedValue({
+        attemptId: ATTEMPT_ID,
+        state: 'COMPLETE',
+        expiresAt: '2026-09-03T01:30:00.000Z',
+        capturedAt: '2026-09-03T01:00:00.000Z',
+        generation: '7',
+        errorCode: null,
+        errorMessage: null,
+        plan: { from: '2026-01-01', to: '2026-08-31', coveredMonths: ['2026-01'] },
+      }),
+    };
+    const controller = new SellpiaProductSalesController({} as never, source as never);
+
+    await expect(controller.readAttemptStatus(ATTEMPT_ID, ORGANIZATION_ID)).resolves.toMatchObject({
+      attemptId: ATTEMPT_ID,
+      state: 'COMPLETE',
+    });
+    expect(source.readAttemptStatus).toHaveBeenCalledWith(ORGANIZATION_ID, ATTEMPT_ID);
+  });
+
   it('keeps the general status response token-free', async () => {
     const source = {
       readSourceStatus: vi.fn().mockResolvedValue({

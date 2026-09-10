@@ -1,10 +1,12 @@
 import * as XLSX from 'xlsx';
-import { issueBrowserCollectionRunId } from '@/lib/browser-collection-session';
 import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extension-bridge';
 import { apiClient } from '@/lib/api-client';
 import { downloadBlob } from '@/lib/browser-download';
 import type { OrderCollectionConversionResult } from './order-collection-api';
-import type { OrderCollectionExtensionRun } from './order-collection-extension';
+import {
+  orderCollectionExtensionRunFields,
+  type OrderCollectionExtensionRun,
+} from './order-collection-extension';
 
 interface KkomangseCollectResponse {
   success?: boolean;
@@ -29,8 +31,8 @@ export async function collectKkomangseXlsxFromExtension(run?: OrderCollectionExt
     {
       action: 'collectKkomangseOrders',
       date: run?.date,
-      runId: await issueBrowserCollectionRunId(run?.runId),
-      deferTerminal: Boolean(run?.runId),
+      // attemptId/deferTerminal: true are included by shared fenced run fields.
+      ...orderCollectionExtensionRunFields(run),
     },
     90000,
   );
@@ -43,11 +45,17 @@ export async function collectKkomangseXlsxFromExtension(run?: OrderCollectionExt
 /** 수집한 꼬망세 xlsx(base64)를 셀피아 업로드 양식(.xls)으로 변환. 생성 파일 목록 등록용 결과 반환. */
 export async function convertKkomangseToSellpiaFile(
   xlsxBase64: string,
-  options?: { download?: boolean; date?: string },
+  options?: { download?: boolean; date?: string; run?: OrderCollectionExtensionRun },
 ): Promise<OrderCollectionConversionResult> {
   const res = await apiClient.fetchRaw('/api/orders/collection/kkomangse/convert', {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: {
+      'content-type': 'application/json',
+      ...(options?.run ? {
+        'x-order-collection-attempt-id': options.run.attemptId,
+        'x-source-attempt-token': options.run.attemptToken,
+      } : {}),
+    },
     body: JSON.stringify({ xlsxBase64, date: options?.date }),
   });
   if (!res.ok) {

@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { AdCampaignSnapshot } from "@kiditem/shared/advertising";
 import { CampaignSummary } from "./StatusContent";
@@ -107,7 +107,57 @@ describe("CampaignSummary", () => {
       ),
     );
 
-    expect(screen.getByRole("button", { name: /운영 캠페인ON/ })).toBeEnabled();
+    const activeButton = screen.getByRole("button", { name: /운영 캠페인ON/ });
+    expect(activeButton).toBeEnabled();
+    expect(within(activeButton).getByText("ROAS 500%")).toHaveClass("text-emerald-600");
     expect(screen.queryByText(/중단 캠페인/)).not.toBeInTheDocument();
+  });
+
+  it("keeps unknown summary ROAS neutral while preserving an observed zero", () => {
+    mockApiGet.mockResolvedValue({
+      roas: { thresholds: { excellent: 300, warning: 200, poor: 100 } },
+    });
+    const unknown = campaign({
+      campaignIdentity: "campaign:unknown-roas",
+      campaignName: "ROAS 미수집",
+      metricsAvailable: true,
+      conversionsAvailable: true,
+      status: "ON",
+      onOff: "ON",
+    });
+    const zero = campaign({
+      campaignIdentity: "campaign:zero-roas",
+      campaignName: "ROAS 0",
+      metricsAvailable: true,
+      conversionsAvailable: true,
+      status: "ON",
+      onOff: "ON",
+      metrics: {
+        spend: 0,
+        revenue: 0,
+        impressions: 0,
+        clicks: 0,
+        conversions: 0,
+        roas: 0,
+        ctr: 0,
+        cvr: 0,
+      },
+    });
+
+    render(
+      wrapper(
+        <CampaignSummary
+          campaigns={[unknown, zero]}
+          onSelect={vi.fn()}
+        />,
+      ),
+    );
+
+    const unknownButton = screen.getByRole("button", { name: /ROAS 미수집/ });
+    const unknownRoas = within(unknownButton).getByText("ROAS -");
+    expect(unknownRoas.className).not.toMatch(/text-(emerald|green|orange|red)-\d+/);
+
+    const zeroButton = screen.getByRole("button", { name: /ROAS 0/ });
+    expect(within(zeroButton).getByText("ROAS 0%")).toHaveClass("text-red-600");
   });
 });

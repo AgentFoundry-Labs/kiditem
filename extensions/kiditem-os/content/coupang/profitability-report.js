@@ -4,6 +4,7 @@
   const REPORT_PATH = "/marketing-reporting/billboard/reports/pa";
   const REPORT_STRUCTURE = "캠페인 > 광고그룹 > 상품";
   const REPORT_POLL_TIMEOUT_MS = 10 * 60 * 1000;
+  const REPORT_FORM_READINESS_TIMEOUT_MS = 10_000;
 
   function sleep(milliseconds) {
     const bounded = Math.min(5_000, Math.max(0, Math.round(Number(milliseconds) || 0)));
@@ -210,6 +211,14 @@
     }) || null;
   }
 
+  function isEnabledControl(element) {
+    return Boolean(
+      element &&
+      element.disabled !== true &&
+      element.getAttribute?.("aria-disabled") !== "true",
+    );
+  }
+
   async function pollUntil(factory, options = {}) {
     const timeoutMs = options.timeoutMs || 30_000;
     const intervalMs = options.intervalMs || 250;
@@ -360,14 +369,48 @@
     return button || null;
   }
 
+  async function waitForCampaignSelectionReady() {
+    const ready = await pollUntil(() => {
+      const picker = campaignPickerButton();
+      const createButton = findVisibleByText("button", "보고서 만들기");
+      const pickerLabel = normalizedText(picker?.innerText || picker?.textContent);
+      // The date range change asynchronously clears the old campaign choice.
+      // Do not open the picker while that reset is still in flight: the stale
+      // selection can be overwritten after confirmation and leave Create
+      // disabled even though the click appeared to succeed.
+      return picker &&
+        isEnabledControl(picker) &&
+        pickerLabel === "캠페인을 선택하세요" &&
+        createButton &&
+        !isEnabledControl(createButton)
+        ? picker
+        : null;
+    }, { timeoutMs: REPORT_FORM_READINESS_TIMEOUT_MS, intervalMs: 100 });
+    if (!ready) {
+      throw new Error("profitability_report_campaign_selection_not_ready");
+    }
+    return ready;
+  }
+
+  async function waitForEnabledCreateButton() {
+    const visibleButton = findVisibleByText("button", "보고서 만들기");
+    if (!visibleButton) throw new Error("profitability_report_create_button_missing");
+    const ready = await pollUntil(() => {
+      const button = findVisibleByText("button", "보고서 만들기");
+      return isEnabledControl(button) ? button : null;
+    }, { timeoutMs: REPORT_FORM_READINESS_TIMEOUT_MS, intervalMs: 100 });
+    if (!ready) throw new Error("profitability_report_create_button_not_ready");
+    return ready;
+  }
+
   async function selectAllCampaigns() {
-    const button = campaignPickerButton();
-    if (!button) throw new Error("profitability_report_campaign_picker_missing");
+    const button = await waitForCampaignSelectionReady();
     button.click();
     const allCheckbox = await pollUntil(() =>
       [...document.querySelectorAll('input[type="checkbox"]')].find((candidate) => {
         const owner = candidate.closest("label") || candidate.parentElement;
         return isVisible(candidate) &&
+          isEnabledControl(candidate) &&
           normalizedText(owner?.innerText || owner?.textContent).startsWith("전체선택");
       }) || null,
     );
@@ -432,8 +475,7 @@
     const existing = completedReportRow(slice);
     if (existing) return existing;
     if (!pendingReportRow(slice) && createIfMissing) {
-      const createButton = findVisibleByText("button", "보고서 만들기");
-      if (!createButton) throw new Error("profitability_report_create_button_missing");
+      const createButton = await waitForEnabledCreateButton();
       createButton.click();
       created = true;
       await sleep(1_000);
@@ -653,6 +695,7 @@
     accountSwitchControl,
     profitabilityAccount,
     run,
+    selectAllCampaigns,
     switchProfitabilityAccount,
     waitForExistingReport,
     waitForReport,

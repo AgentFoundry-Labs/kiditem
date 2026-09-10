@@ -1,7 +1,6 @@
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, NotImplementedException } from '@nestjs/common';
 import type {
   CreateProductPreparationInput,
-  ProductPreparationCommandResult,
   UpdateProductPreparationInput,
 } from '@kiditem/shared/sourcing';
 import {
@@ -11,14 +10,12 @@ import {
 } from '../port/out/repository/product-preparation.repository.port';
 import {
   CHANNEL_PRODUCT_REGISTRATION_PORT,
-  DefinitiveChannelProductRegistrationError,
   type ChannelProductRegistrationPort,
 } from '../port/out/cross-domain/channel-product-registration.port';
 import {
   REGISTRATION_CONTENT_WORKSPACE_PORT,
   type RegistrationContentWorkspacePort,
 } from '../port/out/cross-domain/registration-content-workspace.port';
-import { canStartProviderCreate } from '../../domain/product-preparation-state';
 
 @Injectable()
 export class ProductRegistrationService {
@@ -244,112 +241,14 @@ export class ProductRegistrationService {
     return result;
   }
 
-  async submit(
-    organizationId: string,
-    preparationId: string,
-    userId: string | null,
-  ): Promise<ProductPreparationCommandResult> {
-    const claim = await this.preparations.claimForSubmission(
-      organizationId,
-      preparationId,
-      userId,
-      (tx, selections) => this.contentWorkspaces.resolveSourceSelections(tx, selections),
+  submit(
+    _organizationId: string,
+    _preparationId: string,
+    _userId: string | null,
+  ): never {
+    throw new NotImplementedException(
+      'Coupang Open API product submission is not supported. Use the WING browser confirmation flow.',
     );
-    if (claim.status === 'registered') return claim;
-    const submission = claim;
-    const submissionLeaseToken = submission.submissionLeaseToken;
-    if (!submissionLeaseToken) {
-      throw new Error('Claimed product preparation is missing its submission lease.');
-    }
-
-    let providerResult;
-    let submittingProviderCreate = false;
-    let providerCreateDispatched = false;
-    try {
-      providerResult = await this.channels.reconcile(this.toSubmissionInput(
-        organizationId,
-        submission,
-      ));
-      if (!providerResult) {
-        if (!canStartProviderCreate(submission.providerOutcome)) {
-          throw new Error('Provider outcome remains uncertain after reconciliation.');
-        }
-        submittingProviderCreate = true;
-        providerResult = await this.channels.submit(
-          this.toSubmissionInput(
-            organizationId,
-            submission,
-            { providerOutcome: 'uncertain', providerCreateAllowed: true },
-          ),
-          async () => {
-            await this.preparations.markProviderAttemptStarted(
-              organizationId,
-              preparationId,
-              submissionLeaseToken,
-            );
-            providerCreateDispatched = true;
-          },
-        );
-      }
-      await this.preparations.recordProviderResult(
-        organizationId,
-        preparationId,
-        submissionLeaseToken,
-        providerResult,
-      );
-    } catch (error) {
-      return this.fail(
-        organizationId,
-        preparationId,
-        submissionLeaseToken,
-        error,
-        error instanceof DefinitiveChannelProductRegistrationError
-          || (
-            submission.providerOutcome === 'not_attempted'
-            && !providerCreateDispatched
-          )
-          ? 'definitive_failure'
-          : undefined,
-      );
-    }
-
-    try {
-      return await this.preparations.finalizeRegistered(
-        organizationId,
-        preparationId,
-        submissionLeaseToken,
-        async (tx) => {
-          const listing = await this.channels.resolveListing(tx, {
-            ...this.toSubmissionInput(organizationId, submission),
-            externalListingId: providerResult.externalListingId,
-            displayName: submission.displayName,
-            ...kidItemFirstLinks(submission.submissionPayloadJson),
-          });
-          await this.contentWorkspaces.branchToListing(tx, {
-            organizationId,
-            sourceWorkspaceId: submission.sourceContentWorkspaceId,
-            listingId: listing.listingId,
-            displayName: submission.displayName,
-            createdByUserId: userId,
-            selectedThumbnailUrl: submission.selectedThumbnailUrl,
-            selectedThumbnailGenerationId: submission.selectedThumbnailGenerationId,
-            selectedThumbnailGenerationCandidateId:
-              submission.selectedThumbnailGenerationCandidateId,
-            selectedDetailPageArtifactId: submission.selectedDetailPageArtifactId,
-            selectedDetailPageRevisionId: submission.selectedDetailPageRevisionId,
-            selectedDetailPageGenerationId: submission.selectedDetailPageGenerationId,
-          });
-          return { listingId: listing.listingId };
-        },
-      );
-    } catch (error) {
-      return this.fail(
-        organizationId,
-        preparationId,
-        submissionLeaseToken,
-        error,
-      );
-    }
   }
 
   /**
@@ -378,7 +277,7 @@ export class ProductRegistrationService {
       externalListingId: string;
       evidence?: { wingVendorId: string; wingIdentitySource: string };
     },
-  ): Promise<ProductPreparationCommandResult> {
+  ) {
     const externalListingId = input.externalListingId.trim();
     if (!externalListingId) {
       throw new Error('등록상품ID가 비어 있습니다.');
@@ -615,71 +514,8 @@ function frozenExistingChannelListing(value: unknown): {
   };
 }
 
-function kidItemFirstLinks(value: unknown): {
-  masterProductId?: string;
-  optionLinks?: Array<{
-    externalOptionId: string;
-    sellpiaInventorySkuId: string;
-    quantity: number;
-  }>;
-} {
-  const payload = asRecord(value);
-  const registrationInput = asRecord(payload.registrationInput);
-  const result: {
-    masterProductId?: string;
-    optionLinks?: Array<{
-      externalOptionId: string;
-      sellpiaInventorySkuId: string;
-      quantity: number;
-    }>;
-  } = {};
-  if (registrationInput.masterProductId !== undefined) {
-    result.masterProductId = requiredString(
-      registrationInput.masterProductId,
-      'KidItem-first masterProductId',
-    );
-  }
-  if (registrationInput.optionLinks !== undefined) {
-    if (!Array.isArray(registrationInput.optionLinks)) {
-      throw new Error('KidItem-first optionLinks must be an array.');
-    }
-    result.optionLinks = registrationInput.optionLinks.map((value, index) => {
-      const link = asRecord(value);
-      return {
-        externalOptionId: requiredString(
-          link.externalOptionId,
-          `KidItem-first optionLinks[${index}].externalOptionId`,
-        ),
-        sellpiaInventorySkuId: requiredString(
-          link.sellpiaInventorySkuId,
-          `KidItem-first optionLinks[${index}].sellpiaInventorySkuId`,
-        ),
-        quantity: requiredPositiveInteger(
-          link.quantity,
-          `KidItem-first optionLinks[${index}].quantity`,
-        ),
-      };
-    });
-  }
-  return result;
-}
-
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
     : {};
-}
-
-function requiredString(value: unknown, field: string): string {
-  if (typeof value !== 'string' || !value.trim()) {
-    throw new Error(`${field} is required.`);
-  }
-  return value.trim();
-}
-
-function requiredPositiveInteger(value: unknown, field: string): number {
-  if (!Number.isSafeInteger(value) || Number(value) <= 0) {
-    throw new Error(`${field} must be a positive integer.`);
-  }
-  return Number(value);
 }

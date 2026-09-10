@@ -38,11 +38,8 @@ test('persists exact source provenance for absolute ABC publication', () => {
   }
 });
 
-test('starts the operation runtime worker in the all-in-one local development command', () => {
-  assert.match(
-    packageJson.scripts['dev:core'],
-    /OPERATION_RUNTIME_WORKER_ENABLED=1 npm run dev:server/,
-  );
+test('starts the API and web processes in the all-in-one local development command', () => {
+  assert.doesNotMatch(packageJson.scripts['dev:core'], /OPERATION_RUNTIME_WORKER_ENABLED/);
   assert.equal(packageJson.scripts['dev:all'], 'node scripts/run-local-development.mjs');
   assert.match(localDevelopment, /command: 'npm run dev:core'/);
 });

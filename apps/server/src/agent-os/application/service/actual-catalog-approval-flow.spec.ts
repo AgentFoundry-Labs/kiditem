@@ -136,7 +136,6 @@ function approvalRuntime(scenario: ApprovalScenario) {
     invoke: vi.fn(async () => ({
       summary: scenario.definition.resultSummary,
       resourceRefs: [],
-      operationRefs: [],
       output: scenario.output,
     })),
   };

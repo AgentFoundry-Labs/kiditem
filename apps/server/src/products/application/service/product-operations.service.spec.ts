@@ -1,6 +1,6 @@
 import { BadRequestException, Logger } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
-import { PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD } from '@kiditem/shared/product-abc';
+import { PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD } from '@kiditem/shared/product-abc';
 import { ProductOperationsService } from './product-operations.service';
 import type { ProductOperationsRepositoryPort } from '../port/out/repository/product-operations.repository.port';
 
@@ -732,10 +732,11 @@ function officialEvaluation() {
     consistencyScore: 100,
     economicScore: 57,
     validObservationDays: 180,
-    formula: PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD,
+    formula: PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
     formulaRevision: 2,
     publicationRevision: 4,
     gradeBasisCutoffDate: '2026-07-31',
+    saleStartDate: '2026-06-01',
     sellpiaSourceImportRunId: '00000000-0000-4000-8000-000000000011',
     advertisingSourceImportRunId: '00000000-0000-4000-8000-000000000012',
     sellpiaGeneration: '4',
@@ -761,7 +762,12 @@ function abcStatusFacts() {
       publishedAt: '2026-08-01T01:00:00.000Z',
       mappingGeneration: '8',
     },
-    products: [{ masterProductId: productId, abcGrade: 'B' as const, mappingValid: true }],
+    products: [{
+      masterProductId: productId,
+      abcGrade: 'B' as const,
+      mappingValid: true,
+      saleStartDate: '2026-07-01',
+    }],
     sourceVector: {
       sellpia: {
         sourceImportRunId: '00000000-0000-4000-8000-000000000011',

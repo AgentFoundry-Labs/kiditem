@@ -5,6 +5,13 @@ const CalendarDateSchema = z.string().regex(
   /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/,
   'Expected a KST calendar date (YYYY-MM-DD)',
 );
+const ProductAbcCalendarDatePattern = /^(\d{4})-(\d{2})-(\d{2})$/;
+const ProductAbcIsoDateTimePattern =
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?(Z|[+-]\d{2}:\d{2})$/;
+const ProductAbcNaiveDateTimePattern =
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?$/;
+const PRODUCT_ABC_KST_OFFSET_MINUTES = 9 * 60;
+const PRODUCT_ABC_DAY_MS = 86_400_000;
 const FiniteNumberSchema = z.number().finite();
 const ChecksumSchema = z.string().regex(/^[a-f0-9]{64}$/i, 'Expected a SHA-256 checksum');
 const GenerationSchema = z.string().regex(/^\d+$/, 'Generation must be a decimal string');
@@ -23,6 +30,85 @@ export const ProductAbcDisplayStatusSchema = z.enum([
   'READY',
 ]);
 export type ProductAbcDisplayStatus = z.infer<typeof ProductAbcDisplayStatusSchema>;
+
+/**
+ * Parses the provider's sale-start value without allowing Date.parse to roll
+ * an invalid calendar or clock value into a different day. Date-only values
+ * are already KST calendar dates; timestamp values are normalized to KST.
+ */
+export function parseProductAbcDateToKstCalendarDate(
+  value: unknown,
+  options: Readonly<{ allowNaiveKstTimestamp?: boolean }> = {},
+): string | null {
+  if (typeof value !== 'string' || value.trim().length === 0) return null;
+  const candidate = value.trim();
+  const dateOnly = ProductAbcCalendarDatePattern.exec(candidate);
+  if (dateOnly) {
+    return isValidProductAbcCalendarParts(dateOnly) ? candidate : null;
+  }
+  const timestamp = ProductAbcIsoDateTimePattern.exec(candidate);
+  const naiveTimestamp = ProductAbcNaiveDateTimePattern.exec(candidate);
+  if ((!timestamp && !naiveTimestamp)
+    || (naiveTimestamp && options.allowNaiveKstTimestamp !== true)) return null;
+  const parts = timestamp ?? naiveTimestamp!;
+  if (!isValidProductAbcCalendarParts(parts)) return null;
+
+  const hour = Number(parts[4]);
+  const minute = Number(parts[5]);
+  const second = Number(parts[6]);
+  const millis = Number((parts[7] ?? '').padEnd(3, '0') || 0);
+  const zone = naiveTimestamp ? '+09:00' : parts[8]!;
+  if (hour > 23 || minute > 59 || second > 59 || millis > 999) return null;
+  const offsetMinutes = zone === 'Z'
+    ? 0
+    : Number(zone.slice(1, 3)) * 60 + Number(zone.slice(4, 6));
+  if (zone !== 'Z' && (Number(zone.slice(1, 3)) > 23 || Number(zone.slice(4, 6)) > 59)) {
+    return null;
+  }
+
+  const local = new Date(0);
+  local.setUTCFullYear(
+    Number(parts[1]),
+    Number(parts[2]) - 1,
+    Number(parts[3]),
+  );
+  local.setUTCHours(hour, minute, second, millis);
+  const utcMillis = local.getTime() - (zone.startsWith('-') ? -offsetMinutes : offsetMinutes) * 60_000;
+  if (!Number.isFinite(utcMillis)) return null;
+  const kst = new Date(utcMillis + PRODUCT_ABC_KST_OFFSET_MINUTES * 60_000);
+  return `${String(kst.getUTCFullYear()).padStart(4, '0')}-${String(kst.getUTCMonth() + 1).padStart(2, '0')}-${String(kst.getUTCDate()).padStart(2, '0')}`;
+}
+
+/** Returns elapsed KST calendar days, or null when either date is invalid. */
+export function productAbcSaleAgeDays(
+  saleStartDate: string | null,
+  cutoffDate: string | null,
+): number | null {
+  const start = parseProductAbcDateToKstCalendarDate(saleStartDate);
+  const cutoff = parseProductAbcDateToKstCalendarDate(cutoffDate);
+  if (!start || !cutoff) return null;
+  const startDay = productAbcCalendarEpochDay(start);
+  const cutoffDay = productAbcCalendarEpochDay(cutoff);
+  if (startDay === null || cutoffDay === null || cutoffDay < startDay) return null;
+  return cutoffDay - startDay;
+}
+
+function isValidProductAbcCalendarParts(parts: RegExpExecArray): boolean {
+  const year = Number(parts[1]);
+  const month = Number(parts[2]);
+  const day = Number(parts[3]);
+  return year >= 1 && month >= 1 && month <= 12 && day >= 1
+    && day <= new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
+
+function productAbcCalendarEpochDay(value: string): number | null {
+  const match = ProductAbcCalendarDatePattern.exec(value);
+  if (!match || !isValidProductAbcCalendarParts(match)) return null;
+  const date = new Date(0);
+  date.setUTCFullYear(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  date.setUTCHours(0, 0, 0, 0);
+  return Math.floor(date.getTime() / PRODUCT_ABC_DAY_MS);
+}
 
 export const ProductAbcCostStatusSchema = z.enum([
   'OBSERVED',
@@ -103,7 +189,7 @@ const AnchorsSchema = z.object({
   lossPersistence: z.array(AnchorPointSchema).length(6),
 }).strict();
 
-/** V1's fixed interpolation knots. Changing one requires a new formula version. */
+/** The current fixed interpolation knots. Changing one requires a new formula version. */
 export const PRODUCT_ABC_ABSOLUTE_V1_ANCHORS = {
   profitVelocity30: [
     { value: 0, score: 0 },
@@ -200,7 +286,7 @@ export const PRODUCT_ABC_ABSOLUTE_V1_AD_SOURCE_POLICY_HASH =
 
 const FormulaPayloadShape = {
   formulaKey: z.literal('PRODUCT_ABC_ABSOLUTE'),
-  version: z.literal(1),
+  version: z.literal(2),
   currency: z.literal('KRW'),
   operatingProfit: z.literal('OPERATING_PROFIT_V1'),
   currentSellingPolicy: z.literal('CURRENT_SELLING_MAPPING_V1'),
@@ -209,9 +295,10 @@ const FormulaPayloadShape = {
   halfLifeDays: z.literal(90),
   velocityPeriodDays: z.literal(30),
   anchors: AnchorsSchema,
-  minimumObservationDays: z.literal(30),
-  maxCompleteMonths: z.literal(12),
-  excludeCurrentKstMonth: z.literal(true),
+  minimumSaleAgeDays: z.literal(30),
+  requiresCompleteEvaluationPeriod: z.literal(true),
+  maxCalendarMonths: z.literal(12),
+  includePartialCutoffMonth: z.literal(true),
   weights: z.object({
     profit: z.literal(0.5),
     margin: z.literal(0.3),
@@ -250,23 +337,23 @@ export const ProductAbcFormulaPayloadSchema = z.object(FormulaPayloadShape)
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['anchors'],
-        message: 'PRODUCT_ABC_ABSOLUTE V1 anchors are immutable',
+        message: 'PRODUCT_ABC_ABSOLUTE anchors are immutable',
       });
     }
     if (payload.adSourcePolicyHash !== PRODUCT_ABC_ABSOLUTE_V1_AD_SOURCE_POLICY_HASH) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['adSourcePolicyHash'],
-        message: 'adSourcePolicyHash must match the canonical V1 policy literals',
+        message: 'adSourcePolicyHash must match the canonical policy literals',
       });
     }
   });
 export type ProductAbcFormulaPayload = z.infer<typeof ProductAbcFormulaPayloadSchema>;
 
 /** Formula JSON is the immutable payload; the database stores its hash separately. */
-export const PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD = {
+export const PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD = {
   formulaKey: 'PRODUCT_ABC_ABSOLUTE',
-  version: 1,
+  version: 2,
   currency: 'KRW',
   operatingProfit: 'OPERATING_PROFIT_V1',
   currentSellingPolicy: 'CURRENT_SELLING_MAPPING_V1',
@@ -275,9 +362,10 @@ export const PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD = {
   halfLifeDays: 90,
   velocityPeriodDays: 30,
   anchors: PRODUCT_ABC_ABSOLUTE_V1_ANCHORS as unknown as ProductAbcFormulaPayload['anchors'],
-  minimumObservationDays: 30,
-  maxCompleteMonths: 12,
-  excludeCurrentKstMonth: true,
+  minimumSaleAgeDays: 30,
+  requiresCompleteEvaluationPeriod: true,
+  maxCalendarMonths: 12,
+  includePartialCutoffMonth: true,
   weights: { profit: 0.5, margin: 0.3, consistency: 0.2 },
   hardC: {
     weightedOperatingProfitLte: 0,
@@ -299,11 +387,11 @@ export const PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD = {
   adSourcePolicyHash: PRODUCT_ABC_ABSOLUTE_V1_AD_SOURCE_POLICY_HASH,
 } as const satisfies ProductAbcFormulaPayload;
 
-export const PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD_JSON =
-  JSON.stringify(PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD);
+export const PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_JSON =
+  JSON.stringify(PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD);
 // Keep this value adjacent to the payload. FormulaVersion uses it for idempotency.
-export const PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD_HASH =
-  '02dba3cbf6a204d89bfe8c68dfc38a17e1b410fac9f054657f63218120e2d94b';
+export const PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH =
+  '230d35436ffd2fd42bf4eb4ea3f0c99bd7474dcf5b7cf11f6ed235aff84cc64f';
 
 export const ProductAbcFormulaStateSchema = z.object({
   organizationId: UuidSchema,
@@ -397,11 +485,12 @@ export const ProductAbcEvaluationSchema = z.object({
   marginScore: EvaluationMetricSchema.nullable(),
   consistencyScore: EvaluationMetricSchema,
   economicScore: EvaluationMetricSchema,
-  validObservationDays: z.number().int().min(30),
+  validObservationDays: z.number().int().positive(),
   formula: ProductAbcFormulaPayloadSchema,
   formulaRevision: z.number().int().positive(),
   publicationRevision: z.number().int().positive(),
   gradeBasisCutoffDate: CalendarDateSchema,
+  saleStartDate: CalendarDateSchema.nullable(),
   sellpiaSourceImportRunId: UuidSchema,
   advertisingSourceImportRunId: UuidSchema,
   sellpiaGeneration: GenerationSchema,

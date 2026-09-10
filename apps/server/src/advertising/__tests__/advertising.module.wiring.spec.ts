@@ -7,6 +7,7 @@ import { PrismaModule } from '../../prisma/prisma.module';
 import { AlertsModule } from '../../alerts/alerts.module';
 import { AiModule } from '../../ai/ai.module';
 import { ChannelsModule } from '../../channels/channels.module';
+import { OrdersModule } from '../../orders/orders.module';
 import { AdvertisingProfitabilityReadModule } from '../advertising-profitability-read.module';
 
 describe('AdvertisingModule retained wiring', () => {
@@ -17,6 +18,7 @@ describe('AdvertisingModule retained wiring', () => {
       AlertsModule,
       AiModule,
       ChannelsModule,
+      OrdersModule,
       AdvertisingProfitabilityReadModule,
     ]);
     const providerNames = (Reflect.getMetadata('providers', AdvertisingModule) ?? [])
@@ -25,11 +27,14 @@ describe('AdvertisingModule retained wiring', () => {
     expect(providerNames).not.toContain('AdvertisingProfitabilityOperationHandler');
     expect(providerNames).toContain('CompetitorCatalogSourceAttemptService');
     expect(providerNames).toContain('CompetitorCatalogSourceAttemptRepositoryAdapter');
+    expect(providerNames).toContain('OrdersReviewListingStatsAdapter');
+    expect(providerNames).toContain('AdExportService');
     expect(providerNames).toContain('KeywordSerpSourceRepository');
     expect(providerNames).toContain('WingRankSourceRepository');
     expect(providerNames).not.toContain('AdvertisingTrackedWingProductsOperationHandler');
     const controllerNames = (Reflect.getMetadata('controllers', AdvertisingModule) ?? []).map((controller: Function) => controller.name);
     expect(controllerNames).toContain('AdKeywordAgentController');
+    expect(controllerNames).toContain('AdExportController');
     expect(controllerNames).toContain('CompetitorCatalogSourceController');
     expect(controllerNames).toContain('KeywordSerpSourceController');
     expect(controllerNames).toContain('WingRankSourceController');

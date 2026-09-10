@@ -1,13 +1,16 @@
 import Link from 'next/link';
 import { BarChart3 } from 'lucide-react';
-import type { DashboardSalesSummary } from '@kiditem/shared/dashboard';
 import { ProductAbcBadge } from '@/components/product-abc/ProductAbcBadge';
 import { cn, formatKRW, formatPercent, getProfitColor } from '@/lib/utils';
+import { DashboardDataBasis, type DashboardMetricBasis } from './DashboardDataBasis';
+import type { DashboardSalesSummary } from '@kiditem/shared/dashboard';
 
 export function DashboardTopProducts({
   products,
+  basis,
 }: {
   products: DashboardSalesSummary['topProducts'];
+  basis?: DashboardMetricBasis | null;
 }) {
   return (
     <div className="rounded-2xl bg-white border border-slate-100 shadow-sm overflow-hidden">
@@ -17,8 +20,11 @@ export function DashboardTopProducts({
           <h3 className="text-sm font-bold text-slate-900">Top Revenue Products</h3>
         </div>
         <Link href="/product-hub" className="text-xs font-mono text-purple-600">VIEW ALL →</Link>
-      </div>
+        </div>
+        {basis && <DashboardDataBasis basis={basis} className="px-5 pb-2" />}
       <div className="overflow-x-auto">
+        {products.length === 0 && <div className="px-5 py-8 text-center text-sm text-slate-400">표시할 상품 매출 데이터가 없습니다.</div>}
+        {products.length > 0 && (
         <table style={{ minWidth: 600 }}>
           <thead>
             <tr className="border-b border-slate-100">
@@ -45,6 +51,7 @@ export function DashboardTopProducts({
             ))}
           </tbody>
         </table>
+        )}
       </div>
     </div>
   );

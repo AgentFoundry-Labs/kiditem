@@ -7,10 +7,23 @@
   const byProducerPrefix = new Map();
   const byExternalPortName = new Map();
   const byExternalAction = new Map();
-  const byOperationKey = new Map();
   const capabilityMaps = [];
+  const registeredDomains = [];
 
   function register(domain) {
+    if (!domain || typeof domain !== "object") {
+      throw new Error("Invalid domain registration");
+    }
+    for (const hookName of [
+      "cancelAdditionalCollections",
+      "retryAdditionalCollections",
+      "recoverCollections",
+    ]) {
+      if (domain[hookName] !== undefined && typeof domain[hookName] !== "function") {
+        throw new Error(`Invalid domain lifecycle hook: ${hookName}`);
+      }
+    }
+    registeredDomains.push(domain);
     if (domain.capabilities) capabilityMaps.push(domain.capabilities);
     for (const prefix of domain.producerPrefixes || []) {
       if (byProducerPrefix.has(prefix)) {
@@ -40,15 +53,6 @@
       }
       byExternalAction.set(action, contract);
     }
-    for (const [operationKey, handler] of Object.entries(domain.operations || {})) {
-      if (byOperationKey.has(operationKey)) {
-        throw new Error(`Duplicate browser operation key: ${operationKey}`);
-      }
-      if (typeof handler !== "function") {
-        throw new Error(`Invalid browser operation handler: ${operationKey}`);
-      }
-      byOperationKey.set(operationKey, handler);
-    }
   }
 
   // ping 응답은 세 도메인의 capabilities 를 합친 것이다. 도메인마다 따로
@@ -72,17 +76,16 @@
     return byExternalAction.get(action) || null;
   }
 
-  function runOperation(operationKey) {
-    if (typeof operationKey !== "string") return null;
-    return byOperationKey.get(operationKey) || null;
+  function list() {
+    return [...new Set(registeredDomains)];
   }
 
   function reset() {
     byProducerPrefix.clear();
     byExternalPortName.clear();
     byExternalAction.clear();
-    byOperationKey.clear();
     capabilityMaps.length = 0;
+    registeredDomains.length = 0;
   }
 
   root.KidItemDomains = Object.freeze({
@@ -91,7 +94,7 @@
     forProducer,
     forExternalAction,
     forExternalPort,
-    runOperation,
+    list,
     reset,
   });
 })(globalThis);

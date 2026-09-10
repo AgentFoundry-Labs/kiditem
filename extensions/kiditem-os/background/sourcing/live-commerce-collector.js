@@ -22,6 +22,43 @@
     const storageGet = wire.getCorrelation;
     const failureFrom = wire.failure;
 
+    function cancellationError() {
+      return ownerError("COLLECTION_CANCELLED", "Live Commerce collection was cancelled by the user.");
+    }
+
+    async function isAttemptActive(attemptId, environmentId) {
+      if (typeof sessions.isActive !== "function") {
+        throw ownerError(
+          "COLLECTION_SESSION_API_UNAVAILABLE",
+          "The collection session activity API is required.",
+        );
+      }
+      try {
+        return Boolean(await sessions.isActive(attemptId, environmentId, PRODUCER));
+      } catch {
+        return false;
+      }
+    }
+
+    async function isRunActive(run) {
+      if (!run || run.cancelRequested) return false;
+      return isAttemptActive(run.plan.attemptId, run.environmentId);
+    }
+
+    async function requireRunActive(run) {
+      if (!(await isRunActive(run))) throw cancellationError();
+    }
+
+    function cancellationPendingResult(run) {
+      return {
+        success: false,
+        attemptId: run.plan.attemptId,
+        terminalState: "RUNNING",
+        errorCode: "COLLECTION_CANCELLED",
+        error: "Live Commerce collection cancellation is still being reconciled with the owner.",
+      };
+    }
+
     function ownerError(code, message, status = null) {
       const error = new Error(message);
       error.code = code;
@@ -136,12 +173,21 @@
         body: JSON.stringify({ url: validated.url }),
       }), { requireToken: true });
       if (plan.state === "RUNNING") {
-        await sessions.start({
-          attemptId: plan.attemptId,
-          environmentId,
-          producer: PRODUCER,
-        });
         await persistRequestIdentity(environmentId, plan.attemptId, input.idempotencyKey);
+        try {
+          await sessions.start({
+            attemptId: plan.attemptId,
+            environmentId,
+            producer: PRODUCER,
+          });
+        } catch (error) {
+          if (await isAttemptActive(plan.attemptId, environmentId)) throw error;
+          try {
+            return (await terminalFail(config, plan, cancellationError())).terminal;
+          } catch {
+            throw error;
+          }
+        }
       }
       return plan;
     }
@@ -154,8 +200,12 @@
       ));
     }
 
-    function terminalSubmit(config, plan, body) {
-      return wire.terminal(config, plan, { method: "PUT", suffix: "", body }, sourcePlanFrom);
+    function terminalSubmit(config, plan, body, run) {
+      return wire.terminal(config, plan, { method: "PUT", suffix: "", body }, sourcePlanFrom, run ? {
+        shouldContinue: () => isRunActive(run),
+        cancelCode: "COLLECTION_CANCELLED",
+        cancelMessage: "Live Commerce collection was cancelled by the user.",
+      } : undefined);
     }
 
     async function terminalFail(config, plan, error) {
@@ -182,6 +232,7 @@
     }
 
     async function requireAttentionForRun(run, verificationUrl) {
+      await requireRunActive(run);
       const reason = isCaptchaUrl(verificationUrl) ? "captcha" : "marketplace_login";
       const message = reason === "captcha"
         ? "방송 수집을 계속하려면 보안문자를 완료해주세요. 알림에서 확인 탭을 열 수 있습니다."
@@ -200,22 +251,24 @@
     async function execute(run) {
       let tabId = null;
       try {
+        await requireRunActive(run);
         const tab = await createTab(chromeApi, run.plan.plan.pageUrl);
         tabId = tab.id;
-        if (run.cancelRequested) {
+        if (!(await isRunActive(run))) {
           await removeTab(chromeApi, tabId);
           tabId = null;
-          throw ownerError("COLLECTION_CANCELLED", "Collection cancelled");
+          throw cancellationError();
         }
         run.tabId = tabId;
         if (Number.isInteger(tab.windowId)) {
-          await sessions.attachTab(run.plan.attemptId, {
+          const attached = await sessions.attachTab(run.plan.attemptId, {
             tabId,
             windowId: tab.windowId,
             closeOnCancel: true,
           });
+          if (attached === null || attached === false) throw cancellationError();
         }
-        if (run.cancelRequested) throw ownerError("COLLECTION_CANCELLED", "Collection cancelled");
+        await requireRunActive(run);
         await sessions.progress(run.plan.attemptId, {
           current: 0,
           total: 1,
@@ -223,21 +276,22 @@
           failed: 0,
           label: "라이브 방송 페이지 확인 중",
         });
+        await requireRunActive(run);
         const navigated = await waitForNavigation(chromeApi, tabId, run.plan.plan.pageUrl);
-        if (run.cancelRequested) throw ownerError("COLLECTION_CANCELLED", "Collection cancelled");
+        await requireRunActive(run);
         if (navigated.verificationRequired) {
           run.keepTabOpen = true;
           return requireAttentionForRun(run, navigated.url);
         }
 
         let extracted = await triggerExtraction(chromeApi, tabId);
-        if (run.cancelRequested) throw ownerError("COLLECTION_CANCELLED", "Collection cancelled");
+        await requireRunActive(run);
         if (extracted?.error === "content_script_missing") {
           const injected = await ensureContentScripts(tabId);
-          if (run.cancelRequested) throw ownerError("COLLECTION_CANCELLED", "Collection cancelled");
+          await requireRunActive(run);
           if (!injected) throw new Error("라이브 수집 스크립트를 주입하지 못했습니다.");
           extracted = await triggerExtraction(chromeApi, tabId);
-          if (run.cancelRequested) throw ownerError("COLLECTION_CANCELLED", "Collection cancelled");
+          await requireRunActive(run);
         }
         if (!extracted?.ok) {
           if (extracted?.status === "verification_required") {
@@ -246,14 +300,15 @@
           }
           throw new Error(extracted?.error || "방송 정보를 찾지 못했습니다.");
         }
-        if (run.cancelRequested) throw ownerError("COLLECTION_CANCELLED", "Collection cancelled");
+        await requireRunActive(run);
 
         const terminal = await terminalSubmit(run.config, run.plan, {
           source: extracted.source,
           pageUrl: extracted.pageUrl,
           broadcast: extracted.broadcast,
           products: extracted.products,
-        });
+        }, run);
+        await requireRunActive(run);
         if (!isTerminalState(terminal.state)) {
           throw ownerError("INVALID_LIVE_COMMERCE_TERMINAL", "Live Commerce owner did not terminalize the collection.");
         }
@@ -262,7 +317,16 @@
         await clearTerminalAttempt(run.environmentId, run.plan.attemptId, terminalTabId);
         return terminalResult(terminal);
       } catch (error) {
-        if (run.cancelRequested && run.terminalResult) return run.terminalResult;
+        if (error?.code === "COLLECTION_CANCELLED" || !(await isRunActive(run))) {
+          if (run.cancelPromise) {
+            try {
+              return await run.cancelPromise;
+            } catch {
+              return cancellationPendingResult(run);
+            }
+          }
+          return run.terminalResult || cancellationPendingResult(run);
+        }
         const failure = failureFrom(error, "SOURCE_COLLECTION_FAILED", "Live Commerce collection failed.");
         try {
           const terminal = await terminalFail(run.config, run.plan, error);
@@ -297,6 +361,7 @@
     async function resumeOrBegin(config, environmentId, input) {
       const existing = await matchingSession(environmentId, input.idempotencyKey);
       if (existing) {
+        if (!(await isAttemptActive(existing.session.attemptId, environmentId))) return null;
         if (existing.session.attention) return { attention: existing.session };
         const observed = await readAttempt(config, existing.session.attemptId);
         return { plan: await begin(config, environmentId, {
@@ -370,6 +435,7 @@
           tabId: null,
           keepTabOpen: false,
           cancelRequested: false,
+          cancelPromise: null,
           terminalResult: null,
         };
         running.run = collectorRun;
@@ -377,9 +443,22 @@
       });
     }
 
-    async function cancel(attemptId, environmentId) {
+    async function cancel(attemptId, environmentId, options = {}) {
       const normalizedAttemptId = requiredText(attemptId, "INVALID_LIVE_COMMERCE_SOURCE_ATTEMPT");
       const normalizedEnvironmentId = requiredText(environmentId, "INVALID_COLLECTION_ENVIRONMENT", 20);
+      let cancellationRequested = options.cancellationRequested === true;
+      if (!options.cancellationRequested && typeof sessions.requestCancellation === "function") {
+        const alreadyStopped = !(await isAttemptActive(normalizedAttemptId, normalizedEnvironmentId));
+        if (alreadyStopped) cancellationRequested = true;
+        if (!alreadyStopped) {
+          try {
+            await sessions.requestCancellation(normalizedAttemptId, normalizedEnvironmentId);
+            cancellationRequested = true;
+          } catch (error) {
+            console.warn("[bg] live-commerce cancellation fence needs reconciliation:", error?.message || error);
+          }
+        }
+      }
       const session = await sessions.getOwned(normalizedAttemptId, normalizedEnvironmentId);
       if (!session || session.producer !== PRODUCER) {
         return { success: true, cancelled: false, attemptId: normalizedAttemptId };
@@ -405,21 +484,31 @@
       }
       if (plan.state !== "RUNNING") {
         await clearTerminalAttempt(normalizedEnvironmentId, normalizedAttemptId, collectorRun?.tabId ?? null);
-        return { success: true, cancelled: false, attemptId: normalizedAttemptId };
+        return {
+          success: true,
+          cancelled: cancellationRequested && plan.state === "FAILED",
+          attemptId: normalizedAttemptId,
+        };
       }
       if (collectorRun) collectorRun.cancelRequested = true;
-      const terminal = await terminalFail(
-        config,
-        plan,
-        ownerError("COLLECTION_CANCELLED", "Live Commerce collection was cancelled by the user."),
-      );
-      const result = terminalResult(terminal.terminal);
-      if (collectorRun) {
-        collectorRun.terminalResult = result;
-        collectorRun.tabId = null;
-      }
-      await sessions.cancel(normalizedAttemptId, { closeManagedTab: true });
-      await clearRequestIdentity(normalizedEnvironmentId, normalizedAttemptId);
+      const cancellation = (async () => {
+        const terminal = await terminalFail(config, plan, cancellationError());
+        const result = terminalResult(terminal.terminal);
+        if (collectorRun) {
+          collectorRun.terminalResult = result;
+          const terminalTabId = collectorRun.tabId;
+          collectorRun.tabId = null;
+          await clearTerminalAttempt(normalizedEnvironmentId, normalizedAttemptId, terminalTabId);
+        } else if (typeof sessions.requestCancellation !== "function" && typeof sessions.cancel === "function") {
+          await sessions.cancel(normalizedAttemptId, { closeManagedTab: true });
+          await clearRequestIdentity(normalizedEnvironmentId, normalizedAttemptId);
+        } else {
+          await clearTerminalAttempt(normalizedEnvironmentId, normalizedAttemptId, null);
+        }
+        return result;
+      })();
+      if (collectorRun) collectorRun.cancelPromise = cancellation;
+      await cancellation;
       return { success: true, cancelled: true, attemptId: normalizedAttemptId };
     }
 
@@ -428,6 +517,7 @@
       const sessionsForEnvironment = (await sessions.list(normalizedEnvironmentId))
         .filter((session) => session?.producer === PRODUCER && !session.attention);
       return Promise.all(sessionsForEnvironment.map(async (session) => {
+        if (!(await isAttemptActive(session.attemptId, normalizedEnvironmentId))) return null;
         const correlation = await readRequestIdentity(normalizedEnvironmentId, session.attemptId);
         if (!correlation) return null;
         return run({

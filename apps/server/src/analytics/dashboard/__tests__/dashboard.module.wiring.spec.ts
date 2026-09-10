@@ -2,15 +2,14 @@ import 'reflect-metadata';
 import { describe, it, expect } from 'vitest';
 import { DashboardModule } from '../dashboard.module';
 import { DashboardCapabilityModule } from '../dashboard-capability.module';
+import { AdvertisingModule } from '../../../advertising/advertising.module';
 import { ProfitabilityEvidenceModule } from '../../../finance/profitability-evidence.module';
 import { PrismaModule } from '../../../prisma/prisma.module';
 import { DashboardController } from '../adapter/in/http/dashboard.controller';
 // adapter/out/repository
 import { ProfitCalculationRepositoryAdapter } from '../adapter/out/repository/profit-calculation.repository.adapter';
-import { AdAggregationRepositoryAdapter } from '../adapter/out/repository/ad-aggregation.repository.adapter';
 import { WingAdSummaryRepositoryAdapter } from '../adapter/out/repository/wing-ad-summary.repository.adapter';
 import { DashboardSalesRepositoryAdapter } from '../adapter/out/repository/dashboard-sales.repository.adapter';
-import { DashboardAdRepositoryAdapter } from '../adapter/out/repository/dashboard-ad.repository.adapter';
 import { DashboardTrendRepositoryAdapter } from '../adapter/out/repository/dashboard-trend.repository.adapter';
 import { WingTrafficAggregationRepositoryAdapter } from '../adapter/out/repository/wing-traffic-aggregation.repository.adapter';
 import { DashboardInventoryRepositoryAdapter } from '../adapter/out/repository/dashboard-inventory.repository.adapter';
@@ -24,10 +23,8 @@ import { AnalyticsOverviewCapabilityAdapter } from '../adapter/in/agent/analytic
 import { ANALYTICS_OVERVIEW_CAPABILITY_PORT } from '../application/port/in/analytics-overview-capability.port';
 // application/port/out tokens
 import { PROFIT_CALCULATION_REPOSITORY_PORT } from '../application/port/out/repository/profit-calculation.repository.port';
-import { AD_AGGREGATION_REPOSITORY_PORT } from '../application/port/out/repository/ad-aggregation.repository.port';
 import { WING_AD_SUMMARY_REPOSITORY_PORT } from '../application/port/out/repository/wing-ad-summary.repository.port';
 import { DASHBOARD_SALES_REPOSITORY_PORT } from '../application/port/out/repository/dashboard-sales.repository.port';
-import { DASHBOARD_AD_REPOSITORY_PORT } from '../application/port/out/repository/dashboard-ad.repository.port';
 import { DASHBOARD_TREND_REPOSITORY_PORT } from '../application/port/out/repository/dashboard-trend.repository.port';
 import { WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT } from '../application/port/out/repository/wing-traffic-aggregation.repository.port';
 import { DASHBOARD_INVENTORY_REPOSITORY_PORT } from '../application/port/out/repository/dashboard-inventory.repository.port';
@@ -39,10 +36,8 @@ const PATH_KEY = 'path';
 
 const EXPECTED_PORT_BINDINGS = [
   [PROFIT_CALCULATION_REPOSITORY_PORT, ProfitCalculationRepositoryAdapter],
-  [AD_AGGREGATION_REPOSITORY_PORT, AdAggregationRepositoryAdapter],
   [WING_AD_SUMMARY_REPOSITORY_PORT, WingAdSummaryRepositoryAdapter],
   [DASHBOARD_SALES_REPOSITORY_PORT, DashboardSalesRepositoryAdapter],
-  [DASHBOARD_AD_REPOSITORY_PORT, DashboardAdRepositoryAdapter],
   [DASHBOARD_TREND_REPOSITORY_PORT, DashboardTrendRepositoryAdapter],
   [WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT, WingTrafficAggregationRepositoryAdapter],
   [DASHBOARD_INVENTORY_REPOSITORY_PORT, DashboardInventoryRepositoryAdapter],
@@ -57,7 +52,7 @@ describe('DashboardModule capability wiring', () => {
     const imports: unknown[] = Reflect.getMetadata(IMPORTS_KEY, DashboardModule) ?? [];
     expect(imports).toEqual([DashboardCapabilityModule]);
     expect(Reflect.getMetadata(IMPORTS_KEY, DashboardCapabilityModule) ?? [])
-      .toEqual([PrismaModule, ProfitabilityEvidenceModule]);
+      .toEqual([PrismaModule, ProfitabilityEvidenceModule, AdvertisingModule]);
     expect(Reflect.getMetadata(CONTROLLERS_KEY, DashboardCapabilityModule) ?? [])
       .toEqual([]);
   });
@@ -73,10 +68,8 @@ describe('DashboardModule capability wiring', () => {
       Reflect.getMetadata(PROVIDERS_KEY, DashboardCapabilityModule) ?? [];
     for (const cls of [
       ProfitCalculationRepositoryAdapter,
-      AdAggregationRepositoryAdapter,
       WingAdSummaryRepositoryAdapter,
       DashboardSalesRepositoryAdapter,
-      DashboardAdRepositoryAdapter,
       DashboardTrendRepositoryAdapter,
       WingTrafficAggregationRepositoryAdapter,
       DashboardInventoryRepositoryAdapter,

@@ -42,6 +42,8 @@ describe("data migration registry", () => {
       "v0.1.30:005_reset_sourcing_display_state",
       "v0.1.30:006_delete_legacy_channel_derived_master_products",
       "v0.1.31:001_reset_absolute_product_abc",
+      "v0.1.31:003_prepare_operation_automation_cutover",
+      "v0.1.31:004_remove_retired_capability_operation_refs",
       "v0.1.31:002_initialize_absolute_product_abc_formula",
     ]);
     expect(
@@ -63,6 +65,9 @@ describe("data migration registry", () => {
     expect(migrationIds).toContain("v0.1.31:001_reset_absolute_product_abc");
     expect(migrationIds).toContain(
       "v0.1.31:002_initialize_absolute_product_abc_formula",
+    );
+    expect(migrationIds).toContain(
+      "v0.1.31:003_prepare_operation_automation_cutover",
     );
     expect(migrationIds).not.toContain(
       "v0.1.26:001_initialize_master_product_abc_policy",
@@ -133,6 +138,8 @@ describe("data migration registry", () => {
       "v0.1.24:001_dedupe_detail_page_artifacts",
       "v0.1.30:003_move_variant_recipes_to_channel_options",
       "v0.1.31:001_reset_absolute_product_abc",
+      "v0.1.31:003_prepare_operation_automation_cutover",
+      "v0.1.31:004_remove_retired_capability_operation_refs",
     ]);
     expect(selectDataMigrationsForPhase(dataMigrations, "post-schema")).toEqual(
       dataMigrations.filter((migration) => migration.phase !== "pre-schema"),
@@ -164,6 +171,8 @@ describe("data migration registry", () => {
     ).map(({ id }) => id);
     expect(absolutePreSchema).toEqual([
       "v0.1.31:001_reset_absolute_product_abc",
+      "v0.1.31:003_prepare_operation_automation_cutover",
+      "v0.1.31:004_remove_retired_capability_operation_refs",
     ]);
 
     const absolutePostSchema = selectDataMigrationsForRelease(

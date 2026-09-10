@@ -4,14 +4,25 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { PrismaService } from '../../../../prisma/prisma.service';
-import { inferRecipeQuantity } from '../../../domain/channel-recipe-suggestion';
-import { lockChannelListingRow } from './channel-listing-row-lock';
+import {
+  COUPANG_CATALOG_BASIC_SOURCE_TYPE,
+  COUPANG_CATALOG_DETAILS_SOURCE_TYPE,
+} from '@kiditem/shared/coupang-catalog-snapshot';
 import { resolveChannelListingSaleStatus } from '@kiditem/shared/channel-listing';
+import { PrismaService } from '../../../../prisma/prisma.service';
+import {
+  inferRecipeQuantity,
+  isBarcodeEvidenceNameCompatible,
+} from '../../../domain/channel-recipe-suggestion';
+import {
+  scoreChannelRecipeNameCandidateIfComparable,
+  type ChannelRecipeNameOption,
+} from '../../../domain/channel-recipe-name-matcher';
 import {
   advanceProductMappingGeneration,
   lockProductMapping,
 } from '../../../../common/product-mapping-generation';
+import { lockChannelListingRow } from './channel-listing-row-lock';
 import type {
   ChannelOptionMatchingRepositoryRow,
   ChannelProductMatchingQueueRow,
@@ -26,9 +37,23 @@ const COMPLETED_CATALOG_SOURCE_TYPES = [
   'coupang_rocket_po_catalog',
   'coupang_rocket_matching_csv',
 ] as const;
+const CATALOG_OWNER_PARSER_VERSION = 'coupang-catalog-owner-v1';
+const PUBLISHED_STAGED_CATALOG_IDENTITY_SOURCES = [
+  'coupang_catalog_basics',
+  'coupang_catalog_details',
+] as const;
 
-function listingInclude(organizationId: string) {
+function listingSelect(organizationId: string) {
   return {
+    id: true,
+    externalId: true,
+    displayName: true,
+    status: true,
+    rawJson: true,
+    channelName: true,
+    masterProductId: true,
+    updatedAt: true,
+    isActive: true,
     channelAccount: {
       select: { id: true, channel: true, name: true },
     },
@@ -46,11 +71,23 @@ function listingInclude(organizationId: string) {
     },
     options: {
       orderBy: [{ updatedAt: 'desc' as const }, { id: 'asc' as const }],
-      include: {
+      select: {
+        id: true,
+        externalOptionId: true,
+        itemName: true,
+        sellerSku: true,
+        barcode: true,
+        modelNumber: true,
+        salePrice: true,
+        status: true,
+        updatedAt: true,
         inventoryComponents: {
           where: { organizationId },
           orderBy: { createdAt: 'asc' as const },
-          include: {
+          select: {
+            id: true,
+            sellpiaInventorySkuId: true,
+            quantity: true,
             sellpiaInventorySku: {
               select: {
                 id: true,
@@ -69,12 +106,14 @@ function listingInclude(organizationId: string) {
 }
 
 type ListingRow = Prisma.ChannelListingGetPayload<{
-  include: ReturnType<typeof listingInclude>;
+  select: ReturnType<typeof listingSelect>;
 }>;
 type OptionRow = ListingRow['options'][number];
 type ActiveSellpiaSku = {
   id: string;
   code: string;
+  name: string;
+  optionName: string | null;
   barcode: string | null;
   masterProductId: string | null;
 };
@@ -297,7 +336,14 @@ implements ChannelProductMatchingRepositoryPort {
       }
       const activeSkus: ActiveSellpiaSku[] = await tx.sellpiaInventorySku.findMany({
         where: { organizationId: input.organizationId, isActive: true },
-        select: { id: true, code: true, barcode: true, masterProductId: true },
+        select: {
+          id: true,
+          code: true,
+          name: true,
+          optionName: true,
+          barcode: true,
+          masterProductId: true,
+        },
       });
       const activeSkusByBarcode = new Map<string, ActiveSellpiaSku[]>();
       for (const sku of activeSkus) {
@@ -320,7 +366,11 @@ implements ChannelProductMatchingRepositoryPort {
       let mappingChanged = false;
       for (const listing of listings) {
         const listingNames = listingAliasTitles(listing);
-        const csvTargetSku = uniqueRocketCsvTargetSku(listing, activeSkusByBarcode);
+        const csvTargetSku = uniqueRocketCsvTargetSku(
+          listing,
+          activeSkusByBarcode,
+          listingNameOptions(listing),
+        );
 
         for (const option of listing.options) {
           const existingComponent = option.inventoryComponents.length === 1
@@ -330,6 +380,7 @@ implements ChannelProductMatchingRepositoryPort {
             option,
             activeSkusByCode,
             activeSkusByBarcode,
+            optionNameOptions(listing, option),
           );
           const exactAliases = exactAliasesForOption(
             aliasesByName,
@@ -506,7 +557,7 @@ implements ChannelProductMatchingRepositoryPort {
       where: {
         ...(scope === 'matching'
           ? matchingListingWhere(organizationId)
-          : availabilityListingWhere(organizationId)),
+          : availabilityListingWhere(organizationId, query.channelAccountId)),
         ...(query.listingIds ? { id: { in: query.listingIds } } : {}),
         ...(query.optionIds ? {
           options: { some: { organizationId, id: { in: query.optionIds } } },
@@ -528,7 +579,7 @@ implements ChannelProductMatchingRepositoryPort {
           ],
         } : {}),
       },
-      include: listingInclude(organizationId),
+      select: listingSelect(organizationId),
       orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
     });
   }
@@ -536,12 +587,23 @@ implements ChannelProductMatchingRepositoryPort {
 
 function completedCatalogRunWhere(
   organizationId: string,
+  channelAccountId?: string,
 ): Prisma.SourceImportRunWhereInput {
   return {
     organizationId,
+    ...(channelAccountId ? { channelAccountId } : {}),
     OR: [
       { sourceType: 'coupang_rocket_po_catalog', status: 'complete', parserVersion: 'rocket-po-v1' },
-      { sourceType: { in: COMPLETED_CATALOG_SOURCE_TYPES.filter(source => source !== 'coupang_rocket_po_catalog') }, status: 'completed' },
+      {
+        sourceType: { in: COMPLETED_CATALOG_SOURCE_TYPES.filter(source => source !== 'coupang_rocket_po_catalog') },
+        status: 'completed',
+      },
+      {
+        sourceType: { in: [COUPANG_CATALOG_BASIC_SOURCE_TYPE, COUPANG_CATALOG_DETAILS_SOURCE_TYPE] },
+        parserVersion: CATALOG_OWNER_PARSER_VERSION,
+        status: 'completed',
+        importedAt: { not: null },
+      },
     ],
   };
 }
@@ -554,13 +616,25 @@ function matchingListingWhere(
 
 function availabilityListingWhere(
   organizationId: string,
+  channelAccountId?: string,
 ): Prisma.ChannelListingWhereInput {
   return {
     organizationId,
     isActive: true,
     OR: [
       { sourceCandidateId: { not: null } },
-      { lastImportRun: { is: completedCatalogRunWhere(organizationId) } },
+      { lastImportRun: { is: completedCatalogRunWhere(organizationId, channelAccountId) } },
+      {
+        options: {
+          some: {
+            organizationId,
+            isActive: true,
+            OR: PUBLISHED_STAGED_CATALOG_IDENTITY_SOURCES.map((source) => ({
+              rawJson: { path: ['source'], equals: source },
+            })),
+          },
+        },
+      },
     ],
   };
 }
@@ -755,6 +829,7 @@ function listingAliasTitles(listing: {
 function uniqueRocketCsvTargetSku(
   listing: Pick<ListingRow, 'rawJson'>,
   activeSkusByBarcode: ReadonlyMap<string, readonly ActiveSellpiaSku[]>,
+  nameOptions: readonly ChannelRecipeNameOption[],
 ): ActiveSellpiaSku | null {
   const raw = asRecord(listing.rawJson);
   if (raw.source !== 'coupang_rocket_matching_csv' || !isConfirmedRocketCsvMatch(raw)) {
@@ -762,7 +837,8 @@ function uniqueRocketCsvTargetSku(
   }
   const barcode = normalizePhysicalBarcode(firstString(raw, ['sellpiaBarcode']));
   if (!barcode) return null;
-  const matches = activeSkusByBarcode.get(barcode) ?? [];
+  const matches = (activeSkusByBarcode.get(barcode) ?? [])
+    .filter((sku) => barcodeSkuNameCompatible(nameOptions, sku));
   return matches.length === 1 ? matches[0]! : null;
 }
 
@@ -774,15 +850,52 @@ function uniqueProviderIdentifierSku(
   },
   activeSkusByCode: ReadonlyMap<string, readonly ActiveSellpiaSku[]>,
   activeSkusByBarcode: ReadonlyMap<string, readonly ActiveSellpiaSku[]>,
+  nameOptions: readonly ChannelRecipeNameOption[],
 ): ActiveSellpiaSku | null {
   const matches = [option.sellerSku, option.modelNumber]
     .map((code) => code?.trim() ?? '')
     .filter(Boolean)
     .flatMap((code) => activeSkusByCode.get(code) ?? []);
   const barcode = normalizePhysicalBarcode(option.barcode);
-  if (barcode) matches.push(...(activeSkusByBarcode.get(barcode) ?? []));
+  if (barcode) {
+    matches.push(...(activeSkusByBarcode.get(barcode) ?? [])
+      .filter((sku) => barcodeSkuNameCompatible(nameOptions, sku)));
+  }
   const distinct = [...new Map(matches.map((sku) => [sku.id, sku])).values()];
   return distinct.length === 1 ? distinct[0]! : null;
+}
+
+function listingNameOptions(listing: {
+  channelName: string | null;
+  displayName: string | null;
+  options: ReadonlyArray<{ itemName: string | null }>;
+}): ChannelRecipeNameOption[] {
+  return listing.options.flatMap((option) => optionNameOptions(listing, option));
+}
+
+function optionNameOptions(
+  listing: { channelName: string | null; displayName: string | null },
+  option: { itemName: string | null },
+): ChannelRecipeNameOption[] {
+  const names = listingAliasTitles(listing);
+  return (names.length > 0 ? names : [null]).map((listingName) => ({
+    listingName,
+    itemName: option.itemName,
+  }));
+}
+
+function barcodeSkuNameCompatible(
+  options: readonly ChannelRecipeNameOption[],
+  sku: ActiveSellpiaSku,
+): boolean {
+  const score = scoreChannelRecipeNameCandidateIfComparable(options, {
+    sellpiaInventorySkuId: sku.id,
+    code: sku.code,
+    name: sku.name,
+    optionName: sku.optionName,
+    currentStock: 0,
+  });
+  return isBarcodeEvidenceNameCompatible(score);
 }
 
 function isConfirmedRocketCsvMatch(raw: Record<string, unknown>): boolean {

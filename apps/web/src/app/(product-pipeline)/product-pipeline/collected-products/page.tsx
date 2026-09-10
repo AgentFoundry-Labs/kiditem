@@ -217,9 +217,8 @@ export default function SourcingPage() {
     if (ids.length === 0 || wingGenerating) return false;
     setWingGenerating(true);
     try {
-      const { bytes, productCount } = await generateWingExcelForCandidates(ids);
-      const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-      downloadWingExcel(bytes, `쿠팡WING_일괄등록_${stamp}.xlsx`);
+      const { bytes, fileName, productCount } = await generateWingExcelForCandidates(ids);
+      downloadWingExcel(bytes, fileName);
       toast.success(`${productCount}개 상품의 쿠팡 WING 일괄등록 엑셀을 만들었어요`, {
         description: '저장된 WING 카테고리 사용 · 상세페이지는 포함되지 않으므로 WING에서 추가하세요.',
       });

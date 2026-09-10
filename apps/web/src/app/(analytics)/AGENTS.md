@@ -1,13 +1,13 @@
 # web/analytics - Dashboard Read Models
 
 `app/(analytics)/` owns dashboard read-model UI: sales, ad, inventory, trends,
-health, chart panels, and action task summary widgets. It consumes aggregated
+health, and chart panels. It consumes aggregated
 backend read endpoints and should not rebuild domain calculations locally.
 
 ## Owned Surfaces
 
 - Dashboard KPI cards and range filters
-- Dashboard charts and action task panels
+- Dashboard charts
 - Read-only health and trend summaries
 
 ## Data Flow
@@ -25,8 +25,6 @@ React Query + apiClient.getParsed()
 - Date/range selection is UI state; aggregation remains backend-owned.
 - Use `queryKeys.dashboard.*` for dashboard reads and invalidate specific range
   keys when filters change.
-- Dashboard action task widgets read `/api/action-tasks`; task mutations belong
-  in the automation action-board route.
 
 ## Boundary Rules
 

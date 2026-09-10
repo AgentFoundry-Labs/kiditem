@@ -177,7 +177,6 @@ function approvalPresentation(capabilityKey: string): { target: string; effect: 
 
 const APPROVAL_PRESENTATION_BY_CAPABILITY: Record<string, { target: string; effect: string }> = {
   'channels.register_confirmed_listing': { target: '판매 채널 등록', effect: '확인된 판매 채널 등록 정보를 저장합니다.' },
-  'channels.submit_coupang_listing': { target: '쿠팡 판매 등록', effect: '상품 정보를 쿠팡에 등록합니다.' },
   'channels.submit_wing_thumbnail': { target: '상품 썸네일', effect: '상품 썸네일을 판매 채널에 등록합니다.' },
   'supply.create_purchase_order_draft': { target: '발주 초안', effect: '발주 초안을 생성합니다.' },
   'supply.submit_purchase_order': { target: '발주서', effect: '발주를 제출합니다.' },

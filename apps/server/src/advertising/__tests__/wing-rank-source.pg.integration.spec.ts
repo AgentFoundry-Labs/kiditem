@@ -1,7 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import type { PrismaClient } from '@prisma/client';
 import { json } from 'express';
 import request from 'supertest';
 import {
@@ -30,11 +28,14 @@ import { WingSalesRankIngestHandler } from '../application/service/wing-sales-ra
 import { KeywordRankRepositoryAdapter } from '../adapter/out/repository/keyword-rank.repository.adapter';
 import { WingRankSourceRepository } from '../adapter/out/repository/wing-rank-source.repository';
 import { currentBusinessDate } from '../domain/business-date';
+import type { INestApplication } from '@nestjs/common';
+import type { PrismaClient } from '@prisma/client';
 
 const base = '/api/ads/keyword-rank/wing';
 describe('Wing rank owner incoming HTTP + PostgreSQL', () => {
   let prisma: PrismaClient;
   let app: INestApplication;
+  let httpUrl: string;
   let alerts: SourceFailureAlerts;
   beforeAll(async () => {
     prisma = makeTestPrisma();
@@ -78,59 +79,100 @@ describe('Wing rank owner incoming HTTP + PostgreSQL', () => {
       },
     );
     await app.init();
+    await app.listen(0, '127.0.0.1');
+    httpUrl = await app.getUrl();
   });
   afterAll(async () => {
     await app?.close();
     await prisma?.$disconnect();
   });
-  beforeEach(async () => {
-    vi.restoreAllMocks();
-    await resetDb(prisma);
-    await seedBaseFixture(prisma);
-    const account = await prisma.channelAccount.create({
-      data: { organizationId: ORG, channel: 'coupang', name: 'Wing' },
-    });
-    for (const [vendorItemId, name] of [
-      ['OWN', '투명 슬라임'],
-      ['MISS', '치즈 슬라임'],
-    ]) {
-      const listing = await prisma.channelListing.create({
+  beforeEach(async ({ task }) => {
+    const testName = task.fullTestName;
+    vi.useRealTimers();
+    const startedAt = performance.now();
+    let stage = 'start';
+    let resetDbMs: number | null = null;
+    let seedBaseFixtureMs: number | null = null;
+    let accountDomainFixtureMs: number | null = null;
+    try {
+      stage = 'restore-mocks';
+      vi.restoreAllMocks();
+      stage = 'resetDb';
+      const resetDbStartedAt = performance.now();
+      await resetDb(prisma);
+      resetDbMs = Math.round(performance.now() - resetDbStartedAt);
+      stage = 'seedBaseFixture';
+      const seedBaseFixtureStartedAt = performance.now();
+      await seedBaseFixture(prisma);
+      seedBaseFixtureMs = Math.round(
+        performance.now() - seedBaseFixtureStartedAt,
+      );
+      stage = 'account-domain-fixture';
+      const accountDomainFixtureStartedAt = performance.now();
+      const account = await prisma.channelAccount.create({
         data: {
           organizationId: ORG,
-          channelAccountId: account.id,
-          externalId: vendorItemId,
-          channelName: name,
-          category: '완구 > 촉감완구 > 슬라임',
+          channel: 'coupang',
+          name: 'Wing',
         },
       });
-      await prisma.channelListingOption.create({
-        data: {
-          organizationId: ORG,
-          listingId: listing.id,
-          externalOptionId: vendorItemId,
-        },
-      });
-      await prisma.coupangRepresentativeKeywordOverride.create({
-        data: { organizationId: ORG, vendorItemId, keyword: '슬라임' },
-      });
+      for (const [vendorItemId, name] of [
+        ['OWN', '투명 슬라임'],
+        ['MISS', '치즈 슬라임'],
+      ]) {
+        const listing = await prisma.channelListing.create({
+          data: {
+            organizationId: ORG,
+            channelAccountId: account.id,
+            externalId: vendorItemId,
+            channelName: name,
+            category: '완구 > 촉감완구 > 슬라임',
+          },
+        });
+        await prisma.channelListingOption.create({
+          data: {
+            organizationId: ORG,
+            listingId: listing.id,
+            externalOptionId: vendorItemId,
+          },
+        });
+        await prisma.coupangRepresentativeKeywordOverride.create({
+          data: { organizationId: ORG, vendorItemId, keyword: '슬라임' },
+        });
+      }
+      accountDomainFixtureMs = Math.round(
+        performance.now() - accountDomainFixtureStartedAt,
+      );
+      stage = 'complete';
+    } finally {
+      process.stdout.write(
+        `WING_FIXTURE_TIMING ${JSON.stringify({
+          testName,
+          stage,
+          elapsedMs: Math.round(performance.now() - startedAt),
+          resetDbMs,
+          seedBaseFixtureMs,
+          accountDomainFixtureMs,
+        })}\n`,
+      );
     }
   });
   const start = (
     key = randomUUID(),
     body = { keyword: '슬라임', maxPages: 5 },
   ) =>
-    request(app.getHttpServer())
+    request(httpUrl)
       .post(`${base}/attempts`)
       .set('x-test-org', ORG)
       .set('Idempotency-Key', key)
       .send(body);
   const get = (path: string) =>
-    request(app.getHttpServer()).get(path).set('x-test-org', ORG);
+    request(httpUrl).get(path).set('x-test-org', ORG);
   const submit = (
     a: { attemptId: string; attemptToken: string },
     body = capture(),
   ) =>
-    request(app.getHttpServer())
+    request(httpUrl)
       .put(`${base}/attempts/${a.attemptId}`)
       .set('x-test-org', ORG)
       .set('x-source-attempt-token', a.attemptToken)
@@ -139,7 +181,7 @@ describe('Wing rank owner incoming HTTP + PostgreSQL', () => {
     a: { attemptId: string; attemptToken: string },
     code = 'PROVIDER_FAILED',
   ) =>
-    request(app.getHttpServer())
+    request(httpUrl)
       .post(`${base}/attempts/${a.attemptId}/fail`)
       .set('x-test-org', ORG)
       .set('x-source-attempt-token', a.attemptToken)
@@ -162,9 +204,13 @@ describe('Wing rank owner incoming HTTP + PostgreSQL', () => {
         .sort(),
     ).toEqual(['MISS', 'OWN']);
     const payload = capture();
-    expect((await submit(a, payload).expect(200)).body).toMatchObject({
-      state: 'COMPLETE',
-      itemCount: 1,
+    const submission = await submit(a, payload);
+    expect({ status: submission.status, body: submission.body }).toMatchObject({
+      status: 200,
+      body: {
+        state: 'COMPLETE',
+        itemCount: 1,
+      },
     });
     expect(
       (await get(`${base}/source?keyword=슬라임`).expect(200)).body,
@@ -271,7 +317,23 @@ describe('Wing rank owner incoming HTTP + PostgreSQL', () => {
       'next_page_not_advancing',
       'max_pages_reached',
     ]) {
-      const next = (await start().expect(201)).body;
+      const next = (
+        await start()
+          .expect((response) => {
+            if (response.status !== 201) {
+              throw new Error(
+                [
+                  `Wing interrupted-proof admission failed for stopReason=${stopReason}`,
+                  `status=${response.status}`,
+                  `content-type=${response.headers['content-type'] ?? 'unknown'}`,
+                  `body=${JSON.stringify(response.body ?? '').slice(0, 1000)}`,
+                  `text=${(response.text ?? '').slice(0, 1000)}`,
+                ].join('; '),
+              );
+            }
+          })
+          .expect(201)
+      ).body;
       const payload = capture();
       payload.proof.stopReason = stopReason;
       expect((await submit(next, payload).expect(200)).body.state).toBe(
@@ -402,11 +464,11 @@ describe('Wing rank owner incoming HTTP + PostgreSQL', () => {
     const starts = await Promise.all([start(), start()]);
     expect(starts.map((reply) => reply.status).sort()).toEqual([201, 409]);
     const a = starts.find((reply) => reply.status === 201)!.body;
-    await request(app.getHttpServer())
+    await request(httpUrl)
       .get(`${base}/attempts/${a.attemptId}`)
       .set('x-test-org', randomUUID())
       .expect(404);
-    await request(app.getHttpServer())
+    await request(httpUrl)
       .put(`${base}/attempts/${a.attemptId}`)
       .set('x-test-org', randomUUID())
       .set('x-source-attempt-token', a.attemptToken)
@@ -454,7 +516,7 @@ describe('Wing rank owner incoming HTTP + PostgreSQL', () => {
     await submit(a).expect(409);
     expect((await start().expect(201)).body.generation).toBe('2');
     expect((await get('/api/alerts').expect(200)).body).toMatchObject([
-      { status: 'OPEN', attemptId: a.attemptId },
+      { status: 'OPEN', attemptId: a.attemptId, href: '/rank-tracking' },
     ]);
   });
   it('uses every original automatic candidate and only COMPLETE observed categories, without certifying newer legacy rows', async () => {
@@ -558,9 +620,16 @@ describe('Wing rank owner incoming HTTP + PostgreSQL', () => {
       ['공예', 1],
       ['재료', 2],
     ] as const) {
-      const next = (
-        await start(randomUUID(), { keyword, maxPages: 5 }).expect(201)
-      ).body;
+      const admission = await start(randomUUID(), { keyword, maxPages: 5 });
+      expect({
+        keyword,
+        candidateIndex,
+        status: admission.status,
+        'content-type': admission.headers['content-type'] ?? 'unknown',
+        body: JSON.stringify(admission.body ?? '').slice(0, 1000),
+        text: (admission.text ?? '').slice(0, 1000),
+      }).toMatchObject({ status: 201 });
+      const next = admission.body;
       expect(next.plan.targets).toEqual([
         {
           vendorItemId: 'OWN',

@@ -22,13 +22,20 @@ const OTHER_ORG_WING_ACCOUNT_ID = '33333333-3333-4333-8333-333333333333';
 describe('ChannelCatalogCollectionRepositoryAdapter (PG integration)', () => {
   let prisma: PrismaClient;
   let repository: ChannelCatalogCollectionRepositoryAdapter;
+  let alerts: SourceFailureAlerts;
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
+    alerts = new SourceFailureAlerts(new AlertsRepository(prisma as never));
     repository = new ChannelCatalogCollectionRepositoryAdapter(
       prisma as unknown as PrismaService,
-      new SourceFailureAlerts(new AlertsRepository(prisma as never)),
+      alerts,
+      {
+        publishDetailChunk: async () => {
+          throw new Error('full-details publication is not part of this legacy repository fixture');
+        },
+      } as never,
     );
   });
 
@@ -75,6 +82,158 @@ describe('ChannelCatalogCollectionRepositoryAdapter (PG integration)', () => {
         runId: first.id,
       }),
     ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('keeps a rate-limit pause RUNNING, fences chunks, and resumes after notBefore', async () => {
+    const input = {
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      channelAccountId: WING_ACCOUNT_ID,
+      idempotencyKey: randomUUID(),
+      collectorVersion: '1.0.0',
+    };
+    const run = await repository.startOrResume(input);
+    const pause = {
+      code: 'WING_PROVIDER_RATE_LIMITED' as const,
+      message: 'Wing rate limit',
+      phase: 'hydration' as const,
+      recoverable: true as const,
+      notBefore: new Date(Date.now() - 1_000).toISOString(),
+    };
+
+    await repository.markPaused({
+      organizationId: input.organizationId,
+      channelAccountId: input.channelAccountId,
+      runId: run.id,
+      attemptToken: run.attemptToken,
+      error: pause,
+    });
+    const paused = await repository.getOwnedRunWithChunks({
+      organizationId: input.organizationId,
+      channelAccountId: input.channelAccountId,
+      runId: run.id,
+      attemptToken: run.attemptToken,
+      includePayload: false,
+    });
+    expect(paused.status).toBe('running');
+    expect(paused.errorJson).toMatchObject(pause);
+
+    await expect(repository.putChunk({
+      organizationId: input.organizationId,
+      channelAccountId: input.channelAccountId,
+      runId: run.id,
+      attemptToken: run.attemptToken,
+      kind: 'discovery_page',
+      sequence: 1,
+      checksum: 'a'.repeat(64),
+      itemCount: 1,
+      payload: {},
+    })).rejects.toBeInstanceOf(ConflictException);
+
+    const resumed = await repository.startOrResume(input);
+    expect(resumed.id).toBe(run.id);
+    const cleared = await repository.getOwnedRunWithChunks({
+      organizationId: input.organizationId,
+      channelAccountId: input.channelAccountId,
+      runId: run.id,
+      attemptToken: run.attemptToken,
+      includePayload: false,
+    });
+    expect(cleared.status).toBe('running');
+    expect(cleared.errorJson).toBeNull();
+  });
+
+  it('does not resume a paused run before its notBefore timestamp', async () => {
+    const input = {
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      channelAccountId: WING_ACCOUNT_ID,
+      idempotencyKey: randomUUID(),
+      collectorVersion: '1.0.0',
+    };
+    const run = await repository.startOrResume(input);
+    await repository.markPaused({
+      organizationId: input.organizationId,
+      channelAccountId: input.channelAccountId,
+      runId: run.id,
+      attemptToken: run.attemptToken,
+      error: {
+        code: 'WING_PROVIDER_RATE_LIMITED',
+        message: 'Wing rate limit',
+        phase: 'hydration',
+        recoverable: true,
+        notBefore: new Date(Date.now() + 60_000).toISOString(),
+      },
+    });
+
+    await expect(repository.startOrResume(input)).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('keeps an expired paused run immutable on same-key replay and retires it only for a new key', async () => {
+    const input = {
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      channelAccountId: WING_ACCOUNT_ID,
+      idempotencyKey: randomUUID(),
+      collectorVersion: '1.0.0',
+    };
+    const run = await repository.startOrResume(input);
+    const pause = {
+      code: 'WING_PROVIDER_RATE_LIMITED' as const,
+      message: 'Wing rate limit',
+      phase: 'hydration' as const,
+      recoverable: true as const,
+      notBefore: new Date(Date.now() + 60_000).toISOString(),
+    };
+    await repository.markPaused({
+      organizationId: input.organizationId,
+      channelAccountId: input.channelAccountId,
+      runId: run.id,
+      attemptToken: run.attemptToken,
+      error: pause,
+    });
+    await prisma.sourceImportRun.update({
+      where: { id: run.id },
+      data: { expiresAt: new Date(Date.now() - 1) },
+    });
+    const before = await prisma.sourceImportRun.findUniqueOrThrow({
+      where: { id: run.id },
+      select: {
+        status: true,
+        expiresAt: true,
+        attemptToken: true,
+        errorCode: true,
+        errorMessage: true,
+        qualityReport: true,
+      },
+    });
+
+    await expect(repository.startOrResume(input)).resolves.toMatchObject({
+      id: run.id,
+      status: 'running',
+    });
+    const afterReplay = await prisma.sourceImportRun.findUniqueOrThrow({
+      where: { id: run.id },
+      select: {
+        status: true,
+        expiresAt: true,
+        attemptToken: true,
+        errorCode: true,
+        errorMessage: true,
+        qualityReport: true,
+      },
+    });
+    expect(afterReplay).toEqual(before);
+    expect(await alerts.list(TEST_ORGANIZATION_ID)).toEqual([]);
+
+    const next = await repository.startOrResume({
+      ...input,
+      idempotencyKey: randomUUID(),
+    });
+    expect(next.id).not.toBe(run.id);
+    expect(await alerts.list(TEST_ORGANIZATION_ID)).toMatchObject([
+      { attemptId: run.id, status: 'OPEN' },
+    ]);
   });
 
   it('starts scraper collection when vendorId differs from a legacy external alias', async () => {
@@ -174,6 +333,42 @@ describe('ChannelCatalogCollectionRepositoryAdapter (PG integration)', () => {
         payload: { items: [{ externalProductId: '123' }] },
       }),
     ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it.each([
+    { stage: 'full' as const, kind: 'listing_basics' as const },
+    { stage: 'basics' as const, kind: 'product_details' as const },
+  ])('rejects a %s receipt kind before inserting the chunk', async ({ stage, kind }) => {
+    const run = await repository.startOrResume({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      channelAccountId: WING_ACCOUNT_ID,
+      idempotencyKey: randomUUID(),
+      collectorVersion: '1.0.0',
+      stage,
+    });
+
+    await expect(repository.putChunk({
+      organizationId: TEST_ORGANIZATION_ID,
+      channelAccountId: WING_ACCOUNT_ID,
+      runId: run.id,
+      attemptToken: run.attemptToken,
+      kind,
+      sequence: 1,
+      checksum: 'a'.repeat(64),
+      itemCount: 1,
+      payload: {},
+    })).rejects.toBeInstanceOf(ConflictException);
+
+    const stored = await repository.getOwnedRunWithChunks({
+      organizationId: TEST_ORGANIZATION_ID,
+      channelAccountId: WING_ACCOUNT_ID,
+      runId: run.id,
+      attemptToken: run.attemptToken,
+      stage,
+      includePayload: false,
+    });
+    expect(stored.chunks).toHaveLength(0);
   });
 });
 

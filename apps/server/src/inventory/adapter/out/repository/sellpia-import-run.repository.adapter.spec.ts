@@ -25,12 +25,11 @@ describe('SellpiaImportRunRepositoryAdapter source failure alerts', () => {
       errorCode: 'sellpia_file_unreadable',
       errorMessage: ' workbook could not be read ',
       execution: {
-        kind: 'browser',
+        kind: 'manual',
+        manualFreshExportConfirmed: true,
         claimToken: CLAIM_TOKEN,
         activeGeneration: '8',
         trigger: 'manual_request',
-        sourceOrigin: 'https://kiditem.sellpia.com',
-        sourceAccountKey: 'kiditem',
       },
     });
 
@@ -64,12 +63,11 @@ describe('SellpiaImportRunRepositoryAdapter source failure alerts', () => {
       errorCode: 'sellpia_file_unreadable',
       errorMessage: 'workbook could not be read',
       execution: {
-        kind: 'browser',
+        kind: 'manual',
+        manualFreshExportConfirmed: true,
         claimToken: CLAIM_TOKEN,
         activeGeneration: '8',
         trigger: 'manual_request',
-        sourceOrigin: 'https://kiditem.sellpia.com',
-        sourceAccountKey: 'kiditem',
       },
     })).rejects.toThrow('alert write failed');
   });

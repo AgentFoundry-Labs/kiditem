@@ -8,7 +8,7 @@ vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.f
 // Keep Rocket's source hook, fetch, parsers and public Chrome bridge real.
 vi.mock('@/hooks/useAllMarketplaceOrderCollection', () => ({ usePersistedAllMarketplaceOrderCollection: () => ({ collectAllOrders: vi.fn() }) }));
 vi.mock('@/hooks/useRocketChannelAccounts', () => ({ useRocketChannelAccounts: () => ({ rocketAccounts: [{ id: '22222222-2222-4222-8222-222222222222' }], isBootstrapping: false }) }));
-vi.mock('@/hooks/useSellpiaInventoryFreshness', () => ({ useSellpiaInventoryFreshness: () => ({ requestRefresh: vi.fn() }) }));
+vi.mock('@/app/(inventory)/_shared/sellpia-inventory-source-owner', () => ({ useSellpiaInventorySourceOwner: () => ({ start: vi.fn(), state: null, isStarting: false }) }));
 vi.mock('@/hooks/use-trend-source-collection', () => ({ useTrendSourceCollection: () => ({ collect: vi.fn() }) }));
 vi.mock('@/lib/coupang-shipment-summary-action', () => ({ collectAndPersistCoupangShipmentSummary: vi.fn() }));
 

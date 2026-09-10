@@ -80,34 +80,17 @@ export async function listSellpiaInventorySkus(
   );
 }
 
-const EXPORT_PAGE_SIZE = 200;
-const EXPORT_PAGE_CONCURRENCY = 4;
-
 export async function fetchAllSellpiaInventorySkus(
   params: Omit<SellpiaInventorySkuListParams, 'page' | 'limit'> = {},
 ): Promise<InventorySkuSnapshotItem[]> {
-  const first = await listSellpiaInventorySkus({
-    ...params,
-    page: 1,
-    limit: EXPORT_PAGE_SIZE,
-  });
-  const items = [...first.items];
-  const totalPages = Math.ceil(first.total / EXPORT_PAGE_SIZE);
-
-  for (let firstPage = 2; firstPage <= totalPages; firstPage += EXPORT_PAGE_CONCURRENCY) {
-    const pages = Array.from(
-      { length: Math.min(EXPORT_PAGE_CONCURRENCY, totalPages - firstPage + 1) },
-      (_, index) => firstPage + index,
-    );
-    const responses = await Promise.all(pages.map((page) => listSellpiaInventorySkus({
-      ...params,
-      page,
-      limit: EXPORT_PAGE_SIZE,
-    })));
-    for (const response of responses) items.push(...response.items);
+  const response = await apiClient.getParsed(
+    withSearchParams('/api/inventory/sellpia-skus/export-snapshot', params),
+    InventorySkuSnapshotListResponseSchema,
+  );
+  if (response.items.length !== response.total) {
+    throw new Error('Sellpia 재고 출력 스냅샷의 행 수가 일치하지 않습니다.');
   }
-
-  return items.slice(0, first.total);
+  return response.items;
 }
 
 export async function listSellpiaImportRuns(

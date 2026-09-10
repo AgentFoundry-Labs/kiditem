@@ -253,7 +253,7 @@ describe("MallAccountSection", () => {
     expect(screen.getByRole("button", { name: "쿠팡직배송 중단 중" })).toBeDisabled();
   });
 
-  it("wires route collectionRun recovery with attention surfaced as a notification", () => {
+  it("wires source-owner recovery and explicit cancel through the order route", () => {
     const routeRoot = path.resolve(import.meta.dirname, "..");
     const workspace = readFileSync(
       path.join(routeRoot, "components/OrderCollectionWorkspace.tsx"),
@@ -268,21 +268,21 @@ describe("MallAccountSection", () => {
       "utf8",
     );
 
-    // 조치 안내(로그인/세션 필요 등)는 몰 카드 위 인라인 배너가 아니라 알림으로만 띄운다.
+    // Source-owner state is read on reload; provider work only starts from the
+    // explicit collect action.
     expect(workspace).not.toContain("BrowserCollectionRunControls");
-    expect(workspace).toContain("attention_required");
-    expect(workspace).toContain("toast.warning");
-    expect(sessionHook).toContain("useBrowserCollectionSession");
-    expect(sessionHook).toContain("collectionRun");
-    expect(sessionHook).toContain("issueBrowserCollectionRunId(existingRunId)");
-    expect(sessionHook).not.toContain("createSecureRandomUuid()");
-    expect(sessionHook).not.toContain("globalThis.crypto.randomUUID()");
-    expect(sessionHook).toContain("'orders.mall'");
+    expect(sessionHook).toContain("readOrderCollectionSourceAttempt");
+    expect(sessionHook).toContain("beginOrderCollectionSourceAttempt");
+    expect(sessionHook).toContain("rememberActiveOrderCollectionAttempt");
+    expect(sessionHook).toContain("getOrderCollectionEnvironmentKey");
+    expect(sessionHook).not.toContain("issueBrowserCollectionRunId");
+    expect(sessionHook).not.toContain("finalizeOrderCollectionSession");
     // 실행 취소/재시도는 몰 카드의 중단·수집 버튼이 담당한다.
     expect(workspace).toContain('handleCancelMall');
     expect(workspace).toContain('handleBrowserCollectMall');
     expect(sessionHook).toContain("mallAccounts.find((account) => account.key === mallKey)");
-    expect(collector).toContain("runId");
+    expect(collector).not.toContain("runId");
+    expect(collector).toContain("attemptId");
     expect(collector).toContain("extensionId");
   });
 });

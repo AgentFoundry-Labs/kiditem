@@ -132,6 +132,53 @@ function dependencies() {
 }
 
 describe('RocketWorkbookExportService', () => {
+  it('converts a transient workbook without reading or persisting the Supply workflow', async () => {
+    const deps = dependencies();
+    const service = new RocketWorkbookExportService(
+      deps.preview as never,
+      deps.transactions as never,
+      deps.catalog as never,
+    );
+
+    const result = await service.convertWorkbook({
+      request: {
+        sourceRows: request().rows,
+        workbookRows: [{
+          poLineId,
+          workbookQuantity: 2,
+          shortageReason: '협력사 재고부족 - 수요예측 오류',
+        }],
+        now: '2026-07-17T00:00:00.000Z',
+      },
+    });
+
+    expect(result.bytes).toBeInstanceOf(Buffer);
+    expect(result.fileName).toBe('쿠팡_로켓_20260717.xlsx');
+    expect(result.summary).toEqual({
+      totalRows: 1,
+      workbookQuantity: 2,
+      fullyConfirmedRows: 0,
+      shortRows: 1,
+    });
+    expect(deps.preview.preview).not.toHaveBeenCalled();
+    expect(deps.catalog.readComplete).not.toHaveBeenCalled();
+    expect(deps.transactions.exportWorkbook).not.toHaveBeenCalled();
+  });
+
+  it('rejects malformed transient conversion input before workbook generation', async () => {
+    const deps = dependencies();
+    const service = new RocketWorkbookExportService(
+      deps.preview as never,
+      deps.transactions as never,
+      deps.catalog as never,
+    );
+
+    await expect(service.convertWorkbook({
+      request: { sourceRows: [], workbookRows: [], unexpected: true },
+    })).rejects.toBeInstanceOf(BadRequestException);
+    expect(deps.transactions.exportWorkbook).not.toHaveBeenCalled();
+  });
+
   it('does not persist a workbook while the collected preview waits for freshness', async () => {
     const deps = dependencies();
     deps.preview.preview.mockResolvedValue({

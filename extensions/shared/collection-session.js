@@ -158,6 +158,44 @@
       return toPublicView(session);
     }
 
+    function hasCancellationRequest(session) {
+      return Number.isFinite(session?._cancellationRequestedAt);
+    }
+
+    function pendingManagedTabIds(session) {
+      if (!Array.isArray(session?._pendingManagedTabIds)) return [];
+      return [...new Set(session._pendingManagedTabIds.filter(Number.isInteger))];
+    }
+
+    function addPendingManagedTabId(session, tabId) {
+      const pending = pendingManagedTabIds(session);
+      if (!pending.includes(tabId)) pending.push(tabId);
+      return {
+        ...session,
+        _pendingManagedTabIds: pending,
+        updatedAt: Math.max(now(), session.updatedAt + 1),
+      };
+    }
+
+    function removePendingManagedTabIds(session, removedIds) {
+      const removed = new Set(removedIds);
+      const remaining = pendingManagedTabIds(session).filter((tabId) => !removed.has(tabId));
+      const next = { ...session, updatedAt: Math.max(now(), session.updatedAt + 1) };
+      if (remaining.length > 0) next._pendingManagedTabIds = remaining;
+      else delete next._pendingManagedTabIds;
+      return next;
+    }
+
+    function cancellationRequestView(session) {
+      if (!session || !hasCancellationRequest(session)) return null;
+      return {
+        attemptId: session.attemptId,
+        environmentId: session.environmentId,
+        producer: session.producer,
+        requestedAt: session._cancellationRequestedAt,
+      };
+    }
+
     async function publish(view) {
       if (environmentContext) {
         try {
@@ -217,8 +255,8 @@
       });
     }
 
-    function start(input) {
-      return enqueueStorageMutation(storageKey, async () => {
+    async function start(input) {
+      const started = await enqueueStorageMutation(storageKey, async () => {
         const sessions = await readSessions();
         const attemptId = assertAttemptId(input?.attemptId);
         const producer = input?.producer;
@@ -237,10 +275,18 @@
           ) {
             throw new Error('Owner attempt is already used by another collection');
           }
+          if (hasCancellationRequest(existing)) {
+            throw new Error('Collection session cancellation was already requested');
+          }
           const resumed = { ...existing, updatedAt: Math.max(now(), existing.updatedAt) };
           sessions[attemptId] = resumed;
           await writeSessions(prune(sessions));
-          return clonePublicView(resumed);
+          return {
+            view: clonePublicView(resumed),
+            attemptId,
+            environmentId,
+            producer,
+          };
         }
         const timestamp = now();
         const session = {
@@ -255,8 +301,80 @@
         await writeSessions(prune(sessions));
         const publicView = toPublicView(session);
         await publish(publicView);
-        return publicView;
+        return {
+          view: publicView,
+          attemptId,
+          environmentId,
+          producer,
+        };
       });
+
+      // The callback deliberately runs after the storage queue releases. A
+      // lifetime admission check may request cancellation and route the owner
+      // back through this same session adapter; awaiting it inside the queue
+      // would deadlock that cleanup path.
+      if (typeof options.onStarted === 'function' && started.environmentId !== undefined) {
+        await options.onStarted({
+          attemptId: started.attemptId,
+          environmentId: started.environmentId,
+          producer: started.producer,
+          session: started.view,
+        });
+      }
+      return started.view;
+    }
+
+    async function requestCancellation(attemptId, environmentId) {
+      assertAttemptId(attemptId);
+      const ownerEnvironmentId = requireEnvironmentId(environmentId);
+      const request = await enqueueStorageMutation(storageKey, async () => {
+        const sessions = await readSessions();
+        const current = sessions[attemptId];
+        if (!current || current.environmentId !== ownerEnvironmentId) return null;
+
+        let next = current;
+        if (!hasCancellationRequest(current)) {
+          const requestedAt = Math.max(now(), current.updatedAt + 1);
+          next = {
+            ...current,
+            _cancellationRequestedAt: requestedAt,
+            updatedAt: requestedAt,
+          };
+          sessions[attemptId] = next;
+          await writeSessions(prune(sessions));
+        }
+        return {
+          view: toPublicView(next),
+          managedTabId: next._managedTabId,
+          closeManagedTab: next._managedTabCloseOnCancel !== false,
+        };
+      });
+
+      if (!request) return null;
+      // Persisting the fence above is the important first step. Closing a
+      // managed tab is intentionally outside the storage queue, so an
+      // unavailable/frozen Chrome tab cannot delay the local stop decision or
+      // block an owner ACK from finalizing the session.
+      if (request.closeManagedTab && Number.isInteger(request.managedTabId)) {
+        await removeManagedTab(request.managedTabId);
+        await enqueueStorageMutation(storageKey, async () => {
+          const sessions = await readSessions();
+          const current = sessions[attemptId];
+          if (!current || current._managedTabId !== request.managedTabId) return;
+          const next = { ...current };
+          delete next._managedTabId;
+          delete next._managedWindowId;
+          delete next._managedTabCloseOnCancel;
+          next.updatedAt = Math.max(now(), current.updatedAt + 1);
+          sessions[attemptId] = next;
+          await writeSessions(prune(sessions));
+        });
+      }
+      const pendingResult = await retryPendingManagedTabs(attemptId, ownerEnvironmentId);
+      if (pendingResult === false) {
+        throw new Error('Pending managed collection tabs could not be removed');
+      }
+      return request.view;
     }
 
     async function removeManagedTab(tabId) {
@@ -275,6 +393,39 @@
           throw new Error('Managed collection tab could not be removed');
         }
       }
+    }
+
+    async function retryPendingManagedTabs(attemptId, environmentId) {
+      assertAttemptId(attemptId);
+      const ownerEnvironmentId = requireEnvironmentId(environmentId);
+      const request = await enqueueStorageMutation(storageKey, async () => {
+        const sessions = await readSessions();
+        const current = sessions[attemptId];
+        if (!current || current.environmentId !== ownerEnvironmentId ||
+          !hasCancellationRequest(current)) return null;
+        return { tabIds: pendingManagedTabIds(current) };
+      });
+      if (!request) return null;
+      if (request.tabIds.length === 0) return true;
+
+      const closed = [];
+      for (const tabId of request.tabIds) {
+        try {
+          await removeManagedTab(tabId);
+          closed.push(tabId);
+        } catch {
+          // Keep failed IDs durable for the next verified retry seam.
+        }
+      }
+      await enqueueStorageMutation(storageKey, async () => {
+        const sessions = await readSessions();
+        const current = sessions[attemptId];
+        if (!current || current.environmentId !== ownerEnvironmentId) return;
+        const next = removePendingManagedTabIds(current, closed);
+        sessions[attemptId] = next;
+        await writeSessions(prune(sessions));
+      });
+      return closed.length === request.tabIds.length;
     }
 
     async function detachTabInternal(sessions, attemptId, tabId, closeManagedTab) {
@@ -302,15 +453,50 @@
     }
 
     async function attachTab(attemptId, tab) {
-      const view = await transition(attemptId, {
-        _managedTabId: tab.tabId,
-        _managedWindowId: tab.windowId,
-        _managedTabCloseOnCancel: tab.closeOnCancel !== false,
+      const attachment = await enqueueStorageMutation(storageKey, async () => {
+        const sessions = await readSessions();
+        const current = sessions[attemptId];
+        if (!current) {
+          return {
+            view: null,
+            tabIdToClose: tab.closeOnCancel !== false && Number.isInteger(tab.tabId)
+              ? tab.tabId
+              : null,
+          };
+        }
+        if (hasCancellationRequest(current)) {
+          if (tab.closeOnCancel === false || !Number.isInteger(tab.tabId)) {
+            return { view: null, tabIdToClose: null };
+          }
+          sessions[attemptId] = addPendingManagedTabId(current, tab.tabId);
+          await writeSessions(prune(sessions));
+          return { view: null, tabIdToClose: tab.tabId };
+        }
+        const next = {
+          ...current,
+          _managedTabId: tab.tabId,
+          _managedWindowId: tab.windowId,
+          _managedTabCloseOnCancel: tab.closeOnCancel !== false,
+          updatedAt: Math.max(now(), current.updatedAt + 1),
+        };
+        sessions[attemptId] = next;
+        await writeSessions(prune(sessions));
+        const publicView = toPublicView(next);
+        await publish(publicView);
+        return { view: publicView, tabIdToClose: null };
       });
-      if (!view && tab.closeOnCancel !== false && Number.isInteger(tab.tabId)) {
-        await removeManagedTab(tab.tabId);
+
+      if (attachment.tabIdToClose !== null) {
+        await removeManagedTab(attachment.tabIdToClose);
+        await enqueueStorageMutation(storageKey, async () => {
+          const sessions = await readSessions();
+          const current = sessions[attemptId];
+          if (!current) return;
+          sessions[attemptId] = removePendingManagedTabIds(current, [attachment.tabIdToClose]);
+          await writeSessions(prune(sessions));
+        });
       }
-      return view;
+      return attachment.view;
     }
 
     function detachTab(attemptId, detachOptions = {}) {
@@ -354,50 +540,109 @@
       }));
     }
 
-    function cancel(attemptId, cancelOptions = {}) {
+    async function pendingCleanupEnvironment(attemptId) {
       return enqueueStorageMutation(storageKey, async () => {
         const sessions = await readSessions();
         const current = sessions[attemptId];
-        if (!current) return null;
-
-        if (typeof cancelOptions.ownerFailure === 'function') {
-          let ownerResult;
-          try {
-            ownerResult = await cancelOptions.ownerFailure({
-              attemptId: current.attemptId,
-            });
-          } catch (error) {
-            throw new Error(
-              `Owner did not accept collection cancellation: ${error?.message || error}`,
-            );
-          }
-          if (!ownerResult || ownerResult.accepted !== true) {
-            throw new Error('Owner did not accept collection cancellation');
-          }
-        }
-
-        if (
-          cancelOptions.closeManagedTab === true &&
-          Number.isInteger(current._managedTabId) &&
-          current._managedTabCloseOnCancel !== false
-        ) {
-          await removeManagedTab(current._managedTabId);
-        }
-        delete sessions[attemptId];
-        await writeSessions(prune(sessions));
-        return toPublicView(current);
+        if (!current || pendingManagedTabIds(current).length === 0) return null;
+        return { environmentId: current.environmentId };
       });
     }
 
-    function remove(attemptId) {
-      return enqueueStorageMutation(storageKey, async () => {
-        const sessions = await readSessions();
-        const current = sessions[attemptId];
-        if (!current) return null;
-        delete sessions[attemptId];
-        await writeSessions(prune(sessions));
-        return toPublicView(current);
-      });
+    async function ensurePendingManagedTabsClosed(attemptId) {
+      const pending = await pendingCleanupEnvironment(attemptId);
+      if (pending?.environmentId === undefined) return;
+      const settled = await retryPendingManagedTabs(attemptId, pending.environmentId);
+      if (settled === false) {
+        throw new Error('Pending managed collection tabs could not be removed');
+      }
+    }
+
+    async function cancel(attemptId, cancelOptions = {}) {
+      while (true) {
+        // A failed late attach is a durable ownership debt. Do not submit the
+        // owner ACK or delete the session until every known tab has been
+        // closed; a worker restart can call this same path again.
+        await ensurePendingManagedTabsClosed(attemptId);
+        const result = await enqueueStorageMutation(storageKey, async () => {
+          const sessions = await readSessions();
+          const current = sessions[attemptId];
+          if (!current) return { view: null };
+
+          // A late attach may have queued behind the preflight above. Release
+          // the storage queue, retry its durable ID, and re-enter before the
+          // owner ACK or final deletion.
+          if (pendingManagedTabIds(current).length > 0) {
+            return { retryEnvironmentId: current.environmentId };
+          }
+
+          if (typeof cancelOptions.ownerFailure === 'function') {
+            let ownerResult;
+            try {
+              ownerResult = await cancelOptions.ownerFailure({
+                attemptId: current.attemptId,
+              });
+            } catch (error) {
+              throw new Error(
+                `Owner did not accept collection cancellation: ${error?.message || error}`,
+              );
+            }
+            if (!ownerResult || ownerResult.accepted !== true) {
+              throw new Error('Owner did not accept collection cancellation');
+            }
+          }
+
+          if (
+            cancelOptions.closeManagedTab === true &&
+            Number.isInteger(current._managedTabId) &&
+            current._managedTabCloseOnCancel !== false
+          ) {
+            await removeManagedTab(current._managedTabId);
+          }
+          // Re-read the same queued record immediately before deletion. The
+          // owner ACK is serialized with attachTab, so any attach that was
+          // already in flight is visible in this final fence.
+          if (pendingManagedTabIds(sessions[attemptId]).length > 0) {
+            return { retryEnvironmentId: current.environmentId };
+          }
+          delete sessions[attemptId];
+          await writeSessions(prune(sessions));
+          return { view: toPublicView(current) };
+        });
+        if (result?.retryEnvironmentId !== undefined) {
+          const settled = await retryPendingManagedTabs(attemptId, result.retryEnvironmentId);
+          if (settled === false) {
+            throw new Error('Pending managed collection tabs could not be removed');
+          }
+          continue;
+        }
+        return result?.view ?? null;
+      }
+    }
+
+    async function remove(attemptId) {
+      while (true) {
+        await ensurePendingManagedTabsClosed(attemptId);
+        const result = await enqueueStorageMutation(storageKey, async () => {
+          const sessions = await readSessions();
+          const current = sessions[attemptId];
+          if (!current) return { view: null };
+          if (pendingManagedTabIds(current).length > 0) {
+            return { retryEnvironmentId: current.environmentId };
+          }
+          delete sessions[attemptId];
+          await writeSessions(prune(sessions));
+          return { view: toPublicView(current) };
+        });
+        if (result?.retryEnvironmentId !== undefined) {
+          const settled = await retryPendingManagedTabs(attemptId, result.retryEnvironmentId);
+          if (settled === false) {
+            throw new Error('Pending managed collection tabs could not be removed');
+          }
+          continue;
+        }
+        return result?.view ?? null;
+      }
     }
 
     function get(attemptId) {
@@ -415,6 +660,59 @@
         return session?.environmentId === ownerEnvironmentId
           ? toPublicView(session)
           : null;
+      });
+    }
+
+    function ownsTab(attemptId, environmentId, producer, tabId) {
+      const ownerEnvironmentId = requireEnvironmentId(environmentId);
+      if (!isValidAttemptId(attemptId) || typeof producer !== 'string' ||
+        producer.length === 0 || !Number.isInteger(tabId)) {
+        return Promise.resolve(false);
+      }
+      return enqueueStorageMutation(storageKey, async () => {
+        const sessions = await readSessions();
+        const session = sessions[attemptId];
+        return session?.environmentId === ownerEnvironmentId &&
+          session.producer === producer && !hasCancellationRequest(session) &&
+          session._managedTabId === tabId;
+      });
+    }
+
+    async function isActive(attemptId, environmentId, producer) {
+      const ownerEnvironmentId = requireEnvironmentId(environmentId);
+      if (
+        !isValidAttemptId(attemptId) ||
+        typeof producer !== 'string' ||
+        producer.length === 0
+      ) {
+        return false;
+      }
+
+      // This read intentionally bypasses the mutation queue. It is a local
+      // stop-fence check, not an owner/API status read, and must remain cheap
+      // while a provider cancellation or UI hint is delayed.
+      try {
+        const stored = await chromeApi.storage.local.get(storageKey);
+        const session = stored?.[storageKey]?.[attemptId];
+        return session?.environmentId === ownerEnvironmentId &&
+          session.producer === producer && !hasCancellationRequest(session);
+      } catch {
+        return false;
+      }
+    }
+
+    function listCancellationRequests(environmentId) {
+      if (environmentId !== undefined) requireEnvironmentId(environmentId);
+      return enqueueStorageMutation(storageKey, async () => {
+        const sessions = await readSessions();
+        return Object.values(sessions)
+          .filter((session) => {
+            return (
+              hasCancellationRequest(session) &&
+              (environmentId === undefined || session.environmentId === environmentId)
+            );
+          })
+          .map(cancellationRequestView);
       });
     }
 
@@ -467,6 +765,11 @@
       remove,
       get,
       getOwned,
+      ownsTab,
+      isActive,
+      requestCancellation,
+      retryPendingManagedTabs,
+      listCancellationRequests,
       list,
       listAll,
       openAttentionTab,

@@ -286,7 +286,6 @@ function ownerResultReceipt(result: CapabilityResultEnvelope): CapabilityResultR
   return CapabilityResultReceiptSchema.parse({
     summary: result.summary,
     resourceRefs: result.resourceRefs,
-    operationRefs: result.operationRefs,
   });
 }
 

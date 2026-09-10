@@ -1,71 +1,12 @@
-import * as XLSX from 'xlsx';
+import { apiClient } from '@/lib/api-client';
+import { ApiError } from '@/lib/api-error';
 
-// 쿠팡 WING "상품 일괄등록(엑셀)" V4.6 생성기.
+// 쿠팡 WING "상품 일괄등록(엑셀)" V4.6 입력 모델과 서버 export transport.
 //
-// 쿠팡 Open API 를 쓰지 않고, 확장이 wing.coupang.com 의 일괄등록 화면에 업로드할
-// 엑셀을 만든다. 출고지/반품지/택배사는 업로드 폼에서 1회 설정하므로 엑셀 행에는 넣지 않는다.
+// 쿠팡 Open API 를 쓰지 않고, 웹이 원본 양식과 reviewed 상품 payload를 서버에 보내
+// wing.coupang.com 의 일괄등록 화면에 업로드할 엑셀을 받는다. 출고지/반품지/택배사는
+// 업로드 폼에서 1회 설정하므로 엑셀 행에는 넣지 않는다.
 //
-// 양식은 "기본" 시트 117컬럼. 행1=컬럼명, 행2=필수/선택, 행3=설명, 행5부터 상품데이터.
-// 상품 데이터는 sheet 기준 0-based 인덱스 4(=엑셀 5행)부터 채운다.
-// 카탈로그 예제(coupang_sellertool_upload_example_V4.6.xlsm) 의 "기본" 시트를 base 로 받아,
-// 헤더 4행을 보존하고 그 아래에 상품 행을 추가한다.
-
-/** "기본" 시트 컬럼 인덱스 (0-based). V4.6 기준. */
-export const WING_COL = {
-  category: 0,
-  name: 1,
-  saleStart: 2,
-  saleEnd: 3,
-  status: 4,
-  statusDesc: 5,
-  brand: 6,
-  maker: 7,
-  searchKeyword: 8,
-  /** 구매옵션 유형1=9, 값1=10 … 6쌍 (9~20) */
-  purchaseOptStart: 9,
-  purchaseOptCount: 6,
-  /** 검색옵션 유형1=21, 값1=22 … 20쌍 (21~60) */
-  searchOptStart: 21,
-  searchOptCount: 20,
-  price: 61,
-  agencyFee: 62,
-  origPrice: 63,
-  stock: 64,
-  leadTime: 65,
-  maxPerPerson: 66,
-  maxPeriod: 67,
-  adult: 68,
-  tax: 69,
-  parallel: 70,
-  overseas: 71,
-  vendorCode: 72,
-  model: 73,
-  barcode: 74,
-  orderMsg: 87,
-  noticeCat: 88,
-  /** 상품고시정보값1=89 … 값14 (89~102) */
-  noticeValStart: 89,
-  noticeValCount: 14,
-  imgRep: 103,
-  imgRect: 104,
-  imgAddl: 105,
-  imgUsed: 106,
-  imgDup: 107,
-  imgQuality: 108,
-  detail: 109,
-  /** 구비서류값1=110 … 값7 (110~116) */
-  docStart: 110,
-  docCount: 7,
-  total: 117,
-} as const;
-
-const BASE_SHEET = '기본';
-/** 데이터 시작 행: 엑셀 5행 = 0-based 인덱스 4. */
-const DATA_START_ROW = 4;
-/** 바코드가 없는 상품에 쓰는 쿠팡 "바코드 없음" 사유 마커(카테고리별로 다를 수 있어 기본값 제공). */
-export const DEFAULT_NO_BARCODE_REASON =
-  '[바코드없음]온라인 판매를 위한 소규모 상품(자가제작 등)이며, 향후에도 대량 유통 계획이 없습니다.';
-
 export interface WingOption {
   /** 옵션유형 (예: 색상, 사이즈) */
   type: string;
@@ -83,7 +24,7 @@ export interface WingVariant {
   origPrice?: number;
   /** 재고수량 */
   stock: number;
-  /** 바코드. 없으면 DEFAULT_NO_BARCODE_REASON 마커 사용 */
+  /** 바코드. 없으면 서버 converter가 기존 WING 사유 마커를 넣는다. */
   barcode?: string;
   /** 대표(옵션)이미지 URL */
   representativeImageUrl: string;
@@ -172,108 +113,61 @@ export const WING_PRODUCT_DRAFT_DEFAULTS: WingProductDraftDefaults = {
   defaultMaker: '해피프랜즈',
 };
 
-function emptyRow(): string[] {
-  return new Array(WING_COL.total).fill('');
-}
-
-/** WingProduct 를 엑셀 행 배열(변형별 1행)로 변환. */
-export function buildProductRows(product: WingProduct): string[][] {
-  if (product.variants.length === 0) {
-    throw new Error(`상품 "${product.productName}" 에 variant(SKU) 가 없습니다.`);
-  }
-  return product.variants.map((variant) => {
-    const row = emptyRow();
-    row[WING_COL.category] = product.categoryCell;
-    row[WING_COL.name] = product.productName;
-    row[WING_COL.brand] = product.brand;
-    row[WING_COL.maker] = product.maker || product.brand;
-    if (product.searchKeyword) row[WING_COL.searchKeyword] = product.searchKeyword;
-
-    variant.purchaseOptions.slice(0, WING_COL.purchaseOptCount).forEach((opt, i) => {
-      row[WING_COL.purchaseOptStart + i * 2] = opt.type;
-      row[WING_COL.purchaseOptStart + i * 2 + 1] = opt.value;
-    });
-    (product.searchOptions ?? []).slice(0, WING_COL.searchOptCount).forEach((opt, i) => {
-      row[WING_COL.searchOptStart + i * 2] = opt.type;
-      row[WING_COL.searchOptStart + i * 2 + 1] = opt.value;
-    });
-
-    row[WING_COL.price] = String(variant.salePrice);
-    row[WING_COL.origPrice] = String(variant.origPrice ?? variant.salePrice);
-    row[WING_COL.stock] = String(variant.stock);
-    row[WING_COL.adult] = 'N';
-    row[WING_COL.tax] = 'Y';
-    row[WING_COL.parallel] = 'N';
-    if (variant.vendorItemCode) row[WING_COL.vendorCode] = variant.vendorItemCode;
-    if (variant.model) row[WING_COL.model] = variant.model;
-    row[WING_COL.barcode] = variant.barcode || DEFAULT_NO_BARCODE_REASON;
-
-    row[WING_COL.noticeCat] = product.noticeCategory;
-    (product.noticeValues ?? []).slice(0, WING_COL.noticeValCount).forEach((val, i) => {
-      row[WING_COL.noticeValStart + i] = val;
-    });
-
-    row[WING_COL.imgRep] = variant.representativeImageUrl;
-    if (product.additionalImageUrls?.length) {
-      row[WING_COL.imgAddl] = product.additionalImageUrls.join(',');
-    }
-    // 엑셀 양식은 상세 이미지 1칸이라 첫 장만 넣는다(확장 직접등록은 전량 업로드).
-    if (product.detailImageUrls?.length) row[WING_COL.detail] = product.detailImageUrls[0];
-
-    return row;
-  });
-}
-
-/** 로드된 "기본" 시트 헤더가 V4.6 레이아웃과 맞는지 검증. */
-function assertBaseSheetLayout(headerRow: string[]): void {
-  const checks: Array<[number, string]> = [
-    [WING_COL.category, '카테고리'],
-    [WING_COL.name, '등록상품명'],
-    [WING_COL.brand, '브랜드'],
-    [WING_COL.price, '판매가격'],
-    [WING_COL.stock, '재고수량'],
-    [WING_COL.barcode, '바코드'],
-    [WING_COL.noticeCat, '상품고시정보 카테고리'],
-    [WING_COL.detail, '상세 설명'],
-  ];
-  for (const [idx, expected] of checks) {
-    const actual = String(headerRow[idx] ?? '').trim();
-    if (actual !== expected) {
-      throw new Error(
-        `WING 양식 레이아웃 불일치: 컬럼 ${idx} 는 "${expected}" 여야 하는데 "${actual}" 입니다. 양식 버전이 바뀌었는지 확인하세요.`,
-      );
-    }
-  }
-}
-
-/**
- * WING 일괄등록 엑셀 생성.
- * @param templateBytes 예제/양식 파일(V4.6, .xlsm 또는 .xlsx) 바이트
- * @param products 등록할 상품들
- * @returns 업로드용 xlsx 바이트 (Uint8Array)
- */
-export function buildWingRegistrationWorkbook(
+/** 서버가 만든 WING 일괄등록 workbook을 받아 즉시 다운로드할 바이트로 돌려준다. */
+export async function requestWingRegistrationWorkbook(
   templateBytes: ArrayBuffer | Uint8Array,
   products: WingProduct[],
-): Uint8Array {
+  fileName?: string,
+): Promise<{ bytes: Uint8Array; fileName: string }> {
   if (products.length === 0) throw new Error('등록할 상품이 없습니다.');
 
-  const wb = XLSX.read(templateBytes, { type: 'array' });
-  const ws = wb.Sheets[BASE_SHEET];
-  if (!ws) throw new Error(`양식에 "${BASE_SHEET}" 시트가 없습니다.`);
+  const formData = new FormData();
+  formData.append(
+    'template',
+    new Blob([templateBytes as BlobPart], {
+      type: 'application/vnd.ms-excel.sheet.macroEnabled.12',
+    }),
+    'coupang-wing-bulk-template-v4.6.xlsm',
+  );
+  formData.append('products', JSON.stringify(products));
+  if (fileName) formData.append('fileName', fileName);
 
-  const grid = XLSX.utils.sheet_to_json<string[]>(ws, { header: 1, blankrows: false });
-  assertBaseSheetLayout(grid[1] ?? []);
-
-  const dataRows = products.flatMap((product) => buildProductRows(product));
-  XLSX.utils.sheet_add_aoa(ws, dataRows, { origin: DATA_START_ROW });
-
-  // 예제 카테고리 시트("1. 패션잡화" 등)는 예시 상품이 들어있어 업로드에 방해되므로 제거.
-  const keep = new Set([BASE_SHEET, 'hidden', 'env']);
-  const out = XLSX.utils.book_new();
-  for (const name of wb.SheetNames) {
-    if (keep.has(name)) XLSX.utils.book_append_sheet(out, wb.Sheets[name], name);
+  const response = await apiClient.fetchRaw('/api/channels/coupang-wing/registration-export', {
+    method: 'POST',
+    body: formData,
+  });
+  if (!response.ok) {
+    let body: unknown = null;
+    try {
+      body = await response.json();
+    } catch {
+      // Preserve the HTTP status when the server did not return JSON.
+    }
+    const record = body as Record<string, unknown> | null;
+    const detail = typeof record?.message === 'string'
+      ? record.message
+      : 'WING 엑셀 생성에 실패했습니다.';
+    throw new ApiError(response.status, typeof record?.error === 'string' ? record.error : null, detail);
   }
 
-  return XLSX.write(out, { type: 'array', bookType: 'xlsx' }) as Uint8Array;
+  const blob = await response.blob();
+  return {
+    bytes: new Uint8Array(await blob.arrayBuffer()),
+    fileName: fileNameFromContentDisposition(response.headers.get('Content-Disposition'))
+      ?? fileName
+      ?? `쿠팡WING_일괄등록_${new Date().toISOString().slice(0, 10).replace(/-/g, '')}.xlsx`,
+  };
+}
+
+function fileNameFromContentDisposition(value: string | null): string | null {
+  if (!value) return null;
+  const encoded = /filename\*=UTF-8''([^;]+)/i.exec(value)?.[1];
+  if (encoded) {
+    try {
+      return decodeURIComponent(encoded);
+    } catch {
+      return encoded;
+    }
+  }
+  return /filename="([^"]+)"/i.exec(value)?.[1] ?? null;
 }

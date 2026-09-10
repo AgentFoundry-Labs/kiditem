@@ -20,7 +20,8 @@ import {
   type SellpiaProfitabilitySourceReadPort,
 } from '../../../analytics/application/port/in/sellpia-profitability-source-read.port';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { kstMonthEnd, kstMonthRange } from '../../../common/kst';
+import { kstMonthEnd } from '../../../common/kst';
+import { readProductSaleAgeEvidence } from '../../../common/product-sale-age';
 import {
   type MasterProductAbcFormulaReadyMonthlyFact,
   type ProductProfitabilityEvidence,
@@ -30,7 +31,7 @@ import {
   type SourceReadiness,
 } from '../port/in/master-product-profitability-read.port';
 
-const MAX_COMPLETE_MONTHS = 12;
+const MAX_CALENDAR_MONTHS = 12;
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const YEAR_MONTH_PATTERN = /^\d{4}-(0[1-9]|1[0-2])$/;
 const DAY_MS = 86_400_000;
@@ -56,6 +57,7 @@ type ProductRow = Readonly<{
   id: string;
   isActive: boolean;
   mappingValid: boolean;
+  saleStartDate: string | null;
 }>;
 
 type ProductSnapshot = Readonly<{
@@ -67,6 +69,7 @@ type SellpiaMonth = Readonly<{
   coverageStartDate: string;
   coverageEndDate: string;
   coveredDays: number;
+  coverageValid: boolean;
   revenue: number;
   orderTimeSupplyCost: number;
 }>;
@@ -74,7 +77,16 @@ type SellpiaMonth = Readonly<{
 type AdvertisingMonth = Readonly<{
   coverageStartDate: string;
   coverageEndDate: string;
+  coveredDays: number;
+  coverageValid: boolean;
   allocatedSpend: number;
+}>;
+
+type EvaluationBucket = Readonly<{
+  yearMonth: string;
+  coverageStartDate: string;
+  coverageEndDate: string;
+  coveredDays: number;
 }>;
 
 @Injectable()
@@ -94,13 +106,17 @@ export class MasterProductProfitabilityReadService
     targetCutoff: string;
   }): Promise<ProfitabilityEvidenceSnapshot> {
     const organizationId = requiredOrganizationId(input.organizationId);
-    const targetCutoff = parseMonthEnd(input.targetCutoff);
-    const months = kstMonthRange(targetCutoff, MAX_COMPLETE_MONTHS);
+    const targetCutoff = parseClosedCutoff(input.targetCutoff);
+    const months = calendarMonthRange(targetCutoff, MAX_CALENDAR_MONTHS);
 
-    const [productSnapshot, sellpiaCatalog, advertisingSnapshot] = await Promise.all([
-      this.readProductSnapshot(organizationId),
-      this.sellpia.readGenerationCatalog({ organizationId, limit: MAX_COMPLETE_MONTHS }),
-      this.advertising.readSourceSnapshot({ organizationId, limit: MAX_COMPLETE_MONTHS }),
+    // Keep the repeatable product snapshot isolated from the two source-catalog
+    // transactions. This bounds peak pool usage when Product Operations and
+    // profitability are requested together; the snapshot remains the sole
+    // authority for products and mapping generation.
+    const productSnapshot = await this.readProductSnapshot(organizationId, targetCutoff);
+    const [sellpiaCatalog, advertisingSnapshot] = await Promise.all([
+      this.sellpia.readGenerationCatalog({ organizationId, limit: MAX_CALENDAR_MONTHS }),
+      this.advertising.readSourceSnapshot({ organizationId, limit: MAX_CALENDAR_MONTHS }),
     ]);
     const { products, mappingGeneration } = productSnapshot;
 
@@ -159,20 +175,22 @@ export class MasterProductProfitabilityReadService
       };
     }
     const evidenceMonths = months.filter((yearMonth) =>
-      kstMonthEnd(yearMonth) <= selected.actualCutoff);
+      `${yearMonth}-01` <= selected.actualCutoff);
 
-    const [sellpiaFacts, advertisingGeneration] = await Promise.all([
-      this.sellpia.readGenerationFacts({
-        organizationId,
-        sourceImportRunId: selected.sellpia.metadata.sourceImportRunId,
-        masterProductIds: products.map((product) => product.id),
-        yearMonths: evidenceMonths,
-      }),
-      this.advertising.readGeneration({
-        organizationId,
-        sourceImportRunId: selected.advertising.metadata.sourceImportRunId,
-      }),
-    ]);
+    const sellpiaFacts = await this.sellpia.readGenerationFacts({
+      organizationId,
+      sourceImportRunId: selected.sellpia.metadata.sourceImportRunId,
+      // Invalid mappings cannot contribute to the result; the source adapter
+      // still validates the complete immutable generation before projecting.
+      masterProductIds: products
+        .filter((product) => product.mappingValid)
+        .map((product) => product.id),
+      yearMonths: evidenceMonths,
+    });
+    const advertisingGeneration = await this.advertising.readGeneration({
+      organizationId,
+      sourceImportRunId: selected.advertising.metadata.sourceImportRunId,
+    });
     assertSelectedSellpiaGeneration(sellpiaFacts, selected.sellpia.metadata);
     if (!advertisingGeneration) {
       throw new UnprocessableEntityException('SOURCE_GENERATION_NOT_FOUND');
@@ -195,6 +213,11 @@ export class MasterProductProfitabilityReadService
       sellpia: sellpiaByProduct.get(product.id) ?? new Map(),
       advertising: advertisingByProduct.get(product.id) ?? new Map(),
       cutoff: selected.actualCutoff,
+      costEvidenceValid: selected.sellpia.metadata.quality.correctedCostEvidence === true,
+      expectedBuckets: evaluationBuckets(
+        evidenceMonths,
+        selected,
+      ),
       advertisingCoverageStartDate: selected.advertising.view.coverageStartDate,
       advertisingCoverageEndDate: minDate(
         selected.advertising.view.coverageEndDate,
@@ -216,28 +239,45 @@ export class MasterProductProfitabilityReadService
     };
   }
 
-  private async readProductSnapshot(organizationId: string): Promise<ProductSnapshot> {
+  private async readProductSnapshot(
+    organizationId: string,
+    targetCutoff: string,
+  ): Promise<ProductSnapshot> {
     return this.prisma.$transaction(async (tx) => {
-      const [products, state] = await Promise.all([
-        tx.masterProduct.findMany({
-          where: { organizationId },
-          orderBy: { id: 'asc' },
-          select: {
-            id: true,
-            isActive: true,
-            _count: { select: { inventorySkus: true } },
-          },
-        }),
-        tx.masterProductAbcFormulaState.findUnique({
-          where: { organizationId },
-          select: { mappingGeneration: true },
-        }),
-      ]);
+      const products = await tx.masterProduct.findMany({
+        where: { organizationId },
+        orderBy: { id: 'asc' },
+        select: {
+          id: true,
+          isActive: true,
+        },
+      });
+      // A Prisma interactive transaction owns one database client. Do not
+      // overlap queries on that client: PrismaPg reports "client.query when
+      // already executing" and can leave the second read waiting for the
+      // transaction timeout under Product Hub fan-out.
+      const state = await tx.masterProductAbcFormulaState.findUnique({
+        where: { organizationId },
+        select: { mappingGeneration: true },
+      });
+      const saleAgeEvidence = await readProductSaleAgeEvidence(
+        tx,
+        organizationId,
+        products.map((product) => product.id),
+        null,
+      );
+      const saleStartDateByProduct = new Map(
+        saleAgeEvidence.map((evidence) => [evidence.masterProductId, evidence]),
+      );
       return {
         products: products.map((product) => ({
           id: product.id,
           isActive: product.isActive,
-          mappingValid: product._count.inventorySkus > 0,
+          mappingValid: saleStartDateByProduct.get(product.id)?.mappingValid ?? false,
+          saleStartDate: beforeOrOnCutoff(
+            saleStartDateByProduct.get(product.id)?.saleStartDate ?? null,
+            targetCutoff,
+          ),
         })),
         mappingGeneration: (state?.mappingGeneration ?? 0n).toString(),
       };
@@ -252,38 +292,55 @@ function requiredOrganizationId(value: string): string {
   return value.trim();
 }
 
-// Display contribution uses the latest contiguous full months proven by the
-// selected pair. A COMPLETE advertising manifest proves its entire date range.
+// Display contribution uses the selected source interval, including a partial
+// cutoff month. It is independent from ABC eligibility.
 function fullMonthContributionBasis(selected: SelectedPair) {
-  const from = [selected.sellpia.view.coverageStartDate!, selected.advertising.view.coverageStartDate!].sort().at(-1)!;
-  const months = [...new Set(selected.sellpia.metadata.coverage.coveredMonths)]
-    .filter((month) => YEAR_MONTH_PATTERN.test(month)
-      && `${month}-01` >= from && kstMonthEnd(month) <= selected.actualCutoff)
-    .sort();
-  if (months.length === 0) return null;
-  let first = months.length - 1;
-  while (first > 0) {
-    const next = new Date(`${months[first - 1]}-01T00:00:00.000Z`);
-    next.setUTCMonth(next.getUTCMonth() + 1);
-    if (next.toISOString().slice(0, 7) !== months[first]) break;
-    first -= 1;
-  }
-  return { basisFromDate: `${months[first]}-01`, basisCutoffDate: kstMonthEnd(months.at(-1)!) };
+  const from = maxDate(
+    selected.sellpia.view.coverageStartDate,
+    selected.advertising.view.coverageStartDate,
+  );
+  if (!from || from > selected.actualCutoff) return null;
+  const windowStart = calendarMonthRange(selected.actualCutoff, MAX_CALENDAR_MONTHS)[0]!;
+  return {
+    basisFromDate: maxDate(from, `${windowStart}-01`)!,
+    basisCutoffDate: selected.actualCutoff,
+  };
 }
 
-function parseMonthEnd(value: string): string {
+function parseClosedCutoff(value: string): string {
   if (typeof value !== 'string' || !DATE_PATTERN.test(value)) {
     throw new BadRequestException('Profitability evidence cutoff must be a calendar date');
   }
   const date = new Date(`${value}T00:00:00.000Z`);
-  if (Number.isNaN(date.getTime())
-    || date.toISOString().slice(0, 10) !== value
-    || kstMonthEnd(value.slice(0, 7)) !== value) {
+  if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== value
+    || value > latestClosedKstDate()) {
     throw new BadRequestException(
-      'Profitability evidence cutoff must be the final day of a complete KST month',
+      'Profitability evidence cutoff must be a closed KST calendar date',
     );
   }
   return value;
+}
+
+function latestClosedKstDate(now = new Date()): string {
+  const kst = new Date(now.getTime() + 9 * 60 * 60 * 1_000);
+  const yesterday = new Date(Date.UTC(
+    kst.getUTCFullYear(),
+    kst.getUTCMonth(),
+    kst.getUTCDate() - 1,
+  ));
+  return yesterday.toISOString().slice(0, 10);
+}
+
+function calendarMonthRange(targetCutoff: string, count: number): string[] {
+  const match = /^(\d{4})-(0[1-9]|1[0-2])-\d{2}$/.exec(targetCutoff);
+  if (!match) throw new Error('Expected a calendar cutoff');
+  const normalizedCount = Math.max(1, Math.floor(count));
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  return Array.from({ length: normalizedCount }, (_, index) => {
+    const date = new Date(Date.UTC(year, month - 1 - (normalizedCount - 1 - index), 1));
+    return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
+  });
 }
 
 function normalizeSellpiaGeneration(
@@ -413,6 +470,8 @@ function emptyProduct(product: ProductRow): ProductProfitabilityEvidence {
     masterProductId: product.id,
     selling: product.isActive,
     mappingValid: product.mappingValid,
+    saleStartDate: product.saleStartDate,
+    evaluationPeriodComplete: false,
     validObservationDays: 0,
     formulaReadyFacts: null,
   };
@@ -446,43 +505,19 @@ function aggregateSellpiaFacts(
     const byMonth = result.get(fact.masterProductId);
     if (!byMonth) continue;
     const previous = byMonth.get(fact.yearMonth);
-    if (previous && (previous.coverageStartDate !== start || previous.coverageEndDate !== end)) {
-      throw new UnprocessableEntityException('SOURCE_COVERAGE_MISMATCH');
-    }
     const coveredDays = calendarDaysInclusive(start, end);
     byMonth.set(fact.yearMonth, {
-      coverageStartDate: start,
-      coverageEndDate: end,
+      coverageStartDate: previous?.coverageStartDate ?? start,
+      coverageEndDate: previous?.coverageEndDate ?? end,
       coveredDays: previous?.coveredDays ?? coveredDays,
+      coverageValid: (previous?.coverageValid ?? true)
+        && (!previous || (previous.coverageStartDate === start && previous.coverageEndDate === end)),
       revenue: addMoney(previous?.revenue ?? 0, fact.revenue),
       orderTimeSupplyCost: addMoney(
         previous?.orderTimeSupplyCost ?? 0,
         fact.orderTimeSupplyCost,
       ),
     });
-  }
-  const coveredMonths = new Set(selected.sellpia.metadata.coverage.coveredMonths);
-  for (const byMonth of result.values()) {
-    for (const yearMonth of months) {
-      if (byMonth.has(yearMonth) || !coveredMonths.has(yearMonth)) continue;
-      const coverageStartDate = maxDate(
-        `${yearMonth}-01`,
-        selected.sellpia.view.coverageStartDate,
-      );
-      const coverageEndDate = minDate(
-        kstMonthEnd(yearMonth),
-        selected.sellpia.view.coverageEndDate,
-        selected.actualCutoff,
-      );
-      if (!coverageStartDate || !coverageEndDate || coverageStartDate > coverageEndDate) continue;
-      byMonth.set(yearMonth, {
-        coverageStartDate,
-        coverageEndDate,
-        coveredDays: calendarDaysInclusive(coverageStartDate, coverageEndDate),
-        revenue: 0,
-        orderTimeSupplyCost: 0,
-      });
-    }
   }
   return result;
 }
@@ -507,17 +542,19 @@ function aggregateAdvertisingFacts(
     }
     const start = parseDate(fact.coveredStartDate, 'SOURCE_COVERAGE_MALFORMED');
     const end = parseDate(fact.coveredEndDate, 'SOURCE_COVERAGE_MALFORMED');
+    const coveredDays = calendarDaysInclusive(start, end);
     if (start > end || `${fact.month}-01` > start || kstMonthEnd(fact.month) < end) {
       throw new UnprocessableEntityException('SOURCE_COVERAGE_MALFORMED');
     }
     const byMonth = result.get(fact.masterProductId) ?? new Map<string, AdvertisingMonth>();
     const previous = byMonth.get(fact.month);
-    if (previous && (previous.coverageStartDate !== start || previous.coverageEndDate !== end)) {
-      throw new UnprocessableEntityException('SOURCE_COVERAGE_MISMATCH');
-    }
     byMonth.set(fact.month, {
-      coverageStartDate: start,
-      coverageEndDate: end,
+      coverageStartDate: previous?.coverageStartDate ?? start,
+      coverageEndDate: previous?.coverageEndDate ?? end,
+      coveredDays: previous?.coveredDays ?? coveredDays,
+      coverageValid: (previous?.coverageValid ?? true)
+        && (!previous || (previous.coverageStartDate === start && previous.coverageEndDate === end))
+        && fact.observedTargetDayCount === coveredDays,
       allocatedSpend: addMoney(previous?.allocatedSpend ?? 0, fact.allocatedSpend),
     });
     result.set(fact.masterProductId, byMonth);
@@ -530,20 +567,42 @@ function buildProductEvidence(input: {
   sellpia: ReadonlyMap<string, SellpiaMonth>;
   advertising: ReadonlyMap<string, AdvertisingMonth>;
   cutoff: string;
+  costEvidenceValid: boolean;
+  expectedBuckets: readonly EvaluationBucket[];
   advertisingCoverageStartDate: string | null;
   advertisingCoverageEndDate: string | null;
 }): ProductProfitabilityEvidence {
   if (input.sellpia.size === 0) return emptyProduct(input.product);
   const monthlyFacts: MasterProductAbcFormulaReadyMonthlyFact[] = [];
-  for (const [yearMonth, sellpia] of [...input.sellpia.entries()].sort(([left], [right]) => left.localeCompare(right))) {
+  let evaluationPeriodComplete = input.expectedBuckets.length > 0 && input.costEvidenceValid;
+  for (const expected of input.expectedBuckets) {
+    const yearMonth = expected.yearMonth;
+    const sellpia = input.sellpia.get(yearMonth);
+    if (!sellpia) {
+      evaluationPeriodComplete = false;
+      continue;
+    }
+    if (sellpia.coverageStartDate !== expected.coverageStartDate
+      || sellpia.coverageEndDate !== expected.coverageEndDate
+      || sellpia.coveredDays !== expected.coveredDays
+      || !sellpia.coverageValid) {
+      evaluationPeriodComplete = false;
+    }
     const advertising = input.advertising.get(yearMonth);
-    if (advertising
-      && (advertising.coverageStartDate !== sellpia.coverageStartDate
-        || advertising.coverageEndDate !== sellpia.coverageEndDate)) continue;
+    if (advertising && (
+      advertising.coverageStartDate !== expected.coverageStartDate
+      || advertising.coverageEndDate !== expected.coverageEndDate
+      || advertising.coveredDays !== expected.coveredDays
+      || !advertising.coverageValid
+    )) {
+      evaluationPeriodComplete = false;
+    }
     if (!advertising && (!input.advertisingCoverageStartDate
       || !input.advertisingCoverageEndDate
-      || sellpia.coverageStartDate < input.advertisingCoverageStartDate
-      || sellpia.coverageEndDate > input.advertisingCoverageEndDate)) continue;
+      || expected.coverageStartDate < input.advertisingCoverageStartDate
+      || expected.coverageEndDate > input.advertisingCoverageEndDate)) {
+      evaluationPeriodComplete = false;
+    }
     const advertisingEvidence = advertising
       ? advertising.allocatedSpend > 0 ? 'OBSERVED' : 'CONFIRMED_ZERO'
       : 'NOT_APPLIED';
@@ -566,15 +625,52 @@ function buildProductEvidence(input: {
     masterProductId: input.product.id,
     selling: input.product.isActive,
     mappingValid: input.product.mappingValid,
+    saleStartDate: input.product.saleStartDate,
+    evaluationPeriodComplete,
     validObservationDays: monthlyFacts.reduce((sum, fact) => sum + fact.coveredDays, 0),
+    // Keep actual source rows readable even when a required month is missing;
+    // Products separately requires evaluationPeriodComplete before evaluating.
     formulaReadyFacts: monthlyFacts.length > 0
       ? {
         masterProductId: input.product.id,
         cutoffDate: input.cutoff,
+        saleStartDate: input.product.saleStartDate,
+        evaluationPeriodComplete,
         monthlyFacts,
       }
       : null,
   };
+}
+
+function evaluationBuckets(
+  evidenceMonths: readonly string[],
+  selected: SelectedPair,
+): EvaluationBucket[] {
+  const sourceStart = maxDate(
+    selected.sellpia.view.coverageStartDate,
+    selected.advertising.view.coverageStartDate,
+  );
+  const sourceEnd = minDate(
+    selected.sellpia.view.coverageEndDate,
+    selected.advertising.view.coverageEndDate,
+    selected.actualCutoff,
+  );
+  if (!sourceStart || !sourceEnd || sourceStart > sourceEnd) return [];
+  return evidenceMonths.flatMap((yearMonth) => {
+    const start = maxDate(`${yearMonth}-01`, sourceStart);
+    const end = minDate(kstMonthEnd(yearMonth), sourceEnd);
+    if (!start || !end || start > end) return [];
+    return [{
+      yearMonth,
+      coverageStartDate: start,
+      coverageEndDate: end,
+      coveredDays: calendarDaysInclusive(start, end),
+    }];
+  });
+}
+
+function beforeOrOnCutoff(value: string | null, cutoff: string): string | null {
+  return value !== null && value <= cutoff ? value : null;
 }
 
 function assertSelectedSellpiaGeneration(

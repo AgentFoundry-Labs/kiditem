@@ -374,6 +374,78 @@ describe('ProcurementController purchase submission boundary', () => {
     });
   });
 
+  it('routes transient Rocket workbook conversion to the owner without durable export', async () => {
+    const bytes = Buffer.from('transient-workbook');
+    const workbookExports = {
+      convertWorkbook: vi.fn().mockResolvedValue({
+        bytes,
+        fileName: '쿠팡_로켓_20260717.xlsx',
+        contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        summary: {
+          totalRows: 2,
+          workbookQuantity: 5,
+          fullyConfirmedRows: 1,
+          shortRows: 1,
+        },
+      }),
+      exportWorkbook: vi.fn(),
+    };
+    const Controller = ProcurementController as unknown as new (
+      procurement: Record<string, unknown>,
+      submissions: Record<string, unknown>,
+      previews: Record<string, unknown>,
+      workbookExports: typeof workbookExports,
+    ) => ProcurementController;
+    const controller = new Controller({}, {}, {}, workbookExports);
+    const response = { setHeader: vi.fn() };
+    const request = {
+      sourceRows: [],
+      workbookRows: [],
+    };
+
+    const result = await controller.handleAction(
+      'organization-1',
+      { id: 'authenticated-user' } as never,
+      {
+        action: 'convertRocketConfirmationWorkbook',
+        requestJson: JSON.stringify(request),
+      } as never,
+      undefined,
+      response as never,
+    );
+
+    expect(workbookExports.convertWorkbook).toHaveBeenCalledWith({
+      request,
+    });
+    expect(workbookExports.exportWorkbook).not.toHaveBeenCalled();
+    expect(response.setHeader).toHaveBeenCalledWith('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    expect(response.setHeader).toHaveBeenCalledWith(
+      'Content-Disposition',
+      "attachment; filename*=UTF-8''%EC%BF%A0%ED%8C%A1_%EB%A1%9C%EC%BC%93_20260717.xlsx",
+    );
+    expect(response.setHeader).toHaveBeenCalledWith('X-Rocket-Workbook-Quantity', '5');
+    expect((result as import('@nestjs/common').StreamableFile).getStream().read()).toEqual(bytes);
+
+    const template = {
+      originalname: '쿠팡_원본.xlsx',
+      buffer: Buffer.from('template'),
+    };
+    await controller.handleAction(
+      'organization-1',
+      { id: 'authenticated-user' } as never,
+      {
+        action: 'convertRocketConfirmationWorkbook',
+        requestJson: JSON.stringify(request),
+      } as never,
+      template as never,
+    );
+    expect(workbookExports.convertWorkbook).toHaveBeenNthCalledWith(2, {
+      request,
+      templateBytes: template.buffer,
+      templateFileName: template.originalname,
+    });
+  });
+
   it('allows bounded Rocket workbook metadata above the multipart 1 MiB default', () => {
     const source = readFileSync(
       __filename.replace(/__tests__\/[^/]+$/, 'adapter/in/http/procurement.controller.ts'),

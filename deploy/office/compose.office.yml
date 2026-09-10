@@ -122,21 +122,6 @@ services:
       retries: 12
       start_period: 60s
 
-  worker:
-    env_file:
-      - ${OFFICE_API_ENV_FILE:-C:/workspace/kiditem/apps/server/.env}
-    image: ${KIDITEM_API_IMAGE:?KIDITEM_API_IMAGE must be the exact-SHA local API image}
-    container_name: kiditem-worker
-    command: ["node", "dist/worker.js"]
-    environment:
-      <<: *server-environment
-    extra_hosts:
-      - "${OFFICE_HOST}:host-gateway"
-    depends_on:
-      api:
-        condition: service_healthy
-    restart: unless-stopped
-
   web:
     image: ${KIDITEM_WEB_IMAGE:?KIDITEM_WEB_IMAGE must be the exact-SHA local web image}
     container_name: kiditem-web

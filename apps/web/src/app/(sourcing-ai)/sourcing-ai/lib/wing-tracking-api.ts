@@ -111,6 +111,52 @@ export interface WingTrackedProductCollectionReply {
   error?: string;
 }
 
+function parseWingTrackedProductCollectionReply(
+  value: unknown,
+): WingTrackedProductCollectionReply {
+  const record = isRecord(value) ? value : null;
+  if (
+    !record ||
+    typeof record.success !== 'boolean' ||
+    typeof record.attemptId !== 'string' ||
+    (record.terminalState !== 'RUNNING' &&
+      record.terminalState !== 'COMPLETE' &&
+      record.terminalState !== 'FAILED')
+  ) {
+    throw new Error('KidItem OS 익스텐션이 추적 수집 결과를 올바르게 반환하지 않았습니다.');
+  }
+  const reply: WingTrackedProductCollectionReply = {
+    success: record.success,
+    attemptId: record.attemptId,
+    terminalState: record.terminalState,
+  };
+  if (record.retryRequired !== undefined) {
+    if (typeof record.retryRequired !== 'boolean') throw new Error('KidItem OS 익스텐션이 추적 수집 결과를 올바르게 반환하지 않았습니다.');
+    reply.retryRequired = record.retryRequired;
+  }
+  if (record.attentionRequired !== undefined) {
+    if (typeof record.attentionRequired !== 'boolean') throw new Error('KidItem OS 익스텐션이 추적 수집 결과를 올바르게 반환하지 않았습니다.');
+    reply.attentionRequired = record.attentionRequired;
+  }
+  if (record.completedKeywordCount !== undefined) {
+    if (typeof record.completedKeywordCount !== 'number' || !Number.isInteger(record.completedKeywordCount) || record.completedKeywordCount < 0) throw new Error('KidItem OS 익스텐션이 추적 수집 결과를 올바르게 반환하지 않았습니다.');
+    reply.completedKeywordCount = record.completedKeywordCount;
+  }
+  if (record.errorCode !== undefined) {
+    if (typeof record.errorCode !== 'string') throw new Error('KidItem OS 익스텐션이 추적 수집 결과를 올바르게 반환하지 않았습니다.');
+    reply.errorCode = record.errorCode;
+  }
+  if (record.error !== undefined) {
+    if (typeof record.error !== 'string') throw new Error('KidItem OS 익스텐션이 추적 수집 결과를 올바르게 반환하지 않았습니다.');
+    reply.error = record.error;
+  }
+  return reply;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 const BASE = '/api/ads/wing-tracked-products';
 
 export function listWingTrackedProducts(): Promise<WingTrackedProduct[]> {
@@ -177,16 +223,5 @@ export async function collectWingTrackedProductsFromExtension(input: {
     },
     null,
   );
-  if (!response || typeof response !== 'object' || Array.isArray(response)) {
-    throw new Error('KidItem OS 익스텐션이 추적 수집 결과를 올바르게 반환하지 않았습니다.');
-  }
-  const reply = response as Record<string, unknown>;
-  if (
-    typeof reply.success !== 'boolean'
-    || typeof reply.attemptId !== 'string'
-    || !['RUNNING', 'COMPLETE', 'FAILED'].includes(reply.terminalState as string)
-  ) {
-    throw new Error('KidItem OS 익스텐션이 추적 수집 결과를 올바르게 반환하지 않았습니다.');
-  }
-  return reply as WingTrackedProductCollectionReply;
+  return parseWingTrackedProductCollectionReply(response);
 }

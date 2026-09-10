@@ -61,6 +61,62 @@ through its owning runtime, disable schedules through the owning control, and
 rerun this same read-only command. Do not edit database rows manually and do
 not use `--apply`; the command rejects writable execution modes.
 
+## Approved cutover sequence
+
+The preflight JSON, backup reference, and writer-stop approval are the
+admission record. The following steps run only against the backed-up,
+writer-stopped target. Use a disposable clone for rehearsal; never use the
+operating clone at `localhost:5433` for these commands.
+
+1. Stop every API, worker, scheduler, and other database writer after the
+   read-only preflight passes. Keep the backup and the exact deployed/release
+   SHA identities with the cutover record.
+2. Run the v0.1.31 pre-schema migrations. The preparation migration repeats
+   the active-run and enabled-schedule guard inside its transaction, clears
+   retired Alerts and Rules application receipts, removes only the retired
+   generic rows, and verifies that dormant `ActionTask` rows are unchanged:
+
+   ```powershell
+   npm run data:migrate -- up --target office --phase pre-schema --release-version 0.1.31 --confirm APPLY_DATA_MIGRATIONS
+   ```
+
+   If this step fails, do not continue to schema application. The transaction
+   rolls back; correct the writer-stop or data issue and rerun from the backup
+   decision gate.
+3. Apply the reviewed Prisma schema drop on the same stopped target, then
+   regenerate the client. This removes only the generic Operation/Workflow/
+   Automation Marketplace models and their Organization/User relations. The
+   `ActionTask` table and existing rows remain dormant; Channels marketplace
+   registration models remain:
+
+   ```powershell
+   npm run db:push -- --accept-data-loss
+   npx prisma generate
+   ```
+
+4. Run the post-schema migrations and the release checks. Record the migration
+   ledger output, schema hash, dormant task count, and focused test results:
+
+   ```powershell
+   npm run data:migrate -- up --target office --phase post-schema --release-version 0.1.31 --confirm APPLY_DATA_MIGRATIONS
+   npm run check:operation-automation-cutover
+   npm run test:scripts
+   npm run build --workspace=packages/shared
+   ```
+
+### Irreversible boundary and recovery
+
+Before step 3, stop and restore the approved backup if the pre-schema result,
+writer state, or SHA identity is not exact. Step 3 is destructive: this
+runbook does not define an in-place rollback or recreate deleted generic rows.
+After schema application, recovery means restoring the backup into a separate
+database, verifying it, and redeploying the previously approved exact SHA
+through the Office release process. Do not manually reinsert Operation,
+Workflow, Marketplace, or Alert history rows, and do not run a second generic
+compatibility migration. If any post-schema check fails, keep writers stopped,
+preserve the failure and migration-ledger evidence, and use the approved
+backup/redeploy decision.
+
 If the URL is malformed, a required table is absent, a count is invalid, or any
 query fails, treat the preflight as blocked. Keep writers in their current safe
 state, correct the environment/runtime or database issue, and rerun after the

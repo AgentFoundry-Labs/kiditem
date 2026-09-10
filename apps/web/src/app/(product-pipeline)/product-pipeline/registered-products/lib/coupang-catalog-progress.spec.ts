@@ -26,6 +26,25 @@ describe('Coupang catalog progress', () => {
     });
   });
 
+  it('uses basic-list wording for the basics stage while retaining detail wording elsewhere', () => {
+    const basics = buildCoupangCatalogProgress(collectionRun({
+      discoveredProducts: 1_228,
+      hydratedProducts: 80,
+    }), Date.parse('2026-07-14T01:00:00.000Z'), 'basics');
+
+    expect(basics).toMatchObject({
+      hydratedLabel: '기본 목록 수집 80 / 1,228',
+      etaLabel: '기본 목록 수집 예상 14시간 21분',
+    });
+    expect(buildCoupangCatalogProgress(collectionRun({
+      discoveredProducts: 1_228,
+      hydratedProducts: 80,
+    }), Date.parse('2026-07-14T01:00:00.000Z'), 'details')).toMatchObject({
+      hydratedLabel: '상세 수집 80 / 1,228',
+      etaLabel: '상세 수집 예상 14시간 21분',
+    });
+  });
+
   it('avoids invalid rates and ETAs before detail collection starts', () => {
     const progress = buildCoupangCatalogProgress(collectionRun(), 0);
 
@@ -72,7 +91,64 @@ describe('Coupang catalog progress', () => {
     });
   });
 
-  it('shows the current owner error even when stale browser activity remains', () => {
+  it('distinguishes per-product detail reinforcement from whole-catalog coverage', () => {
+    const progress = buildCoupangCatalogProgress(collectionRun({
+      state: 'FAILED',
+      discoveredProducts: 10,
+      hydratedProducts: 7,
+      publishedProducts: 4,
+      publishedOptionCount: 6,
+      publishedMediaCount: 9,
+    }), Date.parse('2026-07-14T00:30:00Z'), 'details');
+
+    expect(progress).toMatchObject({
+      discoveredLabel: '목록 발견 10 / 10',
+      hydratedLabel: '상세 수집 7 / 10',
+      publishedLabel: '상세 보강 반영 4 / 10',
+      publicationDetailsLabel: '옵션 6개 · 이미지 9개 보강 · 미완료 상품은 기존 상세 유지',
+      percent: 70,
+    });
+    expect(progress.publishedLabel).not.toContain('완료');
+  });
+
+  it('suppresses only the stale extension timeout while browser activity remains', () => {
+    expect(resolveCoupangCatalogError({
+      browserActive: true,
+      extensionError: null,
+      startError: '익스텐션 응답 시간이 초과되었습니다.',
+      serverError: null,
+    })).toBeNull();
+
+    expect(resolveCoupangCatalogError({
+      browserActive: false,
+      extensionError: null,
+      startError: '익스텐션 응답 시간이 초과되었습니다.',
+      serverError: null,
+    })).toBe('익스텐션 응답 시간이 초과되었습니다.');
+
+    expect(resolveCoupangCatalogError({
+      browserActive: true,
+      extensionError: null,
+      startError: 'catalog start failed for another reason',
+      serverError: null,
+    })).toBe('catalog start failed for another reason');
+
+    expect(resolveCoupangCatalogError({
+      browserActive: true,
+      extensionError: 'extension reported a different error',
+      startError: null,
+      serverError: null,
+    })).toBeNull();
+
+    expect(resolveCoupangCatalogError({
+      browserActive: false,
+      extensionError: 'extension reported a different error',
+      startError: null,
+      serverError: null,
+    })).toBe('extension reported a different error');
+  });
+
+  it('keeps the current owner server error ahead of stale browser activity', () => {
     expect(resolveCoupangCatalogError({
       browserActive: true,
       extensionError: null,
@@ -84,6 +160,13 @@ describe('Coupang catalog progress', () => {
       browserActive: false,
       extensionError: null,
       startError: null,
+      serverError: 'active user tab is collection-protected',
+    })).toBe('active user tab is collection-protected');
+
+    expect(resolveCoupangCatalogError({
+      browserActive: true,
+      extensionError: null,
+      startError: '익스텐션 응답 시간이 초과되었습니다.',
       serverError: 'active user tab is collection-protected',
     })).toBe('active user tab is collection-protected');
   });

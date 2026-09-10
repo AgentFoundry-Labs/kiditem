@@ -524,6 +524,8 @@ async function lockSource(
 ) {
   await lockProductMapping(tx, organizationId);
   await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`rocket-po-catalog:${organizationId}:${channelAccountId}`}, 0))::text`;
+  // queryraw-tenancy-exempt: organization-scoped advisory lock
+  // The key includes the organization and account; this query reads no rows.
 }
 async function readAccount(
   tx: Prisma.TransactionClient,

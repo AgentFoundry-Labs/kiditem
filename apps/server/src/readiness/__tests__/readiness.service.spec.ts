@@ -4,6 +4,36 @@ import { ReadinessService } from '../readiness.service';
 const ORGANIZATION_ID = '00000000-0000-0000-0000-0000000c0001';
 const ACTIVE_COUPANG_ACCOUNT_ID = '00000000-0000-4000-8000-0000000c0002';
 
+function adPublishedRow(
+  businessDate: string,
+  observedAt = '2026-05-02T01:00:00.000Z',
+) {
+  return {
+    businessDate,
+    observedAt,
+    normalized: {
+      adSpend: 0,
+      adRevenue: 0,
+      impressions: 0,
+      clicks: 0,
+      conversions: 0,
+      orders: 0,
+      providerRoas: 0,
+      providerCtr: 0,
+      providerConversionRate: 0,
+    },
+  };
+}
+
+function adReadPort(rows: ReturnType<typeof adPublishedRow>[] = []) {
+  return {
+    readPublished: vi.fn(async () => ({
+      channelAccountId: ACTIVE_COUPANG_ACCOUNT_ID,
+      rows,
+    })),
+  };
+}
+
 describe('ReadinessService', () => {
   afterEach(() => {
     vi.useRealTimers();
@@ -29,6 +59,11 @@ describe('ReadinessService', () => {
       '2026-04-30',
       '2026-05-01',
     ];
+    const adExpectedDates = Array.from({ length: 30 }, (_, index) => {
+      const date = new Date('2026-04-02T00:00:00.000Z');
+      date.setUTCDate(date.getUTCDate() + index);
+      return date.toISOString().slice(0, 10);
+    });
     const row = (businessDate: string) => ({
       businessDate: new Date(`${businessDate}T00:00:00.000Z`),
       lastObservedAt: new Date('2026-05-02T01:00:00.000Z'),
@@ -79,29 +114,45 @@ describe('ReadinessService', () => {
       },
     };
 
-    const service = new ReadinessService(prisma as never);
+    const adRead = adReadPort(
+      adExpectedDates
+        .filter((d) => d !== '2026-04-02')
+        .map((d) => adPublishedRow(d)),
+    );
+    const service = new ReadinessService(prisma as never, adRead);
     const status = await service.getStatus(ORGANIZATION_ID);
 
-    const adsQuery = prisma.channelAccountDailyKpiSnapshot.findMany.mock.calls[0][0];
     const sellpiaQuery = prisma.sellpiaSalesDailySnapshot.findMany.mock.calls[0][0];
-    expect(adsQuery.where.businessDate).toEqual({
-      gte: new Date('2026-04-18T00:00:00.000Z'),
-      lte: new Date('2026-05-01T00:00:00.000Z'),
+    expect(adRead.readPublished).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      from: '2026-04-02',
+      to: '2026-05-01',
     });
-    expect(adsQuery.where.channelAccountId).toBe(ACTIVE_COUPANG_ACCOUNT_ID);
     expect(sellpiaQuery.where.sellerId).toBe('__kiditem_sellpia_sales_coverage__');
     expect(prisma.channelListing.count).toHaveBeenCalledWith({
       where: {
         organizationId: ORGANIZATION_ID,
         channelAccountId: ACTIVE_COUPANG_ACCOUNT_ID,
         isActive: true,
+        lastImportRun: {
+          is: {
+            organizationId: ORGANIZATION_ID,
+            sourceType: {
+              in: [
+                'coupang_wing_catalog',
+                'coupang_wing_catalog_basics',
+                'coupang_wing_catalog_details',
+              ],
+            },
+          },
+        },
       },
     });
     expect(prisma.sourceImportRun.findFirst).toHaveBeenCalledWith({
       where: {
         organizationId: ORGANIZATION_ID,
         channelAccountId: ACTIVE_COUPANG_ACCOUNT_ID,
-        sourceType: 'coupang_wing_catalog',
+        sourceType: { in: ['coupang_wing_catalog', 'coupang_wing_catalog_details'] },
         status: 'completed',
         importedAt: { not: null },
       },
@@ -117,7 +168,7 @@ describe('ReadinessService', () => {
     const wingRank = status.checks.find((check) => check.key === 'wing_kpi');
     expect(wingSales?.status).toBe('ok');
     expect(coupangAds?.status).toBe('stale');
-    expect(coupangAds?.missingDates).toEqual(['2026-04-18']);
+    expect(coupangAds?.missingDates).toEqual(['2026-04-02']);
     expect(coupangProducts).toMatchObject({
       status: 'ok',
       count: 1752,
@@ -167,7 +218,7 @@ describe('ReadinessService', () => {
       },
     };
 
-    const status = await new ReadinessService(prisma as never).getStatus(
+    const status = await new ReadinessService(prisma as never, adReadPort()).getStatus(
       ORGANIZATION_ID,
     );
     const sellpiaQuery =
@@ -221,7 +272,7 @@ describe('ReadinessService', () => {
       sellpiaSalesDailySnapshot: { findMany: vi.fn(async () => []) },
     };
 
-    const status = await new ReadinessService(prisma as never).getStatus(
+    const status = await new ReadinessService(prisma as never, adReadPort()).getStatus(
       ORGANIZATION_ID,
     );
     const wingRank = status.checks.find((check) => check.key === 'wing_kpi');
@@ -284,11 +335,13 @@ describe('ReadinessService', () => {
       sellpiaSalesDailySnapshot: { findMany: vi.fn(async () => []) },
     };
 
-    const status = await new ReadinessService(prisma as never).getStatus(
+    const adRead = adReadPort();
+    const status = await new ReadinessService(prisma as never, adRead).getStatus(
       ORGANIZATION_ID,
     );
 
     expect(prisma.channelAccountDailyKpiSnapshot.findMany).not.toHaveBeenCalled();
+    expect(adRead.readPublished).not.toHaveBeenCalled();
     expect(prisma.channelListingOption.findMany).not.toHaveBeenCalled();
     expect(prisma.channelListing.count).not.toHaveBeenCalled();
     expect(prisma.sourceImportRun.findFirst).not.toHaveBeenCalled();
@@ -312,7 +365,7 @@ describe('ReadinessService', () => {
     });
   });
 
-  it('keeps at least 14 ad days and expands coverage to the current month start', async () => {
+  it('keeps the ad readiness window at exactly 30 days while Sellpia stays month-aware', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-07-18T01:00:00.000Z'));
 
@@ -334,26 +387,253 @@ describe('ReadinessService', () => {
       sellpiaSalesDailySnapshot: { findMany: vi.fn(async () => []) },
     };
 
-    const status = await new ReadinessService(prisma as never).getStatus(
+    const adRead = adReadPort();
+    const status = await new ReadinessService(prisma as never, adRead).getStatus(
       ORGANIZATION_ID,
     );
-    const adsQuery =
-      prisma.channelAccountDailyKpiSnapshot.findMany.mock.calls[0][0];
     const sellpiaQuery =
       prisma.sellpiaSalesDailySnapshot.findMany.mock.calls[0][0];
     const ads = status.checks.find((check) => check.key === 'coupang_ads');
     const sales = status.checks.find((check) => check.key === 'wing_sales');
 
-    expect(adsQuery.where.businessDate).toEqual({
-      gte: new Date('2026-07-01T00:00:00.000Z'),
-      lte: new Date('2026-07-17T00:00:00.000Z'),
+    expect(adRead.readPublished).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      from: '2026-06-18',
+      to: '2026-07-17',
     });
     expect(sellpiaQuery.where.businessDate).toEqual({
       gte: new Date('2026-07-01T00:00:00.000Z'),
       lte: new Date('2026-07-17T00:00:00.000Z'),
     });
-    expect(ads?.expectedDates).toHaveLength(17);
-    expect(ads?.expectedDates?.[0]).toBe('2026-07-01');
+    expect(ads?.expectedDates).toHaveLength(30);
+    expect(ads?.expectedDates?.[0]).toBe('2026-06-18');
     expect(sales?.expectedDates?.[0]).toBe('2026-07-01');
   });
+
+  it('keeps previous owner-published coverage after a failed refresh and ignores legacy rows', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-18T01:00:00.000Z'));
+
+    const expectedDates = Array.from({ length: 30 }, (_, index) => {
+      const date = new Date('2026-06-18T00:00:00.000Z');
+      date.setUTCDate(date.getUTCDate() + index);
+      return date.toISOString().slice(0, 10);
+    });
+    const previousCompleteObservedAt = '2026-07-17T23:30:00.000Z';
+    const prisma = {
+      channelAccount: {
+        findFirst: vi.fn(async () => ({ id: ACTIVE_COUPANG_ACCOUNT_ID })),
+      },
+      // A failed new attempt and legacy rows must not become a second read path.
+      channelAccountDailyKpiSnapshot: {
+        findMany: vi.fn(async () => expectedDates.map((businessDate) => ({
+          businessDate: new Date(`${businessDate}T00:00:00.000Z`),
+          lastObservedAt: new Date('2026-07-18T00:00:00.000Z'),
+        }))),
+      },
+      coupangWingSalesRankDailySnapshot: {
+        findFirst: vi.fn(async () => null),
+        findMany: vi.fn(async () => []),
+        count: vi.fn(async () => 0),
+      },
+      channelListingOption: { findMany: vi.fn(async () => []) },
+      channelListing: { count: vi.fn(async () => 0) },
+      sourceImportRun: { findFirst: vi.fn(async () => null) },
+      sellpiaSalesDailySnapshot: { findMany: vi.fn(async () => []) },
+    };
+    const adRead = adReadPort(
+      expectedDates.map((businessDate) =>
+        adPublishedRow(businessDate, previousCompleteObservedAt),
+      ),
+    );
+
+    const status = await new ReadinessService(prisma as never, adRead).getStatus(
+      ORGANIZATION_ID,
+    );
+    const ads = status.checks.find((check) => check.key === 'coupang_ads');
+
+    expect(adRead.readPublished).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      from: '2026-06-18',
+      to: '2026-07-17',
+    });
+    expect(prisma.channelAccountDailyKpiSnapshot.findMany).not.toHaveBeenCalled();
+    expect(ads).toMatchObject({
+      status: 'ok',
+      count: expectedDates.length,
+      lastSyncedAt: previousCompleteObservedAt,
+    });
+  });
+
+  it('does not promote a nullable staged inventory identity into a Wing vendor target', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-18T01:00:00.000Z'));
+
+    const latestBusinessDate = new Date('2026-07-17T00:00:00.000Z');
+    const prisma = {
+      channelAccount: {
+        findFirst: vi.fn(async () => ({ id: ACTIVE_COUPANG_ACCOUNT_ID })),
+      },
+      channelAccountDailyKpiSnapshot: { findMany: vi.fn(async () => []) },
+      channelListingOption: {
+        findMany: vi.fn(async () => [
+          {
+            externalOptionId: 'inventory-item-fallback',
+            rawJson: {
+              source: 'coupang_wing_catalog_basics',
+              externalOptionIdentitySource: 'inventory_item',
+              vendorInventoryItemId: 'inventory-item-fallback',
+            },
+          },
+          {
+            externalOptionId: 'vendor-item-1',
+            rawJson: {
+              source: 'coupang_wing_catalog_basics',
+              externalOptionIdentitySource: 'vendor_item',
+              vendorItemId: 'vendor-item-1',
+            },
+          },
+          {
+            externalOptionId: 'vendor-item-known',
+            rawJson: {
+              source: 'coupang_wing_catalog_details',
+              externalOptionIdentitySource: 'vendor_item',
+              vendorItemId: null,
+            },
+          },
+        ]),
+      },
+      channelListing: { count: vi.fn(async () => 1) },
+      sourceImportRun: {
+        findFirst: vi.fn(async () => ({
+          importedAt: new Date('2026-07-18T00:30:00.000Z'),
+        })),
+      },
+      coupangWingSalesRankDailySnapshot: {
+        findFirst: vi.fn(async () => ({
+          businessDate: latestBusinessDate,
+          capturedAt: new Date('2026-07-18T00:30:00.000Z'),
+        })),
+        findMany: vi.fn(async () => [
+          { vendorItemId: 'vendor-item-1' },
+          { vendorItemId: 'vendor-item-known' },
+        ]),
+        count: vi.fn(async () => 2),
+      },
+      sellpiaSalesDailySnapshot: { findMany: vi.fn(async () => []) },
+    };
+
+    const status = await new ReadinessService(prisma as never, adReadPort()).getStatus(
+      ORGANIZATION_ID,
+    );
+
+    expect(prisma.coupangWingSalesRankDailySnapshot.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          vendorItemId: { in: ['vendor-item-1', 'vendor-item-known'] },
+        }),
+      }),
+    );
+    expect(status.checks.find((check) => check.key === 'wing_kpi')).toMatchObject({
+      status: 'ok',
+      count: 2,
+    });
+  });
+
+  it('marks the catalog ready after a completed basics publication is followed by details', async () => {
+    const prisma = catalogReadinessPrisma({
+      productCount: 1254,
+      latestCatalogRun: {
+        sourceType: 'coupang_wing_catalog_details',
+        importedAt: new Date('2026-09-10T00:10:00.000Z'),
+      },
+    });
+
+    const status = await new ReadinessService(prisma as never, adReadPort()).getStatus(
+      ORGANIZATION_ID,
+    );
+    const products = status.checks.find((check) => check.key === 'coupang_products');
+
+    expect(products).toMatchObject({
+      status: 'ok',
+      count: 1254,
+      detail: '쿠팡 상품 1254건 수집됨',
+    });
+    expect(prisma.channelListing.count).toHaveBeenCalledWith({
+      where: expect.objectContaining({
+        lastImportRun: {
+          is: {
+            organizationId: ORGANIZATION_ID,
+            sourceType: {
+              in: [
+                'coupang_wing_catalog',
+                'coupang_wing_catalog_basics',
+                'coupang_wing_catalog_details',
+              ],
+            },
+          },
+        },
+      }),
+    });
+    expect(prisma.sourceImportRun.findFirst).toHaveBeenCalledWith({
+      where: {
+        organizationId: ORGANIZATION_ID,
+        channelAccountId: ACTIVE_COUPANG_ACCOUNT_ID,
+        sourceType: {
+          in: ['coupang_wing_catalog', 'coupang_wing_catalog_details'],
+        },
+        status: 'completed',
+        importedAt: { not: null },
+      },
+      orderBy: { importedAt: 'desc' },
+      select: { importedAt: true },
+    });
+  });
+
+  it('keeps basic coverage visible while a details publication is partial', async () => {
+    const prisma = catalogReadinessPrisma({
+      productCount: 1254,
+      latestCatalogRun: null,
+    });
+
+    const status = await new ReadinessService(prisma as never, adReadPort()).getStatus(
+      ORGANIZATION_ID,
+    );
+    const products = status.checks.find((check) => check.key === 'coupang_products');
+
+    expect(products).toMatchObject({
+      status: 'missing',
+      count: 1254,
+      detail: '쿠팡 상품 기본 목록 1254건 반영됨 — 전체 상세 수집 필요',
+    });
+    expect(products?.detail).not.toContain('최초 수집 필요');
+  });
 });
+
+function catalogReadinessPrisma(input: {
+  productCount: number;
+  latestCatalogRun: { sourceType: string; importedAt: Date } | null;
+}) {
+  return {
+    channelAccount: {
+      findFirst: vi.fn(async () => ({ id: ACTIVE_COUPANG_ACCOUNT_ID })),
+    },
+    channelListingOption: {
+      findMany: vi.fn(async () => []),
+    },
+    channelListing: {
+      count: vi.fn(async () => input.productCount),
+    },
+    sourceImportRun: {
+      findFirst: vi.fn(async () => input.latestCatalogRun),
+    },
+    coupangWingSalesRankDailySnapshot: {
+      findFirst: vi.fn(async () => null),
+      findMany: vi.fn(async () => []),
+      count: vi.fn(async () => 0),
+    },
+    sellpiaSalesDailySnapshot: {
+      findMany: vi.fn(async () => []),
+    },
+  };
+}

@@ -35,6 +35,7 @@ export const PROFITABILITY_ALLOCATION_TIE_BREAK =
   'MASTER_PRODUCT_ID_ASC_LOWERCASE';
 export const MAX_GENERATION_FACT_ROWS = 100_000;
 const MAX_SNAPSHOT_GENERATIONS = 12;
+const PROFITABILITY_EVALUATION_MONTH_COUNT = 12;
 const MAX_REPORT_COUNT = 100_000;
 const MAX_RESPONSE_BYTES = 50_000_000;
 const INSERT_CHUNK_SIZE = 1_000;
@@ -114,6 +115,20 @@ type StoredSlice = Readonly<{
   businessDates: readonly string[];
 }>;
 
+type CoveragePeriod = Readonly<{
+  month: string;
+  from: string;
+  to: string;
+  businessDates: readonly string[];
+}>;
+
+type ProfitabilityCoverage = Readonly<{
+  months: readonly string[];
+  from: string;
+  to: string;
+  periods: readonly CoveragePeriod[];
+}>;
+
 type StoredPlan = Readonly<{
   mappingGeneration: string;
   adSourcePolicyHash: string;
@@ -129,6 +144,17 @@ type SourceAttempt = Prisma.SourceImportRunGetPayload<{}>;
 type Receipt = Prisma.ChannelScrapeRunGetPayload<{}>;
 type Target = Prisma.ChannelAdTargetDailySnapshotGetPayload<{}>;
 type MonthlyFact = Prisma.ChannelAdListingProductMonthlyFactGetPayload<{}>;
+type GenerationMonthlyFact = Pick<MonthlyFact,
+  'channelAccountId'
+  | 'channelListingId'
+  | 'masterProductId'
+  | 'month'
+  | 'coveredStartDate'
+  | 'coveredEndDate'
+  | 'wholeRecipeWeight'
+  | 'allocatedSpend'
+  | 'observedTargetDayCount'
+  | 'mappingGeneration'>;
 type Transaction = Prisma.TransactionClient;
 type TargetAllocationStatus = 'ALLOCATABLE' | 'UNMATCHED' | 'UNALLOCATABLE';
 type TargetAllocationSummary = Readonly<{
@@ -196,8 +222,8 @@ export class ProfitabilityAdImportRepositoryAdapter
       await lockProductMapping(tx, input.organizationId);
       const mappingGeneration = await readMappingGeneration(tx, input.organizationId);
       const accounts = await this.listPlanAccounts(tx, input.organizationId);
-      const months = closedKstMonths(now, 12);
-      const storedPlan = buildStoredPlan(accounts, months, mappingGeneration);
+      const coverage = profitabilityCoverageForKstYesterday(now);
+      const storedPlan = buildStoredPlan(accounts, coverage, mappingGeneration);
       const attemptToken = randomUUID();
       const expiresAt = new Date(now.getTime() + PROFITABILITY_ATTEMPT_TTL_MS);
       const run = await tx.sourceImportRun.create({
@@ -218,10 +244,10 @@ export class ProfitabilityAdImportRepositoryAdapter
           mappingGeneration,
           adSourcePolicyHash: PRODUCT_ABC_ABSOLUTE_V1_AD_SOURCE_POLICY_HASH,
           rowCount: storedPlan.accounts.reduce((count, account) => count + account.slices.length, 0),
-          coveredMonths: months,
-          coverageStartDate: dateOnly(`${months[0]}-01`),
-          coverageEndDate: dateOnly(monthEnd(months[months.length - 1]!)),
-          qualityReport: initialQualityReport(storedPlan, months),
+          coveredMonths: [...coverage.months],
+          coverageStartDate: dateOnly(coverage.from),
+          coverageEndDate: dateOnly(coverage.to),
+          qualityReport: initialQualityReport(storedPlan, coverage.months),
         },
       });
 
@@ -230,7 +256,7 @@ export class ProfitabilityAdImportRepositoryAdapter
         input.organizationId,
         run.id,
         mappingGeneration,
-        months,
+        coverage.periods,
         listings,
       );
       for (let offset = 0; offset < facts.length; offset += INSERT_CHUNK_SIZE) {
@@ -695,7 +721,7 @@ export class ProfitabilityAdImportRepositoryAdapter
       const latestComplete = generations[0] ?? null;
       // The catalog is a bounded history. Finance selects a compatible
       // generation from its typed coverage metadata; source freshness is the
-      // separate current-status read and uses the current closed-month cutoff.
+      // separate current-status read and uses the current KST-yesterday cutoff.
       const source = sourceView(latestAttempt, completeRuns[0] ?? null, new Date());
       return {
         latestAttempt: latestAttempt ? attemptSummary(latestAttempt) : null,
@@ -982,7 +1008,7 @@ function sourceView(
     }
     : null;
   const coveredThrough = latestComplete?.coverageEndDate ?? null;
-  const expectedCutoff = closedKstMonths(now, 1).map((month) => dateOnly(monthEnd(month)))[0]!;
+  const expectedCutoff = dateOnly(kstYesterday(now));
   const ready = latestCompleteView !== null
     && coveredThrough !== null
     && coveredThrough.getTime() >= expectedCutoff.getTime()
@@ -1216,11 +1242,37 @@ async function generationFromRun(
       where: { organizationId: run.organizationId, sourceImportRunId: run.id },
       orderBy: [{ businessDate: 'asc' }, { channelAccountId: 'asc' }, { targetKey: 'asc' }],
       take: MAX_GENERATION_FACT_ROWS + 1,
+      select: {
+        channelAccountId: true,
+        listingId: true,
+        listingOptionId: true,
+        businessDate: true,
+        externalId: true,
+        externalOptionId: true,
+        adSpend: true,
+        adRevenue: true,
+        impressions: true,
+        clicks: true,
+        orders: true,
+        conversions: true,
+      },
     }),
     tx.channelAdListingProductMonthlyFact.findMany({
       where: { organizationId: run.organizationId, sourceImportRunId: run.id },
       orderBy: [{ month: 'asc' }, { channelAccountId: 'asc' }, { channelListingId: 'asc' }, { masterProductId: 'asc' }],
       take: MAX_GENERATION_FACT_ROWS + 1,
+      select: {
+        channelAccountId: true,
+        channelListingId: true,
+        masterProductId: true,
+        month: true,
+        coveredStartDate: true,
+        coveredEndDate: true,
+        wholeRecipeWeight: true,
+        allocatedSpend: true,
+        observedTargetDayCount: true,
+        mappingGeneration: true,
+      },
     }),
   ]);
   if (targets.length > MAX_GENERATION_FACT_ROWS || facts.length > MAX_GENERATION_FACT_ROWS) {
@@ -1336,7 +1388,7 @@ function sourceDbState(
 
 function buildStoredPlan(
   accounts: readonly { channelAccountId: string; externalAccountId: string; expectedAdvertiserId: string }[],
-  months: readonly string[],
+  coverage: ProfitabilityCoverage,
   mappingGeneration: bigint,
 ): StoredPlan {
   return {
@@ -1344,15 +1396,13 @@ function buildStoredPlan(
     adSourcePolicyHash: PRODUCT_ABC_ABSOLUTE_V1_AD_SOURCE_POLICY_HASH,
     accounts: accounts.map((account) => ({
       ...account,
-      slices: months.map((month) => {
-        const from = `${month}-01`;
-        const to = monthEnd(month);
+      slices: coverage.periods.map(({ from, to, businessDates: periodDates }) => {
         return {
           sliceId: `${account.channelAccountId}:${from}_${to}`,
           channelAccountId: account.channelAccountId,
           from,
           to,
-          businessDates: businessDates(from, to),
+          businessDates: periodDates,
         };
       }),
     })),
@@ -1388,8 +1438,10 @@ function parseStoredPlan(value: unknown): StoredPlan {
       const sliceId = boundedPlanText(slice.sliceId);
       const from = boundedPlanDate(slice.from);
       const to = boundedPlanDate(slice.to);
-      if (slice.channelAccountId !== channelAccountId || !Array.isArray(slice.businessDates)
-        || slice.businessDates.some((date) => typeof date !== 'string' || !parseDate(date))) {
+      if (from > to || sliceId !== `${channelAccountId}:${from}_${to}`
+        || slice.channelAccountId !== channelAccountId || !Array.isArray(slice.businessDates)
+        || slice.businessDates.some((date) => typeof date !== 'string' || !parseDate(date))
+        || !sameStringList(slice.businessDates as string[], businessDates(from, to))) {
         throw new UnprocessableEntityException('ADVERTISING_PLAN_INVALID');
       }
       return {
@@ -1716,9 +1768,9 @@ export async function batchUpdateFactAllocations(
 }
 
 function indexFactsByListingMonth(
-  facts: readonly MonthlyFact[],
-): Map<string, MonthlyFact[]> {
-  const factsByListingMonth = new Map<string, MonthlyFact[]>();
+  facts: readonly GenerationMonthlyFact[],
+): Map<string, GenerationMonthlyFact[]> {
+  const factsByListingMonth = new Map<string, GenerationMonthlyFact[]>();
   for (const fact of facts) {
     const key = `${fact.channelAccountId}\u0000${fact.channelListingId}\u0000${isoDate(fact.month).slice(0, 7)}`;
     const group = factsByListingMonth.get(key) ?? [];
@@ -1730,7 +1782,7 @@ function indexFactsByListingMonth(
 
 function targetAllocationStatus(
   target: Pick<Target, 'channelAccountId' | 'listingId' | 'businessDate'>,
-  factsByListingMonth: ReadonlyMap<string, readonly MonthlyFact[]>,
+  factsByListingMonth: ReadonlyMap<string, readonly GenerationMonthlyFact[]>,
 ): TargetAllocationStatus {
   if (!target.listingId) return 'UNMATCHED';
   const key = `${target.channelAccountId}\u0000${target.listingId}\u0000${isoDate(target.businessDate).slice(0, 7)}`;
@@ -1847,7 +1899,7 @@ function freezeMonthlyFacts(
   organizationId: string,
   sourceImportRunId: string,
   mappingGeneration: bigint,
-  months: readonly string[],
+  periods: readonly CoveragePeriod[],
   listings: readonly {
     id: string;
     channelAccountId: string;
@@ -1863,13 +1915,11 @@ function freezeMonthlyFacts(
   for (const listing of listings) {
     const recipe = freezeRecipe(listing.options);
     if (!recipe) continue;
-    for (const month of months) {
+    for (const { month, from, to } of periods) {
       // The V1 historical policy applies an attempt-frozen recipe to every
       // provider business date in the plan. Listing timestamps are not used
       // to truncate the basis because the provider may report an older
       // business date than the local catalog creation timestamp.
-      const from = `${month}-01`;
-      const to = monthEnd(month);
       if (from > to) continue;
       for (const [masterProductId, wholeRecipeWeight] of recipe.entries()) {
         facts.push({
@@ -2026,15 +2076,47 @@ function monthsBetween(from: string, to: string): string[] {
   return values;
 }
 
-function closedKstMonths(now: Date, count: number): string[] {
+export function profitabilityCoverageForKstYesterday(
+  now: Date,
+): ProfitabilityCoverage {
+  const to = kstYesterday(now);
+  const months = calendarMonthsThrough(to, PROFITABILITY_EVALUATION_MONTH_COUNT);
+  const periods = months.map((month) => ({
+    month,
+    from: `${month}-01`,
+    to: month === to.slice(0, 7) ? to : monthEnd(month),
+    businessDates: businessDates(
+      `${month}-01`,
+      month === to.slice(0, 7) ? to : monthEnd(month),
+    ),
+  }));
+  return {
+    months,
+    from: periods[0]!.from,
+    to,
+    periods,
+  };
+}
+
+function kstYesterday(now: Date): string {
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: 'Asia/Seoul',
     year: 'numeric',
     month: '2-digit',
+    day: '2-digit',
   }).formatToParts(now);
   const year = Number(parts.find((part) => part.type === 'year')?.value);
   const month = Number(parts.find((part) => part.type === 'month')?.value);
-  const endIndex = year * 12 + month - 2;
+  const day = Number(parts.find((part) => part.type === 'day')?.value);
+  if (![year, month, day].every(Number.isSafeInteger)) {
+    throw new UnprocessableEntityException('ADVERTISING_DATE_INVALID');
+  }
+  return isoDate(new Date(Date.UTC(year, month - 1, day - 1)));
+}
+
+function calendarMonthsThrough(to: string, count: number): string[] {
+  const [year, month] = to.slice(0, 7).split('-').map(Number);
+  const endIndex = year! * 12 + month! - 1;
   return Array.from({ length: count }, (_, index) => {
     const cursor = endIndex - (count - 1 - index);
     return `${Math.floor(cursor / 12)}-${String((cursor % 12) + 1).padStart(2, '0')}`;

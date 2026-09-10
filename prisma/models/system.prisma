@@ -1,44 +1,6 @@
 // system.prisma — System domain
 
 /// @namespace System
-/// @describe type 으로 agent/workflow 카탈로그 통합.
-model Marketplace {
-  id          String  @id @default(uuid()) @db.Uuid
-  type        String // "workflow" | "agent"
-  name        String
-  description String  @default("")
-  category    String  @default("automation")
-  icon        String?
-
-  // Workflow 전용 (type="workflow"일 때만 사용)
-  module    String? @default("order")
-  nodesJson Json?   @map("nodes_json")
-  edgesJson Json?   @map("edges_json")
-
-  // Agent 전용 (type="agent"일 때만 사용)
-  role           String?  @default("specialist")
-  adapterType    String?  @map("adapter_type")
-  promptTemplate String?  @map("prompt_template") @db.Text
-  skills         String[] @default([])
-  permissions    Json?    @db.JsonB
-
-  // 공통
-  configurableParams Json     @default("[]") @map("configurable_params") // ConfigurableParam[]
-  version            Int      @default(1)
-  installCount       Int      @default(0) @map("install_count")
-  isPublished        Boolean  @default(true) @map("is_published")
-  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt          DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  installedWorkflows WorkflowTemplate[]
-
-  @@index([type])
-  @@index([category])
-  @@index([isPublished])
-  @@map("marketplace")
-}
-
-/// @namespace System
 /// @describe 온톨로지 룰 엔진 (조건→액션 자동화).
 model BusinessRule {
   id              String   @id @default(uuid()) @db.Uuid
@@ -115,7 +77,6 @@ model ActionTask {
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   assigneeUser User?        @relation("ActionTaskAssignee", fields: [assigneeUserId], references: [id], onDelete: SetNull)
-  sourceAlerts Alert[]      @relation("AlertPromotedTo")
 
   @@unique([organizationId, taskKey, date])
   @@index([organizationId, date])
@@ -167,9 +128,8 @@ model Alert {
   id             String @id @default(uuid()) @db.Uuid
   organizationId String @map("organization_id") @db.Uuid
 
-  // Focused source-failure identity. Legacy operation alerts still use the
-  // fields below while the operation surface is migrated away; source alerts
-  // always provide an owner-defined dedupe key and attempt id.
+  // Focused source-failure identity. Rules signals may omit attemptId but use
+  // the same owner-defined dedupe key.
   dedupeKey String  @default(uuid()) @map("dedupe_key")
   attemptId String? @map("attempt_id") @db.Uuid
 
@@ -177,7 +137,7 @@ model Alert {
   targetId   String? @map("target_id") @db.Uuid
 
   kind     String    @default("signal")
-  status   String    @default("open")
+  status   String    @default("OPEN")
   type     String
   severity String    @default("warning")
   title    String
@@ -185,26 +145,18 @@ model Alert {
   isRead   Boolean   @default(false) @map("is_read")
   readAt   DateTime? @map("read_at") @db.Timestamptz
 
-  operationKey String? @map("operation_key")
-  sourceType   String? @map("source_type")
-  sourceId     String? @map("source_id")
-  actorUserId  String? @map("actor_user_id") @db.Uuid
-  href         String?
-  progress     Float?
-  metadata     Json    @default("{}") @db.JsonB
+  sourceType  String? @map("source_type")
+  sourceId    String? @map("source_id")
+  actorUserId String? @map("actor_user_id") @db.Uuid
+  href        String?
+  metadata    Json    @default("{}") @db.JsonB
 
-  actionTaskId String? @map("action_task_id") @db.Uuid
-
-  startedAt  DateTime? @map("started_at") @db.Timestamptz
-  finishedAt DateTime? @map("finished_at") @db.Timestamptz
   createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt  DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  actionTask   ActionTask?  @relation("AlertPromotedTo", fields: [actionTaskId], references: [id], onDelete: SetNull)
   actorUser    User?        @relation("AlertActor", fields: [actorUserId], references: [id], onDelete: SetNull)
 
-  @@unique([organizationId, operationKey], map: "alerts_organization_id_operation_key_key", where: raw("operation_key IS NOT NULL"))
   @@unique([organizationId, dedupeKey], map: "alerts_organization_id_dedupe_key_key")
   @@index([organizationId])
   @@index([organizationId, dedupeKey])
@@ -212,8 +164,6 @@ model Alert {
   @@index([organizationId, isRead, createdAt])
   @@index([organizationId, kind, status, createdAt])
   @@index([organizationId, actorUserId, status, createdAt])
-  @@index([organizationId, actionTaskId])
-  @@index([actionTaskId])
   @@index([organizationId, targetType, targetId])
   @@index([organizationId, sourceType, sourceId])
   @@index([actorUserId])
@@ -221,117 +171,6 @@ model Alert {
   @@index([type])
   @@index([createdAt])
   @@map("alerts")
-}
-
-/// @namespace System
-/// @describe Organization-scoped top-level execution ledger for dashboard, domain, Agent OS, and scheduled work.
-model OperationRun {
-  id                 String    @id @default(uuid()) @db.Uuid
-  organizationId     String    @map("organization_id") @db.Uuid
-  operationKey       String    @map("operation_key")
-  definitionVersion  Int       @map("definition_version")
-  ownerDomain        String    @map("owner_domain")
-  title              String
-  engineType         String    @map("engine_type")
-  resourceClass      String    @default("default") @map("resource_class")
-  executionTimeoutMs Int       @default(900000) @map("execution_timeout_ms")
-  status             String    @default("queued")
-  triggerSource      String    @map("trigger_source")
-  requestedByUserId  String?   @map("requested_by_user_id") @db.Uuid
-  parentRunId        String?   @map("parent_run_id") @db.Uuid
-  scheduleId         String?   @map("schedule_id") @db.Uuid
-  idempotencyKey     String?   @map("idempotency_key")
-  input              Json      @default("{}") @db.JsonB
-  result             Json?     @db.JsonB
-  progress           Float?
-  stage              String?
-  stageUpdatedAt     DateTime? @map("stage_updated_at") @db.Timestamptz
-  progressCurrent    Int?      @map("progress_current")
-  progressTotal      Int?      @map("progress_total")
-  deadlineAt         DateTime? @map("deadline_at") @db.Timestamptz
-  nativeRunType      String?   @map("native_run_type")
-  nativeRunId        String?   @map("native_run_id")
-  attempts           Int       @default(0)
-  maxAttempts        Int       @default(3) @map("max_attempts")
-  claimedBy          String?   @map("claimed_by")
-  attemptToken       String?   @map("attempt_token") @db.Uuid
-  claimedAt          DateTime? @map("claimed_at") @db.Timestamptz
-  leaseExpiresAt     DateTime? @map("lease_expires_at") @db.Timestamptz
-  scheduledFor       DateTime? @map("scheduled_for") @db.Timestamptz
-  errorCode          String?   @map("error_code")
-  errorMessage       String?   @map("error_message")
-  startedAt          DateTime? @map("started_at") @db.Timestamptz
-  finishedAt         DateTime? @map("finished_at") @db.Timestamptz
-  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  organization                                     Organization                            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  requestedBy                                      User?                                   @relation("OperationRunRequestedBy", fields: [requestedByUserId], references: [id], onDelete: SetNull)
-  parentRun                                        OperationRun?                           @relation("OperationRunHierarchy", fields: [parentRunId], references: [id], onDelete: SetNull)
-  childRuns                                        OperationRun[]                          @relation("OperationRunHierarchy")
-  schedule                                         OperationSchedule?                      @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
-  checkpoints                                      OperationRunCheckpoint[]                @relation("OperationRunCheckpoints")
-
-  @@unique([id, organizationId], map: "operation_runs_id_org_key")
-  @@unique([organizationId, operationKey, idempotencyKey], map: "operation_runs_idempotency_key", where: raw("idempotency_key IS NOT NULL"))
-  @@index([organizationId, status, createdAt])
-  @@index([status, scheduledFor])
-  @@index([status, leaseExpiresAt])
-  @@index([resourceClass, status, scheduledFor])
-  @@index([resourceClass, status, leaseExpiresAt])
-  @@index([parentRunId])
-  @@index([scheduleId])
-  @@index([requestedByUserId])
-  @@index([organizationId, nativeRunType, nativeRunId])
-  @@map("operation_runs")
-}
-
-/// @namespace System
-/// @describe Immutable monotonic recovery checkpoint owned by an organization-scoped Operation run.
-model OperationRunCheckpoint {
-  id             String   @id @default(uuid()) @db.Uuid
-  organizationId String   @map("organization_id") @db.Uuid
-  operationRunId String   @map("operation_run_id") @db.Uuid
-  sequence       BigInt   @db.BigInt
-  kind           String
-  state          Json     @default("{}") @db.JsonB
-  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
-
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  operationRun OperationRun @relation("OperationRunCheckpoints", fields: [operationRunId, organizationId], references: [id, organizationId], onDelete: Cascade)
-
-  @@unique([operationRunId, sequence], map: "operation_run_checkpoints_run_sequence_key")
-  @@unique([id, organizationId], map: "operation_run_checkpoints_id_org_key")
-  @@index([organizationId, operationRunId, sequence])
-  @@index([operationRunId, organizationId])
-  @@map("operation_run_checkpoints")
-}
-
-/// @namespace System
-/// @describe Organization-managed cron schedule for a code-owned operation definition. All schedules start disabled.
-model OperationSchedule {
-  id               String    @id @default(uuid()) @db.Uuid
-  organizationId   String    @map("organization_id") @db.Uuid
-  operationKey     String    @map("operation_key")
-  cronExpression   String    @map("cron_expression")
-  timeZone         String    @default("Asia/Seoul") @map("time_zone")
-  misfirePolicy    String    @default("catch_up_once") @map("misfire_policy")
-  input            Json      @default("{}") @db.JsonB
-  enabled          Boolean   @default(false)
-  nextRunAt        DateTime? @map("next_run_at") @db.Timestamptz
-  lastScheduledFor DateTime? @map("last_scheduled_for") @db.Timestamptz
-  createdByUserId  String?   @map("created_by_user_id") @db.Uuid
-  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  createdBy    User?          @relation("OperationScheduleCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  runs         OperationRun[]
-
-  @@unique([organizationId, operationKey], map: "operation_schedules_org_operation_key")
-  @@index([enabled, nextRunAt])
-  @@index([createdByUserId])
-  @@map("operation_schedules")
 }
 
 /// @namespace System

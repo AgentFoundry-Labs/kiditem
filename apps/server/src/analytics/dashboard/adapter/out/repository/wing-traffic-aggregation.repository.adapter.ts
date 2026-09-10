@@ -1,170 +1,115 @@
-import { Injectable } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
-import { PrismaService } from '../../../../../prisma/prisma.service';
+import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { kstBusinessDate } from '../../../../../common/kst';
+import {
+  AD_ACCOUNT_DAILY_KPI_READ_PORT,
+  type AdAccountDailyKpiReadPort,
+} from '../../../../../advertising/application/port/in/ad-account-daily-kpi-source.port';
+import {
+  AD_TRAFFIC_READ_PORT,
+  type AdTrafficReadPort,
+} from '../../../../../advertising/application/port/in/ad-traffic-source.port';
 import type {
+  AdAccountDailyKpiPublishedRow,
+  AdTrafficSourceAccountDaily,
+  AdTrafficSourceDailyPublished,
+  AdTrafficSourcePublished,
+} from '@kiditem/shared/advertising';
+import type {
+  TrafficAdditiveMetric,
+  TrafficMetricReconciliation,
+  TrafficReconciliation,
+  TrafficReconciliationStatus,
   WingTrafficAggregationRepositoryPort,
+  WingTrafficCoverage,
   WingTrafficMetrics,
   CoupangAdsMetrics,
   WingDailyTrendRow,
   CoupangAdsDailyRow,
 } from '../../../application/port/out/repository/wing-traffic-aggregation.repository.port';
 
+const TRAFFIC_METRICS: readonly TrafficAdditiveMetric[] = [
+  'views',
+  'cartAdds',
+  'orders',
+  'salesQty',
+  'revenue',
+];
+
 /**
- * Drive replay aggregations — Wing daily traffic + Coupang ads daily KPIs.
+ * Read adapter for the owner-published Wing account daily source.
  *
- * The dashboard's order-based read paths return zero numbers when the operator
- * is running on a Drive replay snapshot (no Order rows). The same period has
- * Wing daily-fact rows in `channel_listing_daily_snapshots.traffic_*` and
- * Coupang ad KPI rows in
- * `channel_account_daily_kpi_snapshots(kpi_type='coupang_ads_daily')`. This
- * adapter exposes those two sources so the application services can surface
- * Wing/Drive numbers when Order data is absent.
- *
- * Multi-tenant: every read binds `organizationId`. Date columns are
- * `@db.Date`; incoming dashboard boundaries are KST instants, so this adapter
- * converts them to UTC-midnight business-date keys before every date-column
- * comparison.
+ * The owner publishes both accountDaily and optionDaily evidence. Account
+ * metrics are deliberately read from accountDaily only: option rows can be
+ * unmatched, can share a listing, and cannot be summed into account visitors
+ * or account orders. Legacy rows/dashboard publications are accepted by the
+ * shared compatibility union but are not a daily analytics source.
  */
 @Injectable()
 export class WingTrafficAggregationRepositoryAdapter
   implements WingTrafficAggregationRepositoryPort
 {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    @Inject(AD_TRAFFIC_READ_PORT)
+    private readonly trafficRead: AdTrafficReadPort,
+    @Inject(AD_ACCOUNT_DAILY_KPI_READ_PORT)
+    private readonly dailyKpiRead: AdAccountDailyKpiReadPort,
+  ) {}
 
   async aggregateTraffic(
     organizationId: string,
     from: Date,
     to: Date,
   ): Promise<WingTrafficMetrics> {
-    const businessFrom = kstBusinessDate(from);
-    const businessTo = kstBusinessDate(to);
-    const agg = await this.prisma.channelListingDailySnapshot.aggregate({
-      where: {
-        organizationId,
-        businessDate: { gte: businessFrom, lt: businessTo },
-      },
-      _sum: {
-        trafficRevenue: true,
-        trafficOrders: true,
-        trafficSalesQty: true,
-        trafficVisitors: true,
-        trafficViews: true,
-        trafficCartAdds: true,
-      },
-      _max: {
-        lastObservedAt: true,
-      },
-      _count: { _all: true },
-    });
+    const range = publishedDateRange(from, to);
+    if (!range) return emptyTrafficMetrics();
 
-    const revenue = agg._sum.trafficRevenue ?? 0;
-    const orders = agg._sum.trafficOrders ?? 0;
-    const salesQty = agg._sum.trafficSalesQty ?? 0;
-    const visitors = agg._sum.trafficVisitors ?? 0;
-    const views = agg._sum.trafficViews ?? 0;
-    const cartAdds = agg._sum.trafficCartAdds ?? 0;
-    const conversionRate =
-      visitors > 0 ? Math.round((orders / visitors) * 1000) / 10 : 0;
+    const published = await this.readTrafficPublished(organizationId, range);
+    const daily = published ? dailyPublication(published) : null;
+    if (!daily) return emptyTrafficMetrics(range);
 
-    const listingHasData =
-      (agg._count._all ?? 0) > 0 &&
-      (visitors > 0 || views > 0 || orders > 0 || salesQty > 0 || revenue !== 0);
-
-    if (listingHasData) {
-      return {
-        revenue,
-        orders,
-        salesQty,
-        visitors,
-        views,
-        cartAdds,
-        conversionRate,
-        isCollected: true,
-        hasData: true,
-        lastObservedAt: agg._max.lastObservedAt ?? null,
-      } satisfies WingTrafficMetrics;
-    }
-
-    // Fallback — Wing 일별 요약은 account-level KPI 스냅샷(wing_dashboard.summary)에 적재된다.
-    // 상품-리스팅 매칭이 없어 channel_listing_daily_snapshots 가 비는 워크스페이스(매칭 전/미동기화)
-    // 에서도 수집한 Wing 매출을 대시보드에 노출하기 위해 계정 요약을 합산해 동일 지표로 반환.
-    const accountSummary = await this.aggregateWingAccountSummary(organizationId, from, to);
-    if (accountSummary.isCollected) return accountSummary;
-    return {
-      revenue,
-      orders,
-      salesQty,
-      visitors,
-      views,
-      cartAdds,
-      conversionRate,
-      isCollected: (agg._count._all ?? 0) > 0,
-      hasData: false,
-      lastObservedAt: agg._max.lastObservedAt ?? null,
-    } satisfies WingTrafficMetrics;
-  }
-
-  /** wing_dashboard 계정 KPI 스냅샷의 일별 summary 를 합산 (상품별 facts 폴백). */
-  private async aggregateWingAccountSummary(
-    organizationId: string,
-    from: Date,
-    to: Date,
-  ): Promise<WingTrafficMetrics> {
-    const businessFrom = kstBusinessDate(from);
-    const businessTo = kstBusinessDate(to);
-    const rows = await this.prisma.channelAccountDailyKpiSnapshot.findMany({
-      where: {
-        organizationId,
-        source: 'wing',
-        kpiType: 'wing_dashboard',
-        businessDate: { gte: businessFrom, lt: businessTo },
-      },
-      select: { normalizedJson: true, lastObservedAt: true },
-    });
-
-    let revenue = 0;
-    let orders = 0;
-    let salesQty = 0;
-    let visitors = 0;
-    let views = 0;
-    let cartAdds = 0;
-    let lastObservedAt: Date | null = null;
-
-    for (const row of rows) {
-      const summary =
-        ((row.normalizedJson as Record<string, unknown> | null)?.summary as
-          | Record<string, unknown>
-          | undefined) ?? null;
-      if (!summary) continue;
-      revenue += toInt(summary.revenue);
-      orders += toInt(summary.orders);
-      salesQty += toInt(summary.salesQty);
-      visitors += toInt(summary.visitors);
-      views += toInt(summary.views);
-      cartAdds += toInt(summary.cartAdds);
-      if (!lastObservedAt || row.lastObservedAt > lastObservedAt) {
-        lastObservedAt = row.lastObservedAt;
-      }
-    }
-
-    const conversionRate =
-      visitors > 0 ? Math.round((orders / visitors) * 1000) / 10 : 0;
-    const hasData =
-      rows.length > 0 &&
-      (visitors > 0 || views > 0 || orders > 0 || salesQty > 0 || revenue !== 0);
+    // A complete replacement supersedes the previous value for a date. Pick
+    // the latest observed account original instead of double counting rows.
+    const rows = selectAccountDailyRows(daily.accountDaily, range);
+    const totals = sumAccountDaily(rows);
+    const coverage = buildCoverage(range, rows);
+    const reconciliation = normalizeReconciliation(daily.reconciliation, totals);
+    const complete = coverage.targetDays > 0
+      && coverage.completedDays === coverage.targetDays;
+    const dailyAverageVisitors = complete
+      ? totals.visitors / coverage.targetDays
+      : null;
+    const latest = latestAccountDailyRow(rows);
+    const revenueReconciliation = reconciliation.revenue;
+    const revenueUsable = complete && revenueReconciliation.status !== 'MISMATCH';
 
     return {
-      revenue,
-      orders,
-      salesQty,
-      visitors,
-      views,
-      cartAdds,
-      conversionRate,
+      revenue: totals.revenue,
+      orders: totals.orders,
+      salesQty: totals.salesQty,
+      // `visitors` is retained for compatibility, but it is an average of
+      // account daily UV values rather than a sum or an option aggregation.
+      visitors: dailyAverageVisitors ?? 0,
+      views: totals.views,
+      cartAdds: totals.cartAdds,
+      // This is our orders/views ratio. Preserve full precision here; the
+      // presentation layer owns percentage rounding. Provider's original
+      // percentage remains separate in providerConversionRate.
+      conversionRate: totals.views > 0
+        ? (totals.orders / totals.views) * 100
+        : 0,
+      dailyAverageVisitors,
+      providerConversionRate: providerConversionRate(daily, rows),
+      sourceAttemptId: latest?.sourceAttemptId ?? daily.attemptId,
+      coverage,
+      reconciliation,
+      exactPeriodEvidence: daily.periodSummary ?? daily.legacyExactPeriodEvidence,
+      // A row with all explicit zeroes is still a complete collected day. A
+      // partial range or a revenue mismatch is not eligible to drive a full
+      // period revenue/effective-period fallback; detailed evidence remains
+      // available through coverage/reconciliation below.
       isCollected: rows.length > 0,
-      hasData,
-      lastObservedAt,
+      hasData: revenueUsable,
+      lastObservedAt: latest ? new Date(latest.observedAt) : null,
     } satisfies WingTrafficMetrics;
   }
 
@@ -173,16 +118,10 @@ export class WingTrafficAggregationRepositoryAdapter
     from: Date,
     to: Date,
   ): Promise<CoupangAdsMetrics> {
-    const businessFrom = kstBusinessDate(from);
-    const businessTo = kstBusinessDate(to);
-    const rows = await this.prisma.channelAccountDailyKpiSnapshot.findMany({
-      where: {
-        organizationId,
-        kpiType: 'coupang_ads_daily',
-        businessDate: { gte: businessFrom, lt: businessTo },
-      },
-      select: { normalizedJson: true, lastObservedAt: true },
-    });
+    const range = publishedDateRange(from, to);
+    if (!range) return emptyCoupangAdsMetrics();
+    const rows = selectAdsRows(await this.readPublishedRows(organizationId, range), range);
+    const coverage = buildAdsCoverage(range, rows);
 
     let spend = 0;
     let revenue = 0;
@@ -193,21 +132,24 @@ export class WingTrafficAggregationRepositoryAdapter
     let lastObservedAt: Date | null = null;
 
     for (const row of rows) {
-      const payload = (row.normalizedJson as Record<string, unknown> | null) ?? null;
-      if (!payload) continue;
-      spend += toInt(payload.adSpend);
-      revenue += toInt(payload.adRevenue);
-      impressions += toInt(payload.impressions);
-      clicks += toInt(payload.clicks);
-      conversions += toInt(payload.conversions);
-      orders += toInt(payload.orders);
-      if (!lastObservedAt || row.lastObservedAt > lastObservedAt) {
-        lastObservedAt = row.lastObservedAt;
+      spend += toInt(row.normalized.adSpend);
+      revenue += toInt(row.normalized.adRevenue);
+      impressions += toInt(row.normalized.impressions);
+      clicks += toInt(row.normalized.clicks);
+      conversions += toInt(row.normalized.conversions);
+      orders += toInt(row.normalized.orders);
+      const observedAt = new Date(row.observedAt);
+      if (!lastObservedAt || observedAt > lastObservedAt) {
+        lastObservedAt = observedAt;
       }
     }
 
-    const hasData =
-      rows.length > 0 && (spend > 0 || revenue > 0 || impressions > 0 || clicks > 0);
+    const hasData = coverage.targetDays > 0
+      && coverage.completedDays === coverage.targetDays;
+    const conversionRate = clicks > 0 ? (orders / clicks) * 100 : null;
+    const providerConversionRate = rows.length === 1
+      ? numberOrNull(rows[0]?.normalized.providerConversionRate)
+      : null;
 
     return {
       spend,
@@ -216,154 +158,389 @@ export class WingTrafficAggregationRepositoryAdapter
       clicks,
       conversions,
       orders,
+      conversionRate,
+      providerConversionRate,
+      coverage,
+      isCollected: rows.length > 0,
       hasData,
       lastObservedAt,
     } satisfies CoupangAdsMetrics;
   }
 
-  /**
-   * Latest business date with Drive replay activity for this organization.
-   * Returns the `MAX(business_date)` across the two daily-fact sources we
-   * read from in the dashboard. Used to anchor the dashboard's effective
-   * month onto the latest data window when the calendar month is empty.
-   */
+  /** Latest account daily date, never the legacy period start/businessDate. */
   async findLatestDataDate(
     organizationId: string,
   ): Promise<Date | null> {
-    const [wing, wingKpi, ads] = await Promise.all([
-      this.prisma.channelListingDailySnapshot.aggregate({
-        where: {
-          organizationId,
-          OR: [
-            { trafficVisitors: { gt: 0 } },
-            { trafficOrders: { gt: 0 } },
-            { trafficSalesQty: { gt: 0 } },
-            { trafficRevenue: { not: 0 } },
-          ],
-        },
-        _max: { businessDate: true },
-      }),
-      // 상품별 facts 가 비어도 wing 요약(account KPI)이 있으면 그 최신일로 앵커.
-      this.prisma.channelAccountDailyKpiSnapshot.aggregate({
-        where: {
-          organizationId,
-          source: 'wing',
-          kpiType: 'wing_dashboard',
-        },
-        _max: { businessDate: true },
-      }),
-      this.prisma.channelAccountDailyKpiSnapshot.aggregate({
-        where: {
-          organizationId,
-          kpiType: 'coupang_ads_daily',
-        },
-        _max: { businessDate: true },
-      }),
+    const [wing, ads] = await Promise.all([
+      this.readTrafficPublished(organizationId),
+      this.findLatestCoupangAdsDate(organizationId),
     ]);
 
     const dates = [
-      wing._max.businessDate,
-      wingKpi._max.businessDate,
-      ads._max.businessDate,
+      wing ? latestTrafficDate(wing) : null,
+      ads,
     ].filter((d): d is Date => d instanceof Date);
     if (dates.length === 0) return null;
     return dates.reduce((a, b) => (a.getTime() >= b.getTime() ? a : b));
   }
 
   /**
-   * Per-day Wing traffic over a half-open `[since, ...]` window. Aggregates
-   * `business_date` directly; the dashboard chart already plots in KST and
-   * the column is calendar-date typed so no zone conversion is needed.
+   * Per-day Wing account traffic over a half-open `[since, until)` window.
+   * Explicit zero account days are retained; legacy listing/period evidence
+   * is not used to invent a daily point.
    */
   async fetchDailyTrend(
     organizationId: string,
     since: Date,
     until?: Date,
   ): Promise<WingDailyTrendRow[]> {
-    const businessSince = kstBusinessDate(since);
-    const upperBound = until ? kstBusinessDate(until) : null;
-    const rows = await this.prisma.$queryRaw<WingDailyTrendRow[]>(Prisma.sql`
-      SELECT
-        TO_CHAR(business_date, 'YYYY-MM-DD') AS date,
-        COALESCE(SUM(traffic_revenue), 0)::int  AS revenue,
-        COALESCE(SUM(traffic_orders), 0)::int   AS orders,
-        COALESCE(SUM(traffic_sales_qty), 0)::int AS "salesQty",
-        COALESCE(SUM(traffic_visitors), 0)::int AS visitors
-      FROM channel_listing_daily_snapshots
-      WHERE organization_id = ${organizationId}::uuid
-        AND business_date >= ${businessSince}::date
-        ${upperBound ? Prisma.sql`AND business_date < ${upperBound}::date` : Prisma.empty}
-      GROUP BY 1
-      ORDER BY 1
-    `);
-    if (rows.length > 0) return rows;
+    const range = until
+      ? publishedDateRange(since, until)
+      : { from: dateText(kstBusinessDate(since)) };
+    if (!range) return [];
 
-    // 상품별 facts 가 비면 wing 요약(account KPI)의 일별 summary 로 추이를 구성.
-    const kpiRows = await this.prisma.channelAccountDailyKpiSnapshot.findMany({
-      where: {
-        organizationId,
-        source: 'wing',
-        kpiType: 'wing_dashboard',
-        businessDate: upperBound
-          ? { gte: businessSince, lt: upperBound }
-          : { gte: businessSince },
-      },
-      select: { businessDate: true, normalizedJson: true },
-      orderBy: { businessDate: 'asc' },
-    });
-    return kpiRows.map((row) => {
-      const summary =
-        ((row.normalizedJson as Record<string, unknown> | null)?.summary as
-          | Record<string, unknown>
-          | undefined) ?? {};
-      return {
-        date: row.businessDate.toISOString().slice(0, 10),
-        revenue: toInt(summary.revenue),
-        orders: toInt(summary.orders),
-        salesQty: toInt(summary.salesQty),
-        visitors: toInt(summary.visitors),
-      } satisfies WingDailyTrendRow;
-    });
+    const published = await this.readTrafficPublished(organizationId, range);
+    const daily = published ? dailyPublication(published) : null;
+    if (!daily) return [];
+
+    return selectAccountDailyRows(daily.accountDaily, range).map((row) => ({
+      date: row.businessDate,
+      revenue: row.revenue,
+      orders: row.orders,
+      salesQty: row.salesQty,
+      visitors: row.visitors,
+      views: row.views,
+      cartAdds: row.cartAdds,
+      observedAt: row.observedAt,
+    } satisfies WingDailyTrendRow));
   }
 
   /**
-   * Per-day Coupang ads over `[since, until?]`. Pulls from the
-   * `coupang_ads_daily` KPI snapshot rows and deserializes the additive
-   * normalized payload columns. Used as a fallback for the trend/ad chart
-   * series when the listing-level daily-fact ad columns are empty (Drive
-   * replay only writes ads to the account-level snapshot).
+   * Per-day Coupang ads over `[since, until?)`. Pulls owner-published daily
+   * KPI rows; this lane is independent from Wing traffic account originals.
    */
   async fetchDailyAds(
     organizationId: string,
     since: Date,
     until?: Date,
   ): Promise<CoupangAdsDailyRow[]> {
-    const businessSince = kstBusinessDate(since);
-    const businessUntil = until ? kstBusinessDate(until) : null;
-    const rows = await this.prisma.channelAccountDailyKpiSnapshot.findMany({
-      where: {
-        organizationId,
-        kpiType: 'coupang_ads_daily',
-        businessDate: businessUntil
-          ? { gte: businessSince, lt: businessUntil }
-          : { gte: businessSince },
-      },
-      select: { businessDate: true, normalizedJson: true },
-      orderBy: { businessDate: 'asc' },
-    });
+    const range = until
+      ? publishedDateRange(since, until)
+      : { from: dateText(kstBusinessDate(since)) };
+    if (!range) return [];
+    const rows = selectAdsRows(await this.readPublishedRows(organizationId, range), range);
 
-    return rows.map((row) => {
-      const payload =
-        (row.normalizedJson as Record<string, unknown> | null) ?? {};
-      return {
-        date: row.businessDate.toISOString().slice(0, 10),
-        ad_cost: toInt(payload.adSpend),
-        ad_revenue: toInt(payload.adRevenue),
-        clicks: toInt(payload.clicks),
-        impressions: toInt(payload.impressions),
-      } satisfies CoupangAdsDailyRow;
-    });
+    return rows.map((row) => ({
+      date: row.businessDate,
+      ad_cost: toInt(row.normalized.adSpend),
+      ad_revenue: toInt(row.normalized.adRevenue),
+      clicks: toInt(row.normalized.clicks),
+      impressions: toInt(row.normalized.impressions),
+      conversions: toInt(row.normalized.conversions),
+      orders: toInt(row.normalized.orders),
+      observedAt: row.observedAt,
+    } satisfies CoupangAdsDailyRow));
   }
+
+  private async readPublishedRows(
+    organizationId: string,
+    range: { from: string; to?: string },
+  ): Promise<AdAccountDailyKpiPublishedRow[]> {
+    try {
+      return (
+        await this.dailyKpiRead.readPublished({
+          organizationId,
+          ...range,
+        })
+      ).rows;
+    } catch (error) {
+      if (
+        error instanceof NotFoundException &&
+        error.message === 'COUPANG_ACCOUNT_NOT_FOUND'
+      ) {
+        return [];
+      }
+      throw error;
+    }
+  }
+
+  private async readTrafficPublished(
+    organizationId: string,
+    range?: { from?: string; to?: string },
+  ): Promise<AdTrafficSourcePublished | null> {
+    try {
+      return await this.trafficRead.readPublished({
+        organizationId,
+        ...range,
+      });
+    } catch (error) {
+      if (
+        error instanceof NotFoundException &&
+        ['COUPANG_ACCOUNT_NOT_FOUND', 'AD_TRAFFIC_SOURCE_MISSING'].includes(error.message)
+      ) {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  private async findLatestCoupangAdsDate(
+    organizationId: string,
+  ): Promise<Date | null> {
+    const rows = await this.readPublishedRows(organizationId, { from: '0001-01-01' });
+    return rows.reduce<Date | null>((latest, row) => {
+      const date = new Date(`${row.businessDate}T00:00:00.000Z`);
+      return !latest || date > latest ? date : latest;
+    }, null);
+  }
+}
+
+type DateRange = { from: string; to?: string };
+type AccountDailyRow = AdTrafficSourceAccountDaily;
+type DailyTrafficPublication = AdTrafficSourceDailyPublished;
+
+function dailyPublication(
+  published: AdTrafficSourcePublished,
+): DailyTrafficPublication | null {
+  // AdTrafficSourcePublished is a compatibility union. Checking the new
+  // accountDaily field is intentional: legacy rows/dashboard must never feed
+  // account-level daily analytics.
+  return 'accountDaily' in published ? published : null;
+}
+
+function selectAccountDailyRows(
+  rows: ReadonlyArray<AccountDailyRow>,
+  range: DateRange,
+): AccountDailyRow[] {
+  const byDate = new Map<string, AccountDailyRow>();
+  for (const row of rows) {
+    if (!dateInRange(row.businessDate, range)) continue;
+    const current = byDate.get(row.businessDate);
+    if (!current || Date.parse(row.observedAt) >= Date.parse(current.observedAt)) {
+      byDate.set(row.businessDate, row);
+    }
+  }
+  return [...byDate.values()].sort((a, b) => a.businessDate.localeCompare(b.businessDate));
+}
+
+function sumAccountDaily(rows: ReadonlyArray<AccountDailyRow>) {
+  return rows.reduce(
+    (sum, row) => ({
+      visitors: sum.visitors + finiteInt(row.visitors),
+      views: sum.views + finiteInt(row.views),
+      cartAdds: sum.cartAdds + finiteInt(row.cartAdds),
+      orders: sum.orders + finiteInt(row.orders),
+      salesQty: sum.salesQty + finiteInt(row.salesQty),
+      revenue: sum.revenue + finiteInt(row.revenue),
+    }),
+    { visitors: 0, views: 0, cartAdds: 0, orders: 0, salesQty: 0, revenue: 0 },
+  );
+}
+
+function latestAccountDailyRow(rows: ReadonlyArray<AccountDailyRow>): AccountDailyRow | null {
+  return rows.reduce<AccountDailyRow | null>(
+    (latest, row) => !latest || Date.parse(row.observedAt) >= Date.parse(latest.observedAt)
+      ? row
+      : latest,
+    null,
+  );
+}
+
+function buildCoverage(
+  range: { from: string; to: string },
+  rows: ReadonlyArray<AccountDailyRow>,
+): WingTrafficCoverage {
+  const targetDates = enumerateDates(range.from, range.to);
+  const completed = new Set(rows.map((row) => row.businessDate));
+  return {
+    from: range.from,
+    to: range.to,
+    targetDays: targetDates.length,
+    completedDays: targetDates.filter((date) => completed.has(date)).length,
+    missingDates: targetDates.filter((date) => !completed.has(date)),
+  };
+}
+
+function normalizeReconciliation(
+  raw: Partial<TrafficReconciliation> | undefined,
+  totals: ReturnType<typeof sumAccountDaily>,
+): TrafficReconciliation {
+  return Object.fromEntries(
+    TRAFFIC_METRICS.map((metric) => {
+      const value = raw?.[metric];
+      if (value && isReconciliationStatus(value.status)) {
+        return [metric, {
+          status: value.status,
+          dailySum: numberOrNull(value.dailySum),
+          periodValue: numberOrNull(value.periodValue),
+        } satisfies TrafficMetricReconciliation];
+      }
+      return [metric, {
+        status: 'UNVERIFIED',
+        dailySum: totals[metric],
+        periodValue: null,
+      } satisfies TrafficMetricReconciliation];
+    }),
+  ) as TrafficReconciliation;
+}
+
+function providerConversionRate(
+  published: DailyTrafficPublication,
+  rows: ReadonlyArray<AccountDailyRow>,
+): number | null {
+  const summaryValue = published.periodSummary?.accountSummary;
+  if (typeof summaryValue?.providerConversionRate === 'number'
+    && Number.isFinite(summaryValue.providerConversionRate)) {
+    return summaryValue.providerConversionRate;
+  }
+  const legacy = published.legacyExactPeriodEvidence;
+  if (legacy) {
+    const value = legacy.providerConversionRate;
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+  }
+  // A single daily original is itself the provider's ratio for that day. For
+  // multi-day ranges we do not average provider ratios or invent a period
+  // provider value; the own orders/views ratio remains independently usable.
+  if (rows.length === 1) return rows[0]?.providerConversionRate ?? null;
+  return null;
+}
+
+function latestTrafficDate(published: AdTrafficSourcePublished): Date | null {
+  const daily = dailyPublication(published);
+  if (!daily) return null;
+  return daily.accountDaily.reduce<Date | null>((latest, row) => {
+    const date = new Date(`${row.businessDate}T00:00:00.000Z`);
+    return !latest || date > latest ? date : latest;
+  }, null);
+}
+
+function selectAdsRows(
+  rows: ReadonlyArray<AdAccountDailyKpiPublishedRow>,
+  range: DateRange,
+): AdAccountDailyKpiPublishedRow[] {
+  const byDate = new Map<string, AdAccountDailyKpiPublishedRow>();
+  for (const row of rows) {
+    if (!dateInRange(row.businessDate, range)) continue;
+    const current = byDate.get(row.businessDate);
+    if (!current || Date.parse(row.observedAt) >= Date.parse(current.observedAt)) {
+      byDate.set(row.businessDate, row);
+    }
+  }
+  return [...byDate.values()].sort((a, b) => a.businessDate.localeCompare(b.businessDate));
+}
+
+function buildAdsCoverage(
+  range: { from: string; to: string },
+  rows: ReadonlyArray<AdAccountDailyKpiPublishedRow>,
+) {
+  const targetDates = enumerateDates(range.from, range.to);
+  const completedDates = new Set(rows.map((row) => row.businessDate));
+  // Coverage is bounded by the last completed KST business day, never by the
+  // newest row that happened to be returned. A future-dated row must remain
+  // visible as outside the known cutoff rather than moving the cutoff forward.
+  const yesterday = kstBusinessDate(new Date());
+  yesterday.setUTCDate(yesterday.getUTCDate() - 1);
+  const yesterdayText = dateText(yesterday);
+  const knownThrough = range.to < yesterdayText ? range.to : yesterdayText;
+  return {
+    from: range.from,
+    to: range.to,
+    knownThrough,
+    targetDays: targetDates.length,
+    completedDays: targetDates.filter((date) => completedDates.has(date)).length,
+    missingDates: targetDates.filter((date) => !completedDates.has(date)),
+  };
+}
+
+function dateText(value: Date): string {
+  return value.toISOString().slice(0, 10);
+}
+
+function publishedDateRange(
+  from: Date,
+  to: Date,
+): { from: string; to: string } | null {
+  const businessFrom = kstBusinessDate(from);
+  const businessTo = kstBusinessDate(to);
+  if (businessFrom.getTime() >= businessTo.getTime()) return null;
+  return {
+    from: dateText(businessFrom),
+    to: dateText(new Date(businessTo.getTime() - 86_400_000)),
+  };
+}
+
+function dateInRange(value: string, range: DateRange): boolean {
+  return value >= range.from && (!range.to || value <= range.to);
+}
+
+function enumerateDates(from: string, to: string): string[] {
+  const result: string[] = [];
+  const cursor = new Date(`${from}T00:00:00.000Z`);
+  const end = new Date(`${to}T00:00:00.000Z`);
+  while (cursor.getTime() <= end.getTime()) {
+    result.push(cursor.toISOString().slice(0, 10));
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return result;
+}
+
+function isReconciliationStatus(value: unknown): value is TrafficReconciliationStatus {
+  return value === 'MATCHED' || value === 'MISMATCH' || value === 'UNVERIFIED';
+}
+
+function numberOrNull(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function finiteInt(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? Math.round(value) : 0;
+}
+
+function emptyTrafficMetrics(range?: { from: string; to: string }): WingTrafficMetrics {
+  const coverage = range
+    ? {
+        from: range.from,
+        to: range.to,
+        targetDays: enumerateDates(range.from, range.to).length,
+        completedDays: 0,
+        missingDates: enumerateDates(range.from, range.to),
+      }
+    : null;
+  return {
+    revenue: 0,
+    orders: 0,
+    salesQty: 0,
+    visitors: 0,
+    views: 0,
+    cartAdds: 0,
+    conversionRate: 0,
+    dailyAverageVisitors: null,
+    providerConversionRate: null,
+    sourceAttemptId: null,
+    coverage,
+    reconciliation: null,
+    exactPeriodEvidence: null,
+    isCollected: false,
+    hasData: false,
+    lastObservedAt: null,
+  };
+}
+
+function emptyCoupangAdsMetrics(): CoupangAdsMetrics {
+  return {
+    spend: 0,
+    revenue: 0,
+    impressions: 0,
+    clicks: 0,
+    conversions: 0,
+    orders: 0,
+    conversionRate: null,
+    providerConversionRate: null,
+    coverage: null,
+    isCollected: false,
+    hasData: false,
+    lastObservedAt: null,
+  };
 }
 
 function toInt(value: unknown): number {

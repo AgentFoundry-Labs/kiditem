@@ -18,6 +18,11 @@
 - Prefer deterministic helpers that run without the database.
 - Database or external-account mutation scripts need a runbook with
   prerequisites, confirmation flags, verification, and rollback/blocker notes.
+- `data-migrations/v0.1.31/003_prepare_operation_automation_cutover.ts` is the
+  pre-schema half of the reviewed Operation/Automation cutover. Run it only
+  through `npm run data:migrate` after the read-only preflight and writer-stop
+  gate in `docs/runbooks/operation-automation-cutover.md`; the migration itself
+  must keep the dormant ActionTask row count unchanged.
 
 ## Verification
 

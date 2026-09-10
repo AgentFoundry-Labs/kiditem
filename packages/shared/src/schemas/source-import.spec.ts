@@ -9,6 +9,7 @@ import {
   SellpiaProfitabilityAttemptSchema,
   SellpiaProfitabilityAttemptControlSchema,
   SellpiaProfitabilityAttemptSummarySchema,
+  SellpiaProfitabilityPlanSchema,
   SellpiaProfitabilitySourceStatusSchema,
   SourceImportRunSchema,
   SourceImportTypeSchema,
@@ -456,6 +457,24 @@ describe('source import contracts', () => {
       latestAttempt: attempt,
       latestComplete: null,
       status: 'MISSING',
+    })).toThrow();
+  });
+
+  it('allows the actual 401-day window to span at most fifteen month partitions', () => {
+    const coveredMonths = [
+      '2025-07', '2025-08', '2025-09', '2025-10', '2025-11', '2025-12',
+      '2026-01', '2026-02', '2026-03', '2026-04', '2026-05', '2026-06',
+      '2026-07', '2026-08', '2026-09',
+    ];
+    expect(SellpiaProfitabilityPlanSchema.parse({
+      from: '2025-07-29',
+      to: '2026-09-02',
+      coveredMonths,
+    }).coveredMonths).toEqual(coveredMonths);
+    expect(() => SellpiaProfitabilityPlanSchema.parse({
+      from: '2025-07-29',
+      to: '2026-09-02',
+      coveredMonths: [...coveredMonths, '2026-10'],
     })).toThrow();
   });
 });

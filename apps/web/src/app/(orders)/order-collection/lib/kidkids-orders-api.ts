@@ -1,10 +1,12 @@
 import * as XLSX from 'xlsx';
-import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
 import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extension-bridge';
 import { apiClient } from '@/lib/api-client';
 import { downloadBlob } from '@/lib/browser-download';
 import type { OrderCollectionConversionResult } from './order-collection-api';
-import type { OrderCollectionExtensionRun } from './order-collection-extension';
+import {
+  orderCollectionExtensionRunFields,
+  type OrderCollectionExtensionRun,
+} from './order-collection-extension';
 
 export interface KidkidsOrderItem {
   name?: string;
@@ -55,8 +57,8 @@ export async function collectKidkidsOrdersFromExtension(
       action: 'collectKidkidsOrders',
       date: date ?? run?.date,
       planDate,
-      runId: run?.runId ?? createSecureRandomUuid(),
-      deferTerminal: Boolean(run?.runId),
+      // attemptId/deferTerminal: true are included by shared fenced run fields.
+      ...orderCollectionExtensionRunFields(run),
     },
     190000,
   );
@@ -71,11 +73,17 @@ export async function collectKidkidsOrdersFromExtension(
 /** 수집한 키드키즈 주문(orders[])을 셀피아 업로드 양식(.xls)으로 변환. startOrderNo=셀피아 주문번호 시작값(기본 96090). */
 export async function convertKidkidsToSellpiaFile(
   orders: KidkidsOrder[],
-  options?: { startOrderNo?: number; download?: boolean },
+  options?: { startOrderNo?: number; download?: boolean; run?: OrderCollectionExtensionRun },
 ): Promise<OrderCollectionConversionResult> {
   const res = await apiClient.fetchRaw('/api/orders/collection/kidkids/convert', {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: {
+      'content-type': 'application/json',
+      ...(options?.run ? {
+        'x-order-collection-attempt-id': options.run.attemptId,
+        'x-source-attempt-token': options.run.attemptToken,
+      } : {}),
+    },
     body: JSON.stringify({ orders, startOrderNo: options?.startOrderNo }),
   });
   if (!res.ok) {

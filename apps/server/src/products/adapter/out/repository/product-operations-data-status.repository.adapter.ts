@@ -1,11 +1,12 @@
 import { Inject, Injectable } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
+import { classifyDailyTrafficFact } from '@kiditem/shared/advertising';
 import {
   MASTER_PRODUCT_PROFITABILITY_READ_PORT,
   type ProfitabilityEvidence,
   type SourceGenerationView,
 } from '../../../../finance/application/port/in/master-product-profitability-read.port';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import { kstMonthEnd } from '../../../../common/kst';
 import { listSellingMasterProductIds } from './selling-master-product.query';
 import type {
   ProductOperationsDataStatusFacts,
@@ -16,12 +17,11 @@ import type {
   ProductOperationsPeriodDays,
 } from '@kiditem/shared/product-operations';
 
-type TrafficAggregate = {
-  _max: {
-    businessDate: Date | null;
-    lastObservedAt: Date | null;
-    trafficObservedAt: Date | null;
-  };
+type TrafficFact = {
+  businessDate: Date;
+  lastObservedAt: Date;
+  trafficObservedAt: Date | null;
+  metaJson: Prisma.JsonValue | null;
 };
 
 @Injectable()
@@ -39,11 +39,18 @@ implements ProductOperationsDataStatusRepositoryPort {
   ): Promise<ProductOperationsDataStatusFacts> {
     const cutoffDate = yesterdayKst();
     const periodStart = utcCalendarDate(addCalendarDays(cutoffDate, -(periodDays - 1)));
-    const [traffic, formulaState, sellingMasterProductIds, evidence] = await Promise.all([
-      this.prisma.channelListingDailySnapshot.aggregate({
+    // Read the cheap status inputs first, then open the profitability snapshot.
+    // The latter fans out to repeatable-read source transactions; keeping it
+    // out of this batch prevents one list request from occupying every pool
+    // connection with independent read snapshots.
+    const [traffic, formulaState, sellingMasterProductIds] = await Promise.all([
+      this.prisma.channelListingDailySnapshot.findMany({
         where: {
           organizationId,
-          businessDate: { gte: periodStart },
+          businessDate: {
+            gte: periodStart,
+            lte: utcCalendarDate(cutoffDate),
+          },
           listing: { is: { organizationId, masterProductId: { not: null } } },
           OR: [
             { trafficCoverageStatus: { not: null } },
@@ -55,8 +62,9 @@ implements ProductOperationsDataStatusRepositoryPort {
             { trafficRevenue: { not: 0 } },
           ],
         },
-        _max: {
+        select: {
           businessDate: true,
+          metaJson: true,
           trafficObservedAt: true,
           lastObservedAt: true,
         },
@@ -72,9 +80,9 @@ implements ProductOperationsDataStatusRepositoryPort {
         },
       }),
       listSellingMasterProductIds(this.prisma, organizationId),
-      this.evidence.load({ organizationId, targetCutoff: previousKstMonthEnd() }),
     ]);
-    const trafficStatus = sourceStatus(traffic as TrafficAggregate, cutoffDate);
+    const evidence = await this.evidence.load({ organizationId, targetCutoff: cutoffDate });
+    const trafficStatus = sourceStatus(traffic, calendarDate(periodStart), cutoffDate);
     const mappingGeneration = formulaState?.mappingGeneration ?? 0n;
     const products = await this.prisma.masterProduct.findMany({
       where: { organizationId, id: { in: sellingMasterProductIds } },
@@ -108,17 +116,23 @@ implements ProductOperationsDataStatusRepositoryPort {
         masterProductId: product.id,
         abcGrade: isAbcGrade(product.abcGrade) ? product.abcGrade : null,
         mappingValid: productEvidence.get(product.id)?.mappingValid ?? false,
+        saleStartDate: productEvidence.get(product.id)?.saleStartDate ?? null,
       })),
     };
   }
 }
 
 function sourceStatus(
-  aggregate: TrafficAggregate,
+  rows: readonly TrafficFact[],
+  periodStart: string,
   cutoffDate: string,
 ): ProductOperationsDataSourceStatus {
-  const capturedAt = aggregate._max.trafficObservedAt ?? aggregate._max.lastObservedAt;
-  if (!aggregate._max.businessDate || !capturedAt) {
+  const validRows = rows.filter((row) =>
+    calendarDate(row.businessDate) >= periodStart
+      && calendarDate(row.businessDate) <= cutoffDate
+      && classifyDailyTrafficFact(row.metaJson, calendarDate(row.businessDate)) !== null,
+  );
+  if (validRows.length === 0) {
     return {
       status: 'MISSING',
       actualCutoff: null,
@@ -127,14 +141,39 @@ function sourceStatus(
       errorCode: null,
     };
   }
-  const actualCutoff = calendarDate(aggregate._max.businessDate);
+  const latestDate = validRows.reduce(
+    (latest, row) => row.businessDate > latest ? row.businessDate : latest,
+    validRows[0]!.businessDate,
+  );
+  const capturedAt = validRows.reduce(
+    (latest, row) => {
+      const observedAt = row.trafficObservedAt ?? row.lastObservedAt;
+      return observedAt > latest ? observedAt : latest;
+    },
+    validRows[0]!.trafficObservedAt ?? validRows[0]!.lastObservedAt,
+  );
+  const actualCutoff = calendarDate(latestDate);
+  const targetDates = enumerateDates(periodStart, cutoffDate);
+  const validDates = new Set(validRows.map((row) => calendarDate(row.businessDate)));
+  const completeCoverage = targetDates.every((date) => validDates.has(date));
   return {
-    status: actualCutoff >= cutoffDate ? 'READY' : 'STALE',
+    status: actualCutoff >= cutoffDate && completeCoverage ? 'READY' : 'STALE',
     actualCutoff,
     capturedAt: capturedAt.toISOString(),
     latestAttemptState: null,
     errorCode: null,
   };
+}
+
+function enumerateDates(from: string, to: string): string[] {
+  const dates: string[] = [];
+  const cursor = utcCalendarDate(from);
+  const end = utcCalendarDate(to);
+  while (cursor <= end) {
+    dates.push(calendarDate(cursor));
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return dates;
 }
 
 function sourceManifest(source: SourceGenerationView) {
@@ -163,15 +202,6 @@ function isAbcGrade(value: string | null): value is 'A' | 'B' | 'C' {
 function yesterdayKst(now = new Date()): string {
   const shifted = new Date(now.getTime() + (9 * 60 * 60 * 1_000) - 86_400_000);
   return shifted.toISOString().slice(0, 10);
-}
-
-function previousKstMonthEnd(now = new Date()): string {
-  const kst = new Date(now.getTime() + 9 * 60 * 60 * 1_000);
-  const year = kst.getUTCMonth() === 0
-    ? kst.getUTCFullYear() - 1
-    : kst.getUTCFullYear();
-  const month = kst.getUTCMonth() === 0 ? 12 : kst.getUTCMonth();
-  return kstMonthEnd(`${year}-${String(month).padStart(2, '0')}`);
 }
 
 function addCalendarDays(date: string, days: number): string {

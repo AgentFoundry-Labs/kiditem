@@ -6,6 +6,10 @@ export const SELLPIA_PROFITABILITY_SOURCE_READ_PORT = Symbol(
   'SELLPIA_PROFITABILITY_SOURCE_READ_PORT',
 );
 
+export type SellpiaProfitabilityParserVersion =
+  | 'sellpia-profitability-v1'
+  | 'sellpia-profitability-v2';
+
 export type SellpiaProfitabilityProvenance = Readonly<{
   source: 'sellpia_stat_prd_profit';
   costBasis: 'ORDER_TIME_SUPPLY_COST';
@@ -13,8 +17,10 @@ export type SellpiaProfitabilityProvenance = Readonly<{
 }>;
 
 export type SellpiaProfitabilityQuality = Readonly<{
-  contract: 'sellpia-profitability-v1';
-  parserVersion: 'sellpia-profitability-v1';
+  contract: SellpiaProfitabilityParserVersion;
+  parserVersion: SellpiaProfitabilityParserVersion;
+  /** v2 proves period-total purchase cost; v1 graph cost remains legacy-readable only. */
+  correctedCostEvidence: boolean;
   contentChecksum: string;
   contentByteCount: number;
   includedRowCount: number;

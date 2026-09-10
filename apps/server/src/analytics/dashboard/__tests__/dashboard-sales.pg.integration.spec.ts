@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import { Test } from '@nestjs/testing';
 import {
-  PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD,
-  PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD_HASH,
+  PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
+  PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH,
 } from '@kiditem/shared/product-abc';
 import { DashboardSalesService } from '../application/service/dashboard-sales.service';
 import { buildDashboardContext } from '../domain/context';
@@ -15,6 +15,8 @@ import { PROFIT_CALCULATION_REPOSITORY_PORT } from '../application/port/out/repo
 import { WING_AD_SUMMARY_REPOSITORY_PORT } from '../application/port/out/repository/wing-ad-summary.repository.port';
 import { DASHBOARD_SALES_REPOSITORY_PORT } from '../application/port/out/repository/dashboard-sales.repository.port';
 import { WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT } from '../application/port/out/repository/wing-traffic-aggregation.repository.port';
+import { AD_ACCOUNT_DAILY_KPI_READ_PORT } from '../../../advertising/application/port/in/ad-account-daily-kpi-source.port';
+import { AD_TRAFFIC_READ_PORT } from '../../../advertising/application/port/in/ad-traffic-source.port';
 import {
   makeTestPrisma,
   resetDb,
@@ -34,6 +36,7 @@ import type { PrismaClient } from '@prisma/client';
 describe('DashboardSalesService.getSummary (PG integration)', () => {
   let prisma: PrismaClient;
   let service: DashboardSalesService;
+  const trafficRead = { readPublished: vi.fn() };
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
@@ -50,6 +53,16 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
         { provide: WING_AD_SUMMARY_REPOSITORY_PORT, useExisting: WingAdSummaryRepositoryAdapter },
         { provide: DASHBOARD_SALES_REPOSITORY_PORT, useExisting: DashboardSalesRepositoryAdapter },
         { provide: WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT, useExisting: WingTrafficAggregationRepositoryAdapter },
+        {
+          provide: AD_ACCOUNT_DAILY_KPI_READ_PORT,
+          useValue: {
+            readPublished: async () => ({
+              channelAccountId: '00000000-0000-4000-8000-000000000001',
+              rows: [],
+            }),
+          },
+        },
+        { provide: AD_TRAFFIC_READ_PORT, useValue: trafficRead },
       ],
     }).compile();
     service = m.get(DashboardSalesService);
@@ -62,6 +75,12 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
   beforeEach(async () => {
     await resetDb(prisma);
     await seedBaseFixture(prisma);
+    trafficRead.readPublished.mockResolvedValue({
+      channelAccountId: '00000000-0000-0000-0000-000000000001',
+      rows: [],
+      dashboard: null,
+      plan: { businessDate: '1970-01-01' },
+    });
   });
 
   /**
@@ -171,25 +190,40 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
     expect(result.rangeKpi?.revenue).toBe(50_000);
   });
 
-  it('T4: empty organization returns zero-valued structure (no error)', async () => {
+  it('T4: empty organization returns unavailable values (no error)', async () => {
     const ctx = buildDashboardContext();
     const result = await service.getSummary(ctx, TEST_ORGANIZATION_ID);
 
-    expect(result.monthly.revenue).toBe(0);
-    expect(result.monthly.profit).toBe(0);
-    expect(result.monthly.adRate).toBe(0);
+    expect(result.monthly).toMatchObject({
+      revenue: null,
+      profit: null,
+      adRate: null,
+      prevRevenue: null,
+      prevProfit: null,
+      revenueChange: null,
+      profitChange: null,
+      prevAdRate: null,
+      available: false,
+      previousAvailable: false,
+    });
     expect(result.topProducts).toEqual([]);
-    expect(result.monthlyTrend).toHaveLength(6);            // 6 months loop always emits 6 entries
-    expect(result.monthlyTrend.every((t) => t.revenue === 0)).toBe(true);
+    expect(result.monthlyTrend).toHaveLength(6); // 6 months loop always emits 6 entries
+    expect(result.monthlyTrend.every((t) => (
+      t.revenue === null && t.profit === null && t.adCost === null
+    ))).toBe(true);
     expect(result.profitDetail?.revenue).toBe(0);
     expect(result.trafficKpi?.adSummary).toBeNull();
     expect(result.lastSyncAt).toBeNull();
   });
 
-  it('T4b: Wing-only monthlyTrend does not synthesize profit without settlement data', async () => {
+  it('T4b: complete v2 Wing monthlyTrend keeps profit unavailable without settlement data', async () => {
     const { listingId } = await seedTestListing('4B');
     const now = new Date();
-    const businessDate = new Date(Date.UTC(now.getFullYear(), now.getMonth(), 15));
+    const businessDate = new Date(Date.UTC(
+      now.getFullYear(),
+      now.getMonth(),
+      Math.max(1, now.getDate() - 1),
+    ));
     await prisma.channelListingDailySnapshot.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
@@ -203,6 +237,71 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
         trafficRevenue: 120_000,
       },
     });
+    const trafficDate = businessDate.toISOString().slice(0, 10);
+    const monthStart = new Date(Date.UTC(now.getFullYear(), now.getMonth(), 1));
+    // The owner source is complete only through the latest closed KST
+    // business day. Do not manufacture future zero rows merely to make a
+    // current-month range look complete.
+    const latestClosedDate = new Date(Date.UTC(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate() - 1,
+    ));
+    const monthLastDate = new Date(Date.UTC(now.getFullYear(), now.getMonth() + 1, 0));
+    const monthEnd = latestClosedDate < monthLastDate ? latestClosedDate : monthLastDate;
+    const monthDates: string[] = [];
+    for (const cursor = new Date(monthStart); cursor <= monthEnd; cursor.setUTCDate(cursor.getUTCDate() + 1)) {
+      monthDates.push(cursor.toISOString().slice(0, 10));
+    }
+    const trafficPublication = {
+      channelAccountId: '00000000-0000-4000-8000-000000000001',
+      attemptId: '00000000-0000-4000-8000-000000000002',
+      plan: {
+        sourceType: 'coupang_wing_traffic',
+        parserVersion: 'wing-traffic-daily-v2',
+        channelAccountId: '00000000-0000-4000-8000-000000000001',
+        expectedAdvertiserId: 'VENDOR-A',
+        providerVendorId: 'VENDOR-A',
+        startDate: monthDates[0],
+        endDate: monthDates.at(-1),
+        businessDate: monthDates.at(-1),
+        periodDays: monthDates.length,
+        expectedDates: monthDates,
+        filterScope: 'ALL_NORMAL_RFM',
+        targetUrl: null,
+      },
+      providerVendorId: 'VENDOR-A',
+      filterScope: 'ALL_NORMAL_RFM',
+      accountDaily: monthDates.map((date) => ({
+        businessDate: date,
+        observedAt: `${date}T15:00:00.000Z`,
+        sourceAttemptId: '00000000-0000-4000-8000-000000000002',
+        providerConversionRate: null,
+        visitors: date === trafficDate ? 30 : 0,
+        views: date === trafficDate ? 100 : 0,
+        cartAdds: 0,
+        orders: date === trafficDate ? 6 : 0,
+        salesQty: date === trafficDate ? 6 : 0,
+        revenue: date === trafficDate ? 120_000 : 0,
+      })),
+      optionDaily: [],
+      periodSummary: null,
+      coverage: {
+        from: monthDates[0],
+        to: monthDates.at(-1),
+        targetDays: monthDates.length,
+        completedDays: monthDates.length,
+        missingDates: [],
+      },
+      reconciliation: Object.fromEntries([
+        'views', 'cartAdds', 'orders', 'salesQty', 'revenue',
+      ].map((metric) => [metric, { status: 'UNVERIFIED', dailySum: null, periodValue: null }])),
+      legacyExactPeriodEvidence: null,
+    };
+    // The owner publication is accountDaily v2. The listing snapshot above is
+    // deliberately retained as a legacy/linked row and must not be used for
+    // account coverage or revenue.
+    trafficRead.readPublished.mockResolvedValue(trafficPublication);
 
     const ctx = buildDashboardContext();
     const result = await service.getSummary(ctx, TEST_ORGANIZATION_ID);
@@ -212,7 +311,8 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
     expect(result.effectivePeriod?.revenueSource).toBe('wing');
     expect(currentTrend).toMatchObject({
       revenue: 120_000,
-      profit: 0,
+      profit: null,
+      adCost: null,
     });
   });
 
@@ -352,10 +452,10 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
     const formula = await prisma.masterProductAbcFormulaVersion.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
-        formulaKey: PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD.formulaKey,
+        formulaKey: PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD.formulaKey,
         version: 1,
-        formulaJson: JSON.parse(JSON.stringify(PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD)),
-        formulaChecksum: PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD_HASH,
+        formulaJson: JSON.parse(JSON.stringify(PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD)),
+        formulaChecksum: PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH,
       },
     });
     const source = await prisma.sourceImportRun.create({
@@ -390,6 +490,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
         consistencyScore: 100,
         economicScore: 100,
         validObservationDays: 30,
+        saleStartDate: new Date('2026-05-01T00:00:00.000Z'),
         formulaRevision: 1,
         publicationRevision: 2,
         gradeBasisCutoffDate: new Date('2026-06-30T00:00:00Z'),
@@ -418,9 +519,10 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
         abcGrade: 'A',
         weightedOperatingProfit: 3_000_000,
         economicScore: 100,
-        formula: PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD,
+        formula: PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
         publicationRevision: 2,
         gradeBasisCutoffDate: '2026-06-30',
+        saleStartDate: '2026-05-01',
         sellpiaSourceImportRunId: source.id,
         advertisingSourceImportRunId: advertising.id,
         sellpiaGeneration: '3', advertisingGeneration: '4', mappingGeneration: '5',

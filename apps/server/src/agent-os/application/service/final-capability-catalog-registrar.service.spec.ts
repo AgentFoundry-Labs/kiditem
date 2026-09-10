@@ -15,7 +15,6 @@ import {
 const expectedKeys = [
   'analytics.readOverview',
   'channels.register_confirmed_listing',
-  'channels.submit_coupang_listing',
   'channels.submit_wing_thumbnail',
   'products.create_listing_generation_package',
   'sourcing.createReviewBatch',
@@ -32,7 +31,6 @@ const expectedKeys = [
 const expectedOwnerInputPorts = {
   'analytics.readOverview': 'analytics.readOverview',
   'channels.register_confirmed_listing': 'channels.registerConfirmedListing',
-  'channels.submit_coupang_listing': 'channels.submitCoupangListing',
   'channels.submit_wing_thumbnail': 'channels.submitWingThumbnail',
   'products.create_listing_generation_package':
     'products.createListingGenerationPackage',
@@ -80,7 +78,7 @@ function compositionProvider(
 }
 
 describe('FinalCapabilityCatalogRegistrar', () => {
-  it('keeps the sorted 14-key catalog and its owner input ports exact', () => {
+  it('keeps the sorted 13-key catalog and its owner input ports exact', () => {
     expect(FINAL_CAPABILITY_DEFINITIONS.map((definition) => definition.key)).toEqual(
       expectedKeys,
     );

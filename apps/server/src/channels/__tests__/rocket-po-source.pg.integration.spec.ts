@@ -45,6 +45,7 @@ describe('Rocket owner public HTTP + disposable PG', () => {
   let prisma: PrismaClient;
   const dbOperations: string[] = [];
   let app: INestApplication;
+  let httpUrl: string;
   let catalog: RocketPoCatalogService;
   beforeAll(async () => {
     prisma = makeTestPrisma().$extends({
@@ -88,6 +89,8 @@ describe('Rocket owner public HTTP + disposable PG', () => {
       },
     );
     await app.init();
+    await app.listen(0, '127.0.0.1');
+    httpUrl = await app.getUrl();
   });
   afterAll(async () => {
     await app?.close();
@@ -108,18 +111,18 @@ describe('Rocket owner public HTTP + disposable PG', () => {
     });
   });
   const start = (key = randomUUID(), body = plan) =>
-    request(app.getHttpServer())
+    request(httpUrl)
       .post(`${base}/attempts`)
       .set('x-test-org', ORG)
       .set('Idempotency-Key', key)
       .send(body);
   const readSource = () =>
-    request(app.getHttpServer())
+    request(httpUrl)
       .get(`${base}/source?channelAccountId=${ACCOUNT}`)
       .set('x-test-org', ORG)
       .expect(200);
   const finish = (attempt: { attemptId: string; attemptToken: string }, rows = [row('P1')]) =>
-    request(app.getHttpServer())
+    request(httpUrl)
       .put(`${base}/attempts/${attempt.attemptId}`)
       .set('x-test-org', ORG)
       .set('x-source-attempt-token', attempt.attemptToken)
@@ -136,7 +139,6 @@ describe('Rocket owner public HTTP + disposable PG', () => {
       new SellpiaInventoryFreshnessService(
         new SellpiaInventoryFreshnessRepositoryAdapter(
           prisma as never,
-          new SourceFailureAlerts(new AlertsRepository(prisma as never)),
         ),
       ),
     );
@@ -155,7 +157,7 @@ describe('Rocket owner public HTTP + disposable PG', () => {
     expect((await start(key).expect(201)).body).toEqual(first.body);
     await start().expect(409);
     await start(key, { ...plan, status: 'RP' }).expect(409);
-    const source = await request(app.getHttpServer())
+    const source = await request(httpUrl)
       .get(`${base}/source?channelAccountId=${ACCOUNT}`)
       .set('x-test-org', ORG)
       .expect(200);
@@ -184,7 +186,7 @@ describe('Rocket owner public HTTP + disposable PG', () => {
       ),
     ).toEqual(['P2 item']);
     const failed = (await start()).body;
-    await request(app.getHttpServer())
+    await request(httpUrl)
       .post(`${base}/attempts/${failed.attemptId}/fail`)
       .set('x-test-org', ORG)
       .set('x-source-attempt-token', failed.attemptToken)
@@ -250,7 +252,7 @@ describe('Rocket owner public HTTP + disposable PG', () => {
     });
     await start().expect(404);
     await start(randomUUID(), { ...plan, channelAccountId: randomUUID() }).expect(404);
-    await request(app.getHttpServer())
+    await request(httpUrl)
       .post(`${base}/attempts`)
       .set('x-test-org', randomUUID())
       .set('Idempotency-Key', randomUUID())
@@ -369,8 +371,31 @@ describe('Rocket owner public HTTP + disposable PG', () => {
       where: { id: option.listingId },
       data: { masterProductId: master.id },
     });
+    const inventoryImportedAt = new Date();
+    const inventoryRun = await prisma.sourceImportRun.create({
+      data: {
+        organizationId: ORG,
+        sourceType: 'sellpia_inventory',
+        channelAccountId: null,
+        fileName: 'rocket-inventory.json',
+        fileHash: 'e'.repeat(64),
+        status: 'completed',
+        rowCount: 1,
+        importedAt: inventoryImportedAt,
+        lastVerifiedAt: inventoryImportedAt,
+        verificationCount: 1,
+        freshnessGeneration: 1n,
+      },
+    });
     const sku = await prisma.sellpiaInventorySku.create({
-      data: { organizationId: ORG, code: 'S1', name: 'Component', currentStock: 5, isActive: true },
+      data: {
+        organizationId: ORG,
+        code: 'S1',
+        name: 'Component',
+        currentStock: 5,
+        isActive: true,
+        lastImportRunId: inventoryRun.id,
+      },
     });
     await prisma.channelListingOptionInventoryComponent.create({
       data: {
@@ -385,7 +410,8 @@ describe('Rocket owner public HTTP + disposable PG', () => {
         organizationId: ORG,
         requestedGeneration: 1n,
         verifiedGeneration: 1n,
-        lastVerifiedAt: new Date(),
+        lastVerifiedAt: inventoryImportedAt,
+        lastCompletedImportRunId: inventoryRun.id,
         sourceOrigin: 'https://kiditem.sellpia.com',
         sourceAccountKey: 'kiditem',
       },
@@ -433,7 +459,7 @@ describe('Rocket owner public HTTP + disposable PG', () => {
     const rows = [row('P1'), row('P2')];
     const first = (await finish(a, rows).expect(200)).body;
     const payload = submission(a.attemptId, rows.reverse());
-    const replay = await request(app.getHttpServer())
+    const replay = await request(httpUrl)
       .put(`${base}/attempts/${a.attemptId}`)
       .set('x-test-org', ORG)
       .set('x-source-attempt-token', a.attemptToken)
@@ -459,13 +485,13 @@ describe('Rocket owner public HTTP + disposable PG', () => {
         sourceImportRunId: a.attemptId,
       }),
     ).rejects.toThrow('ROCKET_PO_COMPLETE_NOT_FOUND');
-    await request(app.getHttpServer()).get(`${base}/attempts/${a.attemptId}`).expect(401);
-    await request(app.getHttpServer())
+    await request(httpUrl).get(`${base}/attempts/${a.attemptId}`).expect(401);
+    await request(httpUrl)
       .get(`${base}/attempts/${a.attemptId}`)
       .set('x-test-org', randomUUID())
       .expect(404);
     await finish({ ...a, attemptToken: randomUUID() }).expect(409);
-    await request(app.getHttpServer())
+    await request(httpUrl)
       .put(`${base}/attempts/${a.attemptId}`)
       .set('x-test-org', ORG)
       .set('x-source-attempt-token', a.attemptToken)
@@ -474,7 +500,7 @@ describe('Rocket owner public HTTP + disposable PG', () => {
         proof: { ...submission(a.attemptId, []).proof, from: '2026-08-01' },
       })
       .expect(409);
-    await request(app.getHttpServer())
+    await request(httpUrl)
       .put(`${base}/attempts/${a.attemptId}`)
       .set('x-test-org', ORG)
       .set('x-source-attempt-token', a.attemptToken)
@@ -491,7 +517,7 @@ describe('Rocket owner public HTTP + disposable PG', () => {
         sourceImportRunId: a.attemptId,
       }),
     ).rejects.toThrow('ROCKET_PO_COMPLETE_NOT_FOUND');
-    await request(app.getHttpServer())
+    await request(httpUrl)
       .post(`${base}/attempts/${a.attemptId}/fail`)
       .set('x-test-org', ORG)
       .set('x-source-attempt-token', a.attemptToken)
@@ -533,7 +559,7 @@ describe('Rocket owner public HTTP + disposable PG', () => {
       const payload = submission(a.attemptId, [row('P1')]);
       Object.assign(payload.collection, invalid);
       const submit = () =>
-        request(app.getHttpServer())
+        request(httpUrl)
           .put(`${base}/attempts/${a.attemptId}`)
           .set('x-test-org', ORG)
           .set('x-source-attempt-token', a.attemptToken)
@@ -550,7 +576,7 @@ describe('Rocket owner public HTTP + disposable PG', () => {
   it('rolls back COMPLETE facts and FAILED status when the owner Alert write fails', async () => {
     const a = (await start()).body;
     const fail = () =>
-      request(app.getHttpServer())
+      request(httpUrl)
         .post(`${base}/attempts/${a.attemptId}/fail`)
         .set('x-test-org', ORG)
         .set('x-source-attempt-token', a.attemptToken)
@@ -597,7 +623,7 @@ describe('Rocket owner public HTTP + disposable PG', () => {
         delete (payload.rows[0] as { confirmation?: unknown }).confirmation;
       expect(
         (
-          await request(app.getHttpServer())
+          await request(httpUrl)
             .put(`${base}/attempts/${a.attemptId}`)
             .set('x-test-org', ORG)
             .set('x-source-attempt-token', a.attemptToken)
@@ -684,7 +710,7 @@ describe('Rocket owner public HTTP + disposable PG', () => {
     payload.proof.status = 'PA';
     payload.collection.listPagesRead = 21;
     payload.collection.totalListPages = 21;
-    await request(app.getHttpServer())
+    await request(httpUrl)
       .put(`${base}/attempts/${generic.attemptId}`)
       .set('x-test-org', ORG)
       .set('x-source-attempt-token', generic.attemptToken)

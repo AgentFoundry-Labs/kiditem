@@ -13,6 +13,8 @@ import ts from "typescript";
 const SOURCE_OWNER_MANIFEST =
   "extensions/kiditem-os/background/source-owner-manifest.js";
 const EXTENSION_BACKGROUND_ROOT = "extensions/kiditem-os/background";
+const READ_ONLY_PREFLIGHT_PATH =
+  "scripts/operation-automation-cutover-preflight.mjs";
 
 const IGNORED_DIRECTORIES = new Set([
   ".git",
@@ -40,6 +42,7 @@ const PRODUCTION_EXTENSIONS = new Set([
   ".js",
   ".mjs",
   ".ps1",
+  ".prisma",
   ".sh",
   ".ts",
   ".tsx",
@@ -71,6 +74,23 @@ const SOURCE_OWNER_DISPOSITIONS = new Set([
   ...SOURCE_OWNER_DOMAINS,
   "DELETE",
 ]);
+
+// Server source keeps Coupang browser-owner paths, but no domain may grow a
+// second server-side OpenAPI client. Browser Wing URLs and internal HTTP paths
+// are intentionally not included here.
+const COUPANG_SERVER_OPENAPI_PATTERNS = [
+  /\bCOUPANG_PROVIDER_PORT\b/g,
+  /\bCoupangProviderPort\b/g,
+  /\bcoupangRequest\s*\(/g,
+  /\bcoupang-client\b/gi,
+  /\bCoupang(?:OpenApi|Api|Client)[A-Za-z0-9_]*\b/g,
+  /\bcoupang(?:OpenApi|Api)?Client\b/gi,
+  /\/v2\/providers\/openapi\//gi,
+  /\bapi-gateway\.coupang\.com\b/gi,
+  /\bCoupangCredentials\b/g,
+  /\bCOUPANG_[A-Z0-9_]*CREDENTIALS?\b/g,
+  /\bresolveCoupangCredentials\b/g,
+];
 
 /**
  * The hard cutover deliberately keeps this list explicit. Broad searches for
@@ -104,6 +124,7 @@ const LEGACY_TOKEN_PATTERNS = [
   /\bOperationCancellation(?:[A-Z][A-Za-z0-9_]*)?\b/g,
   /\boperationCancellation\b/g,
   /\brunOperation\b/g,
+  /\/api\/ads\/extension\/sync(?=[\/?#'"`\s),}]|$)/gi,
   /\b(?:PanelSnapshot|PanelProjection|PanelStream|PanelSse|usePanelStream|panelStore|panelRecovery|panelSseClient)\b/g,
   /\boperation[-_]runtime(?:[-_][a-z0-9]+)*\b/gi,
   /\/api\/(?:operation-alerts|operation-runs?|operations|workflow-runs?|workflows|marketplace|panel|action-board)(?=[/?#'"`\s),}]|$)/gi,
@@ -321,8 +342,12 @@ function producerValuesFromFile(source, fileName) {
 
   function visit(node) {
     if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
-      if (node.name.text.endsWith("_PRODUCER")) addLiteral(node.initializer);
-      if (node.name.text.endsWith("_PRODUCERS")) addInitializerLiterals(node.initializer);
+      if (node.name.text === "PRODUCER" || node.name.text.endsWith("_PRODUCER")) {
+        addLiteral(node.initializer);
+      }
+      if (node.name.text === "PRODUCERS" || node.name.text.endsWith("_PRODUCERS")) {
+        addInitializerLiterals(node.initializer);
+      }
     }
     if (ts.isPropertyAssignment(node) &&
         (ts.isIdentifier(node.name) || ts.isStringLiteral(node.name)) && node.name.text === "producer") {
@@ -431,6 +456,7 @@ function collectUnownedProducers(root, owners) {
 }
 
 const ABC_RECALCULATION_PATTERNS = [
+  /\bproducts\.classify-grades\b/i,
   /\/api\/products\/abc\/recalculate\b/i,
   /\bproducts\.recalculate_profitability_abc\b/i,
   /\b(?:abc|product[-_]?abc|master[-_]?product[-_]?abc)[A-Za-z0-9_$-]*\s*\.\s*recalculat\w*\s*\(/i,
@@ -480,10 +506,39 @@ function collectLegacyReferences(root) {
   const references = new Set();
   for (const absolutePath of productionSourceFiles(root)) {
     const filePath = relativePath(root, absolutePath);
-    const source = withoutComments(readFileSync(absolutePath, "utf8"));
+    // This exact script is a retained read-only inventory. Its SELECT-only
+    // table names intentionally overlap retired runtime tokens; keep this
+    // exception local to the runtime-token scan.
+    if (filePath === READ_ONLY_PREFLIGHT_PATH) continue;
+    let source = withoutComments(readFileSync(absolutePath, "utf8"));
+    // The sourcing regression guard names forbidden calls in regex literals.
+    // Ignore only those literals, not executable calls elsewhere in the file.
+    if (filePath === "scripts/check-sourcing-long-running-actions.mjs") {
+      const parsed = ts.createSourceFile(filePath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+      const maskPattern = (node) => {
+        if (ts.isRegularExpressionLiteral(node)) {
+          const start = node.getStart(parsed);
+          source = source.slice(0, start)
+            + source.slice(start, node.end).replace(/[^\r\n]/g, " ")
+            + source.slice(node.end);
+        }
+        ts.forEachChild(node, maskPattern);
+      };
+      maskPattern(parsed);
+    }
+    // ActionTask is deliberately dormant, not dropped. Runtime references
+    // remain forbidden; Channels' commerce model names are not matched.
+    const patterns = filePath.endsWith(".prisma")
+      ? [
+        ...LEGACY_TOKEN_PATTERNS.filter((pattern) => !pattern.source.includes("ActionTask") && !pattern.source.includes("actionTasks")),
+        /\bMarketplace\b/g,
+      ]
+      : filePath.startsWith("apps/server/src/")
+        ? [...LEGACY_TOKEN_PATTERNS, ...COUPANG_SERVER_OPENAPI_PATTERNS]
+        : LEGACY_TOKEN_PATTERNS;
     const lines = source.split(/\r\n|\r|\n/);
     lines.forEach((line, index) => {
-      for (const pattern of LEGACY_TOKEN_PATTERNS) {
+      for (const pattern of patterns) {
         pattern.lastIndex = 0;
         let match;
         while ((match = pattern.exec(line))) {

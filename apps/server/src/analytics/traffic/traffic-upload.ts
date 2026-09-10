@@ -166,6 +166,7 @@ export async function uploadTrafficStats({
                 trafficCoverageStatus: 'OBSERVED',
                 trafficObservedAt: observedAt,
                 metaJson: {
+                  'traffic.currentSource': 'traffic.csv_upload',
                   'traffic.csv_upload': {
                     source: 'traffic_csv_upload',
                     data: {
@@ -187,6 +188,14 @@ export async function uploadTrafficStats({
                 trafficRevenue: d.revenue,
                 trafficCoverageStatus: 'OBSERVED',
                 trafficObservedAt: observedAt,
+              },
+              select: { id: true },
+            });
+            await mergeCsvUploadMeta(tx, d.listingId, businessDate, organizationId, {
+              source: 'traffic_csv_upload',
+              data: {
+                fileName: file.originalname,
+                uploadedAt: observedAt.toISOString(),
               },
             });
           }
@@ -221,6 +230,25 @@ export async function uploadTrafficStats({
     skipped: parsed.skipped,
     detectedColumns: parsed.detectedColumns,
   };
+}
+
+async function mergeCsvUploadMeta(
+  tx: Prisma.TransactionClient,
+  listingId: string,
+  businessDate: Date,
+  organizationId: string,
+  data: { source: string; data: Record<string, string> },
+) {
+  await tx.$executeRaw(Prisma.sql`
+    UPDATE channel_listing_daily_snapshots
+    SET meta_json = COALESCE(meta_json, '{}'::jsonb) || ${JSON.stringify({
+      'traffic.currentSource': 'traffic.csv_upload',
+      'traffic.csv_upload': data,
+    })}::jsonb
+    WHERE organization_id = ${organizationId}::uuid
+      AND listing_id = ${listingId}::uuid
+      AND business_date = ${businessDate}
+  `);
 }
 
 function addAggregatedRow(

@@ -57,6 +57,30 @@
     };
   }
 
+  async function isLocallyActive(sessions, attemptId, environmentId, allowUnstarted = false) {
+    // `isActive` is a persisted stop-fence lookup, not an admission check. A
+    // fresh owner has no local session yet, so consult ownership first and let
+    // sessions.start/onStarted perform the atomic app-presence admission.
+    if (typeof sessions.getOwned === "function") {
+      let session;
+      try {
+        session = await sessions.getOwned(attemptId, environmentId);
+      } catch {
+        return false;
+      }
+      if (!session) return allowUnstarted;
+      if (session.producer !== PRODUCER) return false;
+    } else if (allowUnstarted) {
+      return true;
+    }
+    if (typeof sessions.isActive !== "function") return true;
+    try {
+      return (await sessions.isActive(attemptId, environmentId, PRODUCER)) !== false;
+    } catch {
+      return false;
+    }
+  }
+
   function create({ chrome, request, collect, sessions }) {
     const inFlight = new Map();
     const wire = root.KidItemSourcingAttemptWire.create({
@@ -77,9 +101,13 @@
               method: "GET",
             })
             .then((value) => parse(value, attemptId)),
-        terminal: (attempt, submission) =>
-          wire.terminal(config, attempt, submission, (value) =>
-            parse(value, attemptId),
+        terminal: (attempt, submission, options = {}) =>
+          wire.terminal(
+            config,
+            attempt,
+            submission,
+            (value) => parse(value, attemptId),
+            options,
           ),
       };
     }
@@ -103,12 +131,31 @@
       const owner = connection(environmentId, attemptId);
       const attempt = await owner.read();
       if (attempt.state !== "RUNNING") return result(attempt);
-      await sessions.start({ environmentId, attemptId, producer: PRODUCER });
+      if (!(await isLocallyActive(sessions, attemptId, environmentId, true))) {
+        return {
+          success: false,
+          attemptId,
+          terminalState: "RUNNING",
+          errorCode: "COLLECTION_CANCELLED",
+          error: "로켓 발주 수집이 취소되었습니다.",
+        };
+      }
+      const started = await sessions.start({ environmentId, attemptId, producer: PRODUCER });
+      if (started === null || started === false) return {
+        success: false,
+        attemptId,
+        terminalState: "RUNNING",
+        errorCode: "COLLECTION_CANCELLED",
+        error: "로켓 발주 수집이 취소되었습니다.",
+      };
       let observed;
       try {
         observed = await collect(attempt.plan, {
           attemptId,
           environmentId,
+          requireOwnedTab: true,
+          isActive: () => isLocallyActive(sessions, attemptId, environmentId),
+          assertActive: () => isLocallyActive(sessions, attemptId, environmentId),
           attachTab: (tab, { owned }) =>
             sessions.attachTab(attemptId, {
               tabId: tab.id,
@@ -124,9 +171,20 @@
       } catch (error) {
         observed = { success: false, error: error?.message };
       }
-      if (!(await sessions.get(attemptId))) {
+      if (!(await isLocallyActive(sessions, attemptId, environmentId))) {
         observed = {
           success: false,
+          errorCode: "COLLECTION_CANCELLED",
+          error: "로켓 발주 수집이 취소되었습니다.",
+        };
+      }
+      if (observed?.errorCode === "COLLECTION_CANCELLED") {
+        const current = await owner.read().catch(() => null);
+        if (current && current.state !== "RUNNING") return finish(current);
+        return {
+          success: false,
+          attemptId,
+          terminalState: "RUNNING",
           errorCode: "COLLECTION_CANCELLED",
           error: "로켓 발주 수집이 취소되었습니다.",
         };
@@ -151,9 +209,23 @@
                 "로켓 발주 수집에 실패했습니다.",
               ),
             };
+      if (!(await isLocallyActive(sessions, attemptId, environmentId))) {
+        return {
+          success: false,
+          attemptId,
+          terminalState: "RUNNING",
+          errorCode: "COLLECTION_CANCELLED",
+          error: "로켓 발주 수집이 취소되었습니다.",
+        };
+      }
       let terminal;
       try {
-        terminal = await owner.terminal(attempt, submission);
+        terminal = await owner.terminal(attempt, submission, {
+          shouldContinue: () =>
+            isLocallyActive(sessions, attemptId, environmentId),
+          cancelCode: "COLLECTION_CANCELLED",
+          cancelMessage: "로켓 발주 수집이 취소되었습니다.",
+        });
       } catch (error) {
         // A lost ACK does not establish failure. Recover the exact owner before
         // considering any different terminal request.
@@ -174,6 +246,11 @@
                 "rocket_po_response_invalid",
                 "로켓 발주 응답 형식이 올바르지 않습니다.",
               ),
+            }, {
+              shouldContinue: () =>
+                isLocallyActive(sessions, attemptId, environmentId),
+              cancelCode: "COLLECTION_CANCELLED",
+              cancelMessage: "로켓 발주 수집이 취소되었습니다.",
             })
             .catch(() => null);
           terminal ??= await owner.read().catch(() => null);

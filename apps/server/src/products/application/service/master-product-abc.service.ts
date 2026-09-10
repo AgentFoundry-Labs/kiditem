@@ -15,6 +15,7 @@ import {
   type ProductAbcRepositoryPort,
   type ProductAbcPublicationInput,
 } from '../port/out/repository/master-product-abc.repository.port';
+import { productAbcSaleAgeDays } from '@kiditem/shared/product-abc';
 import type {
   MasterProductAbcRecalculationInput,
   MasterProductAbcRecalculationPort,
@@ -45,7 +46,7 @@ export class MasterProductAbcService implements MasterProductAbcRecalculationPor
     }
 
     const calculatedAt = new Date();
-    const targetCutoff = completedKstMonthEnd(calculatedAt);
+    const targetCutoff = latestClosedKstDate(calculatedAt);
     const targetProductIds = uniqueSorted(
       await this.repository.listCurrentAbcTargetIds(input.organizationId),
     );
@@ -74,10 +75,10 @@ export class MasterProductAbcService implements MasterProductAbcRecalculationPor
 
     for (const masterProductId of targetProductIds) {
       const evidence = evidenceById.get(masterProductId);
-      if (!evidence || !evidence.selling || !evidence.mappingValid) {
+      if (!evidence || !evidence.selling) {
         throw new ConflictException({ code: 'INPUT_CHANGED' });
       }
-      if (!isEligibleEvidence(evidence)) {
+      if (!isEligibleEvidence(evidence, state.formula)) {
         unclassifiedProductCount += 1;
         continue;
       }
@@ -107,6 +108,11 @@ export class MasterProductAbcService implements MasterProductAbcRecalculationPor
           selectedComplete: snapshot.sourceVector.advertising,
         },
       },
+      saleAgeInputs: targetProductIds.map((masterProductId) => ({
+        masterProductId,
+        mappingValid: evidenceById.get(masterProductId)?.mappingValid ?? false,
+        saleStartDate: evidenceById.get(masterProductId)?.saleStartDate ?? null,
+      })),
       targetProductIds,
       candidates,
       calculatedAt,
@@ -152,8 +158,18 @@ function candidateRecord(
   };
 }
 
-function isEligibleEvidence(evidence: ProductProfitabilityEvidence): boolean {
-  return evidence.validObservationDays >= 30
+function isEligibleEvidence(
+  evidence: ProductProfitabilityEvidence,
+  formula: Parameters<typeof evaluateMasterProductAbc>[0]['formula'],
+): boolean {
+  const saleAgeDays = productAbcSaleAgeDays(
+    evidence.saleStartDate,
+    evidence.formulaReadyFacts?.cutoffDate ?? null,
+  );
+  return evidence.evaluationPeriodComplete
+    && evidence.mappingValid
+    && saleAgeDays !== null
+    && saleAgeDays >= formula.minimumSaleAgeDays
     && evidence.formulaReadyFacts !== null;
 }
 
@@ -177,7 +193,8 @@ function isReadyForPublication(
     if (!source.sourceImportRunId
       || !source.publicationSequence
       || source.mappingGeneration !== mappingGeneration
-      || source.coverageEndDate !== targetCutoff) return false;
+      || !source.coverageEndDate
+      || source.coverageEndDate < targetCutoff) return false;
   }
   return true;
 }
@@ -188,10 +205,10 @@ function assertOrganizationId(organizationId: string): void {
   }
 }
 
-/** Final day of the previous KST calendar month as a UTC calendar date string. */
-function completedKstMonthEnd(now: Date): string {
+/** Latest closed KST calendar date; ABC includes this partial cutoff month. */
+function latestClosedKstDate(now: Date): string {
   const kst = new Date(now.getTime() + 9 * 60 * 60 * 1_000);
-  return new Date(Date.UTC(kst.getUTCFullYear(), kst.getUTCMonth(), 0))
+  return new Date(Date.UTC(kst.getUTCFullYear(), kst.getUTCMonth(), kst.getUTCDate() - 1))
     .toISOString()
     .slice(0, 10);
 }

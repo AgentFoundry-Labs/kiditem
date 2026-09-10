@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -19,35 +20,41 @@ const adapterPath = path.join(
 );
 const marker = 'raw-snapshot-status-count-ok';
 
-test('allows only the reviewed campaign sweep status-count raw snapshot join', () => {
+test('allows named owners but rejects direct consumer and lookalike-owner reads', () => {
+  const fixture = mkdtempSync(path.join(tmpdir(), 'snapshot-boundary-'));
+  try {
+    for (const dir of ['scripts', 'apps/server/src/advertising/adapter/out/repository', 'apps/web/src', 'packages/shared/src']) {
+      mkdirSync(path.join(fixture, dir), { recursive: true });
+    }
+    copyFileSync(scannerPath, path.join(fixture, 'scripts/check-raw-snapshot-read-models.sh'));
+    const scan = () => spawnSync('bash', ['scripts/check-raw-snapshot-read-models.sh'], { cwd: fixture, encoding: 'utf8' });
+    const owner = 'apps/server/src/advertising/adapter/out/repository/ad-account-daily-kpi-source.repository.ts';
+    writeFileSync(path.join(fixture, owner), 'tx.channelScrapeSnapshot.findMany({});');
+    assert.equal(scan().status, 0);
+    for (const file of ['apps/web/src/screen.ts', 'apps/server/src/advertising/adapter/out/repository/lookalike-source.repository.ts']) {
+      writeFileSync(path.join(fixture, file), 'tx.channelScrapeSnapshot.findFirst({});');
+      const result = scan();
+      assert.equal(result.status, 1, result.stdout + result.stderr);
+      assert.ok(result.stdout.includes(file));
+      rmSync(path.join(fixture, file));
+    }
+    writeFileSync(path.join(fixture, 'packages/shared/src/read.ts'), 'SELECT * FROM channel_scrape_snapshots');
+    assert.equal(scan().status, 1);
+  } finally {
+    rmSync(fixture, { recursive: true, force: true });
+  }
+});
+
+test('does not retain the deleted campaign sweep raw-snapshot exception', () => {
   const scanner = readFileSync(scannerPath, 'utf8');
   const adapter = readFileSync(adapterPath, 'utf8');
-  const markerFiles = execFileSync(
+  const markerFiles = spawnSync(
     'rg',
     ['-l', '--fixed-strings', marker, 'apps/server/src'],
     { cwd: repoRoot, encoding: 'utf8' },
-  )
-    .trim()
-    .split('\n')
-    .filter(Boolean);
-
-  assert.match(
-    scanner,
-    /rg -v --fixed-strings 'raw-snapshot-status-count-ok'/,
   );
-  assert.deepEqual(markerFiles, [
-    'apps/server/src/advertising/adapter/out/repository/ad-campaign.repository.adapter.ts',
-  ]);
-  assert.equal(adapter.split(marker).length - 1, 1);
-
-  const methodStart = adapter.indexOf(
-    'private async queryLatestCompleteCampaignSweeps',
-  );
-  const methodEnd = adapter.indexOf('\n  findProductTargetRollups', methodStart);
-  assert.notEqual(methodStart, -1);
-  assert.notEqual(methodEnd, -1);
-  assert.match(
-    adapter.slice(methodStart, methodEnd),
-    /JOIN channel_scrape_snapshots snapshot -- raw-snapshot-status-count-ok/,
-  );
+  assert.equal(markerFiles.status, 1, markerFiles.stderr);
+  assert.equal(markerFiles.stdout, '');
+  assert.ok(!scanner.includes(marker));
+  assert.ok(!adapter.includes('queryLatestCompleteCampaignSweeps'));
 });

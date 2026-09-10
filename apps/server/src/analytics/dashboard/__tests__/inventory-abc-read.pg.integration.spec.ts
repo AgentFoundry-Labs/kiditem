@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD, PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD_HASH } from '@kiditem/shared/product-abc';
+import { PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD, PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH } from '@kiditem/shared/product-abc';
 import { SellpiaProductInventoryReader } from '../../sellpia-product-sales/sellpia-product-inventory-reader';
 import { InventoryAvailabilityRepositoryAdapter } from '../../../inventory/adapter/out/repository/inventory-availability.repository.adapter';
 import { InventoryAvailabilityService } from '../../../inventory/application/service/inventory-availability.service';
@@ -53,8 +53,8 @@ describe('Analytics inventory ABC reads (PostgreSQL)', () => {
     expect(result.gradeCount).toEqual({ A: 0, B: 0, C: 0 });
     expect(result.unclassifiedProductCount).toBe(1);
     expect(result.abcStatusCount).toEqual({
-      READY: 0, INSUFFICIENT_EVIDENCE: 0, SOURCE_UNMAPPED: 0,
-      SELLPIA_SOURCE_STALE: 1, AD_SOURCE_STALE: 0,
+      READY: 0, INSUFFICIENT_EVIDENCE: 0, SOURCE_UNMAPPED: 1,
+      SELLPIA_SOURCE_STALE: 0, AD_SOURCE_STALE: 0,
     });
   });
 
@@ -76,7 +76,7 @@ describe('Analytics inventory ABC reads (PostgreSQL)', () => {
     const summary = await dashboard.getSummary(buildDashboardContext(), TEST_ORGANIZATION_ID);
     expect(summary.abcStatusCount.READY).toBe(1);
     expect(summary.gradeCount).toEqual({ A: 1, B: 0, C: 0 });
-    expect(summary.abcFormula).toEqual(PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD);
+    expect(summary.abcFormula).toEqual(PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD);
     expect(summary.abcContributionProfit.amountByGrade.A).toBe(result.projection.summary.abcContributionProfitByGrade.A);
     expect(summary.abcContributionProfit.amountByGrade.A).toBeGreaterThan(0);
   });
@@ -128,9 +128,24 @@ describe('Analytics inventory ABC reads (PostgreSQL)', () => {
     const product = await prisma.masterProduct.create({ data: {
       organizationId: TEST_ORGANIZATION_ID, code: 'MASTER-OWN', name: 'Own product',
     } });
+    const inventoryImportedAt = new Date('2026-09-06T00:00:00.000Z');
+    const inventoryRun = await prisma.sourceImportRun.create({ data: {
+      organizationId: TEST_ORGANIZATION_ID,
+      sourceType: 'sellpia_inventory',
+      channelAccountId: null,
+      fileName: 'dashboard-inventory.json',
+      fileHash: 'd'.repeat(64),
+      status: 'completed',
+      rowCount: 1,
+      importedAt: inventoryImportedAt,
+      lastVerifiedAt: inventoryImportedAt,
+      verificationCount: 1,
+      freshnessGeneration: 1n,
+    } });
     const sku = await prisma.sellpiaInventorySku.create({ data: {
       organizationId: TEST_ORGANIZATION_ID, masterProductId: product.id,
       code: 'SKU-OWN', name: 'Own SKU', currentStock: 10,
+      lastImportRunId: inventoryRun.id,
     } });
     const account = await prisma.channelAccount.create({ data: {
       organizationId: TEST_ORGANIZATION_ID, channel: 'rocket', name: 'Rocket', status: 'active',
@@ -138,6 +153,7 @@ describe('Analytics inventory ABC reads (PostgreSQL)', () => {
     const listing = await prisma.channelListing.create({ data: {
       organizationId: TEST_ORGANIZATION_ID, channelAccountId: account.id,
       masterProductId: product.id, externalId: 'LISTING-OWN', status: 'active',
+      rawJson: { source: 'wing_app_data', saleStartedAt: '2026-05-01' },
     } });
     const option = await prisma.channelListingOption.create({ data: {
       organizationId: TEST_ORGANIZATION_ID, listingId: listing.id, externalOptionId: 'OPTION-OWN', status: '판매중',
@@ -146,23 +162,38 @@ describe('Analytics inventory ABC reads (PostgreSQL)', () => {
       organizationId: TEST_ORGANIZATION_ID, channelListingOptionId: option.id, sellpiaInventorySkuId: sku.id, quantity: 1,
     } });
     await prisma.sellpiaInventoryState.create({ data: {
-      organizationId: TEST_ORGANIZATION_ID, requestedGeneration: 1n, verifiedGeneration: 1n, lastVerifiedAt: new Date(),
+      organizationId: TEST_ORGANIZATION_ID,
+      requestedGeneration: 1n,
+      verifiedGeneration: 1n,
+      lastVerifiedAt: inventoryImportedAt,
+      lastCompletedImportRunId: inventoryRun.id,
     } });
     const attempt = await sellpia.beginAttempt(TEST_ORGANIZATION_ID, 'analytics-own-source');
+    const months = attempt.plan.coveredMonths.map((yearMonth) => ({
+      yearMonth,
+      orderQty: 1,
+      orderAmount: 10_000_000,
+      inQty: 1,
+      inAmount: 1_000_000,
+    }));
     await sellpia.submitAttempt(TEST_ORGANIZATION_ID, attempt.attemptId, {
-      attemptToken: attempt.attemptToken, parserVersion: 'sellpia-profitability-v1',
+      attemptToken: attempt.attemptToken, parserVersion: 'sellpia-profitability-v2',
       providerBackedEmptyProof: true, coveredMonths: attempt.plan.coveredMonths,
       provenance: { source: 'sellpia_stat_prd_profit', costBasis: 'ORDER_TIME_SUPPLY_COST', vatIncluded: true },
       products: [{ productCode: 'SKU-OWN', optionCode: '', productName: 'Own product', salePrice: 10_000_000, buyPrice: 1_000_000,
-        months: attempt.plan.coveredMonths.map((yearMonth) => ({ yearMonth, orderQty: 1, orderAmount: 10_000_000, inQty: 1, inAmount: 1_000_000 })),
+        totalOrderAmount: months.length * 10_000_000,
+        totalOrderQty: months.length,
+        totalInAmount: months.length * 1_000_000,
+        totalInQty: months.length,
+        months,
       }],
     });
     const ad = await advertising.beginAttempt({ organizationId: TEST_ORGANIZATION_ID, idempotencyKey: 'analytics-ad' });
     expect(ad.accounts).toEqual([]);
     await advertising.finalizeAttempt({ organizationId: TEST_ORGANIZATION_ID, attemptId: ad.attemptId, attemptToken: ad.attemptToken });
     const formula = await prisma.masterProductAbcFormulaVersion.create({ data: {
-      organizationId: TEST_ORGANIZATION_ID, formulaKey: 'PRODUCT_ABC_ABSOLUTE', version: 1,
-      formulaChecksum: PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD_HASH, formulaJson: JSON.parse(JSON.stringify(PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD)),
+      organizationId: TEST_ORGANIZATION_ID, formulaKey: 'PRODUCT_ABC_ABSOLUTE', version: PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD.version,
+      formulaChecksum: PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH, formulaJson: JSON.parse(JSON.stringify(PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD)),
     } });
     await prisma.masterProductAbcFormulaState.upsert({ where: { organizationId: TEST_ORGANIZATION_ID },
       create: { organizationId: TEST_ORGANIZATION_ID, activeFormulaVersionId: formula.id, formulaRevision: 1 },

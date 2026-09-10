@@ -1,5 +1,5 @@
 import { Prisma } from '@prisma/client';
-import { PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD } from '@kiditem/shared/product-abc';
+import { PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD } from '@kiditem/shared/product-abc';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SellpiaProductSalesService } from '../sellpia-product-sales.service';
 import { SellpiaProductInventoryReader } from '../sellpia-product-inventory-reader';
@@ -52,7 +52,10 @@ function row(o: {
   productName?: string;
   providerName?: string;
   capturedAt?: string;
+  coverageStartDate?: string;
+  coverageEndDate?: string;
 }) {
+  const [year, month] = o.yearMonth.split('-').map(Number);
   return {
     productCode: o.productCode,
     optionCode: o.optionCode ?? '1',
@@ -65,6 +68,8 @@ function row(o: {
     salePrice: 1100,
     buyPrice: 580,
     barcode: '880',
+    coverageStartDate: new Date(o.coverageStartDate ?? `${o.yearMonth}-01T00:00:00.000Z`),
+    coverageEndDate: new Date(o.coverageEndDate ?? Date.UTC(year!, month!, 0)),
     capturedAt: new Date(o.capturedAt ?? '2026-07-16T01:00:00.000Z'),
   };
 }
@@ -112,6 +117,38 @@ describe('SellpiaProductSalesService.getSummary', () => {
     expect(p2.avg2m).toBe(Math.round((500 + 453) / 2));
     // 3189 는 2026-07 데이터 없음 → monthly 에 0 채움
     expect(p2.monthly[2]).toEqual({ yearMonth: '2026-07', orderQty: 0 });
+  });
+
+  it('keeps partial boundary months in raw history but excludes them from complete-month metrics', async () => {
+    const { service, findMany } = makePrisma();
+    findMany.mockResolvedValueOnce([
+      row({
+        productCode: '9882',
+        yearMonth: '2025-07',
+        orderQty: 3,
+        coverageStartDate: '2025-07-29T00:00:00.000Z',
+        coverageEndDate: '2025-07-31T00:00:00.000Z',
+      }),
+      row({ productCode: '9882', yearMonth: '2026-05', orderQty: 133 }),
+      row({ productCode: '9882', yearMonth: '2026-06', orderQty: 13030 }),
+      row({
+        productCode: '9882',
+        yearMonth: '2026-07',
+        orderQty: 8,
+        coverageStartDate: '2026-07-01T00:00:00.000Z',
+        coverageEndDate: '2026-07-16T00:00:00.000Z',
+      }),
+    ]);
+
+    const out = await service.getSummary(ORGANIZATION_ID);
+
+    expect(out.months).toEqual(['2025-07', '2026-05', '2026-06', '2026-07']);
+    expect(out.completeMonths).toEqual(['2026-05', '2026-06']);
+    expect(out.products[0]).toMatchObject({
+      qty1m: 13030,
+      qty2m: 133 + 13030,
+      totalQty: 3 + 133 + 13030 + 8,
+    });
   });
 
   it('동적 행 등급 없이 현재고 미수집 상태와 운영상품 등급 요약을 채운다', async () => {
@@ -446,7 +483,7 @@ function storedEvaluation(abcGrade: 'A' | 'B' | 'C') {
     weightedAdvertisingSpend: decimal(0), weightedOperatingProfit: decimal(90),
     operatingProfitVelocity30: decimal(90), operatingMargin: decimal(0.9), lossPersistence: decimal(0),
     profitScore: decimal(80), marginScore: decimal(100), consistencyScore: decimal(100), economicScore: decimal(90),
-    validObservationDays: 30, formulaVersion: { formulaJson: PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD },
+    validObservationDays: 30, formulaVersion: { formulaJson: PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD },
     formulaRevision: 1, publicationRevision: 1, gradeBasisCutoffDate: new Date('2026-06-30'),
     sellpiaSourceImportRunId: '11111111-1111-4111-8111-111111111112',
     advertisingSourceImportRunId: '11111111-1111-4111-8111-111111111113',

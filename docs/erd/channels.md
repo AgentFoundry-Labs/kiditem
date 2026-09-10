@@ -89,6 +89,7 @@ erDiagram
     String campaignIdentity
     String campaignName
     String adGroup
+    String adGroupId
     String keyword
     String placement
     String status
@@ -274,6 +275,7 @@ erDiagram
     String id PK
     String organizationId FK
     String scrapeRunId FK
+    String sourceImportRunId FK
     String channel
     String source
     String pageType
@@ -293,6 +295,7 @@ erDiagram
   CoupangKeywordRankDailySnapshot {
     String id PK
     String organizationId FK
+    String sourceImportRunId FK
     String keyword
     String vendorItemId
     DateTime businessDate
@@ -314,6 +317,7 @@ erDiagram
   CoupangKeywordSerpDailySnapshot {
     String id PK
     String organizationId FK
+    String sourceImportRunId FK
     String keyword
     DateTime businessDate
     Json items
@@ -345,6 +349,7 @@ erDiagram
   CoupangWingSalesRankDailySnapshot {
     String id PK
     String organizationId FK
+    String sourceImportRunId FK
     String keyword
     String vendorItemId
     DateTime businessDate
@@ -501,6 +506,7 @@ erDiagram
   SellpiaSalesDailySnapshot {
     String id PK
     String organizationId FK
+    String sourceImportRunId FK
     DateTime businessDate
     String sellerId
     String sellerName
@@ -557,11 +563,15 @@ erDiagram
 | ChannelScrapeSnapshot | listing | references external | Core | ChannelListing |
 | ChannelScrapeSnapshot | listingOption | references external | Core | ChannelListingOption |
 | ChannelScrapeSnapshot | organization | references external | Core | Organization |
+| ChannelScrapeSnapshot | sourceImportRun | references external | Core | SourceImportRun |
 | CoupangKeywordRankDailySnapshot | organization | references external | Core | Organization |
+| CoupangKeywordRankDailySnapshot | sourceImportRun | references external | Core | SourceImportRun |
 | CoupangKeywordSerpDailySnapshot | organization | references external | Core | Organization |
+| CoupangKeywordSerpDailySnapshot | sourceImportRun | references external | Core | SourceImportRun |
 | CoupangKeywordTracker | organization | references external | Core | Organization |
 | CoupangRepresentativeKeywordOverride | organization | references external | Core | Organization |
 | CoupangWingSalesRankDailySnapshot | organization | references external | Core | Organization |
+| CoupangWingSalesRankDailySnapshot | sourceImportRun | references external | Core | SourceImportRun |
 | CoupangWingTrackedProduct | organization | references external | Core | Organization |
 | CoupangWingTrackedProductDailySnapshot | organization | references external | Core | Organization |
 | RocketPoCatalogLine | organization | references external | Core | Organization |
@@ -576,3 +586,4 @@ erDiagram
 | SellpiaProductMonthlySales | organization | references external | Core | Organization |
 | SellpiaProductMonthlySales | sourceImportRun | references external | Core | SourceImportRun |
 | SellpiaSalesDailySnapshot | organization | references external | Core | Organization |
+| SellpiaSalesDailySnapshot | sourceImportRun | references external | Core | SourceImportRun |

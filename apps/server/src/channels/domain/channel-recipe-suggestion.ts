@@ -144,6 +144,18 @@ export type ChannelRecipeSuggestionResponse = {
   }>;
 };
 
+export const BARCODE_NAME_COMPATIBILITY_THRESHOLD = 0.35;
+
+/**
+ * Reject known name mismatches; a missing comparison score remains unknown and
+ * therefore admissible for legacy barcode-only evidence.
+ */
+export function isBarcodeEvidenceNameCompatible(
+  score: number | null | undefined,
+): boolean {
+  return score === null || score === undefined || score >= BARCODE_NAME_COMPATIBILITY_THRESHOLD;
+}
+
 const PACK_TOKEN = /(?:\d+\s*(?:개입|개|입|팩|pcs?|p)(?![\p{L}\p{N}])|x\s*\d+|세트|묶음|구성|\bbundle\b|\bset\b)/giu;
 
 export function normalizeRecipeIdentityText(value: string | null): string | null {
@@ -279,16 +291,18 @@ function collectStrongEvidence(input: ChannelRecipeSuggestionInput): StrongEvide
         normalizedValue: item.channelValue,
       },
     })),
-    ...input.barcodeEvidence.map((item): StrongEvidence => ({
-      identifier: `physical_barcode:${item.normalizedValue}`,
-      source: 'barcode',
-      sku: item.sku,
-      evidence: {
-        kind: 'physical_barcode',
-        channelValue: item.channelValue,
-        normalizedValue: item.normalizedValue,
-      },
-    })),
+    ...input.barcodeEvidence
+      .filter((item) => isBarcodeEvidenceNameCompatible(item.nameCompatibilityScore))
+      .map((item): StrongEvidence => ({
+        identifier: `physical_barcode:${item.normalizedValue}`,
+        source: 'barcode',
+        sku: item.sku,
+        evidence: {
+          kind: 'physical_barcode',
+          channelValue: item.channelValue,
+          normalizedValue: item.normalizedValue,
+        },
+      })),
     ...input.nameOptionEvidence.map((item): StrongEvidence => ({
       identifier: `name_option:${item.normalizedProductValue}:${item.normalizedOptionValue ?? ''}`,
       source: 'name_option',
@@ -342,15 +356,15 @@ function packCounts(values: Array<string | null>): number[] {
 
 const QUANTITY_UNIT = String.raw`(?:개입|pcs?|피스|세트|묶음|구성|팩|ea|개|입|권|매|장|봉|종|p)`;
 const QUANTITY_UNIT_TOKEN = new RegExp(
-  String.raw`(\d+)\s*${QUANTITY_UNIT}(?![\p{L}\p{N}])`,
+  String.raw`(?<![\p{N}.])(\d+)\s*${QUANTITY_UNIT}(?![\p{L}\p{N}])`,
   'giu',
 );
 const QUANTITY_UNIT_MULTIPLIER = new RegExp(
-  String.raw`(\d+)\s*${QUANTITY_UNIT}\s*(?:[x×*]\s*)?(\d+)\s*(?:${QUANTITY_UNIT})?`,
+  String.raw`(?<![\p{N}.])(\d+)\s*${QUANTITY_UNIT}\s*[x×*]\s*(\d+)(?:\s*${QUANTITY_UNIT}(?![\p{L}\p{N}])|(?!\s*[\p{L}\p{N}.×x*]))`,
   'giu',
 );
 const QUANTITY_MULTIPLIER_WITH_UNIT = new RegExp(
-  String.raw`(\d+)\s*[x×*]\s*(\d+)\s*${QUANTITY_UNIT}`,
+  String.raw`(?<![\p{N}.])(\d+)\s*[x×*]\s*(\d+)\s*${QUANTITY_UNIT}(?![\p{L}\p{N}])`,
   'giu',
 );
 const CHOICE_OF_ONE = /\d+\s*종\s*(?:중\s*)?(?:택\s*1|랜덤\s*1)/giu;
@@ -402,9 +416,12 @@ function identifierNameMismatch(input: ChannelRecipeSuggestionInput): boolean {
   if (input.nameOptionEvidence.length > 0) return false;
   const scores = [
     ...input.codeEvidence.map((item) => item.nameCompatibilityScore),
-    ...input.barcodeEvidence.map((item) => item.nameCompatibilityScore),
+    ...input.barcodeEvidence
+      .filter((item) => isBarcodeEvidenceNameCompatible(item.nameCompatibilityScore))
+      .map((item) => item.nameCompatibilityScore),
   ].filter((score): score is number => score !== null && score !== undefined);
-  return scores.length > 0 && Math.max(...scores) < 0.35;
+  return scores.length > 0
+    && Math.max(...scores) < BARCODE_NAME_COMPATIBILITY_THRESHOLD;
 }
 
 function looseNameDecision(

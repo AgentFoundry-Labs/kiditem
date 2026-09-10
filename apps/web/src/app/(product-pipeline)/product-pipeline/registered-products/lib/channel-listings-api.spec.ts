@@ -67,6 +67,23 @@ it('begins with the original key header and strict collector input, rejecting an
     .rejects.toThrow('일치');
 });
 
+it('rejects a permit whose returned stage differs from the requested stage', async () => {
+  const account = '11111111-1111-4111-8111-111111111111';
+  const key = '22222222-2222-4222-8222-222222222222';
+  const permit = {
+    attemptId: key, attemptToken: key, state: 'RUNNING', expiresAt: '2030-01-01T00:00:00.000Z',
+    plan: { channelAccountId: account, collectorVersion: 'wing-inventory-v1', vendorId: 'A001',
+      listUrl: 'https://wing.coupang.com/list', detailUrl: 'https://wing.coupang.com/detail', publicationRevision: '0', stage: 'basics' },
+  };
+  vi.mocked(apiClient.post).mockResolvedValue(permit);
+
+  await expect(channelListingsApi.startCoupangCatalogCollection(
+    account,
+    { collectorVersion: 'wing-inventory-v1', stage: 'details' },
+    key,
+  )).rejects.toThrow('일치');
+});
+
 describe('channelListingsApi', () => {
   beforeEach(() => {
     vi.mocked(apiClient.get).mockReset();

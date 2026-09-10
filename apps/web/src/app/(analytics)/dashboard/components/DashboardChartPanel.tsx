@@ -11,6 +11,7 @@ import {
   useDepartmentQuickActions,
   type DepartmentQuickAction,
 } from '../hooks/use-department-quick-actions';
+import { type DashboardMetricBasis } from './DashboardDataBasis';
 
 const DashboardCharts = dynamic(
   () => import('./DashboardCharts').then((mod) => ({ default: mod.DashboardCharts })),
@@ -19,22 +20,29 @@ const DashboardCharts = dynamic(
 
 type DailyTrendPoint = {
   date: string;
-  revenue: number;
-  profit: number;
-  adCost: number;
-  profitRate: number;
-  adRate: number;
+  revenue: number | null;
+  profit: number | null;
+  adCost: number | null;
+  profitRate: number | null;
+  adRate: number | null;
+  evidence: {
+    revenue: DashboardMetricBasis | null;
+    profit: DashboardMetricBasis | null;
+    adCost: DashboardMetricBasis | null;
+  };
 };
 
 type IndustryBenchmark = {
-  avgAdRate: number;
-  avgProfitRate: number;
-  avgRoas: number;
-  avgCtr: number;
-  myAdRate?: number;
-  myRoas?: number;
-  myCtr?: number;
-  avgCvr?: number;
+  avgAdRate?: number | null;
+  avgProfitRate?: number | null;
+  avgRoas?: number | null;
+  avgCtr?: number | null;
+  avgCvr?: number | null;
+  myAdRate?: number | null;
+  myRoas?: number | null;
+  myCtr?: number | null;
+  myCvr?: number | null;
+  referenceStatus?: 'configured' | 'unavailable' | 'unknown';
 };
 
 // 인라인 실행 액션 — 대시보드에서 바로 실행한다(페이지 이동 없음).
@@ -96,12 +104,22 @@ const DEPT_MAP: readonly Dept[] = [
 export function DashboardChartPanel({
   dailyTrend,
   industryBenchmark,
+  benchmarkBases,
 }: {
   dailyTrend: DailyTrendPoint[];
   industryBenchmark?: IndustryBenchmark;
+  benchmarkBases?: {
+    adRate: DashboardMetricBasis | null;
+    roas: DashboardMetricBasis | null;
+    ctr: DashboardMetricBasis | null;
+    cvr: DashboardMetricBasis | null;
+  };
 }) {
   const [chartTab, setChartTab] = useState<'agents' | 'revenue' | 'ad' | 'benchmark'>('agents');
-  const hasTrend = dailyTrend.length > 0;
+  // A row with all nullable metrics missing is an evidence gap, not a usable
+  // trend. Keep the row for the x-axis (and the chart's null gap), but only
+  // enable trend tabs when at least one measured value exists.
+  const hasTrend = dailyTrend.some((point) => point.revenue !== null || point.profit !== null || point.adCost !== null);
   const hasBenchmark = !!industryBenchmark;
   const isAgentOs = chartTab === 'agents';
 
@@ -126,7 +144,7 @@ export function DashboardChartPanel({
     { key: 'agents' as const, label: 'Agent OS' },
     { key: 'revenue' as const, label: '매출 · 이익률' },
     { key: 'ad' as const, label: '광고비 · 비율' },
-    ...(hasBenchmark ? [{ key: 'benchmark' as const, label: '업계 평균 대비' }] : []),
+    ...(hasBenchmark ? [{ key: 'benchmark' as const, label: '업계 기준(참고)' }] : []),
   ];
 
   const adChartData = dailyTrend.map((point) => ({
@@ -134,6 +152,7 @@ export function DashboardChartPanel({
     adCost: point.adCost,
     revenue: point.revenue,
     adRate: point.adRate,
+    evidence: point.evidence,
   }));
 
   return (
@@ -262,13 +281,23 @@ export function DashboardChartPanel({
         dailyTrend={dailyTrend}
         adChartData={adChartData}
         benchmarkData={industryBenchmark ? [
-          { name: '광고비율', my: industryBenchmark.myAdRate ?? 0, avg: industryBenchmark.avgAdRate, unit: '%', invertGood: true },
-          { name: 'ROAS', my: industryBenchmark.myRoas ?? 0, avg: industryBenchmark.avgRoas, unit: '%', invertGood: false },
-          { name: 'CTR', my: industryBenchmark.myCtr ?? 0, avg: industryBenchmark.avgCtr, unit: '%', invertGood: false },
-          { name: 'CVR', my: industryBenchmark.avgCvr ?? 0, avg: 8, unit: '%', invertGood: false },
+          { name: '광고비율', my: industryBenchmark.myAdRate ?? null, avg: industryBenchmark.referenceStatus === 'configured' ? industryBenchmark.avgAdRate ?? null : null, unit: '%', invertGood: true, referenceUnavailable: industryBenchmark.referenceStatus !== 'configured' || industryBenchmark.avgAdRate == null, basis: benchmarkBases?.adRate ?? null },
+          { name: 'ROAS', my: industryBenchmark.myRoas ?? null, avg: industryBenchmark.referenceStatus === 'configured' ? industryBenchmark.avgRoas ?? null : null, unit: '%', invertGood: false, referenceUnavailable: industryBenchmark.referenceStatus !== 'configured' || industryBenchmark.avgRoas == null, basis: benchmarkBases?.roas ?? null },
+          { name: 'CTR', my: industryBenchmark.myCtr ?? null, avg: industryBenchmark.referenceStatus === 'configured' ? industryBenchmark.avgCtr ?? null : null, unit: '%', invertGood: false, referenceUnavailable: industryBenchmark.referenceStatus !== 'configured' || industryBenchmark.avgCtr == null, basis: benchmarkBases?.ctr ?? null },
+          { name: 'CVR', my: industryBenchmark.myCvr ?? null, avg: industryBenchmark.referenceStatus === 'configured' ? industryBenchmark.avgCvr ?? null : null, unit: '%', invertGood: false, referenceUnavailable: industryBenchmark.referenceStatus !== 'configured' || industryBenchmark.avgCvr == null, basis: benchmarkBases?.cvr ?? null },
         ] : null}
         hasTrend={hasTrend}
       />
+      {chartTab === 'benchmark' && (
+        <div className="px-5 pb-3 text-[11px] text-slate-400">
+          지표별 기준 근거는 각 카드에서 확인할 수 있습니다.
+        </div>
+      )}
+      {(chartTab === 'revenue' || chartTab === 'ad') && (
+        <div className="px-5 pb-3 text-[11px] text-slate-400">
+          날짜별 원천 근거와 누락 여부는 각 점의 툴팁에서 확인할 수 있습니다.
+        </div>
+      )}
     </div>
   );
 }

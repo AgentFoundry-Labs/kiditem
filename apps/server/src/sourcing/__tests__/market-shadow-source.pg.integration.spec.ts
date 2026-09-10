@@ -182,7 +182,8 @@ describe('Market Shadow source owner public service + disposable PG', () => {
       const active = await collect(key);
       await prisma.sourcingEvidenceIngestionRun.update({
         where: { id: active.attemptId, organizationId: ORG },
-        data: { leaseExpiresAt: new Date(Date.now() - 1) },
+        // Fixed past instant avoids the host/DB clock boundary.
+        data: { leaseExpiresAt: new Date(0) },
       });
       expect(await service.readAttempt(ORG, active.attemptId)).toMatchObject({
         state: 'FAILED',
@@ -193,6 +194,11 @@ describe('Market Shadow source owner public service + disposable PG', () => {
       await expect(collect()).rejects.toMatchObject({
         response: { code: 'SHADOW_DAILY_LIMIT', attemptId: active.attemptId },
       });
+      expect(
+        await prisma.sourcingEvidenceIngestionRun.findFirst({
+          where: { id: active.attemptId, organizationId: ORG },
+        }),
+      ).toMatchObject({ status: 'FAILED', errorCode: 'ATTEMPT_EXPIRED' });
       expect(await alerts.list(ORG)).toMatchObject([
         { status: 'OPEN', attemptId: active.attemptId },
       ]);

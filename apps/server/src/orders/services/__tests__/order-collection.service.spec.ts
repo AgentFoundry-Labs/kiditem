@@ -293,6 +293,75 @@ describe('OrderCollectionService', () => {
     expect(rows[2]?.[15]).toBe('택배비');
   });
 
+  it('builds the Icecream send-finish workbook on the server with one row per delivery', () => {
+    const service = new OrderCollectionService();
+    const result = service.convertIcecreamSendFinish({
+      headers: ['주문번호', '배송번호', '배송순번', '상품번호'],
+      rows: [
+        ['20260729M037101', '116569790', '1', '11287755'],
+        ['20260729M037101', '116569790', '1', 'DELIVERY-FEE'],
+        ['20260728M034091', '116565901', '1', '11258337'],
+      ],
+      tracking: [
+        {
+          ordNo: '20260729M037101',
+          itemNo: '11287755',
+          invNo: '576997610340',
+          courier: '1136',
+          provider: '아이스크림몰',
+        },
+        {
+          ordNo: '20260729M037101',
+          itemNo: 'DELIVERY-FEE',
+          invNo: '576997610340',
+          courier: '1136',
+          provider: '아이스크림몰',
+        },
+        {
+          ordNo: '20260728M034091',
+          itemNo: '11258337',
+          invNo: '576997610336',
+          courier: '1136',
+          provider: '아이스크림몰',
+        },
+      ],
+      fileName: '아이스크림몰_출고완료_20260729.xlsx',
+    });
+    const workbook = XLSX.read(result.buffer, { type: 'buffer' });
+    const rows = XLSX.utils.sheet_to_json<string[]>(workbook.Sheets.Sheet1, {
+      header: 1,
+      raw: false,
+      defval: '',
+    });
+
+    expect(result).toMatchObject({
+      sourceRows: 3,
+      productRows: 0,
+      outputRows: 2,
+      skippedRows: 1,
+      fileName: '아이스크림몰_출고완료_20260729.xlsx',
+    });
+    expect(rows).toEqual([
+      ['배송번호', '배송순번', '택배사', '송장번호'],
+      ['116569790', '1', '10', '576997610340'],
+      ['116565901', '1', '10', '576997610336'],
+    ]);
+  });
+
+  it('rejects conflicting Icecream tracking before producing a workbook', () => {
+    const service = new OrderCollectionService();
+
+    expect(() => service.convertIcecreamSendFinish({
+      headers: ['주문번호', '배송번호'],
+      rows: [['ORDER-1', 'DELIVERY-1']],
+      tracking: [
+        { ordNo: 'ORDER-1', invNo: 'INVOICE-1', courier: '1136' },
+        { ordNo: 'ORDER-1', invNo: 'INVOICE-2', courier: '1136' },
+      ],
+      fileName: 'send-finish.xlsx',
+    })).toThrow('서로 다른 송장');
+  });
+
   it('does not add another shipping row when a converted Cellpia file is uploaded again', async () => {
     const service = new OrderCollectionService();
     const firstResult = await service.convertIcecreamMallOrderFile(makeUploadFile([makeRow({})]));
@@ -393,6 +462,34 @@ describe('OrderCollectionService', () => {
     ).rejects.toMatchObject({
       response: { message: '파일 비밀번호가 맞지 않습니다.' },
     });
+  });
+
+  it('keeps the Art09 field order, defaults, validation, and CSV escaping on the server', () => {
+    const service = new OrderCollectionService();
+    const result = service.convertArt09Orders({
+      rows: [{
+        orderId: '20260727-1234567',
+        productName: '상품',
+        qty: 1,
+        message: '문 앞, 호출',
+      }, {
+        orderId: 'not-an-art09-order',
+        productName: '버려지는 행',
+        qty: 1,
+      }],
+    });
+    const csv = result.buffer.toString('utf8');
+
+    expect(result).toMatchObject({
+      fileName: expect.stringMatching(/^zzogzzog1_\d{8}_주문수집\.csv$/),
+      sourceRows: 1,
+      productRows: 1,
+      outputRows: 1,
+      skippedRows: 0,
+    });
+    expect(csv.startsWith('\uFEFF쇼핑몰,쇼핑몰번호,주문번호,품목별 주문번호')).toBe(true);
+    expect(csv).toContain('한국어 쇼핑몰,1,20260727-1234567,,"문 앞, 호출",****,****,,상품,상품,1,****');
+    expect(csv).not.toContain('버려지는 행');
   });
 
   it('throws when required order columns are missing', async () => {

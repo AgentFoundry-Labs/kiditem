@@ -125,13 +125,61 @@ describe('ChannelRecipeSuggestionService (PG integration)', () => {
 
     const typed = await createOption({
       externalId: 'TYPED-BARCODE',
+      displayName: 'Typed barcode product',
       barcode: '001-2345-6789-0',
     });
-    await createSku('SP-DUP', 'Another name', 2, '001234567890');
+    await createSku('SP-DUP', 'Typed barcode product', 2, '001234567890');
+    await createSku('SP-DUP-2', 'Typed barcode product', 2, '001234567890');
     await expect(service.suggest(TEST_ORGANIZATION_ID, typed.id)).resolves.toMatchObject({
       status: 'ambiguous',
       automationDecision: 'blocked',
     });
+  });
+
+  it('rejects an incompatible typed barcode while retaining the legitimate name candidate', async () => {
+    const option = await createOption({
+      externalId: 'SLIME-WATERGUN-BARCODE',
+      displayName: '퓨어 클리어 슬라임 투명 9개 x 150g',
+      barcode: '8806384804294',
+    });
+    const watergun = await createSku(
+      '10054-1',
+      '어린이 물총 워터건',
+      27,
+      '8806384804294',
+    );
+    const slime = await createSku(
+      '10429-1',
+      '2000퓨어클리어슬라임(쿠팡용)',
+      31,
+      '8806384804966',
+    );
+    const beforeComponents = await prisma.channelListingOptionInventoryComponent.count();
+    const beforeStock = await prisma.sellpiaInventorySku.findMany({
+      where: { id: { in: [watergun.id, slime.id] } },
+      select: { id: true, currentStock: true },
+      orderBy: { id: 'asc' },
+    });
+
+    const result = await service.suggest(TEST_ORGANIZATION_ID, option.id);
+
+    expect(result).toMatchObject({
+      status: 'name_review_only',
+      automationDecision: 'operator_review',
+      proposals: [expect.objectContaining({
+        sellpiaInventorySkuId: slime.id,
+      })],
+    });
+    expect(result.proposals).toHaveLength(1);
+    expect(result.proposals).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ sellpiaInventorySkuId: watergun.id }),
+    ]));
+    expect(await prisma.channelListingOptionInventoryComponent.count()).toBe(beforeComponents);
+    await expect(prisma.sellpiaInventorySku.findMany({
+      where: { id: { in: [watergun.id, slime.id] } },
+      select: { id: true, currentStock: true },
+      orderBy: { id: 'asc' },
+    })).resolves.toEqual(beforeStock);
   });
 
   it('proposes an exact listing-and-option name without creating a component', async () => {

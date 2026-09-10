@@ -17,7 +17,7 @@ import {
 } from 'class-validator';
 
 // Sellpia 상품별 이익현황(stat_prd_profit) 월별 소진 ingest 요청 DTO.
-// 확장이 stat_action.ajax.html(mode=stat_prd_profit)의 graph(월별)에서 상품별로 스크랩.
+// 확장이 graph 판매 facts와 purchase-period 상단 합계를 함께 검증해 전송한다.
 // `@Body()` 는 organizationId 를 받지 않는다(세션 소유).
 
 export class SellpiaProfitabilityMonthDto {
@@ -87,6 +87,26 @@ export class SellpiaProfitabilityProductDto {
   @MaxLength(64)
   barcode?: string;
 
+  @IsInt()
+  @Min(0)
+  @Max(2_147_483_647)
+  totalOrderAmount!: number;
+
+  @IsInt()
+  @Min(0)
+  @Max(2_147_483_647)
+  totalOrderQty!: number;
+
+  @IsInt()
+  @Min(0)
+  @Max(2_147_483_647)
+  totalInAmount!: number;
+
+  @IsInt()
+  @Min(0)
+  @Max(2_147_483_647)
+  totalInQty!: number;
+
   @IsArray()
   @ArrayMaxSize(24)
   @ValidateNested({ each: true })
@@ -118,8 +138,8 @@ export class SellpiaProfitabilitySubmitBodyDto {
   attemptToken!: string;
 
   @IsString()
-  @Equals('sellpia-profitability-v1')
-  parserVersion!: 'sellpia-profitability-v1';
+  @Equals('sellpia-profitability-v2')
+  parserVersion!: 'sellpia-profitability-v2';
 
   @IsBoolean()
   providerBackedEmptyProof!: boolean;

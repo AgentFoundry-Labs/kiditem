@@ -13,14 +13,12 @@ import { AuthModule } from './auth/auth.module';
 import { OrganizationScopeGuard } from './auth/guards/organization-scope.guard';
 import { RolesGuard } from './auth/guards/roles.guard';
 import { SessionAuthMiddleware } from './auth/middleware/session-auth.middleware';
-import { AutomationModule } from './automation/automation.module';
 import { ChannelsModule } from './channels/channels.module';
 import { CommonModule } from './common/common.module';
 import { StorageModule } from './common/storage/storage.module';
 import { FeatureGateModule } from './feature-gate/feature-gate.module';
 import { FinanceModule } from './finance/finance.module';
 import { InventoryModule } from './inventory/inventory.module';
-import { OperationsHttpModule } from './operations/operations-http.module';
 import { OrdersModule } from './orders/orders.module';
 import { OrganizationsModule } from './organizations/organizations.module';
 import { PrismaModule } from './prisma/prisma.module';
@@ -37,8 +35,6 @@ import { UploadsModule } from './uploads/uploads.module';
     EventEmitterModule.forRoot(),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 120 }]),
     PrismaModule,
-    // Source-failure alert routes must win over the legacy Automation
-    // controller while that owner is being retired.
     AlertsModule,
     AuthModule,
     CommonModule,
@@ -58,8 +54,6 @@ import { UploadsModule } from './uploads/uploads.module';
     RulesModule,
     AgentOsInteractionHttpModule,
     AgentOsRuntimeHttpModule,
-    AutomationModule,
-    OperationsHttpModule,
     AdvertisingModule,
     UploadsModule,
     ReadinessModule,

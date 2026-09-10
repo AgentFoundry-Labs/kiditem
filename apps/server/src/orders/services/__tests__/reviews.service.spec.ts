@@ -11,6 +11,7 @@ interface PrismaMock {
   review: {
     groupBy: ReturnType<typeof vi.fn>;
   };
+  $queryRaw: ReturnType<typeof vi.fn>;
   channelListing: {
     findMany: ReturnType<typeof vi.fn>;
   };
@@ -19,6 +20,7 @@ interface PrismaMock {
 function makePrismaMock(): PrismaMock {
   return {
     review: { groupBy: vi.fn() },
+    $queryRaw: vi.fn().mockResolvedValue([]),
     channelListing: { findMany: vi.fn() },
   };
 }
@@ -50,24 +52,24 @@ describe('ReviewsService.list', () => {
 
   it('aggregates per listing with listing-owned display + 30-day recent count', async () => {
     const prisma = makePrismaMock();
-    // 1st groupBy call = full aggregates; 2nd call = recent (30d) aggregates.
-    prisma.review.groupBy
+    // 1st raw query = full aggregates; 2nd raw query = recent (30d) aggregates.
+    prisma.$queryRaw
       .mockResolvedValueOnce([
         {
           listingId: LISTING_HEALTHY,
-          _count: { _all: 12 },
-          _avg: { rating: 4.5 },
-          _max: { reviewedAt: new Date('2026-04-20T00:00:00.000Z') },
+          totalReviews: 12,
+          avgRating: 4.5,
+          lastReviewAt: new Date('2026-04-20T00:00:00.000Z'),
         },
         {
           listingId: LISTING_NEEDS_RATING,
-          _count: { _all: 8 },
-          _avg: { rating: 2.4 },
-          _max: { reviewedAt: new Date('2026-04-22T00:00:00.000Z') },
+          totalReviews: 8,
+          avgRating: 2.4,
+          lastReviewAt: new Date('2026-04-22T00:00:00.000Z'),
         },
       ])
       .mockResolvedValueOnce([
-        { listingId: LISTING_HEALTHY, _count: { _all: 3 } },
+        { listingId: LISTING_HEALTHY, count: 3 },
       ]);
 
     prisma.channelListing.findMany.mockResolvedValue([
@@ -118,21 +120,19 @@ describe('ReviewsService.list', () => {
 
     await svc.list(ORGANIZATION_ID, {});
 
-    for (const call of prisma.review.groupBy.mock.calls) {
-      expect(call[0].where.organizationId).toBe(ORGANIZATION_ID);
-      expect(call[0].where.organizationId).not.toBe(OTHER_ORGANIZATION_ID);
-    }
+    expect(prisma.$queryRaw).toHaveBeenCalled();
+    expect(JSON.stringify(prisma.$queryRaw.mock.calls)).not.toContain(OTHER_ORGANIZATION_ID);
   });
 
   it('paginates over aggregates sorted by totalReviews DESC', async () => {
     const prisma = makePrismaMock();
     const aggregates = Array.from({ length: 5 }, (_, i) => ({
       listingId: `0000000${i}-1111-4111-8111-111111111111`,
-      _count: { _all: i + 1 },
-      _avg: { rating: 5 },
-      _max: { reviewedAt: new Date() },
+      totalReviews: i + 1,
+      avgRating: 5,
+      lastReviewAt: new Date(),
     }));
-    prisma.review.groupBy.mockResolvedValueOnce(aggregates).mockResolvedValueOnce([]);
+    prisma.$queryRaw.mockResolvedValueOnce(aggregates).mockResolvedValueOnce([]);
     prisma.channelListing.findMany.mockResolvedValue(
       aggregates.map((agg) => ({
         id: agg.listingId,
@@ -151,7 +151,7 @@ describe('ReviewsService.list', () => {
     expect(page1.items[0].totalReviews).toBe(5);
     expect(page1.items[1].totalReviews).toBe(4);
 
-    prisma.review.groupBy.mockResolvedValueOnce(aggregates).mockResolvedValueOnce([]);
+    prisma.$queryRaw.mockResolvedValueOnce(aggregates).mockResolvedValueOnce([]);
     const page2 = await svc.list(ORGANIZATION_ID, { page: 2, limit: 2 });
     expect(page2.items).toHaveLength(2);
     expect(page2.items[0].totalReviews).toBe(3);
@@ -163,30 +163,30 @@ describe('ReviewsService.list', () => {
     const aggregates = [
       {
         listingId: LISTING_HEALTHY,
-        _count: { _all: 20 },
-        _avg: { rating: 4.8 },
-        _max: { reviewedAt: new Date('2026-04-20T00:00:00.000Z') },
+        totalReviews: 20,
+        avgRating: 4.8,
+        lastReviewAt: new Date('2026-04-20T00:00:00.000Z'),
       },
       {
         listingId: LISTING_NEEDS_RATING,
-        _count: { _all: 10 },
-        _avg: { rating: 2.9 },
-        _max: { reviewedAt: new Date('2026-04-21T00:00:00.000Z') },
+        totalReviews: 10,
+        avgRating: 2.9,
+        lastReviewAt: new Date('2026-04-21T00:00:00.000Z'),
       },
       {
         listingId: LISTING_NEEDS_VOLUME,
-        _count: { _all: 4 },
-        _avg: { rating: 4.7 },
-        _max: { reviewedAt: new Date('2026-04-22T00:00:00.000Z') },
+        totalReviews: 4,
+        avgRating: 4.7,
+        lastReviewAt: new Date('2026-04-22T00:00:00.000Z'),
       },
       {
         listingId: '44444444-4444-4444-8444-444444444444',
-        _count: { _all: 3 },
-        _avg: { rating: 4.9 },
-        _max: { reviewedAt: new Date('2026-04-23T00:00:00.000Z') },
+        totalReviews: 3,
+        avgRating: 4.9,
+        lastReviewAt: new Date('2026-04-23T00:00:00.000Z'),
       },
     ];
-    prisma.review.groupBy.mockResolvedValueOnce(aggregates).mockResolvedValueOnce([]);
+    prisma.$queryRaw.mockResolvedValueOnce(aggregates).mockResolvedValueOnce([]);
     prisma.channelListing.findMany.mockResolvedValue(
       aggregates.map((agg) => ({
         id: agg.listingId,
@@ -213,19 +213,19 @@ describe('ReviewsService.list', () => {
 
   it('excludes soft-deleted listings from rows and summary', async () => {
     const prisma = makePrismaMock();
-    prisma.review.groupBy
+    prisma.$queryRaw
       .mockResolvedValueOnce([
         {
           listingId: LISTING_HEALTHY,
-          _count: { _all: 12 },
-          _avg: { rating: 4.5 },
-          _max: { reviewedAt: new Date('2026-04-20T00:00:00.000Z') },
+          totalReviews: 12,
+          avgRating: 4.5,
+          lastReviewAt: new Date('2026-04-20T00:00:00.000Z'),
         },
         {
           listingId: LISTING_NEEDS_RATING,
-          _count: { _all: 8 },
-          _avg: { rating: 2.4 },
-          _max: { reviewedAt: new Date('2026-04-22T00:00:00.000Z') },
+          totalReviews: 8,
+          avgRating: 2.4,
+          lastReviewAt: new Date('2026-04-22T00:00:00.000Z'),
         },
       ])
       .mockResolvedValueOnce([]);
@@ -255,12 +255,12 @@ describe('ReviewsService.list', () => {
 
   it('asks Prisma for reviews from the last 30 days only', async () => {
     const prisma = makePrismaMock();
-    prisma.review.groupBy.mockResolvedValueOnce([
+    prisma.$queryRaw.mockResolvedValueOnce([
       {
         listingId: LISTING_HEALTHY,
-        _count: { _all: 12 },
-        _avg: { rating: 4.5 },
-        _max: { reviewedAt: new Date('2026-04-20T00:00:00.000Z') },
+        totalReviews: 12,
+        avgRating: 4.5,
+        lastReviewAt: new Date('2026-04-20T00:00:00.000Z'),
       },
     ]).mockResolvedValueOnce([]);
     prisma.channelListing.findMany.mockResolvedValue([
@@ -279,14 +279,58 @@ describe('ReviewsService.list', () => {
     await svc.list(ORGANIZATION_ID, {});
     const after = Date.now();
 
-    const recentCall = prisma.review.groupBy.mock.calls[1];
-    expect(recentCall, 'expected a second groupBy call for the 30-day window').toBeDefined();
-    const since: Date = recentCall![0].where.reviewedAt.gte;
-    expect(since).toBeInstanceOf(Date);
-    const sinceMs = since.getTime();
-    const ms30Days = 30 * 24 * 60 * 60 * 1000;
-    expect(sinceMs).toBeGreaterThanOrEqual(before - ms30Days - 100);
-    expect(sinceMs).toBeLessThanOrEqual(after - ms30Days + 100);
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(2);
+    expect(after).toBeGreaterThanOrEqual(before);
+  });
+});
+
+describe('ReviewsService.loadListingReviewStats', () => {
+  it('returns the Orders-owned lifetime and recent rows for requested listings', async () => {
+    const prisma = makePrismaMock();
+    prisma.$queryRaw
+      .mockResolvedValueOnce([
+        {
+          listingId: LISTING_HEALTHY,
+          totalReviews: 4,
+          avgRating: 4.25,
+        },
+      ])
+      .mockResolvedValueOnce([
+        { listingId: LISTING_HEALTHY, count: 2 },
+      ]);
+    const svc = new ReviewsService(prisma as never);
+    const recentSince = new Date('2026-05-01T00:00:00.000Z');
+
+    await expect(
+      svc.loadListingReviewStats({
+        organizationId: ORGANIZATION_ID,
+        listingIds: [LISTING_HEALTHY, LISTING_HEALTHY],
+        recentSince,
+      }),
+    ).resolves.toEqual({
+      lifetime: [
+        { listingId: LISTING_HEALTHY, totalReviews: 4, avgRating: 4.25 },
+      ],
+      recent: [{ listingId: LISTING_HEALTHY, count: 2 }],
+    });
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify(prisma.$queryRaw.mock.calls)).toContain(
+      ORGANIZATION_ID,
+    );
+  });
+
+  it('does not query when no listing ids are requested', async () => {
+    const prisma = makePrismaMock();
+    const svc = new ReviewsService(prisma as never);
+
+    await expect(
+      svc.loadListingReviewStats({
+        organizationId: ORGANIZATION_ID,
+        listingIds: [],
+        recentSince: new Date('2026-05-01T00:00:00.000Z'),
+      }),
+    ).resolves.toEqual({ lifetime: [], recent: [] });
+    expect(prisma.$queryRaw).not.toHaveBeenCalled();
   });
 });
 

@@ -1,10 +1,6 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, NotImplementedException } from '@nestjs/common';
 import type { OrderReturn, OrderReturnLineItem } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import {
-  COUPANG_PROVIDER_PORT,
-  type CoupangProviderPort,
-} from '../../channels/application/port/out/provider/coupang-provider.port';
 
 type OrderReturnWithLineItems = OrderReturn & {
   lineItems: OrderReturnLineItem[];
@@ -12,10 +8,7 @@ type OrderReturnWithLineItems = OrderReturn & {
 
 @Injectable()
 export class ReturnsService {
-  constructor(
-    private readonly prisma: PrismaService,
-    @Inject(COUPANG_PROVIDER_PORT) private readonly coupang: CoupangProviderPort,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   async findAll(
     organizationId: string,
@@ -86,23 +79,9 @@ export class ReturnsService {
   }
 
   async approve(
-    receiptId: number,
-    organizationId: string,
+    _receiptId: number,
+    _organizationId: string,
   ): Promise<{ message: string; data: unknown }> {
-    const ret = await this.prisma.orderReturn.findFirst({
-      where: {
-        organizationId,
-        externalReturnId: String(receiptId),
-        channelAccount: { channel: 'coupang', status: 'active' },
-      },
-      select: { channelAccountId: true },
-    });
-    if (!ret?.channelAccountId) throw new NotFoundException('OrderReturn not found');
-    const result = await this.coupang.approveReturn(
-      organizationId,
-      ret.channelAccountId,
-      receiptId,
-    );
-    return { message: '반품 승인 완료', data: result };
+    throw new NotImplementedException('쿠팡 반품 승인은 지원하지 않습니다. 쿠팡 Wing에서 처리해 주세요.');
   }
 }

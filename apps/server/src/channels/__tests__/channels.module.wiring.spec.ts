@@ -10,21 +10,16 @@ import { ChannelRegistrationCapabilityAdapter } from '../adapter/in/agent/channe
 import { ChannelAccountRepositoryAdapter } from '../adapter/out/repository/channel-account.repository.adapter';
 import { ChannelDashboardRepositoryAdapter } from '../adapter/out/repository/channel-dashboard.repository.adapter';
 import { ChannelListingRepositoryAdapter } from '../adapter/out/repository/channel-listing.repository.adapter';
-import { ChannelSyncRepositoryAdapter } from '../adapter/out/repository/channel-sync.repository.adapter';
 import { MarketplaceRegistrationRepositoryAdapter } from '../adapter/out/repository/marketplace-registration.repository.adapter';
-import { CoupangProviderAdapter } from '../adapter/out/coupang/coupang-provider.adapter';
 import { CHANNELS_MARKETPLACE_REGISTRATION_CAPABILITY_PORT } from '../application/port/in/capability/marketplace-registration.port';
 import {
   CHANNEL_ACCOUNT_REPOSITORY_PORT,
-  COUPANG_CREDENTIALS_PORT,
 } from '../application/port/out/repository/channel-account.repository.port';
 import { CHANNEL_DASHBOARD_REPOSITORY_PORT } from '../application/port/out/repository/channel-dashboard.repository.port';
 import {
   CHANNEL_LISTING_REPOSITORY_PORT,
   MARKETPLACE_REGISTRATION_REPOSITORY_PORT,
 } from '../application/port/out/repository/channel-listing.repository.port';
-import { CHANNEL_SYNC_REPOSITORY_PORT } from '../application/port/out/repository/channel-sync.repository.port';
-import { COUPANG_PROVIDER_PORT } from '../application/port/out/provider/coupang-provider.port';
 import { ChannelCatalogImportController } from '../adapter/in/http/channel-catalog-import.controller';
 import { ChannelCatalogImportRepositoryAdapter } from '../adapter/out/repository/channel-catalog-import.repository.adapter';
 import { CHANNEL_CATALOG_IMPORT_PORT } from '../application/port/in/channel-catalog-import.port';
@@ -47,6 +42,10 @@ import {
   CHANNEL_SKU_AVAILABILITY_PORT,
 } from '../application/port/in/channel-sku-availability.port';
 import { ChannelSkuAvailabilityService } from '../application/service/channel-sku-availability.service';
+import { CoupangWingInventoryExportController } from '../adapter/in/http/coupang-wing-inventory-export.controller';
+import { CoupangWingRegistrationExportController } from '../adapter/in/http/coupang-wing-registration-export.controller';
+import { CoupangWingInventoryExportService } from '../application/service/coupang-wing-inventory-export.service';
+import { CoupangWingRegistrationExportService } from '../application/service/coupang-wing-registration-export.service';
 import { RocketPoCatalogService } from '../application/service/rocket-po-catalog.service';
 import { RocketPoCatalogRepositoryAdapter } from '../adapter/out/repository/rocket-po-catalog.repository.adapter';
 import { ROCKET_PO_CATALOG_PORT } from '../application/port/in/rocket-po-catalog.port';
@@ -85,7 +84,6 @@ describe('ChannelsModule canonical owner wiring', () => {
       typeof value === 'function' ? value.name : String(value));
     expect(wiredNames.join('\n')).not.toMatch(/ChannelReconciliation|RECONCILIATION/);
     expect(exports_).toEqual(expect.arrayContaining([
-      COUPANG_PROVIDER_PORT,
       CHANNEL_SKU_AVAILABILITY_PORT,
       CHANNELS_MARKETPLACE_REGISTRATION_CAPABILITY_PORT,
       ROCKET_PO_CATALOG_PORT,
@@ -125,8 +123,6 @@ describe('ChannelsModule canonical owner wiring', () => {
     expect(providers).toContain(ChannelDashboardRepositoryAdapter);
     expect(providers).toContain(ChannelListingRepositoryAdapter);
     expect(providers).toContain(MarketplaceRegistrationRepositoryAdapter);
-    expect(providers).toContain(ChannelSyncRepositoryAdapter);
-    expect(providers).toContain(CoupangProviderAdapter);
     expect(providers).toContain(ChannelRegistrationCapabilityAdapter);
     expect(providers).toContain(ChannelCatalogImportService);
     expect(providers).toContain(ChannelCatalogImportRepositoryAdapter);
@@ -134,6 +130,8 @@ describe('ChannelsModule canonical owner wiring', () => {
     expect(providers).toContain(ChannelRecipeSuggestionService);
     expect(providers).toContain(SellpiaManualMatchService);
     expect(providers).toContain(ChannelSkuAvailabilityService);
+    expect(providers).toContain(CoupangWingInventoryExportService);
+    expect(providers).toContain(CoupangWingRegistrationExportService);
     expect(providers).toContain(ChannelProductMatchingRepositoryAdapter);
     expect(providers).toContain(ChannelRecipeSuggestionContextRepositoryAdapter);
     expect(providers).toContain(SellpiaManualMatchRepositoryAdapter);
@@ -146,7 +144,6 @@ describe('ChannelsModule canonical owner wiring', () => {
     ]));
 
     expectBinding(providers, CHANNEL_ACCOUNT_REPOSITORY_PORT, ChannelAccountRepositoryAdapter);
-    expectBinding(providers, COUPANG_CREDENTIALS_PORT, ChannelAccountRepositoryAdapter);
     expectBinding(providers, CHANNEL_DASHBOARD_REPOSITORY_PORT, ChannelDashboardRepositoryAdapter);
     expectBinding(providers, CHANNEL_LISTING_REPOSITORY_PORT, ChannelListingRepositoryAdapter);
     expectBinding(
@@ -154,8 +151,6 @@ describe('ChannelsModule canonical owner wiring', () => {
       MARKETPLACE_REGISTRATION_REPOSITORY_PORT,
       MarketplaceRegistrationRepositoryAdapter,
     );
-    expectBinding(providers, CHANNEL_SYNC_REPOSITORY_PORT, ChannelSyncRepositoryAdapter);
-    expectBinding(providers, COUPANG_PROVIDER_PORT, CoupangProviderAdapter);
     expectBinding(
       providers,
       CHANNELS_MARKETPLACE_REGISTRATION_CAPABILITY_PORT,
@@ -207,6 +202,8 @@ describe('ChannelsModule canonical owner wiring', () => {
     expect(controllers).toContain(ChannelCatalogImportController);
     expect(controllers).toContain(ChannelProductMatchingController);
     expect(controllers).toContain(ChannelSkuAvailabilityController);
+    expect(controllers).toContain(CoupangWingInventoryExportController);
+    expect(controllers).toContain(CoupangWingRegistrationExportController);
   });
 
   it('does not export the mapping repository implementation', () => {

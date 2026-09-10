@@ -19,13 +19,14 @@ describe('dashboard monthly sales card preservation', () => {
   });
 
   it('subtracts collected Coupang ad spend and renders receipt-style expenses', () => {
-    expect(pageSource).toContain('const spAdCost = sp?.adCost ?? 0;');
-    expect(pageSource).toContain('const spProfit = sp?.netProfit ??');
-    expect(pageSource).toContain('const spProfitRate = sp?.profitRate ?? 0;');
-    expect(pageSource).toContain('const profitRateAvailable = sellpiaHasData ? spTotal > 0 : profitMetricsAvailable;');
-    expect(pageSource).toContain('const displayProfitRate = sellpiaHasData ? spProfitRate : profitRate;');
-    expect(pageSource).toContain('<DashboardExpenseAmount amount={spCost} />');
-    expect(pageSource).toContain('<DashboardExpenseAmount amount={spAdCost} />');
+    expect(pageSource).toContain('const spAdCost = sellpiaProfitInputs?.adCost ?? null;');
+    expect(pageSource).toContain('const spProfit = sellpiaProfitInputsAvailable ? sp?.netProfit ?? null : null;');
+    expect(pageSource).toContain('const spProfitRate = sellpiaProfitInputsAvailable ? sp?.profitRate ?? null : null;');
+    expect(pageSource).toContain('spProfitRate !== null');
+    expect(pageSource).toContain('const displayProfitRate = sellpiaHasData && sellpiaProfitInputsAvailable');
+    expect(pageSource).toContain('공통 유효 날짜 집합이 비어 있습니다.');
+    expect(pageSource).toContain('<ExpenseAmountOrUnavailable amount={spCost} />');
+    expect(pageSource).toContain('<ExpenseAmountOrUnavailable amount={spAdCost} />');
     expect(pageSource).toContain('{profitRateAvailable ? (');
   });
 
@@ -39,7 +40,7 @@ describe('dashboard monthly sales card preservation', () => {
 
   it('uses only Sellpia channel facts for the Rocket split card', () => {
     expect(pageSource).not.toContain('rocketRevenue');
-    expect(pageSource).toContain('const displayRocket = sellpiaHasData ? spRocket : 0;');
+    expect(pageSource).toContain('const displayRocket = sellpiaHasData ? spRocket : null;');
     expect(pageSource).toContain('const displayOthers = sellpiaHasData ? spOthers : wingRevenue;');
     expect(pageSource).toContain('{sellpiaHasData && (');
   });

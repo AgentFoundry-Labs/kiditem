@@ -49,7 +49,8 @@ describe('ProfitabilityEvidence (PostgreSQL)', () => {
       new ProductOperationsDataStatusRepositoryAdapter(prisma as never, evidence),
     );
 
-    const candidate = await evidence.load({ organizationId: TEST_ORGANIZATION_ID, targetCutoff: published.plan.to });
+    const targetCutoff = published.plan.to;
+    const candidate = await evidence.load({ organizationId: TEST_ORGANIZATION_ID, targetCutoff });
     const display = await products.getStatus(TEST_ORGANIZATION_ID, 30);
 
     expect(candidate.actualCutoff).toBeNull();
@@ -86,42 +87,59 @@ describe('ProfitabilityEvidence (PostgreSQL)', () => {
       advertising,
       prisma as never,
     );
+    const targetCutoff = ownSellpia.plan.to;
+    const formulaMonths = calendarMonthRange(targetCutoff, 12);
     const result = await service.load({
       organizationId: TEST_ORGANIZATION_ID,
-      targetCutoff: ownSellpia.plan.to,
+      targetCutoff,
     });
 
     expect(result).toMatchObject({
-      targetCutoff: ownSellpia.plan.to,
-      actualCutoff: ownSellpia.plan.to,
+      targetCutoff,
+      actualCutoff: targetCutoff,
       mappingGeneration: '0',
       contributionBasis: {
-        basisFromDate: ownSellpia.plan.from,
-        basisCutoffDate: ownSellpia.plan.to,
+        basisFromDate: `${formulaMonths[0]}-01`,
+        basisCutoffDate: targetCutoff,
       },
       sources: {
         sellpia: { status: 'READY', latestAttemptState: 'COMPLETE' },
         advertising: { status: 'READY', latestAttemptState: 'COMPLETE' },
       },
     });
+    expect(inclusiveDateCount(ownSellpia.plan.from, ownSellpia.plan.to)).toBe(401);
+    expect(result.sourceVector.sellpia).toMatchObject({
+      coverageStartDate: ownSellpia.plan.from,
+      coverageEndDate: ownSellpia.plan.to,
+    });
+    expect(new Date(`${ownSellpia.plan.to}T00:00:00.000Z`).getTime()).toBeGreaterThanOrEqual(
+      new Date(`${targetCutoff}T00:00:00.000Z`).getTime(),
+    );
     expect(result.products).toHaveLength(2);
     const ownEvidence = result.products.find((product) => product.masterProductId === ownProductId);
     const zeroEvidence = result.products.find((product) => product.masterProductId === zeroProductId);
     expect(ownEvidence).toMatchObject({
       selling: true,
       mappingValid: true,
-      formulaReadyFacts: { cutoffDate: ownSellpia.plan.to },
+      saleStartDate: '2026-05-01',
+      evaluationPeriodComplete: false,
+      validObservationDays: inclusiveDateCount(`${targetCutoff.slice(0, 7)}-01`, targetCutoff),
+      formulaReadyFacts: { cutoffDate: targetCutoff },
     });
-    expect(ownEvidence?.formulaReadyFacts?.monthlyFacts).toHaveLength(12);
+    expect(ownEvidence?.formulaReadyFacts?.monthlyFacts.map((fact) => fact.yearMonth))
+      .toEqual([targetCutoff.slice(0, 7)]);
     expect(ownEvidence?.formulaReadyFacts?.monthlyFacts.at(-1)).toMatchObject({
       recognizedRevenue: 2_000,
       orderTimeSupplyCost: 1_200,
       advertisingSpend: 0,
       provenance: { advertisingEvidence: 'NOT_APPLIED' },
     });
-    expect(zeroEvidence?.formulaReadyFacts?.monthlyFacts).toHaveLength(12);
-    expect(zeroEvidence?.formulaReadyFacts?.monthlyFacts.every((fact) =>
-      fact.recognizedRevenue === 0 && fact.orderTimeSupplyCost === 0)).toBe(true);
+    expect(zeroEvidence).toMatchObject({
+      mappingValid: true,
+      saleStartDate: '2026-05-01',
+      validObservationDays: 0,
+      formulaReadyFacts: null,
+    });
   });
 });
 
@@ -146,6 +164,48 @@ async function seedMappedProduct(
       currentStock: 1,
     },
   });
+  const account = await prisma.channelAccount.create({
+    data: {
+      organizationId,
+      channel: 'coupang',
+      name: `${suffix} Wing`,
+      externalAccountId: `account-${suffix.toLowerCase()}`,
+      vendorId: `vendor-${suffix.toLowerCase()}`,
+      // Historical mapping evidence is independent of current account status;
+      // keeping the account inactive also makes the paired ad fixture an
+      // explicit empty-generation proof.
+      status: 'inactive',
+    },
+  });
+  const listing = await prisma.channelListing.create({
+    data: {
+      organizationId,
+      channelAccountId: account.id,
+      masterProductId: product.id,
+      externalId: `listing-${suffix.toLowerCase()}`,
+      status: 'active',
+      rawJson: { source: 'wing_app_data', saleStartedAt: '2026-05-01' },
+    },
+  });
+  const option = await prisma.channelListingOption.create({
+    data: {
+      organizationId,
+      listingId: listing.id,
+      externalOptionId: `option-${suffix.toLowerCase()}`,
+      status: '판매중',
+    },
+  });
+  await prisma.channelListingOptionInventoryComponent.create({
+    data: {
+      organizationId,
+      channelListingOptionId: option.id,
+      sellpiaInventorySkuId: (await prisma.sellpiaInventorySku.findFirstOrThrow({
+        where: { organizationId, masterProductId: product.id },
+        select: { id: true },
+      })).id,
+      quantity: 1,
+    },
+  });
   return product.id;
 }
 
@@ -161,7 +221,7 @@ async function publishSellpia(
   );
   await owner.submitAttempt(organizationId, attempt.attemptId, {
     attemptToken: attempt.attemptToken,
-    parserVersion: 'sellpia-profitability-v1',
+    parserVersion: 'sellpia-profitability-v2',
     providerBackedEmptyProof: true,
     coveredMonths: attempt.plan.coveredMonths,
     provenance: {
@@ -175,8 +235,14 @@ async function publishSellpia(
       productName: `${suffix} product`,
       salePrice: 1_000,
       buyPrice: 600,
+      totalOrderAmount: revenue,
+      totalOrderQty: 2,
+      totalInAmount: Math.floor(revenue * 0.6),
+      totalInQty: 2,
       months: [{
-        yearMonth: attempt.plan.coveredMonths.at(-1)!,
+        // The source ends at the latest closed KST day. This deliberately
+        // exercises the partial cutoff month without inventing daily rows.
+        yearMonth: attempt.plan.to.slice(0, 7),
         orderQty: 2,
         orderAmount: revenue,
         inQty: 2,
@@ -198,5 +264,25 @@ async function publishEmptyAdvertising(
     organizationId,
     attemptId: attempt.attemptId,
     attemptToken: attempt.attemptToken,
+  });
+}
+
+function inclusiveDateCount(from: string, to: string): number {
+  return Math.floor(
+    (new Date(`${to}T00:00:00.000Z`).getTime()
+      - new Date(`${from}T00:00:00.000Z`).getTime())
+    / 86_400_000,
+  ) + 1;
+}
+
+function calendarMonthRange(targetCutoff: string, count: number): string[] {
+  const match = /^(\d{4})-(0[1-9]|1[0-2])-\d{2}$/.exec(targetCutoff);
+  if (!match) throw new Error('Expected a calendar cutoff');
+  const normalizedCount = Math.max(1, Math.floor(count));
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  return Array.from({ length: normalizedCount }, (_, index) => {
+    const date = new Date(Date.UTC(year, month - 1 - (normalizedCount - 1 - index), 1));
+    return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
   });
 }

@@ -23,16 +23,18 @@ describe('useDepartmentQuickActions execution boundaries', () => {
     const trendScreen = source(
       'src/app/(sourcing-ai)/sourcing-ai/market/components/TrendCollectionSection.tsx',
     );
-    const sellpiaScreen = source('src/hooks/useSellpiaInventoryFreshness.ts');
+    const sellpiaScreen = source(
+      'src/app/(inventory)/_shared/sellpia-inventory-source-owner.ts',
+    );
     const sharedOrderAction = source('src/hooks/useAllMarketplaceOrderCollection.ts');
 
     expect(dashboard).toContain('usePersistedAllMarketplaceOrderCollection');
-    expect(dashboard).toContain('useSellpiaInventoryFreshness');
-    expect(dashboard).toContain("sourceSurface: 'dashboard'");
+    expect(dashboard).toContain('useSellpiaInventorySourceOwner');
+    expect(dashboard).toContain('startSellpiaInventoryRefresh');
     expect(sharedOrderAction).toContain('useAllMarketplaceOrderCollection');
     expect(sharedOrderAction).toContain('await refetchMallAccounts()');
     expect(sharedOrderAction).toContain('collectAll(latestAccounts)');
-    expect(sharedOrderAction).toContain('await syncRun(activeRun.runId)');
+    expect(sharedOrderAction).toContain('await syncRun(activeRun.attemptId)');
     expect(orderScreen).toContain('useAllMarketplaceOrderCollection');
 
     for (const [sharedAction, domainSource] of [
@@ -46,6 +48,7 @@ describe('useDepartmentQuickActions execution boundaries', () => {
     expect(dashboard).toContain("@/hooks/use-trend-source-collection");
     expect(trendScreen).toContain("@/hooks/use-trend-source-collection");
     expect(dashboard).not.toContain('startTrendCollectionAction');
-    expect(sellpiaScreen).toContain('startSellpiaInventoryRefreshAction');
+    expect(sellpiaScreen).toContain('collectSellpiaInventory');
+    expect(dashboard).not.toContain('manual-operation-actions');
   });
 });

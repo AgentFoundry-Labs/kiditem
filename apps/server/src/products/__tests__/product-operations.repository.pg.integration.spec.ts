@@ -6,8 +6,8 @@ import {
 } from '@nestjs/common';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
-  PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD,
-  PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD_HASH,
+  PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
+  PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH,
 } from '@kiditem/shared/product-abc';
 import { CatalogDisplayMediaRepositoryAdapter } from '../../ai/adapter/out/repository/catalog-display-media.repository.adapter';
 import { CatalogDisplayMediaService } from '../../ai/application/service/catalog-display-media.service';
@@ -38,6 +38,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
   let service: ProductOperationsService;
   let sellpia: SellpiaProfitabilitySourceService;
   let advertising: ProfitabilityAdImportRepositoryAdapter;
+  let inventoryRunByOrganization: Map<string, string>;
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
@@ -70,22 +71,38 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
   beforeEach(async () => {
     await resetDb(prisma);
     await seedBaseFixture(prisma);
-    await prisma.sellpiaInventoryState.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        requestedGeneration: 1n,
-        verifiedGeneration: 1n,
-        lastVerifiedAt: new Date(),
-      },
-    });
-    await prisma.sellpiaInventoryState.create({
-      data: {
-        organizationId: OTHER_ORGANIZATION_ID,
-        requestedGeneration: 1n,
-        verifiedGeneration: 1n,
-        lastVerifiedAt: new Date(),
-      },
-    });
+    inventoryRunByOrganization = new Map();
+    for (const [organizationId, hash] of [
+      [TEST_ORGANIZATION_ID, 'a'.repeat(64)],
+      [OTHER_ORGANIZATION_ID, 'b'.repeat(64)],
+    ] as const) {
+      const verifiedAt = new Date('2026-07-17T00:00:00.000Z');
+      const run = await prisma.sourceImportRun.create({
+        data: {
+          organizationId,
+          sourceType: 'sellpia_inventory',
+          channelAccountId: null,
+          fileName: 'product-operations-inventory.json',
+          fileHash: hash,
+          status: 'completed',
+          rowCount: 0,
+          importedAt: verifiedAt,
+          lastVerifiedAt: verifiedAt,
+          verificationCount: 1,
+          freshnessGeneration: 1n,
+        },
+      });
+      inventoryRunByOrganization.set(organizationId, run.id);
+      await prisma.sellpiaInventoryState.create({
+        data: {
+          organizationId,
+          requestedGeneration: 1n,
+          verifiedGeneration: 1n,
+          lastVerifiedAt: verifiedAt,
+          lastCompletedImportRunId: run.id,
+        },
+      });
+    }
   });
 
   it('creates only the MasterProduct and fences product reads by organization', async () => {
@@ -390,14 +407,14 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     expect(all.items.find((item) => item.id === unpublished.id)?.abc).toMatchObject({
       abcGrade: null,
       evaluation: null,
-      displayStatus: 'NEW',
+      displayStatus: 'INSUFFICIENT_EVIDENCE',
     });
     expect(all.summary).toMatchObject({
       abcGradeCounts: { A: 0, B: 1, C: 0, unclassified: 2 },
       abcStatusCounts: {
-        NEW: 1,
+        NEW: 0,
         READY: 1,
-        INSUFFICIENT_EVIDENCE: 1,
+        INSUFFICIENT_EVIDENCE: 2,
         SOURCE_UNMAPPED: 0,
         SELLPIA_SOURCE_STALE: 0,
         AD_SOURCE_STALE: 0,
@@ -406,13 +423,19 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
 
     await expect(service.listProducts(TEST_ORGANIZATION_ID, {
       page: 1, limit: 50, periodDays: 30, activeStatus: 'all', abcCalculationStatus: 'INSUFFICIENT_EVIDENCE',
-    })).resolves.toMatchObject({ total: 1, items: [expect.objectContaining({ id: observing.id })] });
+    })).resolves.toMatchObject({
+      total: 2,
+      items: expect.arrayContaining([
+        expect.objectContaining({ id: observing.id }),
+        expect.objectContaining({ id: unpublished.id }),
+      ]),
+    });
     await expect(service.listProducts(TEST_ORGANIZATION_ID, {
       page: 1, limit: 50, periodDays: 30, activeStatus: 'all', abcCalculationStatus: 'READY',
     })).resolves.toMatchObject({ total: 1, items: [expect.objectContaining({ id: ready.id })] });
     await expect(service.listProducts(TEST_ORGANIZATION_ID, {
       page: 1, limit: 50, periodDays: 30, activeStatus: 'all', abcCalculationStatus: 'NEW',
-    })).resolves.toMatchObject({ total: 1, items: [expect.objectContaining({ id: unpublished.id })] });
+    })).resolves.toMatchObject({ total: 0, items: [] });
     await expect(service.listProducts(TEST_ORGANIZATION_ID, { page: 1, limit: 50, periodDays: 30, activeStatus: 'all', abcGrade: 'unclassified' }))
       .resolves.toMatchObject({ total: 2 });
     expect(all.items.map((item) => item.id)).not.toContain(foreign.id);
@@ -778,17 +801,58 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       },
     });
     const now = new Date();
+    const businessDate = now.toISOString().slice(0, 10);
+    const businessDateAtUtc = new Date(`${businessDate}T00:00:00.000Z`);
+    const legacyBusinessDateAtUtc = new Date(businessDateAtUtc);
+    legacyBusinessDateAtUtc.setUTCDate(legacyBusinessDateAtUtc.getUTCDate() - 1);
+    const legacyBusinessDate = legacyBusinessDateAtUtc.toISOString().slice(0, 10);
+    const sourceAttemptId = randomUUID();
     await prisma.channelListingDailySnapshot.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         listingId: listing.id,
         channel: 'coupang',
         externalId: listing.externalId,
-        businessDate: now,
+        businessDate: businessDateAtUtc,
         trafficViews: 20,
+        trafficCartAdds: 2,
         trafficOrders: 3,
+        trafficSalesQty: 4,
         trafficRevenue: 40_000,
         adSpend: 5_000,
+        trafficCoverageStatus: 'OBSERVED',
+        trafficObservedAt: now,
+        lastObservedAt: now,
+        metaJson: {
+          'traffic.currentSource': 'wing.traffic',
+          'wing.traffic': {
+            grain: 'listing_option_sum',
+            scope: 'matched_listings',
+            periodDays: 1,
+            sourceAttemptId,
+            businessDate,
+          },
+        },
+      },
+    });
+    // Legacy period-as-day traffic has no accepted provenance and must not affect product totals.
+    await prisma.channelListingDailySnapshot.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        listingId: listing.id,
+        channel: 'coupang',
+        externalId: listing.externalId,
+        businessDate: legacyBusinessDateAtUtc,
+        trafficViews: 900,
+        trafficOrders: 90,
+        trafficRevenue: 900_000,
+        metaJson: {
+          source: 'wing.traffic',
+          data: {
+            periodDays: 7,
+            businessDate: legacyBusinessDate,
+          },
+        },
       },
     });
 
@@ -811,9 +875,9 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       traffic: null,
       visitorCount: null,
       viewCount: 20,
-      cartAddCount: null,
+      cartAddCount: 2,
       orderCount: 3,
-      salesQuantity: null,
+      salesQuantity: 4,
       salesAmount: 40_000,
       adSpend: 5_000,
       abcEvaluation: null,
@@ -863,7 +927,15 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     masterProductId?: string,
   ) {
     return prisma.sellpiaInventorySku.create({
-      data: { organizationId, masterProductId, code, name: code, currentStock, isActive },
+      data: {
+        organizationId,
+        masterProductId,
+        code,
+        name: code,
+        currentStock,
+        isActive,
+        lastImportRunId: inventoryRunByOrganization.get(organizationId),
+      },
     });
   }
 
@@ -883,16 +955,16 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     const formulaVersion = await prisma.masterProductAbcFormulaVersion.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
-        formulaKey: PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD.formulaKey,
-        version: PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD.version,
-        formulaJson: JSON.parse(JSON.stringify(PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD)),
-        formulaChecksum: PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD_HASH,
+        formulaKey: PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD.formulaKey,
+        version: PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD.version,
+        formulaJson: JSON.parse(JSON.stringify(PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD)),
+        formulaChecksum: PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH,
       },
     });
     const sellpiaSource = await sellpia.beginAttempt(TEST_ORGANIZATION_ID, randomUUID());
     await sellpia.submitAttempt(TEST_ORGANIZATION_ID, sellpiaSource.attemptId, {
       attemptToken: sellpiaSource.attemptToken,
-      parserVersion: 'sellpia-profitability-v1',
+      parserVersion: 'sellpia-profitability-v2',
       providerBackedEmptyProof: true,
       coveredMonths: sellpiaSource.plan.coveredMonths,
       provenance: { source: 'sellpia_stat_prd_profit', costBasis: 'ORDER_TIME_SUPPLY_COST', vatIncluded: true },

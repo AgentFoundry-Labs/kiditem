@@ -64,12 +64,15 @@ owns physical stock quantities.
   persists formula/evaluation provenance, and records only actual grade changes
   in history.
 - Evaluation requires a selling product, valid mapping, complete Sellpia
-  profitability coverage, `ORDER_TIME_SUPPLY_COST`, VAT provenance, at least 30
-  valid observation days, and advertising evidence of `OBSERVED`,
+  profitability coverage, `ORDER_TIME_SUPPLY_COST`, VAT provenance, a verified
+  sale age of at least 30 days at the evaluation cutoff, and advertising evidence of `OBSERVED`,
   `CONFIRMED_ZERO`, or `NOT_APPLIED`. Missing or stale Sellpia, mapping, or
   advertising evidence produces no publication; it is never zero-filled or
   synthesized as C. An existing normal grade remains visible while the source
-  is stale.
+  is stale. Judge data sufficiency by completeness and validity of the selected
+  evaluation period, separately from sale age; there is no minimum evidence-day
+  count. Derive sale start only from validly mapped channel `saleStartedAt`
+  values under the approved spec, without inferring missing dates or coverage.
 - ABC is a versioned absolute formula with fixed business anchors and
   thresholds. A product's score depends only on its own complete facts and the
   formula version; cohort rank, percentile/quota, population hash, calibration,

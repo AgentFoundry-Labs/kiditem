@@ -119,6 +119,21 @@ implements SellpiaSnapshotPublicationRepositoryPort {
         tx,
         input.organizationId,
       );
+      const fileProvenance = ownerBrowserAttempt(input)
+        ? {
+            // Browser-owner attempts are generations, not file-import claims.
+            // Keep the exact bytes hash in contentChecksum so a repeated
+            // artifact can publish as a new generation without colliding with
+            // the legacy fileHash uniqueness contract.
+            fileHash: null,
+            contentChecksum: input.contentChecksum ?? input.fileHash,
+          }
+        : {
+            fileHash: input.fileHash,
+            ...(input.contentChecksum !== undefined
+              ? { contentChecksum: input.contentChecksum }
+              : {}),
+          };
       const completed = await tx.sourceImportRun.updateMany({
         where: {
           id: input.runId,
@@ -139,6 +154,17 @@ implements SellpiaSnapshotPublicationRepositoryPort {
           qualityReport: quality.report as Prisma.InputJsonValue,
           errorCode: null,
           errorMessage: null,
+          ...(input.fileName !== undefined ? { fileName: input.fileName } : {}),
+          ...fileProvenance,
+          ...(input.contentByteCount !== undefined
+            ? { contentByteCount: input.contentByteCount }
+            : {}),
+          ...(input.execution.kind === 'manual'
+            ? {
+                manualFreshExportConfirmedAt: now,
+                manualFreshExportConfirmedBy: input.userId,
+              }
+            : {}),
           publicationSequence,
         },
       });
@@ -535,6 +561,17 @@ async function recordPublicationFailure(
   },
 ): Promise<void> {
   const now = new Date();
+  const fileProvenance = ownerBrowserAttempt(input)
+    ? {
+        fileHash: null,
+        contentChecksum: input.contentChecksum ?? input.fileHash,
+      }
+    : {
+        fileHash: input.fileHash,
+        ...(input.contentChecksum !== undefined
+          ? { contentChecksum: input.contentChecksum }
+          : {}),
+      };
   const failed = await tx.sourceImportRun.updateMany({
     where: {
       id: input.runId,
@@ -550,6 +587,11 @@ async function recordPublicationFailure(
       qualityReport: failure.qualityReport,
       errorCode: failure.errorCode,
       errorMessage: failure.errorMessage,
+      ...fileProvenance,
+      ...(input.fileName !== undefined ? { fileName: input.fileName } : {}),
+      ...(input.contentByteCount !== undefined
+        ? { contentByteCount: input.contentByteCount }
+        : {}),
     },
   });
   if (failed.count !== 1) {
@@ -579,6 +621,10 @@ async function recordPublicationFailure(
       errorMessage: failure.errorMessage,
     }),
   );
+}
+
+function ownerBrowserAttempt(input: PublishInput): boolean {
+  return input.execution.kind === 'browser' && input.execution.ownerAttempt === true;
 }
 
 async function completeGeneration(
@@ -623,7 +669,9 @@ async function updateStateWithFence(
       sourceOrigin: SOURCE_ORIGIN,
       sourceAccountKey: SOURCE_ACCOUNT_KEY,
       activeSyncToken: input.execution.claimToken,
-      activeSyncOwnerUserId: input.userId,
+      ...(input.execution.ownerAttempt
+        ? {}
+        : { activeSyncOwnerUserId: input.userId }),
       activeGeneration: generation,
     },
     data,
@@ -661,7 +709,8 @@ function assertPublicationFence(
   const generation = parseGeneration(input.execution.activeGeneration);
   if (
     state.activeSyncToken !== input.execution.claimToken
-    || state.activeSyncOwnerUserId !== input.userId
+    || (!input.execution.ownerAttempt
+      && state.activeSyncOwnerUserId !== input.userId)
     || state.activeGeneration !== generation
   ) {
     throw new ConflictException('Sellpia inventory publication generation is stale');
@@ -674,11 +723,17 @@ function assertRunningRun(run: SourceImportRun, input: PublishInput): void {
     run.organizationId !== input.organizationId
     || run.sourceType !== SOURCE_TYPE
     || run.channelAccountId !== null
-    || run.fileHash !== input.fileHash
+    || (run.fileHash !== null && run.fileHash !== input.fileHash)
     || run.status !== 'running'
     || run.attemptToken !== input.attemptToken
   ) {
     throw new ConflictException('Sellpia inventory run publication fence is stale');
+  }
+  if (
+    input.execution.ownerAttempt
+    && (!run.expiresAt || run.expiresAt.getTime() <= Date.now())
+  ) {
+    throw new ConflictException('ATTEMPT_EXPIRED');
   }
 }
 
@@ -770,7 +825,7 @@ function importResponse(
   outcome: SellpiaInventoryImportResponse['outcome'],
   changes: SellpiaSnapshotPublicationResult['changes'],
 ): SellpiaSnapshotPublicationResult {
-  const verifiedRun = VerifiedSellpiaSourceImportRunSchema.parse({
+  const runData = {
     id: run.id,
     sourceType: 'sellpia_inventory',
     channelAccountId: null,
@@ -791,6 +846,13 @@ function importResponse(
     errorMessage: run.errorMessage,
     createdAt: run.createdAt.toISOString(),
     updatedAt: run.updatedAt.toISOString(),
-  });
+  };
+  // Browser-owner generations intentionally keep fileHash null and carry the
+  // exact artifact identity in contentChecksum. The owner completion path
+  // discards this legacy import response, but it still needs a result object
+  // after the canonical publication transaction commits.
+  const verifiedRun = run.fileHash === null && run.contentChecksum !== null
+    ? (runData as unknown as SellpiaSnapshotPublicationResult['run'])
+    : VerifiedSellpiaSourceImportRunSchema.parse(runData);
   return { run: verifiedRun, duplicate, outcome, changes };
 }

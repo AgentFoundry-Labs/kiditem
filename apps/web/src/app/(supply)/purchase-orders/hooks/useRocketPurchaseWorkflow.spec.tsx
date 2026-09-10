@@ -44,10 +44,17 @@ vi.mock('../lib/rocket-confirmation-workbook', () => ({
   fillRocketConfirmationWorkbook: vi.fn(),
 }));
 vi.mock('@/lib/browser-download', () => ({ downloadBlob: vi.fn() }));
+const sourceOwner = vi.hoisted(() => ({ start: vi.fn() }));
+vi.mock('@/app/(inventory)/_shared/sellpia-inventory-source-owner', () => ({
+  useSellpiaInventorySourceOwner: () => ({
+    start: sourceOwner.start,
+    state: null,
+    isStarting: false,
+  }),
+}));
 vi.mock('@/lib/sellpia-inventory-freshness-api', () => ({
   sellpiaInventoryFreshnessApi: {
     getState: vi.fn(),
-    requestRefresh: vi.fn(),
   },
 }));
 
@@ -72,9 +79,7 @@ describe('useRocketPurchaseWorkflow', () => {
     vi.mocked(sellpiaInventoryFreshnessApi.getState).mockResolvedValue(
       freshnessState({ status: 'fresh', verifiedGeneration: '12' }),
     );
-    vi.mocked(sellpiaInventoryFreshnessApi.requestRefresh).mockResolvedValue(
-      freshnessState({ status: 'refresh_required', requestedGeneration: '13' }),
-    );
+    sourceOwner.start.mockResolvedValue({ generation: '13', state: 'RUNNING' });
   });
 
   it('shows collected rows immediately when the server already has fresh inventory', async () => {
@@ -111,7 +116,7 @@ describe('useRocketPurchaseWorkflow', () => {
       expect.objectContaining({ sourceImportRunId: source.sourceImportRunId }),
     );
     expect(sellpiaInventoryFreshnessApi.getState).not.toHaveBeenCalled();
-    expect(sellpiaInventoryFreshnessApi.requestRefresh).not.toHaveBeenCalled();
+    expect(sourceOwner.start).not.toHaveBeenCalled();
     expect(onCatalogSaved).toHaveBeenCalledTimes(1);
     expect(hook.result.current.sourceRows).toEqual(source.rows);
     expect(hook.result.current.stage).toBe('ready');

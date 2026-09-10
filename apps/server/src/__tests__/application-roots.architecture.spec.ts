@@ -5,14 +5,11 @@ import { join } from 'node:path';
 import { MODULE_METADATA } from '@nestjs/common/constants';
 import { describe, expect, it } from 'vitest';
 import { ApiApplicationModule } from '../api-application.module';
-import { AgentWorkerApplicationModule } from '../agent-worker-application.module';
 import { AgentOsInteractionHttpModule } from '../agent-os/agent-os-interaction-http.module';
 import { AgentOsHttpModule } from '../agent-os/agent-os-http.module';
-import { AgentOsWorkerModule } from '../agent-os/agent-os-worker.module';
 import { DetailPageEditorController } from '../ai/adapter/in/http/detail-page-editor.controller';
 import { ImageAiController } from '../ai/adapter/in/http/image-ai.controller';
 import { ThumbnailAnalysisGenerationReviewController } from '../ai/adapter/in/http/thumbnail-analysis-generation-review.controller';
-import { OperationsHttpModule } from '../operations/operations-http.module';
 import { inspectStaticApplicationRootPolicy } from './application-root-policy';
 
 type ModuleLike = Function | { module: Function; imports?: ModuleLike[] };
@@ -53,20 +50,14 @@ describe('final application-root topology', () => {
     expect(apiImports).toContain(AgentOsInteractionHttpModule);
     expect(apiImports).not.toContain(AgentOsHttpModule);
     expect(classes(AgentOsInteractionHttpModule)).toContain(AgentOsHttpModule);
-    expect(apiImports).toContain(OperationsHttpModule);
+    expect(apiImports
+      .filter((module): module is Function => typeof module === 'function')
+      .map((module) => module.name))
+      .not.toContain('OperationsHttpModule');
   });
 
-  it('keeps worker execution and API transport separate', () => {
-    expect(classes(AgentWorkerApplicationModule)).toContain(AgentOsWorkerModule);
-    expect(classes(AgentWorkerApplicationModule).map((module) => module.name))
-      .not.toContain('OperationsWorkerModule');
-    expect(classes(AgentWorkerApplicationModule)).not.toContain(AgentOsHttpModule);
-    expect(existsSync(join(serverSource, 'agent-mcp-application.module.ts'))).toBe(false);
-  });
-
-  it('binds process entrypoints to API and worker roots', () => {
+  it('binds the process entrypoint to the API root', () => {
     expect(readFileSync(join(serverSource, 'main.ts'), 'utf8')).toContain("from './api-application.module'");
-    expect(readFileSync(join(serverSource, 'worker.ts'), 'utf8')).toContain("from './agent-worker-application.module'");
     expect(existsSync(join(serverSource, 'agent-os/adapter/in/cli/run-openai-operator.ts'))).toBe(false);
   });
 

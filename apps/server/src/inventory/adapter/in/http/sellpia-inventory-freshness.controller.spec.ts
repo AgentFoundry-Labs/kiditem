@@ -8,7 +8,6 @@ import type { SellpiaInventoryFreshnessPort } from '../../../application/port/in
 
 const ORG_ID = '00000000-0000-4000-8000-000000000001';
 const USER_ID = '00000000-0000-4000-8000-000000000002';
-const TOKEN = '00000000-0000-4000-8000-000000000003';
 const USER = { id: USER_ID } as AuthUser;
 
 describe('SellpiaInventoryFreshnessController', () => {
@@ -21,17 +20,15 @@ describe('SellpiaInventoryFreshnessController', () => {
       'source-binding',
       RequestMethod.POST,
     ]);
-    expect(routeMetadata('requestRefresh')).toEqual(['requests', RequestMethod.POST]);
-    expect(routeMetadata('claimDue')).toEqual(['claims', RequestMethod.POST]);
-    expect(routeMetadata('heartbeat')).toEqual([
-      'claims/:token/heartbeat',
-      RequestMethod.POST,
-    ]);
-    expect(routeMetadata('fail')).toEqual(['claims/:token/fail', RequestMethod.POST]);
-    expect(routeMetadata('cancel')).toEqual([
-      'claims/:token/cancel',
-      RequestMethod.POST,
-    ]);
+    for (const method of [
+      'requestRefresh',
+      'claimDue',
+      'heartbeat',
+      'fail',
+      'cancel',
+    ] as const) {
+      expect(SellpiaInventoryFreshnessController.prototype[method]).toBeUndefined();
+    }
   });
 
   it('restricts source binding to owner/admin', () => {
@@ -41,7 +38,7 @@ describe('SellpiaInventoryFreshnessController', () => {
     )).toEqual(['owner', 'admin']);
     expect(Reflect.getMetadata(
       ROLES_METADATA_KEY,
-      SellpiaInventoryFreshnessController.prototype.requestRefresh,
+      SellpiaInventoryFreshnessController.prototype.getState,
     )).toBeUndefined();
   });
 
@@ -55,14 +52,6 @@ describe('SellpiaInventoryFreshnessController', () => {
       sourceAccountKey: 'kiditem',
       confirmed: true,
     });
-    await controller.requestRefresh(ORG_ID, USER, { reason: 'manual_request', scope: 'inventory' });
-    await controller.claimDue(ORG_ID, USER, {});
-    await controller.heartbeat(ORG_ID, USER, TOKEN, {});
-    await controller.fail(ORG_ID, USER, TOKEN, {
-      errorCode: 'sellpia_network_failed',
-      errorMessage: 'network failed',
-    });
-    await controller.cancel(ORG_ID, USER, TOKEN, {});
 
     expect(port.getState).toHaveBeenCalledWith({ organizationId: ORG_ID, userId: USER_ID });
     expect(port.confirmSourceBinding).toHaveBeenCalledWith({
@@ -71,30 +60,6 @@ describe('SellpiaInventoryFreshnessController', () => {
       sourceOrigin: 'https://kiditem.sellpia.com',
       sourceAccountKey: 'kiditem',
       confirmed: true,
-    });
-    expect(port.requestRefresh).toHaveBeenCalledWith({
-      organizationId: ORG_ID,
-      userId: USER_ID,
-      reason: 'manual_request',
-      scope: 'inventory',
-    });
-    expect(port.claimDue).toHaveBeenCalledWith({ organizationId: ORG_ID, userId: USER_ID });
-    expect(port.heartbeat).toHaveBeenCalledWith({
-      organizationId: ORG_ID,
-      userId: USER_ID,
-      claimToken: TOKEN,
-    });
-    expect(port.fail).toHaveBeenCalledWith({
-      organizationId: ORG_ID,
-      userId: USER_ID,
-      claimToken: TOKEN,
-      errorCode: 'sellpia_network_failed',
-      errorMessage: 'network failed',
-    });
-    expect(port.cancel).toHaveBeenCalledWith({
-      organizationId: ORG_ID,
-      userId: USER_ID,
-      claimToken: TOKEN,
     });
   });
 });
@@ -132,12 +97,5 @@ function makePort() {
     getState: vi.fn<SellpiaInventoryFreshnessPort['getState']>().mockResolvedValue(view),
     confirmSourceBinding: vi.fn<SellpiaInventoryFreshnessPort['confirmSourceBinding']>()
       .mockResolvedValue(view),
-    requestRefresh: vi.fn<SellpiaInventoryFreshnessPort['requestRefresh']>()
-      .mockResolvedValue(view),
-    claimDue: vi.fn<SellpiaInventoryFreshnessPort['claimDue']>()
-      .mockResolvedValue({ claimed: false, state: view }),
-    heartbeat: vi.fn<SellpiaInventoryFreshnessPort['heartbeat']>().mockResolvedValue(view),
-    fail: vi.fn<SellpiaInventoryFreshnessPort['fail']>().mockResolvedValue(view),
-    cancel: vi.fn<SellpiaInventoryFreshnessPort['cancel']>().mockResolvedValue(view),
   };
 }

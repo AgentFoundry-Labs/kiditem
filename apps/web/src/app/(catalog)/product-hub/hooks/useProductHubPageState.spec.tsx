@@ -71,6 +71,51 @@ describe('useProductHubPageState', () => {
     expect(result.current.periodDays).toBe(30);
   });
 
+  it('reuses the default list response for the unfiltered command-center summary', () => {
+    const listData = { total: 3, summary: { abcGradeCounts: { A: 1, B: 2, C: 0, unclassified: 0 } } };
+    vi.mocked(useQuery).mockImplementation((options) => {
+      const params = options.queryKey.at(-1) as Record<string, string>;
+      const isOverview = params.limit === '1';
+      return {
+        data: isOverview ? undefined : listData,
+        error: null,
+        isFetching: false,
+        isLoading: false,
+        isPlaceholderData: false,
+        refetch: isOverview ? refetchMocks.overview : refetchMocks.list,
+      } as unknown as ReturnType<typeof useQuery>;
+    });
+
+    const { result } = renderHook(() => useProductHubPageState());
+
+    expect(vi.mocked(useQuery)).toHaveBeenCalledTimes(2);
+    expect((vi.mocked(useQuery).mock.calls[1]?.[0] as { enabled?: boolean }).enabled).toBe(false);
+    expect(result.current.overviewData).toBe(listData);
+    expect(result.current.overviewErrorMessage).toBeNull();
+  });
+
+  it('keeps the independent overview while the default list is placeholder data', () => {
+    const placeholderListData = { total: 1, summary: { abcGradeCounts: { A: 1, B: 0, C: 0, unclassified: 0 } } };
+    const overviewData = { total: 3, summary: { abcGradeCounts: { A: 1, B: 2, C: 0, unclassified: 0 } } };
+    vi.mocked(useQuery).mockImplementation((options) => {
+      const params = options.queryKey.at(-1) as Record<string, string>;
+      const isOverview = params.limit === '1';
+      return {
+        data: isOverview ? overviewData : placeholderListData,
+        error: null,
+        isFetching: false,
+        isLoading: false,
+        isPlaceholderData: !isOverview,
+        refetch: isOverview ? refetchMocks.overview : refetchMocks.list,
+      } as unknown as ReturnType<typeof useQuery>;
+    });
+
+    const { result } = renderHook(() => useProductHubPageState());
+
+    expect((vi.mocked(useQuery).mock.calls[1]?.[0] as { enabled?: boolean }).enabled).toBe(true);
+    expect(result.current.overviewData).toBe(overviewData);
+  });
+
   it('updates only owned list parameters and preserves the workspace view', () => {
     navigation.params = new URLSearchParams('view=list&campaign=summer&page=3');
     const { result } = renderHook(() => useProductHubPageState());
@@ -168,11 +213,23 @@ describe('useProductHubPageState', () => {
   it('refetches both the visible list and the independent overview after publication', async () => {
     refetchMocks.list.mockResolvedValue(undefined);
     refetchMocks.overview.mockResolvedValue(undefined);
+    navigation.params = new URLSearchParams('search=umbrella');
     const { result } = renderHook(() => useProductHubPageState());
 
     await act(() => result.current.refetch());
 
     expect(refetchMocks.list).toHaveBeenCalledTimes(1);
     expect(refetchMocks.overview).toHaveBeenCalledTimes(1);
+  });
+
+  it('refetches only the visible list when it supplies the summary', async () => {
+    refetchMocks.list.mockResolvedValue(undefined);
+    refetchMocks.overview.mockResolvedValue(undefined);
+    const { result } = renderHook(() => useProductHubPageState());
+
+    await act(() => result.current.refetch());
+
+    expect(refetchMocks.list).toHaveBeenCalledTimes(1);
+    expect(refetchMocks.overview).not.toHaveBeenCalled();
   });
 });

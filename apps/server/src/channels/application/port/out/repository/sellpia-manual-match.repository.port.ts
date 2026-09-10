@@ -1,4 +1,9 @@
-import type { SellpiaManualMatchSnapshotStatus } from '@kiditem/shared/sellpia-manual-match';
+import type {
+  SellpiaManualMatchAttempt,
+  SellpiaManualMatchSnapshot,
+  SellpiaManualMatchSnapshotStatus,
+  SellpiaManualMatchSourceStatus,
+} from '@kiditem/shared/sellpia-manual-match';
 
 export const SELLPIA_MANUAL_MATCH_REPOSITORY_PORT = Symbol(
   'SELLPIA_MANUAL_MATCH_REPOSITORY_PORT',
@@ -13,6 +18,11 @@ export type SellpiaManualMatchAliasRecord = {
   evidenceCount: number;
 };
 
+export type SellpiaManualMatchAttemptInput = {
+  organizationId: string;
+  idempotencyKey: string;
+};
+
 export interface SellpiaManualMatchRepositoryPort {
   getCurrentStatus(
     organizationId: string,
@@ -21,12 +31,25 @@ export interface SellpiaManualMatchRepositoryPort {
     organizationId: string,
     normalizedAliases: string[],
   ): Promise<SellpiaManualMatchAliasRecord[]>;
-  listCurrentChannelAliasCandidates(
-    organizationId: string,
-  ): Promise<string[]>;
-  replaceCurrent(input: {
+  beginAttempt(input: SellpiaManualMatchAttemptInput): Promise<SellpiaManualMatchAttempt>;
+  readAttempt(input: {
     organizationId: string;
-    status: SellpiaManualMatchSnapshotStatus;
-    rows: SellpiaManualMatchAliasRecord[];
-  }): Promise<SellpiaManualMatchSnapshotStatus>;
+    attemptId: string;
+  }): Promise<SellpiaManualMatchAttempt>;
+  readCurrent(input: {
+    organizationId: string;
+  }): Promise<SellpiaManualMatchSourceStatus>;
+  completeAttempt(input: {
+    organizationId: string;
+    attemptId: string;
+    attemptToken: string;
+    snapshot: SellpiaManualMatchSnapshot;
+  }): Promise<SellpiaManualMatchAttempt>;
+  failAttempt(input: {
+    organizationId: string;
+    attemptId: string;
+    attemptToken: string;
+    errorCode: string;
+    errorMessage: string;
+  }): Promise<SellpiaManualMatchAttempt>;
 }

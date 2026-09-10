@@ -1,5 +1,3 @@
-export * from './ad-aggregation.repository.port';
-export * from './dashboard-ad.repository.port';
 export * from './dashboard-inventory.repository.port';
 export * from './dashboard-sales.repository.port';
 export * from './dashboard-trend.repository.port';

@@ -1,5 +1,4 @@
 import { Module } from '@nestjs/common';
-import { AlertsModule } from '../alerts/alerts.module';
 import { PrismaModule } from '../prisma/prisma.module';
 import { SellpiaInventoryFreshnessRepositoryAdapter } from './adapter/out/repository/sellpia-inventory-freshness.repository.adapter';
 import {
@@ -10,7 +9,7 @@ import { SELLPIA_INVENTORY_FRESHNESS_REPOSITORY_PORT } from './application/port/
 import { SellpiaInventoryFreshnessService } from './application/service/sellpia-inventory-freshness.service';
 
 @Module({
-  imports: [PrismaModule, AlertsModule],
+  imports: [PrismaModule],
   providers: [
     SellpiaInventoryFreshnessRepositoryAdapter,
     SellpiaInventoryFreshnessService,

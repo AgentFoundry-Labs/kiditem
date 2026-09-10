@@ -35,6 +35,7 @@ const base = "/api/ads/keyword-rank/serp";
 describe("Public keyword SERP owner HTTP + PostgreSQL", () => {
   let prisma: PrismaClient;
   let app: INestApplication;
+  let httpUrl: string;
   let alerts: SourceFailureAlerts;
   beforeAll(async () => {
     prisma = makeTestPrisma();
@@ -77,6 +78,8 @@ describe("Public keyword SERP owner HTTP + PostgreSQL", () => {
       },
     );
     await app.init();
+    await app.listen(0, "127.0.0.1");
+    httpUrl = await app.getUrl();
   });
   afterAll(async () => {
     await app?.close();
@@ -114,18 +117,18 @@ describe("Public keyword SERP owner HTTP + PostgreSQL", () => {
     });
   });
   const start = (key = randomUUID(), body = { keyword: "문구", maxPages: 2 }) =>
-    request(app.getHttpServer())
+    request(httpUrl)
       .post(`${base}/attempts`)
       .set("x-test-org", ORG)
       .set("Idempotency-Key", key)
       .send(body);
   const get = (path: string) =>
-    request(app.getHttpServer()).get(path).set("x-test-org", ORG);
+    request(httpUrl).get(path).set("x-test-org", ORG);
   const submit = (
     attempt: { attemptId: string; attemptToken: string },
     body = capture(),
   ) =>
-    request(app.getHttpServer())
+    request(httpUrl)
       .put(`${base}/attempts/${attempt.attemptId}`)
       .set("x-test-org", ORG)
       .set("x-source-attempt-token", attempt.attemptToken)
@@ -134,7 +137,7 @@ describe("Public keyword SERP owner HTTP + PostgreSQL", () => {
     attempt: { attemptId: string; attemptToken: string },
     code = "PROVIDER_FAILED",
   ) =>
-    request(app.getHttpServer())
+    request(httpUrl)
       .post(`${base}/attempts/${attempt.attemptId}/fail`)
       .set("x-test-org", ORG)
       .set("x-source-attempt-token", attempt.attemptToken)
@@ -183,7 +186,6 @@ describe("Public keyword SERP owner HTTP + PostgreSQL", () => {
       },
     ]);
     expect((await get("/api/alerts").expect(200)).body).toEqual([]);
-    expect(await prisma.operationRun.count()).toBe(0);
   });
   it("replays admission with frozen targets and marks changed normalization inputs STALE without provider IO", async () => {
     const key = randomUUID();
@@ -219,7 +221,7 @@ describe("Public keyword SERP owner HTTP + PostgreSQL", () => {
     expect((await submit(a, payload).expect(200)).body.state).toBe("FAILED");
     await get(`${base}/attempts/${a.attemptId}/capture`).expect(404);
     expect((await get("/api/alerts").expect(200)).body).toMatchObject([
-      { attemptId: a.attemptId, status: "OPEN" },
+      { attemptId: a.attemptId, status: "OPEN", href: "/rank-tracking" },
     ]);
   });
   it("retains exact A while same-day B advances current, a failed C preserves it, and delayed older D does not rewind daily ranks", async () => {
@@ -365,11 +367,11 @@ describe("Public keyword SERP owner HTTP + PostgreSQL", () => {
     const results = await Promise.all([start(), start()]);
     expect(results.map((result) => result.status).sort()).toEqual([201, 409]);
     const a = results.find((result) => result.status === 201)!.body;
-    await request(app.getHttpServer())
+    await request(httpUrl)
       .get(`${base}/attempts/${a.attemptId}`)
       .set("x-test-org", randomUUID())
       .expect(404);
-    await request(app.getHttpServer())
+    await request(httpUrl)
       .put(`${base}/attempts/${a.attemptId}`)
       .set("x-test-org", randomUUID())
       .set("x-source-attempt-token", a.attemptToken)
@@ -424,18 +426,42 @@ describe("Public keyword SERP owner HTTP + PostgreSQL", () => {
       "invalid_result",
     ]) {
       const next = (await start().expect(201)).body;
-      expect(
-        (
-          await submit(next, {
-            ...payload,
-            pagination: { ...payload.pagination, stopReason: reason },
-          }).expect(200)
-        ).body.state,
-      ).toBe("FAILED");
-      expect(
-        (await get(`${base}/source?keyword=문구`).expect(200)).body
-          .latestComplete.attemptId,
-      ).toBe(a.attemptId);
+      const submission = await submit(next, {
+        ...payload,
+        pagination: { ...payload.pagination, stopReason: reason },
+      })
+        .expect((response) => {
+          if (response.status !== 200) {
+            throw new Error(
+              [
+                `SERP loop submission failed for stopReason=${reason}`,
+                `status=${response.status}`,
+                `content-type=${response.headers["content-type"] ?? "unknown"}`,
+                `server=${response.headers.server ?? "unknown"}`,
+                `body=${JSON.stringify(response.body ?? "").slice(0, 1000)}`,
+                `text=${(response.text ?? "").slice(0, 1000)}`,
+              ].join("; "),
+            );
+          }
+      })
+        .expect(200);
+      expect(submission.body.state).toBe("FAILED");
+      const source = await get(`${base}/source?keyword=문구`)
+        .expect((response) => {
+          if (response.status !== 200) {
+            throw new Error(
+              [
+                `SERP loop source failed for stopReason=${reason}`,
+                `status=${response.status}`,
+                `content-type=${response.headers["content-type"] ?? "unknown"}`,
+                `body=${JSON.stringify(response.body ?? "").slice(0, 1000)}`,
+                `text=${(response.text ?? "").slice(0, 1000)}`,
+              ].join("; "),
+            );
+          }
+        })
+        .expect(200);
+      expect(source.body.latestComplete.attemptId).toBe(a.attemptId);
     }
     const empty = (await start().expect(201)).body;
     expect(

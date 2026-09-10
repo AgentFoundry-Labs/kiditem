@@ -15,6 +15,10 @@ const worker = fs.readFileSync(
   path.join(extensionRoot, 'background/coupang/worker.js'),
   'utf8',
 );
+const wingUnified = fs.readFileSync(
+  path.join(extensionRoot, 'content/coupang/wing-unified.js'),
+  'utf8',
+);
 const catalog = fs.readFileSync(
   path.join(extensionRoot, 'background/coupang/coupang-catalog-import.js'),
   'utf8',
@@ -27,30 +31,21 @@ const collectionRunsSource = fs.readFileSync(
   path.join(extensionRoot, 'background/coupang/collection-runs.js'),
   'utf8',
 );
+const wingSearchCollectorSource = fs.readFileSync(
+  path.join(extensionRoot, 'background/coupang/wing-search-collector.js'),
+  'utf8',
+);
 const profitabilitySourceOwner = fs.readFileSync(
   path.join(extensionRoot, 'background/coupang/profitability-source-owner.js'),
+  'utf8',
+);
+const sourceOwnerManifest = fs.readFileSync(
+  path.join(extensionRoot, 'background/source-owner-manifest.js'),
   'utf8',
 );
 const manifest = JSON.parse(
   fs.readFileSync(path.join(extensionRoot, 'manifest.json'), 'utf8'),
 );
-
-function functionSource(name, nextName) {
-  const starts = [
-    worker.indexOf(`async function ${name}`),
-    worker.indexOf(`function ${name}`),
-  ].filter((index) => index >= 0);
-  const start = starts.length > 0 ? Math.min(...starts) : -1;
-  const nextStarts = nextName
-    ? [
-        worker.indexOf(`async function ${nextName}`, start + 1),
-        worker.indexOf(`function ${nextName}`, start + 1),
-      ].filter((index) => index >= 0)
-    : [];
-  const end = nextStarts.length > 0 ? Math.min(...nextStarts) : -1;
-  assert.ok(start >= 0, `${name} must exist`);
-  return worker.slice(start, end >= 0 ? end : undefined);
-}
 
 // 확장 병합 후 의존 모듈 로드는 통합 서비스워커가, 도메인 공용 전역은
 // worker-globals.js 가 소유한다.
@@ -81,16 +76,33 @@ test('loads the canonical session manager and focus owners before collector runt
   );
   // 쿠팡 도메인은 requiresAuth 가 달라 자기 환경 컨텍스트를 따로 만든다.
   assert.match(worker, /const adsEnvironmentContext = KidItemEnvironmentContext\.create\(/);
+
+  const wingContentScript = (manifest.content_scripts ?? []).find((entry) =>
+    (entry.matches ?? []).includes('https://wing.coupang.com/*') &&
+    (entry.js ?? []).includes('content/coupang/wing-unified.js'),
+  );
+  assert.ok(wingContentScript, 'Wing unified content script must be declared');
+  assert.ok(
+    wingContentScript.js.indexOf('content/coupang/wing-read-api.js') >= 0 &&
+      wingContentScript.js.indexOf('content/coupang/wing-read-api.js') <
+        wingContentScript.js.indexOf('content/coupang/wing-unified.js'),
+    'Wing read API must load before the unified content script',
+  );
 });
 
 // 세 도메인 워커가 각자 응답하면 같은 메시지에 경쟁 응답이 된다. 공통 액션은
-// external-dispatch.js 만 처리하고, 쿠팡 워커는 자기 액션만 남긴다.
-test('handles generic collection controls before producer actions', () => {
+// external-dispatch.js 만 처리하고, 쿠팡 워커는 source-owner 액션만 남긴다.
+test('retires the generic scrape ingress before producer actions', () => {
   const dispatchSource = fs.readFileSync(
     path.join(extensionRoot, 'background/external-dispatch.js'),
     'utf8',
   );
-  assert.ok(worker.indexOf('msg.action === "scrapeTargets"') >= 0);
+  assert.equal(worker.indexOf('msg.action === "scrapeTargets"'), -1);
+  assert.equal(worker.indexOf('msg.action === "getBatchScrapeStatus"'), -1);
+  assert.equal(worker.indexOf('msg.action === "cancelBatchScrape"'), -1);
+  assert.equal(worker.indexOf('msg.action === "triggerAutoScrape"'), -1);
+  assert.doesNotMatch(worker, /function autoScrape\(/);
+  assert.doesNotMatch(worker, /alarmName\(["']auto-scrape["']/);
   assert.match(worker, /KidItemDomains\.register\(/);
   assert.match(worker, /producerPrefixes:\s*\["advertising",\s*"channels",\s*"dashboard"\]/);
   for (const action of [
@@ -102,32 +114,34 @@ test('handles generic collection controls before producer actions', () => {
     assert.match(dispatchSource, new RegExp(`["']${action}["']`));
     assert.doesNotMatch(worker, new RegExp(`msg\\.action === ["']${action}["']`));
   }
-  assert.match(collectionRunsSource, /restartStrategy !== ["']extension["']/);
-  assert.match(collectionRunsSource, /reason:\s*["']manual_confirmation["']/);
-  // 취소 구현은 그대로 쿠팡 도메인이 갖고, 레지스트리를 통해 dispatch 가 부른다.
-  assert.match(
-    worker,
-    /cancelCollectionSession:[\s\S]*collectionRuns\s*\n?\s*\.cancel\(runId, environmentId\)[\s\S]*collectionSessions\.getOwned\(runId, environmentId\)/,
-  );
-  assert.match(
-    worker,
-    /restartCollectionSession:[\s\S]*collectionRuns\.restart\(runId, environmentId\)/,
-  );
+  assert.doesNotMatch(collectionRunsSource, /restartStrategy/);
+  assert.doesNotMatch(collectionRunsSource, /manual_confirmation/);
+  // 취소는 producer별 source owner가 server FAILED를 커밋한 뒤 local control을 정리한다.
+  assert.doesNotMatch(worker, /collectionRuns\s*\n?\s*\.cancel\(/);
+  assert.doesNotMatch(collectionRunsSource, /abortOperationSession/);
+  assert.match(worker, /session\?\.producer === "advertising\.ad_sync"[\s\S]*adCampaignSourceOwner\.cancel/);
+  assert.match(worker, /session\?\.producer === "advertising\.ad_keyword"[\s\S]*adKeywordSourceOwner\.cancel/);
+  assert.match(worker, /session\?\.producer === "advertising\.ad_account_daily_kpi"[\s\S]*adAccountDailyKpiSourceOwner\.cancel/);
+  assert.match(worker, /session\?\.producer === WING_TRAFFIC_PRODUCER[\s\S]*wingTrafficSourceOwner\.cancel/);
+  assert.match(worker, /session\?\.producer === WING_ITEMWINNER_PRODUCER[\s\S]*wingItemwinnerSourceOwner\.cancel/);
+  assert.match(worker, /Collection producer source owner does not support cancellation/);
+  assert.doesNotMatch(worker, /restartCollectionSession/);
+  assert.doesNotMatch(worker, /function handleScrapeTargets\(/);
+  assert.doesNotMatch(worker, /function prepareScrapeTargets\(/);
+  assert.match(worker, /beginSourceOwnerAttempt[\s\S]*async function doMonthlyScrape/);
+  assert.doesNotMatch(wingUnified, /syncToServer/);
 });
 
-test('acknowledges scrape target runs before asynchronous session preparation', () => {
-  const handler = worker.slice(
-    worker.indexOf('if (msg.action === "scrapeTargets")'),
-    worker.indexOf('if (msg.action === "getBatchScrapeStatus")'),
-  );
-  const acknowledgement = handler.indexOf('sendResponse({');
-  const preparation = handler.indexOf('prepareScrapeTargets(');
-  assert.ok(acknowledgement >= 0 && acknowledgement < preparation);
-  assert.match(handler, /return false;/);
+test('retains direct source-owner entrypoints for explicit manual capture', () => {
+  assert.match(worker, /collectAdvertisingWingTraffic:/);
+  assert.match(worker, /collectAdvertisingWingItemwinner:/);
+  assert.match(worker, /collectAdvertisingCampaigns:/);
+  assert.match(worker, /collectAdvertisingAccountDailyKpis:/);
+  assert.match(worker, /collectAdvertisingKeywords:/);
 });
 
 test('persists only allowlisted Coupang producers and advertises the capability', () => {
-  const producerSources = `${worker}\n${collectionRunsSource}\n${profitabilitySourceOwner}`;
+  const producerSources = `${sourceOwnerManifest}\n${worker}\n${collectionRunsSource}\n${profitabilitySourceOwner}`;
   for (const producer of [
     'dashboard.wing_sales',
     'dashboard.coupang_ads',
@@ -135,7 +149,6 @@ test('persists only allowlisted Coupang producers and advertises the capability'
     'dashboard.wing_kpi',
     'advertising.ad_sync',
     'advertising.profitability_import',
-    'advertising.scrape_targets',
     'advertising.wing_rank',
     'advertising.keyword_rank',
     'advertising.competitor_catalog',
@@ -145,7 +158,6 @@ test('persists only allowlisted Coupang producers and advertises the capability'
     assert.match(producerSources, new RegExp(producer.replace('.', '\\.')));
   }
   assert.match(worker, /browserCollectionSessions:\s*true/);
-  assert.match(worker, /unsupported collection producer/i);
   assert.equal(manifest.version, MERGED_EXTENSION_VERSION);
   assert.match(worker, /wingFormPortV1:\s*true/);
   assert.match(worker, /kiditem-wing-form-v1/);
@@ -165,36 +177,27 @@ test('persists only allowlisted Coupang producers and advertises the capability'
 });
 
 test('keeps single Wing catalog analysis separate from batch sales-rank collection', () => {
-  const source = functionSource(
-    'searchWingCatalogProducts',
-    'searchCoupangKeywordSuggestions',
-  );
-  assert.match(
-    source,
-    /beginWebCollection\(\s*["']sourcing\.wing_catalog["']/,
-  );
-  assert.doesNotMatch(source, /advertising\.wing_rank/);
+  assert.match(worker, /const wingSearchCollector = KidItemWingSearchCollector\.create\(/);
+  assert.match(worker, /captureWingRank[\s\S]*wingSearchCollector\.collect/);
+  assert.match(worker, /collectAdvertisingTrackedWingProductsKeyword[\s\S]*wingSearchCollector\.collect/);
+  assert.match(wingSearchCollectorSource, /const PRODUCERS = new Set\(\[/);
+  assert.match(wingSearchCollectorSource, /advertising\.wing_rank/);
 });
 
-test('the scrape-target producer owns one serialized silent window lifecycle', () => {
-  assert.match(worker, /collectionWindowFor\(environmentId\)[\s\S]*?\.collectTargets/);
-  assert.match(collectionWindowSource, /runExclusive\(async \(\) =>/);
-  assert.match(collectionWindowSource, /getOrCreate\(runId/);
-  assert.match(collectionWindowSource, /navigate\(runId/);
-  assert.match(collectionWindowSource, /sessions\.attachTab\(runId/);
-  assert.match(collectionWindowSource, /sessions\.progress\(runId/);
-  assert.match(collectionWindowSource, /sessions\.succeed\(runId\)/);
-  assert.match(collectionWindowSource, /sessions\.cancel\(runId\)/);
-  assert.match(collectionWindowSource, /close\(runId\)/);
-  assert.match(
-    collectionWindowSource,
-    /for \(let index = 0; index < targets\.length; index \+= 1\)/,
-  );
-  assert.doesNotMatch(collectionWindowSource, /Promise\.all\(\s*targets/);
-  assert.match(worker, /msg\.action === "reportCollectionTargetProgress"/);
-  assert.match(worker, /\["succeeded", "failed", "cancelled"\]\.includes\(session\.status\)/);
-  assert.match(worker, /KidItemCollectionWindow\.normalizeProgress/);
-  assert.match(collectionWindowSource, /preservesContentProgress/);
+test('source capture policies share the environment-owned resource without a universal target loop', () => {
+  // Runtime serialization, teardown, retry and progress behavior are covered
+  // through the production resource and named collector interfaces.
+  assert.match(worker, /KidItemAdCenterCollector\.create\(\{\s*window: collectionWindows\[environmentId\]/);
+  assert.match(worker, /KidItemWingReportCollector\.create\(\{\s*window: collectionWindows\[environmentId\]/);
+  for (const method of ['collectCampaigns', 'collectKeywords', 'collectAccountDailyKpis', 'collectProfitabilitySlice', 'collectTraffic', 'collectItemwinner']) {
+    assert.match(worker, new RegExp(`\\.${method}\\(`));
+  }
+  assert.doesNotMatch(worker, /\.collectTargets\(/);
+  assert.doesNotMatch(collectionWindowSource, /sessions\.(progress|succeed|fail|cancel)\(/);
+  assert.doesNotMatch(collectionWindowSource, /manualSync|targetDate|statusKey|cancelKey/);
+  assert.match(worker, /\.reportProgress\(\{/);
+  assert.doesNotMatch(worker, /session\.status/);
+  assert.doesNotMatch(worker, /reportBatchScrapeDone/);
 });
 
 test('automatic collectors contain no direct focus primitives', () => {
@@ -214,223 +217,48 @@ test('automatic collectors never reuse or navigate a user-active tab', () => {
   assert.match(worker, /before\?\.active && options\.allowActive !== true/);
   assert.match(worker, /throw new Error\(["']active user tab is collection-protected["']\)/);
   assert.doesNotMatch(worker, /\.catch\(\(\) => reusableTab\)/);
-  assert.match(catalog, /dependencies\.collectionWindow\.getOrCreate\(\s*state\.attemptId/);
-  assert.match(catalog, /dependencies\.collectionWindow\.navigate\(\s*state\.attemptId/);
+  assert.match(catalog, /function sessionAttemptId\(state\)\s*\{\s*return rootAttemptId\(state\);\s*\}/);
+  assert.match(catalog, /dependencies\.collectionWindow\.getOrCreate\(\s*sessionAttemptId\(state\)/);
+  assert.match(catalog, /dependencies\.collectionWindow\.navigate\(\s*sessionAttemptId\(state\)/);
   assert.doesNotMatch(catalog, /chrome\.tabs\.create\(/);
   assert.doesNotMatch(catalog, /chrome\.tabs\.update\(/);
   assert.doesNotMatch(catalog, /chrome\.tabs\.remove\(/);
 });
 
-test('automatic rank and keyword helpers create extension-owned inactive tabs', () => {
-  for (const [name, nextName] of [
-    ['getOrCreateCoupangSearchTab', 'executeCoupangKeywordSuggestionSearch'],
-    ['getOrCreateCoupangRankSearchTab', 'executeCoupangSerpExtraction'],
-    ['getOrCreateWingCatalogTab', 'executeWingCatalogSearchWithRetry'],
+test('public capture modules load before their worker consumers', () => {
+  const entry = fs.readFileSync(path.join(extensionRoot, 'background/service-worker.js'), 'utf8');
+  for (const [file, global] of [
+    ['coupang-keyword-suggestion-collector.js', 'KidItemCoupangKeywordSuggestionCollector'],
+    ['coupang-serp-collector.js', 'KidItemCoupangSerpCollector'],
+    ['coupang-seller-identity-collector.js', 'KidItemCoupangSellerIdentityCollector'],
+    ['coupang-seller-catalog-collector.js', 'KidItemCoupangSellerCatalogCollector'],
   ]) {
-    const helper = functionSource(name, nextName);
-    assert.match(helper, /createTab\(\{\s*url[^}]*active:\s*false/s);
-    assert.doesNotMatch(helper, /queryTabs\(/);
-    assert.doesNotMatch(helper, /reusableTab|reusable/);
+    const position = entry.indexOf(`"coupang/${file}"`);
+    assert.ok(position >= 0 && position < entry.indexOf('"coupang/worker.js"'), file);
+    assert.match(worker, new RegExp(`${global}\\.create\\(`));
   }
 });
 
-test('single Wing catalog search declares stable collection mode and opaque input ownership', () => {
-  const source = functionSource('searchWingCatalogProducts', 'searchCoupangKeywordSuggestions');
-  assert.match(source, /collectionMode:\s*["']single_catalog["']/);
-  assert.match(source, /keywordFingerprint:\s*stableInputFingerprint\(keyword\)/);
-  assert.match(source, /\["collectionMode",\s*"keywordFingerprint"\]/);
-});
-
-test('scrape-target web restarts bind the run to a stable target owner', () => {
-  const context = vm.createContext({
-    stableInputFingerprint: (value) => `hash:${value}`,
-  });
-  vm.runInContext(
-    `${functionSource('stableScrapeTargetFingerprint', 'stableInputFingerprint')}\n` +
-      'globalThis.fingerprint = stableScrapeTargetFingerprint;',
-    context,
-  );
-  const first = [
-    { url: 'https://wing.coupang.com/b?day=2' },
-    { url: 'https://wing.coupang.com/a?day=1' },
-  ];
-  const reordered = [...first].reverse();
-
-  assert.equal(
-    context.fingerprint('dashboard.wing_sales', first),
-    context.fingerprint('dashboard.wing_sales', reordered),
-  );
-  assert.notEqual(
-    context.fingerprint('dashboard.wing_sales', first),
-    context.fingerprint('advertising.scrape_targets', first),
-  );
-  assert.notEqual(
-    context.fingerprint('dashboard.wing_sales', first),
-    context.fingerprint('dashboard.wing_sales', [first[0]]),
-  );
-
-  const scrape = functionSource('prepareScrapeTargets', 'handleScrapeTargets');
-  assert.match(scrape, /collectionMode:\s*["']scrape_targets["']/);
-  assert.match(scrape, /targetFingerprint:\s*stableScrapeTargetFingerprint\(/);
-  assert.match(scrape, /\[\s*["']collectionMode["'],\s*["']targetFingerprint["']\s*\]/);
-});
-
-test('rejected scrape-target preparation preserves the existing domain state', async () => {
-  const calls = [];
-  const context = vm.createContext({
-    BATCH_SCRAPE_CANCEL_KEY: 'cancel-key',
-    BATCH_SCRAPE_STATUS_KEY: 'status-key',
-    Date,
-    stableScrapeTargetFingerprint: () => 'fp64:targets',
-    collectionRuns: {
-      resolveScrapeTargetProducer: () => 'advertising.scrape_targets',
-      beginWebCollection: async () => {
-        calls.push('begin');
-        throw new Error('Collection session is already active');
-      },
-    },
-    collectionSessions: { start: async () => calls.push('session-start') },
-    chrome: {
-      storage: {
-        local: {
-          remove: async () => calls.push('remove-cancel'),
-          set: async () => calls.push('write-starting'),
-        },
-      },
-    },
-  });
-  vm.runInContext(
-    `${functionSource('prepareScrapeTargets', 'handleScrapeTargets')}\n` +
-      'globalThis.prepare = prepareScrapeTargets;',
-    context,
-  );
-
-  await assert.rejects(
-    context.prepare(
-      [{ url: 'https://wing.coupang.com/a' }],
-      '11111111-1111-4111-8111-111111111111',
-      1,
-      { producer: 'advertising.scrape_targets', restartStrategy: 'web' },
-    ),
-    /already active/i,
-  );
-  assert.deepEqual(calls, ['begin']);
-
-  const handler = worker.slice(
-    worker.indexOf('if (msg.action === "scrapeTargets")'),
-    worker.indexOf('if (msg.action === "startCoupangCatalogImport")'),
-  );
-  assert.doesNotMatch(handler, /storage\.local\.remove\(BATCH_SCRAPE_CANCEL_KEY\)/);
-  assert.ok(
-    handler.indexOf('prepareScrapeTargets') < handler.indexOf('collectTargets'),
-  );
+test('single Wing catalog search requires an existing source-owner attempt', () => {
+  assert.match(wingSearchCollectorSource, /const runId = input\.attemptId/);
+  assert.match(wingSearchCollectorSource, /sessions\.getOwned\(runId, environmentId\)/);
+  assert.match(wingSearchCollectorSource, /PRODUCERS\.has\(ownerSession\.producer\)/);
+  assert.doesNotMatch(wingSearchCollectorSource, /beginWebCollection/);
+  assert.doesNotMatch(wingSearchCollectorSource, /stableInputFingerprint/);
 });
 
 test('competitor cancellation retains its domain owner', () => {
-  assert.match(worker, /cancelCompetitorCatalog:\s*requestCoupangCompetitorCatalogCancellation/);
+  assert.doesNotMatch(worker, /cancelCompetitorCatalog:\s*requestCoupangCompetitorCatalogCancellation/);
+  assert.match(worker, /session\?\.producer === "advertising\.competitor_catalog"[\s\S]*competitorCatalogSourceOwner\.cancel/);
   assert.doesNotMatch(worker, /runCoupangCompetitorSellerCatalog/);
-  assert.match(worker, /status:\s*"cancelled"/);
 });
 
-test('automatic collectors clean up owned tabs and replace a missing shared Wing tab', async () => {
-  const wingCalls = [];
-  let wingCancelled = false;
-  const wingContext = vm.createContext({
-    console,
-    Date,
-    Set,
-    WING_CATALOG_MAX_PAGES: 5,
-    WING_CATALOG_FORM_URL: 'https://wing.coupang.com/form',
-    WING_CATALOG_SEARCH_ENDPOINT: '/search',
-    WING_CATALOG_PAGE_DELAY_MS: 0,
-    clampNumber: () => 1,
-    collectionRuns: {
-      beginWebCollection: async () => 'wing-run',
-      requireAttention: async () => wingCalls.push('attention'),
-      isCancelled: async () => wingCancelled,
-    },
-    stableInputFingerprint: () => 'fp64:keyword',
-    getOrCreateWingCatalogTab: async () => ({ id: 41, windowId: 7 }),
-    getTab: async () => null,
-    waitForTabComplete: async () => ({ url: 'https://wing.coupang.com/form' }),
-    isWingCatalogFormUrl: () => true,
-    executeWingCatalogSearchWithRetry: async () => ({
-      ok: true,
-      contentType: 'application/json',
-      body: { result: [] },
-    }),
-    resolveWingCatalogTotal: () => 0,
-    normalizeWingCatalogProduct: () => null,
-    sleep: async () => undefined,
-    collectionSessions: {
-      attachTab: async () => wingCalls.push('attach'),
-      fail: async () => wingCalls.push('fail'),
-      succeed: async () => wingCalls.push('succeed'),
-    },
-    removeTab: async () => wingCalls.push('remove'),
-  });
-  vm.runInContext(
-    `${functionSource('searchWingCatalogProducts', 'searchCoupangKeywordSuggestions')}\n` +
-      'globalThis.searchWing = searchWingCatalogProducts;',
-    wingContext,
-  );
-
-  await wingContext.searchWing({ keyword: '문구', maxPages: 1 });
-  assert.deepEqual(wingCalls, ['attach', 'succeed', 'remove']);
-  wingCalls.length = 0;
-  wingContext.executeWingCatalogSearchWithRetry = async () => {
-    throw new Error('Wing request failed');
-  };
-  await assert.rejects(
-    wingContext.searchWing({ keyword: '문구', maxPages: 1 }),
-    /Wing request failed/,
-  );
-  assert.deepEqual(wingCalls, ['attach', 'fail', 'remove']);
-  wingCalls.length = 0;
-  await assert.rejects(
-    wingContext.searchWing({
-      keyword: '문구',
-      maxPages: 1,
-      collectionRunId: 'wing-batch',
-    }),
-    /Wing request failed/,
-  );
-  assert.deepEqual(wingCalls, ['attach', 'remove']);
-  wingCalls.length = 0;
-  wingContext.getOrCreateWingCatalogTab = async () => {
-    wingCalls.push('create');
-    return { id: 44, windowId: 7 };
-  };
-  wingContext.executeWingCatalogSearchWithRetry = async () => ({
-    ok: true,
-    contentType: 'application/json',
-    body: { result: [] },
-  });
-  const replacement = await wingContext.searchWing({
-    keyword: '문구',
-    maxPages: 1,
-    collectionRunId: 'wing-batch',
-    collectionTabId: 41,
-  });
-  assert.equal(replacement.success, true);
-  assert.equal(replacement.tabId, 44);
-  assert.deepEqual(wingCalls, ['create', 'attach']);
-  wingCalls.length = 0;
-  wingCancelled = false;
-  wingContext.executeWingCatalogSearchWithRetry = async () => {
-    wingCancelled = true;
-    return {
-      ok: true,
-      contentType: 'application/json',
-      body: { result: [] },
-    };
-  };
-  const cancelledWing = await wingContext.searchWing({
-    keyword: '문구',
-    maxPages: 1,
-  });
-  assert.equal(cancelledWing.cancelled, true);
-  assert.deepEqual(wingCalls, ['create', 'attach']);
+test('legacy batch controls are no longer exposed beside source-owner cancellation', () => {
+  assert.doesNotMatch(worker, /function cancelBatchScrape\(/);
+  assert.doesNotMatch(worker, /function autoScrape\(/);
+  assert.match(worker, /cancelCollectionSession\(runId, environmentId\)/);
+  assert.doesNotMatch(worker, /collectionWindowFor\(environmentId\)\.cancelRun/);
+  assert.doesNotMatch(worker, /collectionSessions\.remove/);
 });
 
 test('retires the web-origin competitor seller collector and routes direct collection to its source owner', () => {
@@ -493,8 +321,9 @@ test('interactive focus helper requires a deliberate user-action reason', async 
 });
 
 test('keyword source progress uses the canonical attempt identity without local terminal state', () => {
-  const collection = functionSource('searchCoupangKeywordSuggestions', 'getOrCreateCoupangSearchTab');
-  assert.match(collection, /collectionSessions\.start\(\{\s*attemptId:\s*runId/);
-  assert.doesNotMatch(collection, /collectionSessions\.(succeed|fail)\(/);
-  assert.doesNotMatch(collection, /collectionRuns\.beginWebCollection\(/);
+  const owner = fs.readFileSync(path.join(extensionRoot, 'background/coupang/keyword-suggestion-source-owner.js'), 'utf8');
+  assert.match(worker, /KidItemKeywordSuggestionSourceOwner\.create\(/);
+  assert.match(owner, /sessions\.start\(\{\s*attemptId:\s*attempt\.attemptId/);
+  assert.doesNotMatch(owner, /sessions\.(succeed|fail)\(/);
+  assert.doesNotMatch(owner, /collectionRuns\.beginWebCollection\(/);
 });

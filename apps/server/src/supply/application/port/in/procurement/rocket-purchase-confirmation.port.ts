@@ -5,6 +5,21 @@ import type {
 } from '@kiditem/shared/rocket-purchase-preview';
 
 export interface RocketWorkbookExportPort {
+  convertWorkbook(input: {
+    request: unknown;
+    templateBytes?: Buffer;
+    templateFileName?: string;
+  }): Promise<{
+    bytes: Buffer;
+    fileName: string;
+    contentType: string;
+    summary: {
+      totalRows: number;
+      workbookQuantity: number;
+      fullyConfirmedRows: number;
+      shortRows: number;
+    };
+  }>;
   exportWorkbook(input: {
     organizationId: string;
     userId: string;

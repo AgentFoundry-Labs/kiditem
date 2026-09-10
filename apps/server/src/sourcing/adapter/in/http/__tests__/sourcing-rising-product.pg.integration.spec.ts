@@ -39,11 +39,21 @@ describe('RisingProducts direct owner HTTP and stored snapshots (PostgreSQL)', (
     const today = kstBusinessDate(new Date());
     const yesterday = new Date(today.getTime() - 86_400_000);
     for (const [businessDate, rank, reviewCount] of [[yesterday, 30, 40], [today, 12, 95]] as const) {
+      const source = await prisma.sourceImportRun.create({ data: {
+        organizationId: TEST_ORGANIZATION_ID, sourceType: 'coupang_keyword_serp',
+        parserVersion: 'keyword-serp-v1', status: 'completed', rankKeyword: '아기 물티슈',
+      } });
       await prisma.coupangKeywordSerpDailySnapshot.create({ data: { organizationId: TEST_ORGANIZATION_ID,
+        sourceImportRunId: source.id,
         keyword: '아기 물티슈', businessDate, capturedAt: businessDate, itemCount: 1,
         items: [{ vendorItemId: 'V1', productId: 'P1', name: '아기 물티슈 리필', rank, reviewCount, priceKrw: 9900, isAd: false }] } });
     }
+    const wingSource = await prisma.sourceImportRun.create({ data: {
+      organizationId: TEST_ORGANIZATION_ID, sourceType: 'coupang_wing_rank',
+      parserVersion: 'wing-rank-v1', status: 'completed', rankKeyword: '아기 물티슈',
+    } });
     await prisma.coupangWingSalesRankDailySnapshot.create({ data: { organizationId: TEST_ORGANIZATION_ID,
+      sourceImportRunId: wingSource.id,
       keyword: '아기 물티슈', vendorItemId: 'V1', businessDate: today, capturedAt: today, salesLast28d: 120, salesRank: 3 } });
     expect(await controller.latest(TEST_ORGANIZATION_ID)).toBeNull();
     const calculated = await controller.detect(TEST_ORGANIZATION_ID, { windowDays: 2, limit: 1 });

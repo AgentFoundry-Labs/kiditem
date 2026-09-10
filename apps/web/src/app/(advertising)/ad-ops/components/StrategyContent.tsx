@@ -15,23 +15,23 @@ import {
   Target,
   Wallet,
 } from "lucide-react";
+import {
+  AdsHubDataSchema,
+  type AdsListItem,
+  type AdStrategyAction,
+  type AdTrendsData,
+  type AdWeeklyPlan,
+  type ChannelStateSignal,
+} from "@kiditem/shared/advertising";
+import {
+  ChannelSkuAvailabilityListResponseSchema,
+  type ChannelSkuAvailabilityItem,
+} from "@kiditem/shared/channel-sku-availability";
 import { apiClient } from "@/lib/api-client";
 import { queryKeys } from "@/lib/query-keys";
 import { formatKRW, formatNumber } from "@/lib/utils";
 import { exportCampaignXlsx } from "../lib/xlsx-export";
 import AdPerformanceTrendChart from "./AdPerformanceTrendChart";
-import type {
-  AdsListItem,
-  AdStrategyAction,
-  AdTrendsData,
-  AdWeeklyPlan,
-  ChannelStateSignal,
-} from "@kiditem/shared/advertising";
-import { AdsHubDataSchema } from "@kiditem/shared/advertising";
-import {
-  ChannelSkuAvailabilityListResponseSchema,
-  type ChannelSkuAvailabilityItem,
-} from "@kiditem/shared/channel-sku-availability";
 import type { RegisterCampaignPayload } from "../hooks/useAdOpsData";
 
 interface StrategyContentProps {
@@ -389,7 +389,9 @@ function GradeCardPanel({
         </div>
         <div className="flex gap-2">
           <button
-            onClick={() => exportCampaignXlsx(cfg.grade, gradeActions, gradeBudget)}
+            onClick={() => void exportCampaignXlsx(cfg.grade, gradeActions, gradeBudget).catch((error: unknown) => {
+              console.error("[ad-export] campaign download failed", error);
+            })}
             className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-[13px] font-bold transition-all hover:shadow-md"
             style={{ background: `${cfg.color}12`, color: cfg.color, border: `1px solid ${cfg.color}25` }}
           >
@@ -605,7 +607,9 @@ export default function StrategyContent({
           {isRefreshing ? "새로고침 중..." : "전략 새로고침"}
         </button>
         <button
-          onClick={() => exportCampaignXlsx("all", actions, totalBudget)}
+          onClick={() => void exportCampaignXlsx("all", actions, totalBudget).catch((error: unknown) => {
+            console.error("[ad-export] campaign download failed", error);
+          })}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold text-white shrink-0"
           style={{ background: "var(--primary)" }}
         >

@@ -10,6 +10,7 @@ import { friendlyError } from '@/lib/api-error';
 import { downloadBlob } from '@/lib/browser-download';
 import type { RocketOrderActivityInput } from '@/lib/rocket-order-activity';
 import { useRocketPoSource } from '@/hooks/use-rocket-po-source';
+import { useSellpiaInventorySourceOwner } from '@/app/(inventory)/_shared/sellpia-inventory-source-owner';
 import { RocketPoSourceError } from '@/lib/rocket-sales-collection';
 import { queryKeys } from '@/lib/query-keys';
 import { sellpiaInventoryFreshnessApi } from '@/lib/sellpia-inventory-freshness-api';
@@ -216,6 +217,7 @@ export function useRocketPurchaseWorkflow({
 }) {
   const queryClient = useQueryClient();
   const rocketSource = useRocketPoSource(channelAccountId);
+  const { start: startSellpiaInventorySource } = useSellpiaInventorySourceOwner({ enabled: true });
   const [editedQuantities, setEditedQuantities] = useState<Record<string, number>>({});
   const [operatorEditedLineIds, setOperatorEditedLineIds] = useState<Set<string>>(
     () => new Set(),
@@ -316,7 +318,10 @@ export function useRocketPurchaseWorkflow({
     return recoverRocketPreviewFreshness(initial, {
       retryPreview: requestPreview,
       getFreshnessState: sellpiaInventoryFreshnessApi.getState,
-      requestRetry: () => sellpiaInventoryFreshnessApi.requestRefresh('retry'),
+      requestRetry: async () => {
+        await startSellpiaInventorySource('retry');
+        return sellpiaInventoryFreshnessApi.getState();
+      },
       publishPending: (checkpoint) => {
         if (!isCurrent()) return;
         setPendingCheckpoint(checkpoint);

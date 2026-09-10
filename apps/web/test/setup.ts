@@ -14,3 +14,14 @@ Object.defineProperty(window, 'matchMedia', {
     dispatchEvent: vi.fn(),
   })),
 })
+
+// Radix Popover measures its portal anchor in a layout effect. JSDOM does
+// not implement ResizeObserver, so provide the minimal observer contract
+// needed by the accessible help disclosures.
+class TestResizeObserver {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+
+vi.stubGlobal('ResizeObserver', TestResizeObserver)

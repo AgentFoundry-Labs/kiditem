@@ -1,6 +1,5 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import { Test } from '@nestjs/testing';
-import type { PrismaClient } from '@prisma/client';
 import { DashboardTrendService } from '../application/service/dashboard-trend.service';
 import { DashboardTrendRepositoryAdapter } from '../adapter/out/repository/dashboard-trend.repository.adapter';
 import { WingTrafficAggregationRepositoryAdapter } from '../adapter/out/repository/wing-traffic-aggregation.repository.adapter';
@@ -9,6 +8,8 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { PROFIT_CALCULATION_REPOSITORY_PORT } from '../application/port/out/repository/profit-calculation.repository.port';
 import { DASHBOARD_TREND_REPOSITORY_PORT } from '../application/port/out/repository/dashboard-trend.repository.port';
 import { WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT } from '../application/port/out/repository/wing-traffic-aggregation.repository.port';
+import { AD_ACCOUNT_DAILY_KPI_READ_PORT } from '../../../advertising/application/port/in/ad-account-daily-kpi-source.port';
+import { AD_TRAFFIC_READ_PORT } from '../../../advertising/application/port/in/ad-traffic-source.port';
 import {
   makeTestPrisma,
   resetDb,
@@ -24,10 +25,13 @@ import {
   seedOrderWithLineItems,
   seedAd,
 } from '../../../test-helpers/finance-seeds';
+import type { PrismaClient } from '@prisma/client';
 
 describe('DashboardTrendService.getTrend (PG integration)', () => {
   let prisma: PrismaClient;
   let service: DashboardTrendService;
+  const dailyKpiRead = { readPublished: vi.fn() };
+  const trafficRead = { readPublished: vi.fn() };
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
@@ -42,6 +46,8 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
         { provide: PROFIT_CALCULATION_REPOSITORY_PORT, useExisting: ProfitCalculationRepositoryAdapter },
         { provide: DASHBOARD_TREND_REPOSITORY_PORT, useExisting: DashboardTrendRepositoryAdapter },
         { provide: WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT, useExisting: WingTrafficAggregationRepositoryAdapter },
+        { provide: AD_ACCOUNT_DAILY_KPI_READ_PORT, useValue: dailyKpiRead },
+        { provide: AD_TRAFFIC_READ_PORT, useValue: trafficRead },
       ],
     }).compile();
     service = m.get(DashboardTrendService);
@@ -54,6 +60,16 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
   beforeEach(async () => {
     await resetDb(prisma);
     await seedBaseFixture(prisma);
+    dailyKpiRead.readPublished.mockResolvedValue({
+      channelAccountId: '00000000-0000-4000-8000-000000000001',
+      rows: [],
+    });
+    trafficRead.readPublished.mockResolvedValue({
+      channelAccountId: '00000000-0000-4000-8000-000000000001',
+      rows: [],
+      dashboard: null,
+      plan: { businessDate: '1970-01-01' },
+    });
   });
 
   /**
@@ -182,23 +198,45 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
     expect(result.find((r) => r.revenue === IDOR_SENTINEL)).toBeDefined();
   });
 
-  it('T3: fresh organization → []', async () => {
+  it('T3: fresh organization → selected dates remain explicitly empty', async () => {
     const result = await service.getTrend(TEST_ORGANIZATION_ID, '7d');
-    expect(result).toEqual([]);
+    expect(result).toHaveLength(7);
+    expect(result.every((row) => row.revenue === null && row.adCost === null && row.profit === null)).toBe(true);
   });
 
-  it('T4: I3 fix — revenue from SUM(oli.total_price), NOT SUM(o.total_price); avgProfitRate ratio applied', async () => {
+  it('T4: uses line-item revenue and complete same-date costs, not order total or a range margin', async () => {
     // Sentinel: Order.totalPrice = 999_999_999 vs lineItem.totalPrice = 100_000.
     // Pre-fix would aggregate Order.totalPrice → revenue = 999M.
     // Post-fix aggregates lineItem.totalPrice → revenue = 100k.
-    // Cost set to produce avgProfitRate ≈ 0.3 → daily profit = 30_000.
-    // costPrice 70_000 → netProfit (range total) = 100_000 - 70_000 - 0 - 0 - 0 - 0 = 30_000
-    // avgProfitRate = 30_000 / 100_000 = 0.3 → daily profit = 100_000 × 0.3 = 30_000
-    await seedTestListingWithYesterdayOrder({
+    // Every non-ad cost must be explicit, including confirmed zero shipping.
+    const { listingOptionId } = await seedTestListingWithYesterdayOrder({
       suffix: '4',
       lineItemTotalPrice: 100_000,
       orderTotalPriceOverride: 999_999_999,
       costPrice: 70_000,
+    });
+    await prisma.channelListingOption.update({
+      where: { id: listingOptionId, organizationId: TEST_ORGANIZATION_ID },
+      data: { shippingCost: 0 },
+    });
+    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    dailyKpiRead.readPublished.mockResolvedValue({
+      channelAccountId: '00000000-0000-4000-8000-000000000001',
+      rows: [{
+        businessDate: new Date(yesterday.getTime() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10),
+        observedAt: new Date().toISOString(),
+        normalized: {
+          adSpend: 0,
+          adRevenue: 0,
+          impressions: 0,
+          clicks: 0,
+          conversions: 0,
+          orders: 0,
+          providerRoas: null,
+          providerCtr: null,
+          providerConversionRate: null,
+        },
+      }],
     });
 
     const result = await service.getTrend(TEST_ORGANIZATION_ID, '30d');
@@ -211,7 +249,7 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
     }
   });
 
-  it('T5: Wing-only trend keeps profit at 0 instead of synthesizing revenue minus ad cost', async () => {
+  it('T5: Wing-only v2 trend keeps profit unavailable instead of synthesizing revenue minus ad cost', async () => {
     const businessDate = new Date(Date.now() - 24 * 60 * 60 * 1000);
     const businessDateOnly = new Date(Date.UTC(
       businessDate.getFullYear(),
@@ -255,22 +293,74 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
         trafficRevenue: 120_000,
       },
     });
-    await prisma.channelAccountDailyKpiSnapshot.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
+    const trafficPublication = {
+      channelAccountId: listing.channelAccountId,
+      attemptId: '00000000-0000-4000-8000-000000000002',
+      plan: {
+        sourceType: 'coupang_wing_traffic',
+        parserVersion: 'wing-traffic-daily-v2',
         channelAccountId: listing.channelAccountId,
-        channel: 'coupang',
-        source: 'advertising',
-        kpiType: 'coupang_ads_daily',
-        businessDate: businessDateOnly,
-        normalizedJson: {
+        expectedAdvertiserId: 'VENDOR-A',
+        providerVendorId: 'VENDOR-A',
+        startDate: dateKey,
+        endDate: dateKey,
+        businessDate: dateKey,
+        periodDays: 1,
+        expectedDates: [dateKey],
+        filterScope: 'ALL_NORMAL_RFM',
+        targetUrl: null,
+      },
+      providerVendorId: 'VENDOR-A',
+      filterScope: 'ALL_NORMAL_RFM',
+      accountDaily: [{
+        businessDate: dateKey,
+        observedAt: '2026-09-06T01:00:00.000Z',
+        sourceAttemptId: '00000000-0000-4000-8000-000000000002',
+        providerConversionRate: null,
+        visitors: 20,
+        views: 0,
+        cartAdds: 0,
+        orders: 4,
+        salesQty: 4,
+        revenue: 120_000,
+      }],
+      optionDaily: [],
+      periodSummary: null,
+      coverage: {
+        from: dateKey,
+        to: dateKey,
+        targetDays: 1,
+        completedDays: 1,
+        missingDates: [],
+      },
+      reconciliation: Object.fromEntries([
+        'views', 'cartAdds', 'orders', 'salesQty', 'revenue',
+      ].map((metric) => [metric, { status: 'UNVERIFIED', dailySum: null, periodValue: null }])),
+      legacyExactPeriodEvidence: null,
+    };
+    trafficRead.readPublished.mockImplementation(async (input: { from?: string; to?: string }) => {
+      if ((input.from && dateKey < input.from) || (input.to && dateKey > input.to)) {
+        return { ...trafficPublication, accountDaily: [] };
+      }
+      return trafficPublication;
+    });
+    dailyKpiRead.readPublished.mockResolvedValue({
+      channelAccountId: listing.channelAccountId,
+      rows: [{
+        businessDate: dateKey,
+        observedAt: '2026-09-06T01:00:00.000Z',
+        normalized: {
           adSpend: 30_000,
           adRevenue: 90_000,
           impressions: 1000,
           clicks: 50,
           conversions: 3,
+          orders: 3,
+          providerRoas: 3,
+          providerCtr: 5,
+          providerConversionRate: 6,
         },
-      },
+      }],
     });
 
     const result = await service.getTrend(TEST_ORGANIZATION_ID, '30d');
@@ -279,7 +369,7 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
     expect(wingRow).toMatchObject({
       revenue: 120_000,
       adCost: 30_000,
-      profit: 0,
+      profit: null,
     });
   });
 });

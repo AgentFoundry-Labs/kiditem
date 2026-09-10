@@ -37,10 +37,17 @@ vi.mock('../lib/rocket-confirmation-workbook', () => ({
   fillRocketConfirmationWorkbook: vi.fn(),
 }));
 vi.mock('@/lib/browser-download', () => ({ downloadBlob: vi.fn() }));
+const sourceOwner = vi.hoisted(() => ({ start: vi.fn() }));
+vi.mock('@/app/(inventory)/_shared/sellpia-inventory-source-owner', () => ({
+  useSellpiaInventorySourceOwner: () => ({
+    start: sourceOwner.start,
+    state: null,
+    isStarting: false,
+  }),
+}));
 vi.mock('@/lib/sellpia-inventory-freshness-api', () => ({
   sellpiaInventoryFreshnessApi: {
     getState: vi.fn(),
-    requestRefresh: vi.fn(),
   },
 }));
 
@@ -63,9 +70,7 @@ describe('RocketPurchaseWorkspace', () => {
     vi.mocked(sellpiaInventoryFreshnessApi.getState).mockResolvedValue(
       freshnessState({ status: 'fresh', verifiedGeneration: '12' }),
     );
-    vi.mocked(sellpiaInventoryFreshnessApi.requestRefresh).mockResolvedValue(
-      freshnessState({ status: 'refresh_required', requestedGeneration: '13' }),
-    );
+    sourceOwner.start.mockResolvedValue({ generation: '13', state: 'RUNNING' });
   });
 
   it('shows collected rows while fresh inventory comparison is still running', async () => {

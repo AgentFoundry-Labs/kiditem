@@ -1,71 +1,175 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
-import { fileURLToPath } from 'node:url';
-import path from 'node:path';
 import vm from 'node:vm';
 
-const testDir = path.dirname(fileURLToPath(import.meta.url));
 const worker = readFileSync(
-  path.join(testDir, '../kiditem-os/background/orders/worker.js'),
+  new URL('../kiditem-os/background/orders/worker.js', import.meta.url),
+  'utf8',
+);
+const collectorSource = readFileSync(
+  new URL('../kiditem-os/background/orders/sellpia-sales-collector.js', import.meta.url),
   'utf8',
 );
 
-const scraperStart = worker.indexOf('async function scrapeSellpiaSaleSummary(');
-const scraperEnd = worker.indexOf(
-  '\nasync function findOrCreateSellpiaProductProfitTab',
-  scraperStart,
-);
-assert.notEqual(scraperStart, -1);
-assert.notEqual(scraperEnd, -1);
-const scraperSource = worker.slice(scraperStart, scraperEnd);
+function createSalesHarness({
+  responseBody,
+  providerNames = {},
+  now = '2026-07-18T03:00:00.000Z',
+  activeSequence = null,
+} = {}) {
+  const requests = [];
+  const attachedTabs = [];
+  const detachedTabs = [];
+  const removedTabs = [];
+  let activeChecks = 0;
+  const NativeDate = Date;
+  class FixedDate extends NativeDate {
+    constructor(...args) {
+      super(args.length === 0 ? now : args[0]);
+    }
 
-async function scrape(responseBody, providerNames = {}) {
+    static now() {
+      return new NativeDate(now).getTime();
+    }
+  }
+
+  const chrome = {
+    tabs: {
+      query: async () => [],
+      create: async (properties) => ({
+        id: 19,
+        windowId: 4,
+        status: 'complete',
+        ...properties,
+      }),
+      remove: async (tabId) => removedTabs.push(tabId),
+    },
+    scripting: {
+      executeScript: async ({ func, args }) => {
+        const pageContext = vm.createContext({
+          Date: FixedDate,
+          JSON,
+          Number,
+          Object,
+          Promise,
+          String,
+          URLSearchParams,
+          provider_list_all: providerNames,
+          setTimeout,
+          clearTimeout,
+          fetch: async (_url, init) => {
+            const body = new URLSearchParams(String(init?.body ?? ''));
+            requests.push(body);
+            return {
+              ok: true,
+              status: 200,
+              text: async () => JSON.stringify(responseBody),
+            };
+          },
+        });
+        const result = await vm.runInContext(
+          `(${func.toString()})(...args)`,
+          vm.createContext({ ...pageContext, args }),
+        );
+        return [{ result }];
+      },
+    },
+  };
   const context = vm.createContext({
     Date,
-    JSON,
-    Number,
-    Object,
+    Error,
     Promise,
     String,
-    URLSearchParams,
-    fetch: async () => ({
-      ok: true,
-      status: 200,
-      text: async () => JSON.stringify(responseBody),
-    }),
-    provider_list_all: providerNames,
     setTimeout,
+    clearTimeout,
   });
-  const scraper = vm.runInContext(`(${scraperSource})`, context, {
-    filename: 'scrapeSellpiaSaleSummary.js',
+  vm.runInContext(collectorSource, context, { filename: 'sellpia-sales-collector.js' });
+  const collection = {
+    attachTab: async (tab) => {
+      attachedTabs.push(tab);
+      return { attemptId: '11111111-1111-4111-8111-111111111111' };
+    },
+    assertActive: async () => {
+      if (!activeSequence) return true;
+      const index = Math.min(activeChecks++, activeSequence.length - 1);
+      return activeSequence[index];
+    },
+    detachTab: async (tab) => {
+      detachedTabs.push(tab);
+      await chrome.tabs.remove(tab.id);
+    },
+  };
+  const collector = context.KidItemSellpiaSalesCollector.create({
+    chrome,
+    waitForTabReady: async () => undefined,
+    withTimeout: async (operation) => operation,
+    isMallAccessError: () => false,
+    mallAccessErrorResult: (mallName) => ({
+      success: false,
+      pendingLogin: true,
+      error: `${mallName} login is required.`,
+    }),
+    mallGenericErrorResult: (mallName, error) => ({
+      success: false,
+      error: `${mallName} collection failed: ${String(error?.message || error)}`,
+    }),
   });
-  return scraper('2026-07-17', '2026-07-18');
+  return {
+    collector,
+    collection,
+    requests,
+    attachedTabs,
+    detachedTabs,
+    removedTabs,
+    get activeChecks() { return activeChecks; },
+  };
 }
 
-test('Sellpia sales background cache is bound to the active organization', () => {
-  assert.match(
-    worker,
-    /const SELLPIA_SALES_ORGANIZATION_KEY = "sellpiaSaleSummaryOrganizationId"/,
-  );
-  assert.match(
-    worker,
-    /normalizeSellpiaSalesOrganizationId\(msg\.organizationId\)/,
-  );
-  assert.match(
-    worker,
-    /cache\?\.organizationId === organizationId \? cache : null/,
-  );
-  assert.match(
-    worker,
-    /\[cacheKey\]: \{\s*organizationId,\s*payload: result\.payload,/,
-  );
+async function scrape(responseBody, providerNames = {}) {
+  const harness = createSalesHarness({ responseBody, providerNames });
+  const result = await harness.collector.collect({
+    startDate: '2026-07-17',
+    endDate: '2026-07-18',
+    collection: harness.collection,
+  });
+  return {
+    result: JSON.parse(JSON.stringify(result)),
+    requests: harness.requests,
+    attachedTabs: harness.attachedTabs,
+    detachedTabs: harness.detachedTabs,
+    removedTabs: harness.removedTabs,
+  };
+}
+
+test('Sellpia sales uses the source owner and collector and has no automatic cache or alarm path', () => {
+  assert.match(worker, /collectSellpiaSaleSummary:\s*\{\s*validate: KidItemSellpiaSalesSourceOwner\.parseAction/s);
+  assert.match(worker, /const sellpiaSalesCollector = KidItemSellpiaSalesCollector\.create/);
+  assert.match(worker, /sellpiaSalesCollector\.collect/);
   assert.match(worker, /collectSellpiaSaleSummaryAuthoritativeV1:\s*true/);
-  assert.match(worker, /sellers\.length > 0 \|\| explicitEmpty/);
+  assert.doesNotMatch(worker, /SELLPIA_SALES_(CACHE|ALARM|ORGANIZATION)/);
+  assert.doesNotMatch(worker, /chrome\.alarms\.onAlarm/);
+});
+
+test('Sellpia sales fences provider execution after the owner is cancelled', async () => {
+  const harness = createSalesHarness({
+    responseBody: {},
+    activeSequence: [true, false],
+  });
+  const result = await harness.collector.collect({ collection: harness.collection });
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), {
+    success: false,
+    errorCode: 'COLLECTION_CANCELLED',
+    error: 'Sellpia sales collection is no longer active.',
+  });
+  assert.equal(harness.activeChecks, 2);
+  assert.deepEqual(harness.removedTabs, [19]);
+  assert.equal(harness.requests.length, 0);
 });
 
 test('sale_summary parser accepts complete seller rows and keeps numeric zeroes', async () => {
-  const result = await scrape(
+  const { result, attachedTabs, detachedTabs, removedTabs } = await scrape(
     {
       118: {
         '2026-07-17': {
@@ -80,6 +184,9 @@ test('sale_summary parser accepts complete seller rows and keeps numeric zeroes'
   );
 
   assert.equal(result.success, true);
+  assert.deepEqual(attachedTabs.map((tab) => tab.id), [19]);
+  assert.deepEqual(detachedTabs.map((tab) => tab.id), [19]);
+  assert.deepEqual(removedTabs, [19]);
   assert.equal(result.payload.sellers.length, 1);
   assert.deepEqual(
     JSON.parse(JSON.stringify(result.payload.sellers[0])),
@@ -93,7 +200,7 @@ test('sale_summary parser accepts complete seller rows and keeps numeric zeroes'
 });
 
 test('only a structurally empty seller object produces explicit-empty provenance', async () => {
-  const result = await scrape({});
+  const { result } = await scrape({});
 
   assert.equal(result.success, true);
   assert.deepEqual(JSON.parse(JSON.stringify(result.payload)), {
@@ -118,7 +225,7 @@ test('error envelopes, arrays, null, and unknown seller keys fail closed', async
     { constructor: { '2026-07-17': { price: 1, amount: 1, buy_price: 1 } } },
     { 999: { '2026-07-17': { price: 1, amount: 1, buy_price: 1 } } },
   ]) {
-    const result = await scrape(responseBody, { 118: '스마트스토어' });
+    const { result } = await scrape(responseBody, { 118: '스마트스토어' });
     assert.equal(result.success, false, JSON.stringify(responseBody));
     assert.equal(result.payload, undefined, JSON.stringify(responseBody));
   }
@@ -140,7 +247,7 @@ test('partial seller/day responses fail as a whole instead of being silently ski
   ];
 
   for (const responseBody of partialResponses) {
-    const result = await scrape(responseBody, { 118: '스마트스토어' });
+    const { result } = await scrape(responseBody, { 118: '스마트스토어' });
     assert.equal(result.success, false, JSON.stringify(responseBody));
     assert.equal(result.payload, undefined, JSON.stringify(responseBody));
   }

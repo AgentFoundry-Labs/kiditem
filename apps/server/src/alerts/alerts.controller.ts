@@ -13,7 +13,7 @@ export class AlertsController {
 
   @Get()
   findAll(@CurrentOrganization() organizationId: string) {
-    return this.alerts.findAll(organizationId);
+    return this.alerts.list(organizationId);
   }
 
   @Post(':id/dismiss')

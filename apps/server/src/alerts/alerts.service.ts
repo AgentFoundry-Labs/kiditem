@@ -23,10 +23,6 @@ export class SourceFailureAlerts {
     return this.repository.list(organizationId);
   }
 
-  findAll(organizationId: string): Promise<AlertItem[]> {
-    return this.list(organizationId);
-  }
-
   dismiss(id: string, organizationId: string): Promise<void> {
     return this.repository.dismiss(id, organizationId);
   }

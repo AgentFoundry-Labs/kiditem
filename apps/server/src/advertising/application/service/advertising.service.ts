@@ -4,13 +4,6 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import type {
-  AdsHubData,
-  AdsHubSummary,
-  AdsListItem,
-  FindAllAdsResponse,
-} from '@kiditem/shared/advertising';
-import { AdConfigService } from './ad-config.service';
 import { paginationParams } from '../../../common/pagination';
 import { recomputeRoas } from '../../domain/util/ratio-recompute';
 import { buildAdMetrics } from '../../domain/ad-metrics';
@@ -22,12 +15,20 @@ import {
   AD_LISTING_REPOSITORY_PORT,
   type AdListingRepositoryPort,
 } from '../port/out/repository/ad-listing.repository.port';
+import { AdConfigService } from './ad-config.service';
+import type {
+  AdsHubData,
+  AdsHubSummary,
+  AdsListItem,
+  FindAllAdsResponse,
+} from '@kiditem/shared/advertising';
+import type { AdvertisingHubReadPort } from '../port/in/advertising-hub-read.port';
 
 const VALID_TIERS = ['1차', '2차', '3차', 'OFF'] as const;
 type ValidTier = (typeof VALID_TIERS)[number];
 
 @Injectable()
-export class AdvertisingService {
+export class AdvertisingService implements AdvertisingHubReadPort {
   constructor(
     @Inject(AD_BENCHMARK_REPOSITORY_PORT)
     private readonly benchmarkRepo: AdBenchmarkRepositoryPort,

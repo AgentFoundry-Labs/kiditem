@@ -2,7 +2,7 @@
 
 `src/orders/` owns the channel-agnostic Order aggregate, returns, reviews,
 record-only return transfers, Coupang directship collection conversion, and
-durable Sellpia transmission intents. Channels owns provider sync and actions;
+durable Sellpia transmission intents. Channels owns marketplace identity;
 Inventory owns physical stock; Supply owns Rocket catalog/workbook evidence.
 
 ## Identity And State
@@ -25,8 +25,10 @@ Action, collection, transmission, and reconciliation behavior is executable in
 
 ## Provider And Collection Contract
 
-- Provider actions delegate through Channels ports; Orders services do not call
-  marketplace HTTP APIs.
+- Coupang confirmation, invoice, and return actions are explicitly unsupported
+  until a browser/source-owner replacement exists. Orders services do not call
+  marketplace HTTP APIs; collection and Sellpia transmission use their owner
+  paths.
 - Prepare a stable transmission intent before irreversible Sellpia browser IO.
   Observed acceptance finalizes it, explicit confirmed non-submission aborts
   it, and privileged reconciliation is audited. Unknown outcomes remain

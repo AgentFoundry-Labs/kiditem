@@ -24,7 +24,9 @@ describe('Taobao direct source owner (PG integration)', () => {
   beforeAll(async () => { prisma = makeTestPrisma(); await prisma.$connect(); });
   afterAll(async () => { await prisma.$disconnect(); });
   afterEach(async () => {
-    expect(await prisma.operationRun.count()).toBe(0);
+    expect((await prisma.$queryRaw<Array<{ absent: boolean }>>`
+      SELECT to_regclass('public.operation_runs') IS NULL AS absent
+    `)[0]?.absent).toBe(true);
     expect(await prisma.masterProductAbcFormulaState.findMany()).toEqual(abcBefore);
     expect(await prisma.masterProductAbcEvaluation.count()).toBe(0);
     expect(await prisma.masterProductAbcGradeHistory.count()).toBe(0);
@@ -160,7 +162,9 @@ describe('Taobao direct source owner (PG integration)', () => {
     expect(snapshots.products).toEqual([expect.objectContaining({ ...fixture.products[0], ingestionRunId: result.attemptId })]);
     expect(await http.collectTaobao(input, 'fixture', TEST_ORGANIZATION_ID)).toEqual(result);
     expect(provider.collect).toHaveBeenCalledTimes(1);
-    expect(await prisma.operationRun.count()).toBe(0);
+    expect((await prisma.$queryRaw<Array<{ absent: boolean }>>`
+      SELECT to_regclass('public.operation_runs') IS NULL AS absent
+    `)[0]?.absent).toBe(true);
     expect(await prisma.alert.count()).toBe(0);
   });
 });

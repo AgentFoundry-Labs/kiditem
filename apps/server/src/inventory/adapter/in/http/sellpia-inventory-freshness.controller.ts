@@ -1,10 +1,8 @@
 import {
-  Body,
   Controller,
   Get,
   Inject,
-  Param,
-  ParseUUIDPipe,
+  Body,
   Post,
 } from '@nestjs/common';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
@@ -15,11 +13,6 @@ import {
   type SellpiaInventoryFreshnessPort,
 } from '../../../application/port/in/stock/sellpia-inventory-freshness.port';
 import {
-  SellpiaInventoryCancelRequestDto,
-  SellpiaInventoryClaimRequestDto,
-  SellpiaInventoryFailRequestDto,
-  SellpiaInventoryHeartbeatRequestDto,
-  SellpiaInventoryRefreshRequestDto,
   SellpiaInventorySourceBindingRequestDto,
 } from './dto';
 import type { AuthUser } from '../../../../auth/auth.types';
@@ -55,70 +48,4 @@ export class SellpiaInventoryFreshnessController {
     });
   }
 
-  @Post('requests')
-  requestRefresh(
-    @CurrentOrganization() organizationId: string,
-    @CurrentUser() user: AuthUser,
-    @Body() dto: SellpiaInventoryRefreshRequestDto,
-  ) {
-    return this.freshness.requestRefresh({
-      organizationId,
-      userId: user.id,
-      reason: dto.reason,
-      scope: dto.scope,
-    });
-  }
-
-  @Post('claims')
-  claimDue(
-    @CurrentOrganization() organizationId: string,
-    @CurrentUser() user: AuthUser,
-    @Body() _dto: SellpiaInventoryClaimRequestDto,
-  ) {
-    return this.freshness.claimDue({ organizationId, userId: user.id });
-  }
-
-  @Post('claims/:token/heartbeat')
-  heartbeat(
-    @CurrentOrganization() organizationId: string,
-    @CurrentUser() user: AuthUser,
-    @Param('token', new ParseUUIDPipe({ version: '4' })) claimToken: string,
-    @Body() _dto: SellpiaInventoryHeartbeatRequestDto,
-  ) {
-    return this.freshness.heartbeat({
-      organizationId,
-      userId: user.id,
-      claimToken,
-    });
-  }
-
-  @Post('claims/:token/fail')
-  fail(
-    @CurrentOrganization() organizationId: string,
-    @CurrentUser() user: AuthUser,
-    @Param('token', new ParseUUIDPipe({ version: '4' })) claimToken: string,
-    @Body() dto: SellpiaInventoryFailRequestDto,
-  ) {
-    return this.freshness.fail({
-      organizationId,
-      userId: user.id,
-      claimToken,
-      errorCode: dto.errorCode,
-      errorMessage: dto.errorMessage,
-    });
-  }
-
-  @Post('claims/:token/cancel')
-  cancel(
-    @CurrentOrganization() organizationId: string,
-    @CurrentUser() user: AuthUser,
-    @Param('token', new ParseUUIDPipe({ version: '4' })) claimToken: string,
-    @Body() _dto: SellpiaInventoryCancelRequestDto,
-  ) {
-    return this.freshness.cancel({
-      organizationId,
-      userId: user.id,
-      claimToken,
-    });
-  }
 }

@@ -28,13 +28,35 @@ implements InventoryAvailabilityRepositoryPort {
       );
       const state = await tx.sellpiaInventoryState.findUnique({
         where: { organizationId: input.organizationId },
-        select: { verifiedGeneration: true, lastVerifiedAt: true },
+        select: {
+          verifiedGeneration: true,
+          lastVerifiedAt: true,
+          lastCompletedImportRunId: true,
+        },
       });
       if (
         state === null
         || state.verifiedGeneration <= 0n
         || state.lastVerifiedAt === null
+        || state.lastCompletedImportRunId === null
       ) {
+        return InventoryAvailabilityBatchSchema.parse({
+          snapshot: { collected: false, generation: null, verifiedAt: null },
+          items: [],
+        });
+      }
+
+      const publishedRun = await tx.sourceImportRun.findFirst({
+        where: {
+          id: state.lastCompletedImportRunId,
+          organizationId: input.organizationId,
+          sourceType: 'sellpia_inventory',
+          channelAccountId: null,
+          status: 'completed',
+        },
+        select: { id: true },
+      });
+      if (publishedRun === null) {
         return InventoryAvailabilityBatchSchema.parse({
           snapshot: { collected: false, generation: null, verifiedAt: null },
           items: [],
@@ -48,13 +70,15 @@ implements InventoryAvailabilityRepositoryPort {
           generation,
           verifiedAt: state.lastVerifiedAt.toISOString(),
         },
-        items: inventorySkus.map((sku) => ({
-          sellpiaInventorySkuId: sku.id,
-          currentStock: sku.currentStock,
-          availableStock: sku.currentStock,
-          isActive: sku.isActive,
-          generation,
-        })),
+        items: inventorySkus
+          .filter((sku) => sku.lastImportRunId === publishedRun.id)
+          .map((sku) => ({
+            sellpiaInventorySkuId: sku.id,
+            currentStock: sku.currentStock,
+            availableStock: sku.currentStock,
+            isActive: sku.isActive,
+            generation,
+          })),
       });
     }, TRANSACTION_OPTIONS);
   }
@@ -69,7 +93,7 @@ async function loadInventorySkus(
   const rows = await tx.sellpiaInventorySku.findMany({
     where: { organizationId, id: { in: sellpiaInventorySkuIds } },
     orderBy: { id: 'asc' },
-    select: { id: true, currentStock: true, isActive: true },
+    select: { id: true, currentStock: true, isActive: true, lastImportRunId: true },
   });
   if (rows.length !== sellpiaInventorySkuIds.length) {
     throw new NotFoundException(

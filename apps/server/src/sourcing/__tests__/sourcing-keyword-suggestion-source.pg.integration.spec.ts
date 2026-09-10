@@ -55,7 +55,9 @@ describe('Keyword suggestion public source owner (disposable PostgreSQL)', () =>
     await expect(service.snapshot({ organizationId, keyword: 'A Pencil' })).resolves.toMatchObject({ items: [] });
     await expect(prisma.alert.findMany({ where: { organizationId, type: 'source_failure' } }))
       .resolves.toMatchObject([{ status: 'RESOLVED' }]);
-    await expect(prisma.operationRun.count()).resolves.toBe(0);
+    expect((await prisma.$queryRaw<Array<{ absent: boolean }>>`
+      SELECT to_regclass('public.operation_runs') IS NULL AS absent
+    `)[0]?.absent).toBe(true);
     await expect(prisma.alert.count({ where: { kind: 'operation' } })).resolves.toBe(0);
     await expect(prisma.masterProductAbcEvaluation.count()).resolves.toEqual(abcBefore);
   });

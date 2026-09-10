@@ -280,7 +280,6 @@ function ownerResult() {
   return {
     summary: 'Candidate created.',
     resourceRefs: [{ kind: 'sourcing_candidate', id: '00000000-0000-4000-8000-000000000004', version: null }],
-    operationRefs: [],
     output: { candidateId: '00000000-0000-4000-8000-000000000004' },
   };
 }
@@ -290,7 +289,6 @@ function receipt() {
   return {
     summary: result.summary,
     resourceRefs: result.resourceRefs,
-    operationRefs: result.operationRefs,
   };
 }
 

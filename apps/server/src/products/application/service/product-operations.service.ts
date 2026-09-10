@@ -91,7 +91,6 @@ export class ProductOperationsService implements ProductOperationsPort {
       ),
     ]);
     const placeholder = noDirectSales();
-    const createdAtById = new Map(raw.items.map(({ id, abcCreatedAt }) => [id, abcCreatedAt]));
     const contributionById = new Map(
       contribution?.products.map((product) => [product.masterProductId, product]) ?? [],
     );
@@ -101,7 +100,6 @@ export class ProductOperationsService implements ProductOperationsPort {
         mapped,
         dataStatus,
         contributionById.get(item.id) ?? null,
-        createdAtById.get(item.id)!,
       );
     });
     const abcFiltered = query.abcCalculationStatus
@@ -162,7 +160,6 @@ export class ProductOperationsService implements ProductOperationsPort {
       mapped,
       dataStatus,
       contribution?.products[0] ?? null,
-      product.createdAt,
     );
     return (await this.applyDisplayImages(organizationId, [withAbc]))[0]!;
   }
@@ -258,7 +255,6 @@ export class ProductOperationsService implements ProductOperationsPort {
       mapProductOperationsDetail(product, inventoryBySkuId),
       dataStatus,
       contribution?.products[0] ?? null,
-      product.createdAt,
     );
     return (await this.applyDisplayImages(organizationId, [mapped]))[0]!;
   }
@@ -414,7 +410,6 @@ function enrichAbc<T extends {
   product: T,
   status: ProductOperationsDataStatusFacts,
   contribution: ProductAbcContributionProduct | null,
-  createdAt: string | Date,
 ) {
   const current = status.products.find(({ masterProductId }) =>
     masterProductId === product.id);
@@ -427,7 +422,7 @@ function enrichAbc<T extends {
     product.abcEvaluation !== null,
     current?.mappingValid !== false,
     status,
-    createdAt,
+    current?.saleStartDate ?? null,
   );
   return {
     ...product,

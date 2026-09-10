@@ -2,11 +2,20 @@ import { z } from 'zod';
 
 const isoDate = z.union([z.string(), z.date()]);
 
+const DailyCoverageSchema = z.object({
+  from: z.string(),
+  to: z.string(),
+  targetDays: z.number().int().nonnegative(),
+  completedDays: z.number().int().nonnegative(),
+  missingDates: z.array(z.string()),
+}).strict();
+
 const RangeSchema = z.object({
   firstDate: z.string().nullable(), // 'YYYY-MM-DD' (KST business date)
   lastDate: z.string().nullable(),
   dateCount: z.number().int().nonnegative(),
   lastSyncedAt: isoDate.nullable(),
+  coverage: DailyCoverageSchema.nullable().optional(),
 });
 
 /**

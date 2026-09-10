@@ -2,7 +2,6 @@
 
 import { useMutation, useQueries, useQuery, useQueryClient, type Query, type QueryKey } from '@tanstack/react-query';
 import { isApiError } from '@/lib/api-error';
-import { wakeBrowserOperationRuntime } from '@/lib/extension-bridge';
 import { queryKeys } from '@/lib/query-keys';
 import {
   fetchWholesale1688Results,
@@ -53,7 +52,6 @@ export function useWholesale1688Command(snapshotQueryKey: QueryKey) {
     error: mutation.error ?? attemptQueries.find((query) => query.error)?.error,
     start: (command: Wholesale1688Command) => {
       const key = crypto.randomUUID();
-      if (command.kind === 'keyword-search') void wakeBrowserOperationRuntime().catch(() => undefined);
       mutation.mutate({ command, key });
     },
   };

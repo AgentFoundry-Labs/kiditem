@@ -278,8 +278,8 @@ model NaverKeywordDailySnapshot {
 
   ingestionRun SourcingEvidenceIngestionRun @relation("NaverKeywordDailySnapshotIngestionRun", fields: [organizationId, ingestionRunId], references: [organizationId, id], onDelete: Cascade)
 
-  @@index([organizationId, ingestionRunId])
   @@unique([organizationId, ingestionRunId, keyword, businessDate])
+  @@index([organizationId, ingestionRunId])
   @@index([organizationId, keyword, businessDate])
   @@map("naver_keyword_daily_snapshots")
 }
@@ -308,8 +308,8 @@ model NaverPopularKeywordDailySnapshot {
 
   ingestionRun SourcingEvidenceIngestionRun @relation("NaverPopularKeywordDailySnapshotIngestionRun", fields: [organizationId, ingestionRunId], references: [organizationId, id], onDelete: Cascade)
 
-  @@index([organizationId, ingestionRunId])
   @@unique([organizationId, ingestionRunId, boardKey, businessDate, keyword])
+  @@index([organizationId, ingestionRunId])
   @@index([organizationId, boardKey, businessDate])
   @@map("naver_popular_keyword_daily_snapshots")
 }
@@ -344,8 +344,8 @@ model ShortsTrendDailySnapshot {
 
   ingestionRun SourcingEvidenceIngestionRun @relation("ShortsTrendDailySnapshotIngestionRun", fields: [organizationId, ingestionRunId], references: [organizationId, id], onDelete: Cascade)
 
-  @@index([organizationId, ingestionRunId])
   @@unique([organizationId, ingestionRunId, businessDate, videoKey])
+  @@index([organizationId, ingestionRunId])
   @@index([organizationId, businessDate])
   @@map("shorts_trend_daily_snapshots")
 }
@@ -523,9 +523,9 @@ model SourcingEvidenceIngestionRun {
   offerKeywordObservations            Sourcing1688OfferKeywordObservation[]
   liveCommerceBroadcastDailySnapshots LiveCommerceBroadcastDailySnapshot[]  @relation("LiveCommerceBroadcastDailySnapshotIngestionRun")
   liveCommerceProductDailySnapshots   LiveCommerceProductDailySnapshot[]    @relation("LiveCommerceProductDailySnapshotIngestionRun")
-  naverKeywordDailySnapshots NaverKeywordDailySnapshot[] @relation("NaverKeywordDailySnapshotIngestionRun")
-  naverPopularKeywordDailySnapshots NaverPopularKeywordDailySnapshot[] @relation("NaverPopularKeywordDailySnapshotIngestionRun")
-  shortsTrendDailySnapshots ShortsTrendDailySnapshot[] @relation("ShortsTrendDailySnapshotIngestionRun")
+  naverKeywordDailySnapshots          NaverKeywordDailySnapshot[]           @relation("NaverKeywordDailySnapshotIngestionRun")
+  naverPopularKeywordDailySnapshots   NaverPopularKeywordDailySnapshot[]    @relation("NaverPopularKeywordDailySnapshotIngestionRun")
+  shortsTrendDailySnapshots           ShortsTrendDailySnapshot[]            @relation("ShortsTrendDailySnapshotIngestionRun")
   tiktokCreativeTrendDailySnapshots   TiktokCreativeTrendDailySnapshot[]    @relation("TiktokCreativeTrendDailySnapshotIngestionRun")
 
   @@unique([id, organizationId], map: "sourcing_evidence_ingestion_runs_id_org_key")

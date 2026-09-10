@@ -5,6 +5,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import BatchRankCheck from "./BatchRankCheck";
@@ -68,6 +69,7 @@ function setup(initial: WingRankBatch) {
   let current = initial;
   let sessions: unknown[] = [];
   let dispatchReply: unknown = { success: true, started: true };
+  let cancelReply: unknown = { success: true };
   const messages: Array<Record<string, unknown>> = [];
   const requests: Array<{ url: string; init: RequestInit }> = [];
   vi.stubGlobal("fetch", async (url: string, init: RequestInit = {}) => {
@@ -97,8 +99,10 @@ function setup(initial: WingRankBatch) {
         callback(
           message.action === "listCollectionSessions"
             ? sessions
-            : message.action === "collectAdvertisingWingRankBatch"
-              ? dispatchReply
+              : message.action === "collectAdvertisingWingRankBatch"
+                ? dispatchReply
+                : message.action === "cancelAdvertisingWingRankBatch"
+                  ? cancelReply
               : { success: true },
         );
       },
@@ -131,6 +135,9 @@ function setup(initial: WingRankBatch) {
     },
     setDispatchReply: (value: unknown) => {
       dispatchReply = value;
+    },
+    setCancelReply: (value: unknown) => {
+      cancelReply = value;
     },
   };
 }
@@ -234,6 +241,60 @@ describe("Wing rank owner UI", () => {
     h.setResult(batch(["FAILED", "FAILED"]));
     await h.client.invalidateQueries();
     expect(await screen.findByText("처리 2 / 전체 2")).toBeInTheDocument();
+  });
+
+  it("keeps cancellation transport errors retryable and clears them after an accepted retry", async () => {
+    window.history.replaceState(null, "", `/rank-tracking?rankBatch=${KEY}`);
+    const h = setup(batch(["RUNNING", "RUNNING"]));
+    h.setCancelReply({ success: false, error: "확장 응답이 유실되었습니다." });
+
+    fireEvent.click(await screen.findByRole("button", { name: "수집 중단" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "확장 응답이 유실되었습니다.",
+    );
+
+    h.setCancelReply({ success: true });
+    fireEvent.click(screen.getByRole("button", { name: "수집 중단" }));
+    await waitFor(() =>
+      expect(screen.queryByText("확장 응답이 유실되었습니다.")).not.toBeInTheDocument(),
+    );
+  });
+
+  it("clears a cancellation error after owner confirmation without hiding a dispatch error", async () => {
+    const h = setup(batch(["RUNNING", "RUNNING"]));
+    h.setDispatchReply({ success: false, error: "dispatch failed" });
+
+    fireEvent.click(screen.getByRole("button", { name: "전체 상품 순위 수집" }));
+    expect(await screen.findByText("dispatch failed")).toBeInTheDocument();
+
+    h.setCancelReply({ success: false, error: "cancel failed" });
+    fireEvent.click(await screen.findByRole("button", { name: "수집 중단" }));
+    expect(await screen.findByText("cancel failed")).toBeInTheDocument();
+
+    h.setResult(batch(["FAILED", "FAILED"]));
+    const cancelAlert = screen
+      .getAllByRole("alert")
+      .find((alert) => alert.textContent?.includes("cancel failed"));
+    expect(cancelAlert).toBeDefined();
+    fireEvent.click(
+      within(cancelAlert!).getByRole("button", { name: "결과 다시 확인" }),
+    );
+
+    await waitFor(() =>
+      expect(screen.queryByText("cancel failed")).not.toBeInTheDocument(),
+    );
+    expect(screen.getByText("dispatch failed")).toBeInTheDocument();
+  });
+
+  it("keeps every failure row inside a bounded native details viewport", async () => {
+    window.history.replaceState(null, "", `/rank-tracking?rankBatch=${KEY}`);
+    const h = setup(batch(["FAILED", "FAILED"]));
+
+    expect(await screen.findByText("실패 2건 · 이전 정상 데이터는 유지됩니다.")).toBeInTheDocument();
+    expect(screen.getByText("연필: Wing 로그인이 필요합니다.")).toBeInTheDocument();
+    expect(screen.getByText("색연필: Wing 로그인이 필요합니다.")).toBeInTheDocument();
+    expect(screen.getByRole("list")).toHaveClass("max-h-48", "overflow-y-auto");
+    expect(h.completed).toHaveBeenCalledTimes(1);
   });
 
   it("treats empty admission as a no-op without retaining or polling a nonexistent receipt", async () => {

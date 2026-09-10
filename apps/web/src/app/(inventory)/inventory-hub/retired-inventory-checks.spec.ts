@@ -36,7 +36,6 @@ const liveLinkConsumers = [
   'apps/web/src/components/RebuildReadinessBanner.tsx',
   'apps/web/src/app/(analytics)/dashboard/page.tsx',
   'apps/web/src/app/(analytics)/dashboard/components/DashboardSidePanel.tsx',
-  'apps/server/src/automation/domain/policy/action-seeds.ts',
 ];
 
 describe('retired inventory checks workspace', () => {

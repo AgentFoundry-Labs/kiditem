@@ -1,4 +1,4 @@
-// Pure KST business-date helpers extracted from AdSyncService.
+// Pure KST business-date helpers shared by advertising source owners.
 //
 // `payload.timestamp` 같은 ISO 문자열은 KST (+09:00) 로 shift 후 day slice.
 // `YYYY-MM-DD` 형태는 이미 KST business date 로 간주. handler 가 직접

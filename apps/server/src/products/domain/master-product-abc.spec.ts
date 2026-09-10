@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD,
+  PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
   type ProductAbcFormulaPayload,
 } from '@kiditem/shared/product-abc';
 import {
@@ -10,7 +10,7 @@ import {
   type MasterProductAbcFormulaReadyMonthlyFact,
 } from './master-product-abc';
 
-const formula = PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD;
+const formula = PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD;
 const cutoffDate = '2026-07-31';
 
 type MonthOptions = Partial<Omit<MasterProductAbcFormulaReadyMonthlyFact, 'provenance'>> & {
@@ -45,6 +45,8 @@ function facts(
   return {
     masterProductId: 'product-1',
     cutoffDate,
+    saleStartDate: '2026-06-01',
+    evaluationPeriodComplete: true,
     monthlyFacts,
     ...overrides,
   };
@@ -78,12 +80,13 @@ function anchoredFormula(overrides: {
   };
 }
 
-describe('PRODUCT_ABC_ABSOLUTE V1 evaluator', () => {
+describe('PRODUCT_ABC_ABSOLUTE current evaluator', () => {
   it('uses the shared canonical payload and returns one product candidate only', () => {
     const candidate = evaluate();
 
     expect(candidate).toMatchObject({
       masterProductId: 'product-1',
+      saleStartDate: '2026-06-01',
       abcGrade: 'A',
       gradeBasisCutoffDate: cutoffDate,
       validObservationDays: 31,
@@ -200,7 +203,7 @@ describe('PRODUCT_ABC_ABSOLUTE V1 evaluator', () => {
     expect(zeroRevenue.abcGrade).toBe('C');
     expect(zeroRevenue.marginScore).toBeNull();
     expect(evaluate([month({ recognizedRevenue: 100, orderTimeSupplyCost: 100 })]).abcGrade).toBe('C');
-    expect(evaluate([month({ recognizedRevenue: 100, orderTimeSupplyCost: 0, coveredDays: 10 }), month({ yearMonth: '2026-06', recognizedRevenue: 0, orderTimeSupplyCost: 1, coveredDays: 30 })]).abcGrade).toBe('C');
+    expect(evaluate([month({ recognizedRevenue: 100, orderTimeSupplyCost: 0, coverageStartDate: '2026-07-22', coveredDays: 10 }), month({ yearMonth: '2026-06', recognizedRevenue: 0, orderTimeSupplyCost: 1, coveredDays: 30 })]).abcGrade).toBe('C');
   });
 
   it('requires confirmed-zero advertising to be literal zero', () => {
@@ -208,17 +211,53 @@ describe('PRODUCT_ABC_ABSOLUTE V1 evaluator', () => {
     expect(evaluate([month({ advertisingSpend: null, advertisingEvidence: 'NOT_APPLIED' })]).abcGrade).toBe('A');
   });
 
-  it('excludes the current KST month and uses the exact latest 12-month calendar window', () => {
-    const old = month({ yearMonth: '2025-06', recognizedRevenue: 1, orderTimeSupplyCost: 0 });
-    const firstInWindow = month({ yearMonth: '2025-08', recognizedRevenue: 100, orderTimeSupplyCost: 0, advertisingEvidence: 'OBSERVED' });
-    const latest = month({ yearMonth: '2026-07', recognizedRevenue: 200, orderTimeSupplyCost: 0, advertisingEvidence: 'OBSERVED' });
-    const current = month({ yearMonth: '2026-08', coverageStartDate: '2026-08-01', coverageEndDate: '2026-08-31', recognizedRevenue: Number.NaN });
-    const candidate = evaluate([old, firstInWindow, latest, current]);
+  it('uses sale age as an independent 29/30-day eligibility gate', () => {
+    expect(() => evaluate([month()], formula, { saleStartDate: '2026-07-02' }))
+      .toThrow('sale age');
+    expect(evaluate([month()], formula, { saleStartDate: '2026-07-01' }).validObservationDays)
+      .toBe(31);
+  });
 
-    expect(candidate.validObservationDays).toBe(31 + 31);
+  it('accepts a complete partial cutoff month without a thirty-day observation gate', () => {
+    const partial = month({
+      yearMonth: '2026-08',
+      coverageStartDate: '2026-08-01',
+      coverageEndDate: '2026-08-15',
+      coveredDays: 15,
+    });
+    const candidate = evaluate([partial], formula, {
+      cutoffDate: '2026-08-15',
+      saleStartDate: '2026-07-16',
+    });
+    expect(candidate.validObservationDays).toBe(15);
+  });
+
+  it('rejects incomplete period evidence even when sale age is old', () => {
+    expect(() => evaluate([month()], formula, {
+      evaluationPeriodComplete: false,
+      saleStartDate: '2026-01-01',
+    })).toThrow('evaluation period');
+  });
+
+  it('includes the partial cutoff month in the exact latest 12-month calendar window', () => {
+    const old = month({ yearMonth: '2025-06', recognizedRevenue: 1, orderTimeSupplyCost: 0 });
+    const firstInWindow = month({ yearMonth: '2025-09', recognizedRevenue: 100, orderTimeSupplyCost: 0, advertisingEvidence: 'OBSERVED' });
+    const latest = month({ yearMonth: '2026-07', recognizedRevenue: 200, orderTimeSupplyCost: 0, advertisingEvidence: 'OBSERVED' });
+    const current = month({
+      yearMonth: '2026-08',
+      coverageStartDate: '2026-08-01',
+      coverageEndDate: '2026-08-15',
+      coveredDays: 15,
+      recognizedRevenue: 300,
+    });
+    const candidate = evaluate([old, firstInWindow, latest, current], formula, {
+      cutoffDate: '2026-08-15',
+      saleStartDate: '2026-07-01',
+    });
+
+    expect(candidate.validObservationDays).toBe(30 + 31 + 15);
     expect(candidate.weightedRevenue).toBeGreaterThan(0);
-    expect(candidate.weightedRevenue).toBeLessThan(301);
-    expect(candidate.gradeBasisCutoffDate).toBe('2026-07-31');
+    expect(candidate.gradeBasisCutoffDate).toBe('2026-08-15');
   });
 
   it('keeps gaps missing, uses partial covered days, and weights the exact coverage midpoint', () => {
@@ -226,7 +265,7 @@ describe('PRODUCT_ABC_ABSOLUTE V1 evaluator', () => {
       yearMonth: '2026-06',
       coverageStartDate: '2026-06-10',
       coverageEndDate: '2026-06-20',
-      coveredDays: 5,
+      coveredDays: 11,
       recognizedRevenue: 500,
       orderTimeSupplyCost: 0,
       advertisingSpend: 0,
@@ -256,13 +295,21 @@ describe('PRODUCT_ABC_ABSOLUTE V1 evaluator', () => {
     const julyMidpointAge = 5.5;
     const juneWeight = 2 ** (-juneMidpointAge / formula.halfLifeDays);
     const julyWeight = 2 ** (-julyMidpointAge / formula.halfLifeDays);
-    expect(candidate.validObservationDays).toBe(48);
+    expect(candidate.validObservationDays).toBe(54);
     expect(candidate.weightedRevenue).toBeCloseTo(500 * juneWeight + 1_000 * julyWeight, 6);
     expect(candidate.operatingProfitVelocity30).toBeCloseTo(
       (500 * juneWeight + 1_000 * julyWeight)
-        / (31 * mayWeight + 5 * juneWeight + 12 * julyWeight) * 30,
+        / (31 * mayWeight + 11 * juneWeight + 12 * julyWeight) * 30,
       6,
     );
+  });
+
+  it('rejects covered days that do not span the declared coverage interval', () => {
+    expect(() => evaluate([month({
+      coverageStartDate: '2026-07-10',
+      coverageEndDate: '2026-07-20',
+      coveredDays: 10,
+    })])).toThrow('covered days do not match coverage');
   });
 
   it('accepts a complete confirmed-zero advertising month as zero spend', () => {
@@ -284,8 +331,8 @@ describe('PRODUCT_ABC_ABSOLUTE V1 evaluator', () => {
     expect(negativeProfit.abcGrade).toBe('C');
 
     const lossPersistence = evaluate([
-      month({ yearMonth: '2026-06', recognizedRevenue: 0, orderTimeSupplyCost: 100, coveredDays: 20, advertisingEvidence: 'OBSERVED' }),
-      month({ yearMonth: '2026-07', recognizedRevenue: 100, orderTimeSupplyCost: 0, coveredDays: 11, advertisingEvidence: 'OBSERVED' }),
+      month({ yearMonth: '2026-06', recognizedRevenue: 0, orderTimeSupplyCost: 100, coverageStartDate: '2026-06-11', coveredDays: 20, advertisingEvidence: 'OBSERVED' }),
+      month({ yearMonth: '2026-07', recognizedRevenue: 100, orderTimeSupplyCost: 0, coverageStartDate: '2026-07-21', coveredDays: 11, advertisingEvidence: 'OBSERVED' }),
     ]);
     expect(lossPersistence.lossPersistence).toBeGreaterThanOrEqual(formula.hardC.lossPersistenceGte);
     expect(lossPersistence.abcGrade).toBe('C');
@@ -312,8 +359,8 @@ describe('PRODUCT_ABC_ABSOLUTE V1 evaluator', () => {
     expect(marginGuard.abcGrade).toBe('B');
 
     const consistencyGuard = evaluate([
-      month({ yearMonth: '2026-06', recognizedRevenue: 0, orderTimeSupplyCost: 1, coveredDays: 15, advertisingEvidence: 'OBSERVED' }),
-      month({ yearMonth: '2026-07', recognizedRevenue: 10_000_000, orderTimeSupplyCost: 0, coveredDays: 15, advertisingEvidence: 'OBSERVED' }),
+      month({ yearMonth: '2026-06', recognizedRevenue: 0, orderTimeSupplyCost: 1, coverageStartDate: '2026-06-16', coveredDays: 15, advertisingEvidence: 'OBSERVED' }),
+      month({ yearMonth: '2026-07', recognizedRevenue: 10_000_000, orderTimeSupplyCost: 0, coverageStartDate: '2026-07-17', coveredDays: 15, advertisingEvidence: 'OBSERVED' }),
     ]);
     expect(consistencyGuard.consistencyScore).toBeLessThan(formula.gradeThresholds.aConsistencyScoreGte);
     expect(consistencyGuard.abcGrade).toBe('B');
@@ -332,8 +379,8 @@ describe('PRODUCT_ABC_ABSOLUTE V1 evaluator', () => {
 
   it('uses the persistence table directly rather than inverting it twice', () => {
     const candidate = evaluate([
-      month({ yearMonth: '2026-06', recognizedRevenue: 0, orderTimeSupplyCost: 100, coveredDays: 15, advertisingEvidence: 'OBSERVED' }),
-      month({ yearMonth: '2026-07', recognizedRevenue: 100, orderTimeSupplyCost: 0, coveredDays: 15, advertisingEvidence: 'OBSERVED' }),
+      month({ yearMonth: '2026-06', recognizedRevenue: 0, orderTimeSupplyCost: 100, coverageStartDate: '2026-06-16', coveredDays: 15, advertisingEvidence: 'OBSERVED' }),
+      month({ yearMonth: '2026-07', recognizedRevenue: 100, orderTimeSupplyCost: 0, coverageStartDate: '2026-07-17', coveredDays: 15, advertisingEvidence: 'OBSERVED' }),
     ]);
     expect(candidate.lossPersistence).toBeGreaterThan(0);
     expect(candidate.lossPersistence).toBeLessThan(0.5);

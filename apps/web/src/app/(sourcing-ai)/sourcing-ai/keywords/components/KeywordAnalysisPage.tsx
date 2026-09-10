@@ -46,6 +46,10 @@ import {
   useSourcingKeywordPreferences,
 } from '../../hooks/use-sourcing-workspace';
 import { useNaverAnalysisSource } from '../../hooks/use-naver-analysis-source';
+import {
+  useCoupangKeywordSuggestionSourceOwner,
+  type CoupangKeywordSuggestionSourceOwnerView,
+} from '../../hooks/use-coupang-keyword-suggestion-source-owner';
 import { SourceCollectionStatus } from '../../components/SourceCollectionStatus';
 import {
   fetchCoupangKeywordSuggestionSnapshot,
@@ -112,6 +116,9 @@ export function KeywordAnalysisPage() {
     queryKey: keywordSuggestionSnapshotQueryKey(snapshotKeyword),
     queryFn: () => fetchCoupangKeywordSuggestionSnapshot(snapshotKeyword),
     placeholderData: (previous) => previous,
+  });
+  const coupangKeywordSource = useCoupangKeywordSuggestionSourceOwner({
+    keyword: snapshotKeyword,
   });
   const coupangKeywordItems = useMemo<CoupangPopularKeyword[]>(
     () => (keywordSnapshotQuery.data?.items ?? []).map((item) => ({
@@ -418,6 +425,19 @@ export function KeywordAnalysisPage() {
     void loadRelatedKeywordData(keyword);
   };
 
+  const collectCoupangKeywordSuggestions = () => {
+    const keyword = keywordQuery.trim();
+    if (!keyword) {
+      setNotice('수집할 키워드를 입력해주세요.');
+      return;
+    }
+    setSnapshotKeyword(keyword);
+    void coupangKeywordSource.collect(keyword).catch(() => {
+      // The owner hook keeps the uncertain correlation key and exposes the
+      // actual owner/transport error in the control below.
+    });
+  };
+
   return (
     <main className="min-h-full bg-[var(--surface-sunken)] text-[var(--text-primary)]">
       <div className="flex w-full flex-col gap-5">
@@ -495,6 +515,13 @@ export function KeywordAnalysisPage() {
           />
 
           <SourceCollectionStatus source={analysisSource} />
+
+          <CoupangKeywordCollectionControl
+            keyword={snapshotKeyword}
+            source={coupangKeywordSource}
+            onCollect={collectCoupangKeywordSuggestions}
+            disabled={!keywordQuery.trim()}
+          />
 
           <InterestKeywordManager
           className="mt-4 max-w-[1600px]"
@@ -1036,6 +1063,68 @@ function SourceKeywordGrid({
           {autocompleteNotice && <p className="text-xs font-black text-[var(--text-tertiary)]">{autocompleteNotice}</p>}
           {coupangKeywordNotice && <p className="text-xs font-black text-[var(--text-tertiary)]">{coupangKeywordNotice}</p>}
         </div>
+      )}
+    </section>
+  );
+}
+
+function CoupangKeywordCollectionControl({
+  keyword,
+  source,
+  onCollect,
+  disabled,
+}: {
+  keyword: string;
+  source: CoupangKeywordSuggestionSourceOwnerView;
+  onCollect: () => void;
+  disabled: boolean;
+}) {
+  const latestAttempt = source.latestAttempt;
+  const statusMessage = source.isCollecting
+    ? '쿠팡 키워드 수집 중입니다. 이전 완료 스냅샷은 계속 표시합니다.'
+    : latestAttempt?.state === 'FAILED'
+      ? `마지막 쿠팡 키워드 수집 실패: ${latestAttempt.errorCode ?? 'UNKNOWN'}${latestAttempt.errorMessage ? ` — ${latestAttempt.errorMessage}` : ''}${source.latestComplete ? ' · 이전 완료 스냅샷을 유지합니다.' : ''}`
+      : latestAttempt?.state === 'COMPLETE'
+        ? '쿠팡 키워드 수집을 완료했습니다. 저장된 스냅샷을 갱신했습니다.'
+        : source.latestComplete
+          ? '저장된 쿠팡 키워드 스냅샷을 표시합니다.'
+          : null;
+
+  return (
+    <section className="mx-auto mt-4 w-full max-w-[1600px] rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-left shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-xs font-black text-[var(--text-tertiary)]">쿠팡 키워드 제안 수집</p>
+          <p className="mt-1 truncate text-sm font-black text-[var(--text-primary)]">
+            대상 키워드: {keyword}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onCollect}
+          disabled={disabled || source.isCollecting}
+          className="inline-flex h-10 items-center gap-2 rounded-lg bg-[#7a3328] px-4 text-xs font-black text-white transition hover:bg-[#642920] disabled:cursor-not-allowed disabled:opacity-60"
+          aria-label="쿠팡 키워드 수집"
+        >
+          {source.isCollecting && <Loader2 size={15} className="animate-spin" />}
+          {source.isCollecting ? '수집 중' : '쿠팡 키워드 수집'}
+        </button>
+      </div>
+      {statusMessage && (
+        <p
+          className={cn(
+            'mt-2 text-xs font-bold leading-5',
+            latestAttempt?.state === 'FAILED' || source.error ? 'text-rose-700' : 'text-[var(--text-tertiary)]',
+          )}
+          role={latestAttempt?.state === 'FAILED' || source.error ? 'alert' : undefined}
+        >
+          {statusMessage}
+        </p>
+      )}
+      {source.error && latestAttempt?.state !== 'FAILED' && (
+        <p className="mt-1 text-xs font-bold leading-5 text-rose-700" role="alert">
+          {source.error} · 같은 수집 버튼으로 확인하거나 재시도할 수 있습니다.
+        </p>
       )}
     </section>
   );

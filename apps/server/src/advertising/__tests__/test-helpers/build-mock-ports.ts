@@ -21,7 +21,6 @@ import type { ChannelScrapeRepositoryPort } from '../../application/port/out/rep
 import type { ChannelListingDailyRepositoryPort } from '../../application/port/out/repository/channel-listing-daily.repository.port';
 import type { ChannelOptionDailyRepositoryPort } from '../../application/port/out/repository/channel-option-daily.repository.port';
 import type { ChannelTargetDailyRepositoryPort } from '../../application/port/out/repository/channel-target-daily.repository.port';
-import type { ScrapeTargetRepositoryPort } from '../../application/port/out/repository/scrape-target.repository.port';
 import type { KeywordRankRepositoryPort } from '../../application/port/out/repository/keyword-rank.repository.port';
 
 /** Vitest mock variant of every method on `AdBenchmarkRepositoryPort`. */
@@ -42,7 +41,6 @@ export type MockAdListingRepo = {
 export function buildMockAdListingRepo(): MockAdListingRepo {
   return {
     findScopedAdListings: vi.fn(),
-    buildAdSyncListingMap: vi.fn(),
     changeAdTier: vi.fn(),
     verifyListingOwnership: vi.fn(),
   };
@@ -77,9 +75,7 @@ export type MockAdCampaignRepo = {
 
 export function buildMockAdCampaignRepo(): MockAdCampaignRepo {
   return {
-    findCampaignRollups: vi.fn(),
-    findLatestCompleteCampaignSweeps: vi.fn(),
-    findAccountlessSyncCampaignSweep: vi.fn(),
+    findCampaignSnapshot: vi.fn(),
     findProductTargetRollups: vi.fn(),
     findKeywordTargetRollups: vi.fn(),
     findAdTrendDailyRows: vi.fn(),
@@ -147,7 +143,6 @@ export function buildMockChannelScrapeRepo(): MockChannelScrapeRepo {
     appendSnapshot: vi.fn(),
     finalizeRun: vi.fn(),
     finalizeRunOnError: vi.fn(),
-    findAdCollectStatus: vi.fn(),
     findExtensionStatusSnapshot: vi.fn(),
   };
 }
@@ -180,19 +175,6 @@ export function buildMockChannelTargetDailyRepo(): MockChannelTargetDailyRepo {
   return {
     upsert: vi.fn(),
     replaceCampaignDay: vi.fn(),
-  };
-}
-
-export type MockScrapeTargetRepo = {
-  [K in keyof ScrapeTargetRepositoryPort]: ReturnType<typeof vi.fn>;
-};
-
-export function buildMockScrapeTargetRepo(): MockScrapeTargetRepo {
-  return {
-    listActive: vi.fn(),
-    create: vi.fn(),
-    markScraped: vi.fn(),
-    softDelete: vi.fn(),
   };
 }
 

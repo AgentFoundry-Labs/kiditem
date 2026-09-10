@@ -119,4 +119,19 @@ describe('AlertsPopover', () => {
     await act(async () => vi.advanceTimersByTimeAsync(10_000));
     expect(fetchAlertsMock).toHaveBeenCalledTimes(1);
   });
+
+  it('does not treat the retired lowercase status as an open alert', async () => {
+    fetchAlertsMock.mockResolvedValue([makeAlert({ status: 'open' })]);
+    renderAlerts();
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(screen.queryByText('해결됨')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '알림 닫기' })).toBeNull();
+    expect(screen.queryByText('1')).toBeNull();
+  });
 });

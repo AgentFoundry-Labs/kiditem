@@ -21,7 +21,6 @@ importScripts(
   "collection-session.js",
   "interactive-tabs.js",
   "external-dispatch.js",
-  "operation-runtime-client.js",
   // 세 도메인이 같은 값으로 각자 만들던 전역을 여기서 한 번만 만든다.
   "worker-globals.js",
   "sourcing/source-attempt-wire.js",
@@ -29,9 +28,16 @@ importScripts(
   "coupang/environment-runtime.js",
   "coupang/ad-collector-delay.js",
   "coupang/collection-window.js",
+  "coupang/ad-center-collector.js",
+  "coupang/wing-report-collector.js",
   "coupang/collection-runs.js",
   "coupang/wing-keyword-contract.js",
   "coupang/profitability-source-owner.js",
+  "coupang/ad-keyword-source-owner.js",
+  "coupang/ad-campaign-source-owner.js",
+  "coupang/ad-account-daily-kpi-source-owner.js",
+  "coupang/wing-traffic-source-owner.js",
+  "coupang/wing-itemwinner-source-owner.js",
   "coupang/tracked-wing-products-source-owner.js",
   "coupang/competitor-catalog-source-owner.js",
   "coupang/keyword-rank-source-owner.js",
@@ -40,22 +46,39 @@ importScripts(
   "coupang/wing-form-runtime-compat.js",
   "coupang/wing-form-readiness.js",
   "../utils/coupang-seller-detail.js",
-  "../shared/coupang-catalog-collector.js?revision=2",
+  "../shared/coupang-catalog-collector.js?revision=3",
   "coupang/coupang-catalog-import.js",
   "coupang/coupang-review-collector.js",
   // 주문수집 도메인 모듈
   "orders/collection-failure.js",
   "orders/order-collection-lifecycle.js",
+  "orders/order-collection-server-converter.js",
+  "orders/order-collection-source-owner.js",
   "orders/sellpia-inventory.js",
+  "orders/sellpia-inventory-source-owner.js",
+  "orders/sellpia-sales-collector.js",
+  "orders/sellpia-product-profit-collector.js",
+  "orders/sellpia-shipment-tracking-collector.js",
+  "orders/sellpia-product-profitability-source-owner.js",
+  "orders/sellpia-sales-source-owner.js",
+  "orders/sellpia-shipment-tracking-source-owner.js",
   "orders/sellpia-manual-match.js",
+  "orders/sellpia-manual-match-source-owner.js",
   "orders/sellpia-post-processing.js",
   "orders/coupang-po-session.js",
   "orders/rocket-po-collection.js",
   "orders/rocket-po-source-owner.js",
+  "orders/coupang-directship-source-owner.js",
   "orders/coupang-shipment-summary-source-owner.js",
   // 소싱 도메인 모듈
   "sourcing/url-policy.js",
   "sourcing/product-extension-collector.js",
+  "coupang/wing-search-collector.js",
+  "coupang/coupang-keyword-suggestion-collector.js",
+  "coupang/keyword-suggestion-source-owner.js",
+  "coupang/coupang-serp-collector.js",
+  "coupang/coupang-seller-identity-collector.js",
+  "coupang/coupang-seller-catalog-collector.js",
   "coupang/wing-catalog-source-owner.js",
   "sourcing/1688-trend-collector.js",
   "sourcing/live-commerce-collector.js",
@@ -64,15 +87,23 @@ importScripts(
   "coupang/worker.js",
   "orders/worker.js",
   "sourcing/worker.js",
+  // Lifetime wiring runs after every domain has registered its cancellation
+  // and optional non-session/recovery hooks.
+  "web-app-collection-lifetime.js",
 );
 
-// 서버가 발행한 browser Operation만 claim한다. 이 인스턴스 하나가 alarm과
-// active attempt를 소유하고, 공용 dispatch는 wake만 위임한다.
-const browserOperationRuntime = KidItemOperationRuntimeClient.create({
+const webAppCollectionLifetime = KidItemWebAppCollectionLifetime.create({
   chrome,
-  environmentContext: browserOperationRuntimeEnvironmentContext,
-  domains: KidItemDomains,
+  environmentContext: sharedEnvironmentContext,
+  authContext: sourceOwnerEnvironmentContext,
   sessions: collectionSessions,
+  domains: KidItemDomains,
+  keepAlive: KidItemWorkerKeepAlive,
+});
+globalThis.KidItemWebAppCollectionRuntime = webAppCollectionLifetime;
+webAppCollectionLifetime.install();
+KidItemWorkerKeepAlive.during(webAppCollectionLifetime.initialize()).catch((error) => {
+  console.error("[KIDITEM] web-app lifetime startup reconciliation failed:", error?.message || error);
 });
 
 // `worker-globals.js` 가 만든 공용 인스턴스를 그대로 쓴다. ping 과 세션 조회만
@@ -83,9 +114,4 @@ KidItemExternalDispatch.create({
   environmentContext: sharedEnvironmentContext,
   sessions: collectionSessions,
   domains: KidItemDomains,
-  operationRuntime: browserOperationRuntime,
 }).install();
-
-// 도메인 worker의 독자 cron은 여기로 옮기지 않으며, 이 alarm은 실행 payload를
-// 보관하지 않는 same-lifecycle wake-up 용도다.
-browserOperationRuntime.install();

@@ -38,7 +38,10 @@ describe('provider-native Agent profile routing', () => {
       expect(prompt).toContain('cross-domain read');
       expect(prompt).toContain('provider-native subagent');
       expect(prompt).toContain('actingAgentKey');
-      expect(prompt).toContain('resourceRefs and operationRefs');
+      expect(prompt).toContain('resourceRefs');
+      expect(prompt).toContain('invocation_status');
+      expect(prompt).not.toContain('operationRefs');
+      expect(prompt).not.toContain('operation_status');
       expect(prompt).toContain('Never invent an Agent, grant, Task, child Task');
       expect(prompt).toContain('never a UI href');
       expect(prompt).not.toContain('AgentTask');

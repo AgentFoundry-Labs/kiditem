@@ -82,6 +82,16 @@ const tiktokCcCollector = ProductScraperTiktokCcTrend.create({
 });
 
 async function cancelSourcingCollectionSession(runId, environmentId) {
+  if (typeof collectionSessions.requestCancellation === "function") {
+    try {
+      await collectionSessions.requestCancellation(runId, environmentId);
+    } catch (error) {
+      console.warn(
+        "[KIDITEM] local sourcing cancellation fence needs reconciliation:",
+        error?.message || error,
+      );
+    }
+  }
   const session = await collectionSessions.getOwned(runId, environmentId);
   if (!session) return null;
   if (session.producer === "sourcing.1688_trend") {
@@ -98,6 +108,29 @@ async function cancelSourcingCollectionSession(runId, environmentId) {
     throw new Error("Unsupported collection producer");
   }
   return collectionSessions.get(runId);
+}
+
+async function recoverSourcingCollections(environmentId) {
+  await Promise.all([
+    KidItemWorkerKeepAlive.during(trendCollector.recover(environmentId)).catch((error) =>
+      console.error(
+        "[KIDITEM] 1688 source owner recovery failed:",
+        error?.message || error,
+      ),
+    ),
+    KidItemWorkerKeepAlive.during(tiktokCcCollector.recover(environmentId)).catch((error) =>
+      console.error(
+        "[KIDITEM] TikTok source owner recovery failed:",
+        error?.message || error,
+      ),
+    ),
+    KidItemWorkerKeepAlive.during(liveCommerceCollector.recover(environmentId)).catch((error) =>
+      console.error(
+        "[KIDITEM] Live Commerce source owner recovery failed:",
+        error?.message || error,
+      ),
+    ),
+  ]);
 }
 
 // MV3 service workers may be suspended during a multi-keyword daily 1688 trend run.
@@ -118,27 +151,6 @@ function text(value, fallback) {
 chrome.runtime.onInstalled.addListener(() => {
   void sourcingEnvironmentContext.migrateLegacyStorage();
 });
-
-for (const environmentId of sourcingEnvironmentContext.environmentIds) {
-  KidItemWorkerKeepAlive.during(trendCollector.recover(environmentId)).catch((error) =>
-    console.error(
-      "[KIDITEM] 1688 source owner recovery failed:",
-      error?.message || error,
-    ),
-  );
-  KidItemWorkerKeepAlive.during(tiktokCcCollector.recover(environmentId)).catch((error) =>
-    console.error(
-      "[KIDITEM] TikTok source owner recovery failed:",
-      error?.message || error,
-    ),
-  );
-  KidItemWorkerKeepAlive.during(liveCommerceCollector.recover(environmentId)).catch((error) =>
-    console.error(
-      "[KIDITEM] Live Commerce source owner recovery failed:",
-      error?.message || error,
-    ),
-  );
-}
 
 function parseSourcing1688TrendStart(message) {
   if (
@@ -495,4 +507,10 @@ KidItemDomains.register({
   },
   cancelCollectionSession: (runId, environmentId) =>
     cancelSourcingCollectionSession(runId, environmentId),
+  cancelAdditionalCollections: (environmentId) =>
+    productExtensionCollector.cancelEnvironment(environmentId),
+  retryAdditionalCollections: (environmentId) =>
+    productExtensionCollector.retryAdditionalCollections(environmentId),
+  recoverCollections: (environmentId) =>
+    recoverSourcingCollections(environmentId),
 });

@@ -3,8 +3,10 @@ import { PrismaModule } from "../prisma/prisma.module";
 import { AlertsModule } from "../alerts/alerts.module";
 import { AiModule } from "../ai/ai.module";
 import { ChannelsModule } from "../channels/channels.module";
+import { OrdersModule } from "../orders/orders.module";
 import { AdvertisingProfitabilityReadModule } from "./advertising-profitability-read.module";
 import { AdvertisingActionsController } from "./adapter/in/http/advertising-actions.controller";
+import { AdExportController } from "./adapter/in/http/ad-export.controller";
 import { AdvertisingCampaignsController } from "./adapter/in/http/advertising-campaigns.controller";
 import { AdvertisingConfigController } from "./adapter/in/http/advertising-config.controller";
 import { AdvertisingDiagnosticsController } from "./adapter/in/http/advertising-diagnostics.controller";
@@ -15,13 +17,32 @@ import { AdvertisingStrategyController } from "./adapter/in/http/advertising-str
 import { AdKeywordAgentController } from "./adapter/in/http/ad-keyword-agent.controller";
 import { KeywordRankController } from "./adapter/in/http/keyword-rank.controller";
 import { KeywordSerpSourceController } from "./adapter/in/http/keyword-serp-source.controller";
+import { AdKeywordSourceController } from "./adapter/in/http/ad-keyword-source.controller";
+import { AdCampaignSourceController } from "./adapter/in/http/ad-campaign-source.controller";
+import { AdAccountDailyKpiSourceController } from "./adapter/in/http/ad-account-daily-kpi-source.controller";
+import { WingItemwinnerKpiSourceController } from "./adapter/in/http/wing-itemwinner-kpi-source.controller";
+import { WingItemwinnerKpiSourceRepository } from "./adapter/out/repository/wing-itemwinner-kpi-source.repository";
+import {
+  WING_ITEMWINNER_KPI_SOURCE_PORT,
+  WING_ITEMWINNER_KPI_READ_PORT,
+} from "./application/port/in/wing-itemwinner-kpi-source.port";
+import { AdTrafficSourceController } from "./adapter/in/http/ad-traffic-source.controller";
+import { AdAccountDailyKpiSourceRepository } from "./adapter/out/repository/ad-account-daily-kpi-source.repository";
+import { AdTrafficSourceRepository } from "./adapter/out/repository/ad-traffic-source.repository";
+import {
+  AD_ACCOUNT_DAILY_KPI_READ_PORT,
+  AD_ACCOUNT_DAILY_KPI_SOURCE_PORT,
+} from "./application/port/in/ad-account-daily-kpi-source.port";
+import {
+  AD_TRAFFIC_READ_PORT,
+  AD_TRAFFIC_SOURCE_PORT,
+} from "./application/port/in/ad-traffic-source.port";
 import { WingRankSourceController } from "./adapter/in/http/wing-rank-source.controller";
 import { SellerIdentitySourceController } from "./adapter/in/http/seller-identity-source.controller";
 import { CompetitorTrackingController } from "./adapter/in/http/competitor-tracking.controller";
 import { CompetitorCatalogSourceController } from "./adapter/in/http/competitor-catalog-source.controller";
 import { WingTrackedProductController } from "./adapter/in/http/wing-tracked-product.controller";
 // adapter/out/repository
-import { ScrapeTargetRepositoryAdapter } from "./adapter/out/repository/scrape-target.repository.adapter";
 import { AdConfigRepositoryAdapter } from "./adapter/out/repository/ad-config.repository.adapter";
 import { AdBenchmarkRepositoryAdapter } from "./adapter/out/repository/ad-benchmark.repository.adapter";
 import { AdAccountKpiRepositoryAdapter } from "./adapter/out/repository/ad-account-kpi.repository.adapter";
@@ -30,12 +51,15 @@ import { AdCampaignRepositoryAdapter } from "./adapter/out/repository/ad-campaig
 import { AdActionRepositoryAdapter } from "./adapter/out/repository/ad-action.repository.adapter";
 import { AdExecutionRepositoryAdapter } from "./adapter/out/repository/ad-execution.repository.adapter";
 import { AdStrategyContextRepositoryAdapter } from "./adapter/out/repository/ad-strategy-context.repository.adapter";
+import { OrdersReviewListingStatsAdapter } from "./adapter/out/orders/review-listing-stats.adapter";
 import { ChannelScrapeRepositoryAdapter } from "./adapter/out/repository/channel-scrape.repository.adapter";
 import { ChannelListingDailyRepositoryAdapter } from "./adapter/out/repository/channel-listing-daily.repository.adapter";
 import { ChannelOptionDailyRepositoryAdapter } from "./adapter/out/repository/channel-option-daily.repository.adapter";
 import { ChannelTargetDailyRepositoryAdapter } from "./adapter/out/repository/channel-target-daily.repository.adapter";
 import { KeywordRankRepositoryAdapter } from "./adapter/out/repository/keyword-rank.repository.adapter";
 import { KeywordSerpSourceRepository } from "./adapter/out/repository/keyword-serp-source.repository";
+import { AdKeywordSourceRepository } from "./adapter/out/repository/ad-keyword-source.repository";
+import { AdCampaignSourceRepository } from "./adapter/out/repository/ad-campaign-source.repository";
 import { WingRankSourceRepository } from "./adapter/out/repository/wing-rank-source.repository";
 import { SellerIdentitySourceRepository } from "./adapter/out/repository/seller-identity-source.repository";
 import { WingTrackedProductRepositoryAdapter } from "./adapter/out/repository/wing-tracked-product.repository.adapter";
@@ -43,9 +67,9 @@ import { WingTrackedProductSourceAttemptRepositoryAdapter } from "./adapter/out/
 import { CompetitorCatalogSourceAttemptRepositoryAdapter } from "./adapter/out/repository/competitor-catalog-source-attempt.repository.adapter";
 import { KiditemStorefrontAdapter } from "./adapter/out/provider/kiditem-storefront.adapter";
 import { KeywordRelevanceJudgeAdapter } from "./adapter/out/ai/keyword-relevance-judge.adapter";
-import { AdIngestTransactionAdapter } from "./adapter/out/repository/ad-ingest-transaction.adapter";
 // application/service + handlers
 import { AdvertisingService } from "./application/service/advertising.service";
+import { AdExportService } from "./application/service/ad-export.service";
 import { AdCampaignsService } from "./application/service/ad-campaigns.service";
 import { AdStrategyService } from "./application/service/ad-strategy.service";
 import { AdKeywordAgentService } from "./application/service/ad-keyword-agent.service";
@@ -54,8 +78,7 @@ import { AdBudgetAllocatorService } from "./application/service/ad-budget-alloca
 import { AdExposureService } from "./application/service/ad-exposure.service";
 import { AdRecommendService } from "./application/service/ad-recommend.service";
 import { AdBenchmarkService } from "./application/service/ad-benchmark.service";
-import { AdCollectService } from "./application/service/ad-collect.service";
-import { AdSyncService } from "./application/service/ad-sync.service";
+import { AdvertisingExtensionService } from "./application/service/advertising-extension.service";
 import { AdActionService } from "./application/service/ad-action.service";
 import { AdExecutionService } from "./application/service/ad-execution.service";
 import { AdConfigService } from "./application/service/ad-config.service";
@@ -64,17 +87,11 @@ import { CompetitorTrackingService } from "./application/service/competitor-trac
 import { CompetitorCatalogSourceAttemptService } from "./application/service/competitor-catalog-source-attempt.service";
 import { WingTrackedProductService } from "./application/service/wing-tracked-product.service";
 import { CoupangMomentumReadService } from "./application/service/coupang-momentum-read.service";
-import { AdCampaignIngestHandler } from "./application/service/ad-campaign-ingest.handler";
-import { AdKeywordIngestHandler } from "./application/service/ad-keyword-ingest.handler";
-import { CoupangAdsDailyIngestHandler } from "./application/service/coupang-ads-daily-ingest.handler";
 import { KeywordRankIngestHandler } from "./application/service/keyword-rank-ingest.handler";
 import { WingSalesRankIngestHandler } from "./application/service/wing-sales-rank-ingest.handler";
-import { RawScrapeIngestHandler } from "./application/service/raw-scrape-ingest.handler";
-import { TrafficIngestHandler } from "./application/service/traffic-ingest.handler";
 // transitional facade — grandfathered by AGENTS.md
 import { ChannelScrapePersistenceService } from "./services/channel-scrape-persistence.service";
 // application/port/out tokens
-import { SCRAPE_TARGET_REPOSITORY_PORT } from "./application/port/out/repository/scrape-target.repository.port";
 import { AD_CONFIG_REPOSITORY_PORT } from "./application/port/out/repository/ad-config.repository.port";
 import { AD_BENCHMARK_REPOSITORY_PORT } from "./application/port/out/repository/ad-benchmark.repository.port";
 import { AD_ACCOUNT_KPI_REPOSITORY_PORT } from "./application/port/out/repository/ad-account-kpi.repository.port";
@@ -92,18 +109,15 @@ import { WING_TRACKED_PRODUCT_REPOSITORY_PORT } from "./application/port/out/rep
 import { WING_TRACKED_PRODUCT_SOURCE_ATTEMPT_REPOSITORY_PORT } from "./application/port/out/repository/wing-tracked-product-source-attempt.repository.port";
 import { COMPETITOR_CATALOG_SOURCE_ATTEMPT_REPOSITORY_PORT } from "./application/port/out/repository/competitor-catalog-source-attempt.repository.port";
 import { KEYWORD_RELEVANCE_JUDGE_PORT } from "./application/port/out/cross-domain/keyword-relevance-judge.port";
+import { ADVERTISING_REVIEW_LISTING_STATS_PORT } from "./application/port/out/cross-domain/review-listing-stats.port";
 import { KIDITEM_STOREFRONT_PORT } from "./application/port/out/provider/kiditem-storefront.port";
-import { AD_INGEST_TRANSACTION_PORT } from "./application/port/out/transaction/ad-ingest-transaction.port";
 import { COUPANG_MOMENTUM_READ_CAPABILITY_PORT } from "./application/port/in/capability/coupang-momentum-read.port";
+import { ADVERTISING_HUB_READ_PORT } from "./application/port/in/advertising-hub-read.port";
 
 // `application/port/out/*` ports bound to their adapters via `useExisting`
 // so application services depend on tokens, not concrete classes. Mirrors
 // the inventory module pattern.
 const REPOSITORY_PORT_BINDINGS = [
-  {
-    provide: SCRAPE_TARGET_REPOSITORY_PORT,
-    useExisting: ScrapeTargetRepositoryAdapter,
-  },
   {
     provide: AD_CONFIG_REPOSITORY_PORT,
     useExisting: AdConfigRepositoryAdapter,
@@ -174,8 +188,8 @@ const REPOSITORY_PORT_BINDINGS = [
     useExisting: KeywordRelevanceJudgeAdapter,
   },
   {
-    provide: AD_INGEST_TRANSACTION_PORT,
-    useExisting: AdIngestTransactionAdapter,
+    provide: ADVERTISING_REVIEW_LISTING_STATS_PORT,
+    useExisting: OrdersReviewListingStatsAdapter,
   },
 ];
 
@@ -185,6 +199,7 @@ const REPOSITORY_PORT_BINDINGS = [
     AlertsModule,
     AiModule,
     ChannelsModule,
+    OrdersModule,
     AdvertisingProfitabilityReadModule,
   ],
   controllers: [
@@ -195,10 +210,16 @@ const REPOSITORY_PORT_BINDINGS = [
     AdvertisingDiagnosticsController,
     AdvertisingIngestController,
     AdvertisingActionsController,
+    AdExportController,
     AdvertisingExecutionController,
     AdKeywordAgentController,
     KeywordRankController,
     KeywordSerpSourceController,
+    AdKeywordSourceController,
+    AdCampaignSourceController,
+    AdAccountDailyKpiSourceController,
+    WingItemwinnerKpiSourceController,
+    AdTrafficSourceController,
     WingRankSourceController,
     SellerIdentitySourceController,
     CompetitorTrackingController,
@@ -207,7 +228,6 @@ const REPOSITORY_PORT_BINDINGS = [
   ],
   providers: [
     // adapter/out/repository
-    ScrapeTargetRepositoryAdapter,
     AdConfigRepositoryAdapter,
     AdBenchmarkRepositoryAdapter,
     AdAccountKpiRepositoryAdapter,
@@ -216,12 +236,42 @@ const REPOSITORY_PORT_BINDINGS = [
     AdActionRepositoryAdapter,
     AdExecutionRepositoryAdapter,
     AdStrategyContextRepositoryAdapter,
+    OrdersReviewListingStatsAdapter,
     ChannelScrapeRepositoryAdapter,
     ChannelListingDailyRepositoryAdapter,
     ChannelOptionDailyRepositoryAdapter,
     ChannelTargetDailyRepositoryAdapter,
     KeywordRankRepositoryAdapter,
     KeywordSerpSourceRepository,
+    AdKeywordSourceRepository,
+    AdCampaignSourceRepository,
+    AdAccountDailyKpiSourceRepository,
+    WingItemwinnerKpiSourceRepository,
+    {
+      provide: WING_ITEMWINNER_KPI_SOURCE_PORT,
+      useExisting: WingItemwinnerKpiSourceRepository,
+    },
+    {
+      provide: WING_ITEMWINNER_KPI_READ_PORT,
+      useExisting: WingItemwinnerKpiSourceRepository,
+    },
+    AdTrafficSourceRepository,
+    {
+      provide: AD_ACCOUNT_DAILY_KPI_SOURCE_PORT,
+      useExisting: AdAccountDailyKpiSourceRepository,
+    },
+    {
+      provide: AD_ACCOUNT_DAILY_KPI_READ_PORT,
+      useExisting: AdAccountDailyKpiSourceRepository,
+    },
+    {
+      provide: AD_TRAFFIC_SOURCE_PORT,
+      useExisting: AdTrafficSourceRepository,
+    },
+    {
+      provide: AD_TRAFFIC_READ_PORT,
+      useExisting: AdTrafficSourceRepository,
+    },
     WingRankSourceRepository,
     SellerIdentitySourceRepository,
     WingTrackedProductRepositoryAdapter,
@@ -229,9 +279,9 @@ const REPOSITORY_PORT_BINDINGS = [
     CompetitorCatalogSourceAttemptRepositoryAdapter,
     KiditemStorefrontAdapter,
     KeywordRelevanceJudgeAdapter,
-    AdIngestTransactionAdapter,
     // application/service
     AdvertisingService,
+    AdExportService,
     AdCampaignsService,
     AdStrategyService,
     AdKeywordAgentService,
@@ -240,8 +290,7 @@ const REPOSITORY_PORT_BINDINGS = [
     AdExposureService,
     AdRecommendService,
     AdBenchmarkService,
-    AdCollectService,
-    AdSyncService,
+    AdvertisingExtensionService,
     AdActionService,
     AdExecutionService,
     AdConfigService,
@@ -250,14 +299,9 @@ const REPOSITORY_PORT_BINDINGS = [
     CompetitorCatalogSourceAttemptService,
     WingTrackedProductService,
     CoupangMomentumReadService,
-    // application/service — ingest handlers
-    AdCampaignIngestHandler,
-    AdKeywordIngestHandler,
-    CoupangAdsDailyIngestHandler,
+    // application/service — source-owner support
     KeywordRankIngestHandler,
     WingSalesRankIngestHandler,
-    RawScrapeIngestHandler,
-    TrafficIngestHandler,
     // services/* — transitional facade (grandfathered)
     ChannelScrapePersistenceService,
     // port bindings
@@ -266,8 +310,18 @@ const REPOSITORY_PORT_BINDINGS = [
       provide: COUPANG_MOMENTUM_READ_CAPABILITY_PORT,
       useExisting: CoupangMomentumReadService,
     },
+    {
+      provide: ADVERTISING_HUB_READ_PORT,
+      useExisting: AdvertisingService,
+    },
   ],
   // Published cross-domain read capability (consumed by sourcing).
-  exports: [COUPANG_MOMENTUM_READ_CAPABILITY_PORT],
+  exports: [
+    COUPANG_MOMENTUM_READ_CAPABILITY_PORT,
+    AD_ACCOUNT_DAILY_KPI_READ_PORT,
+    AD_TRAFFIC_READ_PORT,
+    WING_ITEMWINNER_KPI_READ_PORT,
+    ADVERTISING_HUB_READ_PORT,
+  ],
 })
 export class AdvertisingModule {}

@@ -1,7 +1,12 @@
 import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
+  CoupangCatalogFullDetailsChunkV1Schema,
+  CoupangCatalogDiscoveryPageV1Schema,
   PutCoupangCatalogChunkRequestSchema,
+  type CoupangCatalogBasicProductV1,
+  type CoupangCatalogDetailProductV1,
+  type CoupangCatalogFullDetailsChunkV1,
   type CoupangCatalogProductV1,
 } from '@kiditem/shared/coupang-catalog-snapshot';
 import { PrismaService } from '../../../../prisma/prisma.service';
@@ -16,19 +21,27 @@ import {
 } from '../../../../common/product-mapping-generation';
 import {
   assembleCompleteSnapshot,
+  assembleFullDetailsSnapshot,
+  assembleListingBasicsSnapshot,
+  hashCatalogStageSnapshot,
   hashCatalogChunkPayload,
   hashCatalogChunkReceipts,
   hashCoupangCatalogSnapshot,
 } from '../../../application/service/channel-catalog-collection.service';
 import {
-  assertCatalogRunning,
+  assertCatalogWritable,
   assertCatalogPublicationPlan,
   catalogAlertKey,
+  catalogSourceForStage,
   catalogWhere,
   lockCatalogAccount,
   lockCatalogAttempt,
 } from './channel-catalog-attempt-fence';
-import { upsertChannelCatalogIdentities } from './channel-catalog-identity-upsert';
+import {
+  updateChannelCatalogDetails,
+  upsertChannelCatalogBasics,
+  upsertChannelCatalogIdentities,
+} from './channel-catalog-identity-upsert';
 import type {
   ChannelCatalogPublicationPort,
   ChannelCatalogPublicationResult,
@@ -40,6 +53,7 @@ const SOURCE_TYPE = 'coupang_wing_catalog';
 const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 120_000 } as const;
 
 type PublishInput = Parameters<ChannelCatalogPublicationPort['publish']>[0];
+type DetailChunkInput = Parameters<ChannelCatalogPublicationPort['publishDetailChunk']>[0];
 
 @Injectable()
 export class ChannelCatalogPublicationRepositoryAdapter implements ChannelCatalogPublicationPort {
@@ -50,13 +64,141 @@ export class ChannelCatalogPublicationRepositoryAdapter implements ChannelCatalo
     private readonly alerts: SourceFailureAlerts,
   ) {}
 
+  async publishDetailChunk(input: DetailChunkInput): Promise<ChannelCatalogPublicationResult> {
+    const tx = transactionClient(input.transaction);
+    if (input.chunk.kind !== 'full_details') {
+      throw new ConflictException('Only full-details chunks can be published incrementally');
+    }
+    const sourceRun = await lockCatalogAttempt(tx, {
+      ...input,
+      runId: input.attemptId,
+      stage: 'details',
+    });
+    assertCatalogWritable(sourceRun);
+    const userId = sourceRun.createdBy;
+    if (!userId) throw new ConflictException('Catalog attempt creator is missing');
+    if (input.chunk.publishedAt && jsonRecord(input.chunk.publicationJson)) {
+      const receipt = jsonRecord(input.chunk.publicationJson)!;
+      return {
+        sourceImportRunId: sourceRun.id,
+        duplicate: true,
+        changes: numberRecord(receipt.changes),
+      };
+    }
+    const request = PutCoupangCatalogChunkRequestSchema.safeParse({
+      kind: input.chunk.kind,
+      sequence: input.chunk.sequence,
+      checksum: input.chunk.checksum,
+      itemCount: input.chunk.itemCount,
+      payload: input.chunk.payload,
+    });
+    if (!request.success || request.data.kind !== 'full_details') {
+      throw new ConflictException('Stored full-details chunk is invalid');
+    }
+    if (hashCatalogChunkPayload(request.data.payload) !== input.chunk.checksum) {
+      throw new ConflictException('Stored full-details chunk does not match its receipt');
+    }
+    await assertCatalogPublicationPlan(tx, input, sourceRun.plan);
+    const payload = CoupangCatalogFullDetailsChunkV1Schema.parse(request.data.payload);
+    await assertDetailChunkAgainstDiscovery(tx, input, sourceRun.plan, payload.products);
+    const identities = await updateChannelCatalogDetails(tx, {
+      organizationId: input.organizationId,
+      channelAccountId: input.channelAccountId,
+      products: payload.products.map(({ product }) => ({
+        externalProductId: product.externalProductId,
+        documents: product.documents,
+        raw: product.raw,
+        options: product.options,
+      })),
+      lastImportRunId: sourceRun.id,
+      rawSource: 'coupang_catalog_details',
+    });
+    // Detail and option media are independent observations.  Reconcile only
+    // the role present in this response; publishing both through the old
+    // broad `detail` scope would deactivate the other role when it was merely
+    // omitted by Wing.  An empty role is intentionally left unchanged.
+    const media = { imageCount: 0, inactivatedImageCount: 0 };
+    for (const scope of ['detail', 'option'] as const) {
+      const mediaListings = payload.products
+        .map(({ product }) => {
+          const listingId = identities.listingIds.get(product.externalProductId)!;
+          return {
+            listingId,
+            channel: CHANNEL,
+            displayName: product.externalProductId,
+            optionIdentityRemaps: identities.identityRemaps
+              .filter((remap) => remap.listingId === listingId)
+              .map(({ oldExternalOptionId, newExternalOptionId }) => ({
+                oldExternalOptionId,
+                newExternalOptionId,
+              })),
+            media: product.media
+              .filter((item) => item.role === scope)
+              .map((item) => ({
+                sourceUrl: item.sourceUrl,
+                role: item.role,
+                sortOrder: item.sortOrder,
+                externalOptionId: item.externalOptionId ??
+                  (item.externalOptionIds?.length === 1 ? item.externalOptionIds[0]! : null),
+                ...(item.externalOptionIds ? { externalOptionIds: item.externalOptionIds } : {}),
+              })),
+          };
+        })
+        .filter((listing) => listing.media.length > 0);
+      if (mediaListings.length === 0) continue;
+      const published = await this.media.publishProviderMedia({
+        transaction: tx,
+        organizationId: input.organizationId,
+        userId,
+        publicationReference: { type: 'source_import_run', id: sourceRun.id },
+        publicationScope: scope,
+        listings: mediaListings,
+      });
+      media.imageCount += published.imageCount;
+      media.inactivatedImageCount += published.inactivatedImageCount;
+    }
+    const result: ChannelCatalogPublicationResult = {
+      sourceImportRunId: sourceRun.id,
+      duplicate: false,
+      changes: {
+        ...identities.changes,
+        ...media,
+        deactivatedProductCount: 0,
+        deactivatedSkuCount: 0,
+      },
+    };
+    const marked = await tx.channelScrapeChunk.updateMany({
+      where: {
+        id: input.chunk.id,
+        organizationId: input.organizationId,
+        scrapeRunId: input.collectionRunId,
+        kind: 'full_details',
+        checksum: input.chunk.checksum,
+        publishedAt: null,
+      },
+      data: {
+        publishedAt: new Date(),
+        publicationJson: {
+          ...result,
+          projection: compactChunkProjection(payload),
+        } as unknown as Prisma.InputJsonValue,
+      },
+    });
+    if (marked.count !== 1) {
+      throw new ConflictException('Detail chunk publication receipt fence lost');
+    }
+    return result;
+  }
+
   publish(input: PublishInput): Promise<ChannelCatalogPublicationResult> {
     return this.prisma.$transaction(async (tx) => {
+      const stage = input.stage ?? 'full';
       await lockProductMapping(tx, input.organizationId);
       await lockCatalogAccount(tx, input);
       const sourceRun = await lockCatalogAttempt(tx, {
         ...input,
         runId: input.attemptId,
+        stage,
       });
       if (sourceRun.status === 'completed') {
         const metadata = jsonRecord(sourceRun.qualityReport);
@@ -74,7 +216,7 @@ export class ChannelCatalogPublicationRepositoryAdapter implements ChannelCatalo
           changes: numberRecord(publication.changes),
         };
       }
-      assertCatalogRunning(sourceRun);
+      assertCatalogWritable(sourceRun);
       const staging = await tx.channelScrapeRun.findFirst({
         where: {
           id: input.collectionRunId,
@@ -98,6 +240,8 @@ export class ChannelCatalogPublicationRepositoryAdapter implements ChannelCatalo
           checksum: true,
           itemCount: true,
           payload: true,
+          publishedAt: true,
+          publicationJson: true,
         },
       });
       if (hashCatalogChunkReceipts(chunks) !== input.chunkSetHash) {
@@ -109,63 +253,91 @@ export class ChannelCatalogPublicationRepositoryAdapter implements ChannelCatalo
           throw new ConflictException('Stored catalog chunk does not match its receipt');
         }
       }
-      const { products } = assembleCompleteSnapshot(chunks);
-      if (hashCoupangCatalogSnapshot(products) !== input.snapshotHash) {
-        throw new ConflictException('Staged catalog snapshot changed before publication');
-      }
       await assertCatalogPublicationPlan(tx, input, sourceRun.plan);
-
-      const optionCount = products.reduce((sum, item) => sum + item.product.options.length, 0);
-      const upserted = await upsertCoupangCatalogRows(tx, this.media, {
-        organizationId: input.organizationId,
-        userId: input.userId,
-        channelAccountId: input.channelAccountId,
-        products,
-        lastImportRunId: sourceRun.id,
-        publicationReference: { type: 'source_import_run', id: sourceRun.id },
-      });
-
-      const deactivatedOptions = await tx.channelListingOption.updateMany({
-        where: {
-          organizationId: input.organizationId,
-          listing: { channelAccountId: input.channelAccountId },
-          externalOptionId: { notIn: upserted.externalOptionIds },
-          isActive: true,
-        },
-        data: { isActive: false, lastImportRunId: sourceRun.id },
-      });
-      const deactivatedListings = await tx.channelListing.updateMany({
-        where: {
-          organizationId: input.organizationId,
-          channelAccountId: input.channelAccountId,
-          externalId: { notIn: upserted.externalProductIds },
-          isActive: true,
-        },
-        data: { isActive: false, lastImportRunId: sourceRun.id },
-      });
-
-      if (
-        upserted.mappingIdentityChanged ||
-        deactivatedOptions.count > 0 ||
-        deactivatedListings.count > 0
-      ) {
-        await advanceProductMappingGeneration(tx, input.organizationId);
+      let result: ChannelCatalogPublicationResult;
+      let optionCount = 0;
+      let qualityReport: Record<string, unknown>;
+      if (stage === 'details') {
+        const snapshot = assembleFullDetailsSnapshot(chunks, sourceRun.plan);
+        if (hashCatalogStageSnapshot(snapshot.products) !== input.snapshotHash) {
+          throw new ConflictException('Staged detail snapshot changed before publication');
+        }
+        const detailChunks = chunks.filter((chunk) => chunk.kind === 'full_details');
+        if (detailChunks.some((chunk) => !chunk.publishedAt)) {
+          throw new ConflictException('A detail chunk was not atomically published');
+        }
+        optionCount = snapshot.products.reduce((sum, item) => sum + item.product.options.length, 0);
+        result = {
+          sourceImportRunId: sourceRun.id,
+          duplicate: false,
+          changes: sumDetailChunkChanges(detailChunks),
+        };
+        qualityReport = {
+          snapshotHash: input.snapshotHash,
+          chunkSetHash: input.chunkSetHash,
+          publication: result,
+          basicAttemptId: jsonRecord(sourceRun.plan)?.basicAttemptId,
+          basicManifestHash: jsonRecord(sourceRun.plan)?.basicManifestHash,
+        };
+      } else {
+        const snapshot = stage === 'basics'
+          ? assembleListingBasicsSnapshot(chunks)
+          : assembleCompleteSnapshot(chunks);
+        const products = snapshot.products;
+        const snapshotHash = stage === 'basics'
+          ? hashCatalogStageSnapshot(products)
+          : hashCoupangCatalogSnapshot(products);
+        if (snapshotHash !== input.snapshotHash) {
+          throw new ConflictException('Staged catalog snapshot changed before publication');
+        }
+        optionCount = products.reduce((sum, item) => sum + item.product.options.length, 0);
+        const upserted = stage === 'basics'
+          ? await upsertCoupangCatalogBasicsRows(tx, this.media, {
+              organizationId: input.organizationId,
+              userId: input.userId,
+              channelAccountId: input.channelAccountId,
+              products,
+              lastImportRunId: sourceRun.id,
+              publicationReference: { type: 'source_import_run', id: sourceRun.id },
+            })
+          : await upsertCoupangCatalogRows(tx, this.media, {
+              organizationId: input.organizationId,
+              userId: input.userId,
+              channelAccountId: input.channelAccountId,
+              products,
+              lastImportRunId: sourceRun.id,
+              publicationReference: { type: 'source_import_run', id: sourceRun.id },
+            });
+        const absence = await deactivateCatalogAbsence(tx, input, sourceRun.id, upserted);
+        if (upserted.mappingIdentityChanged || absence.deactivatedProductCount > 0 || absence.deactivatedSkuCount > 0) {
+          await advanceProductMappingGeneration(tx, input.organizationId);
+        }
+        result = {
+          sourceImportRunId: sourceRun.id,
+          duplicate: false,
+          changes: {
+            ...upserted.changes,
+            deactivatedProductCount: absence.deactivatedProductCount,
+            deactivatedSkuCount: absence.deactivatedSkuCount,
+          },
+        };
+        qualityReport = {
+          snapshotHash: input.snapshotHash,
+          chunkSetHash: input.chunkSetHash,
+          publication: result,
+          ...(stage === 'basics'
+            ? {
+                basicManifestHash: hashCatalogChunkPayload(snapshot.manifest),
+                productIds: products.map((item) => item.product.externalProductId),
+              }
+            : {}),
+        };
       }
-
-      const publicationSequence = await nextPublicationSequence(tx, input.organizationId);
-      const result = {
-        sourceImportRunId: sourceRun.id,
-        duplicate: false,
-        changes: {
-          ...upserted.changes,
-          deactivatedProductCount: deactivatedListings.count,
-          deactivatedSkuCount: deactivatedOptions.count,
-        },
-      };
-      assertCatalogRunning(sourceRun);
+      const publicationSequence = await nextPublicationSequence(tx, input.organizationId, stage);
+      assertCatalogWritable(sourceRun);
       const completed = await tx.sourceImportRun.updateMany({
         where: {
-          ...catalogWhere(input),
+          ...catalogWhere(input, stage),
           id: sourceRun.id,
           status: 'running',
           attemptToken: input.attemptToken,
@@ -177,18 +349,14 @@ export class ChannelCatalogPublicationRepositoryAdapter implements ChannelCatalo
           rowCount: optionCount,
           publicationSequence,
           contentChecksum: input.snapshotHash,
-          qualityReport: {
-            snapshotHash: input.snapshotHash,
-            chunkSetHash: input.chunkSetHash,
-            publication: result,
-          },
+          qualityReport: qualityReport as unknown as Prisma.InputJsonValue,
         },
       });
       if (completed.count !== 1)
         throw new ConflictException('Catalog attempt lost its publication fence');
       await this.alerts.resolveSourceFailure(tx, {
         organizationId: input.organizationId,
-        dedupeKey: catalogAlertKey(input.channelAccountId),
+        dedupeKey: catalogAlertKey(input.channelAccountId, stage),
         attemptId: sourceRun.id,
       });
       return result;
@@ -243,11 +411,163 @@ async function upsertCoupangCatalogRows(
   };
 }
 
+async function upsertCoupangCatalogBasicsRows(
+  tx: Prisma.TransactionClient,
+  mediaPublisher: CatalogMediaPublicationPort,
+  input: {
+    organizationId: string;
+    userId: string;
+    channelAccountId: string;
+    products: Array<{ ordinal: number; product: CoupangCatalogBasicProductV1 }>;
+    lastImportRunId: string;
+    publicationReference: {
+      type: 'source_import_run';
+      id: string;
+    };
+  },
+) {
+  const identities = await upsertChannelCatalogBasics(tx, {
+    organizationId: input.organizationId,
+    channelAccountId: input.channelAccountId,
+    products: input.products.map(({ product }) => product),
+    lastImportRunId: input.lastImportRunId,
+    rawSource: 'coupang_catalog_basics',
+  });
+  const media = await mediaPublisher.publishProviderMedia({
+    transaction: tx,
+    organizationId: input.organizationId,
+    userId: input.userId,
+    publicationReference: input.publicationReference,
+    publicationScope: 'basic',
+    listings: input.products.map(({ product }) => ({
+      listingId: identities.listingIds.get(product.externalProductId)!,
+      channel: CHANNEL,
+      displayName: product.displayName ?? product.registeredName ?? product.externalProductId,
+      optionIdentityRemaps: identities.identityRemaps
+        .filter((remap) => remap.listingId === identities.listingIds.get(product.externalProductId))
+        .map(({ oldExternalOptionId, newExternalOptionId }) => ({
+          oldExternalOptionId,
+          newExternalOptionId,
+        })),
+      media: product.media,
+    })),
+  });
+  return {
+    mappingIdentityChanged: identities.mappingIdentityChanged,
+    externalProductIds: identities.externalProductIds,
+    externalOptionIds: identities.externalOptionIds,
+    changes: {
+      ...identities.changes,
+      deactivatedProductCount: 0,
+      deactivatedSkuCount: 0,
+      ...media,
+    },
+  };
+}
+
+async function deactivateCatalogAbsence(
+  tx: Prisma.TransactionClient,
+  input: PublishInput,
+  sourceImportRunId: string,
+  published: { externalProductIds: string[]; externalOptionIds: string[] },
+): Promise<{ deactivatedProductCount: number; deactivatedSkuCount: number }> {
+  const deactivatedOptions = await tx.channelListingOption.updateMany({
+    where: {
+      organizationId: input.organizationId,
+      listing: {
+        organizationId: input.organizationId,
+        channelAccountId: input.channelAccountId,
+      },
+      externalOptionId: { notIn: published.externalOptionIds },
+      isActive: true,
+    },
+    data: { isActive: false, lastImportRunId: sourceImportRunId },
+  });
+  const deactivatedListings = await tx.channelListing.updateMany({
+    where: {
+      organizationId: input.organizationId,
+      channelAccountId: input.channelAccountId,
+      externalId: { notIn: published.externalProductIds },
+      isActive: true,
+    },
+    data: { isActive: false, lastImportRunId: sourceImportRunId },
+  });
+  return {
+    deactivatedProductCount: deactivatedListings.count,
+    deactivatedSkuCount: deactivatedOptions.count,
+  };
+}
+
+async function assertDetailChunkAgainstDiscovery(
+  tx: Prisma.TransactionClient,
+  input: DetailChunkInput,
+  rawPlan: unknown,
+  products: Array<{ ordinal: number; product: CoupangCatalogDetailProductV1 }>,
+): Promise<void> {
+  const plan = jsonRecord(rawPlan);
+  const allowedIds = new Set(
+    Array.isArray(plan?.basicProductIds)
+      ? plan.basicProductIds.filter((value): value is string => typeof value === 'string')
+      : [],
+  );
+  const chunks = await tx.channelScrapeChunk.findMany({
+    where: {
+      organizationId: input.organizationId,
+      scrapeRunId: input.collectionRunId,
+      kind: 'discovery_page',
+    },
+    select: { payload: true },
+  });
+  const discovered = new Map<number, string>();
+  for (const chunk of chunks) {
+    const parsed = CoupangCatalogDiscoveryPageV1Schema.safeParse(chunk.payload);
+    if (!parsed.success) {
+      throw new ConflictException('Stored discovery chunk is invalid');
+    }
+    for (const item of parsed.data.items) {
+      const previous = discovered.get(item.ordinal);
+      if (previous && previous !== item.externalProductId) {
+        throw new ConflictException('Discovery identity changed during detail publication');
+      }
+      discovered.set(item.ordinal, item.externalProductId);
+    }
+  }
+  for (const item of products) {
+    if (
+      (allowedIds.size > 0 && !allowedIds.has(item.product.externalProductId))
+      || discovered.get(item.ordinal) !== item.product.externalProductId
+    ) {
+      throw new ConflictException(`Detail product does not match its completed basics basis: ${item.product.externalProductId}`);
+    }
+  }
+}
+
+function sumDetailChunkChanges(
+  chunks: Array<{ publicationJson?: unknown }>,
+): Record<string, number> {
+  const totals: Record<string, number> = {};
+  for (const chunk of chunks) {
+    const publication = jsonRecord(chunk.publicationJson);
+    const changes = numberRecord(publication?.changes);
+    for (const [key, value] of Object.entries(changes)) totals[key] = (totals[key] ?? 0) + value;
+  }
+  return totals;
+}
+
+function transactionClient(value: unknown): Prisma.TransactionClient {
+  if (!value || typeof value !== 'object' || !('channelListing' in value)) {
+    throw new ConflictException('Catalog publication requires a Prisma transaction');
+  }
+  return value as Prisma.TransactionClient;
+}
+
 async function nextPublicationSequence(
   tx: Prisma.TransactionClient,
   organizationId: string,
+  stage: PublishInput['stage'] = 'full',
 ): Promise<bigint> {
-  const sequenceLockKey = `channel-catalog-sequence:${organizationId}:${SOURCE_TYPE}`;
+  const sourceType = catalogSourceForStage(stage ?? 'full');
+  const sequenceLockKey = `channel-catalog-sequence:${organizationId}:${sourceType}`;
   await tx.$queryRaw`
     SELECT pg_advisory_xact_lock(hashtextextended(${sequenceLockKey}, 0))::text AS "lock"
   `;
@@ -255,7 +575,7 @@ async function nextPublicationSequence(
     SELECT COALESCE(MAX(publication_sequence), 0::bigint) + 1 AS "publicationSequence"
     FROM source_import_runs
     WHERE organization_id = ${organizationId}::uuid
-      AND source_type = ${SOURCE_TYPE}
+      AND source_type = ${sourceType}
   `;
   const sequence = rows[0]?.publicationSequence;
   if (sequence === undefined) {
@@ -278,4 +598,19 @@ function numberRecord(value: unknown): Record<string, number> {
       (entry): entry is [string, number] => typeof entry[1] === 'number',
     ),
   );
+}
+
+function compactChunkProjection(
+  payload: CoupangCatalogFullDetailsChunkV1,
+): Record<string, unknown> {
+  return {
+    kind: payload.kind,
+    startOrdinal: payload.startOrdinal,
+    products: payload.products.map(({ ordinal, product }) => ({
+      ordinal,
+      externalProductId: product.externalProductId,
+      optionCount: product.options.length,
+      mediaCount: product.media.length,
+    })),
+  };
 }

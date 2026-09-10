@@ -27,6 +27,7 @@ const row = (date: string, count: number, boxes = count) => ({
 describe("Shipment summary owner HTTP + disposable PostgreSQL", () => {
   let prisma: PrismaClient;
   let app: INestApplication;
+  let httpUrl: string;
   let alerts: SourceFailureAlerts;
   beforeAll(async () => {
     prisma = makeTestPrisma();
@@ -62,6 +63,8 @@ describe("Shipment summary owner HTTP + disposable PostgreSQL", () => {
       new ValidationPipe({ whitelist: true, transform: true }),
     );
     await app.init();
+    await app.listen(0, "127.0.0.1");
+    httpUrl = await app.getUrl();
   });
   afterAll(async () => {
     await app?.close();
@@ -119,14 +122,14 @@ describe("Shipment summary owner HTTP + disposable PostgreSQL", () => {
   });
 
   function get(path: string, organizationId = TEST_ORGANIZATION_ID) {
-    return request(app.getHttpServer())
+    return request(httpUrl)
       .get(base + path)
       .set("x-test-organization", organizationId);
   }
   it("rejects a claimed processed prefix whose per-page proof is missing or whose totals exceed observed rows", async () => {
     const attempt = await begin("proof");
     const submit = (body: unknown) =>
-      request(app.getHttpServer())
+      request(httpUrl)
         .put(base + `/attempts/${attempt.attemptId}`)
         .set("x-test-organization", TEST_ORGANIZATION_ID)
         .set("X-Source-Attempt-Token", attempt.attemptToken)
@@ -182,8 +185,21 @@ describe("Shipment summary owner HTTP + disposable PostgreSQL", () => {
   });
 
   it("fences auth, org, source, token, proof plan, and immutable terminal data", async () => {
-    await request(app.getHttpServer())
+    await request(httpUrl)
       .get(base + "/source")
+      .expect((response) => {
+        if (response.status !== 401) {
+          throw new Error(
+            [
+              "Shipment summary unauthenticated request failed",
+              `status=${response.status}`,
+              `content-type=${response.headers["content-type"] ?? "unknown"}`,
+              `body=${JSON.stringify(response.body ?? "").slice(0, 1000)}`,
+              `text=${(response.text ?? "").slice(0, 1000)}`,
+            ].join("; "),
+          );
+        }
+      })
       .expect(401);
     const a = await begin("fence");
     await get(`/attempts/${a.attemptId}`, OTHER_ORGANIZATION_ID).expect(404);
@@ -214,7 +230,7 @@ describe("Shipment summary owner HTTP + disposable PostgreSQL", () => {
       items: [],
       capturedItems: [],
     });
-    await request(app.getHttpServer())
+    await request(httpUrl)
       .put(base)
       .set("x-test-organization", TEST_ORGANIZATION_ID)
       .send({ items: [] })
@@ -299,7 +315,7 @@ describe("Shipment summary owner HTTP + disposable PostgreSQL", () => {
   });
 
   function start(key: string, maxPages?: number) {
-    return request(app.getHttpServer())
+    return request(httpUrl)
       .post(base + "/attempts")
       .set("x-test-organization", TEST_ORGANIZATION_ID)
       .set("Idempotency-Key", key)
@@ -322,7 +338,7 @@ describe("Shipment summary owner HTTP + disposable PostgreSQL", () => {
       pageRowCounts: [63],
     };
     const send = (body: unknown) =>
-      request(app.getHttpServer())
+      request(httpUrl)
         .put(base + `/attempts/${a.attemptId}`)
         .set("x-test-organization", TEST_ORGANIZATION_ID)
         .set("x-source-attempt-token", a.attemptToken)
@@ -345,14 +361,14 @@ describe("Shipment summary owner HTTP + disposable PostgreSQL", () => {
     attempt: { attemptId: string; attemptToken: string },
     code: string,
   ) {
-    return request(app.getHttpServer())
+    return request(httpUrl)
       .post(base + `/attempts/${attempt.attemptId}/fail`)
       .set("x-test-organization", TEST_ORGANIZATION_ID)
       .set("X-Source-Attempt-Token", attempt.attemptToken)
       .send({ code, message: "다시 로그인 후 조회해주세요." });
   }
   async function begin(key: string, maxPages?: number) {
-    const response = await request(app.getHttpServer())
+    const response = await request(httpUrl)
       .post(base + "/attempts")
       .set("x-test-organization", TEST_ORGANIZATION_ID)
       .set("Idempotency-Key", key)
@@ -368,7 +384,7 @@ describe("Shipment summary owner HTTP + disposable PostgreSQL", () => {
     },
     items: ReturnType<typeof row>[],
   ) {
-    return request(app.getHttpServer())
+    return request(httpUrl)
       .put(base + `/attempts/${attempt.attemptId}`)
       .set("x-test-organization", TEST_ORGANIZATION_ID)
       .set("X-Source-Attempt-Token", attempt.attemptToken)

@@ -3,8 +3,8 @@ import { describe, expect, it, vi } from "vitest";
 const resetModulePath = "../data-migrations/v0.1.31/001_reset_absolute_product_abc.js";
 const initializeModulePath = "../data-migrations/v0.1.31/002_initialize_absolute_product_abc_formula.js";
 
-const V1_FORMULA_CHECKSUM =
-  "02dba3cbf6a204d89bfe8c68dfc38a17e1b410fac9f054657f63218120e2d94b";
+const CURRENT_FORMULA_CHECKSUM =
+  "230d35436ffd2fd42bf4eb4ea3f0c99bd7474dcf5b7cf11f6ed235aff84cc64f";
 
 function resetMigrationTx() {
   const formulas = [{ id: "formula-1" }, { id: "formula-2" }];
@@ -97,7 +97,7 @@ function initializeMigrationTx() {
 }
 
 describe("absolute product ABC baseline migrations", () => {
-  it("clears every legacy ABC row and grade cache before installing V1", async () => {
+  it("clears every legacy ABC row and grade cache before installing current formula", async () => {
     const { resetAbsoluteProductAbc } = await import(resetModulePath);
     const { tx, state } = resetMigrationTx();
 
@@ -126,7 +126,7 @@ describe("absolute product ABC baseline migrations", () => {
     });
   });
 
-  it("installs one immutable V1 formula state per organization without a publication", async () => {
+  it("installs one immutable current formula state per organization without a publication", async () => {
     const { initializeAbsoluteProductAbcFormula } = await import(initializeModulePath);
     const { tx, state } = initializeMigrationTx();
 
@@ -141,13 +141,16 @@ describe("absolute product ABC baseline migrations", () => {
     expect(state.formulas).toEqual(expect.arrayContaining([
       expect.objectContaining({
         formulaKey: "PRODUCT_ABC_ABSOLUTE",
-        version: 1,
-        formulaChecksum: V1_FORMULA_CHECKSUM,
+        version: 2,
+        formulaChecksum: CURRENT_FORMULA_CHECKSUM,
         formulaJson: expect.objectContaining({
           formulaKey: "PRODUCT_ABC_ABSOLUTE",
-          version: 1,
+          version: 2,
           halfLifeDays: 90,
-          minimumObservationDays: 30,
+          minimumSaleAgeDays: 30,
+          requiresCompleteEvaluationPeriod: true,
+          maxCalendarMonths: 12,
+          includePartialCutoffMonth: true,
         }),
       }),
     ]));

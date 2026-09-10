@@ -131,7 +131,7 @@ function AlertRow({
 }
 
 function isOpenAlert(alert: AlertRecord): boolean {
-  return alert.status === 'OPEN' || alert.status === 'open';
+  return alert.status === 'OPEN';
 }
 
 export default AlertsPopover;

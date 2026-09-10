@@ -23,8 +23,13 @@ import {
   ROCKET_WORKBOOK_EXPORT_TRANSACTION_PORT,
   type RocketWorkbookExportTransactionPort,
 } from '../port/out/transaction/rocket-purchase-confirmation.transaction.port';
-import type { RocketWorkbookExportPort } from '../port/in/procurement/rocket-purchase-confirmation.port';
 import { ROCKET_PO_CATALOG_PORT, type RocketPoCatalogPort } from '../../../channels/application/port/in/rocket-po-catalog.port';
+import {
+  buildRocketConfirmationWorkbook,
+  fillRocketConfirmationWorkbook,
+  RocketConfirmationWorkbookConversionRequestSchema,
+} from './rocket-confirmation-workbook';
+import type { RocketWorkbookExportPort } from '../port/in/procurement/rocket-purchase-confirmation.port';
 
 @Injectable()
 export class RocketWorkbookExportService
@@ -37,6 +42,51 @@ implements RocketWorkbookExportPort {
     @Inject(ROCKET_PO_CATALOG_PORT)
     private readonly catalog: RocketPoCatalogPort,
   ) {}
+
+  async convertWorkbook(input: {
+    request: unknown;
+    templateBytes?: Buffer;
+    templateFileName?: string;
+  }) {
+    const parsed = RocketConfirmationWorkbookConversionRequestSchema.safeParse(input.request);
+    if (!parsed.success) {
+      throw new BadRequestException('Rocket workbook conversion request is invalid.');
+    }
+    const templateFileName = input.templateFileName ?? parsed.data.templateFileName;
+    if (input.templateBytes !== undefined && !templateFileName) {
+      throw new BadRequestException('Rocket workbook template filename is required.');
+    }
+    if (input.templateBytes !== undefined
+      && (input.templateBytes.byteLength === 0
+        || input.templateBytes.byteLength > 10 * 1024 * 1024)) {
+      throw new BadRequestException('Rocket workbook template must be between 1 byte and 10 MiB.');
+    }
+    const now = parsed.data.now ? new Date(parsed.data.now) : undefined;
+    try {
+      if (input.templateBytes !== undefined) {
+        return await fillRocketConfirmationWorkbook({
+          template: input.templateBytes,
+          templateFileName: templateFileName!,
+          sourceRows: parsed.data.sourceRows,
+          workbookRows: parsed.data.workbookRows,
+          now,
+        });
+      }
+      if (templateFileName) {
+        throw new BadRequestException('Rocket workbook template file is missing.');
+      }
+      return await buildRocketConfirmationWorkbook({
+        sourceRows: parsed.data.sourceRows,
+        workbookRows: parsed.data.workbookRows,
+        now,
+      });
+    } catch (error) {
+      if (error instanceof BadRequestException) throw error;
+      throw new BadRequestException(
+        error instanceof Error ? error.message : 'Rocket workbook conversion failed.',
+      );
+    }
+  }
 
   async exportWorkbook(input: {
     organizationId: string;

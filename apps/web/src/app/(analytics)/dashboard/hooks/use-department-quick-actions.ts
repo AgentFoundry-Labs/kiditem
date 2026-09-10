@@ -5,7 +5,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { usePersistedAllMarketplaceOrderCollection } from '@/hooks/useAllMarketplaceOrderCollection';
 import { useRocketChannelAccounts } from '@/hooks/useRocketChannelAccounts';
-import { useSellpiaInventoryFreshness } from '@/hooks/useSellpiaInventoryFreshness';
+import { useSellpiaInventorySourceOwner } from '@/app/(inventory)/_shared/sellpia-inventory-source-owner';
 import { collectAndPersistCoupangShipmentSummary } from '@/lib/coupang-shipment-summary-action';
 import { useTrendSourceCollection } from '@/hooks/use-trend-source-collection';
 import { queryKeys } from '@/lib/query-keys';
@@ -38,7 +38,7 @@ function currentMonthRange(): { from: string; to: string } {
 
 /**
  * Dashboard buttons call the same executable browser actions as their domain
- * screens. Only Operation-backed actions retain dashboard source metadata.
+ * screens. Inventory collection is admitted by the Sellpia source owner.
  */
 export function useDepartmentQuickActions() {
   const queryClient = useQueryClient();
@@ -50,11 +50,8 @@ export function useDepartmentQuickActions() {
   const { collectAllOrders } = usePersistedAllMarketplaceOrderCollection({
     rocketChannelAccountId: rocketAccountId,
   });
-  const { requestRefresh: requestSellpiaInventoryRefresh } =
-    useSellpiaInventoryFreshness({
-      enabled: true,
-      sourceSurface: 'dashboard',
-    });
+  const { start: startSellpiaInventoryRefresh } =
+    useSellpiaInventorySourceOwner({ enabled: true });
 
   const collectShipmentSummary = useCallback(async () => {
     const result = await collectAndPersistCoupangShipmentSummary();
@@ -123,14 +120,14 @@ export function useDepartmentQuickActions() {
       }
       return;
     }
-    await requestSellpiaInventoryRefresh('inventory');
+    await startSellpiaInventoryRefresh();
     toast.success('셀피아 재고 동기화를 시작했습니다.');
   }, [
     collectAllOrders,
     collectTrend,
     collectRocketPurchaseOrders,
     collectShipmentSummary,
-    requestSellpiaInventoryRefresh,
+    startSellpiaInventoryRefresh,
   ]);
 
   return { start };

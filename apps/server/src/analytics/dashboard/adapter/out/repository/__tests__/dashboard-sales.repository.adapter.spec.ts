@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
-  PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD,
+  PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
   type ProductAbcEvaluation,
 } from '@kiditem/shared/product-abc';
 import { DashboardSalesRepositoryAdapter } from '../dashboard-sales.repository.adapter';
@@ -21,10 +21,11 @@ describe('DashboardSalesRepositoryAdapter', () => {
       consistencyScore: 100,
       economicScore: 70,
       validObservationDays: 30,
-      formula: PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD,
+      formula: PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
       formulaRevision: 1,
       publicationRevision: 2,
       gradeBasisCutoffDate: '2026-06-30',
+      saleStartDate: '2026-05-01',
       sellpiaSourceImportRunId: '11111111-1111-4111-8111-111111111111',
       advertisingSourceImportRunId: '22222222-2222-4222-8222-222222222222',
       sellpiaGeneration: '3',

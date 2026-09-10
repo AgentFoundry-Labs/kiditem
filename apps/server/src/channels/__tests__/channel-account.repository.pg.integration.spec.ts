@@ -10,14 +10,11 @@ import {
 } from '../../test-helpers/real-prisma';
 import { ChannelAccountRepositoryAdapter } from '../adapter/out/repository/channel-account.repository.adapter';
 
-const ENCRYPTION_KEY = Buffer.alloc(32, 7).toString('base64');
-
 describe('ChannelAccountRepositoryAdapter mapping generation (PG integration)', () => {
   let prisma: PrismaClient;
   let repository: ChannelAccountRepositoryAdapter;
 
   beforeAll(async () => {
-    process.env.CHANNEL_CREDENTIALS_ENCRYPTION_KEY = ENCRYPTION_KEY;
     prisma = makeTestPrisma();
     await prisma.$connect();
     repository = new ChannelAccountRepositoryAdapter(
@@ -34,7 +31,7 @@ describe('ChannelAccountRepositoryAdapter mapping generation (PG integration)', 
     await seedBaseFixture(prisma);
   });
 
-  it('advances once for active Coupang account identity changes, ignores credential-only writes, and isolates organizations', async () => {
+  it('advances once for active Coupang account identity changes and isolates organizations', async () => {
     await repository.upsertCoupangSettings(TEST_ORGANIZATION_ID, settings('A00000001'));
     await expect(mappingGeneration()).resolves.toBe(1n);
 
@@ -77,12 +74,8 @@ describe('ChannelAccountRepositoryAdapter mapping generation (PG integration)', 
     await expect(mappingGeneration()).resolves.toBe(2n);
   });
 
-  function settings(vendorId: string, suffix = 'initial') {
-    return {
-      vendorId,
-      accessKey: `access-${suffix}`,
-      secretKey: `secret-${suffix}`,
-    };
+  function settings(vendorId: string, _suffix = 'initial') {
+    return { vendorId };
   }
 
   async function mappingGeneration(): Promise<bigint> {

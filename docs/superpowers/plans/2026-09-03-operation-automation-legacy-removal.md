@@ -2,7 +2,25 @@
 
 **Status:** ACTIVE
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+Latest recovery checkpoint (2026-09-07 21:00 KST): the root execution plan's
+QA checkpoints supersede earlier environment/data availability notes below.
+The user-authorized rebuilt persistent QA DB remains isolated on 56879. Actual
+installed-extension inventory capture completed with 1,822 active SKUs and
+atomic owner publication; 188 inactive prior SKUs are preserved. Auth outage
+HTTP regression passes 8/8, and the full Auth/filter regression passes 66/66;
+Nest boot and Codex explicit-model SSE smoke pass.
+Cutover scanner has 0 findings. Full PG diagnostic rerun finished with 782/789
+tests passing; the 21:40 root-plan checkpoint records seven failures and an
+unaccepted test-only checkpoint-cadence comparison, with no verification weakening.
+Matching-screen Wing upload is blocked on ChatGPT extension file-URL permission,
+and Claude actual execution is blocked on provider login after repairing its
+local package postinstall. Earlier archived imports are fixtures, not substitutes
+for these required actual QA paths. No overall completion is claimed.
+
+> **Execution update (2026-09-06):** The user authorizes spec-first autonomous
+> implementation. The linked approved spec is the completion authority; prior
+> TDD/agent-workflow instructions and checkbox order are execution history, not
+> mandatory steps. Choose cohesive working paths and risk-based verification.
 
 **Goal:** Remove the generic Operation/Automation/Workflow/Panel runtime after every surviving business action has a direct owner or capability path.
 
@@ -10,22 +28,350 @@
 
 **Tech Stack:** NestJS, React/Next.js, Prisma 7/PostgreSQL, Node/Vitest scanners, Chrome extension, Office local deployer
 
+**Approved Excel conversion scope (2026-09-07):** All workbook generation and
+conversion is server-owned, not only collected order files. Remaining browser
+writers include Finance/settings reports, Advertising exports, Inventory export,
+Supply confirmation workbooks, and Wing registration templates. Move these to
+their existing domain APIs with equivalent workbook semantics and transient
+downloads; add no output persistence or collection lifecycle. Read-only workbook
+previews are distinct from generation. The inline integration review must check
+these paths before calling the server-only conversion requirement complete.
+
 **Spec:** `docs/superpowers/specs/2026-09-03-operation-automation-hard-cutover-design.md`
+
+## OpenAPI removal delta acceptance
+
+The removal is implemented; the whole hard-cutover gate remains open. Review
+the actual incoming interface and consumers without real OpenAPI IO.
+
+Inline checkpoint (2026-09-07): web focused tests passed 6 files/18 tests;
+the strengthened scheduled-sync regression also passed independently. Channels
+passed 6 files/38 tests, Sourcing 2 files/16 tests, Orders 19 tests, and AgentOS
+8 files/42 tests. Disposable PostgreSQL tests preserve registration-only
+repository contracts (3 passes) and deletion status/replay/unsupported mutation
+contracts (4 passes). No provider request or operating DB write was made.
+Shared, final server and final web production builds passed; isolated Nest boot
+was confirmed again after removing the unused deletion-password service/UI.
+Settings regression tests pass (2 tests), and the live QA settings page showed
+vendor-only settings with no API-key or provider-sync controls. This browser
+check exposed the obsolete deletion-password prompt, now removed with its
+unused service/DI/query key; stored DB configuration was not touched. Further
+browser navigation initially had input-delivery mismatches. A later actual
+Chrome check of `/orders` (2026-09-07 17:09 KST) confirmed the unsupported
+notice, disabled CONFIRM/INVOICE controls and the retained read refresh. This
+rendered-state check complements, but does not replace, the timer/no-IO tests.
+The first whole server unit run passed 3,044 tests with one 5-second
+Wing-workbook timeout; its isolated rerun passed all 11 tests without code
+changes. The two-worker whole rerun passed all 510 files: 3,045 passed and four
+expected-failure tests, with no unexpected failures (375.75 seconds). The server-wide OpenAPI guard,
+AgentOS contraction guard and AGENTS hygiene pass. These results do not close
+the separate whole PostgreSQL completion gate.
+
+PostgreSQL checkpoint (2026-09-07 17:10 KST): the full run finished with
+100/101 files and 788/789 tests passing. The sole failure was a 5-second
+interactive-transaction expiry (7,075 ms elapsed) during catalog chunk upload,
+before the option-parent conflict assertion. The unchanged six-test catalog
+file then passed on a fresh disposable PostgreSQL instance (17.55 seconds).
+The isolated pass does not turn the failed full run into a pass; no timeout or
+business contract was relaxed. Docker evidence showed no recovery-mode failure
+in this run. A clean full-run confirmation remains required.
+
+The confirmation rerun was interrupted after macOS sleep invalidated its timing
+evidence: `pmset` records clamshell sleep from 17:24:37 and repeated sleep
+through 18:16, including a
+1,585-second interval matching a roughly 26-minute test delay. Do not count the
+resulting timeout cascade as either a clean pass or confirmed application bugs.
+The owned test process was stopped; no operating database was touched. Run the
+remaining build, provider QA and full PostgreSQL confirmation sequentially,
+with the host awake, instead of repeating overlapping resource-heavy checks.
+
+Advertising entrypoint delta: main independently passed the new card plus
+StatusContent tests (2 files/9 tests). Polling observes owner terminality even
+while the extension reply is pending, releases the button, and fences late
+replies from the next request. Actual Chrome started profitability attempt
+`2c318945-91ff-4e69-9a9c-4e72095749e5`; the owner recorded navigation timeout
+as FAILED during the affected QA session. This proves dispatch and failure
+recording, not successful report publication or ABC readiness.
+The same attempt's deduplicated `source:coupang-ad-profitability` Alert was
+verified OPEN/unread. The QA PostgreSQL log separately records postmaster child
+exit/recovery cycles after wake; container OOMKilled=false and restartCount=0.
+Preserve this environmental evidence rather than diagnosing the navigation
+timeout as a collector defect without a healthy-host reproduction. The failed
+test-run container (port 56907) was stopped; the QA data container (56879) and
+operating replica (5433) were retained.
+The source attempt began at 17:23:34 KST and recorded failure at 17:27:02;
+its existing 180-second navigation timeout overlapped the recorded sleep.
+After the QA database accepted reads again, actual Chrome re-login showed
+`최근 수집 실패`, the navigation-timeout message and an enabled retry button;
+the unread badge was two (the separate daily-KPI and profitability failures).
+The new web build compiled but failed TypeScript on an optional `/current`
+response passed into terminal observation. Fix that missing-response guard
+and rerun the production build before accepting the UI delta.
+That optional-response guard is fixed; the final web production build passed
+compilation, TypeScript and route generation. The 9 focused UI tests also pass.
+The actual source retry is now being verified separately from the full PG run.
+
+Healthy-host retry finding: attempt `7d3649a4-da3d-437a-9f50-0d694dba2df4`
+reached the authenticated official report page with document.readyState=complete.
+Coupang appended `?_cap_client=WING` to the frozen report URL, but
+`waitForTabCompleteAtUrl` requires full-string equality and keeps waiting.
+The earlier sleep overlap therefore does not exclude a real navigation defect.
+Preserve the report target, accounts, dates, extractor and timeout; accept only
+the observed provider context parameter at this exact official page boundary.
+Add regressions rejecting changed origins, paths and unrelated query parameters,
+then reload the installed extension and retry through the existing owner.
+The retry terminalized FAILED at 18:36:41 KST with the same navigation error.
+The failure Alert stayed exactly one row for the dedupe key, now referencing
+the new attempt and unread; repeated failures did not create duplicate Alerts.
+
+Navigation delta checkpoint (2026-09-07 18:55 KST): inline review and the
+focused collection-window suite passed (63 tests). The installed extension's
+load path was verified against this worktree and reloaded. Actual Advertising
+screen retry admitted attempt `896b2626-578b-4066-b80b-a24a48828ea7` and passed
+the previously blocked navigation boundary. The authenticated report UI showed
+daily, product-grain reports; disposable QA PostgreSQL confirmed the first
+three planned periods complete with 9,172, 8,040 and 9,061 rows. The overall
+attempt remains RUNNING until all 12 receipts are validated; this is progress,
+not final publication evidence. No OpenAPI request or operating DB write was
+used. Separately, the OpenAPI delta recheck passed 45 focused server tests and
+14 scanner tests, with the cutover scanner reporting zero findings.
+
+The same attempt failed at 19:03:45 KST with
+`profitability_report_generation_timeout`; it never published COMPLETE. The
+actual January form had an empty campaign selection and disabled Create.
+Code inspection confirmed a disabled click was treated as a submitted report.
+The bounded fix waits for the date-change campaign reset and enabled Create,
+and fails explicitly if readiness is absent; target/account/period/output and
+generation timeout are unchanged. Main passed all 23 focused report tests,
+including delayed reset, delayed enable and no-click bounded failures. Actual
+screen showed failure and an enabled retry button; the Alert remained one
+OPEN/unread row pointing to this attempt. The fresh read-only provider tab
+showed only the first three generated reports, so pagination was not assumed
+to be this failure's cause. A possible list-pagination gap is not yet accepted
+as repaired or proven irrelevant.
+
+The full extension gate before that readiness delta passed 821/821 tests;
+conventions and develop reconstruction also passed. A clean whole PostgreSQL
+run was started after source terminality, on a newly created disposable
+database with process-scoped idle-sleep prevention. It is not run concurrently
+with real provider collection. Native Chrome extension-page control became
+unavailable while ordinary browser tabs remained readable; operator reload
+was requested before the next actual retry. No successful advertising
+publication or ABC baseline is claimed by these intermediate checks.
+
+Readiness delta aggregate verification: main's full extension rerun passed
+825/825 tests (29.47 seconds), exit 0. The clean whole PostgreSQL run is still
+live; its current Wing publication measurement is 1,000 products / 3,000 options
+in 1,709 ms with 55 statements. This measurement is not an ABC baseline or a
+whole-suite pass.
+
+QA mapping prerequisite verified by read-only queries: this disposable QA DB
+has zero ChannelListings and zero ChannelListingOptions, while the failed
+advertising attempt contains 617 distinct provider option IDs. All-unmatched
+advertising rows therefore do not by themselves establish a resolver defect.
+Use the retained Wing catalog collection and explicit matching contracts before
+ABC readiness verification; do not infer identities from product names or
+seed invented mappings. The live full PG run has so far recorded one 30-second
+timeout in the channel-dashboard organization-isolation test; no leaked result
+has been observed. Await the terminal report and diagnose that exact failure
+before accepting the whole gate.
+
+Operator confirmation (2026-09-07): Office has already executed
+`v0.1.30:006_delete_legacy_channel_derived_master_products`. Keep its original
+path, ID and body immutable; do not move or duplicate it into v0.1.31. The
+operating replica's earlier ledger was stale for this decision. The file is
+unchanged from committed `5b154ca03`; the release guard still needs a truthful
+admission decision for this already-applied migration absent from develop.
+Do not bypass the guard or classify this as a new v0.1.31 migration.
+
+| Existing entrypoint | Cutover contract |
+|---|---|
+| Settings `/api/coupang-sync/{health,products,orders}` | Remove UI calls and provider sync; no connection-test API request |
+| Orders screen scheduled synchronization | Remove automatic timer and direct sync trigger |
+| Orders confirm/invoice and Returns approve | Explicit unsupported response; no provider call or local success mutation |
+| `channels.submit_coupang_listing` and Sourcing `preparations/:id/submit` | Remove direct Agent capability and reject unsupported direct submission before beginning work |
+| Listing deletion authorization/claim/reconcile | Stop unsupported deletion before browser mutation; retain truthful existing status reads |
+| Coupang account settings | Vendor/store identity remains; no OpenAPI-key input, projection, resolution or DI |
+| Existing Wing external registration and source-owner collection | Preserve the separate validated browser/owner contract and its regression tests |
 
 ## Global Constraints
 
+- QA entrypoint finding (2026-09-07): `collectAdvertisingProfitability` and
+  its owner API survive, but no web/Agent caller remains after composite
+  removal. This is an incomplete lifecycle transplant, not an unsupported
+  provider. Restore a small explicit Advertising-screen control using the
+  existing extension bridge/action and `/api/ads/profitability-imports/current`
+  read contract. Preserve collector/account/date semantics; the owner alone
+  determines terminality and previous complete publication. Cover missing
+  capability, reload during RUNNING, lost ACK, failure/last-complete display and
+  owner-confirmed success. Do not substitute account KPI/campaign sync for
+  product-level advertising cost, trigger ABC, or add a runtime. Review this
+  delta and its focused tests before resuming its real-provider QA.
+
+- Post-review QA checkpoint (2026-09-07): the actual Dashboard `광고 받기`
+  entrypoint admitted an Advertising attempt in the disposable QA DB on port
+  56879. It terminated FAILED with `AD_ACCOUNT_DAILY_KPI_COLLECTION_FAILED`
+  and a login-required message; the UI returned to a retryable button and showed
+  one unread source-failure Alert. The provider tab is at seller sign-in; a
+  successful retry/recovery is awaiting authentication, not claimed complete.
+  Product Hub shows Sellpia complete through 2026-09-06, missing ad cost and
+  mapping attention, disables grade refresh, and retains zero evaluations and
+  publication revision zero. This does not prove successful ABC publication or
+  last-good retention after a prior grade. QA also exposed obsolete Dashboard
+  observation-day copy; the sale-age wording now matches the approved contract,
+  with four focused tests passing and no calculation change. The conventions
+  and reconstruction gates pass; the release migration ID gate below remains
+  unresolved. A fresh whole PostgreSQL run is live with preserved DB logs;
+  one catalog publication test has failed, pending the full diagnostic result.
+
+- Approved OpenAPI removal (2026-09-07): remove Coupang server-direct API
+  clients/credentials/DI and their actual sync, mutation, UI and Agent callers
+  retained by `cf65e34d3`. Preserve browser-session Wing/ad collection,
+  ChannelAccount identity and validated owner paths. Unsupported operations
+  stop explicitly before external IO; do not replace them with invented
+  collectors. Implementation slices are Channels, Orders, and web/shared
+  contracts (Luna/max); integration and correctness/Ponytail delta review stay
+  inline. ABC/Inventory changes remain in scope and unchanged by this removal.
+  Completion requires no-OpenAPI regression coverage and fresh build/boot
+  evidence, without operating DB writes or real OpenAPI requests.
+- Verification checkpoint: the second full PostgreSQL run finished with
+  204 passed, 614 failed and one skipped across 819 tests. Repeated PostgreSQL
+  `57P03` recovery-mode errors invalidate this as a completion gate; the cause
+  is not yet established. Do not equate this with 614 application regressions
+  or claim the earlier fixture fixes closed the whole suite. Re-run after
+  resolving the disposable test environment and finishing the new delta.
+- Script verification checkpoint: Vitest passes all 195 tests in 33 files
+  after retired replay expectations/default profiles were corrected. The Node
+  contract phase passes 224 tests with three skips. The Inventory authority
+  scanner explicitly allows the three verified disposable fixtures; production
+  write detection remains intact.
+
+- Approved ABC eligibility update (2026-09-07): sale age and evidence
+  sufficiency are independent. Sale age is 30 elapsed KST calendar days at the
+  evaluation cutoff from the earliest valid `saleStartedAt` of validly mapped
+  channel listings. Evidence has no minimum-day count: the selected interval
+  must instead be complete and valid. Unknown dates are not inferred; old sale
+  age cannot validate gaps or zero-fill. Update the current formula version,
+  Finance evidence, Products publication/read status, and regression tests as
+  one contract. Verify 29/30-day boundaries, cutoff rather than current time,
+  invalid/unmapped dates, valid periods under 30 days, missing/stale periods,
+  last-good retention, and publication races. This replaces the earlier
+  temporary zero-observation gate. The approved through-yesterday period and
+  corrected source-cost contracts below also apply.
+- Latest source contract: preserve Sellpia stock and independent 401-day profit
+  collection; no ABC-specific duplicate collection. ABC targets KST yesterday
+  using at most 12 exact calendar-month/partial-month buckets with aligned
+  advertising, actual covered-day weighting and no daily proration. Repair
+  graph-cost omission using period-specific `total_in_amount` on the fixed
+  401-day product set and verify full-window reconciliation. The corrected
+  parser/provenance excludes old unverified graph-cost captures from grading.
+  Kakao conversion is explicitly unsupported until
+  a validated converter exists; retain the original capture.
+- The user confirmed `localhost:5433/kiditem` is an operating clone and approved
+  read-only inspection. The 2026-09-06 repeatable-read, read-only inspection found
+  one queued Operation, eight running Wing order imports, no schedules/workflows,
+  and 151 pending/running Operation alerts. No rows were changed. ABC evaluations
+  are empty; existing Sellpia monthly rows have no confirmed order-time-cost/VAT
+  provenance. This clone inventory is not a deployment preflight: deployed SHA,
+  backup, writer shutdown, and destructive cutover remain separate gates.
+- Live Sellpia inspection (2026-09-06, provider reads only) confirms a one-day
+  product-sales query is possible. Changing only the independent purchase-date
+  range changes displayed total purchase cost; the provider help defines that
+  range as goods purchased from suppliers. The collector currently reads monthly
+  `graph` tuples and the ABC reader maps `inAmount` to `orderTimeSupplyCost`.
+  Verify that tuple's cost meaning separately before certifying it as sold-unit
+  order-time cost. The purchase total or a selected radio alone is not sufficient
+  evidence. No provider payload, product identifier, or financial value is retained
+  in this execution record; no daily evaluator change has been made.
+  Follow-up on 2026-09-07 reproduced the supplied 256-row/5-cost-mismatch case
+  and found 129 cost mismatches in the actual 1,393-row 401-day response, with
+  revenue/quantity sums matching. Independent September and August purchase
+  windows exposed graph-omitted costs only in zero-order buckets (4 and 3 rows).
+  The current spec records the corrected period-total collection contract.
+  Follow-up live browser reconciliation held sales at 2025-08-02–2026-09-06
+  across all 14 intersecting purchase periods: every response retained all
+  1,393 identities and unchanged revenue/order quantities; period cost and
+  purchase-quantity sums exactly matched all full-window totals (zero mismatches,
+  no rounding tolerance). Root independently reran the repaired collector's
+  9 tests, Analytics read/normalization's 11 tests, and Advertising period's
+  8 tests successfully. Installed-extension → owner → consumer QA remains a
+  separate pending gate; provider reconciliation is not end-to-end acceptance.
+  Installed-extension follow-up (2026-09-07 14:58 KST), through the existing
+  Product Hub full-refresh button against disposable QA DB `localhost:56879`:
+  Inventory independently completed 1,821 SKUs; profitability completed 19,488
+  period rows with `sellpia-profitability-v2`, publication sequence 1, covering
+  2025-08-02 through 2026-09-06 (KST), including all 14 intersecting months.
+  Persisted quality provenance records `ORDER_TIME_SUPPLY_COST`, VAT included,
+  and `correctedCostEvidence: true`; 14,056 period rows matched source identities
+  and 5,432 remain unmatched warnings. This does not prove valid master/channel
+  mappings, and the warnings must not be silently treated as evaluation-ready.
+  The prior profitability failure Alert was resolved (one existing row, no new
+  failure Alert). Two earlier attempts had failed with a generic login-required
+  message; refreshing the existing profit tab allowed the normal collector to
+  finish. This establishes collection/owner publication and recovery, not the
+  precise original browser error or mapped-product/ABC consumer acceptance.
+  The existing ABC data-status panel then displayed Sellpia profit as current,
+  through 2026-09-06, collected at 14:58:46 KST. Advertising remained uncollected,
+  mapping required refresh, official publication/formula revisions remained 0,
+  and explicit grade refresh stayed disabled. The navigation unread Alert badge
+  cleared. Source success therefore did not auto-publish or invent an ABC grade.
+  Do not infer missing channel mappings, sale dates, or advertising evidence
+  from this successful source capture. The whole PostgreSQL gate naturally
+  finished after 1,136 seconds: 99/102 files and 816/819 tests pass. Remaining
+  Advertising failures are action priority (urgent versus medium), strategy
+  action count (3 versus 2), and rank terminal HTTP (201 versus 404). The run
+  was not cancelled or classified as a hang, and is not a passing gate.
+  Follow-up: action/strategy fixtures now bind their test SKU rows to the
+  current completed Inventory publication; their business assertions remain
+  unchanged. Rank HTTP acceptance now owns one explicit loopback listener
+  for the suite instead of request-scoped lazy listeners. The exact original
+  rank 404 was not reproduced in isolation; do not claim its cause proven.
+  All three files passed together (45/45) after these fixture changes. Root
+  reviewed the limited fixture delta and started another whole PostgreSQL gate;
+  that result is pending. QA correction: browser collection does not require
+  Coupang API keys. At the user's direction, reuse the existing local environment
+  settings while overriding DATABASE_URL to the existing disposable QA DB and
+  retaining isolated storage/background-job settings. The QA organization now
+  has the single active Coupang account's non-secret identity fields, copied
+  from the read-only clone without credentials/config or collected facts.
+  This is QA setup, not proof that the live browser account matches or that
+  Advertising/Wing collection has passed.
+  Post-QA delta: product-profit Chrome execution/access errors no longer imply
+  a login failure. A fixed page-access/reload message replaces that inference;
+  explicit page login evidence and existing tab/retry/collector behavior remain
+  unchanged. Root reviewed this limited change with correctness and Ponytail
+  lenses (no new helper/runtime) and reran all 11 product-profit VM tests.
+  The full extension command (`extensions/tests/*.test.mjs` and nested
+  `extensions/tests/*/*.test.mjs`) then passed all 820 tests after this change.
+  The cutover scanner and reconstruction gate pass. The release gate currently
+  fails because newly added `v0.1.30/006_delete_legacy_channel_derived_master_products`
+  does not match VERSION 0.1.31. Read-only operating-clone history contains
+  v0.1.30 migrations 001–005, not 006 or v0.1.31; resolve the registration before
+  claiming release readiness, without changing already-applied migration IDs.
+
 - This is the declared platform-boundary reconstruction exception to the one-domain-per-session rule; unrelated domain cleanup remains excluded.
-- Use Astra for all implementation and review subagents, with high reasoning
-  by default. Simple deletion, import/module wiring, and local changes may use
-  medium. Continue to mark
-  work protecting invariants across two or more boundaries as `경계 불변식 작업`
-  (`boundary-invariant work`), but do not select another model for it.
-  After every two feedback-to-fix rounds on the same task, raise reasoning one
-  tier (medium → high → xhigh → max). Do not repeat an unchanged review
-  merely to trigger escalation.
-- The root agent owns integration and tests. Run one Astra/high final review only
-  after implementation and focused tests; that review reports only new P0/P1
-  findings and deletable complexity through the Ponytail lens.
+- Implement against the approved spec with `ponytail` (full): trace real callers, reuse existing
+  code and native primitives, then write only the smallest working change. Review
+  with `ponytail-review` for deletable complexity; keep correctness, performance
+  and trust-boundary verification distinct. Do not remove required fences or
+  failure handling to reduce line count, or add review rounds for this rule.
+  Test-first ordering is optional; owner transactions and real consumer behavior
+  still require focused regression evidence before acceptance.
+- Use Luna/max for bounded implementation subagents. The root inline session
+  owns planning, spec interpretation, code-quality review, integration, and
+  verification; do not delegate a separate review agent. Review correctness
+  and Ponytail deletable complexity against the final integrated path, without
+  repeating unchanged feedback or imposing a test-first workflow.
+- After all implementation and basic builds/focused tests, the root performs
+  one whole-spec/integrated-diff review before real extension/browser QA.
+  Trace entrypoints through capture, conversion, owner publication, Alerts and
+  existing consumers; check failure/cancel/resume, performance, duplicate
+  ownership and temporary/legacy paths. Apply `ponytail-review` as a separate
+  complexity lens. Use `improve-codebase-architecture` only where a confirmed
+  structural problem needs further analysis, not for a new general redesign.
+  Fix findings and pass relevant regressions before QA. After QA, review only
+  new changes and verification results; do not repeat an unchanged full review.
+  Task handoffs and partial reviews do not satisfy this whole-integration gate.
 - A business action is removed only after its owner/capability acceptance test passes, or the ownership manifest names it `DELETE` and operating preflight confirms no required schedule/workflow.
 - ActionBoard application code is removed; `ActionTask` table and rows remain dormant and no production code reads or writes them.
 - Database Alerts retain only source/rules human notifications. Existing unreliable Operation alerts are reset rather than migrated into a compatibility shape.
@@ -198,6 +544,635 @@ git commit -m "refactor: make rules evaluation directly owned"
 
 ### Task 3: Move Surviving Domain Actions Off Operations
 
+**Per-source completion contract (clarified 2026-09-06):**
+
+`real entrypoint → unchanged collector → owner publication → existing screen/decision read → old path removal → focused tests PASS`
+
+An ownership-manifest entry or a deleted wrapper is not completion evidence.
+Connect existing HTTP/PostgreSQL and extension tests across these actual
+Interfaces; do not introduce a new checker framework or runtime registry. Real
+provider/browser QA remains an additional Task7 gate for every retained source.
+
+**Current open-path summary (not historical checkpoint totals):**
+
+Inventory consumer follow-up (approved 2026-09-07; earlier ABC changes remain):
+
+- [x] Trace existing Inventory publication/read/freshness ownership and reuse
+  implemented fencing, atomic stock/basis publication and purchase rechecks.
+- [x] Remove only duplicated consumer source/status decisions and ordinary-read
+  file-validator coupling; audit filename/hash contracts before deleting fields.
+- [x] Connect existing successful-publication cache invalidation to all affected
+  purpose-specific consumers without merging their queries/business policies.
+- [x] Prove last-good values during running/failure with accurate freshness,
+  same-publication quantity/basis, unknown versus zero, successful refresh and
+  late older terminal rejection through consumer tests and integrated QA.
+
+Gap audit: owner atomic publication/fencing, ordinary-read file-validator
+separation and purchase transaction rechecks already exist; preserve them.
+Focused additions are consumer-interface lifecycle tests, canonical server
+freshness replacing the web's local-attempt status override, unknown summaries,
+missing consumer invalidations and the retained explicit source-binding UI.
+Barcode printing currently concatenates separately published pages: reuse the
+existing whole-snapshot export reader through a narrow static JSON read route,
+not a new query/runtime, so quantities and dates come from one publication.
+The current Inventory expiry projection also needs to agree with its attempt
+read: expired current work is a failure, not browser-derived state. Keep
+unclaimed pending refreshes distinct and preserve the previous complete basis.
+These follow-up deltas require inline review before resuming provider QA; the
+earlier integrated review is not a claim that these new deltas passed.
+Web delta verification: 108 focused tests pass; root's web production build
+also passes. Local attempt state no longer overrides Inventory freshness;
+terminal and observed publication-generation changes reuse cache invalidation,
+including channel-product matching. Binding remains explicit attestation,
+not provider login verification. Backend consumer/expiry/race gates remain open.
+Backend bounded gates now pass: owner/list/detail/export PostgreSQL14 and
+focused unit19. Root independently passes all Inventory unit185, server build,
+and observed the updated Nest boot on the disposable QA stack. The expanded
+six-file consumer PostgreSQL run is NOT green: 59/72 pass, with 13 failures in
+Products, Channels and Analytics stock expectations. Trace and repair missing
+official-publication fixture provenance rather than weakening owner selection;
+Supply confirmation's existing transaction gate passed unchanged.
+The corrected consumer fixtures and stable Rocket HTTP listener now pass the
+root's full six-file rerun: 72/72. Final web build also passes after enabling
+the existing freshness badge and removing the misleading static "latest"
+caption; conventions pass. Actual Chrome shows three "미수집" summaries before
+first publication, and the refreshed provider page confirms the logged-in
+fixed Sellpia account. Root explicitly confirmed that source in disposable QA
+and started real extension inventory collection; terminal/result verification
+is still pending. No operating database mutation was performed.
+Real Inventory retry completed through the installed extension on disposable
+QA56879: the same screen changed from three "미수집" summaries to 1,821 total
+SKUs, 949 in stock and 872 out of stock, with completion basis
+2026-09-07 14:44:51 KST and "최신 / 방금 전" shown together. This supplements
+the consumer PostgreSQL failure/expiry/old-terminal/race evidence above;
+it does not complete the remaining Sellpia-profit401/ad-source QA or the final
+whole hard-cutover PostgreSQL gate.
+
+Fresh QA login succeeded. Actual full-refresh admission returned Inventory409
+(source binding not confirmed), while profit independently began with the exact
+2025-08-02–2026-09-06 plan and terminated FAILED with a Sellpia login-required
+message. This proves failure separation, not successful 401-day collection;
+provider session/binding verification remains open. Operating DB was untouched.
+The bounded HTTP fixture corrections now pass keyword30 and catalog11 (plus
+rank/catalog27 together); the whole PostgreSQL gate still requires a rerun.
+
+Pre-QA integrated review checkpoint (2026-09-07): the inline review and its
+identified blocking corrections are complete; final whole-suite consolidation
+and actual provider QA remain separate, open gates.
+Tracing the actual extension listener and Nest route found an active
+`/api/ads/extension/sync` writer dispatch despite the zero-finding legacy gate.
+The four legacy ingestion branches are removed; retained collectors use their
+owners and the popup GET uses `/api/ads/extension/status`. The existing
+contraction gate now covers that retired ingress. Status reads reuse the
+itemwinner owner's selected COMPLETE attempt; nonempty → confirmed-empty →
+failed publication passes the actual status HTTP/PostgreSQL regression (9/9).
+Popup admission preserves request identity and rejects unrelated RUNNING plans.
+The terminal-key reuse defect is corrected: COMPLETE/FAILED allow a fresh
+explicit request, while a lost begin acknowledgement reuses its pending key.
+Root's complete extension rerun passes 818/818 tests. The further status-read
+race is corrected: owner publication stores immutable listing observations
+alongside its KPI; consumers no longer join the mutable daily projection.
+The exact consumer regressions cover intervening same-day publication, missing
+winner state, confirmed empty and failed refresh (11 PostgreSQL passes).
+Root inspected the final owner/read delta; server build and conventions pass.
+The subsequent frozen whole PostgreSQL run finished 100/102 files and 813/817
+tests passing. Itemwinner's 11 regressions passed; three keyword HTTP timeouts
+and one catalog admission HTTP401 remain under diagnosis. Do not increase
+timeouts, weaken authentication or call the whole gate green from isolated
+reruns. The owned ephemeral HTTP-listener lifecycle is one hypothesis, not yet
+a proven cause.
+
+Fresh QA stack now uses disposable PostgreSQL56879 with the current schema;
+root verified actual `npm run dev:server` boot and anonymous Alerts HTTP401.
+Previous inventory QA DB56833 remains alive with its evidence; only its owned
+API/Web processes were stopped. The worktree extension was reloaded and
+confirmed enabled. Browser QA paused because native interaction encountered a
+different search/Obsidian popup; user coordination is requested before further
+UI actions. User confirmed no concurrent Chrome use and approved continuing;
+treat the unexpected navigation as a control issue, not user interference.
+Root reconnected native control and resumed the actual login. No source
+collection has been accepted on the fresh stack yet.
+
+The Gateway imports root `agent-config` profiles; shipped prompts now use the
+current invocation/resource contract instead of removed `operation_status`.
+Rules and Agent capability integration were traced independently of Alerts:
+Rules commits its request receipt/results/notifications together; AI cancellation
+updates generation and direct job in the owner transaction, while provider-media
+publication locks current selections before preserving manual choices. The
+first disposable Rules/capability rerun was 9 pass / 1 fail because a Rules test
+called deleted `prisma.operationRun.count`. The corrected assertion verifies
+`to_regclass('public.operation_runs') IS NULL`; root reran both suites against
+fresh disposable PostgreSQL, 10/10 pass. Earlier bounded AI PG evidence remains
+separate from live AI QA. The unused `operationRefs` receipt hook and wire field
+are removed. Registered pre-schema migration 004 removes only that JSON member
+from stored receipts; replay and second-run no-op have PostgreSQL coverage.
+Root Gateway suite passes 158 tests (10 skipped); shared, Gateway, server and
+web builds pass for this checkpoint.
+
+The first whole PostgreSQL sweep finished with 94/102 files and 794/814 tests
+passing. Current-contract fixture fixes pass Channels28, Analytics14 and
+Advertising22; no legacy readers were restored. The Wing-rank 404 did not
+reproduce in isolated or paired suites, so its assertion now retains the HTTP
+failure body for diagnosis. Root corrected missing test reset in the cutover
+migration suite (1 pass) and supplied COMPLETE provenance to the rising-product
+fixture (3 passes). A whole-suite rerun is in progress; focused results do not
+replace it. Root's updated whole server-unit run passes 511 files / 3,104 tests
+with 4 expected failures and 4 skipped cases, after retired ingress tests were
+removed with their production paths.
+
+Ponytail deletion follow-up removes unused `/scrape-targets` runtime CRUD,
+exclusive DTO/repository/port and DI wiring. There are no retained UI, extension,
+Gateway or capability callers. The schema/table/data remain unchanged. Focused
+status/controller/module tests pass 26/26; named source owners remain intact.
+
+Full-refresh consumer review found that a resolved FAILED/RUNNING inventory
+result was ignored before displaying overall success. The component now checks
+both source results without suppressing profit after stock failure; root's four
+component regressions pass. This is source feedback only, never an ABC trigger.
+
+Current ABC policy integration checkpoint (2026-09-07): root independently
+reran 41 focused ABC/Finance/sale-date tests and 42 PostgreSQL tests across
+Products publication, Finance evidence, Inventory ABC reads and product
+operations. All pass, including persisted sale-start provenance and rejection
+of a changed mapped sale date without partial writes. Sellpia source-owner
+PostgreSQL separately passes 14/14. The source parser-v2 fixture mismatch from
+the first integration run is resolved. The Sellpia profit owner entrypoint is
+restored. Root reran the complete extension file set (including nested tests):
+812/812 pass; the earlier shared-loader omission is fixed. Shared and server
+builds pass, and the current isolated dev server restarted successfully with
+anonymous `/api/alerts` returning 401. The final web build exposed one missing
+`saleStartDate` in a test fixture; it is corrected and the full web production
+rebuild passes, including TypeScript and all 46 static pages.
+The fixture's consumers pass 24/24. Final inline review removed the redundant
+pre-terminal control read and retained capture before best-effort progress
+updates; root independently reran the extended owner regressions, 8/8 pass.
+Installed-extension → owner → consumer QA remains
+open; provider reconciliation alone does not prove that complete path.
+Root full server-unit rerun now passes 514 files / 3,168 tests, with 4 expected
+failures and 4 skipped cases. The preceding full run had one intermittent
+conversation HTTP 404/400 mismatch; that unchanged suite passed 8/8 in isolation
+and the second complete run passed without code changes or retry configuration.
+
+Latest integration gates (2026-09-07): shared build, production server TypeScript,
+full web build, and the full extension Node test file set pass. Root campaign
+PostgreSQL rerun passes 21/21 after correcting the stale test rendezvous. The
+SellpiaSalesModule Alerts import was fixed and its real Nest initialization test
+passes. Full Nest boot on disposable PostgreSQL passes, including unauthenticated
+`GET /api/alerts` returning 401. Conventions checks pass. The pre-QA
+whole-integrated review is now in progress; actual provider QA remains open.
+
+Latest post-manual-match boot verification: root ran the actual `npm run
+dev:server` against a fresh PostgreSQL 17 Testcontainer. Nest compiled and
+listened on isolated port 4107; anonymous `GET /api/alerts` returned 401.
+AI background execution was disabled and storage used an isolated unavailable
+endpoint. The owned process group, disposable database and temporary gateway
+token were cleaned up; the operating clone was untouched.
+Native Chrome inspection identifies a concrete QA mismatch: enabled KIDITEM OS
+1.0.23 (`ngbbaclphaomfkjlfiidakomifaanobg`) is loaded from
+`/Users/yhc125/workspace/kiditem/extensions/kiditem-os`, not this hard-cutover
+worktree. Do not count that installed extension as current-patch acceptance.
+User approved loading the worktree extension and completed the native folder
+selection. Root verified Chrome now shows enabled KIDITEM OS 1.0.23,
+ID `kfionjdklijcjedgfmcfbjadlfmobdcg`, loaded from this hard-cutover worktree's
+`extensions/kiditem-os`. This proves installation identity, not collection
+acceptance. Direct Sellpia tab control previously returned `Debugger unattached`;
+native Chrome inspection worked after resetting the control session.
+
+Actual inventory QA (2026-09-07): the worktree extension passed capability/auth
+handoff from the inventory screen. The synthetic QA organization initially had
+no Sellpia account binding, so begin returned 409 without creating an attempt.
+Root configured only the disposable QA organization through the existing owner
+binding API. The next real screen click created a RUNNING inventory attempt,
+but the web strict response schema rejected the server's `fileHash` field before
+collector dispatch. Fix the response contract and resume that same attempt;
+this is not collection acceptance. The screen's generic start-failure message
+also hides the actionable binding/contract error. No operating-clone writes.
+After freshness polling, that RUNNING attempt also disables the only sync
+button, preventing the hook's existing same-attempt resume from being reached.
+The response-contract fix must cover this real UI recovery path, not just a
+mocked successful begin. Root production TypeScript passes after the approved
+ABC missing-product-period correction.
+
+Inventory boundary audit also found active legacy freshness claim/heartbeat
+HTTP methods and lease renewal code. Remove the unused browser lifecycle while
+retaining owner attempts, read/source-binding and manual-import concurrency;
+verify retired routes and retained HTTP/PostgreSQL contracts before calling
+the Inventory cutover complete.
+
+Actual inventory recovery evidence: root's two affected web suites pass 14/14.
+The original attempt expired, was persisted FAILED through explicit retry, and
+appeared as one unread Alert in the real UI. A subsequent attempt
+`8abb4e6d-a1dc-43f8-b2f4-ecb0a05fd06d` survived a development-server restart;
+explicit same-attempt resume through the real screen and installed extension
+completed with 1,820 rows. Read-only inspection of disposable PostgreSQL confirms
+1,820 canonical inventory SKUs and the same failure Alert row now RESOLVED.
+No collector policy or provider input was changed. End-to-end screen acceptance
+is still open: `latestImport` rejects the JSON snapshot's filename + null
+fileHash, although it has a valid contentChecksum. Remove this obsolete file
+pair assumption for JSON snapshots with regression coverage at the consumer
+interface; do not fabricate a file hash/artifact to satisfy the old schema.
+
+Inventory screen acceptance now passes (same collected data, no recollection):
+after shared read-schema correction/build, root reloaded the real Chrome
+inventory screen and observed 1,820 total SKUs, 951 in stock, 869 out of stock,
+the populated first 50-row page, and actual completion time
+2026-09-07 09:26:21 KST. The unnecessary read-only file-pair refinement was
+removed rather than adding an inferred browser/legacy exception; canonical
+manual-import validation remains. Implementer reports shared schema 15 tests,
+web focused 12 tests, shared build and web production build PASS. Root separately
+ran owner-hook/stock-ops focused tests (14 PASS) and verified the actual provider
+capture → owner COMPLETE → Alert resolution → existing screen query path.
+
+Inventory follow-up (2026-09-07): obsolete freshness request/claim/heartbeat
+routes and failed-attempt persistence were removed while keeping read/binding,
+owner attempts and manual imports. Root retained owner/manual PostgreSQL suites
+pass 22/22; root's independent Rocket PO regression rerun passes 25/25 on
+disposable PostgreSQL at localhost:56842. The earlier Rocket failure did not
+reproduce in isolated or full reruns; assertions were not weakened. Final
+integrated gates remain open.
+
+The real Inventory Excel button also returned a transient server-generated
+HTTP 200 workbook. Read-only inspection of the browser download confirmed 951
+unique in-stock rows, numeric stock/prices, matching stock-value calculations,
+and one import cutoff. A concurrent-publication risk remains in its paged
+snapshot reads and is being corrected before export consistency is accepted.
+Rendered column widths are cramped; workbook data validation is not a claim
+that layout was improved. No operating-clone data was changed.
+
+Post-handoff `check:conventions` passes every constituent guard. The first
+full extension run (91 Node test files) failed because the shared order worker
+VM harness omitted `KidItemSellpiaManualMatchSourceOwner`. Production import
+order was already correct. The shared test module list now loads that owner
+immediately after its collector; no collector assertions were removed. Root
+inspected the loading parity and reran the previously failing suites: 21/21
+pass. Implementer's full extension rerun reports 91 files, 800 tests passed,
+zero failures. Actual extension/provider acceptance is still unverified.
+
+After the manual-match server/shared changes, root rebuilt shared successfully
+and reran production server TypeScript successfully. The first TypeScript run
+failed against stale shared declaration output; only the post-build rerun is
+passing evidence. The cutover scanner again reports zero findings.
+Server-side Excel export/conversion verification now passes 27 tests in 10
+files across Finance, Advertising, Channels Wing inventory/registration,
+Supply Rocket confirmation and Inventory. Workbook assertions cover sheet
+names, columns, values and filenames; controller tests cover the API seam.
+Root also reran the five web download-boundary suites (Finance, Advertising,
+Supply, Inventory and Wing registration): 12/12 pass, checking server routes,
+uploaded inputs, returned filenames and download handling.
+These focused tests do not substitute for the remaining browser/provider QA.
+
+Root Rocket PO + mall-order source PostgreSQL rerun passes 29/29. Coverage
+includes public HTTP fencing, prior COMPLETE retention, confirmed empty,
+Alert rollback, original capture retention and server conversion replay.
+The disposable Rocket fixture publishes 4,000 lines (2,332,981 JSON bytes) in
+3,647ms using 32 recorded Prisma/raw operations; COMPLETE read takes 122ms.
+These measurements are not Office performance or live-provider acceptance.
+The current cutover scanner passes with zero unowned producers, source-to-ABC
+references and legacy runtime references; actual consumer review remains
+necessary, as the Sourcing findings below demonstrate.
+Read-only preflight/scanner fixtures pass 14/14. The disposable cutover PG
+rehearsal passes its active-writer rejection, injected-failure rollback,
+idempotent preparation and dormant ActionTask/source-row preservation test.
+No operating database migration or schema change was run.
+
+Advertising publication-selection correction is verified: campaign/action
+daily readers select only explicit `campaign_sweep`, and exact-range manual
+reports retain separate COMPLETE authority. Root campaign source, published
+read, campaign-grain and itemwinner PG batch passes 44/44, including failed and
+empty publication behavior. The existing campaign page now renders report
+rows rather than only a count banner. Frontend fuzzy field/numeric inference
+is removed: the panel displays contract-defined normalized fields or original
+labelled primitive cell values without inventing units. Root UI tests pass
+12/12, including raw `1.2만` preservation. The latest full web build completes
+all 46 pages; actual provider/UI acceptance remains open.
+
+Integrated review coverage so far: Advertising manual/sweep selection (corrected
+and verified above); Alerts transaction seam and read UI; Products ABC pure evaluator,
+explicit controller entrypoint, and publication CAS/baseline/history path.
+Finance evidence assembly and the remaining source entrypoint/consumer paths
+are not yet fully reviewed. Alert Ponytail cleanup removed unused focused
+projection/read methods, duplicate list aliases, and lowercase legacy status
+handling without changing source terminal transactions. Agent verification:
+server unit10, disposable Alert PG3, shared3, and web6 pass; root inspected the
+integrated deletion and retained GET route delegation.
+
+Root AI direct-job and public catalog-media PostgreSQL verification passes
+7/7 on a disposable database: concurrent replay/hash drift, checkpoint recovery,
+atomic owner/job cancellation, manual media preservation and organization
+isolation. Image-edit UI polls the direct task API rather than an Alert. These
+tests do not establish live AI-provider execution or every job failure window.
+
+Root review-source PostgreSQL rerun passes 4/4 through owner HTTP and the
+actual review read service, including RUNNING/FAILED exclusion from listing
+stats, organization isolation, cumulative COMPLETE reads and Alert rollback.
+Review UI cancellation finding is corrected: begin-issued control identity is
+retained independently of passive read status and used only for the matching
+attempt. Root inspected the same-attempt/late-read guard and reran the component
+and transport suites: 5/5 pass, including poll-then-fenced-owner-cancel and
+visible cancellation failure. This does not establish page-reload or live
+provider acceptance.
+
+Analytics Sellpia sales integrated/Ponytail finding is corrected: the summary
+requires its published-source reader and no longer contains an unfiltered
+snapshot fallback or unused direct ingest writer. Exact confirmed-empty
+provenance validation lives in the source owner. Root reviewed the deletion and
+retained policy tests, then reran owner-policy/public-HTTP PG13 and summary
+unit9 successfully. The first unit invocation used the wrong working directory
+and found no tests; the corrected server-directory run is the passing evidence.
+After the concurrent Channels files were restored, root reran the actual
+Sellpia-sales Nest module initialization test: 1/1 passes. Whole application
+boot still remains a later integration gate.
+
+Channels Sellpia manual-match integrated finding: the owner manifest names
+Channels, but both web matching flows still collect a browser snapshot and then
+call an unfenced page-owned import. Closing the page can therefore discard the
+result. Complete the approved lifecycle transplant: freeze the existing active
+SKU target list in a Channels-issued SourceImportRun attempt; submit directly
+from the extension; commit terminal state, current aliases/snapshot and Alert
+in the same owner transaction. Preserve existing URL, target limits, extractor,
+alias normalization and matching policy. Keep the existing target/status and
+alias consumers; replace the page import and prove replay, fencing, failure
+retention and unchanged normalized output at the public interface.
+Inline review of the first server slice found that begin fingerprinted freshly
+read inventory targets although its caller request is `{}`. Correct replay to
+return the original frozen plan after inventory changes; resolve targets only
+for a new admission and retain current-target validation at complete. Also
+remove unused public replace-current/alias-candidate methods that bypass or
+duplicate the attempt-owned transaction. The server corrections are now verified:
+root reran the disposable PostgreSQL/public HTTP suite, 7/7 pass. It covers
+begin/complete/replay, changed-payload conflict, retired import 404, foreign-org
+404, and a blocked terminal transaction that revalidates targets after the
+inventory owner's concurrent mutation commits. The unused public mutation
+methods are removed; client integration and provider acceptance remain open.
+Client inline review found a redundant owner GET after capture but before
+retaining the terminal payload. Its failure discarded the captured snapshot and
+caused a user retry to recrawl. Remove this extra read (terminal already checks
+the owner), retain the terminal request before network work, and verify an owner
+read outage followed by same-payload retry without recollection. This requires
+no permanent output storage or additional execution runtime.
+Client corrections are now implemented: organization/origin-scoped request
+identity is retained before begin, known RUNNING attempts resume only on an
+explicit action, and extension admission is checked before a new begin. Shared
+plan/attempt/source-status schemas replace the duplicate local contracts.
+Root matching API/collection/hook tests pass 20/20, including lost begin-response
+replay and a later RUNNING attempt not invalidating current publication.
+The extension bridge suite separately passes 12/12 (32 web tests total).
+The post-handoff full web build passes TypeScript and all 46 pages.
+Root extension owner tests pass 5/5, including a post-capture owner-read outage
+followed by same-payload retry without another collection. The original
+Sellpia collector has no working-tree diff; its characterization and common
+browser-window suites pass 68/68. Actual provider acceptance remains open.
+Mutable target checks in the page cannot overturn an
+owner's committed COMPLETE result or label a newer current snapshot as an older
+attempt's exact output; canonical validation remains inside the owner.
+
+Common extension-shell review found a dead Wing session-creation branch still
+using the retired `runId` start shape. Both retained production callers already
+have owner attempts. Remove that branch and obsolete helper compatibility,
+requiring the existing environment-owned session for both callers; preserve
+browser traversal and retry behavior. Keyword-suggestion recovered cancellation
+takes its terminal-only branch before browser/session work; that inspected path
+does not re-enter the session storage queue while cancellation holds it.
+The cleanup is implemented and its focused helper/session/owner tests exit
+cleanly (30/30). Root full worker suite printed 73 results but did not terminate;
+root stopped only that test process with exit130. Its new fixture's open timers
+are being corrected. Do not count that worker run as a passing completed gate.
+Superseding rerun: fixture-owned keep-alive intervals are cleaned in `finally`;
+the root full extension Node file set now exits0. No forced process exit is
+used. This closes the test-harness termination finding, not real-browser QA.
+
+Inventory integrated trace confirms web actions use `collectSellpiaInventory`
+and the extension posts original JSON bytes to the source-attempt completion
+API. Root collector/owner Node tests pass 18/18. Ponytail follow-up: the old
+`sellpia-sync/import` browser claim branch has no retained client caller and
+still carries pre-owner execution compatibility. Preserve actual manual file
+upload semantics and remove only the unreachable browser-import alternative
+after focused rejection/manual-import regression coverage. Do not remove the
+current owner attempt fencing or conflate content equality with new attempts.
+The browser-import alternative is removed and retained inventory-policy PG
+coverage is restored through the current manual interface: canonical SKU,
+mapping generation, quality gate, hash replay and rollback. Root inspected the
+16-case coverage and reran manual inventory, source-owner inventory and shipment
+summary PG suites together: 29/29 pass. Only retired browser-file lifecycle
+contracts are removed. Earlier production server TypeScript exits0; the final
+integration build must include the later manual-only conditional cleanup.
+
+Open Sourcing entrypoint finding: keyword suggestions have a public extension
+handler and COMPLETE snapshot API, but no retained web/Agent caller invokes the
+handler. The keyword page currently only reads prior snapshots. Restore an
+explicit action on that page using the existing collector and source-owner
+contract, retaining one request identity across uncertain transport and reading
+the acknowledged COMPLETE snapshot; add no generic execution runtime.
+The CTA and transport are implemented. The duplicate passive attempt query
+that could shadow newer source status is removed; display uses canonical
+source status while explicit retry retains imperative request reconciliation.
+Root verified `maxResults:30` against the prior actual UI caller, rather than
+inferring it from collector defaults. Root focused UI regressions pass 11/11:
+explicit dispatch, same-request retry and current-state display. The actual
+extension/provider execution remains a separate QA gate.
+
+Root Wing traffic PG tests pass 3/3. The stale itemwinner begin fixture is
+corrected to the actual `targetUrl` contract; its eight tests pass in the
+44-test root batch above, including missing/forged-URL rejection.
+Root Live Commerce, Sourcing Wing and server1688 PG batch also passes 32/32
+after replacing obsolete Operation model checks with schema-absence checks.
+Root Shadow + product-extension PG tests pass 16/16, covering daily paid-IO
+admission, immutable replay, URL identity, failure/expiry and prior COMPLETE
+preservation. Actual live-provider acceptance remains separate.
+
+Resolved Naver analysis Alert finding: query publications are independently fenced
+by `inputHash`, but all share one failure dedupe key. A successful different
+query could therefore resolve an unrelated query's failure. The Alert key now
+includes the same query scope for begin, complete and fail. Root inspected the
+change and reran the new isolation/reopen/resolve test together with the
+keyword-suggestion and Naver/Shorts PG suites: 10/10 pass.
+
+The earlier 5/9 keyword-suggestion / Naver-Shorts PG result is superseded by
+the passing rerun above. Obsolete `prisma.operationRun.count()` checks were
+replaced with actual PostgreSQL table-absence assertions, and prior Naver
+keyword history is preserved after an unrelated empty board result.
+
+Shipment-summary integrated read/UI trace is verified: exact completed capture
+and per-date calendar history are separate; old unowned historical dates remain
+explicitly unverified rather than claiming collection completeness. Root PG7
+passes in the 29-test Inventory batch, including proof rejection, idempotency,
+expiry, Alert rollback and prior COMPLETE retention. Root calendar UI4 passes
+for URL/calendar recovery, failed-source cutoff, existing RUNNING polling and
+confirmed-empty capture without erasing history. Real Wing collection remains
+unverified; fixture browser rendering is not provider QA.
+
+Root Advertising rank-admission, tracked-product owner, competitor owner and
+exclusion PG batch passes 38/38. Tracked-product daily rows are written only in
+the terminal owner transaction (or the existing explicit tracker-registration
+transaction), so their history reader does not need a second generation
+selector. Wing batch cancellation reads the frozen owner batch and fails its
+RUNNING attempts even without a live local dispatch; it is not only a local
+session flag. Disposable admission measurements: 37 SERP targets/188ms/20,188
+response bytes; 39 Wing targets/190ms/36,108 bytes. These are not live-provider
+or Office performance results.
+Root rank-batch/transport, competitor tracking and tracked-product UI suites
+also pass 24/24. Their actual page paths use owner outcomes, retain request
+identity after uncertain transport, display prior COMPLETE with failure status,
+and avoid re-dispatch when restoring rank results. This closes the inspected
+consumer/test gap for these paths, not real extension/provider execution.
+
+Browser-QA preparation: the existing `qa-agent-os-clean-cutover.mjs` helper
+already creates and validates an isolated Testcontainer, supplies scoped API/web
+environment overrides and tears down only its owned processes/container. Root
+helper/cleanup regression tests pass 22/22, including rejecting Office/default
+database targets. Reuse this existing facility where applicable; its checks do
+not establish current fixture compatibility or prove that the QA app has
+started. No operating data was copied or changed during this preparation.
+Root deterministic seed-helper tests also pass 14/14. The general-chat profile
+does not seed the retired Operation/Automation models; actual seed application
+to the final schema remains a runtime gate, not inferred from these unit tests.
+
+Open Finance evidence finding: `aggregateSellpiaFacts` fills every covered
+account month with zero for every currently mapped product. ProductSnapshot has
+no product-specific sellable-period boundary, so a newly registered product can
+receive historical observation days and pass the 30-day eligibility gate.
+Account collection coverage alone does not establish that product's sellable
+period. User approved conservative unavailable-evidence handling on 2026-09-07:
+publish no new official grade without product-period evidence, retain the last
+normal grade, and display actual financial facts separately. The bounded
+Finance/ABC correction and regression tests are in progress. Do not substitute local
+`createdAt` for provider history or silently treat missing facts as observations.
+
+Corrected Sourcing history finding: TikTok `findTiktokCcHistory` and Live Commerce
+multi-day snapshot reads filter the one `isCurrentComplete` run. Publishing a
+new day's run hides prior days from existing history consumers; the develop
+implementation previously queried the full requested date window. Preserve
+date-scoped COMPLETE history and same-date replacement/empty semantics while
+excluding failed, staged, and unowned facts. Related trend history readers are
+included in this bounded correction. Root shared Sourcing attempt PG suite now
+passes 21/21, including actual 1688/TikTok/Live read interfaces for multiple
+dates, same-date replacement, scoped empty and failed exclusion. Root inspected
+the date/scope selection; the producer's capture-date alignment remains part
+of the final provider-path review, not inferred from repository fixtures.
+Live empty-product selection additionally uses persisted sibling broadcast
+dates, and Naver keyword scope uses both the frozen plan and returned keywords.
+Production server TypeScript passes after these repository changes.
+
+Rows sharing the same remaining gate are grouped. “Checkpoint” means bounded
+implementation/test evidence only, not whole-path or deployment acceptance.
+
+Root Sourcing URL/product, keyword suggestion and Wing source PostgreSQL rerun
+passes 19/19. The URL suite uses the retained HTTP/capability entrypoints and
+candidate read interface; keyword suggestions verify the existing snapshot and
+stale cutoff; Wing verifies recommendation readers, scoped confirmed-empty
+replacement and exclusion of staged/legacy evidence. Provider IO in these tests
+is controlled, so actual extension/provider acceptance remains open.
+
+| Source / explicit entrypoint                           | Current checkpoint                                                             | Still required before path completion                                                                                                  |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
+| Sellpia profitability                                  | Actual 401-day/14-period reconciliation and installed-extension owner publication completed; QA DB confirms completed import at 2026-09-07 14:58:46 KST; consumer readiness was checked in Product Hub | Final whole PG gate and successful ABC publication using matched complete advertising evidence |
+| Advertising profitability                              | Explicit screen → installed extension → owner verified; first three daily product-report periods received 26,273 rows; overall attempt correctly failed without COMPLETE, one deduplicated unread Alert; navigation/readiness fixes covered by full extension825 | Reload and actual successful12-period retry, Alert resolution, account/mapping verification and published consumer QA |
+| Advertising standalone keyword                         | Owner HTTP/PG30, both published keyword consumers and owner transport tests pass; old server keyword writer removed | Actual extension/provider acceptance and final integrated build gates |
+| Advertising campaign31-day sweep                       | Frozen owner/receipts, atomic publication, cohesive campaign reads/status and collector transport tests pass | Retire unused legacy exits, actual extension/provider acceptance and final integrated build gates |
+| Advertising account daily KPI                          | Owner HTTP/PG5 rerun after dual-write removal; Advertising/Analytics/Finance/Readiness consume published rows; Readiness generic controls removed | Retire remaining mixed/manual legacy ingress, real-provider acceptance and final integrated gates |
+| Wing traffic                                           | Owner/publication path and root PG3 pass; full extension suite exits0 | Actual pagination/provider acceptance and final integrated gates |
+| Wing itemwinner/KPI                                    | Exact-URL contract corrected; root owner PG8 passes within Advertising44 and full extension suite exits0 | Real provider acceptance and final integrated gates |
+| Configured mixed targets / current-page manual capture | Orphan generic configured-target producer removed; retained popup modes are being connected to concrete source owners | Preserve original manual report 7-day selection or explicit targetDate 1-day selection (not 31-day sweep), exact-range published consumers, and provider QA |
+| Keyword SERP / Wing rank                               | Per-keyword owner, serving reads and explicit batch transport checkpoints pass | Final common Browser I/O cleanup and actual provider/entrypoint QA; no parent runtime                                                  |
+| Competitor catalog / seller identity                   | Direct enrichment sequence and bounded owner checkpoints pass                  | Final consumer-path proof and provider QA; unresolved identity absence stays explicit, not confirmed empty                             |
+| Tracked Wing products                                  | Direct source-owner path exists                                                | Verify complete entrypoint/capture/public-read path and retire any remaining generic caller                                            |
+| Wing product/option catalog                            | Owner, atomic public catalog reads and web/extension checkpoints pass          | Final common Browser I/O cleanup, actual vendor identity/provider QA and data cutover                                                  |
+| Rocket PO                                              | Owner/preview/current-read checkpoints pass                                    | Real collector/preview QA and coordinated old-fact/schema cutover                                                                      |
+| Coupang shipment summary                               | Owner/capture/calendar-read checkpoints pass                                   | Real collector QA and treatment of old unverified date rows during cutover                                                             |
+| Physical Sellpia inventory                             | Actual installed extension published 1,820 SKUs and resolved Alert; screen1,820/951/869 verified. Legacy freshness claim/heartbeat removed; root export/snapshot unit10 + PG5 pass | Final integrated boot/build and verify full-refresh composition keeps inventory and profit independent |
+| Mall Orders / Coupang directship                       | Directship extension uploads raw capture before page conversion; owner COMPLETE retains the original, selected transport consumption is separate. Root disposable PG suite: 5/5 PASS | Integrated review and actual owner/UI QA; all Excel conversions server-side with transient downloads, Art09 preservation; Kakao original retention with explicit conversion-unsupported status |
+| Sellpia shipment tracking                             | Named Orders owner, extension direct raw upload and web COMPLETE-artifact read implemented; root HTTP/PG5 and extension focused33 pass; Icecream conversion stays server-side | Final integrated review/build and actual provider/page-close QA; verify current-day filters and downstream shipment behavior end to end |
+| Sellpia seller/channel sales summary                  | Required COMPLETE-only owner reader; duplicate writer removed; root public-HTTP/policy PG13 + summary unit9 pass | Final module initialization, read/UI/Readiness and actual provider QA |
+| Coupang reviews                                       | Root PG4 verifies COMPLETE-only stats/items and org isolation; poll/cancel token correction passes root UI/transport5 | Page-reload/live provider acceptance and final integrated boot/build |
+| Sellpia manual match                                   | Owner lifecycle integrated; root HTTP/PG7, web32 and extension owner5 pass; unchanged collector characterization and common Browser I/O68 pass; full web build passes | Actual extension-to-owner-to-matching-screen acceptance and final integrated server boot |
+| Sourcing1688 / TikTok / Live Commerce                  | Shared owner/wire primitives and characterization checkpoints pass             | Close actual entrypoint-to-existing-read acceptance and live-site QA for each collector                                                |
+| Server-only Excel conversion                          | Server conversion/export paths implemented; root service/controller tests: 10 files / 27 PASS; web download boundaries: 5 files / 12 PASS; browser production writer search has no matches | Actual download QA; verify exact workbook output, authenticated API wiring and no permanent output storage end to end |
+| Sourcing Wing catalog                                  | Source-owner work exists                                                       | Close actual extension/public-read acceptance and live-site QA                                                                         |
+| Sourcing product/Taobao / keyword suggestions          | Direct/shared owner work exists                                                | Close remaining helper/caller and existing consumer proof without deleting collection capability                                       |
+| Sourcing server providers (Naver/Shorts/Google)        | Shared ingestion/direct-owner checkpoints pass                                 | Verify each retained capability through its existing recommendation/evidence read and final integrated gate                            |
+| Shadow                                                 | Direct HTTP/Agent owner and COMPLETE history checkpoints pass                  | Actual provider/admission QA and final integrated gate; preserve daily paid-IO limit                                                   |
+
+**Daily KPI integration checkpoint (2026-09-06):** The source controller and
+repository are registered in AdvertisingModule, its validated read port is
+exported, and the focused shared contract is exported through `advertising`.
+The root shared build passed, including declarations. The subsequent server
+build reports no Advertising errors. The latest root rerun remains failed on
+only three retired browser-collection exports; the Workflow/Marketplace mock
+import errors are gone. Analytics' `wing_dashboard` summary is a distinct
+source and must not be replaced with account-daily advertising data. Consumer
+migration and end-to-end acceptance remain open.
+
+**Integrated guard checkpoint (2026-09-07):** Shared build passes. Script
+tests pass (Vitest189; Node219, skipped3). The snapshot boundary guard now
+allows only the six explicit Advertising source repositories; negative tests
+still reject consumer/lookalike-owner Prisma reads and direct SQL. Owner PG
+tests, not this path guard, establish COMPLETE visibility. Full conventions now
+passes after removing obsolete Sourcing Operation-handler requirements and
+reviewing the organization/account-scoped Rocket advisory lock. Retired runtime
+removal and actual provider acceptance remain separate, unfinished gates.
+
+Root's follow-up verification passes the daily owner HTTP/PostgreSQL suite5
+against a disposable database and the combined daily/campaign/keyword transport
+suite20. The daily transport fixture now parses the actual shared flat control
+schema, eliminating the independently mocked nested-response mismatch. Missing
+observed provider identity fails atomically; the extension still needs actual
+provider evidence, not the plan's expected identity. Advertising's account KPI
+read adapter, Analytics daily-ads branches and Readiness now consume the owner
+read port. Root verified all20 tests in the five Analytics/Readiness files and
+all268 combined extension tests. These are synthetic/interface checks, not
+live-provider acceptance. Removal of the redundant current KPI projection and
+Readiness's unused generic controls remain open.
+
+**Advertising integration evidence (2026-09-06):** Root reran campaign owner20,
+standalone keyword owner30, published consumers7 and campaign grain7 together:
+64/64 passed against disposable PostgreSQL. The campaign HTTP harness uses one
+ephemeral loopback listener; assertions were not relaxed after intermittent
+per-request connection failures. Web owner/modal tests25 and affected server
+unit tests71 passed. Published consumers select coverage before rows and period
+filters; campaign metrics and roster share a RepeatableRead snapshot, including
+a regression that commits a new publication between the two reads. Tenant-scope
+scanner passed; IDOR scanner still flags the unchanged Rocket PO repository.
+Root extension integration tests262 also passed across campaign/keyword owners,
+actual DOM collector fixtures, collection-window and worker boot. Ambiguous
+receipt acknowledgements compare the canonical body checksum before advancing;
+different-body receipts leave RUNNING/OWNER_UNAVAILABLE. Existing 31-day and
+12+12+7 automatic handoff behavior remains covered. The extension no longer
+uploads keywords through legacy syncToServer. This is not path completion:
+actual provider QA remains open, as do the known retired-export build blockers
+outside Advertising. The old keyword handler, DI and DTO allowance are removed;
+legacy keyword requests reject before listing reads or writes. Its normalization
+and merge coverage now exercises the pure normalizer; HTTP/PG rejection and the
+owner/published-reader suites passed after removal.
+
+**Advertising published snapshot Module — required integrated slice:** Deepen
+the existing `ad-keyword-complete-read.ts` into the Advertising-local published
+keyword snapshot Module; do not add a parallel selector or generic snapshot
+framework. Its small Interface hides COMPLETE selection, full-account versus
+auxiliary-group precedence, actual capture/cutoff ordering and deterministic
+ties, confirmed-empty scope, and contribution aggregation. This concentrates
+locality and gives both consumers leverage without exposing selection policy.
+
+Migrate `AdCampaignRepositoryAdapter.findKeywordTargetRollups` and the keyword
+branch of `AdActionRepositoryAdapter.findLatestTargetRows` together with the
+campaign auxiliary producer. Delete their keyword-specific newest-row queries
+(the deletion test), retaining unrelated grains and historical action references.
+Use these actual consumer Interfaces in PostgreSQL tests: partial data stays
+hidden; failure retains previous COMPLETE; full empty does not fall back;
+auxiliary empty clears only its group; same-name sibling groups survive;
+delayed older completion cannot regress a newer capture. A helper-only test
+does not satisfy this gate.
+
+**Common Browser I/O Module — required final shape:** `collection-window.js`
+owns tab ownership, navigation, login wait and message transport only. Concrete
+source Adapters own resume/complete/cancel policy and call source owners; the
+common Interface neither terminalizes sessions nor interprets source receipts.
+Move every retained caller, then remove `keepSessionRunning`, source-specific
+completion bypasses and shared succeed/fail/restart behavior. Do not add a
+Runner or change collector URLs, targets, pagination, pacing or retries. Test
+the real dispatch/Adapter/owner seam, including lost ACK, cancel and restart;
+retain Browser I/O tests for actual browser behavior rather than deleted
+execution-result orchestration.
+
 **Files:**
 
 - Modify: `apps/server/src/agent-os/agent-os-invocation.module.ts`
@@ -315,7 +1290,7 @@ daily paid-IO limit. Preserve collector inputs and output meaning until the
 necessary decision is explicit. Orders artifact-only and canonical ingestion
 branches also remain separate responsibilities, not a new generic runtime.
 Operating preflight/clone approval, remaining owner migrations, final schema
-cutover, successful boot/build, browser QA, and the one final Astra review are
+cutover, successful boot/build, pre-QA inline integrated review and browser QA are
 still open. No operating database or clone was accessed for this checkpoint.
 
 **Rocket PO checkpoint (2026-09-06):** Channels now owns the frozen one-shot
@@ -398,6 +1373,20 @@ remain open. These focused results do not complete Task3 or the plan.
   and use receipt-backed coverage of that full list before publication. Failed
   or truncated enumeration cannot certify COMPLETE. Preserve provider filters,
   limits, normalization and collector retries; no new worker/child workflow.
+  Fixed expiry is24h with no renewal. Freeze the campaign/group roster first and
+  each group's ad roster on first visit, preserving lazy IO order. Use typed
+  generation facts with adGroupId contributions before public targetKey merging.
+  The existing campaign auxiliary keyword capture remains a required follow-up:
+  move it into its campaign attempt, preserve best-effort failure, and converge
+  both serving readers before deleting the old keyword ingest exit. The current
+  standalone owner/extension/web slice is only an integration checkpoint.
+  Root verification: owner/campaign-grain/sync HTTP+PostgreSQL59, extension185,
+  actual worker-script3, web9, normalizer/domain34 and shared4 tests PASS.
+  Per-ad checkpoints no longer reload owner control or send the full queue;
+  incomplete group enumeration fails rather than certifying empty. User cancel
+  records FAILED without creating or reactivating a source Alert. Full boot/web
+  build and provider QA are not passed; the consumer convergence above remains
+  required before this path is usable and accepted.
 - **Physical Sellpia:** reconnect the actual stock collector, not the already
   migrated profitability action. Its legacy `full` scope includes a different
   profit window; settle that scope and immutable stock-artifact storage before
@@ -411,9 +1400,11 @@ remain open. These focused results do not complete Task3 or the plan.
   provider inputs, concurrent baseline reads, and evaluation arithmetic stay
   unchanged. HTTP and Agent call the same owner directly; no new UI or Worker.
 - **Orders:** ordinary malls generate files kept in IndexedDB; only Coupang
-  directship also ingests canonical Orders. Define owner-durable export storage
-  and authenticated replay without turning other mall exports into Order writes.
-  Art09 converts in the browser. Kakao calls a converter absent from both this
+  directship also ingests canonical Orders. Keep converted downloads transient;
+  do not persist output bytes for replay or turn other mall exports into Order writes.
+  Move Art09's existing browser conversion to the server with equivalent output;
+  all Excel conversion is server-owned and the extension only captures originals.
+  Kakao calls a converter absent from both this
   checkout and its local `origin/release/office` controller/service; a new field
   mapping cannot be invented as a transplant. Live-host behavior is unverified.
 - **Rank:** preserve successful per-keyword publication and Wing's existing
@@ -491,7 +1482,7 @@ catalog HTTP/PostgreSQL5, shared14 and shared build passed. Extension syntax,
 adapter-copy and diff checks passed. The broader server build still fails on
 3 retired Automation session exports; scanner remains709 legacy references,
 zero unowned producers and zero source-to-ABC references. No full web/boot,
-provider/browser QA, operating DB access or final independent review is claimed.
+provider/browser QA, operating DB access or whole-integrated review is claimed.
 The remaining source-boundary decisions above still block generic runtime and
 schema cutover completion; these results do not complete Task3 or the plan.
 
@@ -600,7 +1591,8 @@ Whole server build still reports3 retired Automation exports. Script gates
 retain one existing Rocket-PO synthetic stock-write finding, and the Sourcing
 scanner retains4 stale Operation-rule findings. No successful boot, actual
 provider/extension QA, operating DB/clone access, or whole-plan completion is
-claimed. The one independent final review remains after all implementation/QA.
+claimed. The root whole-integrated review remains before actual browser QA;
+post-QA checking is limited to changed code and verification evidence.
 
 ### Task 4: Replace Panel With Alert Polling And Remove Automation UI
 
@@ -691,6 +1683,16 @@ git commit -m "refactor: replace panel with durable alerts"
 ```
 
 ### Task 5: Delete Backend Operations And Automation
+
+**Current closure checkpoint (2026-09-06):** ActionBoard and generic
+Workflow/Marketplace application runtime and their unused shared contracts have
+been removed. Database tables/rows remain untouched. Agent verification reports
+Automation wiring/architecture21 and retired web route41 passing; root reviewed
+the module closure and confirmed no production web Panel consumer remains.
+Panel/SSE controller, replay/event bus, mappers and obsolete Alert emissions are
+the next deletion closure. Generic browser Operation issuance remains only
+until its surviving source entrypoints have been transplanted; it is not an
+accepted compatibility layer or completed final state.
 
 **Files:**
 
@@ -900,22 +1902,131 @@ npm run build --workspace=apps/web
 npm run dev:server
 ```
 
-- [ ] **Step 2: Exercise source failure and recovery in a real browser**
+- [x] **Step 2: Review the complete implementation against the ACTIVE spec before QA**
+
+The main inline session reviews the entire integrated change, including
+uncommitted work, against the approved requirements. Task-level reviews are
+not substitutes. Trace every retained entrypoint through collection,
+conversion, owner storage/publication, Alert and existing screen reads.
+Check missing behavior, data/state consistency, failure/cancel/resume,
+performance, duplicate responsibilities, temporary exceptions and legacy paths.
+Apply `ponytail-review` without replacing correctness/spec/performance review.
+Use architecture analysis only for confirmed structural problems. No separate
+review agent. Fix findings and pass affected regressions before the next step.
+
+Final inline review checkpoint (2026-09-07): reviewed the retained entrypoints,
+shared browser-I/O boundary, owner terminal/publication/Alert paths, consumer
+selection, explicit ABC and Finance period evidence, Rules, AI jobs and Gateway
+receipt contracts across the integrated worktree. Corrections and evidence are
+recorded in the current open-path summary above. Ponytail removed the generic
+Advertising dispatcher, unused scrape-target runtime CRUD and unused capability
+operation references without adding compatibility runtimes. No identified
+blocking review finding remains. The final unchanged-code whole PostgreSQL run
+is in progress; this review checkpoint does not claim that gate, live provider
+execution, deployment or merge readiness. After provider QA, review only new
+changes and evidence rather than repeating the unchanged whole review.
+
+Integration guard checkpoint (2026-09-07): root's script suite passed with
+189 Vitest tests and 220 Node tests (3 skipped). The cutover scanner now ignores
+regex literals only in the sourcing regression guard, while its new test still
+rejects an executable retired call in that same file and a neighboring script.
+The actual 17 remaining runtime references are still failures, not waived.
+Common Browser I/O result ownership (`keepSessionRunning` and shared terminal
+commands), web generic callers, Directship and server-only tracking workbook
+generation remain implementation work before whole integrated review and QA.
+
+Schema gate follow-up: the scanner now includes Prisma files, with only the
+approved dormant ActionTask schema excluded from retired-token detection.
+Automation Marketplace is checked by its exact model name; commerce models
+remain valid. Eleven focused scanner tests pass, including rejection of a
+runtime ActionTask reference. This exposed 42 previously unscanned schema
+references, alongside five remaining web/extension references at that check.
+Task6 is not implemented merely because runtime code is removed: the pre-schema
+cleanup migration and generic model/relationship deletion are still required.
+Fresh remote inspection confirms main VERSION0.1.29 and develop/root0.1.31;
+the planned0.1.31 migration therefore targets the open train.
+
+Backend boot checkpoint (2026-09-07): main ran the actual `npm run dev:server`
+against an ephemeral PostgreSQL 17 database created by the integration setup.
+Schema push succeeded, watch compilation reported zero errors, and Nest logged
+`Nest application successfully started` and its listening address. The probe
+to `/api/health` returned 404 (no such route); this proves boot, not a health
+endpoint or authenticated owner journey. AI background work was disabled and
+storage pointed at an isolated unavailable endpoint. The owned server process
+and disposable database were stopped afterward; the operating clone was not
+modified. Web build, complete integrated review and real source QA remain open.
+
+Web integration checkpoint: the next root `npm run build --workspace=apps/web`
+compiled the bundle successfully (23.3 seconds), then failed type checking at
+GenerationStartModal's retired `state.operationKey` reference. The web owner
+is removing it using the surviving generation cancellation identities. The
+standalone web tsconfig includes test files and produced additional test-type
+noise; it is not a substitute for a successful Next production build. Shared
+session consumers still need to converge on attemptId/progress/attention with
+no terminal/restart protocol before the next aggregate gate.
+
+Integration checkpoint (2026-09-07, follow-up): the keyword-SERP HTTP/PG suite
+passes 13/13 against disposable PostgreSQL after removing its assertion against
+the deleted OperationRun model. The owner publication, capture, history and
+Alert assertions remain. The latest Next build compiled the bundle, but failed
+on optional-property narrowing in the new competitor extension reply parser;
+the production web gate remains open. All Excel conversion is server-only;
+client workbook reads used for preview are not conversion implementations.
+
+Subsequent aggregate checkpoint: `tsc --noEmit -p apps/server/tsconfig.build.json`
+passes; `npm run build --workspace=apps/web` passes bundle, TypeScript and all
+46 page generations after the reply-parser fixes. The broader server tsconfig
+includes test diagnostics and is not green. These are intermediate build results:
+Sellpia sales/tracking, review collection, Directship UI and mixed/manual capture
+integration are still being completed, so final build/review/QA gates remain open.
+
+ABC integration follow-up: root reran the repository PostgreSQL suite (17/17)
+and formula/service/controller focused suites (32/32), all passing. The paired
+Finance evidence PostgreSQL suite failed both tests because their target cutoff
+was taken from Sellpia's new yesterday-inclusive collection plan instead of a
+closed evaluation month. Keep the runtime's monthly cutoff validation; repair
+the test setup to distinguish collection coverage from the selected ABC window
+and rerun before accepting the consumer migration. The latest shared build and
+full conventions chain pass; ERDs contain 137 models/371 relations at this point.
+
+Root extension aggregate checkpoint: `node --test extensions/tests/*.test.mjs
+extensions/tests/coupang-ads-scraper/*.test.mjs` ran 710 tests: 702 passed,
+8 failed. One failure is the Readiness focus-policy gate; seven are Orders
+action-coverage/session/lifecycle tests spanning the new named tracking owner
+and removed local terminal protocol. Repair the real entrypoint assertions and
+owner-observable behavior without restoring page-owned persistence or session
+terminal state, then rerun. This is not real-provider browser acceptance.
+
+Follow-up: the root rerun of the same full extension file set with the dot
+reporter exits 0 after those fixes. Root also verified the tracking HTTP/PG
+suite (5/5), Orders extension focused batch (33/33), Readiness Wing UI (8/8),
+and Alert transaction suite (3/3). Alert fixtures now commit the prior source
+failure before admitting another RUNNING attempt; the database uniqueness
+constraint is unchanged. Implementation of other owner paths remains active,
+so this intermediate aggregate pass does not close the final QA gate.
+
+- [ ] **Step 3: Exercise source failure and recovery in a real browser**
 
 Begin an Advertising or Sellpia attempt, close the initiating page, let the extension finish direct upload, then verify the owner screen reads the COMPLETE generation. Cause one controlled provider failure, verify the prior COMPLETE data remains visible with a stale/failure label and one unread Alert, retry with a new attempt, and verify the Alert becomes RESOLVED.
 
-- [ ] **Step 3: Exercise explicit ABC publication in a real browser**
+- [ ] **Step 4: Exercise explicit ABC publication in a real browser**
 
 Open Product Hub with sources READY, record the current publication revision, click `등급 새로고침`, observe one POST, verify `PUBLISHED`, reload, and verify the revision/grades/cutoff remain. Repeat with a stale source and verify `SOURCE_NOT_READY`, no Evaluation/cache/history change, and the last grade remains. Trigger a concurrent input change and verify `409 INPUT_CHANGED` plus refetch without automatic retry.
 
-- [ ] **Step 4: Measure the full baseline on the operating-data clone**
+- [ ] **Step 5: Measure the full baseline in an authorized validation environment**
 
 Run `EXPLAIN (ANALYZE, BUFFERS)` for evidence/contribution/publication selection and invoke the full synchronous baseline through the real proxy/browser path. Record product/fact counts, query shape, buffer use, total request duration, and timeout ceiling without storing business rows in Git or Linear.
 
-- [ ] **Step 5: Perform one independent final review and fix confirmed findings**
+The operating clone at localhost:5433 remains read-only. Baseline publication,
+cutover or any other mutation there requires separate approval; read-only
+authorization does not cover a writing API or mutating EXPLAIN ANALYZE.
 
-Review `origin/develop...HEAD` once after all focused tests. Report only new P0/P1 defects and complexity safe to delete. Apply accepted fixes with a fresh red→green focused test and rerun the affected full gate.
+- [ ] **Step 6: Verify only QA changes and final evidence**
 
-- [ ] **Step 6: Update PR and Linear after reading them live**
+Review code changed since Step2 and the QA/performance results. Fix new
+findings, rerun affected tests and QA, and distinguish implementation from
+verified completion. Do not repeat the unchanged whole-code review.
 
-Record exact commit SHA, commands, browser evidence, DB reset/baseline decision, Office cutover command, and rollback limitation. Read PR 493 and KID-33 back. Mark `병합 준비` only when base is `develop`, checks are green, no blocking conversation remains, and the independent review is clean.
+- [ ] **Step 7: Update PR and Linear after reading them live**
+
+Record exact commit SHA, commands, browser evidence, DB reset/baseline decision, Office cutover command, and rollback limitation. Read PR 493 and KID-33 back. Mark `병합 준비` only when base is `develop`, checks are green, no blocking conversation remains, and the pre-QA integrated review plus post-QA delta verification are complete.

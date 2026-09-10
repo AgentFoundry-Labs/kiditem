@@ -120,27 +120,6 @@ export const SellpiaInventoryFreshnessViewSchema = z
   })
   .strict();
 
-export const SellpiaInventoryRefreshRequestSchema = z
-  .object({
-    reason: z.enum([
-      'manual_request',
-      'retry',
-    ]),
-    scope: SellpiaSyncScopeSchema,
-  })
-  .strict();
-
-export const SellpiaInventoryClaimRequestSchema = z.object({}).strict();
-export const SellpiaInventoryHeartbeatRequestSchema = z.object({}).strict();
-export const SellpiaInventoryCancelRequestSchema = z.object({}).strict();
-
-export const SellpiaInventoryFailRequestSchema = z
-  .object({
-    errorCode: SellpiaInventoryCollectionFailureCodeSchema,
-    errorMessage: z.string().trim().min(1).max(300),
-  })
-  .strict();
-
 export const SellpiaInventorySourceBindingRequestSchema = z
   .object({
     sourceOrigin: FixedSellpiaOriginSchema,
@@ -148,27 +127,6 @@ export const SellpiaInventorySourceBindingRequestSchema = z
     confirmed: z.literal(true),
   })
   .strict();
-
-export const SellpiaInventoryClaimResponseSchema = z.discriminatedUnion(
-  'claimed',
-  [
-    z
-      .object({
-        claimed: z.literal(false),
-        state: SellpiaInventoryFreshnessViewSchema,
-      })
-      .strict(),
-    z
-      .object({
-        claimed: z.literal(true),
-        claimToken: z.string().uuid(),
-        activeGeneration: SellpiaInventoryGenerationSchema,
-        leaseExpiresAt: IsoDateTimeStringSchema,
-        state: SellpiaInventoryFreshnessViewSchema,
-      })
-      .strict(),
-  ],
-);
 
 export type SellpiaInventoryFreshnessStatus = z.infer<
   typeof SellpiaInventoryFreshnessStatusSchema
@@ -189,26 +147,8 @@ export type SellpiaInventoryQualityReport = z.infer<
 export type SellpiaInventoryFreshnessView = z.infer<
   typeof SellpiaInventoryFreshnessViewSchema
 >;
-export type SellpiaInventoryRefreshRequest = z.infer<
-  typeof SellpiaInventoryRefreshRequestSchema
->;
-export type SellpiaInventoryClaimRequest = z.infer<
-  typeof SellpiaInventoryClaimRequestSchema
->;
-export type SellpiaInventoryHeartbeatRequest = z.infer<
-  typeof SellpiaInventoryHeartbeatRequestSchema
->;
-export type SellpiaInventoryFailRequest = z.infer<
-  typeof SellpiaInventoryFailRequestSchema
->;
-export type SellpiaInventoryCancelRequest = z.infer<
-  typeof SellpiaInventoryCancelRequestSchema
->;
 export type SellpiaInventorySourceBindingRequest = z.infer<
   typeof SellpiaInventorySourceBindingRequestSchema
->;
-export type SellpiaInventoryClaimResponse = z.infer<
-  typeof SellpiaInventoryClaimResponseSchema
 >;
 
 export type SellpiaFreshnessDerivationInput = {

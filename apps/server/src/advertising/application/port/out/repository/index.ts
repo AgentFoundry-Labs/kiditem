@@ -12,5 +12,4 @@ export * from './channel-scrape.repository.port';
 export * from './channel-target-daily.repository.port';
 export * from './daily-fact-meta';
 export * from './keyword-rank.repository.port';
-export * from './scrape-target.repository.port';
 export * from './wing-tracked-product.repository.port';

@@ -27,6 +27,7 @@ import {
   useOrderAutoDetect,
 } from '../hooks/use-order-auto-detect';
 import { useSellpiaOrderTransmission } from '../hooks/use-sellpia-order-transmission';
+import { useSellpiaShipmentTrackingSourceOwner } from '../hooks/use-sellpia-shipment-tracking-source-owner';
 import type { SellpiaReconcileResult } from '../lib/sellpia-order-reconcile';
 import { createGeneratedFileActionLock } from '../lib/generated-file-action-lock';
 import { isDuplicateGeneratedFile } from '../lib/generated-file-dedup';
@@ -66,7 +67,7 @@ import {
 } from '../lib/order-tracking-actions';
 
 import { CoupangDirectCalendarModal } from './CoupangDirectCalendarModal';
-import type { CoupangDirectPo } from '../lib/coupang-directship-api';
+import type { CoupangDirectData, CoupangDirectPo } from '../lib/coupang-directship-api';
 import {
   createCoupangDirectPoMemoryCache,
   readCachedDirectshipPos,
@@ -83,6 +84,7 @@ import {
 export function OrderCollectionWorkspace() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
+  const sellpiaShipmentTrackingOwner = useSellpiaShipmentTrackingSourceOwner();
   const showConfirm = useStore((store) => store.showConfirm);
   const historyRef = useRef<ConversionHistoryItem[]>([]);
   // 쿠팡직배송은 바로 수집하지 않고 입고예정일 달력에서 처리할 날짜를 먼저 고른다.
@@ -90,6 +92,7 @@ export function OrderCollectionWorkspace() {
     account: OrderCollectionMallAccount;
     run: OrderCollectionExtensionRun | null;
     pos: CoupangDirectPo[];
+    data: CoupangDirectData | null;
     loading: boolean;
   } | null>(null);
   // 한 번 불러온 발주 목록은 들고 있는다. 달력을 다시 열 때 로딩을 보지 않게 하려는 것으로,
@@ -311,25 +314,6 @@ export function OrderCollectionWorkspace() {
     clearMallErrorActivity,
     logActivity,
   });
-  const collectionSession = sessionControls.session;
-  // 수집 조치 안내(로그인/세션 필요 등)는 몰 카드 위 배너 대신 알림(토스트)으로만 띄운다.
-  // 같은 실행의 같은 안내가 폴링마다 반복 토스트되지 않도록 마지막으로 알린 내용을 기억한다.
-  const notifiedAttentionRef = useRef<string | null>(null);
-  useEffect(() => {
-    const attentionMessage =
-      collectionSession?.status === 'attention_required'
-        ? collectionSession.attention?.message ?? null
-        : null;
-    if (!attentionMessage) {
-      notifiedAttentionRef.current = null;
-      return;
-    }
-    const signature = `${collectionSession?.runId ?? ''}:${attentionMessage}`;
-    if (notifiedAttentionRef.current === signature) return;
-    notifiedAttentionRef.current = signature;
-    toast.warning(attentionMessage);
-  }, [collectionSession]);
-
   const refreshMallAccounts = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: queryKeys.orders.collectionMalls() });
   }, [queryClient]);
@@ -375,8 +359,10 @@ export function OrderCollectionWorkspace() {
 
   const autoDetect = useOrderAutoDetect({
     mallAccounts,
-    addGeneratedFile,
     collectAccount,
+    prepareRun: sessionControls.prepareRun,
+    failRun: sessionControls.failRun,
+    releaseRun: sessionControls.releaseRun,
     markCollecting,
     logActivity,
   });
@@ -419,7 +405,13 @@ export function OrderCollectionWorkspace() {
     if (account.key !== 'coupang-direct') return;
     const cached = cachedDirectshipPos();
     // 캐시가 있으면 즉시 달력을 띄운다. 없을 때만 로딩을 보여준다.
-    setDirectshipModal({ account, run: null, pos: cached, loading: cached.length === 0 });
+    setDirectshipModal({
+      account,
+      run: null,
+      pos: cached,
+      data: null,
+      loading: cached.length === 0,
+    });
     // 로컬 캐시가 비었으면(다른 PC·시크릿창 등) DB 스냅샷을 먼저 보여준다.
     if (cached.length === 0 && directshipCacheScope) {
       void readCoupangDirectSnapshot(directshipCacheScope.channelAccountId)
@@ -434,9 +426,11 @@ export function OrderCollectionWorkspace() {
         })
         .catch(() => {/* 스냅샷은 편의 기능이라 실패해도 무시하고 확장 수집으로 간다 */});
     }
+    let run: OrderCollectionExtensionRun | null = null;
     try {
-      const run = await sessionControls.prepareRun(account);
+      run = await sessionControls.prepareRun(account);
       if (!run) throw new Error('주문수집 확장프로그램을 찾을 수 없습니다.');
+      setDirectshipModal((cur) => (cur ? { ...cur, run } : cur));
       const { collectCoupangDirectFromExtension } = await import(
         '../lib/coupang-directship-api'
       );
@@ -444,12 +438,23 @@ export function OrderCollectionWorkspace() {
       if (directshipCacheScope) {
         writeMemoryCachedDirectshipPos(directshipPosRef.current, directshipCacheScope, data.pos);
         writeCachedDirectshipPos(directshipCacheScope, data.pos);
-        // DB 에도 저장해 다른 기기·새로고침에서도 달력이 바로 뜨게 한다.
-        void saveCoupangDirectSnapshot(directshipCacheScope.channelAccountId, data.pos)
-          .catch(() => {/* 편의용 저장이라 실패해도 수집 흐름은 막지 않는다 */});
       }
-      setDirectshipModal((cur) => (cur ? { ...cur, run, pos: data.pos, loading: false } : cur));
+      setDirectshipModal((cur) => (cur ? {
+        ...cur,
+        run,
+        pos: data.pos,
+        data,
+        loading: false,
+      } : cur));
     } catch (err) {
+      if (run) {
+        await sessionControls.failRun(
+          run,
+          'COLLECTION_FAILED',
+          `${account.name} 발주 조회에 실패했습니다: ${friendlyError(err) ?? '조회 실패'}`,
+        ).catch(() => undefined);
+        sessionControls.releaseRun(account.key, run.attemptId);
+      }
       const message = err instanceof Error ? err.message : '쿠팡 발주를 불러오지 못했습니다.';
       // 캐시로 이미 보여주고 있으면 화면을 닫지 않고 갱신 실패만 알린다.
       setDirectshipModal((cur) => (cur && cur.pos.length > 0 ? { ...cur, loading: false } : null));
@@ -459,8 +464,8 @@ export function OrderCollectionWorkspace() {
 
   const handleBrowserCollectMall = async (
     account: OrderCollectionMallAccount,
-    existingRunId?: string,
-    directship?: { eddDates: string[] },
+    existingAttemptId?: string,
+    directship?: { eddDates: string[]; data?: CoupangDirectData },
   ) => {
     if (!account.enabled) {
       toast.error(`${account.name} 계정이 중지되어 있습니다.`);
@@ -473,13 +478,15 @@ export function OrderCollectionWorkspace() {
     setState('converting');
     let run: OrderCollectionExtensionRun | null = null;
     try {
-      run = await sessionControls.prepareRun(account, existingRunId);
-      if (!run) {
-        setState('error');
-        toast.error('주문수집 확장프로그램을 찾을 수 없습니다.');
-        return;
-      }
+      run = await sessionControls.prepareRun(account, existingAttemptId);
       const collected = await collectAccount(account, run, directship);
+      if (account.key === 'coupang-direct' && directship?.data && directshipCacheScope && run) {
+        await saveCoupangDirectSnapshot(
+          directshipCacheScope.channelAccountId,
+          directship.data.pos,
+          run,
+        ).catch(() => undefined);
+      }
       setState('success');
       if (collected.masked) toast.warning('화면 표는 일부 개인정보가 마스킹되어 있습니다.');
       if (collected.rowCount > 0) toast.success(`${account.name} 수집 완료`);
@@ -515,8 +522,13 @@ export function OrderCollectionWorkspace() {
     password?: string;
   }) => {
     setState('converting');
+    let run: OrderCollectionExtensionRun | null = null;
     try {
-      const result = await convertUploadedFile(mall, file, password);
+      // Manual uploads are source-owner attempts too. They do not need
+      // extension admission, but their conversion must carry the same fence
+      // so the server can terminalize the exact attempt that owns the file.
+      run = await sessionControls.prepareManualUploadRun(mall);
+      const result = await convertUploadedFile(mall, file, password, run);
       const convertedAt = Date.now();
       const historyItem: ConversionHistoryItem = {
         ...result,
@@ -533,8 +545,17 @@ export function OrderCollectionWorkspace() {
       setState('success');
       toast.success(`${mall.name} 변환 완료`);
     } catch (err) {
+      if (run) {
+        await sessionControls.failRun(
+          run,
+          'CONVERSION_FAILED',
+          `${mall.name} 파일 변환에 실패했습니다: ${friendlyError(err) ?? '변환 실패'}`,
+        ).catch(() => undefined);
+      }
       setState('error');
       throw err;
+    } finally {
+      if (run) sessionControls.releaseRun(mall.key, run.attemptId);
     }
   };
 
@@ -883,6 +904,7 @@ export function OrderCollectionWorkspace() {
             history,
             logError: (title, message) => logActivity('error', title, message),
             onGeneratedFile: addGeneratedTrackingFile,
+            collectTracking: sellpiaShipmentTrackingOwner.collect,
           })
         }
       />
@@ -919,11 +941,20 @@ export function OrderCollectionWorkspace() {
           pos={directshipModal.pos}
           collectedSeqs={collectedDirectshipSeqs}
           today={todayYmd()}
-          onClose={() => setDirectshipModal(null)}
+          onClose={() => {
+            const pending = directshipModal;
+            setDirectshipModal(null);
+            if (pending.run) {
+              void sessionControls.cancelRun(pending.account);
+            }
+          }}
           onCollect={(eddDates) => {
             const { account, run } = directshipModal;
             setDirectshipModal(null);
-            void handleBrowserCollectMall(account, run?.runId, { eddDates });
+            void handleBrowserCollectMall(account, run?.attemptId, {
+              eddDates,
+              data: directshipModal.data ?? undefined,
+            });
           }}
         />
       ) : null}
@@ -936,18 +967,19 @@ async function convertUploadedFile(
   mall: OrderCollectionMallAccount,
   file: File,
   password?: string,
+  run?: OrderCollectionExtensionRun,
 ) {
   if (mall.key === 'domeggook') {
     const { convertDomeggookOrderFile } = await import('../lib/order-collection-api');
-    return convertDomeggookOrderFile(file);
+    return convertDomeggookOrderFile(file, { run });
   }
   if (mall.key === 'gs-shop') {
     const { convertGsshopOrderFile } = await import('../lib/order-collection-api');
-    return convertGsshopOrderFile(file, { download: false });
+    return convertGsshopOrderFile(file, { download: false, run });
   }
   if (mall.key === ICECREAM_MALL_KEY) {
     const { convertIcecreamMallOrderFile } = await import('../lib/order-collection-api');
-    return convertIcecreamMallOrderFile(file, password);
+    return convertIcecreamMallOrderFile(file, password, run);
   }
   throw new Error(`${mall.name} 업로드 변환은 아직 준비 중입니다.`);
 }

@@ -17,7 +17,7 @@
     "clean:web-cache": "node -e \"require('fs').rmSync('apps/web/.next/dev/cache',{recursive:true,force:true})\"",
     "dev:server": "npm run start:dev --workspace=apps/server",
     "dev:agents": "cd agents && .venv/bin/uvicorn src.server:app --host 0.0.0.0 --port 8001 --reload",
-    "dev:core": "concurrently --kill-others-on-fail -n web,server -c blue,green \"npm run dev\" \"OPERATION_RUNTIME_WORKER_ENABLED=1 npm run dev:server\"",
+    "dev:core": "concurrently --kill-others-on-fail -n web,server -c blue,green \"npm run dev\" \"npm run dev:server\"",
     "dev:gateway": "npm run build --workspace=apps/agent-gateway && node scripts/local-agent-gateway.mjs start",
     "dev:all": "node scripts/run-local-development.mjs",
     "gateway:auth:codex": "node scripts/local-agent-gateway.mjs auth codex",

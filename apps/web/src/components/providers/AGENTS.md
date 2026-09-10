@@ -12,10 +12,10 @@ here affect every route.
   extension handoff, expiry, and signed-out redirect ownership
 - React Query devtools lazy loading policy
 - Sellpia freshness projection. `SellpiaInventorySyncProvider` only keeps
-  freshness query state warm; server-issued OperationRuns and the extension
-  browser runtime own claim, scoped collection, upload, heartbeat, and
-  finalization. `inventory` collects only physical stock; `full` additionally
-  stores product-profit evidence before completing the inventory generation.
+  freshness query state warm; the server-issued source attempt and extension
+  browser runtime own scoped collection, upload, and finalization. `inventory`
+  collects only physical stock; `full` additionally stores product-profit
+  evidence before completing the inventory generation.
 
 ## State Rules
 
@@ -30,7 +30,7 @@ here affect every route.
   instances receive the current global handler.
 - `SellpiaInventorySyncProvider` is a projection only. It renders no freshness
   drawer, status entry, or manual-import UI; explicit Sellpia sync buttons call
-  the shared operation hook and terminal state comes from OperationRun.
+  the shared source-owner helper and terminal state comes from its attempt.
 
 ## Boundary Rules
 
@@ -40,5 +40,5 @@ here affect every route.
 - Do not show generic global error toasts for transient dev fetch/chunk failures
   or handled auth-required errors.
 - `BrowserCollectionProvider` excludes `inventory.sellpia`; only the extension
-  browser runtime may upload/finalize/cancel that run. OperationRun is the
-  terminal audit record; legacy Operation Alerts remain projection-only.
+  browser runtime may upload/finalize that attempt. The source attempt is the
+  terminal owner record; generic Operation Alerts do not control this flow.

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Prisma, type PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD } from '@kiditem/shared/product-abc';
+import { PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD } from '@kiditem/shared/product-abc';
 import { AlertsRepository } from '../../alerts/alerts.repository';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import { ProfitabilityAdImportRepositoryAdapter } from '../../advertising/adapter/out/repository/profitability-ad-import.repository.adapter';
@@ -18,7 +18,7 @@ import type {
   ProductAbcPublicationInput,
 } from '../application/port/out/repository/master-product-abc.repository.port';
 
-const CUTOFF = '2026-08-31';
+const CUTOFF = latestClosedKstDate();
 
 describe('MasterProductAbcRepositoryAdapter (PostgreSQL)', () => {
   let prisma: PrismaClient;
@@ -66,6 +66,7 @@ describe('MasterProductAbcRepositoryAdapter (PostgreSQL)', () => {
       publicationRevision: 1,
       formulaRevision: 1,
       gradeBasisCutoffDate: new Date(`${CUTOFF}T00:00:00.000Z`),
+      saleStartDate: new Date('2026-05-01T00:00:00.000Z'),
     });
     await expect(prisma.masterProductAbcGradeHistory.count({
       where: { organizationId: TEST_ORGANIZATION_ID },
@@ -151,7 +152,7 @@ describe('MasterProductAbcRepositoryAdapter (PostgreSQL)', () => {
       .resolves.toMatchObject({ abcGrade: null });
   });
 
-  it('removes an old official grade when a current product becomes insufficient', async () => {
+  it('preserves an old official grade when a current product becomes insufficient', async () => {
     const { productId, formulaVersionId, sources } = await fixture(prisma);
     await repository.publish(publication({
       formulaVersionId,
@@ -169,15 +170,25 @@ describe('MasterProductAbcRepositoryAdapter (PostgreSQL)', () => {
       // omits it because its valid observation days are below the threshold.
       targetProductIds: [productId],
       candidates: [],
-    }))).resolves.toMatchObject({ outcome: 'PUBLISHED', publicationRevision: 2 });
+    }))).resolves.toEqual({
+      outcome: 'PUBLISHED',
+      publicationRevision: 2,
+      changedProductCount: 0,
+    });
     await expect(prisma.masterProductAbcEvaluation.count({
       where: { organizationId: TEST_ORGANIZATION_ID },
-    })).resolves.toBe(0);
+    })).resolves.toBe(1);
+    await expect(prisma.masterProductAbcEvaluation.findUniqueOrThrow({
+      where: { masterProductId_organizationId: { masterProductId: productId, organizationId: TEST_ORGANIZATION_ID } },
+    })).resolves.toMatchObject({
+      abcGrade: 'A',
+      publicationRevision: 1,
+    });
     await expect(prisma.masterProductAbcGradeHistory.count({
       where: { organizationId: TEST_ORGANIZATION_ID },
     })).resolves.toBe(0);
     await expect(prisma.masterProduct.findUniqueOrThrow({ where: { id: productId } }))
-      .resolves.toMatchObject({ abcGrade: null });
+      .resolves.toMatchObject({ abcGrade: 'A' });
   });
 
   it('waits for a source terminalization lock before comparing its source fence', async () => {
@@ -246,6 +257,28 @@ describe('MasterProductAbcRepositoryAdapter (PostgreSQL)', () => {
     await expect(prisma.masterProductAbcFormulaState.findUniqueOrThrow({
       where: { organizationId: TEST_ORGANIZATION_ID },
     })).resolves.toMatchObject({ publicationRevision: 0 });
+  });
+
+  it('rejects a changed mapped sale start date without partially publishing', async () => {
+    const { productId, formulaVersionId, sources } = await fixture(prisma);
+    const before = await repository.getFormulaState(TEST_ORGANIZATION_ID);
+    await prisma.channelListing.updateMany({
+      where: { organizationId: TEST_ORGANIZATION_ID, masterProductId: productId },
+      data: { rawJson: { source: 'wing_app_data', saleStartedAt: '2026-06-01' } },
+    });
+
+    await expect(repository.publish(publication({
+      formulaVersionId,
+      sourceFences: sources,
+      targetProductIds: [productId],
+      candidates: [candidate(productId, sources, 'A')],
+    }))).resolves.toEqual({ outcome: 'INPUT_CHANGED' });
+    await expect(repository.getFormulaState(TEST_ORGANIZATION_ID)).resolves.toEqual(before);
+    await expect(prisma.masterProductAbcEvaluation.count({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+    })).resolves.toBe(0);
+    await expect(prisma.masterProduct.findUniqueOrThrow({ where: { id: productId } }))
+      .resolves.toMatchObject({ abcGrade: null });
   });
 
   it('rejects candidate provenance that does not match the selected source IDs', async () => {
@@ -420,9 +453,9 @@ async function fixture(prisma: PrismaClient): Promise<{
     data: {
       organizationId: TEST_ORGANIZATION_ID,
       formulaKey: 'PRODUCT_ABC_ABSOLUTE',
-      version: 1,
-      formulaJson: JSON.parse(JSON.stringify(PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD)),
-      formulaChecksum: '02dba3cbf6a204d89bfe8c68dfc38a17e1b410fac9f054657f63218120e2d94b',
+      version: 2,
+      formulaJson: JSON.parse(JSON.stringify(PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD)),
+      formulaChecksum: '230d35436ffd2fd42bf4eb4ea3f0c99bd7474dcf5b7cf11f6ed235aff84cc64f',
     },
   });
   await prisma.masterProductAbcFormulaState.create({
@@ -467,6 +500,8 @@ function publication(overrides: Partial<ProductAbcPublicationInput>): ProductAbc
     candidates: [],
     calculatedAt: new Date('2026-09-01T00:00:00.000Z'),
     ...overrides,
+    saleAgeInputs: overrides.saleAgeInputs ?? (overrides.targetProductIds ?? [])
+      .map((masterProductId) => ({ masterProductId, mappingValid: true, saleStartDate: '2026-05-01' })),
     sourceFences,
   };
 }
@@ -478,6 +513,7 @@ function candidate(
 ) {
   return {
     masterProductId: productId,
+    saleStartDate: '2026-05-01',
     abcGrade,
     validObservationDays: 30,
     gradeBasisCutoffDate: CUTOFF,
@@ -550,6 +586,7 @@ async function seedSellingProduct(prisma: PrismaClient): Promise<{ productId: st
       masterProductId: product.id,
       externalId: `LISTING-${randomUUID()}`,
       status: 'active',
+      rawJson: { source: 'wing_app_data', saleStartedAt: '2026-05-01' },
     },
   });
   const option = await prisma.channelListingOption.create({
@@ -595,7 +632,7 @@ async function publishSources(prisma: PrismaClient, skuCode: string): Promise<{
   );
   await sellpia.submitAttempt(TEST_ORGANIZATION_ID, sellpiaAttempt.attemptId, {
     attemptToken: sellpiaAttempt.attemptToken,
-    parserVersion: 'sellpia-profitability-v1',
+    parserVersion: 'sellpia-profitability-v2',
     providerBackedEmptyProof: true,
     coveredMonths: sellpiaAttempt.plan.coveredMonths,
     provenance: {
@@ -609,6 +646,10 @@ async function publishSources(prisma: PrismaClient, skuCode: string): Promise<{
       productName: 'ABC product',
       salePrice: 1_000_000,
       buyPrice: 200_000,
+      totalOrderAmount: 1_000_000,
+      totalOrderQty: 1,
+      totalInAmount: 200_000,
+      totalInQty: 1,
       months: [{
         yearMonth: sellpiaAttempt.plan.coveredMonths.at(-1)!,
         orderQty: 1,
@@ -639,4 +680,14 @@ async function publishSources(prisma: PrismaClient, skuCode: string): Promise<{
     data: { status: 'active' },
   });
   return { sellpiaRunId: sellpiaAttempt.attemptId, advertisingRunId: advertisingAttempt.attemptId };
+}
+
+function latestClosedKstDate(now = new Date()): string {
+  const kst = new Date(now.getTime() + 9 * 60 * 60 * 1_000);
+  const yesterday = new Date(Date.UTC(
+    kst.getUTCFullYear(),
+    kst.getUTCMonth(),
+    kst.getUTCDate() - 1,
+  ));
+  return yesterday.toISOString().slice(0, 10);
 }

@@ -10,6 +10,34 @@
       requestFailureMessage: "쉽먼트 조회 상태를 서버에서 확인하지 못했습니다",
     });
 
+    async function isLocallyActive(attemptId, environmentId, allowUnstarted = false) {
+      // `isActive` reports the persisted stop fence. It is false for a fresh
+      // attempt until start/onStarted creates ownership, so check ownership
+      // before asking the fence and let start perform admission atomically.
+      if (typeof sessions.getOwned === "function") {
+        let session;
+        try {
+          session = await sessions.getOwned(attemptId, environmentId);
+        } catch {
+          return false;
+        }
+        if (!session) return allowUnstarted;
+        if (session.producer !== "orders.coupang_shipment_summary") return false;
+      } else if (allowUnstarted) {
+        return true;
+      }
+      if (typeof sessions.isActive !== "function") return true;
+      try {
+        return (await sessions.isActive(
+          attemptId,
+          environmentId,
+          "orders.coupang_shipment_summary",
+        )) !== false;
+      } catch {
+        return false;
+      }
+    }
+
     function parse(value, attemptId) {
       if (
         value?.attemptId !== attemptId ||
@@ -57,27 +85,55 @@
           .then((value) => parse(value, attemptId));
       const attempt = await read();
       if (attempt.state !== "RUNNING") return result(attempt);
-      await sessions.start({
+      if (!(await isLocallyActive(attemptId, environmentId, true))) {
+        return {
+          success: false,
+          attemptId,
+          terminalState: "RUNNING",
+          errorCode: "COLLECTION_CANCELLED",
+          error: "쉽먼트 조회가 취소되었습니다.",
+        };
+      }
+      const started = await sessions.start({
         environmentId,
         attemptId,
         producer: "orders.coupang_shipment_summary",
       });
+      if (started === null || started === false) {
+        return {
+          success: false,
+          attemptId,
+          terminalState: "RUNNING",
+          errorCode: "COLLECTION_CANCELLED",
+          error: "쉽먼트 조회가 취소되었습니다.",
+        };
+      }
       let observed;
       try {
         observed = await collect({
           maxPages: attempt.plan.maxPages,
           attemptId,
           environmentId,
+          isActive: () => isLocallyActive(attemptId, environmentId),
+          assertActive: () => isLocallyActive(attemptId, environmentId),
         });
       } catch (error) {
         observed = { success: false, error: error?.message };
       }
-      if (!(await sessions.get(attemptId)))
-        observed = {
+      if (!(await isLocallyActive(attemptId, environmentId))) {
+        const current = await read().catch(() => null);
+        if (current && current.state !== "RUNNING") {
+          await cleanup(attemptId);
+          return result(current);
+        }
+        return {
           success: false,
+          attemptId,
+          terminalState: "RUNNING",
           errorCode: "COLLECTION_CANCELLED",
           error: "쉽먼트 조회가 취소되었습니다.",
         };
+      }
       const failure = wire.failure(
         { code: observed?.errorCode, message: observed?.error },
         "coupang_shipment_summary_failed",
@@ -96,10 +152,24 @@
               },
             }
           : { method: "POST", suffix: "/fail", body: failure };
+      if (!(await isLocallyActive(attemptId, environmentId))) {
+        return {
+          success: false,
+          attemptId,
+          terminalState: "RUNNING",
+          errorCode: "COLLECTION_CANCELLED",
+          error: "쉽먼트 조회가 취소되었습니다.",
+        };
+      }
       let terminal;
       try {
         terminal = await wire.terminal(config, attempt, submission, (value) =>
           parse(value, attemptId),
+          {
+            shouldContinue: () => isLocallyActive(attemptId, environmentId),
+            cancelCode: "COLLECTION_CANCELLED",
+            cancelMessage: "쉽먼트 조회가 취소되었습니다.",
+          },
         );
       } catch (error) {
         // A lost terminal reply is not provider failure. Read the exact owner;

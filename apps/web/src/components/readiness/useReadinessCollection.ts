@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  COUPANG_CATALOG_COLLECTOR_VERSION,
+  type CoupangCatalogBrowserStatus,
   type CoupangCatalogCollectionRun,
 } from '@kiditem/shared/coupang-catalog-snapshot';
 import { toast } from 'sonner';
@@ -14,60 +14,70 @@ import {
   rankExtensionGateMessage,
   runWingSalesRankCheck,
 } from '@/app/(advertising)/rank-tracking/lib/rank-extension';
-import { useAuth } from '@/hooks/useAuth';
-import { useBrowserCollectionSession } from '@/hooks/useBrowserCollectionSession';
 import { apiClient } from '@/lib/api-client';
-import {
-  issueBrowserCollectionRunId,
-  recordMissingBrowserCollection,
-} from '@/lib/browser-collection-session';
-import { startCoupangCatalogBrowser } from '@/lib/coupang-catalog-extension';
-import { detectExtensionId } from '@/lib/extension-bridge';
 import { transferExtensionAuthTo } from '@/lib/extension-auth';
 import { queryKeys } from '@/lib/query-keys';
 import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
 import { collectSellpiaSaleSummaryFromExtension } from '@/lib/sellpia-sales-collection';
 import {
-  ingestSellpiaSales,
-  sellpiaSalesErrorMessage,
-} from '@/lib/sellpia-sales-api';
+  readActiveCoupangCatalogAttempt,
+  readActiveCoupangCatalogAttemptForStage,
+  readCoupangCatalogCollectionLink,
+  type CoupangCatalogCollectionLink,
+  type CoupangCatalogCollectionLinkResult,
+} from '@/app/(product-pipeline)/product-pipeline/registered-products/lib/channel-listings-api';
+import { useCoupangCatalogImport } from '@/app/(product-pipeline)/product-pipeline/registered-products/hooks/useCoupangCatalogImport';
+import { sellpiaSalesErrorMessage } from '@/lib/sellpia-sales-api';
 import {
-  readinessCollectionProducer,
-  runReadinessExtensionCollection,
-} from './readiness-extension-collection';
+  beginAdAccountDailyKpiAttempt,
+  prepareAdAccountDailyKpiExtension,
+  readActiveAdAccountDailyKpiAttempt,
+  readAdAccountDailyKpiAttempt,
+  readAdAccountDailyKpiSource,
+  rememberAdAccountDailyKpiAttempt,
+  startAdAccountDailyKpiBrowser,
+  type ActiveAdAccountDailyKpiAttempt,
+} from './ad-account-daily-kpi-owner';
 import type { ReadinessCheck } from '@kiditem/shared/readiness';
-import type { BrowserCollectionSessionView } from '@kiditem/shared/browser-collection-session';
+import type { AdAccountDailyKpiSourceAttempt } from '@kiditem/shared/advertising';
 
 interface UseReadinessCollectionOptions {
   refetchReadiness: () => Promise<unknown>;
+  /** Disable catalog account/status reads while the readiness surface is closed. */
+  catalogEnabled?: boolean;
+  /** Reactive route handoff. `null` means this surface has no handoff query. */
+  catalogLink?: CoupangCatalogCollectionLinkResult | null;
 }
 
-interface ChannelAccountOption {
+export interface ChannelAccountOption {
   id: string;
   channel: string;
+  name?: string | null;
   isPrimary?: boolean | null;
 }
 
-interface BackgroundReadinessRun {
-  runId: string;
-  checkKey: 'coupang_products';
-  producer: 'channels.coupang_catalog';
+export interface CatalogReadinessState {
+  accounts: ChannelAccountOption[];
+  accountsLoading: boolean;
+  accountsError: unknown;
+  accountId: string | null;
+  accountLocked: boolean;
+  setAccountId: (accountId: string | null) => void;
+  linkError: string | null;
+  owner: CoupangCatalogCollectionRun | null;
+  chainOverallState: CoupangCatalogCollectionRun['overallState'] | null;
+  browser: CoupangCatalogBrowserStatus | null;
+  ownerLoading: boolean;
+  ownerError: unknown;
+  actionError: string | null;
+  cancelError: string | null;
+  isCancelling: boolean;
+  cancel: () => Promise<void>;
+  openAttention: () => Promise<void>;
 }
 
 function makeClientRunKey(): string {
   return createSecureRandomUuid();
-}
-
-function announceSession(session: BrowserCollectionSessionView) {
-  if (session.status === 'succeeded') {
-    toast.success(`${session.progress.completed}/${session.progress.total}개 수집 완료`);
-  } else if (session.status === 'attention_required') {
-    toast.warning(session.attention?.message ?? '브라우저 확인이 필요합니다.');
-  } else if (session.status === 'cancelled') {
-    toast.info('브라우저 수집이 중단되었습니다.');
-  } else if (session.status === 'failed') {
-    toast.error(session.progress.label ?? '브라우저 수집에 실패했습니다.');
-  }
 }
 
 function sellpiaCollectionRange(check: ReadinessCheck): {
@@ -100,18 +110,120 @@ function sellpiaCollectionRange(check: ReadinessCheck): {
 
 export function useReadinessCollection({
   refetchReadiness,
+  catalogEnabled = false,
+  catalogLink: catalogLinkOverride,
 }: UseReadinessCollectionOptions) {
   const [pendingKey, setPendingKey] = useState<string | null>(null);
-  const [activeSession, setActiveSession] =
-    useState<BrowserCollectionSessionView | null>(null);
-  const [backgroundRun, setBackgroundRun] =
-    useState<BackgroundReadinessRun | null>(null);
-  const settledBackgroundRunIdRef = useRef<string | null>(null);
+  const [initialCatalogLink] = useState(() => readCoupangCatalogCollectionLink());
+  const catalogLink = catalogLinkOverride === undefined
+    ? initialCatalogLink
+    : catalogLinkOverride;
+  const validCatalogLink = catalogLink && !('invalid' in catalogLink)
+    ? catalogLink as CoupangCatalogCollectionLink
+    : null;
+  const malformedCatalogLink = Boolean(catalogLink && 'invalid' in catalogLink);
+  const catalogLinkKey = validCatalogLink
+    ? `${validCatalogLink.attemptId}:${validCatalogLink.channelAccountId}:${validCatalogLink.stage}`
+    : malformedCatalogLink
+      ? 'invalid'
+      : 'none';
+  const [catalogAccountId, setCatalogAccountId] = useState<string | null>(
+    () => validCatalogLink?.channelAccountId ??
+      readActiveCoupangCatalogAttemptForStage('basics')?.channelAccountId ??
+      readActiveCoupangCatalogAttempt()?.channelAccountId ?? null,
+  );
+  const [adKpiAttempt, setAdKpiAttempt] =
+    useState<ActiveAdAccountDailyKpiAttempt | null>(() => readActiveAdAccountDailyKpiAttempt());
+  const adKpiAttemptRef = useRef(adKpiAttempt);
+  const settledAdKpiAttemptIdRef = useRef<string | null>(null);
+  const explicitlyStartedAdKpiAttemptsRef = useRef(new Set<string>());
   const [wingBatchKey, setWingBatchKey] = useState<string | null>(null);
   const [wingStarting, setWingStarting] = useState(false);
   const observedWingTerminals = useRef('');
   const queryClient = useQueryClient();
-  const { user } = useAuth();
+  const catalogAccountsQuery = useQuery({
+    queryKey: queryKeys.channelAccounts.active(),
+    queryFn: () => apiClient.get<ChannelAccountOption[]>('/api/channels/accounts'),
+    enabled: catalogEnabled,
+    staleTime: 60_000,
+    retry: false,
+  });
+  const catalogAccounts = (Array.isArray(catalogAccountsQuery.data)
+    ? catalogAccountsQuery.data
+    : []).filter((account) => account.channel === 'coupang');
+  const linkedAccountKnown = Boolean(validCatalogLink &&
+    catalogAccounts.some((account) => account.id === validCatalogLink.channelAccountId));
+  const catalogLinkError = malformedCatalogLink
+    ? '상품 받기 링크가 올바르지 않습니다. 링크를 확인한 뒤 다시 시도해주세요.'
+    : validCatalogLink && catalogAccountsQuery.isFetched && !linkedAccountKnown
+      ? '연결된 쿠팡 계정을 찾을 수 없습니다. 링크의 계정 권한을 확인해주세요.'
+      : null;
+  useEffect(() => {
+    if (validCatalogLink) {
+      setCatalogAccountId(validCatalogLink.channelAccountId);
+      return;
+    }
+    if (catalogLinkOverride !== undefined) {
+      const storedAccountId = readActiveCoupangCatalogAttemptForStage('basics')?.channelAccountId ??
+        readActiveCoupangCatalogAttempt()?.channelAccountId ?? null;
+      setCatalogAccountId(storedAccountId);
+      return;
+    }
+    if (catalogAccountId && catalogAccounts.some((account) => account.id === catalogAccountId)) return;
+    const preferred = catalogAccounts.find((account) => account.isPrimary === true) ?? catalogAccounts[0];
+    if (preferred) setCatalogAccountId(preferred.id);
+  }, [catalogAccountId, catalogAccounts, catalogLinkKey, catalogLinkOverride, validCatalogLink]);
+  const catalogInputReady = !validCatalogLink ||
+    (catalogAccountsQuery.isFetched && linkedAccountKnown);
+  const catalogImportAccountId = validCatalogLink && linkedAccountKnown
+    ? validCatalogLink.channelAccountId
+    : validCatalogLink
+      ? null
+      : catalogAccountId;
+  const catalogImport = useCoupangCatalogImport(
+    catalogImportAccountId,
+    validCatalogLink && linkedAccountKnown ? validCatalogLink.attemptId : null,
+    validCatalogLink?.stage ?? 'basics',
+    {
+      enabled: catalogEnabled && catalogInputReady && !malformedCatalogLink,
+      suppressStoredAttempt: Boolean(catalogLink),
+      onSettled: async (owner, explicitlyStarted) => {
+        setPendingKey((current) => current === 'coupang_products' ? null : current);
+        if (explicitlyStarted) {
+          const overallState = owner.overallState ?? owner.state;
+          if (overallState === 'FAILED') {
+            toast.error(
+              `${owner.error?.message ?? '쿠팡 상품 수집에 실패했습니다.'} · 이전 정상 데이터는 유지됩니다.`,
+            );
+          } else {
+            toast.success('쿠팡 전체 상품 수집 완료');
+          }
+        }
+        await refetchReadiness();
+      },
+    },
+  );
+  useEffect(() => {
+    const owner = catalogImport.chainStatus ?? catalogImport.serverStatus;
+    const overallState = catalogImport.chainOverallState;
+    if (catalogImport.isStarting || overallState === 'RUNNING') {
+      setPendingKey((current) =>
+        current === null || current === 'coupang_products' ? 'coupang_products' : current,
+      );
+    } else if (overallState && owner) {
+      setPendingKey((current) => current === 'coupang_products' ? null : current);
+    }
+  }, [
+    catalogImport.chainOverallState,
+    catalogImport.chainStatus?.currentAttemptId,
+    catalogImport.chainStatus?.currentStage,
+    catalogImport.isStarting,
+    catalogImport.serverStatus?.attemptId,
+    catalogImport.serverStatus?.currentAttemptId,
+    catalogImport.serverStatus?.currentStage,
+    catalogImport.serverStatus?.overallState,
+    catalogImport.serverStatus?.state,
+  ]);
   const wingOwner = useQuery({
     queryKey: [...queryKeys.ads.keywordRank(), 'batch', wingBatchKey],
     queryFn: () => fetchWingRankBatch(wingBatchKey!),
@@ -121,13 +233,27 @@ export function useReadinessCollection({
         ? 2000
         : false,
   });
-  const backgroundSessionQuery = useBrowserCollectionSession(
-    backgroundRun?.runId ?? null,
-  );
-  const backgroundSession =
-    backgroundRun && backgroundSessionQuery.data?.producer === backgroundRun.producer
-      ? backgroundSessionQuery.data
-      : null;
+  const adKpiSourceQuery = useQuery({
+    queryKey: queryKeys.ads.accountDailyKpiSource(),
+    queryFn: readAdAccountDailyKpiSource,
+    enabled: !!adKpiAttempt?.attemptId,
+    retry: false,
+    refetchInterval: (query) =>
+      query.state.data?.latestAttempt?.state === 'RUNNING' ? 2_000 : false,
+    meta: { suppressGlobalErrorToast: true },
+  });
+  const adKpiAttemptQuery = useQuery({
+    queryKey: queryKeys.ads.accountDailyKpiAttempt(adKpiAttempt?.attemptId ?? ''),
+    queryFn: () => readAdAccountDailyKpiAttempt(adKpiAttempt!.attemptId!),
+    enabled: !!adKpiAttempt?.attemptId,
+    retry: false,
+    refetchInterval: (query) =>
+      query.state.data?.state === 'RUNNING' ? 2_000 : false,
+    meta: { suppressGlobalErrorToast: true },
+  });
+  const adKpiLatestAttempt = adKpiSourceQuery.data?.latestAttempt ?? null;
+  const adKpiOwnerAttempt: AdAccountDailyKpiSourceAttempt | null =
+    adKpiLatestAttempt ?? adKpiAttemptQuery.data ?? null;
 
   const invalidateCollectedData = async () => {
     await Promise.all([
@@ -188,52 +314,45 @@ export function useReadinessCollection({
   }, [wingStarting, wingOwner.data, queryClient, refetchReadiness]);
 
   useEffect(() => {
-    if (!backgroundRun || !backgroundSession) return;
-    setActiveSession(backgroundSession);
-    if (
-      backgroundSession.status === 'running' ||
-      backgroundSession.status === 'attention_required'
-    ) {
+    if (!catalogImport.readError) return;
+    toast.error('서버의 쿠팡 상품 수집 결과를 확인하지 못했습니다.');
+  }, [catalogImport.readError]);
+
+  useEffect(() => {
+    if (!adKpiOwnerAttempt) return;
+    if (adKpiOwnerAttempt.state === 'RUNNING') {
+      setPendingKey((current) =>
+        current === null || current === 'coupang_ads' ? 'coupang_ads' : current,
+      );
       return;
     }
-    if (settledBackgroundRunIdRef.current === backgroundSession.runId) return;
-    settledBackgroundRunIdRef.current = backgroundSession.runId;
-    announceSession(backgroundSession);
+    if (settledAdKpiAttemptIdRef.current === adKpiOwnerAttempt.attemptId) return;
+    settledAdKpiAttemptIdRef.current = adKpiOwnerAttempt.attemptId;
     setPendingKey((current) =>
-      current === backgroundRun.checkKey ? null : current,
+      current === 'coupang_ads' ? null : current,
     );
-    void Promise.all([
-      queryClient.invalidateQueries({ queryKey: queryKeys.ads.all }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.channelListings.all }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.products.operations.all }),
-      queryClient.invalidateQueries({ queryKey: ['traffic'] }),
-    ]).then(() => refetchReadiness());
-  }, [backgroundRun, backgroundSession, queryClient, refetchReadiness]);
+    const explicitlyStarted = explicitlyStartedAdKpiAttemptsRef.current.delete(
+      adKpiOwnerAttempt.attemptId,
+    );
+    if (explicitlyStarted) {
+      if (adKpiOwnerAttempt.state === 'FAILED') {
+        toast.error(
+          `${adKpiOwnerAttempt.errorMessage ?? '광고 계정 일별 KPI 수집에 실패했습니다.'} · 이전 정상 데이터는 유지됩니다.`,
+        );
+      } else {
+        toast.success('쿠팡 광고 데이터 수집 완료');
+      }
+    }
+    void invalidateCollectedData().then(() => refetchReadiness());
+  }, [adKpiOwnerAttempt, queryClient, refetchReadiness]);
 
-  const runExtensionCollection = async (
-    check: ReadinessCheck,
-    producer: NonNullable<ReturnType<typeof readinessCollectionProducer>>,
-    extensionId: string,
-    requestedRunId?: string,
-  ) => {
-    const runId = await issueBrowserCollectionRunId(requestedRunId);
-    setActiveSession(null);
-    const session = await runReadinessExtensionCollection({
-      check,
-      producer,
-      extensionId,
-      runId,
-      onPoll: refetchReadiness,
-      onSession: setActiveSession,
-    });
-    announceSession(session);
-    return session;
-  };
+  useEffect(() => {
+    if (!adKpiSourceQuery.isError && !adKpiAttemptQuery.isError) return;
+    toast.error('서버의 쿠팡 광고 수집 결과를 확인하지 못했습니다.');
+  }, [adKpiAttemptQuery.isError, adKpiSourceQuery.isError]);
 
   const handleCollect = async (
     check: ReadinessCheck,
-    requestedRunId?: string,
   ) => {
     if (check.collector === 'server') {
       await handleServerCollect(check);
@@ -246,16 +365,13 @@ export function useReadinessCollection({
     if (check.key === 'wing_sales') {
       setPendingKey(check.key);
       try {
-        const organizationId = user?.organizationId;
-        if (!organizationId) {
-          throw new Error('판매현황을 저장할 조직 정보가 없습니다. 다시 로그인해주세요.');
-        }
         const collectionRange = sellpiaCollectionRange(check);
-        const payload = await collectSellpiaSaleSummaryFromExtension({
+        const result = await collectSellpiaSaleSummaryFromExtension({
           ...(collectionRange ?? {}),
-          organizationId,
         });
-        const result = await ingestSellpiaSales(payload);
+        if (!result.success) {
+          throw new Error(result.errorMessage ?? '셀피아 판매현황 수집에 실패했습니다.');
+        }
         toast.success(`셀피아 판매현황 ${result.businessDates.length}일 수집 완료`);
         await invalidateCollectedData();
         await refetchReadiness();
@@ -267,45 +383,104 @@ export function useReadinessCollection({
       return;
     }
 
-    if (check.key === 'coupang_products') {
+    if (check.key === 'coupang_ads') {
       setPendingKey(check.key);
-      setActiveSession(null);
-      settledBackgroundRunIdRef.current = null;
+      settledAdKpiAttemptIdRef.current = null;
       try {
-        const accounts = await apiClient.get<ChannelAccountOption[]>(
-          '/api/channels/accounts',
-        );
-        const coupangAccounts = accounts.filter(
-          (account) => account.channel === 'coupang',
-        );
-        const account =
-          coupangAccounts.find((candidate) => candidate.isPrimary === true) ??
-          coupangAccounts[0];
-        if (!account) {
-          throw new Error('활성 쿠팡 채널 계정을 찾을 수 없습니다.');
+        const extensionId = await prepareAdAccountDailyKpiExtension();
+        const source = await readAdAccountDailyKpiSource();
+        const latest = source.latestAttempt;
+        let attempt: AdAccountDailyKpiSourceAttempt;
+        let next = adKpiAttemptRef.current;
+
+        if (latest?.state === 'RUNNING') {
+          attempt = latest;
+          next = {
+            attemptId: latest.attemptId,
+            idempotencyKey:
+              next?.attemptId === latest.attemptId
+                ? next.idempotencyKey
+                : null,
+          };
+        } else {
+          // A persisted terminal/foreign attempt is never reused for this
+          // organization; only an uncertain begin keeps its idempotency key.
+          const idempotencyKey =
+            next?.attemptId === null && next.idempotencyKey
+              ? next.idempotencyKey
+              : makeClientRunKey();
+          next = { attemptId: null, idempotencyKey };
+          // Persist the begin identity before the network call so a lost
+          // response can be retried with the same owner idempotency key.
+          adKpiAttemptRef.current = next;
+          setAdKpiAttempt(next);
+          rememberAdAccountDailyKpiAttempt(next);
+          attempt = await beginAdAccountDailyKpiAttempt(idempotencyKey);
         }
-        const run = await apiClient.post<CoupangCatalogCollectionRun>(
-          `/api/channels/accounts/${encodeURIComponent(account.id)}` +
-            '/catalog-imports/coupang-wing/runs',
-          {
-            clientRunKey: makeClientRunKey(),
-            collectorVersion: COUPANG_CATALOG_COLLECTOR_VERSION,
-          },
-        );
-        await startCoupangCatalogBrowser({
-          channelAccountId: account.id,
-          runId: run.id,
+
+        const admitted: ActiveAdAccountDailyKpiAttempt = {
+          attemptId: attempt.attemptId,
+          idempotencyKey: next?.idempotencyKey ?? null,
+        };
+        adKpiAttemptRef.current = admitted;
+        setAdKpiAttempt(admitted);
+        rememberAdAccountDailyKpiAttempt(admitted);
+        explicitlyStartedAdKpiAttemptsRef.current.add(attempt.attemptId);
+
+        if (attempt.state === 'RUNNING') {
+          try {
+            await startAdAccountDailyKpiBrowser(
+              extensionId,
+              attempt.attemptId,
+            );
+          } catch {
+            // A lost extension ACK is not an owner failure. The persisted
+            // attempt remains the only source of truth for reload/retry.
+          }
+        }
+        await queryClient.invalidateQueries({
+          queryKey: queryKeys.ads.accountDailyKpiAttempt(attempt.attemptId),
         });
-        setBackgroundRun({
-          runId: run.id,
-          checkKey: 'coupang_products',
-          producer: 'channels.coupang_catalog',
-        });
-        toast.info('쿠팡 전체 상품 수집을 백그라운드에서 시작했습니다.');
+        toast.info('쿠팡 광고 일별 KPI 수집을 백그라운드에서 시작했습니다.');
       } catch (error) {
         toast.error(
-          error instanceof Error ? error.message : '쿠팡 상품 수집 시작 실패',
+          error instanceof Error
+            ? error.message
+            : '쿠팡 광고 일별 KPI 수집 시작 실패',
         );
+        setPendingKey(null);
+      }
+      return;
+    }
+
+    if (check.key === 'coupang_products') {
+      if (catalogLinkError) {
+        toast.error(catalogLinkError);
+        return;
+      }
+      if (validCatalogLink && !linkedAccountKnown) {
+        toast.error('연결된 쿠팡 계정을 확인하는 중입니다. 잠시 후 다시 시도해주세요.');
+        return;
+      }
+      setPendingKey(check.key);
+      try {
+        let accounts = catalogAccounts;
+        if (accounts.length === 0) {
+          const refreshed = await catalogAccountsQuery.refetch();
+          accounts = (Array.isArray(refreshed.data) ? refreshed.data : [])
+            .filter((account) => account.channel === 'coupang');
+        }
+        const account = validCatalogLink
+          ? accounts.find((candidate) => candidate.id === validCatalogLink.channelAccountId)
+          : accounts.find((candidate) => candidate.id === catalogAccountId) ??
+          accounts.find((candidate) => candidate.isPrimary === true) ??
+          accounts[0];
+        if (!account) throw new Error('활성 쿠팡 채널 계정을 찾을 수 없습니다.');
+        setCatalogAccountId(account.id);
+        await catalogImport.start(account.id);
+        toast.info('쿠팡 상품 받기를 시작했습니다.');
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : '쿠팡 상품 받기 시작 실패');
         setPendingKey(null);
       }
       return;
@@ -313,7 +488,6 @@ export function useReadinessCollection({
 
     if (check.key === 'wing_kpi') {
       setPendingKey(check.key);
-      setActiveSession(null);
       setWingStarting(true);
       try {
         const gate = await detectRankExtensionGate();
@@ -366,44 +540,31 @@ export function useReadinessCollection({
       return;
     }
 
-    const producer = readinessCollectionProducer(check.key);
-    if (!producer) {
-      toast.error('지원하지 않는 브라우저 수집 항목입니다.');
-      return;
-    }
-    if (!check.scrapeUrls?.length) {
-      toast.error('수집 URL 없음');
-      return;
-    }
-
-    setPendingKey(check.key);
-
-    try {
-      const extensionId = await detectExtensionId();
-      if (!extensionId) {
-        await recordMissingBrowserCollection(producer, {
-          checkKey: check.key,
-          trigger: 'readiness',
-        }, requestedRunId);
-        toast.warning('브라우저 수집 익스텐션을 찾을 수 없습니다.');
-        return;
-      }
-
-      const session = await runExtensionCollection(
-        check,
-        producer,
-        extensionId,
-        requestedRunId,
-      );
-
-      await invalidateCollectedData();
-      await refetchReadiness();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : '브라우저 수집 실패');
-    } finally {
-      setPendingKey(null);
-    }
+    toast.error('지원하지 않는 브라우저 수집 항목입니다.');
   };
 
-  return { pendingKey, activeSession, handleCollect };
+  const catalog: CatalogReadinessState = {
+    accounts: catalogAccounts,
+    accountsLoading: catalogAccountsQuery.isLoading,
+    accountsError: catalogAccountsQuery.error,
+    accountId: catalogAccountId,
+    accountLocked: Boolean(validCatalogLink),
+    setAccountId: setCatalogAccountId,
+    linkError: catalogLinkError,
+    owner: catalogImport.chainStatus ?? catalogImport.serverStatus,
+    chainOverallState: catalogImport.chainOverallState,
+    browser: catalogImport.extensionStatus,
+    ownerLoading: catalogImport.statusLoading,
+    ownerError: catalogImport.readError,
+    actionError: catalogImport.startError instanceof Error ? catalogImport.startError.message : null,
+    cancelError: catalogImport.cancelError instanceof Error ? catalogImport.cancelError.message : null,
+    isCancelling: catalogImport.isStopping,
+    cancel: async () => {
+      await catalogImport.cancel();
+      toast.info('쿠팡 상품 받기를 중단했습니다.');
+    },
+    openAttention: async () => { await catalogImport.openAttention(); },
+  };
+
+  return { pendingKey, handleCollect, catalog };
 }

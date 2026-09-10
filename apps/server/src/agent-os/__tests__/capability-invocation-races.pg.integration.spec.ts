@@ -24,6 +24,7 @@ import type { CapabilityExecutionContext } from '../../common/capability-composi
 import type { PrismaService } from '../../prisma/prisma.service';
 import type { PrismaClient } from '@prisma/client';
 import type { CapabilityResultEnvelope } from '@kiditem/shared/agent-interaction';
+import { removeRetiredCapabilityOperationRefs } from '../../../../../scripts/data-migrations/v0.1.31/004_remove_retired_capability_operation_refs';
 
 const DIRECT_OWNER_CAPABILITY_KEY = 'sourcing.capability_invocation_race';
 const REQUEST_KEY = 'capability-invocation-race-request';
@@ -314,6 +315,56 @@ describe('CapabilityInvocation PostgreSQL races', () => {
     })).toBe(1);
   });
 
+  it('cleans persisted operation references before strict receipt replay and is idempotent', async () => {
+    const owner = new DirectReceiptOwner(primaryPrisma);
+    const service = invocationService(primaryPrisma, mutationDefinition('low'), owner);
+    const completed = await service.invoke(mutationRequest());
+    const completedId = invocationId(completed);
+    const legacyResult = {
+      summary: 'Race fixture candidate admitted.',
+      resourceRefs: [{ kind: 'sourcing_candidate', id: INPUT.candidateId, version: null }],
+      operationRefs: [{ kind: 'operation_run', id: '00000000-0000-4000-8000-000000000099' }],
+    };
+
+    await primaryPrisma.capabilityInvocation.update({
+      where: { id: completedId },
+      data: { result: legacyResult },
+    });
+
+    const first = await primaryPrisma.$transaction((tx) =>
+      removeRetiredCapabilityOperationRefs.run(tx),
+    );
+    const second = await primaryPrisma.$transaction((tx) =>
+      removeRetiredCapabilityOperationRefs.run(tx),
+    );
+
+    expect(first).toMatchObject({
+      affectedRows: 1,
+      details: { legacyReceiptRows: 1, removedOperationReferenceRows: 1 },
+    });
+    expect(second).toMatchObject({
+      affectedRows: 0,
+      details: { legacyReceiptRows: 0, removedOperationReferenceRows: 0 },
+    });
+
+    const repository = new PrismaCapabilityInvocationRepository(
+      primaryPrisma as unknown as PrismaService,
+    );
+    await expect(repository.findById({
+      organizationId: TEST_ORGANIZATION_ID,
+      invocationId: completedId,
+    })).resolves.toMatchObject({
+      result: {
+        summary: legacyResult.summary,
+        resourceRefs: legacyResult.resourceRefs,
+      },
+    });
+    await expect(service.invoke(mutationRequest())).resolves.toMatchObject({
+      kind: 'completed',
+      invocationId: completedId,
+    });
+  });
+
 });
 
 function mutationDefinition(approvalRisk: CapabilityApprovalRisk): CapabilityDefinition {
@@ -486,7 +537,6 @@ class DirectReceiptOwner {
     return {
       summary: 'Race fixture candidate admitted.',
       resourceRefs: [{ kind: 'sourcing_candidate', id: candidateId, version: null }],
-      operationRefs: [],
       output: { candidateId },
     };
   }

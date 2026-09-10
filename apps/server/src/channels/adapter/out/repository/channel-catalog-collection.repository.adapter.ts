@@ -1,48 +1,79 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { Prisma } from '@prisma/client';
-import { COUPANG_CATALOG_BROWSER_FILE_NAME } from '@kiditem/shared/coupang-catalog-snapshot';
+import {
+  COUPANG_CATALOG_BROWSER_FILE_NAME,
+  type CoupangCatalogStage,
+} from '@kiditem/shared/coupang-catalog-snapshot';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { hashCatalogChunkPayload } from '../../../application/service/channel-catalog-collection.service';
 import {
   assertCatalogRunning,
+  assertCatalogPublicationPlan,
+  assertCatalogWritable,
+  catalogPause,
   catalogAccountVendor,
   catalogAlertKey,
   catalogPublicationRevision,
   catalogWhere,
-  CATALOG_DETAIL_URL,
-  CATALOG_LIST_URL,
+  CATALOG_LEGACY_DETAIL_URL,
+  CATALOG_LEGACY_LIST_URL,
+  CATALOG_STAGED_DETAIL_URL,
+  CATALOG_STAGED_LIST_URL,
+  CATALOG_DETAILS_SOURCE,
   CATALOG_PARSER,
-  CATALOG_SOURCE,
   CATALOG_STAGING_SOURCE,
+  catalogSourceForStage,
+  assertExpectedDetailsBasis,
   lockCatalogAccount,
   lockCatalogAttempt,
+  latestCompletedCatalogBasics,
 } from './channel-catalog-attempt-fence';
 import type { ChannelCatalogCollectionRepositoryPort } from '../../../application/port/out/repository/channel-catalog-collection.repository.port';
+import {
+  CHANNEL_CATALOG_PUBLICATION_PORT,
+  type ChannelCatalogPublicationPort,
+} from '../../../application/port/out/repository/channel-catalog-publication.port';
 
 type StartInput = Parameters<ChannelCatalogCollectionRepositoryPort['startOrResume']>[0];
 type OwnedInput = Parameters<ChannelCatalogCollectionRepositoryPort['getOwnedRunWithChunks']>[0];
+type DetailsChildInput = Parameters<ChannelCatalogCollectionRepositoryPort['getOwnedDetailsChild']>[0];
 type PutInput = Parameters<ChannelCatalogCollectionRepositoryPort['putChunk']>[0];
 type FailInput = Parameters<ChannelCatalogCollectionRepositoryPort['markFailed']>[0];
+type PauseInput = Parameters<ChannelCatalogCollectionRepositoryPort['markPaused']>[0];
 
 @Injectable()
 export class ChannelCatalogCollectionRepositoryAdapter implements ChannelCatalogCollectionRepositoryPort {
   constructor(
     private readonly prisma: PrismaService,
     private readonly alerts: SourceFailureAlerts,
+    @Inject(CHANNEL_CATALOG_PUBLICATION_PORT)
+    private readonly publisher: ChannelCatalogPublicationPort,
   ) {}
   async startOrResume(input: StartInput) {
     return this.prisma
       .$transaction(async (tx) => {
         await lockCatalogAccount(tx, input);
+        const stage = input.stage ?? 'full';
+        // `stage` is additive. Keep the legacy full-catalog fingerprint byte
+        // for omitted/explicit full requests so an in-flight pre-stage run can
+        // still be recovered with the same idempotency key. Named staged
+        // attempts get their own fingerprint and source type.
         const requestFingerprint = hashCatalogChunkPayload({
           channelAccountId: input.channelAccountId,
           collectorVersion: input.collectorVersion,
+          ...(stage !== 'full' ? { stage } : {}),
+          ...(stage === 'details'
+            ? { expectedBasicAttemptId: input.expectedBasicAttemptId ?? null }
+            : {}),
         });
         const existing = await tx.sourceImportRun.findFirst({
           where: {
             organizationId: input.organizationId,
-            sourceType: CATALOG_SOURCE,
+            sourceType: {
+              in: [catalogSourceForStage('full'), catalogSourceForStage('basics'), catalogSourceForStage('details')],
+            },
             idempotencyKey: input.idempotencyKey,
           },
         });
@@ -50,14 +81,58 @@ export class ChannelCatalogCollectionRepositoryAdapter implements ChannelCatalog
           if (
             existing.channelAccountId !== input.channelAccountId ||
             existing.parserVersion !== CATALOG_PARSER ||
-            existing.requestFingerprint !== requestFingerprint
+            existing.requestFingerprint !== requestFingerprint ||
+            existing.sourceType !== catalogSourceForStage(stage)
           )
             throw new ConflictException('Idempotency-Key has a different catalog input');
-          return readOwned(tx, { ...input, runId: existing.id });
+          if (stage === 'details') {
+            await assertExpectedDetailsBasis(tx, input, existing.plan);
+          }
+          const locked = await lockCatalogAttempt(tx, {
+            ...input,
+            runId: existing.id,
+            attemptToken: existing.attemptToken,
+            stage,
+          });
+          if (locked.status === 'running') {
+            // Idempotent replay is also the status read for an expired
+            // attempt. Preserve the immutable run and let readOwned expose
+            // its effective FAILED state; only a new idempotency key may
+            // retire the row and admit a fresh attempt.
+            if (locked.expiresAt && locked.expiresAt.getTime() <= Date.now()) {
+              return readOwned(tx, { ...input, runId: existing.id, stage, includePayload: false });
+            }
+            assertCatalogRunning(locked);
+            const pause = catalogPause(locked);
+            if (pause) {
+              // A paused run is resumed only by the explicit same-key start.
+              // Re-admit it against the frozen account/vendor and (for the
+              // details stage) the exact completed basics basis before clearing
+              // its durable provider error.
+              await assertCatalogPublicationPlan(tx, input, locked.plan);
+              if (pause.notBefore && Date.parse(pause.notBefore) > Date.now()) {
+                throw new ConflictException({
+                  code: 'ATTEMPT_PAUSED',
+                  reason: pause.code,
+                  message: pause.message,
+                  phase: pause.phase,
+                  recoverable: pause.recoverable,
+                  notBefore: pause.notBefore,
+                });
+              }
+              await clearCatalogPause(tx, {
+                ...input,
+                runId: existing.id,
+                stage,
+                attemptToken: existing.attemptToken,
+              }, locked);
+            }
+          }
+          return readOwned(tx, { ...input, runId: existing.id, stage, includePayload: false });
         }
         const vendorId = await catalogAccountVendor(tx, input);
         const active = await tx.sourceImportRun.findMany({
-          where: { ...catalogWhere(input), status: 'running' },
+          where: { ...catalogWhere(input, stage), status: 'running' },
         });
         for (const previous of active) {
           if (previous.expiresAt && previous.expiresAt.getTime() > Date.now())
@@ -71,12 +146,14 @@ export class ChannelCatalogCollectionRepositoryAdapter implements ChannelCatalog
             ...input,
             runId: previous.id,
             attemptToken: previous.attemptToken,
+            stage,
           });
           if (locked.status === 'running')
             await this.saveFailure(tx, {
               ...input,
               runId: previous.id,
               attemptToken: previous.attemptToken,
+              stage,
               error: {
                 code: 'ATTEMPT_EXPIRED',
                 message: 'Catalog attempt expired',
@@ -85,20 +162,42 @@ export class ChannelCatalogCollectionRepositoryAdapter implements ChannelCatalog
             });
         }
         const generation = await tx.sourceImportRun.aggregate({
-          where: catalogWhere(input),
+          where: catalogWhere(input, stage),
           _max: { freshnessGeneration: true },
         });
+        const basics = stage === 'details' ? await latestCompletedCatalogBasics(tx, input) : null;
+        if (stage === 'details' && !basics) {
+          throw new ConflictException('A completed basic catalog publication is required first');
+        }
+        if (stage === 'details' && input.expectedBasicAttemptId &&
+          basics?.id !== input.expectedBasicAttemptId) {
+          throw new ConflictException('The details attempt is pinned to a different basic catalog publication');
+        }
+        const ownerId = randomUUID();
+        const detailsIdempotencyKey = stage === 'basics' ? randomUUID() : undefined;
         const plan = {
           collectorVersion: input.collectorVersion,
-          listUrl: CATALOG_LIST_URL,
-          detailUrl: CATALOG_DETAIL_URL,
+          stage,
+          listUrl: stage === 'full' ? CATALOG_LEGACY_LIST_URL : CATALOG_STAGED_LIST_URL,
+          detailUrl: stage === 'full' ? CATALOG_LEGACY_DETAIL_URL : CATALOG_STAGED_DETAIL_URL,
           channelAccountId: input.channelAccountId,
           vendorId,
-          publicationRevision: (await catalogPublicationRevision(tx, input)).toString(),
+          publicationRevision: (await catalogPublicationRevision(tx, input, stage)).toString(),
+          rootAttemptId: stage === 'details' ? input.expectedBasicAttemptId ?? basics?.id : ownerId,
+          ...(detailsIdempotencyKey ? { detailsIdempotencyKey } : {}),
+          ...(basics
+            ? {
+                basicAttemptId: basics.id,
+                basicManifestHash: basics.manifestHash,
+                basicPublicationSequence: basics.publicationSequence,
+                basicProductIds: basics.productIds,
+              }
+            : {}),
         };
         const owner = await tx.sourceImportRun.create({
           data: {
-            ...catalogWhere(input),
+            id: ownerId,
+            ...catalogWhere(input, stage),
             fileName: COUPANG_CATALOG_BROWSER_FILE_NAME,
             status: 'running',
             idempotencyKey: input.idempotencyKey,
@@ -116,11 +215,11 @@ export class ChannelCatalogCollectionRepositoryAdapter implements ChannelCatalog
             sourceImportRunId: owner.id,
             channel: 'coupang',
             source: CATALOG_STAGING_SOURCE,
-            pageType: 'catalog_full_snapshot',
+            pageType: stage === 'basics' ? 'catalog_listing_basics' : stage === 'details' ? 'catalog_full_details' : 'catalog_full_snapshot',
             parserVersion: input.collectorVersion,
           },
         });
-        return readOwned(tx, { ...input, runId: owner.id });
+      return readOwned(tx, { ...input, runId: owner.id, stage, includePayload: false });
       })
       .catch((error: unknown) => {
         if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002')
@@ -131,51 +230,112 @@ export class ChannelCatalogCollectionRepositoryAdapter implements ChannelCatalog
   getOwnedRunWithChunks(input: OwnedInput) {
     return readOwned(this.prisma, input);
   }
+  getOwnedDetailsChild(input: DetailsChildInput) {
+    return readOwnedDetailsChild(this.prisma, input);
+  }
   putChunk(input: PutInput) {
     return this.prisma.$transaction(async (tx) => {
-      const owner = await lockCatalogAttempt(tx, input);
-      assertCatalogRunning(owner);
-      const run = await readOwned(tx, input);
-      const existing = run.chunks.find(
-        (chunk) => chunk.kind === input.kind && chunk.sequence === input.sequence,
-      );
+      await lockCatalogAccount(tx, input);
+      const stage = await ownerStage(tx, input);
+      const owner = await lockCatalogAttempt(tx, { ...input, stage });
+      assertCatalogWritable(owner);
+      assertCatalogChunkKindForStage(stage, input.kind);
+      const staging = await tx.channelScrapeRun.findFirst({
+        where: {
+          organizationId: input.organizationId,
+          channelAccountId: input.channelAccountId,
+          sourceImportRunId: owner.id,
+          source: CATALOG_STAGING_SOURCE,
+        },
+        select: { id: true },
+      });
+      if (!staging) throw new NotFoundException('Catalog staging container not found');
+      const existing = await tx.channelScrapeChunk.findFirst({
+        where: {
+          organizationId: input.organizationId,
+          scrapeRunId: staging.id,
+          kind: input.kind,
+          sequence: input.sequence,
+        },
+        select: chunkSelect,
+      });
       if (existing) {
         if (existing.checksum !== input.checksum)
           throw new ConflictException('Chunk coordinate already exists with a different checksum');
+        if (input.kind === 'full_details' && !existing.publishedAt) {
+          if (!this.publisher)
+            throw new ConflictException('Detail publication capability is not configured');
+          await this.publisher.publishDetailChunk({
+            transaction: tx,
+            organizationId: input.organizationId,
+            channelAccountId: input.channelAccountId,
+            collectionRunId: staging.id,
+            attemptId: owner.id,
+            attemptToken: input.attemptToken,
+            chunk: existing,
+          });
+        }
         return { stored: false, chunk: existing };
       }
       const chunk = await tx.channelScrapeChunk.create({
         data: {
           organizationId: input.organizationId,
-          scrapeRunId: run.collectionRunId,
+          scrapeRunId: staging.id,
           kind: input.kind,
           sequence: input.sequence,
           checksum: input.checksum,
           itemCount: input.itemCount,
           payload: input.payload as Prisma.InputJsonValue,
+          publicationJson: {
+            projection: compactChunkProjection(input.kind, input.payload),
+          } as Prisma.InputJsonValue,
         },
         select: chunkSelect,
       });
-      assertCatalogRunning(owner);
+      if (input.kind === 'full_details') {
+        if (!this.publisher)
+          throw new ConflictException('Detail publication capability is not configured');
+        await this.publisher.publishDetailChunk({
+          transaction: tx,
+          organizationId: input.organizationId,
+          channelAccountId: input.channelAccountId,
+          collectionRunId: staging.id,
+          attemptId: owner.id,
+          attemptToken: input.attemptToken,
+          chunk,
+        });
+      }
+      assertCatalogWritable(owner);
       return { stored: true, chunk };
     });
   }
   async markFailed(input: FailInput) {
     return this.prisma.$transaction(async (tx) => {
       await lockCatalogAccount(tx, input);
-      const owner = await lockCatalogAttempt(tx, input);
+      const stage = await ownerStage(tx, input);
+      const owner = await lockCatalogAttempt(tx, { ...input, stage });
       const checksum = hashCatalogChunkPayload(input.error);
       if (owner.status === 'failed' && owner.contentChecksum === checksum)
-        return readOwned(tx, input);
+        return readOwned(tx, { ...input, stage, includePayload: false });
       assertCatalogRunning(owner);
-      await this.saveFailure(tx, input);
-      return readOwned(tx, input);
+      await this.saveFailure(tx, { ...input, stage });
+      return readOwned(tx, { ...input, stage, includePayload: false });
+    });
+  }
+  async markPaused(input: PauseInput) {
+    return this.prisma.$transaction(async (tx) => {
+      await lockCatalogAccount(tx, input);
+      const stage = await ownerStage(tx, input);
+      const owner = await lockCatalogAttempt(tx, { ...input, stage });
+      assertCatalogRunning(owner);
+      await this.savePause(tx, { ...input, stage }, owner);
+      return readOwned(tx, { ...input, stage, includePayload: false });
     });
   }
   private async saveFailure(tx: Prisma.TransactionClient, input: FailInput) {
     const changed = await tx.sourceImportRun.updateMany({
       where: {
-        ...catalogWhere(input),
+        ...catalogWhere(input, input.stage ?? 'full'),
         id: input.runId,
         status: 'running',
         attemptToken: input.attemptToken,
@@ -193,15 +353,72 @@ export class ChannelCatalogCollectionRepositoryAdapter implements ChannelCatalog
     if (input.error.code !== 'USER_CANCELLED')
       await this.alerts.upsertSourceFailure(tx, {
         organizationId: input.organizationId,
-        dedupeKey: catalogAlertKey(input.channelAccountId),
-        sourceType: CATALOG_SOURCE,
+        dedupeKey: catalogAlertKey(input.channelAccountId, input.stage ?? 'full'),
+        sourceType: catalogSourceForStage(input.stage ?? 'full'),
         attemptId: input.runId,
         severity: 'error',
         title: 'Wing catalog collection failed',
         message: input.error.message,
-        href: `/product-pipeline/registered-products?collectionAttempt=${input.runId}&channelAccountId=${input.channelAccountId}`,
+        href: `/product-pipeline/registered-products?collectionAttempt=${input.runId}&channelAccountId=${input.channelAccountId}`
+          + (input.stage && input.stage !== 'full' ? `&collectionStage=${input.stage}` : ''),
       });
   }
+
+  private async savePause(
+    tx: Prisma.TransactionClient,
+    input: PauseInput & { stage: CoupangCatalogStage },
+    owner: { qualityReport: Prisma.JsonValue | null },
+  ) {
+    const previous = jsonRecord(owner.qualityReport) ?? {};
+    const changed = await tx.sourceImportRun.updateMany({
+      where: {
+        ...catalogWhere(input, input.stage),
+        id: input.runId,
+        status: 'running',
+        attemptToken: input.attemptToken,
+      },
+      data: {
+        errorCode: input.error.code,
+        errorMessage: input.error.message,
+        qualityReport: {
+          ...previous,
+          error: input.error,
+        } as Prisma.InputJsonValue,
+      },
+    });
+    if (changed.count !== 1) throw new ConflictException('Catalog attempt lost its pause fence');
+  }
+}
+
+async function clearCatalogPause(
+  tx: Prisma.TransactionClient,
+  input: {
+    organizationId: string;
+    channelAccountId: string;
+    runId: string;
+    attemptToken: string;
+    stage: CoupangCatalogStage;
+  },
+  owner: { qualityReport: Prisma.JsonValue | null },
+) {
+  const quality = jsonRecord(owner.qualityReport) ?? {};
+  const { error: _error, ...rest } = quality;
+  const changed = await tx.sourceImportRun.updateMany({
+    where: {
+      ...catalogWhere(input, input.stage),
+      id: input.runId,
+      status: 'running',
+      attemptToken: input.attemptToken,
+    },
+    data: {
+      errorCode: null,
+      errorMessage: null,
+      qualityReport: Object.keys(rest).length > 0
+        ? rest as Prisma.InputJsonValue
+        : Prisma.DbNull,
+    },
+  });
+  if (changed.count !== 1) throw new ConflictException('Catalog attempt lost its resume fence');
 }
 const chunkSelect = {
   id: true,
@@ -210,10 +427,31 @@ const chunkSelect = {
   checksum: true,
   itemCount: true,
   payload: true,
+  publishedAt: true,
+  publicationJson: true,
+} as const;
+const chunkReceiptSelect = {
+  id: true,
+  kind: true,
+  sequence: true,
+  checksum: true,
+  itemCount: true,
+  publishedAt: true,
+  publicationJson: true,
 } as const;
 async function readOwned(tx: Prisma.TransactionClient, input: OwnedInput) {
-  const owner = await tx.sourceImportRun.findFirst({
-    where: { ...catalogWhere(input), id: input.runId },
+  const includePayload = input.includePayload !== false;
+  const chunkSelectForRead = includePayload ? chunkSelect : chunkReceiptSelect;
+    const owner = await tx.sourceImportRun.findFirst({
+    where: {
+      organizationId: input.organizationId,
+      channelAccountId: input.channelAccountId,
+      parserVersion: CATALOG_PARSER,
+      id: input.runId,
+      ...(input.stage
+        ? { sourceType: catalogSourceForStage(input.stage) }
+        : { sourceType: { in: [catalogSourceForStage('full'), catalogSourceForStage('basics'), catalogSourceForStage('details')] } }),
+    },
     include: {
       channelScrapeRuns: {
         where: {
@@ -224,7 +462,7 @@ async function readOwned(tx: Prisma.TransactionClient, input: OwnedInput) {
         include: {
           chunks: {
             orderBy: [{ kind: 'asc' }, { sequence: 'asc' }],
-            select: chunkSelect,
+            select: chunkSelectForRead,
           },
         },
       },
@@ -233,6 +471,24 @@ async function readOwned(tx: Prisma.TransactionClient, input: OwnedInput) {
   const staging = owner?.channelScrapeRuns[0];
   if (!owner || !staging || !owner.expiresAt || !owner.idempotencyKey)
     throw new NotFoundException('Catalog attempt not found');
+  let chunks = staging.chunks;
+  if (!includePayload) {
+    const legacyChunkIds = chunks
+      .filter((chunk) => !hasCompactProjection(chunk.publicationJson))
+      .map((chunk) => chunk.id);
+    if (legacyChunkIds.length > 0) {
+      const legacyChunks = await tx.channelScrapeChunk.findMany({
+        where: {
+          organizationId: input.organizationId,
+          scrapeRunId: staging.id,
+          id: { in: legacyChunkIds },
+        },
+        select: chunkSelect,
+      });
+      const fullById = new Map(legacyChunks.map((chunk) => [chunk.id, chunk]));
+      chunks = chunks.map((chunk) => fullById.get(chunk.id) ?? chunk);
+    }
+  }
   return {
     id: owner.id,
     collectionRunId: staging.id,
@@ -258,11 +514,142 @@ async function readOwned(tx: Prisma.TransactionClient, input: OwnedInput) {
         }
       : null,
     sourceImportRunId: owner.id,
-    chunks: staging.chunks,
+    stage: sourceStage(owner.sourceType),
+    chunks,
   };
 }
+
+/**
+ * Resolve the child from the immutable handoff coordinates on the basics
+ * owner.  The details idempotency key is generated by the basics owner, but
+ * it is not sufficient on its own: verify the child plan's root identity
+ * before exposing its state to a root status read.
+ */
+async function readOwnedDetailsChild(
+  tx: Prisma.TransactionClient,
+  input: DetailsChildInput,
+): Promise<Awaited<ReturnType<typeof readOwned>> | null> {
+  const candidate = await tx.sourceImportRun.findFirst({
+    where: {
+      organizationId: input.organizationId,
+      channelAccountId: input.channelAccountId,
+      parserVersion: CATALOG_PARSER,
+      sourceType: CATALOG_DETAILS_SOURCE,
+      idempotencyKey: input.detailsIdempotencyKey,
+    },
+    select: { id: true, plan: true },
+  });
+  if (!candidate || jsonRecord(candidate.plan)?.rootAttemptId !== input.rootAttemptId)
+    return null;
+  return readOwned(tx, {
+    organizationId: input.organizationId,
+    channelAccountId: input.channelAccountId,
+    runId: candidate.id,
+    stage: 'details',
+    includePayload: input.includePayload,
+  });
+}
+
+async function ownerStage(
+  tx: Prisma.TransactionClient,
+  input: { organizationId: string; channelAccountId: string; runId: string },
+): Promise<CoupangCatalogStage> {
+  const owner = await tx.sourceImportRun.findFirst({
+    where: {
+      id: input.runId,
+      organizationId: input.organizationId,
+      channelAccountId: input.channelAccountId,
+      parserVersion: CATALOG_PARSER,
+      sourceType: { in: [catalogSourceForStage('full'), catalogSourceForStage('basics'), catalogSourceForStage('details')] },
+    },
+    select: { sourceType: true },
+  });
+  if (!owner) throw new NotFoundException('Catalog attempt not found');
+  return sourceStage(owner.sourceType);
+}
+
+function sourceStage(sourceType: string): CoupangCatalogStage {
+  if (sourceType === catalogSourceForStage('basics')) return 'basics';
+  if (sourceType === catalogSourceForStage('details')) return 'details';
+  return 'full';
+}
+
+function assertCatalogChunkKindForStage(
+  stage: CoupangCatalogStage,
+  kind: string,
+): void {
+  const allowed = stage === 'basics'
+    ? ['discovery_page', 'listing_basics', 'manifest_confirmation']
+    : stage === 'details'
+      ? ['discovery_page', 'full_details', 'detail_manifest_confirmation']
+      : ['discovery_page', 'product_details', 'manifest_confirmation'];
+  if (!allowed.includes(kind)) {
+    throw new ConflictException(`Catalog chunk kind ${kind} is not valid for ${stage} stage`);
+  }
+}
+
 function jsonRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
+}
+
+function hasCompactProjection(value: unknown): boolean {
+  return jsonRecord(value)?.projection !== undefined;
+}
+
+/** Store only identifiers/counts/manifests for status reads. Full payloads stay
+ * available in the chunk row for final hash validation and publication. */
+function compactChunkProjection(kind: string, payload: unknown): Record<string, unknown> {
+  const record = jsonRecord(payload) ?? {};
+  if (kind === 'discovery_page') {
+    const items = Array.isArray(record.items) ? record.items : [];
+    return {
+      kind,
+      page: record.page,
+      manifest: record.manifest,
+      items: items.flatMap((item) => {
+        const row = jsonRecord(item);
+        const ordinal = row?.ordinal;
+        const productId = jsonRecord(row?.product)?.externalProductId;
+        const externalProductId = typeof row?.externalProductId === 'string'
+          ? row.externalProductId
+          : productId;
+        return typeof ordinal === 'number' && typeof externalProductId === 'string'
+          ? [{ ordinal, externalProductId, saleStatus: row?.saleStatus ?? null }]
+          : [];
+      }),
+    };
+  }
+  if (kind === 'manifest_confirmation' || kind === 'detail_manifest_confirmation') {
+    return { kind, manifest: record.manifest };
+  }
+  if (kind === 'listing_basics' || kind === 'product_details' || kind === 'full_details') {
+    const products = Array.isArray(record.products) ? record.products : [];
+    return {
+      kind,
+      startOrdinal: record.startOrdinal,
+      products: products.flatMap((item) => {
+        const row = jsonRecord(item);
+        const product = jsonRecord(row?.product);
+        const ordinal = row?.ordinal;
+        const externalProductId = product?.externalProductId;
+        const options = Array.isArray(product?.options) ? product.options : [];
+        const media = (Array.isArray(product?.media) ? product.media.length : 0) +
+          options.reduce((sum, option) => {
+            const optionRecord = jsonRecord(option);
+            return sum + (Array.isArray(optionRecord?.media) ? optionRecord.media.length : 0);
+          }, 0);
+        return typeof ordinal === 'number' && typeof externalProductId === 'string'
+          ? [{
+              ordinal,
+              externalProductId,
+              optionCount: options.length,
+              mediaCount: media,
+            }]
+          : [];
+      }),
+    };
+  }
+  return { kind };
 }

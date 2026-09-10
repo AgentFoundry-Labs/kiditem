@@ -1,6 +1,6 @@
+import type { ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, renderHook } from '@testing-library/react';
-import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createPurchaseOrderSubmissionIdempotencyKey,
@@ -19,6 +19,15 @@ vi.mock('../lib/purchase-orders-api', async (importOriginal) => {
     }),
   };
 });
+
+const sourceOwner = vi.hoisted(() => ({ start: vi.fn() }));
+vi.mock('@/app/(inventory)/_shared/sellpia-inventory-source-owner', () => ({
+  useSellpiaInventorySourceOwner: () => ({
+    start: sourceOwner.start,
+    state: null,
+    isStarting: false,
+  }),
+}));
 
 describe('usePurchaseOrderSubmission', () => {
   let queryClient: QueryClient;
@@ -48,7 +57,10 @@ describe('usePurchaseOrderSubmission', () => {
         purchaseOrderId: 'po-1',
         idempotencyKey: 'caller-key-1',
       },
-      { onRefreshRequested: expect.any(Function) },
+      {
+        dependencies: { requestRefresh: expect.any(Function) },
+        onRefreshRequested: expect.any(Function),
+      },
     );
     const options = vi.mocked(submitPurchaseOrderWithFreshnessRecovery)
       .mock.calls[0]?.[1];

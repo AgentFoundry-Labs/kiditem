@@ -153,7 +153,6 @@ describe('Dashboard page (RTL)', () => {
       if (path === '/api/dashboard/ad') return Promise.resolve(successAd);
       if (path === '/api/dashboard/inventory') return Promise.resolve(successInv);
       if (path.startsWith('/api/dashboard/trend')) return Promise.resolve(successTrend);
-      if (path === '/api/action-tasks') return Promise.resolve([]);
       return Promise.resolve(null);
     });
     renderPage();
@@ -170,7 +169,6 @@ describe('Dashboard page (RTL)', () => {
       if (path === '/api/dashboard/ad') return Promise.resolve(successAd);
       if (path === '/api/dashboard/inventory') return Promise.resolve(successInv);
       if (path.startsWith('/api/dashboard/trend')) return Promise.resolve(successTrend);
-      if (path === '/api/action-tasks') return Promise.resolve([]);
       return Promise.resolve(null);
     });
 
@@ -190,7 +188,6 @@ describe('Dashboard page (RTL)', () => {
       if (path.startsWith('/api/dashboard/trend')) {
         return Promise.reject(new ApiError(502, 'BAD_GATEWAY', '502 Bad Gateway'));
       }
-      if (path === '/api/action-tasks') return Promise.resolve([]);
       return Promise.resolve(null);
     });
     renderPage();
@@ -207,7 +204,6 @@ describe('Dashboard page (RTL)', () => {
       if (path === '/api/dashboard/ad') return Promise.resolve(successAd);
       if (path === '/api/dashboard/inventory') return Promise.resolve(successInv);
       if (path.startsWith('/api/dashboard/trend')) return Promise.resolve(successTrend);
-      if (path === '/api/action-tasks') return Promise.resolve([]);
       return Promise.resolve(null);
     });
     renderPage();
@@ -227,7 +223,6 @@ describe('Dashboard page (RTL)', () => {
       if (path.startsWith('/api/dashboard/trend')) {
         return Promise.reject(new ZodError([{ code: 'invalid_type', expected: 'number', received: 'string', path: [0, 'revenue'], message: 'Expected number' } as never]));
       }
-      if (path === '/api/action-tasks') return Promise.resolve([]);
       return Promise.resolve(null);
     });
     renderPage();
@@ -274,7 +269,6 @@ describe('Dashboard page (RTL)', () => {
       if (path === '/api/dashboard/ad') return Promise.resolve(successAd);
       if (path === '/api/dashboard/inventory') return Promise.resolve(successInv);
       if (path.startsWith('/api/dashboard/trend')) return Promise.resolve(successTrend);
-      if (path === '/api/action-tasks') return Promise.resolve([]);
       return Promise.resolve(null);
     });
     renderPage();

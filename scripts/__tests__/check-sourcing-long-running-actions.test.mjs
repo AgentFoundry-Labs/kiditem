@@ -350,7 +350,7 @@ test('rejects an indirect keywords-to-recommendations Naver provider helper brid
   );
 });
 
-test('rejects the direct recommendation refresh HTTP facade', () => {
+test('does not require an Operation handler for explicit owner recommendation refresh', () => {
   const result = analyzeSourcingLongRunningActions({
     webSources: [],
     sourcingServerSources: [{
@@ -359,8 +359,19 @@ test('rejects the direct recommendation refresh HTTP facade', () => {
     }],
   });
 
-  assert.deepEqual(
-    result.findings.map((finding) => finding.rule),
-    ['direct_recommendation_refresh_from_http_controller'],
-  );
+  assert.deepEqual(result.findings, []);
+});
+
+test('allows the Taobao helper that starts a server source-owner attempt', () => {
+  const result = analyzeSourcingLongRunningActions({
+    webSources: [{
+      path: 'apps/web/src/app/(sourcing-ai)/sourcing-ai/market/lib/live-commerce-api.ts',
+      source: `export function collectTaobaoLive(input, idempotencyKey) {
+        return apiClient.post('/api/sourcing/live-commerce/taobao/attempts', input,
+          { headers: { 'Idempotency-Key': idempotencyKey } });
+      }`,
+    }],
+    sourcingServerSources: [],
+  });
+  assert.deepEqual(result.findings, []);
 });

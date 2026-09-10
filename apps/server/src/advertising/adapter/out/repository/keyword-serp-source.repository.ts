@@ -31,6 +31,7 @@ import { runWithAdIngestTransaction } from "./ad-ingest-transaction-context";
 const SOURCE = "coupang_keyword_serp";
 const PARSER = "keyword-serp-v1";
 const TTL_MS = 10 * 60_000;
+const BATCH_CANCEL_CHUNK_SIZE = 50;
 type Attempt = Prisma.SourceImportRunGetPayload<{}>;
 type Tx = Prisma.TransactionClient;
 const json = (value: unknown) => value as Prisma.InputJsonValue;
@@ -179,6 +180,47 @@ export class KeywordSerpSourceRepository {
         return this.batchView(tx, org, anchor);
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
+  }
+
+  async cancelBatch(org: string, key: string): Promise<KeywordSerpBatch> {
+    return this.prisma.$transaction(
+      async (tx) => {
+        await this.lock(tx, org);
+        const anchor = await tx.sourceImportRun.findFirst({
+          where: { ...scope(org), idempotencyKey: key },
+        });
+        if (!anchor)
+          throw new NotFoundException("SERP_BATCH_ADMISSION_NOT_FOUND");
+        const admission = KeywordSerpSourcePlanSchema.parse(anchor.plan).admission;
+        if (
+          anchor.requestFingerprint !== hash({ mode: "enabled_trackers" }) ||
+          !admission ||
+          admission.attemptIds[0] !== anchor.id
+        )
+          throw new ConflictException("SOURCE_IDEMPOTENCY_KEY_REUSED");
+        const rows = await tx.sourceImportRun.findMany({
+          where: { ...scope(org), id: { in: admission.attemptIds } },
+        });
+        const byId = new Map(rows.map((row) => [row.id, row]));
+        if (rows.length !== admission.attemptIds.length)
+          throw new NotFoundException("SERP_BATCH_MEMBER_NOT_FOUND");
+        const pending = admission.attemptIds
+          .map((id) => byId.get(id)!)
+          .filter((row) => row.status === "running")
+          .slice(0, BATCH_CANCEL_CHUNK_SIZE);
+        for (const row of pending) {
+          await this.failIn(
+            tx,
+            row,
+            expired(row) ? "ATTEMPT_EXPIRED" : "COLLECTION_CANCELLED",
+            expired(row)
+              ? "Keyword SERP collection expired."
+              : "키워드 순위 수집이 취소되었습니다.",
+          );
+        }
+        return this.batchView(tx, org, anchor);
+      },
     );
   }
 
@@ -448,16 +490,18 @@ export class KeywordSerpSourceRepository {
         ...(checksum ? { contentChecksum: checksum } : {}),
       },
     });
-    await this.alerts.upsertSourceFailure(tx, {
-      organizationId: row.organizationId,
-      sourceType: SOURCE,
-      attemptId: row.id,
-      dedupeKey: alertKey(row.rankKeyword!),
-      severity: "error",
-      title: "쿠팡 키워드 순위 수집 실패",
-      message: `${code}: ${message}`.slice(0, 300),
-      href: "/advertising/keyword-rank",
-    });
+    if (code !== "COLLECTION_CANCELLED") {
+      await this.alerts.upsertSourceFailure(tx, {
+        organizationId: row.organizationId,
+        sourceType: SOURCE,
+        attemptId: row.id,
+        dedupeKey: alertKey(row.rankKeyword!),
+        severity: "error",
+        title: "쿠팡 키워드 순위 수집 실패",
+        message: `${code}: ${message}`.slice(0, 300),
+        href: "/rank-tracking",
+      });
+    }
     return failed;
   }
 

@@ -1,7 +1,6 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import { Test } from '@nestjs/testing';
 import { EventEmitterModule } from '@nestjs/event-emitter';
-import type { PrismaClient } from '@prisma/client';
 import { AdvertisingModule } from '../advertising.module';
 import { AdActionService } from '../application/service/ad-action.service';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -12,10 +11,12 @@ import {
   TEST_ORGANIZATION_ID,
   OTHER_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
+import type { PrismaClient } from '@prisma/client';
 
 describe('AdAction flow (PG integration)', () => {
   let prisma: PrismaClient;
   let adActionService: AdActionService;
+  let inventoryImportRunByOrganization = new Map<string, string>();
 
   async function seedListingWithOption(params: {
     organizationId: string;
@@ -73,6 +74,7 @@ describe('AdAction flow (PG integration)', () => {
             name: `Sellpia ${unique}`,
             currentStock: params.sellableStock!,
             purchasePrice: params.costPrice ?? null,
+            lastImportRunId: inventoryImportRunByOrganization.get(params.organizationId),
           },
         })
       : null;
@@ -112,10 +114,12 @@ describe('AdAction flow (PG integration)', () => {
   }
 
   /**
-   * H3 — seed `ChannelAdTargetDailySnapshot` (the new source-of-truth) instead
-   * of legacy `AdSnapshot`. Maps the legacy `seedSnapshot` shape onto the new
-   * target-daily columns (pageType → targetType, etc.). Each row uses today's
-   * KST businessDate so the latest-per-targetKey query lands it.
+   * H3 — seed `ChannelAdTargetDailySnapshot` (the new source-of-truth) with a
+   * completed named source-owner run. Maps the legacy `seedSnapshot` shape
+   * onto the new target-daily columns (pageType → targetType, etc.). Each row
+   * uses today's KST businessDate so the latest-per-targetKey query lands it.
+   * The action reader intentionally ignores rows without a published owner
+   * attempt, so this fixture must model the production provenance boundary.
    */
   async function seedSnapshot(params: {
     organizationId: string;
@@ -152,18 +156,55 @@ describe('AdAction flow (PG integration)', () => {
         select: { channelAccountId: true },
       })
     ).channelAccountId;
-    const campaignIdentity = params.campaignName
-      ? `campaign:test:${params.campaignName}`
-      : null;
+    const campaignName = params.campaignName ?? 'C';
+    const campaignIdentity =
+      params.pageType === 'keyword' || params.campaignName
+        ? `campaign:test:${campaignName}`
+        : null;
+    const adGroupId =
+      params.pageType === 'keyword' ? `ad-group:test:${campaignName}` : null;
 
     // targetKey shape per util/ad-target-key.ts
     const targetKeySuffix =
       params.pageType === 'keyword'
-        ? `keyword:${params.campaignName ?? 'C'}::${params.keyword ?? params.externalId}`
+        ? `keyword:${campaignName}::${params.keyword ?? params.externalId}`
         : params.pageType === 'product'
           ? `product:${params.externalId}`
-          : `campaign:${params.campaignName ?? params.externalId}`;
+          : `campaign:${campaignName}`;
     const targetKey = `account:${channelAccountId}:${targetKeySuffix}`;
+
+    const sourceImportRun = await prisma.sourceImportRun.create({
+      data: {
+        organizationId: params.organizationId,
+        channelAccountId,
+        sourceType:
+          params.pageType === 'keyword'
+            ? 'coupang_ad_keyword'
+            : 'coupang_ad_campaign',
+        parserVersion:
+          params.pageType === 'keyword' ? 'ad-keyword-v1' : 'ad-campaign-v1',
+        status: 'completed',
+        importedAt: new Date(),
+        plan:
+          params.pageType === 'keyword'
+            ? { captureMode: 'keyword' }
+            : { captureMode: 'campaign_sweep' },
+        qualityReport:
+          params.pageType === 'keyword'
+            ? {
+                rosterCapturedAt: new Date().toISOString(),
+                keywordCoverage: [
+                  {
+                    campaignIdentity,
+                    adGroupId,
+                    capturedAt: new Date().toISOString(),
+                    businessDate: today.toISOString().slice(0, 10),
+                  },
+                ],
+              }
+            : { campaignDescriptors: [] },
+      },
+    });
 
     // When the test passes `roas` without an explicit spend, default spend to
     // 1000 so `recomputeRoas(revenue, spend)` returns the intended ratio.
@@ -180,6 +221,7 @@ describe('AdAction flow (PG integration)', () => {
       data: {
         organizationId: params.organizationId,
         channelAccountId,
+        sourceImportRunId: sourceImportRun.id,
         channel: 'coupang',
         businessDate: today,
         targetType: params.pageType,
@@ -189,6 +231,7 @@ describe('AdAction flow (PG integration)', () => {
         externalId: params.externalId,
         campaignName: params.campaignName ?? null,
         campaignIdentity,
+        adGroupId,
         keyword: params.keyword ?? null,
         status: params.status ?? null,
         currentBid: params.currentBid ?? null,
@@ -222,18 +265,38 @@ describe('AdAction flow (PG integration)', () => {
   });
 
   beforeEach(async () => {
+    vi.useRealTimers();
     await resetDb(prisma);
     await seedBaseFixture(prisma);
-    await prisma.sellpiaInventoryState.createMany({
-      data: [TEST_ORGANIZATION_ID, OTHER_ORGANIZATION_ID].map(
-        (organizationId) => ({
+    inventoryImportRunByOrganization = new Map();
+    for (const organizationId of [TEST_ORGANIZATION_ID, OTHER_ORGANIZATION_ID]) {
+      const verifiedAt = new Date();
+      const inventoryRun = await prisma.sourceImportRun.create({
+        data: {
+          organizationId,
+          sourceType: 'sellpia_inventory',
+          channelAccountId: null,
+          fileName: 'advertising-action-inventory.json',
+          fileHash: `advertising-action-inventory-${organizationId}`,
+          status: 'completed',
+          rowCount: 0,
+          importedAt: verifiedAt,
+          lastVerifiedAt: verifiedAt,
+          verificationCount: 1,
+          freshnessGeneration: 1n,
+        },
+      });
+      inventoryImportRunByOrganization.set(organizationId, inventoryRun.id);
+      await prisma.sellpiaInventoryState.create({
+        data: {
           organizationId,
           requestedGeneration: 1n,
           verifiedGeneration: 1n,
-          lastVerifiedAt: new Date(),
-        }),
-      ),
-    });
+          lastVerifiedAt: verifiedAt,
+          lastCompletedImportRunId: inventoryRun.id,
+        },
+      });
+    }
   });
 
   describe('generateActions — 5 rules', () => {

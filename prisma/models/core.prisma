@@ -16,6 +16,8 @@ model Organization {
   sellpiaManualMatchSnapshots     SellpiaManualMatchSnapshot[]
   sellpiaManualMatchAliases       SellpiaManualMatchAlias[]
   sourceImportRuns                SourceImportRun[]
+  orderCollectionArtifacts        OrderCollectionArtifact[]
+  reviewCollectionChunks          ReviewCollectionChunk[]
   rocketPoCatalogSnapshots        RocketPoCatalogSnapshot[]
   rocketPoCatalogLines            RocketPoCatalogLine[]
   orders                          Order[]
@@ -32,9 +34,6 @@ model Organization {
   thumbnailTrackingDailySnapshots ThumbnailTrackingDailySnapshot[]
   reviews                         Review[]
   alerts                          Alert[]
-  operationRuns                   OperationRun[]
-  operationRunCheckpoints         OperationRunCheckpoint[]
-  operationSchedules              OperationSchedule[]
   rulesEvaluationApplications     RulesEvaluationApplication[]
 
   // Sourcing & Content
@@ -53,9 +52,8 @@ model Organization {
   detailPageImageRenderIntents        DetailPageImageRenderIntent[]
   aiDirectJobs                        AiDirectJob[]
 
-  // Workflow & Agent
-  workflowTemplates WorkflowTemplate[]
-  activityEvents    ActivityEvent[]
+  // Durable domain activity
+  activityEvents ActivityEvent[]
 
   // Agent OS — exact capability mutation admission and replay receipts.
   capabilityInvocations CapabilityInvocation[]
@@ -116,17 +114,17 @@ model Organization {
   actionTasks ActionTask[]
 
   // Product operations, Sellpia physical items, and channel catalogs
-  masterProducts                          MasterProduct[]
-  masterProductAbcFormulaVersions         MasterProductAbcFormulaVersion[]
-  masterProductAbcFormulaState            MasterProductAbcFormulaState?
-  masterProductAbcEvaluations             MasterProductAbcEvaluation[]
-  masterProductAbcGradeHistories          MasterProductAbcGradeHistory[]
-  sellpiaInventorySkus                    SellpiaInventorySku[]
-  channelListings                         ChannelListing[]
-  channelListingOptions                   ChannelListingOption[]
-  channelListingOptionInventoryComponents ChannelListingOptionInventoryComponent[]
+  masterProducts                              MasterProduct[]
+  masterProductAbcFormulaVersions             MasterProductAbcFormulaVersion[]
+  masterProductAbcFormulaState                MasterProductAbcFormulaState?
+  masterProductAbcEvaluations                 MasterProductAbcEvaluation[]
+  masterProductAbcGradeHistories              MasterProductAbcGradeHistory[]
+  sellpiaInventorySkus                        SellpiaInventorySku[]
+  channelListings                             ChannelListing[]
+  channelListingOptions                       ChannelListingOption[]
+  channelListingOptionInventoryComponents     ChannelListingOptionInventoryComponent[]
   channelRegistrationOwnerIdempotencyReceipts ChannelRegistrationOwnerIdempotencyReceipt[] @relation("ChannelRegistrationOwnerIdempotencyReceiptOrganization")
-  channelListingDeletionOperations        ChannelListingDeletionOperation[]        @relation("ChannelListingDeletionOperationOrganization")
+  channelListingDeletionOperations            ChannelListingDeletionOperation[]            @relation("ChannelListingDeletionOperationOrganization")
 
   // Channels — market-data snapshots (Wave C0)
   channelScrapeRuns                  ChannelScrapeRun[]
@@ -136,8 +134,8 @@ model Organization {
   channelListingOptionDailySnapshots ChannelListingOptionDailySnapshot[]
 
   // Channels — daily fact extensions (Hard rewrite H1)
-  channelAdTargetDailySnapshots   ChannelAdTargetDailySnapshot[]
-  channelAccountDailyKpiSnapshots ChannelAccountDailyKpiSnapshot[]
+  channelAdTargetDailySnapshots       ChannelAdTargetDailySnapshot[]
+  channelAccountDailyKpiSnapshots     ChannelAccountDailyKpiSnapshot[]
   channelAdListingProductMonthlyFacts ChannelAdListingProductMonthlyFact[]
 
   // Channels — Coupang keyword and competitor rank tracking
@@ -189,23 +187,22 @@ model Organization {
 /// @namespace Core
 /// @describe Human or system account. Organization membership is the source of truth.
 model User {
-  id              String    @id @default(uuid()) @db.Uuid
-  email           String    @unique
-  name            String
-  passwordHash    String?   @map("password")
-  role            String    @default("member") // global/default role; per-organization role lives on OrganizationMembership.
-  type            String    @default("human")
-  team            String?
-  avatarUrl       String?   @map("avatar_url")
-  isActive        Boolean   @default(true) @map("is_active")
-  lastLoginAt     DateTime? @map("last_login_at") @db.Timestamptz
-  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  id           String    @id @default(uuid()) @db.Uuid
+  email        String    @unique
+  name         String
+  passwordHash String?   @map("password")
+  role         String    @default("member") // global/default role; per-organization role lives on OrganizationMembership.
+  type         String    @default("human")
+  team         String?
+  avatarUrl    String?   @map("avatar_url")
+  isActive     Boolean   @default(true) @map("is_active")
+  lastLoginAt  DateTime? @map("last_login_at") @db.Timestamptz
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   memberships                                OrganizationMembership[]
   authSessions                               AuthSession[]
   invitedOrganizationMemberships             OrganizationMembership[]                       @relation("OrganizationMembershipInviter")
-  triggeredWorkflowRuns                      WorkflowRun[]                                  @relation("WorkflowRunTriggeredBy")
   triggeredThumbnailGenerations              ThumbnailGeneration[]                          @relation("ThumbnailGenerationTriggeredBy")
   thumbnailGenerationEvents                  ThumbnailGenerationEvent[]                     @relation("ThumbnailGenerationEventActor")
   triggeredContentGenerations                ContentGeneration[]                            @relation("ContentGenerationTriggeredBy")
@@ -228,8 +225,6 @@ model User {
   requestedDetailPageImageRenderIntents      DetailPageImageRenderIntent[]                  @relation("DetailPageImageRenderIntentRequestedBy")
   claimedDetailPageImageRenderIntents        DetailPageImageRenderIntent[]                  @relation("DetailPageImageRenderIntentClaimedBy")
   actorAlerts                                Alert[]                                        @relation("AlertActor")
-  requestedOperationRuns                     OperationRun[]                                 @relation("OperationRunRequestedBy")
-  createdOperationSchedules                  OperationSchedule[]                            @relation("OperationScheduleCreatedBy")
   assignedActionTasks                        ActionTask[]                                   @relation("ActionTaskAssignee")
   activeSellpiaInventoryStates               SellpiaInventoryState[]                        @relation("SellpiaInventoryStateActiveSyncOwner")
   createdSellpiaOrderTransmissionIntents     SellpiaOrderTransmissionIntent[]               @relation("SellpiaOrderTransmissionIntentCreator")
@@ -330,21 +325,21 @@ model ChannelAccount {
   createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization                     Organization                      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  listings                         ChannelListing[]
-  sourceImportRuns                 SourceImportRun[]
-  productPreparations              ProductPreparation[]
-  productRegistrationExecutions    ProductRegistrationExecution[]    @relation("ChannelAccountProductRegistrationExecutions")
-  channelListingDeletionOperations ChannelListingDeletionOperation[] @relation("ChannelAccountListingDeletionOperations")
-  orders                           Order[]
-  orderReturns                     OrderReturn[]
-  channelScrapeRuns                ChannelScrapeRun[]
-  channelAdTargetDailySnapshots    ChannelAdTargetDailySnapshot[]
+  organization                        Organization                         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  listings                            ChannelListing[]
+  sourceImportRuns                    SourceImportRun[]
+  productPreparations                 ProductPreparation[]
+  productRegistrationExecutions       ProductRegistrationExecution[]       @relation("ChannelAccountProductRegistrationExecutions")
+  channelListingDeletionOperations    ChannelListingDeletionOperation[]    @relation("ChannelAccountListingDeletionOperations")
+  orders                              Order[]
+  orderReturns                        OrderReturn[]
+  channelScrapeRuns                   ChannelScrapeRun[]
+  channelAdTargetDailySnapshots       ChannelAdTargetDailySnapshot[]
   channelAdListingProductMonthlyFacts ChannelAdListingProductMonthlyFact[]
-  channelAccountDailyKpiSnapshots  ChannelAccountDailyKpiSnapshot[]
-  rocketPurchaseConfirmations      RocketPurchaseConfirmation[]
-  rocketPoCatalogSnapshots         RocketPoCatalogSnapshot[]
-  sourcingLaunchCandidates         SourcingLaunchCandidate[]
+  channelAccountDailyKpiSnapshots     ChannelAccountDailyKpiSnapshot[]
+  rocketPurchaseConfirmations         RocketPurchaseConfirmation[]
+  rocketPoCatalogSnapshots            RocketPoCatalogSnapshot[]
+  sourcingLaunchCandidates            SourcingLaunchCandidate[]
 
   @@unique([organizationId, channel, externalAccountId])
   @@unique([id, organizationId], map: "channel_accounts_id_org_key")
@@ -397,31 +392,35 @@ model SourceImportRun {
   organization                            Organization                             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   channelAccount                          ChannelAccount?                          @relation(fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
   manualFreshExportConfirmer              User?                                    @relation("SourceImportRunManualFreshExportConfirmer", fields: [manualFreshExportConfirmedBy], references: [id], onDelete: SetNull)
-  sellpiaProductMonthlySales               SellpiaProductMonthlySales[]              @relation("SellpiaProductMonthlySourceImport")
+  sellpiaProductMonthlySales              SellpiaProductMonthlySales[]             @relation("SellpiaProductMonthlySourceImport")
   sellpiaInventorySkus                    SellpiaInventorySku[]                    @relation("SellpiaInventorySkuLastImport")
   channelProducts                         ChannelListing[]                         @relation("ChannelProductLastImport")
   channelSkus                             ChannelListingOption[]                   @relation("ChannelSkuLastImport")
   channelScrapeRuns                       ChannelScrapeRun[]
-  keywordSerpCaptures                     ChannelScrapeSnapshot[]                 @relation("KeywordSerpCapture")
-  keywordRankDailyProjections             CoupangKeywordRankDailySnapshot[]       @relation("KeywordRankSource")
-  keywordSerpDailyProjections             CoupangKeywordSerpDailySnapshot[]       @relation("KeywordSerpSource")
-  wingRankDailyProjections                CoupangWingSalesRankDailySnapshot[]     @relation("WingRankSource")
-  adListingProductMonthlyFacts            ChannelAdListingProductMonthlyFact[]       @relation("AdListingProductMonthlyFacts")
-  adTargetDailySnapshots                  ChannelAdTargetDailySnapshot[]             @relation("AdTargetSourceImport")
+  keywordSerpCaptures                     ChannelScrapeSnapshot[]                  @relation("KeywordSerpCapture")
+  keywordRankDailyProjections             CoupangKeywordRankDailySnapshot[]        @relation("KeywordRankSource")
+  keywordSerpDailyProjections             CoupangKeywordSerpDailySnapshot[]        @relation("KeywordSerpSource")
+  wingRankDailyProjections                CoupangWingSalesRankDailySnapshot[]      @relation("WingRankSource")
+  adListingProductMonthlyFacts            ChannelAdListingProductMonthlyFact[]     @relation("AdListingProductMonthlyFacts")
+  adTargetDailySnapshots                  ChannelAdTargetDailySnapshot[]           @relation("AdTargetSourceImport")
   lastCompletedSellpiaInventoryStates     SellpiaInventoryState[]                  @relation("SellpiaInventoryStateLastCompletedRun")
   rocketPurchaseConfirmations             RocketPurchaseConfirmation[]
   rocketPurchaseConfirmationTransmissions RocketPurchaseConfirmationTransmission[]
   rocketPoCatalogSnapshot                 RocketPoCatalogSnapshot?
   coupangShipmentDateSummaries            CoupangShipmentDateSummary[]
+  sellpiaSalesDailySnapshots               SellpiaSalesDailySnapshot[]    @relation("SellpiaSalesSource")
   orders                                  Order[]
-  publishedSellpiaAbcFormulaStates        MasterProductAbcFormulaState[] @relation("MasterProductAbcFormulaStatePublishedSellpia")
-  publishedAdvertisingAbcFormulaStates    MasterProductAbcFormulaState[] @relation("MasterProductAbcFormulaStatePublishedAdvertising")
-  sellpiaAbcEvaluations                   MasterProductAbcEvaluation[]   @relation("MasterProductAbcEvaluationSellpiaSourceImport")
-  advertisingAbcEvaluations               MasterProductAbcEvaluation[]   @relation("MasterProductAbcEvaluationAdvertisingSourceImport")
-  previousSellpiaAbcGradeHistories        MasterProductAbcGradeHistory[] @relation("MasterProductAbcGradeHistoryPreviousSellpiaSourceImport")
-  nextSellpiaAbcGradeHistories            MasterProductAbcGradeHistory[] @relation("MasterProductAbcGradeHistoryNextSellpiaSourceImport")
-  previousAdvertisingAbcGradeHistories    MasterProductAbcGradeHistory[] @relation("MasterProductAbcGradeHistoryPreviousAdvertisingSourceImport")
-  nextAdvertisingAbcGradeHistories        MasterProductAbcGradeHistory[] @relation("MasterProductAbcGradeHistoryNextAdvertisingSourceImport")
+  orderCollectionArtifact                 OrderCollectionArtifact?
+  reviewCollectionChunks                  ReviewCollectionChunk[]
+  reviewCollectionFacts                   Review[]                    @relation("ReviewCollectionFacts")
+  publishedSellpiaAbcFormulaStates        MasterProductAbcFormulaState[]           @relation("MasterProductAbcFormulaStatePublishedSellpia")
+  publishedAdvertisingAbcFormulaStates    MasterProductAbcFormulaState[]           @relation("MasterProductAbcFormulaStatePublishedAdvertising")
+  sellpiaAbcEvaluations                   MasterProductAbcEvaluation[]             @relation("MasterProductAbcEvaluationSellpiaSourceImport")
+  advertisingAbcEvaluations               MasterProductAbcEvaluation[]             @relation("MasterProductAbcEvaluationAdvertisingSourceImport")
+  previousSellpiaAbcGradeHistories        MasterProductAbcGradeHistory[]           @relation("MasterProductAbcGradeHistoryPreviousSellpiaSourceImport")
+  nextSellpiaAbcGradeHistories            MasterProductAbcGradeHistory[]           @relation("MasterProductAbcGradeHistoryNextSellpiaSourceImport")
+  previousAdvertisingAbcGradeHistories    MasterProductAbcGradeHistory[]           @relation("MasterProductAbcGradeHistoryPreviousAdvertisingSourceImport")
+  nextAdvertisingAbcGradeHistories        MasterProductAbcGradeHistory[]           @relation("MasterProductAbcGradeHistoryNextAdvertisingSourceImport")
 
   @@unique([organizationId, sourceType, channelAccountId, fileHash], map: "source_import_runs_org_source_account_hash_key", where: raw("channel_account_id IS NOT NULL AND file_hash IS NOT NULL"))
   @@unique([organizationId, sourceType, fileHash], map: "source_import_runs_org_source_hash_null_account_key", where: raw("channel_account_id IS NULL AND file_hash IS NOT NULL"))
@@ -429,10 +428,20 @@ model SourceImportRun {
   @@unique([organizationId, sourceType, idempotencyKey], map: "source_import_runs_source_idempotency_key", where: raw("idempotency_key IS NOT NULL"))
   @@unique([organizationId, sourceType, rankKeyword], map: "source_import_runs_keyword_serp_running_key", where: raw("source_type IN ('coupang_keyword_serp', 'coupang_wing_rank') AND status = 'running'"))
   @@unique([organizationId, sourceType, rankKeyword, freshnessGeneration], map: "source_import_runs_keyword_serp_generation_key", where: raw("source_type IN ('coupang_keyword_serp', 'coupang_wing_rank') AND freshness_generation IS NOT NULL"))
+  @@unique([organizationId, sourceType, channelAccountId], map: "source_import_runs_ad_keyword_running_key", where: raw("source_type = 'coupang_ad_keyword' AND status = 'running'"))
+  @@unique([organizationId, sourceType, channelAccountId, freshnessGeneration], map: "source_import_runs_ad_keyword_generation_key", where: raw("source_type = 'coupang_ad_keyword' AND freshness_generation IS NOT NULL"))
+  @@unique([organizationId, sourceType, channelAccountId], map: "source_import_runs_ad_campaign_running_key", where: raw("source_type = 'coupang_ad_campaign' AND status = 'running'"))
+  @@unique([organizationId, sourceType, channelAccountId, freshnessGeneration], map: "source_import_runs_ad_campaign_generation_key", where: raw("source_type = 'coupang_ad_campaign' AND freshness_generation IS NOT NULL"))
+  @@unique([organizationId, sourceType], map: "source_import_runs_ads_daily_running_key", where: raw("source_type = 'coupang_ads_daily' AND status = 'running'"))
+  @@unique([organizationId, sourceType, channelAccountId, freshnessGeneration], map: "source_import_runs_ads_daily_generation_key", where: raw("source_type = 'coupang_ads_daily' AND channel_account_id IS NOT NULL AND freshness_generation IS NOT NULL"))
+  @@unique([organizationId, sourceType, channelAccountId], map: "source_import_runs_wing_itemwinner_running_key", where: raw("source_type = 'coupang_wing_itemwinner' AND channel_account_id IS NOT NULL AND status = 'running'"))
+  @@unique([organizationId, sourceType, channelAccountId, freshnessGeneration], map: "source_import_runs_wing_itemwinner_generation_key", where: raw("source_type = 'coupang_wing_itemwinner' AND channel_account_id IS NOT NULL AND freshness_generation IS NOT NULL"))
   @@unique([organizationId, sourceType], map: "source_import_runs_sellpia_profitability_running_key", where: raw("source_type = 'sellpia_product_profitability' AND status = 'running'"))
+  @@unique([organizationId, sourceType], map: "source_import_runs_sellpia_sales_running_key", where: raw("source_type = 'sellpia_sales_daily' AND status = 'running'"))
   @@unique([organizationId, sourceType], map: "source_import_runs_coupang_ad_profitability_running_key", where: raw("source_type = 'coupang_ad_profitability' AND status = 'running'"))
   @@unique([organizationId, sourceType, publicationSequence], map: "source_import_runs_org_source_publication_key", where: raw("publication_sequence IS NOT NULL"))
   @@unique([organizationId, sourceType], map: "source_import_runs_shipment_summary_running_key", where: raw("source_type = 'coupang_shipment_summary' AND status = 'running'"))
+  @@unique([organizationId, sourceType], map: "source_import_runs_coupang_reviews_running_key", where: raw("source_type = 'coupang_reviews' AND status = 'running'"))
   @@unique([organizationId, sourceType, channelAccountId], map: "source_import_runs_rocket_po_running_key", where: raw("source_type = 'coupang_rocket_po_catalog' AND status = 'running'"))
   @@unique([organizationId, sourceType, channelAccountId, freshnessGeneration], map: "source_import_runs_rocket_po_generation_key", where: raw("source_type = 'coupang_rocket_po_catalog' AND freshness_generation IS NOT NULL"))
   @@unique([organizationId, sourceType, freshnessGeneration], map: "source_import_runs_shipment_summary_generation_key", where: raw("source_type = 'coupang_shipment_summary' AND freshness_generation IS NOT NULL"))
@@ -487,15 +496,15 @@ model MasterProduct {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization         Organization                   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  provenanceCandidate  SourcingCandidate?             @relation("SourcingCandidateProvenance")
-  channelListings      ChannelListing[]               @relation("ChannelListingOperationalProduct")
-  originChannelListing ChannelListing?                @relation("ChannelListingOriginProduct", fields: [originChannelListingId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  inventorySkus        SellpiaInventorySku[]          @relation("MasterProductInventorySkus")
-  frozenSellpiaProfitFacts SellpiaProductMonthlySales[] @relation("SellpiaProductMonthlyFrozenMaster")
+  organization                 Organization                         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  provenanceCandidate          SourcingCandidate?                   @relation("SourcingCandidateProvenance")
+  channelListings              ChannelListing[]                     @relation("ChannelListingOperationalProduct")
+  originChannelListing         ChannelListing?                      @relation("ChannelListingOriginProduct", fields: [originChannelListingId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  inventorySkus                SellpiaInventorySku[]                @relation("MasterProductInventorySkus")
+  frozenSellpiaProfitFacts     SellpiaProductMonthlySales[]         @relation("SellpiaProductMonthlyFrozenMaster")
   frozenAdvertisingProfitFacts ChannelAdListingProductMonthlyFact[] @relation("AdFactMasterProduct")
-  abcEvaluation        MasterProductAbcEvaluation?
-  abcGradeHistories    MasterProductAbcGradeHistory[]
+  abcEvaluation                MasterProductAbcEvaluation?
+  abcGradeHistories            MasterProductAbcGradeHistory[]
 
   @@unique([organizationId, code])
   @@unique([originChannelListingId, organizationId])
@@ -532,18 +541,18 @@ model MasterProductAbcFormulaVersion {
 /// @namespace Core
 /// @describe One organization-owned formula and official publication envelope.
 model MasterProductAbcFormulaState {
-  organizationId                           String    @id @map("organization_id") @db.Uuid
-  activeFormulaVersionId                   String?   @map("active_formula_version_id") @db.Uuid
-  formulaRevision                          Int       @default(0) @map("formula_revision")
-  publicationRevision                      Int       @default(0) @map("publication_revision")
-  officialCutoffDate                       DateTime? @map("official_cutoff_date") @db.Date
-  publishedSellpiaSourceImportRunId        String?   @map("published_sellpia_source_import_run_id") @db.Uuid
-  publishedAdvertisingSourceImportRunId    String?   @map("published_advertising_source_import_run_id") @db.Uuid
-  publishedMappingGeneration               BigInt?   @map("published_mapping_generation") @db.BigInt
-  mappingGeneration                        BigInt    @default(0) @map("mapping_generation") @db.BigInt
-  publishedAt                              DateTime? @map("published_at") @db.Timestamptz
-  createdAt                                DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt                                DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  organizationId                        String    @id @map("organization_id") @db.Uuid
+  activeFormulaVersionId                String?   @map("active_formula_version_id") @db.Uuid
+  formulaRevision                       Int       @default(0) @map("formula_revision")
+  publicationRevision                   Int       @default(0) @map("publication_revision")
+  officialCutoffDate                    DateTime? @map("official_cutoff_date") @db.Date
+  publishedSellpiaSourceImportRunId     String?   @map("published_sellpia_source_import_run_id") @db.Uuid
+  publishedAdvertisingSourceImportRunId String?   @map("published_advertising_source_import_run_id") @db.Uuid
+  publishedMappingGeneration            BigInt?   @map("published_mapping_generation") @db.BigInt
+  mappingGeneration                     BigInt    @default(0) @map("mapping_generation") @db.BigInt
+  publishedAt                           DateTime? @map("published_at") @db.Timestamptz
+  createdAt                             DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt                             DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization                        Organization                    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   activeFormulaVersion                MasterProductAbcFormulaVersion? @relation("MasterProductAbcFormulaStateActiveFormula", fields: [activeFormulaVersionId, organizationId], references: [id, organizationId], onDelete: Restrict)
@@ -579,6 +588,10 @@ model MasterProductAbcEvaluation {
   formulaRevision              Int      @map("formula_revision")
   publicationRevision          Int      @map("publication_revision")
   gradeBasisCutoffDate         DateTime @map("grade_basis_cutoff_date") @db.Date
+  /// Normalized verified sale-start provenance used by this evaluation. It is
+  /// nullable only so pre-cutover rows remain readable; new publications must
+  /// always provide it.
+  saleStartDate                DateTime? @map("sale_start_date") @db.Date
   sellpiaSourceImportRunId     String   @map("sellpia_source_import_run_id") @db.Uuid
   advertisingSourceImportRunId String   @map("advertising_source_import_run_id") @db.Uuid
   sellpiaGeneration            BigInt   @map("sellpia_generation") @db.BigInt
@@ -586,11 +599,11 @@ model MasterProductAbcEvaluation {
   mappingGeneration            BigInt   @map("mapping_generation") @db.BigInt
   calculatedAt                 DateTime @default(now()) @map("calculated_at") @db.Timestamptz
 
-  organization                Organization                    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  masterProduct               MasterProduct                   @relation(fields: [masterProductId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  formulaVersion              MasterProductAbcFormulaVersion  @relation("MasterProductAbcFormulaVersionEvaluations", fields: [formulaVersionId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  sellpiaSourceImportRun      SourceImportRun                 @relation("MasterProductAbcEvaluationSellpiaSourceImport", fields: [sellpiaSourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  advertisingSourceImportRun  SourceImportRun                 @relation("MasterProductAbcEvaluationAdvertisingSourceImport", fields: [advertisingSourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  organization               Organization                   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  masterProduct              MasterProduct                  @relation(fields: [masterProductId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  formulaVersion             MasterProductAbcFormulaVersion @relation("MasterProductAbcFormulaVersionEvaluations", fields: [formulaVersionId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  sellpiaSourceImportRun     SourceImportRun                @relation("MasterProductAbcEvaluationSellpiaSourceImport", fields: [sellpiaSourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  advertisingSourceImportRun SourceImportRun                @relation("MasterProductAbcEvaluationAdvertisingSourceImport", fields: [advertisingSourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
   @@unique([masterProductId, organizationId])
   @@index([organizationId, formulaVersionId])
@@ -605,32 +618,32 @@ model MasterProductAbcEvaluation {
 /// @namespace Core
 /// @describe Immutable absolute ABC grade transitions after the initial baseline.
 model MasterProductAbcGradeHistory {
-  id                                           String   @id @default(uuid()) @db.Uuid
-  organizationId                               String   @map("organization_id") @db.Uuid
-  masterProductId                              String   @map("master_product_id") @db.Uuid
-  formulaVersionId                             String   @map("formula_version_id") @db.Uuid
-  oldGrade                                     String?  @map("old_grade")
-  newGrade                                     String?  @map("new_grade")
-  economicScore                                Decimal? @map("economic_score") @db.Decimal(12, 6)
-  weightedOperatingProfit                      Decimal? @map("weighted_operating_profit") @db.Decimal(20, 6)
-  operatingMargin                              Decimal? @map("operating_margin") @db.Decimal(12, 6)
-  previousSellpiaSourceImportRunId             String?  @map("previous_sellpia_source_import_run_id") @db.Uuid
-  nextSellpiaSourceImportRunId                 String?  @map("next_sellpia_source_import_run_id") @db.Uuid
-  previousAdvertisingSourceImportRunId         String?  @map("previous_advertising_source_import_run_id") @db.Uuid
-  nextAdvertisingSourceImportRunId             String?  @map("next_advertising_source_import_run_id") @db.Uuid
-  formulaRevision                              Int      @map("formula_revision")
-  publicationRevision                          Int      @map("publication_revision")
-  sourceCutoffDate                             DateTime @map("source_cutoff_date") @db.Date
-  reason                                       String   @db.VarChar(100)
-  calculatedAt                                 DateTime @default(now()) @map("calculated_at") @db.Timestamptz
+  id                                   String   @id @default(uuid()) @db.Uuid
+  organizationId                       String   @map("organization_id") @db.Uuid
+  masterProductId                      String   @map("master_product_id") @db.Uuid
+  formulaVersionId                     String   @map("formula_version_id") @db.Uuid
+  oldGrade                             String?  @map("old_grade")
+  newGrade                             String?  @map("new_grade")
+  economicScore                        Decimal? @map("economic_score") @db.Decimal(12, 6)
+  weightedOperatingProfit              Decimal? @map("weighted_operating_profit") @db.Decimal(20, 6)
+  operatingMargin                      Decimal? @map("operating_margin") @db.Decimal(12, 6)
+  previousSellpiaSourceImportRunId     String?  @map("previous_sellpia_source_import_run_id") @db.Uuid
+  nextSellpiaSourceImportRunId         String?  @map("next_sellpia_source_import_run_id") @db.Uuid
+  previousAdvertisingSourceImportRunId String?  @map("previous_advertising_source_import_run_id") @db.Uuid
+  nextAdvertisingSourceImportRunId     String?  @map("next_advertising_source_import_run_id") @db.Uuid
+  formulaRevision                      Int      @map("formula_revision")
+  publicationRevision                  Int      @map("publication_revision")
+  sourceCutoffDate                     DateTime @map("source_cutoff_date") @db.Date
+  reason                               String   @db.VarChar(100)
+  calculatedAt                         DateTime @default(now()) @map("calculated_at") @db.Timestamptz
 
-  organization                            Organization                   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  masterProduct                           MasterProduct                  @relation(fields: [masterProductId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  formulaVersion                          MasterProductAbcFormulaVersion @relation("MasterProductAbcFormulaVersionGradeHistories", fields: [formulaVersionId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  previousSellpiaSourceImportRun          SourceImportRun?               @relation("MasterProductAbcGradeHistoryPreviousSellpiaSourceImport", fields: [previousSellpiaSourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  nextSellpiaSourceImportRun              SourceImportRun?               @relation("MasterProductAbcGradeHistoryNextSellpiaSourceImport", fields: [nextSellpiaSourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  previousAdvertisingSourceImportRun      SourceImportRun?               @relation("MasterProductAbcGradeHistoryPreviousAdvertisingSourceImport", fields: [previousAdvertisingSourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  nextAdvertisingSourceImportRun          SourceImportRun?               @relation("MasterProductAbcGradeHistoryNextAdvertisingSourceImport", fields: [nextAdvertisingSourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  organization                       Organization                   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  masterProduct                      MasterProduct                  @relation(fields: [masterProductId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  formulaVersion                     MasterProductAbcFormulaVersion @relation("MasterProductAbcFormulaVersionGradeHistories", fields: [formulaVersionId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  previousSellpiaSourceImportRun     SourceImportRun?               @relation("MasterProductAbcGradeHistoryPreviousSellpiaSourceImport", fields: [previousSellpiaSourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  nextSellpiaSourceImportRun         SourceImportRun?               @relation("MasterProductAbcGradeHistoryNextSellpiaSourceImport", fields: [nextSellpiaSourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  previousAdvertisingSourceImportRun SourceImportRun?               @relation("MasterProductAbcGradeHistoryPreviousAdvertisingSourceImport", fields: [previousAdvertisingSourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  nextAdvertisingSourceImportRun     SourceImportRun?               @relation("MasterProductAbcGradeHistoryNextAdvertisingSourceImport", fields: [nextAdvertisingSourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
   @@index([organizationId, calculatedAt])
   @@index([organizationId, formulaVersionId])
@@ -699,7 +712,7 @@ model ChannelListing {
   channelListingOptionDailySnapshots ChannelListingOptionDailySnapshot[]
 
   // Channels — daily fact extensions (Hard rewrite H1)
-  channelAdTargetDailySnapshots ChannelAdTargetDailySnapshot[]
+  channelAdTargetDailySnapshots       ChannelAdTargetDailySnapshot[]
   channelAdListingProductMonthlyFacts ChannelAdListingProductMonthlyFact[] @relation("AdFactChannelListing")
 
   @@unique([organizationId, channelAccountId, externalId])

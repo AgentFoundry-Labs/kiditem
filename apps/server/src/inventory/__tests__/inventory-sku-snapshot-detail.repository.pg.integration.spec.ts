@@ -33,6 +33,30 @@ describe('Sellpia snapshot detail tenant boundary (PG integration)', () => {
   });
 
   it('returns only a Sellpia inventory SKU owned by the current organization', async () => {
+    const run = await prisma.sourceImportRun.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceType: 'sellpia_inventory',
+        channelAccountId: null,
+        fileName: 'detail.xlsx',
+        fileHash: 'd'.repeat(64),
+        status: 'completed',
+        rowCount: 1,
+        importedAt: new Date('2026-07-12T00:00:00.000Z'),
+        lastVerifiedAt: new Date('2026-07-12T00:00:00.000Z'),
+        freshnessGeneration: 1n,
+      },
+    });
+    await prisma.sellpiaInventoryState.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceOrigin: 'https://kiditem.sellpia.com',
+        sourceAccountKey: 'kiditem',
+        lastCompletedImportRunId: run.id,
+        lastVerifiedAt: new Date('2026-07-12T00:00:00.000Z'),
+        verifiedGeneration: 1n,
+      },
+    });
     const [own, other] = await Promise.all([
       prisma.sellpiaInventorySku.create({
         data: {
@@ -41,6 +65,7 @@ describe('Sellpia snapshot detail tenant boundary (PG integration)', () => {
           name: '우리 상품',
           currentStock: 3,
           purchasePrice: 1_000,
+          lastImportRunId: run.id,
         },
       }),
       prisma.sellpiaInventorySku.create({

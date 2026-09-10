@@ -182,14 +182,14 @@ describe('InventorySkuSnapshotListRepositoryAdapter (PG integration)', () => {
 
     expect(filtered.items.map(({ code }) => code)).toEqual(['SP-002']);
     expect(filtered.summary).toEqual({
-      totalSkus: 3,
+      totalSkus: 2,
       linkedSkus: 1,
-      unlinkedSkus: 2,
+      unlinkedSkus: 1,
       inStockSkus: 2,
-      outOfStockSkus: 1,
+      outOfStockSkus: 0,
       totalUnits: 10,
       pricedAssetValue: 9_000,
-      unpricedSkuCount: 1,
+      unpricedSkuCount: 0,
     });
     expect(filtered.latestImport).toMatchObject({ id: run.id, fileName: 'latest.xls' });
     expect(filtered.items[0]).toMatchObject({
@@ -221,23 +221,28 @@ describe('InventorySkuSnapshotListRepositoryAdapter (PG integration)', () => {
       limit: 2,
       stockStatus: 'all',
     });
-    expect(firstPage.items.map(({ code }) => code))
-      .toEqual(['SP-001', 'SP-002']);
-    expect(secondPage.items.map(({ code }) => code))
-      .toEqual(['ZZ-001']);
-    expect(firstPage.items[0]).toMatchObject({
-      code: 'SP-001',
-      lastImportRunId: null,
-      lastImportedAt: null,
-      linkedChannelOptionCount: 0,
-      linkedProductCount: 0,
-      linkedProducts: [],
-      linkedChannelOptions: [],
-      linkStatus: 'unlinked',
-    });
+    expect(firstPage.items.map(({ code }) => code)).toEqual(['SP-002', 'ZZ-001']);
+    expect(secondPage.items).toEqual([]);
   });
 
   it('does not treat another organization component with the same code as a link', async () => {
+    const run = await createRun({
+      organizationId: TEST_ORGANIZATION_ID,
+      fileName: 'same-code.xls',
+      fileHash: 'e'.repeat(64),
+      status: 'completed',
+      rowCount: 1,
+      importedAt: new Date('2026-07-12T04:00:00.000Z'),
+      createdAt: new Date('2026-07-12T04:00:00.000Z'),
+    });
+    await prisma.sellpiaInventoryState.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceOrigin: 'https://kiditem.sellpia.com',
+        sourceAccountKey: 'kiditem',
+        lastCompletedImportRunId: run.id,
+      },
+    });
     await prisma.sellpiaInventorySku.createMany({
       data: [
         {
@@ -245,6 +250,7 @@ describe('InventorySkuSnapshotListRepositoryAdapter (PG integration)', () => {
           code: 'SP-SAME',
           name: '우리 재고',
           currentStock: 3,
+          lastImportRunId: run.id,
         },
         {
           organizationId: OTHER_ORGANIZATION_ID,

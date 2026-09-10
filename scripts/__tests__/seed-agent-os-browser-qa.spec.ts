@@ -623,6 +623,13 @@ describe('isolated Agent OS browser-QA seed', () => {
     });
     expect(transaction.sourcingEvidenceIngestionRun.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
+        where: {
+          organizationId_sourceKey_idempotencyKey: {
+            organizationId: 'organization-id',
+            sourceKey: 'browser_qa',
+            idempotencyKey: 'browser-qa-recommendation-evidence',
+          },
+        },
         create: expect.objectContaining({
           organizationId: 'organization-id',
           status: 'complete',

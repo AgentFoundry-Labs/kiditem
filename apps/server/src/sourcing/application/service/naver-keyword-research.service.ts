@@ -14,14 +14,12 @@ import {
 import { TREND_COLLECTION_REPOSITORY_PORT, type TrendCollectionRepositoryPort } from '../port/out/repository/trend-collection.repository.port';
 import { SOURCING_BROWSER_SOURCE_ATTEMPT_REPOSITORY_PORT, type SourcingBrowserSourceAttemptRepositoryPort,
   type SourcingBrowserSourceAttempt } from '../port/out/repository/sourcing-browser-source-attempt.repository.port';
-import type { AuthorizedCollectionOutput } from '../port/out/repository/sourcing-collection.repository.port';
 import { hashCollectionRequest } from './sourcing-collection-mappers';
 import { requireIdempotencyKey } from './sourcing-source-attempt-primitives';
+import type { AuthorizedCollectionOutput } from '../port/out/repository/sourcing-collection.repository.port';
 
 const SOURCE = 'naver.keyword_analysis';
 const VERSION = 'naver-keyword-analysis/v1';
-const FAILURE_ALERT = { sourceType: SOURCE, dedupeKey: 'source:' + SOURCE,
-  title: '네이버 키워드 분석 수집 실패', href: '/sourcing-ai/keywords' };
 const MAX_ANALYSIS_SEEDS = 12;
 const MAX_ANALYSIS_AUTOCOMPLETE_SEEDS = 5;
 const MAX_ANALYSIS_TREND_KEYWORDS = 40;
@@ -46,13 +44,14 @@ export class NaverKeywordResearchService {
   }) {
     const normalized = SourcingKeywordAnalysisInputSchema.parse(input.input);
     const inputHash = hashCollectionRequest(normalized);
+    const failureAlert = sourceFailureAlert(inputHash);
     input.signal?.throwIfAborted();
     const { attempt, created } = await this.attempts.beginAttempt({ organizationId: input.organizationId,
       sourceKey: SOURCE, scopeKey: 'default', targetKey: inputHash,
       idempotencyKey: requireIdempotencyKey(input.idempotencyKey ?? ''), requestFingerprint: inputHash,
       plan: { source: SOURCE, input: normalized }, planChecksum: inputHash,
       requestedByUserId: input.requestedByUserId ?? null, collectorKey: 'naver-keyword-analysis',
-      collectorVersion: VERSION, triggerKind: 'manual', expiresInMs: 15 * 60_000, failureAlert: FAILURE_ALERT,
+      collectorVersion: VERSION, triggerKind: 'manual', expiresInMs: 15 * 60_000, failureAlert,
     });
     if (!created) return { attempt, payload: attempt.state === 'COMPLETE'
       ? await this.trendRepo.findKeywordAnalysisSnapshot({ organizationId: input.organizationId, inputHash, attemptId: attempt.attemptId }) : null };
@@ -67,13 +66,13 @@ export class NaverKeywordResearchService {
       const complete = await this.attempts.completeAttempt({ organizationId: input.organizationId,
         attemptId: attempt.attemptId, attemptToken: attempt.attemptToken, planChecksum: attempt.planChecksum,
         contentChecksum: hashCollectionRequest(payload), output: analysisOutput(input.organizationId, attempt, payload),
-        sourceWindowEndAt: capturedAt, failureAlert: FAILURE_ALERT });
+        sourceWindowEndAt: capturedAt, failureAlert });
       return { attempt: complete, payload: complete.state === 'COMPLETE' ? payload : null };
     } catch (error) {
       const failed = await this.attempts.failAttempt({ organizationId: input.organizationId,
         attemptId: attempt.attemptId, attemptToken: attempt.attemptToken,
         code: input.signal?.aborted ? 'SOURCE_COLLECTION_CANCELLED' : 'SOURCE_COLLECTION_FAILED',
-        message: error instanceof Error ? error.message : String(error), failureAlert: FAILURE_ALERT });
+        message: error instanceof Error ? error.message : String(error), failureAlert });
       input.signal?.throwIfAborted();
       return { attempt: failed, payload: null };
     }
@@ -165,6 +164,15 @@ export class NaverKeywordResearchService {
     return { popular, related, autocomplete, trends };
   }
 
+}
+
+function sourceFailureAlert(inputHash: string) {
+  return {
+    sourceType: SOURCE,
+    dedupeKey: `source:${SOURCE}:${inputHash}`,
+    title: '네이버 키워드 분석 수집 실패',
+    href: '/sourcing-ai/keywords',
+  };
 }
 
 function analysisOutput(organizationId: string, attempt: SourcingBrowserSourceAttempt,

@@ -76,13 +76,6 @@ function publicContractViolations(relativePath, source) {
       `${relativePath}:${lineNumberAt(source, match.index)}: generic exported Id alias is forbidden`,
     );
   }
-  const uncheckedNameCast =
-    /\bas\s+OperationRunName\b/g;
-  for (const match of source.matchAll(uncheckedNameCast)) {
-    violations.push(
-      `${relativePath}:${lineNumberAt(source, match.index)}: unchecked resource-name cast is forbidden; parse the name`,
-    );
-  }
   const requestIdReuse =
     /\b(?:idempotencyKey|id|executionId|requestKey)\s*:\s*(?:input\.)?requestId\b/g;
   for (const match of source.matchAll(requestIdReuse)) {

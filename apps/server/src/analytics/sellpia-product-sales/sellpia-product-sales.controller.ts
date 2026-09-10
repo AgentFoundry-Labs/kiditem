@@ -20,6 +20,7 @@ import {
 import type {
   SellpiaProfitabilityAttempt,
   SellpiaProfitabilityAttemptControl,
+  SellpiaProfitabilityAttemptSummary,
   SellpiaProfitabilitySourceStatus,
 } from '@kiditem/shared/source-import';
 import type { SellpiaProductSalesSummary } from '@kiditem/shared/dashboard';
@@ -64,6 +65,14 @@ export class SellpiaProductSalesController {
     @CurrentOrganization() organizationId: string,
   ): Promise<SellpiaProfitabilityAttemptControl> {
     return this.source.readAttemptControl(organizationId, attemptId);
+  }
+
+  @Get('attempts/:attemptId/status')
+  async readAttemptStatus(
+    @Param('attemptId', new ParseUUIDPipe({ version: '4' })) attemptId: string,
+    @CurrentOrganization() organizationId: string,
+  ): Promise<SellpiaProfitabilityAttemptSummary> {
+    return this.source.readAttemptStatus(organizationId, attemptId);
   }
 
   @Get('status')

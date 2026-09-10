@@ -42,6 +42,7 @@ const base = '/api/ads/competitor-seller-identities/attempts';
 describe('Seller identity owner HTTP + PostgreSQL', () => {
   let prisma: PrismaClient;
   let app: INestApplication;
+  let httpUrl: string;
   let alerts: SourceFailureAlerts;
   const storefront = { listNewProducts: vi.fn() };
   beforeAll(async () => {
@@ -113,6 +114,8 @@ describe('Seller identity owner HTTP + PostgreSQL', () => {
       },
     );
     await app.init();
+    await app.listen(0, '127.0.0.1');
+    httpUrl = await app.getUrl();
   });
   afterAll(async () => {
     await app?.close();
@@ -134,13 +137,13 @@ describe('Seller identity owner HTTP + PostgreSQL', () => {
     await publishSerp();
   });
   const get = (path: string, org = ORG) =>
-    request(app.getHttpServer()).get(path).set('x-test-org', org);
+    request(httpUrl).get(path).set('x-test-org', org);
   const serving = (keyword = '연필 문구') =>
     get(
       `/api/ads/keyword-rank/serp?keyword=${encodeURIComponent(keyword)}`,
     ).expect(200);
   const start = (key = randomUUID()) =>
-    request(app.getHttpServer())
+    request(httpUrl)
       .post(base)
       .set('x-test-org', ORG)
       .set('Idempotency-Key', key)
@@ -149,7 +152,7 @@ describe('Seller identity owner HTTP + PostgreSQL', () => {
     attempt: { attemptId: string; attemptToken: string },
     capture: unknown,
   ) =>
-    request(app.getHttpServer())
+    request(httpUrl)
       .put(`${base}/${attempt.attemptId}`)
       .set('x-test-org', ORG)
       .set('X-Source-Attempt-Token', attempt.attemptToken)
@@ -175,7 +178,7 @@ describe('Seller identity owner HTTP + PostgreSQL', () => {
   }
   async function publishSerp(keyword = '연필 문구', items = [product()]) {
     const attempt = (
-      await request(app.getHttpServer())
+      await request(httpUrl)
         .post('/api/ads/keyword-rank/serp/attempts')
         .set('x-test-org', ORG)
         .set('Idempotency-Key', randomUUID())
@@ -193,7 +196,7 @@ describe('Seller identity owner HTTP + PostgreSQL', () => {
         stoppedAtPage: 1,
       },
     };
-    const result = await request(app.getHttpServer())
+    const result = await request(httpUrl)
       .put(`/api/ads/keyword-rank/serp/attempts/${attempt.attemptId}`)
       .set('x-test-org', ORG)
       .set('X-Source-Attempt-Token', attempt.attemptToken)
@@ -356,7 +359,7 @@ describe('Seller identity owner HTTP + PostgreSQL', () => {
       message: 'Original collector could not finish.',
     };
     const fail = (body = failure) =>
-      request(app.getHttpServer())
+      request(httpUrl)
         .post(`${base}/${next.attemptId}/fail`)
         .set('x-test-org', ORG)
         .set('X-Source-Attempt-Token', next.attemptToken)
@@ -381,7 +384,7 @@ describe('Seller identity owner HTTP + PostgreSQL', () => {
     const attempt = responses.find((response) => response.status === 201)!.body;
     const capture = identities(attempt);
     await get(`${base}/${attempt.attemptId}`, OTHER).expect(404);
-    await request(app.getHttpServer())
+    await request(httpUrl)
       .put(`${base}/${attempt.attemptId}`)
       .set('x-test-org', OTHER)
       .set('X-Source-Attempt-Token', attempt.attemptToken)
@@ -496,7 +499,7 @@ describe('Seller identity owner HTTP + PostgreSQL', () => {
     const original = await publishSerp(target.keyword, [product('2')]);
     const beginCatalog = async () =>
       (
-        await request(app.getHttpServer())
+        await request(httpUrl)
           .post('/api/ads/competitor-catalogs/attempts')
           .set('x-test-org', ORG)
           .set('Idempotency-Key', randomUUID())
@@ -507,7 +510,7 @@ describe('Seller identity owner HTTP + PostgreSQL', () => {
       attemptId: string;
       attemptToken: string;
     }) =>
-      request(app.getHttpServer())
+      request(httpUrl)
         .put(`/api/ads/competitor-catalogs/attempts/${attempt.attemptId}`)
         .set('x-test-org', ORG)
         .set('X-Source-Attempt-Token', attempt.attemptToken)

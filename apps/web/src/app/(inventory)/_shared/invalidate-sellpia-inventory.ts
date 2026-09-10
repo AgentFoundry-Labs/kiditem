@@ -12,6 +12,7 @@ export async function invalidateSellpiaInventory(queryClient: QueryClient): Prom
     queryClient.invalidateQueries({ queryKey: queryKeys.inventory.productSalesAll() }),
     queryClient.invalidateQueries({ queryKey: queryKeys.channelSkuAvailability.all }),
     queryClient.invalidateQueries({ queryKey: queryKeys.channelSkuMappings.all }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.channelProductMappings.all }),
     queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.inventory() }),
     queryClient.invalidateQueries({ queryKey: queryKeys.products.all }),
     queryClient.invalidateQueries({ queryKey: queryKeys.ads.all }),

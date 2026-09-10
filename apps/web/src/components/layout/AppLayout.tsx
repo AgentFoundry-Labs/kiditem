@@ -5,7 +5,6 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useStore } from '@/store/useStore';
 import { cn } from '@/lib/utils';
 import PageSkeleton from '@/components/ui/PageSkeleton';
-import ReadinessModal from '@/components/ReadinessModal';
 import GlobalConfirmDialog from '@/components/GlobalConfirmDialog';
 import GenerationCompletionWatcher from '@/components/GenerationCompletionWatcher';
 import QuickActionFab from '@/components/QuickActionFab';
@@ -144,7 +143,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const isFinalSelectionRoute = pathname === '/sourcing-ai/final-selection';
   const isWingCatalogRoute = pathname === '/sourcing-ai/wing-catalog';
   const collapsedForEditor = isEditorRoute || !sidebarOpen;
-  const showAutoReadinessModal = pathname === '/dashboard';
   const visibleRightSurface = isAgentWorkspace && activeRightSurface === 'ai_chat'
     ? null
     : activeRightSurface;
@@ -207,7 +205,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           {children}
         </main>
       </div>
-      {showAutoReadinessModal && <ReadinessModal autoOpenWhen="collectionIssue" />}
       <GlobalConfirmDialog />
       <GenerationCompletionWatcher />
       {isEditorRoute ? null : (

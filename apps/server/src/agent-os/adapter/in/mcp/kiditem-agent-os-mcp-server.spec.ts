@@ -5,8 +5,10 @@ import {
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { canonicalOwnerInputHash } from '../../../../common/owner-idempotency-key';
-import { DefinitiveMarketplaceRegistrationError } from '../../../../channels/application/port/in/capability/marketplace-registration.port';
-import { CapabilityInvocationService } from '../../../application/service/capability-invocation.service';
+import {
+  CapabilityInvocationService,
+  OwnerKnownFailureError,
+} from '../../../application/service/capability-invocation.service';
 import { AgentOsError } from '../../../domain/agent-os.errors';
 import { GatewayMcpActiveTurnInactiveError } from '../../out/runtime/gateway/gateway-mcp-runtime.registry';
 import { FINAL_CAPABILITY_DEFINITIONS } from '../../../domain/catalog/final-capability.catalog';
@@ -29,8 +31,7 @@ const MUTATION_RESULT_CAPABILITY = 'channels.submit_wing_thumbnail';
 const AMBIGUOUS_CAPABILITY = 'supply.submit_purchase_order';
 const CONFLICT_CAPABILITY = 'supply.request_key_conflict';
 const PROVIDER_FAILURE_CAPABILITY = 'sourcing.provider_failure';
-const PRODUCT_SAFE_REJECTION =
-  'Coupang rejected the listing before it was created. Review the listing data and try again.';
+const OWNER_SAFE_FAILURE = 'Provider rejected before commit.';
 
 describe('KidItem stateless capability MCP server', () => {
   it('keeps protocol discovery inactive-safe but resolves active turn authority lazily for every actual tool callback', async () => {
@@ -59,7 +60,7 @@ describe('KidItem stateless capability MCP server', () => {
         name: 'capability_catalog_search',
         arguments: {},
       });
-      expect(catalog.result.structuredContent.capabilities).toHaveLength(14);
+      expect(catalog.result.structuredContent.capabilities).toHaveLength(13);
 
       await call(handler, 'tools/call', {
         name: 'capability_invoke',
@@ -99,7 +100,7 @@ describe('KidItem stateless capability MCP server', () => {
         arguments: {},
       });
       const entries = catalog.result.structuredContent.capabilities;
-      expect(entries).toHaveLength(14);
+      expect(entries).toHaveLength(13);
       expect(entries.map((entry: { key: string }) => entry.key)).toEqual(
         FINAL_CAPABILITY_DEFINITIONS.map(({ key }) => key),
       );
@@ -135,7 +136,7 @@ describe('KidItem stateless capability MCP server', () => {
       expect(read.result.structuredContent).toMatchObject({
         kind: 'completed',
         invocation: null,
-        result: { operationRefs: [] },
+        result: { resourceRefs: [] },
       });
 
       const pending = await call(handler, 'tools/call', {
@@ -234,7 +235,6 @@ describe('KidItem stateless capability MCP server', () => {
         result: {
           summary: 'Thumbnail registration completed.',
           resourceRefs: [],
-          operationRefs: [],
         },
       });
       expect(mutation.result.structuredContent.result).not.toHaveProperty('output');
@@ -314,9 +314,10 @@ describe('KidItem stateless capability MCP server', () => {
     };
     const owner = {
       capabilityKey: definition.key,
-      invoke: vi.fn().mockRejectedValue(
-        new DefinitiveMarketplaceRegistrationError(providerDiagnostic),
-      ),
+      invoke: vi.fn().mockRejectedValue(Object.assign(
+        new OwnerKnownFailureError(OWNER_SAFE_FAILURE),
+        { cause: new Error(providerDiagnostic) },
+      )),
     };
     const invocations = new CapabilityInvocationService(
       repository as never,
@@ -355,8 +356,8 @@ describe('KidItem stateless capability MCP server', () => {
 
       expect(repository.recordKnownFailure).toHaveBeenCalledWith(expect.objectContaining({
         error: {
-          code: 'MARKETPLACE_REGISTRATION_REJECTED',
-          message: PRODUCT_SAFE_REJECTION,
+          code: 'OWNER_KNOWN_FAILURE',
+          message: OWNER_SAFE_FAILURE,
         },
       }));
       expect(response.result).toMatchObject({
@@ -364,8 +365,8 @@ describe('KidItem stateless capability MCP server', () => {
         structuredContent: {
           kind: 'error',
           error: {
-            code: 'MARKETPLACE_REGISTRATION_REJECTED',
-            message: PRODUCT_SAFE_REJECTION,
+            code: 'OWNER_KNOWN_FAILURE',
+            message: OWNER_SAFE_FAILURE,
           },
         },
       });
@@ -466,7 +467,6 @@ function makeHandler(): {
             result: {
               summary: 'Thumbnail registration completed.',
               resourceRefs: [],
-              operationRefs: [],
               output: { screenshotPath: '/tmp/host-only/wing-capture.png' },
             },
           };
@@ -476,7 +476,6 @@ function makeHandler(): {
           result: {
             summary: 'Overview read.',
             resourceRefs: [],
-            operationRefs: [],
             output: { period: 'month' },
           },
         };

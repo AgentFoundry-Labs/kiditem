@@ -32,7 +32,7 @@ model SellpiaInventorySku {
   returnTransfers                         ReturnTransfer[]                         @relation("ReturnTransferSellpiaInventorySku")
   rocketPurchaseConfirmationAllocations   RocketPurchaseConfirmationAllocation[]
   manualMatchAliases                      SellpiaManualMatchAlias[]
-  frozenProfitFacts                       SellpiaProductMonthlySales[] @relation("SellpiaProductMonthlyFrozenSku")
+  frozenProfitFacts                       SellpiaProductMonthlySales[]             @relation("SellpiaProductMonthlyFrozenSku")
 
   @@unique([organizationId, code])
   @@unique([organizationId, masterProductId], map: "sellpia_inventory_skus_org_master_key")
@@ -170,17 +170,17 @@ model ReturnTransfer {
 /// @namespace Inventory
 /// @describe Persisted Coupang shipment 발송일별 건수/박스 요약 snapshot so the calendar survives reload and only new dates are collected.
 model CoupangShipmentDateSummary {
-  id             String   @id @default(uuid()) @db.Uuid
-  organizationId String   @map("organization_id") @db.Uuid
-  sourceImportRunId String? @map("source_import_run_id") @db.Uuid
-  shipmentDate   String   @map("shipment_date")
-  count          Int      @default(0)
-  boxes          Int      @default(0)
-  capturedAt     DateTime @default(now()) @map("captured_at") @db.Timestamptz
-  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  id                String   @id @default(uuid()) @db.Uuid
+  organizationId    String   @map("organization_id") @db.Uuid
+  sourceImportRunId String?  @map("source_import_run_id") @db.Uuid
+  shipmentDate      String   @map("shipment_date")
+  count             Int      @default(0)
+  boxes             Int      @default(0)
+  capturedAt        DateTime @default(now()) @map("captured_at") @db.Timestamptz
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   sourceImportRun SourceImportRun? @relation(fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
   @@unique([organizationId, sourceImportRunId, shipmentDate], map: "shipment_date_summary_attempt_date_key", where: raw("source_import_run_id IS NOT NULL"))

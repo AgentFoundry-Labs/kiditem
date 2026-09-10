@@ -1,7 +1,7 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiClient } from '@/lib/api-client';
 import { OrderProcessingWorkspace } from './OrderProcessingWorkspace';
 
@@ -57,10 +57,10 @@ const orderItem = {
   ],
 };
 
-const emptyResponse = { items: [], total: 0, deliveryCompanies: [] };
+const emptyResponse = { items: [], total: 0 };
 
 function makeAcceptResponse() {
-  return { items: [orderItem], total: 1, deliveryCompanies: [] };
+  return { items: [orderItem], total: 1 };
 }
 
 function renderPage() {
@@ -75,8 +75,11 @@ function renderPage() {
 describe('<OrderProcessingWorkspace> (W3)', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
-    // Default: skip scheduled sync (hour not in SYNC_HOURS)
-    vi.spyOn(global.Date.prototype, 'getHours').mockReturnValue(10);
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
   });
 
   it('calls GET /api/orders?status=ACCEPT via getParsed and renders primaryProductName, displayOrderNumber, totalQuantity', async () => {
@@ -101,13 +104,13 @@ describe('<OrderProcessingWorkspace> (W3)', () => {
     expect(calledPaths.some((p) => p.includes('/api/orders?status='))).toBe(true);
   });
 
-  it('confirm mutation posts to /api/orders with { action: confirm, shipmentBoxIds }', async () => {
+  it('keeps provider order actions visibly unsupported and does not post a mutation', async () => {
     vi.spyOn(apiClient, 'getParsed').mockImplementation((path: string) => {
       if (path.includes('status=ACCEPT')) return Promise.resolve(makeAcceptResponse());
       return Promise.resolve(emptyResponse);
     });
 
-    const postSpy = vi.spyOn(apiClient, 'post').mockResolvedValue({ message: '발주확인 완료' });
+    const postSpy = vi.spyOn(apiClient, 'post');
 
     renderPage();
 
@@ -116,52 +119,37 @@ describe('<OrderProcessingWorkspace> (W3)', () => {
       expect(screen.getByText('키즈 티셔츠')).toBeTruthy();
     });
 
-    // Select the order via the row checkbox
     const checkboxes = screen.getAllByRole('checkbox');
-    // First checkbox is select-all, second is the row checkbox
     await userEvent.click(checkboxes[1]!);
-
-    // Click CONFIRM button
     const confirmBtn = screen.getByRole('button', { name: /CONFIRM/i });
-    await userEvent.click(confirmBtn);
-
-    await waitFor(() => {
-      expect(postSpy).toHaveBeenCalledWith('/api/orders', {
-        action: 'confirm',
-        shipmentBoxIds: [12345],
-      });
-    });
+    const invoiceBtn = screen.getByRole('button', { name: /INVOICE/i });
+    expect(confirmBtn).toBeDisabled();
+    expect(invoiceBtn).toBeDisabled();
+    expect(screen.getByRole('status')).toHaveTextContent('현재 지원하지 않습니다');
+    expect(postSpy).not.toHaveBeenCalled();
   });
 
-  it('scheduled sync posts to /api/coupang-sync/orders with { from, to } when hour is in SYNC_HOURS', async () => {
-    // Override hour to a sync hour
-    vi.spyOn(global.Date.prototype, 'getHours').mockReturnValue(9);
-    // Clear sessionStorage so sync guard passes
-    sessionStorage.clear();
+  it('does not run the retired scheduled Coupang sync', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-07T09:00:00+09:00'));
 
     vi.spyOn(apiClient, 'getParsed').mockImplementation((path: string) => {
       if (path.includes('status=ACCEPT')) return Promise.resolve(makeAcceptResponse());
       return Promise.resolve(emptyResponse);
     });
 
-    const postSpy = vi.spyOn(apiClient, 'post').mockResolvedValue({
-      synced: 5,
-      errors: 0,
-    });
+    const postSpy = vi.spyOn(apiClient, 'post');
 
     renderPage();
 
-    await waitFor(() => {
-      expect(postSpy).toHaveBeenCalledWith(
-        '/api/coupang-sync/orders',
-        expect.objectContaining({ from: expect.any(String), to: expect.any(String) }),
-      );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
     });
+    expect(screen.getByText('키즈 티셔츠')).toBeTruthy();
 
-    // Ensure the old endpoint is NOT called
-    const syncCalls = postSpy.mock.calls.filter(([path]) => path === '/api/coupang-sync/orders');
-    expect(syncCalls.length).toBeGreaterThan(0);
-    const wrongCalls = postSpy.mock.calls.filter(([path]) => path === '/api/coupang-sync');
-    expect(wrongCalls.length).toBe(0);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_001);
+    });
+    expect(postSpy).not.toHaveBeenCalled();
   });
 });

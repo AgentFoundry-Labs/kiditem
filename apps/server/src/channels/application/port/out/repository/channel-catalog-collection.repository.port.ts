@@ -1,4 +1,8 @@
-import type { CoupangCatalogChunkKind } from '@kiditem/shared/coupang-catalog-snapshot';
+import type {
+  CoupangCatalogChunkKind,
+  CoupangCatalogCollectionPauseRequest,
+  CoupangCatalogStage,
+} from '@kiditem/shared/coupang-catalog-snapshot';
 
 export interface ChannelCatalogCollectionRunRecord {
   id: string;
@@ -9,6 +13,7 @@ export interface ChannelCatalogCollectionRunRecord {
   idempotencyKey: string;
   expiresAt: Date;
   plan: unknown;
+  stage?: CoupangCatalogStage;
   status: string;
   rowCount: number;
   errorCount: number;
@@ -27,7 +32,10 @@ export interface ChannelCatalogCollectionChunkRecord {
   sequence: number;
   checksum: string;
   itemCount: number;
-  payload: unknown;
+  /** Omitted by status reads; present when finalization needs the canonical payload. */
+  payload?: unknown;
+  publishedAt?: Date | null;
+  publicationJson?: unknown;
 }
 
 export interface ChannelCatalogCollectionWithChunks extends ChannelCatalogCollectionRunRecord {
@@ -41,19 +49,38 @@ export interface ChannelCatalogCollectionRepositoryPort {
     channelAccountId: string;
     idempotencyKey: string;
     collectorVersion: string;
+    stage?: CoupangCatalogStage;
+    expectedBasicAttemptId?: string;
   }): Promise<ChannelCatalogCollectionRunRecord>;
 
   getOwnedRunWithChunks(input: {
     organizationId: string;
     channelAccountId: string;
     runId: string;
+    attemptToken?: string;
+    stage?: CoupangCatalogStage;
+    includePayload?: boolean;
   }): Promise<ChannelCatalogCollectionWithChunks>;
+
+  /**
+   * Read the preallocated details owner linked to one completed basics owner.
+   * This is an internal chain read: the idempotency key and root identity are
+   * both fenced so a status poll cannot adopt another account's child.
+   */
+  getOwnedDetailsChild(input: {
+    organizationId: string;
+    channelAccountId: string;
+    rootAttemptId: string;
+    detailsIdempotencyKey: string;
+    includePayload?: boolean;
+  }): Promise<ChannelCatalogCollectionWithChunks | null>;
 
   putChunk(input: {
     organizationId: string;
     channelAccountId: string;
     runId: string;
     attemptToken: string;
+    stage?: CoupangCatalogStage;
     kind: CoupangCatalogChunkKind;
     sequence: number;
     checksum: string;
@@ -66,7 +93,17 @@ export interface ChannelCatalogCollectionRepositoryPort {
     channelAccountId: string;
     runId: string;
     attemptToken: string;
+    stage?: CoupangCatalogStage;
     error: { code: string; message: string; phase: string };
+  }): Promise<ChannelCatalogCollectionRunRecord>;
+
+  markPaused(input: {
+    organizationId: string;
+    channelAccountId: string;
+    runId: string;
+    attemptToken: string;
+    stage?: CoupangCatalogStage;
+    error: CoupangCatalogCollectionPauseRequest;
   }): Promise<ChannelCatalogCollectionRunRecord>;
 }
 

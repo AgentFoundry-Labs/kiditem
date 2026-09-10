@@ -34,16 +34,19 @@ change physical `SellpiaInventorySku` stock or direct
 2. Select the intended Coupang account.
 3. Confirm the panel does not report an extension or Wing-tab connection
    error.
-4. Click **Wing에서 가져오기**.
-5. Keep the managed Wing collection tab available while the UI reports
-   discovery and private detail storage. The rate/ETA estimates detail
-   collection, not the final database transaction. Existing cards stay unchanged
-   until the complete snapshot commits.
+4. Start the **기본 목록** collection, or use **다시 동기화** to refresh it.
+   After basic completion, start **전체 상세** separately.
+5. Keep the managed Wing collection tab available. Basics publishes only after
+   its complete listing manifest is validated. Details enriches each completely
+   captured product while showing capture and publication counts separately;
+   uncompleted products retain their existing detail. The rate/ETA estimates
+   detail collection, not database transaction latency.
 6. If the browser or page was interrupted, return to the same account and click
    **수집 재개**. The extension resumes the accepted, unexpired server attempt instead of
    silently starting a competing publication.
-7. Wait for completed finalization before treating absent Wing products or
-   options as inactive.
+7. Treat absence only within a completed same-account stage manifest. Basic
+   completion does not certify full-detail freshness; wait for the detail
+   owner's COMPLETE receipt before calling the entire detail traversal complete.
 8. Confirm registered products show one card per listing, its options, provider
    thumbnail, and content workspace.
 
@@ -63,14 +66,16 @@ The resumable server endpoints are account-scoped:
 POST /api/channels/accounts/:channelAccountId/catalog-imports/coupang-wing/attempts
 GET  /api/channels/accounts/:channelAccountId/catalog-imports/coupang-wing/attempts/:attemptId
 PUT  /api/channels/accounts/:channelAccountId/catalog-imports/coupang-wing/attempts/:attemptId/chunks/:kind/:sequence
+POST /api/channels/accounts/:channelAccountId/catalog-imports/coupang-wing/attempts/:attemptId/pause
 POST /api/channels/accounts/:channelAccountId/catalog-imports/coupang-wing/attempts/:attemptId/fail
 POST /api/channels/accounts/:channelAccountId/catalog-imports/coupang-wing/attempts/:attemptId/finalize
 ```
 
-Begin sends a UUID `Idempotency-Key` and `{collectorVersion}`. Reuse that key
+Begin sends a UUID `Idempotency-Key` and `{collectorVersion, stage}`, with
+`stage: "basics"` or `stage: "details"` for the two-stage flow. Reuse that key
 after an uncertain response to recover the original permit; a different key
 while an attempt is active returns `409 ATTEMPT_IN_PROGRESS` and its ID.
-Chunk, fail and finalize requests carry `x-source-attempt-token`. Safe status
+Chunk, pause, fail and finalize requests carry `x-source-attempt-token`. Safe status
 reads never return that token. The permit expires 24 hours after admission;
 expiry is fixed and cannot be renewed. A terminal or expired attempt requires
 a new explicit collection, not a restart of the failed generation.
@@ -130,12 +135,20 @@ unrelated-image fallback.
 
 - Chunks are idempotent by attempt, kind, and sequence. A stale attempt cannot
   overwrite the current publication.
-- Detail chunks are private staging, not current listing or media updates.
-  Finalization validates the full staged snapshot under its publication fence,
-  then atomically publishes listings/options/media and reconciles absence. A
-  rollback leaves all previous canonical data unchanged. This source uses the
-  explicitly approved measured full-publication transaction in the
-  [active cutover design](../superpowers/specs/2026-09-03-operation-automation-hard-cutover-design.md#wing-catalog-full-publication-exception--approved-2026-09-06).
+- Basics publishes observed listing/option fields and representative media only
+  after validating its whole manifest. It preserves richer detail fields and
+  detail/option media. An unknown stock value does not clear existing stock;
+  an observed zero remains zero.
+- Details pins the completed basics publication and traverses every product.
+  Each complete product's chunk receipt, detail and provider media publish in
+  one owner transaction; accepted-chunk retries are no-ops. A later failure
+  retains those successful enrichments and leaves failed/unobserved products
+  untouched. Full-detail COMPLETE still requires full traversal validation.
+  A newer basics publication fences older detail writes. This follows the
+  [approved staged-publication contract](../superpowers/specs/2026-09-08-extension-collection-deepening-design.md#approved-september-9-wing-catalog-and-product-screen-amendment).
+- Preserve exact provider contents, notices, tags, attributes and every option
+  media association in the bounded normalized payload. Render provider HTML
+  only escaped or sanitized; never execute it.
 - A lost final response is checked against the exact owner's durable receipt;
   local transport success alone never means publication succeeded.
 - Existing manually selected or generated content is preserved. A provider
@@ -155,9 +168,10 @@ unrelated-image fallback.
 | Symptom | Safe recovery |
 |---|---|
 | Extension is not detected | Reload the unpacked extension and the KidItem page, then verify the origin allowlist. |
-| Wing tab is missing or logged out | Open the Wing inventory tab, complete human authentication, then resume. |
+| Wing tab is missing or logged out | Open the Wing inventory tab and complete human authentication. Resume only a still-running attempt; a terminal login failure needs a new explicit attempt. |
 | Collection is interrupted | Return to the same account and use **수집 재개** for a still-running attempt. Do not edit attempt/chunk rows. |
-| One page/detail fails | Inspect the owner error and correct browser state. An incomplete attempt leaves previous listings, options, and provider media unchanged. Terminal retries require a new attempt. |
+| One page/detail fails | Inspect the owner error and correct browser state. Incomplete basics does not publish. Failed details retains already-published complete products and preserves old detail for failed/unobserved products. Terminal retries require a new attempt. |
+| Provider returns HTTP 429 | Stop provider IO and honor owner attention and `notBefore` (including a valid Retry-After). The attempt remains RUNNING but rejects chunks/finalize while paused. Use explicit resume only after the wait and normal owner fences permit it; do not increase request rate or bypass the pause. |
 | Finalization reports inconsistent counts | Stop and report the attempt ID and counts; do not force publication or mark the attempt complete manually. |
 | Provider image cannot be fetched later | Keep the URL-backed catalog asset unchanged and retry only the requested thumbnail/detail operation. |
 | Latest detail renderer is not detected | Reload extension version 1.2.85 and the KidItem tab; confirm `detailPageClientRasterV1 = true`. |
@@ -187,14 +201,17 @@ authorize operating-database access or replace real-provider browser acceptance.
 Manual browser acceptance:
 
 1. Confirm KidItem and Wing are signed in within the same Chrome profile.
-2. Start collection for the selected account and observe staged-detail counts
-   increasing while existing cards/media remain unchanged. Verify the owner
-   confirms the complete publication before the listing queries refresh.
+2. Complete basics for the selected account and verify its exact manifest
+   counts. Start details and observe complete-product capture/publication counts
+   increasing together. Verify successful product enrichments become visible
+   while uncompleted products retain old detail and the full stage stays RUNNING.
 3. Interrupt once, reload, and confirm **수집 재개** continues the same unexpired
    attempt. For a lost final response, verify the existing receipt is reused
    without recollection or another publication.
-4. Complete finalization and confirm active/inactive tabs, options, provider
-   media, and listing detail navigation.
+4. Complete detail finalization and confirm exact full coverage, options,
+   provider media associations, and listing detail navigation. Compare sampled
+   names, prices, status, images and retained detail across registered products,
+   product management and matching, including the 73-option association case.
 5. Confirm existing manual content selection and SKU component recipes remain
    unchanged.
 6. For one saved candidate, start Wing direct registration without submitting:
@@ -210,7 +227,10 @@ Stop and report when:
 - direct registration lacks `detailPageClientRasterV1 = true` or exact storage
   host permission;
 - the selected account is not an active `channel='coupang'` account;
-- an incomplete run changes any current listing, option, or provider media;
+- incomplete basics publishes canonical data, or an incomplete detail product
+  changes its existing detail/media;
+- partial detail success is presented as full-stage COMPLETE, or successful
+  enrichment loses provider option-media associations;
 - a collection changes Sellpia stock, component recipes, or operator-authored
   content;
 - required automated or browser verification fails.
@@ -220,7 +240,7 @@ Stop and report when:
 ```text
 Release: <VERSION>
 Account: <channelAccountId>
-Attempt: <attemptId>; state=<RUNNING|COMPLETE|FAILED>
+Attempt: <attemptId>; stage=<basics|details>; state=<RUNNING|COMPLETE|FAILED>
 Published: listings=<count>; SKUs=<count>; assets=<count>
 Resume verified: <yes|no>
 Preserved: manual content=<yes|no>; component recipes=<yes|no>

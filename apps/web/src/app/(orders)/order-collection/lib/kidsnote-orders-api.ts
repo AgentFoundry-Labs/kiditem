@@ -1,10 +1,12 @@
 import * as XLSX from 'xlsx';
-import { issueBrowserCollectionRunId } from '@/lib/browser-collection-session';
 import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extension-bridge';
 import { apiClient } from '@/lib/api-client';
 import { downloadBlob } from '@/lib/browser-download';
 import type { OrderCollectionConversionResult } from './order-collection-api';
-import type { OrderCollectionExtensionRun } from './order-collection-extension';
+import {
+  orderCollectionExtensionRunFields,
+  type OrderCollectionExtensionRun,
+} from './order-collection-extension';
 
 export interface KidsnoteOrderItem {
   productName: string;
@@ -68,8 +70,8 @@ export async function collectKidsnoteOrdersFromExtension(
       to,
       status,
       withDetail,
-      runId: await issueBrowserCollectionRunId(run?.runId),
-      deferTerminal: Boolean(run?.runId),
+      // attemptId/deferTerminal: true are included by shared fenced run fields.
+      ...orderCollectionExtensionRunFields(run),
     },
     withDetail ? 200000 : 90000,
   );
@@ -82,7 +84,7 @@ export async function collectKidsnoteOrdersFromExtension(
 /** 수집한 KidsNote 주문(상세 포함)을 셀피아 업로드 양식(.xls)으로 변환. 생성 파일 목록 등록용 결과 반환. */
 export async function convertKidsnoteToSellpiaFile(
   orders: KidsnoteOrder[],
-  options?: { download?: boolean },
+  options?: { download?: boolean; run?: OrderCollectionExtensionRun },
 ): Promise<OrderCollectionConversionResult> {
   const payload = {
     orders: orders.map((o) => ({
@@ -108,7 +110,13 @@ export async function convertKidsnoteToSellpiaFile(
   };
   const res = await apiClient.fetchRaw('/api/orders/collection/kidsnote/convert', {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: {
+      'content-type': 'application/json',
+      ...(options?.run ? {
+        'x-order-collection-attempt-id': options.run.attemptId,
+        'x-source-attempt-token': options.run.attemptToken,
+      } : {}),
+    },
     body: JSON.stringify(payload),
   });
   if (!res.ok) {

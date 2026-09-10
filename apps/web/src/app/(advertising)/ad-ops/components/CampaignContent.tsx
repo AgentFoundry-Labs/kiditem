@@ -3,15 +3,36 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { RefreshCw } from "lucide-react";
+import {
+  AdCampaignManualReportsSchema,
+  type AdCampaignSnapshot,
+  type AdTrendsData,
+} from "@kiditem/shared/advertising";
 import { apiClient } from "@/lib/api-client";
 import { queryKeys } from "@/lib/query-keys";
 import { cn, formatKRW } from "@/lib/utils";
 import { roasColor } from "../lib/status-colors";
 import { toCampaignsResponse } from "../hooks/useAdOpsData";
+import ManualCampaignReportPanel from "./ManualCampaignReportPanel";
+import { ProductDrilldown } from "./ProductDrilldown";
 import { CampaignTable } from "./CampaignTable";
 import type { CampaignSelection } from "./CampaignTable";
-import { ProductDrilldown } from "./ProductDrilldown";
-import type { AdCampaignSnapshot, AdTrendsData } from "@kiditem/shared/advertising";
+
+const DAY_MS = 86_400_000;
+const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
+
+function shiftDate(date: string, days: number): string {
+  return new Date(new Date(`${date}T00:00:00.000Z`).getTime() + days * DAY_MS)
+    .toISOString()
+    .slice(0, 10);
+}
+
+function exactManualReportRange(period: string): { startDate: string; endDate: string } | null {
+  if (period !== "7d") return null;
+  const today = new Date(Date.now() + KST_OFFSET_MS).toISOString().slice(0, 10);
+  const endDate = shiftDate(today, -1);
+  return { startDate: shiftDate(endDate, -6), endDate };
+}
 
 export default function CampaignContent({
   initialCampaign,
@@ -40,6 +61,23 @@ export default function CampaignContent({
         .get<AdCampaignSnapshot[]>(`/api/ads/campaigns?period=${period}`)
         .then(toCampaignsResponse),
   });
+  const manualRange = exactManualReportRange(period);
+  const manualReportsQuery = useQuery({
+    queryKey: queryKeys.ads.manualReports(
+      manualRange?.startDate ?? "disabled",
+      manualRange?.endDate ?? "disabled",
+    ),
+    enabled: manualRange !== null,
+    retry: false,
+    queryFn: async () => {
+      if (!manualRange) return null;
+      return AdCampaignManualReportsSchema.parse(
+        await apiClient.get(
+          `/api/ads/ad-campaigns/reports?startDate=${manualRange.startDate}&endDate=${manualRange.endDate}`,
+        ),
+      );
+    },
+  });
 
   // Trends carries the account-level KPI summary from coupang_ads_daily —
   // useful as a fallback KPI surface when campaign-grain rollups are sparse
@@ -53,6 +91,7 @@ export default function CampaignContent({
     !campaignsQuery.isLoading;
 
   const campaigns = campaignsQuery.data?.campaigns ?? [];
+  const manualReports = manualReportsQuery.data?.reports ?? [];
   const campaignKpi = campaignsQuery.data?.totalKpi ?? {};
   const accountSummary = trendsQuery.data?.accountSummary ?? null;
   const performanceCampaignCount = campaigns.filter(
@@ -133,6 +172,23 @@ export default function CampaignContent({
           계정 합산 광고 지표를 불러오지 못했습니다. 캠페인 목록은 별도로 표시합니다.
         </div>
       )}
+
+      {manualReportsQuery.isError && (
+        <div
+          className="rounded-xl border px-4 py-3 text-xs"
+          style={{
+            background: "var(--danger-subtle)",
+            borderColor: "var(--danger)",
+            color: "var(--danger)",
+          }}
+          data-testid="manual-report-error"
+          role="alert"
+        >
+          표시 범위 원본 보고서를 불러오지 못했습니다. 캠페인 일별 rollup은 별도로 표시합니다.
+        </div>
+      )}
+
+      <ManualCampaignReportPanel reports={manualReports} />
 
       <div className="space-y-4" aria-busy={isRefreshing}>
       {/* 캠페인 합산 KPI — 성과가 실제 수집된 캠페인만 합산한다. */}

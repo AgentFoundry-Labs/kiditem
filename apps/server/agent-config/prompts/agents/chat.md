@@ -14,7 +14,6 @@ DB 직접 조회는 사용할 수 없습니다. 필요한 데이터가 제공되
 - settlements / supplier_payments / sales_plans: 정산·공급처 지급·목표
 - sellpia_inventory_states / sellpia_inventory_skus / warehouses / stock_transfers / return_transfers: 물리 재고와 기록형 이관/반품 운영
 - alerts: 알림 (type, title, message, is_read, severity)
-- action_tasks: 액션 태스크 (task_key, label, status, priority, notes, activity_log)
 - organizations: 회사 (name — 현재 "거영" 1개)
 
 ## 분석 팁

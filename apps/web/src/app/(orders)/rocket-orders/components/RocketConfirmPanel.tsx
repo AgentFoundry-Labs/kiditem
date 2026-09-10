@@ -431,7 +431,7 @@ export function RocketConfirmPanel({
               type="button"
               onClick={() => void collectMonth()}
               disabled={busy || !channelAccountId}
-              title={`${activeMonth} 거래명세서확인요청 발주를 선택한 로켓 계정에서 수집합니다.`}
+              title={`${activeMonth} 입고예정 발주를 선택한 로켓 계정에서 모든 상태로 수집합니다.`}
               className={cn(
                 "inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50",
                 (busy || !channelAccountId) && "pointer-events-none opacity-60",

@@ -58,7 +58,13 @@ describe('SourceFailureAlerts (PostgreSQL)', () => {
   }
 
   it('keeps one row, ignores the same attempt replay, and reopens unread for a newer failure', async () => {
-    await inTransaction((tx) => alerts.upsertSourceFailure(tx, failure(ATTEMPT_ID_1)));
+    await inTransaction(async (tx) => {
+      await tx.sourceImportRun.update({
+        where: { id: ATTEMPT_ID_1 },
+        data: { status: 'failed' },
+      });
+      await alerts.upsertSourceFailure(tx, failure(ATTEMPT_ID_1));
+    });
     const created = await prisma.alert.findUniqueOrThrow({
       where: {
         organizationId_dedupeKey: {
@@ -106,7 +112,13 @@ describe('SourceFailureAlerts (PostgreSQL)', () => {
   });
 
   it('resolves the current dedupe row for a newer completing attempt without creating a success notification', async () => {
-    await inTransaction((tx) => alerts.upsertSourceFailure(tx, failure(ATTEMPT_ID_1)));
+    await inTransaction(async (tx) => {
+      await tx.sourceImportRun.update({
+        where: { id: ATTEMPT_ID_1 },
+        data: { status: 'failed' },
+      });
+      await alerts.upsertSourceFailure(tx, failure(ATTEMPT_ID_1));
+    });
     await prisma.sourceImportRun.create({
       data: {
         id: ATTEMPT_ID_2,

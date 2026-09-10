@@ -5,6 +5,7 @@ import {
   type ProductAbcFormulaPayload,
 } from '@kiditem/shared/product-abc';
 import { lockProductMapping } from '../../../../common/product-mapping-generation';
+import { readProductSaleAgeEvidence } from '../../../../common/product-sale-age';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { listSellingMasterProductIds } from './selling-master-product.query';
 import type {
@@ -125,13 +126,26 @@ async function publishTx(
     await listSellingMasterProductIds(tx, input.organizationId),
   );
   if (!sameIds(targetProductIds, input.targetProductIds)) return inputChanged();
+  const currentSaleAgeInputs = await readProductSaleAgeEvidence(
+    tx,
+    input.organizationId,
+    targetProductIds,
+    input.actualCutoff,
+  );
+  if (!sameSaleAgeInputs(input.saleAgeInputs, currentSaleAgeInputs, targetProductIds)) {
+    return inputChanged();
+  }
   if (!candidateSetIsValid(input, targetProductIds, formula)) return inputChanged();
 
   const existing = await readExistingAbcRows(tx, input.organizationId, true);
   const candidatesById = new Map(input.candidates.map((candidate) => [candidate.masterProductId, candidate]));
   const candidateSet = new Set(candidatesById.keys());
+  const targetSet = new Set(targetProductIds);
+  // A current selling target omitted for insufficient product evidence keeps
+  // its last normal evaluation. Only products that left the target set clear.
   const clearRows = existing.filter((row) =>
     !candidateSet.has(row.masterProductId)
+    && !targetSet.has(row.masterProductId)
     && (row.evaluationId !== null || row.cachedGrade !== null),
   );
   const existingById = new Map(existing.map((row) => [row.masterProductId, row]));
@@ -211,6 +225,7 @@ async function insertEvaluations(
       formulaRevision: input.expectedFormulaRevision,
       publicationRevision,
       gradeBasisCutoffDate: atUtcDate(candidate.gradeBasisCutoffDate),
+      saleStartDate: atUtcDate(candidate.saleStartDate),
       sellpiaSourceImportRunId: candidate.sellpiaSourceImportRunId,
       advertisingSourceImportRunId: candidate.advertisingSourceImportRunId,
       sellpiaGeneration: BigInt(candidate.sellpiaGeneration),
@@ -492,6 +507,7 @@ function candidateSetIsValid(
   const targetIdSet = new Set(targetProductIds);
   if (new Set(candidateIds).size !== candidateIds.length
     || candidateIds.some((id) => !targetIdSet.has(id))) return false;
+  const saleAgeById = new Map(input.saleAgeInputs.map((row) => [row.masterProductId, row]));
   if (input.candidates.some((candidate) =>
     candidate.sellpiaSourceImportRunId.length === 0
     || candidate.advertisingSourceImportRunId.length === 0
@@ -504,8 +520,11 @@ function candidateSetIsValid(
     || candidate.advertisingGeneration !== input.sourceFences.advertising.selectedComplete.publicationSequence
     || candidate.mappingGeneration !== input.mappingGeneration
     || candidate.gradeBasisCutoffDate !== input.actualCutoff
+    || saleAgeById.get(candidate.masterProductId)?.mappingValid !== true
+    || saleAgeById.get(candidate.masterProductId)?.saleStartDate !== candidate.saleStartDate
+    || dateKey(candidate.saleStartDate) === null
     || !Number.isSafeInteger(candidate.validObservationDays)
-    || candidate.validObservationDays < formula.minimumObservationDays
+    || candidate.validObservationDays <= 0
     || !finiteCandidate(candidate))) return false;
   return true;
 }
@@ -543,6 +562,37 @@ function assertPublicationInput(input: ProductAbcPublicationInput): void {
   if (new Set(input.targetProductIds).size !== input.targetProductIds.length) {
     throw new Error('ABC target set contains duplicate product IDs');
   }
+  if (new Set(input.saleAgeInputs.map(({ masterProductId }) => masterProductId)).size
+    !== input.saleAgeInputs.length) {
+    throw new Error('ABC sale age inputs contain duplicate product IDs');
+  }
+}
+
+function sameSaleAgeInputs(
+  expected: readonly Readonly<{
+    masterProductId: string;
+    mappingValid: boolean;
+    saleStartDate: string | null;
+  }>[],
+  actual: readonly Readonly<{
+    masterProductId: string;
+    mappingValid: boolean;
+    saleStartDate: string | null;
+  }>[],
+  targetProductIds: readonly string[],
+): boolean {
+  if (expected.length !== targetProductIds.length || actual.length !== targetProductIds.length) {
+    return false;
+  }
+  const expectedById = new Map(expected.map((row) => [row.masterProductId, row]));
+  const actualById = new Map(actual.map((row) => [row.masterProductId, row]));
+  return targetProductIds.every((masterProductId) =>
+    expectedById.has(masterProductId)
+      && actualById.has(masterProductId)
+      && expectedById.get(masterProductId)?.mappingValid
+        === actualById.get(masterProductId)?.mappingValid
+      && expectedById.get(masterProductId)?.saleStartDate
+        === actualById.get(masterProductId)?.saleStartDate);
 }
 
 async function lockNamed(

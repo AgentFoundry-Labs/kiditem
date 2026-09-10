@@ -43,6 +43,10 @@ vi.mock('../hooks/useProductOperationsDataStatus', () => ({
   }),
 }));
 
+vi.mock('./ProductOperationsFullRefreshAction', () => ({
+  ProductOperationsFullRefreshAction: () => <button type="button">상품 전체 데이터 갱신</button>,
+}));
+
 describe('ProductOperationsDataStatusAction', () => {
   beforeEach(() => {
     mocks.statusData = readyStatus();

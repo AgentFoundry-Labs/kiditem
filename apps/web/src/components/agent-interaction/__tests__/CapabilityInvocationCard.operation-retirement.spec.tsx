@@ -18,6 +18,7 @@ it.each(['saved receipt', 'approval response'])('ignores historical Operation re
         { kind: 'sourcing_candidate', id: 'candidate/1', version: null },
         { kind: 'unknown_resource', id: 'opaque-1', version: null },
       ],
+      // Deliberate negative fixture: persisted legacy operation refs are not rendered.
       operationRefs: [{ kind: 'operation_run', id: operationId }],
       output: { privatePayload: 'do not render' },
     },

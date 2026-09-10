@@ -48,6 +48,16 @@ export class KeywordSerpSourceController {
     return this.owner.readBatch(org, key.trim());
   }
 
+  @Post("batch-attempts/cancel")
+  cancelBatch(
+    @CurrentOrganization() org: string,
+    @Headers("idempotency-key") key: string | undefined,
+  ) {
+    if (!key?.trim() || key.length > 128)
+      throw new BadRequestException("INVALID_SERP_BATCH_ATTEMPT");
+    return this.owner.cancelBatch(org, key.trim());
+  }
+
   @Post("attempts")
   begin(
     @CurrentOrganization() org: string,

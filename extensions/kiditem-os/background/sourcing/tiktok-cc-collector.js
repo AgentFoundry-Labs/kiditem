@@ -47,6 +47,43 @@
     const storageGet = wire.getCorrelation;
     const failureFrom = wire.failure;
 
+    function cancellationError() {
+      return ownerError("COLLECTION_CANCELLED", "TikTok collection was cancelled by the user.");
+    }
+
+    async function isAttemptActive(attemptId, environmentId) {
+      if (typeof sessions.isActive !== "function") {
+        throw ownerError(
+          "COLLECTION_SESSION_API_UNAVAILABLE",
+          "The collection session activity API is required.",
+        );
+      }
+      try {
+        return Boolean(await sessions.isActive(attemptId, environmentId, PRODUCER));
+      } catch {
+        return false;
+      }
+    }
+
+    async function isRunActive(run) {
+      if (!run || run.cancelRequested) return false;
+      return isAttemptActive(run.plan.attemptId, run.environmentId);
+    }
+
+    async function requireRunActive(run) {
+      if (!(await isRunActive(run))) throw cancellationError();
+    }
+
+    function cancellationPendingResult(run) {
+      return {
+        success: false,
+        attemptId: run.plan.attemptId,
+        terminalState: "RUNNING",
+        errorCode: "COLLECTION_CANCELLED",
+        error: "TikTok collection cancellation is still being reconciled with the owner.",
+      };
+    }
+
     function ownerError(code, message, status = null) {
       const error = new Error(message);
       error.code = code;
@@ -335,18 +372,31 @@
         body: JSON.stringify(body),
       }));
       if (plan.state === "RUNNING") {
-        await sessions.start({
-          attemptId: plan.attemptId,
-          environmentId,
-          producer: PRODUCER,
-        });
         await persistRequestIdentity(environmentId, plan.attemptId, input);
+        try {
+          await sessions.start({
+            attemptId: plan.attemptId,
+            environmentId,
+            producer: PRODUCER,
+          });
+        } catch (error) {
+          if (await isAttemptActive(plan.attemptId, environmentId)) throw error;
+          try {
+            return (await terminalFail(config, plan, cancellationError())).terminal;
+          } catch {
+            throw error;
+          }
+        }
       }
       return plan;
     }
 
-    function terminalSubmit(config, plan, body) {
-      return wire.terminal(config, plan, { method: "PUT", suffix: "", body }, sourcePlanFrom);
+    function terminalSubmit(config, plan, body, run) {
+      return wire.terminal(config, plan, { method: "PUT", suffix: "", body }, sourcePlanFrom, run ? {
+        shouldContinue: () => isRunActive(run),
+        cancelCode: "COLLECTION_CANCELLED",
+        cancelMessage: "TikTok collection was cancelled by the user.",
+      } : undefined);
     }
 
     async function terminalFail(config, plan, error) {
@@ -375,18 +425,26 @@
       const seen = new Set();
       let region = run.plan.plan.regionOverride || null;
       try {
+        await requireRunActive(run);
         let tab = await createTab();
         run.tabId = tab.id;
+        if (!(await isRunActive(run))) {
+          await removeTab(tab.id);
+          run.tabId = null;
+          throw cancellationError();
+        }
         if (Number.isInteger(tab.windowId)) {
-          await sessions.attachTab(run.plan.attemptId, {
+          const attached = await sessions.attachTab(run.plan.attemptId, {
             tabId: tab.id,
             windowId: tab.windowId,
             closeOnCancel: true,
           });
+          if (attached === null || attached === false) throw cancellationError();
         }
+        await requireRunActive(run);
 
         for (let index = 0; index < run.targets.length; index++) {
-          if (run.cancelRequested) return run.terminalResult;
+          await requireRunActive(run);
           const target = run.targets[index];
           visitedTargetIds.push(target.id);
           await sessions.progress(run.plan.attemptId, {
@@ -396,16 +454,20 @@
             failed: errors.length,
             label: `${index + 1}/${run.targets.length} 타깃 수집 중`,
           });
+          await requireRunActive(run);
 
           try {
             await updateTab(run.tabId, { url: target.url, active: false });
+            await requireRunActive(run);
             tab = await waitForNavigation(run.tabId);
+            await requireRunActive(run);
             if (isBlockedUrl(tab && tab.url)) {
               errors.push({ target: target.id, message: "TikTok 로그인 또는 지역 차단으로 수집할 수 없습니다." });
               continue;
             }
 
             const extracted = await extractFromTab(run.tabId, target, region || run.plan.plan.regionOverride);
+            await requireRunActive(run);
             if (!extracted.ok) {
               errors.push({ target: target.id, message: extracted.error || "TikTok 트렌드 추출 실패" });
               continue;
@@ -427,7 +489,7 @@
           if (items.length >= run.maxItems) break;
         }
 
-        if (run.cancelRequested) return run.terminalResult;
+        await requireRunActive(run);
         const finalRegion = region || "US";
         const cappedItems = items.slice(0, run.maxItems);
         await sessions.progress(run.plan.attemptId, {
@@ -437,10 +499,12 @@
           failed: errors.length,
           label: "TikTok 수집 결과 저장 중",
         });
+        await requireRunActive(run);
 
         const body = { region: finalRegion, items: cappedItems, visitedTargetIds };
         if (errors.length) body.errors = errors;
-        const terminal = await terminalSubmit(run.config, run.plan, body);
+        const terminal = await terminalSubmit(run.config, run.plan, body, run);
+        await requireRunActive(run);
         if (!isTerminalState(terminal.state)) {
           throw ownerError("INVALID_TIKTOK_TERMINAL", "TikTok owner did not terminalize the collection.");
         }
@@ -449,7 +513,16 @@
         await clearTerminalAttempt(run.environmentId, run.plan.attemptId, terminalTabId);
         return terminalResult(terminal, cappedItems.length);
       } catch (error) {
-        if (run.cancelRequested && run.terminalResult) return run.terminalResult;
+        if (error?.code === "COLLECTION_CANCELLED" || !(await isRunActive(run))) {
+          if (run.cancelPromise) {
+            try {
+              return await run.cancelPromise;
+            } catch {
+              return cancellationPendingResult(run);
+            }
+          }
+          return run.terminalResult || cancellationPendingResult(run);
+        }
         const failure = failureFrom(error, "SOURCE_COLLECTION_FAILED", "TikTok collection failed.");
         try {
           const terminal = await terminalFail(run.config, run.plan, error);
@@ -479,6 +552,7 @@
       }
       const existing = sessionsForEnvironment[0];
       if (!existing) return begin(config, environmentId, input);
+      if (!(await isAttemptActive(existing.attemptId, environmentId))) return null;
 
       const correlation = await storageGet(requestStorageKey(environmentId));
       if (
@@ -542,6 +616,7 @@
           maxItems: plan.plan.maxItems,
           tabId: null,
           cancelRequested: false,
+          cancelPromise: null,
           terminalResult: null,
         };
         running.run = collectorRun;
@@ -549,9 +624,22 @@
       });
     }
 
-    async function cancel(attemptId, environmentId) {
+    async function cancel(attemptId, environmentId, options = {}) {
       const normalizedAttemptId = requiredText(attemptId, "INVALID_TIKTOK_SOURCE_ATTEMPT");
       const normalizedEnvironmentId = requiredText(environmentId, "INVALID_COLLECTION_ENVIRONMENT", 20);
+      let cancellationRequested = options.cancellationRequested === true;
+      if (!options.cancellationRequested && typeof sessions.requestCancellation === "function") {
+        const alreadyStopped = !(await isAttemptActive(normalizedAttemptId, normalizedEnvironmentId));
+        if (alreadyStopped) cancellationRequested = true;
+        if (!alreadyStopped) {
+          try {
+            await sessions.requestCancellation(normalizedAttemptId, normalizedEnvironmentId);
+            cancellationRequested = true;
+          } catch (error) {
+            console.warn("[bg] TikTok cancellation fence needs reconciliation:", error?.message || error);
+          }
+        }
+      }
       const session = await sessions.getOwned(normalizedAttemptId, normalizedEnvironmentId);
       if (!session || session.producer !== PRODUCER) {
         return { success: true, cancelled: false, attemptId: normalizedAttemptId };
@@ -575,19 +663,29 @@
         const terminalTabId = collectorRun?.tabId ?? null;
         if (collectorRun) collectorRun.tabId = null;
         await clearTerminalAttempt(normalizedEnvironmentId, normalizedAttemptId, terminalTabId);
-        return { success: true, cancelled: false, attemptId: normalizedAttemptId };
+        return {
+          success: true,
+          cancelled: cancellationRequested && plan.state === "FAILED",
+          attemptId: normalizedAttemptId,
+        };
       }
       if (collectorRun) collectorRun.cancelRequested = true;
-      const terminal = await terminalFail(
-        config,
-        plan,
-        ownerError("COLLECTION_CANCELLED", "TikTok collection was cancelled by the user."),
-      );
-      const result = terminalResult(terminal.terminal);
-      if (collectorRun) collectorRun.terminalResult = result;
-      const terminalTabId = collectorRun?.tabId ?? null;
-      if (collectorRun) collectorRun.tabId = null;
-      await clearTerminalAttempt(normalizedEnvironmentId, normalizedAttemptId, terminalTabId);
+      const cancellation = (async () => {
+        const terminal = await terminalFail(config, plan, cancellationError());
+        const result = terminalResult(terminal.terminal);
+        if (collectorRun) collectorRun.terminalResult = result;
+        const terminalTabId = collectorRun?.tabId ?? null;
+        if (collectorRun) collectorRun.tabId = null;
+        if (!collectorRun && typeof sessions.requestCancellation !== "function" && typeof sessions.cancel === "function") {
+          await sessions.cancel(normalizedAttemptId, { closeManagedTab: true });
+          await clearRequestIdentity(normalizedEnvironmentId, normalizedAttemptId);
+        } else {
+          await clearTerminalAttempt(normalizedEnvironmentId, normalizedAttemptId, terminalTabId);
+        }
+        return result;
+      })();
+      if (collectorRun) collectorRun.cancelPromise = cancellation;
+      await cancellation;
       return { success: true, cancelled: true, attemptId: normalizedAttemptId };
     }
 
@@ -598,6 +696,7 @@
       const activeSession = (await sessions.list(normalizedEnvironmentId))
         .find((session) => session?.producer === PRODUCER);
       if (!activeSession) return null;
+      if (!(await isAttemptActive(activeSession.attemptId, normalizedEnvironmentId))) return null;
       const correlation = await storageGet(requestStorageKey(normalizedEnvironmentId));
       if (!correlation?.idempotencyKey) return null;
       return run({ environmentId: normalizedEnvironmentId, ...correlation });

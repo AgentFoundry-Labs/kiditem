@@ -88,6 +88,41 @@ describe('ProductOperationsDataStatusService', () => {
       },
     });
   });
+
+  it('keeps mapping ready when one product is unmapped while counting that product separately', async () => {
+    const currentFacts = facts();
+    currentFacts.products[1] = {
+      ...currentFacts.products[1],
+      mappingValid: false,
+    };
+    const repository = { read: vi.fn().mockResolvedValue(currentFacts) };
+    const service = new ProductOperationsDataStatusService(repository as never);
+
+    await expect(service.getStatus(ORGANIZATION_ID, 30)).resolves.toMatchObject({
+      sources: {
+        mapping: { status: 'READY', generation: '8' },
+      },
+      abcSummary: {
+        classifiedProductCount: 1,
+        unclassifiedProductCount: 1,
+        mappingRequiredProductCount: 1,
+        otherPendingProductCount: 0,
+      },
+    });
+  });
+
+  it('reports stale mapping when the captured generation is incoherent', async () => {
+    const currentFacts = facts();
+    currentFacts.mappingReady = false;
+    const repository = { read: vi.fn().mockResolvedValue(currentFacts) };
+    const service = new ProductOperationsDataStatusService(repository as never);
+
+    await expect(service.getStatus(ORGANIZATION_ID, 30)).resolves.toMatchObject({
+      sources: {
+        mapping: { status: 'STALE', generation: '8' },
+      },
+    });
+  });
 });
 
 function facts() {
@@ -129,8 +164,18 @@ function facts() {
       mappingGeneration: '8',
     },
     products: [
-      { masterProductId: PRODUCT_ID, abcGrade: 'B' as const, mappingValid: true },
-      { masterProductId: NEW_PRODUCT_ID, abcGrade: null, mappingValid: true },
+      {
+        masterProductId: PRODUCT_ID,
+        abcGrade: 'B' as const,
+        mappingValid: true,
+        saleStartDate: '2026-07-01',
+      },
+      {
+        masterProductId: NEW_PRODUCT_ID,
+        abcGrade: null,
+        mappingValid: true,
+        saleStartDate: null,
+      },
     ],
   };
 }

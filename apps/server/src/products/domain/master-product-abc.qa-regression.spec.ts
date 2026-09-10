@@ -1,18 +1,19 @@
 import { describe, expect, it } from 'vitest';
-import { PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD } from '@kiditem/shared/product-abc';
+import { PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD } from '@kiditem/shared/product-abc';
 import {
   evaluateMasterProductAbc,
   type MasterProductAbcFormulaReadyFacts,
 } from './master-product-abc';
 
 describe('absolute ABC QA regressions', () => {
-  it('uses the canonical shared V1 payload reference', () => {
-    expect(PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD).toMatchObject({
+  it('uses the canonical shared current payload reference', () => {
+    expect(PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD).toMatchObject({
       formulaKey: 'PRODUCT_ABC_ABSOLUTE',
-      version: 1,
+      version: 2,
       halfLifeDays: 90,
       weights: { profit: 0.5, margin: 0.3, consistency: 0.2 },
-      minimumObservationDays: 30,
+      minimumSaleAgeDays: 30,
+      requiresCompleteEvaluationPeriod: true,
     });
   });
 
@@ -20,6 +21,8 @@ describe('absolute ABC QA regressions', () => {
     const input: MasterProductAbcFormulaReadyFacts = {
       masterProductId: 'product-a',
       cutoffDate: '2026-07-31',
+      saleStartDate: '2026-06-01',
+      evaluationPeriodComplete: true,
       monthlyFacts: [{
         yearMonth: '2026-07',
         coverageStartDate: '2026-07-01',
@@ -37,7 +40,7 @@ describe('absolute ABC QA regressions', () => {
     };
     const candidate = evaluateMasterProductAbc({
       facts: input,
-      formula: PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD,
+      formula: PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
     });
 
     expect(candidate).toHaveProperty('abcGrade');

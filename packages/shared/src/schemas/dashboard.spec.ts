@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
+  DashboardComparisonBasisSchema,
+  DashboardAlertItemSchema,
   DashboardInventorySummarySchema,
+  DashboardPeriodBasisSchema,
+  DashboardProfitInputsSchema,
   DashboardSalesSummarySchema,
+  DashboardSnapshotBasisSchema,
+  TrafficKpiSchema,
   SellpiaProductInventoryResolutionSchema,
   SellpiaProductSalesIngestPayloadSchema,
   SellpiaSalesIngestPayloadSchema,
@@ -10,6 +16,166 @@ import {
 } from './dashboard.js';
 
 describe('dashboard schemas', () => {
+  const completePeriodBasis = {
+    kind: 'period' as const,
+    from: '2026-09-01',
+    to: '2026-09-03',
+    targetDays: 3,
+    includedDates: ['2026-09-01', '2026-09-02', '2026-09-03'],
+    includedDays: 3,
+    missingDates: [],
+    invalidDates: [],
+    sources: ['orders', 'coupang_ads'],
+    status: 'complete' as const,
+    partial: false,
+    observedAt: '2026-09-04T01:00:00.000Z',
+  };
+
+  it('requires an exact period partition and preserves internal holes', () => {
+    expect(DashboardPeriodBasisSchema.parse({
+      ...completePeriodBasis,
+      includedDates: ['2026-09-01', '2026-09-03'],
+      includedDays: 2,
+      missingDates: ['2026-09-02'],
+      invalidDates: [],
+      status: 'partial',
+      partial: true,
+    }).missingDates).toEqual(['2026-09-02']);
+
+    expect(DashboardPeriodBasisSchema.safeParse({
+      ...completePeriodBasis,
+      includedDates: ['2026-09-01', '2026-09-03'],
+      includedDays: 2,
+      missingDates: [],
+    }).success).toBe(false);
+  });
+
+  it('distinguishes a failed source query from an empty period', () => {
+    const failed = DashboardPeriodBasisSchema.parse({
+      ...completePeriodBasis,
+      includedDates: [],
+      includedDays: 0,
+      missingDates: ['2026-09-01', '2026-09-02', '2026-09-03'],
+      invalidDates: [],
+      status: 'unverified',
+      partial: false,
+      queryFailedSources: ['coupang_ads'],
+    });
+    expect(failed.queryFailedSources).toEqual(['coupang_ads']);
+    expect(DashboardPeriodBasisSchema.safeParse({
+      ...failed,
+      queryFailedSources: ['coupang_ads', 'coupang_ads'],
+    }).success).toBe(false);
+  });
+
+  it('distinguishes snapshot metadata from an unavailable period', () => {
+    expect(DashboardSnapshotBasisSchema.parse({
+      kind: 'snapshot',
+      asOf: null,
+      observedAt: null,
+      sources: ['stored_abc_evaluation'],
+      status: 'unknown',
+    }).status).toBe('unknown');
+  });
+
+  it('requires a matched relative offset for comparable periods', () => {
+    const previous = {
+      ...completePeriodBasis,
+      from: '2026-08-29',
+      to: '2026-08-31',
+      includedDates: ['2026-08-29', '2026-08-30', '2026-08-31'],
+    };
+    expect(DashboardComparisonBasisSchema.parse({
+      kind: 'comparison',
+      current: completePeriodBasis,
+      previous,
+      matchedOffsets: [0, 1, 2],
+      status: 'comparable',
+      reason: null,
+    }).matchedOffsets).toEqual([0, 1, 2]);
+    expect(DashboardComparisonBasisSchema.safeParse({
+      kind: 'comparison',
+      current: completePeriodBasis,
+      previous,
+      matchedOffsets: [],
+      status: 'comparable',
+      reason: null,
+    }).success).toBe(false);
+  });
+
+  it('rejects duplicate, out-of-range, and unavailable comparison offsets', () => {
+    const previous = {
+      ...completePeriodBasis,
+      from: '2026-08-29',
+      to: '2026-08-31',
+      includedDates: ['2026-08-29', '2026-08-30', '2026-08-31'],
+    };
+    const base = {
+      kind: 'comparison' as const,
+      current: completePeriodBasis,
+      previous,
+      status: 'comparable' as const,
+      reason: null,
+    };
+
+    expect(DashboardComparisonBasisSchema.safeParse({ ...base, matchedOffsets: [1, 0] }).success).toBe(false);
+    expect(DashboardComparisonBasisSchema.safeParse({ ...base, matchedOffsets: [0, 0] }).success).toBe(false);
+    expect(DashboardComparisonBasisSchema.safeParse({ ...base, matchedOffsets: [3] }).success).toBe(false);
+    expect(() => DashboardComparisonBasisSchema.safeParse({
+      ...base,
+      matchedOffsets: [1_000_000_000_000_000],
+    })).not.toThrow();
+    expect(DashboardComparisonBasisSchema.safeParse({
+      ...base,
+      matchedOffsets: [1_000_000_000_000_000],
+    }).success).toBe(false);
+    expect(DashboardComparisonBasisSchema.safeParse({
+      ...base,
+      current: {
+        ...completePeriodBasis,
+        includedDates: ['2026-09-01', '2026-09-03'],
+        includedDays: 2,
+        missingDates: ['2026-09-02'],
+        status: 'partial' as const,
+        partial: true,
+      },
+      matchedOffsets: [1],
+    }).success).toBe(false);
+    expect(DashboardComparisonBasisSchema.safeParse({
+      ...base,
+      matchedOffsets: [],
+      status: 'unavailable' as const,
+      reason: 'no shared valid dates',
+    }).success).toBe(true);
+    expect(DashboardComparisonBasisSchema.safeParse({
+      ...base,
+      current: { ...completePeriodBasis, status: 'unverified' as const },
+      matchedOffsets: [0, 1, 2],
+    }).success).toBe(false);
+  });
+
+  it('keeps numeric profit inputs tied to one common period basis', () => {
+    const inputs = DashboardProfitInputsSchema.parse({
+      revenue: 100_000,
+      cost: 60_000,
+      adCost: 10_000,
+      qty: 4,
+      basis: completePeriodBasis,
+    });
+    expect(inputs).toMatchObject({ revenue: 100_000, cost: 60_000, adCost: 10_000 });
+    expect(DashboardProfitInputsSchema.safeParse({
+      ...inputs,
+      basis: {
+        ...completePeriodBasis,
+        includedDates: [],
+        includedDays: 0,
+        missingDates: ['2026-09-01', '2026-09-02', '2026-09-03'],
+        status: 'empty' as const,
+        partial: false,
+      },
+    }).success).toBe(false);
+  });
+
   const explicitEmptyProvenance = {
     source: 'sellpia_sale_summary' as const,
     mode: 'selldate' as const,
@@ -17,6 +183,54 @@ describe('dashboard schemas', () => {
     responseShape: 'empty_object' as const,
     explicitEmpty: true as const,
   };
+
+  it('keeps unavailable traffic metrics nullable while preserving valid zeroes and provenance', () => {
+    const parsed = TrafficKpiSchema.parse({
+      visitors: 0,
+      views: 0,
+      orders: 0,
+      salesQty: 0,
+      revenue: 0,
+      cartAdds: 0,
+      conversionRate: null,
+      dailyAverageVisitors: 0,
+      providerConversionRate: 2.85,
+      coverage: {
+        from: '2026-09-01',
+        to: '2026-09-03',
+        targetDays: 3,
+        completedDays: 3,
+        missingDates: [],
+      },
+      reconciliation: {
+        views: { status: 'UNVERIFIED', dailySum: 0, periodValue: null },
+        cartAdds: { status: 'MATCHED', dailySum: 0, periodValue: 0 },
+        orders: { status: 'MATCHED', dailySum: 0, periodValue: 0 },
+        salesQty: { status: 'MATCHED', dailySum: 0, periodValue: 0 },
+        revenue: { status: 'MISMATCH', dailySum: 0, periodValue: 1 },
+      },
+      exactPeriodEvidence: { source: 'wing-period-original' },
+    });
+
+    expect(parsed.dailyAverageVisitors).toBe(0);
+    expect(parsed.revenue).toBe(0);
+    expect(parsed.views).toBe(0);
+    expect(parsed.exactPeriodEvidence).toEqual({ source: 'wing-period-original' });
+    expect(TrafficKpiSchema.parse({
+      ...parsed,
+      visitors: null,
+      views: null,
+      orders: null,
+      salesQty: null,
+      revenue: null,
+      cartAdds: null,
+      dailyAverageVisitors: null,
+      providerConversionRate: null,
+      coverage: null,
+      reconciliation: null,
+      exactPeriodEvidence: null,
+    }).revenue).toBeNull();
+  });
 
   it('strips the retired Rocket monthly projection and rejects Rocket revenue sources', () => {
     const parsed = DashboardSalesSummarySchema.parse({
@@ -32,6 +246,8 @@ describe('dashboard schemas', () => {
         revenueChange: 0,
         profitChange: 0,
         prevAdRate: 0,
+        available: true,
+        previousAvailable: false,
       },
       topProducts: [],
       monthlyTrend: [],
@@ -79,12 +295,8 @@ describe('dashboard schemas', () => {
         READY: 4,
         INSUFFICIENT_EVIDENCE: 1,
         SOURCE_UNMAPPED: 0,
-        CALIBRATION_PENDING: 0,
-        RECALCULATING: 0,
         SELLPIA_SOURCE_STALE: 0,
         AD_SOURCE_STALE: 0,
-        ORDERS_SOURCE_STALE: 0,
-        CALCULATION_ERROR: 0,
       },
       abcContributionProfit: {
         amountByGrade: { A: 200_000, B: 80_000, C: -20_000 },
@@ -115,12 +327,8 @@ describe('dashboard schemas', () => {
         READY: 5,
         INSUFFICIENT_EVIDENCE: 0,
         SOURCE_UNMAPPED: 0,
-        CALIBRATION_PENDING: 0,
-        RECALCULATING: 0,
         SELLPIA_SOURCE_STALE: 0,
         AD_SOURCE_STALE: 0,
-        ORDERS_SOURCE_STALE: 0,
-        CALCULATION_ERROR: 0,
       },
       abcContributionProfit: {
         amountByGrade: { A: 250_000, B: 100_000, C: -20_000 },
@@ -159,12 +367,8 @@ describe('dashboard schemas', () => {
         READY: 5,
         INSUFFICIENT_EVIDENCE: 0,
         SOURCE_UNMAPPED: 0,
-        CALIBRATION_PENDING: 0,
-        RECALCULATING: 0,
         SELLPIA_SOURCE_STALE: 0,
         AD_SOURCE_STALE: 0,
-        ORDERS_SOURCE_STALE: 0,
-        CALCULATION_ERROR: 0,
       },
       abcContributionProfit: {
         amountByGrade: { A: 250_000, B: 100_000, C: -20_000 },
@@ -176,8 +380,8 @@ describe('dashboard schemas', () => {
       mappingStatusCounts: { matched: 10, unmatched: 0, needsReview: 0 },
       alerts: [{
         id: 'alert-1',
-        kind: 'operation',
-        status: 'succeeded',
+        kind: 'signal',
+        status: 'RESOLVED',
         type: 'thumbnail_edit_job',
         severity: 'info',
         title: '썸네일 편집 완료',
@@ -200,8 +404,53 @@ describe('dashboard schemas', () => {
       },
     });
 
-    expect(summary.alerts[0].status).toBe('succeeded');
+    expect(summary.alerts[0].status).toBe('RESOLVED');
     expect(summary.alerts[0].href).toBe('/product-pipeline/thumbnail-ai?generationId=gen-1');
+  });
+
+  it('rejects retired ABC statuses and operation alert vocabulary', () => {
+    expect(DashboardInventorySummarySchema.safeParse({
+      totalProducts: 0,
+      channelLinkedProducts: 0,
+      channelUnlinkedProducts: 0,
+      gradeCount: { A: 0, B: 0, C: 0 },
+      abcStatusCount: {
+        READY: 0,
+        INSUFFICIENT_EVIDENCE: 0,
+        SOURCE_UNMAPPED: 0,
+        SELLPIA_SOURCE_STALE: 0,
+        AD_SOURCE_STALE: 0,
+        CALIBRATION_PENDING: 0,
+      },
+      abcContributionProfit: {
+        amountByGrade: { A: 0, B: 0, C: 0 },
+        shareByGrade: { A: 0, B: 0, C: 0 },
+      },
+      abcFormula: null,
+      classifiedProductCount: 0,
+      unclassifiedProductCount: 0,
+      mappingStatusCounts: { matched: 0, unmatched: 0, needsReview: 0 },
+      alerts: [],
+      warnings: {
+        minusProducts: 0,
+        lowProfitProducts: 0,
+        highAdProducts: 0,
+        outOfStockSkus: 0,
+        mappingAttentionSkus: 0,
+      },
+    }).success).toBe(false);
+
+    expect(DashboardAlertItemSchema.safeParse({
+      id: 'alert-legacy',
+      kind: 'operation',
+      status: 'succeeded',
+      type: 'thumbnail_edit_job',
+      severity: 'info',
+      title: 'legacy',
+      message: null,
+      isRead: false,
+      createdAt: '2026-05-09T00:00:00.000Z',
+    }).success).toBe(false);
   });
 
   it('keeps top-product stored ABC nullable and rejects non-ABC labels', () => {
@@ -236,6 +485,53 @@ describe('dashboard schemas', () => {
     expect(summary.netProfit).toBe(300_000);
     expect(summary.adCost).toBe(100_000);
     expect(summary.profitRate).toBe(30);
+  });
+
+  it('accepts unavailable Sellpia advertising profit fields without relaxing sales fields', () => {
+    const emptyGroup = { revenue: 0, qty: 0, cost: 0, daily: [], malls: [] };
+    const summary = SellpiaSalesSummarySchema.parse({
+      range: { from: '2026-07-01', to: '2026-07-18' },
+      rocket: emptyGroup,
+      others: {
+        ...emptyGroup,
+        revenue: 100_000,
+        qty: 4,
+        cost: 60_000,
+      },
+      totalRevenue: 100_000,
+      totalCost: 60_000,
+      adCost: null,
+      netProfit: null,
+      profitRate: null,
+      lastCapturedAt: '2026-07-18T00:00:00.000Z',
+      hasData: true,
+    });
+
+    expect(summary.totalRevenue).toBe(100_000);
+    expect(summary.others.qty).toBe(4);
+    expect(summary.adCost).toBeNull();
+    expect(summary.netProfit).toBeNull();
+    expect(summary.profitRate).toBeNull();
+  });
+
+  it('keeps an explicit zero-cost Sellpia result numeric', () => {
+    const emptyGroup = { revenue: 0, qty: 0, cost: 0, daily: [], malls: [] };
+    const summary = SellpiaSalesSummarySchema.parse({
+      range: { from: '2026-07-01', to: '2026-07-18' },
+      rocket: emptyGroup,
+      others: emptyGroup,
+      totalRevenue: 0,
+      totalCost: 0,
+      adCost: 0,
+      netProfit: 0,
+      profitRate: 0,
+      lastCapturedAt: null,
+      hasData: true,
+    });
+
+    expect(summary.adCost).toBe(0);
+    expect(summary.netProfit).toBe(0);
+    expect(summary.profitRate).toBe(0);
   });
 
   it('rejects malformed or oversized Sellpia collection ranges before ingest', () => {

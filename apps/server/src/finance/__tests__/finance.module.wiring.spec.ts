@@ -1,6 +1,10 @@
 import 'reflect-metadata';
 import { describe, expect, it } from 'vitest';
+import { AdvertisingModule } from '../../advertising/advertising.module';
 import { AnalyticsModule } from '../../analytics/analytics.module';
+import { ChannelsModule } from '../../channels/channels.module';
+import { InventoryModule } from '../../inventory/inventory.module';
+import { FinanceReportExportController } from '../controllers/finance-report-export.controller';
 import { MasterProductContributionRepositoryAdapter } from '../adapter/out/repository/master-product-contribution.repository.adapter';
 import { MASTER_PRODUCT_CONTRIBUTION_READ_PORT } from '../application/port/in/master-product-contribution-read.port';
 import { MASTER_PRODUCT_CONTRIBUTION_REPOSITORY_PORT } from '../application/port/out/repository/master-product-contribution.repository.port';
@@ -16,6 +20,7 @@ import { SalesAnalysisScraperService } from '../services/sales-analysis-scraper.
 import { SalesAnalysisService } from '../services/sales-analysis.service';
 import { SettlementsController } from '../settlements/settlements.controller';
 import { SettlementsService } from '../settlements/settlements.service';
+import { FinanceReportExportService } from '../report-export/finance-report-export.service';
 import { SupplierPaymentsController } from '../supplier-payments/supplier-payments.controller';
 import { SupplierPaymentsService } from '../supplier-payments/supplier-payments.service';
 
@@ -28,10 +33,14 @@ describe('FinanceModule capability wiring', () => {
 
     expect(imports).toEqual([
       AnalyticsModule,
+      AdvertisingModule,
+      ChannelsModule,
+      InventoryModule,
       ProfitabilityEvidenceModule,
     ]);
     expect(controllers).toEqual([
       ProfitLossController,
+      FinanceReportExportController,
       SalesAnalysisController,
       SupplierPaymentsController,
       SalesPlansController,
@@ -46,6 +55,7 @@ describe('FinanceModule capability wiring', () => {
       SettlementsService,
       MasterProductContributionRepositoryAdapter,
       MasterProductContributionReadService,
+      FinanceReportExportService,
       {
         provide: MASTER_PRODUCT_CONTRIBUTION_REPOSITORY_PORT,
         useExisting: MasterProductContributionRepositoryAdapter,

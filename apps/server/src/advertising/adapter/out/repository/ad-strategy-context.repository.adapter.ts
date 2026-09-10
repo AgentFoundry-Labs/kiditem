@@ -3,22 +3,26 @@
 // `AdsConfig` — the application service passes it in as a parameter so
 // this lane has zero application-layer back-references.
 
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { kstInclusiveDaysStart, kstMonthStart } from '../../../../common/kst';
 import { buildPerListingMetrics } from '../../../../common/per-listing-profit';
+import { classifyDailyTrafficFact } from '@kiditem/shared/advertising';
 import { periodBounds, type AdPeriod } from '../../../domain/ad-metrics';
-import type { ChannelStateSignal } from '@kiditem/shared/advertising';
-import type {
-  AdsConfig,
-  HydratedListing,
-} from '../../../domain/model/strategy-types';
 import {
   buildGradeMap,
   toAdAggregateRows,
   uniqueIds,
 } from '../../../domain/strategy-context';
+import {
+  ADVERTISING_REVIEW_LISTING_STATS_PORT,
+  type AdvertisingReviewListingStatsPort,
+} from '../../../application/port/out/cross-domain/review-listing-stats.port';
+import type {
+  AdsConfig,
+  HydratedListing,
+} from '../../../domain/model/strategy-types';
 import type {
   AdStrategyContextRepositoryPort,
   AllTimeAdAggregateRow,
@@ -27,12 +31,17 @@ import type {
   ListingTrafficDailyRow,
   StrategyContext,
 } from '../../../application/port/out/repository/ad-strategy-context.repository.port';
+import type { ChannelStateSignal } from '@kiditem/shared/advertising';
 
 @Injectable()
 export class AdStrategyContextRepositoryAdapter
   implements AdStrategyContextRepositoryPort
 {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(ADVERTISING_REVIEW_LISTING_STATS_PORT)
+    private readonly reviewStatsRead: AdvertisingReviewListingStatsPort,
+  ) {}
 
   async loadStrategyContext(
     organizationId: string,
@@ -58,15 +67,17 @@ export class AdStrategyContextRepositoryAdapter
           adConversions: true,
         },
       }),
-      this.prisma.channelListingDailySnapshot.groupBy({
-        by: ['listingId'],
+      this.prisma.channelListingDailySnapshot.findMany({
         where: {
           organizationId,
           businessDate: { gte: range.from, lte: range.to },
         },
-        _sum: {
+        select: {
+          listingId: true,
+          businessDate: true,
           trafficRevenue: true,
           trafficOrders: true,
+          metaJson: true,
         },
       }),
     ]);
@@ -104,11 +115,14 @@ export class AdStrategyContextRepositoryAdapter
       { revenue: number; orders: number }
     >();
     for (const row of trafficAgg) {
-      if (!row.listingId) continue;
-      trafficByListing.set(row.listingId, {
-        revenue: row._sum.trafficRevenue ?? 0,
-        orders: row._sum.trafficOrders ?? 0,
-      });
+      if (
+        !row.listingId
+        || classifyDailyTrafficFact(row.metaJson, calendarDate(row.businessDate)) === null
+      ) continue;
+      const current = trafficByListing.get(row.listingId) ?? { revenue: 0, orders: 0 };
+      current.revenue += row.trafficRevenue;
+      current.orders += row.trafficOrders;
+      trafficByListing.set(row.listingId, current);
     }
 
     return {
@@ -398,23 +412,13 @@ export class AdStrategyContextRepositoryAdapter
         trafficDailyRows: [],
       };
     }
-    const [adAggAll, reviewAgg, recentReviewAgg, trafficDailyRows] =
+    const [adAggAll, reviewStatsRead, trafficDailyRows] =
       await Promise.all([
         this.loadAllTimeAdAggregates(organizationId),
-        this.prisma.review.groupBy({
-          by: ['listingId'],
-          where: { organizationId, listingId: { not: null } },
-          _count: { id: true },
-          _avg: { rating: true },
-        }),
-        this.prisma.review.groupBy({
-          by: ['listingId'],
-          where: {
-            organizationId,
-            listingId: { not: null },
-            reviewedAt: { gte: options.recentReviewSince },
-          },
-          _count: { id: true },
+        this.reviewStatsRead.loadListingReviewStats({
+          organizationId,
+          listingIds,
+          recentSince: options.recentReviewSince,
         }),
         this.prisma.channelListingDailySnapshot.findMany({
           where: {
@@ -427,27 +431,17 @@ export class AdStrategyContextRepositoryAdapter
             businessDate: true,
             trafficRevenue: true,
             trafficOrders: true,
+            metaJson: true,
           },
         }),
       ]);
 
-    const reviewStats: ListingReviewStatRow[] = reviewAgg.flatMap((r) =>
-      r.listingId
-        ? [
-            {
-              listingId: r.listingId,
-              totalReviews: r._count.id,
-              avgRating: r._avg.rating != null ? Number(r._avg.rating) : 0,
-            },
-          ]
-        : [],
-    );
-    const recentReviewCounts = recentReviewAgg.flatMap((r) =>
-      r.listingId ? [{ listingId: r.listingId, count: r._count.id }] : [],
-    );
+    const reviewStats: ListingReviewStatRow[] = reviewStatsRead.lifetime;
+    const recentReviewCounts = reviewStatsRead.recent;
     const trafficRows: ListingTrafficDailyRow[] = trafficDailyRows.flatMap(
       (row) =>
         row.listingId
+          && classifyDailyTrafficFact(row.metaJson, calendarDate(row.businessDate)) !== null
           ? [
               {
                 listingId: row.listingId,
@@ -467,4 +461,8 @@ export class AdStrategyContextRepositoryAdapter
     };
   }
 
+}
+
+function calendarDate(value: Date): string {
+  return value.toISOString().slice(0, 10);
 }

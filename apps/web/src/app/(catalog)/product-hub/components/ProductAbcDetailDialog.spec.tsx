@@ -18,7 +18,7 @@ describe('ProductAbcDetailDialog', () => {
     expect(screen.getByText('표시 데이터 기준일')).toBeInTheDocument();
     expect(screen.getByText('수익 데이터 관찰')).toBeInTheDocument();
     expect(screen.queryByText('주문 원천')).not.toBeInTheDocument();
-    expect(screen.getByText(/PRODUCT_ABC_ABSOLUTE · v1 · 반감기 90일/)).toBeInTheDocument();
+    expect(screen.getByText(/PRODUCT_ABC_ABSOLUTE · v2 · 반감기 90일/)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: '상품 상세 보기' })).toHaveAttribute('href', '/product-hub/11111111-1111-4111-8111-111111111111');
   });
 });

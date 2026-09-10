@@ -25,17 +25,4 @@ describe("identifier contracts", () => {
       expect(Identifiers).not.toHaveProperty(retiredExport);
     }
   });
-
-  it("keeps canonical operation-run names for non-Agent-OS consumers", () => {
-    const organization = Identifiers.OrganizationIdSchema.parse("org-1");
-    const operation = Identifiers.OperationRunIdSchema.parse("operation-1");
-    const name = Identifiers.formatOperationRunName(organization, operation);
-
-    expect(
-      Identifiers.parseOperationRunName(
-        name,
-        Identifiers.formatOrganizationName(organization),
-      ),
-    ).toEqual({ organization, operation });
-  });
 });

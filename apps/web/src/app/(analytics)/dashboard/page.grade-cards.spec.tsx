@@ -2,6 +2,10 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import Dashboard from './page';
+import type { SellpiaSalesSummary } from '@kiditem/shared/dashboard';
+const sellpiaState = vi.hoisted(() => ({
+  summary: undefined as SellpiaSalesSummary | undefined,
+}));
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn() }),
   useSearchParams: () => new URLSearchParams(),
@@ -18,7 +22,7 @@ vi.mock('@/hooks/useAuth', () => ({
 vi.mock('@/hooks/useSellpiaChannelSales', () => ({
   sellpiaPeriodRange: () => ({ from: '2026-07-01', to: '2026-07-24' }),
   useSellpiaChannelSales: () => ({
-    summary: undefined,
+    summary: sellpiaState.summary,
     isLoading: false,
     isError: false,
     refetch: vi.fn(),
@@ -35,7 +39,11 @@ vi.mock('@/lib/api-client', async () => {
     apiClient: {
       ...actual.apiClient,
       getParsed: (path: string) => getParsedMock(path),
-      get: vi.fn().mockResolvedValue([]),
+      get: vi.fn((path: string) =>
+        path === '/api/readiness'
+          ? Promise.resolve({ allOk: true, checks: [] })
+          : Promise.resolve([]),
+      ),
       patch: vi.fn(),
       post: vi.fn(),
     },
@@ -66,40 +74,98 @@ const sales = {
     netProfit: 0,
     orderCount: 0,
   },
+  profitInputs: {
+    revenue: 0,
+    cost: 0,
+    adCost: 0,
+    qty: 0,
+    basis: {
+      kind: 'period' as const,
+      from: '2026-09-01',
+      to: '2026-09-01',
+      targetDays: 1,
+      includedDates: ['2026-09-01'],
+      includedDays: 1,
+      missingDates: [],
+      invalidDates: [],
+      sources: ['orders'],
+      status: 'complete' as const,
+      partial: false,
+      observedAt: null,
+    },
+  },
   planAchievement: null,
   trafficKpi: {
-    visitors: 0,
-    views: 0,
-    orders: 0,
-    salesQty: 0,
-    revenue: 0,
-    cartAdds: 0,
+    visitors: null,
+    views: null,
+    orders: null,
+    salesQty: null,
+    revenue: null,
+    cartAdds: null,
+    conversionRate: null,
+    dailyAverageVisitors: null,
+    providerConversionRate: null,
+    coverage: null,
+    reconciliation: null,
+    exactPeriodEvidence: null,
     adSummary: null,
     source: 'orders',
-    netProfit: 0,
-    profitRate: 0,
+    netProfit: null,
+    profitRate: null,
+    trafficAvailable: false,
+    trafficObservedAt: null,
   },
   lastSyncAt: null,
 };
 
+const ad = {
+  monthly: {
+    roas: 0,
+    ctr: 0,
+    adRevenue: 0,
+    totalAdSpend: 0,
+    prevRoas: 0,
+    prevCtr: 0,
+    prevAdRevenue: 0,
+    prevTotalAdSpend: 0,
+  },
+  industryBenchmark: { avgAdRate: 10, avgProfitRate: 8, avgRoas: 350, avgCtr: 0.3 },
+};
+
+let salesResponse = sales;
+let adResponse = ad;
+
+const completeSellpiaProfitBasis = {
+  kind: 'period' as const,
+  from: '2026-09-01',
+  to: '2026-09-06',
+  targetDays: 6,
+  includedDates: [
+    '2026-09-01',
+    '2026-09-02',
+    '2026-09-03',
+    '2026-09-04',
+    '2026-09-05',
+    '2026-09-06',
+  ],
+  includedDays: 6,
+  missingDates: [],
+  invalidDates: [],
+  sources: ['sellpia', 'coupang_ads'],
+  status: 'complete' as const,
+  partial: false,
+  observedAt: '2026-09-06T01:00:00.000Z',
+};
+
 beforeEach(() => {
+  salesResponse = sales;
+  adResponse = ad;
+  sellpiaState.summary = undefined;
   getParsedMock.mockReset();
   getParsedMock.mockImplementation((path: string) => {
-    if (path === '/api/dashboard/sales') return Promise.resolve(sales);
+    if (path === '/api/dashboard/sales') return Promise.resolve(salesResponse);
     if (path === '/api/dashboard/ad') {
-      return Promise.resolve({
-        monthly: {
-          roas: 0,
-          ctr: 0,
-          adRevenue: 0,
-          totalAdSpend: 0,
-          prevRoas: 0,
-          prevCtr: 0,
-          prevAdRevenue: 0,
-          prevTotalAdSpend: 0,
-        },
-        industryBenchmark: { avgAdRate: 10, avgProfitRate: 8, avgRoas: 350, avgCtr: 0.3 },
-      });
+      return Promise.resolve(adResponse);
     }
     if (path === '/api/dashboard/inventory') {
       return Promise.resolve({
@@ -113,12 +179,8 @@ beforeEach(() => {
           READY: 4,
           INSUFFICIENT_EVIDENCE: 2,
           SOURCE_UNMAPPED: 1,
-          CALIBRATION_PENDING: 1,
-          RECALCULATING: 0,
           SELLPIA_SOURCE_STALE: 2,
           AD_SOURCE_STALE: 1,
-          ORDERS_SOURCE_STALE: 0,
-          CALCULATION_ERROR: 1,
         },
         abcContributionProfit: {
           amountByGrade: { A: 12_000, B: 4_000, C: -500 },
@@ -139,12 +201,22 @@ beforeEach(() => {
       });
     }
     if (path.startsWith('/api/dashboard/trend')) return Promise.resolve([]);
-    if (path === '/api/action-tasks') return Promise.resolve([]);
     return Promise.resolve(null);
   });
 });
 
-describe('Dashboard automatic ABC grade cards', () => {
+function renderDashboard() {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },
+  });
+  render(
+    <QueryClientProvider client={queryClient}>
+      <Dashboard />
+    </QueryClientProvider>,
+  );
+}
+
+describe('Dashboard absolute ABC grade cards', () => {
   it('uses the classified denominator, exposes unclassified, and links exact filters', async () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },
@@ -171,16 +243,17 @@ describe('Dashboard automatic ABC grade cards', () => {
       'href',
       '/product-hub?abcGrade=C',
     );
-    expect(screen.getByRole('link', { name: /자동 계산 중/ })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: /평가 대기.*2개/ })).toHaveAttribute(
       'href',
       '/product-hub?abcGrade=unclassified',
     );
-    expect(screen.getByRole('link', { name: /원천 확인 필요/ })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: /원천 확인 필요.*4개/ })).toHaveAttribute(
       'href',
       '/product-hub?dataStatus=abc',
     );
     expect(screen.getByText('셀피아·광고비 수집 또는 매핑을 확인')).toBeInTheDocument();
-    expect(screen.getByText(/수익성 이력 표본을 수집하면 자동 평가를 시작합니다/)).toBeInTheDocument();
+    expect(screen.getByText('상품 관리에서 등급 새로고침을 실행하세요.')).toBeInTheDocument();
+    expect(screen.queryByText(/자동 계산|자동 평가|NaN/)).not.toBeInTheDocument();
   });
 
   it('does not render missing Wing traffic as a zero-valued product signal', async () => {
@@ -197,8 +270,527 @@ describe('Dashboard automatic ABC grade cards', () => {
 
     expect(screen.getByText('Wing 트래픽 기준 · 미수집')).toBeInTheDocument();
     expect(screen.getByText('판매량').parentElement).toHaveTextContent('판매량—');
-    expect(screen.getByText('방문자').parentElement).toHaveTextContent('방문자—');
+    expect(screen.getByText('일평균 방문자').parentElement).toHaveTextContent('일평균 방문자—');
     expect(screen.getByText('조회').parentElement).toHaveTextContent('조회—');
     expect(screen.getByText('Wing 트래픽 미수집')).toBeInTheDocument();
+  });
+
+  it('renders collected zeroes and daily-average visitors without conflating provider conversion', async () => {
+    salesResponse = {
+      ...sales,
+      effectivePeriod: {
+        year: 2026,
+        month: 9,
+        label: '2026-09',
+        shifted: false,
+        latestDataDate: '2026-09-03',
+        revenueSource: 'wing',
+        adSource: 'wing',
+      },
+      trafficKpi: {
+        ...sales.trafficKpi,
+        visitors: 355,
+        views: 80,
+        orders: 4,
+        salesQty: 0,
+        revenue: 0,
+        cartAdds: 0,
+        conversionRate: 5,
+        dailyAverageVisitors: 177.5,
+        providerConversionRate: 2.85,
+        coverage: {
+          from: '2026-09-01',
+          to: '2026-09-03',
+          targetDays: 3,
+          completedDays: 3,
+          missingDates: [],
+        },
+        reconciliation: {
+          views: { status: 'MATCHED', dailySum: 80, periodValue: 80 },
+          cartAdds: { status: 'UNVERIFIED', dailySum: 0, periodValue: null },
+          orders: { status: 'MATCHED', dailySum: 4, periodValue: 4 },
+          salesQty: { status: 'MATCHED', dailySum: 0, periodValue: 0 },
+          revenue: { status: 'MISMATCH', dailySum: 0, periodValue: 1 },
+        },
+        exactPeriodEvidence: { filterScope: 'ALL_NORMAL_RFM' },
+        source: 'wing',
+        netProfit: null,
+        profitRate: null,
+        trafficAvailable: true,
+      },
+    };
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <Dashboard />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByText('Kiditem Foundry')).toBeInTheDocument());
+
+    expect(screen.getByText('판매량').parentElement).toHaveTextContent('판매량0개');
+    expect(screen.getByText('일평균 방문자').parentElement).toHaveTextContent('일평균 방문자177.5명');
+    expect(screen.getByText('조회').parentElement).toHaveTextContent('조회80회');
+    expect(screen.getByText('장바구니').parentElement).toHaveTextContent('장바구니0회');
+    expect(screen.getByText('구매전환율').parentElement?.parentElement?.parentElement).toHaveTextContent('5.0%');
+    expect(screen.getByText(/Wing 제공 전환율 2\.9%/)).toBeInTheDocument();
+    expect(screen.getByTestId('wing-traffic-coverage')).toHaveTextContent('3/3일');
+    expect(screen.getByText('일별 합산·기간 원본 미대사 · 장바구니')).toBeInTheDocument();
+    expect(screen.getByText('기간 원본 불일치로 숨김 · 매출')).toBeInTheDocument();
+    expect(screen.getByText(/계정 원본 · ALL_NORMAL_RFM · 상품 매칭 합산 아님/)).toBeInTheDocument();
+  });
+
+  it('keeps nullable traffic orders unavailable instead of falling back to today orders', async () => {
+    salesResponse = {
+      ...sales,
+      today: { revenue: 0, orders: 99 },
+      trafficKpi: {
+        ...sales.trafficKpi,
+        visitors: null,
+        views: null,
+        orders: null,
+        salesQty: null,
+        revenue: null,
+        cartAdds: null,
+        conversionRate: null,
+        dailyAverageVisitors: null,
+        providerConversionRate: null,
+        trafficAvailable: true,
+      },
+    };
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <Dashboard />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByText('Kiditem Foundry')).toBeInTheDocument());
+
+    expect(screen.getAllByText('주문')[0].parentElement).toHaveTextContent('주문—');
+    expect(screen.queryByText('주문99건')).not.toBeInTheDocument();
+    expect(screen.getByText('조회·주문 원본 필요')).toBeInTheDocument();
+  });
+
+  it('does not present a zero primary revenue KPI when the effective source is none', async () => {
+    salesResponse = {
+      ...sales,
+      effectivePeriod: {
+        year: 2026,
+        month: 9,
+        label: '2026-09',
+        shifted: false,
+        latestDataDate: null,
+        revenueSource: 'none',
+        adSource: 'none',
+      },
+      rangeKpi: {
+        range: 'month',
+        revenue: 0,
+        profit: 0,
+        prevRevenue: 0,
+        prevProfit: 0,
+        revenueChange: 0,
+        profitChange: 0,
+      },
+    };
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <Dashboard />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByText('Kiditem Foundry')).toBeInTheDocument());
+
+    const primaryRevenue = screen.getByTestId('dashboard-primary-revenue');
+    expect(screen.getByTestId('dashboard-primary-revenue-value')).toHaveTextContent('—');
+    expect(primaryRevenue).not.toHaveTextContent('목표');
+    expect(primaryRevenue).not.toHaveTextContent('이전');
+    expect(primaryRevenue).not.toHaveTextContent('광고외매출');
+  });
+
+  it('hides primary revenue goals when Wing revenue is rejected by reconciliation', async () => {
+    salesResponse = {
+      ...sales,
+      effectivePeriod: {
+        year: 2026,
+        month: 9,
+        label: '2026-09',
+        shifted: false,
+        latestDataDate: '2026-09-03',
+        revenueSource: 'wing',
+        adSource: 'none',
+      },
+      rangeKpi: {
+        range: 'month',
+        revenue: 0,
+        profit: 0,
+        prevRevenue: 0,
+        prevProfit: 0,
+        revenueChange: 0,
+        profitChange: 0,
+      },
+      trafficKpi: {
+        ...sales.trafficKpi,
+        source: 'wing',
+        revenue: 0,
+        trafficAvailable: true,
+        reconciliation: {
+          revenue: { status: 'MISMATCH', dailySum: 0, periodValue: 100 },
+        },
+      },
+    };
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <Dashboard />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByText('Kiditem Foundry')).toBeInTheDocument());
+
+    const primaryRevenue = screen.getByTestId('dashboard-primary-revenue');
+    expect(screen.getByTestId('dashboard-primary-revenue-value')).toHaveTextContent('—');
+    expect(primaryRevenue).not.toHaveTextContent('목표');
+    expect(primaryRevenue).not.toHaveTextContent('이전');
+    expect(primaryRevenue).toHaveTextContent('기간 원본 불일치로 숨김 · 매출');
+  });
+
+  it('keeps a valid current revenue while showing unavailable previous revenue and change', async () => {
+    salesResponse = {
+      ...sales,
+      monthly: {
+        ...sales.monthly,
+        revenue: 363_200,
+        profit: null,
+        prevRevenue: null,
+        prevProfit: null,
+        revenueChange: null,
+        profitChange: null,
+        adRate: 0,
+        prevAdRate: null,
+      },
+      effectivePeriod: {
+        year: 2026,
+        month: 9,
+        label: '2026-09',
+        shifted: false,
+        latestDataDate: '2026-09-07',
+        revenueSource: 'orders',
+        adSource: 'none',
+      },
+    };
+
+    renderDashboard();
+    await waitFor(() => expect(screen.getByText('Kiditem Foundry')).toBeInTheDocument());
+
+    const primaryRevenue = screen.getByTestId('dashboard-primary-revenue');
+    expect(screen.getByTestId('dashboard-primary-revenue-value')).toHaveTextContent('363,200');
+    expect(screen.getByTestId('dashboard-primary-revenue-change')).toHaveTextContent('—');
+    expect(primaryRevenue).toHaveTextContent('이전 —');
+    expect(primaryRevenue).not.toHaveTextContent('NaN');
+  });
+
+  it('does not turn unavailable Wing profit into zero', async () => {
+    salesResponse = {
+      ...sales,
+      monthly: {
+        ...sales.monthly,
+        revenue: 363_200,
+        profit: null,
+        prevRevenue: 200_000,
+        prevProfit: null,
+        revenueChange: null,
+        profitChange: null,
+      },
+      effectivePeriod: {
+        year: 2026,
+        month: 9,
+        label: '2026-09',
+        shifted: false,
+        latestDataDate: '2026-09-07',
+        revenueSource: 'wing',
+        adSource: 'none',
+      },
+      trafficKpi: {
+        ...sales.trafficKpi,
+        source: 'wing',
+        revenue: 363_200,
+        trafficAvailable: true,
+      },
+    };
+
+    renderDashboard();
+    await waitFor(() => expect(screen.getByText('Kiditem Foundry')).toBeInTheDocument());
+
+    expect(screen.getByText('정산 데이터 없음')).toBeInTheDocument();
+    expect(screen.getByText('Wing/Drive 데이터에는 매입가·수수료·배송비가 없어 순이익을 산출할 수 없습니다.')).toBeInTheDocument();
+  });
+
+  it('keeps measured ad values and discloses missing coverage for a partial range', async () => {
+    salesResponse = {
+      ...sales,
+      monthly: { ...sales.monthly, adRate: null, prevAdRate: null },
+    };
+    adResponse = {
+      ...ad,
+      monthly: {
+        ...ad.monthly,
+        coverage: {
+          from: '2026-09-01',
+          to: '2026-09-07',
+          knownThrough: '2026-09-05',
+          targetDays: 7,
+          completedDays: 5,
+          missingDates: ['2026-09-06', '2026-09-07'],
+        },
+      },
+      adKpi: {
+        totalSpend: 0,
+        impressions: 0,
+        clicks: 0,
+        convRevenue: 0,
+        ctr: 0,
+        roas: 0,
+        coverage: {
+          from: '2026-09-01',
+          to: '2026-09-07',
+          knownThrough: '2026-09-05',
+          targetDays: 7,
+          completedDays: 5,
+          missingDates: ['2026-09-06', '2026-09-07'],
+        },
+      },
+    };
+
+    renderDashboard();
+    await waitFor(() => expect(screen.getByText('Kiditem Foundry')).toBeInTheDocument());
+
+    expect(screen.getByTestId('ad-coverage')).toHaveTextContent('2026-09-01 ~ 2026-09-07');
+    expect(screen.getByTestId('ad-coverage')).toHaveTextContent('누락 2일');
+    expect(screen.getByText('광고전환매출').parentElement).toHaveTextContent('광고전환매출 쿠팡0원');
+    expect(screen.getByTestId('ad-coverage-note')).toHaveTextContent('측정된 날짜의 값만 표시');
+    expect(screen.queryByText('광고전환매출—')).not.toBeInTheDocument();
+  });
+
+  it('keeps explicit ad zeroes when coverage is complete', async () => {
+    adResponse = {
+      ...ad,
+      monthly: {
+        ...ad.monthly,
+        coverage: {
+          from: '2026-09-01',
+          to: '2026-09-07',
+          knownThrough: '2026-09-07',
+          targetDays: 7,
+          completedDays: 7,
+          missingDates: [],
+        },
+      },
+      adKpi: {
+        totalSpend: 0,
+        impressions: 0,
+        clicks: 0,
+        convRevenue: 0,
+        ctr: 0,
+        roas: 0,
+        coverage: {
+          from: '2026-09-01',
+          to: '2026-09-07',
+          knownThrough: '2026-09-07',
+          targetDays: 7,
+          completedDays: 7,
+          missingDates: [],
+        },
+      },
+    };
+
+    renderDashboard();
+    await waitFor(() => expect(screen.getByText('Kiditem Foundry')).toBeInTheDocument());
+
+    expect(screen.getByText('광고전환매출').parentElement).toHaveTextContent('광고전환매출 쿠팡0원');
+    expect(screen.getByText('광고비율').parentElement?.parentElement?.parentElement).toHaveTextContent('0.0%');
+    expect(screen.getByText('광고수익률').parentElement?.parentElement?.parentElement).toHaveTextContent('0%');
+  });
+
+  it('normalizes an older range ad payload without previous ROAS', async () => {
+    adResponse = {
+      ...ad,
+      rangeKpi: {
+        adSpend: 100,
+        adConvRevenue: 400,
+        adRoas: 400,
+        // Older dashboard payloads omitted the optional previous ROAS field.
+        adCost: 100,
+        adRate: null,
+      },
+    };
+
+    renderDashboard();
+    await waitFor(() => expect(screen.getByText('Kiditem Foundry')).toBeInTheDocument());
+
+    const roasCard = screen.getByText('광고수익률').parentElement?.parentElement?.parentElement;
+    await waitFor(() => expect(roasCard).toHaveTextContent('이전 —'));
+    expect(roasCard).not.toHaveTextContent('NaN');
+  });
+
+  it('does not invent Sellpia profit or a profit-rate goal when account ads are missing', async () => {
+    const emptyGroup = { revenue: 0, qty: 0, cost: 0, daily: [], malls: [] };
+    sellpiaState.summary = {
+      range: { from: '2026-09-01', to: '2026-09-06' },
+      rocket: emptyGroup,
+      others: {
+        ...emptyGroup,
+        revenue: 1_000_000,
+        qty: 25,
+        cost: 600_000,
+      },
+      totalRevenue: 1_000_000,
+      totalCost: 600_000,
+      adCost: null,
+      netProfit: null,
+      profitRate: null,
+      lastCapturedAt: '2026-09-06T01:00:00.000Z',
+      hasData: true,
+      profitInputs: null,
+    };
+
+    renderDashboard();
+    await waitFor(() => expect(screen.getByText('Kiditem Foundry')).toBeInTheDocument());
+
+    const profitCard = screen
+      .getByText('셀피아 · 판매금액 − 매입가 − 쿠팡 광고비')
+      .closest('[class*="lg:row-span-2"]');
+    expect(profitCard).toHaveTextContent('—');
+    expect(profitCard).toHaveTextContent('판매금액과 비용의 공통 유효 날짜가 없어 순이익을 산출할 수 없습니다.');
+    expect(profitCard).toHaveTextContent('쿠팡 광고비—');
+    expect(profitCard).not.toHaveTextContent('400,000원');
+
+    const profitRateLabel = screen.getAllByText('이익률')[0];
+    const profitRateCard = profitRateLabel?.closest('[class*="rounded-2xl"]');
+    expect(profitRateCard).toHaveTextContent('—');
+    expect(profitRateCard).not.toHaveTextContent('목표 15%');
+    expect(profitRateCard).not.toHaveTextContent('목표 달성!');
+  });
+
+  it('does not borrow order profit inputs beneath an unavailable Sellpia card', async () => {
+    salesResponse = {
+      ...sales,
+      profitInputs: {
+        ...sales.profitInputs,
+        revenue: 900_000,
+        cost: 400_000,
+        adCost: 200_000,
+        qty: 12,
+      },
+    };
+    const emptyGroup = { revenue: 0, qty: 0, cost: 0, daily: [], malls: [] };
+    sellpiaState.summary = {
+      range: { from: '2026-09-01', to: '2026-09-06' },
+      rocket: emptyGroup,
+      others: { ...emptyGroup, revenue: 1_000_000, qty: 25, cost: 600_000 },
+      totalRevenue: 1_000_000,
+      totalCost: 600_000,
+      adCost: null,
+      netProfit: null,
+      profitRate: null,
+      lastCapturedAt: '2026-09-06T01:00:00.000Z',
+      hasData: true,
+      profitInputs: null,
+    };
+
+    renderDashboard();
+    await waitFor(() => expect(screen.getByText('Kiditem Foundry')).toBeInTheDocument());
+
+    const profitCard = screen
+      .getByText('셀피아 · 판매금액 − 매입가 − 쿠팡 광고비')
+      .closest('[class*="lg:row-span-2"]');
+    expect(profitCard).toHaveTextContent('쿠팡 광고비—');
+    expect(profitCard).toHaveTextContent('비광고 비용—');
+    expect(profitCard).toHaveTextContent('판매수량—');
+    expect(profitCard).not.toHaveTextContent('200,000원');
+    expect(profitCard).not.toHaveTextContent('400,000원');
+    expect(profitCard).not.toHaveTextContent('12개');
+  });
+
+  it('renders Sellpia server profitability values without recomputing them from inputs', async () => {
+    const emptyGroup = { revenue: 0, qty: 0, cost: 0, daily: [], malls: [] };
+    sellpiaState.summary = {
+      range: { from: '2026-09-01', to: '2026-09-06' },
+      rocket: emptyGroup,
+      others: { ...emptyGroup, revenue: 1_000, qty: 25, cost: 100 },
+      totalRevenue: 1_000,
+      totalCost: 100,
+      adCost: 100,
+      netProfit: 777,
+      profitRate: 77.7,
+      lastCapturedAt: '2026-09-06T01:00:00.000Z',
+      hasData: true,
+      profitInputs: {
+        revenue: 1_000,
+        cost: 100,
+        adCost: 100,
+        qty: 25,
+        basis: completeSellpiaProfitBasis,
+      },
+    };
+
+    renderDashboard();
+    await waitFor(() => expect(screen.getByText('Kiditem Foundry')).toBeInTheDocument());
+
+    const profitCard = screen
+      .getByText('셀피아 · 판매금액 − 매입가 − 쿠팡 광고비')
+      .closest('[class*="lg:row-span-2"]');
+    expect(profitCard).toHaveTextContent('777원');
+    expect(profitCard).not.toHaveTextContent('800원');
+    const profitRateLabel = screen.getAllByText('이익률')[0];
+    const profitRateCard = profitRateLabel?.closest('[class*="rounded-2xl"]');
+    expect(profitRateCard).toHaveTextContent('77.7%');
+  });
+
+  it('keeps a complete explicit zero-cost Sellpia result numeric', async () => {
+    const emptyGroup = { revenue: 0, qty: 0, cost: 0, daily: [], malls: [] };
+    sellpiaState.summary = {
+      range: { from: '2026-09-01', to: '2026-09-06' },
+      rocket: emptyGroup,
+      others: emptyGroup,
+      totalRevenue: 0,
+      totalCost: 0,
+      adCost: 0,
+      netProfit: 0,
+      profitRate: 0,
+      lastCapturedAt: '2026-09-06T01:00:00.000Z',
+      hasData: true,
+      profitInputs: {
+        revenue: 0,
+        cost: 0,
+        adCost: 0,
+        qty: 0,
+        basis: completeSellpiaProfitBasis,
+      },
+    };
+
+    renderDashboard();
+    await waitFor(() => expect(screen.getByText('Kiditem Foundry')).toBeInTheDocument());
+
+    const profitCard = screen
+      .getByText('셀피아 · 판매금액 − 매입가 − 쿠팡 광고비')
+      .closest('[class*="lg:row-span-2"]');
+    expect(profitCard).toHaveTextContent('0원');
+    expect(profitCard).toHaveTextContent('쿠팡 광고비0원');
+    const profitRateLabel = screen.getAllByText('이익률')[0];
+    const profitRateCard = profitRateLabel?.closest('[class*="rounded-2xl"]');
+    expect(profitRateCard).toHaveTextContent('0.0%');
+    expect(profitRateCard).toHaveTextContent('목표 15%');
+    expect(profitRateCard).not.toHaveTextContent('목표 달성!');
   });
 });

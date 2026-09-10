@@ -1,6 +1,5 @@
 import { CheckCircle, Clock, MapPin, Package, Truck, type LucideIcon } from 'lucide-react';
 import type { OrderListItem, OrderListResponse, OrderPipelineStatus } from '@kiditem/shared/order';
-import { KST_OFFSET_MS } from '../../_shared/lib/kst';
 
 export interface OrderPipelineNode {
   key: OrderPipelineStatus;
@@ -32,8 +31,6 @@ export const ORDER_PIPELINE_EDGES: OrderPipelineEdge[] = [
   { from: 1, to: 2 },
   { from: 2, to: 3 },
 ];
-
-const SYNC_HOURS = [9, 12, 15, 18] as const;
 
 interface OrderPipelineResult {
   pipeline: Record<OrderPipelineStatus, OrderListItem[]>;
@@ -81,43 +78,4 @@ export function buildPipelineFromResponses(
   }
 
   return { pipeline, counts };
-}
-
-export function makeDateHourKey(date: Date): string {
-  const yyyy = date.getFullYear();
-  const mm = String(date.getMonth() + 1).padStart(2, '0');
-  const dd = String(date.getDate()).padStart(2, '0');
-  const hh = String(date.getHours()).padStart(2, '0');
-  return `${yyyy}-${mm}-${dd}T${hh}`;
-}
-
-export function getCurrentSyncWindow(
-  now: Date,
-): { from: string; to: string; dateHour: string } | null {
-  if (!SYNC_HOURS.includes(now.getHours() as (typeof SYNC_HOURS)[number])) return null;
-  // 두 값 모두 full UTC ISO instant 로 보낸다. 서버 channel-sync.service 가
-  // KST wall-clock + `+09:00` 으로 변환해 Coupang 에 전달.
-  // - `from`: 7일 전 KST start-of-day 의 UTC 표현
-  // - `to`: 현재 시각 (윈도우 종료)
-  const nowKstMs = now.getTime() + KST_OFFSET_MS;
-  const sevenDaysAgoKstStartMs =
-    Math.floor((nowKstMs - 7 * 86400000) / 86400000) * 86400000;
-  const from = new Date(sevenDaysAgoKstStartMs - KST_OFFSET_MS).toISOString();
-  const to = now.toISOString();
-  return { from, to, dateHour: makeDateHourKey(now) };
-}
-
-export function getNumericShipmentBoxIds(
-  orders: OrderListItem[],
-): { ids: number[]; skipped: OrderListItem[] } {
-  const ids: number[] = [];
-  const skipped: OrderListItem[] = [];
-  for (const order of orders) {
-    if (order.shipmentBoxId !== null && order.shipmentBoxId !== undefined) {
-      ids.push(order.shipmentBoxId);
-    } else {
-      skipped.push(order);
-    }
-  }
-  return { ids, skipped };
 }

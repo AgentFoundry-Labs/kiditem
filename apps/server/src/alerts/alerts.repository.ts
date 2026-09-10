@@ -4,7 +4,6 @@ import { PrismaService } from '../prisma/prisma.service';
 import type {
   AlertItem,
   SourceFailureAlertInput,
-  SourceFailureAlertItem,
 } from '@kiditem/shared/alerts';
 import type { Alert } from '@prisma/client';
 
@@ -33,43 +32,16 @@ function mapAlert(row: Alert): AlertItem {
     message: row.message,
     targetType: row.targetType,
     targetId: row.targetId,
-    operationKey: row.operationKey,
     sourceType: row.sourceType,
     sourceId: row.sourceId,
     actorUserId: row.actorUserId,
-    actionTaskId: row.actionTaskId,
     href: row.href,
-    progress: row.progress,
     metadata: jsonObject(row.metadata),
     isRead: row.isRead,
     readAt: iso(row.readAt),
-    startedAt: iso(row.startedAt),
-    finishedAt: iso(row.finishedAt),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   } satisfies AlertItem;
-}
-
-function mapSourceFailureAlert(row: Alert): SourceFailureAlertItem {
-  if (!row.attemptId || !row.sourceType || !row.href || !row.message) {
-    throw new Error('Source failure alert is missing its focused fields.');
-  }
-  return {
-    id: row.id,
-    organizationId: row.organizationId,
-    dedupeKey: row.dedupeKey,
-    sourceType: row.sourceType,
-    attemptId: row.attemptId,
-    status: row.status as SourceFailureAlertItem['status'],
-    severity: row.severity as SourceFailureAlertItem['severity'],
-    title: row.title,
-    message: row.message,
-    href: row.href,
-    isRead: row.isRead,
-    readAt: iso(row.readAt),
-    createdAt: row.createdAt.toISOString(),
-    updatedAt: row.updatedAt.toISOString(),
-  } satisfies SourceFailureAlertItem;
 }
 
 /**
@@ -91,19 +63,12 @@ export class AlertsRepository {
     return rows.map(mapAlert);
   }
 
-  findAll(organizationId: string): Promise<AlertItem[]> {
-    return this.list(organizationId);
-  }
-
   async dismiss(id: string, organizationId: string): Promise<void> {
     const result = await this.prisma.alert.updateMany({
       where: {
         id,
         organizationId,
-        // Source alerts have their own upper-case lifecycle. Keep the legacy
-        // lower-case value here only so existing rows remain dismissible while
-        // the old Automation owner is still present.
-        status: { in: ['OPEN', 'open'] },
+        status: 'OPEN',
       },
       data: { isRead: true, readAt: new Date() },
     });
@@ -165,18 +130,6 @@ export class AlertsRepository {
     });
   }
 
-  /** Maps the focused projection for callers that need source-only fields. */
-  async findSourceFailure(
-    organizationId: string,
-    dedupeKey: string,
-  ): Promise<SourceFailureAlertItem | null> {
-    const row = await this.prisma.alert.findUnique({
-      where: {
-        organizationId_dedupeKey: { organizationId, dedupeKey },
-      },
-    });
-    return row ? mapSourceFailureAlert(row) : null;
-  }
 }
 
 function sourceFailureData(input: SourceFailureAlertInput) {
@@ -187,9 +140,6 @@ function sourceFailureData(input: SourceFailureAlertInput) {
     attemptId: input.attemptId,
     kind: 'signal',
     status: 'OPEN',
-    // The legacy column is still required by the generated client. It carries
-    // the source type until that compatibility column is removed with the old
-    // Automation owner.
     type: 'source_failure',
     severity: input.severity,
     title: input.title,

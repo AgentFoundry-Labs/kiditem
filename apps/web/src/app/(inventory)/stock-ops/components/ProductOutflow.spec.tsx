@@ -6,7 +6,7 @@ import ProductOutflow from './ProductOutflow';
 import type { SellpiaProductSalesSummary } from '@kiditem/shared/dashboard';
 
 const productSalesApi = vi.hoisted(() => ({ fetch: vi.fn() }));
-const requestRefresh = vi.hoisted(() => vi.fn());
+const sourceOwner = vi.hoisted(() => ({ start: vi.fn(), state: null as Record<string, unknown> | null, isStarting: false }));
 const freshness = vi.hoisted(() => ({
   state: {
     status: 'refresh_required',
@@ -18,8 +18,8 @@ const freshness = vi.hoisted(() => ({
 vi.mock('@/lib/sellpia-product-sales-api', () => ({
   fetchSellpiaProductSales: productSalesApi.fetch,
 }));
-vi.mock('@/hooks/useSellpiaInventoryFreshness', () => ({
-  useSellpiaInventoryFreshness: () => ({ requestRefresh, state: freshness.state }),
+vi.mock('../../_shared/sellpia-inventory-source-owner', () => ({
+  useSellpiaInventorySourceOwner: () => sourceOwner,
 }));
 
 function renderProductOutflow() {
@@ -35,12 +35,13 @@ describe('ProductOutflow', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     productSalesApi.fetch.mockResolvedValue(summary(false));
-    requestRefresh.mockResolvedValue({ id: 'operation-run-1' });
+    sourceOwner.start.mockResolvedValue({ state: 'RUNNING' });
     freshness.state = {
       status: 'refresh_required',
       lastVerifiedAt: '2026-08-01T00:30:00.000Z',
       syncNotBefore: null,
     };
+    sourceOwner.state = freshness.state;
   });
 
   it('requests the inventory-only operation from product outflow', async () => {
@@ -48,7 +49,7 @@ describe('ProductOutflow', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '셀피아 재고 동기화' }));
 
-    await waitFor(() => expect(requestRefresh).toHaveBeenCalledWith('inventory'));
+    await waitFor(() => expect(sourceOwner.start).toHaveBeenCalledTimes(1));
     expect(screen.getByRole('button', { name: '셀피아 재고 동기화' })).toHaveAttribute(
       'title',
       expect.stringContaining('현재고만 동기화'),
@@ -61,11 +62,12 @@ describe('ProductOutflow', () => {
       lastVerifiedAt: '2026-08-01T00:30:00.000Z',
       syncNotBefore: null,
     };
+    sourceOwner.state = freshness.state;
     renderProductOutflow();
 
     fireEvent.click(screen.getByRole('button', { name: '셀피아 재고 동기화' }));
 
-    await waitFor(() => expect(requestRefresh).toHaveBeenCalledWith('inventory'));
+    await waitFor(() => expect(sourceOwner.start).toHaveBeenCalledTimes(1));
   });
 
   it('keeps ABC evidence in rows but removes ABC-specific filters from outflow', async () => {

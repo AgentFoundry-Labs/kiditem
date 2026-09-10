@@ -3,7 +3,6 @@ import { AppException } from '@kiditem/shared/server-errors';
 import { ErrorCodes } from '@kiditem/shared/errors';
 import {
   BadRequestException,
-  ConflictException,
   Inject,
   Injectable,
 } from '@nestjs/common';
@@ -17,13 +16,8 @@ import {
   createInitialFreshnessState,
   deriveFreshnessStatus,
   isSourceBindingConfirmed,
-  planCancel,
-  planClaim,
-  planFailure,
-  planHeartbeat,
   planRefreshRequest,
   planSourceBindingConfirmation,
-  SELLPIA_EXPIRED_LEASE_ERROR_MESSAGE,
   SELLPIA_FRESHNESS_TTL_MS,
   SELLPIA_SOURCE_ACCOUNT_KEY,
   SELLPIA_SOURCE_ORIGIN,
@@ -31,10 +25,7 @@ import {
   type SellpiaInventoryFreshnessState,
 } from '../../domain/policy/sellpia-inventory-freshness.policy';
 import type {
-  SellpiaInventoryClaimResponse,
-  SellpiaInventoryCollectionFailureCode,
   SellpiaInventoryFreshnessView,
-  SellpiaInventoryRefreshReason,
 } from '@kiditem/shared/sellpia-inventory-freshness';
 import type { SellpiaInventoryFreshnessGatePort } from '../port/in/stock/sellpia-inventory-freshness-gate.port';
 import type {
@@ -44,11 +35,6 @@ import type {
 import type { SellpiaInventoryFreshnessPort } from '../port/in/stock/sellpia-inventory-freshness.port';
 
 type ActorScope = { organizationId: string; userId: string };
-type ActorRefreshInput = ActorScope & {
-  reason: SellpiaInventoryRefreshReason;
-  /** Internal callers written before scoped collection remain inventory-only. */
-  scope?: 'full' | 'inventory';
-};
 
 @Injectable()
 export class SellpiaInventoryFreshnessService
@@ -94,165 +80,6 @@ implements
         patch: planSourceBindingConfirmation(state, randomUUID()),
       });
       return toFreshnessView(updated, new Date(), input.userId);
-    });
-  }
-
-  async requestRefresh(
-    input: ActorRefreshInput,
-  ): Promise<SellpiaInventoryFreshnessView> {
-    const view = await this.withLockedState(
-      input.organizationId,
-      async (transaction) => {
-        const state = await transaction.getState();
-        const now = new Date();
-        const updated = await transaction.compareAndSetState({
-          expected: expectation(state),
-          patch: planRefreshRequest(
-            state,
-            input.reason,
-            input.scope ?? 'inventory',
-            now,
-            randomUUID(),
-          ),
-        });
-        return toFreshnessView(updated, now, input.userId);
-      },
-    );
-    return view;
-  }
-
-  async claimDue(input: ActorScope): Promise<SellpiaInventoryClaimResponse> {
-    return this.withLockedState(input.organizationId, async (transaction) => {
-      const state = await transaction.getState();
-      const now = new Date();
-      const claimToken = randomUUID();
-      const decision = planClaim(state, {
-        now,
-        userId: input.userId,
-        claimToken,
-        freshnessFence: randomUUID(),
-      });
-      if (decision.kind === 'joined') {
-        return {
-          claimed: false as const,
-          state: toFreshnessView(state, now, input.userId),
-        };
-      }
-      if (decision.kind === 'expired') {
-        const updated = await transaction.compareAndSetState({
-          expected: expectation(state),
-          patch: decision.patch,
-        });
-        await transaction.upsertFailedAttempt({
-          organizationId: input.organizationId,
-          generation: decision.generation,
-          claimToken: decision.claimToken,
-          trigger: state.refreshReason,
-          errorCode: 'sellpia_background_timeout',
-          errorMessage: SELLPIA_EXPIRED_LEASE_ERROR_MESSAGE,
-          attemptedAt: now,
-          createdBy: decision.createdBy,
-        });
-        return {
-          claimed: false as const,
-          state: toFreshnessView(updated, now, input.userId),
-        };
-      }
-      const updated = await transaction.compareAndSetState({
-        expected: expectation(state),
-        patch: decision.patch,
-      });
-      return {
-        claimed: true as const,
-        claimToken,
-        activeGeneration: decision.generation.toString(),
-        leaseExpiresAt: decision.leaseExpiresAt.toISOString(),
-        state: toFreshnessView(updated, now, input.userId),
-      };
-    });
-  }
-
-  async heartbeat(input: ActorScope & {
-    claimToken: string;
-  }): Promise<SellpiaInventoryFreshnessView> {
-    return this.withLockedState(input.organizationId, async (transaction) => {
-      const state = await transaction.getState();
-      const now = new Date();
-      const patch = planHeartbeat(state, {
-        ...input,
-        now,
-        freshnessFence: randomUUID(),
-      });
-      if (!patch) throw lostLease();
-      const updated = await transaction.compareAndSetState({
-        expected: expectation(state),
-        patch,
-      });
-      return toFreshnessView(updated, now, input.userId);
-    });
-  }
-
-  async fail(input: ActorScope & {
-    claimToken: string;
-    errorCode: SellpiaInventoryCollectionFailureCode;
-    errorMessage: string;
-  }): Promise<SellpiaInventoryFreshnessView> {
-    const errorMessage = sanitizeErrorMessage(input.errorMessage);
-    return this.withLockedState(input.organizationId, async (transaction) => {
-      const state = await transaction.getState();
-      const now = new Date();
-      const patch = planFailure(state, {
-        ...input,
-        errorMessage,
-        now,
-        freshnessFence: randomUUID(),
-      });
-      if (!patch) {
-        if (await transaction.hasFailedAttempt({
-          claimToken: input.claimToken,
-          createdBy: input.userId,
-        })) {
-          return toFreshnessView(state, now, input.userId);
-        }
-        throw lostLease();
-      }
-      const generation = state.activeGeneration;
-      if (generation === null) throw lostLease();
-      const updated = await transaction.compareAndSetState({
-        expected: expectation(state),
-        patch,
-      });
-      await transaction.upsertFailedAttempt({
-        organizationId: input.organizationId,
-        generation,
-        claimToken: input.claimToken,
-        trigger: state.refreshReason,
-        errorCode: input.errorCode,
-        errorMessage,
-        attemptedAt: now,
-        createdBy: input.userId,
-      });
-      return toFreshnessView(updated, now, input.userId);
-    });
-  }
-
-  async cancel(input: ActorScope & {
-    claimToken: string;
-  }): Promise<SellpiaInventoryFreshnessView> {
-    return this.withLockedState(input.organizationId, async (transaction) => {
-      const state = await transaction.getState();
-      const now = new Date();
-      const patch = planCancel(state, {
-        ...input,
-        now,
-        freshnessFence: randomUUID(),
-      });
-      if (!patch) throw lostLease();
-      const updated = await transaction.compareAndSetState({
-        expected: expectation(state),
-        patch,
-      });
-      return toFreshnessView(updated, now, input.userId);
     });
   }
 
@@ -470,14 +297,6 @@ function expectation(
     activeSyncOwnerUserId: state.activeSyncOwnerUserId,
     activeSyncLeaseExpiresAt: state.activeSyncLeaseExpiresAt,
   };
-}
-
-function sanitizeErrorMessage(message: string): string {
-  return message.trim().slice(0, 300) || 'Sellpia inventory collection failed';
-}
-
-function lostLease(): ConflictException {
-  return new ConflictException('Sellpia inventory claim is not controlled by this user');
 }
 
 function referenceInvalid(): AppException {

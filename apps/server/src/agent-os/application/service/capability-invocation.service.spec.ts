@@ -4,7 +4,6 @@ import {
   canonicalizeOwnerInput,
   canonicalOwnerInputHash,
 } from '../../../common/owner-idempotency-key';
-import { DefinitiveMarketplaceRegistrationError } from '../../../channels/application/port/in/capability/marketplace-registration.port';
 import { SourcingScrapeSnapshotAdmissionGuard } from '../../../sourcing/adapter/in/agent/sourcing-scrape-snapshot-admission.guard';
 import { SOURCING_CAPABILITIES } from '../../../sourcing/domain/capability/sourcing.capabilities';
 import { AgentOsError } from '../../domain/agent-os.errors';
@@ -60,7 +59,6 @@ describe('CapabilityInvocationService', () => {
       result: {
         summary: result.summary,
         resourceRefs: result.resourceRefs,
-        operationRefs: result.operationRefs,
       },
     });
     expect(repository.findById).toHaveBeenCalledWith({
@@ -332,15 +330,16 @@ describe('CapabilityInvocationService', () => {
     expect(repository.recordKnownFailure).toHaveBeenCalledTimes(2);
   });
 
-  it('persists a definitive marketplace rejection with its allowlisted product-safe failure', async () => {
+  it('persists a known owner failure with its safe public message', async () => {
     const input = { alpha: 'candidate', nested: { a: 1, b: 2 } };
     const providerDiagnostic = 'provider echo: secretKey=secret-key';
+    const ownerSafeFailure = 'Provider rejected before commit.';
     const pending = invocation({ input, status: 'pending' });
     const failed = {
       ...invocation({ input, status: 'failed' }),
       error: {
-        code: 'MARKETPLACE_REGISTRATION_REJECTED',
-        message: 'Coupang rejected the listing before it was created. Review the listing data and try again.',
+        code: 'OWNER_KNOWN_FAILURE',
+        message: ownerSafeFailure,
       },
     };
     const repository = {
@@ -351,9 +350,10 @@ describe('CapabilityInvocationService', () => {
     };
     const owner = {
       capabilityKey: mutationDefinition.key,
-      invoke: vi.fn().mockRejectedValue(
-        new DefinitiveMarketplaceRegistrationError(providerDiagnostic),
-      ),
+      invoke: vi.fn().mockRejectedValue(Object.assign(
+        new OwnerKnownFailureError(ownerSafeFailure),
+        { cause: new Error(providerDiagnostic) },
+      )),
     };
     const service = new CapabilityInvocationService(
       repository as never,
@@ -361,14 +361,14 @@ describe('CapabilityInvocationService', () => {
     );
 
     await expect(service.invoke(mutationRequest(input))).rejects.toMatchObject({
-      code: 'MARKETPLACE_REGISTRATION_REJECTED',
-      message: 'Coupang rejected the listing before it was created. Review the listing data and try again.',
+      code: 'OWNER_KNOWN_FAILURE',
+      message: ownerSafeFailure,
     } satisfies Partial<AgentOsError>);
     expect(repository.recordKnownFailure).toHaveBeenCalledWith(expect.objectContaining({
       invocationId: INVOCATION_ID,
       error: {
-        code: 'MARKETPLACE_REGISTRATION_REJECTED',
-        message: 'Coupang rejected the listing before it was created. Review the listing data and try again.',
+        code: 'OWNER_KNOWN_FAILURE',
+        message: ownerSafeFailure,
       },
     }));
     expect(JSON.stringify(repository.recordKnownFailure.mock.calls)).not.toContain(
@@ -671,7 +671,6 @@ function completedResult() {
   return {
     summary: 'Candidate created.',
     resourceRefs: [{ kind: 'sourcing_candidate', id: '00000000-0000-4000-8000-000000000004', version: null }],
-    operationRefs: [],
     output: { candidateId: '00000000-0000-4000-8000-000000000004' },
   };
 }
@@ -680,7 +679,6 @@ function receiptFrom(result: ReturnType<typeof completedResult>) {
   return {
     summary: result.summary,
     resourceRefs: result.resourceRefs,
-    operationRefs: result.operationRefs,
   };
 }
 

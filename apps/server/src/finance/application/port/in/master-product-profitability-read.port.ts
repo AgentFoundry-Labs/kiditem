@@ -40,6 +40,8 @@ export type MasterProductAbcFormulaReadyMonthlyFact = Readonly<{
 export type MasterProductAbcFormulaReadyFacts = Readonly<{
   masterProductId: string;
   cutoffDate: string;
+  saleStartDate: string | null;
+  evaluationPeriodComplete: boolean;
   monthlyFacts: readonly MasterProductAbcFormulaReadyMonthlyFact[];
 }>;
 
@@ -47,6 +49,10 @@ export type ProductProfitabilityEvidence = Readonly<{
   masterProductId: string;
   selling: boolean;
   mappingValid: boolean;
+  /** Earliest valid mapped channel sale date, normalized to a KST day. */
+  saleStartDate: string | null;
+  /** Every month in the selected source interval has valid evidence. */
+  evaluationPeriodComplete: boolean;
   validObservationDays: number;
   formulaReadyFacts: MasterProductAbcFormulaReadyFacts | null;
 }>;

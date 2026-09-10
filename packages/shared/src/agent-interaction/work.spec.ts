@@ -7,7 +7,6 @@ describe("CapabilityResultEnvelopeSchema", () => {
       Work.CapabilityResultEnvelopeSchema.parse({
         summary: "Inventory checked.",
         resourceRefs: [{ kind: "product", id: "product-1", version: null }],
-        operationRefs: [{ kind: "operation", id: "operation-1" }],
         output: { count: 1 },
       }),
     ).toMatchObject({ summary: "Inventory checked." });
@@ -31,7 +30,6 @@ describe("CapabilityResultEnvelopeSchema", () => {
       Work.CapabilityResultEnvelopeSchema.safeParse({
         summary: "Done.",
         resourceRefs: [],
-        operationRefs: [],
         outcome: "completed",
         continuationKey: "nope",
         artifacts: [],

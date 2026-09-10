@@ -5,6 +5,7 @@ import { InventoryFreshnessRuntimeModule } from './inventory-freshness-runtime.m
 import { CoupangShipmentsController } from './adapter/in/http/coupang-shipments.controller';
 import { InventorySkuSnapshotController } from './adapter/in/http/inventory-sku-snapshot.controller';
 import { SellpiaInventoryImportController } from './adapter/in/http/sellpia-inventory-import.controller';
+import { SellpiaInventorySourceController } from './adapter/in/http/sellpia-inventory-source.controller';
 import { SellpiaInventoryFreshnessController } from './adapter/in/http/sellpia-inventory-freshness.controller';
 import { TransfersController } from './adapter/in/http/transfers.controller';
 import { WarehousesController } from './adapter/in/http/warehouses.controller';
@@ -22,6 +23,7 @@ import { LocalCoupangShipmentFilesAdapter } from './adapter/out/storage/local-co
 import { COUPANG_SHIPMENTS_PORT } from './application/port/in/fulfillment';
 import {
   INVENTORY_SKU_SNAPSHOT_LIST_PORT,
+  INVENTORY_SKU_EXPORT_PORT,
   INVENTORY_AVAILABILITY_PORT,
   ROCKET_WORKBOOK_PROGRESS_PORT,
   SELLPIA_INVENTORY_IMPORT_PORT,
@@ -41,6 +43,7 @@ import { COUPANG_SHIPMENT_DATE_SUMMARY_REPOSITORY_PORT } from './application/por
 import { COUPANG_SHIPMENT_FILE_STORAGE_PORT } from './application/port/out/storage';
 import { CoupangShipmentsService } from './application/service/coupang-shipments.service';
 import { InventorySkuSnapshotListService } from './application/service/inventory-sku-snapshot-list.service';
+import { InventorySkuExportService } from './application/service/inventory-sku-export.service';
 import { InventoryAvailabilityService } from './application/service/inventory-availability.service';
 import { RocketWorkbookProgressService } from './application/service/rocket-workbook-progress.service';
 import { SellpiaInventoryImportService } from './application/service/sellpia-inventory-import.service';
@@ -90,6 +93,7 @@ const REPOSITORY_PORT_BINDINGS = [
 const APPLICATION_PORT_BINDINGS = [
   { provide: SELLPIA_INVENTORY_SKU_READ_PORT, useExisting: SellpiaInventorySkuReadService },
   { provide: INVENTORY_SKU_SNAPSHOT_LIST_PORT, useExisting: InventorySkuSnapshotListService },
+  { provide: INVENTORY_SKU_EXPORT_PORT, useExisting: InventorySkuExportService },
   { provide: SELLPIA_INVENTORY_IMPORT_PORT, useExisting: SellpiaInventoryImportService },
   { provide: INVENTORY_AVAILABILITY_PORT, useExisting: InventoryAvailabilityService },
   { provide: ROCKET_WORKBOOK_PROGRESS_PORT, useExisting: RocketWorkbookProgressService },
@@ -103,6 +107,7 @@ const APPLICATION_PORT_BINDINGS = [
   controllers: [
     InventorySkuSnapshotController,
     SellpiaInventoryImportController,
+    SellpiaInventorySourceController,
     SellpiaInventoryFreshnessController,
     WarehousesController,
     TransfersController,
@@ -121,6 +126,7 @@ const APPLICATION_PORT_BINDINGS = [
     LocalCoupangShipmentFilesAdapter,
     CoupangShipmentDateSummaryRepositoryAdapter,
     InventorySkuSnapshotListService,
+    InventorySkuExportService,
     InventoryAvailabilityService,
     RocketWorkbookProgressService,
     SellpiaInventorySkuReadService,
@@ -133,6 +139,7 @@ const APPLICATION_PORT_BINDINGS = [
     ...APPLICATION_PORT_BINDINGS,
   ],
   exports: [
+    INVENTORY_SKU_SNAPSHOT_LIST_PORT,
     SELLPIA_INVENTORY_SKU_READ_PORT,
     InventoryFreshnessRuntimeModule,
     INVENTORY_AVAILABILITY_PORT,

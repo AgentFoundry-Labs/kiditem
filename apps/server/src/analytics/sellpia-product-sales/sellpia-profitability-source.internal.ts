@@ -16,19 +16,22 @@ import type {
 import type {
   SellpiaProfitabilityGenerationMetadata,
   SellpiaProfitabilityQuality,
+  SellpiaProfitabilityParserVersion,
 } from '../application/port/in/sellpia-profitability-source-read.port';
 import type {
   SellpiaProfitabilitySubmitBodyDto,
 } from './dto/sellpia-product-sales.dto';
 
 export const SOURCE_TYPE = 'sellpia_product_profitability';
-export const PARSER_VERSION = 'sellpia-profitability-v1';
+export const PARSER_VERSION = 'sellpia-profitability-v2';
+export const LEGACY_PARSER_VERSION = 'sellpia-profitability-v1';
 export const ATTEMPT_TTL_MS = 30 * 60_000;
 export const TRANSACTION_TIMEOUT_MS = 30_000;
 export const INSERT_CHUNK_SIZE = 5_000;
 export const MAX_GENERATION_FACT_ROWS = 20_000 * 24;
 export const INT4_MAX = 2_147_483_647;
 export const ALERT_DEDUPE_KEY = 'source:sellpia-product-profitability';
+const SELLPIA_PROFITABILITY_WINDOW_DAYS = 401;
 
 export type SourceAttemptRecord = Readonly<{
   id: string;
@@ -94,14 +97,17 @@ export function buildSellpiaProfitabilityPlan(
     timeZone: 'Asia/Seoul',
     year: 'numeric',
     month: '2-digit',
+    day: '2-digit',
   }).formatToParts(now);
   const year = Number(parts.find((part) => part.type === 'year')?.value);
   const month = Number(parts.find((part) => part.type === 'month')?.value);
-  if (!Number.isInteger(year) || !Number.isInteger(month)) {
+  const day = Number(parts.find((part) => part.type === 'day')?.value);
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) {
     throw new BadRequestException('INVALID_SERVER_CLOCK');
   }
-  const end = new Date(Date.UTC(year, month - 1, 0));
-  const earliest = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth() - 11, 1));
+  const end = new Date(Date.UTC(year, month - 1, day - 1));
+  const earliest = new Date(end);
+  earliest.setUTCDate(earliest.getUTCDate() - SELLPIA_PROFITABILITY_WINDOW_DAYS + 1);
   let from = earliest;
   if (normalizedSourceAvailabilityDate !== undefined) {
     const availability = parseDate(normalizedSourceAvailabilityDate.trim());
@@ -170,11 +176,27 @@ export function freezeFacts(
     const frozenSku = resolution.status === 'matched'
       ? candidateById.get(resolution.sellpiaInventorySkuId) ?? null
       : null;
+    const totalOrderAmount = sourceTotal(product.totalOrderAmount);
+    const totalOrderQty = sourceTotal(product.totalOrderQty);
+    const totalInAmount = sourceTotal(product.totalInAmount);
+    const totalInQty = sourceTotal(product.totalInQty);
+    let summedOrderAmount = 0;
+    let summedOrderQty = 0;
+    let summedInAmount = 0;
+    let summedInQty = 0;
     for (const month of product.months) {
       if (!coveredMonths.has(month.yearMonth)) {
         throw new UnprocessableEntityException('SOURCE_MONTH_OUTSIDE_PLAN');
       }
       const coverage = monthIntersection(plan, month.yearMonth);
+      const orderQty = boundedInt(month.orderQty);
+      const orderAmount = boundedInt(month.orderAmount);
+      const inQty = boundedInt(month.inQty);
+      const inAmount = boundedInt(month.inAmount);
+      summedOrderAmount = boundedInt(summedOrderAmount + orderAmount);
+      summedOrderQty = boundedInt(summedOrderQty + orderQty);
+      summedInAmount = boundedInt(summedInAmount + inAmount);
+      summedInQty = boundedInt(summedInQty + inQty);
       const fact: FrozenFact = {
         sourceImportRunId,
         sellpiaInventorySkuId: frozenSku?.id ?? null,
@@ -182,10 +204,10 @@ export function freezeFacts(
         productCode,
         optionCode,
         yearMonth: month.yearMonth,
-        orderQty: boundedInt(month.orderQty),
-        orderAmount: boundedInt(month.orderAmount),
-        inQty: boundedInt(month.inQty),
-        inAmount: boundedInt(month.inAmount),
+        orderQty,
+        orderAmount,
+        inQty,
+        inAmount,
         coverageStartDate: coverage.from,
         coverageEndDate: coverage.to,
         productName,
@@ -200,6 +222,14 @@ export function freezeFacts(
         throw new UnprocessableEntityException('DUPLICATE_PRODUCT_MONTH');
       }
       facts.set(factIdentity, fact);
+    }
+    if (
+      summedOrderAmount !== totalOrderAmount
+      || summedOrderQty !== totalOrderQty
+      || summedInAmount !== totalInAmount
+      || summedInQty !== totalInQty
+    ) {
+      throw new UnprocessableEntityException('PROVIDER_TOTALS_MISMATCH');
     }
   }
   return [...facts.values()].sort((left, right) =>
@@ -511,6 +541,13 @@ export function boundedInt(value: number): number {
   return value;
 }
 
+export function sourceTotal(value: number): number {
+  if (!Number.isSafeInteger(value) || value < 0 || value > INT4_MAX) {
+    throw new UnprocessableEntityException('PROFITABILITY_TOTAL_INVALID');
+  }
+  return value;
+}
+
 export function dateOnly(value: string): Date {
   const parsed = parseDate(value);
   if (!parsed) throw new BadRequestException('SOURCE_PLAN_INVALID');
@@ -605,16 +642,22 @@ function parseQualityReport(value: unknown): SellpiaProfitabilityQuality {
   if (numbers.some((count) => !Number.isSafeInteger(count) || (count as number) < 0)) {
     throw new UnprocessableEntityException('SOURCE_QUALITY_REPORT_MALFORMED');
   }
-  if (report.contract !== 'sellpia-profitability-v1'
-    || report.parserVersion !== 'sellpia-profitability-v1'
+  const contract = report.contract;
+  const parserVersion = report.parserVersion;
+  const correctedCostEvidence = contract === PARSER_VERSION
+    && parserVersion === PARSER_VERSION;
+  const legacyCostEvidence = contract === LEGACY_PARSER_VERSION
+    && parserVersion === LEGACY_PARSER_VERSION;
+  if ((!correctedCostEvidence && !legacyCostEvidence)
     || (report.mappedRowCount as number) + (report.unmappedRowCount as number)
       !== (report.includedRowCount as number)
     || (report.warningCount as number) > (report.includedRowCount as number)) {
     throw new UnprocessableEntityException('SOURCE_QUALITY_REPORT_MALFORMED');
   }
   return {
-    contract: 'sellpia-profitability-v1',
-    parserVersion: 'sellpia-profitability-v1',
+    contract: contract as SellpiaProfitabilityParserVersion,
+    parserVersion: parserVersion as SellpiaProfitabilityParserVersion,
+    correctedCostEvidence,
     contentChecksum: checksum,
     contentByteCount: byteCount as number,
     includedRowCount: report.includedRowCount as number,

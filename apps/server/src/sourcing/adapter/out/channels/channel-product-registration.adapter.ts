@@ -1,19 +1,16 @@
 import { Inject, Injectable } from '@nestjs/common';
 import {
   CHANNELS_MARKETPLACE_REGISTRATION_CAPABILITY_PORT,
-  DefinitiveMarketplaceRegistrationError,
   type ChannelsMarketplaceRegistrationCapabilityPort,
 } from '../../../../channels/application/port/in/capability/marketplace-registration.port';
 import type {
   ChannelProductRegistrationPort,
-  ChannelProductRegistrationSubmissionInput,
   ExternalRegistrationMatchPreviewInput,
   ExternalRegistrationMatchPreviewResult,
   ExternalRegistrationPreflightInput,
   ExternalRegistrationPreflightResult,
   ResolveChannelListingInput,
 } from '../../../application/port/out/cross-domain/channel-product-registration.port';
-import { DefinitiveChannelProductRegistrationError } from '../../../application/port/out/cross-domain/channel-product-registration.port';
 import type { SourcingRepositoryTransaction } from '../../../application/port/out/transaction/repository-transaction';
 
 @Injectable()
@@ -42,24 +39,6 @@ export class ChannelProductRegistrationAdapter
     channelAccountId: string;
   }): Promise<{ channel: 'coupang'; vendorId: string }> {
     return this.registration.assertExternalProductRegistrationAccount(input);
-  }
-
-  reconcile(input: ChannelProductRegistrationSubmissionInput) {
-    return this.registration.reconcileProductRegistration(input);
-  }
-
-  async submit(
-    input: ChannelProductRegistrationSubmissionInput,
-    beforeProviderCreate: () => Promise<void>,
-  ) {
-    try {
-      return await this.registration.submitProductRegistration(input, beforeProviderCreate);
-    } catch (error) {
-      if (error instanceof DefinitiveMarketplaceRegistrationError) {
-        throw new DefinitiveChannelProductRegistrationError(error.message);
-      }
-      throw error;
-    }
   }
 
   resolveListing(

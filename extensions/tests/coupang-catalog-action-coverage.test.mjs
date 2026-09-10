@@ -58,6 +58,19 @@ test('runtime uploads all three durable chunk kinds and finalizes through the AP
   assert.match(runtime, /chrome\.alarms\.create/);
 });
 
+test('catalog steps use the shared finite keepalive through environment dependencies', () => {
+  const runtime = fs.readFileSync(runtimePath, 'utf8');
+  const worker = fs.readFileSync(workerPath, 'utf8');
+  const factoryStart = worker.indexOf('function coupangCatalogImportDependencies');
+  const factoryEnd = worker.indexOf('function coupangReviewCollectorDependencies', factoryStart);
+  assert.ok(factoryStart >= 0);
+  assert.ok(factoryEnd > factoryStart);
+  const dependenciesFactory = worker.slice(factoryStart, factoryEnd);
+
+  assert.match(runtime, /dependencies\.keepAlive/);
+  assert.match(dependenciesFactory, /keepAlive:\s*\(operation\)\s*=>\s*KidItemWorkerKeepAlive\.during\(operation\)/);
+});
+
 test('catalog login retains explicit attention without a legacy session terminal API', () => {
   const runtime = fs.readFileSync(runtimePath, 'utf8');
 

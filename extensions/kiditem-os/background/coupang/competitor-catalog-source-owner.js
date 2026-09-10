@@ -156,6 +156,31 @@
     const sessions = options.sessions;
     const activeExecutions = new Map();
 
+    async function isActive(attemptId, environmentId) {
+      if (typeof sessions.isActive === "function") {
+        return sessions.isActive(attemptId, environmentId, PRODUCER);
+      }
+      const session = await sessions.get(attemptId).catch(() => null);
+      return session?.environmentId === environmentId && session.producer === PRODUCER;
+    }
+
+    function cancellationError() {
+      const error = ownerError("COLLECTION_CANCELLED", "Competitor catalog collection was cancelled by the user.");
+      error.cancellationPending = true;
+      return error;
+    }
+
+    function stoppedOutcome(attemptId, completedTargetCount = 0) {
+      return {
+        success: false,
+        attemptId,
+        terminalState: "RUNNING",
+        completedTargetCount,
+        cancellationPending: true,
+        errorCode: "COLLECTION_CANCELLED",
+      };
+    }
+
     function launch(environmentId, work) {
       let tracked;
       tracked = Promise.resolve()
@@ -221,6 +246,8 @@
       }
       const session = persisted[0];
       if (!session) return null;
+      if (typeof sessions.isActive === "function" &&
+        !(await sessions.isActive(session.attemptId, environmentId, PRODUCER))) return null;
       const plan = await readAttemptControl(environmentId, session.attemptId, input);
       if (plan) return plan;
       await sessions.remove(session.attemptId);
@@ -275,8 +302,9 @@
       try {
         const catalogs = [];
         for (const target of plan.targets) {
+          if (!(await isActive(plan.attemptId, environmentId))) return stoppedOutcome(plan.attemptId, completed);
           if (!(await sessions.get(plan.attemptId))) {
-            throw ownerError("COLLECTION_CANCELLED", "Competitor catalog collection was cancelled by the user.");
+            throw cancellationError();
           }
           await sessions.progress(plan.attemptId, {
             current: completed,
@@ -285,6 +313,7 @@
             failed: 0,
             label: target.sellerName || target.sellerId,
           });
+          if (!(await isActive(plan.attemptId, environmentId))) return stoppedOutcome(plan.attemptId, completed);
           let collected;
           try {
             collected = await options.collectTarget({
@@ -295,11 +324,13 @@
               collectionTabId,
             });
           } catch (error) {
+            if (!(await isActive(plan.attemptId, environmentId))) return stoppedOutcome(plan.attemptId, completed);
             throw ownerError(
               "COMPETITOR_CATALOG_TARGET_COLLECTION_FAILED",
               "Competitor catalog collection did not prove every frozen seller target.",
             );
           }
+          if (!(await isActive(plan.attemptId, environmentId))) return stoppedOutcome(plan.attemptId, completed);
           if (Number.isInteger(collected?.tabId)) collectionTabId = collected.tabId;
           if (collected?.attentionRequired) {
             const message = String(collected.error || "Coupang seller catalog needs attention.").trim()
@@ -318,7 +349,7 @@
             };
           }
           if (collected?.cancelled) {
-            throw ownerError("COLLECTION_CANCELLED", "Competitor catalog collection was cancelled by the user.");
+            throw cancellationError();
           }
           if (collected?.success !== true || !collected.catalog) {
             throw ownerError(
@@ -337,8 +368,9 @@
           });
         }
         if (!(await sessions.get(plan.attemptId))) {
-          throw ownerError("COLLECTION_CANCELLED", "Competitor catalog collection was cancelled by the user.");
+          throw cancellationError();
         }
+        if (!(await isActive(plan.attemptId, environmentId))) return stoppedOutcome(plan.attemptId, completed);
         if (catalogs.length !== plan.targets.length) {
           throw ownerError(
             "COMPETITOR_CATALOG_TARGET_COLLECTION_FAILED",
@@ -353,6 +385,7 @@
           ...(terminal.state === "COMPLETE" ? { capturedTargetCount: catalogs.length } : {}),
         };
       } catch (error) {
+        if (error?.cancellationPending) return stoppedOutcome(plan.attemptId, completed);
         // Missing PUT acknowledgement is not proof of capture failure. A new
         // /fail is allowed only after a definitive pre-publication rejection.
         let terminal = submittingCapture
@@ -381,6 +414,7 @@
         if (plan.state === "RUNNING") {
           await input.onAttempt?.(plan);
           if (!(await sessions.get(plan.attemptId))) {
+            if (!(await isActive(plan.attemptId, environmentId))) return stoppedOutcome(plan.attemptId);
             const terminal = await readAttemptControl(environmentId, plan.attemptId, scope).catch(() => null);
             return terminalReplayResult(terminal || { attemptId: plan.attemptId, state: "RUNNING" });
           }
@@ -433,6 +467,10 @@
             "COMPETITOR_CATALOG_ATTEMPT_CORRELATION_CONFLICT",
             "More than one competitor catalog attempt is stored for this environment.",
           );
+        }
+        if (typeof sessions.isActive === "function" &&
+          !(await sessions.isActive(persisted[0].attemptId, normalizedEnvironmentId, PRODUCER))) {
+          return null;
         }
         const plan = await readAttemptControl(normalizedEnvironmentId, persisted[0].attemptId, null);
         if (!plan) {

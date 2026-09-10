@@ -1,4 +1,4 @@
-// Listing-map matching helpers extracted from AdSyncService.
+// Listing-map matching helpers shared by advertising source owners.
 //
 // Matching priority (invariant — see advertising/AGENTS.md):
 //   1) Coupang vendorItemId → ChannelListingOption.externalOptionId →

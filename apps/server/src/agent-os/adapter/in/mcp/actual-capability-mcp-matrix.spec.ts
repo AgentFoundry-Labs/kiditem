@@ -79,10 +79,6 @@ const scenarios: readonly InvocationScenario[] = [
       wingIdentitySource: 'dom:data-vendor-id',
     },
   }, { preparationId: PREPARATION_ID, listingId: CANDIDATE_ID, status: 'registered' }),
-  scenario('channels.submit_coupang_listing', 'channels.submitCoupangListing', 'high', {
-    registrationExecutionId: OPERATION_ID,
-    preparationId: PREPARATION_ID,
-  }, { preparationId: PREPARATION_ID, listingId: CANDIDATE_ID, status: 'registered' }),
   scenario('channels.submit_wing_thumbnail', 'channels.submitWingThumbnail', 'high', { generationId: 'generation-1' }, {
     success: true,
     screenshotPath: null,
@@ -142,7 +138,7 @@ const scenarios: readonly InvocationScenario[] = [
 ];
 
 describe('actual capability MCP wire matrix', () => {
-  it('discovers and invokes all 14 owner compositions with active-turn authority and code-owned responsibility profiles', async () => {
+  it('discovers and invokes all 13 owner compositions with active-turn authority and code-owned responsibility profiles', async () => {
     const runtime = matrixRuntime();
     try {
       const catalog = await call(runtime.handler, 'tools/call', {
@@ -164,7 +160,7 @@ describe('actual capability MCP wire matrix', () => {
         expect.any(SupplyCapabilityCompositionAdapter),
       ]);
       expect(runtime.compositionProviders.flatMap((provider) => provider.compositions))
-        .toHaveLength(14);
+        .toHaveLength(13);
 
       for (const entry of scenarios) {
         expect(entry.definition.ownerInputPort).toBe(entry.expectedOwnerInputPort);
@@ -393,11 +389,6 @@ function realCompositionProviders(typedOwnerPortCalls: TypedOwnerPortCalls) {
       'channels.register_confirmed_listing',
       { preparationId: PREPARATION_ID, listingId: CANDIDATE_ID, status: 'registered' as const },
     ),
-    submitCoupangListing: typedOwnerPortMethod(
-      typedOwnerPortCalls,
-      'channels.submit_coupang_listing',
-      { preparationId: PREPARATION_ID, listingId: CANDIDATE_ID, status: 'registered' as const },
-    ),
   };
   const wing: ChannelsWingThumbnailCapabilityPort = {
     submitWingThumbnail: typedOwnerPortMethod(
@@ -526,7 +517,6 @@ function expectedTypedOwnerPortCall(
     case 'analytics.readOverview':
       return { organizationId: ORGANIZATION_ID, ...input };
     case 'channels.register_confirmed_listing':
-    case 'channels.submit_coupang_listing':
       return { context: mutationContext(), input };
     case 'channels.submit_wing_thumbnail': {
       const context = mutationContext();

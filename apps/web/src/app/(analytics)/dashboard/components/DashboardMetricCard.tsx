@@ -1,6 +1,7 @@
-import type { LucideIcon } from 'lucide-react';
 import { Minus, TrendingDown, TrendingUp } from 'lucide-react';
 import { cn, formatKRW } from '@/lib/utils';
+import { DashboardDataBasis, type DashboardMetricBasis } from './DashboardDataBasis';
+import type { LucideIcon } from 'lucide-react';
 
 export function MetricCard({
   label,
@@ -17,11 +18,13 @@ export function MetricCard({
   goalLabel,
   invertGoal,
   onClick,
+  basis,
+  comparisonBasis,
 }: {
   label: string;
   value: string;
   unit: string;
-  change: number;
+  change: number | null;
   prevLabel: string;
   accentColor: string;
   icon: LucideIcon;
@@ -32,9 +35,12 @@ export function MetricCard({
   goalLabel?: string;
   invertGoal?: boolean;
   onClick?: () => void;
+  basis?: DashboardMetricBasis | null;
+  comparisonBasis?: DashboardMetricBasis | null;
 }) {
-  const isPositive = invertColor ? change < 0 : change > 0;
-  const isNeutral = Math.abs(change) < 0.5;
+  const isUnavailable = change === null;
+  const isPositive = !isUnavailable && (invertColor ? change < 0 : change > 0);
+  const isNeutral = !isUnavailable && Math.abs(change) < 0.5;
   const ChangeIcon = isNeutral ? Minus : isPositive ? TrendingUp : TrendingDown;
   const changeColorStyle = isNeutral ? '#94a3b8' : isPositive ? '#059669' : '#ef4444';
   const changeBgStyle = isNeutral ? 'rgba(148,163,184,0.1)' : isPositive ? 'rgba(5,150,105,0.1)' : 'rgba(239,68,68,0.1)';
@@ -79,8 +85,11 @@ export function MetricCard({
             </div>
             <div className="flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-xs font-mono" style={{ background: changeBgStyle, color: changeColorStyle }}>
               <ChangeIcon size={12} />
-              {!isNeutral && <span>{change > 0 ? '+' : ''}{change.toFixed(1)}%</span>}
-              {isNeutral && <span>-</span>}
+              {isUnavailable
+                ? <span>—</span>
+                : isNeutral
+                  ? <span>-</span>
+                  : <span>{change > 0 ? '+' : ''}{change.toFixed(1)}%</span>}
             </div>
           </div>
           <div className="flex items-baseline gap-1">
@@ -88,6 +97,10 @@ export function MetricCard({
             <span className="text-base font-semibold" style={{ color: accentColor, opacity: 0.6 }}>{unit}</span>
           </div>
           {prevLabel && <div className="text-xs mt-0.5 text-slate-500">{prevLabel}</div>}
+          {comparisonBasis && (
+            <DashboardDataBasis basis={comparisonBasis} className="mt-1" />
+          )}
+          {basis && <DashboardDataBasis basis={basis} className="mt-1" />}
         </div>
         {hasGoal && (
           <div className="mt-auto pt-2" style={{ borderTop: `1px solid ${accentColor}20` }}>
@@ -114,11 +127,15 @@ export function UnavailableMetricCard({
   icon: Icon,
   accentColor,
   note,
+  basis,
+  comparisonBasis,
 }: {
   label: string;
   icon: LucideIcon;
   accentColor: string;
   note: string;
+  basis?: DashboardMetricBasis | null;
+  comparisonBasis?: DashboardMetricBasis | null;
 }) {
   return (
     <div className="rounded-2xl transition-all h-full bg-white border border-slate-100 shadow-sm">
@@ -134,6 +151,8 @@ export function UnavailableMetricCard({
             <span className="text-lg sm:text-2xl font-extrabold tabular-nums tracking-tight text-slate-300">—</span>
           </div>
           <div className="text-xs mt-1 text-slate-400">{note}</div>
+          {comparisonBasis && <DashboardDataBasis basis={comparisonBasis} className="mt-1" />}
+          {basis && <DashboardDataBasis basis={basis} className="mt-1" />}
         </div>
       </div>
     </div>

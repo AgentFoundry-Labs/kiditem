@@ -87,8 +87,13 @@ describe('extension collection-session public contract', () => {
       },
       attention: null,
     });
-    expect(storage.sessions[ATTEMPT_ID]).not.toHaveProperty('_ownerAttemptToken');
-    expect(storage.sessions[ATTEMPT_ID]).not.toHaveProperty('_ownerPlan');
+    expect(storage).toHaveProperty(['sessions', ATTEMPT_ID]);
+    expect(storage).not.toHaveProperty([
+      'sessions',
+      ATTEMPT_ID,
+      '_ownerAttemptToken',
+    ]);
+    expect(storage).not.toHaveProperty(['sessions', ATTEMPT_ID, '_ownerPlan']);
 
     const attached = await manager.attachTab(ATTEMPT_ID, { tabId: 7, windowId: 2 });
     expect(BrowserCollectionSessionViewSchema.parse(attached)).toEqual(attached);

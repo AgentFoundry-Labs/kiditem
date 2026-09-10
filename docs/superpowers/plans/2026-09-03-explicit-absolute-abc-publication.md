@@ -2,6 +2,17 @@
 
 **Status:** ACTIVE
 
+> **Policy update (2026-09-07):** The linked spec's independent sale-age and
+> period-validity gates supersede the original minimum-observation-days gate.
+> Advance the immutable formula payload version in the single current path;
+> older V1 examples below record the initial implementation, not compatibility
+> requirements. The parent hard-cutover plan governs execution and review order.
+> The latest approved cutoff is KST yesterday, using at most 12 calendar-month
+> buckets including the exact partial cutoff month; completed-month examples
+> below do not constrain the updated implementation. Use actual period totals
+> and coverage, never daily proration. Sellpia cost repair and aligned
+> Advertising coverage are tracked in the parent plan.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace cohort-relative product ABC with a deterministic per-product formula published only by an explicit Product Hub request.
@@ -17,11 +28,18 @@
 - Each seam is implemented RED-to-GREEN with focused tests, then reviewed for
   deletable Ponytail complexity before its commit.
 - `operatingProfit = recognizedRevenue - orderTimeSupplyCost - advertisingSpend`; no other cost is invented as zero.
-- Evaluation excludes the current KST month, uses at most 12 completed months, a 90-day half-life, and exact valid covered days.
+- Evaluation ends at KST yesterday, uses at most 12 calendar-month buckets
+  including an exact partial cutoff month, a 90-day half-life based on actual
+  bucket midpoints, and exact valid covered days.
 - Fixed V1 weights are 50/30/20; thresholds are A `80` with margin/consistency guards `60`, B `50`, otherwise C; Hard C is exactly nonpositive weighted profit, nonpositive margin, or loss persistence at least `0.5`.
 - Another product's facts, count, rank, percentile, or population hash never enter a score or grade.
 - `MISSING`/`STALE` does not become zero or C and writes no ABC publication. The last official grade remains visible with its official cutoff.
-- `NEW`/`INSUFFICIENT_EVIDENCE` is derived for fewer than 30 valid days and stores no official grade. It is not another durable lifecycle.
+- Derive `NEW` only from verified sale age below 30 elapsed days at the cutoff.
+  Missing/invalid sale dates mean insufficient evidence. Use the earliest valid
+  `saleStartedAt` among validly mapped channel listings, never local creation
+  time. Data sufficiency requires complete, valid evidence for the selected
+  interval, with no minimum evidence-day count. Preserve prior normal grades
+  when eligibility cannot be established; add no durable eligibility lifecycle.
 - Formula state owns publication provenance once per organization. One command performs one CAS attempt and never loops.
 - The first successful full publication after reset is the baseline and writes no history. Later history contains only actual A/B/C transitions.
 - Contribution and rank are unweighted display metrics and do not read or influence grade/evaluation.
@@ -118,7 +136,7 @@ Expected: FAIL because current payload contains calibration/reliability/relative
 
 - [x] **Step 3: Implement only the fixed V1 formula**
 
-Define the exact anchor tables from the spec, linear interpolation with endpoint clamp, 90-day half-life weighting, 30-day velocity, weighted margin, monthly inferred loss persistence, binary64 arithmetic, six-decimal half-up persistence values, and threshold comparisons against unrounded metrics. Reject invalid provenance, negative source amounts, non-month-end cutoff, overlap, more than 12 months, and fewer than 30 valid days.
+Define the exact anchor tables from the spec, linear interpolation with endpoint clamp, 90-day half-life weighting, 30-day velocity, weighted margin, period-aggregated inferred loss persistence, binary64 arithmetic, six-decimal half-up persistence values, and threshold comparisons against unrounded metrics. Reject invalid provenance, negative source amounts, future cutoff, overlap, more than 12 calendar-month buckets, and incomplete or invalid selected periods. A valid closed-day cutoff need not be a month end. Check the separate verified sale-age threshold; do not impose a minimum observation-day count.
 
 - [x] **Step 4: Delete relative scoring and make the spec's NEW wording consistent**
 
@@ -453,7 +471,7 @@ Expected: FAIL because the current service calibrates, quantiles, retries twice,
 
 - [x] **Step 3: Implement the minimal command service**
 
-Compute the target cutoff as the last completed KST month, read FormulaState and the complete current selling/mapped target set, call `ProfitabilityEvidence.load`, return `SOURCE_NOT_READY` without a write when blocked, derive `NEW` count for fewer than 30 valid days, evaluate formula-ready products independently, and call `repository.publish` once. Remove cancellation checkpoints, Operation transaction types, automatic reason strings, and retry loops.
+Compute the target cutoff as KST yesterday, read FormulaState and the complete current selling/mapped target set, call `ProfitabilityEvidence.load`, return `SOURCE_NOT_READY` without a write when blocked, derive `NEW` from verified sale age below 30 days, separately validate the entire selected evidence period, evaluate eligible products independently, and call `repository.publish` once. Recheck sale-start provenance within the publication transaction. Remove cancellation checkpoints, Operation transaction types, automatic reason strings, and retry loops.
 
 - [x] **Step 4: Write failing PG tests for the publication boundary**
 

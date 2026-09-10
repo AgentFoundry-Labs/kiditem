@@ -7,33 +7,18 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { periodBounds, type AdPeriod } from '../../../domain/ad-metrics';
+import {
+  completeAdCampaignSourceIds,
+  readCompleteAdKeywordFacts,
+} from './ad-keyword-complete-read';
 import type {
   AdCampaignRepositoryPort,
   AdTrendDailyRow,
   CampaignCurrentSweep,
   CampaignRollup,
-  CampaignSyncSweepEvidence,
   KeywordTargetRollup,
   ProductTargetRollup,
 } from '../../../application/port/out/repository/ad-campaign.repository.port';
-
-type CampaignSweepQueryRow = {
-  channelAccountId: string;
-  collectionRunId: string;
-  collectionAttempt: number;
-  completedAt: Date;
-  campaignDailyCollectionComplete: boolean;
-  campaignDailyWindowDays: number | null;
-  campaignDailyFrom: string | null;
-  campaignDailyTo: string | null;
-  rosterComplete: boolean;
-  dailyFactsComplete: boolean;
-  campaignIdentity: string | null;
-  campaignId: string | null;
-  campaignName: string | null;
-  status: string | null;
-  onOff: string | null;
-};
 
 // Grain discriminators for `channel_ad_target_daily_snapshots`.
 //
@@ -87,23 +72,30 @@ const CONVERSIONS_OBSERVED = Prisma.sql`
 `;
 
 @Injectable()
-export class AdCampaignRepositoryAdapter
-  implements AdCampaignRepositoryPort
-{
+export class AdCampaignRepositoryAdapter implements AdCampaignRepositoryPort {
   constructor(private readonly prisma: PrismaService) {}
 
-  findCampaignRollups(
+  async findCampaignSnapshot(organizationId: string, period: AdPeriod) {
+    return this.prisma.$transaction(async (tx) => ({
+      rollups: await this.findCampaignRollups(tx, organizationId, period),
+      currentSweeps: await this.findLatestCompleteCampaignSweeps(tx, organizationId),
+    }), { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
+  }
+
+  private findCampaignRollups(
+    tx: Prisma.TransactionClient,
     organizationId: string,
     period: AdPeriod,
   ): Promise<CampaignRollup[]> {
     const bounds = periodBounds(period);
-    return this.prisma.$queryRaw<CampaignRollup[]>(Prisma.sql`
+    return tx.$queryRaw<CampaignRollup[]>(Prisma.sql`
       WITH scoped AS (
         SELECT
           *,
           ${CONVERSIONS_OBSERVED} AS conversions_observed
         FROM channel_ad_target_daily_snapshots
-        WHERE organization_id = ${organizationId}::uuid
+        WHERE source_import_run_id IN (${completeAdCampaignSourceIds(organizationId)})
+          AND organization_id = ${organizationId}::uuid
           AND business_date >= ${bounds.from}
           AND business_date <= ${bounds.to}
           AND campaign_identity IS NOT NULL
@@ -209,378 +201,47 @@ export class AdCampaignRepositoryAdapter
     `);
   }
 
-  async findLatestCompleteCampaignSweeps(
+  private async findLatestCompleteCampaignSweeps(
+    tx: Prisma.TransactionClient,
     organizationId: string,
   ): Promise<CampaignCurrentSweep[]> {
-    return this.queryLatestCompleteCampaignSweeps(organizationId, null);
-  }
-
-  async findAccountlessSyncCampaignSweep(
-    organizationId: string,
-  ): Promise<CampaignSyncSweepEvidence | null> {
-    const account = await this.prisma.channelAccount.findFirst({
-      where: { organizationId, channel: 'coupang', status: 'active' },
-      // Must remain identical to AdListingRepositoryAdapter's account-less
-      // ingest resolver. Until the browser supplies an account picker, both
-      // ingest and freshness bind to this deterministic account.
-      orderBy: [
-        { isPrimary: 'desc' },
-        { updatedAt: 'desc' },
-        { id: 'asc' },
-      ],
-      select: { id: true },
-    });
-    if (!account) return null;
-
-    const [sweep] = await this.queryLatestCompleteCampaignSweeps(
-      organizationId,
-      account.id,
-    );
-    return sweep ?? null;
-  }
-
-  private async queryLatestCompleteCampaignSweeps(
-    organizationId: string,
-    channelAccountId: string | null,
-  ): Promise<CampaignSyncSweepEvidence[]> {
-    const rows = await this.prisma.$queryRaw<CampaignSweepQueryRow[]>(
-      Prisma.sql`
-        WITH latest_marker AS (
-          SELECT DISTINCT ON (channel_account_id)
-            id AS marker_run_id,
-            channel_account_id,
-            meta_json ->> 'collectionRunId' AS collection_run_id,
-            (meta_json ->> 'collectionAttempt')::int AS collection_attempt,
-            (meta_json ->> 'campaignCount')::int AS expected_campaign_count,
-            COALESCE(
-              meta_json ->> 'campaignIdentityComplete' = 'true',
-              false
-            ) AS identity_complete,
-            COALESCE(
-              meta_json ->> 'campaignDailyCollectionComplete' = 'true',
-              false
-            ) AS daily_collection_complete,
-            CASE
-              WHEN (meta_json ->> 'campaignDailyWindowDays') ~ '^[1-9][0-9]*$'
-              THEN (meta_json ->> 'campaignDailyWindowDays')::int
-              ELSE NULL
-            END AS daily_window_days,
-            NULLIF(BTRIM(meta_json ->> 'campaignDailyFrom'), '')
-              AS daily_from,
-            NULLIF(BTRIM(meta_json ->> 'campaignDailyTo'), '')
-              AS daily_to,
-            finished_at AS marker_finished_at,
-            COALESCE(finished_at, started_at) AS marker_completed_at
-          FROM channel_scrape_runs
-          WHERE organization_id = ${organizationId}::uuid
-            ${channelAccountId
-              ? Prisma.sql`AND channel_account_id = ${channelAccountId}::uuid`
-              : Prisma.empty}
-            AND channel = 'coupang'
-            AND source = 'advertising'
-            AND page_type = 'campaign'
-            AND status = 'complete'
-            AND error_count = 0
-            AND meta_json ->> 'campaignSweepComplete' = 'true'
-            AND jsonb_typeof(meta_json -> 'collectionRunId') = 'string'
-            AND NULLIF(BTRIM(meta_json ->> 'collectionRunId'), '') IS NOT NULL
-            AND jsonb_typeof(meta_json -> 'collectionAttempt') = 'number'
-            AND (meta_json ->> 'collectionAttempt') ~ '^[1-9][0-9]*$'
-            AND jsonb_typeof(meta_json -> 'campaignCount') = 'number'
-            AND (meta_json ->> 'campaignCount') ~ '^[0-9]+$'
-          ORDER BY
-            channel_account_id,
-            finished_at DESC NULLS LAST,
-            started_at DESC,
-            id DESC
-        ),
-        observed_snapshots AS (
-          SELECT
-            marker.channel_account_id,
-            marker.collection_run_id,
-            marker.collection_attempt,
-            marker.daily_from,
-            marker.daily_to,
-            observed_run.business_date,
-            observed_run.period_start,
-            observed_run.period_end,
-            observed_run.meta_json ->> 'requestedCampaignReportScope'
-              AS requested_scope,
-            observed_run.meta_json ->> 'effectiveCampaignReportScope'
-              AS effective_scope,
-            COALESCE(
-              observed_run.meta_json ->> 'dailyProjectionSkipped' = 'true',
-              true
-            ) AS daily_projection_skipped,
-            snapshot.id AS snapshot_id,
-            NULLIF(
-              BTRIM(snapshot.normalized_json ->> 'campaignIdentity'),
-              ''
-            ) AS campaign_identity,
-            NULLIF(
-              BTRIM(snapshot.normalized_json ->> 'campaignId'),
-              ''
-            ) AS campaign_id,
-            NULLIF(
-              BTRIM(snapshot.normalized_json ->> 'campaignName'),
-              ''
-            ) AS campaign_name,
-            COALESCE(
-              NULLIF(BTRIM(observed_run.meta_json ->> 'dashboardStatus'), ''),
-              NULLIF(BTRIM(snapshot.normalized_json ->> 'status'), '')
-            ) AS status,
-            COALESCE(
-              NULLIF(BTRIM(observed_run.meta_json ->> 'dashboardOnOff'), ''),
-              NULLIF(BTRIM(snapshot.normalized_json ->> 'onOff'), '')
-            ) AS on_off,
-            snapshot.observed_at,
-            snapshot.created_at,
-            snapshot.id
-          FROM latest_marker marker
-          JOIN channel_scrape_runs observed_run
-            ON observed_run.organization_id = ${organizationId}::uuid
-           AND observed_run.channel_account_id = marker.channel_account_id
-           AND observed_run.channel = 'coupang'
-           AND observed_run.source = 'advertising'
-           AND observed_run.page_type = 'campaign'
-           AND observed_run.status = 'complete'
-           AND observed_run.error_count = 0
-           AND observed_run.id <> marker.marker_run_id
-           AND observed_run.finished_at <= marker.marker_finished_at
-           AND observed_run.meta_json ->> 'collectionRunId' =
-             marker.collection_run_id
-           AND observed_run.meta_json ->> 'collectionAttempt' =
-             marker.collection_attempt::text
-          JOIN channel_scrape_snapshots snapshot -- raw-snapshot-status-count-ok
-            ON snapshot.organization_id = observed_run.organization_id
-           AND snapshot.scrape_run_id = observed_run.id
-          WHERE NULLIF(
-            BTRIM(snapshot.normalized_json ->> 'campaignIdentity'),
-            ''
-          ) IS NOT NULL
-        ),
-        campaign_rows AS (
-          SELECT DISTINCT ON (
-            observed.channel_account_id,
-            observed.campaign_identity
-          )
-            observed.channel_account_id,
-            observed.collection_run_id,
-            observed.collection_attempt,
-            observed.campaign_identity,
-            observed.campaign_id,
-            observed.campaign_name,
-            observed.status,
-            observed.on_off
-          FROM observed_snapshots observed
-          ORDER BY
-            observed.channel_account_id,
-            observed.campaign_identity,
-            observed.observed_at DESC,
-            observed.created_at DESC,
-            observed.id DESC
-        ),
-        campaign_counts AS (
-          SELECT
-            channel_account_id,
-            collection_run_id,
-            collection_attempt,
-            COUNT(*)::int AS observed_campaign_count
-          FROM campaign_rows
-          GROUP BY
-            channel_account_id,
-            collection_run_id,
-            collection_attempt
-        ),
-        campaign_classification AS (
-          SELECT
-            channel_account_id,
-            collection_run_id,
-            collection_attempt,
-            campaign_identity,
-            BOOL_OR(
-              requested_scope = 'single_campaign_metadata_raw'
-            ) AS has_explicit_metadata_only,
-            BOOL_OR(
-              effective_scope = 'single_campaign_authoritative'
-              AND daily_projection_skipped = false
-            ) AS has_authoritative_detail
-          FROM observed_snapshots
-          GROUP BY
-            channel_account_id,
-            collection_run_id,
-            collection_attempt,
-            campaign_identity
-        ),
-        authoritative_campaign_days AS (
-          SELECT DISTINCT
-            observed.channel_account_id,
-            observed.collection_run_id,
-            observed.collection_attempt,
-            observed.campaign_identity,
-            observed.business_date
-          FROM observed_snapshots observed
-          JOIN channel_ad_target_daily_snapshots fact
-           ON fact.organization_id = ${organizationId}::uuid
-           AND fact.channel_account_id = observed.channel_account_id
-           AND fact.raw_snapshot_id = observed.snapshot_id
-           AND fact.business_date = observed.business_date
-          WHERE
-            observed.effective_scope = 'single_campaign_authoritative'
-            AND observed.daily_projection_skipped = false
-            AND observed.business_date IS NOT NULL
-            AND observed.period_start = observed.business_date
-            AND observed.period_end = observed.business_date
-            AND TO_CHAR(observed.business_date, 'YYYY-MM-DD')
-              BETWEEN observed.daily_from AND observed.daily_to
-        ),
-        campaign_daily_coverage AS (
-          SELECT
-            channel_account_id,
-            collection_run_id,
-            collection_attempt,
-            campaign_identity,
-            COUNT(DISTINCT business_date)::int AS observed_day_count,
-            TO_CHAR(MIN(business_date), 'YYYY-MM-DD') AS observed_from,
-            TO_CHAR(MAX(business_date), 'YYYY-MM-DD') AS observed_to
-          FROM authoritative_campaign_days
-          GROUP BY
-            channel_account_id,
-            collection_run_id,
-            collection_attempt,
-            campaign_identity
-        )
-        SELECT
-          marker.channel_account_id AS "channelAccountId",
-          marker.collection_run_id AS "collectionRunId",
-          marker.collection_attempt AS "collectionAttempt",
-          marker.marker_completed_at AS "completedAt",
-          marker.daily_collection_complete AS "campaignDailyCollectionComplete",
-          marker.daily_window_days AS "campaignDailyWindowDays",
-          marker.daily_from AS "campaignDailyFrom",
-          marker.daily_to AS "campaignDailyTo",
-          (
-            marker.identity_complete
-            AND
-            COALESCE(counts.observed_campaign_count, 0) =
-            marker.expected_campaign_count
-          ) AS "rosterComplete",
-          (
-            marker.identity_complete
-            AND
-            COALESCE(counts.observed_campaign_count, 0) =
-              marker.expected_campaign_count
-            AND
-            (
-              marker.expected_campaign_count = 0
-              OR NOT EXISTS (
-                SELECT 1
-                FROM campaign_rows required_campaign
-                LEFT JOIN campaign_classification classification
-                  ON classification.channel_account_id =
-                    required_campaign.channel_account_id
-                 AND classification.collection_run_id =
-                    required_campaign.collection_run_id
-                 AND classification.collection_attempt =
-                    required_campaign.collection_attempt
-                 AND classification.campaign_identity =
-                    required_campaign.campaign_identity
-                LEFT JOIN campaign_daily_coverage coverage
-                  ON coverage.channel_account_id =
-                    required_campaign.channel_account_id
-                 AND coverage.collection_run_id =
-                    required_campaign.collection_run_id
-                 AND coverage.collection_attempt =
-                    required_campaign.collection_attempt
-                 AND coverage.campaign_identity =
-                    required_campaign.campaign_identity
-                WHERE
-                  required_campaign.channel_account_id =
-                    marker.channel_account_id
-                  AND required_campaign.collection_run_id =
-                    marker.collection_run_id
-                  AND required_campaign.collection_attempt =
-                    marker.collection_attempt
-                  AND NOT (
-                    COALESCE(
-                      (
-                        COALESCE(
-                          classification.has_authoritative_detail,
-                          false
-                        )
-                      AND coverage.observed_day_count =
-                        marker.daily_window_days
-                      AND coverage.observed_from = marker.daily_from
-                      AND coverage.observed_to = marker.daily_to
-                      ),
-                      false
-                    )
-                    OR (
-                      COALESCE(
-                        classification.has_authoritative_detail,
-                        false
-                      ) = false
-                      AND COALESCE(
-                        classification.has_explicit_metadata_only,
-                        false
-                      )
-                    )
-                  )
-              )
-            )
-          ) AS "dailyFactsComplete",
-          campaign.campaign_identity AS "campaignIdentity",
-          campaign.campaign_id AS "campaignId",
-          campaign.campaign_name AS "campaignName",
-          campaign.status,
-          campaign.on_off AS "onOff"
-        FROM latest_marker marker
-        LEFT JOIN campaign_counts counts
-          ON counts.channel_account_id = marker.channel_account_id
-         AND counts.collection_run_id = marker.collection_run_id
-         AND counts.collection_attempt = marker.collection_attempt
-        LEFT JOIN campaign_rows campaign
-          ON campaign.channel_account_id = marker.channel_account_id
-         AND campaign.collection_run_id = marker.collection_run_id
-         AND campaign.collection_attempt = marker.collection_attempt
-        ORDER BY
-          marker.channel_account_id,
-          campaign.campaign_identity
-      `,
-    );
-
-    const sweeps = new Map<string, CampaignSyncSweepEvidence>();
-    for (const row of rows) {
-      let sweep = sweeps.get(row.channelAccountId);
-      if (!sweep) {
-        sweep = {
-          channelAccountId: row.channelAccountId,
-          collectionRunId: row.collectionRunId,
-          collectionAttempt: row.collectionAttempt,
-          completedAt: row.completedAt,
-          campaignDailyCollectionComplete:
-            row.campaignDailyCollectionComplete,
-          campaignDailyWindowDays: row.campaignDailyWindowDays,
-          campaignDailyFrom: row.campaignDailyFrom,
-          campaignDailyTo: row.campaignDailyTo,
-          rosterComplete: row.rosterComplete,
-          dailyFactsComplete: row.dailyFactsComplete,
-          campaigns: [],
+    const owners = await tx.$queryRaw<
+      Array<{
+        channelAccountId: string;
+        qualityReport: {
+          campaignDescriptors: Array<{
+            campaignIdentity: string | null;
+            campaignId: string | null;
+            campaignName: string;
+            status: string | null;
+            onOff: string | null;
+            mode: 'daily' | 'metadata' | 'raw_only';
+          }>;
         };
-        sweeps.set(row.channelAccountId, sweep);
-      }
-      if (row.campaignIdentity) {
-        sweep.campaigns.push({
-          channelAccountId: row.channelAccountId,
-          campaignIdentity: row.campaignIdentity,
-          campaignId: row.campaignId,
-          campaignName: row.campaignName,
-          status: row.status,
-          onOff: row.onOff,
-        });
-      }
-    }
-    return [...sweeps.values()];
+      }>
+    >(Prisma.sql`
+      SELECT channel_account_id AS "channelAccountId", quality_report AS "qualityReport"
+      FROM source_import_runs
+      WHERE organization_id = ${organizationId}::uuid
+        AND id IN (${completeAdCampaignSourceIds(organizationId)})
+    `);
+    return owners.map((owner) => {
+      const campaigns = owner.qualityReport.campaignDescriptors;
+      return {
+        channelAccountId: owner.channelAccountId,
+        rosterComplete: campaigns.every((campaign) => !!campaign.campaignIdentity),
+        campaigns: campaigns
+          .filter((campaign) => !!campaign.campaignIdentity)
+          .map((campaign) => ({
+            channelAccountId: owner.channelAccountId,
+            campaignIdentity: campaign.campaignIdentity!,
+            campaignId: campaign.campaignId,
+            campaignName: campaign.campaignName,
+            status: campaign.status,
+            onOff: campaign.onOff,
+          })),
+      };
+    });
   }
 
   findProductTargetRollups(
@@ -596,7 +257,8 @@ export class AdCampaignRepositoryAdapter
       WITH scoped AS (
         SELECT *
         FROM channel_ad_target_daily_snapshots
-        WHERE organization_id = ${organizationId}::uuid
+        WHERE source_import_run_id IN (${completeAdCampaignSourceIds(organizationId)})
+          AND organization_id = ${organizationId}::uuid
           AND target_type = 'product'
           -- Campaign rollup rows also carry target_type='product' (see the
           -- grain discriminator above). They already sum their member
@@ -679,48 +341,16 @@ export class AdCampaignRepositoryAdapter
     },
   ): Promise<KeywordTargetRollup[]> {
     const bounds = periodBounds(period);
-    // Keyword rows are trailing-window observations, not additive daily facts:
-    // the provider returns an empty keyword table for a one-day range, so the
-    // collector reads a multi-day window and stamps its width in
-    // `metaJson.data.windowDays`. Summing two collections would double-count
-    // their overlapping days, so this takes the newest observation per keyword.
-    return this.prisma.$queryRaw<KeywordTargetRollup[]>(Prisma.sql`
-      SELECT DISTINCT ON (target_key)
-        target_key              AS "targetKey",
-        channel_account_id      AS "channelAccountId",
-        campaign_identity       AS "campaignIdentity",
-        campaign_id             AS "campaignId",
-        campaign_name           AS "campaignName",
-        ad_group                AS "adGroup",
-        keyword,
-        listing_id              AS "listingId",
-        listing_option_id       AS "listingOptionId",
-        external_option_id      AS "externalOptionId",
-        status,
-        on_off                  AS "onOff",
-        current_bid             AS "currentBid",
-        meta_json               AS "metaJson",
-        last_observed_at        AS "lastObservedAt",
-        spend,
-        revenue,
-        impressions,
-        clicks,
-        conversions,
-        orders
-      FROM channel_ad_target_daily_snapshots
-      WHERE organization_id = ${organizationId}::uuid
-        AND target_type = 'keyword'
-        AND keyword IS NOT NULL
-        AND business_date >= ${bounds.from}
-        AND business_date <= ${bounds.to}
-        ${campaign
-          ? Prisma.sql`
-              AND channel_account_id = ${campaign.channelAccountId}::uuid
-              AND campaign_identity = ${campaign.campaignIdentity}
-            `
-          : Prisma.empty}
-      ORDER BY target_key, business_date DESC, last_observed_at DESC, updated_at DESC
-    `);
+    return this.prisma.$transaction(
+      async (tx) => {
+        const { rows } = await readCompleteAdKeywordFacts(tx, organizationId, {
+          ...bounds,
+          ...campaign,
+        });
+        return rows;
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
   }
 
   findAdTrendDailyRows(

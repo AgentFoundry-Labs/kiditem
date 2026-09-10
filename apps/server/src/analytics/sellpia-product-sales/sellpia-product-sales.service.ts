@@ -68,12 +68,29 @@ export class SellpiaProductSalesService implements SellpiaProductDepletionReadPo
         buyPrice: true,
         barcode: true,
         capturedAt: true,
+        coverageStartDate: true,
+        coverageEndDate: true,
       },
       })
       : [];
 
     const months = [...new Set(rows.map((r) => r.yearMonth))].sort();
-    const completeMonths = months.filter((m) => m < currentYm);
+    const fullMonthCoverage = new Map<string, boolean>();
+    for (const row of rows) {
+      const isFullMonth = isFullCalendarMonth(
+        row.yearMonth,
+        row.coverageStartDate,
+        row.coverageEndDate,
+      );
+      fullMonthCoverage.set(
+        row.yearMonth,
+        (fullMonthCoverage.get(row.yearMonth) ?? true) && isFullMonth,
+      );
+    }
+    // Keep raw boundary months visible, but do not use a partial source month
+    // as a complete month for averages, trends, or stock projections.
+    const completeMonths = months.filter((m) =>
+      m < currentYm && fullMonthCoverage.get(m) === true);
     const last1 = new Set(completeMonths.slice(-1));
     const last2 = new Set(completeMonths.slice(-2));
 
@@ -283,4 +300,17 @@ function addMonths(ym: string, delta: number): string {
   const nm = (idx % 12 + 12) % 12;
   const p = (x: number) => String(x).padStart(2, '0');
   return `${ny}-${p(nm + 1)}`;
+}
+
+function isFullCalendarMonth(
+  yearMonth: string,
+  coverageStartDate: Date | null,
+  coverageEndDate: Date | null,
+): boolean {
+  if (!coverageStartDate || !coverageEndDate) return false;
+  const [year, month] = yearMonth.split('-').map(Number);
+  const monthStart = `${yearMonth}-01`;
+  const monthEnd = new Date(Date.UTC(year!, month!, 0)).toISOString().slice(0, 10);
+  return coverageStartDate.toISOString().slice(0, 10) === monthStart
+    && coverageEndDate.toISOString().slice(0, 10) === monthEnd;
 }

@@ -2,14 +2,46 @@ import { describe, expect, it, vi } from 'vitest';
 import { ChannelProductRegistrationAdapter } from './channel-product-registration.adapter';
 
 describe('ChannelProductRegistrationAdapter', () => {
-  it('preserves the frozen submission and caller transaction across the owner boundary', async () => {
+  it('delegates browser registration reads and final listing resolution across the owner boundary', async () => {
     const capability = {
-      reconcileProductRegistration: vi.fn().mockResolvedValue(null),
-      submitProductRegistration: vi.fn().mockResolvedValue({ externalListingId: '427011919' }),
+      previewExternalProductRegistrationMatch: vi.fn().mockResolvedValue({
+        status: 'selection_required',
+        reason: 'choose_sku',
+        sellpiaMatch: null,
+        proposals: [],
+      }),
+      preflightExternalProductRegistration: vi.fn().mockResolvedValue({
+        sellpiaMatch: {
+          sellpiaInventorySkuId: 'sku-1',
+          code: '10451-1',
+          name: '꿀사과슬랑이',
+          optionName: null,
+          currentStock: 13,
+          quantity: 1,
+        },
+        existingListing: null,
+      }),
+      assertExternalProductRegistrationAccount: vi.fn().mockResolvedValue({
+        channel: 'coupang',
+        vendorId: 'A00012345',
+      }),
       resolveProductRegistration: vi.fn().mockResolvedValue({ listingId: 'listing-1' }),
     };
     const adapter = new ChannelProductRegistrationAdapter(capability as never);
+    const previewInput = {
+      organizationId: 'org-1',
+      listingName: 'Kids rain boots',
+      itemName: null,
+    };
+    const preflightInput = {
+      organizationId: 'org-1',
+      channelAccountId: 'account-1',
+      sourceCandidateId: 'candidate-1',
+      listingName: 'Kids rain boots',
+      itemName: null,
+    };
     const submission = {
+      executionId: 'execution-1',
       organizationId: 'org-1',
       preparationId: 'preparation-1',
       sourceCandidateId: 'candidate-1',
@@ -19,26 +51,36 @@ describe('ChannelProductRegistrationAdapter', () => {
       submissionPayloadJson: {},
       providerSubmissionId: null,
       registrationResult: null,
-    };
-    const tx = { opaque: true } as never;
-    const beforeProviderCreate = vi.fn().mockResolvedValue(undefined);
-
-    await adapter.reconcile(submission);
-    await adapter.submit(submission, beforeProviderCreate);
-    await adapter.resolveListing(tx, {
-      ...submission,
+      isRetry: false,
+      providerOutcome: 'not_attempted' as const,
+      providerCreateAllowed: false,
       externalListingId: '427011919',
       displayName: 'Kids rain boots',
-    });
+    };
+    const tx = { opaque: true } as never;
 
-    expect(capability.reconcileProductRegistration).toHaveBeenCalledWith(submission);
-    expect(capability.submitProductRegistration).toHaveBeenCalledWith(
-      submission,
-      beforeProviderCreate,
-    );
+    await expect(adapter.previewExternalRegistrationMatch(previewInput)).resolves.toEqual({
+      status: 'selection_required',
+      reason: 'choose_sku',
+      sellpiaMatch: null,
+      proposals: [],
+    });
+    await adapter.preflightExternalRegistration(preflightInput);
+    await adapter.assertExternalRegistrationAccount({
+      organizationId: 'org-1',
+      channelAccountId: 'account-1',
+    });
+    await adapter.resolveListing(tx, submission);
+
+    expect(capability.previewExternalProductRegistrationMatch).toHaveBeenCalledWith(previewInput);
+    expect(capability.preflightExternalProductRegistration).toHaveBeenCalledWith(preflightInput);
+    expect(capability.assertExternalProductRegistrationAccount).toHaveBeenCalledWith({
+      organizationId: 'org-1',
+      channelAccountId: 'account-1',
+    });
     expect(capability.resolveProductRegistration).toHaveBeenCalledWith(
       tx,
-      expect.objectContaining({ externalListingId: '427011919' }),
+      submission,
     );
   });
 

@@ -1,43 +1,10 @@
-import type {
-  ChannelListingRegistrationResult,
-  MarketplaceSubmissionResult,
-} from "@kiditem/shared/channel-listing";
+import type { ChannelListingRegistrationResult } from "@kiditem/shared/channel-listing";
 
-export const MARKETPLACE_REGISTRATION_REJECTED = {
-  code: "MARKETPLACE_REGISTRATION_REJECTED",
-  message:
-    "Coupang rejected the listing before it was created. Review the listing data and try again.",
-} as const;
-
-export class DefinitiveMarketplaceRegistrationError extends Error {
-  readonly knownNoCommit = true;
-  readonly code = MARKETPLACE_REGISTRATION_REJECTED.code;
-
-  constructor(_providerMessage?: string) {
-    super(MARKETPLACE_REGISTRATION_REJECTED.message);
-    this.name = "DefinitiveMarketplaceRegistrationError";
-  }
-}
-
-export interface ProductRegistrationSubmissionCapabilityInput {
-  executionId: string;
+export interface ResolveProductRegistrationCapabilityInput {
   organizationId: string;
-  preparationId: string;
   sourceCandidateId: string;
   channelAccountId: string;
   submissionKey: string;
-  submissionPayloadHash: string;
-  submissionPayloadJson: unknown;
-  providerSubmissionId: string | null;
-  registrationResult: unknown;
-  /** Agent OS owner receipt key; the provider boundary receives it unchanged. */
-  ownerIdempotencyKey?: string;
-  isRetry?: boolean;
-  providerOutcome?: string;
-  providerCreateAllowed?: boolean;
-}
-
-export interface ResolveProductRegistrationCapabilityInput extends ProductRegistrationSubmissionCapabilityInput {
   externalListingId: string;
   displayName: string;
   masterProductId?: string;
@@ -65,8 +32,7 @@ export interface ResolveProductRegistrationWithOwnerReceiptInput {
     sellpiaInventorySkuId: string;
     quantity: number;
   }>;
-  ownerCapabilityKey:
-    "channels.register_confirmed_listing" | "channels.submit_coupang_listing";
+  ownerCapabilityKey: "channels.register_confirmed_listing";
   ownerIdempotencyKey: string;
   ownerRequestHash: string;
 }
@@ -136,15 +102,6 @@ export interface ChannelsMarketplaceRegistrationCapabilityPort {
     organizationId: string;
     channelAccountId: string;
   }): Promise<{ channel: "coupang"; vendorId: string }>;
-
-  reconcileProductRegistration(
-    input: ProductRegistrationSubmissionCapabilityInput,
-  ): Promise<MarketplaceSubmissionResult | null>;
-
-  submitProductRegistration(
-    input: ProductRegistrationSubmissionCapabilityInput,
-    beforeProviderCreate: () => Promise<void>,
-  ): Promise<MarketplaceSubmissionResult>;
 
   resolveProductRegistration(
     transaction: object,

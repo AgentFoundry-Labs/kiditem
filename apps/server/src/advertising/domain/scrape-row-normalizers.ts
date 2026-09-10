@@ -1,4 +1,4 @@
-// Pure scrape-row normalization helpers extracted from AdSyncService.
+// Pure scrape-row normalization helpers shared by advertising source owners.
 //
 // - `asScrapeRow` / `pairScrapeRows`: pair raw extension rows with parser
 //   normalized rows. Matching/legacy writes use the normalized row, while

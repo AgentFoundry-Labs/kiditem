@@ -1,6 +1,20 @@
 const sourcingWingCatalogActive = new Map();
 const sourcingWingCatalogPending = new Map();
 const sourcingWingCatalogSourcePath = "/api/sourcing/workspace/wing-catalog/attempts";
+const SOURCING_WING_CATALOG_PRODUCER = "sourcing.wing_catalog";
+
+async function sourcingWingCatalogIsActive(attemptId, environmentId) {
+  if (typeof collectionSessions.isActive === "function") {
+    return collectionSessions.isActive(attemptId, environmentId, SOURCING_WING_CATALOG_PRODUCER);
+  }
+  const session = await collectionSessions.getOwned(attemptId, environmentId).catch(() => null);
+  return session?.producer === SOURCING_WING_CATALOG_PRODUCER;
+}
+
+async function sourcingWingCatalogStopIfInactive(attemptId, environmentId, running) {
+  if (await sourcingWingCatalogIsActive(attemptId, environmentId)) return null;
+  return running.cancel ? running.cancel() : { success: false, attemptId, cancellationPending: true };
+}
 
 function parseSourcingWingCatalogStart(message) {
   if (!message || typeof message !== "object" || Array.isArray(message)
@@ -100,21 +114,27 @@ async function executeSourcingWingCatalog({ environmentId, idempotencyKey, input
   };
   if (cancelRequested) return running.cancel();
   if (!work.terminal) {
-    await collectionSessions.start({ attemptId: attempt.attemptId, environmentId, producer: "sourcing.wing_catalog" });
+    await collectionSessions.start({ attemptId: attempt.attemptId, environmentId, producer: SOURCING_WING_CATALOG_PRODUCER });
+    const stoppedAfterStart = await sourcingWingCatalogStopIfInactive(attempt.attemptId, environmentId, running);
+    if (stoppedAfterStart) return stoppedAfterStart;
     for (let index = work.results.length; index < plan.keywords.length; index += 1) {
       const keyword = plan.keywords[index];
       if (work.cancellation) return work.cancellation;
+      const stoppedBeforeSearch = await sourcingWingCatalogStopIfInactive(attempt.attemptId, environmentId, running);
+      if (stoppedBeforeSearch) return stoppedBeforeSearch;
       if (!work.chunk) {
         let search;
         try {
-          search = await searchWingCatalogProducts({ keyword, maxPages: plan.maxPages,
-            collectionRunId: attempt.attemptId, environmentId, signal: work.signal.signal,
+          search = await wingSearchCollector.collect({ keyword, maxPages: plan.maxPages,
+            attemptId: attempt.attemptId, environmentId, signal: work.signal.signal,
             ...(Number.isInteger(work.tabId) ? { collectionTabId: work.tabId } : {}) });
         } catch (error) {
           if (work.cancellation) return work.cancellation;
           search = null;
         }
         if (work.cancellation) return work.cancellation;
+        const stoppedAfterSearch = await sourcingWingCatalogStopIfInactive(attempt.attemptId, environmentId, running);
+        if (stoppedAfterSearch) return stoppedAfterSearch;
         if (Number.isInteger(search?.tabId)) work.tabId = search.tabId;
         if (search?.attentionRequired) {
           work.terminal = { method: "POST", suffix: "/fail", body: { code: "marketplace_login",
@@ -136,19 +156,25 @@ async function executeSourcingWingCatalog({ environmentId, idempotencyKey, input
           items: rows.filter((row) => row && row.productId != null && row.productName)
             .map((row) => toSourcingWingCatalogObservation(row, keyword, capturedAt)) };
       }
+      const stoppedBeforeChunk = await sourcingWingCatalogStopIfInactive(attempt.attemptId, environmentId, running);
+      if (stoppedBeforeChunk) return stoppedBeforeChunk;
       const receipt = await wire.terminal(config, attempt, { method: "POST", suffix: "/chunks", body: work.chunk }, (value) => {
         if (value?.sequence !== index || value.keyword !== keyword || value.count !== work.chunk.items.length
           || !/^[a-f0-9]{64}$/.test(value.checksum) || !Number.isInteger(value.duplicateCount)
           || value.duplicateCount < 0 || value.duplicateCount > value.count) throw new Error("SOURCE_RECEIPT_INVALID");
         return value;
-      });
+      }, { shouldContinue: () => sourcingWingCatalogIsActive(attempt.attemptId, environmentId) });
       if (work.cancellation) return work.cancellation;
+      const stoppedAfterChunk = await sourcingWingCatalogStopIfInactive(attempt.attemptId, environmentId, running);
+      if (stoppedAfterChunk) return stoppedAfterChunk;
       work.receipts.push(receipt);
       work.results.push({ keyword, outcome: work.incomplete ? "failed" : receipt.count > receipt.duplicateCount ? "complete" : "no_change",
         discovered: receipt.count, accepted: receipt.count - receipt.duplicateCount,
         duplicate: receipt.duplicateCount, failed: work.incomplete ? 1 : 0,
         ...(work.incomplete ? { errorCode: "wing_catalog_incomplete_coverage" } : {}) });
       work.chunk = null;
+      const stoppedBeforeProgress = await sourcingWingCatalogStopIfInactive(attempt.attemptId, environmentId, running);
+      if (stoppedBeforeProgress) return stoppedBeforeProgress;
       await collectionSessions.progress(attempt.attemptId, { current: index + 1, total: plan.keywords.length,
         completed: work.results.filter((result) => !result.failed).length,
         failed: work.results.filter((result) => result.failed).length, label: keyword });
@@ -158,7 +184,12 @@ async function executeSourcingWingCatalog({ environmentId, idempotencyKey, input
     } };
   }
   if (work.cancellation) return work.cancellation;
-  return cleanup(await wire.terminal(config, attempt, work.terminal));
+  const stoppedBeforeTerminal = await sourcingWingCatalogStopIfInactive(attempt.attemptId, environmentId, running);
+  if (stoppedBeforeTerminal) return stoppedBeforeTerminal;
+  const terminalOptions = work.terminal?.body?.code === "COLLECTION_CANCELLED"
+    ? {}
+    : { shouldContinue: () => sourcingWingCatalogIsActive(attempt.attemptId, environmentId) };
+  return cleanup(await wire.terminal(config, attempt, work.terminal, (value) => value, terminalOptions));
 }
 
 async function cancelSourcingWingCatalog(attemptId, environmentId) {

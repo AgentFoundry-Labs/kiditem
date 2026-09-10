@@ -1,57 +1,55 @@
 import { describe, expect, it, vi } from 'vitest';
+import type { PrismaService } from '../../../../../prisma/prisma.service';
 import { ProfitCalculationRepositoryAdapter } from './profit-calculation.repository.adapter';
 import { WingTrafficAggregationRepositoryAdapter } from './wing-traffic-aggregation.repository.adapter';
-import type { PrismaService } from '../../../../../prisma/prisma.service';
 
 const JULY_START_KST = new Date('2026-06-30T15:00:00.000Z');
 const AUGUST_START_KST = new Date('2026-07-31T15:00:00.000Z');
 
 describe('dashboard business-date boundaries', () => {
   it('queries Wing date facts with UTC-midnight KST calendar keys', async () => {
-    const listingAggregate = vi.fn().mockResolvedValue({
-      _sum: {},
-      _max: { lastObservedAt: null },
-      _count: { _all: 0 },
+    const readPublished = vi.fn().mockResolvedValue({
+      channelAccountId: '11111111-1111-4111-8111-111111111111',
+      attemptId: '22222222-2222-4222-8222-222222222222',
+      plan: {
+        sourceType: 'coupang_wing_traffic',
+        parserVersion: 'wing-traffic-v1',
+        channelAccountId: '11111111-1111-4111-8111-111111111111',
+        expectedAdvertiserId: 'VENDOR-A',
+        startDate: '2026-07-01',
+        endDate: '2026-07-31',
+        businessDate: '2026-07-01',
+        periodDays: 31,
+        targetUrl: null,
+      },
+      rows: [],
+      dashboard: null,
     });
-    const accountFindMany = vi.fn().mockResolvedValue([]);
-    const prisma = {
-      channelListingDailySnapshot: { aggregate: listingAggregate },
-      channelAccountDailyKpiSnapshot: { findMany: accountFindMany },
-    } as unknown as PrismaService;
 
-    await new WingTrafficAggregationRepositoryAdapter(prisma).aggregateTraffic(
+    await new WingTrafficAggregationRepositoryAdapter(
+      { readPublished },
+      { readPublished: vi.fn() },
+    ).aggregateTraffic(
       'organization-id',
       JULY_START_KST,
       AUGUST_START_KST,
     );
 
-    expect(listingAggregate).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({
-        businessDate: {
-          gte: new Date('2026-07-01T00:00:00.000Z'),
-          lt: new Date('2026-08-01T00:00:00.000Z'),
-        },
-      }),
-    }));
-    expect(accountFindMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({
-        businessDate: {
-          gte: new Date('2026-07-01T00:00:00.000Z'),
-          lt: new Date('2026-08-01T00:00:00.000Z'),
-        },
-      }),
-    }));
+    expect(readPublished).toHaveBeenCalledWith({
+      organizationId: 'organization-id',
+      from: '2026-07-01',
+      to: '2026-07-31',
+    });
   });
 
   it('keeps KST timestamp bounds for orders but normalizes daily ad facts', async () => {
     const orderFindMany = vi.fn().mockResolvedValue([]);
-    const listingAggregate = vi.fn().mockResolvedValue({ _sum: {} });
+    const readPublished = vi.fn().mockResolvedValue({ rows: [] });
     const prisma = {
       order: { findMany: orderFindMany },
-      channelListingDailySnapshot: { aggregate: listingAggregate },
     } as unknown as PrismaService;
 
-    await new ProfitCalculationRepositoryAdapter(prisma).calculateForRange(
+    await new ProfitCalculationRepositoryAdapter(prisma, { readPublished }).calculateForRange(
       'organization-id',
       JULY_START_KST,
       AUGUST_START_KST,
@@ -62,13 +60,10 @@ describe('dashboard business-date boundaries', () => {
         orderedAt: { gte: JULY_START_KST, lt: AUGUST_START_KST },
       }),
     }));
-    expect(listingAggregate).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({
-        businessDate: {
-          gte: new Date('2026-07-01T00:00:00.000Z'),
-          lt: new Date('2026-08-01T00:00:00.000Z'),
-        },
-      }),
-    }));
+    expect(readPublished).toHaveBeenCalledWith({
+      organizationId: 'organization-id',
+      from: '2026-07-01',
+      to: '2026-07-31',
+    });
   });
 });

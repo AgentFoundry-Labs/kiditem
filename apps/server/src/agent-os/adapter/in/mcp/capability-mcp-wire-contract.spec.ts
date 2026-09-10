@@ -7,6 +7,7 @@ import {
   CapabilityInvokeInputSchema,
   CapabilityInvokeOutputSchema,
   CAPABILITY_MCP_TOOL_NAMES,
+  CapabilityResultReceiptWireSchema,
   MCP_JSON_SCHEMA_DIALECT,
 } from './capability-mcp-wire-contract';
 
@@ -29,6 +30,11 @@ describe('Capability MCP v2 wire contract', () => {
       capabilityKey: 'sourcing.inspect',
       input: {},
       unexpected: true,
+    }).success).toBe(false);
+    expect(CapabilityResultReceiptWireSchema.safeParse({
+      summary: 'completed',
+      resourceRefs: [],
+      operationRefs: [],
     }).success).toBe(false);
   });
 
@@ -121,7 +127,6 @@ describe('Capability MCP v2 wire contract', () => {
     const result = {
       summary: 'Thumbnail registration completed.',
       resourceRefs: [],
-      operationRefs: [],
       output: { screenshotPath: '/tmp/host-only/wing-capture.png' },
     };
     const mutation = {

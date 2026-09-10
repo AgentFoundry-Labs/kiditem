@@ -611,7 +611,6 @@ test('shared external dispatch delivers the exact tracked-Wing action to its own
         };
       },
     },
-    operationRuntime: null,
   });
   let receiveResponse;
   const received = new Promise((resolve) => { receiveResponse = resolve; });

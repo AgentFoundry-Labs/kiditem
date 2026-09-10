@@ -27,13 +27,13 @@ physical stock is the latest completed Sellpia snapshot.
   Inventory API and is reused by `/inventory`. It does not reconstruct source
   facts from Products APIs or mutate stock, source price, channel price,
   product identity, or recipes.
-- Explicit actions create the server-owned
-  `inventory.refresh_sellpia_snapshot` run. The extension runtime claims,
-  collects, uploads, and finalizes it; a web tab does not.
+- Explicit actions begin the server-owned Sellpia source attempt. The extension
+  runtime collects, uploads, and finalizes it; a web tab only admits and
+  observes the attempt.
 - Inventory actions request physical-snapshot scope. Product Management alone
   requests full scope with product-profit evidence and ABC recalculation.
-- Refresh acceptance is not completion; render terminal state from OperationRun
-  and freshness history. Do not add a global/shared freshness drawer.
+- Refresh acceptance is not completion; render terminal state from the source
+  attempt and freshness history. Do not add a global/shared freshness drawer.
 - Prepared order transmissions remain an Orders retry concern and neither block
   nor appear in Inventory.
 
@@ -48,4 +48,4 @@ physical stock is the latest completed Sellpia snapshot.
 - Shipment extension/file behavior stays in the shipment route.
 
 Focused specs beneath this group own exact tab redirects, composition, refresh
-scope, invalidation, and OperationRun state.
+scope, invalidation, and source-attempt state.

@@ -495,7 +495,7 @@ describe('AppLayout auth gate', () => {
     expect(screen.getByTestId('conversation-provider')).toBeInTheDocument();
     expect(screen.getByTestId('conversation-runtime-host')).toBeInTheDocument();
     expect(screen.getByTestId('sidebar')).toBeInTheDocument();
-    expect(readinessMock).toHaveBeenCalledTimes(1);
+    expect(readinessMock).not.toHaveBeenCalled();
     expect(generationWatcherMock).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole('button', { name: 'AI 챗 열기' }));
     expect(openConversationMock).toHaveBeenCalledWith({ fixedAgentKey: null });

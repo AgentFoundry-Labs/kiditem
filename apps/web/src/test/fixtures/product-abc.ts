@@ -1,5 +1,5 @@
 import {
-  PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD,
+  PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
   type ProductAbcEvaluation,
   type ProductAbcFormulaPayload,
   type ProductAbcReadModel,
@@ -9,7 +9,7 @@ export function productAbcFormula(
   overrides: Partial<ProductAbcFormulaPayload> = {},
 ): ProductAbcFormulaPayload {
   return {
-    ...PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD,
+    ...PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
     ...overrides,
   } as ProductAbcFormulaPayload;
 }
@@ -41,6 +41,7 @@ export function productAbcEvaluation(
     advertisingGeneration: '7',
     mappingGeneration: '7',
     calculatedAt: '2026-08-01T00:00:00.000Z',
+    saleStartDate: '2026-06-01',
     ...overrides,
   };
 }

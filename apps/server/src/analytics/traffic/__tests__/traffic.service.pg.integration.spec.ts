@@ -1,9 +1,16 @@
+import { randomUUID } from 'node:crypto';
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { Test } from '@nestjs/testing';
-import type { PrismaClient } from '@prisma/client';
 import * as XLSX from 'xlsx';
 import { TrafficService } from '../traffic.service';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { AlertsRepository } from '../../../alerts/alerts.repository';
+import { SourceFailureAlerts } from '../../../alerts/alerts.service';
+import { AdTrafficSourceRepository } from '../../../advertising/adapter/out/repository/ad-traffic-source.repository';
+import {
+  AD_TRAFFIC_READ_PORT,
+} from '../../../advertising/application/port/in/ad-traffic-source.port';
+import { currentBusinessDate } from '../../../advertising/domain/business-date';
 import {
   makeTestPrisma,
   resetDb,
@@ -12,22 +19,114 @@ import {
   OTHER_ORGANIZATION_ID,
   IDOR_SENTINEL,
 } from '../../../test-helpers/real-prisma';
-import { kstDayStart } from '../../../common/kst';
+import type {
+  AdTrafficSourceDailyPlan,
+  AdTrafficSourceDailyReceiptInput,
+  AdTrafficSourcePeriodReceiptInput,
+} from '@kiditem/shared/advertising';
+import type { PrismaClient } from '@prisma/client';
+
+const DAY_MS = 86_400_000;
+const WING_URL = 'https://wing.coupang.com/tenants/business-insight/sales-analysis';
+
+type TrafficSummary = {
+  visitors: number;
+  views: number;
+  cartAdds: number;
+  orders: number;
+  salesQty: number;
+  revenue: number;
+  providerConversionRate: number | null;
+};
+
+type MonthRange = {
+  year: number;
+  month: number;
+  startDate: string;
+  endDate: string;
+  days: number;
+};
+
+const dateText = (value: Date): string => value.toISOString().slice(0, 10);
+const dateShift = (date: string, days: number): string =>
+  dateText(new Date(Date.parse(`${date}T00:00:00.000Z`) + days * DAY_MS));
+
+function summary(overrides: Partial<TrafficSummary> = {}): TrafficSummary {
+  return {
+    visitors: 10,
+    views: 20,
+    cartAdds: 3,
+    orders: 2,
+    salesQty: 4,
+    revenue: 300,
+    providerConversionRate: null,
+    ...overrides,
+  };
+}
+
+function rawSummary(label: string, values: TrafficSummary) {
+  return {
+    source: 'wing.summary.body',
+    label,
+    summaryMetrics: {
+      totalUniqueVisitor: values.visitors,
+      totalPageViews: values.views,
+      totalAddToCart: values.cartAdds,
+      totalOrders: values.orders,
+      totalUnitsSold: values.salesQty,
+      totalGmv: values.revenue,
+      pvToOrder: values.providerConversionRate === null
+        ? null
+        : values.providerConversionRate / 100,
+    },
+  };
+}
+
+function previousMonthRange(reference = currentBusinessDate()): MonthRange {
+  const currentMonthStart = new Date(Date.UTC(
+    reference.getUTCFullYear(),
+    reference.getUTCMonth(),
+    1,
+  ));
+  const previousMonthEnd = new Date(currentMonthStart.getTime() - DAY_MS);
+  const previousMonthStart = new Date(Date.UTC(
+    previousMonthEnd.getUTCFullYear(),
+    previousMonthEnd.getUTCMonth(),
+    1,
+  ));
+  return {
+    year: previousMonthEnd.getUTCFullYear(),
+    month: previousMonthEnd.getUTCMonth() + 1,
+    startDate: dateText(previousMonthStart),
+    endDate: dateText(previousMonthEnd),
+    days: Math.round((previousMonthEnd.getTime() - previousMonthStart.getTime()) / DAY_MS) + 1,
+  };
+}
 
 /**
- * `TrafficService` reads + writes daily facts only. Tests cover period
- * aggregation correctness over `ChannelListingDailySnapshot`, empty-state,
- * and multi-tenant isolation.
+ * `TrafficService` reads owner-published account daily facts and writes
+ * operator CSV/XLSX evidence. Listing daily snapshots are deliberately not a
+ * read fallback for Wing traffic.
  */
 describe('TrafficService (PG integration) — daily facts', () => {
   let prisma: PrismaClient;
   let service: TrafficService;
+  let trafficOwner: AdTrafficSourceRepository;
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
+    const prismaService = prisma as unknown as PrismaService;
+    trafficOwner = new AdTrafficSourceRepository(
+      prismaService,
+      new SourceFailureAlerts(new AlertsRepository(prismaService)),
+    );
     const m = await Test.createTestingModule({
-      providers: [TrafficService, { provide: PrismaService, useValue: prisma }],
+      providers: [
+        TrafficService,
+        { provide: PrismaService, useValue: prisma },
+        { provide: AD_TRAFFIC_READ_PORT, useValue: trafficOwner },
+      ],
     }).compile();
     service = m.get(TrafficService);
   });
@@ -48,6 +147,7 @@ describe('TrafficService (PG integration) — daily facts', () => {
         channel: 'coupang',
         name: `Wing ${suffix}`,
         externalAccountId: `WING-${suffix}`,
+        vendorId: `VENDOR-${suffix}`,
         isPrimary: true,
       },
     });
@@ -58,94 +158,224 @@ describe('TrafficService (PG integration) — daily facts', () => {
         externalId: `EXT-${suffix}`,
       },
     });
+    await prisma.channelListingOption.create({
+      data: {
+        organizationId,
+        listingId: listing.id,
+        externalOptionId: '1001',
+        isActive: true,
+      },
+    });
     return listing;
   }
 
-  async function seedDailyFact(
-    organizationId: string,
-    listingId: string,
-    externalId: string,
-    daysAgoFromTodayKst: number,
-    metrics: {
-      visitors?: number;
-      views?: number;
-      cartAdds?: number;
-      orders?: number;
-      salesQty?: number;
-      revenue?: number;
-    },
-  ) {
-    const todayKst = kstDayStart(new Date());
-    const businessDate = new Date(todayKst.getTime() - daysAgoFromTodayKst * 86400000);
-    return prisma.channelListingDailySnapshot.create({
-      data: {
-        organizationId,
-        listingId,
-        channel: 'coupang',
-        externalId,
-        businessDate,
-        trafficVisitors: metrics.visitors ?? 0,
-        trafficViews: metrics.views ?? 0,
-        trafficCartAdds: metrics.cartAdds ?? 0,
-        trafficOrders: metrics.orders ?? 0,
-        trafficSalesQty: metrics.salesQty ?? 0,
-        trafficRevenue: metrics.revenue ?? 0,
+  function dailyReceipt(
+    attemptId: string,
+    plan: AdTrafficSourceDailyPlan,
+    businessDate: string,
+    values: TrafficSummary,
+  ): AdTrafficSourceDailyReceiptInput {
+    return {
+      key: `${attemptId}:daily:${businessDate}`,
+      capturedAt: `${businessDate}T01:00:00.000Z`,
+      url: WING_URL,
+      providerVendorId: plan.providerVendorId,
+      kind: 'daily_page',
+      filterScope: plan.filterScope,
+      businessDate,
+      startDate: businessDate,
+      endDate: businessDate,
+      period: 1,
+      pageIndex: 1,
+      proof: {
+        expectedPages: 1,
+        visitedPages: [1],
+        terminalPageObserved: true,
+        verified: true,
+        complete: true,
       },
-    });
+      data: [{
+        vendorItemId: '1001',
+        visitors: values.visitors,
+        views: values.views,
+        cartAdds: values.cartAdds,
+        orders: values.orders,
+        salesQty: values.salesQty,
+        revenue: values.revenue,
+      }],
+      accountSummary: values,
+      accountSummaryRaw: rawSummary(`daily:${businessDate}`, values),
+    };
   }
 
-  it('getTrafficSummary — 7d window sums daily traffic facts (additive)', async () => {
-    const listing = await seedListing(TEST_ORGANIZATION_ID, 'A');
-    // Days 0..6: each contributes 100 revenue, 1 order
-    for (let d = 0; d < 7; d++) {
-      await seedDailyFact(TEST_ORGANIZATION_ID, listing.id, listing.externalId, d, {
-        revenue: 100,
-        orders: 1,
-        salesQty: 1,
-        visitors: 10,
+  function periodReceipt(
+    attemptId: string,
+    plan: AdTrafficSourceDailyPlan,
+    values: TrafficSummary,
+  ): AdTrafficSourcePeriodReceiptInput {
+    return {
+      key: `${attemptId}:period`,
+      capturedAt: `${plan.endDate}T02:00:00.000Z`,
+      url: WING_URL,
+      providerVendorId: plan.providerVendorId,
+      kind: 'period_summary',
+      filterScope: plan.filterScope,
+      startDate: plan.startDate,
+      endDate: plan.endDate,
+      period: plan.periodDays,
+      accountSummary: values,
+      accountSummaryRaw: rawSummary('period', values),
+    };
+  }
+
+  async function collectOwnerRange(
+    organizationId: string,
+    channelAccountId: string,
+    startDate: string,
+    endDate: string,
+    dailyValues: TrafficSummary,
+  ) {
+    const started = await trafficOwner.beginAttempt({
+      organizationId,
+      idempotencyKey: randomUUID(),
+      request: {
+        channelAccountId,
+        startDate,
+        endDate,
+        url: WING_URL,
+      },
+    });
+    const control = await trafficOwner.readAttemptControl({
+      organizationId,
+      attemptId: started.attemptId,
+    });
+    if (!control) throw new Error('Owner attempt control was not created.');
+    const plan = started.plan as AdTrafficSourceDailyPlan;
+    const days = plan.expectedDates.length;
+    for (const [index, businessDate] of plan.expectedDates.entries()) {
+      await trafficOwner.uploadReceipt({
+        organizationId,
+        attemptId: started.attemptId,
+        attemptToken: control.attemptToken,
+        sequence: index * 100,
+        receipt: dailyReceipt(started.attemptId, plan, businessDate, dailyValues),
       });
     }
-    // Day 8 — outside the 7d window, must NOT be counted
-    await seedDailyFact(TEST_ORGANIZATION_ID, listing.id, listing.externalId, 8, {
-      revenue: 9999,
-      orders: 99,
+    const periodValues: TrafficSummary = {
+      ...dailyValues,
+      visitors: dailyValues.visitors * days,
+      views: dailyValues.views * days,
+      cartAdds: dailyValues.cartAdds * days,
+      orders: dailyValues.orders * days,
+      salesQty: dailyValues.salesQty * days,
+      revenue: dailyValues.revenue * days,
+    };
+    await trafficOwner.uploadReceipt({
+      organizationId,
+      attemptId: started.attemptId,
+      attemptToken: control.attemptToken,
+      sequence: days * 100,
+      receipt: periodReceipt(started.attemptId, plan, periodValues),
     });
+    const completedControl = await trafficOwner.readAttemptControl({
+      organizationId,
+      attemptId: started.attemptId,
+    });
+    if (!completedControl) throw new Error('Owner attempt control was lost.');
+    await trafficOwner.finalizeAttempt({
+      organizationId,
+      attemptId: started.attemptId,
+      attemptToken: control.attemptToken,
+      manifestChecksum: completedControl.manifestChecksum,
+    });
+    return started;
+  }
+
+  it('getTrafficSummary — owner coverage includes today and withholds incomplete totals', async () => {
+    const listing = await seedListing(TEST_ORGANIZATION_ID, 'A');
+    const today = dateText(currentBusinessDate());
+    const closedEnd = dateShift(today, -1);
+    await collectOwnerRange(
+      TEST_ORGANIZATION_ID,
+      listing.channelAccountId,
+      dateShift(today, -7),
+      closedEnd,
+      summary({ revenue: 100, orders: 1, salesQty: 1, visitors: 10 }),
+    );
 
     const result = await service.getTrafficSummary(7, TEST_ORGANIZATION_ID);
-    expect(result.revenue).toBe(700);
-    expect(result.orders).toBe(7);
-    expect(result.salesQty).toBe(7);
-    expect(result.visitors).toBe(70);
+    expect(result).toMatchObject({
+      revenue: null,
+      orders: null,
+      salesQty: null,
+      visitors: null,
+      averageDailyVisitors: null,
+      coverage: {
+        from: dateShift(today, -6),
+        to: today,
+        targetDays: 7,
+        completedDays: 6,
+        missingDates: [today],
+      },
+    });
   });
 
-  it('getTrafficSummary — empty state returns zeros (no legacy fallback)', async () => {
+  it('getTrafficSummary — missing owner publication returns null metrics and explicit coverage', async () => {
+    const today = dateText(currentBusinessDate());
     const result = await service.getTrafficSummary(7, TEST_ORGANIZATION_ID);
-    expect(result.revenue).toBe(0);
-    expect(result.orders).toBe(0);
-    expect(result.visitors).toBe(0);
-    expect(result.salesQty).toBe(0);
+    expect(result).toMatchObject({
+      revenue: null,
+      orders: null,
+      salesQty: null,
+      visitors: null,
+      averageDailyVisitors: null,
+      coverage: {
+        from: dateShift(today, -6),
+        to: today,
+        targetDays: 7,
+        completedDays: 0,
+        missingDates: Array.from({ length: 7 }, (_, index) => dateShift(today, -6 + index)),
+      },
+    });
   });
 
-  it('getTrafficSummary — multi-tenant isolation: OTHER sentinel never leaks', async () => {
+  it('getMonthlyRevenue — owner publications remain organization-scoped', async () => {
     const tListing = await seedListing(TEST_ORGANIZATION_ID, 'T');
     const oListing = await seedListing(OTHER_ORGANIZATION_ID, 'O');
+    const range = previousMonthRange();
 
-    await seedDailyFact(TEST_ORGANIZATION_ID, tListing.id, tListing.externalId, 0, {
-      revenue: 500,
-      orders: 5,
-    });
-    await seedDailyFact(OTHER_ORGANIZATION_ID, oListing.id, oListing.externalId, 0, {
-      revenue: IDOR_SENTINEL,
-      orders: IDOR_SENTINEL,
-    });
+    await collectOwnerRange(
+      TEST_ORGANIZATION_ID,
+      tListing.channelAccountId,
+      range.startDate,
+      range.endDate,
+      summary({ revenue: 500, orders: 5 }),
+    );
+    await collectOwnerRange(
+      OTHER_ORGANIZATION_ID,
+      oListing.channelAccountId,
+      range.startDate,
+      range.endDate,
+      summary({ revenue: IDOR_SENTINEL, orders: IDOR_SENTINEL }),
+    );
 
-    const tResult = await service.getTrafficSummary(7, TEST_ORGANIZATION_ID);
-    expect(tResult.revenue).toBe(500);
-    expect(tResult.revenue).not.toBe(IDOR_SENTINEL);
+    const tResult = await service.getMonthlyRevenue(
+      range.year,
+      range.month,
+      TEST_ORGANIZATION_ID,
+    );
+    expect(tResult.total.revenue).toBe(range.days * 500);
+    expect(tResult.total.orders).toBe(range.days * 5);
+    expect(tResult.total.revenue).not.toBe(IDOR_SENTINEL);
 
-    const oResult = await service.getTrafficSummary(7, OTHER_ORGANIZATION_ID);
-    expect(oResult.revenue).toBe(IDOR_SENTINEL);
-    expect(oResult.revenue).not.toBe(500);
+    const oResult = await service.getMonthlyRevenue(
+      range.year,
+      range.month,
+      OTHER_ORGANIZATION_ID,
+    );
+    expect(oResult.total.revenue).toBe(range.days * IDOR_SENTINEL);
+    expect(oResult.total.orders).toBe(range.days * IDOR_SENTINEL);
+    expect(oResult.total.revenue).not.toBe(tResult.total.revenue);
   });
 
   it('uploadTrafficStats — preserves every raw CSV/XLSX row and upserts one summed daily fact per listing/date', async () => {
@@ -225,6 +455,10 @@ describe('TrafficService (PG integration) — daily facts', () => {
     expect(daily?.trafficOrders).toBe(3);
     expect(daily?.trafficSalesQty).toBe(4);
     expect(daily?.trafficRevenue).toBe(5000);
+    expect(daily?.metaJson).toMatchObject({
+      'traffic.currentSource': 'traffic.csv_upload',
+      'traffic.csv_upload': { source: 'traffic_csv_upload' },
+    });
   });
 
   it('uploadTrafficStats — daily fact failure keeps raw snapshots and marks run error', async () => {
@@ -298,37 +532,79 @@ describe('TrafficService (PG integration) — daily facts', () => {
     expect(dailyCount).toBe(0);
   });
 
-  it('getMonthlyRevenue — aggregates by businessDate within KST month', async () => {
+  it('getMonthlyRevenue — aggregates complete owner days, averages visitors, and blocks listing fallback', async () => {
     const listing = await seedListing(TEST_ORGANIZATION_ID, 'M');
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = now.getMonth() + 1;
+    const legacyListing = await prisma.channelListing.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: listing.channelAccountId,
+        externalId: 'EXT-M-LEGACY',
+      },
+    });
+    const range = previousMonthRange();
+    await collectOwnerRange(
+      TEST_ORGANIZATION_ID,
+      listing.channelAccountId,
+      range.startDate,
+      range.endDate,
+      summary({ visitors: 100, views: 20, cartAdds: 3, orders: 2, salesQty: 4, revenue: 1000 }),
+    );
+    await collectOwnerRange(
+      TEST_ORGANIZATION_ID,
+      listing.channelAccountId,
+      dateShift(range.startDate, -1),
+      dateShift(range.startDate, -1),
+      summary({
+        visitors: IDOR_SENTINEL,
+        views: IDOR_SENTINEL,
+        cartAdds: IDOR_SENTINEL,
+        orders: IDOR_SENTINEL,
+        salesQty: IDOR_SENTINEL,
+        revenue: IDOR_SENTINEL,
+      }),
+    );
 
-    // Seed 3 mid-month days with KST businessDate
-    const monthStartKst = kstDayStart(new Date(Date.UTC(year, month - 1, 5)));
-    for (let i = 0; i < 3; i++) {
-      const businessDate = new Date(monthStartKst.getTime() + i * 86400000);
-      await prisma.channelListingDailySnapshot.create({
-        data: {
-          organizationId: TEST_ORGANIZATION_ID,
-          listingId: listing.id,
-          channel: 'coupang',
-          externalId: listing.externalId,
-          businessDate,
-          trafficRevenue: 1000 * (i + 1),
-          trafficOrders: i + 1,
-          trafficSalesQty: i + 1,
-          trafficVisitors: 100 * (i + 1),
-        },
-      });
-    }
+    // A legacy listing fact with a sentinel value must never supplement the
+    // owner's accountDaily projection.
+    await prisma.channelListingDailySnapshot.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        listingId: legacyListing.id,
+        channel: 'coupang',
+        externalId: legacyListing.externalId,
+        businessDate: new Date(`${range.startDate}T00:00:00.000Z`),
+        trafficVisitors: IDOR_SENTINEL,
+        trafficViews: IDOR_SENTINEL,
+        trafficOrders: IDOR_SENTINEL,
+        trafficSalesQty: IDOR_SENTINEL,
+        trafficRevenue: IDOR_SENTINEL,
+      },
+    });
 
-    const result = await service.getMonthlyRevenue(year, month, TEST_ORGANIZATION_ID);
-    expect(result.year).toBe(year);
-    expect(result.month).toBe(month);
-    expect(result.total.revenue).toBe(1000 + 2000 + 3000);
-    expect(result.total.orders).toBe(1 + 2 + 3);
-    expect(result.days.length).toBe(3);
+    const result = await service.getMonthlyRevenue(
+      range.year,
+      range.month,
+      TEST_ORGANIZATION_ID,
+    );
+    expect(result.year).toBe(range.year);
+    expect(result.month).toBe(range.month);
+    expect(result.total).toEqual({
+      revenue: range.days * 1000,
+      orders: range.days * 2,
+      salesQty: range.days * 4,
+      visitors: 100,
+      views: range.days * 20,
+      cartAdds: range.days * 3,
+    });
+    expect(result.averageDailyVisitors).toBe(100);
+    expect(result.days).toHaveLength(range.days);
+    expect(result.coverage).toEqual({
+      from: range.startDate,
+      to: range.endDate,
+      targetDays: range.days,
+      completedDays: range.days,
+      missingDates: [],
+    });
   });
 
 });

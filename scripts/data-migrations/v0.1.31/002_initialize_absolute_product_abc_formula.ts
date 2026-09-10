@@ -1,16 +1,16 @@
 import {
-  PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD,
-  PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD_HASH,
+  PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
+  PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH,
 } from "@kiditem/shared/product-abc";
 import type { DataMigration } from "../types";
 
 const FORMULA_KEY = "PRODUCT_ABC_ABSOLUTE";
-const FORMULA_VERSION = 1;
+const FORMULA_VERSION = 2;
 
 export const initializeAbsoluteProductAbcFormula: DataMigration = {
   id: "v0.1.31:002_initialize_absolute_product_abc_formula",
   releaseVersion: "0.1.31",
-  name: "Install immutable absolute product ABC V1 formula states",
+  name: "Install immutable absolute product ABC current formula states",
   phase: "post-schema",
   async run(tx) {
     const organizations = await tx.organization.findMany({ select: { id: true } });
@@ -95,8 +95,8 @@ async function findOrCreateFormula(tx: Parameters<DataMigration["run"]>[0], orga
     select: { id: true, formulaChecksum: true },
   });
   if (existing) {
-    if (existing.formulaChecksum !== PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD_HASH) {
-      throw new Error(`Absolute product ABC V1 formula checksum mismatch for organization ${organizationId}`);
+    if (existing.formulaChecksum !== PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH) {
+      throw new Error(`Absolute product ABC current formula checksum mismatch for organization ${organizationId}`);
     }
     return { id: existing.id, created: false };
   }
@@ -106,8 +106,8 @@ async function findOrCreateFormula(tx: Parameters<DataMigration["run"]>[0], orga
       organizationId,
       formulaKey: FORMULA_KEY,
       version: FORMULA_VERSION,
-      formulaJson: JSON.parse(JSON.stringify(PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD)),
-      formulaChecksum: PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD_HASH,
+      formulaJson: JSON.parse(JSON.stringify(PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD)),
+      formulaChecksum: PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH,
     },
     select: { id: true },
   });

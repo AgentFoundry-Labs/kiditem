@@ -9,6 +9,10 @@ import {
   isChannelListingOnSale,
   resolveChannelListingSaleStatus,
 } from '@kiditem/shared/channel-listing';
+import {
+  classifyDailyTrafficFact,
+  type DailyTrafficFactSource,
+} from '@kiditem/shared/advertising';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { productAbcEvaluation } from '../../../mapper/product-abc-evaluation.mapper';
 import {
@@ -47,7 +51,13 @@ function productInclude(organizationId: string, periodStart?: Date) {
     channelListings: {
       where: { organizationId },
       orderBy: { createdAt: 'asc' as const },
-      include: {
+      select: {
+        id: true,
+        channelAccountId: true,
+        externalId: true,
+        displayName: true,
+        status: true,
+        isActive: true,
         channelAccount: {
           select: { id: true, channel: true, name: true },
         },
@@ -70,16 +80,27 @@ function productInclude(organizationId: string, periodStart?: Date) {
             trafficCoverageStatus: true,
             trafficObservedAt: true,
             lastObservedAt: true,
+            metaJson: true,
           },
         },
         options: {
           where: { organizationId },
           orderBy: [{ createdAt: 'asc' as const }, { id: 'asc' as const }],
-          include: {
+          select: {
+            id: true,
+            externalOptionId: true,
+            itemName: true,
+            sellerSku: true,
+            barcode: true,
+            status: true,
+            isActive: true,
             inventoryComponents: {
               where: { organizationId },
               orderBy: { createdAt: 'asc' as const },
-              include: {
+              select: {
+                id: true,
+                sellpiaInventorySkuId: true,
+                quantity: true,
                 sellpiaInventorySku: {
                   select: {
                     id: true,
@@ -508,9 +529,15 @@ function toListItem(
   const dailyFacts = row.channelListings.flatMap(
     (listing) => listing.channelListingDailySnapshots,
   );
-  const trafficFacts = dailyFacts.filter(hasTrafficEvidence);
+  const trafficFacts = dailyFacts.filter(isAcceptedTrafficFact);
   const advertisingFacts = dailyFacts.filter(hasAdvertisingEvidence);
-  const visitorCount = nullableTrafficMetricSum(trafficFacts, (fact) => fact.trafficVisitors);
+  const csvTrafficFacts = trafficFacts.filter(
+    (fact) => trafficFactSource(fact) === 'csv_upload',
+  );
+  // Wing listing projections carry option/page visitors, not account UV.
+  // Product Hub may retain explicitly uploaded listing visitors, but never
+  // presents a sum of Wing option projections as unique visitors.
+  const visitorCount = nullableTrafficMetricSum(csvTrafficFacts, (fact) => fact.trafficVisitors);
   const viewCount = nullableTrafficMetricSum(trafficFacts, (fact) => fact.trafficViews);
   const cartAddCount = nullableTrafficMetricSum(trafficFacts, (fact) => fact.trafficCartAdds);
   const orderCount = nullableTrafficMetricSum(trafficFacts, (fact) => fact.trafficOrders);
@@ -602,16 +629,14 @@ function dailyMetricFreshness(
   };
 }
 
-function hasTrafficEvidence(
-  fact: ProductRow['channelListings'][number]['channelListingDailySnapshots'][number],
-): boolean {
-  return fact.trafficCoverageStatus !== null
-    || fact.trafficVisitors !== 0
-    || fact.trafficViews !== 0
-    || fact.trafficCartAdds !== 0
-    || fact.trafficOrders !== 0
-    || fact.trafficSalesQty !== 0
-    || fact.trafficRevenue !== 0;
+type ProductTrafficFact = ProductRow['channelListings'][number]['channelListingDailySnapshots'][number];
+
+function trafficFactSource(fact: ProductTrafficFact): DailyTrafficFactSource | null {
+  return classifyDailyTrafficFact(fact.metaJson, calendarDate(fact.businessDate));
+}
+
+function isAcceptedTrafficFact(fact: ProductTrafficFact): boolean {
+  return trafficFactSource(fact) !== null;
 }
 
 function hasAdvertisingEvidence(
@@ -684,13 +709,11 @@ function nullableSum<T>(rows: readonly T[], value: (row: T) => number): number |
   return rows.length === 0 ? null : rows.reduce((sum, row) => sum + value(row), 0);
 }
 
-function nullableTrafficMetricSum<T extends { trafficCoverageStatus: string | null }>(
+function nullableTrafficMetricSum<T>(
   rows: readonly T[],
   value: (row: T) => number,
 ): number | null {
-  const evidencedRows = rows.filter((row) =>
-    row.trafficCoverageStatus !== null || value(row) !== 0);
-  return nullableSum(evidencedRows, value);
+  return nullableSum(rows, value);
 }
 
 function startOfUtcDay(date: Date): Date {

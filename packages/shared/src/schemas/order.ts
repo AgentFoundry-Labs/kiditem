@@ -133,12 +133,6 @@ export const OrderListLineItemSchema = z.object({
 });
 export type OrderListLineItem = z.infer<typeof OrderListLineItemSchema>;
 
-export const DeliveryCompanySchema = z.object({
-  code: z.string(),
-  name: z.string(),
-});
-export type DeliveryCompany = z.infer<typeof DeliveryCompanySchema>;
-
 export const OrderListItemSchema = z.object({
   id: z.string().uuid(),
   channelAccountId: z.string().uuid(),
@@ -180,7 +174,6 @@ export const OrderListResponseSchema = z.object({
   total: z.number().int().nonnegative(),
   page: z.number().int().positive().optional(),
   limit: z.number().int().positive().optional(),
-  deliveryCompanies: z.array(DeliveryCompanySchema),
 });
 export type OrderListResponse = z.infer<typeof OrderListResponseSchema>;
 

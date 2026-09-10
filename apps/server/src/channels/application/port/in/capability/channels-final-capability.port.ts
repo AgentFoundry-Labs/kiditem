@@ -1,4 +1,4 @@
-/** Channels owns provider submission and ChannelListing mutation. */
+/** Channels owns browser-confirmed ChannelListing mutation. */
 export const CHANNELS_FINAL_CAPABILITY_PORT = Symbol(
   "CHANNELS_FINAL_CAPABILITY_PORT",
 );
@@ -37,14 +37,6 @@ export interface ChannelsConfirmedListingInput extends ChannelsRegistrationRefer
 }
 
 export interface ChannelsFinalCapabilityPort {
-  submitCoupangListing(request: {
-    context: ChannelsOwnerExecutionContext;
-    input: ChannelsRegistrationReference;
-  }): Promise<{
-    preparationId: string;
-    listingId: string | null;
-    status: "registered" | "failed";
-  }>;
   registerConfirmedListing(request: {
     context: ChannelsOwnerExecutionContext;
     input: ChannelsConfirmedListingInput;

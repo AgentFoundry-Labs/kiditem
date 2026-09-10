@@ -3,14 +3,12 @@
 import { useState } from 'react';
 import { FileSpreadsheet, Loader2, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
-import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
 import { cn } from '@/lib/utils';
-import { fetchAllSellpiaInventorySkus } from '@/app/(inventory)/_shared/inventory-api';
-import { fetchAllChannelListingsForReport } from '@/lib/channel-listings-report';
-import { mapProfitLossReportRow } from '@/lib/profit-loss-report';
-import type { InventorySkuSnapshotItem } from '@kiditem/shared/inventory';
-import type { PLData } from '@kiditem/shared/finance';
+import {
+  downloadFinanceReport,
+  type FinanceReportType,
+} from '@/lib/finance-report-export';
 
 const REPORTS = [
   { type: 'full', title: '통합 리포트', desc: '상품 + 손익 + 재고 + 광고 전체', icon: '📊', color: 'bg-purple-600 hover:bg-purple-700' },
@@ -20,121 +18,15 @@ const REPORTS = [
   { type: 'ads', title: '광고 리포트', desc: '광고 효율, ROAS, 비용 분석', icon: '📢', color: 'bg-purple-600 hover:bg-purple-700' },
 ] as const;
 
-const API_PATHS: Record<string, string> = {
-  profitloss: '/api/profit-loss',
-  ads: '/api/ads/hub',
-};
-
-const REPORT_DATA_KEYS = ['products', 'profitloss', 'inventory', 'ads'] as const;
-type ReportDataKey = (typeof REPORT_DATA_KEYS)[number];
-
 export default function ReportDownload() {
   const [generating, setGenerating] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const handleDownload = async (type: string) => {
+  const handleDownload = async (type: FinanceReportType) => {
     setGenerating(type);
     setError(null);
     try {
-      const XLSX = await import('xlsx');
-
-      const needed: ReportDataKey[] = type === 'full'
-        ? [...REPORT_DATA_KEYS]
-        : [type as ReportDataKey];
-      const responses = await Promise.all(
-        needed.map(async (k) => {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const data = k === 'inventory'
-            ? await fetchAllSellpiaInventorySkus()
-            : k === 'products'
-              ? await fetchAllChannelListingsForReport()
-              : await apiClient.get<any>(API_PATHS[k]);
-          return { key: k, data };
-        })
-      );
-
-      const dataMap: Record<string, unknown> = {};
-      for (const r of responses) dataMap[r.key] = r.data;
-
-      const wb = XLSX.utils.book_new();
-
-      if (dataMap.products) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const arr = Array.isArray(dataMap.products) ? dataMap.products : [];
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const ws = XLSX.utils.json_to_sheet(arr.map((p: any) => ({
-          마켓: p.channel,
-          계정: p.channelAccountName,
-          등록상품명: p.listingName,
-          채널상품명: p.channelName,
-          외부상품번호: p.externalId,
-          판매가: p.channelPrice,
-          상태: p.status,
-          노출상태: p.exposureStatus,
-          옵션수: p.optionCount,
-          재고매칭상태: p.mappingStatus,
-        })));
-        XLSX.utils.book_append_sheet(wb, ws, '상품목록');
-      }
-
-      if (dataMap.profitloss) {
-        const arr = Array.isArray(dataMap.profitloss)
-          ? dataMap.profitloss as PLData[]
-          : [];
-        const ws = XLSX.utils.json_to_sheet(arr.map(mapProfitLossReportRow));
-        XLSX.utils.book_append_sheet(wb, ws, '손익표');
-      }
-
-      if (dataMap.inventory) {
-        const arr = Array.isArray(dataMap.inventory)
-          ? dataMap.inventory as InventorySkuSnapshotItem[]
-          : [];
-        const ws = XLSX.utils.json_to_sheet(arr.map((i) => ({
-          셀피아상품코드: i.code,
-          상품명: i.name,
-          옵션: i.optionName,
-          바코드: i.barcode,
-          현재고: i.currentStock,
-          매입가: i.purchasePrice,
-          판매가: i.salePrice,
-          재고자산가치: i.stockValue,
-          최근반영: i.lastImportedAt,
-        })));
-        XLSX.utils.book_append_sheet(wb, ws, '재고현황');
-      }
-
-      if (dataMap.ads) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const adsData = dataMap.ads as any;
-        const arr = Array.isArray(adsData?.products) ? adsData.products : [];
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const ws = XLSX.utils.json_to_sheet(arr.map((a: any) => ({
-          등급: a.grade,
-          광고등급: a.adTier,
-          상품명: a.channelName ?? a.masterProduct?.name,
-          셀피아상품코드: a.masterProduct?.code,
-          광고비: a.metrics?.spend,
-          광고매출: a.metrics?.revenue,
-          'ROAS(%)': a.metrics?.roas,
-          'CTR(%)': a.metrics?.ctr,
-          '전환율(%)': a.metrics?.cvr,
-        })));
-        XLSX.utils.book_append_sheet(wb, ws, '광고현황');
-      }
-
-      if (wb.SheetNames.length === 0) {
-        const msg = '다운로드할 데이터가 없습니다.';
-        setError(msg);
-        toast.error(msg);
-        return;
-      }
-
-      const fileName =
-        type === 'full'
-          ? `KIDITEM_통합리포트_${new Date().toISOString().slice(0, 10)}.xlsx`
-          : `KIDITEM_${type}_리포트_${new Date().toISOString().slice(0, 10)}.xlsx`;
-
-      XLSX.writeFile(wb, fileName);
+      const fileName = await downloadFinanceReport({ type, surface: 'settings' });
       toast.success(`${fileName} 다운로드 완료`);
     } catch (err) {
       const msg = isApiError(err) ? err.detail : '리포트 생성 중 오류가 발생했습니다.';

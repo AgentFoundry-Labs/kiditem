@@ -30,6 +30,7 @@ export default function StockAssets() {
     pricedAssetValue: 0,
     unpricedSkuCount: 0,
   };
+  const hasPublishedSnapshot = Boolean(data?.latestImport);
 
   return (
     <section className="space-y-5">
@@ -41,9 +42,21 @@ export default function StockAssets() {
       </div>
       {error ? <p role="alert" className="text-sm text-red-700">재고자산을 불러오지 못했습니다.</p> : null}
       <div className="grid gap-3 md:grid-cols-3">
-        <AssetCard icon={CircleDollarSign} label="평가 재고자산" value={`${formatNumber(summary.pricedAssetValue)}원`} />
-        <AssetCard icon={Package} label="총 재고수량" value={`${formatNumber(summary.totalUnits)}개`} />
-        <AssetCard icon={Tags} label="가격 미등록 SKU" value={`${formatNumber(summary.unpricedSkuCount)}개`} />
+        <AssetCard
+          icon={CircleDollarSign}
+          label="평가 재고자산"
+          value={hasPublishedSnapshot ? `${formatNumber(summary.pricedAssetValue)}원` : '미수집'}
+        />
+        <AssetCard
+          icon={Package}
+          label="총 재고수량"
+          value={hasPublishedSnapshot ? `${formatNumber(summary.totalUnits)}개` : '미수집'}
+        />
+        <AssetCard
+          icon={Tags}
+          label="가격 미등록 SKU"
+          value={hasPublishedSnapshot ? `${formatNumber(summary.unpricedSkuCount)}개` : '미수집'}
+        />
       </div>
       <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)]">
         <div className="overflow-x-auto">

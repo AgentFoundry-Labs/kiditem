@@ -34,6 +34,17 @@ describe('Gateway agent profile catalog', () => {
           expect.stringContaining('KidItem Advertising Agent'),
         ]),
       );
+
+      const activeInstructions = [
+        profile.selectedInstructions,
+        ...profile.delegationProfiles.map((entry) => entry.instructions),
+      ];
+      for (const instructions of activeInstructions) {
+        expect(instructions).toContain('resourceRefs');
+        expect(instructions).toContain('invocation_status');
+        expect(instructions).not.toContain('operationRefs');
+        expect(instructions).not.toContain('operation_status');
+      }
     }
   });
 });

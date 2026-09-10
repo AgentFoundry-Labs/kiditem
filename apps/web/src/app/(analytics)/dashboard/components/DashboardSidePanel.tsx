@@ -3,6 +3,7 @@ import { AlertTriangle, CheckCircle2, Megaphone, MinusCircle, ShieldCheck, Truck
 import { dismissAlert } from '@/lib/alerts-api';
 import { queryKeys } from '@/lib/query-keys';
 import { cn } from '@/lib/utils';
+import { DashboardDataBasis, type DashboardMetricBasis } from './DashboardDataBasis';
 import type { QueryClient } from '@tanstack/react-query';
 import type { DashboardAlertItem } from '@kiditem/shared/dashboard';
 
@@ -18,12 +19,12 @@ function isOpenAlert(alert: DashboardAlertItem): boolean {
 }
 
 function isOpenAlertStatus(status: DashboardAlertItem['status']): boolean {
-  return status === 'OPEN' || status === 'open';
+  return status === 'OPEN';
 }
 
 function alertStatusLabel(status: DashboardAlertItem['status']): string | null {
   if (isOpenAlertStatus(status)) return '확인 필요';
-  if (status === 'resolved' || status === 'RESOLVED') return '해결됨';
+  if (status === 'RESOLVED') return '해결됨';
   return null;
 }
 
@@ -101,9 +102,11 @@ function DashboardAlertRow({
 export function DashboardSidePanel({
   alerts,
   queryClient,
+  basis,
 }: {
   alerts: DashboardAlertItem[];
   queryClient: QueryClient;
+  basis?: DashboardMetricBasis | null;
 }) {
   const unreadCount = alerts.filter((alert) => !alert.isRead && isOpenAlert(alert)).length;
 
@@ -114,6 +117,7 @@ export function DashboardSidePanel({
         <span className="text-sm font-semibold text-slate-900">알림</span>
         {unreadCount > 0 && <span className="rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-700">{unreadCount}</span>}
       </div>
+      {basis && <DashboardDataBasis basis={basis} className="px-4 pt-2" />}
       <div className="min-h-0 flex-1 overflow-y-auto">
         {alerts.map((alert) => <DashboardAlertRow key={alert.id} alert={alert} queryClient={queryClient} />)}
         {alerts.length === 0 && (

@@ -5,6 +5,8 @@ import vm from 'node:vm';
 const source = await readFile(new URL('../../kiditem-os/background/coupang/worker.js', import.meta.url), 'utf8');
 const contract = await readFile(new URL('../../kiditem-os/background/coupang/wing-keyword-contract.js', import.meta.url), 'utf8');
 const wire = await readFile(new URL('../../kiditem-os/background/sourcing/source-attempt-wire.js', import.meta.url), 'utf8');
+const collectorSource = await readFile(new URL('../../kiditem-os/background/coupang/coupang-keyword-suggestion-collector.js', import.meta.url), 'utf8');
+const ownerSource = await readFile(new URL('../../kiditem-os/background/coupang/keyword-suggestion-source-owner.js', import.meta.url), 'utf8');
 const sessionsSource = await readFile(new URL('../../shared/collection-session.js', import.meta.url), 'utf8');
 const runsSource = await readFile(new URL('../../kiditem-os/background/coupang/collection-runs.js', import.meta.url), 'utf8');
 const attemptId = '11111111-1111-4111-8111-111111111111';
@@ -23,7 +25,7 @@ function harness(options = {}) {
     chrome: { storage: { local: {
       get: async (key, cb) => { const value = { [key]: stored[key] }; cb?.(value); return value; },
       set: async (value, cb) => { Object.assign(stored, value); cb?.(); },
-    } } },
+    } }, tabs: { remove: async () => undefined }, scripting: { executeScript: async () => [] } },
     sharedEnvironmentContext: { requireEnvironment: (id) => {
       if (!['office', 'local'].includes(id)) throw new Error('wrong environment');
     } },
@@ -39,10 +41,7 @@ function harness(options = {}) {
       }
       return Response.json(options.wrongSource ? { ...attempt(), sourceKey: 'other' } : attempt());
     },
-    collectionSessions: { getOwned: async () => null, cancel: async (_id, options) => {
-      assert.equal((await options.ownerFailure()).accepted, true);
-      return { attemptId };
-    } },
+    collectionSessions: null,
     searchCoupangKeywordSuggestions: async (message) => {
       searches.push(message);
       if (options.search) return options.search(message);
@@ -56,15 +55,11 @@ function harness(options = {}) {
     },
   });
   context.globalThis = context;
-  const start = source.indexOf('const SOURCING_WING_CATALOG_MAX_KEYWORDS');
-  const end = source.indexOf('async function collectAdvertisingProfitabilitySlice', start);
-  vm.runInContext(contract + '\n' + wire + '\n' + source.slice(start, end) +
-    '\nglobalThis.runKeywordSource = runSourcingKeywordSuggestions; globalThis.parseStart = parseSourcingKeywordSuggestionStart; globalThis.cancelKeywordSource = cancelSourcingKeywordSuggestions;', context);
   const input = { environmentId: 'office', idempotencyKey: 'key', input: { keyword: ' Ａ  Pencil ', maxResults: 2 } };
   const closedTabs = [];
   if (options.realCollector) {
     context.chrome.tabs = { remove: async (id) => closedTabs.push(id), query: async () => [] };
-    context.chrome.scripting = { executeScript: async () => [] };
+    context.chrome.scripting = { executeScript: async () => [{ result: options.extracted || ({ success: true, items: [], productNameTokens: [] }) }] };
     vm.runInContext(sessionsSource + '\n' + runsSource, context);
     context.collectionSessions = context.KidItemCollectionSession.create({
       chrome: context.chrome, storageKey: 'keyword_sessions', webUrlPatterns: [],
@@ -72,21 +67,53 @@ function harness(options = {}) {
     context.collectionRuns = context.KidItemCollectionRuns.create({
       chrome: context.chrome, sessions: context.collectionSessions,
     });
-    Object.assign(context, {
-      clampNumber: (value) => value,
-      stableInputFingerprint: (value) => value,
-      getOrCreateCoupangSearchTab: async () => ({ id: 7, windowId: 8 }),
-      waitForTabComplete: async () => ({ url: 'https://www.coupang.com/np/search' }),
-      buildCoupangSearchUrl: () => 'https://www.coupang.com/np/search',
-      isCoupangSearchUrl: () => true,
-      COUPANG_KEYWORD_SEARCH_DELAY_MS: 1500,
-      sleep: async () => {},
-      executeCoupangKeywordSuggestionSearch: async () => options.extracted || ({ success: true, items: [], productNameTokens: [] }),
-      removeTab: async (id) => closedTabs.push(id),
-    });
-    vm.runInContext(source.slice(source.indexOf('async function searchCoupangKeywordSuggestions('),
-      source.indexOf('async function getOrCreateCoupangSearchTab(')), context);
+    context.createKeywordTab = async () => ({ id: 7, windowId: 8 });
+    context.bindKeywordTab = async () => undefined;
+    context.waitKeywordTab = async () => ({ url: 'https://www.coupang.com/np/search' });
+    context.keywordAttention = async (runId, tabId, reason, message) => context.collectionRuns.requireAttention(runId, tabId, reason, message);
+  } else {
+    let ownerSession = null;
+    context.collectionSessions = {
+      start: async (value) => { ownerSession = { ...value, attention: null }; return ownerSession; },
+      getOwned: async () => ownerSession,
+      cancel: async (_id, cancelOptions) => {
+        if (cancelOptions?.ownerFailure) assert.equal((await cancelOptions.ownerFailure()).accepted, true);
+        ownerSession = null;
+        return { attemptId };
+      },
+    };
   }
+  vm.runInContext(contract + '\n' + wire + '\n' + collectorSource + '\n' + ownerSource, context);
+  let capture;
+  if (options.realCollector) {
+    const collector = context.KidItemCoupangKeywordSuggestionCollector.create({
+      chrome: context.chrome,
+      sessions: context.collectionSessions,
+      createTab: context.createKeywordTab,
+      bindTab: context.bindKeywordTab,
+      waitForTabComplete: context.waitKeywordTab,
+      attention: context.keywordAttention,
+      delay: async () => undefined,
+    });
+    capture = async (message) => {
+      searches.push(message);
+      return collector.collect(message);
+    };
+  } else {
+    capture = context.searchCoupangKeywordSuggestions;
+  }
+  const owner = context.KidItemKeywordSuggestionSourceOwner.create({
+    chrome: context.chrome,
+    sessions: context.collectionSessions,
+    requireEnvironment: context.sharedEnvironmentContext.requireEnvironment,
+    request: context.authedFetch,
+    collect: capture,
+  });
+  Object.assign(context, {
+    runKeywordSource: (value) => owner.run(value),
+    parseStart: context.KidItemKeywordSuggestionSourceOwner.parseStart,
+    cancelKeywordSource: (id, environmentId) => owner.cancel({ environmentId, attemptId: id }),
+  });
   return { context, input, requests, searches, stored, closedTabs };
 }
 
@@ -144,7 +171,7 @@ test('failed collection and login attention terminalize the source without publi
 
 test('wrong environment, wrong source and lost token fence stop safely without compensating terminal writes', async () => {
   const invalid = harness();
-  await assert.rejects(invalid.context.runKeywordSource({ ...invalid.input, environmentId: 'evil' }), /environment/);
+  assert.throws(() => invalid.context.runKeywordSource({ ...invalid.input, environmentId: 'evil' }), /environment/);
   assert.equal(invalid.searches.length, 0);
   const wrong = harness({ wrongSource: true });
   await assert.rejects(wrong.context.runKeywordSource(wrong.input), /SOURCE_PLAN_INVALID/);
@@ -158,8 +185,8 @@ test('wrong environment, wrong source and lost token fence stop safely without c
 test('moved keyword action and suggestions session are registered to the Sourcing owner', async () => {
   assert.match(source, /collectSourcingKeywordSuggestions:\s*\{/);
   assert.doesNotMatch(source, /"sourcing\.collect_keyword_suggestions":/);
-  const collection = source.slice(source.indexOf('async function searchCoupangKeywordSuggestions'), source.indexOf('async function getOrCreateCoupangSearchTab'));
-  assert.match(collection, /"sourcing\.keyword_suggestion"/);
+  assert.match(ownerSource, /"sourcing\.keyword_suggestion"/);
+  assert.match(collectorSource, /return Object\.freeze\(\{ collect \}\)/);
   const { SOURCE_OWNER_BY_PRODUCER } = await import('../../kiditem-os/background/source-owner-manifest.js');
   assert.equal(SOURCE_OWNER_BY_PRODUCER['sourcing.keyword_suggestion'], 'sourcing');
 });
@@ -174,12 +201,15 @@ test('retry after exhausted transport uses the retained terminal payload and nev
   assert.equal(h.searches.length, 1);
 });
 
-test('worker suspension recovers server terminality and cannot recollect an interrupted running attempt', async () => {
+test('worker suspension leaves an interrupted running attempt stopped without publishing a guessed failure', async () => {
   const stored = { ['kiditem_keyword_suggestion_attempt_v1:office:' + attemptId]: { attemptId, idempotencyKey: 'key' } };
   const h = harness({ stored });
-  assert.equal((await h.context.runKeywordSource(h.input)).state, 'FAILED');
+  const result = await h.context.runKeywordSource(h.input);
+  assert.equal(result.state, 'RUNNING');
+  assert.equal(result.cancellationPending, true);
   assert.equal(h.searches.length, 0);
-  assert.equal(h.requests.at(-1).body.code, 'SOURCE_COLLECTION_INTERRUPTED');
+  assert.equal(h.requests.filter((request) => request.init.method === 'PUT').length, 0);
+  assert.equal(h.requests.filter((request) => request.path.endsWith('/fail')).length, 0);
 });
 
 test('cancellation waits for one owner acknowledgement when extraction resolves or rejects first', async () => {
@@ -227,7 +257,7 @@ test('one environment admits only one active keyword suggestion producer', async
   const running = h.context.runKeywordSource(h.input);
   await started;
   try {
-    await assert.rejects(h.context.runKeywordSource({ ...h.input, idempotencyKey: 'other' }),
+    assert.throws(() => h.context.runKeywordSource({ ...h.input, idempotencyKey: 'other' }),
       /SOURCE_ATTEMPT_ALREADY_RUNNING/);
   } finally { release(); await running; }
 });

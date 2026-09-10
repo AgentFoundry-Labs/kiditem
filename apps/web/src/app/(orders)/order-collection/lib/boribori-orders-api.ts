@@ -1,10 +1,10 @@
-import { issueBrowserCollectionRunId } from '@/lib/browser-collection-session';
 import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extension-bridge';
 import { apiClient } from '@/lib/api-client';
 import { downloadBlob } from '@/lib/browser-download';
 import type { OrderCollectionConversionResult } from './order-collection-api';
 import {
   createOrderCollectionExtensionError,
+  orderCollectionExtensionRunFields,
   type OrderCollectionExtensionRun,
   type OrderCollectionFailureResponse,
 } from './order-collection-extension';
@@ -38,8 +38,8 @@ export async function collectBoriboriXlsxFromExtension(options?: {
       action: 'collectBoriboriOrders',
       date: options?.run?.date,
       password: options?.password ?? '',
-      runId: await issueBrowserCollectionRunId(options?.run?.runId),
-      deferTerminal: Boolean(options?.run?.runId),
+      // attemptId/deferTerminal: true are included by shared fenced run fields.
+      ...orderCollectionExtensionRunFields(options?.run),
     },
     130000,
   );
@@ -54,7 +54,7 @@ export async function collectBoriboriXlsxFromExtension(options?: {
 export async function convertBoriboriToSellpiaFile(
   xlsxBase64: string,
   fileName: string,
-  options?: { download?: boolean },
+  options?: { download?: boolean; run?: OrderCollectionExtensionRun },
 ): Promise<OrderCollectionConversionResult> {
   const bin = atob(xlsxBase64);
   const bytes = new Uint8Array(bin.length);
@@ -68,6 +68,10 @@ export async function convertBoriboriToSellpiaFile(
   const response = await apiClient.fetchRaw('/api/orders/collection/boribori/convert', {
     method: 'POST',
     body: formData,
+    headers: options?.run ? {
+      'x-order-collection-attempt-id': options.run.attemptId,
+      'x-source-attempt-token': options.run.attemptToken,
+    } : undefined,
   });
   if (!response.ok) {
     const body = (await response.clone().json().catch(() => null)) as { message?: unknown } | null;

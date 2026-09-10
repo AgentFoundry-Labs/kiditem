@@ -1,20 +1,17 @@
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import * as manualActions from './manual-operation-actions';
-import { operationsApi } from './operations-api';
 import { queryKeys } from './query-keys';
 
 describe('retired Automation declarations', () => {
-  it('has no retired Workflow/Operation UI declarations while retaining Sellpia start', () => {
+  it('has no retired Workflow/Operation UI declarations while retaining the Sellpia source owner', () => {
     expect(existsSync(resolve(process.cwd(), 'src/types/index.ts'))).toBe(false);
     expect(existsSync(resolve(process.cwd(), 'src/hooks/useOperationRun.ts'))).toBe(false);
     expect(existsSync(resolve(process.cwd(), 'src/components/agent-interaction/OperationReferenceCard.tsx'))).toBe(false);
+    expect(existsSync(resolve(process.cwd(), 'src/app/(inventory)/_shared/sellpia-inventory-source-owner.ts'))).toBe(true);
     for (const family of ['workflows', 'marketplace', 'actionTasks', 'operations']) {
       expect(queryKeys).not.toHaveProperty(family);
     }
-    expect(Object.keys(operationsApi)).toEqual(['start']);
-    expect(Object.keys(manualActions)).toEqual(['startSellpiaInventoryRefreshAction']);
   });
 });
 

@@ -71,6 +71,8 @@ describe('ChannelProductMatchingRepositoryAdapter matching counts', () => {
         sellpiaInventorySku: { findMany: vi.fn().mockResolvedValue([{
           id: 'sellpia-sku',
           code: 'SP-001',
+          name: 'Rocket 단품',
+          optionName: null,
           barcode: '8801234567890',
           masterProductId: 'master-product',
         }]) },
@@ -88,6 +90,52 @@ describe('ChannelProductMatchingRepositoryAdapter matching counts', () => {
         quantity: 1,
       },
     });
+  });
+
+  it('does not use a confirmed Rocket CSV barcode when the Sellpia name is incompatible', async () => {
+    const create = vi.fn().mockResolvedValue({ id: 'component-1' });
+    const repository = new ChannelProductMatchingRepositoryAdapter({
+      $transaction: vi.fn(async (callback) => callback({
+        $queryRaw: vi.fn().mockResolvedValue([]),
+        masterProductAbcFormulaState: {
+          upsert: vi.fn().mockResolvedValue({ mappingGeneration: 1n }),
+        },
+        channelListing: {
+          findMany: vi.fn().mockResolvedValue([{
+            id: 'rocket-listing',
+            channelName: 'Rocket 키즈 식판',
+            displayName: 'Rocket 키즈 식판',
+            rawJson: {
+              source: 'coupang_rocket_matching_csv',
+              sellpiaBarcode: '8801234567890',
+              confidence: 'high',
+            },
+            masterProductId: null,
+            options: [{
+              id: 'rocket-option',
+              itemName: '기본 옵션',
+              inventoryComponents: [],
+            }],
+          }]),
+          findFirst: vi.fn().mockResolvedValue(null),
+          updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+        },
+        sellpiaManualMatchAlias: { findMany: vi.fn().mockResolvedValue([]) },
+        sellpiaInventorySku: { findMany: vi.fn().mockResolvedValue([{
+          id: 'sellpia-sku',
+          code: 'SP-001',
+          name: '전혀 다른 상품',
+          optionName: null,
+          barcode: '8801234567890',
+          masterProductId: 'master-product',
+        }]) },
+        channelListingOptionInventoryComponent: { create },
+      })),
+    } as never);
+
+    await expect(repository.autoMatch({ organizationId, channelAccountId: 'account-1' }))
+      .resolves.toEqual({ evaluatedListings: 1, matchedListings: 0, configuredOptions: 0 });
+    expect(create).not.toHaveBeenCalled();
   });
 
   it('infers a Rocket CSV pack deduction quantity from its listing and option title', async () => {
@@ -268,6 +316,8 @@ describe('ChannelProductMatchingRepositoryAdapter matching counts', () => {
         sellpiaInventorySku: { findMany: vi.fn().mockResolvedValue([{
           id: 'sellpia-sku',
           code: 'SP-001',
+          name: 'Wing 단품',
+          optionName: null,
           barcode: '8801234567890',
           masterProductId: 'master-product',
         }]) },
@@ -284,6 +334,106 @@ describe('ChannelProductMatchingRepositoryAdapter matching counts', () => {
         quantity: 1,
       }),
     }));
+  });
+
+  it('does not use a provider barcode when the Sellpia name is incompatible', async () => {
+    const create = vi.fn().mockResolvedValue({ id: 'component-1' });
+    const repository = new ChannelProductMatchingRepositoryAdapter({
+      $transaction: vi.fn(async (callback) => callback({
+        $queryRaw: vi.fn().mockResolvedValue([]),
+        masterProductAbcFormulaState: {
+          upsert: vi.fn().mockResolvedValue({ mappingGeneration: 1n }),
+        },
+        channelListing: {
+          findMany: vi.fn().mockResolvedValue([{
+            id: 'wing-listing',
+            channelName: '키즈 식판',
+            displayName: '키즈 식판',
+            rawJson: {},
+            masterProductId: null,
+            options: [{
+              id: 'wing-option',
+              itemName: '기본 옵션',
+              sellerSku: null,
+              modelNumber: null,
+              barcode: '8801234567890',
+              inventoryComponents: [],
+            }],
+          }]),
+          findFirst: vi.fn().mockResolvedValue(null),
+          updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+        },
+        sellpiaManualMatchAlias: { findMany: vi.fn().mockResolvedValue([]) },
+        sellpiaInventorySku: { findMany: vi.fn().mockResolvedValue([{
+          id: 'sellpia-sku',
+          code: 'SP-001',
+          name: '전혀 다른 상품',
+          optionName: null,
+          barcode: '8801234567890',
+          masterProductId: 'master-product',
+        }]) },
+        channelListingOptionInventoryComponent: { create },
+      })),
+    } as never);
+
+    await expect(repository.autoMatch({ organizationId, channelAccountId: 'account-1' }))
+      .resolves.toEqual({ evaluatedListings: 1, matchedListings: 0, configuredOptions: 0 });
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it('blocks a provider code and compatible barcode that resolve to different SKUs', async () => {
+    const create = vi.fn().mockResolvedValue({ id: 'component-1' });
+    const repository = new ChannelProductMatchingRepositoryAdapter({
+      $transaction: vi.fn(async (callback) => callback({
+        $queryRaw: vi.fn().mockResolvedValue([]),
+        masterProductAbcFormulaState: {
+          upsert: vi.fn().mockResolvedValue({ mappingGeneration: 1n }),
+        },
+        channelListing: {
+          findMany: vi.fn().mockResolvedValue([{
+            id: 'wing-listing',
+            channelName: '키즈 식판',
+            displayName: '키즈 식판',
+            rawJson: {},
+            masterProductId: null,
+            options: [{
+              id: 'wing-option',
+              itemName: '기본 옵션',
+              sellerSku: 'SP-CODE',
+              modelNumber: null,
+              barcode: '8801234567890',
+              inventoryComponents: [],
+            }],
+          }]),
+          findFirst: vi.fn().mockResolvedValue(null),
+          updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+        },
+        sellpiaManualMatchAlias: { findMany: vi.fn().mockResolvedValue([]) },
+        sellpiaInventorySku: { findMany: vi.fn().mockResolvedValue([
+          {
+            id: 'sellpia-code',
+            code: 'SP-CODE',
+            name: '키즈 식판',
+            optionName: null,
+            barcode: null,
+            masterProductId: 'master-product',
+          },
+          {
+            id: 'sellpia-barcode',
+            code: 'SP-BARCODE',
+            name: '키즈 식판',
+            optionName: null,
+            barcode: '8801234567890',
+            masterProductId: 'master-product',
+          },
+        ]) },
+        channelListingOptionInventoryComponent: { create },
+      })),
+    } as never);
+
+    await expect(repository.autoMatch({ organizationId, channelAccountId: 'account-1' }))
+      .resolves.toEqual({ evaluatedListings: 1, matchedListings: 0, configuredOptions: 0 });
+    expect(create).not.toHaveBeenCalled();
   });
 
   it('infers a Wing pack deduction quantity from its listing and option title', async () => {
@@ -347,7 +497,130 @@ describe('ChannelProductMatchingRepositoryAdapter matching counts', () => {
     const query = findMany.mock.calls[0]![0];
     expect(query.where).not.toHaveProperty('isActive');
     expect(JSON.stringify(query.where)).not.toContain('"isActive":true');
-    expect(query.include.options).not.toHaveProperty('where');
+    expect(query.select.options).not.toHaveProperty('where');
+    expect(query.select.options.select).toMatchObject({
+      id: true,
+      externalOptionId: true,
+      itemName: true,
+      sellerSku: true,
+      barcode: true,
+      modelNumber: true,
+      salePrice: true,
+      status: true,
+      updatedAt: true,
+    });
+    expect(query.select.options.select).not.toHaveProperty('rawJson');
+    expect(query.select.options.select).not.toHaveProperty('attributesJson');
+    expect(query.select.options.select.inventoryComponents.select).toMatchObject({
+      id: true,
+      sellpiaInventorySkuId: true,
+      quantity: true,
+      sellpiaInventorySku: {
+        select: {
+          id: true,
+          code: true,
+          name: true,
+          optionName: true,
+          barcode: true,
+          purchasePrice: true,
+        },
+      },
+    });
+  });
+
+  it('preserves queue counts and recipes for a wide option set', async () => {
+    const options = Array.from({ length: 73 }, (_, index) => ({
+      ...unlinkedOption({
+        modelNumber: `MODEL-${index}`,
+        salePrice: 1_000 + index,
+      }),
+      id: `option-${index}`,
+      externalOptionId: `external-option-${index}`,
+      sellerSku: `SKU-${index}`,
+      inventoryComponents: index === 72
+        ? [component({ quantity: 2 })]
+        : [],
+    }));
+    const repository = new ChannelProductMatchingRepositoryAdapter({
+      channelListing: {
+        findMany: vi.fn().mockResolvedValue([
+          listing({ masterProductId: null, masterProduct: null, options }),
+        ]),
+      },
+    } as never);
+
+    const queue = await repository.listQueue(organizationId, {});
+
+    expect(queue.counts).toEqual({
+      products: { all: 1, linked: 0, unlinked: 1 },
+      options: { all: 73, configured: 1, unconfigured: 72 },
+    });
+    expect(queue.products[0]).toMatchObject({
+      optionCount: 73,
+      configuredOptionCount: 1,
+    });
+    expect(queue.options.find((row) => row.option.id === 'option-72')).toMatchObject({
+      option: {
+        externalOptionId: 'external-option-72',
+        sellerSku: 'SKU-72',
+        inventoryComponents: [{
+          sellpiaInventorySkuId: 'inventory-1',
+          quantity: 2,
+        }],
+      },
+    });
+  });
+
+  it('preserves availability identity and pricing fields from the projected option row', async () => {
+    const repository = new ChannelProductMatchingRepositoryAdapter({
+      channelListing: {
+        findMany: vi.fn().mockResolvedValue([
+          listing({
+            masterProductId: null,
+            masterProduct: null,
+            options: [unlinkedOption({
+              modelNumber: 'MODEL-1',
+              salePrice: 12_345,
+            })],
+          }),
+        ]),
+      },
+    } as never);
+
+    const rows = await repository.listAvailabilityRows(organizationId, {});
+
+    expect(rows[0]).toMatchObject({
+      option: {
+        modelNumber: 'MODEL-1',
+        salePrice: 12_345,
+      },
+      inventoryComponents: [],
+    });
+  });
+
+  it('keeps basics and partially published detail identities in availability targets', async () => {
+    const findMany = vi.fn().mockResolvedValue([]);
+    const repository = new ChannelProductMatchingRepositoryAdapter({
+      channelListing: { findMany },
+    } as never);
+
+    await repository.listAvailabilityRows(organizationId, {});
+
+    const query = findMany.mock.calls[0]![0];
+    expect(query.where.OR).toEqual(expect.arrayContaining([
+      {
+        options: {
+          some: {
+            organizationId,
+            isActive: true,
+            OR: [
+              { rawJson: { path: ['source'], equals: 'coupang_catalog_basics' } },
+              { rawJson: { path: ['source'], equals: 'coupang_catalog_details' } },
+            ],
+          },
+        },
+      },
+    ]));
   });
 
   it('returns recipe identity and descriptive metadata without claiming availability', async () => {
@@ -504,13 +777,19 @@ function listing({
   };
 }
 
-function unlinkedOption(overrides: { status?: string | null } = {}) {
+function unlinkedOption(overrides: {
+  status?: string | null;
+  modelNumber?: string | null;
+  salePrice?: number | null;
+} = {}) {
   return {
     id: 'option-unlinked',
     externalOptionId: 'option-unlinked',
     itemName: 'Unlinked option',
     sellerSku: null,
     barcode: null,
+    modelNumber: overrides.modelNumber ?? null,
+    salePrice: overrides.salePrice ?? null,
     status: overrides.status ?? null,
     updatedAt: new Date('2026-07-17T00:00:00.000Z'),
     inventoryComponents: [],

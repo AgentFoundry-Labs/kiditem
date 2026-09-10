@@ -1,6 +1,7 @@
+import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { SellpiaSalesService } from '../sellpia-sales.service';
-import { SELLPIA_SALES_COVERAGE_SELLER_ID } from '../domain/snapshot-coverage';
+import { AlertsRepository } from '../../../alerts/alerts.repository';
+import { SourceFailureAlerts } from '../../../alerts/alerts.service';
 import {
   IDOR_SENTINEL,
   makeTestPrisma,
@@ -9,10 +10,10 @@ import {
   seedBaseFixture,
   TEST_ORGANIZATION_ID,
 } from '../../../test-helpers/real-prisma';
+import { SELLPIA_SALES_COVERAGE_SELLER_ID } from '../domain/snapshot-coverage';
+import { SellpiaSalesSourceService } from '../sellpia-sales-source.service';
 import type { Prisma, PrismaClient } from '@prisma/client';
 import type { SellpiaSalesIngestBodyDto } from '../dto/sellpia-sales.dto';
-import type { PrismaService } from '../../../prisma/prisma.service';
-import type { WingTrafficAggregationRepositoryPort } from '../../dashboard/application/port/out/repository/wing-traffic-aggregation.repository.port';
 
 const RANGE_START = '2026-04-17';
 const RANGE_DATES = calendarDates(RANGE_START, 93);
@@ -20,16 +21,15 @@ const RANGE_END = RANGE_DATES.at(-1)!;
 const CAPTURE_1 = '2026-07-18T01:00:00.000Z';
 const CAPTURE_2 = '2026-07-18T02:00:00.000Z';
 const CAPTURE_3 = '2026-07-18T03:00:00.000Z';
-const CAPTURE_4 = '2026-07-18T04:00:00.000Z';
 
-describe('SellpiaSalesService ingest (PG integration)', () => {
+describe('Sellpia sales source owner (PG integration)', () => {
   let prisma: PrismaClient;
-  let service: SellpiaSalesService;
+  let owner: SellpiaSalesSourceService;
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    service = makeService(prisma);
+    owner = makeOwner(prisma);
   });
 
   afterAll(async () => {
@@ -41,25 +41,42 @@ describe('SellpiaSalesService ingest (PG integration)', () => {
     await seedBaseFixture(prisma);
   });
 
-  it('stores a 93-day multi-seller snapshot without the former five-second transaction expiry', async () => {
-    const payload = largePayload(20, 100);
-
-    await expect(service.ingest(TEST_ORGANIZATION_ID, payload)).resolves.toEqual({
-      upserted: 20 * RANGE_DATES.length,
-      businessDates: RANGE_DATES,
-      sellerCount: 20,
+  it('publishes a 93-day multi-seller snapshot only after COMPLETE', async () => {
+    const attempt = await begin(owner, TEST_ORGANIZATION_ID, {
+      from: RANGE_START,
+      to: RANGE_END,
     });
+    const control = await owner.readAttemptControl(TEST_ORGANIZATION_ID, attempt.attemptId);
+    expect(control).toMatchObject({ attemptId: attempt.attemptId });
 
-    const [factCount, coverageCount, firstFact, lastFact] = await Promise.all([
+    const completed = await owner.completeAttempt(
+      TEST_ORGANIZATION_ID,
+      attempt.attemptId,
+      control!.attemptToken,
+      largePayload(20, 100),
+    );
+
+    expect(completed).toMatchObject({
+      state: 'COMPLETE',
+      actualCutoffAt: `${RANGE_END}T00:00:00.000Z`,
+      rowCount: 20 * RANGE_DATES.length + RANGE_DATES.length,
+      sellerCount: 20,
+      businessDates: RANGE_DATES,
+    });
+    expect(completed.contentChecksum).toMatch(/^[a-f0-9]{64}$/);
+
+    const [factCount, coverageCount, firstFact, lastFact, run] = await Promise.all([
       prisma.sellpiaSalesDailySnapshot.count({
         where: {
           organizationId: TEST_ORGANIZATION_ID,
+          sourceImportRunId: attempt.attemptId,
           sellerId: { not: SELLPIA_SALES_COVERAGE_SELLER_ID },
         },
       }),
       prisma.sellpiaSalesDailySnapshot.count({
         where: {
           organizationId: TEST_ORGANIZATION_ID,
+          sourceImportRunId: attempt.attemptId,
           sellerId: SELLPIA_SALES_COVERAGE_SELLER_ID,
         },
       }),
@@ -81,6 +98,7 @@ describe('SellpiaSalesService ingest (PG integration)', () => {
           },
         },
       }),
+      prisma.sourceImportRun.findUnique({ where: { id: attempt.attemptId } }),
     ]);
 
     expect(factCount).toBe(20 * RANGE_DATES.length);
@@ -99,298 +117,291 @@ describe('SellpiaSalesService ingest (PG integration)', () => {
       qty: 20,
       costKrw: 1_046,
     });
+    expect(run).toMatchObject({ status: 'completed', organizationId: TEST_ORGANIZATION_ID });
   });
 
-  it('rolls back an interrupted range replacement, then removes stale rows on a successful replay', async () => {
-    const initial: SellpiaSalesIngestBodyDto = {
-      range: { from: RANGE_START, to: RANGE_END },
-      capturedAt: CAPTURE_1,
-      sellers: [
-        seller('kept', '쿠팡-직배송', [
-          day(RANGE_START, 1_000, 10, 400),
-          day(RANGE_END, 2_000, 20, 800),
-        ]),
-        seller('stale', '삭제될 판매처', [day(RANGE_START, 9_999, 99, 4_000)]),
-      ],
-    };
-    await service.ingest(TEST_ORGANIZATION_ID, initial);
+  it('rolls back source rows and leaves the attempt running when terminal write fails', async () => {
+    const attempt = await begin(owner, TEST_ORGANIZATION_ID, {
+      from: RANGE_START,
+      to: RANGE_END,
+    });
+    const control = await owner.readAttemptControl(TEST_ORGANIZATION_ID, attempt.attemptId);
+    const failingOwner = makeOwner(prismaWithSecondCreateManyFailure(prisma));
 
-    const failingService = makeService(prismaWithSecondCreateManyFailure(prisma));
     await expect(
-      failingService.ingest(TEST_ORGANIZATION_ID, largePayload(11, 500)),
+      failingOwner.completeAttempt(
+        TEST_ORGANIZATION_ID,
+        attempt.attemptId,
+        control!.attemptToken,
+        largePayload(11, 500),
+      ),
     ).rejects.toThrow('injected second createMany failure');
 
-    const afterRollback = await prisma.sellpiaSalesDailySnapshot.findMany({
-      where: { organizationId: TEST_ORGANIZATION_ID },
-      orderBy: [{ sellerId: 'asc' }, { businessDate: 'asc' }],
-    });
-    expect(afterRollback).toHaveLength(RANGE_DATES.length + 3);
-    expect(afterRollback).toContainEqual(
-      expect.objectContaining({
-        sellerId: 'stale',
-        businessDate: dbDate(RANGE_START),
-        revenueKrw: 9_999,
-      }),
-    );
-    expect(afterRollback).not.toContainEqual(
-      expect.objectContaining({ sellerId: 'seller-01', revenueKrw: 500 }),
-    );
-
-    const replay: SellpiaSalesIngestBodyDto = {
-      range: { from: RANGE_START, to: RANGE_END },
-      capturedAt: CAPTURE_3,
-      sellers: [
-        seller('kept', '쿠팡-직배송', [day(RANGE_START, 7_000, 70, 2_800)]),
-      ],
-    };
-    await service.ingest(TEST_ORGANIZATION_ID, replay);
-
-    const afterReplay = await prisma.sellpiaSalesDailySnapshot.findMany({
-      where: { organizationId: TEST_ORGANIZATION_ID },
-      orderBy: [{ sellerId: 'asc' }, { businessDate: 'asc' }],
-    });
-    expect(afterReplay).toHaveLength(RANGE_DATES.length + 1);
-    expect(afterReplay.filter((row) => row.sellerId === SELLPIA_SALES_COVERAGE_SELLER_ID)).toHaveLength(
-      RANGE_DATES.length,
-    );
-    expect(afterReplay).toContainEqual(
-      expect.objectContaining({
-        sellerId: 'kept',
-        businessDate: dbDate(RANGE_START),
-        revenueKrw: 7_000,
-        qty: 70,
-        costKrw: 2_800,
-      }),
-    );
-    expect(afterReplay.some((row) => row.sellerId === 'stale')).toBe(false);
-    expect(
-      afterReplay.some(
-        (row) => row.sellerId === 'kept' && row.businessDate.getTime() === dbDate(RANGE_END).getTime(),
-      ),
-    ).toBe(false);
-  });
-
-  it('replaces only the requested organization range and preserves the other tenant', async () => {
-    const range = { from: '2026-07-17', to: '2026-07-18' };
-    await service.ingest(OTHER_ORGANIZATION_ID, {
-      range,
-      capturedAt: CAPTURE_1,
-      sellers: [
-        seller('foreign-sentinel', '다른 조직 판매처', [
-          day(range.from, IDOR_SENTINEL, 999, 123_456),
-        ]),
-      ],
-    });
-    await service.ingest(TEST_ORGANIZATION_ID, {
-      range,
-      capturedAt: CAPTURE_1,
-      sellers: [seller('own-old', '기존 판매처', [day(range.from, 1_000, 10, 500)])],
-    });
-
-    await service.ingest(TEST_ORGANIZATION_ID, {
-      range,
-      capturedAt: CAPTURE_2,
-      sellers: [seller('own-new', '새 판매처', [day(range.to, 2_000, 20, 800)])],
-    });
-
-    const [ownRows, foreignRows] = await Promise.all([
-      prisma.sellpiaSalesDailySnapshot.findMany({
-        where: { organizationId: TEST_ORGANIZATION_ID },
-        orderBy: [{ sellerId: 'asc' }, { businessDate: 'asc' }],
-      }),
-      prisma.sellpiaSalesDailySnapshot.findMany({
-        where: { organizationId: OTHER_ORGANIZATION_ID },
-        orderBy: [{ sellerId: 'asc' }, { businessDate: 'asc' }],
-      }),
-    ]);
-
-    expect(ownRows.some((row) => row.sellerId === 'own-old')).toBe(false);
-    expect(ownRows).toContainEqual(
-      expect.objectContaining({
-        sellerId: 'own-new',
-        businessDate: dbDate(range.to),
-        revenueKrw: 2_000,
-      }),
-    );
-    expect(ownRows.filter((row) => row.sellerId === SELLPIA_SALES_COVERAGE_SELLER_ID)).toHaveLength(2);
-
-    expect(foreignRows).toHaveLength(3); // foreign fact + two coverage rows
-    expect(foreignRows).toContainEqual(
-      expect.objectContaining({
-        sellerId: 'foreign-sentinel',
-        businessDate: dbDate(range.from),
-        revenueKrw: IDOR_SENTINEL,
-      }),
-    );
-    expect(foreignRows.filter((row) => row.sellerId === SELLPIA_SALES_COVERAGE_SELLER_ID)).toHaveLength(2);
-  });
-
-  it('preserves a newer live snapshot when an older extension cache arrives later', async () => {
-    const range = { from: '2026-07-18', to: '2026-07-18' };
-    await service.ingest(TEST_ORGANIZATION_ID, {
-      range,
-      sellers: [seller('mall', '스마트스토어', [day(range.from, 2_000, 2, 800)])],
-      capturedAt: '2026-07-18T03:00:00.000Z',
-    });
-
-    await service.ingest(TEST_ORGANIZATION_ID, {
-      range,
-      sellers: [seller('mall', '스마트스토어', [day(range.from, 1_000, 1, 400)])],
-      capturedAt: '2026-07-18T02:00:00.000Z',
-    });
-
     await expect(
-      prisma.sellpiaSalesDailySnapshot.findUnique({
-        where: {
-          organizationId_businessDate_sellerId: {
-            organizationId: TEST_ORGANIZATION_ID,
-            businessDate: dbDate(range.from),
-            sellerId: 'mall',
-          },
-        },
-      }),
-    ).resolves.toMatchObject({
-      revenueKrw: 2_000,
-      qty: 2,
-      costKrw: 800,
-      capturedAt: new Date('2026-07-18T03:00:00.000Z'),
-    });
-  });
-
-  it('protects a newer legacy fact without a coverage row and self-heals on a fresher collection', async () => {
-    const date = '2026-07-18';
-    await prisma.sellpiaSalesDailySnapshot.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        businessDate: dbDate(date),
-        sellerId: 'legacy-mall',
-        sellerName: '기존 판매처',
-        channelGroup: 'others',
-        revenueKrw: 2_000,
-        qty: 2,
-        costKrw: 800,
-        capturedAt: new Date(CAPTURE_3),
-      },
-    });
-
-    const staleResult = await service.ingest(TEST_ORGANIZATION_ID, {
-      range: { from: date, to: date },
-      sellers: [seller('legacy-mall', '기존 판매처', [day(date, 1_000, 1, 400)])],
-      capturedAt: CAPTURE_2,
-    });
-    expect(staleResult).toEqual({
-      upserted: 0,
-      businessDates: [],
-      sellerCount: 1,
-    });
-    await expect(
-      prisma.sellpiaSalesDailySnapshot.findUnique({
-        where: {
-          organizationId_businessDate_sellerId: {
-            organizationId: TEST_ORGANIZATION_ID,
-            businessDate: dbDate(date),
-            sellerId: 'legacy-mall',
-          },
-        },
-      }),
-    ).resolves.toMatchObject({ revenueKrw: 2_000, capturedAt: new Date(CAPTURE_3) });
+      prisma.sourceImportRun.findUnique({ where: { id: attempt.attemptId } }),
+    ).resolves.toMatchObject({ status: 'running' });
     await expect(
       prisma.sellpiaSalesDailySnapshot.count({
-        where: {
-          organizationId: TEST_ORGANIZATION_ID,
-          sellerId: SELLPIA_SALES_COVERAGE_SELLER_ID,
-        },
+        where: { sourceImportRunId: attempt.attemptId },
       }),
     ).resolves.toBe(0);
+  });
 
-    await service.ingest(TEST_ORGANIZATION_ID, {
-      range: { from: date, to: date },
-      sellers: [seller('legacy-mall', '기존 판매처', [day(date, 3_000, 3, 1_200)])],
-      capturedAt: CAPTURE_4,
+  it('replays the identical COMPLETE body and rejects a changed terminal body', async () => {
+    const range = { from: '2026-07-17', to: '2026-07-17' };
+    const body = payload(range, CAPTURE_1);
+    const attempt = await begin(owner, TEST_ORGANIZATION_ID, range);
+    const control = await owner.readAttemptControl(TEST_ORGANIZATION_ID, attempt.attemptId);
+    const completed = await owner.completeAttempt(
+      TEST_ORGANIZATION_ID,
+      attempt.attemptId,
+      control!.attemptToken,
+      body,
+    );
+
+    await expect(
+      owner.completeAttempt(
+        TEST_ORGANIZATION_ID,
+        attempt.attemptId,
+        control!.attemptToken,
+        body,
+      ),
+    ).resolves.toMatchObject({
+      state: 'COMPLETE',
+      contentChecksum: completed.contentChecksum,
     });
+    await expect(
+      prisma.sellpiaSalesDailySnapshot.count({ where: { sourceImportRunId: attempt.attemptId } }),
+    ).resolves.toBe(2);
+
+    await expect(
+      owner.completeAttempt(
+        TEST_ORGANIZATION_ID,
+        attempt.attemptId,
+        control!.attemptToken,
+        payload(range, CAPTURE_2),
+      ),
+    ).rejects.toThrow('SOURCE_TERMINAL_REPLAY_CONFLICT');
+  });
+
+  it('keeps a prior COMPLETE publication when a newer attempt fails', async () => {
+    const range = { from: '2026-07-17', to: '2026-07-17' };
+    const first = await begin(owner, TEST_ORGANIZATION_ID, range);
+    const firstControl = await owner.readAttemptControl(TEST_ORGANIZATION_ID, first.attemptId);
+    await owner.completeAttempt(
+      TEST_ORGANIZATION_ID,
+      first.attemptId,
+      firstControl!.attemptToken,
+      payload(range, CAPTURE_1, 2_000),
+    );
+
+    const failed = await begin(owner, TEST_ORGANIZATION_ID, range);
+    const failedControl = await owner.readAttemptControl(TEST_ORGANIZATION_ID, failed.attemptId);
+    await owner.failAttempt(
+      TEST_ORGANIZATION_ID,
+      failed.attemptId,
+      failedControl!.attemptToken,
+      'NETWORK',
+      'Provider unavailable.',
+    );
+
+    const published = await owner.readPublishedRows(
+      TEST_ORGANIZATION_ID,
+      range.from,
+      range.to,
+    );
+    expect(published).toHaveLength(2);
+    expect(published).toContainEqual(expect.objectContaining({
+      sellerId: '118',
+      revenueKrw: 2_000,
+    }));
+    expect(published).toContainEqual(expect.objectContaining({
+      sellerId: SELLPIA_SALES_COVERAGE_SELLER_ID,
+    }));
+    await expect(
+      prisma.sellpiaSalesDailySnapshot.count({ where: { sourceImportRunId: failed.attemptId } }),
+    ).resolves.toBe(0);
+  });
+
+  it('preserves organization isolation for owner attempts and published reads', async () => {
+    const range = { from: '2026-07-17', to: '2026-07-17' };
+    const foreign = await begin(owner, OTHER_ORGANIZATION_ID, range);
+    const foreignControl = await owner.readAttemptControl(OTHER_ORGANIZATION_ID, foreign.attemptId);
+    await owner.completeAttempt(
+      OTHER_ORGANIZATION_ID,
+      foreign.attemptId,
+      foreignControl!.attemptToken,
+      payload(range, CAPTURE_1, IDOR_SENTINEL),
+    );
+    const own = await begin(owner, TEST_ORGANIZATION_ID, range);
+    const ownControl = await owner.readAttemptControl(TEST_ORGANIZATION_ID, own.attemptId);
+    await owner.completeAttempt(
+      TEST_ORGANIZATION_ID,
+      own.attemptId,
+      ownControl!.attemptToken,
+      payload(range, CAPTURE_2, 1_000),
+    );
+
+    const [ownRows, foreignRows] = await Promise.all([
+      owner.readPublishedRows(TEST_ORGANIZATION_ID, range.from, range.to),
+      owner.readPublishedRows(OTHER_ORGANIZATION_ID, range.from, range.to),
+    ]);
+    expect(ownRows).toContainEqual(expect.objectContaining({ sellerId: '118', revenueKrw: 1_000 }));
+    expect(ownRows.some((row) => row.revenueKrw === IDOR_SENTINEL)).toBe(false);
+    expect(foreignRows).toContainEqual(expect.objectContaining({ sellerId: '118', revenueKrw: IDOR_SENTINEL }));
+    expect(
+      await owner.readAttempt(TEST_ORGANIZATION_ID, foreign.attemptId),
+    ).toBeNull();
+  });
+
+  it('requires exact empty provenance and preserves a confirmed-empty COMPLETE snapshot', async () => {
+    const range = { from: '2026-07-17', to: '2026-07-17' };
+    const attempt = await begin(owner, TEST_ORGANIZATION_ID, range);
+    const control = await owner.readAttemptControl(TEST_ORGANIZATION_ID, attempt.attemptId);
+
+    await expect(
+      owner.completeAttempt(
+        TEST_ORGANIZATION_ID,
+        attempt.attemptId,
+        control!.attemptToken,
+        { ...emptyPayload(range), provenance: { explicitEmpty: true } } as unknown as SellpiaSalesIngestBodyDto,
+      ),
+    ).rejects.toThrow('EMPTY_COVERAGE_NOT_PROVEN');
+
+    const completed = await owner.completeAttempt(
+      TEST_ORGANIZATION_ID,
+      attempt.attemptId,
+      control!.attemptToken,
+      emptyPayload(range),
+    );
+    expect(completed).toMatchObject({ state: 'COMPLETE', sellerCount: 0, rowCount: 1 });
+    await expect(
+      prisma.sellpiaSalesDailySnapshot.findMany({ where: { sourceImportRunId: attempt.attemptId } }),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        sellerId: SELLPIA_SALES_COVERAGE_SELLER_ID,
+        revenueKrw: 0,
+      }),
+    ]);
+    await expect(
+      prisma.sourceImportRun.findUnique({ where: { id: attempt.attemptId } }),
+    ).resolves.toMatchObject({ providerBackedEmptyProof: true });
+  });
+
+  it('retains source validation and normalization before any owner write', async () => {
+    const range = { from: '2026-07-17', to: '2026-07-17' };
+    const attempt = await begin(owner, TEST_ORGANIZATION_ID, range);
+    const control = await owner.readAttemptControl(TEST_ORGANIZATION_ID, attempt.attemptId);
+    const invalidBodies = [
+      {
+        ...payload(range),
+        sellers: [{ sellerId: '118', sellerName: '스마트스토어', days: [] }],
+      },
+      {
+        ...payload(range),
+        sellers: [{ sellerId: SELLPIA_SALES_COVERAGE_SELLER_ID, sellerName: 'reserved', days: [{ date: range.from, price: 1, amount: 1, buyPrice: 1 }] }],
+      },
+      {
+        ...payload(range),
+        sellers: [{ sellerId: '118', sellerName: '스마트스토어', days: [{ date: '2026-07-18', price: 1, amount: 1, buyPrice: 1 }] }],
+      },
+      { ...payload(range), capturedAt: 'not-a-date' },
+    ];
+    for (const body of invalidBodies) {
+      await expect(
+        owner.completeAttempt(
+          TEST_ORGANIZATION_ID,
+          attempt.attemptId,
+          control!.attemptToken,
+          body as SellpiaSalesIngestBodyDto,
+        ),
+      ).rejects.toThrow();
+    }
+    await expect(
+      prisma.sellpiaSalesDailySnapshot.count({ where: { sourceImportRunId: attempt.attemptId } }),
+    ).resolves.toBe(0);
+
+    const normalizedAttempt = await begin(owner, OTHER_ORGANIZATION_ID, range);
+    const normalizedControl = await owner.readAttemptControl(OTHER_ORGANIZATION_ID, normalizedAttempt.attemptId);
+    await owner.completeAttempt(
+      OTHER_ORGANIZATION_ID,
+      normalizedAttempt.attemptId,
+      normalizedControl!.attemptToken,
+      {
+        ...payload(range),
+        sellers: [{
+          sellerId: '118',
+          sellerName: '스마트스토어',
+          days: [
+            { date: range.from, price: -100, amount: Number.NaN, buyPrice: 0 },
+            { date: range.from, price: 300, amount: 3, buyPrice: 150 },
+          ],
+        }],
+      },
+    );
     await expect(
       prisma.sellpiaSalesDailySnapshot.findUnique({
         where: {
           organizationId_businessDate_sellerId: {
-            organizationId: TEST_ORGANIZATION_ID,
-            businessDate: dbDate(date),
-            sellerId: 'legacy-mall',
+            organizationId: OTHER_ORGANIZATION_ID,
+            businessDate: dbDate(range.from),
+            sellerId: '118',
           },
         },
       }),
-    ).resolves.toMatchObject({ revenueKrw: 3_000, capturedAt: new Date(CAPTURE_4) });
-    await expect(
-      prisma.sellpiaSalesDailySnapshot.count({
-        where: {
-          organizationId: TEST_ORGANIZATION_ID,
-          sellerId: SELLPIA_SALES_COVERAGE_SELLER_ID,
-        },
-      }),
-    ).resolves.toBe(1);
-  });
-
-  it('keeps a newer overlapping day while an older cache fills an uncovered day', async () => {
-    await service.ingest(TEST_ORGANIZATION_ID, {
-      range: { from: '2026-07-18', to: '2026-07-18' },
-      sellers: [seller('mall', '스마트스토어', [day('2026-07-18', 2_000, 2, 800)])],
-      capturedAt: '2026-07-18T03:00:00.000Z',
-    });
-
-    await service.ingest(TEST_ORGANIZATION_ID, {
-      range: { from: '2026-07-17', to: '2026-07-18' },
-      sellers: [
-        seller('mall', '스마트스토어', [
-          day('2026-07-17', 1_000, 1, 400),
-          day('2026-07-18', 900, 1, 300),
-        ]),
-      ],
-      capturedAt: '2026-07-18T02:00:00.000Z',
-    });
-
-    const rows = await prisma.sellpiaSalesDailySnapshot.findMany({
-      where: { organizationId: TEST_ORGANIZATION_ID },
-      orderBy: [{ businessDate: 'asc' }, { sellerId: 'asc' }],
-    });
-    expect(rows).toContainEqual(
-      expect.objectContaining({
-        businessDate: dbDate('2026-07-17'),
-        sellerId: 'mall',
-        revenueKrw: 1_000,
-        capturedAt: new Date('2026-07-18T02:00:00.000Z'),
-      }),
-    );
-    expect(rows).toContainEqual(
-      expect.objectContaining({
-        businessDate: dbDate('2026-07-18'),
-        sellerId: 'mall',
-        revenueKrw: 2_000,
-        capturedAt: new Date('2026-07-18T03:00:00.000Z'),
-      }),
-    );
-    expect(
-      rows.filter((row) => row.sellerId === SELLPIA_SALES_COVERAGE_SELLER_ID),
-    ).toHaveLength(2);
+    ).resolves.toMatchObject({ revenueKrw: 300, qty: 3, costKrw: 150 });
   });
 });
 
-function makeService(prisma: PrismaClient | PrismaService): SellpiaSalesService {
-  const wingTrafficRepository = {
-    aggregateCoupangAds: async () => ({
-      spend: 0,
-      revenue: 0,
-      impressions: 0,
-      clicks: 0,
-      conversions: 0,
-      orders: 0,
-      isCollected: false,
-      hasData: false,
-      lastObservedAt: null,
-    }),
-  } as unknown as WingTrafficAggregationRepositoryPort;
-  return new SellpiaSalesService(
-    prisma as unknown as PrismaService,
-    wingTrafficRepository,
+function makeOwner(prisma: PrismaClient): SellpiaSalesSourceService {
+  return new SellpiaSalesSourceService(
+    prisma as never,
+    new SourceFailureAlerts(new AlertsRepository(prisma as never)),
   );
+}
+
+function begin(
+  owner: SellpiaSalesSourceService,
+  organizationId: string,
+  range: { from: string; to: string },
+) {
+  return owner.beginAttempt(organizationId, randomUUID(), { range });
+}
+
+function payload(
+  range: { from: string; to: string },
+  capturedAt = CAPTURE_2,
+  revenue = 1_200,
+): SellpiaSalesIngestBodyDto {
+  return {
+    range,
+    capturedAt,
+    sellers: [{
+      sellerId: '118',
+      sellerName: '스마트스토어',
+      days: [
+        { date: range.from, price: revenue, amount: 2, buyPrice: 700 },
+        ...(range.to === range.from
+          ? []
+          : [{ date: range.to, price: revenue * 2, amount: 4, buyPrice: 1_400 }]),
+      ],
+    }],
+  };
+}
+
+function emptyPayload(range: { from: string; to: string }): SellpiaSalesIngestBodyDto {
+  return {
+    range,
+    capturedAt: CAPTURE_2,
+    sellers: [],
+    provenance: {
+      source: 'sellpia_sale_summary',
+      mode: 'selldate',
+      sellerScope: 'all',
+      responseShape: 'empty_object',
+      explicitEmpty: true,
+    },
+  };
 }
 
 function largePayload(sellerCount: number, baseRevenue: number): SellpiaSalesIngestBodyDto {
@@ -399,66 +410,32 @@ function largePayload(sellerCount: number, baseRevenue: number): SellpiaSalesIng
     capturedAt: CAPTURE_2,
     sellers: Array.from({ length: sellerCount }, (_, sellerIndex) => {
       const sellerNumber = sellerIndex + 1;
-      return seller(
-        `seller-${String(sellerNumber).padStart(2, '0')}`,
-        sellerNumber === 1 ? '쿠팡-직배송' : `판매처 ${sellerNumber}`,
-        RANGE_DATES.map((date, dateIndex) => {
+      return {
+        sellerId: `seller-${String(sellerNumber).padStart(2, '0')}`,
+        sellerName: sellerNumber === 1 ? '쿠팡-직배송' : `판매처 ${sellerNumber}`,
+        days: RANGE_DATES.map((date, dateIndex) => {
           const revenue = baseRevenue + sellerIndex * 100 + dateIndex;
-          return day(date, revenue, sellerNumber, Math.floor(revenue / 2));
+          return { date, price: revenue, amount: sellerNumber, buyPrice: Math.floor(revenue / 2) };
         }),
-      );
+      };
     }),
   };
 }
 
-function prismaWithSecondCreateManyFailure(prisma: PrismaClient): PrismaService {
-  const wrapped = {
-    $transaction: <T>(callback: (tx: Prisma.TransactionClient) => Promise<T>) =>
-      prisma.$transaction(async (tx) => {
-        let createManyCalls = 0;
-        const sellpiaSalesDailySnapshot = {
-          deleteMany: tx.sellpiaSalesDailySnapshot.deleteMany.bind(
-            tx.sellpiaSalesDailySnapshot,
-          ),
-          groupBy: tx.sellpiaSalesDailySnapshot.groupBy.bind(
-            tx.sellpiaSalesDailySnapshot,
-          ),
-          findMany: tx.sellpiaSalesDailySnapshot.findMany.bind(
-            tx.sellpiaSalesDailySnapshot,
-          ),
-          createMany: async (...args: Parameters<typeof tx.sellpiaSalesDailySnapshot.createMany>) => {
-            createManyCalls += 1;
-            if (createManyCalls === 2) {
-              throw new Error('injected second createMany failure');
-            }
-            return tx.sellpiaSalesDailySnapshot.createMany(...args);
-          },
-        };
-        return callback({
-          $executeRaw: tx.$executeRaw.bind(tx),
-          $queryRaw: tx.$queryRaw.bind(tx),
-          sellpiaSalesDailySnapshot,
-        } as unknown as Prisma.TransactionClient);
-      }),
-  };
-  return wrapped as unknown as PrismaService;
-}
-
-function seller(
-  sellerId: string,
-  sellerName: string,
-  days: SellpiaSalesIngestBodyDto['sellers'][number]['days'],
-): SellpiaSalesIngestBodyDto['sellers'][number] {
-  return { sellerId, sellerName, days };
-}
-
-function day(
-  date: string,
-  price: number,
-  amount: number,
-  buyPrice: number,
-): SellpiaSalesIngestBodyDto['sellers'][number]['days'][number] {
-  return { date, price, amount, buyPrice };
+function prismaWithSecondCreateManyFailure(prisma: PrismaClient): PrismaClient {
+  let createManyCalls = 0;
+  const extended = prisma.$extends({
+    query: {
+      sellpiaSalesDailySnapshot: {
+        async createMany({ args, query }) {
+          createManyCalls += 1;
+          if (createManyCalls === 2) throw new Error('injected second createMany failure');
+          return query(args);
+        },
+      },
+    },
+  });
+  return extended as unknown as PrismaClient;
 }
 
 function calendarDates(from: string, count: number): string[] {

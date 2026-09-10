@@ -4,7 +4,9 @@ import { describe, expect, it, vi } from 'vitest';
 import { SellpiaInventoryFileValidator } from './sellpia-inventory-file.validator';
 import { SellpiaInventoryImportService } from './sellpia-inventory-import.service';
 import type { SellpiaInventoryImportResponse } from '@kiditem/shared/source-import';
-import type { ImportSellpiaInventoryInput } from '../port/in/stock/sellpia-inventory-import.port';
+import type {
+  ImportSellpiaInventoryInput,
+} from '../port/in/stock/sellpia-inventory-import.port';
 import type { ConfirmedChannelComponentReferencePort } from '../port/out/cross-domain/confirmed-channel-component-reference.port';
 import type { SellpiaImportRunRepositoryPort } from '../port/out/repository/sellpia-import-run.repository.port';
 import type { SellpiaSnapshotPublicationRepositoryPort } from '../port/out/repository/sellpia-snapshot-publication.repository.port';
@@ -14,7 +16,7 @@ const ATTEMPT_TOKEN = '00000000-0000-4000-8000-000000000002';
 const CLAIM_TOKEN = '00000000-0000-4000-8000-000000000003';
 const ORGANIZATION_ID = '00000000-0000-4000-8000-000000000010';
 const USER_ID = '00000000-0000-4000-8000-000000000011';
-const browserFile = Buffer.from(JSON.stringify({
+const manualFile = Buffer.from(JSON.stringify({
   source: 'sellpia_product_search',
   version: 1,
   rowCount: 1,
@@ -30,22 +32,24 @@ const browserFile = Buffer.from(JSON.stringify({
   }],
 }));
 
-const browserInput: ImportSellpiaInventoryInput = {
+const manualInput: ImportSellpiaInventoryInput = {
   organizationId: ORGANIZATION_ID,
   userId: USER_ID,
   file: {
-    buffer: browserFile,
+    buffer: manualFile,
     fileName: 'sellpia-inventory-snapshot-v1.json',
     mimeType: 'application/json',
   },
   execution: {
-    kind: 'browser',
-    claimToken: CLAIM_TOKEN,
-    activeGeneration: '7',
-    trigger: 'order_transmission_requested',
-    sourceOrigin: 'https://kiditem.sellpia.com',
-    sourceAccountKey: 'kiditem',
+    kind: 'manual',
+    manualFreshExportConfirmed: true,
   },
+};
+
+const claimedManualExecution = {
+  claimToken: CLAIM_TOKEN,
+  activeGeneration: '7',
+  trigger: 'manual_request' as const,
 };
 
 const completedRun = {
@@ -53,7 +57,7 @@ const completedRun = {
   sourceType: 'sellpia_inventory' as const,
   channelAccountId: null,
   fileName: 'sellpia-inventory-snapshot-v1.json',
-  fileHash: createHash('sha256').update(browserFile).digest('hex'),
+  fileHash: createHash('sha256').update(manualFile).digest('hex'),
   status: 'completed' as const,
   rowCount: 1,
   importedAt: '2026-07-15T00:00:00.000Z',
@@ -73,13 +77,17 @@ const completedRun = {
 describe('SellpiaInventoryImportService', () => {
   it('schedules one confirmation when the first post-order workbook has the same hash', async () => {
     const { service, repository, publication } = makeService();
-    repository.claimFileRun.mockResolvedValue({ kind: 'completed', runId: RUN_ID });
+    repository.claimFileRun.mockResolvedValue({
+      kind: 'completed',
+      runId: RUN_ID,
+      claimedExecution: claimedManualExecution,
+    });
     publication.verifySameHash.mockResolvedValue(response({
       outcome: 'same_hash_confirmation_scheduled',
       duplicate: true,
     }));
 
-    const result = await service.importInventory(browserInput);
+    const result = await service.importInventory(manualInput);
 
     expect(result.outcome).toBe('same_hash_confirmation_scheduled');
     expect(publication.publishSnapshot).not.toHaveBeenCalled();
@@ -87,11 +95,12 @@ describe('SellpiaInventoryImportService', () => {
 
   it('verifies the bounded same-hash confirmation without scheduling a third run', async () => {
     const { service, repository, publication } = makeService();
-    const confirmationInput: ImportSellpiaInventoryInput = {
-      ...browserInput,
-      execution: { ...browserInput.execution, trigger: 'same_hash_confirmation' },
-    };
-    repository.claimFileRun.mockResolvedValue({ kind: 'completed', runId: RUN_ID });
+    const confirmationInput: ImportSellpiaInventoryInput = manualInput;
+    repository.claimFileRun.mockResolvedValue({
+      kind: 'completed',
+      runId: RUN_ID,
+      claimedExecution: claimedManualExecution,
+    });
     publication.verifySameHash.mockResolvedValue(response({
       outcome: 'same_hash_verified',
       duplicate: true,
@@ -110,18 +119,19 @@ describe('SellpiaInventoryImportService', () => {
       kind: 'started',
       runId: RUN_ID,
       attemptToken: ATTEMPT_TOKEN,
+      claimedExecution: claimedManualExecution,
     });
     publication.publishSnapshot.mockResolvedValue(response({ outcome: 'published' }));
 
-    await service.importInventory(browserInput);
+    await service.importInventory(manualInput);
 
-    const fileHash = createHash('sha256').update(browserFile).digest('hex');
+    const fileHash = createHash('sha256').update(manualFile).digest('hex');
     expect(repository.claimFileRun).toHaveBeenCalledWith({
       organizationId: ORGANIZATION_ID,
       userId: USER_ID,
       fileName: 'sellpia-inventory-snapshot-v1.json',
       fileHash,
-      execution: browserInput.execution,
+      execution: manualInput.execution,
     });
     expect(references.listReferencedSellpiaProductCodes)
       .toHaveBeenCalledWith(ORGANIZATION_ID);
@@ -131,7 +141,7 @@ describe('SellpiaInventoryImportService', () => {
       runId: RUN_ID,
       attemptToken: ATTEMPT_TOKEN,
       fileHash,
-      execution: browserInput.execution,
+      execution: { ...manualInput.execution, ...claimedManualExecution },
       rows: [expect.objectContaining({
         sellpiaProductCode: 'SP-001',
         currentStock: 4,
@@ -145,6 +155,7 @@ describe('SellpiaInventoryImportService', () => {
       kind: 'started',
       runId: RUN_ID,
       attemptToken: ATTEMPT_TOKEN,
+      claimedExecution: claimedManualExecution,
     });
     publication.publishSnapshot.mockResolvedValue({
       run: completedRun,
@@ -157,7 +168,7 @@ describe('SellpiaInventoryImportService', () => {
       },
     } as never);
 
-    await expect(service.importInventory(browserInput)).resolves.toMatchObject({
+    await expect(service.importInventory(manualInput)).resolves.toMatchObject({
       changes: {
         createdMasterProductCount: 1,
         updatedMasterProductCount: 2,
@@ -168,19 +179,11 @@ describe('SellpiaInventoryImportService', () => {
 
   it('uses the internal manual claim returned by the run repository', async () => {
     const { service, repository, publication } = makeService();
-    const manualInput: ImportSellpiaInventoryInput = {
-      ...browserInput,
-      execution: { kind: 'manual', manualFreshExportConfirmed: true },
-    };
     repository.claimFileRun.mockResolvedValue({
       kind: 'started',
       runId: RUN_ID,
       attemptToken: ATTEMPT_TOKEN,
-      claimedExecution: {
-        claimToken: CLAIM_TOKEN,
-        activeGeneration: '8',
-        trigger: 'manual_request',
-      },
+      claimedExecution: { ...claimedManualExecution, activeGeneration: '8' },
     });
     publication.publishSnapshot.mockResolvedValue(response({ outcome: 'published' }));
 
@@ -204,10 +207,11 @@ describe('SellpiaInventoryImportService', () => {
       kind: 'started',
       runId: RUN_ID,
       attemptToken: ATTEMPT_TOKEN,
+      claimedExecution: claimedManualExecution,
     });
 
     await expect(service.importInventory({
-      ...browserInput,
+      ...manualInput,
       file: { buffer: html, fileName: 'sellpia.xls', mimeType: 'text/html' },
     })).rejects.toBeInstanceOf(BadRequestException);
 
@@ -227,10 +231,11 @@ describe('SellpiaInventoryImportService', () => {
       kind: 'started',
       runId: RUN_ID,
       attemptToken: ATTEMPT_TOKEN,
+      claimedExecution: claimedManualExecution,
     });
     references.listReferencedSellpiaProductCodes.mockRejectedValue(referenceFailure);
 
-    await expect(service.importInventory(browserInput)).rejects.toBe(referenceFailure);
+    await expect(service.importInventory(manualInput)).rejects.toBe(referenceFailure);
 
     expect(repository.markRunFailed).not.toHaveBeenCalled();
     expect(publication.publishSnapshot).not.toHaveBeenCalled();
@@ -243,10 +248,11 @@ describe('SellpiaInventoryImportService', () => {
       kind: 'started',
       runId: RUN_ID,
       attemptToken: ATTEMPT_TOKEN,
+      claimedExecution: claimedManualExecution,
     });
     publication.publishSnapshot.mockRejectedValue(publicationFailure);
 
-    await expect(service.importInventory(browserInput)).rejects.toBe(publicationFailure);
+    await expect(service.importInventory(manualInput)).rejects.toBe(publicationFailure);
 
     expect(repository.markRunFailed).not.toHaveBeenCalled();
   });
@@ -255,7 +261,7 @@ describe('SellpiaInventoryImportService', () => {
     const { service, repository, publication } = makeService();
     repository.claimFileRun.mockResolvedValue({ kind: 'running' });
 
-    await expect(service.importInventory(browserInput))
+    await expect(service.importInventory(manualInput))
       .rejects.toBeInstanceOf(ConflictException);
     expect(publication.publishSnapshot).not.toHaveBeenCalled();
     expect(publication.verifySameHash).not.toHaveBeenCalled();
@@ -280,6 +286,11 @@ function response(
 
 function makeService() {
   const repository = {
+    beginAttempt: vi.fn<SellpiaImportRunRepositoryPort['beginAttempt']>(),
+    readAttempt: vi.fn<SellpiaImportRunRepositoryPort['readAttempt']>(),
+    failAttempt: vi
+      .fn<SellpiaImportRunRepositoryPort['failAttempt']>()
+      .mockResolvedValue({} as never),
     claimFileRun: vi.fn<SellpiaImportRunRepositoryPort['claimFileRun']>(),
     markRunFailed: vi
       .fn<SellpiaImportRunRepositoryPort['markRunFailed']>()

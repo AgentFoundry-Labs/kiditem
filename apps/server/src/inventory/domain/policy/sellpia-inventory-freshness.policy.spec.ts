@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   deriveFreshnessStatus,
-  planClaim,
   planRefreshRequest,
+  toFreshnessView,
   type SellpiaInventoryFreshnessState,
 } from './sellpia-inventory-freshness.policy';
 
@@ -29,6 +29,40 @@ describe('Sellpia inventory freshness policy', () => {
       verifiedGeneration: 2n,
       failedGeneration: 3n,
     }), NOW)).toBe('failed');
+  });
+
+  it('treats an expired current owner attempt as failed without mutating state', () => {
+    const state = makeState({
+      requestedGeneration: 2n,
+      verifiedGeneration: 1n,
+      activeGeneration: 2n,
+      activeSyncToken: '00000000-0000-4000-8000-000000000020',
+      activeSyncStartedAt: new Date('2026-07-14T23:55:00.000Z'),
+      activeSyncLeaseExpiresAt: new Date('2026-07-14T23:59:00.000Z'),
+      lastAttemptAt: new Date('2026-07-14T23:50:00.000Z'),
+      lastAttemptStatus: 'completed',
+    });
+
+    expect(deriveFreshnessStatus(state, NOW)).toBe('failed');
+    expect(toFreshnessView(state, NOW, null)).toMatchObject({
+      status: 'failed',
+      activeSync: null,
+      lastAttempt: {
+        status: 'failed',
+        errorCode: null,
+        errorMessage: 'Sellpia inventory collection attempt expired.',
+      },
+    });
+    expect(state.failedGeneration).toBeNull();
+  });
+
+  it('keeps a requested generation refresh-required when no attempt is active', () => {
+    expect(deriveFreshnessStatus(makeState({
+      requestedGeneration: 2n,
+      verifiedGeneration: 1n,
+      activeGeneration: null,
+      activeSyncLeaseExpiresAt: new Date('2026-07-14T23:59:00.000Z'),
+    }), NOW)).toBe('refresh_required');
   });
 
   it('is fresh before ten minutes and stale at exactly ten minutes', () => {
@@ -89,87 +123,6 @@ describe('Sellpia inventory freshness policy', () => {
     });
   });
 
-  it('creates and claims one ttl_expired generation at the exact TTL boundary', () => {
-    const decision = planClaim(
-      makeState({
-        sourceAccountKey: 'kiditem',
-        lastVerifiedAt: new Date('2026-07-14T23:50:00.000Z'),
-      }),
-      {
-        now: NOW,
-        userId: '00000000-0000-4000-8000-000000000051',
-        claimToken: '00000000-0000-4000-8000-000000000052',
-        freshnessFence: '00000000-0000-4000-8000-000000000053',
-      },
-    );
-
-    expect(decision.kind).toBe('claimed');
-    if (decision.kind !== 'claimed') return;
-    expect(decision.patch).toMatchObject({
-      requestedGeneration: 2n,
-      activeGeneration: 2n,
-      refreshReason: 'ttl_expired',
-      activeSyncLeaseExpiresAt: new Date('2026-07-15T00:01:30.000Z'),
-    });
-  });
-
-  it('does not claim before syncNotBefore or without confirmed source binding', () => {
-    const dueLater = makeState({
-      sourceAccountKey: 'kiditem',
-      requestedGeneration: 2n,
-      verifiedGeneration: 1n,
-      syncNotBefore: new Date('2026-07-15T00:00:00.001Z'),
-    });
-    const claimInput = {
-      now: NOW,
-      userId: '00000000-0000-4000-8000-000000000061',
-      claimToken: '00000000-0000-4000-8000-000000000062',
-      freshnessFence: '00000000-0000-4000-8000-000000000063',
-    };
-
-    expect(planClaim(dueLater, claimInput)).toEqual({ kind: 'joined' });
-    expect(planClaim(
-      { ...dueLater, sourceAccountKey: null, syncNotBefore: NOW },
-      claimInput,
-    )).toEqual({ kind: 'joined' });
-  });
-
-  it('blocks an ownerless future lease and fails it at exact expiry', () => {
-    const orphanedLease = makeState({
-      requestedGeneration: 2n,
-      verifiedGeneration: 1n,
-      activeGeneration: 2n,
-      activeSyncToken: '00000000-0000-4000-8000-000000000070',
-      activeSyncOwnerUserId: null,
-      activeSyncStartedAt: NOW,
-      activeSyncLeaseExpiresAt: new Date('2026-07-15T00:01:30.000Z'),
-    });
-    const claimInput = {
-      now: NOW,
-      userId: '00000000-0000-4000-8000-000000000071',
-      claimToken: '00000000-0000-4000-8000-000000000072',
-      freshnessFence: '00000000-0000-4000-8000-000000000073',
-    };
-
-    expect(planClaim(orphanedLease, claimInput)).toEqual({ kind: 'joined' });
-    expect(planClaim(orphanedLease, {
-      ...claimInput,
-      now: new Date('2026-07-15T00:01:30.000Z'),
-    })).toMatchObject({
-      kind: 'expired',
-      claimToken: orphanedLease.activeSyncToken,
-      generation: 2n,
-      createdBy: claimInput.userId,
-      patch: {
-        activeSyncToken: null,
-        activeSyncOwnerUserId: null,
-        activeGeneration: null,
-        failedGeneration: 2n,
-        lastAttemptStatus: 'failed',
-        lastErrorCode: 'sellpia_background_timeout',
-      },
-    });
-  });
 });
 
 function makeState(

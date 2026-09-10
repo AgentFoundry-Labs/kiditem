@@ -10,6 +10,10 @@ import {
 
 const RUN_ID = '10000000-0000-4000-8000-000000000011';
 const start = vi.fn(async () => ({ id: RUN_ID }));
+const collectCoupang = vi.fn(async (_keyword?: string) => ({
+  attemptId: '20000000-0000-4000-8000-000000000022',
+  state: 'COMPLETE' as const,
+}));
 let capturedOptions: Record<string, unknown> | null = null;
 
 vi.mock('../../lib/keyword-analysis-snapshot-api', async (importOriginal) => {
@@ -57,6 +61,18 @@ vi.mock('../../hooks/use-naver-analysis-source', () => ({
   }),
 }));
 
+vi.mock('../../hooks/use-coupang-keyword-suggestion-source-owner', () => ({
+  useCoupangKeywordSuggestionSourceOwner: vi.fn(() => ({
+    status: null,
+    latestAttempt: null,
+    latestComplete: null,
+    error: null,
+    isLoading: false,
+    isCollecting: false,
+    collect: collectCoupang,
+  })),
+}));
+
 vi.mock('../../hooks/use-sourcing-workspace', () => {
   const query = {
     data: [],
@@ -93,6 +109,7 @@ describe('KeywordAnalysisPage operation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     capturedOptions = null;
+    collectCoupang.mockClear();
     window.history.replaceState(
       {},
       '',
@@ -133,5 +150,14 @@ describe('KeywordAnalysisPage operation', () => {
     await waitFor(() => expect(start).toHaveBeenCalledWith(
       expected,
     ));
+  });
+
+  it('dispatches the Coupang owner action from the explicit keyword CTA', async () => {
+    renderPage();
+    const input = screen.getByPlaceholderText('키워드를 입력해주세요');
+    fireEvent.change(input, { target: { value: '  클레이  ' } });
+    fireEvent.click(screen.getByRole('button', { name: '쿠팡 키워드 수집' }));
+
+    await waitFor(() => expect(collectCoupang).toHaveBeenCalledWith('클레이'));
   });
 });

@@ -138,7 +138,9 @@ describe('advertising MasterProduct ownership compatibility', () => {
         ]),
       },
     };
-    const repository = new AdStrategyContextRepositoryAdapter(prisma as never);
+    const repository = new AdStrategyContextRepositoryAdapter(prisma as never, {
+      loadListingReviewStats: async () => ({ lifetime: [], recent: [] }),
+    });
 
     const listings = await repository.hydrateListings('org-1', ['listing-1']);
 

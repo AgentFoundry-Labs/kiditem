@@ -4,8 +4,8 @@
 capability-admission boundary, not downstream business aggregates. Its only
 PostgreSQL durable model is `CapabilityInvocation`; completed canonical AG-UI
 event history is adapter-local CopilotKit SQLite, while provider-local sessions
-remain model continuity only and long deterministic work remains an
-`OperationRun`.
+remain model continuity only. Deterministic business work stays with its
+owning domain capability and durable owner record.
 
 ## Ownership And Direction
 
@@ -14,7 +14,7 @@ Agent
   -> CapabilityDefinition
   -> owner-domain incoming port
   -> owner implementation
-     -> AI / DB / provider / Operation when needed
+     -> AI / DB / provider when needed
 ```
 
 - Capability definitions are domain-owned business intents with strict Zod
@@ -29,8 +29,9 @@ Agent
   against Nest's current active-turn map. The token and locator grant no
   Agent, capability, delegation, organization, or user authority. MCP has no
   durable session, provider credential, transcript store, internal signing
-  layer, or repository bypass. The public tool surface is exactly five tools
-  over the 17-definition catalog, including all ten Sourcing capabilities.
+  layer, or repository bypass. Expose only the public tools and domain
+  capabilities declared in the code-owned catalog; retired capabilities are
+  not admission targets.
 - Only the native `apps/agent-gateway` process may spawn Codex/Claude. It polls
   Nest for strict structured commands, posts bounded events, and exposes no
   inbound listener or raw-shell surface. Windows Office runs one Task

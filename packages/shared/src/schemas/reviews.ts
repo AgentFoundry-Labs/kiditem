@@ -81,10 +81,11 @@ export const ReviewItemListResponseSchema = z.object({
 });
 export type ReviewItemListResponse = z.infer<typeof ReviewItemListResponseSchema>;
 
-// ── 확장 크롤링 적재 (POST /api/reviews/ingest) ─────────────────────────────
-// 쿠팡 Wing 상품평 화면(`/tenants/cs/product/review`)을 확장이 크롤링해 그대로
-// 넘긴 원본 1건. Open API 가 아닌 판매자 콘솔 세션 크롤링이므로 채널이 주는
-// 식별자(reviewId / vendorItemId / productId)를 그대로 보존한다.
+// ── 확장 크롤링 chunk 적재 (POST /api/reviews/attempts/:id/chunks) ─────────
+// 쿠팡 Wing 상품평 화면(`/tenants/cs/product/review`)을 확장이 크롤링해
+// 서버가 발급한 fenced attempt 로 넘기는 정규화된 원본 1건이다. Open API 가
+// 아닌 판매자 콘솔 세션 크롤링이므로 채널이 주는 식별자(reviewId /
+// vendorItemId / productId)를 그대로 보존한다.
 export const ReviewIngestItemSchema = z.object({
   /** 쿠팡 reviewId. 재수집 멱등 키. */
   externalReviewId: z.string().min(1),

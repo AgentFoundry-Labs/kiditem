@@ -1,146 +1,118 @@
-import {
-  SellpiaSalesIngestPayloadSchema,
-  type SellpiaSalesIngestPayload,
-} from '@kiditem/shared/dashboard';
+import { z } from 'zod';
 import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extension-bridge';
+import { transferExtensionAuthTo } from '@/lib/extension-auth';
+import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
+import {
+  beginSellpiaSalesSourceAttempt,
+  readSellpiaSalesSourceAttempt,
+  type SellpiaSalesSourceAttempt,
+  type SellpiaSalesSourceOutcome,
+} from '@/lib/sellpia-sales-api';
 
-// Sellpia 판매현황(sale_summary) 몰별 매출 수집 브릿지.
-// 확장이 셀피아 로그인 세션으로 스크랩 → 웹앱이 payload 를 백엔드로 POST(sellpia-sales-api).
-// 확장은 백엔드로 직접 전송하지 않는다(인증/전송은 웹앱 소유).
-
-interface CollectResponse {
-  success?: boolean;
-  payload?: unknown;
-  sellerCount?: number;
-  error?: string;
-}
-
-interface CacheResponse {
-  success?: boolean;
-  cache?: {
-    organizationId: string;
-    payload: unknown;
-    capturedAt: number;
-  } | null;
-  error?: string;
-}
-
-interface ActionResponse {
-  success?: boolean;
-  error?: string;
-}
+// Sellpia sale_summary source owner bridge.
+// The page starts a frozen server attempt; the extension reads that plan and
+// uploads the provider payload directly to the owner terminal endpoint.
 
 const REQUIRED_CAPABILITY = 'collectSellpiaSaleSummaryAuthoritativeV1';
+const EXTENSION_ACTION = 'collectSellpiaSaleSummary';
 
-async function detectExtensionId(): Promise<string> {
-  const exact = await detectOrderCollectionExtensionId(1200, REQUIRED_CAPABILITY);
-  if (exact) return exact;
-  throw new Error(
-    '안전한 판매현황 수집 기능이 필요합니다. extensions/kiditem-os 0.1.78 이상을 Chrome 에서 새로고침하고 kiditem.sellpia.com 에 로그인한 뒤 다시 시도해주세요.',
-  );
-}
+const ExtensionOutcomeSchema = z.object({
+  success: z.boolean(),
+  attemptId: z.string().uuid(),
+  terminalState: z.enum(['RUNNING', 'COMPLETE', 'FAILED']),
+  continuationRequired: z.boolean(),
+  errorCode: z.string().optional(),
+  error: z.string().optional(),
+}).strict();
 
-// 확장을 통해 셀피아 판매현황을 즉시 스크랩한다. (수동 새로고침 / 마운트 시 동기화)
-export async function collectSellpiaSaleSummaryFromExtension(opts: {
-  startDate?: string;
-  endDate?: string;
-  organizationId: string;
-}): Promise<SellpiaSalesIngestPayload> {
-  if (!opts.organizationId) {
-    throw new Error('판매현황을 저장할 조직 정보가 없습니다. 다시 로그인해주세요.');
-  }
-  const extensionId = await detectExtensionId();
-  const res = await sendToExtension<CollectResponse>(
-    extensionId,
-    {
-      action: 'collectSellpiaSaleSummary',
-      startDate: opts.startDate,
-      endDate: opts.endDate,
-      organizationId: opts.organizationId,
-    },
-    90000,
-  );
-  if (!res) {
-    throw new Error(
-      '확장이 판매현황 수집에 응답하지 않았습니다. Chrome 확장 관리에서 order-collector 를 새로고침해주세요.',
-    );
-  }
-  if (!res.success || !res.payload) {
-    throw new Error(res.error ?? '셀피아 판매현황 수집에 실패했습니다.');
-  }
-  const payload = isRecord(res.payload)
-    ? {
-        ...res.payload,
-        capturedAt: res.payload.capturedAt ?? new Date().toISOString(),
-      }
-    : res.payload;
-  const parsed = SellpiaSalesIngestPayloadSchema.safeParse(payload);
-  if (!parsed.success) {
-    throw new Error('셀피아 판매현황 응답 형식이 올바르지 않습니다. 확장프로그램을 새로고침해주세요.');
-  }
-  return parsed.data;
-}
+type ExtensionOutcome = z.infer<typeof ExtensionOutcomeSchema>;
 
-// 매일 자동수집 알람이 캐시해둔 payload 를 읽는다(없으면 null).
-export async function readSellpiaSalesCacheFromExtension(
-  organizationId: string,
-): Promise<{
-  payload: SellpiaSalesIngestPayload;
-  capturedAt: number;
-} | null> {
-  if (!organizationId) {
-    throw new Error('판매현황 캐시를 확인할 조직 정보가 없습니다.');
-  }
-  const extensionId = await detectExtensionId();
-  const res = await sendToExtension<CacheResponse>(
-    extensionId,
-    { action: 'getSellpiaSalesCache', organizationId },
-    8000,
-  );
-  if (!res?.success) {
-    throw new Error(res?.error ?? '셀피아 판매현황 캐시를 읽지 못했습니다.');
-  }
-  if (!res.cache) return null;
-  if (res.cache.organizationId !== organizationId) {
-    throw new Error('다른 조직의 판매현황 캐시는 사용할 수 없습니다.');
-  }
-  const capturedAt = new Date(res.cache.capturedAt);
-  if (
-    !Number.isFinite(res.cache.capturedAt) ||
-    Number.isNaN(capturedAt.getTime())
-  ) {
-    throw new Error('셀피아 판매현황 캐시 형식이 올바르지 않습니다.');
-  }
-  const payload = isRecord(res.cache.payload)
-    ? { ...res.cache.payload, capturedAt: capturedAt.toISOString() }
-    : res.cache.payload;
-  const parsed = SellpiaSalesIngestPayloadSchema.safeParse(payload);
-  if (!parsed.success) {
-    throw new Error('셀피아 판매현황 캐시 형식이 올바르지 않습니다.');
-  }
+const MAX_EXTENSION_ERROR_LENGTH = 300;
+
+function outcomeFromAttempt(attempt: SellpiaSalesSourceAttempt): SellpiaSalesSourceOutcome {
   return {
-    payload: parsed.data,
-    capturedAt: res.cache.capturedAt,
+    ...attempt,
+    success: attempt.state === 'COMPLETE',
+    terminalState: attempt.state,
   };
 }
 
-export async function clearSellpiaSalesCacheFromExtension(
-  organizationId: string,
-): Promise<void> {
-  if (!organizationId) {
-    throw new Error('판매현황 캐시를 정리할 조직 정보가 없습니다.');
-  }
-  const extensionId = await detectExtensionId();
-  const res = await sendToExtension<ActionResponse>(
-    extensionId,
-    { action: 'clearSellpiaSalesCache', organizationId },
-    8000,
+async function detectExtensionId(): Promise<string> {
+  const extensionId = await detectOrderCollectionExtensionId(1200, REQUIRED_CAPABILITY);
+  if (extensionId) return extensionId;
+  throw new Error(
+    '안전한 판매현황 수집 기능이 필요합니다. extensions/kiditem-os를 Chrome에서 새로고침하고 kiditem.sellpia.com에 로그인한 뒤 다시 시도해주세요.',
   );
-  if (!res?.success) {
-    throw new Error(res?.error ?? '셀피아 판매현황 캐시를 정리하지 못했습니다.');
-  }
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+async function reconcileTerminalAttempt(attemptId: string): Promise<SellpiaSalesSourceOutcome> {
+  const attempt = await readSellpiaSalesSourceAttempt(attemptId);
+  if (attempt.state === 'RUNNING') {
+    throw new Error('셀피아 판매현황 수집이 아직 완료되지 않았습니다. 잠시 후 상태를 확인해주세요.');
+  }
+  return outcomeFromAttempt(attempt);
+}
+
+function extensionFailureMessage(outcome: ExtensionOutcome): string | null {
+  if (outcome.success || outcome.continuationRequired) return null;
+  const detail = [outcome.errorCode, outcome.error]
+    .filter((value): value is string => Boolean(value?.trim()))
+    .join(': ')
+    .trim();
+  return detail ? detail.slice(0, MAX_EXTENSION_ERROR_LENGTH) : null;
+}
+
+export async function collectSellpiaSaleSummaryFromExtension(opts: {
+  startDate?: string;
+  endDate?: string;
+} = {}): Promise<SellpiaSalesSourceOutcome> {
+  const idempotencyKey = createSecureRandomUuid();
+  const attempt = await beginSellpiaSalesSourceAttempt({
+    idempotencyKey,
+    from: opts.startDate,
+    to: opts.endDate,
+  });
+  if (attempt.state !== 'RUNNING') return outcomeFromAttempt(attempt);
+
+  const extensionId = await detectExtensionId();
+  await transferExtensionAuthTo(extensionId);
+  let parsed: ExtensionOutcome;
+  try {
+    const response = await sendToExtension<unknown>(
+      extensionId,
+      { action: EXTENSION_ACTION, attemptId: attempt.attemptId },
+      190_000,
+    );
+    parsed = ExtensionOutcomeSchema.parse(response);
+    if (parsed.attemptId !== attempt.attemptId) {
+      throw new Error('셀피아 판매현황 수집 시도 응답이 일치하지 않습니다.');
+    }
+  } catch (error) {
+    // The extension may have committed the terminal transaction and lost the
+    // parent-page response. A read-only attempt reconciliation preserves that
+    // completion without retrying provider work or masking a still-running run.
+    try {
+      return await reconcileTerminalAttempt(attempt.attemptId);
+    } catch {
+      throw error;
+    }
+  }
+
+  let observed: SellpiaSalesSourceAttempt;
+  try {
+    observed = await readSellpiaSalesSourceAttempt(attempt.attemptId);
+  } catch (error) {
+    // A terminal write may have committed even when the first status read was
+    // lost. Reconcile once more without collecting again.
+    try {
+      return await reconcileTerminalAttempt(attempt.attemptId);
+    } catch {
+      throw error;
+    }
+  }
+  if (observed.state !== 'RUNNING') return outcomeFromAttempt(observed);
+
+  const extensionError = extensionFailureMessage(parsed);
+  if (extensionError) throw new Error(extensionError);
+  throw new Error('셀피아 판매현황 수집이 아직 완료되지 않았습니다. 잠시 후 상태를 확인해주세요.');
 }

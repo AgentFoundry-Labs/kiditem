@@ -82,6 +82,22 @@ slots may overlap, and runtime rollback does not revert schema or data.
 Never edit an applied migration. A correction is a new idempotent migration in
 a later train.
 
+If an ordinary PR must carry an already-applied migration from an older train,
+add one exact declaration to the PR body:
+
+```text
+Applied migration baseline: <40-character lowercase commit SHA> scripts/data-migrations/v<release>/<migration>.ts
+```
+
+The declared commit must be an ancestor of the checked head, its `VERSION` must
+match the migration's release directory, and its migration index must register
+the exact module. The candidate migration file must also match the baseline
+commit byte-for-byte. Deleting or renaming a migration named by a declaration,
+or omitting the declaration for an ordinary historical migration, fails the
+release contract guard. Develop-to-main promotion PRs retain their historical
+migration allowance; if they include a declaration, the same immutable checks
+still apply.
+
 ## Promote The Train
 
 1. Confirm the promotion diff, commit count, and merge ancestry are expected.

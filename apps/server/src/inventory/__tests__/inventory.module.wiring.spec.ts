@@ -7,6 +7,7 @@ import { AlertsModule } from '../../alerts/alerts.module';
 import { CoupangShipmentsController } from '../adapter/in/http/coupang-shipments.controller';
 import { InventorySkuSnapshotController } from '../adapter/in/http/inventory-sku-snapshot.controller';
 import { SellpiaInventoryImportController } from '../adapter/in/http/sellpia-inventory-import.controller';
+import { SellpiaInventorySourceController } from '../adapter/in/http/sellpia-inventory-source.controller';
 import { SellpiaInventoryFreshnessController } from '../adapter/in/http/sellpia-inventory-freshness.controller';
 import { TransfersController } from '../adapter/in/http/transfers.controller';
 import { WarehousesController } from '../adapter/in/http/warehouses.controller';
@@ -21,6 +22,7 @@ import { SellpiaInventorySkuReadRepositoryAdapter } from '../adapter/out/reposit
 import { TransfersRepositoryAdapter } from '../adapter/out/repository/transfers.repository.adapter';
 import { WarehousesRepositoryAdapter } from '../adapter/out/repository/warehouses.repository.adapter';
 import { INVENTORY_SKU_SNAPSHOT_LIST_PORT } from '../application/port/in/stock/inventory-sku-snapshot-list.port';
+import { INVENTORY_SKU_EXPORT_PORT } from '../application/port/in/stock/inventory-sku-export.port';
 import { INVENTORY_AVAILABILITY_PORT } from '../application/port/in/stock/inventory-availability.port';
 import { SELLPIA_INVENTORY_SKU_READ_PORT } from '../application/port/in/stock/sellpia-inventory-sku-read.port';
 import { SELLPIA_INVENTORY_IMPORT_PORT } from '../application/port/in/stock/sellpia-inventory-import.port';
@@ -36,6 +38,7 @@ import { SELLPIA_INVENTORY_SKU_READ_REPOSITORY_PORT } from '../application/port/
 import { SELLPIA_INVENTORY_FRESHNESS_REPOSITORY_PORT } from '../application/port/out/repository/sellpia-inventory-freshness.repository.port';
 import { ROCKET_WORKBOOK_PROGRESS_REPOSITORY_PORT } from '../application/port/out/repository/rocket-workbook-progress.repository.port';
 import { InventorySkuSnapshotListService } from '../application/service/inventory-sku-snapshot-list.service';
+import { InventorySkuExportService } from '../application/service/inventory-sku-export.service';
 import { InventoryAvailabilityService } from '../application/service/inventory-availability.service';
 import { RocketWorkbookProgressService } from '../application/service/rocket-workbook-progress.service';
 import { SellpiaInventorySkuReadService } from '../application/service/sellpia-inventory-sku-read.service';
@@ -93,7 +96,7 @@ describe('InventoryModule authoritative capability wiring', () => {
       InventoryFreshnessRuntimeModule,
     ) ?? [];
 
-    expect(imports).toEqual([PrismaModule, AlertsModule]);
+    expect(imports).toEqual([PrismaModule]);
     expect(providers).toEqual([
       SellpiaInventoryFreshnessRepositoryAdapter,
       SellpiaInventoryFreshnessService,
@@ -117,6 +120,7 @@ describe('InventoryModule authoritative capability wiring', () => {
     expect(new Set(controllers)).toEqual(new Set([
       InventorySkuSnapshotController,
       SellpiaInventoryImportController,
+      SellpiaInventorySourceController,
       SellpiaInventoryFreshnessController,
       WarehousesController,
       TransfersController,
@@ -141,6 +145,7 @@ describe('InventoryModule authoritative capability wiring', () => {
       WarehousesRepositoryAdapter,
       TransfersRepositoryAdapter,
       InventorySkuSnapshotListService,
+      InventorySkuExportService,
       InventoryAvailabilityService,
       RocketWorkbookProgressService,
       SellpiaInventorySkuReadService,
@@ -159,6 +164,10 @@ describe('InventoryModule authoritative capability wiring', () => {
     expect(providers).toContainEqual({
       provide: INVENTORY_SKU_SNAPSHOT_LIST_PORT,
       useExisting: InventorySkuSnapshotListService,
+    });
+    expect(providers).toContainEqual({
+      provide: INVENTORY_SKU_EXPORT_PORT,
+      useExisting: InventorySkuExportService,
     });
     expect(providers).toContainEqual({
       provide: INVENTORY_SKU_SNAPSHOT_LIST_REPOSITORY_PORT,

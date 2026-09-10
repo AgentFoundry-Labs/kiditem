@@ -14,6 +14,7 @@ import {
 import {
   CoupangCatalogChunkKindSchema,
   type CoupangCatalogCollectionErrorRequest,
+  type CoupangCatalogCollectionPauseRequest,
   type FinalizeCoupangCatalogCollectionRequest,
   type PutCoupangCatalogChunkRequest,
   type StartCoupangCatalogCollectionRequest,
@@ -84,6 +85,23 @@ export class ChannelCatalogCollectionController {
       attemptToken,
       kind: kind.data,
       sequence,
+      request,
+    });
+  }
+
+  @Post(':runId/pause')
+  pause(
+    @Param('channelAccountId', new ParseUUIDPipe()) channelAccountId: string,
+    @Param('runId', new ParseUUIDPipe()) runId: string,
+    @CurrentOrganization() organizationId: string,
+    @Body() request: CoupangCatalogCollectionPauseRequest,
+    @Headers('x-source-attempt-token') attemptToken: string,
+  ) {
+    return this.collection.pause({
+      organizationId,
+      channelAccountId,
+      runId,
+      attemptToken,
       request,
     });
   }

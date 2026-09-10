@@ -3,9 +3,11 @@ import { describe, expect, it } from 'vitest';
 import {
   PRODUCT_ABC_ABSOLUTE_V1_AD_SOURCE_POLICY_HASH,
   PRODUCT_ABC_ABSOLUTE_V1_ANCHORS,
-  PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD,
-  PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD_HASH,
-  PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD_JSON,
+  PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
+  PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH,
+  PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_JSON,
+  parseProductAbcDateToKstCalendarDate,
+  productAbcSaleAgeDays,
   ProductAbcContributionAnalyticsSchema,
   ProductAbcCostComponentSchema,
   ProductAbcDisplayStatusSchema,
@@ -35,10 +37,11 @@ function evaluation(overrides: Record<string, unknown> = {}) {
     consistencyScore: 100,
     economicScore: 86.5,
     validObservationDays: 31,
-    formula: PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD,
+    formula: PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
     formulaRevision: 1,
     publicationRevision: 1,
     gradeBasisCutoffDate: '2026-07-31',
+    saleStartDate: '2026-06-01',
     sellpiaSourceImportRunId: UUID,
     advertisingSourceImportRunId: UUID_2,
     sellpiaGeneration: '11',
@@ -78,52 +81,53 @@ function sourceFreshness() {
 }
 
 describe('absolute product profitability ABC contracts', () => {
-  it('locks the canonical V1 payload, anchors, policy hash, and precision', () => {
-    expect(ProductAbcFormulaPayloadSchema.parse(PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD))
-      .toEqual(PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD);
-    expect(PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD.formulaKey).toBe('PRODUCT_ABC_ABSOLUTE');
-    expect(PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD.version).toBe(1);
-    expect(PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD.anchors).toEqual(PRODUCT_ABC_ABSOLUTE_V1_ANCHORS);
-    expect(PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD.minimumObservationDays).toBe(30);
-    expect(PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD.velocityPeriodDays).toBe(30);
-    expect(PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD.maxCompleteMonths).toBe(12);
-    expect(PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD.excludeCurrentKstMonth).toBe(true);
-    expect(PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD.hardC).toEqual({
+  it('locks the current V2 payload, anchors, policy hash, and precision', () => {
+    expect(ProductAbcFormulaPayloadSchema.parse(PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD))
+      .toEqual(PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD);
+    expect(PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD.formulaKey).toBe('PRODUCT_ABC_ABSOLUTE');
+    expect(PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD.version).toBe(2);
+    expect(PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD.anchors).toEqual(PRODUCT_ABC_ABSOLUTE_V1_ANCHORS);
+    expect(PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD.minimumSaleAgeDays).toBe(30);
+    expect(PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD.requiresCompleteEvaluationPeriod).toBe(true);
+    expect(PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD.velocityPeriodDays).toBe(30);
+    expect(PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD.maxCalendarMonths).toBe(12);
+    expect(PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD.includePartialCutoffMonth).toBe(true);
+    expect(PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD.hardC).toEqual({
       weightedOperatingProfitLte: 0,
       operatingMarginLte: 0,
       lossPersistenceGte: 0.5,
     });
-    expect(PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD.gradeThresholds).toEqual({
+    expect(PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD.gradeThresholds).toEqual({
       aEconomicScoreGte: 80,
       aMarginScoreGte: 60,
       aConsistencyScoreGte: 60,
       bEconomicScoreGte: 50,
     });
-    expect(PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD.precision).toEqual({
+    expect(PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD.precision).toEqual({
       arithmetic: 'IEEE-754_BINARY64',
       persistedScale: 6,
       rounding: 'ROUND_HALF_UP',
       thresholdComparison: 'UNROUNDED',
     });
-    expect(PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD.adSourcePolicyHash)
+    expect(PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD.adSourcePolicyHash)
       .toBe(PRODUCT_ABC_ABSOLUTE_V1_AD_SOURCE_POLICY_HASH);
-    expect(PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD_HASH).toMatch(/^[a-f0-9]{64}$/);
-    expect(PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD_HASH).not.toContain('TODO');
-    expect(PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD_JSON).toContain('PRODUCT_ABC_ABSOLUTE');
+    expect(PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH).toMatch(/^[a-f0-9]{64}$/);
+    expect(PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH).not.toContain('TODO');
+    expect(PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_JSON).toContain('PRODUCT_ABC_ABSOLUTE');
   });
 
   it('does not accept drifted anchors, policy hash, or removed compatibility fields', () => {
     expect(() => ProductAbcFormulaPayloadSchema.parse({
-      ...PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD,
+      ...PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
       anchors: {
-        ...PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD.anchors,
-        profitVelocity30: PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD.anchors.profitVelocity30.map(
+        ...PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD.anchors,
+        profitVelocity30: PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD.anchors.profitVelocity30.map(
           (point, index) => index === 1 ? { ...point, score: 21 } : point,
         ),
       },
     })).toThrow();
     expect(() => ProductAbcFormulaPayloadSchema.parse({
-      ...PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD,
+      ...PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
       adSourcePolicyHash: 'a'.repeat(64),
     })).toThrow();
     for (const field of [
@@ -135,7 +139,7 @@ describe('absolute product profitability ABC contracts', () => {
       'populationHash',
     ]) {
       expect(ProductAbcFormulaPayloadSchema.safeParse({
-        ...PRODUCT_ABC_ABSOLUTE_V1_PAYLOAD,
+        ...PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
         [field]: null,
       }).success).toBe(false);
     }
@@ -215,6 +219,16 @@ describe('absolute product profitability ABC contracts', () => {
         sources: sourceFreshness(),
       })).not.toThrow();
     }
+  });
+
+  it('rejects rolled calendar dates and out-of-range timestamps before KST normalization', () => {
+    expect(parseProductAbcDateToKstCalendarDate('2026-02-29')).toBeNull();
+    expect(parseProductAbcDateToKstCalendarDate('2026-02-31T00:00:00Z')).toBeNull();
+    expect(parseProductAbcDateToKstCalendarDate('2026-01-01T24:00:00Z')).toBeNull();
+    expect(parseProductAbcDateToKstCalendarDate('2026-01-01T23:60:00Z')).toBeNull();
+    expect(parseProductAbcDateToKstCalendarDate('2026-01-01T23:00:00+02:00')).toBe('2026-01-02');
+    expect(productAbcSaleAgeDays('2026-02-31', '2026-03-31')).toBeNull();
+    expect(productAbcSaleAgeDays('2026-03-01T00:00:00Z', '2026-03-31')).toBe(30);
   });
 
   it('keeps zero-cost states unambiguous', () => {

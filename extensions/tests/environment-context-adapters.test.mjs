@@ -19,6 +19,9 @@ function createHarness({
   requiresAuth = true,
   fetchImpl,
   requestTimeoutMs = 15_000,
+  queriedTabs,
+  queryImpl,
+  executeScriptImpl,
 } = {}) {
   const storage = structuredClone(initialStorage);
   const storageListeners = [];
@@ -66,13 +69,14 @@ function createHarness({
     tabs: {
       async query(query) {
         tabQueries.push(structuredClone(query));
-        return [{ id: query.url.includes('localhost') ? 10 : 20 }];
+        if (queryImpl) return queryImpl(query);
+        return queriedTabs || [{ id: query.url.includes('localhost') ? 10 : 20 }];
       },
     },
     scripting: {
-      async executeScript(details) {
+      executeScript(details) {
         scriptCalls.push(details);
-        return [];
+        return executeScriptImpl ? executeScriptImpl(details) : [];
       },
     },
   };
@@ -90,6 +94,16 @@ function createHarness({
     console,
     setTimeout,
     structuredClone,
+    CustomEvent: class TestCustomEvent {
+      constructor(type, init = {}) {
+        this.type = type;
+        this.detail = init.detail;
+      }
+    },
+    window: {
+      location: { origin: 'http://localhost:3000' },
+      dispatchEvent() {},
+    },
   });
   vm.runInContext(fs.readFileSync(canonicalPath, 'utf8'), context, {
     filename: canonicalPath,
@@ -110,6 +124,7 @@ function createHarness({
     scriptCalls,
     storage,
     tabQueries,
+    context,
   };
 }
 
@@ -119,6 +134,23 @@ async function waitForCount(values, count) {
     await new Promise((resolve) => setTimeout(resolve, 1));
   }
   assert.equal(values.length, count);
+}
+
+async function settleWithin(promise, timeoutMs = 100) {
+  let timer;
+  const outcome = (async () => {
+    try {
+      return { status: 'resolved', value: await promise };
+    } catch (error) {
+      return { status: 'rejected', error };
+    }
+  })();
+  const timeout = new Promise((resolve) => {
+    timer = setTimeout(() => resolve({ status: 'timed_out' }), timeoutMs);
+  });
+  const result = await Promise.race([outcome, timeout]);
+  clearTimeout(timer);
+  return result;
 }
 
 test('generated environment adapters are byte-identical to the canonical source', () => {
@@ -144,6 +176,188 @@ test('resolves only the closed KidItem sender origins', () => {
   );
   assert.equal(environmentContext.resolveSender({ url: 'https://merchon.org/' }), null);
   assert.equal(environmentContext.resolveSender({ url: 'not-a-url' }), null);
+});
+
+test('publishes omitted detail as null and preserves a supplied detail payload', async () => {
+  const harness = createHarness({ queriedTabs: [{ id: 10 }] });
+  const detail = { completed: true };
+
+  await harness.environmentContext.publish('local', 'kiditem-sync');
+  await harness.environmentContext.publish('local', 'kiditem-sync', detail);
+
+  assert.equal(harness.scriptCalls[0].args[0], 'kiditem-sync');
+  assert.equal(harness.scriptCalls[0].args[1], null);
+  assert.equal(harness.scriptCalls[1].args[0], 'kiditem-sync');
+  assert.equal(harness.scriptCalls[1].args[1], detail);
+});
+
+test('isolates synchronous and asynchronous tab script failures', async () => {
+  const harness = createHarness({
+    queriedTabs: [{ id: 10 }, { id: 20 }, { id: 30 }],
+    executeScriptImpl(details) {
+      if (details.target.tabId === 10) {
+        throw new TypeError('Value is unserializable');
+      }
+      if (details.target.tabId === 20) {
+        return Promise.reject(new Error('tab was closed'));
+      }
+      return [];
+    },
+  });
+
+  await harness.environmentContext.publish('local', 'kiditem-sync', {
+    completed: true,
+  });
+
+  assert.deepEqual(
+    harness.scriptCalls.map((call) => Number(call.target.tabId)),
+    [10, 20, 30],
+  );
+  assert.deepEqual(
+    harness.scriptCalls.map((call) => call.args[1]),
+    [{ completed: true }, { completed: true }, { completed: true }],
+  );
+});
+
+test('skips frozen and discarded tabs without changing the environment tab filter', async () => {
+  const harness = createHarness({
+    queriedTabs: [
+      { id: 10, frozen: true },
+      { id: 20, discarded: true },
+      { id: 30, status: 'complete' },
+    ],
+  });
+
+  await harness.environmentContext.publish('local', 'kiditem-sync');
+  await waitForCount(harness.scriptCalls, 1);
+
+  assert.deepEqual(harness.tabQueries, [{ url: 'http://localhost:3000/*' }]);
+  assert.deepEqual(
+    harness.scriptCalls.map((call) => call.target.tabId),
+    [30],
+  );
+});
+
+test('does not wait for an unresponsive tab and drops another pending hint for that tab', async () => {
+  const harness = createHarness({
+    queriedTabs: [{ id: 10, status: 'complete' }],
+    executeScriptImpl: () => new Promise(() => {}),
+  });
+
+  const first = harness.environmentContext.publish('local', 'kiditem-sync', { sequence: 1 });
+  const second = harness.environmentContext.publish('local', 'kiditem-sync', { sequence: 2 });
+  const result = await settleWithin(Promise.all([first, second]));
+
+  assert.equal(result.status, 'resolved');
+  await waitForCount(harness.scriptCalls, 1);
+  assert.equal(harness.scriptCalls[0].args[1].sequence, 1);
+});
+
+test('checks the exact environment origin again when ordinary and auth hints execute', async () => {
+  const ordinary = createHarness({ queriedTabs: [{ id: 10 }] });
+  await ordinary.environmentContext.publish('local', 'kiditem-sync', { ready: true });
+  await waitForCount(ordinary.scriptCalls, 1);
+
+  const ordinaryHint = ordinary.scriptCalls[0];
+  const ordinaryEvents = [];
+  ordinary.context.window.dispatchEvent = (event) => ordinaryEvents.push(event);
+  ordinary.context.window.location.origin = 'http://kiditem-office';
+  ordinaryHint.func(...ordinaryHint.args);
+  assert.equal(ordinaryEvents.length, 0);
+  ordinary.context.window.location.origin = 'http://localhost:3000';
+
+  ordinaryHint.func(...ordinaryHint.args);
+  assert.equal(ordinaryEvents.length, 1);
+  assert.equal(ordinaryEvents[0].detail.ready, true);
+
+  const auth = createHarness({ queriedTabs: [{ id: 20 }] });
+  const pending = auth.environmentContext.authedFetch('local', '/api/orders');
+  await waitForCount(auth.scriptCalls, 1);
+  const authHint = auth.scriptCalls[0];
+  const authEvents = [];
+  auth.context.window.dispatchEvent = (event) => authEvents.push(event);
+  auth.context.window.location.origin = 'http://kiditem-office';
+  authHint.func(...authHint.args);
+  assert.equal(authEvents.length, 0);
+  auth.context.window.location.origin = 'http://localhost:3000';
+
+  authHint.func(...authHint.args);
+  assert.equal(authEvents.length, 1);
+  assert.equal(authEvents[0].type, 'kiditem:extension-auth-required');
+
+  await assert.rejects(pending, (error) => error.code === 'environment_auth_required');
+});
+
+test('releases a tab hint after both resolved and rejected deliveries', async () => {
+  let deliveryCount = 0;
+  const harness = createHarness({
+    queriedTabs: [{ id: 10 }],
+    executeScriptImpl() {
+      deliveryCount += 1;
+      if (deliveryCount === 2) return Promise.reject(new Error('tab closed'));
+      return Promise.resolve([]);
+    },
+  });
+
+  await harness.environmentContext.publish('local', 'kiditem-sync', { sequence: 1 });
+  await waitForCount(harness.scriptCalls, 1);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  await harness.environmentContext.publish('local', 'kiditem-sync', { sequence: 2 });
+  await waitForCount(harness.scriptCalls, 2);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  await harness.environmentContext.publish('local', 'kiditem-sync', { sequence: 3 });
+  await waitForCount(harness.scriptCalls, 3);
+  assert.deepEqual(
+    harness.scriptCalls.map((call) => call.args[1].sequence),
+    [1, 2, 3],
+  );
+});
+
+test('handles a rejected web-tab query without an unhandled hint rejection', async () => {
+  const harness = createHarness({
+    queryImpl: async () => {
+      throw new Error('tabs query failed');
+    },
+  });
+
+  await harness.environmentContext.publish('local', 'kiditem-sync');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(harness.scriptCalls.length, 0);
+});
+
+test('keeps a successful 401 token resync bounded when auth notification injection never settles', async () => {
+  const harness = createHarness({
+    responses: [401],
+    executeScriptImpl: () => new Promise(() => {}),
+  });
+  await harness.environmentContext.setAccessToken('local', 'local-token');
+
+  const pending = harness.environmentContext.authedFetch('local', '/api/orders');
+  await waitForCount(harness.fetchCalls, 1);
+  await harness.environmentContext.setAccessToken('local', 'rotated-local-token');
+
+  const result = await settleWithin(pending);
+  assert.equal(result.status, 'resolved');
+  assert.equal(result.value.status, 200);
+  assert.equal(harness.scriptCalls.length, 1);
+});
+
+test('keeps a timed-out token resync bounded when auth notification injection never settles', async () => {
+  const harness = createHarness({
+    responses: [401],
+    executeScriptImpl: () => new Promise(() => {}),
+  });
+  await harness.environmentContext.setAccessToken('local', 'local-token');
+
+  const pending = harness.environmentContext.authedFetch('local', '/api/orders');
+  await waitForCount(harness.fetchCalls, 1);
+
+  const result = await settleWithin(pending, 200);
+  assert.equal(result.status, 'resolved');
+  assert.equal(result.value.status, 401);
+  assert.equal(harness.scriptCalls.length, 1);
 });
 
 test('stores and clears authenticated profiles independently', async () => {

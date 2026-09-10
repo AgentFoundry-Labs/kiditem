@@ -12,7 +12,6 @@ import {
   detectSourcingExtensionId,
   collectSellpiaManualMatch,
   sendToExtensionViaPort,
-  wakeBrowserOperationRuntime,
 } from '../extension-bridge';
 
 type PingResponse = {
@@ -281,110 +280,18 @@ describe('durable extension command port', () => {
   });
 });
 
-describe('browser operation runtime wake', () => {
-  beforeEach(() => {
-    vi.useRealTimers();
-    window.localStorage.clear();
-  });
-
-  it('sends only the wake action to the detected unified extension', async () => {
-    window.localStorage.setItem(KIDITEM_EXTENSION_ID_KEY, 'kiditem-os');
-    const sendMessage = vi.fn((
-      _id: string,
-      message: unknown,
-      callback: (value: unknown) => void,
-    ) => {
-      callback((message as { action?: string }).action === 'ping'
-        ? {
-            success: true,
-            capabilities: { kiditemEnvironmentProfilesV1: true },
-          }
-        : { success: true, accepted: true });
-    });
-    Object.defineProperty(window, 'chrome', {
-      configurable: true,
-      value: { runtime: { lastError: undefined, sendMessage } },
-    });
-
-    await expect(wakeBrowserOperationRuntime()).resolves.toBe(true);
-    expect(sendMessage).toHaveBeenLastCalledWith(
-      'kiditem-os',
-      { action: 'wakeOperationRuntime' },
-      expect.any(Function),
-    );
-  });
-
-  it('returns false when the unified extension is absent', async () => {
-    vi.useFakeTimers();
-    Object.defineProperty(window, 'chrome', {
-      configurable: true,
-      value: undefined,
-    });
-
-    const wake = wakeBrowserOperationRuntime();
-    await vi.runAllTimersAsync();
-    await expect(wake).resolves.toBe(false);
-  });
-
-  it('rejects after the three-second wake response deadline', async () => {
-    vi.useFakeTimers();
-    window.localStorage.setItem(KIDITEM_EXTENSION_ID_KEY, 'kiditem-os');
-    const sendMessage = vi.fn((
-      _id: string,
-      message: unknown,
-      callback: (value: unknown) => void,
-    ) => {
-      if ((message as { action?: string }).action === 'ping') {
-        callback({
-          success: true,
-          capabilities: { kiditemEnvironmentProfilesV1: true },
-        });
-      }
-    });
-    Object.defineProperty(window, 'chrome', {
-      configurable: true,
-      value: { runtime: { lastError: undefined, sendMessage } },
-    });
-
-    const wake = wakeBrowserOperationRuntime();
-    await vi.advanceTimersByTimeAsync(2_999);
-    let settled = false;
-    void wake.then(
-      () => { settled = true; },
-      () => { settled = true; },
-    );
-    await Promise.resolve();
-    expect(settled).toBe(false);
-    await vi.advanceTimersByTimeAsync(1);
-    await expect(wake).rejects.toThrow('익스텐션 응답 시간이 초과되었습니다.');
-  });
-});
-
 describe('Sellpia manual-match extension command', () => {
   it('uses the durable manual-match port and validates the reply', async () => {
-    const runId = '11111111-1111-4111-8111-111111111111';
+    const attemptId = '11111111-1111-4111-8111-111111111111';
     const messageListeners: Array<(message: unknown) => void> = [];
     const disconnect = vi.fn();
     const postMessage = vi.fn((message: unknown) => {
       if ((message as { action?: string }).action !== 'collectSellpiaManualMatch') return;
       queueMicrotask(() => messageListeners.forEach((listener) => listener({
         success: true,
-        runId,
-        sourceOrigin: 'https://kiditem.sellpia.com',
-        snapshot: {
-          source: 'sellpia_product_manual_match',
-          version: 1,
-          targetCount: 2,
-          targetCodes: ['18', '634-1'],
-          rowCount: 1,
-          rows: [{
-            productCode: '634-1',
-            aliasTitle: '샤이니무지개칼라링(12개입)',
-            itemCount: 12,
-            matchedType: 'M',
-            evidenceCount: 1,
-          }],
-        },
+        attemptId,
+        terminalState: 'COMPLETE',
+        continuationRequired: false,
       })));
     });
     const connect = vi.fn(() => ({
@@ -406,23 +313,21 @@ describe('Sellpia manual-match extension command', () => {
 
     await expect(collectSellpiaManualMatch(
       'order-extension',
-      runId,
-      ['18', '634-1'],
-    )).resolves.toMatchObject({ success: true, runId });
+      attemptId,
+    )).resolves.toMatchObject({ success: true, attemptId });
     expect(connect).toHaveBeenCalledWith('order-extension', {
       name: KIDITEM_SELLPIA_MANUAL_MATCH_PORT_NAME,
     });
     expect(postMessage).toHaveBeenCalledWith({
       action: 'collectSellpiaManualMatch',
-      runId,
-      targetCodes: ['18', '634-1'],
+      attemptId,
     });
     expect(disconnect).toHaveBeenCalledOnce();
   });
 
   it('keeps a bounded manual-match scan alive without a fixed total timeout', async () => {
     vi.useFakeTimers();
-    const runId = '11111111-1111-4111-8111-111111111111';
+    const attemptId = '11111111-1111-4111-8111-111111111111';
     const messageListeners: Array<(message: unknown) => void> = [];
     const postMessage = vi.fn();
     const disconnect = vi.fn();
@@ -448,34 +353,25 @@ describe('Sellpia manual-match extension command', () => {
       },
     });
 
-    const pending = collectSellpiaManualMatch('order-extension', runId, []);
+    const pending = collectSellpiaManualMatch('order-extension', attemptId);
     expect(postMessage).toHaveBeenNthCalledWith(1, {
       action: 'collectSellpiaManualMatch',
-      runId,
-      targetCodes: [],
+      attemptId,
     });
     await vi.advanceTimersByTimeAsync(15_000);
     expect(postMessage).toHaveBeenNthCalledWith(2, {
       action: 'keepAlive',
-      runId,
     });
     await vi.advanceTimersByTimeAsync(10 * 60_000);
     expect(postMessage.mock.calls.length).toBeGreaterThan(2);
     messageListeners.forEach((listener) => listener({
       success: true,
-      runId,
-      sourceOrigin: 'https://kiditem.sellpia.com',
-      snapshot: {
-        source: 'sellpia_product_manual_match',
-        version: 1,
-        targetCount: 0,
-        targetCodes: [],
-        rowCount: 0,
-        rows: [],
-      },
+      attemptId,
+      terminalState: 'COMPLETE',
+      continuationRequired: false,
     }));
 
-    await expect(pending).resolves.toMatchObject({ success: true, runId });
+    await expect(pending).resolves.toMatchObject({ success: true, attemptId });
     expect(disconnect).toHaveBeenCalledOnce();
     vi.useRealTimers();
   });

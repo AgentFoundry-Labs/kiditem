@@ -1,11 +1,12 @@
 import { toast } from 'sonner';
-import { issueBrowserCollectionRunId } from '@/lib/browser-collection-session';
 import { formatNumber } from '@/lib/utils';
+import { sendToExtension } from '@/lib/extension-bridge';
 import {
   collectIcecreamMallRowsFromExtension,
   createOrderCollectionExtensionError,
   detectOrderCollectionSessionExtension,
   ensureMallLoggedInViaExtension,
+  orderCollectionExtensionRunFields,
   type OrderCollectionExtensionRun,
 } from './order-collection-extension';
 import {
@@ -19,9 +20,17 @@ import {
   todayYmd,
   type ConversionHistoryItem,
 } from './order-collection-page-model';
+import {
+  readOrderCollectionContinuation,
+  regenerateOrderCollectionSource,
+} from './order-collection-api';
 import { saveIcecreamDeliveryIndex } from './icecream-delivery-index';
 import { addSeenOrderKeys, distinctOrderNumbers, rowKeysOf } from './order-detect';
-import type { CoupangDirectPo, CoupangTransport } from './coupang-directship-api';
+import type {
+  CoupangDirectData,
+  CoupangDirectPo,
+  CoupangTransport,
+} from './coupang-directship-api';
 
 /**
  * 수집할 신규 주문이 없을 때의 안내.
@@ -39,6 +48,32 @@ export interface BrowserMallCollectionResult {
   masked: boolean;
   date: string | null;
 }
+
+type ServerOwnedConversionReceipt = {
+  success?: boolean;
+  sourceRows?: number | null;
+  productRows?: number | null;
+  outputRows?: number | null;
+  skippedRows?: number | null;
+  fileName?: string | null;
+  artifactId?: string | null;
+};
+
+type ServerOwnedCollectionResponse = {
+  success?: boolean;
+  attemptId?: string;
+  terminalState?: string;
+  continuationRequired?: boolean;
+  pendingLogin?: boolean;
+  pendingAuth?: boolean;
+  errorCode?: string;
+  error?: string;
+  ownerReconciliation?: string;
+  sourcePayload?: unknown;
+  conversion?: ServerOwnedConversionReceipt;
+  /** Internal-only transient output recovered after a lost extension ACK. */
+  recoveredResult?: Awaited<ReturnType<typeof regenerateOrderCollectionSource>>;
+};
 
 interface BrowserMallCollectorOptions {
   mallAccounts: OrderCollectionMallAccount[];
@@ -95,6 +130,155 @@ export function createBrowserMallCollector({
     }
   };
 
+  /**
+   * Dispatches a named native collector in server-owned mode. The extension
+   * response is intentionally a scalar conversion receipt; provider rows,
+   * HTML, CSV and workbooks never cross this response boundary.
+   */
+  const collectServerOwnedMall = async (
+    account: OrderCollectionMallAccount,
+    run: OrderCollectionExtensionRun,
+  ): Promise<ServerOwnedCollectionResponse> => {
+    const extensionId = run.extensionId ?? await detectOrderCollectionSessionExtension();
+    if (!extensionId) throw new Error('주문수집 확장프로그램을 찾을 수 없습니다.');
+
+    // Browser attempts carry the date admitted by the owner. A nullable
+    // legacy browser run is rejected before any extension message is sent;
+    // there is no page-date substitution for a server-owned attempt.
+    if (run.serverOwned && !run.date) {
+      throw new Error('ORDER_COLLECTION_DATE_NOT_ADMITTED');
+    }
+    const date = run.date ?? todayYmd();
+    const credentials = account.key === ICECREAM_MALL_KEY
+      ? await loadMallLoginCredentials(account)
+      : await tryLoadMallCredentials(account.key);
+    if (credentials) await ensureMallLogin(account.key, run);
+
+    const actionByMall: Record<string, string> = {
+      'icecream-mall': 'collectIcecreamMallOrders',
+      kidsnote: 'collectKidsnoteOrders',
+      kkomangse: 'collectKkomangseOrders',
+      onch: 'collectOnchannelOrders',
+      domeggook: 'collectDomeggookOrders',
+      kidkids: 'collectKidkidsOrders',
+      'haebub-mall': 'collectHaebeopOrders',
+      'lotte-on': 'collectLotteonOrders',
+      'gs-shop': 'collectGsshopOrders',
+      always: 'collectAlwayzOrders',
+      kakao: 'collectKakaoOrders',
+      boribori: 'collectBoriboriOrders',
+      'teacher-mall': 'collectTeachervilleOrders',
+      art09: 'collectArt09Orders',
+    };
+    const action = actionByMall[account.key];
+    if (!action) throw new Error(`${account.name} 자동 수집은 준비 중입니다.`);
+
+    const message: Record<string, unknown> = {
+      action,
+      date,
+      ...orderCollectionExtensionRunFields(run),
+    };
+    if (account.key === ICECREAM_MALL_KEY) {
+      Object.assign(message, { credentials });
+    }
+    if (account.key === 'kidsnote') {
+      Object.assign(message, { from: date, to: date, status: '', withDetail: true });
+    }
+    if (account.key === 'boribori') {
+      Object.assign(message, { password: credentials?.password ?? '' });
+    }
+    let response: ServerOwnedCollectionResponse | undefined;
+    try {
+      response = await sendToExtension<ServerOwnedCollectionResponse>(
+        extensionId,
+        message,
+        account.key === 'domeggook' ? 260000 : 200000,
+      );
+    } catch (error) {
+      // The extension may have committed COMPLETE immediately before its
+      // response channel disappeared. Probe the same attempt's retained
+      // source and regenerate the transient output; never recollect or
+      // convert a new owner input. If the probe is not COMPLETE yet, leave
+      // the attempt running so the caller can reconcile/resume it instead of
+      // sending a contradictory failure request.
+      try {
+        const recoveredResult = await regenerateOrderCollectionSource(run, { download: false });
+        return {
+          success: true,
+          attemptId: run.attemptId,
+          terminalState: 'COMPLETE',
+          recoveredResult,
+        };
+      } catch {
+        const uncertain = error instanceof Error
+          ? error
+          : new Error(`${account.name} 주문 수집 응답을 확인하지 못했습니다.`);
+        Object.assign(uncertain, { ownerReconciliationRequired: true });
+        throw uncertain;
+      }
+    }
+
+    // A converter response can be lost after the server has already committed
+    // the source artifact. COMPLETE is authoritative in that case; the
+    // explicit regeneration below recreates the transient workbook from the
+    // retained source instead of reporting a false failure or recollecting.
+    if (!response?.success || (
+      response.terminalState !== 'COMPLETE' && !response.conversion
+    )) {
+      const error = new Error(response?.error ?? `${account.name} 주문 수집 실패`);
+      Object.assign(error, {
+        code: response?.errorCode,
+        pendingLogin: response?.pendingLogin,
+        pendingAuth: response?.pendingAuth,
+        ownerReconciliationRequired: response?.ownerReconciliation === 'required',
+        sourcePayload: response?.sourcePayload,
+      });
+      throw error;
+    }
+    return response;
+  };
+
+  const generateServerOwnedSellpia = async (
+    account: OrderCollectionMallAccount,
+    run: OrderCollectionExtensionRun,
+  ): Promise<BrowserMallCollectionResult> => {
+    const receipt = await collectServerOwnedMall(account, run);
+    const result = receipt.recoveredResult
+      ?? await regenerateOrderCollectionSource(run, { download: false });
+    const continuation = account.key === ICECREAM_MALL_KEY
+      ? await readOrderCollectionContinuation(run)
+      : null;
+    const conversion = receipt.conversion ?? {};
+    const collectedRows = conversion.sourceRows ?? result.sourceRows ?? continuation?.sourceRows;
+    if (collectedRows === null || collectedRows === undefined) {
+      throw new Error('ORDER_COLLECTION_SOURCE_ROWS_UNAVAILABLE');
+    }
+    if (continuation) {
+      saveIcecreamDeliveryIndex(continuation.headers, continuation.originalRows);
+    }
+    const convertedAt = Date.now();
+    const historyItem = {
+      ...result,
+      id: `${convertedAt}-${account.key}-browser`,
+      sourceName: `${account.name} 브라우저 수집 (${formatNumber(collectedRows)}행)`,
+      convertedAt,
+      collectionDate: collectionDateOf(run),
+      collectionMode: 'browser' as const,
+      collectedRows,
+      mallKey: account.key,
+      mallName: account.name,
+    };
+    addBrowserGeneratedFile(historyItem);
+    if (continuation) {
+      addSeenOrderKeys(account.key, continuation.selectedRowKeys);
+    }
+    return {
+      rowCount: collectedRows,
+      masked: false,
+      date: collectionDateOf(run),
+    };
+  };
+
   const generateKidsnoteSellpia = async (
     run: OrderCollectionExtensionRun,
     collectionDate: string,
@@ -114,7 +298,7 @@ export function createBrowserMallCollector({
       toastNoNewOrders('키즈노트');
       return 0;
     }
-    const result = await convertKidsnoteToSellpiaFile(orders);
+    const result = await convertKidsnoteToSellpiaFile(orders, { run });
     const convertedAt = Date.now();
     addBrowserGeneratedFile({
       ...result,
@@ -140,6 +324,7 @@ export function createBrowserMallCollector({
     try {
       result = await convertKkomangseToSellpiaFile(xlsxBase64, {
         date: collectionDateOf(run),
+        run,
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -184,6 +369,7 @@ export function createBrowserMallCollector({
       result = await convertDomeggookCsvBase64(csvBase64, fileName, {
         date: collectionDate,
         download: false,
+        run,
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -225,7 +411,7 @@ export function createBrowserMallCollector({
       );
       return 0;
     }
-    const result = await convertKidkidsToSellpiaFile(orders, { download: false });
+    const result = await convertKidkidsToSellpiaFile(orders, { download: false, run });
     const rows = result.outputRows ?? 0;
     const convertedAt = Date.now();
     addBrowserGeneratedFile({
@@ -253,7 +439,7 @@ export function createBrowserMallCollector({
       toastNoNewOrders('해법몰', `발주일 ${collectionDateOf(run)} · 결제완료 기준`);
       return 0;
     }
-    const result = await convertHaebeopToSellpiaFile(orders, { download: false });
+    const result = await convertHaebeopToSellpiaFile(orders, { download: false, run });
     const rows = result.outputRows ?? 0;
     const convertedAt = Date.now();
     addBrowserGeneratedFile({
@@ -284,7 +470,7 @@ export function createBrowserMallCollector({
     const { xlsxBase64, fileName } = await collectLotteonXlsxFromExtension(run);
     let result: Awaited<ReturnType<typeof convertLotteonToSellpiaFile>>;
     try {
-      result = await convertLotteonToSellpiaFile(xlsxBase64, fileName, { download: false });
+      result = await convertLotteonToSellpiaFile(xlsxBase64, fileName, { download: false, run });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (isNoNewOrdersMessage(msg)) {
@@ -323,6 +509,7 @@ export function createBrowserMallCollector({
     try {
       result = await convertGsshopToSellpiaFile(collected.xlsxBase64, collected.fileName, {
         download: false,
+        run,
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -362,6 +549,7 @@ export function createBrowserMallCollector({
     try {
       result = await convertAlwayzToSellpiaFile(collected.xlsxBase64, collected.fileName, {
         download: false,
+        run,
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -400,7 +588,7 @@ export function createBrowserMallCollector({
     const { xlsxBase64, fileName } = collected;
     let result: Awaited<ReturnType<typeof convertBoriboriToSellpiaFile>>;
     try {
-      result = await convertBoriboriToSellpiaFile(xlsxBase64, fileName, { download: false });
+      result = await convertBoriboriToSellpiaFile(xlsxBase64, fileName, { download: false, run });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (isNoNewOrdersMessage(msg)) {
@@ -438,7 +626,7 @@ export function createBrowserMallCollector({
     const { xlsxBase64, fileName } = collected;
     let result: Awaited<ReturnType<typeof convertTeachervilleToSellpiaFile>>;
     try {
-      result = await convertTeachervilleToSellpiaFile(xlsxBase64, fileName, { download: false });
+      result = await convertTeachervilleToSellpiaFile(xlsxBase64, fileName, { download: false, run });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (isNoNewOrdersMessage(msg)) {
@@ -464,28 +652,35 @@ export function createBrowserMallCollector({
   };
 
   const generateArt09Csv = async (run: OrderCollectionExtensionRun): Promise<number> => {
-    const { collectArt09CsvFromExtension } = await import('./art09-orders-api');
+    const { collectArt09OrdersFromExtension, convertArt09ToSellpiaFile } = await import(
+      './art09-orders-api'
+    );
     await ensureMallLogin('art09', run);
-    const result = await collectArt09CsvFromExtension({ download: false, run });
-    const rows = result.outputRows ?? 0;
-    if (rows === 0) {
+    const collectedRows = await collectArt09OrdersFromExtension(run);
+    if (collectedRows.length === 0) {
+      toastNoNewOrders('아트공구');
+      return 0;
+    }
+    const result = await convertArt09ToSellpiaFile(collectedRows, { download: false, run });
+    const outputRows = result.outputRows ?? 0;
+    if (outputRows === 0) {
       toastNoNewOrders('아트공구');
       return 0;
     }
 
-    const orderCount = result.orderNumbers.length || result.sourceRows || rows;
+    const orderCount = result.sourceRows || collectedRows.length || outputRows;
     const convertedAt = Date.now();
     addBrowserGeneratedFile({
       ...result,
       id: `${convertedAt}-art09-browser`,
-      sourceName: `아트공구 주문 (${formatNumber(orderCount)}건 · ${formatNumber(rows)}품목)`,
+      sourceName: `아트공구 주문 (${formatNumber(orderCount)}건 · ${formatNumber(outputRows)}품목)`,
       convertedAt,
       collectionDate: collectionDateOf(run),
       collectionMode: 'browser',
       collectedRows: orderCount,
       mallKey: 'art09',
       mallName: '아트공구',
-      orderNumbers: result.orderNumbers,
+      orderNumbers: distinctOrderNumbersFromArt09(collectedRows),
     });
     return orderCount;
   };
@@ -493,6 +688,7 @@ export function createBrowserMallCollector({
   const generateCoupangDirectSellpia = async (
     run: OrderCollectionExtensionRun,
     selection: { eddDates: string[] } | null,
+    capturedData?: CoupangDirectData,
   ): Promise<number> => {
     const {
       COUPANG_TRANSPORT_LABEL,
@@ -502,7 +698,7 @@ export function createBrowserMallCollector({
     if (!rocketChannelAccountId) {
       throw new Error('활성 쿠팡 로켓 채널 계정을 먼저 선택해 주세요.');
     }
-    const collectedData = await collectCoupangDirectFromExtension(run);
+    const collectedData = capturedData ?? await collectCoupangDirectFromExtension(run);
     // 달력에서 고른 입고예정일이 있으면 그 발주만 넘긴다. 서버 계약(pos 전량 전달)은
     // 그대로 두고 목록만 좁히므로 변환·워크북 매칭 로직은 건드리지 않는다.
     // 달력은 유형을 합쳐 보여주므로 선택한 날짜의 쉽먼트·밀크런을 모두 남긴다.
@@ -530,6 +726,7 @@ export function createBrowserMallCollector({
           channelAccountId: rocketChannelAccountId,
           download: false,
           signal: run.signal,
+          run,
         });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -600,7 +797,7 @@ export function createBrowserMallCollector({
       toastNoNewOrders('온채널');
       return 0;
     }
-    const result = await convertOnchannelToSellpiaFile(orders);
+    const result = await convertOnchannelToSellpiaFile(orders, { run });
     const rows = result.outputRows ?? 0;
     const convertedAt = Date.now();
     addBrowserGeneratedFile({
@@ -618,7 +815,7 @@ export function createBrowserMallCollector({
   };
 
   const generateKakaoSellpia = async (run: OrderCollectionExtensionRun): Promise<number> => {
-    const { collectKakaoOrdersFromExtension, convertKakaoToSellpiaFile } = await import(
+    const { collectKakaoOrdersFromExtension, throwKakaoConversionUnsupported } = await import(
       './kakao-orders-api'
     );
     // 카카오는 토큰/SSO 로그인이라 form-fill 자동로그인 불가 — collectKakao 가 미로그인을 감지해
@@ -628,43 +825,40 @@ export function createBrowserMallCollector({
       toastNoNewOrders('카카오', '배송준비중 상태 기준');
       return 0;
     }
-    const result = await convertKakaoToSellpiaFile(orders);
-    const rows = result.outputRows ?? 0;
-    const convertedAt = Date.now();
-    addBrowserGeneratedFile({
-      ...result,
-      id: `${convertedAt}-kakao-browser`,
-      sourceName: `카카오 배송준비중 주문 (${formatNumber(orders.length)}건)`,
-      convertedAt,
-      collectionDate: collectionDateOf(run),
-      collectionMode: 'browser',
-      collectedRows: rows,
-      mallKey: 'kakao',
-      mallName: '카카오',
-    });
-    return rows;
+    return throwKakaoConversionUnsupported(orders);
   };
 
   return async function collectBrowserMall(
     account: OrderCollectionMallAccount,
     run?: OrderCollectionExtensionRun,
     // 쿠팡직배송은 달력에서 고른 입고예정일만 처리한다. 없으면 종전대로 전량.
-    options?: { directship?: { eddDates: string[] } },
+    options?: { directship?: { eddDates: string[]; data?: CoupangDirectData } },
   ): Promise<BrowserMallCollectionResult> {
     // Dashboard execution refreshes the account list immediately before a
     // batch. Keep login preflight on that same fresh account snapshot instead
     // of the list captured when this collector was first rendered.
     currentMallAccountByKey.set(account.key, account);
-    const extensionId = run?.extensionId ?? await detectOrderCollectionSessionExtension();
-    if (!extensionId) {
+    const directshipCapture = account.key === 'coupang-direct'
+      ? options?.directship?.data
+      : undefined;
+    const extensionId = run?.extensionId
+      ?? (directshipCapture ? undefined : await detectOrderCollectionSessionExtension());
+    if (!extensionId && !directshipCapture) {
       throw new Error('주문수집 확장프로그램을 찾을 수 없습니다.');
     }
     const resolvedRun: OrderCollectionExtensionRun = {
-      runId: await issueBrowserCollectionRunId(run?.runId),
-      extensionId,
-      date: run?.date ?? todayYmd(),
+      attemptId: run!.attemptId,
+      attemptToken: run!.attemptToken,
+      ...(extensionId ? { extensionId } : {}),
+      date: run?.date ?? (run?.serverOwned ? null : todayYmd()),
       signal: run?.signal,
+      ...(run?.serverOwned ? { serverOwned: true } : {}),
+      ...(run?.selectionMode ? { selectionMode: run.selectionMode } : {}),
+      ...(run?.seenRowKeys ? { seenRowKeys: [...run.seenRowKeys] } : {}),
     };
+    if (resolvedRun.serverOwned && account.key !== 'coupang-direct') {
+      return generateServerOwnedSellpia(account, resolvedRun);
+    }
     const today = collectionDateOf(resolvedRun);
     if (account.key === 'kidsnote') return resultFor(await generateKidsnoteSellpia(resolvedRun, today), today);
     if (account.key === 'kkomangse') return resultFor(await generateKkomangseSellpia(resolvedRun), today);
@@ -677,7 +871,14 @@ export function createBrowserMallCollector({
     if (account.key === 'always') return resultFor(await generateAlwayzSellpia(resolvedRun), today);
     if (account.key === 'boribori') return resultFor(await generateBoriboriSellpia(resolvedRun), today);
     if (account.key === 'coupang-direct') {
-      return resultFor(await generateCoupangDirectSellpia(resolvedRun, options?.directship ?? null), today);
+      return resultFor(
+        await generateCoupangDirectSellpia(
+          resolvedRun,
+          options?.directship ?? null,
+          options?.directship?.data,
+        ),
+        today,
+      );
     }
     if (account.key === 'teacher-mall') return resultFor(await generateTeachervilleSellpia(resolvedRun), today);
     if (account.key === 'art09') return resultFor(await generateArt09Csv(resolvedRun), today);
@@ -694,7 +895,7 @@ export function createBrowserMallCollector({
       headers: collected.headers,
       rows: collected.rows,
       fileName: `아이스크림몰_${collected.date ?? today}_브라우저수집`,
-    });
+    }, { run });
     const convertedAt = Date.now();
     addBrowserGeneratedFile({
       ...result,
@@ -738,6 +939,12 @@ function coupangDirectOrderNumbers(pos: CoupangDirectPo[]): string[] {
     if (seq) numbers.add(seq);
   }
   return [...numbers];
+}
+
+function distinctOrderNumbersFromArt09(rows: Array<{ orderId?: string }>): string[] {
+  return [...new Set(
+    rows.map((row) => String(row.orderId ?? '').trim()).filter(Boolean),
+  )];
 }
 
 async function loadMallLoginCredentials(account: OrderCollectionMallAccount) {

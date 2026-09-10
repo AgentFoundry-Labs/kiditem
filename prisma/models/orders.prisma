@@ -1,6 +1,49 @@
 // orders.prisma — Orders domain
 
 /// @namespace Orders
+/// @describe Retained collection input evidence; converted downloads are not persisted and lifecycle belongs to SourceImportRun.
+model OrderCollectionArtifact {
+  id                String   @id @default(uuid()) @db.Uuid
+  organizationId    String   @map("organization_id") @db.Uuid
+  sourceImportRunId String   @map("source_import_run_id") @db.Uuid
+  sourceFileName    String?  @map("source_file_name") @db.VarChar(240)
+  sourceContentType String   @map("source_content_type") @db.VarChar(120)
+  sourceBytes       Bytes    @map("source_bytes")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  organization    Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  sourceImportRun SourceImportRun @relation(fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@unique([sourceImportRunId, organizationId])
+  @@unique([id, organizationId])
+  @@index([organizationId])
+  @@map("order_collection_artifacts")
+}
+
+/// @namespace Orders
+/// @describe Fenced, organization-scoped review collection chunks. Chunks are staging evidence only and are deleted in the terminal publication transaction.
+model ReviewCollectionChunk {
+  id                String   @id @default(uuid()) @db.Uuid
+  organizationId    String   @map("organization_id") @db.Uuid
+  sourceImportRunId String   @map("source_import_run_id") @db.Uuid
+  windowIndex       Int      @map("window_index")
+  sequence          Int
+  checksum          String   @db.VarChar(64)
+  itemCount         Int      @map("item_count")
+  payload           Json     @db.JsonB
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization    Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  sourceImportRun SourceImportRun @relation(fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Cascade)
+
+  @@unique([sourceImportRunId, windowIndex, sequence], map: "review_collection_chunks_run_window_sequence_key")
+  @@unique([id, organizationId], map: "review_collection_chunks_id_org_key")
+  @@index([organizationId, sourceImportRunId])
+  @@map("review_collection_chunks")
+}
+
+/// @namespace Orders
 /// @describe Organization-scoped idempotency fence for browser Sellpia order transmission. It does not represent or mutate inventory freshness.
 model SellpiaOrderTransmissionIntent {
   id                  String    @id @default(uuid()) @db.Uuid
@@ -247,6 +290,7 @@ model Settlement {
 model Review {
   id             String  @id @default(uuid()) @db.Uuid
   organizationId String  @map("organization_id") @db.Uuid
+  sourceImportRunId String? @map("source_import_run_id") @db.Uuid
   listingId      String? @map("listing_id") @db.Uuid
 
   platform     String  @default("coupang")
@@ -276,10 +320,13 @@ model Review {
   updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  sourceImportRun SourceImportRun? @relation("ReviewCollectionFacts", fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Cascade)
   listing      ChannelListing? @relation(fields: [listingId], references: [id], onDelete: SetNull)
 
-  @@unique([organizationId, platform, externalReviewId], map: "reviews_org_platform_external_key")
+  @@unique([organizationId, platform, externalReviewId], map: "reviews_org_platform_external_legacy_key", where: raw("source_import_run_id IS NULL"))
+  @@unique([organizationId, sourceImportRunId, platform, externalReviewId], map: "reviews_org_source_run_external_key", where: raw("source_import_run_id IS NOT NULL"))
   @@index([organizationId])
+  @@index([organizationId, sourceImportRunId])
   @@index([listingId])
   @@index([organizationId, reviewedAt])
   @@index([organizationId, externalOptionId])

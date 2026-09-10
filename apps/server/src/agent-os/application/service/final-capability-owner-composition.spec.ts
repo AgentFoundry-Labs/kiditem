@@ -74,11 +74,6 @@ function ownerCompositions() {
       listingId: identifiers.candidateId,
       status: 'registered' as const,
     })),
-    submitCoupangListing: vi.fn(async () => ({
-      preparationId: identifiers.preparationId,
-      listingId: identifiers.candidateId,
-      status: 'registered' as const,
-    })),
   };
   const wing: ChannelsWingThumbnailCapabilityPort = {
     submitWingThumbnail: vi.fn(async () => ({ success: true, screenshotPath: null })),
@@ -167,14 +162,14 @@ describe('owner capability composition', () => {
     }
   });
 
-  it('registers the exact 14 owner-local units and invokes their actual typed owner ports', async () => {
+  it('registers the exact 13 owner-local units and invokes their actual typed owner ports', async () => {
     const { ports, providers } = ownerCompositions();
     const registry = new AgentCapabilityRegistry();
 
     expect(providers.map((provider) => provider.compositions)).toHaveLength(5);
     expect(
       providers.flatMap((provider) => provider.compositions),
-    ).toHaveLength(14);
+    ).toHaveLength(13);
 
     registerFinalCapabilityCatalog(registry, providers);
     expect(registry.listDefinitions().map((definition) => definition.key)).toEqual(
@@ -185,12 +180,6 @@ describe('owner capability composition', () => {
       context,
       input: { period: 'today' },
     });
-    await registry
-      .resolveImplementation('channels.submit_coupang_listing')!
-      .invoke({
-        context: mutationContext(registrationReference),
-        input: registrationReference,
-      });
     await registry.resolveImplementation('channels.submit_wing_thumbnail')!.invoke({
       context: mutationContext({ generationId: 'generation-1' }),
       input: { generationId: 'generation-1' },
@@ -227,14 +216,6 @@ describe('owner capability composition', () => {
     expect(ports.analytics.readOverview).toHaveBeenCalledWith({
       organizationId: identifiers.organizationId,
       period: 'today',
-    });
-    expect(ports.channels.submitCoupangListing).toHaveBeenCalledWith({
-      context: expect.objectContaining({
-        organizationId: identifiers.organizationId,
-        initiatingUserId: identifiers.userId,
-        ownerIdempotencyKey: context.ownerIdempotencyKey,
-      }),
-      input: registrationReference,
     });
     expect(ports.wing.submitWingThumbnail).toHaveBeenCalledWith(
       expect.objectContaining({

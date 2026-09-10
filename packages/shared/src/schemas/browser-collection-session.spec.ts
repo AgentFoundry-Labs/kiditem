@@ -49,7 +49,38 @@ describe('BrowserCollectionSessionViewSchema', () => {
   });
 
   it('accepts every approved producer and attention reason', () => {
-    expect(BROWSER_COLLECTION_PRODUCERS.length).toBeGreaterThan(0);
+    expect(BROWSER_COLLECTION_PRODUCERS).toEqual([
+      'advertising.ad_account_daily_kpi',
+      'advertising.ad_keyword',
+      'advertising.ad_sync',
+      'advertising.profitability_import',
+      'advertising.competitor_catalog',
+      'advertising.competitor_seller_identity',
+      'advertising.keyword_rank',
+      'advertising.wing_rank',
+      'advertising.wing_tracked_products',
+      'channels.coupang_catalog',
+      'dashboard.coupang_ads',
+      'dashboard.coupang_products',
+      'dashboard.wing_kpi',
+      'dashboard.wing_sales',
+      'inventory.sellpia',
+      'orders.coupang_directship',
+      'orders.coupang_reviews',
+      'orders.coupang_rocket_po',
+      'orders.coupang_shipment_summary',
+      'orders.mall',
+      'orders.sellpia_manual_match',
+      'orders.sellpia_product_profitability',
+      'orders.sellpia_sales',
+      'orders.sellpia_shipment_tracking',
+      'sourcing.1688_trend',
+      'sourcing.keyword_suggestion',
+      'sourcing.live_commerce',
+      'sourcing.product_extension',
+      'sourcing.tiktok_cc_trend',
+      'sourcing.wing_catalog',
+    ]);
     for (const producer of BROWSER_COLLECTION_PRODUCERS) {
       expect(BrowserCollectionProducerSchema.parse(producer)).toBe(producer);
     }

@@ -102,7 +102,6 @@ describe('CapabilityInvocationCard', () => {
       result: {
         summary: '발주서를 제출했습니다.',
         resourceRefs: [],
-        operationRefs: [],
       },
     } as never);
     const user = userEvent.setup();
@@ -148,6 +147,7 @@ describe('CapabilityInvocationCard', () => {
       result: {
         summary: '발주서를 만들고 확인 대기 중입니다.',
         resourceRefs: [{ kind: 'purchase_order', id: 'purchase/order?1', version: null }],
+        // Deliberate negative fixture: retired operation references must never render.
         operationRefs: [{ kind: 'operation_run', id: OPERATION_ID }],
         output: { providerPayload: 'must not render' },
       },
@@ -208,7 +208,6 @@ describe('CapabilityInvocationCard', () => {
         result: {
           summary: '발주서를 준비했습니다.',
           resourceRefs: [],
-          operationRefs: [],
         },
       } as never);
     render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><CapabilityInvocationCard identity={IDENTITY} invocationId={invocationId} /></QueryClientProvider>);

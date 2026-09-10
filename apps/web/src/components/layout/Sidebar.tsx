@@ -426,5 +426,5 @@ export default function Sidebar({
 }
 
 function isOpenAlert(alert: { status: string }): boolean {
-  return alert.status === "OPEN" || alert.status === "open";
+  return alert.status === "OPEN";
 }

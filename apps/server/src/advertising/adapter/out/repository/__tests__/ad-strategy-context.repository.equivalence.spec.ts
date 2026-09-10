@@ -38,9 +38,19 @@ describe('AdStrategyContextRepositoryAdapter — loadStrategyContext equivalence
     $queryRaw: vi.fn().mockResolvedValue([]),
   });
 
+  const buildReviewStatsMock = () => ({
+    loadListingReviewStats: vi.fn().mockResolvedValue({
+      lifetime: [],
+      recent: [],
+    }),
+  });
+
   it('returns the StrategyContext keys agreed with the strategy services', async () => {
     const prismaMock = buildPrismaMock();
-    const adapter = new AdStrategyContextRepositoryAdapter(prismaMock as any);
+    const adapter = new AdStrategyContextRepositoryAdapter(
+      prismaMock as any,
+      buildReviewStatsMock(),
+    );
     const config = Object.freeze({ marker: 'TEST_CONFIG' }) as unknown as AdsConfig;
 
     const result = await adapter.loadStrategyContext('org-1', 2026, 5, '14d', config);
@@ -61,7 +71,10 @@ describe('AdStrategyContextRepositoryAdapter — loadStrategyContext equivalence
 
   it('returns the exact `config` reference passed in (back-reference regression guard)', async () => {
     const prismaMock = buildPrismaMock();
-    const adapter = new AdStrategyContextRepositoryAdapter(prismaMock as any);
+    const adapter = new AdStrategyContextRepositoryAdapter(
+      prismaMock as any,
+      buildReviewStatsMock(),
+    );
     const config = Object.freeze({ marker: 'TEST_CONFIG' }) as unknown as AdsConfig;
 
     const result = await adapter.loadStrategyContext('org-1', 2026, 5, '14d', config);
@@ -73,23 +86,116 @@ describe('AdStrategyContextRepositoryAdapter — loadStrategyContext equivalence
 
   it('bounds every ad and traffic aggregate to the selected period', async () => {
     const prismaMock = buildPrismaMock();
-    const adapter = new AdStrategyContextRepositoryAdapter(prismaMock as any);
+    const adapter = new AdStrategyContextRepositoryAdapter(
+      prismaMock as any,
+      buildReviewStatsMock(),
+    );
     const config = Object.freeze({ marker: 'TEST_CONFIG' }) as unknown as AdsConfig;
 
     await adapter.loadStrategyContext('org-1', 2026, 5, '7d', config);
 
-    expect(prismaMock.channelListingDailySnapshot.groupBy).toHaveBeenCalledTimes(2);
-    for (const [args] of prismaMock.channelListingDailySnapshot.groupBy.mock.calls) {
-      expect(args.where.businessDate).toEqual({
-        gte: expect.any(Date),
-        lte: expect.any(Date),
-      });
-    }
+    expect(prismaMock.channelListingDailySnapshot.groupBy).toHaveBeenCalledTimes(1);
+    expect(prismaMock.channelListingDailySnapshot.groupBy.mock.calls[0]![0].where.businessDate).toEqual({
+      gte: expect.any(Date),
+      lte: expect.any(Date),
+    });
+    expect(prismaMock.channelListingDailySnapshot.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          businessDate: {
+            gte: expect.any(Date),
+            lte: expect.any(Date),
+          },
+        }),
+        select: expect.objectContaining({ metaJson: true }),
+      }),
+    );
+  });
+
+  it('drops legacy period-as-day traffic while retaining v2 daily projections', async () => {
+    const prismaMock = buildPrismaMock();
+    prismaMock.channelListingDailySnapshot.findMany.mockResolvedValue([
+      {
+        listingId: 'legacy-listing',
+        businessDate: new Date('2026-05-01T00:00:00.000Z'),
+        trafficRevenue: 99_999,
+        trafficOrders: 99,
+        metaJson: {
+          source: 'wing.traffic',
+          data: { periodDays: 3, businessDate: '2026-05-01' },
+        },
+      },
+      {
+        listingId: 'daily-listing',
+        businessDate: new Date('2026-05-01T00:00:00.000Z'),
+        trafficRevenue: 123,
+        trafficOrders: 2,
+        metaJson: {
+          'wing.traffic': {
+            grain: 'listing_option_sum',
+            scope: 'matched_listings',
+            periodDays: 1,
+            sourceAttemptId: '00000000-0000-4000-8000-000000000010',
+            businessDate: '2026-05-01',
+          },
+        },
+      },
+    ]);
+    const adapter = new AdStrategyContextRepositoryAdapter(
+      prismaMock as any,
+      buildReviewStatsMock(),
+    );
+    const config = Object.freeze({ marker: 'TEST_CONFIG' }) as unknown as AdsConfig;
+
+    const result = await adapter.loadStrategyContext('org-1', 2026, 5, '7d', config);
+
+    expect(result.trafficByListing).toEqual(new Map([
+      ['daily-listing', { revenue: 123, orders: 2 }],
+    ]));
+  });
+
+  it('delegates review aggregates to the Orders-owned complete-fact read port', async () => {
+    const prismaMock = buildPrismaMock();
+    const reviewStatsMock = buildReviewStatsMock();
+    reviewStatsMock.loadListingReviewStats.mockResolvedValue({
+      lifetime: [
+        { listingId: 'listing-1', totalReviews: 4, avgRating: 4.25 },
+      ],
+      recent: [{ listingId: 'listing-1', count: 2 }],
+    });
+    const adapter = new AdStrategyContextRepositoryAdapter(
+      prismaMock as any,
+      reviewStatsMock,
+    );
+    const recentSince = new Date('2026-05-01T00:00:00.000Z');
+    const trafficSince = new Date('2026-05-02T00:00:00.000Z');
+
+    const result = await adapter.loadExposureAnalysisContext(
+      'org-1',
+      ['listing-1'],
+      { recentReviewSince: recentSince, trafficSince },
+    );
+
+    expect(reviewStatsMock.loadListingReviewStats).toHaveBeenCalledWith({
+      organizationId: 'org-1',
+      listingIds: ['listing-1'],
+      recentSince,
+    });
+    expect(result.reviewStats).toEqual([
+      { listingId: 'listing-1', totalReviews: 4, avgRating: 4.25 },
+    ]);
+    expect(result.recentReviewCounts).toEqual([
+      { listingId: 'listing-1', count: 2 },
+    ]);
+    expect(prismaMock).not.toHaveProperty('review');
   });
 
   it('produces empty Maps / arrays when the underlying tables are empty', async () => {
     const prismaMock = buildPrismaMock();
-    const adapter = new AdStrategyContextRepositoryAdapter(prismaMock as any);
+    const adapter = new AdStrategyContextRepositoryAdapter(
+      prismaMock as any,
+      buildReviewStatsMock(),
+    );
     const config = Object.freeze({ marker: 'TEST_CONFIG' }) as unknown as AdsConfig;
 
     const result = await adapter.loadStrategyContext('org-1', 2026, 5, '14d', config);

@@ -36,16 +36,63 @@ describe('Sellpia profitability source owner (PostgreSQL)', () => {
     await seedMappedSku(prisma, TEST_ORGANIZATION_ID, 'SKU-1');
   });
 
-  it('selects the latest twelve closed KST months on the server', () => {
+  it('selects the latest 401 KST days through yesterday on the server', () => {
     expect(buildSellpiaProfitabilityPlan(new Date('2026-09-03T01:00:00.000Z'))).toEqual({
-      from: '2025-09-01',
-      to: '2026-08-31',
+      from: '2025-07-29',
+      to: '2026-09-02',
       coveredMonths: [
-        '2025-09', '2025-10', '2025-11', '2025-12',
-        '2026-01', '2026-02', '2026-03', '2026-04',
-        '2026-05', '2026-06', '2026-07', '2026-08',
+        '2025-07', '2025-08', '2025-09', '2025-10', '2025-11', '2025-12',
+        '2026-01', '2026-02', '2026-03', '2026-04', '2026-05', '2026-06',
+        '2026-07', '2026-08', '2026-09',
       ],
     });
+    expect(buildSellpiaProfitabilityPlan(new Date('2026-09-02T14:59:59.999Z'))).toMatchObject({
+      from: '2025-07-28',
+      to: '2026-09-01',
+    });
+    expect(buildSellpiaProfitabilityPlan(new Date('2026-09-02T15:00:00.000Z'))).toMatchObject({
+      from: '2025-07-29',
+      to: '2026-09-02',
+    });
+  });
+
+  it('persists exact intersections for partial boundary months', async () => {
+    const attempt = await service.beginAttempt(TEST_ORGANIZATION_ID, ATTEMPT_KEY);
+    const payload = completePayload(attempt);
+    const product = payload.products[0]!;
+    const month = product.months[0]!;
+    product.months = [
+      { ...month, yearMonth: attempt.plan.coveredMonths[0]! },
+      { ...month, yearMonth: attempt.plan.coveredMonths.at(-1)! },
+    ];
+    product.totalOrderAmount *= 2;
+    product.totalOrderQty *= 2;
+    product.totalInAmount *= 2;
+    product.totalInQty *= 2;
+
+    await service.submitAttempt(TEST_ORGANIZATION_ID, attempt.attemptId, payload);
+
+    const facts = await prisma.sellpiaProductMonthlySales.findMany({
+      where: { organizationId: TEST_ORGANIZATION_ID, sourceImportRunId: attempt.attemptId },
+      select: { yearMonth: true, coverageStartDate: true, coverageEndDate: true },
+      orderBy: { yearMonth: 'asc' },
+    });
+    const firstMonth = attempt.plan.coveredMonths[0]!;
+    const lastMonth = attempt.plan.coveredMonths.at(-1)!;
+    const [firstYear, firstMonthNumber] = firstMonth.split('-').map(Number);
+    const firstMonthEnd = new Date(Date.UTC(firstYear!, firstMonthNumber!, 0));
+    expect(facts).toEqual([
+      {
+        yearMonth: firstMonth,
+        coverageStartDate: new Date(`${attempt.plan.from}T00:00:00.000Z`),
+        coverageEndDate: firstMonthEnd,
+      },
+      {
+        yearMonth: lastMonth,
+        coverageStartDate: new Date(`${lastMonth}-01T00:00:00.000Z`),
+        coverageEndDate: new Date(`${attempt.plan.to}T00:00:00.000Z`),
+      },
+    ]);
   });
 
   it('keeps staged rows invisible until the manifest and Alert resolve commit together', async () => {
@@ -376,7 +423,7 @@ function owner(prisma: PrismaClient): SellpiaProfitabilitySourceService {
 function completePayload(attempt: { attemptToken: string; plan: { coveredMonths: string[] } }) {
   return {
     attemptToken: attempt.attemptToken,
-    parserVersion: 'sellpia-profitability-v1' as const,
+    parserVersion: 'sellpia-profitability-v2' as const,
     providerBackedEmptyProof: true,
     coveredMonths: attempt.plan.coveredMonths,
     provenance: {
@@ -390,6 +437,10 @@ function completePayload(attempt: { attemptToken: string; plan: { coveredMonths:
       productName: 'Mapped product',
       salePrice: 1_000,
       buyPrice: 600,
+      totalOrderAmount: 2_000,
+      totalOrderQty: 2,
+      totalInAmount: 1_200,
+      totalInQty: 2,
       months: [{
         yearMonth: attempt.plan.coveredMonths.at(-1)!,
         orderQty: 2,

@@ -13,6 +13,8 @@ const USER_ID = '00000000-0000-4000-8000-000000000002';
 const ACCOUNT_ID = '00000000-0000-4000-8000-000000000003';
 const RUN_ID = '00000000-0000-4000-8000-000000000004';
 const CLIENT_RUN_KEY = '00000000-0000-4000-8000-000000000005';
+const DETAILS_RUN_ID = '00000000-0000-4000-8000-000000000006';
+const DETAILS_KEY = '00000000-0000-4000-8000-000000000007';
 
 describe('ChannelCatalogCollectionService', () => {
   it('starts or resumes an account-scoped run and derives discovery progress', async () => {
@@ -40,6 +42,71 @@ describe('ChannelCatalogCollectionService', () => {
       attemptId: RUN_ID,
       state: 'RUNNING',
     });
+  });
+
+  it('forwards the exact basics basis when admitting a details child', async () => {
+    const repository = makeRepository();
+    const service = new ChannelCatalogCollectionService(repository, makePublisher());
+    const expectedBasicAttemptId = '00000000-0000-4000-8000-000000000007';
+
+    await service.start({
+      organizationId: ORGANIZATION_ID,
+      userId: USER_ID,
+      channelAccountId: ACCOUNT_ID,
+      idempotencyKey: CLIENT_RUN_KEY,
+      request: {
+        collectorVersion: 'wing-inventory-v1',
+        stage: 'details',
+        expectedBasicAttemptId,
+      },
+    });
+
+    expect(repository.startOrResume).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      userId: USER_ID,
+      channelAccountId: ACCOUNT_ID,
+      idempotencyKey: CLIENT_RUN_KEY,
+      collectorVersion: 'wing-inventory-v1',
+      stage: 'details',
+      expectedBasicAttemptId,
+    });
+  });
+
+  it('records a recoverable Wing pause without changing the RUNNING owner state', async () => {
+    const repository = makeRepository();
+    repository.getOwnedRunWithChunks.mockResolvedValue({
+      ...runWithChunks([]),
+      errorJson: {
+        code: 'WING_PROVIDER_RATE_LIMITED',
+        message: 'Wing rate limit',
+        phase: 'hydration',
+        recoverable: true,
+        notBefore: '2026-09-09T00:00:00.000Z',
+      },
+    });
+    const service = new ChannelCatalogCollectionService(repository, makePublisher());
+    const request = {
+      code: 'WING_PROVIDER_RATE_LIMITED' as const,
+      message: 'Wing rate limit',
+      phase: 'hydration' as const,
+      recoverable: true as const,
+      notBefore: '2026-09-09T00:00:00.000Z',
+    };
+
+    const result = await service.pause({
+      ...ownedInput(),
+      request,
+    });
+
+    expect(repository.markPaused).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      channelAccountId: ACCOUNT_ID,
+      runId: RUN_ID,
+      attemptToken: CLIENT_RUN_KEY,
+      error: request,
+    });
+    expect(result.state).toBe('RUNNING');
+    expect(result.error).toEqual(request);
   });
 
   it('reports missing pages and products entirely from durable chunks', async () => {
@@ -85,6 +152,177 @@ describe('ChannelCatalogCollectionService', () => {
     expect(result.missing).toEqual({
       discoverySequences: [2],
       productIds: ['P-2'],
+    });
+  });
+
+  it.each(['basics', 'details'] as const)(
+    'keeps compact %s status counts and phase equal to the full payload status',
+    async (stage) => {
+      const fullRun = stagedReadyRun(stage);
+      const compactRun = {
+        ...fullRun,
+        chunks: compactChunks(fullRun.chunks),
+      };
+      const compactRepository = makeRepository();
+      compactRepository.getOwnedRunWithChunks.mockImplementation(async ({ includePayload }) =>
+        (includePayload ? fullRun : compactRun) as never,
+      );
+      const compactResult = await new ChannelCatalogCollectionService(
+        compactRepository,
+        makePublisher(),
+      ).getStatus(ownedInput());
+
+      const fullRepository = makeRepository();
+      fullRepository.getOwnedRunWithChunks.mockResolvedValue(fullRun as never);
+      const fullResult = await new ChannelCatalogCollectionService(
+        fullRepository,
+        makePublisher(),
+      ).getStatus(ownedInput());
+
+      expect(compactResult.phase).toBe('ready_to_finalize');
+      expect(compactResult.phase).toBe(fullResult.phase);
+      expect(compactResult.progress).toEqual(fullResult.progress);
+      expect(compactResult.manifest).toEqual(fullResult.manifest);
+      expect(compactResult.snapshotHash).toBe(fullResult.snapshotHash);
+      expect(compactRepository.getOwnedRunWithChunks).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({ includePayload: false }),
+      );
+      expect(compactRepository.getOwnedRunWithChunks).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({ includePayload: true }),
+      );
+    },
+  );
+
+  it.each(['running', 'completed'] as const)(
+    'does not reload full payloads for %s compact status',
+    async (status) => {
+      const run = {
+        ...runRecord(),
+        status,
+        chunks: compactChunks([
+          discoveryChunk(1, [
+            {
+              ordinal: 0,
+              externalProductId: 'P-1',
+              registeredName: '상품',
+              primaryImageUrl: null,
+            },
+          ],
+          onePageManifest(),
+        ),
+        ]),
+      };
+      const repository = makeRepository();
+      repository.getOwnedRunWithChunks.mockResolvedValue(run as never);
+
+      const result = await new ChannelCatalogCollectionService(
+        repository,
+        makePublisher(),
+      ).getStatus(ownedInput());
+
+      expect(result.state).toBe(status === 'completed' ? 'COMPLETE' : 'RUNNING');
+      expect(repository.getOwnedRunWithChunks).toHaveBeenCalledTimes(1);
+      expect(repository.getOwnedRunWithChunks).toHaveBeenCalledWith(
+        expect.objectContaining({ includePayload: false }),
+      );
+    },
+  );
+
+  it.each(['completed', 'failed'] as const)(
+    'projects the linked details %s state onto a completed basics root',
+    async (childStatus) => {
+      const root = {
+        ...runRecord(),
+        status: 'completed',
+        finishedAt: new Date('2026-07-14T00:10:00.000Z'),
+        stage: 'basics' as const,
+        plan: {
+          ...runRecord().plan,
+          stage: 'basics' as const,
+          rootAttemptId: RUN_ID,
+          detailsIdempotencyKey: DETAILS_KEY,
+        },
+      };
+      const child = {
+        ...runRecord(),
+        id: DETAILS_RUN_ID,
+        collectionRunId: DETAILS_RUN_ID,
+        idempotencyKey: DETAILS_KEY,
+        status: childStatus,
+        finishedAt: childStatus === 'completed'
+          ? new Date('2026-07-14T00:20:00.000Z')
+          : null,
+        stage: 'details' as const,
+        plan: {
+          ...runRecord().plan,
+          stage: 'details' as const,
+          rootAttemptId: RUN_ID,
+          basicAttemptId: RUN_ID,
+        },
+        errorJson: childStatus === 'failed'
+          ? { code: 'PROVIDER_ERROR', message: 'Details stopped', phase: 'discovery' }
+          : null,
+        chunks: [],
+      };
+      const repository = makeRepository();
+      repository.getOwnedRunWithChunks.mockResolvedValue({ ...root, chunks: [] } as never);
+      repository.getOwnedDetailsChild.mockResolvedValue(child as never);
+      const service = new ChannelCatalogCollectionService(repository, makePublisher());
+
+      const result = await service.getStatus(ownedInput());
+
+      expect(repository.getOwnedDetailsChild).toHaveBeenCalledWith({
+        organizationId: ORGANIZATION_ID,
+        channelAccountId: ACCOUNT_ID,
+        rootAttemptId: RUN_ID,
+        detailsIdempotencyKey: DETAILS_KEY,
+        includePayload: false,
+      });
+      expect(result).toMatchObject({
+        state: 'COMPLETE',
+        rootAttemptId: RUN_ID,
+        currentAttemptId: DETAILS_RUN_ID,
+        currentStage: 'details',
+        overallState: childStatus === 'completed' ? 'COMPLETE' : 'FAILED',
+      });
+    },
+  );
+
+  it('does not keep an unadmitted details handoff running after the basics owner expires', async () => {
+    const root = {
+      ...runRecord(),
+      status: 'completed',
+      expiresAt: new Date('2026-07-13T23:59:59.000Z'),
+      finishedAt: new Date('2026-07-13T23:00:00.000Z'),
+      stage: 'basics' as const,
+      plan: {
+        ...runRecord().plan,
+        stage: 'basics' as const,
+        rootAttemptId: RUN_ID,
+        detailsIdempotencyKey: DETAILS_KEY,
+      },
+      chunks: [],
+    };
+    const repository = makeRepository();
+    repository.getOwnedRunWithChunks.mockResolvedValue(root as never);
+    const service = new ChannelCatalogCollectionService(repository, makePublisher());
+
+    const result = await service.getStatus(ownedInput());
+
+    expect(repository.getOwnedDetailsChild).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      channelAccountId: ACCOUNT_ID,
+      rootAttemptId: RUN_ID,
+      detailsIdempotencyKey: DETAILS_KEY,
+      includePayload: false,
+    });
+    expect(result).toMatchObject({
+      state: 'COMPLETE',
+      currentAttemptId: RUN_ID,
+      currentStage: 'basics',
+      overallState: 'FAILED',
     });
   });
 
@@ -158,6 +396,176 @@ describe('ChannelCatalogCollectionService', () => {
       lastPublishedAt: null,
     });
     expect(result.missing.productIds).toEqual([]);
+  });
+
+  it.each(['running', 'paused', 'failed', 'completed'] as const)(
+    'derives published detail progress from receipts while the run is %s',
+    async (state) => {
+      const firstPublishedAt = new Date('2026-07-14T00:18:40.000Z');
+      const secondPublishedAt = new Date('2026-07-14T00:20:53.000Z');
+      const manifest = { ...onePageManifest(), totalItems: 2 };
+      const first = publishedFullDetailsChunk({
+        id: 'details-published-1',
+        sequence: 1,
+        ordinal: 0,
+        externalProductId: 'P-1',
+        optionCount: 2,
+        mediaCount: 3,
+        publishedAt: firstPublishedAt,
+      });
+      const second = publishedFullDetailsChunk({
+        id: 'details-published-2',
+        sequence: 2,
+        ordinal: 1,
+        externalProductId: 'P-2',
+        optionCount: 1,
+        mediaCount: 2,
+        publishedAt: secondPublishedAt,
+      });
+      const run = {
+        ...runRecord(),
+        status: state === 'completed' ? 'completed' : state === 'failed' ? 'failed' : 'running',
+        finishedAt: state === 'completed' ? secondPublishedAt : null,
+        errorJson: state === 'paused'
+          ? {
+              code: 'WING_PROVIDER_RATE_LIMITED',
+              message: 'Wing rate limit',
+              phase: 'hydration',
+              recoverable: true,
+              notBefore: '2026-07-14T00:30:00.000Z',
+            }
+          : state === 'failed'
+            ? {
+                code: 'PROVIDER_ERROR',
+                message: 'Collection stopped',
+                phase: 'hydration',
+              }
+            : null,
+        plan: {
+          ...runRecord().plan,
+          stage: 'details' as const,
+          basicAttemptId: RUN_ID,
+          basicManifestHash: 'a'.repeat(64),
+          basicPublicationSequence: '1',
+          basicProductIds: ['P-1', 'P-2'],
+        },
+        chunks: [
+          discoveryChunk(1, [
+            {
+              ordinal: 0,
+              externalProductId: 'P-1',
+              registeredName: '상품 1',
+              primaryImageUrl: null,
+            },
+            {
+              ordinal: 1,
+              externalProductId: 'P-2',
+              registeredName: '상품 2',
+              primaryImageUrl: null,
+            },
+          ], manifest),
+          first,
+          ...(state === 'completed' ? [second] : [unpublishedFullDetailsChunk({
+            id: 'details-stored-only',
+            sequence: 2,
+            ordinal: 1,
+            externalProductId: 'P-2',
+          })]),
+          detailConfirmationChunk(manifest),
+        ],
+      };
+      const repository = makeRepository();
+      repository.getOwnedRunWithChunks.mockResolvedValue(run as never);
+      const service = new ChannelCatalogCollectionService(repository, makePublisher());
+
+      const result = await service.getStatus(ownedInput());
+      const expectedPublishedProducts = state === 'completed' ? 2 : 1;
+      expect(result.progress).toMatchObject({
+        publishedProducts: expectedPublishedProducts,
+        publishedOptionCount: state === 'completed' ? 3 : 2,
+        publishedMediaCount: state === 'completed' ? 5 : 3,
+        publishedChunks: expectedPublishedProducts,
+        firstPublishedAt: firstPublishedAt.toISOString(),
+        lastPublishedAt: (state === 'completed' ? secondPublishedAt : firstPublishedAt).toISOString(),
+      });
+      expect((await service.getStatus(ownedInput())).progress).toEqual(result.progress);
+    },
+  );
+
+  it('keeps compact receipt progress equal to full and falls back to legacy payload receipts', async () => {
+    const manifest = { ...onePageManifest(), totalItems: 1 };
+    const published = publishedFullDetailsChunk({
+      id: 'details-published',
+      sequence: 1,
+      ordinal: 0,
+      externalProductId: 'P-1',
+      optionCount: 1,
+      mediaCount: 1,
+      publishedAt: new Date('2026-07-14T00:18:40.000Z'),
+    });
+    const fullRun = {
+      ...runRecord(),
+      plan: {
+        ...runRecord().plan,
+        stage: 'details' as const,
+        basicAttemptId: RUN_ID,
+        basicManifestHash: 'a'.repeat(64),
+        basicPublicationSequence: '1',
+        basicProductIds: ['P-1'],
+      },
+      chunks: [
+        discoveryChunk(1, [{
+          ordinal: 0,
+          externalProductId: 'P-1',
+          registeredName: '상품',
+          primaryImageUrl: null,
+        }], manifest),
+        published,
+        detailConfirmationChunk(manifest),
+      ],
+    };
+    const compactRepository = makeRepository();
+    compactRepository.getOwnedRunWithChunks.mockResolvedValue({
+      ...fullRun,
+      chunks: compactChunks(fullRun.chunks),
+    } as never);
+    const compactResult = await new ChannelCatalogCollectionService(
+      compactRepository,
+      makePublisher(),
+    ).getStatus(ownedInput());
+    const fullRepository = makeRepository();
+    fullRepository.getOwnedRunWithChunks.mockResolvedValue(fullRun as never);
+    const fullResult = await new ChannelCatalogCollectionService(
+      fullRepository,
+      makePublisher(),
+    ).getStatus(ownedInput());
+    expect(compactResult.progress).toEqual(fullResult.progress);
+
+    const legacyPublished = {
+      ...published,
+      publicationJson: { changes: { imageCount: 1 } },
+    };
+    const legacyRepository = makeRepository();
+    legacyRepository.getOwnedRunWithChunks.mockResolvedValue({
+      ...fullRun,
+      chunks: [
+        fullRun.chunks[0],
+        legacyPublished,
+        fullRun.chunks[2],
+      ],
+    } as never);
+    const legacyResult = await new ChannelCatalogCollectionService(
+      legacyRepository,
+      makePublisher(),
+    ).getStatus(ownedInput());
+    expect(legacyResult.progress).toMatchObject({
+      publishedProducts: 1,
+      publishedOptionCount: 1,
+      publishedMediaCount: 1,
+      publishedChunks: 1,
+      firstPublishedAt: '2026-07-14T00:18:40.000Z',
+      lastPublishedAt: '2026-07-14T00:18:40.000Z',
+    });
   });
 
   it('rejects a checksum mismatch before writing JSONB', async () => {
@@ -312,15 +720,24 @@ function makeRepository() {
     getOwnedRunWithChunks: vi
       .fn<ChannelCatalogCollectionRepositoryPort['getOwnedRunWithChunks']>()
       .mockResolvedValue(runWithChunks([])),
+    getOwnedDetailsChild: vi
+      .fn<ChannelCatalogCollectionRepositoryPort['getOwnedDetailsChild']>()
+      .mockResolvedValue(null),
     putChunk: vi
       .fn<ChannelCatalogCollectionRepositoryPort['putChunk']>()
       .mockResolvedValue({ stored: true, chunk: {} as never }),
     markFailed: vi.fn<ChannelCatalogCollectionRepositoryPort['markFailed']>(),
+    markPaused: vi.fn<ChannelCatalogCollectionRepositoryPort['markPaused']>(),
   };
 }
 
 function makePublisher() {
   return {
+    publishDetailChunk: vi.fn<ChannelCatalogPublicationPort['publishDetailChunk']>().mockResolvedValue({
+      sourceImportRunId: RUN_ID,
+      duplicate: false,
+      changes: {},
+    }),
     publish: vi.fn<ChannelCatalogPublicationPort['publish']>().mockResolvedValue({
       sourceImportRunId: '00000000-0000-4000-8000-000000000006',
       duplicate: false,
@@ -368,6 +785,218 @@ function runWithChunks(
   >,
 ) {
   return { ...runRecord(), chunks };
+}
+
+function stagedReadyRun(stage: 'basics' | 'details') {
+  const manifest = onePageManifest();
+  const base = runRecord();
+  return {
+    ...base,
+    plan: {
+      ...base.plan,
+      stage,
+      ...(stage === 'details'
+        ? {
+            basicAttemptId: RUN_ID,
+            basicManifestHash: 'a'.repeat(64),
+            basicPublicationSequence: '1',
+            basicProductIds: ['P-1'],
+          }
+        : {}),
+    },
+    chunks: [
+      discoveryChunk(1, [
+        {
+          ordinal: 0,
+          externalProductId: 'P-1',
+          registeredName: '상품',
+          primaryImageUrl: null,
+        },
+      ], manifest),
+      stage === 'basics' ? listingBasicsChunk() : fullDetailsChunk(),
+      stage === 'basics'
+        ? confirmationChunk(manifest)
+        : detailConfirmationChunk(manifest),
+    ],
+  };
+}
+
+function listingBasicsChunk() {
+  const product = productChunk(0, ['P-1']).payload.products[0]!;
+  return {
+    id: 'basics-0',
+    kind: 'listing_basics',
+    sequence: 1,
+    checksum: 'b'.repeat(64),
+    itemCount: 1,
+    payload: {
+      version: 1 as const,
+      kind: 'listing_basics' as const,
+      startOrdinal: 0,
+      products: [product],
+    },
+  };
+}
+
+function fullDetailsChunk() {
+  return {
+    id: 'details-0',
+    kind: 'full_details',
+    sequence: 1,
+    checksum: 'd'.repeat(64),
+    itemCount: 1,
+    payload: {
+      version: 1 as const,
+      kind: 'full_details' as const,
+      startOrdinal: 0,
+      products: [{
+        ordinal: 0,
+        product: {
+          externalProductId: 'P-1',
+          options: [{
+            externalOptionId: 'P-1-SKU',
+            vendorItemId: null,
+            sellerProductItemId: 'P-1-ITEM',
+            documentIds: [],
+            raw: {},
+          }],
+          documents: [],
+          media: [],
+          raw: { source: 'fixture-details' },
+        },
+      }],
+    },
+  };
+}
+
+type PublishedFullDetailsChunkInput = {
+  id: string;
+  sequence: number;
+  ordinal: number;
+  externalProductId: string;
+  optionCount: number;
+  mediaCount: number;
+  publishedAt?: Date;
+};
+
+function publishedFullDetailsChunk(input: PublishedFullDetailsChunkInput) {
+  const options = Array.from({ length: input.optionCount }, (_, index) => ({
+    externalOptionId: `${input.externalProductId}-SKU-${index + 1}`,
+    vendorItemId: null,
+    sellerProductItemId: null,
+    documentIds: [],
+    raw: {},
+  }));
+  const media = Array.from({ length: input.mediaCount }, (_, index) => ({
+    sourceUrl: `https://example.com/${input.externalProductId}/detail-${index + 1}.jpg`,
+    role: 'detail' as const,
+    sortOrder: index,
+    externalOptionId: null,
+  }));
+  const payload = {
+    version: 1 as const,
+    kind: 'full_details' as const,
+    startOrdinal: input.ordinal,
+    products: [{
+      ordinal: input.ordinal,
+      product: {
+        externalProductId: input.externalProductId,
+        options,
+        documents: [],
+        media,
+        raw: {},
+      },
+    }],
+  };
+
+  return {
+    id: input.id,
+    kind: 'full_details' as const,
+    sequence: input.sequence,
+    checksum: 'd'.repeat(64),
+    itemCount: 1,
+    payload,
+    ...(input.publishedAt
+      ? {
+          publishedAt: input.publishedAt,
+          publicationJson: {
+            projection: {
+              kind: 'full_details',
+              startOrdinal: input.ordinal,
+              products: [{
+                ordinal: input.ordinal,
+                externalProductId: input.externalProductId,
+                optionCount: input.optionCount,
+                mediaCount: input.mediaCount,
+              }],
+            },
+          },
+        }
+      : {}),
+  };
+}
+
+function unpublishedFullDetailsChunk(
+  input: Omit<PublishedFullDetailsChunkInput, 'publishedAt' | 'optionCount' | 'mediaCount'>
+    & Partial<Pick<PublishedFullDetailsChunkInput, 'optionCount' | 'mediaCount'>>,
+) {
+  return publishedFullDetailsChunk({
+    ...input,
+    optionCount: input.optionCount ?? 1,
+    mediaCount: input.mediaCount ?? 0,
+  });
+}
+
+function detailConfirmationChunk(manifest: ReturnType<typeof onePageManifest>) {
+  return {
+    id: 'detail-confirmation',
+    kind: 'detail_manifest_confirmation',
+    sequence: 1,
+    checksum: 'e'.repeat(64),
+    itemCount: 1,
+    payload: {
+      version: 1 as const,
+      kind: 'detail_manifest_confirmation' as const,
+      manifest,
+      basicAttemptId: RUN_ID,
+      basicManifestHash: 'a'.repeat(64),
+    },
+  };
+}
+
+function compactChunks(chunks: Array<{ kind: string; payload?: unknown; [key: string]: unknown }>) {
+  return chunks.map((chunk) => {
+    const payload = chunk.payload as Record<string, unknown> | undefined;
+    const projection = chunk.kind === 'discovery_page'
+      ? {
+          kind: chunk.kind,
+          page: payload?.page,
+          manifest: payload?.manifest,
+          items: payload?.items,
+        }
+      : chunk.kind === 'manifest_confirmation' || chunk.kind === 'detail_manifest_confirmation'
+        ? { kind: chunk.kind, manifest: payload?.manifest }
+        : {
+            kind: chunk.kind,
+            startOrdinal: payload?.startOrdinal,
+            products: Array.isArray(payload?.products)
+              ? payload.products.map((item) => {
+                  const row = item as { ordinal?: number; product?: { externalProductId?: string; options?: unknown[]; media?: unknown[] } };
+                  return {
+                    ordinal: row.ordinal,
+                    externalProductId: row.product?.externalProductId,
+                    optionCount: row.product?.options?.length ?? 0,
+                    mediaCount: row.product?.media?.length ?? 0,
+                  };
+                })
+              : [],
+          };
+    return {
+      ...chunk,
+      payload: undefined,
+      publicationJson: { projection },
+    };
+  });
 }
 
 function onePageManifest() {

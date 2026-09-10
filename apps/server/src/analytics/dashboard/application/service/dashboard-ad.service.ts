@@ -4,6 +4,28 @@ import {
   InternalServerErrorException,
   Logger,
 } from '@nestjs/common';
+import {
+  PROFIT_CALCULATION_REPOSITORY_PORT,
+  type ProfitCalculationRepositoryPort,
+  type RangeProfitMetrics,
+} from '../port/out/repository/profit-calculation.repository.port';
+import {
+  WING_AD_SUMMARY_REPOSITORY_PORT,
+  type WingAdSummaryRepositoryPort,
+  type WingAdSummaryResult,
+} from '../port/out/repository/wing-ad-summary.repository.port';
+import {
+  WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT,
+  type WingTrafficAggregationRepositoryPort,
+  type AdMetricSource,
+  type CoupangAdsCoverage,
+  type CoupangAdsMetrics,
+  type WingTrafficMetrics,
+} from '../port/out/repository/wing-traffic-aggregation.repository.port';
+import { buildEffectivePeriod } from '../../domain/util/effective-period';
+import { pct1, pct2 } from '../../domain/util/percent';
+import { kstDayStart } from '../../../../common/kst';
+import type { DashboardContext } from '../../domain/context';
 import type {
   DashboardAdSummary,
   AdMetricsDetail,
@@ -11,35 +33,6 @@ import type {
   DailyAdItem,
   WingAdSummary,
 } from '@kiditem/shared/dashboard';
-import type { DashboardContext } from '../../domain/context';
-import {
-  PROFIT_CALCULATION_REPOSITORY_PORT,
-  type ProfitCalculationRepositoryPort,
-  type RangeProfitMetrics,
-} from '../port/out/repository/profit-calculation.repository.port';
-import {
-  AD_AGGREGATION_REPOSITORY_PORT,
-  type AdAggregationRepositoryPort,
-  type RangeAdMetrics,
-} from '../port/out/repository/ad-aggregation.repository.port';
-import {
-  WING_AD_SUMMARY_REPOSITORY_PORT,
-  type WingAdSummaryRepositoryPort,
-  type WingAdSummaryResult,
-} from '../port/out/repository/wing-ad-summary.repository.port';
-import {
-  DASHBOARD_AD_REPOSITORY_PORT,
-  type DashboardAdRepositoryPort,
-} from '../port/out/repository/dashboard-ad.repository.port';
-import {
-  WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT,
-  type WingTrafficAggregationRepositoryPort,
-  type CoupangAdsMetrics,
-  type WingTrafficMetrics,
-} from '../port/out/repository/wing-traffic-aggregation.repository.port';
-import { buildEffectivePeriod } from '../../domain/util/effective-period';
-import { pct1, pct2 } from '../../domain/util/percent';
-import { kstDayStart } from '../../../../common/kst';
 
 @Injectable()
 export class DashboardAdService {
@@ -48,12 +41,8 @@ export class DashboardAdService {
   constructor(
     @Inject(PROFIT_CALCULATION_REPOSITORY_PORT)
     private readonly profitCalculation: ProfitCalculationRepositoryPort,
-    @Inject(AD_AGGREGATION_REPOSITORY_PORT)
-    private readonly adAggregation: AdAggregationRepositoryPort,
     @Inject(WING_AD_SUMMARY_REPOSITORY_PORT)
     private readonly wingAdSummary: WingAdSummaryRepositoryPort,
-    @Inject(DASHBOARD_AD_REPOSITORY_PORT)
-    private readonly adRepository: DashboardAdRepositoryPort,
     @Inject(WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT)
     private readonly wingTrafficRepository: WingTrafficAggregationRepositoryPort,
   ) {}
@@ -65,18 +54,43 @@ export class DashboardAdService {
     try {
       const { year, month, monthStart, monthEnd, prevMonthDate, dateRange, anchor } = ctx;
 
-      // 30-day daily ad cost window — KST-anchored cutoff so the day grouping
-      // matches `ChannelListingDailySnapshot.businessDate` (KST date column).
+      // 30-day daily ad cost window — KST-anchored cutoff for owner-published
+      // Coupang account daily KPI rows.
       const thirtyDaysAgo = new Date(
         kstDayStart(anchor).getTime() - 30 * 24 * 60 * 60 * 1000,
       );
 
+      // Preset current/month/day windows may be clipped to the latest known
+      // source date. Custom ranges remain exact, including future dates, so
+      // their missing coverage is visible to the caller.
+      const currentMonthAdRange = presetAdRange(
+        ctx,
+        monthStart,
+        monthEnd,
+        'month',
+      );
+      const currentSelectedAdRange = presetAdRange(
+        ctx,
+        dateRange.start,
+        dateRange.end,
+        ctx.effectiveRange === 'day'
+          ? 'day'
+          : ctx.effectiveRange === 'month'
+            ? 'month'
+            : null,
+      );
+      const previousSelectedAdRange = previousPresetAdRange(
+        ctx,
+        dateRange.prevStart,
+        dateRange.prevEnd,
+        ctx.effectiveRange === 'day'
+          ? 'day'
+          : ctx.effectiveRange === 'month'
+            ? 'month'
+            : null,
+      );
+
       const [
-        adAggCurrentMonth,
-        adAggPrevMonth,
-        rangeAdCur,
-        rangeAdPrev,
-        dailyAdRows,
         curMonthProfit,
         prevMonthProfit,
         rangeProfitCur,
@@ -90,44 +104,45 @@ export class DashboardAdService {
         wingTrafficCurMonth,
         latestDataDate,
       ] = await Promise.all([
-        this.adAggregation.aggregateForRange(organizationId, monthStart, monthEnd),
-        this.adAggregation.aggregateForRange(organizationId, prevMonthDate, monthStart),
-        this.adAggregation.aggregateForRange(organizationId, dateRange.start, dateRange.end),
-        this.adAggregation.aggregateForRange(organizationId, dateRange.prevStart, dateRange.prevEnd),
-        this.adRepository.fetchDailyAdCost(organizationId, thirtyDaysAgo),
         this.profitCalculation.calculateForRange(organizationId, monthStart, monthEnd),
         this.profitCalculation.calculateForRange(organizationId, prevMonthDate, monthStart),
         this.profitCalculation.calculateForRange(organizationId, dateRange.start, dateRange.end),
         this.profitCalculation.calculateForRange(organizationId, dateRange.prevStart, dateRange.prevEnd),
         this.wingAdSummary.fetchCurrentMonthSummary(organizationId, year, month, monthStart),
-        this.wingTrafficRepository.aggregateCoupangAds(organizationId, monthStart, monthEnd),
+        this.wingTrafficRepository.aggregateCoupangAds(
+          organizationId,
+          currentMonthAdRange.from,
+          currentMonthAdRange.to,
+        ),
         this.wingTrafficRepository.aggregateCoupangAds(organizationId, prevMonthDate, monthStart),
-        this.wingTrafficRepository.aggregateCoupangAds(organizationId, dateRange.start, dateRange.end),
-        this.wingTrafficRepository.aggregateCoupangAds(organizationId, dateRange.prevStart, dateRange.prevEnd),
+        this.wingTrafficRepository.aggregateCoupangAds(
+          organizationId,
+          currentSelectedAdRange.from,
+          currentSelectedAdRange.to,
+        ),
+        this.wingTrafficRepository.aggregateCoupangAds(
+          organizationId,
+          previousSelectedAdRange.from,
+          previousSelectedAdRange.to,
+        ),
         this.wingTrafficRepository.fetchDailyAds(organizationId, thirtyDaysAgo),
         this.wingTrafficRepository.aggregateTraffic(organizationId, monthStart, monthEnd),
         this.wingTrafficRepository.findLatestDataDate(organizationId),
       ]);
 
-      // Coupang ads daily KPI snapshots are the canonical Drive replay
-      // ad source. Use them whenever they carry more spend than the
-      // listing-daily-fact aggregate (which is zero on Drive replay).
-      const useCoupangAdsForMonth =
-        coupangAdsCurMonth.hasData && coupangAdsCurMonth.spend > Number(adAggCurrentMonth.spend);
-      const useCoupangAdsForRange =
-        coupangAdsCurRange.hasData && coupangAdsCurRange.spend > Number(rangeAdCur.spend);
-
-      const monthlyMetrics = mergeAdMetrics(adAggCurrentMonth, coupangAdsCurMonth, useCoupangAdsForMonth);
-      const monthlyPrev = mergeAdMetrics(adAggPrevMonth, coupangAdsPrevMonth, useCoupangAdsForMonth);
-      const rangeMetrics = mergeAdMetrics(rangeAdCur, coupangAdsCurRange, useCoupangAdsForRange);
-      const rangePrev = mergeAdMetrics(rangeAdPrev, coupangAdsPrevRange, useCoupangAdsForRange);
-
+      // The complete owner range wins, including explicit all-zero rows.
+      // Partial/missing owner coverage is unavailable for every account KPI;
+      // listing/order aggregates cannot prove complete account coverage.
+      const monthlyMetrics = resolveAdMetrics(coupangAdsCurMonth);
+      const monthlyPrev = resolveAdMetrics(coupangAdsPrevMonth);
+      const rangeMetrics = resolveAdMetrics(coupangAdsCurRange);
+      const rangePrev = resolveAdMetrics(coupangAdsPrevRange);
       this.logger.debug({
         msg: 'dashboard-ad.getSummary',
         organizationId,
         anchorShifted: ctx.anchorShifted,
-        useCoupangAdsForMonth,
-        useCoupangAdsForRange,
+        monthlySource: monthlyMetrics.source,
+        rangeSource: rangeMetrics.source,
         coupangAdsCurMonthSpend: coupangAdsCurMonth.spend,
       });
 
@@ -141,22 +156,20 @@ export class DashboardAdService {
           monthlyMetrics,
           monthlyPrev,
           curMonthProfit,
-          wingAdSummary,
+          prevMonthProfit,
         ),
         rangeKpi: this.buildRangeKpi(
           rangeMetrics,
           rangePrev,
           rangeProfitCur,
           rangeProfitPrev,
-          useCoupangAdsForRange ? coupangAdsCurRange.spend : null,
-          useCoupangAdsForRange ? coupangAdsPrevRange.spend : null,
           wingTrafficCurRange,
           wingTrafficPrevRange,
         ),
-        adKpi: this.buildAdKpi(monthlyMetrics, monthlyPrev, rangeMetrics, curMonthProfit),
-        dailyAd: this.buildDailyAd(dailyAdRows, coupangAdsDaily),
+        adKpi: this.buildAdKpi(monthlyMetrics, monthlyPrev, curMonthProfit),
+        dailyAd: this.buildDailyAd(coupangAdsDaily),
         industryBenchmark: this.buildBenchmark(monthlyMetrics, curMonthProfit),
-        saving: this.buildSaving(curMonthProfit, prevMonthProfit, monthlyMetrics, monthlyPrev, useCoupangAdsForMonth),
+        saving: this.buildSaving(curMonthProfit, prevMonthProfit, monthlyMetrics, monthlyPrev),
         wingAdData: wingAdSummary !== null ? this.buildWingAdData(wingAdSummary) : null,
         effectivePeriod: buildEffectivePeriod(
           ctx,
@@ -175,196 +188,148 @@ export class DashboardAdService {
   // ── Private builders ───────────────────────────────────────────────────────
 
   private buildMonthly(
-    cur: RangeAdMetrics,
-    prev: RangeAdMetrics,
+    cur: ResolvedAdMetrics,
+    prev: ResolvedAdMetrics,
     curMonthProfit: RangeProfitMetrics,
-    wingAdSummary: WingAdSummaryResult | null,
+    prevMonthProfit: RangeProfitMetrics,
   ): DashboardAdSummary['monthly'] {
-    const curSpend = Number(cur.spend);
-    const curImpressions = Number(cur.impressions);
-    const curClicks = Number(cur.clicks);
-    const curRevenue = Number(cur.revenue);
-
-    const prevSpend = Number(prev.spend);
-    const prevImpressions = Number(prev.impressions);
-    const prevClicks = Number(prev.clicks);
-    const prevRevenue = Number(prev.revenue);
-
-    const curRoas = pct2(curRevenue, curSpend);
-    const curCtr = pct2(curClicks, curImpressions);
-
-    const prevRoas = pct2(prevRevenue, prevSpend);
-    const prevCtr = pct2(prevClicks, prevImpressions);
-
-    let adRevenue = curMonthProfit.adRevenue || curRevenue;
-    let totalAdSpend = curMonthProfit.adCost || curSpend;
-
-    // Wing override (legacy) — month-level adRevenue/adSpend pulled from
-    // the Wing dashboard adSummary snapshot. Only kicks in when the
-    // snapshot shows non-zero adRevenue.
-    if (wingAdSummary !== null && wingAdSummary.adRevenue > 0) {
-      adRevenue = wingAdSummary.adRevenue;
-      totalAdSpend = wingAdSummary.adSpend;
-    }
+    const current = periodAdValues(cur, curMonthProfit);
+    const previous = periodAdValues(prev, prevMonthProfit);
 
     return {
-      roas: curRoas,
-      ctr: curCtr,
-      adRevenue,
-      totalAdSpend,
-      prevRoas,
-      prevCtr,
-      prevAdRevenue: prevRevenue,
-      prevTotalAdSpend: prevSpend,
+      roas: current.roas,
+      ctr: safeRatio(current.clicks, current.impressions),
+      adRevenue: current.revenue,
+      totalAdSpend: current.spend,
+      prevRoas: previous.roas,
+      prevCtr: safeRatio(previous.clicks, previous.impressions),
+      prevAdRevenue: previous.revenue,
+      prevTotalAdSpend: previous.spend,
+      source: current.source,
+      coverage: current.coverage,
     };
   }
 
   private buildRangeKpi(
-    rangeAdCur: RangeAdMetrics,
-    rangeAdPrev: RangeAdMetrics,
+    rangeAdCur: ResolvedAdMetrics,
+    rangeAdPrev: ResolvedAdMetrics,
     rangeProfitCur: RangeProfitMetrics,
     rangeProfitPrev: RangeProfitMetrics,
-    coupangAdSpendCur: number | null,
-    coupangAdSpendPrev: number | null,
     wingTrafficCur: WingTrafficMetrics,
     wingTrafficPrev: WingTrafficMetrics,
   ): NonNullable<DashboardAdSummary['rangeKpi']> {
-    const curAdSpend = Number(rangeAdCur.spend);
-    const prevAdSpend = Number(rangeAdPrev.spend);
-    const curAdConvRevenue = Number(rangeAdCur.revenue);
-    const prevAdConvRevenue = Number(rangeAdPrev.revenue);
+    const current = periodAdValues(rangeAdCur, rangeProfitCur);
+    const previous = periodAdValues(rangeAdPrev, rangeProfitPrev);
 
-    const curAdRoas = pct2(curAdConvRevenue, curAdSpend);
-    const prevAdRoas = pct2(prevAdConvRevenue, prevAdSpend);
-
-    const curAdCtr = pct2(Number(rangeAdCur.clicks), Number(rangeAdCur.impressions));
-    const prevAdCtr = pct2(Number(rangeAdPrev.clicks), Number(rangeAdPrev.impressions));
-
-    // adCost: prefer Coupang ads daily KPIs (Drive replay) when supplied,
-    // otherwise the Order-side adCost from profit calc.
-    const rangeAdCostVal = coupangAdSpendCur ?? rangeProfitCur.adCost;
-    const prevAdCostVal = coupangAdSpendPrev ?? rangeProfitPrev.adCost;
+    const rangeAdCostVal = current.spend;
+    const prevAdCostVal = previous.spend;
     // Revenue denominator: prefer Order revenue, fall back to Wing daily
     // facts on Drive replay so adRate reflects "광고비 / 매출" instead of
     // dividing by zero. Without this, ad-fed dashboards show adRate=0%
     // even when meaningful ad spend exists.
     const rangeRevenue = rangeProfitCur.revenue > 0
       ? rangeProfitCur.revenue
-      : (wingTrafficCur.hasData ? wingTrafficCur.revenue : 0);
+      : (wingTrafficCur.hasData ? wingTrafficCur.revenue : null);
     const prevRangeRevenue = rangeProfitPrev.revenue > 0
       ? rangeProfitPrev.revenue
-      : (wingTrafficPrev.hasData ? wingTrafficPrev.revenue : 0);
+      : (wingTrafficPrev.hasData ? wingTrafficPrev.revenue : null);
 
-    const adRate = pct1(rangeAdCostVal, rangeRevenue);
-    const prevAdRate = pct1(prevAdCostVal, prevRangeRevenue);
-    const adRateChange = Math.round(
-      (
-        (rangeRevenue > 0 ? (rangeAdCostVal / rangeRevenue) * 100 : 0) -
-        (prevRangeRevenue > 0 ? (prevAdCostVal / prevRangeRevenue) * 100 : 0)
-      ) * 10,
-    ) / 10;
+    const adRate = safePercent(rangeAdCostVal, rangeRevenue);
+    const prevAdRate = safePercent(prevAdCostVal, prevRangeRevenue);
+    const adRateChange = oneDecimalDifference(adRate, prevAdRate);
+    const curAdRoas = safeRatio(current.revenue, current.spend);
+    const prevAdRoas = safeRatio(previous.revenue, previous.spend);
+    const curAdCtr = safeRatio(current.clicks, current.impressions);
+    const prevAdCtr = safeRatio(previous.clicks, previous.impressions);
 
     return {
-      adSpend: curAdSpend,
-      adConvRevenue: curAdConvRevenue,
+      adSpend: current.spend,
+      adConvRevenue: current.revenue,
       adRoas: curAdRoas,
       adCtr: curAdCtr,
       adCost: rangeAdCostVal,
       adRate,
-      prevAdSpend: prevAdSpend,
-      prevAdConvRevenue: prevAdConvRevenue,
+      prevAdSpend: previous.spend,
+      prevAdConvRevenue: previous.revenue,
       prevAdRoas: prevAdRoas,
       prevAdCtr: prevAdCtr,
       prevAdCost: prevAdCostVal,
       prevAdRate,
-      adSpendChange: pct1(curAdSpend - prevAdSpend, prevAdSpend),
-      adConvRevenueChange: pct1(curAdConvRevenue - prevAdConvRevenue, prevAdConvRevenue),
-      adRoasChange: Math.round((curAdRoas - prevAdRoas) * 100) / 100,
-      adCtrChange: Math.round((curAdCtr - prevAdCtr) * 100) / 100,
-      adRateChange,
+      adSpendChange: percentChange(current.spend, previous.spend),
+      adConvRevenueChange: percentChange(current.revenue, previous.revenue),
+      adRoasChange: pointChange(curAdRoas, prevAdRoas),
+      adCtrChange: pointChange(curAdCtr, prevAdCtr),
+      adRateChange: oneDecimalDifference(adRate, prevAdRate),
+      source: current.source,
+      coverage: current.coverage,
     };
   }
 
   private buildAdKpi(
-    curMonthAd: RangeAdMetrics,
-    prevMonthAd: RangeAdMetrics,
-    rangeAdCur: RangeAdMetrics,
+    curMonthAd: ResolvedAdMetrics,
+    prevMonthAd: ResolvedAdMetrics,
     curMonthProfit: RangeProfitMetrics,
   ): AdMetricsDetail {
-    const adSpendVal = Number(curMonthAd.spend);
-    const adImpVal = Number(curMonthAd.impressions);
-    const adClicksVal = Number(curMonthAd.clicks);
-    const adConvRevenueVal = Number(curMonthAd.revenue);
-
-    const prevAdSpendVal = Number(prevMonthAd.spend);
-    const prevAdImpVal = Number(prevMonthAd.impressions);
-    const prevAdClicksVal = Number(prevMonthAd.clicks);
-    const prevAdConvRevenueVal = Number(prevMonthAd.revenue);
-
-    const curRoas = pct2(adConvRevenueVal, adSpendVal);
-    const curCtr = pct2(adClicksVal, adImpVal);
-    const prevRoas = pct2(prevAdConvRevenueVal, prevAdSpendVal);
-    const prevCtr = pct2(prevAdClicksVal, prevAdImpVal);
-
-    const adConversionsVal = Number(rangeAdCur.conversions ?? 0);
-    const adCvrVal = pct2(adConversionsVal, adClicksVal);
+    const current = accountAdValues(curMonthAd);
+    const previous = accountAdValues(prevMonthAd);
 
     return {
-      totalSpend: adSpendVal,
-      impressions: adImpVal,
-      clicks: adClicksVal,
-      convRevenue: adConvRevenueVal,
-      ctr: curCtr,
-      roas: curRoas,
-      conversions: adConversionsVal,
-      cvr: adCvrVal,
-      prevSpend: prevAdSpendVal,
-      prevConvRevenue: prevAdConvRevenueVal,
-      prevCtr: prevCtr,
-      prevRoas: prevRoas,
-      spendChange: pct1(adSpendVal - prevAdSpendVal, prevAdSpendVal),
-      convRevenueChange: pct1(adConvRevenueVal - prevAdConvRevenueVal, prevAdConvRevenueVal),
-      roasChange: Math.round((curRoas - prevRoas) * 100) / 100,
-      ctrChange: Math.round((curCtr - prevCtr) * 100) / 100,
-      totalRevenue: curMonthProfit.revenue,
+      totalSpend: current.spend,
+      impressions: current.impressions,
+      clicks: current.clicks,
+      convRevenue: current.revenue,
+      ctr: current.ctr,
+      roas: current.roas,
+      conversions: current.orders,
+      cvr: current.cvr,
+      providerConversionRate: current.providerConversionRate,
+      coverage: curMonthAd.coverage,
+      source: curMonthAd.source,
+      prevSpend: previous.spend,
+      prevConvRevenue: previous.revenue,
+      prevCtr: previous.ctr,
+      prevRoas: previous.roas,
+      spendChange: percentChange(current.spend, previous.spend),
+      convRevenueChange: percentChange(current.revenue, previous.revenue),
+      roasChange: pointChange(current.roas, previous.roas),
+      ctrChange: pointChange(current.ctr, previous.ctr),
+      totalRevenue: hasOrderEvidence(curMonthProfit) ? curMonthProfit.revenue : null,
     } satisfies AdMetricsDetail;
   }
 
   private buildDailyAd(
-    listingRows: { date: string; ad_cost: number }[],
     coupangRows: { date: string; ad_cost: number }[],
   ): DailyAdItem[] | undefined {
-    // Merge by date — prefer the higher of the two values for each calendar
-    // day (Drive replay only writes ads to the account-level snapshot, while
-    // live workspaces write to the listing-level snapshot). The dashboard
-    // only renders a single line so we surface the larger source.
-    const byDate = new Map<string, number>();
-    for (const r of listingRows) {
-      byDate.set(r.date, Number(r.ad_cost));
-    }
+    // The owner account row is the only daily source. Explicit zeroes are
+    // retained; linked listing facts cannot prove account-level coverage.
+    const byDate = new Map<string, DailyAdItem>();
     for (const r of coupangRows) {
-      const existing = byDate.get(r.date) ?? 0;
-      const next = Number(r.ad_cost);
-      if (next > existing) byDate.set(r.date, next);
+      byDate.set(r.date, {
+        date: r.date,
+        adCost: Number(r.ad_cost),
+        source: 'coupang_ads',
+      });
     }
     if (byDate.size === 0) return undefined;
-    const sorted = [...byDate.entries()].sort(([a], [b]) => a.localeCompare(b));
-    return sorted.map(([date, adCost]) => ({ date, adCost } satisfies DailyAdItem));
+    return [...byDate.values()]
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .map((row) => row satisfies DailyAdItem);
   }
 
   private buildBenchmark(
-    curMonthAd: RangeAdMetrics,
+    curMonthAd: ResolvedAdMetrics,
     curMonthProfit: RangeProfitMetrics,
   ): IndustryBenchmark {
+    const current = periodAdValues(curMonthAd, curMonthProfit);
     const myAdRateVal = pct1(
       curMonthProfit.adCost || Number(curMonthAd.spend),
       curMonthProfit.revenue || Number(curMonthAd.revenue),
     );
 
-    const adSpendVal = Number(curMonthAd.spend);
-    const adRevVal = Number(curMonthAd.revenue);
-    const adImpVal = Number(curMonthAd.impressions);
-    const adClicksVal = Number(curMonthAd.clicks);
+    const adSpendVal = current.spend ?? 0;
+    const adRevVal = current.revenue ?? 0;
+    const adImpVal = current.impressions ?? 0;
+    const adClicksVal = current.clicks ?? 0;
 
     const myRoasVal = pct2(adRevVal, adSpendVal);
     const myCtrVal = pct2(adClicksVal, adImpVal);
@@ -390,17 +355,18 @@ export class DashboardAdService {
   private buildSaving(
     curMonthProfit: RangeProfitMetrics,
     prevMonthProfit: RangeProfitMetrics,
-    curAd: RangeAdMetrics,
-    prevAd: RangeAdMetrics,
-    useCoupang: boolean,
+    curAd: ResolvedAdMetrics,
+    prevAd: ResolvedAdMetrics,
   ): NonNullable<DashboardAdSummary['saving']> {
-    const curSpend = useCoupang ? Number(curAd.spend) : curMonthProfit.adCost;
-    const prevSpend = useCoupang ? Number(prevAd.spend) : prevMonthProfit.adCost;
-    const adSaving =
-      prevSpend > 0 && curSpend < prevSpend ? Math.round(prevSpend - curSpend) : 0;
+    const current = periodAdValues(curAd, curMonthProfit);
+    const previous = periodAdValues(prevAd, prevMonthProfit);
+    const adSaving = current.spend !== null && previous.spend !== null
+      && previous.spend > 0 && current.spend < previous.spend
+      ? Math.round(previous.spend - current.spend)
+      : null;
     return {
       adSaving,
-      prevAdCost: prevSpend,
+      prevAdCost: previous.spend,
     };
   }
 
@@ -414,17 +380,208 @@ export class DashboardAdService {
   }
 }
 
-function mergeAdMetrics(
-  baseline: RangeAdMetrics,
-  coupang: CoupangAdsMetrics,
-  useCoupang: boolean,
-): RangeAdMetrics {
-  if (!useCoupang) return baseline;
-  return {
-    spend: coupang.spend,
-    revenue: coupang.revenue,
-    impressions: coupang.impressions,
-    clicks: coupang.clicks,
-    conversions: coupang.conversions,
-  } satisfies RangeAdMetrics;
+interface ResolvedAdMetrics {
+  spend: number | null;
+  revenue: number | null;
+  impressions: number | null;
+  clicks: number | null;
+  /** Provider attributed selling units; evidence only for display/debug. */
+  conversions: number | null;
+  /** Owner order count. Listing/order fallbacks do not invent this value. */
+  orders: number | null;
+  providerConversionRate: number | null;
+  source: AdMetricSource;
+  coverage: CoupangAdsCoverage | null;
+  available: boolean;
+  /** Account-level totals are trustworthy only from a complete owner range. */
+  accountMetricsAvailable: boolean;
 }
+
+interface AdPeriodValues extends ResolvedAdMetrics {
+  ctr: number | null;
+  roas: number | null;
+  cvr: number | null;
+}
+
+function resolveAdMetrics(
+  coupang: CoupangAdsMetrics,
+): ResolvedAdMetrics {
+  // Owner coverage is authoritative even when every additive value is zero.
+  if (coupang.hasData) {
+    return {
+      spend: coupang.spend,
+      revenue: coupang.revenue,
+      impressions: coupang.impressions,
+      clicks: coupang.clicks,
+      conversions: coupang.conversions,
+      orders: coupang.orders,
+      providerConversionRate: coupang.providerConversionRate ?? null,
+      source: 'coupang_ads',
+      coverage: coupang.coverage ?? null,
+      available: true,
+      accountMetricsAvailable: true,
+    };
+  }
+
+  // Listing/order aggregates have no proof that they cover the complete
+  // account range. Never present them as account KPIs: preserve the owner's
+  // partial coverage so callers can show missing dates explicitly.
+  return unavailableAdMetrics(coupang.coverage ?? null);
+}
+
+function periodAdValues(
+  metrics: ResolvedAdMetrics,
+  _orderMetrics: RangeProfitMetrics,
+): AdPeriodValues {
+  return {
+    ...metrics,
+    ctr: safeRatio(metrics.clicks, metrics.impressions),
+    roas: safeRatio(metrics.revenue, metrics.spend),
+    // Only owner-published order counts are valid for report CVR.
+    cvr: safeRatio(metrics.orders, metrics.clicks),
+  };
+}
+
+function accountAdValues(metrics: ResolvedAdMetrics): AdPeriodValues {
+  if (!metrics.accountMetricsAvailable) {
+    return {
+      ...metrics,
+      spend: null,
+      revenue: null,
+      impressions: null,
+      clicks: null,
+      conversions: null,
+      orders: null,
+      providerConversionRate: null,
+      ctr: null,
+      roas: null,
+      cvr: null,
+    };
+  }
+  return periodAdValues(metrics, EMPTY_PROFIT_METRICS);
+}
+
+function hasOrderEvidence(metrics: Pick<RangeProfitMetrics, 'revenue' | 'orderCount'>): boolean {
+  return metrics.revenue !== 0 || metrics.orderCount > 0;
+}
+
+function unavailableAdMetrics(coverage: CoupangAdsCoverage | null = null): ResolvedAdMetrics {
+  return {
+    spend: null,
+    revenue: null,
+    impressions: null,
+    clicks: null,
+    conversions: null,
+    orders: null,
+    providerConversionRate: null,
+    source: 'unavailable',
+    coverage,
+    available: false,
+    accountMetricsAvailable: false,
+  };
+}
+
+function safeRatio(numerator: number | null, denominator: number | null): number | null {
+  if (numerator === null || denominator === null || denominator <= 0) return null;
+  return pct2(numerator, denominator);
+}
+
+function safePercent(numerator: number | null, denominator: number | null): number | null {
+  if (numerator === null || denominator === null || denominator <= 0) return null;
+  return pct1(numerator, denominator);
+}
+
+function percentChange(
+  current: number | null,
+  previous: number | null,
+): number | null {
+  if (current === null || previous === null || previous === 0) return null;
+  return pct1(current - previous, previous);
+}
+
+function pointChange(
+  current: number | null,
+  previous: number | null,
+): number | null {
+  if (current === null || previous === null) return null;
+  return Math.round((current - previous) * 100) / 100;
+}
+
+function oneDecimalDifference(
+  current: number | null,
+  previous: number | null,
+): number | null {
+  if (current === null || previous === null) return null;
+  return Math.round((current - previous) * 10) / 10;
+}
+
+interface AdQueryRange {
+  from: Date;
+  to: Date;
+}
+
+/**
+ * Clip only the current preset windows. Custom and historical windows stay
+ * exact so future/uncovered dates remain visible in `coverage`.
+ */
+function presetAdRange(
+  ctx: DashboardContext,
+  from: Date,
+  to: Date,
+  preset: 'month' | 'day' | null,
+): AdQueryRange {
+  if (!preset) return { from, to };
+  if (preset === 'day') {
+    const todayStart = kstDayStart(ctx.anchor);
+    return {
+      from: new Date(todayStart.getTime() - 24 * 60 * 60 * 1000),
+      to: todayStart,
+    };
+  }
+  // Current/month/day presets are allowed to query only through the last
+  // completed KST business day. The explicit dashboard anchor is the cutoff;
+  // provider latest-row dates must not shrink the requested range.
+  const knownThroughExclusive = kstDayStart(ctx.anchor);
+  return {
+    from,
+    // An all-current-day preset has no completed day yet. Keep the empty
+    // half-open range so the owner adapter returns unavailable rather than
+    // accidentally admitting a same-day row.
+    to: knownThroughExclusive.getTime() <= from.getTime()
+      ? from
+      : knownThroughExclusive.getTime() < to.getTime()
+        ? knownThroughExclusive
+        : to,
+  };
+}
+
+function previousPresetAdRange(
+  ctx: DashboardContext,
+  from: Date,
+  to: Date,
+  preset: 'month' | 'day' | null,
+): AdQueryRange {
+  if (preset !== 'day') return { from, to };
+  const todayStart = kstDayStart(ctx.anchor);
+  const yesterdayStart = new Date(todayStart.getTime() - 24 * 60 * 60 * 1000);
+  return {
+    from: new Date(yesterdayStart.getTime() - 24 * 60 * 60 * 1000),
+    to: yesterdayStart,
+  };
+}
+
+const EMPTY_PROFIT_METRICS: RangeProfitMetrics = {
+  revenue: 0,
+  costOfGoods: 0,
+  commission: 0,
+  shippingCost: 0,
+  adCost: 0,
+  otherCost: 0,
+  netProfit: 0,
+  profitRate: 0,
+  orderCount: 0,
+  adRevenue: 0,
+  adImpressions: 0,
+  adClicks: 0,
+  adConversions: 0,
+};

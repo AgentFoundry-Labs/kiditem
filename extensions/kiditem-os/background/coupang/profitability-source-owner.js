@@ -152,6 +152,30 @@
     const sessions = options.sessions;
     const activeExecutions = new Map();
 
+    async function isActive(attemptId, environmentId) {
+      if (typeof sessions.isActive === "function") {
+        return sessions.isActive(attemptId, environmentId, PRODUCER);
+      }
+      const session = await sessions.get(attemptId).catch(() => null);
+      return session?.environmentId === environmentId && session.producer === PRODUCER;
+    }
+
+    function cancellationError() {
+      const error = ownerError("COLLECTION_CANCELLED", "Advertising profitability collection was cancelled.");
+      error.cancellationPending = true;
+      return error;
+    }
+
+    function stoppedOutcome(attemptId, completedSliceCount = 0) {
+      return {
+        success: false,
+        attemptId,
+        completedSliceCount,
+        cancellationPending: true,
+        errorCode: "COLLECTION_CANCELLED",
+      };
+    }
+
     function launch(environmentId, work) {
       let tracked;
       tracked = Promise.resolve()
@@ -228,6 +252,8 @@
       }
       const session = persisted[0];
       if (!session) return null;
+      if (typeof sessions.isActive === "function" &&
+        !(await sessions.isActive(session.attemptId, environmentId, PRODUCER))) return null;
       const plan = await readAttemptControl(environmentId, session.attemptId);
       if (plan) return plan;
       await sessions.remove(session.attemptId);
@@ -262,6 +288,7 @@
         `/slices/${encodeURIComponent(slice.sliceId)}`;
       const payload = JSON.stringify(body);
       for (let attempt = 0; attempt < 3; attempt += 1) {
+        if (!(await isActive(plan.attemptId, environmentId))) throw cancellationError();
         try {
           await requestJson(environmentId, path, {
             method: "PUT",
@@ -318,6 +345,7 @@
         const total = plan.accounts.reduce((count, account) => count + account.slices.length, 0);
         for (const account of plan.accounts) {
           for (const slice of account.slices) {
+            if (!(await isActive(plan.attemptId, environmentId))) return stoppedOutcome(plan.attemptId, completed);
             const active = await sessions.get(plan.attemptId);
             if (!active) {
               throw ownerError("COLLECTION_CANCELLED", "Advertising profitability collection was cancelled.");
@@ -335,6 +363,7 @@
               account,
               slice,
             });
+            if (!(await isActive(plan.attemptId, environmentId))) return stoppedOutcome(plan.attemptId, completed);
             if (collected?.attentionRequired) {
               const message = String(
                 collected.error || "Coupang advertising needs attention.",
@@ -358,6 +387,7 @@
               );
             }
             await upload(environmentId, plan, account, slice, completed, collected.receipt);
+            if (!(await isActive(plan.attemptId, environmentId))) return stoppedOutcome(plan.attemptId, completed);
             completed += 1;
             await sessions.progress(plan.attemptId, {
               current: completed,
@@ -368,6 +398,7 @@
             });
           }
         }
+        if (!(await isActive(plan.attemptId, environmentId))) return stoppedOutcome(plan.attemptId, completed);
         await requestJson(
           environmentId,
           `/api/ads/profitability-imports/${encodeURIComponent(plan.attemptId)}/complete`,
@@ -383,6 +414,7 @@
         await clearTerminalAttempt(environmentId, plan.attemptId);
         return { success: true, attemptId: plan.attemptId, completedSliceCount: completed };
       } catch (error) {
+        if (error?.cancellationPending) return stoppedOutcome(plan.attemptId, completed);
         let failure = {
           code: typeof error?.code === "string"
             ? error.code

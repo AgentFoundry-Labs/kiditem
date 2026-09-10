@@ -1,9 +1,11 @@
-# channels — Marketplace Sync And SKU Matching
+# channels — Marketplace Identity And SKU Matching
 
 `src/channels/` owns marketplace accounts, listing/option identity, Coupang
-catalog/order/return sync, matching, account-scoped registration, channel
-capacity projections, and dashboard reads. Provider calls stay behind provider
-adapters.
+catalog publication/import, matching, account-scoped browser registration,
+channel capacity projections, and dashboard reads. Coupang Open API product,
+order, return, and deletion verification are unsupported; the legacy sync HTTP
+routes return 501 without IO. Wing/browser evidence and approved internal
+sources remain supported.
 
 ## Identity And Ownership
 
@@ -24,19 +26,19 @@ sync, registration, matching, and capacity behavior is executable in
 
 ## Registration And Provider Contract
 
-- Selected accounts must exist and be active. Credential lookup is
-  account-scoped; server environment values are not a fallback.
-- Persist/reconcile provider identity before create. Provider IO occurs outside
-  the database transaction; final listing resolution/reactivation uses the
-  caller's finalization transaction.
-- Retries reuse frozen provider option keys and never create again while an
-  outcome is uncertain.
+- Selected accounts must exist and be active. `ChannelAccount` stores the Wing
+  vendor identity used to fence browser evidence; Open API credentials are not
+  accepted or resolved.
+- `register_confirmed_listing` is the supported registration mutation. It
+  validates server-frozen provenance and Wing confirmation evidence before the
+  final listing resolution transaction.
+- New Open API submission and deletion authorization/claim/reconciliation are
+  explicit unsupported paths with no external IO or database intent. Existing
+  deletion status reads, unresolved records, and succeeded receipt replays
+  remain readable.
 - Catalog publication refreshes channel facts while preserving product links,
   option recipes, and listing content. It never creates `MasterProduct` rows
   or changes stock.
-- Deletion operations persist actor-bound intent before browser mutation.
-  Browser evidence alone cannot prove deletion; keep the listing active and
-  uncertain until an independent provider verifier confirms it.
 
 ## Matching And Capacity Contract
 
@@ -57,9 +59,8 @@ sync, registration, matching, and capacity behavior is executable in
 
 ## Ports And Boundaries
 
-- Provider access, Orders writes, Inventory evidence, and registration use their
-  named ports. Consumers import the published capability, never the concrete
-  service.
+- Inventory evidence and registration use their named ports.
+  Consumers import the published capability, never the concrete service.
 - Catalog imports use a fenced `SourceImportRun` attempt and publish only a
   complete source snapshot; stale or post-terminal submissions are rejected.
 - New sync/matching paths carry `channelAccountId` and preserve
@@ -71,5 +72,3 @@ sync, registration, matching, and capacity behavior is executable in
   COMPLETE replaces the current view. Preserve prior snapshots for exact
   source/workbook references. Publication changes source facts and identities,
   not recipes, reservations, provider confirmation, or physical stock.
-- Status normalization stays in `domain/coupang-normalization.ts`.
-  `adapters/coupang/` contains compatibility shims only.

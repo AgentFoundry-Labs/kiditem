@@ -1,10 +1,12 @@
 import * as XLSX from 'xlsx';
-import { issueBrowserCollectionRunId } from '@/lib/browser-collection-session';
 import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extension-bridge';
 import { apiClient } from '@/lib/api-client';
 import { downloadBlob } from '@/lib/browser-download';
 import type { OrderCollectionConversionResult } from './order-collection-api';
-import type { OrderCollectionExtensionRun } from './order-collection-extension';
+import {
+  orderCollectionExtensionRunFields,
+  type OrderCollectionExtensionRun,
+} from './order-collection-extension';
 
 export interface OnchannelOrder {
   orderCode?: string;
@@ -46,8 +48,8 @@ export async function collectOnchannelOrdersFromExtension(date?: string, run?: O
     {
       action: 'collectOnchannelOrders',
       date,
-      runId: await issueBrowserCollectionRunId(run?.runId),
-      deferTerminal: Boolean(run?.runId),
+      // attemptId/deferTerminal: true are included by shared fenced run fields.
+      ...orderCollectionExtensionRunFields(run),
     }, // "YYYY-MM-DD" 면 그날 주문만
     130000,
   );
@@ -60,11 +62,17 @@ export async function collectOnchannelOrdersFromExtension(date?: string, run?: O
 /** 수집한 온채널 주문(orders[])을 셀피아 업로드 양식(.xls)으로 변환. 생성 파일 목록 등록용 결과 반환. */
 export async function convertOnchannelToSellpiaFile(
   orders: OnchannelOrder[],
-  options?: { download?: boolean },
+  options?: { download?: boolean; run?: OrderCollectionExtensionRun },
 ): Promise<OrderCollectionConversionResult> {
   const res = await apiClient.fetchRaw('/api/orders/collection/onchannel/convert', {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: {
+      'content-type': 'application/json',
+      ...(options?.run ? {
+        'x-order-collection-attempt-id': options.run.attemptId,
+        'x-source-attempt-token': options.run.attemptToken,
+      } : {}),
+    },
     body: JSON.stringify({ orders }),
   });
   if (!res.ok) {

@@ -64,7 +64,7 @@ export function pickRequestMedia(
     const asset = ordered.find((candidate) =>
       candidate.role === 'option'
       && target.externalOptionId !== null
-      && candidate.externalOptionId === target.externalOptionId,
+      && candidateOptionIds(candidate).includes(target.externalOptionId),
     ) ?? ordered.find((candidate) => candidate.role === 'primary');
     if (asset) return { target, asset };
   }
@@ -88,4 +88,12 @@ function compareCandidates(
   return left.sortOrder - right.sortOrder
     || left.url.localeCompare(right.url)
     || left.id.localeCompare(right.id);
+}
+
+function candidateOptionIds(candidate: CatalogDisplayMediaCandidate): string[] {
+  const ids = [
+    ...(candidate.externalOptionIds ?? []),
+    candidate.externalOptionId,
+  ];
+  return [...new Set(ids.filter((value): value is string => Boolean(value)))];
 }

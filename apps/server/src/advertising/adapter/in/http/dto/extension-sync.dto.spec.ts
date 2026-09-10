@@ -4,8 +4,8 @@ import { validate } from 'class-validator';
 import { describe, expect, it } from 'vitest';
 import { ExtensionSyncDto } from './extension-sync.dto';
 
-it.each(['keyword_rank', 'wing_sales_rank', 'competitor_seller_identity', 'competitor_seller_catalog'])(
-  'rejects %s captures at the unfenced extension sync boundary',
+it.each(['ad_keyword', 'keyword_rank', 'wing_sales_rank', 'competitor_seller_identity', 'competitor_seller_catalog'])(
+  'rejects %s captures at the retired or unfenced extension sync boundary',
   async (type) => {
     const pipe = new ValidationPipe({ whitelist: true, transform: true });
     await expect(pipe.transform(
@@ -15,7 +15,7 @@ it.each(['keyword_rank', 'wing_sales_rank', 'competitor_seller_identity', 'compe
   },
 );
 
-it.each(['ad_campaign', 'ad_keyword', 'raw_scrape', 'traffic', 'coupang_ads_daily'])(
+it.each(['ad_campaign', 'raw_scrape', 'traffic', 'coupang_ads_daily'])(
   'preserves the retained %s extension sync ingress',
   async (type) => {
     const pipe = new ValidationPipe({ whitelist: true, transform: true });

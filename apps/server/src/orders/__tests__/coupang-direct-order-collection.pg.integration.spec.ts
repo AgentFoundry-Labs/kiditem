@@ -1,7 +1,10 @@
 import { randomUUID } from 'node:crypto';
+import { ConflictException } from '@nestjs/common';
 import type { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { PrismaService } from '../../prisma/prisma.service';
+import { AlertsRepository } from '../../alerts/alerts.repository';
+import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import {
   makeTestPrisma,
   resetDb,
@@ -13,6 +16,7 @@ import { RocketFinalOrderReconciliationTransactionAdapter } from '../../supply/a
 import { RocketFinalOrderReconciliationService } from '../../supply/application/service/rocket-final-order-reconciliation.service';
 import { CoupangDirectOrderCollectionTransactionAdapter } from '../adapter/out/transaction/coupang-direct-order-collection.transaction.adapter';
 import { CoupangDirectOrderCollectionService } from '../application/service/coupang-direct-order-collection.service';
+import { canonicalCoupangDirectOrderHash } from '../mapper/coupang-direct-order.mapper';
 
 const CHANNEL_ACCOUNT_ID = '51000000-0000-4000-8000-000000000001';
 const SKU_ID = '51000000-0000-4000-8000-000000000002';
@@ -25,6 +29,7 @@ describe('Coupang direct final-order collection (PG integration)', () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
     const prismaService = prisma as unknown as PrismaService;
+    const alerts = new SourceFailureAlerts(new AlertsRepository(prismaService));
     const reconciliation = new RocketFinalOrderReconciliationService(
       new RocketFinalOrderReconciliationTransactionAdapter(),
     );
@@ -32,6 +37,7 @@ describe('Coupang direct final-order collection (PG integration)', () => {
       new CoupangDirectOrderCollectionTransactionAdapter(
         prismaService,
         reconciliation,
+        alerts,
       ),
     );
   });
@@ -68,146 +74,316 @@ describe('Coupang direct final-order collection (PG integration)', () => {
     });
   });
 
-  it('persists Orders and links one stable Sellpia transmission intent atomically on replay', async () => {
-    const exportId = await seedRequest('PO-1', 'P-1', '8801234567890', 4);
-    const input = collectionRequest('PO-1', 'P-1', '8801234567890', 3);
-
-    const first = await service.collect({
+  it('persists one complete capture owner and replays both transport projections', async () => {
+    const idempotencyKey = randomUUID();
+    const attempt = await service.beginAttempt({
       organizationId: TEST_ORGANIZATION_ID,
       userId: TEST_USER_ID,
-      request: input,
+      channelAccountId: CHANNEL_ACCOUNT_ID,
+      idempotencyKey,
     });
-    const replay = await service.collect({
+    await expect(service.beginAttempt({
       organizationId: TEST_ORGANIZATION_ID,
       userId: TEST_USER_ID,
-      request: input,
+      channelAccountId: CHANNEL_ACCOUNT_ID,
+      idempotencyKey,
+    })).resolves.toEqual(attempt);
+    await expect(service.beginAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      channelAccountId: CHANNEL_ACCOUNT_ID,
+      idempotencyKey: randomUUID(),
+    })).rejects.toBeInstanceOf(ConflictException);
+    const first = await service.completeAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      attemptId: attempt.attemptId,
+      attemptToken: attempt.attemptToken,
+      capture: collectionRequest('PO-OWNER', 'P-OWNER', '8801234567890', 2) as never,
+    });
+    const replay = await service.completeAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      attemptId: attempt.attemptId,
+      attemptToken: attempt.attemptToken,
+      capture: collectionRequest('PO-OWNER', 'P-OWNER', '8801234567890', 2) as never,
+    });
+    const captured = await service.readCaptured({
+      organizationId: TEST_ORGANIZATION_ID,
+      attemptId: attempt.attemptId,
+    });
+    expect(await prisma.order.count()).toBe(0);
+    const receipt = await service.consumeAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      attemptId: attempt.attemptId,
+      attemptToken: attempt.attemptToken,
+      capture: collectionRequest('PO-OWNER', 'P-OWNER', '8801234567890', 2) as never,
+      transport: 'SHIPMENT',
+    });
+    const receiptReplay = await service.consumeAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      attemptId: attempt.attemptId,
+      attemptToken: attempt.attemptToken,
+      capture: collectionRequest('PO-OWNER', 'P-OWNER', '8801234567890', 2) as never,
+      transport: 'SHIPMENT',
+    });
+    const projection = await service.readProjection({
+      organizationId: TEST_ORGANIZATION_ID,
+      attemptId: attempt.attemptId,
+      transport: 'SHIPMENT',
     });
 
     expect(first).toMatchObject({
-      exportId,
-      transmissionIntentKey: `rocket-final-order:${first.importRunId}:shipment`,
-      matchedLineCount: 1,
-      duplicate: false,
-      reconciledRows: 1,
-      collectedLines: [{ poNumber: 'PO-1', productNo: 'P-1' }],
-      matchedLines: [{ poNumber: 'PO-1', productNo: 'P-1' }],
-      unmatchedLines: [],
+      attemptId: attempt.attemptId,
+      sourceImportRunId: attempt.attemptId,
+      state: 'COMPLETE',
+      artifactId: expect.any(String),
+      contentChecksum: expect.stringMatching(/^[0-9a-f]{64}$/),
     });
-    expect(replay).toEqual({ ...first, duplicate: true });
+    expect(replay).toEqual(first);
+    expect(captured.capture.pos).toHaveLength(1);
+    expect(receiptReplay).toMatchObject({ ...receipt, duplicate: true });
+    expect(projection).toMatchObject({
+      importRunId: attempt.attemptId,
+      request: { transport: 'SHIPMENT', pos: [{ seq: 'PO-OWNER' }] },
+      receipt: {
+        sourceImportRunId: attempt.attemptId,
+        duplicate: false,
+        collectedLines: [{ poNumber: 'PO-OWNER', productNo: 'P-OWNER' }],
+      },
+    });
     expect(await prisma.order.count()).toBe(1);
-    expect(await prisma.orderLineItem.count()).toBe(1);
+    expect(await prisma.orderCollectionArtifact.count()).toBe(1);
     expect(await prisma.sourceImportRun.count({
-      where: { sourceType: 'coupang_rocket_final_order' },
+      where: { sourceType: 'coupang_direct_order_capture', status: 'completed' },
     })).toBe(1);
-    const order = await prisma.order.findFirstOrThrow({
-      include: { lineItems: true },
-    });
-    expect(order).toMatchObject({
-      sourceImportRunId: first.importRunId,
-      externalOrderId: 'PO-1',
-      status: 'confirmed',
-      totalPrice: 3000,
-      lineItems: [{
-        sku: 'P-1',
-        externalBarcode: '8801234567890',
-        quantity: 3,
-      }],
-    });
-    expect(await prisma.rocketPurchaseConfirmationLine.findFirstOrThrow()).toMatchObject({
-      collectedOrderLineItemId: order.lineItems[0]!.id,
-      collectedAt: expect.any(Date),
-    });
-    expect(await prisma.rocketPurchaseConfirmationTransmission.findMany()).toEqual([
-      expect.objectContaining({
-        confirmationId: exportId,
-        sourceImportRunId: first.importRunId,
-        transport: 'SHIPMENT',
-        intentKey: `rocket-final-order:${first.importRunId}:shipment`,
-        matchedLineCount: 1,
-      }),
-    ]);
-    expect(await prisma.operationRun.count()).toBe(0);
-    expect(await prisma.alert.count({ where: { kind: 'operation' } })).toBe(0);
   });
 
-  it('collects without an active confirmation and keeps the row as a Sellpia candidate', async () => {
-    // 현재 운영 상태(rocket_purchase_confirmation_lines = 0)를 재현한다.
-    // 예전에는 ROCKET_REQUEST_COMMITMENT_NOT_FOUND 409 로 수집 전체가 터졌다.
-    const input = collectionRequest('PO-9', 'P-9', '8801234567890', 3);
-
-    const result = await service.collect({
+  it('reuses the completed legacy transport run and its transmission key on a fresh owner attempt', async () => {
+    const exportId = await seedRequest('PO-1', 'P-1', '8801234567890', 4);
+    const input = collectionRequest('PO-1', 'P-1', '8801234567890', 3);
+    const legacy = await seedLegacyReceipt(input, exportId);
+    const attempt = await service.beginAttempt({
       organizationId: TEST_ORGANIZATION_ID,
       userId: TEST_USER_ID,
-      request: input,
+      channelAccountId: CHANNEL_ACCOUNT_ID,
+      idempotencyKey: randomUUID(),
+    });
+    await service.completeAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      attemptId: attempt.attemptId,
+      attemptToken: attempt.attemptToken,
+      capture: input as never,
+    });
+    await service.consumeAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      attemptId: attempt.attemptId,
+      attemptToken: attempt.attemptToken,
+      capture: input as never,
+      transport: 'SHIPMENT',
+    });
+    const projection = await service.readProjection({
+      organizationId: TEST_ORGANIZATION_ID,
+      attemptId: attempt.attemptId,
+      transport: 'SHIPMENT',
     });
 
-    expect(result).toMatchObject({
-      exportId: null,
-      transmissionIntentKey: `rocket-final-order:${result.importRunId}:shipment`,
-      matchedLineCount: 0,
-      reconciledRows: 0,
-      collectedLines: [{ poNumber: 'PO-9', productNo: 'P-9' }],
-      matchedLines: [],
-      unmatchedLines: [{ poNumber: 'PO-9', productNo: 'P-9' }],
-      duplicate: false,
+    expect(projection.receipt).toMatchObject({
+      sourceImportRunId: legacy.importRunId,
+      transmissionIntentKey: `rocket-final-order:${legacy.importRunId}:shipment`,
+      exportId: legacy.exportId,
+      duplicate: true,
     });
-    // 최종주문 자체는 실제 주문이라 적재되지만, 발주확정이 없어 재고 커밋은 생기지 않는다.
-    expect(await prisma.order.count()).toBe(1);
-    expect(await prisma.orderLineItem.count()).toBe(1);
+    expect(await prisma.order.count()).toBe(0);
     expect(await prisma.sourceImportRun.count({
       where: { sourceType: 'coupang_rocket_final_order', status: 'completed' },
     })).toBe(1);
+    expect(await prisma.rocketPurchaseConfirmationTransmission.count({
+      where: { transport: 'SHIPMENT' },
+    })).toBe(1);
   });
 
-  it('rolls back import run and Orders when reconciliation fails', async () => {
-    await seedRequest('PO-1', 'P-1', '8801234567890', 4);
-
-    await expect(service.collect({
+  it('reuses a prior COMPLETE owner receipt instead of deriving a new key from a fresh attempt id', async () => {
+    const capture = collectionRequest('PO-OWNER', 'P-OWNER', '8801234567890', 2);
+    const firstAttempt = await service.beginAttempt({
       organizationId: TEST_ORGANIZATION_ID,
       userId: TEST_USER_ID,
-      request: collectionRequest('PO-1', 'P-1', 'DIFFERENT', 3),
-    })).rejects.toMatchObject({ code: 'ROCKET_FINAL_ORDER_BARCODE_MISMATCH' });
+      channelAccountId: CHANNEL_ACCOUNT_ID,
+      idempotencyKey: randomUUID(),
+    });
+    await service.completeAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      attemptId: firstAttempt.attemptId,
+      attemptToken: firstAttempt.attemptToken,
+      capture: capture as never,
+    });
+    await service.consumeAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      attemptId: firstAttempt.attemptId,
+      attemptToken: firstAttempt.attemptToken,
+      capture: capture as never,
+      transport: 'SHIPMENT',
+    });
+    const firstProjection = await service.readProjection({
+      organizationId: TEST_ORGANIZATION_ID,
+      attemptId: firstAttempt.attemptId,
+      transport: 'SHIPMENT',
+    });
+
+    const secondAttempt = await service.beginAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      channelAccountId: CHANNEL_ACCOUNT_ID,
+      idempotencyKey: randomUUID(),
+    });
+    await service.completeAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      attemptId: secondAttempt.attemptId,
+      attemptToken: secondAttempt.attemptToken,
+      capture: capture as never,
+    });
+    await service.consumeAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      attemptId: secondAttempt.attemptId,
+      attemptToken: secondAttempt.attemptToken,
+      capture: capture as never,
+      transport: 'SHIPMENT',
+    });
+    const secondProjection = await service.readProjection({
+      organizationId: TEST_ORGANIZATION_ID,
+      attemptId: secondAttempt.attemptId,
+      transport: 'SHIPMENT',
+    });
+
+    expect(secondProjection.receipt).toMatchObject({
+      sourceImportRunId: firstAttempt.attemptId,
+      transmissionIntentKey: firstProjection.receipt.transmissionIntentKey,
+      duplicate: true,
+    });
+    expect(secondProjection.receipt.transmissionIntentKey).not.toContain(secondAttempt.attemptId);
+    expect(await prisma.order.count()).toBe(1);
+  });
+
+  it('commits the raw capture before a downstream conversion failure', async () => {
+    await seedRequest('PO-1', 'P-1', '8801234567890', 4);
+    const attempt = await service.beginAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      channelAccountId: CHANNEL_ACCOUNT_ID,
+      idempotencyKey: randomUUID(),
+    });
+    const badCapture = collectionRequest('PO-1', 'P-1', 'DIFFERENT', 3);
+
+    await service.completeAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      attemptId: attempt.attemptId,
+      attemptToken: attempt.attemptToken,
+      capture: badCapture as never,
+    });
 
     expect(await prisma.order.count()).toBe(0);
-    expect(await prisma.sourceImportRun.count({
-      where: { sourceType: 'coupang_rocket_final_order' },
-    })).toBe(0);
-    expect(await prisma.rocketPurchaseConfirmationLine.findFirstOrThrow()).toMatchObject({
-      collectedOrderLineItemId: null,
-    });
-    expect(await prisma.rocketPurchaseConfirmationTransmission.count()).toBe(0);
-  });
-
-  it('persists an empty transport probe so a fresh no-match check is durable', async () => {
-    const exportId = await seedRequest('PO-1', 'P-1', '8801234567890', 4);
-    const request = {
-      ...collectionRequest('PO-1', 'P-1', '8801234567890', 3),
-      transport: 'MILKRUN' as const,
-      pos: [],
-    };
-
-    const result = await service.collect({
+    expect(await prisma.orderCollectionArtifact.count()).toBe(1);
+    await expect(service.consumeAttempt({
       organizationId: TEST_ORGANIZATION_ID,
       userId: TEST_USER_ID,
-      request,
+      attemptId: attempt.attemptId,
+      attemptToken: attempt.attemptToken,
+      capture: badCapture as never,
+      transport: 'SHIPMENT',
+    })).rejects.toMatchObject({ code: 'ROCKET_FINAL_ORDER_BARCODE_MISMATCH' });
+
+    expect(await prisma.sourceImportRun.findUniqueOrThrow({ where: { id: attempt.attemptId } })).toMatchObject({
+      sourceType: 'coupang_direct_order_capture',
+      status: 'completed',
+      errorCode: null,
+    });
+    expect(await prisma.alert.findFirst({
+      where: { sourceType: 'coupang_direct_order_capture', attemptId: attempt.attemptId },
+    })).toBeNull();
+  });
+
+  it('fences an expired owner attempt and records the terminal Alert', async () => {
+    const attempt = await service.beginAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      channelAccountId: CHANNEL_ACCOUNT_ID,
+      idempotencyKey: randomUUID(),
+    });
+    await prisma.sourceImportRun.update({
+      where: { id: attempt.attemptId },
+      data: { expiresAt: new Date(0) },
     });
 
-    expect(result).toMatchObject({
-      exportId,
-      transmissionIntentKey: null,
-      matchedLineCount: 0,
-      collectedLines: [],
-      matchedLines: [],
-      unmatchedLines: [],
+    const read = await service.readAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      attemptId: attempt.attemptId,
     });
-    expect(await prisma.rocketPurchaseConfirmationTransmission.findFirstOrThrow()).toMatchObject({
-      confirmationId: exportId,
-      sourceImportRunId: result.importRunId,
-      transport: 'MILKRUN',
-      intentKey: null,
-      matchedLineCount: 0,
+    const control = await service.readAttemptControl({
+      organizationId: TEST_ORGANIZATION_ID,
+      attemptId: attempt.attemptId,
     });
+    expect(read).toMatchObject({ state: 'FAILED', errorCode: 'ATTEMPT_EXPIRED' });
+    expect(control).toMatchObject({
+      state: 'FAILED',
+      errorCode: 'ATTEMPT_EXPIRED',
+      attemptToken: attempt.attemptToken,
+    });
+    expect(await prisma.sourceImportRun.findUniqueOrThrow({ where: { id: attempt.attemptId } })).toMatchObject({
+      status: 'running',
+    });
+    await service.beginAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      channelAccountId: CHANNEL_ACCOUNT_ID,
+      idempotencyKey: randomUUID(),
+    });
+    expect(await prisma.sourceImportRun.findUniqueOrThrow({ where: { id: attempt.attemptId } })).toMatchObject({
+      status: 'failed',
+      errorCode: 'ATTEMPT_EXPIRED',
+    });
+    expect(await prisma.alert.findFirstOrThrow({
+      where: { sourceType: 'coupang_direct_order_capture', attemptId: attempt.attemptId },
+    })).toMatchObject({ status: 'OPEN' });
   });
+
+  async function seedLegacyReceipt(
+    request: ReturnType<typeof collectionRequest>,
+    exportId: string,
+  ) {
+    const fileHash = canonicalCoupangDirectOrderHash(request);
+    const sourceRun = await prisma.sourceImportRun.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: CHANNEL_ACCOUNT_ID,
+        sourceType: 'coupang_rocket_final_order',
+        fileName: 'legacy-direct-order.json',
+        fileHash,
+        status: 'completed',
+        rowCount: 1,
+        createdBy: TEST_USER_ID,
+      },
+    });
+    await prisma.rocketPurchaseConfirmationTransmission.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        confirmationId: exportId,
+        sourceImportRunId: sourceRun.id,
+        transport: 'SHIPMENT',
+        intentKey: `rocket-final-order:${sourceRun.id}:shipment`,
+        matchedLineCount: 1,
+      },
+    });
+    return { importRunId: sourceRun.id, exportId };
+  }
 
   async function seedRequest(
     poNumber: string,

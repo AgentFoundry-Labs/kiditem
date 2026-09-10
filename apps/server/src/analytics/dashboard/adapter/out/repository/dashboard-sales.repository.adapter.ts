@@ -97,6 +97,7 @@ export class DashboardSalesRepositoryAdapter
           'formulaRevision', abce.formula_revision,
           'publicationRevision', abce.publication_revision,
           'gradeBasisCutoffDate', abce.grade_basis_cutoff_date,
+          'saleStartDate', abce.sale_start_date,
           'sellpiaSourceImportRunId', abce.sellpia_source_import_run_id,
           'advertisingSourceImportRunId', abce.advertising_source_import_run_id,
           'sellpiaGeneration', abce.sellpia_generation::text,

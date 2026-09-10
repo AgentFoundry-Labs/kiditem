@@ -30,6 +30,7 @@ export function productAbcEvaluation(
     formulaRevision: row.formulaRevision,
     publicationRevision: row.publicationRevision,
     gradeBasisCutoffDate: calendarDate(row.gradeBasisCutoffDate),
+    saleStartDate: row.saleStartDate ? calendarDate(row.saleStartDate) : null,
     sellpiaSourceImportRunId: row.sellpiaSourceImportRunId,
     advertisingSourceImportRunId: row.advertisingSourceImportRunId,
     sellpiaGeneration: row.sellpiaGeneration.toString(),

@@ -38,7 +38,7 @@ export class CoupangProductSalesScrapeAdapter implements CoupangProductSalesScra
   async scrapeByProductName(productName: string): Promise<CoupangProductSalesScrapeResult> {
     if (process.env.NODE_ENV === 'production') {
       throw new ServiceUnavailableException(
-        'Coupang sales scrape 는 dev/local 환경 전용입니다. prod 에서는 Coupang Open API 를 사용하세요.',
+        'Coupang sales scrape 는 dev/local 환경 전용이며, production에서는 현재 지원하지 않습니다.',
       );
     }
     const trimmed = (productName || '').trim();

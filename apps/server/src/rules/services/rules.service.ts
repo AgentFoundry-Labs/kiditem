@@ -400,7 +400,7 @@ function evaluationAlerts(
       targetType: 'product',
       targetId: product.masterId,
       kind: 'signal',
-      status: 'open',
+      status: 'OPEN',
       type: 'rule_violation',
       severity: 'critical',
       title: violation.message,

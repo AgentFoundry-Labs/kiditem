@@ -19,6 +19,19 @@ const workerSource = readFileSync(workerPath, 'utf8');
 const rocketModulePath = path.join(backgroundRoot, 'rocket-po-collection.js');
 const RUN_ID = '11111111-1111-4111-8111-111111111111';
 
+function listPo(overrides = {}) {
+  return {
+    purchaseOrderSeq: 1,
+    purchaseOrderStatus: 'RP',
+    vendorId: 'A00123',
+    expectedDeliveryDate: '2026-07-08T00:00:00.000Z',
+    skuCount: 1,
+    sumOfOrderQty: 2,
+    sumOfOrderAmount: 990,
+    ...overrides,
+  };
+}
+
 function loadWorker(overrides = {}) {
   const externalMessageListeners = [];
   let context;
@@ -121,6 +134,9 @@ test('Rocket page scraper uses the requested filters and labels returned rows', 
           vendorId: 'A00123',
           expectedDeliveryDate: '2026-07-08T00:00:00.000Z',
           createdAt: '2026-07-02T00:00:00.000Z',
+          skuCount: 1,
+          sumOfOrderQty: 2,
+          sumOfOrderAmount: 990,
         },
       ],
       lastPageNumber: 1,
@@ -199,8 +215,134 @@ test('Rocket page scraper uses the requested filters and labels returned rows', 
   });
 });
 
-test('Rocket empty proof distinguishes a validated empty list from an absent list array', async () => {
-  for (const [body, validatedList] of [[[], true], [null, false]]) {
+test('Rocket detail parser preserves first-column rowspan ownership for SKU continuations', async () => {
+  const cell = (textContent, rowSpan) => ({
+    textContent,
+    ...(rowSpan === undefined ? {} : { rowSpan }),
+  });
+  const values = (items) => items.map((textContent) => cell(textContent));
+  const skuRow = (lineNumber, productNo, productText, quantity, totalPurchase, rowSpan) => ({
+    cells: [
+      cell(String(lineNumber), rowSpan),
+      cell(productNo),
+      cell(productText),
+      cell(''),
+      cell(String(quantity)),
+      cell(''),
+      cell(String(totalPurchase)),
+      cell(String(totalPurchase - 90)),
+      cell('90'),
+      cell(String(totalPurchase)),
+      cell(''),
+      cell(''),
+      cell(''),
+    ],
+  });
+  const skuTable = {
+    textContent: '상품 번호 발주금액',
+    rows: [
+      skuRow(1, 'P-1', '8801234567890 상품1', 2, 990, 2),
+      { cells: values(['0', '', '0', '0', '0']) },
+      skuRow(2, 'P-2', '8801234567891 상품2', 3, 500, 2),
+      { cells: values(['1', '', '100', '90', '10']) },
+      {
+        cells: [
+          cell('합계', 2),
+          ...values(['', '', '', '5', '', '', '1490']),
+        ],
+      },
+      { cells: values(['0', '', '0', '0']) },
+    ],
+  };
+  class DOMParser {
+    parseFromString() {
+      return { querySelectorAll: () => [skuTable] };
+    }
+  }
+  const { context } = loadWorker({
+    DOMParser,
+    fetch: async (url) => String(url).startsWith('/po-web/app/purchase-order/list')
+      ? {
+        ok: true,
+        text: async () => JSON.stringify({
+          body: {
+            body: [listPo({ skuCount: 2, sumOfOrderQty: 5, sumOfOrderAmount: 1490 })],
+            lastPageNumber: 1,
+          },
+        }),
+      }
+      : { ok: true, text: async () => '<html></html>' },
+  });
+
+  const result = await context.KidItemRocketPoCollection.scrapeRocketPoRows(
+    '2026-07-01', '2026-07-07', 'RP', 'WAREHOUSING_PLAN_DATE', RUN_ID,
+  );
+
+  assert.equal(result.success, true, result.error);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(result.rows.map((row) => row.productNo))),
+    ['P-1', 'P-2'],
+  );
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(result.rows.map((row) => row.orderQty))),
+    [2, 3],
+  );
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(result.rows.map((row) => row.confirmation.totalPurchase))),
+    [990, 500],
+  );
+});
+
+test('Rocket detail parser still rejects short or missing-field genuine numeric SKU anchors', async () => {
+  const cases = [
+    {
+      name: 'short row',
+      cells: ['1', 'P-1', '8801234567890 상품명'].map((textContent) => ({ textContent })),
+      pattern: /short SKU row/,
+    },
+    {
+      name: 'missing product number',
+      cells: ['1', '', '8801234567890 상품명', '', '2', '', '1000', '900', '90', '990']
+        .map((textContent) => ({ textContent })),
+      pattern: /product number is missing/,
+    },
+    {
+      name: 'missing ordered quantity',
+      cells: ['1', 'P-1', '8801234567890 상품명', '', '', '', '1000', '900', '90', '990']
+        .map((textContent) => ({ textContent })),
+      pattern: /ordered quantity is missing/,
+    },
+  ];
+
+  for (const testCase of cases) {
+    const skuTable = { textContent: '상품 번호 발주금액', rows: [{ cells: testCase.cells }] };
+    class DOMParser {
+      parseFromString() {
+        return { querySelectorAll: () => [skuTable] };
+      }
+    }
+    const { context } = loadWorker({
+      DOMParser,
+      fetch: async (url) => String(url).startsWith('/po-web/app/purchase-order/list')
+        ? {
+          ok: true,
+          text: async () => JSON.stringify({
+            body: { body: [listPo()], lastPageNumber: 1 },
+          }),
+        }
+        : { ok: true, text: async () => '<html></html>' },
+    });
+    const result = await context.KidItemRocketPoCollection.scrapeRocketPoRows(
+      '2026-07-01', '2026-07-07', 'RP', 'WAREHOUSING_PLAN_DATE', RUN_ID,
+    );
+    assert.equal(result.success, false, testCase.name);
+    assert.match(result.error, testCase.pattern, testCase.name);
+    assert.equal(Object.hasOwn(result, 'rows'), false, testCase.name);
+  }
+});
+
+test('Rocket empty proof accepts only a validated empty list array', async () => {
+  for (const [body, success] of [[[], true], [null, false]]) {
     const { context } = loadWorker({
       fetch: async () => ({
         ok: true,
@@ -210,27 +352,24 @@ test('Rocket empty proof distinguishes a validated empty list from an absent lis
     const result = await context.KidItemRocketPoCollection.scrapeRocketPoRows(
       '2026-07-01', '2026-07-07', '', 'WAREHOUSING_PLAN_DATE', RUN_ID,
     );
-    assert.equal(result.success, true);
-    assert.deepEqual([...result.rows], []);
-    assert.equal(result.proof.validatedList, validatedList);
-    assert.equal(result.proof.status, '');
+    assert.equal(result.success, success);
+    if (success) {
+      assert.deepEqual([...result.rows], []);
+      assert.equal(result.proof.validatedList, true);
+      assert.equal(result.proof.status, '');
+    } else {
+      assert.equal(result.errorCode, 'rocket_po_collection_incomplete');
+      assert.equal(Object.hasOwn(result, 'rows'), false);
+    }
   }
 });
 
-test('Rocket collection reports failed details, missing vendor identity, and stable line IDs', async () => {
+test('Rocket collection fails without partial rows when a PO detail request fails', async () => {
   const listResponse = {
     body: {
       body: [
-        {
-          purchaseOrderSeq: 1001,
-          vendorId: '',
-          expectedDeliveryDate: '2026-07-08T00:00:00.000Z',
-        },
-        {
-          purchaseOrderSeq: 1002,
-          vendorId: 'A00123',
-          expectedDeliveryDate: '2026-07-08T00:00:00.000Z',
-        },
+        listPo({ purchaseOrderSeq: 1001 }),
+        listPo({ purchaseOrderSeq: 1002 }),
       ],
       lastPageNumber: 1,
     },
@@ -258,17 +397,140 @@ test('Rocket collection reports failed details, missing vendor identity, and sta
   }
   const { context } = loadWorker({ fetch, DOMParser });
 
-  const first = await context.KidItemRocketPoCollection.scrapeRocketPoRows(
-    '2026-07-01', '2026-07-07', 'RP', 'WAREHOUSING_PLAN_DATE', RUN_ID,
-  );
-  const second = await context.KidItemRocketPoCollection.scrapeRocketPoRows(
+  const result = await context.KidItemRocketPoCollection.scrapeRocketPoRows(
     '2026-07-01', '2026-07-07', 'RP', 'WAREHOUSING_PLAN_DATE', RUN_ID,
   );
 
-  assert.equal(first.evidence.vendorId, '');
-  assert.deepEqual([...first.evidence.failedPoNumbers], ['1002']);
-  assert.equal(first.evidence.detailPoCount, 1);
-  assert.equal(first.rows[0].poLineId, second.rows[0].poLineId);
+  assert.equal(result.success, false);
+  assert.equal(result.errorCode, 'rocket_po_collection_incomplete');
+  assert.match(result.error, /1002/);
+  assert.equal(Object.hasOwn(result, 'rows'), false);
+});
+
+test('Rocket collection rejects missing list totals before detail parsing', async () => {
+  const { context } = loadWorker({
+    fetch: async () => ({
+      ok: true,
+      text: async () => JSON.stringify({
+        body: { body: [listPo({ sumOfOrderQty: undefined })], lastPageNumber: 1 },
+      }),
+    }),
+  });
+  const result = await context.KidItemRocketPoCollection.scrapeRocketPoRows(
+    '2026-07-01', '2026-07-07', 'RP', 'WAREHOUSING_PLAN_DATE', RUN_ID,
+  );
+  assert.equal(result.success, false);
+  assert.equal(result.errorCode, 'rocket_po_collection_incomplete');
+  assert.match(result.error, /ordered quantity/);
+  assert.equal(Object.hasOwn(result, 'rows'), false);
+});
+
+test('Rocket collection rejects mixed vendor identities before detail parsing', async () => {
+  const { context } = loadWorker({
+    fetch: async () => ({
+      ok: true,
+      text: async () => JSON.stringify({
+        body: {
+          body: [listPo({ purchaseOrderSeq: 1 }), listPo({ purchaseOrderSeq: 2, vendorId: 'B00999' })],
+          lastPageNumber: 1,
+        },
+      }),
+    }),
+  });
+  const result = await context.KidItemRocketPoCollection.scrapeRocketPoRows(
+    '2026-07-01', '2026-07-07', 'RP', 'WAREHOUSING_PLAN_DATE', RUN_ID,
+  );
+  assert.equal(result.success, false);
+  assert.equal(result.errorCode, 'rocket_po_collection_incomplete');
+  assert.match(result.error, /missing or mixed/);
+  assert.equal(Object.hasOwn(result, 'rows'), false);
+});
+
+test('Rocket collection rejects duplicate purchase-order identities across list pages', async () => {
+  const { context } = loadWorker({
+    fetch: async () => ({
+      ok: true,
+      text: async () => JSON.stringify({
+        body: { body: [listPo({ purchaseOrderSeq: 1 }), listPo({ purchaseOrderSeq: 1 })], lastPageNumber: 1 },
+      }),
+    }),
+  });
+  const result = await context.KidItemRocketPoCollection.scrapeRocketPoRows(
+    '2026-07-01', '2026-07-07', 'RP', 'WAREHOUSING_PLAN_DATE', RUN_ID,
+  );
+  assert.equal(result.success, false);
+  assert.equal(result.errorCode, 'rocket_po_collection_incomplete');
+  assert.match(result.error, /duplicated/);
+  assert.equal(Object.hasOwn(result, 'rows'), false);
+});
+
+test('Rocket collection validates malformed numeric detail rows before filtering', async () => {
+  const skuTable = {
+    textContent: '상품 번호 발주금액',
+    rows: [{
+      cells: ['1', 'P-1', '8801234567890 상품명'].map((textContent) => ({ textContent })),
+    }],
+  };
+  class DOMParser {
+    parseFromString() {
+      return { querySelectorAll: () => [skuTable] };
+    }
+  }
+  const { context } = loadWorker({
+    DOMParser,
+    fetch: async (url) => String(url).startsWith('/po-web/app/purchase-order/list')
+      ? {
+        ok: true,
+        text: async () => JSON.stringify({
+          body: { body: [listPo()], lastPageNumber: 1 },
+        }),
+      }
+      : { ok: true, text: async () => '<html></html>' },
+  });
+  const result = await context.KidItemRocketPoCollection.scrapeRocketPoRows(
+    '2026-07-01', '2026-07-07', 'RP', 'WAREHOUSING_PLAN_DATE', RUN_ID,
+  );
+  assert.equal(result.success, false);
+  assert.equal(result.errorCode, 'rocket_po_collection_incomplete');
+  assert.match(result.error, /short SKU row/);
+  assert.equal(Object.hasOwn(result, 'rows'), false);
+});
+
+test('Rocket collection rejects duplicate product lines instead of indexing them apart', async () => {
+  const skuTable = {
+    textContent: '상품 번호 발주금액',
+    rows: [1, 2].map((lineNumber) => ({
+      cells: [
+        String(lineNumber), 'P-1', '8801234567890 상품명', '', '2', '', '1000', '900', '90', '990',
+      ].map((textContent) => ({ textContent })),
+    })),
+  };
+  class DOMParser {
+    parseFromString() {
+      return { querySelectorAll: () => [skuTable] };
+    }
+  }
+  const { context } = loadWorker({
+    DOMParser,
+    fetch: async (url) => String(url).startsWith('/po-web/app/purchase-order/list')
+      ? {
+        ok: true,
+        text: async () => JSON.stringify({
+          body: {
+            body: [listPo({ skuCount: 2, sumOfOrderQty: 4, sumOfOrderAmount: 1980 })],
+            lastPageNumber: 1,
+          },
+        }),
+      }
+      : { ok: true, text: async () => '<html></html>' },
+  });
+  const result = await context.KidItemRocketPoCollection.scrapeRocketPoRows(
+    '2026-07-01', '2026-07-07', 'RP', 'WAREHOUSING_PLAN_DATE', RUN_ID,
+  );
+  assert.equal(result.success, false);
+  assert.equal(result.errorCode, 'rocket_po_collection_incomplete');
+  assert.match(result.error, /duplicate product line/);
+  assert.equal(Object.hasOwn(result, 'rows'), false);
 });
 
 test('Rocket detail collection reports first-page auth responses as a retryable PO session error', async () => {
@@ -357,8 +619,9 @@ test('Coupang direct-order list maps its first auth response to the shared retry
 
 test('Rocket collection reads every provider page and PO detail beyond the former limits', async () => {
   const listRows = Array.from({ length: 3 }, (_, index) => ({
-    purchaseOrderSeq: index + 1,
-    vendorId: 'A00123',
+    ...listPo({
+      purchaseOrderSeq: index + 1,
+    }),
   }));
   let listCalls = 0;
   const fetch = async (url) => {
