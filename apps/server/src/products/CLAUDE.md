@@ -86,8 +86,20 @@ owns physical stock quantities.
   collection alone does not invalidate a compatible complete source. Persist
   and display that actual cutoff separately from the desired latest cutoff.
 - Evaluation/publication is organization-locked so an older snapshot cannot
-  overwrite a newer completed publication, and publication never moves the
-  official cutoff backward.
+  overwrite a newer completed publication.
+- Publication verifies the evaluated generation's identity as given; it does
+  not re-select a current generation. A newer complete generation is freshness
+  and does not refuse a publication, so the evaluated pair commits and the next
+  recalculation picks the newer one up. Published provenance and the official
+  cutoff come from the evaluated selection, and the transaction still refuses
+  an input that disagrees with itself or with mutable state it re-reads.
+- Publication does not move the official cutoff backward because every
+  collection plan ends its coverage at KST-yesterday and `targetCutoff` is the
+  latest closed KST day, so the actual cutoff cannot precede a published one.
+  No guard enforces this. It rests on two things: a collection plan's coverage
+  end, and a forward-moving clock. A remapping followed by a collection that
+  ran while the host clock was behind produces an older actual cutoff over a
+  settled grade.
 - Products owns the ABC evidence cutoff — the latest closed KST day — and
   derives display status once. Consumers read the published per-product view
   through `PRODUCT_ABC_READ_PORT`; no reader picks a cutoff of its own
