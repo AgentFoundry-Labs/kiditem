@@ -77,6 +77,8 @@ describe('fillKidsnoteRegistrationForm', () => {
     const result = await fillKidsnoteRegistrationForm(draft(), {});
     expect(result.ok).toBe(false);
     expect(result.error).toMatch(/#prdFrm/);
-    expect(result.manualSteps.some((step) => step.includes('배송'))).toBe(true);
+    // 실패해도 사람이 화면에서 마저 할 일은 그대로 돌려준다.
+    // (배송정책 안내는 라이브 확인 후 뺐다 — 기본 배송비에서는 고를 것이 없다.)
+    expect(result.manualSteps.some((step) => step.includes('자동 제출하지 않습니다'))).toBe(true);
   });
 });

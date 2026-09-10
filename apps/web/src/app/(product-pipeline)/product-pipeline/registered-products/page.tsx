@@ -7,31 +7,24 @@ import { useQuery } from '@tanstack/react-query';
 import { Pagination } from '@/components/ui/Pagination';
 import { formatNumber } from '@/lib/utils';
 import { queryKeys } from '@/lib/query-keys';
+import { mallPublishingApi } from '@/app/(channels)/_shared/mall-publishing-api';
 import { ProductPipelineHeader } from '../_shared/components/inbox/ProductPipelineHeader';
 import { ProductPipelineStats } from '../_shared/components/inbox/ProductPipelineStats';
 import { ProductInboxListFrame } from '../_shared/components/inbox/ProductInboxListFrame';
 import { ProductInboxToolbar } from '../_shared/components/inbox/ProductInboxToolbar';
 import { channelDisplayName, RegisteredListingCard } from './components/RegisteredListingCard';
+import { MarketplaceSummaryBar } from './components/MarketplaceSummaryBar';
 import { CoupangCatalogImportPanel } from './components/CoupangCatalogImportPanel';
 import ListingDeleteDialog from './components/ListingDeleteDialog';
 import {
   channelListingsApi,
   type RegisteredChannelListing,
   type RegisteredListingSort,
-  type RegisteredMarketCount,
 } from './lib/channel-listings-api';
 import { registeredListingWorkspaceHref } from './lib/registered-listing-navigation';
 
 type RegisteredListingFilter = 'registered' | 'recent' | 'deleted';
 type MarketFilter = 'all' | `channel:${string}`;
-
-const MARKET_SUMMARY_CHANNELS = [
-  { channel: 'smartstore', label: '스마트스토어' },
-  { channel: 'coupang', label: '쿠팡' },
-  { channel: '11st', label: '11번가(일반)' },
-  { channel: '11st-global', label: '11번가(글로벌)' },
-  { channel: 'esmplus', label: 'ESM Plus' },
-] as const;
 
 export default function RegisteredProductsPage() {
   const router = useRouter();
@@ -87,6 +80,14 @@ export default function RegisteredProductsPage() {
     }),
   });
 
+  // 몰별 `imported` 를 얻으려고 읽는다. 이 값이 없으면 0 의 뜻(진짜 0 / 아직 모름)을
+  // 가를 수 없다. 몰에는 아무 요청도 가지 않는 읽기 전용 집계다.
+  const { data: channelOverview } = useQuery({
+    queryKey: queryKeys.mallPublishing.channelOverview(),
+    queryFn: () => mallPublishingApi.channelOverview(),
+    staleTime: 60_000,
+  });
+
   const listings = data?.items ?? [];
   const total = data?.total ?? 0;
   const marketCounts = summaryData?.marketCounts ?? data?.marketCounts ?? [];
@@ -139,6 +140,7 @@ export default function RegisteredProductsPage() {
 
       <MarketplaceSummaryBar
         counts={marketCounts}
+        channels={channelOverview?.channels ?? []}
         activeChannel={selectedChannel}
         onSelectChannel={(channel) => {
           setMarketFilter(channel ? `channel:${channel}` : 'all');
@@ -276,51 +278,3 @@ export default function RegisteredProductsPage() {
   );
 }
 
-function MarketplaceSummaryBar({
-  counts,
-  activeChannel,
-  onSelectChannel,
-}: {
-  counts: RegisteredMarketCount[];
-  activeChannel: string | null;
-  onSelectChannel: (channel: string | null) => void;
-}) {
-  const totalsByChannel = new Map<string, number>();
-  counts.forEach((item) => {
-    totalsByChannel.set(item.channel, (totalsByChannel.get(item.channel) ?? 0) + item.count);
-  });
-  const knownChannels = new Set<string>(MARKET_SUMMARY_CHANNELS.map((item) => item.channel));
-  const cards = [
-    ...MARKET_SUMMARY_CHANNELS,
-    ...Array.from(totalsByChannel.keys())
-      .filter((channel) => !knownChannels.has(channel))
-      .sort()
-      .map((channel) => ({ channel, label: channelDisplayName(channel) })),
-  ];
-
-  return (
-    <section className="border-b border-slate-200 px-5 py-4">
-      <h2 className="mb-3 text-sm font-bold text-slate-900">마켓별 등록한 상품 수</h2>
-      <div className="grid grid-cols-2 overflow-hidden rounded-xl border border-slate-200 bg-white sm:grid-cols-3 lg:grid-cols-5">
-        {cards.map((card) => {
-          const count = totalsByChannel.get(card.channel) ?? 0;
-          const selected = activeChannel === card.channel;
-          return (
-            <button
-              key={card.channel}
-              type="button"
-              aria-pressed={selected}
-              onClick={() => onSelectChannel(selected ? null : card.channel)}
-              className="min-h-[88px] border-r border-slate-200 px-5 py-4 text-left transition-colors last:border-r-0 hover:bg-slate-50 aria-pressed:bg-emerald-50"
-            >
-              <div className="text-sm font-black text-slate-700">{card.label}</div>
-              <div className="mt-5 text-2xl font-black tabular-nums text-slate-950">
-                {count > 0 ? formatNumber(count) : '-'}
-              </div>
-            </button>
-          );
-        })}
-      </div>
-    </section>
-  );
-}

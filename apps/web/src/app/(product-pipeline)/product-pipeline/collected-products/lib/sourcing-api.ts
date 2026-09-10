@@ -154,6 +154,19 @@ export interface ProductBasics {
    */
   /** role 별 등록 이미지. 구버전 응답·다른 화면의 로컬 초안에는 없을 수 있다. */
   registrationImages?: RegistrationImages;
+  /**
+   * 몰별 상품등록 칸 값. `{ 몰키: { 칸키: 값 } }`.
+   *
+   * 상품 상세에서 한 번 정해 두면 목록 모달에서는 버튼만 누른다. 어느 몰이 어떤
+   * 칸을 요구하는지는 `(channels)/_shared/adapters` 가 안다 — 여기 담긴 것은
+   * 사람이 고른 값뿐이다.
+   */
+  mallRegisterValues?: Record<string, Record<string, string>>;
+  /**
+   * 여러 몰이 함께 쓰는 칸 값(안전인증번호 등). `{ 칸키: 값 }`.
+   * 구버전 응답·다른 화면의 로컬 초안에는 없을 수 있다.
+   */
+  mallRegisterShared?: Record<string, string>;
   selectedThumbnailUrl: string | null;
   selectedThumbnailGenerationId: string | null;
   selectedThumbnailGenerationCandidateId: string | null;
@@ -186,6 +199,8 @@ export type UpdateProductBasicsInput = Partial<Pick<
   | 'rocketBundleQuantity'
   | 'rocketUnitCost'
   | 'thumbnailUrls'
+  | 'mallRegisterValues'
+  | 'mallRegisterShared'
 >> & {
   basePreparationUpdatedAt?: string | null;
 };
@@ -377,6 +392,27 @@ function normalizeSalePriceSource(value: unknown): SalePriceSource {
     : 'none';
 }
 
+/** `{ 키: 문자열 }` 만 남긴다. 구버전 응답에는 아예 없을 수 있다. */
+function normalizeStringMap(value: unknown): Record<string, string> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const result: Record<string, string> = {};
+  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof entry === 'string') result[key] = entry;
+  }
+  return result;
+}
+
+/** `{ 몰키: { 칸키: 문자열 } }`. 빈 몰은 담지 않는다. */
+function normalizeStringMapMap(value: unknown): Record<string, Record<string, string>> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const result: Record<string, Record<string, string>> = {};
+  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+    const inner = normalizeStringMap(entry);
+    if (Object.keys(inner).length > 0) result[key] = inner;
+  }
+  return result;
+}
+
 function normalizeProductBasics(
   value: unknown,
   fallback: {
@@ -427,6 +463,8 @@ function normalizeProductBasics(
     thumbnailUrls,
     thumbnailPreviewUrls: explicitThumbnailUrls,
     registrationImages: normalizeRegistrationImages(basics.registrationImages),
+    mallRegisterValues: normalizeStringMapMap(basics.mallRegisterValues),
+    mallRegisterShared: normalizeStringMap(basics.mallRegisterShared),
     selectedThumbnailUrl: normalizeImageUrl(basics.selectedThumbnailUrl) ?? fallback.preparation?.selectedThumbnailUrl ?? null,
     selectedThumbnailGenerationId:
       typeof basics.selectedThumbnailGenerationId === 'string'

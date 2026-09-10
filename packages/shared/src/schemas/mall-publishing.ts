@@ -178,6 +178,134 @@ export const MallPreflightResponseSchema = z.object({
 });
 export type MallPreflightResponse = z.infer<typeof MallPreflightResponseSchema>;
 
+/**
+ * 상품 × 몰 등록 현황 매트릭스.
+ *
+ * 행이 우리 상품, 열이 몰, 칸이 그 몰에서의 상태다. 판정 규칙은 서버 도메인
+ * (`channels/domain/mall/mall-listing-state.ts`)이 소유하고 여기는 나르기만 한다.
+ */
+export const MallListingStateSchema = z.enum([
+  'published',
+  'reviewing',
+  'preparing',
+  'error',
+  'paused',
+  'discontinued',
+  'unknown',
+  'unregistered',
+]);
+export type MallListingState = z.infer<typeof MallListingStateSchema>;
+
+export const MallListingMatrixColumnSchema = z.object({
+  mallKey: z.string(),
+  mallName: z.string(),
+  channelAccountId: z.string().nullable(),
+  /** 이 몰로 새로 보낼 수 있는가. 어댑터가 있는 몰만 참이다. */
+  hasAdapter: z.boolean(),
+  /** 이 몰의 리스팅을 우리가 한 번이라도 가져왔는가. */
+  imported: z.boolean(),
+  /** 이 몰이 들고 있는 활성 리스팅 수. */
+  listingCount: z.number(),
+  /**
+   * 이 몰에서 우리가 할 수 있는 일.
+   *
+   * 매니페스트가 유일한 권위다. 화면은 이 값으로 메뉴를 켜고 끄며 상수로 다시
+   * 적지 않는다. `soldOutDeletesListing` 이 참이면 완전품절이 삭제라 되돌릴 수
+   * 없고, 그건 버튼을 누르기 전에 보여야 하는 사실이다.
+   */
+  actions: z.object({
+    createListing: z.boolean(),
+    updateListing: z.boolean(),
+    soldOut: z.boolean(),
+    resume: z.boolean(),
+    setStock: z.boolean(),
+    soldOutDeletesListing: z.boolean(),
+    requiresOperatorApproval: z.boolean(),
+  }),
+});
+export type MallListingMatrixColumn = z.infer<typeof MallListingMatrixColumnSchema>;
+
+export const MallListingMatrixCellSchema = z.object({
+  mallKey: z.string(),
+  state: MallListingStateSchema,
+  /** 몰이 준 원문 상태. 우리 어휘로 접기 전 값이라 툴팁에 그대로 쓴다. */
+  rawStatus: z.string().nullable(),
+  externalId: z.string().nullable(),
+  warning: z.string().nullable(),
+  updatedAt: z.string().nullable(),
+});
+export type MallListingMatrixCell = z.infer<typeof MallListingMatrixCellSchema>;
+
+export const MallListingMatrixRowSchema = z.object({
+  masterProductId: z.string(),
+  name: z.string(),
+  code: z.string(),
+  /**
+   * 상품 사진.
+   *
+   * 마스터에는 저장돼 있지 않다. 몰 리스팅에 붙은 콘텐츠 워크스페이스가 가진
+   * 대표 이미지를 회수한다. 없으면 null 이고 화면이 머리글자 타일로 대신한다.
+   */
+  imageUrl: z.string().nullable(),
+  /** 리스팅에서 회수한 카테고리. 마스터에는 저장돼 있지 않다. */
+  category: z.string().nullable(),
+  /** 셀피아 재고 합. 연결이 없으면 null 이고 0 과 구별한다. */
+  stock: z.number().nullable(),
+  publishedCount: z.number(),
+  cells: z.array(MallListingMatrixCellSchema),
+  updatedAt: z.string(),
+});
+export type MallListingMatrixRow = z.infer<typeof MallListingMatrixRowSchema>;
+
+/** 표를 무엇으로 좁힐 것인가. 기본은 등록된 것 — 전체는 대부분 빈 행이다. */
+export const MallMatrixFilterSchema = z.enum(['all', 'listed', 'unlisted']);
+export type MallMatrixFilter = z.infer<typeof MallMatrixFilterSchema>;
+
+export const MallListingMatrixResponseSchema = z.object({
+  filter: MallMatrixFilterSchema,
+  columns: z.array(MallListingMatrixColumnSchema),
+  rows: z.array(MallListingMatrixRowSchema),
+  total: z.number(),
+  page: z.number(),
+  limit: z.number(),
+});
+export type MallListingMatrixResponse = z.infer<typeof MallListingMatrixResponseSchema>;
+
+/**
+ * 연결된 몰 한 곳의 요약. 쇼핑몰 관리 허브 화면의 카드 한 장이 이 모양이다.
+ *
+ * 숫자는 전부 우리 DB 에서 센 것이다. 몰에 물어본 값이 아니다 — 우리가 가져온
+ * 만큼만 알고, 그 차이는 `imported` 가 말한다.
+ */
+export const MallChannelSummarySchema = z.object({
+  mallKey: z.string(),
+  mallName: z.string(),
+  channelAccountId: z.string().nullable(),
+  /** 등록 어댑터가 있는가. 상품을 보낼 수 있는 몰. */
+  canPublish: z.boolean(),
+  /** 주문수집 자격증명이 저장돼 있는가. */
+  hasCredentials: z.boolean(),
+  /** 리스팅을 가져온 적이 있는가. */
+  imported: z.boolean(),
+  listingCount: z.number(),
+  orderCount: z.number(),
+  /** 이 몰에 올라간 서로 다른 상품 수. */
+  productCount: z.number(),
+  readiness: z.enum(['ready', 'needs_profile', 'needs_promotion', 'needs_account', 'unsupported']),
+});
+export type MallChannelSummary = z.infer<typeof MallChannelSummarySchema>;
+
+export const MallChannelOverviewSchema = z.object({
+  /** 허브 중앙에 놓이는 우리 쪽 숫자. */
+  shop: z.object({
+    productCount: z.number(),
+    connectedChannelCount: z.number(),
+    publishableChannelCount: z.number(),
+  }),
+  channels: z.array(MallChannelSummarySchema),
+});
+export type MallChannelOverview = z.infer<typeof MallChannelOverviewSchema>;
+
 /** 품절 송신 후보 한 줄. Phase 0 에서는 dry-run 표시만 하고 보내지 않는다. */
 export const MallAvailabilityCandidateSchema = z.object({
   channelListingOptionId: z.string(),

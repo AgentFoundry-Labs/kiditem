@@ -97,6 +97,55 @@ export interface NoticeUpsertInput {
   attributes: Record<string, string>;
 }
 
+
+/** 리스팅을 실제로 들고 있는 계정 하나. 매트릭스 열 후보다. */
+export interface MallListingAccountRow {
+  channelAccountId: string;
+  channel: string;
+  name: string;
+  externalAccountId: string | null;
+  /** 이 계정의 활성 리스팅 수. */
+  listingCount: number;
+  /** 이 계정에 올라간 서로 다른 상품 수. */
+  productCount: number;
+}
+
+export interface MallMatrixQuery {
+  search?: string;
+  offset: number;
+  limit: number;
+  /** 이 계정들만 칸으로 채운다. 비면 리스팅이 있는 계정 전부. */
+  channelAccountIds?: string[];
+  /** 리스팅이 있는 상품만 / 없는 상품만. 비면 전부. */
+  listed?: boolean;
+}
+
+/** 매트릭스 한 칸의 원재료. 판정은 도메인이 한다. */
+export interface MallMatrixListingRow {
+  channelAccountId: string;
+  status: string | null;
+  externalId: string;
+  category: string | null;
+  updatedAt: Date;
+}
+
+export interface MallMatrixProductRow {
+  masterProductId: string;
+  code: string;
+  name: string;
+  /** 몰 리스팅 콘텐츠에서 회수한 대표 이미지. 없으면 null. */
+  imageUrl: string | null;
+  stock: number | null;
+  updatedAt: Date;
+  listings: MallMatrixListingRow[];
+}
+
+/** 한 몰의 주문 건수. 허브 화면 카드가 쓴다. */
+export interface MallOrderCountRow {
+  channelAccountId: string;
+  orderCount: number;
+}
+
 export interface MallPublishingRepositoryPort {
   /** 매니페스트 키로 찾을 수 있는 몰 계정 앵커 전부. */
   listMallAccountAnchors(organizationId: string): Promise<MallAccountAnchorRow[]>;
@@ -125,6 +174,18 @@ export interface MallPublishingRepositoryPort {
     organizationId: string,
     query: PreflightProductQuery,
   ): Promise<{ rows: PreflightProductRow[]; total: number }>;
+
+  /** 활성 리스팅을 한 건이라도 가진 계정. 매트릭스 열은 여기서 시작한다. */
+  listAccountsWithListings(organizationId: string): Promise<MallListingAccountRow[]>;
+  /** 매트릭스 한 페이지. 상품이 행이고 리스팅이 칸의 재료다. */
+  listMatrixProducts(
+    organizationId: string,
+    query: MallMatrixQuery,
+  ): Promise<{ rows: MallMatrixProductRow[]; total: number }>;
+  /** 계정별 주문 건수. */
+  countOrdersByAccount(organizationId: string): Promise<MallOrderCountRow[]>;
+  /** 판매 가능한 상품 마스터 수. 허브 중앙 숫자다. */
+  countActiveMasterProducts(organizationId: string): Promise<number>;
 
   /** 쿠팡 리스팅 중 상품 마스터에 연결된 것들의 원본 값. */
   listCoupangNoticeSources(organizationId: string): Promise<CoupangNoticeSourceRow[]>;

@@ -47,6 +47,7 @@ describe('Sidebar product pipeline navigation', () => {
         ['/reviews', '리뷰 관리'],
       ]],
       ['쇼핑몰 관리', [
+        ['/mall-channels', '쇼핑몰 현황'],
         ['/mall-settings', '쇼핑몰 계정'],
         ['/mall-listings', '상품 등록'],
         ['/mall-availability', '품절 관리'],

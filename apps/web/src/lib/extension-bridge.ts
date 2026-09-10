@@ -308,12 +308,24 @@ function requestExtensionIdsFromHandshake(
   });
 }
 
+/**
+ * 잠든 서비스워커를 깨우는 데 드는 시간.
+ *
+ * MV3 서비스워커는 놀면 내려간다. 확장을 갓 리로드한 직후나 한동안 안 쓴 뒤의
+ * 첫 `ping` 은 워커가 모듈을 다시 읽는 시간을 포함한다. 라이브 실측(2026-09-10)에서
+ * **따뜻한 상태의 왕복이 0.28~0.89초**였다 — 예전 제한 1.2초는 콜드 스타트를 못 버틴다.
+ *
+ * 못 버티면 화면은 "확장을 찾지 못했습니다"라고 말하고, 사람은 멀쩡한 확장을
+ * 또 리로드한다. 없는 확장과 잠든 확장을 구별하지 못한 것이 원인이었다.
+ */
+const EXTENSION_WAKE_TIMEOUT_MS = 6000;
+
 async function detectExtensionIdWithHandshake(options: DetectExtensionOptions): Promise<string | null> {
   if (typeof window === 'undefined') return null;
 
-  const tryPing = async (id: string): Promise<boolean> => {
+  const tryPing = async (id: string, timeoutMs: number): Promise<boolean> => {
     try {
-      const response = await sendToExtension<ExtensionPingResponse>(id, { action: 'ping' }, options.timeoutMs);
+      const response = await sendToExtension<ExtensionPingResponse>(id, { action: 'ping' }, timeoutMs);
       return !!response?.success && options.accepts(response);
     } catch {
       return false;
@@ -321,11 +333,16 @@ async function detectExtensionIdWithHandshake(options: DetectExtensionOptions): 
   };
 
   const stored = safeStorageGet('local', options.storageKey);
-  if (stored && (await tryPing(stored))) return stored;
+  if (stored) {
+    // 첫 번째는 짧게 — 있으면 대개 바로 답한다.
+    if (await tryPing(stored, options.timeoutMs)) return stored;
+    // 안 오면 자고 있는 것으로 보고 한 번 더, 깨어날 시간을 준다.
+    if (await tryPing(stored, EXTENSION_WAKE_TIMEOUT_MS)) return stored;
+  }
 
   const fromHandshake = await requestExtensionIdFromHandshake(options);
 
-  if (fromHandshake && (await tryPing(fromHandshake))) {
+  if (fromHandshake && (await tryPing(fromHandshake, EXTENSION_WAKE_TIMEOUT_MS))) {
     safeStorageSet('local', options.storageKey, fromHandshake);
     return fromHandshake;
   }

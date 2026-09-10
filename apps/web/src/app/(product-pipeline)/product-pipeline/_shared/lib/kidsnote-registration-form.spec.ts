@@ -144,3 +144,39 @@ describe('kidsnoteFormFromDraft', () => {
     expect(() => kidsnoteFormFromDraft(draft({ variants: [] }))).toThrow(/옵션/);
   });
 });
+
+/**
+ * 라이브 폼에서 확인한 사실을 고정한다(2026-09-10).
+ *
+ * 이 값들은 추측이 아니라 로그인된 키즈노트 관리자 폼에 실제로 넣어 본 결과다.
+ * 여기가 깨지면 폼이 바뀐 것이고, 그때는 다시 열어 보고 고쳐야 한다.
+ */
+describe('키즈노트 폼 — 라이브 검증 고정', () => {
+  it('고시 칸은 field636~field938 안에만 있다', () => {
+    const numbers = Object.values(KIDSNOTE_ETC_NOTICE_FIELD)
+      .map((name) => Number(name.replace('field', '')));
+    expect(Math.min(...numbers)).toBe(636);
+    expect(Math.max(...numbers)).toBe(938);
+    expect(numbers).toHaveLength(26);
+  });
+
+  it('고시 칸 이름이 서로 겹치지 않는다', () => {
+    const names = Object.values(KIDSNOTE_ETC_NOTICE_FIELD);
+    expect(new Set(names).size).toBe(names.length);
+  });
+
+  it('배송정책은 안내하지 않는다 — 기본 배송비에서는 고를 것이 없다', () => {
+    const form = kidsnoteFormFromDraft(draft());
+    expect(form.manualSteps.some((step) => step.includes('배송정책'))).toBe(false);
+    expect(form.radios.delivery_type).toBe('basic');
+  });
+
+  it('제출은 사람이 한다고 항상 알린다', () => {
+    const form = kidsnoteFormFromDraft(draft());
+    expect(form.manualSteps.some((step) => step.includes('자동 제출하지 않습니다'))).toBe(true);
+  });
+
+  it('등록이 아니라 신청이다 — req_stat 은 등록대기(1)', () => {
+    expect(kidsnoteFormFromDraft(draft()).radios.req_stat).toBe('1');
+  });
+});

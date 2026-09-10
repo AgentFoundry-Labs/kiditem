@@ -5,6 +5,10 @@ import type {
   CoupangNoticeSourceRow,
   ExistingNoticeRow,
   MallAccountAnchorRow,
+  MallListingAccountRow,
+  MallMatrixProductRow,
+  MallMatrixQuery,
+  MallOrderCountRow,
   MallProfileRow,
   NoticeUpsertInput,
   MallProfileWriteInput,
@@ -29,6 +33,28 @@ const COUPANG_CHANNEL = 'coupang';
 const BACKFILL_SOURCE = 'coupang_backfill';
 /** Wing 상품목록 엑셀의 검색옵션 슬롯 수. */
 const COUPANG_SEARCH_OPTION_SLOTS = 100;
+
+
+/** 리스팅에 붙은 콘텐츠에서 대표 이미지 하나. 없으면 null. */
+function firstListingImageUrl(
+  listings: readonly {
+    contentWorkspaces: readonly {
+      contentGenerationGroups: readonly {
+        originatingAssets: readonly { url: string }[];
+      }[];
+    }[];
+  }[],
+): string | null {
+  for (const listing of listings) {
+    for (const workspace of listing.contentWorkspaces) {
+      for (const group of workspace.contentGenerationGroups) {
+        const asset = group.originatingAssets[0];
+        if (asset?.url) return asset.url;
+      }
+    }
+  }
+  return null;
+}
 
 function readConfig(value: Prisma.JsonValue | null): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
@@ -487,5 +513,186 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
     });
 
     return { rows, total };
+  }
+
+  /**
+   * 리스팅을 실제로 가진 계정.
+   *
+   * 매트릭스 열은 여기서 시작한다. 매니페스트의 29개 몰이 아니라 **우리가 리스팅을
+   * 가져온 계정**이 열이다. 매니페스트에 있다는 것과 그 몰의 상품을 우리가 안다는
+   * 것은 다르고, 후자만 칸을 채울 수 있다.
+   */
+  async listAccountsWithListings(organizationId: string): Promise<MallListingAccountRow[]> {
+    const grouped = await this.prisma.channelListing.groupBy({
+      by: ['channelAccountId'],
+      where: { organizationId, isActive: true },
+      _count: { _all: true },
+    });
+    if (grouped.length === 0) return [];
+
+    const [accounts, productCounts] = await Promise.all([
+      this.prisma.channelAccount.findMany({
+        where: { organizationId, id: { in: grouped.map((row) => row.channelAccountId) } },
+        select: { id: true, channel: true, name: true, externalAccountId: true },
+      }),
+      Promise.all(
+        grouped.map(async (row) => ({
+          channelAccountId: row.channelAccountId,
+          productCount: (
+            await this.prisma.channelListing.findMany({
+              where: {
+                organizationId,
+                channelAccountId: row.channelAccountId,
+                isActive: true,
+                masterProductId: { not: null },
+              },
+              distinct: ['masterProductId'],
+              select: { masterProductId: true },
+            })
+          ).length,
+        })),
+      ),
+    ]);
+
+    const countByAccount = new Map(grouped.map((row) => [row.channelAccountId, row._count._all]));
+    const productByAccount = new Map(
+      productCounts.map((row) => [row.channelAccountId, row.productCount]),
+    );
+
+    return accounts.map((account) => ({
+      channelAccountId: account.id,
+      channel: account.channel,
+      name: account.name,
+      externalAccountId: account.externalAccountId,
+      listingCount: countByAccount.get(account.id) ?? 0,
+      productCount: productByAccount.get(account.id) ?? 0,
+    }));
+  }
+
+  /**
+   * 매트릭스 한 페이지.
+   *
+   * 행은 상품 마스터다. 수집상품이 아니라 마스터인 이유는 리스팅이 마스터에
+   * 걸려 있기 때문이다(라이브 실측 2026-09-09: 리스팅 1,689건 중 마스터 연결
+   * 871건, 수집상품 연결 2건). 수집상품을 행으로 쓰면 표가 거의 비어 있게 된다.
+   */
+  async listMatrixProducts(
+    organizationId: string,
+    query: MallMatrixQuery,
+  ): Promise<{ rows: MallMatrixProductRow[]; total: number }> {
+    // 열에 없는 계정의 리스팅은 필터 판정에도 넣지 않는다. 화면에 보이지 않는
+    // 몰 때문에 '등록됨'으로 잡히면 표가 설명되지 않는다.
+    const listingScope: Prisma.ChannelListingWhereInput = {
+      isActive: true,
+      ...(query.channelAccountIds?.length
+        ? { channelAccountId: { in: query.channelAccountIds } }
+        : {}),
+    };
+
+    const where: Prisma.MasterProductWhereInput = {
+      organizationId,
+      isActive: true,
+      ...(query.listed === true ? { channelListings: { some: listingScope } } : {}),
+      ...(query.listed === false ? { channelListings: { none: listingScope } } : {}),
+      ...(query.search
+        ? {
+            OR: [
+              { name: { contains: query.search, mode: 'insensitive' } },
+              { code: { contains: query.search, mode: 'insensitive' } },
+            ],
+          }
+        : {}),
+    };
+
+    const [records, total] = await Promise.all([
+      this.prisma.masterProduct.findMany({
+        where,
+        orderBy: { updatedAt: 'desc' },
+        skip: query.offset,
+        take: query.limit,
+        select: {
+          id: true,
+          code: true,
+          name: true,
+          updatedAt: true,
+          // 재고는 마스터당 최대 1 row 다(sellpia_inventory_skus_org_master_key).
+          inventorySkus: { select: { currentStock: true }, take: 1 },
+          channelListings: {
+            where: {
+              isActive: true,
+              ...(query.channelAccountIds?.length
+                ? { channelAccountId: { in: query.channelAccountIds } }
+                : {}),
+            },
+            select: {
+              channelAccountId: true,
+              status: true,
+              externalId: true,
+              category: true,
+              updatedAt: true,
+              // 상품 사진의 유일한 원천. 마스터의 `imageUrls` 는 비어 있고
+              // (라이브 실측 2026-09-09: 활성 2,951건 전부 빈 배열), 리스팅에
+              // 붙은 콘텐츠 워크스페이스만 대표 이미지를 들고 있다.
+              contentWorkspaces: {
+                where: { isDeleted: false },
+                take: 1,
+                select: {
+                  contentGenerationGroups: {
+                    take: 3,
+                    select: {
+                      originatingAssets: {
+                        where: {
+                          isDeleted: false,
+                          assetType: 'image',
+                          role: { in: ['primary', 'thumbnail'] },
+                        },
+                        take: 1,
+                        select: { url: true },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      }),
+      this.prisma.masterProduct.count({ where }),
+    ]);
+
+    const rows = records.map<MallMatrixProductRow>((record) => ({
+      masterProductId: record.id,
+      code: record.code,
+      name: record.name,
+      imageUrl: firstListingImageUrl(record.channelListings),
+      // 재고 연결이 없는 것과 재고가 0 인 것은 다른 사실이다.
+      stock: record.inventorySkus[0]?.currentStock ?? null,
+      updatedAt: record.updatedAt,
+      listings: record.channelListings.map((listing) => ({
+        channelAccountId: listing.channelAccountId,
+        status: listing.status,
+        externalId: listing.externalId,
+        category: listing.category,
+        updatedAt: listing.updatedAt,
+      })),
+    }));
+
+    return { rows, total };
+  }
+
+  async countOrdersByAccount(organizationId: string): Promise<MallOrderCountRow[]> {
+    const grouped = await this.prisma.order.groupBy({
+      by: ['channelAccountId'],
+      where: { organizationId },
+      _count: { channelAccountId: true },
+    });
+    return grouped.map((row) => ({
+      channelAccountId: row.channelAccountId,
+      orderCount: row._count.channelAccountId,
+    }));
+  }
+
+  countActiveMasterProducts(organizationId: string): Promise<number> {
+    return this.prisma.masterProduct.count({ where: { organizationId, isActive: true } });
   }
 }

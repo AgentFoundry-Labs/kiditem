@@ -20,6 +20,11 @@ import {
 import { ProductPipelineHeader } from '../_shared/components/inbox/ProductPipelineHeader';
 import { ProductPipelineStats } from '../_shared/components/inbox/ProductPipelineStats';
 import { GenerationProgressBannerStack } from '../_shared/components/workspace/GenerationProgressBanner';
+import {
+  KIDSNOTE_CATEGORY_PRESET,
+  KIDSNOTE_DEFAULT_CATEGORY,
+  type KidsnoteCategoryKey,
+} from '../_shared/lib/kidsnote-registration-form';
 import ProductList from './components/list/ProductList';
 import ScrapeUrlInput from './components/list/ScrapeUrlInput';
 import SourcingToolbar from './components/list/SourcingToolbar';
@@ -40,20 +45,14 @@ import {
   generateWingExcelForCandidates,
   isConfirmedWingRegistration,
   submitWingRegistration,
+  translateWingError,
   waitForRegisteredListing,
   type WingRegistrationDraft,
   type WingRegistrationOverrides,
   type WingSellpiaSelection,
 } from './lib/wing-registration-flow';
-import {
-  fillKidsnoteRegistrationForm,
-  prepareKidsnoteRegistration,
-} from '../_shared/lib/kidsnote-registration-api';
-import {
-  KIDSNOTE_CATEGORY_PRESET,
-  KIDSNOTE_DEFAULT_CATEGORY,
-  type KidsnoteCategoryKey,
-} from '../_shared/lib/kidsnote-registration-form';
+import { MallQuickRegisterRows } from './components/MallQuickRegisterRows';
+import { useMallQuickRegister } from './hooks/useMallQuickRegister';
 import {
   emptyStateCopyForSourceFilter,
   platformForSourceFilter,
@@ -78,8 +77,6 @@ export default function SourcingPage() {
   const [wingDraft, setWingDraft] = useState<WingRegistrationDraft | null>(null);
   const [wingSubmitting, setWingSubmitting] = useState(false);
   const [wingSubmissionError, setWingSubmissionError] = useState<string | null>(null);
-  const [kidsnoteRegistering, setKidsnoteRegistering] = useState(false);
-  const [kidsnoteCategory, setKidsnoteCategory] = useState<KidsnoteCategoryKey>(KIDSNOTE_DEFAULT_CATEGORY);
   const wingPreparation = useWingRegistrationPreparation({
     onReady: (draft) => {
       setWingSubmissionError(null);
@@ -114,6 +111,12 @@ export default function SourcingPage() {
   const { processingIds } = useProcessingIds(products);
   const quickProcessTargetIdSet = new Set(quickProcessTargetIds);
   const quickProcessTargetProducts = products.filter((product) => quickProcessTargetIdSet.has(product.id));
+  // 몰별 등록은 어댑터 레지스트리가 그린다. 값은 상품 상세에 저장된 것을 읽는다 —
+  // 모달은 값을 묻지 않고 버튼만 세운다.
+  const mallRegister = useMallQuickRegister({
+    candidateId: quickProcessTargetIds[0] ?? null,
+    enabled: quickProcessModalOpen,
+  });
   const displayedProcessingIds = new Set([...processingIds, ...quickProcessingIds]);
 
   const deleteMutation = useMutation({
@@ -241,7 +244,7 @@ export default function SourcingPage() {
   };
 
   const wingErrorMessage = (err: unknown, fallback: string): string =>
-    isApiError(err) ? err.detail : err instanceof Error ? err.message : fallback;
+    translateWingError(isApiError(err) ? err.detail : err instanceof Error ? err.message : fallback);
 
   // 모달(단일 작업) = 엑셀이 아니라 WING 상품등록 페이지를 열어 직접 채우는 방식.
   //
@@ -322,40 +325,6 @@ export default function SourcingPage() {
       toast.error(message);
     } finally {
       setWingSubmitting(false);
-    }
-  };
-
-  /**
-   * 키즈노트 상품등록 폼을 열어 자동으로 채운다.
-   *
-   * 제출하지 않는다. 키즈노트 등록은 몰 승인이 붙는 신청이라 열린 탭에서 사람이
-   * 확인하고 눌러야 한다. 그래서 성공 토스트도 "등록됨"이 아니라 "채웠음"이다.
-   */
-  const handleModalKidsnoteRegister = async () => {
-    const ids = [...quickProcessTargetIds];
-    if (ids.length === 0 || kidsnoteRegistering) return;
-    setKidsnoteRegistering(true);
-    try {
-      const { draft } = await prepareKidsnoteRegistration(ids[0]!);
-      const result = await fillKidsnoteRegistrationForm(draft, { category: kidsnoteCategory });
-      if (!result.ok) throw new Error(result.error ?? '키즈노트 폼을 채우지 못했습니다.');
-      const remaining = [...result.warnings, ...result.manualSteps];
-      toast.success('키즈노트 상품등록 폼을 채웠어요', {
-        description: remaining.length > 0
-          ? `열린 탭에서 확인 후 등록하세요. ${remaining.join(' ')}`
-          : '열린 탭에서 확인 후 등록하세요. 제출은 하지 않았습니다.',
-      });
-      if (ids.length > 1) {
-        toast.info('키즈노트는 한 번에 1개씩 등록합니다', {
-          description: `선택한 ${ids.length}개 중 첫 상품만 열었습니다.`,
-        });
-      }
-      setQuickProcessModalOpen(false);
-      setQuickProcessTargetIds([]);
-    } catch (err) {
-      toast.error(wingErrorMessage(err, '키즈노트 상품등록에 실패했습니다.'));
-    } finally {
-      setKidsnoteRegistering(false);
     }
   };
 
@@ -537,10 +506,12 @@ export default function SourcingPage() {
         onClose={closeQuickProcessModal}
         onConfirm={(task) => quickProcessMutation.mutate({ ids: quickProcessTargetIds, task })}
         onWingRegister={handleModalWingRegister}
-        kidsnoteRegistering={kidsnoteRegistering}
-        kidsnoteCategory={kidsnoteCategory}
-        onKidsnoteCategoryChange={setKidsnoteCategory}
-        onKidsnoteRegister={() => void handleModalKidsnoteRegister()}
+        mallRegister={mallRegister}
+        mallDetailHref={
+          quickProcessTargetIds[0]
+            ? collectedProductDetailHref(quickProcessTargetIds[0])
+            : null
+        }
       />
 
       <WingRegistrationConfirmDialog
@@ -569,10 +540,8 @@ function QuickProcessSelectedDialog({
   onClose,
   onConfirm,
   onWingRegister,
-  kidsnoteRegistering,
-  kidsnoteCategory,
-  onKidsnoteCategoryChange,
-  onKidsnoteRegister,
+  mallRegister,
+  mallDetailHref,
 }: {
   open: boolean;
   targetCount: number;
@@ -583,10 +552,8 @@ function QuickProcessSelectedDialog({
   onClose: () => void;
   onConfirm: (task: QuickProcessTask) => void;
   onWingRegister: () => void;
-  kidsnoteRegistering: boolean;
-  kidsnoteCategory: KidsnoteCategoryKey;
-  onKidsnoteCategoryChange: (category: KidsnoteCategoryKey) => void;
-  onKidsnoteRegister: () => void;
+  mallRegister: ReturnType<typeof useMallQuickRegister>;
+  mallDetailHref: string | null;
 }) {
   if (!open) return null;
   const previewProducts = targetProducts.slice(0, 6);
@@ -675,54 +642,35 @@ function QuickProcessSelectedDialog({
         </div>
 
         <div className="mt-3 border-t border-slate-100 pt-3">
-          <button
-            type="button"
-            onClick={onWingRegister}
-            disabled={targetCount === 0 || isSubmitting || wingRegistering}
-            className="flex w-full items-center justify-center gap-2 rounded-lg bg-[#ff5a1f] px-4 py-3 text-sm font-black text-white transition hover:bg-[#ef4f18] disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {wingRegistering ? (
-              <Loader2 size={15} className="animate-spin" />
-            ) : (
-              <Store size={15} />
-            )}
-            {wingRegistering
-              ? wingRegisteringMessage ?? '쿠팡 WING 등록 준비 중'
-              : '쿠팡 WING 상품 등록'}
-          </button>
-          <p className="mt-1.5 text-center text-[11px] font-semibold text-slate-400">
-            고정 카테고리 확인 · WING 상품등록 페이지를 열어 직접 입력
-          </p>
-
-          <div className="mt-3 flex gap-2">
-            <select
-              value={kidsnoteCategory}
-              onChange={(event) => onKidsnoteCategoryChange(event.target.value as KidsnoteCategoryKey)}
-              disabled={kidsnoteRegistering}
-              aria-label="키즈노트 분류"
-              className="w-52 shrink-0 rounded-lg border border-slate-200 px-2 py-3 text-xs font-bold text-slate-700 outline-none focus:border-emerald-400 disabled:opacity-50"
-            >
-              {Object.keys(KIDSNOTE_CATEGORY_PRESET).map((category) => (
-                <option key={category} value={category}>{category}</option>
-              ))}
-            </select>
-            <button
-              type="button"
-              onClick={onKidsnoteRegister}
-              disabled={targetCount === 0 || isSubmitting || kidsnoteRegistering}
-              className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-3 text-sm font-black text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {kidsnoteRegistering ? (
-                <Loader2 size={15} className="animate-spin" />
-              ) : (
-                <Store size={15} />
-              )}
-              {kidsnoteRegistering ? '키즈노트 폼 채우는 중' : '키즈노트 상품 등록'}
-            </button>
-          </div>
-          <p className="mt-1.5 text-center text-[11px] font-semibold text-slate-400">
-            폼만 채웁니다 · 중·소분류와 배송정책은 열린 탭에서 선택 후 직접 제출
-          </p>
+          {/* 쿠팡 WING 도 같은 줄로 선다. 예전에는 혼자 주황색 큰 버튼이었는데
+              실제로 다른 것은 마지막 확인 한 단계뿐이라, 그 사실만 줄 안에 적고
+              생김새는 나머지 몰과 같게 뒀다. */}
+          <MallQuickRegisterRows
+            readiness={mallRegister.readiness}
+            results={mallRegister.results}
+            runningMallKey={mallRegister.runningMallKey}
+            isLoading={mallRegister.isLoading}
+            disabled={targetCount === 0 || isSubmitting}
+            detailHref={mallDetailHref}
+            targetCount={targetCount}
+            wing={{
+              row: mallRegister.wingReadiness,
+              busy: wingRegistering,
+              busyLabel: wingRegisteringMessage ?? '등록 준비 중',
+              result: null,
+            }}
+            onRunOne={(mallKey) => {
+              if (mallKey === mallRegister.wingReadiness.mallKey) onWingRegister();
+              else void mallRegister.runMalls([mallKey]);
+            }}
+            onRunSelected={async (mallKeys) => {
+              // 폼 몰을 먼저 다 채우고 쿠팡을 마지막에 연다. 확인 창이 떠 있는 채로
+              // 뒤에서 탭이 열리면 사람이 어느 창을 보는지 알 수 없다.
+              const wingKey = mallRegister.wingReadiness.mallKey;
+              await mallRegister.runMalls(mallKeys.filter((key) => key !== wingKey));
+              if (mallKeys.includes(wingKey)) onWingRegister();
+            }}
+          />
         </div>
 
       </div>

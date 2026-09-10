@@ -509,7 +509,7 @@ Kinds:
 | `apps/web/src/app/(advertising)` | Route Group | `ad-ops`, `rank-tracking` |
 | `apps/web/src/app/(analytics)` | Route Group | `dashboard` |
 | `apps/web/src/app/(automation)` | Route Group | `_shared`, `action-board`, `agents`, `marketplace`, `workflows` |
-| `apps/web/src/app/(channels)` | Route Group | 몰별 상품등록·품절 송신. `/mall-listings`(상품 N × 몰 M 등록과 송신 전 검증), `/mall-availability`(일괄 품절·해제 dry-run), `/mall-tasks`(등록·품절 실행 기록). 몰 계정 편집 `/mall-settings` 는 주문수집 자격증명을 편집하므로 `(orders)` 에 남는다. |
+| `apps/web/src/app/(channels)` | Route Group | 몰별 상품등록·품절 송신. `/mall-channels`(연결된 몰 현황 허브), `/mall-listings`(등록 현황 매트릭스 + 상품 N × 몰 M 새 등록), `/mall-availability`(일괄 품절·해제 dry-run), `/mall-tasks`(등록·품절 실행 기록). 몰 계정 편집 `/mall-settings` 는 주문수집 자격증명을 편집하므로 `(orders)` 에 남는다. |
 | `apps/web/src/app/(catalog)` | Route Group | Canonical inventory-product operations center at `/product-hub`; direct channel-option inventory configuration on product detail; option-to-Sellpia matching with automatic MasterProduct derivation at `/product-hub/matching`. |
 | `apps/web/src/app/(finance)` | Route Group | Active `/profit-loss`, `/reports`, and `/sales-analysis` surfaces; settlement remains a tab inside sales analysis. |
 | `apps/web/src/app/(inventory)` | Route Group | Active `/inventory-hub`, `/inventory`, `/stock-ops`, and `/coupang-shipments` surfaces; Warehouse reads remain reference data for `StockTransfers`, with no standalone warehouse-management route. |

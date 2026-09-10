@@ -12,6 +12,12 @@ import type { MallProductDraft } from './mall-product-draft';
  *  2. 상세설명은 `up_fdisk` 호스팅(filetype=3)에 먼저 올려 `kiditem.diskn.com` URL 을
  *     받은 뒤 그 URL 로 `content2` 를 만든다.
  *  3. 상품정보제공고시는 `fieldset` 을 고르면 `field{N}` 이 동적으로 생긴다.
+ *
+ * 라이브 검증 2026-09-10: 로그인된 관리자 폼에 이 맵 그대로 값을 넣어 확인했다.
+ *  - `fieldset='1100'` 이 `field636`~`field938` 26칸을 정확히 생성한다.
+ *  - `big=2128 → mid=2129 → small=2504` 계단식이 옵션 로드 대기와 함께 통과한다.
+ *  - 가격칸은 콤마를 넣어도 폼이 `3000` 으로 정규화한다. 콤마는 무해하지만 필수도 아니다.
+ *  - `delivery_set`(배송정책) 은 기본 배송비에서 선택지가 없다.
  */
 
 export const KIDSNOTE_REGISTER_URL =
@@ -242,10 +248,13 @@ export function kidsnoteFormFromDraft(
   if (!options.category) {
     manualSteps.push(`분류를 '${KIDSNOTE_DEFAULT_CATEGORY}' 로 넣었습니다. 다르면 화면에서 바꾸세요.`);
   }
-  manualSteps.push('배송비 정책(배송정책 선택)을 지정하세요.');
+  // 배송정책(`delivery_set`)은 안내하지 않는다. `delivery_type=basic` 을 쓰면 그
+  // 드롭다운은 비활성이고 선택지도 플레이스홀더 하나뿐이다(라이브 확인 2026-09-10).
+  // 고를 것이 없는데 고르라고 하면 사람이 폼을 뒤지다 시간을 버린다.
   if (draft.detailImageUrls.length === 0) {
     manualSteps.push('상세설명 이미지가 없습니다. 상품 생성에서 상세페이지를 먼저 확정하세요.');
   }
+  manualSteps.push('값이 맞는지 확인한 뒤 화면에서 직접 제출하세요. 자동 제출하지 않습니다.');
 
   return {
     url: KIDSNOTE_REGISTER_URL,

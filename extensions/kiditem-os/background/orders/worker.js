@@ -1149,6 +1149,24 @@ function kidsnoteProductRegister() {
   return kidsnoteProductRegisterInstance;
 }
 
+// 도매꾹·온채널 상품등록 폼 자동 채움. 키즈노트와 같은 자리지만 두 몰은 계단식 분류도
+// 자체 호스팅 업로더도 없어서 한 구현을 공유한다.
+let mallFormRegisterInstance = null;
+function mallFormRegister() {
+  if (!mallFormRegisterInstance) {
+    mallFormRegisterInstance = KidItemMallFormRegister.create({
+      chrome,
+      fetch: (...args) => fetch(...args),
+      interactiveTabs,
+      tabReason: INTERACTIVE_TAB_REASONS.MALL_PRODUCT_REGISTER,
+      // 로그인이 풀려 폼이 없을 때만 쓴다. 주문수집이 쓰는 것과 같은 폼 채움 로그인이고,
+      // 상품등록이 이미 열어 둔 탭 위에서 동작하므로 별도 탭·수집 lifecycle 을 만들지 않는다.
+      ensureLogin: (tabId, credentials, mallKey) => ensureMallLogin(tabId, credentials, mallKey),
+    });
+  }
+  return mallFormRegisterInstance;
+}
+
 chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   const senderEnvironment = ordersEnvironmentContext.resolveSender(sender);
   if (!senderEnvironment) {
@@ -1180,6 +1198,16 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   // 키즈노트 상품등록 폼 자동 채움. 제출하지 않으므로 몰에 부작용이 없다.
   if (msg?.action === "registerToKidsnoteForm") {
     return respond(kidsnoteProductRegister().register(msg));
+  }
+
+  // 도매꾹·온채널 상품등록 폼 자동 채움. 제출하지 않으므로 몰에 부작용이 없다.
+  if (msg?.action === "registerToMallForm") {
+    return respond(mallFormRegister().register(msg));
+  }
+
+  // 몰 분류 목록 한 단. 읽기만 한다 — 폼을 열지도, 값을 넣지도 않는다.
+  if (msg?.action === "listMallCategories") {
+    return respond(mallFormRegister().listCategories(msg));
   }
 
   if (msg?.action === "collectSellpiaInventory") {
@@ -8001,6 +8029,12 @@ KidItemDomains.register({
     // 키즈노트 상품등록 폼 자동 채움(제출은 사람이 한다).
     kidsnoteFormRegister: true,
     kidsnoteFormRegisterSource: "kidsnote-product-register-fill",
+    // 도매꾹·온채널 상품등록 폼 자동 채움(제출은 사람이 한다).
+    mallFormRegister: true,
+    mallFormRegisterMalls: ["domeggook", "onch", "artgonggu", "alwayz", "teacherville", "11st"],
+    // 분류를 몰에서 그때그때 읽어 화면이 계단식으로 보여줄 수 있다.
+    mallCategoryLookup: true,
+    mallCategoryLookupMalls: ["onch"],
     collectHaebeopOrders: true,
     sellpiaPostTransfer: true,
     sellpiaAutoInvoice: true,

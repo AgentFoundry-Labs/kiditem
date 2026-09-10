@@ -14,6 +14,8 @@ import {
   UpsertMallListingProfileSchema,
   type MallAdapterManifestView,
   type MallAvailabilityPreview,
+  type MallChannelOverview,
+  type MallListingMatrixResponse,
   type MallListingProfile,
   type MallNoticeBackfillResult,
   type MallPreflightResponse,
@@ -24,6 +26,7 @@ import { Roles } from '../../../../auth/decorators/roles.decorator';
 import { MallPublishingService } from '../../../application/service/mall-publishing.service';
 import {
   MallAvailabilityPreviewQueryDto,
+  MallMatrixQueryDto,
   MallPreflightQueryDto,
 } from './dto/mall-publishing.dto';
 
@@ -119,6 +122,31 @@ export class MallPublishingController {
     return this.mallPublishing.backfillNoticesFromCoupang(organizationId, {
       dryRun: dryRun !== 'false',
     });
+  }
+
+  /**
+   * 상품 × 몰 등록 현황. 읽기 전용이고 몰에는 아무 요청도 가지 않는다.
+   */
+  @Get('listing-matrix')
+  listingMatrix(
+    @CurrentOrganization() organizationId: string,
+    @Query() query: MallMatrixQueryDto,
+  ): Promise<MallListingMatrixResponse> {
+    return this.mallPublishing.listingMatrix(organizationId, {
+      ...(query.mallKeys ? { mallKeys: query.mallKeys } : {}),
+      ...(query.filter ? { filter: query.filter } : {}),
+      ...(query.search ? { search: query.search } : {}),
+      page: query.page,
+      limit: query.limit,
+    });
+  }
+
+  /** 연결된 몰 요약. 허브 화면이 쓴다. */
+  @Get('channel-overview')
+  channelOverview(
+    @CurrentOrganization() organizationId: string,
+  ): Promise<MallChannelOverview> {
+    return this.mallPublishing.channelOverview(organizationId);
   }
 
   @Get('availability-preview')

@@ -84,6 +84,7 @@ vi.mock('./sourcing-api', async (importOriginal) => {
       }),
       startExternalWingRegistration: vi.fn().mockResolvedValue({ status: 'executing' }),
       markExternalWingRegistrationUnresolved: vi.fn().mockResolvedValue({ status: 'reconciling' }),
+      markExternalWingRegistrationNotSubmitted: vi.fn().mockResolvedValue({ status: 'cancelled' }),
     },
   };
 });
@@ -358,11 +359,13 @@ describe('direct WING account selection', () => {
     expect(sendToExtensionViaPort).not.toHaveBeenCalled();
   });
 
-  it('blocks an outdated extension before loading candidate data', async () => {
+  it('확장이 응답하지 않으면 후보 데이터를 읽기 전에 멈춘다', async () => {
+    // 문구는 "없다"가 아니라 "응답하지 않는다"여야 한다. MV3 서비스워커는 잠들고,
+    // 없는 확장과 잠든 확장을 같은 말로 뭉개면 사람은 멀쩡한 확장을 계속 리로드한다.
     vi.mocked(detectWingFormExtensionId).mockResolvedValue(null);
 
     await expect(prepareWingRegistration('candidate-1')).rejects.toThrow(
-      /최신 KidItem 확장.*리로드/,
+      /응답하지 않습니다[\s\S]*잠깐 뒤 한 번 더/,
     );
     expect(productsApi.getDetail).not.toHaveBeenCalled();
   });
@@ -968,6 +971,36 @@ describe('external WING pre-intent choreography', () => {
       product: WingProduct;
     };
     expect(message.product.variants[0]?.vendorItemCode).toBe('10451-1');
+  });
+
+  it('폼 채움이 실패하면 자동 실행이 꺼진 경우 장부를 닫는다', async () => {
+    // 자동 실행이 꺼진 경로에서는 확장이 '상품등록' 버튼을 누를 수 없다. 그러니
+    // 채우다 멈춘 것은 마켓에 아무것도 안 올라갔다는 뜻이다. 닫지 않으면 그 상품은
+    // "An active registration preparation already exists." 로 영영 막힌다.
+    vi.mocked(candidatesApi.prepareExternalWingRegistration).mockResolvedValue({
+      executionId: '55555555-5555-4555-8555-555555555555',
+      expectedVendorId: 'A00012345',
+      sellpiaMatch: {
+        sellpiaInventorySkuId: '44444444-4444-4444-8444-444444444444',
+        code: '10451-1', name: '3500꿀사과슬랑이', optionName: null,
+        currentStock: 13, quantity: 1,
+      },
+      existingListing: null,
+    } as never);
+    vi.mocked(sendToExtensionViaPort).mockResolvedValue({
+      ok: false,
+      error: '쿠팡 WING 옵션값을 옵션 목록으로 생성하지 못했습니다.',
+    });
+
+    await expect(submitWingRegistration(draft, draft.overrides, false)).rejects.toThrow(/옵션 목록/);
+
+    expect(candidatesApi.markExternalWingRegistrationNotSubmitted).toHaveBeenCalledWith(
+      draft.candidateId,
+      '55555555-5555-4555-8555-555555555555',
+      expect.objectContaining({ attempted: false }),
+    );
+    // 제출을 시도조차 못 했으므로 미해결로 남기지 않는다.
+    expect(candidatesApi.markExternalWingRegistrationUnresolved).not.toHaveBeenCalled();
   });
 
   it('returns an existing Coupang listing for canonical confirmation without opening the extension', async () => {

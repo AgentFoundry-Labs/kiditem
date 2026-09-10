@@ -4,6 +4,8 @@ import type {
   CoupangNoticeSourceRow,
   ExistingNoticeRow,
   MallAccountAnchorRow,
+  MallListingAccountRow,
+  MallMatrixProductRow,
   NoticeUpsertInput,
   MallProfileRow,
   MallPublishingRepositoryPort,
@@ -58,6 +60,10 @@ function buildHarness(overrides: {
   products?: PreflightProductRow[];
   noticeSources?: CoupangNoticeSourceRow[];
   existingNotices?: ExistingNoticeRow[];
+  listingAccounts?: MallListingAccountRow[];
+  matrixProducts?: MallMatrixProductRow[];
+  orderCounts?: { channelAccountId: string; orderCount: number }[];
+  masterProductCount?: number;
 } = {}) {
   const written: NoticeUpsertInput[] = [];
   const repository: MallPublishingRepositoryPort = {
@@ -74,6 +80,13 @@ function buildHarness(overrides: {
       rows: overrides.products ?? [productRow()],
       total: (overrides.products ?? [productRow()]).length,
     }),
+    listAccountsWithListings: async () => overrides.listingAccounts ?? [],
+    listMatrixProducts: async () => ({
+      rows: overrides.matrixProducts ?? [],
+      total: (overrides.matrixProducts ?? []).length,
+    }),
+    countOrdersByAccount: async () => overrides.orderCounts ?? [],
+    countActiveMasterProducts: async () => overrides.masterProductCount ?? 0,
     listCoupangNoticeSources: async () => overrides.noticeSources ?? [],
     listExistingDefaultNotices: async () => overrides.existingNotices ?? [],
     upsertBackfilledNotices: async (_organizationId, inputs) => {

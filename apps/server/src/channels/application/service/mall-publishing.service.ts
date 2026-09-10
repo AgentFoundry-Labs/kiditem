@@ -1,6 +1,13 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import type {
   MallAdapterManifestView,
+  MallChannelOverview,
+  MallChannelSummary,
+  MallListingMatrixCell,
+  MallListingMatrixColumn,
+  MallListingMatrixResponse,
+  MallListingMatrixRow,
+  MallMatrixFilter,
   MallAvailabilityCandidate,
   MallAvailabilityPreview,
   MallListingProfile,
@@ -22,6 +29,10 @@ import {
   type PreflightProfile,
 } from '../../domain/mall/mall-publish-preflight';
 import {
+  countPublished,
+  resolveMallListingState,
+} from '../../domain/mall/mall-listing-state';
+import {
   buildCoupangNoticeDraft,
   COUPANG_UNAVAILABLE_FIELDS,
   type CoupangNoticeDraft,
@@ -29,6 +40,8 @@ import {
 import { missingNoticeFields } from '../../domain/mall/product-notice-fields';
 import {
   MALL_PUBLISHING_REPOSITORY_PORT,
+  type MallAccountAnchorRow,
+  type MallListingAccountRow,
   type MallProfileRow,
   type MallPublishingRepositoryPort,
 } from '../port/out/repository/mall-publishing.repository.port';
@@ -47,6 +60,36 @@ function toManifestView(manifest: MallAdapterManifest): MallAdapterManifestView 
     hazards: { ...manifest.hazards, irreversibleStates: [...manifest.hazards.irreversibleStates] },
     preflightRules: [...manifest.preflightRules],
     requiredProfileFields: [...manifest.requiredProfileFields],
+  };
+}
+
+
+/**
+ * 매니페스트 → 화면이 켜고 끌 메뉴.
+ *
+ * 매니페스트를 모르는 몰은 아무것도 못 한다고 본다. 모르면서 할 수 있다고 하는
+ * 것보다 못한다고 하는 편이 안전하다 — 이 값들이 파괴적 동작의 버튼을 연다.
+ */
+function toColumnActions(manifest: MallAdapterManifest | null | undefined) {
+  if (!manifest || !manifest.applicable) {
+    return {
+      createListing: false,
+      updateListing: false,
+      soldOut: false,
+      resume: false,
+      setStock: false,
+      soldOutDeletesListing: false,
+      requiresOperatorApproval: false,
+    };
+  }
+  return {
+    createListing: manifest.supports.createListing,
+    updateListing: manifest.supports.updateListing,
+    soldOut: manifest.supports.soldOut,
+    resume: manifest.supports.resume,
+    setStock: manifest.supports.setStock !== null,
+    soldOutDeletesListing: manifest.hazards.soldOutDeletesListing,
+    requiresOperatorApproval: manifest.hazards.requiresOperatorApproval,
   };
 }
 
@@ -98,6 +141,15 @@ function toPreflightProfile(row: MallProfileRow | null): PreflightProfile | null
   return row
     ? { id: row.id, name: row.name, filledFields: filledProfileFields(row) }
     : null;
+}
+
+export interface MallMatrixRequest {
+  search?: string;
+  /** 열로 세울 몰. 비면 리스팅이 있는 몰 전부. */
+  mallKeys?: string[];
+  filter?: MallMatrixFilter;
+  page: number;
+  limit: number;
 }
 
 export interface MallPreflightQuery {
@@ -414,5 +466,235 @@ export class MallPublishingService {
       sendableCount: candidates.filter((candidate) => candidate.sendable).length,
       blockedCount: candidates.filter((candidate) => !candidate.sendable).length,
     };
+  }
+
+  /**
+   * 상품 × 몰 등록 현황.
+   *
+   * 열은 **우리가 리스팅을 가져온 계정**이다. 매니페스트에 몰이 29개 있어도
+   * 리스팅을 모르는 몰은 칸을 채울 수 없다 — 전부 '미등록'으로 칠하면 그 몰에
+   * 상품이 1,000개 올라가 있어도 하나도 없는 것처럼 보인다. 그래서 열마다
+   * `imported` 를 실어 화면이 그 차이를 말할 수 있게 한다.
+   *
+   * `mallKeys` 로 요청한 몰은 리스팅이 없어도 열로 세운다. 아직 안 가져온 몰에
+   * 무엇을 보낼지 고르려면 그 열이 보여야 하기 때문이다.
+   */
+  async listingMatrix(
+    organizationId: string,
+    query: MallMatrixRequest,
+  ): Promise<MallListingMatrixResponse> {
+    const [accounts, anchors] = await Promise.all([
+      this.repository.listAccountsWithListings(organizationId),
+      this.repository.listMallAccountAnchors(organizationId),
+    ]);
+
+    const columns = this.buildMatrixColumns(accounts, anchors, query.mallKeys ?? []);
+    const columnAccountIds = columns
+      .map((column) => column.channelAccountId)
+      .filter((id): id is string => id !== null);
+
+    const filter: MallMatrixFilter = query.filter ?? 'listed';
+    const { rows, total } = await this.repository.listMatrixProducts(organizationId, {
+      ...(query.search ? { search: query.search } : {}),
+      ...(columnAccountIds.length > 0 ? { channelAccountIds: columnAccountIds } : {}),
+      ...(filter === 'listed' ? { listed: true } : {}),
+      ...(filter === 'unlisted' ? { listed: false } : {}),
+      limit: query.limit,
+      offset: (query.page - 1) * query.limit,
+    });
+
+    const mallKeyByAccount = new Map(
+      columns.flatMap((column) =>
+        column.channelAccountId ? [[column.channelAccountId, column.mallKey] as const] : [],
+      ),
+    );
+
+    const matrixRows = rows.map<MallListingMatrixRow>((row) => {
+      const listingByMall = new Map(
+        row.listings.flatMap((listing) => {
+          const mallKey = mallKeyByAccount.get(listing.channelAccountId);
+          return mallKey ? [[mallKey, listing] as const] : [];
+        }),
+      );
+
+      const cells = columns.map<MallListingMatrixCell>((column) => {
+        const listing = listingByMall.get(column.mallKey) ?? null;
+        const resolved = resolveMallListingState({
+          hasListing: listing !== null,
+          listingStatus: listing?.status ?? null,
+        });
+        return {
+          mallKey: column.mallKey,
+          state: resolved.state,
+          rawStatus: listing?.status ?? null,
+          externalId: listing?.externalId ?? null,
+          warning: resolved.warning,
+          updatedAt: listing?.updatedAt.toISOString() ?? null,
+        } satisfies MallListingMatrixCell;
+      });
+
+      return {
+        masterProductId: row.masterProductId,
+        code: row.code,
+        name: row.name,
+        imageUrl: row.imageUrl,
+        // 카테고리는 마스터에 저장돼 있지 않다. 리스팅이 들고 있는 값을 회수한다.
+        category: row.listings.find((listing) => listing.category)?.category ?? null,
+        stock: row.stock,
+        publishedCount: countPublished(cells.map((cell) => cell.state)),
+        cells,
+        updatedAt: row.updatedAt.toISOString(),
+      } satisfies MallListingMatrixRow;
+    });
+
+    return {
+      filter,
+      columns,
+      rows: matrixRows,
+      total,
+      page: query.page,
+      limit: query.limit,
+    } satisfies MallListingMatrixResponse;
+  }
+
+  /**
+   * 열을 세운다.
+   *
+   * **연결된 몰은 전부 열이 된다.** 리스팅을 가진 몰이 왼쪽(리스팅 수 내림차순),
+   * 계정만 연결된 몰이 오른쪽이다. 우리가 파는 곳이 25곳인데 2곳만 보여주면
+   * 나머지 23곳에 무엇을 안 올렸는지가 화면에서 사라진다 — 그게 이 표로 답해야
+   * 하는 질문이다.
+   *
+   * 대신 아직 리스팅을 가져오지 않은 열은 `imported: false` 로 표시한다. 그 열의
+   * 빈 칸은 '몰에 없다'가 아니라 '우리가 모른다'이고, 둘은 다른 사실이다.
+   */
+  private buildMatrixColumns(
+    accounts: readonly MallListingAccountRow[],
+    anchors: readonly MallAccountAnchorRow[],
+    requestedMallKeys: readonly string[],
+  ): MallListingMatrixColumn[] {
+    const anchorByAccountId = new Map(anchors.map((row) => [row.channelAccountId, row]));
+
+    const withListings = [...accounts]
+      .sort((left, right) => right.listingCount - left.listingCount)
+      .map<MallListingMatrixColumn>((account) => {
+        const anchor = anchorByAccountId.get(account.channelAccountId) ?? null;
+        const mallKey = anchor?.mallKey ?? account.externalAccountId ?? account.channel;
+        const manifest = getMallAdapterManifest(mallKey);
+        return {
+          mallKey,
+          mallName: manifest?.name ?? account.name,
+          channelAccountId: account.channelAccountId,
+          hasAdapter: manifest?.applicable === true && manifest.supports.createListing,
+          imported: true,
+          listingCount: account.listingCount,
+          actions: toColumnActions(manifest),
+        } satisfies MallListingMatrixColumn;
+      });
+
+    const seen = new Set(withListings.map((column) => column.mallKey));
+
+    // 연결된 몰 전부 + 명시적으로 요청한 몰. 매니페스트에 없는 키는 버린다.
+    const candidateKeys = [
+      ...anchors.map((row) => row.mallKey),
+      ...requestedMallKeys,
+    ];
+
+    const rest = candidateKeys.flatMap<MallListingMatrixColumn>((mallKey) => {
+      if (seen.has(mallKey)) return [];
+      const manifest = getMallAdapterManifest(mallKey);
+      if (!manifest) return [];
+      seen.add(mallKey);
+      const anchor = anchors.find((row) => row.mallKey === mallKey) ?? null;
+      return [{
+        mallKey,
+        mallName: manifest.name,
+        channelAccountId: anchor?.channelAccountId ?? null,
+        hasAdapter: manifest.applicable && manifest.supports.createListing,
+        // 리스팅을 한 번도 가져온 적이 없다. 이 열의 '미등록'은 "몰에 없다"가
+        // 아니라 "우리가 모른다"는 뜻이고, 화면이 그렇게 말해야 한다.
+        imported: false,
+        listingCount: 0,
+        actions: toColumnActions(manifest),
+      } satisfies MallListingMatrixColumn];
+    });
+
+    // 보낼 수 있는 몰을 앞으로. 등록 경로가 있는 곳이 먼저 눈에 들어와야 한다.
+    rest.sort((left, right) => {
+      if (left.hasAdapter !== right.hasAdapter) return left.hasAdapter ? -1 : 1;
+      return left.mallName.localeCompare(right.mallName, 'ko');
+    });
+
+    return [...withListings, ...rest];
+  }
+
+  /**
+   * 연결된 몰 전체 요약. 허브 화면이 쓴다.
+   *
+   * 숫자는 전부 우리 DB 에서 센 것이다. 몰에 물어본 값이 아니라 우리가 가져온
+   * 만큼이고, 그 차이는 `imported` 가 말한다.
+   */
+  async channelOverview(organizationId: string): Promise<MallChannelOverview> {
+    const [anchors, accounts, orderCounts, productCount, profiles] = await Promise.all([
+      this.repository.listMallAccountAnchors(organizationId),
+      this.repository.listAccountsWithListings(organizationId),
+      this.repository.countOrdersByAccount(organizationId),
+      this.repository.countActiveMasterProducts(organizationId),
+      this.repository.listProfiles(organizationId),
+    ]);
+
+    const accountById = new Map(accounts.map((row) => [row.channelAccountId, row]));
+    const ordersByAccount = new Map(
+      orderCounts.map((row) => [row.channelAccountId, row.orderCount]),
+    );
+    const profileCountByMall = new Map<string, number>();
+    for (const profile of profiles) {
+      profileCountByMall.set(profile.mallKey, (profileCountByMall.get(profile.mallKey) ?? 0) + 1);
+    }
+
+    const channels = MALL_ADAPTER_MANIFESTS.flatMap<MallChannelSummary>((manifest) => {
+      const anchor = anchors.find((row) => row.mallKey === manifest.key) ?? null;
+      const account = anchor ? accountById.get(anchor.channelAccountId) ?? null : null;
+      const hasCredentials = anchor?.hasCredentials ?? false;
+      const listingCount = account?.listingCount ?? 0;
+      const orderCount = anchor ? ordersByAccount.get(anchor.channelAccountId) ?? 0 : 0;
+
+      // 연결의 흔적이 하나도 없는 몰은 허브에 걸지 않는다. 29개를 전부 그리면
+      // 실제로 쓰는 몰이 안 보인다.
+      if (!anchor && listingCount === 0 && orderCount === 0) return [];
+
+      const profileCount = profileCountByMall.get(manifest.key) ?? 0;
+      const readiness: MallChannelSummary['readiness'] = !manifest.applicable || manifest.unverified
+        ? 'unsupported'
+        : !hasCredentials
+          ? 'needs_account'
+          : !anchor
+            ? 'needs_promotion'
+            : profileCount === 0
+              ? 'needs_profile'
+              : 'ready';
+
+      return [{
+        mallKey: manifest.key,
+        mallName: manifest.name,
+        channelAccountId: anchor?.channelAccountId ?? null,
+        canPublish: manifest.applicable && manifest.supports.createListing,
+        hasCredentials,
+        imported: listingCount > 0,
+        listingCount,
+        orderCount,
+        productCount: account?.productCount ?? 0,
+        readiness,
+      } satisfies MallChannelSummary];
+    });
+
+    return {
+      shop: {
+        productCount,
+        connectedChannelCount: channels.length,
+        publishableChannelCount: channels.filter((channel) => channel.canPublish).length,
+      },
+      channels,
+    } satisfies MallChannelOverview;
   }
 }

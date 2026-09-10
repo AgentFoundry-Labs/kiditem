@@ -1,5 +1,6 @@
 import type {
   MallAdapterManifestView,
+  MallListingState,
   MallPreflightRule,
   MallPublishTarget,
 } from '@kiditem/shared/mall-publishing';
@@ -127,4 +128,168 @@ export function mallHazardBadges(manifest: MallAdapterManifestView): MallHazardB
     });
   }
   return badges;
+}
+
+/**
+ * 매트릭스 칸 하나의 표시.
+ *
+ * 색은 사람이 무엇을 해야 하는지로 정한다 — 초록은 손댈 것 없음, 빨강은 지금
+ * 고쳐야 함, 호박색은 확인이 필요함, 회색은 아직 시작하지 않음. 상태 이름이
+ * 아니라 대응이 기준이다.
+ */
+export interface MallListingStatePresentation {
+  label: string;
+  /** 칸 배경과 글자색. */
+  tone: string;
+  /** 점 색. 라벨 없이 좁은 칸에서 쓴다. */
+  dot: string;
+  /** 이 칸이 사람을 부르는가. */
+  attention: boolean;
+}
+
+export const MALL_LISTING_STATE_PRESENTATION: Record<
+  MallListingState,
+  MallListingStatePresentation
+> = {
+  published: {
+    label: '등록',
+    tone: 'bg-green-50 text-green-700',
+    dot: 'bg-green-600',
+    attention: false,
+  },
+  reviewing: {
+    label: '검수중',
+    tone: 'bg-amber-50 text-amber-700',
+    dot: 'bg-amber-500',
+    attention: false,
+  },
+  preparing: {
+    label: '준비중',
+    tone: 'bg-slate-100 text-slate-600',
+    dot: 'bg-slate-400',
+    attention: false,
+  },
+  error: {
+    label: '오류',
+    tone: 'bg-red-50 text-red-700',
+    dot: 'bg-red-600',
+    attention: true,
+  },
+  paused: {
+    label: '판매중지',
+    tone: 'bg-slate-100 text-slate-600',
+    dot: 'bg-slate-400',
+    attention: false,
+  },
+  discontinued: {
+    label: '단종',
+    tone: 'bg-slate-100 text-slate-500',
+    dot: 'bg-slate-300',
+    attention: false,
+  },
+  unknown: {
+    label: '확인필요',
+    tone: 'bg-orange-50 text-orange-700',
+    dot: 'bg-orange-500',
+    attention: true,
+  },
+  unregistered: {
+    label: '미등록',
+    tone: 'bg-slate-50 text-slate-400',
+    dot: 'bg-slate-200',
+    attention: false,
+  },
+};
+
+/**
+ * 몰 표시색.
+ *
+ * 몰 로고 파일은 저장소에 없다(라이브 확인 2026-09-09). 남의 브랜드 로고를
+ * 임의로 넣지 않고, 몰 이름에서 만든 고정 색과 머리글자로 대신한다. 같은 몰은
+ * 언제나 같은 색이라 표에서 열을 눈으로 따라갈 수 있다.
+ */
+const MALL_ACCENTS = [
+  'bg-violet-100 text-violet-700',
+  'bg-sky-100 text-sky-700',
+  'bg-emerald-100 text-emerald-700',
+  'bg-amber-100 text-amber-700',
+  'bg-rose-100 text-rose-700',
+  'bg-indigo-100 text-indigo-700',
+  'bg-teal-100 text-teal-700',
+  'bg-fuchsia-100 text-fuchsia-700',
+] as const;
+
+export function mallAccentClass(mallKey: string): string {
+  let hash = 0;
+  for (let index = 0; index < mallKey.length; index += 1) {
+    hash = (hash * 31 + mallKey.charCodeAt(index)) % 100_000;
+  }
+  return MALL_ACCENTS[hash % MALL_ACCENTS.length] ?? MALL_ACCENTS[0];
+}
+
+/** 카드·열 머리에 쓸 머리글자. 한글은 첫 글자, 영문은 첫 두 글자. */
+export function mallMonogram(mallName: string): string {
+  const trimmed = mallName.trim();
+  if (!trimmed) return '?';
+  const first = trimmed[0] ?? '?';
+  return /[A-Za-z]/.test(first) ? trimmed.slice(0, 2).toUpperCase() : first;
+}
+
+/**
+ * 상품 머리글자.
+ *
+ * 우리 상품명은 대부분 가격코드로 시작한다(`3000심쿵!뽑기왕`, `700국어노트(8칸)`).
+ * 첫 글자를 그대로 쓰면 타일이 전부 숫자가 되어 아무것도 구별해 주지 않는다.
+ * 앞의 숫자를 건너뛰고 실제 이름의 첫 글자를 쓴다.
+ *
+ * 몰 이름에는 쓰지 않는다 — `11번가` 가 `번` 이 되어 버린다.
+ */
+export function productMonogram(productName: string): string {
+  const trimmed = productName.trim();
+  if (!trimmed) return '?';
+  const withoutPriceCode = trimmed.replace(/^\d+\s*/, '');
+  const source = withoutPriceCode || trimmed;
+  const first = source[0] ?? '?';
+  return /[A-Za-z]/.test(first) ? source.slice(0, 2).toUpperCase() : first;
+}
+
+/**
+ * 몰 로고.
+ *
+ * 각 몰의 공식 파비콘을 `apps/web/public/mall-logos/` 에 받아 두고 쓴다. 외부에서
+ * 실시간으로 불러오면 몰이 경로를 바꾸는 날 표가 통째로 깨지고, 우리 화면이 남의
+ * 서버 상태에 묶인다.
+ *
+ * 파일이 없는 몰은 null 이고 화면이 머리글자 타일로 대신한다. 지금 없는 곳은
+ * 지마켓·옥션·키즈노트·티쳐몰·아이스크림몰·해법몰·원폴라리스다 — 파비콘을 공개
+ * 경로로 내주지 않는 사이트들이라, 아무 아이콘이나 붙이지 않고 비워 둔다.
+ */
+const MALL_LOGO_PATH: Record<string, string> = {
+  '11st': '/mall-logos/11st.ico',
+  'always': '/mall-logos/always.ico',
+  'art09': '/mall-logos/art09.ico',
+  'benepia-mul': '/mall-logos/benepia-mul.png',
+  'boribori': '/mall-logos/boribori.ico',
+  'coupang-direct': '/mall-logos/coupang-direct.ico',
+  'coupang': '/mall-logos/coupang.ico',
+  'domeggook': '/mall-logos/domeggook.ico',
+  'gs-shop': '/mall-logos/gs-shop.ico',
+  'kakao': '/mall-logos/kakao.ico',
+  'kidkids': '/mall-logos/kidkids.ico',
+  'kkomangse': '/mall-logos/kkomangse.ico',
+  'lotte-on': '/mall-logos/lotte-on.png',
+  'onch': '/mall-logos/onch.ico',
+  'rocket': '/mall-logos/rocket.ico',
+  'smartstore': '/mall-logos/smartstore.ico',
+  'ssg': '/mall-logos/ssg.ico',
+  'teacher-mall': '/mall-logos/teacher-mall.ico',
+  'tekville-edu': '/mall-logos/tekville-edu.ico',
+  'thirtymall': '/mall-logos/thirtymall.ico',
+  'toss': '/mall-logos/toss.ico',
+  'woongjin-class': '/mall-logos/woongjin-class.ico',
+  'yoons': '/mall-logos/yoons.ico',
+};
+
+export function mallLogoPath(mallKey: string): string | null {
+  return MALL_LOGO_PATH[mallKey] ?? null;
 }

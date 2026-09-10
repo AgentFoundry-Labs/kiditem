@@ -22,6 +22,7 @@ import {
   Rocket,
   Search,
   Settings,
+  Share2,
   ShoppingCart,
   Store,
   Sparkles,
@@ -108,6 +109,7 @@ export const menuSections: MenuSection[] = [
     label: '쇼핑몰 관리',
     collapsible: true,
     items: [
+      { href: '/mall-channels', label: '쇼핑몰 현황', icon: Share2 },
       { href: '/mall-settings', label: '쇼핑몰 계정', icon: Store },
       { href: '/mall-listings', label: '상품 등록', icon: PackagePlus },
       { href: '/mall-availability', label: '품절 관리', icon: PackageX },

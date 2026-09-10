@@ -273,6 +273,9 @@ export const queryKeys = {
       [...queryKeys.mallPublishing.all, 'preflight', params] as const,
     availabilityPreview: (params: Record<string, string>) =>
       [...queryKeys.mallPublishing.all, 'availability-preview', params] as const,
+    listingMatrix: (params: Record<string, string>) =>
+      [...queryKeys.mallPublishing.all, 'listing-matrix', params] as const,
+    channelOverview: () => [...queryKeys.mallPublishing.all, 'channel-overview'] as const,
   },
   coupangAccount: {
     all: ['coupangAccount'] as const,

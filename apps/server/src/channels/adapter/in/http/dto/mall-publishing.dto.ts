@@ -1,5 +1,6 @@
 import { Transform, Type } from 'class-transformer';
 import {
+  IsIn,
   IsInt,
   IsOptional,
   IsPositive,
@@ -55,4 +56,33 @@ export class MallAvailabilityPreviewQueryDto {
   @IsPositive()
   @Max(100)
   limit = 50;
+}
+
+export class MallMatrixQueryDto {
+  @Transform(({ value }) => toStringArray(value))
+  @IsOptional()
+  @IsString({ each: true })
+  mallKeys?: string[];
+
+  @IsOptional()
+  @IsIn(['all', 'listed', 'unlisted'])
+  filter?: 'all' | 'listed' | 'unlisted';
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  search?: string;
+
+  @Type(() => Number)
+  @IsOptional()
+  @IsInt()
+  @IsPositive()
+  page = 1;
+
+  @Type(() => Number)
+  @IsOptional()
+  @IsInt()
+  @IsPositive()
+  @Max(100)
+  limit = 25;
 }

@@ -1,0 +1,532 @@
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import MallListingsPage from './page';
+
+/**
+ * 화면이 몰을 모르는지 확인한다.
+ *
+ * 어댑터의 진짜 코드(입력칸 선언·미리보기·검증·batchSize)를 그대로 돌리고,
+ * 몰에 닿는 마지막 한 단계만 막는다. 이 테스트가 통과한다는 것은 몰을 하나 더
+ * 붙일 때 이 파일도 페이지도 고칠 필요가 없다는 뜻이다.
+ */
+
+const { fillKidsnoteMock, prepareKidsnoteMock, generateWingExcelMock, downloadWingExcelMock } =
+  vi.hoisted(() => ({
+    fillKidsnoteMock: vi.fn(),
+    prepareKidsnoteMock: vi.fn(),
+    generateWingExcelMock: vi.fn(),
+    downloadWingExcelMock: vi.fn(),
+  }));
+
+vi.mock('@tanstack/react-query', () => ({
+  keepPreviousData: undefined,
+  useQuery: ({ queryKey }: { queryKey: readonly unknown[] }) => {
+    if (queryKey.includes('targets')) {
+      return { data: [], isLoading: false, isError: false, error: null };
+    }
+    if (queryKey.includes('listing-matrix')) {
+      return {
+        data: matrixData,
+        isLoading: false,
+        isError: false,
+        isFetching: false,
+        error: null,
+        refetch: vi.fn(),
+      };
+    }
+    return {
+      data: {
+        items: [
+          { id: 'c1', name: '킬러볼 스피너 키링', price_krw: 2280, thumbnailUrl: null },
+          { id: 'c2', name: '공룡 물총', price_krw: 3500, thumbnailUrl: null },
+          { id: 'c3', name: '판매가 없는 상품', price_krw: 0, thumbnailUrl: null },
+        ],
+        total: 3,
+      },
+      isLoading: false,
+      isError: false,
+      error: null,
+    };
+  },
+}));
+
+vi.mock('../../(product-pipeline)/product-pipeline/collected-products/lib/sourcing-api', () => ({
+  productsApi: { list: vi.fn() },
+}));
+
+vi.mock('../../(product-pipeline)/product-pipeline/_shared/lib/kidsnote-registration-api', () => ({
+  prepareKidsnoteRegistration: prepareKidsnoteMock,
+  fillKidsnoteRegistrationForm: fillKidsnoteMock,
+}));
+
+vi.mock('../../(product-pipeline)/product-pipeline/collected-products/lib/wing-registration-flow', () => ({
+  generateWingExcelForCandidates: generateWingExcelMock,
+  downloadWingExcel: downloadWingExcelMock,
+}));
+
+let matrixData: unknown = { columns: [], rows: [], total: 0, page: 1, limit: 25 };
+
+/** 마법사는 '새 등록' 탭 뒤에 있다. 기본 화면은 등록 현황이다. */
+function goToWizard() {
+  fireEvent.click(screen.getByRole('button', { name: '새 등록' }));
+}
+
+function selectProduct(name: string) {
+  fireEvent.click(screen.getByRole('checkbox', { name: `${name} 선택` }));
+}
+
+function goNext() {
+  fireEvent.click(screen.getByRole('button', { name: /다음/ }));
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  matrixData = { columns: [], rows: [], total: 0, page: 1, limit: 25 };
+  prepareKidsnoteMock.mockResolvedValue({ draft: { displayName: '초안' }, detailImageUrl: 'x' });
+  fillKidsnoteMock.mockResolvedValue({
+    ok: true,
+    submitted: false,
+    steps: [],
+    warnings: [],
+    manualSteps: ['화면에서 등록 신청 버튼을 누르세요.'],
+  });
+  generateWingExcelMock.mockResolvedValue({ bytes: new Uint8Array([1]), productCount: 2 });
+});
+
+describe('상품 등록 (N × M)', () => {
+  it('상품을 고르기 전에는 다음으로 갈 수 없다', () => {
+    render(<MallListingsPage />);
+    goToWizard();
+    expect(screen.getByRole('button', { name: /다음/ })).toBeDisabled();
+  });
+
+  it('상품 × 몰 = 건수를 아래 막대에 항상 보여준다', () => {
+    render(<MallListingsPage />);
+    goToWizard();
+    selectProduct('킬러볼 스피너 키링');
+    selectProduct('공룡 물총');
+    goNext();
+
+    fireEvent.click(screen.getByRole('checkbox', { name: '쿠팡 WING 선택' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: '키즈노트 선택' }));
+
+    expect(screen.getByText('상품 2')).toBeInTheDocument();
+    expect(screen.getByText('몰 2')).toBeInTheDocument();
+    expect(screen.getByText('4건')).toBeInTheDocument();
+  });
+
+  it('몰마다 다른 값과 그 출처를 3단계에서 보여준다', () => {
+    render(<MallListingsPage />);
+    goToWizard();
+    selectProduct('킬러볼 스피너 키링');
+    goNext();
+    fireEvent.click(screen.getByRole('checkbox', { name: '키즈노트 선택' }));
+    goNext();
+
+    // 키즈노트만의 값이 화면에 있다 — 코드 상수가 아니라 눈에 보이는 값으로.
+    expect(screen.getByDisplayValue('거영I&D')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('15.00')).toBeInTheDocument();
+    expect(screen.getByText('기타(1100) · 26칸')).toBeInTheDocument();
+    // 노출상품명은 이 몰의 조립 규칙이 적용된 모습으로 보인다.
+    expect(screen.getByText(/\[키드아이템\] 킬러볼 스피너 키링 1p/)).toBeInTheDocument();
+    // 출처 라벨.
+    expect(screen.getAllByText('몰 고정').length).toBeGreaterThan(0);
+  });
+
+  it('판매가 없는 상품은 키즈노트에서 막히고 이유가 보인다', () => {
+    render(<MallListingsPage />);
+    goToWizard();
+    selectProduct('킬러볼 스피너 키링');
+    selectProduct('판매가 없는 상품');
+    goNext();
+    fireEvent.click(screen.getByRole('checkbox', { name: '키즈노트 선택' }));
+    goNext();
+
+    expect(screen.getByText(/보낼 수 없는 상품 1건/)).toBeInTheDocument();
+    expect(screen.getByText(/판매가가 0원입니다/)).toBeInTheDocument();
+    // 2개를 골랐지만 실제로 나가는 건 1건이다.
+    expect(screen.getByText('1건')).toBeInTheDocument();
+  });
+
+  it('몰마다 다른 단위로 쪼개 순차 송신한다', async () => {
+    render(<MallListingsPage />);
+    goToWizard();
+    selectProduct('킬러볼 스피너 키링');
+    selectProduct('공룡 물총');
+    goNext();
+    fireEvent.click(screen.getByRole('checkbox', { name: '쿠팡 WING 선택' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: '키즈노트 선택' }));
+    goNext();
+
+    fireEvent.click(screen.getByRole('button', { name: /4건 보내기/ }));
+
+    await waitFor(() => {
+      expect(fillKidsnoteMock).toHaveBeenCalledTimes(2);
+    });
+    // 엑셀은 파일 하나에 2건, 폼은 1건씩 2번. 작업은 3개다.
+    expect(generateWingExcelMock).toHaveBeenCalledTimes(1);
+    expect(generateWingExcelMock).toHaveBeenCalledWith(['c1', 'c2'], expect.anything());
+    expect(downloadWingExcelMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('보냈다고 등록됐다고 말하지 않는다', async () => {
+    render(<MallListingsPage />);
+    goToWizard();
+    selectProduct('킬러볼 스피너 키링');
+    goNext();
+    fireEvent.click(screen.getByRole('checkbox', { name: '키즈노트 선택' }));
+    goNext();
+    fireEvent.click(screen.getByRole('button', { name: /1건 보내기/ }));
+
+    await waitFor(() => {
+      expect(screen.getByText('전송 완료')).toBeInTheDocument();
+    });
+    expect(screen.getByText('전송까지 끝났습니다. 아직 등록은 아닙니다.')).toBeInTheDocument();
+    expect(screen.getByText('화면에서 등록 신청 버튼을 누르세요.')).toBeInTheDocument();
+
+    // '등록 확인됨' 은 0 이어야 한다 — 폼을 채운 것은 등록이 아니다.
+    const confirmedCard = screen.getByText('등록 확인됨').parentElement as HTMLElement;
+    expect(within(confirmedCard).getByText('0')).toBeInTheDocument();
+  });
+
+  it('한 몰이 실패해도 다음 몰을 계속 보낸다', async () => {
+    fillKidsnoteMock.mockRejectedValue(new Error('확장을 새로고침하세요'));
+    render(<MallListingsPage />);
+    goToWizard();
+    selectProduct('킬러볼 스피너 키링');
+    goNext();
+    fireEvent.click(screen.getByRole('checkbox', { name: '쿠팡 WING 선택' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: '키즈노트 선택' }));
+    goNext();
+    fireEvent.click(screen.getByRole('button', { name: /2건 보내기/ }));
+
+    await waitFor(() => {
+      expect(screen.getByText('확장을 새로고침하세요')).toBeInTheDocument();
+    });
+    expect(generateWingExcelMock).toHaveBeenCalledTimes(1);
+    // 요약 카드 라벨과 작업 줄의 상태, 둘 다 '실패' 로 나온다.
+    expect(screen.getAllByText('실패').length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe('등록 현황 (상품 × 몰 매트릭스)', () => {
+  function withMatrix() {
+    matrixData = {
+      total: 2,
+      page: 1,
+      limit: 25,
+      columns: [
+        {
+          mallKey: 'coupang', mallName: '쿠팡(마켓플레이스)', channelAccountId: 'acc-1',
+          hasAdapter: true, imported: true, listingCount: 1230,
+          actions: {
+            createListing: true, updateListing: true, soldOut: true, resume: true,
+            setStock: true, soldOutDeletesListing: false, requiresOperatorApproval: false,
+          },
+        },
+        {
+          mallKey: 'kidsnote', mallName: '키즈노트', channelAccountId: null,
+          hasAdapter: true, imported: false, listingCount: 0,
+          actions: {
+            createListing: true, updateListing: true, soldOut: true, resume: true,
+            setStock: true, soldOutDeletesListing: false, requiresOperatorApproval: false,
+          },
+        },
+      ],
+      rows: [
+        {
+          masterProductId: 'mp-1',
+          imageUrl: 'https://image1.coupangcdn.com/image/vendor_inventory/abc.jpg',
+          name: '3000샤이닝반짝이풀펜',
+          code: 'INV-SELLPIA-ff15e698-aac9-4f5d-914e-dd16e6865651',
+          category: '문구/사무용품',
+          stock: 120,
+          publishedCount: 1,
+          updatedAt: '2026-09-05T00:00:00.000Z',
+          cells: [
+            {
+              mallKey: 'coupang', state: 'published', rawStatus: '승인완료',
+              externalId: '16290876620', warning: null, updatedAt: '2026-09-05T00:00:00.000Z',
+            },
+            {
+              mallKey: 'kidsnote', state: 'unregistered', rawStatus: null,
+              externalId: null, warning: null, updatedAt: null,
+            },
+          ],
+        },
+        {
+          masterProductId: 'mp-2',
+          imageUrl: null,
+          name: '재고 연결 없는 상품',
+          code: 'KID-2',
+          category: null,
+          stock: null,
+          publishedCount: 0,
+          updatedAt: '2026-09-04T00:00:00.000Z',
+          cells: [
+            {
+              mallKey: 'coupang', state: 'unknown', rawStatus: 'observed',
+              externalId: 'x', warning: '목록에서 존재만 확인했습니다.', updatedAt: null,
+            },
+            {
+              mallKey: 'kidsnote', state: 'unregistered', rawStatus: null,
+              externalId: null, warning: null, updatedAt: null,
+            },
+          ],
+        },
+      ],
+    };
+  }
+
+  it('기본 화면이 등록 현황이다 — 마법사가 아니다', () => {
+    withMatrix();
+    render(<MallListingsPage />);
+    expect(screen.getByRole('columnheader', { name: /상품 정보/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /다음/ })).not.toBeInTheDocument();
+  });
+
+  it('몰마다 열이 하나씩 서고 칸이 상태를 말한다', () => {
+    withMatrix();
+    render(<MallListingsPage />);
+    const table = screen.getByRole('table');
+    expect(within(table).getByText('등록')).toBeInTheDocument();
+    expect(within(table).getByText('확인필요')).toBeInTheDocument();
+    // 상품 2개 × 키즈노트 열 = 미등록 칸 2개. 필터 버튼의 '미등록'과 섞이지 않게
+    // 표 안에서만 센다.
+    expect(within(table).getAllByText('미등록')).toHaveLength(2);
+  });
+
+  it('리스팅을 안 가져온 몰은 열에 미수집이 붙고 아래에 설명이 나온다', () => {
+    withMatrix();
+    render(<MallListingsPage />);
+    expect(screen.getByText('미수집')).toBeInTheDocument();
+    expect(
+      screen.getByText(/키즈노트 은\(는\) 리스팅을 아직 가져오지 않았습니다/),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/몰에 상품이 없다는 뜻이 아니라 우리가 모른다는 뜻/)).toBeInTheDocument();
+  });
+
+  it('재고 없음과 재고 0을 구별한다', () => {
+    withMatrix();
+    render(<MallListingsPage />);
+    // 연결이 없으면 대시. 0 원이 아니라 모른다는 뜻이다.
+    expect(screen.getByText('—')).toBeInTheDocument();
+    expect(screen.getByText('120')).toBeInTheDocument();
+  });
+
+  it('셀피아 합성 코드를 짧게 줄여 보여준다', () => {
+    withMatrix();
+    render(<MallListingsPage />);
+    // 원본은 INV-SELLPIA-<uuid> 라 표에서 아무것도 알려주지 않는다.
+    expect(screen.getByText(/SELLPIA-FF15E698 · 문구\/사무용품/)).toBeInTheDocument();
+  });
+
+  it('요약이 확인 필요 칸을 센다', () => {
+    withMatrix();
+    render(<MallListingsPage />);
+    const card = screen.getByText('확인 필요').parentElement as HTMLElement;
+    expect(within(card).getByText('1')).toBeInTheDocument();
+  });
+
+  it('기본 필터가 등록됨이다 — 전체는 대부분 빈 행이다', () => {
+    withMatrix();
+    render(<MallListingsPage />);
+    const listed = screen.getByRole('button', { name: '등록됨' });
+    // 선택된 필터만 primary 배경을 받는다.
+    expect(listed.className).toContain('bg-primary');
+    expect(screen.getByRole('button', { name: '전체' }).className).not.toContain('bg-primary');
+  });
+
+  it('미등록만 따로 볼 수 있다', () => {
+    withMatrix();
+    render(<MallListingsPage />);
+    fireEvent.click(screen.getByRole('button', { name: '미등록' }));
+    expect(screen.getByRole('button', { name: '미등록' }).className).toContain('bg-primary');
+  });
+
+it('상품 사진이 있으면 보여주고 없으면 머리글자 타일이다', () => {
+    withMatrix();
+    const { container } = render(<MallListingsPage />);
+    // 몰 로고도 img 라서 본문(tbody)으로 좁힌다.
+    const images = container.querySelectorAll('tbody img');
+    // 사진이 있는 행만 img 를 그린다.
+    expect(images).toHaveLength(1);
+    expect(images[0]).toHaveAttribute(
+      'src',
+      'https://image1.coupangcdn.com/image/vendor_inventory/abc.jpg',
+    );
+    // 사진 없는 행은 이름 머리글자로 대신한다.
+    expect(within(screen.getByRole('table')).getByText('재')).toBeInTheDocument();
+  });
+
+  it('현황과 새 등록 사이를 오갈 수 있다', () => {
+    withMatrix();
+    render(<MallListingsPage />);
+    goToWizard();
+    expect(screen.getByRole('button', { name: /다음/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '등록 현황' }));
+    expect(screen.getByRole('columnheader', { name: /상품 정보/ })).toBeInTheDocument();
+  });
+});
+
+describe('표 배치', () => {
+  function withMalls(count: number) {
+    const columns = Array.from({ length: count }, (_, index) => ({
+      mallKey: `mall-${index}`,
+      mallName: `몰${index}`,
+      channelAccountId: null,
+      hasAdapter: false,
+      imported: index === 0,
+      listingCount: index === 0 ? 10 : 0,
+      actions: {
+        createListing: false, updateListing: false, soldOut: false, resume: false,
+        setStock: false, soldOutDeletesListing: false, requiresOperatorApproval: false,
+      },
+    }));
+    matrixData = {
+      total: 1,
+      page: 1,
+      limit: 25,
+      filter: 'listed',
+      columns,
+      rows: [
+        {
+          masterProductId: 'mp-1',
+          imageUrl: 'https://image1.coupangcdn.com/image/vendor_inventory/abc.jpg',
+          name: '3000샤이닝반짝이풀펜',
+          code: 'INV-SELLPIA-ff15e698-aaaa-bbbb-cccc-dddddddddddd',
+          category: null,
+          stock: 12,
+          publishedCount: 0,
+          updatedAt: '2026-09-05T00:00:00.000Z',
+          cells: columns.map((column) => ({
+            mallKey: column.mallKey,
+            state: 'unregistered',
+            rawStatus: null,
+            externalId: null,
+            warning: null,
+            updatedAt: null,
+          })),
+        },
+      ],
+    };
+  }
+
+  it('재고와 액션이 몰보다 앞에 온다', () => {
+    withMalls(3);
+    render(<MallListingsPage />);
+    const headers = screen.getAllByRole('columnheader').map((cell) => cell.textContent ?? '');
+    const stock = headers.findIndex((text) => text.includes('재고'));
+    const action = headers.findIndex((text) => text.includes('액션'));
+    const firstMall = headers.findIndex((text) => text.includes('몰0'));
+    expect(stock).toBeLessThan(firstMall);
+    expect(action).toBeLessThan(firstMall);
+  });
+
+  it('몰이 많아도 열을 전부 세운다', () => {
+    withMalls(25);
+    render(<MallListingsPage />);
+    const headers = screen.getAllByRole('columnheader');
+    // 고정 4열 + 몰 25열
+    expect(headers).toHaveLength(29);
+  });
+
+});
+
+describe('액션 UI (화면만, 실행 없음)', () => {
+  function withActions(overrides: Record<string, boolean> = {}) {
+    const base = {
+      createListing: true, updateListing: true, soldOut: true, resume: true,
+      setStock: true, soldOutDeletesListing: false, requiresOperatorApproval: false,
+      ...overrides,
+    };
+    matrixData = {
+      total: 1, page: 1, limit: 25, filter: 'listed',
+      columns: [{
+        mallKey: 'coupang', mallName: '쿠팡(마켓플레이스)', channelAccountId: 'acc-1',
+        hasAdapter: true, imported: true, listingCount: 10, actions: base,
+      }],
+      rows: [{
+        masterProductId: 'mp-1', imageUrl: null, name: '3000심쿵!뽑기왕',
+        code: 'KID-1', category: null, stock: 15, publishedCount: 1,
+        updatedAt: '2026-09-05T00:00:00.000Z',
+        cells: [{
+          mallKey: 'coupang', state: 'published', rawStatus: '승인완료',
+          externalId: '16290876620', warning: null, updatedAt: null,
+        }],
+      }],
+    };
+  }
+
+  it('칸을 누르면 그 몰에서 가능한 작업이 나온다', () => {
+    withActions();
+    render(<MallListingsPage />);
+    fireEvent.click(screen.getByRole('button', { name: /쿠팡\(마켓플레이스\) 작업/ }));
+    const panel = screen.getByRole('dialog');
+    expect(within(panel).getByText('이 몰에 등록')).toBeInTheDocument();
+    expect(within(panel).getByText('품절 처리')).toBeInTheDocument();
+    expect(within(panel).getByText('판매 재개')).toBeInTheDocument();
+    expect(within(panel).getByText('몰 상품번호 16290876620')).toBeInTheDocument();
+  });
+
+  it('아무 작업도 실행되지 않는다 — 전부 비활성이다', () => {
+    withActions();
+    render(<MallListingsPage />);
+    fireEvent.click(screen.getByRole('button', { name: /쿠팡\(마켓플레이스\) 작업/ }));
+    const panel = screen.getByRole('dialog');
+    for (const button of within(panel).getAllByRole('button')) {
+      expect(button).toBeDisabled();
+    }
+  });
+
+  it('몰이 못 하는 작업은 불가로 표시한다', () => {
+    withActions({ soldOut: false, resume: false });
+    render(<MallListingsPage />);
+    fireEvent.click(screen.getByRole('button', { name: /쿠팡\(마켓플레이스\) 작업/ }));
+    const panel = screen.getByRole('dialog');
+    expect(within(panel).getAllByText('불가')).toHaveLength(2);
+  });
+
+  it('완전품절이 삭제인 몰은 누르기 전에 경고한다', () => {
+    withActions({ soldOutDeletesListing: true });
+    render(<MallListingsPage />);
+    fireEvent.click(screen.getByRole('button', { name: /쿠팡\(마켓플레이스\) 작업/ }));
+    const panel = screen.getByRole('dialog');
+    expect(within(panel).getByText(/완전품절이 리스팅 삭제입니다/)).toBeInTheDocument();
+    expect(within(panel).getByText('품절 처리 (삭제됨)')).toBeInTheDocument();
+  });
+
+  it('승인제 몰은 등록이 아니라 신청이라고 말한다', () => {
+    withActions({ requiresOperatorApproval: true });
+    render(<MallListingsPage />);
+    fireEvent.click(screen.getByRole('button', { name: /쿠팡\(마켓플레이스\) 작업/ }));
+    expect(screen.getByText(/등록이 아니라 승인 신청입니다/)).toBeInTheDocument();
+  });
+
+  it('행 더보기는 몰 수와 함께 일괄 작업을 보여준다', () => {
+    withActions();
+    render(<MallListingsPage />);
+    fireEvent.click(screen.getByRole('button', { name: /작업 메뉴/ }));
+    const menu = screen.getByRole('menu');
+    expect(within(menu).getByText('전 몰 품절 처리')).toBeInTheDocument();
+    expect(within(menu).getAllByText('1개 몰')).toHaveLength(4);
+    expect(within(menu).getByText(/아직 화면만 있습니다/)).toBeInTheDocument();
+  });
+
+  it('칸 팝오버와 행 메뉴는 동시에 열리지 않는다', () => {
+    withActions();
+    render(<MallListingsPage />);
+    fireEvent.click(screen.getByRole('button', { name: /쿠팡\(마켓플레이스\) 작업/ }));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /작업 메뉴/ }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+  });
+
+  it('공식 로고가 있는 몰은 로고를 단다', () => {
+    withActions();
+    const { container } = render(<MallListingsPage />);
+    const logo = container.querySelector('thead img');
+    expect(logo).toHaveAttribute('src', '/mall-logos/coupang.ico');
+  });
+});

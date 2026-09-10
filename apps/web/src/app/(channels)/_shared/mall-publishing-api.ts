@@ -1,7 +1,10 @@
 import type {
   MallAdapterManifestView,
   MallAvailabilityPreview,
+  MallChannelOverview,
+  MallListingMatrixResponse,
   MallListingProfile,
+  MallMatrixFilter,
   MallPreflightResponse,
   MallPublishTarget,
   UpsertMallListingProfile,
@@ -64,6 +67,29 @@ export const mallPublishingApi = {
         limit: params.limit ? String(params.limit) : undefined,
       })}`,
     );
+  },
+
+  /** 상품 × 몰 등록 현황. 읽기 전용이다. */
+  listingMatrix(params: {
+    mallKeys?: string[];
+    filter?: MallMatrixFilter;
+    search?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<MallListingMatrixResponse> {
+    return apiClient.get<MallListingMatrixResponse>(
+      `${BASE}/listing-matrix${toQuery({
+        mallKeys: params.mallKeys?.length ? params.mallKeys.join(',') : undefined,
+        filter: params.filter,
+        search: params.search,
+        page: params.page ? String(params.page) : undefined,
+        limit: params.limit ? String(params.limit) : undefined,
+      })}`,
+    );
+  },
+
+  channelOverview(): Promise<MallChannelOverview> {
+    return apiClient.get<MallChannelOverview>(`${BASE}/channel-overview`);
   },
 
   availabilityPreview(limit = 50): Promise<MallAvailabilityPreview> {
