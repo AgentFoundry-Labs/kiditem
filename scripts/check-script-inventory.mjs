@@ -21,6 +21,7 @@ export const SCRIPT_INVENTORY = Object.freeze([
   'check-schema-artifact-sync.mjs',
   'check-sourcing-long-running-actions.mjs',
   'check-script-inventory.mjs',
+  'check-server-type-baseline.mjs',
   'check-shared-interface-names.mjs',
   'check-shared-root-imports.sh',
   'check-tenant-scope.sh',
@@ -43,6 +44,7 @@ export const SCRIPT_INVENTORY = Object.freeze([
 ]);
 
 const SUPPORT_FILES = new Set([
+  '.server-type-baseline.txt',
   '.shared-interface-names-baseline.txt',
   '.shared-root-imports-baseline.txt',
   '.tenant-scope-allowlist.txt',

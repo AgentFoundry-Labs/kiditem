@@ -38,6 +38,7 @@ npm run test:scripts
 | `scripts/check-schema-artifact-sync.mjs` | Prisma schema changes must include full and domain ERD updates | `npm run check:schema-artifact-sync` |
 | `scripts/check-sourcing-long-running-actions.mjs` | sourcing collection must start through Operations, with persisted reads and no retired browser/HTTP collection helpers | `npm run check:sourcing-long-running-actions`, `docs/runbooks/sourcing-collection-operations.md` |
 | `scripts/check-script-inventory.mjs` | this inventory drift gate | `npm run check:scripts-inventory` |
+| `scripts/check-server-type-baseline.mjs` | apps/server type-error ceiling for the TEST-INCLUSIVE `tsconfig.json`; the build config and vitest both skip spec type-checking, so this is the only gate that catches a spec left broken by a signature change (~17s) | `npm run check:server-type-baseline` |
 | `scripts/check-shared-interface-names.mjs` | shared public Zod contract naming ratchet | `npm run check:shared-interface-names` |
 | `scripts/check-shared-root-imports.sh` | shared root-barrel ratchet | `npm run check:shared-root-imports` |
 | `scripts/check-tenant-scope.sh` | mutating service organization-scope scanner | `npm run check:tenant-scope` |
@@ -60,6 +61,7 @@ npm run test:scripts
 
 | path | purpose |
 |---|---|
+| `scripts/.server-type-baseline.txt` | per-file type-error ceiling for `check-server-type-baseline.mjs`; regenerate with `node scripts/check-server-type-baseline.mjs --regenerate` |
 | `scripts/.shared-interface-names-baseline.txt` | existing exported Zod contracts not yet renamed to `FooSchema` |
 | `scripts/.shared-root-imports-baseline.txt` | baseline for `check-shared-root-imports.sh` |
 | `scripts/.tenant-scope-allowlist.txt` | narrow false-positive allowlist for `check-tenant-scope.sh` |
