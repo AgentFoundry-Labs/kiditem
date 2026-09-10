@@ -66,6 +66,10 @@ modal (`cmg-api/tableMetric` with `tableType='keyword'`), not the report grid.
   a product grade or coercing a missing/stale source to C.
 - Advertising evidence used by ABC preserves `OBSERVED`, `CONFIRMED_ZERO`, and
   `NOT_APPLIED`. `MISSING`/`STALE` is not an advertising cost of zero.
+- Account-level `CONFIRMED_ZERO` describes the rows returned, not the range
+  asked for. Treat it as proof of no spend only when the published rows cover
+  every business date in the window; otherwise the uncovered dates are missing
+  evidence.
 - Revenue, operating-profit contribution, rank, and cumulative share are
   reporting metrics only; none changes the absolute ABC grade.
 - Reach Channels through its exported port rather than concrete services.
