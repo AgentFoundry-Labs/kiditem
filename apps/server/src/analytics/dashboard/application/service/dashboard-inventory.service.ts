@@ -6,15 +6,29 @@ import {
 } from '@nestjs/common';
 import {
   DASHBOARD_INVENTORY_REPOSITORY_PORT,
+  type AbcEvaluationAsOf,
   type DashboardInventoryRepositoryPort,
   type GradeChangeRow,
 } from '../port/out/repository/dashboard-inventory.repository.port';
 import type {
   DashboardInventorySummary,
+  DashboardMetricBasisMap,
+  DashboardSnapshotBasis,
   Warnings,
   GradeChanges,
-  DataFreshness,
 } from '@kiditem/shared/dashboard';
+import {
+  metricBasisMap,
+  snapshotEvidence,
+  ALERTS_SOURCE,
+  CHANNEL_LISTINGS_SOURCE,
+  ORDERS_SOURCE,
+  PRODUCTS_SOURCE,
+  PRODUCT_ABC_SOURCE,
+  SELLPIA_INVENTORY_SOURCE,
+  type DashboardSourceName,
+} from '../../domain/evidence';
+import { businessDateText } from '../../domain/period/dashboard-period';
 import type { DashboardContext } from '../../domain/context';
 
 @Injectable()
@@ -36,7 +50,7 @@ export class DashboardInventoryService {
 
       const [
         gradeRows,
-        abcStatusRows,
+        abcStatusCounts,
         abcContributionRows,
         unclassifiedProductCount,
         abcFormula,
@@ -69,6 +83,7 @@ export class DashboardInventoryService {
       ]);
 
       const gradeCount = { A: 0, B: 0, C: 0 };
+      const { rows: abcStatusRows, evaluatedAsOf } = abcStatusCounts;
       for (const row of gradeRows) {
         if (
           row.abcGrade === 'A' ||
@@ -177,12 +192,93 @@ export class DashboardInventoryService {
         alerts: unreadAlerts,
         warnings,
         gradeChanges: this.computeGradeChanges(gradeChangesRows),
-        dataFreshness: this.computeDataFreshness(ctx),
+        metricBasis: this.buildMetricBasis(ctx, evaluatedAsOf),
       } satisfies DashboardInventorySummary;
     } catch (error) {
       this.logger.error('Failed to get inventory summary', error);
       throw new InternalServerErrorException('Failed to get inventory summary');
     }
+  }
+
+  /**
+   * Publish the calculation basis of every inventory value a reader displays.
+   *
+   * Every entry here is a `snapshot`, never a period basis. The amendment
+   * keeps inventory, product counts and ABC reading stored owner results with
+   * their actual as-of and source validity rather than force-fitting them into
+   * period aggregation — and these values genuinely have no included/missing
+   * date partition to publish. A warning count is a count of products
+   * *currently* in a warning state: a missing day does not remove a day's
+   * worth of it, it silently changes which products cross the threshold. The
+   * only period-shaped thing available would be the selected month window,
+   * and publishing that as `includedDates` would assert continuous coverage
+   * this read model never verified — exactly the implied-continuous-range the
+   * amendment forbids.
+   *
+   * A key is never omitted. An omitted key and a value with no evidence look
+   * identical to a reader, so an absent basis is published as `unavailable`
+   * with the reason visible instead.
+   */
+  private buildMetricBasis(
+    ctx: DashboardContext,
+    evaluatedAsOf: AbcEvaluationAsOf,
+  ): DashboardMetricBasisMap | undefined {
+    // A live current-state read is its own snapshot: it is as-of the business
+    // date it ran on, which is exactly the as-of the reader asked for.
+    const readAsOf = businessDateText(ctx.anchor);
+    const live = (...sources: readonly DashboardSourceName[]): DashboardSnapshotBasis =>
+      snapshotEvidence({
+        asOf: readAsOf,
+        requiredAsOf: readAsOf,
+        observedAt: ctx.now,
+        sources,
+      });
+
+    // Products' stored ABC result, as-of the organization-level evidence
+    // cutoff it was classified against. Short of the asked-for cutoff it is
+    // retained and stale ("latest data not applied"); with no cutoff at all
+    // the counts stay real while their age is `unknown`. Grade and status
+    // counts share this basis because they read the same owner snapshot.
+    const abc = snapshotEvidence({
+      asOf: evaluatedAsOf.actualCutoff,
+      requiredAsOf: evaluatedAsOf.targetCutoff,
+      observedAt: evaluatedAsOf.capturedAt,
+      sources: [PRODUCTS_SOURCE, PRODUCT_ABC_SOURCE],
+    });
+
+    // Per-listing profit warnings read order rows for revenue and settlement
+    // cost, and channel listing daily snapshots for listing-level ad spend —
+    // not Advertising's account KPI rows, so not `coupang_ads`.
+    const perListing = live(ORDERS_SOURCE, CHANNEL_LISTINGS_SOURCE);
+    // Mapping attention counts listing options against their inventory SKUs.
+    const mapping = live(CHANNEL_LISTINGS_SOURCE, SELLPIA_INVENTORY_SOURCE);
+    // The linked/unlinked split walks that mapping through to the active
+    // master product, so it is only as valid as all three.
+    const catalogMapping = live(
+      PRODUCTS_SOURCE,
+      CHANNEL_LISTINGS_SOURCE,
+      SELLPIA_INVENTORY_SOURCE,
+    );
+
+    return metricBasisMap({
+      totalProducts: live(PRODUCTS_SOURCE),
+      channelLinkedProducts: catalogMapping,
+      channelUnlinkedProducts: catalogMapping,
+      'gradeCount.A': abc,
+      'gradeCount.B': abc,
+      'gradeCount.C': abc,
+      'abcStatusCount.READY': abc,
+      'abcStatusCount.INSUFFICIENT_EVIDENCE': abc,
+      'abcStatusCount.SOURCE_UNMAPPED': abc,
+      'abcStatusCount.SELLPIA_SOURCE_STALE': abc,
+      'abcStatusCount.AD_SOURCE_STALE': abc,
+      alerts: live(ALERTS_SOURCE),
+      'warnings.minusProducts': perListing,
+      'warnings.lowProfitProducts': perListing,
+      'warnings.highAdProducts': perListing,
+      'warnings.outOfStockSkus': live(SELLPIA_INVENTORY_SOURCE),
+      'warnings.mappingAttentionSkus': mapping,
+    });
   }
 
   /**
@@ -210,27 +306,5 @@ export class DashboardInventoryService {
       downgraded,
       total: rows.length,
     } satisfies GradeChanges;
-  }
-
-  /**
-   * Assemble dataFreshness.
-   * Matches legacy: hardcoded attribution window constants,
-   * lastSync = now, confirmedUntil = now - 14d.
-   * Always present (legacy always assembles this object).
-   */
-  private computeDataFreshness(ctx: DashboardContext): DataFreshness {
-    const confirmedUntil = new Date(
-      ctx.now.getTime() - 14 * 24 * 60 * 60 * 1000,
-    )
-      .toISOString()
-      .slice(0, 10);
-
-    return {
-      lastSync: ctx.now.toISOString(),
-      attributionWindow: '14일',
-      attributionWindowDays: 14,
-      confirmedUntil,
-      note: '광고 전환 데이터는 주문일로부터 14일간 변동될 수 있습니다 (쿠팡 귀속 기간)',
-    } satisfies DataFreshness;
   }
 }

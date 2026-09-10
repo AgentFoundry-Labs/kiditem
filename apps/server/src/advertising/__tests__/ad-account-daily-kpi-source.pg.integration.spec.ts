@@ -7,6 +7,7 @@ import {
   makeTestPrisma,
   resetDb,
   seedBaseFixture,
+  OTHER_ORGANIZATION_ID as OTHER_ORG,
   TEST_ORGANIZATION_ID as ORG,
   TEST_USER_ID as USER,
 } from '../../test-helpers/real-prisma';
@@ -378,6 +379,9 @@ describe('Advertising account daily KPI source incoming HTTP + disposable Postgr
 
     const published = (await get('/published').expect(200)).body;
     expect(published.channelAccountId).toBe(accountId);
+    // Rows carrying real spend are OBSERVED evidence — the producer derives
+    // the word from the rows it publishes, so this is where it is asserted.
+    expect(published.evidence).toBe('OBSERVED');
     expect(published.rows).toHaveLength(attempt.plan.businessDates.length);
     expect(published.rows[0]).toMatchObject({
       businessDate: attempt.plan.businessDates[0],
@@ -631,6 +635,113 @@ describe('Advertising account daily KPI source incoming HTTP + disposable Postgr
     const published = (await get('/published').expect(200)).body;
     expect(published.rows).toHaveLength(1);
     expect(published.rows[0]).toMatchObject({ businessDate: targetDate });
+  });
+
+  it('publishes an explicit all-zero day as CONFIRMED_ZERO rather than absent evidence', async () => {
+    const targetDate = new Date(currentBusinessDate().getTime() - 86_400_000)
+      .toISOString()
+      .slice(0, 10);
+    const attempt = (await begin(randomUUID(), { targetDate })).body;
+    const attemptControl = (await control(attempt.attemptId)).body;
+    // The collector emits this exact row for a day whose ad report is empty:
+    // every additive metric observed and zero, no provider ratios, no source
+    // rows. It is proof of no spend, so it must publish like any other day.
+    await receipt(
+      { attemptId: attempt.attemptId, attemptToken: attemptControl.attemptToken },
+      0,
+      targetDate,
+      'VENDOR-A',
+      {
+        adSpend: 0,
+        adRevenue: 0,
+        impressions: 0,
+        clicks: 0,
+        conversions: 0,
+        orders: 0,
+        roas: null,
+        ctr: null,
+        conversionRate: null,
+        rowCount: 0,
+      },
+    ).expect(200);
+    const staged = (await control(attempt.attemptId)).body;
+    await request(httpUrl)
+      .post(`${base}/attempts/${attempt.attemptId}/complete`)
+      .set('X-Source-Attempt-Token', staged.attemptToken)
+      .send({ manifestChecksum: staged.manifestChecksum })
+      .expect(201);
+
+    const published = (await get('/published').expect(200)).body;
+    expect(published).toMatchObject({
+      channelAccountId: accountId,
+      evidence: 'CONFIRMED_ZERO',
+    });
+    expect(published.rows).toHaveLength(1);
+    expect(published.rows[0]).toMatchObject({
+      businessDate: targetDate,
+      normalized: {
+        adSpend: 0,
+        adRevenue: 0,
+        impressions: 0,
+        clicks: 0,
+        conversions: 0,
+        orders: 0,
+        providerRoas: null,
+        providerCtr: null,
+        providerConversionRate: null,
+        observedMetrics: {
+          adSpend: true,
+          adRevenue: true,
+          impressions: true,
+          clicks: true,
+          conversions: true,
+          orders: true,
+        },
+      },
+    });
+  });
+
+  it('answers NOT_APPLIED for an organization with no advertising account', async () => {
+    const published = (
+      await request(httpUrl)
+        .get(`${base}/published`)
+        .set('x-test-org', OTHER_ORG)
+        .expect(200)
+    ).body;
+    // No account can never become a collection, so this is a business answer,
+    // not a missing resource. `NOT_APPLIED` is the only evidence word allowed
+    // without a channel account.
+    expect(published).toEqual({
+      channelAccountId: null,
+      evidence: 'NOT_APPLIED',
+      rows: [],
+    });
+
+    // The owner's own account keeps its separate answer: an account that has
+    // published nothing is MISSING evidence, never a zero.
+    expect((await get('/published').expect(200)).body).toEqual({
+      channelAccountId: accountId,
+      evidence: 'MISSING',
+      rows: [],
+    });
+
+    // Collection status stays MISSING for the account-less organization. That
+    // endpoint reports whether a complete collection exists, and `null`
+    // channelAccountId already carries the not-applicable fact.
+    expect(
+      (
+        await request(httpUrl)
+          .get(`${base}/source`)
+          .set('x-test-org', OTHER_ORG)
+          .expect(200)
+      ).body,
+    ).toMatchObject({
+      channelAccountId: null,
+      status: 'MISSING',
+      refreshing: false,
+      latestAttempt: null,
+      latestComplete: null,
+    });
   });
 
   it('does not treat an unowned legacy KPI row as published evidence or a complete date', async () => {

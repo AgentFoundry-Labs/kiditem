@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { PrismaService } from '../../../../../prisma/prisma.service';
 import { ProfitCalculationRepositoryAdapter } from './profit-calculation.repository.adapter';
 import { WingTrafficAggregationRepositoryAdapter } from './wing-traffic-aggregation.repository.adapter';
+import { periodOf } from '../../../__tests__/test-helpers/period';
 
 const JULY_START_KST = new Date('2026-06-30T15:00:00.000Z');
 const AUGUST_START_KST = new Date('2026-07-31T15:00:00.000Z');
@@ -29,11 +30,7 @@ describe('dashboard business-date boundaries', () => {
     await new WingTrafficAggregationRepositoryAdapter(
       { readPublished },
       { readPublished: vi.fn() },
-    ).aggregateTraffic(
-      'organization-id',
-      JULY_START_KST,
-      AUGUST_START_KST,
-    );
+    ).aggregateTraffic('organization-id', periodOf(JULY_START_KST, AUGUST_START_KST));
 
     expect(readPublished).toHaveBeenCalledWith({
       organizationId: 'organization-id',
@@ -49,11 +46,7 @@ describe('dashboard business-date boundaries', () => {
       order: { findMany: orderFindMany },
     } as unknown as PrismaService;
 
-    await new ProfitCalculationRepositoryAdapter(prisma, { readPublished }).calculateForRange(
-      'organization-id',
-      JULY_START_KST,
-      AUGUST_START_KST,
-    );
+    await new ProfitCalculationRepositoryAdapter(prisma, { readPublished }).calculateForRange('organization-id', periodOf(JULY_START_KST, AUGUST_START_KST));
 
     expect(orderFindMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({

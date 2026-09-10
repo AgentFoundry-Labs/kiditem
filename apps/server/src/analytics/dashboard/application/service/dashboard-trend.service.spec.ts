@@ -7,6 +7,7 @@ import {
   buildMockWingTrafficAggregationRepo,
 } from '../../__tests__/test-helpers/build-mock-ports';
 import { kstDayStart } from '../../../../common/kst';
+import { buildDashboardContext } from '../../domain/context';
 
 describe('DashboardTrendService daily profit basis', () => {
   afterEach(() => {
@@ -49,7 +50,7 @@ describe('DashboardTrendService daily profit basis', () => {
     wing.fetchDailyTrend.mockResolvedValue([]);
     wing.fetchDailyAds.mockResolvedValue([]);
 
-    const result = await new DashboardTrendService(profit, trend, wing).getTrend('org-1', '7d');
+    const result = await new DashboardTrendService(profit, trend, wing).getTrend(buildDashboardContext(), 'org-1', '7d');
 
     expect(result).toHaveLength(7);
     expect(result.find((row) => row.date === date)).toMatchObject({ revenue: 100, adCost: 0, profit: 30 });
@@ -94,7 +95,7 @@ describe('DashboardTrendService daily profit basis', () => {
     wing.fetchDailyTrend.mockResolvedValue([]);
     wing.fetchDailyAds.mockResolvedValue([]);
 
-    const result = await new DashboardTrendService(profit, trend, wing).getTrend('org-1', '7d');
+    const result = await new DashboardTrendService(profit, trend, wing).getTrend(buildDashboardContext(), 'org-1', '7d');
 
     expect(result.find((row) => row.date === date)).toMatchObject({ revenue: 100, adCost: null, profit: null });
     expect(result.find((row) => row.date === date)?.metricBasis?.profit).toMatchObject({ status: 'empty', missingDates: [date] });
@@ -111,7 +112,7 @@ describe('DashboardTrendService daily profit basis', () => {
     wing.fetchDailyTrend.mockResolvedValue([]);
     wing.fetchDailyAds.mockResolvedValue([]);
 
-    const result = await new DashboardTrendService(profit, trend, wing).getTrend('org-1', '7d');
+    const result = await new DashboardTrendService(profit, trend, wing).getTrend(buildDashboardContext(), 'org-1', '7d');
 
     expect(result.map((row) => row.date)).toEqual([
       '2026-09-04', '2026-09-05', '2026-09-06', '2026-09-07',
@@ -119,12 +120,16 @@ describe('DashboardTrendService daily profit basis', () => {
     ]);
     expect(profit.calculateDailyForRange).toHaveBeenCalledWith(
       'org-1',
-      new Date('2026-09-03T15:00:00.000Z'),
-      new Date('2026-09-10T15:00:00.000Z'),
+      expect.objectContaining({
+        queryWindow: {
+          from: new Date('2026-09-03T15:00:00.000Z'),
+          to: new Date('2026-09-10T15:00:00.000Z'),
+        },
+      }),
     );
   });
 
-  it('marks missing cost inputs unverified even when the owner ad row is an explicit zero', async () => {
+  it('marks missing cost inputs invalid — not unverified — when the owner ad row is an explicit zero', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-09-10T16:30:00.000Z'));
     const date = '2026-09-09';
@@ -166,13 +171,19 @@ describe('DashboardTrendService daily profit basis', () => {
       observedAt: '2026-09-10T01:00:00.000Z',
     }]);
 
-    const result = await new DashboardTrendService(profit, trend, wing).getTrend('org-1', '7d');
+    const result = await new DashboardTrendService(profit, trend, wing).getTrend(buildDashboardContext(), 'org-1', '7d');
     const row = result.find((item) => item.date === date)!;
     expect(row).toMatchObject({ revenue: 100, adCost: 0, profit: null });
+    // A cost input that was read and refused is invalid evidence, so the
+    // computable subset is empty. `unverified` is reserved for a required
+    // read that actually failed, which this one did not.
     expect(row.metricBasis?.profit).toMatchObject({
-      status: 'unverified',
+      status: 'empty',
+      includedDates: [],
+      missingDates: [date],
       invalidDates: [date],
     });
+    expect(row.metricBasis?.profit?.queryFailedSources).toBeUndefined();
   });
 
   it('preserves valid order revenue and distinguishes an ad query failure from empty evidence', async () => {
@@ -187,7 +198,7 @@ describe('DashboardTrendService daily profit basis', () => {
     wing.fetchDailyTrend.mockResolvedValue([]);
     wing.fetchDailyAds.mockRejectedValue(new Error('owner ad read failed'));
 
-    const result = await new DashboardTrendService(profit, trend, wing).getTrend('org-1', '7d');
+    const result = await new DashboardTrendService(profit, trend, wing).getTrend(buildDashboardContext(), 'org-1', '7d');
     const row = result.find((item) => item.date === date)!;
     expect(row).toMatchObject({ revenue: 100, adCost: null, profit: null });
     expect(row.metricBasis?.revenue).toMatchObject({ status: 'complete', queryFailedSources: ['profit'] });
@@ -242,7 +253,7 @@ describe('DashboardTrendService daily profit basis', () => {
       observedAt: '2026-09-10T01:00:00.000Z',
     }]);
 
-    const result = await new DashboardTrendService(profit, trend, wing).getTrend('org-1', '7d');
+    const result = await new DashboardTrendService(profit, trend, wing).getTrend(buildDashboardContext(), 'org-1', '7d');
     const row = result.find((item) => item.date === date)!;
     expect(row).toMatchObject({ revenue: 100, adCost: 5, profit: 25 });
     expect(row.metricBasis?.profit).toMatchObject({ status: 'complete' });
@@ -260,7 +271,7 @@ describe('DashboardTrendService daily profit basis', () => {
     wing.fetchDailyTrend.mockRejectedValue(new Error('wing read failed'));
     wing.fetchDailyAds.mockResolvedValue([]);
 
-    const result = await new DashboardTrendService(profit, trend, wing).getTrend('org-1', '7d');
+    const result = await new DashboardTrendService(profit, trend, wing).getTrend(buildDashboardContext(), 'org-1', '7d');
     const row = result[0]!;
     expect(row).toMatchObject({ revenue: null });
     expect(row.metricBasis?.revenue).toMatchObject({
@@ -290,7 +301,7 @@ describe('DashboardTrendService daily profit basis', () => {
     }]);
     wing.fetchDailyAds.mockResolvedValue([]);
 
-    const result = await new DashboardTrendService(profit, trend, wing).getTrend('org-1', '7d');
+    const result = await new DashboardTrendService(profit, trend, wing).getTrend(buildDashboardContext(), 'org-1', '7d');
     const row = result.find((item) => item.date === date)!;
     expect(row.revenue).toBe(100);
     expect(row.metricBasis?.revenue?.observedAt).toBeNull();
@@ -330,7 +341,7 @@ describe('DashboardTrendService daily profit basis', () => {
     wing.fetchDailyTrend.mockResolvedValue([]);
     wing.fetchDailyAds.mockRejectedValue(new Error('ads read failed'));
 
-    const result = await new DashboardTrendService(profit, trend, wing).getTrend('org-1', '7d');
+    const result = await new DashboardTrendService(profit, trend, wing).getTrend(buildDashboardContext(), 'org-1', '7d');
     const row = result.find((item) => item.date === date)!;
     expect(row.metricBasis?.profit?.queryFailedSources).toEqual(['coupang_ads']);
     expect(() => DashboardTrendItemSchema.parse(row)).not.toThrow();

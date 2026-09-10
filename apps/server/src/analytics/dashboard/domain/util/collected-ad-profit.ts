@@ -1,10 +1,11 @@
-import { pct1 } from './percent';
+import { measuredPercent1 } from './percent';
 
 export interface ProfitWithAdCost {
   revenue: number;
   adCost: number;
-  netProfit: number;
-  profitRate: number;
+  /** Null means the profit was not computable from available evidence. */
+  netProfit: number | null;
+  profitRate: number | null;
 }
 
 export interface CollectedAdSpend {
@@ -16,6 +17,11 @@ export interface CollectedAdSpend {
  * Reconciles listing-level ad spend with the separately collected Coupang
  * account daily facts. The larger measured cost wins so an incomplete source
  * cannot accidentally inflate net profit.
+ *
+ * A collected account spend is a measured fact, so it still replaces `adCost`
+ * even when the profit itself is unavailable. It never turns an unavailable
+ * profit into a number: subtracting a cost from a missing base would fabricate
+ * a measured result out of absent evidence.
  */
 export function reconcileCollectedAdSpend<T extends ProfitWithAdCost>(
   metrics: T,
@@ -28,8 +34,19 @@ export function reconcileCollectedAdSpend<T extends ProfitWithAdCost>(
     : 0;
   if (collectedSpend <= metrics.adCost) return metrics;
 
+  if (metrics.netProfit === null) {
+    return {
+      ...metrics,
+      adCost: collectedSpend,
+      netProfit: null,
+      profitRate: null,
+    };
+  }
+
   const netProfit = Math.round(metrics.netProfit - (collectedSpend - metrics.adCost));
-  const profitRate = pct1(netProfit, metrics.revenue);
+  // No revenue base means no profit rate; a zero-revenue window must not
+  // report a measured 0% margin.
+  const profitRate = measuredPercent1(netProfit, metrics.revenue);
 
   return {
     ...metrics,

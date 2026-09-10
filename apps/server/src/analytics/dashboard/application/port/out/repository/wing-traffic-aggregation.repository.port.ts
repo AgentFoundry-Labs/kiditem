@@ -2,58 +2,23 @@
 // Coupang ads daily KPIs. The dashboard falls back onto these sources
 // when the order-based revenue/ad math is zero. Also exposes the latest
 // data date used to anchor the effective month.
+//
+// Period-aware reads take a `ResolvedDashboardPeriod` from
+// `domain/period/dashboard-period`: the caller owns the closure rule and the
+// anchor, and the adapter neither re-derives business-date keys nor reads the
+// wall clock. The row-listing lanes below stay on raw `since`/`until?` because
+// one caller (the 30-day daily ad chart) is deliberately open-ended.
+
+import type { AdCoverage, TrafficCoverage, TrafficReconciliation } from '@kiditem/shared/dashboard';
+
+import type { ResolvedDashboardPeriod } from '../../../../domain/period/dashboard-period';
 
 export const WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT = Symbol(
   'WingTrafficAggregationRepositoryPort',
 );
 
-export type TrafficAdditiveMetric =
-  | 'views'
-  | 'cartAdds'
-  | 'orders'
-  | 'salesQty'
-  | 'revenue';
-
-export type TrafficReconciliationStatus =
-  | 'MATCHED'
-  | 'MISMATCH'
-  | 'UNVERIFIED';
-
-export interface TrafficMetricReconciliation {
-  status: TrafficReconciliationStatus;
-  dailySum: number | null;
-  periodValue: number | null;
-}
-
-export type TrafficReconciliation = Record<
-  TrafficAdditiveMetric,
-  TrafficMetricReconciliation
->;
-
-export interface WingTrafficCoverage {
-  from: string;
-  to: string;
-  targetDays: number;
-  completedDays: number;
-  missingDates: string[];
-}
-
-export type AdMetricSource =
-  | 'coupang_ads'
-  | 'listing'
-  | 'orders'
-  | 'unavailable';
-
-export interface CoupangAdsCoverage {
-  /** Exact selected KST range, inclusive. */
-  from: string;
-  to: string;
-  /** Effective source cutoff; future preset dates are not expected. */
-  knownThrough: string | null;
-  targetDays: number;
-  completedDays: number;
-  missingDates: string[];
-}
+/** The traffic metrics that reconcile a daily sum against a period value. */
+export type TrafficAdditiveMetric = keyof TrafficReconciliation;
 
 export interface WingTrafficMetrics {
   revenue: number;
@@ -69,7 +34,7 @@ export interface WingTrafficMetrics {
   providerConversionRate?: number | null;
   /** Owner attempt that supplied the selected account daily rows. */
   sourceAttemptId?: string | null;
-  coverage?: WingTrafficCoverage | null;
+  coverage?: TrafficCoverage | null;
   reconciliation?: TrafficReconciliation | null;
   /** Exact-period provider evidence, when the owner published it. */
   exactPeriodEvidence?: Record<string, unknown> | null;
@@ -90,7 +55,7 @@ export interface CoupangAdsMetrics {
   conversionRate: number | null;
   /** Provider ratio, preserved separately and never used for our CVR. */
   providerConversionRate: number | null;
-  coverage: CoupangAdsCoverage | null;
+  coverage: AdCoverage | null;
   /** At least one complete owner row exists, including explicit all-zero rows. */
   isCollected: boolean;
   /** The owner range is complete through its effective cutoff. */
@@ -123,14 +88,12 @@ export interface CoupangAdsDailyRow {
 export interface WingTrafficAggregationRepositoryPort {
   aggregateTraffic(
     organizationId: string,
-    from: Date,
-    to: Date,
+    period: ResolvedDashboardPeriod,
   ): Promise<WingTrafficMetrics>;
 
   aggregateCoupangAds(
     organizationId: string,
-    from: Date,
-    to: Date,
+    period: ResolvedDashboardPeriod,
   ): Promise<CoupangAdsMetrics>;
 
   findLatestDataDate(organizationId: string): Promise<Date | null>;

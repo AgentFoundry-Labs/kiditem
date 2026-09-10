@@ -14,7 +14,6 @@ import { DashboardTrendRepositoryAdapter } from '../adapter/out/repository/dashb
 import { WingTrafficAggregationRepositoryAdapter } from '../adapter/out/repository/wing-traffic-aggregation.repository.adapter';
 import { DashboardInventoryRepositoryAdapter } from '../adapter/out/repository/dashboard-inventory.repository.adapter';
 // application/service
-import { DashboardContextService } from '../application/service/dashboard-context.service';
 import { DashboardSalesService } from '../application/service/dashboard-sales.service';
 import { DashboardAdService } from '../application/service/dashboard-ad.service';
 import { DashboardInventoryService } from '../application/service/dashboard-inventory.service';
@@ -82,7 +81,6 @@ describe('DashboardModule capability wiring', () => {
     const providers: unknown[] =
       Reflect.getMetadata(PROVIDERS_KEY, DashboardCapabilityModule) ?? [];
     for (const cls of [
-      DashboardContextService,
       DashboardSalesService,
       DashboardAdService,
       DashboardInventoryService,

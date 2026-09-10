@@ -4,9 +4,19 @@ import {
   type CoupangAdsDailyRow,
   type WingTrafficAggregationRepositoryPort,
 } from '../dashboard/application/port/out/repository/wing-traffic-aggregation.repository.port';
-import { pct1 } from '../dashboard/domain/util/percent';
+import { measuredPercent1 } from '../dashboard/domain/util/percent';
+import {
+  COUPANG_ADS_SOURCE,
+  SELLPIA_SALES_SOURCE,
+  type DashboardSourceName,
+} from '../dashboard/domain/evidence';
 import { SELLPIA_SALES_COVERAGE_SELLER_ID } from './domain/snapshot-coverage';
 import { SellpiaSalesSourceService } from './sellpia-sales-source.service';
+import {
+  buildPeriodBasis,
+  intersectBases,
+  narrowToDate,
+} from '@kiditem/shared/dashboard';
 import type {
   DashboardMetricBasisMap,
   DashboardPeriodBasis,
@@ -62,15 +72,14 @@ export class SellpiaSalesService {
     const salesRows = normalizedSellpia.salesRows;
     const normalizedAds = normalizeDailyAds(dailyAdsRead.rows, new Set(selectedDates));
     const adDates = normalizedAds.validDates;
-    const sellpiaBasis = buildPeriodBasis(
+    const sellpiaBasis = buildPeriodBasis({
       from,
       to,
-      selectedDates,
-      coverageDates,
-      normalizedSellpia.invalidDates,
-      ['sellpia_sales'],
-      normalizedSellpia.lastCapturedAt,
-    );
+      includedDates: coverageDates,
+      invalidDates: normalizedSellpia.invalidDates,
+      sources: [SELLPIA_SALES_SOURCE],
+      observedAt: normalizedSellpia.lastCapturedAt,
+    });
     const rocket = buildGroup(
       salesRows.filter((r) => r.channelGroup === 'rocket'),
       coverageDates,
@@ -84,28 +93,37 @@ export class SellpiaSalesService {
       normalizedSellpia.lastCapturedAtByDate,
     );
     const dailySales = aggregateSalesByDate(salesRows, coverageDates);
-    const profitDates = selectedDates.filter(
-      (date) => coverageDates.has(date) && adDates.has(date),
-    );
-    const profitBasis = buildPeriodBasis(
+    // A failed ad read is named as a failed source. With no usable ad date the
+    // intersection below has no included date, and the derived status is
+    // `unverified` — the read failure no longer has to be asserted by hand.
+    const adsQueryFailedSources: DashboardSourceName[] = dailyAdsRead.failed
+      ? [COUPANG_ADS_SOURCE]
+      : [];
+    const adsBasis = buildPeriodBasis({
       from,
       to,
-      selectedDates,
-      new Set(profitDates),
-      new Set([
-        ...normalizedSellpia.invalidDates,
-        ...normalizedAds.invalidDates,
-      ]),
-      ['sellpia_sales', 'coupang_ads'],
-      latestObservedAt(
+      includedDates: adDates,
+      invalidDates: normalizedAds.invalidDates,
+      sources: [COUPANG_ADS_SOURCE],
+      queryFailedSources: adsQueryFailedSources,
+      observedAt: latestObservedAtForDates(
+        normalizedAds.observedAtByDate,
+        [...adDates],
+      ),
+    });
+    // Revenue, cost and advertising entering profit use identical dates.
+    const profitDateEvidence = intersectBases(sellpiaBasis, adsBasis);
+    const profitDates = profitDateEvidence.includedDates;
+    // Freshness of a combined value is the newest capture *inside* the dates
+    // that actually entered it, which no algebra over two basis-level
+    // timestamps can recover; only the producer holds the per-date captures.
+    const profitBasis: DashboardPeriodBasis = {
+      ...profitDateEvidence,
+      observedAt: latestObservedAt(
         latestObservedAtForDates(normalizedSellpia.lastCapturedAtByDate, profitDates),
         latestObservedAtForDates(normalizedAds.observedAtByDate, profitDates),
-      ),
-      {
-        queryFailedSources: dailyAdsRead.failed ? ['coupang_ads'] : [],
-        status: dailyAdsRead.failed ? 'unverified' : undefined,
-      },
-    );
+      )?.toISOString() ?? null,
+    };
     const profitInputs = buildProfitInputs(
       profitDates,
       dailySales,
@@ -118,8 +136,8 @@ export class SellpiaSalesService {
     const netProfit = profitInputs
       ? Math.round(profitInputs.revenue - profitInputs.cost - profitInputs.adCost)
       : null;
-    const profitRate = profitInputs && netProfit !== null
-      ? pct1(netProfit, profitInputs.revenue)
+    const profitRate = profitInputs
+      ? measuredPercent1(netProfit, profitInputs.revenue)
       : null;
 
     const base = {
@@ -282,14 +300,14 @@ function toDailyPoints(
       ...(basis
         ? {
             metricBasis: {
-              revenue: singleDateBasis(
-                date,
+              revenue: narrowToDate(
                 basis,
+                date,
                 lastCapturedAtByDate.get(date) ?? null,
               ),
-              qty: singleDateBasis(
-                date,
+              qty: narrowToDate(
                 basis,
+                date,
                 lastCapturedAtByDate.get(date) ?? null,
               ),
             },
@@ -486,47 +504,6 @@ function buildProfitInputs(
   return { revenue: totals.revenue, cost: totals.cost, adCost, qty: totals.qty, basis };
 }
 
-function buildPeriodBasis(
-  from: string,
-  to: string,
-  targetDates: readonly string[],
-  includedDates: Iterable<string>,
-  invalidDates: Iterable<string>,
-  sources: readonly string[],
-  observedAt: Date | string | null | undefined,
-  options: {
-    queryFailedSources?: readonly string[];
-    status?: DashboardPeriodBasis['status'];
-  } = {},
-): DashboardPeriodBasis {
-  const target = [...new Set(targetDates)].sort();
-  const included = [...new Set(includedDates)].filter((date) => target.includes(date)).sort();
-  const invalid = [...new Set(invalidDates)].filter((date) => target.includes(date)).sort();
-  const missing = target.filter((date) => !included.includes(date));
-  const status = options.status ?? (included.length === 0
-    ? 'empty'
-    : included.length === target.length && invalid.length === 0
-      ? 'complete'
-      : 'partial');
-  return {
-    kind: 'period',
-    from,
-    to,
-    targetDays: target.length,
-    includedDates: included,
-    includedDays: included.length,
-    missingDates: missing,
-    invalidDates: invalid,
-    sources: [...sources],
-    status,
-    partial: status === 'partial',
-    observedAt: toIsoOrNull(observedAt),
-    ...(options.queryFailedSources && options.queryFailedSources.length > 0
-      ? { queryFailedSources: [...new Set(options.queryFailedSources)] }
-      : {}),
-  };
-}
-
 function buildMetricBasis(args: {
   sellpiaBasis: DashboardPeriodBasis;
   profitBasis: DashboardPeriodBasis;
@@ -546,16 +523,6 @@ function buildMetricBasis(args: {
     'others.malls': args.sellpiaBasis,
   };
   return metricBasis;
-}
-
-function singleDateBasis(
-  date: string,
-  parent: DashboardPeriodBasis,
-  observedAt: Date | null,
-): DashboardPeriodBasis {
-  const included = parent.includedDates.includes(date) ? [date] : [];
-  const invalid = parent.invalidDates.includes(date) ? [date] : [];
-  return buildPeriodBasis(date, date, [date], included, invalid, parent.sources, observedAt);
 }
 
 function latestObservedAt(
@@ -602,15 +569,6 @@ function dateKey(value: Date): string | null {
 
 function validDateText(value: string): string | null {
   return parseCalendarDate(value)?.toISOString().slice(0, 10) ?? null;
-}
-
-function toIsoOrNull(value: Date | string | null | undefined): string | null {
-  if (value instanceof Date) return Number.isFinite(value.getTime()) ? value.toISOString() : null;
-  if (typeof value === 'string') {
-    const parsed = new Date(value);
-    return Number.isFinite(parsed.getTime()) ? parsed.toISOString() : null;
-  }
-  return null;
 }
 
 function toKstInstant(isoDate: string): Date {

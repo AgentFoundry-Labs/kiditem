@@ -79,6 +79,18 @@ describe('Analytics inventory ABC reads (PostgreSQL)', () => {
     expect(summary.abcFormula).toEqual(PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD);
     expect(summary.abcContributionProfit.amountByGrade.A).toBe(result.projection.summary.abcContributionProfitByGrade.A);
     expect(summary.abcContributionProfit.amountByGrade.A).toBeGreaterThan(0);
+    // The grade count is as-of the organization-level evidence cutoff the ABC
+    // read validated these stored results against — a complete month end. That
+    // is deliberately not the source collection's coverage end (`cutoff`,
+    // mid-month here): an aggregate over many products has no single
+    // publication cutoff, and the evidence cutoff never overstates coverage.
+    const gradeBasis = summary.metricBasis?.['gradeCount.A'];
+    expect(gradeBasis).toMatchObject({
+      kind: 'snapshot', sources: ['products', 'product_abc'], status: 'current',
+    });
+    const asOf = gradeBasis?.kind === 'snapshot' ? gradeBasis.asOf : null;
+    expect(asOf).not.toBeNull();
+    expect(asOf! <= cutoff).toBe(true);
   });
 
   it.each(['sellpia', 'advertising'] as const)('retains the official grade and actual complete cutoff after a newer %s failure', async (source) => {
@@ -122,6 +134,13 @@ describe('Analytics inventory ABC reads (PostgreSQL)', () => {
     });
     expect(result.projection.summary.abcStatusCounts.READY).toBe(0);
     expect(result.projection.summary.abcCounts).toEqual({ A: 1, B: 0, C: 0 });
+    // No actual cutoff means the retained grade's age is unknown. `unknown`
+    // and not `unavailable`, so the retained count stays on screen.
+    const summary = await dashboard.getSummary(buildDashboardContext(), TEST_ORGANIZATION_ID);
+    expect(summary.gradeCount).toEqual({ A: 1, B: 0, C: 0 });
+    expect(summary.metricBasis?.['gradeCount.A']).toMatchObject({
+      kind: 'snapshot', asOf: null, status: 'unknown',
+    });
   });
 
   async function publishProduct() {

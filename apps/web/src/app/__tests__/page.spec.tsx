@@ -87,7 +87,7 @@ const successSales = {
 };
 const successAd = {
   monthly: { roas: 0, ctr: 0, adRevenue: 0, totalAdSpend: 0, prevRoas: 0, prevCtr: 0, prevAdRevenue: 0, prevTotalAdSpend: 0 },
-  industryBenchmark: { avgAdRate: 10, avgProfitRate: 8, avgRoas: 350, avgCtr: 0.3 },
+  industryBenchmark: { myAdRate: 10, myRoas: 350, myCtr: 0.3 },
 };
 const successInv = {
   totalProducts: 5,
@@ -121,7 +121,26 @@ const successInv = {
     outOfStockSkus: 7,
     mappingAttentionSkus: 11,
   },
+  metricBasis: {
+    'warnings.outOfStockSkus': {
+      kind: 'snapshot',
+      asOf: '2026-07-27',
+      observedAt: null,
+      sources: ['sellpia'],
+      status: 'current',
+    },
+    'warnings.mappingAttentionSkus': {
+      kind: 'snapshot',
+      asOf: '2026-07-27',
+      observedAt: null,
+      sources: ['sellpia'],
+      status: 'current',
+    },
+  },
 };
+
+/** Same counts, but with no published basis for any warning. */
+const unverifiedWarningInv = { ...successInv, metricBasis: {} };
 const successTrend: unknown[] = [];
 beforeEach(() => {
   getParsedMock.mockReset();
@@ -129,6 +148,7 @@ beforeEach(() => {
   getParsedMock.mockResolvedValue(null);
   getMock.mockImplementation((path: string) => {
     if (path === '/api/agent-os/instances') return Promise.resolve([]);
+    if (path === '/api/readiness') return Promise.resolve({ allOk: true, checks: [] });
     return Promise.resolve([]);
   });
 });
@@ -178,6 +198,49 @@ describe('Dashboard page (RTL)', () => {
     expect(screen.getByText('매칭 확인 필요')).toBeInTheDocument();
     expect(screen.getByText('7', { selector: '[data-warning-count="out-of-stock"]' })).toBeInTheDocument();
     expect(screen.getByText('11', { selector: '[data-warning-count="mapping-attention"]' })).toBeInTheDocument();
+  });
+
+  it('never renders a client-derived revenue goal when the server publishes none', async () => {
+    getParsedMock.mockImplementation((path: string) => {
+      if (path === '/api/dashboard/sales') return Promise.resolve(successSales);
+      if (path === '/api/dashboard/ad') return Promise.resolve(successAd);
+      if (path === '/api/dashboard/inventory') return Promise.resolve(successInv);
+      if (path.startsWith('/api/dashboard/trend')) return Promise.resolve(successTrend);
+      return Promise.resolve(null);
+    });
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText('Kiditem Foundry')).toBeTruthy());
+    // 1.15 * previous, floored at 1,000,000 / 100,000, was the removed goal.
+    expect(screen.getByTestId('dashboard-primary-revenue')).not.toHaveTextContent('목표');
+    expect(screen.queryByText(/목표 1,000,000원/)).toBeNull();
+    expect(screen.queryByText(/목표 100,000원/)).toBeNull();
+  });
+
+  it('renders warning counts as unavailable when the card has no basis', async () => {
+    getParsedMock.mockImplementation((path: string) => {
+      if (path === '/api/dashboard/sales') return Promise.resolve(successSales);
+      if (path === '/api/dashboard/ad') return Promise.resolve(successAd);
+      if (path === '/api/dashboard/inventory') return Promise.resolve(unverifiedWarningInv);
+      if (path.startsWith('/api/dashboard/trend')) return Promise.resolve(successTrend);
+      return Promise.resolve(null);
+    });
+
+    renderPage();
+
+    expect(await screen.findByText('셀피아 재고 0')).toBeInTheDocument();
+    for (const key of [
+      'minus-products',
+      'low-profit-products',
+      'high-ad-products',
+      'out-of-stock',
+      'mapping-attention',
+    ]) {
+      expect(document.querySelector(`[data-warning-count="${key}"]`)).toHaveTextContent('—');
+    }
+    expect(screen.queryByText('7', { selector: '[data-warning-count="out-of-stock"]' })).toBeNull();
+    expect(screen.queryByText('11', { selector: '[data-warning-count="mapping-attention"]' })).toBeNull();
   });
 
   it('T3: 502 on non-baseline (trend) → SectionError shows server detail', async () => {

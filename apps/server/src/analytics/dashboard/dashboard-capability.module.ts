@@ -16,7 +16,6 @@ import { DASHBOARD_SALES_REPOSITORY_PORT } from './application/port/out/reposito
 import { DASHBOARD_TREND_REPOSITORY_PORT } from './application/port/out/repository/dashboard-trend.repository.port';
 import { WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT } from './application/port/out/repository/wing-traffic-aggregation.repository.port';
 import { DASHBOARD_INVENTORY_REPOSITORY_PORT } from './application/port/out/repository/dashboard-inventory.repository.port';
-import { DashboardContextService } from './application/service/dashboard-context.service';
 import { DashboardSalesService } from './application/service/dashboard-sales.service';
 import { DashboardAdService } from './application/service/dashboard-ad.service';
 import { DashboardInventoryService } from './application/service/dashboard-inventory.service';
@@ -41,7 +40,6 @@ const repositoryPorts = [
 ];
 
 const dashboardServices = [
-  DashboardContextService,
   DashboardSalesService,
   DashboardAdService,
   DashboardInventoryService,

@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import Dashboard from './page';
-import type { SellpiaSalesSummary } from '@kiditem/shared/dashboard';
+import { buildSnapshotBasis, type SellpiaSalesSummary } from '@kiditem/shared/dashboard';
 const sellpiaState = vi.hoisted(() => ({
   summary: undefined as SellpiaSalesSummary | undefined,
 }));
@@ -129,11 +129,44 @@ const ad = {
     prevAdRevenue: 0,
     prevTotalAdSpend: 0,
   },
-  industryBenchmark: { avgAdRate: 10, avgProfitRate: 8, avgRoas: 350, avgCtr: 0.3 },
+  industryBenchmark: { myAdRate: 10, myRoas: 350, myCtr: 0.3 },
+};
+
+const inventory = {
+  totalProducts: 10,
+  channelLinkedProducts: 1,
+  channelUnlinkedProducts: 9,
+  classifiedProductCount: 4,
+  unclassifiedProductCount: 6,
+  gradeCount: { A: 2, B: 1, C: 1 },
+  abcStatusCount: {
+    READY: 4,
+    INSUFFICIENT_EVIDENCE: 2,
+    SOURCE_UNMAPPED: 1,
+    SELLPIA_SOURCE_STALE: 2,
+    AD_SOURCE_STALE: 1,
+  },
+  abcContributionProfit: {
+    amountByGrade: { A: 12_000, B: 4_000, C: -500 },
+    shareByGrade: { A: 0.77, B: 0.26, C: -0.03 },
+  },
+  abcFormula: null,
+  mappingStatusCounts: { matched: 0, unmatched: 0, needsReview: 0 },
+  alerts: [],
+  warnings: {
+    minusProducts: 3,
+    lowProfitProducts: 5,
+    highAdProducts: 2,
+    outOfStockSkus: 7,
+    mappingAttentionSkus: 4,
+    lowCtrProducts: 0,
+    lowReviewProducts: 0,
+  },
 };
 
 let salesResponse = sales;
 let adResponse = ad;
+let inventoryResponse: Record<string, unknown> = inventory;
 
 const completeSellpiaProfitBasis = {
   kind: 'period' as const,
@@ -160,6 +193,7 @@ const completeSellpiaProfitBasis = {
 beforeEach(() => {
   salesResponse = sales;
   adResponse = ad;
+  inventoryResponse = inventory;
   sellpiaState.summary = undefined;
   getParsedMock.mockReset();
   getParsedMock.mockImplementation((path: string) => {
@@ -168,37 +202,7 @@ beforeEach(() => {
       return Promise.resolve(adResponse);
     }
     if (path === '/api/dashboard/inventory') {
-      return Promise.resolve({
-        totalProducts: 10,
-        channelLinkedProducts: 1,
-        channelUnlinkedProducts: 9,
-        classifiedProductCount: 4,
-        unclassifiedProductCount: 6,
-        gradeCount: { A: 2, B: 1, C: 1 },
-        abcStatusCount: {
-          READY: 4,
-          INSUFFICIENT_EVIDENCE: 2,
-          SOURCE_UNMAPPED: 1,
-          SELLPIA_SOURCE_STALE: 2,
-          AD_SOURCE_STALE: 1,
-        },
-        abcContributionProfit: {
-          amountByGrade: { A: 12_000, B: 4_000, C: -500 },
-          shareByGrade: { A: 0.77, B: 0.26, C: -0.03 },
-        },
-        abcFormula: null,
-        mappingStatusCounts: { matched: 0, unmatched: 0, needsReview: 0 },
-        alerts: [],
-        warnings: {
-          minusProducts: 0,
-          lowProfitProducts: 0,
-          highAdProducts: 0,
-          outOfStockSkus: 0,
-          mappingAttentionSkus: 0,
-          lowCtrProducts: 0,
-          lowReviewProducts: 0,
-        },
-      });
+      return Promise.resolve(inventoryResponse);
     }
     if (path.startsWith('/api/dashboard/trend')) return Promise.resolve([]);
     return Promise.resolve(null);
@@ -792,5 +796,114 @@ describe('Dashboard absolute ABC grade cards', () => {
     expect(profitRateCard).toHaveTextContent('0.0%');
     expect(profitRateCard).toHaveTextContent('목표 15%');
     expect(profitRateCard).not.toHaveTextContent('목표 달성!');
+  });
+});
+
+/**
+ * Producer/consumer pairing for the warning cards.
+ *
+ * `formatWarningCount` renders a number only when the value's own basis says
+ * it is measured. That gate shipped while `/api/dashboard/inventory` published
+ * no `metricBasis` at all, so all five cards rendered the unavailable marker
+ * over real server-computed counts. These cases pin both halves: the marker
+ * when there is genuinely no basis, and the number when the server publishes
+ * the owner-backed snapshot it now builds.
+ *
+ * The bases below are built with `buildSnapshotBasis` — the same constructor
+ * `DashboardInventoryService` publishes through — with the same inputs a live
+ * owner read gives it. The server side of the pair is asserted in
+ * `apps/server/.../dashboard-metric-basis.spec.ts`
+ * ("backs each of the five warning counts with a measured, non-unavailable basis").
+ */
+describe('Dashboard warning cards and their published basis', () => {
+  const WARNING_CARDS = [
+    { key: 'warnings.minusProducts', testId: 'minus-products', count: '3' },
+    { key: 'warnings.lowProfitProducts', testId: 'low-profit-products', count: '5' },
+    { key: 'warnings.highAdProducts', testId: 'high-ad-products', count: '2' },
+    { key: 'warnings.outOfStockSkus', testId: 'out-of-stock', count: '7' },
+    { key: 'warnings.mappingAttentionSkus', testId: 'mapping-attention', count: '4' },
+  ] as const;
+
+  function warningText(testId: string): string | null {
+    return document.querySelector(`[data-warning-count="${testId}"]`)?.textContent ?? null;
+  }
+
+  it('renders every warning count when the server publishes an owner-backed snapshot basis', async () => {
+    inventoryResponse = {
+      ...inventory,
+      metricBasis: Object.fromEntries(
+        WARNING_CARDS.map(({ key }) => [
+          key,
+          buildSnapshotBasis({
+            asOf: '2026-09-08',
+            requiredAsOf: '2026-09-08',
+            observedAt: '2026-09-08T00:30:00.000Z',
+            sources: ['orders', 'channel_listings'],
+          }),
+        ]),
+      ),
+    };
+
+    renderDashboard();
+    await waitFor(() => expect(screen.getByText('Kiditem Foundry')).toBeInTheDocument());
+
+    for (const { testId, count } of WARNING_CARDS) {
+      expect(warningText(testId), testId).toBe(count);
+    }
+  });
+
+  it('keeps a stale but retained snapshot displaying its number', async () => {
+    inventoryResponse = {
+      ...inventory,
+      metricBasis: Object.fromEntries(
+        WARNING_CARDS.map(({ key }) => [
+          key,
+          buildSnapshotBasis({
+            asOf: '2026-06-30',
+            requiredAsOf: '2026-09-08',
+            sources: ['sellpia_inventory'],
+          }),
+        ]),
+      ),
+    };
+
+    renderDashboard();
+    await waitFor(() => expect(screen.getByText('Kiditem Foundry')).toBeInTheDocument());
+
+    for (const { testId, count } of WARNING_CARDS) {
+      expect(warningText(testId), testId).toBe(count);
+    }
+  });
+
+  it('shows the unavailable marker when a warning has no owner evidence at all', async () => {
+    inventoryResponse = {
+      ...inventory,
+      metricBasis: Object.fromEntries(
+        WARNING_CARDS.map(({ key }) => [
+          key,
+          buildSnapshotBasis({ sources: ['sellpia_inventory'], measured: false }),
+        ]),
+      ),
+    };
+
+    renderDashboard();
+    await waitFor(() => expect(screen.getByText('Kiditem Foundry')).toBeInTheDocument());
+
+    for (const { testId } of WARNING_CARDS) {
+      expect(warningText(testId), testId).toBe('—');
+    }
+  });
+
+  it('shows the unavailable marker for a payload that publishes no basis at all', async () => {
+    // The regression itself: a server that computes the counts but publishes
+    // no `metricBasis` is indistinguishable from one that has no evidence.
+    inventoryResponse = inventory;
+
+    renderDashboard();
+    await waitFor(() => expect(screen.getByText('Kiditem Foundry')).toBeInTheDocument());
+
+    for (const { testId } of WARNING_CARDS) {
+      expect(warningText(testId), testId).toBe('—');
+    }
   });
 });

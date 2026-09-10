@@ -15,7 +15,12 @@ import { PROFIT_CALCULATION_REPOSITORY_PORT } from '../application/port/out/repo
 import { WING_AD_SUMMARY_REPOSITORY_PORT } from '../application/port/out/repository/wing-ad-summary.repository.port';
 import { DASHBOARD_SALES_REPOSITORY_PORT } from '../application/port/out/repository/dashboard-sales.repository.port';
 import { WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT } from '../application/port/out/repository/wing-traffic-aggregation.repository.port';
-import { AD_ACCOUNT_DAILY_KPI_READ_PORT } from '../../../advertising/application/port/in/ad-account-daily-kpi-source.port';
+import {
+  AD_ACCOUNT_DAILY_KPI_READ_PORT,
+  type AdAccountDailyKpiReadPort,
+} from '../../../advertising/application/port/in/ad-account-daily-kpi-source.port';
+import type { AdAccountDailyKpiPublished } from '@kiditem/shared/advertising';
+import { enumerateDashboardDates } from '@kiditem/shared/dashboard';
 import { AD_TRAFFIC_READ_PORT } from '../../../advertising/application/port/in/ad-traffic-source.port';
 import {
   makeTestPrisma,
@@ -32,11 +37,67 @@ import {
   seedOrderWithLineItems,
 } from '../../../test-helpers/finance-seeds';
 import type { PrismaClient } from '@prisma/client';
+import { periodOf } from './test-helpers/period';
+
+const AD_ACCOUNT_ID = '00000000-0000-4000-8000-000000000001';
+
+function zeroAdRow(businessDate: string) {
+  return {
+    businessDate,
+    observedAt: `${businessDate}T23:00:00.000Z`,
+    normalized: {
+      adSpend: 0,
+      adRevenue: 0,
+      impressions: 0,
+      clicks: 0,
+      conversions: 0,
+      orders: 0,
+      providerRoas: null,
+      providerCtr: null,
+      providerConversionRate: null,
+    },
+  };
+}
+
+/**
+ * An account that collected every requested day and found no advertising on
+ * any of them. The real collector never answers a visited day with "no row":
+ * an empty ad report is stamped as an explicit all-zero row
+ * (`extensions/kiditem-os/content/coupang/ads-report.js`, asserted by
+ * `extensions/tests/coupang-ads-scraper/ads-report.test.mjs` with
+ * `rowCount: 0` and every `observedMetrics` flag true). A no-ads day is
+ * therefore `CONFIRMED_ZERO` evidence, and modelling it as `rows: []` would
+ * model `MISSING` — a state the collector does not produce.
+ */
+function confirmedZeroPublication(input: {
+  from?: string;
+  to?: string;
+}): AdAccountDailyKpiPublished {
+  const dates = input.from && input.to
+    ? enumerateDashboardDates(input.from, input.to)
+    : [];
+  return {
+    channelAccountId: AD_ACCOUNT_ID,
+    evidence: dates.length === 0 ? 'MISSING' : 'CONFIRMED_ZERO',
+    rows: dates.map(zeroAdRow),
+  };
+}
+
+/** An organization with no advertising account: nothing can ever be collected. */
+function notAppliedPublication(): AdAccountDailyKpiPublished {
+  return { channelAccountId: null, evidence: 'NOT_APPLIED', rows: [] };
+}
+
+/** An advertising account that has published nothing for the range. */
+function missingPublication(): AdAccountDailyKpiPublished {
+  return { channelAccountId: AD_ACCOUNT_ID, evidence: 'MISSING', rows: [] };
+}
 
 describe('DashboardSalesService.getSummary (PG integration)', () => {
   let prisma: PrismaClient;
   let service: DashboardSalesService;
   const trafficRead = { readPublished: vi.fn() };
+  const adRead = { readPublished: vi.fn() };
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
@@ -53,15 +114,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
         { provide: WING_AD_SUMMARY_REPOSITORY_PORT, useExisting: WingAdSummaryRepositoryAdapter },
         { provide: DASHBOARD_SALES_REPOSITORY_PORT, useExisting: DashboardSalesRepositoryAdapter },
         { provide: WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT, useExisting: WingTrafficAggregationRepositoryAdapter },
-        {
-          provide: AD_ACCOUNT_DAILY_KPI_READ_PORT,
-          useValue: {
-            readPublished: async () => ({
-              channelAccountId: '00000000-0000-4000-8000-000000000001',
-              rows: [],
-            }),
-          },
-        },
+        { provide: AD_ACCOUNT_DAILY_KPI_READ_PORT, useValue: adRead },
         { provide: AD_TRAFFIC_READ_PORT, useValue: trafficRead },
       ],
     }).compile();
@@ -75,6 +128,9 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
   beforeEach(async () => {
     await resetDb(prisma);
     await seedBaseFixture(prisma);
+    adRead.readPublished.mockImplementation(async (input: { from?: string; to?: string }) => (
+      confirmedZeroPublication(input)
+    ));
     trafficRead.readPublished.mockResolvedValue({
       channelAccountId: '00000000-0000-0000-0000-000000000001',
       rows: [],
@@ -123,7 +179,9 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
 
     expect(result.monthly.revenue).toBe(100_000);
     expect(result.monthly.profit).toBe(30_000);             // 100k - 50k - 10k - 10k - 0 - 0
-    expect(result.monthly.adRate).toBe(0);                  // no ad
+    // No advertising on any day of the period: the collector published an
+    // explicit zero for each one, which is evidence, so profit is computable.
+    expect(result.monthly.adRate).toBe(0);
     expect(result.profitDetail?.netProfit).toBe(30_000);
     expect(result.profitDetail?.commission).toBe(10_000);
     expect(result.profitDetail?.shippingCost).toBe(10_000);
@@ -191,6 +249,10 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
   });
 
   it('T4: empty organization returns unavailable values (no error)', async () => {
+    // An organization with nothing in it does not advertise either, so the
+    // owner answers NOT_APPLIED rather than publishing collected zeros.
+    adRead.readPublished.mockResolvedValue(notAppliedPublication());
+
     const ctx = buildDashboardContext();
     const result = await service.getSummary(ctx, TEST_ORGANIZATION_ID);
 
@@ -302,6 +364,10 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
     // deliberately retained as a legacy/linked row and must not be used for
     // account coverage or revenue.
     trafficRead.readPublished.mockResolvedValue(trafficPublication);
+    // This fixture is about Wing revenue without settlement data: the ad
+    // account exists but has collected nothing, so ad cost stays unavailable
+    // rather than becoming a collected zero.
+    adRead.readPublished.mockResolvedValue(missingPublication());
 
     const ctx = buildDashboardContext();
     const result = await service.getSummary(ctx, TEST_ORGANIZATION_ID);
@@ -593,6 +659,248 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
       name: 'Bundle representative',
       organization: '번들 상품',
       revenue: 80_000,
+    });
+  });
+  /**
+   * Business-date evidence published on the profit port. These run against the
+   * real order rows so the KST bucketing, the query's admission rules, and the
+   * window enumeration are all exercised together; the ad source stays a stub
+   * because the Advertising owner publishes it, not this adapter.
+   */
+  describe('ProfitCalculationRepositoryAdapter business-date coverage', () => {
+    // KST 2026-03-01 00:00 → 2026-03-04 00:00 = business dates 03-01..03-03.
+    const FROM = new Date('2026-02-28T15:00:00.000Z');
+    const TO = new Date('2026-03-03T15:00:00.000Z');
+    const REQUESTED = ['2026-03-01', '2026-03-02', '2026-03-03'];
+
+    function buildAdapter(
+      readPublished: AdAccountDailyKpiReadPort['readPublished'],
+    ): ProfitCalculationRepositoryAdapter {
+      return new ProfitCalculationRepositoryAdapter(
+        prisma as unknown as PrismaService,
+        { readPublished },
+      );
+    }
+
+    /**
+     * An advertising account that published an explicit zero for each named
+     * date. No date at all is the `MISSING` answer: the account exists but
+     * published nothing for the range.
+     */
+    function publishedRows(
+      ...businessDates: string[]
+    ): AdAccountDailyKpiReadPort['readPublished'] {
+      return async () => ({
+        channelAccountId: '00000000-0000-4000-8000-000000000001',
+        evidence: businessDates.length === 0 ? 'MISSING' : 'CONFIRMED_ZERO',
+        rows: businessDates.map(zeroAdRow),
+      });
+    }
+
+    /** An organization with no advertising account at all. */
+    function notApplied(): AdAccountDailyKpiReadPort['readPublished'] {
+      return async () => ({
+        channelAccountId: null,
+        evidence: 'NOT_APPLIED',
+        rows: [],
+      });
+    }
+
+    /**
+     * One order on each requested date, with every settlement input present so
+     * `costComplete` is true and the only thing that can withhold `netProfit`
+     * is the advertising evidence under test. Per day:
+     * 10,000 revenue − 5,000 COGS − 1,000 commission − 1,000 shipping = 3,000.
+     * The order carries its own positive `shippingPrice`, because the option's
+     * nullable `shippingCost` would otherwise be a missing cost input.
+     */
+    const DAILY_REVENUE = 10_000;
+    const DAILY_PROFIT = 3_000;
+
+    async function seedFullyCoveredOrders(suffix: string): Promise<void> {
+      const { id: masterId } = await setupMaster(prisma, {
+        organizationId: TEST_ORGANIZATION_ID,
+        code: `M-T-${suffix}`,
+        name: `Master T-${suffix}`,
+      });
+      const { id: optionId } = await setupProductOption(prisma, {
+        organizationId: TEST_ORGANIZATION_ID,
+        masterId,
+        sku: `SKU-T-${suffix}`,
+        costPrice: 5_000,
+        commissionRate: 0.1,
+        otherCost: 0,
+      });
+      const { listingOptionId } = await setupChannelListing(prisma, {
+        organizationId: TEST_ORGANIZATION_ID,
+        masterId,
+        channel: 'coupang',
+        externalId: `EXT-T-${suffix}`,
+        optionId,
+        externalOptionId: `VI-T-${suffix}`,
+      });
+      for (const businessDate of REQUESTED) {
+        await seedOrderWithLineItems(prisma, {
+          organizationId: TEST_ORGANIZATION_ID,
+          externalOrderId: `SALES-${suffix}-${businessDate}`,
+          orderedAt: `${businessDate}T05:00:00.000Z`,
+          shippingPrice: 1_000,
+          lineItems: [{
+            quantity: 1,
+            totalPrice: DAILY_REVENUE,
+            optionId,
+            listingOptionId,
+          }],
+        });
+      }
+    }
+
+    it('reports an internal hole as a requested date without order evidence', async () => {
+      const { optionId, listingOptionId } = await seedTestListing('COV-HOLE');
+      for (const orderedAt of ['2026-03-01T05:00:00.000Z', '2026-03-03T05:00:00.000Z']) {
+        await seedOrderWithLineItems(prisma, {
+          organizationId: TEST_ORGANIZATION_ID,
+          externalOrderId: `SALES-COV-${orderedAt}`,
+          orderedAt,
+          shippingPrice: 0,
+          lineItems: [{ quantity: 1, totalPrice: 10_000, optionId, listingOptionId }],
+        });
+      }
+
+      const result = await buildAdapter(publishedRows()).calculateForRange(
+        TEST_ORGANIZATION_ID,
+        periodOf(FROM, TO),
+      );
+
+      expect(result.sourceCoverage.requestedDates).toEqual(REQUESTED);
+      expect(result.sourceCoverage.orderDates).toEqual(['2026-03-01', '2026-03-03']);
+      // The hole is a known-missing date, not a date outside the question.
+      expect(result.sourceCoverage.requestedDates).toContain('2026-03-02');
+      expect(result.sourceCoverage.orderDates).not.toContain('2026-03-02');
+    });
+
+    it('keeps a collected zero as an included date on both sources', async () => {
+      const { optionId, listingOptionId } = await seedTestListing('COV-ZERO');
+      await seedOrderWithLineItems(prisma, {
+        organizationId: TEST_ORGANIZATION_ID,
+        externalOrderId: 'SALES-COV-ZERO',
+        orderedAt: '2026-03-02T05:00:00.000Z',
+        shippingPrice: 0,
+        lineItems: [{ quantity: 1, totalPrice: 0, optionId, listingOptionId }],
+      });
+
+      const result = await buildAdapter(publishedRows('2026-03-02')).calculateForRange(
+        TEST_ORGANIZATION_ID,
+        periodOf(FROM, TO),
+      );
+
+      // A measured zero is evidence: the date was observed on both sources.
+      expect(result.revenue).toBe(0);
+      expect(result.adCost).toBe(0);
+      expect(result.sourceCoverage.orderDates).toEqual(['2026-03-02']);
+      expect(result.sourceCoverage.adDates).toEqual(['2026-03-02']);
+      // 03-01 and 03-03 carry no published ad row, so coverage stays partial.
+      expect(result.adEvidenceComplete).toBe(false);
+    });
+
+    it('separates a failed ad read from an ad source with no published rows', async () => {
+      const failed = await buildAdapter(async () => {
+        throw new Error('owner unavailable');
+      }).calculateForRange(TEST_ORGANIZATION_ID, periodOf(FROM, TO));
+      const emptyPublication = await buildAdapter(publishedRows()).calculateForRange(
+        TEST_ORGANIZATION_ID,
+        periodOf(FROM, TO),
+      );
+
+      expect(failed.sourceCoverage.adDates).toEqual([]);
+      expect(failed.adEvidenceError).toBe('AD_EVIDENCE_READ_FAILED');
+      expect(emptyPublication.sourceCoverage.adDates).toEqual([]);
+      expect(emptyPublication.adEvidenceError).toBeUndefined();
+      // Both windows still know which dates were asked for.
+      expect(failed.sourceCoverage.requestedDates).toEqual(REQUESTED);
+      expect(emptyPublication.sourceCoverage.requestedDates).toEqual(REQUESTED);
+      expect(failed.adEvidenceComplete).toBe(false);
+      expect(emptyPublication.adEvidenceComplete).toBe(false);
+    });
+
+    it('computes profit for an organization that does not advertise', async () => {
+      await seedFullyCoveredOrders('COV-NOT-APPLIED');
+
+      const result = await buildAdapter(notApplied()).calculateForRange(
+        TEST_ORGANIZATION_ID,
+        periodOf(FROM, TO),
+      );
+
+      // No advertising account exists, so advertising is not an input to this
+      // period. Ad cost is a genuine zero and profit is publishable.
+      expect(result.revenue).toBe(DAILY_REVENUE * REQUESTED.length);
+      expect(result.adCost).toBe(0);
+      expect(result.adEvidenceComplete).toBe(true);
+      expect(result.adEvidenceError).toBeUndefined();
+      expect(result.netProfit).toBe(DAILY_PROFIT * REQUESTED.length);
+      // The window is still named honestly: no ad date is fabricated to close
+      // the coverage equality, so a later basis reads orders alone.
+      expect(result.sourceCoverage.adDates).toEqual([]);
+      expect(result.sourceCoverage.adEvidence).toBe('NOT_APPLIED');
+      expect(result.sourceCoverage.orderDates).toEqual(REQUESTED);
+    });
+
+    it('withholds profit when an existing ad account published nothing', async () => {
+      await seedFullyCoveredOrders('COV-MISSING');
+
+      const result = await buildAdapter(publishedRows()).calculateForRange(
+        TEST_ORGANIZATION_ID,
+        periodOf(FROM, TO),
+      );
+
+      // Absent evidence is not an advertising cost of zero, so the same order
+      // rows that computed a profit above must not produce one here.
+      expect(result.revenue).toBe(DAILY_REVENUE * REQUESTED.length);
+      expect(result.sourceCoverage.adEvidence).toBe('MISSING');
+      expect(result.adEvidenceComplete).toBe(false);
+      expect(result.adEvidenceError).toBeUndefined();
+      expect(result.netProfit).toBeNull();
+      expect(result.profitRate).toBeNull();
+    });
+
+    it('withholds profit when only part of the range carries ad evidence', async () => {
+      await seedFullyCoveredOrders('COV-PARTIAL');
+
+      const result = await buildAdapter(publishedRows('2026-03-01', '2026-03-02'))
+        .calculateForRange(TEST_ORGANIZATION_ID, periodOf(FROM, TO));
+
+      // 03-03 was never published. A partially covered range cannot be read as
+      // a whole-period ad cost, so profit stays withheld.
+      expect(result.sourceCoverage.adDates).toEqual(['2026-03-01', '2026-03-02']);
+      expect(result.sourceCoverage.adEvidence).toBe('CONFIRMED_ZERO');
+      expect(result.adEvidenceComplete).toBe(false);
+      expect(result.netProfit).toBeNull();
+    });
+
+    it('computes profit for a fully covered window of collected zeros', async () => {
+      await seedFullyCoveredOrders('COV-CONFIRMED-ZERO');
+
+      const result = await buildAdapter(publishedRows(...REQUESTED)).calculateForRange(
+        TEST_ORGANIZATION_ID,
+        periodOf(FROM, TO),
+      );
+
+      // A collector-observed zero on every day is real evidence: it behaves
+      // like OBSERVED with zero values, not like an absent source.
+      expect(result.sourceCoverage.adEvidence).toBe('CONFIRMED_ZERO');
+      expect(result.adEvidenceComplete).toBe(true);
+      expect(result.netProfit).toBe(DAILY_PROFIT * REQUESTED.length);
+    });
+
+    it('publishes a fully covered window as complete ad evidence', async () => {
+      const result = await buildAdapter(publishedRows(...REQUESTED)).calculateForRange(
+        TEST_ORGANIZATION_ID,
+        periodOf(FROM, TO),
+      );
+
+      expect(result.sourceCoverage.adDates).toEqual(REQUESTED);
+      expect(result.sourceCoverage.orderDates).toEqual([]);
+      expect(result.adEvidenceComplete).toBe(true);
     });
   });
 });

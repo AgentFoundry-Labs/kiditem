@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { z } from 'zod';
-import { DashboardContextService } from '../../../application/service/dashboard-context.service';
+import { buildDashboardContext } from '../../../domain/context';
 import { DashboardInventoryService } from '../../../application/service/dashboard-inventory.service';
 import { DashboardSalesService } from '../../../application/service/dashboard-sales.service';
 import type {
@@ -24,7 +24,6 @@ const OutputSchema = z.object({
 export class AnalyticsOverviewCapabilityAdapter
 implements AnalyticsOverviewCapabilityPort {
   constructor(
-    private readonly context: DashboardContextService,
     private readonly sales: DashboardSalesService,
     private readonly inventory: DashboardInventoryService,
   ) {}
@@ -35,7 +34,7 @@ implements AnalyticsOverviewCapabilityPort {
     period?: 'today' | 'month';
   }): Promise<AnalyticsOverview> {
     const period = input.period ?? 'month';
-    const context = await this.context.buildForQuery(input.organizationId, period);
+    const context = buildDashboardContext(period);
     const [sales, inventory] = await Promise.all([
       this.sales.getSummary(context, input.organizationId),
       this.inventory.getSummary(context, input.organizationId),
@@ -50,8 +49,8 @@ implements AnalyticsOverviewCapabilityPort {
         mappingAttentionSkus: inventory.warnings.mappingAttentionSkus,
       },
       freshness: {
-        lastSync: inventory.dataFreshness?.lastSync ?? sales.lastSyncAt,
-        confirmedUntil: inventory.dataFreshness?.confirmedUntil ?? null,
+        lastSync: sales.lastSyncAt,
+        confirmedUntil: null,
       },
     });
   }

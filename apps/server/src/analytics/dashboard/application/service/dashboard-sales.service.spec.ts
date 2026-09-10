@@ -5,70 +5,16 @@ import {
   buildMockProfitCalculationRepo,
   buildMockWingAdSummaryRepo,
   buildMockWingTrafficAggregationRepo,
+  buildProfitSourceCoverage,
 } from '../../__tests__/test-helpers/build-mock-ports';
-import {
-  DashboardSalesService,
-  resolveWingTrafficSourceRanges,
-} from './dashboard-sales.service';
+import { DashboardSalesService } from './dashboard-sales.service';
 
 const ORGANIZATION_ID = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d';
-
-function isoRange(range: { from: Date; to: Date }): [string, string] {
-  return [range.from.toISOString(), range.to.toISOString()];
-}
-
-describe('DashboardSalesService Wing source ranges', () => {
-  const anchor = new Date('2026-09-08T00:30:00.000Z');
-
-  it('matches the closed KST collection periods and preserves custom dates', () => {
-    const month = resolveWingTrafficSourceRanges(buildDashboardContext('month', undefined, undefined, anchor));
-    expect(isoRange(month.month)).toEqual([
-      '2026-08-31T15:00:00.000Z',
-      '2026-09-07T15:00:00.000Z',
-    ]);
-    expect(isoRange(month.previousMonth)).toEqual([
-      '2026-07-31T15:00:00.000Z',
-      '2026-08-31T15:00:00.000Z',
-    ]);
-
-    const day = resolveWingTrafficSourceRanges(buildDashboardContext('day', undefined, undefined, anchor));
-    expect(isoRange(day.current)).toEqual([
-      '2026-09-06T15:00:00.000Z',
-      '2026-09-07T15:00:00.000Z',
-    ]);
-    expect(isoRange(day.previous)).toEqual([
-      '2026-09-05T15:00:00.000Z',
-      '2026-09-06T15:00:00.000Z',
-    ]);
-
-    const week = resolveWingTrafficSourceRanges(buildDashboardContext('week', undefined, undefined, anchor));
-    expect(isoRange(week.current)).toEqual([
-      '2026-08-31T15:00:00.000Z',
-      '2026-09-07T15:00:00.000Z',
-    ]);
-    expect(isoRange(week.previous)).toEqual([
-      '2026-08-24T15:00:00.000Z',
-      '2026-08-31T15:00:00.000Z',
-    ]);
-
-    const custom = resolveWingTrafficSourceRanges(
-      buildDashboardContext('custom', '2026-09-01', '2026-09-07', anchor),
-    );
-    expect(isoRange(custom.current)).toEqual([
-      '2026-09-01T00:00:00.000Z',
-      '2026-09-08T00:00:00.000Z',
-    ]);
-    expect(isoRange(custom.previous)).toEqual([
-      '2026-08-25T00:00:00.000Z',
-      '2026-09-01T00:00:00.000Z',
-    ]);
-  });
-});
 
 describe('DashboardSalesService collected Coupang ad spend', () => {
   it('does not replace the order-backed Today card with yesterday Wing data', async () => {
     const profit = buildMockProfitCalculationRepo();
-    profit.calculateForRange.mockResolvedValue({
+    profit.calculateForRange.mockImplementation(async (_organizationId, period) => ({
       revenue: 0,
       costOfGoods: 0,
       commission: 0,
@@ -82,7 +28,13 @@ describe('DashboardSalesService collected Coupang ad spend', () => {
       adImpressions: 0,
       adClicks: 0,
       adConversions: 0,
-    });
+      // No order row was admitted; the ad source published a collected zero
+      // for every date, which is what makes the zero profit computable.
+      costComplete: true,
+      costIncompleteReasons: [],
+      adEvidenceComplete: true,
+      sourceCoverage: buildProfitSourceCoverage(period, { orders: false }),
+    }));
     const wingAds = buildMockWingAdSummaryRepo();
     wingAds.fetchCurrentMonthSummary.mockResolvedValue(null);
     const sales = buildMockDashboardSalesRepo();
@@ -140,7 +92,7 @@ describe('DashboardSalesService collected Coupang ad spend', () => {
 
   it('월/기간 순이익과 상세 비용에 수집한 광고비를 반영한다', async () => {
     const profit = buildMockProfitCalculationRepo();
-    profit.calculateForRange.mockResolvedValue({
+    profit.calculateForRange.mockImplementation(async (_organizationId, period) => ({
       revenue: 100_000,
       costOfGoods: 50_000,
       commission: 0,
@@ -154,7 +106,12 @@ describe('DashboardSalesService collected Coupang ad spend', () => {
       adImpressions: 0,
       adClicks: 0,
       adConversions: 0,
-    });
+      // Order revenue and collected ad spend: both sources cover the window.
+      costComplete: true,
+      costIncompleteReasons: [],
+      adEvidenceComplete: true,
+      sourceCoverage: buildProfitSourceCoverage(period),
+    }));
 
     const wingAds = buildMockWingAdSummaryRepo();
     wingAds.fetchCurrentMonthSummary.mockResolvedValue(null);
@@ -221,7 +178,7 @@ describe('DashboardSalesService collected Coupang ad spend', () => {
 
   it('surfaces account-daily averages, orders/views CVR, provider provenance, and coverage', async () => {
     const profit = buildMockProfitCalculationRepo();
-    profit.calculateForRange.mockResolvedValue({
+    profit.calculateForRange.mockImplementation(async (_organizationId, period) => ({
       revenue: 0,
       costOfGoods: 0,
       commission: 0,
@@ -235,7 +192,13 @@ describe('DashboardSalesService collected Coupang ad spend', () => {
       adImpressions: 0,
       adClicks: 0,
       adConversions: 0,
-    });
+      // No order row was admitted; the ad source published a collected zero
+      // for every date, which is what makes the zero profit computable.
+      costComplete: true,
+      costIncompleteReasons: [],
+      adEvidenceComplete: true,
+      sourceCoverage: buildProfitSourceCoverage(period, { orders: false }),
+    }));
     const wingAds = buildMockWingAdSummaryRepo();
     wingAds.fetchCurrentMonthSummary.mockResolvedValue(null);
     const sales = buildMockDashboardSalesRepo();
@@ -314,7 +277,7 @@ describe('DashboardSalesService collected Coupang ad spend', () => {
 
   it('does not use a partial account range for full-period revenue or traffic values', async () => {
     const profit = buildMockProfitCalculationRepo();
-    profit.calculateForRange.mockResolvedValue({
+    profit.calculateForRange.mockImplementation(async (_organizationId, period) => ({
       revenue: 0,
       costOfGoods: 0,
       commission: 0,
@@ -328,7 +291,13 @@ describe('DashboardSalesService collected Coupang ad spend', () => {
       adImpressions: 0,
       adClicks: 0,
       adConversions: 0,
-    });
+      // No order row was admitted; the ad source published a collected zero
+      // for every date, which is what makes the zero profit computable.
+      costComplete: true,
+      costIncompleteReasons: [],
+      adEvidenceComplete: true,
+      sourceCoverage: buildProfitSourceCoverage(period, { orders: false }),
+    }));
     const wingAds = buildMockWingAdSummaryRepo();
     wingAds.fetchCurrentMonthSummary.mockResolvedValue(null);
     const sales = buildMockDashboardSalesRepo();
@@ -394,5 +363,93 @@ describe('DashboardSalesService collected Coupang ad spend', () => {
       trafficAvailable: true,
       coverage: expect.objectContaining({ completedDays: 2, missingDates: ['2026-09-02'] }),
     }));
+  });
+});
+
+describe('DashboardSalesService unavailable profit evidence', () => {
+  // `null` netProfit means the cost evidence was incomplete. It is
+  // categorically different from a measured zero, so nothing downstream may
+  // coerce it: the collected ad cost is still a measured fact and updates
+  // `adCost`, but every profit value derived from the missing base stays null.
+  it('수집 광고비는 반영하되 원가 근거가 없으면 순이익/이익률을 null로 유지한다', async () => {
+    const profit = buildMockProfitCalculationRepo();
+    profit.calculateForRange.mockImplementation(async (_organizationId, period) => ({
+      revenue: 100_000,
+      costOfGoods: 50_000,
+      commission: 0,
+      shippingCost: 0,
+      adCost: 10_000,
+      otherCost: 0,
+      netProfit: null,
+      profitRate: null,
+      orderCount: 2,
+      adRevenue: 0,
+      adImpressions: 0,
+      adClicks: 0,
+      adConversions: 0,
+      costComplete: false,
+      costIncompleteReasons: ['MISSING_COST_PRICE'],
+      adEvidenceComplete: true,
+      // Both sources cover every date; only the cost inputs are incomplete.
+      sourceCoverage: buildProfitSourceCoverage(period),
+    }));
+
+    const wingAds = buildMockWingAdSummaryRepo();
+    wingAds.fetchCurrentMonthSummary.mockResolvedValue(null);
+
+    const sales = buildMockDashboardSalesRepo();
+    sales.fetchTodayKpis.mockResolvedValue({ revenue: 0, orders: 0 });
+    sales.fetchTopProducts.mockResolvedValue([]);
+    sales.fetchDailyRevenue.mockResolvedValue([]);
+
+    const wing = buildMockWingTrafficAggregationRepo();
+    wing.aggregateTraffic.mockResolvedValue({
+      revenue: 0,
+      orders: 0,
+      salesQty: 0,
+      visitors: 120,
+      views: 400,
+      cartAdds: 0,
+      conversionRate: 0,
+      isCollected: true,
+      hasData: false,
+      lastObservedAt: null,
+    });
+    wing.aggregateCoupangAds.mockResolvedValue({
+      spend: 30_000,
+      revenue: 0,
+      impressions: 0,
+      clicks: 0,
+      conversions: 0,
+      orders: 0,
+      conversionRate: null,
+      providerConversionRate: null,
+      coverage: null,
+      isCollected: true,
+      hasData: true,
+      lastObservedAt: new Date('2026-07-18T00:00:00.000Z'),
+    });
+    wing.findLatestDataDate.mockResolvedValue(null);
+
+    const service = new DashboardSalesService(profit, wingAds, sales, wing);
+    const result = await service.getSummary(
+      buildDashboardContext('month', undefined, undefined, new Date('2026-07-18T03:00:00.000Z')),
+      ORGANIZATION_ID,
+    );
+
+    // Reconciliation keeps the larger measured account spend...
+    expect(result.profitDetail?.adCost).toBe(30_000);
+    expect(result.profitDetail?.revenue).toBe(100_000);
+    // ...but never synthesizes a profit out of a missing base.
+    expect(result.profitDetail?.netProfit).toBeNull();
+    expect(result.monthly.profit).toBeNull();
+    expect(result.rangeKpi?.profit).toBeNull();
+    expect(result.rangeKpi?.profitRate).toBeNull();
+    // A ratio whose numerator is unavailable is itself unavailable.
+    expect(result.trafficKpi.netProfit).toBeNull();
+    expect(result.trafficKpi.profitRate).toBeNull();
+    // The order-backed revenue evidence that does exist stays visible.
+    expect(result.trafficKpi.revenue).toBe(100_000);
+    expect(result.trafficKpi.orders).toBe(2);
   });
 });

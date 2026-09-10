@@ -1,16 +1,15 @@
 import {
-  DashboardMetricBasisSchema,
-  DashboardProfitInputsSchema,
   type DashboardMetricBasis,
+  type DashboardMetricBasisMap,
   type DashboardComparisonBasis,
   type DashboardPeriodBasis,
-  type DashboardProfitInputs,
 } from '@kiditem/shared/dashboard';
 import { cn } from '@/lib/utils';
 
-export type { DashboardMetricBasis, DashboardComparisonBasis, DashboardPeriodBasis, DashboardProfitInputs };
+export type { DashboardMetricBasis, DashboardComparisonBasis, DashboardPeriodBasis };
 
-type UnknownRecord = Record<string, unknown>;
+/** Any dashboard summary that may publish an additive basis map. */
+export type MetricBasisCarrier = { metricBasis?: DashboardMetricBasisMap } | null | undefined;
 
 const QUERY_SOURCE_LABELS: Record<string, string> = {
   orders: '주문',
@@ -21,37 +20,21 @@ const QUERY_SOURCE_LABELS: Record<string, string> = {
   wing_traffic: 'Wing 트래픽',
 };
 
-function isRecord(value: unknown): value is UnknownRecord {
-  return typeof value === 'object' && value !== null;
-}
-
-/** Read the additive basis without making old cached payloads fatal. */
-export function readMetricBasis(value: unknown, key: string): DashboardMetricBasis | null {
-  if (!isRecord(value) || !isRecord(value.metricBasis)) return null;
-  const parsed = DashboardMetricBasisSchema.safeParse(value.metricBasis[key]);
-  return parsed.success ? parsed.data : null;
+/** Read the basis published under one stable dotted path, or null. */
+export function readMetricBasis(value: MetricBasisCarrier, key: string): DashboardMetricBasis | null {
+  return value?.metricBasis?.[key] ?? null;
 }
 
 /** Read the first basis published under one of the stable dotted paths. */
-export function readFirstMetricBasis(value: unknown, keys: readonly string[]): DashboardMetricBasis | null {
+export function readFirstMetricBasis(
+  value: MetricBasisCarrier,
+  keys: readonly string[],
+): DashboardMetricBasis | null {
   for (const key of keys) {
     const basis = readMetricBasis(value, key);
     if (basis) return basis;
   }
   return null;
-}
-
-/** Parse the additive exact profit inputs without treating missing values as zero. */
-export function readProfitInputs(value: unknown): DashboardProfitInputs | null {
-  if (!isRecord(value)) return null;
-  const parsed = DashboardProfitInputsSchema.safeParse(value.profitInputs);
-  return parsed.success ? parsed.data : null;
-}
-
-export function readNestedRecord(value: unknown, key: string): UnknownRecord | null {
-  if (!isRecord(value)) return null;
-  const nested = value[key];
-  return isRecord(nested) ? nested : null;
 }
 
 export function basisHasValues(basis: DashboardMetricBasis | null): boolean {

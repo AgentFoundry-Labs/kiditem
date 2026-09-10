@@ -52,6 +52,7 @@ import {
   readFirstMetricBasis,
   readMetricBasis,
   type DashboardMetricBasis,
+  type MetricBasisCarrier,
 } from './components/DashboardDataBasis';
 
 type TrafficMetric = 'views' | 'cartAdds' | 'orders' | 'salesQty' | 'revenue';
@@ -77,6 +78,15 @@ function nullableValue<T>(value: T | null | undefined, fallback: T | null | unde
   return value === undefined ? fallback ?? null : value;
 }
 
+/**
+ * A warning count is only a measured value when its own basis says so. Without
+ * a verified basis the card shows the unavailable marker instead of a number.
+ */
+function formatWarningCount(value: number | null | undefined, basis: DashboardMetricBasis | null): string {
+  if (!basisHasValues(basis) || value === null || value === undefined) return '—';
+  return formatNumber(value);
+}
+
 function formatNullableKRW(value: number | null): string {
   return value === null ? '—' : `${formatKRW(value)}원`;
 }
@@ -87,10 +97,6 @@ function formatNullablePercent(value: number | null, digits = 1): string {
 
 function percentage(value: number | null, base: number | null): number | null {
   return value !== null && base !== null && base > 0 ? (value / base) * 100 : null;
-}
-
-function goalFromPrevious(previous: number | null, minimum: number): number | null {
-  return previous === null ? null : Math.max(previous * 1.15, minimum);
 }
 
 function coverageIsIncomplete(
@@ -140,7 +146,7 @@ function readinessStateWithCoverage(
 }
 
 function rangeMetricBasis(
-  value: unknown,
+  value: MetricBasisCarrier,
   range: 'month' | 'week' | 'day' | 'custom',
   rangeKey: string,
   monthKey: string | null = rangeKey,
@@ -450,21 +456,6 @@ export default function Dashboard() {
   // only from Sellpia daily facts when that coverage is ready.
   const wingRevenue = nullableValue(salesMonthly.wingRevenue, kpiRevenue);
 
-  const revenueGoal = goalFromPrevious(kpiPrevRevenue, 1000000);
-  const profitGoal = goalFromPrevious(kpiPrevProfit, 100000);
-  const revenueAchieve = kpiRevenue !== null && revenueGoal !== null && revenueGoal > 0
-    ? Math.min(Math.round((kpiRevenue / revenueGoal) * 100), 999)
-    : null;
-  const revenuePct = kpiRevenue !== null && revenueGoal !== null && revenueGoal > 0
-    ? Math.min((kpiRevenue / revenueGoal) * 100, 100)
-    : null;
-  const profitAchieve = kpiProfit !== null && profitGoal !== null && profitGoal > 0
-    ? Math.min(Math.round((kpiProfit / profitGoal) * 100), 999)
-    : null;
-  const profitPct = kpiProfit !== null && profitGoal !== null && profitGoal > 0
-    ? Math.min((kpiProfit / profitGoal) * 100, 100)
-    : null;
-
   // 트렌드 차트용 데이터
   const dailyTrend = fillTrendDateGaps(trendData.map((d) => ({
     ...d,
@@ -603,12 +594,6 @@ export default function Dashboard() {
     : null;
   const displayRocket = sellpiaHasData ? spRocket : null;
   const displayOthers = sellpiaHasData ? spOthers : wingRevenue;
-  const displayRevAchieve = displayRevenue !== null && revenueGoal !== null && revenueGoal > 0
-    ? Math.min(Math.round((displayRevenue / revenueGoal) * 100), 999)
-    : null;
-  const displayRevPct = displayRevenue !== null && revenueGoal !== null && revenueGoal > 0
-    ? Math.min((displayRevenue / revenueGoal) * 100, 100)
-    : null;
   const salesAnalysisPeriod = sp?.range.from?.slice(0, 7)
     ?? (effectivePeriod
       ? `${effectivePeriod.year}-${String(effectivePeriod.month).padStart(2, '0')}`
@@ -959,21 +944,6 @@ export default function Dashboard() {
                 </Link>
               </div>
             )}
-            {displayRevenue !== null && revenueGoal !== null && displayRevAchieve !== null && displayRevPct !== null && (
-              <div className="mt-2 pt-2 border-t border-blue-100">
-                <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-[12px] font-medium text-blue-400">목표 {formatKRW(revenueGoal)}원</span>
-                  <span className={cn('text-[13px] font-bold tabular-nums', displayRevAchieve >= 100 ? 'text-emerald-600' : 'text-blue-600')}>{displayRevAchieve}%</span>
-                </div>
-                <div className="h-2 rounded-full overflow-hidden bg-blue-50">
-                  <div className="h-full rounded-full transition-all duration-500 bg-blue-600" style={{ width: `${displayRevPct}%` }} />
-                </div>
-                {displayRevAchieve >= 100
-                  ? <div className="text-[11px] mt-1 font-semibold text-blue-600">목표 달성!</div>
-                  : <div className="text-[11px] mt-1 text-blue-400">{formatKRW(Math.max(revenueGoal - displayRevenue, 0))}원 남음</div>
-                }
-              </div>
-            )}
           </div>
           <div className="mt-2 pt-2 space-y-1.5 border-t border-blue-100">
             <div className="flex justify-between text-sm">
@@ -1113,21 +1083,6 @@ export default function Dashboard() {
                 <span className="text-lg font-semibold text-emerald-600/60">원</span>
               </div>
               <div className="text-sm text-slate-500">이전 {formatNullableKRW(kpiPrevProfit)}</div>
-              {profitGoal !== null && profitAchieve !== null && profitPct !== null && (
-                <div className="mt-2 pt-2 border-t border-emerald-100">
-                <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-[12px] font-medium text-emerald-400">목표 {formatKRW(profitGoal)}원</span>
-                  <span className={cn('text-[13px] font-bold tabular-nums', profitAchieve >= 100 ? 'text-emerald-600' : 'text-emerald-700')}>{profitAchieve}%</span>
-                </div>
-                <div className="h-2 rounded-full overflow-hidden bg-emerald-50">
-                  <div className="h-full rounded-full transition-all duration-500 bg-emerald-600" style={{ width: `${profitPct}%` }} />
-                </div>
-                {profitAchieve >= 100
-                  ? <div className="text-[11px] mt-1 font-semibold text-emerald-600">목표 달성!</div>
-                  : <div className="text-[11px] mt-1 text-emerald-400">{formatKRW(profitGoal - kpiProfit)}원 남음</div>
-                }
-                </div>
-              )}
             </div>
             <div className="mt-2 pt-2 space-y-1.5 border-t border-emerald-100">
                 <div className="flex justify-between text-sm">
@@ -1341,7 +1296,7 @@ export default function Dashboard() {
           <DashboardSidePanel
             alerts={inventoryData.alerts}
             queryClient={queryClient}
-            basis={readFirstMetricBasis(inventoryData, ['alerts', 'dataFreshness'])}
+            basis={readMetricBasis(inventoryData, 'alerts')}
           />
         )}
       </div>
@@ -1372,26 +1327,35 @@ export default function Dashboard() {
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
           <Link href="/product-hub?tab=cleanup" className="rounded-2xl p-4 hover:shadow-md transition-all bg-white border border-slate-100 shadow-sm">
             <div className="text-sm font-bold mb-1 text-slate-900">적자 상품</div>
-            <div className="text-2xl font-extrabold tabular-nums text-slate-900">{inventory.warnings.minusProducts}<span className="text-sm ml-0.5">개</span></div>
+            <div className="text-2xl font-extrabold tabular-nums text-slate-900">
+              <span data-warning-count="minus-products">{formatWarningCount(inventory.warnings.minusProducts, warningBasis('warnings.minusProducts'))}</span>
+              <span className="text-sm ml-0.5">개</span>
+            </div>
             <div className="text-xs mt-1 text-slate-400">이익률 마이너스</div>
             <DashboardDataBasis basis={warningBasis('warnings.minusProducts')} className="mt-2" />
           </Link>
           <Link href="/product-hub?tab=cleanup" className="rounded-2xl p-4 hover:shadow-md transition-all bg-white border border-slate-100 shadow-sm">
             <div className="text-sm font-bold mb-1 text-slate-900">저이익 상품</div>
-            <div className="text-2xl font-extrabold tabular-nums text-slate-900">{inventory.warnings.lowProfitProducts}<span className="text-sm ml-0.5">개</span></div>
+            <div className="text-2xl font-extrabold tabular-nums text-slate-900">
+              <span data-warning-count="low-profit-products">{formatWarningCount(inventory.warnings.lowProfitProducts, warningBasis('warnings.lowProfitProducts'))}</span>
+              <span className="text-sm ml-0.5">개</span>
+            </div>
             <div className="text-xs mt-1 text-slate-400">이익률 3% 이하</div>
             <DashboardDataBasis basis={warningBasis('warnings.lowProfitProducts')} className="mt-2" />
           </Link>
           <Link href="/ad-ops" className="rounded-2xl p-4 hover:shadow-md transition-all bg-white border border-slate-100 shadow-sm">
             <div className="text-sm font-bold mb-1 text-slate-900">광고비 초과</div>
-            <div className="text-2xl font-extrabold tabular-nums text-slate-900">{inventory.warnings.highAdProducts}<span className="text-sm ml-0.5">개</span></div>
+            <div className="text-2xl font-extrabold tabular-nums text-slate-900">
+              <span data-warning-count="high-ad-products">{formatWarningCount(inventory.warnings.highAdProducts, warningBasis('warnings.highAdProducts'))}</span>
+              <span className="text-sm ml-0.5">개</span>
+            </div>
             <div className="text-xs mt-1 text-slate-400">광고비율 15% 초과</div>
             <DashboardDataBasis basis={warningBasis('warnings.highAdProducts')} className="mt-2" />
           </Link>
           <Link href="/inventory-hub" className="rounded-2xl p-4 hover:shadow-md transition-all bg-white border border-slate-100 shadow-sm">
             <div className="text-sm font-bold mb-1 text-slate-900">셀피아 재고 0</div>
             <div className="text-2xl font-extrabold tabular-nums text-slate-900">
-              <span data-warning-count="out-of-stock">{inventory.warnings.outOfStockSkus}</span>
+              <span data-warning-count="out-of-stock">{formatWarningCount(inventory.warnings.outOfStockSkus, warningBasis('warnings.outOfStockSkus'))}</span>
               <span className="text-sm ml-0.5">건</span>
             </div>
             <div className="text-xs mt-1 text-slate-400">최신 셀피아 스냅샷</div>
@@ -1400,7 +1364,7 @@ export default function Dashboard() {
           <Link href="/product-hub/matching?status=attention" className="rounded-2xl p-4 hover:shadow-md transition-all bg-white border border-slate-100 shadow-sm">
             <div className="text-sm font-bold mb-1 text-slate-900">매칭 확인 필요</div>
             <div className="text-2xl font-extrabold tabular-nums text-slate-900">
-              <span data-warning-count="mapping-attention">{inventory.warnings.mappingAttentionSkus}</span>
+              <span data-warning-count="mapping-attention">{formatWarningCount(inventory.warnings.mappingAttentionSkus, warningBasis('warnings.mappingAttentionSkus'))}</span>
               <span className="text-sm ml-0.5">건</span>
             </div>
             <div className="text-xs mt-1 text-slate-400">판매중 옵션의 미매칭·검토 필요</div>
@@ -1424,8 +1388,9 @@ export default function Dashboard() {
       {/* 순이익 상세 모달 */}
       {showProfitDetail && (
         <DashboardProfitDetailModal
-          salesBaseline={effectiveSales ?? baselineSales}
-          adBaseline={effectiveAd ?? baselineAd}
+          salesBaseline={effectiveSales ?? (kpiRange === 'month' ? baselineSales : EMPTY_SALES_SUMMARY)}
+          adBaseline={effectiveAd ?? (kpiRange === 'month' ? baselineAd : EMPTY_AD_SUMMARY)}
+          selectedRange={kpiRange}
           onClose={() => setShowProfitDetail(false)}
         />
       )}

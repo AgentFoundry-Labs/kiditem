@@ -643,8 +643,6 @@ export class AdAccountDailyKpiSourceRepository
   }): Promise<AdAccountDailyKpiPublished> {
     return this.prisma.$transaction(
       async (tx) => {
-        const account = await this.primaryAccount(tx, input.organizationId);
-        if (!account) throw new NotFoundException('COUPANG_ACCOUNT_NOT_FOUND');
         const from = input.from ? toBusinessDate(input.from) : null;
         const to = input.to ? toBusinessDate(input.to) : null;
         if (input.from && (!from || dateText(from) !== input.from)) {
@@ -655,6 +653,18 @@ export class AdAccountDailyKpiSourceRepository
         }
         if (from && to && from.getTime() > to.getTime()) {
           throw new BadRequestException('INVALID_DATE_RANGE');
+        }
+        const account = await this.primaryAccount(tx, input.organizationId);
+        // An organization with no active advertising account is a business
+        // answer, not a missing resource: no collection can ever exist for it.
+        // Throwing here made that indistinguishable from an uncollected
+        // account, and consumers collapsed both into an empty row set.
+        if (!account) {
+          return AdAccountDailyKpiPublishedSchema.parse({
+            channelAccountId: null,
+            evidence: 'NOT_APPLIED',
+            rows: [],
+          });
         }
         const rows = await this.completeSnapshotsIn(
           tx,
@@ -702,6 +712,13 @@ export class AdAccountDailyKpiSourceRepository
           });
         return AdAccountDailyKpiPublishedSchema.parse({
           channelAccountId: account.id,
+          // An account that published only explicit zeroes has proved no
+          // spend; an account that published nothing has proved nothing.
+          evidence: publishedRows.length === 0
+            ? 'MISSING'
+            : publishedRows.every((row) => row.normalized.adSpend === 0)
+              ? 'CONFIRMED_ZERO'
+              : 'OBSERVED',
           rows: publishedRows,
         });
       },

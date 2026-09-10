@@ -31,8 +31,10 @@ describe('dashboard schemas', () => {
     observedAt: '2026-09-04T01:00:00.000Z',
   };
 
-  it('requires an exact period partition and preserves internal holes', () => {
-    expect(DashboardPeriodBasisSchema.parse({
+  it('carries an exact period partition that preserves internal holes', () => {
+    // Producers build this through `buildPeriodBasis`; the schema's job here
+    // is the wire shape, and `dashboard-basis.spec.ts` owns the derivation.
+    const partial = DashboardPeriodBasisSchema.parse({
       ...completePeriodBasis,
       includedDates: ['2026-09-01', '2026-09-03'],
       includedDays: 2,
@@ -40,14 +42,9 @@ describe('dashboard schemas', () => {
       invalidDates: [],
       status: 'partial',
       partial: true,
-    }).missingDates).toEqual(['2026-09-02']);
-
-    expect(DashboardPeriodBasisSchema.safeParse({
-      ...completePeriodBasis,
-      includedDates: ['2026-09-01', '2026-09-03'],
-      includedDays: 2,
-      missingDates: [],
-    }).success).toBe(false);
+    });
+    expect(partial.missingDates).toEqual(['2026-09-02']);
+    expect(partial.includedDates).toEqual(['2026-09-01', '2026-09-03']);
   });
 
   it('distinguishes a failed source query from an empty period', () => {
@@ -62,10 +59,14 @@ describe('dashboard schemas', () => {
       queryFailedSources: ['coupang_ads'],
     });
     expect(failed.queryFailedSources).toEqual(['coupang_ads']);
-    expect(DashboardPeriodBasisSchema.safeParse({
-      ...failed,
-      queryFailedSources: ['coupang_ads', 'coupang_ads'],
-    }).success).toBe(false);
+    expect(DashboardPeriodBasisSchema.parse({
+      ...completePeriodBasis,
+      includedDates: [],
+      includedDays: 0,
+      missingDates: ['2026-09-01', '2026-09-02', '2026-09-03'],
+      status: 'empty',
+      partial: false,
+    }).queryFailedSources).toBeUndefined();
   });
 
   it('distinguishes snapshot metadata from an unavailable period', () => {
@@ -78,80 +79,32 @@ describe('dashboard schemas', () => {
     }).status).toBe('unknown');
   });
 
-  it('requires a matched relative offset for comparable periods', () => {
+  it('round-trips a comparison that exposes both calculation bases', () => {
     const previous = {
       ...completePeriodBasis,
       from: '2026-08-29',
       to: '2026-08-31',
       includedDates: ['2026-08-29', '2026-08-30', '2026-08-31'],
     };
+    const comparison = DashboardComparisonBasisSchema.parse({
+      kind: 'comparison',
+      current: completePeriodBasis,
+      previous,
+      matchedOffsets: [0, 1, 2],
+      status: 'comparable',
+      reason: null,
+    });
+    expect(comparison.matchedOffsets).toEqual([0, 1, 2]);
+    expect(comparison.current.from).toBe('2026-09-01');
+    expect(comparison.previous.from).toBe('2026-08-29');
     expect(DashboardComparisonBasisSchema.parse({
       kind: 'comparison',
       current: completePeriodBasis,
       previous,
-      matchedOffsets: [0, 1, 2],
-      status: 'comparable',
-      reason: null,
-    }).matchedOffsets).toEqual([0, 1, 2]);
-    expect(DashboardComparisonBasisSchema.safeParse({
-      kind: 'comparison',
-      current: completePeriodBasis,
-      previous,
       matchedOffsets: [],
-      status: 'comparable',
-      reason: null,
-    }).success).toBe(false);
-  });
-
-  it('rejects duplicate, out-of-range, and unavailable comparison offsets', () => {
-    const previous = {
-      ...completePeriodBasis,
-      from: '2026-08-29',
-      to: '2026-08-31',
-      includedDates: ['2026-08-29', '2026-08-30', '2026-08-31'],
-    };
-    const base = {
-      kind: 'comparison' as const,
-      current: completePeriodBasis,
-      previous,
-      status: 'comparable' as const,
-      reason: null,
-    };
-
-    expect(DashboardComparisonBasisSchema.safeParse({ ...base, matchedOffsets: [1, 0] }).success).toBe(false);
-    expect(DashboardComparisonBasisSchema.safeParse({ ...base, matchedOffsets: [0, 0] }).success).toBe(false);
-    expect(DashboardComparisonBasisSchema.safeParse({ ...base, matchedOffsets: [3] }).success).toBe(false);
-    expect(() => DashboardComparisonBasisSchema.safeParse({
-      ...base,
-      matchedOffsets: [1_000_000_000_000_000],
-    })).not.toThrow();
-    expect(DashboardComparisonBasisSchema.safeParse({
-      ...base,
-      matchedOffsets: [1_000_000_000_000_000],
-    }).success).toBe(false);
-    expect(DashboardComparisonBasisSchema.safeParse({
-      ...base,
-      current: {
-        ...completePeriodBasis,
-        includedDates: ['2026-09-01', '2026-09-03'],
-        includedDays: 2,
-        missingDates: ['2026-09-02'],
-        status: 'partial' as const,
-        partial: true,
-      },
-      matchedOffsets: [1],
-    }).success).toBe(false);
-    expect(DashboardComparisonBasisSchema.safeParse({
-      ...base,
-      matchedOffsets: [],
-      status: 'unavailable' as const,
+      status: 'unavailable',
       reason: 'no shared valid dates',
-    }).success).toBe(true);
-    expect(DashboardComparisonBasisSchema.safeParse({
-      ...base,
-      current: { ...completePeriodBasis, status: 'unverified' as const },
-      matchedOffsets: [0, 1, 2],
-    }).success).toBe(false);
+    }).reason).toBe('no shared valid dates');
   });
 
   it('keeps numeric profit inputs tied to one common period basis', () => {
@@ -163,16 +116,12 @@ describe('dashboard schemas', () => {
       basis: completePeriodBasis,
     });
     expect(inputs).toMatchObject({ revenue: 100_000, cost: 60_000, adCost: 10_000 });
+    expect(inputs.basis.includedDates).toEqual(completePeriodBasis.includedDates);
+    // Producers publish `null` instead of inputs over an empty basis, so the
+    // response schema no longer re-asserts that relationship.
     expect(DashboardProfitInputsSchema.safeParse({
       ...inputs,
-      basis: {
-        ...completePeriodBasis,
-        includedDates: [],
-        includedDays: 0,
-        missingDates: ['2026-09-01', '2026-09-02', '2026-09-03'],
-        status: 'empty' as const,
-        partial: false,
-      },
+      qty: 'four',
     }).success).toBe(false);
   });
 

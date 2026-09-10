@@ -4,6 +4,7 @@ import {
   buildMockProfitCalculationRepo,
   buildMockWingAdSummaryRepo,
   buildMockWingTrafficAggregationRepo,
+  buildProfitSourceCoverage,
 } from '../../__tests__/test-helpers/build-mock-ports';
 import { DashboardAdService } from './dashboard-ad.service';
 import type { RangeProfitMetrics } from '../port/out/repository/profit-calculation.repository.port';
@@ -83,7 +84,9 @@ const OWNER_ZERO_ADS: CoupangAdsMetrics = {
   hasData: true,
 };
 
-const PROFIT: RangeProfitMetrics = {
+// Window-independent totals; `sourceCoverage` is filled per requested range
+// because business-date evidence only means something against a window.
+const PROFIT: Omit<RangeProfitMetrics, 'sourceCoverage'> = {
   revenue: 1_000_000,
   costOfGoods: 0,
   commission: 0,
@@ -97,6 +100,10 @@ const PROFIT: RangeProfitMetrics = {
   adImpressions: 50_000,
   adClicks: 3_083,
   adConversions: 474,
+  // A non-null netProfit is only derivable when both evidence gates pass.
+  costComplete: true,
+  costIncompleteReasons: [],
+  adEvidenceComplete: true,
 };
 
 const NO_TRAFFIC: WingTrafficMetrics = {
@@ -132,15 +139,18 @@ function buildService(options: {
   wingTraffic: ReturnType<typeof buildMockWingTrafficAggregationRepo>;
 } {
   const profit = buildMockProfitCalculationRepo();
-  profit.calculateForRange.mockResolvedValue(PROFIT);
+  profit.calculateForRange.mockImplementation(async (_organizationId, period) => ({
+    ...PROFIT,
+    sourceCoverage: buildProfitSourceCoverage(period),
+  }));
 
   const wingAdSummary = buildMockWingAdSummaryRepo();
   wingAdSummary.fetchCurrentMonthSummary.mockResolvedValue(null);
 
   const wingTraffic = buildMockWingTrafficAggregationRepo();
   wingTraffic.aggregateTraffic.mockResolvedValue(NO_TRAFFIC);
-  wingTraffic.aggregateCoupangAds.mockImplementation(async (_organizationId, from, to) => (
-    options.owner ?? adsForRange(from, to)
+  wingTraffic.aggregateCoupangAds.mockImplementation(async (_organizationId, period) => (
+    options.owner ?? adsForRange(period.queryWindow.from, period.queryWindow.to)
   ));
   wingTraffic.findLatestDataDate.mockResolvedValue(options.latestDataDate ?? null);
   wingTraffic.fetchDailyAds.mockResolvedValue([]);
@@ -332,11 +342,11 @@ describe('DashboardAdService detailed ad KPI period', () => {
       ORGANIZATION_ID,
     );
 
-    expect(wingTraffic.aggregateCoupangAds.mock.calls.some(([, , to]) => (
-      to.toISOString() === '2026-09-07T15:00:00.000Z'
+    expect(wingTraffic.aggregateCoupangAds.mock.calls.some(([, period]) => (
+      period.queryWindow.to.toISOString() === '2026-09-07T15:00:00.000Z'
     ))).toBe(true);
-    expect(wingTraffic.aggregateCoupangAds.mock.calls.some(([, , to]) => (
-      to.toISOString() === '2026-09-04T00:00:00.000Z'
+    expect(wingTraffic.aggregateCoupangAds.mock.calls.some(([, period]) => (
+      period.queryWindow.to.toISOString() === '2026-09-04T00:00:00.000Z'
     ))).toBe(false);
   });
 
@@ -348,13 +358,13 @@ describe('DashboardAdService detailed ad KPI period', () => {
       ORGANIZATION_ID,
     );
 
-    expect(wingTraffic.aggregateCoupangAds.mock.calls.some(([, from, to]) => (
-      from.toISOString() === '2026-09-06T15:00:00.000Z'
-      && to.toISOString() === '2026-09-07T15:00:00.000Z'
+    expect(wingTraffic.aggregateCoupangAds.mock.calls.some(([, period]) => (
+      period.queryWindow.from.toISOString() === '2026-09-06T15:00:00.000Z'
+      && period.queryWindow.to.toISOString() === '2026-09-07T15:00:00.000Z'
     ))).toBe(true);
-    expect(wingTraffic.aggregateCoupangAds.mock.calls.some(([, from, to]) => (
-      from.toISOString() === '2026-09-05T15:00:00.000Z'
-      && to.toISOString() === '2026-09-06T15:00:00.000Z'
+    expect(wingTraffic.aggregateCoupangAds.mock.calls.some(([, period]) => (
+      period.queryWindow.from.toISOString() === '2026-09-05T15:00:00.000Z'
+      && period.queryWindow.to.toISOString() === '2026-09-06T15:00:00.000Z'
     ))).toBe(true);
   });
 });

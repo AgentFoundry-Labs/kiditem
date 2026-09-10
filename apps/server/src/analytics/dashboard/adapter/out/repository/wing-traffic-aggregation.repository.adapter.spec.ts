@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { WingTrafficAggregationRepositoryAdapter } from './wing-traffic-aggregation.repository.adapter';
+import { periodOf } from '../../../__tests__/test-helpers/period';
 
 const ORGANIZATION_ID = '00000000-0000-4000-8000-000000000001';
 const ACTIVE_ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
@@ -225,11 +226,7 @@ describe('WingTrafficAggregationRepositoryAdapter account daily read', () => {
     ]));
 
     await expect(
-      adapter.aggregateTraffic(
-        ORGANIZATION_ID,
-        new Date('2026-06-30T15:00:00.000Z'),
-        new Date('2026-07-03T15:00:00.000Z'),
-      ),
+      adapter.aggregateTraffic(ORGANIZATION_ID, periodOf(new Date('2026-06-30T15:00:00.000Z'), new Date('2026-07-03T15:00:00.000Z'))),
     ).resolves.toMatchObject({
       revenue: 600,
       orders: 17,
@@ -270,11 +267,7 @@ describe('WingTrafficAggregationRepositoryAdapter account daily read', () => {
       }),
     ], { periodSummary: null }));
 
-    await expect(adapter.aggregateTraffic(
-      ORGANIZATION_ID,
-      new Date('2026-06-30T15:00:00.000Z'),
-      new Date('2026-07-01T15:00:00.000Z'),
-    )).resolves.toMatchObject({
+    await expect(adapter.aggregateTraffic(ORGANIZATION_ID, periodOf(new Date('2026-06-30T15:00:00.000Z'), new Date('2026-07-01T15:00:00.000Z')))).resolves.toMatchObject({
       conversionRate: 3,
       providerConversionRate: 3.7,
       coverage: {
@@ -299,11 +292,7 @@ describe('WingTrafficAggregationRepositoryAdapter account daily read', () => {
       }),
     ]));
 
-    const result = await adapter.aggregateTraffic(
-      ORGANIZATION_ID,
-      new Date('2026-06-30T15:00:00.000Z'),
-      new Date('2026-07-03T15:00:00.000Z'),
-    );
+    const result = await adapter.aggregateTraffic(ORGANIZATION_ID, periodOf(new Date('2026-06-30T15:00:00.000Z'), new Date('2026-07-03T15:00:00.000Z')));
     expect(result).toMatchObject({
       revenue: 360,
       orders: 12,
@@ -320,11 +309,7 @@ describe('WingTrafficAggregationRepositoryAdapter account daily read', () => {
       accountDaily('2026-07-01', { visitors: 10, views: 20 }),
       accountDaily('2026-07-03', { visitors: 0, views: 0 }),
     ]));
-    const partial = await adapter.aggregateTraffic(
-      ORGANIZATION_ID,
-      new Date('2026-06-30T15:00:00.000Z'),
-      new Date('2026-07-03T15:00:00.000Z'),
-    );
+    const partial = await adapter.aggregateTraffic(ORGANIZATION_ID, periodOf(new Date('2026-06-30T15:00:00.000Z'), new Date('2026-07-03T15:00:00.000Z')));
     expect(partial.coverage).toEqual({
       from: '2026-07-01',
       to: '2026-07-03',
@@ -337,11 +322,7 @@ describe('WingTrafficAggregationRepositoryAdapter account daily read', () => {
     trafficReadPublished.mockResolvedValue(dailyPublication([
       accountDaily('2026-07-03', { visitors: 0, views: 0, orders: 0, revenue: 0 }),
     ]));
-    const zero = await adapter.aggregateTraffic(
-      ORGANIZATION_ID,
-      new Date('2026-07-02T15:00:00.000Z'),
-      new Date('2026-07-03T15:00:00.000Z'),
-    );
+    const zero = await adapter.aggregateTraffic(ORGANIZATION_ID, periodOf(new Date('2026-07-02T15:00:00.000Z'), new Date('2026-07-03T15:00:00.000Z')));
     expect(zero).toMatchObject({
       revenue: 0,
       orders: 0,
@@ -357,11 +338,7 @@ describe('WingTrafficAggregationRepositoryAdapter account daily read', () => {
     const { adapter, trafficReadPublished } = buildAdapter();
     trafficReadPublished.mockResolvedValue(legacyPublication());
     await expect(
-      adapter.aggregateTraffic(
-        ORGANIZATION_ID,
-        new Date('2026-06-30T15:00:00.000Z'),
-        new Date('2026-07-03T15:00:00.000Z'),
-      ),
+      adapter.aggregateTraffic(ORGANIZATION_ID, periodOf(new Date('2026-06-30T15:00:00.000Z'), new Date('2026-07-03T15:00:00.000Z'))),
     ).resolves.toMatchObject({ hasData: false, isCollected: false, lastObservedAt: null });
     await expect(adapter.fetchDailyTrend(
       ORGANIZATION_ID,
@@ -375,11 +352,7 @@ describe('WingTrafficAggregationRepositoryAdapter account daily read', () => {
     const { adapter, trafficReadPublished } = buildAdapter();
     trafficReadPublished.mockResolvedValue(null);
 
-    await expect(adapter.aggregateTraffic(
-      ORGANIZATION_ID,
-      new Date('2026-06-30T15:00:00.000Z'),
-      new Date('2026-07-03T15:00:00.000Z'),
-    )).resolves.toMatchObject({
+    await expect(adapter.aggregateTraffic(ORGANIZATION_ID, periodOf(new Date('2026-06-30T15:00:00.000Z'), new Date('2026-07-03T15:00:00.000Z')))).resolves.toMatchObject({
       isCollected: false,
       hasData: false,
       coverage: {
@@ -400,11 +373,7 @@ describe('WingTrafficAggregationRepositoryAdapter account daily read', () => {
     ], {
       attemptId: '44444444-4444-4444-8444-444444444444',
     }));
-    const result = await adapter.aggregateTraffic(
-      ORGANIZATION_ID,
-      new Date('2026-06-30T15:00:00.000Z'),
-      new Date('2026-07-01T15:00:00.000Z'),
-    );
+    const result = await adapter.aggregateTraffic(ORGANIZATION_ID, periodOf(new Date('2026-06-30T15:00:00.000Z'), new Date('2026-07-01T15:00:00.000Z')));
     expect(result).toMatchObject({
       revenue: 200,
       visitors: 20,
@@ -441,11 +410,7 @@ describe('WingTrafficAggregationRepositoryAdapter Coupang ads read', () => {
     });
 
     await expect(
-      adapter.aggregateCoupangAds(
-        ORGANIZATION_ID,
-        new Date('2026-06-30T15:00:00.000Z'),
-        new Date('2026-07-02T15:00:00.000Z'),
-      ),
+      adapter.aggregateCoupangAds(ORGANIZATION_ID, periodOf(new Date('2026-06-30T15:00:00.000Z'), new Date('2026-07-02T15:00:00.000Z'))),
     ).resolves.toEqual({
       spend: 300,
       revenue: 2_700,
@@ -492,11 +457,7 @@ describe('WingTrafficAggregationRepositoryAdapter Coupang ads read', () => {
       }],
     });
 
-    await expect(adapter.aggregateCoupangAds(
-      ORGANIZATION_ID,
-      new Date('2026-06-30T15:00:00.000Z'),
-      new Date('2026-07-01T15:00:00.000Z'),
-    )).resolves.toMatchObject({
+    await expect(adapter.aggregateCoupangAds(ORGANIZATION_ID, periodOf(new Date('2026-06-30T15:00:00.000Z'), new Date('2026-07-01T15:00:00.000Z')))).resolves.toMatchObject({
       hasData: true,
       isCollected: true,
       conversionRate: null,
@@ -506,6 +467,40 @@ describe('WingTrafficAggregationRepositoryAdapter Coupang ads read', () => {
         completedDays: 1,
         missingDates: [],
       },
+    });
+  });
+
+  // The anchor is injectable precisely so a deterministic caller can evaluate
+  // a historical calendar. Reading the process clock here silently unanchored
+  // every anchored caller, so the cutoff must come from the resolved period.
+  it('takes the ads coverage cutoff from the caller anchor, not the wall clock', async () => {
+    const { adapter, readPublished } = buildAdapter();
+    readPublished.mockResolvedValue({
+      channelAccountId: ACTIVE_ACCOUNT_ID,
+      rows: [{
+        businessDate: '2026-07-01',
+        observedAt: '2026-07-02T01:00:00.000Z',
+        normalized: normalized({ adSpend: 10 }),
+      }],
+    });
+
+    const result = await adapter.aggregateCoupangAds(
+      ORGANIZATION_ID,
+      periodOf(
+        new Date('2026-06-30T15:00:00.000Z'),
+        new Date('2026-07-03T15:00:00.000Z'),
+        { anchor: new Date('2026-07-02T03:00:00.000Z'), sourceClass: 'ads_preset_clipped' },
+      ),
+    );
+
+    expect(result.coverage).toMatchObject({
+      from: '2026-07-01',
+      to: '2026-07-03',
+      // The anchor's last completed KST day, not today's.
+      knownThrough: '2026-07-01',
+      targetDays: 3,
+      completedDays: 1,
+      missingDates: ['2026-07-02', '2026-07-03'],
     });
   });
 });

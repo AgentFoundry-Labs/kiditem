@@ -4,7 +4,6 @@ import {
   DashboardDataBasis,
   basisHasValues,
   basisSummary,
-  readProfitInputs,
   type DashboardComparisonBasis,
   type DashboardPeriodBasis,
   type DashboardMetricBasis,
@@ -35,12 +34,8 @@ describe('DashboardDataBasis', () => {
     expect(screen.getByTestId('dashboard-data-basis')).toHaveTextContent('sellpia_sales · coupang_ads');
   });
 
-  it('preserves explicit zero profit inputs and rejects an absent intersection', () => {
+  it('treats a period basis with included dates as having values', () => {
     expect(basisHasValues(periodBasis)).toBe(true);
-    expect(readProfitInputs({
-      profitInputs: { revenue: 0, cost: 0, adCost: 0, qty: 0, basis: periodBasis },
-    })).toMatchObject({ revenue: 0, cost: 0, adCost: 0, qty: 0 });
-    expect(readProfitInputs({ profitInputs: null })).toBeNull();
   });
 
   it('shows every evidence date and never substitutes observedAt for snapshot asOf', () => {

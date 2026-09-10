@@ -26,6 +26,7 @@ import {
   seedAd,
 } from '../../../test-helpers/finance-seeds';
 import type { PrismaClient } from '@prisma/client';
+import { buildDashboardContext } from '../domain/context';
 
 describe('DashboardTrendService.getTrend (PG integration)', () => {
   let prisma: PrismaClient;
@@ -166,7 +167,7 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
       date: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10), spend: IDOR_SENTINEL,
     });
 
-    const result = await service.getTrend(TEST_ORGANIZATION_ID, '30d');
+    const result = await service.getTrend(buildDashboardContext(), TEST_ORGANIZATION_ID, '30d');
     for (const row of result) {
       expect(row.revenue).not.toBe(IDOR_SENTINEL);
       expect(row.adCost).not.toBe(IDOR_SENTINEL);
@@ -191,7 +192,7 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
       lineItems: [{ quantity: 1, totalPrice: IDOR_SENTINEL, optionId: oO.id, listingOptionId: oL.listingOptionId }],
     });
 
-    const result = await service.getTrend(OTHER_ORGANIZATION_ID, '30d');
+    const result = await service.getTrend(buildDashboardContext(), OTHER_ORGANIZATION_ID, '30d');
     for (const row of result) {
       expect(row.revenue).not.toBe(30_000);
     }
@@ -199,7 +200,7 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
   });
 
   it('T3: fresh organization → selected dates remain explicitly empty', async () => {
-    const result = await service.getTrend(TEST_ORGANIZATION_ID, '7d');
+    const result = await service.getTrend(buildDashboardContext(), TEST_ORGANIZATION_ID, '7d');
     expect(result).toHaveLength(7);
     expect(result.every((row) => row.revenue === null && row.adCost === null && row.profit === null)).toBe(true);
   });
@@ -239,7 +240,7 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
       }],
     });
 
-    const result = await service.getTrend(TEST_ORGANIZATION_ID, '30d');
+    const result = await service.getTrend(buildDashboardContext(), TEST_ORGANIZATION_ID, '30d');
     const yesterdayRow = result.find((r) => r.revenue === 100_000);
     expect(yesterdayRow).toBeDefined();
     expect(yesterdayRow?.profit).toBe(30_000);
@@ -363,7 +364,7 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
       }],
     });
 
-    const result = await service.getTrend(TEST_ORGANIZATION_ID, '30d');
+    const result = await service.getTrend(buildDashboardContext(), TEST_ORGANIZATION_ID, '30d');
     const wingRow = result.find((r) => r.date === dateKey);
 
     expect(wingRow).toMatchObject({

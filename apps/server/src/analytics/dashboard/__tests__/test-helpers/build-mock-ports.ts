@@ -7,7 +7,11 @@
 // `apps/server/src/analytics/dashboard/application/port/out/`.
 
 import { vi, type Mocked } from 'vitest';
-import type { ProfitCalculationRepositoryPort } from '../../application/port/out/repository/profit-calculation.repository.port';
+import type { ResolvedDashboardPeriod } from '../../domain/period/dashboard-period';
+import type {
+  ProfitCalculationRepositoryPort,
+  ProfitSourceCoverage,
+} from '../../application/port/out/repository/profit-calculation.repository.port';
 import type { WingAdSummaryRepositoryPort } from '../../application/port/out/repository/wing-ad-summary.repository.port';
 import type { DashboardSalesRepositoryPort } from '../../application/port/out/repository/dashboard-sales.repository.port';
 import type { DashboardTrendRepositoryPort } from '../../application/port/out/repository/dashboard-trend.repository.port';
@@ -20,6 +24,26 @@ export function buildMockProfitCalculationRepo(): MockProfitCalculationRepo {
   return {
     calculateForRange: vi.fn(),
     calculateDailyForRange: vi.fn(),
+  };
+}
+
+/**
+ * Business-date evidence for a mocked `RangeProfitMetrics`. Reads the dates the
+ * caller's resolved period already carries — the same set the real adapter
+ * reads — so a fixture claiming order revenue or ad spend also carries the
+ * dates that revenue came from. Pass `orders: false` for a fixture whose order
+ * totals are genuinely source-empty.
+ */
+export function buildProfitSourceCoverage(
+  period: ResolvedDashboardPeriod,
+  options: { orders?: boolean } = {},
+): ProfitSourceCoverage {
+  const requestedDates = period.selectedDates;
+  return {
+    requestedDates,
+    orderDates: options.orders === false ? [] : [...requestedDates],
+    adDates: [...requestedDates],
+    adEvidence: 'OBSERVED',
   };
 }
 
@@ -46,7 +70,6 @@ export type MockDashboardTrendRepo = Mocked<DashboardTrendRepositoryPort>;
 export function buildMockDashboardTrendRepo(): MockDashboardTrendRepo {
   return {
     fetchTrendRevenueRows: vi.fn(),
-    fetchTrendAdCostRows: vi.fn(),
   };
 }
 

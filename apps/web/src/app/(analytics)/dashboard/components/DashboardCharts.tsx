@@ -32,10 +32,7 @@ interface AdChartItem {
 interface BenchmarkItem {
   name: string;
   my: number | null;
-  avg: number | null;
   unit: string;
-  invertGood: boolean;
-  referenceUnavailable?: boolean;
   basis?: DashboardMetricBasis | null;
 }
 
@@ -179,7 +176,6 @@ export function DashboardCharts({ chartTab, dailyTrend, adChartData, benchmarkDa
         <div className="flex-1 flex flex-col p-5 min-h-0">
           <div className="flex items-center gap-5 mb-4 text-[12px] text-slate-400 shrink-0">
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-blue-500" />내 수치</span>
-            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-orange-500" />업계 평균</span>
           </div>
           <div className="flex-1 min-h-0">
           <ResponsiveContainer width="100%" height={CHART_HEIGHT} initialDimension={CHART_INITIAL_DIMENSION}>
@@ -188,41 +184,26 @@ export function DashboardCharts({ chartTab, dailyTrend, adChartData, benchmarkDa
               <XAxis dataKey="name" fontSize={13} tickLine={false} axisLine={false} tick={{ fill: '#64748b' }} fontWeight={600} />
               <YAxis fontSize={10} tickLine={false} axisLine={false} tick={{ fill: '#94a3b8' }} tickFormatter={(v: number) => `${v}%`} />
               {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-              <Tooltip contentStyle={{ fontSize: 13, borderRadius: 12, background: '#fff', border: '1px solid #e2e8f0', color: '#0f172a' }} formatter={(v: any, name: any) => [v == null ? '—' : `${Number(v).toFixed(1)}%`, name === 'my' ? '내 수치' : '업계 기준']} />
+              <Tooltip contentStyle={{ fontSize: 13, borderRadius: 12, background: '#fff', border: '1px solid #e2e8f0', color: '#0f172a' }} formatter={(v: any) => [v == null ? '—' : `${Number(v).toFixed(1)}%`, '내 수치']} />
               <Bar dataKey="my" name="my" radius={[6, 6, 0, 0]} maxBarSize={48}>
-                {benchmarkData.map((entry, i) => {
-                  const comparisonUnavailable = entry.my === null || entry.avg === null;
-                  const isGood = entry.my !== null && entry.avg !== null
-                    && (entry.invertGood ? entry.my <= entry.avg : entry.my >= entry.avg);
-                  return <Cell key={i} fill={entry.my === null ? '#cbd5e1' : comparisonUnavailable ? '#64748b' : isGood ? '#3182f6' : '#f04452'} />;
-                })}
+                {benchmarkData.map((entry, i) => (
+                  <Cell key={i} fill={entry.my === null ? '#cbd5e1' : '#64748b'} />
+                ))}
               </Bar>
-              <Bar dataKey="avg" name="avg" fill="#f97316" radius={[6, 6, 0, 0]} maxBarSize={48} opacity={0.7} />
             </BarChart>
           </ResponsiveContainer>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4 shrink-0">
-            {benchmarkData.map(item => {
-              const comparisonUnavailable = item.my === null || item.avg === null;
-              const isGood = item.my !== null && item.avg !== null
-                && (item.invertGood ? item.my <= item.avg : item.my >= item.avg);
-              const diff = item.my !== null && item.avg !== null ? item.my - item.avg : null;
-              const diffStr = diff === null ? null : diff > 0 ? `+${diff.toFixed(1)}` : diff.toFixed(1);
-              return (
-                <div key={item.name} className="text-center">
-                  <div className="text-[13px] font-semibold text-slate-500">{item.name}</div>
-                  <div className={cn('text-[20px] font-bold tabular-nums mt-0.5', item.my === null ? 'text-slate-300' : comparisonUnavailable ? 'text-slate-700' : isGood ? 'text-emerald-500' : 'text-red-500')}>
-                    {item.my === null ? '—' : `${item.my}${item.unit}`}
-                  </div>
-                  <div className={cn('text-[12px] mt-0.5', diffStr === null || comparisonUnavailable ? 'text-slate-400' : isGood ? 'text-emerald-500' : 'text-red-500')}>
-                    {diffStr === null
-                      ? (item.referenceUnavailable || item.avg === null ? '비교 기준 없음' : '내 수치 없음')
-                      : `${isGood ? '\u2713' : '\u2717'} ${diffStr}%p vs 기준`}
-                  </div>
-                  {item.basis && <DashboardDataBasis basis={item.basis} className="mt-1 text-left" />}
+            {benchmarkData.map(item => (
+              <div key={item.name} className="text-center">
+                <div className="text-[13px] font-semibold text-slate-500">{item.name}</div>
+                <div className={cn('text-[20px] font-bold tabular-nums mt-0.5', item.my === null ? 'text-slate-300' : 'text-slate-700')}>
+                  {item.my === null ? '—' : `${item.my}${item.unit}`}
                 </div>
-              );
-            })}
+                <div className="text-[12px] mt-0.5 text-slate-400">비교 기준 없음</div>
+                {item.basis && <DashboardDataBasis basis={item.basis} className="mt-1 text-left" />}
+              </div>
+            ))}
           </div>
         </div>
       )}

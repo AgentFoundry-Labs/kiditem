@@ -1,5 +1,9 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { kstBusinessDate } from '../../../../../common/kst';
+import {
+  businessDateText,
+  businessDatesInWindow,
+  type ResolvedDashboardPeriod,
+} from '../../../domain/period/dashboard-period';
 import {
   AD_ACCOUNT_DAILY_KPI_READ_PORT,
   type AdAccountDailyKpiReadPort,
@@ -15,12 +19,14 @@ import type {
   AdTrafficSourcePublished,
 } from '@kiditem/shared/advertising';
 import type {
-  TrafficAdditiveMetric,
+  TrafficCoverage,
   TrafficMetricReconciliation,
   TrafficReconciliation,
   TrafficReconciliationStatus,
+} from '@kiditem/shared/dashboard';
+import type {
+  TrafficAdditiveMetric,
   WingTrafficAggregationRepositoryPort,
-  WingTrafficCoverage,
   WingTrafficMetrics,
   CoupangAdsMetrics,
   WingDailyTrendRow,
@@ -57,21 +63,23 @@ export class WingTrafficAggregationRepositoryAdapter
 
   async aggregateTraffic(
     organizationId: string,
-    from: Date,
-    to: Date,
+    period: ResolvedDashboardPeriod,
   ): Promise<WingTrafficMetrics> {
-    const range = publishedDateRange(from, to);
+    // The caller resolved the date set; the adapter neither re-derives KST
+    // business-date keys nor consults the wall clock.
+    const targetDates = period.selectedDates;
+    const range = dateRangeOf(targetDates);
     if (!range) return emptyTrafficMetrics();
 
     const published = await this.readTrafficPublished(organizationId, range);
     const daily = published ? dailyPublication(published) : null;
-    if (!daily) return emptyTrafficMetrics(range);
+    if (!daily) return emptyTrafficMetrics(targetDates);
 
     // A complete replacement supersedes the previous value for a date. Pick
     // the latest observed account original instead of double counting rows.
     const rows = selectAccountDailyRows(daily.accountDaily, range);
     const totals = sumAccountDaily(rows);
-    const coverage = buildCoverage(range, rows);
+    const coverage = buildCoverage(targetDates, rows);
     const reconciliation = normalizeReconciliation(daily.reconciliation, totals);
     const complete = coverage.targetDays > 0
       && coverage.completedDays === coverage.targetDays;
@@ -115,13 +123,14 @@ export class WingTrafficAggregationRepositoryAdapter
 
   async aggregateCoupangAds(
     organizationId: string,
-    from: Date,
-    to: Date,
+    period: ResolvedDashboardPeriod,
   ): Promise<CoupangAdsMetrics> {
-    const range = publishedDateRange(from, to);
+    const targetDates = period.selectedDates;
+    const range = dateRangeOf(targetDates);
     if (!range) return emptyCoupangAdsMetrics();
     const rows = selectAdsRows(await this.readPublishedRows(organizationId, range), range);
-    const coverage = buildAdsCoverage(range, rows);
+    // The cutoff is the caller's anchor, never this process's clock.
+    const coverage = buildAdsCoverage(targetDates, period.knownThrough, rows);
 
     let spend = 0;
     let revenue = 0;
@@ -195,8 +204,8 @@ export class WingTrafficAggregationRepositoryAdapter
     until?: Date,
   ): Promise<WingDailyTrendRow[]> {
     const range = until
-      ? publishedDateRange(since, until)
-      : { from: dateText(kstBusinessDate(since)) };
+      ? dateRangeOf(businessDatesInWindow(since, until))
+      : { from: businessDateText(since) };
     if (!range) return [];
 
     const published = await this.readTrafficPublished(organizationId, range);
@@ -225,8 +234,8 @@ export class WingTrafficAggregationRepositoryAdapter
     until?: Date,
   ): Promise<CoupangAdsDailyRow[]> {
     const range = until
-      ? publishedDateRange(since, until)
-      : { from: dateText(kstBusinessDate(since)) };
+      ? dateRangeOf(businessDatesInWindow(since, until))
+      : { from: businessDateText(since) };
     if (!range) return [];
     const rows = selectAdsRows(await this.readPublishedRows(organizationId, range), range);
 
@@ -347,14 +356,13 @@ function latestAccountDailyRow(rows: ReadonlyArray<AccountDailyRow>): AccountDai
 }
 
 function buildCoverage(
-  range: { from: string; to: string },
+  targetDates: readonly string[],
   rows: ReadonlyArray<AccountDailyRow>,
-): WingTrafficCoverage {
-  const targetDates = enumerateDates(range.from, range.to);
+): TrafficCoverage {
   const completed = new Set(rows.map((row) => row.businessDate));
   return {
-    from: range.from,
-    to: range.to,
+    from: targetDates[0]!,
+    to: targetDates[targetDates.length - 1]!,
     targetDays: targetDates.length,
     completedDays: targetDates.filter((date) => completed.has(date)).length,
     missingDates: targetDates.filter((date) => !completed.has(date)),
@@ -430,58 +438,38 @@ function selectAdsRows(
 }
 
 function buildAdsCoverage(
-  range: { from: string; to: string },
+  targetDates: readonly string[],
+  /**
+   * Last KST business date the caller's anchor treats as closed. Coverage is
+   * bounded by it, never by the newest row that happened to be returned, and
+   * never by this process's clock: a future-dated row must remain visible as
+   * outside the known cutoff rather than moving the cutoff forward.
+   */
+  knownThroughDate: string,
   rows: ReadonlyArray<AdAccountDailyKpiPublishedRow>,
 ) {
-  const targetDates = enumerateDates(range.from, range.to);
   const completedDates = new Set(rows.map((row) => row.businessDate));
-  // Coverage is bounded by the last completed KST business day, never by the
-  // newest row that happened to be returned. A future-dated row must remain
-  // visible as outside the known cutoff rather than moving the cutoff forward.
-  const yesterday = kstBusinessDate(new Date());
-  yesterday.setUTCDate(yesterday.getUTCDate() - 1);
-  const yesterdayText = dateText(yesterday);
-  const knownThrough = range.to < yesterdayText ? range.to : yesterdayText;
+  const to = targetDates[targetDates.length - 1]!;
   return {
-    from: range.from,
-    to: range.to,
-    knownThrough,
+    from: targetDates[0]!,
+    to,
+    knownThrough: to < knownThroughDate ? to : knownThroughDate,
     targetDays: targetDates.length,
     completedDays: targetDates.filter((date) => completedDates.has(date)).length,
     missingDates: targetDates.filter((date) => !completedDates.has(date)),
   };
 }
 
-function dateText(value: Date): string {
-  return value.toISOString().slice(0, 10);
-}
-
-function publishedDateRange(
-  from: Date,
-  to: Date,
+/** Inclusive owner-read bounds for a resolved date set. */
+function dateRangeOf(
+  dates: readonly string[],
 ): { from: string; to: string } | null {
-  const businessFrom = kstBusinessDate(from);
-  const businessTo = kstBusinessDate(to);
-  if (businessFrom.getTime() >= businessTo.getTime()) return null;
-  return {
-    from: dateText(businessFrom),
-    to: dateText(new Date(businessTo.getTime() - 86_400_000)),
-  };
+  if (dates.length === 0) return null;
+  return { from: dates[0]!, to: dates[dates.length - 1]! };
 }
 
 function dateInRange(value: string, range: DateRange): boolean {
   return value >= range.from && (!range.to || value <= range.to);
-}
-
-function enumerateDates(from: string, to: string): string[] {
-  const result: string[] = [];
-  const cursor = new Date(`${from}T00:00:00.000Z`);
-  const end = new Date(`${to}T00:00:00.000Z`);
-  while (cursor.getTime() <= end.getTime()) {
-    result.push(cursor.toISOString().slice(0, 10));
-    cursor.setUTCDate(cursor.getUTCDate() + 1);
-  }
-  return result;
 }
 
 function isReconciliationStatus(value: unknown): value is TrafficReconciliationStatus {
@@ -496,14 +484,14 @@ function finiteInt(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) ? Math.round(value) : 0;
 }
 
-function emptyTrafficMetrics(range?: { from: string; to: string }): WingTrafficMetrics {
-  const coverage = range
+function emptyTrafficMetrics(targetDates?: readonly string[]): WingTrafficMetrics {
+  const coverage = targetDates && targetDates.length > 0
     ? {
-        from: range.from,
-        to: range.to,
-        targetDays: enumerateDates(range.from, range.to).length,
+        from: targetDates[0]!,
+        to: targetDates[targetDates.length - 1]!,
+        targetDays: targetDates.length,
         completedDays: 0,
-        missingDates: enumerateDates(range.from, range.to),
+        missingDates: [...targetDates],
       }
     : null;
   return {

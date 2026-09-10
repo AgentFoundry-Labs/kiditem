@@ -9,6 +9,7 @@ import { SourceFailureAlerts } from '../../../alerts/alerts.service';
 import { AlertsRepository } from '../../../alerts/alerts.repository';
 import { DashboardInventoryService } from '../application/service/dashboard-inventory.service';
 import { buildDashboardContext } from '../domain/context';
+import { businessDateText } from '../domain/period/dashboard-period';
 import { DashboardInventoryRepositoryAdapter } from '../adapter/out/repository/dashboard-inventory.repository.adapter';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { DASHBOARD_INVENTORY_REPOSITORY_PORT } from '../application/port/out/repository/dashboard-inventory.repository.port';
@@ -373,5 +374,18 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
     expect(result.warnings.minusProducts).toBe(1);
     expect(result.warnings.lowProfitProducts).toBe(1);
     expect(result.warnings.highAdProducts).toBe(1);
+    // Real seeded counts must arrive with a basis that lets the card display
+    // them. `unavailable` is the one status that blanks a warning card.
+    for (const key of [
+      'warnings.minusProducts',
+      'warnings.lowProfitProducts',
+      'warnings.highAdProducts',
+      'warnings.outOfStockSkus',
+      'warnings.mappingAttentionSkus',
+    ] as const) {
+      expect(result.metricBasis?.[key], key).toMatchObject({
+        kind: 'snapshot', asOf: businessDateText(ctx.anchor), status: 'current',
+      });
+    }
   });
 });

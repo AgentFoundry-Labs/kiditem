@@ -16,13 +16,18 @@ import {
 } from '@kiditem/shared/channel-listing';
 import { PrismaService } from '../../../../../prisma/prisma.service';
 import { buildPerListingMetrics } from '../../../../../common/per-listing-profit';
-import { MASTER_PRODUCT_PROFITABILITY_READ_PORT, type ProfitabilityEvidence } from '../../../../../finance/application/port/in/master-product-profitability-read.port';
+import {
+  MASTER_PRODUCT_PROFITABILITY_READ_PORT,
+  type ProfitabilityEvidence,
+  type ProfitabilityEvidenceSnapshot,
+} from '../../../../../finance/application/port/in/master-product-profitability-read.port';
 import { productAbcDisplayStatus } from '../../../../../products/domain/product-abc-display-status';
 import type { DashboardAlertItem } from '@kiditem/shared/dashboard';
 import type {
   DashboardInventoryRepositoryPort,
   AbcContributionRow,
   AbcStatusCountRow,
+  AbcStatusCounts,
   DashboardPerListingMetrics,
   GradeCountRow,
   GradeChangeRow,
@@ -59,7 +64,7 @@ export class DashboardInventoryRepositoryAdapter
 
   async countActiveProductsByAbcStatus(
     organizationId: string,
-  ): Promise<AbcStatusCountRow[]> {
+  ): Promise<AbcStatusCounts> {
     const kst = new Date(Date.now() + 9 * 60 * 60 * 1_000);
     const targetCutoff = new Date(Date.UTC(kst.getUTCFullYear(), kst.getUTCMonth(), 0)).toISOString().slice(0, 10);
     const [rows, evidence] = await Promise.all([
@@ -80,7 +85,16 @@ export class DashboardInventoryRepositoryAdapter
       );
       counts.set(displayStatus, (counts.get(displayStatus) ?? 0) + 1);
     }
-    return [...counts].map(([displayStatus, count]) => ({ displayStatus, count }));
+    return {
+      rows: [...counts].map(([displayStatus, count]) => ({ displayStatus, count })),
+      // The evaluation's own as-of, published beside the counts so the read
+      // model never has to guess how old a stored grade is.
+      evaluatedAsOf: {
+        targetCutoff,
+        actualCutoff: evidence.actualCutoff,
+        capturedAt: latestCapturedAt(evidence),
+      },
+    } satisfies AbcStatusCounts;
   }
 
   async findActiveAbcContributions(
@@ -305,6 +319,22 @@ export class DashboardInventoryRepositoryAdapter
       ),
     } satisfies AGradeReviewRow));
   }
+}
+
+/**
+ * The newest capture time across the source generations behind one
+ * profitability evidence snapshot. A snapshot is only as recently observed as
+ * its most recent source read, and either source may publish none.
+ */
+function latestCapturedAt(evidence: ProfitabilityEvidenceSnapshot): string | null {
+  const captures = [
+    evidence.sourceVector.sellpia.capturedAt,
+    evidence.sourceVector.advertising.capturedAt,
+  ].filter((value): value is string => value !== null);
+  return captures.reduce<string | null>(
+    (latest, value) => (latest === null || value > latest ? value : latest),
+    null,
+  );
 }
 
 function rawSaleStatus(value: unknown): string | null {

@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
+import { buildPeriodBasis } from '@kiditem/shared/dashboard';
 import type {
   DashboardMetricBasisMap,
   DashboardTrendItem,
@@ -15,7 +16,15 @@ import {
   WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT,
   type WingTrafficAggregationRepositoryPort,
 } from '../port/out/repository/wing-traffic-aggregation.repository.port';
-import { kstBusinessDate, kstDayStart } from '../../../../common/kst';
+import { resolveTrendPeriod } from '../../domain/period/dashboard-period';
+import {
+  COUPANG_ADS_SOURCE,
+  ORDERS_SOURCE,
+  PROFIT_CALCULATION_SOURCE,
+  WING_TRAFFIC_SOURCE,
+  type DashboardSourceName,
+} from '../../domain/evidence';
+import type { DashboardContext } from '../../domain/context';
 
 @Injectable()
 export class DashboardTrendService {
@@ -30,24 +39,25 @@ export class DashboardTrendService {
     private readonly wingTrafficRepository: WingTrafficAggregationRepositoryPort,
   ) {}
 
-  async getTrend(organizationId: string, range: string): Promise<DashboardTrendItem[]> {
+  async getTrend(
+    ctx: DashboardContext,
+    organizationId: string,
+    range: string,
+  ): Promise<DashboardTrendItem[]> {
     const startedAt = Date.now();
-    const days = range === '7d' ? 7 : range === '90d' ? 90 : 30;
-    // Trend windows are explicit half-open KST business-date ranges. The
-    // current in-progress KST day is excluded, so no future/partial row can
-    // shift the selected date set or make a missing day look collected.
-    const until = kstDayStart(new Date());
-    const since = new Date(until.getTime() - days * 86_400_000);
-    const selectedDates = enumerateDates(
-      businessDateText(since),
-      businessDateText(until),
-    );
+    // Trend windows are explicit half-open KST business-date ranges resolved
+    // against the caller's anchor — never this process's clock. The current
+    // in-progress KST day is excluded, so no future/partial row can shift the
+    // selected date set or make a missing day look collected.
+    const period = resolveTrendPeriod(range, ctx.anchor);
+    const { from: since, to: until } = period.queryWindow;
+    const selectedDates = period.selectedDates;
 
     // A failed source is not the same thing as an empty source. Keep each
     // read independent so a valid order/Wing series survives an ad outage;
     // the per-metric basis below marks the affected dates unverified.
     const [dailyProfitResult, orderResult, wingResult, adsResult] = await Promise.all([
-      settle(() => this.profitCalculation.calculateDailyForRange(organizationId, since, until)),
+      settle(() => this.profitCalculation.calculateDailyForRange(organizationId, period)),
       settle(() => this.trendRepository.fetchTrendRevenueRows(organizationId, since, until)),
       settle(() => this.wingTrafficRepository.fetchDailyTrend(organizationId, since, until)),
       settle(() => this.wingTrafficRepository.fetchDailyAds(organizationId, since, until)),
@@ -57,10 +67,10 @@ export class DashboardTrendService {
     const wingDailyRows = wingResult.rows;
     const coupangAdsRows = adsResult.rows;
     for (const [source, result] of [
-      ['profit', dailyProfitResult],
-      ['orders', orderResult],
-      ['wing_traffic', wingResult],
-      ['coupang_ads', adsResult],
+      [PROFIT_CALCULATION_SOURCE, dailyProfitResult],
+      [ORDERS_SOURCE, orderResult],
+      [WING_TRAFFIC_SOURCE, wingResult],
+      [COUPANG_ADS_SOURCE, adsResult],
     ] as const) {
       if (result.error) {
         this.logger.warn({
@@ -124,51 +134,56 @@ export class DashboardTrendService {
           && !profitError
           ? Math.round(dailyProfit.revenue - dailyProfit.cost - adCost)
           : null;
-        const revenueSource = hasOrderRow
-          ? ['orders']
+        const revenueSource: DashboardSourceName[] = hasOrderRow
+          ? [ORDERS_SOURCE]
           : hasWingRow
-            ? ['wing_traffic']
-            : ['orders', 'wing_traffic'];
-        const revenueError = (orderEvidenceError && !hasWingRow)
-          || (!hasOrderRow && wingResult.error !== null);
-        const revenueQueryFailures = [
-          ...(dailyProfitResult.error ? ['profit'] : []),
-          ...(orderResult.error ? ['orders'] : []),
-          ...(!hasOrderRow && wingResult.error ? ['wing_traffic'] : []),
+            ? [WING_TRAFFIC_SOURCE]
+            : [ORDERS_SOURCE, WING_TRAFFIC_SOURCE];
+        // Status is derived from the evidence, so each basis states only what
+        // it measured: which dates it has, which it rejected, and which
+        // required read threw.
+        const revenueQueryFailures: DashboardSourceName[] = [
+          ...(dailyProfitResult.error ? [PROFIT_CALCULATION_SOURCE] as const : []),
+          ...(orderResult.error ? [ORDERS_SOURCE] as const : []),
+          ...(!hasOrderRow && wingResult.error ? [WING_TRAFFIC_SOURCE] as const : []),
         ];
-        const profitQueryFailures = [
-          ...(dailyProfitResult.error ? ['profit'] : []),
-          ...(adEvidenceError ? ['coupang_ads'] : []),
+        const profitQueryFailures: DashboardSourceName[] = [
+          ...(dailyProfitResult.error ? [PROFIT_CALCULATION_SOURCE] as const : []),
+          ...(adEvidenceError ? [COUPANG_ADS_SOURCE] as const : []),
         ];
-        const adQueryFailures = adEvidenceError ? ['coupang_ads'] : [];
+        const adQueryFailures: DashboardSourceName[] = adEvidenceError
+          ? [COUPANG_ADS_SOURCE]
+          : [];
         const metricBasis: DashboardMetricBasisMap = {
-          revenue: singleDateBasis(
-            date,
-            revenue !== null,
-            revenueSource,
-            revenueError,
-            hasOrderRow ? null : wingRow?.observedAt ?? null,
-            false,
-            revenueQueryFailures,
-          ),
-          profit: singleDateBasis(
-            date,
-            profit !== null,
-            ['orders', 'coupang_ads'],
-            profitError,
-            adRow?.observedAt ?? null,
-            dailyProfit?.costComplete === false && hasDailyOrderRow,
-            profitQueryFailures,
-          ),
-          adCost: singleDateBasis(
-            date,
-            adCost !== null,
-            ['coupang_ads'],
-            adEvidenceError,
-            adRow?.observedAt ?? null,
-            false,
-            adQueryFailures,
-          ),
+          revenue: buildPeriodBasis({
+            from: date,
+            to: date,
+            includedDates: revenue !== null ? [date] : [],
+            sources: revenueSource,
+            queryFailedSources: revenueQueryFailures,
+            observedAt: hasOrderRow ? null : wingRow?.observedAt ?? null,
+          }),
+          profit: buildPeriodBasis({
+            from: date,
+            to: date,
+            includedDates: profit !== null ? [date] : [],
+            // An order cost input that was read and refused is invalid
+            // evidence for the date, not an unread source.
+            invalidDates: dailyProfit?.costComplete === false && hasDailyOrderRow
+              ? [date]
+              : [],
+            sources: [ORDERS_SOURCE, COUPANG_ADS_SOURCE],
+            queryFailedSources: profitQueryFailures,
+            observedAt: adRow?.observedAt ?? null,
+          }),
+          adCost: buildPeriodBasis({
+            from: date,
+            to: date,
+            includedDates: adCost !== null ? [date] : [],
+            sources: [COUPANG_ADS_SOURCE],
+            queryFailedSources: adQueryFailures,
+            observedAt: adRow?.observedAt ?? null,
+          }),
         };
         return { date, revenue, profit, adCost, metricBasis } satisfies DashboardTrendItem;
       });
@@ -177,7 +192,7 @@ export class DashboardTrendService {
       msg: 'dashboard-trend.getTrend',
       organizationId,
       range,
-      days,
+      days: selectedDates.length,
       rowCount: result.length,
       dailyProfitRowCount: dailyProfitRows.length,
       latencyMs: Date.now() - startedAt,
@@ -185,49 +200,6 @@ export class DashboardTrendService {
 
     return result;
   }
-}
-
-function businessDateText(value: Date): string {
-  return kstBusinessDate(value).toISOString().slice(0, 10);
-}
-
-function enumerateDates(from: string, to: string): string[] {
-  const out: string[] = [];
-  const cursor = new Date(`${from}T00:00:00.000Z`);
-  const end = new Date(`${to}T00:00:00.000Z`);
-  while (cursor.getTime() < end.getTime()) {
-    out.push(cursor.toISOString().slice(0, 10));
-    cursor.setUTCDate(cursor.getUTCDate() + 1);
-  }
-  return out;
-}
-
-function singleDateBasis(
-  date: string,
-  included: boolean,
-  sources: string[],
-  unverified = false,
-  observedAt: string | null = null,
-  invalid = false,
-  queryFailedSources: string[] = [],
-): DashboardMetricBasisMap[string] {
-  const status = included ? 'complete' : unverified ? 'unverified' : 'empty';
-  const uniqueQueryFailedSources = [...new Set(queryFailedSources)];
-  return {
-    kind: 'period',
-    from: date,
-    to: date,
-    targetDays: 1,
-    includedDates: included ? [date] : [],
-    includedDays: included ? 1 : 0,
-    missingDates: included ? [] : [date],
-    invalidDates: invalid ? [date] : [],
-    sources,
-    ...(uniqueQueryFailedSources.length > 0 ? { queryFailedSources: uniqueQueryFailedSources } : {}),
-    status,
-    partial: false,
-    observedAt,
-  };
 }
 
 interface SettledRows<T> {

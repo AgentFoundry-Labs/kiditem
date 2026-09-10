@@ -33,16 +33,10 @@ type DailyTrendPoint = {
 };
 
 type IndustryBenchmark = {
-  avgAdRate?: number | null;
-  avgProfitRate?: number | null;
-  avgRoas?: number | null;
-  avgCtr?: number | null;
-  avgCvr?: number | null;
   myAdRate?: number | null;
   myRoas?: number | null;
   myCtr?: number | null;
   myCvr?: number | null;
-  referenceStatus?: 'configured' | 'unavailable' | 'unknown';
 };
 
 // 인라인 실행 액션 — 대시보드에서 바로 실행한다(페이지 이동 없음).
@@ -281,10 +275,10 @@ export function DashboardChartPanel({
         dailyTrend={dailyTrend}
         adChartData={adChartData}
         benchmarkData={industryBenchmark ? [
-          { name: '광고비율', my: industryBenchmark.myAdRate ?? null, avg: industryBenchmark.referenceStatus === 'configured' ? industryBenchmark.avgAdRate ?? null : null, unit: '%', invertGood: true, referenceUnavailable: industryBenchmark.referenceStatus !== 'configured' || industryBenchmark.avgAdRate == null, basis: benchmarkBases?.adRate ?? null },
-          { name: 'ROAS', my: industryBenchmark.myRoas ?? null, avg: industryBenchmark.referenceStatus === 'configured' ? industryBenchmark.avgRoas ?? null : null, unit: '%', invertGood: false, referenceUnavailable: industryBenchmark.referenceStatus !== 'configured' || industryBenchmark.avgRoas == null, basis: benchmarkBases?.roas ?? null },
-          { name: 'CTR', my: industryBenchmark.myCtr ?? null, avg: industryBenchmark.referenceStatus === 'configured' ? industryBenchmark.avgCtr ?? null : null, unit: '%', invertGood: false, referenceUnavailable: industryBenchmark.referenceStatus !== 'configured' || industryBenchmark.avgCtr == null, basis: benchmarkBases?.ctr ?? null },
-          { name: 'CVR', my: industryBenchmark.myCvr ?? null, avg: industryBenchmark.referenceStatus === 'configured' ? industryBenchmark.avgCvr ?? null : null, unit: '%', invertGood: false, referenceUnavailable: industryBenchmark.referenceStatus !== 'configured' || industryBenchmark.avgCvr == null, basis: benchmarkBases?.cvr ?? null },
+          { name: '광고비율', my: industryBenchmark.myAdRate ?? null, unit: '%', basis: benchmarkBases?.adRate ?? null },
+          { name: 'ROAS', my: industryBenchmark.myRoas ?? null, unit: '%', basis: benchmarkBases?.roas ?? null },
+          { name: 'CTR', my: industryBenchmark.myCtr ?? null, unit: '%', basis: benchmarkBases?.ctr ?? null },
+          { name: 'CVR', my: industryBenchmark.myCvr ?? null, unit: '%', basis: benchmarkBases?.cvr ?? null },
         ] : null}
         hasTrend={hasTrend}
       />

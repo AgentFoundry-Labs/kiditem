@@ -1,6 +1,6 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { CurrentOrganization } from '../../../../../auth/decorators/current-organization.decorator';
-import { DashboardContextService } from '../../../application/service/dashboard-context.service';
+import { buildDashboardContext } from '../../../domain/context';
 import { DashboardSalesService } from '../../../application/service/dashboard-sales.service';
 import { DashboardAdService } from '../../../application/service/dashboard-ad.service';
 import { DashboardInventoryService } from '../../../application/service/dashboard-inventory.service';
@@ -16,7 +16,6 @@ import type {
 @Controller('dashboard')
 export class DashboardController {
   constructor(
-    private readonly contextService: DashboardContextService,
     private readonly salesService: DashboardSalesService,
     private readonly adService: DashboardAdService,
     private readonly inventoryService: DashboardInventoryService,
@@ -28,12 +27,7 @@ export class DashboardController {
     @Query() query: DashboardQueryDto,
     @CurrentOrganization() organizationId: string,
   ): Promise<DashboardSalesSummary> {
-    const ctx = await this.contextService.buildForQuery(
-      organizationId,
-      query.range,
-      query.from,
-      query.to,
-    );
+    const ctx = buildDashboardContext(query.range, query.from, query.to);
     return this.salesService.getSummary(ctx, organizationId);
   }
 
@@ -42,12 +36,7 @@ export class DashboardController {
     @Query() query: DashboardQueryDto,
     @CurrentOrganization() organizationId: string,
   ): Promise<DashboardAdSummary> {
-    const ctx = await this.contextService.buildForQuery(
-      organizationId,
-      query.range,
-      query.from,
-      query.to,
-    );
+    const ctx = buildDashboardContext(query.range, query.from, query.to);
     return this.adService.getSummary(ctx, organizationId);
   }
 
@@ -56,7 +45,7 @@ export class DashboardController {
     @CurrentOrganization() organizationId: string,
   ): Promise<DashboardInventorySummary> {
     // range-agnostic — snapshot only
-    const ctx = this.contextService.buildSnapshot();
+    const ctx = buildDashboardContext();
     return this.inventoryService.getSummary(ctx, organizationId);
   }
 
@@ -65,6 +54,7 @@ export class DashboardController {
     @Query() query: DashboardTrendQueryDto,
     @CurrentOrganization() organizationId: string,
   ): Promise<DashboardTrendItem[]> {
-    return this.trendService.getTrend(organizationId, query.range ?? '30d');
+    const ctx = buildDashboardContext();
+    return this.trendService.getTrend(ctx, organizationId, query.range ?? '30d');
   }
 }

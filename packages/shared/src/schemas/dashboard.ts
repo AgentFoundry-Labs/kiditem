@@ -37,25 +37,18 @@ export const DashboardSnapshotBasisStatusSchema = z.enum([
   'unknown',
 ]);
 
-const sortedUniqueDates = (values: readonly string[]) =>
-  values.every((value, index) => index === 0 || values[index - 1] < value)
-  && new Set(values).size === values.length;
-
-function enumerateDashboardDates(from: string, to: string): string[] {
-  const start = Date.parse(`${from}T00:00:00.000Z`);
-  const end = Date.parse(`${to}T00:00:00.000Z`);
-  if (!Number.isFinite(start) || !Number.isFinite(end) || start > end) return [];
-  const days = Math.floor((end - start) / 86_400_000) + 1;
-  return Array.from({ length: days }, (_, index) =>
-    new Date(start + index * 86_400_000).toISOString().slice(0, 10),
-  );
-}
-
 /**
  * Evidence basis for one period metric. `from`/`to` remain the selected
  * range; the actual usable date set is carried explicitly instead of being
  * inferred from a min/max interval. `invalidDates` are a subset of
  * `missingDates` and are never treated as collected zeroes.
+ *
+ * The cross-field invariants — the included/missing partition, `invalid ⊆
+ * missing`, sorted unique date arrays, and `status`/`partial` — are derived by
+ * `buildPeriodBasis` in `schemas/dashboard-basis.ts`, the one constructor the
+ * server authors these payloads with. This is a server-authored response
+ * schema, not an ingest schema, so it validates shape and leaves the derived
+ * relationships to their producer.
  */
 export const DashboardPeriodBasisSchema = z.object({
   kind: z.literal('period'),
@@ -72,69 +65,7 @@ export const DashboardPeriodBasisSchema = z.object({
   status: DashboardPeriodBasisStatusSchema,
   partial: z.boolean(),
   observedAt: zIsoDate.nullable(),
-}).strict().superRefine((basis, ctx) => {
-  const requestedDates = enumerateDashboardDates(basis.from, basis.to);
-  const requested = new Set(requestedDates);
-  const included = new Set(basis.includedDates);
-  const missing = new Set(basis.missingDates);
-  const invalid = new Set(basis.invalidDates);
-  const queryFailed = basis.queryFailedSources ?? [];
-
-  if (requestedDates.length === 0) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['from'], message: 'from must not be after to' });
-  }
-  if (basis.targetDays !== requestedDates.length) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['targetDays'], message: 'targetDays must match the selected date range' });
-  }
-  if (basis.includedDays !== basis.includedDates.length) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['includedDays'], message: 'includedDays must equal includedDates.length' });
-  }
-  for (const [name, values] of [
-    ['includedDates', basis.includedDates],
-    ['missingDates', basis.missingDates],
-    ['invalidDates', basis.invalidDates],
-  ] as const) {
-    if (!sortedUniqueDates(values)) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: [name], message: `${name} must be sorted and unique` });
-    }
-    for (const value of values) {
-      if (!requested.has(value)) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, path: [name], message: `${name} must stay inside the selected range` });
-      }
-    }
-  }
-  if (new Set(queryFailed).size !== queryFailed.length) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['queryFailedSources'], message: 'queryFailedSources must be unique' });
-  }
-  for (const value of included) {
-    if (missing.has(value)) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['includedDates'], message: 'includedDates and missingDates must be disjoint' });
-    }
-  }
-  for (const value of invalid) {
-    if (!missing.has(value)) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['invalidDates'], message: 'invalidDates must be a subset of missingDates' });
-    }
-  }
-  const partition = new Set([...included, ...missing]);
-  if (partition.size !== requested.size || [...requested].some((value) => !partition.has(value))) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['missingDates'], message: 'includedDates + missingDates must partition the selected range' });
-  }
-
-  const expectedPartial = basis.status === 'partial';
-  if (basis.partial !== expectedPartial) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['partial'], message: 'partial must agree with status' });
-  }
-  if (basis.status === 'complete' && (basis.includedDays !== basis.targetDays || missing.size > 0 || invalid.size > 0)) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['status'], message: 'complete requires valid evidence for every selected date' });
-  }
-  if (basis.status === 'partial' && (basis.includedDays === 0 || missing.size === 0)) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['status'], message: 'partial requires included and missing dates' });
-  }
-  if (basis.status === 'empty' && basis.includedDays !== 0) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['status'], message: 'empty cannot contain included dates' });
-  }
-});
+}).strict();
 
 export const DashboardSnapshotBasisSchema = z.object({
   kind: z.literal('snapshot'),
@@ -151,71 +82,12 @@ export const DashboardComparisonBasisSchema = z.object({
   matchedOffsets: z.array(z.number().int().nonnegative()),
   status: z.enum(['comparable', 'unavailable']),
   reason: z.string().trim().min(1).nullable(),
-}).strict().superRefine((basis, ctx) => {
-  const currentIncluded = new Set(basis.current.includedDates);
-  const previousIncluded = new Set(basis.previous.includedDates);
-  const currentStart = Date.parse(`${basis.current.from}T00:00:00.000Z`);
-  const previousStart = Date.parse(`${basis.previous.from}T00:00:00.000Z`);
-  const offsetsAreSortedUnique = basis.matchedOffsets.every(
-    (offset, index) => index === 0 || basis.matchedOffsets[index - 1] < offset,
-  );
-  if (!sortedUniqueDates(basis.current.includedDates) || !sortedUniqueDates(basis.previous.includedDates)) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['matchedOffsets'], message: 'comparison inputs must use sorted date evidence' });
-  }
-  if (!offsetsAreSortedUnique) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['matchedOffsets'], message: 'matchedOffsets must be sorted and unique' });
-  }
-  for (const offset of basis.matchedOffsets) {
-    // Check the array bounds and safe integer contract before doing date
-    // arithmetic. `Date#toISOString()` throws for an out-of-range timestamp;
-    // malformed comparison input must remain a normal safeParse(false).
-    const offsetInRange = Number.isSafeInteger(offset)
-      && offset < basis.current.targetDays
-      && offset < basis.previous.targetDays;
-    const currentDate = offsetInRange
-      ? safeDateAtOffset(currentStart, offset)
-      : null;
-    const previousDate = offsetInRange
-      ? safeDateAtOffset(previousStart, offset)
-      : null;
-    if (
-      !offsetInRange
-      || currentDate === null
-      || previousDate === null
-      || !currentIncluded.has(currentDate)
-      || !previousIncluded.has(previousDate)
-    ) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['matchedOffsets'], message: 'matchedOffsets must identify available dates in both periods' });
-    }
-  }
-  if (basis.status === 'comparable' && basis.matchedOffsets.length === 0) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['status'], message: 'comparable requires at least one matched offset' });
-  }
-  if (
-    basis.status === 'comparable'
-    && (basis.current.status === 'unverified' || basis.previous.status === 'unverified')
-  ) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['status'], message: 'unverified periods cannot be comparable' });
-  }
-  if (basis.status === 'comparable' && basis.reason !== null) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['reason'], message: 'comparable comparisons cannot carry an unavailable reason' });
-  }
-  if (basis.status === 'unavailable' && (basis.matchedOffsets.length > 0 || !basis.reason)) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['reason'], message: 'unavailable comparisons require no matched offsets and a reason' });
-  }
-});
+}).strict();
 
-function safeDateAtOffset(start: number, offset: number): string | null {
-  if (!Number.isFinite(start) || !Number.isSafeInteger(offset)) return null;
-  const timestamp = start + offset * 86_400_000;
-  if (!Number.isFinite(timestamp) || Math.abs(timestamp) > 8.64e15) return null;
-  const date = new Date(timestamp);
-  return Number.isNaN(date.getTime()) ? null : date.toISOString().slice(0, 10);
-}
-
-// The period/comparison refinements are ZodEffects, so a regular union keeps
-// the runtime discriminator while still running their cross-field checks.
-export const DashboardMetricBasisSchema = z.union([
+// All three bases are plain strict objects now that their cross-field
+// invariants are guaranteed by their constructor, so `kind` can discriminate
+// and a malformed basis reports the one branch's real error.
+export const DashboardMetricBasisSchema = z.discriminatedUnion('kind', [
   DashboardPeriodBasisSchema,
   DashboardSnapshotBasisSchema,
   DashboardComparisonBasisSchema,
@@ -241,11 +113,7 @@ export const DashboardProfitInputsSchema = z.object({
   adCost: z.number().finite(),
   qty: z.number().finite().nullable(),
   basis: DashboardPeriodBasisSchema,
-}).strict().superRefine((inputs, ctx) => {
-  if (inputs.basis.includedDays === 0) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['basis'], message: 'empty evidence cannot support numeric profit inputs' });
-  }
-});
+}).strict();
 
 // schemas/dashboard.ts: DashboardAlertItemSchema — dashboard card projection
 // (nullable+optional targetType/targetId; server may omit them when a card row has no polymorphic target).
@@ -297,7 +165,8 @@ export const ProfitBreakdownSchema = z.object({
   shippingCost: z.number(),
   adCost: z.number(),
   otherCost: z.number(),
-  netProfit: z.number(),
+  /** Null when a cost input is unavailable; never a measured zero. */
+  netProfit: z.number().nullable(),
   orderCount: z.number(),
   metricBasis: DashboardMetricBasisMapSchema.optional(),
 });
@@ -374,14 +243,6 @@ export const GradeChangesSchema = z.object({
   total: z.number(),
 });
 
-export const DataFreshnessSchema = z.object({
-  lastSync: z.string().nullable(),
-  attributionWindow: z.string(),
-  attributionWindowDays: z.number().optional(),
-  confirmedUntil: z.string().nullable().optional(),
-  note: z.string().optional(),
-});
-
 export const WarningsSchema = z.object({
   minusProducts: z.number(),
   lowProfitProducts: z.number(),
@@ -424,19 +285,13 @@ export const AdMetricSourceSchema = z.enum([
   'unavailable',
 ]);
 
+// Our own measured ratios only. There is no configured industry reference
+// data source, so the card carries no comparison figures.
 export const IndustryBenchmarkSchema = z.object({
-  avgAdRate: z.number(),
-  avgProfitRate: z.number(),
-  avgRoas: z.number(),
-  avgCtr: z.number(),
-  avgCvr: z.number().optional(),
   myAdRate: z.number().optional(),
   myRoas: z.number().optional(),
   myCtr: z.number().optional(),
-  adRateVsIndustry: z.string().optional(),
-  roasVsIndustry: z.string().optional(),
   myCvr: z.number().nullable().optional(),
-  referenceStatus: z.enum(['configured', 'unavailable', 'unknown']).optional(),
   metricBasis: DashboardMetricBasisMapSchema.optional(),
 });
 
@@ -627,7 +482,6 @@ export const DashboardInventorySummarySchema = z.object({
   alerts: z.array(DashboardAlertItemSchema),
   warnings: WarningsSchema,
   gradeChanges: GradeChangesSchema.optional(),
-  dataFreshness: DataFreshnessSchema.optional(),
   metricBasis: DashboardMetricBasisMapSchema.optional(),
 });
 
@@ -988,7 +842,6 @@ export type IndustryBenchmark = z.infer<typeof IndustryBenchmarkSchema>;
 export type AdMetricsDetail = z.infer<typeof AdMetricsDetailSchema>;
 export type PlanAchievement = z.infer<typeof PlanAchievementSchema>;
 export type GradeChanges = z.infer<typeof GradeChangesSchema>;
-export type DataFreshness = z.infer<typeof DataFreshnessSchema>;
 export type WingAdSummary = z.infer<typeof WingAdSummarySchema>;
 
 // Sellpia 판매현황(몰별 매출)

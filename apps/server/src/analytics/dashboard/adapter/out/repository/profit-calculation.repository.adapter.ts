@@ -13,20 +13,35 @@
 // Ad metrics are read only through the Advertising owner publication port.
 // ChannelListingDailySnapshot is deliberately not an account-ad source: its
 // listing/traffic rows cannot prove complete account coverage.
+//
+// The owner answers with an evidence word, not just a row set, and this
+// adapter consumes that word instead of inferring intent from an empty array:
+// `NOT_APPLIED` (no advertising account) means advertising is not a required
+// input, so ad cost is a genuine 0 and profit is still publishable, while
+// `MISSING` stays absent evidence that withholds profit. A failed read is
+// distinct from both and keeps `adEvidenceError`.
 
-import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../../../prisma/prisma.service';
-import { kstBusinessDate } from '../../../../../common/kst';
+import {
+  businessDateText,
+  type ResolvedDashboardPeriod,
+} from '../../../domain/period/dashboard-period';
 import {
   AD_ACCOUNT_DAILY_KPI_READ_PORT,
   type AdAccountDailyKpiReadPort,
 } from '../../../../../advertising/application/port/in/ad-account-daily-kpi-source.port';
-import type { AdAccountDailyKpiPublishedRow } from '@kiditem/shared/advertising';
+import type {
+  AdAccountDailyKpiPublished,
+  AdAccountDailyKpiPublishedEvidence,
+  AdAccountDailyKpiPublishedRow,
+} from '@kiditem/shared/advertising';
 import type {
   DailyProfitMetrics,
   ProfitCostIncompleteReason,
   ProfitEvidenceError,
   ProfitCalculationRepositoryPort,
+  ProfitSourceCoverage,
   RangeProfitMetrics,
 } from '../../../application/port/out/repository/profit-calculation.repository.port';
 
@@ -44,13 +59,15 @@ export class ProfitCalculationRepositoryAdapter
 
   async calculateForRange(
     organizationId: string,
-    from: Date,
-    to: Date,
+    period: ResolvedDashboardPeriod,
   ): Promise<RangeProfitMetrics> {
+    const { from, to } = period.queryWindow;
     if (from.getTime() >= to.getTime()) {
       return emptyRangeProfitMetrics();
     }
-    const { from: businessFrom, to: businessTo } = businessDateBounds(from, to);
+    // The caller resolved which KST business dates this window covers; the
+    // adapter reads that set instead of re-deriving date keys of its own.
+    const requestedDates = period.selectedDates;
     const orders = await this.prisma.order.findMany({
       where: {
         organizationId,
@@ -58,6 +75,7 @@ export class ProfitCalculationRepositoryAdapter
         status: { notIn: ['cancelled', 'returned', 'refunded'] },
       },
       select: {
+        orderedAt: true,
         shippingPrice: true,
         lineItems: {
           select: {
@@ -91,12 +109,16 @@ export class ProfitCalculationRepositoryAdapter
     let otherCost = 0;
     const orderCount = orders.length;
     const costIncompleteReasons = new Set<ProfitCostIncompleteReason>();
+    const orderedDates = new Set<string>();
 
     for (const o of orders) {
       // Channel ingestion stores a missing provider shipping value as 0.
       // A positive order-level value is actual order evidence and must not be
       // combined with the configured per-option fallback.
       const hasOrderShippingEvidence = o.shippingPrice > 0;
+      // An admitted order is date evidence even when it carries no line item
+      // or a collected zero; the row itself proves the date was observed.
+      orderedDates.add(businessDateText(o.orderedAt));
       if (hasOrderShippingEvidence) shippingCost += o.shippingPrice;
       for (const li of o.lineItems) {
         revenue += li.totalPrice || 0;
@@ -109,28 +131,22 @@ export class ProfitCalculationRepositoryAdapter
       }
     }
 
-    let adRows: AdAccountDailyKpiPublishedRow[] = [];
-    let adEvidenceError: ProfitEvidenceError | undefined;
-    try {
-      adRows = await this.readPublishedAds(
-        organizationId,
-        businessDateRange(businessFrom, businessTo),
-      );
-    } catch (error) {
-      this.logger.warn({
-        msg: 'dashboard-profit.ad-evidence-unavailable',
-        organizationId,
-        error: error instanceof Error ? error.message : 'unknown error',
-      });
-      adEvidenceError = 'AD_EVIDENCE_READ_FAILED';
-    }
+    const published = await this.readPublishedAds(organizationId, requestedDates);
+    const adRows = published.rows;
+    const adEvidence = published.evidence;
+    const adEvidenceError = published.error;
     const adTotals = sumAdRows(adRows);
     const costComplete = costIncompleteReasons.size === 0;
-    const adEvidenceComplete = !adEvidenceError && hasCompleteAdCoverage(
-      businessFrom,
-      businessTo,
-      adRows,
-    );
+    const sourceCoverage: ProfitSourceCoverage = {
+      requestedDates,
+      orderDates: coveredDates(requestedDates, orderedDates),
+      // A failed ad read leaves `adRows` empty, and so does `NOT_APPLIED`.
+      // `adEvidence` is what keeps those apart from an account that published
+      // nothing; no date is ever synthesized to close the equality below.
+      adDates: coveredDates(requestedDates, adRows.map((row) => row.businessDate)),
+      adEvidence,
+    };
+    const adEvidenceComplete = isAdEvidenceComplete(sourceCoverage);
     const netProfit = costComplete && adEvidenceComplete
       ? revenue - costOfGoods - commission - shippingCost - adTotals.adCost - otherCost
       : null;
@@ -156,6 +172,7 @@ export class ProfitCalculationRepositoryAdapter
       costIncompleteReasons: [...costIncompleteReasons],
       adEvidenceComplete,
       ...(adEvidenceError ? { adEvidenceError } : {}),
+      sourceCoverage,
     } satisfies RangeProfitMetrics;
   }
 
@@ -167,13 +184,11 @@ export class ProfitCalculationRepositoryAdapter
    */
   async calculateDailyForRange(
     organizationId: string,
-    from: Date,
-    to: Date,
+    period: ResolvedDashboardPeriod,
   ): Promise<DailyProfitMetrics[]> {
+    const { from, to } = period.queryWindow;
     if (from.getTime() >= to.getTime()) return [];
-    const { from: businessFrom, to: businessTo } = businessDateBounds(from, to);
-    const businessFromText = dateText(businessFrom);
-    const businessToText = dateText(businessTo);
+    const requestedDates = period.selectedDates;
     const orders = await this.prisma.order.findMany({
         where: {
           organizationId,
@@ -207,27 +222,17 @@ export class ProfitCalculationRepositoryAdapter
           },
         },
       });
-    let adRows: AdAccountDailyKpiPublishedRow[] = [];
-    let adEvidenceError: ProfitEvidenceError | undefined;
-    try {
-      adRows = await this.readPublishedAds(
-        organizationId,
-        businessDateRange(businessFrom, businessTo),
-      );
-    } catch (error) {
-      this.logger.warn({
-        msg: 'dashboard-profit.ad-evidence-unavailable',
-        organizationId,
-        error: error instanceof Error ? error.message : 'unknown error',
-      });
-      adEvidenceError = 'AD_EVIDENCE_READ_FAILED';
-    }
+    const published = await this.readPublishedAds(organizationId, requestedDates);
+    const adRows = published.rows;
+    const adEvidence = published.evidence;
+    const adEvidenceError = published.error;
 
+    const requested = new Set(requestedDates);
     const byDate = new Map<string, MutableDailyProfitMetrics>();
     for (const order of orders) {
-      const date = kstDateText(order.orderedAt);
-      if (date < businessFromText || date >= businessToText) continue;
-      const metrics = byDate.get(date) ?? createDailyProfitMetrics(date);
+      const date = businessDateText(order.orderedAt);
+      if (!requested.has(date)) continue;
+      const metrics = byDate.get(date) ?? createDailyProfitMetrics(date, adEvidence);
       metrics.hasOrderEvidence = true;
       metrics.orderCount += 1;
       if (order.shippingPrice > 0) {
@@ -252,22 +257,31 @@ export class ProfitCalculationRepositoryAdapter
       // no natural daily row). Synthetic evidence rows are deliberately
       // order/ad-empty; the dashboard uses the error marker only to publish
       // unverified basis metadata, never as a zero-valued metric.
-      for (
-        let cursor = businessFrom;
-        cursor.getTime() < businessTo.getTime();
-        cursor = new Date(cursor.getTime() + 86_400_000)
-      ) {
-        const date = dateText(cursor);
-        const metrics = byDate.get(date) ?? createDailyProfitMetrics(date);
+      for (const date of requestedDates) {
+        const metrics = byDate.get(date) ?? createDailyProfitMetrics(date, adEvidence);
         metrics.adEvidenceError = adEvidenceError;
         byDate.set(date, metrics);
       }
     }
 
+    if (adEvidence === 'NOT_APPLIED') {
+      // No advertising account exists, so no ad fact can ever be published for
+      // these days. That is a genuine zero rather than an unknown: the additive
+      // ad metrics settle at 0 while `hasAdEvidence` stays false, because there
+      // is still no ad row behind them.
+      for (const metrics of byDate.values()) {
+        metrics.adCost = 0;
+        metrics.adRevenue = 0;
+        metrics.adImpressions = 0;
+        metrics.adClicks = 0;
+        metrics.adConversions = 0;
+      }
+    }
+
     for (const adRow of adRows) {
       const date = adRow.businessDate;
-      if (date < businessFromText || date >= businessToText) continue;
-      const metrics = byDate.get(date) ?? createDailyProfitMetrics(date);
+      if (!requested.has(date)) continue;
+      const metrics = byDate.get(date) ?? createDailyProfitMetrics(date, adEvidence);
       metrics.adEvidenceError = adEvidenceError;
       metrics.hasAdEvidence = true;
       metrics.adCost = (metrics.adCost ?? 0) + adRow.normalized.adSpend;
@@ -286,8 +300,12 @@ export class ProfitCalculationRepositoryAdapter
           + metrics.shippingCost
           + metrics.otherCost;
         const costComplete = metrics.costIncompleteReasons.size === 0;
+        // `NOT_APPLIED` satisfies the ad input without an ad row; every other
+        // word still needs same-date evidence, so `MISSING` keeps withholding.
+        const adSatisfied = metrics.adEvidence === 'NOT_APPLIED'
+          || metrics.hasAdEvidence;
         const complete = metrics.hasOrderEvidence
-          && metrics.hasAdEvidence
+          && adSatisfied
           && costComplete
           && !metrics.adEvidenceError;
         const netProfit = complete
@@ -319,28 +337,57 @@ export class ProfitCalculationRepositoryAdapter
       });
   }
 
+  /**
+   * Read the owner publication for the window, keeping its evidence word.
+   * An organization with no advertising account is answered by the owner as
+   * `NOT_APPLIED`; it is no longer a `COUPANG_ACCOUNT_NOT_FOUND` failure to
+   * swallow, and swallowing it here is what made "does not advertise",
+   * "never collected", and "collected zeros" one indistinguishable state.
+   */
   private async readPublishedAds(
     organizationId: string,
-    range: { from: string; to: string },
-  ): Promise<AdAccountDailyKpiPublishedRow[]> {
-    try {
-      return (
-        await this.adAccountDailyKpiRead.readPublished({
-          organizationId,
-          from: range.from,
-          to: range.to,
-        })
-      ).rows;
-    } catch (error) {
-      if (
-        error instanceof NotFoundException
-        && error.message === 'COUPANG_ACCOUNT_NOT_FOUND'
-      ) {
-        return [];
-      }
-      throw error;
+    requestedDates: readonly string[],
+  ): Promise<{
+    rows: AdAccountDailyKpiPublishedRow[];
+    evidence: AdAccountDailyKpiPublishedEvidence;
+    error?: ProfitEvidenceError;
+  }> {
+    if (requestedDates.length === 0) {
+      // A degenerate window asks the owner nothing, so it proves nothing:
+      // absent evidence, exactly like an account that published nothing.
+      return { rows: [], evidence: 'MISSING' };
     }
+    const range = publishedDateRange(requestedDates);
+    let published: AdAccountDailyKpiPublished;
+    try {
+      published = await this.adAccountDailyKpiRead.readPublished({
+        organizationId,
+        from: range.from,
+        to: range.to,
+      });
+    } catch (error) {
+      this.logger.warn({
+        msg: 'dashboard-profit.ad-evidence-unavailable',
+        organizationId,
+        error: error instanceof Error ? error.message : 'unknown error',
+      });
+      return { rows: [], evidence: 'MISSING', error: 'AD_EVIDENCE_READ_FAILED' };
+    }
+    return { rows: published.rows, evidence: published.evidence };
   }
+}
+
+/**
+ * Advertising is a satisfied input when the owner published a row for every
+ * requested business day, or when advertising does not apply to the
+ * organization at all. `MISSING` — an account that published nothing, or a
+ * window the owner was never asked about — is not satisfied: it is not an
+ * advertising cost of zero.
+ */
+function isAdEvidenceComplete(coverage: ProfitSourceCoverage): boolean {
+  if (coverage.requestedDates.length === 0) return false;
+  if (coverage.adEvidence === 'NOT_APPLIED') return true;
+  return coverage.adDates.length === coverage.requestedDates.length;
 }
 
 interface MutableDailyProfitMetrics {
@@ -360,12 +407,17 @@ interface MutableDailyProfitMetrics {
   hasOrderEvidence: boolean;
   hasAdEvidence: boolean;
   costIncompleteReasons: Set<ProfitCostIncompleteReason>;
+  adEvidence: AdAccountDailyKpiPublishedEvidence;
   adEvidenceError?: ProfitEvidenceError;
 }
 
-function createDailyProfitMetrics(date: string): MutableDailyProfitMetrics {
+function createDailyProfitMetrics(
+  date: string,
+  adEvidence: AdAccountDailyKpiPublishedEvidence,
+): MutableDailyProfitMetrics {
   return {
     date,
+    adEvidence,
     revenue: 0,
     qty: 0,
     costOfGoods: 0,
@@ -384,29 +436,17 @@ function createDailyProfitMetrics(date: string): MutableDailyProfitMetrics {
   };
 }
 
-function kstDateText(value: Date): string {
-  return kstBusinessDate(value).toISOString().slice(0, 10);
-}
-
-function dateText(value: Date): string {
-  return value.toISOString().slice(0, 10);
-}
-
-/** Convert timestamp half-open bounds to the inclusive business-date keys they touch. */
-function businessDateBounds(from: Date, to: Date): { from: Date; to: Date } {
-  const first = kstBusinessDate(from);
-  const last = kstBusinessDate(new Date(to.getTime() - 1));
-  const exclusive = new Date(last.getTime() + 86_400_000);
-  return { from: first, to: exclusive };
-}
-
-function businessDateRange(
-  from: Date,
-  toExclusive: Date,
+/**
+ * Inclusive owner-read bounds for a resolved date set. An empty set cannot be
+ * read as a range; callers never reach here with one because both entrypoints
+ * return early on an empty window.
+ */
+function publishedDateRange(
+  requestedDates: readonly string[],
 ): { from: string; to: string } {
   return {
-    from: dateText(from),
-    to: dateText(new Date(toExclusive.getTime() - 86_400_000)),
+    from: requestedDates[0] ?? '0001-01-01',
+    to: requestedDates[requestedDates.length - 1] ?? '0001-01-01',
   };
 }
 
@@ -514,20 +554,17 @@ function sumAdRows(rows: readonly AdAccountDailyKpiPublishedRow[]) {
   );
 }
 
-function hasCompleteAdCoverage(
-  from: Date,
-  toExclusive: Date,
-  rows: readonly AdAccountDailyKpiPublishedRow[],
-): boolean {
-  const available = new Set(rows.map((row) => row.businessDate));
-  for (
-    let cursor = from;
-    cursor.getTime() < toExclusive.getTime();
-    cursor = new Date(cursor.getTime() + 86_400_000)
-  ) {
-    if (!available.has(dateText(cursor))) return false;
-  }
-  return from.getTime() < toExclusive.getTime();
+/**
+ * Project observed dates onto the requested window. Filtering the enumeration
+ * keeps the result sorted, unique, and inside `[from, to]` — the partition the
+ * period-basis contract asserts on.
+ */
+function coveredDates(
+  requestedDates: readonly string[],
+  observed: Iterable<string>,
+): string[] {
+  const available = new Set(observed);
+  return requestedDates.filter((date) => available.has(date));
 }
 
 function emptyRangeProfitMetrics(): RangeProfitMetrics {
@@ -548,5 +585,11 @@ function emptyRangeProfitMetrics(): RangeProfitMetrics {
     costComplete: false,
     costIncompleteReasons: [],
     adEvidenceComplete: false,
+    sourceCoverage: {
+      requestedDates: [],
+      orderDates: [],
+      adDates: [],
+      adEvidence: 'MISSING',
+    },
   };
 }
