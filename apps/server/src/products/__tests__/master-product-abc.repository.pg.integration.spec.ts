@@ -317,14 +317,44 @@ describe('MasterProductAbcRepositoryAdapter (PostgreSQL)', () => {
     })).resolves.toBe(0);
   });
 
-  it('rejects a source attempt that stopped being the latest COMPLETE attempt', async () => {
+  // KID-46: a collection that is still running, or that failed, published no
+  // generation. The complete generation it sits on top of stays valid.
+  it.each(['running', 'failed'])(
+    'publishes on a complete generation under a newer %s attempt',
+    async (status) => {
+      const { productId, formulaVersionId, sources } = await fixture(prisma);
+      await prisma.sourceImportRun.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          sourceType: 'sellpia_product_profitability',
+          status,
+          idempotencyKey: `abc-${status}-${randomUUID()}`,
+        },
+      });
+
+      await expect(repository.publish(publication({
+        formulaVersionId,
+        sourceFences: sources,
+        targetProductIds: [productId],
+        candidates: [candidate(productId, sources, 'A')],
+      }))).resolves.toMatchObject({ outcome: 'PUBLISHED', publicationRevision: 1 });
+      await expect(prisma.masterProduct.findUniqueOrThrow({ where: { id: productId } }))
+        .resolves.toMatchObject({ abcGrade: 'A' });
+    },
+  );
+
+  it('rejects a source generation replaced by a newer complete publication', async () => {
     const { productId, formulaVersionId, sources } = await fixture(prisma);
     await prisma.sourceImportRun.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         sourceType: 'sellpia_product_profitability',
-        status: 'running',
-        idempotencyKey: `abc-running-${randomUUID()}`,
+        status: 'completed',
+        idempotencyKey: `abc-corrected-${randomUUID()}`,
+        publicationSequence: 9_999n,
+        mappingGeneration: 0n,
+        coverageStartDate: new Date('2026-01-01T00:00:00.000Z'),
+        coverageEndDate: new Date(`${CUTOFF}T00:00:00.000Z`),
       },
     });
 

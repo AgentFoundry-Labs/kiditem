@@ -162,28 +162,43 @@ describe('MasterProductAbcService', () => {
 
   it('returns SOURCE_NOT_READY and performs no publication write', async () => {
     const products = repository();
+    // No compatible complete pair: the sources never agreed on a cutoff, so
+    // there is nothing to evaluate at any cutoff. Freshness alone is not this
+    // case — a lagging but complete source publishes.
     const { service } = serviceWith(products, snapshot([{
       masterProductId: productA,
       revenue: 1_000_000,
       cost: 200_000,
     }], {
+      actualCutoff: null,
+      mappingGeneration: null,
+      sourceVector: {
+        ...snapshot([], {}).sourceVector,
+        advertising: {
+          sourceImportRunId: null,
+          publicationSequence: null,
+          mappingGeneration: null,
+          coverageStartDate: null,
+          coverageEndDate: null,
+          capturedAt: null,
+        },
+      },
       sources: {
         ...snapshot([], {}).sources,
         advertising: {
-          status: 'STALE',
-          actualCutoff: '2026-07-31',
+          status: 'MISSING',
+          actualCutoff: null,
           latestAttemptState: 'FAILED',
           errorCode: 'COLLECTION_FAILED',
         },
       },
-      actualCutoff: '2026-07-31',
     }));
 
     await expect(service.recalculate({ organizationId })).resolves.toMatchObject({
       outcome: 'SOURCE_NOT_READY',
       publicationRevision: 0,
-      actualCutoff: '2026-07-31',
-      sources: { advertising: { status: 'STALE', errorCode: 'COLLECTION_FAILED' } },
+      actualCutoff: null,
+      sources: { advertising: { status: 'MISSING', errorCode: 'COLLECTION_FAILED' } },
     });
     expect(products.publish).not.toHaveBeenCalled();
   });

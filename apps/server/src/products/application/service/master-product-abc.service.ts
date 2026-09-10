@@ -55,7 +55,8 @@ export class MasterProductAbcService implements MasterProductAbcRecalculationPor
       organizationId: input.organizationId,
       targetCutoff,
     });
-    if (!isReadyForPublication(snapshot, state.mappingGeneration, targetCutoff)) {
+    if (!hasCompatibleCompleteEvidence(snapshot, state.mappingGeneration)
+      || movesOfficialCutoffBackward(snapshot.actualCutoff, state.officialCutoffDate)) {
       return {
         outcome: 'SOURCE_NOT_READY',
         publicationRevision: state.publicationRevision,
@@ -174,30 +175,50 @@ function isEligibleEvidence(
     && evidence.formulaReadyFacts !== null;
 }
 
-function isReadyForPublication(
+/**
+ * Admits valid evidence, not fresh evidence.
+ *
+ * The profitability owner selects the newest cutoff every source verifiably
+ * reaches; ABC publishes at that actual cutoff even when it stops short of the
+ * desired one. Freshness signals — `sources[x].status`, a newer RUNNING or
+ * FAILED attempt over a source that already published a complete generation —
+ * are reported to the caller and displayed, never an admission gate. Only real
+ * incompatibility refuses: no compatible pair at all, sources that no longer
+ * agree with the organization's mapping generation, or a selected manifest
+ * whose coverage does not reach its own cutoff.
+ */
+function hasCompatibleCompleteEvidence(
   snapshot: ProfitabilityEvidenceSnapshot,
   mappingGeneration: string,
-  targetCutoff: string,
 ): boolean {
-  if (
-    snapshot.actualCutoff === null
-    || snapshot.mappingGeneration !== mappingGeneration
-    || snapshot.actualCutoff !== targetCutoff
-  ) return false;
+  const actualCutoff = snapshot.actualCutoff;
+  if (actualCutoff === null || snapshot.mappingGeneration !== mappingGeneration) return false;
 
-  for (const source of [snapshot.sources.sellpia, snapshot.sources.advertising]) {
-    if (source.status !== 'READY'
-      || source.latestAttemptState !== 'COMPLETE'
-      || source.actualCutoff !== targetCutoff) return false;
-  }
   for (const source of [snapshot.sourceVector.sellpia, snapshot.sourceVector.advertising]) {
     if (!source.sourceImportRunId
       || !source.publicationSequence
       || source.mappingGeneration !== mappingGeneration
       || !source.coverageEndDate
-      || source.coverageEndDate < targetCutoff) return false;
+      || source.coverageEndDate < actualCutoff) return false;
   }
   return true;
+}
+
+/**
+ * An official result never moves back in time.
+ *
+ * Evidence that stops before the published cutoff would replace a settled
+ * grade with an older one, so the published result stands and the command
+ * reports both cutoffs — the retained official one and the older cutoff the
+ * evidence currently reaches.
+ */
+function movesOfficialCutoffBackward(
+  actualCutoff: string | null,
+  officialCutoffDate: string | null,
+): boolean {
+  return actualCutoff !== null
+    && officialCutoffDate !== null
+    && actualCutoff < officialCutoffDate;
 }
 
 function assertOrganizationId(organizationId: string): void {

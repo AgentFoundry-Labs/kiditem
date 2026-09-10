@@ -45,12 +45,10 @@ type SourceRunRow = Readonly<{
   mappingGeneration: string | null;
   coverageStartDate: CalendarValue;
   coverageEndDate: CalendarValue;
-  status: string;
   expiresAt: CalendarValue;
 }>;
 
 type SourceFence = Readonly<{
-  latest: SourceRunRow | null;
   complete: SourceRunRow | null;
 }>;
 
@@ -136,7 +134,10 @@ async function publishTx(
     dateKey(advertising.complete?.coverageEndDate ?? null),
     input.targetCutoff,
   );
-  if (actualCutoff !== input.actualCutoff || actualCutoff < input.targetCutoff) {
+  // The cutoff the committed source rows still reach must be the one the
+  // caller evaluated. It may legitimately stop short of the desired cutoff;
+  // the official result only may not move backward from there.
+  if (actualCutoff !== input.actualCutoff) {
     return inputChanged();
   }
   const officialCutoff = dateKey(state.officialCutoffDate);
@@ -391,27 +392,12 @@ async function readSourceFence(
   organizationId: string,
   sourceType: string,
 ): Promise<SourceFence> {
-  const latest = await tx.$queryRaw<SourceRunRow[]>(Prisma.sql`
-    SELECT id AS "sourceImportRunId",
-           publication_sequence::text AS "publicationSequence",
-           mapping_generation::text AS "mappingGeneration",
-           coverage_start_date AS "coverageStartDate",
-           coverage_end_date AS "coverageEndDate",
-           status,
-           expires_at AS "expiresAt"
-    FROM source_import_runs
-    WHERE organization_id = ${organizationId}::uuid
-      AND source_type = ${sourceType}
-    ORDER BY created_at DESC, id DESC
-    LIMIT 1
-  `);
   const complete = await tx.$queryRaw<SourceRunRow[]>(Prisma.sql`
     SELECT id AS "sourceImportRunId",
            publication_sequence::text AS "publicationSequence",
            mapping_generation::text AS "mappingGeneration",
            coverage_start_date AS "coverageStartDate",
            coverage_end_date AS "coverageEndDate",
-           status,
            expires_at AS "expiresAt"
     FROM source_import_runs
     WHERE organization_id = ${organizationId}::uuid
@@ -421,7 +407,7 @@ async function readSourceFence(
     ORDER BY publication_sequence DESC, id DESC
     LIMIT 1
   `);
-  return { latest: latest[0] ?? null, complete: complete[0] ?? null };
+  return { complete: complete[0] ?? null };
 }
 
 async function readFormulaState(
@@ -498,17 +484,22 @@ function sourceSelectionsMatchMapping(input: ProductAbcPublicationInput): boolea
     && selectedComplete.mappingGeneration === input.mappingGeneration);
 }
 
+/**
+ * Fences the published generation, not the collection batch.
+ *
+ * The evaluated generation must still be the newest complete publication the
+ * source owner exposes, with an unchanged manifest — that is what a real
+ * source correction or replacement moves. A newer attempt that is still
+ * RUNNING, or that FAILED, publishes no generation and so leaves this
+ * evidence valid.
+ */
 function sourceFenceMatches(
   current: SourceFence,
   expected: MasterProductAbcSourceFence,
 ): boolean {
   const complete = current.complete;
-  const latest = current.latest;
   const selected = expected.selectedComplete;
-  return latest !== null
-    && complete !== null
-    && latest.status === 'completed'
-    && latest.sourceImportRunId === selected.sourceImportRunId
+  return complete !== null
     && complete.sourceImportRunId === selected.sourceImportRunId
     && sourceRunMatchesView(complete, selected);
 }
