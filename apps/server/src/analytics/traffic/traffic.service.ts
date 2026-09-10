@@ -61,7 +61,7 @@ interface DayRevenue {
  * traffic domain owns its own ingest entrypoint (controller route `POST
  * /api/traffic/upload`) — kept separate from advertising source-owner APIs because
  * the upload flow is operator-driven (not extension-pushed) and the
- * cross-domain service injection is forbidden by `apps/server/AGENTS.md`.
+ * cross-domain service injection is forbidden by `apps/server/CLAUDE.md`.
  * Inline use of the same low-level Prisma primitives keeps the domain
  * boundary clean.
  *

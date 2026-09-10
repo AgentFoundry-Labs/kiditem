@@ -216,7 +216,7 @@ a new stock calculation.
 - Rocket preview and workbook DTOs remove commitment-facing fields.
 - Generic Inventory availability and commitment capabilities remain available
   to other domains until separately redesigned.
-- Rocket-specific scoped `AGENTS.md` contracts, PR body, and PR comments must be
+- Rocket-specific scoped `CLAUDE.md` contracts, PR body, and PR comments must be
   updated to describe workbook serialization instead of capacity reservation.
 - Physical schema compatibility should be preserved where possible through
   mapped logical names. Any required schema change follows the repository's

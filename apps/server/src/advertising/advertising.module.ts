@@ -89,7 +89,7 @@ import { WingTrackedProductService } from "./application/service/wing-tracked-pr
 import { CoupangMomentumReadService } from "./application/service/coupang-momentum-read.service";
 import { KeywordRankIngestHandler } from "./application/service/keyword-rank-ingest.handler";
 import { WingSalesRankIngestHandler } from "./application/service/wing-sales-rank-ingest.handler";
-// transitional facade — grandfathered by AGENTS.md
+// transitional facade — grandfathered by CLAUDE.md
 import { ChannelScrapePersistenceService } from "./services/channel-scrape-persistence.service";
 // application/port/out tokens
 import { AD_CONFIG_REPOSITORY_PORT } from "./application/port/out/repository/ad-config.repository.port";

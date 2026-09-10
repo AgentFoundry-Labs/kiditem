@@ -258,7 +258,7 @@ export class RulesService {
     data: { threshold?: unknown; active?: boolean; autoExecute?: boolean },
   ) {
     // Tenant-scoped read first — IDOR prevention. Mirrors AlertsService.markAsRead
-    // and the kiditem standard pattern in apps/server/AGENTS.md
+    // and the kiditem standard pattern in apps/server/CLAUDE.md
     // (멀티테넌트 격리 — 회사 스코프).
     const existing = await this.prisma.businessRule.findFirst({
       where: { id, organizationId },

@@ -22,7 +22,7 @@
 3. `Sellpia 동기화`, `로켓 수동 처리` 탭과 두 탭만을 위한 UI 코드를 제거한다.
 4. 상품 관리 사이드바의 `셀피아 재고` 항목과 `/product-hub/options` 공개 라우트를
    제거한다.
-5. URL 상태, 링크, 테스트, scoped `AGENTS.md`, 아키텍처 문서를 새 구조와 일치시킨다.
+5. URL 상태, 링크, 테스트, scoped `CLAUDE.md`, 아키텍처 문서를 새 구조와 일치시킨다.
 
 ## 비목표
 
@@ -104,11 +104,11 @@ URL에 남은 Sellpia 필터 상태로 쿼리를 재구성한다. 이 변경은 
 
 ## 문서와 계약 변경
 
-- `(inventory)/AGENTS.md`는 `/inventory-hub`의 정확한 두 탭과 읽기 전용 Sellpia SKU
+- `(inventory)/CLAUDE.md`는 `/inventory-hub`의 정확한 두 탭과 읽기 전용 Sellpia SKU
   소유권을 기록한다.
-- `(catalog)/AGENTS.md`와 `product-hub/AGENTS.md`에서 `/product-hub/options`
+- `(catalog)/CLAUDE.md`와 `product-hub/CLAUDE.md`에서 `/product-hub/options`
   소유권을 제거한다.
-- 삭제되는 `product-hub/options/AGENTS.md`의 유효한 읽기 전용 규칙은 inventory
+- 삭제되는 `product-hub/options/CLAUDE.md`의 유효한 읽기 전용 규칙은 inventory
   guide로 옮긴다.
 - `docs/ARCHITECTURE.md`의 Frontend Route Map과 정확한 탭 계약을 갱신한다.
 - scoped instruction 파일 변경 후 `npm run check:agents-hygiene`를 실행한다.

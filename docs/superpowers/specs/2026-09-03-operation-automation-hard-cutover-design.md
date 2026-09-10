@@ -1186,7 +1186,7 @@ deployable path and one coordinated production cutover:
 4. Replace Automation with `AlertsModule` and polling UI.
 5. Add route/reference scanners, then delete Operations, Workflow, Automation
    Marketplace, Panel projection, and compatibility code.
-6. Update `docs/ARCHITECTURE.md`, root/scoped `AGENTS.md`, and affected
+6. Update `docs/ARCHITECTURE.md`, root/scoped `CLAUDE.md`, and affected
    runbooks to reflect the final ownership.
 7. Take a production backup and stop API, worker, and scheduler processes.
 8. Confirm no old extension collection is active; publish the matching

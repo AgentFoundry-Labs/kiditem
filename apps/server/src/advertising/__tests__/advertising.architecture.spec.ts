@@ -148,7 +148,7 @@ describe('Advertising architecture contract', () => {
     const adv = advertisingRel();
     const hits = rg(`--type ts --files --glob '${path.join(adv, 'services', '**', '*.ts')}'`);
     // ALLOWED_LEGACY_FILES — anything new in services/ is forbidden by the
-    // backend AGENTS.md. The facade survives only because integration tests
+    // backend CLAUDE.md. The facade survives only because integration tests
     // inject it by class name.
     const ALLOWED_LEGACY_FILES = new Set<string>([
       path.join(adv, 'services/channel-scrape-persistence.service.ts'),

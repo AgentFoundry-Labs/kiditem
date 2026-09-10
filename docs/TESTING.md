@@ -416,7 +416,7 @@ duplicate persistent server.
 `.github/workflows/pr-checks.yml`에서 정적 계약과 Gateway 단위 검증만 수행한다.
 provider runtime staging과 self-contained .NET publish는 정확한 원격 SHA를 선택한
 `npm run deploy:office:local`이 Windows Office 호스트에서 수행한다.
-PR 작성자는 `AGENTS.md`의 변경 유형별 검증과 PR body guard를 로컬에서 완료한 뒤
+PR 작성자는 `CLAUDE.md`의 변경 유형별 검증과 PR body guard를 로컬에서 완료한 뒤
 공유한다. `Develop Validation` 전체 suite는 필요할 때 `develop`에서 수동 실행한다.
 
 | Workflow / Job | 실행 시점 | 역할 |

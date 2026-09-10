@@ -80,7 +80,7 @@ the authenticated profile and not permission to bypass the challenge.
 - remove only the exact KidItem OS keyword-search operation handler and its
   now-unused content hook;
 - update Office environment documentation, the Sourcing runbook, and scoped
-  `AGENTS.md` guidance to reflect the new ownership.
+  `CLAUDE.md` guidance to reflect the new ownership.
 
 ### 2.2 Out of scope
 
@@ -305,7 +305,7 @@ The cutover is performed in one cohesive implementation:
 6. update static architecture gates so the keyword operation cannot silently
    return to an extension bridge or synchronous controller;
 7. update Office env examples, environment runbook, Sourcing operation runbook,
-   architecture documentation, and scoped `AGENTS.md` rules;
+   architecture documentation, and scoped `CLAUDE.md` rules;
 8. deploy only after the Office Chrome/CDP smoke check passes from the API
    container.
 

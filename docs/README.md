@@ -7,7 +7,7 @@ runbooks, generated navigation, and shared development data operations.
 Keep implementation plans and design specs under `superpowers/` current as
 decisions, scope, and verification change. Disposable scratch files, agent
 logs, and temporary coordination notes belong in local scratch space outside
-git; promote enduring rules into the nearest scoped `AGENTS.md`.
+git; promote enduring rules into the nearest scoped `CLAUDE.md`.
 
 ## Start Here
 

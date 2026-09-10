@@ -832,12 +832,12 @@ data migration은
 이 설계는 기존 scoped instruction의 route/owned-surface 계약도 바꾼다.
 구현 PR에서 최소 다음 파일을 코드와 함께 갱신하고 팀에 공유한다.
 
-- `apps/server/src/inventory/AGENTS.md`;
-- `apps/web/src/app/(inventory)/AGENTS.md`;
-- `apps/web/src/app/(orders)/AGENTS.md`와 더 구체적인 관련 route guide;
-- `apps/web/src/app/(supply)/AGENTS.md`;
-- `apps/web/src/app/(catalog)/product-hub/AGENTS.md`;
-- `extensions/order-collector/AGENTS.md`.
+- `apps/server/src/inventory/CLAUDE.md`;
+- `apps/web/src/app/(inventory)/CLAUDE.md`;
+- `apps/web/src/app/(orders)/CLAUDE.md`와 더 구체적인 관련 route guide;
+- `apps/web/src/app/(supply)/CLAUDE.md`;
+- `apps/web/src/app/(catalog)/product-hub/CLAUDE.md`;
+- `extensions/order-collector/CLAUDE.md`.
 
 ## 테스트 전략
 
@@ -913,7 +913,7 @@ data migration은
 9. 다섯 기준 작업공간으로 component와 URL 소유권을 옮기고 호환
    redirect 후 사이드바 중복을 제거한다.
 10. 문서, runbook, 정적 회귀 gate, 자동 테스트와 실제 Chrome 검증을
-    완료하고 scoped `AGENTS.md`의 route/capability 계약을 갱신해 팀에
+    완료하고 scoped `CLAUDE.md`의 route/capability 계약을 갱신해 팀에
     공유한다.
 
 이 순서는 하나의 릴리스 범위다. 중간 단계가 사용자에게 노출될 때는

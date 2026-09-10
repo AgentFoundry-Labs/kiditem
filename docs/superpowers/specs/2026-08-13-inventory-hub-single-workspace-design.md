@@ -151,7 +151,7 @@ export할 결과가 없는 경우도 현재 사용자 메시지를 유지한다.
 
 ## 문서와 계약 변경
 
-- `(inventory)/AGENTS.md`는 `/inventory-hub`가 탭 없는 단일 Sellpia 재고
+- `(inventory)/CLAUDE.md`는 `/inventory-hub`가 탭 없는 단일 Sellpia 재고
   작업공간임을 기록한다.
 - `docs/ARCHITECTURE.md`의 route map과 exact tab ownership 문구를 단일 작업공간
   계약으로 갱신한다.

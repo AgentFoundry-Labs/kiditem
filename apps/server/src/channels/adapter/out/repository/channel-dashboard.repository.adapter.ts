@@ -22,7 +22,7 @@ import type { ChannelDashboardRepositoryPort } from '../../../application/port/o
  *   on every joined tenant-owned table (`orders`, `order_line_items`,
  *   `channel_listing_options`, `channel_listings`) — never rely on a single
  *   `o.organization_id` filter to gate downstream JOINs (defense-in-depth against
- *   stray FK invariants between tenants). See channels/AGENTS.md R1/R2/R3
+ *   stray FK invariants between tenants). See channels/CLAUDE.md R1/R2/R3
  *   risk rule.
  * - Time windows are half-open: `gte` / `lt` only, never `lte`.
  * - `ChannelListing.updatedAt` ("lastModifiedAt") is bumped on any edit, not
@@ -84,7 +84,7 @@ export class ChannelDashboardRepositoryAdapter implements ChannelDashboardReposi
     type Row = { day: Date; revenue: bigint | null; orderCount: bigint };
     // 2-hop tenant predicate (R2): bind ${organizationId}::uuid on both `orders`
     // and `order_line_items` so a stray cross-tenant `OrderLineItem.organizationId`
-    // cannot leak into the SUM. See channels/AGENTS.md.
+    // cannot leak into the SUM. See channels/CLAUDE.md.
     const rows = await this.prisma.$queryRaw<Row[]>`
       SELECT DATE_TRUNC('day', o.ordered_at AT TIME ZONE 'Asia/Seoul')::date AS day,
              SUM(oli.total_price)::bigint AS revenue,

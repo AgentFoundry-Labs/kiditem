@@ -155,7 +155,7 @@ train.
 
 ## Documentation and Runbook Ownership
 
-- Root `AGENTS.md` states the concise release-train contract and links the
+- Root `CLAUDE.md` states the concise release-train contract and links the
   durable procedure.
 - A dedicated `docs/runbooks/release-train-versioning.md` runbook owns train
   start, PR classification, migration assignment, promotion, verification,

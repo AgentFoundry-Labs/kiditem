@@ -21,7 +21,7 @@ behavior is out of scope.
 
 The change is larger than ten files and replaces persisted semantics, so the
 implementation must use expand/backfill/contract sequencing and update the
-relevant scoped `AGENTS.md` contracts and `docs/ARCHITECTURE.md` when ownership
+relevant scoped `CLAUDE.md` contracts and `docs/ARCHITECTURE.md` when ownership
 or top-level read paths change.
 
 ## Goal

@@ -618,11 +618,11 @@ apps/web/src/app/(group)/{route}/
   hooks/          route-local query/mutation/state orchestration
   lib/            route-local pure helpers and payload builders
   __tests__/      route-local tests for complex flows
-  AGENTS.md       required for high-risk or complex route contracts
+  CLAUDE.md       required for high-risk or complex route contracts
 ```
 
 Required: `page.tsx`. Optional: route-local `components/`, `hooks/`, `lib/`, and
-`__tests__/` when the route needs them. Add route-local `AGENTS.md` for complex
+`__tests__/` when the route needs them. Add route-local `CLAUDE.md` for complex
 or high-risk route contracts.
 
 Route-local folders may group components, hooks, and helpers by workflow stage
@@ -1059,7 +1059,7 @@ in the [Sourcing Intelligence Phase 0–1 runbook](runbooks/sourcing-intelligenc
 ## Agent OS
 
 Agent OS is the single-node backend execution boundary under
-`apps/server/src/agent-os/`; its schema ownership is in `prisma/AGENTS.md`.
+`apps/server/src/agent-os/`; its schema ownership is in `prisma/CLAUDE.md`.
 Its only persistence model is `CapabilityInvocation`, which stores exact
 request-driven mutation admission, approval fields, and the idempotent
 result/error. Agent definitions and capability manifests are code-owned.

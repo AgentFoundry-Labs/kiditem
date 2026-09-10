@@ -7,7 +7,7 @@
 // shape, mime types, sampling), and consumers must not depend on which
 // provider AI happens to use. This surface exposes only the question.
 //
-// The model id is required. `apps/server/AGENTS.md` forbids a silent
+// The model id is required. `apps/server/CLAUDE.md` forbids a silent
 // `model || default`, so the caller reads it from its own env and an unset
 // value is an explicit error at the call site.
 

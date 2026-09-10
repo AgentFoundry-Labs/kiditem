@@ -867,7 +867,7 @@ After all callers are migrated, the static guard rejects reintroduction of:
 
 Each implementation phase runs its nearest scoped tests, and the single PR runs
 all repository-required gates before review. Schema work additionally follows
-`prisma/AGENTS.md` and runs
+`prisma/CLAUDE.md` and runs
 `npm run db:push`, `npx prisma generate`, and the shared build. NestJS wiring
 changes run `npm run dev:server` and confirm successful boot. Frontend changes
 run `npm run build --workspace=apps/web`. Extension changes run the exact Node

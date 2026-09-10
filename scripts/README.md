@@ -1,7 +1,7 @@
 # Scripts
 
 This is the human map for repo automation. The team uses Codex and Claude
-together, so agent-facing rules live in [`AGENTS.md`](AGENTS.md), while this
+together, so agent-facing rules live in [`CLAUDE.md`](../CLAUDE.md), while this
 file answers the practical question: "what is this script for, and how do I run
 or verify it?"
 
@@ -24,7 +24,7 @@ npm run test:scripts
 | `scripts/bootstrap-local-auth-user.ts` | explicit loopback-DB-only bootstrap for one local User, Organization, active admin membership, and stdin password; reruns revoke that user's sessions and never mint a login session | `npm run dev:bootstrap-user`, `docs/runbooks/local-development.md`, `docs/runbooks/auth-office-local.md` |
 | `scripts/check-agent-os-contraction.mjs` | Enforced Agent OS clean-contraction guard for legacy runtime, transcript, and retired model surfaces | `npm run check:agent-os-contraction -- --enforce` |
 | `scripts/check-agent-os-hexagonal.mjs` | AgentOS lane-first/capability-second dependency, input-port placement, and official module-size contract scanner; intentionally standalone until the KID-25 migration removes its live baseline violations | `npm run check:agent-os-hexagonal` |
-| `scripts/check-agents-hygiene.mjs` | AGENTS/CLAUDE instruction hygiene gate | `npm run check:agents-hygiene` |
+| `scripts/check-agents-hygiene.mjs` | CLAUDE instruction hygiene gate and legacy AGENTS detector | `npm run check:agents-hygiene` |
 | `scripts/check-copilotkit-train.mjs` | exact CopilotKit v2 and AG-UI platform-train guard | `npm run check:copilotkit-train` |
 | `scripts/check-directory-architecture.mjs` | docs/ARCHITECTURE directory map drift gate | `npm run check:directory-architecture` |
 | `scripts/check-frontend-db-boundary.sh` | frontend must not import DB/Prisma clients | `npm run check:web-db-boundary` |

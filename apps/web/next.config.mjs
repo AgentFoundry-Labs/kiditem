@@ -49,7 +49,7 @@ function createNextConfig() {
   },
   // CopilotKit browser runtime calls only same-origin `/api/copilotkit`.
   // Next forwards it to the ordinary Nest API origin. No API
-  // Route/Route Handler is added — `apps/web/AGENTS.md` keeps the No API
+  // Route/Route Handler is added — `apps/web/CLAUDE.md` keeps the No API
   // Routes rule; AI chat is the bounded transport exception, implemented
   // purely as a rewrite.
   async rewrites() {
