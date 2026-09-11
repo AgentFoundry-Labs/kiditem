@@ -2,6 +2,7 @@ import * as XLSX from 'xlsx';
 import { apiClient } from '@/lib/api-client';
 import { downloadBlob } from '@/lib/browser-download';
 import type { OrderCollectionExtensionRun } from './order-collection-extension';
+import { fileNameFromContentDisposition } from './order-collection-conversion-response';
 
 export interface OrderCollectionConversionResult {
   fileName: string;
@@ -267,18 +268,6 @@ function numericHeader(response: Response, name: string): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function fileNameFromContentDisposition(value: string | null): string | null {
-  if (!value) return null;
-  const encoded = /filename\*=UTF-8''([^;]+)/i.exec(value)?.[1];
-  if (encoded) {
-    try {
-      return decodeURIComponent(encoded);
-    } catch {
-      return encoded;
-    }
-  }
-  return /filename="([^"]+)"/i.exec(value)?.[1] ?? null;
-}
 
 function fallbackFileName(inputName: string): string {
   const baseName = inputName.replace(/\.[^.]+$/, '').replace(/[\\/:*?"<>|]+/g, '_');

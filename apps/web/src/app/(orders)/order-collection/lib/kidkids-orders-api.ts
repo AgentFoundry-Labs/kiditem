@@ -1,8 +1,7 @@
-import * as XLSX from 'xlsx';
 import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extension-bridge';
 import { apiClient } from '@/lib/api-client';
-import { downloadBlob } from '@/lib/browser-download';
 import type { OrderCollectionConversionResult } from './order-collection-api';
+import { conversionResultFrom } from './order-collection-conversion-response';
 import {
   orderCollectionExtensionRunFields,
   type OrderCollectionExtensionRun,
@@ -89,40 +88,9 @@ export async function convertKidkidsToSellpiaFile(
   if (!res.ok) {
     throw new Error((await res.text().catch(() => '')) || '키드키즈 변환에 실패했습니다.');
   }
-  const blob = await res.blob();
-  const cd = res.headers.get('Content-Disposition') ?? '';
-  const m = /filename\*=UTF-8''([^;]+)/.exec(cd);
-  const fileName = m ? decodeURIComponent(m[1]) : '키드키즈_셀피아변환.xls';
-  if (options?.download !== false) {
-    downloadBlob(blob, fileName);
-  }
-  return {
-    fileName,
-    blob,
-    previewRows: await readKidkidsPreviewRows(blob),
-    sourceRows: kidkidsNumHeader(res, 'X-Order-Collection-Source-Rows'),
-    productRows: kidkidsNumHeader(res, 'X-Order-Collection-Product-Rows'),
-    outputRows: kidkidsNumHeader(res, 'X-Order-Collection-Output-Rows'),
-    skippedRows: kidkidsNumHeader(res, 'X-Order-Collection-Skipped-Rows'),
-  };
-}
-
-function kidkidsNumHeader(res: Response, name: string): number | null {
-  const v = res.headers.get(name);
-  if (!v) return null;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
-}
-
-/** 생성된 .xls(키드키즈 17컬럼)에서 미리보기 행 추출. */
-async function readKidkidsPreviewRows(blob: Blob): Promise<string[][]> {
-  const wb = XLSX.read(await blob.arrayBuffer(), { type: 'array' });
-  const sheet = wb.Sheets[wb.SheetNames[0] ?? ''];
-  if (!sheet) return [];
-  const rows = XLSX.utils.sheet_to_json<Array<string | number | null | undefined>>(sheet, {
-    header: 1,
-    raw: false,
-    defval: '',
+  return conversionResultFrom(res, {
+    defaultFileName: '키드키즈_셀피아변환.xls',
+    preview: { xlsxColumns: 17 },
+    download: options?.download,
   });
-  return rows.slice(0, 24).map((row) => row.slice(0, 17).map((cell) => String(cell ?? '')));
 }

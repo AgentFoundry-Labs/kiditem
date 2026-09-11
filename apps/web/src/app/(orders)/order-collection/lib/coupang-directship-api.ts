@@ -3,6 +3,7 @@ import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extensi
 import { apiClient } from '@/lib/api-client';
 import { downloadBlob } from '@/lib/browser-download';
 import type { OrderCollectionConversionResult } from './order-collection-api';
+import { fileNameFromContentDisposition } from './order-collection-conversion-response';
 import type { OrderCollectionExtensionRun } from './order-collection-extension';
 import {
   coupangDirectOwnerAttemptHeaders,
@@ -137,11 +138,8 @@ export async function convertCoupangDirectToSellpiaFile(
     throw new Error('쿠팡 로켓 수집 식별 정보가 없어 셀피아 파일을 저장하지 않았습니다.');
   }
   const blob = await res.blob();
-  const cd = res.headers.get('Content-Disposition') ?? '';
-  const m = /filename\*=UTF-8''([^;]+)/.exec(cd);
-  const fileName = m
-    ? decodeURIComponent(m[1])
-    : `쿠팡직배송_${COUPANG_TRANSPORT_LABEL[transport]}_셀피아변환.xls`;
+  const fileName = fileNameFromContentDisposition(res.headers.get('Content-Disposition'))
+    ?? `쿠팡직배송_${COUPANG_TRANSPORT_LABEL[transport]}_셀피아변환.xls`;
   if (options?.download !== false) downloadBlob(blob, fileName);
   return {
     file: {

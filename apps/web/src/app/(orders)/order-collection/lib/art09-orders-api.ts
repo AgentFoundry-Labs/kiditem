@@ -1,7 +1,7 @@
 import { apiClient } from '@/lib/api-client';
-import { downloadBlob } from '@/lib/browser-download';
 import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extension-bridge';
 import type { OrderCollectionConversionResult } from './order-collection-api';
+import { conversionResultFrom } from './order-collection-conversion-response';
 import {
   orderCollectionExtensionRunFields,
   type OrderCollectionExtensionRun,
@@ -84,19 +84,11 @@ export async function convertArt09ToSellpiaFile(
   if (!response.ok) {
     throw new Error((await response.text().catch(() => '')) || '아트공구 변환에 실패했습니다.');
   }
-  const blob = await response.blob();
-  const fileName = fileNameFromContentDisposition(response.headers.get('Content-Disposition'))
-    ?? `zzogzzog1_${todayCompact()}_주문수집.csv`;
-  if (options?.download !== false) downloadBlob(blob, fileName);
-  return {
-    fileName,
-    blob,
-    previewRows: await readCsvPreviewRows(blob),
-    sourceRows: numericHeader(response, 'X-Order-Collection-Source-Rows'),
-    productRows: numericHeader(response, 'X-Order-Collection-Product-Rows'),
-    outputRows: numericHeader(response, 'X-Order-Collection-Output-Rows'),
-    skippedRows: numericHeader(response, 'X-Order-Collection-Skipped-Rows'),
-  };
+  return conversionResultFrom(response, {
+    defaultFileName: `zzogzzog1_${todayCompact()}_주문수집.csv`,
+    preview: { csv: true },
+    download: options?.download,
+  });
 }
 
 function isValidArt09OrderRow(row: Art09OrderRow): boolean {
@@ -108,78 +100,6 @@ function isValidArt09OrderRow(row: Art09OrderRow): boolean {
     && Boolean(row.productName?.trim())
     && Number.isFinite(quantity)
     && quantity > 0;
-}
-
-function numericHeader(response: Response, name: string): number | null {
-  const value = response.headers.get(name);
-  if (!value) return null;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-function fileNameFromContentDisposition(value: string | null): string | null {
-  if (!value) return null;
-  const encoded = /filename\*=UTF-8''([^;]+)/i.exec(value)?.[1];
-  if (encoded) {
-    try {
-      return decodeURIComponent(encoded);
-    } catch {
-      return encoded;
-    }
-  }
-  return /filename="([^"]+)"/i.exec(value)?.[1] ?? null;
-}
-
-async function readCsvPreviewRows(blob: Blob): Promise<string[][]> {
-  const text = await blob.text();
-  return parseCsvRows(text.replace(/^\uFEFF/, ''), 24);
-}
-
-function parseCsvRows(text: string, limit: number): string[][] {
-  const rows: string[][] = [];
-  let row: string[] = [];
-  let cell = '';
-  let quoted = false;
-
-  const pushRow = () => {
-    if (row.length === 0 && cell.length === 0) return;
-    row.push(cell);
-    rows.push(row);
-    row = [];
-    cell = '';
-  };
-
-  for (let index = 0; index < text.length && rows.length < limit; index += 1) {
-    const character = text[index];
-    if (quoted) {
-      if (character === '"') {
-        if (text[index + 1] === '"') {
-          cell += '"';
-          index += 1;
-        } else {
-          quoted = false;
-        }
-      } else {
-        cell += character;
-      }
-      continue;
-    }
-
-    if (character === '"' && cell.length === 0) {
-      quoted = true;
-    } else if (character === ',') {
-      row.push(cell);
-      cell = '';
-    } else if (character === '\r' || character === '\n') {
-      if (character === '\r' && text[index + 1] === '\n') index += 1;
-      pushRow();
-    } else {
-      cell += character;
-    }
-  }
-
-  if (rows.length < limit && (row.length > 0 || cell.length > 0)) pushRow();
-  return rows;
 }
 
 function todayCompact(): string {

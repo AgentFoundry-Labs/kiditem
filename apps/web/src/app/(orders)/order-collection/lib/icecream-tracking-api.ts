@@ -2,6 +2,7 @@ import * as XLSX from 'xlsx';
 import { apiClient } from '@/lib/api-client';
 import { downloadBlob } from '@/lib/browser-download';
 import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extension-bridge';
+import { fileNameFromContentDisposition } from './order-collection-conversion-response';
 
 // ── 도매꾹 송장 업로드(발송처리): 셀피아 송장 → 도매꾹 엑셀양식 → 확장이 shipXls 업로드 ──
 
@@ -365,15 +366,3 @@ function numericHeader(response: Response, name: string): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function fileNameFromContentDisposition(value: string | null): string | null {
-  if (!value) return null;
-  const encoded = /filename\*=UTF-8''([^;]+)/i.exec(value)?.[1];
-  if (encoded) {
-    try {
-      return decodeURIComponent(encoded);
-    } catch {
-      return encoded;
-    }
-  }
-  return /filename="([^"]+)"/i.exec(value)?.[1] ?? null;
-}
