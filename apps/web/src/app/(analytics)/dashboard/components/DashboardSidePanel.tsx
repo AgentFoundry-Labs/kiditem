@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { AlertTriangle, CheckCircle2, Megaphone, MinusCircle, RotateCcw, ShieldCheck, Truck, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, RotateCcw, ShieldCheck, X } from 'lucide-react';
 import { dismissAlert } from '@/lib/alerts-api';
 import { queryKeys } from '@/lib/query-keys';
 import { cn } from '@/lib/utils';
@@ -7,10 +7,14 @@ import type { DashboardMetricBasis } from './DashboardDataBasis';
 import type { QueryClient } from '@tanstack/react-query';
 import type { DashboardAlertItem } from '@kiditem/shared/dashboard';
 
-function alertIcon(type: string) {
-  if (type === 'minus_product') return <MinusCircle size={14} className="shrink-0 text-red-500" />;
-  if (type === 'ad_high') return <Megaphone size={14} className="shrink-0 text-amber-500" />;
-  if (type === 'stock_low') return <Truck size={14} className="shrink-0 text-blue-500" />;
+/**
+ * Two alert types are ever written: `source_failure` and `rule_violation`. This
+ * branched on four others — `minus_product`, `ad_high`, `stock_low`,
+ * `strategy_change` — which appear nowhere in the server. Three of them name a
+ * **Warning**, a standing count of products currently in a bad state, which the
+ * glossary says not to call an alert.
+ */
+function alertIcon() {
   return <AlertTriangle size={14} className="shrink-0 text-slate-400" />;
 }
 
@@ -81,17 +85,9 @@ function DashboardAlertRow({
   alert: DashboardAlertItem;
   queryClient: QueryClient;
 }) {
-  const href = alert.href ?? (
-    alert.type === 'strategy_change'
-      ? '/ad-ops'
-      : alert.type === 'stock_low'
-        ? '/inventory-hub'
-        : alert.type === 'minus_product'
-          ? '/product-hub?tab=cleanup'
-          : alert.type === 'ad_high'
-            ? '/ad-ops'
-            : undefined
-  );
+  // The source owner names where to send the operator. The fallbacks here keyed
+  // off types nothing writes, so they never fired.
+  const href = alert.href ?? undefined;
   const open = isOpenAlert(alert);
   const dismiss = async (event: React.MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
@@ -108,7 +104,7 @@ function DashboardAlertRow({
   };
   const content = (
     <>
-      <div className="mt-0.5">{open ? alertIcon(alert.type) : <CheckCircle2 size={14} className="shrink-0 text-emerald-500" />}</div>
+      <div className="mt-0.5">{open ? alertIcon() : <CheckCircle2 size={14} className="shrink-0 text-emerald-500" />}</div>
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-1.5">
           <span className="truncate text-sm font-medium leading-relaxed text-slate-700">{alert.title}</span>

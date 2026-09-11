@@ -113,17 +113,6 @@ describe('DashboardSidePanel', () => {
     expect(screen.queryByRole('button', { name: '알림 닫기' })).not.toBeInTheDocument();
   });
 
-  it('routes stock-low alerts to the canonical inventory workspace', () => {
-    render(
-      <DashboardSidePanel
-        alerts={[makeAlert({ type: 'stock_low' })]}
-        queryClient={makeQueryClient()}
-      />,
-    );
-
-    expect(screen.getByRole('link')).toHaveAttribute('href', '/inventory-hub');
-  });
-
   it('renders an empty state when no alerts are available', () => {
     render(<DashboardSidePanel alerts={[]} queryClient={makeQueryClient()} />);
 

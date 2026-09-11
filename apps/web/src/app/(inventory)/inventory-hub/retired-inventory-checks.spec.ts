@@ -38,7 +38,10 @@ const liveLinkConsumers = [
   // table that renders the 셀피아 재고 0 row. The rule is unchanged — only the
   // canonical workspace is linked — so the guard follows the link.
   'apps/web/src/app/(analytics)/dashboard/components/DashboardWarningTable.tsx',
-  'apps/web/src/app/(analytics)/dashboard/components/DashboardSidePanel.tsx',
+  // DashboardSidePanel left this list: it linked to the inventory workspace only
+  // through a fallback keyed on `type: 'stock_low'`, an alert type nothing
+  // writes. The source owner names the destination now, so the panel links
+  // nowhere of its own.
 ];
 
 describe('retired inventory checks workspace', () => {
