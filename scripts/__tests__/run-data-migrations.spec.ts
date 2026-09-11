@@ -44,6 +44,7 @@ describe("data migration registry", () => {
       "v0.1.31:001_reset_absolute_product_abc",
       "v0.1.31:003_prepare_operation_automation_cutover",
       "v0.1.31:004_remove_retired_capability_operation_refs",
+      "v0.1.31:005_remove_retired_operation_alerts",
       "v0.1.31:002_initialize_absolute_product_abc_formula",
     ]);
     expect(
@@ -140,6 +141,7 @@ describe("data migration registry", () => {
       "v0.1.31:001_reset_absolute_product_abc",
       "v0.1.31:003_prepare_operation_automation_cutover",
       "v0.1.31:004_remove_retired_capability_operation_refs",
+      "v0.1.31:005_remove_retired_operation_alerts",
     ]);
     expect(selectDataMigrationsForPhase(dataMigrations, "post-schema")).toEqual(
       dataMigrations.filter((migration) => migration.phase !== "pre-schema"),
@@ -173,6 +175,7 @@ describe("data migration registry", () => {
       "v0.1.31:001_reset_absolute_product_abc",
       "v0.1.31:003_prepare_operation_automation_cutover",
       "v0.1.31:004_remove_retired_capability_operation_refs",
+      "v0.1.31:005_remove_retired_operation_alerts",
     ]);
 
     const absolutePostSchema = selectDataMigrationsForRelease(

@@ -17,6 +17,7 @@ import { resetAbsoluteProductAbc } from "./v0.1.31/001_reset_absolute_product_ab
 import { initializeAbsoluteProductAbcFormula } from "./v0.1.31/002_initialize_absolute_product_abc_formula";
 import { prepareOperationAutomationCutoverMigration } from "./v0.1.31/003_prepare_operation_automation_cutover";
 import { removeRetiredCapabilityOperationRefs } from "./v0.1.31/004_remove_retired_capability_operation_refs";
+import { removeRetiredOperationAlerts } from "./v0.1.31/005_remove_retired_operation_alerts";
 import type { DataMigration } from "./types";
 
 export {
@@ -47,6 +48,7 @@ export const dataMigrations: readonly DataMigration[] = [
   resetAbsoluteProductAbc,
   prepareOperationAutomationCutoverMigration,
   removeRetiredCapabilityOperationRefs,
+  removeRetiredOperationAlerts,
   initializeAbsoluteProductAbcFormula,
 ];
 
