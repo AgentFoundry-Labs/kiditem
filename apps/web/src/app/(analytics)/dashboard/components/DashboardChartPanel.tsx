@@ -10,7 +10,7 @@ import {
   useDepartmentQuickActions,
   type DepartmentQuickAction,
 } from '../hooks/use-department-quick-actions';
-import { type DashboardMetricBasis } from './DashboardDataBasis';
+import { DashboardBasisDisclosure, type DashboardMetricBasis } from './DashboardDataBasis';
 
 const DashboardCharts = dynamic(
   () => import('./DashboardCharts').then((mod) => ({ default: mod.DashboardCharts })),
@@ -47,9 +47,6 @@ type DeptButton =
 type Dept = {
   key: string;
   label: string;
-  color: string;
-  faceColor: string;
-  faceRole: string;
   buttons: readonly DeptButton[];
 };
 
@@ -64,29 +61,29 @@ const ACTION_LABEL: Record<DepartmentQuickAction, string> = {
 
 const DEPT_MAP: readonly Dept[] = [
   {
-    key: 'sourcing', label: '소싱', color: '#8b5cf6', faceColor: 'violet', faceRole: 'sourcing',
+    key: 'sourcing', label: '소싱',
     buttons: [{ label: '시장분석', kind: 'action', action: 'collectTrend' }],
   },
   {
-    key: 'product', label: '상품', color: '#10b981', faceColor: 'emerald', faceRole: 'inventory',
+    key: 'product', label: '상품',
     buttons: [
       { label: '상품 관리', kind: 'link', href: '/product-hub' },
       { label: '재고 관리', kind: 'link', href: '/inventory-hub' },
     ],
   },
   {
-    key: 'order', label: '주문', color: '#f59e0b', faceColor: 'amber', faceRole: 'order',
+    key: 'order', label: '주문',
     buttons: [{ label: '몰 주문수집', kind: 'action', action: 'collectAllOrders' }],
   },
   {
-    key: 'shipping', label: '출고', color: '#0ea5e9', faceColor: 'cyan', faceRole: 'shipping',
+    key: 'shipping', label: '출고',
     buttons: [
       { label: '쿠팡 쉽먼트', kind: 'action', action: 'collectCoupangShipmentSummary' },
       { label: '쿠팡 로켓 PO 수집', kind: 'action', action: 'collectCoupangRocketPurchaseOrders' },
     ],
   },
   {
-    key: 'analysis', label: '분석', color: '#ef4444', faceColor: 'rose', faceRole: 'finance',
+    key: 'analysis', label: '분석',
     buttons: [
       { label: '재고 분석 업데이트', kind: 'action', action: 'refreshInventory' },
       { label: '셀피아 동기화', kind: 'action', action: 'syncSellpia' },
@@ -165,7 +162,21 @@ export function DashboardChartPanel({
             ))}
           </div>
         </div>
-        <span className="text-[11px] text-slate-500">{rangeLabel}</span>
+        <div className="flex items-center gap-1.5">
+          <span className="text-[11px] text-slate-500">{rangeLabel}</span>
+          {/* One ⓘ for the panel, in the place every other panel keeps it. Two
+              sentences of prose used to sit under the chart telling the reader
+              where to look for evidence; the affordance is the evidence. */}
+          <DashboardBasisDisclosure
+            label="차트 근거"
+            entries={[
+              { label: '광고비율', basis: benchmarkBases?.adRate ?? null },
+              { label: 'ROAS', basis: benchmarkBases?.roas ?? null },
+              { label: 'CTR', basis: benchmarkBases?.ctr ?? null },
+              { label: 'CVR', basis: benchmarkBases?.cvr ?? null },
+            ]}
+          />
+        </div>
       </div>
 
       <DashboardCharts
@@ -180,24 +191,18 @@ export function DashboardChartPanel({
         ] : null}
         hasTrend={hasTrend}
       />
-      {chartTab === 'benchmark' && (
-        <div className="px-5 pb-3 text-[11px] text-slate-400">
-          지표별 기준 근거는 각 카드에서 확인할 수 있습니다.
-        </div>
-      )}
-      {(chartTab === 'revenue' || chartTab === 'rate') && (
-        <div className="px-5 pb-3 text-[11px] text-slate-400">
-          날짜별 원천 근거와 누락 여부는 각 점의 툴팁에서 확인할 수 있습니다.
-        </div>
-      )}
       {/* Agent OS — the same departments and the same promoted actions, folded
           into one row under the chart. It was a tab holding a full-height board
           to show five idle agents; as a row it stays reachable without deciding
           the height of the screen. */}
-      <div className="grid grid-cols-2 gap-px border-t border-slate-200 bg-slate-200 sm:grid-cols-3 lg:grid-cols-6">
+      {/* One column per department, so there is no gap where a sixth used to be.
+          The department name is a label, not a status: colouring five of them
+          five different accents made the row read as five objects and left the
+          action text competing with its own heading. */}
+      <div className="grid grid-cols-2 gap-px border-t border-slate-200 bg-slate-200 sm:grid-cols-3 lg:grid-cols-5">
         {DEPT_MAP.map(dept => (
           <div key={dept.key} className="bg-white px-2.5 py-1.5">
-            <p className="truncate text-xs font-semibold" style={{ color: dept.color }}>{dept.label}</p>
+            <p className="truncate text-xs font-semibold text-slate-900">{dept.label}</p>
             <ul className="mt-0.5 space-y-0.5">
               {dept.buttons.map(button => button.kind === 'action' ? (
                 <li key={`${dept.key}:${button.action}`}>
@@ -209,7 +214,7 @@ export function DashboardChartPanel({
                   >
                     {runningAction === `${dept.key}:${button.action}`
                       ? <Loader2 size={10} className="shrink-0 animate-spin" />
-                      : <Play size={10} className="shrink-0" style={{ color: dept.color }} />}
+                      : <Play size={10} className="shrink-0 text-slate-400" />}
                     <span className="truncate">{button.label}</span>
                   </button>
                 </li>
@@ -219,7 +224,7 @@ export function DashboardChartPanel({
                     href={button.href}
                     className="flex items-center gap-1 text-[11px] leading-snug text-slate-600 hover:text-slate-900"
                   >
-                    <ArrowRight size={10} className="shrink-0" style={{ color: dept.color }} />
+                    <ArrowRight size={10} className="shrink-0 text-slate-400" />
                     <span className="truncate">{button.label}</span>
                   </Link>
                 </li>

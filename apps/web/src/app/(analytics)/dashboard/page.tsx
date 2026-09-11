@@ -43,6 +43,7 @@ import { DashboardWarningTable, buildWarningRows } from './components/DashboardW
 import { DashboardGradeCards } from './components/DashboardGradeCards';
 import { WingDailyTrafficCollection } from './components/WingDailyTrafficCollection';
 import {
+  DashboardBasisDisclosure,
   DashboardDataBasis,
   basisHasValues,
   readFirstMetricBasis,
@@ -603,16 +604,19 @@ export default function Dashboard() {
     { key: 'orders', label: '주문', display: formatTrafficMetric(trafficOrders, '건'), rate: funnelRate(trafficOrders, trafficCartAdds) },
     { key: 'salesQty', label: '판매량', display: formatTrafficMetric(trafficSalesQty, '개'), rate: null },
   ];
+  // "부분 N/M일" is the one phrase for partially collected, the same one the
+  // ad lane uses. These five numbers sum only the days the provider has
+  // published, and Wing publishes traffic a day behind its sales, so the last
+  // day of a month-to-date window is routinely absent. Without this the strip
+  // would read as a total for the whole window.
+  const trafficCoverageLabel = trafficCoverage
+    ? trafficCoverageComplete
+      ? `${trafficCoverage.targetDays}/${trafficCoverage.targetDays}일`
+      : `부분 ${trafficCoverage.completedDays}/${trafficCoverage.targetDays}일`
+    : null;
   const trafficSourceNote = [
     trafficObservedAt ? formatDateTime(trafficObservedAt) : '미수집',
-    // "부분 N/M일" is the one phrase for partially collected, the same one the
-    // ad lane uses. These five numbers sum only the days the provider has
-    // published, and Wing publishes traffic a day behind its sales, so the last
-    // day of a month-to-date window is routinely absent. Without this the strip
-    // would read as a total for the whole window.
-    trafficCoverage && !trafficCoverageComplete
-      ? `부분 ${trafficCoverage.completedDays}/${trafficCoverage.targetDays}일`
-      : null,
+    trafficCoverageLabel,
     trafficKpi?.source === 'wing'
       ? `${trafficFilterScope ? `계정 원본 · ${trafficFilterScope}` : 'Wing 계정 원본'} · 상품 매칭 합산 아님`
       : null,
@@ -891,6 +895,20 @@ export default function Dashboard() {
             title="기간 지표"
             controls={(
               <div className="flex shrink-0 items-center gap-2 whitespace-nowrap">
+                {/* One ⓘ for the six cells, broken down per value: two cards in
+                    this row can report different windows and different sources,
+                    so the panel never states one shared basis. */}
+                <DashboardBasisDisclosure
+                  label="기간 지표 근거"
+                  entries={[
+                    { label: `${rangeLabel} 매출`, basis: revenueCardBasis },
+                    { label: `${rangeLabel} 순이익`, basis: profitBasis },
+                    { label: '이익률', basis: profitRateBasis },
+                    { label: '광고비율', basis: adRateBasis },
+                    { label: '구매전환율', basis: trafficBasis },
+                    { label: '광고수익률', basis: adRoasBasis },
+                  ]}
+                />
                 {kpiRange === 'custom' && (
                   <div className="flex items-center gap-1.5">
                     <input
@@ -1020,23 +1038,11 @@ export default function Dashboard() {
               unit="%"
               change={sellpiaHasData ? null : profitRateChange}
               prevLabel={sellpiaHasData ? '셀피아 공통 유효 날짜 기준' : `이전 ${formatNullablePercent(prevProfitRate)}`}
-              accentColor="#733de5"
-              icon={Target}
-              goal={15}
-              current={displayProfitRate ?? undefined}
-              goalUnit="%"
-              goalLabel="목표 15%"
-              basis={profitRateCardBasis}
-              comparisonBasis={sellpiaHasData ? null : profitRateComparisonBasis}
             />
           ) : (
             <UnavailableMetricCard
               label="이익률"
-              icon={Target}
-              accentColor="#733de5"
               note={sellpiaHasData ? '쿠팡 광고비 미수집' : '정산 데이터 미수집'}
-              basis={profitRateCardBasis}
-              comparisonBasis={sellpiaHasData ? null : profitRateComparisonBasis}
             />
           )}
 
@@ -1048,25 +1054,12 @@ export default function Dashboard() {
               unit="%"
               change={adRateChange === null ? null : -adRateChange}
               prevLabel={`이전 ${formatNullablePercent(kpiPrevAdRate)}`}
-              accentColor="#dc2626"
-              icon={Megaphone}
               invertColor
-              goal={10}
-              current={kpiAdRate ?? undefined}
-              goalUnit="%"
-              goalLabel="목표 10% 이하"
-              invertGoal
-              basis={adRateBasis}
-              comparisonBasis={adRateComparisonBasis}
             />
           ) : (
             <UnavailableMetricCard
               label="광고비율"
-              icon={Megaphone}
-              accentColor="#dc2626"
               note={adCoverageNote ?? '광고비 미수집'}
-              basis={adRateBasis}
-              comparisonBasis={adRateComparisonBasis}
             />
           )}
 
@@ -1078,21 +1071,11 @@ export default function Dashboard() {
               unit="%"
               change={null}
               prevLabel="비교 기준 없음"
-              accentColor="#0284c7"
-              icon={ShoppingCart}
-              goal={5}
-              current={trafficConversionRate}
-              goalUnit="%"
-              goalLabel="목표 5%"
-              basis={trafficBasis}
             />
           ) : (
             <UnavailableMetricCard
               label="구매전환율"
-              icon={ShoppingCart}
-              accentColor="#0284c7"
               note={trafficAvailable ? 'Wing 조회·주문 미수집' : 'Wing 트래픽 미수집'}
-              basis={trafficBasis}
             />
           )}
 
@@ -1104,23 +1087,11 @@ export default function Dashboard() {
               unit="%"
               change={adRoasChange}
               prevLabel={`이전 ${formatNullablePercent(adPrevRoas, 0)}`}
-              accentColor="#059669"
-              icon={BarChart3}
-              goal={400}
-              current={adRoas}
-              goalUnit="%"
-              goalLabel="목표 400%"
-              basis={adRoasBasis}
-              comparisonBasis={adRoasComparisonBasis}
             />
           ) : (
             <UnavailableMetricCard
               label="광고수익률"
-              icon={BarChart3}
-              accentColor="#059669"
               note={adCoverageNote ?? '광고 데이터 미수집'}
-              basis={adRoasBasis}
-              comparisonBasis={adRoasComparisonBasis}
             />
           )}
         </div>
@@ -1128,6 +1099,7 @@ export default function Dashboard() {
         <DashboardTrafficFunnel
           steps={trafficFunnelSteps}
           basis={trafficBasis}
+          coverageLabel={trafficCoverageLabel}
           sourceNote={trafficSourceNote}
           collected={trafficAvailable}
           onCollect={requestReadinessOpen}
@@ -1188,7 +1160,6 @@ export default function Dashboard() {
             <DashboardGradeCards
               gradeCount={inventory.gradeCount}
               classifiedProductCount={inventory.classifiedProductCount}
-              unclassifiedProductCount={inventory.unclassifiedProductCount}
               abcStatusCount={inventory.abcStatusCount}
               abcContributionProfit={inventory.abcContributionProfit}
               abcFormula={inventory.abcFormula}

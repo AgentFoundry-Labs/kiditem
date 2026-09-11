@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import type { DashboardInventorySummary, DashboardMetricBasis } from '@kiditem/shared/dashboard';
 import { cn } from '@/lib/utils';
-import { basisHasValues } from './DashboardDataBasis';
+import { basisHasValues, DashboardBasisDisclosure } from './DashboardDataBasis';
 
 /**
  * Each warning used to own a card, so five counts never lined up against one
@@ -154,7 +154,15 @@ export function DashboardWarningTable({ rows }: { rows: DashboardWarningRow[] })
         <h2 id="dashboard-warning-table-title" className="text-sm font-semibold text-slate-900">
           지금 손이 필요한 것
         </h2>
-        <span className="text-[11px] text-slate-500">심각도순</span>
+        <div className="flex items-center gap-1.5">
+          <span className="text-[11px] text-slate-500">심각도순</span>
+          {/* Each row carries its own basis, so the panel's ⓘ breaks down per
+              row rather than claiming one shared explanation for all of them. */}
+          <DashboardBasisDisclosure
+            label="경고 근거"
+            entries={rows.map(row => ({ label: row.label, basis: row.basis }))}
+          />
+        </div>
       </header>
       <table className="w-full table-fixed border-collapse text-sm">
         <caption className="sr-only">경고 항목별 상태와 건수</caption>

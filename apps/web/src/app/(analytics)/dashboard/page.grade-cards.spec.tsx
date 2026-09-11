@@ -259,15 +259,11 @@ describe('Dashboard absolute ABC grade cards', () => {
       'href',
       '/product-hub?abcGrade=C',
     );
-    expect(screen.getByRole('link', { name: /평가 대기.*2개/ })).toHaveAttribute(
-      'href',
-      '/product-hub?abcGrade=unclassified',
-    );
-    expect(screen.getByRole('link', { name: /원천 확인 필요.*4개/ })).toHaveAttribute(
-      'href',
-      '/product-hub?dataStatus=abc',
-    );
-    expect(screen.getByText('셀피아·광고비 수집 또는 매핑을 확인')).toBeInTheDocument();
+    // The panel is three grades. 평가 대기 and 원천 확인 필요 counted
+    // populations rather than grades, and the latter published the same number
+    // the attention rail already shows as ABC 미분류.
+    expect(screen.queryByText('평가 대기')).not.toBeInTheDocument();
+    expect(screen.queryByText('원천 확인 필요')).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '수익성 ABC' }))
       .toHaveAttribute('title', '상품 관리에서 등급 새로고침을 실행하세요.');
     expect(screen.queryByText(/자동 계산|자동 평가|NaN/)).not.toBeInTheDocument();
@@ -285,14 +281,17 @@ describe('Dashboard absolute ABC grade cards', () => {
 
     await waitFor(() => expect(screen.getByText('Kiditem Foundry')).toBeInTheDocument());
 
-    // Nothing was collected, so the funnel lays out no slots at all — the steps
-    // stay named on one line. What must never happen is a step reading as 0.
-    expect(screen.getByText(
-      '일평균 방문자 · 조회 · 장바구니 · 주문 · 판매량 — Wing 트래픽 미수집',
-    )).toBeInTheDocument();
+    // Nothing was collected, so every step holds the absent-value dash. The
+    // slots stay on the screen: the panel is the same height either way, and a
+    // step that is not there is a different statement from one with no value.
+    // What must never happen is a step reading as 0.
+    const funnel = within(screen.getByTestId('dashboard-traffic-funnel'));
+    for (const label of ['일평균 방문자', '조회', '장바구니', '주문', '판매량']) {
+      expect(funnel.getByText(label).parentElement).toHaveTextContent(`${label}—`);
+    }
     expect(document.body).not.toHaveTextContent('판매량0');
     expect(document.body).not.toHaveTextContent('조회0');
-    expect(screen.getByText('Wing 트래픽 미수집')).toBeInTheDocument();
+    expect(funnel.getByText('Wing 트래픽 미수집')).toBeInTheDocument();
   });
 
   it('renders collected zeroes and daily-average visitors without conflating provider conversion', async () => {
@@ -355,10 +354,15 @@ describe('Dashboard absolute ABC grade cards', () => {
     expect(screen.getByText('조회').parentElement).toHaveTextContent('조회80회');
     expect(screen.getByText('장바구니').parentElement).toHaveTextContent('장바구니0회');
     expect(screen.getByText('구매전환율').parentElement?.parentElement?.parentElement).toHaveTextContent('5.0%');
-    expect(screen.getByText(/Wing 제공 전환율 2\.9%/)).toBeInTheDocument();
+    // The provider's own rate is provenance, not a value of ours, so it sits
+    // behind the panel header rather than printed across it. What must never
+    // happen is the two rates being conflated: the card shows ours.
+    const funnelNote = within(screen.getByTestId('dashboard-traffic-funnel'))
+      .getByTitle(/Wing 제공 전환율 2\.9%/);
+    expect(funnelNote).toBeInTheDocument();
     expect(screen.getByText('일별 합산·기간 원본 미대사 · 장바구니')).toBeInTheDocument();
     expect(screen.getByText('기간 원본 불일치로 숨김 · 매출')).toBeInTheDocument();
-    expect(screen.getByText(/계정 원본 · ALL_NORMAL_RFM · 상품 매칭 합산 아님/)).toBeInTheDocument();
+    expect(funnelNote.getAttribute('title')).toMatch(/계정 원본 · ALL_NORMAL_RFM · 상품 매칭 합산 아님/);
   });
 
   /**
@@ -762,8 +766,6 @@ describe('Dashboard absolute ABC grade cards', () => {
     const profitRateLabel = screen.getAllByText('이익률')[0];
     const profitRateCard = profitRateLabel?.closest('[data-testid="dashboard-metric-card"]');
     expect(profitRateCard).toHaveTextContent('—');
-    expect(profitRateCard).not.toHaveTextContent('목표 15%');
-    expect(profitRateCard).not.toHaveTextContent('목표 달성!');
   });
 
   it('does not borrow order profit inputs beneath an unavailable Sellpia card', async () => {
@@ -876,8 +878,6 @@ describe('Dashboard absolute ABC grade cards', () => {
     const profitRateLabel = screen.getAllByText('이익률')[0];
     const profitRateCard = profitRateLabel?.closest('[data-testid="dashboard-metric-card"]');
     expect(profitRateCard).toHaveTextContent('0.0%');
-    expect(profitRateCard).toHaveTextContent('목표 15%');
-    expect(profitRateCard).not.toHaveTextContent('목표 달성!');
   });
 });
 

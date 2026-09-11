@@ -1,5 +1,8 @@
 'use client';
 
+import { cn } from '@/lib/utils';
+import { DashboardBasisDisclosure } from './DashboardDataBasis';
+
 import type { DashboardMetricBasis } from '@kiditem/shared/dashboard';
 
 
@@ -27,12 +30,17 @@ export interface TrafficFunnelStep {
 export function DashboardTrafficFunnel({
   steps,
   basis,
+  coverageLabel,
   sourceNote,
   collected,
   onCollect,
 }: {
   steps: TrafficFunnelStep[];
   basis: DashboardMetricBasis | null;
+  /** The panel's status in a few characters, such as `부분 10/11일`. */
+  coverageLabel: string | null;
+  /** The full provenance sentence, reached through the header rather than
+   *  printed across it. */
   sourceNote: string;
   collected: boolean;
   onCollect: () => void;
@@ -44,43 +52,55 @@ export function DashboardTrafficFunnel({
       data-testid="dashboard-traffic-funnel"
     >
       <header className="flex items-center justify-between gap-3 border-b border-slate-200 px-3 py-1.5">
-        <div className="flex items-center gap-2 min-w-0">
-          <h2 id="dashboard-traffic-funnel-title" className="text-sm font-semibold text-slate-900 shrink-0">
-            Wing 트래픽 퍼널
-          </h2>
-          <span className={collected ? 'truncate text-xs text-slate-500' : 'truncate text-xs font-medium text-amber-700'}>
-            {collected ? sourceNote : `${steps.map(s => s.label).join(' · ')} — Wing 트래픽 미수집`}
-          </span>
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
+        <h2 id="dashboard-traffic-funnel-title" className="text-sm font-semibold text-slate-900 shrink-0">
+          Wing 트래픽 퍼널
+        </h2>
+        {/* Status in a few characters, evidence behind the ⓘ. The whole
+            provenance sentence used to run across the header and truncate,
+            which made a panel's state something you had to read rather than
+            something you could see. */}
+        <div className="flex min-w-0 items-center gap-1.5">
           {!collected && (
             <button
               type="button"
               onClick={onCollect}
-              className="text-xs font-semibold text-violet-700 hover:text-violet-900"
+              className="shrink-0 text-xs font-semibold text-violet-700 hover:text-violet-900"
             >
               수집 시작 →
             </button>
           )}
+          <span
+            className={cn('truncate text-xs', collected ? 'text-slate-500' : 'font-medium text-amber-700')}
+            title={collected ? sourceNote : undefined}
+          >
+            {collected ? coverageLabel ?? '수집 완료' : 'Wing 트래픽 미수집'}
+          </span>
+          <DashboardBasisDisclosure
+            label="Wing 트래픽 퍼널 근거"
+            entries={[{ label: 'Wing 트래픽', basis }]}
+          />
         </div>
       </header>
 
-      {/* Nothing collected means there is no measurement to lay out — the steps
-          stay named on one line so the operator can see what would appear, and
-          no slot pretends to hold a value. */}
-      {collected ? (
-        <ol className="grid grid-cols-2 gap-px bg-slate-200 sm:grid-cols-3 lg:grid-cols-5">
-          {steps.map(step => (
-            <li key={step.key} className="bg-white px-3 py-1.5">
-              <p className="text-xs text-slate-500">{step.label}</p>
-              <p className="text-lg font-bold tabular-nums tracking-tight text-slate-900">
-                {step.display}
-                {step.rate && <span className="ml-1.5 text-xs font-medium text-slate-500">{step.rate}</span>}
-              </p>
-            </li>
-          ))}
-        </ol>
-      ) : null}
+      {/* The five slots are always here. They used to disappear entirely when
+          nothing was collected, so the panel — and the whole column under it —
+          jumped the moment a collection landed. An uncollected step holds the
+          absent-value dash, which is a different thing from a step that is not
+          on the screen at all. */}
+      <ol className="grid grid-cols-2 gap-px bg-slate-200 sm:grid-cols-3 lg:grid-cols-5">
+        {steps.map(step => (
+          <li key={step.key} className="bg-white px-3 py-1.5">
+            <p className="text-xs text-slate-500">{step.label}</p>
+            <p className={cn(
+              'text-lg font-bold tabular-nums tracking-tight',
+              collected ? 'text-slate-900' : 'text-slate-300',
+            )}>
+              {collected ? step.display : '—'}
+              {collected && step.rate && <span className="ml-1.5 text-xs font-medium text-slate-500">{step.rate}</span>}
+            </p>
+          </li>
+        ))}
+      </ol>
     </section>
   );
 }

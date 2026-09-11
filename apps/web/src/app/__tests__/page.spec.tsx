@@ -392,10 +392,17 @@ describe('Dashboard page (RTL)', () => {
     await screen.findByText('Kiditem Foundry');
     // The operator does not need the state of every source spelled out; they
     // need to know which collection to run, and the 데이터 수집 button to run
-    // it. The basis is still published on the API — it is just not painted.
+    // it. The basis is never painted across the page — it is reached through
+    // one affordance per panel, which is a different thing from a badge on
+    // every value and is why the count here is bounded by panels rather than
+    // by how many numbers happen to be on screen.
     expect(screen.getByRole('button', { name: /데이터 수집/ })).toBeInTheDocument();
-    expect(screen.queryAllByRole('button', { name: /근거 안내$/ })).toHaveLength(0);
     expect(screen.queryAllByTestId('dashboard-data-basis')).toHaveLength(0);
+    const disclosures = screen.queryAllByRole('button', { name: /근거 안내$/ });
+    expect(disclosures.length).toBeGreaterThan(0);
+    expect(disclosures.length).toBeLessThanOrEqual(8);
+    expect(new Set(disclosures.map(button => button.getAttribute('aria-label'))).size)
+      .toBe(disclosures.length);
     expect(document.body.textContent).not.toContain('스냅샷 현재 · 기준시점');
     expect(document.body).not.toHaveTextContent('2026-07-02');
   });

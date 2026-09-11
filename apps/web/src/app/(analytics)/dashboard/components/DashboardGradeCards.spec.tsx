@@ -8,7 +8,6 @@ import { DashboardGradeCards } from './DashboardGradeCards';
 const summary = {
   gradeCount: { A: 2, B: 1, C: 1 },
   classifiedProductCount: 4,
-  unclassifiedProductCount: 6,
   abcStatusCount: {
     READY: 4, INSUFFICIENT_EVIDENCE: 2, SOURCE_UNMAPPED: 1,
     SELLPIA_SOURCE_STALE: 2, AD_SOURCE_STALE: 1,
@@ -27,17 +26,20 @@ function wrapper({ children }: { children: ReactNode }) {
 }
 
 describe('DashboardGradeCards', () => {
-  it('shows evidence waiting and source attention without claiming automatic work is running', () => {
+  /**
+   * The panel is three grades. It used to carry two more cells — 평가 대기 and
+   * 원천 확인 필요 — which counted populations rather than grades, and 원천 확인
+   * 필요 published the same number the attention rail already showed as ABC
+   * 미분류. A count an operator has to act on belongs in the rail.
+   */
+  it('shows the three grades and nothing that counts a population', () => {
     render(<DashboardGradeCards {...summary} refetchReads={async () => {}} asOf="상품 관리에서 새로고침한 시점" />, { wrapper });
 
-    expect(screen.getByRole('link', { name: /평가 대기.*2개/ })).toHaveAttribute(
-      'href', '/product-hub?abcGrade=unclassified',
-    );
-    expect(screen.getByRole('link', { name: /원천 확인 필요.*4개/ })).toHaveAttribute(
-      'href', '/product-hub?dataStatus=abc',
-    );
-    expect(screen.getByText('유효 매핑의 최초 판매일로부터 30일 경과 후 평가 가능')).toBeInTheDocument();
-    expect(screen.queryByText(/유효 관측일/)).not.toBeInTheDocument();
+    for (const grade of ['A', 'B', 'C']) {
+      expect(screen.getByRole('link', { name: new RegExp(`^${grade}등급`) })).toBeInTheDocument();
+    }
+    expect(screen.queryByText('평가 대기')).not.toBeInTheDocument();
+    expect(screen.queryByText('원천 확인 필요')).not.toBeInTheDocument();
     // Which calculation produced these grades identifies the panel; it is not
     // a caption under it.
     expect(screen.getByRole('heading', { name: '수익성 ABC' }))

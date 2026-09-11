@@ -1,6 +1,7 @@
 'use client';
 
 import type { DashboardMetricBasis } from '@kiditem/shared/dashboard';
+import { DashboardBasisDisclosure } from './DashboardDataBasis';
 
 /**
  * Ad conversion revenue used to sit inside the revenue card, under a "쿠팡"
@@ -40,8 +41,9 @@ export function DashboardAdPerformance({
         <h2 id="dashboard-ad-performance-title" className="text-sm font-semibold text-slate-900">
           광고 성과 <span className="font-normal text-slate-500">쿠팡</span>
         </h2>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
           {coverageLabel && <span className="text-[11px] tabular-nums text-slate-500">{coverageLabel}</span>}
+          <DashboardBasisDisclosure label="광고 성과 근거" entries={[{ label: '쿠팡 광고', basis }]} />
         </div>
       </header>
       <table className="w-full border-collapse text-sm">

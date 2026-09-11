@@ -4,7 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { Loader2, RefreshCw } from 'lucide-react';
 import { cn, formatNumber } from '@/lib/utils';
-import type { DashboardMetricBasis } from './DashboardDataBasis';
+import { DashboardBasisDisclosure, type DashboardMetricBasis } from './DashboardDataBasis';
 import type { DashboardInventorySummary } from '@kiditem/shared/dashboard';
 import {
   useProductAbcRecalculation,
@@ -23,7 +23,6 @@ type DashboardGradeCardsProps = Pick<
   DashboardInventorySummary,
   | 'gradeCount'
   | 'classifiedProductCount'
-  | 'unclassifiedProductCount'
   | 'abcStatusCount'
   | 'abcContributionProfit'
   | 'abcFormula'
@@ -33,7 +32,7 @@ type DashboardGradeCardsProps = Pick<
 const GRADE_LABELS: Record<ProductAbcGrade, string> = { A: '고수익 핵심', B: '수익 성장', C: '수익 개선' };
 
 export function DashboardGradeCards({
-  gradeCount, classifiedProductCount, unclassifiedProductCount, abcStatusCount, abcContributionProfit, abcFormula, gradeChanges,
+  gradeCount, classifiedProductCount, abcStatusCount, abcContributionProfit, abcFormula, gradeChanges,
   basis, refetchReads,
 }: DashboardGradeCardsProps & {
   basis?: DashboardMetricBasis | null;
@@ -44,9 +43,6 @@ export function DashboardGradeCards({
   // action, not a second implementation of it.
   const [feedback, setFeedback] = useState<ProductAbcRecalculationFeedback | null>(null);
   const refresh = useProductAbcRecalculation({ onFeedback: setFeedback, refetchReads });
-  const sourceAttention = abcStatusCount.SOURCE_UNMAPPED
-    + abcStatusCount.SELLPIA_SOURCE_STALE
-    + abcStatusCount.AD_SOURCE_STALE;
 
   return (
     <section
@@ -61,6 +57,7 @@ export function DashboardGradeCards({
           수익성 ABC
         </h2>
         <div className="flex items-center gap-1.5">
+          <DashboardBasisDisclosure label="수익성 ABC 근거" entries={[{ label: 'ABC 등급', basis }]} />
           <button
             type="button"
             onClick={() => { setFeedback(null); refresh.mutate(); }}
@@ -77,7 +74,12 @@ export function DashboardGradeCards({
         </div>
       </header>
 
-      <div className="grid grid-cols-2 gap-px bg-slate-200 sm:grid-cols-3 xl:grid-cols-5">
+      {/* Three grades, three cells. The two status cells that used to sit beside
+          them — 평가 대기 and 원천 확인 필요 — counted populations rather than
+          grades, and 원천 확인 필요 published the same number as the ABC 미분류
+          row in the attention rail two columns to the left. The rail is where a
+          count an operator has to act on belongs. */}
+      <div className="grid grid-cols-3 gap-px bg-slate-200">
         {(['A', 'B', 'C'] as const).map(grade => (
           <GradeCell
             key={grade}
@@ -87,20 +89,6 @@ export function DashboardGradeCards({
             contribution={abcContributionProfit.amountByGrade[grade]}
           />
         ))}
-        <StatusCell
-          label="평가 대기"
-          count={abcStatusCount.INSUFFICIENT_EVIDENCE}
-          description="유효 매핑의 최초 판매일로부터 30일 경과 후 평가 가능"
-          href="/product-hub?abcGrade=unclassified"
-          tone="sky"
-        />
-        <StatusCell
-          label="원천 확인 필요"
-          count={sourceAttention}
-          description="셀피아·광고비 수집 또는 매핑을 확인"
-          href="/product-hub?dataStatus=abc"
-          tone="amber"
-        />
       </div>
 
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-slate-200 px-3 py-1.5 text-[11px] text-slate-500">
@@ -153,21 +141,3 @@ function GradeCell({ grade, count, total, contribution }: { grade: ProductAbcGra
   );
 }
 
-function StatusCell({ label, count, description, href, tone }: { label: string; count: number; description: string; href: string; tone: 'sky' | 'amber' }) {
-  return (
-    <Link
-      href={href}
-      aria-label={`${label} 평가 상태 ${formatNumber(count)}개 ${description}`}
-      title={description}
-      className={cn('px-2 py-1.5 text-center transition-colors', tone === 'sky' ? 'bg-sky-50/60 hover:bg-sky-50' : 'bg-amber-50/60 hover:bg-amber-50')}
-    >
-      <p className="truncate text-[11px] font-semibold text-slate-500">{label}</p>
-      <p className={cn('text-lg font-bold leading-tight tabular-nums', tone === 'amber' && count > 0 ? 'text-amber-700' : 'text-slate-900')}>
-        {formatNumber(count)}
-      </p>
-      {/* The sentence is on the link itself, for assistive tech and on hover;
-          the cell paints only as much of it as it has room for. */}
-      <p className="mt-0.5 truncate text-[10px] text-slate-500">{description}</p>
-    </Link>
-  );
-}
