@@ -857,7 +857,7 @@ export default function Dashboard() {
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div className="flex min-w-0 items-center gap-3">
-          <div className="w-9 h-9 shrink-0 rounded-lg bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-600">
             <Zap size={18} className="text-white" />
           </div>
           <div>

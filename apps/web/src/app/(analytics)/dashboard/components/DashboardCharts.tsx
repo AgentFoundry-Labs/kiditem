@@ -106,7 +106,7 @@ function EmptyChartFrame() {
     <div className="relative" style={{ height: CHART_HEIGHT }} aria-hidden="true">
       <svg width="100%" height="100%" preserveAspectRatio="none" viewBox="0 0 100 100">
         {[20, 40, 60, 80].map((y) => (
-          <line key={y} x1="0" y1={y} x2="100" y2={y} stroke="#f1f5f9" strokeWidth="0.4" vectorEffect="non-scaling-stroke" />
+          <line key={y} x1="0" y1={y} x2="100" y2={y} stroke="#eceef3" strokeWidth="1" vectorEffect="non-scaling-stroke" />
         ))}
         <line x1="0" y1="100" x2="100" y2="100" stroke="#e2e8f0" strokeWidth="1" vectorEffect="non-scaling-stroke" />
         <line x1="0" y1="0" x2="0" y2="100" stroke="#e2e8f0" strokeWidth="1" vectorEffect="non-scaling-stroke" />
@@ -136,12 +136,14 @@ export function DashboardCharts({ chartTab, dailyTrend, adChartData, benchmarkDa
                 <linearGradient id="gProfit" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#10b981" stopOpacity={0.15} /><stop offset="95%" stopColor="#10b981" stopOpacity={0} /></linearGradient>
                 <linearGradient id="gAdRate" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#f59e0b" stopOpacity={0.08} /><stop offset="95%" stopColor="#f59e0b" stopOpacity={0} /></linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-              <XAxis dataKey="date" fontSize={10} tickLine={false} axisLine={false} tick={{ fill: '#94a3b8' }} interval={4} />
+              {/* Both axes carry ids, so the grid has to name one — the
+                  default `yAxisId="0"` matches neither and draws nothing. */}
+              <CartesianGrid yAxisId="rev" stroke="#eceef3" vertical={false} />
+              <XAxis dataKey="date" fontSize={10} tickLine={false} axisLine={{ stroke: '#e2e8f0' }} tick={{ fill: '#94a3b8' }} interval={4} />
               {/* July measured: revenue peaks at 18,222,165 on one day while ad
                   spend runs 9,649–16,629 every day — about 1,100x apart. On one
                   axis the ad line sits flat on zero and says nothing. */}
-              <YAxis yAxisId="rev" fontSize={10} tickLine={false} axisLine={false} tick={{ fill: '#94a3b8' }} tickFormatter={(v: number) => `${(v / 10000).toFixed(0)}만`} domain={[0, 'auto']} />
+              <YAxis yAxisId="rev" fontSize={10} tickLine={false} axisLine={{ stroke: '#e2e8f0' }} tick={{ fill: '#94a3b8' }} tickFormatter={(v: number) => `${(v / 10000).toFixed(0)}만`} domain={[0, 'auto']} />
               <YAxis yAxisId="spend" orientation="right" fontSize={10} tickLine={false} axisLine={false} tick={{ fill: '#94a3b8' }} tickFormatter={(v: number) => `${(v / 10000).toFixed(0)}만`} domain={[0, 'auto']} />
               {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
               <Tooltip content={<EvidenceTooltip />} contentStyle={{ fontSize: 12, borderRadius: 10, background: '#fff', border: '1px solid #e2e8f0', color: '#0f172a' }} formatter={(v: any, name: any) => {
@@ -177,9 +179,11 @@ export function DashboardCharts({ chartTab, dailyTrend, adChartData, benchmarkDa
                 <linearGradient id="gAdCost" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#f43f5e" stopOpacity={0.12} /><stop offset="95%" stopColor="#f43f5e" stopOpacity={0} /></linearGradient>
                 <linearGradient id="gAdRev" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.1} /><stop offset="95%" stopColor="#8b5cf6" stopOpacity={0} /></linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-              <XAxis dataKey="date" fontSize={10} tickLine={false} axisLine={false} tick={{ fill: '#94a3b8' }} interval={4} />
-              <YAxis yAxisId="pct" fontSize={10} tickLine={false} axisLine={false} tick={{ fill: '#94a3b8' }} tickFormatter={(v: number) => `${v}%`} domain={[0, 'auto']} />
+              {/* Both axes carry ids, so the grid has to name one — the
+                  default `yAxisId="0"` matches neither and draws nothing. */}
+              <CartesianGrid yAxisId="pct" stroke="#eceef3" vertical={false} />
+              <XAxis dataKey="date" fontSize={10} tickLine={false} axisLine={{ stroke: '#e2e8f0' }} tick={{ fill: '#94a3b8' }} interval={4} />
+              <YAxis yAxisId="pct" fontSize={10} tickLine={false} axisLine={{ stroke: '#e2e8f0' }} tick={{ fill: '#94a3b8' }} tickFormatter={(v: number) => `${v}%`} domain={[0, 'auto']} />
               {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
               <Tooltip content={<EvidenceTooltip />} contentStyle={{ fontSize: 12, borderRadius: 10, background: '#fff', border: '1px solid #e2e8f0', color: '#0f172a' }} formatter={(v: any, name: any) => {
                 if (v == null) return ['—', name === 'adRate' ? '광고비율' : name === 'adCost' ? '광고비' : '매출'];
@@ -207,7 +211,7 @@ export function DashboardCharts({ chartTab, dailyTrend, adChartData, benchmarkDa
           <div className="flex-1 min-h-0">
           <ResponsiveContainer width="100%" height={CHART_HEIGHT} initialDimension={CHART_INITIAL_DIMENSION}>
             <BarChart data={benchmarkData} barGap={4} barCategoryGap="25%">
-              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+              <CartesianGrid stroke="#eceef3" vertical={false} />
               <XAxis dataKey="name" fontSize={13} tickLine={false} axisLine={false} tick={{ fill: '#64748b' }} fontWeight={600} />
               <YAxis fontSize={10} tickLine={false} axisLine={false} tick={{ fill: '#94a3b8' }} tickFormatter={(v: number) => `${v}%`} />
               {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
