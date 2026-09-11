@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ThumbnailGenerationSinkAdapter } from '../thumbnail-generation-sink.adapter';
+import { ThumbnailGenerationLifecycleService } from '../../../../application/service/thumbnail-generation-lifecycle.service';
 import type { OperationAlertPort } from '../../../../application/port/out/cross-domain/operation-alert.port';
 import type { ThumbnailGenerationEventPort } from '../../../../application/port/out/event/thumbnail-generation-event.port';
 import type { ProductGenerationAlertService } from '../../../../application/service/product-generation-alert.service';
 import type { ThumbnailGenerationLedgerRepositoryPort } from '../../../../application/port/out/repository/thumbnail-generation-ledger.repository.port';
-import { ThumbnailGenerationLifecycleService } from '../../../../application/service/thumbnail-generation-lifecycle.service';
+import type { ImageStoragePort } from '../../../../application/port/out/storage/image-storage.port';
 
 const ORG = '11111111-1111-1111-1111-111111111111';
 const REQUEST = '22222222-2222-2222-2222-222222222222';
@@ -46,6 +47,12 @@ function makeProductGenerationAlerts(): ProductGenerationAlertService {
   } as unknown as ProductGenerationAlertService;
 }
 
+function makeStorage(): ImageStoragePort {
+  return {
+    getUrl: vi.fn((key: string) => `https://storage.example.com/${key}`),
+  } as unknown as ImageStoragePort;
+}
+
 function makeSink(
   ledger: ThumbnailGenerationLedgerRepositoryPort,
   alerts: OperationAlertPort,
@@ -56,6 +63,7 @@ function makeSink(
     ledger,
     alerts,
     new ThumbnailGenerationLifecycleService(ledger, events),
+    makeStorage(),
     productGenerationAlerts,
   );
 }
@@ -138,6 +146,36 @@ describe('ThumbnailGenerationSinkAdapter', () => {
             candidateCount: 1,
             aiJobId: REQUEST,
           }),
+        }),
+      );
+    });
+
+    it('rebuilds managed candidate URLs from the current storage configuration', async () => {
+      const sink = makeSink(ledger, alerts, events);
+
+      await sink.applySuccess({
+        organizationId: ORG,
+        requestId: REQUEST,
+        runId: RUN,
+        sourceResourceId: GEN_ID,
+        output: {
+          candidates: [
+            {
+              url: 'http://old-storage.example.com/kiditem/thumbnail-generations/output.png',
+              storageKey: 'thumbnail-generations/output.png',
+            },
+          ],
+        },
+      });
+
+      expect(ledger.projectDirectSuccess).toHaveBeenCalledWith(
+        expect.objectContaining({
+          candidates: [
+            expect.objectContaining({
+              url: 'https://storage.example.com/thumbnail-generations/output.png',
+              storageKey: 'thumbnail-generations/output.png',
+            }),
+          ],
         }),
       );
     });

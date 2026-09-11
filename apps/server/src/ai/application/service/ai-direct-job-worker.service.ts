@@ -7,6 +7,7 @@ import {
   type OnModuleDestroy,
   type OnModuleInit,
 } from '@nestjs/common';
+import { AiDirectJobCheckpointSchema } from '../../domain/direct-job/ai-direct-job.schema';
 import {
   AI_DIRECT_JOB_REPOSITORY_PORT,
   type AiDirectJobRecord,
@@ -16,11 +17,11 @@ import {
   AI_DIRECT_JOB_RUNTIME_CONFIG,
   type AiDirectJobRuntimeConfig,
 } from './ai-direct-job.config';
-import type { AiDirectJobWakePort } from '../port/out/runtime';
 import {
   AiDirectJobProcessorService,
   type NormalizedAiDirectJobError,
 } from './ai-direct-job-processor.service';
+import type { AiDirectJobWakePort } from '../port/out/runtime';
 
 @Injectable()
 export class AiDirectJobWorkerService
@@ -91,8 +92,9 @@ export class AiDirectJobWorkerService
       );
       providerTimeout.unref?.();
       try {
-        const result =
+        const rawResult =
           job.result ?? (await this.processor.execute(job, controller.signal));
+        const result = validateCheckpointResult(job.jobType, rawResult);
         if (job.result == null) {
           const checkpointed = await this.repository.checkpointResult({
             organizationId: job.organizationId,
@@ -294,4 +296,19 @@ function errorCode(error: unknown): string {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function validateCheckpointResult(
+  jobType: AiDirectJobRecord['jobType'],
+  result: unknown,
+): unknown {
+  const parsed = AiDirectJobCheckpointSchema.safeParse({ jobType, result });
+  if (parsed.success) return parsed.data.result;
+
+  const message = parsed.error.issues
+    .map((issue) => `${issue.path.join('.') || 'result'}: ${issue.message}`)
+    .join('; ');
+  throw Object.assign(new Error(message), {
+    code: 'direct_ai_output_invalid',
+  });
 }
