@@ -5,22 +5,14 @@ import { queryKeys } from '@/lib/query-keys';
 import { AlertsPopover } from './AlertsPopover';
 
 const fetchAlertsMock = vi.hoisted(() => vi.fn());
-const dismissAlertMock = vi.hoisted(() => vi.fn());
+const postMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@/lib/api-client', () => ({
   apiClient: {
     get: fetchAlertsMock,
-    post: vi.fn(),
+    post: postMock,
   },
 }));
-
-vi.mock('@/lib/alerts-api', async () => {
-  const actual = await vi.importActual<typeof import('@/lib/alerts-api')>('@/lib/alerts-api');
-  return {
-    ...actual,
-    dismissAlert: dismissAlertMock,
-  };
-});
 
 function makeAlert(overrides: Record<string, unknown> = {}) {
   return {
@@ -60,9 +52,9 @@ describe('AlertsPopover', () => {
       value: 'visible',
     });
     fetchAlertsMock.mockReset();
-    dismissAlertMock.mockReset();
+    postMock.mockReset();
     fetchAlertsMock.mockResolvedValue([makeAlert()]);
-    dismissAlertMock.mockResolvedValue({ ok: true });
+    postMock.mockResolvedValue({ ok: true });
   });
 
   afterEach(() => {
@@ -93,9 +85,11 @@ describe('AlertsPopover', () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    expect(dismissAlertMock).toHaveBeenCalledWith(
-      '11111111-1111-4111-8111-111111111111',
-      expect.objectContaining({ client: queryClient }),
+    // Dismiss goes through the shared hook now, so the module export is no
+    // longer the seam a mock can sit on. The POST is what "through the Alert
+    // API" meant anyway.
+    expect(postMock).toHaveBeenCalledWith(
+      '/api/alerts/11111111-1111-4111-8111-111111111111/dismiss',
     );
     await act(async () => {
       await Promise.resolve();

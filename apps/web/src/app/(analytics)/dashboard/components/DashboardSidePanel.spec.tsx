@@ -9,7 +9,9 @@ import type { DashboardAlertItem } from '@kiditem/shared/dashboard';
 const mockDismissAlert = vi.hoisted(() => vi.fn(async () => ({ ok: true as const })));
 
 vi.mock('@/lib/alerts-api', () => ({
-  dismissAlert: mockDismissAlert,
+  // Which queries a dismiss invalidates is the hook's answer; it is asserted
+  // where the hook lives. This panel's job is to ask.
+  useDismissAlert: () => ({ mutate: mockDismissAlert }),
 }));
 
 vi.mock('next/link', () => ({
@@ -65,7 +67,6 @@ describe('DashboardSidePanel', () => {
     render(
       <DashboardSidePanel
         alerts={[makeAlert()]}
-        queryClient={makeQueryClient()}
       />,
     );
 
@@ -75,24 +76,13 @@ describe('DashboardSidePanel', () => {
     expect(screen.getByText('확인 필요')).toBeInTheDocument();
   });
 
-  it('dismisses an open alert and invalidates alert and dashboard queries', async () => {
-    const queryClient = makeQueryClient();
-    const invalidateQueries = vi.spyOn(queryClient, 'invalidateQueries');
-
-    render(<DashboardSidePanel alerts={[makeAlert()]} queryClient={queryClient} />);
+  it('asks to dismiss the open alert it was clicked on', async () => {
+    render(<DashboardSidePanel alerts={[makeAlert()]} />);
 
     fireEvent.click(screen.getByRole('button', { name: '알림 닫기' }));
 
     await waitFor(() => {
       expect(mockDismissAlert).toHaveBeenCalledWith('alert-1');
-    });
-    await waitFor(() => {
-      expect(invalidateQueries).toHaveBeenCalledWith({
-        queryKey: queryKeys.alerts.all,
-      });
-      expect(invalidateQueries).toHaveBeenCalledWith({
-        queryKey: queryKeys.dashboard.all,
-      });
     });
   });
 
@@ -105,7 +95,6 @@ describe('DashboardSidePanel', () => {
             isRead: true,
           }),
         ]}
-        queryClient={makeQueryClient()}
       />,
     );
 
@@ -114,7 +103,7 @@ describe('DashboardSidePanel', () => {
   });
 
   it('renders an empty state when no alerts are available', () => {
-    render(<DashboardSidePanel alerts={[]} queryClient={makeQueryClient()} />);
+    render(<DashboardSidePanel alerts={[]} />);
 
     expect(screen.getByText('표시할 알림이 없습니다')).toBeInTheDocument();
   });

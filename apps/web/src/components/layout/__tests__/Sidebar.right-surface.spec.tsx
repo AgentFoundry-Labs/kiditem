@@ -33,6 +33,10 @@ vi.mock('@/store/useStore', () => ({
 
 vi.mock('@/lib/alerts-api', () => ({
   useAlertsQuery: () => ({ data: [] }),
+  // The badge's "unread and open" rule is shared now, so the mock carries it
+  // rather than each surface deciding for itself.
+  unreadOpenAlertCount: (alerts: readonly { isRead: boolean; status: string }[]) =>
+    alerts.filter((alert) => !alert.isRead && alert.status === 'OPEN').length,
 }));
 
 vi.mock('@/hooks/useAuth', () => ({

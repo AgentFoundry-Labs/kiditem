@@ -728,7 +728,6 @@ export default function Dashboard() {
     const hours = Math.floor(minutes / 60);
     return hours < 24 ? `${hours}시간 전` : `${Math.floor(hours / 24)}일 전`;
   })();
-  const alertsBasis = readMetricBasis(inventoryData, 'alerts');
 
   // The basis a card actually displays is decided once, so the section's
   // breakdown explains the number on screen rather than a parallel guess.
@@ -1191,8 +1190,6 @@ export default function Dashboard() {
           <DashboardSidePanel
             alerts={inventoryData?.alerts ?? []}
             readFailures={readFailures}
-            queryClient={queryClient}
-            basis={alertsBasis}
           />
         </div>
       </div>

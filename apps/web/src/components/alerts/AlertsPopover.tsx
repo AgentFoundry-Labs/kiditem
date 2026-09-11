@@ -1,27 +1,21 @@
 'use client';
 
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useEffect } from 'react';
 import { Bell, CheckCircle2, CircleAlert, X } from 'lucide-react';
 import { toast } from 'sonner';
 import {
-  dismissAlert,
+  unreadOpenAlertCount,
   useAlertsQuery,
+  useDismissAlert,
   type AlertRecord,
 } from '@/lib/alerts-api';
-import { queryKeys } from '@/lib/query-keys';
 
 export function AlertsPopover() {
-  const queryClient = useQueryClient();
   const alertsQuery = useAlertsQuery();
-  const dismissMutation = useMutation({
-    mutationFn: dismissAlert,
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: queryKeys.alerts.all });
-    },
-    onError: () => {
-      toast.error('알림을 닫지 못했습니다.');
-    },
-  });
+  const dismissMutation = useDismissAlert();
+  useEffect(() => {
+    if (dismissMutation.isError) toast.error('알림을 닫지 못했습니다.');
+  }, [dismissMutation.isError]);
 
   const alerts = alertsQuery.data ?? [];
 
@@ -36,9 +30,9 @@ export function AlertsPopover() {
         >
           알림
         </h2>
-        {alerts.some((alert) => !alert.isRead && isOpenAlert(alert)) && (
+        {unreadOpenAlertCount(alerts) > 0 && (
           <span className="rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-700">
-            {alerts.filter((alert) => !alert.isRead && isOpenAlert(alert)).length}
+            {unreadOpenAlertCount(alerts)}
           </span>
         )}
       </div>

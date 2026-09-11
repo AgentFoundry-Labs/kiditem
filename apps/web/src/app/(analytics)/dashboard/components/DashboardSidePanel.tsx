@@ -1,10 +1,7 @@
 import Link from 'next/link';
 import { AlertTriangle, CheckCircle2, RotateCcw, ShieldCheck, X } from 'lucide-react';
-import { dismissAlert } from '@/lib/alerts-api';
-import { queryKeys } from '@/lib/query-keys';
+import { useDismissAlert } from '@/lib/alerts-api';
 import { cn } from '@/lib/utils';
-import type { DashboardMetricBasis } from './DashboardDataBasis';
-import type { QueryClient } from '@tanstack/react-query';
 import type { DashboardAlertItem } from '@kiditem/shared/dashboard';
 
 /**
@@ -78,29 +75,18 @@ function DashboardReadFailureRow({ failure }: { failure: DashboardReadFailure })
   );
 }
 
-function DashboardAlertRow({
-  alert,
-  queryClient,
-}: {
-  alert: DashboardAlertItem;
-  queryClient: QueryClient;
-}) {
+function DashboardAlertRow({ alert }: { alert: DashboardAlertItem }) {
+  const dismissMutation = useDismissAlert();
   // The source owner names where to send the operator. The fallbacks here keyed
   // off types nothing writes, so they never fired.
   const href = alert.href ?? undefined;
   const open = isOpenAlert(alert);
-  const dismiss = async (event: React.MouseEvent<HTMLButtonElement>) => {
+  const dismiss = (event: React.MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
-    try {
-      await dismissAlert(alert.id);
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: queryKeys.alerts.all }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all }),
-      ]);
-    } catch {
-      // The next normal dashboard or alert query will reconcile the row.
-    }
+    // Which surfaces have to reconcile is the hook's answer, not this row's.
+    // A failure needs no branch here: the next poll reconciles the row.
+    dismissMutation.mutate(alert.id);
   };
   const content = (
     <>
@@ -144,13 +130,9 @@ function DashboardAlertRow({
 export function DashboardSidePanel({
   alerts,
   readFailures = [],
-  queryClient,
-  basis,
 }: {
   alerts: DashboardAlertItem[];
   readFailures?: readonly DashboardReadFailure[];
-  queryClient: QueryClient;
-  basis?: DashboardMetricBasis | null;
 }) {
   // A failed read needs attention the same way an open alert does, so it counts.
   const unreadCount = alerts.filter((alert) => !alert.isRead && isOpenAlert(alert)).length
@@ -167,7 +149,7 @@ export function DashboardSidePanel({
         {readFailures.map((failure) => (
           <DashboardReadFailureRow key={failure.key} failure={failure} />
         ))}
-        {alerts.map((alert) => <DashboardAlertRow key={alert.id} alert={alert} queryClient={queryClient} />)}
+        {alerts.map((alert) => <DashboardAlertRow key={alert.id} alert={alert} />)}
         {alerts.length === 0 && readFailures.length === 0 && (
           <div className="px-4 py-8 text-center">
             <ShieldCheck size={24} className="mx-auto mb-2 text-emerald-500" />

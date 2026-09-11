@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/store/useStore";
-import { useAlertsQuery } from "@/lib/alerts-api";
+import { unreadOpenAlertCount, useAlertsQuery } from "@/lib/alerts-api";
 import { useAuth } from "@/hooks/useAuth";
 import { CollapsibleSidebarShell } from "./CollapsibleSidebarShell";
 import { SidebarBrandLink } from "./SidebarBrandLink";
@@ -77,7 +77,7 @@ export default function Sidebar({
   const showConfirm = useStore((s) => s.showConfirm);
   const { user, logout } = useAuth();
   const { data: alerts = [] } = useAlertsQuery(Boolean(user));
-  const unreadAlertCount = alerts.filter((alert) => !alert.isRead && isOpenAlert(alert)).length;
+  const unreadAlertCount = unreadOpenAlertCount(alerts);
 
   const handleNavClick = useCallback(
     (e: React.MouseEvent<HTMLAnchorElement>, href: string) => {
@@ -425,6 +425,3 @@ export default function Sidebar({
   );
 }
 
-function isOpenAlert(alert: { status: string }): boolean {
-  return alert.status === "OPEN";
-}
