@@ -83,7 +83,9 @@ const CURRENT_STOCK_WRITE_ALLOWLIST = new Set([
   "apps/server/src/inventory/__tests__/inventory-sku-export.pg.integration.spec.ts",
   "apps/server/src/inventory/__tests__/sellpia-inventory-source.pg.integration.spec.ts",
   "apps/server/src/inventory/__tests__/stock-transfers-tenant-boundary.pg.integration.spec.ts",
+  "apps/server/src/products/__tests__/master-product-abc-publication.pg.integration.spec.ts",
   "apps/server/src/products/__tests__/master-product-abc.repository.pg.integration.spec.ts",
+  "apps/server/src/products/__tests__/product-abc-display-status.pg.integration.spec.ts",
   "apps/server/src/products/__tests__/product-operations.repository.pg.integration.spec.ts",
   "apps/server/src/orders/__tests__/coupang-direct-order-collection.pg.integration.spec.ts",
   "apps/server/src/channels/__tests__/sellpia-manual-match-source-owner.pg.integration.spec.ts",
@@ -416,6 +418,15 @@ describe("Sellpia authoritative final-schema contract", () => {
     assert.match(dashboardSalesRepository, /LEFT JOIN master_product_abc_evaluations abce/);
     assert.match(dashboardSalesRepository, /grade: abcEvaluation\?\.abcGrade \?\? null/);
     assert.doesNotMatch(dashboardSalesRepository, /mp\.abc_grade AS grade/);
-    assert.match(dashboardSalesRepository, /GROUP BY cl\.id/);
+    // One group per listing: a bundle line counts once however many Sellpia
+    // components its option consumes. A line that settles against no listing —
+    // a Coupang Rocket purchase order, which carries no listing option at all —
+    // groups on its own SKU so its revenue is ranked rather than dropped
+    // (ADR-0004). The listing still closes the group.
+    assert.match(
+      dashboardSalesRepository,
+      /GROUP BY COALESCE\(cl\.id::text, 'line-sku:' \|\| oli\.sku\)/,
+    );
+    assert.match(dashboardSalesRepository, /^\s+cl\.id,/m);
   });
 });
