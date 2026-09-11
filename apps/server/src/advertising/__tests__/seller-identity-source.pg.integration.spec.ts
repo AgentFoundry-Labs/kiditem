@@ -325,7 +325,9 @@ describe('Seller identity owner HTTP + PostgreSQL', () => {
         .capture,
     ).toEqual(firstCapture);
     const alert = (await get('/api/alerts').expect(200)).body;
-    expect(JSON.stringify(alert)).toContain('IDENTITY_EVIDENCE_INCOMPLETE');
+    // The alert carries the sentence an operator reads. The reason code stays
+    // on the run row, which the assertion above already checks.
+    expect(JSON.stringify(alert)).toContain('Seller identities do not cover every eligible frozen target.');
     expect(
       (await get('/api/ads/competitors?days=30&limit=20').expect(200)).body
         .sellers,
@@ -346,13 +348,13 @@ describe('Seller identity owner HTTP + PostgreSQL', () => {
     ).toMatchObject({ state: 'FAILED', errorCode: 'ATTEMPT_EXPIRED' });
     expect(
       JSON.stringify((await get('/api/alerts').expect(200)).body),
-    ).not.toContain('ATTEMPT_EXPIRED');
+    ).not.toContain('Seller identity collection expired before publication.');
     await submit(first, identities(first)).expect(409);
     const next = (await start().expect(201)).body;
     expect(next.attemptId).not.toBe(first.attemptId);
     expect(
       JSON.stringify((await get('/api/alerts').expect(200)).body),
-    ).toContain('ATTEMPT_EXPIRED');
+    ).toContain('Seller identity collection expired before publication.');
     const failure = {
       code: 'PROVIDER_INTERRUPTED',
       message: 'Original collector could not finish.',
@@ -470,7 +472,7 @@ describe('Seller identity owner HTTP + PostgreSQL', () => {
       );
       expect(
         JSON.stringify((await get('/api/alerts').expect(200)).body),
-      ).toContain('IDENTITY_EVIDENCE_INCOMPLETE');
+      ).toContain('Seller identities do not cover every eligible frozen target.');
     } finally {
       await prisma.$executeRaw`ALTER TABLE alerts DROP CONSTRAINT identity_test_no_resolve`;
     }

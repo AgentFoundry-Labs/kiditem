@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { ProductAbcReadModule } from '../../products/product-abc-read.module';
 import { AdvertisingModule } from '../../advertising/advertising.module';
+import { AlertsModule } from '../../alerts/alerts.module';
 import { AnalyticsOverviewCapabilityAdapter } from './adapter/in/agent/analytics-overview-capability.adapter';
 import { ProfitCalculationRepositoryAdapter } from './adapter/out/repository/profit-calculation.repository.adapter';
 import { WingAdSummaryRepositoryAdapter } from './adapter/out/repository/wing-ad-summary.repository.adapter';
@@ -47,7 +48,7 @@ const dashboardServices = [
 ];
 
 @Module({
-  imports: [PrismaModule, ProductAbcReadModule, AdvertisingModule],
+  imports: [PrismaModule, ProductAbcReadModule, AdvertisingModule, AlertsModule],
   providers: [
     ...repositoryAdapters,
     ...dashboardServices,

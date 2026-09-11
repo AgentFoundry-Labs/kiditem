@@ -1,4 +1,5 @@
 import { NotFoundException } from '@nestjs/common';
+import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import { describe, expect, it, vi } from 'vitest';
 import { RulesService } from '../services/rules.service';
 
@@ -14,7 +15,7 @@ function makeService() {
     $transaction: vi.fn(),
   };
   return {
-    service: new RulesService(prisma as never),
+    service: new RulesService(prisma as never, new SourceFailureAlerts(prisma as never)),
     prisma,
   };
 }

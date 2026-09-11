@@ -269,7 +269,9 @@ describe('Sourcing browser source owner (PostgreSQL)', () => {
     })).resolves.toMatchObject({
       status: 'OPEN',
       attemptId: attempt.attemptId,
-      message: expect.stringContaining('SOURCE_DISABLED'),
+      // The sentence an operator reads. The reason code stays on the run row,
+      // which the assertion above already checks.
+      message: 'The source is not enabled for this organization.',
     });
   });
 

@@ -11,7 +11,7 @@ describe('DashboardInventoryRepositoryAdapter', () => {
       channelListing: { findMany: vi.fn().mockResolvedValue([]) },
       channelListingOption: { count: vi.fn().mockResolvedValue(0) },
     };
-    const repository = new DashboardInventoryRepositoryAdapter(prisma as never, undefined as never, undefined as never);
+    const repository = new DashboardInventoryRepositoryAdapter(prisma as never, undefined as never, undefined as never, undefined as never);
 
     await repository.countActiveProductsByGrade('org-1');
     await repository.findActiveAbcContributions('org-1');
@@ -47,7 +47,7 @@ describe('DashboardInventoryRepositoryAdapter', () => {
     const findMany = vi.fn().mockResolvedValue([{ oldGrade: null, newGrade: 'A' }]);
     const repository = new DashboardInventoryRepositoryAdapter({
       masterProductAbcGradeHistory: { findMany },
-    } as never, undefined as never, undefined as never);
+    } as never, undefined as never, undefined as never, undefined as never);
     const since = new Date('2026-07-17T00:00:00.000Z');
     await repository.findGradeHistory('org-1', since);
     expect(findMany).toHaveBeenCalledWith({
@@ -74,7 +74,7 @@ describe('DashboardInventoryRepositoryAdapter', () => {
         ]),
       },
       channelListingOption: { count: vi.fn().mockResolvedValue(0) },
-    } as never, undefined as never, undefined as never);
+    } as never, undefined as never, undefined as never, undefined as never);
 
     await expect(repository.getSellingChannelMappingSummary('org-1')).resolves.toEqual({
       linkedMasterProductCount: 1,

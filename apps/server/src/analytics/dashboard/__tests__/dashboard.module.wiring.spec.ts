@@ -1,5 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect } from 'vitest';
+import { AlertsModule } from '../../../alerts/alerts.module';
 import { DashboardModule } from '../dashboard.module';
 import { DashboardCapabilityModule } from '../dashboard-capability.module';
 import { AdvertisingModule } from '../../../advertising/advertising.module';
@@ -50,8 +51,11 @@ describe('DashboardModule capability wiring', () => {
   it('does not import Agent OS from the analytics owner module', () => {
     const imports: unknown[] = Reflect.getMetadata(IMPORTS_KEY, DashboardModule) ?? [];
     expect(imports).toEqual([DashboardCapabilityModule]);
+    // AlertsModule is here because the alert rows this dashboard shows belong to
+    // the alerts module. The inventory adapter used to read that table directly,
+    // with its own filter, order, and limit.
     expect(Reflect.getMetadata(IMPORTS_KEY, DashboardCapabilityModule) ?? [])
-      .toEqual([PrismaModule, ProductAbcReadModule, AdvertisingModule]);
+      .toEqual([PrismaModule, ProductAbcReadModule, AdvertisingModule, AlertsModule]);
     expect(Reflect.getMetadata(CONTROLLERS_KEY, DashboardCapabilityModule) ?? [])
       .toEqual([]);
   });

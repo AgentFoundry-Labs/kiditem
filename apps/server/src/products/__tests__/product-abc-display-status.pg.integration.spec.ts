@@ -80,6 +80,8 @@ describe('Products publishes one ABC display status (PostgreSQL)', () => {
         productAbc,
         // The real advertising owner against the same Postgres.
         new AdAccountDailyKpiSourceRepository(prismaService, alerts),
+        // The panel's rows come from the alerts module, not from this adapter.
+        alerts,
       ),
     );
     sellpiaInventory = new SellpiaProductInventoryReader(

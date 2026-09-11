@@ -10,6 +10,18 @@ import type { Alert } from '@prisma/client';
 
 export type { SourceFailureAlertInput } from '@kiditem/shared/alerts';
 
+/** One product breaking one rule, in the words Rules already uses. */
+export type RuleViolationAlertInput = {
+  organizationId: string;
+  masterProductId: string;
+  ruleName: string;
+  title: string;
+  message: string;
+  evaluationId: string;
+  actorUserId: string;
+  metadata: Record<string, unknown>;
+};
+
 function jsonObject(value: Prisma.JsonValue): Record<string, unknown> {
   if (value && typeof value === 'object' && !Array.isArray(value)) {
     return value as Record<string, unknown>;
@@ -63,10 +75,28 @@ function mapAlert(row: Alert): AlertItem {
 export class SourceFailureAlerts {
   constructor(private readonly prisma: PrismaService) {}
 
-  async list(organizationId: string): Promise<AlertItem[]> {
+  /**
+   * The alert rows for one organization, filtered by what the caller is asking
+   * for rather than by which adapter it happens to hold.
+   *
+   * The dashboard used to read this table itself, with `isRead: false` and no
+   * status filter — so a resolved-but-unread alert took one of its ten slots and
+   * rendered with a green check — ordered by a different column, capped at a
+   * limit the interface never mentioned. Two reads of one table, disagreeing on
+   * filter, order, and limit, and producing two different badge numbers.
+   */
+  async list(
+    organizationId: string,
+    options: { isRead?: boolean; status?: AlertItem['status']; limit?: number } = {},
+  ): Promise<AlertItem[]> {
     const rows = await this.prisma.alert.findMany({
-      where: { organizationId },
+      where: {
+        organizationId,
+        ...(options.isRead === undefined ? {} : { isRead: options.isRead }),
+        ...(options.status ? { status: options.status } : {}),
+      },
       orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+      ...(options.limit === undefined ? {} : { take: options.limit }),
     });
     return rows.map(mapAlert);
   }
@@ -104,7 +134,10 @@ export class SourceFailureAlerts {
     // not a list. `ATTEMPT_EXPIRED` deliberately still alerts: a collection that
     // never finished is something the operator wants to know about.
     if (input.code.endsWith('_CANCELLED')) {
-      return this.resolveSourceFailure(tx, input);
+      // Nothing at all — not even resolving what is already open. A failure the
+      // source had before is still true; the operator cancelling a *new* attempt
+      // did not fix it, and closing it here would hide it.
+      return;
     }
     return this.upsertSourceFailure(tx, input);
   }
@@ -142,6 +175,59 @@ export class SourceFailureAlerts {
     });
     if (result.count === 0) {
       throw new NotFoundException('Alert not found');
+    }
+  }
+
+  /**
+   * Open a rule violation for one product, keyed by what is being violated
+   * rather than by the evaluation that noticed it.
+   *
+   * Rules used to write these rows itself, hand-filling fifteen Alert columns
+   * and minting a dedupe key that carried the request id. Nothing ever closed
+   * one, so a second evaluation of a product that still violated the same rule
+   * left the operator a second copy. Keying on product and rule makes a repeat
+   * finding an update of the row that is already there.
+   */
+  async openRuleViolations(
+    tx: Prisma.TransactionClient,
+    violations: readonly RuleViolationAlertInput[],
+  ): Promise<void> {
+    for (const violation of violations) {
+      const dedupeKey = `rules.violation:${violation.masterProductId}:${violation.ruleName}`;
+      const data = {
+        organizationId: violation.organizationId,
+        dedupeKey,
+        targetType: 'product',
+        targetId: violation.masterProductId,
+        kind: 'signal',
+        status: 'OPEN',
+        type: 'rule_violation',
+        severity: 'critical',
+        title: violation.title,
+        message: violation.message,
+        sourceType: 'rules_evaluation',
+        sourceId: violation.evaluationId,
+        actorUserId: violation.actorUserId,
+        href: '/product-hub',
+        metadata: violation.metadata as Prisma.InputJsonValue,
+        isRead: false,
+        readAt: null,
+      } satisfies Prisma.AlertUncheckedCreateInput;
+      await tx.alert.upsert({
+        where: {
+          organizationId_dedupeKey: { organizationId: violation.organizationId, dedupeKey },
+        },
+        create: data,
+        // A violation the operator has already seen stays seen; only its content
+        // and the evaluation that last confirmed it move.
+        update: {
+          status: 'OPEN',
+          title: violation.title,
+          message: violation.message,
+          sourceId: violation.evaluationId,
+          metadata: violation.metadata as Prisma.InputJsonValue,
+        },
+      });
     }
   }
 

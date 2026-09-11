@@ -42,6 +42,8 @@ describe('Analytics inventory ABC reads (PostgreSQL)', () => {
       productAbc,
       // The real advertising owner against the same Postgres.
       new AdAccountDailyKpiSourceRepository(prisma as never, alerts),
+      // The panel's rows come from the alerts module, not from this adapter.
+      alerts,
     ));
     inventory = new SellpiaProductInventoryReader(prisma as never,
       new InventoryAvailabilityService(new InventoryAvailabilityRepositoryAdapter(prisma as never)),
@@ -112,7 +114,9 @@ describe('Analytics inventory ABC reads (PostgreSQL)', () => {
     } else {
       const attempt = await advertising.beginAttempt({ organizationId: TEST_ORGANIZATION_ID, idempotencyKey: 'newer-ad-failure' });
       await advertising.failAttempt({ organizationId: TEST_ORGANIZATION_ID, attemptId: attempt.attemptId,
-        attemptToken: attempt.attemptToken, errorCode: 'COLLECTION_FAILED', errorMessage: 'Provider unavailable',
+        // The adapter declares `{code, message}`; this passed `errorCode`/
+        // `errorMessage`, so both had been arriving undefined.
+        attemptToken: attempt.attemptToken, code: 'COLLECTION_FAILED', message: 'Provider unavailable',
       });
     }
     const result = await inventory.project(TEST_ORGANIZATION_ID, [{

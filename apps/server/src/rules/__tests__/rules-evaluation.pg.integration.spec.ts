@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import type { PrismaClient } from '@prisma/client';
 import {
   makeTestPrisma,
@@ -153,8 +154,49 @@ describe('Rules deterministic evaluation application', () => {
       prisma!.rulesEvaluationApplication.count({ where: { organizationId: TEST_ORGANIZATION_ID } }),
     ])).resolves.toEqual([{ healthScore: 75 }, 1, 1]);
   });
+
+  /**
+   * A replay of one request was already covered. This is a second genuine
+   * evaluation — a different idempotency key — of a product that still violates
+   * the same rule. The dedupe key used to carry the request id, so every run
+   * minted a new row and nothing ever closed one: N evaluations left the
+   * operator N copies of the same violation.
+   */
+  it('keeps one alert when a later evaluation finds the same violation', async () => {
+    await prisma!.masterProduct.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        code: 'RULE-RERUN-1',
+        name: 'Rerun rule product',
+        adBudgetLimit: 5,
+      },
+    });
+    await prisma!.businessRule.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        name: 'low-ad-budget-rerun',
+        displayName: 'Low ad budget',
+        category: 'advertising',
+        severity: 'critical',
+        field: 'adBudgetLimit',
+        operator: 'lte',
+        threshold: { value: 10 },
+        messageTemplate: 'Budget {{value}}',
+        actionType: 'review_budget',
+      },
+    });
+    const service = makeService();
+    const request = { organizationId: TEST_ORGANIZATION_ID, requestedByUserId: TEST_USER_ID };
+
+    await service.evaluateAll({ ...request, idempotencyKey: 'rules-rerun-monday' });
+    await service.evaluateAll({ ...request, idempotencyKey: 'rules-rerun-tuesday' });
+
+    await expect(
+      prisma!.alert.count({ where: { organizationId: TEST_ORGANIZATION_ID, type: 'rule_violation' } }),
+    ).resolves.toBe(1);
+  });
 });
 
 function makeService() {
-  return new RulesService(prisma as never);
+  return new RulesService(prisma as never, new SourceFailureAlerts(prisma as never));
 }

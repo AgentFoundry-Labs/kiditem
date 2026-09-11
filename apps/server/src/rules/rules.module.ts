@@ -3,10 +3,11 @@ import { RuleEvaluationController } from './controllers/rule-evaluation.controll
 import { RulesManagementController } from './controllers/rules-management.controller';
 import { RulesService } from './services/rules.service';
 import { PrismaModule } from '../prisma/prisma.module';
+import { AlertsModule } from '../alerts/alerts.module';
 
 // Rules owns only synchronous `/api/rules/*` evaluation + rule CRUD.
 @Module({
-  imports: [PrismaModule],
+  imports: [PrismaModule, AlertsModule],
   controllers: [
     RuleEvaluationController,
     RulesManagementController,

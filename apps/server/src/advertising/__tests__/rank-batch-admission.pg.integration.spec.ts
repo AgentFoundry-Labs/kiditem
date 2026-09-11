@@ -706,8 +706,14 @@ describe('Retained rank ordered admission/read incoming HTTP + PostgreSQL', () =
       expect(expiredAlert).toMatchObject({
         status: 'OPEN',
         sourceType: source === 'serp' ? 'coupang_keyword_serp' : 'coupang_wing_rank',
-        message: expect.stringContaining('ATTEMPT_EXPIRED'),
       });
+      // The reason code lives on the run row, not in the sentence the operator
+      // reads. That the alert exists and is open is the expiry's own record.
+      expect(expiredAlert.message).not.toContain('ATTEMPT_EXPIRED');
+      await expect(prisma.sourceImportRun.findUniqueOrThrow({
+        where: { id: expiredAttempt.attemptId },
+        select: { errorCode: true },
+      })).resolves.toEqual({ errorCode: 'ATTEMPT_EXPIRED' });
       expect(await prisma.alert.findFirst({
         where: { organizationId: ORG, attemptId: lateAttempt.attemptId },
       })).toBeNull();

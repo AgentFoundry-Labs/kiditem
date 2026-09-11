@@ -58,6 +58,8 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
         { provide: PRODUCT_ABC_READ_PORT, useExisting: ProductAbcReadService },
         DashboardInventoryRepositoryAdapter,
         { provide: PrismaService, useValue: prisma },
+        // The panel's rows come from the alerts module, against the same Postgres.
+        { provide: SourceFailureAlerts, useValue: alerts },
         // The real advertising owner, against the same Postgres. Whether the
         // account published anything for the window is a fact only rows can
         // hold, so a stub here would decide the very thing under test.

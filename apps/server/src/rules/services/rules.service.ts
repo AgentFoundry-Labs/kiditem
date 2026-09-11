@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { canonicalOwnerInputHash } from '../../common/owner-idempotency-key';
 import { PrismaService } from '../../prisma/prisma.service';
+import { SourceFailureAlerts, type RuleViolationAlertInput } from '../../alerts/alerts.service';
 import type { RuleItem } from '@kiditem/shared/rules';
 import type { EvaluationResult } from './types';
 import {
@@ -15,7 +16,10 @@ import {
 export class RulesService {
   private readonly logger = new Logger(RulesService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly alerts: SourceFailureAlerts,
+  ) {}
 
   async evaluateAll(
     input: {
@@ -99,13 +103,13 @@ export class RulesService {
         }
         const events = evaluationEvents(organizationId, requestId, evaluated);
         if (events.length > 0) await tx.activityEvent.createMany({ data: events });
-        const alerts = evaluationAlerts(
+        // The Alert row shape is the alerts module's, not this one's.
+        await this.alerts.openRuleViolations(tx, evaluationViolations(
           organizationId,
           requestId,
           requestedByUserId,
           evaluated,
-        );
-        if (alerts.length > 0) await tx.alert.createMany({ data: alerts });
+        ));
         const result = evaluationCounts(evaluated);
         return tx.rulesEvaluationApplication.create({
           data: { organizationId, requestId, ...result },
@@ -386,33 +390,23 @@ function evaluationEvents(
   })));
 }
 
-function evaluationAlerts(
+/** What was violated, in Rules' own words. The row shape belongs to alerts. */
+function evaluationViolations(
   organizationId: string,
   requestId: string,
   requestedByUserId: string,
   products: readonly EvaluatedProductRules[],
-) {
+): RuleViolationAlertInput[] {
   return products.flatMap((product) => product.violations
     .filter((violation) => violation.severity === 'critical')
     .map((violation) => ({
       organizationId,
-      dedupeKey: `rules.evaluation:${requestId}:${product.masterId}:${violation.ruleName}`,
-      targetType: 'product',
-      targetId: product.masterId,
-      kind: 'signal',
-      status: 'OPEN',
-      type: 'rule_violation',
-      severity: 'critical',
+      masterProductId: product.masterId,
+      ruleName: violation.ruleName,
       title: violation.message,
       message: violation.actionType ?? '',
-      sourceType: 'rules_evaluation',
-      sourceId: requestId,
+      evaluationId: requestId,
       actorUserId: requestedByUserId,
-      href: '/product-hub',
-      metadata: {
-        requestId,
-        ruleName: violation.ruleName,
-        field: violation.field,
-      },
+      metadata: { requestId, ruleName: violation.ruleName, field: violation.field },
     })));
 }

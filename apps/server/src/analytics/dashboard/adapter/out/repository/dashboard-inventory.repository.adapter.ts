@@ -23,6 +23,7 @@ import {
   PRODUCT_ABC_READ_PORT,
   type ProductAbcReadPort,
 } from '../../../../../products/application/port/in/product-abc-read.port';
+import { SourceFailureAlerts } from '../../../../../alerts/alerts.service';
 import {
   AD_ACCOUNT_DAILY_KPI_READ_PORT,
   type AdAccountDailyKpiReadPort,
@@ -49,6 +50,7 @@ export class DashboardInventoryRepositoryAdapter
     private readonly productAbc: ProductAbcReadPort,
     @Inject(AD_ACCOUNT_DAILY_KPI_READ_PORT)
     private readonly adAccountDailyKpiRead: AdAccountDailyKpiReadPort,
+    private readonly alerts: SourceFailureAlerts,
   ) {}
 
   async countActiveProductsByGrade(
@@ -144,10 +146,13 @@ export class DashboardInventoryRepositoryAdapter
     organizationId: string,
     limit: number,
   ): Promise<DashboardAlertItem[]> {
-    const rows = await this.prisma.alert.findMany({
-      where: { organizationId, isRead: false },
-      orderBy: { createdAt: 'desc' },
-      take: limit,
+    // The Alert table is the alerts module's to read. This adapter asks it for
+    // the rows this panel shows and projects them; it does not hold a second
+    // opinion about filter, order, or limit.
+    const rows = await this.alerts.list(organizationId, {
+      isRead: false,
+      status: 'OPEN',
+      limit,
     });
     return rows.map((a) => ({
       id: a.id,
@@ -162,8 +167,8 @@ export class DashboardInventoryRepositoryAdapter
       targetType: a.targetType,
       targetId: a.targetId,
       isRead: a.isRead,
-      createdAt: a.createdAt,
-      updatedAt: a.updatedAt,
+      createdAt: new Date(a.createdAt),
+      updatedAt: a.updatedAt ? new Date(a.updatedAt) : undefined,
     } satisfies DashboardAlertItem));
   }
 
