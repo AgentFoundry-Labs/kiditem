@@ -54,6 +54,14 @@ internal hole stays visible instead of implying a continuous range.
 A calculation basis for a stored value that has no date range — a current count
 or a stored grade. Carries an as-of date and a validity status.
 
+**Alert**:
+A durable notification addressed to the operator, which stays until they
+dismiss it. Two kinds: a **source failure**, one per source, replaced rather
+than repeated when the same source fails again; and a **rule violation**, one
+per product and rule, replaced rather than repeated when a later evaluation
+finds the same breach. An operator's own cancellation is not one.
+_Avoid_: notification, signal, error
+
 **Warning**:
 A count of products **currently** in an undesirable state — loss-making, low
 margin, over-advertised, out of stock, needing mapping attention. A standing
@@ -61,9 +69,10 @@ count, never a tally of events over a period.
 _Avoid_: alert, issue, incident
 
 **Contribution ranking**:
-An ordering of products by an explicitly approximate margin, used to answer
-"which products matter most". Distinct from settled profit: an approximation
-does not become unavailable when a contributing day is missing.
+An ordering of products by revenue, used to answer "which products matter
+most". Revenue is always measured, which is why it is the ordering. A product's
+profit is shown beside it only when it was settled; an approximation standing in
+for one was indistinguishable from a measurement on the same screen.
 _Avoid_: top products, profit ranking
 
 **Confirmed day**:
