@@ -427,6 +427,98 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
     expect(published.body.optionDaily.filter((value: any) => value.externalOptionId === '1001')).toHaveLength(2);
   });
 
+  /**
+   * Coupang publishes traffic and sales at different times, so the last day of a
+   * requested window is routinely not ready while every earlier day is. The
+   * collection used to throw the whole window away for that one day. A date that
+   * verifies complete on its own is confirmed even when a later date is not.
+   */
+  describe('confirmed days', () => {
+    it('publishes the confirmed days and leaves the unready one missing', async () => {
+      const plan = range(2);
+      const confirmed = { ...plan, endDate: plan.startDate };
+      const started = await begin(plan);
+      await upload(started.attempt, 0, dailyReceipt(started.attempt, plan, plan.startDate, 1, 1, [row('1001', { visitors: 4 })], summary({ visitors: 4 }))).expect(200);
+      // The period summary is reconciliation evidence for what was confirmed,
+      // so it covers the confirmed day rather than the requested window.
+      // The period sequence stays keyed to the plan (periodDays * 100) even when
+      // the summary covers fewer days, so it is stable across attempts.
+      await upload(started.attempt, 200, periodReceipt(started.attempt, confirmed, summary({ visitors: 4 }))).expect(200);
+
+      await complete(started.attempt, 201);
+
+      const run = await prisma.sourceImportRun.findUniqueOrThrow({
+        where: { id: started.attempt.attemptId },
+        select: { status: true, coverageStartDate: true, coverageEndDate: true },
+      });
+      expect(run.status).toBe('completed');
+      // The manifest records the confirmed window, not the requested one.
+      expect(run.coverageStartDate?.toISOString().slice(0, 10)).toBe(plan.startDate);
+      expect(run.coverageEndDate?.toISOString().slice(0, 10)).toBe(plan.startDate);
+
+      const published = await request(httpUrl)
+        .get(`${base}/published`)
+        .set('x-test-org', ORG)
+        .query({ channelAccountId: accountId, from: plan.startDate, to: plan.endDate })
+        .expect(200);
+      expect(published.body.coverage).toMatchObject({
+        targetDays: 2,
+        completedDays: 1,
+        missingDates: [plan.endDate],
+      });
+      expect(published.body.accountDaily).toHaveLength(1);
+    });
+
+    it('refuses a submission that confirms no date at all', async () => {
+      const plan = range(2);
+      const started = await begin(plan);
+      await upload(started.attempt, 200, periodReceipt(started.attempt, plan)).expect(200);
+
+      await complete(started.attempt, 409);
+
+      await expect(prisma.sourceImportRun.findUniqueOrThrow({ where: { id: started.attempt.attemptId } }))
+        .resolves.toMatchObject({ status: 'running' });
+    });
+
+    it('refuses a date the owner never planned', async () => {
+      const plan = range(2);
+      const outside = dateShift(plan.startDate, -1);
+      const started = await begin(plan);
+
+      // Confirming a subset never lets a client widen the window: an out-of-plan
+      // date is refused on upload, before it can reach the terminal submission.
+      await upload(
+        started.attempt,
+        300,
+        dailyReceipt(started.attempt, plan, outside, 1, 1, [row('1001')], summary(), { key: `${started.attempt.attemptId}:daily:${outside}:1` }),
+      ).expect(409);
+    });
+
+    it('refuses pages for a date outside the window the collection declared', async () => {
+      const plan = range(2);
+      const started = await begin(plan);
+      await upload(started.attempt, 0, dailyReceipt(started.attempt, plan, plan.startDate, 1, 1, [row('1001')], summary())).expect(200);
+      // A page for the second day, while the summary declares only the first.
+      // Accepting this would drop the page silently, which is how an incomplete
+      // day would come to read as an absent one.
+      await upload(started.attempt, 100, dailyReceipt(started.attempt, plan, dateShift(plan.startDate, 1), 1, 1, [row('1001')], summary())).expect(200);
+      await upload(started.attempt, 200, periodReceipt(started.attempt, { ...plan, endDate: plan.startDate })).expect(200);
+
+      await complete(started.attempt, 409);
+    });
+
+    it('refuses a period summary wider than the plan', async () => {
+      const plan = range(2);
+      const started = await begin(plan);
+
+      await upload(
+        started.attempt,
+        200,
+        periodReceipt(started.attempt, { ...plan, endDate: dateShift(plan.endDate, 1) }),
+      ).expect(409);
+    });
+  });
+
   it('rejects a missing-date terminal attempt, then resumes the same staged run', async () => {
     const plan = range(2);
     const started = await begin(plan);

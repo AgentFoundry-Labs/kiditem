@@ -272,21 +272,47 @@
     if (!salesLatest || !trafficLatest || !viewableStart || !viewableEnd) {
       return failure("WING_METADATA_INVALID", "Wing business-insights metadata가 유효하지 않습니다.");
     }
-    if (salesLatest < range.endDate || trafficLatest < range.endDate) {
+    // Coupang publishes traffic and sales at different times — its own screen
+    // labels them separately — so the last day of a requested window is often
+    // not ready while every earlier day is. This used to reject the whole
+    // window for that one day, which threw away every measured day and left
+    // traffic effectively uncollectable. Narrow to what the provider confirms
+    // and collect that; the owner records the confirmed window.
+    const confirmedEnd = [salesLatest, trafficLatest, range.endDate]
+      .reduce((earliest, date) => (date < earliest ? date : earliest));
+    if (confirmedEnd < range.startDate) {
+      // Now nothing in the window is confirmed, which is the only case that is
+      // still a flat refusal. The reason code stays for logs and correlation;
+      // the operator-facing message is Korean, because a screen never shows an
+      // English reason code.
       return failure(
         "WING_TRAFFIC_DATA_NOT_READY",
-        `Wing 트래픽 데이터가 ${range.endDate}까지 갱신되지 않았습니다.`,
-        { latestSalesDate: salesLatest, latestTrafficDate: trafficLatest },
+        `쿠팡이 ${range.startDate} 이후 트래픽을 아직 공개하지 않았습니다. 트래픽 ${trafficLatest} · 매출 ${salesLatest}까지 집계돼 있습니다.`,
+        { latestSalesDate: salesLatest, latestTrafficDate: trafficLatest, confirmedEnd: null },
       );
     }
-    if (range.startDate < viewableStart || range.endDate > viewableEnd) {
+    if (range.startDate < viewableStart || confirmedEnd > viewableEnd) {
       return failure(
         "WING_TRAFFIC_RANGE_UNAVAILABLE",
-        "Wing business-insights가 owner 날짜 범위를 제공하지 않습니다.",
+        "쿠팡 business-insights가 요청한 날짜 범위를 제공하지 않습니다.",
         { viewableStart, viewableEnd },
       );
     }
-    return { success: true, freshness: { salesLatest, trafficLatest }, viewable: { start: viewableStart, end: viewableEnd } };
+    return {
+      success: true,
+      confirmedEnd,
+      freshness: { salesLatest, trafficLatest },
+      viewable: { start: viewableStart, end: viewableEnd },
+    };
+  }
+
+  /** The requested window clipped to what the provider has published. */
+  function confirmedRangeOf(range, confirmedEnd) {
+    if (!confirmedEnd || confirmedEnd >= range.endDate) return range;
+    const days = Math.round(
+      (Date.parse(`${confirmedEnd}T00:00:00Z`) - Date.parse(`${range.startDate}T00:00:00Z`)) / 86_400_000,
+    ) + 1;
+    return { ...range, endDate: confirmedEnd, periodDays: days };
   }
 
   function requestBody(range, pageNumber) {
@@ -857,10 +883,36 @@
       if (!metadataCheck.success) return metadataCheck;
     }
 
+    // The dates this run will confirm: everything the provider has published,
+    // plus any day an earlier attempt already finished. A day the provider has
+    // not published yet is left for a later run rather than failing this one.
+    //
+    // The plan's `dates` is deliberately not narrowed — receipt sequences are
+    // numbered off it, so dropping entries would renumber the days that remain
+    // and collide with receipts already accepted.
+    const confirmedEnd = metadataCheck?.confirmedEnd ?? range.endDate;
+    const confirmedStates = dayStates.filter(
+      (day) => day.businessDate <= confirmedEnd || day.complete,
+    );
+    if (!confirmedStates.length) {
+      return failure(
+        "WING_TRAFFIC_DATA_NOT_READY",
+        `쿠팡이 ${range.startDate} 이후 트래픽을 아직 공개하지 않았습니다.`,
+        { confirmedEnd: null },
+      );
+    }
+    const confirmedStart = confirmedStates[0].businessDate;
+    const confirmedLast = confirmedStates[confirmedStates.length - 1].businessDate;
+    const confirmedRange = {
+      startDate: confirmedStart,
+      endDate: confirmedLast,
+      periodDays: confirmedStates.length,
+    };
+
     const dailyPages = [];
     const products = [];
     const accountDaily = [];
-    for (const dayState of dayStates) {
+    for (const dayState of confirmedStates) {
       const businessDate = dayState.businessDate;
       const acceptedPageCount = dayState.receipts.size;
       if (dayState.complete) {
@@ -951,8 +1003,8 @@
       const periodResponse = await requestJson(SUMMARY_PATH, {
         method: "POST",
         body: {
-          startDate: range.startDate,
-          endDate: range.endDate,
+          startDate: confirmedRange.startDate,
+          endDate: confirmedRange.endDate,
           registrationTypes: [...REGISTRATION_TYPES],
           searchIds: [],
         },
@@ -965,11 +1017,14 @@
         return failure("WING_TRAFFIC_SUMMARY_INVALID", "Wing 트래픽 기간 summary 응답이 유효하지 않습니다.", { cause: error.message });
       }
       periodSummaryData = dailyAccountSummary(periodSummary);
+      // The summary declares the window this run confirmed. The owner reads that
+      // declaration as the confirmed set and records it as the run's coverage,
+      // so it must describe the days actually collected, not the days requested.
       period = {
         kind: "period_summary",
-        startDate: range.startDate,
-        endDate: range.endDate,
-        period: range.periodDays,
+        startDate: confirmedRange.startDate,
+        endDate: confirmedRange.endDate,
+        period: confirmedRange.periodDays,
         providerVendorId: expectedAdvertiserId,
         filterScope: TRAFFIC_FILTER_SCOPE,
         accountSummary: periodSummaryData,
@@ -983,6 +1038,9 @@
       parserVersion: "wing-traffic-daily-v2",
       filterScope: TRAFFIC_FILTER_SCOPE,
       expectedDates: dates,
+      // What this run confirmed, which can be shorter than the plan when the
+      // provider has not published a later day yet.
+      confirmedDates: confirmedStates.map((day) => day.businessDate),
       products,
       pages,
       dailyPages,
@@ -991,6 +1049,8 @@
       accountDaily,
       expectedPages: null,
       terminalPageObserved: true,
+      // Complete describes the confirmed window. A day the provider has not
+      // published is not an incomplete day; it is a day this run did not claim.
       complete: dailyPages.every((day) => day.complete && day.terminalPageObserved) && (accepted.period || !!period),
       gridReady: true,
       metadata: metadataCheck,
@@ -1012,6 +1072,10 @@
     if (!metadataResponse.success) return metadataResponse;
     const metadataCheck = validateMetadata(metadataResponse.body, range);
     if (!metadataCheck.success) return metadataCheck;
+    // Every provider request below asks for the window the provider has actually
+    // published, so this legacy path cannot claim a day metadata just said is not
+    // there. The narrowing rule is the same one the daily collector uses.
+    const confirmed = confirmedRangeOf(range, metadataCheck.confirmedEnd);
 
     const pages = [];
     const rows = [];
@@ -1024,7 +1088,7 @@
       if (pageNumber >= MAX_PAGES) return failure("WING_TRAFFIC_PAGE_LIMIT", "Wing 트래픽 페이지 수가 owner 허용 한도를 초과했습니다.");
       const detailResponse = await requestJson(DETAIL_PATH, {
         method: "POST",
-        body: requestBody(range, pageNumber),
+        body: requestBody(confirmed, pageNumber),
       });
       if (!detailResponse.success) return detailResponse;
       const payload = detailResponse.body;
@@ -1089,8 +1153,8 @@
     const summaryResponse = await requestJson(SUMMARY_PATH, {
       method: "POST",
       body: {
-        startDate: range.startDate,
-        endDate: range.endDate,
+        startDate: confirmed.startDate,
+        endDate: confirmed.endDate,
         registrationTypes: [...REGISTRATION_TYPES],
         searchIds: [],
       },

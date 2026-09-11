@@ -460,13 +460,18 @@ test("Wing traffic API accepts only a validated explicit empty result", async ()
 });
 
 test("Wing traffic API rejects stale metadata, reversed ranges, and summary drift", async () => {
-  const staleMetadata = metadata();
-  staleMetadata.dataFreshness.metrics.TRAFFIC_DAILY.latestDataDate = Date.parse("2026-09-05T00:00:00Z");
-  const stale = createHarness({ responses: [response(staleMetadata)] });
+  // Coupang publishes traffic and sales at different times, so the last day of a
+  // window is routinely not ready. Only a window with no confirmed day at all is
+  // refused; otherwise the collection narrows to what the provider published.
+  const beforeStart = metadata();
+  beforeStart.dataFreshness.metrics.TRAFFIC_DAILY.latestDataDate = Date.parse("2026-09-04T00:00:00Z");
+  const stale = createHarness({ responses: [response(beforeStart)] });
   const staleResult = await stale.api.collectTraffic({ control: ownerControl() });
   assert.equal(staleResult.success, false);
   assert.equal(staleResult.errorCode, "WING_TRAFFIC_DATA_NOT_READY");
   assert.equal(stale.requests.length, 1);
+  // A screen never shows an English reason code.
+  assert.ok(!/[A-Z]{3,}_[A-Z_]+/.test(staleResult.error), staleResult.error);
 
   const reversed = createHarness({
     responses: [],

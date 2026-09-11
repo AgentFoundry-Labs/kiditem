@@ -1050,6 +1050,13 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
       const plan = AdTrafficSourcePlanSchema.parse(row.plan);
       const coverageError = validateCoverage(plan, entries);
       if (coverageError) throw new ConflictException(coverageError);
+      // The manifest records what was confirmed, not what was asked for. Writing
+      // the plan's window here would publish a coverage the collection never
+      // reached, and coverage is exactly what consumers read to decide whether a
+      // metric is measured.
+      const confirmedDates = confirmedDatesOf(plan, entries);
+      const coverageStart = confirmedDates[0] ?? plan.startDate;
+      const coverageEnd = confirmedDates[confirmedDates.length - 1] ?? plan.endDate;
       if (!(await this.accountMatches(tx, row))) {
         await this.failIn(
           tx,
@@ -1105,14 +1112,19 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
           importedAt: completedAt,
           lastVerifiedAt: completedAt,
           verificationCount: { increment: 1 },
-          coverageStartDate: dateAtUtc(plan.startDate),
-          coverageEndDate: dateAtUtc(plan.endDate),
+          coverageStartDate: dateAtUtc(coverageStart),
+          coverageEndDate: dateAtUtc(coverageEnd),
           providerBackedEmptyProof: snapshots.length === 0,
           qualityReport: json({
             source: SOURCE_TYPE,
             parserVersion: plan.parserVersion,
-            startDate: plan.startDate,
-            endDate: plan.endDate,
+            startDate: coverageStart,
+            endDate: coverageEnd,
+            // Kept alongside the confirmed window so a reader can tell a short
+            // collection from a short request.
+            requestedStartDate: plan.startDate,
+            requestedEndDate: plan.endDate,
+            confirmedDates,
             targetUrl: plan.targetUrl,
             expectedPages: entries.map((entry) => entry.receipt).find(isPageReceipt)?.expectedPages ?? null,
             visitedPages: entries
@@ -2303,13 +2315,22 @@ function validateReceipt(
       return null;
     }
     if (isPeriodReceipt(receipt)) {
+      // The period summary describes the dates this attempt confirmed, which can
+      // be fewer than the plan asked for when the provider has not published a
+      // later day yet. Here that only has to be a contiguous interval inside the
+      // plan; `validateCoverage` is where it must equal the confirmed set, since
+      // only the terminal submission knows what that set turned out to be.
+      const periodStart = plan.expectedDates.indexOf(receipt.startDate);
+      const periodEnd = plan.expectedDates.indexOf(receipt.endDate);
       if (
+        // The sequence stays keyed to the plan so it is stable across attempts
+        // and cannot collide with a daily page's `dateIndex * 100 + pageIndex - 1`.
         sequence !== plan.periodDays * 100
         || receipt.providerVendorId !== plan.providerVendorId
         || receipt.filterScope !== plan.filterScope
-        || receipt.startDate !== plan.startDate
-        || receipt.endDate !== plan.endDate
-        || receipt.period !== plan.periodDays
+        || periodStart < 0
+        || periodEnd < periodStart
+        || receipt.period !== periodEnd - periodStart + 1
         || !isWingTrafficUrl(receipt.url)
         || (plan.targetUrl !== null && receipt.url !== plan.targetUrl)
       ) {
@@ -2361,6 +2382,37 @@ function validateReceipt(
   return null;
 }
 
+/**
+ * The dates this submission actually confirmed, in plan order.
+ *
+ * Coupang publishes traffic and sales at different times — its own screen says
+ * so, labelling them separately — so the last day of a requested window is
+ * routinely not ready while every earlier day is. The collection used to be
+ * all-or-nothing against `plan.expectedDates`, which threw away every measured
+ * day for the sake of one unready one. That is the mirror image of inventing a
+ * zero, and the approved source-units amendment rules it out: a date that can
+ * be verified complete on its own is confirmed inside the owner's transaction
+ * "even when other dates in the collection fail".
+ *
+ * The plan is not narrowed. Receipt sequences are numbered off the plan's full
+ * date list, so dropping dates from the plan would renumber the dates that
+ * remain and collide with receipts an earlier attempt already had accepted.
+ * The confirmed set is a subset of the plan instead, and a later attempt fills
+ * in the rest over the same sequence space.
+ */
+function confirmedDatesOf(
+  plan: ReturnType<typeof AdTrafficSourcePlanSchema.parse>,
+  entries: ReceiptEntry[],
+): string[] {
+  if (!isDailyPlan(plan)) return [];
+  const period = entries.map((entry) => entry.input).find(isPeriodReceipt);
+  if (!period) return [];
+  const start = plan.expectedDates.indexOf(period.startDate);
+  const end = plan.expectedDates.indexOf(period.endDate);
+  if (start < 0 || end < start) return [];
+  return plan.expectedDates.slice(start, end + 1);
+}
+
 function validateCoverage(plan: ReturnType<typeof AdTrafficSourcePlanSchema.parse>, entries: ReceiptEntry[]): string | null {
   if (!entries.length) return 'INCOMPLETE_TRAFFIC_COVERAGE';
   if (isDailyPlan(plan)) {
@@ -2369,14 +2421,21 @@ function validateCoverage(plan: ReturnType<typeof AdTrafficSourcePlanSchema.pars
       .filter((input): input is AdTrafficSourceDailyReceiptInput => isDailyReceipt(input));
     const period = entries.find((entry) => isPeriodReceipt(entry.input));
     if (!period || !isPeriodReceipt(period.input)) return 'INCOMPLETE_TRAFFIC_COVERAGE';
-    if (
-      period.input.startDate !== plan.startDate
-      || period.input.endDate !== plan.endDate
-      || period.input.period !== plan.periodDays
-    ) {
+    // A date outside the plan is still a scope conflict: the owner decides which
+    // window may be collected, and nothing here lets a client widen it.
+    const confirmed = confirmedDatesOf(plan, entries);
+    // Nothing confirmed is the one case that is still a flat failure — there is
+    // no measured date to publish.
+    if (!confirmed.length) return 'INCOMPLETE_TRAFFIC_COVERAGE';
+    // Stray pages for a date outside the declared window would otherwise be
+    // accepted and then silently dropped, which is how a half-collected day
+    // would come to look absent rather than incomplete. Every page has to belong
+    // to the window the collection says it confirmed.
+    const confirmedSet = new Set(confirmed);
+    if (daily.some((page) => !confirmedSet.has(page.businessDate))) {
       return 'SOURCE_RECEIPT_SCOPE_CONFLICT';
     }
-    for (const businessDate of plan.expectedDates) {
+    for (const businessDate of confirmed) {
       const pages = daily
         .filter((page) => page.businessDate === businessDate)
         .sort((left, right) => left.pageIndex - right.pageIndex);

@@ -317,3 +317,51 @@ test("Wing traffic daily v2 performs no provider IO when every date and the peri
   assert.equal(result.dailyPages.every((day) => day.accepted === true), true);
   assert.equal(h.requests.length, 0);
 });
+
+test("Wing traffic daily v2 collects the days the provider published and declares that window", async () => {
+  // Traffic published through the 5th, sales through the 6th. The window asked
+  // for both days; the second is not there yet. Collecting the first is the
+  // point — discarding it for the sake of the second is what made traffic
+  // effectively uncollectable.
+  const stale = metadata();
+  stale.dataFreshness.metrics.TRAFFIC_DAILY.latestDataDate = Date.parse("2026-09-05T00:00:00Z");
+  const h = harness([
+    response(stale),
+    detail([row("101")]),
+    summary({ totalUniqueVisitor: 155, totalPageViews: 211, totalAddToCart: 20, totalOrders: 6, totalUnitsSold: 19, totalGmv: 21790, pvToOrder: 6 / 211 }),
+    summary({ totalUniqueVisitor: 155, totalPageViews: 211, totalAddToCart: 20, totalOrders: 6, totalUnitsSold: 19, totalGmv: 21790, pvToOrder: 6 / 211 }),
+  ]);
+
+  const result = await h.api.collectTraffic({ control: control() });
+
+  assert.equal(result.success, true);
+  // Only the confirmed day is collected, and only it is claimed.
+  assert.deepEqual([...result.confirmedDates], [dates[0]]);
+  assert.equal(result.dailyPages.length, 1);
+  assert.equal(result.dailyPages[0].businessDate, dates[0]);
+  // The plan's date vector is untouched: receipt sequences are numbered off it,
+  // so narrowing it would renumber the days that remain.
+  assert.deepEqual([...result.expectedDates], dates);
+  // The period summary declares the confirmed window — the owner reads that
+  // declaration as the run's coverage.
+  assert.equal(result.periodSummary.startDate, dates[0]);
+  assert.equal(result.periodSummary.endDate, dates[0]);
+  assert.equal(result.periodSummary.period, 1);
+  const detailBodies = h.requests.filter(({ url }) => url.includes("vi-detail-search")).map(({ init }) => JSON.parse(init.body));
+  assert.deepEqual(detailBodies.map((body) => [body.startDate, body.endDate]), [[dates[0], dates[0]]]);
+  const summaryBodies = h.requests.filter(({ url }) => url.includes("vendor-summary")).map(({ init }) => JSON.parse(init.body));
+  assert.deepEqual(summaryBodies.map((body) => [body.startDate, body.endDate]), [[dates[0], dates[0]], [dates[0], dates[0]]]);
+});
+
+test("Wing traffic daily v2 refuses only when the provider published nothing in the window", async () => {
+  const before = metadata();
+  before.dataFreshness.metrics.TRAFFIC_DAILY.latestDataDate = Date.parse("2026-09-04T00:00:00Z");
+  const h = harness([response(before)]);
+
+  const result = await h.api.collectTraffic({ control: control() });
+
+  assert.equal(result.success, false);
+  assert.equal(result.errorCode, "WING_TRAFFIC_DATA_NOT_READY");
+  assert.equal(h.requests.length, 1);
+  assert.ok(!/[A-Z]{3,}_[A-Z_]+/.test(result.error), result.error);
+});
