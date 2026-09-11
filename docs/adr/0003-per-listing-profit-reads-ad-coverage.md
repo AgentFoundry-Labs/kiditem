@@ -2,7 +2,11 @@
 status: accepted
 ---
 
-# Per-listing profit reads ad coverage, and Top-N ranking is exempt
+# Per-listing profit reads ad coverage
+
+> The original title ended "and Top-N ranking is exempt". That exemption is
+> **superseded by [ADR-0004](0004-top-n-ranking-publishes-measured-profit-or-none.md)**.
+> The coverage rule below still stands for every reader.
 
 `ChannelListingDailySnapshot` already records `adCoverageStatus`
 (`OBSERVED` / `CONFIRMED_ZERO`) and `adObservedAt` per listing per business
@@ -19,17 +23,20 @@ unavailable net profit rather than one computed from a partial sum. This makes
 per-listing `netProfit` nullable, and that nullability propagates to ABC scoring
 and `/api/profit-loss`.
 
-**Top-N ranking is exempt.** It is documented as a 30% margin approximation, not
-precise profit — precise per-listing math lives in `/api/profit-loss`. An
-approximation does not become unavailable because a contributing day is missing;
-it was never claiming to be the measured figure. Ranking therefore keeps using
-the unfiltered aggregate.
+**~~Top-N ranking is exempt.~~** *Superseded by
+[ADR-0004](0004-top-n-ranking-publishes-measured-profit-or-none.md).* It was
+documented as a 30% margin approximation, not precise profit, on the reasoning
+that an approximation does not become unavailable because a contributing day is
+missing — it was never claiming to be the measured figure. The screen never
+carried that distinction: the column is headed `순이익`, like the settled figure
+beside it. Top-N now reads the same coverage-aware helper.
 
 ## Consequences
 
-- Do not "fix" Top-N by making it respect coverage. The exemption is the point:
-  a ranking heuristic and a settled profit figure are different claims, and only
-  the second one can be unavailable.
+- ~~Do not "fix" Top-N by making it respect coverage.~~ *Withdrawn by
+  [ADR-0004](0004-top-n-ranking-publishes-measured-profit-or-none.md):* the two
+  claims were never distinguishable on screen, and Rocket lines put rows in the
+  ranking with no inputs to approximate from.
 - ABC already withholds a grade when advertising evidence is not ready, so a
   nullable per-listing profit is not a new concept there — it is the same rule
   reaching one layer further down.
