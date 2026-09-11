@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { AlertTriangle, CheckCircle2, Megaphone, MinusCircle, ShieldCheck, Truck, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Megaphone, MinusCircle, RotateCcw, ShieldCheck, Truck, X } from 'lucide-react';
 import { dismissAlert } from '@/lib/alerts-api';
 import { queryKeys } from '@/lib/query-keys';
 import { cn } from '@/lib/utils';
@@ -26,6 +26,52 @@ function alertStatusLabel(status: DashboardAlertItem['status']): string | null {
   if (isOpenAlertStatus(status)) return '확인 필요';
   if (status === 'RESOLVED') return '해결됨';
   return null;
+}
+
+/**
+ * A dashboard read that failed, which is a notification like any other: it needs
+ * attention and it has one action. It used to be a red block across the top of
+ * the page, which put a partial read failure above everything that did load.
+ *
+ * It says the read's name and nothing else. A reason a person cannot act on is
+ * not worth a line — the schema-drift sentinel literally reads "개발팀에
+ * 문의하세요", which is a message for us, not for whoever is looking at this.
+ */
+export type DashboardReadFailure = {
+  key: string;
+  label: string;
+  retry: () => void;
+};
+
+function DashboardReadFailureRow({ failure }: { failure: DashboardReadFailure }) {
+  return (
+    <div
+      className="group flex items-start gap-2.5 border-b border-slate-50 px-4 py-2.5"
+      data-testid="dashboard-read-failure"
+      data-read-failure={failure.label}
+    >
+      <div className="mt-0.5">
+        <AlertTriangle size={14} className="shrink-0 text-red-500" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <span className="truncate text-sm font-medium leading-relaxed text-slate-700">{failure.label}</span>
+          <span className="shrink-0 rounded bg-red-50 px-1.5 py-0.5 text-[10px] font-semibold text-red-700">
+            읽기 실패
+          </span>
+        </div>
+      </div>
+      <button
+        type="button"
+        aria-label="다시 시도"
+        title="다시 시도"
+        onClick={failure.retry}
+        className="shrink-0 rounded border border-slate-200 p-1 text-slate-400 transition hover:bg-slate-50 hover:text-slate-600"
+      >
+        <RotateCcw className="h-3 w-3" aria-hidden="true" />
+      </button>
+    </div>
+  );
 }
 
 function DashboardAlertRow({
@@ -101,14 +147,18 @@ function DashboardAlertRow({
 
 export function DashboardSidePanel({
   alerts,
+  readFailures = [],
   queryClient,
   basis,
 }: {
   alerts: DashboardAlertItem[];
+  readFailures?: readonly DashboardReadFailure[];
   queryClient: QueryClient;
   basis?: DashboardMetricBasis | null;
 }) {
-  const unreadCount = alerts.filter((alert) => !alert.isRead && isOpenAlert(alert)).length;
+  // A failed read needs attention the same way an open alert does, so it counts.
+  const unreadCount = alerts.filter((alert) => !alert.isRead && isOpenAlert(alert)).length
+    + readFailures.length;
 
   return (
     <div className="flex h-full flex-col overflow-hidden rounded-xl border border-slate-200 bg-white">
@@ -118,8 +168,11 @@ export function DashboardSidePanel({
         {unreadCount > 0 && <span className="rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-700">{unreadCount}</span>}
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
+        {readFailures.map((failure) => (
+          <DashboardReadFailureRow key={failure.key} failure={failure} />
+        ))}
         {alerts.map((alert) => <DashboardAlertRow key={alert.id} alert={alert} queryClient={queryClient} />)}
-        {alerts.length === 0 && (
+        {alerts.length === 0 && readFailures.length === 0 && (
           <div className="px-4 py-8 text-center">
             <ShieldCheck size={24} className="mx-auto mb-2 text-emerald-500" />
             <div className="text-xs text-slate-400">표시할 알림이 없습니다</div>

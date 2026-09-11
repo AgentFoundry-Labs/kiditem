@@ -28,7 +28,6 @@ import {
 import { z } from 'zod';
 import { apiClient } from '@/lib/api-client';
 import PageSkeleton from '@/components/ui/PageSkeleton';
-import { friendlyError, isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatKRW, formatNumber, formatDateTime } from '@/lib/utils';
 import ReadinessModal from '@/components/ReadinessModal';
@@ -36,7 +35,7 @@ import { useSellpiaChannelSales, sellpiaPeriodRange } from '@/hooks/useSellpiaCh
 import { DashboardChartPanel } from './components/DashboardChartPanel';
 import { MetricCard, UnavailableMetricCard } from './components/DashboardMetricCard';
 import { DashboardProfitDetailModal } from './components/DashboardProfitDetailModal';
-import { DashboardSidePanel } from './components/DashboardSidePanel';
+import { DashboardSidePanel, type DashboardReadFailure } from './components/DashboardSidePanel';
 import { DashboardTopProducts } from './components/DashboardTopProducts';
 import { DashboardAdPerformance } from './components/DashboardAdPerformance';
 import { DashboardTrafficFunnel } from './components/DashboardTrafficFunnel';
@@ -193,56 +192,7 @@ function DashboardSectionUnavailable({ label, className }: { label: string; clas
       data-section={label}
     >
       <span className="text-sm font-semibold text-red-600">읽기 실패</span>
-      <span className="text-xs text-slate-400">{label} 값을 읽지 못했습니다. 위 알림의 다시 시도를 눌러 주세요.</span>
-    </div>
-  );
-}
-
-/** One failed dashboard read, named in the words the section header uses. */
-type DashboardReadFailure = {
-  key: string;
-  label: string;
-  message: string;
-  retry: () => void;
-};
-
-/**
- * One notice for the whole page instead of a retry button per section: a
- * single failed read used to stack identical buttons down the dashboard. It
- * names every source that failed and re-runs exactly those.
- */
-function DashboardReadFailureNotice({ failures }: { failures: readonly DashboardReadFailure[] }) {
-  if (failures.length === 0) return null;
-  return (
-    <div
-      role="alert"
-      data-testid="dashboard-read-failure"
-      className="flex items-start justify-between gap-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3"
-    >
-      <div className="min-w-0">
-        <p className="text-sm font-semibold text-red-700">
-          읽기 실패 · {failures.map((failure) => failure.label).join(', ')}
-        </p>
-        <ul className="mt-1 space-y-0.5">
-          {failures.map((failure) => (
-            <li key={failure.key} className="flex flex-wrap items-baseline gap-x-1.5 text-xs text-red-600">
-              <span className="font-medium">{failure.label}</span>
-              <span aria-hidden="true" className="text-red-300">·</span>
-              <span>{failure.message}</span>
-            </li>
-          ))}
-        </ul>
-        <p className="mt-1 text-[11px] text-red-500">
-          읽지 못한 값만 ‘읽기 실패’로 표시되고, 성공한 값은 그대로 유지됩니다.
-        </p>
-      </div>
-      <button
-        type="button"
-        onClick={() => failures.forEach((failure) => failure.retry())}
-        className="shrink-0 rounded-md bg-red-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-red-700"
-      >
-        다시 시도
-      </button>
+      <span className="text-xs text-slate-400">{label} 값을 읽지 못했습니다. 알림에서 다시 시도할 수 있습니다.</span>
     </div>
   );
 }
@@ -833,27 +783,24 @@ export default function Dashboard() {
   // state, so nothing here is a second copy of it.
   const readFailures: DashboardReadFailure[] = [];
   /**
-   * A message we wrote is worth showing; the transport's is not. `friendlyError`
-   * returns an `ApiError`'s own detail, which is how "502 Bad Gateway" reached
-   * the screen — PRODUCT.md says an English reason code never does. A Zod drift
-   * still speaks Korean and still tells the operator something, so it stays.
+   * The name and the retry, and nothing else. A transport's own words are how
+   * "502 Bad Gateway" reached the screen, and the schema-drift sentinel reads
+   * "개발팀에 문의하세요" — a message for us, shown to whoever is looking at the
+   * dashboard. Neither is something the reader can act on.
    */
-  const readFailureMessage = (error: unknown): string =>
-    isApiError(error) ? '불러오지 못했습니다' : friendlyError(error) ?? '불러오지 못했습니다';
-  const addReadFailure = (key: string, label: string, failed: boolean, error: unknown, retry: () => void) => {
-    if (failed) readFailures.push({ key, label, message: readFailureMessage(error), retry });
+  const addReadFailure = (key: string, label: string, failed: boolean, _error: unknown, retry: () => void) => {
+    if (failed) readFailures.push({ key, label, retry });
   };
   addReadFailure('sales-baseline', '주문 매출', salesBaselineHasErr, salesBaselineError, () => { void refetchSalesBaseline(); });
   addReadFailure('ad-baseline', '쿠팡 광고', adBaselineHasErr, adBaselineError, () => { void refetchAdBaseline(); });
   addReadFailure('sales-range', `선택 기간 매출(${rangeLabel})`, salesRangeHasErr, salesRangeError, () => { void refetchSalesRange(); });
   addReadFailure('ad-range', `선택 기간 광고(${rangeLabel})`, adRangeHasErr, adRangeError, () => { void refetchAdRange(); });
-  // The Sellpia hook publishes only a boolean, so its reason stays the fixed
-  // sentence the page already showed rather than an invented detail.
+  // The Sellpia hook publishes only a boolean, so there is no reason to report
+  // beyond the name — which the notice shows, like every other failed read.
   if (channelSales.isError) {
     readFailures.push({
       key: 'sellpia',
       label: '셀피아 판매현황',
-      message: '셀피아 판매현황을 불러올 수 없습니다. 주문·Wing 지표는 별도로 표시합니다.',
       retry: () => { void channelSales.refetch(); },
     });
   }
@@ -912,7 +859,6 @@ export default function Dashboard() {
         </button>
       </div>
 
-      <DashboardReadFailureNotice failures={readFailures} />
 
       {selectedRangeLoading && (
         <div className="rounded-xl border border-slate-100 bg-slate-50 px-4 py-2 text-xs text-slate-500">
@@ -1240,17 +1186,14 @@ export default function Dashboard() {
             />
           )}
 
-          {inventoryHasErr ? (
-            <DashboardSectionUnavailable label="알림" className="rounded-xl border border-slate-200 bg-white" />
-          ) : !inventoryData ? (
-            <DashboardSectionEmpty label="알림" />
-          ) : (
-            <DashboardSidePanel
-              alerts={inventoryData.alerts}
-              queryClient={queryClient}
-              basis={alertsBasis}
-            />
-          )}
+          {/* Always rendered. Replacing it on a failed read hid the one place a
+              failed read can be retried from — including its own. */}
+          <DashboardSidePanel
+            alerts={inventoryData?.alerts ?? []}
+            readFailures={readFailures}
+            queryClient={queryClient}
+            basis={alertsBasis}
+          />
         </div>
       </div>
 

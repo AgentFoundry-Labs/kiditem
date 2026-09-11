@@ -289,9 +289,7 @@ describe('Dashboard page (RTL)', () => {
     expect(document.body.textContent).not.toContain('BAD_GATEWAY');
   });
 
-  it('T5: Zod drift on non-baseline (trend) → SectionError shows "응답 형식 오류"', async () => {
-    // Note: Inventory is a baseline (`if (!inventoryData) → full-page error` fires first).
-    // Zod drift on non-baseline endpoints (trend) flows through SectionError.
+  it('T5: Zod drift names the read and never shows the sentinel meant for us', async () => {
     getParsedMock.mockImplementation((path: string) => {
       if (path === '/api/dashboard/sales') return Promise.resolve(successSales);
       if (path === '/api/dashboard/ad') return Promise.resolve(successAd);
@@ -302,9 +300,15 @@ describe('Dashboard page (RTL)', () => {
       return Promise.resolve(null);
     });
     renderPage();
-    await waitFor(() => {
-      expect(screen.getByText('응답 형식 오류 — 개발팀에 문의하세요')).toBeTruthy();
-    });
+
+    const failure = await screen.findByTestId('dashboard-read-failure');
+    expect(failure).toHaveTextContent('매출 추이');
+    expect(failure).toHaveTextContent('읽기 실패');
+    // The schema-drift sentinel reads "개발팀에 문의하세요". It is addressed to
+    // us, and whoever is looking at this dashboard can do nothing with it, so it
+    // never reaches the screen — not here and not anywhere else on the page.
+    expect(document.body.textContent).not.toContain('개발팀에 문의하세요');
+    expect(document.body.textContent).not.toContain('응답 형식 오류');
   });
 
   it('shows one retry for the whole page and never turns a failed read into no data', async () => {
@@ -319,20 +323,21 @@ describe('Dashboard page (RTL)', () => {
     });
     renderPage();
 
+    // A failed read is a notification: it appears in the alerts panel, named
+    // once, with its own retry. The server's own sentence ("재고 읽기 실패") is
+    // the transport's and never appears.
     const notice = await screen.findByTestId('dashboard-read-failure');
+    expect(notice).toHaveTextContent('읽기 실패');
     expect(notice).toHaveTextContent('상품·재고');
-    // The server's own sentence ("재고 읽기 실패") is the transport's; the notice
-    // names the read that failed and says so in our words.
-    expect(notice).toHaveTextContent('상품·재고');
-    expect(notice).toHaveTextContent('불러오지 못했습니다');
-    // One failed read used to stack a retry button per section.
+    expect(notice).not.toHaveTextContent('재고 읽기 실패');
     expect(screen.getAllByRole('button', { name: '다시 시도' })).toHaveLength(1);
 
     // Every section that read inventory stays put, says 읽기 실패, and never
-    // borrows the no-data wording.
+    // borrows the no-data wording. The alerts panel is no longer among them: it
+    // now carries the retry, so replacing it would strand the only way back.
     const unavailable = screen.getAllByTestId('dashboard-section-unavailable');
     expect(unavailable.map((section) => section.getAttribute('data-section')))
-      .toEqual(['경고', '수익성 ABC', '알림']);
+      .toEqual(['경고', '수익성 ABC']);
     unavailable.forEach((section) => {
       expect(section).toHaveTextContent('읽기 실패');
       expect(section).not.toHaveTextContent('데이터가 없습니다');
@@ -342,7 +347,7 @@ describe('Dashboard page (RTL)', () => {
     expect(screen.getByText('Kiditem Foundry')).toBeTruthy();
   });
 
-  it('retries every failed read from the single page-level button', async () => {
+  it('gives each failed read its own retry, and it refetches that read', async () => {
     getParsedMock.mockImplementation((path: string) => {
       if (path === '/api/dashboard/sales') return Promise.resolve(successSales);
       if (path === '/api/dashboard/ad') return Promise.resolve(successAd);
@@ -356,20 +361,22 @@ describe('Dashboard page (RTL)', () => {
     });
     renderPage();
 
-    const notice = await screen.findByTestId('dashboard-read-failure');
-    expect(notice).toHaveTextContent('상품·재고');
-    expect(notice).toHaveTextContent('매출 추이');
+    const rows = await screen.findAllByTestId('dashboard-read-failure');
+    expect(rows.map((row) => row.getAttribute('data-read-failure')))
+      .toEqual(['상품·재고', '매출 추이']);
 
     const callsFor = (match: string) =>
       getParsedMock.mock.calls.filter((call) => String(call[0]).startsWith(match)).length;
     const before = { inventory: callsFor('/api/dashboard/inventory'), trend: callsFor('/api/dashboard/trend') };
 
-    fireEvent.click(screen.getByRole('button', { name: '다시 시도' }));
+    // One button per failed read rather than one for the page: retrying the
+    // trend must not re-run a read that did not fail.
+    fireEvent.click(within(rows[1]!).getByRole('button', { name: '다시 시도' }));
 
     await waitFor(() => {
-      expect(callsFor('/api/dashboard/inventory')).toBeGreaterThan(before.inventory);
       expect(callsFor('/api/dashboard/trend')).toBeGreaterThan(before.trend);
     });
+    expect(callsFor('/api/dashboard/inventory')).toBe(before.inventory);
   });
 
   it('names the collection to run instead of explaining the state', async () => {
