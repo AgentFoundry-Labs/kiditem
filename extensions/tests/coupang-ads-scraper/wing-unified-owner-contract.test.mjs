@@ -341,6 +341,7 @@ test('Wing traffic daily v2 skips accepted dates and timestamps only newly captu
     parserVersion: 'wing-traffic-daily-v2',
     filterScope: 'ALL_NORMAL_RFM',
     expectedDates: [date],
+    confirmedDates: [date],
     products: [row],
     pages: [{ pageIndex: 1, data: [row], url: pageUrl }],
     dailyPages: [{
@@ -413,4 +414,165 @@ test('Wing traffic daily v2 skips accepted dates and timestamps only newly captu
   assert.equal(sent[2].body.accountSummary, undefined);
   assert.notEqual(sent[2].body.capturedAt, firstCapturedAt, 'newly captured page must not reuse an accepted timestamp');
   assert.equal(sent[3].body.kind, 'period_summary');
+});
+
+/**
+ * Coupang publishes traffic a day behind its sales, so the last day of a
+ * "through yesterday" window is routinely unpublished. The capture narrows to
+ * what the provider confirmed and declares that window; this hand-off used to
+ * count the days it received against the days *requested* and refuse the whole
+ * window — `Wing 트래픽 일별 날짜가 일부 누락되었습니다.` for a day nobody claimed.
+ * It then re-stated the plan's window on the period summary, which the owner
+ * reads as the run's coverage, so passing the count would have claimed coverage
+ * for that same unpublished day. Opposite errors, one cause: the declaration
+ * was ignored in both directions.
+ */
+test('Wing traffic daily v2 hands over the confirmed window, not the requested one', async () => {
+  const confirmed = ['2026-09-09', '2026-09-10'];
+  const requested = [...confirmed, '2026-09-11'];
+  const pageUrl = 'https://wing.coupang.com/tenants/business-insight/sales-analysis'
+    + '?start_date=2026-09-09&end_date=2026-09-11';
+  const row = { vendorItemId: '11', externalOptionId: '11', visitors: 10, views: 20, orders: 2, revenue: 300 };
+  const accountSummary = { visitors: 10, views: 20, cartAdds: 3, orders: 2, salesQty: 2, revenue: 300, providerConversionRate: 10 };
+  const plan = {
+    sourceType: 'coupang_wing_traffic',
+    parserVersion: 'wing-traffic-daily-v2',
+    channelAccountId: '33333333-3333-4333-8333-333333333333',
+    expectedAdvertiserId: 'A0001',
+    providerVendorId: 'A0001',
+    startDate: '2026-09-09',
+    endDate: '2026-09-11',
+    businessDate: '2026-09-11',
+    periodDays: 3,
+    // Deliberately the full requested vector: receipt sequences are numbered
+    // off it, so narrowing it would renumber days an earlier attempt accepted.
+    expectedDates: requested,
+    filterScope: 'ALL_NORMAL_RFM',
+    targetUrl: pageUrl,
+  };
+  const capture = {
+    success: true,
+    parserVersion: 'wing-traffic-daily-v2',
+    filterScope: 'ALL_NORMAL_RFM',
+    expectedDates: requested,
+    confirmedDates: confirmed,
+    products: [row],
+    pages: confirmed.map(() => ({ pageIndex: 1, data: [row], url: pageUrl })),
+    dailyPages: confirmed.map((businessDate, index) => ({
+      businessDate,
+      pages: [{ pageIndex: 1, data: [row], url: pageUrl }],
+      expectedPages: 1,
+      acceptedPageCount: 0,
+      terminalPageObserved: true,
+      complete: true,
+      ...(index === 0 ? { accountSummary, accountSummaryRaw: { raw: true } } : {}),
+    })),
+    periodSummary: {
+      kind: 'period_summary',
+      startDate: confirmed[0],
+      endDate: confirmed.at(-1),
+      period: confirmed.length,
+      providerVendorId: 'A0001',
+      filterScope: 'ALL_NORMAL_RFM',
+      url: pageUrl,
+      accountSummary,
+      accountSummaryRaw: { raw: true },
+    },
+    periodSummaryAccepted: false,
+    gridReady: true,
+  };
+  const sent = [];
+  const context = baseContext({
+    href: pageUrl,
+    pageType: 'sales-analysis',
+    onMessage(message, callback) {
+      sent.push(message);
+      callback({ success: true, trafficReceipt: { sequence: sent.length, capturedAt: message.body.capturedAt } });
+    },
+  });
+  context.context.KidItemWingReadApi = { async collectTraffic() { return capture; } };
+
+  const result = await context.manual({
+    action: 'manualSync',
+    syncMode: 'wing_traffic',
+    wingTrafficControl: { ...control(plan), receipts: [] },
+  });
+
+  assert.equal(result.success, true, 'an unpublished later day is not a missing day');
+  assert.deepEqual(
+    sent.filter((m) => m.body.kind === 'daily_page').map((m) => m.body.businessDate),
+    confirmed,
+    'every confirmed day is handed over, and no day outside the confirmed window is',
+  );
+  const period = sent.find((m) => m.body.kind === 'period_summary');
+  assert.deepEqual(
+    { startDate: period.body.startDate, endDate: period.body.endDate, period: period.body.period },
+    { startDate: confirmed[0], endDate: confirmed.at(-1), period: confirmed.length },
+    'the summary declares the confirmed window, which the owner records as coverage',
+  );
+  assert.ok(
+    period.body.key.endsWith(`${confirmed[0]}:${confirmed.at(-1)}`),
+    'the receipt key is keyed on the declared window too, or a later wider run collides with it',
+  );
+});
+
+test('Wing traffic daily v2 still refuses a confirmed day it did not collect', async () => {
+  const pageUrl = 'https://wing.coupang.com/tenants/business-insight/sales-analysis'
+    + '?start_date=2026-09-09&end_date=2026-09-10';
+  const row = { vendorItemId: '11', externalOptionId: '11', visitors: 10, views: 20, orders: 2, revenue: 300 };
+  const plan = {
+    sourceType: 'coupang_wing_traffic',
+    parserVersion: 'wing-traffic-daily-v2',
+    channelAccountId: '33333333-3333-4333-8333-333333333333',
+    expectedAdvertiserId: 'A0001',
+    providerVendorId: 'A0001',
+    startDate: '2026-09-09',
+    endDate: '2026-09-10',
+    businessDate: '2026-09-10',
+    periodDays: 2,
+    expectedDates: ['2026-09-09', '2026-09-10'],
+    filterScope: 'ALL_NORMAL_RFM',
+    targetUrl: pageUrl,
+  };
+  const capture = {
+    success: true,
+    parserVersion: 'wing-traffic-daily-v2',
+    filterScope: 'ALL_NORMAL_RFM',
+    expectedDates: ['2026-09-09', '2026-09-10'],
+    // Claims both days, delivers one. That is an incomplete collection, which
+    // narrowing must never be allowed to disguise.
+    confirmedDates: ['2026-09-09', '2026-09-10'],
+    products: [row],
+    pages: [{ pageIndex: 1, data: [row], url: pageUrl }],
+    dailyPages: [{
+      businessDate: '2026-09-09',
+      pages: [{ pageIndex: 1, data: [row], url: pageUrl }],
+      expectedPages: 1,
+      acceptedPageCount: 0,
+      terminalPageObserved: true,
+      complete: true,
+    }],
+    periodSummary: {
+      kind: 'period_summary', startDate: '2026-09-09', endDate: '2026-09-10', period: 2,
+      providerVendorId: 'A0001', filterScope: 'ALL_NORMAL_RFM', url: pageUrl,
+      accountSummary: {}, accountSummaryRaw: {},
+    },
+    periodSummaryAccepted: false,
+    gridReady: true,
+  };
+  const context = baseContext({
+    href: pageUrl,
+    pageType: 'sales-analysis',
+    onMessage(message, callback) { callback({ success: true, trafficReceipt: { sequence: 1, capturedAt: message.body.capturedAt } }); },
+  });
+  context.context.KidItemWingReadApi = { async collectTraffic() { return capture; } };
+
+  const result = await context.manual({
+    action: 'manualSync',
+    syncMode: 'wing_traffic',
+    wingTrafficControl: { ...control(plan), receipts: [] },
+  });
+
+  assert.equal(result.success, false);
+  assert.equal(result.errorCode, 'INCOMPLETE_TRAFFIC_COVERAGE');
 });

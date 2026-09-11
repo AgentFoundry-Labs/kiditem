@@ -299,3 +299,99 @@ test("Wing traffic daily v2 owner accepts signed account-summary correction valu
     `/api/ads/traffic/attempts/${attemptId}/receipts/0`,
   ]);
 });
+
+/**
+ * Coupang publishes traffic a day behind its sales, so the last day of a
+ * "through yesterday" window is routinely unpublished. The capture narrows to
+ * the days the provider confirmed and declares that window in its period
+ * summary; the owner used to insist on the whole plan in three places — the
+ * receipt shape, the ACK shape, and the coverage gate — so a narrowed run got
+ * as far as staging every measured day and was then failed with
+ * `INCOMPLETE_TRAFFIC_COVERAGE` for the one day nobody had claimed. Observed
+ * live: 866 provider rows staged, attempt failed, zero listing-days covered.
+ *
+ * The sequence stays keyed to the plan. Numbering the summary off the narrowed
+ * window would put it at `confirmedDays * 100`, which is day `confirmedDays`'s
+ * own first page.
+ */
+function narrowedPeriodBody() {
+  return {
+    ...periodBody(),
+    key: `${attemptId}:period-summary:${dates[0]}:${dates[0]}`,
+    endDate: dates[0],
+    period: 1,
+  };
+}
+
+test("Wing traffic daily v2 owner completes the window the provider confirmed", async () => {
+  let h;
+  h = harness(async (path, init, state) => {
+    if (!init?.method) return state.current;
+    if (init.method === "PUT") {
+      const body = JSON.parse(init.body);
+      const sequence = body.kind === "period_summary"
+        ? plan.periodDays * 100
+        : dates.indexOf(body.businessDate) * 100 + body.pageIndex - 1;
+      assert.equal(path, `/api/ads/traffic/attempts/${attemptId}/receipts/${sequence}`);
+      const receipt = ackFor(body, sequence);
+      state.setCurrent(control("RUNNING", [...state.current.receipts, receipt]));
+      return receipt;
+    }
+    if (init.method === "POST" && path === `/api/ads/traffic/attempts/${attemptId}/complete`) {
+      state.setCurrent(control("COMPLETE", state.current.receipts));
+      return { status: "READY" };
+    }
+    return state.current;
+  }, async (_input, owner) => {
+    assert.equal((await ownerStep(owner, dailyBody(dates[0]))).success, true);
+    // dates[1] is deliberately absent: the provider has not published it.
+    assert.equal((await ownerStep(owner, narrowedPeriodBody())).success, true);
+    return { success: true };
+  });
+
+  const result = await h.owner.run({ environmentId: "local", attemptId });
+
+  assert.equal(result.terminalState, "COMPLETE", "an unpublished later day must not fail the attempt");
+  assert.deepEqual(h.requests.filter(item => item.method === "PUT").map(item => item.path), [
+    `/api/ads/traffic/attempts/${attemptId}/receipts/0`,
+    `/api/ads/traffic/attempts/${attemptId}/receipts/200`,
+  ], "the summary keeps the plan's sequence so it cannot land on day 1's first page");
+  const periodAck = h.getCurrent().receipts.find(receipt => receipt.kind === "period_summary");
+  assert.deepEqual(
+    { startDate: periodAck.startDate, endDate: periodAck.endDate, period: periodAck.period },
+    { startDate: dates[0], endDate: dates[0], period: 1 },
+    "the ACK echoes the declared window, which the owner records as coverage",
+  );
+});
+
+test("Wing traffic daily v2 owner refuses a declared day it never staged", async () => {
+  let h;
+  h = harness(async (path, init, state) => {
+    if (!init?.method) return state.current;
+    if (init.method === "PUT") {
+      const body = JSON.parse(init.body);
+      const sequence = body.kind === "period_summary"
+        ? plan.periodDays * 100
+        : dates.indexOf(body.businessDate) * 100 + body.pageIndex - 1;
+      const receipt = ackFor(body, sequence);
+      state.setCurrent(control("RUNNING", [...state.current.receipts, receipt]));
+      return receipt;
+    }
+    if (init.method === "POST" && path === `/api/ads/traffic/attempts/${attemptId}/fail`) {
+      state.setCurrent({ ...control("FAILED", state.current.receipts), errorCode: "INCOMPLETE_TRAFFIC_COVERAGE", errorMessage: JSON.parse(init.body).message });
+      return state.current;
+    }
+    return state.current;
+  }, async (_input, owner) => {
+    assert.equal((await ownerStep(owner, dailyBody(dates[0]))).success, true);
+    // Claims both days while only the first was staged. Narrowing must never
+    // let an incomplete day pass as a day outside the window.
+    assert.equal((await ownerStep(owner, periodBody())).success, true);
+    return { success: true };
+  });
+
+  const result = await h.owner.run({ environmentId: "local", attemptId });
+
+  assert.equal(result.terminalState, "FAILED");
+  assert.equal(h.getCurrent().errorCode, "INCOMPLETE_TRAFFIC_COVERAGE");
+});

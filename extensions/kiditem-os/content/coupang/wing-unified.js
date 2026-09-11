@@ -618,7 +618,7 @@
 
   async function syncTrafficDailyToSourceOwner(control, capture) {
     if (!capture?.gridReady || !Array.isArray(capture.dailyPages) ||
-      !Array.isArray(capture.expectedDates) ||
+      !Array.isArray(capture.expectedDates) || !Array.isArray(capture.confirmedDates) ||
       (!capture.periodSummary && capture.periodSummaryAccepted !== true)) {
       return { success: false, errorCode: "INCOMPLETE_TRAFFIC_COVERAGE", error: "Wing 트래픽 일별 범위를 확인하지 못했습니다." };
     }
@@ -645,7 +645,15 @@
       }
       dailyDates.add(day.businessDate);
     }
-    if (dailyDates.size !== capture.expectedDates.length) {
+    // How many days this hand-off must carry is the window the capture
+    // confirmed, not the window that was requested. They differ whenever the
+    // provider has not published a later day yet — the ordinary case, since
+    // Wing's traffic runs a day behind its sales. Counting against the request
+    // would discard every measured day in the window for the sake of one the
+    // provider never claimed. The plan's date vector stays un-narrowed above,
+    // because receipt sequences are numbered off it.
+    if (capture.confirmedDates.length !== dailyDates.size ||
+      capture.confirmedDates.some((date) => !dailyDates.has(date))) {
       return { success: false, errorCode: "INCOMPLETE_TRAFFIC_COVERAGE", error: "Wing 트래픽 일별 날짜가 일부 누락되었습니다." };
     }
     // A resumed capture gets a fresh observation timestamp. Accepted receipts
@@ -708,16 +716,20 @@
     }
     const period = capture.periodSummary;
     if (period) {
+      // The summary carries the window the capture confirmed, and the owner
+      // reads it as this run's coverage. Re-stating the plan's window here
+      // would claim coverage for a day the provider never published — the
+      // mirror of refusing the whole window for that same day.
       const periodBody = {
-        key: `${control.attemptId}:period-summary:${control.plan.startDate}:${control.plan.endDate}`,
+        key: `${control.attemptId}:period-summary:${period.startDate}:${period.endDate}`,
         capturedAt,
         kind: "period_summary",
         providerVendorId: identity.vendorId,
         filterScope: "ALL_NORMAL_RFM",
         url: period.url || location.href,
-        startDate: control.plan.startDate,
-        endDate: control.plan.endDate,
-        period: control.plan.periodDays,
+        startDate: period.startDate,
+        endDate: period.endDate,
+        period: period.period,
         accountSummary: period.accountSummary,
         accountSummaryRaw: period.accountSummaryRaw,
       };

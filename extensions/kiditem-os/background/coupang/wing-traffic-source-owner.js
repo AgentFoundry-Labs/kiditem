@@ -465,8 +465,19 @@
       return { kind: body.kind, sequence, businessDate: body.businessDate, pageIndex: body.pageIndex };
     }
     if (body.kind === "period_summary") {
-      if (!hasSummary || body.startDate !== plan.startDate || body.endDate !== plan.endDate || body.period !== plan.periodDays ||
+      // The summary declares the dates this attempt confirmed, which are fewer
+      // than the plan asked for whenever the provider has not published a later
+      // day yet. Admit the same shape the owner does: a contiguous interval
+      // inside the plan. Whether that interval is the set actually confirmed is
+      // settled at the terminal submission, which is the only point that knows.
+      const periodStart = dates.indexOf(body.startDate);
+      const periodEnd = dates.indexOf(body.endDate);
+      if (!hasSummary || periodStart < 0 || periodEnd < periodStart ||
+        body.period !== periodEnd - periodStart + 1 ||
         body.businessDate !== undefined || body.pageIndex !== undefined || body.proof !== undefined || body.data !== undefined) return null;
+      // The sequence stays keyed to the plan, never to the narrowed window: the
+      // daily slots are numbered off the plan's full date vector, so a narrowed
+      // period would land inside day `period`'s own page range.
       return { kind: body.kind, sequence: plan.periodDays * V2_PAGE_BASE };
     }
     return null;
@@ -512,9 +523,15 @@
         "sequence", "kind", "key", "checksum", "providerVendorId", "filterScope", "capturedAt",
         "startDate", "endDate", "period", "rowCount", "matchedCount", "unmatchedCount", "snapshotIds", "url",
       ];
+      // Same confirmed-window rule as the receipt above: the ACK echoes the
+      // window the summary declared, not the window that was requested.
+      const dates = v2Dates(plan);
+      const periodStart = dates ? dates.indexOf(receipt.startDate) : -1;
+      const periodEnd = dates ? dates.indexOf(receipt.endDate) : -1;
       if (Object.keys(receipt).some((key) => !allowed.includes(key)) ||
         !v2Date(receipt.startDate) || !v2Date(receipt.endDate) ||
-        receipt.startDate !== plan.startDate || receipt.endDate !== plan.endDate ||
+        periodStart < 0 || periodEnd < periodStart ||
+        receipt.period !== periodEnd - periodStart + 1 ||
         !Number.isSafeInteger(receipt.period) || receipt.period < 1 || receipt.period > 366 ||
         receipt.rowCount !== 0 || receipt.matchedCount !== 0 || receipt.unmatchedCount !== 0 ||
         !Array.isArray(receipt.snapshotIds) || receipt.snapshotIds.length !== 0 ||
@@ -537,8 +554,17 @@
     const period = receipts.find((receipt) => receipt.kind === "period_summary" &&
       receipt.sequence === plan.periodDays * V2_PAGE_BASE);
     if (!period) return false;
+    // The summary declares the window this attempt confirmed, and coverage is
+    // complete when every date in *that* window is complete. Requiring the whole
+    // plan refused every window whose last day the provider had not published
+    // yet — the ordinary case, since Wing's traffic runs a day behind its sales —
+    // and discarded every measured day along with it. Same rule the owner
+    // applies at the terminal submission: a contiguous interval inside the plan.
+    const periodStart = dates.indexOf(period.startDate);
+    const periodEnd = dates.indexOf(period.endDate);
+    if (periodStart < 0 || periodEnd < periodStart) return false;
     let expectedReceiptCount = 1;
-    for (let dayIndex = 0; dayIndex < dates.length; dayIndex += 1) {
+    for (let dayIndex = periodStart; dayIndex <= periodEnd; dayIndex += 1) {
       const daily = receipts.filter((receipt) => receipt.kind === "daily_page" && receipt.businessDate === dates[dayIndex]);
       const expectedPages = daily[0]?.expectedPages;
       if (!Number.isSafeInteger(expectedPages) || expectedPages < 1 || expectedPages > V2_MAX_PAGES ||
@@ -550,6 +576,9 @@
           receipt.expectedPages !== expectedPages || receipt.terminalPageObserved !== (pageIndex === expectedPages)) return false;
       }
     }
+    // This also rules out a page for a date outside the declared window, which
+    // the owner rejects as a scope conflict: a half-collected day has to stay
+    // incomplete rather than quietly become an absent one.
     return receipts.length === expectedReceiptCount;
   }
 
