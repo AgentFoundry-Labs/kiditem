@@ -80,6 +80,13 @@ A business date a source owner has independently verified as complete, and may
 therefore publish even when other dates in the same collection failed. Distinct
 from the outcome of the collection batch that produced it.
 
+**Confirmed window**:
+The dates a collection states it confirmed. A collection declares its own
+window; no reader infers it from which dates happen to carry evidence, because
+then a half-collected day would be indistinguishable from one the provider never
+published. Distinct from the requested window, which is what was asked for.
+_Avoid_: covered range, actual period
+
 ### Identity
 
 **Organization**:
