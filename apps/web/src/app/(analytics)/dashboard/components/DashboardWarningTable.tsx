@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import type { DashboardInventorySummary, DashboardMetricBasis } from '@kiditem/shared/dashboard';
 import { cn } from '@/lib/utils';
-import { basisHasValues, DashboardDataBasis } from './DashboardDataBasis';
+import { basisHasValues, DashboardBasisMarker } from './DashboardDataBasis';
 
 /**
  * Each warning used to own a card, so five counts never lined up against one
@@ -119,9 +119,6 @@ export function DashboardWarningTable({ rows }: { rows: DashboardWarningRow[] })
         </h2>
         <span className="text-[11px] text-slate-500">심각도순</span>
       </header>
-      {/* Fixed columns: the basis summary is long and would otherwise push the
-          count out of view — and the count is the reason this table exists. The
-          summary truncates here; the section's disclosure holds it in full. */}
       <table className="w-full table-fixed border-collapse text-sm">
         <caption className="sr-only">경고 항목별 상태와 건수</caption>
         <colgroup>
@@ -146,10 +143,8 @@ export function DashboardWarningTable({ rows }: { rows: DashboardWarningRow[] })
                     {row.label}
                   </Link>
                   {/* Each count publishes its own basis, and they can differ, so
-                      the summary stays beside the value it explains. */}
-                  <div className="truncate">
-                    <DashboardDataBasis basis={row.basis} className="mt-0.5" />
-                  </div>
+                      the state stays beside the value it explains. */}
+                  <DashboardBasisMarker basis={row.basis} className="mt-0.5" />
                 </td>
                 <td className="px-1 py-1.5 align-top">
                   <span

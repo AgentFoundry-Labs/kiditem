@@ -1,6 +1,6 @@
 import { Minus, TrendingDown, TrendingUp } from 'lucide-react';
 import { cn, formatKRW } from '@/lib/utils';
-import { DashboardDataBasis, type DashboardMetricBasis } from './DashboardDataBasis';
+import { DashboardBasisMarker, type DashboardMetricBasis } from './DashboardDataBasis';
 import type { LucideIcon } from 'lucide-react';
 
 export function MetricCard({
@@ -75,8 +75,8 @@ export function MetricCard({
     : null;
 
   return (
-    <div className={cn('rounded-2xl transition-all hover:shadow-md h-full bg-white border border-slate-100 shadow-sm', onClick && 'cursor-pointer')} onClick={onClick}>
-      <div className="px-4 py-3 h-full flex flex-col">
+    <div className={cn('h-full bg-white transition-colors hover:bg-slate-50', onClick && 'cursor-pointer')} data-testid="dashboard-metric-card" onClick={onClick}>
+      <div className="flex h-full flex-col px-3 py-2">
         <div>
           <div className="flex items-center justify-between mb-1">
             <div className="flex items-center gap-2">
@@ -98,9 +98,9 @@ export function MetricCard({
           </div>
           {prevLabel && <div className="text-xs mt-0.5 text-slate-500">{prevLabel}</div>}
           {comparisonBasis && (
-            <DashboardDataBasis basis={comparisonBasis} className="mt-1" />
+            <DashboardBasisMarker basis={comparisonBasis} />
           )}
-          {basis && <DashboardDataBasis basis={basis} className="mt-1" />}
+          {basis && <DashboardBasisMarker basis={basis} />}
         </div>
         {hasGoal && (
           <div className="mt-auto pt-2" style={{ borderTop: `1px solid ${accentColor}20` }}>
@@ -138,8 +138,8 @@ export function UnavailableMetricCard({
   comparisonBasis?: DashboardMetricBasis | null;
 }) {
   return (
-    <div className="rounded-2xl transition-all h-full bg-white border border-slate-100 shadow-sm">
-      <div className="px-4 py-3 h-full flex flex-col">
+    <div className="h-full bg-white" data-testid="dashboard-metric-card">
+      <div className="flex h-full flex-col px-3 py-2">
         <div>
           <div className="flex items-center justify-between mb-1">
             <div className="flex items-center gap-2">
@@ -151,8 +151,10 @@ export function UnavailableMetricCard({
             <span className="text-lg sm:text-2xl font-extrabold tabular-nums tracking-tight text-slate-300">—</span>
           </div>
           <div className="text-xs mt-1 text-slate-400">{note}</div>
-          {comparisonBasis && <DashboardDataBasis basis={comparisonBasis} className="mt-1" />}
-          {basis && <DashboardDataBasis basis={basis} className="mt-1" />}
+          <div className="mt-1 flex flex-wrap items-center gap-1">
+            {comparisonBasis && <DashboardBasisMarker basis={comparisonBasis} />}
+            {basis && <DashboardBasisMarker basis={basis} />}
+          </div>
         </div>
       </div>
     </div>

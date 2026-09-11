@@ -320,7 +320,7 @@ describe('Dashboard page (RTL)', () => {
     // borrows the no-data wording.
     const unavailable = screen.getAllByTestId('dashboard-section-unavailable');
     expect(unavailable.map((section) => section.getAttribute('data-section')))
-      .toEqual(['수익성 ABC', '경고', '알림']);
+      .toEqual(['경고', '수익성 ABC', '알림']);
     unavailable.forEach((section) => {
       expect(section).toHaveTextContent('읽기 실패');
       expect(section).not.toHaveTextContent('데이터가 없습니다');

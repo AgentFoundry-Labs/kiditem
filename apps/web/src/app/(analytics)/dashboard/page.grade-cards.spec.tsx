@@ -680,7 +680,7 @@ describe('Dashboard absolute ABC grade cards', () => {
     expect(profitCard).not.toHaveTextContent('400,000원');
 
     const profitRateLabel = screen.getAllByText('이익률')[0];
-    const profitRateCard = profitRateLabel?.closest('[class*="rounded-2xl"]');
+    const profitRateCard = profitRateLabel?.closest('[data-testid="dashboard-metric-card"]');
     expect(profitRateCard).toHaveTextContent('—');
     expect(profitRateCard).not.toHaveTextContent('목표 15%');
     expect(profitRateCard).not.toHaveTextContent('목표 달성!');
@@ -757,7 +757,7 @@ describe('Dashboard absolute ABC grade cards', () => {
     expect(profitCard).toHaveTextContent('777원');
     expect(profitCard).not.toHaveTextContent('800원');
     const profitRateLabel = screen.getAllByText('이익률')[0];
-    const profitRateCard = profitRateLabel?.closest('[class*="rounded-2xl"]');
+    const profitRateCard = profitRateLabel?.closest('[data-testid="dashboard-metric-card"]');
     expect(profitRateCard).toHaveTextContent('77.7%');
   });
 
@@ -792,7 +792,7 @@ describe('Dashboard absolute ABC grade cards', () => {
     expect(profitCard).toHaveTextContent('0원');
     expect(profitCard).toHaveTextContent('쿠팡 광고비0원');
     const profitRateLabel = screen.getAllByText('이익률')[0];
-    const profitRateCard = profitRateLabel?.closest('[class*="rounded-2xl"]');
+    const profitRateCard = profitRateLabel?.closest('[data-testid="dashboard-metric-card"]');
     expect(profitRateCard).toHaveTextContent('0.0%');
     expect(profitRateCard).toHaveTextContent('목표 15%');
     expect(profitRateCard).not.toHaveTextContent('목표 달성!');

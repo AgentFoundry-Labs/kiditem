@@ -1,7 +1,7 @@
 'use client';
 
 import type { DashboardMetricBasis } from '@kiditem/shared/dashboard';
-import { DashboardDataBasis } from './DashboardDataBasis';
+import { DashboardBasisMarker } from './DashboardDataBasis';
 
 /**
  * These five numbers are one story — a visitor becoming a sale — and they all
@@ -53,7 +53,7 @@ export function DashboardTrafficFunnel({
           </span>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <DashboardDataBasis basis={basis} />
+          <DashboardBasisMarker basis={basis} />
           {!collected && (
             <button
               type="button"

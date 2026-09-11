@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { BarChart3 } from 'lucide-react';
 import { ProductAbcBadge } from '@/components/product-abc/ProductAbcBadge';
 import { cn, formatKRW, formatPercent, getProfitColor } from '@/lib/utils';
-import { DashboardDataBasis, type DashboardMetricBasis } from './DashboardDataBasis';
+import { DashboardBasisMarker, type DashboardMetricBasis } from './DashboardDataBasis';
 import type { DashboardSalesSummary } from '@kiditem/shared/dashboard';
 
 export function DashboardTopProducts({
@@ -21,7 +21,7 @@ export function DashboardTopProducts({
         </div>
         <Link href="/product-hub" className="text-xs font-mono text-purple-600">VIEW ALL →</Link>
         </div>
-        {basis && <DashboardDataBasis basis={basis} className="px-5 pb-2" />}
+        {basis && <DashboardBasisMarker basis={basis} />}
       <div className="overflow-x-auto">
         {products.length === 0 && <div className="px-5 py-8 text-center text-sm text-slate-400">표시할 상품 매출 데이터가 없습니다.</div>}
         {products.length > 0 && (

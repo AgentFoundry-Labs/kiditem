@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { cn, formatNumber } from '@/lib/utils';
-import { DashboardDataBasis, type DashboardMetricBasis } from './DashboardDataBasis';
+import { DashboardBasisMarker, type DashboardMetricBasis } from './DashboardDataBasis';
 import type { DashboardInventorySummary } from '@kiditem/shared/dashboard';
 
 /**
@@ -46,7 +46,7 @@ export function DashboardGradeCards({
           <Link href="/product-hub?abcGrade=unclassified" className="text-xs text-slate-500 hover:text-violet-700">
             미분류 {formatNumber(unclassifiedProductCount)}개
           </Link>
-          {basis && <DashboardDataBasis basis={basis} />}
+          {basis && <DashboardBasisMarker basis={basis} />}
         </div>
       </header>
 

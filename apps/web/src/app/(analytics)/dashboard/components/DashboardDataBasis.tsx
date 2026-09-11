@@ -128,6 +128,76 @@ export function basisSummary(basis: DashboardMetricBasis | null): string {
 }
 
 /**
+ * A value's evidence state in two or three characters, for surfaces where the
+ * full sentence would cost more room than the number it explains. Nine values
+ * on a row each reprinting "데이터 없음 · 0/10일 · 2026-09-01 ~ 2026-09-10"
+ * says the same thing nine times and buries the numbers.
+ *
+ * It is still a per-value summary, not a shortcut past one: the state is here,
+ * the sentence is on hover, and the enumerated evidence is one ⓘ away.
+ */
+export function basisMarker(
+  basis: DashboardMetricBasis | null,
+): { text: string; tone: 'neutral' | 'warn' | 'muted' } | null {
+  if (!basis) return null;
+
+  if (basis.kind === 'period') {
+    const days = `${dateCount(basis)}/${basis.targetDays}일`;
+    if (basis.status === 'complete') return { text: days, tone: 'neutral' };
+    if (basis.status === 'partial') return { text: days, tone: 'warn' };
+    if (basis.status === 'unverified') return { text: '확인 필요', tone: 'warn' };
+    return { text: '미측정', tone: 'muted' };
+  }
+
+  if (basis.kind === 'comparison') {
+    return basis.status === 'comparable'
+      ? { text: '비교 가능', tone: 'neutral' }
+      : { text: '비교 불가', tone: 'muted' };
+  }
+
+  // A withheld count qualifies the snapshot's status rather than replacing it.
+  const withheld = basis.withheldCount > 0 ? ` −${basis.withheldCount}` : '';
+  if (basis.status === 'current') {
+    return withheld
+      ? { text: `현재${withheld}`, tone: 'warn' }
+      : { text: '현재', tone: 'neutral' };
+  }
+  if (basis.status === 'unavailable') return { text: '사용 불가', tone: 'muted' };
+  return { text: `${snapshotStatusText(basis.status)}${withheld}`, tone: 'warn' };
+}
+
+/**
+ * Carries the same `data-testid` as the full summary because it is the same
+ * thing at a different size — the evidence beside the value. Swapping one for
+ * the other is a density decision, not an evidence one.
+ */
+export function DashboardBasisMarker({
+  basis,
+  className,
+}: {
+  basis: DashboardMetricBasis | null;
+  className?: string;
+}) {
+  const marker = basisMarker(basis);
+  if (!marker) return null;
+  return (
+    <span
+      className={cn(
+        'inline-flex shrink-0 items-center rounded px-1 text-[11px] tabular-nums',
+        marker.tone === 'warn' && 'bg-amber-50 text-amber-700',
+        marker.tone === 'muted' && 'text-slate-500',
+        marker.tone === 'neutral' && 'text-slate-500',
+        className,
+      )}
+      data-testid="dashboard-data-basis"
+      title={basisSummary(basis)}
+    >
+      {marker.text}
+    </span>
+  );
+}
+
+/**
  * The short summary stays beside the number it explains. The enumerated dates
  * behind it do not: those lists grow with the selected range and were crowding
  * the cards. They are reached through the section's one help affordance, which
