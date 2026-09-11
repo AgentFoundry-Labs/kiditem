@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ZodError } from 'zod';
 import { ApiError } from '@/lib/api-error';
@@ -296,6 +296,118 @@ describe('Dashboard page (RTL)', () => {
     await waitFor(() => {
       expect(screen.getByText('응답 형식 오류 — 개발팀에 문의하세요')).toBeTruthy();
     });
+  });
+
+  it('shows one retry for the whole page and never turns a failed read into no data', async () => {
+    getParsedMock.mockImplementation((path: string) => {
+      if (path === '/api/dashboard/sales') return Promise.resolve(successSales);
+      if (path === '/api/dashboard/ad') return Promise.resolve(successAd);
+      if (path === '/api/dashboard/inventory') {
+        return Promise.reject(new ApiError(502, 'BAD_GATEWAY', '재고 읽기 실패'));
+      }
+      if (path.startsWith('/api/dashboard/trend')) return Promise.resolve(successTrend);
+      return Promise.resolve(null);
+    });
+    renderPage();
+
+    const notice = await screen.findByTestId('dashboard-read-failure');
+    expect(notice).toHaveTextContent('상품·재고');
+    expect(notice).toHaveTextContent('재고 읽기 실패');
+    // One failed read used to stack a retry button per section.
+    expect(screen.getAllByRole('button', { name: '다시 시도' })).toHaveLength(1);
+
+    // Every section that read inventory stays put, says 읽기 실패, and never
+    // borrows the no-data wording.
+    const unavailable = screen.getAllByTestId('dashboard-section-unavailable');
+    expect(unavailable.map((section) => section.getAttribute('data-section')))
+      .toEqual(['알림', '수익성 ABC', '경고']);
+    unavailable.forEach((section) => {
+      expect(section).toHaveTextContent('읽기 실패');
+      expect(section).not.toHaveTextContent('데이터가 없습니다');
+    });
+
+    // The reads that succeeded keep rendering their own values.
+    expect(screen.getByText('Kiditem Foundry')).toBeTruthy();
+  });
+
+  it('retries every failed read from the single page-level button', async () => {
+    getParsedMock.mockImplementation((path: string) => {
+      if (path === '/api/dashboard/sales') return Promise.resolve(successSales);
+      if (path === '/api/dashboard/ad') return Promise.resolve(successAd);
+      if (path === '/api/dashboard/inventory') {
+        return Promise.reject(new ApiError(502, 'BAD_GATEWAY', '재고 읽기 실패'));
+      }
+      if (path.startsWith('/api/dashboard/trend')) {
+        return Promise.reject(new ApiError(502, 'BAD_GATEWAY', '추이 읽기 실패'));
+      }
+      return Promise.resolve(null);
+    });
+    renderPage();
+
+    const notice = await screen.findByTestId('dashboard-read-failure');
+    expect(notice).toHaveTextContent('상품·재고');
+    expect(notice).toHaveTextContent('매출 추이');
+
+    const callsFor = (match: string) =>
+      getParsedMock.mock.calls.filter((call) => String(call[0]).startsWith(match)).length;
+    const before = { inventory: callsFor('/api/dashboard/inventory'), trend: callsFor('/api/dashboard/trend') };
+
+    fireEvent.click(screen.getByRole('button', { name: '다시 시도' }));
+
+    await waitFor(() => {
+      expect(callsFor('/api/dashboard/inventory')).toBeGreaterThan(before.inventory);
+      expect(callsFor('/api/dashboard/trend')).toBeGreaterThan(before.trend);
+    });
+  });
+
+  it('reaches every basis through one affordance per section, not one per value', async () => {
+    const salesWithBasis = {
+      ...successSales,
+      metricBasis: {
+        'monthly.revenue': {
+          kind: 'period',
+          from: '2026-07-01',
+          to: '2026-07-31',
+          targetDays: 31,
+          includedDates: ['2026-07-01'],
+          includedDays: 1,
+          missingDates: ['2026-07-02'],
+          invalidDates: [],
+          sources: ['orders'],
+          status: 'partial',
+          partial: true,
+          observedAt: null,
+        },
+      },
+    };
+    getParsedMock.mockImplementation((path: string) => {
+      if (path === '/api/dashboard/sales') return Promise.resolve(salesWithBasis);
+      if (path === '/api/dashboard/ad') return Promise.resolve(successAd);
+      if (path === '/api/dashboard/inventory') return Promise.resolve(successInv);
+      if (path.startsWith('/api/dashboard/trend')) return Promise.resolve(successTrend);
+      return Promise.resolve(null);
+    });
+    renderPage();
+
+    await screen.findByText('Kiditem Foundry');
+    // Summaries stay beside every value; the affordance is section-level.
+    expect(screen.getAllByTestId('dashboard-data-basis').length).toBeGreaterThan(2);
+    expect(screen.queryAllByRole('button', { name: '데이터 근거 안내' })).toHaveLength(0);
+    expect(screen.getAllByRole('button', { name: /근거 안내$/ }).map((b) => b.getAttribute('aria-label')))
+      .toEqual(['기간 지표 근거 안내', '스냅샷 지표 근거 안내']);
+    // The enumerated dates are reachable but never printed on the page itself.
+    expect(document.body).not.toHaveTextContent('2026-07-02');
+
+    fireEvent.click(screen.getByRole('button', { name: '스냅샷 지표 근거 안내' }));
+    const note = await screen.findByRole('note');
+    expect(within(note).getByRole('row', { name: /셀피아 재고 0/ })).toBeInTheDocument();
+    expect(within(note).getByRole('row', { name: /매칭 확인 필요/ })).toBeInTheDocument();
+    // These two snapshots really do share an as-of and a source, so the
+    // breakdown states each shared fact once instead of repeating it per row.
+    expect(note).toHaveTextContent('기준시점 2026-07-27 · 원천 sellpia (모든 값 공통)');
+
+    fireEvent.click(screen.getByRole('button', { name: '기간 지표 근거 안내' }));
+    await waitFor(() => expect(document.body).toHaveTextContent('2026-07-02'));
   });
 
   it('T7: does not fetch the retired dashboard ActionTask board', async () => {

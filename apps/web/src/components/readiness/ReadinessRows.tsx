@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useState } from 'react';
 import {
   AlertTriangle,
   Boxes,
@@ -6,7 +6,6 @@ import {
   CheckCircle2,
   ChevronDown,
   Database,
-  Info,
   KeyRound,
   LineChart,
   Loader2,
@@ -17,11 +16,11 @@ import {
   XCircle,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import * as Popover from '@radix-ui/react-popover';
 import { useAdKeywordCollect } from '@/app/(advertising)/ad-ops/hooks/useAdKeywordCollect';
 import { useAdSync } from '@/app/(advertising)/ad-ops/hooks/useAdSync';
 import { useSellpiaInventorySourceOwner } from '@/app/(inventory)/_shared/sellpia-inventory-source-owner';
 import { cn, formatNumber } from '@/lib/utils';
+import { InfoDisclosure } from '@/components/ui/InfoDisclosure';
 import {
   buildCoupangCatalogProgress,
   resolveCoupangCatalogError,
@@ -136,41 +135,6 @@ function formatRelative(iso: string | null): string {
 function formatShortDate(ymd: string): string {
   const [, m, d] = ymd.split('-');
   return `${parseInt(m, 10)}/${parseInt(d, 10)}`;
-}
-
-function InfoDisclosure({
-  label,
-  children,
-}: {
-  label: string;
-  children: ReactNode;
-}) {
-  return (
-    <Popover.Root>
-      <Popover.Trigger asChild>
-        <button
-          type="button"
-          aria-label={`${label} 안내`}
-          title={`${label} 안내`}
-          className="inline-flex h-5 w-5 items-center justify-center rounded-full text-[var(--text-muted)] transition-colors hover:bg-[var(--surface-sunken)] hover:text-[var(--text-secondary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]"
-        >
-          <Info className="h-3.5 w-3.5" aria-hidden="true" />
-        </button>
-      </Popover.Trigger>
-      <Popover.Portal>
-        <Popover.Content
-          role="note"
-          side="bottom"
-          align="start"
-          sideOffset={6}
-          className="z-[120] max-w-[min(20rem,calc(100vw-2rem))] rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-raised)] p-3 text-[11px] font-normal leading-relaxed text-[var(--text-secondary)] shadow-[var(--shadow-md)] outline-none"
-        >
-          {children}
-          <Popover.Arrow className="fill-[var(--surface-raised)]" />
-        </Popover.Content>
-      </Popover.Portal>
-    </Popover.Root>
-  );
 }
 
 function DateStrip({

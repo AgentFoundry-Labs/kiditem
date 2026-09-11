@@ -1,6 +1,11 @@
 import { X } from 'lucide-react';
 import { cn, formatKRW } from '@/lib/utils';
-import { DashboardDataBasis, readMetricBasis, type DashboardMetricBasis } from './DashboardDataBasis';
+import {
+  DashboardBasisDisclosure,
+  DashboardDataBasis,
+  readMetricBasis,
+  type DashboardMetricBasis,
+} from './DashboardDataBasis';
 import type { DashboardAdSummary, DashboardSalesSummary } from '@kiditem/shared/dashboard';
 
 type DetailItem = {
@@ -104,9 +109,20 @@ export function DashboardProfitDetailModal({
       <div className="w-full max-w-md rounded-2xl p-6 bg-white shadow-2xl" onClick={(event) => event.stopPropagation()}>
         <div className="flex items-center justify-between mb-5">
           <h3 className="text-lg font-bold text-slate-900">순이익 구조</h3>
-          <button onClick={onClose} className="p-1 rounded-lg hover:opacity-80 text-slate-400">
-            <X size={18} />
-          </button>
+          <div className="flex items-center gap-1">
+            {/* The modal is its own section, so its evidence is reached the
+                same way: one affordance, broken down per value. */}
+            <DashboardBasisDisclosure
+              label="순이익 구조 근거"
+              entries={[
+                { label: '비용 구성', basis: view.basis },
+                { label: '순이익', basis: selectedProfitBasis },
+              ]}
+            />
+            <button onClick={onClose} className="p-1 rounded-lg hover:opacity-80 text-slate-400">
+              <X size={18} />
+            </button>
+          </div>
         </div>
         <div className="space-y-3">
           {view.scopeNote && (

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowRight, CheckCircle2, Loader2, Sunrise, X } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
@@ -32,6 +32,12 @@ interface ReadinessModalProps {
   catalogLink?: CoupangCatalogCollectionLinkResult | null;
   /** uncontrolled 자동 오픈 기준. 기본값은 기존 동작과 같은 anyIssue. */
   autoOpenWhen?: AutoOpenWhen;
+  /**
+   * Route-owned collection surface rendered under 추가 작업. The modal is the
+   * app-shell owner of readiness, not of any one route's collection trigger,
+   * so the route passes its own control in rather than the shell importing it.
+   */
+  additionalCollection?: ReactNode;
 }
 
 export default function ReadinessModal({
@@ -40,6 +46,7 @@ export default function ReadinessModal({
   onRequestOpen,
   catalogLink,
   autoOpenWhen = 'anyIssue',
+  additionalCollection,
 }: ReadinessModalProps = {}) {
   const [internalOpen, setInternalOpen] = useState(false);
   const isControlled = controlledOpen !== undefined;
@@ -239,6 +246,7 @@ export default function ReadinessModal({
                     }}
                   />
                   <StockSyncRow />
+                  {additionalCollection}
                 </div>
               </section>
             </div>

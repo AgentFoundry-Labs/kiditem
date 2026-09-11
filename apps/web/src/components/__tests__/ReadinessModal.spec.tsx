@@ -592,6 +592,24 @@ describe('ReadinessModal', () => {
     expect(screen.getByText('상세 상품 받기 상태 확인 중입니다. 잠시 후 다시 확인해주세요.')).toBeInTheDocument();
   });
 
+  it('renders a route-owned collection trigger inside the optional section', async () => {
+    // The dashboard's Wing daily-traffic trigger is the app's only entrypoint
+    // for that source, so the slot it now lives in is a contract, not a detail.
+    const view = render(
+      <ReadinessModal
+        open
+        onClose={vi.fn()}
+        additionalCollection={<button type="button">Wing 일별 수집</button>}
+      />,
+      { wrapper: wrapper() },
+    );
+
+    await screen.findByText('추가 작업');
+    const optional = view.container.querySelector('[data-readiness-optional-section]');
+    const trigger = screen.getByRole('button', { name: 'Wing 일별 수집' });
+    expect(optional).toContainElement(trigger);
+  });
+
   it('keeps optional sync actions outside the required readiness count', async () => {
     const view = render(<ReadinessModal open onClose={vi.fn()} />, { wrapper: wrapper() });
 

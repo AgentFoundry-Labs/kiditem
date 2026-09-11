@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import {
   DashboardProfitDetailModal,
@@ -157,7 +157,7 @@ describe('DashboardProfitDetailModal', () => {
     expect(screen.getByText('광고전환매출').parentElement).toHaveTextContent('900,000원');
   });
 
-  it('labels advertising-only rows with the advertising basis, not the sales basis', () => {
+  it('labels advertising-only rows with the advertising basis, not the sales basis', async () => {
     renderModal(
       salesBaseline({
         metricBasis: { 'rangeKpi.profit': periodBasis({ sources: ['orders'] }) },
@@ -172,12 +172,18 @@ describe('DashboardProfitDetailModal', () => {
       ),
     );
 
-    const bases = screen.getAllByTestId('dashboard-data-basis');
-    expect(bases[0]).toHaveTextContent('원천 coupang_ads');
-    expect(bases[0]).not.toHaveTextContent('orders');
+    // One affordance for the modal, but never one claim for both values: the
+    // rows' own basis and the net-profit basis stay separate rows naming
+    // separate sources.
+    fireEvent.click(screen.getByRole('button', { name: '순이익 구조 근거 안내' }));
+
+    const note = await screen.findByRole('note');
+    expect(within(note).getByRole('row', { name: /비용 구성/ })).toHaveTextContent('coupang_ads');
+    expect(within(note).getByRole('row', { name: /비용 구성/ })).not.toHaveTextContent('orders');
+    expect(within(note).getByRole('row', { name: /순이익/ })).toHaveTextContent('orders');
   });
 
-  it('shows the profit inputs basis for the rows it actually renders', () => {
+  it('shows the profit inputs basis for the rows it actually renders', async () => {
     renderModal(
       salesBaseline({
         profitInputs: {
@@ -191,8 +197,10 @@ describe('DashboardProfitDetailModal', () => {
       adBaseline(),
     );
 
-    const bases = screen.getAllByTestId('dashboard-data-basis');
-    expect(bases[0]).toHaveTextContent('원천 sellpia_sales');
+    fireEvent.click(screen.getByRole('button', { name: '순이익 구조 근거 안내' }));
+
+    const note = await screen.findByRole('note');
+    expect(within(note).getByRole('row', { name: /비용 구성/ })).toHaveTextContent('sellpia_sales');
     expect(screen.getByText('매출').parentElement).toHaveTextContent('1,000,000원');
   });
 

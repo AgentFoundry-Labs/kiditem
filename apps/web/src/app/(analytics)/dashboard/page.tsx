@@ -36,21 +36,18 @@ import { useSellpiaChannelSales, sellpiaPeriodRange } from '@/hooks/useSellpiaCh
 import { DashboardChartPanel } from './components/DashboardChartPanel';
 import { MetricCard, UnavailableMetricCard } from './components/DashboardMetricCard';
 import { DashboardProfitDetailModal } from './components/DashboardProfitDetailModal';
-import { DashboardSectionError } from './components/DashboardSectionError';
 import { DashboardSidePanel } from './components/DashboardSidePanel';
 import { DashboardTopProducts } from './components/DashboardTopProducts';
 import { DashboardExpenseAmount } from './components/DashboardExpenseAmount';
 import { DashboardGradeCards } from './components/DashboardGradeCards';
+import { WingDailyTrafficCollection } from './components/WingDailyTrafficCollection';
 import {
-  DashboardReadinessPanel,
-  type DashboardReadinessSource,
-  type DashboardReadinessState,
-} from './components/DashboardReadinessPanel';
-import {
+  DashboardBasisDisclosure,
   DashboardDataBasis,
   basisHasValues,
   readFirstMetricBasis,
   readMetricBasis,
+  type BasisBreakdownEntry,
   type DashboardMetricBasis,
   type MetricBasisCarrier,
 } from './components/DashboardDataBasis';
@@ -111,38 +108,6 @@ function coverageNote(
 ): string | null {
   if (!coverage || !coverageIsIncomplete(coverage)) return null;
   return `부분 커버리지 · ${coverage.completedDays}/${coverage.targetDays}일 · 누락 ${coverage.missingDates.length}일`;
-}
-
-function readinessStateForBasis(
-  basis: DashboardMetricBasis | null,
-  hasValue: boolean,
-): DashboardReadinessState {
-  if (!basis) return hasValue ? 'unknown' : 'empty';
-  if (
-    basis.kind === 'period'
-    && (basis.queryFailedSources?.length ?? 0) > 0
-  ) {
-    return 'query-error';
-  }
-  if (basis.kind === 'period') {
-    if (basis.status === 'complete') return 'current';
-    if (basis.status === 'partial') return 'partial';
-    if (basis.status === 'unverified') return 'unknown';
-    return 'empty';
-  }
-  if (basis.kind === 'snapshot') {
-    return basis.status;
-  }
-  return basis.status === 'comparable' ? 'current' : 'unavailable';
-}
-
-function readinessStateWithCoverage(
-  basis: DashboardMetricBasis | null,
-  hasValue: boolean,
-  incomplete: boolean,
-): DashboardReadinessState {
-  const state = readinessStateForBasis(basis, hasValue);
-  return incomplete && state !== 'query-error' ? 'partial' : state;
 }
 
 function rangeMetricBasis(
@@ -220,6 +185,102 @@ const EMPTY_INVENTORY_SUMMARY: DashboardInventorySummary = {
 
 function DashboardSectionEmpty({ label }: { label: string }) {
   return <div className="flex items-center justify-center gap-2 py-6 text-sm text-slate-400">{label} 데이터가 없습니다.</div>;
+}
+
+/**
+ * A read that failed is not a read that returned nothing, so this never
+ * borrows the empty state's wording. The section keeps its place and says the
+ * value could not be read; the one page-level retry is what re-runs it.
+ */
+function DashboardSectionUnavailable({ label, className }: { label: string; className?: string }) {
+  return (
+    <div
+      className={cn('flex flex-col items-center justify-center gap-1 py-6 text-center', className)}
+      data-testid="dashboard-section-unavailable"
+      data-section={label}
+    >
+      <span className="text-sm font-semibold text-red-600">읽기 실패</span>
+      <span className="text-xs text-slate-400">{label} 값을 읽지 못했습니다. 위 알림의 다시 시도를 눌러 주세요.</span>
+    </div>
+  );
+}
+
+/** One failed dashboard read, named in the words the section header uses. */
+type DashboardReadFailure = {
+  key: string;
+  label: string;
+  message: string;
+  retry: () => void;
+};
+
+/**
+ * One notice for the whole page instead of a retry button per section: a
+ * single failed read used to stack identical buttons down the dashboard. It
+ * names every source that failed and re-runs exactly those.
+ */
+function DashboardReadFailureNotice({ failures }: { failures: readonly DashboardReadFailure[] }) {
+  if (failures.length === 0) return null;
+  return (
+    <div
+      role="alert"
+      data-testid="dashboard-read-failure"
+      className="flex items-start justify-between gap-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3"
+    >
+      <div className="min-w-0">
+        <p className="text-sm font-semibold text-red-700">
+          읽기 실패 · {failures.map((failure) => failure.label).join(', ')}
+        </p>
+        <ul className="mt-1 space-y-0.5">
+          {failures.map((failure) => (
+            <li key={failure.key} className="flex flex-wrap items-baseline gap-x-1.5 text-xs text-red-600">
+              <span className="font-medium">{failure.label}</span>
+              <span aria-hidden="true" className="text-red-300">·</span>
+              <span>{failure.message}</span>
+            </li>
+          ))}
+        </ul>
+        <p className="mt-1 text-[11px] text-red-500">
+          읽지 못한 값만 ‘읽기 실패’로 표시되고, 성공한 값은 그대로 유지됩니다.
+        </p>
+      </div>
+      <button
+        type="button"
+        onClick={() => failures.forEach((failure) => failure.retry())}
+        className="shrink-0 rounded-md bg-red-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-red-700"
+      >
+        다시 시도
+      </button>
+    </div>
+  );
+}
+
+/**
+ * A section header carries one ⓘ for every value below it. The affordance is
+ * section-level; the explanation behind it stays per value.
+ */
+function DashboardSectionHeader({
+  title,
+  scope,
+  disclosureLabel,
+  entries,
+}: {
+  title: string;
+  scope: string;
+  disclosureLabel: string;
+  entries: readonly BasisBreakdownEntry[];
+}) {
+  return (
+    <div className="flex items-center justify-between gap-2 px-1">
+      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+        <h2 className="text-sm font-semibold text-slate-900">{title}</h2>
+        <span className="text-[11px] text-slate-400">{scope}</span>
+      </div>
+      {/* The app shell parks a fixed quick-action button over the right edge
+          at every scroll position, and this is the only way to the evidence
+          behind the section, so it keeps clear of that strip. */}
+      <DashboardBasisDisclosure label={disclosureLabel} entries={entries} className="mr-16" />
+    </div>
+  );
 }
 
 type TrendEvidence = {
@@ -387,8 +448,6 @@ export default function Dashboard() {
     : kpiRange === 'custom' && (!dateFrom || !dateTo)
       ? false
       : salesRangeLoading || adRangeLoading;
-  const selectedRangeHasError = kpiRange !== 'month' && (salesRangeHasErr || adRangeHasErr);
-
   const rangeLabelMap: Record<string, string> = { month: '월', week: '주', day: '일', custom: '기간' };
   // Range label derived from local state (not server)
   const rangeLabel = kpiRange !== 'month' ? (rangeLabelMap[kpiRange] ?? '월') : '월';
@@ -419,9 +478,6 @@ export default function Dashboard() {
     : profitRate !== null && prevProfitRate !== null ? profitRate - prevProfitRate : null;
   const adMonthly = effectiveAd?.monthly ?? (kpiRange === 'month' ? baselineAd.monthly : EMPTY_AD_SUMMARY.monthly);
   const adKpi = effectiveAd?.adKpi;
-  const rawAdSpend = rkAd
-    ? nullableValue(rkAd.adCost, rkAd.adSpend)
-    : nullableValue(adKpi?.totalSpend, adMonthly.totalAdSpend);
   const rawAdConvRevenue = rkAd
     ? rkAd.adConvRevenue
     : nullableValue(adKpi?.convRevenue, adMonthly.adRevenue);
@@ -438,7 +494,6 @@ export default function Dashboard() {
   // Coverage is disclosed beside the metric; it must not turn non-null partial
   // values into an unavailable card.
   const adCoverageIncomplete = coverageIsIncomplete(adCoverage);
-  const adSpend = rawAdSpend;
   const adConvRevenue = rawAdConvRevenue;
   const adRoas = rawAdRoas;
   const adPrevRoas = rawAdPrevRoas;
@@ -488,16 +543,10 @@ export default function Dashboard() {
   const latestDataDate = effectivePeriod?.latestDataDate ?? null;
   const revenueSource = effectivePeriod?.revenueSource
     ?? (trafficKpi?.source === 'wing' ? 'wing' : 'orders');
-  const adSource = effectivePeriod?.adSource ?? (kpiRange === 'month' ? baselineAd.effectivePeriod?.adSource : undefined) ?? 'orders';
   const revenueSourceLabel =
     revenueSource === 'wing' ? 'Wing 매출 기준'
     : revenueSource === 'mixed' ? '주문 + Wing'
     : revenueSource === 'orders' ? '주문 기준'
-    : '데이터 대기';
-  const adSourceLabel =
-    adSource === 'coupang_ads' ? '쿠팡 광고 기준'
-    : adSource === 'mixed' ? '쿠팡 광고 + 주문'
-    : adSource === 'orders' ? '주문 기준'
     : '데이터 대기';
   const orderProfitInputs = effectiveSales?.profitInputs ?? null;
   const orderProfitInputsAvailable = (revenueSource === 'orders' || revenueSource === 'mixed')
@@ -610,7 +659,6 @@ export default function Dashboard() {
   const profitRateComparisonBasis = rangeMetricBasis(effectiveSales, kpiRange, 'profitRateChange', null);
   const adRateBasis = rangeMetricBasis(effectiveAd, kpiRange, 'adRate', null);
   const adRateComparisonBasis = rangeMetricBasis(effectiveAd, kpiRange, 'adRateChange', null);
-  const adSpendBasis = rangeMetricBasis(effectiveAd, kpiRange, 'adCost', 'totalAdSpend');
   const adRoasBasis = rangeMetricBasis(effectiveAd, kpiRange, 'adRoas', null);
   const adRoasComparisonBasis = rangeMetricBasis(effectiveAd, kpiRange, 'adRoasChange', null);
   const trafficBasis = readMetricBasis(effectiveSales, 'trafficKpi.conversionRate');
@@ -637,100 +685,82 @@ export default function Dashboard() {
   ]);
   const topProducts = effectiveSales?.topProducts ?? [];
   const topProductsLoading = kpiRange === 'month' ? salesBaselineLoading : salesRangeLoading;
+  // Top Products reads whichever sales query the selected range uses; its
+  // failure is already named and retried by the page-level notice.
   const topProductsHasErr = kpiRange === 'month' ? salesBaselineHasErr : salesRangeHasErr;
-  const topProductsError = kpiRange === 'month' ? salesBaselineError : salesRangeError;
-  const refetchTopProducts = kpiRange === 'month' ? refetchSalesBaseline : refetchSalesRange;
   const warningBasis = (key: string): DashboardMetricBasis | null => readMetricBasis(inventoryData, key);
-  const selectedSalesHasErr = kpiRange === 'month' ? salesBaselineHasErr : salesRangeHasErr;
-  const selectedSalesLoading = kpiRange === 'month' ? salesBaselineLoading : salesRangeLoading;
-  const selectedAdHasErr = kpiRange === 'month' ? adBaselineHasErr : adRangeHasErr;
-  const selectedAdLoading = kpiRange === 'month' ? adBaselineLoading : adRangeLoading;
+  const alertsBasis = readMetricBasis(inventoryData, 'alerts');
 
-  const readinessSources: DashboardReadinessSource[] = [
-    {
-      key: 'orders',
-      label: revenueSource === 'wing' ? 'Wing 매출' : '주문 매출',
-      state: selectedSalesHasErr
-        ? 'error'
-        : selectedSalesLoading
-          ? 'loading'
-          : readinessStateForBasis(revenueBasis, effectiveSales !== undefined && kpiRevenue !== null),
-      detail: effectivePeriod ? `${periodLabel} · ${revenueSourceLabel}` : '선택 기간 기준',
-      basis: revenueBasis,
-    },
-    {
+  // The basis a card actually displays is decided once, so the section's
+  // breakdown explains the number on screen rather than a parallel guess.
+  const revenueCardBasis = sellpiaHasData ? sellpiaMetricBasis : revenueBasis;
+  const profitCardUsesSellpia = sellpiaHasData && sellpiaProfitInputsAvailable && spProfit !== null;
+  const profitCardBasis = profitCardUsesSellpia
+    ? sellpiaProfitInputs?.basis ?? null
+    : sellpiaHasData ? sellpiaMetricBasis : profitBasis;
+  const profitRateCardBasis = profitRateAvailable
+    ? (sellpiaHasData ? sellpiaProfitInputs?.basis ?? null : profitRateBasis)
+    : (sellpiaHasData ? sellpiaMetricBasis : profitRateBasis);
+
+  const periodBasisEntries: BasisBreakdownEntry[] = [
+    { label: `${rangeLabel} 매출`, basis: revenueCardBasis },
+    ...(sellpiaHasData
+      ? [
+        { label: '쿠팡윙 · 기타몰 매출', basis: sellpiaOthersBasis },
+        { label: '쿠팡 로켓 매출', basis: sellpiaRocketBasis },
+      ]
+      : [{ label: `${rangeLabel} 매출 증감`, basis: revenueComparisonBasis }]),
+    { label: `${rangeLabel} 순이익`, basis: profitCardBasis },
+    ...(sellpiaHasData ? [] : [{ label: `${rangeLabel} 순이익 증감`, basis: profitComparisonBasis }]),
+    { label: '이익률', basis: profitRateCardBasis },
+    ...(sellpiaHasData ? [] : [{ label: '이익률 증감', basis: profitRateComparisonBasis }]),
+    { label: '광고비율', basis: adRateBasis },
+    { label: '광고비율 증감', basis: adRateComparisonBasis },
+    { label: '구매전환율', basis: trafficBasis },
+    { label: '광고수익률', basis: adRoasBasis },
+    { label: '광고수익률 증감', basis: adRoasComparisonBasis },
+    { label: '벤치마크 광고비율', basis: benchmarkBases.adRate },
+    { label: '벤치마크 ROAS', basis: benchmarkBases.roas },
+    { label: '벤치마크 CTR', basis: benchmarkBases.ctr },
+    { label: '벤치마크 CVR', basis: benchmarkBases.cvr },
+    { label: 'Top 상품 매출', basis: topProductsBasis },
+    { label: 'Wing 일별 트래픽 커버리지', coverage: trafficCoverage, coverageSources: ['wing_traffic'] },
+    { label: '광고 커버리지', coverage: adCoverage, coverageSources: ['coupang_ads'] },
+  ];
+
+  const snapshotBasisEntries: BasisBreakdownEntry[] = [
+    { label: '운영 상품 · 채널 연결', basis: inventoryHeaderBasis },
+    { label: '알림', basis: alertsBasis },
+    { label: '수익성 ABC', basis: inventoryBasis },
+    { label: '적자 상품', basis: warningBasis('warnings.minusProducts') },
+    { label: '저이익 상품', basis: warningBasis('warnings.lowProfitProducts') },
+    { label: '광고비 초과', basis: warningBasis('warnings.highAdProducts') },
+    { label: '셀피아 재고 0', basis: warningBasis('warnings.outOfStockSkus') },
+    { label: '매칭 확인 필요', basis: warningBasis('warnings.mappingAttentionSkus') },
+  ];
+
+  // Every failed read on the page, named once. React Query already owns this
+  // state, so nothing here is a second copy of it.
+  const readFailures: DashboardReadFailure[] = [];
+  const addReadFailure = (key: string, label: string, failed: boolean, error: unknown, retry: () => void) => {
+    if (failed) readFailures.push({ key, label, message: friendlyError(error) ?? '조회 실패', retry });
+  };
+  addReadFailure('sales-baseline', '주문 매출', salesBaselineHasErr, salesBaselineError, () => { void refetchSalesBaseline(); });
+  addReadFailure('ad-baseline', '쿠팡 광고', adBaselineHasErr, adBaselineError, () => { void refetchAdBaseline(); });
+  addReadFailure('sales-range', `선택 기간 매출(${rangeLabel})`, salesRangeHasErr, salesRangeError, () => { void refetchSalesRange(); });
+  addReadFailure('ad-range', `선택 기간 광고(${rangeLabel})`, adRangeHasErr, adRangeError, () => { void refetchAdRange(); });
+  // The Sellpia hook publishes only a boolean, so its reason stays the fixed
+  // sentence the page already showed rather than an invented detail.
+  if (channelSales.isError) {
+    readFailures.push({
       key: 'sellpia',
       label: '셀피아 판매현황',
-      state: channelSales.isError
-        ? 'error'
-          : channelSales.isLoading
-            ? 'loading'
-            : sellpiaHasData
-            ? sellpiaProfitInputsAvailable
-              ? readinessStateForBasis(sellpiaMetricBasis, true)
-              : 'partial'
-            : readinessStateForBasis(sellpiaMetricBasis, false),
-      detail: sellpiaHasData ? '판매금액 확인됨' : '선택 기간 판매 데이터 없음',
-      coverage: sp?.range ? `${sp.range.from} ~ ${sp.range.to}` : null,
-      basis: sellpiaMetricBasis,
-    },
-    {
-      key: 'ads',
-      label: '쿠팡 광고',
-      state: selectedAdHasErr
-        ? 'error'
-          : selectedAdLoading
-            ? 'loading'
-            : readinessStateWithCoverage(
-              adSpendBasis,
-              adSpend !== null || adConvRevenue !== null,
-              adCoverageIncomplete,
-            ),
-      detail: adSpend !== null || adConvRevenue !== null ? adSourceLabel : '광고비·전환매출 미수집',
-      coverage: adCoverage ? `${adCoverage.completedDays}/${adCoverage.targetDays}일` : null,
-      missingDates: adCoverage?.missingDates,
-      basis: adSpendBasis,
-    },
-    {
-      key: 'traffic',
-      label: 'Wing 트래픽',
-      state: selectedSalesHasErr
-        ? 'error'
-        : trafficKpi === undefined
-        ? readinessStateForBasis(trafficBasis, false)
-          : readinessStateWithCoverage(
-            trafficBasis,
-            trafficAvailable,
-            trafficCoverage !== null && !trafficCoverageComplete,
-          ),
-      detail: trafficAvailable ? '조회·장바구니·주문 원본' : '일별 트래픽 미수집',
-      coverage: trafficCoverage ? `${trafficCoverage.completedDays}/${trafficCoverage.targetDays}일` : null,
-      missingDates: trafficCoverage?.missingDates,
-      basis: trafficBasis,
-    },
-    {
-      key: 'inventory',
-      label: '재고 스냅샷',
-      state: inventoryHasErr
-        ? 'error'
-        : inventoryLoading
-          ? 'loading'
-          : readinessStateForBasis(inventoryHeaderBasis, inventoryData !== undefined),
-      detail: inventoryData ? `${formatNumber(inventory.totalProducts)}개 상품` : '스냅샷 없음',
-      basis: inventoryHeaderBasis,
-    },
-    {
-      key: 'abc',
-      label: 'ABC 수익성',
-      state: inventoryHasErr
-        ? 'error'
-        : inventoryLoading
-          ? 'loading'
-          : readinessStateForBasis(inventoryBasis, inventoryData !== undefined),
-      detail: inventoryData ? `${formatNumber(inventory.classifiedProductCount)}개 계산 완료` : 'ABC 스냅샷 없음',
-      basis: inventoryBasis,
-    },
-  ];
+      message: '셀피아 판매현황을 불러올 수 없습니다. 주문·Wing 지표는 별도로 표시합니다.',
+      retry: () => { void channelSales.refetch(); },
+    });
+  }
+  addReadFailure('inventory', '상품·재고', inventoryHasErr, inventoryError, () => { void refetchInventory(); });
+  addReadFailure('trend', '매출 추이', trendHasErr, trendError, () => { void refetchTrend(); });
 
   return (
     <div className="space-y-4 w-full pb-12">
@@ -835,42 +865,28 @@ export default function Dashboard() {
         </div>
       </div>
 
+      <DashboardReadFailureNotice failures={readFailures} />
+
       {selectedRangeLoading && (
         <div className="rounded-xl border border-slate-100 bg-slate-50 px-4 py-2 text-xs text-slate-500">
           선택한 기간의 매출·광고 데이터를 불러오는 중입니다.
         </div>
-      )}
-      {selectedRangeHasError && (
-        <DashboardSectionError
-          msg={friendlyError(salesRangeHasErr ? salesRangeError : adRangeError) ?? '선택한 기간 데이터를 불러올 수 없습니다.'}
-          onRetry={() => {
-            if (salesRangeHasErr) void refetchSalesRange();
-            if (adRangeHasErr) void refetchAdRange();
-          }}
-        />
-      )}
-      {kpiRange === 'month' && salesBaselineHasErr && (
-        <DashboardSectionError msg={friendlyError(salesBaselineError) ?? undefined} onRetry={refetchSalesBaseline} />
-      )}
-      {kpiRange === 'month' && adBaselineHasErr && (
-        <DashboardSectionError msg={friendlyError(adBaselineError) ?? undefined} onRetry={refetchAdBaseline} />
       )}
       {channelSales.isLoading && (
         <div className="rounded-xl border border-slate-100 bg-slate-50 px-4 py-2 text-xs text-slate-500">
           셀피아 판매현황을 불러오는 중입니다.
         </div>
       )}
-      {channelSales.isError && (
-        <DashboardSectionError
-          msg="셀피아 판매현황을 불러올 수 없습니다. 주문·Wing 지표는 별도로 표시합니다."
-          onRetry={() => { void channelSales.refetch(); }}
-        />
-      )}
 
-      {/* 승인된 option 2: 핵심 지표는 왼쪽, 원천 상태·커버리지·수집은 오른쪽. */}
-      <div className="grid grid-cols-1 items-start gap-3 lg:grid-cols-[minmax(0,1fr)_20rem]">
+      <DashboardSectionHeader
+        title="기간 지표"
+        scope={`${rangeLabel} KPI · 벤치마크 · Top 상품`}
+        disclosureLabel="기간 지표 근거"
+        entries={periodBasisEntries}
+      />
+
       {/* KPI 카드 — 월 매출 + 월 순이익 + 이익률 + 광고비율 */}
-      <div className="grid grid-cols-2 gap-3" style={{ alignItems: 'stretch' }}>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3" style={{ alignItems: 'stretch' }}>
         {/* 월 매출 — 채널 카드를 누르면 매출 분석의 동일 월·채널 상세로 이동한다. */}
         <div
           className="lg:row-span-2 rounded-2xl px-5 py-3 flex flex-col justify-between bg-white border border-slate-100 shadow-sm"
@@ -906,7 +922,7 @@ export default function Dashboard() {
               </Link>
             </div>
             <div className="text-[10px] font-mono text-slate-400 mb-1.5">{sellpiaHasData ? '셀피아 판매현황' : revenueSourceLabel}</div>
-            <DashboardDataBasis basis={sellpiaHasData ? sellpiaMetricBasis : revenueBasis} className="mb-1" />
+            <DashboardDataBasis basis={revenueCardBasis} className="mb-1" />
             {!sellpiaHasData && <DashboardDataBasis basis={revenueComparisonBasis} className="mb-1" />}
             <div className="flex items-baseline gap-1.5 mb-1">
               <span
@@ -987,20 +1003,22 @@ export default function Dashboard() {
                   && ` · Wing 제공 전환율 ${trafficProviderConversionRate.toFixed(1)}%`}
               </div>
             )}
+            {/* The short coverage summary stays here; the missing dates it
+                counts are enumerated in the section's breakdown. */}
             {trafficCoverage && (
-              <div className="text-[11px] text-slate-400 mt-1" data-testid="wing-traffic-coverage">
+              <div className="mt-1 text-[11px] text-slate-400" data-testid="wing-traffic-coverage">
                 일별 커버리지 {trafficCoverage.from} ~ {trafficCoverage.to} ·{' '}
                 {trafficCoverage.completedDays}/{trafficCoverage.targetDays}일
                 {trafficCoverage.missingDates.length > 0
-                  && ` · 누락 날짜 ${trafficCoverage.missingDates.join(', ')}`}
+                  && ` · 누락 ${trafficCoverage.missingDates.length}일`}
               </div>
             )}
             {adCoverage && (
-            <div className="text-[11px] text-slate-400 mt-1" data-testid="ad-coverage">
+              <div className="mt-1 text-[11px] text-slate-400" data-testid="ad-coverage">
                 광고 커버리지 {adCoverage.from} ~ {adCoverage.to} ·{' '}
                 {adCoverage.completedDays}/{adCoverage.targetDays}일
                 {adCoverage.missingDates.length > 0
-                  && ` · 누락 ${adCoverage.missingDates.length}일 (${adCoverage.missingDates.join(', ')})`}
+                  && ` · 누락 ${adCoverage.missingDates.length}일`}
               </div>
             )}
             {coverageNote(adCoverage) && (
@@ -1022,7 +1040,7 @@ export default function Dashboard() {
         </div>
 
         {/* 월 순이익 — 셀피아 판매현황(판매금액−매입가−쿠팡 광고비)이 있으면 우선 */}
-        {sellpiaHasData && sellpiaProfitInputsAvailable && spProfit !== null ? (
+        {profitCardUsesSellpia ? (
           <div className="lg:row-span-2 rounded-2xl px-5 py-3 flex flex-col justify-between bg-white border border-slate-100 shadow-sm">
             <div>
               <div className="flex items-center gap-2 mb-1">
@@ -1038,7 +1056,7 @@ export default function Dashboard() {
               <div className="text-xs text-slate-400 mt-1">
                 판매금액에서 매입가와 선택 기간에 수집된 쿠팡 광고비를 뺀 금액입니다.
               </div>
-              <DashboardDataBasis basis={sellpiaProfitInputs?.basis ?? null} className="mt-1" />
+              <DashboardDataBasis basis={profitCardBasis} className="mt-1" />
             </div>
             <div className="mt-2 pt-2 space-y-1.5 border-t border-emerald-100">
               <div className="flex justify-between text-sm">
@@ -1076,7 +1094,7 @@ export default function Dashboard() {
                 )}
               </div>
               <div className="text-[10px] font-mono text-slate-400 mb-1.5">주문 기준</div>
-              <DashboardDataBasis basis={profitBasis} className="mb-1" />
+              <DashboardDataBasis basis={profitCardBasis} className="mb-1" />
               <DashboardDataBasis basis={profitComparisonBasis} className="mb-1" />
               <div className="flex items-baseline gap-1.5 mb-1">
                 <span className="text-xl sm:text-3xl font-extrabold tabular-nums tracking-tight text-emerald-600">{formatKRW(kpiProfit)}</span>
@@ -1112,7 +1130,7 @@ export default function Dashboard() {
                 <TrendingUp size={18} className="text-emerald-600" />
                 <span className="text-sm font-bold uppercase tracking-wider text-emerald-600">{rangeLabel} 순이익</span>
               </div>
-              <DashboardDataBasis basis={sellpiaHasData ? sellpiaMetricBasis : profitBasis} className="mb-1" />
+              <DashboardDataBasis basis={profitCardBasis} className="mb-1" />
               {!sellpiaHasData && <DashboardDataBasis basis={profitComparisonBasis} className="mb-1" />}
               <div className="text-[10px] font-mono text-slate-400 mb-1.5">
                 {sellpiaHasData ? '셀피아 · 판매금액 − 매입가 − 쿠팡 광고비' : '정산 데이터 없음'}
@@ -1167,7 +1185,7 @@ export default function Dashboard() {
             current={displayProfitRate ?? undefined}
             goalUnit="%"
             goalLabel="목표 15%"
-            basis={sellpiaHasData ? sellpiaProfitInputs?.basis ?? null : profitRateBasis}
+            basis={profitRateCardBasis}
             comparisonBasis={sellpiaHasData ? null : profitRateComparisonBasis}
           />
         ) : (
@@ -1176,7 +1194,7 @@ export default function Dashboard() {
             icon={Target}
             accentColor="#733de5"
             note={sellpiaHasData ? '쿠팡 광고비 수집 필요' : '정산 데이터 필요'}
-            basis={sellpiaHasData ? sellpiaMetricBasis : profitRateBasis}
+            basis={profitRateCardBasis}
             comparisonBasis={sellpiaHasData ? null : profitRateComparisonBasis}
           />
         )}
@@ -1265,13 +1283,6 @@ export default function Dashboard() {
           />
         )}
       </div>
-          <DashboardReadinessPanel
-        period={kpiRange}
-        selectedFrom={kpiRange === 'custom' ? dateFrom : undefined}
-        selectedTo={kpiRange === 'custom' ? dateTo : undefined}
-        sources={readinessSources}
-      />
-      </div>
 
       {/* 차트 + 사이드패널 */}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-3 overflow-hidden" style={{ height: 620 }}>
@@ -1279,7 +1290,7 @@ export default function Dashboard() {
           {trendLoading ? (
             <div className="flex h-full items-center justify-center rounded-2xl border border-slate-100 bg-white text-sm text-slate-300">트렌드 데이터를 불러오는 중입니다.</div>
           ) : trendHasErr ? (
-            <DashboardSectionError msg={friendlyError(trendError) ?? undefined} onRetry={refetchTrend} />
+            <DashboardSectionUnavailable label="매출 추이" className="h-full rounded-2xl border border-slate-100 bg-white" />
           ) : (
             <DashboardChartPanel
               dailyTrend={dailyTrend}
@@ -1289,20 +1300,27 @@ export default function Dashboard() {
           )}
         </div>
         {inventoryHasErr ? (
-          <DashboardSectionError msg={friendlyError(inventoryError) ?? undefined} onRetry={refetchInventory} />
+          <DashboardSectionUnavailable label="알림" className="h-full rounded-2xl border border-slate-100 bg-white" />
         ) : !inventoryData ? (
           <DashboardSectionEmpty label="알림" />
         ) : (
           <DashboardSidePanel
             alerts={inventoryData.alerts}
             queryClient={queryClient}
-            basis={readMetricBasis(inventoryData, 'alerts')}
+            basis={alertsBasis}
           />
         )}
       </div>
 
+      <DashboardSectionHeader
+        title="스냅샷 지표"
+        scope="상단 요약 · 알림 · 수익성 ABC · 경고"
+        disclosureLabel="스냅샷 지표 근거"
+        entries={snapshotBasisEntries}
+      />
+
       {inventoryHasErr ? (
-        <DashboardSectionError msg={friendlyError(inventoryError) ?? undefined} onRetry={refetchInventory} />
+        <DashboardSectionUnavailable label="수익성 ABC" />
       ) : !inventoryData ? (
         <DashboardSectionEmpty label="수익성 ABC" />
       ) : (
@@ -1320,7 +1338,7 @@ export default function Dashboard() {
 
       {/* 경고 카드 */}
       {inventoryHasErr ? (
-        <DashboardSectionError msg={friendlyError(inventoryError) ?? undefined} onRetry={refetchInventory} />
+        <DashboardSectionUnavailable label="경고" />
       ) : !inventoryData ? (
         <DashboardSectionEmpty label="경고" />
       ) : (
@@ -1375,7 +1393,7 @@ export default function Dashboard() {
 
       {/* Top Products */}
       {topProductsHasErr ? (
-        <DashboardSectionError msg={friendlyError(topProductsError) ?? undefined} onRetry={refetchTopProducts} />
+        <DashboardSectionUnavailable label="Top Revenue Products" />
       ) : topProductsLoading ? (
         <div className="rounded-2xl border border-slate-100 bg-white py-8 text-center text-sm text-slate-300">상품 매출 데이터를 불러오는 중입니다.</div>
       ) : !effectiveSales ? (
@@ -1399,6 +1417,13 @@ export default function Dashboard() {
         onClose={() => setShowReadiness(false)}
         onRequestOpen={requestReadinessOpen}
         autoOpenWhen="collectionIssue"
+        additionalCollection={(
+          <WingDailyTrafficCollection
+            period={kpiRange}
+            selectedFrom={kpiRange === 'custom' ? dateFrom : undefined}
+            selectedTo={kpiRange === 'custom' ? dateTo : undefined}
+          />
+        )}
       />
     </div>
   );
