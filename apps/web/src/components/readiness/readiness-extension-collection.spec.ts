@@ -1274,6 +1274,13 @@ describe('readiness extension collection', () => {
       resolve(process.cwd(), 'src/app/(analytics)/dashboard/page.tsx'),
       'utf8',
     );
+    // The dashboard triggers Wing traffic collection through the source-owner
+    // path, which lives in the hook the readiness modal's collection component
+    // uses. The page renders that component; it does not call the owner itself.
+    const wingCollectionSource = readFileSync(
+      resolve(process.cwd(), 'src/app/(analytics)/dashboard/hooks/use-wing-traffic-collection.ts'),
+      'utf8',
+    );
     const competitorExtensionSource = readFileSync(
       resolve(
         process.cwd(),
@@ -1294,7 +1301,8 @@ describe('readiness extension collection', () => {
     expect(readinessSource).not.toContain('BrowserCollectionRunControls');
     expect(readinessSource).not.toContain('issueBrowserCollectionRunId');
     expect(dashboardSource).not.toContain('window.open');
-    expect(dashboardSource).toContain('collectWingTrafficSource');
+    expect(wingCollectionSource).toContain('collectWingTrafficSource');
+    expect(wingCollectionSource).not.toContain('fallbackOpenTabs');
     expect(competitorExtensionSource).toContain(
       'COMPETITOR_EXTENSION_MIN_VERSION = KIDITEM_EXTENSION_MIN_VERSION',
     );

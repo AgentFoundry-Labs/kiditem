@@ -247,7 +247,7 @@ describe('Dashboard page (RTL)', () => {
     expect(screen.queryByText('11', { selector: '[data-warning-count="mapping-attention"]' })).toBeNull();
   });
 
-  it('T3: 502 on non-baseline (trend) → SectionError shows server detail', async () => {
+  it('T3: 502 on non-baseline (trend) → the read is named, the transport is not', async () => {
     getParsedMock.mockImplementation((path: string) => {
       if (path === '/api/dashboard/sales') return Promise.resolve(successSales);
       if (path === '/api/dashboard/ad') return Promise.resolve(successAd);
@@ -258,12 +258,15 @@ describe('Dashboard page (RTL)', () => {
       return Promise.resolve(null);
     });
     renderPage();
-    await waitFor(() => {
-      expect(screen.getByText('502 Bad Gateway')).toBeTruthy();
-    });
+    // T4 forbids the same string on a baseline failure, and PRODUCT.md forbids
+    // an English reason code anywhere. One page-level notice cannot both show
+    // and hide it, so it never shows it: the read is named, the retry is there.
+    const notice = await screen.findByTestId('dashboard-read-failure');
+    expect(notice).toHaveTextContent('매출 추이');
+    expect(screen.queryByText('502 Bad Gateway')).toBeNull();
   });
 
-  it('T4: 502 on baseline (sales) → full-page error block, NOT SectionError', async () => {
+  it('T4: 502 on baseline (sales) → one page-level read failure, never a raw status', async () => {
     getParsedMock.mockImplementation((path: string) => {
       if (path === '/api/dashboard/sales') {
         return Promise.reject(new ApiError(502, 'BAD_GATEWAY', '502 Bad Gateway'));
@@ -274,10 +277,16 @@ describe('Dashboard page (RTL)', () => {
       return Promise.resolve(null);
     });
     renderPage();
-    await waitFor(() => {
-      expect(screen.getByText('대시보드 데이터를 불러오는데 실패했습니다.')).toBeTruthy();
-    });
+    // A failed read is named once for the whole page, with one retry, and the
+    // values that did load stay. The older design replaced the entire screen
+    // with an error block; this one keeps what it has.
+    const notice = await screen.findByTestId('dashboard-read-failure');
+    expect(notice).toHaveTextContent('읽기 실패');
+    expect(notice).toHaveTextContent('주문 매출');
+    expect(screen.getAllByRole('button', { name: '다시 시도' })).toHaveLength(1);
+    // The transport's own words never reach the operator.
     expect(screen.queryByText('502 Bad Gateway')).toBeNull();
+    expect(document.body.textContent).not.toContain('BAD_GATEWAY');
   });
 
   it('T5: Zod drift on non-baseline (trend) → SectionError shows "응답 형식 오류"', async () => {
@@ -312,7 +321,10 @@ describe('Dashboard page (RTL)', () => {
 
     const notice = await screen.findByTestId('dashboard-read-failure');
     expect(notice).toHaveTextContent('상품·재고');
-    expect(notice).toHaveTextContent('재고 읽기 실패');
+    // The server's own sentence ("재고 읽기 실패") is the transport's; the notice
+    // names the read that failed and says so in our words.
+    expect(notice).toHaveTextContent('상품·재고');
+    expect(notice).toHaveTextContent('불러오지 못했습니다');
     // One failed read used to stack a retry button per section.
     expect(screen.getAllByRole('button', { name: '다시 시도' })).toHaveLength(1);
 

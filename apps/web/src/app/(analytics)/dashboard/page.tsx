@@ -28,9 +28,9 @@ import {
 import { z } from 'zod';
 import { apiClient } from '@/lib/api-client';
 import PageSkeleton from '@/components/ui/PageSkeleton';
+import { friendlyError, isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatKRW, formatNumber, formatDateTime } from '@/lib/utils';
-import { friendlyError } from '@/lib/api-error';
 import ReadinessModal from '@/components/ReadinessModal';
 import { useSellpiaChannelSales, sellpiaPeriodRange } from '@/hooks/useSellpiaChannelSales';
 import { DashboardChartPanel } from './components/DashboardChartPanel';
@@ -832,8 +832,16 @@ export default function Dashboard() {
   // Every failed read on the page, named once. React Query already owns this
   // state, so nothing here is a second copy of it.
   const readFailures: DashboardReadFailure[] = [];
+  /**
+   * A message we wrote is worth showing; the transport's is not. `friendlyError`
+   * returns an `ApiError`'s own detail, which is how "502 Bad Gateway" reached
+   * the screen — PRODUCT.md says an English reason code never does. A Zod drift
+   * still speaks Korean and still tells the operator something, so it stays.
+   */
+  const readFailureMessage = (error: unknown): string =>
+    isApiError(error) ? '불러오지 못했습니다' : friendlyError(error) ?? '불러오지 못했습니다';
   const addReadFailure = (key: string, label: string, failed: boolean, error: unknown, retry: () => void) => {
-    if (failed) readFailures.push({ key, label, message: friendlyError(error) ?? '조회 실패', retry });
+    if (failed) readFailures.push({ key, label, message: readFailureMessage(error), retry });
   };
   addReadFailure('sales-baseline', '주문 매출', salesBaselineHasErr, salesBaselineError, () => { void refetchSalesBaseline(); });
   addReadFailure('ad-baseline', '쿠팡 광고', adBaselineHasErr, adBaselineError, () => { void refetchAdBaseline(); });

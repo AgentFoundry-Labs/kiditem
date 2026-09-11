@@ -2,12 +2,28 @@ import { describe, expect, it, vi } from 'vitest';
 import { TrendCollectionRepositoryAdapter } from '../trend-collection.repository.adapter';
 import type { PrismaService } from '../../../../../prisma/prisma.service';
 
+/**
+ * The adapter reads a window of the last N days from the clock, so a fixed
+ * date in a fixture stops being inside it the moment the calendar moves past
+ * it — these three specs passed on the day they were written and returned
+ * empty arrays the next. The fixture names a day inside the window instead.
+ */
+function recentBusinessDay(): { businessDate: Date; capturedAt: Date; dateKey: string } {
+  const now = new Date();
+  const kst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+  const dateKey = kst.toISOString().slice(0, 10);
+  return {
+    businessDate: new Date(`${dateKey}T00:00:00.000Z`),
+    capturedAt: new Date(`${dateKey}T02:00:00.000Z`),
+    dateKey,
+  };
+}
+
 describe('TrendCollectionRepositoryAdapter', () => {
   it('reads Naver keyword history from the newest complete run for each date', async () => {
-    const businessDate = new Date('2026-09-04T00:00:00.000Z');
-    const capturedAt = new Date('2026-09-04T02:00:00.000Z');
+    const { businessDate, capturedAt, dateKey } = recentBusinessDay();
     const findMany = vi.fn().mockResolvedValue([{
-      attemptPlan: { businessDate: '2026-09-04', boardKeys: [] },
+      attemptPlan: { businessDate: dateKey, boardKeys: [] },
       sourceWindowStartAt: businessDate,
       sourceWindowEndAt: capturedAt,
       naverKeywordDailySnapshots: [{
@@ -58,8 +74,7 @@ describe('TrendCollectionRepositoryAdapter', () => {
   });
 
   it('keeps one 1688 observation per offer and source keyword', async () => {
-    const businessDate = new Date('2026-09-04T00:00:00.000Z');
-    const capturedAt = new Date('2026-09-04T02:00:00.000Z');
+    const { businessDate, capturedAt, dateKey } = recentBusinessDay();
     const findMany = vi.fn().mockResolvedValue([{
       targetKey: 'all',
       attemptPlan: { source: '1688.hot_product' },
@@ -126,8 +141,7 @@ describe('TrendCollectionRepositoryAdapter', () => {
   });
 
   it('reads TikTok history from complete runs across historical dates', async () => {
-    const businessDate = new Date('2026-09-04T00:00:00.000Z');
-    const capturedAt = new Date('2026-09-04T02:00:00.000Z');
+    const { businessDate, capturedAt, dateKey } = recentBusinessDay();
     const findMany = vi.fn().mockResolvedValue([{
       targetKey: 'all',
       attemptPlan: { source: 'tiktok.creative' },

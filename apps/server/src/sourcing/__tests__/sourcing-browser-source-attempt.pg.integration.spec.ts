@@ -604,7 +604,7 @@ describe('Sourcing browser source owner (PostgreSQL)', () => {
     'keeps same-timestamp %s evidence owned by each attempt without changing provider content',
     async (kind) => {
       const sourceKey = kind === 'shorts' ? 'shortstrend.trend' : 'naver.trend';
-      const capturedAt = new Date('2026-09-06T00:00:00Z');
+      const capturedAt = recentCaptureAt();
       const businessDate = capturedAt;
       const row = kind === 'shorts'
         ? { organizationId: TEST_ORGANIZATION_ID, capturedAt, businessDate, videoKey: 'video',
@@ -619,7 +619,7 @@ describe('Sourcing browser source owner (PostgreSQL)', () => {
       const ids: string[] = [];
       for (const idempotencyKey of ['trend-generation-1', 'trend-generation-2']) {
         const plan = { source: sourceKey, capturedAt: capturedAt.toISOString(),
-          businessDate: '2026-09-06', keywords: ['완구'] };
+          businessDate: recentBusinessDateKey(), keywords: ['완구'] };
         const { attempt } = await owner.beginAttempt({ ...beginInput(idempotencyKey), sourceKey,
           plan, planChecksum: checksum(plan) });
         ids.push(attempt.attemptId);
@@ -720,7 +720,7 @@ describe('Sourcing browser source owner (PostgreSQL)', () => {
     attempt: SourcingBrowserSourceAttempt,
     contentChecksum: string,
     includeProduct: boolean,
-    capturedAt = new Date('2026-09-04T00:00:00.000Z'),
+    capturedAt = recentCaptureAt(),
   ) {
     return owner.completeAttempt({
       organizationId: TEST_ORGANIZATION_ID,
@@ -848,10 +848,24 @@ function beginInput(idempotencyKey: string) {
   };
 }
 
+/**
+ * Readers here take a `days` window measured from the clock, so a fixed
+ * capture date drops out of it as soon as the calendar moves past it. These
+ * fixtures name a day inside the window rather than a day in September.
+ */
+function recentCaptureAt(hourUtc = 0): Date {
+  const kst = new Date(Date.now() + 9 * 60 * 60 * 1000);
+  return new Date(`${kst.toISOString().slice(0, 10)}T0${hourUtc}:00:00.000Z`);
+}
+
+function recentBusinessDateKey(): string {
+  return new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
 function completeInput(
   attempt: SourcingBrowserSourceAttempt,
   contentChecksum: string,
-  capturedAt = new Date('2026-09-04T00:00:00.000Z'),
+  capturedAt = recentCaptureAt(),
 ) {
   return {
     organizationId: TEST_ORGANIZATION_ID,
@@ -868,7 +882,7 @@ function completeInput(
 
 function outputFor(
   attempt: SourcingBrowserSourceAttempt,
-  capturedAt = new Date('2026-09-04T00:00:00.000Z'),
+  capturedAt = recentCaptureAt(),
 ) {
   const permit = permitFor(attempt);
   return map1688HotProductsToAuthorizedOutput({
