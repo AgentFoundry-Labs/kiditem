@@ -30,6 +30,18 @@ describe('ThumbnailGenerateDirectOutputSchema', () => {
     expect(parsed.success).toBe(true);
   });
 
+  it('accepts a managed http storage URL with its storage key', () => {
+    const parsed = ThumbnailGenerateDirectOutputSchema.safeParse({
+      candidates: [
+        {
+          url: 'http://kiditem-office:9000/kiditem/thumbnail-generations/output.png',
+          storageKey: 'thumbnail-generations/output.png',
+        },
+      ],
+    });
+    expect(parsed.success).toBe(true);
+  });
+
   it('rejects empty candidates array', () => {
     const parsed = ThumbnailGenerateDirectOutputSchema.safeParse({
       candidates: [],
@@ -37,7 +49,14 @@ describe('ThumbnailGenerateDirectOutputSchema', () => {
     expect(parsed.success).toBe(false);
   });
 
-  it('rejects candidate with non-https / non-data URL', () => {
+  it('rejects an unmanaged http URL', () => {
+    const parsed = ThumbnailGenerateDirectOutputSchema.safeParse({
+      candidates: [{ url: 'http://untrusted.example.com/img.png' }],
+    });
+    expect(parsed.success).toBe(false);
+  });
+
+  it('rejects a candidate with an unsupported URL scheme', () => {
     const parsed = ThumbnailGenerateDirectOutputSchema.safeParse({
       candidates: [{ url: 'ftp://example.com/img.png' }],
     });
