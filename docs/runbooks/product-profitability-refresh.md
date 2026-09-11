@@ -91,6 +91,28 @@ records the current abnormal status. Paid-order coverage does not affect ABC.
 | Parent cancelled | Confirm the active child is cancelled, then start a new parent. |
 | Inventory only required | Use **재고 동기화**, not the profitability refresh. |
 
+## Legacy MasterProduct Cleanup
+
+The post-schema migration
+`v0.1.30:006_delete_legacy_channel_derived_master_products` removes only
+inactive channel-derived MasterProducts that have no Sellpia inventory SKU,
+official ABC grade, operational channel-listing link, Sourcing provenance,
+current ABC evaluation, or ABC grade history. Inactive canonical products
+remain because their Sellpia SKU is still the inventory identity.
+
+The migration fails before deletion when any candidate retains a protected or
+historical reference, and it verifies that the deleted count equals its
+transactional preflight count. Apply it only through the reviewed Office
+schema/data cutover with `--cutover --confirm APPLY_SCHEMA_DATA`; direct SQL is
+not an approved entrypoint. Before cutover, capture and verify a restorable
+PostgreSQL backup and record candidate/protected counts without product rows.
+
+Deletion is irreversible inside the application. The ordinary runtime rollback
+cannot restore these rows and remains blocked after cutover; recovery requires
+restoring the verified pre-cutover database backup. Stop when the backup is
+missing, any protected count is nonzero, or the migration-reported deleted
+count differs from the reviewed preflight count.
+
 ## Verification
 
 ```bash

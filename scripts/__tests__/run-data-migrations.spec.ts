@@ -43,6 +43,7 @@ describe("data migration registry", () => {
       "v0.1.30:003_move_variant_recipes_to_channel_options",
       "v0.1.30:004_canonical_master_inventory_identity",
       "v0.1.30:005_reset_sourcing_display_state",
+      "v0.1.30:006_delete_legacy_channel_derived_master_products",
     ]);
     expect(
       DATA_MIGRATION_IDS.filter((id) =>
@@ -75,6 +76,9 @@ describe("data migration registry", () => {
       "v0.1.30:004_canonical_master_inventory_identity",
     );
     expect(migrationIds).toContain("v0.1.30:005_reset_sourcing_display_state");
+    expect(migrationIds).toContain(
+      "v0.1.30:006_delete_legacy_channel_derived_master_products",
+    );
   });
 
   it("keeps historical release 0.1.22 migration-free and never registers ahead of the root VERSION", () => {
@@ -152,6 +156,7 @@ describe("data migration registry", () => {
       "v0.1.30:002_backfill_profitability_source_freshness",
       "v0.1.30:004_canonical_master_inventory_identity",
       "v0.1.30:005_reset_sourcing_display_state",
+      "v0.1.30:006_delete_legacy_channel_derived_master_products",
     ]);
   });
 
