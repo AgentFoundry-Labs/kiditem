@@ -178,9 +178,9 @@ describe('DashboardProfitDetailModal', () => {
     fireEvent.click(screen.getByRole('button', { name: '순이익 구조 근거 안내' }));
 
     const note = await screen.findByRole('note');
-    expect(within(note).getByRole('row', { name: /비용 구성/ })).toHaveTextContent('coupang_ads');
-    expect(within(note).getByRole('row', { name: /비용 구성/ })).not.toHaveTextContent('orders');
-    expect(within(note).getByRole('row', { name: /순이익/ })).toHaveTextContent('orders');
+    expect(within(note).getByRole('row', { name: /비용 구성/ })).toHaveTextContent('쿠팡 광고');
+    expect(within(note).getByRole('row', { name: /비용 구성/ })).not.toHaveTextContent('주문');
+    expect(within(note).getByRole('row', { name: /순이익/ })).toHaveTextContent('주문');
   });
 
   it('shows the profit inputs basis for the rows it actually renders', async () => {
@@ -200,7 +200,7 @@ describe('DashboardProfitDetailModal', () => {
     fireEvent.click(screen.getByRole('button', { name: '순이익 구조 근거 안내' }));
 
     const note = await screen.findByRole('note');
-    expect(within(note).getByRole('row', { name: /비용 구성/ })).toHaveTextContent('sellpia_sales');
+    expect(within(note).getByRole('row', { name: /비용 구성/ })).toHaveTextContent('셀피아 판매현황');
     expect(screen.getByText('매출').parentElement).toHaveTextContent('1,000,000원');
   });
 

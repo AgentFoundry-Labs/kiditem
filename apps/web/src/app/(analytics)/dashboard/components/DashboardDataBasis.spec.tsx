@@ -25,6 +25,8 @@ const periodBasis: DashboardPeriodBasis = {
   observedAt: '2026-09-04T00:00:00.000Z',
 };
 
+const MONTH = Array.from({ length: 30 }, (_, index) => `2026-09-${String(index + 1).padStart(2, '0')}`);
+
 describe('DashboardDataBasis', () => {
   it('keeps the summary beside the value and carries no affordance of its own', () => {
     render(<DashboardDataBasis basis={periodBasis} />);
@@ -123,9 +125,11 @@ describe('DashboardDataBasis', () => {
     const note = await screen.findByRole('note');
     expect(note).not.toHaveTextContent('모든 값 공통');
     expect(within(note).getByRole('row', { name: /월 매출/ })).toHaveTextContent('2026-09-01 ~ 2026-09-30');
-    expect(within(note).getByRole('row', { name: /월 매출/ })).toHaveTextContent('orders');
+    // The server's own vocabulary on the wire; the operator's words on screen.
+    expect(within(note).getByRole('row', { name: /월 매출/ })).toHaveTextContent('주문');
+    expect(note).not.toHaveTextContent('orders');
     expect(within(note).getByRole('row', { name: /광고비율/ })).toHaveTextContent('2026-09-01 ~ 2026-09-03');
-    expect(within(note).getByRole('row', { name: /광고비율/ })).toHaveTextContent('sellpia_sales · coupang_ads');
+    expect(within(note).getByRole('row', { name: /광고비율/ })).toHaveTextContent('셀피아 판매현황 · 쿠팡 광고');
   });
 
   it('states a snapshot fact once when every value agrees and per value when they do not', async () => {
@@ -154,8 +158,8 @@ describe('DashboardDataBasis', () => {
     const note = await screen.findByRole('note');
     // The as-of really is shared, so it is said once; the sources are not.
     expect(note).toHaveTextContent('기준시점 2026-09-11 (모든 값 공통)');
-    expect(within(note).getByRole('row', { name: /적자 상품/ })).toHaveTextContent('orders · channel_listings');
-    expect(within(note).getByRole('row', { name: /셀피아 재고 0/ })).toHaveTextContent('sellpia_inventory');
+    expect(within(note).getByRole('row', { name: /적자 상품/ })).toHaveTextContent('주문 · 채널 리스팅');
+    expect(within(note).getByRole('row', { name: /셀피아 재고 0/ })).toHaveTextContent('셀피아 재고');
   });
 
   it('gives a day-coverage manifest a row instead of a help affordance of its own', async () => {
@@ -176,6 +180,57 @@ describe('DashboardDataBasis', () => {
     const row = within(await screen.findByRole('note')).getByRole('row', { name: /광고 커버리지/ });
     expect(row).toHaveTextContent('0/10일');
     expect(row).toHaveTextContent('2일 · 2026-09-01, 2026-09-02');
+  });
+
+  /**
+   * The ⓘ used to open on a table of the server's own words — `orders`,
+   * `wing_traffic` — over a comma-joined list of thirty ISO dates. That is the
+   * data, not the answer. A reader opens it to find out whether the number is a
+   * measurement and, when it is not, what to run.
+   */
+  it('says how the value was measured before showing the working', async () => {
+    render(
+      <DashboardBasisDisclosure
+        label="기간 지표 근거"
+        entries={[{
+          label: '월 매출',
+          basis: {
+            kind: 'period', from: '2026-09-01', to: '2026-09-30', targetDays: 30,
+            includedDates: [], includedDays: 0, missingDates: MONTH, invalidDates: [],
+            sources: ['wing_traffic'], status: 'empty', partial: false,
+          } as DashboardMetricBasis,
+        }]}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: '기간 지표 근거 안내' }));
+    const note = await screen.findByRole('note');
+
+    expect(note).toHaveTextContent(
+      'Wing 트래픽에서 이 기간에 수집된 날이 없어 값을 내지 않았습니다. Wing 일별 트래픽을 실행하면 채워집니다.',
+    );
+    // A whole month of absent days is one fact, not thirty.
+    expect(note).toHaveTextContent('30일 전체');
+    expect(note).not.toHaveTextContent('2026-09-17');
+  });
+
+  it('collapses a run of absent days and keeps a short list as dates', async () => {
+    const basis = (missingDates: string[]): DashboardMetricBasis => ({
+      kind: 'period', from: '2026-09-01', to: '2026-09-10', targetDays: 10,
+      includedDates: [], includedDays: 0, missingDates, invalidDates: [],
+      sources: ['orders'], status: 'partial', partial: true,
+    } as DashboardMetricBasis);
+
+    const { rerender } = render(
+      <DashboardBasisDisclosure label="기간 지표 근거" entries={[{ label: '월 매출', basis: basis(['2026-09-02', '2026-09-03', '2026-09-04']) }]} />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: '기간 지표 근거 안내' }));
+    expect(await screen.findByRole('note')).toHaveTextContent('3일 · 2026-09-02 ~ 2026-09-04');
+
+    rerender(
+      <DashboardBasisDisclosure label="기간 지표 근거" entries={[{ label: '월 매출', basis: basis(['2026-09-02', '2026-09-05']) }]} />,
+    );
+    // Two days is not a range; a span there costs a subtraction and saves nothing.
+    expect(await screen.findByRole('note')).toHaveTextContent('2일 · 2026-09-02, 2026-09-05');
   });
 
   it('renders nothing when no value in the section published a basis', () => {

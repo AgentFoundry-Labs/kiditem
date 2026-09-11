@@ -19,14 +19,42 @@ export type {
 /** Any dashboard summary that may publish an additive basis map. */
 export type MetricBasisCarrier = { metricBasis?: DashboardMetricBasisMap } | null | undefined;
 
-const QUERY_SOURCE_LABELS: Record<string, string> = {
+/**
+ * The source vocabulary in the words an operator uses.
+ *
+ * `sources` arrives as the server's own names — `orders`, `wing_traffic` — and
+ * the panel used to print them exactly like that, so the ⓘ read as a variable
+ * dump rather than an account of where a number came from. The names are the
+ * server's stable vocabulary and should stay that way on the wire; this is the
+ * one place they become Korean.
+ */
+const SOURCE_LABELS: Record<string, string> = {
   orders: '주문',
+  profit: '순이익 계산',
   sellpia: '셀피아',
   sellpia_sales: '셀피아 판매현황',
+  sellpia_inventory: '셀피아 재고',
   coupang_ads: '쿠팡 광고',
   wing: 'Wing',
   wing_traffic: 'Wing 트래픽',
+  products: '상품',
+  product_abc: 'ABC 등급',
+  channel_listings: '채널 리스팅',
+  alerts: '알림',
 };
+
+/** Which collection fills a source, so the ⓘ can end in something to do. */
+const SOURCE_COLLECTION: Record<string, string> = {
+  orders: '몰 주문수집',
+  sellpia_sales: '셀피아 동기화',
+  sellpia_inventory: '셀피아 동기화',
+  coupang_ads: '쿠팡 광고 수집',
+  wing_traffic: 'Wing 일별 트래픽',
+};
+
+function sourceLabel(source: string): string {
+  return SOURCE_LABELS[source] ?? source;
+}
 
 /** Read the basis published under one stable dotted path, or null. */
 export function readMetricBasis(value: MetricBasisCarrier, key: string): DashboardMetricBasis | null {
@@ -72,14 +100,65 @@ function dateListText(dates: string[]): string {
 }
 
 function sourceText(sources: string[]): string {
-  return sources.length > 0 ? sources.join(' · ') : '원천 미상';
+  return sources.length > 0 ? sources.map(sourceLabel).join(' · ') : '원천 미상';
+}
+
+/**
+ * Dates as a person would say them: runs collapse into a span, and a long list
+ * stops naming days and states how many there are.
+ *
+ * Thirty ISO dates separated by commas is the data, not the answer. A reader
+ * opening the ⓘ wants to know whether a few days are missing or the whole
+ * month is.
+ */
+function dateSpansText(dates: readonly string[], targetDays: number): string {
+  if (dates.length === 0) return '없음';
+  if (targetDays > 0 && dates.length === targetDays) return `${targetDays}일 전체`;
+  const dayAfter = (date: string) =>
+    new Date(Date.parse(`${date}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
+  // A run of two reads better as two dates than as a range, so only three or
+  // more collapse. Below that a span costs a reader a subtraction and saves
+  // nothing.
+  const runs: string[][] = [];
+  for (const date of dates) {
+    const last = runs.at(-1);
+    if (last && date === dayAfter(last.at(-1)!)) last.push(date);
+    else runs.push([date]);
+  }
+  const spans = runs.flatMap((run) =>
+    run.length >= 3 ? [`${run[0]} ~ ${run.at(-1)}`] : run);
+  // Past a handful of spans the list stops informing and starts scrolling.
+  if (spans.length > 4) return `${dates.length}일 · ${spans.slice(0, 3).join(', ')} 외 ${spans.length - 3}구간`;
+  return `${dates.length}일 · ${spans.join(', ')}`;
+}
+
+/**
+ * One sentence saying how this number came to be, before any table.
+ *
+ * This is the part a reader actually needs: whether the value is a measurement,
+ * what it covers, and — when it is not — which collection would fix it.
+ */
+function howItWasMeasured(basis: DashboardPeriodBasis): string {
+  const days = dateCount(basis);
+  const sources = basis.sources.map(sourceLabel).join(' · ') || '원천 미상';
+  if (days === 0) {
+    const collection = basis.sources.map((source) => SOURCE_COLLECTION[source]).find(Boolean);
+    return collection
+      ? `${sources}에서 이 기간에 수집된 날이 없어 값을 내지 않았습니다. ${collection}을 실행하면 채워집니다.`
+      : `${sources}에서 이 기간에 수집된 날이 없어 값을 내지 않았습니다.`;
+  }
+  if (days === basis.targetDays) {
+    return `${rangeText(basis)} ${basis.targetDays}일을 모두 ${sources}에서 읽어 합산했습니다.`;
+  }
+  return `${rangeText(basis)} 중 수집된 ${days}일만 ${sources}에서 읽어 합산했습니다. `
+    + `나머지 ${basis.targetDays - days}일은 빠져 있으므로 기간 전체의 합이 아닙니다.`;
 }
 
 function queryFailureText(basis: DashboardMetricBasis): string | null {
   if (basis.kind !== 'period') return null;
   const queryFailedSources = basis.queryFailedSources ?? [];
   if (queryFailedSources.length === 0) return null;
-  return `조회 실패 · ${queryFailedSources.map((source) => QUERY_SOURCE_LABELS[source] ?? source).join(' · ')}`;
+  return `조회 실패 · ${queryFailedSources.map((source) => sourceLabel(source)).join(' · ')}`;
 }
 
 function snapshotStatusText(status: 'current' | 'stale' | 'unavailable' | 'unknown'): string {
@@ -187,6 +266,8 @@ export type BasisBreakdownEntry = {
 type PeriodRow = {
   key: string;
   label: string;
+  /** One sentence saying how this value came to be, ahead of the table. */
+  how: string;
   range: string;
   days: string;
   includedDates: string;
@@ -208,9 +289,6 @@ function joinNotes(parts: ReadonlyArray<string | null>): string | null {
   return notes.length > 0 ? notes.join(' · ') : null;
 }
 
-function missingText(dates: readonly string[]): string {
-  return dates.length > 0 ? `${dates.length}일 · ${dateListText([...dates])}` : '없음';
-}
 
 function periodRow(
   key: string,
@@ -224,9 +302,10 @@ function periodRow(
     label,
     range: rangeText(basis),
     days: `${dateCount(basis)}/${basis.targetDays}일`,
-    includedDates: dateListText(basis.includedDates) || '없음',
-    missing: missingText(basis.missingDates ?? []),
+    includedDates: dateSpansText(basis.includedDates, basis.targetDays),
+    missing: dateSpansText(basis.missingDates ?? [], basis.targetDays),
     sources: sourceText(basis.sources),
+    how: howItWasMeasured(basis),
     note: joinNotes([
       extraNote,
       queryFailureText(basis),
@@ -242,8 +321,11 @@ function coverageRow(key: string, entry: BasisBreakdownEntry, coverage: Dashboar
     range: `${coverage.from} ~ ${coverage.to}`,
     days: `${coverage.completedDays}/${coverage.targetDays}일`,
     includedDates: '개별 날짜 미공개',
-    missing: missingText(coverage.missingDates),
+    missing: dateSpansText(coverage.missingDates, coverage.targetDays),
     sources: sourceText([...(entry.coverageSources ?? [])]),
+    how: coverage.completedDays === coverage.targetDays
+      ? `${coverage.from} ~ ${coverage.to} ${coverage.targetDays}일을 모두 수집했습니다.`
+      : `${coverage.from} ~ ${coverage.to} 중 ${coverage.completedDays}일만 수집됐습니다.`,
     note: null,
   };
 }
@@ -343,8 +425,20 @@ function PeriodBreakdownTable({ rows }: { rows: readonly PeriodRow[] }) {
 
   return (
     <section>
-      <h4 className="font-semibold text-[var(--text-primary)]">기간 집계 근거</h4>
+      <h4 className="font-semibold text-[var(--text-primary)]">이 값이 나온 방법</h4>
       <p className="mb-1 text-[var(--text-muted)]">값마다 실제 집계 기간과 원천이 다릅니다.</p>
+      {/* The sentence comes first because it is the answer. The table under it
+          is the working — which days, which sources — for a reader who wants to
+          check it rather than be told it. */}
+      <ul className="mb-2 space-y-1">
+        {rows.map((row) => (
+          <li key={`how-${row.key}`} className="leading-snug">
+            <span className="font-medium text-[var(--text-primary)]">{row.label}</span>
+            <span className="text-[var(--text-muted)]"> — {row.how}</span>
+          </li>
+        ))}
+      </ul>
+      <h5 className="mt-2 font-semibold text-[var(--text-primary)]">집계에 쓰인 날짜</h5>
       <SharedFacts facts={[['기간', sharedRange], ['원천', sharedSources]]} />
       <div className="overflow-x-auto">
         <table className="w-full border-collapse">
