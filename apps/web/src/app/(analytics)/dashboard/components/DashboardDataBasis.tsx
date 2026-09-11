@@ -144,9 +144,9 @@ export function basisMarker(
   if (basis.kind === 'period') {
     const days = `${dateCount(basis)}/${basis.targetDays}일`;
     if (basis.status === 'complete') return { text: days, tone: 'neutral' };
-    if (basis.status === 'partial') return { text: days, tone: 'warn' };
+    if (basis.status === 'partial') return { text: `부분 ${days}`, tone: 'warn' };
     if (basis.status === 'unverified') return { text: '확인 필요', tone: 'warn' };
-    return { text: '미측정', tone: 'muted' };
+    return { text: '미수집', tone: 'muted' };
   }
 
   if (basis.kind === 'comparison') {
@@ -162,7 +162,7 @@ export function basisMarker(
       ? { text: `현재${withheld}`, tone: 'warn' }
       : { text: '현재', tone: 'neutral' };
   }
-  if (basis.status === 'unavailable') return { text: '사용 불가', tone: 'muted' };
+  if (basis.status === 'unavailable') return { text: '미수집', tone: 'muted' };
   return { text: `${snapshotStatusText(basis.status)}${withheld}`, tone: 'warn' };
 }
 

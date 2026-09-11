@@ -97,6 +97,27 @@ export function EvidenceTooltip({
   );
 }
 
+/**
+ * An empty chart keeps its axes. A blank rectangle reads as a broken block;
+ * a drawn frame reads as a chart with nothing in it yet, which is what it is.
+ */
+function EmptyChartFrame() {
+  return (
+    <div className="relative" style={{ height: CHART_HEIGHT }} aria-hidden="true">
+      <svg width="100%" height="100%" preserveAspectRatio="none" viewBox="0 0 100 100">
+        {[20, 40, 60, 80].map((y) => (
+          <line key={y} x1="0" y1={y} x2="100" y2={y} stroke="#f1f5f9" strokeWidth="0.4" vectorEffect="non-scaling-stroke" />
+        ))}
+        <line x1="0" y1="100" x2="100" y2="100" stroke="#e2e8f0" strokeWidth="1" vectorEffect="non-scaling-stroke" />
+        <line x1="0" y1="0" x2="0" y2="100" stroke="#e2e8f0" strokeWidth="1" vectorEffect="non-scaling-stroke" />
+      </svg>
+      <p className="absolute inset-0 flex items-center justify-center text-sm text-slate-500">
+        트렌드 데이터가 없습니다
+      </p>
+    </div>
+  );
+}
+
 export function DashboardCharts({ chartTab, dailyTrend, adChartData, benchmarkData, hasTrend }: Props) {
   return (
     <>
@@ -117,27 +138,33 @@ export function DashboardCharts({ chartTab, dailyTrend, adChartData, benchmarkDa
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
               <XAxis dataKey="date" fontSize={10} tickLine={false} axisLine={false} tick={{ fill: '#94a3b8' }} interval={4} />
-              <YAxis yAxisId="pct" fontSize={10} tickLine={false} axisLine={false} tick={{ fill: '#94a3b8' }} tickFormatter={(v: number) => `${v}%`} domain={[0, 'auto']} />
-              <YAxis yAxisId="rev" orientation="right" fontSize={10} tickLine={false} axisLine={false} tick={{ fill: '#94a3b8' }} tickFormatter={(v: number) => `${(v / 10000).toFixed(0)}만`} domain={[0, 'auto']} />
+              {/* July measured: revenue peaks at 18,222,165 on one day while ad
+                  spend runs 9,649–16,629 every day — about 1,100x apart. On one
+                  axis the ad line sits flat on zero and says nothing. */}
+              <YAxis yAxisId="rev" fontSize={10} tickLine={false} axisLine={false} tick={{ fill: '#94a3b8' }} tickFormatter={(v: number) => `${(v / 10000).toFixed(0)}만`} domain={[0, 'auto']} />
+              <YAxis yAxisId="spend" orientation="right" fontSize={10} tickLine={false} axisLine={false} tick={{ fill: '#94a3b8' }} tickFormatter={(v: number) => `${(v / 10000).toFixed(0)}만`} domain={[0, 'auto']} />
               {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
               <Tooltip content={<EvidenceTooltip />} contentStyle={{ fontSize: 12, borderRadius: 10, background: '#fff', border: '1px solid #e2e8f0', color: '#0f172a' }} formatter={(v: any, name: any) => {
-                if (v == null) return ['—', name === 'revenue' ? '매출' : name === 'profitRate' ? '이익률' : '광고비율'];
+                if (v == null) return ['—', name === 'revenue' ? '매출' : name === 'adCost' ? '광고비' : name === 'profitRate' ? '이익률' : '광고비율'];
                 if (name === 'revenue') return [`\u20A9${formatKRW(Number(v))}`, '매출'];
+                if (name === 'adCost') return [`\u20A9${formatKRW(Number(v))}`, '광고비'];
                 return [`${Number(v).toFixed(1)}%`, name === 'profitRate' ? '이익률' : '광고비율'];
               }} />
-              <Area yAxisId="rev" type="monotone" dataKey="revenue" stroke="#3b82f6" strokeWidth={2} fill="url(#gRevenue)" name="revenue" dot={false} connectNulls={false} />
-              <Area yAxisId="pct" type="monotone" dataKey="profitRate" stroke="#10b981" strokeWidth={2} fill="url(#gProfit)" name="profitRate" dot={false} connectNulls={false} />
-              <Area yAxisId="pct" type="monotone" dataKey="adRate" stroke="#f59e0b" strokeWidth={1.5} fill="url(#gAdRate)" name="adRate" dot={false} strokeDasharray="4 2" connectNulls={false} />
+              <Area yAxisId="rev" type="monotone" dataKey="revenue" stroke="#7c3aed" strokeWidth={2} fill="url(#gRevenue)" name="revenue" dot={false} connectNulls={false} />
+              <Area yAxisId="spend" type="monotone" dataKey="adCost" stroke="#b54708" strokeWidth={1.5} fill="none" name="adCost" dot={false} connectNulls={false} />
             </AreaChart>
           </ResponsiveContainer>
         </div>
       )}
+      {/* An empty chart still occupies the chart's height. Collapsing it moves
+          everything below it on every range change, and makes "no data" look
+          like a different kind of block than "data". */}
       {chartTab === 'revenue' && !hasTrend && (
-        <div className="flex-1 flex items-center justify-center text-sm text-slate-300">트렌드 데이터가 없습니다</div>
+        <EmptyChartFrame />
       )}
 
       {/* Ad cost / ratio chart */}
-      {chartTab === 'ad' && hasTrend && (
+      {chartTab === 'rate' && hasTrend && (
         <div className="flex-1 flex flex-col p-5 min-h-0">
           <div className="flex items-center gap-5 mb-3 text-[12px] text-slate-400 shrink-0">
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-rose-400" />광고비</span>
@@ -152,23 +179,23 @@ export function DashboardCharts({ chartTab, dailyTrend, adChartData, benchmarkDa
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
               <XAxis dataKey="date" fontSize={10} tickLine={false} axisLine={false} tick={{ fill: '#94a3b8' }} interval={4} />
-              <YAxis yAxisId="won" fontSize={10} tickLine={false} axisLine={false} tick={{ fill: '#94a3b8' }} tickFormatter={(v: number) => `${(v / 10000).toFixed(0)}만`} domain={[0, 'auto']} />
-              <YAxis yAxisId="pct" orientation="right" fontSize={10} tickLine={false} axisLine={false} tick={{ fill: '#94a3b8' }} tickFormatter={(v: number) => `${v}%`} domain={[0, 'auto']} />
+              <YAxis yAxisId="pct" fontSize={10} tickLine={false} axisLine={false} tick={{ fill: '#94a3b8' }} tickFormatter={(v: number) => `${v}%`} domain={[0, 'auto']} />
               {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
               <Tooltip content={<EvidenceTooltip />} contentStyle={{ fontSize: 12, borderRadius: 10, background: '#fff', border: '1px solid #e2e8f0', color: '#0f172a' }} formatter={(v: any, name: any) => {
                 if (v == null) return ['—', name === 'adRate' ? '광고비율' : name === 'adCost' ? '광고비' : '매출'];
                 if (name === 'adRate') return [`${Number(v).toFixed(1)}%`, '광고비율'];
                 return [`\u20A9${formatKRW(Number(v))}`, name === 'adCost' ? '광고비' : '매출'];
               }} />
-              <Area yAxisId="won" type="monotone" dataKey="revenue" stroke="#8b5cf6" strokeWidth={2} fill="url(#gAdRev)" name="revenue" dot={false} connectNulls={false} />
-              <Area yAxisId="won" type="monotone" dataKey="adCost" stroke="#f43f5e" strokeWidth={2} fill="url(#gAdCost)" name="adCost" dot={false} connectNulls={false} />
-              <Area yAxisId="pct" type="monotone" dataKey="adRate" stroke="#6366f1" strokeWidth={1.5} fill="none" name="adRate" dot={false} strokeDasharray="5 3" connectNulls={false} />
+              {/* Rates share a scale honestly — both are percentages of the
+                  same revenue, so one axis is the whole point. */}
+              <Area yAxisId="pct" type="monotone" dataKey="profitRate" stroke="#067647" strokeWidth={2} fill="url(#gAdRev)" name="profitRate" dot={false} connectNulls={false} />
+              <Area yAxisId="pct" type="monotone" dataKey="adRate" stroke="#b54708" strokeWidth={1.5} fill="none" name="adRate" dot={false} strokeDasharray="5 3" connectNulls={false} />
             </AreaChart>
           </ResponsiveContainer>
         </div>
       )}
-      {chartTab === 'ad' && !hasTrend && (
-        <div className="flex-1 flex items-center justify-center text-sm text-slate-300">트렌드 데이터가 없습니다</div>
+      {chartTab === 'rate' && !hasTrend && (
+        <EmptyChartFrame />
       )}
 
       {/* Benchmark chart */}

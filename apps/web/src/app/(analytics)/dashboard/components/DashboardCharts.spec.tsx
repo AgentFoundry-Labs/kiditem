@@ -112,10 +112,10 @@ describe('DashboardCharts', () => {
     expectPositiveInitialDimension();
   });
 
-  it('gives ad chart ResponsiveContainer a positive initial dimension', () => {
+  it('gives the rate chart ResponsiveContainer a positive initial dimension', () => {
     render(
       <DashboardCharts
-        chartTab="ad"
+        chartTab="rate"
         dailyTrend={trend}
         adChartData={trend}
         benchmarkData={null}
@@ -161,7 +161,7 @@ describe('DashboardCharts', () => {
   it('renders unavailable ad values as dashes without changing explicit zeroes', () => {
     render(
       <DashboardCharts
-        chartTab="ad"
+        chartTab="rate"
         dailyTrend={trendWithUnavailableGap}
         adChartData={trendWithUnavailableGap}
         benchmarkData={null}

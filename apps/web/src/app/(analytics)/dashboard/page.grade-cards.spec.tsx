@@ -244,7 +244,9 @@ describe('Dashboard absolute ABC grade cards', () => {
     await waitFor(() => expect(screen.getByText('Kiditem Foundry')).toBeInTheDocument());
 
     expect(screen.getByText('계산 완료 4개')).toBeInTheDocument();
-    expect(screen.getByText('미분류 6개')).toBeInTheDocument();
+    // Unclassified reads as a row of "지금 손이 필요한 것", against the other
+    // counts, instead of a second copy in the ABC footer.
+    expect(document.querySelector('[data-warning-count="abc-unclassified"]')).toHaveTextContent('6');
     expect(screen.getByRole('link', { name: /A등급/ })).toHaveAttribute(
       'href',
       '/product-hub?abcGrade=A',
@@ -266,7 +268,8 @@ describe('Dashboard absolute ABC grade cards', () => {
       '/product-hub?dataStatus=abc',
     );
     expect(screen.getByText('셀피아·광고비 수집 또는 매핑을 확인')).toBeInTheDocument();
-    expect(screen.getByText('상품 관리에서 등급 새로고침을 실행하세요.')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '수익성 ABC' }))
+      .toHaveAttribute('title', '상품 관리에서 등급 새로고침을 실행하세요.');
     expect(screen.queryByText(/자동 계산|자동 평가|NaN/)).not.toBeInTheDocument();
   });
 
@@ -285,7 +288,7 @@ describe('Dashboard absolute ABC grade cards', () => {
     // Nothing was collected, so the funnel lays out no slots at all — the steps
     // stay named on one line. What must never happen is a step reading as 0.
     expect(screen.getByText(
-      '일평균 방문자 · 조회 · 장바구니 · 주문 · 판매량 — Wing 트래픽 기준 · 미수집',
+      '일평균 방문자 · 조회 · 장바구니 · 주문 · 판매량 — Wing 트래픽 미수집',
     )).toBeInTheDocument();
     expect(document.body).not.toHaveTextContent('판매량0');
     expect(document.body).not.toHaveTextContent('조회0');
@@ -353,7 +356,8 @@ describe('Dashboard absolute ABC grade cards', () => {
     expect(screen.getByText('장바구니').parentElement).toHaveTextContent('장바구니0회');
     expect(screen.getByText('구매전환율').parentElement?.parentElement?.parentElement).toHaveTextContent('5.0%');
     expect(screen.getByText(/Wing 제공 전환율 2\.9%/)).toBeInTheDocument();
-    expect(screen.getByTestId('wing-traffic-coverage')).toHaveTextContent('3/3일');
+    fireEvent.click(screen.getByRole('button', { name: '기간 지표 근거 안내' }));
+    expect(await screen.findByRole('note')).toHaveTextContent('3/3일');
     expect(screen.getByText('일별 합산·기간 원본 미대사 · 장바구니')).toBeInTheDocument();
     expect(screen.getByText('기간 원본 불일치로 숨김 · 매출')).toBeInTheDocument();
     expect(screen.getByText(/계정 원본 · ALL_NORMAL_RFM · 상품 매칭 합산 아님/)).toBeInTheDocument();
@@ -390,7 +394,7 @@ describe('Dashboard absolute ABC grade cards', () => {
 
     expect(screen.getAllByText('주문')[0].parentElement).toHaveTextContent('주문—');
     expect(screen.queryByText('주문99건')).not.toBeInTheDocument();
-    expect(screen.getByText('조회·주문 원본 필요')).toBeInTheDocument();
+    expect(screen.getByText('Wing 조회·주문 미수집')).toBeInTheDocument();
   });
 
   it('does not present a zero primary revenue KPI when the effective source is none', async () => {
@@ -512,7 +516,9 @@ describe('Dashboard absolute ABC grade cards', () => {
 
     const primaryRevenue = screen.getByTestId('dashboard-primary-revenue');
     expect(screen.getByTestId('dashboard-primary-revenue-value')).toHaveTextContent('363,200');
-    expect(screen.getByTestId('dashboard-primary-revenue-change')).toHaveTextContent('—');
+    // An unavailable change is no change: the slot is absent rather than
+    // showing a dash beside a real revenue figure.
+    expect(screen.queryByTestId('dashboard-primary-revenue-change')).toBeNull();
     expect(primaryRevenue).not.toHaveTextContent('NaN');
   });
 
@@ -549,7 +555,8 @@ describe('Dashboard absolute ABC grade cards', () => {
     await waitFor(() => expect(screen.getByText('Kiditem Foundry')).toBeInTheDocument());
 
     expect(screen.getByText('정산 데이터 없음')).toBeInTheDocument();
-    expect(screen.getByText('Wing/Drive 데이터에는 매입가·수수료·배송비가 없어 순이익을 산출할 수 없습니다.')).toBeInTheDocument();
+    expect(screen.getByTestId('dashboard-primary-profit'))
+      .toHaveAttribute('title', 'Wing/Drive 데이터에는 매입가·수수료·배송비가 없어 순이익을 산출할 수 없습니다.');
   });
 
   it('keeps measured ad values and discloses missing coverage for a partial range', async () => {
@@ -591,10 +598,12 @@ describe('Dashboard absolute ABC grade cards', () => {
     renderDashboard();
     await waitFor(() => expect(screen.getByText('Kiditem Foundry')).toBeInTheDocument());
 
-    expect(screen.getByTestId('ad-coverage')).toHaveTextContent('2026-09-01 ~ 2026-09-07');
-    expect(screen.getByTestId('ad-coverage')).toHaveTextContent('누락 2일');
+    // Coverage is evidence, and evidence is reached through the section's one
+    // affordance rather than reprinted above the values.
+    fireEvent.click(screen.getByRole('button', { name: '기간 지표 근거 안내' }));
+    expect(await screen.findByRole('note')).toHaveTextContent('2026-09-01');
     expect(screen.getByText('광고전환매출').parentElement).toHaveTextContent('광고전환매출 쿠팡0원');
-    expect(screen.getByTestId('ad-coverage-note')).toHaveTextContent('측정된 날짜의 값만 표시');
+
     expect(screen.queryByText('광고전환매출—')).not.toBeInTheDocument();
   });
 
@@ -687,7 +696,7 @@ describe('Dashboard absolute ABC grade cards', () => {
       .getByText('셀피아 · 판매금액 − 매입가 − 쿠팡 광고비')
       .closest('[data-testid="dashboard-primary-profit"]');
     expect(profitCard).toHaveTextContent('—');
-    expect(profitCard).toHaveTextContent('판매금액과 비용의 공통 유효 날짜가 없어 순이익을 산출할 수 없습니다.');
+    expect(profitCard).toHaveAttribute('title', '판매금액과 비용의 공통 유효 날짜가 없어 순이익을 산출할 수 없습니다.');
     const detail = await openProfitDetail();
     expect(detail).toHaveTextContent('집행광고비—');
     expect(detail).not.toHaveTextContent('400,000원');

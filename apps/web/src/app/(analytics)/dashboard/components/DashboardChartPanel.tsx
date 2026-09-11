@@ -3,9 +3,8 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
-import { ArrowRight, Loader2, Play, Zap } from 'lucide-react';
+import { ArrowRight, Loader2, Play } from 'lucide-react';
 import { toast } from 'sonner';
-import AgentFace from '@/components/AgentFace';
 import { cn } from '@/lib/utils';
 import {
   useDepartmentQuickActions,
@@ -109,13 +108,12 @@ export function DashboardChartPanel({
     cvr: DashboardMetricBasis | null;
   };
 }) {
-  const [chartTab, setChartTab] = useState<'agents' | 'revenue' | 'ad' | 'benchmark'>('agents');
+  const [chartTab, setChartTab] = useState<'revenue' | 'rate' | 'benchmark'>('revenue');
   // A row with all nullable metrics missing is an evidence gap, not a usable
   // trend. Keep the row for the x-axis (and the chart's null gap), but only
   // enable trend tabs when at least one measured value exists.
   const hasTrend = dailyTrend.some((point) => point.revenue !== null || point.profit !== null || point.adCost !== null);
   const hasBenchmark = !!industryBenchmark;
-  const isAgentOs = chartTab === 'agents';
 
   const quickActions = useDepartmentQuickActions();
   const [runningAction, setRunningAction] = useState<string | null>(null);
@@ -135,8 +133,8 @@ export function DashboardChartPanel({
   };
 
   const tabs = [
-    { key: 'revenue' as const, label: '매출 · 이익률' },
-    { key: 'ad' as const, label: '광고비 · 비율' },
+    { key: 'revenue' as const, label: '매출 · 광고비' },
+    { key: 'rate' as const, label: '이익률' },
     ...(hasBenchmark ? [{ key: 'benchmark' as const, label: '업계 기준(참고)' }] : []),
   ];
 
@@ -149,31 +147,22 @@ export function DashboardChartPanel({
   }));
 
   return (
-    <div className={cn('relative rounded-2xl overflow-hidden flex flex-col h-full border shadow-sm transition-all', isAgentOs ? 'border-violet-100 shadow-[0_0_40px_rgba(124,58,237,0.08)]' : 'bg-white border-slate-100')}>
-      {isAgentOs && <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-violet-500 via-purple-500 to-blue-500 z-10" />}
-      <div className={cn('flex items-center justify-between px-5 py-3 border-b shrink-0', isAgentOs ? 'border-violet-100/60 bg-white/60 backdrop-blur-sm' : 'border-slate-100')}>
+    <div className="flex h-full flex-col overflow-hidden rounded-xl border border-slate-200 bg-white">
+      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-3 py-1.5">
         <div className="flex items-center gap-2">
-          <div className="flex gap-1 rounded-lg p-0.5 bg-slate-100">
+          <div className="flex gap-1">
             {tabs.map((tab) => (
               <button
                 key={tab.key}
                 onClick={() => setChartTab(tab.key)}
-                className={cn('px-4 py-1.5 rounded-md text-[13px] font-semibold transition-all', chartTab === tab.key ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-500')}
+                className={cn('rounded-md px-2.5 py-1 text-xs font-semibold transition-colors', chartTab === tab.key ? 'bg-violet-600 text-white' : 'text-slate-600 hover:text-slate-900')}
               >
                 {tab.label}
               </button>
             ))}
           </div>
-          {isAgentOs && (
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide uppercase bg-gradient-to-r from-violet-600 to-blue-600 text-white shadow-sm">
-              <Zap size={9} className="fill-white" /> AI Powered
-            </span>
-          )}
         </div>
-        <span className={cn('text-[12px] flex items-center gap-1.5', isAgentOs ? 'text-violet-600 font-semibold' : 'text-slate-400')}>
-          {isAgentOs && <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />}
-          {isAgentOs ? '실시간' : '최근 30일'}
-        </span>
+        <span className="text-[11px] text-slate-500">최근 30일</span>
       </div>
 
       <DashboardCharts
@@ -193,7 +182,7 @@ export function DashboardChartPanel({
           지표별 기준 근거는 각 카드에서 확인할 수 있습니다.
         </div>
       )}
-      {(chartTab === 'revenue' || chartTab === 'ad') && (
+      {(chartTab === 'revenue' || chartTab === 'rate') && (
         <div className="px-5 pb-3 text-[11px] text-slate-400">
           날짜별 원천 근거와 누락 여부는 각 점의 툴팁에서 확인할 수 있습니다.
         </div>

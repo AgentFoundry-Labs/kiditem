@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import {
   BarChart3,
@@ -255,23 +255,34 @@ function DashboardReadFailureNotice({ failures }: { failures: readonly Dashboard
  * A section header carries one ⓘ for every value below it. The affordance is
  * section-level; the explanation behind it stays per value.
  */
+/**
+ * A filter that sits above something it does not govern will be read as
+ * governing it — placement wins that argument against any label. So the period
+ * controls live in this header, and this header spans only the column whose
+ * values answer to them. The snapshot column carries its own header beside it,
+ * and the two rules underneath are the scope boundary.
+ */
 function DashboardSectionHeader({
   title,
   scope,
   disclosureLabel,
   entries,
+  controls,
 }: {
   title: string;
-  scope: string;
+  /** Only when it says something the controls beside it do not. */
+  scope?: ReactNode;
   disclosureLabel: string;
   entries: readonly BasisBreakdownEntry[];
+  controls?: ReactNode;
 }) {
   return (
-    <div className="flex items-center justify-between gap-2 px-1">
-      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+    <div className="flex min-h-[34px] items-center justify-between gap-3 border-b-2 border-slate-900 pb-1.5">
+      <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
         <h2 className="text-sm font-semibold text-slate-900">{title}</h2>
-        <span className="text-[11px] text-slate-400">{scope}</span>
+        {scope && <span className="text-[11px] text-slate-500">{scope}</span>}
       </div>
+      {controls}
       <DashboardBasisDisclosure label={disclosureLabel} entries={entries} />
     </div>
   );
@@ -457,8 +468,6 @@ export default function Dashboard() {
   // the metric is unavailable.
   const kpiRevenue = rk ? rk.revenue : salesMonthly.revenue;
   const kpiProfit = rk ? rk.profit : salesMonthly.profit;
-  const kpiPrevRevenue = rk ? rk.prevRevenue : salesMonthly.prevRevenue;
-  const kpiPrevProfit = rk ? rk.prevProfit : salesMonthly.prevProfit;
   const revenueChange = rk ? rk.revenueChange : salesMonthly.revenueChange;
   const profitChange = rk ? rk.profitChange : salesMonthly.profitChange;
   const profitRate = rk && rk.profitRate !== undefined
@@ -517,6 +526,11 @@ export default function Dashboard() {
         : `${formatNumber(adConversions)}건${adCvr === null || adCvr === undefined ? '' : ` · ${adCvr.toFixed(2)}%`}`,
     },
   ];
+  // "부분 N/M일" is the one phrase for partially collected. It replaces
+  // "커버리지 부족", which said the same thing without the numbers.
+  const adCoverageNote = adCoverage && adCoverageIncomplete
+    ? `부분 ${adCoverage.completedDays}/${adCoverage.targetDays}일`
+    : null;
   const adCoverageLabel = adCoverage
     ? `${adCoverage.completedDays}/${adCoverage.targetDays}일`
     : null;
@@ -571,10 +585,12 @@ export default function Dashboard() {
     revenueSource === 'wing' ? 'Wing 매출 기준'
     : revenueSource === 'mixed' ? '주문 + Wing'
     : revenueSource === 'orders' ? '주문 기준'
-    : '데이터 대기';
+    : '미수집';
   const orderProfitInputs = effectiveSales?.profitInputs ?? null;
-  const orderProfitInputsAvailable = (revenueSource === 'orders' || revenueSource === 'mixed')
-    && orderProfitInputs !== null
+  // `revenueSource` describes the baseline month. It used to gate profit too,
+  // so a July selection with settlement inputs went blank whenever September
+  // happened to be empty. The inputs carry their own basis; that is the test.
+  const orderProfitInputsAvailable = orderProfitInputs !== null
     && basisHasValues(orderProfitInputs.basis);
   // 정산 데이터가 있어야 산출 가능한 지표 (순이익/이익률/매입가/수수료/배송비) 는
   // Wing/Drive 단독 데이터로는 신뢰할 수 없다. Wing의 netProfit null도 0으로
@@ -650,9 +666,6 @@ export default function Dashboard() {
   const sellpiaMetricBasis = readMetricBasis(sp, 'totalRevenue');
   const sellpiaProfitInputs = sp?.profitInputs ?? null;
   const spTotal = sp?.totalRevenue ?? null;
-  const spRocket = sp?.rocket.revenue ?? null;
-  const spOthers = sp?.others.revenue ?? null;
-  const spQty = sellpiaProfitInputs?.qty ?? null;
   // Sellpia publishes a compact basis map. Prefer the fixed group keys so
   // rocket/others cards inherit the same evidence without requiring a basis
   // entry per seller ID; row-local keys remain valid when a group diverges.
@@ -676,13 +689,33 @@ export default function Dashboard() {
       ? null
       : orderProfitInputsAvailable ? profitRate : null;
   // 카드 표시값: 셀피아 데이터가 있으면 셀피아 기준으로 통일(로켓/기타몰/합계가 서로 맞음).
+  // A measured value never reads 미수집. When the baseline month has no source
+  // but the selected range does, the range's own coverage is what to say.
+  const revenueRangeBasis = readMetricBasis(effectiveSales, 'rangeKpi.revenue');
+  const revenueCoverageNote = revenueRangeBasis?.kind === 'period' && revenueRangeBasis.status === 'partial'
+    ? `부분 ${revenueRangeBasis.includedDays}/${revenueRangeBasis.targetDays}일`
+    : null;
+
+  // `revenueSource` describes the baseline month. A selected range publishes
+  // its own value and its own basis, and a baseline month with nothing in it
+  // said "none" — which blanked a range that had 18,945,520 and said so. The
+  // range's own evidence stands on its own, the same way the ad metrics do.
+  const rangeRevenueMeasured = rk?.available === true
+    && kpiRevenue !== null
+    && basisHasValues(revenueRangeBasis);
   const primaryRevenueAvailable = sellpiaHasData
     ? spTotal !== null
     : kpiRevenue !== null && (
-      revenueSource === 'orders'
+      rangeRevenueMeasured
+      || revenueSource === 'orders'
       || revenueSource === 'mixed'
       || (revenueSource === 'wing' && trafficRevenue !== null)
     );
+  const revenueCellNote = sellpiaHasData
+    ? '셀피아 판매현황'
+    : primaryRevenueAvailable
+      ? (revenueCoverageNote ?? revenueSourceLabel)
+      : '미수집';
   const displayRevenue = primaryRevenueAvailable
     ? (sellpiaHasData ? spTotal : kpiRevenue)
     : null;
@@ -732,6 +765,21 @@ export default function Dashboard() {
   // failure is already named and retried by the page-level notice.
   const topProductsHasErr = kpiRange === 'month' ? salesBaselineHasErr : salesRangeHasErr;
   const warningBasis = (key: string): DashboardMetricBasis | null => readMetricBasis(inventoryData, key);
+
+  // "관측 6분 전" answers the question the ISO timestamp was being asked: is
+  // what I am looking at current? The exact instant stays on hover.
+  const observedAtRaw = inventoryHeaderBasis?.kind === 'snapshot' ? inventoryHeaderBasis.observedAt ?? null : null;
+  const observedAtTitle = observedAtRaw ? String(observedAtRaw) : '관측 시각 확인 불가';
+  const observedAgo = (() => {
+    if (!observedAtRaw) return '시각 미상';
+    const ms = Date.now() - new Date(String(observedAtRaw)).getTime();
+    if (!Number.isFinite(ms) || ms < 0) return '시각 미상';
+    const minutes = Math.floor(ms / 60000);
+    if (minutes < 1) return '방금';
+    if (minutes < 60) return `${minutes}분 전`;
+    const hours = Math.floor(minutes / 60);
+    return hours < 24 ? `${hours}시간 전` : `${Math.floor(hours / 24)}일 전`;
+  })();
   const alertsBasis = readMetricBasis(inventoryData, 'alerts');
 
   // The basis a card actually displays is decided once, so the section's
@@ -776,6 +824,10 @@ export default function Dashboard() {
     ? (sellpiaHasData ? sellpiaProfitInputs?.basis ?? null : profitRateBasis)
     : (sellpiaHasData ? sellpiaMetricBasis : profitRateBasis);
 
+  // `periodLabel` is the month the server built the baseline for; it does not
+  // follow a custom range, so beside July's day counts it read "2026년 9월".
+  // The section names the window that was actually selected.
+
   const periodBasisEntries: BasisBreakdownEntry[] = [
     { label: `${rangeLabel} 매출`, basis: revenueCardBasis },
     ...(sellpiaHasData
@@ -799,6 +851,15 @@ export default function Dashboard() {
     { label: '벤치마크 CVR', basis: benchmarkBases.cvr },
     { label: 'Top 상품 매출', basis: topProductsBasis },
     { label: 'Wing 일별 트래픽 커버리지', coverage: trafficCoverage, coverageSources: ['wing_traffic'] },
+    { label: '광고 커버리지', coverage: adCoverage, coverageSources: ['coupang_ads'] },
+  ];
+
+  // The snapshot section header is gone; its rows moved onto the cards that
+  // actually publish them, which is where someone asking "where did this come
+  // from?" is already looking.
+  const adBasisEntries: BasisBreakdownEntry[] = [
+    { label: '광고전환매출', basis: adRoasBasis },
+    { label: '광고비율', basis: adRateBasis },
     { label: '광고 커버리지', coverage: adCoverage, coverageSources: ['coupang_ads'] },
   ];
 
@@ -847,19 +908,17 @@ export default function Dashboard() {
           <div>
             <h1 className="text-lg font-bold tracking-tight text-slate-900">Kiditem Foundry</h1>
             <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5">
-              <span className="text-xs font-mono text-slate-400">운영 상품 {inventoryData ? formatNumber(inventory.totalProducts) : '—'}</span>
+              <span className="text-xs font-mono text-slate-500">운영 상품 {inventoryData ? formatNumber(inventory.totalProducts) : '—'}</span>
               <span className="text-xs font-mono text-slate-400">·</span>
-              <span className="text-xs font-mono text-slate-400">판매중 채널 연결 재고상품 {inventoryData ? formatNumber(channelLinkedProducts) : '—'}</span>
+              <span className="text-xs font-mono text-slate-500">채널 연결 {inventoryData ? formatNumber(channelLinkedProducts) : '—'}</span>
               {inventoryData && channelUnlinkedProducts > 0 && (
                 <>
                   <span className="text-xs font-mono text-slate-400">·</span>
-                  <span className="text-xs font-mono text-amber-500">판매중 채널 미연결 재고상품 {formatNumber(channelUnlinkedProducts)}</span>
+                  <span className="text-xs font-mono text-amber-700">미연결 {formatNumber(channelUnlinkedProducts)}</span>
                 </>
               )}
-              {inventoryHeaderBasis && <DashboardBasisMarker basis={inventoryHeaderBasis} className="ml-1" />}
-              <span className="text-xs font-mono text-slate-400">|</span>
-              <span className="text-xs font-mono text-slate-400">{periodLabel}</span>
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              <span className="text-xs font-mono text-slate-400" aria-hidden="true">·</span>
+              <span className="text-xs font-mono text-slate-500" title={observedAtTitle}>관측 {observedAgo}</span>
               {periodShifted && latestDataDate && (
                 <span
                   className="ml-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200"
@@ -879,67 +938,15 @@ export default function Dashboard() {
             </div>
           </div>
         </div>
-        {/* The expanded sidebar leaves ~1,420px here, which is not enough for
-            these controls to wrap gracefully — they stacked one character per
-            line. They stay on one line and the identity block yields instead. */}
-        <div className="flex shrink-0 items-center gap-3 whitespace-nowrap">
-          <button
-            onClick={requestReadinessOpen}
-            className="flex shrink-0 items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition-colors"
-            title="쿠팡 Wing/광고 데이터 수집 상태 확인 + 누락분 수집 트리거"
-          >
-            <Database size={14} /> 데이터 수집
-          </button>
-          <div className="flex rounded-lg p-0.5 bg-slate-100">
-            {([['month', '월'], ['week', '주'], ['day', '일']] as const).map(([val, label]) => (
-              <button
-                key={val}
-                onClick={() => setKpiRange(val)}
-                className={cn('px-4 py-1.5 rounded-md text-sm font-semibold transition-colors', kpiRange === val ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-400')}
-              >{label}</button>
-            ))}
-            <button
-              onClick={() => {
-                setKpiRange('custom');
-                // 기간 진입 시 비어 있으면 이번 달로 기본 채움(빈 입력 방지)
-                const def = sellpiaPeriodRange('month', '', '');
-                if (!dateFrom) setDateFrom(def.from);
-                if (!dateTo) setDateTo(def.to);
-              }}
-              className={cn('px-3 py-1.5 rounded-md text-sm font-semibold transition-colors flex items-center gap-1', kpiRange === 'custom' ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-400')}
-            ><Calendar size={13} /> 기간</button>
-          </div>
-          {kpiRange === 'custom' ? (
-            <div className="flex items-center gap-1.5 rounded-lg bg-slate-100 p-1">
-              <input
-                type="date"
-                value={dateFrom}
-                max={dateTo || undefined}
-                onChange={e => setDateFrom(e.target.value)}
-                className="h-8 px-2.5 rounded-md text-sm border border-slate-200 bg-white text-slate-700 [color-scheme:light] focus:outline-none focus:ring-2 focus:ring-purple-300"
-              />
-              <span className="text-slate-400 px-0.5">~</span>
-              <input
-                type="date"
-                value={dateTo}
-                min={dateFrom || undefined}
-                onChange={e => setDateTo(e.target.value)}
-                className="h-8 px-2.5 rounded-md text-sm border border-slate-200 bg-white text-slate-700 [color-scheme:light] focus:outline-none focus:ring-2 focus:ring-purple-300"
-              />
-              <button
-                onClick={applyCustomRange}
-                disabled={!dateFrom || !dateTo}
-                className="h-8 px-4 rounded-md text-white text-sm font-semibold bg-purple-600 hover:bg-purple-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-              >
-                조회
-              </button>
-            </div>
-          ) : (
-            <span className="text-xs text-slate-400">
-              {kpiRange === 'month' ? '이번 달 vs 전월' : kpiRange === 'week' ? '7일 vs 이전 7일' : '오늘 vs 어제'}
-            </span>
-          )}
-        </div>
+        {/* Collecting is not scoped by the period, so it stays on the identity
+            row. The period controls moved down to the column they govern. */}
+        <button
+          onClick={requestReadinessOpen}
+          className="flex shrink-0 items-center gap-1.5 rounded-md bg-violet-600 px-3 py-1 text-xs font-semibold text-white transition-colors hover:bg-violet-700"
+          title="쿠팡 Wing/광고 데이터 수집 상태 확인 + 누락분 수집 트리거"
+        >
+          <Database size={13} /> 데이터 수집
+        </button>
       </div>
 
       <DashboardReadFailureNotice failures={readFailures} />
@@ -955,17 +962,73 @@ export default function Dashboard() {
         </div>
       )}
 
-      <DashboardSectionHeader
-        title="기간 지표"
-        scope={`${rangeLabel} KPI · 벤치마크 · Top 상품`}
-        disclosureLabel="기간 지표 근거"
-        entries={periodBasisEntries}
-      />
-
       {/* 본문 — 왼쪽은 기간을 읽는 것, 오른쪽은 지금 손이 필요한 것.
           한 화면에서 훑는 것이 이 페이지의 용도라 세로로 쌓지 않는다. */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 items-start">
         <div className="lg:col-span-2 space-y-3">
+          <DashboardSectionHeader
+            title="기간 지표"
+            disclosureLabel="기간 지표 근거"
+            entries={periodBasisEntries}
+            controls={(
+              <div className="flex shrink-0 items-center gap-2 whitespace-nowrap">
+                {kpiRange === 'custom' && (
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="date"
+                      value={dateFrom}
+                      max={dateTo || undefined}
+                      onChange={e => setDateFrom(e.target.value)}
+                      aria-label="시작일"
+                      className="h-7 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700 [color-scheme:light] focus:outline-none focus:ring-2 focus:ring-violet-300"
+                    />
+                    <span className="text-slate-400" aria-hidden="true">~</span>
+                    <input
+                      type="date"
+                      value={dateTo}
+                      min={dateFrom || undefined}
+                      onChange={e => setDateTo(e.target.value)}
+                      aria-label="종료일"
+                      className="h-7 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700 [color-scheme:light] focus:outline-none focus:ring-2 focus:ring-violet-300"
+                    />
+                    <button
+                      onClick={applyCustomRange}
+                      disabled={!dateFrom || !dateTo}
+                      className="h-7 rounded-md bg-violet-600 px-3 text-xs font-semibold text-white transition-colors hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      조회
+                    </button>
+                  </div>
+                )}
+                <div className="flex overflow-hidden rounded-md border border-slate-200">
+                  {([['month', '월'], ['week', '주'], ['day', '일']] as const).map(([val, label]) => (
+                    <button
+                      key={val}
+                      onClick={() => setKpiRange(val)}
+                      className={cn(
+                        'border-l border-slate-200 px-3 py-1 text-xs font-semibold transition-colors first:border-l-0',
+                        kpiRange === val ? 'bg-violet-600 text-white' : 'text-slate-600 hover:bg-slate-50',
+                      )}
+                    >{label}</button>
+                  ))}
+                  <button
+                    onClick={() => {
+                      setKpiRange('custom');
+                      // 기간 진입 시 비어 있으면 이번 달로 기본 채움(빈 입력 방지)
+                      const def = sellpiaPeriodRange('month', '', '');
+                      if (!dateFrom) setDateFrom(def.from);
+                      if (!dateTo) setDateTo(def.to);
+                    }}
+                    className={cn(
+                      'flex items-center gap-1 border-l border-slate-200 px-3 py-1 text-xs font-semibold transition-colors',
+                      kpiRange === 'custom' ? 'bg-violet-600 text-white' : 'text-slate-600 hover:bg-slate-50',
+                    )}
+                  ><Calendar size={12} /> 기간</button>
+                </div>
+              </div>
+            )}
+          />
+
         {/* KPI 카드 — 월 매출 + 월 순이익 + 이익률 + 광고비율 */}
         <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-slate-200 bg-slate-200 lg:grid-cols-6" style={{ alignItems: 'stretch' }}>
           {/* 기간 매출 — 채널 분해는 매출 분석 화면이 owner라 셀 전체가 그리로 간다. */}
@@ -976,19 +1039,22 @@ export default function Dashboard() {
         >
           <p className="font-mono text-[9.5px] uppercase tracking-wider text-slate-500">{rangeLabel} 매출</p>
           <p
-            className="text-xl font-bold leading-tight tracking-tight tabular-nums text-slate-900"
+            className="whitespace-nowrap text-lg font-bold leading-tight tracking-tight tabular-nums text-slate-900"
             data-testid="dashboard-primary-revenue-value"
           >
             {displayRevenue === null ? '—' : <>{formatKRW(displayRevenue)}<span className="ml-0.5 text-xs font-semibold text-slate-500">원</span></>}
           </p>
           <p className="mt-0.5 text-[11px] leading-snug text-slate-500">
-            {sellpiaHasData ? '셀피아 판매현황' : revenueSourceLabel}
-            {!sellpiaHasData && displayRevenue !== null && (
+            {revenueCellNote}
+            {/* A change against a period that published nothing is not a
+                change; the slot stays out of the way rather than showing a
+                dash beside a real number. */}
+            {!sellpiaHasData && displayRevenue !== null && revenueChange !== null && (
               <span
-                className={cn('ml-1 font-medium', revenueChange === null ? 'text-slate-500' : revenueChange >= 0 ? 'text-emerald-700' : 'text-red-600')}
+                className={cn('ml-1 font-medium', revenueChange >= 0 ? 'text-emerald-700' : 'text-red-600')}
                 data-testid="dashboard-primary-revenue-change"
               >
-                {revenueChange === null ? '—' : `${revenueChange > 0 ? '▲' : '▼'} ${Math.abs(revenueChange).toFixed(1)}%`}
+                {revenueChange > 0 ? '▲' : '▼'} {Math.abs(revenueChange).toFixed(1)}%
               </span>
             )}
           </p>
@@ -1007,10 +1073,11 @@ export default function Dashboard() {
             onClick={() => setShowProfitDetail(true)}
             className="flex flex-col items-start bg-white px-3 py-2 text-left transition-colors hover:bg-slate-50"
             data-testid="dashboard-primary-profit"
+            title={profitCellReason ?? undefined}
           >
             <p className="font-mono text-[9.5px] uppercase tracking-wider text-slate-500">{rangeLabel} 순이익</p>
             <p className={cn(
-              'text-xl font-bold leading-tight tracking-tight tabular-nums',
+              'whitespace-nowrap text-lg font-bold leading-tight tracking-tight tabular-nums',
               displayProfit === null ? 'text-slate-400' : displayProfit >= 0 ? 'text-slate-900' : 'text-red-600',
             )}>
               {displayProfit === null ? '—' : <>{formatKRW(displayProfit)}<span className="ml-0.5 text-xs font-semibold text-slate-500">원</span></>}
@@ -1023,9 +1090,7 @@ export default function Dashboard() {
                 </span>
               )}
             </p>
-            {profitCellReason && (
-              <p className="mt-0.5 text-[11px] leading-snug text-slate-500">{profitCellReason}</p>
-            )}
+
           </button>
 
           {/* 이익률 — 순이익을 못 구하면 정의가 없으니 placeholder 로 */}
@@ -1050,7 +1115,7 @@ export default function Dashboard() {
               label="이익률"
               icon={Target}
               accentColor="#733de5"
-              note={sellpiaHasData ? '쿠팡 광고비 수집 필요' : '정산 데이터 필요'}
+              note={sellpiaHasData ? '쿠팡 광고비 미수집' : '정산 데이터 미수집'}
               basis={profitRateCardBasis}
               comparisonBasis={sellpiaHasData ? null : profitRateComparisonBasis}
             />
@@ -1080,7 +1145,7 @@ export default function Dashboard() {
               label="광고비율"
               icon={Megaphone}
               accentColor="#dc2626"
-              note={adCoverageIncomplete ? '광고 데이터 커버리지 부족' : '광고비 데이터 미수집'}
+              note={adCoverageNote ?? '광고비 미수집'}
               basis={adRateBasis}
               comparisonBasis={adRateComparisonBasis}
             />
@@ -1107,7 +1172,7 @@ export default function Dashboard() {
               label="구매전환율"
               icon={ShoppingCart}
               accentColor="#0284c7"
-              note={trafficAvailable ? '조회·주문 원본 필요' : 'Wing 트래픽 미수집'}
+              note={trafficAvailable ? 'Wing 조회·주문 미수집' : 'Wing 트래픽 미수집'}
               basis={trafficBasis}
             />
           )}
@@ -1134,32 +1199,10 @@ export default function Dashboard() {
               label="광고수익률"
               icon={BarChart3}
               accentColor="#059669"
-              note={adCoverageIncomplete ? '광고 데이터 커버리지 부족' : '광고 데이터 미수집'}
+              note={adCoverageNote ?? '광고 데이터 미수집'}
               basis={adRoasBasis}
               comparisonBasis={adRoasComparisonBasis}
             />
-          )}
-        </div>
-
-        {/* One line for what the six KPIs above rest on. Each of them used to
-            reprint the selected range; the range is named once in the section
-            header, so only the day counts belong here. */}
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 px-1 text-xs text-slate-500">
-          {trafficCoverage && (
-            <span data-testid="wing-traffic-coverage">
-              트래픽 {trafficCoverage.completedDays}/{trafficCoverage.targetDays}일
-              {trafficCoverage.missingDates.length > 0 && ` · 누락 ${trafficCoverage.missingDates.length}일`}
-            </span>
-          )}
-          {adCoverage && (
-            <span data-testid="ad-coverage">
-              광고 {adCoverage.completedDays}/{adCoverage.targetDays}일
-              {adCoverage.missingDates.length > 0 && ` · 누락 ${adCoverage.missingDates.length}일`}
-              <span className="ml-1 text-slate-400">{adCoverage.from} ~ {adCoverage.to}</span>
-            </span>
-          )}
-          {coverageNote(adCoverage) && (
-            <span className="text-amber-700" data-testid="ad-coverage-note">측정된 날짜의 값만 표시</span>
           )}
         </div>
 
@@ -1195,10 +1238,11 @@ export default function Dashboard() {
         </div>
 
         <div className="space-y-3">
+          {/* Its twin, so the two rules read as one boundary. */}
           <DashboardSectionHeader
-            title="스냅샷 지표"
-            scope="경고 · 광고 성과 · ABC · 알림"
-            disclosureLabel="스냅샷 지표 근거"
+            title="현재 상태"
+            scope="기간과 무관"
+            disclosureLabel="현재 상태 근거"
             entries={snapshotBasisEntries}
           />
 
@@ -1207,13 +1251,16 @@ export default function Dashboard() {
           ) : !inventoryData ? (
             <DashboardSectionEmpty label="경고" />
           ) : (
-            <DashboardWarningTable rows={buildWarningRows(inventory.warnings, warningBasis)} />
+            <DashboardWarningTable
+              rows={buildWarningRows(inventory.warnings, warningBasis, inventory.unclassifiedProductCount, inventoryHeaderBasis)}
+            />
           )}
 
           <DashboardAdPerformance
             rows={adPerformanceRows}
             basis={adRoasBasis}
             coverageLabel={adCoverageLabel}
+            entries={adBasisEntries}
           />
 
           {inventoryHasErr ? (
@@ -1230,6 +1277,7 @@ export default function Dashboard() {
               abcFormula={inventory.abcFormula}
               gradeChanges={inventory.gradeChanges}
               basis={inventoryBasis}
+              refetchReads={async () => { await refetchInventory(); }}
             />
           )}
 

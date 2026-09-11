@@ -49,7 +49,7 @@ export function DashboardTrafficFunnel({
             Wing 트래픽 퍼널
           </h2>
           <span className={collected ? 'truncate text-xs text-slate-500' : 'truncate text-xs font-medium text-amber-700'}>
-            {collected ? sourceNote : `${steps.map(s => s.label).join(' · ')} — Wing 트래픽 기준 · 미수집`}
+            {collected ? sourceNote : `${steps.map(s => s.label).join(' · ')} — Wing 트래픽 미수집`}
           </span>
         </div>
         <div className="flex items-center gap-2 shrink-0">

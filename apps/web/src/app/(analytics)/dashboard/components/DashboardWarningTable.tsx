@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import type { DashboardInventorySummary, DashboardMetricBasis } from '@kiditem/shared/dashboard';
 import { cn } from '@/lib/utils';
-import { basisHasValues } from './DashboardDataBasis';
+import { basisHasValues, DashboardBasisDisclosure, type BasisBreakdownEntry } from './DashboardDataBasis';
 
 /**
  * Each warning used to own a card, so five counts never lined up against one
@@ -25,6 +25,12 @@ export interface DashboardWarningRow {
   unit: string;
   value: number | null | undefined;
   basis: DashboardMetricBasis | null;
+  /**
+   * A count that is published with the rows it counts and has no separate
+   * evidence to verify — how many products carry no classification is not a
+   * measurement of the business, it is a fact about the table itself.
+   */
+  countsItself?: boolean;
   /** Lower is more urgent; ties keep the declared order. */
   severity: number;
 }
@@ -32,6 +38,8 @@ export interface DashboardWarningRow {
 export function buildWarningRows(
   warnings: DashboardInventorySummary['warnings'],
   basisOf: (key: string) => DashboardMetricBasis | null,
+  unclassifiedProductCount?: number,
+  abcBasis?: DashboardMetricBasis | null,
 ): DashboardWarningRow[] {
   return [
     {
@@ -89,6 +97,23 @@ export function buildWarningRows(
       basis: basisOf('warnings.mappingAttentionSkus'),
       severity: 4,
     },
+    // Unclassified products are the same kind of thing as the rest of this
+    // table — a count someone has to go act on — and they read against the
+    // others rather than only inside the ABC panel. The count comes from the
+    // products read, not from an ABC evaluation, so it answers to that basis:
+    // gating it on the evaluation would withhold a number nothing else shows.
+    {
+      key: 'abcUnclassified',
+      testId: 'abc-unclassified',
+      label: 'ABC 미분류',
+      note: '셀피아·광고비 수집 또는 매핑을 확인',
+      href: '/product-hub?abcGrade=unclassified',
+      unit: '개',
+      value: unclassifiedProductCount,
+      basis: abcBasis ?? null,
+      countsItself: true,
+      severity: 5,
+    },
   ];
 }
 
@@ -97,18 +122,29 @@ export function buildWarningRows(
  * on screen otherwise, and the operator would take "0건" as "nothing to do".
  */
 function rowState(row: DashboardWarningRow): 'withheld' | 'clear' | 'attention' {
-  if (!basisHasValues(row.basis) || row.value === null || row.value === undefined) return 'withheld';
+  if (row.value === null || row.value === undefined) return 'withheld';
+  if (!row.countsItself && !basisHasValues(row.basis)) return 'withheld';
   return row.value > 0 ? 'attention' : 'clear';
 }
 
 const STATE_LABEL: Record<ReturnType<typeof rowState>, string> = {
-  withheld: '보류',
+  withheld: '미수집',
   clear: '정상',
   attention: '확인',
 };
 
 export function DashboardWarningTable({ rows }: { rows: DashboardWarningRow[] }) {
-  const ordered = [...rows].sort((a, b) => a.severity - b.severity);
+  const entries: BasisBreakdownEntry[] = rows.map(row => ({ label: row.label, basis: row.basis }));
+  // Withheld rows sort last. A row with no verified basis is not "less
+  // urgent" — it is unmeasured, and putting it above a real count would rank
+  // the two on a scale they do not share.
+  const rank = (row: DashboardWarningRow) => {
+    const state = rowState(row);
+    if (state === 'attention') return 0;
+    if (state === 'clear') return 1;
+    return 2;
+  };
+  const ordered = [...rows].sort((a, b) => rank(a) - rank(b) || a.severity - b.severity);
 
   return (
     <section
@@ -119,7 +155,10 @@ export function DashboardWarningTable({ rows }: { rows: DashboardWarningRow[] })
         <h2 id="dashboard-warning-table-title" className="text-sm font-semibold text-slate-900">
           지금 손이 필요한 것
         </h2>
-        <span className="text-[11px] text-slate-500">심각도순</span>
+        <div className="flex items-center gap-1">
+          <span className="text-[11px] text-slate-500">심각도순</span>
+          <DashboardBasisDisclosure label="경고 근거" entries={entries} />
+        </div>
       </header>
       <table className="w-full table-fixed border-collapse text-sm">
         <caption className="sr-only">경고 항목별 상태와 건수</caption>

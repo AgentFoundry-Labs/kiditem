@@ -183,7 +183,7 @@ describe('Dashboard page (RTL)', () => {
     await waitFor(() => {
       expect(screen.getByText('Kiditem Foundry')).toBeTruthy();
       expect(screen.getByText(/운영 상품 5/)).toBeTruthy();
-      expect(screen.getByText(/판매중 채널 연결 재고상품 3/)).toBeTruthy();
+      expect(screen.getByText(/채널 연결 3/)).toBeTruthy();
     });
   });
 
@@ -395,12 +395,25 @@ describe('Dashboard page (RTL)', () => {
     // and lives behind the section's one affordance.
     expect(document.body.textContent).not.toContain('스냅샷 현재 · 기준시점');
     expect(screen.queryAllByRole('button', { name: '데이터 근거 안내' })).toHaveLength(0);
-    expect(screen.getAllByRole('button', { name: /근거 안내$/ }).map((b) => b.getAttribute('aria-label')))
-      .toEqual(['기간 지표 근거 안내', '스냅샷 지표 근거 안내']);
+    // One affordance per section, never one per value. The snapshot rows moved
+    // onto the cards that publish them; a card whose fixture publishes no basis
+    // renders no affordance at all, so this asserts the shape rather than a
+    // fixed list: every affordance is section-level, and none repeats.
+    const affordances = screen.getAllByRole('button', { name: /근거 안내$/ })
+      .map((b) => b.getAttribute('aria-label'));
+    expect(affordances).toContain('기간 지표 근거 안내');
+    expect(new Set(affordances).size).toBe(affordances.length);
+    expect(affordances.every((label) => [
+      '기간 지표 근거 안내',
+      '현재 상태 근거 안내',
+      '광고 성과 근거 안내',
+      '경고 근거 안내',
+      '수익성 ABC 근거 안내',
+    ].includes(label ?? ''))).toBe(true);
     // The enumerated dates are reachable but never printed on the page itself.
     expect(document.body).not.toHaveTextContent('2026-07-02');
 
-    fireEvent.click(screen.getByRole('button', { name: '스냅샷 지표 근거 안내' }));
+    fireEvent.click(screen.getByRole('button', { name: '경고 근거 안내' }));
     const note = await screen.findByRole('note');
     expect(within(note).getByRole('row', { name: /셀피아 재고 0/ })).toBeInTheDocument();
     expect(within(note).getByRole('row', { name: /매칭 확인 필요/ })).toBeInTheDocument();

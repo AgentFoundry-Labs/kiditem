@@ -77,26 +77,23 @@ export function MetricCard({
   return (
     <div className={cn('h-full bg-white transition-colors hover:bg-slate-50', onClick && 'cursor-pointer')} data-testid="dashboard-metric-card" onClick={onClick}>
       <div className="flex h-full flex-col px-3 py-2">
+        {/* Six cells on one row are one row of one measurement each. An icon
+            and an accent colour per cell made each look like its own object
+            and left less room for the number, which is the point of the cell. */}
         <div>
-          <div className="flex items-center justify-between mb-1">
-            <div className="flex items-center gap-2">
-              <Icon size={16} style={{ color: accentColor }} />
-              <span className="text-xs font-bold uppercase tracking-wider" style={{ color: accentColor }}>{label}</span>
-            </div>
-            <div className="flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-xs font-mono" style={{ background: changeBgStyle, color: changeColorStyle }}>
-              <ChangeIcon size={12} />
-              {isUnavailable
-                ? <span>—</span>
-                : isNeutral
-                  ? <span>-</span>
-                  : <span>{change > 0 ? '+' : ''}{change.toFixed(1)}%</span>}
-            </div>
-          </div>
-          <div className="flex items-baseline gap-1">
-            <span className="text-lg sm:text-2xl font-extrabold tabular-nums tracking-tight" style={{ color: accentColor }}>{value}</span>
-            <span className="text-base font-semibold" style={{ color: accentColor, opacity: 0.6 }}>{unit}</span>
-          </div>
-          {prevLabel && <div className="text-xs mt-0.5 text-slate-500">{prevLabel}</div>}
+          <p className="font-mono text-[9.5px] uppercase tracking-wider text-slate-500">{label}</p>
+          <p className="flex items-baseline gap-0.5 text-xl font-bold leading-tight tracking-tight tabular-nums text-slate-900">
+            {value}
+            <span className="text-xs font-semibold text-slate-500">{unit}</span>
+          </p>
+          <p className="mt-0.5 text-[11px] leading-snug text-slate-500">
+            {!isUnavailable && !isNeutral && (
+              <span className={cn('mr-1 font-medium', change >= 0 ? 'text-emerald-700' : 'text-red-600')}>
+                {change > 0 ? '▲' : '▼'} {Math.abs(change).toFixed(1)}%
+              </span>
+            )}
+            {prevLabel}
+          </p>
         </div>
         {hasGoal && (
           <div className="mt-auto pt-2" style={{ borderTop: `1px solid ${accentColor}20` }}>
@@ -137,16 +134,11 @@ export function UnavailableMetricCard({
     <div className="h-full bg-white" data-testid="dashboard-metric-card">
       <div className="flex h-full flex-col px-3 py-2">
         <div>
-          <div className="flex items-center justify-between mb-1">
-            <div className="flex items-center gap-2">
-              <Icon size={16} style={{ color: accentColor, opacity: 0.5 }} />
-              <span className="text-xs font-bold uppercase tracking-wider" style={{ color: accentColor, opacity: 0.6 }}>{label}</span>
-            </div>
-          </div>
-          <div className="flex items-baseline gap-1">
-            <span className="text-lg sm:text-2xl font-extrabold tabular-nums tracking-tight text-slate-300">—</span>
-          </div>
-          <div className="mt-1 text-[11px] leading-snug text-slate-500">{note}</div>
+          <p className="font-mono text-[9.5px] uppercase tracking-wider text-slate-500">{label}</p>
+          {/* The value slot stays a dash; the fixed vocabulary belongs to the
+              reason under it, which is what the operator acts on. */}
+          <p className="text-xl font-medium leading-tight tracking-tight tabular-nums text-slate-400">—</p>
+          <p className="mt-0.5 text-[11px] leading-snug text-slate-500">{note}</p>
         </div>
       </div>
     </div>

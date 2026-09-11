@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { BarChart3 } from 'lucide-react';
 import { ProductAbcBadge } from '@/components/product-abc/ProductAbcBadge';
 import { cn, formatKRW, formatPercent, getProfitColor } from '@/lib/utils';
-import { DashboardBasisMarker, type DashboardMetricBasis } from './DashboardDataBasis';
+import type { DashboardMetricBasis } from './DashboardDataBasis';
 import type { DashboardSalesSummary } from '@kiditem/shared/dashboard';
 
 export function DashboardTopProducts({
@@ -13,15 +13,16 @@ export function DashboardTopProducts({
   basis?: DashboardMetricBasis | null;
 }) {
   return (
-    <div className="rounded-2xl bg-white border border-slate-100 shadow-sm overflow-hidden">
-      <div className="flex items-center justify-between px-5 py-3 border-b border-slate-100">
+    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+      <div className="flex items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-3 py-1.5">
         <div className="flex items-center gap-2">
-          <BarChart3 size={15} className="text-slate-400" />
-          <h3 className="text-sm font-bold text-slate-900">Top Revenue Products</h3>
+          <BarChart3 size={13} className="text-slate-500" />
+          <h3 className="text-sm font-semibold text-slate-900">Top 상품 · 매출순</h3>
         </div>
-        <Link href="/product-hub" className="text-xs font-mono text-purple-600">VIEW ALL →</Link>
+        <div className="flex items-center gap-2">
+          <Link href="/product-hub" className="text-xs font-semibold text-violet-700 hover:text-violet-900">전체 보기 →</Link>
         </div>
-        {basis && <DashboardBasisMarker basis={basis} />}
+      </div>
       <div className="overflow-x-auto">
         {products.length === 0 && <div className="px-5 py-8 text-center text-sm text-slate-400">표시할 상품 매출 데이터가 없습니다.</div>}
         {products.length > 0 && (

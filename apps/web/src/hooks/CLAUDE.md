@@ -19,6 +19,10 @@ needs them.
   retry-key correlation, and React Query source status across Sourcing and Dashboard.
 - `useUrlControlledTab()` for allow-listed canonical workspace selection while
   preserving query parameters owned by nested views and filters.
+- `useProductAbcRecalculation()` shares Products' ABC publication trigger
+  between Product Management and Dashboard: the `SOURCE_NOT_READY` and
+  conflict outcomes, and refetching before reporting. Each caller passes the
+  reads it renders.
 
 ## State Rules
 

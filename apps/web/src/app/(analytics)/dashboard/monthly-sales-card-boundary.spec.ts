@@ -49,9 +49,8 @@ describe('dashboard monthly sales card preservation', () => {
     expect(pageSource).not.toContain('<DashboardChannelSales');
   });
 
-  it('uses only Sellpia channel facts for revenue', () => {
+  it('never lets Wing revenue stand in for a Rocket figure', () => {
     expect(pageSource).not.toContain('rocketRevenue');
-    expect(pageSource).toContain('const spRocket = sp?.rocket.revenue ?? null;');
     expect(pageSource).toContain('{profitRateAvailable ? (');
   });
 });
