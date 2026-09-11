@@ -190,7 +190,6 @@ describe('Order collection source owner over disposable PostgreSQL', () => {
       where: { organizationId: ORG, sourceType: 'order_collection_mall', attemptId: attempt.attemptId },
     })).resolves.toMatchObject({
       status: 'OPEN',
-      severity: 'error',
       href: '/order-collection',
     });
   });
@@ -199,7 +198,7 @@ describe('Order collection source owner over disposable PostgreSQL', () => {
     const attempt = (await begin('art09').expect(201)).body;
     const controlAttempt = (await control(attempt.attemptId).expect(200)).body;
     const failingAlerts = new SourceFailureAlerts(prisma as never);
-    const upsert = vi.spyOn(failingAlerts, 'upsertSourceFailure').mockRejectedValueOnce(
+    const upsert = vi.spyOn(failingAlerts, 'recordTerminalOutcome').mockRejectedValueOnce(
       new Error('alert persistence failed'),
     );
     const failingOwner = new OrderCollectionSourceRepository(prisma as never, failingAlerts);

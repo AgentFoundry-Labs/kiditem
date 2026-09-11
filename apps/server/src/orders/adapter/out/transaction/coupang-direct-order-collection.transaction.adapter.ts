@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { redact } from '../../../../common/redact';
 import {
   BadRequestException,
   ConflictException,
@@ -708,18 +709,16 @@ implements CoupangDirectOrderCollectionTransactionPort {
         errorMessage: redact(message).slice(0, 300),
       },
     });
-    if (code !== 'USER_CANCELLED') {
-      await this.alerts.upsertSourceFailure(tx, {
-        organizationId: row.organizationId,
-        sourceType: DIRECT_SOURCE_TYPE,
-        attemptId: row.id,
-        dedupeKey: `source:${DIRECT_SOURCE_TYPE}:${row.channelAccountId ?? 'unknown'}`,
-        severity: 'error',
-        title: '쿠팡 직배송 원본 수집 실패',
-        message: (redact(message)).slice(0, 300),
-        href: '/order-collection',
-      });
-    }
+    await this.alerts.recordTerminalOutcome(tx, {
+      code,
+      organizationId: row.organizationId,
+      sourceType: DIRECT_SOURCE_TYPE,
+      attemptId: row.id,
+      dedupeKey: `source:${DIRECT_SOURCE_TYPE}:${row.channelAccountId ?? 'unknown'}`,
+      title: '쿠팡 직배송 원본 수집 실패',
+      message: message,
+      href: '/order-collection',
+    });
     return failed;
   }
 
@@ -940,9 +939,6 @@ function expired(row: Pick<Prisma.SourceImportRunGetPayload<{}>, 'status' | 'exp
   return row.status === 'running' && (!row.expiresAt || row.expiresAt.getTime() <= Date.now());
 }
 
-function redact(value: string): string {
-  return value.replace(/(api[_-]?key|authorization|token)\s*[:=]\s*[^\s,;]+/gi, '$1=[REDACTED]');
-}
 
 async function assertActiveActor(
   tx: Prisma.TransactionClient,

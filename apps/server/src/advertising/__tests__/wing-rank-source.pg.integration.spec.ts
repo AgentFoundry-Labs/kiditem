@@ -716,7 +716,7 @@ describe('Wing rank owner incoming HTTP + PostgreSQL', () => {
     expect(
       (await get('/api/ads/keyword-rank/products').expect(200)).body,
     ).toEqual(baseline);
-    vi.spyOn(alerts, 'upsertSourceFailure').mockRejectedValueOnce(
+    vi.spyOn(alerts, 'recordTerminalOutcome').mockRejectedValueOnce(
       new Error('Alert persistence failed'),
     );
     await fail(b).expect(500);

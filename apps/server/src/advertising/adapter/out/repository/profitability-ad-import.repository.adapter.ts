@@ -665,18 +665,16 @@ export class ProfitabilityAdImportRepositoryAdapter
         },
       });
       if (updated.count !== 1) throw new ConflictException('ATTEMPT_TERMINAL');
-      if (isActionableFailure(input.code)) {
-        await this.alerts.upsertSourceFailure(tx, {
-          organizationId: input.organizationId,
-          dedupeKey: PROFITABILITY_ALERT_DEDUPE_KEY,
-          sourceType: PROFITABILITY_SOURCE_TYPE,
-          attemptId: input.attemptId,
-          severity: 'error',
-          title: 'Coupang 광고 수익성 수집 실패',
-          message: input.message.slice(0, 300),
-          href: '/ads/profitability-imports/current',
-        });
-      }
+      await this.alerts.recordTerminalOutcome(tx, {
+        code: input.code,
+        organizationId: input.organizationId,
+        dedupeKey: PROFITABILITY_ALERT_DEDUPE_KEY,
+        sourceType: PROFITABILITY_SOURCE_TYPE,
+        attemptId: input.attemptId,
+        title: 'Coupang 광고 수익성 수집 실패',
+        message: input.message,
+        href: '/ads/profitability-imports/current',
+      });
     }, mutationTransactionOptions());
     return this.readSourceStatus({ organizationId: input.organizationId });
   }
@@ -871,21 +869,17 @@ export class ProfitabilityAdImportRepositoryAdapter
       },
     });
     if (updated.count !== 1) throw new ConflictException('ATTEMPT_TERMINAL');
-    await this.alerts.upsertSourceFailure(tx, {
+    await this.alerts.recordTerminalOutcome(tx, {
+      code: 'ATTEMPT_EXPIRED',
       organizationId: attempt.organizationId,
       dedupeKey: PROFITABILITY_ALERT_DEDUPE_KEY,
       sourceType: PROFITABILITY_SOURCE_TYPE,
       attemptId: attempt.id,
-      severity: 'error',
       title: 'Coupang 광고 수익성 수집 만료',
       message: 'ATTEMPT_EXPIRED: Advertising profitability collection expired before publication.',
       href: '/ads/profitability-imports/current',
     });
   }
-}
-
-function isActionableFailure(code: string): boolean {
-  return code !== 'COLLECTION_CANCELLED';
 }
 
 function mutationTransactionOptions() {

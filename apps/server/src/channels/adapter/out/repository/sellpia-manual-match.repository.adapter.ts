@@ -349,7 +349,7 @@ implements SellpiaManualMatchRepositoryPort {
         },
       });
       if (updated.count !== 1) throw new ConflictException('ATTEMPT_TERMINAL');
-      await this.alerts.upsertSourceFailure(tx, failureAlert({
+      await this.alerts.recordTerminalOutcome(tx, failureAlert({
         organizationId: input.organizationId,
         attemptId: input.attemptId,
         errorCode: input.errorCode,
@@ -374,7 +374,7 @@ implements SellpiaManualMatchRepositoryPort {
       },
     });
     if (updated.count !== 1) throw new ConflictException('ATTEMPT_TERMINAL');
-    await this.alerts.upsertSourceFailure(tx, failureAlert({
+    await this.alerts.recordTerminalOutcome(tx, failureAlert({
       organizationId: attempt.organizationId,
       attemptId: attempt.id,
       errorCode: 'ATTEMPT_EXPIRED',
@@ -710,9 +710,9 @@ function failureAlert(input: {
     dedupeKey: ALERT_DEDUPE_KEY,
     sourceType: SELLPIA_MANUAL_MATCH_SOURCE_TYPE,
     attemptId: input.attemptId,
-    severity: 'error' as const,
+    code: input.errorCode,
     title: 'Sellpia 수동상품매칭 수집 실패',
-    message: input.errorMessage.slice(0, 300),
+    message: input.errorMessage,
     href: ALERT_HREF,
   };
 }

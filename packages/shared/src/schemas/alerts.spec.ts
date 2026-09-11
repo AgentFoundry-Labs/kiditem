@@ -52,13 +52,16 @@ describe('Alert ledger schemas', () => {
       dedupeKey: 'sellpia:profitability:2026-08',
       sourceType: 'sellpia_product_profitability',
       attemptId: ATTEMPT_ID,
-      severity: 'critical',
+      code: 'SELLPIA_PROFITABILITY_UNAVAILABLE',
       title: '수집 실패',
       message: '다시 시도해 주세요.',
       href: '/analytics/sellpia-product-sales',
     });
 
     expect(parsed).not.toHaveProperty('operationKey');
-    expect(parsed.severity).toBe('critical');
+    // Severity left the command: it was 'error' at every production site. The
+    // terminal code took its place, and it decides whether a row is written.
+    expect(parsed).not.toHaveProperty('severity');
+    expect(parsed.code).toBe('SELLPIA_PROFITABILITY_UNAVAILABLE');
   });
 });

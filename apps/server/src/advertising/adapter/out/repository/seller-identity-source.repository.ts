@@ -312,14 +312,14 @@ export class SellerIdentitySourceRepository {
         contentChecksum: checksum,
       },
     });
-    await this.alerts.upsertSourceFailure(tx, {
+    await this.alerts.recordTerminalOutcome(tx, {
+      code,
       organizationId: row.organizationId,
       dedupeKey: `source:${SOURCE}`,
       sourceType: SOURCE,
       attemptId: row.id,
-      severity: 'error',
       title: '쿠팡 판매자 확인 실패',
-      message: message.slice(0, 300),
+      message: message,
       href: '/rank-tracking',
     });
     return failed;

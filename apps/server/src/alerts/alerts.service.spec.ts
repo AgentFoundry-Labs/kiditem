@@ -25,7 +25,7 @@ function failure(attemptId = ATTEMPT_ID_1) {
     dedupeKey: DEDUPE_KEY,
     sourceType: 'sellpia_product_profitability',
     attemptId,
-    severity: 'error' as const,
+    code: 'SELLPIA_SUPPLY_PRICE_MISSING',
     title: 'Sellpia 수익성 수집 실패',
     message: '공급가를 확인할 수 없습니다.',
     href: '/analytics/sellpia-product-sales',
@@ -40,7 +40,6 @@ function existingAlert(overrides: Partial<AlertState> = {}): AlertState {
     dedupeKey: DEDUPE_KEY,
     sourceType: 'sellpia_product_profitability',
     attemptId: ATTEMPT_ID_1,
-    severity: 'error',
     title: 'Sellpia 수익성 수집 실패',
     message: '공급가를 확인할 수 없습니다.',
     href: '/analytics/sellpia-product-sales',
@@ -108,7 +107,7 @@ describe('SourceFailureAlerts', () => {
     const { db, getRow } = makeDb();
     const alerts = new SourceFailureAlerts(db);
 
-    await alerts.upsertSourceFailure(db, failure());
+    await alerts.recordTerminalOutcome(db, failure());
 
     expect(getRow()).toMatchObject({
       organizationId: ORGANIZATION_ID,
@@ -127,7 +126,7 @@ describe('SourceFailureAlerts', () => {
     const alerts = new SourceFailureAlerts(db);
     const before = { ...getRow()! };
 
-    await alerts.upsertSourceFailure(db, failure(ATTEMPT_ID_1));
+    await alerts.recordTerminalOutcome(db, failure(ATTEMPT_ID_1));
 
     expect(getRow()).toEqual(before);
     expect(db.alert.update).not.toHaveBeenCalled();
@@ -138,7 +137,7 @@ describe('SourceFailureAlerts', () => {
     const { db, getRow } = makeDb(existingAlert({ isRead: true, readAt: new Date() }));
     const alerts = new SourceFailureAlerts(db);
 
-    await alerts.upsertSourceFailure(db, failure(ATTEMPT_ID_2));
+    await alerts.recordTerminalOutcome(db, failure(ATTEMPT_ID_2));
 
     expect(getRow()).toMatchObject({
       id: ALERT_ID,
@@ -169,6 +168,47 @@ describe('SourceFailureAlerts', () => {
       attemptId: ATTEMPT_ID_2,
     });
     expect(getRow()).toMatchObject({ status: 'RESOLVED', isRead: false, attemptId: ATTEMPT_ID_2 });
+  });
+
+  /**
+   * The three rules the module took over from its callers. Each was the
+   * caller's homework and each was done differently at 24 call sites.
+   */
+  it('does not alert when the operator cancelled the collection', async () => {
+    const { db, getRow } = makeDb(existingAlert());
+    const alerts = new SourceFailureAlerts(db);
+
+    await alerts.recordTerminalOutcome(db, { ...failure(ATTEMPT_ID_2), code: 'USER_CANCELLED' });
+
+    // The open row is resolved, not reopened: stopping a collection is the
+    // operator's own action, not a failure to show them back.
+    expect(getRow()).toMatchObject({ status: 'RESOLVED' });
+  });
+
+  it('still alerts when an attempt expired', async () => {
+    const { db, getRow } = makeDb();
+    const alerts = new SourceFailureAlerts(db);
+
+    await alerts.recordTerminalOutcome(db, { ...failure(ATTEMPT_ID_2), code: 'ATTEMPT_EXPIRED' });
+
+    // A collection that never finished is something the operator wants to know
+    // about — unlike one they stopped themselves.
+    expect(getRow()).toMatchObject({ status: 'OPEN' });
+  });
+
+  it('scrubs credentials and truncates without the caller asking', async () => {
+    const { db, getRow } = makeDb();
+    const alerts = new SourceFailureAlerts(db);
+
+    await alerts.recordTerminalOutcome(db, {
+      ...failure(ATTEMPT_ID_2),
+      message: `token=abcd1234 ${'가'.repeat(400)}`,
+    });
+
+    const written = getRow() as unknown as { message: string };
+    expect(written.message).toContain('token=[REDACTED]');
+    expect(written.message).not.toContain('abcd1234');
+    expect(written.message).toHaveLength(300);
   });
 
   it('lists and dismisses only alerts in the authenticated organization', async () => {

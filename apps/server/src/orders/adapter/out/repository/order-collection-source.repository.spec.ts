@@ -131,7 +131,7 @@ function fakeRepository(rows: Map<string, ReturnType<typeof sourceRun>>) {
   };
   const alerts = {
     resolveSourceFailure: vi.fn(),
-    upsertSourceFailure: vi.fn(),
+    recordTerminalOutcome: vi.fn(),
   };
   return {
     repository: new OrderCollectionSourceRepository(prisma as never, alerts as never),

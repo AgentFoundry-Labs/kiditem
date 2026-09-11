@@ -534,14 +534,14 @@ async function failAttempt(
       errorMessage: input.message,
     },
   });
-  await alerts.upsertSourceFailure(tx, {
+  await alerts.recordTerminalOutcome(tx, {
+    code: input.code,
     organizationId: attempt.organizationId,
     dedupeKey: input.failureAlert.dedupeKey,
     sourceType: input.failureAlert.sourceType,
     attemptId: attempt.id,
-    severity: 'error',
     title: input.failureAlert.title,
-    message: input.message.slice(0, 300),
+    message: input.message,
     href: input.failureAlert.href,
   });
   return updated;

@@ -350,13 +350,12 @@ export class ChannelCatalogCollectionRepositoryAdapter implements ChannelCatalog
       },
     });
     if (changed.count !== 1) throw new ConflictException('Catalog attempt lost its failure fence');
-    if (input.error.code !== 'USER_CANCELLED')
-      await this.alerts.upsertSourceFailure(tx, {
+    await this.alerts.recordTerminalOutcome(tx, {
+        code: input.error.code,
         organizationId: input.organizationId,
         dedupeKey: catalogAlertKey(input.channelAccountId, input.stage ?? 'full'),
         sourceType: catalogSourceForStage(input.stage ?? 'full'),
         attemptId: input.runId,
-        severity: 'error',
         title: 'Wing catalog collection failed',
         message: input.error.message,
         href: `/product-pipeline/registered-products?collectionAttempt=${input.runId}&channelAccountId=${input.channelAccountId}`

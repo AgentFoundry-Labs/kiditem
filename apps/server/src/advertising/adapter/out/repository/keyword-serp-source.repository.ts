@@ -491,14 +491,14 @@ export class KeywordSerpSourceRepository {
       },
     });
     if (code !== "COLLECTION_CANCELLED") {
-      await this.alerts.upsertSourceFailure(tx, {
+      await this.alerts.recordTerminalOutcome(tx, {
+        code,
         organizationId: row.organizationId,
         sourceType: SOURCE,
         attemptId: row.id,
         dedupeKey: alertKey(row.rankKeyword!),
-        severity: "error",
         title: "쿠팡 키워드 순위 수집 실패",
-        message: message.slice(0, 300),
+        message: message,
         href: "/rank-tracking",
       });
     }

@@ -612,7 +612,7 @@ async function recordPublicationFailure(
     lastErrorMessage: failure.errorMessage,
     freshnessFence: randomUUID(),
   });
-  await alerts.upsertSourceFailure(
+  await alerts.recordTerminalOutcome(
     tx,
     sellpiaInventorySourceFailureAlert({
       organizationId: input.organizationId,

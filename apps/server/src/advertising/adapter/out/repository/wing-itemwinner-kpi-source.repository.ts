@@ -690,18 +690,16 @@ export class WingItemwinnerKpiSourceRepository
         errorJson: json({ code, message }),
       },
     });
-    if (code !== 'USER_CANCELLED') {
-      await this.alerts.upsertSourceFailure(tx, {
-        organizationId: row.organizationId,
-        sourceType: WING_ITEMWINNER_SOURCE,
-        attemptId: row.id,
-        dedupeKey: SOURCE_ALERT_DEDUPE_KEY,
-        severity: 'error',
-        title: SOURCE_ALERT_TITLE,
-        message: message.slice(0, 300),
-        href: '/ad-ops',
-      });
-    }
+    await this.alerts.recordTerminalOutcome(tx, {
+      code,
+      organizationId: row.organizationId,
+      sourceType: WING_ITEMWINNER_SOURCE,
+      attemptId: row.id,
+      dedupeKey: SOURCE_ALERT_DEDUPE_KEY,
+      title: SOURCE_ALERT_TITLE,
+      message: message,
+      href: '/ad-ops',
+    });
     return failed;
   }
 

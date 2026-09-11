@@ -462,9 +462,9 @@ export function failureAlert(
     dedupeKey: ALERT_DEDUPE_KEY,
     sourceType: SOURCE_TYPE,
     attemptId,
-    severity: 'error' as const,
+    code: errorCode,
     title: 'Sellpia 수익성 수집 실패',
-    message: errorMessage.slice(0, 300),
+    message: errorMessage,
     href: '/stock-ops',
   };
 }

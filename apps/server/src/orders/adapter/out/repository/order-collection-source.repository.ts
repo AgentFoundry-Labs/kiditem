@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { redact } from '../../../../common/redact';
 import {
   BadRequestException,
   ConflictException,
@@ -354,18 +355,16 @@ export class OrderCollectionSourceRepository implements OrderCollectionSourcePor
         ...(checksum ? { contentChecksum: checksum } : {}),
       },
     });
-    if (code !== 'USER_CANCELLED') {
-      await this.alerts.upsertSourceFailure(tx, {
-        organizationId: row.organizationId,
-        sourceType: SOURCE_TYPE,
-        attemptId: row.id,
-        dedupeKey: alertDedupeKey(row),
-        severity: 'error',
-        title: SOURCE_ALERT_TITLE,
-        message: message.slice(0, 300),
-        href: '/order-collection',
-      });
-    }
+    await this.alerts.recordTerminalOutcome(tx, {
+      code,
+      organizationId: row.organizationId,
+      sourceType: SOURCE_TYPE,
+      attemptId: row.id,
+      dedupeKey: alertDedupeKey(row),
+      title: SOURCE_ALERT_TITLE,
+      message: message,
+      href: '/order-collection',
+    });
     return failed;
   }
 
@@ -447,6 +446,3 @@ function submissionHash(source: Buffer): string {
   return hash.digest('hex');
 }
 
-function redact(value: string): string {
-  return value.replace(/(api[_-]?key|authorization|token)\s*[:=]\s*[^\s,;]+/gi, '$1=[REDACTED]');
-}

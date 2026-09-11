@@ -262,9 +262,7 @@ export class WingTrackedProductSourceAttemptRepositoryAdapter
         data: { status: DB_FAILED, errorCode: input.code, errorMessage: input.message },
       });
       if (updated.count !== 1) throw new ConflictException('ATTEMPT_TERMINAL');
-      if (input.code !== 'COLLECTION_CANCELLED') {
-        await this.alerts.upsertSourceFailure(tx, failureAlert(input));
-      }
+      await this.alerts.recordTerminalOutcome(tx, failureAlert(input));
     }, mutationTransactionOptions());
     return this.readSourceStatus({ organizationId: input.organizationId });
   }
@@ -284,12 +282,12 @@ export class WingTrackedProductSourceAttemptRepositoryAdapter
       },
     });
     if (updated.count !== 1) throw new ConflictException('ATTEMPT_TERMINAL');
-    await this.alerts.upsertSourceFailure(tx, {
+    await this.alerts.recordTerminalOutcome(tx, {
+      code: 'ATTEMPT_EXPIRED',
       organizationId: attempt.organizationId,
       dedupeKey: WING_TRACKED_PRODUCTS_ALERT_DEDUPE_KEY,
       sourceType: WING_TRACKED_PRODUCTS_SOURCE_TYPE,
       attemptId: attempt.id,
-      severity: 'error',
       title: 'Coupang Wing 추적상품 수집 만료',
       message: 'ATTEMPT_EXPIRED: Tracked Wing collection expired before publication.',
       href: '/sourcing-ai/product-tracking',
@@ -309,9 +307,9 @@ function failureAlert(input: {
     dedupeKey: WING_TRACKED_PRODUCTS_ALERT_DEDUPE_KEY,
     sourceType: WING_TRACKED_PRODUCTS_SOURCE_TYPE,
     attemptId: input.attemptId,
-    severity: 'error' as const,
+    code: input.code,
     title: 'Coupang Wing 추적상품 수집 실패',
-    message: input.message.slice(0, 300),
+    message: input.message,
     href: '/sourcing-ai/product-tracking',
   };
 }

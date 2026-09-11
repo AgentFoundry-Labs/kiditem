@@ -662,18 +662,16 @@ export class SellpiaSalesSourceService {
       where: { id: row.id, organizationId: row.organizationId },
       data: { status: 'failed', errorCode, errorMessage: message },
     });
-    if (errorCode !== 'USER_CANCELLED' && errorCode !== 'COLLECTION_CANCELLED') {
-      await this.alerts.upsertSourceFailure(tx, {
-        organizationId: row.organizationId,
-        sourceType: SELLPIA_SALES_SOURCE_TYPE,
-        attemptId: row.id,
-        dedupeKey: SELLPIA_SALES_ALERT_DEDUPE_KEY,
-        severity: 'error',
-        title: '셀피아 판매현황 수집 실패',
-        message,
-        href: '/analytics/sellpia-product-sales',
-      });
-    }
+    await this.alerts.recordTerminalOutcome(tx, {
+      code: errorCode,
+      organizationId: row.organizationId,
+      sourceType: SELLPIA_SALES_SOURCE_TYPE,
+      attemptId: row.id,
+      dedupeKey: SELLPIA_SALES_ALERT_DEDUPE_KEY,
+      title: '셀피아 판매현황 수집 실패',
+      message,
+      href: '/analytics/sellpia-product-sales',
+    });
     return failed;
   }
 

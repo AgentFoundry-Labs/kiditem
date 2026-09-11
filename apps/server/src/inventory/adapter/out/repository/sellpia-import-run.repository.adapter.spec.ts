@@ -10,7 +10,7 @@ describe('SellpiaImportRunRepositoryAdapter source failure alerts', () => {
   it('upserts the focused alert after marking a parse attempt failed', async () => {
     const tx = makeTransaction();
     const alerts = {
-      upsertSourceFailure: vi.fn().mockResolvedValue(undefined),
+      recordTerminalOutcome: vi.fn().mockResolvedValue(undefined),
     };
     const repository = new SellpiaImportRunRepositoryAdapter(
       makePrisma(tx),
@@ -33,12 +33,12 @@ describe('SellpiaImportRunRepositoryAdapter source failure alerts', () => {
       },
     });
 
-    expect(alerts.upsertSourceFailure).toHaveBeenCalledWith(tx, {
+    expect(alerts.recordTerminalOutcome).toHaveBeenCalledWith(tx, {
       organizationId: ORGANIZATION_ID,
       dedupeKey: 'source:sellpia-inventory',
       sourceType: 'sellpia_inventory',
       attemptId: RUN_ID,
-      severity: 'error',
+      code: 'sellpia_file_unreadable',
       title: '셀피아 재고 수집 실패',
       // The reason code stays on the run row for logs and correlation; the
       // alert carries only what a person reads (PRODUCT.md brand commitments).
@@ -50,7 +50,7 @@ describe('SellpiaImportRunRepositoryAdapter source failure alerts', () => {
   it('lets an alert failure reject the terminal owner transaction', async () => {
     const tx = makeTransaction();
     const alerts = {
-      upsertSourceFailure: vi.fn().mockRejectedValue(new Error('alert write failed')),
+      recordTerminalOutcome: vi.fn().mockRejectedValue(new Error('alert write failed')),
     };
     const repository = new SellpiaImportRunRepositoryAdapter(
       makePrisma(tx),

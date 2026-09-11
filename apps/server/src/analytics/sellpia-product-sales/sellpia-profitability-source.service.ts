@@ -332,14 +332,12 @@ export class SellpiaProfitabilitySourceService
         },
       });
       if (updated.count !== 1) throw new ConflictException('ATTEMPT_TERMINAL');
-      if (body.errorCode !== 'COLLECTION_CANCELLED') {
-        await this.alerts.upsertSourceFailure(tx, failureAlert(
-          organizationId,
-          attemptId,
-          body.errorCode,
-          body.errorMessage,
-        ));
-      }
+      await this.alerts.recordTerminalOutcome(tx, failureAlert(
+        organizationId,
+        attemptId,
+        body.errorCode,
+        body.errorMessage,
+      ));
       return toAttemptView({
         ...attempt,
         status: 'failed',
@@ -627,7 +625,7 @@ export class SellpiaProfitabilitySourceService
       },
     });
     if (updated.count !== 1) throw new ConflictException('ATTEMPT_TERMINAL');
-    await this.alerts.upsertSourceFailure(tx, failureAlert(
+    await this.alerts.recordTerminalOutcome(tx, failureAlert(
       attempt.organizationId,
       attempt.id,
       'ATTEMPT_EXPIRED',

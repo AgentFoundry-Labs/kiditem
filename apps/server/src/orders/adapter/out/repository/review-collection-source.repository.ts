@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { redact } from '../../../../common/redact';
 import {
   BadRequestException,
   ConflictException,
@@ -438,18 +439,16 @@ export class ReviewCollectionSourceRepository implements ReviewCollectionSourceP
       where: { id: row.id, organizationId: row.organizationId },
       data: { status: 'failed', errorCode, errorMessage },
     });
-    if (errorCode !== 'USER_CANCELLED') {
-      await this.alerts.upsertSourceFailure(tx, {
-        organizationId: row.organizationId,
-        sourceType: COUPANG_REVIEW_COLLECTION_SOURCE_TYPE,
-        attemptId: row.id,
-        dedupeKey: alertDedupeKey(),
-        severity: 'error',
-        title: SOURCE_ALERT_TITLE,
-        message: errorMessage.slice(0, 300),
-        href: SOURCE_ALERT_HREF,
-      });
-    }
+    await this.alerts.recordTerminalOutcome(tx, {
+      code: errorCode,
+      organizationId: row.organizationId,
+      sourceType: COUPANG_REVIEW_COLLECTION_SOURCE_TYPE,
+      attemptId: row.id,
+      dedupeKey: alertDedupeKey(),
+      title: SOURCE_ALERT_TITLE,
+      message: errorMessage,
+      href: SOURCE_ALERT_HREF,
+    });
     return failed;
   }
 
@@ -752,6 +751,3 @@ function alertDedupeKey(): string {
   return `source:${COUPANG_REVIEW_COLLECTION_SOURCE_TYPE}`;
 }
 
-function redact(value: string): string {
-  return value.replace(/(api[_-]?key|authorization|token)\s*[:=]\s*[^\s,;]+/gi, '$1=[REDACTED]');
-}

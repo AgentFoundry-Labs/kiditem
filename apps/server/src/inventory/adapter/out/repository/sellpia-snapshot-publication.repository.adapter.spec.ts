@@ -14,7 +14,7 @@ describe('SellpiaSnapshotPublicationRepositoryAdapter source failure alerts', ()
   it('upserts one focused alert when quality gates block publication', async () => {
     const tx = makeQualityFailureTransaction();
     const alerts = {
-      upsertSourceFailure: vi.fn().mockResolvedValue(undefined),
+      recordTerminalOutcome: vi.fn().mockResolvedValue(undefined),
       resolveSourceFailure: vi.fn().mockResolvedValue(undefined),
     };
     const repository = new SellpiaSnapshotPublicationRepositoryAdapter(
@@ -34,12 +34,12 @@ describe('SellpiaSnapshotPublicationRepositoryAdapter source failure alerts', ()
       confirmedReferencedProductCodes: [],
     })).rejects.toThrow('quality thresholds');
 
-    expect(alerts.upsertSourceFailure).toHaveBeenCalledWith(tx, {
+    expect(alerts.recordTerminalOutcome).toHaveBeenCalledWith(tx, {
       organizationId: ORGANIZATION_ID,
       dedupeKey: 'source:sellpia-inventory',
       sourceType: 'sellpia_inventory',
       attemptId: RUN_ID,
-      severity: 'error',
+      code: 'sellpia_invalid_workbook',
       title: '셀피아 재고 수집 실패',
       // No reason code in a message a person reads; it stays on the run row.
       message: 'Sellpia inventory snapshot failed quality thresholds',
@@ -51,7 +51,7 @@ describe('SellpiaSnapshotPublicationRepositoryAdapter source failure alerts', ()
   it('resolves the same alert inside a successful same-hash verification', async () => {
     const tx = makeVerificationTransaction();
     const alerts = {
-      upsertSourceFailure: vi.fn().mockResolvedValue(undefined),
+      recordTerminalOutcome: vi.fn().mockResolvedValue(undefined),
       resolveSourceFailure: vi.fn().mockResolvedValue(undefined),
     };
     const repository = new SellpiaSnapshotPublicationRepositoryAdapter(
@@ -77,7 +77,7 @@ describe('SellpiaSnapshotPublicationRepositoryAdapter source failure alerts', ()
   it('resolves the same alert inside a successful snapshot publication', async () => {
     const tx = makePublicationSuccessTransaction();
     const alerts = {
-      upsertSourceFailure: vi.fn().mockResolvedValue(undefined),
+      recordTerminalOutcome: vi.fn().mockResolvedValue(undefined),
       resolveSourceFailure: vi.fn().mockResolvedValue(undefined),
     };
     const repository = new SellpiaSnapshotPublicationRepositoryAdapter(
@@ -107,7 +107,7 @@ describe('SellpiaSnapshotPublicationRepositoryAdapter source failure alerts', ()
   it('propagates an alert failure so quality failure rolls back with its run', async () => {
     const tx = makeQualityFailureTransaction();
     const alerts = {
-      upsertSourceFailure: vi.fn().mockRejectedValue(new Error('alert write failed')),
+      recordTerminalOutcome: vi.fn().mockRejectedValue(new Error('alert write failed')),
       resolveSourceFailure: vi.fn().mockResolvedValue(undefined),
     };
     const repository = new SellpiaSnapshotPublicationRepositoryAdapter(

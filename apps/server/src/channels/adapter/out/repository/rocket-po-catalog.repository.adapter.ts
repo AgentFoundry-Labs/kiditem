@@ -166,12 +166,12 @@ export class RocketPoCatalogRepositoryAdapter implements RocketPoCatalogReposito
       where: { id: run.id, organizationId: run.organizationId },
       data: { status: 'failed', errorCode: code, errorMessage: message },
     });
-    await this.alerts.upsertSourceFailure(tx, {
+    await this.alerts.recordTerminalOutcome(tx, {
+      code,
       organizationId: run.organizationId,
       sourceType: SOURCE_TYPE,
       dedupeKey: `channels:rocket-po:${run.channelAccountId}`,
       attemptId: run.id,
-      severity: 'error',
       title: '로켓 PO 수집 실패',
       message,
       href: '/rocket-orders',

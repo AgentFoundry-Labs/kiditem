@@ -18,7 +18,7 @@ function failure(attemptId: string) {
     dedupeKey: DEDUPE_KEY,
     sourceType: 'sellpia_product_profitability',
     attemptId,
-    severity: 'error' as const,
+    code: 'SELLPIA_PROFITABILITY_UNAVAILABLE',
     title: 'Sellpia 수익성 수집 실패',
     message: '공급가를 확인할 수 없습니다.',
     href: '/analytics/sellpia-product-sales',
@@ -32,7 +32,7 @@ describe('SourceFailureAlerts (PostgreSQL)', () => {
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    alerts = new SourceFailureAlerts(prisma);
+    alerts = new SourceFailureAlerts(prisma as never);
   });
 
   afterAll(async () => {
@@ -62,7 +62,7 @@ describe('SourceFailureAlerts (PostgreSQL)', () => {
         where: { id: ATTEMPT_ID_1 },
         data: { status: 'failed' },
       });
-      await alerts.upsertSourceFailure(tx, failure(ATTEMPT_ID_1));
+      await alerts.recordTerminalOutcome(tx, failure(ATTEMPT_ID_1));
     });
     const created = await prisma.alert.findUniqueOrThrow({
       where: {
@@ -81,7 +81,7 @@ describe('SourceFailureAlerts (PostgreSQL)', () => {
       readAt: dismissed.readAt,
     };
 
-    await inTransaction((tx) => alerts.upsertSourceFailure(tx, failure(ATTEMPT_ID_1)));
+    await inTransaction((tx) => alerts.recordTerminalOutcome(tx, failure(ATTEMPT_ID_1)));
     const replayed = await prisma.alert.findUniqueOrThrow({ where: { id: created.id } });
     expect(replayed).toMatchObject({
       status: 'OPEN',
@@ -100,7 +100,7 @@ describe('SourceFailureAlerts (PostgreSQL)', () => {
         status: 'running',
       },
     });
-    await inTransaction((tx) => alerts.upsertSourceFailure(tx, failure(ATTEMPT_ID_2)));
+    await inTransaction((tx) => alerts.recordTerminalOutcome(tx, failure(ATTEMPT_ID_2)));
 
     await expect(prisma.alert.findUniqueOrThrow({ where: { id: created.id } })).resolves.toMatchObject({
       status: 'OPEN',
@@ -116,7 +116,7 @@ describe('SourceFailureAlerts (PostgreSQL)', () => {
         where: { id: ATTEMPT_ID_1 },
         data: { status: 'failed' },
       });
-      await alerts.upsertSourceFailure(tx, failure(ATTEMPT_ID_1));
+      await alerts.recordTerminalOutcome(tx, failure(ATTEMPT_ID_1));
     });
     await prisma.sourceImportRun.create({
       data: {
@@ -126,7 +126,7 @@ describe('SourceFailureAlerts (PostgreSQL)', () => {
         status: 'running',
       },
     });
-    await inTransaction((tx) => alerts.upsertSourceFailure(tx, failure(ATTEMPT_ID_2)));
+    await inTransaction((tx) => alerts.recordTerminalOutcome(tx, failure(ATTEMPT_ID_2)));
     const created = await prisma.alert.findUniqueOrThrow({
       where: {
         organizationId_dedupeKey: {
@@ -149,7 +149,7 @@ describe('SourceFailureAlerts (PostgreSQL)', () => {
   });
 
   it('rolls the source terminal state back when the alert mutation fails', async () => {
-    const upsert = vi.spyOn(alerts, 'upsertSourceFailure').mockRejectedValueOnce(
+    const upsert = vi.spyOn(alerts, 'recordTerminalOutcome').mockRejectedValueOnce(
       new Error('alert mutation failed'),
     );
 
@@ -159,7 +159,7 @@ describe('SourceFailureAlerts (PostgreSQL)', () => {
           where: { id: ATTEMPT_ID_1 },
           data: { status: 'failed' },
         });
-        await alerts.upsertSourceFailure(tx, failure(ATTEMPT_ID_1));
+        await alerts.recordTerminalOutcome(tx, failure(ATTEMPT_ID_1));
       }),
     ).rejects.toThrow('alert mutation failed');
 

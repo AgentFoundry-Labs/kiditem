@@ -249,7 +249,7 @@ describe('Sellpia manual-match source owner (PostgreSQL)', () => {
     });
     const failingAlerts = {
       resolveSourceFailure: vi.fn().mockRejectedValue(new Error('alert write failed')),
-      upsertSourceFailure: vi.fn(),
+      recordTerminalOutcome: vi.fn(),
     } as unknown as SourceFailureAlerts;
     const failingOwner = new SellpiaManualMatchRepositoryAdapter(
       prisma as unknown as PrismaService,

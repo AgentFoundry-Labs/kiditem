@@ -1803,14 +1803,14 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
         ...(checksum ? { contentChecksum: checksum } : {}),
       },
     });
-    await this.alerts.upsertSourceFailure(tx, {
+    await this.alerts.recordTerminalOutcome(tx, {
+      code,
       organizationId: row.organizationId,
       sourceType: SOURCE_TYPE,
       attemptId: row.id,
       dedupeKey: this.alertDedupeKey(row.channelAccountId!),
-      severity: 'error',
       title: '쿠팡 Wing 트래픽 수집 실패',
-      message: message.slice(0, 300),
+      message: message,
       href: '/ad-ops',
     });
     return failed;

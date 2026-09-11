@@ -144,7 +144,7 @@ describe('Sellpia shipment tracking source owner over disposable PostgreSQL', ()
     const started = (await begin().expect(201)).body;
     const scopedControl = (await control(ORG, started.attemptId).expect(200)).body;
     const failingAlerts = new SourceFailureAlerts(prisma as never);
-    const upsert = vi.spyOn(failingAlerts, 'upsertSourceFailure').mockRejectedValueOnce(
+    const upsert = vi.spyOn(failingAlerts, 'recordTerminalOutcome').mockRejectedValueOnce(
       new Error('alert persistence failed'),
     );
     const failingOwner = new SellpiaShipmentTrackingSourceRepository(prisma as never, failingAlerts);

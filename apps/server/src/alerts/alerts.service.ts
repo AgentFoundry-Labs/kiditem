@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { redact } from '../common/redact';
 import type {
   AlertItem,
   SourceFailureAlertInput,
@@ -82,7 +83,33 @@ export class SourceFailureAlerts {
     if (result.count === 0) throw new NotFoundException('Alert not found');
   }
 
-  async upsertSourceFailure(
+  /**
+   * Record how a source attempt ended. The module decides whether that is worth
+   * an operator's attention at all, and shapes the message it will read.
+   *
+   * The three rules below used to be the caller's homework, and 24 call sites
+   * kept them 24 different ways: credentials were scrubbed at 4 of them, the
+   * column width was restated at each, and a user's cancellation was suppressed
+   * under five different code spellings — or, in every `sourcing` owner, not at
+   * all, so stopping a collection raised an error alert.
+   */
+  async recordTerminalOutcome(
+    tx: Prisma.TransactionClient,
+    input: SourceFailureAlertInput,
+  ): Promise<void> {
+    // A cancellation is the operator's own action, not a failure to show them
+    // back. Every owner already names one `*_CANCELLED`, in five spellings —
+    // `USER_CANCELLED`, `COLLECTION_CANCELLED`, `SOURCE_COLLECTION_CANCELLED`,
+    // `SHADOW_COLLECTION_CANCELLED` — which is why the suffix is the rule and
+    // not a list. `ATTEMPT_EXPIRED` deliberately still alerts: a collection that
+    // never finished is something the operator wants to know about.
+    if (input.code.endsWith('_CANCELLED')) {
+      return this.resolveSourceFailure(tx, input);
+    }
+    return this.upsertSourceFailure(tx, input);
+  }
+
+  private async upsertSourceFailure(
     tx: Prisma.TransactionClient,
     input: SourceFailureAlertInput,
   ): Promise<void> {
@@ -139,6 +166,10 @@ export class SourceFailureAlerts {
 
 }
 
+/** The column is 300 wide; callers were each restating that. */
+const MESSAGE_LIMIT = 300;
+
+
 function sourceFailureData(input: SourceFailureAlertInput) {
   return {
     organizationId: input.organizationId,
@@ -148,9 +179,10 @@ function sourceFailureData(input: SourceFailureAlertInput) {
     kind: 'signal',
     status: 'OPEN',
     type: 'source_failure',
-    severity: input.severity,
+    // Every production site passed 'error'. It was a parameter that never varied.
+    severity: 'error',
     title: input.title,
-    message: input.message,
+    message: redact(input.message).slice(0, MESSAGE_LIMIT),
     href: input.href,
     isRead: false,
     readAt: null,

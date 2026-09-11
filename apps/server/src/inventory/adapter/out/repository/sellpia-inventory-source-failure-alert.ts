@@ -13,9 +13,9 @@ export function sellpiaInventorySourceFailureAlert(input: {
     dedupeKey: SELLPIA_INVENTORY_ALERT_DEDUPE_KEY,
     sourceType: 'sellpia_inventory',
     attemptId: input.attemptId,
-    severity: 'error',
+    code: input.errorCode,
     title: '셀피아 재고 수집 실패',
-    message: input.errorMessage.slice(0, 300),
+    message: input.errorMessage,
     href: '/stock-ops',
   };
 }

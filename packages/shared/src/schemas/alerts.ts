@@ -29,8 +29,17 @@ export const SourceFailureAlertInputSchema = z.object({
   dedupeKey: z.string().min(1).max(255),
   sourceType: z.string().min(1).max(128),
   attemptId: z.string().min(1),
-  severity: z.enum(SOURCE_FAILURE_ALERT_SEVERITIES),
   title: z.string().min(1).max(200),
+  /**
+   * The owner's terminal code. The alerts module reads it to decide whether the
+   * outcome is worth an operator's attention — a cancellation is not — so it is
+   * the one field that changes whether a row is written at all.
+   */
+  code: z.string().min(1).max(128),
+  /**
+   * Raw text from the owner. It is redacted and truncated on the way in; the
+   * caller does not do either, and does not restate the column width.
+   */
   message: z.string().max(2000),
   href: z.string().min(1).max(1024),
 });

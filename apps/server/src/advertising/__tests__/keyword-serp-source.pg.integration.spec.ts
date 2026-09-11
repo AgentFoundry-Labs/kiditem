@@ -499,7 +499,7 @@ describe("Public keyword SERP owner HTTP + PostgreSQL", () => {
       ),
     ).toContain("신규");
     const b = (await start().expect(201)).body;
-    vi.spyOn(alerts, "upsertSourceFailure").mockRejectedValueOnce(
+    vi.spyOn(alerts, "recordTerminalOutcome").mockRejectedValueOnce(
       new Error("Injected failure Alert error"),
     );
     await fail(b).expect(500);

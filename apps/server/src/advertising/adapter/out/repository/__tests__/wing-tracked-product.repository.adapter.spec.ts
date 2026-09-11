@@ -193,7 +193,7 @@ describe('WingTrackedProductSourceAttemptRepositoryAdapter', () => {
     };
     const adapter = new WingTrackedProductSourceAttemptRepositoryAdapter(prisma as never, {
       resolveSourceFailure: vi.fn(),
-      upsertSourceFailure: vi.fn(),
+      recordTerminalOutcome: vi.fn(),
     } as never);
 
     await expect(adapter.beginAttempt({
@@ -240,7 +240,7 @@ describe('WingTrackedProductSourceAttemptRepositoryAdapter', () => {
     };
     const adapter = new WingTrackedProductSourceAttemptRepositoryAdapter(prisma as never, {
       resolveSourceFailure: vi.fn(),
-      upsertSourceFailure: vi.fn(),
+      recordTerminalOutcome: vi.fn(),
     } as never);
 
     await expect(adapter.beginAttempt({
@@ -256,7 +256,7 @@ describe('WingTrackedProductSourceAttemptRepositoryAdapter', () => {
     const prisma = { $transaction: vi.fn() };
     const adapter = new WingTrackedProductSourceAttemptRepositoryAdapter(prisma as never, {
       resolveSourceFailure: vi.fn(),
-      upsertSourceFailure: vi.fn(),
+      recordTerminalOutcome: vi.fn(),
     } as never);
 
     await expect(adapter.beginAttempt({
@@ -291,7 +291,7 @@ describe('WingTrackedProductSourceAttemptRepositoryAdapter', () => {
     };
     const alerts = {
       resolveSourceFailure: vi.fn(),
-      upsertSourceFailure: vi.fn().mockResolvedValue(undefined),
+      recordTerminalOutcome: vi.fn().mockResolvedValue(undefined),
     };
     const adapter = new WingTrackedProductSourceAttemptRepositoryAdapter(prisma as never, alerts as never);
 
@@ -308,7 +308,7 @@ describe('WingTrackedProductSourceAttemptRepositoryAdapter', () => {
     expect(updateMany).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ status: 'failed', errorCode: 'ATTEMPT_EXPIRED' }),
     }));
-    expect(alerts.upsertSourceFailure).toHaveBeenCalledWith(tx, expect.objectContaining({
+    expect(alerts.recordTerminalOutcome).toHaveBeenCalledWith(tx, expect.objectContaining({
       attemptId: attempt.id,
       href: '/sourcing-ai/product-tracking',
     }));
@@ -335,7 +335,7 @@ describe('WingTrackedProductSourceAttemptRepositoryAdapter', () => {
     };
     const alerts = {
       resolveSourceFailure: vi.fn().mockResolvedValue(undefined),
-      upsertSourceFailure: vi.fn().mockResolvedValue(undefined),
+      recordTerminalOutcome: vi.fn().mockResolvedValue(undefined),
     };
     const prisma = {
       $transaction: vi.fn(async (callback: (client: typeof tx) => Promise<unknown>) => callback(tx)),
@@ -391,7 +391,7 @@ describe('WingTrackedProductSourceAttemptRepositoryAdapter', () => {
     };
     const alerts = {
       resolveSourceFailure: vi.fn(),
-      upsertSourceFailure: vi.fn(),
+      recordTerminalOutcome: vi.fn(),
     };
     const adapter = new WingTrackedProductSourceAttemptRepositoryAdapter(prisma as never, alerts as never);
 
@@ -438,7 +438,7 @@ describe('WingTrackedProductSourceAttemptRepositoryAdapter', () => {
     };
     const adapter = new WingTrackedProductSourceAttemptRepositoryAdapter(prisma as never, {
       resolveSourceFailure: vi.fn(),
-      upsertSourceFailure: vi.fn(),
+      recordTerminalOutcome: vi.fn(),
     } as never);
 
     await expect(adapter.submitAttempt({
@@ -499,7 +499,7 @@ describe('WingTrackedProductSourceAttemptRepositoryAdapter', () => {
     };
     const adapter = new WingTrackedProductSourceAttemptRepositoryAdapter(prisma as never, {
       resolveSourceFailure: vi.fn(),
-      upsertSourceFailure: vi.fn(),
+      recordTerminalOutcome: vi.fn(),
     } as never);
 
     await expect(adapter.submitAttempt({
@@ -545,7 +545,7 @@ describe('WingTrackedProductSourceAttemptRepositoryAdapter', () => {
     };
     const alerts = {
       resolveSourceFailure: vi.fn().mockResolvedValue(undefined),
-      upsertSourceFailure: vi.fn().mockResolvedValue(undefined),
+      recordTerminalOutcome: vi.fn().mockResolvedValue(undefined),
     };
     const prisma = {
       $transaction: vi.fn(async (callback: (client: typeof tx) => Promise<unknown>) => callback(tx)),
@@ -595,7 +595,7 @@ describe('WingTrackedProductSourceAttemptRepositoryAdapter', () => {
     };
     const alerts = {
       resolveSourceFailure: vi.fn().mockRejectedValue(new Error('alert write failed')),
-      upsertSourceFailure: vi.fn().mockResolvedValue(undefined),
+      recordTerminalOutcome: vi.fn().mockResolvedValue(undefined),
     };
     const prisma = {
       $transaction: vi.fn(async (callback: (client: typeof tx) => Promise<unknown>) => callback(tx)),
@@ -649,7 +649,7 @@ describe('WingTrackedProductSourceAttemptRepositoryAdapter', () => {
     };
     const adapter = new WingTrackedProductSourceAttemptRepositoryAdapter(prisma as never, {
       resolveSourceFailure: vi.fn(),
-      upsertSourceFailure: vi.fn(),
+      recordTerminalOutcome: vi.fn(),
     } as never);
 
     await expect(adapter.readSourceStatus({ organizationId: ORGANIZATION_ID })).resolves.toMatchObject({
@@ -697,7 +697,7 @@ describe('WingTrackedProductSourceAttemptRepositoryAdapter', () => {
     };
     const adapter = new WingTrackedProductSourceAttemptRepositoryAdapter(prisma as never, {
       resolveSourceFailure: vi.fn(),
-      upsertSourceFailure: vi.fn(),
+      recordTerminalOutcome: vi.fn(),
     } as never);
 
     await expect(adapter.readSourceStatus({ organizationId: ORGANIZATION_ID })).resolves.toMatchObject({

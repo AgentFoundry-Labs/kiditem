@@ -667,18 +667,16 @@ export class AdKeywordSourceRepository {
         ...(checksum ? { contentChecksum: checksum } : {}),
       },
     });
-    if (code !== 'USER_CANCELLED') {
-      await this.alerts.upsertSourceFailure(tx, {
-        organizationId: row.organizationId,
-        sourceType: SOURCE,
-        attemptId: row.id,
-        dedupeKey: `source:${SOURCE}:${row.channelAccountId}`,
-        severity: 'error',
-        title: '쿠팡 광고 키워드 수집 실패',
-        message: message.slice(0, 300),
-        href: '/ad-ops',
-      });
-    }
+    await this.alerts.recordTerminalOutcome(tx, {
+      code,
+      organizationId: row.organizationId,
+      sourceType: SOURCE,
+      attemptId: row.id,
+      dedupeKey: `source:${SOURCE}:${row.channelAccountId}`,
+      title: '쿠팡 광고 키워드 수집 실패',
+      message: message,
+      href: '/ad-ops',
+    });
     return result;
   }
   private async find(tx: Tx, org: string, id: string) {

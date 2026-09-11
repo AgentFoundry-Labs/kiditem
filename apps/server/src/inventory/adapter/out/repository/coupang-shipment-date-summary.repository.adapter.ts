@@ -250,12 +250,12 @@ export class CoupangShipmentDateSummaryRepositoryAdapter implements CoupangShipm
       where: { id: run.id, organizationId: run.organizationId },
       data: { status: "failed", errorCode: code, errorMessage: message },
     });
-    await this.alerts.upsertSourceFailure(tx, {
+    await this.alerts.recordTerminalOutcome(tx, {
+      code,
       organizationId: run.organizationId,
       dedupeKey: ALERT,
       attemptId: run.id,
       sourceType: SOURCE,
-      severity: "error",
       title: "쿠팡 쉽먼트 조회 실패",
       message,
       href: "/coupang-shipments",

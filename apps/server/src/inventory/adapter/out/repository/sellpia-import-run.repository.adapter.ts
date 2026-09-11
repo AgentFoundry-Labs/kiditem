@@ -340,7 +340,7 @@ implements SellpiaImportRunRepositoryPort {
           freshnessFence: randomUUID(),
         },
       });
-      await this.alerts.upsertSourceFailure(
+      await this.alerts.recordTerminalOutcome(
         tx,
         sellpiaInventorySourceFailureAlert({
           organizationId: input.organizationId,
@@ -437,7 +437,7 @@ async function failOwnerIn(
       freshnessFence: randomUUID(),
     },
   });
-  await alerts.upsertSourceFailure(
+  await alerts.recordTerminalOutcome(
     tx,
     sellpiaInventorySourceFailureAlert({
       organizationId: run.organizationId,
