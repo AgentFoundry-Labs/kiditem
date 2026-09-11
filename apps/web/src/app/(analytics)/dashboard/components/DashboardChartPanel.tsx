@@ -135,7 +135,6 @@ export function DashboardChartPanel({
   };
 
   const tabs = [
-    { key: 'agents' as const, label: 'Agent OS' },
     { key: 'revenue' as const, label: '매출 · 이익률' },
     { key: 'ad' as const, label: '광고비 · 비율' },
     ...(hasBenchmark ? [{ key: 'benchmark' as const, label: '업계 기준(참고)' }] : []),
@@ -177,99 +176,6 @@ export function DashboardChartPanel({
         </span>
       </div>
 
-      {chartTab === 'agents' && (
-        <div className="flex-1 flex flex-col p-4 rounded-b-2xl relative" style={{ background: 'linear-gradient(135deg, #faf5ff 0%, #ffffff 45%, #eff6ff 100%)' }}>
-          <div className="absolute inset-0 pointer-events-none" style={{ background: 'radial-gradient(circle at 20% 0%, rgba(139,92,246,0.08) 0%, transparent 40%), radial-gradient(circle at 80% 100%, rgba(59,130,246,0.06) 0%, transparent 40%)' }} />
-          <div className="relative flex-1 flex flex-col min-h-0">
-            <div className="flex justify-center mb-1.5">
-              <div className="rounded-full px-3 py-1.5 flex items-center gap-2 bg-purple-600" style={{ boxShadow: '0 2px 8px rgba(124,58,237,0.25)' }}>
-                <div className="w-6 h-6 rounded-full flex items-center justify-center overflow-hidden shrink-0" style={{ background: 'rgba(255,255,255,0.85)' }}>
-                  <AgentFace color="violet" role="ceo" size={24} />
-                </div>
-                <span className="text-xs font-semibold text-white">CEO</span>
-                <span className="w-1.5 h-1.5 rounded-full shrink-0 bg-white/40" />
-              </div>
-            </div>
-
-            <div className="flex justify-center">
-              <div style={{ width: 1.5, height: 8, background: '#7c3aed', opacity: 0.3 }} />
-            </div>
-
-            <div className="grid grid-cols-5 gap-2 flex-1 min-h-0">
-              {DEPT_MAP.map((dept) => (
-                <div key={dept.key} className="flex flex-col min-h-0">
-                  <div className="rounded-xl p-3 flex items-center gap-2.5 border border-slate-100 shrink-0" style={{ boxShadow: '0 1px 4px rgba(0,0,0,0.04)', background: '#ffffff' }}>
-                    <div className="relative shrink-0">
-                      <div className="w-12 h-12 rounded-full overflow-hidden" style={{ background: `${dept.color}08` }}>
-                        <AgentFace color={dept.faceColor} role={dept.faceRole} size={48} />
-                      </div>
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="text-base font-bold truncate" style={{ color: dept.color }}>{dept.label}</div>
-                      <div className="flex items-center gap-1 mt-0.5">
-                        <span className="w-1.5 h-1.5 rounded-full shrink-0 bg-gray-300" />
-                        <span className="text-xs text-slate-400">대기</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex justify-center">
-                    <div style={{ width: 1, height: 6, background: dept.color, opacity: 0.25 }} />
-                  </div>
-
-                  <div className="rounded-xl border border-slate-100 flex-1 min-h-0 overflow-y-auto" style={{ background: `${dept.color}04` }}>
-                    <div className="p-2 space-y-1.5">
-                      {dept.buttons.map((button) => {
-                        if (button.kind === 'action') {
-                          const id = `${dept.key}:${button.action}`;
-                          const isRunning = runningAction === id;
-                          return (
-                            <button
-                              key={id}
-                              type="button"
-                              onClick={() => void runAction(dept.key, button.action)}
-                              disabled={runningAction !== null}
-                              className="w-full text-left rounded-lg px-2.5 py-2 flex items-center gap-2 bg-white border border-slate-50 hover:border-slate-200 transition-colors disabled:opacity-60"
-                            >
-                              <span className="w-2 h-2 rounded-full shrink-0" style={{ background: dept.color }} />
-                              <span className="text-[15px] text-slate-800 flex-1 leading-snug line-clamp-2 font-medium">{button.label}</span>
-                              <span
-                                className="shrink-0 flex items-center justify-center w-7 h-7 rounded-md transition-all"
-                                style={{ background: isRunning ? '#e2e8f0' : `${dept.color}15`, color: isRunning ? '#94a3b8' : dept.color }}
-                                title="실행"
-                              >
-                                {isRunning ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />}
-                              </span>
-                            </button>
-                          );
-                        }
-                        return (
-                          <Link
-                            key={button.href}
-                            href={button.href}
-                            className="rounded-lg px-2.5 py-2 flex items-center gap-2 bg-white border border-slate-50 hover:border-slate-200 transition-colors"
-                          >
-                            <span className="w-2 h-2 rounded-full shrink-0" style={{ background: dept.color }} />
-                            <span className="text-[15px] text-slate-800 flex-1 leading-snug line-clamp-2 font-medium">{button.label}</span>
-                            <span
-                              className="shrink-0 flex items-center justify-center w-7 h-7 rounded-md transition-all"
-                              style={{ background: `${dept.color}15`, color: dept.color }}
-                              title="열기"
-                            >
-                              <ArrowRight size={13} />
-                            </span>
-                          </Link>
-                        );
-                      })}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
       <DashboardCharts
         chartTab={chartTab}
         dailyTrend={dailyTrend}
@@ -292,6 +198,44 @@ export function DashboardChartPanel({
           날짜별 원천 근거와 누락 여부는 각 점의 툴팁에서 확인할 수 있습니다.
         </div>
       )}
+      {/* Agent OS — the same departments and the same promoted actions, folded
+          into one row under the chart. It was a tab holding a full-height board
+          to show five idle agents; as a row it stays reachable without deciding
+          the height of the screen. */}
+      <div className="grid grid-cols-2 gap-px border-t border-slate-200 bg-slate-200 sm:grid-cols-3 lg:grid-cols-6">
+        {DEPT_MAP.map(dept => (
+          <div key={dept.key} className="bg-white px-2.5 py-1.5">
+            <p className="truncate text-xs font-semibold" style={{ color: dept.color }}>{dept.label}</p>
+            <ul className="mt-0.5 space-y-0.5">
+              {dept.buttons.map(button => button.kind === 'action' ? (
+                <li key={`${dept.key}:${button.action}`}>
+                  <button
+                    type="button"
+                    onClick={() => void runAction(dept.key, button.action)}
+                    disabled={runningAction !== null}
+                    className="flex w-full items-center gap-1 text-left text-[11px] leading-snug text-slate-600 hover:text-slate-900 disabled:opacity-60"
+                  >
+                    {runningAction === `${dept.key}:${button.action}`
+                      ? <Loader2 size={10} className="shrink-0 animate-spin" />
+                      : <Play size={10} className="shrink-0" style={{ color: dept.color }} />}
+                    <span className="truncate">{button.label}</span>
+                  </button>
+                </li>
+              ) : (
+                <li key={button.href}>
+                  <Link
+                    href={button.href}
+                    className="flex items-center gap-1 text-[11px] leading-snug text-slate-600 hover:text-slate-900"
+                  >
+                    <ArrowRight size={10} className="shrink-0" style={{ color: dept.color }} />
+                    <span className="truncate">{button.label}</span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

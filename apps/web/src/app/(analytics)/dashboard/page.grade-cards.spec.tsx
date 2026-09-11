@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import Dashboard from './page';
 import { buildSnapshotBasis, type SellpiaSalesSummary } from '@kiditem/shared/dashboard';
@@ -220,6 +220,16 @@ function renderDashboard() {
   );
 }
 
+
+/**
+ * The profit cell no longer prints its inputs — the detail modal does. Opening
+ * it is how those values are reached now, so the assertions follow them there.
+ */
+async function openProfitDetail(): Promise<HTMLElement> {
+  fireEvent.click(screen.getByTestId('dashboard-primary-profit'));
+  return await screen.findByText('순이익 구조').then(h => h.closest('div[class*="max-w-md"]') as HTMLElement);
+}
+
 describe('Dashboard absolute ABC grade cards', () => {
   it('uses the classified denominator, exposes unclassified, and links exact filters', async () => {
     const queryClient = new QueryClient({
@@ -272,10 +282,13 @@ describe('Dashboard absolute ABC grade cards', () => {
 
     await waitFor(() => expect(screen.getByText('Kiditem Foundry')).toBeInTheDocument());
 
-    expect(screen.getByText('Wing 트래픽 기준 · 미수집')).toBeInTheDocument();
-    expect(screen.getByText('판매량').parentElement).toHaveTextContent('판매량—');
-    expect(screen.getByText('일평균 방문자').parentElement).toHaveTextContent('일평균 방문자—');
-    expect(screen.getByText('조회').parentElement).toHaveTextContent('조회—');
+    // Nothing was collected, so the funnel lays out no slots at all — the steps
+    // stay named on one line. What must never happen is a step reading as 0.
+    expect(screen.getByText(
+      '일평균 방문자 · 조회 · 장바구니 · 주문 · 판매량 — Wing 트래픽 기준 · 미수집',
+    )).toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent('판매량0');
+    expect(document.body).not.toHaveTextContent('조회0');
     expect(screen.getByText('Wing 트래픽 미수집')).toBeInTheDocument();
   });
 
@@ -500,7 +513,6 @@ describe('Dashboard absolute ABC grade cards', () => {
     const primaryRevenue = screen.getByTestId('dashboard-primary-revenue');
     expect(screen.getByTestId('dashboard-primary-revenue-value')).toHaveTextContent('363,200');
     expect(screen.getByTestId('dashboard-primary-revenue-change')).toHaveTextContent('—');
-    expect(primaryRevenue).toHaveTextContent('이전 —');
     expect(primaryRevenue).not.toHaveTextContent('NaN');
   });
 
@@ -676,8 +688,9 @@ describe('Dashboard absolute ABC grade cards', () => {
       .closest('[data-testid="dashboard-primary-profit"]');
     expect(profitCard).toHaveTextContent('—');
     expect(profitCard).toHaveTextContent('판매금액과 비용의 공통 유효 날짜가 없어 순이익을 산출할 수 없습니다.');
-    expect(profitCard).toHaveTextContent('쿠팡 광고비—');
-    expect(profitCard).not.toHaveTextContent('400,000원');
+    const detail = await openProfitDetail();
+    expect(detail).toHaveTextContent('집행광고비—');
+    expect(detail).not.toHaveTextContent('400,000원');
 
     const profitRateLabel = screen.getAllByText('이익률')[0];
     const profitRateCard = profitRateLabel?.closest('[data-testid="dashboard-metric-card"]');
@@ -718,12 +731,13 @@ describe('Dashboard absolute ABC grade cards', () => {
     const profitCard = screen
       .getByText('셀피아 · 판매금액 − 매입가 − 쿠팡 광고비')
       .closest('[data-testid="dashboard-primary-profit"]');
-    expect(profitCard).toHaveTextContent('쿠팡 광고비—');
-    expect(profitCard).toHaveTextContent('비광고 비용—');
-    expect(profitCard).toHaveTextContent('판매수량—');
-    expect(profitCard).not.toHaveTextContent('200,000원');
-    expect(profitCard).not.toHaveTextContent('400,000원');
-    expect(profitCard).not.toHaveTextContent('12개');
+    const detail = await openProfitDetail();
+    expect(detail).toHaveTextContent('집행광고비—');
+    expect(detail).toHaveTextContent('비광고 비용—');
+    expect(detail).toHaveTextContent('판매수량—');
+    expect(detail).not.toHaveTextContent('200,000원');
+    expect(detail).not.toHaveTextContent('400,000원');
+    expect(detail).not.toHaveTextContent('12개');
   });
 
   it('renders Sellpia server profitability values without recomputing them from inputs', async () => {
@@ -790,7 +804,8 @@ describe('Dashboard absolute ABC grade cards', () => {
       .getByText('셀피아 · 판매금액 − 매입가 − 쿠팡 광고비')
       .closest('[data-testid="dashboard-primary-profit"]');
     expect(profitCard).toHaveTextContent('0원');
-    expect(profitCard).toHaveTextContent('쿠팡 광고비0원');
+    const detail = await openProfitDetail();
+    expect(detail).toHaveTextContent('집행광고비0원');
     const profitRateLabel = screen.getAllByText('이익률')[0];
     const profitRateCard = profitRateLabel?.closest('[data-testid="dashboard-metric-card"]');
     expect(profitRateCard).toHaveTextContent('0.0%');

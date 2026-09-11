@@ -1,5 +1,5 @@
 import { X } from 'lucide-react';
-import { cn, formatKRW } from '@/lib/utils';
+import { cn, formatKRW, formatNumber } from '@/lib/utils';
 import {
   DashboardBasisDisclosure,
   DashboardDataBasis,
@@ -40,18 +40,38 @@ function formatNullable(value: number | null, digits = 0): string {
   return value === null ? '—' : value.toFixed(digits);
 }
 
+export type DashboardProfitInputsView = {
+  revenue: number;
+  cost: number;
+  adCost: number;
+  qty: number | null;
+  basis: DashboardMetricBasis;
+};
+
 export function DashboardProfitDetailModal({
   salesBaseline,
   adBaseline,
   selectedRange,
+  inputs,
   onClose,
 }: {
   salesBaseline: DashboardSalesSummary;
   adBaseline: DashboardAdSummary;
   selectedRange: DashboardProfitDetailRange;
+  /**
+   * The inputs the card that opened this modal was reading. The profit card no
+   * longer prints them itself, so the modal has to show the caller's own
+   * numbers rather than re-deriving a set from the sales baseline — Sellpia and
+   * order profitability publish different ones.
+   *
+   * Passing `null` is an answer, not an absence: it says the caller's source
+   * published nothing, and the sales baseline's own inputs must NOT stand in.
+   * Omitting the prop entirely is what keeps the old baseline behaviour.
+   */
+  inputs?: DashboardProfitInputsView | null;
   onClose: () => void;
 }) {
-  const profitInputs = salesBaseline.profitInputs ?? null;
+  const profitInputs = inputs !== undefined ? inputs : salesBaseline.profitInputs ?? null;
   // A modal opened for the selected range shows that range or nothing. The
   // baseline month's cached values never stand in for a missing range value,
   // and the basis label always describes the values actually rendered.
@@ -62,7 +82,21 @@ export function DashboardProfitDetailModal({
   const monthProfitDetail = isMonthSelection ? salesBaseline.profitDetail ?? null : null;
   const selectedProfitBasis = readMetricBasis(salesBaseline, 'rangeKpi.profit');
   const selectedNetProfit = monthProfitDetail?.netProfit ?? salesBaseline.rangeKpi?.profit ?? null;
-  const view: ProfitDetailView = profitInputs ? {
+  // The caller said its source published no structure. Every remaining branch
+  // reads a different source — the calendar month's order structure, or the ad
+  // account — so any of them would put one source's numbers under another
+  // source's card. The rows stay named and withheld instead.
+  const sourcePublishedNothing = inputs === null;
+  const view: ProfitDetailView = sourcePublishedNothing ? {
+    items: [
+      { label: '매출', value: null, negative: false },
+      { label: '집행광고비', value: null, negative: true },
+      { label: '비광고 비용', value: null, negative: true },
+    ],
+    scale: null,
+    basis: null,
+    scopeNote: '선택한 원천이 순이익 구성을 발행하지 않았습니다.',
+  } : profitInputs ? {
     items: [
       { label: '매출', value: profitInputs.revenue, negative: false },
       { label: '집행광고비', value: -profitInputs.adCost, negative: true },
@@ -103,6 +137,9 @@ export function DashboardProfitDetailModal({
   };
   // Month-scoped evidence for a month-scoped breakdown only.
   const orderCount = monthProfitDetail?.orderCount;
+  // Quantity is not a currency, so it reads as its own line rather than as a
+  // bar in the cost structure.
+  const soldQuantity = profitInputs?.qty ?? null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
@@ -151,6 +188,15 @@ export function DashboardProfitDetailModal({
               </div>
             </div>
           ))}
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-slate-500">판매수량</span>
+            <span
+              className={cn('w-24 text-right text-sm font-semibold tabular-nums', soldQuantity === null ? 'text-slate-300' : 'text-slate-900')}
+              data-testid="dashboard-profit-detail-qty"
+            >
+              {soldQuantity === null ? '—' : `${formatNumber(soldQuantity)}개`}
+            </span>
+          </div>
           <DashboardDataBasis basis={view.basis} className="text-center" />
           <div className="pt-3 mt-3 flex items-center justify-between border-t border-slate-200">
             <span className="text-sm font-bold text-slate-900">순이익</span>

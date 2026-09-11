@@ -390,8 +390,10 @@ describe('Dashboard page (RTL)', () => {
     renderPage();
 
     await screen.findByText('Kiditem Foundry');
-    // Summaries stay beside every value; the affordance is section-level.
-    expect(screen.getAllByTestId('dashboard-data-basis').length).toBeGreaterThan(2);
+    // Evidence is reached per section, not reprinted beside every value. The
+    // sentence that used to sit under nine values at once is gone from the page
+    // and lives behind the section's one affordance.
+    expect(document.body.textContent).not.toContain('스냅샷 현재 · 기준시점');
     expect(screen.queryAllByRole('button', { name: '데이터 근거 안내' })).toHaveLength(0);
     expect(screen.getAllByRole('button', { name: /근거 안내$/ }).map((b) => b.getAttribute('aria-label')))
       .toEqual(['기간 지표 근거 안내', '스냅샷 지표 근거 안내']);

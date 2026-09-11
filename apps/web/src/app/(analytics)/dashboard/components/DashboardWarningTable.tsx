@@ -3,15 +3,17 @@
 import Link from 'next/link';
 import type { DashboardInventorySummary, DashboardMetricBasis } from '@kiditem/shared/dashboard';
 import { cn } from '@/lib/utils';
-import { basisHasValues, DashboardBasisMarker } from './DashboardDataBasis';
+import { basisHasValues } from './DashboardDataBasis';
 
 /**
  * Each warning used to own a card, so five counts never lined up against one
  * another — and the actual question ("what needs a hand first?") is comparative.
  * As rows they sort by severity and read against each other.
  *
- * Each row still carries its own basis: the counts come from separate keys that
- * can disagree, so one shared sentence would overstate what was verified.
+ * The counts come from separate keys that can disagree, so each row still reads
+ * its own basis — to decide whether the number is a measurement or a withheld
+ * value. What it no longer does is print that basis five times: the evidence is
+ * reached through the section's one disclosure.
  */
 
 export interface DashboardWarningRow {
@@ -142,9 +144,6 @@ export function DashboardWarningTable({ rows }: { rows: DashboardWarningRow[] })
                   <Link href={row.href} className="block truncate font-medium text-slate-900 hover:text-violet-700" title={row.note}>
                     {row.label}
                   </Link>
-                  {/* Each count publishes its own basis, and they can differ, so
-                      the state stays beside the value it explains. */}
-                  <DashboardBasisMarker basis={row.basis} className="mt-0.5" />
                 </td>
                 <td className="px-1 py-1.5 align-top">
                   <span

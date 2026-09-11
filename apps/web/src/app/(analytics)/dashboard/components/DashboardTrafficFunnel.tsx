@@ -1,7 +1,7 @@
 'use client';
 
 import type { DashboardMetricBasis } from '@kiditem/shared/dashboard';
-import { DashboardBasisMarker } from './DashboardDataBasis';
+
 
 /**
  * These five numbers are one story — a visitor becoming a sale — and they all
@@ -49,11 +49,10 @@ export function DashboardTrafficFunnel({
             Wing 트래픽 퍼널
           </h2>
           <span className={collected ? 'truncate text-xs text-slate-500' : 'truncate text-xs font-medium text-amber-700'}>
-            {collected ? sourceNote : 'Wing 트래픽 기준 · 미수집'}
+            {collected ? sourceNote : `${steps.map(s => s.label).join(' · ')} — Wing 트래픽 기준 · 미수집`}
           </span>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <DashboardBasisMarker basis={basis} />
           {!collected && (
             <button
               type="button"
@@ -66,20 +65,22 @@ export function DashboardTrafficFunnel({
         </div>
       </header>
 
-      {/* Every step keeps its own slot and its own withheld marker, collected or
-          not. Collapsing the uncollected case into one line would hide which
-          measurement is missing — and a named slot showing 미상 is information. */}
-      <ol className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-px bg-slate-200">
-        {steps.map(step => (
-          <li key={step.key} className="bg-white px-3 py-1.5">
-            <p className="text-xs text-slate-500">{step.label}</p>
-            <p className="text-lg font-bold tabular-nums tracking-tight text-slate-900">
-              {step.display}
-              {step.rate && <span className="ml-1.5 text-xs font-medium text-slate-500">{step.rate}</span>}
-            </p>
-          </li>
-        ))}
-      </ol>
+      {/* Nothing collected means there is no measurement to lay out — the steps
+          stay named on one line so the operator can see what would appear, and
+          no slot pretends to hold a value. */}
+      {collected ? (
+        <ol className="grid grid-cols-2 gap-px bg-slate-200 sm:grid-cols-3 lg:grid-cols-5">
+          {steps.map(step => (
+            <li key={step.key} className="bg-white px-3 py-1.5">
+              <p className="text-xs text-slate-500">{step.label}</p>
+              <p className="text-lg font-bold tabular-nums tracking-tight text-slate-900">
+                {step.display}
+                {step.rate && <span className="ml-1.5 text-xs font-medium text-slate-500">{step.rate}</span>}
+              </p>
+            </li>
+          ))}
+        </ol>
+      ) : null}
     </section>
   );
 }

@@ -1,6 +1,6 @@
 import { Minus, TrendingDown, TrendingUp } from 'lucide-react';
 import { cn, formatKRW } from '@/lib/utils';
-import { DashboardBasisMarker, type DashboardMetricBasis } from './DashboardDataBasis';
+import { type DashboardMetricBasis } from './DashboardDataBasis';
 import type { LucideIcon } from 'lucide-react';
 
 export function MetricCard({
@@ -97,10 +97,6 @@ export function MetricCard({
             <span className="text-base font-semibold" style={{ color: accentColor, opacity: 0.6 }}>{unit}</span>
           </div>
           {prevLabel && <div className="text-xs mt-0.5 text-slate-500">{prevLabel}</div>}
-          {comparisonBasis && (
-            <DashboardBasisMarker basis={comparisonBasis} />
-          )}
-          {basis && <DashboardBasisMarker basis={basis} />}
         </div>
         {hasGoal && (
           <div className="mt-auto pt-2" style={{ borderTop: `1px solid ${accentColor}20` }}>
@@ -150,11 +146,7 @@ export function UnavailableMetricCard({
           <div className="flex items-baseline gap-1">
             <span className="text-lg sm:text-2xl font-extrabold tabular-nums tracking-tight text-slate-300">—</span>
           </div>
-          <div className="text-xs mt-1 text-slate-400">{note}</div>
-          <div className="mt-1 flex flex-wrap items-center gap-1">
-            {comparisonBasis && <DashboardBasisMarker basis={comparisonBasis} />}
-            {basis && <DashboardBasisMarker basis={basis} />}
-          </div>
+          <div className="mt-1 text-[11px] leading-snug text-slate-500">{note}</div>
         </div>
       </div>
     </div>

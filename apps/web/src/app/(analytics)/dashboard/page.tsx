@@ -41,7 +41,6 @@ import { DashboardTopProducts } from './components/DashboardTopProducts';
 import { DashboardAdPerformance } from './components/DashboardAdPerformance';
 import { DashboardTrafficFunnel } from './components/DashboardTrafficFunnel';
 import { DashboardWarningTable, buildWarningRows } from './components/DashboardWarningTable';
-import { DashboardExpenseAmount } from './components/DashboardExpenseAmount';
 import { DashboardGradeCards } from './components/DashboardGradeCards';
 import { WingDailyTrafficCollection } from './components/WingDailyTrafficCollection';
 import {
@@ -125,12 +124,6 @@ function rangeMetricBasis(
     if (monthlyBasis) return monthlyBasis;
   }
   return readMetricBasis(value, `rangeKpi.${rangeKey}`);
-}
-
-function ExpenseAmountOrUnavailable({ amount }: { amount: number | null }) {
-  return amount === null
-    ? <span className="font-mono tabular-nums text-slate-300">—</span>
-    : <DashboardExpenseAmount amount={amount} />;
 }
 
 const EMPTY_SALES_SUMMARY: DashboardSalesSummary = {
@@ -659,8 +652,6 @@ export default function Dashboard() {
   const spTotal = sp?.totalRevenue ?? null;
   const spRocket = sp?.rocket.revenue ?? null;
   const spOthers = sp?.others.revenue ?? null;
-  const spCost = sellpiaProfitInputs?.cost ?? null;
-  const spAdCost = sellpiaProfitInputs?.adCost ?? null;
   const spQty = sellpiaProfitInputs?.qty ?? null;
   // Sellpia publishes a compact basis map. Prefer the fixed group keys so
   // rocket/others cards inherit the same evidence without requiring a basis
@@ -695,8 +686,6 @@ export default function Dashboard() {
   const displayRevenue = primaryRevenueAvailable
     ? (sellpiaHasData ? spTotal : kpiRevenue)
     : null;
-  const displayRocket = sellpiaHasData ? spRocket : null;
-  const displayOthers = sellpiaHasData ? spOthers : wingRevenue;
   const salesAnalysisPeriod = sp?.range.from?.slice(0, 7)
     ?? (effectivePeriod
       ? `${effectivePeriod.year}-${String(effectivePeriod.month).padStart(2, '0')}`
@@ -749,6 +738,37 @@ export default function Dashboard() {
   // breakdown explains the number on screen rather than a parallel guess.
   const revenueCardBasis = sellpiaHasData ? sellpiaMetricBasis : revenueBasis;
   const profitCardUsesSellpia = sellpiaHasData && sellpiaProfitInputsAvailable && spProfit !== null;
+
+
+  // One cell, so one value and one reason for it. The reason is the card's
+  // own state, not a sentence assembled from three variants.
+  const displayProfit = profitCardUsesSellpia
+    ? spProfit
+    : (!sellpiaHasData && profitMetricsAvailable) ? kpiProfit : null;
+  // The source line names what the value would be built from, withheld or not
+  // — it is how the operator knows which collection to go fix.
+  const profitCellNote = sellpiaHasData
+    ? '셀피아 · 판매금액 − 매입가 − 쿠팡 광고비'
+    : profitMetricsAvailable ? '주문 기준' : '정산 데이터 없음';
+  // Why it is withheld reads under it, and only when it is.
+  const profitCellReason = displayProfit !== null
+    ? null
+    : sellpiaHasData
+      ? (sellpiaProfitInputsAvailable
+        ? '선택 기간의 순이익 데이터가 없어 순이익을 산출할 수 없습니다.'
+        : '판매금액과 비용의 공통 유효 날짜가 없어 순이익을 산출할 수 없습니다.')
+      : revenueSource === 'wing'
+        ? 'Wing/Drive 데이터에는 매입가·수수료·배송비가 없어 순이익을 산출할 수 없습니다.'
+        : orderProfitInputs === null
+          ? '매출·비용의 공통 유효 날짜가 없어 순이익을 산출할 수 없습니다.'
+          : '선택 기간의 순이익 데이터가 없어 순이익을 산출할 수 없습니다.';
+  // The modal shows the inputs of whichever source the cell is reading — never
+  // the other one. Falling back across sources would put order inputs under a
+  // Sellpia card whose own value was withheld, which is the borrowing the card
+  // itself is careful not to do.
+  const profitDetailInputs = sellpiaHasData
+    ? sellpiaProfitInputs ?? null
+    : orderProfitInputs ?? null;
   const profitCardBasis = profitCardUsesSellpia
     ? sellpiaProfitInputs?.basis ?? null
     : sellpiaHasData ? sellpiaMetricBasis : profitBasis;
@@ -948,227 +968,65 @@ export default function Dashboard() {
         <div className="lg:col-span-2 space-y-3">
         {/* KPI 카드 — 월 매출 + 월 순이익 + 이익률 + 광고비율 */}
         <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-slate-200 bg-slate-200 lg:grid-cols-6" style={{ alignItems: 'stretch' }}>
-          {/* 월 매출 — 채널 카드를 누르면 매출 분석의 동일 월·채널 상세로 이동한다. */}
-          <div
-            className="px-3 py-2 flex flex-col justify-between bg-white"
-            data-testid="dashboard-primary-revenue"
+          {/* 기간 매출 — 채널 분해는 매출 분석 화면이 owner라 셀 전체가 그리로 간다. */}
+        <Link
+          href={salesAnalysisHref}
+          className="flex flex-col bg-white px-3 py-2 transition-colors hover:bg-slate-50"
+          data-testid="dashboard-primary-revenue"
+        >
+          <p className="font-mono text-[9.5px] uppercase tracking-wider text-slate-500">{rangeLabel} 매출</p>
+          <p
+            className="text-xl font-bold leading-tight tracking-tight tabular-nums text-slate-900"
+            data-testid="dashboard-primary-revenue-value"
           >
-            <div>
-              <div className="flex items-center gap-2 mb-1">
-                <Wallet size={18} className="text-blue-600" />
-                <span className="text-sm font-bold uppercase tracking-wider text-blue-600">{rangeLabel} 매출</span>
-                {!sellpiaHasData && displayRevenue !== null && (
-                  <span
-                    className={cn(
-                      'flex items-center gap-0.5 px-2 py-0.5 rounded-full text-sm font-mono',
-                      revenueChange === null
-                        ? 'bg-slate-50 text-slate-400'
-                        : revenueChange >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600',
-                    )}
-                    data-testid="dashboard-primary-revenue-change"
-                  >
-                    {revenueChange === null
-                      ? <span>—</span>
-                      : <>
-                        {revenueChange >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
-                        <span>{revenueChange > 0 ? '+' : ''}{revenueChange.toFixed(1)}%</span>
-                      </>}
-                  </span>
-                )}
-                <Link
-                  href={salesAnalysisHref}
-                  className="ml-auto text-[11px] font-semibold text-blue-500 hover:text-blue-700"
-                >
-                  매출 분석 →
-                </Link>
-              </div>
-              <div className="text-[10px] font-mono text-slate-400 mb-1.5">{sellpiaHasData ? '셀피아 판매현황' : revenueSourceLabel}</div>
-              <DashboardBasisMarker basis={revenueCardBasis} />
-              {!sellpiaHasData && <DashboardBasisMarker basis={revenueComparisonBasis} />}
-              <div className="flex items-baseline gap-1.5 mb-1">
-                <span
-                  className="text-xl sm:text-3xl font-extrabold tabular-nums tracking-tight text-blue-600"
-                  data-testid="dashboard-primary-revenue-value"
-                >
-                  {displayRevenue === null ? '—' : formatKRW(displayRevenue)}
-                </span>
-                {displayRevenue !== null && <span className="text-lg font-semibold text-blue-600/60">원</span>}
-              </div>
-              {!sellpiaHasData && displayRevenue !== null && (
-                <div className="text-sm text-slate-500">이전 {formatNullableKRW(kpiPrevRevenue)}</div>
-              )}
-              {sellpiaHasData && (
-                <div className="mt-2 grid grid-cols-2 gap-2">
-                  <Link
-                    href={`${salesAnalysisHref}&channel=others`}
-                    className="rounded-lg bg-blue-50/70 px-2.5 py-1.5 transition-colors hover:bg-blue-100"
-                  >
-                    <div className="text-[11px] font-medium text-blue-500">
-                      {sellpiaHasData ? '쿠팡윙 · 기타몰' : '쿠팡 윙'} <span className="text-[9px] text-blue-400">→ 분석</span>
-                    </div>
-                    <div className="text-sm font-bold tabular-nums text-blue-700">{displayOthers === null ? '—' : `${formatKRW(displayOthers)}원`}</div>
-                    <DashboardBasisMarker basis={sellpiaOthersBasis} />
-                  </Link>
-                  <Link
-                    href={`${salesAnalysisHref}&channel=rocket`}
-                    className="rounded-lg bg-purple-50 px-2.5 py-1.5 transition-colors hover:bg-purple-100"
-                  >
-                    <div className="text-[11px] font-medium text-purple-600">
-                      쿠팡 로켓 <span className="text-[9px] text-purple-400">→ 분석</span>
-                    </div>
-                    <div className="text-sm font-bold tabular-nums text-purple-700">{displayRocket === null ? '—' : `${formatKRW(displayRocket)}원`}</div>
-                    <DashboardBasisMarker basis={sellpiaRocketBasis} />
-                  </Link>
-                </div>
-              )}
-            </div>
-            {/* The funnel and the day-count coverage moved out of this card — they
-                belong to the Wing traffic owner. These two stay: they say why THIS
-                card's own value is withheld, so they have to be read with it. */}
-            {(trafficCoverageComplete && trafficUnverifiedLabels.length > 0) && (
-              <div className="mt-1 text-xs text-amber-700">
-                일별 합산·기간 원본 미대사 · {trafficUnverifiedLabels.join(', ')}
-              </div>
+            {displayRevenue === null ? '—' : <>{formatKRW(displayRevenue)}<span className="ml-0.5 text-xs font-semibold text-slate-500">원</span></>}
+          </p>
+          <p className="mt-0.5 text-[11px] leading-snug text-slate-500">
+            {sellpiaHasData ? '셀피아 판매현황' : revenueSourceLabel}
+            {!sellpiaHasData && displayRevenue !== null && (
+              <span
+                className={cn('ml-1 font-medium', revenueChange === null ? 'text-slate-500' : revenueChange >= 0 ? 'text-emerald-700' : 'text-red-600')}
+                data-testid="dashboard-primary-revenue-change"
+              >
+                {revenueChange === null ? '—' : `${revenueChange > 0 ? '▲' : '▼'} ${Math.abs(revenueChange).toFixed(1)}%`}
+              </span>
             )}
-            {trafficMismatchLabels.length > 0 && (
-              <div className="mt-1 text-xs text-amber-700">
-                기간 원본 불일치로 숨김 · {trafficMismatchLabels.join(', ')}
-              </div>
-            )}
-          </div>
-
-          {/* 월 순이익 — 셀피아 판매현황(판매금액−매입가−쿠팡 광고비)이 있으면 우선 */}
-          {profitCardUsesSellpia ? (
-            <div className="px-3 py-2 flex flex-col justify-between bg-white" data-testid="dashboard-primary-profit">
-              <div>
-                <div className="flex items-center gap-2 mb-1">
-                  {spProfit === null || spProfit >= 0
-                    ? <TrendingUp size={18} className="text-emerald-600" />
-                    : <TrendingDown size={18} className="text-red-600" />}
-                  <span className="text-sm font-bold uppercase tracking-wider text-emerald-600">{rangeLabel} 순이익</span>
-                </div>
-                <div className="text-[10px] font-mono text-slate-400 mb-1.5">셀피아 · 판매금액 − 매입가 − 쿠팡 광고비</div>
-                <div className="flex items-baseline gap-1.5 mb-1">
-                  <span className={cn('text-xl sm:text-3xl font-extrabold tabular-nums tracking-tight', spProfit === null ? 'text-slate-300' : spProfit >= 0 ? 'text-emerald-600' : 'text-red-600')}>{formatNullableKRW(spProfit)}</span>
-                </div>
-                <div className="text-xs text-slate-400 mt-1">
-                  판매금액에서 매입가와 선택 기간에 수집된 쿠팡 광고비를 뺀 금액입니다.
-                </div>
-                <DashboardBasisMarker basis={profitCardBasis} />
-              </div>
-              <div className="mt-2 pt-2 space-y-1.5 border-t border-emerald-100">
-                <div className="flex justify-between text-sm">
-                  <span className="text-slate-500">판매금액</span>
-                  <span className="font-bold tabular-nums text-slate-900">{sellpiaProfitInputs ? `${formatKRW(sellpiaProfitInputs.revenue)}원` : '—'}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-slate-500">매입가</span>
-                  <ExpenseAmountOrUnavailable amount={spCost} />
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-slate-500">쿠팡 광고비</span>
-                  <ExpenseAmountOrUnavailable amount={spAdCost} />
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-slate-500">판매수량</span>
-                  <span className="font-bold tabular-nums text-slate-900">{spQty === null ? '—' : `${formatNumber(spQty)}개`}</span>
-                </div>
-              </div>
-            </div>
-          ) : !sellpiaHasData && profitMetricsAvailable ? (
-            <div
-              className="px-3 py-2 flex flex-col justify-between cursor-pointer transition-colors bg-white hover:bg-slate-50"
-              data-testid="dashboard-primary-profit"
-              onClick={() => setShowProfitDetail(true)}
-            >
-              <div>
-                <div className="flex items-center gap-2 mb-1">
-                  <TrendingUp size={18} className="text-emerald-600" />
-                  <span className="text-sm font-bold uppercase tracking-wider text-emerald-600">{rangeLabel} 순이익</span>
-                  {profitChange !== null && (
-                    <span className={cn('flex items-center gap-0.5 px-2 py-0.5 rounded-full text-sm font-mono', profitChange >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600')}>
-                      {profitChange >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
-                      <span>{profitChange > 0 ? '+' : ''}{profitChange.toFixed(1)}%</span>
-                    </span>
-                  )}
-                </div>
-                <div className="text-[10px] font-mono text-slate-400 mb-1.5">주문 기준</div>
-                <DashboardBasisMarker basis={profitCardBasis} />
-                <DashboardBasisMarker basis={profitComparisonBasis} />
-                <div className="flex items-baseline gap-1.5 mb-1">
-                  <span className="text-xl sm:text-3xl font-extrabold tabular-nums tracking-tight text-emerald-600">{formatKRW(kpiProfit)}</span>
-                  <span className="text-lg font-semibold text-emerald-600/60">원</span>
-                </div>
-                <div className="text-sm text-slate-500">이전 {formatNullableKRW(kpiPrevProfit)}</div>
-              </div>
-              <div className="mt-2 pt-2 space-y-1.5 border-t border-emerald-100">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-slate-500">집행광고비</span>
-                  <ExpenseAmountOrUnavailable amount={orderProfitInputs?.adCost ?? null} />
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-slate-500">비광고 비용</span>
-                  <ExpenseAmountOrUnavailable amount={orderProfitInputs?.cost ?? null} />
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-slate-500">판매수량</span>
-                  <span className="font-bold tabular-nums text-slate-900">
-                    {orderProfitInputs?.qty === null || orderProfitInputs?.qty === undefined
-                      ? '—'
-                      : `${formatNumber(orderProfitInputs.qty)}개`}
-                  </span>
-                </div>
-              </div>
-            </div>
-          ) : (
-            // Wing/Drive 단독 — 매입가/수수료/배송비 source 가 없어 순이익 산출 불가.
-            // 광고비는 쿠팡 광고에서 측정값으로 표시.
-            <div className="px-3 py-2 flex flex-col justify-between bg-white" data-testid="dashboard-primary-profit">
-              <div>
-                <div className="flex items-center gap-2 mb-1">
-                  <TrendingUp size={18} className="text-emerald-600" />
-                  <span className="text-sm font-bold uppercase tracking-wider text-emerald-600">{rangeLabel} 순이익</span>
-                </div>
-                <DashboardBasisMarker basis={profitCardBasis} />
-                {!sellpiaHasData && <DashboardBasisMarker basis={profitComparisonBasis} />}
-                <div className="text-[10px] font-mono text-slate-400 mb-1.5">
-                  {sellpiaHasData ? '셀피아 · 판매금액 − 매입가 − 쿠팡 광고비' : '정산 데이터 없음'}
-                </div>
-                <div className="flex items-baseline gap-1.5 mb-1">
-                  <span className="text-xl sm:text-3xl font-extrabold tabular-nums tracking-tight text-slate-300">—</span>
-                </div>
-                <div className="text-xs text-slate-400 mt-1">
-                  {sellpiaHasData
-                    ? !sellpiaProfitInputsAvailable
-                      ? '판매금액과 비용의 공통 유효 날짜가 없어 순이익을 산출할 수 없습니다. 공통 유효 날짜 집합이 비어 있습니다.'
-                      : '선택 기간의 순이익 데이터가 없어 순이익을 산출할 수 없습니다.'
-                    : revenueSource === 'wing'
-                      ? 'Wing/Drive 데이터에는 매입가·수수료·배송비가 없어 순이익을 산출할 수 없습니다.'
-                      : orderProfitInputs === null
-                        ? '매출·비용의 공통 유효 날짜가 없어 순이익을 산출할 수 없습니다.'
-                      : '선택 기간의 순이익 데이터가 없어 순이익을 산출할 수 없습니다.'}
-                </div>
-              </div>
-              <div className="mt-2 pt-2 space-y-1.5 border-t border-emerald-100">
-                <div className="flex justify-between text-sm">
-                  <span className="text-slate-500">집행광고비 <span className="text-[10px] text-slate-400">쿠팡</span></span>
-                  <ExpenseAmountOrUnavailable amount={sellpiaProfitInputs?.adCost ?? null} />
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-slate-500">비광고 비용</span>
-                  <ExpenseAmountOrUnavailable amount={sellpiaProfitInputs?.cost ?? null} />
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-slate-500">판매수량</span>
-                  <span className="font-bold tabular-nums text-slate-900">
-                    {sellpiaProfitInputs?.qty === null || sellpiaProfitInputs?.qty === undefined
-                      ? '—'
-                      : `${formatNumber(sellpiaProfitInputs.qty)}개`}
-                  </span>
-                </div>
-              </div>
-            </div>
+          </p>
+          {(trafficCoverageComplete && trafficUnverifiedLabels.length > 0) && (
+            <p className="mt-0.5 text-[11px] text-amber-700">일별 합산·기간 원본 미대사 · {trafficUnverifiedLabels.join(', ')}</p>
           )}
+          {trafficMismatchLabels.length > 0 && (
+            <p className="mt-0.5 text-[11px] text-amber-700">기간 원본 불일치로 숨김 · {trafficMismatchLabels.join(', ')}</p>
+          )}
+        </Link>
+
+          {/* 기간 순이익 — 세 갈래였던 카드가 한 셀이다. 비용 구성과 판매수량은
+              어느 갈래든 상세 모달이 들고, 셀은 어느 상태에서든 그 모달을 연다. */}
+          <button
+            type="button"
+            onClick={() => setShowProfitDetail(true)}
+            className="flex flex-col items-start bg-white px-3 py-2 text-left transition-colors hover:bg-slate-50"
+            data-testid="dashboard-primary-profit"
+          >
+            <p className="font-mono text-[9.5px] uppercase tracking-wider text-slate-500">{rangeLabel} 순이익</p>
+            <p className={cn(
+              'text-xl font-bold leading-tight tracking-tight tabular-nums',
+              displayProfit === null ? 'text-slate-400' : displayProfit >= 0 ? 'text-slate-900' : 'text-red-600',
+            )}>
+              {displayProfit === null ? '—' : <>{formatKRW(displayProfit)}<span className="ml-0.5 text-xs font-semibold text-slate-500">원</span></>}
+            </p>
+            <p className="mt-0.5 text-[11px] leading-snug text-slate-500">
+              {profitCellNote}
+              {displayProfit !== null && !sellpiaHasData && profitChange !== null && (
+                <span className={cn('ml-1 font-medium', profitChange >= 0 ? 'text-emerald-700' : 'text-red-600')}>
+                  {profitChange > 0 ? '▲' : '▼'} {Math.abs(profitChange).toFixed(1)}%
+                </span>
+              )}
+            </p>
+            {profitCellReason && (
+              <p className="mt-0.5 text-[11px] leading-snug text-slate-500">{profitCellReason}</p>
+            )}
+          </button>
 
           {/* 이익률 — 순이익을 못 구하면 정의가 없으니 placeholder 로 */}
           {profitRateAvailable ? (
@@ -1395,6 +1253,7 @@ export default function Dashboard() {
           salesBaseline={effectiveSales ?? (kpiRange === 'month' ? baselineSales : EMPTY_SALES_SUMMARY)}
           adBaseline={effectiveAd ?? (kpiRange === 'month' ? baselineAd : EMPTY_AD_SUMMARY)}
           selectedRange={kpiRange}
+          inputs={profitDetailInputs}
           onClose={() => setShowProfitDetail(false)}
         />
       )}
