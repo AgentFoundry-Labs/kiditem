@@ -44,37 +44,31 @@ export const SourceFailureAlertInputSchema = z.object({
   href: z.string().min(1).max(1024),
 });
 
-// schemas/alerts.ts: AlertItemSchema — server-internal full alert row (+organizationId).
-// Projection: Prisma Alert 모델의 전체 행 매핑 (organizationId 포함).
-// Alert is the focused durable notification surface. The DB row stays
-// organization-scoped; Rules signals may identify a target and actor.
-
-// GET /api/alerts 응답의 각 item
-// 출처: alerts.service.ts list() — Prisma Alert 모델 기반
+// schemas/alerts.ts: AlertItemSchema — what a reader of the alert list gets.
+//
+// This was the whole Prisma row, 23 fields, and it parsed nothing: the only
+// place that executed it was its own unit test. Meanwhile every projection
+// downstream used at most fifteen. Seven fields — organizationId, dedupeKey,
+// attemptId, sourceId, actorUserId, metadata, readAt — travelled to the browser
+// and were read by nobody; they stay on the row, where the module that owns
+// them uses them, and leave the read.
 export const AlertItemSchema = z.object({
   id: z.string().uuid(),
-  organizationId: z.string().uuid(),
-  // New source alerts always include these fields. They stay optional here so
-  // the compatibility projection can still parse pre-cutover legacy rows.
-  dedupeKey: z.string().nullable().optional(),
-  attemptId: z.string().uuid().nullable().optional(),
   kind: AlertKindSchema,
   status: AlertStatusSchema,
   type: z.string(),
   severity: z.string(),
   title: z.string(),
   message: z.string().nullable(),
+  // Rules names the product a violation is about; the dashboard's projection
+  // carries them through.
   targetType: z.string().nullable(),
   targetId: z.string().uuid().nullable(),
   sourceType: z.string().nullable(),
-  sourceId: z.string().nullable(),
-  actorUserId: z.string().uuid().nullable(),
   href: z.string().nullable(),
-  metadata: z.record(z.unknown()),
   isRead: z.boolean(),
-  readAt: zIsoDate.nullable(),
-  createdAt: zIsoDate,
-  updatedAt: zIsoDate,
+  createdAt: z.string(),
+  updatedAt: z.string(),
 });
 
 export type AlertKind = z.infer<typeof AlertKindSchema>;

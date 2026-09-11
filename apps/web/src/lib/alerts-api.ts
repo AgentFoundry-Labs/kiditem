@@ -1,25 +1,25 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { z } from 'zod';
+import { AlertItemSchema, type AlertItem } from '@kiditem/shared/alerts';
 import { apiClient } from './api-client';
 import { queryKeys } from './query-keys';
 
 export const ALERT_POLL_INTERVAL_MS = 10_000;
 
-export interface AlertRecord {
-  id: string;
-  title: string;
-  message: string | null;
-  status: string;
-  severity: string;
-  isRead: boolean;
-  href: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
+/**
+ * The wire contract, not a second hand-written copy of it.
+ *
+ * This was nine fields declared here against a server sending twenty-three, with
+ * no parse in between — three of the nine (`severity`, `createdAt`, `updatedAt`)
+ * were declared and read nowhere. Parsing through the shared schema is the first
+ * executing assertion this endpoint has ever had.
+ */
+export type AlertRecord = AlertItem;
 
 export function fetchAlerts(): Promise<AlertRecord[]> {
-  return apiClient.get<AlertRecord[]>('/api/alerts');
+  return apiClient.getParsed('/api/alerts', z.array(AlertItemSchema));
 }
 
 export function useAlertsQuery(enabled = true) {

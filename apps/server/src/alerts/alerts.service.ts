@@ -22,23 +22,9 @@ export type RuleViolationAlertInput = {
   metadata: Record<string, unknown>;
 };
 
-function jsonObject(value: Prisma.JsonValue): Record<string, unknown> {
-  if (value && typeof value === 'object' && !Array.isArray(value)) {
-    return value as Record<string, unknown>;
-  }
-  return {};
-}
-
-function iso(value: Date | null): string | null {
-  return value instanceof Date ? value.toISOString() : value;
-}
-
 function mapAlert(row: Alert): AlertItem {
   return {
     id: row.id,
-    organizationId: row.organizationId,
-    dedupeKey: row.dedupeKey,
-    attemptId: row.attemptId,
     kind: row.kind as AlertItem['kind'],
     status: row.status as AlertItem['status'],
     type: row.type,
@@ -48,12 +34,8 @@ function mapAlert(row: Alert): AlertItem {
     targetType: row.targetType,
     targetId: row.targetId,
     sourceType: row.sourceType,
-    sourceId: row.sourceId,
-    actorUserId: row.actorUserId,
     href: row.href,
-    metadata: jsonObject(row.metadata),
     isRead: row.isRead,
-    readAt: iso(row.readAt),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   } satisfies AlertItem;

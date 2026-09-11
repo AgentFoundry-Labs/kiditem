@@ -10,6 +10,7 @@ const postMock = vi.hoisted(() => vi.fn());
 vi.mock('@/lib/api-client', () => ({
   apiClient: {
     get: fetchAlertsMock,
+    getParsed: fetchAlertsMock,
     post: postMock,
   },
 }));

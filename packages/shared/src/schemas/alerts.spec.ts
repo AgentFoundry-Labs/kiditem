@@ -11,11 +11,13 @@ const TARGET_ID = '00000000-0000-0000-0000-000000000003';
 const ATTEMPT_ID = '00000000-0000-0000-0000-000000000005';
 
 describe('Alert ledger schemas', () => {
-  it('parses a focused Rules signal and preserves its owner fields', () => {
+  it('parses a Rules signal and drops what no reader uses', () => {
     const parsed = AlertItemSchema.parse({
       id: ALERT_ID,
+      // Still on the row, and still written by the owner. They simply do not
+      // travel to a reader — nothing downstream reads any of the five.
       organizationId: '00000000-0000-0000-0000-000000000004',
-      dedupeKey: 'rules.evaluation:request:product:rule',
+      dedupeKey: 'rules.violation:product:rule',
       attemptId: null,
       kind: 'signal',
       status: 'OPEN',
@@ -39,6 +41,11 @@ describe('Alert ledger schemas', () => {
     expect(parsed.kind).toBe('signal');
     expect(parsed.status).toBe('OPEN');
     expect(parsed.sourceType).toBe('rules_evaluation');
+    // Rules names the product a violation is about, and that does travel.
+    expect(parsed.targetId).toBe(TARGET_ID);
+    for (const dropped of ['organizationId', 'dedupeKey', 'attemptId', 'sourceId', 'actorUserId', 'metadata', 'readAt']) {
+      expect(parsed).not.toHaveProperty(dropped);
+    }
   });
 
   it('rejects unknown canonical ledger values', () => {

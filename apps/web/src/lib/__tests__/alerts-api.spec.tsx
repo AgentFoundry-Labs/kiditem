@@ -14,6 +14,7 @@ import {
 vi.mock('@/lib/api-client', () => ({
   apiClient: {
     get: vi.fn(),
+    getParsed: vi.fn(),
     post: vi.fn(),
   },
 }));
@@ -21,12 +22,14 @@ vi.mock('@/lib/api-client', () => ({
 describe('alerts API', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('reads the organization-scoped durable alert list', async () => {
+  it('reads the organization-scoped durable alert list through the shared contract', async () => {
     const alerts = [{ id: 'alert-1', title: 'Sellpia 실패' }];
-    vi.mocked(apiClient.get).mockResolvedValue(alerts);
+    vi.mocked(apiClient.getParsed).mockResolvedValue(alerts);
 
     await expect(fetchAlerts()).resolves.toEqual(alerts);
-    expect(apiClient.get).toHaveBeenCalledWith('/api/alerts');
+    // The endpoint had no executing assertion until it parsed; the shape is the
+    // shared schema's now, not a hand-written interface's.
+    expect(apiClient.getParsed).toHaveBeenCalledWith('/api/alerts', expect.anything());
   });
 
   it('dismisses one alert through the focused alert endpoint', async () => {
