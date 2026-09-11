@@ -143,6 +143,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const isFinalSelectionRoute = pathname === '/sourcing-ai/final-selection';
   const isWingCatalogRoute = pathname === '/sourcing-ai/wing-catalog';
   const collapsedForEditor = isEditorRoute || !sidebarOpen;
+  // Mirrors when QuickActionFab actually paints: it hides itself whenever a
+  // right-hand surface is open, and the editor route never renders it.
+  const quickActionFabVisible = !isEditorRoute && activeRightSurface === null;
   const visibleRightSurface = isAgentWorkspace && activeRightSurface === 'ai_chat'
     ? null
     : activeRightSurface;
@@ -197,9 +200,15 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         )}
       >
         <RebuildReadinessBanner />
+        {/* The quick-action button is fixed over the right edge at every scroll
+            position, so page content has to end before it — otherwise whatever
+            a page puts at its right edge is unreachable. 76px is the button's
+            own footprint (56px) plus its 20px offset. Screens were each
+            working around this with their own right margin. */}
         <main
           className={cn(
             isEditorRoute || isWingCatalogRoute ? 'p-0' : isFinalSelectionRoute ? 'p-3' : 'p-6',
+            quickActionFabVisible && 'pr-[76px]',
           )}
         >
           {children}

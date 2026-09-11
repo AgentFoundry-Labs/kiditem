@@ -43,11 +43,7 @@ export function DashboardTrafficFunnel({
       aria-labelledby="dashboard-traffic-funnel-title"
       data-testid="dashboard-traffic-funnel"
     >
-      {/* The app shell parks a fixed quick-action button over the right edge at
-          every scroll position, so anything interactive here has to clear it.
-          Same workaround the section header uses; the shell-level safe area is
-          still the real fix. */}
-      <header className="flex items-center justify-between gap-3 border-b border-slate-200 py-1.5 pl-3 pr-16">
+      <header className="flex items-center justify-between gap-3 border-b border-slate-200 px-3 py-1.5">
         <div className="flex items-center gap-2 min-w-0">
           <h2 id="dashboard-traffic-funnel-title" className="text-sm font-semibold text-slate-900 shrink-0">
             Wing 트래픽 퍼널

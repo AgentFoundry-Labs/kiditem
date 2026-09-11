@@ -278,10 +278,7 @@ function DashboardSectionHeader({
         <h2 className="text-sm font-semibold text-slate-900">{title}</h2>
         <span className="text-[11px] text-slate-400">{scope}</span>
       </div>
-      {/* The app shell parks a fixed quick-action button over the right edge
-          at every scroll position, and this is the only way to the evidence
-          behind the section, so it keeps clear of that strip. */}
-      <DashboardBasisDisclosure label={disclosureLabel} entries={entries} className="mr-16" />
+      <DashboardBasisDisclosure label={disclosureLabel} entries={entries} />
     </div>
   );
 }
