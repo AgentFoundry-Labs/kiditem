@@ -3,7 +3,7 @@ import type { Sourcing1688BatchResult, Sourcing1688BatchUnitResult } from '@kidi
 import type { SourcingBrowserSourceAttempt } from '../port/out/repository/sourcing-browser-source-attempt.repository.port';
 
 export function sourceAlert(source: string, targetKey: string) {
-  return { sourceType: source, dedupeKey: `source:${source}:${targetKey}`, title: '1688 수집 실패', href: '/sourcing-ai/wholesale' };
+  return { sourceType: source, dedupeKey: `source:${source}:${targetKey}`, title: '1688 수집 실패', href: '/sourcing-ai/wholesale-search' };
 }
 
 export function searchUnit(keyword: string, targetId: string | null, discovered: number, rejected: number): Sourcing1688BatchUnitResult {

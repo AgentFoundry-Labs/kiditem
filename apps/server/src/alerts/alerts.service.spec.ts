@@ -180,9 +180,10 @@ describe('SourceFailureAlerts', () => {
 
     await alerts.recordTerminalOutcome(db, { ...failure(ATTEMPT_ID_2), code: 'USER_CANCELLED' });
 
-    // The open row is resolved, not reopened: stopping a collection is the
-    // operator's own action, not a failure to show them back.
-    expect(getRow()).toMatchObject({ status: 'RESOLVED' });
+    // Nothing moves. A failure the source had before is still true — the
+    // operator cancelling a *later* attempt did not fix it — so the open row
+    // stays open and the newer attempt id is not written over it.
+    expect(getRow()).toMatchObject({ status: 'OPEN', attemptId: ATTEMPT_ID_1 });
   });
 
   it('still alerts when an attempt expired', async () => {

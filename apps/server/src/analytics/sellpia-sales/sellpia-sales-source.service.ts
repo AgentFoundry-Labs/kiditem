@@ -670,7 +670,7 @@ export class SellpiaSalesSourceService {
       dedupeKey: SELLPIA_SALES_ALERT_DEDUPE_KEY,
       title: '셀피아 판매현황 수집 실패',
       message,
-      href: '/analytics/sellpia-product-sales',
+      href: '/stock-ops',
     });
     return failed;
   }

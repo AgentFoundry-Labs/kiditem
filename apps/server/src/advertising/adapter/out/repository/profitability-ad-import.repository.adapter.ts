@@ -673,7 +673,7 @@ export class ProfitabilityAdImportRepositoryAdapter
         attemptId: input.attemptId,
         title: 'Coupang 광고 수익성 수집 실패',
         message: input.message,
-        href: '/ads/profitability-imports/current',
+        href: '/ad-ops',
       });
     }, mutationTransactionOptions());
     return this.readSourceStatus({ organizationId: input.organizationId });
@@ -877,7 +877,7 @@ export class ProfitabilityAdImportRepositoryAdapter
       attemptId: attempt.id,
       title: 'Coupang 광고 수익성 수집 만료',
       message: 'ATTEMPT_EXPIRED: Advertising profitability collection expired before publication.',
-      href: '/ads/profitability-imports/current',
+      href: '/ad-ops',
     });
   }
 }
