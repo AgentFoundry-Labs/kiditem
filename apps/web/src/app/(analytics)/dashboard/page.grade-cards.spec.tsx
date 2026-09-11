@@ -673,7 +673,7 @@ describe('Dashboard absolute ABC grade cards', () => {
 
     const profitCard = screen
       .getByText('셀피아 · 판매금액 − 매입가 − 쿠팡 광고비')
-      .closest('[class*="lg:row-span-2"]');
+      .closest('[data-testid="dashboard-primary-profit"]');
     expect(profitCard).toHaveTextContent('—');
     expect(profitCard).toHaveTextContent('판매금액과 비용의 공통 유효 날짜가 없어 순이익을 산출할 수 없습니다.');
     expect(profitCard).toHaveTextContent('쿠팡 광고비—');
@@ -717,7 +717,7 @@ describe('Dashboard absolute ABC grade cards', () => {
 
     const profitCard = screen
       .getByText('셀피아 · 판매금액 − 매입가 − 쿠팡 광고비')
-      .closest('[class*="lg:row-span-2"]');
+      .closest('[data-testid="dashboard-primary-profit"]');
     expect(profitCard).toHaveTextContent('쿠팡 광고비—');
     expect(profitCard).toHaveTextContent('비광고 비용—');
     expect(profitCard).toHaveTextContent('판매수량—');
@@ -753,7 +753,7 @@ describe('Dashboard absolute ABC grade cards', () => {
 
     const profitCard = screen
       .getByText('셀피아 · 판매금액 − 매입가 − 쿠팡 광고비')
-      .closest('[class*="lg:row-span-2"]');
+      .closest('[data-testid="dashboard-primary-profit"]');
     expect(profitCard).toHaveTextContent('777원');
     expect(profitCard).not.toHaveTextContent('800원');
     const profitRateLabel = screen.getAllByText('이익률')[0];
@@ -788,7 +788,7 @@ describe('Dashboard absolute ABC grade cards', () => {
 
     const profitCard = screen
       .getByText('셀피아 · 판매금액 − 매입가 − 쿠팡 광고비')
-      .closest('[class*="lg:row-span-2"]');
+      .closest('[data-testid="dashboard-primary-profit"]');
     expect(profitCard).toHaveTextContent('0원');
     expect(profitCard).toHaveTextContent('쿠팡 광고비0원');
     const profitRateLabel = screen.getAllByText('이익률')[0];

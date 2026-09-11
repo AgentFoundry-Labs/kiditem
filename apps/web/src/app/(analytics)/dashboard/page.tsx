@@ -38,6 +38,9 @@ import { MetricCard, UnavailableMetricCard } from './components/DashboardMetricC
 import { DashboardProfitDetailModal } from './components/DashboardProfitDetailModal';
 import { DashboardSidePanel } from './components/DashboardSidePanel';
 import { DashboardTopProducts } from './components/DashboardTopProducts';
+import { DashboardAdPerformance } from './components/DashboardAdPerformance';
+import { DashboardTrafficFunnel } from './components/DashboardTrafficFunnel';
+import { DashboardWarningTable, buildWarningRows } from './components/DashboardWarningTable';
 import { DashboardExpenseAmount } from './components/DashboardExpenseAmount';
 import { DashboardGradeCards } from './components/DashboardGradeCards';
 import { WingDailyTrafficCollection } from './components/WingDailyTrafficCollection';
@@ -497,6 +500,36 @@ export default function Dashboard() {
   const adConvRevenue = rawAdConvRevenue;
   const adRoas = rawAdRoas;
   const adPrevRoas = rawAdPrevRoas;
+  // Impressions/clicks/conversions are published by the ad owner and simply
+  // were never rendered. Nothing here is derived in the browser: a rate without
+  // its own basis could not answer "where did this number come from?".
+  const adClicks = adKpi?.clicks ?? null;
+  const adImpressions = adKpi?.impressions ?? null;
+  const adCtr = adKpi?.ctr ?? null;
+  const adConversions = adKpi?.conversions ?? null;
+  const adCvr = adKpi?.cvr ?? null;
+  const adPerformanceRows = [
+    { key: 'convRevenue', label: '광고전환매출', sublabel: '쿠팡', display: formatNullableKRW(adConvRevenue) },
+    { key: 'impressions', label: '노출', display: adImpressions === null ? '—' : `${formatNumber(adImpressions)}회` },
+    {
+      key: 'clicks',
+      label: '클릭 · CTR',
+      display: adClicks === null
+        ? '—'
+        : `${formatNumber(adClicks)}회${adCtr === null ? '' : ` · ${adCtr.toFixed(2)}%`}`,
+    },
+    {
+      key: 'conversions',
+      label: '광고주문 · CVR',
+      display: adConversions === null
+        ? '—'
+        : `${formatNumber(adConversions)}건${adCvr === null || adCvr === undefined ? '' : ` · ${adCvr.toFixed(2)}%`}`,
+    },
+  ];
+  const adCoverageLabel = adCoverage
+    ? `${adCoverage.completedDays}/${adCoverage.targetDays}일`
+    : null;
+
   const rawAdRate = rkAd ? rkAd.adRate ?? null : salesMonthly.adRate;
   const rawAdPrevRate = rkAd ? rkAd.prevAdRate ?? null : salesMonthly.prevAdRate;
   const kpiAdRate = rawAdRate;
@@ -597,6 +630,29 @@ export default function Dashboard() {
     ? 'ALL_NORMAL_RFM'
     : null;
   const trafficObservedAt = trafficKpi?.trafficObservedAt ?? null;
+
+  // The funnel reads in the order it happens. Each step's rate is the share of
+  // the step before it, and it is shown only when both steps are measured —
+  // a rate against a withheld denominator would be an invented number.
+  const funnelRate = (value: number | null, base: number | null): string | null =>
+    value === null || base === null || base === 0 ? null : `${((value / base) * 100).toFixed(1)}%`;
+  const trafficFunnelSteps = [
+    { key: 'visitors', label: '일평균 방문자', display: formatTrafficMetric(trafficDailyAverageVisitors, '명'), rate: null },
+    { key: 'views', label: '조회', display: formatTrafficMetric(trafficViews, '회'), rate: funnelRate(trafficViews, trafficDailyAverageVisitors) },
+    { key: 'cartAdds', label: '장바구니', display: formatTrafficMetric(trafficCartAdds, '회'), rate: funnelRate(trafficCartAdds, trafficViews) },
+    { key: 'orders', label: '주문', display: formatTrafficMetric(trafficOrders, '건'), rate: funnelRate(trafficOrders, trafficCartAdds) },
+    { key: 'salesQty', label: '판매량', display: formatTrafficMetric(trafficSalesQty, '개'), rate: null },
+  ];
+  const trafficSourceNote = [
+    trafficObservedAt ? formatDateTime(trafficObservedAt) : '미수집',
+    trafficKpi?.source === 'wing'
+      ? `${trafficFilterScope ? `계정 원본 · ${trafficFilterScope}` : 'Wing 계정 원본'} · 상품 매칭 합산 아님`
+      : null,
+    trafficProviderConversionRate !== null ? `Wing 제공 전환율 ${trafficProviderConversionRate.toFixed(1)}%` : null,
+    trafficObservedAt && (Date.now() - new Date(trafficObservedAt).getTime()) > 86400000
+      ? '24시간 이상 미동기화'
+      : null,
+  ].filter(Boolean).join(' · ');
 
   // 셀피아 판매현황(몰별 매출) 파생값 — 월 매출/순이익 카드가 이 소스로 표시된다.
   const sp = channelSales.summary;
@@ -765,14 +821,14 @@ export default function Dashboard() {
   return (
     <div className="space-y-4 w-full pb-12">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center">
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="w-9 h-9 shrink-0 rounded-lg bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center">
             <Zap size={18} className="text-white" />
           </div>
           <div>
             <h1 className="text-lg font-bold tracking-tight text-slate-900">Kiditem Foundry</h1>
-            <div className="flex items-center gap-2 mt-0.5">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5">
               <span className="text-xs font-mono text-slate-400">운영 상품 {inventoryData ? formatNumber(inventory.totalProducts) : '—'}</span>
               <span className="text-xs font-mono text-slate-400">·</span>
               <span className="text-xs font-mono text-slate-400">판매중 채널 연결 재고상품 {inventoryData ? formatNumber(channelLinkedProducts) : '—'}</span>
@@ -805,10 +861,13 @@ export default function Dashboard() {
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-3">
+        {/* The expanded sidebar leaves ~1,420px here, which is not enough for
+            these controls to wrap gracefully — they stacked one character per
+            line. They stay on one line and the identity block yields instead. */}
+        <div className="flex shrink-0 items-center gap-3 whitespace-nowrap">
           <button
             onClick={requestReadinessOpen}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition-colors"
+            className="flex shrink-0 items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition-colors"
             title="쿠팡 Wing/광고 데이터 수집 상태 확인 + 누락분 수집 트리거"
           >
             <Database size={14} /> 데이터 수집
@@ -886,10 +945,10 @@ export default function Dashboard() {
       />
 
       {/* KPI 카드 — 월 매출 + 월 순이익 + 이익률 + 광고비율 */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3" style={{ alignItems: 'stretch' }}>
+      <div className="grid grid-cols-2 lg:grid-cols-6 gap-2" style={{ alignItems: 'stretch' }}>
         {/* 월 매출 — 채널 카드를 누르면 매출 분석의 동일 월·채널 상세로 이동한다. */}
         <div
-          className="lg:row-span-2 rounded-2xl px-5 py-3 flex flex-col justify-between bg-white border border-slate-100 shadow-sm"
+          className="rounded-xl px-3 py-2 flex flex-col justify-between bg-white border border-slate-200"
           data-testid="dashboard-primary-revenue"
         >
           <div>
@@ -961,87 +1020,24 @@ export default function Dashboard() {
               </div>
             )}
           </div>
-          <div className="mt-2 pt-2 space-y-1.5 border-t border-blue-100">
-            <div className="flex justify-between text-sm">
-              <span className="text-slate-500">광고전환매출 <span className="text-[10px] text-slate-400">쿠팡</span></span>
-              <span className="font-bold tabular-nums text-slate-900">{formatNullableKRW(adConvRevenue)}</span>
+          {/* The funnel and the day-count coverage moved out of this card — they
+              belong to the Wing traffic owner. These two stay: they say why THIS
+              card's own value is withheld, so they have to be read with it. */}
+          {(trafficCoverageComplete && trafficUnverifiedLabels.length > 0) && (
+            <div className="mt-1 text-xs text-amber-700">
+              일별 합산·기간 원본 미대사 · {trafficUnverifiedLabels.join(', ')}
             </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-slate-500">주문</span>
-              <span className="font-bold tabular-nums text-slate-900">{formatTrafficMetric(trafficOrders, '건')}</span>
+          )}
+          {trafficMismatchLabels.length > 0 && (
+            <div className="mt-1 text-xs text-amber-700">
+              기간 원본 불일치로 숨김 · {trafficMismatchLabels.join(', ')}
             </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-slate-500">판매량</span>
-              <span className="font-bold tabular-nums text-slate-900">{formatTrafficMetric(trafficSalesQty, '개')}</span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-slate-500">일평균 방문자</span>
-              <span className="font-bold tabular-nums text-slate-900">{formatTrafficMetric(trafficDailyAverageVisitors, '명')}</span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-slate-500">조회</span>
-              <span className="font-bold tabular-nums text-slate-900">{formatTrafficMetric(trafficViews, '회')}</span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-slate-500">장바구니</span>
-              <span className="font-bold tabular-nums text-slate-900">{formatTrafficMetric(trafficCartAdds, '회')}</span>
-            </div>
-            <div className="text-[11px] text-slate-400 mt-1">
-              Wing 트래픽 기준 · {trafficObservedAt ? formatDateTime(trafficObservedAt) : '미수집'}
-              {trafficObservedAt
-                && (Date.now() - new Date(trafficObservedAt).getTime()) > 86400000 && (
-                <span className="text-amber-500 ml-1">⚠ 24시간 이상 미동기화</span>
-              )}
-            </div>
-            {trafficKpi?.source === 'wing' && (
-              <div className="text-[11px] text-slate-400 mt-1">
-                {trafficFilterScope
-                  ? `계정 원본 · ${trafficFilterScope}`
-                  : 'Wing 계정 원본'}
-                {' · 상품 매칭 합산 아님'}
-                {trafficProviderConversionRate !== null
-                  && ` · Wing 제공 전환율 ${trafficProviderConversionRate.toFixed(1)}%`}
-              </div>
-            )}
-            {/* The short coverage summary stays here; the missing dates it
-                counts are enumerated in the section's breakdown. */}
-            {trafficCoverage && (
-              <div className="mt-1 text-[11px] text-slate-400" data-testid="wing-traffic-coverage">
-                일별 커버리지 {trafficCoverage.from} ~ {trafficCoverage.to} ·{' '}
-                {trafficCoverage.completedDays}/{trafficCoverage.targetDays}일
-                {trafficCoverage.missingDates.length > 0
-                  && ` · 누락 ${trafficCoverage.missingDates.length}일`}
-              </div>
-            )}
-            {adCoverage && (
-              <div className="mt-1 text-[11px] text-slate-400" data-testid="ad-coverage">
-                광고 커버리지 {adCoverage.from} ~ {adCoverage.to} ·{' '}
-                {adCoverage.completedDays}/{adCoverage.targetDays}일
-                {adCoverage.missingDates.length > 0
-                  && ` · 누락 ${adCoverage.missingDates.length}일`}
-              </div>
-            )}
-            {coverageNote(adCoverage) && (
-              <div className="text-[11px] text-amber-600 mt-1" data-testid="ad-coverage-note">
-                {coverageNote(adCoverage)} · 측정된 날짜의 값만 표시
-              </div>
-            )}
-            {trafficCoverageComplete && trafficUnverifiedLabels.length > 0 && (
-              <div className="text-[11px] text-amber-600 mt-1">
-                일별 합산·기간 원본 미대사 · {trafficUnverifiedLabels.join(', ')}
-              </div>
-            )}
-            {trafficMismatchLabels.length > 0 && (
-              <div className="text-[11px] text-amber-600 mt-1">
-                기간 원본 불일치로 숨김 · {trafficMismatchLabels.join(', ')}
-              </div>
-            )}
-          </div>
+          )}
         </div>
 
         {/* 월 순이익 — 셀피아 판매현황(판매금액−매입가−쿠팡 광고비)이 있으면 우선 */}
         {profitCardUsesSellpia ? (
-          <div className="lg:row-span-2 rounded-2xl px-5 py-3 flex flex-col justify-between bg-white border border-slate-100 shadow-sm">
+          <div className="rounded-xl px-3 py-2 flex flex-col justify-between bg-white border border-slate-200" data-testid="dashboard-primary-profit">
             <div>
               <div className="flex items-center gap-2 mb-1">
                 {spProfit === null || spProfit >= 0
@@ -1079,7 +1075,8 @@ export default function Dashboard() {
           </div>
         ) : !sellpiaHasData && profitMetricsAvailable ? (
           <div
-            className="lg:row-span-2 rounded-2xl px-5 py-3 flex flex-col justify-between cursor-pointer hover:shadow-md transition-shadow bg-white border border-slate-100 shadow-sm"
+            className="rounded-xl px-3 py-2 flex flex-col justify-between cursor-pointer hover:border-violet-300 transition-colors bg-white border border-slate-200"
+            data-testid="dashboard-primary-profit"
             onClick={() => setShowProfitDetail(true)}
           >
             <div>
@@ -1124,7 +1121,7 @@ export default function Dashboard() {
         ) : (
           // Wing/Drive 단독 — 매입가/수수료/배송비 source 가 없어 순이익 산출 불가.
           // 광고비는 쿠팡 광고에서 측정값으로 표시.
-          <div className="lg:row-span-2 rounded-2xl px-5 py-3 flex flex-col justify-between bg-white border border-slate-100 shadow-sm">
+          <div className="rounded-xl px-3 py-2 flex flex-col justify-between bg-white border border-slate-200" data-testid="dashboard-primary-profit">
             <div>
               <div className="flex items-center gap-2 mb-1">
                 <TrendingUp size={18} className="text-emerald-600" />
@@ -1284,13 +1281,46 @@ export default function Dashboard() {
         )}
       </div>
 
-      {/* 차트 + 사이드패널 */}
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-3 overflow-hidden" style={{ height: 620 }}>
-        <div className="lg:col-span-3 h-full">
+      {/* 커버리지 — 위 KPI 여섯 개가 무엇에 근거하는지 한 줄로. 카드마다
+          같은 문장을 반복하던 것을 여기 한 번으로 모았다. */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1 text-xs text-slate-500">
+        {trafficCoverage && (
+          <span data-testid="wing-traffic-coverage">
+            일별 커버리지 {trafficCoverage.from} ~ {trafficCoverage.to} ·{' '}
+            {trafficCoverage.completedDays}/{trafficCoverage.targetDays}일
+            {trafficCoverage.missingDates.length > 0 && ` · 누락 ${trafficCoverage.missingDates.length}일`}
+          </span>
+        )}
+        {adCoverage && (
+          <span data-testid="ad-coverage">
+            광고 커버리지 {adCoverage.from} ~ {adCoverage.to} ·{' '}
+            {adCoverage.completedDays}/{adCoverage.targetDays}일
+            {adCoverage.missingDates.length > 0 && ` · 누락 ${adCoverage.missingDates.length}일`}
+          </span>
+        )}
+        {coverageNote(adCoverage) && (
+          <span className="text-amber-700" data-testid="ad-coverage-note">
+            {coverageNote(adCoverage)} · 측정된 날짜의 값만 표시
+          </span>
+        )}
+      </div>
+
+      <DashboardTrafficFunnel
+        steps={trafficFunnelSteps}
+        basis={trafficBasis}
+        sourceNote={trafficSourceNote}
+        collected={trafficAvailable}
+        onCollect={requestReadinessOpen}
+      />
+
+      {/* 본문 — 왼쪽은 기간을 읽는 것, 오른쪽은 지금 손이 필요한 것.
+          한 화면에서 훑는 것이 이 페이지의 용도라 세로로 쌓지 않는다. */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 items-start">
+        <div className="lg:col-span-2 space-y-3">
           {trendLoading ? (
-            <div className="flex h-full items-center justify-center rounded-2xl border border-slate-100 bg-white text-sm text-slate-300">트렌드 데이터를 불러오는 중입니다.</div>
+            <div className="flex items-center justify-center rounded-xl border border-slate-200 bg-white py-16 text-sm text-slate-500">트렌드 데이터를 불러오는 중입니다.</div>
           ) : trendHasErr ? (
-            <DashboardSectionUnavailable label="매출 추이" className="h-full rounded-2xl border border-slate-100 bg-white" />
+            <DashboardSectionUnavailable label="매출 추이" className="rounded-xl border border-slate-200 bg-white" />
           ) : (
             <DashboardChartPanel
               dailyTrend={dailyTrend}
@@ -1298,110 +1328,70 @@ export default function Dashboard() {
               benchmarkBases={benchmarkBases}
             />
           )}
+
+          {inventoryHasErr ? (
+            <DashboardSectionUnavailable label="수익성 ABC" />
+          ) : !inventoryData ? (
+            <DashboardSectionEmpty label="수익성 ABC" />
+          ) : (
+            <DashboardGradeCards
+              gradeCount={inventory.gradeCount}
+              classifiedProductCount={inventory.classifiedProductCount}
+              unclassifiedProductCount={inventory.unclassifiedProductCount}
+              abcStatusCount={inventory.abcStatusCount}
+              abcContributionProfit={inventory.abcContributionProfit}
+              abcFormula={inventory.abcFormula}
+              gradeChanges={inventory.gradeChanges}
+              basis={inventoryBasis}
+            />
+          )}
+
+          {topProductsHasErr ? (
+            <DashboardSectionUnavailable label="Top Revenue Products" />
+          ) : topProductsLoading ? (
+            <div className="rounded-xl border border-slate-200 bg-white py-8 text-center text-sm text-slate-500">상품 매출 데이터를 불러오는 중입니다.</div>
+          ) : !effectiveSales ? (
+            <DashboardSectionEmpty label="Top Revenue Products" />
+          ) : (
+            <DashboardTopProducts products={topProducts} basis={topProductsBasis} />
+          )}
         </div>
-        {inventoryHasErr ? (
-          <DashboardSectionUnavailable label="알림" className="h-full rounded-2xl border border-slate-100 bg-white" />
-        ) : !inventoryData ? (
-          <DashboardSectionEmpty label="알림" />
-        ) : (
-          <DashboardSidePanel
-            alerts={inventoryData.alerts}
-            queryClient={queryClient}
-            basis={alertsBasis}
+
+        <div className="space-y-3">
+          <DashboardSectionHeader
+            title="스냅샷 지표"
+            scope="광고 성과 · 경고 · 알림"
+            disclosureLabel="스냅샷 지표 근거"
+            entries={snapshotBasisEntries}
           />
-        )}
-      </div>
 
-      <DashboardSectionHeader
-        title="스냅샷 지표"
-        scope="상단 요약 · 알림 · 수익성 ABC · 경고"
-        disclosureLabel="스냅샷 지표 근거"
-        entries={snapshotBasisEntries}
-      />
+          <DashboardAdPerformance
+            rows={adPerformanceRows}
+            basis={adRoasBasis}
+            coverageLabel={adCoverageLabel}
+          />
 
-      {inventoryHasErr ? (
-        <DashboardSectionUnavailable label="수익성 ABC" />
-      ) : !inventoryData ? (
-        <DashboardSectionEmpty label="수익성 ABC" />
-      ) : (
-        <DashboardGradeCards
-          gradeCount={inventory.gradeCount}
-          classifiedProductCount={inventory.classifiedProductCount}
-          unclassifiedProductCount={inventory.unclassifiedProductCount}
-          abcStatusCount={inventory.abcStatusCount}
-          abcContributionProfit={inventory.abcContributionProfit}
-          abcFormula={inventory.abcFormula}
-          gradeChanges={inventory.gradeChanges}
-          basis={inventoryBasis}
-        />
-      )}
+          {inventoryHasErr ? (
+            <DashboardSectionUnavailable label="경고" />
+          ) : !inventoryData ? (
+            <DashboardSectionEmpty label="경고" />
+          ) : (
+            <DashboardWarningTable rows={buildWarningRows(inventory.warnings, warningBasis)} />
+          )}
 
-      {/* 경고 카드 */}
-      {inventoryHasErr ? (
-        <DashboardSectionUnavailable label="경고" />
-      ) : !inventoryData ? (
-        <DashboardSectionEmpty label="경고" />
-      ) : (
-        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-          <Link href="/product-hub?tab=cleanup" className="rounded-2xl p-4 hover:shadow-md transition-all bg-white border border-slate-100 shadow-sm">
-            <div className="text-sm font-bold mb-1 text-slate-900">적자 상품</div>
-            <div className="text-2xl font-extrabold tabular-nums text-slate-900">
-              <span data-warning-count="minus-products">{formatWarningCount(inventory.warnings.minusProducts, warningBasis('warnings.minusProducts'))}</span>
-              <span className="text-sm ml-0.5">개</span>
-            </div>
-            <div className="text-xs mt-1 text-slate-400">이익률 마이너스</div>
-            <DashboardDataBasis basis={warningBasis('warnings.minusProducts')} className="mt-2" />
-          </Link>
-          <Link href="/product-hub?tab=cleanup" className="rounded-2xl p-4 hover:shadow-md transition-all bg-white border border-slate-100 shadow-sm">
-            <div className="text-sm font-bold mb-1 text-slate-900">저이익 상품</div>
-            <div className="text-2xl font-extrabold tabular-nums text-slate-900">
-              <span data-warning-count="low-profit-products">{formatWarningCount(inventory.warnings.lowProfitProducts, warningBasis('warnings.lowProfitProducts'))}</span>
-              <span className="text-sm ml-0.5">개</span>
-            </div>
-            <div className="text-xs mt-1 text-slate-400">이익률 3% 이하</div>
-            <DashboardDataBasis basis={warningBasis('warnings.lowProfitProducts')} className="mt-2" />
-          </Link>
-          <Link href="/ad-ops" className="rounded-2xl p-4 hover:shadow-md transition-all bg-white border border-slate-100 shadow-sm">
-            <div className="text-sm font-bold mb-1 text-slate-900">광고비 초과</div>
-            <div className="text-2xl font-extrabold tabular-nums text-slate-900">
-              <span data-warning-count="high-ad-products">{formatWarningCount(inventory.warnings.highAdProducts, warningBasis('warnings.highAdProducts'))}</span>
-              <span className="text-sm ml-0.5">개</span>
-            </div>
-            <div className="text-xs mt-1 text-slate-400">광고비율 15% 초과</div>
-            <DashboardDataBasis basis={warningBasis('warnings.highAdProducts')} className="mt-2" />
-          </Link>
-          <Link href="/inventory-hub" className="rounded-2xl p-4 hover:shadow-md transition-all bg-white border border-slate-100 shadow-sm">
-            <div className="text-sm font-bold mb-1 text-slate-900">셀피아 재고 0</div>
-            <div className="text-2xl font-extrabold tabular-nums text-slate-900">
-              <span data-warning-count="out-of-stock">{formatWarningCount(inventory.warnings.outOfStockSkus, warningBasis('warnings.outOfStockSkus'))}</span>
-              <span className="text-sm ml-0.5">건</span>
-            </div>
-            <div className="text-xs mt-1 text-slate-400">최신 셀피아 스냅샷</div>
-            <DashboardDataBasis basis={warningBasis('warnings.outOfStockSkus')} className="mt-2" />
-          </Link>
-          <Link href="/product-hub/matching?status=attention" className="rounded-2xl p-4 hover:shadow-md transition-all bg-white border border-slate-100 shadow-sm">
-            <div className="text-sm font-bold mb-1 text-slate-900">매칭 확인 필요</div>
-            <div className="text-2xl font-extrabold tabular-nums text-slate-900">
-              <span data-warning-count="mapping-attention">{formatWarningCount(inventory.warnings.mappingAttentionSkus, warningBasis('warnings.mappingAttentionSkus'))}</span>
-              <span className="text-sm ml-0.5">건</span>
-            </div>
-            <div className="text-xs mt-1 text-slate-400">판매중 옵션의 미매칭·검토 필요</div>
-            <DashboardDataBasis basis={warningBasis('warnings.mappingAttentionSkus')} className="mt-2" />
-          </Link>
+          {inventoryHasErr ? (
+            <DashboardSectionUnavailable label="알림" className="rounded-xl border border-slate-200 bg-white" />
+          ) : !inventoryData ? (
+            <DashboardSectionEmpty label="알림" />
+          ) : (
+            <DashboardSidePanel
+              alerts={inventoryData.alerts}
+              queryClient={queryClient}
+              basis={alertsBasis}
+            />
+          )}
         </div>
-      )}
-
-      {/* Top Products */}
-      {topProductsHasErr ? (
-        <DashboardSectionUnavailable label="Top Revenue Products" />
-      ) : topProductsLoading ? (
-        <div className="rounded-2xl border border-slate-100 bg-white py-8 text-center text-sm text-slate-300">상품 매출 데이터를 불러오는 중입니다.</div>
-      ) : !effectiveSales ? (
-        <DashboardSectionEmpty label="Top Revenue Products" />
-      ) : (
-        <DashboardTopProducts products={topProducts} basis={topProductsBasis} />
-      )}
-
+      </div>
 
       {/* 순이익 상세 모달 */}
       {showProfitDetail && (
