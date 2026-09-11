@@ -11,7 +11,7 @@ export const SOURCE_LIVE_COMMERCE_SCOPE = 'page-url';
 export const MAX_LIVE_COMMERCE_PRODUCTS = 100;
 const MAX_LIVE_COMMERCE_PAGE_URL_LENGTH = 500;
 
-const BROWSER_SOURCES = ['1688', 'douyin'] as const;
+export const BROWSER_SOURCES = ['1688', 'douyin'] as const;
 
 export type BrowserLiveCommerceSource = (typeof BROWSER_SOURCES)[number];
 
