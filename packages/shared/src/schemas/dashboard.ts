@@ -159,8 +159,16 @@ export const TopProductSchema = z.object({
   grade: ProductAbcGradeSchema.nullable(),
   abcEvaluation: ProductAbcEvaluationSchema.nullable(),
   revenue: z.number(),
-  netProfit: z.number(),
-  profitRate: z.number(),
+  /**
+   * Null when this row's profit was not measured, which is the same rule
+   * `ProfitBreakdownSchema` follows: a Rocket purchase-order line carries no
+   * listing to settle against, and a listing whose ad coverage is incomplete is
+   * withheld by `buildPerListingProfit`. Revenue is always measured; profit is
+   * not, and a margin assumption standing in for it was indistinguishable from
+   * a measurement on screen.
+   */
+  netProfit: z.number().nullable(),
+  profitRate: z.number().nullable(),
 });
 
 export const MonthlyTrendItemSchema = z.object({

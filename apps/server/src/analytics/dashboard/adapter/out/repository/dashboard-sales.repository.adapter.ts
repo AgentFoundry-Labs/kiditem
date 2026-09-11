@@ -1,6 +1,15 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { ProductAbcEvaluationSchema } from '@kiditem/shared/product-abc';
 import { PrismaService } from '../../../../../prisma/prisma.service';
+import {
+  buildPerListingProfit,
+  readAccountAdEvidence,
+  type PerListingProfit,
+} from '../../../../../common/per-listing-profit';
+import {
+  AD_ACCOUNT_DAILY_KPI_READ_PORT,
+  type AdAccountDailyKpiReadPort,
+} from '../../../../../advertising/application/port/in/ad-account-daily-kpi-source.port';
 import type { TopProduct } from '@kiditem/shared/dashboard';
 import type {
   DashboardSalesRepositoryPort,
@@ -9,6 +18,11 @@ import type {
 
 interface TopProductRawRow {
   id: string;
+  /**
+   * The listing the row settles against, separate from `id` because `id` also
+   * has to name rows that have no listing. Null is how a Rocket line says so.
+   */
+  listingId: string | null;
   name: string;
   organization: string | null;
   abcEvaluation: unknown;
@@ -29,7 +43,11 @@ interface TopProductRawRow {
 export class DashboardSalesRepositoryAdapter
   implements DashboardSalesRepositoryPort
 {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(AD_ACCOUNT_DAILY_KPI_READ_PORT)
+    private readonly adAccountDailyKpiRead: AdAccountDailyKpiReadPort,
+  ) {}
 
   /**
    * KST today KPI — `SUM(oli.total_price)` is the I3 canonical revenue source
@@ -61,8 +79,11 @@ export class DashboardSalesRepositoryAdapter
    * how many Sellpia components its option consumes. Product labels and grade
    * come from the listing's direct operational-product link.
    *
-   * Returns the raw shape; the application service applies the documented
-   * 30%-margin approximation for `netProfit`/`profitRate`.
+   * Revenue comes from this SQL, which is the only read that can see a Rocket
+   * line. Profit comes from `buildPerListingProfit` — the same helper
+   * `/api/profit-loss` uses, for the same window — so the two screens cannot
+   * disagree about one listing's margin. A row the helper has no answer for
+   * publishes no profit (ADR-0004, which withdrew this ranking's exemption).
    */
   async fetchTopProducts(
     organizationId: string,
@@ -76,9 +97,10 @@ export class DashboardSalesRepositoryAdapter
         WHERE organization_id = ${organizationId}::uuid
       )
       SELECT
-        cl.id::text AS id,
-        COALESCE(mp.name, cl.display_name, cl.channel_name, cl.external_id) AS name,
-        cl.channel_name AS organization,
+        COALESCE(cl.id::text, 'line-sku:' || oli.sku) AS id,
+        cl.id::text AS "listingId",
+        COALESCE(mp.name, cl.display_name, cl.channel_name, cl.external_id, oli.product_name) AS name,
+        COALESCE(cl.channel_name, ca.name, ca.channel) AS organization,
         CASE WHEN abce.id IS NULL THEN NULL ELSE jsonb_build_object(
           'abcGrade', abce.abc_grade,
           'weightedRevenue', abce.weighted_revenue,
@@ -109,8 +131,22 @@ export class DashboardSalesRepositoryAdapter
         SUM(oli.quantity)::int AS quantity
       FROM scoped_orders o
       JOIN order_line_items oli ON oli.order_id = o.id
-      JOIN channel_listing_options clo ON clo.id = oli.listing_option_id
-      JOIN channel_listings cl ON cl.id = clo.listing_id
+      -- Rocket purchase orders are channel revenue too, and their lines never
+      -- carry a listing option: the Coupang direct importer resolves product
+      -- identity through Supply's confirmation, not through a listing. An
+      -- inner join here hid that revenue entirely — a July of 18,945,520원
+      -- rendered as "no product revenue". The line's own product identity
+      -- stands in when no listing resolves; the grade and the evidence stay
+      -- absent rather than being guessed at.
+      LEFT JOIN channel_listing_options clo
+        ON clo.id = oli.listing_option_id
+        AND clo.organization_id = ${organizationId}::uuid
+      LEFT JOIN channel_listings cl
+        ON cl.id = clo.listing_id
+        AND cl.organization_id = ${organizationId}::uuid
+      LEFT JOIN channel_accounts ca
+        ON ca.id = o.channel_account_id
+        AND ca.organization_id = ${organizationId}::uuid
       LEFT JOIN master_products mp ON mp.id = cl.master_product_id
         AND mp.organization_id = ${organizationId}::uuid
       LEFT JOIN master_product_abc_evaluations abce
@@ -121,25 +157,37 @@ export class DashboardSalesRepositoryAdapter
         AND abcf.organization_id = ${organizationId}::uuid
       WHERE o.organization_id = ${organizationId}::uuid
         AND oli.organization_id = ${organizationId}::uuid
-        AND clo.organization_id = ${organizationId}::uuid
-        AND cl.organization_id = ${organizationId}::uuid
         AND o.ordered_at >= ${monthStart}
         AND o.ordered_at < ${monthEnd}
         AND o.status NOT IN ('cancelled', 'returned', 'refunded')
-      GROUP BY cl.id, mp.name, abce.id, abcf.id
+      GROUP BY COALESCE(cl.id::text, 'line-sku:' || oli.sku),
+               cl.id, cl.display_name, cl.channel_name, cl.external_id,
+               ca.name, ca.channel, oli.product_name, mp.name, abce.id, abcf.id
       ORDER BY revenue DESC
       LIMIT 10
     `;
 
-    // KNOWN APPROXIMATION (Plan F1 critic MAJOR #2 — documented in release note):
-    // For the top-N ranking widget we approximate netProfit/profitRate using a flat
-    // 30% margin assumption. Precise per-listing math lives in /api/profit-loss
-    // (which uses buildPerListingMetrics). Top-N is a summary visual, not a financial
-    // report — users who need exact margin per master must drill into /profit-loss.
+    // The ranking used to publish `revenue * 0.3` here. A flat margin reads on
+    // screen exactly like a settled figure, and the Rocket rows above — which
+    // have no settlement inputs at all — made that indistinguishable from a
+    // measurement. The precise math was already extracted to be shared, so ask
+    // it for the same window instead of assuming, and leave the answer absent
+    // where it has none.
+    const rankedListingIds = new Set(
+      rows.map((r) => r.listingId).filter((id): id is string => Boolean(id)),
+    );
+    // Nothing in the ranking settles against a listing — an empty month, or a
+    // month of Rocket lines only — so the per-listing read has no consumer and
+    // is not worth its four queries.
+    const profitByListing = rankedListingIds.size === 0
+      ? new Map<string, PerListingProfit>()
+      : await this.readProfitByRankedListing(organizationId, monthStart, monthEnd);
+
     return rows.map((r) => {
       const revenue = Number(r.revenue ?? 0);
-      const netProfit = Math.round(revenue * 0.3);
-      const profitRate = revenue > 0 ? 30.0 : 0;
+      // A row with no listing has nothing to look up, and a listing the helper
+      // withheld (incomplete ad coverage, per ADR-0003) answers `null` itself.
+      const measured = r.listingId ? profitByListing.get(r.listingId) ?? null : null;
       const parsedEvaluation = ProductAbcEvaluationSchema.safeParse(r.abcEvaluation);
       const abcEvaluation = parsedEvaluation.success ? parsedEvaluation.data : null;
       return {
@@ -149,10 +197,37 @@ export class DashboardSalesRepositoryAdapter
         grade: abcEvaluation?.abcGrade ?? null,
         abcEvaluation,
         revenue,
-        netProfit,
-        profitRate,
+        netProfit: measured?.netProfit ?? null,
+        profitRate: measured?.profitRate ?? null,
       } satisfies TopProduct;
     });
+  }
+
+  /**
+   * One listing's profit, as the shared helper answers it for this window.
+   * Separate so the ranking reads as a ranking: the helper needs Advertising's
+   * account-level evidence for the same window first, because its absence is
+   * what made "runs no ads" and "ad collection failed" the same zero.
+   */
+  private async readProfitByRankedListing(
+    organizationId: string,
+    from: Date,
+    to: Date,
+  ): Promise<Map<string, PerListingProfit>> {
+    const adEvidence = await readAccountAdEvidence(
+      this.adAccountDailyKpiRead,
+      organizationId,
+      from,
+      to,
+    );
+    const rows = await buildPerListingProfit(
+      this.prisma,
+      organizationId,
+      from,
+      to,
+      adEvidence,
+    );
+    return new Map(rows.map((row) => [row.listingId, row]));
   }
 
   /**

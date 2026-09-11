@@ -445,12 +445,68 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
     expect(result.topProducts[0].name).toBe('Top 1');
     expect(result.topProducts[0].organization).toBe('채널1');     // ChannelListing.channelName
 
-    // KNOWN APPROXIMATION assertion (critic MAJOR #2):
-    // Top-N rows always carry profitRate=30.0 and netProfit=round(revenue*0.3).
-    // If this assertion fails, someone replaced the approximation — update release
-    // note + remove this guard.
-    expect(result.topProducts[0].profitRate).toBe(30.0);
-    expect(result.topProducts[0].netProfit).toBe(Math.round(12_000 * 0.3));
+    // The approximation this used to guard is gone. Profit now comes from the
+    // same `buildPerListingProfit` that /api/profit-loss reads, so the figure
+    // follows this fixture's own inputs: zero supply cost, zero commission,
+    // zero shipping, and an ad publication confirmed zero across the window.
+    expect(result.topProducts[0].netProfit).toBe(12_000);
+    expect(result.topProducts[0].profitRate).toBe(100);
+    expect(result.topProducts[0].netProfit).not.toBe(Math.round(12_000 * 0.3));
+  });
+
+  /**
+   * Rocket purchase orders are channel revenue, and their lines carry no
+   * listing option: the Coupang direct importer resolves product identity
+   * through Supply's confirmation. The ranking's inner join used to drop them,
+   * so a July of real Rocket revenue read as "no product revenue". They belong
+   * in the ranking by revenue — and with no listing to settle against, they
+   * carry no profit rather than an assumed one.
+   */
+  it('ranks a Rocket line by its revenue and publishes no profit for it', async () => {
+    const account = await prisma.channelAccount.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channel: 'coupang',
+        name: 'Coupang Rocket',
+      },
+      select: { id: true },
+    });
+    const order = await prisma.order.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: account.id,
+        externalOrderId: 'ROCKET-PO-1',
+        orderedAt: midMonth(),
+        status: 'accepted',
+        shippingPrice: 0,
+        totalPrice: 1_474_200,
+      },
+      select: { id: true },
+    });
+    await prisma.orderLineItem.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        orderId: order.id,
+        listingOptionId: null,
+        sku: '53889600',
+        productName: '2000바풍투톤슬라임 152g 12개 혼합색상 랜덤발송',
+        quantity: 12,
+        unitPrice: 122_850,
+        totalPrice: 1_474_200,
+        externalLineId: 'ROCKET-LI-1',
+      },
+    });
+
+    const result = await service.getSummary(buildDashboardContext(), TEST_ORGANIZATION_ID);
+
+    const rocket = result.topProducts.find((row) => row.id === 'line-sku:53889600');
+    expect(rocket).toBeDefined();
+    expect(rocket?.revenue).toBe(1_474_200);
+    expect(rocket?.organization).toBe('Coupang Rocket');
+    expect(rocket?.name).toBe('2000바풍투톤슬라임 152g 12개 혼합색상 랜덤발송');
+    expect(rocket?.grade).toBeNull();
+    expect(rocket?.netProfit).toBeNull();
+    expect(rocket?.profitRate).toBeNull();
   });
 
   it('keeps an unclassified stored MasterProduct grade null in Top Products', async () => {

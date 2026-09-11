@@ -418,6 +418,26 @@ describe('dashboard schemas', () => {
     expect(() => TopProductSchema.parse({ ...base, grade: 'manual', abcEvaluation: null })).toThrow();
   });
 
+  it('lets a top product carry measured revenue and no profit', () => {
+    // A Rocket purchase-order line has revenue and no listing to settle
+    // against. The ranking used to publish `revenue * 0.3` for rows like this,
+    // which the contract could not tell apart from a settled figure.
+    const withheld = TopProductSchema.parse({
+      id: 'line-sku:53889600',
+      name: '로켓 공급 상품',
+      organization: 'Coupang Rocket',
+      grade: null,
+      abcEvaluation: null,
+      revenue: 1_474_200,
+      netProfit: null,
+      profitRate: null,
+    });
+
+    expect(withheld.revenue).toBe(1_474_200);
+    expect(withheld.netProfit).toBeNull();
+    expect(withheld.profitRate).toBeNull();
+  });
+
   it('requires the Sellpia receipt profit after collected Coupang ad spend', () => {
     const emptyGroup = { revenue: 0, qty: 0, cost: 0, daily: [], malls: [] };
     const summary = SellpiaSalesSummarySchema.parse({
