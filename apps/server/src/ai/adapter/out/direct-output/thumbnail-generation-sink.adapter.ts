@@ -1,17 +1,21 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
-import type { ThumbnailDirectOutputSinkPort } from '../../../application/port/out/sink/thumbnail-direct-output-sink.port';
 import {
   AI_OPERATION_ALERT_PORT,
   type OperationAlertPort,
 } from '../../../application/port/out/cross-domain/operation-alert.port';
-import type { ThumbnailGenerateDirectOutput } from '../../../domain/direct-generation';
-import type { ThumbnailEditorCandidate } from '../../../domain/model/thumbnail-editor';
 import {
   THUMBNAIL_GENERATION_LEDGER_REPOSITORY_PORT,
   type ThumbnailGenerationLedgerRepositoryPort,
 } from '../../../application/port/out/repository/thumbnail-generation-ledger.repository.port';
+import {
+  IMAGE_STORAGE_PORT,
+  type ImageStoragePort,
+} from '../../../application/port/out/storage/image-storage.port';
 import { ProductGenerationAlertService } from '../../../application/service/product-generation-alert.service';
 import { ThumbnailGenerationLifecycleService } from '../../../application/service/thumbnail-generation-lifecycle.service';
+import type { ThumbnailDirectOutputSinkPort } from '../../../application/port/out/sink/thumbnail-direct-output-sink.port';
+import type { ThumbnailGenerateDirectOutput } from '../../../domain/direct-generation';
+import type { ThumbnailEditorCandidate } from '../../../domain/model/thumbnail-editor';
 
 /**
  * Real `ThumbnailDirectOutputSinkPort` adapter — applies validated thumbnail
@@ -42,6 +46,8 @@ export class ThumbnailGenerationSinkAdapter
     @Inject(AI_OPERATION_ALERT_PORT)
     private readonly operationAlerts: OperationAlertPort,
     private readonly lifecycle: ThumbnailGenerationLifecycleService,
+    @Inject(IMAGE_STORAGE_PORT)
+    private readonly storage: ImageStoragePort,
     @Optional()
     private readonly productGenerationAlerts?: ProductGenerationAlertService,
   ) {}
@@ -83,7 +89,9 @@ export class ThumbnailGenerationSinkAdapter
 
     const candidates: ThumbnailEditorCandidate[] = input.output.candidates.map(
       (candidate) => ({
-        url: candidate.url,
+        url: candidate.storageKey
+          ? this.storage.getUrl(candidate.storageKey)
+          : candidate.url,
         storageKey: candidate.storageKey ?? null,
         filename: candidate.filename ?? null,
         mimeType: candidate.mimeType ?? null,
