@@ -18,7 +18,9 @@ sales, ads, inventory, trends, health, action tasks, and chart panels.
 - Agent OS department buttons that mirror an existing operational screen call
   that screen's promoted shared action. Trigger surface is the only intended
   difference; extension command, defaults, persistence, artifacts, and browser
-  collection alerts stay identical.
+  collection alerts stay identical. They read as a row under the chart rather
+  than a full-height board: the departments and actions are the contract, the
+  board was not.
 - ABC cards, calculation-status/source freshness, contribution-profit totals,
   fixed-formula context, and Top Products render Products' stored evaluation
   snapshot. Never rebuild contribution profit locally. Source-stale, mapping,
@@ -33,7 +35,8 @@ sales, ads, inventory, trends, health, action tasks, and chart panels.
   browser.
 - Do not add dashboard-local stores for data that React Query already owns.
 - Do not replace an existing browser action with a dashboard-only count/status
-  Operation handler or add a generic Operations panel. Keep the `Agent OS`
-  tab name and composition unchanged.
+  Operation handler or add a generic Operations panel. Agent OS entry points
+  keep their departments and their promoted actions; their placement on the
+  dashboard is layout, not contract.
 - New dashboard metrics require checking backend dashboard schemas and this
   route rendering together.
