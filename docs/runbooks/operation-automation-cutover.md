@@ -83,7 +83,19 @@ operating clone at `localhost:5433` for these commands.
    If this step fails, do not continue to schema application. The transaction
    rolls back; correct the writer-stop or data issue and rerun from the backup
    decision gate.
-3. Apply the reviewed Prisma schema drop on the same stopped target, then
+3. Survey what the schema step would hit in this database's data. An empty
+   database accepts every schema change, so this is the first point where the
+   answer is the real one: the pre-schema migrations have run, and `db push` has
+   not. It reads only — no statement it issues writes — and exits non-zero when
+   something would halt the next step. A unique index over existing duplicates,
+   or a NOT NULL column added with no database default against a table that
+   still has rows, stops `db push` mid-flight; resolve those before continuing.
+
+   ```powershell
+   npm run check:cutover-data-blockers
+   ```
+
+4. Apply the reviewed Prisma schema drop on the same stopped target, then
    regenerate the client. This removes only the generic Operation/Workflow/
    Automation Marketplace models and their Organization/User relations. The
    `ActionTask` table and existing rows remain dormant; Channels marketplace
@@ -94,7 +106,7 @@ operating clone at `localhost:5433` for these commands.
    npx prisma generate
    ```
 
-4. Run the post-schema migrations and the release checks. Record the migration
+5. Run the post-schema migrations and the release checks. Record the migration
    ledger output, schema hash, dormant task count, and focused test results:
 
    ```powershell
@@ -106,8 +118,8 @@ operating clone at `localhost:5433` for these commands.
 
 ### Irreversible boundary and recovery
 
-Before step 3, stop and restore the approved backup if the pre-schema result,
-writer state, or SHA identity is not exact. Step 3 is destructive: this
+Before step 4, stop and restore the approved backup if the pre-schema result,
+writer state, or SHA identity is not exact. Step 4 is destructive: this
 runbook does not define an in-place rollback or recreate deleted generic rows.
 After schema application, recovery means restoring the backup into a separate
 database, verifying it, and redeploying the previously approved exact SHA

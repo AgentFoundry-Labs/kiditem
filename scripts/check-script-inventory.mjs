@@ -21,6 +21,7 @@ export const SCRIPT_INVENTORY = Object.freeze([
   'check-schema-artifact-sync.mjs',
   'check-sourcing-long-running-actions.mjs',
   'check-script-inventory.mjs',
+  'check-cutover-data-blockers.mjs',
   'check-server-type-baseline.mjs',
   'check-shared-interface-names.mjs',
   'check-shared-root-imports.sh',
