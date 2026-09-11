@@ -712,7 +712,7 @@ function failureAlert(input: {
     attemptId: input.attemptId,
     severity: 'error' as const,
     title: 'Sellpia 수동상품매칭 수집 실패',
-    message: `${input.errorCode}: ${input.errorMessage}`.slice(0, 300),
+    message: input.errorMessage.slice(0, 300),
     href: ALERT_HREF,
   };
 }

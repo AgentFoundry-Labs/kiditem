@@ -716,7 +716,7 @@ implements CoupangDirectOrderCollectionTransactionPort {
         dedupeKey: `source:${DIRECT_SOURCE_TYPE}:${row.channelAccountId ?? 'unknown'}`,
         severity: 'error',
         title: '쿠팡 직배송 원본 수집 실패',
-        message: `${code}: ${redact(message)}`.slice(0, 300),
+        message: (redact(message)).slice(0, 300),
         href: '/order-collection',
       });
     }

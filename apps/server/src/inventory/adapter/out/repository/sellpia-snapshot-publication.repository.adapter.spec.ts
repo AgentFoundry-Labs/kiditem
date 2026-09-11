@@ -41,7 +41,8 @@ describe('SellpiaSnapshotPublicationRepositoryAdapter source failure alerts', ()
       attemptId: RUN_ID,
       severity: 'error',
       title: '셀피아 재고 수집 실패',
-      message: 'sellpia_invalid_workbook: Sellpia inventory snapshot failed quality thresholds',
+      // No reason code in a message a person reads; it stays on the run row.
+      message: 'Sellpia inventory snapshot failed quality thresholds',
       href: '/stock-ops',
     });
     expect(alerts.resolveSourceFailure).not.toHaveBeenCalled();

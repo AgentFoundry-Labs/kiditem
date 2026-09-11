@@ -498,7 +498,7 @@ export class KeywordSerpSourceRepository {
         dedupeKey: alertKey(row.rankKeyword!),
         severity: "error",
         title: "쿠팡 키워드 순위 수집 실패",
-        message: `${code}: ${message}`.slice(0, 300),
+        message: message.slice(0, 300),
         href: "/rank-tracking",
       });
     }

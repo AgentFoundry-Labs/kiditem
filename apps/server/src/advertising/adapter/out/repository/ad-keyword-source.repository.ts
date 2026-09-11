@@ -675,7 +675,7 @@ export class AdKeywordSourceRepository {
         dedupeKey: `source:${SOURCE}:${row.channelAccountId}`,
         severity: 'error',
         title: '쿠팡 광고 키워드 수집 실패',
-        message: `${code}: ${message}`.slice(0, 300),
+        message: message.slice(0, 300),
         href: '/ad-ops',
       });
     }

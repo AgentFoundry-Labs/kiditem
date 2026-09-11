@@ -1810,7 +1810,7 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
       dedupeKey: this.alertDedupeKey(row.channelAccountId!),
       severity: 'error',
       title: '쿠팡 Wing 트래픽 수집 실패',
-      message: `${code}: ${message}`.slice(0, 300),
+      message: message.slice(0, 300),
       href: '/ad-ops',
     });
     return failed;

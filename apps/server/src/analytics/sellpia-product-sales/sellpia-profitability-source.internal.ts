@@ -464,7 +464,7 @@ export function failureAlert(
     attemptId,
     severity: 'error' as const,
     title: 'Sellpia 수익성 수집 실패',
-    message: `${errorCode}: ${errorMessage}`.slice(0, 300),
+    message: errorMessage.slice(0, 300),
     href: '/stock-ops',
   };
 }

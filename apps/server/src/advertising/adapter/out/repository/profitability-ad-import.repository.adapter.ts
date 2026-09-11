@@ -673,7 +673,7 @@ export class ProfitabilityAdImportRepositoryAdapter
           attemptId: input.attemptId,
           severity: 'error',
           title: 'Coupang 광고 수익성 수집 실패',
-          message: `${input.code}: ${input.message}`.slice(0, 300),
+          message: input.message.slice(0, 300),
           href: '/ads/profitability-imports/current',
         });
       }

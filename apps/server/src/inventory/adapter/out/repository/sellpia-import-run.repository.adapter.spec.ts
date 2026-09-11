@@ -40,7 +40,9 @@ describe('SellpiaImportRunRepositoryAdapter source failure alerts', () => {
       attemptId: RUN_ID,
       severity: 'error',
       title: '셀피아 재고 수집 실패',
-      message: 'sellpia_file_unreadable: workbook could not be read',
+      // The reason code stays on the run row for logs and correlation; the
+      // alert carries only what a person reads (PRODUCT.md brand commitments).
+      message: 'workbook could not be read',
       href: '/stock-ops',
     });
   });

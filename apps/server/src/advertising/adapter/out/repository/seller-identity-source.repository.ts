@@ -319,7 +319,7 @@ export class SellerIdentitySourceRepository {
       attemptId: row.id,
       severity: 'error',
       title: '쿠팡 판매자 확인 실패',
-      message: `${code}: ${message}`.slice(0, 300),
+      message: message.slice(0, 300),
       href: '/rank-tracking',
     });
     return failed;

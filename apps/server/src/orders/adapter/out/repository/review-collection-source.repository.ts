@@ -446,7 +446,7 @@ export class ReviewCollectionSourceRepository implements ReviewCollectionSourceP
         dedupeKey: alertDedupeKey(),
         severity: 'error',
         title: SOURCE_ALERT_TITLE,
-        message: `${errorCode}: ${errorMessage}`.slice(0, 300),
+        message: errorMessage.slice(0, 300),
         href: SOURCE_ALERT_HREF,
       });
     }

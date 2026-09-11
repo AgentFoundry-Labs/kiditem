@@ -421,7 +421,7 @@ function failureAlert(input: {
     attemptId: input.attemptId,
     severity: 'error' as const,
     title: '쿠팡 경쟁 판매자 수집 실패',
-    message: `${input.code}: ${input.message}`.slice(0, 300),
+    message: input.message.slice(0, 300),
     href: '/sourcing-ai/competitor-analysis',
   };
 }

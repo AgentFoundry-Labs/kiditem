@@ -698,7 +698,7 @@ export class WingItemwinnerKpiSourceRepository
         dedupeKey: SOURCE_ALERT_DEDUPE_KEY,
         severity: 'error',
         title: SOURCE_ALERT_TITLE,
-        message: `${code}: ${message}`.slice(0, 300),
+        message: message.slice(0, 300),
         href: '/ad-ops',
       });
     }

@@ -311,7 +311,7 @@ function failureAlert(input: {
     attemptId: input.attemptId,
     severity: 'error' as const,
     title: 'Coupang Wing 추적상품 수집 실패',
-    message: `${input.code}: ${input.message}`.slice(0, 300),
+    message: input.message.slice(0, 300),
     href: '/sourcing-ai/product-tracking',
   };
 }

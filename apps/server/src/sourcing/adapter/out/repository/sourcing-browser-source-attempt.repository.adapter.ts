@@ -541,7 +541,7 @@ async function failAttempt(
     attemptId: attempt.id,
     severity: 'error',
     title: input.failureAlert.title,
-    message: `${input.code}: ${input.message}`.slice(0, 300),
+    message: input.message.slice(0, 300),
     href: input.failureAlert.href,
   });
   return updated;

@@ -15,7 +15,7 @@ export function sellpiaInventorySourceFailureAlert(input: {
     attemptId: input.attemptId,
     severity: 'error',
     title: '셀피아 재고 수집 실패',
-    message: `${input.errorCode}: ${input.errorMessage}`.slice(0, 300),
+    message: input.errorMessage.slice(0, 300),
     href: '/stock-ops',
   };
 }
