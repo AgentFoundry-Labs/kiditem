@@ -8,7 +8,6 @@ import {
   TEST_USER_ID as USER,
 } from '../../test-helpers/real-prisma';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
-import { AlertsRepository } from '../../alerts/alerts.repository';
 import { SourcingShadowSignalService } from '../application/service/sourcing-shadow-signal.service';
 import { MarketShadowSnapshotRepositoryAdapter } from '../adapter/out/repository/market-shadow-snapshot.repository.adapter';
 import { SourcingBrowserSourceAttemptRepositoryAdapter } from '../adapter/out/repository/sourcing-browser-source-attempt.repository.adapter';
@@ -30,7 +29,7 @@ describe('Market Shadow source owner public service + disposable PG', () => {
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    alerts = new SourceFailureAlerts(new AlertsRepository(prisma as never));
+    alerts = new SourceFailureAlerts(prisma as never);
     service = new SourcingShadowSignalService(
       google,
       new MarketShadowSnapshotRepositoryAdapter(prisma as never),

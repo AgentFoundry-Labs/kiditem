@@ -2,7 +2,6 @@ import { randomUUID } from 'node:crypto';
 import type { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD } from '@kiditem/shared/product-abc';
-import { AlertsRepository } from '../../alerts/alerts.repository';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import { ProfitabilityAdImportRepositoryAdapter } from '../../advertising/adapter/out/repository/profitability-ad-import.repository.adapter';
 import { SellpiaProfitabilitySourceService } from '../../analytics/sellpia-product-sales/sellpia-profitability-source.service';
@@ -595,7 +594,7 @@ async function publishSources(prisma: PrismaClient, skuCode: string): Promise<{
   sellpiaRunId: string;
   advertisingRunId: string;
 }> {
-  const alerts = new SourceFailureAlerts(new AlertsRepository(prisma as never));
+  const alerts = new SourceFailureAlerts(prisma as never);
   const sellpia = new SellpiaProfitabilitySourceService(prisma as never, alerts);
   const advertising = new ProfitabilityAdImportRepositoryAdapter(prisma as never, alerts);
   const sellpiaAttempt = await sellpia.beginAttempt(

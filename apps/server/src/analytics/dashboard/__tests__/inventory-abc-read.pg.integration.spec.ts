@@ -6,7 +6,6 @@ import { InventoryAvailabilityService } from '../../../inventory/application/ser
 import { MasterProductAbcRepositoryAdapter } from '../../../products/adapter/out/repository/master-product-abc.repository.adapter';
 import { ProductAbcReadService } from '../../../products/application/service/product-abc-read.service';
 import { MasterProductAbcService } from '../../../products/application/service/master-product-abc.service';
-import { AlertsRepository } from '../../../alerts/alerts.repository';
 import { SourceFailureAlerts } from '../../../alerts/alerts.service';
 import { ProfitabilityAdImportRepositoryAdapter } from '../../../advertising/adapter/out/repository/profitability-ad-import.repository.adapter';
 import { AdAccountDailyKpiSourceRepository } from '../../../advertising/adapter/out/repository/ad-account-daily-kpi-source.repository';
@@ -31,7 +30,7 @@ describe('Analytics inventory ABC reads (PostgreSQL)', () => {
   beforeEach(async () => {
     await resetDb(prisma);
     await seedBaseFixture(prisma);
-    const alerts = new SourceFailureAlerts(new AlertsRepository(prisma as never));
+    const alerts = new SourceFailureAlerts(prisma as never);
     sellpia = new SellpiaProfitabilitySourceService(prisma as never, alerts);
     advertising = new ProfitabilityAdImportRepositoryAdapter(prisma as never, alerts);
     evidence = new MasterProductProfitabilityReadService(sellpia, advertising, prisma as never);

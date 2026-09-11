@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
 import { SourceFailureAlerts } from './alerts.service';
-import { AlertsRepository } from './alerts.repository';
 
 const ORGANIZATION_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const OTHER_ORGANIZATION_ID = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
@@ -107,7 +106,7 @@ function makeDb(initial: AlertState | null = null) {
 describe('SourceFailureAlerts', () => {
   it('creates one focused source-failure row in the supplied transaction', async () => {
     const { db, getRow } = makeDb();
-    const alerts = new SourceFailureAlerts(new AlertsRepository(db));
+    const alerts = new SourceFailureAlerts(db);
 
     await alerts.upsertSourceFailure(db, failure());
 
@@ -125,7 +124,7 @@ describe('SourceFailureAlerts', () => {
     const readAt = new Date('2026-09-03T00:10:00.000Z');
     const original = existingAlert({ isRead: true, readAt });
     const { db, getRow } = makeDb(original);
-    const alerts = new SourceFailureAlerts(new AlertsRepository(db));
+    const alerts = new SourceFailureAlerts(db);
     const before = { ...getRow()! };
 
     await alerts.upsertSourceFailure(db, failure(ATTEMPT_ID_1));
@@ -137,7 +136,7 @@ describe('SourceFailureAlerts', () => {
 
   it('reopens the same dedupe row unread for a newer failed attempt', async () => {
     const { db, getRow } = makeDb(existingAlert({ isRead: true, readAt: new Date() }));
-    const alerts = new SourceFailureAlerts(new AlertsRepository(db));
+    const alerts = new SourceFailureAlerts(db);
 
     await alerts.upsertSourceFailure(db, failure(ATTEMPT_ID_2));
 
@@ -153,7 +152,7 @@ describe('SourceFailureAlerts', () => {
 
   it('resolves the open dedupe row for the completing attempt and leaves read state alone', async () => {
     const { db, getRow } = makeDb(existingAlert({ isRead: false }));
-    const alerts = new SourceFailureAlerts(new AlertsRepository(db));
+    const alerts = new SourceFailureAlerts(db);
 
     await alerts.resolveSourceFailure(db, {
       organizationId: ORGANIZATION_ID,
@@ -174,7 +173,7 @@ describe('SourceFailureAlerts', () => {
 
   it('lists and dismisses only alerts in the authenticated organization', async () => {
     const { db, getRow } = makeDb(existingAlert());
-    const alerts = new SourceFailureAlerts(new AlertsRepository(db));
+    const alerts = new SourceFailureAlerts(db);
 
     await alerts.list(ORGANIZATION_ID);
     expect(db.alert.findMany).toHaveBeenCalledWith(expect.objectContaining({

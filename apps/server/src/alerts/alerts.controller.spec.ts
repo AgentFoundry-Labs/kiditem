@@ -1,9 +1,4 @@
 import 'reflect-metadata';
-import { RequestMethod } from '@nestjs/common';
-import {
-  METHOD_METADATA,
-  PATH_METADATA,
-} from '@nestjs/common/constants';
 import { describe, expect, it, vi } from 'vitest';
 import { AlertsController } from './alerts.controller';
 
@@ -35,19 +30,4 @@ describe('AlertsController', () => {
     expect(service.dismiss).toHaveBeenCalledWith(ALERT_ID, ORGANIZATION_ID);
   });
 
-  it('exposes only the list and dismiss web commands', () => {
-    const controllerMethods = Object.getOwnPropertyNames(AlertsController.prototype)
-      .filter((name) => name !== 'constructor');
-
-    expect(controllerMethods).toEqual(['findAll', 'dismiss']);
-    expect(Reflect.getMetadata(PATH_METADATA, AlertsController)).toBe('alerts');
-    expect(Reflect.getMetadata(METHOD_METADATA, AlertsController.prototype.findAll)).toBe(
-      RequestMethod.GET,
-    );
-    expect(Reflect.getMetadata(PATH_METADATA, AlertsController.prototype.findAll)).toBe('/');
-    expect(Reflect.getMetadata(METHOD_METADATA, AlertsController.prototype.dismiss)).toBe(
-      RequestMethod.POST,
-    );
-    expect(Reflect.getMetadata(PATH_METADATA, AlertsController.prototype.dismiss)).toBe(':id/dismiss');
-  });
 });

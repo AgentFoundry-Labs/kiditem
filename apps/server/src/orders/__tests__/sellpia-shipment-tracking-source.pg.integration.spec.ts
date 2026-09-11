@@ -13,7 +13,6 @@ import {
   TEST_USER_ID as USER,
   OTHER_ORGANIZATION_ID as OTHER_ORG,
 } from '../../test-helpers/real-prisma';
-import { AlertsRepository } from '../../alerts/alerts.repository';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import {
   SELLPIA_SHIPMENT_TRACKING_SOURCE_PORT,
@@ -33,7 +32,7 @@ describe('Sellpia shipment tracking source owner over disposable PostgreSQL', ()
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    const alerts = new SourceFailureAlerts(new AlertsRepository(prisma as never));
+    const alerts = new SourceFailureAlerts(prisma as never);
     owner = new SellpiaShipmentTrackingSourceRepository(prisma as never, alerts);
     const module = await Test.createTestingModule({
       controllers: [SellpiaShipmentTrackingSourceController],
@@ -144,7 +143,7 @@ describe('Sellpia shipment tracking source owner over disposable PostgreSQL', ()
   it('rolls the source failure and alert back together when Alert persistence fails', async () => {
     const started = (await begin().expect(201)).body;
     const scopedControl = (await control(ORG, started.attemptId).expect(200)).body;
-    const failingAlerts = new SourceFailureAlerts(new AlertsRepository(prisma as never));
+    const failingAlerts = new SourceFailureAlerts(prisma as never);
     const upsert = vi.spyOn(failingAlerts, 'upsertSourceFailure').mockRejectedValueOnce(
       new Error('alert persistence failed'),
     );

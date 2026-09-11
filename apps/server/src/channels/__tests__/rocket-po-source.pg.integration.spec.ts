@@ -4,7 +4,6 @@ import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
-import { AlertsRepository } from '../../alerts/alerts.repository';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import {
   makeTestPrisma,
@@ -67,7 +66,7 @@ describe('Rocket owner public HTTP + disposable PG', () => {
       },
     }) as unknown as PrismaClient;
     await prisma.$connect();
-    const alerts = new SourceFailureAlerts(new AlertsRepository(prisma as never));
+    const alerts = new SourceFailureAlerts(prisma as never);
     const repository = new RocketPoCatalogRepositoryAdapter(prisma as never, alerts);
     catalog = new RocketPoCatalogService(repository);
     const module = await Test.createTestingModule({

@@ -4,7 +4,6 @@ import { json } from 'express';
 import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Prisma } from '@prisma/client';
-import { AlertsRepository } from '../../alerts/alerts.repository';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import {
   makeTestPrisma,
@@ -400,7 +399,7 @@ describe('Sellpia manual-match source owner (PostgreSQL)', () => {
   function createOwner(client: PrismaClient): SellpiaManualMatchRepositoryAdapter {
     return new SellpiaManualMatchRepositoryAdapter(
       client as unknown as PrismaService,
-      new SourceFailureAlerts(new AlertsRepository(client as unknown as PrismaService)),
+      new SourceFailureAlerts(client as unknown as PrismaService),
     );
   }
 

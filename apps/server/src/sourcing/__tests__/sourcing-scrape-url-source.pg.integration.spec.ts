@@ -11,7 +11,6 @@ import { SourcingService } from '../application/service/sourcing.service';
 import { SourcingExtensionIngestController } from '../adapter/in/http/sourcing-extension-ingest.controller';
 import { SourcingExtensionIngestService } from '../application/service/sourcing-extension-ingest.service';
 import { SourcingBrowserSourceAttemptRepositoryAdapter } from '../adapter/out/repository/sourcing-browser-source-attempt.repository.adapter';
-import { AlertsRepository } from '../../alerts/alerts.repository';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import type { INestApplication } from '@nestjs/common';
 import type { PrismaClient } from '@prisma/client';
@@ -38,7 +37,7 @@ describe('retained scrape URL owner normalization and lifecycle (PostgreSQL)', (
   beforeAll(async () => {
     prisma = makeTestPrisma(); await prisma.$connect();
     candidates = new SourcingCandidateRepositoryAdapter(prisma as never);
-    const attempts = new SourcingBrowserSourceAttemptRepositoryAdapter(prisma as never, new SourceFailureAlerts(new AlertsRepository(prisma as never)));
+    const attempts = new SourcingBrowserSourceAttemptRepositoryAdapter(prisma as never, new SourceFailureAlerts(prisma as never));
     const owner = new SourcingScrapeUrlService(attempts, candidates, { scrapeProductUrl: async () => { providerCalls++; return provider(); } });
     capability = new SourcingFinalCapabilityAdapter(undefined as never, undefined as never, undefined as never,
       undefined as never, owner, undefined as never, undefined as never);

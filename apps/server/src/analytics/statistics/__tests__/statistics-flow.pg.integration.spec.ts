@@ -6,7 +6,6 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { AdAccountDailyKpiSourceRepository } from '../../../advertising/adapter/out/repository/ad-account-daily-kpi-source.repository';
 import { AD_ACCOUNT_DAILY_KPI_READ_PORT } from '../../../advertising/application/port/in/ad-account-daily-kpi-source.port';
 import { SourceFailureAlerts } from '../../../alerts/alerts.service';
-import { AlertsRepository } from '../../../alerts/alerts.repository';
 import {
   IDOR_SENTINEL,
   OTHER_ORGANIZATION_ID,
@@ -42,7 +41,7 @@ describe('Statistics flow (PG integration)', () => {
           provide: AD_ACCOUNT_DAILY_KPI_READ_PORT,
           useValue: new AdAccountDailyKpiSourceRepository(
             prisma as never,
-            new SourceFailureAlerts(new AlertsRepository(prisma as never)),
+            new SourceFailureAlerts(prisma as never),
           ),
         },
       ],

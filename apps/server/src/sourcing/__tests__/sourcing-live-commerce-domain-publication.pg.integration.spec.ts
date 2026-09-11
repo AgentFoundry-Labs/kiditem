@@ -1,7 +1,6 @@
 import type { PrismaClient } from '@prisma/client';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
-import { AlertsRepository } from '../../alerts/alerts.repository';
 import { makeTestPrisma, resetDb, seedBaseFixture, TEST_ORGANIZATION_ID } from '../../test-helpers/real-prisma';
 import { LiveCommerceController } from '../adapter/in/http/live-commerce.controller';
 import { LiveCommerceRepositoryAdapter } from '../adapter/out/repository/live-commerce.repository.adapter';
@@ -44,7 +43,7 @@ describe('Taobao direct source owner (PG integration)', () => {
       collect: vi.fn(async () => structuredClone(fixture)),
     };
     service = new LiveCommerceService(provider, new LiveCommerceRepositoryAdapter(prisma as never),
-      new SourcingBrowserSourceAttemptRepositoryAdapter(prisma as never, new SourceFailureAlerts(new AlertsRepository(prisma as never))));
+      new SourcingBrowserSourceAttemptRepositoryAdapter(prisma as never, new SourceFailureAlerts(prisma as never)));
     http = new LiveCommerceController(service);
   });
 

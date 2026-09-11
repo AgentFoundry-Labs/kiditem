@@ -8,7 +8,6 @@ import {
 } from '../../test-helpers/real-prisma';
 import { canonicalOwnerInputHash } from '../../common/owner-idempotency-key';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
-import { AlertsRepository } from '../../alerts/alerts.repository';
 import { SourcingBrowserSourceAttemptRepositoryAdapter } from '../adapter/out/repository/sourcing-browser-source-attempt.repository.adapter';
 import { SourcingCandidateRepositoryAdapter } from '../adapter/out/repository/sourcing-candidate.repository.adapter';
 import { SourcingFinalDiscoveryCapabilityAdapter } from '../adapter/in/agent/sourcing-final-discovery-capability.adapter';
@@ -190,7 +189,7 @@ describe('Sourcing cross-entrypoint candidate identity (PG integration)', () => 
 function extensionOwner(prisma: PrismaClient): SourcingExtensionIngestService {
   return new SourcingExtensionIngestService(new SourcingBrowserSourceAttemptRepositoryAdapter(
     prisma as unknown as PrismaService,
-    new SourceFailureAlerts(new AlertsRepository(prisma as unknown as PrismaService)),
+    new SourceFailureAlerts(prisma as unknown as PrismaService),
   ));
 }
 

@@ -1,5 +1,4 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AlertsRepository } from '../alerts.repository';
 import { SourceFailureAlerts } from '../alerts.service';
 import {
   makeTestPrisma,
@@ -33,7 +32,7 @@ describe('SourceFailureAlerts (PostgreSQL)', () => {
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    alerts = new SourceFailureAlerts(new AlertsRepository(prisma));
+    alerts = new SourceFailureAlerts(prisma);
   });
 
   afterAll(async () => {

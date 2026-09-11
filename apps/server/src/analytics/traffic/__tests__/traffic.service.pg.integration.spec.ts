@@ -4,7 +4,6 @@ import { Test } from '@nestjs/testing';
 import * as XLSX from 'xlsx';
 import { TrafficService } from '../traffic.service';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { AlertsRepository } from '../../../alerts/alerts.repository';
 import { SourceFailureAlerts } from '../../../alerts/alerts.service';
 import { AdTrafficSourceRepository } from '../../../advertising/adapter/out/repository/ad-traffic-source.repository';
 import {
@@ -119,7 +118,7 @@ describe('TrafficService (PG integration) — daily facts', () => {
     const prismaService = prisma as unknown as PrismaService;
     trafficOwner = new AdTrafficSourceRepository(
       prismaService,
-      new SourceFailureAlerts(new AlertsRepository(prismaService)),
+      new SourceFailureAlerts(prismaService),
     );
     const m = await Test.createTestingModule({
       providers: [

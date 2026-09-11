@@ -1,5 +1,4 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { AlertsRepository } from '../../../alerts/alerts.repository';
 import { SourceFailureAlerts } from '../../../alerts/alerts.service';
 import { ProfitabilityAdImportRepositoryAdapter } from '../../../advertising/adapter/out/repository/profitability-ad-import.repository.adapter';
 import { MasterProductProfitabilityReadService } from '../../../finance/application/service/master-product-profitability-read.service';
@@ -37,7 +36,7 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
     const inventory = new InventoryAvailabilityService(
       new InventoryAvailabilityRepositoryAdapter(prismaService),
     );
-    const alerts = new SourceFailureAlerts(new AlertsRepository(prismaService));
+    const alerts = new SourceFailureAlerts(prismaService);
     const evidence = new MasterProductProfitabilityReadService(
       new SellpiaProfitabilitySourceService(prismaService, alerts),
       new ProfitabilityAdImportRepositoryAdapter(prismaService, alerts), prismaService,
@@ -64,7 +63,7 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
     await resetDb(prisma);
     await seedBaseFixture(prisma);
     const owner = new SellpiaProfitabilitySourceService(
-      prisma as never, new SourceFailureAlerts(new AlertsRepository(prisma as never)),
+      prisma as never, new SourceFailureAlerts(prisma as never),
     );
     async function publishEmpty(organizationId: string) {
       const attempt = await owner.beginAttempt(organizationId, 'inventory-depletion-fixture');

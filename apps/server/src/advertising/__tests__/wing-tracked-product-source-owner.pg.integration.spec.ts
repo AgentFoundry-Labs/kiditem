@@ -1,5 +1,4 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { AlertsRepository } from '../../alerts/alerts.repository';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import {
   makeTestPrisma,
@@ -176,7 +175,7 @@ describe('Coupang Wing tracked-products source owner (PostgreSQL)', () => {
       idempotencyKey: SECOND_KEY,
       keywords: ['A Pencil'],
     });
-    const failingAlerts = new SourceFailureAlerts(new AlertsRepository(prisma as never));
+    const failingAlerts = new SourceFailureAlerts(prisma as never);
     failingAlerts.resolveSourceFailure = async () => {
       throw new Error('alert write failed');
     };
@@ -372,7 +371,7 @@ describe('Coupang Wing tracked-products source owner (PostgreSQL)', () => {
 function createOwner(prisma: PrismaClient): WingTrackedProductSourceAttemptRepositoryAdapter {
   return new WingTrackedProductSourceAttemptRepositoryAdapter(
     prisma as never,
-    new SourceFailureAlerts(new AlertsRepository(prisma as never)),
+    new SourceFailureAlerts(prisma as never),
   );
 }
 

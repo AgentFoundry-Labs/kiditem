@@ -10,7 +10,6 @@ import {
   TEST_ORGANIZATION_ID as ORG,
   TEST_USER_ID as USER,
 } from '../../test-helpers/real-prisma';
-import { AlertsRepository } from '../../alerts/alerts.repository';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import {
   ORDER_COLLECTION_SOURCE_PORT,
@@ -47,7 +46,7 @@ describe('Order collection source owner over disposable PostgreSQL', () => {
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    const alerts = new SourceFailureAlerts(new AlertsRepository(prisma as never));
+    const alerts = new SourceFailureAlerts(prisma as never);
     owner = new OrderCollectionSourceRepository(prisma as never, alerts);
     conversion = art09Conversion();
     convertArt09Orders = vi.fn().mockReturnValue(conversion);
@@ -199,7 +198,7 @@ describe('Order collection source owner over disposable PostgreSQL', () => {
   it('rolls raw capture and terminal state back when Alert persistence fails', async () => {
     const attempt = (await begin('art09').expect(201)).body;
     const controlAttempt = (await control(attempt.attemptId).expect(200)).body;
-    const failingAlerts = new SourceFailureAlerts(new AlertsRepository(prisma as never));
+    const failingAlerts = new SourceFailureAlerts(prisma as never);
     const upsert = vi.spyOn(failingAlerts, 'upsertSourceFailure').mockRejectedValueOnce(
       new Error('alert persistence failed'),
     );

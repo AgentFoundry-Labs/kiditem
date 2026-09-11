@@ -1,5 +1,4 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AlertsRepository } from '../../alerts/alerts.repository';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import { makeTestPrisma, resetDb, seedBaseFixture, TEST_ORGANIZATION_ID, TEST_USER_ID } from '../../test-helpers/real-prisma';
 import { SourcingBrowserSourceAttemptController } from '../adapter/in/http/sourcing-browser-source-attempt.controller';
@@ -26,7 +25,7 @@ describe('Sourcing evidence reads from source owner publications (PostgreSQL)', 
     await seedBaseFixture(prisma);
     const db = prisma as unknown as PrismaService;
     const owner = new SourcingBrowserSourceAttemptRepositoryAdapter(db,
-      new SourceFailureAlerts(new AlertsRepository(db)));
+      new SourceFailureAlerts(db));
     writer = new SourcingBrowserSourceAttemptController(new SourcingBrowserSourceAttemptService(owner,
       { list1688Targets: async () => [{ label: '연필', keyword: '铅笔' }] } as unknown as TrendCollectService));
     observations = new SourcingEvidenceLedgerRepositoryAdapter(db);

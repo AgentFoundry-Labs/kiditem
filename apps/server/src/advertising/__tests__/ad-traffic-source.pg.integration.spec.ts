@@ -13,7 +13,6 @@ import {
   TEST_ORGANIZATION_ID as ORG,
   TEST_USER_ID as USER,
 } from '../../test-helpers/real-prisma';
-import { AlertsRepository } from '../../alerts/alerts.repository';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import { AdTrafficSourceController } from '../adapter/in/http/ad-traffic-source.controller';
 import { AdTrafficSourceRepository } from '../adapter/out/repository/ad-traffic-source.repository';
@@ -114,7 +113,7 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    alerts = new SourceFailureAlerts(new AlertsRepository(prisma as never));
+    alerts = new SourceFailureAlerts(prisma as never);
     owner = new AdTrafficSourceRepository(prisma as never, alerts);
     const module = await Test.createTestingModule({
       controllers: [AdTrafficSourceController],
@@ -739,7 +738,7 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
     try {
       const measuredOwner = new AdTrafficSourceRepository(
         measured as never,
-        new SourceFailureAlerts(new AlertsRepository(measured as never)),
+        new SourceFailureAlerts(measured as never),
       );
       await measuredOwner.finalizeAttempt({
         organizationId: ORG,

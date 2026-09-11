@@ -2,7 +2,6 @@ import { randomUUID } from 'node:crypto';
 import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { AlertsRepository } from '../../alerts/alerts.repository';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import { AiCatalogMediaPublicationRepositoryAdapter } from '../../ai/adapter/out/repository/ai-catalog-media-publication.repository.adapter';
 import {
@@ -37,7 +36,7 @@ describe('Wing catalog private staging and atomic publication (public service + 
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    alerts = new SourceFailureAlerts(new AlertsRepository(prisma as never));
+    alerts = new SourceFailureAlerts(prisma as never);
     const publisher = new ChannelCatalogPublicationRepositoryAdapter(
       prisma as never,
       new AiCatalogMediaPublicationRepositoryAdapter(),

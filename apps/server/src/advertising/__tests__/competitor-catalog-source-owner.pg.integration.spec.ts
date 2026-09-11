@@ -1,5 +1,4 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { AlertsRepository } from '../../alerts/alerts.repository';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import {
   makeTestPrisma,
@@ -50,7 +49,7 @@ describe('Competitor catalog source owner (PostgreSQL)', () => {
     const ranks = new KeywordRankRepositoryAdapter(prisma as never);
     serp = new KeywordSerpSourceRepository(
       prisma as never,
-      new SourceFailureAlerts(new AlertsRepository(prisma as never)),
+      new SourceFailureAlerts(prisma as never),
       ranks,
       new KeywordRankIngestHandler(ranks),
     );
@@ -278,9 +277,7 @@ describe('Competitor catalog source owner (PostgreSQL)', () => {
 
   it('rolls source completion and catalog facts back when resolving the source alert fails', async () => {
     const attempt = await begin(FIRST_KEY, { target: 'all' }, [SELLER_A]);
-    const alerts = new SourceFailureAlerts(
-      new AlertsRepository(prisma as never),
-    );
+    const alerts = new SourceFailureAlerts(prisma as never);
     alerts.resolveSourceFailure = async () => {
       throw new Error('alert write failed');
     };
@@ -392,7 +389,7 @@ describe('Competitor catalog source owner (PostgreSQL)', () => {
 
 function createOwner(
   prisma: PrismaClient,
-  alerts = new SourceFailureAlerts(new AlertsRepository(prisma as never)),
+  alerts = new SourceFailureAlerts(prisma as never),
 ) {
   const ranks = new KeywordRankRepositoryAdapter(prisma as never);
   const handler = new KeywordRankIngestHandler(ranks);

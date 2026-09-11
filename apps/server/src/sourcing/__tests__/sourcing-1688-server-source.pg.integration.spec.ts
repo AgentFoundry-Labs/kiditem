@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AlertsRepository } from '../../alerts/alerts.repository';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import { makeTestPrisma, resetDb, seedBaseFixture, TEST_ORGANIZATION_ID, TEST_USER_ID } from '../../test-helpers/real-prisma';
 import { Sourcing1688SearchController } from '../adapter/in/http/sourcing-1688-search.controller';
@@ -35,7 +34,7 @@ describe('1688 server source owner HTTP with disposable PostgreSQL', () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
     const attempts = new SourcingBrowserSourceAttemptRepositoryAdapter(prisma as never,
-      new SourceFailureAlerts(new AlertsRepository(prisma as never)));
+      new SourceFailureAlerts(prisma as never));
     const repository = new Sourcing1688SearchResultRepositoryAdapter(prisma as never);
     wing = new SourcingWingCatalogIngestService(attempts, new SourcingRecommendationSourceRepositoryAdapter(prisma as never));
     controller = new Sourcing1688SearchController(

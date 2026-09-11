@@ -3,7 +3,6 @@ import {
   PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
   PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH,
 } from '@kiditem/shared/product-abc';
-import { AlertsRepository } from '../../alerts/alerts.repository';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import { ProfitabilityAdImportRepositoryAdapter } from '../../advertising/adapter/out/repository/profitability-ad-import.repository.adapter';
 import { AdAccountDailyKpiSourceRepository } from '../../advertising/adapter/out/repository/ad-account-daily-kpi-source.repository';
@@ -67,7 +66,7 @@ describe('Products publishes one ABC display status (PostgreSQL)', () => {
     await resetDb(prisma);
     await seedBaseFixture(prisma);
     const prismaService = prisma as unknown as PrismaService;
-    const alerts = new SourceFailureAlerts(new AlertsRepository(prismaService));
+    const alerts = new SourceFailureAlerts(prismaService);
     sellpia = new SellpiaProfitabilitySourceService(prismaService, alerts);
     advertising = new ProfitabilityAdImportRepositoryAdapter(prismaService, alerts);
     evidence = new MasterProductProfitabilityReadService(sellpia, advertising, prismaService);

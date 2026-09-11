@@ -10,7 +10,6 @@ import {
   TEST_ORGANIZATION_ID as ORG,
   TEST_USER_ID as USER,
 } from '../../test-helpers/real-prisma';
-import { AlertsRepository } from '../../alerts/alerts.repository';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import { AdCampaignSourceController } from '../adapter/in/http/ad-campaign-source.controller';
 import { AdCampaignSourceRepository } from '../adapter/out/repository/ad-campaign-source.repository';
@@ -30,7 +29,7 @@ describe('Ad campaign source incoming HTTP + disposable PostgreSQL', () => {
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    alerts = new SourceFailureAlerts(new AlertsRepository(prisma as never));
+    alerts = new SourceFailureAlerts(prisma as never);
     owner = new AdCampaignSourceRepository(prisma as never, alerts);
     const module = await Test.createTestingModule({
       controllers: [AdCampaignSourceController],

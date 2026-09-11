@@ -2,7 +2,6 @@ import { randomUUID } from 'node:crypto';
 import type { PrismaClient } from '@prisma/client';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD } from '@kiditem/shared/product-abc';
-import { AlertsRepository } from '../../alerts/alerts.repository';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import { ProfitabilityAdImportRepositoryAdapter } from '../../advertising/adapter/out/repository/profitability-ad-import.repository.adapter';
 import { SellpiaProfitabilitySourceService } from '../../analytics/sellpia-product-sales/sellpia-profitability-source.service';
@@ -160,7 +159,7 @@ function readAbc(prisma: PrismaClient, masterProductIds: readonly string[]) {
 }
 
 function profitabilityEvidence(prisma: PrismaClient): MasterProductProfitabilityReadService {
-  const alerts = new SourceFailureAlerts(new AlertsRepository(prisma as never));
+  const alerts = new SourceFailureAlerts(prisma as never);
   return new MasterProductProfitabilityReadService(
     new SellpiaProfitabilitySourceService(prisma as never, alerts),
     new ProfitabilityAdImportRepositoryAdapter(prisma as never, alerts),
@@ -262,7 +261,7 @@ async function collectSources(
   prisma: PrismaClient,
   options: { skuCode: string; daysAgo: number; holeMonthsBack?: number },
 ): Promise<{ cutoff: string }> {
-  const alerts = new SourceFailureAlerts(new AlertsRepository(prisma as never));
+  const alerts = new SourceFailureAlerts(prisma as never);
   const sellpia = new SellpiaProfitabilitySourceService(prisma as never, alerts);
   const advertising = new ProfitabilityAdImportRepositoryAdapter(prisma as never, alerts);
   vi.useFakeTimers({ toFake: ['Date'] });
@@ -341,7 +340,7 @@ async function startNewerSellpiaAttempt(
 ): Promise<void> {
   const sellpia = new SellpiaProfitabilitySourceService(
     prisma as never,
-    new SourceFailureAlerts(new AlertsRepository(prisma as never)),
+    new SourceFailureAlerts(prisma as never),
   );
   const attempt = await sellpia.beginAttempt(TEST_ORGANIZATION_ID, `abc-newer-${randomUUID()}`);
   if (outcome === 'FAILED') {

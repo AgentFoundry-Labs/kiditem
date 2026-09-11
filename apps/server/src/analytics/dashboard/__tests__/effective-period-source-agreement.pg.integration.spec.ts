@@ -42,7 +42,6 @@ import { PROFIT_CALCULATION_REPOSITORY_PORT } from '../application/port/out/repo
 import { WING_AD_SUMMARY_REPOSITORY_PORT } from '../application/port/out/repository/wing-ad-summary.repository.port';
 import { WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT } from '../application/port/out/repository/wing-traffic-aggregation.repository.port';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { AlertsRepository } from '../../../alerts/alerts.repository';
 import { SourceFailureAlerts } from '../../../alerts/alerts.service';
 import { AdAccountDailyKpiSourceRepository } from '../../../advertising/adapter/out/repository/ad-account-daily-kpi-source.repository';
 import { AdTrafficSourceRepository } from '../../../advertising/adapter/out/repository/ad-traffic-source.repository';
@@ -127,11 +126,11 @@ describe('effectivePeriod source agreement across dashboard endpoints (PG integr
     const prismaService = prisma as unknown as PrismaService;
     trafficOwner = new AdTrafficSourceRepository(
       prismaService,
-      new SourceFailureAlerts(new AlertsRepository(prismaService)),
+      new SourceFailureAlerts(prismaService),
     );
     adsOwner = new AdAccountDailyKpiSourceRepository(
       prismaService,
-      new SourceFailureAlerts(new AlertsRepository(prismaService)),
+      new SourceFailureAlerts(prismaService),
     );
 
     const m = await Test.createTestingModule({

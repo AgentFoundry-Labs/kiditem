@@ -1,6 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { AlertsRepository } from '../../alerts/alerts.repository';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import {
   makeTestPrisma,
@@ -28,7 +27,7 @@ describe('Sellpia manual inventory import (PG integration)', () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
     const prismaService = prisma as never;
-    const alerts = new SourceFailureAlerts(new AlertsRepository(prisma as never));
+    const alerts = new SourceFailureAlerts(prisma as never);
     runRepository = new SellpiaImportRunRepositoryAdapter(prismaService, alerts);
     publication = new SellpiaSnapshotPublicationRepositoryAdapter(prismaService, alerts);
     service = new SellpiaInventoryImportService(

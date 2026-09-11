@@ -11,7 +11,6 @@ import {
   TEST_ORGANIZATION_ID as ORG,
   TEST_USER_ID as USER,
 } from '../../test-helpers/real-prisma';
-import { AlertsRepository } from '../../alerts/alerts.repository';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import {
   REVIEW_COLLECTION_SOURCE_PORT,
@@ -36,7 +35,7 @@ describe('Coupang review collection source owner over disposable PostgreSQL', ()
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    const alerts = new SourceFailureAlerts(new AlertsRepository(prisma as never));
+    const alerts = new SourceFailureAlerts(prisma as never);
     reviewIngest = new ReviewIngestService(prisma as never);
     owner = new ReviewCollectionSourceRepository(prisma as never, alerts, reviewIngest);
     const module = await Test.createTestingModule({
@@ -285,7 +284,7 @@ describe('Coupang review collection source owner over disposable PostgreSQL', ()
     await append(attempt, [review('review-rollback', 'rollback')]);
     await completeWindow(attempt, 1);
 
-    const failingAlerts = new SourceFailureAlerts(new AlertsRepository(prisma as never));
+    const failingAlerts = new SourceFailureAlerts(prisma as never);
     const resolve = vi.spyOn(failingAlerts, 'resolveSourceFailure').mockRejectedValueOnce(
       new Error('alert persistence failed'),
     );

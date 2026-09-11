@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { AlertsRepository } from '../../alerts/alerts.repository';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import { ChannelCatalogCollectionRepositoryAdapter } from '../adapter/out/repository/channel-catalog-collection.repository.adapter';
 import {
@@ -27,7 +26,7 @@ describe('ChannelCatalogCollectionRepositoryAdapter (PG integration)', () => {
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    alerts = new SourceFailureAlerts(new AlertsRepository(prisma as never));
+    alerts = new SourceFailureAlerts(prisma as never);
     repository = new ChannelCatalogCollectionRepositoryAdapter(
       prisma as unknown as PrismaService,
       alerts,

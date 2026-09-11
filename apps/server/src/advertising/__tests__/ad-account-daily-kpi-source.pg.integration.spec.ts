@@ -11,7 +11,6 @@ import {
   TEST_ORGANIZATION_ID as ORG,
   TEST_USER_ID as USER,
 } from '../../test-helpers/real-prisma';
-import { AlertsRepository } from '../../alerts/alerts.repository';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import { canonicalOwnerInputHash } from '../../common/owner-idempotency-key';
 import { AdAccountDailyKpiSourceController } from '../adapter/in/http/ad-account-daily-kpi-source.controller';
@@ -38,7 +37,7 @@ describe('Advertising account daily KPI source incoming HTTP + disposable Postgr
     await prisma.$connect();
     owner = new AdAccountDailyKpiSourceRepository(
       prisma as never,
-      new SourceFailureAlerts(new AlertsRepository(prisma as never)),
+      new SourceFailureAlerts(prisma as never),
     );
     const module = await Test.createTestingModule({
       controllers: [AdAccountDailyKpiSourceController],

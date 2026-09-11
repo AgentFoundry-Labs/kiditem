@@ -10,7 +10,6 @@ import {
   TEST_ORGANIZATION_ID as ORG,
   TEST_USER_ID as USER,
 } from '../../test-helpers/real-prisma';
-import { AlertsRepository } from '../../alerts/alerts.repository';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import { AdvertisingIngestController } from '../adapter/in/http/advertising-ingest.controller';
 import { WingItemwinnerKpiSourceController } from '../adapter/in/http/wing-itemwinner-kpi-source.controller';
@@ -44,7 +43,7 @@ describe('Wing itemwinner KPI source owner HTTP + disposable PostgreSQL', () => 
     await prisma.$connect();
     owner = new WingItemwinnerKpiSourceRepository(
       prisma as never,
-      new SourceFailureAlerts(new AlertsRepository(prisma as never)),
+      new SourceFailureAlerts(prisma as never),
     );
     wingRead = owner;
     const channelScrape = new ChannelScrapeRepositoryAdapter(

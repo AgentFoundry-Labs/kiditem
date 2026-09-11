@@ -1,5 +1,4 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AlertsRepository } from '../../alerts/alerts.repository';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import {
   makeTestPrisma,
@@ -29,7 +28,7 @@ describe('Naver keyword analysis Alert identity (disposable PostgreSQL)', () => 
     const history = new TrendCollectionRepositoryAdapter(prisma as never);
     const attempts = new SourcingBrowserSourceAttemptRepositoryAdapter(
       prisma as never,
-      new SourceFailureAlerts(new AlertsRepository(prisma as never)),
+      new SourceFailureAlerts(prisma as never),
     );
     service = new NaverKeywordResearchService(
       { searchRelatedKeywords } as never,

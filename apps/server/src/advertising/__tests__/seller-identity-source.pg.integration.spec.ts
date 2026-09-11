@@ -22,7 +22,6 @@ import {
   OTHER_ORGANIZATION_ID as OTHER,
 } from '../../test-helpers/real-prisma';
 import { AlertsController } from '../../alerts/alerts.controller';
-import { AlertsRepository } from '../../alerts/alerts.repository';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import { SellerIdentitySourceController } from '../adapter/in/http/seller-identity-source.controller';
 import { CompetitorTrackingController } from '../adapter/in/http/competitor-tracking.controller';
@@ -50,7 +49,7 @@ describe('Seller identity owner HTTP + PostgreSQL', () => {
     await prisma.$connect();
     const rank = new KeywordRankRepositoryAdapter(prisma as never);
     const ingest = new KeywordRankIngestHandler(rank);
-    alerts = new SourceFailureAlerts(new AlertsRepository(prisma as never));
+    alerts = new SourceFailureAlerts(prisma as never);
     const tracking = new CompetitorTrackingService(rank, storefront);
     const module = await Test.createTestingModule({
       controllers: [

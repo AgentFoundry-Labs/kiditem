@@ -1,6 +1,5 @@
 import type { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AlertsRepository } from '../../alerts/alerts.repository';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import { makeTestPrisma, resetDb, seedBaseFixture, TEST_ORGANIZATION_ID, TEST_USER_ID } from '../../test-helpers/real-prisma';
 import { SourcingBrowserSourceAttemptRepositoryAdapter } from '../adapter/out/repository/sourcing-browser-source-attempt.repository.adapter';
@@ -29,7 +28,7 @@ describe('Naver/Shorts public collection owner (disposable PostgreSQL)', () => {
     await prisma.$connect();
     history = new TrendCollectionRepositoryAdapter(prisma as never);
     const attempts = new SourcingBrowserSourceAttemptRepositoryAdapter(prisma as never,
-      new SourceFailureAlerts(new AlertsRepository(prisma as never)));
+      new SourceFailureAlerts(prisma as never));
     analysis = new NaverKeywordResearchService({ searchRelatedKeywords } as never,
       { compareSearchTrends } as never, { searchPopularKeywords }, { searchAutocompleteKeywords }, history,
       attempts as never);
@@ -37,7 +36,7 @@ describe('Naver/Shorts public collection owner (disposable PostgreSQL)', () => {
       { searchRelatedKeywords } as never, { compareSearchTrends } as never,
       { searchPopularKeywords }, { fetchTrending }, history,
       new SourcingBrowserSourceAttemptRepositoryAdapter(prisma as never,
-        new SourceFailureAlerts(new AlertsRepository(prisma as never))) as never,
+        new SourceFailureAlerts(prisma as never)) as never,
     );
   });
   afterAll(async () => prisma?.$disconnect());

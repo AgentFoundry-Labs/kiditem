@@ -1,5 +1,4 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { AlertsRepository } from '../../alerts/alerts.repository';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import { ProfitabilityAdImportRepositoryAdapter } from '../../advertising/adapter/out/repository/profitability-ad-import.repository.adapter';
 import { SellpiaProfitabilitySourceService } from '../../analytics/sellpia-product-sales/sellpia-profitability-source.service';
@@ -33,7 +32,7 @@ describe('ProfitabilityEvidence (PostgreSQL)', () => {
   });
 
   it('shows the same missing compatible cutoff in Products as in ABC evidence after mapping changes', async () => {
-    const alerts = new SourceFailureAlerts(new AlertsRepository(prisma as never));
+    const alerts = new SourceFailureAlerts(prisma as never);
     const sellpia = new SellpiaProfitabilitySourceService(prisma as never, alerts);
     const advertising = new ProfitabilityAdImportRepositoryAdapter(prisma as never, alerts);
     await seedMappedProduct(prisma, TEST_ORGANIZATION_ID, 'OWN');
@@ -67,11 +66,11 @@ describe('ProfitabilityEvidence (PostgreSQL)', () => {
   it('loads one coherent source pair and excludes another organization', async () => {
     const sellpia = new SellpiaProfitabilitySourceService(
       prisma as never,
-      new SourceFailureAlerts(new AlertsRepository(prisma as never)),
+      new SourceFailureAlerts(prisma as never),
     );
     const advertising = new ProfitabilityAdImportRepositoryAdapter(
       prisma as never,
-      new SourceFailureAlerts(new AlertsRepository(prisma as never)),
+      new SourceFailureAlerts(prisma as never),
     );
     const ownProductId = await seedMappedProduct(prisma, TEST_ORGANIZATION_ID, 'OWN');
     const zeroProductId = await seedMappedProduct(prisma, TEST_ORGANIZATION_ID, 'ZERO');

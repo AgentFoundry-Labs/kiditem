@@ -28,7 +28,6 @@ import { ProductOperationsDataStatusRepositoryAdapter } from '../adapter/out/rep
 import { MasterProductProfitabilityReadService } from '../../finance/application/service/master-product-profitability-read.service';
 import { SellpiaProfitabilitySourceService } from '../../analytics/sellpia-product-sales/sellpia-profitability-source.service';
 import { ProfitabilityAdImportRepositoryAdapter } from '../../advertising/adapter/out/repository/profitability-ad-import.repository.adapter';
-import { AlertsRepository } from '../../alerts/alerts.repository';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import type { PrismaService } from '../../prisma/prisma.service';
 import type { PrismaClient } from '@prisma/client';
@@ -44,7 +43,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
     const prismaService = prisma as unknown as PrismaService;
-    const alerts = new SourceFailureAlerts(new AlertsRepository(prismaService));
+    const alerts = new SourceFailureAlerts(prismaService);
     sellpia = new SellpiaProfitabilitySourceService(prismaService, alerts);
     advertising = new ProfitabilityAdImportRepositoryAdapter(prismaService, alerts);
     service = new ProductOperationsService(

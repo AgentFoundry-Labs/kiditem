@@ -1,7 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { AlertsRepository } from '../../alerts/alerts.repository';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import { makeTestPrisma, resetDb, seedBaseFixture, TEST_ORGANIZATION_ID, TEST_USER_ID } from '../../test-helpers/real-prisma';
 import { SourcingBrowserSourceAttemptController } from '../adapter/in/http/sourcing-browser-source-attempt.controller';
@@ -90,7 +89,7 @@ describe('Sourcing current status HTTP seam (PostgreSQL)', () => {
 function controller(prisma: PrismaClient) {
   const db = prisma as unknown as PrismaService;
   const owner = new SourcingBrowserSourceAttemptRepositoryAdapter(
-    db, new SourceFailureAlerts(new AlertsRepository(db)),
+    db, new SourceFailureAlerts(db),
   );
   const targets = { list1688Targets: async () => [{ label: '연필', keyword: '铅笔' }] };
   return new SourcingBrowserSourceAttemptController(new SourcingBrowserSourceAttemptService(

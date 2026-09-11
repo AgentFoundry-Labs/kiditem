@@ -3,7 +3,6 @@ import { ConflictException } from '@nestjs/common';
 import type { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { PrismaService } from '../../prisma/prisma.service';
-import { AlertsRepository } from '../../alerts/alerts.repository';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import {
   makeTestPrisma,
@@ -29,7 +28,7 @@ describe('Coupang direct final-order collection (PG integration)', () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
     const prismaService = prisma as unknown as PrismaService;
-    const alerts = new SourceFailureAlerts(new AlertsRepository(prismaService));
+    const alerts = new SourceFailureAlerts(prismaService);
     const reconciliation = new RocketFinalOrderReconciliationService(
       new RocketFinalOrderReconciliationTransactionAdapter(),
     );

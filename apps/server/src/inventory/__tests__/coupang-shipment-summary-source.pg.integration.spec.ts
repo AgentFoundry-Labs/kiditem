@@ -3,7 +3,6 @@ import { Test } from "@nestjs/testing";
 import request from "supertest";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { PrismaClient } from "@prisma/client";
-import { AlertsRepository } from "../../alerts/alerts.repository";
 import { SourceFailureAlerts } from "../../alerts/alerts.service";
 import {
   makeTestPrisma,
@@ -32,7 +31,7 @@ describe("Shipment summary owner HTTP + disposable PostgreSQL", () => {
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    alerts = new SourceFailureAlerts(new AlertsRepository(prisma as never));
+    alerts = new SourceFailureAlerts(prisma as never);
     const repository = new CoupangShipmentDateSummaryRepositoryAdapter(
       prisma as never,
       alerts,

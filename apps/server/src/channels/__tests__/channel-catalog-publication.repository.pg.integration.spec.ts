@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { ConflictException } from '@nestjs/common';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { AlertsRepository } from '../../alerts/alerts.repository';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import { AiCatalogMediaPublicationRepositoryAdapter } from '../../ai/adapter/out/repository/ai-catalog-media-publication.repository.adapter';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -34,7 +33,7 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    const alerts = new SourceFailureAlerts(new AlertsRepository(prisma as never));
+    const alerts = new SourceFailureAlerts(prisma as never);
     const publisher = new ChannelCatalogPublicationRepositoryAdapter(
       prisma as unknown as PrismaService,
       new AiCatalogMediaPublicationRepositoryAdapter(),

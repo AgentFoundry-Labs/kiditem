@@ -1,6 +1,5 @@
 import { createHash } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { AlertsRepository } from '../../alerts/alerts.repository';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import {
   makeTestPrisma,
@@ -351,7 +350,7 @@ describe('Sourcing browser source owner (PostgreSQL)', () => {
   });
 
   it('rolls back facts and COMPLETE when resolving the concrete source Alert fails', async () => {
-    const alerts = new SourceFailureAlerts(new AlertsRepository(prisma as never));
+    const alerts = new SourceFailureAlerts(prisma as never);
     alerts.resolveSourceFailure = async () => {
       throw new Error('alert write failed');
     };
@@ -826,7 +825,7 @@ describe('Sourcing browser source owner (PostgreSQL)', () => {
 function createOwner(prisma: PrismaClient): SourcingBrowserSourceAttemptRepositoryAdapter {
   return new SourcingBrowserSourceAttemptRepositoryAdapter(
     prisma as unknown as PrismaService,
-    new SourceFailureAlerts(new AlertsRepository(prisma as never)),
+    new SourceFailureAlerts(prisma as never),
   );
 }
 

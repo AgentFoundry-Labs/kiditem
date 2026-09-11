@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { AlertsRepository } from '../../../alerts/alerts.repository';
 import { SourceFailureAlerts } from '../../../alerts/alerts.service';
 import {
   IDOR_SENTINEL,
@@ -356,7 +355,7 @@ describe('Sellpia sales source owner (PG integration)', () => {
 function makeOwner(prisma: PrismaClient): SellpiaSalesSourceService {
   return new SellpiaSalesSourceService(
     prisma as never,
-    new SourceFailureAlerts(new AlertsRepository(prisma as never)),
+    new SourceFailureAlerts(prisma as never),
   );
 }
 

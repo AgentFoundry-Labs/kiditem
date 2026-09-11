@@ -1,6 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Prisma, type PrismaClient } from '@prisma/client';
-import { AlertsRepository } from '../../../alerts/alerts.repository';
 import { SourceFailureAlerts } from '../../../alerts/alerts.service';
 import {
   makeTestPrisma,
@@ -97,7 +96,7 @@ describe('Sellpia profitability source owner (PostgreSQL)', () => {
 
   it('keeps staged rows invisible until the manifest and Alert resolve commit together', async () => {
     const attempt = await service.beginAttempt(TEST_ORGANIZATION_ID, ATTEMPT_KEY);
-    const resolveFailure = new SourceFailureAlerts(new AlertsRepository(prisma));
+    const resolveFailure = new SourceFailureAlerts(prisma);
     resolveFailure.resolveSourceFailure = async () => {
       throw new Error('alert write failed');
     };
@@ -416,7 +415,7 @@ describe('Sellpia profitability source owner (PostgreSQL)', () => {
 function owner(prisma: PrismaClient): SellpiaProfitabilitySourceService {
   return new SellpiaProfitabilitySourceService(
     prisma as never,
-    new SourceFailureAlerts(new AlertsRepository(prisma as never)),
+    new SourceFailureAlerts(prisma as never),
   );
 }
 

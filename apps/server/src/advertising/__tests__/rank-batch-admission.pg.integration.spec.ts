@@ -20,7 +20,6 @@ import {
   TEST_ORGANIZATION_ID as ORG,
   TEST_USER_ID as USER,
 } from '../../test-helpers/real-prisma';
-import { AlertsRepository } from '../../alerts/alerts.repository';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import { KeywordRankController } from '../adapter/in/http/keyword-rank.controller';
 import { KeywordSerpSourceController } from '../adapter/in/http/keyword-serp-source.controller';
@@ -39,9 +38,7 @@ describe('Retained rank ordered admission/read incoming HTTP + PostgreSQL', () =
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    const alerts = new SourceFailureAlerts(
-      new AlertsRepository(prisma as never),
-    );
+    const alerts = new SourceFailureAlerts(prisma as never);
     const rank = new KeywordRankRepositoryAdapter(prisma as never);
     const service = new KeywordRankService(rank);
     const module = await Test.createTestingModule({

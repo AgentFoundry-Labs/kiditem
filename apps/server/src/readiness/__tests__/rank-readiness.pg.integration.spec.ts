@@ -20,7 +20,6 @@ import {
   TEST_ORGANIZATION_ID as ORG,
   TEST_USER_ID as USER,
 } from '../../test-helpers/real-prisma';
-import { AlertsRepository } from '../../alerts/alerts.repository';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import { WingRankSourceController } from '../../advertising/adapter/in/http/wing-rank-source.controller';
 import { WingRankSourceRepository } from '../../advertising/adapter/out/repository/wing-rank-source.repository';
@@ -41,7 +40,7 @@ describe('Wing COMPLETE provenance through public Readiness HTTP + PostgreSQL', 
     const rank = new KeywordRankRepositoryAdapter(prisma as never);
     const owner = new WingRankSourceRepository(
       prisma as never,
-      new SourceFailureAlerts(new AlertsRepository(prisma as never)),
+      new SourceFailureAlerts(prisma as never),
       rank,
       new WingSalesRankIngestHandler(rank),
       new KeywordRankService(rank),

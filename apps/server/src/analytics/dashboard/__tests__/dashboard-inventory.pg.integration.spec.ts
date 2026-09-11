@@ -12,7 +12,6 @@ import { MASTER_PRODUCT_ABC_REPOSITORY_PORT } from '../../../products/applicatio
 import { PRODUCT_ABC_READ_PORT } from '../../../products/application/port/in/product-abc-read.port';
 import { ProductAbcReadService } from '../../../products/application/service/product-abc-read.service';
 import { SourceFailureAlerts } from '../../../alerts/alerts.service';
-import { AlertsRepository } from '../../../alerts/alerts.repository';
 import { DashboardInventoryService } from '../application/service/dashboard-inventory.service';
 import { buildDashboardContext } from '../domain/context';
 import { businessDateText } from '../domain/period/dashboard-period';
@@ -44,7 +43,7 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    const alerts = new SourceFailureAlerts(new AlertsRepository(prisma as never));
+    const alerts = new SourceFailureAlerts(prisma as never);
     const evidence = new MasterProductProfitabilityReadService(
       new SellpiaProfitabilitySourceService(prisma as never, alerts),
       new ProfitabilityAdImportRepositoryAdapter(prisma as never, alerts), prisma as never,

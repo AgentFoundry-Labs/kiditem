@@ -4,7 +4,6 @@ import { resolve } from 'node:path';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { AlertsRepository } from '../../alerts/alerts.repository';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import { makeTestPrisma, resetDb, seedBaseFixture, TEST_ORGANIZATION_ID, TEST_USER_ID, OTHER_ORGANIZATION_ID } from '../../test-helpers/real-prisma';
 import { SourcingBrowserSourceAttemptRepositoryAdapter } from '../adapter/out/repository/sourcing-browser-source-attempt.repository.adapter';
@@ -23,7 +22,7 @@ describe('product extension actual HTTP source owner (PostgreSQL)', () => {
   let prisma: PrismaClient, app: INestApplication;
   beforeAll(async () => {
     prisma = makeTestPrisma(); await prisma.$connect();
-    const owner = new SourcingBrowserSourceAttemptRepositoryAdapter(prisma as never, new SourceFailureAlerts(new AlertsRepository(prisma as never)));
+    const owner = new SourcingBrowserSourceAttemptRepositoryAdapter(prisma as never, new SourceFailureAlerts(prisma as never));
     const module = await Test.createTestingModule({
       controllers: [SourcingExtensionIngestController],
       providers: [{ provide: SourcingService, useValue: {} },

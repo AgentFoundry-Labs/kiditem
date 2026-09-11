@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { AlertsRepository } from '../../alerts/alerts.repository';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import { makeTestPrisma, resetDb, seedBaseFixture, TEST_ORGANIZATION_ID, TEST_USER_ID } from '../../test-helpers/real-prisma';
 import { SourcingBrowserSourceAttemptRepositoryAdapter } from '../adapter/out/repository/sourcing-browser-source-attempt.repository.adapter';
@@ -26,7 +25,7 @@ describe('Wing source owner HTTP with disposable PostgreSQL', () => {
     await prisma.$connect();
     const service = new SourcingWingCatalogIngestService(
       new SourcingBrowserSourceAttemptRepositoryAdapter(prisma as never,
-        new SourceFailureAlerts(new AlertsRepository(prisma as never))),
+        new SourceFailureAlerts(prisma as never)),
       new SourcingRecommendationSourceRepositoryAdapter(prisma as never),
     );
     controller = new SourcingWorkspaceController(undefined as never, service,

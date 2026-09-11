@@ -21,7 +21,6 @@ import {
   TEST_USER_ID as USER,
   OTHER_ORGANIZATION_ID as OTHER,
 } from '../../test-helpers/real-prisma';
-import { AlertsRepository } from '../../alerts/alerts.repository';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import { CompetitorCatalogSourceController } from '../adapter/in/http/competitor-catalog-source.controller';
 import { CompetitorTrackingController } from '../adapter/in/http/competitor-tracking.controller';
@@ -50,9 +49,7 @@ describe('Catalog exclusion admission HTTP + PostgreSQL', () => {
     await prisma.$connect();
     const rank = new KeywordRankRepositoryAdapter(prisma as never);
     const ingest = new KeywordRankIngestHandler(rank);
-    const alerts = new SourceFailureAlerts(
-      new AlertsRepository(prisma as never),
-    );
+    const alerts = new SourceFailureAlerts(prisma as never);
     const tracking = new CompetitorTrackingService(rank, storefront);
     const module = await Test.createTestingModule({
       controllers: [

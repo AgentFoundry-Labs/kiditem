@@ -10,7 +10,6 @@ import {
   TEST_ORGANIZATION_ID as ORG,
   TEST_USER_ID as USER,
 } from '../../../test-helpers/real-prisma';
-import { AlertsRepository } from '../../../alerts/alerts.repository';
 import { SourceFailureAlerts } from '../../../alerts/alerts.service';
 import { SellpiaSalesController } from '../sellpia-sales.controller';
 import { SellpiaSalesService } from '../sellpia-sales.service';
@@ -37,7 +36,7 @@ describe('Sellpia sales source owner HTTP + disposable PostgreSQL', () => {
     await prisma.$connect();
     owner = new SellpiaSalesSourceService(
       prisma as never,
-      new SourceFailureAlerts(new AlertsRepository(prisma as never)),
+      new SourceFailureAlerts(prisma as never),
     );
     const summary = new SellpiaSalesService(
       {

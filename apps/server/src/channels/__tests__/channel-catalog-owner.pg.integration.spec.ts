@@ -22,7 +22,6 @@ import { ChannelCatalogPublicationRepositoryAdapter } from '../adapter/out/repos
 import { AiCatalogMediaPublicationRepositoryAdapter } from '../../ai/adapter/out/repository/ai-catalog-media-publication.repository.adapter';
 import { CHANNEL_CATALOG_COLLECTION_PORT } from '../application/port/in/channel-catalog-collection.port';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
-import { AlertsRepository } from '../../alerts/alerts.repository';
 import { ChannelListingQueryService } from '../application/service/channel-listing-query.service';
 import { ChannelListingRepositoryAdapter } from '../adapter/out/repository/channel-listing.repository.adapter';
 import { ChannelCatalogImportService } from '../application/service/channel-catalog-import.service';
@@ -70,7 +69,7 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
       },
     }) as unknown as PrismaClient;
     await prisma.$connect();
-    alerts = new SourceFailureAlerts(new AlertsRepository(prisma as never));
+    alerts = new SourceFailureAlerts(prisma as never);
     listings = new ChannelListingQueryService(new ChannelListingRepositoryAdapter(prisma as never));
     matching = new ChannelProductMatchingRepositoryAdapter(prisma as never);
     manualMatch = new SellpiaManualMatchRepositoryAdapter(prisma as never, alerts);
