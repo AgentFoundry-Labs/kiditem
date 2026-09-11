@@ -593,13 +593,26 @@ export default function Dashboard() {
     value === null || base === null || base === 0 ? null : `${((value / base) * 100).toFixed(1)}%`;
   const trafficFunnelSteps = [
     { key: 'visitors', label: '일평균 방문자', display: formatTrafficMetric(trafficDailyAverageVisitors, '명'), rate: null },
-    { key: 'views', label: '조회', display: formatTrafficMetric(trafficViews, '회'), rate: funnelRate(trafficViews, trafficDailyAverageVisitors) },
+    // No rate against visitors. The first step is a daily average of account
+    // unique visitors and every later step is a period sum, so the quotient is
+    // not a share of anything — with ten days collected it read 1256.1%. Wing
+    // publishes UV per day and a visitor returning on two days is one visitor
+    // on each, so there is no period UV to divide by either.
+    { key: 'views', label: '조회', display: formatTrafficMetric(trafficViews, '회'), rate: null },
     { key: 'cartAdds', label: '장바구니', display: formatTrafficMetric(trafficCartAdds, '회'), rate: funnelRate(trafficCartAdds, trafficViews) },
     { key: 'orders', label: '주문', display: formatTrafficMetric(trafficOrders, '건'), rate: funnelRate(trafficOrders, trafficCartAdds) },
     { key: 'salesQty', label: '판매량', display: formatTrafficMetric(trafficSalesQty, '개'), rate: null },
   ];
   const trafficSourceNote = [
     trafficObservedAt ? formatDateTime(trafficObservedAt) : '미수집',
+    // "부분 N/M일" is the one phrase for partially collected, the same one the
+    // ad lane uses. These five numbers sum only the days the provider has
+    // published, and Wing publishes traffic a day behind its sales, so the last
+    // day of a month-to-date window is routinely absent. Without this the strip
+    // would read as a total for the whole window.
+    trafficCoverage && !trafficCoverageComplete
+      ? `부분 ${trafficCoverage.completedDays}/${trafficCoverage.targetDays}일`
+      : null,
     trafficKpi?.source === 'wing'
       ? `${trafficFilterScope ? `계정 원본 · ${trafficFilterScope}` : 'Wing 계정 원본'} · 상품 매칭 합산 아님`
       : null,

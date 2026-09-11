@@ -317,7 +317,13 @@ describe('WingTrafficAggregationRepositoryAdapter account daily read', () => {
       completedDays: 2,
       missingDates: ['2026-07-02'],
     });
-    expect(partial.dailyAverageVisitors).toBeNull();
+    // The average is over the days it covers, not the days requested. Dividing
+    // by three here would report 3.3 for two days that measured 10 and 0 —
+    // understating both, which is the same error as reading 07-02 as a zero.
+    expect(partial.dailyAverageVisitors).toBe(5);
+    // A partial window still cannot stand in for the period's revenue. That is
+    // a separate gate and this change does not touch it.
+    expect(partial.hasData).toBe(false);
 
     trafficReadPublished.mockResolvedValue(dailyPublication([
       accountDaily('2026-07-03', { visitors: 0, views: 0, orders: 0, revenue: 0 }),

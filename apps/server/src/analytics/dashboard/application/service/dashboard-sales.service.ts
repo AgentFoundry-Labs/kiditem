@@ -500,19 +500,36 @@ type TrafficKpiValues = Pick<
   | 'exactPeriodEvidence'
 > & { orders: number | null; revenue: number | null };
 
+/**
+ * A window publishes what it measured once at least one day is confirmed.
+ *
+ * This used to require every day in the window, and that is the mirror of
+ * inventing a zero: ten measured days were withheld because the eleventh was
+ * one Coupang had not published yet — the ordinary case, since Wing's traffic
+ * runs a day behind its sales. Nothing published here is a total for the
+ * requested window and nothing claims to be: `coverage` travels on the payload
+ * with the day count and the missing dates, and the dashboard reads it as
+ * `부분 N/M일`. Zero confirmed days stays unavailable, because there is nothing
+ * measured to show.
+ *
+ * Standing in for a period's revenue is a different question and keeps its own
+ * gate: see `canUseWingRevenue`, which still requires the whole window.
+ */
+function hasConfirmedDays(metrics: WingTrafficMetrics): boolean {
+  if (!metrics.isCollected) return false;
+  return !metrics.coverage || metrics.coverage.completedDays > 0;
+}
+
 function canUseWingMetric(
   metrics: WingTrafficMetrics,
   metric: TrafficAdditiveMetric,
 ): boolean {
-  if (!metrics.isCollected) return false;
-  const coverage = metrics.coverage;
-  if (coverage && coverage.completedDays !== coverage.targetDays) return false;
+  if (!hasConfirmedDays(metrics)) return false;
   return metrics.reconciliation?.[metric]?.status !== 'MISMATCH';
 }
 
 function trafficKpiValues(metrics: WingTrafficMetrics): TrafficKpiValues {
-  const visitorsAvailable = metrics.isCollected
-    && (!metrics.coverage || metrics.coverage.completedDays === metrics.coverage.targetDays);
+  const visitorsAvailable = hasConfirmedDays(metrics);
   const viewsAvailable = canUseWingMetric(metrics, 'views');
   const ordersAvailable = canUseWingMetric(metrics, 'orders');
   const salesQtyAvailable = canUseWingMetric(metrics, 'salesQty');

@@ -272,7 +272,7 @@ describe('DashboardSalesService collected Coupang ad spend', () => {
     }));
   });
 
-  it('does not use a partial account range for full-period revenue or traffic values', async () => {
+  it('publishes the days a partial window measured but never its period revenue', async () => {
     const profit = buildMockProfitCalculationRepo();
     profit.calculateForRange.mockImplementation(async (_organizationId, period) => ({
       revenue: 0,
@@ -346,7 +346,105 @@ describe('DashboardSalesService collected Coupang ad spend', () => {
       ORGANIZATION_ID,
     );
 
+    // The guard that matters: a two-of-three-day window is not the month's
+    // revenue and never stands in for it.
     expect(result.monthly.revenue).toBeNull();
+    // The measured days themselves are published. Withholding them was the
+    // mirror of inventing a zero — and with Wing traffic a day behind its
+    // sales, the last day of a month-to-date window is routinely absent, so
+    // the whole funnel read as uncollected almost every day. `coverage` travels
+    // with the numbers and the dashboard renders it as `부분 N/M일`.
+    expect(result.trafficKpi).toEqual(expect.objectContaining({
+      visitors: 25,
+      views: 50,
+      orders: 5,
+      salesQty: 5,
+      revenue: 500,
+      cartAdds: 5,
+      conversionRate: 10,
+      trafficAvailable: true,
+      coverage: expect.objectContaining({
+        targetDays: 3,
+        completedDays: 2,
+        missingDates: ['2026-09-02'],
+      }),
+    }));
+  });
+
+  it('publishes nothing when the window confirmed no day at all', async () => {
+    const profit = buildMockProfitCalculationRepo();
+    profit.calculateForRange.mockImplementation(async (_organizationId, period) => ({
+      revenue: 0,
+      costOfGoods: 0,
+      commission: 0,
+      shippingCost: 0,
+      adCost: 0,
+      otherCost: 0,
+      netProfit: 0,
+      profitRate: 0,
+      orderCount: 0,
+      adRevenue: 0,
+      adImpressions: 0,
+      adClicks: 0,
+      adConversions: 0,
+      costComplete: true,
+      costIncompleteReasons: [],
+      adEvidenceComplete: true,
+      sourceCoverage: buildProfitSourceCoverage(period, { orders: false }),
+    }));
+    const wingAds = buildMockWingAdSummaryRepo();
+    wingAds.fetchCurrentMonthSummary.mockResolvedValue(null);
+    const sales = buildMockDashboardSalesRepo();
+    sales.fetchTodayKpis.mockResolvedValue({ revenue: 0, orders: 0 });
+    sales.fetchTopProducts.mockResolvedValue([]);
+    const wing = buildMockWingTrafficAggregationRepo();
+    // Rows exist, but not one date in the window completed. There is no
+    // measured day to show, which is the one case that is still unavailable.
+    wing.aggregateTraffic.mockResolvedValue({
+      revenue: 0,
+      orders: 0,
+      salesQty: 0,
+      visitors: 0,
+      views: 0,
+      cartAdds: 0,
+      conversionRate: 0,
+      dailyAverageVisitors: null,
+      providerConversionRate: null,
+      isCollected: true,
+      hasData: false,
+      lastObservedAt: new Date('2026-09-03T01:00:00.000Z'),
+      coverage: {
+        from: '2026-09-01',
+        to: '2026-09-03',
+        targetDays: 3,
+        completedDays: 0,
+        missingDates: ['2026-09-01', '2026-09-02', '2026-09-03'],
+      },
+      reconciliation: null,
+      exactPeriodEvidence: null,
+    });
+    wing.aggregateCoupangAds.mockResolvedValue({
+      spend: 0,
+      revenue: 0,
+      impressions: 0,
+      clicks: 0,
+      conversions: 0,
+      orders: 0,
+      conversionRate: null,
+      providerConversionRate: null,
+      coverage: null,
+      isCollected: false,
+      hasData: false,
+      lastObservedAt: null,
+    });
+    wing.findLatestDataDate.mockResolvedValue(null);
+
+    const service = new DashboardSalesService(profit, wingAds, sales, wing);
+    const result = await service.getSummary(
+      buildDashboardContext('month', undefined, undefined, new Date('2026-09-08T03:00:00.000Z')),
+      ORGANIZATION_ID,
+    );
+
     expect(result.trafficKpi).toEqual(expect.objectContaining({
       visitors: null,
       views: null,
@@ -356,8 +454,6 @@ describe('DashboardSalesService collected Coupang ad spend', () => {
       cartAdds: null,
       conversionRate: null,
       dailyAverageVisitors: null,
-      trafficAvailable: true,
-      coverage: expect.objectContaining({ completedDays: 2, missingDates: ['2026-09-02'] }),
     }));
   });
 });

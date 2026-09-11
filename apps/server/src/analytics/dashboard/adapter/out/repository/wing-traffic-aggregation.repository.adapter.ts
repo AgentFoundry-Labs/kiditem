@@ -83,8 +83,11 @@ export class WingTrafficAggregationRepositoryAdapter
     const reconciliation = normalizeReconciliation(daily.reconciliation, totals);
     const complete = coverage.targetDays > 0
       && coverage.completedDays === coverage.targetDays;
-    const dailyAverageVisitors = complete
-      ? totals.visitors / coverage.targetDays
+    // A daily average divides by the days it actually covers. Dividing a
+    // partial window by the days requested would understate every one of them,
+    // which is the same error as reading a day nobody collected as a zero.
+    const dailyAverageVisitors = coverage.completedDays > 0
+      ? totals.visitors / coverage.completedDays
       : null;
     const latest = latestAccountDailyRow(rows);
     const revenueReconciliation = reconciliation.revenue;

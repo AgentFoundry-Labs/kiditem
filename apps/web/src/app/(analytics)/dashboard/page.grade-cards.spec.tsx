@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import Dashboard from './page';
 import { buildSnapshotBasis, type SellpiaSalesSummary } from '@kiditem/shared/dashboard';
@@ -359,6 +359,67 @@ describe('Dashboard absolute ABC grade cards', () => {
     expect(screen.getByText('일별 합산·기간 원본 미대사 · 장바구니')).toBeInTheDocument();
     expect(screen.getByText('기간 원본 불일치로 숨김 · 매출')).toBeInTheDocument();
     expect(screen.getByText(/계정 원본 · ALL_NORMAL_RFM · 상품 매칭 합산 아님/)).toBeInTheDocument();
+  });
+
+  /**
+   * Coupang publishes Wing traffic a day behind its sales, so the last day of a
+   * month-to-date window is routinely one it has not published. The read model
+   * used to withhold every metric unless the whole window was covered, which
+   * meant the funnel read as uncollected on almost every day of the month even
+   * though ten days had been measured — the mirror of reading a missing day as
+   * a zero. The days that were measured are published, and `부분 N/M일` — the
+   * same phrase the ad lane uses — keeps them from reading as a window total.
+   */
+  it('publishes a partially covered funnel and says how many days it covers', async () => {
+    salesResponse = {
+      ...sales,
+      trafficKpi: {
+        ...sales.trafficKpi,
+        visitors: 185.1,
+        views: 2325,
+        orders: 92,
+        salesQty: 537,
+        revenue: 742730,
+        cartAdds: 261,
+        conversionRate: 3.96,
+        dailyAverageVisitors: 185.1,
+        providerConversionRate: 3.96,
+        coverage: {
+          from: '2026-09-01',
+          to: '2026-09-11',
+          targetDays: 11,
+          completedDays: 10,
+          missingDates: ['2026-09-11'],
+        },
+        reconciliation: null,
+        exactPeriodEvidence: null,
+        source: 'wing',
+        trafficAvailable: true,
+      },
+    };
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <Dashboard />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByText('Kiditem Foundry')).toBeInTheDocument());
+
+    const funnel = within(screen.getByTestId('dashboard-traffic-funnel'));
+    expect(funnel.getByText(/부분 10\/11일/)).toBeInTheDocument();
+    expect(funnel.getByText('일평균 방문자').parentElement).toHaveTextContent('일평균 방문자185.1명');
+    expect(funnel.getByText('조회').parentElement).toHaveTextContent('조회2,325회');
+    expect(funnel.getByText('주문').parentElement).toHaveTextContent('주문92건');
+    expect(document.body).not.toHaveTextContent('Wing 트래픽 미수집');
+    // The first step is a daily average and the rest are period sums, so there
+    // is no share of visitors to show. Dividing them read 1256.1%.
+    expect(funnel.getByText('조회').parentElement).not.toHaveTextContent('%');
+    // Later steps compare sum to sum and keep their rates.
+    expect(funnel.getByText('장바구니').parentElement).toHaveTextContent('11.2%');
+    expect(funnel.getByText('주문').parentElement).toHaveTextContent('35.2%');
   });
 
   it('keeps nullable traffic orders unavailable instead of falling back to today orders', async () => {
