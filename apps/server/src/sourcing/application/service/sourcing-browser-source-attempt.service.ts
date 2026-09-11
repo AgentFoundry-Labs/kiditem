@@ -163,7 +163,6 @@ export class SourcingBrowserSourceAttemptService {
       output,
       sourceWindowStartAt: null,
       sourceWindowEndAt: new Date(),
-      failureAlert: SOURCE_ALERT,
     });
   }
 
@@ -179,7 +178,6 @@ export class SourcingBrowserSourceAttemptService {
       ...input,
       code: boundedText(input.code, 100) || 'SOURCE_COLLECTION_FAILED',
       message: boundedText(input.message, 1_000) || '1688 collection failed.',
-      failureAlert: SOURCE_ALERT,
     });
   }
 
@@ -205,7 +203,6 @@ export class SourcingBrowserSourceAttemptService {
       attemptToken: input.attemptToken,
       code,
       message,
-      failureAlert: SOURCE_ALERT,
     });
   }
 

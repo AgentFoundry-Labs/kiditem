@@ -93,7 +93,7 @@ export class Sourcing1688KeywordSearchService {
           keyword, targetId: null, unitResult: unit };
         const terminal = await this.attempts.completeAttempt({ organizationId: input.organizationId,
           attemptId: attempt.attemptId, attemptToken: attempt.attemptToken, planChecksum: attempt.planChecksum,
-          contentChecksum: hashCollectionRequest(output), output, failureAlert: sourceAlert(SOURCE, targetKey) });
+          contentChecksum: hashCollectionRequest(output), output });
         attempts.push(terminal);
         units.push(unit);
         if (unexpected) throw unexpected;

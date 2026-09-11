@@ -47,13 +47,18 @@ export const SourceFailureAlertInputSchema = z.object({
 // schemas/alerts.ts: AlertItemSchema — what a reader of the alert list gets.
 //
 // This was the whole Prisma row, 23 fields, and it parsed nothing: the only
-// place that executed it was its own unit test. Meanwhile every projection
-// downstream used at most fifteen. Seven fields — organizationId, dedupeKey,
-// attemptId, sourceId, actorUserId, metadata, readAt — travelled to the browser
+// place that executed it was its own unit test. Six fields — organizationId,
+// dedupeKey, sourceId, actorUserId, metadata, readAt — travelled to the browser
 // and were read by nobody; they stay on the row, where the module that owns
 // them uses them, and leave the read.
+//
+// `attemptId` stays. No screen shows it, but "the alert follows the attempt" is
+// the rule behind the replay no-op and resolve-by-attempt, and seven suites
+// assert it through this read — the interface is the test surface, and removing
+// it left that invariant with no way to be checked.
 export const AlertItemSchema = z.object({
   id: z.string().uuid(),
+  attemptId: z.string().uuid().nullable().optional(),
   kind: AlertKindSchema,
   status: AlertStatusSchema,
   type: z.string(),

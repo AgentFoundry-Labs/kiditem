@@ -224,12 +224,12 @@ export class TrendCollectService implements TrendCollectionPort {
       const complete = await this.attempts.completeAttempt({ organizationId, attemptId: attempt.attemptId,
         attemptToken: attempt.attemptToken, planChecksum: attempt.planChecksum,
         contentChecksum: hashCollectionRequest(output), output,
-        sourceWindowStartAt: day, sourceWindowEndAt: observedAt, failureAlert });
+        sourceWindowStartAt: day, sourceWindowEndAt: observedAt });
       return trendResult(source, complete);
     } catch (error) {
       const failed = await this.attempts.failAttempt({ organizationId, attemptId: attempt.attemptId,
         attemptToken: attempt.attemptToken, code: signal?.aborted ? 'SOURCE_COLLECTION_CANCELLED' : 'SOURCE_COLLECTION_FAILED',
-        message: errorMessage(error), failureAlert });
+        message: errorMessage(error) });
       signal?.throwIfAborted();
       return trendResult(source, failed);
     }

@@ -43,7 +43,7 @@ describe('Alert ledger schemas', () => {
     expect(parsed.sourceType).toBe('rules_evaluation');
     // Rules names the product a violation is about, and that does travel.
     expect(parsed.targetId).toBe(TARGET_ID);
-    for (const dropped of ['organizationId', 'dedupeKey', 'attemptId', 'sourceId', 'actorUserId', 'metadata', 'readAt']) {
+    for (const dropped of ['organizationId', 'dedupeKey', 'sourceId', 'actorUserId', 'metadata', 'readAt']) {
       expect(parsed).not.toHaveProperty(dropped);
     }
   });

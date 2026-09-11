@@ -165,7 +165,6 @@ export class LiveCommerceService {
         attemptToken: attempt.attemptToken,
         code: controls.signal?.aborted ? 'SOURCE_COLLECTION_ABORTED' : 'SOURCE_COLLECTION_FAILED',
         message: (error instanceof Error ? error.message : String(error)).slice(0, 1_000),
-        failureAlert: TAOBAO_FAILURE_ALERT,
       });
       if (controls.signal?.aborted) controls.signal.throwIfAborted();
       return failed;
@@ -192,7 +191,6 @@ export class LiveCommerceService {
       contentChecksum: hashCollectionRequest(result),
       output,
       sourceWindowEndAt: capturedAt,
-      failureAlert: TAOBAO_FAILURE_ALERT,
     });
   }
 

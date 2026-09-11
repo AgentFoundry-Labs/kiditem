@@ -66,13 +66,13 @@ export class NaverKeywordResearchService {
       const complete = await this.attempts.completeAttempt({ organizationId: input.organizationId,
         attemptId: attempt.attemptId, attemptToken: attempt.attemptToken, planChecksum: attempt.planChecksum,
         contentChecksum: hashCollectionRequest(payload), output: analysisOutput(input.organizationId, attempt, payload),
-        sourceWindowEndAt: capturedAt, failureAlert });
+        sourceWindowEndAt: capturedAt });
       return { attempt: complete, payload: complete.state === 'COMPLETE' ? payload : null };
     } catch (error) {
       const failed = await this.attempts.failAttempt({ organizationId: input.organizationId,
         attemptId: attempt.attemptId, attemptToken: attempt.attemptToken,
         code: input.signal?.aborted ? 'SOURCE_COLLECTION_CANCELLED' : 'SOURCE_COLLECTION_FAILED',
-        message: error instanceof Error ? error.message : String(error), failureAlert });
+        message: error instanceof Error ? error.message : String(error) });
       input.signal?.throwIfAborted();
       return { attempt: failed, payload: null };
     }

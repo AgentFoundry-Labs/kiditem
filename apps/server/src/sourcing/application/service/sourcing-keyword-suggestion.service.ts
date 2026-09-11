@@ -120,7 +120,6 @@ export class SourcingKeywordSuggestionService {
       attemptToken: input.attemptToken, planChecksum: attempt.planChecksum,
       contentChecksum: hashCollectionRequest({ batch: { ...batch, keyword: normalizedKeyword }, warnings }),
       output, sourceWindowStartAt: null, sourceWindowEndAt: new Date(batch.capturedAt),
-      failureAlert: failureAlert(attempt.targetKey),
     });
   }
 
@@ -133,7 +132,6 @@ export class SourcingKeywordSuggestionService {
       organizationId: input.organizationId, attemptId: input.attemptId, attemptToken: input.attemptToken,
       code: boundedText(input.code, 100) || 'keyword_suggestion_collection_failed',
       message: boundedText(input.message, 1_000) || 'Keyword suggestion collection failed.',
-      failureAlert: failureAlert(attempt.targetKey),
     });
   }
 

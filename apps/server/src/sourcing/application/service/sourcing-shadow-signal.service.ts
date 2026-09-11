@@ -239,7 +239,6 @@ export class SourcingShadowSignalService {
           attemptId: attempt.attemptId,
           attemptToken: attempt.attemptToken,
           ...failure,
-          failureAlert: SHADOW_ALERT,
         });
       } else if (payload) {
         const payloadHash = shadowHash(payload);
@@ -251,7 +250,6 @@ export class SourcingShadowSignalService {
           contentChecksum: payloadHash,
           sourceWindowStartAt: businessDate,
           sourceWindowEndAt: now,
-          failureAlert: SHADOW_ALERT,
           output: {
             discoveredCount: 1,
             rejectedCount: 0,

@@ -80,7 +80,6 @@ export interface CompleteSourcingBrowserSourceAttemptInput {
   output: AuthorizedCollectionOutput;
   sourceWindowStartAt?: Date | null;
   sourceWindowEndAt?: Date | null;
-  failureAlert: SourcingBrowserSourceFailureAlert;
 }
 
 export interface FailSourcingBrowserSourceAttemptInput {
@@ -89,7 +88,6 @@ export interface FailSourcingBrowserSourceAttemptInput {
   attemptToken: string;
   code: string;
   message: string;
-  failureAlert: SourcingBrowserSourceFailureAlert;
 }
 
 export interface CompleteSourcingScrapeUrlAttemptInput extends CompleteSourcingBrowserSourceAttemptInput {

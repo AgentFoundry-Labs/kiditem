@@ -11,7 +11,6 @@ import {
   buildBrowserLiveCommercePlan,
   normalizeBrowserLiveCommerceBatch,
   parseBrowserLiveCommercePlan,
-  BROWSER_SOURCES,
   sourceKeyForBrowserLiveCommerce,
   SOURCE_LIVE_COMMERCE_SCOPE,
   type BrowserLiveCommerceSourceBatch,
@@ -147,7 +146,6 @@ export class SourcingLiveCommerceSourceAttemptService {
       output,
       sourceWindowStartAt: null,
       sourceWindowEndAt: new Date(),
-      failureAlert: failureAlertFor(plan.source),
     });
   }
 
@@ -163,7 +161,6 @@ export class SourcingLiveCommerceSourceAttemptService {
       ...input,
       code: boundedText(input.code, 100) || 'SOURCE_COLLECTION_FAILED',
       message: boundedText(input.message, 1_000) || 'Live-commerce collection failed.',
-      failureAlert: failureAlertForSourceKey(attempt.sourceKey),
     });
   }
 
@@ -188,7 +185,6 @@ export class SourcingLiveCommerceSourceAttemptService {
       ...input,
       code,
       message,
-      failureAlert: failureAlertForSourceKey(sourceKey),
     });
   }
 }
@@ -219,20 +215,3 @@ function failureAlertFor(source: '1688' | 'douyin') {
   } as const;
 }
 
-/**
- * The same descriptor as `failureAlertFor`, recovered from the stored attempt.
- *
- * Begin and complete derive it from `plan.source`; only the failure path has to
- * recover it from the row. This used to answer douyin for anything that was not
- * `1688.live_commerce`, so a third source would have failed under douyin's
- * dedupe key and left douyin's alert open forever. `sourceKeyForBrowserLiveCommerce`
- * is the one place the key is built, so this inverts it rather than guessing.
- */
-function failureAlertForSourceKey(sourceKey: string) {
-  const source = BROWSER_SOURCES
-    .find((candidate) => sourceKeyForBrowserLiveCommerce(candidate) === sourceKey);
-  if (!source) {
-    throw new Error(`Unknown live commerce source key: ${sourceKey}`);
-  }
-  return failureAlertFor(source);
-}

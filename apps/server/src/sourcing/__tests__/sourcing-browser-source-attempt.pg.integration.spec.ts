@@ -199,7 +199,6 @@ describe('Sourcing browser source owner (PostgreSQL)', () => {
       attemptToken: attempt.attemptToken,
       code: 'SOURCE_COLLECTION_FAILED',
       message: 'An organization-scoped failure must not cross the source fence.',
-      failureAlert: ALERT,
     })).rejects.toThrow('SOURCE_ATTEMPT_NOT_FOUND');
     await expect(owner.completeAttempt({
       ...completeInput(attempt, 'wrong-token'),
@@ -285,7 +284,6 @@ describe('Sourcing browser source owner (PostgreSQL)', () => {
       attemptToken: attempt.attemptToken,
       code: 'SOURCE_COLLECTION_FAILED',
       message: 'A competing terminal failure arrived.',
-      failureAlert: ALERT,
     });
 
     await waitForAdvisoryWaiters(prisma, 2);
@@ -332,7 +330,6 @@ describe('Sourcing browser source owner (PostgreSQL)', () => {
         attemptToken: failAttempt.attemptToken,
         code: 'SOURCE_COLLECTION_FAILED',
         message: 'A terminal failure waited behind the source lock.',
-        failureAlert: ALERT,
       }),
     );
     expect(failResult.status).toBe('rejected');
@@ -414,7 +411,6 @@ describe('Sourcing browser source owner (PostgreSQL)', () => {
       attemptToken: offerFailure.attemptToken,
       code: 'SOURCE_COLLECTION_FAILED',
       message: 'provider timeout',
-      failureAlert: ALERT,
     });
     await expect(history.find1688HotHistory({ organizationId: TEST_ORGANIZATION_ID, days: 7 }))
       .resolves.toHaveLength(1);
@@ -474,7 +470,6 @@ describe('Sourcing browser source owner (PostgreSQL)', () => {
       attemptToken: failed.attemptToken,
       code: 'SOURCE_COLLECTION_FAILED',
       message: 'provider timeout',
-      failureAlert: ALERT,
     });
     await expect(history.find1688HotHistory({ organizationId: TEST_ORGANIZATION_ID, days: 7 }))
       .resolves.toEqual(expect.arrayContaining([
@@ -528,7 +523,6 @@ describe('Sourcing browser source owner (PostgreSQL)', () => {
         qualityReport: { source: TIKTOK_SOURCE_KEY, completeSnapshot: true },
       }),
       sourceWindowEndAt: dayTwo,
-      failureAlert: TIKTOK_ALERT,
     });
     await expect(history.findTiktokCcHistory({ organizationId: TEST_ORGANIZATION_ID, days: 7 }))
       .resolves.toEqual([expect.objectContaining({ businessDate: dayOne, entityKey: 'new-day-one' })]);
@@ -557,7 +551,6 @@ describe('Sourcing browser source owner (PostgreSQL)', () => {
       attemptToken: failed.attemptToken,
       code: 'SOURCE_COLLECTION_FAILED',
       message: 'provider timeout',
-      failureAlert: LIVE_ALERT,
     });
     await expect(history.findProductSnapshots({ organizationId: TEST_ORGANIZATION_ID, days: 7, source: 'douyin' }))
       .resolves.toHaveLength(1);
@@ -776,7 +769,6 @@ describe('Sourcing browser source owner (PostgreSQL)', () => {
       }),
       sourceWindowStartAt: null,
       sourceWindowEndAt: capturedAt,
-      failureAlert: LIVE_ALERT,
     });
   }
 
@@ -813,7 +805,6 @@ describe('Sourcing browser source owner (PostgreSQL)', () => {
         qualityReport: { source: TIKTOK_SOURCE_KEY, completeSnapshot: true },
       }),
       sourceWindowEndAt: businessDate,
-      failureAlert: TIKTOK_ALERT,
     });
   }
 

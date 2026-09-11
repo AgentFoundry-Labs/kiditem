@@ -156,7 +156,6 @@ export class SourcingTiktokSourceAttemptService {
       output,
       sourceWindowStartAt: null,
       sourceWindowEndAt: new Date(),
-      failureAlert: SOURCE_ALERT,
     });
   }
 
@@ -172,7 +171,6 @@ export class SourcingTiktokSourceAttemptService {
       ...input,
       code: boundedText(input.code, 100) || 'SOURCE_COLLECTION_FAILED',
       message: boundedText(input.message, 1_000) || 'TikTok collection failed.',
-      failureAlert: SOURCE_ALERT,
     });
   }
 
@@ -205,7 +203,6 @@ export class SourcingTiktokSourceAttemptService {
       ...input,
       code,
       message,
-      failureAlert: SOURCE_ALERT,
     });
   }
 }

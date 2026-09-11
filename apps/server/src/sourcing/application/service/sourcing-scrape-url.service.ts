@@ -54,7 +54,7 @@ export class SourcingScrapeUrlService {
       // Provider IO is never retried here. Only a new explicit request may retry a failed owner attempt.
       const failed = await this.attempts.failAttempt({ organizationId: input.organizationId, attemptId: attempt.attemptId,
         attemptToken: attempt.attemptToken, code: 'SOURCE_SCRAPE_FAILED',
-        message: (error instanceof Error ? error.message : 'URL 수집에 실패했습니다.').slice(0, 1000), failureAlert });
+        message: (error instanceof Error ? error.message : 'URL 수집에 실패했습니다.').slice(0, 1000) });
       return scrapeResponse(failed);
     }
   }

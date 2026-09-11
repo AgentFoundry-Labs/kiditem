@@ -117,14 +117,14 @@ export class SourcingWingCatalogIngestService {
       receipts: finalization.receipts,
       qualityReport: { source: SOURCE, snapshots: plan.keywords.map((keyword) => ({
         keyword: sourcingWingCatalogKeywordIdentity(keyword),
-      })) }, failureAlert: ALERT,
+      })) },
     });
   }
 
   async fail(input: { organizationId: string; attemptId: string; attemptToken: string; code: string; message: string }) {
     await this.read(input);
     return this.attempts.failAttempt({ ...input, code: boundedText(input.code, 100) || 'SOURCE_COLLECTION_FAILED',
-      message: boundedText(input.message, 1000) || 'Wing catalog collection failed.', failureAlert: ALERT });
+      message: boundedText(input.message, 1000) || 'Wing catalog collection failed.',});
   }
 
   async ingest(input: SourcingWingCatalogIngestInput) {
@@ -143,7 +143,6 @@ export class SourcingWingCatalogIngestService {
       planChecksum: attempt.planChecksum, contentChecksum: hashCollectionRequest(command),
       output: { ...buildBatchOutput({ organizationId: input.organizationId, permit: toPermit(attempt, input.organizationId), items }),
         qualityReport: { source: SOURCE, snapshots: keywords.map((keyword) => ({ keyword })) } },
-      failureAlert: ALERT,
     });
   }
 

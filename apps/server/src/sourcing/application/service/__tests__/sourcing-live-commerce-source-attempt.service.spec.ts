@@ -109,32 +109,6 @@ describe('SourcingLiveCommerceSourceAttemptService', () => {
     }));
   });
 
-  /**
-   * The failure path recovers the alert descriptor from the stored attempt,
-   * while begin and complete build it from the plan. It used to answer douyin
-   * for any key that was not `1688.live_commerce`, so a third source would have
-   * failed under douyin's dedupe key and left douyin's alert open forever.
-   */
-  it('recovers each source own alert identity from the stored attempt key', async () => {
-    const { service, attempts } = createHarness();
-    attempts.readAttempt = vi.fn(async () => ({
-      attemptId: ATTEMPT_ID,
-      attemptToken: ATTEMPT_TOKEN,
-      sourceKey: '1688.live_commerce',
-    })) as never;
-
-    await service.failBrowser({
-      organizationId: ORGANIZATION_ID,
-      attemptId: ATTEMPT_ID,
-      attemptToken: ATTEMPT_TOKEN,
-      code: 'SOURCE_COLLECTION_FAILED',
-      message: '수집에 실패했습니다.',
-    }).catch(() => undefined);
-
-    const call = (attempts.failAttempt as unknown as { mock: { calls: [{ failureAlert?: { dedupeKey: string } }][] } }).mock.calls.at(-1);
-    expect(call?.[0].failureAlert?.dedupeKey).toBe('source:1688-live-commerce');
-  });
-
   it('submits the single frozen broadcast and its products only through the source-owner terminal', async () => {
     const { service, attempts } = createHarness();
 

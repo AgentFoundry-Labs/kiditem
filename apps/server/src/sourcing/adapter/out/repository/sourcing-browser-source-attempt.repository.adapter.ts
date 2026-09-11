@@ -12,6 +12,7 @@ import {
   type FailSourcingBrowserSourceAttemptInput,
   type SourcingBrowserSourceAttempt,
   type SourcingBrowserSourceAttemptPlan,
+  type SourcingBrowserSourceFailureAlert,
   type SourcingBrowserSourceAttemptRepositoryPort,
   type SourcingBrowserSourceStatus,
   type StageSourcingWingCatalogInput,
@@ -125,7 +126,7 @@ export class SourcingBrowserSourceAttemptRepositoryAdapter
           throw new ConflictException('SOURCE_IDEMPOTENCY_KEY_REUSED');
         }
         if (effectiveState(replay, now) === 'FAILED' && replay.status === 'RUNNING') {
-          return { attempt: toAttempt(await expireAttempt(tx, replay, now, input.failureAlert, this.alerts), now), created: false };
+          return { attempt: toAttempt(await expireAttempt(tx, replay, now, this.alerts), now), created: false };
         }
         return { attempt: toAttempt(replay, now), created: false };
       }
@@ -143,7 +144,7 @@ export class SourcingBrowserSourceAttemptRepositoryAdapter
         });
         if (admitted) {
           if (admitted.status === 'RUNNING' && effectiveState(admitted, now) === 'FAILED') {
-            await expireAttempt(tx, admitted, now, input.failureAlert, this.alerts);
+            await expireAttempt(tx, admitted, now, this.alerts);
           }
           return { dailyLimitAttemptId: admitted.id };
         }
@@ -163,7 +164,7 @@ export class SourcingBrowserSourceAttemptRepositoryAdapter
         if (effectiveState(running, now) === 'RUNNING') {
           throw new ConflictException({ code: 'SOURCE_ATTEMPT_IN_PROGRESS', attemptId: running.id });
         }
-        await expireAttempt(tx, running, now, input.failureAlert, this.alerts);
+        await expireAttempt(tx, running, now, this.alerts);
       }
 
       await assertSourceEnabled(tx, input.organizationId, input.sourceKey);
@@ -202,6 +203,11 @@ export class SourcingBrowserSourceAttemptRepositoryAdapter
             source: input.sourceKey,
             planChecksum: input.planChecksum,
             completeSnapshot: false,
+            // The alert identity this source declared, stored with the attempt
+            // that will carry it. Complete and fail used to take it again from
+            // the caller, so three call sites per source restated one fact and
+            // nothing checked they agreed.
+            failureAlert: input.failureAlert,
           }),
           startedAt: now,
         },
@@ -314,7 +320,6 @@ export class SourcingBrowserSourceAttemptRepositoryAdapter
       const failed = await failAttempt(tx, attempt, now, {
         code: 'SOURCE_PLAN_INCOMPLETE',
         message: 'A source attempt cannot publish a partial frozen plan.',
-        failureAlert: input.failureAlert,
       }, this.alerts);
       const recorded = await recordFailedOutput(tx, failed, input);
       return toAttempt(recorded, now);
@@ -328,7 +333,6 @@ export class SourcingBrowserSourceAttemptRepositoryAdapter
       const failed = await failAttempt(tx, attempt, now, {
         code: sourceFailureCode,
         message: 'The source is not enabled for this organization.',
-        failureAlert: input.failureAlert,
       }, this.alerts);
       return toAttempt(await recordFailedOutput(tx, failed, input), now);
     }
@@ -374,6 +378,9 @@ export class SourcingBrowserSourceAttemptRepositoryAdapter
           source: attempt.sourceKey,
           planChecksum: input.planChecksum,
           completeSnapshot: true,
+          // Carried forward, not rebuilt: this write replaces the report the
+          // attempt was begun with, and the alert identity lives in it.
+          failureAlert: storedFailureAlert(attempt),
         }),
         contentChecksum: input.contentChecksum,
         isCurrentComplete: true,
@@ -383,7 +390,7 @@ export class SourcingBrowserSourceAttemptRepositoryAdapter
     });
     await this.alerts.resolveSourceFailure(tx, {
       organizationId: input.organizationId,
-      dedupeKey: input.failureAlert.dedupeKey,
+      dedupeKey: storedFailureAlert(attempt).dedupeKey,
       attemptId: input.attemptId,
     });
     return toAttempt(completed, now);
@@ -450,6 +457,27 @@ function effectiveState(
   return attempt.status === 'RUNNING' && attempt.leaseExpiresAt > now ? 'RUNNING' : 'FAILED';
 }
 
+/**
+ * The alert identity this attempt was begun with, read back from its own row.
+ *
+ * Three of these sources key the alert per collected target rather than per
+ * source, so a registry keyed on the source alone could not rebuild it — and
+ * merging them onto one key would be wrong anyway: `completeAttempt` resolves by
+ * this key, so one target succeeding would close another target's unresolved
+ * failure.
+ */
+export function storedFailureAlert(attempt: AttemptRow): SourcingBrowserSourceFailureAlert {
+  const quality = attempt.qualityReport as Record<string, unknown> | null;
+  const stored = quality?.failureAlert;
+  if (
+    !stored || typeof stored !== 'object'
+    || typeof (stored as SourcingBrowserSourceFailureAlert).dedupeKey !== 'string'
+  ) {
+    throw new Error(`Attempt ${attempt.id} was begun without an alert identity.`);
+  }
+  return stored as SourcingBrowserSourceFailureAlert;
+}
+
 export function toAttempt(attempt: AttemptRow, now: Date): SourcingBrowserSourceAttempt {
   const state = effectiveState(attempt, now);
   const quality = attempt.qualityReport as Record<string, unknown> | null;
@@ -498,17 +526,22 @@ function assertPlanChecksum(attempt: AttemptRow, checksum: string): void {
   }
 }
 
+/**
+ * Expiring an attempt uses *that attempt's* alert identity, which is not always
+ * the caller's. `beginAttempt` expires a previous run before admitting a new
+ * one, and for the three sources that key their alert per collected target the
+ * previous run was usually a different target — so the expiry was recorded and
+ * resolved under the new request's key.
+ */
 async function expireAttempt(
   tx: Transaction,
   attempt: AttemptRow,
   now: Date,
-  failureAlert: BeginSourcingBrowserSourceAttemptInput['failureAlert'],
   alerts: SourceFailureAlerts,
 ): Promise<AttemptRow> {
   return failAttempt(tx, attempt, now, {
     code: 'ATTEMPT_EXPIRED',
     message: ATTEMPT_EXPIRED_MESSAGE,
-    failureAlert,
   }, alerts);
 }
 
@@ -516,9 +549,10 @@ async function failAttempt(
   tx: Transaction,
   attempt: AttemptRow,
   now: Date,
-  input: Pick<FailSourcingBrowserSourceAttemptInput, 'code' | 'message' | 'failureAlert'>,
+  input: Pick<FailSourcingBrowserSourceAttemptInput, 'code' | 'message'>,
   alerts: SourceFailureAlerts,
 ): Promise<AttemptRow> {
+  const failureAlert = storedFailureAlert(attempt);
   const updated = await tx.sourcingEvidenceIngestionRun.update({
     where: {
       id_organizationId: {
@@ -537,12 +571,12 @@ async function failAttempt(
   await alerts.recordTerminalOutcome(tx, {
     code: input.code,
     organizationId: attempt.organizationId,
-    dedupeKey: input.failureAlert.dedupeKey,
-    sourceType: input.failureAlert.sourceType,
+    dedupeKey: failureAlert.dedupeKey,
+    sourceType: failureAlert.sourceType,
     attemptId: attempt.id,
-    title: input.failureAlert.title,
+    title: failureAlert.title,
     message: input.message,
-    href: input.failureAlert.href,
+    href: failureAlert.href,
   });
   return updated;
 }
@@ -639,6 +673,8 @@ async function recordFailedOutput(tx: Transaction, failed: AttemptRow, input: Co
     data: { discoveredCount: input.output.discoveredCount, rejectedCount: input.output.rejectedCount,
       acceptedCount: 0, contentChecksum: input.contentChecksum,
       qualityReport: toInputJson({ ...input.output.qualityReport, source: failed.sourceKey,
-        planChecksum: input.planChecksum, completeSnapshot: false }) },
+        planChecksum: input.planChecksum, completeSnapshot: false,
+        // Same reason as the complete path: this replaces the begin-time report.
+        failureAlert: storedFailureAlert(failed) }) },
   });
 }

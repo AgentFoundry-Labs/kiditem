@@ -113,7 +113,6 @@ describe('SourcingTiktokSourceAttemptService', () => {
       expiresInMs: 15 * 60_000,
       plan: expectedPlan(),
       planChecksum: expect.any(String),
-      failureAlert: expect.objectContaining({ dedupeKey: 'source:tiktok-creative' }),
     }));
     expect(operationRun).not.toHaveBeenCalled();
     expect(claim).not.toHaveBeenCalled();
@@ -243,7 +242,6 @@ describe('SourcingTiktokSourceAttemptService', () => {
       attemptId: ATTEMPT_ID,
       attemptToken: ATTEMPT_TOKEN,
       code: 'SOURCE_PLAN_INCOMPLETE',
-      failureAlert: expect.objectContaining({ dedupeKey: 'source:tiktok-creative' }),
     }));
     expect(operationRun).not.toHaveBeenCalled();
     expect(claim).not.toHaveBeenCalled();
@@ -283,7 +281,6 @@ describe('SourcingTiktokSourceAttemptService', () => {
           }),
         ]),
       }),
-      failureAlert: expect.objectContaining({ dedupeKey: 'source:tiktok-creative' }),
     }));
   });
 

@@ -100,7 +100,7 @@ export class SourcingExtensionIngestService {
     };
     return this.attempts.completeAttempt({ organizationId: context.organizationId, attemptId, attemptToken,
       planChecksum: attempt.planChecksum, contentChecksum: hashCollectionRequest(content), output,
-      sourceWindowStartAt: null, sourceWindowEndAt: new Date(), failureAlert: productAlert(attempt.sourceKey) });
+      sourceWindowStartAt: null, sourceWindowEndAt: new Date(),});
   }
 
   async fail(organizationId: string, attemptId: string, attemptToken: string, raw: unknown) {
@@ -108,7 +108,7 @@ export class SourcingExtensionIngestService {
     const body = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
     return this.attempts.failAttempt({ organizationId, attemptId, attemptToken,
       code: boundedText(body.code, 100) || 'SOURCE_COLLECTION_FAILED',
-      message: boundedText(body.message, 1000) || 'Product extraction failed.', failureAlert: productAlert(attempt.sourceKey) });
+      message: boundedText(body.message, 1000) || 'Product extraction failed.',});
   }
 }
 
