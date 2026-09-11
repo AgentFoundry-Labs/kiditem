@@ -365,6 +365,32 @@ describe('dashboard sales metricBasis', () => {
     });
     expect(result.profitInputs?.basis).toEqual(result.metricBasis?.['rangeKpi.profit']);
   });
+
+  /**
+   * The ranking's two numeric columns no longer share a basis. Revenue is
+   * ranked from orders alone. Profit is settled per listing from orders *and*
+   * ad evidence and withheld when either is short (ADR-0004), so describing it
+   * with the orders-only revenue basis claimed a coverage it never had — a
+   * column of withheld values reading `sources: [orders] · partial`.
+   */
+  it('describes the ranking revenue and its profit over their own sources', async () => {
+    const { sales } = salesService({
+      profitFor: selectedOnly({
+        orderDates: ['2026-09-01', '2026-09-02', '2026-09-03'],
+      }),
+    });
+
+    const result = await sales.getSummary(customContext(), ORGANIZATION_ID);
+
+    expect(result.metricBasis?.['topProducts.revenue']).toMatchObject({
+      sources: ['orders'],
+    });
+    expect(result.metricBasis?.['topProducts.netProfit']).toMatchObject({
+      sources: ['orders', 'coupang_ads'],
+    });
+    expect(result.metricBasis?.['topProducts.netProfit'])
+      .toEqual(result.metricBasis?.['rangeKpi.profit']);
+  });
 });
 
 describe('dashboard ad metricBasis', () => {

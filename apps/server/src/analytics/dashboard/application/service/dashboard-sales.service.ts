@@ -240,6 +240,7 @@ export class DashboardSalesService {
         sources: [WING_TRAFFIC_SOURCE],
         observedAt: wingTrafficRange.lastObservedAt,
       });
+      // Revenue is ranked from orders alone, so orders decide its basis.
       const topProductsBasis = periodEvidence({
         selectedDates: orderPeriods.selected.selectedDates,
         includedDates: rangeCurProfit.sourceCoverage.orderDates,
@@ -302,7 +303,14 @@ export class DashboardSalesService {
           ),
           'trafficKpi.conversionRate': conversionRateBasis,
           'topProducts.revenue': topProductsBasis,
-          'topProducts.netProfit': topProductsBasis,
+          // The profit column is no longer a margin assumption over the revenue
+          // basis (ADR-0004): it is settled per listing, from orders *and* ad
+          // evidence, and withheld when either is short. Describing it with the
+          // orders-only revenue basis claimed a coverage the column never had —
+          // July read `sources: [orders] · partial` while every value was
+          // withheld for want of ad evidence. The selected range's profit
+          // evidence is the same one `profitInputs` publishes.
+          'topProducts.netProfit': rangeEvidence.profit,
           profitInputs: rangeEvidence.profit,
         }),
       } satisfies DashboardSalesSummary;
