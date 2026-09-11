@@ -125,14 +125,14 @@ export function DashboardCharts({ chartTab, dailyTrend, adChartData, benchmarkDa
       {chartTab === 'revenue' && hasTrend && (
         <div className="flex-1 flex flex-col p-5 min-h-0">
           <div className="flex items-center gap-5 mb-3 text-[12px] text-slate-400 shrink-0">
-            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-blue-500" />매출</span>
-            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-500" />이익률</span>
-            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-amber-400 opacity-70" />광고비율</span>
+            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-violet-600" />매출</span>
+            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-amber-700" />광고비 · 자체 축</span>
+            <span className="ml-auto text-slate-400">두 계열의 크기 차이가 커 축을 나눔</span>
           </div>
           <ResponsiveContainer width="100%" height={CHART_HEIGHT} initialDimension={CHART_INITIAL_DIMENSION}>
             <AreaChart data={dailyTrend}>
               <defs>
-                <linearGradient id="gRevenue" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#3b82f6" stopOpacity={0.12} /><stop offset="95%" stopColor="#3b82f6" stopOpacity={0} /></linearGradient>
+                <linearGradient id="gRevenue" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#7c3aed" stopOpacity={0.14} /><stop offset="95%" stopColor="#7c3aed" stopOpacity={0} /></linearGradient>
                 <linearGradient id="gProfit" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#10b981" stopOpacity={0.15} /><stop offset="95%" stopColor="#10b981" stopOpacity={0} /></linearGradient>
                 <linearGradient id="gAdRate" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#f59e0b" stopOpacity={0.08} /><stop offset="95%" stopColor="#f59e0b" stopOpacity={0} /></linearGradient>
               </defs>
@@ -150,8 +150,8 @@ export function DashboardCharts({ chartTab, dailyTrend, adChartData, benchmarkDa
                 if (name === 'adCost') return [`\u20A9${formatKRW(Number(v))}`, '광고비'];
                 return [`${Number(v).toFixed(1)}%`, name === 'profitRate' ? '이익률' : '광고비율'];
               }} />
-              <Area yAxisId="rev" type="monotone" dataKey="revenue" stroke="#7c3aed" strokeWidth={2} fill="url(#gRevenue)" name="revenue" dot={false} connectNulls={false} />
-              <Area yAxisId="spend" type="monotone" dataKey="adCost" stroke="#b54708" strokeWidth={1.5} fill="none" name="adCost" dot={false} connectNulls={false} />
+              <Area yAxisId="rev" type="monotone" dataKey="revenue" stroke="#7c3aed" strokeWidth={2} fill="url(#gRevenue)" name="revenue" dot={{ r: 2, fill: '#7c3aed', strokeWidth: 0 }} connectNulls={false} />
+              <Area yAxisId="spend" type="monotone" dataKey="adCost" stroke="#b54708" strokeWidth={1.5} fill="none" name="adCost" dot={{ r: 2, fill: '#b54708', strokeWidth: 0 }} connectNulls={false} />
             </AreaChart>
           </ResponsiveContainer>
         </div>

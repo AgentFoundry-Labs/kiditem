@@ -43,13 +43,14 @@ export class DashboardTrendService {
     ctx: DashboardContext,
     organizationId: string,
     range: string,
+    explicitWindow?: { from: Date; to: Date } | null,
   ): Promise<DashboardTrendItem[]> {
     const startedAt = Date.now();
     // Trend windows are explicit half-open KST business-date ranges resolved
     // against the caller's anchor — never this process's clock. The current
     // in-progress KST day is excluded, so no future/partial row can shift the
     // selected date set or make a missing day look collected.
-    const period = resolveTrendPeriod(range, ctx.anchor);
+    const period = resolveTrendPeriod(range, ctx.anchor, explicitWindow);
     const { from: since, to: until } = period.queryWindow;
     const selectedDates = period.selectedDates;
 

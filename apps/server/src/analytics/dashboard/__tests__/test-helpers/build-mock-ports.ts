@@ -61,7 +61,6 @@ export function buildMockDashboardSalesRepo(): MockDashboardSalesRepo {
   return {
     fetchTodayKpis: vi.fn(),
     fetchTopProducts: vi.fn(),
-    fetchDailyRevenue: vi.fn(),
   };
 }
 

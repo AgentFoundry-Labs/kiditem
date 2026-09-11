@@ -55,6 +55,11 @@ export class DashboardController {
     @CurrentOrganization() organizationId: string,
   ): Promise<DashboardTrendItem[]> {
     const ctx = buildDashboardContext();
-    return this.trendService.getTrend(ctx, organizationId, query.range ?? '30d');
+    // The chart sits under the period filter, so a selected range reaches it.
+    // Without from/to it keeps the rolling window it has always used.
+    const explicitWindow = query.range === 'custom' && query.from && query.to
+      ? { from: new Date(`${query.from}T00:00:00+09:00`), to: new Date(`${query.to}T00:00:00+09:00`) }
+      : null;
+    return this.trendService.getTrend(ctx, organizationId, query.range ?? '30d', explicitWindow);
   }
 }

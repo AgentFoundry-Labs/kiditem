@@ -114,9 +114,10 @@ export const queryKeys = {
     // Inventory (range-agnostic)
     inventory: () =>
       [...queryKeys.dashboard.all, 'inventory'] as const,
-    // Trend (unchanged contract)
-    trend: (range: string) =>
-      [...queryKeys.dashboard.all, 'trend', range] as const,
+    // Trend — keyed by the window it asked for, so a selected range does not
+    // read the rolling window's cache.
+    trend: (range: string, from?: string, to?: string) =>
+      [...queryKeys.dashboard.all, 'trend', range, from ?? '', to ?? ''] as const,
     // Health (unchanged)
     health: () =>
       [...queryKeys.dashboard.all, 'health'] as const,

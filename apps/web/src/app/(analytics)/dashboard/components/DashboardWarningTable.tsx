@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import type { DashboardInventorySummary, DashboardMetricBasis } from '@kiditem/shared/dashboard';
 import { cn } from '@/lib/utils';
-import { basisHasValues, DashboardBasisDisclosure, type BasisBreakdownEntry } from './DashboardDataBasis';
+import { basisHasValues } from './DashboardDataBasis';
 
 /**
  * Each warning used to own a card, so five counts never lined up against one
@@ -134,7 +134,6 @@ const STATE_LABEL: Record<ReturnType<typeof rowState>, string> = {
 };
 
 export function DashboardWarningTable({ rows }: { rows: DashboardWarningRow[] }) {
-  const entries: BasisBreakdownEntry[] = rows.map(row => ({ label: row.label, basis: row.basis }));
   // Withheld rows sort last. A row with no verified basis is not "less
   // urgent" — it is unmeasured, and putting it above a real count would rank
   // the two on a scale they do not share.
@@ -155,10 +154,7 @@ export function DashboardWarningTable({ rows }: { rows: DashboardWarningRow[] })
         <h2 id="dashboard-warning-table-title" className="text-sm font-semibold text-slate-900">
           지금 손이 필요한 것
         </h2>
-        <div className="flex items-center gap-1">
-          <span className="text-[11px] text-slate-500">심각도순</span>
-          <DashboardBasisDisclosure label="경고 근거" entries={entries} />
-        </div>
+        <span className="text-[11px] text-slate-500">심각도순</span>
       </header>
       <table className="w-full table-fixed border-collapse text-sm">
         <caption className="sr-only">경고 항목별 상태와 건수</caption>

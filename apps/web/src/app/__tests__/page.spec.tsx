@@ -360,28 +360,9 @@ describe('Dashboard page (RTL)', () => {
     });
   });
 
-  it('reaches every basis through one affordance per section, not one per value', async () => {
-    const salesWithBasis = {
-      ...successSales,
-      metricBasis: {
-        'monthly.revenue': {
-          kind: 'period',
-          from: '2026-07-01',
-          to: '2026-07-31',
-          targetDays: 31,
-          includedDates: ['2026-07-01'],
-          includedDays: 1,
-          missingDates: ['2026-07-02'],
-          invalidDates: [],
-          sources: ['orders'],
-          status: 'partial',
-          partial: true,
-          observedAt: null,
-        },
-      },
-    };
+  it('names the collection to run instead of explaining the state', async () => {
     getParsedMock.mockImplementation((path: string) => {
-      if (path === '/api/dashboard/sales') return Promise.resolve(salesWithBasis);
+      if (path === '/api/dashboard/sales') return Promise.resolve(successSales);
       if (path === '/api/dashboard/ad') return Promise.resolve(successAd);
       if (path === '/api/dashboard/inventory') return Promise.resolve(successInv);
       if (path.startsWith('/api/dashboard/trend')) return Promise.resolve(successTrend);
@@ -390,39 +371,14 @@ describe('Dashboard page (RTL)', () => {
     renderPage();
 
     await screen.findByText('Kiditem Foundry');
-    // Evidence is reached per section, not reprinted beside every value. The
-    // sentence that used to sit under nine values at once is gone from the page
-    // and lives behind the section's one affordance.
+    // The operator does not need the state of every source spelled out; they
+    // need to know which collection to run, and the 데이터 수집 button to run
+    // it. The basis is still published on the API — it is just not painted.
+    expect(screen.getByRole('button', { name: /데이터 수집/ })).toBeInTheDocument();
+    expect(screen.queryAllByRole('button', { name: /근거 안내$/ })).toHaveLength(0);
+    expect(screen.queryAllByTestId('dashboard-data-basis')).toHaveLength(0);
     expect(document.body.textContent).not.toContain('스냅샷 현재 · 기준시점');
-    expect(screen.queryAllByRole('button', { name: '데이터 근거 안내' })).toHaveLength(0);
-    // One affordance per section, never one per value. The snapshot rows moved
-    // onto the cards that publish them; a card whose fixture publishes no basis
-    // renders no affordance at all, so this asserts the shape rather than a
-    // fixed list: every affordance is section-level, and none repeats.
-    const affordances = screen.getAllByRole('button', { name: /근거 안내$/ })
-      .map((b) => b.getAttribute('aria-label'));
-    expect(affordances).toContain('기간 지표 근거 안내');
-    expect(new Set(affordances).size).toBe(affordances.length);
-    expect(affordances.every((label) => [
-      '기간 지표 근거 안내',
-      '현재 상태 근거 안내',
-      '광고 성과 근거 안내',
-      '경고 근거 안내',
-      '수익성 ABC 근거 안내',
-    ].includes(label ?? ''))).toBe(true);
-    // The enumerated dates are reachable but never printed on the page itself.
     expect(document.body).not.toHaveTextContent('2026-07-02');
-
-    fireEvent.click(screen.getByRole('button', { name: '경고 근거 안내' }));
-    const note = await screen.findByRole('note');
-    expect(within(note).getByRole('row', { name: /셀피아 재고 0/ })).toBeInTheDocument();
-    expect(within(note).getByRole('row', { name: /매칭 확인 필요/ })).toBeInTheDocument();
-    // These two snapshots really do share an as-of and a source, so the
-    // breakdown states each shared fact once instead of repeating it per row.
-    expect(note).toHaveTextContent('기준시점 2026-07-27 · 원천 sellpia (모든 값 공통)');
-
-    fireEvent.click(screen.getByRole('button', { name: '기간 지표 근거 안내' }));
-    await waitFor(() => expect(document.body).toHaveTextContent('2026-07-02'));
   });
 
   it('T7: does not fetch the retired dashboard ActionTask board', async () => {

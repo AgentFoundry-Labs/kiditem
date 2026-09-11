@@ -1,7 +1,6 @@
 'use client';
 
 import type { DashboardMetricBasis } from '@kiditem/shared/dashboard';
-import { DashboardBasisDisclosure, type BasisBreakdownEntry } from './DashboardDataBasis';
 
 /**
  * Ad conversion revenue used to sit inside the revenue card, under a "쿠팡"
@@ -26,12 +25,10 @@ export function DashboardAdPerformance({
   rows,
   basis,
   coverageLabel,
-  entries,
 }: {
   rows: AdPerformanceRow[];
   basis: DashboardMetricBasis | null;
   coverageLabel: string | null;
-  entries: BasisBreakdownEntry[];
 }) {
   return (
     <section
@@ -45,7 +42,6 @@ export function DashboardAdPerformance({
         </h2>
         <div className="flex items-center gap-2">
           {coverageLabel && <span className="text-[11px] tabular-nums text-slate-500">{coverageLabel}</span>}
-          <DashboardBasisDisclosure label="광고 성과 근거" entries={entries} />
         </div>
       </header>
       <table className="w-full border-collapse text-sm">

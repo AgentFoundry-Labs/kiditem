@@ -40,7 +40,6 @@ describe('DashboardSalesService collected Coupang ad spend', () => {
     const sales = buildMockDashboardSalesRepo();
     sales.fetchTodayKpis.mockResolvedValue({ revenue: 0, orders: 0 });
     sales.fetchTopProducts.mockResolvedValue([]);
-    sales.fetchDailyRevenue.mockResolvedValue([]);
     const wing = buildMockWingTrafficAggregationRepo();
     wing.aggregateTraffic.mockResolvedValue({
       revenue: 999_000,
@@ -119,7 +118,6 @@ describe('DashboardSalesService collected Coupang ad spend', () => {
     const sales = buildMockDashboardSalesRepo();
     sales.fetchTodayKpis.mockResolvedValue({ revenue: 0, orders: 0 });
     sales.fetchTopProducts.mockResolvedValue([]);
-    sales.fetchDailyRevenue.mockResolvedValue([]);
 
     const wing = buildMockWingTrafficAggregationRepo();
     wing.aggregateTraffic.mockResolvedValue({
@@ -204,7 +202,6 @@ describe('DashboardSalesService collected Coupang ad spend', () => {
     const sales = buildMockDashboardSalesRepo();
     sales.fetchTodayKpis.mockResolvedValue({ revenue: 0, orders: 0 });
     sales.fetchTopProducts.mockResolvedValue([]);
-    sales.fetchDailyRevenue.mockResolvedValue([]);
     const wing = buildMockWingTrafficAggregationRepo();
     wing.aggregateTraffic.mockResolvedValue({
       revenue: 206_770,
@@ -303,7 +300,6 @@ describe('DashboardSalesService collected Coupang ad spend', () => {
     const sales = buildMockDashboardSalesRepo();
     sales.fetchTodayKpis.mockResolvedValue({ revenue: 0, orders: 0 });
     sales.fetchTopProducts.mockResolvedValue([]);
-    sales.fetchDailyRevenue.mockResolvedValue([]);
     const wing = buildMockWingTrafficAggregationRepo();
     wing.aggregateTraffic.mockResolvedValue({
       revenue: 500,
@@ -400,7 +396,6 @@ describe('DashboardSalesService unavailable profit evidence', () => {
     const sales = buildMockDashboardSalesRepo();
     sales.fetchTodayKpis.mockResolvedValue({ revenue: 0, orders: 0 });
     sales.fetchTopProducts.mockResolvedValue([]);
-    sales.fetchDailyRevenue.mockResolvedValue([]);
 
     const wing = buildMockWingTrafficAggregationRepo();
     wing.aggregateTraffic.mockResolvedValue({

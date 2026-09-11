@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ProductAbcEvaluationSchema } from '@kiditem/shared/product-abc';
 import { PrismaService } from '../../../../../prisma/prisma.service';
-import type { TopProduct, DailyRevenueItem } from '@kiditem/shared/dashboard';
+import type { TopProduct } from '@kiditem/shared/dashboard';
 import type {
   DashboardSalesRepositoryPort,
   TodayKpiRow,
@@ -159,26 +159,4 @@ export class DashboardSalesRepositoryAdapter
    * Per-day revenue for the calendar month, KST-bucketed.
    * `SUM(oli.total_price)` per `o.ordered_at AT TIME ZONE 'Asia/Seoul'::date`.
    */
-  async fetchDailyRevenue(
-    organizationId: string,
-    monthStart: Date,
-    monthEnd: Date,
-  ): Promise<DailyRevenueItem[]> {
-    const rows = await this.prisma.$queryRaw<Array<{ date: string; revenue: number }>>`
-      SELECT
-        TO_CHAR(o.ordered_at AT TIME ZONE 'Asia/Seoul', 'YYYY-MM-DD') AS date,
-        COALESCE(SUM(oli.total_price), 0)::int AS revenue
-      FROM orders o
-      JOIN order_line_items oli ON oli.order_id = o.id
-      WHERE o.organization_id = ${organizationId}::uuid
-        AND o.ordered_at >= ${monthStart}
-        AND o.ordered_at < ${monthEnd}
-        AND o.status NOT IN ('cancelled', 'returned', 'refunded')
-      GROUP BY 1
-      ORDER BY 1
-    `;
-    return rows.map(
-      (r) => ({ date: r.date, revenue: Number(r.revenue) } satisfies DailyRevenueItem),
-    );
-  }
 }

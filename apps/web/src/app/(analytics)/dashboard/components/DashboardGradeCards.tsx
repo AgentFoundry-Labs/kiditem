@@ -4,7 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { Loader2, RefreshCw } from 'lucide-react';
 import { cn, formatNumber } from '@/lib/utils';
-import { DashboardBasisDisclosure, type BasisBreakdownEntry, type DashboardMetricBasis } from './DashboardDataBasis';
+import type { DashboardMetricBasis } from './DashboardDataBasis';
 import type { DashboardInventorySummary } from '@kiditem/shared/dashboard';
 import {
   useProductAbcRecalculation,
@@ -74,10 +74,6 @@ export function DashboardGradeCards({
               : <RefreshCw size={11} />}
             {refresh.isPending ? '계산 중' : '재계산'}
           </button>
-          <DashboardBasisDisclosure
-            label="수익성 ABC 근거"
-            entries={[{ label: '수익성 ABC', basis: basis ?? null }] satisfies BasisBreakdownEntry[]}
-          />
         </div>
       </header>
 

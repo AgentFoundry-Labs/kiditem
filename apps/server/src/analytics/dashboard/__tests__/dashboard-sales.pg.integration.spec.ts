@@ -269,10 +269,6 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
       previousAvailable: false,
     });
     expect(result.topProducts).toEqual([]);
-    expect(result.monthlyTrend).toHaveLength(6); // 6 months loop always emits 6 entries
-    expect(result.monthlyTrend.every((t) => (
-      t.revenue === null && t.profit === null && t.adCost === null
-    ))).toBe(true);
     expect(result.profitDetail?.revenue).toBe(0);
     expect(result.trafficKpi?.adSummary).toBeNull();
     expect(result.lastSyncAt).toBeNull();
@@ -371,11 +367,8 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
 
     const ctx = buildDashboardContext();
     const result = await service.getSummary(ctx, TEST_ORGANIZATION_ID);
-    const currentPeriod = `${ctx.year}-${String(ctx.month).padStart(2, '0')}`;
-    const currentTrend = result.monthlyTrend.find((row) => row.period === currentPeriod);
-
     expect(result.effectivePeriod?.revenueSource).toBe('wing');
-    expect(currentTrend).toMatchObject({
+    expect(result.monthly).toMatchObject({
       revenue: 120_000,
       profit: null,
       adCost: null,

@@ -137,7 +137,6 @@ function salesService(options: {
   const sales = buildMockDashboardSalesRepo();
   sales.fetchTodayKpis.mockResolvedValue({ revenue: 0, orders: 0 });
   sales.fetchTopProducts.mockResolvedValue([]);
-  sales.fetchDailyRevenue.mockResolvedValue([]);
   const wing = buildMockWingTrafficAggregationRepo();
   wing.aggregateTraffic.mockResolvedValue(options.wing ?? wingTraffic());
   wing.aggregateCoupangAds.mockResolvedValue(options.ads ?? coupangAds());

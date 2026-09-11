@@ -384,7 +384,6 @@ export const DashboardSalesSummarySchema = z.object({
     previousAvailable: z.boolean(),
   }),
   topProducts: z.array(TopProductSchema),
-  monthlyTrend: z.array(MonthlyTrendItemSchema),
   profitDetail: ProfitBreakdownSchema.optional(),
   rangeKpi: z.object({
     range: z.string(),
@@ -400,7 +399,6 @@ export const DashboardSalesSummarySchema = z.object({
     available: z.boolean(),
     previousAvailable: z.boolean(),
   }).optional(),
-  dailyRevenue: z.array(DailyRevenueItemSchema).optional(),
   planAchievement: PlanAchievementSchema.nullable().optional(),
   trafficKpi: TrafficKpiSchema.optional(),
   lastSyncAt: zIsoDate.nullable().optional(),

@@ -98,6 +98,7 @@ export function DashboardChartPanel({
   dailyTrend,
   industryBenchmark,
   benchmarkBases,
+  rangeLabel,
 }: {
   dailyTrend: DailyTrendPoint[];
   industryBenchmark?: IndustryBenchmark;
@@ -107,6 +108,8 @@ export function DashboardChartPanel({
     ctr: DashboardMetricBasis | null;
     cvr: DashboardMetricBasis | null;
   };
+  /** The window the chart actually drew, so the header cannot claim another. */
+  rangeLabel: string;
 }) {
   const [chartTab, setChartTab] = useState<'revenue' | 'rate' | 'benchmark'>('revenue');
   // A row with all nullable metrics missing is an evidence gap, not a usable
@@ -162,7 +165,7 @@ export function DashboardChartPanel({
             ))}
           </div>
         </div>
-        <span className="text-[11px] text-slate-500">최근 30일</span>
+        <span className="text-[11px] text-slate-500">{rangeLabel}</span>
       </div>
 
       <DashboardCharts

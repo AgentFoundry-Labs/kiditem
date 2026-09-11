@@ -60,7 +60,6 @@ import type {
   DashboardProfitInputs,
   DashboardSalesSummary,
   ProfitBreakdown,
-  MonthlyTrendItem,
   TrafficKpi,
 } from '@kiditem/shared/dashboard';
 
@@ -119,8 +118,6 @@ export class DashboardSalesService {
         rangePrev,
         todayRows,
         topProductRows,
-        dailyRevenueRows,
-        monthlyTrend,
         wing,
         wingTrafficMonth,
         wingTrafficPrevMonth,
@@ -135,17 +132,15 @@ export class DashboardSalesService {
         this.profitCalculation.calculateForRange(organizationId, orderPeriods.selected),
         this.profitCalculation.calculateForRange(organizationId, orderPeriods.previousSelected),
         this.salesRepository.fetchTodayKpis(organizationId, todayStart, todayEnd),
+        // Top products sits inside the period section, under the period
+        // filter. Reading the anchor month there meant a July selection
+        // listed September — which, September being empty, read as "July had
+        // no product revenue".
         this.salesRepository.fetchTopProducts(
           organizationId,
-          orderPeriods.month.queryWindow.from,
-          orderPeriods.month.queryWindow.to,
+          orderPeriods.selected.queryWindow.from,
+          orderPeriods.selected.queryWindow.to,
         ),
-        this.salesRepository.fetchDailyRevenue(
-          organizationId,
-          orderPeriods.month.queryWindow.from,
-          orderPeriods.month.queryWindow.to,
-        ),
-        this.fetchMonthlyTrend(organizationId, monthStart, ctx.anchor),
         this.wingAdSummary.fetchCurrentMonthSummary(organizationId, year, month, monthStart),
         this.wingTrafficRepository.aggregateTraffic(organizationId, closedDayPeriods.month),
         this.wingTrafficRepository.aggregateTraffic(organizationId, closedDayPeriods.previousMonth),
@@ -176,7 +171,6 @@ export class DashboardSalesService {
         anchorShifted: ctx.anchorShifted,
         latencyMs: Date.now() - startedAt,
         topProductsCount: topProductRows.length,
-        monthlyTrendMonths: monthlyTrend.length,
         hasWingOverride: wing !== null,
         useWingMonthly,
         useWingRange,
@@ -247,8 +241,8 @@ export class DashboardSalesService {
         observedAt: wingTrafficRange.lastObservedAt,
       });
       const topProductsBasis = periodEvidence({
-        selectedDates: orderPeriods.month.selectedDates,
-        includedDates: curMonthProfit.sourceCoverage.orderDates,
+        selectedDates: orderPeriods.selected.selectedDates,
+        includedDates: rangeCurProfit.sourceCoverage.orderDates,
         sources: [ORDERS_SOURCE],
       });
 
@@ -261,7 +255,6 @@ export class DashboardSalesService {
           wingTrafficPrevMonth,
         ),
         topProducts: topProductRows,
-        monthlyTrend,
         profitDetail: this.buildProfitDetail(curMonthProfit),
         rangeKpi: this.buildRangeKpi(
           ctx.effectiveRange,
@@ -270,7 +263,6 @@ export class DashboardSalesService {
           wingTrafficRange,
           wingTrafficPrevRange,
         ),
-        dailyRevenue: dailyRevenueRows,
         planAchievement: null,
         trafficKpi,
         lastSyncAt: lastSyncAt?.toISOString() ?? null,
@@ -418,65 +410,6 @@ export class DashboardSalesService {
       available: current.available,
       previousAvailable: previous.available,
     } satisfies NonNullable<DashboardSalesSummary['rangeKpi']>;
-  }
-
-  // ── monthlyTrend = loop × 6 calculateForRange ───────────────────────────
-  private async fetchMonthlyTrend(
-    organizationId: string,
-    currentMonthStart: Date,
-    anchor: Date,
-  ): Promise<MonthlyTrendItem[]> {
-    const offsets = [5, 4, 3, 2, 1, 0]; // chronological: oldest → current
-    const trends = await Promise.all(
-      offsets.map(async (offset) => {
-        const start = new Date(
-          currentMonthStart.getFullYear(),
-          currentMonthStart.getMonth() - offset,
-          1,
-        );
-        const end = new Date(start.getFullYear(), start.getMonth() + 1, 1);
-        const orderPeriod = resolveExactPeriod({ from: start, to: end }, anchor, 'order_timestamps');
-        const wingPeriod = resolveWingMonthlyTrendPeriod(start, end, anchor);
-        const [m, wing, coupangAds] = await Promise.all([
-          this.profitCalculation.calculateForRange(organizationId, orderPeriod),
-          this.wingTrafficRepository.aggregateTraffic(organizationId, wingPeriod),
-          this.wingTrafficRepository.aggregateCoupangAds(organizationId, wingPeriod),
-        ]);
-        const adjusted = reconcileCollectedAdSpend(m, coupangAds);
-        const period = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}`;
-        const wingRevenueAvailable = canUseWingRevenue(wing);
-        const orderAvailable = hasOrderEvidence(adjusted);
-        const adsAvailable = coupangAds.hasData;
-        const revenue = orderAvailable
-          ? adjusted.revenue
-          : wingRevenueAvailable
-            ? wing.revenue
-            : null;
-        // Wing GMV is not settlement evidence, so profit remains unavailable
-        // even when Wing revenue is available.
-        const profit = orderAvailable ? adjusted.netProfit : null;
-        const adCost = orderAvailable || adsAvailable ? adjusted.adCost : null;
-        const evidence = salesEvidence({
-          orderPeriod,
-          wingPeriod,
-          profit: adjusted,
-          wing,
-          observedAt: coupangAds.lastObservedAt,
-        });
-        return {
-          period,
-          revenue,
-          profit,
-          adCost,
-          metricBasis: metricBasisMap({
-            revenue: evidence.revenue,
-            profit: evidence.profit,
-            adCost: adCost === null ? null : evidence.adCost,
-          }),
-        } satisfies MonthlyTrendItem;
-      }),
-    );
-    return trends;
   }
 
   // ── trafficKpi ──────────────────────────────────────────────────────────

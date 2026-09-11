@@ -121,7 +121,17 @@ export function resolveDashboardPeriod(
 export function resolveTrendPeriod(
   range: string,
   anchor: Date,
+  /**
+   * An explicit window, when the caller selected one. The chart sits inside
+   * the period section and under its filter, so a selected range has to reach
+   * it; without this it always answered with a rolling window from the anchor,
+   * and a July selection drew September.
+   */
+  explicit?: { from: Date; to: Date } | null,
 ): ResolvedDashboardPeriod {
+  if (explicit) {
+    return resolveExactPeriod(explicit, anchor, 'closed_day_clipped');
+  }
   const days = trendDays(range);
   const to = kstDayStart(anchor);
   const from = new Date(to.getTime() - days * DAY_MS);

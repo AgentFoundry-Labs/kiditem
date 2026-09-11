@@ -44,13 +44,10 @@ import { DashboardWarningTable, buildWarningRows } from './components/DashboardW
 import { DashboardGradeCards } from './components/DashboardGradeCards';
 import { WingDailyTrafficCollection } from './components/WingDailyTrafficCollection';
 import {
-  DashboardBasisDisclosure,
-  DashboardBasisMarker,
   DashboardDataBasis,
   basisHasValues,
   readFirstMetricBasis,
   readMetricBasis,
-  type BasisBreakdownEntry,
   type DashboardMetricBasis,
   type MetricBasisCarrier,
 } from './components/DashboardDataBasis';
@@ -142,7 +139,6 @@ const EMPTY_SALES_SUMMARY: DashboardSalesSummary = {
     previousAvailable: false,
   },
   topProducts: [],
-  monthlyTrend: [],
 };
 
 const EMPTY_AD_SUMMARY: DashboardAdSummary = {
@@ -265,15 +261,11 @@ function DashboardReadFailureNotice({ failures }: { failures: readonly Dashboard
 function DashboardSectionHeader({
   title,
   scope,
-  disclosureLabel,
-  entries,
   controls,
 }: {
   title: string;
   /** Only when it says something the controls beside it do not. */
   scope?: ReactNode;
-  disclosureLabel: string;
-  entries: readonly BasisBreakdownEntry[];
   controls?: ReactNode;
 }) {
   return (
@@ -283,7 +275,6 @@ function DashboardSectionHeader({
         {scope && <span className="text-[11px] text-slate-500">{scope}</span>}
       </div>
       {controls}
-      <DashboardBasisDisclosure label={disclosureLabel} entries={entries} />
     </div>
   );
 }
@@ -382,9 +373,15 @@ export default function Dashboard() {
     error: trendError,
     refetch: refetchTrend,
   } = useQuery({
-    queryKey: queryKeys.dashboard.trend('30d'),
-    queryFn: () =>
-      apiClient.getParsed('/api/dashboard/trend?range=30d', z.array(DashboardTrendItemSchema)),
+    queryKey: queryKeys.dashboard.trend(kpiRange === 'custom' ? 'custom' : '30d', dateFrom, dateTo),
+    queryFn: () => {
+      // The chart is inside the period column, so it asks for the selected
+      // window. Every other range keeps the rolling 30 days it always used.
+      const params = kpiRange === 'custom' && dateFrom && dateTo
+        ? `?range=custom&from=${dateFrom}&to=${dateTo}`
+        : '?range=30d';
+      return apiClient.getParsed(`/api/dashboard/trend${params}`, z.array(DashboardTrendItemSchema));
+    },
     refetchInterval: 60_000,
   });
 
@@ -431,6 +428,7 @@ export default function Dashboard() {
     if (!dateFrom || !dateTo) return;
     queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.salesRange('custom', dateFrom, dateTo) });
     queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.adRange('custom', dateFrom, dateTo) });
+    queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.trend('custom', dateFrom, dateTo) });
     queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.sellpiaSalesAll() });
   }, [dateFrom, dateTo, queryClient]);
 
@@ -828,51 +826,8 @@ export default function Dashboard() {
   // follow a custom range, so beside July's day counts it read "2026년 9월".
   // The section names the window that was actually selected.
 
-  const periodBasisEntries: BasisBreakdownEntry[] = [
-    { label: `${rangeLabel} 매출`, basis: revenueCardBasis },
-    ...(sellpiaHasData
-      ? [
-        { label: '쿠팡윙 · 기타몰 매출', basis: sellpiaOthersBasis },
-        { label: '쿠팡 로켓 매출', basis: sellpiaRocketBasis },
-      ]
-      : [{ label: `${rangeLabel} 매출 증감`, basis: revenueComparisonBasis }]),
-    { label: `${rangeLabel} 순이익`, basis: profitCardBasis },
-    ...(sellpiaHasData ? [] : [{ label: `${rangeLabel} 순이익 증감`, basis: profitComparisonBasis }]),
-    { label: '이익률', basis: profitRateCardBasis },
-    ...(sellpiaHasData ? [] : [{ label: '이익률 증감', basis: profitRateComparisonBasis }]),
-    { label: '광고비율', basis: adRateBasis },
-    { label: '광고비율 증감', basis: adRateComparisonBasis },
-    { label: '구매전환율', basis: trafficBasis },
-    { label: '광고수익률', basis: adRoasBasis },
-    { label: '광고수익률 증감', basis: adRoasComparisonBasis },
-    { label: '벤치마크 광고비율', basis: benchmarkBases.adRate },
-    { label: '벤치마크 ROAS', basis: benchmarkBases.roas },
-    { label: '벤치마크 CTR', basis: benchmarkBases.ctr },
-    { label: '벤치마크 CVR', basis: benchmarkBases.cvr },
-    { label: 'Top 상품 매출', basis: topProductsBasis },
-    { label: 'Wing 일별 트래픽 커버리지', coverage: trafficCoverage, coverageSources: ['wing_traffic'] },
-    { label: '광고 커버리지', coverage: adCoverage, coverageSources: ['coupang_ads'] },
-  ];
 
-  // The snapshot section header is gone; its rows moved onto the cards that
-  // actually publish them, which is where someone asking "where did this come
-  // from?" is already looking.
-  const adBasisEntries: BasisBreakdownEntry[] = [
-    { label: '광고전환매출', basis: adRoasBasis },
-    { label: '광고비율', basis: adRateBasis },
-    { label: '광고 커버리지', coverage: adCoverage, coverageSources: ['coupang_ads'] },
-  ];
 
-  const snapshotBasisEntries: BasisBreakdownEntry[] = [
-    { label: '운영 상품 · 채널 연결', basis: inventoryHeaderBasis },
-    { label: '알림', basis: alertsBasis },
-    { label: '수익성 ABC', basis: inventoryBasis },
-    { label: '적자 상품', basis: warningBasis('warnings.minusProducts') },
-    { label: '저이익 상품', basis: warningBasis('warnings.lowProfitProducts') },
-    { label: '광고비 초과', basis: warningBasis('warnings.highAdProducts') },
-    { label: '셀피아 재고 0', basis: warningBasis('warnings.outOfStockSkus') },
-    { label: '매칭 확인 필요', basis: warningBasis('warnings.mappingAttentionSkus') },
-  ];
 
   // Every failed read on the page, named once. React Query already owns this
   // state, so nothing here is a second copy of it.
@@ -968,8 +923,6 @@ export default function Dashboard() {
         <div className="lg:col-span-2 space-y-3">
           <DashboardSectionHeader
             title="기간 지표"
-            disclosureLabel="기간 지표 근거"
-            entries={periodBasisEntries}
             controls={(
               <div className="flex shrink-0 items-center gap-2 whitespace-nowrap">
                 {kpiRange === 'custom' && (
@@ -1223,6 +1176,7 @@ export default function Dashboard() {
               dailyTrend={dailyTrend}
               industryBenchmark={benchmark}
               benchmarkBases={benchmarkBases}
+              rangeLabel={kpiRange === 'custom' && dateFrom && dateTo ? `${dateFrom} ~ ${dateTo}` : '최근 30일'}
             />
           )}
 
@@ -1242,8 +1196,6 @@ export default function Dashboard() {
           <DashboardSectionHeader
             title="현재 상태"
             scope="기간과 무관"
-            disclosureLabel="현재 상태 근거"
-            entries={snapshotBasisEntries}
           />
 
           {inventoryHasErr ? (
@@ -1260,7 +1212,6 @@ export default function Dashboard() {
             rows={adPerformanceRows}
             basis={adRoasBasis}
             coverageLabel={adCoverageLabel}
-            entries={adBasisEntries}
           />
 
           {inventoryHasErr ? (

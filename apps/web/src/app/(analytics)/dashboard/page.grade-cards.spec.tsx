@@ -356,8 +356,6 @@ describe('Dashboard absolute ABC grade cards', () => {
     expect(screen.getByText('장바구니').parentElement).toHaveTextContent('장바구니0회');
     expect(screen.getByText('구매전환율').parentElement?.parentElement?.parentElement).toHaveTextContent('5.0%');
     expect(screen.getByText(/Wing 제공 전환율 2\.9%/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '기간 지표 근거 안내' }));
-    expect(await screen.findByRole('note')).toHaveTextContent('3/3일');
     expect(screen.getByText('일별 합산·기간 원본 미대사 · 장바구니')).toBeInTheDocument();
     expect(screen.getByText('기간 원본 불일치로 숨김 · 매출')).toBeInTheDocument();
     expect(screen.getByText(/계정 원본 · ALL_NORMAL_RFM · 상품 매칭 합산 아님/)).toBeInTheDocument();
@@ -598,10 +596,9 @@ describe('Dashboard absolute ABC grade cards', () => {
     renderDashboard();
     await waitFor(() => expect(screen.getByText('Kiditem Foundry')).toBeInTheDocument());
 
-    // Coverage is evidence, and evidence is reached through the section's one
-    // affordance rather than reprinted above the values.
-    fireEvent.click(screen.getByRole('button', { name: '기간 지표 근거 안내' }));
-    expect(await screen.findByRole('note')).toHaveTextContent('2026-09-01');
+    // Partial coverage still supports the values that were measured; the
+    // screen says what to collect rather than how much of it is missing.
+    expect(screen.getByText('부분 5/7일')).toBeInTheDocument();
     expect(screen.getByText('광고전환매출').parentElement).toHaveTextContent('광고전환매출 쿠팡0원');
 
     expect(screen.queryByText('광고전환매출—')).not.toBeInTheDocument();
