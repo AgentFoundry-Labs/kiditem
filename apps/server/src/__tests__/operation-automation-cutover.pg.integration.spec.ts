@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
 import { makeTestPrisma, resetDb, seedBaseFixture, TEST_ORGANIZATION_ID as ORG } from '../test-helpers/real-prisma';
 import { prepareOperationAutomationCutover } from '../../../../scripts/data-migrations/v0.1.31/003_prepare_operation_automation_cutover';
+import { removeRetiredOperationAlerts } from '../../../../scripts/data-migrations/v0.1.31/005_remove_retired_operation_alerts';
 
 const OPERATION_ID = '11111111-1111-4111-8111-111111111111';
 const ACTIVE_OPERATION_ID = '22222222-2222-4222-8222-222222222222';
@@ -68,7 +69,7 @@ describe('operation/automation cutover migration over disposable PostgreSQL', ()
     await prisma.$disconnect();
   });
 
-  it('guards active writers, rolls back safely, then deletes retired rows twice without touching owner data', async () => {
+  it('guards active writers, rolls back safely, and leaves alert cleanup to the narrow migration', async () => {
     const actionTask = await prisma.actionTask.create({
       data: {
         organizationId: ORG,
@@ -92,6 +93,16 @@ describe('operation/automation cutover migration over disposable PostgreSQL', ()
         dedupeKey: 'cutover-alert-sentinel',
         type: 'source_failure',
         title: 'Cutover alert sentinel',
+        status: 'OPEN',
+      },
+    });
+    await prisma.alert.create({
+      data: {
+        organizationId: ORG,
+        dedupeKey: 'cutover-retired-alert-sentinel',
+        kind: 'operation',
+        type: 'source_failure',
+        title: 'Retired cutover alert sentinel',
         status: 'OPEN',
       },
     });
@@ -131,7 +142,7 @@ describe('operation/automation cutover migration over disposable PostgreSQL', ()
       prisma.$transaction((tx) => prepareOperationAutomationCutover(tx)),
     ).rejects.toThrow(/active ledger rows remain/i);
     expect(await countRows(prisma, 'operation_runs')).toBe(2);
-    expect(await prisma.alert.count({ where: { organizationId: ORG } })).toBe(1);
+    expect(await prisma.alert.count({ where: { organizationId: ORG } })).toBe(2);
     expect(await prisma.actionTask.count({ where: { id: actionTaskId, organizationId: ORG } })).toBe(1);
 
     await prisma.$executeRaw`
@@ -158,7 +169,7 @@ describe('operation/automation cutover migration over disposable PostgreSQL', ()
     expect(await countRows(prisma, 'operation_runs')).toBe(2);
     expect(await countRows(prisma, 'operation_run_checkpoints')).toBe(1);
     expect(await countRows(prisma, 'workflow_runs')).toBe(1);
-    expect(await prisma.alert.count({ where: { organizationId: ORG } })).toBe(1);
+    expect(await prisma.alert.count({ where: { organizationId: ORG } })).toBe(2);
     expect(await prisma.rulesEvaluationApplication.count({ where: { organizationId: ORG } })).toBe(1);
     expect(await prisma.actionTask.count({ where: { id: actionTaskId, organizationId: ORG } })).toBe(1);
     expect(await prisma.sourceImportRun.count({ where: { id: sourceImportRunId, organizationId: ORG } })).toBe(1);
@@ -169,7 +180,7 @@ describe('operation/automation cutover migration over disposable PostgreSQL', ()
     await expect(
       prisma.$transaction((tx) => prepareOperationAutomationCutover(tx)),
     ).resolves.toMatchObject({
-      affectedRows: 9,
+      affectedRows: 8,
       details: {
         ledgerRows: 2,
         checkpointRows: 1,
@@ -186,14 +197,31 @@ describe('operation/automation cutover migration over disposable PostgreSQL', ()
     expect(await countRows(prisma, 'workflow_runs')).toBe(0);
     expect(await countRows(prisma, 'workflow_templates')).toBe(0);
     expect(await countRows(prisma, 'marketplace')).toBe(0);
+    expect(await prisma.alert.count({ where: { organizationId: ORG, kind: 'signal' } })).toBe(1);
+    expect(await prisma.alert.count({ where: { organizationId: ORG, kind: 'operation' } })).toBe(1);
     expect(await prisma.actionTask.count({ where: { id: actionTaskId, organizationId: ORG } })).toBe(1);
     expect(await prisma.sourceImportRun.count({ where: { id: sourceImportRunId, organizationId: ORG } })).toBe(1);
+
+    await expect(
+      prisma.$transaction((tx) => removeRetiredOperationAlerts.run(tx)),
+    ).resolves.toEqual({
+      affectedRows: 1,
+      details: { retiredAlertRows: 1, removedAlertRows: 1, survivingRows: 1 },
+    });
+    expect(await prisma.alert.count({ where: { organizationId: ORG, kind: 'signal' } })).toBe(1);
+    expect(await prisma.alert.count({ where: { organizationId: ORG, kind: 'operation' } })).toBe(0);
 
     await expect(
       prisma.$transaction((tx) => prepareOperationAutomationCutover(tx)),
     ).resolves.toMatchObject({
       affectedRows: 0,
       details: { dormantActionRows: 1 },
+    });
+    await expect(
+      prisma.$transaction((tx) => removeRetiredOperationAlerts.run(tx)),
+    ).resolves.toEqual({
+      affectedRows: 0,
+      details: { retiredAlertRows: 0, removedAlertRows: 0, survivingRows: 1 },
     });
   });
 });

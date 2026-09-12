@@ -1,5 +1,49 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ChannelProductMatchingRepositoryAdapter } from './channel-product-matching.repository.adapter';
+import {
+  ChannelProductMatchingRepositoryAdapter as ChannelProductMatchingRepositoryAdapterImpl,
+} from './channel-product-matching.repository.adapter';
+import type {
+  ProductChannelOptionRecipeMutation,
+} from '../../../../products/application/port/in/product-channel-option-recipe-mutation.port';
+
+class ChannelProductMatchingRepositoryAdapter
+  extends ChannelProductMatchingRepositoryAdapterImpl {
+  constructor(prisma: unknown) {
+    super(prisma as never, {
+      applyPreservingRecipesInTransaction: async (
+        transaction: object,
+        input: {
+          organizationId: string;
+          mutations: readonly ProductChannelOptionRecipeMutation[];
+        },
+      ) => {
+        const tx = transaction as {
+          channelListingOptionInventoryComponent?: {
+            create(input: unknown): Promise<unknown>;
+          };
+        };
+        for (const mutation of input.mutations) {
+          for (const component of mutation.components) {
+            await tx.channelListingOptionInventoryComponent?.create({
+              data: {
+                organizationId: input.organizationId,
+                channelListingOptionId: mutation.channelListingOptionId,
+                sellpiaInventorySkuId: component.sellpiaInventorySkuId,
+                quantity: component.quantity,
+              },
+            });
+          }
+        }
+        return {
+          changedOptionCount: input.mutations.length,
+          matchedListingCount: 0,
+          conflictingChannelListingOptionIds: [],
+          mappingChanged: input.mutations.length > 0,
+        };
+      },
+    } as never);
+  }
+}
 
 const organizationId = '00000000-0000-4000-8000-000000000001';
 
@@ -189,7 +233,7 @@ describe('ChannelProductMatchingRepositoryAdapter matching counts', () => {
     });
   });
 
-  it('updates an existing single-SKU recipe quantity from the common title rule', async () => {
+  it('preserves an existing single-SKU recipe when the title implies another quantity', async () => {
     const updateMany = vi.fn().mockResolvedValue({ count: 1 });
     const repository = new ChannelProductMatchingRepositoryAdapter({
       $transaction: vi.fn(async (callback) => callback({
@@ -233,14 +277,11 @@ describe('ChannelProductMatchingRepositoryAdapter matching counts', () => {
     } as never);
 
     await expect(repository.autoMatch({ organizationId, channelAccountId: 'account-1' }))
-      .resolves.toEqual({ evaluatedListings: 1, matchedListings: 0, configuredOptions: 1 });
-    expect(updateMany).toHaveBeenCalledWith({
-      where: { id: 'component-1', organizationId },
-      data: { quantity: 10 },
-    });
+      .resolves.toEqual({ evaluatedListings: 1, matchedListings: 0, configuredOptions: 0 });
+    expect(updateMany).not.toHaveBeenCalled();
   });
 
-  it('updates an existing single-SKU recipe quantity without channel-specific SKU evidence', async () => {
+  it('preserves an existing single-SKU recipe without channel-specific evidence', async () => {
     const updateMany = vi.fn().mockResolvedValue({ count: 1 });
     const repository = new ChannelProductMatchingRepositoryAdapter({
       $transaction: vi.fn(async (callback) => callback({
@@ -278,11 +319,8 @@ describe('ChannelProductMatchingRepositoryAdapter matching counts', () => {
     } as never);
 
     await expect(repository.autoMatch({ organizationId, channelAccountId: 'account-1' }))
-      .resolves.toEqual({ evaluatedListings: 1, matchedListings: 0, configuredOptions: 1 });
-    expect(updateMany).toHaveBeenCalledWith({
-      where: { id: 'component-1', organizationId },
-      data: { quantity: 10 },
-    });
+      .resolves.toEqual({ evaluatedListings: 1, matchedListings: 0, configuredOptions: 0 });
+    expect(updateMany).not.toHaveBeenCalled();
   });
 
   it('uses the same exact-barcode single-unit rule for a Wing option', async () => {

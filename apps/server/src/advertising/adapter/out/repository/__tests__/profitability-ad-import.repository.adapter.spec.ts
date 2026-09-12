@@ -174,6 +174,7 @@ describe('ProfitabilityAdImportRepositoryAdapter', () => {
         findFirst: vi.fn().mockResolvedValue(run),
         findMany: vi.fn().mockResolvedValue([run]),
       },
+      channelAccount: { findMany: vi.fn().mockResolvedValue([]) },
       channelAdTargetDailySnapshot: { findMany: vi.fn() },
       channelAdListingProductMonthlyFact: { findMany: vi.fn() },
     };
@@ -308,6 +309,7 @@ describe('ProfitabilityAdImportRepositoryAdapter', () => {
     const factFindMany = vi.fn().mockResolvedValue([fact]);
     const tx = {
       sourceImportRun: { findFirst: vi.fn().mockResolvedValue(run) },
+      channelAccount: { findMany: vi.fn().mockResolvedValue([]) },
       channelAdTargetDailySnapshot: { findMany: targetFindMany },
       channelAdListingProductMonthlyFact: { findMany: factFindMany },
     };
@@ -467,7 +469,10 @@ describe('ProfitabilityAdImportRepositoryAdapter', () => {
     const findFirst = vi.fn()
       .mockResolvedValueOnce(complete)
       .mockResolvedValueOnce(complete);
-    const tx = { sourceImportRun: { findFirst } };
+    const tx = {
+      sourceImportRun: { findFirst },
+      channelAccount: { findMany: vi.fn().mockResolvedValue([]) },
+    };
     const prisma = {
       $transaction: vi.fn(async (callback: (client: typeof tx) => Promise<unknown>) => callback(tx)),
     };

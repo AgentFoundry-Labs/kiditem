@@ -25,8 +25,10 @@ This folder owns three surfaces:
 - Product detail and matching share the Products-owned complete
   option-component replacement API. A sole option is displayed as the default
   option; there is no separate listing-level product picker.
-- Matching candidates never confirm identity. Catalog recollection preserves
-  confirmed option recipes and does not create channel-origin MasterProducts.
+- Matching may confirm one clearly separated name candidate only when option
+  facts do not conflict and selling quantity is confirmed. Ambiguous evidence
+  remains for review. Catalog recollection preserves confirmed option recipes
+  and does not create channel-origin MasterProducts.
 - Product display uses calculated reference/image projections. Edit forms
   submit only operator-owned product media and never promote channel fallbacks.
 Product operations tests under this directory are the executable authority for

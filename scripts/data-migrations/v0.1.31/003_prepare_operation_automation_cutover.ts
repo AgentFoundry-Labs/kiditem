@@ -4,7 +4,8 @@ import type { DataMigration, MigrationResult } from '../types';
 type CountRow = {
   ledger_rows: bigint | number | string;
   active_ledger_rows: bigint | number | string;
-  checkpoint_rows: bigint | number | string;
+  checkpoint_table_exists: boolean;
+  rules_applications_table_exists: boolean;
   schedule_rows: bigint | number | string;
   enabled_schedule_rows: bigint | number | string;
   workflow_definition_rows: bigint | number | string;
@@ -36,10 +37,11 @@ export async function prepareOperationAutomationCutover(
 ): Promise<MigrationResult> {
   const [before] = await tx.$queryRaw<CountRow[]>`
     SELECT
+      to_regclass('public.operation_run_checkpoints') IS NOT NULL AS checkpoint_table_exists,
+      to_regclass('public.rules_evaluation_applications') IS NOT NULL AS rules_applications_table_exists,
       (SELECT COUNT(*)::bigint FROM operation_runs) AS ledger_rows,
       (SELECT COUNT(*)::bigint FROM operation_runs
         WHERE status IN ('queued', 'waiting_runtime', 'waiting_dependency', 'running')) AS active_ledger_rows,
-      (SELECT COUNT(*)::bigint FROM operation_run_checkpoints) AS checkpoint_rows,
       (SELECT COUNT(*)::bigint FROM operation_schedules) AS schedule_rows,
       (SELECT COUNT(*)::bigint FROM operation_schedules WHERE enabled = TRUE) AS enabled_schedule_rows,
       (SELECT COUNT(*)::bigint FROM workflow_templates) AS workflow_definition_rows,
@@ -48,29 +50,38 @@ export async function prepareOperationAutomationCutover(
       (SELECT COUNT(*)::bigint FROM action_tasks) AS dormant_action_rows
   `;
 
-  const counts = normalizeCounts(before);
+  const counts = normalizeCounts(before, 0);
   if (counts.activeLedgerRows > 0) {
-    throw new Error(
-      'Operation/Automation cutover is blocked while active ledger rows remain.',
-    );
+    throw new Error('Operation/Automation cutover is blocked while active ledger rows remain.');
   }
   if (counts.enabledScheduleRows > 0) {
-    throw new Error(
-      'Operation/Automation cutover is blocked while enabled schedules remain.',
-    );
+    throw new Error('Operation/Automation cutover is blocked while enabled schedules remain.');
   }
 
-  const deletedAlertRows = (await tx.alert.deleteMany()).count;
-  const deletedRulesApplicationRows = (
-    await tx.rulesEvaluationApplication.deleteMany()
-  ).count;
+  const checkpointTablePresent = before?.checkpoint_table_exists === true;
+  const rulesApplicationsTablePresent = before?.rules_applications_table_exists === true;
+  if (checkpointTablePresent) {
+    const [checkpoint] = await tx.$queryRaw<
+      Array<{
+        checkpoint_rows: bigint | number | string;
+      }>
+    >`
+      SELECT COUNT(*)::bigint AS checkpoint_rows
+      FROM operation_run_checkpoints
+    `;
+    counts.checkpointRows = toCount(checkpoint?.checkpoint_rows);
+  }
+
+  const deletedRulesApplicationRows = rulesApplicationsTablePresent
+    ? await tx.$executeRaw`DELETE FROM rules_evaluation_applications`
+    : 0;
 
   // Delete children before their retired parent tables. These statements use
   // fixed identifiers so the migration remains valid after Prisma models are
   // removed from the post-cutover client.
-  const deletedCheckpointRows = await tx.$executeRaw`
-    DELETE FROM operation_run_checkpoints
-  `;
+  const deletedCheckpointRows = checkpointTablePresent
+    ? await tx.$executeRaw`DELETE FROM operation_run_checkpoints`
+    : 0;
   const deletedLedgerRows = await tx.$executeRaw`
     DELETE FROM operation_runs
   `;
@@ -87,9 +98,11 @@ export async function prepareOperationAutomationCutover(
     DELETE FROM marketplace
   `;
 
-  const [after] = await tx.$queryRaw<{
-    dormant_action_rows: bigint | number | string;
-  }[]>`
+  const [after] = await tx.$queryRaw<
+    {
+      dormant_action_rows: bigint | number | string;
+    }[]
+  >`
     SELECT COUNT(*)::bigint AS dormant_action_rows
     FROM action_tasks
   `;
@@ -98,14 +111,14 @@ export async function prepareOperationAutomationCutover(
     throw new Error('Dormant action rows changed during the cutover preparation.');
   }
 
-  const affectedRows = deletedAlertRows
-    + deletedRulesApplicationRows
-    + deletedCheckpointRows
-    + deletedLedgerRows
-    + deletedScheduleRows
-    + deletedWorkflowExecutionRows
-    + deletedWorkflowDefinitionRows
-    + deletedCatalogRows;
+  const affectedRows =
+    deletedRulesApplicationRows +
+    deletedCheckpointRows +
+    deletedLedgerRows +
+    deletedScheduleRows +
+    deletedWorkflowExecutionRows +
+    deletedWorkflowDefinitionRows +
+    deletedCatalogRows;
 
   return {
     affectedRows,
@@ -118,7 +131,6 @@ export async function prepareOperationAutomationCutover(
       workflowDefinitionRows: counts.workflowDefinitionRows,
       workflowExecutionRows: counts.workflowExecutionRows,
       catalogRows: counts.catalogRows,
-      deletedAlertRows,
       deletedRulesApplicationRows,
       deletedCheckpointRows,
       deletedLedgerRows,
@@ -127,6 +139,8 @@ export async function prepareOperationAutomationCutover(
       deletedWorkflowDefinitionRows,
       deletedCatalogRows,
       dormantActionRows: retainedDormantActionRows,
+      checkpointTablePresent,
+      rulesApplicationsTablePresent,
     },
   };
 }
@@ -139,12 +153,12 @@ export const prepareOperationAutomationCutoverMigration: DataMigration = {
   run: prepareOperationAutomationCutover,
 };
 
-function normalizeCounts(row: CountRow | undefined): CutoverCounts {
+function normalizeCounts(row: CountRow | undefined, checkpointRows: number): CutoverCounts {
   if (!row) throw new Error('Operation/Automation cutover count query returned no row.');
   return {
     ledgerRows: toCount(row.ledger_rows),
     activeLedgerRows: toCount(row.active_ledger_rows),
-    checkpointRows: toCount(row.checkpoint_rows),
+    checkpointRows,
     scheduleRows: toCount(row.schedule_rows),
     enabledScheduleRows: toCount(row.enabled_schedule_rows),
     workflowDefinitionRows: toCount(row.workflow_definition_rows),

@@ -73,16 +73,17 @@ describe("MarketplaceRegistrationRepositoryAdapter browser registration", () => 
   });
 
   it("preflights tenant-owned active product and inventory SKU identities", async () => {
-    const prisma = {
-      masterProduct: {
-        findFirst: vi
-          .fn()
-          .mockResolvedValue({ id: "00000000-0000-4000-8000-000000000001" }),
-      },
-      sellpiaInventorySku: { findMany: vi.fn().mockResolvedValue([]) },
+    const validateRecipeTargets = vi.fn().mockRejectedValue(
+      new BadRequestException(
+        "One or more SellpiaInventorySku components do not belong to this organization",
+      ),
+    );
+    const recipeMutations = {
+      validateRecipeTargets,
     };
     const repository = new MarketplaceRegistrationRepositoryAdapter(
-      prisma as never,
+      {} as never,
+      recipeMutations as never,
     );
 
     await expect(
@@ -99,15 +100,15 @@ describe("MarketplaceRegistrationRepositoryAdapter browser registration", () => 
         ],
       }),
     ).rejects.toThrow(
-      "Every KidItem-first inventory SKU must be active and belong to the organization.",
+      "One or more SellpiaInventorySku components do not belong to this organization",
     );
-    expect(prisma.masterProduct.findFirst).toHaveBeenCalledWith({
-      where: {
-        id: "00000000-0000-4000-8000-000000000001",
-        organizationId: "00000000-0000-4000-8000-000000000010",
-        isActive: true,
-      },
-      select: { id: true },
+    expect(validateRecipeTargets).toHaveBeenCalledWith({
+      organizationId: "00000000-0000-4000-8000-000000000010",
+      expectedMasterProductId: "00000000-0000-4000-8000-000000000001",
+      components: [{
+        sellpiaInventorySkuId: "00000000-0000-4000-8000-000000000002",
+        quantity: 1,
+      }],
     });
   });
 

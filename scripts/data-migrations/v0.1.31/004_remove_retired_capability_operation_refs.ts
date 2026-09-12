@@ -13,6 +13,21 @@ export const removeRetiredCapabilityOperationRefs: DataMigration = {
   name: 'Remove retired operation references from capability receipts',
   phase: 'pre-schema',
   async run(tx: Prisma.TransactionClient): Promise<MigrationResult> {
+    const [table] = await tx.$queryRaw<Array<{ table_exists: boolean }>>`
+      SELECT to_regclass('public.capability_invocations') IS NOT NULL AS table_exists
+    `;
+    const capabilityInvocationTablePresent = table?.table_exists === true;
+    if (!capabilityInvocationTablePresent) {
+      return {
+        affectedRows: 0,
+        details: {
+          capabilityInvocationTablePresent,
+          legacyReceiptRows: 0,
+          removedOperationReferenceRows: 0,
+        },
+      };
+    }
+
     const [before] = await tx.$queryRaw<CountRow[]>`
       SELECT COUNT(*)::bigint AS legacy_receipt_rows
       FROM capability_invocations
@@ -24,7 +39,11 @@ export const removeRetiredCapabilityOperationRefs: DataMigration = {
     if (legacyReceiptRows === 0) {
       return {
         affectedRows: 0,
-        details: { legacyReceiptRows: 0, removedOperationReferenceRows: 0 },
+        details: {
+          capabilityInvocationTablePresent,
+          legacyReceiptRows: 0,
+          removedOperationReferenceRows: 0,
+        },
       };
     }
 
@@ -42,6 +61,7 @@ export const removeRetiredCapabilityOperationRefs: DataMigration = {
     return {
       affectedRows: removedOperationReferenceRows,
       details: {
+        capabilityInvocationTablePresent,
         legacyReceiptRows,
         removedOperationReferenceRows,
       },

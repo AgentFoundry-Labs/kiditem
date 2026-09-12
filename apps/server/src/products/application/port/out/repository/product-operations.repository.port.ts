@@ -4,7 +4,6 @@ import type {
   MasterProductOperationsListItem,
   MasterProductOperationsListQuery,
   ProductOperationsChannelProductCount,
-  ReplaceChannelOptionInventoryInput,
   UpdateMasterProductInput,
 } from '@kiditem/shared/product-operations';
 
@@ -76,10 +75,6 @@ export type ProductOperationsDisplayMediaTarget = Readonly<{
   listingExternalId: string;
 }>;
 
-export type ChannelOptionInventoryReplacementResult = Readonly<{
-  masterProductId: string | null;
-}>;
-
 export const PRODUCT_OPERATIONS_REPOSITORY_PORT = Symbol(
   'PRODUCT_OPERATIONS_REPOSITORY_PORT',
 );
@@ -106,9 +101,4 @@ export interface ProductOperationsRepositoryPort {
     masterProductId: string,
     input: UpdateMasterProductInput,
   ): Promise<ProductOperationsRepositoryDetail>;
-  replaceChannelOptionInventory(input: {
-    organizationId: string;
-    channelListingOptionId: string;
-    components: ReplaceChannelOptionInventoryInput['components'];
-  }): Promise<ChannelOptionInventoryReplacementResult>;
 }

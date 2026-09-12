@@ -179,9 +179,12 @@ calculation, and one publication CAS attempt:
    no FormulaState, Evaluation, grade cache, history, or pending state.
 3. Otherwise Products captures the formula/publication revisions, source
    vector, complete target set, selling predicates, and mapping evidence.
-4. The publication transaction rechecks those revisions and all selected
-   source/selling/mapping inputs. A stale candidate or changed input returns
-   `409 INPUT_CHANGED`; it does not retry internally or partially publish.
+4. The publication transaction verifies the evaluated source pair against its
+   own identities and provenance, and rechecks the mutable formula/publication
+   revisions, target set, sale-age inputs, and mapping generation. A newer
+   `COMPLETE` source is freshness and does not invalidate that evaluated pair;
+   an inconsistent pair or changed mutable input returns `409 INPUT_CHANGED`.
+   The command does not retry internally or partially publish.
 5. A successful publication atomically advances FormulaState provenance and
    evaluations/cache, and writes history only for actual grade transitions.
 

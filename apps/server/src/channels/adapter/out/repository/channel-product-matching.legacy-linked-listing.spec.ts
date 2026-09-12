@@ -15,24 +15,18 @@ describe('channel listings as the matching workspace source', () => {
     expect(findMany.mock.calls[0]![0].where).toEqual({ organizationId });
   });
 
-  it('does not reapply catalog provenance when mutating a persisted listing', async () => {
-    const queryRaw = vi.fn().mockResolvedValue([{
-      id: '00000000-0000-4000-8000-000000000002',
-      masterProductId: '00000000-0000-4000-8000-000000000003',
-    }]);
+  it('delegates persisted-listing unlinking without reapplying catalog provenance', async () => {
     const transaction = {
-      $queryRaw: queryRaw,
-      masterProductAbcFormulaState: {
-        upsert: vi.fn().mockResolvedValue({ mappingGeneration: 1n }),
-      },
-      channelListing: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
-      channelListingOptionInventoryComponent: {
-        deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
-      },
     };
+    const clearListingRecipesInTransaction = vi.fn().mockResolvedValue({
+      changedOptionCount: 1,
+      matchedListingCount: 0,
+      conflictingChannelListingOptionIds: [],
+      mappingChanged: true,
+    });
     const repository = new ChannelProductMatchingRepositoryAdapter({
       $transaction: vi.fn(async (callback) => callback(transaction)),
-    } as never);
+    } as never, { clearListingRecipesInTransaction } as never);
 
     await repository.linkProduct({
       organizationId,
@@ -40,7 +34,10 @@ describe('channel listings as the matching workspace source', () => {
       masterProductId: null,
     });
 
-    expect(queryRaw.mock.calls[1]![4]).toBe(false);
+    expect(clearListingRecipesInTransaction).toHaveBeenCalledWith(transaction, {
+      organizationId,
+      channelListingId: '00000000-0000-4000-8000-000000000002',
+    });
   });
 
   it('uses the active channel-listing state when explicit sale status is absent', async () => {

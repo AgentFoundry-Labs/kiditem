@@ -164,6 +164,17 @@ describe('channels architecture contract', () => {
     ).toEqual([]);
   });
 
+  it('delegates every component-row mutation to Products', () => {
+    const channels = channelsRel();
+    const hits = rg(
+      `--type ts --files-with-matches 'channelListingOptionInventoryComponent\\.(create|createMany|update|updateMany|delete|deleteMany|upsert)' ${channels} --glob '!**/__tests__/**' --glob '!**/*.spec.ts'`,
+    );
+    expect(
+      hits,
+      `Channels must call the Products recipe mutation port:\n${hits.join('\n')}`,
+    ).toEqual([]);
+  });
+
   it('does not retain the retired Open API adapter folder', () => {
     const channels = channelsRel();
     const legacyFiles = rg(

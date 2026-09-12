@@ -67,7 +67,7 @@ describe('ChannelRecipeSuggestionService', () => {
     );
   });
 
-  it('reuses the channel recipe matcher before registration and strips a leading Sellpia price code', async () => {
+  it('strips a leading Sellpia price code but requires registration quantity confirmation', async () => {
     const repository = { getContext: vi.fn() };
     const sellpiaSku = {
       sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000051',
@@ -92,9 +92,9 @@ describe('ChannelRecipeSuggestionService', () => {
     })).resolves.toMatchObject({
       channelListingOptionId: optionId,
       masterProductId: null,
-      status: 'high_confidence_name',
-      automationDecision: 'auto_apply',
-      recommendedQuantity: 1,
+      status: 'quantity_review',
+      automationDecision: 'quantity_review',
+      recommendedQuantity: null,
       proposals: [{
         sellpiaInventorySkuId: sellpiaSku.sellpiaInventorySkuId,
         code: '10451-1',
@@ -129,15 +129,15 @@ describe('ChannelRecipeSuggestionService', () => {
 
     const result = await service.suggest(organizationId, optionId);
 
-    expect(result.status).toBe('unique_code');
+    expect(result.status).toBe('quantity_review');
     expect(evidence.findByCodes).toHaveBeenCalledWith(organizationId, ['MODEL-001', 'SP-001']);
     expect(evidence.findByNormalizedBarcodes).toHaveBeenCalledWith(organizationId, ['001234567890']);
     expect(evidence.findByNormalizedNames).toHaveBeenCalledWith(organizationId, ['키즈식판']);
-    expect(result.proposals[0]?.requiresQuantityConfirmation).toBe(false);
-    expect(result.recommendedQuantity).toBe(1);
+    expect(result.proposals[0]?.requiresQuantityConfirmation).toBe(true);
+    expect(result.recommendedQuantity).toBeNull();
   });
 
-  it('omits a barcode candidate whose name score is below the admissibility threshold', async () => {
+  it('retains an incompatible barcode candidate as a blocking conflict', async () => {
     const context = {
       channelListingOptionId: optionId,
       masterProductId: '00000000-0000-4000-8000-000000000004',
@@ -176,14 +176,16 @@ describe('ChannelRecipeSuggestionService', () => {
     };
     const service = new ChannelRecipeSuggestionService(repository as never, evidence as never);
 
-    await expect(service.suggest(organizationId, optionId)).resolves.toMatchObject({
-      status: 'high_confidence_name',
-      automationDecision: 'auto_apply',
-      proposals: [{
-        sellpiaInventorySkuId: validNameSku.sellpiaInventorySkuId,
-        code: validNameSku.code,
-      }],
+    const result = await service.suggest(organizationId, optionId);
+    expect(result).toMatchObject({
+      status: 'identifier_name_mismatch',
+      automationDecision: 'operator_review',
     });
+    expect(result.proposals.map(({ sellpiaInventorySkuId }) => sellpiaInventorySkuId))
+      .toEqual([
+        rejectedBarcodeSku.sellpiaInventorySkuId,
+        validNameSku.sellpiaInventorySkuId,
+      ]);
   });
 
   it('keeps barcode evidence when no comparable listing name is available', async () => {
@@ -218,8 +220,8 @@ describe('ChannelRecipeSuggestionService', () => {
     const service = new ChannelRecipeSuggestionService(repository as never, evidence as never);
 
     await expect(service.suggest(organizationId, optionId)).resolves.toMatchObject({
-      status: 'unique_barcode',
-      automationDecision: 'auto_apply',
+      status: 'quantity_review',
+      automationDecision: 'quantity_review',
       proposals: [{ sellpiaInventorySkuId: barcodeSku.sellpiaInventorySkuId }],
     });
   });

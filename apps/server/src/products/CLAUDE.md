@@ -55,9 +55,13 @@ owns physical stock quantities.
   preserves existing option recipes. The listing-level `masterProductId` is
   rebuilt from those recipes and is null when options are incomplete or span
   multiple inventory products.
-- Candidate rank, display text, untyped payload fields, and AI never confirm
-  inventory identity. Channels owns conservative typed option-to-Sellpia
-  matching and explicit operator confirmation.
+- Products is the only mutation boundary for channel-option recipes and their
+  derived listing summary. Channels may submit a complete operator replacement
+  or ask Products to fill an empty recipe; it never writes component rows.
+- Automatic name matching requires one clearly separated candidate, no
+  identifier/spec/option conflict, and a confirmed positive selling quantity.
+  Ambiguous names, conflicting evidence, and unknown quantities require
+  operator review. AI output and rank alone never confirm inventory identity.
 - `MasterProduct.abcGrade` is nullable automatic output, never operator input.
   Products publishes ABC only through the explicit Product Hub grade-refresh
   command. The service reads the latest compatible `COMPLETE` source snapshots,

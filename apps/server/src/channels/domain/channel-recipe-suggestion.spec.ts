@@ -44,7 +44,6 @@ describe('inferRecipeQuantity', () => {
     ['감자빵 말랑이 노랑 6개 75g', 6],
     ['KY I&D 색칠하는에어글라이더5개입 49 x 46 cm', 5],
     ['손에 묻지않는 크레파스 1개 24색', 1],
-    ['1.5개입', 1],
   ])('does not treat physical measures or decimal prefixes as pack multipliers: %s',
     (title, quantity) => {
       expect(inferRecipeQuantity([title])).toBe(quantity);
@@ -52,6 +51,12 @@ describe('inferRecipeQuantity', () => {
 
   it('returns null when explicit pack quantities disagree', () => {
     expect(inferRecipeQuantity(['상품 2개입', '옵션 3개입'])).toBeNull();
+  });
+
+  it('distinguishes an explicit single unit from an unspecified selling unit', () => {
+    expect(inferRecipeQuantity(['키즈 식판 단품'])).toBe(1);
+    expect(inferRecipeQuantity(['키즈 식판'])).toBeNull();
+    expect(inferRecipeQuantity(['1.5개입'])).toBeNull();
   });
 });
 
@@ -209,18 +214,18 @@ describe('classifyChannelRecipeSuggestion', () => {
     expect(result.proposals).toEqual([]);
   });
 
-  it('auto-applies one exact seller SKU candidate with quantity one', () => {
+  it('requires quantity review for an exact seller SKU without selling-unit evidence', () => {
     const result = classifyChannelRecipeSuggestion(input({
       codeEvidence: [{ kind: 'seller_sku_code', channelValue: 'SP-001', sku: sku() }],
     }));
 
-    expect(result.status).toBe('unique_code');
-    expect(result.automationDecision).toBe('auto_apply');
-    expect(result.recommendedQuantity).toBe(1);
+    expect(result.status).toBe('quantity_review');
+    expect(result.automationDecision).toBe('quantity_review');
+    expect(result.recommendedQuantity).toBeNull();
     expect(result.proposals).toEqual([expect.objectContaining({
       sellpiaInventorySkuId: sku().sellpiaInventorySkuId,
-      requiresQuantityConfirmation: false,
-      recommendedQuantity: 1,
+      requiresQuantityConfirmation: true,
+      recommendedQuantity: null,
       evidence: [{
         kind: 'seller_sku_code',
         channelValue: 'SP-001',
@@ -267,7 +272,7 @@ describe('classifyChannelRecipeSuggestion', () => {
     expect(result.recommendedQuantity).toBe(10);
   });
 
-  it('auto-applies one unique physical barcode candidate', () => {
+  it('requires quantity review for a unique barcode without selling-unit evidence', () => {
     const result = classifyChannelRecipeSuggestion(input({
       barcodeEvidence: [{
         kind: 'unique_physical_barcode',
@@ -277,9 +282,9 @@ describe('classifyChannelRecipeSuggestion', () => {
       }],
     }));
     expect(result).toMatchObject({
-      status: 'unique_barcode',
-      automationDecision: 'auto_apply',
-      recommendedQuantity: 1,
+      status: 'quantity_review',
+      automationDecision: 'quantity_review',
+      recommendedQuantity: null,
     });
   });
 
@@ -290,7 +295,7 @@ describe('classifyChannelRecipeSuggestion', () => {
     expect(isBarcodeEvidenceNameCompatible(score)).toBe(expected);
   });
 
-  it('rejects a mismatched barcode while retaining a valid name candidate', () => {
+  it('keeps a mismatched typed barcode as unresolved review evidence', () => {
     const result = classifyChannelRecipeSuggestion(input({
       barcodeEvidence: [{
         kind: 'unique_physical_barcode',
@@ -313,14 +318,18 @@ describe('classifyChannelRecipeSuggestion', () => {
     }));
 
     expect(result).toMatchObject({
-      status: 'high_confidence_name',
-      automationDecision: 'auto_apply',
-      proposals: [{ sellpiaInventorySkuId: sku().sellpiaInventorySkuId }],
+      status: 'identifier_name_mismatch',
+      automationDecision: 'operator_review',
     });
-    expect(result.proposals).toHaveLength(1);
+    expect(result.proposals).toEqual(expect.arrayContaining([
+      expect.objectContaining({ sellpiaInventorySkuId: sku().sellpiaInventorySkuId }),
+      expect.objectContaining({
+        sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000102',
+      }),
+    ]));
   });
 
-  it('does not let a rejected barcode conflict with a valid code', () => {
+  it('keeps a rejected barcode conflict with a valid code under review', () => {
     const result = classifyChannelRecipeSuggestion(input({
       codeEvidence: [{
         kind: 'seller_sku_code',
@@ -341,8 +350,8 @@ describe('classifyChannelRecipeSuggestion', () => {
     }));
 
     expect(result).toMatchObject({
-      status: 'unique_code',
-      automationDecision: 'auto_apply',
+      status: 'identifier_name_mismatch',
+      automationDecision: 'operator_review',
     });
   });
 
@@ -369,7 +378,7 @@ describe('classifyChannelRecipeSuggestion', () => {
     expect(result.automationDecision).toBe('blocked');
   });
 
-  it('does not let a rejected barcode override a confirmed manual alias', () => {
+  it('does not discard a rejected barcode that conflicts with a manual alias', () => {
     const result = classifyChannelRecipeSuggestion(input({
       manualMatchEvidence: [{
         channelValue: '키즈 식판',
@@ -391,9 +400,9 @@ describe('classifyChannelRecipeSuggestion', () => {
     }));
 
     expect(result).toMatchObject({
-      status: 'confirmed_manual_match_alias',
-      automationDecision: 'auto_apply',
-      recommendedQuantity: 1,
+      status: 'identifier_name_mismatch',
+      automationDecision: 'operator_review',
+      recommendedQuantity: null,
     });
   });
 
@@ -428,6 +437,7 @@ describe('classifyChannelRecipeSuggestion', () => {
 
   it('auto-applies one strict unique normalized product-and-option pair', () => {
     const result = classifyChannelRecipeSuggestion(input({
+      options: [{ ...input().options[0], itemName: '블루 1개' }],
       nameOptionEvidence: [{
         productValue: ' 키즈 식판 ',
         optionValue: '블루 1개',
@@ -443,7 +453,7 @@ describe('classifyChannelRecipeSuggestion', () => {
     });
   });
 
-  it('auto-applies an exact normalized product name when both sides have no option', () => {
+  it('keeps an exact normalized product name under review when quantity is unknown', () => {
     const result = classifyChannelRecipeSuggestion(input({
       options: [{ ...input().options[0], itemName: null }],
       nameOptionEvidence: [{
@@ -454,8 +464,8 @@ describe('classifyChannelRecipeSuggestion', () => {
         sku: sku(),
       }],
     }));
-    expect(result.status).toBe('exact_name_option');
-    expect(result.automationDecision).toBe('auto_apply');
+    expect(result.status).toBe('quantity_review');
+    expect(result.automationDecision).toBe('quantity_review');
   });
 
   it('reports seller SKU and model-number identifiers resolving to different Sellpia SKUs', () => {
@@ -537,18 +547,26 @@ describe('classifyChannelRecipeSuggestion', () => {
     expect(result.automationDecision).toBe('blocked');
   });
 
-  it('auto-applies one unique exact normalized product name', () => {
+  it('auto-applies one unique exact normalized product name with explicit single-unit evidence', () => {
     const nameOnly = classifyChannelRecipeSuggestion(input({
-      nameEvidence: [{ channelValue: '키즈 식판', normalizedValue: '키즈식판', sku: sku() }],
+      options: [{ ...input().options[0], itemName: '단품' }],
+      similarityEvidence: [{
+        kind: 'normalized_name',
+        channelValue: '키즈 식판 단품',
+        normalizedValue: '키즈식판',
+        score: 1,
+        sku: sku(),
+      }],
     }));
-    expect(nameOnly.status).toBe('exact_name');
+    expect(nameOnly.status).toBe('high_confidence_name');
     expect(nameOnly.automationDecision).toBe('auto_apply');
     expect(nameOnly.recommendedQuantity).toBe(1);
     expect(nameOnly.proposals[0]?.evidence[0]?.kind).toBe('normalized_name');
   });
 
-  it('auto-applies one unique contained or high-confidence fuzzy name candidate', () => {
+  it('auto-applies one unique contained or high-confidence fuzzy name candidate with known quantity', () => {
     const contained = classifyChannelRecipeSuggestion(input({
+      options: [{ ...input().options[0], itemName: '단품' }],
       similarityEvidence: [
         {
           kind: 'contained_name',
@@ -561,7 +579,7 @@ describe('classifyChannelRecipeSuggestion', () => {
           kind: 'fuzzy_name',
           channelValue: '키즈 식판 어린이 식기',
           normalizedValue: '키즈식판어린이식기',
-          score: 0.64,
+          score: 0.5,
           sku: sku({
             sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000102',
             code: 'SP-002',
@@ -576,6 +594,7 @@ describe('classifyChannelRecipeSuggestion', () => {
     });
 
     const fuzzy = classifyChannelRecipeSuggestion(input({
+      options: [{ ...input().options[0], itemName: '단품' }],
       similarityEvidence: [{
         kind: 'fuzzy_name',
         channelValue: '키즈 식판 블루',
@@ -607,6 +626,50 @@ describe('classifyChannelRecipeSuggestion', () => {
         },
       ],
     }));
+    expect(result.status).toBe('name_review_only');
+    expect(result.automationDecision).toBe('operator_review');
+  });
+
+  it('keeps duplicate normalized-name SKUs for operator review', () => {
+    const result = classifyChannelRecipeSuggestion(input({
+      options: [{ ...input().options[0], itemName: '단품' }],
+      similarityEvidence: [
+        {
+          kind: 'normalized_name', channelValue: '키즈 식판 단품',
+          normalizedValue: '키즈식판', score: 1, sku: sku(),
+        },
+        {
+          kind: 'normalized_name', channelValue: '키즈 식판 단품',
+          normalizedValue: '키즈식판', score: 1,
+          sku: sku({
+            sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000102',
+            code: 'SP-002',
+          }),
+        },
+      ],
+    }));
+
+    expect(result.status).toBe('name_review_only');
+    expect(result.automationDecision).toBe('operator_review');
+  });
+
+  it('keeps an explicit color or option disagreement for operator review', () => {
+    const result = classifyChannelRecipeSuggestion(input({
+      options: [{ ...input().options[0], itemName: '블루 단품' }],
+      nameEvidence: [{
+        channelValue: '키즈 식판',
+        normalizedValue: '키즈식판',
+        sku: sku({ optionName: '핑크' }),
+      }],
+      similarityEvidence: [{
+        kind: 'fuzzy_name',
+        channelValue: '키즈 식판 블루 단품',
+        normalizedValue: '키즈식판블루',
+        score: 0.9,
+        sku: sku({ optionName: '핑크' }),
+      }],
+    }));
+
     expect(result.status).toBe('name_review_only');
     expect(result.automationDecision).toBe('operator_review');
   });

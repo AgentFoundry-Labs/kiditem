@@ -543,7 +543,7 @@ async function seedSellingProduct(prisma: PrismaClient): Promise<{ productId: st
   const account = await prisma.channelAccount.create({
     data: {
       organizationId: TEST_ORGANIZATION_ID,
-      channel: 'coupang',
+      channel: 'rocket',
       name: 'ABC account',
       externalAccountId: 'abc-account',
       vendorId: 'abc-vendor',
@@ -630,13 +630,8 @@ async function publishSources(prisma: PrismaClient, skuCode: string): Promise<{
       }],
     }],
   });
-  // A completed empty advertising generation is the explicit NOT_APPLIED
-  // proof for this fixture. Keep the selling account out of the collection
-  // plan while creating it, then restore its live selling status.
-  await prisma.channelAccount.updateMany({
-    where: { organizationId: TEST_ORGANIZATION_ID, channel: 'coupang' },
-    data: { status: 'inactive' },
-  });
+  // This Rocket-only selling fixture has no retained Coupang advertising
+  // account, so an empty COMPLETE generation is genuine NOT_APPLIED proof.
   const advertisingAttempt = await advertising.beginAttempt({
     organizationId: TEST_ORGANIZATION_ID,
     idempotencyKey: `abc-ad-${randomUUID()}`,
@@ -645,10 +640,6 @@ async function publishSources(prisma: PrismaClient, skuCode: string): Promise<{
     organizationId: TEST_ORGANIZATION_ID,
     attemptId: advertisingAttempt.attemptId,
     attemptToken: advertisingAttempt.attemptToken,
-  });
-  await prisma.channelAccount.updateMany({
-    where: { organizationId: TEST_ORGANIZATION_ID, channel: 'coupang' },
-    data: { status: 'active' },
   });
   return { sellpiaRunId: sellpiaAttempt.attemptId, advertisingRunId: advertisingAttempt.attemptId };
 }

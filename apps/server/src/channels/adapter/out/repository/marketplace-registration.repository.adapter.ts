@@ -1,26 +1,36 @@
 import {
   BadRequestException,
   ConflictException,
+  Inject,
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../../../prisma/prisma.service";
-import type { MarketplaceRegistrationRepositoryPort } from "../../../application/port/out/repository/channel-listing.repository.port";
+import {
+  advanceProductMappingGeneration,
+  lockProductMapping,
+} from "../../../../common/product-mapping-generation";
+import {
+  PRODUCT_CHANNEL_OPTION_RECIPE_MUTATION_PORT,
+  type ProductChannelOptionRecipeMutation,
+  type ProductChannelOptionRecipeMutationPort,
+} from "../../../../products/application/port/in/product-channel-option-recipe-mutation.port";
 import {
   normalizeKidItemFirstRegistrationLinks,
   type KidItemFirstOptionLink,
   type KidItemFirstRegistrationLinks,
 } from "../../../domain/kiditem-first-registration-links";
-import {
-  advanceProductMappingGeneration,
-  lockProductMapping,
-} from "../../../../common/product-mapping-generation";
 import { lockChannelListingRow } from "./channel-listing-row-lock";
+import type { MarketplaceRegistrationRepositoryPort } from "../../../application/port/out/repository/channel-listing.repository.port";
 
 @Injectable()
 export class MarketplaceRegistrationRepositoryAdapter implements MarketplaceRegistrationRepositoryPort {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(PRODUCT_CHANNEL_OPTION_RECIPE_MUTATION_PORT)
+    private readonly recipeMutations?: ProductChannelOptionRecipeMutationPort,
+  ) {}
 
   async assertActiveRegistrationAccount(input: {
     organizationId: string;
@@ -88,7 +98,33 @@ export class MarketplaceRegistrationRepositoryAdapter implements MarketplaceRegi
     masterProductId?: string;
     optionLinks: KidItemFirstOptionLink[];
   }): Promise<void> {
-    await assertExactProductGraph(this.prisma, input);
+    if (input.optionLinks.length > 0 && !input.masterProductId) {
+      throw new BadRequestException(
+        "KidItem-first option links require a MasterProduct identity.",
+      );
+    }
+    if (!input.masterProductId) return;
+    if (!this.recipeMutations) {
+      throw new Error("Products recipe mutation owner is unavailable");
+    }
+    if (input.optionLinks.length === 0) {
+      await this.recipeMutations.validateRecipeTargets({
+        organizationId: input.organizationId,
+        expectedMasterProductId: input.masterProductId,
+        components: [],
+      });
+      return;
+    }
+    for (const link of input.optionLinks) {
+      await this.recipeMutations.validateRecipeTargets({
+        organizationId: input.organizationId,
+        expectedMasterProductId: input.masterProductId,
+        components: [{
+          sellpiaInventorySkuId: link.sellpiaInventorySkuId,
+          quantity: link.quantity,
+        }],
+      });
+    }
   }
 
   async resolveProductRegistration(
@@ -152,10 +188,6 @@ export class MarketplaceRegistrationRepositoryAdapter implements MarketplaceRegi
     if (!account) throw new NotFoundException("Marketplace account not found.");
     if (!candidate)
       throw new NotFoundException("Sourcing candidate not found.");
-    await assertExactProductGraph(tx, {
-      organizationId: input.organizationId,
-      ...exactLinks,
-    });
     const optionLinks = exactLinks.optionLinks;
 
     const existingIdentity = await tx.channelListing.findFirst({
@@ -249,7 +281,7 @@ export class MarketplaceRegistrationRepositoryAdapter implements MarketplaceRegi
           displayName: input.displayName,
           status: "active",
           isActive: true,
-          masterProductId: exactLinks.masterProductId,
+          masterProductId: null,
         },
         select: {
           id: true,
@@ -259,15 +291,30 @@ export class MarketplaceRegistrationRepositoryAdapter implements MarketplaceRegi
           status: true,
         },
       });
-      await upsertExactOptionLinks(
+      const optionResult = await upsertExactOptionLinks(
         tx,
         input.organizationId,
         created.id,
         optionLinks,
+        exactLinks.masterProductId,
       );
+      const recipeResult = optionResult.mutations.length > 0
+        ? await requireRecipeMutations(this.recipeMutations).applyPreservingRecipesInTransaction(
+          tx,
+          { organizationId: input.organizationId, mutations: optionResult.mutations },
+        )
+        : {
+          changedOptionCount: 0,
+          matchedListingCount: 0,
+          conflictingChannelListingOptionIds: [],
+          mappingChanged: false,
+        };
+      assertNoRecipeConflicts(recipeResult.conflictingChannelListingOptionIds);
       // Creating an active listing changes the frozen listing identity even
       // when the registration carries no option links or MasterProduct link.
-      await advanceProductMappingGeneration(tx, input.organizationId);
+      if (!recipeResult.mappingChanged) {
+        await advanceProductMappingGeneration(tx, input.organizationId);
+      }
       return {
         listingId: created.id,
         channelAccountId: created.channelAccountId!,
@@ -277,12 +324,7 @@ export class MarketplaceRegistrationRepositoryAdapter implements MarketplaceRegi
       };
     }
 
-    const listingMappingChanged =
-      !existing.isActive
-      || Boolean(
-        exactLinks.masterProductId
-        && existing.masterProductId !== exactLinks.masterProductId,
-      );
+    const listingMappingChanged = !existing.isActive;
     const updated = await tx.channelListing.updateMany({
       where: {
         id: existing.id,
@@ -294,9 +336,6 @@ export class MarketplaceRegistrationRepositoryAdapter implements MarketplaceRegi
         displayName: input.displayName,
         status: "active",
         isActive: true,
-        ...(exactLinks.masterProductId
-          ? { masterProductId: exactLinks.masterProductId }
-          : {}),
       },
     });
     if (updated.count !== 1)
@@ -313,13 +352,27 @@ export class MarketplaceRegistrationRepositoryAdapter implements MarketplaceRegi
     });
     if (!listing?.channelAccountId)
       throw new ConflictException("Marketplace listing account is missing.");
-    const optionMappingChanged = await upsertExactOptionLinks(
+    const optionResult = await upsertExactOptionLinks(
       tx,
       input.organizationId,
       listing.id,
       optionLinks,
+      exactLinks.masterProductId,
     );
-    if (listingMappingChanged || optionMappingChanged) {
+    const recipeResult = optionResult.mutations.length > 0
+      ? await requireRecipeMutations(this.recipeMutations).applyPreservingRecipesInTransaction(
+        tx,
+        { organizationId: input.organizationId, mutations: optionResult.mutations },
+      )
+      : {
+        changedOptionCount: 0,
+        matchedListingCount: 0,
+        conflictingChannelListingOptionIds: [],
+        mappingChanged: false,
+      };
+    assertNoRecipeConflicts(recipeResult.conflictingChannelListingOptionIds);
+    if ((listingMappingChanged || optionResult.mappingChanged)
+      && !recipeResult.mappingChanged) {
       await advanceProductMappingGeneration(tx, input.organizationId);
     }
     return {
@@ -450,8 +503,13 @@ async function upsertExactOptionLinks(
   organizationId: string,
   listingId: string,
   links: KidItemFirstOptionLink[],
-): Promise<boolean> {
+  expectedMasterProductId: string | undefined,
+): Promise<{
+  mappingChanged: boolean;
+  mutations: ProductChannelOptionRecipeMutation[];
+}> {
   let mappingChanged = false;
+  const mutations: ProductChannelOptionRecipeMutation[] = [];
   for (const link of links) {
     const externalOptionId = link.externalOptionId;
     const existing = await tx.channelListingOption.findMany({
@@ -501,13 +559,13 @@ async function upsertExactOptionLinks(
         },
         select: { id: true },
       });
-      await tx.channelListingOptionInventoryComponent.create({
-        data: {
-          organizationId,
-          channelListingOptionId: createdOption.id,
+      mutations.push({
+        channelListingOptionId: createdOption.id,
+        expectedMasterProductId,
+        components: [{
           sellpiaInventorySkuId: link.sellpiaInventorySkuId,
           quantity: link.quantity,
-        },
+        }],
       });
       mappingChanged = true;
       continue;
@@ -529,80 +587,31 @@ async function upsertExactOptionLinks(
       );
     }
     mappingChanged ||= !target.isActive;
-    if (target.inventoryComponents.length === 0) {
-      await tx.channelListingOptionInventoryComponent.create({
-        data: {
-          organizationId,
-          channelListingOptionId: target.id,
-          sellpiaInventorySkuId: link.sellpiaInventorySkuId,
-          quantity: link.quantity,
-        },
-      });
-      mappingChanged = true;
-    }
+    mutations.push({
+      channelListingOptionId: target.id,
+      expectedMasterProductId,
+      components: [{
+        sellpiaInventorySkuId: link.sellpiaInventorySkuId,
+        quantity: link.quantity,
+      }],
+    });
   }
-  return mappingChanged;
+  return { mappingChanged, mutations };
 }
 
-async function assertExactProductGraph(
-  client: Pick<
-    Prisma.TransactionClient,
-    "masterProduct" | "sellpiaInventorySku"
-  >,
-  input: {
-    organizationId: string;
-    masterProductId?: string;
-    optionLinks: ReadonlyArray<{
-      sellpiaInventorySkuId: string;
-      quantity: number;
-    }>;
-  },
-): Promise<void> {
-  if (!input.masterProductId) {
-    if (input.optionLinks.length > 0) {
-      throw new BadRequestException(
-        "KidItem-first option links require a MasterProduct identity.",
-      );
-    }
-    return;
-  }
-  const masterProduct = await client.masterProduct.findFirst({
-    where: {
-      id: input.masterProductId,
-      organizationId: input.organizationId,
-      isActive: true,
-    },
-    select: { id: true },
-  });
-  if (!masterProduct) {
-    throw new BadRequestException(
-      "KidItem-first MasterProduct is inactive, missing, or belongs to another organization.",
+function assertNoRecipeConflicts(channelListingOptionIds: readonly string[]): void {
+  if (channelListingOptionIds.length > 0) {
+    throw new ConflictException(
+      "Marketplace option already has a different inventory recipe.",
     );
   }
-  if (input.optionLinks.length === 0) return;
-  if (
-    input.optionLinks.some(
-      (link) => !Number.isSafeInteger(link.quantity) || link.quantity <= 0,
-    )
-  ) {
-    throw new BadRequestException(
-      "Every option inventory quantity must be a positive integer.",
-    );
+}
+
+function requireRecipeMutations(
+  recipeMutations: ProductChannelOptionRecipeMutationPort | undefined,
+): ProductChannelOptionRecipeMutationPort {
+  if (!recipeMutations) {
+    throw new Error("Products recipe mutation owner is unavailable");
   }
-  const skuIds = [
-    ...new Set(input.optionLinks.map((link) => link.sellpiaInventorySkuId)),
-  ];
-  const skus = await client.sellpiaInventorySku.findMany({
-    where: {
-      organizationId: input.organizationId,
-      isActive: true,
-      id: { in: skuIds },
-    },
-    select: { id: true },
-  });
-  if (new Set(skus.map((sku) => sku.id)).size !== skuIds.length) {
-    throw new BadRequestException(
-      "Every KidItem-first inventory SKU must be active and belong to the organization.",
-    );
-  }
+  return recipeMutations;
 }

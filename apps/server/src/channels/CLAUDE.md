@@ -45,9 +45,10 @@ sync, registration, matching, and capacity behavior is executable in
 - Matching reads all persisted listing/option rows for the account workspace.
   Only a complete full snapshot may reconcile absence.
 - Candidate rows are transient evidence. Automatic matching may fill an empty
-  recipe or recalculate one simple component only from unique,
-  non-conflicting deterministic evidence; ambiguous, raw-alias, or AI evidence
-  requires review.
+  recipe when a typed identifier or one clearly separated name candidate has
+  no identifier/spec/option conflict and the selling quantity is confirmed.
+  Ambiguous evidence, conflicting options, unknown quantities, raw aliases,
+  and AI output require review. Never rewrite a confirmed recipe automatically.
 - Confirmed recipes survive recollection. Matching state derives from recipe
   validity; do not restore a persisted mapping-status authority.
 - Capacity is computed only from direct option components. Invalid composition
@@ -59,7 +60,9 @@ sync, registration, matching, and capacity behavior is executable in
 
 ## Ports And Boundaries
 
-- Inventory evidence and registration use their named ports.
+- Inventory evidence and registration use their named ports. Auto-matching,
+  registration, manual replacement, and clearing call the Products recipe
+  mutation port; Channels never mutates component rows or their listing summary.
   Consumers import the published capability, never the concrete service.
 - Catalog imports use a fenced `SourceImportRun` attempt and publish only a
   complete source snapshot; stale or post-terminal submissions are rejected.

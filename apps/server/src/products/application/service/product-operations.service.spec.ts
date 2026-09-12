@@ -36,6 +36,7 @@ describe('ProductOperationsService', () => {
       makeCatalogDisplayMedia() as never,
       makeDataStatusRepository(abcStatusFacts()) as never,
       contribution as never,
+      makeRecipeMutations() as never,
     );
 
     const result = await service.listProducts(organizationId, {
@@ -141,6 +142,7 @@ describe('ProductOperationsService', () => {
       makeCatalogDisplayMedia() as never,
       makeDataStatusRepository() as never,
       makeContributionRead() as never,
+      makeRecipeMutations() as never,
     );
 
     const result = await service.listProducts(organizationId, {
@@ -274,6 +276,7 @@ describe('ProductOperationsService', () => {
       makeCatalogDisplayMedia() as never,
       makeDataStatusRepository() as never,
       makeContributionRead() as never,
+      makeRecipeMutations() as never,
     );
     const baseQuery = {
       page: 1,
@@ -517,7 +520,13 @@ describe('ProductOperationsService', () => {
 
   it('rejects duplicate and non-positive option inventory components before persistence', async () => {
     const repository = makeRepository();
-    const service = makeService(repository);
+    const recipeMutations = makeRecipeMutations();
+    const service = makeService(
+      repository,
+      makeCatalogDisplayMedia(),
+      makeContributionRead(),
+      recipeMutations,
+    );
 
     await expect(service.replaceChannelOptionInventory(
       organizationId,
@@ -534,12 +543,13 @@ describe('ProductOperationsService', () => {
       channelListingOptionId,
       { components: [{ sellpiaInventorySkuId: skuId, quantity: 0 }] },
     )).rejects.toBeInstanceOf(BadRequestException);
-    expect(repository.replaceChannelOptionInventory).not.toHaveBeenCalled();
+    expect(recipeMutations.replaceRecipe).not.toHaveBeenCalled();
   });
 
   it('passes every detail and mutation through an organization fence', async () => {
     const repository = makeRepository();
-    const service = makeService(repository);
+    const recipeMutations = makeRecipeMutations();
+    const service = makeService(repository, makeCatalogDisplayMedia(), makeContributionRead(), recipeMutations);
 
     await service.getProduct(organizationId, productId);
     await service.updateProduct(organizationId, productId, { name: 'Renamed' });
@@ -553,7 +563,7 @@ describe('ProductOperationsService', () => {
       productId,
       { name: 'Renamed' },
     );
-    expect(repository.replaceChannelOptionInventory).toHaveBeenCalledWith({
+    expect(recipeMutations.replaceRecipe).toHaveBeenCalledWith({
       organizationId,
       channelListingOptionId,
       components: [{ sellpiaInventorySkuId: skuId, quantity: 3 }],
@@ -573,7 +583,6 @@ function makeRepository() {
     getProduct: vi.fn().mockResolvedValue(product),
     createProduct: vi.fn().mockResolvedValue(product),
     updateProduct: vi.fn().mockResolvedValue(product),
-    replaceChannelOptionInventory: vi.fn().mockResolvedValue({ masterProductId: product.id }),
   } as unknown as {
     [K in keyof ProductOperationsRepositoryPort]: ReturnType<typeof vi.fn>;
   };
@@ -593,10 +602,17 @@ function makeContributionRead() {
   return { readContribution: vi.fn().mockResolvedValue(contributionAnalytics()) };
 }
 
+function makeRecipeMutations() {
+  return {
+    replaceRecipe: vi.fn().mockResolvedValue({ masterProductId: productId }),
+  };
+}
+
 function makeService(
   repository: ReturnType<typeof makeRepository>,
   media = makeCatalogDisplayMedia(),
   contribution = makeContributionRead(),
+  recipeMutations = makeRecipeMutations(),
 ) {
   return new ProductOperationsService(
     repository as never,
@@ -612,6 +628,7 @@ function makeService(
     media as never,
     makeDataStatusRepository() as never,
     contribution as never,
+    recipeMutations as never,
   );
 }
 

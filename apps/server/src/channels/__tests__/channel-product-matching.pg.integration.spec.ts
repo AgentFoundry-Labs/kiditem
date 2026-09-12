@@ -16,6 +16,8 @@ import {
 } from '../../test-helpers/real-prisma';
 import { ChannelProductMatchingRepositoryAdapter } from '../adapter/out/repository/channel-product-matching.repository.adapter';
 import { ChannelProductMatchingService } from '../application/service/channel-product-matching.service';
+import { ProductChannelOptionRecipeMutationRepositoryAdapter } from '../../products/adapter/out/repository/product-channel-option-recipe-mutation.repository.adapter';
+import { ProductChannelOptionRecipeMutationService } from '../../products/application/service/product-channel-option-recipe-mutation.service';
 
 const ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
 const OTHER_ACCOUNT_ID = '22222222-2222-4222-8222-222222222222';
@@ -31,7 +33,12 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
     const prismaService = prisma as unknown as PrismaService;
-    repository = new ChannelProductMatchingRepositoryAdapter(prismaService);
+    repository = new ChannelProductMatchingRepositoryAdapter(
+      prismaService,
+      new ProductChannelOptionRecipeMutationService(
+        new ProductChannelOptionRecipeMutationRepositoryAdapter(prismaService),
+      ),
+    );
     service = new ChannelProductMatchingService(
       repository,
       new CatalogDisplayMediaService(
@@ -632,6 +639,93 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
       select: { id: true, currentStock: true },
       orderBy: { id: 'asc' },
     })).resolves.toEqual(beforeStock);
+  });
+
+  it('auto-confirms one clear name candidate with matching option and explicit single-unit evidence', async () => {
+    const product = await createProduct('KI-NAME-CLEAR', '키즈 식판');
+    const sku = await prisma.sellpiaInventorySku.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        masterProductId: product.id,
+        code: 'SP-NAME-CLEAR',
+        name: '키즈 식판',
+        optionName: '블루',
+        currentStock: 12,
+        lastImportRunId: inventoryCompletedRunId,
+      },
+    });
+    const listing = await createListing({ displayName: '키즈 식판' });
+    const option = await createOption(listing.id, { itemName: '블루 단품' });
+
+    await expect(service.autoMatch(TEST_ORGANIZATION_ID, { channelAccountId: ACCOUNT_ID }))
+      .resolves.toEqual({ evaluatedListings: 1, matchedListings: 1, configuredOptions: 1 });
+    await expect(prisma.channelListingOptionInventoryComponent.findFirstOrThrow({
+      where: { channelListingOptionId: option.id },
+      select: { sellpiaInventorySkuId: true, quantity: true },
+    })).resolves.toEqual({ sellpiaInventorySkuId: sku.id, quantity: 1 });
+  });
+
+  it('leaves duplicate normalized names and unknown selling quantities for review', async () => {
+    const first = await createProduct('KI-NAME-DUP-1', '키즈 식판');
+    const second = await createProduct('KI-NAME-DUP-2', '키즈 식판');
+    await Promise.all([
+      prisma.sellpiaInventorySku.create({ data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        masterProductId: first.id,
+        code: 'SP-NAME-DUP-1',
+        name: '키즈 식판',
+        currentStock: 5,
+        lastImportRunId: inventoryCompletedRunId,
+      } }),
+      prisma.sellpiaInventorySku.create({ data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        masterProductId: second.id,
+        code: 'SP-NAME-DUP-2',
+        name: '키즈 식판',
+        currentStock: 6,
+        lastImportRunId: inventoryCompletedRunId,
+      } }),
+    ]);
+    const duplicateListing = await createListing({ displayName: '키즈 식판 단품' });
+    const duplicateOption = await createOption(duplicateListing.id, { itemName: '단품' });
+    const quantityListing = await createListing({ displayName: '유아 접시' });
+    const quantityOption = await createOption(quantityListing.id, {});
+    const quantityProduct = await createProduct('KI-NAME-QUANTITY', '유아 접시');
+    await prisma.sellpiaInventorySku.create({ data: {
+      organizationId: TEST_ORGANIZATION_ID,
+      masterProductId: quantityProduct.id,
+      code: 'SP-NAME-QUANTITY',
+      name: '유아 접시',
+      currentStock: 9,
+      lastImportRunId: inventoryCompletedRunId,
+    } });
+
+    await expect(service.autoMatch(TEST_ORGANIZATION_ID, { channelAccountId: ACCOUNT_ID }))
+      .resolves.toEqual({ evaluatedListings: 2, matchedListings: 0, configuredOptions: 0 });
+    expect(await prisma.channelListingOptionInventoryComponent.count({
+      where: { channelListingOptionId: { in: [duplicateOption.id, quantityOption.id] } },
+    })).toBe(0);
+  });
+
+  it('leaves a high-scoring color mismatch for review', async () => {
+    const product = await createProduct('KI-NAME-COLOR', '키즈 식판');
+    await prisma.sellpiaInventorySku.create({ data: {
+      organizationId: TEST_ORGANIZATION_ID,
+      masterProductId: product.id,
+      code: 'SP-NAME-COLOR',
+      name: '키즈 식판',
+      optionName: '핑크',
+      currentStock: 8,
+      lastImportRunId: inventoryCompletedRunId,
+    } });
+    const listing = await createListing({ displayName: '키즈 식판' });
+    const option = await createOption(listing.id, { itemName: '블루 단품' });
+
+    await expect(service.autoMatch(TEST_ORGANIZATION_ID, { channelAccountId: ACCOUNT_ID }))
+      .resolves.toEqual({ evaluatedListings: 1, matchedListings: 0, configuredOptions: 0 });
+    expect(await prisma.channelListingOptionInventoryComponent.count({
+      where: { channelListingOptionId: option.id },
+    })).toBe(0);
   });
 
   it('uses completed catalog imports for availability and excludes inactive listings', async () => {

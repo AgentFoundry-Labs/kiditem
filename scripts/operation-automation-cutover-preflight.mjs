@@ -11,16 +11,13 @@ const REQUIRED_TABLES = Object.freeze([
   'marketplace',
   'action_tasks',
   'alerts',
-  'rules_evaluation_applications',
 ]);
+
+const OPTIONAL_TABLES = Object.freeze(['rules_evaluation_applications']);
 
 const MAX_IDENTITY_ITEMS = 100;
 const MAX_IDENTITY_LENGTH = 256;
-const ALLOWED_ARGUMENTS = new Set([
-  'database-url',
-  'deployed-sha',
-  'release-office-sha',
-]);
+const ALLOWED_ARGUMENTS = new Set(['database-url', 'deployed-sha', 'release-office-sha']);
 
 const PREFLIGHT_SQL = Object.freeze({
   tableNames: `
@@ -134,10 +131,7 @@ function normalizeIdentity(value, argumentName) {
   }
 
   const identity = value.trim();
-  if (
-    identity.length > 128
-    || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(identity)
-  ) {
+  if (identity.length > 128 || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(identity)) {
     throw new Error(`--${argumentName} must be a bounded SHA identity.`);
   }
   return identity;
@@ -184,10 +178,7 @@ export function parseArgs(argv = []) {
 
   const databaseUrl = parsePostgresUrl(values['database-url']).toString();
   const deployedSha = normalizeIdentity(values['deployed-sha'], 'deployed-sha');
-  const releaseOfficeSha = normalizeIdentity(
-    values['release-office-sha'],
-    'release-office-sha',
-  );
+  const releaseOfficeSha = normalizeIdentity(values['release-office-sha'], 'release-office-sha');
 
   return Object.freeze({ databaseUrl, deployedSha, releaseOfficeSha });
 }
@@ -224,9 +215,7 @@ function readCount(rows, field, queryName) {
   const row = rows[0];
   if (!row) throw new Error(`Read-only preflight returned no ${queryName} count.`);
   const camelField = field.replace(/_([a-z])/g, (_, character) => character.toUpperCase());
-  const raw = row[field]
-    ?? row[camelField]
-    ?? (field === 'count' ? row.count : undefined);
+  const raw = row[field] ?? row[camelField] ?? (field === 'count' ? row.count : undefined);
   if (raw === undefined || raw === null) {
     throw new Error(`Read-only preflight returned no ${queryName} count.`);
   }
@@ -257,22 +246,26 @@ function readBoundedIdentities(rows, fields) {
 }
 
 async function queryRows(client, sql, parameters, queryName) {
-  const result = parameters === undefined
-    ? await client.query(sql)
-    : await client.query(sql, parameters);
+  const result =
+    parameters === undefined ? await client.query(sql) : await client.query(sql, parameters);
   return readRows(result, queryName);
 }
 
-function assertRequiredTables(rows) {
-  const found = new Set(
-    rows
-      .map((row) => row?.table_name ?? row?.tableName)
-      .filter((name) => typeof name === 'string'),
+function tableNames(rows) {
+  return new Set(
+    rows.map((row) => row?.table_name ?? row?.tableName).filter((name) => typeof name === 'string'),
   );
+}
+
+function assertRequiredTables(rows) {
+  const found = tableNames(rows);
   const missing = REQUIRED_TABLES.filter((table) => !found.has(table));
   if (missing.length > 0) {
-    throw new Error(`Read-only preflight stopped; required tables are missing: ${missing.join(', ')}.`);
+    throw new Error(
+      `Read-only preflight stopped; required tables are missing: ${missing.join(', ')}.`,
+    );
   }
+  return found;
 }
 
 function assertClient(client) {
@@ -291,38 +284,36 @@ export async function runPreflight({
   assertClient(client);
   parsePostgresUrl(databaseUrl);
   const normalizedDeployedSha = normalizeIdentity(deployedSha, 'deployed-sha');
-  const normalizedReleaseOfficeSha = normalizeIdentity(
-    releaseOfficeSha,
-    'release-office-sha',
-  );
+  const normalizedReleaseOfficeSha = normalizeIdentity(releaseOfficeSha, 'release-office-sha');
   if (!(now instanceof Date) || Number.isNaN(now.getTime())) {
     throw new Error('Read-only preflight requires a valid timestamp.');
   }
 
   let transactionStarted = false;
   try {
-    await client.query(
-      'BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY',
-    );
+    await client.query('BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY');
     transactionStarted = true;
 
     const tableRows = await queryRows(
       client,
       PREFLIGHT_SQL.tableNames,
-      [REQUIRED_TABLES],
+      [[...REQUIRED_TABLES, ...OPTIONAL_TABLES]],
       'table-existence',
     );
-    assertRequiredTables(tableRows);
+    const foundTables = assertRequiredTables(tableRows);
+    const absentOptionalTables = OPTIONAL_TABLES.filter((table) => !foundTables.has(table));
 
     const countResults = {};
     for (const [reportKey, field] of COUNT_FIELDS) {
+      if (
+        reportKey === 'rulesApplications' &&
+        absentOptionalTables.includes('rules_evaluation_applications')
+      ) {
+        countResults[reportKey] = 0;
+        continue;
+      }
       const queryName = reportKey;
-      const rows = await queryRows(
-        client,
-        PREFLIGHT_SQL[reportKey],
-        undefined,
-        queryName,
-      );
+      const rows = await queryRows(client, PREFLIGHT_SQL[reportKey], undefined, queryName);
       countResults[reportKey] = readCount(rows, field, queryName);
     }
 
@@ -369,6 +360,7 @@ export async function runPreflight({
         operationAlerts: countResults.operationAlerts,
         rulesApplications: countResults.rulesApplications,
       },
+      absentOptionalTables,
       activeOperationKeys,
       enabledScheduleKeys,
       installedWorkflowNames,

@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import { fileURLToPath } from 'node:url';
 
 function repoRoot() {
@@ -138,6 +140,19 @@ function readVersionAtRef(ref) {
   }
 }
 
+function readTextAtRef(ref, file) {
+  if (!ref) return null;
+  try {
+    return execFileSync('git', ['show', `${ref}:${file}`], {
+      cwd: repoRoot(),
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+  } catch {
+    return null;
+  }
+}
+
 export function migrationReleaseFromPath(file) {
   const match = file.match(/^scripts\/data-migrations\/v([^/]+)\/[^/]+\.ts$/);
   return match?.[1] ?? null;
@@ -170,9 +185,28 @@ export function parseAppliedMigrationBaselines(prBody) {
   return { declarations, errors };
 }
 
-function hasExactMigrationRegistration(indexText, importPath) {
+function hasExecutableMigrationRegistration(indexText, importPath) {
   const escaped = importPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return new RegExp(`(?:from|import\\s*\\()\\s*["']${escaped}["']`).test(indexText);
+  const importPattern = new RegExp(
+    `import\\s*{([^}]+)}\\s*from\\s*["']${escaped}["']`,
+    'g',
+  );
+  const bindings = new Set();
+  for (const match of String(indexText ?? '').matchAll(importPattern)) {
+    for (const imported of match[1].split(',')) {
+      const parts = imported.trim().split(/\\s+as\\s+/);
+      const localBinding = parts.at(-1)?.trim();
+      if (localBinding) bindings.add(localBinding);
+    }
+  }
+  const registryBody = String(indexText ?? '').match(
+    /\bdataMigrations\s*(?::[^=]+)?=\s*\[([\s\S]*?)]\s*;/,
+  )?.[1];
+  if (!registryBody) return false;
+  const registeredBindings = new Set(
+    registryBody.match(/[A-Za-z_$][\w$]*/g) ?? [],
+  );
+  return [...bindings].some((binding) => registeredBindings.has(binding));
 }
 
 export function verifyAppliedMigrationBaseline({
@@ -225,7 +259,7 @@ export function verifyAppliedMigrationBaseline({
     );
   }
   const expectedImportPath = `./v${expectedRelease}/${migration.basename}`;
-  if (!hasExactMigrationRegistration(baselineIndex, expectedImportPath)) {
+  if (!hasExecutableMigrationRegistration(baselineIndex, expectedImportPath)) {
     errors.push(`${migrationPath} is not registered in the baseline migration index at ${baselineCommit}.`);
   }
   if (!Buffer.isBuffer(candidateBytes) || !Buffer.isBuffer(baselineBytes)
@@ -242,6 +276,112 @@ function migrationNameFromPath(file) {
     release,
     basename: path.basename(file, '.ts'),
   };
+}
+
+function migrationImportPath(file) {
+  const prefix = 'scripts/data-migrations/';
+  if (!file.startsWith(prefix) || !file.endsWith('.ts')) return null;
+  return `./${file.slice(prefix.length, -3)}`;
+}
+
+export function registeredMigrationPaths(indexText) {
+  const paths = new Set();
+  const pattern = /(?:from|import\s*\()\s*["'](\.\/v[^/]+\/[^"']+)["']/g;
+  for (const match of String(indexText ?? '').matchAll(pattern)) {
+    if (hasExecutableMigrationRegistration(indexText, match[1])) {
+      paths.add(`scripts/data-migrations/${match[1].slice(2)}.ts`);
+    }
+  }
+  return paths;
+}
+
+function candidateBytes(candidateBytesByPath, file) {
+  return candidateBytesByPath instanceof Map
+    ? candidateBytesByPath.get(file)
+    : candidateBytesByPath[file];
+}
+
+function fileDeclaresMigrationId(bytes, migrationId) {
+  if (!Buffer.isBuffer(bytes)) return false;
+  const escaped = migrationId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`\\bid\\s*:\\s*["']${escaped}["']`).test(bytes.toString('utf8'));
+}
+
+function verifyRetiredMigrationLineage({
+  entry,
+  migrationIndex,
+  candidateBytesByPath,
+  root,
+  head,
+}) {
+  const errors = [];
+  const source = migrationNameFromPath(entry.sourcePath ?? '');
+  const expectedSourceId = source ? `v${source.release}:${source.basename}` : null;
+  if (!source || entry.releaseVersion !== source.release || entry.id !== expectedSourceId) {
+    errors.push(`${entry.sourcePath ?? '<missing>'} has inconsistent inactive migration identity.`);
+    return errors;
+  }
+  if (!/^[0-9a-f]{64}$/.test(entry.sourceSha256 ?? '')) {
+    errors.push(`${entry.sourcePath} inactive lineage must declare a lowercase SHA-256.`);
+  }
+
+  const sourceBytes = candidateBytes(candidateBytesByPath, entry.sourcePath);
+  const verification = verifyAppliedMigrationBaseline({
+    root,
+    head,
+    migrationPath: entry.sourcePath,
+    baselineCommit: entry.baselineCommit,
+    expectedRelease: entry.releaseVersion,
+    candidateBytes: sourceBytes,
+  });
+  errors.push(...verification.errors);
+  if (
+    !Buffer.isBuffer(sourceBytes) ||
+    createHash('sha256').update(sourceBytes).digest('hex') !== entry.sourceSha256
+  ) {
+    errors.push(`${entry.sourcePath} does not match its inactive lineage SHA-256.`);
+  }
+
+  if (!Array.isArray(entry.replacementMigrations) || entry.replacementMigrations.length === 0) {
+    errors.push(`${entry.sourcePath} inactive lineage must name at least one replacement migration.`);
+    return errors;
+  }
+  const replacementIds = new Set();
+  const replacementPaths = new Set();
+  for (const replacementEntry of entry.replacementMigrations) {
+    const replacement = migrationNameFromPath(replacementEntry.path ?? '');
+    const expectedReplacementId = replacement
+      ? `v${replacement.release}:${replacement.basename}`
+      : null;
+    if (!replacement || replacementEntry.id !== expectedReplacementId) {
+      errors.push(`${entry.sourcePath} has inconsistent replacement migration identity.`);
+      continue;
+    }
+    if (replacementIds.has(replacementEntry.id) || replacementPaths.has(replacementEntry.path)) {
+      errors.push(`${entry.sourcePath} has a duplicated replacement migration.`);
+      continue;
+    }
+    replacementIds.add(replacementEntry.id);
+    replacementPaths.add(replacementEntry.path);
+    const replacementImportPath = migrationImportPath(replacementEntry.path);
+    if (
+      !replacementImportPath ||
+      !hasExecutableMigrationRegistration(migrationIndex, replacementImportPath)
+    ) {
+      errors.push(
+        `${entry.sourcePath} replacement ${replacementEntry.id} is not registered in the executable migration index.`,
+      );
+    }
+    if (
+      !fileDeclaresMigrationId(
+        candidateBytes(candidateBytesByPath, replacementEntry.path),
+        replacementEntry.id,
+      )
+    ) {
+      errors.push(`${replacementEntry.path} does not declare replacement id ${replacementEntry.id}.`);
+    }
+  }
+  return errors;
 }
 
 function classifyFiles(files) {
@@ -282,6 +422,10 @@ export function analyzePrReleaseContract({
   rootVersion,
   baseVersion = '',
   migrationIndex,
+  baseMigrationIndex = '',
+  promotedVersion = '',
+  retiredMigrations = [],
+  baseRetiredMigrations = [],
   allowHistoricalMigrationVersions = false,
   deletedFiles = [],
   root = repoRoot(),
@@ -324,6 +468,69 @@ export function analyzePrReleaseContract({
     .filter((file) => !deletedFileSet.has(file))
     .filter((file) => !file.endsWith('/index.ts') && !file.endsWith('/types.ts'));
 
+  const candidateRegisteredPaths = registeredMigrationPaths(migrationIndex);
+  const retirementByPath = new Map();
+  for (const entry of retiredMigrations) {
+    if (retirementByPath.has(entry.sourcePath)) {
+      errors.push(`Inactive migration lineage for ${entry.sourcePath} is duplicated.`);
+      continue;
+    }
+    retirementByPath.set(entry.sourcePath, entry);
+  }
+  const baseRetirementByPath = new Map();
+  for (const entry of baseRetiredMigrations) {
+    if (baseRetirementByPath.has(entry.sourcePath)) {
+      errors.push(`Base inactive migration lineage for ${entry.sourcePath} is duplicated.`);
+      continue;
+    }
+    baseRetirementByPath.set(entry.sourcePath, entry);
+    const candidateEntry = retirementByPath.get(entry.sourcePath);
+    if (!candidateEntry) {
+      errors.push(`${entry.sourcePath} inactive lineage entry was removed.`);
+    } else if (!isDeepStrictEqual(candidateEntry, entry)) {
+      errors.push(`${entry.sourcePath} inactive lineage entry was altered.`);
+    }
+  }
+  const removedBasePaths = [...registeredMigrationPaths(baseMigrationIndex)]
+    .filter((registeredPath) => !candidateRegisteredPaths.has(registeredPath));
+  if (removedBasePaths.length > 0 && !isSemver(promotedVersion)) {
+    errors.push(
+      'The release contract cannot verify promoted migration removals because main VERSION is unavailable.',
+    );
+  }
+  const removedPromotedPaths = removedBasePaths.filter((registeredPath) => {
+    const migration = migrationNameFromPath(registeredPath);
+    return migration && isSemver(promotedVersion)
+      && compareSemver(migration.release, promotedVersion) <= 0;
+  });
+  const removedPromotedPathSet = new Set(removedPromotedPaths);
+  for (const baseRegisteredPath of removedPromotedPaths) {
+    const retirement = retirementByPath.get(baseRegisteredPath);
+    if (!retirement) {
+      errors.push(
+        `${baseRegisteredPath} was removed from the executable registry without inactive lineage.`,
+      );
+    }
+  }
+  for (const entry of retiredMigrations) {
+    if (
+      !baseRetirementByPath.has(entry.sourcePath) &&
+      !removedPromotedPathSet.has(entry.sourcePath)
+    ) {
+      errors.push(
+        `${entry.sourcePath} inactive lineage does not correspond to a newly removed promoted migration.`,
+      );
+      continue;
+    }
+    errors.push(...verifyRetiredMigrationLineage({
+      entry,
+      migrationIndex,
+      candidateBytesByPath,
+      root,
+      head,
+    }));
+  }
+
   for (const file of migrationFiles) {
     const migration = migrationNameFromPath(file);
     if (!migration) continue;
@@ -347,7 +554,7 @@ export function analyzePrReleaseContract({
     if (!migrationIndex.includes(expectedImportPath)) {
       errors.push(`${file} is not registered in scripts/data-migrations/index.ts.`);
     }
-    if (declaration && !hasExactMigrationRegistration(migrationIndex, expectedImportPath)) {
+    if (declaration && !hasExecutableMigrationRegistration(migrationIndex, expectedImportPath)) {
       errors.push(`${file} is not exactly registered in the candidate migration index.`);
     }
 
@@ -401,9 +608,56 @@ function main() {
   const prBody = readPrBody(args);
   const prMetadata = readPrMetadata({ event: args.event });
   const allowHistoricalMigrationVersions = isDevelopToMainPromotion(prMetadata);
+  const migrationIndexPath = 'scripts/data-migrations/index.ts';
+  const retirementCatalogPath = 'scripts/data-migrations/retired.json';
+  const migrationIndex = readFileSync(path.join(root, migrationIndexPath), 'utf8');
+  const baseMigrationIndex = readTextAtRef(base, migrationIndexPath) ?? '';
+  const promotedMainRef = prMetadata.baseRef === 'main' ? base : 'origin/main';
+  const promotedVersion = readVersionAtRef(promotedMainRef);
+  let retiredMigrations = [];
+  let baseRetiredMigrations = [];
+  let retirementCatalogError = '';
+  try {
+    retiredMigrations = JSON.parse(
+      readFileSync(path.join(root, retirementCatalogPath), 'utf8'),
+    );
+    if (!Array.isArray(retiredMigrations)) {
+      retirementCatalogError = `${retirementCatalogPath} must contain a JSON array.`;
+      retiredMigrations = [];
+    }
+  } catch (error) {
+    retirementCatalogError = `${retirementCatalogPath} is invalid: ${error instanceof Error ? error.message : String(error)}`;
+  }
+  const baseRetirementCatalog = readTextAtRef(base, retirementCatalogPath);
+  if (baseRetirementCatalog !== null) {
+    try {
+      baseRetiredMigrations = JSON.parse(baseRetirementCatalog);
+      if (!Array.isArray(baseRetiredMigrations)) {
+        retirementCatalogError = `${retirementCatalogPath} at ${base} must contain a JSON array.`;
+        baseRetiredMigrations = [];
+      }
+    } catch (error) {
+      retirementCatalogError = `${retirementCatalogPath} at ${base} is invalid: ${error instanceof Error ? error.message : String(error)}`;
+    }
+  }
+
   const candidateBytesByPath = new Map();
-  for (const file of files) {
-    if (!/^scripts\/data-migrations\/v[^/]+\/[^/]+\.ts$/.test(file)) continue;
+  const candidateMigrationPaths = new Set(
+    files.filter((file) => /^scripts\/data-migrations\/v[^/]+\/[^/]+\.ts$/.test(file)),
+  );
+  for (const retiredMigration of retiredMigrations) {
+    if (typeof retiredMigration.sourcePath === 'string') {
+      candidateMigrationPaths.add(retiredMigration.sourcePath);
+    }
+    if (Array.isArray(retiredMigration.replacementMigrations)) {
+      for (const replacement of retiredMigration.replacementMigrations) {
+        if (typeof replacement.path === 'string') {
+          candidateMigrationPaths.add(replacement.path);
+        }
+      }
+    }
+  }
+  for (const file of candidateMigrationPaths) {
     try {
       candidateBytesByPath.set(
         file,
@@ -420,13 +674,18 @@ function main() {
     prBody,
     rootVersion: readFileSync(path.join(root, 'VERSION'), 'utf8'),
     baseVersion: readVersionAtRef(base),
-    migrationIndex: readFileSync(path.join(root, 'scripts/data-migrations/index.ts'), 'utf8'),
+    migrationIndex,
+    baseMigrationIndex,
+    promotedVersion,
+    retiredMigrations,
+    baseRetiredMigrations,
     allowHistoricalMigrationVersions,
     deletedFiles,
     root,
     head,
     candidateBytesByPath,
   });
+  if (retirementCatalogError) result.errors.unshift(retirementCatalogError);
 
   if (result.errors.length === 0) {
     if (result.requiredReasons.length === 0) {

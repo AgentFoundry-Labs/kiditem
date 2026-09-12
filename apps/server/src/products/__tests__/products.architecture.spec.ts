@@ -16,6 +16,8 @@ import { FinanceModule } from '../../finance/finance.module';
 import { ProductAbcController } from '../adapter/in/http/product-abc.controller';
 import { MASTER_PRODUCT_ABC_RECALCULATION_PORT } from '../application/port/in/master-product-abc-recalculation.port';
 import { MasterProductAbcService } from '../application/service/master-product-abc.service';
+import { ProductRecipeMutationModule } from '../product-recipe-mutation.module';
+import { PRODUCT_CHANNEL_OPTION_RECIPE_MUTATION_PORT } from '../application/port/in/product-channel-option-recipe-mutation.port';
 
 describe('Products architecture', () => {
   it('publishes the organization-scoped WING category suggestion route', () => {
@@ -92,6 +94,13 @@ describe('Products architecture', () => {
     const exports = Reflect.getMetadata('exports', ProductsModule) ?? [];
     expect(exports.some((value: unknown) => typeof value === 'function')).toBe(true);
     expect(exports.map(String)).not.toContain('ProductRecipeComponentCandidateService');
+  });
+
+  it('publishes the focused recipe mutation owner port', () => {
+    const imports = Reflect.getMetadata('imports', ProductsModule) ?? [];
+    const exports = Reflect.getMetadata('exports', ProductRecipeMutationModule) ?? [];
+    expect(imports).toContain(ProductRecipeMutationModule);
+    expect(exports).toContain(PRODUCT_CHANNEL_OPTION_RECIPE_MUTATION_PORT);
   });
 
 });

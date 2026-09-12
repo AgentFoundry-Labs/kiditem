@@ -14,13 +14,13 @@ component recipe.
 - Wing and Rocket share the account-scoped queue. Partial chunks appear without
   absence reconciliation; only a complete snapshot may reconcile missing rows.
 - Browser catalog publication preserves existing recipes and product links.
-- Automatic matching may fill an empty recipe only from one unique,
-  non-conflicting deterministic identity plus verified positive pack quantity.
-  Ambiguous, conflicting, alias-only, rank/name/AI, or mismatched pack evidence
-  requires operator review.
+- Automatic matching may fill an empty recipe from one unique typed identity or
+  clearly separated name candidate with no identifier/spec/option conflict and
+  a confirmed positive selling quantity. Ambiguous, conflicting, alias-only,
+  unknown-quantity, or AI evidence requires operator review.
 - Manual replacement accepts active Sellpia identities and positive component
-  quantities, sends expected current components, and replaces the whole recipe.
-  Never silently merge, flatten a bundle, or overwrite confirmed evidence.
+  quantities and replaces the whole recipe. Never silently merge or flatten a
+  bundle. Automatic matching never overwrites confirmed evidence.
 - Channel images and derived product summaries are read-time display values;
   matching never copies them into product metadata.
 - Rocket ordering and purchase review remain outside this route.
@@ -28,4 +28,4 @@ component recipe.
 The backend policy and operator flow authority is
 [channel-sellpia-matching.md](../../../../../../../docs/runbooks/channel-sellpia-matching.md).
 Focused specs in this directory own status labels, account selection, imports,
-evidence review, and optimistic recipe behavior.
+evidence review, and complete-replacement recipe behavior.

@@ -201,7 +201,6 @@ export async function collectSellpiaProductProfitFromExtension(
   }
   extensionId ??= await detectExtensionId();
 
-  let parsedResponse: z.infer<typeof ExtensionOutcomeSchema> | null = null;
   try {
     const response = await sendToExtension<unknown>(
       extensionId,
@@ -211,7 +210,7 @@ export async function collectSellpiaProductProfitFromExtension(
       },
       190_000,
     );
-    parsedResponse = ExtensionOutcomeSchema.parse(response);
+    const parsedResponse = ExtensionOutcomeSchema.parse(response);
     if (parsedResponse.attemptId !== attempt.attemptId) {
       throw new Error('셀피아 수익성 수집 시도 응답이 일치하지 않습니다.');
     }
@@ -225,14 +224,6 @@ export async function collectSellpiaProductProfitFromExtension(
     try {
       return await reconcileTerminalAttempt(scope, attempt.attemptId);
     } catch {
-      if (parsedResponse && parsedResponse.terminalState !== 'RUNNING') {
-        return outcomeFromAttempt({
-          ...attempt,
-          state: parsedResponse.terminalState,
-          errorCode: parsedResponse.errorCode ?? null,
-          errorMessage: parsedResponse.error ?? null,
-        });
-      }
       throw error;
     }
   }

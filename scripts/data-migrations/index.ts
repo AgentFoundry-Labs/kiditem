@@ -18,7 +18,8 @@ import { initializeAbsoluteProductAbcFormula } from "./v0.1.31/002_initialize_ab
 import { prepareOperationAutomationCutoverMigration } from "./v0.1.31/003_prepare_operation_automation_cutover";
 import { removeRetiredCapabilityOperationRefs } from "./v0.1.31/004_remove_retired_capability_operation_refs";
 import { removeRetiredOperationAlerts } from "./v0.1.31/005_remove_retired_operation_alerts";
-import type { DataMigration } from "./types";
+import retiredDataMigrationCatalog from "./retired.json";
+import type { DataMigration, RetiredDataMigration } from "./types";
 
 export {
   isLegacyDetailEditorHref,
@@ -59,3 +60,6 @@ export const DATA_MIGRATION_IDS = Object.freeze(
 export const DATA_MIGRATION_RELEASES = Object.freeze([
   ...new Set(dataMigrations.map((migration) => migration.releaseVersion)),
 ]);
+
+export const retiredDataMigrations: readonly RetiredDataMigration[] =
+  Object.freeze(retiredDataMigrationCatalog);

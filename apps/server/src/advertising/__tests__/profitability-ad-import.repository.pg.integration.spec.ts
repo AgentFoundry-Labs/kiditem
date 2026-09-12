@@ -247,7 +247,58 @@ describe('Advertising profitability source owner (PostgreSQL)', () => {
       .resolves.toMatchObject({ status: 'running' });
   });
 
-  it('publishes an explicit empty plan for an organization with no active Coupang accounts', async () => {
+  it('collects every retained Coupang account regardless of current status', async () => {
+    await prisma.channelAccount.updateMany({
+      where: { organizationId: TEST_ORGANIZATION_ID, channel: 'coupang' },
+      data: { status: 'inactive' },
+    });
+
+    const attempt = await owner.beginAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      idempotencyKey: FIRST_KEY,
+    });
+
+    expect(attempt.accounts.map((account) => account.externalAccountId).sort()).toEqual([
+      'account-a',
+      'account-b',
+    ]);
+    await uploadAllSlices(owner, attempt);
+    await expect(owner.finalizeAttempt(fence(attempt))).resolves.toMatchObject({
+      latestComplete: {
+        sourceImportRunId: attempt.attemptId,
+        qualitySummary: { plannedAccountCount: 2 },
+      },
+      ready: true,
+    });
+  });
+
+  it('does not promote an empty plan after a new retained Coupang account appears', async () => {
+    const attempt = await owner.beginAttempt({
+      organizationId: OTHER_ORGANIZATION_ID,
+      idempotencyKey: FIRST_KEY,
+    });
+    expect(attempt.accounts).toEqual([]);
+    await prisma.channelAccount.create({
+      data: {
+        organizationId: OTHER_ORGANIZATION_ID,
+        channel: 'coupang',
+        name: 'New retained account',
+        externalAccountId: 'new-account',
+        vendorId: 'NEW-ADVERTISER',
+        status: 'inactive',
+      },
+    });
+
+    await expect(owner.finalizeAttempt({
+      organizationId: OTHER_ORGANIZATION_ID,
+      attemptId: attempt.attemptId,
+      attemptToken: attempt.attemptToken,
+    })).rejects.toThrow('ADVERTISING_ACCOUNT_SET_CHANGED');
+    await expect(prisma.sourceImportRun.findUnique({ where: { id: attempt.attemptId } }))
+      .resolves.toMatchObject({ status: 'running' });
+  });
+
+  it('publishes an explicit empty plan for an organization with no retained Coupang accounts', async () => {
     const attempt = await owner.beginAttempt({
       organizationId: OTHER_ORGANIZATION_ID,
       idempotencyKey: FIRST_KEY,
@@ -278,6 +329,57 @@ describe('Advertising profitability source owner (PostgreSQL)', () => {
       facts: [],
       allocations: [],
     });
+  });
+
+  it('returns unavailable before collection when a retained account has no advertising identity', async () => {
+    await prisma.channelAccount.create({
+      data: {
+        organizationId: OTHER_ORGANIZATION_ID,
+        channel: 'coupang',
+        name: 'Uncollected account',
+      },
+    });
+
+    await expect(owner.readSourceStatus({ organizationId: OTHER_ORGANIZATION_ID }))
+      .resolves.toMatchObject({ latestAttempt: null, latestComplete: null, ready: false });
+    await expect(owner.readSourceSnapshot({ organizationId: OTHER_ORGANIZATION_ID }))
+      .resolves.toMatchObject({
+        latestAttempt: null,
+        latestComplete: null,
+        completeGenerations: [],
+        ready: false,
+      });
+  });
+
+  it('withdraws an immutable empty generation after an identity-incomplete account appears', async () => {
+    const attempt = await owner.beginAttempt({
+      organizationId: OTHER_ORGANIZATION_ID,
+      idempotencyKey: FIRST_KEY,
+    });
+    await owner.finalizeAttempt({
+      organizationId: OTHER_ORGANIZATION_ID,
+      attemptId: attempt.attemptId,
+      attemptToken: attempt.attemptToken,
+    });
+    await prisma.channelAccount.create({
+      data: {
+        organizationId: OTHER_ORGANIZATION_ID,
+        channel: 'coupang',
+        name: 'New retained account',
+        status: 'active',
+      },
+    });
+
+    await expect(owner.readSourceStatus({ organizationId: OTHER_ORGANIZATION_ID }))
+      .resolves.toMatchObject({ latestComplete: null, ready: false });
+    await expect(owner.readSourceSnapshot({ organizationId: OTHER_ORGANIZATION_ID }))
+      .resolves.toMatchObject({ latestComplete: null, completeGenerations: [], ready: false });
+    await expect(owner.readGeneration({
+      organizationId: OTHER_ORGANIZATION_ID,
+      sourceImportRunId: attempt.attemptId,
+    })).resolves.toBeNull();
+    await expect(prisma.sourceImportRun.findUnique({ where: { id: attempt.attemptId } }))
+      .resolves.toMatchObject({ status: 'completed', publicationSequence: 1n });
   });
 
   it('promotes once, conserves listing-day KRW, and replays one receipt as a no-op', async () => {

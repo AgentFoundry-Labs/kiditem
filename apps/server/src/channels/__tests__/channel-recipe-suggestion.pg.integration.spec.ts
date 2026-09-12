@@ -45,7 +45,7 @@ describe('ChannelRecipeSuggestionService (PG integration)', () => {
     ] });
   });
 
-  it('scopes lookup to the organization and proposes exact code evidence without writing a recipe', async () => {
+  it('scopes lookup to the organization and holds exact code evidence until quantity is known', async () => {
     const option = await createOption({ sellerSku: 'SP-UNIQUE', displayName: 'Unique stock' });
     const foreign = await createOption({
       organizationId: OTHER_ORGANIZATION_ID,
@@ -56,9 +56,9 @@ describe('ChannelRecipeSuggestionService (PG integration)', () => {
     const beforeComponents = await prisma.channelListingOptionInventoryComponent.count();
 
     await expect(service.suggest(TEST_ORGANIZATION_ID, option.id)).resolves.toMatchObject({
-      status: 'unique_code',
-      automationDecision: 'auto_apply',
-      proposals: [{ sellpiaInventorySkuId: sku.id, requiresQuantityConfirmation: false }],
+      status: 'quantity_review',
+      automationDecision: 'quantity_review',
+      proposals: [{ sellpiaInventorySkuId: sku.id, requiresQuantityConfirmation: true }],
     });
     await expect(service.suggest(TEST_ORGANIZATION_ID, foreign.id))
       .rejects.toBeInstanceOf(NotFoundException);
@@ -112,7 +112,7 @@ describe('ChannelRecipeSuggestionService (PG integration)', () => {
     });
   });
 
-  it('uses typed barcodes only and keeps duplicate active barcodes ambiguous', async () => {
+  it('uses typed barcodes only and keeps duplicate active barcodes in operator review', async () => {
     const rawOnly = await createOption({
       externalId: 'RAW-BARCODE',
       rawJson: { barcode: '001234567890' },
@@ -126,13 +126,14 @@ describe('ChannelRecipeSuggestionService (PG integration)', () => {
     const typed = await createOption({
       externalId: 'TYPED-BARCODE',
       displayName: 'Typed barcode product',
+      itemName: 'Typed barcode product',
       barcode: '001-2345-6789-0',
     });
     await createSku('SP-DUP', 'Typed barcode product', 2, '001234567890');
     await createSku('SP-DUP-2', 'Typed barcode product', 2, '001234567890');
     await expect(service.suggest(TEST_ORGANIZATION_ID, typed.id)).resolves.toMatchObject({
-      status: 'ambiguous',
-      automationDecision: 'blocked',
+      status: 'identifier_name_mismatch',
+      automationDecision: 'operator_review',
     });
   });
 
@@ -164,16 +165,11 @@ describe('ChannelRecipeSuggestionService (PG integration)', () => {
     const result = await service.suggest(TEST_ORGANIZATION_ID, option.id);
 
     expect(result).toMatchObject({
-      status: 'name_review_only',
+      status: 'identifier_name_mismatch',
       automationDecision: 'operator_review',
-      proposals: [expect.objectContaining({
-        sellpiaInventorySkuId: slime.id,
-      })],
     });
-    expect(result.proposals).toHaveLength(1);
-    expect(result.proposals).not.toEqual(expect.arrayContaining([
-      expect.objectContaining({ sellpiaInventorySkuId: watergun.id }),
-    ]));
+    expect(result.proposals.map(({ sellpiaInventorySkuId }) => sellpiaInventorySkuId))
+      .toEqual([watergun.id, slime.id]);
     expect(await prisma.channelListingOptionInventoryComponent.count()).toBe(beforeComponents);
     await expect(prisma.sellpiaInventorySku.findMany({
       where: { id: { in: [watergun.id, slime.id] } },
@@ -186,14 +182,14 @@ describe('ChannelRecipeSuggestionService (PG integration)', () => {
     const option = await createOption({
       externalId: 'NAMED',
       displayName: '키즈 식판',
-      itemName: '블루',
+      itemName: '블루 단품',
     });
     const sku = await prisma.sellpiaInventorySku.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         code: 'SP-NAMED',
         name: '키즈 식판',
-        optionName: '블루',
+        optionName: '블루 단품',
         currentStock: 3,
       },
     });

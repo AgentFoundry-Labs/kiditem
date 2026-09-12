@@ -82,6 +82,18 @@ slots may overlap, and runtime rollback does not revert schema or data.
 Never edit an applied migration. A correction is a new idempotent migration in
 a later train.
 
+When an approved hard cutover removes the Prisma model needed by a promoted
+migration, keep the historical source file byte-for-byte and remove only its
+executable registration. Add an entry to
+`scripts/data-migrations/retired.json` with the source SHA-256, the full
+promoted baseline commit, and the active replacement migration ids and paths.
+The status command reports this inactive lineage separately; it does not mark
+the historical migration as applied. The release contract guard accepts a
+newly removed promoted registration only when the baseline, source bytes,
+hash, and executable replacements all match. Open-train migrations may still
+be replaced before promotion without entering this catalog. Existing catalog
+entries are immutable and must remain present in later changes.
+
 If an ordinary PR must carry an already-applied migration from an older train,
 add one exact declaration to the PR body:
 

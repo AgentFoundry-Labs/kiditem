@@ -60,19 +60,33 @@ test('prints counts and bounded names without row payloads or secrets', async ()
         };
       }
       if (
-        normalized.includes('select count(*)')
-        && normalized.includes('from operation_runs')
-        && normalized.includes('where status in')
+        normalized.includes('select count(*)') &&
+        normalized.includes('from operation_runs') &&
+        normalized.includes('where status in')
       ) {
-        return { rows: [{ active_operation_runs: String(fixtureRows.operation_runs_active) }] };
+        return {
+          rows: [
+            {
+              active_operation_runs: String(fixtureRows.operation_runs_active),
+            },
+          ],
+        };
       }
       if (normalized.includes('select count(*)') && normalized.includes('from operation_runs')) {
         return { rows: [{ count: String(fixtureRows.operation_runs) }] };
       }
-      if (normalized.includes('select count(*)') && normalized.includes('from operation_schedules')) {
-        return { rows: [{ count: String(fixtureRows.operation_schedules_enabled) }] };
+      if (
+        normalized.includes('select count(*)') &&
+        normalized.includes('from operation_schedules')
+      ) {
+        return {
+          rows: [{ count: String(fixtureRows.operation_schedules_enabled) }],
+        };
       }
-      if (normalized.includes('select count(*)') && normalized.includes('from workflow_templates')) {
+      if (
+        normalized.includes('select count(*)') &&
+        normalized.includes('from workflow_templates')
+      ) {
         return { rows: [{ count: String(fixtureRows.workflow_templates) }] };
       }
       if (normalized.includes('select count(*)') && normalized.includes('from workflow_runs')) {
@@ -87,8 +101,13 @@ test('prints counts and bounded names without row payloads or secrets', async ()
       if (normalized.includes('select count(*)') && normalized.includes('from alerts')) {
         return { rows: [{ count: String(fixtureRows.alerts_operation) }] };
       }
-      if (normalized.includes('select count(*)') && normalized.includes('from rules_evaluation_applications')) {
-        return { rows: [{ count: String(fixtureRows.rules_evaluation_applications) }] };
+      if (
+        normalized.includes('select count(*)') &&
+        normalized.includes('from rules_evaluation_applications')
+      ) {
+        return {
+          rows: [{ count: String(fixtureRows.rules_evaluation_applications) }],
+        };
       }
       if (normalized.includes('select distinct operation_key')) {
         return { rows: [{ operationKey: 'inventory.refresh' }] };
@@ -127,12 +146,61 @@ test('prints counts and bounded names without row payloads or secrets', async ()
   assert.equal(report.releaseOfficeSha, 'release-office-sha');
   assert.equal(JSON.stringify(report).includes('input'), false);
   assert.equal(JSON.stringify(report).includes('result'), false);
-  assert.match(
-    queryLog[0],
-    /^BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY$/,
-  );
+  assert.match(queryLog[0], /^BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY$/);
   assert.ok(queryLog.some((query) => /information_schema\.tables/i.test(query)));
-  assert.ok(queryLog.every((query) =>
-    /^(?:\s*(?:begin\s+transaction\s+isolation\s+level\s+repeatable\s+read\s+read\s+only|rollback)\b|\s*select\b)/i.test(query),
-  ));
+  assert.ok(
+    queryLog.every((query) =>
+      /^(?:\s*(?:begin\s+transaction\s+isolation\s+level\s+repeatable\s+read\s+read\s+only|rollback)\b|\s*select\b)/i.test(
+        query,
+      ),
+    ),
+  );
+});
+
+test('treats an absent optional rules application table as zero rows', async () => {
+  const client = {
+    async query(text) {
+      const normalized = text.replace(/\s+/g, ' ').trim().toLowerCase();
+      if (normalized.startsWith('begin') || normalized.startsWith('rollback')) {
+        return { rows: [] };
+      }
+      if (normalized.includes('information_schema.tables')) {
+        return {
+          rows: [
+            { table_name: 'operation_runs' },
+            { table_name: 'operation_schedules' },
+            { table_name: 'workflow_templates' },
+            { table_name: 'workflow_runs' },
+            { table_name: 'marketplace' },
+            { table_name: 'action_tasks' },
+            { table_name: 'alerts' },
+          ],
+        };
+      }
+      if (normalized.includes('from rules_evaluation_applications')) {
+        throw new Error('optional table must not be queried when absent');
+      }
+      if (normalized.includes('select distinct operation_key')) return { rows: [] };
+      if (normalized.includes('select distinct name')) return { rows: [] };
+      return {
+        rows: [
+          {
+            count: '0',
+            active_operation_runs: '0',
+          },
+        ],
+      };
+    },
+  };
+
+  const report = await runPreflight({
+    client,
+    databaseUrl: 'postgresql://readonly.example/kiditem',
+    deployedSha: 'deployed-sha',
+    releaseOfficeSha: 'release-office-sha',
+    now: new Date('2026-09-03T00:00:00.000Z'),
+  });
+
+  assert.equal(report.counts.rulesApplications, 0);
+  assert.deepEqual(report.absentOptionalTables, ['rules_evaluation_applications']);
 });

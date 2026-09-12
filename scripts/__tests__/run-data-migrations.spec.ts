@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -8,12 +9,14 @@ import {
   isProductContentRouteHrefRewriteNeeded,
   rewriteLegacyDetailEditorHref,
   rewriteProductContentRouteHref,
+  retiredDataMigrations,
 } from "../data-migrations/index";
 import {
   APPLY_DATA_MIGRATIONS_CONFIRMATION,
   assertApplyDataMigrationsConfirmation,
   assertMutatingTarget,
   dataMigrationTransactionTimeoutMs,
+  dataMigrationRegistryStatus,
   DEFAULT_DATA_MIGRATION_TRANSACTION_TIMEOUT_MS,
   isDefinitelyProductionDatabaseUrl,
   normalizeReleaseVersion,
@@ -86,6 +89,44 @@ describe("data migration registry", () => {
     expect(migrationIds).toContain(
       "v0.1.30:006_delete_legacy_channel_derived_master_products",
     );
+  });
+
+  it("reports immutable lineage for the inactive legacy ABC migration without executing it", () => {
+    const sourcePath =
+      "scripts/data-migrations/v0.1.26/001_initialize_master_product_abc_policy.ts";
+    const retired = retiredDataMigrations.find(
+      ({ id }) => id === "v0.1.26:001_initialize_master_product_abc_policy",
+    );
+
+    expect(retired).toEqual({
+      id: "v0.1.26:001_initialize_master_product_abc_policy",
+      releaseVersion: "0.1.26",
+      name: "Initialize automatic MasterProduct ABC policies",
+      sourcePath,
+      sourceSha256:
+        "72683894592b789de0b996b67e3e8de9ac197865dc8739c75e435de24db2b921",
+      baselineCommit: "9415a6e01f02db28531fc00b32f933ac16776211",
+      replacementMigrations: [
+        {
+          id: "v0.1.31:001_reset_absolute_product_abc",
+          path: "scripts/data-migrations/v0.1.31/001_reset_absolute_product_abc.ts",
+        },
+        {
+          id: "v0.1.31:002_initialize_absolute_product_abc_formula",
+          path: "scripts/data-migrations/v0.1.31/002_initialize_absolute_product_abc_formula.ts",
+        },
+      ],
+    });
+    expect(
+      createHash("sha256")
+        .update(readFileSync(join(repoRoot, sourcePath)))
+        .digest("hex"),
+    ).toBe(retired?.sourceSha256);
+    expect(dataMigrations.map(({ id }) => id)).not.toContain(retired?.id);
+    expect(dataMigrationRegistryStatus().retiredMigrations).toContainEqual({
+      ...retired,
+      execution: "inactive",
+    });
   });
 
   it("keeps historical release 0.1.22 migration-free and never registers ahead of the root VERSION", () => {

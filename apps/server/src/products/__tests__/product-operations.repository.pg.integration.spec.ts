@@ -22,7 +22,9 @@ import {
 } from '../../test-helpers/real-prisma';
 import { seedAd } from '../../test-helpers/finance-seeds';
 import { ProductOperationsRepositoryAdapter } from '../adapter/out/repository/product-operations.repository.adapter';
+import { ProductChannelOptionRecipeMutationRepositoryAdapter } from '../adapter/out/repository/product-channel-option-recipe-mutation.repository.adapter';
 import { ProductOperationsService } from '../application/service/product-operations.service';
+import { ProductChannelOptionRecipeMutationService } from '../application/service/product-channel-option-recipe-mutation.service';
 import { InventoryAvailabilityRepositoryAdapter } from '../../inventory/adapter/out/repository/inventory-availability.repository.adapter';
 import { InventoryAvailabilityService } from '../../inventory/application/service/inventory-availability.service';
 import { ProductOperationsDataStatusRepositoryAdapter } from '../adapter/out/repository/product-operations-data-status.repository.adapter';
@@ -61,6 +63,9 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       new ProductOperationsDataStatusRepositoryAdapter(prismaService,
         new MasterProductProfitabilityReadService(sellpia, advertising, prismaService)),
       { readContribution: async () => null } as never,
+      new ProductChannelOptionRecipeMutationService(
+        new ProductChannelOptionRecipeMutationRepositoryAdapter(prismaService),
+      ),
     );
   });
 

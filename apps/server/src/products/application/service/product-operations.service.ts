@@ -50,6 +50,10 @@ import {
   buildProductAbcReadModel,
   type ProductAbcSourceEvidence,
 } from '../../domain/product-abc-read-model';
+import {
+  PRODUCT_CHANNEL_OPTION_RECIPE_MUTATION_PORT,
+  type ProductChannelOptionRecipeMutationPort,
+} from '../port/in/product-channel-option-recipe-mutation.port';
 import type { ProductOperationsPort } from '../port/in/product-operations.port';
 
 @Injectable()
@@ -69,6 +73,8 @@ export class ProductOperationsService implements ProductOperationsPort {
     private readonly dataStatusRepository: ProductOperationsDataStatusRepositoryPort,
     @Inject(MASTER_PRODUCT_CONTRIBUTION_READ_PORT)
     private readonly contribution: MasterProductContributionReadPort,
+    @Inject(PRODUCT_CHANNEL_OPTION_RECIPE_MUTATION_PORT)
+    private readonly recipeMutations: ProductChannelOptionRecipeMutationPort,
   ) {}
 
   async listProducts(organizationId: string, rawQuery: unknown) {
@@ -218,7 +224,7 @@ export class ProductOperationsService implements ProductOperationsPort {
       rawInput,
       'Invalid channel option inventory replacement',
     );
-    return this.repository.replaceChannelOptionInventory({
+    return this.recipeMutations.replaceRecipe({
       organizationId,
       channelListingOptionId,
       components: input.components,

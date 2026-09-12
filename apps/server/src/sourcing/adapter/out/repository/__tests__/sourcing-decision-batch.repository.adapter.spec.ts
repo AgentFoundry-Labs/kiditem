@@ -8,13 +8,17 @@ import type { CreateSourcingDecisionBatchCommand } from '../../../../application
 describe('SourcingDecisionBatchRepositoryAdapter', () => {
   it('append-only creates an organization-scoped batch with nested items and evidence', async () => {
     const findFirst = vi.fn().mockResolvedValue(null);
-    const create = vi.fn().mockResolvedValue(batchRow());
+    const create = vi.fn().mockResolvedValue(
+      batchRow({ evidenceRole: 'context:supply' }),
+    );
     const adapter = createAdapter({
       batchFindFirst: findFirst,
       batchCreate: create,
     });
 
-    const result = await adapter.create(createCommand());
+    const result = await adapter.create(
+      withoutSupportingEvidence(createCommand()),
+    );
 
     expect(result).toMatchObject({
       kind: 'created',
@@ -35,7 +39,7 @@ describe('SourcingDecisionBatchRepositoryAdapter', () => {
               {
                 id: 'evidence-1',
                 observationId: 'observation-1',
-                evidenceRole: 'support:supply',
+                evidenceRole: 'context:supply',
               },
             ],
           },
@@ -98,7 +102,7 @@ describe('SourcingDecisionBatchRepositoryAdapter', () => {
           create: [
             {
               evidenceObservationId: 'observation-1',
-              role: 'support:supply',
+              role: 'context:supply',
               ordinal: 0,
             },
           ],
@@ -142,9 +146,11 @@ describe('SourcingDecisionBatchRepositoryAdapter', () => {
     });
 
     const result = await adapter.create(
-      createCommand({
-        requestHash: 'different-request-hash',
-      }),
+      withoutSupportingEvidence(
+        createCommand({
+          requestHash: 'different-request-hash',
+        }),
+      ),
     );
 
     expect(result).toEqual({ kind: 'idempotency_conflict' });
@@ -167,7 +173,9 @@ describe('SourcingDecisionBatchRepositoryAdapter', () => {
       batchCreate: vi.fn().mockRejectedValue({ code: 'P2003' }),
     });
 
-    await expect(adapter.create(createCommand())).resolves.toEqual({
+    await expect(
+      adapter.create(withoutSupportingEvidence(createCommand())),
+    ).resolves.toEqual({
       kind: 'reference_not_found',
     });
   });
@@ -216,7 +224,9 @@ describe('SourcingDecisionBatchRepositoryAdapter', () => {
       batchCreate: vi.fn().mockRejectedValue(duplicateEvidence),
     });
 
-    await expect(adapter.create(createCommand())).rejects.toBe(
+    await expect(
+      adapter.create(withoutSupportingEvidence(createCommand())),
+    ).rejects.toBe(
       duplicateEvidence,
     );
   });
@@ -303,14 +313,9 @@ function createAdapter(input: {
     sourcingEvidenceObservation: {
       findFirst:
         input.evidenceFindFirst ??
-        vi.fn().mockResolvedValue({
-          id: 'observation-1',
-          eventAt: new Date('2026-07-31T16:00:00.000Z'),
-          ingestionRun: {
-            coverageNumerator: 1,
-            coverageDenominator: 1,
-          },
-        }),
+        vi.fn().mockRejectedValue(
+          new Error('Supporting evidence acceptance requires PostgreSQL'),
+        ),
     },
   } as unknown as PrismaService & {
     $transaction: ReturnType<typeof vi.fn>;
@@ -376,7 +381,22 @@ function createCommand(
   };
 }
 
-function batchRow() {
+function withoutSupportingEvidence(
+  command: CreateSourcingDecisionBatchCommand,
+): CreateSourcingDecisionBatchCommand {
+  return {
+    ...command,
+    items: command.items.map((item) => ({
+      ...item,
+      evidence: item.evidence.map((evidence) => ({
+        ...evidence,
+        evidenceRole: evidence.evidenceRole.replace('support:', 'context:'),
+      })),
+    })),
+  };
+}
+
+function batchRow(input: { evidenceRole?: string } = {}) {
   const createdAt = new Date('2026-07-31T16:30:01.000Z');
   return {
     id: 'batch-1',
@@ -438,7 +458,7 @@ function batchRow() {
             organizationId: 'organization-1',
             decisionBatchItemId: 'item-1',
             evidenceObservationId: 'observation-1',
-            role: 'support:supply',
+            role: input.evidenceRole ?? 'support:supply',
             ordinal: 0,
             createdAt,
           },

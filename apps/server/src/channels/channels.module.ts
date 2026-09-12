@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { AiModule } from '../ai/ai.module';
 import { AlertsModule } from '../alerts/alerts.module';
 import { InventoryModule } from '../inventory/inventory.module';
+import { ProductRecipeMutationModule } from '../products/product-recipe-mutation.module';
 import { ChannelRegistrationCapabilityAdapter } from './adapter/in/agent/channel-registration-capability.adapter';
 import { ChannelSyncController } from './adapter/in/http/channel-sync.controller';
 import { ChannelDashboardController } from './adapter/in/http/channel-dashboard.controller';
@@ -74,7 +75,7 @@ import { ChannelsWingThumbnailCapabilityAdapter } from './adapter/in/agent/chann
 import { CHANNELS_WING_THUMBNAIL_CAPABILITY_PORT } from './application/port/in/capability/wing-thumbnail.port';
 
 @Module({
-  imports: [AiModule, InventoryModule, AlertsModule],
+  imports: [AiModule, InventoryModule, AlertsModule, ProductRecipeMutationModule],
   controllers: [
     ChannelSyncController,
     ChannelDashboardController,

@@ -333,7 +333,7 @@ implements SellpiaShipmentTrackingSourcePort {
     message: string,
   ): Promise<SourceRun> {
     const failed = await tx.sourceImportRun.update({
-      where: { id: row.id },
+      where: { id: row.id, organizationId: row.organizationId },
       data: {
         status: 'failed',
         errorCode: code,

@@ -163,6 +163,12 @@ describe('Coupang review collection source owner over disposable PostgreSQL', ()
       expect.arrayContaining(['old generation', 'new generation']),
     );
     expect(visible.items).toHaveLength(2);
+    await expect(prisma.reviewCollectionChunk.count({
+      where: {
+        organizationId: ORG,
+        sourceImportRunId: { in: [first.attemptId, second.attemptId] },
+      },
+    })).resolves.toBe(0);
 
     const listingId = visible.items[0]?.listingId;
     expect(listingId).toBeTruthy();

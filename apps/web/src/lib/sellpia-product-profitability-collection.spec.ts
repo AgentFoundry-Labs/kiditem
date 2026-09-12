@@ -108,12 +108,22 @@ describe('collectSellpiaProductProfitFromExtension', () => {
     expect(result).toMatchObject({ state: 'COMPLETE', success: true });
   });
 
-  it('keeps a successful terminal dispatch when the follow-up status read is lost', async () => {
-    mocks.read.mockRejectedValue(new Error('status response lost'));
+  it('keeps the exact owner attempt retryable when both terminal status reads are lost', async () => {
+    mocks.read
+      .mockRejectedValueOnce(new Error('status response lost'))
+      .mockRejectedValueOnce(new Error('status retry lost'))
+      .mockResolvedValue(summary('COMPLETE'));
+
+    await expect(collectSellpiaProductProfitFromExtension(SCOPE))
+      .rejects.toThrow('status response lost');
 
     const result = await collectSellpiaProductProfitFromExtension(SCOPE);
 
-    expect(result).toMatchObject({ state: 'COMPLETE', success: true });
+    expect(result).toMatchObject({ attemptId: ATTEMPT_ID, state: 'COMPLETE', success: true });
+    expect(mocks.begin).toHaveBeenCalledOnce();
+    expect(mocks.send).toHaveBeenCalledOnce();
+    expect(mocks.read).toHaveBeenCalledTimes(4);
+    expect(mocks.read).toHaveBeenCalledWith(ATTEMPT_ID);
   });
 
   it('does not claim success while the exact owner attempt is still running', async () => {

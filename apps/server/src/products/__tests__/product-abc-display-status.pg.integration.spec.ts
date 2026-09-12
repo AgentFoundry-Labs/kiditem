@@ -99,6 +99,7 @@ describe('Products publishes one ABC display status (PostgreSQL)', () => {
       { findDisplayMedia: async () => new Map() } as never,
       new ProductOperationsDataStatusRepositoryAdapter(prismaService, evidence),
       { readContribution: async () => null } as never,
+      { replaceRecipe: async () => ({ masterProductId: null }) } as never,
     );
   });
 

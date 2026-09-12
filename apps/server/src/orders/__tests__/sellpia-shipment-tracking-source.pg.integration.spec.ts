@@ -101,6 +101,12 @@ describe('Sellpia shipment tracking source owner over disposable PostgreSQL', ()
     const started = (await begin().expect(201)).body;
     const scopedControl = (await control(ORG, started.attemptId).expect(200)).body;
 
+    await request(httpUrl)
+      .post(`${BASE}/attempts/${started.attemptId}/fail`)
+      .set('x-test-org', OTHER_ORG)
+      .set('x-source-attempt-token', scopedControl.attemptToken)
+      .send({ errorCode: 'sellpia_network_failed', errorMessage: 'provider unavailable' })
+      .expect(404);
     await complete(OTHER_ORG, scopedControl).expect(404);
     await complete(ORG, {
       attemptId: scopedControl.attemptId,
@@ -168,10 +174,11 @@ describe('Sellpia shipment tracking source owner over disposable PostgreSQL', ()
     })).resolves.toBe(0);
   });
 
-  it('reports an expired read as terminal and lets the next explicit begin create a fresh attempt', async () => {
+  it('reports expiry without read-time mutation and terminalizes only same-org attempts on begin', async () => {
     const started = (await begin().expect(201)).body;
-    await prisma.sourceImportRun.update({
-      where: { id: started.attemptId },
+    const foreign = (await begin(OTHER_ORG).expect(201)).body;
+    await prisma.sourceImportRun.updateMany({
+      where: { id: { in: [started.attemptId, foreign.attemptId] } },
       data: { expiresAt: new Date(Date.now() - 1_000) },
     });
 
@@ -180,10 +187,19 @@ describe('Sellpia shipment tracking source owner over disposable PostgreSQL', ()
       .set('x-test-org', ORG)
       .expect(200);
     expect(read.body).toMatchObject({ state: 'FAILED', errorCode: 'ATTEMPT_EXPIRED' });
+    await expect(prisma.sourceImportRun.findUniqueOrThrow({ where: { id: started.attemptId } }))
+      .resolves.toMatchObject({ status: 'running', errorCode: null });
 
     const next = (await begin().expect(201)).body;
     expect(next.attemptId).not.toBe(started.attemptId);
     await expect(prisma.sourceImportRun.findUniqueOrThrow({ where: { id: started.attemptId } }))
+      .resolves.toMatchObject({ status: 'failed', errorCode: 'ATTEMPT_EXPIRED' });
+    await expect(prisma.sourceImportRun.findUniqueOrThrow({ where: { id: foreign.attemptId } }))
+      .resolves.toMatchObject({ status: 'running', errorCode: null });
+
+    const nextForeign = (await begin(OTHER_ORG).expect(201)).body;
+    expect(nextForeign.attemptId).not.toBe(foreign.attemptId);
+    await expect(prisma.sourceImportRun.findUniqueOrThrow({ where: { id: foreign.attemptId } }))
       .resolves.toMatchObject({ status: 'failed', errorCode: 'ATTEMPT_EXPIRED' });
   });
 

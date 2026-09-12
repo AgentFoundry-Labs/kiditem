@@ -165,14 +165,13 @@ async function seedMappedProduct(
   const account = await prisma.channelAccount.create({
     data: {
       organizationId,
-      channel: 'coupang',
-      name: `${suffix} Wing`,
+      channel: 'rocket',
+      name: `${suffix} Rocket`,
       externalAccountId: `account-${suffix.toLowerCase()}`,
       vendorId: `vendor-${suffix.toLowerCase()}`,
-      // Historical mapping evidence is independent of current account status;
-      // keeping the account inactive also makes the paired ad fixture an
-      // explicit empty-generation proof.
-      status: 'inactive',
+      // Rocket remains a current selling channel while the organization has
+      // no retained Coupang account, making empty advertising NOT_APPLIED.
+      status: 'active',
     },
   });
   const listing = await prisma.channelListing.create({

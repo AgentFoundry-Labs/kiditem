@@ -50,7 +50,11 @@ function plannedStatements() {
   const out = execFileSync(
     'npx',
     ['prisma', 'migrate', 'diff', '--from-config-datasource', '--to-schema=prisma', '--script'],
-    { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, env: { ...process.env, DATABASE_URL: url } },
+    {
+      encoding: 'utf8',
+      maxBuffer: 64 * 1024 * 1024,
+      env: { ...process.env, DATABASE_URL: url },
+    },
   );
   return out;
 }
@@ -86,6 +90,53 @@ export function notNullAdditions(sql) {
     }
   }
   return found;
+}
+
+/**
+ * Values PostgreSQL assigns to rows that predate an ADD COLUMN. A nullable
+ * column without a database default starts as NULL. A database DEFAULT is
+ * applied by PostgreSQL. A required column without a default cannot be
+ * represented here because the separate NOT NULL check must block it first.
+ */
+export function columnAdditions(sql) {
+  const found = [];
+  for (const statement of sql.split(';')) {
+    const table = statement.match(/ALTER TABLE\s+"([^"]+)"/);
+    if (!table) continue;
+    for (const clause of statement.matchAll(/ADD COLUMN\s+"([^"]+)"\s+([^,\n]*)/g)) {
+      const [, column, rest] = clause;
+      const defaultValue = rest.match(/\bDEFAULT\s+(.+?)(?:\s+NOT NULL)?\s*$/i)?.[1]?.trim();
+      found.push({
+        table: table[1],
+        column,
+        initialSql: defaultValue ?? (/\bNOT NULL\b/i.test(rest) ? null : 'NULL'),
+      });
+    }
+  }
+  return found;
+}
+
+export function predicateWithInitialValues(where, table, additions) {
+  let resolved = where;
+  const replaced = [];
+  const tableAdditions = additions
+    .filter((addition) => addition.table === table && addition.initialSql !== null)
+    .sort((left, right) => left.column.localeCompare(right.column));
+
+  for (const addition of tableAdditions) {
+    const escaped = addition.column.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const identifier = new RegExp(`"${escaped}"|\\b${escaped}\\b`, 'g');
+    if (!identifier.test(resolved)) continue;
+    identifier.lastIndex = 0;
+    resolved = resolved.replace(identifier, addition.initialSql);
+    replaced.push(addition.column);
+  }
+
+  return { where: resolved, replaced };
+}
+
+export function surveyExitCode(blockers, pending) {
+  return blockers.length > 0 || pending.length > 0 ? 1 : 0;
 }
 
 const client = new pg.Client({ connectionString: url });
@@ -134,6 +185,7 @@ async function main() {
   const sql = plannedStatements();
   const indexes = uniqueIndexes(sql);
   const additions = notNullAdditions(sql);
+  const plannedColumnAdditions = columnAdditions(sql);
   await client.connect();
   const columnsByTable = await existingColumns([
     ...new Set([...indexes.map((index) => index.table), ...additions.map((add) => add.table)]),
@@ -152,21 +204,47 @@ async function main() {
     }
     const missing = index.columns.filter((column) => !present.has(column));
     if (missing.length) {
-      // Cannot be evaluated yet: the column arrives in the same cutover. Whether
-      // it collides depends on how the backfill fills it, so this is a question
-      // for the backfill, not a clean result.
+      const rows = await rowCount(index.table);
+      if (rows === 0) {
+        clear.push({ kind: 'unique', ...index, note: 'table empty' });
+        continue;
+      }
+      const initialValues = missing.map(
+        (column) =>
+          plannedColumnAdditions.find(
+            (addition) => addition.table === index.table && addition.column === column,
+          )?.initialSql,
+      );
+      // PostgreSQL unique indexes do not compare rows when any indexed column
+      // is NULL. A newly added nullable column therefore cannot collide for the
+      // rows that predate this schema application.
+      if (initialValues.includes('NULL')) {
+        clear.push({
+          kind: 'unique',
+          ...index,
+          note: 'new indexed column is NULL for existing rows',
+        });
+        continue;
+      }
       pending.push({ kind: 'unique', ...index, missing });
       continue;
     }
     let duplicates;
     try {
-      duplicates = await duplicateGroups(index);
+      const predicate = index.where
+        ? predicateWithInitialValues(index.where, index.table, plannedColumnAdditions)
+        : { where: null, replaced: [] };
+      duplicates = await duplicateGroups({ ...index, where: predicate.where });
     } catch (error) {
       // 42703 undefined_column: a partial index's WHERE clause can name a column
       // this cutover also adds, which the indexed-column check above cannot see.
       // Same situation as a missing indexed column, so report it the same way.
       if (error.code !== '42703') throw error;
-      pending.push({ kind: 'unique', ...index, missing: ['(in WHERE clause)'] });
+      pending.push({
+        kind: 'unique',
+        ...index,
+        missing: ['(in WHERE clause)'],
+      });
       continue;
     }
     if (duplicates.groups > 0) blockers.push({ kind: 'unique', ...index, ...duplicates });
@@ -194,33 +272,45 @@ async function main() {
     console.log(JSON.stringify({ blockers, pending, clear: clear.length }, null, 2));
   } else {
     const line = (text) => console.log(text);
-    line(`\nCutover data survey — ${indexes.length} unique index(es), ${additions.length} NOT NULL column add(s)`);
+    line(
+      `\nCutover data survey — ${indexes.length} unique index(es), ${additions.length} NOT NULL column add(s)`,
+    );
     // Said before the findings, because reading them from the wrong point in the
     // runbook is what turns this report into noise.
-    line('Measured against this database as it stands now. That is the cutover\'s');
+    line("Measured against this database as it stands now. That is the cutover's");
     line('answer only after the pre-schema migrations have run — before them, work');
     line('they already do reads here as a blocker.\n');
     if (blockers.length) {
       line(`BLOCKERS (${blockers.length}) — the cutover stops here:\n`);
       for (const blocker of blockers) {
-        line(blocker.kind === 'unique'
-          ? `  unique   ${blocker.table}(${blocker.columns.join(', ')})\n           ${blocker.groups} duplicate group(s) across ${blocker.rows} row(s) — ${blocker.name}`
-          : `  not-null ${blocker.table}.${blocker.column}\n           ${blocker.rows} existing row(s) and no database default to fill them`);
+        line(
+          blocker.kind === 'unique'
+            ? `  unique   ${blocker.table}(${blocker.columns.join(', ')})\n           ${blocker.groups} duplicate group(s) across ${blocker.rows} row(s) — ${blocker.name}`
+            : `  not-null ${blocker.table}.${blocker.column}\n           ${blocker.rows} existing row(s) and no database default to fill them`,
+        );
       }
       line('');
     }
     if (pending.length) {
-      line(`NEEDS A BACKFILL DECISION (${pending.length}) — a new column, so collisions depend on how it is filled:\n`);
+      line(
+        `NEEDS A BACKFILL DECISION (${pending.length}) — a new column, so collisions depend on how it is filled:\n`,
+      );
       for (const item of pending) {
-        line(`  unique   ${item.table}(${item.columns.join(', ')})  [new: ${item.missing.join(', ')}]`);
+        line(
+          `  unique   ${item.table}(${item.columns.join(', ')})  [new: ${item.missing.join(', ')}]`,
+        );
       }
       line('');
     }
     line(`Clear: ${clear.length}`);
-    line(blockers.length ? '\nFAIL: resolve the blockers before booking a cutover window.\n' : '\nPASS: nothing in this database blocks the cutover.\n');
+    line(
+      surveyExitCode(blockers, pending)
+        ? '\nFAIL: resolve every blocker and pending decision before booking a cutover window.\n'
+        : '\nPASS: nothing in this database blocks the cutover.\n',
+    );
   }
 
-  process.exit(blockers.length ? 1 : 0);
+  process.exit(surveyExitCode(blockers, pending));
 }
 
 if (isEntrypoint) {

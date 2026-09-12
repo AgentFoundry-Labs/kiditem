@@ -49,6 +49,24 @@ describe('SellpiaShipmentTrackingSourceRepository', () => {
     })).rejects.toThrow('ATTEMPT_FENCE_LOST');
     expect(artifacts).toHaveLength(0);
   });
+
+  it('keeps the organization predicate on a terminal failure update', async () => {
+    const rows = new Map([[ATTEMPT_ID, sourceRun()]]);
+    const { repository, sourceRunUpdate } = fakeRepository(rows);
+
+    await repository.failAttempt({
+      organizationId: ORGANIZATION_ID,
+      attemptId: ATTEMPT_ID,
+      attemptToken: TOKEN,
+      errorCode: 'sellpia_network_failed',
+      errorMessage: 'provider unavailable',
+    });
+
+    expect(sourceRunUpdate.mock.calls[0]?.[0]?.where).toEqual({
+      id: ATTEMPT_ID,
+      organizationId: ORGANIZATION_ID,
+    });
+  });
 });
 
 function sourceRun() {
@@ -122,5 +140,6 @@ function fakeRepository(rows: Map<string, ReturnType<typeof sourceRun>>) {
   return {
     repository: new SellpiaShipmentTrackingSourceRepository(prisma as never, alerts as never),
     artifacts,
+    sourceRunUpdate: tx.sourceImportRun.update,
   };
 }

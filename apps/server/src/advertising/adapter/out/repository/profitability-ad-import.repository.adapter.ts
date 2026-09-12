@@ -140,6 +140,12 @@ type StoredPlan = Readonly<{
   }[];
 }>;
 
+type ApplicableAccountProof = Readonly<{
+  channelAccountId: string;
+  externalAccountId: string;
+  expectedAdvertiserId: string;
+}>;
+
 type SourceAttempt = Prisma.SourceImportRunGetPayload<{}>;
 type Receipt = Prisma.ChannelScrapeRunGetPayload<{}>;
 type Target = Prisma.ChannelAdTargetDailySnapshotGetPayload<{}>;
@@ -221,7 +227,7 @@ export class ProfitabilityAdImportRepositoryAdapter
 
       await lockProductMapping(tx, input.organizationId);
       const mappingGeneration = await readMappingGeneration(tx, input.organizationId);
-      const accounts = await this.listPlanAccounts(tx, input.organizationId);
+      const accounts = await readApplicableAccounts(tx, input.organizationId);
       const coverage = profitabilityCoverageForKstYesterday(now);
       const storedPlan = buildStoredPlan(accounts, coverage, mappingGeneration);
       const attemptToken = randomUUID();
@@ -301,7 +307,14 @@ export class ProfitabilityAdImportRepositoryAdapter
   }): Promise<AdvertisingProfitabilitySourceView> {
     return this.prisma.$transaction(async (tx) => {
       const latestAttempt = await latestAttemptForOrganization(tx, input.organizationId);
-      const latestComplete = await latestCompleteAttempt(tx, input.organizationId);
+      const candidate = await latestCompleteAttempt(tx, input.organizationId);
+      const applicableAccounts = candidate
+        ? await readApplicableAccountProof(tx, input.organizationId)
+        : null;
+      const latestComplete = candidate && applicableAccounts
+        && sameApplicableAccountProof(parseStoredPlan(candidate.plan).accounts, applicableAccounts)
+          ? candidate
+          : null;
       return sourceView(latestAttempt, latestComplete, new Date());
     }, snapshotTransactionOptions());
   }
@@ -498,6 +511,10 @@ export class ProfitabilityAdImportRepositoryAdapter
       await assertMappingGeneration(tx, attempt);
       const plan = parseStoredPlan(attempt.plan);
       for (const account of plan.accounts) await assertAccountIdentity(tx, input.organizationId, account);
+      const applicableAccounts = await readApplicableAccounts(tx, input.organizationId);
+      if (!sameApplicableAccountProof(plan.accounts, applicableAccounts)) {
+        throw new ConflictException('ADVERTISING_ACCOUNT_SET_CHANGED');
+      }
       const receipts = await tx.channelScrapeRun.findMany({
         where: {
           organizationId: input.organizationId,
@@ -694,6 +711,11 @@ export class ProfitabilityAdImportRepositoryAdapter
         },
       });
       if (!run) return null;
+      const applicableAccounts = await readApplicableAccountProof(tx, input.organizationId);
+      if (!applicableAccounts
+        || !sameApplicableAccountProof(parseStoredPlan(run.plan).accounts, applicableAccounts)) {
+        return null;
+      }
       return generationFromRun(tx, run);
     }, snapshotTransactionOptions());
   }
@@ -715,12 +737,19 @@ export class ProfitabilityAdImportRepositoryAdapter
         orderBy: [{ publicationSequence: 'desc' }, { id: 'desc' }],
         take: limit,
       });
-      const generations = completeRuns.map((run) => generationSummaryFromRun(run));
+      const applicableAccounts = completeRuns.length > 0
+        ? await readApplicableAccountProof(tx, input.organizationId)
+        : null;
+      const applicableRuns = applicableAccounts
+        ? completeRuns.filter((run) =>
+          sameApplicableAccountProof(parseStoredPlan(run.plan).accounts, applicableAccounts))
+        : [];
+      const generations = applicableRuns.map((run) => generationSummaryFromRun(run));
       const latestComplete = generations[0] ?? null;
-      // The catalog is a bounded history. Finance selects a compatible
-      // generation from its typed coverage metadata; source freshness is the
-      // separate current-status read and uses the current KST-yesterday cutoff.
-      const source = sourceView(latestAttempt, completeRuns[0] ?? null, new Date());
+      // Terminal runs stay immutable. The catalog exposes only generations
+      // whose frozen retained-account proof still matches, then Finance picks
+      // a compatible generation from the bounded typed history.
+      const source = sourceView(latestAttempt, applicableRuns[0] ?? null, new Date());
       return {
         latestAttempt: latestAttempt ? attemptSummary(latestAttempt) : null,
         latestComplete,
@@ -728,30 +757,6 @@ export class ProfitabilityAdImportRepositoryAdapter
         ready: source.ready,
       };
     }, snapshotTransactionOptions());
-  }
-
-  private async listPlanAccounts(tx: Transaction, organizationId: string) {
-    const accounts = await tx.channelAccount.findMany({
-      where: {
-        organizationId,
-        channel: 'coupang',
-        status: 'active',
-      },
-      orderBy: { id: 'asc' },
-      select: { id: true, externalAccountId: true, vendorId: true },
-    });
-    return accounts.map((account) => {
-      const externalAccountId = account.externalAccountId?.trim() || resolveCoupangVendorId(account);
-      const expectedAdvertiserId = resolveCoupangVendorId(account);
-      if (!externalAccountId || !expectedAdvertiserId) {
-        throw new UnprocessableEntityException('ADVERTISING_ACCOUNT_IDENTITY_MISSING');
-      }
-      return {
-        channelAccountId: account.id,
-        externalAccountId,
-        expectedAdvertiserId,
-      };
-    });
   }
 
   private async listFrozenListings(tx: Transaction, organizationId: string, accountIds: readonly string[]) {
@@ -1332,7 +1337,6 @@ async function assertAccountIdentity(
       id: expected.channelAccountId,
       organizationId,
       channel: 'coupang',
-      status: 'active',
     },
     select: { externalAccountId: true, vendorId: true },
   });
@@ -1342,6 +1346,56 @@ async function assertAccountIdentity(
   if (identity !== expected.expectedAdvertiserId || external !== expected.externalAccountId) {
     throw new ConflictException('ADVERTISING_ACCOUNT_IDENTITY_CHANGED');
   }
+}
+
+async function readApplicableAccounts(
+  tx: Transaction,
+  organizationId: string,
+): Promise<readonly ApplicableAccountProof[]> {
+  const proof = await readApplicableAccountProof(tx, organizationId);
+  if (!proof) {
+    throw new UnprocessableEntityException('ADVERTISING_ACCOUNT_IDENTITY_MISSING');
+  }
+  return proof;
+}
+
+async function readApplicableAccountProof(
+  tx: Transaction,
+  organizationId: string,
+): Promise<readonly ApplicableAccountProof[] | null> {
+  const accounts = await tx.channelAccount.findMany({
+    where: { organizationId, channel: 'coupang' },
+    orderBy: { id: 'asc' },
+    select: { id: true, externalAccountId: true, vendorId: true },
+  });
+  const proof = accounts.map((account) => {
+    const expectedAdvertiserId = resolveCoupangVendorId(account);
+    const externalAccountId = account.externalAccountId?.trim() || expectedAdvertiserId;
+    if (!externalAccountId || !expectedAdvertiserId) {
+      return null;
+    }
+    return {
+      channelAccountId: account.id,
+      externalAccountId,
+      expectedAdvertiserId,
+    };
+  });
+  if (proof.some((account) => account === null)) return null;
+  return proof.filter((account): account is ApplicableAccountProof => account !== null);
+}
+
+function sameApplicableAccountProof(
+  planned: readonly Pick<StoredPlan['accounts'][number],
+    'channelAccountId' | 'externalAccountId' | 'expectedAdvertiserId'>[],
+  current: readonly ApplicableAccountProof[],
+): boolean {
+  if (planned.length !== current.length) return false;
+  return planned.every((account, index) => {
+    const candidate = current[index];
+    return candidate?.channelAccountId === account.channelAccountId
+      && candidate.externalAccountId === account.externalAccountId
+      && candidate.expectedAdvertiserId === account.expectedAdvertiserId;
+  });
 }
 
 function assertAttemptToken(attempt: SourceAttempt, token: string): void {

@@ -377,6 +377,12 @@ export class ReviewCollectionSourceRepository implements ReviewCollectionSourceP
           errorMessage: null,
         },
       });
+      await tx.reviewCollectionChunk.deleteMany({
+        where: {
+          organizationId: input.organizationId,
+          sourceImportRunId: row.id,
+        },
+      });
       await this.alerts.resolveSourceFailure(tx, {
         organizationId: input.organizationId,
         dedupeKey: alertDedupeKey(),

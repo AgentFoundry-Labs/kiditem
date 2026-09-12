@@ -9,6 +9,8 @@ import {
 } from '../../test-helpers/real-prisma';
 import { seedActiveSellpiaInventorySku } from '../../test-helpers/inventory-seeds';
 import { MarketplaceRegistrationRepositoryAdapter } from '../adapter/out/repository/marketplace-registration.repository.adapter';
+import { ProductChannelOptionRecipeMutationRepositoryAdapter } from '../../products/adapter/out/repository/product-channel-option-recipe-mutation.repository.adapter';
+import { ProductChannelOptionRecipeMutationService } from '../../products/application/service/product-channel-option-recipe-mutation.service';
 
 const ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
 const INACTIVE_OPTION_SKU_ID = '26000000-0000-4000-8000-000000000001';
@@ -51,9 +53,7 @@ describe('MarketplaceRegistrationRepositoryAdapter (PG integration)', () => {
         name: 'Linkless registration',
       },
     });
-    const registration = new MarketplaceRegistrationRepositoryAdapter(
-      prisma as unknown as PrismaService,
-    );
+    const registration = makeRegistration(prisma);
     const input = {
       organizationId: TEST_ORGANIZATION_ID,
       sourceCandidateId: candidate.id,
@@ -107,9 +107,11 @@ describe('MarketplaceRegistrationRepositoryAdapter (PG integration)', () => {
         },
       }),
     ]);
-    const registration = new MarketplaceRegistrationRepositoryAdapter(
-      prisma as unknown as PrismaService,
-    );
+    await prisma.sellpiaInventorySku.update({
+      where: { id: INACTIVE_OPTION_SKU_ID },
+      data: { masterProductId: product.id },
+    });
+    const registration = makeRegistration(prisma);
     const input = {
       organizationId: TEST_ORGANIZATION_ID,
       sourceCandidateId: candidate.id,
@@ -161,6 +163,10 @@ describe('MarketplaceRegistrationRepositoryAdapter (PG integration)', () => {
       code: 'KI-REGISTER-ROLLBACK-BLUE',
       name: 'Blue',
     });
+    await prisma.sellpiaInventorySku.update({
+      where: { id: ROLLBACK_SKU_ID },
+      data: { masterProductId: product.id },
+    });
     const candidate = await prisma.sourcingCandidate.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
@@ -176,9 +182,7 @@ describe('MarketplaceRegistrationRepositoryAdapter (PG integration)', () => {
         mappingGeneration: maximum,
       },
     });
-    const registration = new MarketplaceRegistrationRepositoryAdapter(
-      prisma as unknown as PrismaService,
-    );
+    const registration = makeRegistration(prisma);
 
     await expect(prisma.$transaction((tx) =>
       registration.resolveProductRegistration(tx, {
@@ -228,5 +232,15 @@ describe('MarketplaceRegistrationRepositoryAdapter (PG integration)', () => {
       select: { mappingGeneration: true },
     });
     return state?.mappingGeneration ?? 0n;
+  }
+
+  function makeRegistration(client: PrismaClient) {
+    const prismaService = client as unknown as PrismaService;
+    return new MarketplaceRegistrationRepositoryAdapter(
+      prismaService,
+      new ProductChannelOptionRecipeMutationService(
+        new ProductChannelOptionRecipeMutationRepositoryAdapter(prismaService),
+      ),
+    );
   }
 });
