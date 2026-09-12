@@ -1,29 +1,25 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import type { PLData } from '@kiditem/shared/finance';
 import { PrismaService } from '../../prisma/prisma.service';
 import { kstMonthStart } from '../../common/kst';
 import {
   buildPerListingProfit,
-  readAccountAdEvidence,
+  readAdEvidenceFromLedger,
 } from '../../common/per-listing-profit';
-import {
-  AD_ACCOUNT_DAILY_KPI_READ_PORT,
-  type AdAccountDailyKpiReadPort,
-} from '../../advertising/application/port/in/ad-account-daily-kpi-source.port';
 
 /**
  * Live aggregation.
  * Plan F1 T1 — per-listing core extracted to common/per-listing-profit.ts so dashboard
  * can share the math. This service adds returnCount + maps PerListingProfit → PLData.
  *
- * This is the precise per-listing surface named in ADR-0003, so it publishes an
+ * This is the precise per-listing surface named in ADR-0006, so it publishes an
  * unavailable profit for a listing whose ad coverage is incomplete rather than
  * one computed from a partial ad sum. Rows still sort by revenue, which is
  * always measured.
  *
  * Whether advertising applies to this organization at all is Advertising's
- * answer, read here from its published account-daily evidence for the same
- * month window.
+ * answer, read here from the advertising target-day ledger — the campaign
+ * sweep's measured windows — for the same month window.
  */
 @Injectable()
 export class ProfitLossService {
@@ -31,8 +27,6 @@ export class ProfitLossService {
 
   constructor(
     private readonly prisma: PrismaService,
-    @Inject(AD_ACCOUNT_DAILY_KPI_READ_PORT)
-    private readonly adAccountDailyKpiRead: AdAccountDailyKpiReadPort,
   ) {}
 
   async findAll(
@@ -44,8 +38,8 @@ export class ProfitLossService {
     const from = kstMonthStart(year, month);
     const to = kstMonthStart(year, month + 1);
 
-    const accountAdEvidence = await readAccountAdEvidence(
-      this.adAccountDailyKpiRead,
+    const accountAdEvidence = await readAdEvidenceFromLedger(
+      this.prisma,
       organizationId,
       from,
       to,

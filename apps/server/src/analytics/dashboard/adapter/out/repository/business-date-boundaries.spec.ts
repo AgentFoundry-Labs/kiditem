@@ -29,7 +29,7 @@ describe('dashboard business-date boundaries', () => {
 
     await new WingTrafficAggregationRepositoryAdapter(
       { readPublished },
-      { channelListingDailySnapshot: { groupBy: vi.fn(), findFirst: vi.fn() } } as never,
+      { $queryRaw: vi.fn().mockResolvedValue([]) } as never,
     ).aggregateTraffic('organization-id', periodOf(JULY_START_KST, AUGUST_START_KST));
 
     expect(readPublished).toHaveBeenCalledWith({
@@ -41,22 +41,22 @@ describe('dashboard business-date boundaries', () => {
 
   it('keeps KST timestamp bounds for orders but normalizes daily ad facts', async () => {
     const orderFindMany = vi.fn().mockResolvedValue([]);
-    const readPublished = vi.fn().mockResolvedValue({ rows: [] });
+    const queryRaw = vi.fn().mockResolvedValue([]);
     const prisma = {
       order: { findMany: orderFindMany },
+      channelAccount: { findFirst: vi.fn().mockResolvedValue({ id: 'account' }) },
+      $queryRaw: queryRaw,
     } as unknown as PrismaService;
 
-    await new ProfitCalculationRepositoryAdapter(prisma, { readPublished }).calculateForRange('organization-id', periodOf(JULY_START_KST, AUGUST_START_KST));
+    await new ProfitCalculationRepositoryAdapter(prisma).calculateForRange('organization-id', periodOf(JULY_START_KST, AUGUST_START_KST));
 
     expect(orderFindMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({
         orderedAt: { gte: JULY_START_KST, lt: AUGUST_START_KST },
       }),
     }));
-    expect(readPublished).toHaveBeenCalledWith({
-      organizationId: 'organization-id',
-      from: '2026-07-01',
-      to: '2026-07-31',
-    });
+    // The ad ledger is read over the window's KST business dates, half-open.
+    const sql = queryRaw.mock.calls[0]?.[0] as { values: unknown[] };
+    expect(sql.values).toEqual(expect.arrayContaining(['organization-id', '2026-07-01', '2026-08-01']));
   });
 });

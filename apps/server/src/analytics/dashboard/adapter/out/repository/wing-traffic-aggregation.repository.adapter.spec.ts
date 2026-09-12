@@ -169,20 +169,20 @@ function buildAdapter() {
       accountDaily('2026-07-03'),
     ]),
   );
-  // Ad facts come from the listing ledger, not the account summary: the
-  // account table only has a row on the days the ad-centre scrape ran.
+  // Ad facts come from the advertising target-day ledger through
+  // `readAdWindowFacts`, which the adapter reaches as `$queryRaw`.
   const adsGroupBy = vi.fn().mockResolvedValue([]);
   return {
     adapter: new WingTrafficAggregationRepositoryAdapter(
       { readPublished: trafficReadPublished },
-      { channelListingDailySnapshot: { groupBy: adsGroupBy, findFirst: vi.fn() } } as never,
+      { $queryRaw: adsGroupBy } as never,
     ),
     trafficReadPublished,
     adsGroupBy,
   };
 }
 
-/** One grouped business date, as `readAdWindowFacts` sees it. */
+/** One measured business date, as `readAdWindowFacts` reads it. */
 function adsDay(businessDate: string, overrides: Record<string, number> = {}) {
   const sums = {
     adSpend: 100, adRevenue: 900, adImpressions: 2_000,
@@ -190,9 +190,14 @@ function adsDay(businessDate: string, overrides: Record<string, number> = {}) {
     ...overrides,
   };
   return {
-    businessDate: new Date(`${businessDate}T00:00:00.000Z`),
-    _sum: sums,
-    _max: { adObservedAt: new Date(`${businessDate}T01:00:00.000Z`) },
+    business_date: new Date(`${businessDate}T00:00:00.000Z`),
+    spend: sums.adSpend,
+    revenue: sums.adRevenue,
+    impressions: sums.adImpressions,
+    clicks: sums.adClicks,
+    conversions: sums.adConversions,
+    orders: sums.adOrders,
+    observed_at: new Date(`${businessDate}T01:00:00.000Z`),
   };
 }
 
@@ -414,16 +419,8 @@ describe('WingTrafficAggregationRepositoryAdapter Coupang ads read', () => {
     });
     // Half-open `[from, to)` over the window's business dates, so the last
     // selected date is included and the day after it is not.
-    expect(adsGroupBy).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({
-        organizationId: ORGANIZATION_ID,
-        businessDate: {
-          gte: new Date('2026-07-01T00:00:00.000Z'),
-          lt: new Date('2026-07-03T00:00:00.000Z'),
-        },
-        adObservedAt: { not: null },
-      }),
-    }));
+    const sql = adsGroupBy.mock.calls[0]?.[0] as { values: unknown[] };
+    expect(sql.values).toEqual(expect.arrayContaining([ORGANIZATION_ID, '2026-07-01', '2026-07-03']));
   });
 
   it('keeps an all-zero ads row distinct from missing ads rows', async () => {

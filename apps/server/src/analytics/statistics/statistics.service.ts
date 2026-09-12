@@ -1,14 +1,10 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   buildPerListingProfit,
-  readAccountAdEvidence,
+  readAdEvidenceFromLedger,
 } from '../../common/per-listing-profit';
 import { kstMonthStart } from '../../common/kst';
-import {
-  AD_ACCOUNT_DAILY_KPI_READ_PORT,
-  type AdAccountDailyKpiReadPort,
-} from '../../advertising/application/port/in/ad-account-daily-kpi-source.port';
 import type {
   StatisticsOverview,
   StatisticsProductRow,
@@ -25,7 +21,7 @@ const EXCLUDED_ORDER_STATUSES = ['cancelled', 'returned', 'refunded'] as const;
  * Totals a profit column that may be unavailable.
  *
  * A rollup over a set containing an unavailable member is itself unavailable
- * (ADR-0003) — summing only the measured members would silently report a
+ * (ADR-0006) — summing only the measured members would silently report a
  * smaller total as if it were the whole. Revenue and order counts never depend
  * on ad coverage, so they keep totalling every listing.
  */
@@ -48,8 +44,6 @@ function totalOrUnavailable(values: readonly (number | null)[]): number | null {
 export class StatisticsService {
   constructor(
     private readonly prisma: PrismaService,
-    @Inject(AD_ACCOUNT_DAILY_KPI_READ_PORT)
-    private readonly adAccountDailyKpiRead: AdAccountDailyKpiReadPort,
   ) {}
 
   private resolveWindow(period?: string) {
@@ -80,8 +74,8 @@ export class StatisticsService {
    */
   private async getListingMetrics(organizationId: string, period?: string) {
     const { from, to } = this.resolveWindow(period);
-    const accountAdEvidence = await readAccountAdEvidence(
-      this.adAccountDailyKpiRead,
+    const accountAdEvidence = await readAdEvidenceFromLedger(
+      this.prisma,
       organizationId,
       from,
       to,

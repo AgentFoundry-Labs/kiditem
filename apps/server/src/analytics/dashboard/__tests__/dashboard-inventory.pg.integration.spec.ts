@@ -4,7 +4,6 @@ import { snapshotPartialOf } from '../../../test-helpers/dashboard-basis-asserti
 import { Test } from '@nestjs/testing';
 import { ProfitabilityAdImportRepositoryAdapter } from '../../../advertising/adapter/out/repository/profitability-ad-import.repository.adapter';
 import { AdAccountDailyKpiSourceRepository } from '../../../advertising/adapter/out/repository/ad-account-daily-kpi-source.repository';
-import { AD_ACCOUNT_DAILY_KPI_READ_PORT } from '../../../advertising/application/port/in/ad-account-daily-kpi-source.port';
 import { MasterProductProfitabilityReadService } from '../../../finance/application/service/master-product-profitability-read.service';
 import { SellpiaProfitabilitySourceService } from '../../sellpia-product-sales/sellpia-profitability-source.service';
 import { MASTER_PRODUCT_PROFITABILITY_READ_PORT } from '../../../finance/application/port/in/master-product-profitability-read.port';
@@ -33,7 +32,7 @@ import {
   setupChannelListing,
   seedOrderWithLineItems,
   seedAd,
-  seedPublishedAdAccountDay,
+  seedCompletedAdSweepRun,
 } from '../../../test-helpers/finance-seeds';
 import type { PrismaClient } from '@prisma/client';
 
@@ -64,10 +63,6 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
         // The real advertising owner, against the same Postgres. Whether the
         // account published anything for the window is a fact only rows can
         // hold, so a stub here would decide the very thing under test.
-        {
-          provide: AD_ACCOUNT_DAILY_KPI_READ_PORT,
-          useValue: new AdAccountDailyKpiSourceRepository(prisma as never, alerts),
-        },
         { provide: DASHBOARD_INVENTORY_REPOSITORY_PORT, useExisting: DashboardInventoryRepositoryAdapter },
       ],
     }).compile();
@@ -136,16 +131,19 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
   }
 
   /**
-   * Advertising published a complete account day inside the window, so the
-   * per-listing calendar — rather than an account that published nothing —
-   * decides each listing's coverage. Without this, the owner answers `MISSING`
-   * and every listing is withheld no matter what its own rows say.
+   * The campaign sweep declared it swept the anchor month, up to `short` days
+   * before its end. Every date in that window is measured, with the listing
+   * rows' sums or a measured zero, so whether the window is fully covered is
+   * what decides every listing's ad cost at once.
    */
-  async function publishAdAccountDay(date: string, adSpend: number): Promise<void> {
-    await seedPublishedAdAccountDay(prisma, {
+  let sweepGeneration = 0;
+  async function coverMonth(short = 0): Promise<void> {
+    const month = businessDateText(new Date()).slice(0, 7);
+    const lastDay = Number(kstMonthEnd(month).slice(8)) - short;
+    await seedCompletedAdSweepRun(prisma, {
       organizationId: TEST_ORGANIZATION_ID,
-      date,
-      adSpend,
+      generation: ++sweepGeneration,
+      window: { startDate: `${month}-01`, endDate: adDay(lastDay) },
     });
   }
 
@@ -406,10 +404,10 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
       lineItems: [{ quantity: 1, totalPrice: 50_000, optionId, listingOptionId }],
     });
     // The listing is loss-making at any ad cost, but it only reaches the count
-    // once its ad cost is measured: the account published an explicit zero for
-    // the day and the listing carries the matching confirmed-zero row.
+    // once its ad cost is measured: the sweep declared it measured the month
+    // and the listing carries a zero row on the order's day.
     const lossDay = midMonth().toISOString().slice(0, 10);
-    await publishAdAccountDay(lossDay, 0);
+    await coverMonth();
     await seedAd(prisma, {
       organizationId: TEST_ORGANIZATION_ID, listingId, date: lossDay, spend: 0,
     });
@@ -457,9 +455,9 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
       organizationId: TEST_ORGANIZATION_ID, listingId: cList.listingId,
       date: midMonth().toISOString().slice(0, 10), spend: 20_000,
     });
-    // The account published that day, so listings A and B — which the
-    // listing-level source never reported — are genuinely unadvertised.
-    await publishAdAccountDay(midMonth().toISOString().slice(0, 10), 20_000);
+    // The sweep measured the whole month, so listings A and B — which carry
+    // no row — are genuinely unadvertised.
+    await coverMonth();
 
     const ctx = buildDashboardContext();
     const result = await service.getSummary(ctx, TEST_ORGANIZATION_ID);
@@ -493,47 +491,40 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
    * *any* listing; a listing short of that calendar has a hole in its own
    * evidence and is withheld from the counts.
    */
-  describe('warning counts over a partly measurable population', () => {
+  describe('warning counts over a partly measurable window', () => {
     const AD_DAYS = [5, 6] as const;
 
     const seedLossListing = (tag: string) => seedLossListingOnChannel('coupang', tag);
 
-    /**
-     * Record ad evidence for a listing on each named day of the month, and
-     * publish the matching account day. A hole in the per-listing calendar
-     * only means anything once the account itself published something.
-     */
+    /** Record ad rows for a listing on each named day of the month. */
     async function seedAdDays(listingId: string, days: readonly number[]): Promise<void> {
       for (const day of days) {
         await seedAd(prisma, {
           organizationId: TEST_ORGANIZATION_ID, listingId, date: adDay(day), spend: 1_000,
         });
-        await publishAdAccountDay(adDay(day), 1_000);
       }
     }
 
-    it('T6: counts the listings it could measure and says how many it withheld', async () => {
-      const covered = await seedLossListing('COVERED');
-      const holed = await seedLossListing('HOLED');
-      await seedAdDays(covered, AD_DAYS);
-      await seedAdDays(holed, [AD_DAYS[0]]);
+    it('T6: withholds every listing while the sweep has measured only part of the month', async () => {
+      const first = await seedLossListing('PART-A');
+      const second = await seedLossListing('PART-B');
+      await seedAdDays(first, AD_DAYS);
+      await seedAdDays(second, [AD_DAYS[0]]);
+      // Rows on two dates measure two dates; the rest of the month is unmeasured.
 
       const ctx = buildDashboardContext();
       const result = await service.getSummary(ctx, TEST_ORGANIZATION_ID);
 
-      // A real count over the listings that could be measured — one of the two
-      // loss-making listings, because the other's ad evidence has a hole.
-      expect(result.warnings.minusProducts).toBe(1);
+      // Coverage is account-level: a window the sweep measured only in part
+      // gives no listing a measured ad cost, whatever its own rows say.
+      expect(result.warnings.minusProducts).toBe(0);
       for (const key of PER_LISTING_KEYS) {
         expect(result.metricBasis?.[key], key).toMatchObject({
           kind: 'snapshot',
-          asOf: businessDateText(ctx.anchor),
-          // Partial coverage is not staleness: the read is still as-of today.
-          measured: true,
-          requiredAsOf: businessDateText(ctx.anchor),
-          withheldCount: 1,
+          asOf: null,
+          measured: false,
+          withheldCount: 2,
         });
-        expect(snapshotPartialOf(result.metricBasis?.[key]), key).toBe(true);
       }
       // Out-of-stock and mapping attention have no advertising input, so they
       // never inherit another value's incomplete population.
@@ -544,45 +535,19 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
       }
     });
 
-    it('T7: a fully covered population counts every listing with no partial signal', async () => {
+    it('T7: a fully measured month counts every listing with no partial signal', async () => {
       const first = await seedLossListing('FULL-A');
       const second = await seedLossListing('FULL-B');
       await seedAdDays(first, AD_DAYS);
-      await seedAdDays(second, AD_DAYS);
+      await seedAdDays(second, [AD_DAYS[0]]);
+      await coverMonth();
 
       const result = await service.getSummary(buildDashboardContext(), TEST_ORGANIZATION_ID);
 
+      // The sweep measured the whole month; a listing without a row on a
+      // measured date spent nothing that day, not an unknown amount.
       expect(result.warnings.minusProducts).toBe(2);
       for (const key of [...PER_LISTING_KEYS, ...AD_FREE_KEYS]) {
-        expect(result.metricBasis?.[key], key).toMatchObject({
-          measured: true, withheldCount: 0,
-        });
-      }
-    });
-
-    it('T8: an empty measurable subset publishes no value rather than a counted zero', async () => {
-      // Each listing covers a date the other does not, so the window's ad
-      // calendar has two dates and neither listing covers both.
-      const first = await seedLossListing('HOLE-A');
-      const second = await seedLossListing('HOLE-B');
-      await seedAdDays(first, [AD_DAYS[0]]);
-      await seedAdDays(second, [AD_DAYS[1]]);
-
-      const result = await service.getSummary(buildDashboardContext(), TEST_ORGANIZATION_ID);
-
-      expect(result.warnings.minusProducts).toBe(0);
-      for (const key of PER_LISTING_KEYS) {
-        // Nothing was measurable, so this zero is an absence rather than a
-        // count. `unavailable` is what makes the card blank instead of
-        // claiming no listing is loss-making.
-        expect(result.metricBasis?.[key], key).toMatchObject({
-          kind: 'snapshot',
-          asOf: null,
-          measured: false,
-          withheldCount: 2,
-        });
-      }
-      for (const key of AD_FREE_KEYS) {
         expect(result.metricBasis?.[key], key).toMatchObject({
           measured: true, withheldCount: 0,
         });
@@ -623,26 +588,13 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
       }
     });
 
-    /**
-     * Every business date in the dashboard's month window. `ctx.monthStart` /
-     * `ctx.monthEnd` are the whole KST calendar month, so "covers the window"
-     * means an account row on each of these dates.
-     */
-    function everyWindowDay(): string[] {
-      const month = businessDateText(new Date()).slice(0, 7);
-      const dayCount = Number(kstMonthEnd(month).slice(8));
-      return Array.from({ length: dayCount }, (_, index) => adDay(index + 1));
-    }
-
     it('counts a measured zero when a confirmed-zero account covers every date in the window', async () => {
       // An organization with an advertising account that ran no campaigns.
-      // The ad report is empty on every date, so `flushListingAdMetrics` writes
-      // no listing rows at all and the per-listing calendar is empty — the
-      // same shape a total collection failure leaves behind.
+      // The ad report is empty on every date, so the sweep publishes no
+      // target rows at all — the same row shape a total collection failure
+      // leaves behind. What separates them is the window the sweep declared.
       await seedLossListingOnChannel('coupang', 'ACCT-ZERO-FULL');
-      for (const day of everyWindowDay()) {
-        await publishAdAccountDay(day, 0);
-      }
+      await coverMonth();
 
       const result = await service.getSummary(buildDashboardContext(), TEST_ORGANIZATION_ID);
 
@@ -662,13 +614,11 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
     });
 
     it('withholds when a confirmed-zero account covers only part of the window', async () => {
-      // The same all-zero rows, one date short. `CONFIRMED_ZERO` describes the
-      // rows the owner returned and claims nothing about the dates it never
-      // reached, so the missing date is spend nobody looked for.
+      // The same declared window, one date short. The sweep claims nothing
+      // about the date it never reached, so that date is spend nobody looked
+      // for.
       await seedLossListingOnChannel('coupang', 'ACCT-ZERO-PARTIAL');
-      for (const day of everyWindowDay().slice(0, -1)) {
-        await publishAdAccountDay(day, 0);
-      }
+      await coverMonth(1);
 
       const result = await service.getSummary(buildDashboardContext(), TEST_ORGANIZATION_ID);
 

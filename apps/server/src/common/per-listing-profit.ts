@@ -1,6 +1,7 @@
 import type { PrismaService } from '../prisma/prisma.service';
 import { kstBusinessDate } from './kst';
-import { readAdWindowFacts, readListingAdWindowFacts } from './ad-window-facts';
+import { advertisingApplies, readAdWindowFacts, readListingAdWindowFacts } from './ad-window-facts';
+import type { PrismaClient } from '@prisma/client';
 
 /**
  * Plan F1 T1 (extracted from `finance/services/profit-loss.service.ts:findAll`).
@@ -9,20 +10,17 @@ import { readAdWindowFacts, readListingAdWindowFacts } from './ad-window-facts';
  *   - finance/profit-loss (PLData rows, plus returnCount + extra metadata)
  *   - dashboard/dashboard-inventory (warnings.minusProducts / lowProfitProducts / highAdProducts)
  *
- * ADR-0003: the ad read is coverage-aware. `ChannelListingDailySnapshot.adSpend`
- * is `Int @default(0)`, so summing it unfiltered makes an uncollected day and a
- * genuinely zero-spend day identical. This module filters on the evidence
- * columns through `ad-window-facts`, and yields an unavailable profit rather
- * than a partial sum. Top-N contribution ranking is
- * exempt and keeps its own unfiltered 30% approximation.
+ * ADR-0006: the ad read is coverage-aware. Listing-day ad values come from the
+ * advertising target-day ledger through `ad-window-facts`, where a day the
+ * sweep never reported is absent rather than zero, so this module yields an
+ * unavailable profit rather than a partial sum.
  *
- * The listing-level calendar alone cannot say whether an organization runs no
- * ads or whether ad collection failed for the whole window: both leave the
- * calendar empty. That fact is account-level and Advertising already publishes
- * it, so callers read `AccountAdEvidence` from Advertising's in-port and pass
- * it in. This module stays a pure helper — it consumes the facts the owner
- * published (and the dates they were reached over), and never derives a word
- * of its own.
+ * The listing rows alone cannot say whether an organization runs no ads or
+ * whether ad collection failed for the whole window: both leave them empty.
+ * That fact is account-level: whether a Coupang account exists at all, and
+ * which dates the sweep measured. Callers pass it in as `AccountAdEvidence`,
+ * read with `readAdEvidenceFromLedger`. This module stays a pure helper — it
+ * consumes those facts and never derives a word of its own.
  *
  * Pure function (no @Injectable). Uses live aggregation:
  *   - I3 canonical: revenue = SUM(OrderLineItem.totalPrice)
@@ -41,7 +39,7 @@ import { readAdWindowFacts, readListingAdWindowFacts } from './ad-window-facts';
  * One listing's settled profit over a window.
  *
  * `adCost`, `netProfit` and `profitRate` are **unavailable** (`null`) when the
- * listing's ad coverage is incomplete for the window — see ADR-0003. A partial
+ * listing's ad coverage is incomplete for the window — see ADR-0006. A partial
  * ad sum is not a smaller ad cost, and a profit computed from one is not a
  * smaller profit; it is a fabricated number.
  */
@@ -84,96 +82,50 @@ function businessDateText(value: Date): string {
 }
 
 /**
- * The account-level ad publication, as Advertising's
- * `AdAccountDailyKpiReadPort` already answers it. Declared structurally so
- * this helper depends on the shared evidence vocabulary rather than on the
- * Advertising module: the caller owns the injected port, this module only
- * knows how to phrase the question.
- */
-export interface AccountAdEvidenceReader {
-  readPublished(input: {
-    organizationId: string;
-    from?: string;
-    to?: string;
-  }): Promise<{
-    /** `null` when the organization has no advertising account. */
-    channelAccountId: string | null;
-    rows: readonly { businessDate: string; normalized: { adSpend: number } }[];
-  }>;
-}
-
-/**
- * The account-level answer for one window, as the facts the owner published:
- * whether an advertising account exists at all, how many business dates it
- * published, what it spent across them, and whether those dates cover the
- * whole window. "No spend on every date you asked about" is a measured zero;
- * "no spend on the three dates I happen to have" is not, and only
- * `coversWindow` tells them apart.
+ * The account-level answer for one window, as the ledger states it: whether
+ * advertising applies at all, how many business dates the sweep measured, what
+ * it spent across them, and whether those dates cover the whole window. "No
+ * spend on every date you asked about" is a measured zero; "no spend on the
+ * three dates I happen to have" is not, and only `coversWindow` tells them
+ * apart.
  */
 export interface AccountAdEvidence {
-  /** False when the organization has no advertising account, so advertising does not apply. */
+  /** False when the organization has no Coupang channel account, so advertising does not apply. */
   hasAdAccount: boolean;
-  /** Business dates the owner published a complete row for, inside the window. */
+  /** Business dates the sweep measured inside the window. */
   publishedDates: number;
-  /** Ad spend summed over those published rows. */
+  /** Ad spend summed over those measured dates. */
   accountSpend: number;
-  /**
-   * Whether the owner published a row for **every** business date in the
-   * window. Derived here, from the business dates the owner's own rows carry,
-   * so no consumer has to re-derive the window's calendar.
-   */
+  /** Whether the sweep measured **every** business date in the window. */
   coversWindow: boolean;
 }
 
 /**
- * Asks the advertising owner how to read this window, in the owner's terms.
- *
- * `readPublished` takes inclusive business-date texts while the profit window
- * is the half-open `[from, to)` used everywhere else, so the last date the ad
- * reads here can see is the day before `kstBusinessDate(to)`. Every caller
- * translates the window through this function so that two consumers of the
- * same window ask the owner the same question instead of inventing bounds of
- * their own.
- *
- * A window containing no business date asks the owner nothing, so it proves
- * nothing: no published date, never an advertising cost of zero.
+ * The window answer, read from the advertising ledger: whether advertising
+ * applies (no Coupang account, nothing to collect), how many business dates
+ * of the window the campaign sweep measured, what it spent across them, and
+ * whether every date in the window was measured.
  */
-export async function readAccountAdEvidence(
-  reader: AccountAdEvidenceReader,
+export async function readAdEvidenceFromLedger(
+  prisma: Pick<PrismaClient, '$queryRaw' | 'channelAccount'>,
   organizationId: string,
   from: Date,
   to: Date,
 ): Promise<AccountAdEvidence> {
   const businessDateFrom = kstBusinessDate(from);
-  const lastBusinessDate = new Date(kstBusinessDate(to).getTime() - DAY_MS);
-  if (lastBusinessDate.getTime() < businessDateFrom.getTime()) {
-    return { hasAdAccount: true, publishedDates: 0, accountSpend: 0, coversWindow: false };
-  }
-  const published = await reader.readPublished({
-    organizationId,
-    from: businessDateText(businessDateFrom),
-    to: businessDateText(lastBusinessDate),
-  });
-  // `kstBusinessDate` yields UTC midnight, so the window's business dates are
-  // exactly this stride. Walk them against the dates the owner published: one
-  // absent date is enough to make the answer partial.
-  const publishedDates = new Set(published.rows.map((row) => row.businessDate));
-  let coversWindow = true;
-  for (
-    let day = businessDateFrom.getTime();
-    day <= lastBusinessDate.getTime();
-    day += DAY_MS
-  ) {
-    if (!publishedDates.has(businessDateText(new Date(day)))) {
-      coversWindow = false;
-      break;
-    }
-  }
+  const businessDateTo = kstBusinessDate(to);
+  const windowDays = Math.max(0, Math.round((businessDateTo.getTime() - businessDateFrom.getTime()) / DAY_MS));
+  const [applies, facts] = await Promise.all([
+    advertisingApplies(prisma, organizationId),
+    windowDays === 0
+      ? Promise.resolve({ days: [] as const, observedAt: null })
+      : readAdWindowFacts(prisma, { organizationId, from: businessDateFrom, to: businessDateTo }),
+  ]);
   return {
-    hasAdAccount: published.channelAccountId !== null,
-    publishedDates: published.rows.length,
-    accountSpend: published.rows.reduce((sum, row) => sum + row.normalized.adSpend, 0),
-    coversWindow,
+    hasAdAccount: applies,
+    publishedDates: facts.days.length,
+    accountSpend: facts.days.reduce((sum, day) => sum + day.spend, 0),
+    coversWindow: windowDays > 0 && facts.days.length === windowDays,
   };
 }
 
@@ -186,7 +138,7 @@ export function hasMeasuredProfit(
 
 /**
  * @param accountAdEvidence how Advertising says this window's account-level
- *   publication should be read — obtain it with `readAccountAdEvidence` for
+ *   coverage should be read — obtain it with `readAdEvidenceFromLedger` for
  *   the same `[from, to)` window — which is also what carries the date
  *   coverage the owner's evidence word deliberately leaves out. It is required
  *   because its absence is what made "this organization runs no ads" and "ad
@@ -201,7 +153,7 @@ export async function buildPerListingProfit(
 ): Promise<PerListingProfit[]> {
   const businessDateFrom = kstBusinessDate(from);
   const businessDateTo = kstBusinessDate(to);
-  const [orders, adByListing, adWindow, observedListings] = await Promise.all([
+  const [orders, adByListing] = await Promise.all([
     prisma.order.findMany({
       where: {
         organizationId,
@@ -260,25 +212,10 @@ export async function buildPerListingProfit(
         },
       },
     }),
-    // Listing-level measured ad spend over the same `[from, to)` window.
-    // `(organizationId, listingId, businessDate)` is unique, so a listing's
-    // `days` is its covered day count.
+    // Listing-level measured ad spend over the same `[from, to)` window, from
+    // the ledger's product-grain rows. Coverage is account-level, so a
+    // listing absent here spent nothing on the measured dates.
     readListingAdWindowFacts(prisma, { organizationId, from: businessDateFrom, to: businessDateTo }),
-    // The window's ad-collection calendar: the business dates on which the ad
-    // source reported anything at all. A listing the source did report, but
-    // that is absent on one of these dates, has a hole in its evidence.
-    readAdWindowFacts(prisma, { organizationId, from: businessDateFrom, to: businessDateTo }),
-    // Listings the daily-fact source touched at all in the window, with or
-    // without ad provenance. A listing present here but absent from the
-    // coverage-filtered read was reported without its ad metrics — that is
-    // missing evidence, not an absent source.
-    prisma.channelListingDailySnapshot.groupBy({
-      by: ['listingId'],
-      where: {
-        organizationId,
-        businessDate: { gte: businessDateFrom, lt: businessDateTo },
-      },
-    }),
   ]);
 
   type Agg = {
@@ -357,12 +294,7 @@ export async function buildPerListingProfit(
     }
   }
 
-  const collectedDayCount = adWindow.days.length;
-  const adEvidenceByListing = new Map(
-    adByListing.map((r) => [r.listingId, { spend: r.spend, coveredDays: r.days }]),
-  );
-
-  const observedListingIds = new Set(observedListings.map((r) => r.listingId));
+  const adSpendByListing = new Map(adByListing.map((r) => [r.listingId, r.spend]));
 
   /**
    * The account answers first, because it is the only place that separates an
@@ -370,52 +302,20 @@ export async function buildPerListingProfit(
    *
    * - No advertising account — no collection can exist either. Advertising
    *   is a satisfied input at zero for every listing.
-   * - An account that published no complete row for this window. No listing
-   *   has a measured ad cost, so every profit here is unavailable. Absent
-   *   evidence is never a cost of zero.
-   * - Zero spend **over the whole window** — the account published an
-   *   explicit zero for every business date asked about, which is positive
-   *   proof that no campaign ran. An empty per-listing calendar is then the
-   *   expected shape rather than absent evidence: an empty ad report writes no
-   *   listing rows at all (`flushListingAdMetrics` iterates the report's own
-   *   rows, and nothing synthesises an all-zero *listing* row the way the
-   *   account collector synthesises an all-zero *account* row). Falling
-   *   through to the calendar would blank the profit of every organization
-   *   that simply ran no ads.
-   *
-   *   Full date coverage is what upgrades a zero sum to a measurement, and it
-   *   cannot be skipped: a zero sum over 3 of 30 requested days proves
-   *   nothing about the other 27. Only "zero on every date in the window"
-   *   rules out spend on a date nobody looked at; partial coverage leaves the
-   *   rest of the window unproven and falls through to the calendar below,
-   *   which is where an unproven window belongs.
-   * - Spend observed, or a zero sum over part of the window — the source did
-   *   publish, so the per-listing calendar below decides. An **empty** calendar
-   *   is then missing evidence rather than proof of no spend: with spend
-   *   observed, the account saw spend that no listing recorded, which is a
-   *   contradiction rather than a zero. It used to satisfy `coveredDays === collectedDayCount`
-   *   as `0 === 0` and publish a measured zero for a window the listing-level
-   *   source never covered.
-   *
-   * Within a non-empty calendar, a listing the daily-fact source never touched
-   * has a **not-applied** ad cost — the source ran and never reported it, so
-   * zero is a satisfied input rather than a missing one.
-   *
-   * Once the source has touched a listing, its ad evidence must cover every
-   * date on the window's ad-collection calendar. A listing short of that is
-   * **missing** those dates, whether the rows are absent or present without ad
-   * provenance. A present-but-unmarked row is the case an unfiltered
-   * `SUM(adSpend)` silently reads as a measured zero.
+   * - A window the sweep measured no date of. No listing has a measured ad
+   *   cost, so every profit here is unavailable. Absent evidence is never a
+   *   cost of zero.
+   * - A window the sweep measured only part of. A sum over 3 of 30 requested
+   *   days proves nothing about the other 27, so profit stays unavailable.
+   * - A fully measured window. Coverage is account-level — the sweep looked
+   *   at every listing on every measured date — so each listing's cost is the
+   *   sum of its rows, and a listing with no row at all spent nothing.
    */
   const resolveAdCost = (listingId: string): number | null => {
     if (!accountAdEvidence.hasAdAccount) return 0;
     if (accountAdEvidence.publishedDates === 0) return null;
-    if (accountAdEvidence.accountSpend === 0 && accountAdEvidence.coversWindow) return 0;
-    if (collectedDayCount === 0) return null;
-    if (!observedListingIds.has(listingId)) return 0;
-    const evidence = adEvidenceByListing.get(listingId);
-    const coveredDays = evidence?.coveredDays ?? 0;
-    return coveredDays === collectedDayCount ? evidence?.spend ?? 0 : null;
+    if (!accountAdEvidence.coversWindow) return null;
+    return adSpendByListing.get(listingId) ?? 0;
   };
 
   return Array.from(groups.values()).map((g) => {

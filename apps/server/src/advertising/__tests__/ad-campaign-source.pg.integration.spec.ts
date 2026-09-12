@@ -15,6 +15,7 @@ import { AdCampaignSourceController } from '../adapter/in/http/ad-campaign-sourc
 import { AdCampaignSourceRepository } from '../adapter/out/repository/ad-campaign-source.repository';
 import { AdCampaignRepositoryAdapter } from '../adapter/out/repository/ad-campaign.repository.adapter';
 import { AdActionRepositoryAdapter } from '../adapter/out/repository/ad-action.repository.adapter';
+import { readAdWindowFacts } from '../../common/ad-window-facts';
 import type { PrismaClient } from '@prisma/client';
 import type { INestApplication } from '@nestjs/common';
 
@@ -295,6 +296,21 @@ describe('Ad campaign source incoming HTTP + disposable PostgreSQL', () => {
     expect(
       (await request(httpUrl).get('/api/ads/campaigns/sync-status')).body,
     ).toMatchObject({ status: 'fresh', campaignCount: 1 });
+  });
+  it('a completed sweep is what the listing-day ad reader calls measured: every declared date, with the published spend', async () => {
+    const a = await full();
+    // Staged facts are private until the terminal publication.
+    expect((await readAdWindowFacts(prisma, { organizationId: ORG })).days).toEqual([]);
+    await finish(a, 201);
+
+    const facts = await readAdWindowFacts(prisma, { organizationId: ORG });
+
+    // The plan declared 31 business dates; the last one was published as an
+    // explicit empty day, which is a measured zero rather than a gap.
+    expect(facts.days.map((row) => row.businessDate)).toEqual([...a.plan.businessDates].sort());
+    expect(facts.days.filter((row) => row.spend === 12)).toHaveLength(30);
+    expect(facts.days.filter((row) => row.spend === 0)).toHaveLength(1);
+    expect(facts.observedAt).not.toBeNull();
   });
   it('requires every date and page; continuation uses original receipts with exact replay and no replacement', async () => {
     const a = (await admit()).body,

@@ -1,31 +1,51 @@
 import { describe, it, expect, vi } from 'vitest';
 import { SalesAnalysisService } from '../sales-analysis.service';
 
-// Hard rewrite Phase H3b — service now sources per-listing ad spend from
-// `ChannelListingDailySnapshot.groupBy` (additive `_sum.adSpend`) instead of
-// legacy `Ad.groupBy._sum.spend`.
+// The service sources per-listing ad spend through `readListingAdWindowFacts`
+// (`common/ad-window-facts`), which issues one `$queryRaw` against the ad
+// ledger and maps snake_case rows. Mirror that row shape here.
+type ListingAdRow = {
+  listing_id: string;
+  days: number;
+  first_date: Date;
+  last_date: Date;
+  observed_at: Date;
+  spend: number;
+  revenue: number;
+  impressions: number;
+  clicks: number;
+  conversions: number;
+  orders: number;
+};
+
+function listingAdRow(input: { listingId: string; spend: number }): ListingAdRow {
+  const day = new Date(Date.UTC(2026, 3, 1));
+  return {
+    listing_id: input.listingId,
+    days: 1,
+    first_date: day,
+    last_date: day,
+    observed_at: day,
+    spend: input.spend,
+    revenue: 0,
+    impressions: 0,
+    clicks: 0,
+    conversions: 0,
+    orders: 0,
+  };
+}
+
 function makePrisma(overrides: {
   orders?: unknown[];
   returnRows?: unknown[];
-  adGroupRows?: unknown[];
+  adRows?: Array<{ listingId: string; spend: number }>;
   orphanCount?: number;
   listings?: Array<{ id: string; channel: string }>;
 }) {
   return {
     order: { findMany: vi.fn().mockResolvedValue(overrides.orders ?? []) },
     orderReturnLineItem: { findMany: vi.fn().mockResolvedValue(overrides.returnRows ?? []) },
-    channelListingDailySnapshot: {
-      groupBy: vi.fn().mockResolvedValue(
-        // The listing-day ad reader groups per listing with the day count and
-        // date bounds beside the sums; mirror that aggregate shape.
-        (overrides.adGroupRows ?? []).map((row) => ({
-          _count: 1,
-          _min: { businessDate: new Date(Date.UTC(2026, 3, 1)) },
-          _max: { businessDate: new Date(Date.UTC(2026, 3, 1)), adObservedAt: new Date(Date.UTC(2026, 3, 1)) },
-          ...(row as object),
-        })),
-      ),
-    },
+    $queryRaw: vi.fn().mockResolvedValue((overrides.adRows ?? []).map(listingAdRow)),
     orderReturn: { count: vi.fn().mockResolvedValue(overrides.orphanCount ?? 0) },
     channelListing: {
       findMany: vi.fn().mockResolvedValue(
@@ -140,24 +160,27 @@ describe('SalesAnalysisService.getAnalysis — Plan D.3', () => {
     const orders = [
       { id: 'o1', shippingPrice: 3000, lineItems: [mkLineItem(coup, { quantity: 1, totalPrice: 10000, costPrice: 5000, commissionRate: 0.1, otherCost: 0 })] },
     ];
-    const adGroupRows = [
-      { listingId: 'l-c', _sum: { adSpend: 2000 } },
-      { listingId: 'l-unknown', _sum: { adSpend: 500 } },  // not in listings → dropped
+    const adRows = [
+      { listingId: 'l-c', spend: 2000 },
+      { listingId: 'l-unknown', spend: 500 },  // not in listings → dropped
     ];
     const listings = [{ id: 'l-c', channel: 'coupang' }];  // only l-c resolves
-    const prisma = makePrisma({ orders, adGroupRows, listings });
+    const prisma = makePrisma({ orders, adRows, listings });
     const result = await new SalesAnalysisService(prisma).getAnalysis('cA', '2026-04');
     const c = result.channels[0];
     expect(c.totalCost).toBeGreaterThanOrEqual(2000);  // adCost absorbed
-    expect(prisma.channelListingDailySnapshot.groupBy).toHaveBeenCalledWith(expect.objectContaining({
-      by: ['listingId'],
-      _sum: expect.objectContaining({ adSpend: true }),
-      where: expect.objectContaining({
-        organizationId: 'cA',
-        businessDate: expect.objectContaining({ gte: expect.any(Date), lt: expect.any(Date) }),
-        adObservedAt: { not: null },
-      }),
-    }));
+    // cogs 5000 + commission 1000 + shipping 3000 + ad 2000 (l-unknown dropped)
+    expect(c.totalCost).toBe(11000);
+    // One ledger read, per listing, fenced to the organization and bounded
+    // to the KST month as a half-open `[from, to)` date window.
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
+    const sql = prisma.$queryRaw.mock.calls[0][0] as { strings: readonly string[]; values: unknown[] };
+    const text = sql.strings.join('');
+    expect(text.trimStart().startsWith('WITH sweeps AS')).toBe(true);
+    expect(text).toContain('GROUP BY listing_id');
+    expect(sql.values).toContain('cA');
+    const dates = sql.values.filter((v): v is string => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v));
+    expect([...new Set(dates)]).toEqual(['2026-03-31', '2026-04-30']);
     expect(prisma.channelListing.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({ organizationId: 'cA' }),
     }));

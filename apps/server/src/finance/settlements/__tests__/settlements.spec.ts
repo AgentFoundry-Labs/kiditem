@@ -1,25 +1,22 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { BadRequestException } from '@nestjs/common';
-import { buildPerListingProfit } from '../../../common/per-listing-profit';
+import { buildPerListingProfit, readAdEvidenceFromLedger } from '../../../common/per-listing-profit';
 import { SettlementsService } from '../settlements.service';
 
-// Only the per-listing aggregation is faked. `readAccountAdEvidence` stays
-// real so the window this service asks the advertising owner about is the one
-// it actually passes to the aggregation.
+// The per-listing aggregation and the ledger's account-level ad evidence are
+// faked together: both are handed the same `[from, to)` window, and these cases
+// check that the window this service derives is the one both reads receive.
 vi.mock('../../../common/per-listing-profit', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../common/per-listing-profit')>()),
   buildPerListingProfit: vi.fn(),
+  readAdEvidenceFromLedger: vi.fn(),
 }));
 
 const mockedBuildPerListingProfit = vi.mocked(buildPerListingProfit);
+const mockedReadAdEvidenceFromLedger = vi.mocked(readAdEvidenceFromLedger);
 
 /** An organization with no advertising account: ad cost is a genuine zero. */
-const notAppliedAdRead = {
-  readPublished: vi.fn().mockResolvedValue({
-    channelAccountId: null,
-    rows: [],
-  }),
-};
+const NOT_APPLIED_AD_EVIDENCE = { hasAdAccount: false, publishedDates: 0, accountSpend: 0, coversWindow: false };
 
 function makePrisma() {
   return {
@@ -68,7 +65,9 @@ describe('SettlementsService', () => {
 
   beforeEach(() => {
     prisma = makePrisma();
-    service = new SettlementsService(prisma as any, notAppliedAdRead);
+    service = new SettlementsService(prisma as any);
+    mockedReadAdEvidenceFromLedger.mockReset();
+    mockedReadAdEvidenceFromLedger.mockResolvedValue(NOT_APPLIED_AD_EVIDENCE);
     mockedBuildPerListingProfit.mockReset();
     mockedBuildPerListingProfit.mockResolvedValue([]);
   });
@@ -221,15 +220,15 @@ describe('SettlementsService', () => {
         'c1',
         new Date('2025-02-28T15:00:00.000Z'),
         new Date('2025-03-31T15:00:00.000Z'),
-        { hasAdAccount: false, publishedDates: 0, accountSpend: 0, coversWindow: false },
+        NOT_APPLIED_AD_EVIDENCE,
       );
-      // The advertising owner is asked about the same window, in the inclusive
-      // business dates its published range uses.
-      expect(notAppliedAdRead.readPublished).toHaveBeenCalledWith({
-        organizationId: 'c1',
-        from: '2025-03-01',
-        to: '2025-03-31',
-      });
+      // The ledger is asked about the same `[from, to)` window.
+      expect(mockedReadAdEvidenceFromLedger).toHaveBeenCalledWith(
+        prisma as any,
+        'c1',
+        new Date('2025-02-28T15:00:00.000Z'),
+        new Date('2025-03-31T15:00:00.000Z'),
+      );
 
       const [strings, organizationId, from, to] = prisma.$queryRaw.mock.calls[0] ?? [];
       expect([organizationId, from, to]).toEqual([

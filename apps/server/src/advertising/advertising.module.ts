@@ -89,8 +89,6 @@ import { WingTrackedProductService } from "./application/service/wing-tracked-pr
 import { CoupangMomentumReadService } from "./application/service/coupang-momentum-read.service";
 import { KeywordRankIngestHandler } from "./application/service/keyword-rank-ingest.handler";
 import { WingSalesRankIngestHandler } from "./application/service/wing-sales-rank-ingest.handler";
-// transitional facade — grandfathered by CLAUDE.md
-import { ChannelScrapePersistenceService } from "./services/channel-scrape-persistence.service";
 // application/port/out tokens
 import { AD_CONFIG_REPOSITORY_PORT } from "./application/port/out/repository/ad-config.repository.port";
 import { AD_BENCHMARK_REPOSITORY_PORT } from "./application/port/out/repository/ad-benchmark.repository.port";
@@ -302,8 +300,6 @@ const REPOSITORY_PORT_BINDINGS = [
     // application/service — source-owner support
     KeywordRankIngestHandler,
     WingSalesRankIngestHandler,
-    // services/* — transitional facade (grandfathered)
-    ChannelScrapePersistenceService,
     // port bindings
     ...REPOSITORY_PORT_BINDINGS,
     {

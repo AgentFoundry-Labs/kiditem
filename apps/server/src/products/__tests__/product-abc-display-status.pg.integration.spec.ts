@@ -6,7 +6,6 @@ import {
 } from '@kiditem/shared/product-abc';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import { ProfitabilityAdImportRepositoryAdapter } from '../../advertising/adapter/out/repository/profitability-ad-import.repository.adapter';
-import { AdAccountDailyKpiSourceRepository } from '../../advertising/adapter/out/repository/ad-account-daily-kpi-source.repository';
 import { DashboardInventoryRepositoryAdapter } from '../../analytics/dashboard/adapter/out/repository/dashboard-inventory.repository.adapter';
 import { DashboardInventoryService } from '../../analytics/dashboard/application/service/dashboard-inventory.service';
 import { buildDashboardContext } from '../../analytics/dashboard/domain/context';
@@ -79,8 +78,6 @@ describe('Products publishes one ABC display status (PostgreSQL)', () => {
       new DashboardInventoryRepositoryAdapter(
         prismaService,
         productAbc,
-        // The real advertising owner against the same Postgres.
-        new AdAccountDailyKpiSourceRepository(prismaService, alerts),
         // The panel's rows come from the alerts module, not from this adapter.
         alerts,
       ),

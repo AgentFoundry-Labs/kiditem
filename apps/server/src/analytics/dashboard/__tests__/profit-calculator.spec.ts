@@ -4,13 +4,15 @@ import type { PrismaService } from '../../../prisma/prisma.service';
 import { periodOf } from './test-helpers/period';
 
 /**
- * Ad spend is supplied by the Advertising owner publication port. Tests keep
- * the order/lineItem path focused while providing explicit owner rows where
- * ad evidence is part of the assertion.
+ * Ad days come from the advertising target-day ledger through
+ * `common/ad-window-facts`, which the adapter reaches as `$queryRaw`. Tests
+ * keep the order/lineItem path focused while providing explicit measured days
+ * where ad evidence is part of the assertion.
  */
 type PrismaMock = {
   order: { findMany: ReturnType<typeof vi.fn> };
-  channelListingDailySnapshot: { aggregate: ReturnType<typeof vi.fn> };
+  channelAccount: { findFirst: ReturnType<typeof vi.fn> };
+  $queryRaw: ReturnType<typeof vi.fn>;
 };
 
 /** Inside every `calculateForRange` window used below. */
@@ -29,52 +31,26 @@ function makePrisma(orders: unknown[]): PrismaMock {
         })),
       ),
     },
-    channelListingDailySnapshot: {
-      aggregate: vi.fn().mockResolvedValue({
-        _sum: {
-          adSpend: 0,
-          adRevenue: 0,
-          adImpressions: 0,
-          adClicks: 0,
-          adConversions: 0,
-        },
-      }),
-    },
+    channelAccount: { findFirst: vi.fn().mockResolvedValue({ id: ACCOUNT_ID }) },
+    $queryRaw: vi.fn().mockResolvedValue([]),
   };
 }
 
 const ACCOUNT_ID = '00000000-0000-4000-8000-000000000001';
 
 /**
- * The owner publishes an evidence word alongside the rows, and derives it the
- * same way here: no account is `NOT_APPLIED`, an account with no rows is
- * `MISSING`, and rows are `CONFIRMED_ZERO`/`OBSERVED` by their spend. Passing
- * `channelAccountId: null` models an organization that does not advertise.
+ * Wires the measured ad days and whether a Coupang channel account exists.
+ * Passing `channelAccountId: null` models an organization that does not
+ * advertise, so advertising is not an input to its profit.
  */
-function publishedEvidence(rows: unknown[], channelAccountId: string | null): string {
-  if (channelAccountId === null) return 'NOT_APPLIED';
-  if (rows.length === 0) return 'MISSING';
-  const zeroSpend = rows.every(
-    (row) => (row as { normalized: { adSpend: number } }).normalized.adSpend === 0,
-  );
-  return zeroSpend ? 'CONFIRMED_ZERO' : 'OBSERVED';
-}
-
 function makeAdapter(
   prisma: PrismaMock,
   rows: unknown[] = [],
   channelAccountId: string | null = ACCOUNT_ID,
 ): ProfitCalculationRepositoryAdapter {
-  return new ProfitCalculationRepositoryAdapter(
-    prisma as unknown as PrismaService,
-    {
-      readPublished: vi.fn().mockResolvedValue({
-        channelAccountId,
-        evidence: publishedEvidence(rows, channelAccountId),
-        rows,
-      }),
-    },
-  );
+  prisma.channelAccount.findFirst.mockResolvedValue(channelAccountId ? { id: channelAccountId } : null);
+  prisma.$queryRaw.mockResolvedValue(rows);
+  return new ProfitCalculationRepositoryAdapter(prisma as unknown as PrismaService);
 }
 
 function ownerRow(
@@ -88,19 +64,14 @@ function ownerRow(
   }> = {},
 ) {
   return {
-    businessDate,
-    observedAt: `${businessDate}T23:00:00.000Z`,
-    normalized: {
-      adSpend: values.adSpend ?? 0,
-      adRevenue: values.adRevenue ?? 0,
-      impressions: values.impressions ?? 0,
-      clicks: values.clicks ?? 0,
-      conversions: values.conversions ?? 0,
-      orders: 0,
-      providerRoas: null,
-      providerCtr: null,
-      providerConversionRate: null,
-    },
+    business_date: new Date(`${businessDate}T00:00:00.000Z`),
+    spend: values.adSpend ?? 0,
+    revenue: values.adRevenue ?? 0,
+    impressions: values.impressions ?? 0,
+    clicks: values.clicks ?? 0,
+    conversions: values.conversions ?? 0,
+    orders: 0,
+    observed_at: new Date(`${businessDate}T23:00:00.000Z`),
   };
 }
 
@@ -222,20 +193,8 @@ describe('ProfitCalculationRepositoryAdapter.calculateForRange — R-1 shipping 
     const findManyMock = vi.fn().mockResolvedValue([
       { orderedAt: DEFAULT_ORDERED_AT, shippingPrice: 3000, lineItems: [{ quantity: 1, totalPrice: 10000, listingOption: { costPriceOverride: 5000, commissionRate: 0.1, otherCost: 0, inventoryComponents: [] } }] },
     ]);
-    const prisma: PrismaMock = {
-      order: { findMany: findManyMock },
-      channelListingDailySnapshot: {
-        aggregate: vi.fn().mockResolvedValue({
-          _sum: {
-            adSpend: 0,
-            adRevenue: 0,
-            adImpressions: 0,
-            adClicks: 0,
-            adConversions: 0,
-          },
-        }),
-      },
-    };
+    const prisma = makePrisma([]);
+    prisma.order.findMany = findManyMock;
     const from = new Date('2026-04-01T00:00:00Z');
     const to = new Date('2026-05-01T00:00:00Z');
     await makeAdapter(prisma).calculateForRange('organization-1', periodOf(from, to));
@@ -251,10 +210,7 @@ describe('ProfitCalculationRepositoryAdapter.calculateForRange — R-1 shipping 
 
 describe('ProfitCalculationRepositoryAdapter.calculateForRange — owner-published ad evidence', () => {
   it('aggregates additive ad metrics from Advertising owner rows', async () => {
-    const prisma: PrismaMock = {
-      order: { findMany: vi.fn().mockResolvedValue([]) },
-      channelListingDailySnapshot: { aggregate: vi.fn() },
-    };
+    const prisma = makePrisma([]);
     const from = new Date('2026-04-01T00:00:00Z');
     const to = new Date('2026-05-01T00:00:00Z');
     const result = await makeAdapter(prisma, [ownerRow('2026-04-01', {
@@ -273,10 +229,7 @@ describe('ProfitCalculationRepositoryAdapter.calculateForRange — owner-publish
   });
 
   it('empty owner publication → zero ad metrics and incomplete ad evidence', async () => {
-    const prisma: PrismaMock = {
-      order: { findMany: vi.fn().mockResolvedValue([]) },
-      channelListingDailySnapshot: { aggregate: vi.fn() },
-    };
+    const prisma = makePrisma([]);
     const from = new Date('2026-04-01T00:00:00Z');
     const to = new Date('2026-05-01T00:00:00Z');
     const result = await makeAdapter(prisma).calculateForRange('organization-1', periodOf(from, to));
@@ -413,10 +366,8 @@ describe('ProfitCalculationRepositoryAdapter.calculateDailyForRange', () => {
 
   it('preserves owner ad read failure even when the range has no orders', async () => {
     const prisma = makePrisma([]);
-    const adapter = new ProfitCalculationRepositoryAdapter(
-      prisma as unknown as PrismaService,
-      { readPublished: vi.fn().mockRejectedValue(new Error('owner unavailable')) },
-    );
+    prisma.$queryRaw.mockRejectedValue(new Error('ledger unavailable'));
+    const adapter = new ProfitCalculationRepositoryAdapter(prisma as unknown as PrismaService);
 
     const rows = await adapter.calculateDailyForRange('organization-1', periodOf(new Date('2026-09-01T00:00:00.000Z'), new Date('2026-09-03T00:00:00.000Z')));
 

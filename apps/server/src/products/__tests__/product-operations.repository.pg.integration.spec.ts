@@ -20,6 +20,7 @@ import {
   TEST_ORGANIZATION_ID,
   TEST_USER_ID,
 } from '../../test-helpers/real-prisma';
+import { seedAd } from '../../test-helpers/finance-seeds';
 import { ProductOperationsRepositoryAdapter } from '../adapter/out/repository/product-operations.repository.adapter';
 import { ProductOperationsService } from '../application/service/product-operations.service';
 import { InventoryAvailabilityRepositoryAdapter } from '../../inventory/adapter/out/repository/inventory-availability.repository.adapter';
@@ -817,9 +818,6 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
         trafficOrders: 3,
         trafficSalesQty: 4,
         trafficRevenue: 40_000,
-        adSpend: 5_000,
-        adCoverageStatus: 'OBSERVED',
-        adObservedAt: now,
         trafficCoverageStatus: 'OBSERVED',
         trafficObservedAt: now,
         lastObservedAt: now,
@@ -834,6 +832,12 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
           },
         },
       },
+    });
+    await seedAd(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      listingId: listing.id,
+      date: businessDate,
+      spend: 5_000,
     });
     // Legacy period-as-day traffic has no accepted provenance and must not affect product totals.
     await prisma.channelListingDailySnapshot.create({

@@ -1,9 +1,11 @@
 # analytics/dashboard — Reporting Read Model
 
 `src/analytics/dashboard/` owns `/api/dashboard/*` read endpoints for the
-analytics domain. It hydrates report KPIs from order/listing/account daily-fact
-rows plus raw SQL on order line items, and falls back to Wing/Drive replay
-daily facts when order data is absent. Keep this as a read-only reporting
+analytics domain. It hydrates report KPIs from order rows, listing-day traffic
+facts, and the advertising target-day ledger (through `common/ad-window-facts`,
+the one ad reader) plus raw SQL on order line items, and falls back to
+Wing/Drive replay daily facts when order data is absent. Advertising has one
+ledger; the account-daily KPI publication is not a second ad source here. Keep this as a read-only reporting
 boundary with HTTP and persistence adapters around Prisma-free orchestration.
 
 ## Period Resolution
@@ -38,7 +40,9 @@ boundary with HTTP and persistence adapters around Prisma-free orchestration.
   a multi-source metric uses `intersectBases`, and a ratio uses one basis for
   numerator and denominator.
 - Read `ProfitSourceCoverage.hasAdAccount`, not `adDates.length`: with no
-  advertising account the basis names orders alone.
+  Coupang channel account the basis names orders alone. `adDates` are the
+  dates the campaign sweep measured (its declared window), not dates that
+  happen to carry rows.
 - `unverified` means a required read failed. Evidence read and refused is
   `invalidDates`; nothing collected is simply absent from `includedDates`.
 - A published basis describes the value actually published. A source this

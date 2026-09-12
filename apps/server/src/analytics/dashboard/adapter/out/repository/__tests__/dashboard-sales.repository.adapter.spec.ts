@@ -6,23 +6,17 @@ import {
 import { DashboardSalesRepositoryAdapter } from '../dashboard-sales.repository.adapter';
 
 /**
- * Advertising's account-level answer, which the profit read asks for before it
- * settles anything. `NOT_APPLIED` is the cheapest truthful word here: these
- * cases are about the grade and the ranking, not about ad spend.
- */
-const adReader = () => ({
-  readPublished: vi.fn().mockResolvedValue({ channelAccountId: null, rows: [] }),
-}) as never;
-
-/**
  * The ranking settles profit through `buildPerListingProfit`, which reads
- * orders and the listing daily snapshots. These cases assert the SQL's own
- * mapping, so the fake answers both with nothing.
+ * orders and the advertising ledger. These cases assert the SQL's own
+ * mapping, so the fake answers the ranking query with the rows and every
+ * other read with nothing; no Coupang account exists, so advertising is not
+ * an input and the cases stay about the grade and the ranking.
  */
 const prismaWith = (topProductRows: unknown[]) => ({
-  $queryRaw: vi.fn().mockResolvedValue(topProductRows),
+  $queryRaw: vi.fn().mockImplementation(async (sql: { strings?: string[] }) =>
+    (sql.strings?.[0] ?? '').includes('WITH sweeps AS') ? [] : topProductRows),
   order: { findMany: vi.fn().mockResolvedValue([]) },
-  channelListingDailySnapshot: { groupBy: vi.fn().mockResolvedValue([]) },
+  channelAccount: { findFirst: vi.fn().mockResolvedValue(null) },
 }) as never;
 
 describe('DashboardSalesRepositoryAdapter', () => {
@@ -58,7 +52,6 @@ describe('DashboardSalesRepositoryAdapter', () => {
         id: 'listing-1', listingId: 'listing-1', name: '상품', organization: '쿠팡',
         abcEvaluation: published, revenue: 10_000, quantity: 1,
       }]),
-      adReader(),
     );
 
     const result = await repository.fetchTopProducts(
@@ -80,8 +73,7 @@ describe('DashboardSalesRepositoryAdapter', () => {
           id: 'listing-1', listingId: 'listing-1', name: '신상품', organization: '쿠팡',
           abcEvaluation, revenue: 10_000, quantity: 1,
         }]),
-        adReader(),
-      );
+    );
 
       const result = await repository.fetchTopProducts(
         '11111111-1111-4111-8111-111111111111',
@@ -109,8 +101,7 @@ describe('DashboardSalesRepositoryAdapter', () => {
           id: 'line-sku:53889600', listingId: null, name: '로켓 공급 상품',
           organization: 'Coupang Rocket', abcEvaluation: null, revenue: 1_474_200, quantity: 12,
         }]),
-        adReader(),
-      );
+    );
 
       const [row] = await repository.fetchTopProducts(ORGANIZATION_ID, ...JULY);
 
@@ -125,7 +116,7 @@ describe('DashboardSalesRepositoryAdapter', () => {
         id: 'line-sku:1', listingId: null, name: '로켓 공급 상품',
         organization: 'Coupang Rocket', abcEvaluation: null, revenue: 1_000, quantity: 1,
       }]);
-      const repository = new DashboardSalesRepositoryAdapter(prisma, adReader());
+      const repository = new DashboardSalesRepositoryAdapter(prisma);
 
       await repository.fetchTopProducts(ORGANIZATION_ID, ...JULY);
 
@@ -138,7 +129,7 @@ describe('DashboardSalesRepositoryAdapter', () => {
         id: 'listing-1', listingId: 'listing-1', name: '상품',
         organization: '쿠팡', abcEvaluation: null, revenue: 10_000, quantity: 1,
       }]);
-      const repository = new DashboardSalesRepositoryAdapter(prisma, adReader());
+      const repository = new DashboardSalesRepositoryAdapter(prisma);
       const settled = vi.spyOn(
         repository as unknown as {
           readProfitByRankedListing: (o: string, f: Date, t: Date) => Promise<Map<string, unknown>>;
@@ -159,8 +150,7 @@ describe('DashboardSalesRepositoryAdapter', () => {
           id: 'listing-1', listingId: 'listing-1', name: '상품',
           organization: '쿠팡', abcEvaluation: null, revenue: 10_000, quantity: 1,
         }]),
-        adReader(),
-      );
+    );
 
       const [row] = await repository.fetchTopProducts(ORGANIZATION_ID, ...JULY);
 

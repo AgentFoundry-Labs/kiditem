@@ -89,7 +89,9 @@ describe('DashboardSalesService collected Coupang ad spend', () => {
     expect(result.today).toEqual({ revenue: 0, orders: 0 });
   });
 
-  it('월/기간 순이익과 상세 비용에 수집한 광고비를 반영한다', async () => {
+  // Profit and the ad panel read the same ad ledger, so the ad panel's spend
+  // never revises the profit adapter's ad cost: there is nothing to reconcile.
+  it('월/기간 순이익은 손익 어댑터의 광고비 그대로이고, 광고 패널 값이 그것을 고치지 않는다', async () => {
     const profit = buildMockProfitCalculationRepo();
     profit.calculateForRange.mockImplementation(async (_organizationId, period) => ({
       revenue: 100_000,
@@ -159,14 +161,14 @@ describe('DashboardSalesService collected Coupang ad spend', () => {
       ORGANIZATION_ID,
     );
 
-    expect(result.monthly.profit).toBe(20_000);
+    expect(result.monthly.profit).toBe(40_000);
     expect(result.monthly.revenue).toBe(100_000);
     expect(result.monthly).not.toHaveProperty('rocketRevenue');
-    expect(result.rangeKpi?.profit).toBe(20_000);
-    expect(result.rangeKpi?.profitRate).toBe(20);
+    expect(result.rangeKpi?.profit).toBe(40_000);
+    expect(result.rangeKpi?.profitRate).toBe(40);
     expect(result.profitDetail).toEqual(expect.objectContaining({
-      adCost: 30_000,
-      netProfit: 20_000,
+      adCost: 10_000,
+      netProfit: 40_000,
     }));
     expect(result.trafficKpi).toEqual(expect.objectContaining({
       trafficAvailable: false,
@@ -461,9 +463,9 @@ describe('DashboardSalesService collected Coupang ad spend', () => {
 describe('DashboardSalesService unavailable profit evidence', () => {
   // `null` netProfit means the cost evidence was incomplete. It is
   // categorically different from a measured zero, so nothing downstream may
-  // coerce it: the collected ad cost is still a measured fact and updates
-  // `adCost`, but every profit value derived from the missing base stays null.
-  it('수집 광고비는 반영하되 원가 근거가 없으면 순이익/이익률을 null로 유지한다', async () => {
+  // coerce it: the measured ad cost stays visible, but every profit value
+  // derived from the missing base stays null.
+  it('광고비는 보이되 원가 근거가 없으면 순이익/이익률을 null로 유지한다', async () => {
     const profit = buildMockProfitCalculationRepo();
     profit.calculateForRange.mockImplementation(async (_organizationId, period) => ({
       revenue: 100_000,
@@ -528,10 +530,10 @@ describe('DashboardSalesService unavailable profit evidence', () => {
       ORGANIZATION_ID,
     );
 
-    // Reconciliation keeps the larger measured account spend...
-    expect(result.profitDetail?.adCost).toBe(30_000);
+    // The measured ad cost stays visible...
+    expect(result.profitDetail?.adCost).toBe(10_000);
     expect(result.profitDetail?.revenue).toBe(100_000);
-    // ...but never synthesizes a profit out of a missing base.
+    // ...but nothing synthesizes a profit out of a missing base.
     expect(result.profitDetail?.netProfit).toBeNull();
     expect(result.monthly.profit).toBeNull();
     expect(result.rangeKpi?.profit).toBeNull();

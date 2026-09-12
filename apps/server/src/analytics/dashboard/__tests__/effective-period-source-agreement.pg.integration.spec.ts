@@ -43,9 +43,7 @@ import { WING_AD_SUMMARY_REPOSITORY_PORT } from '../application/port/out/reposit
 import { WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT } from '../application/port/out/repository/wing-traffic-aggregation.repository.port';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { SourceFailureAlerts } from '../../../alerts/alerts.service';
-import { AdAccountDailyKpiSourceRepository } from '../../../advertising/adapter/out/repository/ad-account-daily-kpi-source.repository';
 import { AdTrafficSourceRepository } from '../../../advertising/adapter/out/repository/ad-traffic-source.repository';
-import { AD_ACCOUNT_DAILY_KPI_READ_PORT } from '../../../advertising/application/port/in/ad-account-daily-kpi-source.port';
 import { AD_TRAFFIC_READ_PORT } from '../../../advertising/application/port/in/ad-traffic-source.port';
 import {
   makeTestPrisma,
@@ -54,6 +52,7 @@ import {
   TEST_ORGANIZATION_ID,
 } from '../../../test-helpers/real-prisma';
 import type { PrismaClient } from '@prisma/client';
+import { seedAd } from '../../../test-helpers/finance-seeds';
 
 const WING_URL = 'https://wing.coupang.com/tenants/business-insight/sales-analysis';
 const VENDOR_ID = 'VENDOR-AGREEMENT';
@@ -78,7 +77,7 @@ const WING_DAILY = {
   providerConversionRate: null,
 } as const;
 
-/** Per-collected-day Coupang account ad figures published by the ads owner. */
+/** Per-collected-day Coupang ad figures the campaign sweep reported. */
 const ADS_DAILY = {
   adSpend: 20_000,
   adRevenue: 80_000,
@@ -118,17 +117,12 @@ describe('effectivePeriod source agreement across dashboard endpoints (PG integr
   let salesService: DashboardSalesService;
   let adService: DashboardAdService;
   let trafficOwner: AdTrafficSourceRepository;
-  let adsOwner: AdAccountDailyKpiSourceRepository;
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
     const prismaService = prisma as unknown as PrismaService;
     trafficOwner = new AdTrafficSourceRepository(
-      prismaService,
-      new SourceFailureAlerts(prismaService),
-    );
-    adsOwner = new AdAccountDailyKpiSourceRepository(
       prismaService,
       new SourceFailureAlerts(prismaService),
     );
@@ -159,7 +153,6 @@ describe('effectivePeriod source agreement across dashboard endpoints (PG integr
           useExisting: WingTrafficAggregationRepositoryAdapter,
         },
         // The source owners themselves, against the same database.
-        { provide: AD_ACCOUNT_DAILY_KPI_READ_PORT, useValue: adsOwner },
         { provide: AD_TRAFFIC_READ_PORT, useValue: trafficOwner },
       ],
     }).compile();
@@ -172,23 +165,33 @@ describe('effectivePeriod source agreement across dashboard endpoints (PG integr
   });
 
   /**
-   * Publish one Wing traffic collection and one account ad KPI collection per
-   * business date from 1 August through `collectedThrough`. Both owners write
-   * their own canonical rows; nothing here reaches into their tables.
+   * Publish one Wing traffic collection through the traffic owner and one
+   * measured ad day in the advertising target-day ledger per business date
+   * from 1 August through `collectedThrough`.
    *
    * Cases only read, so each group collects once in its own `beforeAll`.
    */
   async function collectThrough(collectedThrough: string): Promise<void> {
     await resetDb(prisma);
     await seedBaseFixture(prisma);
-    const channelAccountId = await seedCoupangAccount();
+    const { channelAccountId, listingId } = await seedCoupangAccount();
     await publishWingTraffic(channelAccountId, COLLECTED_FROM, collectedThrough);
     for (const businessDate of enumerateDashboardDates(COLLECTED_FROM, collectedThrough)) {
-      await publishAccountAdDay(businessDate);
+      await seedAd(prisma, {
+        organizationId: TEST_ORGANIZATION_ID,
+        listingId,
+        date: businessDate,
+        spend: ADS_DAILY.adSpend,
+        revenue: ADS_DAILY.adRevenue,
+        impressions: ADS_DAILY.impressions,
+        clicks: ADS_DAILY.clicks,
+        conversions: ADS_DAILY.conversions,
+        orders: ADS_DAILY.orders,
+      });
     }
   }
 
-  async function seedCoupangAccount(): Promise<string> {
+  async function seedCoupangAccount(): Promise<{ channelAccountId: string; listingId: string }> {
     const account = await prisma.channelAccount.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
@@ -214,7 +217,7 @@ describe('effectivePeriod source agreement across dashboard endpoints (PG integr
         isActive: true,
       },
     });
-    return account.id;
+    return { channelAccountId: account.id, listingId: listing.id };
   }
 
   function rawSummary(label: string, values: TrafficSummary) {
@@ -346,62 +349,6 @@ describe('effectivePeriod source agreement across dashboard endpoints (PG integr
     });
   }
 
-  /** Publish one collected account ad day through the advertising owner. */
-  async function publishAccountAdDay(businessDate: string): Promise<void> {
-    const started = await adsOwner.beginAttempt({
-      organizationId: TEST_ORGANIZATION_ID,
-      idempotencyKey: randomUUID(),
-      targetDate: businessDate,
-    });
-    const control = await adsOwner.readAttemptControl({
-      organizationId: TEST_ORGANIZATION_ID,
-      attemptId: started.attemptId,
-    });
-    if (!control) throw new Error('Account ad KPI attempt control was not created.');
-    await adsOwner.uploadReceipt({
-      organizationId: TEST_ORGANIZATION_ID,
-      attemptId: started.attemptId,
-      attemptToken: control.attemptToken,
-      sequence: 0,
-      receipt: {
-        businessDate,
-        observedAt: `${businessDate}T23:00:00.000Z`,
-        providerAdvertiserId: VENDOR_ID,
-        rawJson: {
-          data: [{ date: businessDate, adSpend: `${ADS_DAILY.adSpend}` }],
-          kpis: { date: businessDate, spend: ADS_DAILY.adSpend },
-        },
-        normalized: {
-          date: businessDate,
-          ...ADS_DAILY,
-          roas: ADS_DAILY.adRevenue / ADS_DAILY.adSpend,
-          ctr: (ADS_DAILY.clicks / ADS_DAILY.impressions) * 100,
-          conversionRate: (ADS_DAILY.orders / ADS_DAILY.clicks) * 100,
-          observedMetrics: {
-            adSpend: true,
-            adRevenue: true,
-            impressions: true,
-            clicks: true,
-            conversions: true,
-            orders: true,
-          },
-          rowCount: 1,
-        },
-      },
-    });
-    const staged = await adsOwner.readAttemptControl({
-      organizationId: TEST_ORGANIZATION_ID,
-      attemptId: started.attemptId,
-    });
-    if (!staged) throw new Error('Account ad KPI attempt control was lost.');
-    await adsOwner.finalizeAttempt({
-      organizationId: TEST_ORGANIZATION_ID,
-      attemptId: started.attemptId,
-      attemptToken: control.attemptToken,
-      manifestChecksum: staged.manifestChecksum,
-    });
-  }
-
   /**
    * Both endpoints answered from the same published rows, for one anchor. No
    * orders exist, so `revenueSource`/`adSource` are decided purely by which
@@ -484,12 +431,10 @@ describe('effectivePeriod source agreement across dashboard endpoints (PG integr
       expect(ad.revenueSource).toBe(sales.revenueSource);
       expect(ad.adSource).toBe(sales.adSource);
       expect(sales.revenueSource).toBe('wing');
-      // Collected ad days inside the calendar-month order window are an order
-      // side ad cost as well as complete account evidence, so the honest
-      // answer here is `mixed`. A month window that reached past the closed
-      // days would leave the account side incomplete and drop this to
-      // `orders`.
-      expect(sales.adSource).toBe('mixed');
+      // Advertising has one ledger; a month window the sweep covered end to
+      // end names it, and a window that reached past the closed days would
+      // leave it incomplete and name none.
+      expect(sales.adSource).toBe('coupang_ads');
       expect(sales.label).toBe('2026-09');
     });
 

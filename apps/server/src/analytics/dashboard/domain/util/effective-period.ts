@@ -2,12 +2,11 @@ import type { DashboardEffectivePeriod } from '@kiditem/shared/dashboard';
 import type { DashboardContext } from '../context';
 
 /**
- * Order-side aggregate for the effective period. Only revenue/adCost/orderCount
+ * Order-side aggregate for the effective period. Only revenue/orderCount
  * decide which sources fed the period, so cost/settlement fields are not read.
  */
 export interface EffectivePeriodProfitMetrics {
   revenue: number;
-  adCost: number;
   orderCount: number;
 }
 
@@ -82,10 +81,9 @@ export function buildEffectivePeriod(
   else if (orderActive) revenueSource = 'orders';
   else if (wingActive) revenueSource = 'wing';
 
-  let adSource: DashboardEffectivePeriod['adSource'] = 'none';
-  if (cur.adCost > 0 && adsActive) adSource = 'mixed';
-  else if (cur.adCost > 0) adSource = 'orders';
-  else if (adsActive) adSource = 'coupang_ads';
+  // Advertising has one ledger, so the period either has complete ad
+  // evidence from it or none at all; there is no second source to mix with.
+  const adSource: DashboardEffectivePeriod['adSource'] = adsActive ? 'coupang_ads' : 'none';
 
   return {
     year: ctx.year,

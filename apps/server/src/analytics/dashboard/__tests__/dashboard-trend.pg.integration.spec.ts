@@ -8,7 +8,6 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { PROFIT_CALCULATION_REPOSITORY_PORT } from '../application/port/out/repository/profit-calculation.repository.port';
 import { DASHBOARD_TREND_REPOSITORY_PORT } from '../application/port/out/repository/dashboard-trend.repository.port';
 import { WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT } from '../application/port/out/repository/wing-traffic-aggregation.repository.port';
-import { AD_ACCOUNT_DAILY_KPI_READ_PORT } from '../../../advertising/application/port/in/ad-account-daily-kpi-source.port';
 import { AD_TRAFFIC_READ_PORT } from '../../../advertising/application/port/in/ad-traffic-source.port';
 import {
   makeTestPrisma,
@@ -31,7 +30,6 @@ import { buildDashboardContext } from '../domain/context';
 describe('DashboardTrendService.getTrend (PG integration)', () => {
   let prisma: PrismaClient;
   let service: DashboardTrendService;
-  const dailyKpiRead = { readPublished: vi.fn() };
   const trafficRead = { readPublished: vi.fn() };
 
   beforeAll(async () => {
@@ -47,7 +45,6 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
         { provide: PROFIT_CALCULATION_REPOSITORY_PORT, useExisting: ProfitCalculationRepositoryAdapter },
         { provide: DASHBOARD_TREND_REPOSITORY_PORT, useExisting: DashboardTrendRepositoryAdapter },
         { provide: WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT, useExisting: WingTrafficAggregationRepositoryAdapter },
-        { provide: AD_ACCOUNT_DAILY_KPI_READ_PORT, useValue: dailyKpiRead },
         { provide: AD_TRAFFIC_READ_PORT, useValue: trafficRead },
       ],
     }).compile();
@@ -61,10 +58,6 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
   beforeEach(async () => {
     await resetDb(prisma);
     await seedBaseFixture(prisma);
-    dailyKpiRead.readPublished.mockResolvedValue({
-      channelAccountId: '00000000-0000-4000-8000-000000000001',
-      rows: [],
-    });
     trafficRead.readPublished.mockResolvedValue({
       channelAccountId: '00000000-0000-4000-8000-000000000001',
       rows: [],
@@ -210,7 +203,7 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
     // Pre-fix would aggregate Order.totalPrice → revenue = 999M.
     // Post-fix aggregates lineItem.totalPrice → revenue = 100k.
     // Every non-ad cost must be explicit, including confirmed zero shipping.
-    const { listingOptionId } = await seedTestListingWithYesterdayOrder({
+    const { listingId, listingOptionId } = await seedTestListingWithYesterdayOrder({
       suffix: '4',
       lineItemTotalPrice: 100_000,
       orderTotalPriceOverride: 999_999_999,
@@ -220,24 +213,13 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
       where: { id: listingOptionId, organizationId: TEST_ORGANIZATION_ID },
       data: { shippingCost: 0 },
     });
+    // The sweep visited yesterday and found no advertising: a measured zero.
     const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    dailyKpiRead.readPublished.mockResolvedValue({
-      channelAccountId: '00000000-0000-4000-8000-000000000001',
-      rows: [{
-        businessDate: new Date(yesterday.getTime() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10),
-        observedAt: new Date().toISOString(),
-        normalized: {
-          adSpend: 0,
-          adRevenue: 0,
-          impressions: 0,
-          clicks: 0,
-          conversions: 0,
-          orders: 0,
-          providerRoas: null,
-          providerCtr: null,
-          providerConversionRate: null,
-        },
-      }],
+    await seedAd(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      listingId,
+      date: new Date(yesterday.getTime() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10),
+      spend: 0,
     });
 
     const result = await service.getTrend(buildDashboardContext(), TEST_ORGANIZATION_ID, '30d');
@@ -345,23 +327,16 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
       }
       return trafficPublication;
     });
-    dailyKpiRead.readPublished.mockResolvedValue({
-      channelAccountId: listing.channelAccountId,
-      rows: [{
-        businessDate: dateKey,
-        observedAt: '2026-09-06T01:00:00.000Z',
-        normalized: {
-          adSpend: 30_000,
-          adRevenue: 90_000,
-          impressions: 1000,
-          clicks: 50,
-          conversions: 3,
-          orders: 3,
-          providerRoas: 3,
-          providerCtr: 5,
-          providerConversionRate: 6,
-        },
-      }],
+    await seedAd(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      listingId,
+      date: dateKey,
+      spend: 30_000,
+      revenue: 90_000,
+      impressions: 1000,
+      clicks: 50,
+      conversions: 3,
+      orders: 3,
     });
 
     const result = await service.getTrend(buildDashboardContext(), TEST_ORGANIZATION_ID, '30d');

@@ -45,22 +45,11 @@ describe('AdStrategyContextRepositoryAdapter — loadStrategyContext equivalence
     }),
   });
 
-  // These fixtures carry no listings, so `loadStrategyContext` short-circuits
-  // before it asks the owner anything. The adapter still requires the port, and
-  // leaving it out only compiles because the Prisma mock is cast.
-  const buildAdAccountKpiMock = () => ({
-    readPublished: vi.fn().mockResolvedValue({
-      channelAccountId: null,
-      rows: [],
-    }),
-  });
-
   it('returns the StrategyContext keys agreed with the strategy services', async () => {
     const prismaMock = buildPrismaMock();
     const adapter = new AdStrategyContextRepositoryAdapter(
       prismaMock as any,
       buildReviewStatsMock(),
-      buildAdAccountKpiMock() as any,
     );
     const config = Object.freeze({ marker: 'TEST_CONFIG' }) as unknown as AdsConfig;
 
@@ -85,7 +74,6 @@ describe('AdStrategyContextRepositoryAdapter — loadStrategyContext equivalence
     const adapter = new AdStrategyContextRepositoryAdapter(
       prismaMock as any,
       buildReviewStatsMock(),
-      buildAdAccountKpiMock() as any,
     );
     const config = Object.freeze({ marker: 'TEST_CONFIG' }) as unknown as AdsConfig;
 
@@ -101,19 +89,16 @@ describe('AdStrategyContextRepositoryAdapter — loadStrategyContext equivalence
     const adapter = new AdStrategyContextRepositoryAdapter(
       prismaMock as any,
       buildReviewStatsMock(),
-      buildAdAccountKpiMock() as any,
     );
     const config = Object.freeze({ marker: 'TEST_CONFIG' }) as unknown as AdsConfig;
 
     await adapter.loadStrategyContext('org-1', 2026, 5, '7d', config);
 
-    expect(prismaMock.channelListingDailySnapshot.groupBy).toHaveBeenCalledTimes(1);
-    // The listing-day ad reader's window is half-open and gated on the
-    // observation timestamp.
-    expect(prismaMock.channelListingDailySnapshot.groupBy.mock.calls[0]![0].where).toEqual(expect.objectContaining({
-      businessDate: { gte: expect.any(Date), lt: expect.any(Date) },
-      adObservedAt: { not: null },
-    }));
+    // Listing-day ad facts come from the advertising target-day ledger
+    // (`common/ad-window-facts`, a raw query); the pre-cutover rollup columns
+    // on `channelListingDailySnapshot` are never read.
+    expect(prismaMock.$queryRaw).toHaveBeenCalled();
+    expect(prismaMock.channelListingDailySnapshot.groupBy).not.toHaveBeenCalled();
     expect(prismaMock.channelListingDailySnapshot.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
@@ -158,7 +143,6 @@ describe('AdStrategyContextRepositoryAdapter — loadStrategyContext equivalence
     const adapter = new AdStrategyContextRepositoryAdapter(
       prismaMock as any,
       buildReviewStatsMock(),
-      buildAdAccountKpiMock() as any,
     );
     const config = Object.freeze({ marker: 'TEST_CONFIG' }) as unknown as AdsConfig;
 
@@ -181,7 +165,6 @@ describe('AdStrategyContextRepositoryAdapter — loadStrategyContext equivalence
     const adapter = new AdStrategyContextRepositoryAdapter(
       prismaMock as any,
       reviewStatsMock,
-      buildAdAccountKpiMock() as any,
     );
     const recentSince = new Date('2026-05-01T00:00:00.000Z');
     const trafficSince = new Date('2026-05-02T00:00:00.000Z');
@@ -211,7 +194,6 @@ describe('AdStrategyContextRepositoryAdapter — loadStrategyContext equivalence
     const adapter = new AdStrategyContextRepositoryAdapter(
       prismaMock as any,
       buildReviewStatsMock(),
-      buildAdAccountKpiMock() as any,
     );
     const config = Object.freeze({ marker: 'TEST_CONFIG' }) as unknown as AdsConfig;
 

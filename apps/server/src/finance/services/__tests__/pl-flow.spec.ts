@@ -31,12 +31,7 @@ describe('SettlementsService — settlement create and update flow', () => {
 
   beforeEach(() => {
     prisma = makePrisma();
-    service = new SettlementsService(prisma as any, {
-      readPublished: vi.fn().mockResolvedValue({
-        channelAccountId: null,
-        rows: [],
-      }),
-    });
+    service = new SettlementsService(prisma as any);
   });
 
   it('findAll by organizationId → returns settlements ordered by period desc', async () => {

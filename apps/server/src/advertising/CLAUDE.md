@@ -64,13 +64,17 @@ modal (`cmg-api/tableMetric` with `tableType='keyword'`), not the report grid.
 - Product ABC reads go through Products' exported stored-grade port. An
   unclassified product stays `null`; consume the stored grade without deriving
   a product grade or coercing a missing/stale source to C.
-- Listing-day ad values are read only through `common/ad-window-facts`, gated
-  on `adObservedAt`; `npm run check:listing-day-ad-reader` fails any other
-  production read. An unmeasured day is not an advertising cost of zero.
+- `ChannelAdTargetDailySnapshot`, what the campaign sweep publishes, is the
+  one advertising ledger. Outside this owner it is read only through
+  `common/ad-window-facts`, whose gate is the current completed sweep, product
+  grain, no keyword rows; `npm run check:listing-day-ad-reader` fails any
+  other production read. A day the sweep never reported is absent, never a
+  cost of zero. `ChannelListingDailySnapshot`'s ad columns are a dead rollup
+  of this ledger awaiting a schema cutover; nothing writes or reads them.
 - The account-daily publication carries the account (`null` when the
-  organization has none) and the rows it published, nothing more. A zero sum
-  over the published rows is proof of no spend only when those rows cover every
-  business date in the window; otherwise the uncovered dates are not measured.
+  organization has none) and the rows it published, nothing more. It is a
+  reconciliation of the sweep, not a second ad ledger; the dashboard, profit
+  and readiness read the sweep.
 - Revenue, operating-profit contribution, rank, and cumulative share are
   reporting metrics only; none changes the absolute ABC grade.
 - Reach Channels through its exported port rather than concrete services.

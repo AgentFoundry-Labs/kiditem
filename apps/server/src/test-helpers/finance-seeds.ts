@@ -338,19 +338,20 @@ export async function seedReturn(
 // ---------------------------------------------------------------------------
 
 /**
- * Seed a per-listing/per-day ad spend row. Writes
- * `ChannelListingDailySnapshot` (daily-fact source-of-truth). Read paths in
- * dashboard / finance / advertising aggregate the additive `adSpend` column,
- * so call sites observe `getTrend(...).adCost` /
- * `salesAnalysis.totalCost` numbers from this seed.
+ * Seed one measured listing-day ad fact in the advertising target-day ledger
+ * (`ChannelAdTargetDailySnapshot`, product grain). Every reader of listing-day
+ * ad values goes through `common/ad-window-facts`, so a spec that seeds here
+ * observes `getTrend(...).adCost` / `salesAnalysis.totalCost` and friends.
  *
- * The row carries ad provenance by default, matching what the real ingest
- * writer records: coverage-aware readers (ADR-0003) only count `adSpend` from a
- * row whose `adCoverageStatus`/`adObservedAt` say the source reported it. Pass
- * `collected: false` to seed the uncollected row an unfiltered `SUM(adSpend)`
- * cannot tell apart from a measured zero.
+ * A measured day is a row; an uncollected day is the absence of one. Pass
+ * `collected: false` to remove any row seeded earlier for that listing-day,
+ * which is the only way to express "the source never reported this day".
  *
- * Returns the daily-fact row ID.
+ * Without `runId` the row is a legacy (pre-cutover) fact, which the reader
+ * admits as measured. Pass the id from `seedCompletedAdSweepRun` to attach it
+ * to a completed campaign-sweep generation.
+ *
+ * Returns the target row id, or `null` when `collected: false`.
  */
 export async function seedAd(
   prisma: PrismaClient,
@@ -359,64 +360,143 @@ export async function seedAd(
     listingId: string;
     date: string;              // ISO date string (e.g. '2026-04-15')
     spend: number;
+    revenue?: number;
+    impressions?: number;
+    clicks?: number;
+    conversions?: number;
+    orders?: number;
     collected?: boolean;
+    runId?: string | null;
+    /** Distinguishes several product rows of one listing on one day (options). */
+    targetKey?: string;
   },
-): Promise<string> {
+): Promise<string | null> {
   const listing = await prisma.channelListing.findFirstOrThrow({
     where: { id: opts.listingId, organizationId: opts.organizationId },
     select: {
       externalId: true,
+      channelAccountId: true,
       channelAccount: { select: { channel: true } },
     },
   });
-  const businessDate = new Date(opts.date);
-  // Mirrors `ChannelListingDailyRepositoryAdapter`: a reported non-zero value is
-  // OBSERVED, a reported zero is CONFIRMED_ZERO, and both carry an observation
-  // timestamp. An uncollected row carries neither.
-  const adProvenance = opts.collected === false
-    ? { adCoverageStatus: null, adObservedAt: null }
-    : {
-        adCoverageStatus: opts.spend !== 0 ? 'OBSERVED' : 'CONFIRMED_ZERO',
-        adObservedAt: businessDate,
-      };
-  const row = await prisma.channelListingDailySnapshot.upsert({
-    where: {
-      organizationId_listingId_businessDate: {
+  const businessDate = new Date(`${opts.date}T00:00:00.000Z`);
+  const targetKey = opts.targetKey ?? `product:${opts.listingId}`;
+  if (opts.collected === false) {
+    await prisma.channelAdTargetDailySnapshot.deleteMany({
+      where: {
         organizationId: opts.organizationId,
         listingId: opts.listingId,
         businessDate,
+        targetKey,
       },
-    },
-    create: {
+    });
+    return null;
+  }
+  const metrics = {
+    spend: opts.spend,
+    adSpend: opts.spend,
+    revenue: opts.revenue ?? 0,
+    adRevenue: opts.revenue ?? 0,
+    impressions: opts.impressions ?? 0,
+    clicks: opts.clicks ?? 0,
+    conversions: opts.conversions ?? 0,
+    orders: opts.orders ?? 0,
+    lastObservedAt: businessDate,
+  };
+  const existing = await prisma.channelAdTargetDailySnapshot.findFirst({
+    where: {
       organizationId: opts.organizationId,
       listingId: opts.listingId,
-      channel: listing.channelAccount.channel,
-      externalId: listing.externalId,
       businessDate,
-      adSpend: opts.spend,
-      ...adProvenance,
+      targetKey,
+      sourceImportRunId: opts.runId ?? null,
     },
-    update: { adSpend: opts.spend, ...adProvenance },
+    select: { id: true },
+  });
+  if (existing) {
+    await prisma.channelAdTargetDailySnapshot.update({ where: { id: existing.id }, data: metrics });
+    return existing.id;
+  }
+  const row = await prisma.channelAdTargetDailySnapshot.create({
+    data: {
+      organizationId: opts.organizationId,
+      channelAccountId: listing.channelAccountId,
+      channel: listing.channelAccount.channel,
+      businessDate,
+      listingId: opts.listingId,
+      externalId: listing.externalId,
+      targetType: 'product',
+      targetKey,
+      sourceImportRunId: opts.runId ?? null,
+      metaJson: { data: { granularity: 'product' } },
+      firstObservedAt: businessDate,
+      ...metrics,
+    },
     select: { id: true },
   });
   return row.id;
 }
 
-// ---------------------------------------------------------------------------
-// seedPublishedAdAccountDay — Advertising's account-level publication
-// ---------------------------------------------------------------------------
-
 /**
- * Publish one complete account-level ad day the way the `coupang_ads_daily`
- * source owner does: a completed `SourceImportRun` for the organization's
- * active Coupang account plus a `coupang_ads` / `dashboard_daily`
- * `ChannelScrapeSnapshot` carrying full observed-metric evidence.
- *
- * Without one of these the owner answers `MISSING` — an advertising account
- * that published nothing — which is absent evidence, never an ad cost of zero.
- * `adSpend: 0` makes the day an explicit zero (`CONFIRMED_ZERO`); a non-zero
- * spend makes the window `OBSERVED`.
+ * Seed one completed campaign-sweep generation for the organization's Coupang
+ * account, as `completeAdCampaignSourceIds` recognises it. Rows attached to it
+ * through `seedAd({ runId })` are measured; a later generation supersedes an
+ * earlier one for every date its window covers. Run-less rows already seeded
+ * inside the declared window are adopted by the new run, the way a real sweep
+ * publishes the rows it found, so a spec may seed rows first and declare the
+ * window after.
  */
+export async function seedCompletedAdSweepRun(
+  prisma: PrismaClient,
+  opts: {
+    organizationId: string;
+    generation: number;
+    status?: 'completed' | 'running' | 'failed';
+    /** The window the sweep declares it swept; every date in it is measured. */
+    window?: { startDate: string; endDate: string };
+  },
+): Promise<string> {
+  const account = await prisma.channelAccount.findFirstOrThrow({
+    where: { organizationId: opts.organizationId, channel: 'coupang' },
+    orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
+    select: { id: true },
+  });
+  const run = await prisma.sourceImportRun.create({
+    data: {
+      organizationId: opts.organizationId,
+      sourceType: 'coupang_ad_campaign',
+      channelAccountId: account.id,
+      status: opts.status ?? 'completed',
+      parserVersion: 'ad-campaign-v1',
+      plan: { captureMode: 'campaign_sweep', ...(opts.window ?? {}) },
+      freshnessGeneration: BigInt(opts.generation),
+      ...(opts.window
+        ? {
+            coverageStartDate: new Date(`${opts.window.startDate}T00:00:00.000Z`),
+            coverageEndDate: new Date(`${opts.window.endDate}T00:00:00.000Z`),
+          }
+        : {}),
+      importedAt: new Date(),
+    },
+    select: { id: true },
+  });
+  if (opts.window) {
+    await prisma.channelAdTargetDailySnapshot.updateMany({
+      where: {
+        organizationId: opts.organizationId,
+        channelAccountId: account.id,
+        sourceImportRunId: null,
+        businessDate: {
+          gte: new Date(`${opts.window.startDate}T00:00:00.000Z`),
+          lte: new Date(`${opts.window.endDate}T00:00:00.000Z`),
+        },
+      },
+      data: { sourceImportRunId: run.id },
+    });
+  }
+  return run.id;
+}
+
 export async function seedPublishedAdAccountDay(
   prisma: PrismaClient,
   opts: { organizationId: string; date: string; adSpend?: number },

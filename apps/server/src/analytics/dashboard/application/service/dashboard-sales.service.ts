@@ -29,7 +29,6 @@ import {
   canUseWingRevenue,
   hasOrderEvidence,
 } from '../../domain/util/effective-period';
-import { reconcileCollectedAdSpend } from '../../domain/util/collected-ad-profit';
 import {
   measuredPercent1,
   oneDecimalDifference,
@@ -179,10 +178,12 @@ export class DashboardSalesService {
         this.wingTrafficRepository.aggregateCoupangAds(organizationId, closedDayPeriods.selected),
         this.wingTrafficRepository.aggregateCoupangAds(organizationId, closedDayPeriods.previousSelected),
       ]);
-      const curMonthProfit = reconcileCollectedAdSpend(curMonth, coupangAdsMonth);
-      const prevMonthProfit = reconcileCollectedAdSpend(prevMonth, coupangAdsPrevMonth);
-      const rangeCurProfit = reconcileCollectedAdSpend(rangeCur, coupangAdsForRange);
-      const rangePrevProfit = reconcileCollectedAdSpend(rangePrev, coupangAdsForPrevRange);
+      // Profit and the ad panel read the same ad ledger, so there is nothing
+      // to reconcile between them.
+      const curMonthProfit = curMonth;
+      const prevMonthProfit = prevMonth;
+      const rangeCurProfit = rangeCur;
+      const rangePrevProfit = rangePrev;
 
       // Every published number carries the dates it was actually calculated
       // from. Each metric uses the maximal valid dates of its own required
@@ -302,8 +303,10 @@ export class DashboardSalesService {
     const previous = resolveSalesPeriod(prev, wingPrev);
 
     // 광고비율은 광고가 붙는 윙 매출 기준으로 계산(로켓 합산 total 로 희석 방지).
-    const adRate = measuredPercent1(cur.adCost, current.revenue);
-    const prevAdRate = measuredPercent1(prev.adCost, previous.revenue);
+    // An ad cost summed over an incompletely measured window is not a
+    // measurement, so neither is the ratio built on it.
+    const adRate = cur.adEvidenceComplete ? measuredPercent1(cur.adCost, current.revenue) : null;
+    const prevAdRate = prev.adEvidenceComplete ? measuredPercent1(prev.adCost, previous.revenue) : null;
     const revenueChange = percentChange(current.revenue, previous.revenue);
     const profitChange = percentChange(current.profit, previous.profit, true);
 

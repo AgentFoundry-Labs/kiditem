@@ -4,10 +4,7 @@ import type { PrismaClient } from '@prisma/client';
 import { PLDataSchema } from '@kiditem/shared/finance';
 import { ProfitLossService } from '../profit-loss.service';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { AdAccountDailyKpiSourceRepository } from '../../../advertising/adapter/out/repository/ad-account-daily-kpi-source.repository';
-import { AD_ACCOUNT_DAILY_KPI_READ_PORT } from '../../../advertising/application/port/in/ad-account-daily-kpi-source.port';
-import { SourceFailureAlerts } from '../../../alerts/alerts.service';
-import { seedAd, seedPublishedAdAccountDay } from '../../../test-helpers/finance-seeds';
+import { seedAd, seedCompletedAdSweepRun } from '../../../test-helpers/finance-seeds';
 import {
   makeTestPrisma,
   resetDb,
@@ -261,15 +258,6 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
       providers: [
         ProfitLossService,
         { provide: PrismaService, useValue: prisma },
-        // The real advertising owner against the same Postgres: whether the
-        // account published anything for the month is a fact only rows hold.
-        {
-          provide: AD_ACCOUNT_DAILY_KPI_READ_PORT,
-          useValue: new AdAccountDailyKpiSourceRepository(
-            prisma as never,
-            new SourceFailureAlerts(prisma as never),
-          ),
-        },
       ],
     }).compile();
     service = m.get(ProfitLossService);
@@ -540,14 +528,16 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
       externalOrderId: 'ZERO-ORD-1',
       lineItems: [{ listingOptionId: list.listingOption.id, optionId: list.option.id, totalPrice: 20_000 }],
     });
-    // The account published an explicit zero for the day and the listing
-    // carries the matching confirmed-zero row, so this zero is a measurement.
-    await seedPublishedAdAccountDay(prisma, {
-      organizationId: TEST_ORGANIZATION_ID, date: '2026-04-15', adSpend: 0,
+    // The campaign sweep measured every April date and the listing carries a
+    // confirmed-zero row, so this zero is a measurement, not absent evidence.
+    const runId = await seedCompletedAdSweepRun(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      generation: 1,
+      window: { startDate: '2026-04-01', endDate: '2026-04-30' },
     });
     await seedAd(prisma, {
       organizationId: TEST_ORGANIZATION_ID, listingId: list.listing.id,
-      date: '2026-04-15', spend: 0,
+      date: '2026-04-15', spend: 0, runId,
     });
 
     const result = await service.findAll(TEST_ORGANIZATION_ID, 2026, 4);

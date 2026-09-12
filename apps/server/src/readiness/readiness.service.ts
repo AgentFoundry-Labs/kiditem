@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
   COUPANG_CATALOG_BASIC_SOURCE_TYPE,
@@ -7,10 +7,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { kstDayStart } from '../common/kst';
 import { SELLPIA_SALES_COVERAGE_SELLER_ID } from '../analytics/sellpia-sales/domain/snapshot-coverage';
-import {
-  AD_ACCOUNT_DAILY_KPI_READ_PORT,
-  type AdAccountDailyKpiReadPort,
-} from '../advertising/application/port/in/ad-account-daily-kpi-source.port';
+import { dayAfter, readAdWindowFacts } from '../common/ad-window-facts';
 import type {
   ReadinessCheck,
   ReadinessResponse,
@@ -46,11 +43,7 @@ const READINESS_CATALOG_COMPLETE_SOURCE_TYPES = [
  */
 @Injectable()
 export class ReadinessService {
-  constructor(
-    private readonly prisma: PrismaService,
-    @Inject(AD_ACCOUNT_DAILY_KPI_READ_PORT)
-    private readonly adAccountDailyKpiRead: AdAccountDailyKpiReadPort,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   /**
    * Sellpia 매출과 Wing readiness는 최소 최근 N일을 보장하고, 이번 달이
@@ -149,12 +142,12 @@ export class ReadinessService {
       latestCoupangCatalogRun,
       sellpiaDailyRows,
     ] = await Promise.all([
-      // coupang_ads — 쿠팡 광고 일별 KPI
+      // coupang_ads — 캠페인 sweep이 보고한 영업일 (광고 원장 리더)
       activeCoupangAccount
-        ? this.adAccountDailyKpiRead.readPublished({
+        ? readAdWindowFacts(this.prisma, {
             organizationId,
-            from: adsRangeStartKstStr,
-            to: yesterdayKstStr,
+            from: new Date(`${adsRangeStartKstStr}T00:00:00.000Z`),
+            to: dayAfter(new Date(`${yesterdayKstStr}T00:00:00.000Z`)),
           })
         : Promise.resolve(null),
       activeCoupangAccount
@@ -277,15 +270,10 @@ export class ReadinessService {
     );
 
     // coupang_ads 일별 수집
-    const adsDailyKpiRows = adsDailyKpiPublished?.rows ?? [];
-    const adsPresent = new Set(adsDailyKpiRows.map((r) => r.businessDate));
+    const adsPresent = new Set((adsDailyKpiPublished?.days ?? []).map((r) => r.businessDate));
     const adsMissing = adsExpectedDates.filter((d) => !adsPresent.has(d));
     const adsYesterdayOk = adsPresent.has(yesterdayKstStr);
-    const adsLastDate = adsDailyKpiRows.reduce<string | null>(
-      (latest, row) =>
-        !latest || row.observedAt > latest ? row.observedAt : latest,
-      null,
-    );
+    const adsLastDate = adsDailyKpiPublished?.observedAt?.toISOString() ?? null;
 
     const wingSalesRankBusinessDate = wingSalesRank
       ? wingSalesRank.businessDate.toISOString().slice(0, 10)

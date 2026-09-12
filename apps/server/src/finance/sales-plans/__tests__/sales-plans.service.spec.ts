@@ -1,25 +1,22 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
-import { buildPerListingMetrics } from '../../../common/per-listing-profit';
+import { buildPerListingMetrics, readAdEvidenceFromLedger } from '../../../common/per-listing-profit';
 import { SalesPlansService } from '../sales-plans.service';
 
-// Only the per-listing aggregation is faked. `readAccountAdEvidence` stays
-// real so the window this service asks the advertising owner about is the one
-// it actually passes to the aggregation.
+// The per-listing aggregation and the ledger's account-level ad evidence are
+// faked together: both are handed the same `[from, to)` window, and these cases
+// check that the window this service derives is the one both reads receive.
 vi.mock('../../../common/per-listing-profit', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../common/per-listing-profit')>()),
   buildPerListingMetrics: vi.fn(),
+  readAdEvidenceFromLedger: vi.fn(),
 }));
 
 const mockedBuildPerListingMetrics = vi.mocked(buildPerListingMetrics);
+const mockedReadAdEvidenceFromLedger = vi.mocked(readAdEvidenceFromLedger);
 
 /** An organization with no advertising account: ad cost is a genuine zero. */
-const notAppliedAdRead = {
-  readPublished: vi.fn().mockResolvedValue({
-    channelAccountId: null,
-    rows: [],
-  }),
-};
+const NOT_APPLIED_AD_EVIDENCE = { hasAdAccount: false, publishedDates: 0, accountSpend: 0, coversWindow: false };
 
 /**
  * Plan B2c.orders T9 — sales-plans IDOR 3건 + KST boundary.
@@ -49,7 +46,9 @@ describe('SalesPlansService', () => {
 
   beforeEach(() => {
     prisma = makePrisma();
-    service = new SalesPlansService(prisma as any, notAppliedAdRead);
+    service = new SalesPlansService(prisma as any);
+    mockedReadAdEvidenceFromLedger.mockReset();
+    mockedReadAdEvidenceFromLedger.mockResolvedValue(NOT_APPLIED_AD_EVIDENCE);
     mockedBuildPerListingMetrics.mockReset();
     mockedBuildPerListingMetrics.mockResolvedValue([]);
   });
@@ -185,7 +184,7 @@ describe('SalesPlansService', () => {
         'organization-1',
         window.gte,
         window.lt,
-        { hasAdAccount: false, publishedDates: 0, accountSpend: 0, coversWindow: false },
+        NOT_APPLIED_AD_EVIDENCE,
       );
     });
 
@@ -288,7 +287,7 @@ describe('SalesPlansService', () => {
         'organization-1',
         window.gte,
         window.lt,
-        { hasAdAccount: false, publishedDates: 0, accountSpend: 0, coversWindow: false },
+        NOT_APPLIED_AD_EVIDENCE,
       );
     });
   });

@@ -10,12 +10,8 @@ import { kstInclusiveDaysStart, kstMonthStart } from '../../../../common/kst';
 import { readListingAdWindowFacts } from '../../../../common/ad-window-facts';
 import {
   buildPerListingMetrics,
-  readAccountAdEvidence,
+  readAdEvidenceFromLedger,
 } from '../../../../common/per-listing-profit';
-import {
-  AD_ACCOUNT_DAILY_KPI_READ_PORT,
-  type AdAccountDailyKpiReadPort,
-} from '../../../application/port/in/ad-account-daily-kpi-source.port';
 import { periodBounds, type AdPeriod } from '../../../domain/ad-metrics';
 import {
   buildGradeMap,
@@ -48,8 +44,6 @@ export class AdStrategyContextRepositoryAdapter
     private readonly prisma: PrismaService,
     @Inject(ADVERTISING_REVIEW_LISTING_STATS_PORT)
     private readonly reviewStatsRead: AdvertisingReviewListingStatsPort,
-    @Inject(AD_ACCOUNT_DAILY_KPI_READ_PORT)
-    private readonly adAccountDailyKpiRead: AdAccountDailyKpiReadPort,
   ) {}
 
   async loadStrategyContext(
@@ -97,8 +91,8 @@ export class AdStrategyContextRepositoryAdapter
     const [liveMetrics, channelStateByListing] = await Promise.all([
       listingIds.length === 0
         ? Promise.resolve([])
-        : readAccountAdEvidence(
-            this.adAccountDailyKpiRead,
+        : readAdEvidenceFromLedger(
+            this.prisma,
             organizationId,
             monthWindow.from,
             monthWindow.to,

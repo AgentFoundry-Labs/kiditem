@@ -3,9 +3,6 @@ import { Test } from '@nestjs/testing';
 import type { PrismaClient } from '@prisma/client';
 import { StatisticsService } from '../statistics.service';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { AdAccountDailyKpiSourceRepository } from '../../../advertising/adapter/out/repository/ad-account-daily-kpi-source.repository';
-import { AD_ACCOUNT_DAILY_KPI_READ_PORT } from '../../../advertising/application/port/in/ad-account-daily-kpi-source.port';
-import { SourceFailureAlerts } from '../../../alerts/alerts.service';
 import {
   IDOR_SENTINEL,
   OTHER_ORGANIZATION_ID,
@@ -16,7 +13,7 @@ import {
 } from '../../../test-helpers/real-prisma';
 import {
   seedAd,
-  seedPublishedAdAccountDay,
+  seedCompletedAdSweepRun,
   seedOrderWithLineItems,
   setupChannelListing,
   setupMaster,
@@ -35,15 +32,6 @@ describe('Statistics flow (PG integration)', () => {
       providers: [
         StatisticsService,
         { provide: PrismaService, useValue: prisma },
-        // The real advertising owner against the same Postgres: whether the
-        // account published anything for the window is a fact only rows hold.
-        {
-          provide: AD_ACCOUNT_DAILY_KPI_READ_PORT,
-          useValue: new AdAccountDailyKpiSourceRepository(
-            prisma as never,
-            new SourceFailureAlerts(prisma as never),
-          ),
-        },
       ],
     }).compile();
 
@@ -201,25 +189,26 @@ describe('Statistics flow (PG integration)', () => {
     });
     await prisma.order.update({ where: { id: o5 }, data: { receiverName: 'D' } });
 
+    // The campaign sweep measured every April date, so each listing's rows
+    // are its whole April ad cost and every April profit is a measurement.
+    const runId = await seedCompletedAdSweepRun(prisma, {
+      organizationId,
+      generation: 1,
+      window: { startDate: '2026-04-01', endDate: '2026-04-30' },
+    });
     await seedAd(prisma, {
       organizationId,
       listingId: listingL1.listingId,
       date: '2026-04-15',
       spend: 3_000,
+      runId,
     });
     await seedAd(prisma, {
       organizationId,
       listingId: listingL2.listingId,
       date: '2026-04-15',
       spend: 1_000,
-    });
-    // Advertising published that day at account level, so the listing-level
-    // calendar is what decides coverage rather than an account that published
-    // nothing.
-    await seedPublishedAdAccountDay(prisma, {
-      organizationId,
-      date: '2026-04-15',
-      adSpend: 4_000,
+      runId,
     });
 
     return {

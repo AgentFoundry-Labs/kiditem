@@ -240,7 +240,7 @@ export class WingTrafficAggregationRepositoryAdapter
     const { days, observedAt } = await readAdWindowFacts(this.prisma, {
       organizationId,
       from: dayStart(range.from),
-      to: dayAfter('to' in range ? range.to : range.from),
+      ...('to' in range ? { to: dayAfter(range.to) } : {}),
     });
 
     return days.map((row) => ({

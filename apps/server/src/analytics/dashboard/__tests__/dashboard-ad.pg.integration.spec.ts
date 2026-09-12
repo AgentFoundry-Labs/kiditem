@@ -9,7 +9,6 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { PROFIT_CALCULATION_REPOSITORY_PORT } from '../application/port/out/repository/profit-calculation.repository.port';
 import { WING_AD_SUMMARY_REPOSITORY_PORT } from '../application/port/out/repository/wing-ad-summary.repository.port';
 import { WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT } from '../application/port/out/repository/wing-traffic-aggregation.repository.port';
-import { AD_ACCOUNT_DAILY_KPI_READ_PORT } from '../../../advertising/application/port/in/ad-account-daily-kpi-source.port';
 import { AD_TRAFFIC_READ_PORT } from '../../../advertising/application/port/in/ad-traffic-source.port';
 import {
   makeTestPrisma,
@@ -20,11 +19,11 @@ import {
   IDOR_SENTINEL,
 } from '../../../test-helpers/real-prisma';
 import type { PrismaClient } from '@prisma/client';
+import { seedAd, seedCompletedAdSweepRun } from '../../../test-helpers/finance-seeds';
 
 describe('DashboardAdService.getSummary (PG integration) — IDOR + dailyAdRows', () => {
   let prisma: PrismaClient;
   let service: DashboardAdService;
-  const dailyKpiRead = { readPublished: vi.fn() };
   const trafficRead = {
     readPublished: async () => ({
       channelAccountId: null,
@@ -48,10 +47,6 @@ describe('DashboardAdService.getSummary (PG integration) — IDOR + dailyAdRows'
         { provide: PROFIT_CALCULATION_REPOSITORY_PORT, useExisting: ProfitCalculationRepositoryAdapter },
         { provide: WING_AD_SUMMARY_REPOSITORY_PORT, useExisting: WingAdSummaryRepositoryAdapter },
         { provide: WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT, useExisting: WingTrafficAggregationRepositoryAdapter },
-        {
-          provide: AD_ACCOUNT_DAILY_KPI_READ_PORT,
-          useValue: dailyKpiRead,
-        },
         { provide: AD_TRAFFIC_READ_PORT, useValue: trafficRead },
       ],
     }).compile();
@@ -65,44 +60,6 @@ describe('DashboardAdService.getSummary (PG integration) — IDOR + dailyAdRows'
   beforeEach(async () => {
     await resetDb(prisma);
     await seedBaseFixture(prisma);
-    dailyKpiRead.readPublished.mockImplementation(async (input: {
-      organizationId: string;
-      from?: string;
-      to?: string;
-    }) => {
-      const currentDate = latestClosedBusinessDate();
-      const spend = input.organizationId === TEST_ORGANIZATION_ID ? 500 : IDOR_SENTINEL;
-      const from = input.from && input.from !== '0001-01-01' ? input.from : currentDate;
-      const requestedTo = input.to ?? currentDate;
-      const to = requestedTo < currentDate ? requestedTo : currentDate;
-      const rows = enumerateDates(from, to).map((businessDate) => ({
-        businessDate,
-        observedAt: `${businessDate}T23:00:00.000Z`,
-        normalized: {
-          adSpend: businessDate === currentDate ? spend : 0,
-          adRevenue: businessDate === currentDate ? spend * 3 : 0,
-          impressions: businessDate === currentDate ? 100 : 0,
-          clicks: businessDate === currentDate ? 10 : 0,
-          conversions: businessDate === currentDate ? 1 : 0,
-          orders: businessDate === currentDate ? 1 : 0,
-          providerRoas: businessDate === currentDate ? 3 : null,
-          providerCtr: businessDate === currentDate ? 10 : null,
-          providerConversionRate: businessDate === currentDate ? 10 : null,
-          observedMetrics: {
-            adSpend: true,
-            adRevenue: true,
-            impressions: true,
-            clicks: true,
-            conversions: true,
-            orders: true,
-          },
-        },
-      }));
-      return {
-        channelAccountId: '00000000-0000-4000-8000-000000000001',
-        rows,
-      };
-    });
   });
 
   function latestClosedBusinessDate(): string {
@@ -125,9 +82,8 @@ describe('DashboardAdService.getSummary (PG integration) — IDOR + dailyAdRows'
   }
 
   async function seedAdsTwoOrganizations() {
-    // Hard rewrite Phase H3b — seed `ChannelListingDailySnapshot` rows
-    // (daily-fact source-of-truth) instead of legacy `Ad` rows. Reads still
-    // assert IDOR + value isolation but on the new column shape.
+    // Seed the advertising target-day ledger, the one ad source. Reads assert
+    // IDOR + value isolation on it.
     const today = new Date();
     today.setDate(today.getDate() - 1);
     const businessDate = new Date(
@@ -165,36 +121,41 @@ describe('DashboardAdService.getSummary (PG integration) — IDOR + dailyAdRows'
       },
     });
 
-    // TEST daily fact — adSpend 500
-    await prisma.channelListingDailySnapshot.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        listingId: listingT.id,
-        channel: 'coupang',
-        externalId: 'L-T',
-        businessDate,
-        adSpend: 500,
-        adImpressions: 100,
-        adClicks: 10,
-        adConversions: 1,
-        adRevenue: 1500,
-      },
+    const date = businessDate.toISOString().slice(0, 10);
+    // Both sweeps declare a window that covers the whole 30-day context, so
+    // the days without rows are measured zeros rather than gaps.
+    const windowStart = new Date(businessDate.getTime() - 40 * 86_400_000).toISOString().slice(0, 10);
+    const runs = new Map<string, string>();
+    for (const organizationId of [TEST_ORGANIZATION_ID, OTHER_ORGANIZATION_ID]) {
+      runs.set(organizationId, await seedCompletedAdSweepRun(prisma, {
+        organizationId,
+        generation: 1,
+        window: { startDate: windowStart, endDate: date },
+      }));
+    }
+    // TEST measured ad day — spend 500
+    await seedAd(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      listingId: listingT.id,
+      runId: runs.get(TEST_ORGANIZATION_ID),
+      date,
+      spend: 500,
+      revenue: 1500,
+      impressions: 100,
+      clicks: 10,
+      conversions: 1,
     });
-
-    // OTHER daily fact — sentinel
-    await prisma.channelListingDailySnapshot.create({
-      data: {
-        organizationId: OTHER_ORGANIZATION_ID,
-        listingId: listingO.id,
-        channel: 'coupang',
-        externalId: 'L-O',
-        businessDate,
-        adSpend: IDOR_SENTINEL,
-        adImpressions: 100,
-        adClicks: 10,
-        adConversions: 1,
-        adRevenue: IDOR_SENTINEL,
-      },
+    // OTHER measured ad day — sentinel
+    await seedAd(prisma, {
+      organizationId: OTHER_ORGANIZATION_ID,
+      listingId: listingO.id,
+      runId: runs.get(OTHER_ORGANIZATION_ID),
+      date,
+      spend: IDOR_SENTINEL,
+      revenue: IDOR_SENTINEL,
+      impressions: 100,
+      clicks: 10,
+      conversions: 1,
     });
   }
 
@@ -237,34 +198,9 @@ describe('DashboardAdService.getSummary (PG integration) — IDOR + dailyAdRows'
     const ctx = buildDashboardContext('30d');
     const result = await service.getSummary(ctx, TEST_ORGANIZATION_ID);
 
-    // The owner-published v2 daily KPI is the only account-level monthly
-    // source; linked listing snapshots cannot replace or supplement it.
+    // The target-day ledger is the only ad source; the sum over its measured
+    // days is the month.
     expect(result.monthly.totalAdSpend).toBe(500);
     expect(result.monthly.totalAdSpend).not.toBe(IDOR_SENTINEL);
-  });
-
-  it('does not turn listing-only facts into account ad KPIs', async () => {
-    await seedAdsTwoOrganizations();
-    dailyKpiRead.readPublished.mockResolvedValue({
-      channelAccountId: null,
-      rows: [],
-    });
-
-    const result = await service.getSummary(
-      buildDashboardContext('30d'),
-      TEST_ORGANIZATION_ID,
-    );
-
-    expect(result.monthly).toMatchObject({
-      source: 'unavailable',
-      totalAdSpend: null,
-      adRevenue: null,
-    });
-    expect(result.adKpi).toMatchObject({
-      source: 'unavailable',
-      totalSpend: null,
-      clicks: null,
-    });
-    expect(result.dailyAd).toBeUndefined();
   });
 });

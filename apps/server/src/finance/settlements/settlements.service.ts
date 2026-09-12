@@ -1,4 +1,4 @@
-import { Inject, Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException } from '@nestjs/common';
 import type {
   SettlementReconcileDetail,
   SettlementReconcileResponse,
@@ -6,21 +6,15 @@ import type {
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   buildPerListingProfit,
-  readAccountAdEvidence,
+  readAdEvidenceFromLedger,
 } from '../../common/per-listing-profit';
 import { kstMonthStart } from '../../common/kst';
-import {
-  AD_ACCOUNT_DAILY_KPI_READ_PORT,
-  type AdAccountDailyKpiReadPort,
-} from '../../advertising/application/port/in/ad-account-daily-kpi-source.port';
 import { CreateSettlementDto, UpdateSettlementDto } from './dto';
 
 @Injectable()
 export class SettlementsService {
   constructor(
     private readonly prisma: PrismaService,
-    @Inject(AD_ACCOUNT_DAILY_KPI_READ_PORT)
-    private readonly adAccountDailyKpiRead: AdAccountDailyKpiReadPort,
   ) {}
 
   private resolveWindow(period: string) {
@@ -67,8 +61,8 @@ export class SettlementsService {
     // 1. Build live metrics and compare them to the order aggregate side.
     //    SUM(total_price)::bigint — 단일 월 매출이 int32 (~21억 KRW) 초과 가능성 (대형 셀러).
     //    bigint → Number() 로 안전 변환 (2^53 이하 보장).
-    const accountAdEvidence = await readAccountAdEvidence(
-      this.adAccountDailyKpiRead,
+    const accountAdEvidence = await readAdEvidenceFromLedger(
+      this.prisma,
       organizationId,
       from,
       to,
@@ -77,7 +71,7 @@ export class SettlementsService {
     const [metrics, rows] = await Promise.all([
       // Reconciliation compares revenue, which never depends on ad coverage, so
       // every listing stays in the detail list. Only `plNetProfit` can be
-      // unavailable (ADR-0003); dropping the row would hide a revenue mismatch.
+      // unavailable (ADR-0006); dropping the row would hide a revenue mismatch.
       buildPerListingProfit(this.prisma, organizationId, from, to, accountAdEvidence),
       this.prisma.$queryRaw<
         Array<{

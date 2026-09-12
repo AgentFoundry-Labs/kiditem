@@ -10,30 +10,29 @@
 //   - R-1 (Plan D.1 T4): shipping accumulates from `Order.shippingPrice`
 //     once per order (outer loop), not per line item.
 //
-// Ad metrics are read only through the Advertising owner publication port.
-// ChannelListingDailySnapshot is deliberately not an account-ad source: its
-// listing/traffic rows cannot prove complete account coverage.
+// Ad metrics come from the advertising target-day ledger through the one
+// listing-day ad reader (`common/ad-window-facts`). A business date the
+// campaign sweep reported is a measured day; a date it never reported is
+// absent evidence.
 //
-// The owner answers with whether an advertising account exists and the rows
-// it published. No account means advertising is not a required input, so ad
-// cost is a genuine 0 and profit is still publishable; an account that
-// published nothing is absent evidence that withholds profit. A failed read is
+// Whether advertising applies at all is a property of the organization: no
+// Coupang channel account means advertising is not a required input, so ad
+// cost is a genuine 0 and profit is still publishable. An account whose sweep
+// published nothing for a requested day withholds profit. A failed read is
 // distinct from both and keeps `adEvidenceError`.
 
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../../../prisma/prisma.service';
 import {
   businessDateText,
   type ResolvedDashboardPeriod,
 } from '../../../domain/period/dashboard-period';
 import {
-  AD_ACCOUNT_DAILY_KPI_READ_PORT,
-  type AdAccountDailyKpiReadPort,
-} from '../../../../../advertising/application/port/in/ad-account-daily-kpi-source.port';
-import type {
-  AdAccountDailyKpiPublished,
-  AdAccountDailyKpiPublishedRow,
-} from '@kiditem/shared/advertising';
+  advertisingApplies,
+  dayAfter,
+  readAdWindowFacts,
+  type AdWindowDay,
+} from '../../../../../common/ad-window-facts';
 import type {
   DailyProfitMetrics,
   ProfitCostIncompleteReason,
@@ -49,11 +48,7 @@ export class ProfitCalculationRepositoryAdapter
 {
   private readonly logger = new Logger(ProfitCalculationRepositoryAdapter.name);
 
-  constructor(
-    private readonly prisma: PrismaService,
-    @Inject(AD_ACCOUNT_DAILY_KPI_READ_PORT)
-    private readonly adAccountDailyKpiRead: AdAccountDailyKpiReadPort,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   async calculateForRange(
     organizationId: string,
@@ -129,7 +124,7 @@ export class ProfitCalculationRepositoryAdapter
       }
     }
 
-    const published = await this.readPublishedAds(organizationId, requestedDates);
+    const published = await this.readAds(organizationId, requestedDates);
     const adRows = published.rows;
     const hasAdAccount = published.hasAdAccount;
     const adEvidenceError = published.error;
@@ -220,7 +215,7 @@ export class ProfitCalculationRepositoryAdapter
           },
         },
       });
-    const published = await this.readPublishedAds(organizationId, requestedDates);
+    const published = await this.readAds(organizationId, requestedDates);
     const adRows = published.rows;
     const hasAdAccount = published.hasAdAccount;
     const adEvidenceError = published.error;
@@ -282,11 +277,11 @@ export class ProfitCalculationRepositoryAdapter
       const metrics = byDate.get(date) ?? createDailyProfitMetrics(date, hasAdAccount);
       metrics.adEvidenceError = adEvidenceError;
       metrics.hasAdEvidence = true;
-      metrics.adCost = (metrics.adCost ?? 0) + adRow.normalized.adSpend;
-      metrics.adRevenue = (metrics.adRevenue ?? 0) + adRow.normalized.adRevenue;
-      metrics.adImpressions = (metrics.adImpressions ?? 0) + adRow.normalized.impressions;
-      metrics.adClicks = (metrics.adClicks ?? 0) + adRow.normalized.clicks;
-      metrics.adConversions = (metrics.adConversions ?? 0) + adRow.normalized.conversions;
+      metrics.adCost = (metrics.adCost ?? 0) + adRow.spend;
+      metrics.adRevenue = (metrics.adRevenue ?? 0) + adRow.revenue;
+      metrics.adImpressions = (metrics.adImpressions ?? 0) + adRow.impressions;
+      metrics.adClicks = (metrics.adClicks ?? 0) + adRow.clicks;
+      metrics.adConversions = (metrics.adConversions ?? 0) + adRow.conversions;
       byDate.set(date, metrics);
     }
 
@@ -335,34 +330,32 @@ export class ProfitCalculationRepositoryAdapter
   }
 
   /**
-   * Read the owner publication for the window, keeping whether an account
-   * exists. An organization with no advertising account is answered by the
-   * owner with a null account and no rows; it is no longer a
-   * `COUPANG_ACCOUNT_NOT_FOUND` failure to swallow, and swallowing it here is
-   * what made "does not advertise", "never collected", and "collected zeros"
-   * one indistinguishable state.
+   * The measured ad days inside the requested window, and whether advertising
+   * applies to this organization at all. An organization without a Coupang
+   * channel account has nothing to collect, so its ad input is satisfied at
+   * zero; one with an account needs a measured row for every requested day.
    */
-  private async readPublishedAds(
+  private async readAds(
     organizationId: string,
     requestedDates: readonly string[],
   ): Promise<{
-    rows: AdAccountDailyKpiPublishedRow[];
+    rows: readonly AdWindowDay[];
     hasAdAccount: boolean;
     error?: ProfitEvidenceError;
   }> {
     if (requestedDates.length === 0) {
-      // A degenerate window asks the owner nothing, so it proves nothing:
+      // A degenerate window asks the ledger nothing, so it proves nothing:
       // absent evidence, exactly like an account that published nothing.
       return { rows: [], hasAdAccount: true };
     }
-    const range = publishedDateRange(requestedDates);
-    let published: AdAccountDailyKpiPublished;
+    const from = new Date(`${requestedDates[0]}T00:00:00.000Z`);
+    const to = dayAfter(new Date(`${requestedDates[requestedDates.length - 1]}T00:00:00.000Z`));
     try {
-      published = await this.adAccountDailyKpiRead.readPublished({
-        organizationId,
-        from: range.from,
-        to: range.to,
-      });
+      const [applies, facts] = await Promise.all([
+        advertisingApplies(this.prisma, organizationId),
+        readAdWindowFacts(this.prisma, { organizationId, from, to }),
+      ]);
+      return { rows: facts.days, hasAdAccount: applies };
     } catch (error) {
       this.logger.warn({
         msg: 'dashboard-profit.ad-evidence-unavailable',
@@ -371,7 +364,6 @@ export class ProfitCalculationRepositoryAdapter
       });
       return { rows: [], hasAdAccount: true, error: 'AD_EVIDENCE_READ_FAILED' };
     }
-    return { rows: published.rows, hasAdAccount: published.channelAccountId !== null };
   }
 }
 
@@ -430,20 +422,6 @@ function createDailyProfitMetrics(
     hasOrderEvidence: false,
     hasAdEvidence: false,
     costIncompleteReasons: new Set(),
-  };
-}
-
-/**
- * Inclusive owner-read bounds for a resolved date set. An empty set cannot be
- * read as a range; callers never reach here with one because both entrypoints
- * return early on an empty window.
- */
-function publishedDateRange(
-  requestedDates: readonly string[],
-): { from: string; to: string } {
-  return {
-    from: requestedDates[0] ?? '0001-01-01',
-    to: requestedDates[requestedDates.length - 1] ?? '0001-01-01',
   };
 }
 
@@ -532,14 +510,14 @@ function resolveLineItemCosts(
   return { costOfGoods, commission, shippingCost, otherCost, reasons: [...reasons] };
 }
 
-function sumAdRows(rows: readonly AdAccountDailyKpiPublishedRow[]) {
+function sumAdRows(rows: readonly AdWindowDay[]) {
   return rows.reduce(
     (totals, row) => ({
-      adCost: totals.adCost + row.normalized.adSpend,
-      adRevenue: totals.adRevenue + row.normalized.adRevenue,
-      adImpressions: totals.adImpressions + row.normalized.impressions,
-      adClicks: totals.adClicks + row.normalized.clicks,
-      adConversions: totals.adConversions + row.normalized.conversions,
+      adCost: totals.adCost + row.spend,
+      adRevenue: totals.adRevenue + row.revenue,
+      adImpressions: totals.adImpressions + row.impressions,
+      adClicks: totals.adClicks + row.clicks,
+      adConversions: totals.adConversions + row.conversions,
     }),
     {
       adCost: 0,

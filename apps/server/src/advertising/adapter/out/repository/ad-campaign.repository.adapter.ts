@@ -8,6 +8,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { readListingDayAdFacts } from '../../../../common/ad-window-facts';
 import { periodBounds, type AdPeriod } from '../../../domain/ad-metrics';
+import { IS_CAMPAIGN_GRAIN_SQL, IS_PRODUCT_GRAIN_SQL } from './ad-target-grain.sql';
 import {
   completeAdCampaignSourceIds,
   readCompleteAdKeywordFacts,
@@ -30,35 +31,8 @@ import type {
 // Rows without a stamp are classified by identity evidence instead: a
 // campaign rollup carries no option/listing identity, a true product row
 // always carries one. See `advertising/domain/ad-target-grain.ts`.
-const STAMPED_GRAIN = Prisma.sql`
-  COALESCE(
-    meta_json -> 'advertising.campaign.target' ->> 'granularity',
-    meta_json -> 'advertising.raw.target' ->> 'granularity',
-    meta_json -> 'data' ->> 'granularity'
-  )
-`;
-
-const IS_PRODUCT_GRAIN = Prisma.sql`
-  CASE
-    WHEN ${STAMPED_GRAIN} IS NOT NULL THEN ${STAMPED_GRAIN} = 'product'
-    ELSE (
-      external_option_id IS NOT NULL
-      OR listing_option_id IS NOT NULL
-      OR listing_id IS NOT NULL
-    )
-  END
-`;
-
-const IS_CAMPAIGN_GRAIN = Prisma.sql`
-  CASE
-    WHEN ${STAMPED_GRAIN} IS NOT NULL THEN ${STAMPED_GRAIN} = 'campaign'
-    ELSE (
-      external_option_id IS NULL
-      AND listing_option_id IS NULL
-      AND listing_id IS NULL
-    )
-  END
-`;
+const IS_PRODUCT_GRAIN = IS_PRODUCT_GRAIN_SQL;
+const IS_CAMPAIGN_GRAIN = IS_CAMPAIGN_GRAIN_SQL;
 
 // Whether the scraped grid actually had a conversion-count column. See
 // `CampaignRollup.conversionsObserved` — the campaign dashboard grid has none,

@@ -8,7 +8,7 @@ import {
   type WingRevenueEvidence,
 } from './effective-period';
 
-const NO_PROFIT = { revenue: 0, adCost: 0, orderCount: 0 };
+const NO_PROFIT = { revenue: 0, orderCount: 0 };
 const NO_WING: WingRevenueEvidence = { hasData: false };
 const NO_ADS = { hasData: false };
 
@@ -89,7 +89,7 @@ describe('buildEffectivePeriod', () => {
     const period = buildEffectivePeriod(
       ctx,
       new Date('2026-06-26T00:00:00.000Z'),
-      { revenue: 250_939_474, adCost: 0, orderCount: 361 },
+      { revenue: 250_939_474, orderCount: 361 },
       NO_WING,
       NO_ADS,
     );
@@ -122,7 +122,7 @@ describe('buildEffectivePeriod', () => {
     const period = buildEffectivePeriod(
       ctx,
       null,
-      { revenue: 5000, adCost: 0, orderCount: 1 },
+      { revenue: 5000, orderCount: 1 },
       COMPLETE_WING,
       NO_ADS,
     );
@@ -141,23 +141,15 @@ describe('buildEffectivePeriod', () => {
       undefined,
       new Date('2026-07-15T03:00:00.000Z'),
     );
-    const adSourceFor = (adCost: number, ads: { hasData: boolean }) =>
-      buildEffectivePeriod(ctx, null, { ...NO_PROFIT, adCost }, NO_WING, ads).adSource;
+    const adSourceFor = (ads: { hasData: boolean }) =>
+      buildEffectivePeriod(ctx, null, NO_PROFIT, NO_WING, ads).adSource;
 
-    it('names no source when neither an order ad cost nor account evidence exists', () => {
-      expect(adSourceFor(0, NO_ADS)).toBe('none');
+    it('names no source when the ad ledger has no complete window', () => {
+      expect(adSourceFor(NO_ADS)).toBe('none');
     });
 
-    it('names the complete account range on its own', () => {
-      expect(adSourceFor(0, { hasData: true })).toBe('coupang_ads');
-    });
-
-    it('names orders when only the order side carries an ad cost', () => {
-      expect(adSourceFor(12_000, NO_ADS)).toBe('orders');
-    });
-
-    it('reports mixed when both carry ad evidence', () => {
-      expect(adSourceFor(12_000, { hasData: true })).toBe('mixed');
+    it('names the ad ledger when its window is complete', () => {
+      expect(adSourceFor({ hasData: true })).toBe('coupang_ads');
     });
   });
 });

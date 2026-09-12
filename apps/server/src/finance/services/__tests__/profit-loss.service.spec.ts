@@ -1,71 +1,69 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { AdAccountDailyKpiReadPort } from '../../../advertising/application/port/in/ad-account-daily-kpi-source.port';
+import { readAdEvidenceFromLedger } from '../../../common/per-listing-profit';
 import { ProfitLossService } from '../profit-loss.service';
 
+// The per-listing aggregation stays real; only the ledger's account-level ad
+// evidence is faked, since it is the one input the service reads through the
+// ledger rather than through the Prisma client these cases fake.
+vi.mock('../../../common/per-listing-profit', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../common/per-listing-profit')>()),
+  readAdEvidenceFromLedger: vi.fn(),
+}));
+
+const mockedReadAdEvidenceFromLedger = vi.mocked(readAdEvidenceFromLedger);
+
 /**
- * Advertising's answer for the window. Whether the account published anything
- * is the owner's word, so these cases state it instead of letting an empty
- * listing calendar stand in for "no ads".
+ * Advertising's answer for the window. Whether a Coupang account exists and
+ * whether the sweep measured every date of the window are ledger facts, so
+ * these cases state them instead of letting an empty listing calendar stand in
+ * for "no ads".
  */
-function adEvidence(
-  answer: 'NOT_APPLIED' | 'OBSERVED',
-): AdAccountDailyKpiReadPort {
-  return {
-    readPublished: vi.fn().mockResolvedValue(
-      answer === 'NOT_APPLIED'
-        ? { channelAccountId: null, rows: [] }
-        : {
-          channelAccountId: 'ad-account',
-          rows: [{ businessDate: '2026-01-01', observedAt: '2026-01-02T00:00:00.000Z', normalized: { adSpend: 1 } }],
-        },
-    ),
-  };
+function adEvidence(answer: 'NOT_APPLIED' | 'OBSERVED') {
+  mockedReadAdEvidenceFromLedger.mockResolvedValue(
+    answer === 'NOT_APPLIED'
+      ? { hasAdAccount: false, publishedDates: 0, accountSpend: 0, coversWindow: false }
+      : { hasAdAccount: true, publishedDates: 30, accountSpend: 1500, coversWindow: true },
+  );
 }
 
-// Hard rewrite Phase H3a/H3b — service composes:
+beforeEach(() => {
+  mockedReadAdEvidenceFromLedger.mockReset();
+});
+
+// Service composes:
 //   order.findMany + orderReturnLineItem.findMany +
-//   channelListingDailySnapshot.groupBy(['listingId'], _sum.adSpend)
-// `adRows` shape uses `_sum.adSpend` (daily-fact additive ad column),
-// not legacy `ad.groupBy._sum.spend`.
-// ADR-0003: the helper issues two groupBy calls against the same coverage
-// filter — one by listingId (spend + covered day count) and one by businessDate
-// (the window's ad-collection calendar). `collectedDates` defaults to a calendar
-// as wide as the best-covered listing, i.e. every seeded listing is complete.
+//   the ledger's per-listing window facts (`readListingAdWindowFacts`, one
+//   `$queryRaw` over `channel_ad_target_daily_snapshots`).
+// `adRows` mirrors that query's row shape: one measured listing with its
+// summed spend over the window.
 function makePrisma(
   orders: unknown[],
   opts: {
     returnLineItems?: unknown[];
-    adRows?: { listingId: string; _sum: { adSpend: number }; _count?: number }[];
-    collectedDates?: { businessDate: Date }[];
+    adRows?: { listingId: string; spend: number }[];
   } = {},
 ) {
   const adRows = opts.adRows ?? [];
-  const collectedDates = opts.collectedDates
-    ?? Array.from(
-      { length: adRows.reduce((max, row) => Math.max(max, row._count ?? 1), 0) },
-      (_, index) => ({ businessDate: new Date(Date.UTC(2026, 3, index + 1)) }),
-    );
-  // The listing-day ad reader groups by business date (window calendar) and
-  // by listing (per-listing facts); mirror the aggregate shapes it reads.
-  const firstDate = collectedDates[0]?.businessDate ?? new Date(Date.UTC(2026, 3, 1));
-  const lastDate = collectedDates[collectedDates.length - 1]?.businessDate ?? firstDate;
+  const firstDate = new Date(Date.UTC(2026, 3, 1));
+  const lastDate = new Date(Date.UTC(2026, 3, 30));
   return {
     order: { findMany: vi.fn().mockResolvedValue(orders) },
     orderReturnLineItem: { findMany: vi.fn().mockResolvedValue(opts.returnLineItems ?? []) },
-    channelListingDailySnapshot: {
-      groupBy: vi.fn().mockImplementation((args: { by: string[] }) =>
-        Promise.resolve(
-          args.by[0] === 'businessDate'
-            ? collectedDates.map((row) => ({ ...row, _sum: {}, _max: { adObservedAt: row.businessDate } }))
-            : adRows.map((row) => ({
-              _count: 1,
-              _min: { businessDate: firstDate },
-              _max: { businessDate: lastDate, adObservedAt: lastDate },
-              ...row,
-            })),
-        ),
-      ),
-    },
+    $queryRaw: vi.fn().mockResolvedValue(
+      adRows.map((row) => ({
+        listing_id: row.listingId,
+        days: 30,
+        first_date: firstDate,
+        last_date: lastDate,
+        observed_at: lastDate,
+        spend: row.spend,
+        revenue: 0,
+        impressions: 0,
+        clicks: 0,
+        conversions: 0,
+        orders: 0,
+      })),
+    ),
   } as any;
 }
 
@@ -110,7 +108,8 @@ describe('ProfitLossService.findAll (live aggregation)', () => {
     const prisma = makePrisma(orders);
     // No ad rows are seeded here, so the case being described is an
     // organization that does not advertise, not one whose collection failed.
-    const service = new ProfitLossService(prisma, adEvidence('NOT_APPLIED'));
+    adEvidence('NOT_APPLIED');
+    const service = new ProfitLossService(prisma);
     const result = await service.findAll('companyA', 2026, 4);
     expect(prisma.order.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({ organizationId: 'companyA' }),
@@ -132,7 +131,8 @@ describe('ProfitLossService.findAll (live aggregation)', () => {
     const prisma = makePrisma(orders);
     // No ad rows are seeded here, so the case being described is an
     // organization that does not advertise, not one whose collection failed.
-    const service = new ProfitLossService(prisma, adEvidence('NOT_APPLIED'));
+    adEvidence('NOT_APPLIED');
+    const service = new ProfitLossService(prisma);
     const result = await service.findAll('companyA', 2026, 4);
     expect(result).toHaveLength(1);
     expect(result[0].shippingCost).toBe(3000);
@@ -152,7 +152,8 @@ describe('ProfitLossService.findAll (live aggregation)', () => {
     const prisma = makePrisma(orders);
     // No ad rows are seeded here, so the case being described is an
     // organization that does not advertise, not one whose collection failed.
-    const service = new ProfitLossService(prisma, adEvidence('NOT_APPLIED'));
+    adEvidence('NOT_APPLIED');
+    const service = new ProfitLossService(prisma);
     const result = await service.findAll('companyA', 2026, 4);
     const a = result.find(r => r.listingId === 'la')!;
     const b = result.find(r => r.listingId === 'lb')!;
@@ -167,7 +168,8 @@ describe('ProfitLossService.findAll (live aggregation)', () => {
     const prisma = makePrisma(orders);
     // No ad rows are seeded here, so the case being described is an
     // organization that does not advertise, not one whose collection failed.
-    const service = new ProfitLossService(prisma, adEvidence('NOT_APPLIED'));
+    adEvidence('NOT_APPLIED');
+    const service = new ProfitLossService(prisma);
     const [row] = await service.findAll('companyA', 2026, 4);
     expect(row).toMatchObject({
       listingId: 'l1',
@@ -193,7 +195,8 @@ describe('ProfitLossService.findAll (live aggregation)', () => {
     const prisma = makePrisma([]);
     // No ad rows are seeded here, so the case being described is an
     // organization that does not advertise, not one whose collection failed.
-    const service = new ProfitLossService(prisma, adEvidence('NOT_APPLIED'));
+    adEvidence('NOT_APPLIED');
+    const service = new ProfitLossService(prisma);
     const result = await service.findAll('companyA', 2026, 4);
     expect(result).toEqual([]);
   });
@@ -204,7 +207,8 @@ describe('ProfitLossService.findAll (live aggregation)', () => {
     const prisma = makePrisma(orders, { returnLineItems: [], adRows: [] });
     // No ad rows are seeded here, so the case being described is an
     // organization that does not advertise, not one whose collection failed.
-    const service = new ProfitLossService(prisma, adEvidence('NOT_APPLIED'));
+    adEvidence('NOT_APPLIED');
+    const service = new ProfitLossService(prisma);
     const [row] = await service.findAll('companyA', 2026, 4);
     expect(row.returnCount).toBe(0);
     expect(row.adCost).toBe(0);
@@ -223,7 +227,8 @@ describe('ProfitLossService.findAll (live aggregation)', () => {
     const prisma = makePrisma(orders);
     // No ad rows are seeded here, so the case being described is an
     // organization that does not advertise, not one whose collection failed.
-    const service = new ProfitLossService(prisma, adEvidence('NOT_APPLIED'));
+    adEvidence('NOT_APPLIED');
+    const service = new ProfitLossService(prisma);
     const [row] = await service.findAll('companyA', 2026, 4);
     expect(row.orderCount).toBe(3);
   });
@@ -239,7 +244,8 @@ describe('ProfitLossService.findAll (live aggregation)', () => {
     const prisma = makePrisma(orders, { returnLineItems });
     // No ad rows are seeded here, so the case being described is an
     // organization that does not advertise, not one whose collection failed.
-    const service = new ProfitLossService(prisma, adEvidence('NOT_APPLIED'));
+    adEvidence('NOT_APPLIED');
+    const service = new ProfitLossService(prisma);
     const [row] = await service.findAll('companyA', 2026, 4);
     expect(row.returnCount).toBe(2);
     expect(prisma.orderReturnLineItem.findMany).toHaveBeenCalledWith(expect.objectContaining({
@@ -255,20 +261,23 @@ describe('ProfitLossService.findAll (live aggregation)', () => {
   it('adCost aggregated from measured listing-day facts per listing with organizationId filter', async () => {
     const l = { id: 'l1', externalId: 'e1', channelName: 'coupang', master: { id: 'm1', code: 'M1', legacyCode: null, name: 'P1', category: null, abcGrade: null, thumbnailUrl: null } };
     const orders = [{ id: 'o1', shippingPrice: 3000, lineItems: [mkLineItem(l, { quantity: 1, totalPrice: 10000, costPrice: 5000, commissionRate: 0.1, otherCost: 0 })] }];
-    const adRows = [{ listingId: 'l1', _sum: { adSpend: 1500 } }];
+    const adRows = [{ listingId: 'l1', spend: 1500 }];
     const prisma = makePrisma(orders, { adRows });
-    const service = new ProfitLossService(prisma, adEvidence('OBSERVED'));
+    adEvidence('OBSERVED');
+    const service = new ProfitLossService(prisma);
     const [row] = await service.findAll('companyA', 2026, 4);
     expect(row.adCost).toBe(1500);
     expect(row.netProfit).toBe(10000 - 5000 - 1000 - 3000 - 1500 - 0);
-    expect(prisma.channelListingDailySnapshot.groupBy).toHaveBeenCalledWith(expect.objectContaining({
-      by: ['listingId'],
-      _sum: expect.objectContaining({ adSpend: true }),
-      where: expect.objectContaining({
-        organizationId: 'companyA',
-        businessDate: expect.objectContaining({ gte: expect.any(Date), lt: expect.any(Date) }),
-        adObservedAt: { not: null },
-      }),
-    }));
+    // The ledger is asked for the same organization and month window, as
+    // business dates, that the account-level evidence was read for.
+    expect(mockedReadAdEvidenceFromLedger).toHaveBeenCalledWith(
+      prisma,
+      'companyA',
+      new Date('2026-03-31T15:00:00.000Z'),
+      new Date('2026-04-30T15:00:00.000Z'),
+    );
+    const [query] = prisma.$queryRaw.mock.calls[0] as [{ sql: string; values: unknown[] }];
+    expect(query.sql).toContain('channel_ad_target_daily_snapshots');
+    expect(query.values).toEqual(expect.arrayContaining(['companyA', '2026-04-01', '2026-05-01']));
   });
 });

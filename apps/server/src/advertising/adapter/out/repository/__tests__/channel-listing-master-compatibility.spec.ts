@@ -140,13 +140,6 @@ describe('advertising MasterProduct ownership compatibility', () => {
     };
     const repository = new AdStrategyContextRepositoryAdapter(prisma as never, {
       loadListingReviewStats: async () => ({ lifetime: [], recent: [] }),
-    }, {
-      // `hydrateListings` never reaches the owner; the port is a constructor
-      // requirement, not a dependency of this path.
-      readPublished: async () => ({
-        channelAccountId: null,
-        rows: [],
-      }),
     });
 
     const listings = await repository.hydrateListings('org-1', ['listing-1']);

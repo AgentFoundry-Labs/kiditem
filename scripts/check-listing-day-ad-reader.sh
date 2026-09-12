@@ -3,12 +3,15 @@ set -euo pipefail
 
 # Listing-day advertising values are read through one door (ADR-0006).
 #
-# `channel_listing_daily_snapshots.adSpend` and its siblings are `Int
-# @default(0)`: an uncollected day and a zero-spend day are the same number,
-# and only `adObservedAt` tells them apart. `apps/server/src/common/ad-window-facts.ts`
-# is the one reader that applies that gate. Every other production read of an
-# ad value from that table, and every read of the write-only coverage-status
-# columns, is a new reader that bypassed the door.
+# The ledger is `channel_ad_target_daily_snapshots`, what the campaign sweep
+# publishes. `apps/server/src/common/ad-window-facts.ts` is the one reader
+# that applies its evidence gate (the current completed sweep, product grain,
+# no keyword rows). Outside the Advertising owner, every other production read
+# of that table is a new reader that bypassed the door.
+#
+# `channel_listing_daily_snapshots` still carries ad columns from the
+# pre-cutover writer. Nobody writes them and nobody may read them; their
+# removal is a schema cutover. The coverage-status columns are write-only.
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
@@ -19,8 +22,13 @@ TARGETS=(apps/server/src apps/web/src packages/shared/src)
 WRITER_GLOBS=(
   --glob '!apps/server/src/advertising/adapter/out/repository/channel-listing-daily.repository.adapter.ts'
   --glob '!apps/server/src/advertising/adapter/out/repository/ad-traffic-source.repository.ts'
-  --glob '!apps/server/src/advertising/application/service/listing-ad-metric-accumulator.ts'
   --glob '!apps/server/src/analytics/traffic/traffic-upload.ts'
+)
+# The Advertising owner publishes the target ledger and reads it for its own
+# published calculations (campaign list, actions, keyword facts, profitability
+# import); those are owner reads, not consumer reads.
+OWNER_GLOBS=(
+  --glob '!apps/server/src/advertising/**'
 )
 COMMON_GLOBS=(
   --glob '!**/__tests__/**'
@@ -55,10 +63,16 @@ if rg -nU --multiline-dotall "${COMMON_GLOBS[@]}" "${WRITER_GLOBS[@]}" \
   FAIL=1
 fi
 
+# 4. Outside the Advertising owner, the target-day ledger is read only here.
+if rg -n "${COMMON_GLOBS[@]}" "${OWNER_GLOBS[@]}" \
+  'channelAdTargetDailySnapshot\b|channel_ad_target_daily_snapshots' "${TARGETS[@]}"; then
+  FAIL=1
+fi
+
 if [[ "$FAIL" -ne 0 ]]; then
   echo "check:listing-day-ad-reader FAIL"
   echo "Read listing-day ad values through ${READER} (readAdWindowFacts, readListingAdWindowFacts, readListingDayAdFacts, readLatestAdDate)."
-  echo "The gate is adObservedAt; the coverage-status columns are write-only."
+  echo "The ledger is channel_ad_target_daily_snapshots; the listing table's ad columns and the coverage-status columns are dead."
   exit 1
 fi
 

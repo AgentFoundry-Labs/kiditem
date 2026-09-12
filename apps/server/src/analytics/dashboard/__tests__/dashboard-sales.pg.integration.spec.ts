@@ -15,12 +15,6 @@ import { PROFIT_CALCULATION_REPOSITORY_PORT } from '../application/port/out/repo
 import { WING_AD_SUMMARY_REPOSITORY_PORT } from '../application/port/out/repository/wing-ad-summary.repository.port';
 import { DASHBOARD_SALES_REPOSITORY_PORT } from '../application/port/out/repository/dashboard-sales.repository.port';
 import { WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT } from '../application/port/out/repository/wing-traffic-aggregation.repository.port';
-import {
-  AD_ACCOUNT_DAILY_KPI_READ_PORT,
-  type AdAccountDailyKpiReadPort,
-} from '../../../advertising/application/port/in/ad-account-daily-kpi-source.port';
-import type { AdAccountDailyKpiPublished } from '@kiditem/shared/advertising';
-import { enumerateDashboardDates } from '@kiditem/shared/dashboard';
 import { AD_TRAFFIC_READ_PORT } from '../../../advertising/application/port/in/ad-traffic-source.port';
 import {
   makeTestPrisma,
@@ -35,68 +29,17 @@ import {
   setupProductOption,
   setupChannelListing,
   seedOrderWithLineItems,
+  seedAd,
+  seedCompletedAdSweepRun,
 } from '../../../test-helpers/finance-seeds';
 import type { PrismaClient } from '@prisma/client';
+import { kstMonthEnd } from '../../../common/kst';
 import { periodOf } from './test-helpers/period';
-
-const AD_ACCOUNT_ID = '00000000-0000-4000-8000-000000000001';
-
-function zeroAdRow(businessDate: string) {
-  return {
-    businessDate,
-    observedAt: `${businessDate}T23:00:00.000Z`,
-    normalized: {
-      adSpend: 0,
-      adRevenue: 0,
-      impressions: 0,
-      clicks: 0,
-      conversions: 0,
-      orders: 0,
-      providerRoas: null,
-      providerCtr: null,
-      providerConversionRate: null,
-    },
-  };
-}
-
-/**
- * An account that collected every requested day and found no advertising on
- * any of them. The real collector never answers a visited day with "no row":
- * an empty ad report is stamped as an explicit all-zero row
- * (`extensions/kiditem-os/content/coupang/ads-report.js`, asserted by
- * `extensions/tests/coupang-ads-scraper/ads-report.test.mjs` with
- * `rowCount: 0` and every `observedMetrics` flag true). A no-ads day is
- * therefore `CONFIRMED_ZERO` evidence, and modelling it as `rows: []` would
- * model `MISSING` — a state the collector does not produce.
- */
-function confirmedZeroPublication(input: {
-  from?: string;
-  to?: string;
-}): AdAccountDailyKpiPublished {
-  const dates = input.from && input.to
-    ? enumerateDashboardDates(input.from, input.to)
-    : [];
-  return {
-    channelAccountId: AD_ACCOUNT_ID,
-    rows: dates.map(zeroAdRow),
-  };
-}
-
-/** An organization with no advertising account: nothing can ever be collected. */
-function notAppliedPublication(): AdAccountDailyKpiPublished {
-  return { channelAccountId: null, rows: [] };
-}
-
-/** An advertising account that has published nothing for the range. */
-function missingPublication(): AdAccountDailyKpiPublished {
-  return { channelAccountId: AD_ACCOUNT_ID, rows: [] };
-}
 
 describe('DashboardSalesService.getSummary (PG integration)', () => {
   let prisma: PrismaClient;
   let service: DashboardSalesService;
   const trafficRead = { readPublished: vi.fn() };
-  const adRead = { readPublished: vi.fn() };
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
@@ -113,7 +56,6 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
         { provide: WING_AD_SUMMARY_REPOSITORY_PORT, useExisting: WingAdSummaryRepositoryAdapter },
         { provide: DASHBOARD_SALES_REPOSITORY_PORT, useExisting: DashboardSalesRepositoryAdapter },
         { provide: WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT, useExisting: WingTrafficAggregationRepositoryAdapter },
-        { provide: AD_ACCOUNT_DAILY_KPI_READ_PORT, useValue: adRead },
         { provide: AD_TRAFFIC_READ_PORT, useValue: trafficRead },
       ],
     }).compile();
@@ -127,9 +69,6 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
   beforeEach(async () => {
     await resetDb(prisma);
     await seedBaseFixture(prisma);
-    adRead.readPublished.mockImplementation(async (input: { from?: string; to?: string }) => (
-      confirmedZeroPublication(input)
-    ));
     trafficRead.readPublished.mockResolvedValue({
       channelAccountId: '00000000-0000-0000-0000-000000000001',
       rows: [],
@@ -137,6 +76,23 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
       plan: { businessDate: '1970-01-01' },
     });
   });
+
+  /**
+   * The campaign sweep visited every day of the anchor month and found no
+   * advertising: a measured zero on each date. The real collector never
+   * answers a visited day with "no row", so a no-ads month is evidence, and
+   * profit over it is computable.
+   */
+  let sweepGeneration = 0;
+  async function seedConfirmedZeroMonth(): Promise<void> {
+    const now = new Date();
+    const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    await seedCompletedAdSweepRun(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      generation: ++sweepGeneration,
+      window: { startDate: `${month}-01`, endDate: kstMonthEnd(month) },
+    });
+  }
 
   /**
    * Helper: create a single seeded master+listing+option for current month.
@@ -155,6 +111,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
       channel: 'coupang', externalId: `EXT-T-${suffix}`, channelName: '쿠팡',
       optionId, externalOptionId: `VI-T-${suffix}`,
     });
+    await seedConfirmedZeroMonth();
     return { masterId, optionId, listingId, listingOptionId };
   }
 
@@ -248,9 +205,8 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
   });
 
   it('T4: empty organization returns unavailable values (no error)', async () => {
-    // An organization with nothing in it does not advertise either, so the
-    // owner answers NOT_APPLIED rather than publishing collected zeros.
-    adRead.readPublished.mockResolvedValue(notAppliedPublication());
+    // An organization with nothing in it has no Coupang account either, so
+    // advertising is not an input to its profit.
 
     const ctx = buildDashboardContext();
     const result = await service.getSummary(ctx, TEST_ORGANIZATION_ID);
@@ -360,9 +316,10 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
     // account coverage or revenue.
     trafficRead.readPublished.mockResolvedValue(trafficPublication);
     // This fixture is about Wing revenue without settlement data: the ad
-    // account exists but has collected nothing, so ad cost stays unavailable
-    // rather than becoming a collected zero.
-    adRead.readPublished.mockResolvedValue(missingPublication());
+    // account exists but the sweep has reported nothing for the month, so ad
+    // cost stays unavailable rather than becoming a collected zero.
+    await prisma.channelAdTargetDailySnapshot.deleteMany({ where: { organizationId: TEST_ORGANIZATION_ID } });
+    await prisma.sourceImportRun.deleteMany({ where: { organizationId: TEST_ORGANIZATION_ID, sourceType: 'coupang_ad_campaign' } });
 
     const ctx = buildDashboardContext();
     const result = await service.getSummary(ctx, TEST_ORGANIZATION_ID);
@@ -370,7 +327,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
     expect(result.monthly).toMatchObject({
       revenue: 120_000,
       profit: null,
-      adCost: null,
+      adRate: null,
     });
   });
 
@@ -434,6 +391,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
         lineItems: [{ quantity: 1, totalPrice: (13 - i) * 1_000, optionId, listingOptionId }],
       });
     }
+    await seedConfirmedZeroMonth();
 
     const ctx = buildDashboardContext();
     const result = await service.getSummary(ctx, TEST_ORGANIZATION_ID);
@@ -721,36 +679,42 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
     const TO = new Date('2026-03-03T15:00:00.000Z');
     const REQUESTED = ['2026-03-01', '2026-03-02', '2026-03-03'];
 
-    function buildAdapter(
-      readPublished: AdAccountDailyKpiReadPort['readPublished'],
-    ): ProfitCalculationRepositoryAdapter {
-      return new ProfitCalculationRepositoryAdapter(
-        prisma as unknown as PrismaService,
-        { readPublished },
-      );
+    function buildAdapter(): ProfitCalculationRepositoryAdapter {
+      return new ProfitCalculationRepositoryAdapter(prisma as unknown as PrismaService);
     }
+
+    let coverageListingId: string | null = null;
 
     /**
-     * An advertising account that published an explicit zero for each named
-     * date. No date at all is the `MISSING` answer: the account exists but
-     * published nothing for the range.
+     * The campaign sweep reported an explicit zero for each named date on the
+     * organization's listing. No date at all is the absent answer: the account
+     * exists but the sweep published nothing for the range.
      */
-    function publishedRows(
-      ...businessDates: string[]
-    ): AdAccountDailyKpiReadPort['readPublished'] {
-      return async () => ({
-        channelAccountId: '00000000-0000-4000-8000-000000000001',
-        rows: businessDates.map(zeroAdRow),
+    async function publishedRows(...businessDates: string[]): Promise<void> {
+      if (!coverageListingId) {
+        const { listingId } = await seedTestListing('COV-LEDGER');
+        await prisma.channelAdTargetDailySnapshot.deleteMany({ where: { organizationId: TEST_ORGANIZATION_ID } });
+        await prisma.sourceImportRun.deleteMany({ where: { organizationId: TEST_ORGANIZATION_ID, sourceType: 'coupang_ad_campaign' } });
+        coverageListingId = listingId;
+      }
+      for (const date of businessDates) {
+        await seedAd(prisma, { organizationId: TEST_ORGANIZATION_ID, listingId: coverageListingId, date, spend: 0 });
+      }
+    }
+
+    /** An organization with no advertising account at all: its only account is not a Coupang one. */
+    async function notApplied(): Promise<void> {
+      await prisma.channelAdTargetDailySnapshot.deleteMany({ where: { organizationId: TEST_ORGANIZATION_ID } });
+      await prisma.sourceImportRun.deleteMany({ where: { organizationId: TEST_ORGANIZATION_ID, sourceType: 'coupang_ad_campaign' } });
+      await prisma.channelAccount.updateMany({
+        where: { organizationId: TEST_ORGANIZATION_ID, channel: 'coupang' },
+        data: { channel: 'naver' },
       });
     }
 
-    /** An organization with no advertising account at all. */
-    function notApplied(): AdAccountDailyKpiReadPort['readPublished'] {
-      return async () => ({
-        channelAccountId: null,
-        rows: [],
-      });
-    }
+    beforeEach(() => {
+      coverageListingId = null;
+    });
 
     /**
      * One order on each requested date, with every settlement input present so
@@ -813,7 +777,8 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
         });
       }
 
-      const result = await buildAdapter(publishedRows()).calculateForRange(
+      await publishedRows();
+      const result = await buildAdapter().calculateForRange(
         TEST_ORGANIZATION_ID,
         periodOf(FROM, TO),
       );
@@ -835,7 +800,8 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
         lineItems: [{ quantity: 1, totalPrice: 0, optionId, listingOptionId }],
       });
 
-      const result = await buildAdapter(publishedRows('2026-03-02')).calculateForRange(
+      await publishedRows('2026-03-02');
+      const result = await buildAdapter().calculateForRange(
         TEST_ORGANIZATION_ID,
         periodOf(FROM, TO),
       );
@@ -850,10 +816,16 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
     });
 
     it('separates a failed ad read from an ad source with no published rows', async () => {
-      const failed = await buildAdapter(async () => {
-        throw new Error('owner unavailable');
-      }).calculateForRange(TEST_ORGANIZATION_ID, periodOf(FROM, TO));
-      const emptyPublication = await buildAdapter(publishedRows()).calculateForRange(
+      const broken = new Proxy(prisma, {
+        get(target, prop, receiver) {
+          if (prop === '$queryRaw') return async () => { throw new Error('ledger unavailable'); };
+          return Reflect.get(target, prop, receiver);
+        },
+      });
+      await publishedRows();
+      const failed = await new ProfitCalculationRepositoryAdapter(broken as unknown as PrismaService)
+        .calculateForRange(TEST_ORGANIZATION_ID, periodOf(FROM, TO));
+      const emptyPublication = await buildAdapter().calculateForRange(
         TEST_ORGANIZATION_ID,
         periodOf(FROM, TO),
       );
@@ -871,8 +843,9 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
 
     it('computes profit for an organization that does not advertise', async () => {
       await seedFullyCoveredOrders('COV-NOT-APPLIED');
+      await notApplied();
 
-      const result = await buildAdapter(notApplied()).calculateForRange(
+      const result = await buildAdapter().calculateForRange(
         TEST_ORGANIZATION_ID,
         periodOf(FROM, TO),
       );
@@ -893,8 +866,9 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
 
     it('withholds profit when an existing ad account published nothing', async () => {
       await seedFullyCoveredOrders('COV-MISSING');
+      await publishedRows();
 
-      const result = await buildAdapter(publishedRows()).calculateForRange(
+      const result = await buildAdapter().calculateForRange(
         TEST_ORGANIZATION_ID,
         periodOf(FROM, TO),
       );
@@ -911,8 +885,9 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
 
     it('withholds profit when only part of the range carries ad evidence', async () => {
       await seedFullyCoveredOrders('COV-PARTIAL');
+      await publishedRows('2026-03-01', '2026-03-02');
 
-      const result = await buildAdapter(publishedRows('2026-03-01', '2026-03-02'))
+      const result = await buildAdapter()
         .calculateForRange(TEST_ORGANIZATION_ID, periodOf(FROM, TO));
 
       // 03-03 was never published. A partially covered range cannot be read as
@@ -925,8 +900,9 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
 
     it('computes profit for a fully covered window of collected zeros', async () => {
       await seedFullyCoveredOrders('COV-CONFIRMED-ZERO');
+      await publishedRows(...REQUESTED);
 
-      const result = await buildAdapter(publishedRows(...REQUESTED)).calculateForRange(
+      const result = await buildAdapter().calculateForRange(
         TEST_ORGANIZATION_ID,
         periodOf(FROM, TO),
       );
@@ -939,7 +915,8 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
     });
 
     it('publishes a fully covered window as complete ad evidence', async () => {
-      const result = await buildAdapter(publishedRows(...REQUESTED)).calculateForRange(
+      await publishedRows(...REQUESTED);
+      const result = await buildAdapter().calculateForRange(
         TEST_ORGANIZATION_ID,
         periodOf(FROM, TO),
       );

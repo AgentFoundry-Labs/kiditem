@@ -1,15 +1,11 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { ProductAbcEvaluationSchema } from '@kiditem/shared/product-abc';
 import { PrismaService } from '../../../../../prisma/prisma.service';
 import {
   buildPerListingProfit,
-  readAccountAdEvidence,
+  readAdEvidenceFromLedger,
   type PerListingProfit,
 } from '../../../../../common/per-listing-profit';
-import {
-  AD_ACCOUNT_DAILY_KPI_READ_PORT,
-  type AdAccountDailyKpiReadPort,
-} from '../../../../../advertising/application/port/in/ad-account-daily-kpi-source.port';
 import type { TopProduct } from '@kiditem/shared/dashboard';
 import type {
   DashboardSalesRepositoryPort,
@@ -45,8 +41,6 @@ export class DashboardSalesRepositoryAdapter
 {
   constructor(
     private readonly prisma: PrismaService,
-    @Inject(AD_ACCOUNT_DAILY_KPI_READ_PORT)
-    private readonly adAccountDailyKpiRead: AdAccountDailyKpiReadPort,
   ) {}
 
   /**
@@ -186,7 +180,7 @@ export class DashboardSalesRepositoryAdapter
     return rows.map((r) => {
       const revenue = Number(r.revenue ?? 0);
       // A row with no listing has nothing to look up, and a listing the helper
-      // withheld (incomplete ad coverage, per ADR-0003) answers `null` itself.
+      // withheld (incomplete ad coverage, per ADR-0006) answers `null` itself.
       const measured = r.listingId ? profitByListing.get(r.listingId) ?? null : null;
       const parsedEvaluation = ProductAbcEvaluationSchema.safeParse(r.abcEvaluation);
       const abcEvaluation = parsedEvaluation.success ? parsedEvaluation.data : null;
@@ -214,8 +208,8 @@ export class DashboardSalesRepositoryAdapter
     from: Date,
     to: Date,
   ): Promise<Map<string, PerListingProfit>> {
-    const adEvidence = await readAccountAdEvidence(
-      this.adAccountDailyKpiRead,
+    const adEvidence = await readAdEvidenceFromLedger(
+      this.prisma,
       organizationId,
       from,
       to,

@@ -17,17 +17,13 @@ import {
 import { PrismaService } from '../../../../../prisma/prisma.service';
 import {
   buildPerListingMetricsCoverage,
-  readAccountAdEvidence,
+  readAdEvidenceFromLedger,
 } from '../../../../../common/per-listing-profit';
 import {
   PRODUCT_ABC_READ_PORT,
   type ProductAbcReadPort,
 } from '../../../../../products/application/port/in/product-abc-read.port';
 import { SourceFailureAlerts } from '../../../../../alerts/alerts.service';
-import {
-  AD_ACCOUNT_DAILY_KPI_READ_PORT,
-  type AdAccountDailyKpiReadPort,
-} from '../../../../../advertising/application/port/in/ad-account-daily-kpi-source.port';
 import type { DashboardAlertItem } from '@kiditem/shared/dashboard';
 import type {
   DashboardInventoryRepositoryPort,
@@ -48,8 +44,6 @@ export class DashboardInventoryRepositoryAdapter
     private readonly prisma: PrismaService,
     @Inject(PRODUCT_ABC_READ_PORT)
     private readonly productAbc: ProductAbcReadPort,
-    @Inject(AD_ACCOUNT_DAILY_KPI_READ_PORT)
-    private readonly adAccountDailyKpiRead: AdAccountDailyKpiReadPort,
     private readonly alerts: SourceFailureAlerts,
   ) {}
 
@@ -184,12 +178,12 @@ export class DashboardInventoryRepositoryAdapter
     monthEnd: Date,
   ): Promise<DashboardPerListingMetricsResult> {
     // Which listings the ad source actually covered is the helper's rule
-    // (ADR-0003); this adapter only carries its answer, including how many
+    // (ADR-0006); this adapter only carries its answer, including how many
     // listings it withheld, across the port. Whether advertising applies to
-    // the organization at all is Advertising's answer, read here for the same
-    // window rather than inferred from an empty listing calendar.
-    const accountAdEvidence = await readAccountAdEvidence(
-      this.adAccountDailyKpiRead,
+    // the organization at all, and which dates the sweep measured, is read
+    // from the advertising ledger for the same window.
+    const accountAdEvidence = await readAdEvidenceFromLedger(
+      this.prisma,
       organizationId,
       monthStart,
       monthEnd,

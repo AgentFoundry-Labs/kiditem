@@ -18,9 +18,7 @@ describe('ReadinessService rebuild status', () => {
         })),
       },
     };
-    const service = new ReadinessService(prisma as never, {
-      readPublished: async () => ({ channelAccountId: '', rows: [] }),
-    });
+    const service = new ReadinessService(prisma as never);
 
     await expect(service.getRebuildStatus(organizationId)).resolves.toEqual({
       state: 'snapshot_required',
