@@ -327,7 +327,7 @@ describe('ad-window-facts (PG)', () => {
       days: 5,
       spend: 20,
       firstDate: '2026-04-06',
-      lastDate: '2026-04-06',
+      lastDate: '2026-04-10',
     });
 
     const perDay = await readListingDayAdFacts(prisma, {

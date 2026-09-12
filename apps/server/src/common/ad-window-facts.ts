@@ -327,8 +327,8 @@ export async function readListingAdWindowFacts(
     SELECT
       listing_id,
       (SELECT COUNT(*) FROM covered)::int AS days,
-      MIN(business_date) AS first_date,
-      MAX(business_date) AS last_date,
+      (SELECT MIN(business_date) FROM covered) AS first_date,
+      (SELECT MAX(business_date) FROM covered) AS last_date,
       MAX(last_observed_at) AS observed_at,
       ${AD_METRIC_SUMS_SQL}
     FROM measured
