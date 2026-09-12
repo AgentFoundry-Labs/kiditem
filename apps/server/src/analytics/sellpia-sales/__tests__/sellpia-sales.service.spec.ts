@@ -110,6 +110,53 @@ describe('classifySellpiaChannelGroup', () => {
 describe('SellpiaSalesService.getSummary', () => {
   beforeEach(() => vi.clearAllMocks());
 
+  it('returns an unqueried empty current month on the first KST day', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-31T15:00:00.000Z'));
+    const published = makePublishedSource();
+    const coupangAds = makeCoupangAds();
+    const service = new SellpiaSalesService(
+      coupangAds.repo as never,
+      published.source as never,
+    );
+
+    const out = await service.getClosedMonthSummary(ORGANIZATION_ID);
+
+    expect(published.readPublishedRows).not.toHaveBeenCalled();
+    expect(coupangAds.fetchDailyAds).not.toHaveBeenCalled();
+    expect(out).toMatchObject({
+      knownThrough: '2026-08-31',
+      range: null,
+      hasData: false,
+      totalRevenue: 0,
+      totalCost: 0,
+      adCost: null,
+      netProfit: null,
+      profitRate: null,
+    });
+    expect(() => SellpiaSalesSummarySchema.parse(out)).not.toThrow();
+  });
+
+  it('reads only the first closed day on the second KST day of a month', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-01T15:00:00.000Z'));
+    const published = makePublishedSource();
+    const coupangAds = makeCoupangAds();
+    const service = new SellpiaSalesService(
+      coupangAds.repo as never,
+      published.source as never,
+    );
+
+    const out = await service.getClosedMonthSummary(ORGANIZATION_ID);
+
+    expect(published.readPublishedRows).toHaveBeenCalledWith(
+      ORGANIZATION_ID,
+      '2026-09-01',
+      '2026-09-01',
+    );
+    expect(out.range).toEqual({ from: '2026-09-01', to: '2026-09-01' });
+  });
+
   it('reads published owner rows for rocket/others and mall drill-down aggregation', async () => {
     const published = makePublishedSource();
     published.readPublishedRows.mockResolvedValueOnce([

@@ -25,6 +25,7 @@ import {
   businessDateKey,
   datesInclusive,
   evidenceCutoffDate,
+  inclusiveDayCount,
   kstDayStart,
   parseBusinessDate,
 } from '../../../../common/kst';
@@ -1316,7 +1317,7 @@ function manualPlan(
 ) {
   const start = dateAtUtc(input.startDate);
   const end = dateAtUtc(input.endDate);
-  const spanDays = datesInclusive(start, end).length;
+  const spanDays = inclusiveDayCount(start, end);
   const expectedSpan = input.period === '1d' ? 1 : 7;
   if (
     !isAdvertisingDashboardUrl(input.targetUrl) ||

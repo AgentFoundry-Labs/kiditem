@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
   addDays,
   businessDateKey,
+  closedMonthRangeFromCutoff,
   datesInclusive,
   evidenceCutoffDate,
+  inclusiveDayCount,
   kstBusinessDate,
   parseBusinessDate,
   shiftBusinessDateKey,
@@ -36,9 +38,32 @@ describe('KST business dates', () => {
     expect(shiftBusinessDateKey('2024-03-01', -1)).toBe('2024-02-29');
   });
 
+  it('counts an inclusive date span without enumerating its days', () => {
+    expect(inclusiveDayCount(
+      new Date('0001-01-01T00:00:00.000Z'),
+      new Date('9999-12-31T00:00:00.000Z'),
+    )).toBe(3_652_059);
+    expect(inclusiveDayCount(
+      new Date('2026-09-02T00:00:00.000Z'),
+      new Date('2026-09-01T00:00:00.000Z'),
+    )).toBe(0);
+  });
+
   it('rejects invalid calendar dates instead of normalizing them', () => {
     expect(parseBusinessDate('2026-02-29')).toBeNull();
     expect(parseBusinessDate('2026-9-1')).toBeNull();
+  });
+
+  it('keeps the anchor month separate from its last closed date', () => {
+    expect(closedMonthRangeFromCutoff('2026-08-31')).toBeNull();
+    expect(closedMonthRangeFromCutoff('2026-09-01')).toEqual({
+      from: '2026-09-01',
+      to: '2026-09-01',
+    });
+    expect(closedMonthRangeFromCutoff('2026-09-12')).toEqual({
+      from: '2026-09-01',
+      to: '2026-09-12',
+    });
   });
 
   it('normalizes provider timestamps and loose calendar input to one KST business date', () => {

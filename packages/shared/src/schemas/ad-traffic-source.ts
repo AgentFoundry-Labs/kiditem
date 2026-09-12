@@ -1,6 +1,11 @@
 import { z } from 'zod';
 import { zIsoDate } from './common';
-import { businessDateKey, datesInclusive, parseBusinessDate } from '../common.js';
+import {
+  businessDateKey,
+  datesInclusive,
+  inclusiveDayCount,
+  parseBusinessDate,
+} from '../common.js';
 
 const timestamp = zIsoDate
   .transform((value) => (value instanceof Date ? value.toISOString() : value))
@@ -47,8 +52,10 @@ function expectedDates(startDate: string, endDate: string): string[] {
   const start = parseBusinessDate(startDate);
   const end = parseBusinessDate(endDate);
   if (!start || !end) return [];
-  const result = datesInclusive(start, end);
-  return result.length <= 366 ? result.map(businessDateKey) : [];
+  const count = inclusiveDayCount(start, end);
+  return count >= 1 && count <= 366
+    ? datesInclusive(start, end).map(businessDateKey)
+    : [];
 }
 
 const dailyPlanSchema = z

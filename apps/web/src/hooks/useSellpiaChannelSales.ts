@@ -10,7 +10,11 @@ import {
 } from '@/lib/sellpia-sales-api';
 import { collectSellpiaSaleSummaryFromExtension } from '@/lib/sellpia-sales-collection';
 import type { SellpiaSalesSummary } from '@kiditem/shared/dashboard';
-import { kstMonthEnd, shiftBusinessDateKey } from '@kiditem/shared/common';
+import {
+  closedMonthRangeFromCutoff,
+  kstMonthEnd,
+  shiftBusinessDateKey,
+} from '@kiditem/shared/common';
 
 // 대시보드 기간 선택(일/주/월/기간) → Sellpia 조회 from/to(KST) 계산.
 // 일: 기준일 / 주: 최근 7일 / 월: 이번 달 1일~기준일 / 기간: 사용자 지정.
@@ -19,13 +23,13 @@ export function sellpiaPeriodRange(
   dateFrom: string,
   dateTo: string,
   knownThrough: string,
-): { from: string; to: string } {
+): { from: string; to: string } | null {
   if (range === 'custom' && dateFrom && dateTo) return { from: dateFrom, to: dateTo };
   if (range === 'day') return { from: knownThrough, to: knownThrough };
   if (range === 'week') {
     return { from: shiftBusinessDateKey(knownThrough, -6), to: knownThrough };
   }
-  return { from: `${knownThrough.slice(0, 7)}-01`, to: knownThrough };
+  return closedMonthRangeFromCutoff(knownThrough);
 }
 
 const YEAR_MONTH_PATTERN = /^\d{4}-(0[1-9]|1[0-2])$/;

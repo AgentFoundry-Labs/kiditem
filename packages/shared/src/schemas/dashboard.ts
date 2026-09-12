@@ -609,7 +609,8 @@ export const SellpiaSalesGroupSchema = z.object({
 });
 export const SellpiaSalesSummarySchema = z.object({
   knownThrough: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  range: z.object({ from: z.string(), to: z.string() }),
+  // Null means the anchor month has no closed KST day yet, so no owner read ran.
+  range: z.object({ from: z.string(), to: z.string() }).nullable(),
   rocket: SellpiaSalesGroupSchema, // 쿠팡 로켓(쿠팡-직배송) 단독
   others: SellpiaSalesGroupSchema, // 쿠팡윙 + 기타 전체몰 합산 (malls = 드릴다운)
   totalRevenue: z.number(),

@@ -50,6 +50,43 @@ describe("AdCollectionDailyChart interactions", () => {
     mockApiGet.mockResolvedValue(emptyTrends);
   });
 
+  it("waits for the server cutoff before requesting or initializing a range", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const view = render(
+      <QueryClientProvider client={queryClient}>
+        <AdCollectionDailyChart
+          initialTrends={null}
+          period="month"
+          onPeriodChange={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(mockApiGet).not.toHaveBeenCalled();
+    expect(screen.queryByText(/1970-01-01/)).not.toBeInTheDocument();
+
+    view.rerender(
+      <QueryClientProvider client={queryClient}>
+        <AdCollectionDailyChart
+          initialTrends={emptyTrends}
+          period="month"
+          onPeriodChange={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(mockApiGet).toHaveBeenCalledWith(
+        "/api/ads/campaigns/trends?from=2026-07-01&to=2026-07-23",
+      );
+    });
+    fireEvent.click(screen.getByRole("button", { name: "기간" }));
+    expect(screen.getByLabelText("광고 성과 시작일")).toHaveValue("2026-07-01");
+    expect(screen.getByLabelText("광고 성과 종료일")).toHaveValue("2026-07-23");
+  });
+
   it("applies a custom date range to both the label and API request", async () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },

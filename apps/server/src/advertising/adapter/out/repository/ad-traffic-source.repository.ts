@@ -36,6 +36,7 @@ import {
   businessDateKey,
   datesInclusive,
   evidenceCutoffDate,
+  inclusiveDayCount,
   toBusinessDate,
 } from '../../../../common/kst';
 import {
@@ -182,7 +183,7 @@ function asRecord(value: unknown): Record<string, unknown> {
 }
 
 function datesInRange(start: Date, end: Date): number {
-  return datesInclusive(start, end).length;
+  return inclusiveDayCount(start, end);
 }
 
 function datesBetween(start: Date, end: Date): string[] {
@@ -1197,13 +1198,13 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
     if (!start || dateText(start) !== startDate || !end || dateText(end) !== endDate) {
       throw new BadRequestException('INVALID_TRAFFIC_DATE_RANGE');
     }
-    if (start.getTime() > end.getTime() || datesInRange(start, end) > MAX_RANGE_DAYS) {
+    const periodDays = datesInRange(start, end);
+    if (periodDays < 1 || periodDays > MAX_RANGE_DAYS) {
       throw new BadRequestException('INVALID_TRAFFIC_DATE_RANGE');
     }
     if (end.getTime() > closedEnd.getTime()) {
       throw new BadRequestException('TRAFFIC_RANGE_IN_FUTURE');
     }
-    const periodDays = datesInRange(start, end);
     const expectedDates = Array.from({ length: periodDays }, (_, index) =>
       dateText(addDays(start, index)),
     );

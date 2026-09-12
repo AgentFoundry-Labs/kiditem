@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Area,
@@ -18,6 +18,7 @@ import type { AdTrendsData } from "@kiditem/shared/advertising";
 import {
   businessDateKey,
   datesInclusive,
+  inclusiveDayCount,
   parseBusinessDate,
   shiftBusinessDateKey,
 } from "@kiditem/shared/common";
@@ -86,8 +87,10 @@ export function enumerateDateKeys(from: string, to: string): string[] {
   const start = parseBusinessDate(from);
   const end = parseBusinessDate(to);
   if (!start || !end) return [];
-  const dates = datesInclusive(start, end);
-  return dates.length <= 90 ? dates.map(businessDateKey) : [];
+  const count = inclusiveDayCount(start, end);
+  return count >= 1 && count <= 90
+    ? datesInclusive(start, end).map(businessDateKey)
+    : [];
 }
 
 export function isCustomRangeInvalid(
@@ -158,34 +161,53 @@ export default function AdCollectionDailyChart({
   period: AdCollectionPeriod;
   onPeriodChange: (period: AdCollectionPeriod) => void;
 }) {
-  const referenceDate = initialTrends?.knownThrough ?? "1970-01-01";
-  const today = shiftDate(referenceDate, 1);
-  const maxSelectableDate = selectableRangeEndDate(today);
-  const initialCustom = presetDateRange("month", referenceDate, today);
+  const referenceDate = initialTrends?.knownThrough ?? null;
+  const today = referenceDate ? shiftDate(referenceDate, 1) : null;
+  const maxSelectableDate = today ? selectableRangeEndDate(today) : null;
+  const initialCustom = referenceDate && today
+    ? presetDateRange("month", referenceDate, today)
+    : null;
+  const customEdited = useRef(false);
   const [preset, setPreset] = useState<RangePreset>(period);
-  const [draftFrom, setDraftFrom] = useState(initialCustom.from);
-  const [draftTo, setDraftTo] = useState(initialCustom.to);
+  const [draftFrom, setDraftFrom] = useState(initialCustom?.from ?? "");
+  const [draftTo, setDraftTo] = useState(initialCustom?.to ?? "");
   const [customRange, setCustomRange] = useState(initialCustom);
 
   useEffect(() => {
     setPreset(period);
   }, [period]);
 
+  useEffect(() => {
+    if (!initialCustom || customEdited.current) return;
+    setDraftFrom(initialCustom.from);
+    setDraftTo(initialCustom.to);
+    setCustomRange(initialCustom);
+  }, [initialCustom?.from, initialCustom?.to]);
+
   const appliedRange =
     preset === "custom"
       ? customRange
-      : presetDateRange(preset, referenceDate, today);
+      : referenceDate && today
+        ? presetDateRange(preset, referenceDate, today)
+        : null;
   const expectedDates = useMemo(
-    () => enumerateDateKeys(appliedRange.from, appliedRange.to),
-    [appliedRange.from, appliedRange.to],
+    () => appliedRange
+      ? enumerateDateKeys(appliedRange.from, appliedRange.to)
+      : [],
+    [appliedRange?.from, appliedRange?.to],
   );
 
   const trendsQuery = useQuery({
-    queryKey: queryKeys.ads.trendsRange(appliedRange.from, appliedRange.to),
-    queryFn: () =>
-      apiClient.get<AdTrendsData>(
+    queryKey: appliedRange
+      ? queryKeys.ads.trendsRange(appliedRange.from, appliedRange.to)
+      : [...queryKeys.ads.all, "trends-range", "pending"],
+    queryFn: () => {
+      if (!appliedRange) throw new Error("Ad trends range is unavailable");
+      return apiClient.get<AdTrendsData>(
         `/api/ads/campaigns/trends?from=${appliedRange.from}&to=${appliedRange.to}`,
-      ),
+      );
+    },
+    enabled: appliedRange !== null,
     placeholderData:
       preset === period ? initialTrends ?? undefined : undefined,
   });
@@ -197,7 +219,7 @@ export default function AdCollectionDailyChart({
   const customInvalid = isCustomRangeInvalid(
     draftFrom,
     draftTo,
-    maxSelectableDate,
+    maxSelectableDate ?? "",
   );
 
   return (
@@ -220,8 +242,9 @@ export default function AdCollectionDailyChart({
           <div className="mt-0.5 flex items-center gap-2 text-[10px]">
             <span style={{ color: "var(--text-tertiary)" }}>{chart.sourceLabel}</span>
             <span style={{ color: "var(--text-tertiary)" }}>
-              {appliedRange.from} ~ {appliedRange.to}
-              {appliedRange.to === referenceDate ? " · 어제까지" : ""}
+              {appliedRange
+                ? `${appliedRange.from} ~ ${appliedRange.to}${appliedRange.to === referenceDate ? " · 어제까지" : ""}`
+                : "기준일 확인 중"}
             </span>
             {trendsQuery.isFetching && <Loader2 size={11} className="animate-spin" />}
           </div>
@@ -270,8 +293,11 @@ export default function AdCollectionDailyChart({
               aria-label="광고 성과 시작일"
               type="date"
               value={draftFrom}
-              max={draftTo || maxSelectableDate}
-              onChange={(event) => setDraftFrom(event.target.value)}
+              max={draftTo || maxSelectableDate || undefined}
+              onChange={(event) => {
+                customEdited.current = true;
+                setDraftFrom(event.target.value);
+              }}
               className="h-8 rounded-md border px-2 text-xs"
               style={{
                 background: "var(--surface)",
@@ -285,8 +311,11 @@ export default function AdCollectionDailyChart({
               type="date"
               value={draftTo}
               min={draftFrom || undefined}
-              max={maxSelectableDate}
-              onChange={(event) => setDraftTo(event.target.value)}
+              max={maxSelectableDate ?? undefined}
+              onChange={(event) => {
+                customEdited.current = true;
+                setDraftTo(event.target.value);
+              }}
               className="h-8 rounded-md border px-2 text-xs"
               style={{
                 background: "var(--surface)",

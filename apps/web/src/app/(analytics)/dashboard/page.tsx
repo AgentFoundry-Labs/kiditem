@@ -31,6 +31,7 @@ import {
   businessDateKey,
   datesInclusive,
   parseBusinessDate,
+  shiftBusinessDateKey,
 } from '@kiditem/shared/common';
 import { apiClient } from '@/lib/api-client';
 import PageSkeleton from '@/components/ui/PageSkeleton';
@@ -683,10 +684,12 @@ export default function Dashboard() {
   const displayRevenue = primaryRevenueAvailable
     ? (sellpiaHasData ? spTotal : kpiRevenue)
     : null;
-  const salesAnalysisPeriod = sp?.range.from?.slice(0, 7)
+  const salesAnalysisPeriod = sp?.range?.from.slice(0, 7)
     ?? (effectivePeriod
       ? `${effectivePeriod.year}-${String(effectivePeriod.month).padStart(2, '0')}`
-      : new Date().toISOString().slice(0, 7));
+      : sellpiaKnownThrough
+        ? shiftBusinessDateKey(sellpiaKnownThrough, 1).slice(0, 7)
+        : '');
   const salesAnalysisHref = `/sales-analysis?tab=overview&period=${encodeURIComponent(salesAnalysisPeriod)}`;
   const revenueBasis = rangeMetricBasis(effectiveSales, kpiRange, 'revenue');
   const profitBasis = rangeMetricBasis(effectiveSales, kpiRange, 'profit');
@@ -953,8 +956,8 @@ export default function Dashboard() {
                       // 기간 진입 시 비어 있으면 이번 달로 기본 채움(빈 입력 방지)
                       if (sellpiaKnownThrough) {
                         const def = sellpiaPeriodRange('month', '', '', sellpiaKnownThrough);
-                        if (!dateFrom) setDateFrom(def.from);
-                        if (!dateTo) setDateTo(def.to);
+                        if (def && !dateFrom) setDateFrom(def.from);
+                        if (def && !dateTo) setDateTo(def.to);
                       }
                     }}
                     className={cn(

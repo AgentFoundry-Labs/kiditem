@@ -1,9 +1,11 @@
 export {
   addDays,
   businessDateKey,
+  closedMonthRangeFromCutoff,
   currentBusinessDate,
   datesInclusive,
   evidenceCutoffDate,
+  inclusiveDayCount,
   kstBusinessDate,
   kstDayStart,
   kstInclusiveDaysStart,

@@ -6,6 +6,7 @@ import { fetchSellpiaSalesSummary } from '@/lib/sellpia-sales-api';
 import { collectSellpiaSaleSummaryFromExtension } from '@/lib/sellpia-sales-collection';
 import {
   sellpiaMonthRange,
+  sellpiaPeriodRange,
   useSellpiaChannelSales,
   useSellpiaKnownThrough,
 } from './useSellpiaChannelSales';
@@ -143,6 +144,16 @@ describe('sellpiaMonthRange', () => {
     expect(sellpiaMonthRange('2024-02', '2026-07-25')).toEqual({
       from: '2024-02-01',
       to: '2024-02-29',
+    });
+  });
+});
+
+describe('sellpiaPeriodRange', () => {
+  it('keeps the current calendar month empty on its first KST day', () => {
+    expect(sellpiaPeriodRange('month', '', '', '2026-08-31')).toBeNull();
+    expect(sellpiaPeriodRange('month', '', '', '2026-09-01')).toEqual({
+      from: '2026-09-01',
+      to: '2026-09-01',
     });
   });
 });

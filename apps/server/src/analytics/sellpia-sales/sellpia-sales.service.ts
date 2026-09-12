@@ -29,6 +29,7 @@ import type {
 import {
   addDays,
   businessDateKey,
+  closedMonthRangeFromCutoff,
   datesInclusive,
   evidenceCutoffDate,
   kstDayStart,
@@ -52,10 +53,22 @@ export class SellpiaSalesService {
     private readonly publishedSource: SellpiaSalesSourceService,
   ) {}
 
+  async getClosedMonthSummary(
+    organizationId: string,
+  ): Promise<SellpiaSalesSummary> {
+    const knownThrough = businessDateKey(evidenceCutoffDate());
+    const range = closedMonthRangeFromCutoff(knownThrough);
+    if (range) {
+      return this.getSummary(organizationId, range.from, range.to, knownThrough);
+    }
+    return emptySellpiaSalesSummary(knownThrough);
+  }
+
   async getSummary(
     organizationId: string,
     from: string,
     to: string,
+    knownThrough = businessDateKey(evidenceCutoffDate()),
   ): Promise<SellpiaSalesSummary> {
     const fromInstant = toKstInstant(from);
     const toExclusive = toKstExclusiveEnd(to);
@@ -130,7 +143,7 @@ export class SellpiaSalesService {
       : null;
 
     const base = {
-      knownThrough: businessDateKey(evidenceCutoffDate()),
+      knownThrough,
       range: { from, to },
       rocket,
       others,
@@ -178,6 +191,30 @@ export class SellpiaSalesService {
       return { rows: [], failed: true };
     }
   }
+}
+
+function emptySellpiaSalesSummary(knownThrough: string): SellpiaSalesSummary {
+  const emptyGroup: SellpiaSalesGroup = {
+    revenue: 0,
+    qty: 0,
+    cost: 0,
+    daily: [],
+    malls: [],
+  };
+  return {
+    knownThrough,
+    range: null,
+    rocket: emptyGroup,
+    others: { ...emptyGroup },
+    totalRevenue: 0,
+    totalCost: 0,
+    adCost: null,
+    netProfit: null,
+    profitRate: null,
+    lastCapturedAt: null,
+    hasData: false,
+    profitInputs: null,
+  };
 }
 
 function buildGroup(

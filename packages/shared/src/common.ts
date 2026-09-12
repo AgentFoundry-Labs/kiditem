@@ -82,6 +82,24 @@ export function shiftBusinessDateKey(value: string, amount: number): string {
   return businessDateKey(addDays(parsed, amount));
 }
 
+export interface BusinessDateRange {
+  from: string;
+  to: string;
+}
+
+/**
+ * Resolves the current calendar month's closed dates from a server cutoff.
+ * The calendar anchor is the day after the cutoff, so a cutoff on the final
+ * day of the previous month represents an empty current-month window.
+ */
+export function closedMonthRangeFromCutoff(
+  knownThrough: string,
+): BusinessDateRange | null {
+  const anchor = shiftBusinessDateKey(knownThrough, 1);
+  const from = `${anchor.slice(0, 7)}-01`;
+  return knownThrough < from ? null : { from, to: knownThrough };
+}
+
 /** Enumerates normalized business dates in an inclusive range. */
 export function datesInclusive(from: Date, to: Date): Date[] {
   const result: Date[] = [];
@@ -89,6 +107,13 @@ export function datesInclusive(from: Date, to: Date): Date[] {
     result.push(cursor);
   }
   return result;
+}
+
+/** Counts an inclusive whole-day span without allocating its date vector. */
+export function inclusiveDayCount(from: Date, to: Date): number {
+  const span = to.getTime() - from.getTime();
+  if (!Number.isFinite(span) || span < 0) return 0;
+  return Math.floor(span / DAY_MS) + 1;
 }
 
 /** Returns the final calendar day for a YYYY-MM value as YYYY-MM-DD. */

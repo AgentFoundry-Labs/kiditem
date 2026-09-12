@@ -9,7 +9,7 @@ import {
 import { AdCampaignsService } from '../../../application/service/ad-campaigns.service';
 import { AdStrategyService } from '../../../application/service/ad-strategy.service';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
-import { datesInclusive, parseBusinessDate } from '../../../../common/kst';
+import { inclusiveDayCount, parseBusinessDate } from '../../../../common/kst';
 import {
   AdProductQueryDto,
   CampaignQueryDto,
@@ -70,7 +70,7 @@ export class AdvertisingCampaignsController {
 
     if (dateRange) {
       const spanDays = dateRange.from && dateRange.to
-        ? datesInclusive(dateRange.from, dateRange.to).length
+        ? inclusiveDayCount(dateRange.from, dateRange.to)
         : 0;
       if (
         !dateRange.from ||
