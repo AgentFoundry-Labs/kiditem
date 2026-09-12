@@ -25,11 +25,10 @@ import type {
   DashboardSnapshotBasisStatusSchema,
 } from './dashboard.js';
 import type { z } from 'zod';
+import { businessDateKey, datesInclusive, parseBusinessDate } from '../common.js';
 
 export type DashboardPeriodBasisStatus = z.infer<typeof DashboardPeriodBasisStatusSchema>;
 export type DashboardSnapshotBasisStatus = z.infer<typeof DashboardSnapshotBasisStatusSchema>;
-
-const DAY_MS = 86_400_000;
 
 /** Evidence one producer measured for one metric over one selected range. */
 export interface DashboardPeriodBasisInput {
@@ -60,10 +59,7 @@ export interface DashboardPeriodBasisInput {
  * such as `2026-02-30` are not calendar dates and return null.
  */
 function calendarTimestamp(value: string): number | null {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
-  const timestamp = Date.parse(`${value}T00:00:00.000Z`);
-  if (!Number.isFinite(timestamp)) return null;
-  return new Date(timestamp).toISOString().slice(0, 10) === value ? timestamp : null;
+  return parseBusinessDate(value)?.getTime() ?? null;
 }
 
 /**
@@ -76,24 +72,12 @@ function calendarDateOrNull(value: string | null | undefined): string | null {
   return calendarTimestamp(value) === null ? null : value;
 }
 
-function dateAtOffset(start: number, offset: number): string | null {
-  const timestamp = start + offset * DAY_MS;
-  if (!Number.isFinite(timestamp) || Math.abs(timestamp) > 8.64e15) return null;
-  return new Date(timestamp).toISOString().slice(0, 10);
-}
-
 /** Contiguous ascending calendar dates in `[from, to]`; empty when inverted. */
 export function enumerateDashboardDates(from: string, to: string): string[] {
   const start = calendarTimestamp(from);
   const end = calendarTimestamp(to);
   if (start === null || end === null || start > end) return [];
-  const days = Math.round((end - start) / DAY_MS) + 1;
-  const dates: string[] = [];
-  for (let offset = 0; offset < days; offset += 1) {
-    const date = dateAtOffset(start, offset);
-    if (date !== null) dates.push(date);
-  }
-  return dates;
+  return datesInclusive(new Date(start), new Date(end)).map(businessDateKey);
 }
 
 function uniqueInOrder(values: Iterable<string> | undefined): string[] {

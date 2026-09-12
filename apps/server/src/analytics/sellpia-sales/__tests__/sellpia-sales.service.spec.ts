@@ -321,6 +321,7 @@ describe('SellpiaSalesService.getSummary', () => {
     const todayOnly = await service.getSummary(ORGANIZATION_ID, '2026-07-18', '2026-07-18');
 
     expect(closedRange.hasData).toBe(true);
+    expect(closedRange.knownThrough).toBe('2026-07-17');
     expect(closedRange.totalRevenue).toBe(1_000);
     expect(dailyValues(closedRange.others.daily)).toEqual([{ date: '2026-07-17', revenue: 1_000, qty: 0 }]);
     expect(todayOnly.hasData).toBe(false);

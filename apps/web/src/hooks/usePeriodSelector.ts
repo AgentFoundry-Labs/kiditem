@@ -1,6 +1,13 @@
 'use client';
 
 import { useState } from 'react';
+import {
+  businessDateKey,
+  kstBusinessDate,
+  kstMonthEnd,
+  kstMonthRange,
+  parseBusinessDate,
+} from '@kiditem/shared/common';
 
 interface PeriodOption {
   value: string;
@@ -14,37 +21,44 @@ interface UsePeriodSelectorOptions {
   defaultTo?: 'current' | 'prev';
   /** URL 등 외부에서 주입하는 초기 period 값 (YYYY-MM). 지정 시 defaultTo 무시. */
   initial?: string;
+  /** Server-published calendar cutoff (`YYYY-MM-DD`) used as the month anchor. */
+  referenceDate?: string | null;
 }
 
-function getDefaultPeriod(defaultTo: 'current' | 'prev'): string {
-  const now = new Date();
-  if (defaultTo === 'prev') {
-    now.setMonth(now.getMonth() - 1);
-  }
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+function getDefaultPeriod(
+  referenceDate: string,
+  defaultTo: 'current' | 'prev',
+): string {
+  const current = referenceDate.slice(0, 7);
+  if (defaultTo === 'current') return current;
+  return kstMonthRange(kstMonthEnd(current), 2)[0]!;
 }
 
-function generatePeriodOptions(months: number): PeriodOption[] {
-  const options: PeriodOption[] = [];
-  const now = new Date();
-  for (let i = 0; i < months; i++) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    options.push({
-      value: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
-      label: `${d.getFullYear()}년 ${d.getMonth() + 1}월`,
-    });
-  }
-  return options;
+function generatePeriodOptions(months: number, referenceDate: string): PeriodOption[] {
+  const current = referenceDate.slice(0, 7);
+  return kstMonthRange(kstMonthEnd(current), months)
+    .reverse()
+    .map((value) => ({
+      value,
+      label: `${value.slice(0, 4)}년 ${Number(value.slice(5, 7))}월`,
+    }));
 }
 
 const PERIOD_SHAPE = /^\d{4}-(0[1-9]|1[0-2])$/;
 
 export function usePeriodSelector(options?: UsePeriodSelectorOptions) {
-  const { months, defaultTo = 'current', initial } = options ?? {};
-  const periodOptions = months ? generatePeriodOptions(months) : [];
-  const [period, setPeriod] = useState(() =>
-    initial && PERIOD_SHAPE.test(initial) ? initial : getDefaultPeriod(defaultTo),
+  const { months, defaultTo = 'current', initial, referenceDate } = options ?? {};
+  const validReference = referenceDate && parseBusinessDate(referenceDate)
+    ? referenceDate
+    : businessDateKey(kstBusinessDate(new Date()));
+  const periodOptions = months
+    ? generatePeriodOptions(months, validReference)
+    : [];
+  const [selectedPeriod, setPeriod] = useState<string | null>(() =>
+    initial && PERIOD_SHAPE.test(initial) ? initial : null,
   );
+  const period = selectedPeriod
+    ?? getDefaultPeriod(validReference, defaultTo);
 
   return { period, setPeriod, periodOptions };
 }

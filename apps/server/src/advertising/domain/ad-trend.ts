@@ -2,6 +2,7 @@
 // see also `domain/ad-metrics.ts::buildAdMetrics`.
 
 import type { AdMetricSums } from './ad-metrics';
+import { businessDateKey } from '../../common/kst';
 
 export interface AdTrendDailyInputRow {
   businessDate: Date;
@@ -28,7 +29,7 @@ export function aggregateDailyAdRows(
 ): AdTrendDailyAggregate[] {
   const dayMap = new Map<string, AdMetricSums>();
   for (const row of rows) {
-    const key = row.businessDate.toISOString().slice(0, 10);
+    const key = businessDateKey(row.businessDate);
     const prev =
       dayMap.get(key) ??
       ({

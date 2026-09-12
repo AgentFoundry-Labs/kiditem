@@ -1,6 +1,6 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import { currentBusinessDate } from '../../../domain/business-date';
+import { addDays, currentBusinessDate } from '../../../../common/kst';
 import { upsertWingTrackedProductSnapshots } from './wing-tracked-product-snapshot.persistence';
 import { lockWingTrackedProductsSource } from './wing-tracked-product-source-lock';
 import type { Prisma } from '@prisma/client';
@@ -173,9 +173,7 @@ function toSnapshotRow(row: PrismaSnapshotRow): WingTrackedSnapshotRow {
 }
 
 function historyCutoff(days: number): Date {
-  const cutoff = new Date();
-  cutoff.setUTCDate(cutoff.getUTCDate() - (days - 1));
-  return new Date(Date.UTC(cutoff.getUTCFullYear(), cutoff.getUTCMonth(), cutoff.getUTCDate()));
+  return addDays(currentBusinessDate(), -(days - 1));
 }
 
 function trackerMutationTransactionOptions() {

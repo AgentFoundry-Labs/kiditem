@@ -8,6 +8,7 @@ import {
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
+import { businessDateKey } from '../../../../common/kst';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import {
   currentBusinessDate,
@@ -778,5 +779,5 @@ function snapshotTransactionOptions() {
 }
 
 function isoDate(value: Date): string {
-  return value.toISOString().slice(0, 10);
+  return businessDateKey(value);
 }

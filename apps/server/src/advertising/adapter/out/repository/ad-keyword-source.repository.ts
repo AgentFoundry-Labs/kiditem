@@ -25,7 +25,7 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { canonicalOwnerInputHash as hash } from '../../../../common/owner-idempotency-key';
 import { resolveCoupangVendorId } from '../../../../channels/domain/coupang-account-identity';
-import { currentBusinessDate } from '../../../domain/business-date';
+import { addDays, businessDateKey, evidenceCutoffDate } from '../../../../common/kst';
 import {
   normalizeAdKeywordTarget,
   mergeKeywordTargets,
@@ -94,16 +94,15 @@ export class AdKeywordSourceRepository {
       }
       const advertiserId = resolveCoupangVendorId(account);
       if (!advertiserId) throw new BadRequestException('ADVERTISER_IDENTITY_MISSING');
-      const today = currentBusinessDate();
-      const end = new Date(today.getTime() - 86_400_000);
-      const start = new Date(end.getTime() - 6 * 86_400_000);
+      const end = evidenceCutoffDate();
+      const start = addDays(end, -6);
       const plan = AdKeywordSourcePlanSchema.parse({
         sourceType: SOURCE,
         parserVersion: PARSER,
         channelAccountId: account.id,
         expectedAdvertiserId: advertiserId,
-        startDate: start.toISOString().slice(0, 10),
-        endDate: end.toISOString().slice(0, 10),
+        startDate: businessDateKey(start),
+        endDate: businessDateKey(end),
         windowDays: 7,
       });
       const previous = await tx.sourceImportRun.aggregate({
@@ -190,9 +189,7 @@ export class AdKeywordSourceRepository {
             ? latestAttempt
             : await this.attemptIn(tx, complete)
           : null;
-        const expectedEnd = new Date(currentBusinessDate().getTime() - 86_400_000)
-          .toISOString()
-          .slice(0, 10);
+        const expectedEnd = businessDateKey(evidenceCutoffDate());
         return {
           channelAccountId: account.id,
           ready: latestComplete !== null

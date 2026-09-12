@@ -9,6 +9,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { businessDateKey } from '../../../../common/kst';
 import { periodBounds } from '../../../domain/ad-metrics';
 import {
   AD_ACCOUNT_DAILY_KPI_READ_PORT,
@@ -42,8 +43,8 @@ export class AdAccountKpiRepositoryAdapter
 
     const published = await this.dailyKpiRead.readPublished({
       organizationId,
-      from: bounds.from.toISOString().slice(0, 10),
-      to: bounds.to.toISOString().slice(0, 10),
+      from: businessDateKey(bounds.from),
+      to: businessDateKey(bounds.to),
     });
     return published.rows.map((row) => ({
       businessDate: row.businessDate,

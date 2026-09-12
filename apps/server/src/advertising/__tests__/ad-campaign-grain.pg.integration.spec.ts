@@ -1,5 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { AdCampaignRepositoryAdapter } from '../adapter/out/repository/ad-campaign.repository.adapter';
+import { AdActionRepositoryAdapter } from '../adapter/out/repository/ad-action.repository.adapter';
+import { AdListingRepositoryAdapter } from '../adapter/out/repository/ad-listing.repository.adapter';
 import { periodBounds } from '../domain/ad-metrics';
 import {
   makeTestPrisma,
@@ -18,6 +20,7 @@ const OTHER_ACCOUNT = '33333333-3333-4333-8333-333333333333';
 describe('AdCampaignRepositoryAdapter account + stable campaign grain (PG)', () => {
   let prisma: PrismaClient;
   let adapter: AdCampaignRepositoryAdapter;
+  let actionAdapter: AdActionRepositoryAdapter;
   const owners = new Map<string, string>();
   const businessDate = periodBounds('7d').to;
 
@@ -25,6 +28,10 @@ describe('AdCampaignRepositoryAdapter account + stable campaign grain (PG)', () 
     prisma = makeTestPrisma();
     await prisma.$connect();
     adapter = new AdCampaignRepositoryAdapter(prisma as PrismaService);
+    actionAdapter = new AdActionRepositoryAdapter(
+      prisma as PrismaService,
+      new AdListingRepositoryAdapter(prisma as PrismaService),
+    );
   });
 
   afterAll(async () => {
@@ -210,6 +217,75 @@ describe('AdCampaignRepositoryAdapter account + stable campaign grain (PG)', () 
       conversions: 2,
       orders: 2,
       conversionsObserved: true,
+    });
+  });
+
+  it('selects the same current listing target in campaign detail and action readers', async () => {
+    const listing = await prisma.channelListing.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: ACCOUNT_A,
+        externalId: 'current-row-listing',
+        channelName: '현재 행 검증 상품',
+      },
+    });
+    const targetKey = `account:${ACCOUNT_A}:product:campaign:current-row:item-1`;
+    const earlierDate = new Date(businessDate.getTime() - 86_400_000);
+    await prisma.channelAdTargetDailySnapshot.createMany({
+      data: [
+        {
+          organizationId: TEST_ORGANIZATION_ID,
+          channelAccountId: ACCOUNT_A,
+          sourceImportRunId: owners.get(ACCOUNT_A),
+          channel: 'coupang',
+          listingId: listing.id,
+          externalId: listing.externalId,
+          businessDate: earlierDate,
+          targetType: 'product',
+          targetKey,
+          campaignIdentity: 'campaign:current-row',
+          campaignName: '이전 날짜',
+          externalOptionId: 'item-1',
+          status: 'old-day',
+          lastObservedAt: new Date('2026-09-13T12:00:00.000Z'),
+          spend: 10,
+          metaJson: { 'advertising.campaign.target': { granularity: 'product' } },
+        },
+        {
+          organizationId: TEST_ORGANIZATION_ID,
+          channelAccountId: ACCOUNT_A,
+          sourceImportRunId: owners.get(ACCOUNT_A),
+          channel: 'coupang',
+          listingId: listing.id,
+          externalId: listing.externalId,
+          businessDate,
+          targetType: 'product',
+          targetKey,
+          campaignIdentity: 'campaign:current-row',
+          campaignName: '최신 날짜',
+          externalOptionId: 'item-1',
+          status: 'latest-day',
+          lastObservedAt: new Date('2026-09-12T12:00:00.000Z'),
+          spend: 20,
+          metaJson: { 'advertising.campaign.target': { granularity: 'product' } },
+        },
+      ],
+    });
+
+    const [campaignRows, actionRows] = await Promise.all([
+      adapter.findProductTargetRollups(TEST_ORGANIZATION_ID, '7d'),
+      actionAdapter.findLatestTargetRows(TEST_ORGANIZATION_ID),
+    ]);
+
+    expect(campaignRows.find((row) => row.targetKey === targetKey)).toMatchObject({
+      listingId: listing.id,
+      campaignName: '최신 날짜',
+      status: 'latest-day',
+    });
+    expect(actionRows.find((row) => row.targetKey === targetKey)).toMatchObject({
+      listingId: listing.id,
+      campaignName: '최신 날짜',
+      status: 'latest-day',
     });
   });
 

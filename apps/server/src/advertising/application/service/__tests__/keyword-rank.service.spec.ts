@@ -13,6 +13,7 @@ const snapshot = (
   salesRank: number | null,
   overrides: Record<string, unknown> = {},
 ) => ({
+  id: `${keyword}:${businessDate}:${salesRank ?? 'none'}`,
   keyword,
   vendorItemId: "V-1",
   businessDate: new Date(`${businessDate}T00:00:00.000Z`),
@@ -31,6 +32,7 @@ const snapshot = (
   collectedCount: 100,
   totalResults: 340,
   capturedAt: new Date(`${businessDate}T03:00:00.000Z`),
+  updatedAt: new Date(`${businessDate}T03:00:00.000Z`),
   ...overrides,
 });
 

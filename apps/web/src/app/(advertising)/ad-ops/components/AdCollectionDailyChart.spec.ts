@@ -24,6 +24,7 @@ function metrics(spend: number, revenue: number) {
 
 function trends(overrides: Partial<AdTrendsData>): AdTrendsData {
   return {
+    knownThrough: "2026-07-23",
     daily: [],
     accountDaily: [],
     accountSummary: null,

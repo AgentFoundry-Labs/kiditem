@@ -250,6 +250,7 @@ export function toAdAccountKpi(rows: AdAccountKpiDayRow[]): {
 export type GradeBudgetTotals = Record<'A' | 'B' | 'C', number>;
 
 export type AdTrendsMapperInput = {
+  knownThrough: string;
   dailyAggregates: AdTrendDailyAggregate[];
   gradeBudget: GradeBudgetTotals;
   accountKpiRows: AdAccountKpiDayRow[];
@@ -280,6 +281,7 @@ export function toAdTrendsData(input: AdTrendsMapperInput): AdTrendsData {
   const secondHalf = aggregate(daily.slice(mid));
 
   return {
+    knownThrough: input.knownThrough,
     daily,
     firstHalf,
     secondHalf,

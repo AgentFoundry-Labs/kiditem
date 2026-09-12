@@ -1,6 +1,7 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../../../prisma/prisma.service';
 import { readAdWindowFacts, readLatestAdDate } from '../../../../../common/ad-window-facts';
+import { addDays, parseBusinessDate } from '../../../../../common/kst';
 import {
   businessDateText,
   businessDatesInWindow,
@@ -428,12 +429,14 @@ function buildAdsCoverage(
 
 /** UTC midnight of a business date, the key `businessDate` is stored under. */
 function dayStart(date: string): Date {
-  return new Date(`${date}T00:00:00.000Z`);
+  const parsed = parseBusinessDate(date);
+  if (!parsed) throw new Error(`Invalid business date: ${date}`);
+  return parsed;
 }
 
 /** The exclusive end of a `[from, to)` window whose last business date is `date`. */
 function dayAfter(date: string): Date {
-  return new Date(dayStart(date).getTime() + 86_400_000);
+  return addDays(dayStart(date), 1);
 }
 
 /** Inclusive owner-read bounds for a resolved date set. */

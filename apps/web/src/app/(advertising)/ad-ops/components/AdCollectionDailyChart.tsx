@@ -15,6 +15,12 @@ import {
 } from "recharts";
 import { Calendar, Loader2 } from "lucide-react";
 import type { AdTrendsData } from "@kiditem/shared/advertising";
+import {
+  businessDateKey,
+  datesInclusive,
+  parseBusinessDate,
+  shiftBusinessDateKey,
+} from "@kiditem/shared/common";
 import { apiClient } from "@/lib/api-client";
 import { queryKeys } from "@/lib/query-keys";
 import { formatKRW } from "@/lib/utils";
@@ -47,22 +53,11 @@ export type AdCollectionChartPoint = {
   collected: boolean;
 };
 
-const DAY_MS = 86_400_000;
-const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
 const CHART_HEIGHT = 350;
 const CHART_INITIAL_DIMENSION = { width: 720, height: CHART_HEIGHT };
 
-function dateKey(date: Date): string {
-  return date.toISOString().slice(0, 10);
-}
-
-export function currentKstDateKey(now = new Date()): string {
-  return dateKey(new Date(now.getTime() + KST_OFFSET_MS));
-}
-
 function shiftDate(key: string, days: number): string {
-  const date = new Date(`${key}T00:00:00.000Z`);
-  return dateKey(new Date(date.getTime() + days * DAY_MS));
+  return shiftBusinessDateKey(key, days);
 }
 
 function monthStart(key: string): string {
@@ -76,7 +71,7 @@ export function selectableRangeEndDate(today: string): string {
 
 export function presetDateRange(
   preset: Exclude<RangePreset, "custom">,
-  throughDate = currentKstDateKey(),
+  throughDate: string,
   calendarDate = throughDate,
 ): { from: string; to: string } {
   if (preset === "7d") return { from: shiftDate(throughDate, -6), to: throughDate };
@@ -88,25 +83,11 @@ export function presetDateRange(
 }
 
 export function enumerateDateKeys(from: string, to: string): string[] {
-  const start = new Date(`${from}T00:00:00.000Z`).getTime();
-  const end = new Date(`${to}T00:00:00.000Z`).getTime();
-  const spanDays = Math.floor((end - start) / DAY_MS) + 1;
-  if (
-    !Number.isFinite(start) ||
-    !Number.isFinite(end) ||
-    dateKey(new Date(start)) !== from ||
-    dateKey(new Date(end)) !== to ||
-    spanDays < 1 ||
-    spanDays > 90
-  ) {
-    return [];
-  }
-
-  const dates: string[] = [];
-  for (let cursor = start; cursor <= end; cursor += DAY_MS) {
-    dates.push(dateKey(new Date(cursor)));
-  }
-  return dates;
+  const start = parseBusinessDate(from);
+  const end = parseBusinessDate(to);
+  if (!start || !end) return [];
+  const dates = datesInclusive(start, end);
+  return dates.length <= 90 ? dates.map(businessDateKey) : [];
 }
 
 export function isCustomRangeInvalid(
@@ -177,8 +158,8 @@ export default function AdCollectionDailyChart({
   period: AdCollectionPeriod;
   onPeriodChange: (period: AdCollectionPeriod) => void;
 }) {
-  const today = currentKstDateKey();
-  const referenceDate = shiftDate(today, -1);
+  const referenceDate = initialTrends?.knownThrough ?? "1970-01-01";
+  const today = shiftDate(referenceDate, 1);
   const maxSelectableDate = selectableRangeEndDate(today);
   const initialCustom = presetDateRange("month", referenceDate, today);
   const [preset, setPreset] = useState<RangePreset>(period);

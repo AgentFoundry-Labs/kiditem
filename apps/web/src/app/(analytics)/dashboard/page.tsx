@@ -27,12 +27,21 @@ import {
   periodBasisStatus,
 } from '@kiditem/shared/dashboard';
 import { z } from 'zod';
+import {
+  businessDateKey,
+  datesInclusive,
+  parseBusinessDate,
+} from '@kiditem/shared/common';
 import { apiClient } from '@/lib/api-client';
 import PageSkeleton from '@/components/ui/PageSkeleton';
 import { queryKeys } from '@/lib/query-keys';
-import { cn, formatKRW, formatNumber, formatDateTime } from '@/lib/utils';
+import { cn, formatKRW, formatNumber, formatDateTime, timeAgo } from '@/lib/utils';
 import ReadinessModal from '@/components/ReadinessModal';
-import { useSellpiaChannelSales, sellpiaPeriodRange } from '@/hooks/useSellpiaChannelSales';
+import {
+  sellpiaPeriodRange,
+  useSellpiaChannelSales,
+  useSellpiaKnownThrough,
+} from '@/hooks/useSellpiaChannelSales';
 import { DashboardChartPanel } from './components/DashboardChartPanel';
 import { MetricCard, UnavailableMetricCard } from './components/DashboardMetricCard';
 import { DashboardProfitDetailModal } from './components/DashboardProfitDetailModal';
@@ -240,9 +249,9 @@ function fillTrendDateGaps(rows: Array<{
   if (rows.length < 2) return rows;
   const byDate = new Map(rows.map((row) => [row.date, row]));
   const sortedDates = rows.map((row) => row.date).sort();
-  const start = Date.parse(`${sortedDates[0]}T00:00:00.000Z`);
-  const end = Date.parse(`${sortedDates[sortedDates.length - 1]}T00:00:00.000Z`);
-  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return rows;
+  const start = parseBusinessDate(sortedDates[0]!);
+  const end = parseBusinessDate(sortedDates[sortedDates.length - 1]!);
+  if (!start || !end || end <= start) return rows;
   const filled: Array<{
     date: string;
     revenue: number | null;
@@ -250,8 +259,8 @@ function fillTrendDateGaps(rows: Array<{
     adCost: number | null;
     evidence: TrendEvidence;
   }> = [];
-  for (let cursor = start; cursor <= end; cursor += 24 * 60 * 60 * 1000) {
-    const date = new Date(cursor).toISOString().slice(0, 10);
+  for (const cursor of datesInclusive(start, end)) {
+    const date = businessDateKey(cursor);
     filled.push(byDate.get(date) ?? {
       date,
       revenue: null,
@@ -272,7 +281,12 @@ export default function Dashboard() {
   const [dateTo, setDateTo] = useState('');
   const [showReadiness, setShowReadiness] = useState(false);
   const requestReadinessOpen = useCallback(() => setShowReadiness(true), []);
-  const channelSales = useSellpiaChannelSales(sellpiaPeriodRange(kpiRange, dateFrom, dateTo));
+  const sellpiaKnownThrough = useSellpiaKnownThrough();
+  const channelSales = useSellpiaChannelSales(
+    sellpiaKnownThrough
+      ? sellpiaPeriodRange(kpiRange, dateFrom, dateTo, sellpiaKnownThrough)
+      : null,
+  );
 
   // Baseline (month) — always fetched
   const {
@@ -719,11 +733,7 @@ export default function Dashboard() {
     if (!observedAtRaw) return '시각 미상';
     const ms = Date.now() - new Date(String(observedAtRaw)).getTime();
     if (!Number.isFinite(ms) || ms < 0) return '시각 미상';
-    const minutes = Math.floor(ms / 60000);
-    if (minutes < 1) return '방금';
-    if (minutes < 60) return `${minutes}분 전`;
-    const hours = Math.floor(minutes / 60);
-    return hours < 24 ? `${hours}시간 전` : `${Math.floor(hours / 24)}일 전`;
+    return timeAgo(String(observedAtRaw));
   })();
 
   // The basis a card actually displays is decided once, so the section's
@@ -941,9 +951,11 @@ export default function Dashboard() {
                     onClick={() => {
                       setKpiRange('custom');
                       // 기간 진입 시 비어 있으면 이번 달로 기본 채움(빈 입력 방지)
-                      const def = sellpiaPeriodRange('month', '', '');
-                      if (!dateFrom) setDateFrom(def.from);
-                      if (!dateTo) setDateTo(def.to);
+                      if (sellpiaKnownThrough) {
+                        const def = sellpiaPeriodRange('month', '', '', sellpiaKnownThrough);
+                        if (!dateFrom) setDateFrom(def.from);
+                        if (!dateTo) setDateTo(def.to);
+                      }
                     }}
                     className={cn(
                       'flex items-center gap-1 border-l border-slate-200 px-3 py-1 text-[13px] font-semibold transition-colors',

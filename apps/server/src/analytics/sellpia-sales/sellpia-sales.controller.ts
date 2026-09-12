@@ -24,6 +24,7 @@ import {
 import type {
   SellpiaSalesSummary,
 } from '@kiditem/shared/dashboard';
+import { businessDateKey, evidenceCutoffDate } from '../../common/kst';
 
 @Controller('sellpia-sales')
 export class SellpiaSalesController {
@@ -118,12 +119,9 @@ function resolveRange(
   from: string | undefined,
   to: string | undefined,
 ): { from: string; to: string } {
-  const pad = (n: number) => String(n).padStart(2, '0');
-  const kstNow = new Date(Date.now() + 9 * 60 * 60 * 1000);
-  const y = kstNow.getUTCFullYear();
-  const m = kstNow.getUTCMonth() + 1;
-  const d = kstNow.getUTCDate();
-  const today = `${y}-${pad(m)}-${pad(d)}`;
-  const monthStart = `${y}-${pad(m)}-01`;
-  return { from: from ?? monthStart, to: to ?? today };
+  const knownThrough = businessDateKey(evidenceCutoffDate());
+  return {
+    from: from ?? `${knownThrough.slice(0, 7)}-01`,
+    to: to ?? knownThrough,
+  };
 }

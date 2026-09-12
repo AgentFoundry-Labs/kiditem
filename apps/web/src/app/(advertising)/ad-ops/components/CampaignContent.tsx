@@ -17,21 +17,17 @@ import ManualCampaignReportPanel from "./ManualCampaignReportPanel";
 import { ProductDrilldown } from "./ProductDrilldown";
 import { CampaignTable } from "./CampaignTable";
 import type { CampaignSelection } from "./CampaignTable";
+import { shiftBusinessDateKey } from "@kiditem/shared/common";
 
-const DAY_MS = 86_400_000;
-const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
-
-function shiftDate(date: string, days: number): string {
-  return new Date(new Date(`${date}T00:00:00.000Z`).getTime() + days * DAY_MS)
-    .toISOString()
-    .slice(0, 10);
-}
-
-function exactManualReportRange(period: string): { startDate: string; endDate: string } | null {
-  if (period !== "7d") return null;
-  const today = new Date(Date.now() + KST_OFFSET_MS).toISOString().slice(0, 10);
-  const endDate = shiftDate(today, -1);
-  return { startDate: shiftDate(endDate, -6), endDate };
+function exactManualReportRange(
+  period: string,
+  knownThrough: string | undefined,
+): { startDate: string; endDate: string } | null {
+  if (period !== "7d" || !knownThrough) return null;
+  return {
+    startDate: shiftBusinessDateKey(knownThrough, -6),
+    endDate: knownThrough,
+  };
 }
 
 export default function CampaignContent({
@@ -61,7 +57,14 @@ export default function CampaignContent({
         .get<AdCampaignSnapshot[]>(`/api/ads/campaigns?period=${period}`)
         .then(toCampaignsResponse),
   });
-  const manualRange = exactManualReportRange(period);
+  // Trends carries the account-level KPI summary from coupang_ads_daily —
+  // useful as a fallback KPI surface when campaign-grain rollups are sparse
+  // or fully campaign-attributed (no listing identity).
+  const trendsQuery = useQuery({
+    queryKey: queryKeys.ads.trends(period),
+    queryFn: () => apiClient.get<AdTrendsData>(`/api/ads/campaigns/trends?period=${period}`),
+  });
+  const manualRange = exactManualReportRange(period, trendsQuery.data?.knownThrough);
   const manualReportsQuery = useQuery({
     queryKey: queryKeys.ads.manualReports(
       manualRange?.startDate ?? "disabled",
@@ -77,14 +80,6 @@ export default function CampaignContent({
         ),
       );
     },
-  });
-
-  // Trends carries the account-level KPI summary from coupang_ads_daily —
-  // useful as a fallback KPI surface when campaign-grain rollups are sparse
-  // or fully campaign-attributed (no listing identity).
-  const trendsQuery = useQuery({
-    queryKey: queryKeys.ads.trends(period),
-    queryFn: () => apiClient.get<AdTrendsData>(`/api/ads/campaigns/trends?period=${period}`),
   });
   const isRefreshing =
     (campaignsQuery.isFetching || trendsQuery.isFetching) &&

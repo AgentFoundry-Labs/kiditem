@@ -31,6 +31,7 @@ import {
 } from '../../domain/evidence';
 import { businessDateText } from '../../domain/period/dashboard-period';
 import type { DashboardContext } from '../../domain/context';
+import { addDays } from '../../../../common/kst';
 
 @Injectable()
 export class DashboardInventoryService {
@@ -47,7 +48,7 @@ export class DashboardInventoryService {
   ): Promise<DashboardInventorySummary> {
     try {
       const { now } = ctx;
-      const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      const sevenDaysAgo = addDays(now, -7);
 
       const [
         gradeRows,

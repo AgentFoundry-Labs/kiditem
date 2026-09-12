@@ -12,6 +12,7 @@ vi.mock('next/navigation', () => ({
 
 vi.mock('@/hooks/useSellpiaChannelSales', () => ({
   sellpiaMonthRange: () => ({ from: '2026-07-01', to: '2026-07-25' }),
+  useSellpiaKnownThrough: () => '2026-07-25',
   useSellpiaChannelSales: () => ({
     summary: undefined,
     isLoading: false,

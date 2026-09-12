@@ -11,6 +11,7 @@ vi.mock("@/lib/api-client", () => ({
 }));
 
 const emptyTrends = {
+  knownThrough: "2026-07-23",
   daily: [],
   accountDaily: [],
   accountSummary: null,
@@ -120,10 +121,7 @@ describe("AdCollectionDailyChart interactions", () => {
       </QueryClientProvider>,
     );
 
-    const referenceDate = shiftDate(
-      new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10),
-      -1,
-    );
+    const referenceDate = emptyTrends.knownThrough;
     const sevenDayFrom = shiftDate(referenceDate, -6);
 
     view.rerender(

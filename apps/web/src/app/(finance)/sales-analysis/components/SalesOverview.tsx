@@ -9,6 +9,7 @@ import { usePeriodSelector } from '@/hooks/usePeriodSelector';
 import {
   sellpiaMonthRange,
   useSellpiaChannelSales,
+  useSellpiaKnownThrough,
 } from '@/hooks/useSellpiaChannelSales';
 import PeriodSelector from '@/components/ui/PeriodSelector';
 import { apiClient } from '@/lib/api-client';
@@ -35,11 +36,13 @@ export default function SalesOverview() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const urlPeriod = searchParams.get('period');
+  const sellpiaKnownThrough = useSellpiaKnownThrough();
 
   const { period, setPeriod: setPeriodRaw, periodOptions } = usePeriodSelector({
     months: 12,
     defaultTo: 'prev',
     initial: urlPeriod ?? undefined,
+    referenceDate: sellpiaKnownThrough,
   });
   const setPeriod = (p: string) => {
     setPeriodRaw(p);
@@ -48,7 +51,9 @@ export default function SalesOverview() {
     router.replace(`${pathname}?${params.toString()}`);
   };
   const selectedChannel = parseSalesChannelSelection(searchParams.get('channel'));
-  const channelSales = useSellpiaChannelSales(sellpiaMonthRange(period));
+  const channelSales = useSellpiaChannelSales(
+    sellpiaKnownThrough ? sellpiaMonthRange(period, sellpiaKnownThrough) : null,
+  );
   const setSelectedChannel = (channel: SalesChannelSelection) => {
     const params = new URLSearchParams(searchParams);
     params.set('tab', 'overview');
@@ -65,6 +70,7 @@ export default function SalesOverview() {
     queryKey: queryKeys.salesAnalysis.data(period),
     queryFn: () => apiClient.getParsed(`/api/sales-analysis?period=${period}`, SalesAnalysisDataSchema),
     placeholderData: previousData => previousData,
+    enabled: !!period,
   });
   const isRefreshing = isFetching && !isLoading;
 

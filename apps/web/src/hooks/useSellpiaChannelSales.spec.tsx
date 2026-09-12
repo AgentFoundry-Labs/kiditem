@@ -7,6 +7,7 @@ import { collectSellpiaSaleSummaryFromExtension } from '@/lib/sellpia-sales-coll
 import {
   sellpiaMonthRange,
   useSellpiaChannelSales,
+  useSellpiaKnownThrough,
 } from './useSellpiaChannelSales';
 
 vi.mock('@/lib/sellpia-sales-api', () => ({
@@ -74,6 +75,19 @@ describe('useSellpiaChannelSales synchronization', () => {
     expect(collectSellpiaSaleSummaryFromExtension).not.toHaveBeenCalled();
   });
 
+  it('uses the server response as the closed-date clock', async () => {
+    vi.setSystemTime(new Date('2035-01-01T00:00:00.000Z'));
+    vi.mocked(fetchSellpiaSalesSummary).mockResolvedValueOnce({
+      knownThrough: '2026-07-17',
+    } as never);
+
+    const { result } = renderHook(() => useSellpiaKnownThrough(), {
+      wrapper: wrapper(makeQueryClient()),
+    });
+
+    await waitFor(() => expect(result.current).toBe('2026-07-17'));
+  });
+
   it('starts the frozen source owner only on explicit sync and invalidates reads', async () => {
     const queryClient = makeQueryClient();
     const invalidate = vi.spyOn(queryClient, 'invalidateQueries');
@@ -118,7 +132,7 @@ describe('useSellpiaChannelSales synchronization', () => {
 });
 
 describe('sellpiaMonthRange', () => {
-  it('uses today as the end of the current KST month', () => {
+  it('uses the server cutoff as the end of the current KST month', () => {
     expect(sellpiaMonthRange('2026-07', '2026-07-25')).toEqual({
       from: '2026-07-01',
       to: '2026-07-25',

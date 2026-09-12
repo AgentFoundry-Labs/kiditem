@@ -11,6 +11,7 @@ import {
   type SerpSnapshotRow,
   type WingSalesRankSnapshotRow,
 } from '../port/out/repository/keyword-rank.repository.port';
+import { businessDateKey } from '../../../common/kst';
 
 /**
  * Read-only projection of Coupang momentum evidence for cross-domain consumers.
@@ -116,7 +117,7 @@ function toSerpItem(raw: Record<string, unknown>): CoupangSerpMomentumItem | nul
 }
 
 function dateString(value: Date): string {
-  return value.toISOString().slice(0, 10);
+  return businessDateKey(value);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

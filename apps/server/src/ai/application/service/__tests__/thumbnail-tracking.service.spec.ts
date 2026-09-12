@@ -197,4 +197,17 @@ describe('ThumbnailTrackingService', () => {
       }),
     );
   });
+
+  it('keys an early-morning Korean collection to the new Korean business date', async () => {
+    vi.setSystemTime(new Date('2026-05-18T16:30:00.000Z'));
+    const { service, repository } = makeService();
+
+    await service.collectDailySnapshot(TRACKING_ID, ORGANIZATION_ID);
+
+    expect(repository.upsertDailySnapshot).toHaveBeenCalledWith(
+      expect.objectContaining({
+        capturedDate: new Date('2026-05-19T00:00:00.000Z'),
+      }),
+    );
+  });
 });

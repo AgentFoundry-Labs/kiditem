@@ -4,6 +4,7 @@ import {
   type SourcingWingCatalogObservation,
 } from '@kiditem/shared/sourcing';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { addDays } from '../../../../common/kst';
 import type {
   SourcingCoupangObservationSource,
   SourcingOfferObservationSource,
@@ -200,7 +201,7 @@ function parseWingCatalogPayload(
 
 function lookbackStart(cutoffAt: Date, lookbackDays: number): Date {
   const days = Math.max(1, Math.floor(lookbackDays));
-  return new Date(cutoffAt.getTime() - (days - 1) * 86_400_000);
+  return addDays(cutoffAt, -(days - 1));
 }
 
 function boundedQueryLimit(limit: number): number {

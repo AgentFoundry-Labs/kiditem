@@ -16,6 +16,7 @@ import {
   advanceProductMappingGeneration,
   lockProductMapping,
 } from '../../../../common/product-mapping-generation';
+import { allocatePublicationSequence } from '../../../../common/publication-sequence';
 import { lockSellpiaInventoryTransaction } from './sellpia-inventory-transaction-lock';
 import {
   SELLPIA_INVENTORY_ALERT_DEDUPE_KEY,
@@ -115,9 +116,10 @@ implements SellpiaSnapshotPublicationRepositoryPort {
 
       const changes = await replaceInventorySkus(tx, input);
       const now = new Date();
-      const publicationSequence = await nextPublicationSequence(
+      const publicationSequence = await allocatePublicationSequence(
         tx,
         input.organizationId,
+        SOURCE_TYPE,
       );
       const fileProvenance = ownerBrowserAttempt(input)
         ? {
@@ -771,23 +773,6 @@ async function lockedRun(
   });
   if (!run) throw new ConflictException('Sellpia inventory run is missing');
   return run;
-}
-
-async function nextPublicationSequence(
-  tx: Prisma.TransactionClient,
-  organizationId: string,
-): Promise<bigint> {
-  const rows = await tx.$queryRaw<Array<{ publicationSequence: bigint }>>`
-    SELECT COALESCE(MAX(publication_sequence), 0::bigint) + 1 AS "publicationSequence"
-    FROM source_import_runs
-    WHERE organization_id = ${organizationId}::uuid
-      AND source_type = ${SOURCE_TYPE}
-  `;
-  const sequence = rows[0]?.publicationSequence;
-  if (sequence === undefined) {
-    throw new ConflictException('Could not allocate Sellpia publication sequence');
-  }
-  return sequence;
 }
 
 function toUpsertPayload(row: ParsedSellpiaInventoryRow) {

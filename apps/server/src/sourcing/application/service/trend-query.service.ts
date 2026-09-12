@@ -8,6 +8,7 @@ import {
   type TiktokCcSnapshotRow,
   type TrendCollectionRepositoryPort,
 } from '../port/out/repository/trend-collection.repository.port';
+import { businessDateKey } from '../../../common/kst';
 import {
   DEFAULT_STATIONERY_TOY_TREND_SEEDS,
   isStationeryToyTrend,
@@ -466,9 +467,9 @@ function riserOrder(a: PopularKeywordRiser, b: PopularKeywordRiser): number {
 }
 
 function toDateString(date: Date): string {
-  return date.toISOString().slice(0, 10);
+  return businessDateKey(date);
 }
 
 function toDateStringFromMs(ms: number): string {
-  return new Date(ms).toISOString().slice(0, 10);
+  return businessDateKey(new Date(ms));
 }

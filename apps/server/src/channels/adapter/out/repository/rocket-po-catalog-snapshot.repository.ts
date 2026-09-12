@@ -6,6 +6,7 @@ import type {
   RocketSavedPoSummary,
 } from '@kiditem/shared/rocket-purchase-preview';
 import type { RocketPoSourceSubmission } from '@kiditem/shared/rocket-purchase-preview';
+import { businessDateKey, parseBusinessDate } from '../../../../common/kst';
 
 export const ROCKET_PO_CATALOG_SOURCE_TYPE = 'coupang_rocket_po_catalog';
 const ROCKET_CONFIRMATION_REQUEST_STATUSES = ['거래명세서확인요청', '거래처확인요청'];
@@ -292,9 +293,11 @@ function requiredSavedValue<T>(value: T | null, field: string): T {
 }
 
 function day(value: string): Date {
-  return new Date(`${value}T00:00:00.000Z`);
+  const parsed = parseBusinessDate(value);
+  if (!parsed) throw new Error(`Invalid business date: ${value}`);
+  return parsed;
 }
 
 function isoDay(value: Date): string {
-  return value.toISOString().slice(0, 10);
+  return businessDateKey(value);
 }

@@ -15,9 +15,8 @@ import type {
   AdTrafficSourceAttempt,
   AdTrafficSourceStatus,
 } from '@kiditem/shared/advertising';
+import { shiftBusinessDateKey } from '@kiditem/shared/common';
 
-const DAY_MS = 86_400_000;
-const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
 
 export type DashboardPeriod = 'month' | 'week' | 'day' | 'custom';
 
@@ -32,16 +31,6 @@ export const wingTrafficSourceQueryKey = [
   'wing-traffic-source',
 ] as const;
 
-function addDays(value: string, amount: number): string {
-  return new Date(Date.parse(`${value}T00:00:00.000Z`) + amount * DAY_MS)
-    .toISOString()
-    .slice(0, 10);
-}
-
-function kstDate(now: Date): string {
-  return new Date(now.getTime() + KST_OFFSET_MS).toISOString().slice(0, 10);
-}
-
 /**
  * Resolve the operator's intended collection range without using browser
  * locale dates. Custom dashboard dates are authoritative; the other tabs map
@@ -51,14 +40,13 @@ export function resolveWingTrafficCollectionRange({
   period = 'week',
   selectedFrom,
   selectedTo,
-  now = new Date(),
+  knownThrough,
 }: {
   period?: DashboardPeriod;
   selectedFrom?: string;
   selectedTo?: string;
-  now?: Date;
-} = {}): WingTrafficCollectionRange {
-  const yesterday = addDays(kstDate(now), -1);
+  knownThrough: string;
+}): WingTrafficCollectionRange {
 
   if (period === 'custom' && selectedFrom && selectedTo) {
     return {
@@ -69,20 +57,20 @@ export function resolveWingTrafficCollectionRange({
   }
 
   if (period === 'day') {
-    return { startDate: yesterday, endDate: yesterday, source: 'dashboard-period' };
+    return { startDate: knownThrough, endDate: knownThrough, source: 'dashboard-period' };
   }
 
   if (period === 'month') {
     return {
-      startDate: `${yesterday.slice(0, 7)}-01`,
-      endDate: yesterday,
+      startDate: `${knownThrough.slice(0, 7)}-01`,
+      endDate: knownThrough,
       source: 'dashboard-period',
     };
   }
 
   return {
-    startDate: addDays(yesterday, -6),
-    endDate: yesterday,
+    startDate: shiftBusinessDateKey(knownThrough, -6),
+    endDate: knownThrough,
     source: period === 'week' ? 'dashboard-period' : 'default-seven-days',
   };
 }
@@ -124,9 +112,6 @@ export function useWingTrafficCollection({
   const [cancelPending, setCancelPending] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const observedCompleteId = useRef<string | null | undefined>(undefined);
-  const range = resolveWingTrafficCollectionRange({ period, selectedFrom, selectedTo });
-  const rangeReady = period !== 'custom' || (!!selectedFrom && !!selectedTo);
-
   const source = useQuery<AdTrafficSourceStatus>({
     queryKey: [...wingTrafficSourceQueryKey, channelAccountId ?? 'primary'],
     queryFn: () => readWingTrafficSource(channelAccountId),
@@ -136,6 +121,15 @@ export function useWingTrafficCollection({
     refetchIntervalInBackground: false,
     meta: { suppressGlobalErrorToast: true },
   });
+  const knownThrough = source.data?.knownThrough ?? '1970-01-01';
+  const range = resolveWingTrafficCollectionRange({
+    period,
+    selectedFrom,
+    selectedTo,
+    knownThrough,
+  });
+  const rangeReady = source.isSuccess
+    && (period !== 'custom' || (!!selectedFrom && !!selectedTo));
 
   useEffect(() => {
     // The first render only starts the source read. Do not treat that

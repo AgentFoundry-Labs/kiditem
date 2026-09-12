@@ -30,7 +30,7 @@ import {
   oneDecimalDifference,
   percentChange,
 } from '../../domain/util/percent';
-import { kstDayStart } from '../../../../common/kst';
+import { addDays, kstDayStart } from '../../../../common/kst';
 import {
   resolveDashboardPeriod,
   type ResolvedDashboardPeriod,
@@ -82,9 +82,7 @@ export class DashboardAdService {
       // 30-day daily ad cost window — KST-anchored cutoff for owner-published
       // Coupang account daily KPI rows. Deliberately open-ended so the chart
       // still shows an in-progress day the owner has already published.
-      const thirtyDaysAgo = new Date(
-        kstDayStart(anchor).getTime() - 30 * 24 * 60 * 60 * 1000,
-      );
+      const thirtyDaysAgo = addDays(kstDayStart(anchor), -30);
 
       // Order aggregates read the selected calendar verbatim; owner ad and Wing
       // reads follow the closed-day clipping rule, which keeps a custom range

@@ -5,6 +5,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, type AdAction } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { currentRowTieBreakSql } from '../../../../common/current-row';
 import { completeAdCampaignSourceIds, readCompleteAdKeywordFacts } from './ad-keyword-complete-read';
 import { AdListingRepositoryAdapter } from './ad-listing.repository.adapter';
 import type { ActionCandidate } from '../../../domain/ad-action-rules';
@@ -167,10 +168,12 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
             AND cad.source_import_run_id IN (${completeAdCampaignSourceIds(organizationId)})
           ORDER BY
             cad.target_key,
-            cad.business_date DESC,
-            cad.last_observed_at DESC NULLS LAST,
-            cad.updated_at DESC NULLS LAST,
-            cad.id DESC
+            ${currentRowTieBreakSql({
+              businessDate: Prisma.sql`cad.business_date`,
+              observedAt: Prisma.sql`cad.last_observed_at`,
+              updatedAt: Prisma.sql`cad.updated_at`,
+              id: Prisma.sql`cad.id`,
+            })}
         ), latest AS (
           SELECT * FROM non_keyword
           UNION ALL

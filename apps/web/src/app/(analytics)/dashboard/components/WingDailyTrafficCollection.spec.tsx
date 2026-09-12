@@ -65,6 +65,7 @@ function source(
 ) {
   return {
     channelAccountId: ACCOUNT_ID,
+    knownThrough: '2026-09-07',
     status: latestComplete ? 'READY' : 'MISSING',
     refreshing: latestAttempt?.state === 'RUNNING',
     latestAttempt,
@@ -106,7 +107,7 @@ describe('WingDailyTrafficCollection', () => {
   it('uses a closed KST range ending yesterday when no custom dates are selected', () => {
     expect(resolveWingTrafficCollectionRange({
       period: 'week',
-      now: new Date('2026-09-08T00:30:00.000Z'),
+      knownThrough: '2026-09-07',
     })).toMatchObject({
       startDate: '2026-09-01',
       endDate: '2026-09-07',
