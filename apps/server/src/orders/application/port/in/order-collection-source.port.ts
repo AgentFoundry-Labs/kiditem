@@ -4,6 +4,11 @@ export const ORDER_COLLECTION_SOURCE_PORT = Symbol('ORDER_COLLECTION_SOURCE_PORT
 
 export type OrderCollectionMode = 'browser' | 'manual-upload';
 
+export type OrderCollectionConfirmedCoverage = {
+  startDate: string;
+  endDate: string;
+};
+
 export type OrderCollectionPlan = {
   sourceType: 'order_collection_mall';
   parserVersion: string;
@@ -23,6 +28,8 @@ export type OrderCollectionAttempt = {
   plan: OrderCollectionPlan;
   expiresAt: string | null;
   artifactId: string | null;
+  coverageStartDate: string | null;
+  coverageEndDate: string | null;
   errorCode: string | null;
   errorMessage: string | null;
 };
@@ -88,12 +95,22 @@ export interface OrderCollectionSourcePort {
     attemptId: string;
   }): Promise<OrderCollectionAttemptControl | null>;
 
+  validateCompletion(input: {
+    organizationId: string;
+    attemptId: string;
+    attemptToken: string;
+    mallKey: string;
+    source: OrderCollectionSourceSubmission;
+    confirmedCoverage: OrderCollectionConfirmedCoverage | null;
+  }): Promise<void>;
+
   completeAttempt(input: {
     organizationId: string;
     attemptId: string;
     attemptToken: string;
     mallKey: string;
     source: OrderCollectionSourceSubmission;
+    confirmedCoverage: OrderCollectionConfirmedCoverage | null;
   }): Promise<OrderCollectionArtifact>;
 
   failAttempt(input: {

@@ -122,7 +122,19 @@ describe('Coupang review collection source owner over disposable PostgreSQL', ()
     await append(first, [review('review-old', 'old generation')]);
     await completeWindow(first, 1);
     const completedFirst = await complete(first);
-    expect(completedFirst.state).toBe('COMPLETE');
+    expect(completedFirst).toMatchObject({
+      state: 'COMPLETE',
+      coverageStartDate: first.plan.windows[0].start,
+      coverageEndDate: first.plan.windows[0].end,
+      windowReceipts: [{
+        windowIndex: 0,
+        coverageStartDate: first.plan.windows[0].start,
+        coverageEndDate: first.plan.windows[0].end,
+        itemCount: 1,
+        pageCount: 1,
+        pageLimitReached: false,
+      }],
+    });
 
     const second = await begin(1);
     await append(second, [review('review-shared', 'new generation')]);
@@ -140,13 +152,25 @@ describe('Coupang review collection source owner over disposable PostgreSQL', ()
 
     const runs = await prisma.sourceImportRun.findMany({
       where: { organizationId: ORG, sourceType: 'coupang_reviews' },
-      orderBy: { createdAt: 'asc' },
-      select: { id: true, status: true, fileHash: true, contentChecksum: true },
+      select: {
+        id: true,
+        status: true,
+        fileHash: true,
+        contentChecksum: true,
+        coverageStartDate: true,
+        coverageEndDate: true,
+        publicationSequence: true,
+      },
     });
+    const runsById = new Map(runs.map((run) => [run.id, run]));
     expect(runs).toHaveLength(2);
     expect(runs.map((run) => run.status)).toEqual(['completed', 'completed']);
     expect(runs.every((run) => run.fileHash === null)).toBe(true);
     expect(runs.every((run) => !!run.contentChecksum)).toBe(true);
+    expect(runsById.get(first.attemptId)?.publicationSequence).toBe(1n);
+    expect(runsById.get(second.attemptId)?.publicationSequence).toBe(2n);
+    expect(runs.every((run) => run.coverageStartDate?.toISOString().slice(0, 10) === first.plan.windows[0].start)).toBe(true);
+    expect(runs.every((run) => run.coverageEndDate?.toISOString().slice(0, 10) === first.plan.windows[0].end)).toBe(true);
 
     const facts = await prisma.review.findMany({
       where: { organizationId: ORG, sourceImportRunId: { not: null } },
@@ -310,7 +334,14 @@ describe('Coupang review collection source owner over disposable PostgreSQL', ()
     }
 
     await expect(prisma.sourceImportRun.findUniqueOrThrow({ where: { id: attempt.attemptId } }))
-      .resolves.toMatchObject({ status: 'running', importedAt: null, contentChecksum: null });
+      .resolves.toMatchObject({
+        status: 'running',
+        importedAt: null,
+        contentChecksum: null,
+        coverageStartDate: null,
+        coverageEndDate: null,
+        publicationSequence: null,
+      });
     await expect(prisma.review.count({
       where: { organizationId: ORG, sourceImportRunId: attempt.attemptId },
     })).resolves.toBe(1);
@@ -329,7 +360,13 @@ describe('Coupang review collection source owner over disposable PostgreSQL', ()
     await request(httpUrl)
       .post(`${BASE}/attempts/${attempt.attemptId}/windows/0/complete`)
       .set('x-source-attempt-token', attempt.attemptToken)
-      .send({ itemCount: 0, pageCount: 40, pageLimitReached: true })
+      .send({
+        itemCount: 0,
+        pageCount: 40,
+        pageLimitReached: true,
+        coverageStartDate: attempt.plan.windows[0].start,
+        coverageEndDate: attempt.plan.windows[0].end,
+      })
       .expect(409);
 
     await request(httpUrl)
@@ -343,6 +380,110 @@ describe('Coupang review collection source owner over disposable PostgreSQL', ()
       .expect(404);
   });
 
+  it('requires each public window completion to confirm the exact frozen interval', async () => {
+    const attempt = await begin(1);
+    const window = attempt.plan.windows[0];
+
+    await request(httpUrl)
+      .post(`${BASE}/attempts/${attempt.attemptId}/windows/0/complete`)
+      .set('x-source-attempt-token', attempt.attemptToken)
+      .send({ itemCount: 0, pageCount: 0, pageLimitReached: false })
+      .expect(400);
+
+    await request(httpUrl)
+      .post(`${BASE}/attempts/${attempt.attemptId}/windows/0/complete`)
+      .set('x-source-attempt-token', attempt.attemptToken)
+      .send({
+        itemCount: 0,
+        pageCount: 0,
+        pageLimitReached: false,
+        coverageStartDate: '2000-01-01',
+        coverageEndDate: window.end,
+      })
+      .expect(409);
+
+    const observed = await request(httpUrl)
+      .get(`${BASE}/attempts/${attempt.attemptId}`)
+      .expect(200);
+    expect(observed.body).toMatchObject({
+      state: 'RUNNING',
+      completedWindows: [],
+      windowReceipts: [],
+      coverageStartDate: null,
+      coverageEndDate: null,
+    });
+
+    const confirmed = await completeWindow(attempt, 0);
+    expect(confirmed.body).toMatchObject({
+      state: 'RUNNING',
+      completedWindows: [0],
+      windowReceipts: [{
+        windowIndex: 0,
+        itemCount: 0,
+        pageCount: 0,
+        pageLimitReached: false,
+        coverageStartDate: window.start,
+        coverageEndDate: window.end,
+      }],
+      coverageStartDate: null,
+      coverageEndDate: null,
+    });
+    await request(httpUrl)
+      .post(`${BASE}/attempts/${attempt.attemptId}/windows/0/complete`)
+      .set('x-source-attempt-token', attempt.attemptToken)
+      .send({
+        itemCount: 0,
+        pageCount: 0,
+        pageLimitReached: false,
+        coverageStartDate: '2000-01-01',
+        coverageEndDate: window.end,
+      })
+      .expect(409);
+  });
+
+  it('publishes aggregate coverage only after retaining every confirmed window receipt', async () => {
+    const attempt = await begin(3);
+    for (const window of attempt.plan.windows) {
+      await completeWindow(attempt, 0, window.index);
+    }
+
+    const completed = await complete(attempt);
+    expect(completed).toMatchObject({
+      state: 'COMPLETE',
+      coverageStartDate: attempt.plan.windows[2].start,
+      coverageEndDate: attempt.plan.windows[0].end,
+    });
+    expect(completed.windowReceipts).toEqual(attempt.plan.windows.map((window) => ({
+      windowIndex: window.index,
+      itemCount: 0,
+      pageCount: 0,
+      pageLimitReached: false,
+      coverageStartDate: window.start,
+      coverageEndDate: window.end,
+    })));
+  });
+
+  it('uses publication order when completed generations share a timestamp and UUID order is reversed', async () => {
+    const older = await forceAttemptId(await begin(1), 'ffffffff-ffff-4fff-bfff-ffffffffffff');
+    await append(older, [review('review-shared', 'older publication')]);
+    await completeWindow(older, 1);
+    await complete(older);
+
+    const newer = await forceAttemptId(await begin(1), '00000000-0000-4000-8000-000000000001');
+    await append(newer, [review('review-shared', 'newer publication')]);
+    await completeWindow(newer, 1);
+    await complete(newer);
+
+    const identicalImportedAt = new Date('2026-09-07T00:00:00.000Z');
+    await prisma.sourceImportRun.updateMany({
+      where: { id: { in: [older.attemptId, newer.attemptId] } },
+      data: { importedAt: identicalImportedAt },
+    });
+
+    const visible = await new ReviewsService(prisma as never).listItems(ORG, {});
+    expect(visible.items.map((item) => item.content)).toEqual(['newer publication']);
+  });
+
   async function begin(months: number) {
     const response = await request(httpUrl)
       .post(`${BASE}/attempts`)
@@ -352,8 +493,21 @@ describe('Coupang review collection source owner over disposable PostgreSQL', ()
     return response.body as {
       attemptId: string;
       attemptToken: string;
-      plan: { months: number; pageSize: number; maxPagesPerWindow: number; windows: unknown[] };
+      plan: {
+        months: number;
+        pageSize: number;
+        maxPagesPerWindow: number;
+        windows: Array<{ index: number; start: string; end: string }>;
+      };
     };
+  }
+
+  async function forceAttemptId<T extends { attemptId: string }>(attempt: T, attemptId: string): Promise<T> {
+    await prisma.sourceImportRun.update({
+      where: { id: attempt.attemptId },
+      data: { id: attemptId },
+    });
+    return { ...attempt, attemptId };
   }
 
   async function append(
@@ -368,13 +522,25 @@ describe('Coupang review collection source owner over disposable PostgreSQL', ()
   }
 
   async function completeWindow(
-    attempt: { attemptId: string; attemptToken: string },
+    attempt: {
+      attemptId: string;
+      attemptToken: string;
+      plan: { windows: Array<{ start: string; end: string }> };
+    },
     itemCount: number,
+    windowIndex = 0,
   ) {
+    const window = attempt.plan.windows[windowIndex];
     return request(httpUrl)
-      .post(`${BASE}/attempts/${attempt.attemptId}/windows/0/complete`)
+      .post(`${BASE}/attempts/${attempt.attemptId}/windows/${windowIndex}/complete`)
       .set('x-source-attempt-token', attempt.attemptToken)
-      .send({ itemCount, pageCount: itemCount > 0 ? 1 : 0, pageLimitReached: false })
+      .send({
+        itemCount,
+        pageCount: itemCount > 0 ? 1 : 0,
+        pageLimitReached: false,
+        coverageStartDate: window.start,
+        coverageEndDate: window.end,
+      })
       .expect(201);
   }
 
@@ -383,7 +549,20 @@ describe('Coupang review collection source owner over disposable PostgreSQL', ()
       .post(`${BASE}/attempts/${attempt.attemptId}/complete`)
       .set('x-source-attempt-token', attempt.attemptToken)
       .expect(201)
-      .then((response) => response.body as { state: string; collected: number });
+      .then((response) => response.body as {
+        state: string;
+        collected: number;
+        coverageStartDate: string | null;
+        coverageEndDate: string | null;
+        windowReceipts: Array<{
+          windowIndex: number;
+          coverageStartDate: string;
+          coverageEndDate: string;
+          itemCount: number;
+          pageCount: number;
+          pageLimitReached: boolean;
+        }>;
+      });
   }
 });
 

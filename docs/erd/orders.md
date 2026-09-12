@@ -10,6 +10,8 @@
 | Model | Table | Description |
 |---|---|---|
 | CoupangDirectPoSnapshot | `coupang_direct_po_snapshots` | 쿠팡직배송 발주확정 스냅샷. 입고예정일 달력이 매번 쿠팡을 다시 긁지 않도록 |
+| CoupangDirectTransportConsumption | `coupang_direct_transport_consumptions` | Immutable alias from one completed source attempt and transport selection to its canonical downstream effect receipt. |
+| CoupangDirectTransportReceipt | `coupang_direct_transport_receipts` | Immutable transport effect receipt for one normalized Coupang direct-order payload. It owns downstream publication identity, not source collection state. |
 | Order | `orders` | 채널-agnostic 주문 aggregate. Coupang 등 채널별 raw payload 는 metadata Json. 라인 아이템은 OrderLineItem. |
 | OrderCollectionArtifact | `order_collection_artifacts` | Retained collection input evidence; converted downloads are not persisted and lifecycle belongs to SourceImportRun. |
 | OrderLineItem | `order_line_items` | 주문 라인 아이템 — 1 SKU 단위. listingOption → option 으로 SKU 해상도. order FK 는 organizationId 를 함께 참조해 cross-organization mismatch 를 DB 가 차단한다. |
@@ -42,6 +44,31 @@ erDiagram
     DateTime collectedAt
     DateTime createdAt
     DateTime updatedAt
+  }
+  CoupangDirectTransportConsumption {
+    String id PK
+    String organizationId FK
+    String sourceImportRunId FK
+    String receiptId FK
+    String transport FK
+    StringArray selectedPurchaseOrderKeys
+    DateTime createdAt
+  }
+  CoupangDirectTransportReceipt {
+    String id PK
+    String organizationId FK
+    String channelAccountId FK
+    String effectSourceImportRunId FK
+    String rocketPurchaseConfirmationId FK
+    String transport
+    String payloadChecksum
+    String transmissionIntentKey
+    Int matchedLineCount
+    Int reconciledRows
+    Json collectedLines
+    Json matchedLines
+    Json unmatchedLines
+    DateTime createdAt
   }
   Order {
     String id PK
@@ -202,6 +229,7 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  CoupangDirectTransportReceipt ||--o{ CoupangDirectTransportConsumption : "receipt"
   Order ||--o{ OrderLineItem : "order"
   Order o|--o{ OrderReturn : "order"
   OrderLineItem o|--o{ OrderReturnLineItem : "orderLineItem"
@@ -214,6 +242,12 @@ erDiagram
 | Local model | Relation | Direction | External domain | External model |
 |---|---|---|---|---|
 | CoupangDirectPoSnapshot | organization | references external | Core | Organization |
+| CoupangDirectTransportConsumption | organization | references external | Core | Organization |
+| CoupangDirectTransportConsumption | sourceImportRun | references external | Core | SourceImportRun |
+| CoupangDirectTransportReceipt | channelAccount | references external | Core | ChannelAccount |
+| CoupangDirectTransportReceipt | effectSourceImportRun | references external | Core | SourceImportRun |
+| CoupangDirectTransportReceipt | organization | references external | Core | Organization |
+| CoupangDirectTransportReceipt | rocketPurchaseConfirmation | references external | Supply | RocketPurchaseConfirmation |
 | Order | channelAccount | references external | Core | ChannelAccount |
 | Order | organization | references external | Core | Organization |
 | Order | sourceImportRun | references external | Core | SourceImportRun |

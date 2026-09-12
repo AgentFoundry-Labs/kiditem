@@ -180,6 +180,23 @@ test("uploads one frozen raw capture and returns no provider rows to the page", 
   assert.equal((await fixture.sessions.list()).length, 0);
 });
 
+test("transports independently confirmed coverage without replacing it with the requested range", async () => {
+  const confirmedRange = { start: plan.startDate, end: plan.endDate };
+  const fixture = createFixture({ collected: { success: true, ...payload, confirmedRange } });
+  const result = await fixture.owner.run({ environmentId: "local", attemptId });
+  assert.equal(result.success, true);
+  assert.deepEqual(JSON.parse(new TextDecoder().decode(fixture.uploads[0])).confirmedRange, confirmedRange);
+});
+
+test("does not manufacture a missing provider query range from the frozen plan", async () => {
+  const fixture = createFixture({ collected: { success: true, rows: [], total: 0 } });
+  const result = await fixture.owner.run({ environmentId: "local", attemptId });
+  assert.equal(result.success, false);
+  assert.equal(result.terminalState, "FAILED");
+  assert.equal(result.errorCode, "sellpia_invalid_tracking_evidence");
+  assert.equal(fixture.uploads.length, 0);
+});
+
 test("replays identical bytes after a lost completion ACK and keeps the owner fence", async () => {
   const fixture = createFixture({ lostCompletion: true });
   const result = await fixture.owner.run({ environmentId: "local", attemptId });

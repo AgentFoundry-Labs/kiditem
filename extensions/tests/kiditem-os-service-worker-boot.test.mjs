@@ -307,6 +307,8 @@ function orderControl(overrides = {}) {
     },
     expiresAt: '2099-01-01T00:00:00.000Z',
     artifactId: null,
+    coverageStartDate: null,
+    coverageEndDate: null,
     errorCode: null,
     errorMessage: null,
     ...overrides,
@@ -2712,6 +2714,7 @@ test('ping 이 세 도메인의 capabilities 를 합쳐 한 번만 응답한다'
     'collectSellpiaManualMatchV1',
     'collectSellpiaManualMatchPortV1',
     'orderCollectionFailureEvidenceV1',
+    'orderCollectionConfirmedCoverageV1',
     // 쿠팡
     'profitabilityAdvertisingSourceOwnerV1',
     'coupangCatalogSnapshot',

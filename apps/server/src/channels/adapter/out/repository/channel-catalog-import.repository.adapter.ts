@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { Prisma, type SourceImportRun } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import {
   CompletedSourceArtifactRunSchema,
   type CoupangWingCatalogImportResponse,
@@ -60,7 +61,10 @@ type CanonicalParent = Pick<
 @Injectable()
 export class ChannelCatalogImportRepositoryAdapter
 implements ChannelCatalogImportRepositoryPort {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly alerts: SourceFailureAlerts,
+  ) {}
 
   async claimCoupangWingImport(
     input: ClaimInput,
@@ -464,6 +468,11 @@ implements ChannelCatalogImportRepositoryPort {
           'Coupang Wing catalog import attempt lost its fence',
         );
       }
+      await this.alerts.resolveSourceFailure(tx, {
+        organizationId: input.organizationId,
+        dedupeKey: catalogImportAlertKey(input.channelAccountId),
+        attemptId: input.attemptToken,
+      });
 
       const completed = await tx.sourceImportRun.findFirstOrThrow({
         where: {
@@ -491,17 +500,36 @@ implements ChannelCatalogImportRepositoryPort {
     runId: string,
     attemptToken: string,
   ): Promise<void> {
-    await this.prisma.sourceImportRun.updateMany({
-      where: {
-        id: runId,
+    await this.prisma.$transaction(async (tx) => {
+      const lockKey = `channel-catalog-import:${organizationId}:${SOURCE_TYPE}:${channelAccountId}`;
+      await tx.$queryRaw`
+        -- queryraw-tenancy-exempt: organization-scoped advisory lock
+        SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))::text AS "lock"
+      `;
+      const failed = await tx.sourceImportRun.updateMany({
+        where: {
+          id: runId,
+          organizationId,
+          sourceType: SOURCE_TYPE,
+          channelAccountId,
+          status: 'running',
+          attemptToken,
+        },
+        data: { status: 'failed' },
+      });
+      if (failed.count === 0) return;
+      await this.alerts.recordTerminalOutcome(tx, {
         organizationId,
+        dedupeKey: catalogImportAlertKey(channelAccountId),
         sourceType: SOURCE_TYPE,
-        channelAccountId,
-        status: 'running',
-        attemptToken,
-      },
-      data: { status: 'failed' },
-    });
+        // File retries reuse the run, but every claim rotates its attempt token.
+        attemptId: attemptToken,
+        code: 'CATALOG_IMPORT_FAILED',
+        title: '쿠팡 상품 파일 가져오기 실패',
+        message: '상품 파일을 가져오지 못했습니다. 파일을 확인한 뒤 다시 시도해주세요.',
+        href: `/product-pipeline/registered-products?channelAccountId=${channelAccountId}`,
+      });
+    }, TRANSACTION_OPTIONS);
   }
 
   private async assertActiveWingAccount(
@@ -621,6 +649,10 @@ implements ChannelCatalogImportRepositoryPort {
       },
     });
   }
+}
+
+function catalogImportAlertKey(channelAccountId: string): string {
+  return `channels:${SOURCE_TYPE}:import:${channelAccountId}`;
 }
 
 function assertCanonicalCoupangAccountIdentity(account: {

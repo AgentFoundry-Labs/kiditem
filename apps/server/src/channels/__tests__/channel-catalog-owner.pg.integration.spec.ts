@@ -1007,7 +1007,7 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
   it('rejects a late browser snapshot after a real file import publishes to the same account', async () => {
     const ready = await stage();
     const file = new ChannelCatalogImportService(
-      new ChannelCatalogImportRepositoryAdapter(prisma as never),
+      new ChannelCatalogImportRepositoryAdapter(prisma as never, alerts),
     );
     await file.importCoupangWing({
       organizationId: ORG,

@@ -147,7 +147,7 @@ function parseBeginBody(value: unknown): { startDate: string; endDate: string } 
   if (!startDate || !endDate || !/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
     throw new BadRequestException('INVALID_SELLPIA_SHIPMENT_TRACKING_DATE_RANGE');
   }
-  if (startDate !== endDate) {
+  if (startDate > endDate) {
     throw new BadRequestException('INVALID_SELLPIA_SHIPMENT_TRACKING_DATE_RANGE');
   }
   return { startDate, endDate };

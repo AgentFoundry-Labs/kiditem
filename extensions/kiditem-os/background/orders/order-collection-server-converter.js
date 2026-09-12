@@ -28,6 +28,8 @@
   const UUID =
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   const ROW_KEY_SEPARATOR = "\u001f";
+  const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+  const COVERAGE_CAPABLE_MALLS = new Set(["haebub-mall", "domeggook"]);
 
   function bounded(value, fallback, maximum = 300) {
     if (typeof value !== "string") return fallback;
@@ -228,6 +230,33 @@
     throw error;
   }
 
+  function confirmedCoverageHeaders(mallKey, capture) {
+    const coverage = capture?.confirmedCoverage;
+    if (coverage === undefined || coverage === null) return {};
+    const startDate = coverage?.startDate;
+    const endDate = coverage?.endDate;
+    if (
+      !COVERAGE_CAPABLE_MALLS.has(mallKey) ||
+      !isDateOnly(startDate) ||
+      !isDateOnly(endDate)
+    ) {
+      const error = new Error("주문 수집 확인 범위 형식이 올바르지 않습니다.");
+      error.code = "CAPTURE_INVALID";
+      error.sourcePayload = capture;
+      throw error;
+    }
+    return {
+      "x-order-collection-coverage-start-date": startDate,
+      "x-order-collection-coverage-end-date": endDate,
+    };
+  }
+
+  function isDateOnly(value) {
+    if (typeof value !== "string" || !DATE_ONLY.test(value)) return false;
+    const parsed = new Date(`${value}T00:00:00.000Z`);
+    return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+  }
+
   function bodyFor(mallKey, capture, plan, input) {
     const json = jsonPayload(mallKey, capture, plan, input);
     if (json) {
@@ -255,6 +284,7 @@
     async function convert({ environmentId, attempt, mallKey, capture, plan = {}, input = {} }) {
       let body;
       let endpoint;
+      let coverageHeaders;
       try {
         if (!UUID.test(String(attempt?.attemptId || "")) || !UUID.test(String(attempt?.attemptToken || ""))) {
           throw new Error("Order collection owner fence is required");
@@ -268,6 +298,7 @@
           throw error;
         }
         requireCaptureShape(mallKey, capture);
+        coverageHeaders = confirmedCoverageHeaders(mallKey, capture);
         if (
           noNewOrders(capture) &&
           !(mallKey === "icecream-mall" && plan.selectionMode === "automatic")
@@ -291,6 +322,7 @@
       }
       const headers = {
         ...(body.headers || {}),
+        ...coverageHeaders,
         "x-order-collection-attempt-id": attempt.attemptId,
         "x-source-attempt-token": attempt.attemptToken,
       };

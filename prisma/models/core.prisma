@@ -17,6 +17,8 @@ model Organization {
   sellpiaManualMatchAliases       SellpiaManualMatchAlias[]
   sourceImportRuns                SourceImportRun[]
   orderCollectionArtifacts        OrderCollectionArtifact[]
+  coupangDirectTransportReceipts     CoupangDirectTransportReceipt[]
+  coupangDirectTransportConsumptions CoupangDirectTransportConsumption[]
   reviewCollectionChunks          ReviewCollectionChunk[]
   rocketPoCatalogSnapshots        RocketPoCatalogSnapshot[]
   rocketPoCatalogLines            RocketPoCatalogLine[]
@@ -340,6 +342,7 @@ model ChannelAccount {
   rocketPurchaseConfirmations         RocketPurchaseConfirmation[]
   rocketPoCatalogSnapshots            RocketPoCatalogSnapshot[]
   sourcingLaunchCandidates            SourcingLaunchCandidate[]
+  coupangDirectTransportReceipts      CoupangDirectTransportReceipt[]
 
   @@unique([organizationId, channel, externalAccountId])
   @@unique([id, organizationId], map: "channel_accounts_id_org_key")
@@ -411,6 +414,8 @@ model SourceImportRun {
   sellpiaSalesDailySnapshots               SellpiaSalesDailySnapshot[]    @relation("SellpiaSalesSource")
   orders                                  Order[]
   orderCollectionArtifact                 OrderCollectionArtifact?
+  coupangDirectTransportEffectReceipts    CoupangDirectTransportReceipt[]     @relation("CoupangDirectTransportReceiptEffectSource")
+  coupangDirectTransportConsumptions      CoupangDirectTransportConsumption[] @relation("CoupangDirectTransportConsumptionSource")
   reviewCollectionChunks                  ReviewCollectionChunk[]
   reviewCollectionFacts                   Review[]                    @relation("ReviewCollectionFacts")
   publishedSellpiaAbcFormulaStates        MasterProductAbcFormulaState[]           @relation("MasterProductAbcFormulaStatePublishedSellpia")

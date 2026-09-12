@@ -21,6 +21,60 @@ model OrderCollectionArtifact {
 }
 
 /// @namespace Orders
+/// @describe Immutable transport effect receipt for one normalized Coupang direct-order payload. It owns downstream publication identity, not source collection state.
+model CoupangDirectTransportReceipt {
+  id                           String   @id @default(uuid()) @db.Uuid
+  organizationId               String   @map("organization_id") @db.Uuid
+  channelAccountId             String   @map("channel_account_id") @db.Uuid
+  effectSourceImportRunId      String   @map("effect_source_import_run_id") @db.Uuid
+  rocketPurchaseConfirmationId String?  @map("rocket_purchase_confirmation_id") @db.Uuid
+  transport                    String   @db.VarChar(20)
+  payloadChecksum              String   @map("payload_checksum") @db.VarChar(64)
+  transmissionIntentKey        String?  @map("transmission_intent_key") @db.VarChar(500)
+  matchedLineCount             Int      @default(0) @map("matched_line_count")
+  reconciledRows               Int      @default(0) @map("reconciled_rows")
+  collectedLines               Json     @map("collected_lines") @db.JsonB
+  matchedLines                 Json     @map("matched_lines") @db.JsonB
+  unmatchedLines               Json     @map("unmatched_lines") @db.JsonB
+  createdAt                    DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  organization               Organization                       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  channelAccount             ChannelAccount                     @relation(fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  effectSourceImportRun      SourceImportRun                    @relation("CoupangDirectTransportReceiptEffectSource", fields: [effectSourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  rocketPurchaseConfirmation RocketPurchaseConfirmation?        @relation(fields: [rocketPurchaseConfirmationId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  consumptions               CoupangDirectTransportConsumption[]
+
+  @@unique([id, organizationId, transport], map: "coupang_direct_transport_receipts_id_org_transport_key")
+  @@unique([organizationId, channelAccountId, transport, payloadChecksum], map: "coupang_direct_transport_receipts_dedupe_key")
+  @@unique([organizationId, transmissionIntentKey], map: "coupang_direct_transport_receipts_org_intent_key", where: raw("transmission_intent_key IS NOT NULL"))
+  @@index([channelAccountId, organizationId])
+  @@index([effectSourceImportRunId, organizationId])
+  @@index([rocketPurchaseConfirmationId, organizationId])
+  @@map("coupang_direct_transport_receipts")
+}
+
+/// @namespace Orders
+/// @describe Immutable alias from one completed source attempt and transport selection to its canonical downstream effect receipt.
+model CoupangDirectTransportConsumption {
+  id                        String   @id @default(uuid()) @db.Uuid
+  organizationId            String   @map("organization_id") @db.Uuid
+  sourceImportRunId         String   @map("source_import_run_id") @db.Uuid
+  receiptId                 String   @map("receipt_id") @db.Uuid
+  transport                 String   @db.VarChar(20)
+  selectedPurchaseOrderKeys String[] @default([]) @map("selected_purchase_order_keys")
+  createdAt                 DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  organization    Organization                  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  sourceImportRun SourceImportRun               @relation("CoupangDirectTransportConsumptionSource", fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  receipt         CoupangDirectTransportReceipt @relation(fields: [receiptId, organizationId, transport], references: [id, organizationId, transport], onDelete: Restrict)
+
+  @@unique([organizationId, sourceImportRunId, transport], map: "coupang_direct_transport_consumptions_source_transport_key")
+  @@index([sourceImportRunId, organizationId])
+  @@index([receiptId, organizationId, transport])
+  @@map("coupang_direct_transport_consumptions")
+}
+
+/// @namespace Orders
 /// @describe Fenced, organization-scoped review collection chunks. Chunks are staging evidence only and are deleted in the terminal publication transaction.
 model ReviewCollectionChunk {
   id                String   @id @default(uuid()) @db.Uuid

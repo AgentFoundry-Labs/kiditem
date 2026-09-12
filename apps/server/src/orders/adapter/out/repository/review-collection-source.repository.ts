@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import { redact } from '../../../../common/redact';
 import {
   BadRequestException,
   ConflictException,
@@ -12,6 +11,7 @@ import {
   type ReviewIngestItem,
   type ReviewIngestResponse,
 } from '@kiditem/shared/reviews';
+import { redact } from '../../../../common/redact';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { canonicalOwnerInputHash } from '../../../../common/owner-idempotency-key';
 import { PrismaService } from '../../../../prisma/prisma.service';
@@ -46,6 +46,8 @@ type Progress = {
       chunkCount: number;
       pageCount: number;
       pageLimitReached: boolean;
+      coverageStartDate?: string;
+      coverageEndDate?: string;
       received: number;
       created: number;
       updated: number;
@@ -293,6 +295,8 @@ export class ReviewCollectionSourceRepository implements ReviewCollectionSourceP
             chunkCount: chunks.length,
             pageCount: input.completion.pageCount,
             pageLimitReached: input.completion.pageLimitReached,
+            coverageStartDate: input.completion.coverageStartDate,
+            coverageEndDate: input.completion.coverageEndDate,
             received: prior?.received ?? itemCount,
             created: prior?.created ?? 0,
             updated: prior?.updated ?? 0,
@@ -329,10 +333,27 @@ export class ReviewCollectionSourceRepository implements ReviewCollectionSourceP
       }
       for (const window of plan.windows) {
         const receipt = progress.windows[String(window.index)];
-        if (!receipt || receipt.pageLimitReached) {
+        if (
+          !receipt ||
+          receipt.pageLimitReached ||
+          receipt.coverageStartDate !== window.start ||
+          receipt.coverageEndDate !== window.end
+        ) {
           throw new ConflictException('REVIEW_COLLECTION_WINDOWS_INCOMPLETE');
         }
       }
+
+      const windowReceipts = plan.windows.map((window) => {
+        const receipt = progress.windows[String(window.index)]!;
+        return {
+          windowIndex: window.index,
+          itemCount: receipt.itemCount,
+          pageCount: receipt.pageCount,
+          pageLimitReached: receipt.pageLimitReached,
+          coverageStartDate: receipt.coverageStartDate!,
+          coverageEndDate: receipt.coverageEndDate!,
+        };
+      });
 
       const chunks = await tx.reviewCollectionChunk.findMany({
         where: {
@@ -350,9 +371,19 @@ export class ReviewCollectionSourceRepository implements ReviewCollectionSourceP
       }
       const collected = chunks.reduce((sum, chunk) => sum + chunk.itemCount, 0);
       const publication = progressPublication(progress, collected);
+      const publicationSequence = await nextPublicationSequence(tx, input.organizationId);
+      const coverageStartDate = windowReceipts.reduce(
+        (earliest, receipt) => receipt.coverageStartDate < earliest ? receipt.coverageStartDate : earliest,
+        windowReceipts[0]!.coverageStartDate,
+      );
+      const coverageEndDate = windowReceipts.reduce(
+        (latest, receipt) => receipt.coverageEndDate > latest ? receipt.coverageEndDate : latest,
+        windowReceipts[0]!.coverageEndDate,
+      );
       const completedAt = new Date();
       const contentChecksum = canonicalOwnerInputHash({
         plan,
+        windowReceipts,
         chunks: chunks.map((chunk) => ({
           windowIndex: chunk.windowIndex,
           sequence: chunk.sequence,
@@ -372,6 +403,9 @@ export class ReviewCollectionSourceRepository implements ReviewCollectionSourceP
           lastVerifiedAt: completedAt,
           verificationCount: { increment: 1 },
           contentChecksum,
+          publicationSequence,
+          coverageStartDate: dateOnly(coverageStartDate),
+          coverageEndDate: dateOnly(coverageEndDate),
           qualityReport: json(nextProgress),
           errorCode: null,
           errorMessage: null,
@@ -486,6 +520,20 @@ export class ReviewCollectionSourceRepository implements ReviewCollectionSourceP
       plan,
       expiresAt: row.expiresAt?.toISOString() ?? null,
       completedWindows: progress.completedWindows,
+      windowReceipts: progress.completedWindows.flatMap((windowIndex) => {
+        const receipt = progress.windows[String(windowIndex)];
+        if (!receipt?.coverageStartDate || !receipt.coverageEndDate) return [];
+        return [{
+          windowIndex,
+          itemCount: receipt.itemCount,
+          pageCount: receipt.pageCount,
+          pageLimitReached: receipt.pageLimitReached,
+          coverageStartDate: receipt.coverageStartDate,
+          coverageEndDate: receipt.coverageEndDate,
+        }];
+      }),
+      coverageStartDate: row.coverageStartDate ? isoDate(row.coverageStartDate) : null,
+      coverageEndDate: row.coverageEndDate ? isoDate(row.coverageEndDate) : null,
       collected: publication?.collected ?? completedItemCount(progress),
       created: publication?.created ?? 0,
       updated: publication?.updated ?? 0,
@@ -615,6 +663,13 @@ function validateWindowCompletion(
   ) {
     throw new ConflictException('REVIEW_COLLECTION_PAGE_LIMIT_REACHED');
   }
+  const window = windowAt(plan, completion.windowIndex);
+  if (
+    completion.coverageStartDate !== window.start ||
+    completion.coverageEndDate !== window.end
+  ) {
+    throw new ConflictException('REVIEW_COLLECTION_WINDOW_COVERAGE_MISMATCH');
+  }
 }
 
 function assertContiguousChunks(chunks: ReadonlyArray<{ sequence: number; itemCount: number }>): void {
@@ -630,7 +685,9 @@ function sameWindowCompletion(
   return (
     prior.itemCount === completion.itemCount &&
     prior.pageCount === completion.pageCount &&
-    prior.pageLimitReached === completion.pageLimitReached
+    prior.pageLimitReached === completion.pageLimitReached &&
+    prior.coverageStartDate === completion.coverageStartDate &&
+    prior.coverageEndDate === completion.coverageEndDate
   );
 }
 
@@ -659,6 +716,8 @@ function readProgress(value: Prisma.JsonValue | null): Progress {
       const chunkCount = value.chunkCount;
       const pageCount = value.pageCount;
       const pageLimitReached = value.pageLimitReached;
+      const coverageStartDate = isoDateValue(value.coverageStartDate);
+      const coverageEndDate = isoDateValue(value.coverageEndDate);
       const received = value.received;
       const created = value.created;
       const updated = value.updated;
@@ -680,6 +739,9 @@ function readProgress(value: Prisma.JsonValue | null): Progress {
           chunkCount,
           pageCount,
           pageLimitReached,
+          ...(coverageStartDate && coverageEndDate
+            ? { coverageStartDate, coverageEndDate }
+            : {}),
           received,
           created,
           updated,
@@ -739,6 +801,37 @@ function progressPublication(
 
 function json(value: unknown): Prisma.InputJsonValue {
   return value as Prisma.InputJsonValue;
+}
+
+async function nextPublicationSequence(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+): Promise<bigint> {
+  const rows = await tx.$queryRaw<Array<{ publicationSequence: bigint }>>`
+    SELECT COALESCE(MAX(publication_sequence), 0::bigint) + 1 AS "publicationSequence"
+    FROM source_import_runs
+    WHERE organization_id = ${organizationId}::uuid
+      AND source_type = ${COUPANG_REVIEW_COLLECTION_SOURCE_TYPE}
+  `;
+  const sequence = rows[0]?.publicationSequence;
+  if (sequence === undefined) {
+    throw new ConflictException('Could not allocate review publication sequence');
+  }
+  return sequence;
+}
+
+function dateOnly(value: string): Date {
+  return new Date(`${value}T00:00:00.000Z`);
+}
+
+function isoDate(value: Date): string {
+  return value.toISOString().slice(0, 10);
+}
+
+function isoDateValue(value: unknown): string | null {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const parsed = dateOnly(value);
+  return Number.isNaN(parsed.getTime()) || isoDate(parsed) !== value ? null : value;
 }
 
 function isSafeInteger(value: unknown): value is number {

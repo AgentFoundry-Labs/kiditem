@@ -39,20 +39,24 @@ describe('Order collection source owner over disposable PostgreSQL', () => {
   let app: INestApplication;
   let httpUrl: string;
   let owner: OrderCollectionSourceRepository;
+  let alerts: SourceFailureAlerts;
   let conversion: ReturnType<typeof art09Conversion>;
   let convertArt09Orders: ReturnType<typeof vi.fn>;
+  let convertHaebeopOrders: ReturnType<typeof vi.fn>;
   let convertKidsnoteOrders: ReturnType<typeof vi.fn>;
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    const alerts = new SourceFailureAlerts(prisma as never);
+    alerts = new SourceFailureAlerts(prisma as never);
     owner = new OrderCollectionSourceRepository(prisma as never, alerts);
     conversion = art09Conversion();
     convertArt09Orders = vi.fn().mockReturnValue(conversion);
+    convertHaebeopOrders = vi.fn().mockReturnValue(conversion);
     convertKidsnoteOrders = vi.fn();
     const collection = {
       convertArt09Orders,
+      convertHaebeopOrders,
       convertKidsnoteOrders,
     };
     const module = await Test.createTestingModule({
@@ -109,17 +113,28 @@ describe('Order collection source owner over disposable PostgreSQL', () => {
           name: '카카오',
           externalAccountId: 'kakao',
         },
+        {
+          organizationId: ORG,
+          channel: 'order_collection',
+          name: '해법몰',
+          externalAccountId: 'haebub-mall',
+        },
       ],
     });
     convertArt09Orders.mockClear();
+    convertHaebeopOrders.mockClear();
     convertKidsnoteOrders.mockClear();
   });
 
-  const begin = (mallKey: string, idempotencyKey = randomUUID()) =>
+  const begin = (
+    mallKey: string,
+    idempotencyKey = randomUUID(),
+    collectionDate: string | null = null,
+  ) =>
     request(httpUrl)
       .post(`${BASE}/attempts`)
       .set('Idempotency-Key', idempotencyKey)
-      .send({ mallKey, collectionDate: null, collectionMode: 'browser' });
+      .send({ mallKey, collectionDate, collectionMode: 'browser' });
 
   const control = (attemptId: string) =>
     request(httpUrl).get(`${BASE}/attempts/${attemptId}/control`);
@@ -130,6 +145,165 @@ describe('Order collection source owner over disposable PostgreSQL', () => {
       .set('x-order-collection-attempt-id', attempt.attemptId)
       .set('x-source-attempt-token', attempt.attemptToken)
       .send(ART09_BODY);
+
+  const convertHaebeop = (
+    attempt: { attemptId: string; attemptToken: string },
+    coverage?: { startDate: string; endDate: string },
+  ) => {
+    const conversion = request(httpUrl)
+      .post(`${BASE}/haebeop/convert`)
+      .set('x-order-collection-attempt-id', attempt.attemptId)
+      .set('x-source-attempt-token', attempt.attemptToken)
+      .send({ orders: [] });
+    if (coverage) {
+      conversion
+        .set('x-order-collection-coverage-start-date', coverage.startDate)
+        .set('x-order-collection-coverage-end-date', coverage.endDate);
+    }
+    return conversion;
+  };
+
+  it('publishes only the provider-confirmed collection day on the public attempt', async () => {
+    const started = (await begin('haebub-mall', randomUUID(), '2026-09-07').expect(201)).body;
+    const attempt = (await control(started.attemptId).expect(200)).body;
+
+    await convertHaebeop(attempt, {
+      startDate: '2026-09-07',
+      endDate: '2026-09-07',
+    }).expect(201);
+
+    await request(httpUrl)
+      .get(`${BASE}/attempts/${attempt.attemptId}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body).toMatchObject({
+          state: 'COMPLETE',
+          coverageStartDate: '2026-09-07',
+          coverageEndDate: '2026-09-07',
+        });
+      });
+  });
+
+  it('does not promote the requested day when the provider sends no coverage receipt', async () => {
+    const started = (await begin('haebub-mall', randomUUID(), '2026-09-07').expect(201)).body;
+    const attempt = (await control(started.attemptId).expect(200)).body;
+
+    await convertHaebeop(attempt).expect(201);
+
+    await request(httpUrl)
+      .get(`${BASE}/attempts/${attempt.attemptId}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body).toMatchObject({
+          state: 'COMPLETE',
+          coverageStartDate: null,
+          coverageEndDate: null,
+        });
+      });
+  });
+
+  it('rejects malformed coverage before conversion and leaves the attempt running without an artifact', async () => {
+    const started = (await begin('haebub-mall', randomUUID(), '2026-09-07').expect(201)).body;
+    const attempt = (await control(started.attemptId).expect(200)).body;
+
+    await request(httpUrl)
+      .post(`${BASE}/haebeop/convert`)
+      .set('x-order-collection-attempt-id', attempt.attemptId)
+      .set('x-source-attempt-token', attempt.attemptToken)
+      .set('x-order-collection-coverage-start-date', '2026-09-07')
+      .send(ART09_BODY)
+      .expect(400);
+    await convertHaebeop(attempt, {
+      startDate: '2026-02-31',
+      endDate: '2026-02-31',
+    }).expect(400);
+
+    expect(convertHaebeopOrders).not.toHaveBeenCalled();
+    await request(httpUrl)
+      .get(`${BASE}/attempts/${attempt.attemptId}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body).toMatchObject({
+          state: 'RUNNING',
+          artifactId: null,
+          coverageStartDate: null,
+          coverageEndDate: null,
+        });
+      });
+  });
+
+  it('rejects coverage outside the frozen plan before conversion and preserves owner state', async () => {
+    const started = (await begin('haebub-mall', randomUUID(), '2026-09-07').expect(201)).body;
+    const attempt = (await control(started.attemptId).expect(200)).body;
+
+    await convertHaebeop(attempt, {
+      startDate: '2026-09-08',
+      endDate: '2026-09-08',
+    }).expect(409);
+
+    expect(convertHaebeopOrders).not.toHaveBeenCalled();
+    await request(httpUrl)
+      .get(`${BASE}/attempts/${attempt.attemptId}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body).toMatchObject({ state: 'RUNNING', artifactId: null });
+      });
+  });
+
+  it('rejects a different terminal coverage replay before conversion and preserves the artifact', async () => {
+    const started = (await begin('haebub-mall', randomUUID(), '2026-09-07').expect(201)).body;
+    const attempt = (await control(started.attemptId).expect(200)).body;
+    const completed = await convertHaebeop(attempt).expect(201);
+    const artifactId = completed.headers['x-order-collection-artifact-id'];
+
+    await convertHaebeop(attempt, {
+      startDate: '2026-09-07',
+      endDate: '2026-09-07',
+    }).expect(409);
+
+    expect(convertHaebeopOrders).toHaveBeenCalledTimes(1);
+    await request(httpUrl)
+      .get(`${BASE}/attempts/${attempt.attemptId}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body).toMatchObject({
+          state: 'COMPLETE',
+          artifactId,
+          coverageStartDate: null,
+          coverageEndDate: null,
+        });
+      });
+  });
+
+  it('rolls back the artifact, coverage, and terminal state when completion bookkeeping fails', async () => {
+    const started = (await begin('haebub-mall', randomUUID(), '2026-09-07').expect(201)).body;
+    const attempt = (await control(started.attemptId).expect(200)).body;
+    const resolve = vi.spyOn(alerts, 'resolveSourceFailure').mockRejectedValueOnce(
+      new Error('completion bookkeeping failed'),
+    );
+
+    try {
+      await convertHaebeop(attempt, {
+        startDate: '2026-09-07',
+        endDate: '2026-09-07',
+      }).expect(500);
+    } finally {
+      resolve.mockRestore();
+    }
+
+    expect(convertHaebeopOrders).toHaveBeenCalledTimes(1);
+    await request(httpUrl)
+      .get(`${BASE}/attempts/${attempt.attemptId}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body).toMatchObject({
+          state: 'RUNNING',
+          artifactId: null,
+          coverageStartDate: null,
+          coverageEndDate: null,
+        });
+      });
+  });
 
   it('persists raw evidence for distinct same-input attempts and replays a terminal ACK', async () => {
     const first = (await begin('art09').expect(201)).body;
