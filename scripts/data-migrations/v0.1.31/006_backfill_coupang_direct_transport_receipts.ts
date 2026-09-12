@@ -11,8 +11,8 @@ const DIRECT_EFFECT_SOURCE_TYPES = [
 ] as const;
 const TRANSPORTS = ["SHIPMENT", "MILKRUN"] as const;
 
-// data_migration_runs hashes this file only. Keep the historical artifact
-// parser, selection key, and receipt checksum closure in this ledgered source.
+// The release-contract guard compares this migration's source bytes. Keep its
+// historical artifact parser, selection key, and receipt checksum rules local.
 const optionalDisplayText = z.preprocess((value) => {
   if (value == null) return undefined;
   const trimmed = String(value).trim();
