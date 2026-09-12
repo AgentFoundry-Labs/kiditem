@@ -50,6 +50,12 @@ const PRISMA_NESTED_MUTATION_METHOD_SET = new Set([
   'updateMany',
   'upsert',
 ]);
+const PRISMA_REVERSE_RELATION_MUTATION_METHOD_SET = new Set([
+  ...PRISMA_NESTED_MUTATION_METHOD_SET,
+  'connect',
+  'disconnect',
+  'set',
+]);
 const PRISMA_DATA_ARGUMENT_NAMES = new Set(['data']);
 const PRISMA_UPSERT_DATA_ARGUMENT_NAMES = new Set(['create', 'update']);
 const LEDGER_MUTATION_ACCESS_KINDS = new Set([
@@ -149,44 +155,84 @@ function lowerCamel(value) {
   return value[0].toLowerCase() + value.slice(1);
 }
 
-function derivePrismaRelations(root, prismaSchemaRoots, prismaType) {
-  const relations = [];
-  let currentModel = null;
-  let foundTargetModel = false;
-  const relationFieldPattern = new RegExp(
-    `^\\s*([A-Za-z_]\\w*)\\s+${escapeRegExp(prismaType)}(?:\\[\\]|\\?)?(?:\\s|$)`,
+function prismaRelationName(line) {
+  return (
+    /@relation\(\s*"([^"]+)"/.exec(line)?.[1] ??
+    /@relation\([^)]*\bname\s*:\s*"([^"]+)"/.exec(line)?.[1] ??
+    null
   );
+}
+
+function parsePrismaModels(root, prismaSchemaRoots) {
+  const models = new Map();
 
   for (const schemaFile of listFilesWithExtension(
     root,
     prismaSchemaRoots,
     '.prisma',
   )) {
+    let currentModel = null;
     for (const sourceLine of readFileSync(schemaFile, 'utf8').split('\n')) {
       const line = sourceLine.replace(/\/\/.*$/, '');
       const modelStart = /^\s*model\s+([A-Za-z_]\w*)\s*\{/.exec(line);
       if (modelStart) {
-        currentModel = modelStart[1];
-        if (currentModel === prismaType) foundTargetModel = true;
+        const name = modelStart[1];
+        if (models.has(name)) {
+          throw new Error(`Prisma schema defines model ${name} more than once`);
+        }
+        currentModel = { fields: [], name };
+        models.set(name, currentModel);
         continue;
       }
       if (currentModel && /^\s*}/.test(line)) {
         currentModel = null;
         continue;
       }
-      if (!currentModel || currentModel === prismaType) continue;
-      const relationField = relationFieldPattern.exec(line);
-      if (relationField) {
-        relations.push({
-          name: relationField[1],
-          parentDelegate: lowerCamel(currentModel),
+      if (!currentModel) continue;
+      const field =
+        /^\s*([A-Za-z_]\w*)\s+([A-Za-z_]\w*)(\[\]|\?)?(?:\s|$)/.exec(line);
+      if (field) {
+        currentModel.fields.push({
+          name: field[1],
+          ownsForeignKey: /@relation\([^)]*\bfields\s*:/.test(line),
+          relationName: prismaRelationName(line),
+          type: field[2],
         });
       }
     }
   }
 
-  if (!foundTargetModel) {
+  return models;
+}
+
+function derivePrismaRelations(root, prismaSchemaRoots, prismaType) {
+  const models = parsePrismaModels(root, prismaSchemaRoots);
+  const targetModel = models.get(prismaType);
+
+  if (!targetModel) {
     throw new Error(`Prisma schema does not define model ${prismaType}`);
+  }
+  const relations = [];
+  for (const parentModel of models.values()) {
+    if (parentModel === targetModel) continue;
+    for (const field of parentModel.fields) {
+      if (field.type !== prismaType) continue;
+      const inverseRelations = targetModel.fields.filter(
+        (candidate) =>
+          candidate.type === parentModel.name &&
+          candidate.relationName === field.relationName,
+      );
+      if (inverseRelations.length !== 1) {
+        throw new Error(
+          `Cannot derive Prisma relation ownership for ${parentModel.name}.${field.name}`,
+        );
+      }
+      relations.push({
+        name: field.name,
+        parentDelegate: lowerCamel(parentModel.name),
+        targetOwnsForeignKey: inverseRelations[0].ownsForeignKey,
+      });
+    }
   }
   return relations.sort(
     (left, right) =>
@@ -638,25 +684,24 @@ function reachablePropertyValues(
   });
 }
 
-function hasNestedRelationMutation(
-  argument,
-  methodName,
-  relationNames,
-  checker,
-) {
+function hasNestedRelationMutation(argument, methodName, relations, checker) {
   const dataArgumentNames =
     methodName === 'upsert'
       ? PRISMA_UPSERT_DATA_ARGUMENT_NAMES
       : PRISMA_DATA_ARGUMENT_NAMES;
   return reachablePropertyValues(argument, dataArgumentNames, checker).some(
     (data) =>
-      reachablePropertyValues(data, relationNames, checker).some(
-        (relationMutation) =>
-          reachablePropertyValues(
-            relationMutation,
-            PRISMA_NESTED_MUTATION_METHOD_SET,
-            checker,
-          ).length > 0,
+      relations.some((relation) =>
+        reachablePropertyValues(data, new Set([relation.name]), checker).some(
+          (relationMutation) =>
+            reachablePropertyValues(
+              relationMutation,
+              relation.targetOwnsForeignKey
+                ? PRISMA_REVERSE_RELATION_MUTATION_METHOD_SET
+                : PRISMA_NESTED_MUTATION_METHOD_SET,
+              checker,
+            ).length > 0,
+        ),
       ),
   );
 }
@@ -670,13 +715,9 @@ function detectPrismaRelationAccess(source, prismaRelations) {
   const { checker, sourceFile } = createSourceAnalysis(source);
   const relationsByDelegate = new Map();
   for (const relation of prismaRelations) {
-    const relationNames = relationsByDelegate.get(relation.parentDelegate);
-    if (relationNames) relationNames.add(relation.name);
-    else
-      relationsByDelegate.set(
-        relation.parentDelegate,
-        new Set([relation.name]),
-      );
+    const delegateRelations = relationsByDelegate.get(relation.parentDelegate);
+    if (delegateRelations) delegateRelations.push(relation);
+    else relationsByDelegate.set(relation.parentDelegate, [relation]);
   }
   const visit = (node) => {
     if (access.mutation && access.read) return;
@@ -687,10 +728,13 @@ function detectPrismaRelationAccess(source, prismaRelations) {
           node.expression.expression,
           checker,
         );
-        const relationNames = delegateName
+        const relations = delegateName
           ? relationsByDelegate.get(delegateName)
           : null;
-        if (relationNames) {
+        if (relations) {
+          const relationNames = new Set(
+            relations.map((relation) => relation.name),
+          );
           if (
             node.arguments.some((argument) =>
               hasReachableRelationProperty(
@@ -709,7 +753,7 @@ function detectPrismaRelationAccess(source, prismaRelations) {
               hasNestedRelationMutation(
                 argument,
                 methodName,
-                relationNames,
+                relations,
                 checker,
               ),
             )

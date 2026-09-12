@@ -73,16 +73,22 @@ test('rejects undeclared Prisma and raw SQL ledger reads, then passes after remo
 
 model ChannelScrapeSnapshot {
   id                     String                         @id
-  adTargetDailySnapshots ChannelAdTargetDailySnapshot[]
+  adTargetDailySnapshots ChannelAdTargetDailySnapshot[] @relation("AdTargetDailyRawSnapshot")
 }
 
 model AdAction {
-  id            String                        @id
-  adTargetDaily ChannelAdTargetDailySnapshot?
+  id              String                        @id
+  adTargetDailyId String?
+  adTargetDaily   ChannelAdTargetDailySnapshot? @relation(fields: [adTargetDailyId], references: [id])
 }
 
 model ChannelAdTargetDailySnapshot {
-  id String @id
+  id             String                 @id
+  organizationId String
+  rawSnapshotId  String?
+  organization  Organization           @relation(fields: [organizationId], references: [id])
+  rawSnapshot   ChannelScrapeSnapshot? @relation("AdTargetDailyRawSnapshot", fields: [rawSnapshotId], references: [id])
+  adActions     AdAction[]
 }
 `,
     );
@@ -94,7 +100,7 @@ model ChannelAdTargetDailySnapshot {
     write(
       root,
       'apps/server/src/advertising/write/ad-target-owner.ts',
-      "const ledger = tx.channelAdTargetDailySnapshot;\nledger.createMany({ data: [] });\ntx.organization.update({ where: { id: 'org-1' }, data: { channelAdTargetDailySnapshots: { create: { id: 'owned' } } } });\nsql`INSERT INTO channel_ad_target_daily_snapshots (id) VALUES ('owned')`;\nsql`UPDATE channel_ad_target_daily_snapshots SET id = 'owned'`;\nsql`DELETE FROM channel_ad_target_daily_snapshots WHERE id = 'owned'`;\n",
+      "const ledger = tx.channelAdTargetDailySnapshot;\nledger.createMany({ data: [] });\ntx.organization.update({ where: { id: 'org-1' }, data: { channelAdTargetDailySnapshots: { create: { id: 'owned' } } } });\ntx.channelScrapeSnapshot.update({ where: { id: 'snapshot-1' }, data: { adTargetDailySnapshots: { set: [{ id: 'owned' }] } } });\nsql`INSERT INTO channel_ad_target_daily_snapshots (id) VALUES ('owned')`;\nsql`UPDATE channel_ad_target_daily_snapshots SET id = 'owned'`;\nsql`DELETE FROM channel_ad_target_daily_snapshots WHERE id = 'owned'`;\n",
     );
     write(
       root,
@@ -536,23 +542,63 @@ model ChannelAdTargetDailySnapshot {
       write(root, target, 'tx.channelAdTargetDailySnapshot.findMany({});\n');
     }
 
-    write(
-      root,
-      canonicalReader,
-      "await tx.adAction.update({ where: { adTargetDaily: { isNot: null } }, data: { status: 'ready' } });\n",
-    );
-    write(
-      root,
-      legacyReader,
-      "await tx.adAction.update({ where: { id: 'action-1' }, data: { status: 'ready' }, include: { adTargetDaily: true } });\n",
-    );
+    const reverseRelationMutationCases = [
+      [
+        'connect',
+        "await tx.organization.update({ where: { id: 'org-1' }, data: { channelAdTargetDailySnapshots: { connect: [{ id: 'target-1' }] } } });\n",
+        canonicalReader,
+      ],
+      [
+        'disconnect',
+        "await tx.channelScrapeSnapshot.update({ where: { id: 'snapshot-1' }, data: { adTargetDailySnapshots: { disconnect: [{ id: 'target-1' }] } } });\n",
+        legacyReader,
+      ],
+      [
+        'set',
+        "await tx.organization.update({ where: { id: 'org-1' }, data: { channelAdTargetDailySnapshots: { set: [{ id: 'target-1' }] } } });\n",
+        legacyReader,
+      ],
+    ];
+    for (const [operation, source, target] of reverseRelationMutationCases) {
+      write(root, target, source);
+      const result = runScanner(root);
+      const output = `${result.stdout}\n${result.stderr}`;
+      assert.equal(result.status, 1, `${operation}: ${output}`);
+      assert.match(
+        output,
+        new RegExp(`${path.basename(target)}.*Prisma relation mutation`),
+        operation,
+      );
+      write(root, target, 'tx.channelAdTargetDailySnapshot.findMany({});\n');
+    }
 
-    assert.doesNotThrow(() => {
-      execFileSync(process.execPath, [scanner, '--root', root], {
-        encoding: 'utf8',
-        stdio: 'pipe',
-      });
-    });
+    const readOnlyRelationCases = [
+      [
+        'parent update filter',
+        "await tx.adAction.update({ where: { adTargetDaily: { isNot: null } }, data: { status: 'ready' } });\n",
+        canonicalReader,
+      ],
+      [
+        'parent update include',
+        "await tx.adAction.update({ where: { id: 'action-1' }, data: { status: 'ready' }, include: { adTargetDaily: true } });\n",
+        legacyReader,
+      ],
+      [
+        'forward relation connect',
+        "await tx.adAction.update({ where: { id: 'action-1' }, data: { adTargetDaily: { connect: { id: 'target-1' } } } });\n",
+        canonicalReader,
+      ],
+    ];
+    for (const [label, source, target] of readOnlyRelationCases) {
+      write(root, target, source);
+      assert.doesNotThrow(() => {
+        execFileSync(process.execPath, [scanner, '--root', root], {
+          encoding: 'utf8',
+          stdio: 'pipe',
+        });
+      }, label);
+      write(root, target, 'tx.channelAdTargetDailySnapshot.findMany({});\n');
+    }
 
     write(
       root,
@@ -610,12 +656,16 @@ test('rejects relation names that drift from the Prisma schema', () => {
 }
 
 model AdAction {
-  id            String                        @id
-  adTargetDaily ChannelAdTargetDailySnapshot?
+  id              String                        @id
+  adTargetDailyId String?
+  adTargetDaily   ChannelAdTargetDailySnapshot? @relation(fields: [adTargetDailyId], references: [id])
 }
 
 model ChannelAdTargetDailySnapshot {
-  id String @id
+  id             String       @id
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  adActions      AdAction[]
 }
 `,
     );
