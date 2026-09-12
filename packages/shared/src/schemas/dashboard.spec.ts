@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  DashboardComparisonBasisSchema,
   DashboardAlertItemSchema,
   DashboardInventorySummarySchema,
   DashboardPeriodBasisSchema,
@@ -79,34 +78,6 @@ describe('dashboard schemas', () => {
       partial: false,
       withheldCount: 0,
     }).status).toBe('unknown');
-  });
-
-  it('round-trips a comparison that exposes both calculation bases', () => {
-    const previous = {
-      ...completePeriodBasis,
-      from: '2026-08-29',
-      to: '2026-08-31',
-      includedDates: ['2026-08-29', '2026-08-30', '2026-08-31'],
-    };
-    const comparison = DashboardComparisonBasisSchema.parse({
-      kind: 'comparison',
-      current: completePeriodBasis,
-      previous,
-      matchedOffsets: [0, 1, 2],
-      status: 'comparable',
-      reason: null,
-    });
-    expect(comparison.matchedOffsets).toEqual([0, 1, 2]);
-    expect(comparison.current.from).toBe('2026-09-01');
-    expect(comparison.previous.from).toBe('2026-08-29');
-    expect(DashboardComparisonBasisSchema.parse({
-      kind: 'comparison',
-      current: completePeriodBasis,
-      previous,
-      matchedOffsets: [],
-      status: 'unavailable',
-      reason: 'no shared valid dates',
-    }).reason).toBe('no shared valid dates');
   });
 
   it('keeps numeric profit inputs tied to one common period basis', () => {

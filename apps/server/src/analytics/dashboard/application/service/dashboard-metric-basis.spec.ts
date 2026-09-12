@@ -24,8 +24,8 @@ import type { AbcEvaluationAsOf } from '../port/out/repository/dashboard-invento
  *
  * The 2026-09-10 partial-aggregation amendment requires evidence for partial
  * numbers, different source cutoffs, internal holes, a true collected zero,
- * two sources with no common date, current/prior comparison bases, and a
- * failed read told apart from an empty one. Each case below is one of those.
+ * two sources with no common date, and a failed read told apart from an
+ * empty one. Each case below is one of those.
  */
 const ORGANIZATION_ID = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d';
 const ANCHOR = new Date('2026-09-08T00:30:00.000Z');
@@ -312,43 +312,6 @@ describe('dashboard sales metricBasis', () => {
       invalidDates: SELECTED,
     });
     expect(result.profitInputs).toBeNull();
-  });
-
-  it('exposes both calculation bases on a current/prior comparison', async () => {
-    const { sales } = salesService({
-      profitFor: selectedOnly(
-        { orderDates: ['2026-09-01', '2026-09-03', '2026-09-05'] },
-        { orderDates: ['2026-08-27', '2026-08-29', '2026-08-31'] },
-      ),
-    });
-
-    const result = await sales.getSummary(customContext(), ORGANIZATION_ID);
-    const comparison = result.metricBasis?.['rangeKpi.revenueChange'];
-
-    expect(comparison).toMatchObject({
-      kind: 'comparison',
-      status: 'comparable',
-      // Offsets 0/2/4 carry evidence on both sides.
-      matchedOffsets: [0, 2, 4],
-      reason: null,
-    });
-    expect(comparison && 'current' in comparison && comparison.current.includedDates)
-      .toEqual(['2026-09-01', '2026-09-03', '2026-09-05']);
-    expect(comparison && 'previous' in comparison && comparison.previous.includedDates)
-      .toEqual(['2026-08-27', '2026-08-29', '2026-08-31']);
-  });
-
-  it('reports an unavailable comparison when the prior period has no evidence', async () => {
-    const { sales } = salesService({ profitFor: selectedOnly({}) });
-
-    const result = await sales.getSummary(customContext(), ORGANIZATION_ID);
-
-    expect(result.metricBasis?.['rangeKpi.revenueChange']).toMatchObject({
-      kind: 'comparison',
-      status: 'unavailable',
-      matchedOffsets: [],
-      reason: 'no shared valid dates',
-    });
   });
 
   it('publishes profit inputs over the same basis as the profit value', async () => {

@@ -77,7 +77,6 @@ function productInclude(organizationId: string, periodStart?: Date) {
             adSpend: true,
             adCoverageStatus: true,
             adObservedAt: true,
-            trafficCoverageStatus: true,
             trafficObservedAt: true,
             lastObservedAt: true,
             metaJson: true,

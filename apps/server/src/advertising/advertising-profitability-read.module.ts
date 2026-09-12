@@ -1,10 +1,8 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
 import { AlertsModule } from '../alerts/alerts.module';
-import { MasterProductAdSpendReadAdapter } from './adapter/out/repository/master-product-ad-spend-read.adapter';
 import { ProfitabilityAdImportRepositoryAdapter } from './adapter/out/repository/profitability-ad-import.repository.adapter';
 import { ProfitabilityAdImportService } from './application/service/profitability-ad-import.service';
-import { MASTER_PRODUCT_AD_SPEND_READ_PORT } from './application/port/in/master-product-ad-spend-read.port';
 import {
   ADVERTISING_PROFITABILITY_READ_PORT,
   PROFITABILITY_AD_IMPORT_PORT,
@@ -21,13 +19,8 @@ import { ProfitabilityAdImportController } from './adapter/in/http/profitability
   imports: [PrismaModule, AlertsModule],
   controllers: [ProfitabilityAdImportController],
   providers: [
-    MasterProductAdSpendReadAdapter,
     ProfitabilityAdImportRepositoryAdapter,
     ProfitabilityAdImportService,
-    {
-      provide: MASTER_PRODUCT_AD_SPEND_READ_PORT,
-      useExisting: MasterProductAdSpendReadAdapter,
-    },
     {
       provide: PROFITABILITY_AD_IMPORT_REPOSITORY_PORT,
       useExisting: ProfitabilityAdImportRepositoryAdapter,
@@ -41,6 +34,6 @@ import { ProfitabilityAdImportController } from './adapter/in/http/profitability
       useExisting: ProfitabilityAdImportRepositoryAdapter,
     },
   ],
-  exports: [MASTER_PRODUCT_AD_SPEND_READ_PORT, ADVERTISING_PROFITABILITY_READ_PORT],
+  exports: [ADVERTISING_PROFITABILITY_READ_PORT],
 })
 export class AdvertisingProfitabilityReadModule {}

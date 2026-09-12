@@ -13,11 +13,9 @@
  * checked at the call site instead of imported.
  */
 import {
-  buildComparisonBasis,
   buildPeriodBasis,
   buildSnapshotBasis,
   intersectBases,
-  type DashboardComparisonBasis,
   type DashboardMetricBasis,
   type DashboardMetricBasisMap,
   type DashboardPeriodBasis,
@@ -152,15 +150,6 @@ export function intersectEvidence(
 ): DashboardPeriodBasis | null {
   if (left === null || right === null) return null;
   return intersectBases(left, right);
-}
-
-/** Current/prior comparison evidence, or `null` when either side has none. */
-export function comparisonEvidence(
-  current: DashboardPeriodBasis | null,
-  previous: DashboardPeriodBasis | null,
-): DashboardComparisonBasis | null {
-  if (current === null || previous === null) return null;
-  return buildComparisonBasis(current, previous);
 }
 
 /**

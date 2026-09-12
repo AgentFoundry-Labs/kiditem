@@ -110,70 +110,16 @@ function productAbcCalendarEpochDay(value: string): number | null {
   return Math.floor(date.getTime() / PRODUCT_ABC_DAY_MS);
 }
 
-export const ProductAbcCostStatusSchema = z.enum([
-  'OBSERVED',
-  'CONFIRMED_ZERO',
-  'NOT_APPLIED',
-  'STALE',
-  'MISSING',
-]);
-export type ProductAbcCostStatus = z.infer<typeof ProductAbcCostStatusSchema>;
-
-const ProductAbcObservedCostComponentSchema = z.object({
-  amount: z.number().int().nonnegative(),
-  status: z.literal('OBSERVED'),
-}).strict();
-
-const ProductAbcConfirmedZeroCostComponentSchema = z.object({
-  // CONFIRMED_ZERO is provider-observed zero, never a missing/null amount.
-  amount: z.literal(0),
-  status: z.literal('CONFIRMED_ZERO'),
-}).strict();
-
-const ProductAbcNotAppliedCostComponentSchema = z.object({
-  // NOT_APPLIED is an intentional formula exclusion, represented explicitly
-  // as zero rather than being confused with missing source evidence.
-  amount: z.literal(0),
-  status: z.literal('NOT_APPLIED'),
-}).strict();
-
-const ProductAbcUnavailableCostComponentSchema = z.object({
-  // An unavailable source is not silently converted to a calculation zero.
-  amount: z.null(),
-  status: z.enum(['STALE', 'MISSING']),
-}).strict();
-
-export const ProductAbcCostComponentSchema = z.union([
-  ProductAbcObservedCostComponentSchema,
-  ProductAbcConfirmedZeroCostComponentSchema,
-  ProductAbcNotAppliedCostComponentSchema,
-  ProductAbcUnavailableCostComponentSchema,
-]);
-export type ProductAbcCostComponent = z.infer<typeof ProductAbcCostComponentSchema>;
-
-export const ProductAbcCostBreakdownSchema = z.object({
-  recognizedRevenue: ProductAbcCostComponentSchema,
-  orderTimeCogs: ProductAbcCostComponentSchema,
-  advertisingSpend: ProductAbcCostComponentSchema,
-  marketplaceCommission: ProductAbcCostComponentSchema,
-  outboundFulfillment: ProductAbcCostComponentSchema,
-  returnLoss: ProductAbcCostComponentSchema,
-  otherVariableCost: ProductAbcCostComponentSchema,
-}).strict();
-export type ProductAbcCostBreakdown = z.infer<typeof ProductAbcCostBreakdownSchema>;
-
 export const ProductAbcSourceStatusSchema = z.enum([
   'READY',
   'STALE',
   'MISSING',
-  'UNMAPPED',
 ]);
 export type ProductAbcSourceStatus = z.infer<typeof ProductAbcSourceStatusSchema>;
 
 export const ProductAbcMappingStatusSchema = z.enum([
   'READY',
   'UNMAPPED',
-  'AMBIGUOUS',
   'STALE',
 ]);
 export type ProductAbcMappingStatus = z.infer<typeof ProductAbcMappingStatusSchema>;

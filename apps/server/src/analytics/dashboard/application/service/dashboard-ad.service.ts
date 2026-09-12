@@ -38,7 +38,6 @@ import {
 import {
   adEvidenceApplies,
   adEvidenceDates,
-  comparisonEvidence,
   intersectEvidence,
   metricBasisMap,
   periodEvidence,
@@ -148,19 +147,12 @@ export class DashboardAdService {
       // or Wing revenue use the exact intersection of both sources' dates.
       const monthAdBasis = adEvidence(closedDayPeriods.month, monthlyMetrics, coupangAdsCurMonth);
       const rangeAdBasis = adEvidence(closedDayPeriods.selected, rangeMetrics, coupangAdsCurRange);
-      const prevRangeAdBasis = adEvidence(closedDayPeriods.previousSelected, rangePrev, coupangAdsPrevRange);
       const rangeRevenueBasis = adRateRevenueEvidence(
         orderPeriods.selected,
         rangeProfitCur,
         wingTrafficCurRange,
       );
-      const prevRangeRevenueBasis = adRateRevenueEvidence(
-        orderPeriods.previousSelected,
-        rangeProfitPrev,
-        wingTrafficPrevRange,
-      );
       const adRateBasis = intersectEvidence(rangeAdBasis, rangeRevenueBasis);
-      const prevAdRateBasis = intersectEvidence(prevRangeAdBasis, prevRangeRevenueBasis);
       const benchmarkBases = benchmarkEvidence(
         orderPeriods.month,
         curMonthProfit,
@@ -206,10 +198,6 @@ export class DashboardAdService {
           'rangeKpi.adRoas': rangeAdBasis,
           'rangeKpi.adCtr': rangeAdBasis,
           'rangeKpi.adRate': adRateBasis,
-          'rangeKpi.adSpendChange': comparisonEvidence(rangeAdBasis, prevRangeAdBasis),
-          'rangeKpi.adRoasChange': comparisonEvidence(rangeAdBasis, prevRangeAdBasis),
-          'rangeKpi.adCtrChange': comparisonEvidence(rangeAdBasis, prevRangeAdBasis),
-          'rangeKpi.adRateChange': comparisonEvidence(adRateBasis, prevAdRateBasis),
         }),
       } satisfies DashboardAdSummary;
     } catch (error) {

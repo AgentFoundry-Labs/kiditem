@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import {
   adEvidenceApplies,
   adEvidenceDates,
-  comparisonEvidence,
   intersectEvidence,
   metricBasisMap,
   periodEvidence,
@@ -77,11 +76,9 @@ describe('evidence lifting over an empty selection', () => {
     // would put a non-date into the wire contract.
     expect(periodEvidence({ selectedDates: [], sources: ['orders'] })).toBeNull();
     expect(intersectEvidence(basis, null)).toBeNull();
-    expect(comparisonEvidence(basis, null)).toBeNull();
-    expect(comparisonEvidence(null, basis)).toBeNull();
   });
 
-  it('intersects and compares present bases', () => {
+  it('intersects present bases', () => {
     const ads = periodEvidence({
       selectedDates: REQUESTED,
       includedDates: ['2026-09-02', '2026-09-03'],
@@ -90,11 +87,6 @@ describe('evidence lifting over an empty selection', () => {
     expect(intersectEvidence(basis, ads)).toMatchObject({
       includedDates: ['2026-09-02', '2026-09-03'],
       sources: ['orders', 'coupang_ads'],
-    });
-    expect(comparisonEvidence(basis, basis)).toMatchObject({
-      kind: 'comparison',
-      status: 'comparable',
-      matchedOffsets: [0, 1, 2],
     });
   });
 });

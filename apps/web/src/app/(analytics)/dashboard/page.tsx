@@ -674,18 +674,13 @@ export default function Dashboard() {
       : new Date().toISOString().slice(0, 7));
   const salesAnalysisHref = `/sales-analysis?tab=overview&period=${encodeURIComponent(salesAnalysisPeriod)}`;
   const revenueBasis = rangeMetricBasis(effectiveSales, kpiRange, 'revenue');
-  const revenueComparisonBasis = rangeMetricBasis(effectiveSales, kpiRange, 'revenueChange');
   const profitBasis = rangeMetricBasis(effectiveSales, kpiRange, 'profit');
-  const profitComparisonBasis = rangeMetricBasis(effectiveSales, kpiRange, 'profitChange');
   // Rates and their changes are range-owned metrics. Do not substitute a
   // monthly profit or ROAS period basis when the selected range lacks its
   // own rate evidence.
   const profitRateBasis = rangeMetricBasis(effectiveSales, kpiRange, 'profitRate', null);
-  const profitRateComparisonBasis = rangeMetricBasis(effectiveSales, kpiRange, 'profitRateChange', null);
   const adRateBasis = rangeMetricBasis(effectiveAd, kpiRange, 'adRate', null);
-  const adRateComparisonBasis = rangeMetricBasis(effectiveAd, kpiRange, 'adRateChange', null);
   const adRoasBasis = rangeMetricBasis(effectiveAd, kpiRange, 'adRoas', null);
-  const adRoasComparisonBasis = rangeMetricBasis(effectiveAd, kpiRange, 'adRoasChange', null);
   const trafficBasis = readMetricBasis(effectiveSales, 'trafficKpi.conversionRate');
   const benchmark = effectiveAd?.industryBenchmark;
   const benchmarkBases = {

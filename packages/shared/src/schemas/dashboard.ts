@@ -90,22 +90,12 @@ export const DashboardSnapshotBasisSchema = z.object({
   withheldCount: z.number().int().nonnegative(),
 }).strict();
 
-export const DashboardComparisonBasisSchema = z.object({
-  kind: z.literal('comparison'),
-  current: DashboardPeriodBasisSchema,
-  previous: DashboardPeriodBasisSchema,
-  matchedOffsets: z.array(z.number().int().nonnegative()),
-  status: z.enum(['comparable', 'unavailable']),
-  reason: z.string().trim().min(1).nullable(),
-}).strict();
-
-// All three bases are plain strict objects now that their cross-field
-// invariants are guaranteed by their constructor, so `kind` can discriminate
-// and a malformed basis reports the one branch's real error.
+// Both bases are plain strict objects now that their cross-field invariants
+// are guaranteed by their constructor, so `kind` can discriminate and a
+// malformed basis reports the one branch's real error.
 export const DashboardMetricBasisSchema = z.discriminatedUnion('kind', [
   DashboardPeriodBasisSchema,
   DashboardSnapshotBasisSchema,
-  DashboardComparisonBasisSchema,
 ]);
 
 /** Stable dotted paths such as `monthly.profit` or `warnings.highAdProducts`. */
@@ -117,7 +107,6 @@ export const DashboardMetricBasisMapSchema = z.record(
 export type DashboardCalendarDate = z.infer<typeof DashboardCalendarDateSchema>;
 export type DashboardPeriodBasis = z.infer<typeof DashboardPeriodBasisSchema>;
 export type DashboardSnapshotBasis = z.infer<typeof DashboardSnapshotBasisSchema>;
-export type DashboardComparisonBasis = z.infer<typeof DashboardComparisonBasisSchema>;
 export type DashboardMetricBasis = z.infer<typeof DashboardMetricBasisSchema>;
 export type DashboardMetricBasisMap = z.infer<typeof DashboardMetricBasisMapSchema>;
 

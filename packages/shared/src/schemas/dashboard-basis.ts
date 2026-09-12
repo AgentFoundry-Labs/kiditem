@@ -20,7 +20,6 @@
  * covers is decided by the owner domain that read it.
  */
 import type {
-  DashboardComparisonBasis,
   DashboardPeriodBasis,
   DashboardSnapshotBasis,
 } from './dashboard.js';
@@ -338,55 +337,3 @@ export function narrowToDate(
   });
 }
 
-/**
- * Comparison evidence for a current/prior pair. Both calculation bases stay
- * attached, and `matchedOffsets` names the relative day positions that carry
- * usable evidence on *both* sides — a comparison is only as valid as its
- * shared dates. An unverified side is never comparable: a failed read is an
- * error, not a change of zero.
- */
-export function buildComparisonBasis(
-  current: DashboardPeriodBasis,
-  previous: DashboardPeriodBasis,
-): DashboardComparisonBasis {
-  const currentStart = calendarTimestamp(current.from);
-  const previousStart = calendarTimestamp(previous.from);
-  const currentIncluded = new Set(current.includedDates);
-  const previousIncluded = new Set(previous.includedDates);
-  const span = Math.min(current.targetDays, previous.targetDays);
-  const matchedOffsets: number[] = [];
-  if (currentStart !== null && previousStart !== null) {
-    for (let offset = 0; offset < span; offset += 1) {
-      const currentDate = dateAtOffset(currentStart, offset);
-      const previousDate = dateAtOffset(previousStart, offset);
-      if (
-        currentDate !== null
-        && previousDate !== null
-        && currentIncluded.has(currentDate)
-        && previousIncluded.has(previousDate)
-      ) {
-        matchedOffsets.push(offset);
-      }
-    }
-  }
-
-  const unverified = current.status === 'unverified' || previous.status === 'unverified';
-  const comparable = matchedOffsets.length > 0 && !unverified;
-  const failedSources = uniqueInOrder([
-    ...(current.queryFailedSources ?? []),
-    ...(previous.queryFailedSources ?? []),
-  ]);
-
-  return {
-    kind: 'comparison',
-    current,
-    previous,
-    matchedOffsets: comparable ? matchedOffsets : [],
-    status: comparable ? 'comparable' : 'unavailable',
-    reason: comparable
-      ? null
-      : failedSources.length > 0
-        ? `source read failed: ${failedSources.join(', ')}`
-        : 'no shared valid dates',
-  };
-}

@@ -12,9 +12,9 @@ import { measuredAdCoverageWhere } from './ad-window-facts';
  *
  * ADR-0003: the ad read is coverage-aware. `ChannelListingDailySnapshot.adSpend`
  * is `Int @default(0)`, so summing it unfiltered makes an uncollected day and a
- * genuinely zero-spend day identical. This module filters on the same evidence
- * columns Advertising's `master-product-ad-spend-read` uses, and yields an
- * unavailable profit rather than a partial sum. Top-N contribution ranking is
+ * genuinely zero-spend day identical. This module filters on the evidence
+ * columns through `ad-window-facts`, and yields an unavailable profit rather
+ * than a partial sum. Top-N contribution ranking is
  * exempt and keeps its own unfiltered 30% approximation.
  *
  * The listing-level calendar alone cannot say whether an organization runs no

@@ -2,7 +2,6 @@ import { Fragment, type ReactNode } from 'react';
 import {
   type DashboardMetricBasis,
   type DashboardMetricBasisMap,
-  type DashboardComparisonBasis,
   type DashboardPeriodBasis,
   type DashboardSnapshotBasis,
 } from '@kiditem/shared/dashboard';
@@ -11,7 +10,6 @@ import { InfoDisclosure, type DisclosureTone } from '@/components/ui/InfoDisclos
 
 export type {
   DashboardMetricBasis,
-  DashboardComparisonBasis,
   DashboardPeriodBasis,
   DashboardSnapshotBasis,
 };
@@ -80,7 +78,6 @@ export function basisHasValues(basis: DashboardMetricBasis | null): boolean {
       || basis.includedDates.length > 0
       || basis.status === 'unverified';
   }
-  if (basis.kind === 'comparison') return basis.status === 'comparable';
   // An unknown snapshot is still a real snapshot. Keep its numeric value
   // visible and make the uncertainty explicit in the status label instead of
   // silently turning it into an empty card.
@@ -198,11 +195,6 @@ export function basisSummary(basis: DashboardMetricBasis | null): string {
     const coverage = snapshotCoverageText(basis);
     return `스냅샷 ${snapshotStatusText(basis.status)}${coverage ? ` · ${coverage}` : ''} · 기준시점 ${asOf} · ${sourceText(basis.sources)}`;
   }
-  if (basis.kind === 'comparison') {
-    return basis.status === 'comparable'
-      ? `비교 가능 · 현재 ${periodEvidenceText(basis.current)} · 이전 ${periodEvidenceText(basis.previous)} · 공통 오프셋 ${basis.matchedOffsets.join(', ')}`
-      : `비교 불가${basis.reason ? ` · ${basis.reason}` : ''}`;
-  }
   return periodEvidenceText(basis);
 }
 
@@ -240,27 +232,11 @@ export function DashboardDataBasis({
   );
 }
 
-/**
- * A day-coverage manifest published beside a value instead of through the
- * basis map. It carries the same period facts under different field names, so
- * it takes a row in the same breakdown rather than a help affordance of its own.
- */
-export type DashboardCoverageFacts = {
-  from: string;
-  to: string;
-  targetDays: number;
-  completedDays: number;
-  missingDates: string[];
-};
-
 /** One displayed value and the evidence published for it. */
 export type BasisBreakdownEntry = {
   /** The value this row explains, in the words the card uses. */
   label: string;
   basis?: DashboardMetricBasis | null;
-  coverage?: DashboardCoverageFacts | null;
-  /** Sources behind a coverage manifest, which publishes none of its own. */
-  coverageSources?: readonly string[];
 };
 
 type PeriodRow = {
@@ -314,22 +290,6 @@ function periodRow(
   };
 }
 
-function coverageRow(key: string, entry: BasisBreakdownEntry, coverage: DashboardCoverageFacts): PeriodRow {
-  return {
-    key,
-    label: entry.label,
-    range: `${coverage.from} ~ ${coverage.to}`,
-    days: `${coverage.completedDays}/${coverage.targetDays}일`,
-    includedDates: '개별 날짜 미공개',
-    missing: dateSpansText(coverage.missingDates, coverage.targetDays),
-    sources: sourceText([...(entry.coverageSources ?? [])]),
-    how: coverage.completedDays === coverage.targetDays
-      ? `${coverage.from} ~ ${coverage.to} ${coverage.targetDays}일을 모두 수집했습니다.`
-      : `${coverage.from} ~ ${coverage.to} 중 ${coverage.completedDays}일만 수집됐습니다.`,
-    note: null,
-  };
-}
-
 function snapshotRow(key: string, label: string, basis: DashboardSnapshotBasis): SnapshotRow {
   return {
     key,
@@ -363,16 +323,7 @@ function splitBreakdown(entries: readonly BasisBreakdownEntry[]): {
       periodRows.push(periodRow(key, entry.label, basis));
     } else if (basis?.kind === 'snapshot') {
       snapshotRows.push(snapshotRow(key, entry.label, basis));
-    } else if (basis?.kind === 'comparison') {
-      // A comparison is two measured windows, not one. Keeping them as two
-      // rows is what makes the pair auditable instead of a single claim.
-      const comparability = basis.status === 'comparable'
-        ? `비교 가능 · 공통 오프셋 ${basis.matchedOffsets.join(', ') || '없음'}`
-        : `비교 불가${basis.reason ? ` · ${basis.reason}` : ''}`;
-      periodRows.push(periodRow(`${key}-current`, `${entry.label} · 현재`, basis.current, comparability));
-      periodRows.push(periodRow(`${key}-previous`, `${entry.label} · 이전`, basis.previous));
     }
-    if (entry.coverage) periodRows.push(coverageRow(`${key}-coverage`, entry, entry.coverage));
   });
 
   return { periodRows, snapshotRows };
@@ -519,8 +470,8 @@ function SnapshotBreakdownTable({ rows }: { rows: readonly SnapshotRow[] }) {
  * The amendment allows a common explanation only where the bases truly match,
  * and on this page they do not — two cards in the same row can report
  * different windows and different sources. So this never states a single
- * shared basis: it prints one row per value, splits a comparison into its two
- * measured windows, and hoists only the facts every row actually agrees on.
+ * shared basis: it prints one row per value and hoists only the facts every
+ * row actually agrees on.
  */
 /**
  * The panel's worst published state, which is what the ⓘ shows.
@@ -534,13 +485,6 @@ function disclosureTone(entries: readonly BasisBreakdownEntry[]): DisclosureTone
   let seen = false;
   let tone: DisclosureTone = 'neutral';
   for (const entry of entries) {
-    const coverage = entry.coverage;
-    if (coverage) {
-      seen = true;
-      if (coverage.completedDays === 0) return 'absent';
-      if (coverage.completedDays < coverage.targetDays) tone = 'partial';
-      continue;
-    }
     const basis = entry.basis;
     if (!basis) continue;
     seen = true;

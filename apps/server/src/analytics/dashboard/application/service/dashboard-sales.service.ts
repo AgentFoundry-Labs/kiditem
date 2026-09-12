@@ -44,7 +44,6 @@ import {
 import {
   adEvidenceApplies,
   adEvidenceDates,
-  comparisonEvidence,
   intersectEvidence,
   metricBasisMap,
   periodEvidence,
@@ -195,26 +194,12 @@ export class DashboardSalesService {
         wing: wingTrafficMonth,
         observedAt: coupangAdsMonth.lastObservedAt,
       });
-      const prevMonthEvidence = salesEvidence({
-        orderPeriod: orderPeriods.previousMonth,
-        wingPeriod: closedDayPeriods.previousMonth,
-        profit: prevMonthProfit,
-        wing: wingTrafficPrevMonth,
-        observedAt: coupangAdsPrevMonth.lastObservedAt,
-      });
       const rangeEvidence = salesEvidence({
         orderPeriod: orderPeriods.selected,
         wingPeriod: closedDayPeriods.selected,
         profit: rangeCurProfit,
         wing: wingTrafficRange,
         observedAt: coupangAdsForRange.lastObservedAt,
-      });
-      const prevRangeEvidence = salesEvidence({
-        orderPeriod: orderPeriods.previousSelected,
-        wingPeriod: closedDayPeriods.previousSelected,
-        profit: rangePrevProfit,
-        wing: wingTrafficPrevRange,
-        observedAt: coupangAdsForPrevRange.lastObservedAt,
       });
 
       const trafficKpi = this.buildTrafficKpi(
@@ -278,29 +263,9 @@ export class DashboardSalesService {
         metricBasis: metricBasisMap({
           'monthly.revenue': monthEvidence.revenue,
           'monthly.profit': monthEvidence.profit,
-          'monthly.revenueChange': comparisonEvidence(
-            monthEvidence.revenue,
-            prevMonthEvidence.revenue,
-          ),
-          'monthly.profitChange': comparisonEvidence(
-            monthEvidence.profit,
-            prevMonthEvidence.profit,
-          ),
           'rangeKpi.revenue': rangeEvidence.revenue,
           'rangeKpi.profit': rangeEvidence.profit,
           'rangeKpi.profitRate': rangeEvidence.profitRate,
-          'rangeKpi.revenueChange': comparisonEvidence(
-            rangeEvidence.revenue,
-            prevRangeEvidence.revenue,
-          ),
-          'rangeKpi.profitChange': comparisonEvidence(
-            rangeEvidence.profit,
-            prevRangeEvidence.profit,
-          ),
-          'rangeKpi.profitRateChange': comparisonEvidence(
-            rangeEvidence.profitRate,
-            prevRangeEvidence.profitRate,
-          ),
           'trafficKpi.conversionRate': conversionRateBasis,
           'topProducts.revenue': topProductsBasis,
           // The profit column is no longer a margin assumption over the revenue

@@ -650,14 +650,14 @@ function metricStatus(value: string): ProductAbcContributionMetricStatus {
 }
 
 function sourceStatus(value: string): ProductAbcSourceStatus {
-  if (value === 'READY' || value === 'STALE' || value === 'MISSING' || value === 'UNMAPPED') {
+  if (value === 'READY' || value === 'STALE' || value === 'MISSING') {
     return value;
   }
   throw new UnprocessableEntityException('CONTRIBUTION_SOURCE_STATUS_INVALID');
 }
 
-function mappingStatus(value: string): 'READY' | 'UNMAPPED' | 'AMBIGUOUS' | 'STALE' {
-  if (value === 'READY' || value === 'UNMAPPED' || value === 'AMBIGUOUS' || value === 'STALE') {
+function mappingStatus(value: string): 'READY' | 'UNMAPPED' | 'STALE' {
+  if (value === 'READY' || value === 'UNMAPPED' || value === 'STALE') {
     return value;
   }
   throw new UnprocessableEntityException('CONTRIBUTION_MAPPING_STATUS_INVALID');

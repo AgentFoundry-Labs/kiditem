@@ -5,7 +5,6 @@ import {
   DashboardDataBasis,
   basisHasValues,
   basisSummary,
-  type DashboardComparisonBasis,
   type DashboardPeriodBasis,
   type DashboardMetricBasis,
 } from './DashboardDataBasis';
@@ -59,46 +58,6 @@ describe('DashboardDataBasis', () => {
     expect(screen.getByTestId('dashboard-data-basis')).toHaveTextContent('기준 시점 확인 불가');
     expect(screen.getByTestId('dashboard-data-basis')).toHaveTextContent('관측 2026-09-04T00:00:00.000Z');
     expect(screen.getByTestId('dashboard-data-basis')).not.toHaveTextContent('기준시점 2026-09-04');
-  });
-
-  it('shows current and previous comparison bases with matched offsets', async () => {
-    const comparison: DashboardComparisonBasis = {
-      kind: 'comparison',
-      current: {
-        ...periodBasis,
-        from: '2026-09-01',
-        to: '2026-09-03',
-        includedDates: ['2026-09-01', '2026-09-03'],
-        missingDates: ['2026-09-02'],
-        includedDays: 2,
-      },
-      previous: {
-        ...periodBasis,
-        from: '2026-08-25',
-        to: '2026-08-27',
-        includedDates: ['2026-08-25', '2026-08-27'],
-        missingDates: ['2026-08-26'],
-        includedDays: 2,
-      },
-      matchedOffsets: [0, 2],
-      status: 'comparable',
-      reason: null,
-    };
-
-    render(<DashboardBasisDisclosure label="기간 지표 근거" entries={[{ label: '월 순이익', basis: comparison }]} />);
-
-    fireEvent.click(screen.getByRole('button', { name: /^기간\ 지표\ 근거\ 안내/ }));
-
-    const note = await screen.findByRole('note');
-    // A comparison is two measured windows, so it never collapses to one row.
-    const current = within(note).getByRole('row', { name: /월 순이익 · 현재/ });
-    const previous = within(note).getByRole('row', { name: /월 순이익 · 이전/ });
-    expect(current).toHaveTextContent('2026-09-01 ~ 2026-09-03');
-    expect(current).toHaveTextContent('2026-09-01, 2026-09-03');
-    expect(previous).toHaveTextContent('2026-08-25 ~ 2026-08-27');
-    expect(previous).toHaveTextContent('2026-08-25, 2026-08-27');
-    expect(note).toHaveTextContent('공통 오프셋 0, 2');
-    expect(basisSummary(comparison)).toContain('공통 오프셋 0, 2');
   });
 
   it('never states one basis for values whose bases differ', async () => {
@@ -160,26 +119,6 @@ describe('DashboardDataBasis', () => {
     expect(note).toHaveTextContent('기준시점 2026-09-11 (모든 값 공통)');
     expect(within(note).getByRole('row', { name: /적자 상품/ })).toHaveTextContent('주문 · 채널 리스팅');
     expect(within(note).getByRole('row', { name: /셀피아 재고 0/ })).toHaveTextContent('셀피아 재고');
-  });
-
-  it('gives a day-coverage manifest a row instead of a help affordance of its own', async () => {
-    render(
-      <DashboardBasisDisclosure
-        label="기간 지표 근거"
-        entries={[{
-          label: '광고 커버리지',
-          coverage: { from: '2026-09-01', to: '2026-09-10', targetDays: 10, completedDays: 0, missingDates: ['2026-09-01', '2026-09-02'] },
-          coverageSources: ['coupang_ads'],
-        }]}
-      />,
-    );
-
-    expect(screen.getAllByRole('button')).toHaveLength(1);
-    fireEvent.click(screen.getByRole('button', { name: /^기간\ 지표\ 근거\ 안내/ }));
-
-    const row = within(await screen.findByRole('note')).getByRole('row', { name: /광고 커버리지/ });
-    expect(row).toHaveTextContent('0/10일');
-    expect(row).toHaveTextContent('2일 · 2026-09-01, 2026-09-02');
   });
 
   /**

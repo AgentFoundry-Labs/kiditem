@@ -27,8 +27,8 @@ import type { Prisma, PrismaClient } from '@prisma/client';
  * uncollected row is otherwise indistinguishable from a confirmed-zero one —
  * which is the difference between "no advertising ran" and "nobody looked".
  *
- * Identical to Advertising's `master-product-ad-spend-read` filter (ADR-0003).
- * This is its single definition; `per-listing-profit` imports it from here.
+ * This is the filter's single definition (ADR-0003); `per-listing-profit`
+ * imports it from here.
  */
 export function measuredAdCoverageWhere(
   organizationId: string,

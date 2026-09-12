@@ -6,7 +6,6 @@ import { PrismaService } from '../prisma/prisma.service';
 import { PrismaModule } from '../prisma/prisma.module';
 import { ProfitabilityAdImportRepositoryAdapter } from './adapter/out/repository/profitability-ad-import.repository.adapter';
 import { ProfitabilityAdImportController } from './adapter/in/http/profitability-ad-import.controller';
-import { MASTER_PRODUCT_AD_SPEND_READ_PORT } from './application/port/in/master-product-ad-spend-read.port';
 import { ADVERTISING_PROFITABILITY_READ_PORT } from './application/port/in/profitability-ad-import.port';
 import { AdvertisingProfitabilityReadModule } from './advertising-profitability-read.module';
 
@@ -21,10 +20,7 @@ describe('AdvertisingProfitabilityReadModule', () => {
 
     expect(imports).toEqual([PrismaModule, AlertsModule]);
     expect(controllers).toEqual([ProfitabilityAdImportController]);
-    expect(exports).toEqual([
-      MASTER_PRODUCT_AD_SPEND_READ_PORT,
-      ADVERTISING_PROFITABILITY_READ_PORT,
-    ]);
+    expect(exports).toEqual([ADVERTISING_PROFITABILITY_READ_PORT]);
   });
 
   it('resolves the exact-generation read port to its repository owner', async () => {

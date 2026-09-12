@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  buildComparisonBasis,
   buildPeriodBasis,
   buildSnapshotBasis,
   enumerateDashboardDates,
@@ -8,7 +7,6 @@ import {
   narrowToDate,
 } from './dashboard-basis.js';
 import {
-  DashboardComparisonBasisSchema,
   DashboardPeriodBasisSchema,
   DashboardSnapshotBasisSchema,
   type DashboardPeriodBasis,
@@ -307,75 +305,6 @@ describe('narrowToDate', () => {
     expect(narrowToDate(failed, '2026-09-02')).toMatchObject({
       status: 'unverified',
       queryFailedSources: ['coupang_ads'],
-    });
-  });
-});
-
-describe('buildComparisonBasis', () => {
-  const current = buildPeriodBasis({
-    from: '2026-09-01',
-    to: '2026-09-03',
-    includedDates: ['2026-09-01', '2026-09-03'],
-    sources: ['orders'],
-  });
-
-  it('matches relative offsets that carry evidence on both sides', () => {
-    const previous = buildPeriodBasis({
-      from: '2026-08-29',
-      to: '2026-08-31',
-      includedDates: ['2026-08-29', '2026-08-30', '2026-08-31'],
-      sources: ['orders'],
-    });
-    const comparison = buildComparisonBasis(current, previous);
-    expect(comparison).toMatchObject({
-      kind: 'comparison',
-      matchedOffsets: [0, 2],
-      status: 'comparable',
-      reason: null,
-    });
-    expect(comparison.current.includedDates).toEqual(['2026-09-01', '2026-09-03']);
-    expect(comparison.previous.includedDates).toEqual(['2026-08-29', '2026-08-30', '2026-08-31']);
-    expect(DashboardComparisonBasisSchema.safeParse(comparison).success).toBe(true);
-  });
-
-  it('is unavailable when the two periods share no matching offset', () => {
-    const previous = buildPeriodBasis({
-      from: '2026-08-29',
-      to: '2026-08-31',
-      includedDates: ['2026-08-30'],
-      sources: ['orders'],
-    });
-    expect(buildComparisonBasis(current, previous)).toMatchObject({
-      matchedOffsets: [],
-      status: 'unavailable',
-      reason: 'no shared valid dates',
-    });
-  });
-
-  it('never calls a failed read comparable, and names the failed source', () => {
-    const failed = buildPeriodBasis({
-      from: '2026-08-29',
-      to: '2026-08-31',
-      sources: ['orders'],
-      queryFailedSources: ['orders'],
-    });
-    expect(buildComparisonBasis(current, failed)).toMatchObject({
-      matchedOffsets: [],
-      status: 'unavailable',
-      reason: 'source read failed: orders',
-    });
-  });
-
-  it('compares only the offsets both windows actually span', () => {
-    const shortPrevious = buildPeriodBasis({
-      from: '2026-08-30',
-      to: '2026-08-30',
-      includedDates: ['2026-08-30'],
-      sources: ['orders'],
-    });
-    expect(buildComparisonBasis(current, shortPrevious)).toMatchObject({
-      matchedOffsets: [0],
-      status: 'comparable',
     });
   });
 });

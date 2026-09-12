@@ -9,7 +9,6 @@ import {
   parseProductAbcDateToKstCalendarDate,
   productAbcSaleAgeDays,
   ProductAbcContributionAnalyticsSchema,
-  ProductAbcCostComponentSchema,
   ProductAbcDisplayStatusSchema,
   ProductAbcEvaluationSchema,
   ProductAbcFormulaPayloadSchema,
@@ -229,29 +228,6 @@ describe('absolute product profitability ABC contracts', () => {
     expect(parseProductAbcDateToKstCalendarDate('2026-01-01T23:00:00+02:00')).toBe('2026-01-02');
     expect(productAbcSaleAgeDays('2026-02-31', '2026-03-31')).toBeNull();
     expect(productAbcSaleAgeDays('2026-03-01T00:00:00Z', '2026-03-31')).toBe(30);
-  });
-
-  it('keeps zero-cost states unambiguous', () => {
-    expect(ProductAbcCostComponentSchema.parse({
-      amount: 0,
-      status: 'CONFIRMED_ZERO',
-    })).toEqual({ amount: 0, status: 'CONFIRMED_ZERO' });
-    expect(ProductAbcCostComponentSchema.parse({
-      amount: 0,
-      status: 'NOT_APPLIED',
-    })).toEqual({ amount: 0, status: 'NOT_APPLIED' });
-    expect(() => ProductAbcCostComponentSchema.parse({
-      amount: null,
-      status: 'CONFIRMED_ZERO',
-    })).toThrow();
-    expect(() => ProductAbcCostComponentSchema.parse({
-      amount: 1,
-      status: 'CONFIRMED_ZERO',
-    })).toThrow();
-    expect(() => ProductAbcCostComponentSchema.parse({
-      amount: 1,
-      status: 'NOT_APPLIED',
-    })).toThrow();
   });
 
   it('keeps current and published formula/mapping revisions in one state contract', () => {
