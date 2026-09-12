@@ -134,6 +134,16 @@ model ChannelAdTargetDailySnapshot {
     );
     write(
       root,
+      'apps/server/src/raw-sql-fragment-consumer.ts',
+      'const table = Prisma.raw(\'"channel_ad_target_daily_snapshots"\');\nawait tx.$queryRaw(Prisma.sql`SELECT * FROM ${table}`);\n',
+    );
+    write(
+      root,
+      'apps/server/src/raw-sql-fragment-delete-consumer.ts',
+      'const table = Prisma.raw(\'"channel_ad_target_daily_snapshots"\');\nawait tx.$executeRaw(Prisma.sql`DELETE FROM ${table} WHERE id = ${targetId}`);\n',
+    );
+    write(
+      root,
       'apps/server/src/raw-sql-insert-consumer.ts',
       'sql`INSERT INTO "channel_ad_target_daily_snapshots" (id) VALUES (\'unowned\')`;\n',
     );
@@ -166,6 +176,11 @@ model ChannelAdTargetDailySnapshot {
       root,
       'apps/server/src/bracket-consumer.ts',
       "await tx['channelAdTargetDailySnapshot'].findFirst({});\n",
+    );
+    write(
+      root,
+      'apps/server/src/computed-bracket-consumer.ts',
+      "const model = 'channelAdTargetDailySnapshot' as const;\nawait tx[model].findMany({});\n",
     );
     write(
       root,
@@ -226,6 +241,11 @@ model ChannelAdTargetDailySnapshot {
       root,
       'apps/server/src/standalone-dto.ts',
       'export const response = { adTargetDaily: null };\n',
+    );
+    write(
+      root,
+      'apps/server/src/documented-ledger-dto.ts',
+      '/** channelAdTargetDailySnapshot is supplied by the ledger reader. */\nconst response = { channelAdTargetDailySnapshot: null };\nexport function describeChannelAdTargetDailySnapshot() {\n  return response.channelAdTargetDailySnapshot;\n}\n',
     );
     write(
       root,
@@ -297,6 +317,14 @@ model ChannelAdTargetDailySnapshot {
       /advertising\/read\/unregistered-consumer\.ts.*Prisma delegate access/,
     );
     assert.match(failedOutput, /raw-sql-consumer\.ts.*raw SQL read/);
+    assert.match(
+      failedOutput,
+      /raw-sql-fragment-consumer\.ts.*raw SQL read/,
+    );
+    assert.match(
+      failedOutput,
+      /raw-sql-fragment-delete-consumer\.ts.*raw SQL mutation/,
+    );
     assert.match(failedOutput, /raw-sql-insert-consumer\.ts.*raw SQL mutation/);
     assert.match(failedOutput, /raw-sql-update-consumer\.ts.*raw SQL mutation/);
     assert.match(failedOutput, /raw-sql-delete-consumer\.ts.*raw SQL mutation/);
@@ -308,6 +336,10 @@ model ChannelAdTargetDailySnapshot {
       /destructure-consumer\.ts.*Prisma delegate access/,
     );
     assert.match(failedOutput, /bracket-consumer\.ts.*Prisma delegate access/);
+    assert.match(
+      failedOutput,
+      /computed-bracket-consumer\.ts.*Prisma delegate access/,
+    );
     assert.match(failedOutput, /mutation-consumer\.ts.*Prisma delegate access/);
     assert.match(
       failedOutput,
@@ -350,6 +382,7 @@ model ChannelAdTargetDailySnapshot {
       /spread-relation-alias-consumer\.ts.*Prisma relation read/,
     );
     assert.doesNotMatch(failedOutput, /standalone-dto\.ts/);
+    assert.doesNotMatch(failedOutput, /documented-ledger-dto\.ts/);
     assert.match(
       failedOutput,
       /array-relation-filter-consumer\.ts.*Prisma relation read/,
@@ -394,6 +427,10 @@ model ChannelAdTargetDailySnapshot {
       ),
     );
     rmSync(path.join(root, 'apps/server/src/raw-sql-consumer.ts'));
+    rmSync(path.join(root, 'apps/server/src/raw-sql-fragment-consumer.ts'));
+    rmSync(
+      path.join(root, 'apps/server/src/raw-sql-fragment-delete-consumer.ts'),
+    );
     rmSync(path.join(root, 'apps/server/src/raw-sql-insert-consumer.ts'));
     rmSync(path.join(root, 'apps/server/src/raw-sql-update-consumer.ts'));
     rmSync(path.join(root, 'apps/server/src/raw-sql-delete-consumer.ts'));
@@ -406,6 +443,7 @@ model ChannelAdTargetDailySnapshot {
     rmSync(path.join(root, 'apps/server/src/alias-consumer.ts'));
     rmSync(path.join(root, 'apps/server/src/destructure-consumer.ts'));
     rmSync(path.join(root, 'apps/server/src/bracket-consumer.ts'));
+    rmSync(path.join(root, 'apps/server/src/computed-bracket-consumer.ts'));
     rmSync(path.join(root, 'apps/server/src/mutation-consumer.ts'));
     rmSync(path.join(root, 'apps/server/src/seed/runtime-consumer.ts'));
     rmSync(path.join(root, 'apps/server/src/relation-include-consumer.ts'));
@@ -477,7 +515,7 @@ model ChannelAdTargetDailySnapshot {
       ],
       [
         'deleteMany',
-        'await tx.channelAdTargetDailySnapshot.deleteMany({ where: {} });\n',
+        "const model = 'channelAdTargetDailySnapshot' as const;\nawait tx[model].deleteMany({ where: {} });\n",
         legacyReader,
       ],
       [

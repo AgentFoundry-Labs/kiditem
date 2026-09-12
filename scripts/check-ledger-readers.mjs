@@ -444,14 +444,20 @@ function propertyName(node) {
   return null;
 }
 
-function memberAccessName(node) {
+function memberAccessName(node, checker) {
   if (ts.isPropertyAccessExpression(node)) return node.name.text;
   if (
     ts.isElementAccessExpression(node) &&
-    node.argumentExpression &&
-    ts.isStringLiteral(node.argumentExpression)
+    node.argumentExpression
   ) {
-    return node.argumentExpression.text;
+    const argument = unwrapExpression(node.argumentExpression);
+    if (
+      ts.isStringLiteral(argument) ||
+      ts.isNoSubstitutionTemplateLiteral(argument)
+    ) {
+      return argument.text;
+    }
+    return checker ? resolveImmutableString(argument, checker) : null;
   }
   return null;
 }
@@ -547,12 +553,30 @@ function resolveConstBinding(identifier, checker) {
   return null;
 }
 
+function resolveImmutableString(node, checker, visited = new Set()) {
+  const expression = unwrapExpression(node);
+  if (
+    ts.isStringLiteral(expression) ||
+    ts.isNoSubstitutionTemplateLiteral(expression)
+  ) {
+    return expression.text;
+  }
+  if (!ts.isIdentifier(expression) || visited.has(expression)) return null;
+  const binding = resolveConstBinding(expression, checker);
+  if (!binding?.initializer) return null;
+  return resolveImmutableString(
+    binding.initializer,
+    checker,
+    new Set([...visited, expression]),
+  );
+}
+
 function resolveDelegateName(node, checker, visited = new Set()) {
   const expression = unwrapExpression(node);
   if (visited.has(expression)) return null;
   visited.add(expression);
 
-  const directName = memberAccessName(expression);
+  const directName = memberAccessName(expression, checker);
   if (directName) return directName;
   if (!ts.isIdentifier(expression)) return null;
   const binding = resolveConstBinding(expression, checker);
@@ -722,7 +746,7 @@ function detectPrismaRelationAccess(source, prismaRelations) {
   const visit = (node) => {
     if (access.mutation && access.read) return;
     if (ts.isCallExpression(node)) {
-      const methodName = memberAccessName(node.expression);
+      const methodName = memberAccessName(node.expression, checker);
       if (methodName && PRISMA_RELATION_METHOD_SET.has(methodName)) {
         const delegateName = resolveDelegateName(
           node.expression.expression,
@@ -769,27 +793,29 @@ function detectPrismaRelationAccess(source, prismaRelations) {
   return access;
 }
 
-function hasPrismaDelegateMutation(source, prismaModel) {
-  if (!source.includes(prismaModel)) return false;
+function detectPrismaDelegateAccess(source, prismaModel) {
+  const access = { mutation: false, read: false };
+  if (!source.includes(prismaModel)) return access;
   const { checker, sourceFile } = createSourceAnalysis(source);
-  let found = false;
   const visit = (node) => {
-    if (found) return;
+    if (access.mutation && access.read) return;
     if (ts.isCallExpression(node)) {
-      const methodName = memberAccessName(node.expression);
+      const methodName = memberAccessName(node.expression, checker);
       if (
         methodName &&
-        PRISMA_MUTATION_METHOD_SET.has(methodName) &&
+        PRISMA_RELATION_METHOD_SET.has(methodName) &&
         resolveDelegateName(node.expression.expression, checker) === prismaModel
       ) {
-        found = true;
-        return;
+        access.read = true;
+        if (PRISMA_MUTATION_METHOD_SET.has(methodName)) {
+          access.mutation = true;
+        }
       }
     }
     ts.forEachChild(node, visit);
   };
   visit(sourceFile);
-  return found;
+  return access;
 }
 
 function hasRetiredListingPrismaRead(source) {
@@ -804,7 +830,7 @@ function hasRetiredListingPrismaRead(source) {
   const visit = (node) => {
     if (found) return;
     if (ts.isCallExpression(node)) {
-      const methodName = memberAccessName(node.expression);
+      const methodName = memberAccessName(node.expression, checker);
       if (
         methodName &&
         PRISMA_READ_METHOD_SET.has(methodName) &&
@@ -829,15 +855,97 @@ function hasRetiredListingPrismaRead(source) {
   return found;
 }
 
+function isPrismaMember(node, memberName, checker) {
+  const expression = unwrapExpression(node);
+  if (
+    !ts.isPropertyAccessExpression(expression) &&
+    !ts.isElementAccessExpression(expression)
+  ) {
+    return false;
+  }
+  const receiver = unwrapExpression(expression.expression);
+  return (
+    memberAccessName(expression, checker) === memberName &&
+    ts.isIdentifier(receiver) &&
+    receiver.text === 'Prisma'
+  );
+}
+
+function resolvePrismaSql(node, checker, visited = new Set()) {
+  const expression = unwrapExpression(node);
+  if (visited.has(expression)) return null;
+  const nextVisited = new Set([...visited, expression]);
+
+  if (
+    ts.isStringLiteral(expression) ||
+    ts.isNoSubstitutionTemplateLiteral(expression)
+  ) {
+    return expression.text;
+  }
+  if (ts.isIdentifier(expression)) {
+    const binding = resolveConstBinding(expression, checker);
+    return binding?.initializer
+      ? resolvePrismaSql(binding.initializer, checker, nextVisited)
+      : null;
+  }
+  if (
+    ts.isCallExpression(expression) &&
+    isPrismaMember(expression.expression, 'raw', checker) &&
+    expression.arguments.length === 1
+  ) {
+    return resolvePrismaSql(expression.arguments[0], checker, nextVisited);
+  }
+  if (
+    ts.isTaggedTemplateExpression(expression) &&
+    isPrismaMember(expression.tag, 'sql', checker)
+  ) {
+    if (ts.isNoSubstitutionTemplateLiteral(expression.template)) {
+      return expression.template.text;
+    }
+    let sql = expression.template.head.text;
+    for (const span of expression.template.templateSpans) {
+      sql +=
+        resolvePrismaSql(span.expression, checker, nextVisited) ?? ' ? ';
+      sql += span.literal.text;
+    }
+    return sql;
+  }
+  return null;
+}
+
+function collectPrismaRawSql(source) {
+  if (
+    !source.includes('Prisma.') ||
+    (!source.includes('$queryRaw') && !source.includes('$executeRaw'))
+  ) {
+    return [];
+  }
+  const { checker, sourceFile } = createSourceAnalysis(source);
+  const queries = [];
+  const visit = (node) => {
+    if (ts.isCallExpression(node)) {
+      const methodName = memberAccessName(node.expression, checker);
+      if (methodName === '$queryRaw' || methodName === '$executeRaw') {
+        for (const argument of node.arguments) {
+          const sql = resolvePrismaSql(argument, checker);
+          if (sql) queries.push(sql);
+        }
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return queries;
+}
+
 function detectLedgerAccess(source, ledger) {
   const reads = [];
-  const prismaModel = escapeRegExp(ledger.prismaModel);
-  const prismaDelegatePattern = new RegExp(
-    `(?:\\?\\.\\s*${prismaModel}\\b|\\.\\s*${prismaModel}\\b|\\[\\s*(['"])${prismaModel}\\1\\s*\\]|\\{[^{}]*\\b${prismaModel}\\b[^{}]*\\})`,
-    'ms',
+  const delegateAccess = detectPrismaDelegateAccess(
+    source,
+    ledger.prismaModel,
   );
-  if (prismaDelegatePattern.test(source)) reads.push('Prisma delegate access');
-  if (hasPrismaDelegateMutation(source, ledger.prismaModel)) {
+  if (delegateAccess.read) reads.push('Prisma delegate access');
+  if (delegateAccess.mutation) {
     reads.push('Prisma delegate mutation');
   }
   const relationAccess = detectPrismaRelationAccess(
@@ -854,13 +962,19 @@ function detectLedgerAccess(source, ledger) {
     `\\b(?:insert\\s+into|update|delete\\s+from)\\s+${tableTarget}\\b`,
     'im',
   );
-  const hasRawSqlMutation = rawSqlMutationPattern.test(source);
+  const rawSql = [source, ...collectPrismaRawSql(source)];
+  const hasRawSqlMutation = rawSql.some((sql) =>
+    rawSqlMutationPattern.test(sql),
+  );
   if (hasRawSqlMutation) reads.push('raw SQL mutation');
   const rawSqlReadPattern = new RegExp(
     `\\b(?:from|join)\\s+${tableTarget}\\b`,
     'im',
   );
-  if (!hasRawSqlMutation && rawSqlReadPattern.test(source)) {
+  if (
+    !hasRawSqlMutation &&
+    rawSql.some((sql) => rawSqlReadPattern.test(sql))
+  ) {
     reads.push('raw SQL read');
   }
   return reads;
