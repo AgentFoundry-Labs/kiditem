@@ -15,12 +15,6 @@ const SOURCE_EXTENSIONS = new Set([
 ]);
 const PRISMA_READ_METHODS =
   'findMany|findFirst|findFirstOrThrow|findUnique|findUniqueOrThrow|aggregate|groupBy|count';
-const PRISMA_RELATION_CONTAINERS = new Set([
-  'include',
-  'orderBy',
-  'select',
-  'where',
-]);
 const RETIRED_LISTING_AD_WRITERS = new Set([
   'apps/server/src/advertising/adapter/out/repository/channel-listing-daily.repository.adapter.ts',
   'apps/server/src/advertising/adapter/out/repository/ad-traffic-source.repository.ts',
@@ -333,20 +327,6 @@ function propertyName(node) {
   return null;
 }
 
-function isInsidePrismaRelationContainer(node) {
-  for (let ancestor = node.parent; ancestor; ancestor = ancestor.parent) {
-    if (
-      (ts.isPropertyAssignment(ancestor) ||
-        ts.isShorthandPropertyAssignment(ancestor)) &&
-      PRISMA_RELATION_CONTAINERS.has(propertyName(ancestor))
-    ) {
-      return true;
-    }
-    if (ts.isSourceFile(ancestor) || ts.isFunctionLike(ancestor)) return false;
-  }
-  return false;
-}
-
 function hasPrismaRelationRead(source, relationNames) {
   if (relationNames.length === 0) return false;
   const relationNameSet = new Set(relationNames);
@@ -363,8 +343,7 @@ function hasPrismaRelationRead(source, relationNames) {
     if (
       (ts.isPropertyAssignment(node) ||
         ts.isShorthandPropertyAssignment(node)) &&
-      relationNameSet.has(propertyName(node)) &&
-      isInsidePrismaRelationContainer(node)
+      relationNameSet.has(propertyName(node))
     ) {
       found = true;
       return;

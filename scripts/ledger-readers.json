@@ -17,7 +17,7 @@
       "ownerPublications": [
         {
           "path": "apps/server/src/advertising/adapter/out/repository/ad-campaign-source.repository.ts",
-          "reason": "Inserts campaign and product target rows inside the source owner's terminal publication."
+          "reason": "Stages campaign and product target rows during capture; the owner's later completed source-import gate makes those rows eligible for publication reads."
         },
         {
           "path": "apps/server/src/advertising/adapter/out/repository/ad-keyword-source.repository.ts",

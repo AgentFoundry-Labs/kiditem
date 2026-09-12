@@ -168,6 +168,16 @@ model ChannelAdTargetDailySnapshot {
     );
     write(
       root,
+      'apps/server/src/detached-relation-where-consumer.ts',
+      'const where = { adTargetDaily: { isNot: null } };\nawait tx.adAction.findMany({ where });\n',
+    );
+    write(
+      root,
+      'apps/server/src/detached-relation-include-consumer.ts',
+      'const include = { channelAdTargetDailySnapshots: true };\nawait tx.organization.findMany({ include });\n',
+    );
+    write(
+      root,
       'apps/server/src/listing-prisma-consumer.ts',
       'tx.channelListingDailySnapshot.findMany({ select: { adSpend: true } });\n',
     );
@@ -221,6 +231,14 @@ model ChannelAdTargetDailySnapshot {
     );
     assert.match(
       failedOutput,
+      /detached-relation-where-consumer\.ts.*Prisma relation read/,
+    );
+    assert.match(
+      failedOutput,
+      /detached-relation-include-consumer\.ts.*Prisma relation read/,
+    );
+    assert.match(
+      failedOutput,
       /listing-prisma-consumer\.ts.*retired Prisma read/,
     );
     assert.match(
@@ -248,6 +266,12 @@ model ChannelAdTargetDailySnapshot {
     rmSync(path.join(root, 'apps/server/src/relation-include-consumer.ts'));
     rmSync(path.join(root, 'apps/server/src/relation-select-consumer.ts'));
     rmSync(path.join(root, 'apps/server/src/relation-where-consumer.ts'));
+    rmSync(
+      path.join(root, 'apps/server/src/detached-relation-where-consumer.ts'),
+    );
+    rmSync(
+      path.join(root, 'apps/server/src/detached-relation-include-consumer.ts'),
+    );
     rmSync(path.join(root, 'apps/server/src/listing-prisma-consumer.ts'));
     rmSync(path.join(root, 'apps/server/src/listing-sql-consumer.ts'));
     rmSync(path.join(root, 'apps/server/src/coverage-consumer.ts'));
