@@ -1,10 +1,6 @@
+import { createHash } from "node:crypto";
 import type { Prisma } from "@prisma/client";
-import {
-  CoupangDirectOrderCollectionRequestSchema,
-  type CoupangDirectOrderCollectionRequest,
-} from "@kiditem/shared/coupang-direct-order";
-import { canonicalOwnerInputHash } from "../../../apps/server/src/common/owner-idempotency-key";
-import { canonicalCoupangDirectOrderHash } from "../../../apps/server/src/orders/mapper/coupang-direct-order.mapper";
+import { z } from "zod";
 import type { DataMigration, MigrationResult } from "../types";
 
 const DIRECT_SOURCE_TYPE = "coupang_direct_order_capture";
@@ -15,9 +11,92 @@ const DIRECT_EFFECT_SOURCE_TYPES = [
 ] as const;
 const TRANSPORTS = ["SHIPMENT", "MILKRUN"] as const;
 
+// data_migration_runs hashes this file only. Keep the historical artifact
+// parser, selection key, and receipt checksum closure in this ledgered source.
+const optionalDisplayText = z.preprocess((value) => {
+  if (value == null) return undefined;
+  const trimmed = String(value).trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}, z.string().optional());
+const optionalDisplayZip = z.preprocess(
+  (value) => {
+    if (value == null) return undefined;
+    if (typeof value === "number") return value;
+    const trimmed = String(value).trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  },
+  z.union([z.string(), z.number().int().nonnegative()]).optional(),
+);
+const optionalDisplayDate = z.preprocess(
+  (value) => (value == null ? "" : value),
+  z.string().trim(),
+);
+const frozenPurchaseOrderSchema = z
+  .object({
+    seq: z.union([
+      z.string().trim().min(1),
+      z.number().int().nonnegative().transform(String),
+    ]),
+    status: z.enum(["PA", "발주확정"]),
+    center: z.string().trim().min(1),
+    transport: z.enum(TRANSPORTS),
+    edd: optionalDisplayDate,
+    reg: z.string().trim().min(1),
+    urgent: z.boolean().optional(),
+    items: z.array(
+      z
+        .object({
+          skuId: z.string().trim().min(1),
+          barcode: z.string().trim(),
+          name: z.string().trim().min(1),
+          qty: z.number().int().positive(),
+          amount: z.number().nonnegative(),
+        })
+        .strict(),
+    ),
+  })
+  .strict();
+const frozenCaptureSchema = z
+  .object({
+    channelAccountId: z.string().uuid(),
+    pos: z.array(frozenPurchaseOrderSchema).max(4_000),
+    centers: z.record(
+      z.string(),
+      z
+        .object({
+          addr: optionalDisplayText,
+          zip: optionalDisplayZip,
+          contact: optionalDisplayText,
+        })
+        .strict(),
+    ),
+    transport: z.enum(TRANSPORTS),
+  })
+  .strict()
+  .superRefine((request, context) => {
+    const seenLineKeys = new Set<string>();
+    request.pos.forEach((purchaseOrder, purchaseOrderIndex) => {
+      purchaseOrder.items.forEach((item, itemIndex) => {
+        const lineKey = `${purchaseOrder.seq}\u0000${item.skuId}`;
+        if (seenLineKeys.has(lineKey)) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["pos", purchaseOrderIndex, "items", itemIndex, "skuId"],
+            message: "Duplicate (seq, skuId) line",
+          });
+        }
+        seenLineKeys.add(lineKey);
+      });
+    });
+  });
+
 type Transport = (typeof TRANSPORTS)[number];
 type LineRef = { poNumber: string; productNo: string };
-type StoredCapture = Omit<CoupangDirectOrderCollectionRequest, "transport">;
+type StoredCapture = Omit<z.infer<typeof frozenCaptureSchema>, "transport">;
+type NormalizedTransportProjection = {
+  payloadChecksum: string;
+  selectedPurchaseOrderKeys: string[];
+};
 type LegacyReceipt = {
   transport: Transport;
   payloadChecksum: string;
@@ -72,7 +151,7 @@ export async function backfillCoupangDirectTransportReceipts(
       "transportSelections",
     );
     assertTransportKeys(refs, selections, sourceRun.id);
-    const capture = parseCaptureArtifact(
+    const capture = parseCaptureArtifactForMigration(
       sourceRun.orderCollectionArtifact,
       sourceRun.id,
     );
@@ -96,7 +175,7 @@ export async function backfillCoupangDirectTransportReceipts(
         sourceRun.id,
         transport,
       );
-      const payloadChecksum = normalizedPayloadChecksum(
+      const normalized = normalizedTransportProjectionForMigration(
         capture,
         selectedPurchaseOrderKeys,
         sourceRun.id,
@@ -158,7 +237,7 @@ export async function backfillCoupangDirectTransportReceipts(
             organizationId: sourceRun.organizationId,
             channelAccountId: sourceRun.channelAccountId,
             transport,
-            payloadChecksum,
+            payloadChecksum: normalized.payloadChecksum,
           },
         },
       });
@@ -187,7 +266,7 @@ export async function backfillCoupangDirectTransportReceipts(
             effectSourceImportRunId: receipt.sourceImportRunId,
             rocketPurchaseConfirmationId: receipt.exportId,
             transport,
-            payloadChecksum,
+            payloadChecksum: normalized.payloadChecksum,
             transmissionIntentKey: receipt.transmissionIntentKey,
             matchedLineCount: receipt.matchedLineCount,
             reconciledRows: receipt.reconciledRows,
@@ -214,7 +293,7 @@ export async function backfillCoupangDirectTransportReceipts(
           existingConsumption.receiptId !== canonical.id ||
           !sameStrings(
             existingConsumption.selectedPurchaseOrderKeys,
-            selectedPurchaseOrderKeys,
+            normalized.selectedPurchaseOrderKeys,
           )
         ) {
           throw migrationError(
@@ -229,7 +308,7 @@ export async function backfillCoupangDirectTransportReceipts(
             sourceImportRunId: sourceRun.id,
             receiptId: canonical.id,
             transport,
-            selectedPurchaseOrderKeys,
+            selectedPurchaseOrderKeys: normalized.selectedPurchaseOrderKeys,
           },
         });
         createdConsumptionRows += 1;
@@ -323,13 +402,17 @@ function parseSelection(
   sourceRunId: string,
   transport: Transport,
 ): string[] {
-  if (!Array.isArray(value) || !value.every(hexChecksum)) {
+  if (
+    !Array.isArray(value) ||
+    !value.every(hexChecksum) ||
+    new Set(value).size !== value.length
+  ) {
     throw migrationError(sourceRunId, `${transport} selection is invalid`);
   }
   return value;
 }
 
-function parseCaptureArtifact(
+export function parseCaptureArtifactForMigration(
   artifact: { sourceBytes: Uint8Array } | null,
   sourceRunId: string,
 ): StoredCapture {
@@ -346,7 +429,7 @@ function parseCaptureArtifact(
   if (!object) {
     throw migrationError(sourceRunId, "capture artifact is invalid");
   }
-  const parsed = CoupangDirectOrderCollectionRequestSchema.safeParse({
+  const parsed = frozenCaptureSchema.safeParse({
     ...object,
     transport: "SHIPMENT",
   });
@@ -357,43 +440,134 @@ function parseCaptureArtifact(
   return capture;
 }
 
-function normalizedPayloadChecksum(
+export function normalizedTransportProjectionForMigration(
   capture: StoredCapture,
   selectedPurchaseOrderKeys: string[],
   sourceRunId: string,
   transport: Transport,
-): string {
-  const purchaseOrdersByKey = new Map(
-    capture.pos.map((purchaseOrder) => [
-      canonicalOwnerInputHash(purchaseOrder),
-      purchaseOrder,
-    ]),
-  );
-  if (selectedPurchaseOrderKeys.some((key) => !purchaseOrdersByKey.has(key))) {
-    throw migrationError(
-      sourceRunId,
-      `${transport} selection is not present in capture artifact`,
-    );
+): NormalizedTransportProjection {
+  const purchaseOrdersByKey = new Map<string, StoredCapture["pos"]>();
+  for (const purchaseOrder of capture.pos) {
+    const key = frozenOwnerInputHash(purchaseOrder);
+    const matches = purchaseOrdersByKey.get(key) ?? [];
+    matches.push(purchaseOrder);
+    purchaseOrdersByKey.set(key, matches);
   }
-  const purchaseOrders = capture.pos.filter(
+  const selected = selectedPurchaseOrderKeys.map((key) => {
+    const matches = purchaseOrdersByKey.get(key);
+    if (!matches) {
+      throw migrationError(
+        sourceRunId,
+        `${transport} selection is not present in capture artifact`,
+      );
+    }
+    if (matches.length !== 1) {
+      throw migrationError(
+        sourceRunId,
+        `${transport} selection is ambiguous in capture artifact`,
+      );
+    }
+    return matches[0]!;
+  });
+  const purchaseOrders = selected.filter(
     (purchaseOrder) =>
       purchaseOrder.transport === transport && purchaseOrder.items.length > 0,
   );
-  const expectedKeys = purchaseOrders.map(canonicalOwnerInputHash).sort();
-  const selectedTransportKeys = selectedPurchaseOrderKeys
-    .filter((key) => purchaseOrdersByKey.get(key)?.transport === transport)
-    .sort();
-  if (!sameStrings(expectedKeys, selectedTransportKeys)) {
-    throw migrationError(
-      sourceRunId,
-      `${transport} selection does not match capture artifact`,
-    );
+  const normalizedSelection = purchaseOrders.map(frozenOwnerInputHash).sort();
+  return {
+    payloadChecksum: frozenPayloadChecksum({
+      ...capture,
+      pos: purchaseOrders,
+      transport,
+    }),
+    selectedPurchaseOrderKeys: normalizedSelection,
+  };
+}
+
+function frozenPayloadChecksum(
+  request: StoredCapture & { transport: Transport },
+): string {
+  const referencedCenters = new Set(
+    request.pos.map((purchaseOrder) => purchaseOrder.center),
+  );
+  const canonical = {
+    channelAccountId: request.channelAccountId,
+    transport: request.transport,
+    centers: Object.fromEntries(
+      Object.entries(request.centers)
+        .filter(([name]) => referencedCenters.has(name))
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([name, center]) => [
+          name,
+          {
+            addr: center.addr ?? null,
+            zip: center.zip === undefined ? null : String(center.zip),
+            contact: center.contact ?? null,
+          },
+        ]),
+    ),
+    pos: request.pos
+      .map((purchaseOrder) => ({
+        seq: String(purchaseOrder.seq),
+        status: purchaseOrder.status,
+        center: purchaseOrder.center,
+        transport: purchaseOrder.transport,
+        edd: purchaseOrder.edd,
+        reg: purchaseOrder.reg,
+        items: purchaseOrder.items
+          .map((item) => ({
+            skuId: item.skuId,
+            barcode: item.barcode,
+            name: item.name,
+            qty: item.qty,
+            amount: item.amount,
+          }))
+          .sort((left, right) => left.skuId.localeCompare(right.skuId)),
+      }))
+      .sort((left, right) => left.seq.localeCompare(right.seq)),
+  };
+  return createHash("sha256").update(JSON.stringify(canonical)).digest("hex");
+}
+
+function frozenOwnerInputHash(input: unknown): string {
+  return createHash("sha256")
+    .update(JSON.stringify(frozenCanonicalize(input, new WeakSet<object>())))
+    .digest("hex");
+}
+
+function frozenCanonicalize(input: unknown, seen: WeakSet<object>): unknown {
+  if (
+    input === null ||
+    typeof input === "string" ||
+    typeof input === "boolean"
+  ) {
+    return input;
   }
-  return canonicalCoupangDirectOrderHash({
-    ...capture,
-    pos: purchaseOrders,
-    transport,
-  });
+  if (typeof input === "number") {
+    if (!Number.isFinite(input)) throw new Error("invalid_canonical_json");
+    return input;
+  }
+  if (Array.isArray(input)) {
+    if (seen.has(input)) throw new Error("invalid_canonical_json");
+    seen.add(input);
+    const result = input.map((item) => frozenCanonicalize(item, seen));
+    seen.delete(input);
+    return result;
+  }
+  if (input && typeof input === "object") {
+    if (seen.has(input) || Object.getPrototypeOf(input) !== Object.prototype) {
+      throw new Error("invalid_canonical_json");
+    }
+    seen.add(input);
+    const result = Object.fromEntries(
+      Object.entries(input as Record<string, unknown>)
+        .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+        .map(([key, value]) => [key, frozenCanonicalize(value, seen)]),
+    );
+    seen.delete(input);
+    return result;
+  }
+  throw new Error("invalid_canonical_json");
 }
 
 function parseLineRefs(

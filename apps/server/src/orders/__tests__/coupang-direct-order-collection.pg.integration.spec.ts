@@ -414,7 +414,12 @@ describe('Coupang direct final-order collection (PG integration)', () => {
   });
 
   it('backfills legacy JSON receipts with their original effect lineage and is idempotent', async () => {
-    const capture = mixedCollectionRequest();
+    const capture = migrationSubsetCollectionRequest();
+    const selectedCapture = {
+      ...capture,
+      pos: capture.pos.filter(({ seq }) =>
+        ['PO-OWNER', 'PO-MILKRUN', 'PO-ITEMLESS'].includes(seq)),
+    };
     const attempt = await service.beginAttempt({
       organizationId: TEST_ORGANIZATION_ID,
       userId: TEST_USER_ID,
@@ -475,7 +480,7 @@ describe('Coupang direct final-order collection (PG integration)', () => {
       source: 'coupang_direct_order_capture',
       transportRefs: { SHIPMENT: receipt },
       transportSelections: {
-        SHIPMENT: capture.pos.map((purchaseOrder) =>
+        SHIPMENT: selectedCapture.pos.map((purchaseOrder) =>
           canonicalOwnerInputHash(purchaseOrder)),
       },
     };
@@ -545,7 +550,7 @@ describe('Coupang direct final-order collection (PG integration)', () => {
       userId: TEST_USER_ID,
       attemptId: attempt.attemptId,
       attemptToken: attempt.attemptToken,
-      capture: capture as never,
+      capture: selectedCapture as never,
       transport: 'SHIPMENT',
     })).resolves.toMatchObject({
       payloadChecksum: canonical.payloadChecksum,
@@ -570,6 +575,13 @@ describe('Coupang direct final-order collection (PG integration)', () => {
         }),
       }),
     ]));
+    expect(await prisma.coupangDirectTransportConsumption.findMany({
+      select: { selectedPurchaseOrderKeys: true },
+      orderBy: { createdAt: 'asc' },
+    })).toEqual([
+      { selectedPurchaseOrderKeys: [canonicalOwnerInputHash(capture.pos[0])] },
+      { selectedPurchaseOrderKeys: [canonicalOwnerInputHash(capture.pos[0])] },
+    ]);
 
     expect(await service.readProjection({
       organizationId: TEST_ORGANIZATION_ID,
@@ -597,6 +609,11 @@ describe('Coupang direct final-order collection (PG integration)', () => {
 
     const laterCapture = structuredClone(capture);
     laterCapture.centers['Busan FC']!.addr = 'Later Busan address';
+    const laterSelectedCapture = {
+      ...laterCapture,
+      pos: laterCapture.pos.filter(({ seq }) =>
+        ['PO-OWNER', 'PO-MILKRUN', 'PO-ITEMLESS'].includes(seq)),
+    };
     const laterAttempt = await service.beginAttempt({
       organizationId: TEST_ORGANIZATION_ID,
       userId: TEST_USER_ID,
@@ -615,7 +632,7 @@ describe('Coupang direct final-order collection (PG integration)', () => {
       userId: TEST_USER_ID,
       attemptId: laterAttempt.attemptId,
       attemptToken: laterAttempt.attemptToken,
-      capture: laterCapture as never,
+      capture: laterSelectedCapture as never,
       transport: 'SHIPMENT',
     })).resolves.toMatchObject({
       payloadChecksum: canonical.payloadChecksum,
@@ -1023,6 +1040,31 @@ function mixedCollectionRequest() {
           skuId: 'P-MILKRUN',
           barcode: '8801234567891',
         }],
+      },
+    ],
+  };
+}
+
+function migrationSubsetCollectionRequest() {
+  const capture = mixedCollectionRequest();
+  return {
+    ...capture,
+    pos: [
+      ...capture.pos,
+      {
+        ...capture.pos[0],
+        seq: 'PO-OUTSIDE-EDD',
+        edd: '2026-08-20',
+        items: [{
+          ...capture.pos[0].items[0],
+          skuId: 'P-OUTSIDE-EDD',
+          barcode: '8801234567892',
+        }],
+      },
+      {
+        ...capture.pos[0],
+        seq: 'PO-ITEMLESS',
+        items: [],
       },
     ],
   };
