@@ -413,7 +413,7 @@ export class ReadinessService {
       },
     ];
 
-    return { checks };
+    return { checks } satisfies ReadinessResponse;
   }
 
 }
