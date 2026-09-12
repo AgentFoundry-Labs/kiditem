@@ -50,7 +50,9 @@ declared window are refused, and every date inside it must still be complete.
   window; the requested window is kept beside it as `requestedStartDate` /
   `requestedEndDate` so a reader can tell a short collection from a short request.
 - A read model publishes the days a window measured and says how many, rather than
-  withholding all of them. Substituting a partial window for a period total is a
+  withholding all of them. *This consequence is now stated by
+  [ADR-0006](0006-a-displayed-number-is-a-measurement-or-nothing.md); the
+  owner-side invariants above are untouched.* Substituting a partial window for a period total is a
   different question and keeps its own stricter gate — a partial window is still
   not the month's revenue.
 - A daily average divides by the days covered, not the days requested.

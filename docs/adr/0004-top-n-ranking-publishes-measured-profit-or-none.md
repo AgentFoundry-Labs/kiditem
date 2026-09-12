@@ -1,8 +1,12 @@
 ---
-status: accepted
+status: superseded by ADR-0006
 ---
 
 # Top-N ranking publishes a measured profit or none, superseding ADR-0003's exemption
+
+> **Superseded by [ADR-0006](0006-a-displayed-number-is-a-measurement-or-nothing.md).**
+> The rule below is now one case of that ADR's two rules, and the evidence
+> words it names no longer exist on the wire.
 
 [ADR-0003](0003-per-listing-profit-reads-ad-coverage.md) made per-listing profit
 coverage-aware and exempted the dashboard's Top-N ranking, which published

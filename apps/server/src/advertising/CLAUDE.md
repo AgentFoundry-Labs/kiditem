@@ -64,12 +64,13 @@ modal (`cmg-api/tableMetric` with `tableType='keyword'`), not the report grid.
 - Product ABC reads go through Products' exported stored-grade port. An
   unclassified product stays `null`; consume the stored grade without deriving
   a product grade or coercing a missing/stale source to C.
-- Advertising evidence used by ABC preserves `OBSERVED`, `CONFIRMED_ZERO`, and
-  `NOT_APPLIED`. `MISSING`/`STALE` is not an advertising cost of zero.
-- Account-level `CONFIRMED_ZERO` describes the rows returned, not the range
-  asked for. Treat it as proof of no spend only when the published rows cover
-  every business date in the window; otherwise the uncovered dates are missing
-  evidence.
+- Listing-day ad values are read only through `common/ad-window-facts`, gated
+  on `adObservedAt`; `npm run check:listing-day-ad-reader` fails any other
+  production read. An unmeasured day is not an advertising cost of zero.
+- The account-daily publication carries the account (`null` when the
+  organization has none) and the rows it published, nothing more. A zero sum
+  over the published rows is proof of no spend only when those rows cover every
+  business date in the window; otherwise the uncovered dates are not measured.
 - Revenue, operating-profit contribution, rank, and cumulative share are
   reporting metrics only; none changes the absolute ABC grade.
 - Reach Channels through its exported port rather than concrete services.

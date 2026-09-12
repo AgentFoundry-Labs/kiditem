@@ -11,48 +11,54 @@ writes through it.
 Terms describing how much a source actually told us. Confusing these is how a
 missing measurement becomes a fabricated number.
 
-**Observed**:
-A source reported a value for a date, and the value was non-zero.
-_Avoid_: collected, present, has data
+**Measured**:
+A source reported a value for a date, and the moment it was observed is
+recorded beside it. Zero is a measurement: a product that ran no advertising
+while its account was collected has a measured ad cost of zero.
+_Avoid_: observed, confirmed zero, collected, present, has data
 
-**Confirmed zero**:
-A source reported a value for a date, and the value was zero. This is a
-measurement, and is as trustworthy as any other. A product that ran no
-advertising while its account was collected completely has a confirmed-zero ad
-cost.
-_Avoid_: no data, empty, zero
-
-**Missing**:
+**Not measured**:
 A source reported nothing for a date it was asked about. Never a zero — a value
 derived from it is unavailable, not zero.
-_Avoid_: null, blank, no data
+_Avoid_: missing, null, blank, no data
 
 **Not applied**:
-The source does not apply to this organization at all, so there was nothing to
-ask for. An organization with no advertising account has a not-applied ad cost,
-which downstream calculations may treat as satisfied.
+A property of the organization, not of a measurement: the source does not
+apply to it at all, so there was nothing to ask for. An organization with no
+advertising account has a not-applied ad cost, which downstream calculations
+treat as satisfied at zero.
 _Avoid_: N/A, none, not applicable
 
 **Unavailable**:
-The state of a derived value whose inputs were missing. Distinct from zero and
-from an error.
+The state of a derived value whose inputs were not measured. Distinct from zero
+and from an error.
 _Avoid_: null, empty, unknown
+
+**Ready**:
+A source whose latest complete collection reaches the evidence cutoff a reader
+needs. A source that never completed carries no coverage end and one behind the
+cutoff carries an old one; both are not ready, and both are fixed by
+collecting.
+_Avoid_: fresh, stale, missing
 
 ### Reporting
 
 **Calculation basis**:
-The evidence behind one displayed value: which dates entered it, which were
-missing or invalid, which sources it came from, and whether the result is
-complete or partial. Every dashboard value carries one.
-_Avoid_: metadata, provenance, coverage info
+The evidence behind one displayed value: the range asked for, the dates
+measured, the dates read and refused, the sources it came from, and whether a
+required read failed. Every dashboard value carries one. Every word said about
+it — complete, partial, empty, unverified — is derived from those facts by one
+shared function and is never stored or sent.
+_Avoid_: metadata, provenance, coverage info, status
 
 **Period basis**:
-A calculation basis over a date range. Carries the actual included dates, so an
+A calculation basis over a date range. Carries the actual measured dates, so an
 internal hole stays visible instead of implying a continuous range.
 
 **Snapshot basis**:
 A calculation basis for a stored value that has no date range — a current count
-or a stored grade. Carries an as-of date and a validity status.
+or a stored grade. Carries whether it was measured at all, the as-of it reached,
+and the as-of the reader needed.
 
 **Alert**:
 A durable notification addressed to the operator, which stays until they

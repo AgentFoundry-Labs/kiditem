@@ -18,6 +18,7 @@ export const SCRIPT_INVENTORY = Object.freeze([
   'check-pr-release-contract.mjs',
   'check-queryraw-tenancy.sh',
   'check-raw-snapshot-read-models.sh',
+  'check-listing-day-ad-reader.sh',
   'check-schema-artifact-sync.mjs',
   'check-sourcing-long-running-actions.mjs',
   'check-script-inventory.mjs',

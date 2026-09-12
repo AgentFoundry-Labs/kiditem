@@ -37,8 +37,8 @@ boundary with HTTP and persistence adapters around Prisma-free orchestration.
 - A metric uses the maximal valid dates of its own required sources;
   a multi-source metric uses `intersectBases`, and a ratio uses one basis for
   numerator and denominator.
-- Read `ProfitSourceCoverage.adEvidence`, not `adDates.length`: under
-  `NOT_APPLIED` the basis names orders alone.
+- Read `ProfitSourceCoverage.hasAdAccount`, not `adDates.length`: with no
+  advertising account the basis names orders alone.
 - `unverified` means a required read failed. Evidence read and refused is
   `invalidDates`; nothing collected is simply absent from `includedDates`.
 - A published basis describes the value actually published. A source this

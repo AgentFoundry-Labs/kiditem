@@ -65,10 +65,10 @@ owns physical stock quantities.
   in history.
 - Evaluation requires a selling product, valid mapping, complete Sellpia
   profitability coverage, `ORDER_TIME_SUPPLY_COST`, VAT provenance, a verified
-  sale age of at least 30 days at the evaluation cutoff, and advertising evidence of `OBSERVED`,
-  `CONFIRMED_ZERO`, or `NOT_APPLIED`. Missing or incompatible Sellpia, mapping,
-  or advertising evidence produces no publication; it is never zero-filled or
-  synthesized as C. An existing normal grade remains visible while the source
+  sale age of at least 30 days at the evaluation cutoff, and a measured
+  monthly ad spend, which is `0` when the organization has no advertising.
+  Missing or incompatible Sellpia, mapping, or advertising evidence produces
+  no publication; it is never zero-filled or synthesized as C. An existing normal grade remains visible while the source
   is stale. Judge data sufficiency by completeness and validity of the selected
   evaluation period, separately from sale age; there is no minimum evidence-day
   count. Derive sale start only from validly mapped channel `saleStartedAt`
