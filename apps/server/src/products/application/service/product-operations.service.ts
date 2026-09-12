@@ -377,7 +377,6 @@ function summarizeProducts(
   }, {
     abcGradeCounts: { A: 0, B: 0, C: 0, unclassified: 0 },
     abcStatusCounts: {
-      NEW: 0,
       READY: 0,
       INSUFFICIENT_EVIDENCE: 0,
       SOURCE_UNMAPPED: 0,

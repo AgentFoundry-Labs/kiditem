@@ -131,7 +131,6 @@ describe('ProfitabilityEvidence (PostgreSQL)', () => {
       recognizedRevenue: 2_000,
       orderTimeSupplyCost: 1_200,
       advertisingSpend: 0,
-      provenance: { advertisingEvidence: 'NOT_APPLIED' },
     });
     expect(zeroEvidence).toMatchObject({
       mappingValid: true,

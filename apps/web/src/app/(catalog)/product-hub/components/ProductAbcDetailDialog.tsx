@@ -15,7 +15,6 @@ type ProductAbcDetailDialogProps = {
 };
 
 const STATUS_LABEL = {
-  NEW: '신규 상품',
   READY: '계산 완료',
   INSUFFICIENT_EVIDENCE: '관찰 중',
   SOURCE_UNMAPPED: '상품 매핑 필요',

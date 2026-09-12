@@ -601,9 +601,6 @@ function buildProductEvidence(input: {
       || expected.coverageEndDate > input.advertisingCoverageEndDate)) {
       evaluationPeriodComplete = false;
     }
-    const advertisingEvidence = advertising
-      ? advertising.allocatedSpend > 0 ? 'OBSERVED' : 'CONFIRMED_ZERO'
-      : 'NOT_APPLIED';
     monthlyFacts.push({
       yearMonth,
       coverageStartDate: sellpia.coverageStartDate,
@@ -615,7 +612,6 @@ function buildProductEvidence(input: {
       provenance: {
         costBasis: 'ORDER_TIME_SUPPLY_COST',
         vatIncluded: true,
-        advertisingEvidence,
       },
     });
   }

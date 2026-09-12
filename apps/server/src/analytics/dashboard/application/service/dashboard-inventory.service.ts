@@ -104,11 +104,8 @@ export class DashboardInventoryService {
         AD_SOURCE_STALE: 0,
       };
       for (const row of abcStatusRows) {
-        const calculationStatus = row.displayStatus === 'NEW'
-          ? 'INSUFFICIENT_EVIDENCE'
-          : row.displayStatus;
-        if (calculationStatus in abcStatusCount) {
-          abcStatusCount[calculationStatus as keyof typeof abcStatusCount] += row.count;
+        if (row.displayStatus in abcStatusCount) {
+          abcStatusCount[row.displayStatus as keyof typeof abcStatusCount] += row.count;
         }
       }
       const abcContributionProfit = { amountByGrade: { A: 0, B: 0, C: 0 }, shareByGrade: { A: 0, B: 0, C: 0 } };

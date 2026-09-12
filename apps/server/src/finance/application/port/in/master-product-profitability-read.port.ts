@@ -29,11 +29,11 @@ export type MasterProductAbcFormulaReadyMonthlyFact = Readonly<{
   coveredDays: number;
   recognizedRevenue: number;
   orderTimeSupplyCost: number;
-  advertisingSpend: number | null;
+  /** Allocated ad spend for the month; `0` when the organization has no advertising. */
+  advertisingSpend: number;
   provenance: Readonly<{
     costBasis: 'ORDER_TIME_SUPPLY_COST';
     vatIncluded: true;
-    advertisingEvidence: 'OBSERVED' | 'CONFIRMED_ZERO' | 'NOT_APPLIED';
   }>;
 }>;
 

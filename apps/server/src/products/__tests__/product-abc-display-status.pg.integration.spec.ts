@@ -137,8 +137,7 @@ describe('Products publishes one ABC display status (PostgreSQL)', () => {
     expect(productAbcDisplayStatus(
       true,
       product?.mappingValid ?? false,
-      { ...easier.sources, actualCutoff: easier.actualCutoff },
-      product?.saleStartDate ?? null,
+      easier.sources,
     )).toBe('READY');
   });
 

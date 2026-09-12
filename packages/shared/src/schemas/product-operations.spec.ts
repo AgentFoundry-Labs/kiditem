@@ -161,7 +161,6 @@ describe('product operations contracts', () => {
     expect(ProductOperationsListSummarySchema.parse({
       abcGradeCounts: { A: 2, B: 3, C: 1, unclassified: 4 },
       abcStatusCounts: {
-        NEW: 1,
         READY: 6,
         INSUFFICIENT_EVIDENCE: 2,
         SOURCE_UNMAPPED: 1,
@@ -434,7 +433,6 @@ describe('product operations contracts', () => {
       summary: {
         abcGradeCounts: { A: 23, B: 17, C: 40, unclassified: 0 },
         abcStatusCounts: {
-          NEW: 1,
           READY: 70,
           INSUFFICIENT_EVIDENCE: 4,
           SOURCE_UNMAPPED: 2,

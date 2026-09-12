@@ -815,8 +815,7 @@ describe('ProfitabilityEvidence', () => {
       targetCutoff: '2026-08-31',
     });
 
-    expect(result.products[0].formulaReadyFacts?.monthlyFacts[0]?.provenance.advertisingEvidence)
-      .toBe('CONFIRMED_ZERO');
+    expect(result.products[0].formulaReadyFacts?.monthlyFacts[0]?.advertisingSpend).toBe(0);
   });
 
   it('requires the latest attempt to be COMPLETE and exposes Sellpia failure code', async () => {

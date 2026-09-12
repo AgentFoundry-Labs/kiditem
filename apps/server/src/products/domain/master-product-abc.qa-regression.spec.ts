@@ -34,7 +34,6 @@ describe('absolute ABC QA regressions', () => {
         provenance: {
           costBasis: 'ORDER_TIME_SUPPLY_COST',
           vatIncluded: true,
-          advertisingEvidence: 'CONFIRMED_ZERO',
         },
       }],
     };

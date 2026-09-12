@@ -311,10 +311,7 @@ function summarizeInventoryProductAbc(
       summary.unclassifiedProductCount += 1;
     }
     const evaluation = product.abc.evaluation;
-    const calculationStatus = product.abc.displayStatus === 'NEW'
-      ? 'INSUFFICIENT_EVIDENCE'
-      : product.abc.displayStatus;
-    summary.abcStatusCounts[calculationStatus] += 1;
+    summary.abcStatusCounts[product.abc.displayStatus] += 1;
     if (product.abc.abcGrade && evaluation) {
       summary.abcContributionProfitByGrade[product.abc.abcGrade] += Math.round(
         evaluation.weightedOperatingProfit,

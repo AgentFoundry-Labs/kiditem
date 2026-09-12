@@ -46,9 +46,6 @@ function monthlyFact(input: {
     provenance: {
       costBasis: 'ORDER_TIME_SUPPLY_COST' as const,
       vatIncluded: true as const,
-      advertisingEvidence: input.advertisingSpend && input.advertisingSpend > 0
-        ? 'OBSERVED' as const
-        : 'CONFIRMED_ZERO' as const,
     },
   };
 }

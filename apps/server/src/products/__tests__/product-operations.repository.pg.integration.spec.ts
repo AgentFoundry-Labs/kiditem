@@ -411,7 +411,6 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     expect(all.summary).toMatchObject({
       abcGradeCounts: { A: 0, B: 1, C: 0, unclassified: 2 },
       abcStatusCounts: {
-        NEW: 0,
         READY: 1,
         INSUFFICIENT_EVIDENCE: 2,
         SOURCE_UNMAPPED: 0,
@@ -433,7 +432,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       page: 1, limit: 50, periodDays: 30, activeStatus: 'all', abcCalculationStatus: 'READY',
     })).resolves.toMatchObject({ total: 1, items: [expect.objectContaining({ id: ready.id })] });
     await expect(service.listProducts(TEST_ORGANIZATION_ID, {
-      page: 1, limit: 50, periodDays: 30, activeStatus: 'all', abcCalculationStatus: 'NEW',
+      page: 1, limit: 50, periodDays: 30, activeStatus: 'all', abcCalculationStatus: 'SOURCE_UNMAPPED',
     })).resolves.toMatchObject({ total: 0, items: [] });
     await expect(service.listProducts(TEST_ORGANIZATION_ID, { page: 1, limit: 50, periodDays: 30, activeStatus: 'all', abcGrade: 'unclassified' }))
       .resolves.toMatchObject({ total: 2 });

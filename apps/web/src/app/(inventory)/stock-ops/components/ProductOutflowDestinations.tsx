@@ -79,7 +79,7 @@ function destinationTitle(destination: SellpiaProductDestination): string {
 }
 
 const ABC_STATUS_LABEL: Record<ProductAbcDisplayStatus, string> = {
-  NEW: '관찰 중', INSUFFICIENT_EVIDENCE: '평가 근거 부족', SOURCE_UNMAPPED: '상품 매핑 필요',
+  INSUFFICIENT_EVIDENCE: '관찰 중', SOURCE_UNMAPPED: '상품 매핑 필요',
   SELLPIA_SOURCE_STALE: '셀피아 원천 갱신 필요', AD_SOURCE_STALE: '광고 원천 갱신 필요', READY: '평가 완료',
 };
 

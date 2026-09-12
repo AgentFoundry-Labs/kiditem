@@ -20,11 +20,11 @@ export type MasterProductAbcFormulaReadyMonthlyFact = Readonly<{
   coveredDays: number;
   recognizedRevenue: number;
   orderTimeSupplyCost: number;
-  advertisingSpend: number | null;
+  /** Allocated ad spend for the month; `0` when the organization has no advertising. */
+  advertisingSpend: number;
   provenance: Readonly<{
     costBasis: 'ORDER_TIME_SUPPLY_COST';
     vatIncluded: true;
-    advertisingEvidence: 'OBSERVED' | 'CONFIRMED_ZERO' | 'NOT_APPLIED';
   }>;
 }>;
 
@@ -338,30 +338,19 @@ function validateProvenance(
   if (provenance.vatIncluded !== true) {
     throw new Error(`VAT inclusion is not verified ${month}`);
   }
-  if (
-    provenance.advertisingEvidence !== 'OBSERVED'
-    && provenance.advertisingEvidence !== 'CONFIRMED_ZERO'
-    && provenance.advertisingEvidence !== 'NOT_APPLIED'
-  ) {
-    throw new Error(`ineligible advertising evidence ${month}`);
-  }
 }
 
+/**
+ * The month's advertising cost is the allocated spend itself: a measured zero
+ * and "no advertising account" both cost nothing, and a positive amount is
+ * what was observed. Whether the month is evidence at all is decided before
+ * the facts reach here (`evaluationPeriodComplete`).
+ */
 function advertisingAmount(
   fact: MasterProductAbcFormulaReadyMonthlyFact,
   month: string,
 ): number {
-  const amount = fact.advertisingSpend;
-  switch (fact.provenance.advertisingEvidence) {
-    case 'NOT_APPLIED':
-      if (amount !== null && amount !== 0) throw new Error(`advertising amount is not applied ${month}`);
-      return 0;
-    case 'CONFIRMED_ZERO':
-      if (amount !== 0) throw new Error(`confirmed-zero advertising must be literal zero ${month}`);
-      return 0;
-    case 'OBSERVED':
-      return finiteAmount(amount, `advertising spend ${month}`);
-  }
+  return finiteAmount(fact.advertisingSpend, `advertising spend ${month}`);
 }
 
 export function interpolateMasterProductAbcAnchor(

@@ -102,7 +102,6 @@ const state = vi.hoisted(() => ({
     summary: {
       abcGradeCounts: { A: 37, B: 29, C: 50, unclassified: 10 },
       abcStatusCounts: {
-        NEW: 8,
         READY: 104,
         INSUFFICIENT_EVIDENCE: 4,
         SOURCE_UNMAPPED: 0,

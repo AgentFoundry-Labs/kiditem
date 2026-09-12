@@ -1,8 +1,4 @@
-import {
-  PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
-  productAbcSaleAgeDays,
-  type ProductAbcDisplayStatus,
-} from '@kiditem/shared/product-abc';
+import type { ProductAbcDisplayStatus } from '@kiditem/shared/product-abc';
 
 /** Display labels consume owner-derived readiness; they never publish grades. */
 export function productAbcDisplayStatus(
@@ -11,19 +7,14 @@ export function productAbcDisplayStatus(
   status: {
     sellpia: { ready: boolean };
     advertising: { ready: boolean };
-    actualCutoff: string | null;
   },
-  saleStartDate: string | null,
 ): ProductAbcDisplayStatus {
   if (!mappingValid) return 'SOURCE_UNMAPPED';
   if (!status.sellpia.ready) return 'SELLPIA_SOURCE_STALE';
   if (!status.advertising.ready) return 'AD_SOURCE_STALE';
-  if (hasEvaluation) return 'READY';
-  const saleAge = productAbcSaleAgeDays(saleStartDate, status.actualCutoff);
-  if (saleAge !== null && saleAge < PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD.minimumSaleAgeDays) {
-    return 'NEW';
-  }
-  return 'INSUFFICIENT_EVIDENCE';
+  // A product the evaluation has not graded is one still gathering evidence,
+  // whether because it is young or because its months are short. Both wait.
+  return hasEvaluation ? 'READY' : 'INSUFFICIENT_EVIDENCE';
 }
 
 /**

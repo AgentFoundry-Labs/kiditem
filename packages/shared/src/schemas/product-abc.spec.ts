@@ -151,7 +151,6 @@ describe('absolute product profitability ABC contracts', () => {
     expect(parsed.formula.formulaKey).toBe('PRODUCT_ABC_ABSOLUTE');
 
     expect(ProductAbcDisplayStatusSchema.options).toEqual([
-      'NEW',
       'SOURCE_UNMAPPED',
       'SELLPIA_SOURCE_STALE',
       'AD_SOURCE_STALE',
@@ -205,7 +204,7 @@ describe('absolute product profitability ABC contracts', () => {
       ...stale,
       displayStatus: 'SOURCE_UNMAPPED',
     })).not.toThrow();
-    for (const displayStatus of ['NEW', 'INSUFFICIENT_EVIDENCE'] as const) {
+    for (const displayStatus of ['INSUFFICIENT_EVIDENCE'] as const) {
       expect(() => ProductAbcReadModelSchema.parse({
         abcGrade: null,
         evaluation: null,

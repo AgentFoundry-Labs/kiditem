@@ -281,7 +281,6 @@ export const ProductOperationsListSummarySchema = z.object({
     unclassified: z.number().int().nonnegative(),
   }).strict(),
   abcStatusCounts: z.object({
-    NEW: z.number().int().nonnegative(),
     READY: z.number().int().nonnegative(),
     INSUFFICIENT_EVIDENCE: z.number().int().nonnegative(),
     SOURCE_UNMAPPED: z.number().int().nonnegative(),

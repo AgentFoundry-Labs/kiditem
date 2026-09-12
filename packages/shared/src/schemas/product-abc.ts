@@ -22,7 +22,6 @@ export type ProductAbcGrade = z.infer<typeof ProductAbcGradeSchema>;
 
 /** The API derives these labels; no label is persisted on an Evaluation. */
 export const ProductAbcDisplayStatusSchema = z.enum([
-  'NEW',
   'SOURCE_UNMAPPED',
   'SELLPIA_SOURCE_STALE',
   'AD_SOURCE_STALE',
@@ -496,8 +495,7 @@ export const ProductAbcReadModelSchema = z.object({
       message: 'READY requires an Evaluation',
     });
   }
-  if ((projection.displayStatus === 'NEW'
-      || projection.displayStatus === 'INSUFFICIENT_EVIDENCE') && (
+  if (projection.displayStatus === 'INSUFFICIENT_EVIDENCE' && (
       projection.abcGrade !== null
       || projection.evaluation !== null
     )

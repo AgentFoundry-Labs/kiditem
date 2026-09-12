@@ -62,12 +62,7 @@ export function buildProductAbcReadModel(
   const displayStatus = productAbcDisplayStatus(
     evaluation !== null,
     input.mappingValid,
-    {
-      sellpia: evidence.sellpia,
-      advertising: evidence.advertising,
-      actualCutoff: evidence.actualCutoff,
-    },
-    input.saleStartDate,
+    { sellpia: evidence.sellpia, advertising: evidence.advertising },
   );
   return ProductAbcReadModelSchema.parse({
     // The grade cache follows the retained evaluation; a product with no

@@ -14,7 +14,6 @@ const formula = PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD;
 const cutoffDate = '2026-07-31';
 
 type MonthOptions = Partial<Omit<MasterProductAbcFormulaReadyMonthlyFact, 'provenance'>> & {
-  advertisingEvidence?: MasterProductAbcFormulaReadyMonthlyFact['provenance']['advertisingEvidence'];
   costBasis?: MasterProductAbcFormulaReadyMonthlyFact['provenance']['costBasis'];
   vatIncluded?: MasterProductAbcFormulaReadyMonthlyFact['provenance']['vatIncluded'];
 };
@@ -33,7 +32,6 @@ function month(options: MonthOptions = {}): MasterProductAbcFormulaReadyMonthlyF
     provenance: {
       costBasis: options.costBasis ?? 'ORDER_TIME_SUPPLY_COST',
       vatIncluded: options.vatIncluded ?? true,
-      advertisingEvidence: options.advertisingEvidence ?? 'CONFIRMED_ZERO',
     },
   };
 }
@@ -102,7 +100,6 @@ describe('PRODUCT_ABC_ABSOLUTE current evaluator', () => {
       recognizedRevenue: 1_000_000,
       orderTimeSupplyCost: 250_000,
       advertisingSpend: 125_000,
-      advertisingEvidence: 'OBSERVED',
     })]);
 
     expect(candidate.weightedOperatingProfit).toBeGreaterThan(0);
@@ -174,7 +171,6 @@ describe('PRODUCT_ABC_ABSOLUTE current evaluator', () => {
       recognizedRevenue: revenue,
       orderTimeSupplyCost: 0,
       advertisingSpend: 0,
-      advertisingEvidence: 'OBSERVED',
     })], custom);
     const expectedProfitScore = (betweenProfitAnchors.score + upperProfit.score) / 2;
     expect(interpolated.profitScore).toBeCloseTo(expectedProfitScore, 6);
@@ -183,7 +179,6 @@ describe('PRODUCT_ABC_ABSOLUTE current evaluator', () => {
       recognizedRevenue: 100_000_000,
       orderTimeSupplyCost: 0,
       advertisingSpend: 0,
-      advertisingEvidence: 'OBSERVED',
     })], custom);
     expect(clampedHigh.profitScore).toBe(custom.anchors.profitVelocity30.at(-1)!.score);
     expect(clampedHigh.marginScore).toBe(custom.anchors.operatingMargin.at(-1)!.score);
@@ -206,9 +201,8 @@ describe('PRODUCT_ABC_ABSOLUTE current evaluator', () => {
     expect(evaluate([month({ recognizedRevenue: 100, orderTimeSupplyCost: 0, coverageStartDate: '2026-07-22', coveredDays: 10 }), month({ yearMonth: '2026-06', recognizedRevenue: 0, orderTimeSupplyCost: 1, coveredDays: 30 })]).abcGrade).toBe('C');
   });
 
-  it('requires confirmed-zero advertising to be literal zero', () => {
-    expect(() => evaluate([month({ advertisingSpend: null, advertisingEvidence: 'CONFIRMED_ZERO' })])).toThrow('confirmed-zero');
-    expect(evaluate([month({ advertisingSpend: null, advertisingEvidence: 'NOT_APPLIED' })]).abcGrade).toBe('A');
+  it('reads a zero advertising spend as no cost', () => {
+    expect(evaluate([month({ advertisingSpend: 0 })]).abcGrade).toBe('A');
   });
 
   it('uses sale age as an independent 29/30-day eligibility gate', () => {
@@ -241,8 +235,8 @@ describe('PRODUCT_ABC_ABSOLUTE current evaluator', () => {
 
   it('includes the partial cutoff month in the exact latest 12-month calendar window', () => {
     const old = month({ yearMonth: '2025-06', recognizedRevenue: 1, orderTimeSupplyCost: 0 });
-    const firstInWindow = month({ yearMonth: '2025-09', recognizedRevenue: 100, orderTimeSupplyCost: 0, advertisingEvidence: 'OBSERVED' });
-    const latest = month({ yearMonth: '2026-07', recognizedRevenue: 200, orderTimeSupplyCost: 0, advertisingEvidence: 'OBSERVED' });
+    const firstInWindow = month({ yearMonth: '2025-09', recognizedRevenue: 100, orderTimeSupplyCost: 0 });
+    const latest = month({ yearMonth: '2026-07', recognizedRevenue: 200, orderTimeSupplyCost: 0 });
     const current = month({
       yearMonth: '2026-08',
       coverageStartDate: '2026-08-01',
@@ -269,7 +263,6 @@ describe('PRODUCT_ABC_ABSOLUTE current evaluator', () => {
       recognizedRevenue: 500,
       orderTimeSupplyCost: 0,
       advertisingSpend: 0,
-      advertisingEvidence: 'OBSERVED',
     });
     const latest = month({
       yearMonth: '2026-07',
@@ -279,14 +272,12 @@ describe('PRODUCT_ABC_ABSOLUTE current evaluator', () => {
       recognizedRevenue: 1_000,
       orderTimeSupplyCost: 0,
       advertisingSpend: 0,
-      advertisingEvidence: 'OBSERVED',
     });
     const confirmedZero = month({
       yearMonth: '2026-05',
       recognizedRevenue: 0,
       orderTimeSupplyCost: 0,
       advertisingSpend: 0,
-      advertisingEvidence: 'CONFIRMED_ZERO',
     });
     const candidate = evaluate([confirmedZero, partial, latest]);
     const mayMidpointAge = 76;
@@ -317,7 +308,6 @@ describe('PRODUCT_ABC_ABSOLUTE current evaluator', () => {
       recognizedRevenue: 10_000,
       orderTimeSupplyCost: 2_000,
       advertisingSpend: 0,
-      advertisingEvidence: 'CONFIRMED_ZERO',
     })]);
     expect(candidate.weightedAdvertisingSpend).toBe(0);
     expect(candidate.weightedOperatingProfit).toBeGreaterThan(0);
@@ -331,8 +321,8 @@ describe('PRODUCT_ABC_ABSOLUTE current evaluator', () => {
     expect(negativeProfit.abcGrade).toBe('C');
 
     const lossPersistence = evaluate([
-      month({ yearMonth: '2026-06', recognizedRevenue: 0, orderTimeSupplyCost: 100, coverageStartDate: '2026-06-11', coveredDays: 20, advertisingEvidence: 'OBSERVED' }),
-      month({ yearMonth: '2026-07', recognizedRevenue: 100, orderTimeSupplyCost: 0, coverageStartDate: '2026-07-21', coveredDays: 11, advertisingEvidence: 'OBSERVED' }),
+      month({ yearMonth: '2026-06', recognizedRevenue: 0, orderTimeSupplyCost: 100, coverageStartDate: '2026-06-11', coveredDays: 20 }),
+      month({ yearMonth: '2026-07', recognizedRevenue: 100, orderTimeSupplyCost: 0, coverageStartDate: '2026-07-21', coveredDays: 11 }),
     ]);
     expect(lossPersistence.lossPersistence).toBeGreaterThanOrEqual(formula.hardC.lossPersistenceGte);
     expect(lossPersistence.abcGrade).toBe('C');
@@ -350,17 +340,17 @@ describe('PRODUCT_ABC_ABSOLUTE current evaluator', () => {
   });
 
   it('uses unrounded thresholds and the two A guards', () => {
-    const allHigh = evaluate([month({ recognizedRevenue: 10_000_000, orderTimeSupplyCost: 0, advertisingSpend: 0, advertisingEvidence: 'OBSERVED' })]);
+    const allHigh = evaluate([month({ recognizedRevenue: 10_000_000, orderTimeSupplyCost: 0, advertisingSpend: 0 })]);
     expect(allHigh.abcGrade).toBe('A');
 
-    const marginGuard = evaluate([month({ recognizedRevenue: 20_000_000, orderTimeSupplyCost: 17_500_000, advertisingSpend: 0, advertisingEvidence: 'OBSERVED' })]);
+    const marginGuard = evaluate([month({ recognizedRevenue: 20_000_000, orderTimeSupplyCost: 17_500_000, advertisingSpend: 0 })]);
     expect(marginGuard.economicScore).toBeGreaterThanOrEqual(formula.gradeThresholds.aEconomicScoreGte);
     expect(marginGuard.marginScore).toBeLessThan(formula.gradeThresholds.aMarginScoreGte);
     expect(marginGuard.abcGrade).toBe('B');
 
     const consistencyGuard = evaluate([
-      month({ yearMonth: '2026-06', recognizedRevenue: 0, orderTimeSupplyCost: 1, coverageStartDate: '2026-06-16', coveredDays: 15, advertisingEvidence: 'OBSERVED' }),
-      month({ yearMonth: '2026-07', recognizedRevenue: 10_000_000, orderTimeSupplyCost: 0, coverageStartDate: '2026-07-17', coveredDays: 15, advertisingEvidence: 'OBSERVED' }),
+      month({ yearMonth: '2026-06', recognizedRevenue: 0, orderTimeSupplyCost: 1, coverageStartDate: '2026-06-16', coveredDays: 15 }),
+      month({ yearMonth: '2026-07', recognizedRevenue: 10_000_000, orderTimeSupplyCost: 0, coverageStartDate: '2026-07-17', coveredDays: 15 }),
     ]);
     expect(consistencyGuard.consistencyScore).toBeLessThan(formula.gradeThresholds.aConsistencyScoreGte);
     expect(consistencyGuard.abcGrade).toBe('B');
@@ -372,15 +362,15 @@ describe('PRODUCT_ABC_ABSOLUTE current evaluator', () => {
         lossPersistence: formula.anchors.lossPersistence.map((anchor) => ({ ...anchor, score: 100 })),
       },
     });
-    const bBoundary = evaluate([month({ recognizedRevenue: 1_000_000, orderTimeSupplyCost: 0, advertisingSpend: 0, advertisingEvidence: 'OBSERVED' })], bFormula);
+    const bBoundary = evaluate([month({ recognizedRevenue: 1_000_000, orderTimeSupplyCost: 0, advertisingSpend: 0 })], bFormula);
     expect(bBoundary.economicScore).toBeGreaterThanOrEqual(formula.gradeThresholds.bEconomicScoreGte);
     expect(bBoundary.abcGrade).toBe('B');
   });
 
   it('uses the persistence table directly rather than inverting it twice', () => {
     const candidate = evaluate([
-      month({ yearMonth: '2026-06', recognizedRevenue: 0, orderTimeSupplyCost: 100, coverageStartDate: '2026-06-16', coveredDays: 15, advertisingEvidence: 'OBSERVED' }),
-      month({ yearMonth: '2026-07', recognizedRevenue: 100, orderTimeSupplyCost: 0, coverageStartDate: '2026-07-17', coveredDays: 15, advertisingEvidence: 'OBSERVED' }),
+      month({ yearMonth: '2026-06', recognizedRevenue: 0, orderTimeSupplyCost: 100, coverageStartDate: '2026-06-16', coveredDays: 15 }),
+      month({ yearMonth: '2026-07', recognizedRevenue: 100, orderTimeSupplyCost: 0, coverageStartDate: '2026-07-17', coveredDays: 15 }),
     ]);
     expect(candidate.lossPersistence).toBeGreaterThan(0);
     expect(candidate.lossPersistence).toBeLessThan(0.5);
@@ -400,7 +390,6 @@ describe('PRODUCT_ABC_ABSOLUTE current evaluator', () => {
       recognizedRevenue: 1_000_000,
       orderTimeSupplyCost: 0,
       advertisingSpend: 0,
-      advertisingEvidence: 'OBSERVED',
     })], crossingFormula);
 
     expect(candidate.operatingMargin).toBe(1);
@@ -412,8 +401,7 @@ describe('PRODUCT_ABC_ABSOLUTE current evaluator', () => {
   it('rejects missing or ineligible provenance instead of manufacturing a candidate', () => {
     expect(() => evaluate([month({ costBasis: 'LEGACY' as never })])).toThrow('ineligible cost provenance');
     expect(() => evaluate([month({ vatIncluded: false as never })])).toThrow('VAT inclusion');
-    expect(() => evaluate([month({ advertisingEvidence: 'MISSING' as never })])).toThrow('ineligible advertising evidence');
-    expect(() => evaluate([month({ advertisingSpend: 10, advertisingEvidence: 'NOT_APPLIED' })])).toThrow('not applied');
+    expect(() => evaluate([month({ advertisingSpend: Number.NaN })])).toThrow('advertising spend');
     const missingProvenance = { ...month(), provenance: undefined } as never;
     expect(() => evaluate([missingProvenance])).toThrow('ineligible cost provenance');
   });

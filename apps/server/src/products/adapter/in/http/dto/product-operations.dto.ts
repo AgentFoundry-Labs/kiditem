@@ -27,7 +27,6 @@ const INVENTORY_FOCUSES = [
 const AD_STATUSES = ['all', 'active', 'inactive', 'unconfigured'] as const;
 const PERIOD_DAYS = [7, 14, 30] as const;
 const ABC_STATUSES = [
-  'NEW',
   'READY',
   'INSUFFICIENT_EVIDENCE',
   'SOURCE_UNMAPPED',

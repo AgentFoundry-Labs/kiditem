@@ -312,7 +312,7 @@ function ProductRow({ vm, monthsDesc, hasStock, sortKey }: { vm: RowVM; monthsDe
               <ProductAbcBadge grade={abc?.abcGrade ?? null} evaluation={abc?.evaluation ?? null} compact />
               {abc && abc.displayStatus !== 'READY' ? (
                 <span className="block text-[10px] text-amber-700" title={abcReadTitle(abc)}>
-                  {abc.displayStatus === 'NEW' || abc.displayStatus === 'INSUFFICIENT_EVIDENCE'
+                  {abc.displayStatus === 'INSUFFICIENT_EVIDENCE'
                     ? '관찰 중' : abc.displayStatus === 'SOURCE_UNMAPPED' ? '매핑 필요' : '원천 확인'}
                 </span>
               ) : null}
