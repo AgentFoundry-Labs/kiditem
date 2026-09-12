@@ -264,7 +264,18 @@ implements CoupangDirectOrderCollectionTransactionPort {
         include: { receipt: true },
       });
       if (existing) {
-        if (existing.receipt.payloadChecksum !== projection.payloadChecksum) {
+        const storedKeys = new Map(stored.pos
+          .filter((purchaseOrder) => purchaseOrder.items.length > 0)
+          .map((purchaseOrder) => [
+            purchaseOrderKey(purchaseOrder),
+            purchaseOrder.transport,
+          ]));
+        const existingSelection = existing.selectedPurchaseOrderKeys
+          .filter((key) => storedKeys.get(key) === input.transport);
+        if (
+          existing.selectedPurchaseOrderKeys.some((key) => !storedKeys.has(key))
+          || !sameSelection(existingSelection, projection.selectionKeys)
+        ) {
           throw new ConflictException('SOURCE_TRANSPORT_REPLAY_CONFLICT');
         }
         return receiptView(existing.receipt, true);
@@ -431,7 +442,7 @@ implements CoupangDirectOrderCollectionTransactionPort {
         importRunId: row.id,
         request: {
           channelAccountId: plan.channelAccountId,
-          centers: capture.centers,
+          centers: centersForPurchaseOrders(capture.centers, collectable),
           pos: collectable,
           transport: input.transport,
         },
@@ -888,7 +899,12 @@ function transportProjection(
       '쿠팡 발주 상세(품목)를 수집하지 못했습니다. 확장에서 발주를 다시 수집한 뒤 시도해주세요.',
     );
   }
-  const request = { ...capture, pos: collectable, transport };
+  const request = {
+    ...capture,
+    centers: centersForPurchaseOrders(capture.centers, collectable),
+    pos: collectable,
+    transport,
+  };
   return {
     request,
     payloadChecksum: canonicalCoupangDirectOrderHash(request),
@@ -896,10 +912,29 @@ function transportProjection(
   };
 }
 
+function centersForPurchaseOrders(
+  centers: CoupangDirectCapture['centers'],
+  purchaseOrders: CoupangDirectCapture['pos'],
+): CoupangDirectCapture['centers'] {
+  const referenced = new Set(
+    purchaseOrders.map((purchaseOrder) => purchaseOrder.center),
+  );
+  return Object.fromEntries(
+    Object.entries(centers).filter(([name]) => referenced.has(name)),
+  );
+}
+
 function purchaseOrderKey(purchaseOrder: CoupangDirectCapture['pos'][number]): string {
   return createHash('sha256')
     .update(canonicalOwnerInputJson(purchaseOrder))
     .digest('hex');
+}
+
+function sameSelection(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) return false;
+  const sortedLeft = [...left].sort();
+  const sortedRight = [...right].sort();
+  return sortedLeft.every((value, index) => value === sortedRight[index]);
 }
 
 function assertTransportSelection(

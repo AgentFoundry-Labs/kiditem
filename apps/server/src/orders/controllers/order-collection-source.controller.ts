@@ -23,10 +23,21 @@ import {
 } from '../application/port/in/order-collection-source.port';
 import type { AuthUser } from '../../auth/auth.types';
 import type { Response } from 'express';
+import { z } from 'zod';
 import {
   OrderCollectionService,
   type OrderCollectionConversion,
 } from '../services/order-collection.service';
+
+const confirmedEmptyOrdersSchema = z.object({
+  kind: z.literal('confirmed-empty-orders'),
+  mallKey: z.enum(['haebub-mall', 'domeggook']),
+  orders: z.array(z.never()).length(0),
+  confirmedCoverage: z.object({
+    startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  }).strict(),
+}).strict();
 
 @Controller('orders/collection')
 export class OrderCollectionSourceController {
@@ -118,6 +129,29 @@ export class OrderCollectionSourceController {
     });
   }
 
+  @Post('attempts/:attemptId/complete-empty')
+  async completeEmptyAttempt(
+    @Param('attemptId', new ParseUUIDPipe()) attemptId: string,
+    @Headers('x-source-attempt-token') attemptToken: string | undefined,
+    @CurrentOrganization() organizationId: string,
+    @Body() rawBody: unknown,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const parsed = confirmedEmptyOrdersSchema.safeParse(rawBody);
+    if (!parsed.success) throw new BadRequestException('INVALID_EMPTY_ORDER_COLLECTION');
+    const evidence = parsed.data;
+    const artifact = await this.source.completeAttempt({
+      organizationId,
+      attemptId,
+      attemptToken: requireUuidHeader(attemptToken),
+      mallKey: evidence.mallKey,
+      source: orderCollectionJsonSubmission(evidence),
+      confirmedCoverage: evidence.confirmedCoverage,
+    });
+    setEmptyConversionHeaders(response, artifact.artifactId);
+    return artifact;
+  }
+
   @Get('artifacts/:artifactId/source')
   async downloadSource(
     @Param('artifactId', new ParseUUIDPipe()) artifactId: string,
@@ -170,6 +204,11 @@ export class OrderCollectionSourceController {
       control.plan.collectionDate,
       source,
     );
+    if (result.sourceRows === 0 && result.outputRows === 0) {
+      setEmptyConversionHeaders(response, control.artifactId);
+      response.status(204);
+      return new StreamableFile(Buffer.alloc(0));
+    }
     setConversionHeaders(response, result, control.artifactId, control.plan.mallKey);
     return new StreamableFile(result.buffer);
   }
@@ -187,6 +226,13 @@ export class OrderCollectionSourceController {
         payload = JSON.parse(source.bytes.toString('utf8'));
       } catch {
         throw new BadRequestException('ORDER_COLLECTION_SOURCE_INVALID');
+      }
+      const empty = confirmedEmptyOrdersSchema.safeParse(payload);
+      if (empty.success && empty.data.mallKey === mallKey) {
+        return {
+          buffer: Buffer.alloc(0), fileName: '',
+          sourceRows: 0, productRows: 0, outputRows: 0, skippedRows: 0,
+        };
       }
       switch (mallKey) {
         case 'icecream-mall':
@@ -432,6 +478,14 @@ function setConversionHeaders(
   response.setHeader('X-Order-Collection-Product-Rows', String(result.productRows));
   response.setHeader('X-Order-Collection-Output-Rows', String(result.outputRows));
   response.setHeader('X-Order-Collection-Skipped-Rows', String(result.skippedRows));
+}
+
+function setEmptyConversionHeaders(response: Response, artifactId: string): void {
+  response.setHeader('Cache-Control', 'private, no-store');
+  response.setHeader('X-Order-Collection-Artifact-Id', artifactId);
+  for (const name of ['Source-Rows', 'Product-Rows', 'Output-Rows', 'Skipped-Rows']) {
+    response.setHeader(`X-Order-Collection-${name}`, '0');
+  }
 }
 
 function contentDispositionAttachment(fileName: string): string {

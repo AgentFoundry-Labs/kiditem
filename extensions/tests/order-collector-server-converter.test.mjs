@@ -263,6 +263,34 @@ test('rejects a malformed provider coverage receipt before transport', async () 
   assert.equal(requestCount, 0);
 });
 
+for (const mallKey of ['haebub-mall', 'domeggook']) {
+  test(`publishes an authenticated empty ${mallKey} window without producing a workbook`, async () => {
+    let requestInput;
+    const converter = createConverter(async (_environmentId, endpoint, init) => {
+      requestInput = { endpoint, init };
+      return okResponse({
+        'X-Order-Collection-Source-Rows': '0',
+        'X-Order-Collection-Product-Rows': '0',
+        'X-Order-Collection-Output-Rows': '0',
+      });
+    });
+    const coverage = { startDate: '2026-09-10', endDate: '2026-09-10' };
+    const receipt = await converter.convert({
+      environmentId: ENVIRONMENT_ID,
+      attempt: attempt(mallKey),
+      mallKey,
+      capture: { success: true, ...(mallKey === 'haebub-mall' ? { orders: [] } : { empty: true }), confirmedCoverage: coverage },
+      plan: { collectionDate: '2026-09-10' },
+    });
+    assert.equal(requestInput.endpoint, `/api/orders/collection/attempts/${ATTEMPT_ID}/complete-empty`);
+    assert.deepEqual(JSON.parse(requestInput.init.body), {
+      kind: 'confirmed-empty-orders', mallKey, orders: [], confirmedCoverage: coverage,
+    });
+    assert.equal(receipt.sourceRows, 0);
+    assert.equal(receipt.outputRows, 0);
+  });
+}
+
 test('reports explicit NO_NEW_ORDERS with retained original Icecream evidence when every row was seen', async () => {
   const converter = createConverter(async () => {
     throw new Error('the empty path must not request conversion');

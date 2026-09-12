@@ -119,6 +119,12 @@ describe('Order collection source owner over disposable PostgreSQL', () => {
           name: '해법몰',
           externalAccountId: 'haebub-mall',
         },
+        {
+          organizationId: ORG,
+          channel: 'order_collection',
+          name: '도매꾹',
+          externalAccountId: 'domeggook',
+        },
       ],
     });
     convertArt09Orders.mockClear();
@@ -138,6 +144,38 @@ describe('Order collection source owner over disposable PostgreSQL', () => {
 
   const control = (attemptId: string) =>
     request(httpUrl).get(`${BASE}/attempts/${attemptId}/control`);
+
+  it.each(['haebub-mall', 'domeggook'])('publishes and replays a confirmed empty %s window without conversion or failure alerts', async (mallKey) => {
+    const attempt = (await begin(mallKey, randomUUID(), '2026-09-07').expect(201)).body;
+    const payload = {
+      kind: 'confirmed-empty-orders',
+      mallKey,
+      orders: [],
+      confirmedCoverage: { startDate: '2026-09-07', endDate: '2026-09-07' },
+    };
+    const complete = (body: Record<string, unknown>) => request(httpUrl)
+      .post(`${BASE}/attempts/${attempt.attemptId}/complete-empty`)
+      .set('x-source-attempt-token', attempt.attemptToken)
+      .send(body);
+    await complete({ ...payload, orders: [{ orderId: 'unexpected' }] }).expect(400);
+    await complete({ ...payload, confirmedCoverage: null }).expect(400);
+    await complete({ ...payload, confirmedCoverage: { startDate: '2026-09-06', endDate: '2026-09-06' } }).expect(409);
+    await complete(payload).expect(201);
+    const completed = (await control(attempt.attemptId).expect(200)).body;
+    expect(completed).toMatchObject({
+      state: 'COMPLETE', coverageStartDate: '2026-09-07', coverageEndDate: '2026-09-07',
+    });
+    await complete(payload).expect(201);
+    expect((await control(attempt.attemptId).expect(200)).body.artifactId).toBe(completed.artifactId);
+    await request(httpUrl)
+      .post(`${BASE}/attempts/${attempt.attemptId}/convert`)
+      .set('x-source-attempt-token', attempt.attemptToken)
+      .expect(204)
+      .expect('X-Order-Collection-Source-Rows', '0')
+      .expect('X-Order-Collection-Output-Rows', '0');
+    expect(convertHaebeopOrders).not.toHaveBeenCalled();
+    expect(await prisma.alert.count({ where: { organizationId: ORG } })).toBe(0);
+  });
 
   const convertArt09 = (attempt: { attemptId: string; attemptToken: string }) =>
     request(httpUrl)

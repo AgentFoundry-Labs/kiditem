@@ -299,8 +299,14 @@
         }
         requireCaptureShape(mallKey, capture);
         coverageHeaders = confirmedCoverageHeaders(mallKey, capture);
+        const confirmedEmpty = capture?.success === true && capture?.confirmedCoverage != null && (
+          (mallKey === "haebub-mall" && capture.orders.length === 0) ||
+          (mallKey === "domeggook" && capture.empty === true &&
+            !capture.csvBase64 && !capture.xlsxBase64 && !capture.orders?.length)
+        );
         if (
           noNewOrders(capture) &&
+          !confirmedEmpty &&
           !(mallKey === "icecream-mall" && plan.selectionMode === "automatic")
         ) {
           const error = new Error("신규 주문이 없습니다.");
@@ -309,9 +315,20 @@
           error.sourcePayload = capture;
           throw error;
         }
-        endpoint = ENDPOINTS[mallKey];
+        endpoint = confirmedEmpty
+          ? `/api/orders/collection/attempts/${attempt.attemptId}/complete-empty`
+          : ENDPOINTS[mallKey];
         if (!endpoint) throw new Error("지원하지 않는 주문 수집 몰입니다.");
-        body = bodyFor(
+        body = confirmedEmpty ? {
+          headers: JSON_HEADERS,
+          body: JSON.stringify({
+            kind: "confirmed-empty-orders",
+            mallKey,
+            orders: [],
+            confirmedCoverage: capture.confirmedCoverage,
+          }),
+          fileName: null,
+        } : bodyFor(
           mallKey,
           capture,
           plan,

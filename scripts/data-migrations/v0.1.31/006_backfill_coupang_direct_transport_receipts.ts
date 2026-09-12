@@ -1,11 +1,23 @@
 import type { Prisma } from "@prisma/client";
+import {
+  CoupangDirectOrderCollectionRequestSchema,
+  type CoupangDirectOrderCollectionRequest,
+} from "@kiditem/shared/coupang-direct-order";
+import { canonicalOwnerInputHash } from "../../../apps/server/src/common/owner-idempotency-key";
+import { canonicalCoupangDirectOrderHash } from "../../../apps/server/src/orders/mapper/coupang-direct-order.mapper";
 import type { DataMigration, MigrationResult } from "../types";
 
 const DIRECT_SOURCE_TYPE = "coupang_direct_order_capture";
+const LEGACY_DIRECT_SOURCE_TYPE = "coupang_rocket_final_order";
+const DIRECT_EFFECT_SOURCE_TYPES = [
+  DIRECT_SOURCE_TYPE,
+  LEGACY_DIRECT_SOURCE_TYPE,
+] as const;
 const TRANSPORTS = ["SHIPMENT", "MILKRUN"] as const;
 
 type Transport = (typeof TRANSPORTS)[number];
 type LineRef = { poNumber: string; productNo: string };
+type StoredCapture = Omit<CoupangDirectOrderCollectionRequest, "transport">;
 type LegacyReceipt = {
   transport: Transport;
   payloadChecksum: string;
@@ -32,6 +44,7 @@ export async function backfillCoupangDirectTransportReceipts(
       organizationId: true,
       channelAccountId: true,
       qualityReport: true,
+      orderCollectionArtifact: { select: { sourceBytes: true } },
     },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
   });
@@ -59,6 +72,16 @@ export async function backfillCoupangDirectTransportReceipts(
       "transportSelections",
     );
     assertTransportKeys(refs, selections, sourceRun.id);
+    const capture = parseCaptureArtifact(
+      sourceRun.orderCollectionArtifact,
+      sourceRun.id,
+    );
+    if (capture.channelAccountId !== sourceRun.channelAccountId) {
+      throw migrationError(
+        sourceRun.id,
+        "capture artifact channel account does not match source",
+      );
+    }
 
     for (const transport of TRANSPORTS) {
       if (!hasOwn(refs, transport)) continue;
@@ -73,10 +96,18 @@ export async function backfillCoupangDirectTransportReceipts(
         sourceRun.id,
         transport,
       );
+      const payloadChecksum = normalizedPayloadChecksum(
+        capture,
+        selectedPurchaseOrderKeys,
+        sourceRun.id,
+        transport,
+      );
       const effectSource = await tx.sourceImportRun.findFirst({
         where: {
           id: receipt.sourceImportRunId,
           organizationId: sourceRun.organizationId,
+          channelAccountId: sourceRun.channelAccountId,
+          sourceType: { in: [...DIRECT_EFFECT_SOURCE_TYPES] },
           status: "completed",
         },
         select: { id: true },
@@ -84,7 +115,7 @@ export async function backfillCoupangDirectTransportReceipts(
       if (!effectSource) {
         throw migrationError(
           sourceRun.id,
-          `${transport} effect source is missing, cross-organization, or incomplete`,
+          `${transport} effect source is not a completed direct source for the same organization and channel account`,
         );
       }
       if (receipt.exportId) {
@@ -92,13 +123,31 @@ export async function backfillCoupangDirectTransportReceipts(
           where: {
             id: receipt.exportId,
             organizationId: sourceRun.organizationId,
+            channelAccountId: sourceRun.channelAccountId,
           },
           select: { id: true },
         });
         if (!confirmation) {
           throw migrationError(
             sourceRun.id,
-            `${transport} Rocket confirmation is missing or cross-organization`,
+            `${transport} Rocket confirmation is missing, cross-organization, or belongs to a different channel account`,
+          );
+        }
+        const transmission =
+          await tx.rocketPurchaseConfirmationTransmission.findFirst({
+            where: {
+              organizationId: sourceRun.organizationId,
+              confirmationId: receipt.exportId,
+              sourceImportRunId: receipt.sourceImportRunId,
+              transport,
+              intentKey: receipt.transmissionIntentKey,
+            },
+            select: { id: true },
+          });
+        if (!transmission) {
+          throw migrationError(
+            sourceRun.id,
+            `${transport} Rocket confirmation transmission does not match receipt lineage`,
           );
         }
       }
@@ -109,7 +158,7 @@ export async function backfillCoupangDirectTransportReceipts(
             organizationId: sourceRun.organizationId,
             channelAccountId: sourceRun.channelAccountId,
             transport,
-            payloadChecksum: receipt.payloadChecksum,
+            payloadChecksum,
           },
         },
       });
@@ -138,7 +187,7 @@ export async function backfillCoupangDirectTransportReceipts(
             effectSourceImportRunId: receipt.sourceImportRunId,
             rocketPurchaseConfirmationId: receipt.exportId,
             transport,
-            payloadChecksum: receipt.payloadChecksum,
+            payloadChecksum,
             transmissionIntentKey: receipt.transmissionIntentKey,
             matchedLineCount: receipt.matchedLineCount,
             reconciledRows: receipt.reconciledRows,
@@ -278,6 +327,73 @@ function parseSelection(
     throw migrationError(sourceRunId, `${transport} selection is invalid`);
   }
   return value;
+}
+
+function parseCaptureArtifact(
+  artifact: { sourceBytes: Uint8Array } | null,
+  sourceRunId: string,
+): StoredCapture {
+  if (!artifact) {
+    throw migrationError(sourceRunId, "capture artifact is missing");
+  }
+  let value: unknown;
+  try {
+    value = JSON.parse(Buffer.from(artifact.sourceBytes).toString("utf8"));
+  } catch {
+    throw migrationError(sourceRunId, "capture artifact is invalid");
+  }
+  const object = objectValue(value);
+  if (!object) {
+    throw migrationError(sourceRunId, "capture artifact is invalid");
+  }
+  const parsed = CoupangDirectOrderCollectionRequestSchema.safeParse({
+    ...object,
+    transport: "SHIPMENT",
+  });
+  if (!parsed.success) {
+    throw migrationError(sourceRunId, "capture artifact is invalid");
+  }
+  const { transport: _transport, ...capture } = parsed.data;
+  return capture;
+}
+
+function normalizedPayloadChecksum(
+  capture: StoredCapture,
+  selectedPurchaseOrderKeys: string[],
+  sourceRunId: string,
+  transport: Transport,
+): string {
+  const purchaseOrdersByKey = new Map(
+    capture.pos.map((purchaseOrder) => [
+      canonicalOwnerInputHash(purchaseOrder),
+      purchaseOrder,
+    ]),
+  );
+  if (selectedPurchaseOrderKeys.some((key) => !purchaseOrdersByKey.has(key))) {
+    throw migrationError(
+      sourceRunId,
+      `${transport} selection is not present in capture artifact`,
+    );
+  }
+  const purchaseOrders = capture.pos.filter(
+    (purchaseOrder) =>
+      purchaseOrder.transport === transport && purchaseOrder.items.length > 0,
+  );
+  const expectedKeys = purchaseOrders.map(canonicalOwnerInputHash).sort();
+  const selectedTransportKeys = selectedPurchaseOrderKeys
+    .filter((key) => purchaseOrdersByKey.get(key)?.transport === transport)
+    .sort();
+  if (!sameStrings(expectedKeys, selectedTransportKeys)) {
+    throw migrationError(
+      sourceRunId,
+      `${transport} selection does not match capture artifact`,
+    );
+  }
+  return canonicalCoupangDirectOrderHash({
+    ...capture,
+    pos: purchaseOrders,
+    transport,
+  });
 }
 
 function parseLineRefs(

@@ -48,6 +48,46 @@ describe('Coupang direct order mapper', () => {
       .toBe(canonicalCoupangDirectOrderHash(reordered));
   });
 
+  it('hashes only centers referenced by the selected purchase orders', () => {
+    const request = input();
+    const withUnusedCenter = {
+      ...request,
+      centers: {
+        ...request.centers,
+        'Busan FC': {
+          addr: 'Busan address',
+          zip: '48900',
+          contact: '051-123-4567',
+        },
+      },
+    };
+    const withChangedUnusedCenter = {
+      ...withUnusedCenter,
+      centers: {
+        ...withUnusedCenter.centers,
+        'Busan FC': {
+          ...withUnusedCenter.centers['Busan FC'],
+          addr: 'Changed Busan address',
+        },
+      },
+    };
+    const withChangedUsedCenter = {
+      ...withUnusedCenter,
+      centers: {
+        ...withUnusedCenter.centers,
+        'Seoul FC': {
+          ...withUnusedCenter.centers['Seoul FC'],
+          addr: 'Changed Seoul address',
+        },
+      },
+    };
+
+    expect(canonicalCoupangDirectOrderHash(withUnusedCenter))
+      .toBe(canonicalCoupangDirectOrderHash(withChangedUnusedCenter));
+    expect(canonicalCoupangDirectOrderHash(withChangedUsedCenter))
+      .not.toBe(canonicalCoupangDirectOrderHash(withUnusedCenter));
+  });
+
   it('treats the extension date-only registration value as KST midnight', () => {
     const request = input();
     request.pos[0]!.reg = '2026-08-01';

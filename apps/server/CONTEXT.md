@@ -114,6 +114,15 @@ canonical facts, coverage manifests, current complete snapshot, and terminal
 status. Nothing else writes those rows.
 _Avoid_: collector, importer, sync service
 
+**Transport receipt**:
+The immutable record of one consumed directship transport result, including its
+original order effects and any Sellpia transmission intent. Multiple collection
+attempts may refer to the same receipt without applying its effects again.
+
+**Attempt consumption**:
+The link from a directship collection attempt and selected transport to its
+transport receipt. It records consumption separately from the collected source.
+
 ### Ledgers
 
 **Ledger**:

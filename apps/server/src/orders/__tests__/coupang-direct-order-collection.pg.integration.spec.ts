@@ -21,6 +21,7 @@ import { backfillCoupangDirectTransportReceipts } from '../../../../../scripts/d
 
 const CHANNEL_ACCOUNT_ID = '51000000-0000-4000-8000-000000000001';
 const SKU_ID = '51000000-0000-4000-8000-000000000002';
+const OTHER_CHANNEL_ACCOUNT_ID = '51000000-0000-4000-8000-000000000003';
 
 describe('Coupang direct final-order collection (PG integration)', () => {
   let prisma: PrismaClient;
@@ -244,71 +245,56 @@ describe('Coupang direct final-order collection (PG integration)', () => {
     expect(await prisma.coupangDirectTransportConsumption.count()).toBe(1);
   });
 
-  it('reuses a prior COMPLETE owner receipt instead of deriving a new key from a fresh attempt id', async () => {
-    const capture = collectionRequest('PO-OWNER', 'P-OWNER', '8801234567890', 2);
-    const firstAttempt = await service.beginAttempt({
-      organizationId: TEST_ORGANIZATION_ID,
-      userId: TEST_USER_ID,
-      channelAccountId: CHANNEL_ACCOUNT_ID,
-      idempotencyKey: randomUUID(),
-    });
-    await service.completeAttempt({
-      organizationId: TEST_ORGANIZATION_ID,
-      userId: TEST_USER_ID,
-      attemptId: firstAttempt.attemptId,
-      attemptToken: firstAttempt.attemptToken,
-      capture: capture as never,
-    });
-    await service.consumeAttempt({
-      organizationId: TEST_ORGANIZATION_ID,
-      userId: TEST_USER_ID,
-      attemptId: firstAttempt.attemptId,
-      attemptToken: firstAttempt.attemptToken,
-      capture: capture as never,
-      transport: 'SHIPMENT',
-    });
-    const firstProjection = await service.readProjection({
-      organizationId: TEST_ORGANIZATION_ID,
-      attemptId: firstAttempt.attemptId,
-      transport: 'SHIPMENT',
-    });
+  it('deduplicates a transport receipt across unrelated centers while hashing its used center', async () => {
+    const firstCapture = mixedCollectionRequest();
+    const first = await consumeShipment(firstCapture);
+    const changedMilkrunCenter = structuredClone(firstCapture);
+    changedMilkrunCenter.centers['Busan FC']!.addr = 'Changed Busan address';
+    const second = await consumeShipment(changedMilkrunCenter);
+    const changedShipmentCenter = structuredClone(changedMilkrunCenter);
+    changedShipmentCenter.centers['Seoul FC']!.addr = 'Changed Seoul address';
+    const third = await consumeShipment(changedShipmentCenter);
 
-    const secondAttempt = await service.beginAttempt({
-      organizationId: TEST_ORGANIZATION_ID,
-      userId: TEST_USER_ID,
-      channelAccountId: CHANNEL_ACCOUNT_ID,
-      idempotencyKey: randomUUID(),
+    expect(second.receipt).toEqual({ ...first.receipt, duplicate: true });
+    expect(second.receipt.transmissionIntentKey).not.toContain(second.attemptId);
+    expect(third.receipt).toMatchObject({
+      sourceImportRunId: third.attemptId,
+      duplicate: false,
     });
-    await service.completeAttempt({
-      organizationId: TEST_ORGANIZATION_ID,
-      userId: TEST_USER_ID,
-      attemptId: secondAttempt.attemptId,
-      attemptToken: secondAttempt.attemptToken,
-      capture: capture as never,
-    });
-    await service.consumeAttempt({
-      organizationId: TEST_ORGANIZATION_ID,
-      userId: TEST_USER_ID,
-      attemptId: secondAttempt.attemptId,
-      attemptToken: secondAttempt.attemptToken,
-      capture: capture as never,
-      transport: 'SHIPMENT',
-    });
-    const secondProjection = await service.readProjection({
-      organizationId: TEST_ORGANIZATION_ID,
-      attemptId: secondAttempt.attemptId,
-      transport: 'SHIPMENT',
-    });
-
-    expect(secondProjection.receipt).toMatchObject({
-      sourceImportRunId: firstAttempt.attemptId,
-      transmissionIntentKey: firstProjection.receipt.transmissionIntentKey,
-      duplicate: true,
-    });
-    expect(secondProjection.receipt.transmissionIntentKey).not.toContain(secondAttempt.attemptId);
+    expect(third.receipt.payloadChecksum).not.toBe(first.receipt.payloadChecksum);
+    expect(third.receipt.transmissionIntentKey).not.toBe(first.receipt.transmissionIntentKey);
+    expect(await prisma.order.findFirstOrThrow({
+      where: { organizationId: TEST_ORGANIZATION_ID, externalOrderId: 'PO-OWNER' },
+      select: { receiverAddr: true },
+    })).toEqual({ receiverAddr: 'Changed Seoul address' });
     expect(await prisma.order.count()).toBe(1);
-    expect(await prisma.coupangDirectTransportReceipt.count()).toBe(1);
-    expect(await prisma.coupangDirectTransportConsumption.count()).toBe(2);
+    expect(await prisma.coupangDirectTransportReceipt.count()).toBe(2);
+    expect(await prisma.coupangDirectTransportConsumption.count()).toBe(3);
+
+    async function consumeShipment(capture: ReturnType<typeof mixedCollectionRequest>) {
+      const attempt = await service.beginAttempt({
+        organizationId: TEST_ORGANIZATION_ID,
+        userId: TEST_USER_ID,
+        channelAccountId: CHANNEL_ACCOUNT_ID,
+        idempotencyKey: randomUUID(),
+      });
+      await service.completeAttempt({
+        organizationId: TEST_ORGANIZATION_ID,
+        userId: TEST_USER_ID,
+        attemptId: attempt.attemptId,
+        attemptToken: attempt.attemptToken,
+        capture: capture as never,
+      });
+      const receipt = await service.consumeAttempt({
+        organizationId: TEST_ORGANIZATION_ID,
+        userId: TEST_USER_ID,
+        attemptId: attempt.attemptId,
+        attemptToken: attempt.attemptToken,
+        capture: capture as never,
+        transport: 'SHIPMENT',
+      });
+      return { attemptId: attempt.attemptId, receipt };
+    }
   });
 
   it('commits the raw capture before a downstream conversion failure', async () => {
@@ -428,7 +414,7 @@ describe('Coupang direct final-order collection (PG integration)', () => {
   });
 
   it('backfills legacy JSON receipts with their original effect lineage and is idempotent', async () => {
-    const capture = collectionRequest('PO-LEGACY-JSON', 'P-LEGACY-JSON', '8801234567890', 2);
+    const capture = mixedCollectionRequest();
     const attempt = await service.beginAttempt({
       organizationId: TEST_ORGANIZATION_ID,
       userId: TEST_USER_ID,
@@ -442,23 +428,56 @@ describe('Coupang direct final-order collection (PG integration)', () => {
       attemptToken: attempt.attemptToken,
       capture: capture as never,
     });
+    const exportId = await seedRequest(
+      'PO-OWNER',
+      'P-OWNER',
+      '8801234567890',
+      2,
+    );
+    const legacyPayloadChecksum = 'f'.repeat(64);
+    const effectSource = await prisma.sourceImportRun.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: CHANNEL_ACCOUNT_ID,
+        sourceType: 'coupang_rocket_final_order',
+        fileName: 'legacy-direct-order.json',
+        fileHash: legacyPayloadChecksum,
+        status: 'completed',
+        rowCount: 1,
+        createdBy: TEST_USER_ID,
+      },
+    });
+    const transmissionIntentKey = `rocket-final-order:${effectSource.id}:shipment`;
+    await prisma.rocketPurchaseConfirmationTransmission.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        confirmationId: exportId,
+        sourceImportRunId: effectSource.id,
+        transport: 'SHIPMENT',
+        intentKey: transmissionIntentKey,
+        matchedLineCount: 0,
+      },
+    });
     const receipt = {
       transport: 'SHIPMENT' as const,
-      payloadChecksum: canonicalCoupangDirectOrderHash(capture),
-      sourceImportRunId: attempt.attemptId,
-      exportId: null,
-      transmissionIntentKey: `rocket-final-order:${attempt.attemptId}:shipment`,
+      payloadChecksum: legacyPayloadChecksum,
+      sourceImportRunId: effectSource.id,
+      exportId,
+      transmissionIntentKey,
       matchedLineCount: 0,
       reconciledRows: 0,
-      collectedLines: [{ poNumber: 'PO-LEGACY-JSON', productNo: 'P-LEGACY-JSON' }],
+      collectedLines: [{ poNumber: 'PO-OWNER', productNo: 'P-OWNER' }],
       matchedLines: [],
-      unmatchedLines: [{ poNumber: 'PO-LEGACY-JSON', productNo: 'P-LEGACY-JSON' }],
+      unmatchedLines: [{ poNumber: 'PO-OWNER', productNo: 'P-OWNER' }],
       duplicate: false,
     };
     const qualityReport = {
       source: 'coupang_direct_order_capture',
       transportRefs: { SHIPMENT: receipt },
-      transportSelections: { SHIPMENT: [canonicalOwnerInputHash(capture.pos[0])] },
+      transportSelections: {
+        SHIPMENT: capture.pos.map((purchaseOrder) =>
+          canonicalOwnerInputHash(purchaseOrder)),
+      },
     };
     const secondAttempt = await service.beginAttempt({
       organizationId: TEST_ORGANIZATION_ID,
@@ -486,6 +505,11 @@ describe('Coupang direct final-order collection (PG integration)', () => {
         },
       },
     });
+    const completedSources = await prisma.sourceImportRun.findMany({
+      where: { id: { in: [attempt.attemptId, secondAttempt.attemptId] } },
+      select: { id: true, qualityReport: true, updatedAt: true },
+      orderBy: { id: 'asc' },
+    });
 
     await expect(prisma.$transaction((tx) =>
       backfillCoupangDirectTransportReceipts(tx))).resolves.toMatchObject({
@@ -500,16 +524,63 @@ describe('Coupang direct final-order collection (PG integration)', () => {
     await expect(prisma.$transaction((tx) =>
       backfillCoupangDirectTransportReceipts(tx))).resolves.toMatchObject({ affectedRows: 0 });
 
+    const canonical = await prisma.coupangDirectTransportReceipt.findFirstOrThrow({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+      select: {
+        payloadChecksum: true,
+        effectSourceImportRunId: true,
+        rocketPurchaseConfirmationId: true,
+        transmissionIntentKey: true,
+      },
+    });
+    expect(canonical).toMatchObject({
+      effectSourceImportRunId: effectSource.id,
+      rocketPurchaseConfirmationId: exportId,
+      transmissionIntentKey,
+    });
+    expect(canonical.payloadChecksum).not.toBe(legacyPayloadChecksum);
+
+    await expect(service.consumeAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      attemptId: attempt.attemptId,
+      attemptToken: attempt.attemptToken,
+      capture: capture as never,
+      transport: 'SHIPMENT',
+    })).resolves.toMatchObject({
+      payloadChecksum: canonical.payloadChecksum,
+      sourceImportRunId: effectSource.id,
+      transmissionIntentKey,
+      duplicate: true,
+    });
+
+    expect(await prisma.sourceImportRun.findMany({
+      where: { id: { in: [attempt.attemptId, secondAttempt.attemptId] } },
+      select: { id: true, qualityReport: true, updatedAt: true },
+      orderBy: { id: 'asc' },
+    })).toEqual(completedSources);
+    expect(completedSources).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        qualityReport: expect.objectContaining({
+          transportRefs: expect.objectContaining({
+            SHIPMENT: expect.objectContaining({
+              payloadChecksum: legacyPayloadChecksum,
+            }),
+          }),
+        }),
+      }),
+    ]));
+
     expect(await service.readProjection({
       organizationId: TEST_ORGANIZATION_ID,
       attemptId: attempt.attemptId,
       transport: 'SHIPMENT',
     })).toMatchObject({
-      request: { pos: [{ seq: 'PO-LEGACY-JSON' }] },
+      request: { pos: [{ seq: 'PO-OWNER' }] },
       receipt: {
-        sourceImportRunId: attempt.attemptId,
-        payloadChecksum: receipt.payloadChecksum,
-        duplicate: false,
+        sourceImportRunId: effectSource.id,
+        payloadChecksum: canonical.payloadChecksum,
+        duplicate: true,
       },
     });
     expect(await service.readProjection({
@@ -518,11 +589,43 @@ describe('Coupang direct final-order collection (PG integration)', () => {
       transport: 'SHIPMENT',
     })).toMatchObject({
       receipt: {
-        sourceImportRunId: attempt.attemptId,
-        payloadChecksum: receipt.payloadChecksum,
+        sourceImportRunId: effectSource.id,
+        payloadChecksum: canonical.payloadChecksum,
         duplicate: true,
       },
     });
+
+    const laterCapture = structuredClone(capture);
+    laterCapture.centers['Busan FC']!.addr = 'Later Busan address';
+    const laterAttempt = await service.beginAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      channelAccountId: CHANNEL_ACCOUNT_ID,
+      idempotencyKey: randomUUID(),
+    });
+    await service.completeAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      attemptId: laterAttempt.attemptId,
+      attemptToken: laterAttempt.attemptToken,
+      capture: laterCapture as never,
+    });
+    await expect(service.consumeAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      attemptId: laterAttempt.attemptId,
+      attemptToken: laterAttempt.attemptToken,
+      capture: laterCapture as never,
+      transport: 'SHIPMENT',
+    })).resolves.toMatchObject({
+      payloadChecksum: canonical.payloadChecksum,
+      sourceImportRunId: effectSource.id,
+      transmissionIntentKey,
+      duplicate: true,
+    });
+    expect(await prisma.coupangDirectTransportReceipt.count()).toBe(1);
+    expect(await prisma.coupangDirectTransportConsumption.count()).toBe(3);
+    expect(await prisma.order.count()).toBe(0);
   });
 
   it('blocks the legacy receipt backfill when lineage cannot be verified', async () => {
@@ -559,14 +662,63 @@ describe('Coupang direct final-order collection (PG integration)', () => {
               duplicate: false,
             },
           },
-          transportSelections: { SHIPMENT: [] },
+          transportSelections: {
+            SHIPMENT: [canonicalOwnerInputHash(capture.pos[0])],
+          },
         },
       },
     });
 
     await expect(prisma.$transaction((tx) =>
       backfillCoupangDirectTransportReceipts(tx))).rejects.toThrow(
-      `Coupang direct receipt backfill blocked for source run ${attempt.attemptId}: SHIPMENT effect source is missing, cross-organization, or incomplete.`,
+      `Coupang direct receipt backfill blocked for source run ${attempt.attemptId}: SHIPMENT effect source is not a completed direct source for the same organization and channel account.`,
+    );
+    expect(await prisma.coupangDirectTransportReceipt.count()).toBe(0);
+    expect(await prisma.coupangDirectTransportConsumption.count()).toBe(0);
+  });
+
+  it.each([
+    {
+      name: 'same-organization effect source has an unrelated source type',
+      options: { effectSourceType: 'sellpia_sales_daily' },
+      message: 'SHIPMENT effect source is not a completed direct source for the same organization and channel account',
+    },
+    {
+      name: 'same-organization effect source belongs to another channel account',
+      options: { effectChannelAccountId: OTHER_CHANNEL_ACCOUNT_ID },
+      message: 'SHIPMENT effect source is not a completed direct source for the same organization and channel account',
+    },
+    {
+      name: 'same-organization confirmation belongs to another channel account',
+      options: { confirmationChannelAccountId: OTHER_CHANNEL_ACCOUNT_ID },
+      message: 'SHIPMENT Rocket confirmation is missing, cross-organization, or belongs to a different channel account',
+    },
+    {
+      name: 'confirmation transmission is missing',
+      options: { transmission: 'missing' as const },
+      message: 'SHIPMENT Rocket confirmation transmission does not match receipt lineage',
+    },
+    {
+      name: 'confirmation transmission has a different intent',
+      options: { transmission: 'wrong_intent' as const },
+      message: 'SHIPMENT Rocket confirmation transmission does not match receipt lineage',
+    },
+    {
+      name: 'capture artifact is missing',
+      options: { artifact: 'missing' as const },
+      message: 'capture artifact is missing',
+    },
+    {
+      name: 'capture artifact is malformed',
+      options: { artifact: 'malformed' as const },
+      message: 'capture artifact is invalid',
+    },
+  ])('blocks legacy canonicalization when $name', async ({ options, message }) => {
+    const candidate = await seedBackfillCandidate(options);
+
+    await expect(prisma.$transaction((tx) =>
+      backfillCoupangDirectTransportReceipts(tx))).rejects.toThrow(
+      `Coupang direct receipt backfill blocked for source run ${candidate.sourceRunId}: ${message}.`,
     );
     expect(await prisma.coupangDirectTransportReceipt.count()).toBe(0);
     expect(await prisma.coupangDirectTransportConsumption.count()).toBe(0);
@@ -644,6 +796,129 @@ describe('Coupang direct final-order collection (PG integration)', () => {
       },
     });
     return { importRunId: sourceRun.id, exportId };
+  }
+
+  async function seedBackfillCandidate(options: {
+    effectSourceType?: string;
+    effectChannelAccountId?: string;
+    confirmationChannelAccountId?: string;
+    transmission?: 'matching' | 'missing' | 'wrong_intent';
+    artifact?: 'valid' | 'missing' | 'malformed';
+  }) {
+    const effectChannelAccountId = options.effectChannelAccountId ?? CHANNEL_ACCOUNT_ID;
+    const confirmationChannelAccountId = options.confirmationChannelAccountId ?? CHANNEL_ACCOUNT_ID;
+    for (const channelAccountId of new Set([
+      effectChannelAccountId,
+      confirmationChannelAccountId,
+    ])) {
+      if (channelAccountId === CHANNEL_ACCOUNT_ID) continue;
+      await prisma.channelAccount.create({
+        data: {
+          id: channelAccountId,
+          organizationId: TEST_ORGANIZATION_ID,
+          channel: 'rocket',
+          name: 'Other Rocket',
+        },
+      });
+    }
+    const effectSource = await prisma.sourceImportRun.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: effectChannelAccountId,
+        sourceType: options.effectSourceType ?? 'coupang_direct_order_capture',
+        fileHash: randomUUID(),
+        status: 'completed',
+      },
+    });
+    const confirmationSource = await prisma.sourceImportRun.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: confirmationChannelAccountId,
+        sourceType: 'coupang_rocket_po_catalog',
+        fileHash: randomUUID(),
+        status: 'completed',
+      },
+    });
+    const confirmation = await prisma.rocketPurchaseConfirmation.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: confirmationChannelAccountId,
+        sourceImportRunId: confirmationSource.id,
+        idempotencyKey: randomUUID(),
+        requestHash: 'a'.repeat(64),
+        status: 'awaiting_coupang_confirmation',
+        confirmedBy: TEST_USER_ID,
+      },
+    });
+    const intentKey = `rocket-final-order:${effectSource.id}:shipment`;
+    if (options.transmission !== 'missing') {
+      await prisma.rocketPurchaseConfirmationTransmission.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          confirmationId: confirmation.id,
+          sourceImportRunId: effectSource.id,
+          transport: 'SHIPMENT',
+          intentKey: options.transmission === 'wrong_intent'
+            ? `${intentKey}:wrong`
+            : intentKey,
+          matchedLineCount: 0,
+        },
+      });
+    }
+    const capture = collectionRequest(
+      'PO-BACKFILL',
+      'P-BACKFILL',
+      '8801234567890',
+      1,
+    );
+    const sourceRun = await prisma.sourceImportRun.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: CHANNEL_ACCOUNT_ID,
+        sourceType: 'coupang_direct_order_capture',
+        fileHash: randomUUID(),
+        status: 'completed',
+        qualityReport: {
+          transportRefs: {
+            SHIPMENT: {
+              transport: 'SHIPMENT',
+              payloadChecksum: 'e'.repeat(64),
+              sourceImportRunId: effectSource.id,
+              exportId: confirmation.id,
+              transmissionIntentKey: intentKey,
+              matchedLineCount: 0,
+              reconciledRows: 0,
+              collectedLines: [{
+                poNumber: 'PO-BACKFILL',
+                productNo: 'P-BACKFILL',
+              }],
+              matchedLines: [],
+              unmatchedLines: [{
+                poNumber: 'PO-BACKFILL',
+                productNo: 'P-BACKFILL',
+              }],
+              duplicate: false,
+            },
+          },
+          transportSelections: {
+            SHIPMENT: [canonicalOwnerInputHash(capture.pos[0])],
+          },
+        },
+      },
+    });
+    if (options.artifact !== 'missing') {
+      await prisma.orderCollectionArtifact.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          sourceImportRunId: sourceRun.id,
+          sourceContentType: 'application/json',
+          sourceBytes: options.artifact === 'malformed'
+            ? Buffer.from('{"pos":')
+            : Buffer.from(JSON.stringify(capture)),
+        },
+      });
+    }
+    return { sourceRunId: sourceRun.id };
   }
 
   async function seedRequest(
@@ -732,11 +1007,16 @@ function mixedCollectionRequest() {
   const shipment = collectionRequest('PO-OWNER', 'P-OWNER', '8801234567890', 2);
   return {
     ...shipment,
+    centers: {
+      ...shipment.centers,
+      'Busan FC': { addr: 'Busan', zip: '48900', contact: '051-1234' },
+    },
     pos: [
       ...shipment.pos,
       {
         ...shipment.pos[0],
         seq: 'PO-MILKRUN',
+        center: 'Busan FC',
         transport: 'MILKRUN' as const,
         items: [{
           ...shipment.pos[0].items[0],
