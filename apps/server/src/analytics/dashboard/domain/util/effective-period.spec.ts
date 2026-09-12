@@ -37,12 +37,28 @@ describe('canUseWingRevenue', () => {
     expect(canUseWingRevenue({ hasData: true })).toBe(true);
   });
 
-  it('rejects an incomplete or mismatched range', () => {
-    expect(canUseWingRevenue(NO_WING)).toBe(false);
+  /**
+   * A short window is not a wrong one. Coupang publishes Wing traffic a day
+   * behind its sales, so a month-to-date window is short on almost every day of
+   * the month; requiring the whole window blanked the revenue card for the sake
+   * of the one day the provider had not published. `coverage` travels with the
+   * value and the dashboard reads it as `부분 N/M일`.
+   */
+  it('accepts a short range and says how short through coverage', () => {
     expect(canUseWingRevenue({
       hasData: true,
       coverage: { targetDays: 7, completedDays: 5 },
+    })).toBe(true);
+  });
+
+  it('rejects an empty or mismatched range', () => {
+    expect(canUseWingRevenue(NO_WING)).toBe(false);
+    // Nothing confirmed is the one case with no measured day to publish.
+    expect(canUseWingRevenue({
+      hasData: true,
+      coverage: { targetDays: 7, completedDays: 0 },
     })).toBe(false);
+    // A MISMATCH is the owner saying the number is wrong, not that it is short.
     expect(canUseWingRevenue({
       hasData: true,
       reconciliation: { revenue: { status: 'MISMATCH' } },

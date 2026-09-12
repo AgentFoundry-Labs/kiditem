@@ -42,9 +42,19 @@ export function hasOrderEvidence(metrics: {
 }
 
 /**
- * Wing revenue is usable evidence only from a complete account range that the
- * owner did not flag as a revenue mismatch. Partial coverage or a MISMATCH
- * leaves Wing revenue unusable rather than silently understated.
+ * Wing revenue is usable evidence once the account range confirms a day and the
+ * owner did not flag a revenue mismatch.
+ *
+ * It used to require the whole window. Coupang publishes Wing traffic a day
+ * behind its sales, so a month-to-date window is short on almost every day of
+ * the month, and the rule blanked the revenue card for the sake of the one day
+ * the provider had not published — while ten measured days sat unread. That is
+ * the same all-or-nothing shape the collection itself no longer has
+ * (ADR-0005), and withholding here was the last place it survived.
+ *
+ * A short window is still not a claim about the whole window: `coverage`
+ * travels with the value and the dashboard reads it as `부분 N/M일`. A MISMATCH
+ * remains unusable — that is the owner saying the number is wrong, not short.
  *
  * This is the single definition: every caller — the revenue fallback, the
  * monthly trend, and `buildEffectivePeriod` below — asks this function.
@@ -52,7 +62,7 @@ export function hasOrderEvidence(metrics: {
 export function canUseWingRevenue(metrics: WingRevenueEvidence): boolean {
   if (!metrics.hasData) return false;
   const coverage = metrics.coverage;
-  if (coverage && coverage.completedDays !== coverage.targetDays) return false;
+  if (coverage && coverage.completedDays === 0) return false;
   return metrics.reconciliation?.revenue?.status !== 'MISMATCH';
 }
 
