@@ -14,7 +14,7 @@ import { DashboardSalesRepositoryAdapter } from '../dashboard-sales.repository.a
  */
 const prismaWith = (topProductRows: unknown[]) => ({
   $queryRaw: vi.fn().mockImplementation(async (sql: { strings?: string[] }) =>
-    (sql.strings?.[0] ?? '').includes('WITH sweeps AS') ? [] : topProductRows),
+    (sql.strings ?? []).join('').includes('channel_ad_target_daily_snapshots') ? [] : topProductRows),
   order: { findMany: vi.fn().mockResolvedValue([]) },
   channelAccount: { findFirst: vi.fn().mockResolvedValue(null) },
 }) as never;

@@ -35,7 +35,8 @@ function queriedDates(queryRaw: ReturnType<typeof vi.fn>): string[] {
   const sql = queryRaw.mock.calls[0]?.[0] as
     | { strings?: readonly string[]; values?: unknown[] }
     | undefined;
-  expect(sql?.strings?.[0]?.trimStart().startsWith('WITH sweeps AS')).toBe(true);
+  // The ad ledger read, whatever CTE the reader opens with.
+  expect((sql?.strings ?? []).join('')).toContain('channel_ad_target_daily_snapshots');
   const dates = (sql?.values ?? []).filter(
     (v): v is string => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v),
   );

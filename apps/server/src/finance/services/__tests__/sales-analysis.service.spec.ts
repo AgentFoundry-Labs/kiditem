@@ -176,7 +176,7 @@ describe('SalesAnalysisService.getAnalysis — Plan D.3', () => {
     expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
     const sql = prisma.$queryRaw.mock.calls[0][0] as { strings: readonly string[]; values: unknown[] };
     const text = sql.strings.join('');
-    expect(text.trimStart().startsWith('WITH sweeps AS')).toBe(true);
+    expect(text).toContain('channel_ad_target_daily_snapshots');
     expect(text).toContain('GROUP BY listing_id');
     expect(sql.values).toContain('cA');
     const dates = sql.values.filter((v): v is string => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v));
