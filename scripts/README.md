@@ -67,7 +67,7 @@ npm run test:scripts
 | `scripts/.shared-interface-names-baseline.txt` | existing exported Zod contracts not yet renamed to `FooSchema` |
 | `scripts/.shared-root-imports-baseline.txt` | baseline for `check-shared-root-imports.sh` |
 | `scripts/.tenant-scope-allowlist.txt` | narrow false-positive allowlist for `check-tenant-scope.sh` |
-| `scripts/ledger-readers.json` | canonical ledger inventory: physical table, Prisma model, reader, exact owner-publication files, and legacy readers with removal issues |
+| `scripts/ledger-readers.json` | canonical ledger inventory: physical table, Prisma delegate/type, schema-checked reverse relation names, reader, exact owner-publication files, and legacy readers with removal issues |
 | `scripts/vitest.config.ts` | isolated Vitest config for script helper tests |
 | `scripts/__tests__/` | tests for script helpers and runbook automation |
 

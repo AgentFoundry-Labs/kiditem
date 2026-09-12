@@ -1,13 +1,24 @@
 {
   "version": 1,
   "scanRoots": ["apps/server/src", "apps/web/src", "packages/shared/src"],
+  "prismaSchemaRoots": ["prisma"],
   "ledgers": [
     {
       "name": "Advertising target day",
       "table": "channel_ad_target_daily_snapshots",
       "prismaModel": "channelAdTargetDailySnapshot",
+      "prismaType": "ChannelAdTargetDailySnapshot",
+      "relationNames": [
+        "adTargetDaily",
+        "adTargetDailySnapshots",
+        "channelAdTargetDailySnapshots"
+      ],
       "reader": "apps/server/src/common/ad-window-facts.ts",
       "ownerPublications": [
+        {
+          "path": "apps/server/src/advertising/adapter/out/repository/ad-campaign-source.repository.ts",
+          "reason": "Inserts campaign and product target rows inside the source owner's terminal publication."
+        },
         {
           "path": "apps/server/src/advertising/adapter/out/repository/ad-keyword-source.repository.ts",
           "reason": "Counts keyword rows immediately after inserting them in the source owner's terminal publication."

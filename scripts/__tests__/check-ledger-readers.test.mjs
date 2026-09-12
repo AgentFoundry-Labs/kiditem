@@ -32,11 +32,18 @@ test('rejects undeclared Prisma and raw SQL ledger reads, then passes after remo
       JSON.stringify({
         version: 1,
         scanRoots: ['apps/server/src'],
+        prismaSchemaRoots: ['prisma'],
         ledgers: [
           {
             name: 'Advertising target day',
             table: 'channel_ad_target_daily_snapshots',
             prismaModel: 'channelAdTargetDailySnapshot',
+            prismaType: 'ChannelAdTargetDailySnapshot',
+            relationNames: [
+              'adTargetDaily',
+              'adTargetDailySnapshots',
+              'channelAdTargetDailySnapshots',
+            ],
             reader: 'apps/server/src/advertising/read/ad-target-reader.ts',
             ownerPublications: [
               {
@@ -58,13 +65,36 @@ test('rejects undeclared Prisma and raw SQL ledger reads, then passes after remo
     );
     write(
       root,
+      'prisma/models/advertising.prisma',
+      `model Organization {
+  id                            String                         @id
+  channelAdTargetDailySnapshots ChannelAdTargetDailySnapshot[]
+}
+
+model ChannelScrapeSnapshot {
+  id                     String                         @id
+  adTargetDailySnapshots ChannelAdTargetDailySnapshot[]
+}
+
+model AdAction {
+  id            String                        @id
+  adTargetDaily ChannelAdTargetDailySnapshot?
+}
+
+model ChannelAdTargetDailySnapshot {
+  id String @id
+}
+`,
+    );
+    write(
+      root,
       'apps/server/src/advertising/read/ad-target-reader.ts',
       'tx.channelAdTargetDailySnapshot.findMany({});\n',
     );
     write(
       root,
       'apps/server/src/advertising/write/ad-target-owner.ts',
-      'tx.channelAdTargetDailySnapshot.count({});\n',
+      'const ledger = tx.channelAdTargetDailySnapshot;\nledger.createMany({ data: [] });\n',
     );
     write(
       root,
@@ -88,8 +118,53 @@ test('rejects undeclared Prisma and raw SQL ledger reads, then passes after remo
     );
     write(
       root,
+      'apps/server/src/advertising/read/unregistered-consumer.ts',
+      'tx.channelAdTargetDailySnapshot.findMany({});\n',
+    );
+    write(
+      root,
       'apps/server/src/raw-sql-consumer.ts',
       'sql`SELECT *\nFROM "channel_ad_target_daily_snapshots"`;\n',
+    );
+    write(
+      root,
+      'apps/server/src/alias-consumer.ts',
+      'const ledger = tx.channelAdTargetDailySnapshot;\nawait ledger.findMany({});\n',
+    );
+    write(
+      root,
+      'apps/server/src/destructure-consumer.ts',
+      'const { channelAdTargetDailySnapshot: ledger } = tx;\nawait ledger.findMany({});\n',
+    );
+    write(
+      root,
+      'apps/server/src/bracket-consumer.ts',
+      "await tx['channelAdTargetDailySnapshot'].findFirst({});\n",
+    );
+    write(
+      root,
+      'apps/server/src/mutation-consumer.ts',
+      'await tx.channelAdTargetDailySnapshot.createMany({ data: [] });\n',
+    );
+    write(
+      root,
+      'apps/server/src/seed/runtime-consumer.ts',
+      'await tx.channelAdTargetDailySnapshot.findMany({});\n',
+    );
+    write(
+      root,
+      'apps/server/src/relation-include-consumer.ts',
+      'await tx.organization.findMany({ include: { channelAdTargetDailySnapshots: true } });\n',
+    );
+    write(
+      root,
+      'apps/server/src/relation-select-consumer.ts',
+      'await tx.channelScrapeSnapshot.findMany({ select: { adTargetDailySnapshots: true } });\n',
+    );
+    write(
+      root,
+      'apps/server/src/relation-where-consumer.ts',
+      'await tx.adAction.findMany({ where: { adTargetDaily: { isNot: null } } });\n',
     );
     write(
       root,
@@ -115,8 +190,35 @@ test('rejects undeclared Prisma and raw SQL ledger reads, then passes after remo
     const failed = runScanner(root);
     const failedOutput = `${failed.stdout}\n${failed.stderr}`;
     assert.equal(failed.status, 1, failedOutput);
-    assert.match(failedOutput, /prisma-consumer\.ts.*Prisma read/);
+    assert.match(failedOutput, /prisma-consumer\.ts.*Prisma delegate access/);
+    assert.match(
+      failedOutput,
+      /advertising\/read\/unregistered-consumer\.ts.*Prisma delegate access/,
+    );
     assert.match(failedOutput, /raw-sql-consumer\.ts.*raw SQL read/);
+    assert.match(failedOutput, /alias-consumer\.ts.*Prisma delegate access/);
+    assert.match(
+      failedOutput,
+      /destructure-consumer\.ts.*Prisma delegate access/,
+    );
+    assert.match(failedOutput, /bracket-consumer\.ts.*Prisma delegate access/);
+    assert.match(failedOutput, /mutation-consumer\.ts.*Prisma delegate access/);
+    assert.match(
+      failedOutput,
+      /seed\/runtime-consumer\.ts.*Prisma delegate access/,
+    );
+    assert.match(
+      failedOutput,
+      /relation-include-consumer\.ts.*Prisma relation read/,
+    );
+    assert.match(
+      failedOutput,
+      /relation-select-consumer\.ts.*Prisma relation read/,
+    );
+    assert.match(
+      failedOutput,
+      /relation-where-consumer\.ts.*Prisma relation read/,
+    );
     assert.match(
       failedOutput,
       /listing-prisma-consumer\.ts.*retired Prisma read/,
@@ -131,7 +233,21 @@ test('rejects undeclared Prisma and raw SQL ledger reads, then passes after remo
     );
 
     rmSync(path.join(root, 'apps/server/src/prisma-consumer.ts'));
+    rmSync(
+      path.join(
+        root,
+        'apps/server/src/advertising/read/unregistered-consumer.ts',
+      ),
+    );
     rmSync(path.join(root, 'apps/server/src/raw-sql-consumer.ts'));
+    rmSync(path.join(root, 'apps/server/src/alias-consumer.ts'));
+    rmSync(path.join(root, 'apps/server/src/destructure-consumer.ts'));
+    rmSync(path.join(root, 'apps/server/src/bracket-consumer.ts'));
+    rmSync(path.join(root, 'apps/server/src/mutation-consumer.ts'));
+    rmSync(path.join(root, 'apps/server/src/seed/runtime-consumer.ts'));
+    rmSync(path.join(root, 'apps/server/src/relation-include-consumer.ts'));
+    rmSync(path.join(root, 'apps/server/src/relation-select-consumer.ts'));
+    rmSync(path.join(root, 'apps/server/src/relation-where-consumer.ts'));
     rmSync(path.join(root, 'apps/server/src/listing-prisma-consumer.ts'));
     rmSync(path.join(root, 'apps/server/src/listing-sql-consumer.ts'));
     rmSync(path.join(root, 'apps/server/src/coverage-consumer.ts'));
@@ -151,6 +267,65 @@ test('rejects undeclared Prisma and raw SQL ledger reads, then passes after remo
     const legacyOutput = `${legacyGate.stdout}\n${legacyGate.stderr}`;
     assert.equal(legacyGate.status, 1, legacyOutput);
     assert.match(legacyOutput, /legacy-keyword-reader\.ts.*KID-80/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('rejects relation names that drift from the Prisma schema', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'kiditem-ledger-relations-'));
+
+  try {
+    write(
+      root,
+      'scripts/ledger-readers.json',
+      JSON.stringify({
+        version: 1,
+        scanRoots: ['apps/server/src'],
+        prismaSchemaRoots: ['prisma'],
+        ledgers: [
+          {
+            name: 'Advertising target day',
+            table: 'channel_ad_target_daily_snapshots',
+            prismaModel: 'channelAdTargetDailySnapshot',
+            prismaType: 'ChannelAdTargetDailySnapshot',
+            relationNames: ['channelAdTargetDailySnapshots'],
+            reader: 'apps/server/src/advertising/read/ad-target-reader.ts',
+          },
+        ],
+      }),
+    );
+    write(
+      root,
+      'prisma/schema.prisma',
+      `model Organization {
+  id                            String                         @id
+  channelAdTargetDailySnapshots ChannelAdTargetDailySnapshot[]
+}
+
+model AdAction {
+  id            String                        @id
+  adTargetDaily ChannelAdTargetDailySnapshot?
+}
+
+model ChannelAdTargetDailySnapshot {
+  id String @id
+}
+`,
+    );
+    write(
+      root,
+      'apps/server/src/advertising/read/ad-target-reader.ts',
+      'export const reader = true;\n',
+    );
+
+    const result = runScanner(root);
+    const output = `${result.stdout}\n${result.stderr}`;
+    assert.equal(result.status, 1, output);
+    assert.match(
+      output,
+      /relationNames do not match the Prisma schema.*missing: adTargetDaily/,
+    );
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

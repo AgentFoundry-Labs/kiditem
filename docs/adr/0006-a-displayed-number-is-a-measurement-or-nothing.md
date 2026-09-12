@@ -43,10 +43,10 @@ second one.
   `apps/server/src/common/ad-window-facts.ts`, gated on the current completed
   sweep and product grain (KID-57, 2026-09-12: the listing-day ad columns had
   lost their only writer while every consumer read them). The scanner
-  `npm run check:listing-day-ad-reader` fails any other production read of the
-  ledger outside the Advertising owner. The listing table's ad columns and the
-  coverage-status columns are dead and can be dropped when a schema change is
-  next scheduled.
+  `npm run check:ledger-readers` fails production access outside the manifest's
+  canonical reader, exact owner publications, and named legacy readers. The
+  listing table's ad columns and the coverage-status columns are dead and can
+  be dropped when a schema change is next scheduled.
 - The wire carries no derived word: no `status` on a source status object, no
   `status` / `includedDays` / `missingDates` on a period basis, no `status` /
   `partial` on a snapshot basis, no evidence word on an ad publication or an

@@ -2,6 +2,7 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import ts from 'typescript';
 
 const SOURCE_EXTENSIONS = new Set([
   '.cjs',
@@ -14,6 +15,12 @@ const SOURCE_EXTENSIONS = new Set([
 ]);
 const PRISMA_READ_METHODS =
   'findMany|findFirst|findFirstOrThrow|findUnique|findUniqueOrThrow|aggregate|groupBy|count';
+const PRISMA_RELATION_CONTAINERS = new Set([
+  'include',
+  'orderBy',
+  'select',
+  'where',
+]);
 const RETIRED_LISTING_AD_WRITERS = new Set([
   'apps/server/src/advertising/adapter/out/repository/channel-listing-daily.repository.adapter.ts',
   'apps/server/src/advertising/adapter/out/repository/ad-traffic-source.repository.ts',
@@ -74,6 +81,97 @@ function validateRelativePath(root, value, label) {
   return relativePath;
 }
 
+function listFilesWithExtension(root, relativeRoots, extension) {
+  const files = [];
+  const visit = (absoluteDirectory) => {
+    for (const entry of readdirSync(absoluteDirectory, {
+      withFileTypes: true,
+    })) {
+      const absolutePath = path.join(absoluteDirectory, entry.name);
+      if (entry.isDirectory()) {
+        visit(absolutePath);
+      } else if (entry.isFile() && path.extname(entry.name) === extension) {
+        files.push(absolutePath);
+      }
+    }
+  };
+  for (const relativeRoot of relativeRoots) {
+    visit(path.join(root, relativeRoot));
+  }
+  return files.sort();
+}
+
+function deriveRelationNames(root, prismaSchemaRoots, prismaType) {
+  const relationNames = new Set();
+  let currentModel = null;
+  let foundTargetModel = false;
+  const relationFieldPattern = new RegExp(
+    `^\\s*([A-Za-z_]\\w*)\\s+${escapeRegExp(prismaType)}(?:\\[\\]|\\?)?(?:\\s|$)`,
+  );
+
+  for (const schemaFile of listFilesWithExtension(
+    root,
+    prismaSchemaRoots,
+    '.prisma',
+  )) {
+    for (const sourceLine of readFileSync(schemaFile, 'utf8').split('\n')) {
+      const line = sourceLine.replace(/\/\/.*$/, '');
+      const modelStart = /^\s*model\s+([A-Za-z_]\w*)\s*\{/.exec(line);
+      if (modelStart) {
+        currentModel = modelStart[1];
+        if (currentModel === prismaType) foundTargetModel = true;
+        continue;
+      }
+      if (currentModel && /^\s*}/.test(line)) {
+        currentModel = null;
+        continue;
+      }
+      if (!currentModel || currentModel === prismaType) continue;
+      const relationField = relationFieldPattern.exec(line);
+      if (relationField) relationNames.add(relationField[1]);
+    }
+  }
+
+  if (!foundTargetModel) {
+    throw new Error(`Prisma schema does not define model ${prismaType}`);
+  }
+  return [...relationNames].sort();
+}
+
+function validateRelationNames({
+  root,
+  prismaSchemaRoots,
+  prismaType,
+  relationNames,
+  prefix,
+}) {
+  if (!Array.isArray(relationNames)) {
+    throw new Error(`${prefix}.relationNames must be an array`);
+  }
+  const declared = relationNames.map((name, index) =>
+    requireString(name, `${prefix}.relationNames[${index}]`),
+  );
+  if (new Set(declared).size !== declared.length) {
+    throw new Error(`${prefix}.relationNames contains duplicates`);
+  }
+
+  const schemaNames = deriveRelationNames(root, prismaSchemaRoots, prismaType);
+  const declaredNames = new Set(declared);
+  const schemaNameSet = new Set(schemaNames);
+  const missing = schemaNames.filter((name) => !declaredNames.has(name));
+  const extra = declared.filter((name) => !schemaNameSet.has(name)).sort();
+  if (missing.length > 0 || extra.length > 0) {
+    const details = [
+      missing.length > 0 ? `missing: ${missing.join(', ')}` : null,
+      extra.length > 0 ? `extra: ${extra.join(', ')}` : null,
+    ].filter(Boolean);
+    throw new Error(
+      `${prefix}.relationNames do not match the Prisma schema (${details.join('; ')})`,
+    );
+  }
+  return [...declared].sort();
+}
+
 function validateManifest(root, input) {
   if (!input || input.version !== 1)
     throw new Error('ledger reader manifest version must be 1');
@@ -83,9 +181,20 @@ function validateManifest(root, input) {
   if (!Array.isArray(input.ledgers) || input.ledgers.length === 0) {
     throw new Error('ledger reader manifest needs at least one ledger');
   }
+  if (
+    !Array.isArray(input.prismaSchemaRoots) ||
+    input.prismaSchemaRoots.length === 0
+  ) {
+    throw new Error(
+      'ledger reader manifest needs at least one prismaSchemaRoot',
+    );
+  }
 
   const scanRoots = input.scanRoots.map((entry, index) =>
     validateRelativePath(root, entry, `scanRoots[${index}]`),
+  );
+  const prismaSchemaRoots = input.prismaSchemaRoots.map((entry, index) =>
+    validateRelativePath(root, entry, `prismaSchemaRoots[${index}]`),
   );
   const tables = new Set();
   const prismaModels = new Set();
@@ -97,6 +206,14 @@ function validateManifest(root, input) {
       entry?.prismaModel,
       `${prefix}.prismaModel`,
     );
+    const prismaType = requireString(entry?.prismaType, `${prefix}.prismaType`);
+    const relationNames = validateRelationNames({
+      root,
+      prismaSchemaRoots,
+      prismaType,
+      relationNames: entry?.relationNames,
+      prefix,
+    });
     const reader = validateRelativePath(
       root,
       entry?.reader,
@@ -159,13 +276,15 @@ function validateManifest(root, input) {
       name,
       table,
       prismaModel,
+      prismaType,
+      relationNames,
       reader,
       ownerPublications,
       legacyReaders,
     };
   });
 
-  return { scanRoots, ledgers };
+  return { scanRoots, prismaSchemaRoots, ledgers };
 }
 
 function listSourceFiles(root, scanRoots) {
@@ -191,18 +310,82 @@ function listSourceFiles(root, scanRoots) {
 
 function isTestOrSeed(relativePath) {
   return (
-    /(^|\/)(__tests__|test-helpers|seeds?)(\/|$)/.test(relativePath) ||
+    /(^|\/)(__tests__|test-helpers)(\/|$)/.test(relativePath) ||
     /\.(spec|test|seed)\.[^.]+$/.test(relativePath)
   );
 }
 
-function detectReads(source, ledger) {
-  const reads = [];
-  const prismaPattern = new RegExp(
-    `\\b${escapeRegExp(ledger.prismaModel)}\\s*\\.\\s*(${PRISMA_READ_METHODS})\\s*\\(`,
-    'm',
+function propertyName(node) {
+  if (!node?.name) return null;
+  if (
+    ts.isIdentifier(node.name) ||
+    ts.isStringLiteral(node.name) ||
+    ts.isNumericLiteral(node.name)
+  ) {
+    return node.name.text;
+  }
+  if (
+    ts.isComputedPropertyName(node.name) &&
+    ts.isStringLiteral(node.name.expression)
+  ) {
+    return node.name.expression.text;
+  }
+  return null;
+}
+
+function isInsidePrismaRelationContainer(node) {
+  for (let ancestor = node.parent; ancestor; ancestor = ancestor.parent) {
+    if (
+      (ts.isPropertyAssignment(ancestor) ||
+        ts.isShorthandPropertyAssignment(ancestor)) &&
+      PRISMA_RELATION_CONTAINERS.has(propertyName(ancestor))
+    ) {
+      return true;
+    }
+    if (ts.isSourceFile(ancestor) || ts.isFunctionLike(ancestor)) return false;
+  }
+  return false;
+}
+
+function hasPrismaRelationRead(source, relationNames) {
+  if (relationNames.length === 0) return false;
+  const relationNameSet = new Set(relationNames);
+  const sourceFile = ts.createSourceFile(
+    'ledger-reader.tsx',
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TSX,
   );
-  if (prismaPattern.test(source)) reads.push('Prisma read');
+  let found = false;
+  const visit = (node) => {
+    if (found) return;
+    if (
+      (ts.isPropertyAssignment(node) ||
+        ts.isShorthandPropertyAssignment(node)) &&
+      relationNameSet.has(propertyName(node)) &&
+      isInsidePrismaRelationContainer(node)
+    ) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return found;
+}
+
+function detectLedgerAccess(source, ledger) {
+  const reads = [];
+  const prismaModel = escapeRegExp(ledger.prismaModel);
+  const prismaDelegatePattern = new RegExp(
+    `(?:\\?\\.\\s*${prismaModel}\\b|\\.\\s*${prismaModel}\\b|\\[\\s*(['"])${prismaModel}\\1\\s*\\]|\\{[^{}]*\\b${prismaModel}\\b[^{}]*\\})`,
+    'ms',
+  );
+  if (prismaDelegatePattern.test(source)) reads.push('Prisma delegate access');
+  if (hasPrismaRelationRead(source, ledger.relationNames)) {
+    reads.push('Prisma relation read');
+  }
 
   const rawSqlPattern = new RegExp(
     `\\b(?:from|join)\\s+(?:"?[A-Za-z_][A-Za-z0-9_]*"?\\.)?"?${escapeRegExp(ledger.table)}"?\\b`,
@@ -258,7 +441,7 @@ export function inspectLedgerReaders({
     for (const file of files) {
       if (allowed.has(file)) continue;
       const source = readFileSync(path.join(root, file), 'utf8');
-      for (const kind of detectReads(source, ledger)) {
+      for (const kind of detectLedgerAccess(source, ledger)) {
         violations.push({
           file,
           kind,
