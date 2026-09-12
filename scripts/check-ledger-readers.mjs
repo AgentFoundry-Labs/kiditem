@@ -13,8 +13,18 @@ const SOURCE_EXTENSIONS = new Set([
   '.ts',
   '.tsx',
 ]);
-const PRISMA_READ_METHODS =
-  'findMany|findFirst|findFirstOrThrow|findUnique|findUniqueOrThrow|aggregate|groupBy|count';
+const PRISMA_READ_METHOD_NAMES = [
+  'aggregate',
+  'count',
+  'findFirst',
+  'findFirstOrThrow',
+  'findMany',
+  'findUnique',
+  'findUniqueOrThrow',
+  'groupBy',
+];
+const PRISMA_READ_METHODS = PRISMA_READ_METHOD_NAMES.join('|');
+const PRISMA_READ_METHOD_SET = new Set(PRISMA_READ_METHOD_NAMES);
 const RETIRED_LISTING_AD_WRITERS = new Set([
   'apps/server/src/advertising/adapter/out/repository/channel-listing-daily.repository.adapter.ts',
   'apps/server/src/advertising/adapter/out/repository/ad-traffic-source.repository.ts',
@@ -95,8 +105,12 @@ function listFilesWithExtension(root, relativeRoots, extension) {
   return files.sort();
 }
 
-function deriveRelationNames(root, prismaSchemaRoots, prismaType) {
-  const relationNames = new Set();
+function lowerCamel(value) {
+  return value[0].toLowerCase() + value.slice(1);
+}
+
+function derivePrismaRelations(root, prismaSchemaRoots, prismaType) {
+  const relations = [];
   let currentModel = null;
   let foundTargetModel = false;
   const relationFieldPattern = new RegExp(
@@ -122,14 +136,23 @@ function deriveRelationNames(root, prismaSchemaRoots, prismaType) {
       }
       if (!currentModel || currentModel === prismaType) continue;
       const relationField = relationFieldPattern.exec(line);
-      if (relationField) relationNames.add(relationField[1]);
+      if (relationField) {
+        relations.push({
+          name: relationField[1],
+          parentDelegate: lowerCamel(currentModel),
+        });
+      }
     }
   }
 
   if (!foundTargetModel) {
     throw new Error(`Prisma schema does not define model ${prismaType}`);
   }
-  return [...relationNames].sort();
+  return relations.sort(
+    (left, right) =>
+      left.parentDelegate.localeCompare(right.parentDelegate) ||
+      left.name.localeCompare(right.name),
+  );
 }
 
 function validateRelationNames({
@@ -149,7 +172,14 @@ function validateRelationNames({
     throw new Error(`${prefix}.relationNames contains duplicates`);
   }
 
-  const schemaNames = deriveRelationNames(root, prismaSchemaRoots, prismaType);
+  const prismaRelations = derivePrismaRelations(
+    root,
+    prismaSchemaRoots,
+    prismaType,
+  );
+  const schemaNames = [
+    ...new Set(prismaRelations.map((relation) => relation.name)),
+  ].sort();
   const declaredNames = new Set(declared);
   const schemaNameSet = new Set(schemaNames);
   const missing = schemaNames.filter((name) => !declaredNames.has(name));
@@ -163,7 +193,7 @@ function validateRelationNames({
       `${prefix}.relationNames do not match the Prisma schema (${details.join('; ')})`,
     );
   }
-  return [...declared].sort();
+  return { relationNames: [...declared].sort(), prismaRelations };
 }
 
 function validateManifest(root, input) {
@@ -201,7 +231,7 @@ function validateManifest(root, input) {
       `${prefix}.prismaModel`,
     );
     const prismaType = requireString(entry?.prismaType, `${prefix}.prismaType`);
-    const relationNames = validateRelationNames({
+    const { relationNames, prismaRelations } = validateRelationNames({
       root,
       prismaSchemaRoots,
       prismaType,
@@ -272,6 +302,7 @@ function validateManifest(root, input) {
       prismaModel,
       prismaType,
       relationNames,
+      prismaRelations,
       reader,
       ownerPublications,
       legacyReaders,
@@ -327,9 +358,126 @@ function propertyName(node) {
   return null;
 }
 
-function hasPrismaRelationRead(source, relationNames) {
-  if (relationNames.length === 0) return false;
-  const relationNameSet = new Set(relationNames);
+function memberAccessName(node) {
+  if (ts.isPropertyAccessExpression(node)) return node.name.text;
+  if (
+    ts.isElementAccessExpression(node) &&
+    node.argumentExpression &&
+    ts.isStringLiteral(node.argumentExpression)
+  ) {
+    return node.argumentExpression.text;
+  }
+  return null;
+}
+
+function unwrapExpression(node) {
+  let current = node;
+  while (
+    ts.isParenthesizedExpression(current) ||
+    ts.isAsExpression(current) ||
+    ts.isTypeAssertionExpression(current) ||
+    ts.isNonNullExpression(current) ||
+    ts.isSatisfiesExpression(current)
+  ) {
+    current = current.expression;
+  }
+  return current;
+}
+
+function collectConstInitializers(sourceFile) {
+  const initializers = new Map();
+  const visit = (node) => {
+    if (
+      ts.isVariableDeclaration(node) &&
+      node.initializer &&
+      ts.isIdentifier(node.name) &&
+      ts.isVariableDeclarationList(node.parent) &&
+      (node.parent.flags & ts.NodeFlags.Const) !== 0
+    ) {
+      initializers.set(node.name.text, node.initializer);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return initializers;
+}
+
+function resolveDelegateName(node, initializers, visited = new Set()) {
+  const expression = unwrapExpression(node);
+  if (visited.has(expression)) return null;
+  visited.add(expression);
+
+  const directName = memberAccessName(expression);
+  if (directName) return directName;
+  if (!ts.isIdentifier(expression)) return null;
+  const initializer = initializers.get(expression.text);
+  return initializer
+    ? resolveDelegateName(initializer, initializers, visited)
+    : null;
+}
+
+function hasReachableRelationProperty(
+  node,
+  relationNames,
+  initializers,
+  visited,
+) {
+  const expression = unwrapExpression(node);
+  if (visited.has(expression)) return false;
+  visited.add(expression);
+
+  if (ts.isIdentifier(expression)) {
+    const initializer = initializers.get(expression.text);
+    return initializer
+      ? hasReachableRelationProperty(
+          initializer,
+          relationNames,
+          initializers,
+          visited,
+        )
+      : false;
+  }
+  if (ts.isObjectLiteralExpression(expression)) {
+    return expression.properties.some((property) => {
+      if (
+        (ts.isPropertyAssignment(property) ||
+          ts.isShorthandPropertyAssignment(property)) &&
+        relationNames.has(propertyName(property))
+      ) {
+        return true;
+      }
+      if (ts.isPropertyAssignment(property)) {
+        return hasReachableRelationProperty(
+          property.initializer,
+          relationNames,
+          initializers,
+          visited,
+        );
+      }
+      if (ts.isShorthandPropertyAssignment(property)) {
+        return hasReachableRelationProperty(
+          property.name,
+          relationNames,
+          initializers,
+          visited,
+        );
+      }
+      if (ts.isSpreadAssignment(property)) {
+        return hasReachableRelationProperty(
+          property.expression,
+          relationNames,
+          initializers,
+          visited,
+        );
+      }
+      return false;
+    });
+  }
+  return false;
+}
+
+function hasPrismaRelationRead(source, prismaRelations) {
+  if (prismaRelations.length === 0) return false;
   const sourceFile = ts.createSourceFile(
     'ledger-reader.tsx',
     source,
@@ -337,16 +485,45 @@ function hasPrismaRelationRead(source, relationNames) {
     true,
     ts.ScriptKind.TSX,
   );
+  const initializers = collectConstInitializers(sourceFile);
+  const relationsByDelegate = new Map();
+  for (const relation of prismaRelations) {
+    const relationNames = relationsByDelegate.get(relation.parentDelegate);
+    if (relationNames) relationNames.add(relation.name);
+    else
+      relationsByDelegate.set(
+        relation.parentDelegate,
+        new Set([relation.name]),
+      );
+  }
   let found = false;
   const visit = (node) => {
     if (found) return;
-    if (
-      (ts.isPropertyAssignment(node) ||
-        ts.isShorthandPropertyAssignment(node)) &&
-      relationNameSet.has(propertyName(node))
-    ) {
-      found = true;
-      return;
+    if (ts.isCallExpression(node)) {
+      const methodName = memberAccessName(node.expression);
+      if (methodName && PRISMA_READ_METHOD_SET.has(methodName)) {
+        const delegateName = resolveDelegateName(
+          node.expression.expression,
+          initializers,
+        );
+        const relationNames = delegateName
+          ? relationsByDelegate.get(delegateName)
+          : null;
+        if (
+          relationNames &&
+          node.arguments.some((argument) =>
+            hasReachableRelationProperty(
+              argument,
+              relationNames,
+              initializers,
+              new Set(),
+            ),
+          )
+        ) {
+          found = true;
+          return;
+        }
+      }
     }
     ts.forEachChild(node, visit);
   };
@@ -362,7 +539,7 @@ function detectLedgerAccess(source, ledger) {
     'ms',
   );
   if (prismaDelegatePattern.test(source)) reads.push('Prisma delegate access');
-  if (hasPrismaRelationRead(source, ledger.relationNames)) {
+  if (hasPrismaRelationRead(source, ledger.prismaRelations)) {
     reads.push('Prisma relation read');
   }
 

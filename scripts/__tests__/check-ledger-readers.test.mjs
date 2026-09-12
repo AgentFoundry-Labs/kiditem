@@ -178,6 +178,21 @@ model ChannelAdTargetDailySnapshot {
     );
     write(
       root,
+      'apps/server/src/spread-relation-alias-consumer.ts',
+      'const relationFilter = { adTargetDaily: { isNot: null } };\nconst alias = relationFilter;\nconst args = { where: { ...alias } };\nconst adActions = tx.adAction;\nawait adActions.findMany(args);\n',
+    );
+    write(
+      root,
+      'apps/server/src/standalone-dto.ts',
+      'export const response = { adTargetDaily: null };\n',
+    );
+    write(
+      root,
+      'apps/server/src/query-then-dto-mapper.ts',
+      'const actions = await tx.adAction.findMany({});\nexport const response = actions.map(() => ({ adTargetDaily: null }));\n',
+    );
+    write(
+      root,
       'apps/server/src/listing-prisma-consumer.ts',
       'tx.channelListingDailySnapshot.findMany({ select: { adSpend: true } });\n',
     );
@@ -239,6 +254,12 @@ model ChannelAdTargetDailySnapshot {
     );
     assert.match(
       failedOutput,
+      /spread-relation-alias-consumer\.ts.*Prisma relation read/,
+    );
+    assert.doesNotMatch(failedOutput, /standalone-dto\.ts/);
+    assert.doesNotMatch(failedOutput, /query-then-dto-mapper\.ts/);
+    assert.match(
+      failedOutput,
       /listing-prisma-consumer\.ts.*retired Prisma read/,
     );
     assert.match(
@@ -271,6 +292,9 @@ model ChannelAdTargetDailySnapshot {
     );
     rmSync(
       path.join(root, 'apps/server/src/detached-relation-include-consumer.ts'),
+    );
+    rmSync(
+      path.join(root, 'apps/server/src/spread-relation-alias-consumer.ts'),
     );
     rmSync(path.join(root, 'apps/server/src/listing-prisma-consumer.ts'));
     rmSync(path.join(root, 'apps/server/src/listing-sql-consumer.ts'));
