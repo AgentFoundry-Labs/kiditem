@@ -87,7 +87,7 @@ describe('DashboardDataBasis', () => {
 
     render(<DashboardBasisDisclosure label="기간 지표 근거" entries={[{ label: '월 순이익', basis: comparison }]} />);
 
-    fireEvent.click(screen.getByRole('button', { name: '기간 지표 근거 안내' }));
+    fireEvent.click(screen.getByRole('button', { name: /^기간\ 지표\ 근거\ 안내/ }));
 
     const note = await screen.findByRole('note');
     // A comparison is two measured windows, so it never collapses to one row.
@@ -120,7 +120,7 @@ describe('DashboardDataBasis', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: '기간 지표 근거 안내' }));
+    fireEvent.click(screen.getByRole('button', { name: /^기간\ 지표\ 근거\ 안내/ }));
 
     const note = await screen.findByRole('note');
     expect(note).not.toHaveTextContent('모든 값 공통');
@@ -153,7 +153,7 @@ describe('DashboardDataBasis', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: '스냅샷 지표 근거 안내' }));
+    fireEvent.click(screen.getByRole('button', { name: /^스냅샷\ 지표\ 근거\ 안내/ }));
 
     const note = await screen.findByRole('note');
     // The as-of really is shared, so it is said once; the sources are not.
@@ -175,7 +175,7 @@ describe('DashboardDataBasis', () => {
     );
 
     expect(screen.getAllByRole('button')).toHaveLength(1);
-    fireEvent.click(screen.getByRole('button', { name: '기간 지표 근거 안내' }));
+    fireEvent.click(screen.getByRole('button', { name: /^기간\ 지표\ 근거\ 안내/ }));
 
     const row = within(await screen.findByRole('note')).getByRole('row', { name: /광고 커버리지/ });
     expect(row).toHaveTextContent('0/10일');
@@ -202,7 +202,7 @@ describe('DashboardDataBasis', () => {
         }]}
       />,
     );
-    fireEvent.click(screen.getByRole('button', { name: '기간 지표 근거 안내' }));
+    fireEvent.click(screen.getByRole('button', { name: /^기간\ 지표\ 근거\ 안내/ }));
     const note = await screen.findByRole('note');
 
     expect(note).toHaveTextContent(
@@ -223,7 +223,7 @@ describe('DashboardDataBasis', () => {
     const { rerender } = render(
       <DashboardBasisDisclosure label="기간 지표 근거" entries={[{ label: '월 매출', basis: basis(['2026-09-02', '2026-09-03', '2026-09-04']) }]} />,
     );
-    fireEvent.click(screen.getByRole('button', { name: '기간 지표 근거 안내' }));
+    fireEvent.click(screen.getByRole('button', { name: /^기간\ 지표\ 근거\ 안내/ }));
     expect(await screen.findByRole('note')).toHaveTextContent('3일 · 2026-09-02 ~ 2026-09-04');
 
     rerender(
@@ -244,7 +244,7 @@ describe('DashboardDataBasis', () => {
   it('labels the section affordance for a screen reader and keeps it focusable', () => {
     render(<DashboardBasisDisclosure label="기간 지표 근거" entries={[{ label: '월 매출', basis: periodBasis }]} />);
 
-    const trigger = screen.getByRole('button', { name: '기간 지표 근거 안내' });
+    const trigger = screen.getByRole('button', { name: /^기간\ 지표\ 근거\ 안내/ });
     trigger.focus();
     expect(trigger).toHaveFocus();
   });

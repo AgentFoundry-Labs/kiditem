@@ -7,7 +7,7 @@ import {
   type DashboardSnapshotBasis,
 } from '@kiditem/shared/dashboard';
 import { cn } from '@/lib/utils';
-import { InfoDisclosure } from '@/components/ui/InfoDisclosure';
+import { InfoDisclosure, type DisclosureTone } from '@/components/ui/InfoDisclosure';
 
 export type {
   DashboardMetricBasis,
@@ -522,24 +522,84 @@ function SnapshotBreakdownTable({ rows }: { rows: readonly SnapshotRow[] }) {
  * shared basis: it prints one row per value, splits a comparison into its two
  * measured windows, and hoists only the facts every row actually agrees on.
  */
+/**
+ * The panel's worst published state, which is what the ⓘ shows.
+ *
+ * A header with six values is as measured as its least measured one: saying
+ * "complete" while one card is blank would be the caption problem again, in
+ * colour. Nothing published at all stays neutral — an absent basis is not a
+ * claim about the data.
+ */
+function disclosureTone(entries: readonly BasisBreakdownEntry[]): DisclosureTone {
+  let seen = false;
+  let tone: DisclosureTone = 'neutral';
+  for (const entry of entries) {
+    const coverage = entry.coverage;
+    if (coverage) {
+      seen = true;
+      if (coverage.completedDays === 0) return 'absent';
+      if (coverage.completedDays < coverage.targetDays) tone = 'partial';
+      continue;
+    }
+    const basis = entry.basis;
+    if (!basis) continue;
+    seen = true;
+    if (basis.status === 'empty' || basis.status === 'unverified') return 'absent';
+    if (basis.status === 'partial') tone = 'partial';
+  }
+  return seen ? tone : 'neutral';
+}
+
 export function DashboardBasisDisclosure({
   label,
   entries,
+  note,
+  tone,
   className,
 }: {
   label: string;
   entries: readonly BasisBreakdownEntry[];
+  /**
+   * Provenance the basis map does not carry — when the panel was observed, and
+   * what the provider published for itself. It is evidence, not a value, which
+   * is why it reads here rather than across the header.
+   */
+  note?: string | null;
+  /**
+   * For a panel whose state its published bases do not carry. The Wing funnel
+   * knows it collected nothing before any basis says so, and a `neutral` ⓘ over
+   * five dashes would be the caption problem inverted — silent about the one
+   * thing the reader needs.
+   */
+  tone?: DisclosureTone;
   className?: string;
 }) {
   const { periodRows, snapshotRows } = splitBreakdown(entries);
-  if (periodRows.length === 0 && snapshotRows.length === 0) return null;
+  const empty = periodRows.length === 0 && snapshotRows.length === 0;
+  // A panel that states its own tone keeps its affordance even with nothing to
+  // break down. Withholding the ⓘ exactly when a panel is empty leaves the
+  // reader with a row of dashes and nowhere to ask why.
+  if (empty && !note && tone === undefined) return null;
 
   return (
     <InfoDisclosure
       label={label}
-      // DESIGN.md asks for a 40px desktop icon target. A section header has
-      // the room a per-value badge never did.
-      className={cn('h-10 w-10', className)}
+      // The affordance carries the panel's state, so a header needs no words
+      // for it: grey when every value is measured, amber when some window is
+      // short, red when nothing was. That is the whole reason a panel can drop
+      // its `부분 10/11일` and `최근 30일` captions and still say what it is.
+      tone={tone ?? disclosureTone(entries)}
+      // DESIGN.md asks for a 40px desktop icon target, and a 40px box inside a
+      // `py-1.5` header sets the header's height — the affordance was making
+      // every panel header 53px tall for 20px of title. The target is kept and
+      // taken out of the layout instead: a 16px box with a 40px hit area
+      // centred on it through `::after`, which occupies no space.
+      className={cn(
+        'relative h-4 w-4',
+        "after:absolute after:left-1/2 after:top-1/2 after:h-10 after:w-10 after:content-['']",
+        'after:-translate-x-1/2 after:-translate-y-1/2',
+        className,
+      )}
       iconClassName="h-4 w-4"
       // A month of dates per row needs the room; it still scrolls inside its
       // own box rather than pushing the page around.
@@ -547,6 +607,16 @@ export function DashboardBasisDisclosure({
     >
       {periodRows.length > 0 && <PeriodBreakdownTable rows={periodRows} />}
       {snapshotRows.length > 0 && <SnapshotBreakdownTable rows={snapshotRows} />}
+      {empty && !note && (
+        <p className="text-[var(--text-muted)]">
+          아직 수집된 값이 없습니다. 이 패널의 수집을 실행하면 근거가 여기에 표시됩니다.
+        </p>
+      )}
+      {note && (
+        <p className={cn('text-[var(--text-muted)]', !empty && 'mt-2 border-t border-[var(--border-subtle)] pt-2')}>
+          {note}
+        </p>
+      )}
     </InfoDisclosure>
   );
 }

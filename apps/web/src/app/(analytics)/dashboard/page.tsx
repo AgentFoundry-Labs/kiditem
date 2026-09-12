@@ -103,12 +103,6 @@ function coverageIsIncomplete(
     && (coverage.completedDays < coverage.targetDays || coverage.missingDates.length > 0);
 }
 
-function coverageNote(
-  coverage: { targetDays: number; completedDays: number; missingDates: string[] } | null,
-): string | null {
-  if (!coverage || !coverageIsIncomplete(coverage)) return null;
-  return `부분 커버리지 · ${coverage.completedDays}/${coverage.targetDays}일 · 누락 ${coverage.missingDates.length}일`;
-}
 
 function rangeMetricBasis(
   value: MetricBasisCarrier,
@@ -219,8 +213,12 @@ function DashboardSectionHeader({
   scope?: ReactNode;
   controls?: ReactNode;
 }) {
+  // A 2px slate-900 rule was a third border weight the design system does not
+  // have — its borders are slate-200 and slate-100 — and it made a column
+  // heading heavier than every panel under it. A section still reads as a
+  // section: it is the only heading with no card around it.
   return (
-    <div className="flex min-h-[34px] items-center justify-between gap-3 border-b-2 border-slate-900 pb-1.5">
+    <div className="flex min-h-[30px] items-center justify-between gap-3 border-b border-slate-200 pb-1.5">
       <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
         <h2 className="text-sm font-semibold text-slate-900">{title}</h2>
         {scope && <span className="text-[11px] text-slate-500">{scope}</span>}
@@ -479,9 +477,6 @@ export default function Dashboard() {
   // "커버리지 부족", which said the same thing without the numbers.
   const adCoverageNote = adCoverage && adCoverageIncomplete
     ? `부분 ${adCoverage.completedDays}/${adCoverage.targetDays}일`
-    : null;
-  const adCoverageLabel = adCoverage
-    ? `${adCoverage.completedDays}/${adCoverage.targetDays}일`
     : null;
 
   const rawAdRate = rkAd ? rkAd.adRate ?? null : salesMonthly.adRate;
@@ -1099,8 +1094,8 @@ export default function Dashboard() {
         <DashboardTrafficFunnel
           steps={trafficFunnelSteps}
           basis={trafficBasis}
-          coverageLabel={trafficCoverageLabel}
           sourceNote={trafficSourceNote}
+          partial={trafficCoverage !== null && !trafficCoverageComplete}
           collected={trafficAvailable}
           onCollect={requestReadinessOpen}
         />
@@ -1149,7 +1144,6 @@ export default function Dashboard() {
           <DashboardAdPerformance
             rows={adPerformanceRows}
             basis={adRoasBasis}
-            coverageLabel={adCoverageLabel}
           />
 
           {inventoryHasErr ? (

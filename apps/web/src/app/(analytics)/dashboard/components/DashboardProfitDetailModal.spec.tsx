@@ -175,7 +175,7 @@ describe('DashboardProfitDetailModal', () => {
     // One affordance for the modal, but never one claim for both values: the
     // rows' own basis and the net-profit basis stay separate rows naming
     // separate sources.
-    fireEvent.click(screen.getByRole('button', { name: '순이익 구조 근거 안내' }));
+    fireEvent.click(screen.getByRole('button', { name: /^순이익\ 구조\ 근거\ 안내/ }));
 
     const note = await screen.findByRole('note');
     expect(within(note).getByRole('row', { name: /비용 구성/ })).toHaveTextContent('쿠팡 광고');
@@ -197,7 +197,7 @@ describe('DashboardProfitDetailModal', () => {
       adBaseline(),
     );
 
-    fireEvent.click(screen.getByRole('button', { name: '순이익 구조 근거 안내' }));
+    fireEvent.click(screen.getByRole('button', { name: /^순이익\ 구조\ 근거\ 안내/ }));
 
     const note = await screen.findByRole('note');
     expect(within(note).getByRole('row', { name: /비용 구성/ })).toHaveTextContent('셀피아 판매현황');

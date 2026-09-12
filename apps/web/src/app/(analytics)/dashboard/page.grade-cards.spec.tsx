@@ -291,7 +291,12 @@ describe('Dashboard absolute ABC grade cards', () => {
     }
     expect(document.body).not.toHaveTextContent('판매량0');
     expect(document.body).not.toHaveTextContent('조회0');
-    expect(funnel.getByText('Wing 트래픽 미수집')).toBeInTheDocument();
+    // The header carries no status caption: the ⓘ says it, and says it to a
+    // screen reader too rather than only in colour.
+    // The header carries no status caption: the ⓘ says it, and says it to a
+    // screen reader too rather than only in colour.
+    expect(funnel.getByRole('button', { name: /Wing 트래픽 퍼널 근거 안내 · 미수집/ })).toBeInTheDocument();
+    expect(funnel.getByRole('button', { name: '수집 시작 →' })).toBeInTheDocument();
   });
 
   it('renders collected zeroes and daily-average visitors without conflating provider conversion', async () => {
@@ -354,15 +359,16 @@ describe('Dashboard absolute ABC grade cards', () => {
     expect(screen.getByText('조회').parentElement).toHaveTextContent('조회80회');
     expect(screen.getByText('장바구니').parentElement).toHaveTextContent('장바구니0회');
     expect(screen.getByText('구매전환율').parentElement?.parentElement?.parentElement).toHaveTextContent('5.0%');
-    // The provider's own rate is provenance, not a value of ours, so it sits
-    // behind the panel header rather than printed across it. What must never
-    // happen is the two rates being conflated: the card shows ours.
-    const funnelNote = within(screen.getByTestId('dashboard-traffic-funnel'))
-      .getByTitle(/Wing 제공 전환율 2\.9%/);
-    expect(funnelNote).toBeInTheDocument();
+    // The provider's own rate is provenance, not a value of ours, so it reads
+    // inside the ⓘ rather than across the header. What must never happen is the
+    // two rates being conflated: the card shows ours.
+    fireEvent.click(within(screen.getByTestId('dashboard-traffic-funnel'))
+      .getByRole('button', { name: /Wing 트래픽 퍼널 근거 안내/ }));
+    const funnelNote = await screen.findByRole('note');
+    expect(funnelNote).toHaveTextContent('Wing 제공 전환율 2.9%');
     expect(screen.getByText('일별 합산·기간 원본 미대사 · 장바구니')).toBeInTheDocument();
     expect(screen.getByText('기간 원본 불일치로 숨김 · 매출')).toBeInTheDocument();
-    expect(funnelNote.getAttribute('title')).toMatch(/계정 원본 · ALL_NORMAL_RFM · 상품 매칭 합산 아님/);
+    expect(funnelNote).toHaveTextContent('계정 원본 · ALL_NORMAL_RFM · 상품 매칭 합산 아님');
   });
 
   /**
@@ -413,7 +419,10 @@ describe('Dashboard absolute ABC grade cards', () => {
     await waitFor(() => expect(screen.getByText('Kiditem Foundry')).toBeInTheDocument());
 
     const funnel = within(screen.getByTestId('dashboard-traffic-funnel'));
-    expect(funnel.getByText(/부분 10\/11일/)).toBeInTheDocument();
+    // `부분 10/11일` was a caption saying what the ⓘ now says — in colour on
+    // screen, and in its accessible name for anyone not reading colour.
+    expect(funnel.getByRole('button', { name: /근거 안내 · 일부 기간 미수집/ })).toBeInTheDocument();
+    expect(funnel.queryByText(/부분 10\/11일/)).not.toBeInTheDocument();
     expect(funnel.getByText('일평균 방문자').parentElement).toHaveTextContent('일평균 방문자185.1명');
     expect(funnel.getByText('조회').parentElement).toHaveTextContent('조회2,325회');
     expect(funnel.getByText('주문').parentElement).toHaveTextContent('주문92건');

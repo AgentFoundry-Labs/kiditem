@@ -30,18 +30,17 @@ export interface TrafficFunnelStep {
 export function DashboardTrafficFunnel({
   steps,
   basis,
-  coverageLabel,
   sourceNote,
+  partial,
   collected,
   onCollect,
 }: {
   steps: TrafficFunnelStep[];
   basis: DashboardMetricBasis | null;
-  /** The panel's status in a few characters, such as `부분 10/11일`. */
-  coverageLabel: string | null;
-  /** The full provenance sentence, reached through the header rather than
-   *  printed across it. */
+  /** The full provenance sentence, reached through the ⓘ rather than printed. */
   sourceNote: string;
+  /** Some day in the window was not collected. */
+  partial: boolean;
   collected: boolean;
   onCollect: () => void;
 }) {
@@ -69,15 +68,13 @@ export function DashboardTrafficFunnel({
               수집 시작 →
             </button>
           )}
-          <span
-            className={cn('truncate text-xs', collected ? 'text-slate-500' : 'font-medium text-amber-700')}
-            title={collected ? sourceNote : undefined}
-          >
-            {collected ? coverageLabel ?? '수집 완료' : 'Wing 트래픽 미수집'}
-          </span>
+          {/* No caption. `부분 10/11일` said in words what the ⓘ now says in
+              colour, and the provenance sentence is one click away inside it. */}
           <DashboardBasisDisclosure
             label="Wing 트래픽 퍼널 근거"
             entries={[{ label: 'Wing 트래픽', basis }]}
+            note={collected ? sourceNote : null}
+            tone={!collected ? 'absent' : partial ? 'partial' : 'neutral'}
           />
         </div>
       </header>

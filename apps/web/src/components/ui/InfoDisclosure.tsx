@@ -15,14 +15,38 @@ import { cn } from '@/lib/utils';
  * they do not control (missing-date lists grow with the selected range), and a
  * popover must never push the page around.
  */
+/**
+ * What the affordance says about the panel behind it, before it is opened.
+ *
+ * `neutral` makes no claim; `partial` means some window is short; `absent`
+ * means nothing was measured. Colour is never the only carrier — the label a
+ * screen reader announces names the state too.
+ */
+export type DisclosureTone = 'neutral' | 'partial' | 'absent';
+
+const TONE_CLASS: Record<DisclosureTone, string> = {
+  neutral: 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]',
+  partial: 'text-amber-600 hover:text-amber-700',
+  absent: 'text-slate-400 hover:text-slate-600',
+};
+
+const TONE_LABEL: Record<DisclosureTone, string> = {
+  neutral: '',
+  partial: ' · 일부 기간 미수집',
+  absent: ' · 미수집',
+};
+
 export function InfoDisclosure({
   label,
+  tone = 'neutral',
   children,
   className,
   iconClassName,
   contentClassName,
 }: {
   label: string;
+  /** Shown before the popover is opened, so a header needs no status caption. */
+  tone?: DisclosureTone;
   children: ReactNode;
   /** Trigger box. Callers that need a larger hit target resize it here. */
   className?: string;
@@ -35,11 +59,12 @@ export function InfoDisclosure({
       <Popover.Trigger asChild>
         <button
           type="button"
-          aria-label={`${label} 안내`}
-          title={`${label} 안내`}
+          aria-label={`${label} 안내${TONE_LABEL[tone]}`}
+          title={`${label} 안내${TONE_LABEL[tone]}`}
           className={cn(
-            'inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[var(--text-muted)]',
-            'transition-colors hover:bg-[var(--surface-sunken)] hover:text-[var(--text-secondary)]',
+            'inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full',
+            TONE_CLASS[tone],
+            'transition-colors hover:bg-[var(--surface-sunken)]',
             'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]',
             className,
           )}

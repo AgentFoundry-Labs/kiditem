@@ -25,11 +25,9 @@ export interface AdPerformanceRow {
 export function DashboardAdPerformance({
   rows,
   basis,
-  coverageLabel,
 }: {
   rows: AdPerformanceRow[];
   basis: DashboardMetricBasis | null;
-  coverageLabel: string | null;
 }) {
   return (
     <section
@@ -42,7 +40,6 @@ export function DashboardAdPerformance({
           광고 성과 <span className="font-normal text-slate-500">쿠팡</span>
         </h2>
         <div className="flex items-center gap-1.5">
-          {coverageLabel && <span className="text-[11px] tabular-nums text-slate-500">{coverageLabel}</span>}
           <DashboardBasisDisclosure label="광고 성과 근거" entries={[{ label: '쿠팡 광고', basis }]} />
         </div>
       </header>

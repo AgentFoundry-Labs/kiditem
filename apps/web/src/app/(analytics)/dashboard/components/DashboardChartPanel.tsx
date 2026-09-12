@@ -163,10 +163,10 @@ export function DashboardChartPanel({
           </div>
         </div>
         <div className="flex items-center gap-1.5">
-          <span className="text-[11px] text-slate-500">{rangeLabel}</span>
           {/* One ⓘ for the panel, in the place every other panel keeps it. Two
               sentences of prose used to sit under the chart telling the reader
-              where to look for evidence; the affordance is the evidence. */}
+              where to look for evidence, and a `최근 30일` caption repeated the
+              window the ⓘ states; the affordance is the evidence. */}
           <DashboardBasisDisclosure
             label="차트 근거"
             entries={[
