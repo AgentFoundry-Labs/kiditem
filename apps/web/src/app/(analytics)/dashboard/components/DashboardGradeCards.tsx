@@ -26,13 +26,12 @@ type DashboardGradeCardsProps = Pick<
   | 'abcStatusCount'
   | 'abcContributionProfit'
   | 'abcFormula'
-  | 'gradeChanges'
 >;
 
 const GRADE_LABELS: Record<ProductAbcGrade, string> = { A: '고수익 핵심', B: '수익 성장', C: '수익 개선' };
 
 export function DashboardGradeCards({
-  gradeCount, classifiedProductCount, abcStatusCount, abcContributionProfit, abcFormula, gradeChanges,
+  gradeCount, classifiedProductCount, abcStatusCount, abcContributionProfit, abcFormula,
   basis, refetchReads,
 }: DashboardGradeCardsProps & {
   basis?: DashboardMetricBasis | null;
@@ -49,7 +48,7 @@ export function DashboardGradeCards({
       className="overflow-hidden rounded-xl border border-slate-200 bg-white"
       aria-label="수익성 ABC 현황"
     >
-      <header className="flex items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-3 py-1.5">
+      <header className="flex items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-4 py-2.5">
         <h2
           className="text-sm font-semibold text-slate-900"
           title={abcFormula ? `절대평가 v${abcFormula.version} · 반감기 ${abcFormula.halfLifeDays}일` : '상품 관리에서 등급 새로고침을 실행하세요.'}
@@ -57,14 +56,18 @@ export function DashboardGradeCards({
           수익성 ABC
         </h2>
         <div className="flex items-center gap-1.5">
-          <DashboardBasisDisclosure label="수익성 ABC 근거" entries={[{ label: 'ABC 등급', basis }]} />
+          <DashboardBasisDisclosure
+            label="수익성 ABC 근거"
+            entries={[{ label: 'ABC 등급', basis }]}
+            meaning={<AbcCriteria formula={abcFormula} />}
+          />
           <button
             type="button"
             onClick={() => { setFeedback(null); refresh.mutate(); }}
             disabled={refresh.isPending}
             title="ABC 등급 다시 계산"
             aria-label="ABC 등급 다시 계산"
-            className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-0.5 text-[11px] font-semibold text-slate-600 transition-colors hover:border-violet-300 hover:text-violet-700 disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-0.5 text-xs font-semibold text-slate-600 transition-colors hover:border-violet-300 hover:text-violet-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {refresh.isPending
               ? <Loader2 size={11} className="animate-spin" />
@@ -91,21 +94,19 @@ export function DashboardGradeCards({
         ))}
       </div>
 
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-slate-200 px-3 py-1.5 text-[11px] text-slate-500">
+      {/* The panel says what the grades are now. Movement over seven days is a
+          different question and only half of it was ever actionable, so 하락
+          moved to the attention rail — beside the other counts someone has to go
+          act on — and 상승 is not published: nothing follows from it. */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-slate-200 px-4 py-2.5 text-xs text-slate-500">
         <Link href="/product-hub" className="font-semibold text-emerald-700 hover:underline">
           계산 완료 {formatNumber(abcStatusCount.READY)}개
         </Link>
-        <span aria-hidden="true">·</span>
-        <span>
-          {gradeChanges
-            ? `최근 7일 상승 ${formatNumber(gradeChanges.upgraded)} / 하락 ${formatNumber(gradeChanges.downgraded)}`
-            : '최근 7일 변화 —'}
-        </span>
       </div>
       {feedback && (
         <p
           className={cn(
-            'border-t border-slate-200 px-3 py-1.5 text-[11px]',
+            'border-t border-slate-200 px-4 py-2.5 text-xs',
             feedback.tone === 'success' && 'bg-emerald-50 text-emerald-800',
             feedback.tone === 'warning' && 'bg-amber-50 text-amber-800',
             feedback.tone === 'error' && 'bg-red-50 text-red-800',
@@ -126,18 +127,44 @@ function GradeCell({ grade, count, total, contribution }: { grade: ProductAbcGra
       href={`/product-hub?abcGrade=${grade}`}
       aria-label={`${grade}등급 ${GRADE_LABELS[grade]} ${formatNumber(count)}개 가중 영업이익 ${formatNumber(contribution)}원`}
       title={`${GRADE_LABELS[grade]} · 가중 영업이익 ${formatNumber(contribution)}원`}
-      className="bg-white px-2 py-1.5 text-center transition-colors hover:bg-slate-50"
+      className="bg-white px-4 py-3.5 text-center transition-colors hover:bg-slate-50"
     >
-      <p className="text-[11px] font-semibold text-slate-500">{grade}</p>
-      <p className="text-lg font-bold leading-tight tabular-nums text-slate-900">{formatNumber(count)}</p>
+      <p className="text-xs font-semibold text-slate-500">{grade}</p>
+      <p className="text-xl font-bold leading-tight tabular-nums text-slate-900">{formatNumber(count)}</p>
       <div className="mx-auto mt-0.5 h-1 w-full overflow-hidden rounded-full bg-slate-100">
         <div
           className={cn('h-full rounded-full', grade === 'C' ? 'bg-red-500' : 'bg-violet-600')}
           style={{ width: `${Math.min(percent, 100)}%` }}
         />
       </div>
-      <p className="mt-0.5 truncate text-[10px] text-slate-500">{formatNumber(contribution)}원</p>
+      <p className="mt-0.5 truncate text-[11px] text-slate-500">{formatNumber(contribution)}원</p>
     </Link>
   );
 }
 
+
+/**
+ * What decides a grade, read off the published formula rather than restated
+ * here. A threshold written into the screen is a threshold that goes stale the
+ * first time Products changes one, and the reader would have no way to tell.
+ */
+function AbcCriteria({ formula }: { formula: DashboardGradeCardsProps['abcFormula'] }) {
+  if (!formula) {
+    return <p>이익·마진·판매 일관성을 합친 경제점수로 상품을 A·B·C로 나눕니다. 기준값은 상품 관리에서 등급을 새로 계산하면 표시됩니다.</p>;
+  }
+  const { gradeThresholds: t, weights: w, halfLifeDays, minimumSaleAgeDays } = formula;
+  return (
+    <>
+      <p>
+        경제점수 = 이익 {Math.round(w.profit * 100)}% + 마진 {Math.round(w.margin * 100)}% +
+        판매 일관성 {Math.round(w.consistency * 100)}%. 오래된 실적일수록 가볍게 세며, 반감기는 {halfLifeDays}일입니다.
+      </p>
+      <ul className="mt-1 space-y-0.5">
+        <li><b>A {GRADE_LABELS.A}</b> — 경제점수 {t.aEconomicScoreGte} 이상이면서 마진 {t.aMarginScoreGte} 이상, 일관성 {t.aConsistencyScoreGte} 이상</li>
+        <li><b>B {GRADE_LABELS.B}</b> — 경제점수 {t.bEconomicScoreGte} 이상</li>
+        <li><b>C {GRADE_LABELS.C}</b> — 그 아래. 가중 영업이익이나 영업이익률이 0 이하이면 점수와 무관하게 C입니다.</li>
+      </ul>
+      <p className="mt-1">유효 매핑의 최초 판매일로부터 {minimumSaleAgeDays}일이 지나야 평가합니다.</p>
+    </>
+  );
+}

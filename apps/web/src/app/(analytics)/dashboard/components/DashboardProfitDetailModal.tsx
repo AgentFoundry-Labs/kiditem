@@ -145,7 +145,7 @@ export function DashboardProfitDetailModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
       <div className="w-full max-w-md rounded-2xl p-6 bg-white shadow-2xl" onClick={(event) => event.stopPropagation()}>
         <div className="flex items-center justify-between mb-5">
-          <h3 className="text-lg font-bold text-slate-900">순이익 구조</h3>
+          <h3 className="text-xl font-bold text-slate-900">순이익 구조</h3>
           <div className="flex items-center gap-1">
             {/* The modal is its own section, so its evidence is reached the
                 same way: one affordance, broken down per value. */}
@@ -163,7 +163,7 @@ export function DashboardProfitDetailModal({
         </div>
         <div className="space-y-3">
           {view.scopeNote && (
-            <div className="text-[11px] text-slate-400" data-testid="dashboard-profit-detail-scope">{view.scopeNote}</div>
+            <div className="text-xs text-slate-400" data-testid="dashboard-profit-detail-scope">{view.scopeNote}</div>
           )}
           {view.items.map((item) => (
             <div key={item.label} className="flex items-center justify-between">
@@ -201,13 +201,13 @@ export function DashboardProfitDetailModal({
           <div className="pt-3 mt-3 flex items-center justify-between border-t border-slate-200">
             <span className="text-sm font-bold text-slate-900">순이익</span>
             <span className={cn(
-              'text-lg font-extrabold tabular-nums',
+              'text-xl font-extrabold tabular-nums',
               selectedNetProfit === null ? 'text-slate-300' : selectedNetProfit >= 0 ? 'text-emerald-600' : 'text-red-600',
             )}>
               {selectedNetProfit === null ? '—' : `${formatKRW(selectedNetProfit)}원`}
             </span>
           </div>
-          <div className="text-xs text-center mt-2 text-slate-400">
+          <div className="text-[13px] text-center mt-2 text-slate-400">
             {orderCount != null
               ? `주문 ${orderCount}건 기준`
               : `${isMonthSelection ? '' : '이번 달 '}ROAS ${formatNullable(adBaseline.monthly.roas)}% | CTR ${formatNullable(adBaseline.monthly.ctr, 2)}%`}

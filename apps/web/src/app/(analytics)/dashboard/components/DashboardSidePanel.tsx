@@ -57,7 +57,7 @@ function DashboardReadFailureRow({ failure }: { failure: DashboardReadFailure })
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-1.5">
           <span className="truncate text-sm font-medium leading-relaxed text-slate-700">{failure.label}</span>
-          <span className="shrink-0 rounded bg-red-50 px-1.5 py-0.5 text-[10px] font-semibold text-red-700">
+          <span className="shrink-0 rounded bg-red-50 px-1.5 py-0.5 text-[11px] font-semibold text-red-700">
             읽기 실패
           </span>
         </div>
@@ -97,14 +97,14 @@ function DashboardAlertRow({ alert }: { alert: DashboardAlertItem }) {
           {!alert.isRead && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-red-500" aria-label="읽지 않음" />}
           {alertStatusLabel(alert.status) && (
             <span className={cn(
-              'shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold',
+              'shrink-0 rounded px-1.5 py-0.5 text-[11px] font-semibold',
               open ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700',
             )}>
               {alertStatusLabel(alert.status)}
             </span>
           )}
         </div>
-        {alert.message && <div className="mt-0.5 truncate text-xs text-slate-500">{alert.message}</div>}
+        {alert.message && <div className="mt-0.5 truncate text-[13px] text-slate-500">{alert.message}</div>}
       </div>
     </>
   );
@@ -140,10 +140,10 @@ export function DashboardSidePanel({
 
   return (
     <div className="flex h-full flex-col overflow-hidden rounded-xl border border-slate-200 bg-white">
-      <div className="flex items-center gap-1.5 border-b border-slate-200 bg-slate-50 px-3 py-1.5">
+      <div className="flex items-center gap-1.5 border-b border-slate-200 bg-slate-50 px-4 py-2.5">
         <AlertTriangle size={13} className="text-slate-500" />
         <span className="text-sm font-semibold text-slate-900">알림</span>
-        {unreadCount > 0 && <span className="rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-700">{unreadCount}</span>}
+        {unreadCount > 0 && <span className="rounded-full bg-red-100 px-1.5 py-0.5 text-[11px] font-medium text-red-700">{unreadCount}</span>}
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
         {readFailures.map((failure) => (
@@ -153,7 +153,7 @@ export function DashboardSidePanel({
         {alerts.length === 0 && readFailures.length === 0 && (
           <div className="px-4 py-8 text-center">
             <ShieldCheck size={24} className="mx-auto mb-2 text-emerald-500" />
-            <div className="text-xs text-slate-400">표시할 알림이 없습니다</div>
+            <div className="text-[13px] text-slate-400">표시할 알림이 없습니다</div>
           </div>
         )}
       </div>

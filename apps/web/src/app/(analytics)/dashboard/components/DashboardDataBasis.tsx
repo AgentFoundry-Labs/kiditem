@@ -223,7 +223,7 @@ export function DashboardDataBasis({
 
   if (basis.kind === 'snapshot') {
     return (
-      <div className={cn('text-[11px] text-slate-400', className)} data-testid="dashboard-data-basis">
+      <div className={cn('text-xs text-slate-400', className)} data-testid="dashboard-data-basis">
         {basisSummary(basis)}
         {basis.observedAt && <span className="ml-1">· 관측 {String(basis.observedAt)}</span>}
       </div>
@@ -232,7 +232,7 @@ export function DashboardDataBasis({
 
   return (
     <span
-      className={cn('inline-flex items-start gap-1 text-[11px] text-slate-400', className)}
+      className={cn('inline-flex items-start gap-1 text-xs text-slate-400', className)}
       data-testid="dashboard-data-basis"
     >
       <span>{basisSummary(basis)}</span>
@@ -402,7 +402,7 @@ function SharedFacts({ facts }: { facts: ReadonlyArray<[string, string | null]> 
 // The app's base table styles uppercase every `th` and hold every `td` on one
 // line. Both are wrong for an evidence table: they mangle mixed-script labels
 // and would push a month of dates 3,000px to the right.
-const CELL = 'py-1 pr-3 align-top text-[11px] normal-case tracking-normal whitespace-normal';
+const CELL = 'py-1 pr-3 align-top text-xs normal-case tracking-normal whitespace-normal';
 const HEAD = cn(CELL, 'text-left font-semibold');
 
 /** A date list is bounded here so the column wraps instead of growing. */
@@ -553,6 +553,7 @@ function disclosureTone(entries: readonly BasisBreakdownEntry[]): DisclosureTone
 export function DashboardBasisDisclosure({
   label,
   entries,
+  meaning,
   note,
   tone,
   className,
@@ -564,6 +565,13 @@ export function DashboardBasisDisclosure({
    * what the provider published for itself. It is evidence, not a value, which
    * is why it reads here rather than across the header.
    */
+  /**
+   * What the panel's numbers mean — how a grade is decided, what a step counts,
+   * which rows a ranking admits. The ⓘ answers two questions and this is the
+   * first: a reader who does not know what 경제점수 is cannot use a state
+   * sentence about it.
+   */
+  meaning?: ReactNode;
   note?: string | null;
   /**
    * For a panel whose state its published bases do not carry. The Wing funnel
@@ -576,10 +584,10 @@ export function DashboardBasisDisclosure({
 }) {
   const { periodRows, snapshotRows } = splitBreakdown(entries);
   const empty = periodRows.length === 0 && snapshotRows.length === 0;
-  // A panel that states its own tone keeps its affordance even with nothing to
-  // break down. Withholding the ⓘ exactly when a panel is empty leaves the
-  // reader with a row of dashes and nowhere to ask why.
-  if (empty && !note && tone === undefined) return null;
+  // The affordance is always here. It used to disappear when a panel published
+  // no basis — exactly when the panel is a row of dashes and the reader has
+  // most to ask — and once the captions came off, that left nothing at all
+  // explaining a blank card.
 
   return (
     <InfoDisclosure
@@ -605,6 +613,12 @@ export function DashboardBasisDisclosure({
       // own box rather than pushing the page around.
       contentClassName="max-h-[min(34rem,70vh)] max-w-[min(40rem,calc(100vw-2rem))]"
     >
+      {meaning && (
+        <section className="mb-2">
+          <h4 className="font-semibold text-[var(--text-primary)]">이 패널이 말하는 것</h4>
+          <div className="mt-0.5 text-[var(--text-secondary)]">{meaning}</div>
+        </section>
+      )}
       {periodRows.length > 0 && <PeriodBreakdownTable rows={periodRows} />}
       {snapshotRows.length > 0 && <SnapshotBreakdownTable rows={snapshotRows} />}
       {empty && !note && (

@@ -233,12 +233,19 @@ describe('DashboardDataBasis', () => {
     expect(await screen.findByRole('note')).toHaveTextContent('2일 · 2026-09-02, 2026-09-05');
   });
 
-  it('renders nothing when no value in the section published a basis', () => {
-    const { container } = render(
+  /**
+   * The affordance used to disappear when a panel published no basis — exactly
+   * when the panel is a row of dashes and the reader has most to ask. Once the
+   * per-card captions came off, that left a blank card with nothing at all
+   * explaining it.
+   */
+  it('keeps the affordance when no value published a basis, and says so', async () => {
+    render(
       <DashboardBasisDisclosure label="기간 지표 근거" entries={[{ label: '월 매출', basis: null }]} />,
     );
 
-    expect(container).toBeEmptyDOMElement();
+    fireEvent.click(screen.getByRole('button', { name: /^기간 지표 근거 안내/ }));
+    expect(await screen.findByRole('note')).toHaveTextContent('아직 수집된 값이 없습니다');
   });
 
   it('labels the section affordance for a screen reader and keeps it focusable', () => {

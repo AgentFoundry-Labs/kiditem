@@ -35,12 +35,22 @@ export function DashboardAdPerformance({
       aria-labelledby="dashboard-ad-performance-title"
       data-testid="dashboard-ad-performance"
     >
-      <header className="flex items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-3 py-1.5">
+      <header className="flex items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-4 py-2.5">
         <h2 id="dashboard-ad-performance-title" className="text-sm font-semibold text-slate-900">
           광고 성과 <span className="font-normal text-slate-500">쿠팡</span>
         </h2>
         <div className="flex items-center gap-1.5">
-          <DashboardBasisDisclosure label="광고 성과 근거" entries={[{ label: '쿠팡 광고', basis }]} />
+          <DashboardBasisDisclosure
+            label="광고 성과 근거"
+            entries={[{ label: '쿠팡 광고', basis }]}
+            meaning={(
+              <p>
+                쿠팡 광고 계정의 일별 실적을 선택한 기간만큼 합친 값입니다. 광고전환매출은
+                광고를 거쳐 발생한 매출이라 전체 매출의 부분집합이고, 수집되지 않은 날은
+                0이 아니라 빠진 것으로 셉니다.
+              </p>
+            )}
+          />
         </div>
       </header>
       <table className="w-full border-collapse text-sm">
@@ -48,11 +58,11 @@ export function DashboardAdPerformance({
         <tbody>
           {rows.map(row => (
             <tr key={row.key} className="border-b border-slate-100 last:border-b-0">
-              <th scope="row" className="px-3 py-1.5 text-left font-medium text-slate-700">
+              <th scope="row" className="px-4 py-2.5 text-left font-medium text-slate-700">
                 {row.label}
-                {row.sublabel && <>{' '}<span className="text-xs font-normal text-slate-500">{row.sublabel}</span></>}
+                {row.sublabel && <>{' '}<span className="text-[13px] font-normal text-slate-500">{row.sublabel}</span></>}
               </th>
-              <td className="px-3 py-1.5 text-right font-semibold tabular-nums text-slate-900">{row.display}</td>
+              <td className="px-4 py-2.5 text-right font-semibold tabular-nums text-slate-900">{row.display}</td>
             </tr>
           ))}
         </tbody>

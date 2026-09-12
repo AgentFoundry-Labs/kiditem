@@ -96,12 +96,6 @@ function percentage(value: number | null, base: number | null): number | null {
   return value !== null && base !== null && base > 0 ? (value / base) * 100 : null;
 }
 
-function coverageIsIncomplete(
-  coverage: { targetDays: number; completedDays: number; missingDates: string[] } | null,
-): boolean {
-  return coverage !== null
-    && (coverage.completedDays < coverage.targetDays || coverage.missingDates.length > 0);
-}
 
 
 function rangeMetricBasis(
@@ -170,6 +164,7 @@ const EMPTY_INVENTORY_SUMMARY: DashboardInventorySummary = {
   warnings: { minusProducts: 0, lowProfitProducts: 0, highAdProducts: 0, outOfStockSkus: 0, mappingAttentionSkus: 0 },
 };
 
+
 function DashboardSectionEmpty({ label }: { label: string }) {
   return <div className="flex items-center justify-center gap-2 py-6 text-sm text-slate-400">{label} 데이터가 없습니다.</div>;
 }
@@ -187,7 +182,7 @@ function DashboardSectionUnavailable({ label, className }: { label: string; clas
       data-section={label}
     >
       <span className="text-sm font-semibold text-red-600">읽기 실패</span>
-      <span className="text-xs text-slate-400">{label} 값을 읽지 못했습니다. 알림에서 다시 시도할 수 있습니다.</span>
+      <span className="text-[13px] text-slate-400">{label} 값을 읽지 못했습니다. 알림에서 다시 시도할 수 있습니다.</span>
     </div>
   );
 }
@@ -221,7 +216,7 @@ function DashboardSectionHeader({
     <div className="flex min-h-[30px] items-center justify-between gap-3 border-b border-slate-200 pb-1.5">
       <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
         <h2 className="text-sm font-semibold text-slate-900">{title}</h2>
-        {scope && <span className="text-[11px] text-slate-500">{scope}</span>}
+        {scope && <span className="text-xs text-slate-500">{scope}</span>}
       </div>
       {controls}
     </div>
@@ -443,7 +438,6 @@ export default function Dashboard() {
   // Partial evidence still supports the values that were actually measured.
   // Coverage is disclosed beside the metric; it must not turn non-null partial
   // values into an unavailable card.
-  const adCoverageIncomplete = coverageIsIncomplete(adCoverage);
   const adConvRevenue = rawAdConvRevenue;
   const adRoas = rawAdRoas;
   const adPrevRoas = rawAdPrevRoas;
@@ -473,11 +467,6 @@ export default function Dashboard() {
         : `${formatNumber(adConversions)}건${adCvr === null || adCvr === undefined ? '' : ` · ${adCvr.toFixed(2)}%`}`,
     },
   ];
-  // "부분 N/M일" is the one phrase for partially collected. It replaces
-  // "커버리지 부족", which said the same thing without the numbers.
-  const adCoverageNote = adCoverage && adCoverageIncomplete
-    ? `부분 ${adCoverage.completedDays}/${adCoverage.targetDays}일`
-    : null;
 
   const rawAdRate = rkAd ? rkAd.adRate ?? null : salesMonthly.adRate;
   const rawAdPrevRate = rkAd ? rkAd.prevAdRate ?? null : salesMonthly.prevAdRate;
@@ -827,22 +816,22 @@ export default function Dashboard() {
             <Zap size={18} className="text-white" />
           </div>
           <div>
-            <h1 className="text-lg font-bold tracking-tight text-slate-900">Kiditem Foundry</h1>
+            <h1 className="text-xl font-bold tracking-tight text-slate-900">Kiditem Foundry</h1>
             <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5">
-              <span className="text-xs font-mono text-slate-500">운영 상품 {inventoryData ? formatNumber(inventory.totalProducts) : '—'}</span>
-              <span className="text-xs font-mono text-slate-400">·</span>
-              <span className="text-xs font-mono text-slate-500">채널 연결 {inventoryData ? formatNumber(channelLinkedProducts) : '—'}</span>
+              <span className="text-[13px] font-mono text-slate-500">운영 상품 {inventoryData ? formatNumber(inventory.totalProducts) : '—'}</span>
+              <span className="text-[13px] font-mono text-slate-400">·</span>
+              <span className="text-[13px] font-mono text-slate-500">채널 연결 {inventoryData ? formatNumber(channelLinkedProducts) : '—'}</span>
               {inventoryData && channelUnlinkedProducts > 0 && (
                 <>
-                  <span className="text-xs font-mono text-slate-400">·</span>
-                  <span className="text-xs font-mono text-amber-700">미연결 {formatNumber(channelUnlinkedProducts)}</span>
+                  <span className="text-[13px] font-mono text-slate-400">·</span>
+                  <span className="text-[13px] font-mono text-amber-700">미연결 {formatNumber(channelUnlinkedProducts)}</span>
                 </>
               )}
-              <span className="text-xs font-mono text-slate-400" aria-hidden="true">·</span>
-              <span className="text-xs font-mono text-slate-500" title={observedAtTitle}>관측 {observedAgo}</span>
+              <span className="text-[13px] font-mono text-slate-400" aria-hidden="true">·</span>
+              <span className="text-[13px] font-mono text-slate-500" title={observedAtTitle}>관측 {observedAgo}</span>
               {periodShifted && latestDataDate && (
                 <span
-                  className="ml-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200"
+                  className="ml-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200"
                   title={`현재 월에 데이터가 없어 최신 데이터 기준 (${latestDataDate})로 표시 중`}
                 >
                   최신 데이터 기준 · {latestDataDate}
@@ -850,7 +839,7 @@ export default function Dashboard() {
               )}
               {!periodShifted && revenueSource === 'wing' && (
                 <span
-                  className="ml-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-sky-50 text-sky-700 border border-sky-200"
+                  className="ml-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[11px] font-semibold bg-sky-50 text-sky-700 border border-sky-200"
                   title="이번 달 주문 데이터가 없어 Wing 매출분석을 기준으로 표시 중"
                 >
                   Wing 기준
@@ -863,7 +852,7 @@ export default function Dashboard() {
             row. The period controls moved down to the column they govern. */}
         <button
           onClick={requestReadinessOpen}
-          className="flex shrink-0 items-center gap-1.5 rounded-md bg-violet-600 px-3 py-1 text-xs font-semibold text-white transition-colors hover:bg-violet-700"
+          className="flex shrink-0 items-center gap-1.5 rounded-md bg-violet-600 px-3 py-1 text-[13px] font-semibold text-white transition-colors hover:bg-violet-700"
           title="쿠팡 Wing/광고 데이터 수집 상태 확인 + 누락분 수집 트리거"
         >
           <Database size={13} /> 데이터 수집
@@ -872,12 +861,12 @@ export default function Dashboard() {
 
 
       {selectedRangeLoading && (
-        <div className="rounded-xl border border-slate-100 bg-slate-50 px-4 py-2 text-xs text-slate-500">
+        <div className="rounded-xl border border-slate-100 bg-slate-50 px-4 py-2 text-[13px] text-slate-500">
           선택한 기간의 매출·광고 데이터를 불러오는 중입니다.
         </div>
       )}
       {channelSales.isLoading && (
-        <div className="rounded-xl border border-slate-100 bg-slate-50 px-4 py-2 text-xs text-slate-500">
+        <div className="rounded-xl border border-slate-100 bg-slate-50 px-4 py-2 text-[13px] text-slate-500">
           셀피아 판매현황을 불러오는 중입니다.
         </div>
       )}
@@ -895,6 +884,15 @@ export default function Dashboard() {
                     so the panel never states one shared basis. */}
                 <DashboardBasisDisclosure
                   label="기간 지표 근거"
+                  meaning={(
+                    <p>
+                      위 선택한 기간의 합계입니다. 매출은 주문 품목 금액의 합이고, 순이익은
+                      원가·수수료·배송비 근거가 갖춰진 주문만 계산합니다. 광고비율은
+                      광고비÷매출, 광고수익률은 광고전환매출÷광고비이며, 분모가 없으면
+                      비율도 내지 않습니다. 여섯 칸의 원천과 기간이 서로 다를 수 있어
+                      아래에 값마다 따로 적습니다.
+                    </p>
+                  )}
                   entries={[
                     { label: `${rangeLabel} 매출`, basis: revenueCardBasis },
                     { label: `${rangeLabel} 순이익`, basis: profitBasis },
@@ -912,7 +910,7 @@ export default function Dashboard() {
                       max={dateTo || undefined}
                       onChange={e => setDateFrom(e.target.value)}
                       aria-label="시작일"
-                      className="h-7 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700 [color-scheme:light] focus:outline-none focus:ring-2 focus:ring-violet-300"
+                      className="h-7 rounded-md border border-slate-200 bg-white px-2 text-[13px] text-slate-700 [color-scheme:light] focus:outline-none focus:ring-2 focus:ring-violet-300"
                     />
                     <span className="text-slate-400" aria-hidden="true">~</span>
                     <input
@@ -921,12 +919,12 @@ export default function Dashboard() {
                       min={dateFrom || undefined}
                       onChange={e => setDateTo(e.target.value)}
                       aria-label="종료일"
-                      className="h-7 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700 [color-scheme:light] focus:outline-none focus:ring-2 focus:ring-violet-300"
+                      className="h-7 rounded-md border border-slate-200 bg-white px-2 text-[13px] text-slate-700 [color-scheme:light] focus:outline-none focus:ring-2 focus:ring-violet-300"
                     />
                     <button
                       onClick={applyCustomRange}
                       disabled={!dateFrom || !dateTo}
-                      className="h-7 rounded-md bg-violet-600 px-3 text-xs font-semibold text-white transition-colors hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-40"
+                      className="h-7 rounded-md bg-violet-600 px-3 text-[13px] font-semibold text-white transition-colors hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-40"
                     >
                       조회
                     </button>
@@ -938,7 +936,7 @@ export default function Dashboard() {
                       key={val}
                       onClick={() => setKpiRange(val)}
                       className={cn(
-                        'border-l border-slate-200 px-3 py-1 text-xs font-semibold transition-colors first:border-l-0',
+                        'border-l border-slate-200 px-3 py-1 text-[13px] font-semibold transition-colors first:border-l-0',
                         kpiRange === val ? 'bg-violet-600 text-white' : 'text-slate-600 hover:bg-slate-50',
                       )}
                     >{label}</button>
@@ -952,7 +950,7 @@ export default function Dashboard() {
                       if (!dateTo) setDateTo(def.to);
                     }}
                     className={cn(
-                      'flex items-center gap-1 border-l border-slate-200 px-3 py-1 text-xs font-semibold transition-colors',
+                      'flex items-center gap-1 border-l border-slate-200 px-3 py-1 text-[13px] font-semibold transition-colors',
                       kpiRange === 'custom' ? 'bg-violet-600 text-white' : 'text-slate-600 hover:bg-slate-50',
                     )}
                   ><Calendar size={12} /> 기간</button>
@@ -966,17 +964,17 @@ export default function Dashboard() {
           {/* 기간 매출 — 채널 분해는 매출 분석 화면이 owner라 셀 전체가 그리로 간다. */}
         <Link
           href={salesAnalysisHref}
-          className="flex flex-col bg-white px-3 py-2 transition-colors hover:bg-slate-50"
+          className="flex flex-col bg-white px-4 py-3 transition-colors hover:bg-slate-50"
           data-testid="dashboard-primary-revenue"
         >
-          <p className="font-mono text-[9.5px] uppercase tracking-wider text-slate-500">{rangeLabel} 매출</p>
+          <p className="font-mono text-[11px] uppercase tracking-wider text-slate-500">{rangeLabel} 매출</p>
           <p
-            className="whitespace-nowrap text-lg font-bold leading-tight tracking-tight tabular-nums text-slate-900"
+            className="whitespace-nowrap text-xl font-bold leading-tight tracking-tight tabular-nums text-slate-900"
             data-testid="dashboard-primary-revenue-value"
           >
-            {displayRevenue === null ? '—' : <>{formatKRW(displayRevenue)}<span className="ml-0.5 text-xs font-semibold text-slate-500">원</span></>}
+            {displayRevenue === null ? '—' : <>{formatKRW(displayRevenue)}<span className="ml-0.5 text-[13px] font-semibold text-slate-500">원</span></>}
           </p>
-          <p className="mt-0.5 text-[11px] leading-snug text-slate-500">
+          <p className="mt-0.5 text-xs leading-snug text-slate-500">
             {revenueCellNote}
             {/* A change against a period that published nothing is not a
                 change; the slot stays out of the way rather than showing a
@@ -991,10 +989,10 @@ export default function Dashboard() {
             )}
           </p>
           {(trafficCoverageComplete && trafficUnverifiedLabels.length > 0) && (
-            <p className="mt-0.5 text-[11px] text-amber-700">일별 합산·기간 원본 미대사 · {trafficUnverifiedLabels.join(', ')}</p>
+            <p className="mt-0.5 text-xs text-amber-700">일별 합산·기간 원본 미대사 · {trafficUnverifiedLabels.join(', ')}</p>
           )}
           {trafficMismatchLabels.length > 0 && (
-            <p className="mt-0.5 text-[11px] text-amber-700">기간 원본 불일치로 숨김 · {trafficMismatchLabels.join(', ')}</p>
+            <p className="mt-0.5 text-xs text-amber-700">기간 원본 불일치로 숨김 · {trafficMismatchLabels.join(', ')}</p>
           )}
         </Link>
 
@@ -1003,18 +1001,18 @@ export default function Dashboard() {
           <button
             type="button"
             onClick={() => setShowProfitDetail(true)}
-            className="flex flex-col items-start bg-white px-3 py-2 text-left transition-colors hover:bg-slate-50"
+            className="flex flex-col items-start bg-white px-4 py-3 text-left transition-colors hover:bg-slate-50"
             data-testid="dashboard-primary-profit"
             title={profitCellReason ?? undefined}
           >
-            <p className="font-mono text-[9.5px] uppercase tracking-wider text-slate-500">{rangeLabel} 순이익</p>
+            <p className="font-mono text-[11px] uppercase tracking-wider text-slate-500">{rangeLabel} 순이익</p>
             <p className={cn(
-              'whitespace-nowrap text-lg font-bold leading-tight tracking-tight tabular-nums',
+              'whitespace-nowrap text-xl font-bold leading-tight tracking-tight tabular-nums',
               displayProfit === null ? 'text-slate-400' : displayProfit >= 0 ? 'text-slate-900' : 'text-red-600',
             )}>
-              {displayProfit === null ? '—' : <>{formatKRW(displayProfit)}<span className="ml-0.5 text-xs font-semibold text-slate-500">원</span></>}
+              {displayProfit === null ? '—' : <>{formatKRW(displayProfit)}<span className="ml-0.5 text-[13px] font-semibold text-slate-500">원</span></>}
             </p>
-            <p className="mt-0.5 text-[11px] leading-snug text-slate-500">
+            <p className="mt-0.5 text-xs leading-snug text-slate-500">
               {profitCellNote}
               {displayProfit !== null && !sellpiaHasData && profitChange !== null && (
                 <span className={cn('ml-1 font-medium', profitChange >= 0 ? 'text-emerald-700' : 'text-red-600')}>
@@ -1037,7 +1035,6 @@ export default function Dashboard() {
           ) : (
             <UnavailableMetricCard
               label="이익률"
-              note={sellpiaHasData ? '쿠팡 광고비 미수집' : '정산 데이터 미수집'}
             />
           )}
 
@@ -1054,7 +1051,6 @@ export default function Dashboard() {
           ) : (
             <UnavailableMetricCard
               label="광고비율"
-              note={adCoverageNote ?? '광고비 미수집'}
             />
           )}
 
@@ -1070,7 +1066,6 @@ export default function Dashboard() {
           ) : (
             <UnavailableMetricCard
               label="구매전환율"
-              note={trafficAvailable ? 'Wing 조회·주문 미수집' : 'Wing 트래픽 미수집'}
             />
           )}
 
@@ -1086,7 +1081,6 @@ export default function Dashboard() {
           ) : (
             <UnavailableMetricCard
               label="광고수익률"
-              note={adCoverageNote ?? '광고 데이터 미수집'}
             />
           )}
         </div>
@@ -1137,7 +1131,7 @@ export default function Dashboard() {
             <DashboardSectionEmpty label="경고" />
           ) : (
             <DashboardWarningTable
-              rows={buildWarningRows(inventory.warnings, warningBasis, inventory.unclassifiedProductCount, inventoryHeaderBasis)}
+              rows={buildWarningRows(inventory.warnings, warningBasis, inventory.unclassifiedProductCount, inventoryHeaderBasis, inventory.gradeChanges?.downgraded)}
             />
           )}
 
@@ -1157,7 +1151,6 @@ export default function Dashboard() {
               abcStatusCount={inventory.abcStatusCount}
               abcContributionProfit={inventory.abcContributionProfit}
               abcFormula={inventory.abcFormula}
-              gradeChanges={inventory.gradeChanges}
               basis={inventoryBasis}
               refetchReads={async () => { await refetchInventory(); }}
             />

@@ -50,7 +50,7 @@ export function DashboardTrafficFunnel({
       aria-labelledby="dashboard-traffic-funnel-title"
       data-testid="dashboard-traffic-funnel"
     >
-      <header className="flex items-center justify-between gap-3 border-b border-slate-200 px-3 py-1.5">
+      <header className="flex items-center justify-between gap-3 border-b border-slate-200 px-4 py-2.5">
         <h2 id="dashboard-traffic-funnel-title" className="text-sm font-semibold text-slate-900 shrink-0">
           Wing 트래픽 퍼널
         </h2>
@@ -63,7 +63,7 @@ export function DashboardTrafficFunnel({
             <button
               type="button"
               onClick={onCollect}
-              className="shrink-0 text-xs font-semibold text-violet-700 hover:text-violet-900"
+              className="shrink-0 text-[13px] font-semibold text-violet-700 hover:text-violet-900"
             >
               수집 시작 →
             </button>
@@ -73,6 +73,14 @@ export function DashboardTrafficFunnel({
           <DashboardBasisDisclosure
             label="Wing 트래픽 퍼널 근거"
             entries={[{ label: 'Wing 트래픽', basis }]}
+            meaning={(
+              <p>
+                쿠팡 Wing이 계정 단위로 발행하는 일별 지표입니다. 방문자는 하루 순방문자의
+                평균이고 — 같은 사람이 이틀 오면 각 날 1명이라 기간 합계라는 것이 없습니다 —
+                조회부터 판매량까지는 수집된 날의 합계입니다. 상품별 수치의 합이 아니라
+                계정 원본이라, 상품 화면의 합과 일치하지 않을 수 있습니다.
+              </p>
+            )}
             note={collected ? sourceNote : null}
             tone={!collected ? 'absent' : partial ? 'partial' : 'neutral'}
           />
@@ -86,14 +94,14 @@ export function DashboardTrafficFunnel({
           on the screen at all. */}
       <ol className="grid grid-cols-2 gap-px bg-slate-200 sm:grid-cols-3 lg:grid-cols-5">
         {steps.map(step => (
-          <li key={step.key} className="bg-white px-3 py-1.5">
-            <p className="text-xs text-slate-500">{step.label}</p>
+          <li key={step.key} className="bg-white px-4 py-2.5">
+            <p className="text-[13px] text-slate-500">{step.label}</p>
             <p className={cn(
-              'text-lg font-bold tabular-nums tracking-tight',
+              'text-xl font-bold tabular-nums tracking-tight',
               collected ? 'text-slate-900' : 'text-slate-300',
             )}>
               {collected ? step.display : '—'}
-              {collected && step.rate && <span className="ml-1.5 text-xs font-medium text-slate-500">{step.rate}</span>}
+              {collected && step.rate && <span className="ml-1.5 text-[13px] font-medium text-slate-500">{step.rate}</span>}
             </p>
           </li>
         ))}

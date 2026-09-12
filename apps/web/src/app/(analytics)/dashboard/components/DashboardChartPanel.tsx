@@ -1,9 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import Link from 'next/link';
 import dynamic from 'next/dynamic';
-import { ArrowRight, Loader2, Play } from 'lucide-react';
+import { Loader2, Play } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import {
@@ -44,11 +43,6 @@ type DeptButton =
   // 링크 — 관리 화면(상품)은 해당 페이지로 이동.
   | { label: string; kind: 'link'; href: string };
 
-type Dept = {
-  key: string;
-  label: string;
-  buttons: readonly DeptButton[];
-};
 
 const ACTION_LABEL: Record<DepartmentQuickAction, string> = {
   collectTrend: '시장분석 수집',
@@ -59,36 +53,30 @@ const ACTION_LABEL: Record<DepartmentQuickAction, string> = {
   collectCoupangRocketPurchaseOrders: '쿠팡 로켓 PO 수집',
 };
 
-const DEPT_MAP: readonly Dept[] = [
-  {
-    key: 'sourcing', label: '소싱',
-    buttons: [{ label: '시장분석', kind: 'action', action: 'collectTrend' }],
-  },
-  {
-    key: 'product', label: '상품',
-    buttons: [
-      { label: '상품 관리', kind: 'link', href: '/product-hub' },
-      { label: '재고 관리', kind: 'link', href: '/inventory-hub' },
-    ],
-  },
-  {
-    key: 'order', label: '주문',
-    buttons: [{ label: '몰 주문수집', kind: 'action', action: 'collectAllOrders' }],
-  },
-  {
-    key: 'shipping', label: '출고',
-    buttons: [
-      { label: '쿠팡 쉽먼트', kind: 'action', action: 'collectCoupangShipmentSummary' },
-      { label: '쿠팡 로켓 PO 수집', kind: 'action', action: 'collectCoupangRocketPurchaseOrders' },
-    ],
-  },
-  {
-    key: 'analysis', label: '분석',
-    buttons: [
-      { label: '재고 분석 업데이트', kind: 'action', action: 'refreshInventory' },
-      { label: '셀피아 동기화', kind: 'action', action: 'syncSellpia' },
-    ],
-  },
+/**
+ * One cell per collection, flat.
+ *
+ * The row used to be five departments holding eight entries, and two of those
+ * entries were navigation — `상품 관리`, `재고 관리` — drawn exactly like the six
+ * that open a browser and run for minutes. A link and a multi-minute collection
+ * should not look the same, and the sidebar already carries both screens, so the
+ * links are gone and the departments with them: a five-way taxonomy over six
+ * items made the reader take one step more to find the one they wanted.
+ *
+ * Every promoted action is kept. Those are the route's contract; the grouping
+ * was not.
+ */
+const COLLECTIONS: ReadonlyArray<{
+  key: string;
+  label: string;
+  action: DepartmentQuickAction;
+}> = [
+  { key: 'sourcing', label: '시장분석', action: 'collectTrend' },
+  { key: 'order', label: '몰 주문수집', action: 'collectAllOrders' },
+  { key: 'shipping', label: '쿠팡 쉽먼트', action: 'collectCoupangShipmentSummary' },
+  { key: 'rocket', label: '쿠팡 로켓 PO', action: 'collectCoupangRocketPurchaseOrders' },
+  { key: 'inventory', label: '재고 분석', action: 'refreshInventory' },
+  { key: 'sellpia', label: '셀피아 동기화', action: 'syncSellpia' },
 ];
 
 export function DashboardChartPanel({
@@ -148,14 +136,14 @@ export function DashboardChartPanel({
 
   return (
     <div className="flex h-full flex-col overflow-hidden rounded-xl border border-slate-200 bg-white">
-      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-3 py-1.5">
+      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-4 py-2.5">
         <div className="flex items-center gap-2">
           <div className="flex gap-1">
             {tabs.map((tab) => (
               <button
                 key={tab.key}
                 onClick={() => setChartTab(tab.key)}
-                className={cn('rounded-md px-2.5 py-1 text-xs font-semibold transition-colors', chartTab === tab.key ? 'bg-violet-600 text-white' : 'text-slate-600 hover:text-slate-900')}
+                className={cn('rounded-md px-2.5 py-1 text-[13px] font-semibold transition-colors', chartTab === tab.key ? 'bg-violet-600 text-white' : 'text-slate-600 hover:text-slate-900')}
               >
                 {tab.label}
               </button>
@@ -195,43 +183,35 @@ export function DashboardChartPanel({
           into one row under the chart. It was a tab holding a full-height board
           to show five idle agents; as a row it stays reachable without deciding
           the height of the screen. */}
-      {/* One column per department, so there is no gap where a sixth used to be.
-          The department name is a label, not a status: colouring five of them
-          five different accents made the row read as five objects and left the
-          action text competing with its own heading. */}
-      <div className="grid grid-cols-2 gap-px border-t border-slate-200 bg-slate-200 sm:grid-cols-3 lg:grid-cols-5">
-        {DEPT_MAP.map(dept => (
-          <div key={dept.key} className="bg-white px-2.5 py-1.5">
-            <p className="truncate text-xs font-semibold text-slate-900">{dept.label}</p>
-            <ul className="mt-0.5 space-y-0.5">
-              {dept.buttons.map(button => button.kind === 'action' ? (
-                <li key={`${dept.key}:${button.action}`}>
-                  <button
-                    type="button"
-                    onClick={() => void runAction(dept.key, button.action)}
-                    disabled={runningAction !== null}
-                    className="flex w-full items-center gap-1 text-left text-[11px] leading-snug text-slate-600 hover:text-slate-900 disabled:opacity-60"
-                  >
-                    {runningAction === `${dept.key}:${button.action}`
-                      ? <Loader2 size={10} className="shrink-0 animate-spin" />
-                      : <Play size={10} className="shrink-0 text-slate-400" />}
-                    <span className="truncate">{button.label}</span>
-                  </button>
-                </li>
-              ) : (
-                <li key={button.href}>
-                  <Link
-                    href={button.href}
-                    className="flex items-center gap-1 text-[11px] leading-snug text-slate-600 hover:text-slate-900"
-                  >
-                    <ArrowRight size={10} className="shrink-0 text-slate-400" />
-                    <span className="truncate">{button.label}</span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ))}
+      <div className="grid grid-cols-2 gap-px border-t border-slate-200 bg-slate-200 sm:grid-cols-3 lg:grid-cols-6">
+        {COLLECTIONS.map(collection => {
+          const running = runningAction === `${collection.key}:${collection.action}`;
+          return (
+            <button
+              key={collection.key}
+              type="button"
+              onClick={() => void runAction(collection.key, collection.action)}
+              disabled={runningAction !== null}
+              className="flex flex-col items-start bg-white px-3.5 py-2.5 text-left transition-colors hover:bg-slate-50 disabled:opacity-60"
+            >
+              <span className="flex w-full items-center gap-1.5">
+                {running
+                  ? <Loader2 size={12} className="shrink-0 animate-spin text-violet-600" />
+                  : <Play size={12} className="shrink-0 text-slate-400" />}
+                <span className="truncate text-[13px] font-semibold text-slate-900">{collection.label}</span>
+              </span>
+              {/* The slot the collection's own state belongs in. Today it holds
+                  only "running", because the dashboard read model publishes an
+                  `observedAt` for Wing traffic and for the inventory snapshot and
+                  for nothing else — the four other collections have no freshness
+                  to show yet. The line is reserved so the row will not step when
+                  they gain one. */}
+              <span className="mt-0.5 truncate text-[11px] text-slate-500">
+                {running ? '수집 중…' : '\u00a0'}
+              </span>
+            </button>
+          );
+        })}
       </div>
     </div>
   );

@@ -79,7 +79,7 @@ export function WingDailyTrafficCollection({
               <h2 className="text-sm font-bold text-slate-900">Wing 일별 트래픽</h2>
               <span
                 className={cn(
-                  'rounded-full border px-2 py-0.5 text-[10px] font-bold',
+                  'rounded-full border px-2 py-0.5 text-[11px] font-bold',
                   statusClass(attempt?.state, collection.source.data?.status, cancelled),
                 )}
               >
@@ -96,7 +96,7 @@ export function WingDailyTrafficCollection({
                 <Info className="h-3.5 w-3.5" />
               </button>
             </div>
-            <p className="mt-1 text-xs text-slate-500">
+            <p className="mt-1 text-[13px] text-slate-500">
               {formatWingTrafficRange(collection.range)}
               {collection.range.source === 'selected-custom-range' ? ' · 선택한 기간' : ' · KST 기준'}
               {collection.source.data?.channelAccountId || collection.request.channelAccountId
@@ -122,7 +122,7 @@ export function WingDailyTrafficCollection({
               type="button"
               onClick={() => void collection.cancel()}
               disabled={collection.cancelPending || collection.actionPending}
-              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-amber-200 px-3 py-2 text-xs font-semibold text-amber-700 transition-colors hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-amber-200 px-4 py-3 text-[13px] font-semibold text-amber-700 transition-colors hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-50"
               data-testid="wing-traffic-cancel"
             >
               {collection.cancelPending
@@ -135,7 +135,7 @@ export function WingDailyTrafficCollection({
             type="button"
             onClick={() => void collection.collect()}
             disabled={collection.actionPending || collection.cancelPending || statusUnknown || !collection.rangeReady}
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-sky-600 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-sky-600 px-4 py-3 text-[13px] font-semibold text-white transition-colors hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
             data-testid="wing-traffic-collect"
           >
             {collection.actionPending || (running && !rangeMismatch)
@@ -148,7 +148,7 @@ export function WingDailyTrafficCollection({
         </div>
       </div>
 
-      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500" aria-live="polite">
+      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500" aria-live="polite">
         {running && collection.activeRange ? (
           <span
             className={cn('font-semibold tabular-nums', rangeMismatch ? 'text-amber-700' : 'text-sky-700')}
@@ -178,27 +178,27 @@ export function WingDailyTrafficCollection({
       </div>
 
       {detailsOpen && (
-        <div className="mt-2 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-[11px] leading-relaxed text-slate-600" role="region">
+        <div className="mt-2 rounded-lg border border-slate-100 bg-slate-50 px-4 py-3 text-xs leading-relaxed text-slate-600" role="region">
           서버 source owner가 고정한 범위만 수집하며, 대시보드 수치는 완료된 원천 상태를 읽습니다.
           수집 중에는 기존 완료본을 유지합니다.
         </div>
       )}
 
       {attempt?.state === 'FAILED' && (
-        <p className={cn('mt-2 text-xs', cancelled ? 'text-amber-700' : 'text-rose-700')} data-testid="wing-traffic-error">
+        <p className={cn('mt-2 text-[13px]', cancelled ? 'text-amber-700' : 'text-rose-700')} data-testid="wing-traffic-error">
           {cancelled
             ? '수집을 중단했습니다. 저장된 완료본은 유지됩니다.'
             : attempt.errorMessage ?? '최근 Wing 일별 트래픽 수집에 실패했습니다.'}
         </p>
       )}
       {collection.actionError && attempt?.state !== 'FAILED' && (
-        <p className="mt-2 text-xs text-amber-700" data-testid="wing-traffic-action-error">
+        <p className="mt-2 text-[13px] text-amber-700" data-testid="wing-traffic-action-error">
           <AlertTriangle className="mr-1 inline h-3.5 w-3.5" />
           {collection.actionError}
         </p>
       )}
       {collection.source.isError && !collection.actionError && (
-        <p className="mt-2 text-xs text-red-600">Wing 수집 상태를 불러오지 못했습니다.</p>
+        <p className="mt-2 text-[13px] text-red-600">Wing 수집 상태를 불러오지 못했습니다.</p>
       )}
     </section>
   );

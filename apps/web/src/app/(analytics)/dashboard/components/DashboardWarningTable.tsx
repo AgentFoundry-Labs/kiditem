@@ -40,6 +40,7 @@ export function buildWarningRows(
   basisOf: (key: string) => DashboardMetricBasis | null,
   unclassifiedProductCount?: number,
   abcBasis?: DashboardMetricBasis | null,
+  downgradedProductCount?: number,
 ): DashboardWarningRow[] {
   return [
     {
@@ -114,6 +115,23 @@ export function buildWarningRows(
       countsItself: true,
       severity: 5,
     },
+    // A grade that fell is something to go look at; a grade that rose is not.
+    // The pair used to read as `최근 7일 상승 3 / 하락 5` in the ABC panel's
+    // footnote, under three cells about the present, with no product named and
+    // nowhere to click. Here it reads against the other counts, in the same
+    // grammar, and leads to the filtered list.
+    {
+      key: 'abcDowngraded',
+      testId: 'abc-downgraded',
+      label: '등급 하락',
+      note: '최근 7일',
+      href: '/product-hub?abcGrade=C',
+      unit: '개',
+      value: downgradedProductCount,
+      basis: abcBasis ?? null,
+      countsItself: true,
+      severity: 4,
+    },
   ];
 }
 
@@ -150,17 +168,24 @@ export function DashboardWarningTable({ rows }: { rows: DashboardWarningRow[] })
       className="rounded-xl border border-slate-200 bg-white overflow-hidden"
       aria-labelledby="dashboard-warning-table-title"
     >
-      <header className="flex items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-3 py-1.5">
+      <header className="flex items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-4 py-2.5">
         <h2 id="dashboard-warning-table-title" className="text-sm font-semibold text-slate-900">
           지금 손이 필요한 것
         </h2>
         <div className="flex items-center gap-1.5">
-          <span className="text-[11px] text-slate-500">심각도순</span>
+          <span className="text-xs text-slate-500">심각도순</span>
           {/* Each row carries its own basis, so the panel's ⓘ breaks down per
               row rather than claiming one shared explanation for all of them. */}
           <DashboardBasisDisclosure
             label="경고 근거"
             entries={rows.map(row => ({ label: row.label, basis: row.basis }))}
+            meaning={(
+              <p>
+                지금 조치가 필요한 항목을 심각도순으로 셉니다. 기간 선택과 무관하게 현재
+                시점을 읽으며, 근거가 없는 항목은 0이 아니라 <code>—</code>입니다 — 세지
+                못한 것과 없는 것은 다릅니다.
+              </p>
+            )}
           />
         </div>
       </header>
@@ -173,9 +198,9 @@ export function DashboardWarningTable({ rows }: { rows: DashboardWarningRow[] })
         </colgroup>
         <thead>
           <tr>
-            <th scope="col" className="border-b border-slate-200 px-3 py-1.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">항목</th>
-            <th scope="col" className="border-b border-slate-200 px-3 py-1.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">상태</th>
-            <th scope="col" className="border-b border-slate-200 px-3 py-1.5 text-right text-xs font-semibold uppercase tracking-wider text-slate-500">건수</th>
+            <th scope="col" className="border-b border-slate-200 px-4 py-2.5 text-left text-[13px] font-semibold uppercase tracking-wider text-slate-500">항목</th>
+            <th scope="col" className="border-b border-slate-200 px-4 py-2.5 text-left text-[13px] font-semibold uppercase tracking-wider text-slate-500">상태</th>
+            <th scope="col" className="border-b border-slate-200 px-4 py-2.5 text-right text-[13px] font-semibold uppercase tracking-wider text-slate-500">건수</th>
           </tr>
         </thead>
         <tbody>
@@ -183,7 +208,7 @@ export function DashboardWarningTable({ rows }: { rows: DashboardWarningRow[] })
             const state = rowState(row);
             return (
               <tr key={row.key} className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50">
-                <td className="min-w-0 px-3 py-1.5">
+                <td className="min-w-0 px-4 py-2.5">
                   <Link href={row.href} className="block truncate font-medium text-slate-900 hover:text-violet-700" title={row.note}>
                     {row.label}
                   </Link>
@@ -191,7 +216,7 @@ export function DashboardWarningTable({ rows }: { rows: DashboardWarningRow[] })
                 <td className="px-1 py-1.5 align-top">
                   <span
                     className={cn(
-                      'inline-block rounded px-1.5 py-0.5 text-[11px] font-semibold',
+                      'inline-block rounded px-1.5 py-0.5 text-xs font-semibold',
                       state === 'attention' && 'bg-red-50 text-red-700',
                       state === 'clear' && 'bg-emerald-50 text-emerald-700',
                       state === 'withheld' && 'bg-slate-100 italic text-slate-500',
@@ -202,14 +227,14 @@ export function DashboardWarningTable({ rows }: { rows: DashboardWarningRow[] })
                 </td>
                 <td
                   className={cn(
-                    'px-3 py-1.5 text-right align-top font-semibold tabular-nums',
+                    'px-4 py-2.5 text-right align-top font-semibold tabular-nums',
                     state === 'withheld' ? 'font-medium text-slate-500' : 'text-slate-900',
                   )}
                 >
                   <span data-warning-count={row.testId}>
                     {state === 'withheld' ? '—' : row.value!.toLocaleString('ko-KR')}
                   </span>
-                  {state !== 'withheld' && <span className="ml-0.5 text-xs text-slate-500">{row.unit}</span>}
+                  {state !== 'withheld' && <span className="ml-0.5 text-[13px] text-slate-500">{row.unit}</span>}
                 </td>
               </tr>
             );

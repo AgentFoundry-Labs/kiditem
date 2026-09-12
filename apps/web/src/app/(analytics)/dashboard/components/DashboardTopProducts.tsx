@@ -37,14 +37,24 @@ export function DashboardTopProducts({
 
   return (
     <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-      <div className="flex items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-3 py-1.5">
+      <div className="flex items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-4 py-2.5">
         <div className="flex items-center gap-2">
           <BarChart3 size={13} className="text-slate-500" />
           <h3 className="text-sm font-semibold text-slate-900">Top 상품 · 매출순</h3>
         </div>
         <div className="flex items-center gap-1.5">
-          <Link href="/product-hub" className="text-xs font-semibold text-violet-700 hover:text-violet-900">전체 보기 →</Link>
-          <DashboardBasisDisclosure label="Top 상품 근거" entries={[{ label: '상품 매출', basis }]} />
+          <Link href="/product-hub" className="text-[13px] font-semibold text-violet-700 hover:text-violet-900">전체 보기 →</Link>
+          <DashboardBasisDisclosure
+            label="Top 상품 근거"
+            entries={[{ label: '상품 매출', basis }]}
+            meaning={(
+              <p>
+                선택한 기간의 매출 상위 {ROW_SLOTS}개입니다. 매출은 항상 측정되지만 순이익은
+                그렇지 않아, 정산 근거가 없는 행은 순이익과 이익률이 <code>—</code>로 남습니다.
+                로켓 발주분처럼 리스팅에 붙지 않는 매출도 순위에는 들어갑니다.
+              </p>
+            )}
+          />
         </div>
       </div>
       <div className="overflow-x-auto">

@@ -78,7 +78,7 @@ export function EvidenceTooltip({
   const point = payload[0]?.payload;
   if (!point) return null;
   return (
-    <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs shadow-lg">
+    <div className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-[13px] shadow-lg">
       <div className="mb-1 font-semibold text-slate-700">{point.date}</div>
       <div className="space-y-0.5 text-slate-500">
         {payload.map((entry, index) => {
@@ -124,7 +124,7 @@ export function DashboardCharts({ chartTab, dailyTrend, adChartData, benchmarkDa
       {/* Revenue / profit rate chart */}
       {chartTab === 'revenue' && hasTrend && (
         <div className="flex-1 flex flex-col p-5 min-h-0">
-          <div className="flex items-center gap-5 mb-3 text-[12px] text-slate-400 shrink-0">
+          <div className="flex items-center gap-5 mb-3 text-[13px] text-slate-400 shrink-0">
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-violet-600" />매출</span>
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-amber-700" />광고비 · 자체 축</span>
             <span className="ml-auto text-slate-400">두 계열의 크기 차이가 커 축을 나눔</span>
@@ -168,7 +168,7 @@ export function DashboardCharts({ chartTab, dailyTrend, adChartData, benchmarkDa
       {/* Ad cost / ratio chart */}
       {chartTab === 'rate' && hasTrend && (
         <div className="flex-1 flex flex-col p-5 min-h-0">
-          <div className="flex items-center gap-5 mb-3 text-[12px] text-slate-400 shrink-0">
+          <div className="flex items-center gap-5 mb-3 text-[13px] text-slate-400 shrink-0">
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-rose-400" />광고비</span>
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-violet-500" />매출</span>
             <span className="flex items-center gap-1.5"><span className="w-3 h-0.5 bg-indigo-500 inline-block" /> 광고비율</span>
@@ -205,7 +205,7 @@ export function DashboardCharts({ chartTab, dailyTrend, adChartData, benchmarkDa
       {/* Benchmark chart */}
       {chartTab === 'benchmark' && benchmarkData && (
         <div className="flex-1 flex flex-col p-5 min-h-0">
-          <div className="flex items-center gap-5 mb-4 text-[12px] text-slate-400 shrink-0">
+          <div className="flex items-center gap-5 mb-4 text-[13px] text-slate-400 shrink-0">
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-blue-500" />내 수치</span>
           </div>
           <div className="flex-1 min-h-0">
@@ -231,7 +231,7 @@ export function DashboardCharts({ chartTab, dailyTrend, adChartData, benchmarkDa
                 <div className={cn('text-[20px] font-bold tabular-nums mt-0.5', item.my === null ? 'text-slate-300' : 'text-slate-700')}>
                   {item.my === null ? '—' : `${item.my}${item.unit}`}
                 </div>
-                <div className="text-[12px] mt-0.5 text-slate-400">비교 기준 없음</div>
+                <div className="text-[13px] mt-0.5 text-slate-400">비교 기준 없음</div>
                 {item.basis && <DashboardDataBasis basis={item.basis} className="mt-1 text-left" />}
               </div>
             ))}

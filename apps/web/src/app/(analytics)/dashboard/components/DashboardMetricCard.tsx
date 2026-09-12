@@ -43,13 +43,13 @@ export function MetricCard({
       data-testid="dashboard-metric-card"
       onClick={onClick}
     >
-      <div className="flex h-full flex-col px-3 py-2">
-        <p className="font-mono text-[9.5px] uppercase tracking-wider text-slate-500">{label}</p>
+      <div className="flex h-full flex-col px-4 py-3">
+        <p className="font-mono text-[11px] uppercase tracking-wider text-slate-500">{label}</p>
         <p className="flex items-baseline gap-0.5 text-xl font-bold leading-tight tracking-tight tabular-nums text-slate-900">
           {value}
-          <span className="text-xs font-semibold text-slate-500">{unit}</span>
+          <span className="text-[13px] font-semibold text-slate-500">{unit}</span>
         </p>
-        <p className="mt-0.5 text-[11px] leading-snug text-slate-500">
+        <p className="mt-0.5 text-xs leading-snug text-slate-500">
           {!isUnavailable && !isNeutral && (
             <span className={cn('mr-1 font-medium', isPositive ? 'text-emerald-700' : 'text-red-600')}>
               {change > 0 ? '▲' : '▼'} {Math.abs(change).toFixed(1)}%
@@ -62,16 +62,23 @@ export function MetricCard({
   );
 }
 
-/** The same three lines, with the value slot held open by a dash. */
-export function UnavailableMetricCard({ label, note }: { label: string; note: string }) {
+/**
+ * The same three lines, with the value slot held open by a dash.
+ *
+ * The third line used to carry the reason — `미수집`, `정산 데이터 없음`,
+ * `부분 0/11일` — one per blank card. The section's ⓘ now says the same thing
+ * per value and says it in full ("주문 · Wing 트래픽에서 이 기간에 수집된 날이
+ * 없어…"), so the caption was the affordance's job written out six times in
+ * eleven pixels. The line itself stays: without it a blank cell would be
+ * shorter than a measured one and the row would step.
+ */
+export function UnavailableMetricCard({ label }: { label: string }) {
   return (
     <div className="h-full bg-white" data-testid="dashboard-metric-card">
-      <div className="flex h-full flex-col px-3 py-2">
-        <p className="font-mono text-[9.5px] uppercase tracking-wider text-slate-500">{label}</p>
-        {/* The value slot stays a dash; the fixed vocabulary belongs to the
-            reason under it, which is what the operator acts on. */}
+      <div className="flex h-full flex-col px-4 py-3">
+        <p className="font-mono text-[11px] uppercase tracking-wider text-slate-500">{label}</p>
         <p className="text-xl font-medium leading-tight tracking-tight tabular-nums text-slate-400">—</p>
-        <p className="mt-0.5 text-[11px] leading-snug text-slate-500">{note}</p>
+        <p className="mt-0.5 text-xs leading-snug text-slate-500" aria-hidden="true">&nbsp;</p>
       </div>
     </div>
   );

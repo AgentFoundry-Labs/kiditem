@@ -466,7 +466,10 @@ describe('Dashboard absolute ABC grade cards', () => {
 
     expect(screen.getAllByText('주문')[0].parentElement).toHaveTextContent('주문—');
     expect(screen.queryByText('주문99건')).not.toBeInTheDocument();
-    expect(screen.getByText('Wing 조회·주문 미수집')).toBeInTheDocument();
+    // A blank card no longer spells its own reason in eleven pixels — the
+    // section's ⓘ says it per value, in a full sentence.
+    expect(screen.queryByText('Wing 조회·주문 미수집')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /기간 지표 근거 안내/ })).toBeInTheDocument();
   });
 
   it('does not present a zero primary revenue KPI when the effective source is none', async () => {
@@ -670,9 +673,11 @@ describe('Dashboard absolute ABC grade cards', () => {
     renderDashboard();
     await waitFor(() => expect(screen.getByText('Kiditem Foundry')).toBeInTheDocument());
 
-    // Partial coverage still supports the values that were measured; the
-    // screen says what to collect rather than how much of it is missing.
-    expect(screen.getByText('부분 5/7일')).toBeInTheDocument();
+    // Partial coverage still supports the values that were measured. The
+    // panel's ⓘ carries how much is missing — in colour, and in its accessible
+    // name — instead of a caption beside every value.
+    expect(screen.getByRole('button', { name: /광고 성과 근거 안내/ })).toBeInTheDocument();
+    expect(screen.queryByText('부분 5/7일')).not.toBeInTheDocument();
     expect(screen.getByText('광고전환매출').parentElement).toHaveTextContent('광고전환매출 쿠팡0원');
 
     expect(screen.queryByText('광고전환매출—')).not.toBeInTheDocument();
