@@ -57,7 +57,7 @@ describe('Taobao direct source owner (PG integration)', () => {
     expect(provider.collect).toHaveBeenCalledTimes(1);
     const status = await http.status(TEST_ORGANIZATION_ID);
     expect(status.sources[0]).toMatchObject({ sourceStatus: {
-      ready: false,
+      ready: true,
       latestAttempt: { attemptId: failed.attemptId, state: 'FAILED' },
       latestComplete: { attemptId: baseline.attemptId },
       actualCutoffAt: new Date(previous.broadcasts[0].capturedAt),

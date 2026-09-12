@@ -166,7 +166,14 @@ describe('Wing COMPLETE provenance through public Readiness HTTP + PostgreSQL', 
     });
     const before = await status();
     expect(wing(before)).toMatchObject({
-      status: 'missing',
+      basis: {
+        kind: 'snapshot',
+        measured: false,
+        asOf: null,
+        requiredAsOf: '2026-09-05',
+        sources: ['coupang_wing_rank'],
+        withheldCount: 2,
+      },
       count: 0,
       lastSyncedAt: null,
       scrapeUrls: null,
@@ -174,7 +181,15 @@ describe('Wing COMPLETE provenance through public Readiness HTTP + PostgreSQL', 
     await complete();
     const after = await status();
     expect(wing(after)).toMatchObject({
-      status: 'ok',
+      basis: {
+        kind: 'snapshot',
+        measured: true,
+        asOf: '2026-09-05',
+        requiredAsOf: '2026-09-05',
+        observedAt: '2026-09-05T03:00:00.000Z',
+        sources: ['coupang_wing_rank'],
+        withheldCount: 0,
+      },
       count: 2,
       lastSyncedAt: '2026-09-05T03:00:00.000Z',
       referenceDate: '2026-09-05',
@@ -237,19 +252,29 @@ describe('Wing COMPLETE provenance through public Readiness HTTP + PostgreSQL', 
       });
     }
     expect(wing(await status())).toMatchObject({
-      status: 'missing',
+      basis: {
+        measured: false,
+        asOf: null,
+        requiredAsOf: '2026-09-05',
+        withheldCount: 2,
+      },
       count: 0,
       lastSyncedAt: null,
     });
     await complete('2026-09-04T03:00:00.000Z');
     expect(wing(await status())).toMatchObject({
-      status: 'stale',
+      basis: {
+        measured: true,
+        asOf: '2026-09-04',
+        requiredAsOf: '2026-09-05',
+        withheldCount: 0,
+      },
       count: 2,
       lastSyncedAt: '2026-09-04T03:00:00.000Z',
     });
     await complete();
     expect(wing(await status())).toMatchObject({
-      status: 'ok',
+      basis: { measured: true, asOf: '2026-09-05', withheldCount: 0 },
       count: 2,
       lastSyncedAt: '2026-09-05T03:00:00.000Z',
     });
@@ -259,13 +284,13 @@ describe('Wing COMPLETE provenance through public Readiness HTTP + PostgreSQL', 
     });
     await complete('2026-09-06T02:00:00.000Z');
     expect(wing(await status())).toMatchObject({
-      status: 'stale',
+      basis: { measured: true, asOf: '2026-09-06', withheldCount: 1 },
       count: 1,
       detail: expect.stringContaining('1/2상품'),
     });
     await complete('2026-09-06T02:01:00.000Z', '문구');
     expect(wing(await status())).toMatchObject({
-      status: 'ok',
+      basis: { measured: true, asOf: '2026-09-06', withheldCount: 0 },
       count: 2,
       detail: expect.stringContaining('2/2상품'),
     });
@@ -275,7 +300,7 @@ describe('Wing COMPLETE provenance through public Readiness HTTP + PostgreSQL', 
     });
     await complete('2026-09-06T02:02:00.000Z', '다른 후보');
     expect(wing(await status())).toMatchObject({
-      status: 'ok',
+      basis: { measured: true, asOf: '2026-09-06', withheldCount: 0 },
       count: 3,
       detail: expect.stringContaining('2/2상품'),
     });
@@ -327,7 +352,7 @@ describe('Wing COMPLETE provenance through public Readiness HTTP + PostgreSQL', 
     });
     await complete('2026-09-06T02:00:00.000Z', '다른 계정');
     expect(wing(await status())).toMatchObject({
-      status: 'ok',
+      basis: { measured: true, asOf: '2026-09-05', withheldCount: 0 },
       count: 2,
       lastSyncedAt: '2026-09-05T03:00:00.000Z',
     });
@@ -336,7 +361,7 @@ describe('Wing COMPLETE provenance through public Readiness HTTP + PostgreSQL', 
       data: { isActive: false },
     });
     expect(wing(await status())).toMatchObject({
-      status: 'ok',
+      basis: { measured: true, asOf: '2026-09-05', withheldCount: 0 },
       count: 1,
       detail: expect.stringContaining('1/1상품'),
     });
@@ -344,13 +369,16 @@ describe('Wing COMPLETE provenance through public Readiness HTTP + PostgreSQL', 
       where: { organizationId: ORG, externalId: 'OWN' },
       data: { isActive: false },
     });
-    expect(wing(await status())).toMatchObject({ status: 'missing', count: 0 });
+    expect(wing(await status())).toMatchObject({
+      basis: { measured: false, asOf: null, withheldCount: 0 },
+      count: 0,
+    });
     await prisma.channelAccount.update({
       where: { id: primary.id, organizationId: ORG },
       data: { status: 'inactive' },
     });
     expect(wing(await status())).toMatchObject({
-      status: 'ok',
+      basis: { measured: true, asOf: '2026-09-06', withheldCount: 0 },
       count: 1,
       lastSyncedAt: '2026-09-06T02:00:00.000Z',
     });
@@ -359,7 +387,7 @@ describe('Wing COMPLETE provenance through public Readiness HTTP + PostgreSQL', 
       data: { status: 'inactive' },
     });
     expect(wing(await status())).toMatchObject({
-      status: 'missing',
+      basis: { measured: false, asOf: null, withheldCount: 0 },
       count: 0,
       lastSyncedAt: null,
     });

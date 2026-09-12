@@ -123,7 +123,7 @@ describe('Sellpia profitability source owner (PostgreSQL)', () => {
     });
   });
 
-  it('keeps the prior COMPLETE generation current after a newer failure and exposes stale provenance', async () => {
+  it('keeps the prior COMPLETE generation current after a newer failure and exposes failed-attempt provenance', async () => {
     const first = await service.beginAttempt(TEST_ORGANIZATION_ID, ATTEMPT_KEY);
     await service.submitAttempt(TEST_ORGANIZATION_ID, first.attemptId, completePayload(first));
 
@@ -142,7 +142,7 @@ describe('Sellpia profitability source owner (PostgreSQL)', () => {
       generation: '1',
     });
     await expect(service.readSourceStatus(TEST_ORGANIZATION_ID)).resolves.toMatchObject({
-      ready: false,
+      ready: true,
       latestAttempt: {
         attemptId: replacement.attemptId,
         state: 'FAILED',
