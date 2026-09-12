@@ -946,7 +946,7 @@ function collectPrismaRawSql(source) {
   return queries;
 }
 
-function detectLedgerAccess(source, ledger) {
+function detectLedgerAccess(source, ledger, file) {
   const reads = [];
   const delegateAccess = detectPrismaDelegateAccess(
     source,
@@ -970,11 +970,13 @@ function detectLedgerAccess(source, ledger) {
     `\\b(?:insert\\s+into|update|delete\\s+from)\\s+${tableTarget}\\b`,
     'im',
   );
-  const code = ts.createPrinter({ removeComments: true }).printFile(
-    ts.createSourceFile(
-      'ledger-reader.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX,
-    ),
-  );
+  const code = path.extname(file) === '.sql'
+    ? source
+    : ts.createPrinter({ removeComments: true }).printFile(
+      ts.createSourceFile(
+        file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX,
+      ),
+    );
   const rawSql = [code, ...collectPrismaRawSql(source)];
   const hasRawSqlMutation = rawSql.some((sql) =>
     rawSqlMutationPattern.test(sql),
@@ -1036,7 +1038,7 @@ export function inspectLedgerReaders({
     );
     for (const file of files) {
       const source = readFileSync(path.join(root, file), 'utf8');
-      for (const kind of detectLedgerAccess(source, ledger)) {
+      for (const kind of detectLedgerAccess(source, ledger, file)) {
         const allowed = LEDGER_MUTATION_ACCESS_KINDS.has(kind)
           ? mutationAllowed.has(file)
           : readAllowed.has(file);

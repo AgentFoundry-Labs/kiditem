@@ -264,6 +264,11 @@ model ChannelAdTargetDailySnapshot {
     );
     write(
       root,
+      'apps/server/src/raw-ledger-query.sql',
+      'SELECT *\nFROM channel_ad_target_daily_snapshots;\n',
+    );
+    write(
+      root,
       'apps/server/src/array-relation-filter-consumer.ts',
       'const filters = [{ adTargetDaily: { isNot: null } }];\nawait tx.adAction.findMany({ where: { AND: [...filters] } });\n',
     );
@@ -407,6 +412,7 @@ model ChannelAdTargetDailySnapshot {
     assert.doesNotMatch(failedOutput, /standalone-dto\.ts/);
     assert.doesNotMatch(failedOutput, /documented-ledger-dto\.ts/);
     assert.doesNotMatch(failedOutput, /documented-sql-source\.ts/);
+    assert.match(failedOutput, /raw-ledger-query\.sql.*raw SQL read/);
     assert.match(
       failedOutput,
       /array-relation-filter-consumer\.ts.*Prisma relation read/,
@@ -460,6 +466,7 @@ model ChannelAdTargetDailySnapshot {
       path.join(root, 'apps/server/src/raw-sql-tagged-fragment-delete-consumer.ts'),
     );
     rmSync(path.join(root, 'apps/server/src/raw-sql-insert-consumer.ts'));
+    rmSync(path.join(root, 'apps/server/src/raw-ledger-query.sql'));
     rmSync(path.join(root, 'apps/server/src/raw-sql-update-consumer.ts'));
     rmSync(path.join(root, 'apps/server/src/raw-sql-delete-consumer.ts'));
     rmSync(
