@@ -65,9 +65,12 @@ Advertising totals and per-listing costs read the target-day ledger and the
 campaign sweep's coverage. A separate account-day KPI collection and the
 listing-day advertising rollup are not independent evidence for those totals.
 This replaces the concrete access paths in
-[ADR-0003](0003-per-listing-profit-reads-ad-coverage.md). Its coverage requirement
-and the measurement rules in
-[ADR-0006](0006-a-displayed-number-is-a-measurement-or-nothing.md) still apply.
+[ADR-0003](0003-per-listing-profit-reads-ad-coverage.md) and the reader-location
+and scanner consequences of
+[ADR-0006](0006-a-displayed-number-is-a-measurement-or-nothing.md). ADR-0006's
+measurement and evidence rules, including the profit coverage requirement,
+still apply. Pure transaction-client readers replace its `common/` placement
+workaround without introducing a NestJS module dependency.
 
 Boundary tests publish owner facts into PostgreSQL and assert reader or screen
 service output, including incomplete coverage, measured empty windows, and
