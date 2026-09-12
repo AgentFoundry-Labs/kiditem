@@ -4,8 +4,15 @@ import {
   COUPANG_CATALOG_BASIC_SOURCE_TYPE,
   COUPANG_CATALOG_DETAILS_SOURCE_TYPE,
 } from '@kiditem/shared/coupang-catalog-snapshot';
+import {
+  addDays,
+  businessDateKey,
+  datesInclusive,
+  evidenceCutoffDate,
+  kstBusinessDate,
+  parseBusinessDate,
+} from '@kiditem/shared/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { kstDayStart } from '../common/kst';
 import { SELLPIA_SALES_COVERAGE_SELLER_ID } from '../analytics/sellpia-sales/domain/snapshot-coverage';
 import { dayAfter, readAdWindowFacts } from '../common/ad-window-facts';
 import type {
@@ -80,43 +87,36 @@ export class ReadinessService {
 
   async getStatus(organizationId: string): Promise<ReadinessResponse> {
     const now = new Date();
-    // Wing/광고는 당일 데이터가 없고 전일이 최신 → 어제를 기준일로 잡음
-    const todayKstStart = kstDayStart(now);
-    const todayKstStr = toKstDateStr(todayKstStart);
-    const yesterdayKstStart = new Date(todayKstStart.getTime() - 86400000);
-    const yesterdayKstStr = toKstDateStr(yesterdayKstStart);
+    // Source readiness ends at the latest fully closed KST business day.
+    const todayKst = kstBusinessDate(now);
+    const todayKstStr = businessDateKey(todayKst);
+    const yesterdayKst = evidenceCutoffDate(now);
+    const yesterdayKstStr = businessDateKey(yesterdayKst);
     // 최소 lookback N 일 전 ~ 어제까지의 기대 일자
-    const lookbackStart = new Date(
-      yesterdayKstStart.getTime() - (ReadinessService.LOOKBACK_DAYS - 1) * 86400000,
-    );
-    const lookbackStartKstStr = toKstDateStr(lookbackStart);
+    const lookbackStart = addDays(yesterdayKst, -(ReadinessService.LOOKBACK_DAYS - 1));
     const monthStartKstStr = `${todayKstStr.slice(0, 8)}01`;
+    const monthStartKst = parseBusinessDate(monthStartKstStr)!;
     // 월초가 rolling lookback보다 이르면 이번 달 전체를 유지한다. 월초 직후
     // 에는 lookback이 전월로 넘어가므로 최소 14일 보장도 그대로 남는다.
-    const coverageRangeStartKstStr =
-      lookbackStartKstStr < monthStartKstStr
-        ? lookbackStartKstStr
-        : monthStartKstStr;
-    const adsLookbackStart = new Date(
-      yesterdayKstStart.getTime() - (ReadinessService.AD_LOOKBACK_DAYS - 1) * 86400000,
+    const coverageRangeStart = lookbackStart < monthStartKst
+      ? lookbackStart
+      : monthStartKst;
+    const coverageRangeStartKstStr = businessDateKey(coverageRangeStart);
+    const adsLookbackStart = addDays(
+      yesterdayKst,
+      -(ReadinessService.AD_LOOKBACK_DAYS - 1),
     );
-    const adsRangeStartKstStr = toKstDateStr(adsLookbackStart);
-    const adsExpectedDates = enumerateDates(adsRangeStartKstStr, yesterdayKstStr);
+    const adsRangeStartKstStr = businessDateKey(adsLookbackStart);
+    const adsExpectedDates = datesInclusive(adsLookbackStart, yesterdayKst)
+      .map(businessDateKey);
 
     // Sellpia 월 누적: 최근 lookback과 이번 달 1일 중 더 이른 날부터 확인.
     const sellpiaRangeStartKstStr = coverageRangeStartKstStr;
-    const sellpiaRangeStartDate = parseDbDate(sellpiaRangeStartKstStr);
-    // 월 1일의 홈 월간 조회는 today~today 단일 범위라 Sellpia summary가 당일
-    // coverage를 요구한다. 이 날만 readiness도 오늘까지 확인해야 모달이 이미
-    // 준비됐다고 숨은 채 홈은 hasData=false인 경계 불일치가 생기지 않는다.
-    const sellpiaRangeEndKstStr = todayKstStr.endsWith('-01')
-      ? todayKstStr
-      : yesterdayKstStr;
-    const sellpiaRangeEndDate = parseDbDate(sellpiaRangeEndKstStr);
-    const sellpiaExpectedDates = enumerateDates(
-      sellpiaRangeStartKstStr,
-      sellpiaRangeEndKstStr,
-    );
+    const sellpiaRangeStartDate = coverageRangeStart;
+    const sellpiaRangeEndKstStr = yesterdayKstStr;
+    const sellpiaRangeEndDate = yesterdayKst;
+    const sellpiaExpectedDates = datesInclusive(coverageRangeStart, yesterdayKst)
+      .map(businessDateKey);
 
     // Extension ingest/read paths bind to one active Coupang account and
     // prefer the primary account for account-less reads. Readiness must use
@@ -146,8 +146,8 @@ export class ReadinessService {
       activeCoupangAccount
         ? readAdWindowFacts(this.prisma, {
             organizationId,
-            from: new Date(`${adsRangeStartKstStr}T00:00:00.000Z`),
-            to: dayAfter(new Date(`${yesterdayKstStr}T00:00:00.000Z`)),
+            from: adsLookbackStart,
+            to: dayAfter(yesterdayKst),
           })
         : Promise.resolve(null),
       activeCoupangAccount
@@ -258,7 +258,7 @@ export class ReadinessService {
 
     // 일별 매출(wing_sales) readiness 상태 원천 — 셀피아 판매현황(몰별 일별 매출).
     const sellpiaPresent = new Set(
-      sellpiaDailyRows.map((r) => toKstDateStr(r.businessDate)),
+      sellpiaDailyRows.map((r) => businessDateKey(r.businessDate)),
     );
     const sellpiaMissing = sellpiaExpectedDates.filter(
       (d) => !sellpiaPresent.has(d),
@@ -276,7 +276,7 @@ export class ReadinessService {
     const adsLastDate = adsDailyKpiPublished?.observedAt?.toISOString() ?? null;
 
     const wingSalesRankBusinessDate = wingSalesRank
-      ? wingSalesRank.businessDate.toISOString().slice(0, 10)
+      ? businessDateKey(wingSalesRank.businessDate)
       : null;
     const wingSalesRankFresh = wingSalesRankBusinessDate
       ? wingSalesRankBusinessDate >= yesterdayKstStr
@@ -441,33 +441,6 @@ function toRecord(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-
-/** Date → KST YYYY-MM-DD */
-function toKstDateStr(d: Date): string {
-  const kst = new Date(d.getTime() + 9 * 3600 * 1000);
-  return kst.toISOString().slice(0, 10);
-}
-
-/**
- * YYYY-MM-DD → Prisma @db.Date comparison value.
- *
- * Postgres `date` values come back from Prisma as UTC-midnight Date objects.
- * Using a KST-midnight instant here would exclude the end date, e.g.
- * 2026-05-01 becomes 2026-04-30T15:00Z and misses DB date 2026-05-01.
- */
-function parseDbDate(ymd: string): Date {
-  return new Date(`${ymd}T00:00:00.000Z`);
-}
-
-function enumerateDates(startYmd: string, endYmd: string): string[] {
-  const start = parseDbDate(startYmd);
-  const end = parseDbDate(endYmd);
-  const out: string[] = [];
-  for (let t = start.getTime(); t <= end.getTime(); t += 86400000) {
-    out.push(toKstDateStr(new Date(t)));
-  }
-  return out;
-}
 
 function formatKst(d: Date): string {
   const kst = new Date(d.getTime() + 9 * 3600 * 1000);

@@ -220,7 +220,7 @@ describe('AdCampaignRepositoryAdapter account + stable campaign grain (PG)', () 
     });
   });
 
-  it('selects the same current listing target in campaign detail and action readers', async () => {
+  it('keeps valid same-day listing targets consistent across campaign and action readers', async () => {
     const listing = await prisma.channelListing.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
@@ -229,8 +229,12 @@ describe('AdCampaignRepositoryAdapter account + stable campaign grain (PG)', () 
         channelName: '현재 행 검증 상품',
       },
     });
-    const targetKey = `account:${ACCOUNT_A}:product:campaign:current-row:item-1`;
-    const earlierDate = new Date(businessDate.getTime() - 86_400_000);
+    const targetKeys = [
+      `account:${ACCOUNT_A}:product:campaign:current-row:item-1`,
+      `account:${ACCOUNT_A}:product:campaign:current-row:item-2`,
+    ];
+    // The ledger permits one row per generation/day/type/target key. Separate
+    // product targets on the same listing and day are the valid competing set.
     await prisma.channelAdTargetDailySnapshot.createMany({
       data: [
         {
@@ -240,14 +244,14 @@ describe('AdCampaignRepositoryAdapter account + stable campaign grain (PG)', () 
           channel: 'coupang',
           listingId: listing.id,
           externalId: listing.externalId,
-          businessDate: earlierDate,
+          businessDate,
           targetType: 'product',
-          targetKey,
+          targetKey: targetKeys[0],
           campaignIdentity: 'campaign:current-row',
-          campaignName: '이전 날짜',
+          campaignName: '같은 날 상품 1',
           externalOptionId: 'item-1',
-          status: 'old-day',
-          lastObservedAt: new Date('2026-09-13T12:00:00.000Z'),
+          status: 'enabled',
+          lastObservedAt: new Date('2026-09-12T12:00:00.000Z'),
           spend: 10,
           metaJson: { 'advertising.campaign.target': { granularity: 'product' } },
         },
@@ -260,12 +264,12 @@ describe('AdCampaignRepositoryAdapter account + stable campaign grain (PG)', () 
           externalId: listing.externalId,
           businessDate,
           targetType: 'product',
-          targetKey,
+          targetKey: targetKeys[1],
           campaignIdentity: 'campaign:current-row',
-          campaignName: '최신 날짜',
-          externalOptionId: 'item-1',
-          status: 'latest-day',
-          lastObservedAt: new Date('2026-09-12T12:00:00.000Z'),
+          campaignName: '같은 날 상품 2',
+          externalOptionId: 'item-2',
+          status: 'paused',
+          lastObservedAt: new Date('2026-09-12T12:01:00.000Z'),
           spend: 20,
           metaJson: { 'advertising.campaign.target': { granularity: 'product' } },
         },
@@ -277,16 +281,40 @@ describe('AdCampaignRepositoryAdapter account + stable campaign grain (PG)', () 
       actionAdapter.findLatestTargetRows(TEST_ORGANIZATION_ID),
     ]);
 
-    expect(campaignRows.find((row) => row.targetKey === targetKey)).toMatchObject({
-      listingId: listing.id,
-      campaignName: '최신 날짜',
-      status: 'latest-day',
-    });
-    expect(actionRows.find((row) => row.targetKey === targetKey)).toMatchObject({
-      listingId: listing.id,
-      campaignName: '최신 날짜',
-      status: 'latest-day',
-    });
+    const campaignCurrent = campaignRows
+      .filter((row) => targetKeys.includes(row.targetKey))
+      .map(({ targetKey, listingId, campaignName, status }) => ({
+        targetKey,
+        listingId,
+        campaignName,
+        status,
+      }))
+      .sort((left, right) => left.targetKey.localeCompare(right.targetKey));
+    const actionCurrent = actionRows
+      .filter((row) => targetKeys.includes(row.targetKey))
+      .map(({ targetKey, listingId, campaignName, status }) => ({
+        targetKey,
+        listingId,
+        campaignName,
+        status,
+      }))
+      .sort((left, right) => left.targetKey.localeCompare(right.targetKey));
+
+    expect(campaignCurrent).toEqual([
+      {
+        targetKey: targetKeys[0],
+        listingId: listing.id,
+        campaignName: '같은 날 상품 1',
+        status: 'enabled',
+      },
+      {
+        targetKey: targetKeys[1],
+        listingId: listing.id,
+        campaignName: '같은 날 상품 2',
+        status: 'paused',
+      },
+    ]);
+    expect(actionCurrent).toEqual(campaignCurrent);
   });
 
   it('prefers campaign grain over product facts for the same campaign/day', async () => {
