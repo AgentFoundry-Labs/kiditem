@@ -259,6 +259,11 @@ model ChannelAdTargetDailySnapshot {
     );
     write(
       root,
+      'apps/server/src/documented-sql-source.ts',
+      '// Values come from channel_ad_target_daily_snapshots through the reader.\n/** Never DELETE FROM channel_ad_target_daily_snapshots in consumers. */\nexport interface DailySummary { spend: number | null }\n',
+    );
+    write(
+      root,
       'apps/server/src/array-relation-filter-consumer.ts',
       'const filters = [{ adTargetDaily: { isNot: null } }];\nawait tx.adAction.findMany({ where: { AND: [...filters] } });\n',
     );
@@ -401,6 +406,7 @@ model ChannelAdTargetDailySnapshot {
     );
     assert.doesNotMatch(failedOutput, /standalone-dto\.ts/);
     assert.doesNotMatch(failedOutput, /documented-ledger-dto\.ts/);
+    assert.doesNotMatch(failedOutput, /documented-sql-source\.ts/);
     assert.match(
       failedOutput,
       /array-relation-filter-consumer\.ts.*Prisma relation read/,

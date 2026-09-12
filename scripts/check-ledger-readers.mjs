@@ -970,7 +970,12 @@ function detectLedgerAccess(source, ledger) {
     `\\b(?:insert\\s+into|update|delete\\s+from)\\s+${tableTarget}\\b`,
     'im',
   );
-  const rawSql = [source, ...collectPrismaRawSql(source)];
+  const code = ts.createPrinter({ removeComments: true }).printFile(
+    ts.createSourceFile(
+      'ledger-reader.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX,
+    ),
+  );
+  const rawSql = [code, ...collectPrismaRawSql(source)];
   const hasRawSqlMutation = rawSql.some((sql) =>
     rawSqlMutationPattern.test(sql),
   );
