@@ -43,9 +43,10 @@ Create a Linear issue on team `Kiditem`.
 **No.** GitHub PRs carry implementation evidence, not requests. A PR links back
 to its Linear issue as an attachment; the issue, not the PR, is the ledger.
 
-## Boundary with `docs/superpowers/`
+## Where specs live
 
-Linear holds *work items* — status, ownership, blockers.
-`docs/superpowers/specs/` and `docs/superpowers/plans/` hold the *durable design
-and execution record*, and the root `CLAUDE.md` requires they stay in the repo.
-A Linear issue should link to its spec rather than restate it.
+Linear holds *work items* and, since 2026-09-12, *in-flight specs*: `/to-spec`
+publishes a spec as an issue (label `Agent:kiditem-implementer`, status Ready),
+`/to-tickets` creates its sub-issues, and each ticket links back to the spec
+issue rather than restating it. Settled decisions go to `docs/adr/`.
+`docs/superpowers/` is a frozen archive; see `docs/agents/domain.md`.

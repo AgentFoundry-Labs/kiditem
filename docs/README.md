@@ -1,13 +1,14 @@
 # KidItem Docs
 
 `docs/` is for durable project documentation: current architecture, testing
-policy, maintained implementation plans and design specs, AI-executable
-runbooks, generated navigation, and shared development data operations.
+policy, decisions (ADRs), AI-executable runbooks, generated navigation, and
+shared development data operations.
 
-Keep implementation plans and design specs under `superpowers/` current as
-decisions, scope, and verification change. Disposable scratch files, agent
-logs, and temporary coordination notes belong in local scratch space outside
-git; promote enduring rules into the nearest scoped `CLAUDE.md`.
+In-flight design lives in Linear spec issues (`docs/agents/issue-tracker.md`);
+settled decisions live in `adr/`. `superpowers/` is a frozen archive.
+Disposable scratch files, agent logs, and temporary coordination notes belong
+in local scratch space outside git; promote enduring rules into the nearest
+scoped `CLAUDE.md`.
 
 ## Start Here
 
@@ -15,7 +16,8 @@ git; promote enduring rules into the nearest scoped `CLAUDE.md`.
 |---|---|
 | System shape and owner boundaries | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | Test strategy and risk tiers | [TESTING.md](TESTING.md) |
-| Implementation plans and design specs | [superpowers/plans/](superpowers/plans/), [superpowers/specs/](superpowers/specs/) |
+| Decisions | [adr/](adr/) |
+| Archived plans and specs (frozen, pre-2026-09-12) | [superpowers/](superpowers/) |
 | Shared Google Drive dev data concepts and operations | [DEV_DATA_BUNDLES.md](DEV_DATA_BUNDLES.md) |
 | Machine setup / repeatable procedures for AI agents | [runbooks/](runbooks/) |
 | Schema ERD and domain diagrams | [ERD.md](ERD.md), [erd/](erd/) |
@@ -24,9 +26,9 @@ git; promote enduring rules into the nearest scoped `CLAUDE.md`.
 ## Directory Rules
 
 - `runbooks/` contains procedural, AI-executable setup/ops guides.
-- `superpowers/plans/` and `superpowers/specs/` contain maintained
-  implementation plans and design decisions. Update them when implementation
-  changes their authoritative scope, sequence, or verification.
+- `superpowers/` is a frozen archive of plans and specs written before
+  2026-09-12. Read for history; do not add or edit. New specs are Linear
+  issues, new decisions are ADRs.
 - `references/` contains vendor docs and source assets used as reference
   material. Heavy binary files are allowed only when they are durable inputs.
 - `erd/` contains generated domain ERD pages.

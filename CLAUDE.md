@@ -23,9 +23,9 @@ processing, listing, and operations.
   allowed only when required by a named interface, migration, shared guard, or
   incident fix; identify the affected owners and exclude unrelated cleanup.
 - Record a settled decision as an ADR in `docs/adr/`; keep in-flight design in
-  `docs/superpowers/specs/` and generated agent output out of git. An ADR wins
-  over a spec on conflict. Research existing OSS before introducing
-  architecture.
+  its Linear spec issue and generated agent output out of git. An ADR wins
+  over a spec on conflict. `docs/superpowers/` is a frozen archive: read it,
+  never add to it. Research existing OSS before introducing architecture.
 - Use the [AI collaboration runbook](docs/runbooks/ai-collaboration.md) for
   issue intake, external-agent coordination, PR handoff, merge, and checkout
   cleanup.

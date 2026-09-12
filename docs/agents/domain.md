@@ -14,9 +14,10 @@ root points at one `CONTEXT.md` per context.
 3. **`docs/adr/`** for system-wide decisions, and `<context>/docs/adr/` for
    context-scoped ones. Read the ones that touch the area you are about to work
    in.
-4. **`docs/superpowers/specs/`** — an ACTIVE spec is the current design
-   authority for its area and can supersede an older ADR. Check its status
-   header before trusting it. These are **transitional**; see below.
+4. **The Linear spec issue** for the area (`/to-spec` output, label
+   `Agent:kiditem-implementer`, status Ready or In Progress) — the current
+   design authority while implementation is moving. `docs/superpowers/specs/`
+   is a frozen archive; see below.
 
 If a file doesn't exist, **proceed silently**. Don't flag its absence and don't
 propose creating it upfront. `/domain-modeling` creates `CONTEXT.md` and ADRs
@@ -29,44 +30,30 @@ lazily, when a term or decision actually needs resolving.
 | `CLAUDE.md` chain | durable rules and invariants | vocabulary, rationale, history |
 | `CONTEXT.md` | the domain glossary for one context | rules, gates, ownership |
 | `docs/adr/` | decisions and why they were made | current rules (those live in `CLAUDE.md`) |
-| `docs/superpowers/specs/` | active design still under implementation | anything settled and durable |
+| Linear spec issue | active design still under implementation | anything settled and durable |
+| `docs/superpowers/` | frozen archive of pre-2026-09-12 plans and specs | anything new |
 
 The root `CLAUDE.md` already says instruction files carry durable invariants
 only, and that rationale and history belong in source or durable docs. That is
 the same split.
 
-## `docs/superpowers/specs/` is being replaced by ADRs
+## `docs/superpowers/` is deprecated (2026-09-12)
 
-The intended end state is that **every durable decision lives in `docs/adr/`**
-and `docs/superpowers/specs/` holds nothing permanent. Until then both exist,
-and the rule is directional:
+In-flight design now lives in the issue tracker, following the
+mattpocock-engineering skill flow: `/grill-with-docs` settles the decisions,
+`/to-spec` publishes the spec as a Linear issue, `/to-tickets` splits it, and
+`/implement` works a ticket. Durable decisions still go to `docs/adr/`.
 
-- When a decision inside an ACTIVE spec **settles**, record it as an ADR and
-  leave the spec pointing at it. Do not let a settled decision stay only in a
-  spec.
-- Write a **new** durable decision as an ADR, not as a new spec section.
-- Keep using specs for design that is still moving — an ADR records a decision,
-  not a work-in-progress.
-- Never duplicate: a decision belongs in exactly one of the two, and while both
-  exist the ADR wins on conflict.
-
-Plans under `docs/superpowers/plans/` are execution records, not decisions, and
-are outside this migration.
-
-### Migrate on touch, not in bulk
-
-`docs/superpowers/specs/` holds only the specs marked `**Status:** ACTIVE`.
-Everything else lives in `docs/superpowers/specs/archive/`, so what is still
-being implemented is visible at a glance.
-
-Extract an archived spec's settled decisions into an ADR **when you next work
-in that area**, not in a sweep. Most of those designs are already implemented,
-which makes the code the truth and an ADR restating it something nobody reads.
-An ADR earns its place where a future reader will ask "why is it like this",
-and that question arrives when someone touches the area — not before.
-
-An archived spec is a historical record. Do not edit one to reflect a decision
-made later; write the ADR instead.
+- Write a **new** durable decision as an ADR, not as a spec section.
+- A spec issue holds design that is still moving. When a decision inside it
+  **settles**, record it as an ADR and leave the issue pointing at it.
+- Never duplicate: a decision belongs in exactly one of the two, and the ADR
+  wins on conflict.
+- `docs/superpowers/plans/` and `docs/superpowers/specs/` are a frozen archive.
+  Do not add files, do not edit existing ones to reflect later decisions, and
+  do not treat any of them as a contract for a current change. Extract an
+  archived spec's settled decisions into an ADR only when you next work in
+  that area, and only where a future reader will ask "why is it like this".
 
 ## Contexts
 
@@ -91,4 +78,4 @@ overriding:
 
 > _Contradicts ADR-0007 (event-sourced orders), but worth reopening because…_
 
-The same applies to an ACTIVE spec in `docs/superpowers/specs/`.
+The same applies to the area's Linear spec issue.

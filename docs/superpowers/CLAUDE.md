@@ -1,4 +1,12 @@
-# Superpowers Document Lifecycle
+# Superpowers Document Archive
+
+**Deprecated 2026-09-12.** This directory is frozen. In-flight design is a
+Linear spec issue (`docs/agents/issue-tracker.md`); settled decisions are ADRs
+in `docs/adr/`. Do not add files here and do not edit existing ones to reflect
+later decisions. Nothing here is a contract for a current change.
+
+The lifecycle rules below describe how the archived documents were maintained
+and remain useful for reading them.
 
 Plans and specs in this directory are execution records as well as design
 inputs. Their status determines whether they are authoritative.

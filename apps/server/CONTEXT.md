@@ -113,3 +113,18 @@ The single module that owns one external source's collection attempts,
 canonical facts, coverage manifests, current complete snapshot, and terminal
 status. Nothing else writes those rows.
 _Avoid_: collector, importer, sync service
+
+### Ledgers
+
+**Ledger**:
+The one table that holds one kind of measured fact, written only by its source
+owner's terminal transaction. A fact has exactly one ledger; a table that
+restates another ledger's rows (a rollup, a cache, a status word) is not one.
+_Avoid_: snapshot table, fact table, cache, projection
+
+**Reader**:
+The one module through which a ledger is read for any purpose other than its
+owner's own publication. It carries the ledger's evidence gate, returns facts
+(measured dates, sums, the latest observed moment) and never a word derived
+from them. A screen composes readers; it does not query a ledger.
+_Avoid_: repository, query service, read port, distributor
