@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { snapshotStatusOf } from '../../test-helpers/dashboard-basis-assertions';
 import {
   PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
   PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH,
@@ -157,8 +158,9 @@ describe('Products publishes one ABC display status (PostgreSQL)', () => {
     // full; the month-end rule would have published a stale month boundary as
     // the age of a current result.
     expect(summary.metricBasis?.['abcStatusCount.READY']).toMatchObject({
-      kind: 'snapshot', asOf: ownedCutoff, status: 'current',
+      kind: 'snapshot', asOf: ownedCutoff, measured: true,
     });
+    expect(snapshotStatusOf(summary.metricBasis?.['abcStatusCount.READY'])).toBe('current');
   });
 
   async function readEveryDisplayStatus() {

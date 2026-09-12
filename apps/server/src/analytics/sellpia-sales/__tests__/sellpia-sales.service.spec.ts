@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { missingDatesOf, periodStatusOf } from '../../../test-helpers/dashboard-basis-assertions';
 import { SellpiaSalesSummarySchema } from '@kiditem/shared/dashboard';
 import { SellpiaSalesService } from '../sellpia-sales.service';
 import { classifySellpiaChannelGroup } from '../domain/channel-group';
@@ -295,9 +296,9 @@ describe('SellpiaSalesService.getSummary', () => {
 
     expect(out.totalRevenue).toBe(1_000);
     expect(out.hasData).toBe(true);
-    expect(out.metricBasis.totalRevenue.status).toBe('partial');
+    expect(periodStatusOf(out.metricBasis.totalRevenue)).toBe('partial');
     expect(out.metricBasis.totalRevenue.includedDates).toEqual(['2026-07-14']);
-    expect(out.metricBasis.totalRevenue.missingDates).toEqual(['2026-07-15']);
+    expect(missingDatesOf(out.metricBasis.totalRevenue)).toEqual(['2026-07-15']);
     expect(out.adCost).toBeNull();
     expect(out.netProfit).toBeNull();
     expect(out.profitRate).toBeNull();
@@ -440,14 +441,9 @@ describe('SellpiaSalesService.getSummary', () => {
       { date: '2026-07-15', revenue: 0, qty: 0 },
     ]);
     expect(out.others.malls[0].daily[1]).toMatchObject({
-      metricBasis: {
-        revenue: {
-          includedDates: ['2026-07-15'],
-          missingDates: [],
-          status: 'complete',
-        },
-      },
+      metricBasis: { revenue: { includedDates: ['2026-07-15'] } },
     });
+    expect(periodStatusOf(out.others.malls[0].daily[1]?.metricBasis?.revenue)).toBe('complete');
   });
 
   it('does not fill group or mall daily dates without global coverage proof', async () => {
@@ -473,11 +469,9 @@ describe('SellpiaSalesService.getSummary', () => {
     expect(out.hasData).toBe(false);
     expect(out.others.daily).toEqual([]);
     expect(out.others.malls).toEqual([]);
-    expect(out.metricBasis['others.daily']).toMatchObject({
-      includedDates: [],
-      missingDates: ['2026-07-15'],
-      status: 'empty',
-    });
+    expect(out.metricBasis['others.daily']).toMatchObject({ includedDates: [] });
+    expect(periodStatusOf(out.metricBasis['others.daily'])).toBe('empty');
+    expect(missingDatesOf(out.metricBasis['others.daily'])).toEqual(['2026-07-15']);
     expect(out.metricBasis['others.daily.2026-07-15']).toBeUndefined();
   });
 
@@ -526,10 +520,10 @@ describe('SellpiaSalesService.getSummary', () => {
     expect(out.totalRevenue).toBe(0);
     expect(out.metricBasis.totalRevenue).toMatchObject({
       includedDates: [],
-      missingDates: ['2026-07-15'],
       invalidDates: ['2026-07-15'],
-      status: 'empty',
     });
+    expect(periodStatusOf(out.metricBasis.totalRevenue)).toBe('empty');
+    expect(missingDatesOf(out.metricBasis.totalRevenue)).toEqual(['2026-07-15']);
     expect(out.others.daily).toEqual([]);
     expect(out.others.malls).toEqual([]);
   });
@@ -601,12 +595,12 @@ describe('SellpiaSalesService.getSummary', () => {
     ]);
     expect(out.profitInputs).toMatchObject({ revenue: 400, cost: 160, adCost: 40, qty: 4 });
     expect(out.profitInputs?.basis.includedDates).toEqual(['2026-07-14', '2026-07-16']);
-    expect(out.profitInputs?.basis.missingDates).toEqual(['2026-07-15']);
-    expect(out.profitInputs?.basis.status).toBe('partial');
+    expect(missingDatesOf(out.profitInputs?.basis)).toEqual(['2026-07-15']);
+    expect(periodStatusOf(out.profitInputs?.basis)).toBe('partial');
     expect(out.adCost).toBe(40);
     expect(out.netProfit).toBe(200);
     expect(out.profitRate).toBe(50);
-    expect(out.metricBasis.totalRevenue.status).toBe('complete');
+    expect(periodStatusOf(out.metricBasis.totalRevenue)).toBe('complete');
     expect(out.others.daily[1]).toMatchObject({
       metricBasis: {
         revenue: { includedDates: ['2026-07-15'] },
@@ -646,7 +640,7 @@ describe('SellpiaSalesService.getSummary', () => {
     expect(out.adCost).toBeNull();
     expect(out.netProfit).toBeNull();
     expect(out.profitRate).toBeNull();
-    expect(out.metricBasis.profitInputs.status).toBe('empty');
+    expect(periodStatusOf(out.metricBasis.profitInputs)).toBe('empty');
     expect(out.metricBasis.profitInputs.includedDates).toEqual([]);
   });
 
@@ -687,10 +681,10 @@ describe('SellpiaSalesService.getSummary', () => {
     expect(out.profitInputs).toBeNull();
     expect(out.metricBasis.profitInputs).toMatchObject({
       includedDates: [],
-      missingDates: ['2026-07-14'],
       invalidDates: [],
-      status: 'unverified',
       queryFailedSources: ['coupang_ads'],
     });
+    expect(periodStatusOf(out.metricBasis.profitInputs)).toBe('unverified');
+    expect(missingDatesOf(out.metricBasis.profitInputs)).toEqual(['2026-07-14']);
   });
 });

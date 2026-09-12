@@ -24,6 +24,7 @@ import {
   type DashboardAdSummary,
   type DashboardInventorySummary,
   type TrafficKpi,
+  periodBasisStatus,
 } from '@kiditem/shared/dashboard';
 import { z } from 'zod';
 import { apiClient } from '@/lib/api-client';
@@ -641,8 +642,8 @@ export default function Dashboard() {
   // A measured value never reads 미수집. When the baseline month has no source
   // but the selected range does, the range's own coverage is what to say.
   const revenueRangeBasis = readMetricBasis(effectiveSales, 'rangeKpi.revenue');
-  const revenueCoverageNote = revenueRangeBasis?.kind === 'period' && revenueRangeBasis.status === 'partial'
-    ? `부분 ${revenueRangeBasis.includedDays}/${revenueRangeBasis.targetDays}일`
+  const revenueCoverageNote = revenueRangeBasis?.kind === 'period' && periodBasisStatus(revenueRangeBasis) === 'partial'
+    ? `부분 ${revenueRangeBasis.includedDates.length}/${revenueRangeBasis.targetDays}일`
     : null;
 
   // `revenueSource` describes the baseline month. A selected range publishes

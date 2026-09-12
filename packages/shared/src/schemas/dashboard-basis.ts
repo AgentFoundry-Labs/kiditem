@@ -2,27 +2,32 @@
  * Dashboard evidence algebra — the single constructor set for the calculation
  * bases declared in `schemas/dashboard.ts`.
  *
- * The 2026-09-10 dashboard partial-aggregation amendment requires every
- * displayed value to expose an unambiguous basis: the selected range, the
- * dates actually included, the dates missing, which sources answered, and
- * whether a required read failed. Those fields are not independent — status,
- * the included/missing partition, `invalid ⊆ missing`, sorting and uniqueness
- * are all functions of the date sets a producer measured.
+ * Every displayed value exposes an unambiguous basis: the selected range, the
+ * dates actually measured, which sources answered, and whether a required read
+ * failed. Everything else a reader wants to say about it — the status word,
+ * the missing dates, the day count, whether a snapshot is stale or partial —
+ * is a function of those facts.
  *
- * They are therefore *derived here and never passed*. A producer supplies the
- * evidence it actually observed; every cross-field invariant the wire contract
- * documents holds by construction, which is why the schema itself carries no
- * cross-field refinement. Re-asserting a derived invariant on a payload this
- * module just computed would only turn a producer bug into a hard client-side
- * parse failure of the whole card.
+ * Those functions live here, once, and the wire carries only the facts. A
+ * producer supplies what it observed through `buildPeriodBasis` /
+ * `buildSnapshotBasis`, which normalise it; a consumer, server or web, asks
+ * `periodBasisStatus` and friends rather than re-deriving the word beside a
+ * value. There is no second place the word is computed and so no second place
+ * for it to drift.
  *
  * This computes the contract, not business policy: which dates a source
  * covers is decided by the owner domain that read it.
  */
 import type {
   DashboardPeriodBasis,
+  DashboardPeriodBasisStatusSchema,
   DashboardSnapshotBasis,
+  DashboardSnapshotBasisStatusSchema,
 } from './dashboard.js';
+import type { z } from 'zod';
+
+export type DashboardPeriodBasisStatus = z.infer<typeof DashboardPeriodBasisStatusSchema>;
+export type DashboardSnapshotBasisStatus = z.infer<typeof DashboardSnapshotBasisStatusSchema>;
 
 const DAY_MS = 86_400_000;
 
@@ -122,19 +127,26 @@ function toIsoOrNull(value: Date | string | null | undefined): string | null {
 }
 
 /**
- * Status is a function of the measured evidence:
+ * The status word for a period basis, a function of the measured evidence:
  * - no included date + a failed required read → `unverified`;
  * - no included date otherwise → `empty` (an empty computable subset);
  * - every selected date included → `complete`;
  * - anything else → `partial`.
  */
-function derivePeriodStatus(
-  includedDays: number,
-  targetDays: number,
-  queryFailedCount: number,
-): DashboardPeriodBasis['status'] {
-  if (includedDays === 0) return queryFailedCount > 0 ? 'unverified' : 'empty';
-  return includedDays === targetDays ? 'complete' : 'partial';
+export function periodBasisStatus(
+  basis: Pick<DashboardPeriodBasis, 'includedDates' | 'targetDays' | 'queryFailedSources'>,
+): DashboardPeriodBasisStatus {
+  const includedDays = basis.includedDates.length;
+  if (includedDays === 0) return (basis.queryFailedSources?.length ?? 0) > 0 ? 'unverified' : 'empty';
+  return includedDays === basis.targetDays ? 'complete' : 'partial';
+}
+
+/** The selected dates that carry no measurement, ascending. Invalid dates are among them. */
+export function periodBasisMissingDates(
+  basis: Pick<DashboardPeriodBasis, 'from' | 'to' | 'includedDates'>,
+): string[] {
+  const included = new Set(basis.includedDates);
+  return enumerateDashboardDates(basis.from, basis.to).filter((date) => !included.has(date));
 }
 
 /** Build one period basis from the dates a producer actually measured. */
@@ -147,14 +159,7 @@ export function buildPeriodBasis(input: DashboardPeriodBasisInput): DashboardPer
   // cannot also be included. That is what keeps `invalid ⊆ missing` true.
   const includedDates = sortedInside(input.includedDates, target)
     .filter((date) => !invalid.has(date));
-  const included = new Set(includedDates);
-  const missingDates = targetDates.filter((date) => !included.has(date));
   const queryFailedSources = uniqueInOrder(input.queryFailedSources);
-  const status = derivePeriodStatus(
-    includedDates.length,
-    targetDates.length,
-    queryFailedSources.length,
-  );
 
   return {
     kind: 'period',
@@ -162,12 +167,9 @@ export function buildPeriodBasis(input: DashboardPeriodBasisInput): DashboardPer
     to: input.to,
     targetDays: targetDates.length,
     includedDates,
-    includedDays: includedDates.length,
-    missingDates,
     invalidDates,
     sources: requireSources(input.sources),
     ...(queryFailedSources.length > 0 ? { queryFailedSources } : {}),
-    status,
   };
 }
 
@@ -237,7 +239,8 @@ export interface DashboardSnapshotBasisInput {
 }
 
 /**
- * Snapshot status is a function of the evidence, exactly as period status is:
+ * The age word for a snapshot basis, a function of the evidence exactly as the
+ * period word is:
  * - nothing the owner published → `unavailable`;
  * - published, but no comparable pair of as-of dates → `unknown`;
  * - the result reaches the as-of the reader needed → `current`;
@@ -246,14 +249,23 @@ export interface DashboardSnapshotBasisInput {
  * `unknown` is deliberately not `unavailable`: the value is real and stays
  * displayed, and only the confidence in its age is missing.
  */
-function deriveSnapshotStatus(
-  asOf: string | null,
-  requiredAsOf: string | null,
-  measured: boolean,
-): DashboardSnapshotBasis['status'] {
-  if (!measured) return 'unavailable';
-  if (asOf === null || requiredAsOf === null) return 'unknown';
-  return asOf >= requiredAsOf ? 'current' : 'stale';
+export function snapshotBasisStatus(
+  basis: Pick<DashboardSnapshotBasis, 'asOf' | 'requiredAsOf' | 'measured'>,
+): DashboardSnapshotBasisStatus {
+  if (!basis.measured) return 'unavailable';
+  if (basis.asOf === null || basis.requiredAsOf === null) return 'unknown';
+  return basis.asOf >= basis.requiredAsOf ? 'current' : 'stale';
+}
+
+/**
+ * Whether a snapshot counted only part of the population it names. A value
+ * that does not exist is never called partly counted, so an unmeasured basis
+ * with withheld members reads as the reason there is no value instead.
+ */
+export function snapshotBasisPartial(
+  basis: Pick<DashboardSnapshotBasis, 'measured' | 'withheldCount'>,
+): boolean {
+  return basis.measured && basis.withheldCount > 0;
 }
 
 /** A withheld population is a count of members, so anything else is none. */
@@ -265,41 +277,30 @@ function withheldMembers(value: number | null | undefined): number {
 /**
  * Build one snapshot basis for a value that reads a stored owner result.
  *
- * The dashboard amendment keeps inventory, product counts and ABC out of
- * period aggregation: they carry their actual as-of and source validity
- * instead of an included/missing date partition they never had. This is that
- * constructor — the snapshot counterpart of `buildPeriodBasis`, deriving the
- * same way from what a producer measured rather than taking a status.
- *
- * Partiality is derived here too, and deliberately does not live in `status`.
- * A snapshot's status answers "how old is this value"; `partial` answers "how
- * much of the population entered it". They are independent, so a count read
- * this morning stays `current` while declaring that some members were
- * withheld — the amendment's "non-empty valid subsets display numbers with
- * partial status". A producer whose valid subset is empty says so with
- * `measured: false`, which is the empty-computable-subset case that displays
- * no data; a value that does not exist is never called partly counted.
+ * Inventory, product counts and ABC stay out of period aggregation: they
+ * carry their actual as-of and the as-of the reader needed instead of an
+ * included/missing date partition they never had. This is that constructor —
+ * the snapshot counterpart of `buildPeriodBasis`, normalising what a producer
+ * measured rather than taking a status.
  */
 export function buildSnapshotBasis(
   input: DashboardSnapshotBasisInput,
 ): DashboardSnapshotBasis {
   const measured = input.measured ?? true;
-  const requiredAsOf = calendarDateOrNull(input.requiredAsOf);
   // An absent owner result has no date to be as-of, so a caller's stale
   // as-of cannot survive `measured: false`.
   const asOf = measured ? calendarDateOrNull(input.asOf) : null;
-  // The withheld population survives `measured: false` because it is why
-  // there is no value; only the claim that a value was partly counted does not.
-  const withheldCount = withheldMembers(input.withheldCount);
 
   return {
     kind: 'snapshot',
+    measured,
     asOf,
+    requiredAsOf: calendarDateOrNull(input.requiredAsOf),
     observedAt: measured ? toIsoOrNull(input.observedAt) : null,
     sources: requireSources(input.sources),
-    status: deriveSnapshotStatus(asOf, requiredAsOf, measured),
-    partial: measured && withheldCount > 0,
-    withheldCount,
+    // The withheld population survives `measured: false` because it is why
+    // there is no value.
+    withheldCount: withheldMembers(input.withheldCount),
   };
 }
 

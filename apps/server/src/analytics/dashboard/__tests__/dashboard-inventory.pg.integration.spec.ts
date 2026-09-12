@@ -1,5 +1,6 @@
 import { PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD, PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH } from '@kiditem/shared/product-abc';
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { snapshotPartialOf } from '../../../test-helpers/dashboard-basis-assertions';
 import { Test } from '@nestjs/testing';
 import { ProfitabilityAdImportRepositoryAdapter } from '../../../advertising/adapter/out/repository/profitability-ad-import.repository.adapter';
 import { AdAccountDailyKpiSourceRepository } from '../../../advertising/adapter/out/repository/ad-account-daily-kpi-source.repository';
@@ -476,7 +477,7 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
       'warnings.mappingAttentionSkus',
     ] as const) {
       expect(result.metricBasis?.[key], key).toMatchObject({
-        kind: 'snapshot', asOf: businessDateText(ctx.anchor), status: 'current',
+        kind: 'snapshot', measured: true, asOf: businessDateText(ctx.anchor), requiredAsOf: businessDateText(ctx.anchor),
       });
     }
   });
@@ -528,16 +529,17 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
           kind: 'snapshot',
           asOf: businessDateText(ctx.anchor),
           // Partial coverage is not staleness: the read is still as-of today.
-          status: 'current',
-          partial: true,
+          measured: true,
+          requiredAsOf: businessDateText(ctx.anchor),
           withheldCount: 1,
         });
+        expect(snapshotPartialOf(result.metricBasis?.[key]), key).toBe(true);
       }
       // Out-of-stock and mapping attention have no advertising input, so they
       // never inherit another value's incomplete population.
       for (const key of AD_FREE_KEYS) {
         expect(result.metricBasis?.[key], key).toMatchObject({
-          status: 'current', partial: false, withheldCount: 0,
+          measured: true, withheldCount: 0,
         });
       }
     });
@@ -553,7 +555,7 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
       expect(result.warnings.minusProducts).toBe(2);
       for (const key of [...PER_LISTING_KEYS, ...AD_FREE_KEYS]) {
         expect(result.metricBasis?.[key], key).toMatchObject({
-          status: 'current', partial: false, withheldCount: 0,
+          measured: true, withheldCount: 0,
         });
       }
     });
@@ -576,14 +578,13 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
         expect(result.metricBasis?.[key], key).toMatchObject({
           kind: 'snapshot',
           asOf: null,
-          status: 'unavailable',
-          partial: false,
+          measured: false,
           withheldCount: 2,
         });
       }
       for (const key of AD_FREE_KEYS) {
         expect(result.metricBasis?.[key], key).toMatchObject({
-          status: 'current', partial: false, withheldCount: 0,
+          measured: true, withheldCount: 0,
         });
       }
     });
@@ -611,14 +612,13 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
         expect(result.metricBasis?.[key], key).toMatchObject({
           kind: 'snapshot',
           asOf: null,
-          status: 'unavailable',
-          partial: false,
+          measured: false,
           withheldCount: 1,
         });
       }
       for (const key of AD_FREE_KEYS) {
         expect(result.metricBasis?.[key], key).toMatchObject({
-          status: 'current', partial: false, withheldCount: 0,
+          measured: true, withheldCount: 0,
         });
       }
     });
@@ -655,8 +655,7 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
         expect(result.metricBasis?.[key], key).toMatchObject({
           kind: 'snapshot',
           asOf: businessDateText(buildDashboardContext().anchor),
-          status: 'current',
-          partial: false,
+          measured: true,
           withheldCount: 0,
         });
       }
@@ -678,14 +677,13 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
         expect(result.metricBasis?.[key], key).toMatchObject({
           kind: 'snapshot',
           asOf: null,
-          status: 'unavailable',
-          partial: false,
+          measured: false,
           withheldCount: 1,
         });
       }
       for (const key of AD_FREE_KEYS) {
         expect(result.metricBasis?.[key], key).toMatchObject({
-          status: 'current', partial: false, withheldCount: 0,
+          measured: true, withheldCount: 0,
         });
       }
     });
@@ -702,8 +700,7 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
       for (const key of PER_LISTING_KEYS) {
         expect(result.metricBasis?.[key], key).toMatchObject({
           kind: 'snapshot',
-          status: 'current',
-          partial: false,
+          measured: true,
           withheldCount: 0,
         });
       }

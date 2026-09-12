@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { periodBasisStatus } from '@kiditem/shared/dashboard';
 import {
   adEvidenceApplies,
   adEvidenceDates,
@@ -66,9 +67,9 @@ describe('evidence lifting over an empty selection', () => {
     expect(basis).toMatchObject({
       from: '2026-09-01',
       to: '2026-09-03',
-      status: 'complete',
       sources: ['orders'],
     });
+    expect(basis && periodBasisStatus(basis)).toBe('complete');
   });
 
   it('has no basis to describe when the window selected no date', () => {

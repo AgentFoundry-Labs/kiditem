@@ -5,6 +5,11 @@ import {
   enumerateDashboardDates,
   intersectBases,
   narrowToDate,
+  periodBasisMissingDates,
+  periodBasisStatus,
+  snapshotBasisPartial,
+  snapshotBasisStatus,
+  type DashboardPeriodBasisStatus,
 } from './dashboard-basis.js';
 import {
   DashboardPeriodBasisSchema,
@@ -13,10 +18,10 @@ import {
 } from './dashboard.js';
 
 /**
- * The builders are the only producers of the dashboard evidence contract, so
- * these tables are what the wire invariants now rest on: the partition,
- * `invalid ⊆ missing`, sorted unique dates, and the status vocabulary the
- * 2026-09-10 partial-aggregation amendment requires.
+ * The builders are the only producers of the dashboard evidence contract and
+ * the derivations beside them are what every reader asks, so these tables are
+ * what the contract rests on: sorted unique dates inside the range, the
+ * status word, and the missing dates.
  */
 describe('buildPeriodBasis', () => {
   const range = { from: '2026-09-01', to: '2026-09-05' } as const;
@@ -25,18 +30,16 @@ describe('buildPeriodBasis', () => {
   const cases: {
     name: string;
     input: Parameters<typeof buildPeriodBasis>[0];
+    status: DashboardPeriodBasisStatus;
+    missingDates?: string[];
     expected: Partial<DashboardPeriodBasis>;
   }[] = [
     {
       name: 'every selected date collected is complete',
       input: { ...range, includedDates: allDates, sources: ['orders'] },
-      expected: {
-        status: 'complete',
-        includedDays: 5,
-        targetDays: 5,
-        missingDates: [],
-        invalidDates: [],
-      },
+      status: 'complete',
+      missingDates: [],
+      expected: { targetDays: 5, includedDates: allDates, invalidDates: [] },
     },
     {
       name: 'a source cutoff mid-range is partial with the tail missing',
@@ -45,11 +48,9 @@ describe('buildPeriodBasis', () => {
         includedDates: ['2026-09-01', '2026-09-02', '2026-09-03'],
         sources: ['coupang_ads'],
       },
-      expected: {
-        status: 'partial',
-        includedDays: 3,
-        missingDates: ['2026-09-04', '2026-09-05'],
-      },
+      status: 'partial',
+      missingDates: ['2026-09-04', '2026-09-05'],
+      expected: { includedDates: ['2026-09-01', '2026-09-02', '2026-09-03'] },
     },
     {
       name: 'an internal hole stays visible instead of a continuous min/max range',
@@ -58,11 +59,9 @@ describe('buildPeriodBasis', () => {
         includedDates: ['2026-09-05', '2026-09-01', '2026-09-04'],
         sources: ['wing_traffic'],
       },
-      expected: {
-        status: 'partial',
-        includedDates: ['2026-09-01', '2026-09-04', '2026-09-05'],
-        missingDates: ['2026-09-02', '2026-09-03'],
-      },
+      status: 'partial',
+      missingDates: ['2026-09-02', '2026-09-03'],
+      expected: { includedDates: ['2026-09-01', '2026-09-04', '2026-09-05'] },
     },
     {
       name: 'invalid dates are excluded from included and reported as missing',
@@ -72,21 +71,19 @@ describe('buildPeriodBasis', () => {
         invalidDates: ['2026-09-02'],
         sources: ['sellpia_sales'],
       },
+      status: 'partial',
+      missingDates: ['2026-09-02'],
       expected: {
-        status: 'partial',
-        includedDays: 4,
-        missingDates: ['2026-09-02'],
+        includedDates: ['2026-09-01', '2026-09-03', '2026-09-04', '2026-09-05'],
         invalidDates: ['2026-09-02'],
       },
     },
     {
       name: 'normal empty collection is empty, not a query failure',
       input: { ...range, includedDates: [], sources: ['orders'] },
-      expected: {
-        status: 'empty',
-        includedDays: 0,
-        missingDates: allDates,
-      },
+      status: 'empty',
+      missingDates: allDates,
+      expected: { includedDates: [] },
     },
     {
       name: 'a failed required read with no usable input is unverified',
@@ -96,12 +93,9 @@ describe('buildPeriodBasis', () => {
         sources: ['coupang_ads'],
         queryFailedSources: ['coupang_ads'],
       },
-      expected: {
-        status: 'unverified',
-        includedDays: 0,
-        missingDates: allDates,
-        queryFailedSources: ['coupang_ads'],
-      },
+      status: 'unverified',
+      missingDates: allDates,
+      expected: { includedDates: [], queryFailedSources: ['coupang_ads'] },
     },
     {
       name: 'a failed read that still left valid dates stays partial and names the source',
@@ -111,11 +105,8 @@ describe('buildPeriodBasis', () => {
         sources: ['orders', 'coupang_ads'],
         queryFailedSources: ['coupang_ads', 'coupang_ads'],
       },
-      expected: {
-        status: 'partial',
-        includedDays: 2,
-        queryFailedSources: ['coupang_ads'],
-      },
+      status: 'partial',
+      expected: { includedDates: ['2026-09-01', '2026-09-02'], queryFailedSources: ['coupang_ads'] },
     },
     {
       name: 'duplicate and out-of-range evidence is normalized away',
@@ -124,24 +115,23 @@ describe('buildPeriodBasis', () => {
         includedDates: ['2026-09-02', '2026-09-02', '2026-08-31', '2026-09-30'],
         sources: ['orders', 'orders'],
       },
-      expected: {
-        status: 'partial',
-        includedDates: ['2026-09-02'],
-        includedDays: 1,
-        sources: ['orders'],
-      },
+      status: 'partial',
+      expected: { includedDates: ['2026-09-02'], sources: ['orders'] },
     },
   ];
 
-  it.each(cases)('$name', ({ input, expected }) => {
+  it.each(cases)('$name', ({ input, status, missingDates, expected }) => {
     const basis = buildPeriodBasis(input);
     expect(basis).toMatchObject(expected);
-    // Whatever the inputs, the produced payload is a valid wire basis.
+    expect(periodBasisStatus(basis)).toBe(status);
+    if (missingDates) expect(periodBasisMissingDates(basis)).toEqual(missingDates);
+    // Whatever the inputs, the produced payload is a valid wire basis, and the
+    // derivations partition the selected range the same way every time.
     expect(DashboardPeriodBasisSchema.safeParse(basis).success).toBe(true);
-    expect(basis.includedDays).toBe(basis.includedDates.length);
-    expect(basis.includedDays + basis.missingDates.length).toBe(basis.targetDays);
+    const missing = periodBasisMissingDates(basis);
+    expect(basis.includedDates.length + missing.length).toBe(basis.targetDays);
     for (const date of basis.invalidDates) {
-      expect(basis.missingDates).toContain(date);
+      expect(missing).toContain(date);
     }
     // The optional key is omitted rather than published as an empty array.
     expect('queryFailedSources' in basis)
@@ -160,7 +150,8 @@ describe('buildPeriodBasis', () => {
 
   it('treats an inverted range as an empty selection', () => {
     const basis = buildPeriodBasis({ from: '2026-09-05', to: '2026-09-01', sources: ['orders'] });
-    expect(basis).toMatchObject({ targetDays: 0, includedDays: 0, status: 'empty' });
+    expect(basis).toMatchObject({ targetDays: 0, includedDates: [] });
+    expect(periodBasisStatus(basis)).toBe('empty');
     expect(enumerateDashboardDates('2026-09-05', '2026-09-01')).toEqual([]);
   });
 });
@@ -182,11 +173,11 @@ describe('intersectBases', () => {
   it('keeps only dates every required source covered', () => {
     const profit = intersectBases(orders, ads);
     expect(profit).toMatchObject({
-      status: 'partial',
       includedDates: ['2026-09-03', '2026-09-04'],
-      missingDates: ['2026-09-01', '2026-09-02', '2026-09-05'],
       sources: ['orders', 'coupang_ads'],
     });
+    expect(periodBasisStatus(profit)).toBe('partial');
+    expect(periodBasisMissingDates(profit)).toEqual(['2026-09-01', '2026-09-02', '2026-09-05']);
   });
 
   it('is empty when two sources share no valid date', () => {
@@ -202,11 +193,10 @@ describe('intersectBases', () => {
       includedDates: ['2026-09-03', '2026-09-04'],
       sources: ['sellpia_sales'],
     });
-    expect(intersectBases(early, late)).toMatchObject({
-      status: 'empty',
-      includedDays: 0,
-      missingDates: ['2026-09-01', '2026-09-02', '2026-09-03', '2026-09-04'],
-    });
+    const none = intersectBases(early, late);
+    expect(none.includedDates).toEqual([]);
+    expect(periodBasisStatus(none)).toBe('empty');
+    expect(periodBasisMissingDates(none)).toEqual(['2026-09-01', '2026-09-02', '2026-09-03', '2026-09-04']);
   });
 
   it('propagates a failed read as unverified when nothing usable survives', () => {
@@ -217,11 +207,9 @@ describe('intersectBases', () => {
       sources: ['coupang_ads'],
       queryFailedSources: ['coupang_ads'],
     });
-    expect(intersectBases(orders, failedAds)).toMatchObject({
-      status: 'unverified',
-      includedDays: 0,
-      queryFailedSources: ['coupang_ads'],
-    });
+    const failed = intersectBases(orders, failedAds);
+    expect(failed).toMatchObject({ includedDates: [], queryFailedSources: ['coupang_ads'] });
+    expect(periodBasisStatus(failed)).toBe('unverified');
   });
 
   it('narrows the selected range to the overlap of differently clipped windows', () => {
@@ -231,12 +219,9 @@ describe('intersectBases', () => {
       includedDates: ['2026-09-01', '2026-09-02', '2026-09-03', '2026-09-04'],
       sources: ['coupang_ads'],
     });
-    expect(intersectBases(orders, clippedAds)).toMatchObject({
-      from: '2026-09-01',
-      to: '2026-09-04',
-      targetDays: 4,
-      status: 'complete',
-    });
+    const clipped = intersectBases(orders, clippedAds);
+    expect(clipped).toMatchObject({ from: '2026-09-01', to: '2026-09-04', targetDays: 4 });
+    expect(periodBasisStatus(clipped)).toBe('complete');
   });
 
   it('keeps a date rejected by one source invalid for the combination', () => {
@@ -264,12 +249,13 @@ describe('narrowToDate', () => {
   });
 
   it.each([
-    ['2026-09-01', { status: 'complete', includedDays: 1, invalidDates: [] }],
-    ['2026-09-02', { status: 'empty', includedDays: 0, invalidDates: ['2026-09-02'] }],
-    ['2026-09-03', { status: 'empty', includedDays: 0, invalidDates: [] }],
-  ] as const)('narrows %s to its own one-day basis', (date, expected) => {
+    ['2026-09-01', 'complete', { includedDates: ['2026-09-01'], invalidDates: [] }],
+    ['2026-09-02', 'empty', { includedDates: [], invalidDates: ['2026-09-02'] }],
+    ['2026-09-03', 'empty', { includedDates: [], invalidDates: [] }],
+  ] as const)('narrows %s to its own one-day basis', (date, status, expected) => {
     const narrowed = narrowToDate(parent, date);
     expect(narrowed).toMatchObject({ from: date, to: date, targetDays: 1, ...expected });
+    expect(periodBasisStatus(narrowed)).toBe(status);
     expect(narrowed.sources).toEqual(['sellpia_sales']);
   });
 
@@ -280,19 +266,19 @@ describe('narrowToDate', () => {
       sources: ['coupang_ads'],
       queryFailedSources: ['coupang_ads'],
     });
-    expect(narrowToDate(failed, '2026-09-02')).toMatchObject({
-      status: 'unverified',
-      queryFailedSources: ['coupang_ads'],
-    });
+    const narrowed = narrowToDate(failed, '2026-09-02');
+    expect(narrowed.queryFailedSources).toEqual(['coupang_ads']);
+    expect(periodBasisStatus(narrowed)).toBe('unverified');
   });
 });
 
 /**
  * The snapshot counterpart. Inventory, product counts and ABC read a stored
  * owner result, so their evidence is an as-of and a source validity rather
- * than an included/missing date partition. Status derives from the same two
+ * than an included/missing date partition. The age word derives from the same
  * facts every time: is there an owner result, and does its as-of reach the
- * as-of the reader needed.
+ * as-of the reader needed. Both facts travel on the wire so a screen derives
+ * the same word.
  */
 describe('buildSnapshotBasis', () => {
   const cases: {
@@ -349,32 +335,38 @@ describe('buildSnapshotBasis', () => {
     const basis = buildSnapshotBasis(input);
 
     expect(DashboardSnapshotBasisSchema.safeParse(basis).success).toBe(true);
+    expect(basis).toMatchObject({ kind: 'snapshot', asOf, measured: input.measured ?? true, withheldCount: 0 });
+    expect(snapshotBasisStatus(basis)).toBe(status);
     // None of these producers withheld anything, so each value counted the
     // whole population it names.
-    expect(basis).toMatchObject({
-      kind: 'snapshot', asOf, status, partial: false, withheldCount: 0,
-    });
+    expect(snapshotBasisPartial(basis)).toBe(false);
   });
 
   it('declares a partly counted population without ageing the value', () => {
     // Coverage and freshness are independent: a count read today stays
     // `current` while saying it left members out.
-    expect(buildSnapshotBasis({
+    const partial = buildSnapshotBasis({
       asOf: '2026-09-10',
       requiredAsOf: '2026-09-10',
       sources: ['orders'],
       withheldCount: 2,
-    })).toMatchObject({ status: 'current', partial: true, withheldCount: 2 });
+    });
+    expect(partial.withheldCount).toBe(2);
+    expect(snapshotBasisStatus(partial)).toBe('current');
+    expect(snapshotBasisPartial(partial)).toBe(true);
   });
 
   it('explains an absent value by what was withheld without calling it partly counted', () => {
     // An empty measurable subset has no value to be partly counted, so the
     // withheld population is the reason rather than a qualifier.
-    expect(buildSnapshotBasis({
+    const absent = buildSnapshotBasis({
       sources: ['orders'],
       measured: false,
       withheldCount: 4,
-    })).toMatchObject({ status: 'unavailable', partial: false, withheldCount: 4 });
+    });
+    expect(absent).toMatchObject({ measured: false, withheldCount: 4 });
+    expect(snapshotBasisStatus(absent)).toBe('unavailable');
+    expect(snapshotBasisPartial(absent)).toBe(false);
   });
 
   it('keeps the capture time of the result it read', () => {

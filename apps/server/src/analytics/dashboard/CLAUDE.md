@@ -25,9 +25,13 @@ boundary with HTTP and persistence adapters around Prisma-free orchestration.
 ## Calculation Evidence
 
 - Build every published `metricBasis` entry with the `@kiditem/shared/dashboard`
-  builders through `domain/evidence`. Status, `partial`, the
-  included/missing partition and matched offsets are derived there; never
-  hand-assemble a basis literal or pass a status.
+  builders through `domain/evidence`. A basis carries only measured facts:
+  the requested range, the dates measured, the dates read and refused, the
+  sources, and any failed read. The status word, the missing dates and
+  whether a snapshot is stale or partial are functions of those, exported
+  beside the builders (`periodBasisStatus`, `periodBasisMissingDates`,
+  `snapshotBasisStatus`, `snapshotBasisPartial`); never hand-assemble a basis
+  literal, publish a status, or re-derive one in a service or a component.
 - `domain/evidence/dashboard-source` owns the source vocabulary. Add a name
   there rather than repeating a string literal in a service.
 - A metric uses the maximal valid dates of its own required sources;
@@ -36,7 +40,7 @@ boundary with HTTP and persistence adapters around Prisma-free orchestration.
 - Read `ProfitSourceCoverage.adEvidence`, not `adDates.length`: under
   `NOT_APPLIED` the basis names orders alone.
 - `unverified` means a required read failed. Evidence read and refused is
-  `invalidDates`; nothing collected is `missingDates`.
+  `invalidDates`; nothing collected is simply absent from `includedDates`.
 - A published basis describes the value actually published. A source this
   read model refused contributes no included date.
 - Inventory, product-count, warning and ABC values publish a `snapshot` basis

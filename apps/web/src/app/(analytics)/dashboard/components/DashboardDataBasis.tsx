@@ -4,6 +4,11 @@ import {
   type DashboardMetricBasisMap,
   type DashboardPeriodBasis,
   type DashboardSnapshotBasis,
+  type DashboardSnapshotBasisStatus,
+  periodBasisMissingDates,
+  periodBasisStatus,
+  snapshotBasisPartial,
+  snapshotBasisStatus,
 } from '@kiditem/shared/dashboard';
 import { cn } from '@/lib/utils';
 import { InfoDisclosure, type DisclosureTone } from '@/components/ui/InfoDisclosure';
@@ -74,18 +79,16 @@ export function readFirstMetricBasis(
 export function basisHasValues(basis: DashboardMetricBasis | null): boolean {
   if (!basis) return false;
   if (basis.kind === 'period') {
-    return basis.includedDays > 0
-      || basis.includedDates.length > 0
-      || basis.status === 'unverified';
+    return basis.includedDates.length > 0 || periodBasisStatus(basis) === 'unverified';
   }
-  // An unknown snapshot is still a real snapshot. Keep its numeric value
-  // visible and make the uncertainty explicit in the status label instead of
-  // silently turning it into an empty card.
-  return basis.status !== 'unavailable';
+  // An unknown or stale snapshot is still a real snapshot. Keep its numeric
+  // value visible and make the uncertainty explicit in the status label
+  // instead of silently turning it into an empty card.
+  return basis.measured;
 }
 
 function dateCount(basis: DashboardPeriodBasis): number {
-  return basis.includedDays ?? basis.includedDates?.length ?? 0;
+  return basis.includedDates.length;
 }
 
 function rangeText(basis: DashboardPeriodBasis): string {
@@ -158,7 +161,7 @@ function queryFailureText(basis: DashboardMetricBasis): string | null {
   return `조회 실패 · ${queryFailedSources.map((source) => sourceLabel(source)).join(' · ')}`;
 }
 
-function snapshotStatusText(status: 'current' | 'stale' | 'unavailable' | 'unknown'): string {
+function snapshotStatusText(status: DashboardSnapshotBasisStatus): string {
   if (status === 'current') return '현재';
   if (status === 'stale') return '오래됨';
   if (status === 'unavailable') return '사용 불가';
@@ -177,13 +180,14 @@ function snapshotStatusText(status: 'current' | 'stale' | 'unavailable' | 'unkno
  */
 function snapshotCoverageText(basis: DashboardSnapshotBasis): string | null {
   if (basis.withheldCount === 0) return null;
-  return basis.partial
+  return snapshotBasisPartial(basis)
     ? `부분 집계 · 근거 부족 ${basis.withheldCount}건 제외`
     : `근거 부족 ${basis.withheldCount}건`;
 }
 
 function periodEvidenceText(basis: DashboardPeriodBasis): string {
-  const evidence = `${basis.status === 'complete' ? '집계 완료' : basis.status === 'partial' ? '부분 집계' : basis.status === 'unverified' ? '날짜 근거 확인 필요' : '데이터 없음'} · ${dateCount(basis)}/${basis.targetDays}일 · ${rangeText(basis)}`;
+  const status = periodBasisStatus(basis);
+  const evidence = `${status === 'complete' ? '집계 완료' : status === 'partial' ? '부분 집계' : status === 'unverified' ? '날짜 근거 확인 필요' : '데이터 없음'} · ${dateCount(basis)}/${basis.targetDays}일 · ${rangeText(basis)}`;
   const failure = queryFailureText(basis);
   return failure ? `${evidence} · ${failure}` : evidence;
 }
@@ -193,7 +197,7 @@ export function basisSummary(basis: DashboardMetricBasis | null): string {
   if (basis.kind === 'snapshot') {
     const asOf = basis.asOf ?? '기준 시점 확인 불가';
     const coverage = snapshotCoverageText(basis);
-    return `스냅샷 ${snapshotStatusText(basis.status)}${coverage ? ` · ${coverage}` : ''} · 기준시점 ${asOf} · ${sourceText(basis.sources)}`;
+    return `스냅샷 ${snapshotStatusText(snapshotBasisStatus(basis))}${coverage ? ` · ${coverage}` : ''} · 기준시점 ${asOf} · ${sourceText(basis.sources)}`;
   }
   return periodEvidenceText(basis);
 }
@@ -279,7 +283,7 @@ function periodRow(
     range: rangeText(basis),
     days: `${dateCount(basis)}/${basis.targetDays}일`,
     includedDates: dateSpansText(basis.includedDates, basis.targetDays),
-    missing: dateSpansText(basis.missingDates ?? [], basis.targetDays),
+    missing: dateSpansText(periodBasisMissingDates(basis), basis.targetDays),
     sources: sourceText(basis.sources),
     how: howItWasMeasured(basis),
     note: joinNotes([
@@ -297,7 +301,7 @@ function snapshotRow(key: string, label: string, basis: DashboardSnapshotBasis):
     asOf: basis.asOf ?? '기준 시점 확인 불가',
     sources: sourceText(basis.sources),
     note: joinNotes([
-      snapshotStatusText(basis.status),
+      snapshotStatusText(snapshotBasisStatus(basis)),
       snapshotCoverageText(basis),
       basis.observedAt ? `관측 ${String(basis.observedAt)}` : null,
     ]),
@@ -488,8 +492,10 @@ function disclosureTone(entries: readonly BasisBreakdownEntry[]): DisclosureTone
     const basis = entry.basis;
     if (!basis) continue;
     seen = true;
-    if (basis.status === 'empty' || basis.status === 'unverified') return 'absent';
-    if (basis.status === 'partial') tone = 'partial';
+    if (basis.kind !== 'period') continue;
+    const status = periodBasisStatus(basis);
+    if (status === 'empty' || status === 'unverified') return 'absent';
+    if (status === 'partial') tone = 'partial';
   }
   return seen ? tone : 'neutral';
 }

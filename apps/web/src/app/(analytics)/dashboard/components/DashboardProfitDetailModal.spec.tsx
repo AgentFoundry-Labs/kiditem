@@ -19,11 +19,8 @@ function periodBasis(
     to: '2026-09-02',
     targetDays: 2,
     includedDates: ['2026-09-01', '2026-09-02'],
-    includedDays: 2,
-    missingDates: [],
     invalidDates: [],
     sources: ['orders'],
-    status: 'complete',
     ...overrides,
   } as DashboardMetricBasis;
 }
@@ -164,7 +161,7 @@ describe('DashboardProfitDetailModal', () => {
         { totalAdSpend: 300_000, adRevenue: 900_000 },
         {
           metricBasis: {
-            'monthly.totalAdSpend': periodBasis({ sources: ['coupang_ads'], from: '2026-09-01', to: '2026-09-01', targetDays: 1, includedDates: ['2026-09-01'], includedDays: 1 }),
+            'monthly.totalAdSpend': periodBasis({ sources: ['coupang_ads'], from: '2026-09-01', to: '2026-09-01', targetDays: 1, includedDates: ['2026-09-01'] }),
           },
         } as Partial<DashboardAdSummary>,
       ),

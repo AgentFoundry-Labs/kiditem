@@ -97,7 +97,7 @@ describe('Analytics inventory ABC reads (PostgreSQL)', () => {
     // publication cutoff, and the evidence cutoff never overstates coverage.
     const gradeBasis = summary.metricBasis?.['gradeCount.A'];
     expect(gradeBasis).toMatchObject({
-      kind: 'snapshot', sources: ['products', 'product_abc'], status: 'current',
+      kind: 'snapshot', measured: true, sources: ['products', 'product_abc'],
     });
     const asOf = gradeBasis?.kind === 'snapshot' ? gradeBasis.asOf : null;
     expect(asOf).not.toBeNull();
@@ -152,7 +152,7 @@ describe('Analytics inventory ABC reads (PostgreSQL)', () => {
     const summary = await dashboard.getSummary(buildDashboardContext(), TEST_ORGANIZATION_ID);
     expect(summary.gradeCount).toEqual({ A: 1, B: 0, C: 0 });
     expect(summary.metricBasis?.['gradeCount.A']).toMatchObject({
-      kind: 'snapshot', asOf: null, status: 'unknown',
+      kind: 'snapshot', measured: true, asOf: null,
     });
   });
 

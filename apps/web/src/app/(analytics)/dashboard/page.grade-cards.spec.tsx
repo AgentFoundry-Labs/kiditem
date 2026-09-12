@@ -85,11 +85,8 @@ const sales = {
       to: '2026-09-01',
       targetDays: 1,
       includedDates: ['2026-09-01'],
-      includedDays: 1,
-      missingDates: [],
       invalidDates: [],
       sources: ['orders'],
-      status: 'complete' as const,
     },
   },
   planAchievement: null,
@@ -179,11 +176,8 @@ const completeSellpiaProfitBasis = {
     '2026-09-05',
     '2026-09-06',
   ],
-  includedDays: 6,
-  missingDates: [],
   invalidDates: [],
   sources: ['sellpia', 'coupang_ads'],
-  status: 'complete' as const,
 };
 
 beforeEach(() => {

@@ -672,7 +672,7 @@ function buildOrderProfitInputs(
   metrics: RangeProfitMetrics,
   basis: DashboardPeriodBasis | null,
 ): DashboardProfitInputs | null {
-  if (!basis || basis.includedDays === 0) return null;
+  if (!basis || basis.includedDates.length === 0) return null;
   const cost = metrics.costOfGoods + metrics.commission + metrics.shippingCost + metrics.otherCost;
   if (!Number.isFinite(metrics.revenue) || !Number.isFinite(cost) || !Number.isFinite(metrics.adCost)) {
     return null;

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { missingDatesOf, periodStatusOf } from '../../../../test-helpers/dashboard-basis-assertions';
 import { DashboardTrendItemSchema } from '@kiditem/shared/dashboard';
 import { DashboardTrendService } from './dashboard-trend.service';
 import {
@@ -57,8 +58,8 @@ describe('DashboardTrendService daily profit basis', () => {
     expect(result.find((row) => row.date === date)?.metricBasis?.profit).toMatchObject({
       kind: 'period',
       includedDates: [date],
-      status: 'complete',
     });
+    expect(periodStatusOf(result.find((row) => row.date === date)?.metricBasis?.profit)).toBe('complete');
     expect(profit.calculateForRange).not.toHaveBeenCalled();
   });
 
@@ -98,7 +99,8 @@ describe('DashboardTrendService daily profit basis', () => {
     const result = await new DashboardTrendService(profit, trend, wing).getTrend(buildDashboardContext(), 'org-1', '7d');
 
     expect(result.find((row) => row.date === date)).toMatchObject({ revenue: 100, adCost: null, profit: null });
-    expect(result.find((row) => row.date === date)?.metricBasis?.profit).toMatchObject({ status: 'empty', missingDates: [date] });
+    expect(periodStatusOf(result.find((row) => row.date === date)?.metricBasis?.profit)).toBe('empty');
+    expect(missingDatesOf(result.find((row) => row.date === date)?.metricBasis?.profit)).toEqual([date]);
   });
 
   it('enumerates the completed KST dates without shifting the window by one day', async () => {
@@ -178,11 +180,11 @@ describe('DashboardTrendService daily profit basis', () => {
     // computable subset is empty. `unverified` is reserved for a required
     // read that actually failed, which this one did not.
     expect(row.metricBasis?.profit).toMatchObject({
-      status: 'empty',
       includedDates: [],
-      missingDates: [date],
       invalidDates: [date],
     });
+    expect(periodStatusOf(row.metricBasis?.profit)).toBe('empty');
+    expect(missingDatesOf(row.metricBasis?.profit)).toEqual([date]);
     expect(row.metricBasis?.profit?.queryFailedSources).toBeUndefined();
   });
 
@@ -201,13 +203,14 @@ describe('DashboardTrendService daily profit basis', () => {
     const result = await new DashboardTrendService(profit, trend, wing).getTrend(buildDashboardContext(), 'org-1', '7d');
     const row = result.find((item) => item.date === date)!;
     expect(row).toMatchObject({ revenue: 100, adCost: null, profit: null });
-    expect(row.metricBasis?.revenue).toMatchObject({ status: 'complete', queryFailedSources: ['profit'] });
+    expect(row.metricBasis?.revenue).toMatchObject({ queryFailedSources: ['profit'] });
+    expect(periodStatusOf(row.metricBasis?.revenue)).toBe('complete');
     expect(row.metricBasis?.adCost).toMatchObject({
-      status: 'unverified',
-      missingDates: [date],
       invalidDates: [],
       queryFailedSources: ['coupang_ads'],
     });
+    expect(periodStatusOf(row.metricBasis?.adCost)).toBe('unverified');
+    expect(missingDatesOf(row.metricBasis?.adCost)).toEqual([date]);
   });
 
   it('uses successful daily ad evidence when the owner daily-profit read failed', async () => {
@@ -256,7 +259,7 @@ describe('DashboardTrendService daily profit basis', () => {
     const result = await new DashboardTrendService(profit, trend, wing).getTrend(buildDashboardContext(), 'org-1', '7d');
     const row = result.find((item) => item.date === date)!;
     expect(row).toMatchObject({ revenue: 100, adCost: 5, profit: 25 });
-    expect(row.metricBasis?.profit).toMatchObject({ status: 'complete' });
+    expect(periodStatusOf(row.metricBasis?.profit)).toBe('complete');
     expect(row.metricBasis?.profit?.queryFailedSources).toBeUndefined();
   });
 
@@ -274,10 +277,8 @@ describe('DashboardTrendService daily profit basis', () => {
     const result = await new DashboardTrendService(profit, trend, wing).getTrend(buildDashboardContext(), 'org-1', '7d');
     const row = result[0]!;
     expect(row).toMatchObject({ revenue: null });
-    expect(row.metricBasis?.revenue).toMatchObject({
-      status: 'unverified',
-      queryFailedSources: ['wing_traffic'],
-    });
+    expect(row.metricBasis?.revenue).toMatchObject({ queryFailedSources: ['wing_traffic'] });
+    expect(periodStatusOf(row.metricBasis?.revenue)).toBe('unverified');
   });
 
   it('emits schema-valid unique failures when both ad readers fail', async () => {

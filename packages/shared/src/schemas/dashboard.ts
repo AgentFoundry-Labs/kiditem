@@ -38,17 +38,18 @@ export const DashboardSnapshotBasisStatusSchema = z.enum([
 ]);
 
 /**
- * Evidence basis for one period metric. `from`/`to` remain the selected
- * range; the actual usable date set is carried explicitly instead of being
- * inferred from a min/max interval. `invalidDates` are a subset of
- * `missingDates` and are never treated as collected zeroes.
+ * Evidence basis for one period metric: what was asked for and what was
+ * measured. `from`/`to` and `targetDays` are the request; `includedDates`
+ * are the dates that carry a measurement, collected zeroes included;
+ * `invalidDates` were read and rejected and are never treated as collected
+ * zeroes; `queryFailedSources` says a required read threw.
  *
- * The cross-field invariants — the included/missing partition, `invalid ⊆
- * missing`, sorted unique date arrays, and `status` — are derived by
- * `buildPeriodBasis` in `schemas/dashboard-basis.ts`, the one constructor the
- * server authors these payloads with. This is a server-authored response
- * schema, not an ingest schema, so it validates shape and leaves the derived
- * relationships to their producer.
+ * Nothing derived travels on the wire. The status word, the missing dates and
+ * the day count are functions of these fields, and `schemas/dashboard-basis.ts`
+ * holds those functions for every reader, server and web alike. Sorted unique
+ * date arrays inside the range are guaranteed by `buildPeriodBasis`, the one
+ * constructor the server authors these payloads with; this is a
+ * server-authored response schema, so it validates shape only.
  */
 export const DashboardPeriodBasisSchema = z.object({
   kind: z.literal('period'),
@@ -56,34 +57,32 @@ export const DashboardPeriodBasisSchema = z.object({
   to: DashboardCalendarDateSchema,
   targetDays: z.number().int().nonnegative(),
   includedDates: z.array(DashboardCalendarDateSchema),
-  includedDays: z.number().int().nonnegative(),
-  missingDates: z.array(DashboardCalendarDateSchema),
   invalidDates: z.array(DashboardCalendarDateSchema),
   sources: z.array(z.string().trim().min(1)).min(1),
   /** Sources whose required read failed; distinct from an empty result. */
   queryFailedSources: z.array(z.string().trim().min(1)).optional(),
-  status: DashboardPeriodBasisStatusSchema,
 }).strict();
 
 /**
- * Evidence basis for one stored-owner-result value. `status` is the value's
- * age; `partial` is its population coverage, and the two are independent — a
- * count read this morning can be `current` and still have left members out.
- * `withheldCount` is the snapshot counterpart of a period's `missingDates`:
- * the members that could not be measured, so a partial count says how partial
- * instead of only that it is.
+ * Evidence basis for one stored-owner-result value: whether an owner result
+ * was measured at all, the as-of it actually reached, the as-of the reader
+ * needed, and how many members of the population were left out.
  *
- * Derived by `buildSnapshotBasis` in `schemas/dashboard-basis.ts`, the one
+ * The age word (current / stale / unknown / unavailable) and whether the count
+ * is partial are functions of these fields; `schemas/dashboard-basis.ts` holds
+ * them for every reader. Normalised by `buildSnapshotBasis`, the one
  * constructor the server authors these payloads with.
  */
 export const DashboardSnapshotBasisSchema = z.object({
   kind: z.literal('snapshot'),
+  /** Whether any owner result backs the value. A counted zero is measured. */
+  measured: z.boolean(),
+  /** The as-of the owner result actually reached; `null` when unmeasured or unknown. */
   asOf: DashboardCalendarDateSchema.nullable(),
+  /** The as-of the reader needed; `null` when it had no requirement. */
+  requiredAsOf: DashboardCalendarDateSchema.nullable(),
   observedAt: zIsoDate.nullable(),
   sources: z.array(z.string().trim().min(1)).min(1),
-  status: DashboardSnapshotBasisStatusSchema,
-  /** Whether the value counted only part of the population it names. */
-  partial: z.boolean(),
   /** Population members left out because they could not be measured. */
   withheldCount: z.number().int().nonnegative(),
 }).strict();

@@ -18,6 +18,11 @@ import { DashboardSalesService } from './dashboard-sales.service';
 import { DashboardAdService } from './dashboard-ad.service';
 import { DashboardInventoryService } from './dashboard-inventory.service';
 import type { AbcEvaluationAsOf } from '../port/out/repository/dashboard-inventory.repository.port';
+import {
+  missingDatesOf,
+  periodStatusOf,
+  snapshotStatusOf,
+} from '../../../../test-helpers/dashboard-basis-assertions';
 
 /**
  * Published calculation bases for `/api/dashboard/sales` and `/api/dashboard/ad`.
@@ -178,11 +183,10 @@ describe('dashboard sales metricBasis', () => {
       to: '2026-09-05',
       targetDays: 5,
       includedDates: ['2026-09-01', '2026-09-03', '2026-09-05'],
-      includedDays: 3,
-      missingDates: ['2026-09-02', '2026-09-04'],
       sources: ['orders'],
-      status: 'partial',
     });
+    expect(periodStatusOf(result.metricBasis?.['rangeKpi.revenue'])).toBe('partial');
+    expect(missingDatesOf(result.metricBasis?.['rangeKpi.revenue'])).toEqual(['2026-09-02', '2026-09-04']);
     expect(result.rangeKpi?.revenue).toBe(100_000);
   });
 
@@ -199,10 +203,10 @@ describe('dashboard sales metricBasis', () => {
     // exact intersection, never the wider ad window.
     expect(result.metricBasis?.['rangeKpi.profit']).toMatchObject({
       includedDates: ['2026-09-01', '2026-09-02', '2026-09-03'],
-      missingDates: ['2026-09-04', '2026-09-05'],
       sources: ['orders', 'coupang_ads'],
-      status: 'partial',
     });
+    expect(periodStatusOf(result.metricBasis?.['rangeKpi.profit'])).toBe('partial');
+    expect(missingDatesOf(result.metricBasis?.['rangeKpi.profit'])).toEqual(['2026-09-04', '2026-09-05']);
     // A ratio uses the same dates for numerator and denominator.
     expect(result.metricBasis?.['rangeKpi.profitRate']).toMatchObject({
       includedDates: ['2026-09-01', '2026-09-02', '2026-09-03'],
@@ -222,8 +226,8 @@ describe('dashboard sales metricBasis', () => {
     expect(result.metricBasis?.['rangeKpi.profit']).toMatchObject({
       sources: ['orders'],
       includedDates: SELECTED,
-      status: 'complete',
     });
+    expect(periodStatusOf(result.metricBasis?.['rangeKpi.profit'])).toBe('complete');
   });
 
   it('keeps a collected zero as included evidence rather than a gap', async () => {
@@ -234,11 +238,8 @@ describe('dashboard sales metricBasis', () => {
     const result = await sales.getSummary(customContext(), ORGANIZATION_ID);
 
     expect(result.rangeKpi?.revenue).toBe(0);
-    expect(result.metricBasis?.['rangeKpi.revenue']).toMatchObject({
-      status: 'complete',
-      includedDays: 5,
-      missingDates: [],
-    });
+    expect(result.metricBasis?.['rangeKpi.revenue']).toMatchObject({ includedDates: SELECTED });
+    expect(periodStatusOf(result.metricBasis?.['rangeKpi.revenue'])).toBe('complete');
   });
 
   it('leaves profit with no computable date when the sources share none', async () => {
@@ -252,17 +253,15 @@ describe('dashboard sales metricBasis', () => {
 
     const result = await sales.getSummary(customContext(), ORGANIZATION_ID);
 
-    expect(result.metricBasis?.['rangeKpi.profit']).toMatchObject({
-      status: 'empty',
-      includedDays: 0,
-      missingDates: SELECTED,
-    });
+    expect(result.metricBasis?.['rangeKpi.profit']).toMatchObject({ includedDates: [] });
+    expect(periodStatusOf(result.metricBasis?.['rangeKpi.profit'])).toBe('empty');
+    expect(missingDatesOf(result.metricBasis?.['rangeKpi.profit'])).toEqual(SELECTED);
     // The independently successful revenue value is preserved.
     expect(result.rangeKpi?.revenue).toBe(100_000);
     expect(result.metricBasis?.['rangeKpi.revenue']).toMatchObject({
-      status: 'partial',
       includedDates: ['2026-09-01', '2026-09-02'],
     });
+    expect(periodStatusOf(result.metricBasis?.['rangeKpi.revenue'])).toBe('partial');
   });
 
   it('distinguishes a failed advertising read from an empty one', async () => {
@@ -282,16 +281,14 @@ describe('dashboard sales metricBasis', () => {
     const collected = await empty.sales.getSummary(customContext(), ORGANIZATION_ID);
 
     expect(failed.metricBasis?.['rangeKpi.profit']).toMatchObject({
-      status: 'unverified',
-      includedDays: 0,
-      missingDates: SELECTED,
+      includedDates: [],
       queryFailedSources: ['coupang_ads'],
     });
+    expect(periodStatusOf(failed.metricBasis?.['rangeKpi.profit'])).toBe('unverified');
+    expect(missingDatesOf(failed.metricBasis?.['rangeKpi.profit'])).toEqual(SELECTED);
     // Normal empty collection carries no query failure.
-    expect(collected.metricBasis?.['rangeKpi.profit']).toMatchObject({
-      status: 'empty',
-      includedDays: 0,
-    });
+    expect(collected.metricBasis?.['rangeKpi.profit']).toMatchObject({ includedDates: [] });
+    expect(periodStatusOf(collected.metricBasis?.['rangeKpi.profit'])).toBe('empty');
     expect(
       (collected.metricBasis?.['rangeKpi.profit'] as { queryFailedSources?: string[] })
         .queryFailedSources,
@@ -306,10 +303,10 @@ describe('dashboard sales metricBasis', () => {
     const result = await sales.getSummary(customContext(), ORGANIZATION_ID);
 
     expect(result.metricBasis?.['rangeKpi.profit']).toMatchObject({
-      status: 'empty',
-      includedDays: 0,
+      includedDates: [],
       invalidDates: SELECTED,
     });
+    expect(periodStatusOf(result.metricBasis?.['rangeKpi.profit'])).toBe('empty');
     expect(result.profitInputs).toBeNull();
   });
 
@@ -384,20 +381,18 @@ describe('dashboard ad metricBasis', () => {
     expect(result.metricBasis?.['rangeKpi.adCost']).toMatchObject({
       sources: ['coupang_ads'],
       includedDates: SELECTED,
-      status: 'complete',
     });
+    expect(periodStatusOf(result.metricBasis?.['rangeKpi.adCost'])).toBe('complete');
     // adRate divides account ad spend by order revenue, so it uses the dates
     // both sources cover.
     expect(result.metricBasis?.['rangeKpi.adRate']).toMatchObject({
       sources: ['coupang_ads', 'orders'],
       includedDates: ['2026-09-01', '2026-09-02', '2026-09-03'],
-      status: 'partial',
     });
+    expect(periodStatusOf(result.metricBasis?.['rangeKpi.adRate'])).toBe('partial');
     // ROAS divides two values collected together and keeps the ad basis.
-    expect(result.metricBasis?.['rangeKpi.adRoas']).toMatchObject({
-      sources: ['coupang_ads'],
-      status: 'complete',
-    });
+    expect(result.metricBasis?.['rangeKpi.adRoas']).toMatchObject({ sources: ['coupang_ads'] });
+    expect(periodStatusOf(result.metricBasis?.['rangeKpi.adRoas'])).toBe('complete');
   });
 
   it('reports no included ad date when the owner range is incomplete', async () => {
@@ -420,11 +415,9 @@ describe('dashboard ad metricBasis', () => {
     const result = await ad.getSummary(customContext(), ORGANIZATION_ID);
 
     expect(result.rangeKpi?.adCost).toBeNull();
-    expect(result.metricBasis?.['rangeKpi.adCost']).toMatchObject({
-      status: 'empty',
-      includedDays: 0,
-      missingDates: SELECTED,
-    });
+    expect(result.metricBasis?.['rangeKpi.adCost']).toMatchObject({ includedDates: [] });
+    expect(periodStatusOf(result.metricBasis?.['rangeKpi.adCost'])).toBe('empty');
+    expect(missingDatesOf(result.metricBasis?.['rangeKpi.adCost'])).toEqual(SELECTED);
   });
 
   it('publishes our own CVR over the sources that measured it', async () => {
@@ -450,10 +443,8 @@ describe('dashboard ad metricBasis', () => {
     // orders / clicks = 10%. Never produced before, so the card read as
     // unavailable even though both inputs were published.
     expect(result.industryBenchmark?.myCvr).toBe(10);
-    expect(result.industryBenchmark?.metricBasis?.myCvr).toMatchObject({
-      sources: ['coupang_ads'],
-      status: 'complete',
-    });
+    expect(result.industryBenchmark?.metricBasis?.myCvr).toMatchObject({ sources: ['coupang_ads'] });
+    expect(periodStatusOf(result.industryBenchmark?.metricBasis?.myCvr)).toBe('complete');
     expect(result.industryBenchmark?.metricBasis?.myAdRate).toMatchObject({
       sources: ['orders', 'coupang_ads'],
     });
@@ -552,28 +543,27 @@ describe('dashboard inventory metricBasis', () => {
     // unavailable marker, so every one of these must be a real owner as-of.
     expect(result.metricBasis?.['warnings.minusProducts']).toEqual({
       kind: 'snapshot',
+      measured: true,
       asOf: '2026-09-08',
+      requiredAsOf: '2026-09-08',
       observedAt: expect.any(String),
       sources: ['orders', 'channel_listings'],
-      status: 'current',
-      partial: false,
       withheldCount: 0,
     });
-    expect(result.metricBasis?.['warnings.outOfStockSkus']).toMatchObject({
-      sources: ['sellpia_inventory'],
-      status: 'current',
-    });
+    expect(snapshotStatusOf(result.metricBasis?.['warnings.minusProducts'])).toBe('current');
+    expect(result.metricBasis?.['warnings.outOfStockSkus']).toMatchObject({ sources: ['sellpia_inventory'] });
+    expect(snapshotStatusOf(result.metricBasis?.['warnings.outOfStockSkus'])).toBe('current');
     expect(result.metricBasis?.['warnings.mappingAttentionSkus']).toMatchObject({
       sources: ['channel_listings', 'sellpia_inventory'],
-      status: 'current',
     });
+    expect(snapshotStatusOf(result.metricBasis?.['warnings.mappingAttentionSkus'])).toBe('current');
     // The linked/unlinked split additionally resolves the active master
     // product, so it names Products too.
     expect(result.metricBasis?.channelLinkedProducts).toMatchObject({
       sources: ['products', 'channel_listings', 'sellpia_inventory'],
     });
     for (const key of ['warnings.lowProfitProducts', 'warnings.highAdProducts'] as const) {
-      expect(result.metricBasis?.[key], key).toMatchObject({ status: 'current' });
+      expect(snapshotStatusOf(result.metricBasis?.[key]), key).toBe('current');
     }
   });
 
@@ -584,7 +574,7 @@ describe('dashboard inventory metricBasis', () => {
     // the producer-side statement of the consumer's display rule.
     expect(
       Object.entries(result.metricBasis ?? {})
-        .filter(([, basis]) => basis.kind === 'snapshot' && basis.status === 'unavailable')
+        .filter(([, basis]) => basis.kind === 'snapshot' && !basis.measured)
         .map(([key]) => key),
     ).toEqual([]);
   });
@@ -592,15 +582,15 @@ describe('dashboard inventory metricBasis', () => {
   it('names the ABC evaluation as-of rather than the read clock for a stored grade', async () => {
     const result = await inventoryService().getSummary(customContext(), ORGANIZATION_ID);
 
-    expect(result.metricBasis?.['gradeCount.A']).toEqual({
+    expect(result.metricBasis?.['gradeCount.A']).toMatchObject({
       kind: 'snapshot',
+      measured: true,
       asOf: '2026-08-31',
       observedAt: '2026-09-02T00:00:00.000Z',
       sources: ['products', 'product_abc'],
-      status: 'current',
-      partial: false,
       withheldCount: 0,
     });
+    expect(snapshotStatusOf(result.metricBasis?.['gradeCount.A'])).toBe('current');
     expect(result.metricBasis?.['abcStatusCount.READY'])
       .toEqual(result.metricBasis?.['gradeCount.A']);
   });
@@ -610,10 +600,8 @@ describe('dashboard inventory metricBasis', () => {
       .getSummary(customContext(), ORGANIZATION_ID);
 
     // Latest data not applied. The count stays displayable; only its age moves.
-    expect(result.metricBasis?.['gradeCount.A']).toMatchObject({
-      asOf: '2026-06-30',
-      status: 'stale',
-    });
+    expect(result.metricBasis?.['gradeCount.A']).toMatchObject({ asOf: '2026-06-30' });
+    expect(snapshotStatusOf(result.metricBasis?.['gradeCount.A'])).toBe('stale');
     expect(result.gradeCount.A).toBe(2);
   });
 
@@ -623,10 +611,8 @@ describe('dashboard inventory metricBasis', () => {
 
     // The counts are a real read of stored grades; only their age is unknown,
     // and an unknown snapshot keeps its number on screen.
-    expect(result.metricBasis?.['gradeCount.A']).toMatchObject({
-      asOf: null,
-      status: 'unknown',
-    });
+    expect(result.metricBasis?.['gradeCount.A']).toMatchObject({ asOf: null });
+    expect(snapshotStatusOf(result.metricBasis?.['gradeCount.A'])).toBe('unknown');
   });
 
   it('publishes no period basis for an inventory value', async () => {

@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
+import { enumerateDashboardDates } from '@kiditem/shared/dashboard';
 import {
   DashboardBasisDisclosure,
   DashboardDataBasis,
@@ -15,11 +16,8 @@ const periodBasis: DashboardPeriodBasis = {
   to: '2026-09-03',
   targetDays: 3,
   includedDates: ['2026-09-01', '2026-09-03'],
-  includedDays: 2,
-  missingDates: ['2026-09-02'],
   invalidDates: [],
   sources: ['sellpia_sales', 'coupang_ads'],
-  status: 'partial',
 };
 
 const MONTH = Array.from({ length: 30 }, (_, index) => `2026-09-${String(index + 1).padStart(2, '0')}`);
@@ -42,17 +40,17 @@ describe('DashboardDataBasis', () => {
   it('shows every evidence date and never substitutes observedAt for snapshot asOf', () => {
     const snapshot: DashboardMetricBasis = {
       kind: 'snapshot',
+      measured: true,
       asOf: null,
+      requiredAsOf: '2026-09-04',
       observedAt: '2026-09-04T00:00:00.000Z',
       sources: ['inventory_snapshot'],
-      status: 'stale',
-      partial: false,
       withheldCount: 0,
     };
 
     render(<DashboardDataBasis basis={snapshot} />);
 
-    expect(screen.getByTestId('dashboard-data-basis')).toHaveTextContent('스냅샷 오래됨');
+    expect(screen.getByTestId('dashboard-data-basis')).toHaveTextContent('스냅샷 상태 미상');
     expect(screen.getByTestId('dashboard-data-basis')).toHaveTextContent('기준 시점 확인 불가');
     expect(screen.getByTestId('dashboard-data-basis')).toHaveTextContent('관측 2026-09-04T00:00:00.000Z');
     expect(screen.getByTestId('dashboard-data-basis')).not.toHaveTextContent('기준시점 2026-09-04');
@@ -92,11 +90,11 @@ describe('DashboardDataBasis', () => {
   it('states a snapshot fact once when every value agrees and per value when they do not', async () => {
     const snapshot = (sources: string[]): DashboardMetricBasis => ({
       kind: 'snapshot',
+      measured: true,
       asOf: '2026-09-11',
+      requiredAsOf: '2026-09-11',
       observedAt: null,
       sources,
-      status: 'current',
-      partial: false,
       withheldCount: 0,
     });
 
@@ -133,8 +131,8 @@ describe('DashboardDataBasis', () => {
           label: '월 매출',
           basis: {
             kind: 'period', from: '2026-09-01', to: '2026-09-30', targetDays: 30,
-            includedDates: [], includedDays: 0, missingDates: MONTH, invalidDates: [],
-            sources: ['wing_traffic'], status: 'empty',
+            includedDates: [], invalidDates: [],
+            sources: ['wing_traffic'],
           } as DashboardMetricBasis,
         }]}
       />,
@@ -153,9 +151,10 @@ describe('DashboardDataBasis', () => {
   it('collapses a run of absent days and keeps a short list as dates', async () => {
     const basis = (missingDates: string[]): DashboardMetricBasis => ({
       kind: 'period', from: '2026-09-01', to: '2026-09-10', targetDays: 10,
-      includedDates: [], includedDays: 0, missingDates, invalidDates: [],
-      sources: ['orders'], status: 'partial',
-    } as DashboardMetricBasis);
+      includedDates: enumerateDashboardDates('2026-09-01', '2026-09-10').filter((date) => !missingDates.includes(date)),
+      invalidDates: [],
+      sources: ['orders'],
+    });
 
     const { rerender } = render(
       <DashboardBasisDisclosure label="기간 지표 근거" entries={[{ label: '월 매출', basis: basis(['2026-09-02', '2026-09-03', '2026-09-04']) }]} />,
@@ -196,11 +195,11 @@ describe('DashboardDataBasis', () => {
   it('keeps numeric values visible for an unknown snapshot', () => {
     expect(basisHasValues({
       kind: 'snapshot',
+      measured: true,
       asOf: null,
+      requiredAsOf: null,
       observedAt: null,
       sources: ['inventory_snapshot'],
-      status: 'unknown',
-      partial: false,
       withheldCount: 0,
     })).toBe(true);
   });
@@ -208,11 +207,11 @@ describe('DashboardDataBasis', () => {
   it('says how much of the population a partial snapshot left out', () => {
     const partialSnapshot: DashboardMetricBasis = {
       kind: 'snapshot',
+      measured: true,
       asOf: '2026-09-10',
+      requiredAsOf: '2026-09-10',
       observedAt: null,
       sources: ['orders', 'channel_listings'],
-      status: 'current',
-      partial: true,
       withheldCount: 2,
     };
 
@@ -228,11 +227,11 @@ describe('DashboardDataBasis', () => {
   it('names the withheld population as the reason an unavailable snapshot has no number', () => {
     const emptySubset: DashboardMetricBasis = {
       kind: 'snapshot',
+      measured: false,
       asOf: null,
+      requiredAsOf: null,
       observedAt: null,
       sources: ['orders', 'channel_listings'],
-      status: 'unavailable',
-      partial: false,
       withheldCount: 2,
     };
 
@@ -245,12 +244,8 @@ describe('DashboardDataBasis', () => {
   it('distinguishes a failed source query from an ordinary empty period', () => {
     const failedPeriod = {
       ...periodBasis,
-      status: 'unverified' as const,
-      partial: false,
       includedDates: [],
-    includedDays: 0,
-    missingDates: ['2026-09-01', '2026-09-02', '2026-09-03'],
-    queryFailedSources: ['coupang_ads'],
+      queryFailedSources: ['coupang_ads'],
     };
 
     render(<DashboardDataBasis basis={failedPeriod} />);

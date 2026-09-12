@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { periodBasisMissingDates, snapshotBasisStatus } from './dashboard-basis.js';
 import {
   DashboardAlertItemSchema,
   DashboardInventorySummarySchema,
@@ -21,11 +22,8 @@ describe('dashboard schemas', () => {
     to: '2026-09-03',
     targetDays: 3,
     includedDates: ['2026-09-01', '2026-09-02', '2026-09-03'],
-    includedDays: 3,
-    missingDates: [],
     invalidDates: [],
     sources: ['orders', 'coupang_ads'],
-    status: 'complete' as const,
   };
 
   it('carries an exact period partition that preserves internal holes', () => {
@@ -34,12 +32,9 @@ describe('dashboard schemas', () => {
     const partial = DashboardPeriodBasisSchema.parse({
       ...completePeriodBasis,
       includedDates: ['2026-09-01', '2026-09-03'],
-      includedDays: 2,
-      missingDates: ['2026-09-02'],
       invalidDates: [],
-      status: 'partial',
     });
-    expect(partial.missingDates).toEqual(['2026-09-02']);
+    expect(periodBasisMissingDates(partial)).toEqual(['2026-09-02']);
     expect(partial.includedDates).toEqual(['2026-09-01', '2026-09-03']);
   });
 
@@ -47,32 +42,26 @@ describe('dashboard schemas', () => {
     const failed = DashboardPeriodBasisSchema.parse({
       ...completePeriodBasis,
       includedDates: [],
-      includedDays: 0,
-      missingDates: ['2026-09-01', '2026-09-02', '2026-09-03'],
       invalidDates: [],
-      status: 'unverified',
       queryFailedSources: ['coupang_ads'],
     });
     expect(failed.queryFailedSources).toEqual(['coupang_ads']);
     expect(DashboardPeriodBasisSchema.parse({
       ...completePeriodBasis,
       includedDates: [],
-      includedDays: 0,
-      missingDates: ['2026-09-01', '2026-09-02', '2026-09-03'],
-      status: 'empty',
     }).queryFailedSources).toBeUndefined();
   });
 
   it('distinguishes snapshot metadata from an unavailable period', () => {
-    expect(DashboardSnapshotBasisSchema.parse({
+    expect(snapshotBasisStatus(DashboardSnapshotBasisSchema.parse({
       kind: 'snapshot',
+      measured: true,
       asOf: null,
+      requiredAsOf: '2026-08-31',
       observedAt: null,
       sources: ['stored_abc_evaluation'],
-      status: 'unknown',
-      partial: false,
       withheldCount: 0,
-    }).status).toBe('unknown');
+    }))).toBe('unknown');
   });
 
   it('keeps numeric profit inputs tied to one common period basis', () => {
