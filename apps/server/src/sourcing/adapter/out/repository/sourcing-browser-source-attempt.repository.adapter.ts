@@ -90,9 +90,7 @@ export class SourcingBrowserSourceAttemptRepositoryAdapter
     const latestComplete = complete ? toAttempt(complete, now) : null;
     const completeMatchesCurrentPlan = complete?.planChecksum === input.currentPlanChecksum;
     return {
-      ready: latestComplete !== null && completeMatchesCurrentPlan && latestAttempt?.state !== 'FAILED',
-      refreshing: latestAttempt?.state === 'RUNNING'
-        && latestAttempt.attemptId !== latestComplete?.attemptId,
+      ready: latestComplete !== null && completeMatchesCurrentPlan,
       latestAttempt,
       latestComplete,
       actualCutoffAt: complete?.sourceWindowEndAt ?? complete?.completedAt ?? null,

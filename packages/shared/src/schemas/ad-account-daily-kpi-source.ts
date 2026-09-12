@@ -184,7 +184,6 @@ export const AdAccountDailyKpiSourceStatusSchema = z
   .object({
     channelAccountId: z.string().uuid().nullable(),
     ready: z.boolean(),
-    refreshing: z.boolean(),
     latestAttempt: AdAccountDailyKpiSourceAttemptSchema.nullable(),
     latestComplete: AdAccountDailyKpiSourceAttemptSchema.nullable(),
     actualCutoffAt: z.string().datetime({ offset: true }).nullable(),

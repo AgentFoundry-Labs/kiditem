@@ -79,7 +79,6 @@ export type ShipmentSummarySubmission = {
 };
 export type ShipmentSummarySource = {
   ready: boolean;
-  refreshing: boolean;
   latestAttempt: Omit<ShipmentSummaryAttempt, "attemptToken"> | null;
   latestComplete: Omit<ShipmentSummaryAttempt, "attemptToken"> | null;
   capturedItems: CoupangShipmentDateSummaryEntry[];

@@ -333,7 +333,6 @@ export const AdTrafficSourceControlSchema = AdTrafficSourceAttemptSchema.extend(
 export const AdTrafficSourceStatusSchema = z.object({
   channelAccountId: z.string().uuid().nullable(),
   ready: z.boolean(),
-  refreshing: z.boolean(),
   latestAttempt: AdTrafficSourceAttemptSchema.nullable(),
   latestComplete: AdTrafficSourceAttemptSchema.nullable(),
   actualCutoffAt: timestamp.nullable(),

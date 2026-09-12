@@ -186,9 +186,8 @@ function destination(channelListingOptionId: string, url: string) {
 }
 
 function missingAbc(): import('@kiditem/shared/product-abc').ProductAbcReadModel {
-  const source = { ready: false, sourceImportRunId: null, generation: null,
-    coverageStartDate: null, coverageEndDate: null, actualCutoffDate: null, capturedAt: null,
-    latestAttemptState: null, errorCode: null };
+  const source = { ready: false, requiredCutoff: '2026-09-12', actualCutoff: null,
+    latestAttempt: null, latestComplete: null };
   return { abcGrade: null, evaluation: null, displayStatus: 'SELLPIA_SOURCE_STALE',
     formulaRevision: 0, publicationRevision: 0, officialCutoffDate: null, publishedAt: null, actualCutoffDate: null,
     sources: { sellpia: source, advertising: source, mapping: { status: 'READY', mappingGeneration: '0' } } };

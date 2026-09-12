@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ProductOperationsDataStatusFacts } from '../port/out/repository/product-operations-data-status.repository.port';
 import { ProductOperationsDataStatusService } from './product-operations-data-status.service';
 
 const ORGANIZATION_ID = '00000000-0000-4000-8000-000000000001';
@@ -27,24 +28,24 @@ describe('ProductOperationsDataStatusService', () => {
       sources: {
         traffic: {
           ready: true,
+          requiredCutoff: '2026-09-03',
           actualCutoff: '2026-09-03',
-          capturedAt: '2026-09-04T00:00:00.000Z',
-          latestAttemptState: null,
-          errorCode: null,
+          latestAttempt: null,
+          latestComplete: { actualCutoff: '2026-09-03' },
         },
         sellpia: {
           ready: true,
+          requiredCutoff: '2026-08-31',
           actualCutoff: '2026-08-31',
-          capturedAt: '2026-09-01T00:00:00.000Z',
-          latestAttemptState: 'COMPLETE',
-          errorCode: null,
+          latestAttempt: { state: 'COMPLETE' },
+          latestComplete: { actualCutoff: '2026-08-31' },
         },
         advertising: {
           ready: true,
+          requiredCutoff: '2026-08-31',
           actualCutoff: '2026-08-31',
-          capturedAt: '2026-09-01T00:01:00.000Z',
-          latestAttemptState: 'COMPLETE',
-          errorCode: null,
+          latestAttempt: { state: 'COMPLETE' },
+          latestComplete: { actualCutoff: '2026-08-31' },
         },
         mapping: { ready: true, generation: '8' },
       },
@@ -63,10 +64,10 @@ describe('ProductOperationsDataStatusService', () => {
     stale.actualCutoff = '2026-07-31';
     stale.advertising = {
       ready: false,
+      requiredCutoff: '2026-08-31',
       actualCutoff: '2026-07-31',
-      latestAttemptState: 'FAILED',
-      errorCode: 'marketplace_login',
-      capturedAt: '2026-09-01T00:01:00.000Z',
+      latestAttempt: { state: 'FAILED' },
+      latestComplete: { actualCutoff: '2026-07-31' },
     };
     const service = new ProductOperationsDataStatusService(
       { read: vi.fn().mockResolvedValue(facts()) } as never,
@@ -81,9 +82,9 @@ describe('ProductOperationsDataStatusService', () => {
       sources: {
         advertising: {
           ready: false,
-          capturedAt: '2026-09-01T00:01:00.000Z',
-          latestAttemptState: 'FAILED',
-          errorCode: 'marketplace_login',
+          actualCutoff: '2026-07-31',
+          latestAttempt: { state: 'FAILED' },
+          latestComplete: { actualCutoff: '2026-07-31' },
         },
       },
     });
@@ -125,32 +126,32 @@ describe('ProductOperationsDataStatusService', () => {
   });
 });
 
-function facts() {
+function facts(): ProductOperationsDataStatusFacts {
   return {
     mappingReady: true,
     contributionBasis: { basisFromDate: '2026-01-01', basisCutoffDate: '2026-08-31' },
     displayDataAsOf: '2026-09-03',
     traffic: {
       ready: true,
+      requiredCutoff: '2026-09-03',
       actualCutoff: '2026-09-03',
-      capturedAt: '2026-09-04T00:00:00.000Z',
-      latestAttemptState: null,
-      errorCode: null,
+      latestAttempt: null,
+      latestComplete: { actualCutoff: '2026-09-03' },
     },
     actualCutoff: '2026-08-31',
     sellpia: {
       ready: true,
+      requiredCutoff: '2026-08-31',
       actualCutoff: '2026-08-31',
-      capturedAt: '2026-09-01T00:00:00.000Z',
-      latestAttemptState: 'COMPLETE' as const,
-      errorCode: null,
+      latestAttempt: { state: 'COMPLETE' as const },
+      latestComplete: { actualCutoff: '2026-08-31' },
     },
     advertising: {
       ready: true,
+      requiredCutoff: '2026-08-31',
       actualCutoff: '2026-08-31',
-      capturedAt: '2026-09-01T00:01:00.000Z',
-      latestAttemptState: 'COMPLETE' as const,
-      errorCode: null,
+      latestAttempt: { state: 'COMPLETE' as const },
+      latestComplete: { actualCutoff: '2026-08-31' },
     },
     sourceVector: {
       sellpia: sourceManifest('00000000-0000-4000-8000-000000000011', '4'),

@@ -7,10 +7,15 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PRODUCT_ABC_ABSOLUTE_V1_AD_SOURCE_POLICY_HASH } from '@kiditem/shared/product-abc';
+import { deriveSourceReadiness } from '@kiditem/shared/source-readiness';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { resolveCoupangVendorId } from '../../../../channels/domain/coupang-account-identity';
 import { lockProductMapping } from '../../../../common/product-mapping-generation';
+import {
+  effectiveSourceImportRunState as effectiveState,
+  sourceImportRunDbState as sourceDbState,
+} from './source-import-run-state';
 import type {
   AdvertisingProfitabilityGeneration,
   AdvertisingProfitabilityPlan,
@@ -43,7 +48,6 @@ const SOURCE_DB_RUNNING = 'running';
 const SOURCE_DB_COMPLETE = 'completed';
 const SOURCE_DB_FAILED = 'failed';
 const SOURCE_STATE_RUNNING = 'RUNNING';
-const SOURCE_STATE_COMPLETE = 'COMPLETE';
 const SOURCE_STATE_FAILED = 'FAILED';
 const RECEIPT_DB_RUNNING = 'running';
 const RECEIPT_DB_COMPLETE = 'complete';
@@ -1008,25 +1012,27 @@ function sourceView(
     : null;
   const coveredThrough = latestComplete?.coverageEndDate ?? null;
   const expectedCutoff = dateOnly(kstYesterday(now));
-  const ready = latestCompleteView !== null
-    && coveredThrough !== null
-    && coveredThrough.getTime() >= expectedCutoff.getTime()
-    && (latestAttempt === null
-      || (effectiveState(latestAttempt, now) === SOURCE_STATE_COMPLETE
-        && latestAttempt.id === latestComplete?.id));
+  const latestAttemptView = latestAttempt ? {
+    attemptId: latestAttempt.id,
+    state: effectiveState(latestAttempt, now),
+    startedAt: latestAttempt.createdAt.toISOString(),
+    capturedAt: latestAttempt.importedAt?.toISOString() ?? null,
+    expiresAt: latestAttempt.expiresAt?.toISOString() ?? latestAttempt.createdAt.toISOString(),
+    errorCode: effectiveState(latestAttempt, now) === SOURCE_STATE_FAILED
+      && sourceDbState(latestAttempt.status) === SOURCE_DB_RUNNING
+      ? 'ATTEMPT_EXPIRED'
+      : latestAttempt.errorCode,
+    errorMessage: boundedErrorMessage(latestAttempt.errorMessage),
+  } : null;
+  const ready = deriveSourceReadiness({
+    latestAttempt: latestAttemptView,
+    latestComplete: latestCompleteView
+      ? { actualCutoff: latestCompleteView.coveredThrough }
+      : null,
+    requiredCutoff: isoDate(expectedCutoff),
+  }).ready;
   return {
-    latestAttempt: latestAttempt ? {
-      attemptId: latestAttempt.id,
-      state: effectiveState(latestAttempt, now),
-      startedAt: latestAttempt.createdAt.toISOString(),
-      capturedAt: latestAttempt.importedAt?.toISOString() ?? null,
-      expiresAt: latestAttempt.expiresAt?.toISOString() ?? latestAttempt.createdAt.toISOString(),
-      errorCode: effectiveState(latestAttempt, now) === SOURCE_STATE_FAILED
-        && sourceDbState(latestAttempt.status) === SOURCE_DB_RUNNING
-        ? 'ATTEMPT_EXPIRED'
-        : latestAttempt.errorCode,
-      errorMessage: boundedErrorMessage(latestAttempt.errorMessage),
-    } : null,
+    latestAttempt: latestAttemptView,
     latestComplete: latestCompleteView,
     ready,
   };
@@ -1408,29 +1414,6 @@ function assertWritable(attempt: SourceAttempt): void {
   }
   if (attempt.expiresAt && attempt.expiresAt.getTime() <= Date.now()) {
     throw new ConflictException('ATTEMPT_EXPIRED');
-  }
-}
-
-function effectiveState(attempt: SourceAttempt, now: Date): 'RUNNING' | 'COMPLETE' | 'FAILED' {
-  const persistedState = sourceDbState(attempt.status);
-  if (persistedState === SOURCE_DB_COMPLETE) return SOURCE_STATE_COMPLETE;
-  if (persistedState === SOURCE_DB_FAILED) return SOURCE_STATE_FAILED;
-  if (attempt.expiresAt && attempt.expiresAt.getTime() <= now.getTime()) return SOURCE_STATE_FAILED;
-  return SOURCE_STATE_RUNNING;
-}
-
-function sourceDbState(
-  value: string,
-): typeof SOURCE_DB_RUNNING | typeof SOURCE_DB_COMPLETE | typeof SOURCE_DB_FAILED {
-  switch (value.toLowerCase()) {
-    case SOURCE_DB_COMPLETE:
-      return SOURCE_DB_COMPLETE;
-    case SOURCE_DB_FAILED:
-      return SOURCE_DB_FAILED;
-    case SOURCE_DB_RUNNING:
-      return SOURCE_DB_RUNNING;
-    default:
-      throw new UnprocessableEntityException('SOURCE_ATTEMPT_STATE_INVALID');
   }
 }
 

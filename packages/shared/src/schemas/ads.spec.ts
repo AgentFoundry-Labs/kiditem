@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import {
   AdCampaignReportScopeSchema,
   AdCampaignSnapshotSchema,
-  AdCampaignSyncStatusSchema,
   AdExtensionReplayIdempotencyKeySchema,
   AdProductSnapshotSchema,
 } from './ads';
@@ -35,23 +34,6 @@ describe('advertising campaign identity contracts', () => {
     roas: 7,
     cvr: 8,
   };
-
-  it('accepts only durable campaign sync freshness states', () => {
-    expect(AdCampaignSyncStatusSchema.parse({
-      status: 'fresh',
-      lastCompletedAt: '2026-07-25T00:00:00.000Z',
-      campaignCount: 9,
-    })).toEqual({
-      status: 'fresh',
-      lastCompletedAt: '2026-07-25T00:00:00.000Z',
-      campaignCount: 9,
-    });
-    expect(() => AdCampaignSyncStatusSchema.parse({
-      status: 'fresh',
-      lastCompletedAt: null,
-      campaignCount: -1,
-    })).toThrow();
-  });
 
   it('requires account and stable identity on campaign snapshots', () => {
     expect(() => AdCampaignSnapshotSchema.parse({

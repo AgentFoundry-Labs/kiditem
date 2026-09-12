@@ -3,6 +3,10 @@ import {
   type ProductAbcEvaluation,
   type ProductAbcReadModel,
 } from '@kiditem/shared/product-abc';
+import {
+  deriveSourceReadiness,
+  type SourceReadinessAttempt,
+} from '@kiditem/shared/source-readiness';
 import { productAbcDisplayStatus } from './product-abc-display-status';
 
 /**
@@ -23,6 +27,8 @@ export type ProductAbcSourceEvidence = Readonly<{
 }>;
 
 export type ProductAbcEvidenceView = Readonly<{
+  /** The owner's cutoff this projection must meet. */
+  requiredCutoff: string;
   /** Cutoff the evidence actually reached; `null` when it has none. */
   actualCutoff: string | null;
   /** Mapping generation the selected sources agree on; `null` when none does. */
@@ -77,8 +83,8 @@ export function buildProductAbcReadModel(
     publishedAt: formulaState.publishedAt,
     actualCutoffDate: evidence.actualCutoff,
     sources: {
-      sellpia: sourceFreshness(evidence.sellpia),
-      advertising: sourceFreshness(evidence.advertising),
+      sellpia: sourceReadiness(evidence.sellpia, evidence.requiredCutoff),
+      advertising: sourceReadiness(evidence.advertising, evidence.requiredCutoff),
       mapping: {
         status: mappingStatus(input.mappingValid, evidence.mappingGeneration),
         mappingGeneration: formulaState.mappingGeneration,
@@ -98,20 +104,21 @@ function mappingStatus(
   return evidenceMappingGeneration === null ? 'STALE' : 'READY';
 }
 
-function sourceFreshness(source: ProductAbcSourceEvidence) {
+function sourceReadiness(
+  source: ProductAbcSourceEvidence,
+  requiredCutoff: string,
+) {
   const complete = source.sourceImportRunId !== null
     && source.generation !== null
     && source.coverageStartDate !== null
     && source.coverageEndDate !== null;
+  const latestAttempt: SourceReadinessAttempt | null = source.latestAttemptState
+    ? { state: source.latestAttemptState }
+    : null;
+  const latestComplete = complete ? { actualCutoff: source.actualCutoff } : null;
   return {
-    ready: source.ready,
-    sourceImportRunId: complete ? source.sourceImportRunId : null,
-    generation: complete ? source.generation : null,
-    coverageStartDate: complete ? source.coverageStartDate : null,
-    coverageEndDate: complete ? source.coverageEndDate : null,
-    actualCutoffDate: source.actualCutoff,
-    capturedAt: source.capturedAt,
-    latestAttemptState: source.latestAttemptState,
-    errorCode: source.errorCode,
+    ...deriveSourceReadiness({ latestAttempt, latestComplete, requiredCutoff }),
+    latestAttempt,
+    latestComplete,
   };
 }

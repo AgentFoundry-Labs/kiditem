@@ -6,6 +6,7 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { deriveSourceReadiness } from '@kiditem/shared/source-readiness';
 import {
   SellerIdentitySourcePlanSchema,
   type SellerIdentitySourceAttempt,
@@ -20,7 +21,7 @@ import { CompetitorTrackingService } from '../../../application/service/competit
 import { KeywordRankIngestHandler } from '../../../application/service/keyword-rank-ingest.handler';
 import { runWithAdIngestTransaction } from './ad-ingest-transaction-context';
 import { lockCompetitorCatalogSource } from './competitor-catalog-source-lock';
-import { toBusinessDate } from '../../../domain/business-date';
+import { currentBusinessDate, toBusinessDate } from '../../../domain/business-date';
 
 const SOURCE = 'coupang_competitor_seller_identity';
 const PARSER = 'seller-identity-v1';
@@ -125,11 +126,21 @@ export class SellerIdentitySourceRepository {
           orderBy: [{ importedAt: 'desc' }, { freshnessGeneration: 'desc' }],
         });
         const latestAttempt = latest ? view(latest) : null;
+        const latestComplete = complete ? view(complete) : null;
+        const requiredCutoff = new Date(currentBusinessDate().getTime() - 86_400_000)
+          .toISOString()
+          .slice(0, 10);
+        const actualCutoff = toBusinessDate(latestComplete?.actualCutoffAt)
+          ?.toISOString()
+          .slice(0, 10) ?? null;
         return {
-          ready: !!complete && latestAttempt?.state !== 'FAILED',
-          refreshing: latestAttempt?.state === 'RUNNING',
+          ready: deriveSourceReadiness({
+            latestAttempt,
+            latestComplete: latestComplete ? { actualCutoff } : null,
+            requiredCutoff,
+          }).ready,
           latestAttempt,
-          latestComplete: complete ? view(complete) : null,
+          latestComplete,
         } satisfies SellerIdentitySource;
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },

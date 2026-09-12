@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { SourceReadinessSchema } from '../source-readiness.js';
 import { zIsoDate } from './common.js';
 import {
   ProductAbcContributionOverviewSchema,
@@ -186,13 +187,7 @@ const ProductOperationsMetricFreshnessSchema = z.object({
   capturedAt: zIsoDate.nullable(),
 }).strict();
 
-export const ProductOperationsDataSourceStatusSchema = z.object({
-  ready: z.boolean(),
-  actualCutoff: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/).nullable(),
-  capturedAt: zIsoDate.nullable(),
-  latestAttemptState: z.enum(['RUNNING', 'COMPLETE', 'FAILED']).nullable(),
-  errorCode: z.string().trim().min(1).max(120).nullable(),
-}).strict();
+export const ProductOperationsDataSourceStatusSchema = SourceReadinessSchema;
 export type ProductOperationsDataSourceStatus = z.infer<
   typeof ProductOperationsDataSourceStatusSchema
 >;

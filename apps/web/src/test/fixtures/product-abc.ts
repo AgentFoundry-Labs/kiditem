@@ -52,9 +52,10 @@ export function productAbcReadModel(
   const evaluation = overrides.evaluation === undefined ? productAbcEvaluation() : overrides.evaluation;
   const source = {
     ready: true,
-    sourceImportRunId: '11111111-1111-4111-8111-111111111112', generation: '7',
-    coverageStartDate: '2026-06-01', coverageEndDate: '2026-07-31', actualCutoffDate: '2026-07-31',
-    capturedAt: '2026-08-01T00:00:00.000Z', latestAttemptState: 'COMPLETE' as const, errorCode: null,
+    requiredCutoff: '2026-07-31',
+    actualCutoff: '2026-07-31',
+    latestAttempt: { state: 'COMPLETE' as const },
+    latestComplete: { actualCutoff: '2026-07-31' },
   };
   return {
     abcGrade: evaluation?.abcGrade ?? null,
@@ -65,7 +66,7 @@ export function productAbcReadModel(
     publishedAt: '2026-08-01T00:00:00.000Z', actualCutoffDate: '2026-07-31',
     sources: {
       sellpia: source,
-      advertising: { ...source, sourceImportRunId: '11111111-1111-4111-8111-111111111113' },
+      advertising: source,
       mapping: { status: 'READY', mappingGeneration: '7' },
     },
     ...overrides,

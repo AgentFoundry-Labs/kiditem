@@ -246,14 +246,13 @@ describe("Shipment summary owner HTTP + disposable PostgreSQL", () => {
     const b = await begin("failed");
     expect((await get("/source")).body).toMatchObject({
       ready: true,
-      refreshing: true,
     });
     await fail(b, "coupang_cookie_bloat").expect(201);
     const opened = await alerts.list(TEST_ORGANIZATION_ID);
     await fail(b, "coupang_cookie_bloat").expect(201);
     expect(await alerts.list(TEST_ORGANIZATION_ID)).toEqual(opened);
     expect((await get("/source")).body).toMatchObject({
-      ready: false,
+      ready: true,
       items: prior.items,
       capturedItems: prior.capturedItems,
     });
@@ -263,8 +262,7 @@ describe("Shipment summary owner HTTP + disposable PostgreSQL", () => {
       data: { expiresAt: new Date(0) },
     });
     expect((await get("/source")).body).toMatchObject({
-      ready: false,
-      refreshing: false,
+      ready: true,
       latestAttempt: { errorCode: "ATTEMPT_EXPIRED" },
       items: prior.items,
     });

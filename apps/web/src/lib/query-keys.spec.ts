@@ -143,16 +143,6 @@ describe('channel product matching query keys', () => {
 });
 
 describe('advertising query keys', () => {
-  it('keeps campaign freshness separate from period campaign responses', () => {
-    expect(queryKeys.ads.campaignSyncStatus()).toEqual([
-      'ads',
-      'campaign-sync-status',
-    ]);
-    expect(queryKeys.ads.campaignSyncStatus()).not.toEqual(
-      queryKeys.ads.campaigns('sync-status'),
-    );
-  });
-
   it('keys Wing tracked-product history by its bounded day window', () => {
     expect(queryKeys.sourcing.wingTrackedHistories(30)).toEqual([
       'sourcing',

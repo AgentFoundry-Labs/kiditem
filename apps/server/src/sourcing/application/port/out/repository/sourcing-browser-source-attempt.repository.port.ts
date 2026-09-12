@@ -46,7 +46,6 @@ export interface SourcingBrowserSourceAttempt {
 
 export interface SourcingBrowserSourceStatus {
   ready: boolean;
-  refreshing: boolean;
   latestAttempt: SourcingBrowserSourceAttempt | null;
   latestComplete: SourcingBrowserSourceAttempt | null;
   actualCutoffAt: Date | null;

@@ -27,7 +27,6 @@ function createHarness() {
     })),
     readSourceStatus: vi.fn(async () => ({
       ready: true,
-      refreshing: false,
       latestAttempt: null,
       latestComplete: null,
       actualCutoffAt: null,
@@ -152,7 +151,7 @@ describe('SourcingBrowserSourceAttemptService', () => {
     const { service, attempts } = createHarness();
 
     await expect(service.read1688Status({ organizationId: ORGANIZATION_ID }))
-      .resolves.toMatchObject({ ready: true, refreshing: false });
+      .resolves.toMatchObject({ ready: true });
 
     expect(attempts.readSourceStatus).toHaveBeenCalledWith({
       organizationId: ORGANIZATION_ID,

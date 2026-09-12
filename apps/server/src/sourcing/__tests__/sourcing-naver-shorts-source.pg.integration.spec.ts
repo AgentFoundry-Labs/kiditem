@@ -189,14 +189,14 @@ describe('Naver/Shorts public collection owner (disposable PostgreSQL)', () => {
       const noAttemptToday = (await controller.status(organizationId))[source];
       expect(noAttemptToday).toMatchObject({ ready: false, actualCutoffAt: new Date(completed.actualCutoffAt!),
         latestComplete: { attemptId: completed.attemptId }, latestAttempt: { attemptId: yesterdayFailure.attemptId, state: 'FAILED' },
-        errorMessage: yesterdayFailure.error, refreshing: false });
+        errorMessage: yesterdayFailure.error });
       failProvider();
       const todayFailure = (await controller.collect({ sources: [source] }, organizationId,
         { id: TEST_USER_ID } as never, 'today-failed')).results[0];
       const failedToday = (await controller.status(organizationId))[source];
       expect(failedToday).toMatchObject({ ready: false, actualCutoffAt: new Date(completed.actualCutoffAt!),
         latestComplete: { attemptId: completed.attemptId }, latestAttempt: { attemptId: todayFailure.attemptId, state: 'FAILED' },
-        errorMessage: todayFailure.error, refreshing: false });
+        errorMessage: todayFailure.error });
     } finally { vi.useRealTimers(); }
   });
 

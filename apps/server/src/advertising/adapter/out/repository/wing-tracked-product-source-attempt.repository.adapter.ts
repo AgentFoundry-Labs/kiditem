@@ -6,11 +6,16 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { deriveSourceReadiness } from '@kiditem/shared/source-readiness';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { currentBusinessDate } from '../../../domain/business-date';
 import { upsertWingTrackedProductSnapshots } from './wing-tracked-product-snapshot.persistence';
 import { lockWingTrackedProductsSource } from './wing-tracked-product-source-lock';
+import {
+  effectiveSourceImportRunState as effectiveState,
+  sourceImportRunDbState as dbState,
+} from './source-import-run-state';
 import type {
   WingTrackedProductAttemptPlan,
   WingTrackedProductAttemptUpload,
@@ -314,18 +319,6 @@ function failureAlert(input: {
   };
 }
 
-function dbState(status: string): string {
-  return status === DB_RUNNING || status === DB_COMPLETE || status === DB_FAILED
-    ? status
-    : DB_FAILED;
-}
-
-function effectiveState(attempt: SourceAttempt, now: Date): 'RUNNING' | 'COMPLETE' | 'FAILED' {
-  if (dbState(attempt.status) === DB_COMPLETE) return 'COMPLETE';
-  if (dbState(attempt.status) === DB_RUNNING && !hasExpired(attempt, now)) return 'RUNNING';
-  return 'FAILED';
-}
-
 function hasExpired(attempt: SourceAttempt, now: Date): boolean {
   return !attempt.expiresAt || attempt.expiresAt.getTime() <= now.getTime();
 }
@@ -546,24 +539,27 @@ function sourceView(
       failedProductCount: quality.failedProductCount,
     }
     : null;
-  const latestState = latest ? effectiveState(latest, now) : null;
-  const ready = latestComplete !== null
-    && latestComplete.businessDate >= isoDate(currentBusinessDate(now))
-    && completePlan !== null
-    && sameTrackerTargetSet(completePlan.products, currentTargets)
-    && (latest?.id === complete?.id || latestState === 'RUNNING');
+  const latestAttempt = latest ? {
+    attemptId: latest.id,
+    state: effectiveState(latest, now),
+    startedAt: latest.createdAt.toISOString(),
+    capturedAt: latest.importedAt?.toISOString() ?? null,
+    expiresAt: latest.expiresAt?.toISOString() ?? latest.createdAt.toISOString(),
+    errorCode: effectiveState(latest, now) === 'FAILED' && dbState(latest.status) === DB_RUNNING
+      ? 'ATTEMPT_EXPIRED'
+      : latest.errorCode,
+    errorMessage: latest.errorMessage?.slice(0, 300) ?? null,
+  } : null;
+  const ready = deriveSourceReadiness({
+    latestAttempt,
+    latestComplete: latestComplete && completePlan
+      && sameTrackerTargetSet(completePlan.products, currentTargets)
+      ? { actualCutoff: latestComplete.businessDate }
+      : null,
+    requiredCutoff: isoDate(new Date(currentBusinessDate(now).getTime() - 86_400_000)),
+  }).ready;
   return {
-    latestAttempt: latest ? {
-      attemptId: latest.id,
-      state: effectiveState(latest, now),
-      startedAt: latest.createdAt.toISOString(),
-      capturedAt: latest.importedAt?.toISOString() ?? null,
-      expiresAt: latest.expiresAt?.toISOString() ?? latest.createdAt.toISOString(),
-      errorCode: effectiveState(latest, now) === 'FAILED' && dbState(latest.status) === DB_RUNNING
-        ? 'ATTEMPT_EXPIRED'
-        : latest.errorCode,
-      errorMessage: latest.errorMessage?.slice(0, 300) ?? null,
-    } : null,
+    latestAttempt,
     latestComplete,
     ready,
   };

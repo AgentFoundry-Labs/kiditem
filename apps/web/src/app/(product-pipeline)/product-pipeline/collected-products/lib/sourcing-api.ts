@@ -226,7 +226,6 @@ export interface ScrapeUrlAttempt {
 
 export interface ScrapeUrlSourceStatus {
   ready: boolean;
-  refreshing: boolean;
   latestAttempt: ScrapeUrlAttempt | null;
   latestComplete: ScrapeUrlAttempt | null;
   actualCutoffAt: string | null;

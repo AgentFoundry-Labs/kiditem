@@ -41,7 +41,6 @@ const attemptReadSchema = attemptSchema.extend({
 });
 const sourceSchema = z.object({
   ready: z.boolean(),
-  refreshing: z.boolean(),
   latestAttempt: attemptSchema.nullable(),
   latestComplete: attemptSchema.nullable(),
   items: z.array(entrySchema),

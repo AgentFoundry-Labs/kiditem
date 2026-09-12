@@ -55,25 +55,17 @@ function sourceFreshness() {
   return {
     sellpia: {
       ready: true,
-      sourceImportRunId: UUID,
-      generation: '11',
-      coverageStartDate: '2026-01-01',
-      coverageEndDate: '2026-08-31',
-      actualCutoffDate: '2026-08-31',
-      capturedAt: ISO,
-      latestAttemptState: 'COMPLETE',
-      errorCode: null,
+      requiredCutoff: '2026-08-31',
+      actualCutoff: '2026-08-31',
+      latestAttempt: { state: 'COMPLETE' },
+      latestComplete: { actualCutoff: '2026-08-31' },
     },
     advertising: {
       ready: false,
-      sourceImportRunId: UUID_2,
-      generation: '7',
-      coverageStartDate: '2026-01-01',
-      coverageEndDate: '2026-08-31',
-      actualCutoffDate: '2026-08-31',
-      capturedAt: ISO,
-      latestAttemptState: 'FAILED',
-      errorCode: 'marketplace_login',
+      requiredCutoff: '2026-09-01',
+      actualCutoff: '2026-08-31',
+      latestAttempt: { state: 'FAILED', errorCode: 'marketplace_login' },
+      latestComplete: { actualCutoff: '2026-08-31' },
     },
     mapping: { status: 'READY', mappingGeneration: '4' },
   };
@@ -171,7 +163,7 @@ describe('absolute product profitability ABC contracts', () => {
     });
     expect(stale.evaluation?.abcGrade).toBe('A');
     expect(stale.publicationRevision).toBe(4);
-    expect(stale.sources.advertising.capturedAt).toBe(ISO);
+    expect(stale.sources.advertising.actualCutoff).toBe('2026-08-31');
     expect(ProductAbcReadModelSchema.safeParse({
       ...stale,
       recalculationPending: false,

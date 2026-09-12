@@ -70,7 +70,6 @@ function persistedSnapshot() {
 function readyStatus() {
   return {
     ready: true,
-    refreshing: false,
     latestAttempt: null,
     latestComplete: null,
     actualCutoffAt: null,
@@ -170,7 +169,6 @@ describe('TrendCollectionViews TikTok direct source-owner collection', () => {
   it('shows stale source failure and its actual cutoff without hiding the previous snapshot', async () => {
     directOwnerMocks.fetchStatus.mockResolvedValue({
       ready: false,
-      refreshing: false,
       latestAttempt: {
         attemptId: '00000000-0000-4000-8000-000000000777',
         state: 'FAILED',

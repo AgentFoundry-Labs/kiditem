@@ -256,7 +256,7 @@ function TiktokCcSourceStatus({
   collectionError: Error | null;
 }) {
   const errorMessage = collectionError?.message ?? null;
-  if ((!source || source.ready && !source.refreshing) && !errorMessage) return null;
+  if ((!source || source.ready && source.latestAttempt?.state !== 'RUNNING') && !errorMessage) return null;
 
   const refreshing = source?.latestAttempt?.state === 'RUNNING';
   const message = refreshing

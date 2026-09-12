@@ -162,7 +162,6 @@ describe('Rocket owner public HTTP + disposable PG', () => {
       .expect(200);
     expect(source.body).toMatchObject({
       ready: false,
-      refreshing: true,
       latestAttempt: { attemptId: first.body.attemptId },
       latestComplete: null,
     });
@@ -192,7 +191,7 @@ describe('Rocket owner public HTTP + disposable PG', () => {
       .send({ code: 'coupang_po_session_required', message: '로그인 필요' })
       .expect(201);
     expect((await readSource()).body).toMatchObject({
-      ready: false,
+      ready: true,
       latestAttempt: { state: 'FAILED' },
       latestComplete: { attemptId: b.attemptId },
     });
@@ -245,7 +244,7 @@ describe('Rocket owner public HTTP + disposable PG', () => {
       errorCode: 'ROCKET_PO_ACCOUNT_UNAVAILABLE',
     });
     expect((await readSource()).body).toMatchObject({
-      ready: false,
+      ready: true,
       latestAttempt: { attemptId: b.attemptId, state: 'FAILED' },
       latestComplete: { attemptId: a.attemptId },
     });

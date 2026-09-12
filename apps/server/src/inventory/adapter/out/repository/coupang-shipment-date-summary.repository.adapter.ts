@@ -102,9 +102,7 @@ export class CoupangShipmentDateSummaryRepositoryAdapter implements CoupangShipm
         const latestView = latest ? publicControl(latest) : null;
         return {
           ready: !!complete
-            && latestView?.state !== "FAILED"
             && checksum(makePlan(maxPages)) === complete.requestFingerprint,
-          refreshing: latestView?.state === "RUNNING",
           latestAttempt: latestView,
           latestComplete: complete ? publicControl(complete) : null,
           capturedItems: complete

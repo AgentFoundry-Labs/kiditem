@@ -26,22 +26,6 @@ import { AdCampaignSourceRepository } from '../../out/repository/ad-campaign-sou
 @Controller('ads')
 export class AdCampaignSourceController {
   constructor(private readonly owner: AdCampaignSourceRepository) {}
-  @Get('campaigns/sync-status')
-  async syncStatus(@CurrentOrganization() org: string) {
-    const source = await this.owner.source(org);
-    return {
-      status:
-        source.ready
-          ? 'fresh'
-          : source.latestComplete
-            ? 'stale'
-            : source.latestAttempt
-              ? 'incomplete'
-              : 'missing',
-      lastCompletedAt: source.actualCutoffAt,
-      campaignCount: source.latestComplete?.campaignCount ?? 0,
-    };
-  }
   @Post('ad-campaigns/attempts')
   async begin(
     @CurrentOrganization() org: string,

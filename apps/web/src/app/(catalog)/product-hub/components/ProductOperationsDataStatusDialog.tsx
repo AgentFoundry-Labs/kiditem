@@ -7,12 +7,14 @@ import type {
   ProductOperationsDataSourceStatus,
   ProductOperationsDataStatus,
 } from '@kiditem/shared/product-operations';
+import {
+  SOURCE_READINESS_LABELS,
+  sourceReadinessStatus,
+} from '@kiditem/shared/source-readiness';
 import { formatDateTime, formatNumber } from '@/lib/utils';
 
-/** Ready, or collected once but behind, or never collected. */
-function sourceLabel(source: { ready: boolean; actualCutoff: string | null }): string {
-  if (source.ready) return '최신';
-  return source.actualCutoff ? '갱신 필요' : '미수집';
+function sourceLabel(source: ProductOperationsDataSourceStatus): string {
+  return SOURCE_READINESS_LABELS[sourceReadinessStatus(source)];
 }
 
 export type ProductOperationsDataStatusFeedback = {
@@ -114,8 +116,6 @@ function SourceRow({
       <span className="rounded-md bg-[var(--surface-sunken)] px-2 py-1 text-xs font-bold text-[var(--text-secondary)]">{sourceLabel(source)}</span>
       <div className="min-w-0 flex-1 text-right text-xs text-[var(--text-tertiary)]">
         <p>{source.actualCutoff ? `${source.actualCutoff}까지` : '수집 기준일 없음'}</p>
-        <p>{source.capturedAt ? formatDateTime(source.capturedAt) : '수집 시각 없음'}</p>
-        {source.errorCode ? <p className="font-bold text-rose-700">{source.errorCode}</p> : null}
       </div>
     </div>
   );

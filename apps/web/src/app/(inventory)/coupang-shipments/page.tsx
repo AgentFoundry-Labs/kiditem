@@ -96,7 +96,9 @@ export default function CoupangShipmentsPage() {
   const source = useQuery({
     queryKey: queryKeys.inventory.coupangShipmentSummary(),
     queryFn: loadCoupangShipmentSummarySource,
-    refetchInterval: (query) => (query.state.data?.refreshing ? 1_000 : false),
+    refetchInterval: (query) => (
+      query.state.data?.latestAttempt?.state === "RUNNING" ? 1_000 : false
+    ),
   });
   const dateSummary = source.data?.items ?? [];
   const [notifications, setNotifications] = useState<ShipmentNotification[]>(
@@ -394,7 +396,7 @@ export default function CoupangShipmentsPage() {
             <p>
               {source.isError
                 ? "쉽먼트 조회 상태를 불러오지 못했습니다."
-                : source.data?.refreshing
+                : source.data?.latestAttempt?.state === "RUNNING"
                   ? "쉽먼트 조회 진행 중 · 이전 달력 이력 표시"
                   : source.data?.latestAttempt?.state === "FAILED"
                     ? `최근 조회 실패: ${source.data.latestAttempt.errorMessage}`
@@ -427,7 +429,7 @@ export default function CoupangShipmentsPage() {
             onSelect={(date) => {
               setCalendarView((current) => ({ ...current, date }));
             }}
-            loading={summaryLoading || source.data?.refreshing === true}
+            loading={summaryLoading || source.data?.latestAttempt?.state === "RUNNING"}
             loaded={source.isSuccess}
             onQuery={queryDateSummary}
             onCollect={collectAndMerge}

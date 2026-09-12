@@ -66,7 +66,6 @@ function source(
   return {
     channelAccountId: ACCOUNT_ID,
     status: latestComplete ? 'READY' : 'MISSING',
-    refreshing: latestAttempt?.state === 'RUNNING',
     latestAttempt,
     latestComplete,
     actualCutoffAt: latestComplete?.actualCutoffAt ?? null,

@@ -16,15 +16,17 @@ describe('ProductAbcController', () => {
       sources: {
         sellpia: {
           ready: false,
+          requiredCutoff: '2026-08-31',
           actualCutoff: '2026-07-31',
-          latestAttemptState: 'COMPLETE' as const,
-          errorCode: null,
+          latestAttempt: { state: 'COMPLETE' as const },
+          latestComplete: { actualCutoff: '2026-07-31' },
         },
         advertising: {
           ready: true,
-          actualCutoff: '2026-07-31',
-          latestAttemptState: 'COMPLETE' as const,
-          errorCode: null,
+          requiredCutoff: '2026-08-31',
+          actualCutoff: '2026-08-31',
+          latestAttempt: { state: 'COMPLETE' as const },
+          latestComplete: { actualCutoff: '2026-08-31' },
         },
       },
     };

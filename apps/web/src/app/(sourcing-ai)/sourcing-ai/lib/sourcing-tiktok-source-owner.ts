@@ -5,7 +5,6 @@ const BASE = '/api/sourcing/tiktok-creative';
 
 export interface SourcingTiktokCcSourceStatus {
   ready: boolean;
-  refreshing: boolean;
   latestAttempt: {
     attemptId: string;
     state: 'RUNNING' | 'COMPLETE' | 'FAILED';

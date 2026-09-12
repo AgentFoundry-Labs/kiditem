@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import { Prisma, type SourceImportRun } from '@prisma/client';
+import { deriveSourceReadiness } from '@kiditem/shared/source-readiness';
 import {
   RocketPoSourceBeginSchema,
   RocketPoSourcePlanSchema,
@@ -15,6 +16,7 @@ import {
 } from '@kiditem/shared/rocket-purchase-preview';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { kstBusinessDate } from '../../../../common/kst';
 import type { RocketPoCatalogRepositoryPort } from '../../../application/port/out/repository/rocket-po-catalog.repository.port';
 import {
   advanceProductMappingGeneration,
@@ -141,11 +143,19 @@ export class RocketPoCatalogRepositoryAdapter implements RocketPoCatalogReposito
           orderBy: { freshnessGeneration: 'desc' },
         });
         const latestAttempt = latest ? publicControl(latest) : null;
+        const latestComplete = complete ? publicControl(complete) : null;
+        const actualCutoff = latestComplete?.actualCutoffAt?.slice(0, 10) ?? null;
+        const requiredCutoff = new Date(kstBusinessDate(new Date()).getTime() - 86_400_000)
+          .toISOString()
+          .slice(0, 10);
         return {
-          ready: !!complete && latestAttempt?.state !== 'FAILED',
-          refreshing: latestAttempt?.state === 'RUNNING',
+          ready: deriveSourceReadiness({
+            latestAttempt,
+            latestComplete: latestComplete ? { actualCutoff } : null,
+            requiredCutoff,
+          }).ready,
           latestAttempt,
-          latestComplete: complete ? publicControl(complete) : null,
+          latestComplete,
         };
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },

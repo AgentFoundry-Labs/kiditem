@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { deriveSourceReadiness } from '@kiditem/shared/source-readiness';
 import {
   AdKeywordSourcePlanSchema,
   AdKeywordRosterSchema,
@@ -168,7 +169,6 @@ export class AdKeywordSourceRepository {
           return {
             channelAccountId: null,
             ready: false,
-            refreshing: false,
             latestAttempt: null,
             latestComplete: null,
             actualCutoffAt: null,
@@ -193,13 +193,17 @@ export class AdKeywordSourceRepository {
         const expectedEnd = new Date(currentBusinessDate().getTime() - 86_400_000)
           .toISOString()
           .slice(0, 10);
+        const eligibleComplete = latestComplete !== null
+          && latestComplete.plan.expectedAdvertiserId === resolveCoupangVendorId(account)
+          ? { actualCutoff: latestComplete.plan.endDate }
+          : null;
         return {
           channelAccountId: account.id,
-          ready: latestComplete !== null
-            && latestComplete.plan.endDate === expectedEnd
-            && latestComplete.plan.expectedAdvertiserId === resolveCoupangVendorId(account)
-            && latestAttempt?.state !== 'FAILED',
-          refreshing: latestAttempt?.state === 'RUNNING',
+          ready: deriveSourceReadiness({
+            latestAttempt,
+            latestComplete: eligibleComplete,
+            requiredCutoff: expectedEnd,
+          }).ready,
           latestAttempt,
           latestComplete,
           actualCutoffAt: latestComplete?.actualCutoffAt ?? null,

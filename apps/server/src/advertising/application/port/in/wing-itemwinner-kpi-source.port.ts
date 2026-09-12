@@ -57,7 +57,6 @@ export type WingItemwinnerSourceControl = WingItemwinnerAttempt & {
 export type WingItemwinnerSourceStatus = {
   channelAccountId: string | null;
   ready: boolean;
-  refreshing: boolean;
   latestAttempt: WingItemwinnerAttempt | null;
   latestComplete: WingItemwinnerAttempt | null;
   actualCutoffAt: string | null;

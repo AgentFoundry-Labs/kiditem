@@ -427,6 +427,7 @@ function enrichAbc<T extends {
       mappingValid: current?.mappingValid !== false,
       saleStartDate: current?.saleStartDate ?? null,
       evidence: {
+        requiredCutoff: status.sellpia.requiredCutoff,
         actualCutoff: status.actualCutoff,
         // Evidence carries a mapping generation only while it agrees with the
         // organization's current one; `mappingReady` is that agreement.
@@ -458,15 +459,13 @@ function abcSourceEvidence(
   return {
     ready: status.ready,
     actualCutoff: status.actualCutoff,
-    latestAttemptState: status.latestAttemptState,
-    errorCode: status.errorCode,
+    latestAttemptState: status.latestAttempt?.state ?? null,
+    errorCode: null,
     sourceImportRunId: manifest?.sourceImportRunId ?? null,
     generation: manifest?.generation ?? null,
     coverageStartDate: manifest?.coverageStartDate ?? null,
     coverageEndDate: manifest?.coverageEndDate ?? null,
-    capturedAt: status.capturedAt instanceof Date
-      ? status.capturedAt.toISOString()
-      : status.capturedAt,
+    capturedAt: manifest?.capturedAt ?? null,
   };
 }
 

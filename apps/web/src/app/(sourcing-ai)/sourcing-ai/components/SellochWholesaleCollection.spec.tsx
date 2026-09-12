@@ -34,7 +34,7 @@ function mount(ui: ReactElement) {
 function status(state: 'RUNNING' | 'COMPLETE' | 'FAILED', targetId: string | null = null) {
   return { keyword: targetId ? '검색어 1' : keywordTargets[0].keyword, targetId,
     ready: state === 'COMPLETE',
-    refreshing: state === 'RUNNING', latestAttemptId: '00000000-0000-4000-8000-000000000001',
+    latestAttemptId: '00000000-0000-4000-8000-000000000001',
     latestAttemptState: state, actualCutoffAt: cutoff,
     errorCode: state === 'FAILED' ? 'SOURCE_DISABLED' : null,
     errorMessage: state === 'FAILED' ? 'source disabled' : null };

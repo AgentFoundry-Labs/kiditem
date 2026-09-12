@@ -252,7 +252,7 @@ describe('Competitor catalog source owner (PostgreSQL)', () => {
     await expect(
       owner.readSourceStatus({ organizationId: TEST_ORGANIZATION_ID }),
     ).resolves.toMatchObject({
-      ready: false,
+      ready: true,
       latestAttempt: {
         attemptId: incomplete.attemptId,
         state: 'FAILED',

@@ -20,7 +20,7 @@ export function Wholesale1688SourceStatus({ sources, attempts, error }: {
           <p>
             {source.targetId ?? source.keyword} · {source.latestAttemptState === 'FAILED'
               ? `수집 실패 (${source.errorCode ?? 'unknown'})`
-              : source.refreshing ? '수집 중'
+              : source.latestAttemptState === 'RUNNING' ? '수집 중'
                 : source.ready ? '수집 완료'
                   : source.actualCutoffAt ? '다시 수집 필요' : '수집 기록 없음'}
           </p>

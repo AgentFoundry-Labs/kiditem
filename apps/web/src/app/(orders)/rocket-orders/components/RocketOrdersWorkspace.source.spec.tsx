@@ -23,7 +23,7 @@ it('uses empty COMPLETE identity independently of rows and shows latest failure 
     vendorExpectations: { rocketVendorId: 'VENDOR', sharedCoupangVendorId: null } };
   const complete = { attemptId: oldId, channelAccountId: account, state: 'COMPLETE', generation: '1', plan,
     expiresAt: '2099-01-01T00:00:00Z', actualCutoffAt: '2026-07-31T01:00:00Z', errorCode: null, errorMessage: null };
-  let source: Record<string, unknown> = { ready: true, refreshing: false, latestAttempt: complete, latestComplete: complete };
+  let source: Record<string, unknown> = { ready: true, latestAttempt: complete, latestComplete: complete };
   const requests: Array<{ path: string; method?: string; action?: string }> = [];
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
     const path = new URL(url, 'http://localhost').pathname;
@@ -44,15 +44,15 @@ it('uses empty COMPLETE identity independently of rows and shows latest failure 
   </>} /></QueryClientProvider>);
   await screen.findByRole('button', { name: '2026-07-18 발주 1건' });
   const empty = { ...complete, attemptId: emptyId, generation: '2', actualCutoffAt: '2026-07-31T02:00:00Z' };
-  source = { ready: true, refreshing: false, latestAttempt: empty, latestComplete: empty };
+  source = { ready: true, latestAttempt: empty, latestComplete: empty };
   await act(async () => { await client.invalidateQueries({ queryKey: queryKeys.orders.rocketPoSource(account) }); });
   await waitFor(() => expect(screen.getByLabelText('selected source')).toHaveTextContent(emptyId));
   expect(screen.queryByRole('button', { name: '2026-07-18 발주 1건' })).not.toBeInTheDocument();
-  source = { ready: false, refreshing: false, latestComplete: empty,
+  source = { ready: true, latestComplete: empty,
     latestAttempt: { ...empty, attemptId: '44444444-4444-4444-8444-444444444444', state: 'FAILED', errorCode: 'LOGIN_REQUIRED', errorMessage: '로그인이 필요합니다.' } };
   await act(async () => { await client.invalidateQueries({ queryKey: queryKeys.orders.rocketPoSource(account) }); });
   await screen.findByText(/수집 실패: 로그인이 필요합니다/);
-  expect(screen.getByRole('status', { name: '로켓 수집 상태' })).toHaveTextContent('이전 COMPLETE');
+  expect(screen.getByRole('status', { name: '로켓 수집 상태' })).toHaveTextContent('COMPLETE 수집본');
   expect(screen.getByRole('status', { name: '로켓 수집 상태' })).toHaveTextContent(empty.actualCutoffAt);
   source = { ...source, ready: false, latestComplete: null };
   await act(async () => { await client.invalidateQueries({ queryKey: queryKeys.orders.rocketPoSource(account) }); });

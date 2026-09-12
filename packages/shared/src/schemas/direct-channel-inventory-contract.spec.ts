@@ -32,14 +32,10 @@ const UNCLASSIFIED_ABC = {
 function missingAbcSource() {
   return {
     ready: false,
-    sourceImportRunId: null,
-    generation: null,
-    coverageStartDate: null,
-    coverageEndDate: null,
-    actualCutoffDate: null,
-    capturedAt: null,
-    latestAttemptState: null,
-    errorCode: null,
+    requiredCutoff: '2026-07-31',
+    actualCutoff: null,
+    latestAttempt: null,
+    latestComplete: null,
   };
 }
 

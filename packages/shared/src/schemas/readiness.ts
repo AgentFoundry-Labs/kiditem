@@ -1,11 +1,10 @@
 import { z } from 'zod';
-
-const ReadinessCheckStatusSchema = z.enum(['ok', 'stale', 'missing']);
+import { DashboardSnapshotBasisSchema } from './dashboard.js';
 
 export const ReadinessCheckSchema = z.object({
   key: z.string(),
   label: z.string(),
-  status: ReadinessCheckStatusSchema,
+  basis: DashboardSnapshotBasisSchema,
   detail: z.string(),
   lastSyncedAt: z.string().nullable(),
   count: z.number().nullable(),
@@ -26,7 +25,6 @@ export type ReadinessCheck = z.infer<typeof ReadinessCheckSchema>;
 
 export const ReadinessResponseSchema = z.object({
   checks: z.array(ReadinessCheckSchema),
-  allOk: z.boolean(),
 });
 export type ReadinessResponse = z.infer<typeof ReadinessResponseSchema>;
 

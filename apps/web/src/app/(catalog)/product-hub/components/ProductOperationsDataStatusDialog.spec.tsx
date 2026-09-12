@@ -28,6 +28,7 @@ describe('ProductOperationsDataStatusDialog', () => {
 
     expect(screen.getByText('공식 등급 기준일 2026-07-31')).toBeInTheDocument();
     expect(screen.getByText('표시 데이터 기준일 2026-08-31')).toBeInTheDocument();
+    expect(screen.getByText('갱신 필요')).toBeInTheDocument();
     expect(screen.getByText(/기존 공식 등급은 유지됩니다/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '등급 새로고침' })).toBeDisabled();
   });
@@ -92,9 +93,9 @@ function readyStatus(): ProductOperationsDataStatus {
 function source(ready: boolean, collected = true) {
   return {
     ready,
+    requiredCutoff: '2026-08-31',
     actualCutoff: collected ? '2026-08-31' : null,
-    capturedAt: collected ? '2026-09-01T00:00:00.000Z' : null,
-    latestAttemptState: collected ? 'COMPLETE' as const : null,
-    errorCode: null,
+    latestAttempt: collected ? { state: 'COMPLETE' as const } : null,
+    latestComplete: collected ? { actualCutoff: '2026-08-31' } : null,
   };
 }

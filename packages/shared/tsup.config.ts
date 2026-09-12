@@ -52,6 +52,7 @@ export default defineConfig({
     'src/operation-cancellation.ts',
     'src/operations.ts',
     'src/browser-collection-session.ts',
+    'src/source-readiness.ts',
   ],
   format: ['esm', 'cjs'],
   dts: true,

@@ -5,6 +5,10 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { PRODUCT_ABC_ABSOLUTE_V1_AD_SOURCE_POLICY_HASH } from '@kiditem/shared/product-abc';
+import {
+  deriveSourceReadiness,
+  type SourceReadiness,
+} from '@kiditem/shared/source-readiness';
 import { Prisma } from '@prisma/client';
 import {
   ADVERTISING_PROFITABILITY_READ_PORT,
@@ -28,7 +32,6 @@ import {
   type ProfitabilityEvidence,
   type ProfitabilityEvidenceSnapshot,
   type SourceGenerationView,
-  type SourceReadiness,
 } from '../port/in/master-product-profitability-read.port';
 
 const MAX_CALENDAR_MONTHS = 12;
@@ -143,7 +146,6 @@ export class MasterProductProfitabilityReadService
       sellpia: sourceReadiness(
         sellpiaCatalog.latestAttempt?.state ?? null,
         sellpiaCatalog.latestAttempt?.attemptId ?? null,
-        latestSellpia,
         currentSellpia,
         targetCutoff,
         sellpiaCatalog.latestAttempt?.errorCode ?? null,
@@ -153,7 +155,6 @@ export class MasterProductProfitabilityReadService
         advertisingSnapshot.latestAttempt?.sourceImportRunId
           ?? advertisingSnapshot.latestAttempt?.attemptId
           ?? null,
-        latestAdvertising,
         currentAdvertising,
         targetCutoff,
         advertisingSnapshot.latestAttempt?.errorCode ?? null,
@@ -430,26 +431,30 @@ function selectCompatiblePair(
 function sourceReadiness(
   latestAttemptState: 'RUNNING' | 'COMPLETE' | 'FAILED' | null,
   latestAttemptId: string | null,
-  latestComplete: SellpiaGeneration | AdvertisingGeneration | null,
   selected: SellpiaGeneration | AdvertisingGeneration | null,
   targetCutoff: string,
   errorCode: string | null = null,
 ): SourceReadiness {
-  if (!latestComplete) {
-    return { ready: false, actualCutoff: null, latestAttemptState, errorCode };
-  }
-  const actualCutoff = minDate(
-    targetCutoff,
-    selected?.view.coverageEndDate ?? latestComplete.view.coverageEndDate,
-  );
-  const latestCompleteIsCurrent = latestAttemptState === 'COMPLETE'
-    && latestAttemptId === latestComplete.view.sourceImportRunId;
-  const selectedIsLatest = selected?.view.sourceImportRunId === latestComplete.view.sourceImportRunId;
-  const ready = latestCompleteIsCurrent
-    && selectedIsLatest
-    && latestComplete.view.coverageEndDate !== null
-    && latestComplete.view.coverageEndDate >= targetCutoff;
-  return { ready, actualCutoff, latestAttemptState, errorCode };
+  const latestAttempt = latestAttemptState
+    ? { state: latestAttemptState, attemptId: latestAttemptId, errorCode }
+    : null;
+  const latestCompleteView = selected?.view ?? null;
+  const complete = latestCompleteView?.coverageEndDate
+    ? {
+      actualCutoff: latestCompleteView.coverageEndDate,
+      sourceImportRunId: latestCompleteView.sourceImportRunId,
+      publicationSequence: latestCompleteView.publicationSequence,
+      mappingGeneration: latestCompleteView.mappingGeneration,
+      coverageStartDate: latestCompleteView.coverageStartDate,
+      coverageEndDate: latestCompleteView.coverageEndDate,
+      capturedAt: latestCompleteView.capturedAt,
+    }
+    : null;
+  return deriveSourceReadiness({
+    latestAttempt,
+    latestComplete: complete,
+    requiredCutoff: targetCutoff,
+  });
 }
 
 function emptyGeneration(): SourceGenerationView {

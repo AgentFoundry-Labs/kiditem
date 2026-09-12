@@ -243,7 +243,7 @@ describe("Public keyword SERP owner HTTP + PostgreSQL", () => {
     expect(
       (await get(`${base}/source?keyword=문구`).expect(200)).body,
     ).toMatchObject({
-      ready: false,
+      ready: true,
       latestComplete: {
         attemptId: b.attemptId,
         actualCutoffAt: bPayload.capturedAt,

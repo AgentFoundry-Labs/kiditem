@@ -341,7 +341,7 @@ describe('Wing rank owner incoming HTTP + PostgreSQL', () => {
       expect(
         (await get(`${base}/source?keyword=슬라임`).expect(200)).body,
       ).toMatchObject({
-        ready: false,
+        ready: true,
         latestComplete: { attemptId: a.attemptId },
       });
     }

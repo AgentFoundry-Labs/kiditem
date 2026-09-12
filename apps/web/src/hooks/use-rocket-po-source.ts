@@ -18,7 +18,7 @@ export function useRocketPoSource(channelAccountId: string, enabled = true) {
     queryFn: () => loadRocketPoSource(channelAccountId),
     enabled: enabled && Boolean(channelAccountId),
     retry: false,
-    refetchInterval: (query) => query.state.data?.refreshing ? 2_000 : false,
+    refetchInterval: (query) => query.state.data?.latestAttempt?.state === 'RUNNING' ? 2_000 : false,
     meta: { suppressGlobalErrorToast: true },
   });
   const latestCompleteId = source.data?.latestComplete?.attemptId;
@@ -47,5 +47,9 @@ export function useRocketPoSource(channelAccountId: string, enabled = true) {
     },
     onSettled: () => client.invalidateQueries({ queryKey: queryKeys.orders.rocketPoSource(channelAccountId) }),
   });
-  return { ...source, collect: mutation.mutateAsync, isCollecting: mutation.isPending || source.data?.refreshing === true };
+  return {
+    ...source,
+    collect: mutation.mutateAsync,
+    isCollecting: mutation.isPending || source.data?.latestAttempt?.state === 'RUNNING',
+  };
 }

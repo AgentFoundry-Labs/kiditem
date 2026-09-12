@@ -91,7 +91,6 @@ describe('Market Shadow source owner public service + disposable PG', () => {
     const first = await collect();
     expect(await service.getStatus(ORG, NOW)).toMatchObject({
       ready: true,
-      refreshing: false,
       latestComplete: first.snapshot,
       actualCutoffAt: NOW,
     });
@@ -110,7 +109,6 @@ describe('Market Shadow source owner public service + disposable PG', () => {
     expect(JSON.stringify(failed)).not.toContain('secret-token');
     expect(await service.getStatus(ORG, nextDay)).toMatchObject({
       ready: false,
-      refreshing: false,
       latestAttempt: { attemptId: failed.attemptId, state: 'FAILED', errorCode: failed.errorCode },
       latestComplete: first.snapshot,
       actualCutoffAt: NOW,
@@ -153,7 +151,6 @@ describe('Market Shadow source owner public service + disposable PG', () => {
       });
       expect(await service.getStatus(ORG, NOW)).toMatchObject({
         ready: false,
-        refreshing: true,
         latestComplete: null,
       });
     } finally {
@@ -279,13 +276,11 @@ describe('Market Shadow source owner public service + disposable PG', () => {
     }
     expect(await reading).toMatchObject({
       ready: false,
-      refreshing: true,
       latestAttempt: { state: 'RUNNING' },
       latestComplete: null,
     });
     expect(await service.getStatus(ORG, NOW)).toMatchObject({
       ready: true,
-      refreshing: false,
       latestAttempt: { state: 'COMPLETE' },
       latestComplete: { businessDate: new Date('2026-09-07T00:00:00Z') },
     });

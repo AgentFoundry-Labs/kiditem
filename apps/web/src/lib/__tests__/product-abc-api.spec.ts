@@ -69,8 +69,9 @@ describe('recalculateProductAbc', () => {
 function source(ready: boolean) {
   return {
     ready,
+    requiredCutoff: '2026-08-31',
     actualCutoff: '2026-07-31',
-    latestAttemptState: 'COMPLETE',
-    errorCode: null,
+    latestAttempt: { state: 'COMPLETE' },
+    latestComplete: { actualCutoff: '2026-07-31' },
   } as const;
 }

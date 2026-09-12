@@ -1,4 +1,5 @@
 import type { ReadinessCheck, ReadinessResponse } from '@kiditem/shared/readiness';
+import { snapshotBasisPartial, snapshotBasisStatus } from '@kiditem/shared/dashboard';
 
 export type AutoOpenWhen = 'anyIssue' | 'collectionIssue';
 
@@ -25,7 +26,8 @@ function visibleChecks(checks: ReadinessCheck[]): ReadinessCheck[] {
 }
 
 function isReady(check: ReadinessCheck): boolean {
-  return check.status === 'ok' && (check.missingDates?.length ?? 0) === 0;
+  return snapshotBasisStatus(check.basis) === 'current'
+    && !snapshotBasisPartial(check.basis);
 }
 
 export function getLocalDateKey(date = new Date()): string {
@@ -42,7 +44,7 @@ export function shouldAutoOpen(data: ReadinessResponse, mode: AutoOpenWhen): boo
 
   return checks.some((check) => {
     const missingDateCount = check.missingDates?.length ?? 0;
-    return check.collector === 'extension' && (check.status !== 'ok' || missingDateCount > 0);
+    return check.collector === 'extension' && (!isReady(check) || missingDateCount > 0);
   });
 }
 

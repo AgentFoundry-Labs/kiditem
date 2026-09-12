@@ -49,7 +49,9 @@ export function LiveCommerceSection() {
   const statusQuery = useQuery({
     queryKey: statusQueryKey,
     queryFn: () => fetchLiveCommerceStatus(taobaoInput),
-    refetchInterval: (query) => query.state.data?.sources.some((source) => source.sourceStatus?.refreshing) ? 5_000 : false,
+    refetchInterval: (query) => query.state.data?.sources.some(
+      (source) => source.sourceStatus?.latestAttempt?.state === 'RUNNING',
+    ) ? 5_000 : false,
     staleTime: 60 * 1000,
   });
   const snapshotsQuery = useQuery({
@@ -138,7 +140,8 @@ export function LiveCommerceSection() {
       void queryClient.invalidateQueries({ queryKey: browserSourceStatusQueryKey });
     },
   });
-  const taobaoRunning = taobaoCollection.isPending || taobaoStatus?.sourceStatus?.refreshing === true;
+  const taobaoRunning = taobaoCollection.isPending
+    || taobaoStatus?.sourceStatus?.latestAttempt?.state === 'RUNNING';
   const browserRunning = browserCollectionMutation.isPending
     || browserSourceStatusQuery.data?.latestAttempt?.state === 'RUNNING';
 

@@ -79,7 +79,6 @@ function source(latestAttempt: ReturnType<typeof attempt>) {
   return {
     channelAccountId: ACCOUNT_ID,
     ready: false,
-    refreshing: latestAttempt.state === 'RUNNING',
     latestAttempt,
     latestComplete: null,
     actualCutoffAt: null,

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ReadinessCheck, ReadinessResponse } from '@kiditem/shared/readiness';
+import { buildSnapshotBasis } from '@kiditem/shared/dashboard';
 import {
   buildReadinessModalViewModel,
   getLocalDateKey,
@@ -10,7 +11,12 @@ function check(overrides: Partial<ReadinessCheck>): ReadinessCheck {
   return {
     key: 'wing_sales',
     label: 'Wing sales',
-    status: 'missing',
+    basis: buildSnapshotBasis({
+      asOf: null,
+      requiredAsOf: '2026-06-28',
+      measured: false,
+      sources: ['test'],
+    }),
     detail: 'Missing yesterday data',
     lastSyncedAt: null,
     count: null,
@@ -24,8 +30,8 @@ function check(overrides: Partial<ReadinessCheck>): ReadinessCheck {
   };
 }
 
-function response(checks: ReadinessCheck[], allOk = false): ReadinessResponse {
-  return { checks, allOk };
+function response(checks: ReadinessCheck[]): ReadinessResponse {
+  return { checks };
 }
 
 describe('readiness modal model', () => {
@@ -37,24 +43,42 @@ describe('readiness modal model', () => {
     const serverIssue = response([
       check({ collector: 'server', collectEndpoint: '/api/collect', scrapeUrls: null }),
     ]);
-    const extensionIssue = response([check({ status: 'stale', missingDates: [] })]);
+    const extensionIssue = response([check({
+      basis: buildSnapshotBasis({
+        asOf: '2026-06-27',
+        requiredAsOf: '2026-06-28',
+        sources: ['test'],
+      }),
+      missingDates: [],
+    })]);
 
     expect(shouldAutoOpen(serverIssue, 'collectionIssue')).toBe(false);
     expect(shouldAutoOpen(extensionIssue, 'collectionIssue')).toBe(true);
-    expect(shouldAutoOpen(response([], true), 'anyIssue')).toBe(false);
+    expect(shouldAutoOpen(response([]), 'anyIssue')).toBe(false);
   });
 
   it('builds display counts and separates action checks from ready checks', () => {
     const ready = check({
       key: 'coupang_ads',
       label: 'Ads',
-      status: 'ok',
+      basis: buildSnapshotBasis({
+        asOf: '2026-06-28',
+        requiredAsOf: '2026-06-28',
+        sources: ['test'],
+      }),
       detail: 'Ready',
       lastSyncedAt: '2026-06-28T00:00:00.000Z',
       missingDates: [],
       scrapeUrls: null,
     });
-    const data = response([ready, check({ key: 'wing_sales' }), check({ key: 'wing_kpi', status: 'stale' })]);
+    const data = response([ready, check({ key: 'wing_sales' }), check({
+      key: 'wing_kpi',
+      basis: buildSnapshotBasis({
+        asOf: '2026-06-27',
+        requiredAsOf: '2026-06-28',
+        sources: ['test'],
+      }),
+    })]);
 
     expect(buildReadinessModalViewModel(data)).toMatchObject({
       allOk: false,
@@ -73,16 +97,24 @@ describe('readiness modal model', () => {
     const rocket = check({
       key: 'rocket_sales',
       label: '쿠팡 로켓',
-      status: 'stale',
+      basis: buildSnapshotBasis({
+        asOf: '2026-06-27',
+        requiredAsOf: '2026-06-28',
+        sources: ['test'],
+      }),
       missingDates: [],
     });
     const ready = check({
       key: 'coupang_ads',
       label: 'Ads',
-      status: 'ok',
+      basis: buildSnapshotBasis({
+        asOf: '2026-06-28',
+        requiredAsOf: '2026-06-28',
+        sources: ['test'],
+      }),
       missingDates: [],
     });
-    const data = response([rocket, ready], false);
+    const data = response([rocket, ready]);
 
     expect(shouldAutoOpen(data, 'anyIssue')).toBe(false);
     expect(shouldAutoOpen(data, 'collectionIssue')).toBe(false);

@@ -33,7 +33,7 @@ it('only reads on mount, retains an uncertain request key, and retires it after 
       keys.push(new Headers(init?.headers).get('Idempotency-Key')!);
       started = true; return Response.json(current);
     }
-    if (path.endsWith('/source')) return Response.json({ ready: false, refreshing: started && current.state === 'RUNNING',
+    if (path.endsWith('/source')) return Response.json({ ready: false,
       latestAttempt: started ? current : null, latestComplete: null });
     return Response.json(current);
   }));

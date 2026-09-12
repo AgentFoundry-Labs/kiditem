@@ -450,7 +450,7 @@ export function RocketOrdersWorkspace({
             {rocketSource.data?.latestComplete?.actualCutoffAt && (
               <span> · 실제 수집 기준 <time dateTime={rocketSource.data.latestComplete.actualCutoffAt}>{rocketSource.data.latestComplete.actualCutoffAt}</time></span>
             )}
-            {rocketSource.data?.refreshing && <span> · 수집 진행 중</span>}
+            {rocketSource.data?.latestAttempt?.state === 'RUNNING' && <span> · 수집 진행 중</span>}
             {rocketSource.data?.latestAttempt?.state === 'FAILED' && (
               <span className="text-amber-700"> · 수집 실패: {rocketSource.data.latestAttempt.errorMessage ?? rocketSource.data.latestAttempt.errorCode ?? '다시 수집해주세요.'}</span>
             )}

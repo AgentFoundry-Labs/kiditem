@@ -164,7 +164,6 @@ function adSource(
   return {
     channelAccountId: AD_ACCOUNT_ID,
     ready,
-    refreshing: latestAttempt?.state === 'RUNNING',
     latestAttempt,
     latestComplete,
     actualCutoffAt: latestComplete?.actualCutoffAt ?? null,

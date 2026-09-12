@@ -1,14 +1,8 @@
 import { z } from 'zod';
+import { SourceReadinessSchema } from '@kiditem/shared/source-readiness';
 import { apiClient } from './api-client';
 
 const CalendarDateSchema = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])-[0-3]\d$/);
-const SourceReadinessSchema = z.object({
-  ready: z.boolean(),
-  actualCutoff: CalendarDateSchema.nullable(),
-  latestAttemptState: z.enum(['RUNNING', 'COMPLETE', 'FAILED']).nullable(),
-  errorCode: z.string().nullable(),
-}).strict();
-
 export const ProductAbcRecalculationResponseSchema = z.discriminatedUnion('outcome', [
   z.object({
     outcome: z.literal('PUBLISHED'),
