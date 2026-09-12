@@ -321,4 +321,3 @@ export function narrowToDate(
     queryFailedSources: basis.queryFailedSources ?? [],
   });
 }
-

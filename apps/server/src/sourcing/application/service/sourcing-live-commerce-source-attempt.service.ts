@@ -214,4 +214,3 @@ function failureAlertFor(source: '1688' | 'douyin') {
     href: '/sourcing-ai/market',
   } as const;
 }
-

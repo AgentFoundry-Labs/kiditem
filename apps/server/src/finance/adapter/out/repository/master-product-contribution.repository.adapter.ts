@@ -617,4 +617,3 @@ function metricStatus(value: string): ProductAbcContributionMetricStatus {
   }
   throw new UnprocessableEntityException('CONTRIBUTION_METRIC_STATUS_INVALID');
 }
-

@@ -750,4 +750,3 @@ function expired(row: Pick<SourceRun, 'status' | 'expiresAt'>): boolean {
 function alertDedupeKey(): string {
   return `source:${COUPANG_REVIEW_COLLECTION_SOURCE_TYPE}`;
 }
-

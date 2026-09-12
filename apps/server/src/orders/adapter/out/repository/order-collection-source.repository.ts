@@ -445,4 +445,3 @@ function submissionHash(source: Buffer): string {
   hash.update(length).update(source);
   return hash.digest('hex');
 }
-

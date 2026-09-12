@@ -506,4 +506,3 @@ function emptyCoupangAdsMetrics(): CoupangAdsMetrics {
     lastObservedAt: null,
   };
 }
-

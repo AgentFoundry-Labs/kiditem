@@ -365,4 +365,3 @@ function numericHeader(response: Response, name: string): number | null {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
 }
-

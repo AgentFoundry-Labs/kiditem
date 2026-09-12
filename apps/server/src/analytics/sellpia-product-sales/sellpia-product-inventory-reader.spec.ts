@@ -138,5 +138,3 @@ function listing() {
     channelAccount: { channel: 'coupang', isPrimary: true },
   };
 }
-
-
