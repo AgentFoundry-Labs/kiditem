@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "scanRoots": ["apps/server/src", "apps/web/src", "packages/shared/src"],
+  "ledgers": [
+    {
+      "name": "Advertising target day",
+      "table": "channel_ad_target_daily_snapshots",
+      "prismaModel": "channelAdTargetDailySnapshot",
+      "reader": "apps/server/src/common/ad-window-facts.ts",
+      "ownerPublications": [
+        {
+          "path": "apps/server/src/advertising/adapter/out/repository/ad-keyword-source.repository.ts",
+          "reason": "Counts keyword rows immediately after inserting them in the source owner's terminal publication."
+        },
+        {
+          "path": "apps/server/src/advertising/adapter/out/repository/channel-target-daily.repository.adapter.ts",
+          "reason": "Locks and replaces target rows inside the source owner's publication transaction."
+        },
+        {
+          "path": "apps/server/src/advertising/adapter/out/repository/profitability-ad-import.repository.adapter.ts",
+          "reason": "Validates newly inserted target rows and publishes the matching profitability generation in the same owner workflow."
+        }
+      ],
+      "legacyReaders": [
+        {
+          "path": "apps/server/src/advertising/adapter/out/repository/ad-keyword-complete-read.ts",
+          "removeWith": "KID-80",
+          "reason": "The current keyword-grain evidence reader moves behind the canonical keyword and rank reader in KID-80."
+        },
+        {
+          "path": "apps/server/src/advertising/adapter/out/repository/ad-action.repository.adapter.ts",
+          "removeWith": "KID-83",
+          "reason": "Ad action hydration and current target selection move to the canonical advertising reader during the ad-ops rewrite."
+        },
+        {
+          "path": "apps/server/src/advertising/adapter/out/repository/ad-campaign.repository.adapter.ts",
+          "removeWith": "KID-83",
+          "reason": "Campaign and product rollups move to the canonical advertising reader during the ad-ops rewrite."
+        }
+      ]
+    }
+  ]
+}

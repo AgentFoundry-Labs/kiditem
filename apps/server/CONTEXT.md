@@ -120,6 +120,7 @@ _Avoid_: collector, importer, sync service
 The one table that holds one kind of measured fact, written only by its source
 owner's terminal transaction. A fact has exactly one ledger; a table that
 restates another ledger's rows (a rollup, a cache, a status word) is not one.
+The canonical list is the [ledger reader manifest](../../scripts/ledger-readers.json).
 _Avoid_: snapshot table, fact table, cache, projection
 
 **Reader**:

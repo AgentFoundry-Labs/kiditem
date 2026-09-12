@@ -35,7 +35,7 @@ npm run test:scripts
 | `scripts/check-pr-release-contract.mjs` | persisted schema/data/release PR body and migration-version gate | `npm run check:pr-release-contract` |
 | `scripts/check-queryraw-tenancy.sh` | raw SQL organization-scope scanner | `npm run check:idor` |
 | `scripts/check-raw-snapshot-read-models.sh` | raw snapshot read-model boundary scanner | `npm run check:raw-snapshot-read-models` |
-| `scripts/check-listing-day-ad-reader.sh` | listing-day ad values are read only through `common/ad-window-facts` (ADR-0006) | `npm run check:listing-day-ad-reader` |
+| `scripts/check-ledger-readers.mjs` | enforces the exact reader, owner-publication, and time-bounded legacy-reader files declared for each ledger; `--require-no-legacy` proves the final reader-zero cutover gate | `npm run check:ledger-readers` |
 | `scripts/check-schema-artifact-sync.mjs` | Prisma schema changes must include full and domain ERD updates | `npm run check:schema-artifact-sync` |
 | `scripts/check-sourcing-long-running-actions.mjs` | sourcing collection must start through Operations, with persisted reads and no retired browser/HTTP collection helpers | `npm run check:sourcing-long-running-actions`, `docs/runbooks/sourcing-collection-operations.md` |
 | `scripts/check-cutover-data-blockers.mjs` | read-only survey of what a schema cutover would hit in a database that has data: unique indexes over existing duplicates, and NOT NULL columns added with no database default. Run it at the point `db push` would run — after the pre-schema migrations — or it reports work those migrations already do | `npm run check:cutover-data-blockers` |
@@ -67,6 +67,7 @@ npm run test:scripts
 | `scripts/.shared-interface-names-baseline.txt` | existing exported Zod contracts not yet renamed to `FooSchema` |
 | `scripts/.shared-root-imports-baseline.txt` | baseline for `check-shared-root-imports.sh` |
 | `scripts/.tenant-scope-allowlist.txt` | narrow false-positive allowlist for `check-tenant-scope.sh` |
+| `scripts/ledger-readers.json` | canonical ledger inventory: physical table, Prisma model, reader, exact owner-publication files, and legacy readers with removal issues |
 | `scripts/vitest.config.ts` | isolated Vitest config for script helper tests |
 | `scripts/__tests__/` | tests for script helpers and runbook automation |
 
