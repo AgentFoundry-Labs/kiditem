@@ -24,8 +24,24 @@ const PRISMA_READ_METHOD_NAMES = [
   'groupBy',
 ];
 const PRISMA_READ_METHOD_SET = new Set(PRISMA_READ_METHOD_NAMES);
+const PRISMA_MUTATION_METHOD_NAMES = [
+  'create',
+  'createMany',
+  'createManyAndReturn',
+  'delete',
+  'deleteMany',
+  'update',
+  'updateMany',
+  'updateManyAndReturn',
+  'upsert',
+];
+const PRISMA_MUTATION_METHOD_SET = new Set(PRISMA_MUTATION_METHOD_NAMES);
 const PRISMA_RELATION_METHOD_SET = new Set([
   ...PRISMA_READ_METHOD_NAMES,
+  ...PRISMA_MUTATION_METHOD_NAMES,
+]);
+const PRISMA_NESTED_MUTATION_METHOD_SET = new Set([
+  'connectOrCreate',
   'create',
   'createMany',
   'delete',
@@ -33,6 +49,13 @@ const PRISMA_RELATION_METHOD_SET = new Set([
   'update',
   'updateMany',
   'upsert',
+]);
+const PRISMA_DATA_ARGUMENT_NAMES = new Set(['data']);
+const PRISMA_UPSERT_DATA_ARGUMENT_NAMES = new Set(['create', 'update']);
+const LEDGER_MUTATION_ACCESS_KINDS = new Set([
+  'Prisma delegate mutation',
+  'Prisma relation mutation',
+  'raw SQL mutation',
 ]);
 const RETIRED_LISTING_AD_FIELDS = new Set([
   'adClicks',
@@ -558,10 +581,91 @@ function hasReachableRelationProperty(node, relationNames, checker, visited) {
   return false;
 }
 
-function hasPrismaRelationRead(source, prismaRelations) {
-  if (prismaRelations.length === 0) return false;
+function reachablePropertyValues(
+  node,
+  propertyNames,
+  checker,
+  visited = new Set(),
+) {
+  const expression = unwrapExpression(node);
+  if (visited.has(expression)) return [];
+  visited.add(expression);
+
+  if (ts.isIdentifier(expression)) {
+    const binding = resolveConstBinding(expression, checker);
+    return binding?.initializer
+      ? reachablePropertyValues(
+          binding.initializer,
+          propertyNames,
+          checker,
+          visited,
+        )
+      : [];
+  }
+  if (ts.isArrayLiteralExpression(expression)) {
+    return expression.elements.flatMap((element) =>
+      reachablePropertyValues(
+        ts.isSpreadElement(element) ? element.expression : element,
+        propertyNames,
+        checker,
+        visited,
+      ),
+    );
+  }
+  if (!ts.isObjectLiteralExpression(expression)) return [];
+
+  return expression.properties.flatMap((property) => {
+    if (
+      (ts.isPropertyAssignment(property) ||
+        ts.isShorthandPropertyAssignment(property)) &&
+      propertyNames.has(propertyName(property))
+    ) {
+      return [
+        ts.isPropertyAssignment(property)
+          ? property.initializer
+          : property.name,
+      ];
+    }
+    if (ts.isSpreadAssignment(property)) {
+      return reachablePropertyValues(
+        property.expression,
+        propertyNames,
+        checker,
+        visited,
+      );
+    }
+    return [];
+  });
+}
+
+function hasNestedRelationMutation(
+  argument,
+  methodName,
+  relationNames,
+  checker,
+) {
+  const dataArgumentNames =
+    methodName === 'upsert'
+      ? PRISMA_UPSERT_DATA_ARGUMENT_NAMES
+      : PRISMA_DATA_ARGUMENT_NAMES;
+  return reachablePropertyValues(argument, dataArgumentNames, checker).some(
+    (data) =>
+      reachablePropertyValues(data, relationNames, checker).some(
+        (relationMutation) =>
+          reachablePropertyValues(
+            relationMutation,
+            PRISMA_NESTED_MUTATION_METHOD_SET,
+            checker,
+          ).length > 0,
+      ),
+  );
+}
+
+function detectPrismaRelationAccess(source, prismaRelations) {
+  const access = { mutation: false, read: false };
+  if (prismaRelations.length === 0) return access;
   if (!prismaRelations.some((relation) => source.includes(relation.name))) {
-    return false;
+    return access;
   }
   const { checker, sourceFile } = createSourceAnalysis(source);
   const relationsByDelegate = new Map();
@@ -574,9 +678,8 @@ function hasPrismaRelationRead(source, prismaRelations) {
         new Set([relation.name]),
       );
   }
-  let found = false;
   const visit = (node) => {
-    if (found) return;
+    if (access.mutation && access.read) return;
     if (ts.isCallExpression(node)) {
       const methodName = memberAccessName(node.expression);
       if (methodName && PRISMA_RELATION_METHOD_SET.has(methodName)) {
@@ -587,20 +690,56 @@ function hasPrismaRelationRead(source, prismaRelations) {
         const relationNames = delegateName
           ? relationsByDelegate.get(delegateName)
           : null;
-        if (
-          relationNames &&
-          node.arguments.some((argument) =>
-            hasReachableRelationProperty(
-              argument,
-              relationNames,
-              checker,
-              new Set(),
-            ),
-          )
-        ) {
-          found = true;
-          return;
+        if (relationNames) {
+          if (
+            node.arguments.some((argument) =>
+              hasReachableRelationProperty(
+                argument,
+                relationNames,
+                checker,
+                new Set(),
+              ),
+            )
+          ) {
+            access.read = true;
+          }
+          if (
+            PRISMA_MUTATION_METHOD_SET.has(methodName) &&
+            node.arguments.some((argument) =>
+              hasNestedRelationMutation(
+                argument,
+                methodName,
+                relationNames,
+                checker,
+              ),
+            )
+          ) {
+            access.mutation = true;
+          }
         }
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return access;
+}
+
+function hasPrismaDelegateMutation(source, prismaModel) {
+  if (!source.includes(prismaModel)) return false;
+  const { checker, sourceFile } = createSourceAnalysis(source);
+  let found = false;
+  const visit = (node) => {
+    if (found) return;
+    if (ts.isCallExpression(node)) {
+      const methodName = memberAccessName(node.expression);
+      if (
+        methodName &&
+        PRISMA_MUTATION_METHOD_SET.has(methodName) &&
+        resolveDelegateName(node.expression.expression, checker) === prismaModel
+      ) {
+        found = true;
+        return;
       }
     }
     ts.forEachChild(node, visit);
@@ -654,9 +793,17 @@ function detectLedgerAccess(source, ledger) {
     'ms',
   );
   if (prismaDelegatePattern.test(source)) reads.push('Prisma delegate access');
-  if (hasPrismaRelationRead(source, ledger.prismaRelations)) {
+  if (hasPrismaDelegateMutation(source, ledger.prismaModel)) {
+    reads.push('Prisma delegate mutation');
+  }
+  const relationAccess = detectPrismaRelationAccess(
+    source,
+    ledger.prismaRelations,
+  );
+  if (relationAccess.read) {
     reads.push('Prisma relation read');
   }
+  if (relationAccess.mutation) reads.push('Prisma relation mutation');
 
   const tableTarget = `(?:"?[A-Za-z_][A-Za-z0-9_]*"?\\s*\\.\\s*)?"?${escapeRegExp(ledger.table)}"?`;
   const rawSqlMutationPattern = new RegExp(
@@ -719,10 +866,9 @@ export function inspectLedgerReaders({
     for (const file of files) {
       const source = readFileSync(path.join(root, file), 'utf8');
       for (const kind of detectLedgerAccess(source, ledger)) {
-        const allowed =
-          kind === 'raw SQL mutation'
-            ? mutationAllowed.has(file)
-            : readAllowed.has(file);
+        const allowed = LEDGER_MUTATION_ACCESS_KINDS.has(kind)
+          ? mutationAllowed.has(file)
+          : readAllowed.has(file);
         if (allowed) continue;
         violations.push({
           file,

@@ -94,7 +94,7 @@ model ChannelAdTargetDailySnapshot {
     write(
       root,
       'apps/server/src/advertising/write/ad-target-owner.ts',
-      "const ledger = tx.channelAdTargetDailySnapshot;\nledger.createMany({ data: [] });\nsql`INSERT INTO channel_ad_target_daily_snapshots (id) VALUES ('owned')`;\nsql`UPDATE channel_ad_target_daily_snapshots SET id = 'owned'`;\nsql`DELETE FROM channel_ad_target_daily_snapshots WHERE id = 'owned'`;\n",
+      "const ledger = tx.channelAdTargetDailySnapshot;\nledger.createMany({ data: [] });\ntx.organization.update({ where: { id: 'org-1' }, data: { channelAdTargetDailySnapshots: { create: { id: 'owned' } } } });\nsql`INSERT INTO channel_ad_target_daily_snapshots (id) VALUES ('owned')`;\nsql`UPDATE channel_ad_target_daily_snapshots SET id = 'owned'`;\nsql`DELETE FROM channel_ad_target_daily_snapshots WHERE id = 'owned'`;\n",
     );
     write(
       root,
@@ -444,12 +444,126 @@ model ChannelAdTargetDailySnapshot {
       path.join(root, 'apps/server/src/scoped-ledger-relation-consumer.ts'),
     );
 
+    const canonicalReader =
+      'apps/server/src/advertising/read/ad-target-reader.ts';
+    const legacyReader =
+      'apps/server/src/advertising/read/legacy-keyword-reader.ts';
+    const directMutationCases = [
+      [
+        'create',
+        "await tx.channelAdTargetDailySnapshot.create({ data: { id: 'target-1' } });\n",
+        canonicalReader,
+      ],
+      [
+        'createMany',
+        'const ledger = tx.channelAdTargetDailySnapshot;\nawait ledger.createMany({ data: [] });\n',
+        legacyReader,
+      ],
+      [
+        'createManyAndReturn',
+        "await tx['channelAdTargetDailySnapshot'].createManyAndReturn({ data: [] });\n",
+        canonicalReader,
+      ],
+      [
+        'delete',
+        "const { channelAdTargetDailySnapshot: ledger } = tx;\nawait ledger.delete({ where: { id: 'target-1' } });\n",
+        canonicalReader,
+      ],
+      [
+        'deleteMany',
+        'await tx.channelAdTargetDailySnapshot.deleteMany({ where: {} });\n',
+        legacyReader,
+      ],
+      [
+        'update',
+        "const ledger = tx.channelAdTargetDailySnapshot;\nawait ledger.update({ where: { id: 'target-1' }, data: { id: 'target-2' } });\n",
+        canonicalReader,
+      ],
+      [
+        'updateMany',
+        "await tx['channelAdTargetDailySnapshot'].updateMany({ data: { id: 'target-2' } });\n",
+        legacyReader,
+      ],
+      [
+        'updateManyAndReturn',
+        "const { channelAdTargetDailySnapshot: ledger } = tx;\nawait ledger.updateManyAndReturn({ data: { id: 'target-2' } });\n",
+        canonicalReader,
+      ],
+      [
+        'upsert',
+        "await tx.channelAdTargetDailySnapshot.upsert({ where: { id: 'target-1' }, create: { id: 'target-1' }, update: { id: 'target-2' } });\n",
+        legacyReader,
+      ],
+    ];
+    for (const [method, source, target] of directMutationCases) {
+      write(root, target, source);
+      const result = runScanner(root);
+      const output = `${result.stdout}\n${result.stderr}`;
+      assert.equal(result.status, 1, `${method}: ${output}`);
+      assert.match(
+        output,
+        new RegExp(`${path.basename(target)}.*Prisma delegate mutation`),
+        method,
+      );
+      write(root, target, 'tx.channelAdTargetDailySnapshot.findMany({});\n');
+    }
+
+    const nestedMutationCases = [
+      [
+        'create',
+        "const { adAction: actions } = tx;\nawait actions.update({ where: { id: 'action-1' }, data: { adTargetDaily: { create: { id: 'target-1' } } } });\n",
+      ],
+      [
+        'update',
+        "const data = { adTargetDaily: { update: { id: 'target-2' } } };\nawait tx.adAction.update({ where: { id: 'action-1' }, data });\n",
+      ],
+      [
+        'delete',
+        "const targetMutation = { adTargetDaily: { delete: true } };\nawait tx.adAction.update({ where: { id: 'action-1' }, data: { ...targetMutation } });\n",
+      ],
+    ];
+    for (const [index, [operation, source]] of nestedMutationCases.entries()) {
+      const target = index % 2 === 0 ? canonicalReader : legacyReader;
+      write(root, target, source);
+      const result = runScanner(root);
+      const output = `${result.stdout}\n${result.stderr}`;
+      assert.equal(result.status, 1, `${operation}: ${output}`);
+      assert.match(
+        output,
+        new RegExp(`${path.basename(target)}.*Prisma relation mutation`),
+        operation,
+      );
+      write(root, target, 'tx.channelAdTargetDailySnapshot.findMany({});\n');
+    }
+
+    write(
+      root,
+      canonicalReader,
+      "await tx.adAction.update({ where: { adTargetDaily: { isNot: null } }, data: { status: 'ready' } });\n",
+    );
+    write(
+      root,
+      legacyReader,
+      "await tx.adAction.update({ where: { id: 'action-1' }, data: { status: 'ready' }, include: { adTargetDaily: true } });\n",
+    );
+
     assert.doesNotThrow(() => {
       execFileSync(process.execPath, [scanner, '--root', root], {
         encoding: 'utf8',
         stdio: 'pipe',
       });
     });
+
+    write(
+      root,
+      canonicalReader,
+      'tx.channelAdTargetDailySnapshot.findMany({});\n',
+    );
+    write(
+      root,
+      legacyReader,
+      'tx.channelAdTargetDailySnapshot.findMany({});\n',
+    );
 
     const legacyGate = spawnSync(
       process.execPath,
