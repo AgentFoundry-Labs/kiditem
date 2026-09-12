@@ -98,7 +98,7 @@ describe('MasterProductAbc publication cutoff (PostgreSQL)', () => {
       // The newer attempt is reported as freshness state, not treated as an
       // admission gate over the complete generation it sits on top of.
       expect(evidence.sources.sellpia).toMatchObject({
-        status: 'STALE',
+        ready: false,
         latestAttemptState: outcome === 'RUNNING' ? 'RUNNING' : 'FAILED',
       });
       expect(result).toMatchObject({

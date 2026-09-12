@@ -41,7 +41,7 @@ describe('SourcingLiveCommerceSourceAttemptController', () => {
       beginBrowser: vi.fn(),
       readBrowser: vi.fn(),
       readBrowserStatus: vi.fn().mockResolvedValue({
-        status: 'STALE',
+        ready: false,
         refreshing: false,
         actualCutoffAt: new Date('2026-09-04T00:00:00.000Z'),
         errorCode: 'SOURCE_COLLECTION_FAILED',
@@ -61,7 +61,7 @@ describe('SourcingLiveCommerceSourceAttemptController', () => {
     const controller = new SourcingLiveCommerceSourceAttemptController(sourceAttempts as never);
 
     await expect(controller.readBrowserStatus(PAGE_URL, ORGANIZATION_ID)).resolves.toEqual({
-      status: 'STALE',
+      ready: false,
       refreshing: false,
       actualCutoffAt: new Date('2026-09-04T00:00:00.000Z'),
       errorCode: 'SOURCE_COLLECTION_FAILED',

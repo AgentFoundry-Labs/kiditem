@@ -54,7 +54,7 @@ describe("shipment source reload and calendar route state at HTTP boundary", () 
     replaceMock.mockReset();
     calls.length = 0;
     source = {
-      status: "READY",
+      ready: true,
       refreshing: false,
       latestAttempt: attempt,
       latestComplete: attempt,
@@ -129,7 +129,7 @@ describe("shipment source reload and calendar route state at HTTP boundary", () 
   it("reload shows owner failure beside previous cutoff and keeps calendar history", async () => {
     source = {
       ...source,
-      status: "STALE",
+      ready: false,
       latestAttempt: {
         ...attempt,
         state: "FAILED",

@@ -71,7 +71,7 @@ function overview() {
 
 function sourceStatus() {
   return {
-    status: 'READY' as const,
+    ready: true,
     latestAttempt: null,
     latestComplete: {
       sourceImportRunId: ATTEMPT_ID,
@@ -242,7 +242,7 @@ describe('CompetitorTrackingPage direct source owner', () => {
   it('shows stale failure details while retaining the last complete cutoff', async () => {
     vi.mocked(fetchCompetitorCatalogSourceStatus).mockResolvedValue({
       ...sourceStatus(),
-      status: 'STALE',
+      ready: false,
       latestAttempt: {
         attemptId: ATTEMPT_ID,
         state: 'FAILED',

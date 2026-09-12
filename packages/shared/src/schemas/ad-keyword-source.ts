@@ -136,7 +136,7 @@ export const AdKeywordSourceControlSchema = AdKeywordSourceAttemptSchema.extend(
 export type AdKeywordSourceControl = z.infer<typeof AdKeywordSourceControlSchema>;
 export const AdKeywordSourceStatusSchema = z.object({
   channelAccountId: z.string().uuid().nullable(),
-  status: z.enum(['READY', 'STALE', 'MISSING']),
+  ready: z.boolean(),
   refreshing: z.boolean(),
   latestAttempt: AdKeywordSourceAttemptSchema.nullable(),
   latestComplete: AdKeywordSourceAttemptSchema.nullable(),

@@ -586,7 +586,7 @@ export class SellpiaProfitabilitySourceService
         ? toAttemptSummary(latestAttempt, new Date())
         : null;
       if (!latestComplete) {
-        return { latestAttempt: attemptView, latestComplete: null, status: 'MISSING' };
+        return { latestAttempt: attemptView, latestComplete: null, ready: false };
       }
       const currentTarget = buildSellpiaProfitabilityPlan(new Date()).to;
       const latestAttemptIsCurrentComplete = latestAttempt === null
@@ -595,9 +595,7 @@ export class SellpiaProfitabilitySourceService
       return {
         latestAttempt: attemptView,
         latestComplete,
-        status: latestComplete.coveredThrough === currentTarget && latestAttemptIsCurrentComplete
-          ? 'READY'
-          : 'STALE',
+        ready: latestComplete.coveredThrough === currentTarget && latestAttemptIsCurrentComplete,
       };
     }, {
       timeout: TRANSACTION_TIMEOUT_MS,

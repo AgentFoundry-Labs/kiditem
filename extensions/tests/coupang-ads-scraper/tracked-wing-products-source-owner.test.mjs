@@ -139,7 +139,7 @@ test('publishes only the frozen server plan through the owner attempt', async ()
       requests.push({ pathName, init });
       if (pathName === '/api/ads/wing-tracked-products/attempts') return response(plan);
       if (pathName === `/api/ads/wing-tracked-products/attempts/${attemptId}`) {
-        return response({ status: 'READY' });
+        return response({ ready: true });
       }
       throw new Error(`unexpected owner request: ${pathName}`);
     },
@@ -241,7 +241,7 @@ test('retries an unchanged terminal payload with the owner-issued token', async 
         terminalAttempts += 1;
         terminalBodies.push(init.body);
         if (terminalAttempts === 1) throw new TypeError('temporary network failure');
-        return response({ status: 'READY' });
+        return response({ ready: true });
       }
       throw new Error(`unexpected owner request: ${pathName}`);
     },

@@ -6,13 +6,13 @@ import { useAdvertisingProfitabilityRefresh } from '../hooks/useAdvertisingProfi
 
 function statusText(
   state: 'RUNNING' | 'COMPLETE' | 'FAILED' | undefined,
-  sourceStatus: 'READY' | 'STALE' | 'MISSING' | undefined,
+  source: { ready: boolean; latestComplete: unknown } | undefined,
 ): string {
   if (state === 'RUNNING') return '수집 중';
   if (state === 'FAILED') return '최근 수집 실패';
-  if (state === 'COMPLETE' && sourceStatus === 'READY') return '최신 수집 완료';
+  if (state === 'COMPLETE' && source?.ready) return '최신 수집 완료';
   if (state === 'COMPLETE') return '완료 · 보완 필요';
-  if (sourceStatus === 'STALE') return '이전 완료본 사용 중';
+  if (source?.latestComplete) return '이전 완료본 사용 중';
   return '수집 전';
 }
 
@@ -24,7 +24,7 @@ export default function AdvertisingProfitabilityRefresh() {
   const statusUnknown = source.isPending || source.isError;
   const label = statusUnknown
     ? source.isPending ? '상태 확인 중' : '상태 확인 필요'
-    : statusText(attempt?.state, source.data?.status);
+    : statusText(attempt?.state, source.data);
 
   return (
     <section

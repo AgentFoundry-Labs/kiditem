@@ -105,7 +105,7 @@ describe('WingTrackedProductService source owner', () => {
       capturedProductCount: 1,
       failedProductCount: 0,
     },
-    status: 'READY',
+    ready: true,
   };
 
   it('starts an owner attempt with normalized keyword scope and idempotency', async () => {

@@ -183,7 +183,7 @@ export const AdAccountDailyKpiPublishedRowSchema = z
 export const AdAccountDailyKpiSourceStatusSchema = z
   .object({
     channelAccountId: z.string().uuid().nullable(),
-    status: z.enum(['READY', 'STALE', 'MISSING']),
+    ready: z.boolean(),
     refreshing: z.boolean(),
     latestAttempt: AdAccountDailyKpiSourceAttemptSchema.nullable(),
     latestComplete: AdAccountDailyKpiSourceAttemptSchema.nullable(),

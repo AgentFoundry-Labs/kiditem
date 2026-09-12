@@ -153,7 +153,7 @@ export class TrendCollectService implements TrendCollectionPort {
     if (!previousTarget) return current;
     const previous = await this.attempts.readSourceStatus({ ...query, targetKey: previousTarget });
     if (!previous.latestComplete) return current;
-    return { ...(current.latestAttempt ? current : previous), status: 'STALE' as const,
+    return { ...(current.latestAttempt ? current : previous), ready: false,
       latestComplete: previous.latestComplete, actualCutoffAt: previous.actualCutoffAt };
   }
 

@@ -253,7 +253,7 @@ describe('Seller identity owner HTTP + PostgreSQL', () => {
       first,
     );
     expect((await get(`${base}/current`).expect(200)).body).toMatchObject({
-      status: 'MISSING',
+      ready: false,
       refreshing: true,
       latestComplete: null,
     });
@@ -290,7 +290,7 @@ describe('Seller identity owner HTTP + PostgreSQL', () => {
       capturedAt: new Date(Date.now() + 1).toISOString(),
     }).expect(409);
     expect((await get(`${base}/current`).expect(200)).body).toMatchObject({
-      status: 'READY',
+      ready: true,
       refreshing: false,
       latestComplete: terminal,
     });
@@ -313,7 +313,7 @@ describe('Seller identity owner HTTP + PostgreSQL', () => {
     await submit(next, identities(next)).expect(409);
     await get(`${base}/${next.attemptId}/capture`).expect(404);
     expect((await get(`${base}/current`).expect(200)).body).toMatchObject({
-      status: 'STALE',
+      ready: false,
       latestAttempt: failed,
       latestComplete: {
         attemptId: first.attemptId,

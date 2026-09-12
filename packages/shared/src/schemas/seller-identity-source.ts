@@ -96,7 +96,7 @@ export type SellerIdentitySourceControl = z.infer<
 >;
 export const SellerIdentitySourceSchema = z
   .object({
-    status: z.enum(['MISSING', 'READY', 'STALE']),
+    ready: z.boolean(),
     refreshing: z.boolean(),
     latestAttempt: SellerIdentitySourceAttemptSchema.nullable(),
     latestComplete: SellerIdentitySourceAttemptSchema.nullable(),

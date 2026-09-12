@@ -585,9 +585,9 @@ function TrackedWingSourceStatus({
   source: WingTrackedProductSourceStatus | undefined;
 }) {
   if (!source) return null;
-  const summary = source.status === 'READY'
+  const summary = source.ready
     ? '최신 스냅샷 준비됨'
-    : source.status === 'STALE'
+    : source.latestComplete
       ? '이전 완료 스냅샷 표시 중'
       : '완료된 추적 스냅샷 없음';
   const latest = source.latestAttempt;

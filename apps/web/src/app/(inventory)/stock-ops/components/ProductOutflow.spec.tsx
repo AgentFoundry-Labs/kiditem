@@ -116,7 +116,7 @@ describe('ProductOutflow', () => {
     const abc = product.inventoryProduct.abc;
     product.inventoryProduct.abc = {
       ...abc, displayStatus: 'SELLPIA_SOURCE_STALE',
-      sources: { ...abc.sources, sellpia: { ...abc.sources.sellpia, status: 'STALE', latestAttemptState: 'FAILED' } },
+      sources: { ...abc.sources, sellpia: { ...abc.sources.sellpia, ready: false, latestAttemptState: 'FAILED' } },
     };
     productSalesApi.fetch.mockResolvedValueOnce(data);
     renderProductOutflow();

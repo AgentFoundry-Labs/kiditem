@@ -6,10 +6,7 @@ import {
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { PRODUCT_ABC_ABSOLUTE_V1_AD_SOURCE_POLICY_HASH } from '@kiditem/shared/product-abc';
-import type {
-  ProductAbcContributionMetricStatus,
-  ProductAbcSourceStatus,
-} from '@kiditem/shared/product-abc';
+import type { ProductAbcContributionMetricStatus } from '@kiditem/shared/product-abc';
 import type {
   MasterProductContributionRepositoryPort,
   MasterProductContributionRepositoryReadInput,
@@ -23,9 +20,6 @@ type RawContributionRow = Readonly<{
   sourceCutoffDate: Date | string | null;
   sellpiaSourceImportRunId: string | null;
   advertisingSourceImportRunId: string | null;
-  sellpiaStatus: string;
-  advertisingStatus: string;
-  mappingStatus: string;
   revenueTotal: unknown;
   positiveOperatingProfitTotal: unknown;
   lossMagnitudeTotal: unknown;
@@ -161,23 +155,6 @@ export class MasterProductContributionRepositoryAdapter
             AND manifests.advertising_ready
             AND manifests.sellpia_mapping_generation = manifests.advertising_mapping_generation
             AS mapping_ready,
-          CASE
-            WHEN manifests.sellpia_id IS NULL THEN 'MISSING'
-            WHEN manifests.sellpia_ready THEN 'READY'
-            ELSE 'STALE'
-          END AS sellpia_status,
-          CASE
-            WHEN manifests.advertising_id IS NULL THEN 'MISSING'
-            WHEN manifests.advertising_ready THEN 'READY'
-            ELSE 'STALE'
-          END AS advertising_status,
-          CASE
-            WHEN manifests.sellpia_ready
-             AND manifests.advertising_ready
-             AND manifests.sellpia_mapping_generation = manifests.advertising_mapping_generation
-              THEN 'READY'
-            ELSE 'STALE'
-          END AS mapping_status,
           CASE
             WHEN manifests.sellpia_id IS NULL AND manifests.advertising_id IS NULL THEN NULL
             ELSE LEAST(
@@ -457,9 +434,6 @@ export class MasterProductContributionRepositoryAdapter
         summary.source_cutoff_date AS "sourceCutoffDate",
         summary.sellpia_id AS "sellpiaSourceImportRunId",
         summary.advertising_id AS "advertisingSourceImportRunId",
-        summary.sellpia_status AS "sellpiaStatus",
-        summary.advertising_status AS "advertisingStatus",
-        summary.mapping_status AS "mappingStatus",
         CASE
           WHEN summary.sellpia_ready THEN COALESCE(summary.revenue_total, 0)::text
           ELSE NULL
@@ -520,11 +494,6 @@ export class MasterProductContributionRepositoryAdapter
         sourceCutoffDate: nullableCalendarDate(summary.sourceCutoffDate),
         sellpiaSourceImportRunId: summary.sellpiaSourceImportRunId,
         advertisingSourceImportRunId: summary.advertisingSourceImportRunId,
-        sourceStatusSummary: {
-          sellpia: sourceStatus(summary.sellpiaStatus),
-          advertising: sourceStatus(summary.advertisingStatus),
-          mapping: mappingStatus(summary.mappingStatus),
-        },
       },
       totals: {
         revenue: money(summary.revenueTotal),
@@ -649,16 +618,3 @@ function metricStatus(value: string): ProductAbcContributionMetricStatus {
   throw new UnprocessableEntityException('CONTRIBUTION_METRIC_STATUS_INVALID');
 }
 
-function sourceStatus(value: string): ProductAbcSourceStatus {
-  if (value === 'READY' || value === 'STALE' || value === 'MISSING') {
-    return value;
-  }
-  throw new UnprocessableEntityException('CONTRIBUTION_SOURCE_STATUS_INVALID');
-}
-
-function mappingStatus(value: string): 'READY' | 'UNMAPPED' | 'STALE' {
-  if (value === 'READY' || value === 'UNMAPPED' || value === 'STALE') {
-    return value;
-  }
-  throw new UnprocessableEntityException('CONTRIBUTION_MAPPING_STATUS_INVALID');
-}

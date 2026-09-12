@@ -26,7 +26,7 @@ describe('ProductOperationsDataStatusRepositoryAdapter traffic readiness', () =>
     const result = await adapter.read(ORGANIZATION_ID, 7);
 
     expect(result.traffic).toMatchObject({
-      status: 'STALE',
+      ready: false,
       actualCutoff: '2026-09-03',
     });
     expect(traffic.findMany).toHaveBeenCalledWith(expect.objectContaining({
@@ -56,7 +56,7 @@ describe('ProductOperationsDataStatusRepositoryAdapter traffic readiness', () =>
     const result = await adapter.read(ORGANIZATION_ID, 7);
 
     expect(result.traffic).toMatchObject({
-      status: 'STALE',
+      ready: false,
       actualCutoff: '2026-09-02',
     });
   });
@@ -159,7 +159,7 @@ function sourceView() {
 
 function sourceStatus() {
   return {
-    status: 'MISSING' as const,
+    ready: false,
     actualCutoff: null,
     capturedAt: null,
     latestAttemptState: null,

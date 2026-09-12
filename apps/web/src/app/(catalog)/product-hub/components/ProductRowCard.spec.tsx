@@ -200,13 +200,13 @@ function product(): MasterProductOperationsListItem {
     adSpendRate: 10,
     metricsFreshness: {
       traffic: {
-        status: 'READY',
+        ready: true,
         coverageStartDate: '2026-07-01',
         coverageEndDate: '2026-07-31',
         capturedAt: '2026-08-01T00:00:00.000Z',
       },
       advertising: {
-        status: 'READY',
+        ready: true,
         coverageStartDate: '2026-07-01',
         coverageEndDate: '2026-07-31',
         capturedAt: '2026-08-01T00:00:00.000Z',
@@ -217,7 +217,7 @@ function product(): MasterProductOperationsListItem {
 
 function abcSource() {
   return {
-    status: 'READY' as const,
+    ready: true,
     sourceImportRunId: '11111111-1111-4111-8111-111111111112',
     generation: '7',
     coverageStartDate: '2026-01-01',

@@ -445,8 +445,8 @@ export function RocketOrdersWorkspace({
       <div role="status" aria-label="로켓 수집 상태" className="text-sm text-slate-500">
         {rocketSource.isError ? '로켓 수집 상태를 불러오지 못했습니다.' : (
           <>
-            {rocketSource.data?.status === 'STALE' ? '이전 COMPLETE 수집본 · 최신 수집 필요' :
-              rocketSource.data?.status === 'READY' ? 'COMPLETE 수집본' : '완료된 로켓 수집본 없음'}
+            {rocketSource.data?.ready ? 'COMPLETE 수집본' :
+              rocketSource.data?.latestComplete ? '이전 COMPLETE 수집본 · 최신 수집 필요' : '완료된 로켓 수집본 없음'}
             {rocketSource.data?.latestComplete?.actualCutoffAt && (
               <span> · 실제 수집 기준 <time dateTime={rocketSource.data.latestComplete.actualCutoffAt}>{rocketSource.data.latestComplete.actualCutoffAt}</time></span>
             )}

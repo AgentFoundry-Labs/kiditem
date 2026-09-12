@@ -87,7 +87,7 @@ describe('product extension actual HTTP source owner (PostgreSQL)', () => {
     expect(await prisma.sourcingEvidenceObservation.count()).toBe(2);
     expect(await prisma.alert.findFirstOrThrow()).toMatchObject({ status: 'OPEN', attemptId: refresh.attemptId });
     const status = (await call().get(`${base}/status`).query({ sourceUrl: product.source_url }).set('authorization', 'fixture').expect(200)).body;
-    expect(status).toMatchObject({ status: 'STALE', latestComplete: { attemptId: baseline.attemptId }, latestAttempt: { state: 'FAILED' } });
+    expect(status).toMatchObject({ ready: false, latestComplete: { attemptId: baseline.attemptId }, latestAttempt: { state: 'FAILED' } });
     expect(status.latestComplete).not.toHaveProperty('attemptToken');
   });
 
@@ -150,7 +150,7 @@ describe('product extension actual HTTP source owner (PostgreSQL)', () => {
     expect(await prisma.sourcingEvidenceObservation.count()).toBe(1);
     const failedStatus = (await call().get(`${base}/status`).query({ sourceUrl: firstUrl })
       .set('authorization', 'fixture').expect(200)).body;
-    expect(failedStatus).toMatchObject({ status: 'STALE', latestAttempt: { attemptId: next.attemptId, state: 'FAILED' },
+    expect(failedStatus).toMatchObject({ ready: false, latestAttempt: { attemptId: next.attemptId, state: 'FAILED' },
       latestComplete: { attemptId: first.attemptId } });
   });
 });

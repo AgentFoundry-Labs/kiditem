@@ -96,7 +96,7 @@ describe('SellpiaProductSalesController', () => {
           plan: { from: '2026-01-01', to: '2026-08-31', coveredMonths: ['2026-01'] },
         },
         latestComplete: null,
-        status: 'MISSING',
+        ready: false,
       }),
     };
     const controller = new SellpiaProductSalesController({} as never, source as never);

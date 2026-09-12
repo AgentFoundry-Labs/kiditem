@@ -75,7 +75,7 @@ describe('Coupang Wing tracked-products source owner (PostgreSQL)', () => {
     await expect(owner.readSourceStatus({ organizationId: TEST_ORGANIZATION_ID })).resolves.toMatchObject({
       latestAttempt: { attemptId: first.attemptId, state: 'COMPLETE' },
       latestComplete: { sourceImportRunId: first.attemptId, capturedProductCount: 1 },
-      status: 'READY',
+      ready: true,
     });
     await expect(snapshotFor('wing-1')).resolves.toMatchObject({ salePriceKrw: 10_000 });
 
@@ -87,7 +87,7 @@ describe('Coupang Wing tracked-products source owner (PostgreSQL)', () => {
     await expect(owner.readSourceStatus({ organizationId: TEST_ORGANIZATION_ID })).resolves.toMatchObject({
       latestAttempt: { attemptId: refresh.attemptId, state: 'RUNNING' },
       latestComplete: { sourceImportRunId: first.attemptId },
-      status: 'READY',
+      ready: true,
     });
   });
 
@@ -154,7 +154,7 @@ describe('Coupang Wing tracked-products source owner (PostgreSQL)', () => {
     await expect(owner.readSourceStatus({ organizationId: TEST_ORGANIZATION_ID })).resolves.toMatchObject({
       latestAttempt: { attemptId: incomplete.attemptId, state: 'FAILED' },
       latestComplete: { sourceImportRunId: baseline.attemptId },
-      status: 'STALE',
+      ready: false,
     });
     await expect(prisma.alert.findUniqueOrThrow({
       where: {
@@ -195,7 +195,7 @@ describe('Coupang Wing tracked-products source owner (PostgreSQL)', () => {
     await expect(owner.readSourceStatus({ organizationId: TEST_ORGANIZATION_ID })).resolves.toMatchObject({
       latestAttempt: { attemptId: replacement.attemptId, state: 'RUNNING' },
       latestComplete: { sourceImportRunId: baseline.attemptId },
-      status: 'READY',
+      ready: true,
     });
   });
 
@@ -219,7 +219,7 @@ describe('Coupang Wing tracked-products source owner (PostgreSQL)', () => {
       await expect(owner.readSourceStatus({ organizationId: TEST_ORGANIZATION_ID })).resolves.toMatchObject({
         latestAttempt: { attemptId: baseline.attemptId, state: 'COMPLETE' },
         latestComplete: { sourceImportRunId: baseline.attemptId },
-        status: 'STALE',
+        ready: false,
       });
     },
   );
@@ -302,7 +302,7 @@ describe('Coupang Wing tracked-products source owner (PostgreSQL)', () => {
       latestComplete: {
         sourceImportRunId: result.kind === 'COMPLETE' ? candidate.attemptId : baseline.attemptId,
       },
-      status: 'STALE',
+      ready: false,
     });
   });
 

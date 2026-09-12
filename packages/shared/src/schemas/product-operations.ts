@@ -180,27 +180,19 @@ export type ProductDepletionProjection = z.infer<
 >;
 
 const ProductOperationsMetricFreshnessSchema = z.object({
-  status: z.enum(['READY', 'STALE', 'MISSING']),
+  ready: z.boolean(),
   coverageStartDate: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/).nullable(),
   coverageEndDate: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/).nullable(),
   capturedAt: zIsoDate.nullable(),
 }).strict();
 
 export const ProductOperationsDataSourceStatusSchema = z.object({
-  status: z.enum(['READY', 'STALE', 'MISSING']),
+  ready: z.boolean(),
   actualCutoff: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/).nullable(),
   capturedAt: zIsoDate.nullable(),
   latestAttemptState: z.enum(['RUNNING', 'COMPLETE', 'FAILED']).nullable(),
   errorCode: z.string().trim().min(1).max(120).nullable(),
-}).strict().superRefine((source, context) => {
-  if (source.status === 'MISSING' && source.actualCutoff !== null) {
-    context.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['actualCutoff'],
-      message: 'missing sources cannot claim an actual cutoff',
-    });
-  }
-});
+}).strict();
 export type ProductOperationsDataSourceStatus = z.infer<
   typeof ProductOperationsDataSourceStatusSchema
 >;
@@ -217,7 +209,7 @@ export const ProductOperationsDataStatusSchema = z.object({
     advertising: ProductOperationsDataSourceStatusSchema,
     sellpia: ProductOperationsDataSourceStatusSchema,
     mapping: z.object({
-      status: z.enum(['READY', 'STALE', 'MISSING']),
+      ready: z.boolean(),
       generation: z.string().regex(/^\d+$/).nullable(),
     }).strict(),
   }).strict(),

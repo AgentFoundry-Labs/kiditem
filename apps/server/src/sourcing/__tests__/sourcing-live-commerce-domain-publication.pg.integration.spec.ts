@@ -57,7 +57,7 @@ describe('Taobao direct source owner (PG integration)', () => {
     expect(provider.collect).toHaveBeenCalledTimes(1);
     const status = await http.status(TEST_ORGANIZATION_ID);
     expect(status.sources[0]).toMatchObject({ sourceStatus: {
-      status: 'STALE',
+      ready: false,
       latestAttempt: { attemptId: failed.attemptId, state: 'FAILED' },
       latestComplete: { attemptId: baseline.attemptId },
       actualCutoffAt: new Date(previous.broadcasts[0].capturedAt),
@@ -105,7 +105,7 @@ describe('Taobao direct source owner (PG integration)', () => {
     release(structuredClone(fixture));
     await expect(pending).rejects.toThrow('SOURCE_ATTEMPT_EXPIRED');
     expect((await http.status(TEST_ORGANIZATION_ID)).sources[0]).toMatchObject({
-      sourceStatus: { status: 'MISSING', latestAttempt: { state: 'FAILED', errorCode: 'ATTEMPT_EXPIRED' }, latestComplete: null, actualCutoffAt: null },
+      sourceStatus: { ready: false, latestAttempt: { state: 'FAILED', errorCode: 'ATTEMPT_EXPIRED' }, latestComplete: null, actualCutoffAt: null },
     });
     expect((await http.list({ days: 7 }, TEST_ORGANIZATION_ID)).products).toEqual([]);
     expect(await prisma.alert.count()).toBe(0);
@@ -133,7 +133,7 @@ describe('Taobao direct source owner (PG integration)', () => {
     vi.setSystemTime(new Date('2026-09-04T16:30:00.000Z'));
     expect(await http.collectTaobao({}, 'midnight', TEST_ORGANIZATION_ID)).toEqual(first);
     expect(provider.collect).toHaveBeenCalledTimes(1);
-    expect((await http.status(TEST_ORGANIZATION_ID)).sources[0]).toMatchObject({ sourceStatus: { status: 'STALE' } });
+    expect((await http.status(TEST_ORGANIZATION_ID)).sources[0]).toMatchObject({ sourceStatus: { ready: false, latestComplete: { attemptId: first.attemptId } } });
     const explicit = await http.collectTaobao({ queryDate: ' 2026-09-03 ' }, 'explicit', TEST_ORGANIZATION_ID);
     expect(explicit.plan.queryDate).toBe('20260903');
     expect(await http.collectTaobao({ queryDate: '20260903' }, 'explicit', TEST_ORGANIZATION_ID)).toEqual(explicit);

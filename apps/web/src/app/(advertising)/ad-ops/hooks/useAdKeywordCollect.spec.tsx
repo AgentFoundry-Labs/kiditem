@@ -35,7 +35,7 @@ const attempt = {
 
 it('refreshes visible ad data when owner polling observes completion without browser execution', async () => {
   const snapshot = {
-    status: 'MISSING',
+    ready: false,
     refreshing: true,
     latestAttempt: attempt,
     latestComplete: null,
@@ -62,7 +62,7 @@ it('refreshes visible ad data when owner polling observes completion without bro
   await act(async () => {
     client.setQueryData(queryKeys.ads.keywordSource(), {
       ...snapshot,
-      status: 'READY',
+      ready: true,
       refreshing: false,
       latestAttempt: { ...attempt, state: 'COMPLETE' },
       latestComplete: { ...attempt, state: 'COMPLETE' },
@@ -129,7 +129,7 @@ it.each([
         if (path === '/api/auth/extension-handoff') return Response.json({ token: 'a'.repeat(43) });
         if (path.endsWith('/source'))
           return Response.json({
-            status: state === 'COMPLETE' ? 'READY' : 'MISSING',
+            ready: state === 'COMPLETE',
             refreshing: current.state === 'RUNNING',
             latestAttempt: current,
             latestComplete: current.state === 'COMPLETE' ? current : null,
@@ -223,7 +223,7 @@ it('keeps a start key after response loss and replaces it only for the next expl
       if (path === '/api/auth/extension-handoff') return Response.json({ token: 'a'.repeat(43) });
       if (path.endsWith('/source'))
         return Response.json({
-          status: current?.state === 'COMPLETE' ? 'READY' : 'MISSING',
+          ready: current?.state === 'COMPLETE',
           refreshing: current?.state === 'RUNNING',
           latestAttempt: current,
           latestComplete: current?.state === 'COMPLETE' ? current : null,

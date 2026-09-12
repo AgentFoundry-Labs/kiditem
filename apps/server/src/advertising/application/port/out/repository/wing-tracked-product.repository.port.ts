@@ -110,7 +110,7 @@ export type WingTrackedProductSourceView = Readonly<{
     capturedProductCount: number;
     failedProductCount: number;
   } | null;
-  status: 'READY' | 'STALE' | 'MISSING';
+  ready: boolean;
 }>;
 
 export interface WingTrackedProductRepositoryPort {

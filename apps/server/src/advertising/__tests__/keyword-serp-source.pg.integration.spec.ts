@@ -164,7 +164,7 @@ describe("Public keyword SERP owner HTTP + PostgreSQL", () => {
         ).expect(200)
       ).body,
     ).toMatchObject({
-      status: "READY",
+      ready: true,
       latestComplete: { attemptId: a.attemptId },
     });
     expect(
@@ -209,7 +209,7 @@ describe("Public keyword SERP owner HTTP + PostgreSQL", () => {
     expect(
       (await get(`${base}/source?keyword=문구`).expect(200)).body,
     ).toMatchObject({
-      status: "STALE",
+      ready: false,
       latestComplete: { attemptId: a.attemptId },
     });
   });
@@ -243,7 +243,7 @@ describe("Public keyword SERP owner HTTP + PostgreSQL", () => {
     expect(
       (await get(`${base}/source?keyword=문구`).expect(200)).body,
     ).toMatchObject({
-      status: "STALE",
+      ready: false,
       latestComplete: {
         attemptId: b.attemptId,
         actualCutoffAt: bPayload.capturedAt,
@@ -389,8 +389,8 @@ describe("Public keyword SERP owner HTTP + PostgreSQL", () => {
     await submit(a).expect(409);
     await get(`${base}/attempts/${a.attemptId}/capture`).expect(404);
     expect(
-      (await get(`${base}/source?keyword=문구`).expect(200)).body.status,
-    ).toBe("MISSING");
+      (await get(`${base}/source?keyword=문구`).expect(200)).body,
+    ).toMatchObject({ ready: false, latestComplete: null });
   });
   it("keeps expiry reads side-effect-free and settles FAILED plus Alert on the next begin", async () => {
     const a = (await start().expect(201)).body;
@@ -532,7 +532,7 @@ describe("Public keyword SERP owner HTTP + PostgreSQL", () => {
     });
     expect(
       (await get(`${base}/source?keyword=legacy`).expect(200)).body,
-    ).toMatchObject({ status: "MISSING", latestComplete: null });
+    ).toMatchObject({ ready: false, latestComplete: null });
     expect(
       (await get("/api/ads/keyword-rank/history?keyword=legacy").expect(200))
         .body.series,

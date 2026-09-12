@@ -87,7 +87,7 @@ describe('Advertising profitability source owner (PostgreSQL)', () => {
           allocatedSpendKrw: 168,
         },
       },
-      status: 'READY',
+      ready: true,
     });
 
     const receipts = await prisma.channelScrapeRun.findMany({
@@ -126,7 +126,7 @@ describe('Advertising profitability source owner (PostgreSQL)', () => {
     await uploadAllSlices(owner, first);
     await expect(owner.finalizeAttempt(fence(first))).resolves.toMatchObject({
       latestComplete: { sourceImportRunId: first.attemptId, coveredThrough: coverage.to },
-      status: 'READY',
+      ready: true,
     });
 
     const failed = await owner.beginAttempt({
@@ -140,7 +140,7 @@ describe('Advertising profitability source owner (PostgreSQL)', () => {
     })).resolves.toMatchObject({
       latestAttempt: { attemptId: failed.attemptId, state: 'FAILED' },
       latestComplete: { sourceImportRunId: first.attemptId, coveredThrough: coverage.to },
-      status: 'STALE',
+      ready: false,
     });
   });
 
@@ -174,13 +174,13 @@ describe('Advertising profitability source owner (PostgreSQL)', () => {
     );
     await expect(owner.readSourceStatus({ organizationId: TEST_ORGANIZATION_ID })).resolves.toMatchObject({
       latestComplete: null,
-      status: 'MISSING',
+      ready: false,
     });
 
     await owner.uploadSlice(receipts.at(-1)!);
     await expect(owner.finalizeAttempt(fence(attempt))).resolves.toMatchObject({
       latestComplete: { sourceImportRunId: attempt.attemptId, publicationSequence: '1' },
-      status: 'READY',
+      ready: true,
     });
     await expect(owner.readAttemptControl({
       organizationId: TEST_ORGANIZATION_ID,
@@ -224,7 +224,7 @@ describe('Advertising profitability source owner (PostgreSQL)', () => {
     await expect(prisma.sourceImportRun.findUnique({ where: { id: attempt.attemptId } }))
       .resolves.toMatchObject({ status: 'running' });
     await expect(owner.readSourceStatus({ organizationId: TEST_ORGANIZATION_ID }))
-      .resolves.toMatchObject({ status: 'MISSING', latestComplete: null });
+      .resolves.toMatchObject({ ready: false, latestComplete: null });
   });
 
   it('does not promote when a planned account advertiser identity drifts', async () => {
@@ -268,7 +268,7 @@ describe('Advertising profitability source owner (PostgreSQL)', () => {
           allocatedSpendKrw: 0,
         },
       },
-      status: 'READY',
+      ready: true,
     });
     await expect(owner.readGeneration({
       organizationId: OTHER_ORGANIZATION_ID,
@@ -441,7 +441,7 @@ describe('Advertising profitability source owner (PostgreSQL)', () => {
     for (const receipt of receipts.slice(1)) await owner.uploadSlice(receipt);
 
     await expect(owner.finalizeAttempt(fence(attempt))).resolves.toMatchObject({
-      status: 'READY',
+      ready: true,
     });
     const generation = await owner.readGeneration({
       organizationId: TEST_ORGANIZATION_ID,
@@ -478,7 +478,7 @@ describe('Advertising profitability source owner (PostgreSQL)', () => {
     for (const receipt of receipts) await owner.uploadSlice(receipt);
 
     await expect(owner.finalizeAttempt(fence(attempt))).resolves.toMatchObject({
-      status: 'READY',
+      ready: true,
     });
     const generation = await owner.readGeneration({
       organizationId: TEST_ORGANIZATION_ID,
@@ -538,7 +538,7 @@ describe('Advertising profitability source owner (PostgreSQL)', () => {
     await expect(owner.readSourceStatus({ organizationId: TEST_ORGANIZATION_ID })).resolves.toMatchObject({
       latestComplete: { sourceImportRunId: first.attemptId },
       latestAttempt: { attemptId: replacement.attemptId, state: 'RUNNING' },
-      status: 'STALE',
+      ready: false,
     });
   });
 

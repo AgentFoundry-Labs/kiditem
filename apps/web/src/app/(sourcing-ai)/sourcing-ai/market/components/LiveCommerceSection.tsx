@@ -365,7 +365,7 @@ function BrowserLiveCommerceSourceStatus({
   if (!source && !collectionError) return null;
 
   const refreshing = source?.latestAttempt?.state === 'RUNNING';
-  const unhealthy = source?.status === 'STALE' || source?.status === 'MISSING';
+  const unhealthy = source?.ready === false;
   const message = refreshing
     ? '라이브 방송을 수집 중입니다. 마지막 완료 데이터는 계속 표시됩니다.'
     : unhealthy

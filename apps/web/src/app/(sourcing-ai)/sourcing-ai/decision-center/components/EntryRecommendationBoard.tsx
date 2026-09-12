@@ -383,7 +383,7 @@ function Sourcing1688SourceStatus({
 }: {
   source: Sourcing1688TrendSourceStatus | undefined;
 }) {
-  if (!source || source.status === 'READY' && !source.refreshing) return null;
+  if (!source || source.ready && !source.refreshing) return null;
 
   const message = source.latestAttempt?.state === 'RUNNING'
     ? '1688 공급 후보를 수집 중입니다. 마지막 완료 데이터는 계속 표시됩니다.'

@@ -93,7 +93,7 @@ export function stubMissingProductAbcRead(): ProductAbcReadPort {
 
 function readySource(sourceImportRunId: string) {
   return {
-    status: 'READY' as const,
+    ready: true,
     actualCutoff: CUTOFF,
     latestAttemptState: 'COMPLETE' as const,
     errorCode: null,
@@ -107,7 +107,7 @@ function readySource(sourceImportRunId: string) {
 
 function missingSource() {
   return {
-    status: 'MISSING' as const,
+    ready: false,
     actualCutoff: null,
     latestAttemptState: null,
     errorCode: null,

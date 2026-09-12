@@ -11,30 +11,30 @@ import {
 
 function statusLabel(
   state: 'RUNNING' | 'COMPLETE' | 'FAILED' | undefined,
-  sourceStatus: 'READY' | 'STALE' | 'MISSING' | undefined,
+  source: { ready: boolean; latestComplete: unknown } | undefined,
   cancelled = false,
 ): string {
   if (state === 'RUNNING') return '수집 중';
   if (cancelled) return '수집 중단됨';
   if (state === 'FAILED') return '최근 수집 실패';
-  if (state === 'COMPLETE' && sourceStatus === 'READY') return '최신 수집 완료';
+  if (state === 'COMPLETE' && source?.ready) return '최신 수집 완료';
   if (state === 'COMPLETE') return '수집 완료 · 보완 가능';
-  if (sourceStatus === 'STALE') return '이전 완료본 사용 중';
+  if (source?.latestComplete) return '이전 완료본 사용 중';
   return '수집 전';
 }
 
 function statusClass(
   state: 'RUNNING' | 'COMPLETE' | 'FAILED' | undefined,
-  sourceStatus: 'READY' | 'STALE' | 'MISSING' | undefined,
+  source: { ready: boolean; latestComplete: unknown } | undefined,
   cancelled = false,
 ): string {
   if (state === 'RUNNING') return 'border-sky-200 bg-sky-50 text-sky-700';
   if (cancelled) return 'border-amber-200 bg-amber-50 text-amber-700';
   if (state === 'FAILED') return 'border-rose-200 bg-rose-50 text-rose-700';
-  if (state === 'COMPLETE' && sourceStatus === 'READY') {
+  if (state === 'COMPLETE' && source?.ready) {
     return 'border-emerald-200 bg-emerald-50 text-emerald-700';
   }
-  if (sourceStatus === 'STALE') return 'border-amber-200 bg-amber-50 text-amber-700';
+  if (source?.latestComplete) return 'border-amber-200 bg-amber-50 text-amber-700';
   return 'border-slate-200 bg-slate-50 text-slate-500';
 }
 
@@ -57,7 +57,7 @@ export function WingDailyTrafficCollection({
   const cancelled = attempt?.state === 'FAILED' && attempt.errorCode === 'USER_CANCELLED';
   const status = statusUnknown
     ? collection.source.isPending ? '상태 확인 중' : '상태 확인 필요'
-    : statusLabel(attempt?.state, collection.source.data?.status, cancelled);
+    : statusLabel(attempt?.state, collection.source.data, cancelled);
   const actionLabel = statusUnknown
     ? status
     : collection.actionPending
@@ -80,7 +80,7 @@ export function WingDailyTrafficCollection({
               <span
                 className={cn(
                   'rounded-full border px-2 py-0.5 text-[11px] font-bold',
-                  statusClass(attempt?.state, collection.source.data?.status, cancelled),
+                  statusClass(attempt?.state, collection.source.data, cancelled),
                 )}
               >
                 {status}

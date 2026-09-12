@@ -436,7 +436,7 @@ function sourceReadiness(
   errorCode: string | null = null,
 ): SourceReadiness {
   if (!latestComplete) {
-    return { status: 'MISSING', actualCutoff: null, latestAttemptState, errorCode };
+    return { ready: false, actualCutoff: null, latestAttemptState, errorCode };
   }
   const actualCutoff = minDate(
     targetCutoff,
@@ -445,13 +445,11 @@ function sourceReadiness(
   const latestCompleteIsCurrent = latestAttemptState === 'COMPLETE'
     && latestAttemptId === latestComplete.view.sourceImportRunId;
   const selectedIsLatest = selected?.view.sourceImportRunId === latestComplete.view.sourceImportRunId;
-  const status = latestCompleteIsCurrent
+  const ready = latestCompleteIsCurrent
     && selectedIsLatest
     && latestComplete.view.coverageEndDate !== null
-    && latestComplete.view.coverageEndDate >= targetCutoff
-    ? 'READY'
-    : 'STALE';
-  return { status, actualCutoff, latestAttemptState, errorCode };
+    && latestComplete.view.coverageEndDate >= targetCutoff;
+  return { ready, actualCutoff, latestAttemptState, errorCode };
 }
 
 function emptyGeneration(): SourceGenerationView {

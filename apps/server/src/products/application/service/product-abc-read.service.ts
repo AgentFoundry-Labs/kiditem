@@ -96,7 +96,7 @@ function sourceEvidence(
   const readiness = snapshot.sources[source];
   const manifest = snapshot.sourceVector[source];
   return {
-    status: readiness.status,
+    ready: readiness.ready,
     actualCutoff: readiness.actualCutoff,
     latestAttemptState: readiness.latestAttemptState,
     errorCode: readiness.errorCode,

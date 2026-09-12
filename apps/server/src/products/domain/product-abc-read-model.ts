@@ -11,7 +11,7 @@ import { productAbcDisplayStatus } from './product-abc-display-status';
  * domain states what it needs, not where Finance keeps it.
  */
 export type ProductAbcSourceEvidence = Readonly<{
-  status: 'READY' | 'STALE' | 'MISSING';
+  ready: boolean;
   actualCutoff: string | null;
   latestAttemptState: 'RUNNING' | 'COMPLETE' | 'FAILED' | null;
   errorCode: string | null;
@@ -109,7 +109,7 @@ function sourceFreshness(source: ProductAbcSourceEvidence) {
     && source.coverageStartDate !== null
     && source.coverageEndDate !== null;
   return {
-    status: source.status,
+    ready: source.ready,
     sourceImportRunId: complete ? source.sourceImportRunId : null,
     generation: complete ? source.generation : null,
     coverageStartDate: complete ? source.coverageStartDate : null,

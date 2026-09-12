@@ -566,7 +566,7 @@ export class WingItemwinnerKpiSourceRepository
     if (!account) {
       return {
         channelAccountId: null,
-        status: 'MISSING',
+        ready: false,
         refreshing: false,
         latestAttempt: null,
         latestComplete: null,
@@ -593,7 +593,7 @@ export class WingItemwinnerKpiSourceRepository
     if (!latestComplete) {
       return {
         channelAccountId: account.id,
-        status: 'MISSING',
+        ready: false,
         refreshing: latestAttempt?.state === 'RUNNING',
         latestAttempt,
         latestComplete: null,
@@ -603,7 +603,7 @@ export class WingItemwinnerKpiSourceRepository
     const ready = latestAttempt?.state === 'COMPLETE' && latestAttempt.attemptId === latestComplete.attemptId;
     return {
       channelAccountId: account.id,
-      status: ready ? 'READY' : 'STALE',
+      ready,
       refreshing: latestAttempt?.state === 'RUNNING',
       latestAttempt,
       latestComplete,

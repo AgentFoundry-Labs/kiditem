@@ -38,9 +38,9 @@ describe('1688 source-owner web seam', () => {
   });
 
   it('reads the source owner status from its current evidence endpoint', async () => {
-    vi.mocked(apiClient.get).mockResolvedValue({ status: 'READY' } as never);
+    vi.mocked(apiClient.get).mockResolvedValue({ ready: true } as never);
 
-    await expect(fetchSourcing1688TrendSourceStatus()).resolves.toEqual({ status: 'READY' });
+    await expect(fetchSourcing1688TrendSourceStatus()).resolves.toEqual({ ready: true });
     expect(apiClient.get).toHaveBeenCalledWith('/api/sourcing/1688-trends/current');
   });
 });

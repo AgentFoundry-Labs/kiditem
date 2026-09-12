@@ -129,7 +129,7 @@ export type CompetitorCatalogAttemptInput =
   | { target: 'seller_id'; sellerId: string };
 
 export interface CompetitorCatalogSourceStatus {
-  status: 'READY' | 'STALE' | 'MISSING';
+  ready: boolean;
   latestAttempt: {
     attemptId: string;
     state: 'RUNNING' | 'COMPLETE' | 'FAILED';

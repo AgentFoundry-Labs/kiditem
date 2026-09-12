@@ -56,9 +56,9 @@ describe('ProfitabilityEvidence (PostgreSQL)', () => {
     expect(display).toMatchObject({
       actualCutoff: null,
       sources: {
-        sellpia: { status: 'STALE' },
-        advertising: { status: 'STALE' },
-        mapping: { status: 'STALE', generation: '1' },
+        sellpia: { ready: false },
+        advertising: { ready: false },
+        mapping: { ready: false, generation: '1' },
       },
     });
   });
@@ -102,8 +102,8 @@ describe('ProfitabilityEvidence (PostgreSQL)', () => {
         basisCutoffDate: targetCutoff,
       },
       sources: {
-        sellpia: { status: 'READY', latestAttemptState: 'COMPLETE' },
-        advertising: { status: 'READY', latestAttemptState: 'COMPLETE' },
+        sellpia: { ready: true, latestAttemptState: 'COMPLETE' },
+        advertising: { ready: true, latestAttemptState: 'COMPLETE' },
       },
     });
     expect(inclusiveDateCount(ownSellpia.plan.from, ownSellpia.plan.to)).toBe(401);

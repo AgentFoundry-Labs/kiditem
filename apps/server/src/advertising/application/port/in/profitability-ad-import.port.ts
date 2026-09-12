@@ -70,7 +70,7 @@ export type AdvertisingProfitabilitySourceView = Readonly<{
     capturedAt: string;
     qualitySummary: AdvertisingProfitabilityQualitySummary;
   } | null;
-  status: 'READY' | 'STALE' | 'MISSING';
+  ready: boolean;
 }>;
 
 export type AdvertisingProfitabilityFrozenRecipePolicy = Readonly<{
@@ -167,7 +167,7 @@ export type AdvertisingProfitabilitySourceSnapshot = Readonly<{
   }> | null;
   latestComplete: AdvertisingProfitabilityGenerationSummary | null;
   completeGenerations: readonly AdvertisingProfitabilityGenerationSummary[];
-  status: 'READY' | 'STALE' | 'MISSING';
+  ready: boolean;
 }>;
 
 export interface AdvertisingProfitabilityReadPort {

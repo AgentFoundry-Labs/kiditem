@@ -53,7 +53,7 @@ export interface TaobaoLiveAttempt {
   errorMessage: string | null;
 }
 export interface TaobaoLiveSourceStatus {
-  status: 'READY' | 'STALE' | 'MISSING';
+  ready: boolean;
   refreshing: boolean;
   latestAttempt: TaobaoLiveAttempt | null;
   latestComplete: TaobaoLiveAttempt | null;

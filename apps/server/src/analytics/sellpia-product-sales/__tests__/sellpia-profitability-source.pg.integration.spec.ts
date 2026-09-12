@@ -142,7 +142,7 @@ describe('Sellpia profitability source owner (PostgreSQL)', () => {
       generation: '1',
     });
     await expect(service.readSourceStatus(TEST_ORGANIZATION_ID)).resolves.toMatchObject({
-      status: 'STALE',
+      ready: false,
       latestAttempt: {
         attemptId: replacement.attemptId,
         state: 'FAILED',
@@ -160,7 +160,7 @@ describe('Sellpia profitability source owner (PostgreSQL)', () => {
     const transaction = vi.spyOn(prisma, '$transaction');
     try {
       await expect(service.readSourceStatus(TEST_ORGANIZATION_ID)).resolves.toMatchObject({
-        status: 'READY',
+        ready: true,
         latestAttempt: { attemptId: attempt.attemptId, state: 'COMPLETE' },
         latestComplete: { sourceImportRunId: attempt.attemptId, generation: '1' },
       });
@@ -347,11 +347,12 @@ describe('Sellpia profitability source owner (PostgreSQL)', () => {
     });
 
     await expect(service.readSourceStatus(TEST_ORGANIZATION_ID)).resolves.toMatchObject({
-      status: 'MISSING',
+      ready: false,
       latestAttempt: {
         state: 'FAILED',
         errorCode: 'ATTEMPT_EXPIRED',
       },
+      latestComplete: null,
     });
     await expect(prisma.sourceImportRun.findUniqueOrThrow({
       where: { id: expired.attemptId },

@@ -75,7 +75,7 @@ describe('useRocketPurchaseWorkflow', () => {
     vi.mocked(collectRocketPoRowsForConfirmationFromExtension).mockRejectedValue(
       new Error('unexpected collection'),
     );
-    vi.mocked(loadRocketPoSource).mockResolvedValue({ status: 'MISSING', refreshing: false, latestAttempt: null, latestComplete: null });
+    vi.mocked(loadRocketPoSource).mockResolvedValue({ ready: false, refreshing: false, latestAttempt: null, latestComplete: null });
     vi.mocked(sellpiaInventoryFreshnessApi.getState).mockResolvedValue(
       freshnessState({ status: 'fresh', verifiedGeneration: '12' }),
     );
@@ -689,7 +689,7 @@ describe('useRocketPurchaseWorkflow', () => {
   it.each(['FAILED', 'COMPLETE'] as const)('keeps RUNNING informational and releases the CTA after owner %s', async (state) => {
     const onActivity = vi.fn();
     const running = { attemptId: SOURCE_A, state: 'RUNNING', errorMessage: null } as never;
-    vi.mocked(loadRocketPoSource).mockResolvedValue({ status: 'MISSING', refreshing: true, latestAttempt: running, latestComplete: null });
+    vi.mocked(loadRocketPoSource).mockResolvedValue({ ready: false, refreshing: true, latestAttempt: running, latestComplete: null });
     vi.mocked(collectRocketPoRowsForConfirmationFromExtension).mockRejectedValue(new RocketPoSourceError(running));
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const wrapper = ({ children }: { children: ReactNode }) => createElement(QueryClientProvider, { client }, children);
@@ -699,7 +699,7 @@ describe('useRocketPurchaseWorkflow', () => {
     expect(onActivity.mock.calls.some(([event]) => event.status === 'failed')).toBe(false);
     expect(hook.result.current.loading).toBe(true);
     expect(hook.result.current.stage).toBe('collecting');
-    vi.mocked(loadRocketPoSource).mockResolvedValue({ status: 'MISSING', refreshing: false,
+    vi.mocked(loadRocketPoSource).mockResolvedValue({ ready: false, refreshing: false,
       latestAttempt: { attemptId: SOURCE_A, state } as never, latestComplete: null });
     await act(async () => { await client.refetchQueries(); });
     await waitFor(() => expect(hook.result.current.loading).toBe(false));

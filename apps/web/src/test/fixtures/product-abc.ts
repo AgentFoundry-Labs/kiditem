@@ -51,7 +51,7 @@ export function productAbcReadModel(
 ): ProductAbcReadModel {
   const evaluation = overrides.evaluation === undefined ? productAbcEvaluation() : overrides.evaluation;
   const source = {
-    status: 'READY' as const,
+    ready: true,
     sourceImportRunId: '11111111-1111-4111-8111-111111111112', generation: '7',
     coverageStartDate: '2026-06-01', coverageEndDate: '2026-07-31', actualCutoffDate: '2026-07-31',
     capturedAt: '2026-08-01T00:00:00.000Z', latestAttemptState: 'COMPLETE' as const, errorCode: null,

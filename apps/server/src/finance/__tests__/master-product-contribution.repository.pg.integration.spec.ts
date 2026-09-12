@@ -162,9 +162,6 @@ describe('MasterProductContributionRepositoryAdapter (PostgreSQL)', () => {
 
     const result = await repository.readContribution(input(sources));
 
-    expect(result.basis.sourceStatusSummary).toEqual({
-      sellpia: 'READY', advertising: 'STALE', mapping: 'STALE',
-    });
     expect(result.metrics.sales).toMatchObject({ status: 'READY', denominator: 100 });
     expect(result.metrics.positiveOperatingProfit).toMatchObject({
       status: 'SOURCE_INCOMPLETE', includedProductCount: 0, excludedProductCount: 1,
@@ -188,9 +185,6 @@ describe('MasterProductContributionRepositoryAdapter (PostgreSQL)', () => {
 
     const result = await repository.readContribution(input(sources));
 
-    expect(result.basis.sourceStatusSummary).toEqual({
-      sellpia: 'READY', advertising: 'STALE', mapping: 'STALE',
-    });
     expect(result.metrics.sales).toMatchObject({ status: 'READY', denominator: 100 });
     expect(result.metrics.positiveOperatingProfit.status).toBe('SOURCE_INCOMPLETE');
     expect(result.products[0]).toMatchObject({
@@ -212,9 +206,6 @@ describe('MasterProductContributionRepositoryAdapter (PostgreSQL)', () => {
 
     const result = await repository.readContribution(input(sources));
 
-    expect(result.basis.sourceStatusSummary).toEqual({
-      sellpia: 'READY', advertising: 'STALE', mapping: 'STALE',
-    });
     expect(result.metrics.sales).toMatchObject({ status: 'READY', denominator: 100 });
     expect(result.metrics.positiveOperatingProfit.status).toBe('SOURCE_INCOMPLETE');
     expect(result.products[0]).toMatchObject({

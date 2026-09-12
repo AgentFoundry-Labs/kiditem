@@ -33,14 +33,14 @@ it('only reads on mount, retains an uncertain request key, and retires it after 
       keys.push(new Headers(init?.headers).get('Idempotency-Key')!);
       started = true; return Response.json(current);
     }
-    if (path.endsWith('/source')) return Response.json({ status: 'MISSING', refreshing: started && current.state === 'RUNNING',
+    if (path.endsWith('/source')) return Response.json({ ready: false, refreshing: started && current.state === 'RUNNING',
       latestAttempt: started ? current : null, latestComplete: null });
     return Response.json(current);
   }));
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   const wrapper = ({ children }: { children: ReactNode }) => createElement(QueryClientProvider, { client }, children);
   const hook = renderHook(() => useRocketPoSource(channelAccountId), { wrapper });
-  await waitFor(() => expect(hook.result.current.data?.status).toBe('MISSING'));
+  await waitFor(() => expect(hook.result.current.data?.ready).toBe(false));
   expect(methods.every((method) => method === 'GET')).toBe(true);
   const collect = () => hook.result.current.collect({ from: plan.from, to: plan.to,
     createPreviewRequest: () => ({ channelAccountId, sourceImportRunId: attemptId, editedQuantities: {} }) });

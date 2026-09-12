@@ -731,7 +731,7 @@ export class AdAccountDailyKpiSourceRepository
     if (!account) {
       return AdAccountDailyKpiSourceStatusSchema.parse({
         channelAccountId: null,
-        status: 'MISSING',
+        ready: false,
         refreshing: false,
         latestAttempt: null,
         latestComplete: null,
@@ -755,7 +755,7 @@ export class AdAccountDailyKpiSourceRepository
     if (!latestComplete) {
       return AdAccountDailyKpiSourceStatusSchema.parse({
         channelAccountId: account.id,
-        status: 'MISSING',
+        ready: false,
         refreshing: latestAttempt?.state === 'RUNNING',
         latestAttempt,
         latestComplete: null,
@@ -784,7 +784,7 @@ export class AdAccountDailyKpiSourceRepository
     const failed = latestAttempt?.state === 'FAILED';
     return AdAccountDailyKpiSourceStatusSchema.parse({
       channelAccountId: account.id,
-      status: covered && !failed ? 'READY' : 'STALE',
+      ready: covered && !failed,
       refreshing: latestAttempt?.state === 'RUNNING',
       latestAttempt,
       latestComplete,

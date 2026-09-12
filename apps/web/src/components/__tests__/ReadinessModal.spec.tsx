@@ -9,7 +9,7 @@ const mockApiGet = vi.hoisted(() => vi.fn());
 const mockAdSyncRun = vi.hoisted(() => vi.fn());
 const mockAdCampaignSyncStatus = vi.hoisted(() => ({
   data: {
-    status: 'MISSING' as 'READY' | 'STALE' | 'MISSING',
+    ready: false,
     latestComplete: null as null | { plan: { startDate: string; endDate: string } },
   },
 }));
@@ -242,7 +242,7 @@ describe('ReadinessModal', () => {
     mockApiGet.mockResolvedValue(makeReadinessResponse());
     mockAdSyncRun.mockReset();
     mockAdCampaignSyncStatus.data = {
-      status: 'MISSING',
+      ready: false,
       latestComplete: null,
     };
     mockHandleCollect.mockReset();
@@ -687,7 +687,7 @@ describe('ReadinessModal', () => {
 
   it('shows 최신 only for a server-confirmed complete daily ad sweep', async () => {
     mockAdCampaignSyncStatus.data = {
-      status: 'READY',
+      ready: true,
       latestComplete: { plan: { startDate: '2026-08-06', endDate: '2026-09-05' } },
     };
 
@@ -699,7 +699,7 @@ describe('ReadinessModal', () => {
     expect(view.container).toHaveTextContent('사용 중인 데이터: 2026-08-06 ~ 2026-09-05');
 
     mockAdCampaignSyncStatus.data = {
-      status: 'STALE',
+      ready: false,
       latestComplete: { plan: { startDate: '2026-08-06', endDate: '2026-09-05' } },
     };
     view.rerender(<ReadinessModal open onClose={vi.fn()} />);

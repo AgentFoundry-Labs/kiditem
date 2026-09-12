@@ -358,7 +358,7 @@ describe('WingTrackedProductSourceAttemptRepositoryAdapter', () => {
         conversionRate28d: 0.2,
       }],
     })).resolves.toMatchObject({
-      status: 'STALE',
+      ready: false,
       latestAttempt: { state: 'COMPLETE' },
     });
 
@@ -655,7 +655,7 @@ describe('WingTrackedProductSourceAttemptRepositoryAdapter', () => {
     await expect(adapter.readSourceStatus({ organizationId: ORGANIZATION_ID })).resolves.toMatchObject({
       latestAttempt: { attemptId: attempt.id, state: 'COMPLETE' },
       latestComplete: { sourceImportRunId: attempt.id, businessDate },
-      status: 'STALE',
+      ready: false,
     });
 
     expect(currentTargets).toHaveBeenCalledWith({
@@ -703,7 +703,7 @@ describe('WingTrackedProductSourceAttemptRepositoryAdapter', () => {
     await expect(adapter.readSourceStatus({ organizationId: ORGANIZATION_ID })).resolves.toMatchObject({
       latestAttempt: { attemptId: replacement.id, state: 'RUNNING' },
       latestComplete: { sourceImportRunId: completeAttempt.id, businessDate },
-      status: 'READY',
+      ready: true,
     });
   });
 });

@@ -98,7 +98,7 @@ describe('retained scrape URL owner normalization and lifecycle (PostgreSQL)', (
         .set('idempotency-key', 'other').send({ url: `${sourceUrl}?track=other` }).expect(409);
       expect(conflict.body.code).toBe('SOURCE_ATTEMPT_IN_PROGRESS');
       const status = (await request(app.getHttpServer()).get('/api/sourcing/scrape-url/status').query({ url: sourceUrl })).body;
-      expect(status.source).toMatchObject({ status: 'MISSING', refreshing: true, latestAttempt: { state: 'RUNNING' } });
+      expect(status.source).toMatchObject({ ready: false, latestComplete: null, refreshing: true, latestAttempt: { state: 'RUNNING' } });
       expect(providerCalls).toBe(1);
     } finally { release(); }
     expect((await first).attempt.state).toBe('COMPLETE');
@@ -137,7 +137,7 @@ describe('retained scrape URL owner normalization and lifecycle (PostgreSQL)', (
     provider = async () => { throw new Error('provider unavailable'); };
     const failed = (await collect('after-removal').expect(201)).body;
     const status = (await request(app.getHttpServer()).get('/api/sourcing/scrape-url/status').query({ url: sourceUrl })).body;
-    expect(status.source).toMatchObject({ status: 'STALE', actualCutoffAt: baseline.source.actualCutoffAt,
+    expect(status.source).toMatchObject({ ready: false, actualCutoffAt: baseline.source.actualCutoffAt,
       latestAttempt: { attemptId: failed.attempt.attemptId, state: 'FAILED' },
       latestComplete: { attemptId: complete.attempt.attemptId, scrapeUrlResult: { candidateId: complete.candidateId } } });
     expect(status.source.latestComplete).not.toHaveProperty('attemptToken');

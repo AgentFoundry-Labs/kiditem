@@ -12,7 +12,7 @@ export type SourceGenerationView = Readonly<{
 }>;
 
 export type SourceReadiness = Readonly<{
-  status: 'READY' | 'STALE' | 'MISSING';
+  ready: boolean;
   actualCutoff: string | null;
   latestAttemptState: 'RUNNING' | 'COMPLETE' | 'FAILED' | null;
   errorCode: string | null;

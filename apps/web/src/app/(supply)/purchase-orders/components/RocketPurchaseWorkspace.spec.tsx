@@ -59,7 +59,7 @@ const TO = '2026-07-16';
 describe('RocketPurchaseWorkspace', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(loadRocketPoSource).mockResolvedValue({ status: 'MISSING', refreshing: false, latestAttempt: null, latestComplete: null });
+    vi.mocked(loadRocketPoSource).mockResolvedValue({ ready: false, refreshing: false, latestAttempt: null, latestComplete: null });
     vi.mocked(collectRocketPoRowsForConfirmationFromExtension).mockResolvedValue({
       channelAccountId: ACCOUNT_ID, sourceImportRunId: SOURCE_RUN_ID, exportedPoLineIds: [],
       collection: collectionEvidence(),

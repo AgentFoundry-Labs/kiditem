@@ -179,7 +179,7 @@ test('daily receipts use the server owner control and complete only from owner c
       }
       if (path.endsWith('/complete')) {
         current = control('COMPLETE', current.receipts);
-        return { channelAccountId, status: 'READY' };
+        return { channelAccountId, ready: true };
       }
       return current;
     },

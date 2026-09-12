@@ -3,7 +3,7 @@ import { apiClient } from './api-client';
 
 const CalendarDateSchema = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])-[0-3]\d$/);
 const SourceReadinessSchema = z.object({
-  status: z.enum(['READY', 'STALE', 'MISSING']),
+  ready: z.boolean(),
   actualCutoff: CalendarDateSchema.nullable(),
   latestAttemptState: z.enum(['RUNNING', 'COMPLETE', 'FAILED']).nullable(),
   errorCode: z.string().nullable(),

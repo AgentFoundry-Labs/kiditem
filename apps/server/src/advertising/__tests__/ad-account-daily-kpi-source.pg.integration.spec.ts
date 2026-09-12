@@ -350,7 +350,7 @@ describe('Advertising account daily KPI source incoming HTTP + disposable Postgr
       ).expect(200);
     }
     expect((await get('/source').expect(200)).body).toMatchObject({
-      status: 'MISSING',
+      ready: false,
       refreshing: true,
       latestComplete: null,
     });
@@ -369,7 +369,7 @@ describe('Advertising account daily KPI source incoming HTTP + disposable Postgr
       .expect(201);
     expect(complete.body).toMatchObject({
       channelAccountId: accountId,
-      status: 'READY',
+      ready: true,
       latestComplete: { sourceImportRunId: attempt.attemptId },
     });
     expect(complete.body.actualCutoffAt).toBe(
@@ -736,7 +736,7 @@ describe('Advertising account daily KPI source incoming HTTP + disposable Postgr
       ).body,
     ).toMatchObject({
       channelAccountId: null,
-      status: 'MISSING',
+      ready: false,
       refreshing: false,
       latestAttempt: null,
       latestComplete: null,

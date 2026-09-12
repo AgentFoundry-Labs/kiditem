@@ -42,7 +42,7 @@ const sourceView: AdvertisingProfitabilitySourceView = {
     errorMessage: null,
   },
   latestComplete: null,
-  status: 'MISSING',
+  ready: false,
 };
 
 describe('ProfitabilityAdImportService', () => {

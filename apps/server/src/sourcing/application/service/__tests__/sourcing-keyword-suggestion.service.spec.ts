@@ -22,7 +22,7 @@ function harness() {
     readAttempt: vi.fn(async () => attempt),
     completeAttempt: vi.fn(async (_input: CompleteSourcingBrowserSourceAttemptInput) => ({ ...attempt, state: 'COMPLETE' })),
     failAttempt: vi.fn(async (input: { code: string }) => ({ ...attempt, state: 'FAILED', errorCode: input.code })),
-    readSourceStatus: vi.fn(async () => ({ status: 'MISSING' })),
+    readSourceStatus: vi.fn(async () => ({ ready: false })),
   };
   const snapshots = { findLatest: vi.fn(async () => ({ capturedAt: new Date(batch.capturedAt),
     items: batch.items, productNameTokens: batch.productNameTokens })) };

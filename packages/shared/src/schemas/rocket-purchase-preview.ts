@@ -39,7 +39,8 @@ export const RocketPoSourceControlSchema = RocketPoSourceAttemptSchema.extend({
 }).strict();
 export type RocketPoSourceControl = z.infer<typeof RocketPoSourceControlSchema>;
 export const RocketPoSourceSchema = z.object({
-  status: z.enum(['READY', 'STALE', 'MISSING']), refreshing: z.boolean(),
+  ready: z.boolean(),
+  refreshing: z.boolean(),
   latestAttempt: RocketPoSourceAttemptSchema.nullable(),
   latestComplete: RocketPoSourceAttemptSchema.nullable(),
 }).strict();

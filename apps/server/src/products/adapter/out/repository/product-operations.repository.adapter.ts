@@ -591,7 +591,7 @@ function dailyMetricFreshness(
 ) {
   if (facts.length === 0) {
     return {
-      status: 'MISSING' as const,
+      ready: false,
       coverageStartDate: null,
       coverageEndDate: null,
       capturedAt: null,
@@ -621,7 +621,7 @@ function dailyMetricFreshness(
     .toISOString()
     .slice(0, 10);
   return {
-    status: calendarDate(coverageEnd) >= yesterdayKst ? 'READY' as const : 'STALE' as const,
+    ready: calendarDate(coverageEnd) >= yesterdayKst,
     coverageStartDate: calendarDate(coverageStart),
     coverageEndDate: calendarDate(coverageEnd),
     capturedAt,

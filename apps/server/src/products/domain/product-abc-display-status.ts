@@ -9,15 +9,15 @@ export function productAbcDisplayStatus(
   hasEvaluation: boolean,
   mappingValid: boolean,
   status: {
-    sellpia: { status: string };
-    advertising: { status: string };
+    sellpia: { ready: boolean };
+    advertising: { ready: boolean };
     actualCutoff: string | null;
   },
   saleStartDate: string | null,
 ): ProductAbcDisplayStatus {
   if (!mappingValid) return 'SOURCE_UNMAPPED';
-  if (status.sellpia.status !== 'READY') return 'SELLPIA_SOURCE_STALE';
-  if (status.advertising.status !== 'READY') return 'AD_SOURCE_STALE';
+  if (!status.sellpia.ready) return 'SELLPIA_SOURCE_STALE';
+  if (!status.advertising.ready) return 'AD_SOURCE_STALE';
   if (hasEvaluation) return 'READY';
   const saleAge = productAbcSaleAgeDays(saleStartDate, status.actualCutoff);
   if (saleAge !== null && saleAge < PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD.minimumSaleAgeDays) {

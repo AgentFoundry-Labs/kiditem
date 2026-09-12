@@ -167,7 +167,7 @@ export const Sourcing1688SearchSnapshotSchema = z
     sourceStatuses: z.array(z.object({
       keyword: SourcingWingCatalogKeywordSchema,
       targetId: Sourcing1688TargetIdSchema.nullable(),
-      status: z.enum(['READY', 'STALE', 'MISSING']),
+      ready: z.boolean(),
       refreshing: z.boolean(),
       latestAttemptId: z.string().uuid().nullable(),
       latestAttemptState: z.enum(['RUNNING', 'COMPLETE', 'FAILED']).nullable(),

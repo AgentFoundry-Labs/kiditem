@@ -62,17 +62,17 @@ describe('1688 server source owner HTTP with disposable PostgreSQL', () => {
     expect(read).toMatchObject({
       observations: [{ items: [{ offerId: '123' }] }],
       sourceStatuses: [
-        { keyword: '儿童餐盘', targetId: null, status: 'STALE', refreshing: false,
+        { keyword: '儿童餐盘', targetId: null, ready: false, refreshing: false,
           latestAttemptId: failed.attempts[0].attemptId, latestAttemptState: 'FAILED',
           actualCutoffAt: prior.attempts[0].completedAt?.toISOString(), errorCode: 'SOURCE_PLAN_INCOMPLETE' },
-        { keyword: 'missing', status: 'MISSING', latestAttemptState: null, actualCutoffAt: null },
+        { keyword: 'missing', ready: false, latestAttemptState: null, actualCutoffAt: null },
       ],
     });
     session.searchKeyword.mockResolvedValue([]);
     const empty = await controller.searchKeywords(organizationId, user as never, 'read-empty', input);
     expect(await results.latest('儿童餐盘', undefined, organizationId)).toMatchObject({
       observations: [{ items: [] }],
-      sourceStatuses: [{ status: 'READY', latestAttemptState: 'COMPLETE', actualCutoffAt: empty.attempts[0].completedAt?.toISOString(), errorCode: null }],
+      sourceStatuses: [{ ready: true, latestAttemptState: 'COMPLETE', actualCutoffAt: empty.attempts[0].completedAt?.toISOString(), errorCode: null }],
     });
     expect(keywordProvider.openSession).toHaveBeenCalledTimes(3);
     expect((await results.latest('儿童餐盘', undefined, '00000000-0000-4000-8000-000000000099')).observations).toEqual([]);
@@ -93,7 +93,7 @@ describe('1688 server source owner HTTP with disposable PostgreSQL', () => {
       await prisma.sourcingEvidenceIngestionRun.update({ where: { id: read.sourceStatuses[0].latestAttemptId! }, data: { leaseExpiresAt: new Date(0) } });
       expect(await results.latest('儿童餐盘', undefined, organizationId)).toMatchObject({
         observations: [{ items: [{ offerId: '123' }] }],
-        sourceStatuses: [{ status: 'STALE', refreshing: false, latestAttemptState: 'FAILED', errorCode: 'ATTEMPT_EXPIRED' }],
+        sourceStatuses: [{ ready: false, refreshing: false, latestAttemptState: 'FAILED', errorCode: 'ATTEMPT_EXPIRED' }],
       });
       expect(keywordProvider.openSession).toHaveBeenCalledTimes(2);
     } finally { finish([offer]); await work.catch(() => undefined); }
@@ -105,12 +105,12 @@ describe('1688 server source owner HTTP with disposable PostgreSQL', () => {
       items: [{ title: 'case', priceCny: 4, sourceUrl: 'https://detail.1688.com/offer/900.html', imageUrl: null, score: 93 }] });
     const prior = await controller.matchImages(organizationId, user as never, 'read-image', { targetIds: ['product-1::'] });
     expect(await results.latest(undefined, 'product-1::', organizationId)).toMatchObject({
-      sourceStatuses: [{ status: 'READY', latestAttemptState: 'COMPLETE' }],
+      sourceStatuses: [{ ready: true, latestAttemptState: 'COMPLETE' }],
     });
     await publishWing('catalog/newer.jpg');
     expect(await results.latest(undefined, 'product-1::', organizationId)).toMatchObject({
       observations: [{ items: [{ offerId: '900' }] }],
-      sourceStatuses: [{ targetId: 'product-1::', status: 'STALE', actualCutoffAt: prior.attempts[0].completedAt?.toISOString() }],
+      sourceStatuses: [{ targetId: 'product-1::', ready: false, actualCutoffAt: prior.attempts[0].completedAt?.toISOString() }],
     });
     expect(imageProvider.searchByImage).toHaveBeenCalledTimes(1);
   });

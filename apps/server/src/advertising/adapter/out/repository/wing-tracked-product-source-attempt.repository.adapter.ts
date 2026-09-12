@@ -565,7 +565,7 @@ function sourceView(
       errorMessage: latest.errorMessage?.slice(0, 300) ?? null,
     } : null,
     latestComplete,
-    status: latestComplete === null ? 'MISSING' : ready ? 'READY' : 'STALE',
+    ready,
   };
 }
 

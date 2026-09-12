@@ -275,7 +275,7 @@ describe('Ad campaign source incoming HTTP + disposable PostgreSQL', () => {
       await prisma.channelScrapeSnapshot.count({ where: { sourceImportRunId: a.attemptId } }),
     ).toBe(31);
     expect((await get('/source')).body).toMatchObject({
-      status: 'MISSING',
+      ready: false,
       refreshing: true,
       latestComplete: null,
     });
@@ -289,7 +289,7 @@ describe('Ad campaign source incoming HTTP + disposable PostgreSQL', () => {
       campaignDescriptors: [{ campaignId: '123', onOff: 'OFF', mode: 'daily' }],
     });
     expect((await get('/source')).body).toMatchObject({
-      status: 'READY',
+      ready: true,
       latestComplete: { attemptId: a.attemptId },
     });
     expect(
@@ -368,7 +368,7 @@ describe('Ad campaign source incoming HTTP + disposable PostgreSQL', () => {
       expect((await upload(a, 2, p).expect(200)).body.state).toBe('FAILED');
       expect((await upload(a, 2, p).expect(200)).body.state).toBe('FAILED');
       expect((await get('/source')).body).toMatchObject({
-        status: 'STALE',
+        ready: false,
         latestComplete: { attemptId: prior.attemptId },
       });
       expect(await prisma.alert.count({ where: { organizationId: ORG, status: 'OPEN' } })).toBe(1);
@@ -571,13 +571,13 @@ describe('Ad campaign source incoming HTTP + disposable PostgreSQL', () => {
       published();
     }
     expect(await reading).toMatchObject({
-      status: 'MISSING',
+      ready: false,
       refreshing: true,
       latestAttempt: { state: 'RUNNING' },
       latestComplete: null,
     });
     expect((await get('/source')).body).toMatchObject({
-      status: 'READY',
+      ready: true,
       refreshing: false,
       latestComplete: { attemptId: a.attemptId },
     });

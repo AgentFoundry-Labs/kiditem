@@ -54,7 +54,7 @@ function evaluation(overrides: Record<string, unknown> = {}) {
 function sourceFreshness() {
   return {
     sellpia: {
-      status: 'READY',
+      ready: true,
       sourceImportRunId: UUID,
       generation: '11',
       coverageStartDate: '2026-01-01',
@@ -65,7 +65,7 @@ function sourceFreshness() {
       errorCode: null,
     },
     advertising: {
-      status: 'STALE',
+      ready: false,
       sourceImportRunId: UUID_2,
       generation: '7',
       coverageStartDate: '2026-01-01',
@@ -276,7 +276,6 @@ describe('absolute product profitability ABC contracts', () => {
         sourceCutoffDate: '2026-07-31',
         sellpiaSourceImportRunId: UUID,
         advertisingSourceImportRunId: UUID_2,
-        sourceStatusSummary: { sellpia: 'READY', advertising: 'READY', mapping: 'READY' },
       },
       totals: {
         revenue: 1_000,

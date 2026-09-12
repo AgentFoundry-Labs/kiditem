@@ -451,7 +451,7 @@ function abcSourceEvidence(
   manifest: ProductOperationsAbcSourceManifest | null,
 ): ProductAbcSourceEvidence {
   return {
-    status: status.status,
+    ready: status.ready,
     actualCutoff: status.actualCutoff,
     latestAttemptState: status.latestAttemptState,
     errorCode: status.errorCode,

@@ -110,13 +110,6 @@ function productAbcCalendarEpochDay(value: string): number | null {
   return Math.floor(date.getTime() / PRODUCT_ABC_DAY_MS);
 }
 
-export const ProductAbcSourceStatusSchema = z.enum([
-  'READY',
-  'STALE',
-  'MISSING',
-]);
-export type ProductAbcSourceStatus = z.infer<typeof ProductAbcSourceStatusSchema>;
-
 export const ProductAbcMappingStatusSchema = z.enum([
   'READY',
   'UNMAPPED',
@@ -354,7 +347,7 @@ export const ProductAbcFormulaStateSchema = z.object({
 export type ProductAbcFormulaState = z.infer<typeof ProductAbcFormulaStateSchema>;
 
 const SourceFreshnessSchema = z.object({
-  status: ProductAbcSourceStatusSchema,
+  ready: z.boolean(),
   sourceImportRunId: UuidSchema.nullable(),
   generation: GenerationSchema.nullable(),
   coverageStartDate: CalendarDateSchema.nullable(),
@@ -380,13 +373,6 @@ const SourceFreshnessSchema = z.object({
       code: z.ZodIssueCode.custom,
       path: ['coverageEndDate'],
       message: 'coverage end must not precede coverage start',
-    });
-  }
-  if (source.status === 'MISSING' && (source.sourceImportRunId !== null || source.generation !== null)) {
-    context.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['sourceImportRunId'],
-      message: 'missing sources cannot claim an immutable run',
     });
   }
 });
@@ -650,19 +636,12 @@ export type ProductAbcContributionProduct = z.infer<
   typeof ProductAbcContributionProductSchema
 >;
 
-export const ProductAbcContributionSourceStatusSummarySchema = z.object({
-  sellpia: ProductAbcSourceStatusSchema,
-  advertising: ProductAbcSourceStatusSchema,
-  mapping: ProductAbcMappingStatusSchema,
-}).strict();
-
 export const ProductAbcContributionBasisSchema = z.object({
   fromDate: CalendarDateSchema,
   cutoffDate: CalendarDateSchema,
   sourceCutoffDate: CalendarDateSchema.nullable(),
   sellpiaSourceImportRunId: UuidSchema.nullable(),
   advertisingSourceImportRunId: UuidSchema.nullable(),
-  sourceStatusSummary: ProductAbcContributionSourceStatusSummarySchema,
 }).strict().superRefine((basis, context) => {
   if (basis.fromDate > basis.cutoffDate) {
     context.addIssue({

@@ -81,9 +81,9 @@ describe('ProductOperationsDataStatusAction', () => {
   });
 
   it.each([
-    ['sellpia', () => { mocks.statusData.sources.sellpia.status = 'STALE'; }],
-    ['advertising', () => { mocks.statusData.sources.advertising.status = 'MISSING'; }],
-    ['mapping', () => { mocks.statusData.sources.mapping.status = 'STALE'; }],
+    ['sellpia', () => { mocks.statusData.sources.sellpia.ready = false; }],
+    ['advertising', () => { mocks.statusData.sources.advertising = source(false, false); }],
+    ['mapping', () => { mocks.statusData.sources.mapping.ready = false; }],
   ])('disables recalculation until %s is ready', (_source, makeUnavailable) => {
     makeUnavailable();
     renderAction();
@@ -98,8 +98,8 @@ describe('ProductOperationsDataStatusAction', () => {
       officialCutoff: '2026-07-31',
       actualCutoff: '2026-08-31',
       sources: {
-        sellpia: source('STALE'),
-        advertising: source('READY'),
+        sellpia: source(false),
+        advertising: source(true),
       },
     });
 
@@ -148,10 +148,10 @@ function readyStatus() {
     publishedAt: '2026-08-01T00:00:00.000Z',
     actualCutoff: '2026-08-31',
     sources: {
-      traffic: source('READY'),
-      advertising: source('READY'),
-      sellpia: source('READY'),
-      mapping: { status: 'READY' as 'READY' | 'STALE' | 'MISSING', generation: '7' },
+      traffic: source(true),
+      advertising: source(true),
+      sellpia: source(true),
+      mapping: { ready: true, generation: '7' },
     },
     abcSummary: {
       classifiedProductCount: 7,
@@ -162,12 +162,13 @@ function readyStatus() {
   };
 }
 
-function source(status: 'READY' | 'STALE' | 'MISSING') {
+/** `collected: false` is the never-collected source: not ready and no cutoff to show. */
+function source(ready: boolean, collected = true) {
   return {
-    status,
-    actualCutoff: status === 'MISSING' ? null : '2026-08-31',
-    capturedAt: status === 'MISSING' ? null : '2026-09-01T00:00:00.000Z',
-    latestAttemptState: status === 'MISSING' ? null : 'COMPLETE' as const,
+    ready,
+    actualCutoff: collected ? '2026-08-31' : null,
+    capturedAt: collected ? '2026-09-01T00:00:00.000Z' : null,
+    latestAttemptState: collected ? 'COMPLETE' as const : null,
     errorCode: null,
   };
 }

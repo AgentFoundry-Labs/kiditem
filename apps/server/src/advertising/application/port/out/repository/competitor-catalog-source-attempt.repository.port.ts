@@ -26,7 +26,7 @@ export interface CompetitorCatalogAttemptPlan {
 }
 
 export interface CompetitorCatalogSourceView {
-  status: 'READY' | 'STALE' | 'MISSING';
+  ready: boolean;
   latestAttempt: {
     attemptId: string;
     state: 'RUNNING' | 'COMPLETE' | 'FAILED';

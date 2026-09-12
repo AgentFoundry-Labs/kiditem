@@ -126,7 +126,7 @@ describe('Analytics inventory ABC reads (PostgreSQL)', () => {
     expect(result.projection.byProductKey.get('OWN')?.inventoryResolution).toMatchObject({
       inventoryProduct: { abc: { abcGrade: 'A', evaluation: { publicationRevision: 1 },
         displayStatus, actualCutoffDate: cutoff, officialCutoffDate: cutoff,
-        sources: { [source]: { status: 'STALE', latestAttemptState: 'FAILED', actualCutoffDate: cutoff } },
+        sources: { [source]: { ready: false, latestAttemptState: 'FAILED', actualCutoffDate: cutoff } },
       } },
       destinations: [{ abc: { abcGrade: 'A', displayStatus, actualCutoffDate: cutoff } }],
     });

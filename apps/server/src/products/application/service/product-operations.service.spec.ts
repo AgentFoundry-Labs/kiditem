@@ -682,13 +682,13 @@ function rawListProduct(id: string) {
     adSpendRate: 10,
     metricsFreshness: {
       traffic: {
-        status: 'READY' as const,
+        ready: true,
         coverageStartDate: '2026-07-01',
         coverageEndDate: '2026-07-31',
         capturedAt: new Date('2026-08-01T00:00:00.000Z'),
       },
       advertising: {
-        status: 'READY' as const,
+        ready: true,
         coverageStartDate: '2026-07-01',
         coverageEndDate: '2026-07-31',
         capturedAt: new Date('2026-08-01T00:00:00.000Z'),
@@ -791,7 +791,7 @@ function abcStatusFacts() {
 
 function sourceStatus(actualCutoff: string, capturedAt: string) {
   return {
-    status: 'READY' as const,
+    ready: true,
     actualCutoff,
     capturedAt,
     latestAttemptState: 'COMPLETE' as const,
@@ -807,11 +807,6 @@ function contributionAnalytics() {
       sourceCutoffDate: '2026-08-31',
       sellpiaSourceImportRunId: '00000000-0000-4000-8000-000000000011',
       advertisingSourceImportRunId: '00000000-0000-4000-8000-000000000012',
-      sourceStatusSummary: {
-        sellpia: 'READY' as const,
-        advertising: 'READY' as const,
-        mapping: 'READY' as const,
-      },
     },
     totals: {
       revenue: 1_000_000,

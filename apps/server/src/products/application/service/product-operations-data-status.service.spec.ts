@@ -26,27 +26,27 @@ describe('ProductOperationsDataStatusService', () => {
       actualCutoff: '2026-08-31',
       sources: {
         traffic: {
-          status: 'READY',
+          ready: true,
           actualCutoff: '2026-09-03',
           capturedAt: '2026-09-04T00:00:00.000Z',
           latestAttemptState: null,
           errorCode: null,
         },
         sellpia: {
-          status: 'READY',
+          ready: true,
           actualCutoff: '2026-08-31',
           capturedAt: '2026-09-01T00:00:00.000Z',
           latestAttemptState: 'COMPLETE',
           errorCode: null,
         },
         advertising: {
-          status: 'READY',
+          ready: true,
           actualCutoff: '2026-08-31',
           capturedAt: '2026-09-01T00:01:00.000Z',
           latestAttemptState: 'COMPLETE',
           errorCode: null,
         },
-        mapping: { status: 'READY', generation: '8' },
+        mapping: { ready: true, generation: '8' },
       },
       abcSummary: {
         classifiedProductCount: 1,
@@ -62,7 +62,7 @@ describe('ProductOperationsDataStatusService', () => {
     const stale = facts();
     stale.actualCutoff = '2026-07-31';
     stale.advertising = {
-      status: 'STALE',
+      ready: false,
       actualCutoff: '2026-07-31',
       latestAttemptState: 'FAILED',
       errorCode: 'marketplace_login',
@@ -80,7 +80,7 @@ describe('ProductOperationsDataStatusService', () => {
       publicationRevision: 4,
       sources: {
         advertising: {
-          status: 'STALE',
+          ready: false,
           capturedAt: '2026-09-01T00:01:00.000Z',
           latestAttemptState: 'FAILED',
           errorCode: 'marketplace_login',
@@ -100,7 +100,7 @@ describe('ProductOperationsDataStatusService', () => {
 
     await expect(service.getStatus(ORGANIZATION_ID, 30)).resolves.toMatchObject({
       sources: {
-        mapping: { status: 'READY', generation: '8' },
+        mapping: { ready: true, generation: '8' },
       },
       abcSummary: {
         classifiedProductCount: 1,
@@ -119,7 +119,7 @@ describe('ProductOperationsDataStatusService', () => {
 
     await expect(service.getStatus(ORGANIZATION_ID, 30)).resolves.toMatchObject({
       sources: {
-        mapping: { status: 'STALE', generation: '8' },
+        mapping: { ready: false, generation: '8' },
       },
     });
   });
@@ -131,7 +131,7 @@ function facts() {
     contributionBasis: { basisFromDate: '2026-01-01', basisCutoffDate: '2026-08-31' },
     displayDataAsOf: '2026-09-03',
     traffic: {
-      status: 'READY' as const,
+      ready: true,
       actualCutoff: '2026-09-03',
       capturedAt: '2026-09-04T00:00:00.000Z',
       latestAttemptState: null,
@@ -139,14 +139,14 @@ function facts() {
     },
     actualCutoff: '2026-08-31',
     sellpia: {
-      status: 'READY' as const,
+      ready: true,
       actualCutoff: '2026-08-31',
       capturedAt: '2026-09-01T00:00:00.000Z',
       latestAttemptState: 'COMPLETE' as const,
       errorCode: null,
     },
     advertising: {
-      status: 'READY' as const,
+      ready: true,
       actualCutoff: '2026-08-31',
       capturedAt: '2026-09-01T00:01:00.000Z',
       latestAttemptState: 'COMPLETE' as const,

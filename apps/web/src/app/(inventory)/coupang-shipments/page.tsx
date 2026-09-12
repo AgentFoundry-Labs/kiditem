@@ -398,7 +398,7 @@ export default function CoupangShipmentsPage() {
                   ? "쉽먼트 조회 진행 중 · 이전 달력 이력 표시"
                   : source.data?.latestAttempt?.state === "FAILED"
                     ? `최근 조회 실패: ${source.data.latestAttempt.errorMessage}`
-                    : source.data?.status === "READY"
+                    : source.data?.ready
                       ? `최근 조회 결과 ${source.data.capturedItems.length}일 · 달력 이력 유지`
                       : "수집 미확인 · 저장된 이력은 최신 수집 증거가 아닙니다."}
             </p>

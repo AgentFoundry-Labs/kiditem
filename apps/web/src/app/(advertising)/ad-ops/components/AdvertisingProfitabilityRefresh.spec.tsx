@@ -55,12 +55,12 @@ function attempt(
 }
 
 function sourceView(overrides: {
-  status?: 'READY' | 'STALE' | 'MISSING';
+  ready?: boolean;
   latestAttempt?: ReturnType<typeof attempt> | null;
   latestComplete?: object | null;
 } = {}) {
   return {
-    status: overrides.status ?? 'MISSING',
+    ready: overrides.ready ?? false,
     latestAttempt: overrides.latestAttempt ?? null,
     latestComplete: overrides.latestComplete ?? null,
   };
@@ -108,7 +108,7 @@ afterEach(() => {
 describe('AdvertisingProfitabilityRefresh', () => {
   it('only reads a running owner on reload and never starts it automatically', async () => {
     mockGetParsed.mockResolvedValue(sourceView({
-      status: 'STALE',
+      ready: false,
       latestAttempt: attempt('RUNNING'),
       latestComplete: complete(),
     }));
@@ -122,7 +122,7 @@ describe('AdvertisingProfitabilityRefresh', () => {
 
   it('preserves the last complete cutoff while the latest owner attempt failed', async () => {
     mockGetParsed.mockResolvedValue(sourceView({
-      status: 'STALE',
+      ready: false,
       latestAttempt: attempt('FAILED', OLD_ATTEMPT_ID, '광고센터 응답 오류'),
       latestComplete: complete(),
     }));
@@ -137,7 +137,7 @@ describe('AdvertisingProfitabilityRefresh', () => {
   it('marks a retained cutoff as status-unknown when the authoritative read fails', async () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     client.setQueryData(queryKeys.ads.profitabilitySource(), sourceView({
-      status: 'READY',
+      ready: true,
       latestAttempt: attempt('COMPLETE'),
       latestComplete: complete(),
     }));
@@ -156,7 +156,7 @@ describe('AdvertisingProfitabilityRefresh', () => {
     client.setQueryData(queryKeys.ads.all, { existing: true });
     client.setQueryData(queryKeys.dashboard.all, { existing: true });
     mockGetParsed.mockResolvedValue(sourceView({
-      status: 'READY',
+      ready: true,
       latestAttempt: attempt('COMPLETE'),
       latestComplete: complete(),
     }));
@@ -168,7 +168,7 @@ describe('AdvertisingProfitabilityRefresh', () => {
 
     await act(async () => {
       client.setQueryData(queryKeys.ads.profitabilitySource(), sourceView({
-        status: 'STALE',
+        ready: false,
         latestAttempt: attempt('RUNNING', NEW_ATTEMPT_ID),
         latestComplete: complete(),
       }));
@@ -176,7 +176,7 @@ describe('AdvertisingProfitabilityRefresh', () => {
     expect(await screen.findByRole('button', { name: '수집 중' })).toBeDisabled();
     await act(async () => {
       client.setQueryData(queryKeys.ads.profitabilitySource(), sourceView({
-        status: 'READY',
+        ready: true,
         latestAttempt: attempt('COMPLETE', NEW_ATTEMPT_ID),
         latestComplete: complete('2026-09-07T02:00:00.000Z'),
       }));
@@ -212,7 +212,7 @@ describe('AdvertisingProfitabilityRefresh', () => {
 
   it('re-enables after a polled terminal owner state and ignores a late prior reply', async () => {
     let current = sourceView({
-      status: 'READY',
+      ready: true,
       latestAttempt: attempt('COMPLETE'),
       latestComplete: complete(),
     });
@@ -230,7 +230,7 @@ describe('AdvertisingProfitabilityRefresh', () => {
     await waitFor(() => expect(mockSend).toHaveBeenCalledTimes(1));
     await act(async () => {
       current = sourceView({
-        status: 'STALE',
+        ready: false,
         latestAttempt: attempt('RUNNING', NEW_ATTEMPT_ID),
         latestComplete: complete(),
       });
@@ -239,7 +239,7 @@ describe('AdvertisingProfitabilityRefresh', () => {
     expect(await screen.findByRole('button', { name: '수집 중' })).toBeDisabled();
     await act(async () => {
       current = sourceView({
-        status: 'READY',
+        ready: true,
         latestAttempt: attempt('COMPLETE', NEW_ATTEMPT_ID),
         latestComplete: complete('2026-09-07T02:00:00.000Z'),
       });
@@ -257,7 +257,7 @@ describe('AdvertisingProfitabilityRefresh', () => {
 
     await act(async () => {
       current = sourceView({
-        status: 'READY',
+        ready: true,
         latestAttempt: attempt('COMPLETE', LATER_ATTEMPT_ID),
         latestComplete: complete('2026-09-07T03:00:00.000Z'),
       });
@@ -270,7 +270,7 @@ describe('AdvertisingProfitabilityRefresh', () => {
 
   it('reuses one idempotency key after a lost acknowledgement and refreshes consumers only after owner success', async () => {
     let current = sourceView({
-      status: 'READY',
+      ready: true,
       latestAttempt: attempt('COMPLETE'),
       latestComplete: complete(),
     });
@@ -279,7 +279,7 @@ describe('AdvertisingProfitabilityRefresh', () => {
       .mockRejectedValueOnce(new Error('browser reply lost'))
       .mockImplementationOnce(async () => {
         current = sourceView({
-          status: 'READY',
+          ready: true,
           latestAttempt: attempt('COMPLETE', NEW_ATTEMPT_ID),
           latestComplete: complete('2026-09-07T02:00:00.000Z'),
         });

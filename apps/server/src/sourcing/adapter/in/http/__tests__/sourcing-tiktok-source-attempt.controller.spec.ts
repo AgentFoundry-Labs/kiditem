@@ -20,7 +20,7 @@ describe('SourcingTiktokSourceAttemptController', () => {
         state: 'RUNNING',
       }),
       readTiktokStatus: vi.fn().mockResolvedValue({
-        status: 'READY',
+        ready: true,
         latestAttempt: { attemptId: ATTEMPT_ID, attemptToken: ATTEMPT_TOKEN, state: 'RUNNING' },
         latestComplete: null,
       }),

@@ -25,9 +25,6 @@ function rawRow(overrides: Record<string, unknown> = {}) {
     sourceCutoffDate: new Date('2026-07-31T00:00:00.000Z'),
     sellpiaSourceImportRunId: SELLPIA_RUN_ID,
     advertisingSourceImportRunId: ADVERTISING_RUN_ID,
-    sellpiaStatus: 'READY',
-    advertisingStatus: 'READY',
-    mappingStatus: 'READY',
     revenueTotal: '500',
     positiveOperatingProfitTotal: '180',
     lossMagnitudeTotal: '20',
@@ -85,7 +82,6 @@ describe('MasterProductContributionRepositoryAdapter', () => {
       basis: {
         fromDate: '2026-07-01',
         cutoffDate: '2026-07-31',
-        sourceStatusSummary: { sellpia: 'READY', advertising: 'READY', mapping: 'READY' },
       },
       totals: {
         revenue: 500,

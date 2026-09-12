@@ -80,7 +80,7 @@ export interface WingTrackedProductAttemptPlan {
 }
 
 export interface WingTrackedProductSourceStatus {
-  status: 'READY' | 'STALE' | 'MISSING';
+  ready: boolean;
   latestAttempt: {
     attemptId: string;
     state: 'RUNNING' | 'COMPLETE' | 'FAILED';

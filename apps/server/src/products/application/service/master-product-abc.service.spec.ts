@@ -89,13 +89,13 @@ function snapshot(
     },
     sources: {
       sellpia: {
-        status: 'READY',
+        ready: true,
         actualCutoff: '2026-08-31',
         latestAttemptState: 'COMPLETE',
         errorCode: null,
       },
       advertising: {
-        status: 'READY',
+        ready: true,
         actualCutoff: '2026-08-31',
         latestAttemptState: 'COMPLETE',
         errorCode: null,
@@ -186,7 +186,7 @@ describe('MasterProductAbcService', () => {
       sources: {
         ...snapshot([], {}).sources,
         advertising: {
-          status: 'MISSING',
+          ready: false,
           actualCutoff: null,
           latestAttemptState: 'FAILED',
           errorCode: 'COLLECTION_FAILED',
@@ -198,7 +198,7 @@ describe('MasterProductAbcService', () => {
       outcome: 'SOURCE_NOT_READY',
       publicationRevision: 0,
       actualCutoff: null,
-      sources: { advertising: { status: 'MISSING', errorCode: 'COLLECTION_FAILED' } },
+      sources: { advertising: { ready: false, actualCutoff: null, errorCode: 'COLLECTION_FAILED' } },
     });
     expect(products.publish).not.toHaveBeenCalled();
   });

@@ -54,7 +54,7 @@ const abcReady = {
   actualCutoffDate: GRADE_BASIS_CUTOFF_DATE,
   sources: {
     sellpia: {
-      status: 'READY' as const,
+      ready: true,
       sourceImportRunId: SELLPIA_SOURCE_IMPORT_RUN_ID,
       generation: '7',
       coverageStartDate: '2025-06-12',
@@ -65,7 +65,7 @@ const abcReady = {
       errorCode: null,
     },
     advertising: {
-      status: 'READY' as const,
+      ready: true,
       sourceImportRunId: ADVERTISING_SOURCE_IMPORT_RUN_ID,
       generation: '7',
       coverageStartDate: '2025-06-12',

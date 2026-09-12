@@ -186,7 +186,7 @@ function destination(channelListingOptionId: string, url: string) {
 }
 
 function missingAbc(): import('@kiditem/shared/product-abc').ProductAbcReadModel {
-  const source = { status: 'MISSING' as const, sourceImportRunId: null, generation: null,
+  const source = { ready: false, sourceImportRunId: null, generation: null,
     coverageStartDate: null, coverageEndDate: null, actualCutoffDate: null, capturedAt: null,
     latestAttemptState: null, errorCode: null };
   return { abcGrade: null, evaluation: null, displayStatus: 'SELLPIA_SOURCE_STALE',

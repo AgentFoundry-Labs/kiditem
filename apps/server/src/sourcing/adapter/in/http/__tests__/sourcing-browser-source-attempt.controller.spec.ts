@@ -13,7 +13,7 @@ describe('SourcingBrowserSourceAttemptController', () => {
         state: 'RUNNING',
       }),
       read1688Status: vi.fn().mockResolvedValue({
-        status: 'READY',
+        ready: true,
         refreshing: true,
         latestAttempt: {
           attemptId: ATTEMPT_ID,

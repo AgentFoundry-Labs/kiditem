@@ -157,17 +157,13 @@ function adAttempt(
 }
 function adSource(
   latestAttempt: ReturnType<typeof adAttempt> | null,
-  status: 'READY' | 'STALE' | 'MISSING' = latestAttempt?.state === 'FAILED'
-    ? 'STALE'
-    : latestAttempt?.state === 'COMPLETE'
-      ? 'READY'
-      : 'MISSING',
+  ready: boolean = latestAttempt?.state === 'COMPLETE',
   latestComplete: ReturnType<typeof adAttempt> | null =
     latestAttempt?.state === 'COMPLETE' ? latestAttempt : null,
 ) {
   return {
     channelAccountId: AD_ACCOUNT_ID,
-    status,
+    ready,
     refreshing: latestAttempt?.state === 'RUNNING',
     latestAttempt,
     latestComplete,
@@ -1219,7 +1215,7 @@ describe('readiness extension collection', () => {
       AD_PREVIOUS_SOURCE_RUN_ID,
     );
     currentAdAttempt = adAttempt('FAILED');
-    currentAdSource = adSource(currentAdAttempt, 'STALE', previous);
+    currentAdSource = adSource(currentAdAttempt, false, previous);
     localStorage.setItem(
       AD_ACCOUNT_DAILY_KPI_ATTEMPT_STORAGE_KEY,
       JSON.stringify({ attemptId: AD_ATTEMPT_ID, idempotencyKey: AD_IDEMPOTENCY_KEY }),

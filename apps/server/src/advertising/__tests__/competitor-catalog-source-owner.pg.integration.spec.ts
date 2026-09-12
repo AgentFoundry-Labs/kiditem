@@ -96,7 +96,7 @@ describe('Competitor catalog source owner (PostgreSQL)', () => {
     await expect(
       owner.readSourceStatus({ organizationId: TEST_ORGANIZATION_ID }),
     ).resolves.toMatchObject({
-      status: 'READY',
+      ready: true,
       latestAttempt: { attemptId: first.attemptId, state: 'COMPLETE' },
       latestComplete: {
         sourceImportRunId: first.attemptId,
@@ -108,7 +108,7 @@ describe('Competitor catalog source owner (PostgreSQL)', () => {
     await expect(
       owner.readSourceStatus({ organizationId: TEST_ORGANIZATION_ID }),
     ).resolves.toMatchObject({
-      status: 'READY',
+      ready: true,
       latestAttempt: { attemptId: refresh.attemptId, state: 'RUNNING' },
       latestComplete: { sourceImportRunId: first.attemptId },
     });
@@ -182,7 +182,7 @@ describe('Competitor catalog source owner (PostgreSQL)', () => {
     await expect(
       owner.readSourceStatus({ organizationId: TEST_ORGANIZATION_ID }),
     ).resolves.toMatchObject({
-      status: 'READY',
+      ready: true,
       latestAttempt: { attemptId: zero.attemptId, state: 'COMPLETE' },
       latestComplete: {
         sourceImportRunId: zero.attemptId,
@@ -252,7 +252,7 @@ describe('Competitor catalog source owner (PostgreSQL)', () => {
     await expect(
       owner.readSourceStatus({ organizationId: TEST_ORGANIZATION_ID }),
     ).resolves.toMatchObject({
-      status: 'STALE',
+      ready: false,
       latestAttempt: {
         attemptId: incomplete.attemptId,
         state: 'FAILED',

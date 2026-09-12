@@ -63,7 +63,7 @@ export class Sourcing1688SearchResultService {
     return Sourcing1688SearchSnapshotSchema.parse({
       generatedAt: snapshot.generatedAt?.toISOString() ?? null,
       sourceStatuses: statuses.map(({ keyword, targetId, source }) => ({
-        keyword, targetId, status: source.status, refreshing: source.refreshing,
+        keyword, targetId, ready: source.ready, refreshing: source.refreshing,
         latestAttemptId: source.latestAttempt?.attemptId ?? null,
         latestAttemptState: source.latestAttempt?.state ?? null,
         actualCutoffAt: source.actualCutoffAt?.toISOString() ?? null,

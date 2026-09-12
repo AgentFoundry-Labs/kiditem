@@ -90,7 +90,7 @@ describe('Market Shadow source owner public service + disposable PG', () => {
   it('retains previous COMPLETE across failed days, resolves and reopens the stable source Alert', async () => {
     const first = await collect();
     expect(await service.getStatus(ORG, NOW)).toMatchObject({
-      status: 'READY',
+      ready: true,
       refreshing: false,
       latestComplete: first.snapshot,
       actualCutoffAt: NOW,
@@ -109,7 +109,7 @@ describe('Market Shadow source owner public service + disposable PG', () => {
     expect(failed.errorMessage).toContain('Authorization=[REDACTED]');
     expect(JSON.stringify(failed)).not.toContain('secret-token');
     expect(await service.getStatus(ORG, nextDay)).toMatchObject({
-      status: 'STALE',
+      ready: false,
       refreshing: false,
       latestAttempt: { attemptId: failed.attemptId, state: 'FAILED', errorCode: failed.errorCode },
       latestComplete: first.snapshot,
@@ -152,7 +152,7 @@ describe('Market Shadow source owner public service + disposable PG', () => {
         response: { code: 'SHADOW_DAILY_LIMIT', attemptId: active.attemptId },
       });
       expect(await service.getStatus(ORG, NOW)).toMatchObject({
-        status: 'MISSING',
+        ready: false,
         refreshing: true,
         latestComplete: null,
       });
@@ -278,13 +278,13 @@ describe('Market Shadow source owner public service + disposable PG', () => {
       published();
     }
     expect(await reading).toMatchObject({
-      status: 'MISSING',
+      ready: false,
       refreshing: true,
       latestAttempt: { state: 'RUNNING' },
       latestComplete: null,
     });
     expect(await service.getStatus(ORG, NOW)).toMatchObject({
-      status: 'READY',
+      ready: true,
       refreshing: false,
       latestAttempt: { state: 'COMPLETE' },
       latestComplete: { businessDate: new Date('2026-09-07T00:00:00Z') },
@@ -363,7 +363,7 @@ describe('Market Shadow source owner public service + disposable PG', () => {
       },
     });
     expect(await service.getStatus(ORG, NOW)).toMatchObject({
-      status: 'MISSING',
+      ready: false,
       latestComplete: null,
       latestAttempt: null,
     });

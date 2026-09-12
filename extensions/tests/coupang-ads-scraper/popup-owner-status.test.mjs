@@ -33,7 +33,7 @@ function response(body, { success = true, ok = true, status = 200 } = {}) {
 }
 
 function ownerStatus({
-  status = 'READY',
+  ready = true,
   refreshing = false,
   latestAttempt = { state: 'COMPLETE' },
   latestComplete = null,
@@ -41,7 +41,7 @@ function ownerStatus({
 } = {}) {
   return {
     channelAccountId: 'account-1',
-    status,
+    ready,
     refreshing,
     latestAttempt,
     latestComplete,
@@ -287,16 +287,16 @@ test('renders each owner status independently and preserves failed-attempt detai
   const harness = createPopupHarness({ connected: ['local'] });
   const failureMessage = '<img src=x onerror=alert(1)>';
   await completeStatusLoad(harness, 'local', {
-    '/api/ads/traffic/source': response(ownerStatus({ status: 'MISSING', latestAttempt: null })),
+    '/api/ads/traffic/source': response(ownerStatus({ ready: false, latestAttempt: null })),
     '/api/ads/wing-itemwinner/source': response(ownerStatus({
-      status: 'STALE',
+      ready: false,
       latestAttempt: { state: 'FAILED', errorCode: 'WING_TIMEOUT', errorMessage: failureMessage },
       latestComplete: { state: 'COMPLETE', itemCount: 747, actualCutoffAt: '2026-09-06T08:30:00.000Z' },
     })),
     '/api/ads/ad-campaigns/source': response(ownerStatus({
       latestComplete: { state: 'COMPLETE', campaignCount: 12, actualCutoffAt: '2026-09-06T09:00:00.000Z' },
     })),
-    '/api/ads/account-daily-kpis/source': response(ownerStatus({ status: 'MISSING', latestAttempt: null })),
+    '/api/ads/account-daily-kpis/source': response(ownerStatus({ ready: false, latestAttempt: null })),
   });
 
   assert.equal(harness.document.getElementById('trafficSync').textContent, '자료 없음');
@@ -519,7 +519,7 @@ test('monthly owner polling uses the admitted attempt, preserves the prior compl
   })));
   await completeStatusLoad(harness, 'local', {
     '/api/ads/traffic/source': response(ownerStatus({
-      status: 'STALE',
+      ready: false,
       latestAttempt: { state: 'FAILED', errorCode: 'PROVIDER_TIMEOUT', errorMessage: 'provider failed' },
       latestComplete: { state: 'COMPLETE', rowCount: 44, actualCutoffAt: '2026-09-05T00:00:00.000Z' },
     })),

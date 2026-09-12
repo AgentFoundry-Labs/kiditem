@@ -1231,7 +1231,7 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
     if (!account) {
       return AdTrafficSourceStatusSchema.parse({
         channelAccountId: null,
-        status: 'MISSING',
+        ready: false,
         refreshing: false,
         latestAttempt: null,
         latestComplete: null,
@@ -1272,7 +1272,7 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
       && latestAttempt?.state !== 'FAILED';
     return AdTrafficSourceStatusSchema.parse({
       channelAccountId: account.id,
-      status: !latestComplete ? 'MISSING' : ready ? 'READY' : 'STALE',
+      ready,
       refreshing: latestAttempt?.state === 'RUNNING',
       latestAttempt,
       latestComplete,

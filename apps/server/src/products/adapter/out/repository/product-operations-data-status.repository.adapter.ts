@@ -135,7 +135,7 @@ function sourceStatus(
   );
   if (validRows.length === 0) {
     return {
-      status: 'MISSING',
+      ready: false,
       actualCutoff: null,
       capturedAt: null,
       latestAttemptState: null,
@@ -158,7 +158,7 @@ function sourceStatus(
   const validDates = new Set(validRows.map((row) => calendarDate(row.businessDate)));
   const completeCoverage = targetDates.every((date) => validDates.has(date));
   return {
-    status: actualCutoff >= cutoffDate && completeCoverage ? 'READY' : 'STALE',
+    ready: actualCutoff >= cutoffDate && completeCoverage,
     actualCutoff,
     capturedAt: capturedAt.toISOString(),
     latestAttemptState: null,

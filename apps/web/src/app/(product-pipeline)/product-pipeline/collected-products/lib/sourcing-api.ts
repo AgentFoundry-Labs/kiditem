@@ -225,7 +225,7 @@ export interface ScrapeUrlAttempt {
 }
 
 export interface ScrapeUrlSourceStatus {
-  status: 'READY' | 'STALE' | 'MISSING';
+  ready: boolean;
   refreshing: boolean;
   latestAttempt: ScrapeUrlAttempt | null;
   latestComplete: ScrapeUrlAttempt | null;

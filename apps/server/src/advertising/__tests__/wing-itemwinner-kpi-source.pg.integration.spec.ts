@@ -451,7 +451,7 @@ describe('Wing itemwinner KPI source owner HTTP + disposable PostgreSQL', () => 
     await complete(second, captureFor(second, { providerVendorId: 'VENDOR-OTHER' })).expect(409);
     const status = (await source()).body;
     expect(status).toMatchObject({
-      status: 'STALE',
+      ready: false,
       latestAttempt: { state: 'FAILED', errorCode: 'VENDOR_IDENTITY_MISMATCH' },
       latestComplete: { attemptId: first.attemptId },
       actualCutoffAt: firstBody.observedAt,

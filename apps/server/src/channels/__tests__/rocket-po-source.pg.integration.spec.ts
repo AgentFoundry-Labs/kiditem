@@ -161,7 +161,7 @@ describe('Rocket owner public HTTP + disposable PG', () => {
       .set('x-test-org', ORG)
       .expect(200);
     expect(source.body).toMatchObject({
-      status: 'MISSING',
+      ready: false,
       refreshing: true,
       latestAttempt: { attemptId: first.body.attemptId },
       latestComplete: null,
@@ -192,14 +192,14 @@ describe('Rocket owner public HTTP + disposable PG', () => {
       .send({ code: 'coupang_po_session_required', message: '로그인 필요' })
       .expect(201);
     expect((await readSource()).body).toMatchObject({
-      status: 'STALE',
+      ready: false,
       latestAttempt: { state: 'FAILED' },
       latestComplete: { attemptId: b.attemptId },
     });
     const empty = (await start()).body;
     await finish(empty, []).expect(200);
     expect((await readSource()).body).toMatchObject({
-      status: 'READY',
+      ready: true,
       latestComplete: { attemptId: empty.attemptId, state: 'COMPLETE' },
     });
     expect(await catalog.listSavedPos({ ...scope, from: plan.from, to: plan.to })).toEqual([]);
@@ -245,7 +245,7 @@ describe('Rocket owner public HTTP + disposable PG', () => {
       errorCode: 'ROCKET_PO_ACCOUNT_UNAVAILABLE',
     });
     expect((await readSource()).body).toMatchObject({
-      status: 'STALE',
+      ready: false,
       latestAttempt: { attemptId: b.attemptId, state: 'FAILED' },
       latestComplete: { attemptId: a.attemptId },
     });
@@ -308,7 +308,7 @@ describe('Rocket owner public HTTP + disposable PG', () => {
       data: { status: 'completed', parserVersion: null, plan: {} },
     });
     expect((await readSource()).body).toMatchObject({
-      status: 'MISSING',
+      ready: false,
       latestAttempt: null,
       latestComplete: null,
     });

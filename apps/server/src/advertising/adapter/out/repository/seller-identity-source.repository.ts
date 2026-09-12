@@ -126,11 +126,7 @@ export class SellerIdentitySourceRepository {
         });
         const latestAttempt = latest ? view(latest) : null;
         return {
-          status: !complete
-            ? 'MISSING'
-            : latestAttempt?.state === 'FAILED'
-              ? 'STALE'
-              : 'READY',
+          ready: !!complete && latestAttempt?.state !== 'FAILED',
           refreshing: latestAttempt?.state === 'RUNNING',
           latestAttempt,
           latestComplete: complete ? view(complete) : null,

@@ -42,11 +42,12 @@ const OWNER_STATUS_SOURCES = Object.freeze([
   },
 ]);
 
-const SOURCE_STATUS_LABELS = Object.freeze({
-  READY: '준비됨',
-  STALE: '오래됨',
-  MISSING: '자료 없음',
-});
+/** Ready, or collected once but behind, or never collected. */
+function sourceReadinessLabel(source) {
+  if (!source || typeof source.ready !== 'boolean') return '상태 확인 필요';
+  if (source.ready) return '준비됨';
+  return source.latestComplete ? '오래됨' : '자료 없음';
+}
 
 let monthlyPollTimer = null;
 let monthlyPollRequest = null;
@@ -262,12 +263,12 @@ function renderOwnerStatus(definition, source) {
     ? '최근 실패'
     : running
       ? '수집 중'
-      : SOURCE_STATUS_LABELS[source?.status] || '상태 확인 필요';
+      : sourceReadinessLabel(source);
   const dotColor = failed
     ? 'dot-red'
-    : running || source?.status === 'STALE'
+    : running || (source?.ready === false && source?.latestComplete)
       ? 'dot-orange'
-      : source?.status === 'READY'
+      : source?.ready === true
         ? 'dot-green'
         : 'dot-gray';
   setCardValue(definition.valueId, statusLabel, true, dotColor);

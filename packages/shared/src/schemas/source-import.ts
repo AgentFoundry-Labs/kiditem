@@ -131,7 +131,7 @@ export type SellpiaProfitabilityCompleteGeneration = z.infer<
 export const SellpiaProfitabilitySourceStatusSchema = z.object({
   latestAttempt: SellpiaProfitabilityAttemptSummarySchema.nullable(),
   latestComplete: SellpiaProfitabilityCompleteGenerationSchema.nullable(),
-  status: z.enum(['READY', 'STALE', 'MISSING']),
+  ready: z.boolean(),
 }).strict();
 export type SellpiaProfitabilitySourceStatus = z.infer<
   typeof SellpiaProfitabilitySourceStatusSchema

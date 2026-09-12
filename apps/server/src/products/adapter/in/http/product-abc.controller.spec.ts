@@ -15,13 +15,13 @@ describe('ProductAbcController', () => {
       actualCutoff: '2026-07-31',
       sources: {
         sellpia: {
-          status: 'STALE' as const,
+          ready: false,
           actualCutoff: '2026-07-31',
           latestAttemptState: 'COMPLETE' as const,
           errorCode: null,
         },
         advertising: {
-          status: 'READY' as const,
+          ready: true,
           actualCutoff: '2026-07-31',
           latestAttemptState: 'COMPLETE' as const,
           errorCode: null,

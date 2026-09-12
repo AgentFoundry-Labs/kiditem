@@ -67,8 +67,8 @@ export function ProductAbcDetailDialog({ open, onOpenChange, product, showProduc
                 <DetailRow label="손실 지속률" value={percent(evaluation.lossPersistence)} />
                 <DetailRow label="경제 점수" value={evaluation.economicScore.toFixed(1)} />
                 <DetailRow label="계산 시각" value={formatDateTime(evaluation.calculatedAt)} />
-                <DetailRow label="Sellpia 원천" value={sourceValue(product.abc.sources.sellpia.status, product.abc.sources.sellpia.actualCutoffDate)} />
-                <DetailRow label="광고비 원천" value={sourceValue(product.abc.sources.advertising.status, product.abc.sources.advertising.actualCutoffDate)} />
+                <DetailRow label="Sellpia 원천" value={sourceValue(product.abc.sources.sellpia, product.abc.sources.sellpia.actualCutoffDate)} />
+                <DetailRow label="광고비 원천" value={sourceValue(product.abc.sources.advertising, product.abc.sources.advertising.actualCutoffDate)} />
                 <DetailRow label="상품 매핑" value={`${product.abc.sources.mapping.status}${product.abc.sources.mapping.mappingGeneration ? ` · 세대 ${product.abc.sources.mapping.mappingGeneration}` : ''}`} />
               </dl>
 
@@ -91,4 +91,7 @@ function DetailRow({ label, value }: { label: string; value: string }) {
 
 function money(value: number | null): string { return value === null ? '계산 전' : `${formatKRW(Math.round(value))}원`; }
 function percent(value: number | null): string { return value === null ? '계산 전' : `${(value * 100).toFixed(1)}%`; }
-function sourceValue(status: string, cutoff: string | null): string { return `${status}${cutoff ? ` · ${cutoff}까지` : ''}`; }
+function sourceValue(source: { ready: boolean; sourceImportRunId: string | null }, cutoff: string | null): string {
+  const state = source.ready ? '최신' : source.sourceImportRunId ? '갱신 필요' : '미수집';
+  return `${state}${cutoff ? ` · ${cutoff}까지` : ''}`;
+}

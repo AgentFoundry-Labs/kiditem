@@ -47,7 +47,7 @@ export type CoupangKeywordSuggestionSourceAttempt = z.infer<
 >;
 
 export const CoupangKeywordSuggestionSourceStatusSchema = z.object({
-  status: z.enum(['READY', 'STALE', 'MISSING']),
+  ready: z.boolean(),
   refreshing: z.boolean(),
   latestAttempt: CoupangKeywordSuggestionSourceAttemptSchema.nullable(),
   latestComplete: CoupangKeywordSuggestionSourceAttemptSchema.nullable(),

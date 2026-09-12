@@ -422,14 +422,14 @@ describe('Ad keyword source incoming HTTP + disposable PostgreSQL', () => {
   });
   it('reads source status independently of local sessions and keeps the previous COMPLETE after a failed refresh', async () => {
     expect((await get('/source').expect(200)).body).toMatchObject({
-      status: 'MISSING',
+      ready: false,
       refreshing: false,
       latestAttempt: null,
       latestComplete: null,
     });
     const first = (await admit()).body;
     expect((await get('/source').expect(200)).body).toMatchObject({
-      status: 'MISSING',
+      ready: false,
       refreshing: true,
       latestAttempt: { attemptId: first.attemptId, state: 'RUNNING' },
     });
@@ -448,7 +448,7 @@ describe('Ad keyword source incoming HTTP + disposable PostgreSQL', () => {
     const manifest = (await get(`/attempts/${first.attemptId}/control`)).body.manifestChecksum;
     await post(first, 'complete', { manifestChecksum: manifest }).expect(201);
     expect((await get('/source').expect(200)).body).toMatchObject({
-      status: 'READY',
+      ready: true,
       refreshing: false,
       latestComplete: { attemptId: first.attemptId, rowCount: 0 },
     });
@@ -465,7 +465,7 @@ describe('Ad keyword source incoming HTTP + disposable PostgreSQL', () => {
     });
     const source = (await get('/source').expect(200)).body;
     expect(source).toMatchObject({
-      status: 'STALE',
+      ready: false,
       refreshing: false,
       latestAttempt: { attemptId: next.attemptId, state: 'FAILED' },
       latestComplete: { attemptId: first.attemptId, state: 'COMPLETE' },
@@ -842,13 +842,13 @@ describe('Ad keyword source incoming HTTP + disposable PostgreSQL', () => {
       published();
     }
     expect(await reading).toMatchObject({
-      status: 'MISSING',
+      ready: false,
       refreshing: true,
       latestAttempt: { state: 'RUNNING' },
       latestComplete: null,
     });
     expect((await get('/source')).body).toMatchObject({
-      status: 'READY',
+      ready: true,
       refreshing: false,
       latestComplete: { state: 'COMPLETE' },
     });

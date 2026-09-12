@@ -31,9 +31,9 @@ export class AdCampaignSourceController {
     const source = await this.owner.source(org);
     return {
       status:
-        source.status === 'READY'
+        source.ready
           ? 'fresh'
-          : source.status === 'STALE'
+          : source.latestComplete
             ? 'stale'
             : source.latestAttempt
               ? 'incomplete'

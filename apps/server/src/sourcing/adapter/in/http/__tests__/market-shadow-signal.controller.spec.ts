@@ -34,11 +34,11 @@ describe('MarketShadowSignalController', () => {
 
   it('scopes status and exact receipt recovery to the authenticated organization', async () => {
     const service = {
-      getStatus: vi.fn(async () => ({ status: 'STALE', latestComplete: { id: 'previous' } })),
+      getStatus: vi.fn(async () => ({ ready: false, latestComplete: { id: 'previous' } })),
       readAttempt: vi.fn(async () => ({ attemptId: key, state: 'FAILED' })),
     };
     const controller = new MarketShadowSignalController(service as never);
-    expect(await controller.status('org-1')).toMatchObject({ status: 'STALE' });
+    expect(await controller.status('org-1')).toMatchObject({ ready: false });
     expect(await controller.readAttempt('org-1', key)).toEqual({ attemptId: key, state: 'FAILED' });
     expect(service.getStatus).toHaveBeenCalledExactlyOnceWith('org-1');
     expect(service.readAttempt).toHaveBeenCalledExactlyOnceWith('org-1', key);

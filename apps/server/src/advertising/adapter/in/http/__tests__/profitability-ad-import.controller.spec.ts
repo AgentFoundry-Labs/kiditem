@@ -21,12 +21,12 @@ describe('ProfitabilityAdImportController', () => {
 
   it('uses the token-free current read and the exact control read separately', async () => {
     const service = {
-      readSourceStatus: vi.fn().mockResolvedValue({ status: 'MISSING' }),
+      readSourceStatus: vi.fn().mockResolvedValue({ ready: false }),
       readAttemptControl: vi.fn().mockResolvedValue({ attemptId: ATTEMPT_ID }),
     };
     const controller = new ProfitabilityAdImportController(service as never);
 
-    await expect(controller.readSourceStatus(ORGANIZATION_ID)).resolves.toEqual({ status: 'MISSING' });
+    await expect(controller.readSourceStatus(ORGANIZATION_ID)).resolves.toEqual({ ready: false });
     await expect(controller.readAttemptControl(ORGANIZATION_ID, ATTEMPT_ID)).resolves.toEqual({
       attemptId: ATTEMPT_ID,
     });

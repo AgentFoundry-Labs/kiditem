@@ -252,7 +252,7 @@ export function CompetitorTrackingPage() {
 
       {(gateMessage ||
         collecting ||
-        sourceStatus?.status === "STALE" ||
+        sourceStatus?.ready === false ||
         sourceStatus?.latestComplete ||
         data.summary.unresolvedSellerProductCount > 0) && (
         <CollectionNotice

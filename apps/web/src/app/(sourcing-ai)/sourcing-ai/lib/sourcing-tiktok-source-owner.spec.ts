@@ -50,9 +50,9 @@ describe('TikTok Creative source-owner web seam', () => {
   });
 
   it('reads current TikTok evidence status from the source owner', async () => {
-    vi.mocked(apiClient.get).mockResolvedValue({ status: 'STALE' } as never);
+    vi.mocked(apiClient.get).mockResolvedValue({ ready: false } as never);
 
-    await expect(fetchSourcingTiktokCcSourceStatus()).resolves.toEqual({ status: 'STALE' });
+    await expect(fetchSourcingTiktokCcSourceStatus()).resolves.toEqual({ ready: false });
     expect(apiClient.get).toHaveBeenCalledWith('/api/sourcing/tiktok-creative/current');
   });
 });

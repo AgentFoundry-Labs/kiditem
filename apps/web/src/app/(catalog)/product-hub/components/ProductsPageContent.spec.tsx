@@ -34,7 +34,7 @@ const state = vi.hoisted(() => ({
         actualCutoffDate: null,
         sources: {
           sellpia: {
-            status: 'MISSING' as const,
+            ready: false,
             sourceImportRunId: null,
             generation: null,
             coverageStartDate: null,
@@ -45,7 +45,7 @@ const state = vi.hoisted(() => ({
             errorCode: null,
           },
           advertising: {
-            status: 'MISSING' as const,
+            ready: false,
             sourceImportRunId: null,
             generation: null,
             coverageStartDate: null,
@@ -92,8 +92,8 @@ const state = vi.hoisted(() => ({
       adSpend: null,
       adSpendRate: null,
       metricsFreshness: {
-        traffic: { status: 'MISSING' as const, coverageStartDate: null, coverageEndDate: null, capturedAt: null },
-        advertising: { status: 'MISSING' as const, coverageStartDate: null, coverageEndDate: null, capturedAt: null },
+        traffic: { ready: false, coverageStartDate: null, coverageEndDate: null, capturedAt: null },
+        advertising: { ready: false, coverageStartDate: null, coverageEndDate: null, capturedAt: null },
       },
     }],
     total: 126,

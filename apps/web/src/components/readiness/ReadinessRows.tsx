@@ -590,7 +590,7 @@ export function ActionCheckCard({
 
 export function AdSyncRow({ onComplete }: { onComplete: () => void }) {
   const { source, status, loading, cancelling, run, cancel } = useAdSync({ onComplete });
-  const isFresh = source.data?.status === 'READY';
+  const isFresh = source.data?.ready === true;
   const isRunning = status?.state === 'RUNNING';
 
   return (
@@ -710,7 +710,7 @@ export function AdKeywordRow({ onComplete }: { onComplete: () => void }) {
             <p className="mt-1 text-[11px] text-[var(--text-muted)]">
               사용 중인 데이터: {source.data.latestComplete.plan.startDate} ~{' '}
               {source.data.latestComplete.plan.endDate}
-              {source.data.status === 'STALE' ? ' · 갱신 필요' : ''}
+              {source.data.ready ? '' : ' · 갱신 필요'}
             </p>
           )}
         </div>

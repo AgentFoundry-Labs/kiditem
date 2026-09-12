@@ -11,7 +11,7 @@ vi.mock('next/navigation', () => ({ useSearchParams: () => new URLSearchParams(n
 vi.mock('../lib/sourcing-api', () => ({ sourcingApi: { scrapeUrl: vi.fn(), scrapeUrlStatus: vi.fn() } }));
 const url = 'https://detail.1688.com/offer/123.html';
 const missing = { status: 'available', candidateId: null, href: null, platform: '1688',
-  source: { status: 'MISSING', refreshing: false, latestAttempt: null, latestComplete: null, actualCutoffAt: null, errorCode: null, errorMessage: null } };
+  source: { ready: false, refreshing: false, latestAttempt: null, latestComplete: null, actualCutoffAt: null, errorCode: null, errorMessage: null } };
 function mount() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   return renderHook(() => useScrapeUrl(), { wrapper: ({ children }: { children: ReactNode }) =>
@@ -55,7 +55,7 @@ describe('retained scrape URL action', () => {
 
   it('uses a new explicit key after FAILED and displays the last complete cutoff without copying it into the route', async () => {
     navigation.query = new URLSearchParams({ scrapeUrl: url, scrapeKey: 'old-key' }).toString();
-    const source = { ...missing.source, status: 'STALE', actualCutoffAt: '2026-09-06T00:00:00Z',
+    const source = { ...missing.source, ready: false, actualCutoffAt: '2026-09-06T00:00:00Z',
       latestAttempt: { attemptId: 'failed', state: 'FAILED', errorMessage: 'provider unavailable' },
       latestComplete: { attemptId: 'complete', state: 'COMPLETE' }, errorMessage: 'provider unavailable' };
     vi.mocked(sourcingApi.scrapeUrlStatus).mockResolvedValue({ ...missing, source } as never);

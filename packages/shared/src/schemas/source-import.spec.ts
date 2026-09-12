@@ -451,12 +451,12 @@ describe('source import contracts', () => {
         capturedAt: '2026-09-03T01:00:00.000Z',
         mappingGeneration: '3',
       },
-      status: 'READY',
-    }).status).toBe('READY');
+      ready: true,
+    }).ready).toBe(true);
     expect(() => SellpiaProfitabilitySourceStatusSchema.parse({
       latestAttempt: attempt,
       latestComplete: null,
-      status: 'MISSING',
+      ready: false,
     })).toThrow();
   });
 

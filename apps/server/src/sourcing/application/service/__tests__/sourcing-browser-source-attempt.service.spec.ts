@@ -26,7 +26,7 @@ function createHarness() {
       plan: { source: '1688.hot_product', keywords: ['铅笔', '笔袋'] },
     })),
     readSourceStatus: vi.fn(async () => ({
-      status: 'READY' as const,
+      ready: true,
       refreshing: false,
       latestAttempt: null,
       latestComplete: null,
@@ -152,7 +152,7 @@ describe('SourcingBrowserSourceAttemptService', () => {
     const { service, attempts } = createHarness();
 
     await expect(service.read1688Status({ organizationId: ORGANIZATION_ID }))
-      .resolves.toMatchObject({ status: 'READY', refreshing: false });
+      .resolves.toMatchObject({ ready: true, refreshing: false });
 
     expect(attempts.readSourceStatus).toHaveBeenCalledWith({
       organizationId: ORGANIZATION_ID,

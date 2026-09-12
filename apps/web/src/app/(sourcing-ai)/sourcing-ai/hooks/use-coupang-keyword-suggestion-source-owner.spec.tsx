@@ -53,7 +53,7 @@ function status(
   latestComplete: ReturnType<typeof attempt> | null = null,
 ) {
   return {
-    status: latestComplete ? 'STALE' : latestAttempt ? 'READY' : 'MISSING',
+    ready: latestAttempt?.state === 'COMPLETE',
     refreshing: latestAttempt?.state === 'RUNNING',
     latestAttempt,
     latestComplete,

@@ -45,7 +45,7 @@ export interface SourcingBrowserSourceAttempt {
 }
 
 export interface SourcingBrowserSourceStatus {
-  status: 'READY' | 'STALE' | 'MISSING';
+  ready: boolean;
   refreshing: boolean;
   latestAttempt: SourcingBrowserSourceAttempt | null;
   latestComplete: SourcingBrowserSourceAttempt | null;

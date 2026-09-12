@@ -550,7 +550,7 @@ function sourceView(
     && latestComplete.coveredThrough >= isoDate(currentBusinessDate(now))
     && (latestState === 'COMPLETE' || latestState === 'RUNNING');
   return {
-    status: latestComplete === null ? 'MISSING' : ready ? 'READY' : 'STALE',
+    ready,
     latestAttempt: latest ? {
       attemptId: latest.id,
       state: latestState!,

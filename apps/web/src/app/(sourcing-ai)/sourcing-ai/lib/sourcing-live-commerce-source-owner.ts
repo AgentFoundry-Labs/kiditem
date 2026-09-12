@@ -4,7 +4,7 @@ import { detectExtensionId, sendToExtension } from '@/lib/extension-bridge';
 const BASE = '/api/sourcing/live-commerce/browser';
 
 export interface SourcingLiveCommerceSourceStatus {
-  status: 'READY' | 'STALE' | 'MISSING';
+  ready: boolean;
   refreshing: boolean;
   latestAttempt: {
     attemptId: string;

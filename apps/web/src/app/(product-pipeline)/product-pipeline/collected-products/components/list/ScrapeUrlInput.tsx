@@ -77,7 +77,7 @@ export default function ScrapeUrlInput({
       )}
       {ownerStatus && (
         <div className="mt-2 text-xs text-slate-600" role="status">
-          {ownerStatus.latestAttempt?.state === 'RUNNING' ? 'URL 수집 중' : ownerStatus.status === 'READY' ? '수집 완료' : ownerStatus.status === 'STALE' ? '이전 완료 데이터 유지' : '완료된 수집 데이터 없음'}
+          {ownerStatus.latestAttempt?.state === 'RUNNING' ? 'URL 수집 중' : ownerStatus.ready ? '수집 완료' : ownerStatus.latestComplete ? '이전 완료 데이터 유지' : '완료된 수집 데이터 없음'}
           {ownerStatus.actualCutoffAt && <> · 마지막 완료 기준일: <time dateTime={ownerStatus.actualCutoffAt}>{new Date(ownerStatus.actualCutoffAt).toLocaleString('ko-KR')}</time></>}
         </div>
       )}

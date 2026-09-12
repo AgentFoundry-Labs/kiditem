@@ -21,8 +21,8 @@ export function Wholesale1688SourceStatus({ sources, attempts, error }: {
             {source.targetId ?? source.keyword} · {source.latestAttemptState === 'FAILED'
               ? `수집 실패 (${source.errorCode ?? 'unknown'})`
               : source.refreshing ? '수집 중'
-                : source.status === 'READY' ? '수집 완료'
-                  : source.status === 'STALE' ? '다시 수집 필요' : '수집 기록 없음'}
+                : source.ready ? '수집 완료'
+                  : source.actualCutoffAt ? '다시 수집 필요' : '수집 기록 없음'}
           </p>
           {source.actualCutoffAt && <p>마지막 완료: <time dateTime={source.actualCutoffAt}>{source.actualCutoffAt}</time></p>}
         </div>

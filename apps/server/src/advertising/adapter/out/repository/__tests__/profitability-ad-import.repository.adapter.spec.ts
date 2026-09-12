@@ -476,7 +476,7 @@ describe('ProfitabilityAdImportRepositoryAdapter', () => {
     await expect(adapter.readSourceStatus({ organizationId: complete.organizationId })).resolves.toMatchObject({
       latestAttempt: { state: 'COMPLETE' },
       latestComplete: { sourceImportRunId: complete.id, coveredThrough: '2026-09-06' },
-      status: 'READY',
+      ready: true,
     });
 
     findFirst
@@ -486,7 +486,7 @@ describe('ProfitabilityAdImportRepositoryAdapter', () => {
     await expect(adapter.readSourceStatus({ organizationId: failed.organizationId })).resolves.toMatchObject({
       latestAttempt: { state: 'FAILED', errorCode: 'PROVIDER_FAILED' },
       latestComplete: { sourceImportRunId: complete.id, coveredThrough: '2026-09-06' },
-      status: 'STALE',
+      ready: false,
     });
     vi.useRealTimers();
   });

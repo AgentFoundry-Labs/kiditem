@@ -187,14 +187,14 @@ describe('Naver/Shorts public collection owner (disposable PostgreSQL)', () => {
     vi.setSystemTime(tomorrow);
     try {
       const noAttemptToday = (await controller.status(organizationId))[source];
-      expect(noAttemptToday).toMatchObject({ status: 'STALE', actualCutoffAt: new Date(completed.actualCutoffAt!),
+      expect(noAttemptToday).toMatchObject({ ready: false, actualCutoffAt: new Date(completed.actualCutoffAt!),
         latestComplete: { attemptId: completed.attemptId }, latestAttempt: { attemptId: yesterdayFailure.attemptId, state: 'FAILED' },
         errorMessage: yesterdayFailure.error, refreshing: false });
       failProvider();
       const todayFailure = (await controller.collect({ sources: [source] }, organizationId,
         { id: TEST_USER_ID } as never, 'today-failed')).results[0];
       const failedToday = (await controller.status(organizationId))[source];
-      expect(failedToday).toMatchObject({ status: 'STALE', actualCutoffAt: new Date(completed.actualCutoffAt!),
+      expect(failedToday).toMatchObject({ ready: false, actualCutoffAt: new Date(completed.actualCutoffAt!),
         latestComplete: { attemptId: completed.attemptId }, latestAttempt: { attemptId: todayFailure.attemptId, state: 'FAILED' },
         errorMessage: todayFailure.error, refreshing: false });
     } finally { vi.useRealTimers(); }
@@ -211,7 +211,7 @@ describe('Naver/Shorts public collection owner (disposable PostgreSQL)', () => {
       expect(replay.results[0].state).toBe('RUNNING');
       await expect(service.collectSource(organizationId, 'shorts', TEST_USER_ID, 'distinct')).rejects.toThrow('Conflict');
       expect(fetchTrending).toHaveBeenCalledOnce();
-      expect(await service.status(organizationId, 'shorts')).toMatchObject({ status: 'MISSING', latestAttempt: { state: 'RUNNING' } });
+      expect(await service.status(organizationId, 'shorts')).toMatchObject({ ready: false, latestComplete: null, latestAttempt: { state: 'RUNNING' } });
     } finally { release(); }
     expect((await pending).results[0].state).toBe('COMPLETE');
   });

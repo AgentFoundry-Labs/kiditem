@@ -42,7 +42,7 @@ describe('Keyword suggestion public source owner (disposable PostgreSQL)', () =>
     await service.fail({ organizationId, attemptId: refresh.attemptId,
       attemptToken: refresh.attemptToken, code: 'SOURCE_COLLECTION_FAILED', message: 'provider failed' });
     await expect(service.status({ organizationId, keyword: 'A Pencil' })).resolves.toMatchObject({
-      status: 'STALE', actualCutoffAt: new Date(batch.capturedAt),
+      ready: false, actualCutoffAt: new Date(batch.capturedAt),
       latestComplete: { attemptId: first.attemptId }, latestAttempt: { state: 'FAILED' },
     });
     await expect(service.snapshot({ organizationId, keyword: 'A Pencil' })).resolves.toMatchObject({ items: batch.items });

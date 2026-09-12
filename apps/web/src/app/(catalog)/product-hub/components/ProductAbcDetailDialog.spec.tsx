@@ -48,8 +48,8 @@ function product(): MasterProductOperationsMetadata {
       publishedAt: '2026-08-01T00:00:00.000Z',
       actualCutoffDate: '2026-08-31',
       sources: {
-        sellpia: source('READY'),
-        advertising: source('READY'),
+        sellpia: source(),
+        advertising: source(),
         mapping: { status: 'READY', mappingGeneration: '7' },
       },
     },
@@ -77,9 +77,9 @@ function product(): MasterProductOperationsMetadata {
   };
 }
 
-function source(status: 'READY') {
+function source() {
   return {
-    status,
+    ready: true,
     sourceImportRunId: '11111111-1111-4111-8111-111111111112',
     generation: '7',
     coverageStartDate: '2026-01-01',

@@ -127,7 +127,7 @@ const metadataFixture = {
 
 function missingAbcSource() {
   return {
-    status: 'MISSING' as const,
+    ready: false,
     sourceImportRunId: null,
     generation: null,
     coverageStartDate: null,
@@ -139,12 +139,12 @@ function missingAbcSource() {
   };
 }
 
-function dataStatusSource(status: 'READY' | 'MISSING') {
+function dataStatusSource(ready: boolean) {
   return {
-    status,
-    actualCutoff: status === 'READY' ? '2026-07-31' : null,
-    capturedAt: status === 'READY' ? '2026-08-01T00:00:00.000Z' : null,
-    latestAttemptState: status === 'READY' ? 'COMPLETE' as const : null,
+    ready,
+    actualCutoff: ready ? '2026-07-31' : null,
+    capturedAt: ready ? '2026-08-01T00:00:00.000Z' : null,
+    latestAttemptState: ready ? 'COMPLETE' as const : null,
     errorCode: null,
   };
 }
@@ -199,10 +199,10 @@ describe('product operations contracts', () => {
       publishedAt: '2026-08-01T00:00:00.000Z',
       actualCutoff: '2026-07-31',
       sources: {
-        traffic: dataStatusSource('READY'),
-        advertising: dataStatusSource('MISSING'),
-        sellpia: dataStatusSource('READY'),
-        mapping: { status: 'READY', generation: '7' },
+        traffic: dataStatusSource(true),
+        advertising: dataStatusSource(false),
+        sellpia: dataStatusSource(true),
+        mapping: { ready: true, generation: '7' },
       },
       abcSummary: {
         classifiedProductCount: 6,
@@ -211,7 +211,7 @@ describe('product operations contracts', () => {
         otherPendingProductCount: 1,
       },
     }).sources.advertising).toEqual({
-      status: 'MISSING', actualCutoff: null, capturedAt: null, latestAttemptState: null, errorCode: null,
+      ready: false, actualCutoff: null, capturedAt: null, latestAttemptState: null, errorCode: null,
     });
   });
 
@@ -245,8 +245,8 @@ describe('product operations contracts', () => {
         adSpend: null,
         adSpendRate: null,
         metricsFreshness: {
-          traffic: { status: 'MISSING', coverageStartDate: null, coverageEndDate: null, capturedAt: null },
-          advertising: { status: 'MISSING', coverageStartDate: null, coverageEndDate: null, capturedAt: null },
+          traffic: { ready: false, coverageStartDate: null, coverageEndDate: null, capturedAt: null },
+          advertising: { ready: false, coverageStartDate: null, coverageEndDate: null, capturedAt: null },
         },
       }),
       profit: 12_000,
@@ -420,8 +420,8 @@ describe('product operations contracts', () => {
       adSpend: null,
       adSpendRate: null,
       metricsFreshness: {
-        traffic: { status: 'MISSING', coverageStartDate: null, coverageEndDate: null, capturedAt: null },
-        advertising: { status: 'MISSING', coverageStartDate: null, coverageEndDate: null, capturedAt: null },
+        traffic: { ready: false, coverageStartDate: null, coverageEndDate: null, capturedAt: null },
+        advertising: { ready: false, coverageStartDate: null, coverageEndDate: null, capturedAt: null },
       },
     });
     expect(parsed.inventoryUnits).toBe(80);

@@ -1207,7 +1207,8 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
       .set('x-test-org', ORG)
       .query({ channelAccountId: accountId })
       .expect(200);
-    expect(status.body.status).toBe('STALE');
+    expect(status.body.ready).toBe(false);
+    expect(status.body.latestComplete).not.toBeNull();
   });
 
   it('retains raw provider summaries and reports an unavailable ratio for zero denominators', async () => {

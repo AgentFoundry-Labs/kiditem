@@ -15,7 +15,7 @@ describe('MasterProductProfitabilityReadService', () => {
         latestAttempt: null,
         latestComplete: null,
         completeGenerations: [],
-        status: 'MISSING',
+        ready: false,
       }),
       readGeneration: vi.fn(),
     };
@@ -49,8 +49,8 @@ describe('MasterProductProfitabilityReadService', () => {
       targetCutoff: '2026-08-31',
       actualCutoff: null,
       sources: {
-        sellpia: { status: 'MISSING' },
-        advertising: { status: 'MISSING' },
+        sellpia: { ready: false, actualCutoff: null },
+        advertising: { ready: false, actualCutoff: null },
       },
       products: [{
         masterProductId: 'product-1',
@@ -105,7 +105,7 @@ describe('MasterProductProfitabilityReadService', () => {
         latestAttempt: null,
         latestComplete: null,
         completeGenerations: [],
-        status: 'MISSING',
+        ready: false,
       }),
       readGeneration: vi.fn(),
     };

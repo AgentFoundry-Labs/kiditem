@@ -39,7 +39,7 @@ const SourceCompleteSchema = z.object({
 const AdvertisingProfitabilitySourceViewSchema = z.object({
   latestAttempt: SourceAttemptSchema.nullable(),
   latestComplete: SourceCompleteSchema.nullable(),
-  status: z.enum(['READY', 'STALE', 'MISSING']),
+  ready: z.boolean(),
 }).strict();
 
 export type AdvertisingProfitabilitySourceView = z.infer<

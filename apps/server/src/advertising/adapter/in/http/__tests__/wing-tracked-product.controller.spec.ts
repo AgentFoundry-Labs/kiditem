@@ -53,7 +53,7 @@ describe('WingTrackedProductController source owner', () => {
 
   it('requires the owner token and forwards a complete snapshot envelope', async () => {
     const service = {
-      submitAttempt: vi.fn().mockResolvedValue({ status: 'READY' }),
+      submitAttempt: vi.fn().mockResolvedValue({ ready: true }),
     };
     const controller = new WingTrackedProductController(service as never);
     const attemptId = '22222222-2222-4222-8222-222222222222';
@@ -67,7 +67,7 @@ describe('WingTrackedProductController source owner', () => {
       attemptToken,
       body,
       ORGANIZATION_ID,
-    )).resolves.toEqual({ status: 'READY' });
+    )).resolves.toEqual({ ready: true });
     expect(service.submitAttempt).toHaveBeenCalledWith({
       organizationId: ORGANIZATION_ID,
       attemptId,

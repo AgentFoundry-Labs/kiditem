@@ -228,7 +228,7 @@ describe('Sellpia profitability source deep read', () => {
     });
 
     await expect(service.readSourceStatus(ORGANIZATION_ID)).resolves.toMatchObject({
-      status: 'STALE',
+      ready: false,
       latestAttempt: { attemptId: replacementId, state: 'RUNNING' },
       latestComplete: { sourceImportRunId: ATTEMPT_ID, generation: '7' },
     });

@@ -4,7 +4,7 @@ import { detectExtensionId, sendToExtension } from '@/lib/extension-bridge';
 const BASE = '/api/sourcing/1688-trends';
 
 export interface Sourcing1688TrendSourceStatus {
-  status: 'READY' | 'STALE' | 'MISSING';
+  ready: boolean;
   refreshing: boolean;
   latestAttempt: {
     attemptId: string;

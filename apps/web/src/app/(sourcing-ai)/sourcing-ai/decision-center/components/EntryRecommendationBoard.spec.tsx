@@ -63,7 +63,7 @@ describe('EntryRecommendationBoard review state', () => {
       terminalState: 'COMPLETE',
     });
     sourceOwnerMocks.fetchStatus.mockResolvedValue({
-      status: 'READY',
+      ready: true,
       refreshing: false,
       latestAttempt: null,
       latestComplete: null,

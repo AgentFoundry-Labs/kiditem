@@ -91,7 +91,7 @@ export type KeywordSerpSourceControl = z.infer<
 >;
 export const KeywordSerpSourceSchema = z
   .object({
-    status: z.enum(['READY', 'STALE', 'MISSING']),
+    ready: z.boolean(),
     refreshing: z.boolean(),
     latestAttempt: KeywordSerpSourceAttemptSchema.nullable(),
     latestComplete: KeywordSerpSourceAttemptSchema.nullable(),

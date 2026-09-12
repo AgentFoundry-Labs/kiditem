@@ -105,7 +105,7 @@ describe('Sourcing browser source owner (PostgreSQL)', () => {
 
     await complete(first, 'first-content');
     await expect(owner.readSourceStatus(statusInput())).resolves.toMatchObject({
-      status: 'READY',
+      ready: true,
       refreshing: false,
       latestAttempt: { attemptId: first.attemptId, state: 'COMPLETE' },
       latestComplete: { attemptId: first.attemptId, state: 'COMPLETE' },
@@ -113,7 +113,7 @@ describe('Sourcing browser source owner (PostgreSQL)', () => {
 
     const refresh = await begin('refresh');
     await expect(owner.readSourceStatus(statusInput())).resolves.toMatchObject({
-      status: 'READY',
+      ready: true,
       refreshing: true,
       latestAttempt: { attemptId: refresh.attemptId, state: 'RUNNING' },
       latestComplete: { attemptId: first.attemptId, state: 'COMPLETE' },
@@ -236,7 +236,7 @@ describe('Sourcing browser source owner (PostgreSQL)', () => {
       attemptId: incomplete.attemptId,
     });
     await expect(owner.readSourceStatus(statusInput())).resolves.toMatchObject({
-      status: 'STALE',
+      ready: false,
       latestAttempt: {
         attemptId: incomplete.attemptId,
         state: 'FAILED',
@@ -383,7 +383,7 @@ describe('Sourcing browser source owner (PostgreSQL)', () => {
       },
     })).resolves.toBe(1);
     await expect(owner.readSourceStatus(statusInput())).resolves.toMatchObject({
-      status: 'READY',
+      ready: true,
       latestComplete: { attemptId: second.attemptId },
     });
   });

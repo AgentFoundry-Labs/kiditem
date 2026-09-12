@@ -9,11 +9,11 @@ import type {
 } from '@kiditem/shared/product-operations';
 import { formatDateTime, formatNumber } from '@/lib/utils';
 
-const STATUS_LABEL: Record<ProductOperationsDataSourceStatus['status'], string> = {
-  READY: '최신',
-  STALE: '갱신 필요',
-  MISSING: '미수집',
-};
+/** Ready, or collected once but behind, or never collected. */
+function sourceLabel(source: { ready: boolean; actualCutoff: string | null }): string {
+  if (source.ready) return '최신';
+  return source.actualCutoff ? '갱신 필요' : '미수집';
+}
 
 export type ProductOperationsDataStatusFeedback = {
   tone: 'success' | 'warning' | 'error';
@@ -40,9 +40,9 @@ export function ProductOperationsDataStatusDialog({
   onRefresh: () => void;
 }) {
   const sourcesReady = data !== undefined
-    && data.sources.sellpia.status === 'READY'
-    && data.sources.advertising.status === 'READY'
-    && data.sources.mapping.status === 'READY';
+    && data.sources.sellpia.ready
+    && data.sources.advertising.ready
+    && data.sources.mapping.ready;
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
@@ -71,7 +71,7 @@ export function ProductOperationsDataStatusDialog({
               <SourceRow label="판매 지표" source={data.sources.traffic} />
               <SourceRow label="광고비" source={data.sources.advertising} />
               <SourceRow label="Sellpia 이익" source={data.sources.sellpia} />
-              <MappingRow status={data.sources.mapping.status} generation={data.sources.mapping.generation} />
+              <MappingRow ready={data.sources.mapping.ready} generation={data.sources.mapping.generation} />
             </section>
 
             {!sourcesReady ? <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">필수 원천이 준비될 때까지 기존 공식 등급은 유지됩니다.</p> : null}
@@ -111,7 +111,7 @@ function SourceRow({
   return (
     <div className="flex flex-wrap items-center gap-3 px-4 py-3">
       <div className="min-w-[92px] text-sm font-extrabold text-[var(--text-primary)]">{label}</div>
-      <span className="rounded-md bg-[var(--surface-sunken)] px-2 py-1 text-xs font-bold text-[var(--text-secondary)]">{STATUS_LABEL[source.status]}</span>
+      <span className="rounded-md bg-[var(--surface-sunken)] px-2 py-1 text-xs font-bold text-[var(--text-secondary)]">{sourceLabel(source)}</span>
       <div className="min-w-0 flex-1 text-right text-xs text-[var(--text-tertiary)]">
         <p>{source.actualCutoff ? `${source.actualCutoff}까지` : '수집 기준일 없음'}</p>
         <p>{source.capturedAt ? formatDateTime(source.capturedAt) : '수집 시각 없음'}</p>
@@ -122,16 +122,16 @@ function SourceRow({
 }
 
 function MappingRow({
-  status,
+  ready,
   generation,
 }: {
-  status: 'READY' | 'STALE' | 'MISSING';
+  ready: boolean;
   generation: string | null;
 }) {
   return (
     <div className="flex flex-wrap items-center gap-3 px-4 py-3">
       <div className="min-w-[92px] text-sm font-extrabold text-[var(--text-primary)]">상품 매핑</div>
-      <span className="rounded-md bg-[var(--surface-sunken)] px-2 py-1 text-xs font-bold text-[var(--text-secondary)]">{STATUS_LABEL[status]}</span>
+      <span className="rounded-md bg-[var(--surface-sunken)] px-2 py-1 text-xs font-bold text-[var(--text-secondary)]">{ready ? '최신' : '갱신 필요'}</span>
       <p className="min-w-0 flex-1 text-right text-xs text-[var(--text-tertiary)]">{generation ? `세대 ${generation}` : '매핑 세대 없음'}</p>
     </div>
   );

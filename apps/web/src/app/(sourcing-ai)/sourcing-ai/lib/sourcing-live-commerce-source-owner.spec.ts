@@ -48,10 +48,10 @@ describe('Live Commerce source-owner web seam', () => {
   });
 
   it('reads the current source status by the requested browser URL', async () => {
-    vi.mocked(apiClient.get).mockResolvedValue({ status: 'STALE' } as never);
+    vi.mocked(apiClient.get).mockResolvedValue({ ready: false } as never);
 
     await expect(fetchSourcingLiveCommerceSourceStatus('https://live.douyin.com/123?token=keep#private'))
-      .resolves.toEqual({ status: 'STALE' });
+      .resolves.toEqual({ ready: false });
     expect(apiClient.get).toHaveBeenCalledWith(
       '/api/sourcing/live-commerce/browser/current?url=https%3A%2F%2Flive.douyin.com%2F123%3Ftoken%3Dkeep%23private',
     );

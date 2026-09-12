@@ -167,7 +167,7 @@ export class AdKeywordSourceRepository {
         if (!account)
           return {
             channelAccountId: null,
-            status: 'MISSING',
+            ready: false,
             refreshing: false,
             latestAttempt: null,
             latestComplete: null,
@@ -195,13 +195,10 @@ export class AdKeywordSourceRepository {
           .slice(0, 10);
         return {
           channelAccountId: account.id,
-          status: !latestComplete
-            ? 'MISSING'
-            : latestComplete.plan.endDate === expectedEnd &&
-                latestComplete.plan.expectedAdvertiserId === resolveCoupangVendorId(account) &&
-                latestAttempt?.state !== 'FAILED'
-              ? 'READY'
-              : 'STALE',
+          ready: latestComplete !== null
+            && latestComplete.plan.endDate === expectedEnd
+            && latestComplete.plan.expectedAdvertiserId === resolveCoupangVendorId(account)
+            && latestAttempt?.state !== 'FAILED',
           refreshing: latestAttempt?.state === 'RUNNING',
           latestAttempt,
           latestComplete,

@@ -48,7 +48,7 @@ function trackedProduct(index: number) {
 
 function sourceStatus() {
   return {
-    status: 'READY' as const,
+    ready: true,
     latestAttempt: null,
     latestComplete: {
       sourceImportRunId: ATTEMPT_ID,
@@ -293,7 +293,7 @@ describe('ProductTrackingPage tracked-Wing source owner', () => {
       if (path === `${BASE}/attempts/current`) {
         return {
           ...sourceStatus(),
-          status: 'STALE' as const,
+          ready: false,
           latestAttempt: {
             attemptId: '30000000-0000-4000-8000-000000000001',
             state: 'FAILED' as const,

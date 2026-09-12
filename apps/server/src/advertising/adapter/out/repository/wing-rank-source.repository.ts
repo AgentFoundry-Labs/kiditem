@@ -327,11 +327,7 @@ export class WingRankSourceRepository {
             );
           }));
         return {
-          status: !complete
-            ? "MISSING"
-            : fresh && targetsMatch && latestAttempt?.state !== "FAILED"
-              ? "READY"
-              : "STALE",
+          ready: !!complete && !!fresh && !!targetsMatch && latestAttempt?.state !== "FAILED",
           refreshing: latestAttempt?.state === "RUNNING",
           latestAttempt,
           latestComplete: complete ? view(complete) : null,

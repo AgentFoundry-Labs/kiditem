@@ -725,7 +725,7 @@ export class ProfitabilityAdImportRepositoryAdapter
         latestAttempt: latestAttempt ? attemptSummary(latestAttempt) : null,
         latestComplete,
         completeGenerations: generations,
-        status: source.status,
+        ready: source.ready,
       };
     }, snapshotTransactionOptions());
   }
@@ -1023,7 +1023,7 @@ function sourceView(
       errorMessage: boundedErrorMessage(latestAttempt.errorMessage),
     } : null,
     latestComplete: latestCompleteView,
-    status: latestCompleteView === null ? 'MISSING' : ready ? 'READY' : 'STALE',
+    ready,
   };
 }
 

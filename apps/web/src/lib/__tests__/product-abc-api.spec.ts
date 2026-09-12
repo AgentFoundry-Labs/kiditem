@@ -40,14 +40,14 @@ describe('recalculateProductAbc', () => {
       officialCutoff: '2026-07-31',
       actualCutoff: '2026-07-31',
       sources: {
-        sellpia: source('STALE'),
-        advertising: source('READY'),
+        sellpia: source(false),
+        advertising: source(true),
       },
     });
 
     await expect(recalculateProductAbc()).resolves.toMatchObject({
       outcome: 'SOURCE_NOT_READY',
-      sources: { sellpia: { status: 'STALE' } },
+      sources: { sellpia: { ready: false } },
     });
   });
 
@@ -66,9 +66,9 @@ describe('recalculateProductAbc', () => {
   });
 });
 
-function source(status: 'READY' | 'STALE') {
+function source(ready: boolean) {
   return {
-    status,
+    ready,
     actualCutoff: '2026-07-31',
     latestAttemptState: 'COMPLETE',
     errorCode: null,

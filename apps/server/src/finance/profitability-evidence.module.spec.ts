@@ -160,7 +160,7 @@ function advertisingSnapshot(overrides: Record<string, unknown> = {}) {
     },
     latestComplete: summary,
     completeGenerations: [summary],
-    status: 'READY',
+    ready: true,
     ...overrides,
   };
 }
@@ -472,7 +472,7 @@ describe('ProfitabilityEvidence', () => {
     expect(result.actualCutoff).toBe('2026-08-31');
     expect(result.sourceVector.sellpia.coverageEndDate).toBe('2026-09-03');
     expect(result.sources.sellpia).toMatchObject({
-      status: 'READY',
+      ready: true,
       actualCutoff: '2026-08-31',
     });
     expect(result.products[0].formulaReadyFacts?.monthlyFacts.at(-1)).toMatchObject({
@@ -523,7 +523,7 @@ describe('ProfitabilityEvidence', () => {
         errorCode: 'PROVIDER_FAILED',
         errorMessage: 'provider unavailable',
       },
-      status: 'STALE',
+      ready: false,
     });
     const { service } = makeService({ advertisingSnapshot: snapshot });
 
@@ -533,7 +533,7 @@ describe('ProfitabilityEvidence', () => {
     });
 
     expect(result.sources.advertising).toMatchObject({
-      status: 'STALE',
+      ready: false,
       latestAttemptState: 'FAILED',
       errorCode: 'PROVIDER_FAILED',
       actualCutoff: '2026-08-31',
@@ -591,7 +591,7 @@ describe('ProfitabilityEvidence', () => {
         latestAttempt: null,
         latestComplete: null,
         completeGenerations: [],
-        status: 'MISSING',
+        ready: false,
       },
     });
 
@@ -600,9 +600,9 @@ describe('ProfitabilityEvidence', () => {
       targetCutoff: '2026-08-31',
     });
 
-    expect(result.sources.advertising).toMatchObject({ status: 'MISSING', actualCutoff: null });
+    expect(result.sources.advertising).toMatchObject({ ready: false, actualCutoff: null });
     expect(result.sources.sellpia).toMatchObject({
-      status: 'READY',
+      ready: true,
       actualCutoff: '2026-08-31',
     });
     expect(result.sourceVector.advertising.sourceImportRunId).toBeNull();
@@ -649,7 +649,7 @@ describe('ProfitabilityEvidence', () => {
       sourceImportRunId: adSummary.sourceImportRunId,
       mappingGeneration: '3',
     });
-    expect(result.sources.sellpia.status).toBe('STALE');
+    expect(result.sources.sellpia).toMatchObject({ ready: false, actualCutoff: '2026-08-31' });
   });
 
   it('does not mark a source pair ready when it is behind FormulaState mapping generation', async () => {
@@ -663,8 +663,8 @@ describe('ProfitabilityEvidence', () => {
     expect(result.mappingGeneration).toBeNull();
     expect(result.actualCutoff).toBeNull();
     expect(result.sources).toMatchObject({
-      sellpia: { status: 'STALE' },
-      advertising: { status: 'STALE' },
+      sellpia: { ready: false },
+      advertising: { ready: false },
     });
     expect(result.products[0].formulaReadyFacts).toBeNull();
   });
@@ -840,7 +840,7 @@ describe('ProfitabilityEvidence', () => {
     });
 
     expect(result.sources.sellpia).toMatchObject({
-      status: 'STALE',
+      ready: false,
       latestAttemptState: 'FAILED',
       errorCode: 'SELLPIA_PROVIDER_FAILED',
     });

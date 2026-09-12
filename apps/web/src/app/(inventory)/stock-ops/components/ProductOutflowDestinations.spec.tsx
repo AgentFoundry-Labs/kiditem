@@ -37,7 +37,7 @@ describe('ProductOutflowDestinations', () => {
     const item = destination('stale', '기존 등급 상품', '기본', null, 'A');
     item.abc = productAbcReadModel({
       displayStatus: 'SELLPIA_SOURCE_STALE',
-      sources: { ...item.abc.sources, sellpia: { ...item.abc.sources.sellpia, status: 'STALE', latestAttemptState: 'FAILED' } },
+      sources: { ...item.abc.sources, sellpia: { ...item.abc.sources.sellpia, ready: false, latestAttemptState: 'FAILED' } },
     });
     render(<ProductOutflowDestinations destinations={[item]} />);
     const link = screen.getByRole('link', { name: '기존 등급 상품 · 기본' });

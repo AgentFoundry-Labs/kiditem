@@ -31,7 +31,7 @@ const UNCLASSIFIED_ABC = {
 
 function missingAbcSource() {
   return {
-    status: 'MISSING' as const,
+    ready: false,
     sourceImportRunId: null,
     generation: null,
     coverageStartDate: null,

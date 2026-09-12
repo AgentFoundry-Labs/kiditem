@@ -142,11 +142,7 @@ export class RocketPoCatalogRepositoryAdapter implements RocketPoCatalogReposito
         });
         const latestAttempt = latest ? publicControl(latest) : null;
         return {
-          status: !complete
-            ? ('MISSING' as const)
-            : latestAttempt?.state === 'FAILED'
-              ? ('STALE' as const)
-              : ('READY' as const),
+          ready: !!complete && latestAttempt?.state !== 'FAILED',
           refreshing: latestAttempt?.state === 'RUNNING',
           latestAttempt,
           latestComplete: complete ? publicControl(complete) : null,

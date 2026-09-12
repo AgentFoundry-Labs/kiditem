@@ -220,7 +220,7 @@ test("Wing traffic daily v2 owner stages daily pages and one period summary with
     if (init.method === "POST" && path === `/api/ads/traffic/attempts/${attemptId}/complete`) {
       assert.deepEqual(JSON.parse(init.body), { manifestChecksum: state.current.manifestChecksum });
       state.setCurrent(control("COMPLETE", state.current.receipts));
-      return { status: "READY" };
+      return { ready: true };
     }
     return state.current;
   }, async (_input, owner) => {
@@ -339,7 +339,7 @@ test("Wing traffic daily v2 owner completes the window the provider confirmed", 
     }
     if (init.method === "POST" && path === `/api/ads/traffic/attempts/${attemptId}/complete`) {
       state.setCurrent(control("COMPLETE", state.current.receipts));
-      return { status: "READY" };
+      return { ready: true };
     }
     return state.current;
   }, async (_input, owner) => {

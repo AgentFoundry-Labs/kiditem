@@ -4,7 +4,7 @@ import { detectExtensionId, sendToExtension } from '@/lib/extension-bridge';
 const BASE = '/api/sourcing/tiktok-creative';
 
 export interface SourcingTiktokCcSourceStatus {
-  status: 'READY' | 'STALE' | 'MISSING';
+  ready: boolean;
   refreshing: boolean;
   latestAttempt: {
     attemptId: string;

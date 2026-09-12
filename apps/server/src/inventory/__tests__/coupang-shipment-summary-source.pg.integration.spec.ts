@@ -85,7 +85,7 @@ describe("Shipment summary owner HTTP + disposable PostgreSQL", () => {
       },
     });
     expect((await get("/source")).body).toMatchObject({
-      status: "MISSING",
+      ready: false,
       latestComplete: null,
       items: [{ date: "2026-08-01", count: 8, verified: false }],
     });
@@ -96,7 +96,7 @@ describe("Shipment summary owner HTTP + disposable PostgreSQL", () => {
     await complete(b, [row("2026-09-02", 2)]).expect(200);
     const current = (await get("/source")).body;
     expect(current).toMatchObject({
-      status: "READY",
+      ready: true,
       latestComplete: { attemptId: b.attemptId },
       capturedItems: [row("2026-09-02", 2)],
       items: [
@@ -112,7 +112,7 @@ describe("Shipment summary owner HTTP + disposable PostgreSQL", () => {
     await complete(empty, []).expect(200);
     const after = (await get("/source")).body;
     expect(after).toMatchObject({
-      status: "READY",
+      ready: true,
       latestComplete: { attemptId: empty.attemptId },
       capturedItems: [],
     });
@@ -158,7 +158,7 @@ describe("Shipment summary owner HTTP + disposable PostgreSQL", () => {
       },
     }).expect(400);
     expect((await get("/source")).body).toMatchObject({
-      status: "MISSING",
+      ready: false,
       capturedItems: [],
       latestAttempt: { state: "RUNNING" },
     });
@@ -223,9 +223,12 @@ describe("Shipment summary owner HTTP + disposable PostgreSQL", () => {
     expect((await complete(a, payload).expect(200)).body).toEqual(done);
     await complete(a, [row("2026-09-01", 3)]).expect(409);
     await fail(a, "late_failure").expect(409);
-    expect((await get("/source?maxPages=60")).body.status).toBe("STALE");
+    expect((await get("/source?maxPages=60")).body).toMatchObject({
+      ready: false,
+      latestComplete: { attemptId: a.attemptId },
+    });
     expect((await get("/source", OTHER_ORGANIZATION_ID)).body).toMatchObject({
-      status: "MISSING",
+      ready: false,
       items: [],
       capturedItems: [],
     });
@@ -242,7 +245,7 @@ describe("Shipment summary owner HTTP + disposable PostgreSQL", () => {
     const prior = (await get("/source")).body;
     const b = await begin("failed");
     expect((await get("/source")).body).toMatchObject({
-      status: "READY",
+      ready: true,
       refreshing: true,
     });
     await fail(b, "coupang_cookie_bloat").expect(201);
@@ -250,7 +253,7 @@ describe("Shipment summary owner HTTP + disposable PostgreSQL", () => {
     await fail(b, "coupang_cookie_bloat").expect(201);
     expect(await alerts.list(TEST_ORGANIZATION_ID)).toEqual(opened);
     expect((await get("/source")).body).toMatchObject({
-      status: "STALE",
+      ready: false,
       items: prior.items,
       capturedItems: prior.capturedItems,
     });
@@ -260,7 +263,7 @@ describe("Shipment summary owner HTTP + disposable PostgreSQL", () => {
       data: { expiresAt: new Date(0) },
     });
     expect((await get("/source")).body).toMatchObject({
-      status: "STALE",
+      ready: false,
       refreshing: false,
       latestAttempt: { errorCode: "ATTEMPT_EXPIRED" },
       items: prior.items,
@@ -308,7 +311,7 @@ describe("Shipment summary owner HTTP + disposable PostgreSQL", () => {
     await complete(a, [row("2026-09-01", 2)]).expect(200);
     await complete(a, [row("2026-09-01", 2)]).expect(200);
     expect((await get("/source")).body).toMatchObject({
-      status: "READY",
+      ready: true,
       capturedItems: [row("2026-09-01", 2)],
     });
   });

@@ -40,7 +40,7 @@ const attemptReadSchema = attemptSchema.extend({
   capturedItems: z.array(entrySchema),
 });
 const sourceSchema = z.object({
-  status: z.enum(["READY", "STALE", "MISSING"]),
+  ready: z.boolean(),
   refreshing: z.boolean(),
   latestAttempt: attemptSchema.nullable(),
   latestComplete: attemptSchema.nullable(),

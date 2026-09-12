@@ -127,7 +127,7 @@ test('visits every server-planned account and slice before completing', async ()
     async request(_environmentId, pathName, init = {}) {
       requests.push({ pathName, init });
       if (pathName === '/api/ads/profitability-imports') return response(plan);
-      if (pathName.endsWith('/complete')) return response({ status: 'READY' });
+      if (pathName.endsWith('/complete')) return response({ ready: true });
       return response({ replayed: false });
     },
     async collectSlice({ account, slice }) {
@@ -259,7 +259,7 @@ test('retries a direct receipt upload without changing its receipt identity', as
         if (uploadAttempts === 1) throw new TypeError('temporary network failure');
         return response({ replayed: false });
       }
-      if (pathName.endsWith('/complete')) return response({ status: 'READY' });
+      if (pathName.endsWith('/complete')) return response({ ready: true });
       return response({ status: 'FAILED' });
     },
     async collectSlice({ account, slice }) {
@@ -315,7 +315,7 @@ test('coalesces concurrent starts into one owner execution', async () => {
       if (pathName === '/api/ads/profitability-imports') return response(plan);
       if (pathName === `/api/ads/profitability-imports/${attemptId}`) return response(plan);
       if (pathName.includes('/slices/')) return response({ replayed: false });
-      if (pathName.endsWith('/complete')) return response({ status: 'READY' });
+      if (pathName.endsWith('/complete')) return response({ ready: true });
       throw new Error(`unexpected owner request: ${pathName}`);
     },
     async collectSlice({ account, slice }) {
@@ -393,7 +393,7 @@ test('rehydrates a still-running exact owner attempt after a service-worker rest
         return response(plan);
       }
       if (pathName.includes('/slices/')) return response({ replayed: false });
-      if (pathName.endsWith('/complete')) return response({ status: 'READY' });
+      if (pathName.endsWith('/complete')) return response({ ready: true });
       throw new Error(`unexpected owner request: ${pathName}`);
     },
     async collectSlice({ account, slice }) {
@@ -502,7 +502,7 @@ test('an explicit retry resumes the attention attempt instead of beginning anoth
         return response(plan);
       }
       if (pathName.includes('/slices/')) return response({ replayed: false });
-      if (pathName.endsWith('/complete')) return response({ status: 'READY' });
+      if (pathName.endsWith('/complete')) return response({ ready: true });
       throw new Error(`unexpected owner request: ${pathName}`);
     },
     async collectSlice({ account, slice }) {

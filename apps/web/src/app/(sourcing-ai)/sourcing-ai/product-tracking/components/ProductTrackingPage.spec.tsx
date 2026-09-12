@@ -64,7 +64,7 @@ describe('ProductTrackingPage bulk history', () => {
         };
       }
       if (path === `${BASE}/attempts/current`) {
-        return { status: 'MISSING', latestAttempt: null, latestComplete: null };
+        return { ready: false, latestAttempt: null, latestComplete: null };
       }
       if (/\/[^/]+\/history\?days=30$/.test(path)) {
         return { trackedProductId: 'unexpected', productName: 'unexpected', points: [] };

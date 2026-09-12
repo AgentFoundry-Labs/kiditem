@@ -20,7 +20,7 @@ describe('ProductOperationsDataStatusDialog', () => {
 
   it('keeps the official publication visible while labeling stale live data and both cutoffs', () => {
     const data = readyStatus();
-    data.sources.sellpia.status = 'STALE';
+    data.sources.sellpia.ready = false;
     data.sources.sellpia.actualCutoff = '2026-08-31';
     data.actualCutoff = '2026-08-31';
 
@@ -74,10 +74,10 @@ function readyStatus(): ProductOperationsDataStatus {
     publishedAt: '2026-08-01T00:00:00.000Z',
     actualCutoff: '2026-08-31',
     sources: {
-      traffic: source('READY'),
-      advertising: source('READY'),
-      sellpia: source('READY'),
-      mapping: { status: 'READY', generation: '7' },
+      traffic: source(true),
+      advertising: source(true),
+      sellpia: source(true),
+      mapping: { ready: true, generation: '7' },
     },
     abcSummary: {
       classifiedProductCount: 7,
@@ -88,12 +88,13 @@ function readyStatus(): ProductOperationsDataStatus {
   };
 }
 
-function source(status: 'READY' | 'STALE' | 'MISSING') {
+/** `collected: false` is the never-collected source: not ready and no cutoff to show. */
+function source(ready: boolean, collected = true) {
   return {
-    status,
-    actualCutoff: status === 'MISSING' ? null : '2026-08-31',
-    capturedAt: status === 'MISSING' ? null : '2026-09-01T00:00:00.000Z',
-    latestAttemptState: status === 'MISSING' ? null : 'COMPLETE' as const,
+    ready,
+    actualCutoff: collected ? '2026-08-31' : null,
+    capturedAt: collected ? '2026-09-01T00:00:00.000Z' : null,
+    latestAttemptState: collected ? 'COMPLETE' as const : null,
     errorCode: null,
   };
 }

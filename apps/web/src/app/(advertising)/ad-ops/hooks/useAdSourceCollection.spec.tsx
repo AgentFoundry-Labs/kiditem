@@ -72,7 +72,7 @@ function source(
 ) {
   return {
     channelAccountId: current?.channelAccountId ?? previous?.channelAccountId ?? null,
-    status: current?.state === 'COMPLETE' ? 'READY' : previous ? 'STALE' : 'MISSING',
+    ready: current?.state === 'COMPLETE',
     refreshing: current?.state === 'RUNNING',
     latestAttempt: current,
     latestComplete: current?.state === 'COMPLETE' ? current : previous,

@@ -203,7 +203,7 @@ test('Wing traffic owner stages exact page receipts and finalizes only complete 
         assert.equal(init.headers['x-source-attempt-token'], attemptToken);
         assert.deepEqual(JSON.parse(init.body), { manifestChecksum: current.manifestChecksum });
         current = trafficControl('COMPLETE', current.receipts);
-        return { status: 'READY' };
+        return { ready: true };
       }
       if (init?.method === 'POST' && path.endsWith('/complete')) {
         throw new Error(`unexpected Wing traffic terminal path: ${path}`);
