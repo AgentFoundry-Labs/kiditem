@@ -154,6 +154,30 @@ test("reports active legacy runtime references", async () => {
   );
 });
 
+test("ignores non-production local trees without hiding repository production", async () => {
+  await withFixture(
+    {
+      ".worktrees/old-checkout/apps/server/src/stale.ts":
+        "export class OperationRun {}\n",
+      ".secrets/extensions/old-staging-copy/background.js":
+        "export class OperationRun {}\n",
+      "agents/.venv/lib/python3.11/site-packages/vendor.js":
+        "export class OperationRun {}\n",
+      "graphify-out/cache/ast/stale.json": '"OperationRun"\n',
+      ".github/workflows/cutover.yml": "name: OperationRun\n",
+      "apps/server/src/orders/live.ts": "export class OperationRun {}\n",
+    },
+    {},
+    async (root) => {
+      const result = await scanOperationAutomationCutover(root);
+      assert.deepEqual(result.legacyReferences, [
+        ".github/workflows/cutover.yml:1:OperationRun",
+        "apps/server/src/orders/live.ts:1:OperationRun",
+      ]);
+    },
+  );
+});
+
 test("rejects server-side Coupang OpenAPI dependencies but allows Wing and internal HTTP", async () => {
   await withFixture(
     {

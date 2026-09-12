@@ -19,6 +19,9 @@ const READ_ONLY_PREFLIGHT_PATH =
 const IGNORED_DIRECTORIES = new Set([
   ".git",
   ".next",
+  ".secrets",
+  ".venv",
+  ".worktrees",
   "__tests__",
   "coverage",
   "dist",
@@ -26,6 +29,7 @@ const IGNORED_DIRECTORIES = new Set([
   "evals",
   "fixtures",
   "generated",
+  "graphify-out",
   "node_modules",
   "__mocks__",
   "__snapshots__",

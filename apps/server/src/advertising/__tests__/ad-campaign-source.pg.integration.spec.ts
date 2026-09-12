@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { json } from 'express';
 import {
   makeTestPrisma,
@@ -59,6 +59,9 @@ describe('Ad campaign source incoming HTTP + disposable PostgreSQL', () => {
   afterAll(async () => {
     await app?.close();
     await prisma?.$disconnect();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
   });
   beforeEach(async () => {
     await resetDb(prisma);
@@ -650,6 +653,9 @@ describe('Ad campaign source incoming HTTP + disposable PostgreSQL', () => {
   });
 
   it('keeps sweep campaign/action consumers authoritative while exact 7d reads select the latest successful manual report', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-09-06T14:59:00.000Z'));
+
     const sweepId = randomUUID();
     await prisma.sourceImportRun.create({
       data: {
