@@ -11,7 +11,7 @@ import {
   resolveChannelListingSaleStatus,
 } from '@kiditem/shared/channel-listing';
 import {
-  classifyDailyTrafficFact,
+  dailyTrafficFactSource,
   type DailyTrafficFactSource,
 } from '@kiditem/shared/advertising';
 import { PrismaService } from '../../../../prisma/prisma.service';
@@ -639,11 +639,12 @@ function dailyMetricFreshness(
 type ProductTrafficFact = ProductRow['channelListings'][number]['channelListingDailySnapshots'][number];
 
 function trafficFactSource(fact: ProductTrafficFact): DailyTrafficFactSource | null {
-  return classifyDailyTrafficFact(fact.metaJson, calendarDate(fact.businessDate));
+  return dailyTrafficFactSource(fact.metaJson);
 }
 
+/** A traffic row is a measurement only on a day the source reported. */
 function isAcceptedTrafficFact(fact: ProductTrafficFact): boolean {
-  return trafficFactSource(fact) !== null;
+  return fact.trafficObservedAt !== null;
 }
 
 function metadata(row: ProductRow) {

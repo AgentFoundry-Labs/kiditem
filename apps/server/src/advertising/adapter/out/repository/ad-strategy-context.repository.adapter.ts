@@ -16,7 +16,6 @@ import {
   AD_ACCOUNT_DAILY_KPI_READ_PORT,
   type AdAccountDailyKpiReadPort,
 } from '../../../application/port/in/ad-account-daily-kpi-source.port';
-import { classifyDailyTrafficFact } from '@kiditem/shared/advertising';
 import { periodBounds, type AdPeriod } from '../../../domain/ad-metrics';
 import {
   buildGradeMap,
@@ -80,7 +79,7 @@ export class AdStrategyContextRepositoryAdapter
           businessDate: true,
           trafficRevenue: true,
           trafficOrders: true,
-          metaJson: true,
+          trafficObservedAt: true,
         },
       }),
     ]);
@@ -127,10 +126,8 @@ export class AdStrategyContextRepositoryAdapter
       { revenue: number; orders: number }
     >();
     for (const row of trafficAgg) {
-      if (
-        !row.listingId
-        || classifyDailyTrafficFact(row.metaJson, calendarDate(row.businessDate)) === null
-      ) continue;
+      // A traffic row is a measurement only on a day the source reported.
+      if (!row.listingId || row.trafficObservedAt === null) continue;
       const current = trafficByListing.get(row.listingId) ?? { revenue: 0, orders: 0 };
       current.revenue += row.trafficRevenue;
       current.orders += row.trafficOrders;
@@ -433,7 +430,7 @@ export class AdStrategyContextRepositoryAdapter
             businessDate: true,
             trafficRevenue: true,
             trafficOrders: true,
-            metaJson: true,
+            trafficObservedAt: true,
           },
         }),
       ]);
@@ -442,8 +439,7 @@ export class AdStrategyContextRepositoryAdapter
     const recentReviewCounts = reviewStatsRead.recent;
     const trafficRows: ListingTrafficDailyRow[] = trafficDailyRows.flatMap(
       (row) =>
-        row.listingId
-          && classifyDailyTrafficFact(row.metaJson, calendarDate(row.businessDate)) !== null
+        row.listingId && row.trafficObservedAt !== null
           ? [
               {
                 listingId: row.listingId,

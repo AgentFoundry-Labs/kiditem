@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ProductOperationsDataStatusRepositoryAdapter } from './product-operations-data-status.repository.adapter';
 
 const ORGANIZATION_ID = '00000000-0000-4000-8000-000000000001';
-const SOURCE_ATTEMPT_ID = '00000000-0000-4000-8000-000000000010';
 
 describe('ProductOperationsDataStatusRepositoryAdapter traffic readiness', () => {
   beforeEach(() => {
@@ -43,10 +42,7 @@ describe('ProductOperationsDataStatusRepositoryAdapter traffic readiness', () =>
     const { prisma } = makePrisma([
       ...['2026-08-28', '2026-08-29', '2026-08-30', '2026-08-31', '2026-09-01', '2026-09-02']
         .map((date) => trafficRow(date)),
-      trafficRow('2026-09-03', {
-        source: 'wing.traffic',
-        data: { periodDays: 3, businessDate: '2026-09-03' },
-      }),
+      trafficRow('2026-09-03', false),
     ]);
     const adapter = new ProductOperationsDataStatusRepositoryAdapter(
       prisma as never,
@@ -87,22 +83,11 @@ describe('ProductOperationsDataStatusRepositoryAdapter traffic readiness', () =>
   });
 });
 
-function trafficRow(
-  date: string,
-  metaJson: Record<string, unknown> = {
-    'wing.traffic': {
-      grain: 'listing_option_sum',
-      scope: 'matched_listings',
-      periodDays: 1,
-      sourceAttemptId: SOURCE_ATTEMPT_ID,
-      businessDate: date,
-    },
-  },
-) {
+/** A day the traffic source reported, or (`observed: false`) one it never did. */
+function trafficRow(date: string, observed = true) {
   return {
     businessDate: new Date(`${date}T00:00:00.000Z`),
-    metaJson,
-    trafficObservedAt: new Date(`${date}T02:00:00.000Z`),
+    trafficObservedAt: observed ? new Date(`${date}T02:00:00.000Z`) : null,
     lastObservedAt: new Date(`${date}T02:00:00.000Z`),
   };
 }

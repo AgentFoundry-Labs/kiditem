@@ -1,6 +1,4 @@
 import { Inject, Injectable } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
-import { classifyDailyTrafficFact } from '@kiditem/shared/advertising';
 import {
   MASTER_PRODUCT_PROFITABILITY_READ_PORT,
   type ProfitabilityEvidence,
@@ -22,7 +20,6 @@ type TrafficFact = {
   businessDate: Date;
   lastObservedAt: Date;
   trafficObservedAt: Date | null;
-  metaJson: Prisma.JsonValue | null;
 };
 
 @Injectable()
@@ -53,19 +50,11 @@ implements ProductOperationsDataStatusRepositoryPort {
             lte: utcCalendarDate(cutoffDate),
           },
           listing: { is: { organizationId, masterProductId: { not: null } } },
-          OR: [
-            { trafficCoverageStatus: { not: null } },
-            { trafficVisitors: { not: 0 } },
-            { trafficViews: { not: 0 } },
-            { trafficCartAdds: { not: 0 } },
-            { trafficOrders: { not: 0 } },
-            { trafficSalesQty: { not: 0 } },
-            { trafficRevenue: { not: 0 } },
-          ],
+          // A traffic row is a measurement only on a day the source reported.
+          trafficObservedAt: { not: null },
         },
         select: {
           businessDate: true,
-          metaJson: true,
           trafficObservedAt: true,
           lastObservedAt: true,
         },
@@ -131,7 +120,7 @@ function sourceStatus(
   const validRows = rows.filter((row) =>
     calendarDate(row.businessDate) >= periodStart
       && calendarDate(row.businessDate) <= cutoffDate
-      && classifyDailyTrafficFact(row.metaJson, calendarDate(row.businessDate)) !== null,
+      && row.trafficObservedAt !== null,
   );
   if (validRows.length === 0) {
     return {

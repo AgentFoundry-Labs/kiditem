@@ -4,7 +4,7 @@ import {
   AdTrafficSourcePeriodReceiptInputSchema,
   AdTrafficSourceReceiptInputSchema,
   AdTrafficSourceReceiptSchema,
-  classifyDailyTrafficFact,
+  dailyTrafficFactSource,
 } from './ad-traffic-source';
 
 const accountSummary = {
@@ -58,93 +58,36 @@ describe('Wing traffic daily v2 wire', () => {
     }).success).toBe(false);
   });
 
-  it('accepts only a namespaced Wing daily listing projection for product consumers', () => {
-    const sourceAttemptId = '00000000-0000-4000-8000-000000000010';
-    expect(classifyDailyTrafficFact({
-      'wing.traffic': {
-        grain: 'listing_option_sum',
-        scope: 'matched_listings',
-        periodDays: 1,
-        sourceAttemptId,
-        businessDate: '2026-09-03',
-      },
-    }, '2026-09-03')).toBe('wing');
-    expect(classifyDailyTrafficFact({
-      source: 'wing.traffic',
-      data: {
-        grain: 'listing_option_sum',
-        scope: 'matched_listings',
-        periodDays: 3,
-        sourceAttemptId,
-        businessDate: '2026-09-03',
-      },
-    }, '2026-09-03')).toBeNull();
-    expect(classifyDailyTrafficFact({
-      'wing.traffic': {
-        periodDays: 1,
-        sourceAttemptId,
-        businessDate: '2026-09-03',
-      },
-    }, '2026-09-03')).toBeNull();
-  });
-
-  it('keeps explicit CSV uploads independent from Wing account UV', () => {
-    expect(classifyDailyTrafficFact({
-      'traffic.csv_upload': {
-        source: 'traffic_csv_upload',
-        data: { fileName: 'traffic.csv' },
-      },
-    }, '2026-09-03')).toBe('csv_upload');
-    expect(classifyDailyTrafficFact({
-      'wing.traffic': {
-        grain: 'listing_option_sum',
-        scope: 'matched_listings',
-        periodDays: 1,
-        sourceAttemptId: '00000000-0000-4000-8000-000000000010',
-        businessDate: '2026-09-02',
-      },
-    }, '2026-09-03')).toBeNull();
+  it('names the writer of a traffic fact from its namespace', () => {
+    expect(dailyTrafficFactSource({ 'wing.traffic': { grain: 'listing_option_sum' } })).toBe('wing');
+    expect(dailyTrafficFactSource({ source: 'wing.traffic', data: { periodDays: 7 } })).toBe('wing');
+    expect(dailyTrafficFactSource({
+      'traffic.csv_upload': { source: 'traffic_csv_upload', data: { fileName: 'traffic.csv' } },
+    })).toBe('csv_upload');
+    expect(dailyTrafficFactSource(null)).toBeNull();
+    expect(dailyTrafficFactSource({})).toBeNull();
   });
 
   it('uses the explicit active writer marker when both namespaces are retained', () => {
-    const sourceAttemptId = '00000000-0000-4000-8000-000000000010';
-    const wing = {
-      grain: 'listing_option_sum',
-      scope: 'matched_listings',
-      periodDays: 1,
-      sourceAttemptId,
-      businessDate: '2026-09-03',
-    };
+    const wing = { grain: 'listing_option_sum' };
     const csv = { source: 'traffic_csv_upload', data: { fileName: 'traffic.csv' } };
-
-    expect(classifyDailyTrafficFact({
-      'traffic.currentSource': 'traffic.csv_upload',
-      'wing.traffic': wing,
-      'traffic.csv_upload': csv,
-    }, '2026-09-03')).toBe('csv_upload');
-    expect(classifyDailyTrafficFact({
-      'traffic.currentSource': 'wing.traffic',
-      'wing.traffic': wing,
-      'traffic.csv_upload': csv,
-    }, '2026-09-03')).toBe('wing');
+    expect(dailyTrafficFactSource({
+      'traffic.currentSource': 'traffic.csv_upload', 'wing.traffic': wing, 'traffic.csv_upload': csv,
+    })).toBe('csv_upload');
+    expect(dailyTrafficFactSource({
+      'traffic.currentSource': 'wing.traffic', 'wing.traffic': wing, 'traffic.csv_upload': csv,
+    })).toBe('wing');
   });
 
-  it('fails closed when retained namespaces have no active-writer marker', () => {
-    const sourceAttemptId = '00000000-0000-4000-8000-000000000010';
-    expect(classifyDailyTrafficFact({
-      'wing.traffic': {
-        grain: 'listing_option_sum',
-        scope: 'matched_listings',
-        periodDays: 1,
-        sourceAttemptId,
-        businessDate: '2026-09-03',
-      },
+  it('names no writer when retained namespaces have no marker or the marker is unknown', () => {
+    expect(dailyTrafficFactSource({
+      'wing.traffic': { grain: 'listing_option_sum' },
       'traffic.csv_upload': { source: 'traffic_csv_upload', data: {} },
-    }, '2026-09-03')).toBeNull();
-    expect(classifyDailyTrafficFact({
+    })).toBeNull();
+    expect(dailyTrafficFactSource({
       'traffic.currentSource': 'unknown',
       'traffic.csv_upload': { source: 'traffic_csv_upload', data: {} },
-    }, '2026-09-03')).toBeNull();
+    })).toBeNull();
   });
 
   it('requires account summary evidence on the first daily page', () => {

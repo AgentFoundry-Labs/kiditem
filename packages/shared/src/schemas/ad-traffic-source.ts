@@ -496,15 +496,17 @@ export type AdTrafficSourceDailyPublished = z.infer<typeof AdTrafficSourceDailyP
 export type AdTrafficSourcePublished = z.infer<typeof AdTrafficSourcePublishedSchema>;
 
 /**
- * Identifies which producer owns the traffic values on a channel daily fact.
+ * Which producer wrote the traffic values on a channel daily fact.
  *
  * Listing-level Wing projections are additive for views/cart adds/orders/sold
  * units/GMV, but their visitor values are not account unique visitors. CSV
  * uploads remain an explicit, independent listing-fact source.
+ *
+ * This names the writer and nothing else. Whether the row is a measurement at
+ * all is the row's own `trafficObservedAt`: a day the source reported carries
+ * the moment it was observed, and a day it never reported carries nothing.
  */
 export type DailyTrafficFactSource = 'wing' | 'csv_upload';
-
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function record(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value)
@@ -512,52 +514,16 @@ function record(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-/**
- * Classifies a persisted channel listing traffic fact without accepting the
- * old Wing period-as-day shape. The direct `source`/`data` form is retained
- * as a read-only compatibility path for rows written before namespaced
- * metadata was corrected; it is still accepted only when the complete v2
- * daily contract is present.
- */
-export function classifyDailyTrafficFact(
-  metaJson: unknown,
-  businessDate: string,
-): DailyTrafficFactSource | null {
+export function dailyTrafficFactSource(metaJson: unknown): DailyTrafficFactSource | null {
   const root = record(metaJson);
   if (!root) return null;
-
-  const namespacedWing = root['wing.traffic'];
-  const csvMeta = record(root['traffic.csv_upload']);
-  const sourceMarker = root['traffic.currentSource'];
-
-  if (sourceMarker !== undefined) {
-    if (sourceMarker === 'traffic.csv_upload') return csvMeta ? 'csv_upload' : null;
-    if (sourceMarker === 'wing.traffic') {
-      return isValidWingDailyMeta(record(namespacedWing), businessDate) ? 'wing' : null;
-    }
-    return null;
-  }
-
-  // Without an explicit active-writer marker, two retained namespaces are
-  // ambiguous. A single namespace keeps the read-only compatibility path for
-  // rows written before the marker was introduced.
-  if (csvMeta && (record(namespacedWing) || root.source === 'wing.traffic')) return null;
-  const wingMeta = record(namespacedWing)
-    ?? (root.source === 'wing.traffic' ? record(root.data) : null);
-  if (wingMeta) return isValidWingDailyMeta(wingMeta, businessDate) ? 'wing' : null;
-  return csvMeta ? 'csv_upload' : null;
-}
-
-function isValidWingDailyMeta(
-  wingMeta: Record<string, unknown> | null,
-  businessDate: string,
-): boolean {
-  if (!wingMeta) return false;
-  const sourceAttemptId = wingMeta.sourceAttemptId;
-  return wingMeta.grain === 'listing_option_sum'
-    && wingMeta.scope === 'matched_listings'
-    && wingMeta.periodDays === 1
-    && typeof sourceAttemptId === 'string'
-    && UUID_PATTERN.test(sourceAttemptId)
-    && wingMeta.businessDate === businessDate;
+  const marker = root['traffic.currentSource'];
+  if (marker === 'traffic.csv_upload') return 'csv_upload';
+  if (marker === 'wing.traffic') return 'wing';
+  if (marker !== undefined) return null;
+  // Rows written before the active-writer marker carry one namespace.
+  const wing = record(root['wing.traffic']) !== null || root.source === 'wing.traffic';
+  const csv = record(root['traffic.csv_upload']) !== null;
+  if (wing && csv) return null;
+  return wing ? 'wing' : csv ? 'csv_upload' : null;
 }

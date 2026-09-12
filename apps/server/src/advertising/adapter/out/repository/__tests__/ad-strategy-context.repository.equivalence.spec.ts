@@ -122,7 +122,7 @@ describe('AdStrategyContextRepositoryAdapter — loadStrategyContext equivalence
             lte: expect.any(Date),
           },
         }),
-        select: expect.objectContaining({ metaJson: true }),
+        select: expect.objectContaining({ trafficObservedAt: true }),
       }),
     );
   });
@@ -135,16 +135,15 @@ describe('AdStrategyContextRepositoryAdapter — loadStrategyContext equivalence
         businessDate: new Date('2026-05-01T00:00:00.000Z'),
         trafficRevenue: 99_999,
         trafficOrders: 99,
-        metaJson: {
-          source: 'wing.traffic',
-          data: { periodDays: 3, businessDate: '2026-05-01' },
-        },
+        // Never reported by the traffic source: not a measurement.
+        trafficObservedAt: null,
       },
       {
         listingId: 'daily-listing',
         businessDate: new Date('2026-05-01T00:00:00.000Z'),
         trafficRevenue: 123,
         trafficOrders: 2,
+        trafficObservedAt: new Date('2026-05-01T02:00:00.000Z'),
         metaJson: {
           'wing.traffic': {
             grain: 'listing_option_sum',
