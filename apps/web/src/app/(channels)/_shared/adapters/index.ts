@@ -7,6 +7,11 @@ import { artgongguAdapter } from './artgonggu.adapter';
 import { alwayzAdapter } from './alwayz.adapter';
 import { teachervilleAdapter } from './teacherville.adapter';
 import { elevenstAdapter } from './elevenst.adapter';
+import { icecreamAdapter } from './icecream.adapter';
+import { esmplusAdapter } from './esmplus.adapter';
+import { boriboriAdapter } from './boribori.adapter';
+import { kkomangseAdapter } from './kkomangse.adapter';
+import { thirtymallAdapter } from './thirtymall.adapter';
 
 /**
  * 등록 어댑터 레지스트리.
@@ -27,6 +32,12 @@ export const MALL_PUBLISH_ADAPTERS: readonly MallPublishAdapter[] = [
   alwayzAdapter,
   teachervilleAdapter,
   elevenstAdapter,
+  icecreamAdapter,
+  // G마켓 · 옥션을 한 번에 맡는다. 옥션용을 따로 만들면 같은 폼을 두 번 연다.
+  esmplusAdapter,
+  boriboriAdapter,
+  kkomangseAdapter,
+  thirtymallAdapter,
 ];
 
 const BY_KEY = new Map(MALL_PUBLISH_ADAPTERS.map((adapter) => [adapter.mallKey, adapter]));
@@ -39,6 +50,19 @@ export function hasMallPublishAdapter(mallKey: string): boolean {
   return BY_KEY.has(mallKey);
 }
 
+/**
+ * 이 몰로 상품이 올라가게 하는 어댑터. 제 어댑터가 없어도 다른 몰 등록에 함께 실리는
+ * 몰(옥션 ← G마켓 ESM)이면 그 어댑터를 준다. 없으면 null.
+ *
+ * `getMallPublishAdapter` 와 다르다 — 그건 '이 몰로 보내는 버튼' 을 만들 때 쓰고, 옥션에
+ * 버튼이 따로 생기면 같은 상품을 두 번 올린다. 이건 '이 몰에 올라가는가' 를 말할 때만 쓴다.
+ */
+export function registrationAdapterFor(mallKey: string): MallPublishAdapter | null {
+  return BY_KEY.get(mallKey)
+    ?? MALL_PUBLISH_ADAPTERS.find((adapter) => adapter.alsoPublishesTo?.includes(mallKey))
+    ?? null;
+}
+
 export {
   coupangWingAdapter,
   kidsnoteAdapter,
@@ -48,4 +72,9 @@ export {
   alwayzAdapter,
   teachervilleAdapter,
   elevenstAdapter,
+  icecreamAdapter,
+  esmplusAdapter,
+  boriboriAdapter,
+  kkomangseAdapter,
+  thirtymallAdapter,
 };

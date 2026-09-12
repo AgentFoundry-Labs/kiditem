@@ -54,6 +54,94 @@ export function browserCollectionRunIdFromOperationKey(
   return parsed.success ? parsed.data : null;
 }
 
+/** 확장은 수집 세션을 7일만 둔다 (`extensions/shared/collection-session.js` 의 RETENTION_MS). */
+export const BROWSER_COLLECTION_SESSION_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+
+const EXPIRED_COLLECTION_MESSAGE =
+  '7일 넘게 멈춰 있던 수집이라 정리했습니다. 확장에 이 수집 기록이 더 이상 없습니다.';
+
+type BrowserCollectionAlertLike = {
+  /** 알림 id. 있으면 닫은 뒤 읽음으로 둬 전역 알림판 배지에서도 뺀다. */
+  id?: string;
+  status: string;
+  operationKey: string | null;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+};
+
+function lastCollectionUpdate(alert: BrowserCollectionAlertLike): number {
+  const updatedAt = alert.metadata.collectionUpdatedAt;
+  return typeof updatedAt === 'number' && Number.isFinite(updatedAt)
+    ? updatedAt
+    : Date.parse(alert.createdAt);
+}
+
+/**
+ * 어느 브라우저에도 세션이 남아 있을 수 없는, 멈춘 수집 알림인가.
+ *
+ * 확장은 7일 지난 세션을 지운다. 마지막 갱신이 그보다 오래된 running·pending 수집 알림은
+ * 다시 움직일 길이 없다 — '작업 중단'도 확장에 세션이 없어 실패한다. 다른 브라우저에 아직
+ * 살아 있을 수 있는 7일 안의 알림은 여기에 들지 않는다.
+ */
+export function isExpiredBrowserCollectionAlert(
+  alert: BrowserCollectionAlertLike,
+  now: number = Date.now(),
+): boolean {
+  if (alert.status !== 'pending' && alert.status !== 'running') return false;
+  if (!browserCollectionRunIdFromOperationKey(alert.operationKey)) return false;
+  const updatedAt = lastCollectionUpdate(alert);
+  return Number.isFinite(updatedAt) && now - updatedAt > BROWSER_COLLECTION_SESSION_RETENTION_MS;
+}
+
+/**
+ * 그런 알림을 '취소'로 닫고 읽음으로 둔다. 브라우저 수집 알림의 수명주기는 웹이 가지므로
+ * 같은 PATCH 경로로, 순서 메타데이터를 새로 붙여 닫는다. 다른 사람이 연 알림(404)은
+ * 건너뛴다. 주문·몰 데이터는 건드리지 않는다.
+ */
+export async function closeExpiredBrowserCollectionAlerts(
+  alerts: readonly BrowserCollectionAlertLike[],
+  now: number = Date.now(),
+): Promise<{ closed: string[]; skipped: number; failed: number }> {
+  const closed: string[] = [];
+  let skipped = 0;
+  let failed = 0;
+  for (const alert of alerts) {
+    if (!alert.operationKey || !isExpiredBrowserCollectionAlert(alert, now)) continue;
+    const attempt = alert.metadata.collectionAttempt;
+    try {
+      const updated = await updateOperationAlert(alert.operationKey, {
+        status: 'cancelled',
+        message: EXPIRED_COLLECTION_MESSAGE,
+        severity: 'info',
+        metadata: {
+          browserCollection: true,
+          collectionAttempt:
+            typeof attempt === 'number' && Number.isInteger(attempt) && attempt >= 1 ? attempt : 1,
+          collectionUpdatedAt: now,
+          staleReconciled: true,
+          staleReconciledReason: 'browser_session_expired',
+        },
+      });
+      if (!updated) {
+        skipped += 1;
+        continue;
+      }
+      closed.push(alert.operationKey);
+      if (alert.id) {
+        // 읽음으로 둬야 전역 알림판 배지에서도 빠진다. 실패해도 닫힌 것은 닫힌 것이다.
+        try {
+          await apiClient.post(`/api/alerts/${encodeURIComponent(alert.id)}/dismiss`);
+        } catch {
+          // 읽음 처리만 못 했다 — 다음에 정리할 때 다시 시도된다.
+        }
+      }
+    } catch {
+      failed += 1;
+    }
+  }
+  return { closed, skipped, failed };
+}
+
 function progressRatio(
   progress: BrowserCollectionSessionView['progress'],
 ): number | null {
@@ -62,6 +150,9 @@ function progressRatio(
 }
 
 function alertMetadata(session: BrowserCollectionSessionView) {
+  // 몰 주문수집 알림은 몰마다 제목이 '주문 데이터 수집' 으로 같다. 어느 몰 일인지는 세션
+  // inputIdentity 의 mallKey 뿐이라 알림에도 남긴다 — 쇼핑몰 홈이 몰별로 알림을 모은다.
+  const mallKey = session.inputIdentity.mallKey;
   return {
     browserCollection: true,
     runId: session.runId,
@@ -69,6 +160,7 @@ function alertMetadata(session: BrowserCollectionSessionView) {
     collectionAttempt: session.attempt,
     collectionUpdatedAt: session.updatedAt,
     attentionReason: session.attention?.reason ?? null,
+    mallKey: typeof mallKey === 'string' && mallKey.length > 0 ? mallKey : null,
   };
 }
 

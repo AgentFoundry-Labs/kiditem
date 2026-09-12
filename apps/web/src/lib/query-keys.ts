@@ -189,11 +189,19 @@ export const queryKeys = {
   coupangDashboard: {
     all: ['coupangDashboard'] as const,
     kpis: () => [...queryKeys.coupangDashboard.all, 'kpis'] as const,
+    // 요약 전체(발주확인 대기 등). kpis 는 손익 화면이 lastModifiedAt 하나로 접어 캐시하므로 섞지 않는다.
+    summary: () => [...queryKeys.coupangDashboard.all, 'summary'] as const,
     trend: (params: Record<string, string>) => [...queryKeys.coupangDashboard.all, 'trend', params] as const,
     ranking: (params: Record<string, string>) => [...queryKeys.coupangDashboard.all, 'ranking', params] as const,
     returnSummary: (params: Record<string, string>) => [...queryKeys.coupangDashboard.all, 'returnSummary', params] as const,
     returnReasons: (params: Record<string, string>) => [...queryKeys.coupangDashboard.all, 'returnReasons', params] as const,
     returnFaultSplit: (params: Record<string, string>) => [...queryKeys.coupangDashboard.all, 'returnFaultSplit', params] as const,
+  },
+  mallOperationOutcomes: {
+    all: ['mallOperationOutcomes'] as const,
+    summary: (days: number) => [...queryKeys.mallOperationOutcomes.all, 'summary', days] as const,
+    recent: (params: { operation?: string; mallKey?: string; limit?: number }) =>
+      [...queryKeys.mallOperationOutcomes.all, 'recent', params] as const,
   },
   logs: {
     all: ['logs'] as const,

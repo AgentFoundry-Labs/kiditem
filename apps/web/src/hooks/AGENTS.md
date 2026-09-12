@@ -17,6 +17,23 @@ needs them.
   callback shared by the order screen and dashboard.
 - `useUrlControlledTab()` for allow-listed canonical workspace selection while
   preserving query parameters owned by nested views and filters.
+- `useMallAgentLoopRunner()` is the only place that drives the mall agent loop
+  on a timer; `useMallAgentLoop()` is the read/toggle view for screens. The
+  runner composes existing shared actions (`sweepMallSessions`,
+  `usePersistedAllMarketplaceOrderCollection`) instead of new collectors, skips
+  a round when another tab holds the lock, and never performs irreversible mall
+  work. Loop settings and schedule live in `lib/mall-agent-loop.ts`.
+- A round collects only the malls a human is not already blocking. The probe's
+  `signedOutKeys` plus the auto-login blocks become `collectAllOrders`'
+  skip list. Collecting a signed-out mall only opens its login page, fails, and
+  leaves one more mall tab behind; those tabs pile up every round until the
+  service worker misses its deadline and healthy malls report an extension
+  timeout. `unknown` is not a skip — no signal is not a logged-out signal.
+- A mall that did not answer in time is asked **once** more at the end of the
+  round (`RECHECK_LIMIT` of them), because a busy service worker usually answers
+  the second time. The re-check never re-checks its own result, so the pass count
+  is fixed by construction and cannot spin; a second silence is recorded as
+  응답 없음 and left for the next round.
 
 ## State Rules
 

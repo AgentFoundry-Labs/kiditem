@@ -1,4 +1,4 @@
-import type { MallProductDraft } from './mall-product-draft';
+import { KIDITEM_AS_PHONE, MallProductDraft } from './mall-product-draft';
 
 /**
  * 몰 중립 초안 → 도매꾹 상품공급사센터 등록 폼.
@@ -81,7 +81,7 @@ export const DOMEGGOOK_CHILD_NOTICE_DEFAULTS: Record<string, string> = {
   제조국: '중국',
   취급방법: '상세설명참조',
   품질보증기준: '상세설명참조',
-  AS책임자: '고객센터 031-908-5401',
+  AS책임자: `고객센터 ${KIDITEM_AS_PHONE}`,
 };
 
 /** 기본정보 고정값. 실측 전 상품 동일. */

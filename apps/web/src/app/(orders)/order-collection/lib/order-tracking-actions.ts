@@ -26,6 +26,20 @@ import {
 } from './order-collection-page-model';
 import { resolveOrderCollectionMallKey } from './order-collection-malls';
 import type { OrderCollectionMallAccount } from './order-mall-account-api';
+import {
+  recordMallOperationOutcome,
+  type MallOperationOutcomeInput,
+} from '@/lib/mall-operation-outcomes-api';
+
+type TrackingRecord = Pick<MallOperationOutcomeInput, 'outcome' | 'reasonCode' | 'itemCount' | 'failedCount'>;
+
+/**
+ * 송장 전송 결과를 기억(몰 작업 결과)에 한 줄 남긴다. 받는 사람 · 주소 · 주문번호 · 송장번호가
+ * 섞일 수 있어 메시지는 넣지 않는다 — 개수와 이유 코드만.
+ */
+function rememberTracking(mallKey: string, record: TrackingRecord): void {
+  void recordMallOperationOutcome({ mallKey, operation: 'tracking_upload', trigger: 'manual', ...record });
+}
 
 interface UploadTrackingOptions {
   account: OrderCollectionMallAccount;
@@ -211,6 +225,7 @@ export async function uploadTrackingForMall({
         id: toastId,
         duration: 9000,
       });
+      rememberTracking(account.key, { outcome: 'empty', reasonCode: 'no_tracking_numbers', itemCount: 0 });
       return;
     }
 
@@ -271,6 +286,12 @@ export async function uploadTrackingForMall({
           + '출고완료 일괄등록 화면에서 [파일선택]으로 올려주세요.',
         { id: toastId, duration: 9000 },
       );
+      // 파일까지만 만들었다. 올리는 것은 사람이다.
+      rememberTracking(account.key, {
+        outcome: 'attention',
+        reasonCode: 'manual_upload_required',
+        itemCount: result.matchedRows,
+      });
       return;
     }
 
@@ -280,12 +301,24 @@ export async function uploadTrackingForMall({
       );
       if (!confirmed) {
         toast.info('온채널 송장 등록을 취소했습니다.', { id: toastId });
+        rememberTracking(account.key, { outcome: 'cancelled', reasonCode: 'declined' });
         return;
       }
 
       toast.loading('온채널에 송장 등록 중…', { id: toastId });
       const uploaded = await uploadOnchTrackingViaExtension(tracking);
       const failed = uploaded.results.filter((result) => !result.ok);
+      rememberTracking(
+        account.key,
+        uploaded.okCount > 0
+          ? {
+              outcome: 'succeeded',
+              reasonCode: failed.length > 0 ? 'partial' : null,
+              itemCount: uploaded.okCount,
+              failedCount: failed.length,
+            }
+          : { outcome: 'attention', reasonCode: 'no_matching_orders', itemCount: 0, failedCount: failed.length },
+      );
       if (uploaded.okCount > 0) {
         toast.success(
           `온채널 송장 ${formatNumber(uploaded.okCount)}/${formatNumber(uploaded.total)}건 등록 완료`,
@@ -316,12 +349,24 @@ export async function uploadTrackingForMall({
       );
       if (!confirmed) {
         toast.info('키드키즈 송장 등록을 취소했습니다.', { id: toastId });
+        rememberTracking(account.key, { outcome: 'cancelled', reasonCode: 'declined' });
         return;
       }
 
       toast.loading('키드키즈에 송장 등록 중…', { id: toastId });
       const uploaded = await uploadKidkidsTrackingViaExtension(tracking);
       const failed = uploaded.results.filter((result) => !result.ok);
+      rememberTracking(
+        account.key,
+        uploaded.submitted && uploaded.okCount > 0
+          ? {
+              outcome: 'succeeded',
+              reasonCode: failed.length > 0 ? 'partial' : null,
+              itemCount: uploaded.okCount,
+              failedCount: failed.length,
+            }
+          : { outcome: 'attention', reasonCode: 'no_matching_orders', itemCount: 0, failedCount: failed.length },
+      );
       if (uploaded.submitted && uploaded.okCount > 0) {
         toast.success(
           `키드키즈 송장 ${formatNumber(uploaded.okCount)}/${formatNumber(uploaded.total)}건 출고완료 등록`,
@@ -360,9 +405,17 @@ export async function uploadTrackingForMall({
       id: toastId,
       duration: 9000,
     });
+    // 파일까지만 만들었다. 몰에 올리는 것은 사람이다.
+    rememberTracking(account.key, {
+      outcome: 'attention',
+      reasonCode: 'manual_upload_required',
+      itemCount: tracking.length,
+    });
   } catch (err) {
     const message = friendlyError(err) ?? '송장 업로드 파일 생성 실패';
     logError(`송장 업로드 · ${account.name}`, message);
+    // 오류 문구에 주문번호 · 받는 사람이 섞일 수 있어 이유 코드만 남긴다.
+    rememberTracking(account.key, { outcome: 'failed', reasonCode: 'upload_failed' });
     toast.error(message, { id: toastId });
   }
 }

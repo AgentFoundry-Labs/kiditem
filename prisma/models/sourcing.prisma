@@ -449,6 +449,66 @@ model SourcingCollectionSourceControl {
 }
 
 /// @namespace Sourcing
+/// @describe Reviewed permission and coverage contract for one collection source scope. Append-only versions; exactly one row per scope is current.
+model SourcingSourceEntitlementVersion {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+
+  sourceKey   String @map("source_key") @db.VarChar(80)
+  scopeKey    String @default("default") @map("scope_key") @db.VarChar(160)
+  version     Int    @default(1)
+  versionHash String @map("version_hash") @db.VarChar(64)
+
+  sourceLifecycle String  @default("draft") @map("source_lifecycle") @db.VarChar(40)
+  decisionImpact  String  @default("informational") @map("decision_impact") @db.VarChar(40)
+  ownerLabel      String? @map("owner_label") @db.VarChar(200)
+  legalBasis      String? @map("legal_basis") @db.Text
+  allowedMethod   String? @map("allowed_method") @db.VarChar(120)
+  credentialRef   String? @map("credential_ref") @db.VarChar(200)
+
+  permittedFields        String[] @map("permitted_fields")
+  prohibitedUses         String[] @map("prohibited_uses")
+  rateLimitValue         Int?     @map("rate_limit_value")
+  rateLimitWindowSeconds Int?     @map("rate_limit_window_seconds")
+
+  geographyCoverage     String[] @map("geography_coverage")
+  coverageDefinition    String?  @map("coverage_definition") @db.Text
+  accountCoverage       String?  @map("account_coverage") @db.VarChar(200)
+  searchCoverage        String?  @map("search_coverage") @db.VarChar(200)
+  categoryCoverage      String?  @map("category_coverage") @db.VarChar(200)
+  denominatorDefinition String?  @map("denominator_definition") @db.Text
+
+  historyBackfillPolicy String? @map("history_backfill_policy") @db.VarChar(200)
+  expectedDelaySeconds  Int?    @map("expected_delay_seconds")
+  maxStalenessSeconds   Int?    @map("max_staleness_seconds")
+  minimumCoverageBps    Int?    @map("minimum_coverage_bps")
+  revisionPolicy        String? @map("revision_policy") @db.VarChar(200)
+  retentionDays         Int?    @map("retention_days")
+
+  permissionStartsAt  DateTime? @map("permission_starts_at") @db.Timestamptz
+  permissionExpiresAt DateTime? @map("permission_expires_at") @db.Timestamptz
+  killSwitch          Boolean   @default(false) @map("kill_switch")
+  killReason          String?   @map("kill_reason") @db.Text
+
+  isCurrent        Boolean   @default(true) @map("is_current")
+  reviewedByUserId String?   @map("reviewed_by_user_id") @db.Uuid
+  reviewedAt       DateTime? @map("reviewed_at") @db.Timestamptz
+  retiredAt        DateTime? @map("retired_at") @db.Timestamptz
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  reviewedByUser User?        @relation("SourcingSourceEntitlementVersionReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([id, organizationId], map: "sourcing_source_entitlement_versions_id_org_key")
+  @@unique([organizationId, sourceKey, scopeKey, version], map: "sourcing_source_entitlement_versions_org_scope_version_key")
+  @@unique([organizationId, sourceKey, scopeKey], map: "sourcing_source_entitlement_versions_current_key", where: raw("(is_current = true)"))
+  @@index([reviewedByUserId])
+  @@index([organizationId, scopeKey, sourceKey, version], map: "sourcing_source_entitlement_versions_listing_idx")
+  @@map("sourcing_source_entitlement_versions")
+}
+
+/// @namespace Sourcing
 /// @describe Durable collector attempt with a fenced lease, request identity, collection window, coverage, and terminal result.
 model SourcingEvidenceIngestionRun {
   id             String @id @default(uuid()) @db.Uuid

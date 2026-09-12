@@ -26,6 +26,7 @@
 | CoupangWingTrackedProduct | `coupang_wing_tracked_products` | 쿠팡 Wing 카탈로그 경쟁상품 추적 대상. 상품분석(wing-catalog)에서 사용자가 추적 등록한 카탈로그 상품(자사/경쟁 무관). sourceKeyword = 지표 갱신 시 재검색할 키워드. |
 | CoupangWingTrackedProductDailySnapshot | `coupang_wing_tracked_product_daily_snapshots` | 쿠팡 Wing 추적상품 일별 지표 스냅샷(상품×일자당 최신본 upsert). Wing 카탈로그 28일 지표(클릭 pv·판매·매출·전환) + 판매가·리뷰. |
 | MallListingProfile | `mall_listing_profiles` | 몰 계정별 송신 프로필(배송/반품/출고지/판매정책). 사방넷 부가정보와 달리 복제·대량 적용·삭제가 가능하다. |
+| MallOperationOutcome | `mall_operation_outcomes` | 쇼핑몰 에이전트의 기억 — 몰 작업 결과 한 줄(주문수집 · 송장 전송 · 등록 폼 채움 · 로그인 테스트 · 로그인 확인). append-only 이고 같은 idempotencyKey 는 한 번만 쓴다. 비밀번호 · 받는 사람 · 주소 · 주문번호는 담지 않는다 — 개수와 이유 코드만. |
 | ProductCertification | `product_certifications` | KC/어린이제품 인증. 유효기간이 지난 인증은 송신 게이트에서 차단한다. certType='none'은 '해당 없음'을 운영자가 명시적으로 선언한 상태다. |
 | ProductNoticeAttribute | `product_notice_attributes` | 상품정보고시. 미충족이면 송신을 시작하지 않는다 — 사방넷은 몰이 거절한 뒤에야 알려줬다. channel 이 있으면 그 몰 전용 override. |
 | RocketPoCatalogLine | `rocket_po_catalog_lines` | Normalized Rocket PO line and confirmation-workbook evidence owned by one completed catalog snapshot. |
@@ -407,6 +408,24 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  MallOperationOutcome {
+    String id PK
+    String organizationId FK
+    String actorUserId FK
+    String idempotencyKey
+    String mallKey
+    String operation
+    String outcome
+    String reasonCode
+    String message
+    Int itemCount
+    Int failedCount
+    Int warningCount
+    String trigger
+    String runId
+    DateTime occurredAt
+    DateTime createdAt
+  }
   ProductCertification {
     String id PK
     String organizationId FK
@@ -587,6 +606,8 @@ erDiagram
 | CoupangWingTrackedProductDailySnapshot | organization | references external | Core | Organization |
 | MallListingProfile | channelAccount | references external | Core | ChannelAccount |
 | MallListingProfile | organization | references external | Core | Organization |
+| MallOperationOutcome | actorUser | references external | Core | User |
+| MallOperationOutcome | organization | references external | Core | Organization |
 | ProductCertification | masterProduct | references external | Core | MasterProduct |
 | ProductCertification | organization | references external | Core | Organization |
 | ProductNoticeAttribute | masterProduct | references external | Core | MasterProduct |

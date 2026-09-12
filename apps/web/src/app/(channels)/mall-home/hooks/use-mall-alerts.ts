@@ -1,0 +1,192 @@
+'use client';
+
+import { useCallback, useMemo, useState, useSyncExternalStore } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { toast } from 'sonner';
+import type { PanelAlertItem } from '@kiditem/shared/panel';
+import { usePanelStore } from '@/components/panel/lib/panel-store';
+import { closeExpiredBrowserCollectionAlerts } from '@/lib/browser-collection-session';
+import {
+  getMallLoginBlocks,
+  getMallLoginBlocksServerSnapshot,
+  subscribeMallLoginBlocks,
+} from '@/lib/mall-login-block';
+import { queryKeys } from '@/lib/query-keys';
+import { formatNumber } from '@/lib/utils';
+import { mallPublishingApi } from '../../_shared/mall-publishing-api';
+import { useMallCapabilityRows } from '../../_shared/use-mall-capability-rows';
+import {
+  derivedMallAlerts,
+  mallAlertCounts,
+  mallAlertsFrom,
+  mallStatusTiles,
+  splitExpiredAlerts,
+} from '../lib/mall-alerts';
+import {
+  countMallSessions,
+  mallSessionStates,
+  type LoginNeededCount,
+  type MallSessionView,
+} from '../lib/mall-session';
+import { useMallSessionProbe } from './use-mall-session-probe';
+
+/** 품절 관리 화면과 같은 창이라 캐시를 나눠 쓴다. `total` 은 창 크기와 상관없다. */
+const AVAILABILITY_PREVIEW_LIMIT = 100;
+/** 기억을 몇 날치 읽는가. */
+const OUTCOME_DAYS = 7;
+
+/**
+ * 쇼핑몰 홈이 읽는 모든 것 — 몰 판정(쇼핑몰 현황과 같은 곳), 몰 알림(전역 알림 스트림),
+ * 지금 상태(품절 후보, 쿠팡 발주확인 대기, 몰 로그인 상태, 자동 로그인이 멈춘 몰),
+ * 기억(몰 작업 결과 요약).
+ *
+ * 하나를 못 받아도 나머지는 선다. 못 받은 숫자는 `null` 로 두고 알림을 지어내지 않는다.
+ * 7일 넘게 멈춘 수집 알림은 확인 필요에서 빼 `expired` 로 따로 준다. 로그인 상태는 확장이
+ * 확인한 몰만 말한다 — 확인하지 못한 몰을 로그인 필요로 세지 않는다.
+ */
+export function useMallAlerts() {
+  const { overviewQuery, overview, totals } = useMallCapabilityRows();
+  const byId = usePanelStore((state) => state.byId);
+  const alertsReady = usePanelStore((state) => state.hasHydrated);
+  const upsertItem = usePanelStore((state) => state.upsertItem);
+  const [closingExpired, setClosingExpired] = useState(false);
+
+  const availabilityQuery = useQuery({
+    queryKey: queryKeys.mallPublishing.availabilityPreview({ limit: String(AVAILABILITY_PREVIEW_LIMIT) }),
+    queryFn: () => mallPublishingApi.availabilityPreview(AVAILABILITY_PREVIEW_LIMIT),
+  });
+  const coupangQuery = useQuery({
+    queryKey: queryKeys.coupangDashboard.summary(),
+    queryFn: () => mallPublishingApi.coupangDashboardSummary(),
+  });
+  const outcomesQuery = useQuery({
+    queryKey: queryKeys.mallOperationOutcomes.summary(OUTCOME_DAYS),
+    queryFn: () => mallPublishingApi.outcomeSummary(OUTCOME_DAYS),
+  });
+
+  const channels = overview?.channels ?? null;
+  const soldOutTotal = availabilityQuery.data?.total ?? null;
+  const coupangPendingAccept = coupangQuery.data?.pendingAccept ?? null;
+  const outcomeSummary = outcomesQuery.data ?? null;
+
+  // 몰 로그인 상태 — 열면 확장이 몰마다 조용히 확인한다(로그인하지 않는다).
+  const mallKeys = useMemo(() => channels?.map((channel) => channel.mallKey) ?? null, [channels]);
+  const probe = useMallSessionProbe(mallKeys, outcomeSummary?.rows ?? null);
+  const sessionStates = useMemo(
+    () => mallSessionStates(mallKeys ?? [], probe.results, probe.checking),
+    [mallKeys, probe.results, probe.checking],
+  );
+  const signedOut = useMemo(
+    () => (channels ?? []).filter((channel) => sessionStates[channel.mallKey] === 'signed_out'),
+    [channels, sessionStates],
+  );
+  // 자동 로그인이 한 번 실패해 멈춘 몰 — 다시 시도하지 않고 사람에게 넘긴다.
+  const loginBlocks = useSyncExternalStore(
+    subscribeMallLoginBlocks,
+    getMallLoginBlocks,
+    getMallLoginBlocksServerSnapshot,
+  );
+  const manualLogin = useMemo(
+    () =>
+      (channels ?? []).flatMap((channel) => {
+        const block = loginBlocks.find((candidate) => candidate.mallKey === channel.mallKey);
+        if (!block) return [];
+        // 방금 확인해서 로그인돼 있으면 그 차단은 낡은 것이다. '로그인됨'과 '직접 로그인 필요'를
+        // 한 카드에 같이 띄우지 않는다 — 지우기(clearMallAutoLoginBlock)가 어떤 이유로 늦거나
+        // 건너뛰어도 화면은 확인된 사실을 따른다. 인증 차단은 남긴다(세션이 살아 있어도 몰이
+        // 본인확인을 요구하는 상태라 모순이 아니다).
+        if (block.kind === 'login' && sessionStates[channel.mallKey] === 'signed_in') return [];
+        return [{ mallKey: channel.mallKey, mallName: channel.mallName, kind: block.kind }];
+      }),
+    [channels, loginBlocks, sessionStates],
+  );
+
+  const { live: alerts, expired } = useMemo(
+    () => splitExpiredAlerts(mallAlertsFrom(byId), Date.now()),
+    [byId],
+  );
+  const derived = useMemo(
+    () => derivedMallAlerts({ channels, signedOut, manualLogin, soldOutTotal, coupangPendingAccept }),
+    [channels, signedOut, manualLogin, soldOutTotal, coupangPendingAccept],
+  );
+  const tiles = useMemo(
+    () =>
+      channels ? mallStatusTiles(channels, alerts, derived, outcomeSummary?.rows ?? [], sessionStates) : [],
+    [channels, alerts, derived, outcomeSummary, sessionStates],
+  );
+  const counts = useMemo(() => mallAlertCounts(alerts, derived), [alerts, derived]);
+  const noLoginCount = channels ? channels.filter((channel) => !channel.hasCredentials).length : null;
+  // 로그인해야 하는 몰 — 세션이 풀렸거나 계정 정보가 없거나 자동 로그인이 멈춘 몰. 겹치면 한 번.
+  const loginNeeded = useMemo((): LoginNeededCount | null => {
+    if (!channels) return null;
+    const noCredentials = channels.filter((channel) => !channel.hasCredentials);
+    const keys = new Set([...noCredentials, ...signedOut, ...manualLogin].map((channel) => channel.mallKey));
+    const checked = probe.status === 'running' || probe.status === 'done';
+    return { total: keys.size, signedOut: checked ? signedOut.length : null, noCredentials: noCredentials.length };
+  }, [channels, signedOut, manualLogin, probe.status]);
+  const session = useMemo(
+    (): MallSessionView => ({
+      status: probe.status,
+      counts: countMallSessions(sessionStates),
+      checkedAt: probe.checkedAt,
+      extensionVersion: probe.extensionVersion,
+      recheck: probe.recheck,
+    }),
+    [probe.status, probe.checkedAt, probe.extensionVersion, probe.recheck, sessionStates],
+  );
+
+  /** 7일 넘게 멈춘 수집 알림을 취소로 닫는다. 닫힌 것은 스트림을 기다리지 않고 바로 뺀다. */
+  const closeExpired = useCallback(
+    async (targets: readonly PanelAlertItem[]) => {
+      const now = Date.now();
+      setClosingExpired(true);
+      try {
+        const result = await closeExpiredBrowserCollectionAlerts(targets, now);
+        const closed = new Set(result.closed);
+        const finishedAt = new Date(now).toISOString();
+        for (const item of targets) {
+          if (item.operationKey && closed.has(item.operationKey)) {
+            upsertItem({
+              ...item,
+              status: 'cancelled',
+              finishedAt,
+              metadata: { ...item.metadata, staleReconciled: true },
+            });
+          }
+        }
+        if (result.closed.length > 0) {
+          toast.success(`멈춘 수집 알림 ${formatNumber(result.closed.length)}건을 정리했습니다.`);
+        }
+        if (result.skipped > 0) {
+          toast.info(`${formatNumber(result.skipped)}건은 다른 사람이 연 알림이라 건너뛰었습니다.`);
+        }
+        if (result.failed > 0) {
+          toast.error(`${formatNumber(result.failed)}건은 정리하지 못했습니다. 잠시 뒤 다시 눌러 주세요.`);
+        }
+      } finally {
+        setClosingExpired(false);
+      }
+    },
+    [upsertItem],
+  );
+
+  return {
+    overviewQuery,
+    overview,
+    totals,
+    alerts,
+    alertsReady,
+    expired,
+    closeExpired,
+    closingExpired,
+    derived,
+    tiles,
+    counts,
+    noLoginCount,
+    loginNeeded,
+    session,
+    soldOutTotal,
+    coupangPendingAccept,
+    outcomeSummary,
+  };
+}

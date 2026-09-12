@@ -1,0 +1,31 @@
+'use client';
+
+import { useMallAgentLoop, useMallAgentLoopRunner } from '@/hooks/use-mall-agent-loop';
+
+/**
+ * 쇼핑몰 에이전트 자동 운전 — 앱이 열려 있으면 어느 화면에서든 고리가 돈다.
+ *
+ * 자동 운전이 꺼져 있으면 러너를 아예 붙이지 않는다(질의도 타이머도 만들지 않는다).
+ * 켜져 있을 때만 러너가 붙어 로그인 확인과 주문수집을 한 바퀴씩 돌린다. 되돌리기 어려운
+ * 일은 하지 않는다 — 전송 · 제출 · 삭제는 사람이 그 화면에서 누른다.
+ */
+export function MallAgentLoopProvider({
+  children,
+  enabled,
+}: {
+  children: React.ReactNode;
+  enabled: boolean;
+}) {
+  const { settings } = useMallAgentLoop();
+  return (
+    <>
+      {enabled && settings.enabled ? <MallAgentLoopRunner /> : null}
+      {children}
+    </>
+  );
+}
+
+function MallAgentLoopRunner() {
+  useMallAgentLoopRunner();
+  return null;
+}

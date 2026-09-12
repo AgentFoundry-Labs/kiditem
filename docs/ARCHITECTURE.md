@@ -292,7 +292,7 @@ their implementation structures are listed in the Backend Implementation Map.
 | `apps/server/src/analytics` | Owner Read Model | Dashboard, statistics, traffic, and supplier-stats reporting. |
 | `apps/server/src/auth` | Platform Capability | Local password verification, durable hashed sessions, login/logout/me, guards, decorators, middleware, and auth operator CLI. |
 | `apps/server/src/automation` | Platform | Workflows, alerts, action board, marketplace install, and panel projection. |
-| `apps/server/src/channels` | Owner Domain | Marketplace account, account-scoped listing/registration capability, durable listing-deletion operations, order, return, Wing/Rocket catalog identity, typed exact-evidence extraction, option-to-inventory matching, derived listing-product summaries, direct option-component diagnostics, and sellable-capacity projections. |
+| `apps/server/src/channels` | Owner Domain | Marketplace account, account-scoped listing/registration capability, durable listing-deletion operations, order, return, Wing/Rocket catalog identity, typed exact-evidence extraction, option-to-inventory matching, derived listing-product summaries, direct option-component diagnostics, sellable-capacity projections, and the append-only mall operation outcome log (`/api/channels/mall-operation-outcomes`). |
 | `apps/server/src/common` | Platform Support | Shared backend DTOs, filters, KST/date helpers, security, storage, and pricing helpers. |
 | `apps/server/src/feature-gate` | Platform Capability | Feature flag endpoint and config behavior. |
 | `apps/server/src/finance` | Owner Domain | Live P&L, sales analysis, supplier payments, sales plans, settlements, and the read-only contribution-profit evidence port consumed by Products' automatic ABC evaluation. |
@@ -509,7 +509,7 @@ Kinds:
 | `apps/web/src/app/(advertising)` | Route Group | `ad-ops`, `rank-tracking` |
 | `apps/web/src/app/(analytics)` | Route Group | `dashboard` |
 | `apps/web/src/app/(automation)` | Route Group | `_shared`, `action-board`, `agents`, `marketplace`, `workflows` |
-| `apps/web/src/app/(channels)` | Route Group | 몰별 상품등록·품절 송신. `/mall-channels`(연결된 몰 현황 허브), `/mall-listings`(등록 현황 매트릭스 + 상품 N × 몰 M 새 등록), `/mall-availability`(일괄 품절·해제 dry-run), `/mall-tasks`(등록·품절 실행 기록). 몰 계정 편집 `/mall-settings` 는 주문수집 자격증명을 편집하므로 `(orders)` 에 남는다. |
+| `apps/web/src/app/(channels)` | Route Group | 몰별 상품등록·품절 송신(사이드바 '쇼핑몰 에이전트'). `/mall-home`(쇼핑몰 에이전트 홈 — 대시보드 3 : 쇼핑몰 알림판 1(몰별 상태 높이까지), 몰별 로그인 상태(확장이 조용히 확인), 그 아래 에이전트 파이프라인과 단계별 일 · 미션), `/mall-channels`(연결된 몰 현황 허브), `/mall-listings`(등록 현황 매트릭스 + 상품 N × 몰 M 새 등록), `/mall-availability`(일괄 품절·해제 dry-run), `/mall-tasks`(등록·품절 실행 기록). 몰 계정 편집 `/mall-settings` 는 주문수집 자격증명을 편집하므로 `(orders)` 에 남는다. |
 | `apps/web/src/app/(catalog)` | Route Group | Canonical inventory-product operations center at `/product-hub`; direct channel-option inventory configuration on product detail; option-to-Sellpia matching with automatic MasterProduct derivation at `/product-hub/matching`. |
 | `apps/web/src/app/(finance)` | Route Group | Active `/profit-loss`, `/reports`, and `/sales-analysis` surfaces; settlement remains a tab inside sales analysis. |
 | `apps/web/src/app/(inventory)` | Route Group | Active `/inventory-hub`, `/inventory`, `/stock-ops`, and `/coupang-shipments` surfaces; Warehouse reads remain reference data for `StockTransfers`, with no standalone warehouse-management route. |

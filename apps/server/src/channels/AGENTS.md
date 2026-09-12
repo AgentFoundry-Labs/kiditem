@@ -2,8 +2,13 @@
 
 `src/channels/` owns marketplace accounts, listing/option identity, Coupang
 catalog/order/return sync, matching, account-scoped registration, channel
-capacity projections, and dashboard reads. Provider calls stay behind provider
-adapters.
+capacity projections, dashboard reads, and the mall operation outcome log.
+Provider calls stay behind provider adapters.
+
+`MallOperationOutcome` is an append-only, idempotent log written by the web
+through `/api/channels/mall-operation-outcomes`. Organization and actor come
+from the session, the body is a strict shared contract, the mall key must be in
+the adapter manifest, and rows hold counts and reason codes only.
 
 ## Identity And Ownership
 

@@ -1,5 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { GripVertical, Loader2, Truck, Upload } from 'lucide-react';
+import {
+  clearMallAutoLoginBlock,
+  getMallLoginBlocks,
+  getMallLoginBlocksServerSnapshot,
+  subscribeMallLoginBlocks,
+} from '@/lib/mall-login-block';
 import { cn, formatNumber } from '@/lib/utils';
 import { isTrackingSupportedMall } from '../lib/icecream-tracking-api';
 import {
@@ -138,11 +144,29 @@ function MallAccountCard({
   const trackingSupported = isTrackingSupportedMall(account.key);
   // 로그인 실패·인증 필요일 때만 상태등을 빨간불 + 카드 배경을 빨강으로 표시한다.
   // 일반 수집 오류(주문 없음 등)는 초록불/흰 배경을 유지한다.
-  const failed = failedReason !== undefined;
-  const failedTitle =
-    failedReason === 'login'
-      ? '로그인 필요 · 재수집 필요'
-      : '인증 필요 · 재수집 필요';
+  //
+  // 이번 화면에서 실패한 것뿐 아니라 **서버 기억**(오늘 마지막 수집 결과)도 본다. 대시보드
+  // 버튼 · 자동 운전 고리 · 다른 기기에서 로그인이 막혔어도 여기서 같은 빨간 카드로 보이게 —
+  // 쇼핑몰 홈의 몰별 상태와 같은 기록을 읽는다.
+  const serverStatus = collectionStat?.serverStatus ?? null;
+  const serverBlocked = serverStatus?.tone === 'failed' || serverStatus?.tone === 'attention';
+  // 자동 로그인이 막힌 몰. 자동 운전 고리도 자동감지도 이 몰에는 더 들어가지 않는다 —
+  // 다시 돌릴지는 사장님이 정하신다. 그래서 이 상태가 서버 기록보다 앞에 선다.
+  const loginBlocks = useSyncExternalStore(
+    subscribeMallLoginBlocks,
+    getMallLoginBlocks,
+    getMallLoginBlocksServerSnapshot,
+  );
+  const loginBlock = loginBlocks.find((block) => block.mallKey === account.key) ?? null;
+  // 서버 기록이 있으면 그것이 최신이다 — 신규 주문 없음 · 수집 성공은 문제가 아니므로 빨갛게
+  // 칠하지 않는다. 이 화면의 지난 실패 표시는 서버 기록이 없을 때만 쓴다(그대로 두면 오늘
+  // 이미 성공한 몰이 계속 빨갛게 남는다).
+  const failed = loginBlock ? true : serverStatus ? serverBlocked : failedReason !== undefined;
+  const failedTitle = failedReason === 'login'
+    ? '로그인 필요 · 재수집 필요'
+    : failedReason === 'auth'
+      ? '인증 필요 · 재수집 필요'
+      : `${serverStatus?.label ?? '확인 필요'} · 재수집 필요`;
 
   // 쿠팡직배송은 카드 영역을 누르면 입고예정일 달력이 열린다.
   // 수집 버튼은 달력 없이 곧바로 수집한다(둘을 섞지 않는다).
@@ -295,7 +319,46 @@ function MallAccountCard({
       </div>
 
       <div className="mt-2.5 flex h-5 items-center justify-center text-[11px]">
-        {!collectable ? (
+        {loginBlock ? (
+          // 자동은 멈췄다. 다시 켜는 건 사장님 몫이다 — 누르면 그때부터 다시 자동으로 돈다.
+          <button
+            type="button"
+            onClick={() => clearMallAutoLoginBlock(account.key)}
+            aria-label={`${account.name} 자동 수집 다시 켜기`}
+            title={[
+              loginBlock.kind === 'verification'
+                ? '자동 수집을 멈췄습니다. 몰에서 직접 인증해 주세요.'
+                : '자동 수집을 멈췄습니다. 몰에 직접 로그인해 주세요.',
+              loginBlock.reason,
+              '직접 로그인하시면 자동으로 풀립니다. 지금 바로 다시 켜려면 누르세요.',
+            ]
+              .filter(Boolean)
+              .join('\n')}
+            className="truncate font-medium text-red-600 underline decoration-dotted underline-offset-2 hover:text-red-700"
+          >
+            {loginBlock.kind === 'verification' ? '자동 멈춤 · 직접 인증' : '자동 멈춤 · 직접 로그인'}
+          </button>
+        ) : serverStatus ? (
+          // 서버 기억이 말하는 오늘 마지막 수집 결과. 쇼핑몰 홈 몰별 상태와 같은 말이다.
+          <span
+            className={cn(
+              'truncate font-medium',
+              serverStatus.tone === 'failed' || serverStatus.tone === 'attention'
+                ? 'text-red-600'
+                : serverStatus.tone === 'ok'
+                  ? 'text-emerald-600'
+                  : 'text-slate-400',
+            )}
+            title={[
+              serverStatus.detail,
+              collectionStat ? `오늘 마지막 수집 ${formatMallCollectionTime(collectionStat.latestAt)}` : null,
+            ]
+              .filter(Boolean)
+              .join('\n') || undefined}
+          >
+            {serverStatus.label}
+          </span>
+        ) : !collectable ? (
           <span className="text-slate-300">준비 중</span>
         ) : autoDetect && autoDetectable && autoNextRunAt !== null ? (
           <AutoDetectCountdown running={autoRunning} targetAt={autoNextRunAt} />

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
+import { isMallAutoLoginBlocked } from '@/lib/mall-login-block';
 import { formatNumber } from '@/lib/utils';
 import { saveIcecreamDeliveryIndex } from '../lib/icecream-delivery-index';
 import {
@@ -66,7 +67,12 @@ export function useOrderAutoDetect({
 
   const run = useCallback(async () => {
     if (busyRef.current || !isWithinBusinessHours(Date.now())) return;
-    const targets = mallAccounts.filter(isAutoDetectableMall);
+    // 로그인·인증이 막힌 몰은 자동으로 더 건드리지 않는다. 들어가 봐야 로그인 화면만 열고
+    // 실패하면서 몰 탭만 하나 남기고, 그 탭이 바퀴마다 쌓여 멀쩡한 몰까지 끌어내린다.
+    // 다시 도는 건 사장님이 직접 로그인하신 뒤다 — 그때 확인이 차단을 풀어 준다.
+    const targets = mallAccounts.filter(
+      (account) => isAutoDetectableMall(account) && !isMallAutoLoginBlocked(account.key),
+    );
     if (targets.length === 0) return;
 
     busyRef.current = true;

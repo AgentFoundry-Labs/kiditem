@@ -10,6 +10,7 @@ import { WING_NOTICE_ORDER, wingProductFromDraft } from '../../collected-product
 import {
   candidateToMallProductDraft,
   mallProductDraftGaps,
+  noticeFieldsFromBasics,
   type MallProductDraftDefaults,
 } from './mall-product-draft';
 
@@ -128,5 +129,65 @@ describe('wingProductFromDraft', () => {
       { categoryCell: '[77390] 완구/취미>스포츠/야외완구>물총' },
     );
     expect(viaDraft).toEqual(legacy);
+  });
+});
+
+/**
+ * 상품 상세 값 → 고시 항목 자동 매핑.
+ *
+ * 근거는 아이스크림몰 실측 등록물(`goodsNo=11411122`)이다. 그 상품의 고시는
+ * `크기 8x8x7cm` · `색상 오렌지` · `재질 고무` · `사용연령 8세이상` 처럼 **실제 값**이
+ * 들어가 있었다. 우리는 이 값들을 이미 상품 상세에 들고 있으면서도 몰에는
+ * '상세페이지 참조' 로 내보내고 있었다 — 고시를 채운 척한 것이다.
+ */
+describe('noticeFieldsFromBasics', () => {
+  it('상품 상세에 적어 둔 값을 고시로 옮긴다', () => {
+    expect(noticeFieldsFromBasics({
+      productSize: '8x8x7cm',
+      colorVariantStatus: 'multiple',
+      colorVariantNames: '오렌지, 노랑',
+      ageGroup: 'age-8-plus',
+      kcCertificationNumber: 'CB065R1075-2004',
+    })).toEqual({
+      크기: '8x8x7cm',
+      색상: '오렌지, 노랑',
+      사용연령: '8세 이상',
+      안전인증번호: 'CB065R1075-2004',
+      KC인증: 'KC 인증 있음',
+    });
+  });
+
+  it('빈 값은 담지 않는다 — 몰 고정 문구가 이겨야 한다', () => {
+    expect(noticeFieldsFromBasics({})).toEqual({});
+    expect(noticeFieldsFromBasics({ productSize: '   ', colorVariantNames: '' })).toEqual({});
+  });
+
+  it('화면 선택지 코드를 사람이 읽는 말로 바꾼다', () => {
+    // 고시는 구매자가 읽는 글이지 우리 내부 코드가 아니다.
+    expect(noticeFieldsFromBasics({ ageGroup: 'age-14-plus' }).사용연령).toBe('14세 이상');
+    expect(noticeFieldsFromBasics({ ageGroup: 'age-8-plus' }).사용연령).toBe('8세 이상');
+    expect(noticeFieldsFromBasics({ ageGroup: '' }).사용연령).toBeUndefined();
+  });
+
+  it('단일 색상은 색상명이 없어도 단일 이라고 적는다', () => {
+    expect(noticeFieldsFromBasics({ colorVariantStatus: 'single' }).색상).toBe('단일');
+  });
+
+  it('색상 없음이면 색상 칸을 건드리지 않는다', () => {
+    expect(noticeFieldsFromBasics({
+      colorVariantStatus: 'none', colorVariantNames: '오렌지',
+    }).색상).toBeUndefined();
+  });
+
+  it('인증번호가 있으면 KC인증도 있음으로 굳힌다', () => {
+    // 번호가 있는데 '상세정보 별도표기' 로 나가면 몰 심사에서 되돌아온다.
+    const fields = noticeFieldsFromBasics({ kcCertificationNumber: 'CB065R1579-2008' });
+    expect(fields.KC인증).toBe('KC 인증 있음');
+    expect(fields.안전인증번호).toBe('CB065R1579-2008');
+  });
+
+  it('KC 없음이면 해당 없음으로 적는다', () => {
+    expect(noticeFieldsFromBasics({ kcCertificationStatus: 'none' }))
+      .toEqual({ KC인증: '해당 없음' });
   });
 });

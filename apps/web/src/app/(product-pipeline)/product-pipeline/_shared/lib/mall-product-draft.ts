@@ -97,6 +97,56 @@ export interface MallProductDraftInput {
   detailImageUrl?: string | null;
 }
 
+/**
+ * 상품 상세에 적어 둔 값 → 고시 항목.
+ *
+ * 우리 고시 어휘(`MallNoticeField`)는 몰과 무관하다. 여기서 한 번 채우면 도매꾹 23번,
+ * 티처몰 39줄, 아이스크림몰 16줄이 모두 같은 값을 받는다 — 몰마다 다시 매핑하지 않는다.
+ *
+ * 화면 선택지는 코드(`age-8-plus`·`exists`·`multiple`)라서 사람이 읽는 말로 바꾼다.
+ * 고시는 구매자가 읽는 글이지 우리 내부 코드가 아니다.
+ */
+export function noticeFieldsFromBasics(basics: {
+  productSize?: string;
+  colorVariantStatus?: string;
+  colorVariantNames?: string;
+  ageGroup?: string;
+  kcCertificationStatus?: string;
+  kcCertificationNumber?: string;
+}): Partial<Record<MallNoticeField, string>> {
+  const fields: Partial<Record<MallNoticeField, string>> = {};
+  const put = (key: MallNoticeField, value: string | undefined) => {
+    const trimmed = (value ?? '').trim();
+    if (trimmed) fields[key] = trimmed;
+  };
+
+  put('크기', basics.productSize);
+
+  // `단일 색상` 은 색상명을 안 받는다. 그때는 색상 칸에 '단일' 이라고 적는 편이
+  // 빈칸이나 '상세페이지 참조' 보다 정확하다.
+  if (basics.colorVariantStatus === 'single') put('색상', '단일');
+  else if (basics.colorVariantStatus !== 'none') put('색상', basics.colorVariantNames);
+
+  put('사용연령', AGE_GROUP_NOTICE_LABEL[basics.ageGroup ?? ''] ?? '');
+
+  // 인증번호가 있으면 KC인증도 '있음' 으로 굳힌다. 번호가 있는데 '상세정보 별도표기'
+  // 로 나가면 몰 심사에서 되돌아온다.
+  if ((basics.kcCertificationNumber ?? '').trim()) {
+    put('안전인증번호', basics.kcCertificationNumber);
+    put('KC인증', 'KC 인증 있음');
+  } else if (basics.kcCertificationStatus === 'none') {
+    put('KC인증', '해당 없음');
+  }
+
+  return fields;
+}
+
+/** 화면 선택지 코드 → 고시에 쓰는 말. */
+const AGE_GROUP_NOTICE_LABEL: Record<string, string> = {
+  'age-8-plus': '8세 이상',
+  'age-14-plus': '14세 이상',
+};
+
 const MAX_ADDITIONAL_IMAGES = 9;
 const MAX_KEYWORDS = 20;
 
@@ -159,9 +209,17 @@ export function candidateToMallProductDraft(input: MallProductDraftInput): MallP
 
   // 품명은 어느 몰에서나 실제 상품명이어야 한다. 기본값('상세페이지 참조')을 그대로
   // 내보내면 고시가 사실상 비어 있는 상태로 등록된다.
+  //
+  // 나머지 고시 항목도 **상품 상세에 이미 적어 둔 값**으로 채운다. 크기·색상·사용연령·
+  // 인증번호는 우리가 들고 있는데도 몰마다 '상세페이지 참조'로 나가고 있었다. 그건
+  // 고시를 채운 것이 아니라 채운 척한 것이다(아이스크림몰 실측 등록물은 `8x8x7cm`,
+  // `오렌지`, `8세이상` 처럼 실제 값이 들어가 있었다).
+  //
+  // 빈 값은 덮지 않는다 — 우리 데이터가 없으면 몰 고정 문구가 이겨야 한다.
   const noticeFields: Partial<Record<MallNoticeField, string>> = {
     ...defaults.noticeFields,
     품명및모델명: basics.name || defaults.noticeFields.품명및모델명 || '',
+    ...noticeFieldsFromBasics(basics),
   };
 
   return {
@@ -209,6 +267,19 @@ export function mallProductDraftGaps(draft: MallProductDraft): string[] {
  * 고시 기본값은 쿠팡 '어린이제품' 7칸에 넣던 값과 같은 내용이고, 여기서는 위치가
  * 아니라 이름으로 들고 있어 몰마다 다른 칸에 옮겨 담을 수 있다.
  */
+/**
+ * 우리 A/S 전화번호.
+ *
+ * 몰이 아니라 **우리 회사 사실**이다. 그런데 티처몰·도매꾹·키즈노트가 각자 글자로
+ * 적어 두고 있었고, 아이스크림몰을 붙이면서 실측 등록물의 번호(`031-980-5401`)를
+ * 그대로 옮겼다가 가운데 두 자리가 뒤집힌 채 들어갔다. 같은 사실을 네 곳에 적으면
+ * 언젠가 한 곳이 틀린다 — 여기 한 곳만 둔다.
+ *
+ * ⚠️ 아이스크림몰에 **이미 등록된 상품에는 틀린 번호가 적혀 있다.** 몰 화면에서
+ * 고쳐야 한다(2026-09-11 확인).
+ */
+export const KIDITEM_AS_PHONE = '031-908-5401';
+
 export const KIDITEM_MALL_DRAFT_DEFAULTS: MallProductDraftDefaults = {
   brand: '노브랜드',
   maker: '해피프랜즈',
@@ -221,6 +292,7 @@ export const KIDITEM_MALL_DRAFT_DEFAULTS: MallProductDraftDefaults = {
     제조국: '중국',
     취급방법및주의사항: '상세페이지 참조',
     품질보증기준: '상세페이지 참조',
+    AS책임자: KIDITEM_AS_PHONE,
   },
   defaultStock: 999,
 };

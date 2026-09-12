@@ -920,3 +920,38 @@ model ProductCertification {
   @@index([organizationId, masterProductId])
   @@map("product_certifications")
 }
+
+/// @namespace Channels
+/// @describe 쇼핑몰 에이전트의 기억 — 몰 작업 결과 한 줄(주문수집 · 송장 전송 · 등록 폼 채움 · 로그인 테스트 · 로그인 확인). append-only 이고 같은 idempotencyKey 는 한 번만 쓴다. 비밀번호 · 받는 사람 · 주소 · 주문번호는 담지 않는다 — 개수와 이유 코드만.
+model MallOperationOutcome {
+  id             String  @id @default(uuid()) @db.Uuid
+  organizationId String  @map("organization_id") @db.Uuid
+  actorUserId    String? @map("actor_user_id") @db.Uuid
+  idempotencyKey String  @map("idempotency_key") @db.VarChar(64)
+
+  mallKey      String  @map("mall_key") @db.VarChar(80)
+  /// order_collection | tracking_upload | registration_fill | login_test | login_check — shared z.enum 이 검증한다.
+  operation    String  @db.VarChar(40)
+  /// succeeded | empty | attention | failed | cancelled
+  outcome      String  @db.VarChar(20)
+  reasonCode   String? @map("reason_code") @db.VarChar(64)
+  message      String? @db.VarChar(300)
+  itemCount    Int?    @map("item_count")
+  failedCount  Int?    @map("failed_count")
+  warningCount Int?    @map("warning_count")
+  /// manual | batch | auto
+  trigger      String? @map("trigger_kind") @db.VarChar(20)
+  runId        String? @map("run_id") @db.Uuid
+
+  occurredAt DateTime @default(now()) @map("occurred_at") @db.Timestamptz
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  organization Organization @relation("MallOperationOutcomeOrganization", fields: [organizationId], references: [id], onDelete: Cascade)
+  actorUser    User?        @relation("MallOperationOutcomeActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, idempotencyKey], map: "mall_operation_outcomes_org_idempotency_key")
+  @@index([organizationId, occurredAt])
+  @@index([organizationId, mallKey, operation, occurredAt])
+  @@index([actorUserId])
+  @@map("mall_operation_outcomes")
+}

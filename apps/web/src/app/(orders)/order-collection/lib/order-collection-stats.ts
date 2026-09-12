@@ -34,6 +34,16 @@ export interface MallCollectionStat {
   newRows: number;
   productRows: number;
   latestAt: number;
+  /**
+   * 서버 기억이 말하는 오늘 마지막 수집 결과. 쇼핑몰 홈의 몰별 상태와 같은 기록이라 두 화면이
+   * 같은 말을 한다. 로그인 필요 · 인증 필요 · 실패면 카드가 빨갛게 선다.
+   */
+  serverStatus?: {
+    label: string;
+    tone: 'failed' | 'attention' | 'ok' | 'empty';
+    /** 왜 그런지 — 기억에 남은 짧은 사유. 카드에서 마우스를 올리면 보인다. */
+    detail?: string | null;
+  } | null;
 }
 
 export interface OrderCollectionSummary {

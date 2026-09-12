@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { friendlyError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
@@ -17,7 +17,7 @@ import {
   detectOrderCollectionSessionExtensionStatus,
   type OrderCollectionExtensionRun,
 } from '@/app/(orders)/order-collection/lib/order-collection-extension';
-import type { ExtensionRuntimeStatus } from '@/lib/extension-bridge';
+import { EXTENSION_TIMEOUT_MESSAGE, type ExtensionRuntimeStatus } from '@/lib/extension-bridge';
 import {
   classifyOrderCollectionFailure,
   isBrowserCollectableMall,
@@ -34,8 +34,19 @@ import {
   reconcileCollectedOrdersWithSellpia,
 } from '@/app/(orders)/order-collection/lib/sellpia-order-reconcile';
 import { useOrderCollectionSessionControls } from '@/app/(orders)/order-collection/hooks/use-order-collection-session-controls';
+import {
+  collectedOutcome,
+  failedCollectionOutcome,
+  type OrderCollectionOutcome,
+} from '@/app/(orders)/order-collection/lib/order-collection-outcome';
+import { recordMallOperationOutcome } from '@/lib/mall-operation-outcomes-api';
 
 const COLLECT_ALL_CONCURRENCY = 4;
+/**
+ * 한 바퀴에서 다시 물어볼 몰의 최대 수. 답이 없는 것은 대개 확장이 바쁘다는 뜻이라,
+ * 전부 다시 돌리면 바쁜 확장을 더 밀어붙여 같은 실패를 부른다.
+ */
+const RECHECK_LIMIT = 3;
 const NOOP = () => undefined;
 const NOOP_COLLECTING = (_mallKey: string, _collecting: boolean) => undefined;
 const NOOP_ACTIVITY = (
@@ -54,6 +65,11 @@ export type MarketplaceOrderCollectionActivityKind =
 export type MarketplaceOrderCollectionBatchResult = {
   successCount: number;
   failedCount: number;
+  /**
+   * 확장이 제 시간에 답하지 않아 결과를 모르는 몰. 몰이 실패한 게 아니라 못 들은 것이라,
+   * 부르는 쪽이 딱 한 번 더 물어볼 수 있게 이름만 돌려준다.
+   */
+  noAnswerMallKeys: string[];
 };
 
 type UseAllMarketplaceOrderCollectionOptions = {
@@ -84,6 +100,8 @@ export function useAllMarketplaceOrderCollection({
   clearMallErrorActivity = NOOP,
   logActivity = NOOP_ACTIVITY,
 }: UseAllMarketplaceOrderCollectionOptions) {
+  // 수집 결과(기억)를 남긴 직후 화면이 다시 읽도록 무효화한다.
+  const queryClient = useQueryClient();
   const sessionControls = useOrderCollectionSessionControls(mallAccounts);
   const {
     finalizeRun,
@@ -110,6 +128,8 @@ export function useAllMarketplaceOrderCollection({
     ) => {
       markCollecting(account.key, true);
       let activeRun = run;
+      // 이 수집 한 번의 결과. finally 에서 한 줄로 남긴다(쇼핑몰 에이전트의 기억).
+      let outcome: OrderCollectionOutcome | null = null;
       try {
         if (!activeRun) {
           activeRun = await prepareRun(account, undefined, knownExtensionStatus) ?? undefined;
@@ -125,6 +145,7 @@ export function useAllMarketplaceOrderCollection({
             ? `${account.name} 배송준비전 주문 없음`
             : `${account.name} 수집 및 파일 생성 완료 (${formatNumber(collected.rowCount)}행)`,
         );
+        outcome = collectedOutcome(account.key, collected.rowCount);
         clearMallErrorActivity(account.name);
         if (collected.rowCount === 0) logActivity('empty', account.name);
         return collected;
@@ -138,6 +159,14 @@ export function useAllMarketplaceOrderCollection({
           ? failureKind
           : null;
         const noNewOrders = !activeRun?.signal?.aborted && failureKind === 'empty';
+        outcome = failedCollectionOutcome({
+          error,
+          message,
+          attentionKind,
+          noNewOrders,
+          aborted: Boolean(activeRun?.signal?.aborted),
+          hasRun: Boolean(activeRun),
+        });
         if (activeRun && attentionKind) {
           await syncRun(activeRun.runId).catch((syncError) => {
             console.warn(
@@ -172,6 +201,21 @@ export function useAllMarketplaceOrderCollection({
       } finally {
         if (activeRun) releaseRun(account.key, activeRun.runId);
         markCollecting(account.key, false);
+        if (outcome) {
+          // 한 번의 수집에 정확히 한 줄. 기록 실패는 수집을 막지 않는다.
+          void recordMallOperationOutcome({
+            mallKey: account.key,
+            operation: 'order_collection',
+            ...outcome,
+            runId: activeRun?.runId ?? null,
+          }).finally(() => {
+            // 기록이 남는 즉시 화면이 다시 읽게 한다. 이게 없으면 몰 카드와 몰별 상태가 최대
+            // 1분 늦게 따라와, 방금 성공한 수집이 직전 실패로 보인다.
+            void queryClient.invalidateQueries({
+              queryKey: queryKeys.mallOperationOutcomes.all,
+            });
+          });
+        }
       }
     },
     [
@@ -179,6 +223,7 @@ export function useAllMarketplaceOrderCollection({
       collectBrowserMall,
       finalizeRun,
       logActivity,
+      queryClient,
       markCollecting,
       prepareRun,
       releaseRun,
@@ -190,11 +235,12 @@ export function useAllMarketplaceOrderCollection({
     accounts: OrderCollectionMallAccount[],
   ): Promise<MarketplaceOrderCollectionBatchResult> => {
     if (accounts.length === 0) {
-      return { successCount: 0, failedCount: 0 };
+      return { successCount: 0, failedCount: 0, noAnswerMallKeys: [] };
     }
 
     let successCount = 0;
     let failedCount = 0;
+    const noAnswerMallKeys: string[] = [];
     // 확장 감지는 배치 시작 때 한 번만 한다. 수집이 돌기 시작하면 서비스워커가 바빠져
     // `ping` 이 감지 타임아웃을 넘기고, 살아 있는 확장을 "찾을 수 없음" 으로 오판한다.
     const extensionStatus = await detectOrderCollectionSessionExtensionStatus();
@@ -202,11 +248,14 @@ export function useAllMarketplaceOrderCollection({
       try {
         await collectAccount(account, undefined, undefined, extensionStatus);
         successCount += 1;
-      } catch {
+      } catch (error) {
         failedCount += 1;
+        if (error instanceof Error && error.message === EXTENSION_TIMEOUT_MESSAGE) {
+          noAnswerMallKeys.push(account.key);
+        }
       }
     });
-    return { successCount, failedCount };
+    return { successCount, failedCount, noAnswerMallKeys };
   }, [collectAccount]);
 
   const collectAll = useCallback((
@@ -243,7 +292,11 @@ export function usePersistedAllMarketplaceOrderCollection({
   });
   const mallAccountsLoading = mallAccountsQuery.isLoading;
   const refetchMallAccounts = mallAccountsQuery.refetch;
-  const mallAccounts = mallAccountsQuery.data ?? EMPTY_MALL_ACCOUNTS;
+  // 이 훅은 앱 전역(자동 운전 고리)에서도 마운트된다. 응답이 배열이 아니면 그때 바로 깨지지
+  // 않고 빈 목록으로 선다 — 수집은 목록을 다시 받아 확인한 뒤에만 시작한다.
+  const mallAccounts = Array.isArray(mallAccountsQuery.data)
+    ? mallAccountsQuery.data
+    : EMPTY_MALL_ACCOUNTS;
   const addGeneratedFile = useCallback((historyItem: ConversionHistoryItem) => {
     generatedFileWriteQueueRef.current = generatedFileWriteQueueRef.current
       .catch(() => undefined)
@@ -285,7 +338,12 @@ export function usePersistedAllMarketplaceOrderCollection({
     toast.warning(attentionMessage);
   }, [sessionControls.session]);
 
-  const collectAllOrders = useCallback(async () => {
+  /**
+   * 전체 수집. `skipMallKeys` 는 사람이 직접 로그인·인증해야 하는 몰이다 — 자동 운전 고리가
+   * 넘겨준다. 그 몰을 그냥 돌리면 로그인 화면만 열고 실패하면서 몰 탭을 하나씩 남기고,
+   * 그 탭이 바퀴마다 쌓이면 멀쩡한 몰까지 응답 시간 초과로 끌어내린다.
+   */
+  const collectAllOrders = useCallback(async (skipMallKeys: readonly string[] = []) => {
     if (mallAccountsLoading) {
       throw new Error('몰 계정을 불러오는 중입니다. 잠시 후 다시 시도해주세요.');
     }
@@ -301,14 +359,37 @@ export function usePersistedAllMarketplaceOrderCollection({
       throw new Error('현재 자동 수집 가능한 몰 계정이 없습니다.');
     }
 
-    const { successCount, failedCount } = await collectAll(latestAccounts);
+    const skipped = new Set(skipMallKeys);
+    const targetAccounts = skipped.size === 0
+      ? latestAccounts
+      : latestAccounts.filter((account) => !skipped.has(account.key));
+    const skippedCount = latestAccounts.length - targetAccounts.length;
+
+    const first = await collectAll(targetAccounts);
+    let successCount = first.successCount;
+    let failedCount = first.failedCount;
+
+    // 답을 못 받은 몰만 딱 한 번 더 물어본다. 몰이 실패한 게 아니라 확장이 바빠 못 들은
+    // 것이므로, 한 번 더 물으면 대개 답한다. 재확인은 **한 번뿐**이다 — 재확인 결과로 다시
+    // 재확인하지 않으므로 구조상 무한루프가 될 수 없다. 한 번 더 물어도 답이 없으면 거기서
+    // 멈추고 '응답 없음'으로 남긴다.
+    const recheckKeys = first.noAnswerMallKeys.slice(0, RECHECK_LIMIT);
+    if (recheckKeys.length > 0) {
+      const recheckAccounts = targetAccounts.filter((account) => recheckKeys.includes(account.key));
+      const again = await collectAll(recheckAccounts);
+      successCount += again.successCount;
+      failedCount += again.failedCount - recheckAccounts.length;
+    }
+
     await generatedFileWriteQueueRef.current;
+    const skippedNote = skippedCount > 0 ? `, ${formatNumber(skippedCount)}개 건너뜀(직접 로그인 필요)` : '';
+    const recheckNote = recheckKeys.length > 0 ? `, ${formatNumber(recheckKeys.length)}개 다시 확인` : '';
     if (failedCount > 0) {
       toast.warning(
-        `전체 수집 ${formatNumber(successCount)}개 성공, ${formatNumber(failedCount)}개 실패`,
+        `전체 수집 ${formatNumber(successCount)}개 성공, ${formatNumber(failedCount)}개 실패${recheckNote}${skippedNote}`,
       );
     } else {
-      toast.success('전체 수집 완료');
+      toast.success(`전체 수집 완료${recheckNote}${skippedNote}`);
     }
 
     try {

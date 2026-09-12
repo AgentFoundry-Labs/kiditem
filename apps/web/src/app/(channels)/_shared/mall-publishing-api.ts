@@ -9,7 +9,13 @@ import type {
   MallPublishTarget,
   UpsertMallListingProfile,
 } from '@kiditem/shared/mall-publishing';
+import {
+  ChannelDashboardSummarySchema,
+  type ChannelDashboardSummary,
+} from '@kiditem/shared/channel-dashboard';
+import type { MallOperationOutcomeSummary } from '@kiditem/shared/mall-operation-outcomes';
 import { apiClient } from '@/lib/api-client';
+import { mallOperationOutcomesApi } from '@/lib/mall-operation-outcomes-api';
 
 const BASE = '/api/channels/mall-publishing';
 
@@ -96,5 +102,15 @@ export const mallPublishingApi = {
     return apiClient.get<MallAvailabilityPreview>(
       `${BASE}/availability-preview${toQuery({ limit: String(limit) })}`,
     );
+  },
+
+  /** 쇼핑몰 에이전트의 기억 — 몰 · 작업마다 최근 결과와 결과별 건수. */
+  outcomeSummary(days = 7): Promise<MallOperationOutcomeSummary> {
+    return mallOperationOutcomesApi.summary(days);
+  },
+
+  /** 쿠팡 요약(발주확인 대기 등). 쿠팡 대시보드 API 를 읽기만 한다. */
+  coupangDashboardSummary(): Promise<ChannelDashboardSummary> {
+    return apiClient.getParsed('/api/coupang-dashboard', ChannelDashboardSummarySchema);
   },
 };

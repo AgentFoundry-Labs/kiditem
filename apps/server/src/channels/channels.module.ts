@@ -16,6 +16,7 @@ import { ChannelCatalogCollectionController } from './adapter/in/http/channel-ca
 import { ChannelProductMatchingController } from './adapter/in/http/channel-product-matching.controller';
 import { ChannelSkuAvailabilityController } from './adapter/in/http/channel-sku-availability.controller';
 import { MallPublishingController } from './adapter/in/http/mall-publishing.controller';
+import { MallOperationOutcomeController } from './adapter/in/http/mall-operation-outcome.controller';
 import { CoupangProviderAdapter } from './adapter/out/coupang/coupang-provider.adapter';
 import { ChannelAccountRepositoryAdapter } from './adapter/out/repository/channel-account.repository.adapter';
 import { ChannelDashboardRepositoryAdapter } from './adapter/out/repository/channel-dashboard.repository.adapter';
@@ -48,6 +49,7 @@ import { ChannelRecipeSuggestionService } from './application/service/channel-re
 import { SellpiaManualMatchService } from './application/service/sellpia-manual-match.service';
 import { ChannelSkuAvailabilityService } from './application/service/channel-sku-availability.service';
 import { MallPublishingService } from './application/service/mall-publishing.service';
+import { MallOperationOutcomeService } from './application/service/mall-operation-outcome.service';
 import { RocketPoCatalogService } from './application/service/rocket-po-catalog.service';
 import { RocketPoCatalogRepositoryAdapter } from './adapter/out/repository/rocket-po-catalog.repository.adapter';
 import { ROCKET_PO_CATALOG_PORT } from './application/port/in/rocket-po-catalog.port';
@@ -77,6 +79,8 @@ import { CHANNEL_PRODUCT_MATCHING_REPOSITORY_PORT } from './application/port/out
 import { CHANNEL_SKU_AVAILABILITY_PORT } from './application/port/in/channel-sku-availability.port';
 import { MallPublishingRepositoryAdapter } from './adapter/out/repository/mall-publishing.repository.adapter';
 import { MALL_PUBLISHING_REPOSITORY_PORT } from './application/port/out/repository/mall-publishing.repository.port';
+import { MallOperationOutcomeRepositoryAdapter } from './adapter/out/repository/mall-operation-outcome.repository.adapter';
+import { MALL_OPERATION_OUTCOME_REPOSITORY_PORT } from './application/port/out/repository/mall-operation-outcome.repository.port';
 import { SELLPIA_RECIPE_EVIDENCE_PORT } from './application/port/out/cross-domain/sellpia-recipe-evidence.port';
 import { CHANNEL_RECIPE_SUGGESTION_CONTEXT_REPOSITORY_PORT } from './application/port/out/repository/channel-recipe-suggestion-context.repository.port';
 import { SELLPIA_MANUAL_MATCH_REPOSITORY_PORT } from './application/port/out/repository/sellpia-manual-match.repository.port';
@@ -99,6 +103,7 @@ import { CHANNELS_WING_THUMBNAIL_CAPABILITY_PORT } from './application/port/in/c
     ChannelProductMatchingController,
     ChannelSkuAvailabilityController,
     MallPublishingController,
+    MallOperationOutcomeController,
   ],
   providers: [
     ChannelSyncService,
@@ -208,6 +213,12 @@ import { CHANNELS_WING_THUMBNAIL_CAPABILITY_PORT } from './application/port/in/c
     {
       provide: MALL_PUBLISHING_REPOSITORY_PORT,
       useExisting: MallPublishingRepositoryAdapter,
+    },
+    MallOperationOutcomeService,
+    MallOperationOutcomeRepositoryAdapter,
+    {
+      provide: MALL_OPERATION_OUTCOME_REPOSITORY_PORT,
+      useExisting: MallOperationOutcomeRepositoryAdapter,
     },
   ],
   exports: [

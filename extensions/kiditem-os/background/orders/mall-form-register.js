@@ -290,6 +290,378 @@
        */
       detailRich: { selector: ".ck-editor__editable" },
     },
+    /**
+     * 아이스크림몰(아이스크림 PO/BO).
+     *
+     * 이 몰만 다른 것 셋(실측 2026-09-11, 등록물 `goodsNo=11411122`):
+     *  1. `<form>` 이 섹션마다 하나씩 **열한 개**다 → `multiForm`.
+     *  2. 고시가 분류로 열리지 않는다. `announcementInfo.eventhandler
+     *     .getAnnoucementItemInfo(품목코드, 안전인증대상YN)` 을 불러야 행이 그려진다.
+     *     ⚠️ 몰 코드의 오타(`Annoucement`, n 하나 빠짐)를 그대로 쓴다.
+     *  3. 상세설명이 네이버 SmartEditor 2 다. 뒷단 textarea 에 넣는다.
+     */
+    /**
+     * 꼬망세몰(EduPre 임대몰, `nstore.edupre.co.kr`).
+     *
+     * 실측 2026-09-11, 등록물 `_code=H7984-C3488-G2602`. 평범한 PHP 폼(`frm`)이라 칸
+     * 이름이 다 있다. 다른 몰과 다른 것 셋:
+     *
+     *  1. **분류는 고른 뒤 `선택 카테고리 추가` 를 눌러야 붙는다.** 1·2·3단은 계단식
+     *     (`category_select2` → `/program/categorysearch.pro.php`)이라 앞 단을 고르면
+     *     다음 단 목록이 AJAX 로 온다. 그 버튼은 이 화면이 발급한 상품코드(`_code`)로
+     *     분류를 서버에 붙이는 AJAX 다 — 상품을 저장하는 것이 아니다.
+     *  2. **KC 번호 칸은 `인증` 을 누르기 전까지 잠겨 있다**(실측 `disabled`). 라디오를
+     *     칸보다 먼저 누른다(`preRadios`).
+     *  3. **상세설명은 SmartEditor 2 이고 사진 업로더가 몰에 있다.** 표준 샘플
+     *     (`file_uploader_html5.php`)이라 파일 바이트를 본문으로 보내고 `sFileURL=` 이
+     *     든 글자로 돌려받는다(실측 `attach_photo.js`). 남의 호스팅에 기대지 않는다.
+     */
+    kkomangse: {
+      label: "꼬망세몰",
+      origin: "https://nstore.edupre.co.kr",
+      pathPrefix: "/subAdmin/_product.form.php",
+      formSelector: 'form[name="frm"]',
+      preRadios: ["_kc_yn"],
+      /**
+       * 계단식이라 **다음 단 목록이 올 때까지** 기다린다. 고정 시간으로 자르면 AJAX 가
+       * 늦는 날 `목록에 없습니다` 로 끝난다.
+       */
+      selectorFields: [
+        { key: "category1", selector: 'select[name="pass_cate01"]', label: "분류 1단", waitMs: 600, waitForOption: true },
+        { key: "category2", selector: 'select[name="pass_cate02"]', label: "분류 2단", waitMs: 600, waitForOption: true },
+        { key: "category3", selector: 'select[name="pass_cate03"]', label: "분류 3단", waitMs: 600, waitForOption: true },
+      ],
+      /**
+       * 고르기만 하면 붙지 않는다. 누르면 목록에 `삭제` 줄(`category_delete(…)`)이 생긴다 —
+       * 그게 반영의 증거다. 세 단이 다 골라진 때만 누른다(반쯤 고른 분류를 붙이지 않는다).
+       */
+      afterSelectorClicks: [
+        {
+          text: "선택 카테고리 추가",
+          label: "선택 카테고리 추가",
+          waitMs: 1200,
+          expectSelector: '[onclick*="category_delete"]',
+          requireFilled: true,
+        },
+      ],
+      // 칸 이름이 텍스트 칸(외부 주소용)과 파일 칸이 같다. 반드시 파일 칸을 집는다.
+      imageFileInputs: [
+        { key: "square", label: "목록 기본 이미지", selector: 'input[type="file"][name="_img_list_square"]' },
+        { key: "over", label: "오버 이미지", selector: 'input[type="file"][name="_img_list_over"]' },
+        { key: "swipe", label: "상세 이미지 1", selector: 'input[type="file"][name="_img_b1"]' },
+      ],
+      /**
+       * 상세 이미지 2~5. 처음엔 1번 칸 하나뿐이고 `추가`(`a.js_addimg_btn`)를 누를 때마다
+       * 한 줄씩 붙는다. 붙을 때마다 화면이 `rename_img()` 로 파일 칸 이름을 순서대로
+       * `_img_b1~5` 로 다시 매긴다(실측). 다섯 칸을 넘기려 하면 alert 가 뜨므로 넷까지다.
+       */
+      imageRepeat: {
+        anchorSelector: 'input[type="file"][name="_img_b1"]',
+        sectionClosest: ".in_option_list",
+        addSelector: "a.js_addimg_btn",
+        slotSelector: 'input[type="file"].realFile',
+        namePattern: "_img_b{n}",
+        firstIndex: 2,
+        groupKey: "gallery",
+        max: 4,
+        label: "상세 이미지 2~5",
+      },
+      detailSmartEditor: {
+        // 구역 id 가 없다. textarea 자체의 id(`ir1`)에서 칸(부모 td)을 찾는다.
+        // 같은 화면에 이용안내용 에디터가 하나 더 있어 문서 전체에서 찾으면 안 된다.
+        anchorId: "ir1",
+        target: "_content",
+        toSourceSelector: "button.se2_to_html",
+        sourceSelector: "textarea.se2_input_htmlsrc",
+        toEditorSelector: "button.se2_to_editor",
+        upload: {
+          endpoint: "/include/smarteditor2/plugin/photo_uploader/file_uploader_html5.php",
+          mode: "html5",
+        },
+      },
+      // 상세 이미지를 File 로 받아 와야 몰 업로더에 올릴 수 있다.
+      detailSelfUpload: { editorTab: null },
+    },
+    /**
+     * 떠리몰(샵바이 파트너어드민 · `partner.shopby.co.kr`).
+     *
+     * 실측 2026-09-11, 등록물 `132154869` 외 둘 + 목록 479개. 이 몰만 다른 것 넷:
+     *
+     *  1. ⭐ 폼이 **다른 도메인 iframe** 안의 React 앱이다
+     *     (`partner-remote.shopby.co.kr/product/management/single/add`). 겉 주소는 껍데기다.
+     *     원격 주소를 바로 열면 칸이 하나도 안 그려진다(라이브 실측 — 인증을 겉이 넘겨준다).
+     *     그래서 겉을 열고 모든 프레임에 넣되, 일은 그 프레임에서만 한다(`frameUrlIncludes`).
+     *     iframe 은 겉 로딩이 끝난 뒤에 붙으므로 서비스워커가 그 프레임부터 기다린다.
+     *  2. 칸에 `name` 이 없다. 표의 줄 제목(`th`)이 유일한 손잡이다(`tableForm`).
+     *  3. 분류·담당자·브랜드는 검색칸에 넣으면 뜨는 목록(`li`)에서 고른다.
+     *  4. 상세설명은 Summernote 다. 그림 버튼 → 파일을 넣으면 몰이 자기 서버에 올리고 그
+     *     주소로 그림을 넣는다. 남의 호스팅(diskn)을 쓰지 않는다 — ESM 에서 그 의존 때문에
+     *     등록이 막혔다.
+     *
+     * 상품정보제공고시는 `등록` 을 누르면 **새 창**이 떠서 확장이 채우지 않는다.
+     */
+    thirtymall: {
+      label: "떠리몰",
+      origin: "https://partner.shopby.co.kr",
+      pathPrefix: "/product/add",
+      allFrames: true,
+      frameUrlIncludes: "/product/management/single/add",
+      frameWaitMs: 30000,
+      formSelector: "body",
+      // 칸이 생겨야 준비된 것이다. 이 앱은 로딩이 끝나고도 몇 초 뒤에 칸을 그린다.
+      readySelector: 'input[data-cy="productName"]',
+      formWaitMs: 30000,
+      tableForm: {
+        pickWaitMs: 6000,
+        images: [
+          { key: "main", row: "대표이미지" },
+          // 칸이 처음엔 없다. `이미지 추가` 를 누를 때마다 파일 칸이 하나씩 생긴다(실측).
+          { key: "additional", row: "추가이미지", addLabel: "이미지 추가", max: 9 },
+          { key: "list", row: "리스트 이미지" },
+        ],
+        summernote: { row: "상품 상세", radio: "USE_CONFIG_VALUE", uploadWaitMs: 15000 },
+      },
+      // 상세 이미지를 File 로 받아 와야 편집기에 올릴 수 있다.
+      detailSelfUpload: { editorTab: null },
+    },
+    /**
+     * 보리보리(셀러클럽 · TRICYCLE).
+     *
+     * 실측 2026-09-11, 등록물 `435316017`. 이 몰만 다른 것 셋:
+     *
+     *  1. **한 백오피스에 몰이 둘이다** — 하프클럽(`1`) · 보리보리(`2`). 화면이
+     *     **하프클럽으로 열린다.**
+     *  2. ⭐⭐ **사이트가 분류의 방아쇠다.** 하프클럽이면 1단이 패션 17개, 보리보리면
+     *     유아동·완구·문구 39개로 통째로 바뀐다. `siteCd` 를 먼저 넣지 않으면 우리 분류
+     *     (`241 문구/팬시`)가 목록에 **아예 없다.**
+     *  3. **`<form>` 밖에 칸이 있다.** `name` 은 다 있어 선택자로 닿는다. 그래서
+     *     `formSelector` 는 `body` 로 두고 화면이 그려졌는지는 `readySelector` 로 본다.
+     *
+     * 등록은 네 단계(코드생성 → 상품정보생성 → 상세정보 → 승인요청)다. 상세설명·고시·
+     * 원산지는 **저장 뒤에야** 칸이 생긴다 — 확장은 1단계까지만 채운다.
+     */
+    boribori: {
+      label: "보리보리",
+      origin: "https://seller-club.co.kr",
+      pathPrefix: "/product/productRegister",
+      // 칸이 폼 밖에 있다. 라디오를 문서 전체에서 찾게 넓은 표식을 쓴다.
+      formSelector: "body",
+      // 화면이 그려졌는지는 이걸로 본다. 백오피스가 느려서 넉넉히 기다린다.
+      readySelector: '[name="siteCd"]',
+      formWaitMs: 20000,
+      /**
+       * ⚠️ **순서가 곧 실행 순서다.** 사이트 → 분류 1·2·3단이 먼저다.
+       * 계단식이라 앞 단을 고르기 전에 뒤 단을 건드리면 목록이 비어 아무것도 안 들어간다.
+       */
+      selectorFields: [
+        { key: "site", selector: '[name="siteCd"]', label: "사이트(보리보리)", waitMs: 2500 },
+        { key: "category1", selector: '[name="stdCtgrNo1"]', label: "분류 1단", waitMs: 2500 },
+        { key: "category2", selector: '[name="stdCtgrNo2"]', label: "분류 2단", waitMs: 2500 },
+        { key: "category3", selector: '[name="stdCtgrNo3"]', label: "분류 3단", waitMs: 1500 },
+        // 필수이고 **우리가 정하는 코드**다. 옆에 중복체크 버튼이 있다.
+        { key: "sellerCode", selector: '[name="prdCd"]', label: "업체상품코드" },
+        // ⚠️ 신규 화면에서는 잠겨 있는 때가 있다. 그러면 경고가 남고 사람이 고른다.
+        { key: "md", selector: '[name="mdNo"]', label: "담당MD" },
+        { key: "name", selector: '[name="prdNm"]', label: "상품명" },
+        { key: "brandGroup", selector: '[name="prdGroupNm"]', label: "상세브랜드" },
+        { key: "brand", selector: '[name="brandNm"]', label: "브랜드" },
+        { key: "listPrice", selector: '[name="normPrc"]', label: "정상가" },
+        { key: "salePrice", selector: '[name="selPrc"]', label: "판매가" },
+        { key: "marginRate", selector: '[name="mrgnRt"]', label: "마진율" },
+        { key: "optionName", selector: '[name="optItemNm1"]', label: "옵션 이름" },
+        { key: "optionValue", selector: '[name="optItemVal1"]', label: "옵션 값" },
+        { key: "decoWord", selector: '[name="decoWord"]', label: "수식어" },
+        { key: "tags", selector: '[name="prdTag"]', label: "상품태그" },
+      ],
+      imageFileInputs: [
+        { key: "representative", label: "대표이미지", selector: 'input[name="uploadImgMain"]' },
+        { key: "additional", label: "추가이미지", selector: 'input[name="uploadImgAdd"]' },
+      ],
+      // ⚠️ `detailHost` 를 두지 않는다. 상세설명 칸은 저장 뒤에야 생겨서 이번 회차에
+      // 넣을 곳이 없다 — 남의 몰 호스팅에 미리 올려 둘 이유도 없다(ESM 에서 배운 것).
+    },
+    /**
+     * ESM Plus — **G마켓과 옥션을 한 번에** 등록한다.
+     *
+     * 실측 2026-09-11(빈 폼 `item.esmplus.com/goods/new`). 지금까지 붙인 몰과
+     * 근본이 다르다:
+     *
+     *  1. **`<form>` 도 `name` 도 `id` 도 없다.** Next.js + React 라 `id` 는 React
+     *     `useId` 가 만든 `:r0:` 이고 렌더마다 바뀐다. 네이티브 `<select>` 도 0개다.
+     *     유일한 손잡이가 화면에 찍힌 **섹션 제목**이라 `sectionForm` 을 쓴다.
+     *  2. **고시가 일반 칸과 같은 블록이다.** `상품군` 을 고르면 15줄이 같은
+     *     `div.box__filter-item` 으로 그려진다 — `noticeSection` 이 필요 없다.
+     *  3. **상세설명이 그냥 textarea 다.** SmartEditor 도 iframe 도 없다. `HTML 작성`
+     *     탭을 누르면 `textarea.box__board-textarea` 가 나온다.
+     *
+     * 판매사이트(G마켓·옥션) 체크박스는 둘 다 켜진 채로 열린다 — 건드리지 않는다.
+     * 배송(택배사·발송정책·출고지·배송비·반품지)도 계정 템플릿으로 이미 차 있다.
+     */
+    esmplus: {
+      label: "ESM Plus(G마켓·옥션)",
+      origin: "https://item.esmplus.com",
+      pathPrefix: "/goods/new",
+      // `<form>` 이 없다. 화면이 그려졌는지만 보는 표식으로 쓴다.
+      formSelector: "main.box__wrap",
+      /**
+       * ⚠️ 이 화면은 `load` 뒤에도 **8~10초** 더 지나야 칸이 그려진다(라이브 실측).
+       * 껍데기(`main.box__wrap`)만 보고 진행하면 칸이 하나도 없어 전부 실패한다.
+       * 그래서 칸 하나가 실제로 생길 때까지 기다린다.
+       */
+      readySelector: "div.box__filter-item",
+      formWaitMs: 25000,
+      sectionForm: {
+        itemSelector: "div.box__filter-item",
+        headSelector: ".box__filter-head",
+        contentSelector: ".box__filter-content",
+        inputSelector: "input.form__input, textarea",
+        dropdownSelector: "div.box__dropdown",
+        openerSelector: "button.button__opener",
+        // ⚠️ `li` 가 아니라 이 버튼을 눌러야 한다. li 클릭은 아무 일도 안 일어난다.
+        optionSelector: "button.button__option",
+        labelSelector: "label.form__label",
+      },
+      sectionCategory: {
+        section: "카테고리",
+        queryInput: 'input.form__input[placeholder*="카테고리"]',
+        searchButton: "button.button__search",
+        waitMs: 2500,
+      },
+      /**
+       * 상세설명.
+       *
+       * ⭐ **ESM 자체 업로드가 주 경로다.** 예전엔 키즈노트(diskn)에 먼저 올려 주소를
+       * 받아 HTML 로 넣었는데, 키즈노트 로그인이 풀리면 ESM 등록이 통째로 막혔다
+       * (사장님 지적 2026-09-11: "esm 인데 왜 키즈노트를 쓰냐"). 남의 몰 세션이 우리
+       * 등록을 막는 구조라 버렸다.
+       *
+       * `이미지 업로드` 탭 안에 전용 파일 칸이 있다(라이브 실증: 넣으니 안내 문구가
+       * "등록된 이미지가 없습니다" → "등록된 이미지가 있습니다"로 바뀌었다).
+       * ⚠️ 파일 칸 이름이 상품이미지와 똑같은 `btnSelectFile` 이라 문서 전체에서 찾으면
+       * 대표이미지 칸을 집는다. 반드시 `div.box__board` 안에서 찾는다.
+       */
+      sectionDetail: {
+        tabSelector: "ul.list__tab-board button.button__tab",
+        /** 주 경로 — 파일을 직접 올린다. */
+        uploadTabLabel: "이미지 업로드",
+        uploadBoardSelector: "div.box__board",
+        uploadFileSelector: "input.form__file",
+        uploadDoneText: "등록된 이미지가 있습니다",
+        /** 대비 경로 — 이미 몰이 읽을 수 있는 주소일 때만 쓴다. */
+        tabLabel: "HTML 작성",
+        textareaSelector: "textarea.box__board-textarea",
+      },
+      /** 상세 이미지를 File 로 받아 와야 몰에 올릴 수 있다. */
+      detailSelfUpload: { editorTab: null },
+      // 칸이 하나뿐인데 `multiple` 이다. 대표·추가를 한 번에 넣고 첫 장이 대표가 된다.
+      sectionImages: {
+        groupKey: "esmplus",
+        label: "상품이미지",
+        fileInputSelector: "input.form__file",
+        max: 15,
+      },
+      /**
+       * 화면을 덮는 안내 팝업을 닫는다(사장님 요청 2026-09-11).
+       *
+       * 실물 예: "[G kiditem / A kiditem] 이벤트에 참여중입니다 … [확인]".
+       * 덮여 있는 동안에는 우리 클릭이 전부 그 창으로 먹어서 폼이 안 채워진다.
+       *
+       * ⚠️ 판단은 **버튼 글자로만** 한다. 글자 있는 버튼이 하나뿐이고 그게 `확인`·`닫기`
+       * 일 때만 누른다 — 확인/취소가 같이 있는 '되묻는 창' 은 사람의 결정이라 건드리지
+       * 않는다. 이 안내창은 본문에 '등록' 이 들어 있어서(신규로 등록되는 상품은 …)
+       * 본문으로 거르면 오히려 못 닫는다.
+       */
+      dismissDialogs: {
+        label: "안내 팝업",
+        /** 이 글자를 누른다. */
+        closeLabels: ["확인", "닫기"],
+        /**
+         * 창 안에서 '고르라는 자리' 인지 판단할 낱말들.
+         *
+         * 여기 있는 낱말 중 닫기류가 아닌 것이 하나라도 창에 있으면 손대지 않는다 —
+         * `취소` 가 같이 있으면 되묻는 창이고, 그건 사람의 결정이다.
+         */
+        actionWords: [
+          "확인", "닫기", "취소", "등록", "저장", "삭제", "전송", "제출",
+          "계속", "다음", "이전", "예", "아니오", "등록하기", "저장하기",
+        ],
+        /** 묻는 말로 끝나는 창은 닫기류만 있어도 사람의 결정이다. */
+        questionPattern: "하시겠습니까|하시겠어요|계속할까요|진행할까요",
+        /** 안내 문구가 이만큼은 있어야 '읽으라고 띄운 창' 이다. */
+        minMessageLength: 10,
+        retries: 4,
+        waitMs: 700,
+      },
+      // ⚠️ `detailHost` 를 두지 않는다. 두면 키즈노트에 먼저 올리려다 그 몰 로그인이
+      // 풀렸을 때 ESM 등록까지 막힌다 — 실제로 그렇게 막혔다(라이브 2026-09-11).
+    },
+    icecream: {
+      label: "아이스크림몰",
+      origin: "https://po.i-screammall.co.kr",
+      pathPrefix: "/goods/temporaryGeneralGoods",
+      // 폼이 여럿이라 '이 화면이 맞나' 를 볼 대표 폼만 지정한다.
+      formSelector: "#goodsInfo",
+      multiForm: true,
+      categoryFields: { code: "stdCtgNo", path: "stdCtgHierarchy" },
+      noticeSection: {
+        owner: "announcementInfo",
+        open: "getAnnoucementItemInfo",
+        tableId: "announcementInfoTable",
+      },
+      // 대표 한 장. 추가 이미지 칸(`imgInfo[N][img]`)은 `+` 로 늘려야 해서 사람에게 넘긴다.
+      //
+      // ⚠️ `imageFileInput`(단수)은 `form.imageUrls` 를 보는데 이 몰 빌더는
+      // `imageGroups` 로 보낸다. 그래서 그룹 방식을 쓴다 — 단수로 뒀다가 이미지가
+      // 통째로 안 들어갔다(라이브 확인 2026-09-11).
+      imageFileInputs: [
+        { key: "representative", label: "대표이미지", selector: "input[name='baseImageFile']" },
+      ],
+      /**
+       * 추가 이미지. 칸이 처음엔 없고 `+` 를 눌러야 하나씩 생긴다.
+       *
+       * 한 번 누르면 `imgInfo[N][img]`(파일)과 `imgInfo[N][seq]`(전시 순서, 자동 1·2·3)
+       * 가 함께 생긴다. 몰 안내대로 아홉 장까지다(실측 2026-09-11).
+       */
+      imageRepeat: {
+        section: "imageInfo",
+        addLabel: "+",
+        namePattern: "imgInfo[{i}][img]",
+        groupKey: "additional",
+        max: 9,
+        label: "추가이미지",
+      },
+      /**
+       * 상세설명이 네이버 SmartEditor 2 다.
+       *
+       * 뒷단 textarea 에만 쓰면 제출할 때 에디터 내용으로 덮인다. 편집면은
+       * `iframe(스킨) > iframe#se2_iframe` 이고 same-origin 이라 직접 쓸 수 있다.
+       *
+       * ⭐ 스킨 iframe 이 **두 개**다(본문·예스24 전용). 라이브 확인 2026-09-11 기준
+       * 본문이 **두 번째**라, 순서로 집으면 예스24 쪽에 들어간다. 반드시 상세설명
+       * 구역(`#detailInfo`) 안에서 찾는다.
+       */
+      detailSmartEditor: {
+        section: "detailInfo",
+        target: "detailHtmlEditor",
+        toSourceSelector: "button.se2_to_html",
+        sourceSelector: "textarea.se2_input_htmlsrc",
+        toEditorSelector: "button.se2_to_editor",
+        upload: { endpoint: "/common/file/uploadImgEditor.do", field: "UPLOAD_FILE", imgWidth: 900 },
+      },
+      // 상세 이미지를 File 로 받아 와야 몰에 올릴 수 있다.
+      detailSelfUpload: { editorTab: null },
+      detailHtmlTarget: "detailHtmlEditor",
+      /**
+       * 상세설명 이미지를 올릴 곳.
+       *
+       * 우리 산출물은 로컬 MinIO 주소라 몰이 못 읽는다. 도매꾹·티처몰·11번가와 같은
+       * 저장소를 쓴다 — 실측 등록물도 `kiditem.diskn.com` 주소였다.
+       * ⚠️ 이걸 빼먹었더니 `detailHtml` 이 빈 채로 상세설명이 통째로 건너뛰어졌다
+       * (라이브 2026-09-11).
+       */
+      detailHost: "kidsnote",
+    },
+
     teacherville: {
       label: "티처몰",
       origin: "https://shop.teacherville.co.kr",
@@ -590,6 +962,47 @@
       for (const [name, on] of Object.entries(rawChecks)) checks[name] = Boolean(on);
     }
 
+    // 폼이 여럿인 몰(아이스크림몰)은 폼 id 까지 받는다.
+    const multiFormFields = {};
+    if (spec.multiForm && value.formFields && typeof value.formFields === "object") {
+      for (const [formId, values] of Object.entries(value.formFields)) {
+        if (!values || typeof values !== "object") continue;
+        const box = {};
+        for (const [name, raw] of Object.entries(values)) {
+          if (typeof name === "string" && name) box[name] = raw == null ? "" : String(raw);
+        }
+        if (Object.keys(box).length > 0) multiFormFields[formId] = box;
+      }
+    }
+    const multiFormRadios = {};
+    const multiFormChecks = {};
+    if (spec.multiForm) {
+      for (const [formId, values] of Object.entries(value.formRadios || {})) {
+        if (values && typeof values === "object") multiFormRadios[formId] = { ...values };
+      }
+      for (const [formId, values] of Object.entries(value.formChecks || {})) {
+        if (values && typeof values === "object") multiFormChecks[formId] = { ...values };
+      }
+    }
+    const category = value.category && typeof value.category === "object"
+      ? { code: String(value.category.code || ""), path: String(value.category.path || "") }
+      : null;
+    const notice = value.notice && typeof value.notice === "object"
+      ? {
+        itemCode: String(value.notice.itemCode || ""),
+        safeYn: value.notice.safeCertiTgtYn === "Y" ? "Y" : "N",
+        rows: (Array.isArray(value.notice.rows) ? value.notice.rows : [])
+          .filter((row) => row && typeof row.title === "string" && row.title)
+          .map((row) => ({ title: row.title, value: row.value == null ? "" : String(row.value) })),
+        radios: {
+          ...(value.notice.kcCertified ? { "072": String(value.notice.kcCertified) } : {}),
+          ...(value.notice.safeCertiTgtYn
+            ? { safeCertiTgtYn: String(value.notice.safeCertiTgtYn) }
+            : {}),
+        },
+      }
+      : null;
+
     const slots = new Set(spec.imageSlots);
     const fileUploads = (Array.isArray(value.fileUploads) ? value.fileUploads : [])
       .filter((entry) => entry && slots.has(entry.name) && typeof entry.url === "string");
@@ -603,6 +1016,11 @@
       fields,
       radios,
       checks,
+      multiFormFields,
+      multiFormRadios,
+      multiFormChecks,
+      category,
+      notice,
       fileUploads: fileUploads.length > 0 ? fileUploads : imageUploads,
       detailHtmlTarget: typeof value.detailHtmlTarget === "string" ? value.detailHtmlTarget : "",
       promoHtml: typeof value.promoHtml === "string" ? value.promoHtml : "",
@@ -624,6 +1042,15 @@
         for (const [key, list] of Object.entries(value.imageGroups || {})) {
           if (Array.isArray(list)) out[key] = list.filter((url) => typeof url === "string" && url);
         }
+        // 칸 하나(`multiple`)에 대표·추가를 한 번에 넣는 몰(ESM Plus). 빌더는 `images`
+        // 한 줄로 보낸다.
+        //
+        // ⚠️ 여기서 그룹으로 옮겨 두지 않으면 `imageSlotSpecs` 가 못 봐서 이미지를
+        // 아예 내려받지 않는다 — 아이스크림몰에서 같은 실수로 이미지가 통째로 빠졌다.
+        if (spec.sectionImages && Array.isArray(value.images)) {
+          const list = value.images.filter((url) => typeof url === "string" && url);
+          if (list.length > 0) out[spec.sectionImages.groupKey] = list;
+        }
         return out;
       })(),
       selectorFields: (() => {
@@ -643,6 +1070,52 @@
         }
         return out;
       })(),
+      /**
+       * 섹션 제목 → 값(ESM Plus).
+       *
+       * 이 몰은 `<form>` 도 `name` 도 `id` 도 없다. `id` 는 React `useId` 가 만든
+       * `:r0:` 라 렌더마다 바뀐다 — 화면에 찍힌 **제목**이 유일한 손잡이다.
+       * 같은 섹션에 칸이 여럿이면 `제목#순번` 으로 적는다.
+       */
+      sectionFields: (() => {
+        const out = {};
+        for (const [key, entry] of Object.entries(value.sectionFields || {})) {
+          if (entry === null || entry === undefined) continue;
+          out[key] = String(entry);
+        }
+        return out;
+      })(),
+      /** 섹션 제목 → 누를 라디오의 라벨 글자. */
+      sectionRadios: (() => {
+        const out = {};
+        for (const [key, entry] of Object.entries(value.sectionRadios || {})) {
+          if (entry === null || entry === undefined) continue;
+          out[key] = String(entry);
+        }
+        return out;
+      })(),
+      /** 섹션 제목 → 고를 커스텀 드롭다운 항목의 보이는 글자. */
+      sectionDropdowns: (() => {
+        const out = {};
+        for (const [key, entry] of Object.entries(value.sectionDropdowns || {})) {
+          if (entry === null || entry === undefined) continue;
+          out[key] = String(entry);
+        }
+        return out;
+      })(),
+      /**
+       * 없어도 경고하지 않을 섹션(ESM Plus).
+       *
+       * 분류가 어느 인증 블록을 그릴지 정한다. 안 그려진 칸을 못 찾았다고 경고하면
+       * 매번 거짓 경보가 떠서 진짜 경고가 묻힌다.
+       */
+      optionalSections: (Array.isArray(value.optionalSections) ? value.optionalSections : [])
+        .filter((title) => typeof title === "string" && title),
+      /** 검색해서 고르는 분류(ESM Plus). `{query, path}` 다. */
+      sectionCategory: (value.category && typeof value.category === "object"
+        && typeof value.category.path === "string" && value.category.path)
+        ? { query: String(value.category.query || ""), path: String(value.category.path) }
+        : null,
       /** 같은 방식인데 목록에서 **보이는 글자**로 고르는 것들. */
       rowOptions: (() => {
         const out = {};
@@ -652,6 +1125,43 @@
         }
         return out;
       })(),
+      /**
+       * 표의 줄 제목 → 값(떠리몰). 칸에 이름이 없어서 화면에 찍힌 줄 제목이 손잡이다.
+       * 글자칸 · 라디오 값 · 목록(select)에서 고를 보이는 글자.
+       */
+      tableFields: (() => {
+        const out = {};
+        for (const [key, entry] of Object.entries(value.tableFields || {})) {
+          if (!key || entry === null || entry === undefined) continue;
+          out[key] = String(entry);
+        }
+        return out;
+      })(),
+      tableRadios: (() => {
+        const out = {};
+        for (const [key, entry] of Object.entries(value.tableRadios || {})) {
+          if (!key || entry === null || entry === undefined) continue;
+          out[key] = String(entry);
+        }
+        return out;
+      })(),
+      tableSelects: (() => {
+        const out = {};
+        for (const [key, entry] of Object.entries(value.tableSelects || {})) {
+          if (!key || entry === null || entry === undefined) continue;
+          out[key] = String(entry);
+        }
+        return out;
+      })(),
+      /** 검색해서 목록에서 고르는 칸들. 순서가 있다 — 분류가 다른 칸을 다시 그릴 수 있다. */
+      tablePicks: (Array.isArray(value.tablePicks) ? value.tablePicks : [])
+        .filter((entry) => entry && typeof entry.row === "string" && entry.row
+          && typeof entry.pick === "string" && entry.pick)
+        .map((entry) => ({
+          row: entry.row,
+          query: typeof entry.query === "string" && entry.query ? entry.query : entry.pick,
+          pick: entry.pick,
+        })),
       groups: (() => {
         const out = {};
         for (const [key, list] of Object.entries(value.groups || {})) {
@@ -686,18 +1196,78 @@
     const nativeAlert = window.alert;
     window.alert = (message) => { said.push(String(message)); };
 
-    const form = document.querySelector(payload.formSelector);
-    if (!form) {
+    /**
+     * 고시 한 줄의 입력칸.
+     *
+     * 이 몰의 고시 칸에는 `name` 이 없다. 행 제목으로 찾는 수밖에 없고, 제목에는
+     * 툴팁 글("설명", "- …")이 섞여 있어 앞부분만 맞춰 본다.
+     */
+    function findNoticeInput(tableId, title) {
+      const table = document.getElementById(tableId);
+      if (!table) return null;
+      const want = title.replace(/\s+/g, "");
+      const row = [...table.querySelectorAll("tr")].find((tr) => {
+        const label = tr.querySelector("td.label, th");
+        if (!label) return false;
+        const text = (label.textContent || "").replace(/\s+/g, "").replace(/설명|닫기/g, "");
+        return text.startsWith(want);
+      });
+      if (!row) return null;
+      return row.querySelector("td:not(.label) input[type='text'], td:not(.label) textarea");
+    }
+
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    /**
+     * 폼이 그려질 때까지 **페이지 안에서** 기다린다.
+     *
+     * ⚠️ 회귀(라이브 2026-09-11, 사장님 화면의 `G마켓 · 옥션 → 실패`):
+     * ESM Plus 는 Next.js SPA 라 `load` 가 끝난 **뒤에도 8~10초** 더 지나야 폼이
+     * 그려진다. 서비스워커는 로딩 완료 + 1.2초만 기다리고 주입하므로 그때는
+     * `main.box__wrap` 이 아직 없어서 `폼이 없습니다` 로 끝났다 — 로그인은 멀쩡했다.
+     *
+     * 밖에서 더 오래 자는 것으로는 못 맞춘다(탭을 여러 개 열수록 느려진다).
+     * **화면이 준비될 때까지 여기서 지켜본다.** 준비되면 바로 진행하니 빠른 몰은 손해가 없다.
+     */
+    async function waitForForm() {
+      // ⚠️ 껍데기(`body` 같은 넓은 표식)는 언제나 있다. 칸이 생겼는지까지 봐야 한다 —
+      // 안 그러면 기다림이 첫 줄에서 끝나고 빈 화면에 쓰게 된다.
+      const ready = () => {
+        const hit = document.querySelector(payload.formSelector);
+        if (!hit) return null;
+        if (payload.readySelector && !document.querySelector(payload.readySelector)) return null;
+        return hit;
+      };
+      const found = ready();
+      if (found) return found;
+      const budget = payload.formWaitMs || 0;
+      if (budget <= 0) return null;
+      const until = Date.now() + budget;
+      while (Date.now() < until) {
+        await sleep(400);
+        // 껍데기만 있고 칸이 아직 없는 화면도 '아직' 으로 본다.
+        const hit = ready();
+        if (hit) return hit;
+      }
+      return ready();
+    }
+
+    // 기다림은 async 블록 안에서 한다. 여기서는 있으면 잡아 두기만 한다.
+    let form = document.querySelector(payload.formSelector);
+
+    /** 폼을 못 찾았을 때 돌려줄 답. 로그인이 풀린 경우를 따로 말해 준다. */
+    function noFormOutcome() {
+      const redirected = /signin\.|\/login|\/redirect\?/.test(location.href);
       return {
         ok: false,
         // 모든 프레임에 넣는 몰(11번가)은 폼이 없는 프레임에서도 여기로 온다.
         // 진짜 실패와 구분하려고 표시를 남긴다.
         noForm: true,
-        error: `상품등록 폼(${payload.formSelector})이 없습니다. 로그인 상태와 화면을 확인하세요.`,
+        error: redirected
+          ? "몰에 로그인되어 있지 않습니다. 열린 탭에서 직접 로그인한 뒤 다시 누르세요."
+          : `상품등록 폼(${payload.formSelector})이 없습니다. 로그인 상태와 화면을 확인하세요.`,
       };
     }
-
-    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
     const field = (name) => form.querySelector(`[name="${CSS.escape(name)}"]`);
     const fire = (el) => {
       el.dispatchEvent(new Event("input", { bubbles: true }));
@@ -834,12 +1404,263 @@
       return hit ? hit.querySelector(".b-box__cont") : null;
     }
 
+    /**
+     * 섹션 제목으로 칸 블록을 찾는다(ESM Plus).
+     *
+     * 11번가와 사정은 같은데 DOM 이 다르다. 이 몰은
+     * `div.box__filter-item > (.box__filter-head 제목 + .box__filter-content 값)` 이고,
+     * 제목에 `필수`·`도움말` 이 꼬리로 붙는다. 공백과 그 꼬리를 떼고 앞부분만 맞춘다.
+     *
+     * 실측 2026-09-11: 고시 15줄도 상품군을 고르고 나면 **같은 블록**으로 그려진다 —
+     * 그래서 고시에 별도 손잡이가 필요 없다.
+     */
+    function findSectionContent(title) {
+      const layout = payload.sectionLayout;
+      if (!layout) return null;
+      const want = String(title).replace(/\s+/g, "");
+      const hit = [...document.querySelectorAll(layout.itemSelector)].find((el) => {
+        const head = el.querySelector(layout.headSelector);
+        if (!head) return false;
+        const text = (head.textContent || "").replace(/\s+/g, "").replace(/필수|도움말/g, "");
+        return text === want || text.startsWith(want);
+      });
+      if (!hit) return null;
+      return hit.querySelector(layout.contentSelector) || hit;
+    }
+
+    /**
+     * 안내 팝업을 닫는다.
+     *
+     * ESM Plus 는 등록 화면에 안내창을 띄운다(실물: "[G kiditem / A kiditem] 이벤트에
+     * 참여중입니다 … [확인]"). 덮여 있는 동안에는 우리 클릭이 전부 그 창으로 먹어서
+     * 폼이 안 채워지고, 사람이 매번 손으로 닫아야 한다.
+     *
+     * ⚠️ **되묻는 창을 대신 눌러 주지 않는다.** 그건 사람의 결정을 가로채는 일이다.
+     * 판단 규칙:
+     *
+     *  1. 창 안의 버튼을 **닫기류**(`확인`·`닫기`·모서리 `✕`)와 **그 외**로 가른다.
+     *  2. **'그 외' 가 하나라도 있으면 손대지 않는다** — `취소`·`등록하기` 가 있다는 건
+     *     고르라는 뜻이다.
+     *  3. 본문이 **묻는 말**로 끝나면(`…하시겠습니까?`) 닫기류만 있어도 손대지 않는다.
+     *
+     * 본문에 무슨 낱말이 있는지로는 거르지 않는다 — 이 안내창도 본문에 '등록' 이
+     * 들어 있다("신규로 등록되는 상품은 … 제외됩니다"). 낱말로 걸렀다면 못 닫는다.
+     */
+    async function dismissNoticeDialogs(rule) {
+      if (!rule) return 0;
+      const closeLabels = rule.closeLabels || [];
+      const actionWords = rule.actionWords || [];
+      const question = rule.questionPattern ? new RegExp(rule.questionPattern) : null;
+      const labelOf = (el) => (el.textContent || "").replace(/\s+/g, " ").trim();
+
+      /**
+       * ⚠️ 태그를 믿지 않는다.
+       *
+       * 처음엔 `<button>` 만 봤는데, 이 안내창이 떠 있는 동안 글자가 `확인` 인 버튼이
+       * **하나도 없었다**(라이브 2026-09-11). 누르는 자리가 `<a>` 나 `<div>` 라는 뜻이다.
+       * 그래서 **글자가 행동 낱말인 잎 요소**를 찾는다 — 태그가 무엇이든 걸린다.
+       *
+       * 스타일 조회는 걸린 몇 개에만 한다. 문서 전체에 `getComputedStyle` 을 돌렸다가
+       * 이 화면(요소 2,200개)에서 렌더러가 45초 넘게 멈춘 적이 있다.
+       */
+      const actionLeaves = () => [...document.querySelectorAll("*")]
+        .filter((el) => el.children.length === 0 && actionWords.includes(labelOf(el)));
+
+      const dialogFor = (el) => {
+        let box = el.parentElement;
+        for (let depth = 0; depth < 10 && box && box !== document.body; depth += 1) {
+          const style = getComputedStyle(box);
+          if (/fixed|absolute/.test(style.position)) {
+            const rect = box.getBoundingClientRect();
+            if (rect.width >= 180 && rect.height >= 60) return box;
+          }
+          box = box.parentElement;
+        }
+        return null;
+      };
+
+      // 한 번 누른 자리는 다시 누르지 않는다. 같은 것을 두 번 누르면 그 다음 화면의
+      // 버튼을 누르게 된다 — 그게 등록 버튼일 수도 있다.
+      const pressed = new Set();
+      let closed = 0;
+      for (let round = 0; round < (rule.retries || 1); round += 1) {
+        let hit = null;
+        for (const leaf of actionLeaves()) {
+          if (pressed.has(leaf)) continue;
+          if (!closeLabels.includes(labelOf(leaf))) continue;
+          const box = dialogFor(leaf);
+          if (!box) continue;
+          const style = getComputedStyle(box);
+          if (style.display === "none" || style.visibility === "hidden") continue;
+          // 창 안의 행동 낱말을 전부 센다. 고르라는 것이 섞여 있으면 사람의 몫이다.
+          const words = [...box.querySelectorAll("*")]
+            .filter((el) => el.children.length === 0 && actionWords.includes(labelOf(el)))
+            .map(labelOf);
+          if (words.some((word) => !closeLabels.includes(word))) continue;
+          if (question && question.test((box.textContent || "").replace(/\s+/g, " "))) continue;
+          /**
+           * 안내창에는 **읽으라고 쓴 글**이 있다.
+           *
+           * 버튼만 덩그러니 있는 상자는 화면의 부품이지 안내창이 아니다. 그런 것을
+           * 눌렀다가는 폼의 진짜 버튼을 누르게 된다. 낱말을 뺀 본문이 짧으면 넘긴다.
+           */
+          const body = (box.textContent || "").replace(/\s+/g, " ").trim();
+          const message = words.reduce((text, word) => text.split(word).join(""), body).trim();
+          if (message.length < (rule.minMessageLength || 10)) continue;
+          hit = leaf;
+          break;
+        }
+        if (!hit) {
+          if (closed > 0) break;
+          await sleep(rule.waitMs || 600);
+          continue;
+        }
+        // 잎이 아니라 실제로 누르는 자리를 누른다(버튼 안 span 인 경우).
+        pressed.add(hit);
+        const target = hit.closest('button,a,[role="button"]') || hit;
+        target.click();
+        closed += 1;
+        await sleep(rule.waitMs || 600);
+      }
+      return closed;
+    }
+
+    /**
+     * 커스텀 드롭다운에서 **보이는 글자**로 고른다(ESM Plus).
+     *
+     * 네이티브 `<select>` 가 하나도 없는 화면이다(실측: `document.querySelectorAll('select')`
+     * 가 0개). 항목은 열지 않아도 DOM 에 이미 있지만, 여는 버튼을 눌러 줘야 React 가
+     * 고른 값을 받는다.
+     *
+     * ⚠️ `li` 를 누르면 아무 일도 안 일어난다. 그 안의 `button` 을 눌러야 한다(실측).
+     */
+    async function pickSectionOption(content, wanted, layout) {
+      const dropdown = content.querySelector(layout.dropdownSelector) || content;
+      const opener = dropdown.querySelector(layout.openerSelector);
+      if (opener) {
+        opener.click();
+        await sleep(350);
+      }
+      const want = String(wanted).replace(/\s+/g, " ").trim();
+      const option = [...dropdown.querySelectorAll(layout.optionSelector)]
+        .find((el) => (el.textContent || "").replace(/\s+/g, " ").trim() === want);
+      if (!option) {
+        // 못 고르면 열어 둔 채로 두지 않는다. 다음 칸을 가릴 수 있다.
+        if (opener) opener.click();
+        return false;
+      }
+      option.click();
+      await sleep(500);
+      return true;
+    }
+
     return (async () => {
+      // 0-00) 폼이 다른 도메인 iframe 에 있는 몰(떠리몰)은 모든 프레임에 들어가지만 일은 그
+      //       프레임에서만 한다. 겉·숨은 프레임은 바로 비킨다 — 안 비키면 폼을 기다리느라
+      //       전체 주입이 30초씩 붙잡힌다.
+      if (payload.frameUrlIncludes && !location.href.includes(payload.frameUrlIncludes)) {
+        return { ok: false, noForm: true, error: `상품등록 화면(${payload.frameUrlIncludes})을 찾지 못했습니다.` };
+      }
+
+      // 0-0) 느리게 그려지는 SPA(ESM Plus)는 칸이 생길 때까지 여기서 기다린다.
+      //
+      // ⚠️ 껍데기(`body`)는 처음부터 있어서 `form` 만 보면 기다림을 건너뛴다. 준비 표식
+      // (`readySelector`)이 아직 없으면 그것도 '아직' 이다 — 떠리몰 라이브 시험에서 칸이
+      // 그려지기 전에 들어가 줄 제목을 하나도 못 찾았다(2026-09-11).
+      if (!form || (payload.readySelector && !document.querySelector(payload.readySelector))) {
+        form = await waitForForm();
+        if (!form) return noFormOutcome();
+      }
+
       // 0) 분류가 방아쇠인 몰은 분류부터 끝낸다.
       //
       // 11번가는 분류를 고르기 전에 상품정보 제공고시 블록이 숨어 있어서, 순서를
       // 지키지 않으면 그 단계가 통째로 실패한다(라이브 확인 2026-09-10).
       if (payload.categoryFirst) await runCategorySearch();
+
+      // 0-1) 폼이 섹션마다 따로 있는 몰(아이스크림몰)은 폼 id 까지 보고 채운다.
+      //
+      // 같은 이름의 칸이 여러 폼에 있어서(`deliFcstDt` 등) 문서 전체에서 찾으면
+      // 엉뚱한 폼의 칸에 들어간다.
+      for (const [formId, values] of Object.entries(payload.multiFormFields || {})) {
+        const section = document.getElementById(formId);
+        if (!section) { warnings.push(`${formId} 칸을 찾지 못했습니다.`); continue; }
+        let filled = 0;
+        for (const [name, value] of Object.entries(values)) {
+          const box = section.querySelector(`[name="${name}"]`);
+          if (!box) { warnings.push(`${formId}.${name} 칸이 없습니다.`); continue; }
+          box.readOnly = false;
+          assign(box, value);
+          filled += 1;
+        }
+        for (const [name, value] of Object.entries((payload.multiFormRadios || {})[formId] || {})) {
+          const hit = section.querySelector(`input[type="radio"][name="${name}"][value="${value}"]`);
+          if (!hit) { warnings.push(`${formId}.${name}=${value} 를 찾지 못했습니다.`); continue; }
+          if (!hit.checked) hit.click();
+          filled += 1;
+        }
+        for (const [name, on] of Object.entries((payload.multiFormChecks || {})[formId] || {})) {
+          // `payWayCd[]` 처럼 같은 이름이 여럿인 칸은 값으로 가려낸다.
+          const list = [...section.querySelectorAll(`input[type="checkbox"][name="${name}"]`)];
+          const targets = Array.isArray(on)
+            ? list.filter((el) => on.includes(el.value))
+            : list;
+          for (const el of targets) {
+            if (el.checked !== (Array.isArray(on) ? true : Boolean(on))) el.click();
+            filled += 1;
+          }
+        }
+        if (filled > 0) steps.push(`${formId} ${filled}칸`);
+      }
+
+      // 0-2) 분류. 팝업으로만 고르는 칸이라 값을 직접 넣는다.
+      //
+      // 코드와 경로를 함께 넣는다 — 몰은 저장할 때 코드를 본다. 경로만 맞춰 두면
+      // 화면은 맞아 보이는데 저장이 빈 분류로 들어간다.
+      if (payload.categoryFields && payload.categoryCode) {
+        const codeBox = document.querySelector(`[name="${payload.categoryFields.code}"]`);
+        const pathBox = document.querySelector(`[name="${payload.categoryFields.path}"]`);
+        if (codeBox) { codeBox.readOnly = false; assign(codeBox, payload.categoryCode); }
+        if (pathBox) { pathBox.readOnly = false; assign(pathBox, payload.categoryPath || ""); }
+        if (codeBox) steps.push("분류");
+        else warnings.push("분류 칸을 찾지 못했습니다. 화면에서 직접 고르세요.");
+      }
+
+      // 0-3) 고시. 이 몰은 **분류로 열리지 않는다** — 품목코드를 주고 몰의 함수를
+      // 불러야 행이 그려진다(라이브 확인 2026-09-11: 1줄 → 16줄).
+      // 그려진 칸들은 `name` 이 없어 행 제목으로 찾는다.
+      if (payload.noticeSection && payload.noticeItemCode) {
+        const spec = payload.noticeSection;
+        const handler = window[spec.owner]?.eventhandler;
+        if (typeof handler?.[spec.open] === "function") {
+          try {
+            handler[spec.open](payload.noticeItemCode, payload.noticeSafeYn || "N");
+          } catch (error) {
+            warnings.push(`고시를 열지 못했습니다: ${error?.message || error}`);
+          }
+          // ajax 로 항목을 받아 그리므로 기다린다.
+          const deadline = Date.now() + 8000;
+          while (Date.now() < deadline) {
+            await sleep(400);
+            if (document.querySelectorAll(`#${spec.tableId} tr`).length > 2) break;
+          }
+          let noticeFilled = 0;
+          for (const row of payload.noticeRows || []) {
+            const target = findNoticeInput(spec.tableId, row.title);
+            if (!target) { warnings.push(`고시 '${row.title}' 줄을 찾지 못했습니다.`); continue; }
+            assign(target, row.value);
+            noticeFilled += 1;
+          }
+          if (noticeFilled > 0) steps.push(`고시 ${noticeFilled}줄`);
+          // KC/안전인증 라디오는 이름이 있다.
+          for (const [name, value] of Object.entries(payload.noticeRadios || {})) {
+            const hit = document.querySelector(`input[type="radio"][name="${name}"][value="${value}"]`);
+            if (hit && !hit.checked) { hit.click(); steps.push(`${name}=${value}`); }
+          }
+        } else {
+          warnings.push("고시를 여는 몰 함수를 찾지 못했습니다. 화면에서 분류를 고른 뒤 다시 시도하세요.");
+        }
+      }
 
       // 1) 단계형 화면이면 먼저 넘긴다.
       //
@@ -886,6 +1707,21 @@
           if (created > 0) steps.push(`${dynamic.trigger} 선택 후 항목 ${created}칸 생성`);
           else warnings.push(`${dynamic.trigger} 를 골랐지만 항목이 생기지 않았습니다.`);
         }
+      }
+
+      // 2-9) 칸을 여는 라디오를 먼저 누른다.
+      //
+      // 꼬망세 KC 번호 칸은 `인증` 을 누르기 전까지 `disabled` 다. 라디오는 원래 6) 에서
+      // 누르는데, 그러면 번호가 잠긴 칸에 들어가 제출되지 않는다.
+      for (const name of payload.preRadios || []) {
+        const value = payload.radios[name];
+        if (value === undefined) continue;
+        const hit = [...form.querySelectorAll(`[name="${CSS.escape(name)}"]`)]
+          .find((el) => el.value === value);
+        if (!hit) { warnings.push(`라디오 ${name}=${value} 를 찾지 못했습니다.`); continue; }
+        if (!hit.checked) hit.click();
+        fire(hit);
+        await sleep(300);
       }
 
       // 3) 나머지 값.
@@ -976,6 +1812,344 @@
         await sleep(600);
       }
 
+      // 4-3) 섹션 제목으로 찾는 몰(ESM Plus — G마켓·옥션).
+      //
+      // ⭐⭐ 순서가 전부다(라이브 실측 2026-09-11):
+      //   (a) **분류 먼저.** 분류를 고르면 `인증정보` 패널이 어린이제품·G마켓 인증정보·
+      //       G마켓 영업허가증으로 **다시 그려지고 기본값이 `인증대상` 으로 되돌아간다.**
+      //       인증을 먼저 누르면 눌러 둔 값이 지워진다.
+      //   (b) 인증 라디오 — 그대로 두면 `인증 유형`·`업종` 이 필수로 따라 열려 막힌다.
+      //   (c) 드롭다운 — `상품군` 을 골라야 고시 15줄이 **그려진다**. 나중에 하면
+      //       고시 칸을 찾을 수가 없다.
+      //   (d) 칸(고시 포함) → (e) 이미지 → (f) 상세설명.
+      if (payload.sectionLayout) {
+        const layout = payload.sectionLayout;
+        // 분류에 따라 있을 수도 없을 수도 있는 칸. 없다고 경고하면 거짓 경보가 된다.
+        const optional = new Set(payload.optionalSections || []);
+
+        // 안내 팝업이 화면을 덮고 있으면 클릭이 전부 그 창으로 먹는다. 먼저 치운다.
+        const dismissed = await dismissNoticeDialogs(payload.dismissDialogs);
+        if (dismissed > 0) steps.push(`안내 팝업 ${dismissed}개 닫음`);
+
+        const wantCategory = payload.sectionCategory;
+        const categorySpec = layout.category;
+        if (wantCategory && categorySpec) {
+          const content = findSectionContent(categorySpec.section);
+          const box = content && content.querySelector(categorySpec.queryInput);
+          if (!box) warnings.push("분류 검색칸을 찾지 못했습니다.");
+          else {
+            assign(box, wantCategory.query);
+            await sleep(300);
+            content.querySelector(categorySpec.searchButton)?.click();
+            await sleep(categorySpec.waitMs);
+            const want = wantCategory.path.replace(/\s+/g, "");
+            const hit = [...content.querySelectorAll(layout.optionSelector)]
+              .find((el) => (el.textContent || "").replace(/\s+/g, "") === want);
+            if (!hit) warnings.push(`분류 '${wantCategory.path}' 를 찾지 못했습니다.`);
+            else {
+              hit.click();
+              await sleep(1500);
+              steps.push(`분류 ${wantCategory.path}`);
+            }
+          }
+        }
+
+        // 분류를 고르면 또 안내창이 뜨는 화면이 있다. 인증을 누르기 전에 한 번 더 치운다.
+        await dismissNoticeDialogs(payload.dismissDialogs);
+
+        for (const [title, wanted] of Object.entries(payload.sectionRadios || {})) {
+          const content = findSectionContent(title);
+          if (!content) {
+            if (!optional.has(title)) warnings.push(`${title} 칸을 찾지 못했습니다.`);
+            continue;
+          }
+          const want = String(wanted).replace(/\s+/g, " ").trim();
+          const label = [...content.querySelectorAll(layout.labelSelector)]
+            .find((el) => (el.textContent || "").replace(/\s+/g, " ").trim() === want);
+          if (!label) {
+            if (!optional.has(title)) warnings.push(`${title} 에 '${want}' 가 없습니다.`);
+            continue;
+          }
+          label.click();
+          await sleep(400);
+          steps.push(`${title} ${want}`);
+        }
+
+        for (const [title, wanted] of Object.entries(payload.sectionDropdowns || {})) {
+          const content = findSectionContent(title);
+          if (!content) {
+            if (!optional.has(title)) warnings.push(`${title} 목록을 찾지 못했습니다.`);
+            continue;
+          }
+          const picked = await pickSectionOption(content, wanted, layout);
+          if (!picked) {
+            if (!optional.has(title)) warnings.push(`${title} 에 '${wanted}' 가 없습니다.`);
+            continue;
+          }
+          steps.push(`${title} ${wanted}`);
+          // 상품군을 고르면 고시 줄이 그려진다. 그릴 틈을 준다.
+          await sleep(900);
+        }
+
+        for (const [key, value] of Object.entries(payload.sectionFields || {})) {
+          if (value === undefined || value === "") continue;
+          // `제목#순번` — 한 섹션에 칸이 여럿인 경우.
+          const [title, rawIndex] = key.split("#");
+          const index = Number(rawIndex || 0) || 0;
+          const content = findSectionContent(title);
+          const box = content && [...content.querySelectorAll(layout.inputSelector)][index];
+          if (!box) {
+            if (!optional.has(title)) warnings.push(`${title} 칸을 찾지 못했습니다.`);
+            continue;
+          }
+          box.readOnly = false;
+          assign(box, value);
+          steps.push(title);
+        }
+
+        const imageSpec = layout.images;
+        const imageFiles = imageSpec ? (payload.imageGroups || {})[imageSpec.groupKey] || [] : [];
+        if (imageSpec && imageFiles.length > 0) {
+          const box = document.querySelector(imageSpec.fileInputSelector);
+          if (!box) warnings.push("상품이미지 칸을 찾지 못했습니다.");
+          else {
+            try {
+              // 칸 하나가 `multiple` 이라 대표·추가를 한 번에 넣는다. 첫 장이 대표다.
+              const transfer = new DataTransfer();
+              for (const image of imageFiles.slice(0, imageSpec.max)) transfer.items.add(toFile(image));
+              box.files = transfer.files;
+              box.dispatchEvent(new Event("change", { bubbles: true }));
+              await sleep(3000);
+              steps.push(`상품이미지 ${transfer.files.length}장`);
+            } catch (error) {
+              warnings.push(`상품이미지 실패: ${error?.message || error}`);
+            }
+          }
+        }
+
+        const detailSpec = layout.detail;
+        const pickTab = async (label) => {
+          const tab = [...document.querySelectorAll(detailSpec.tabSelector)]
+            .find((el) => (el.textContent || "").replace(/\s+/g, " ").trim() === label);
+          if (!tab) return false;
+          tab.click();
+          await sleep(900);
+          return true;
+        };
+        /**
+         * ⭐ 상세설명은 **ESM 에 직접 올린다.**
+         *
+         * 예전엔 키즈노트(diskn)에 먼저 올려 주소를 받아 HTML 로 넣었는데, 그 몰
+         * 로그인이 풀리자 ESM 등록이 통째로 막혔다(라이브 2026-09-11:
+         * "상품번호를 받지 못했습니다"). 남의 몰 세션에 우리 등록을 걸어 두지 않는다.
+         *
+         * 주소가 이미 몰이 읽을 수 있는 것이면 HTML 탭으로 넣는 길도 남겨 둔다 —
+         * 단, **주 경로의 산출물로 대비 경로를 막지 않는다**(아이스크림몰에서 배운 것).
+         */
+        if (detailSpec && payload.detailImage && detailSpec.uploadTabLabel) {
+          if (!await pickTab(detailSpec.uploadTabLabel)) {
+            warnings.push("상세설명 이미지 업로드 탭을 찾지 못했습니다.");
+          } else {
+            // ⚠️ 파일 칸 이름이 상품이미지와 같은 `btnSelectFile` 이다. 보드 안에서 찾는다.
+            const board = document.querySelector(detailSpec.uploadBoardSelector);
+            const box = board && board.querySelector(detailSpec.uploadFileSelector);
+            if (!box) warnings.push("상세설명 파일 칸을 찾지 못했습니다.");
+            else {
+              try {
+                const transfer = new DataTransfer();
+                transfer.items.add(toFile(payload.detailImage));
+                box.files = transfer.files;
+                box.dispatchEvent(new Event("change", { bubbles: true }));
+                // 올라갈 때까지 지켜본다. 고정 시간으로 자르면 큰 이미지에서 놓친다.
+                const until = Date.now() + 20000;
+                let done = false;
+                while (Date.now() < until) {
+                  await sleep(500);
+                  const text = (document.querySelector(detailSpec.uploadBoardSelector)?.textContent || "");
+                  if (text.includes(detailSpec.uploadDoneText)) { done = true; break; }
+                }
+                if (done) steps.push("상세설명(이미지 업로드)");
+                else warnings.push("상세설명 이미지가 올라갔는지 확인하지 못했습니다. 화면에서 보세요.");
+              } catch (error) {
+                warnings.push(`상세설명 실패: ${error?.message || error}`);
+              }
+            }
+          }
+        } else if (detailSpec && payload.detailHtml) {
+          // 편집기가 아니라 **HTML 탭**이다. 에디터 탭에 쓰면 저장할 때 덮인다.
+          await pickTab(detailSpec.tabLabel);
+          const box = document.querySelector(detailSpec.textareaSelector);
+          if (!box) warnings.push("상세설명 칸을 찾지 못했습니다.");
+          else {
+            assign(box, payload.detailHtml);
+            await sleep(400);
+            steps.push("상세설명(HTML 작성)");
+          }
+        } else if (detailSpec) {
+          warnings.push("상세설명 이미지를 받지 못했습니다. 화면에서 직접 올리세요.");
+        }
+      }
+
+      // 4-4) 표의 줄 제목(`th`)이 유일한 손잡이인 몰(떠리몰 · 샵바이 파트너어드민).
+      //
+      // 칸에 `name` 도 `id` 도 없는 React 폼이다. 줄 제목이 **정확히 같은** 줄만 집는다 —
+      // `상품 상세` 와 `상품 상세(상단)` 처럼 앞이 같은 줄이 있어서 앞부분 비교는 틀린다.
+      // 순서: 검색해서 고르는 칸(분류가 다른 칸을 다시 그릴 수 있다) → 목록 → 라디오 →
+      // 글자칸 → 이미지 → 상세설명.
+      if (payload.tableForm) {
+        const table = payload.tableForm;
+        const tableNorm = (text) => String(text || "").replace(/[*•]/g, "").replace(/\s+/g, " ").trim();
+        const squash = (text) => tableNorm(text).replace(/\s+/g, "");
+        const rowOf = (label) => [...document.querySelectorAll("th")]
+          .find((th) => tableNorm(th.textContent) === label)?.closest("tr") || null;
+        const shown = (el) => Boolean(el) && el.offsetParent !== null && !el.disabled;
+        const firstTextBox = (row) => [...row.querySelectorAll('input[type="text"]')].find(shown) || null;
+
+        // (a) 검색해서 고르는 칸(담당자·분류·브랜드). 목록(`li`)은 그 줄 안에 뜬다.
+        for (const entry of payload.tablePicks || []) {
+          const row = rowOf(entry.row);
+          const box = row && firstTextBox(row);
+          if (!box) { warnings.push(`${entry.row} 검색칸을 찾지 못했습니다.`); continue; }
+          box.focus();
+          assign(box, entry.query);
+          const want = squash(entry.pick);
+          const findItem = () => [...row.querySelectorAll("li")]
+            .find((li) => shown(li) && squash(li.textContent) === want) || null;
+          let item = null;
+          const until = Date.now() + (table.pickWaitMs || 6000);
+          while (!item && Date.now() < until) {
+            await sleep(400);
+            item = findItem();
+          }
+          if (!item) { warnings.push(`${entry.row} 목록에 '${entry.pick}' 가 없습니다.`); continue; }
+          const listBox = item.closest("ul");
+          item.click();
+          await sleep(800);
+          // 골라진 값은 목록 **밖**에 나타난다 — 칩(표준분류·브랜드), 표 줄(전시분류), 글자칸
+          // (담당자 `노영우(nogoon92)`). 목록은 닫히기도 하고 그대로 떠 있기도 해서(분류·브랜드,
+          // 라이브 실측) 목록이 닫혔는지로는 못 본다. 검색어와 고를 글자가 같으면(브랜드)
+          // 글자칸 값은 우리가 친 글자일 뿐이라 증거가 안 된다.
+          const picked = [...row.querySelectorAll("li, td, span")]
+            .some((el) => !(listBox && listBox.contains(el)) && squash(el.textContent).includes(want))
+            || (squash(entry.query) !== want
+              && [...row.querySelectorAll("input")].some((el) => squash(el.value) === want));
+          if (picked) steps.push(`${entry.row} ${entry.pick}`);
+          else warnings.push(`${entry.row} 에서 '${entry.pick}' 를 눌렀는데 골라지지 않았습니다.`);
+        }
+
+        // (b) 목록(select). 번호는 계정마다 달라서 보이는 글자(label)로 고른다.
+        //     목록은 화면이 서버에서 받아 늦게 채운다(처음엔 '등록된 템플릿이 없습니다' 한 줄).
+        for (const [label, want] of Object.entries(payload.tableSelects || {})) {
+          const select = rowOf(label)?.querySelector("select");
+          const pickOption = () => select && [...select.options]
+            .find((option) => tableNorm(option.label || option.textContent) === want);
+          let option = pickOption();
+          for (let waited = 0; select && !option && waited < 8000; waited += 400) {
+            await sleep(400);
+            option = pickOption();
+          }
+          if (!option) { warnings.push(`${label} 에 '${want}' 가 없습니다.`); continue; }
+          assign(select, option.value);
+          steps.push(`${label} ${want}`);
+          await sleep(400);
+        }
+
+        // (c) 라디오.
+        for (const [label, value] of Object.entries(payload.tableRadios || {})) {
+          const radio = rowOf(label)?.querySelector(`input[type="radio"][value="${CSS.escape(value)}"]`);
+          if (!radio) { warnings.push(`${label} '${value}' 를 찾지 못했습니다.`); continue; }
+          if (!radio.checked) radio.click();
+          steps.push(`${label} ${value}`);
+          await sleep(300);
+        }
+
+        // (d) 글자칸 — 그 줄의 첫 번째 보이는 글자칸.
+        for (const [label, value] of Object.entries(payload.tableFields || {})) {
+          const row = rowOf(label);
+          const box = row && firstTextBox(row);
+          if (!box) { warnings.push(`${label} 칸을 찾지 못했습니다.`); continue; }
+          assign(box, value);
+          box.dispatchEvent(new Event("blur", { bubbles: true }));
+          steps.push(label);
+        }
+
+        // (e) 이미지. 칸이 처음엔 없는 줄(추가이미지)은 `이미지 추가` 를 눌러 늘린다.
+        //     파일 칸은 `파일찾기` 버튼 안에 숨어 있다. 올릴 때마다 화면이 줄을 다시 그릴 수
+        //     있어 칸은 매번 새로 찾는다.
+        for (const slot of table.images || []) {
+          const files = ((payload.imageGroups || {})[slot.key] || []).slice(0, slot.max || 1);
+          if (files.length === 0) continue;
+          const row = rowOf(slot.row);
+          if (!row) { warnings.push(`${slot.row} 줄을 찾지 못했습니다.`); continue; }
+          const boxes = () => [...row.querySelectorAll('input[type="file"]')];
+          if (slot.addLabel) {
+            const add = [...row.querySelectorAll("button")]
+              .find((el) => tableNorm(el.textContent) === slot.addLabel);
+            if (!add) { warnings.push(`${slot.row} '${slot.addLabel}' 버튼을 찾지 못했습니다.`); continue; }
+            for (let i = boxes().length; i < files.length; i += 1) {
+              add.click();
+              await sleep(400);
+            }
+          }
+          let placed = 0;
+          for (const [index, image] of files.entries()) {
+            const box = boxes()[index];
+            if (!box) { warnings.push(`${slot.row} ${index + 1}번 칸이 없습니다.`); break; }
+            try {
+              const transfer = new DataTransfer();
+              transfer.items.add(toFile(image));
+              box.files = transfer.files;
+              box.dispatchEvent(new Event("change", { bubbles: true }));
+              await sleep(2500);
+              placed += 1;
+            } catch (error) {
+              warnings.push(`${slot.row} ${index + 1}번 실패: ${error?.message || error}`);
+            }
+          }
+          if (placed > 0) steps.push(`${slot.row} ${placed}장`);
+        }
+
+        // (f) 상세설명 — Summernote. 그림 버튼으로 파일을 넣으면 몰이 자기 서버에 올리고
+        //     그 주소로 그림을 넣는다. 그림 창을 열 때마다 파일 칸이 새로 생겨서 연 뒤에 찾는다.
+        //     `data:` 로 박히면 몰 서버에 올라간 것이 아니다 — 성공으로 치지 않는다.
+        const note = table.summernote;
+        if (note && payload.detailImage?.dataUrl) {
+          const row = rowOf(note.row);
+          const radio = row?.querySelector(`input[type="radio"][value="${CSS.escape(note.radio)}"]`);
+          if (radio && !radio.checked) {
+            radio.click();
+            await sleep(1200);
+          }
+          const editor = row?.querySelector(".note-editor");
+          const picture = editor && [...editor.querySelectorAll(".note-toolbar button")].find((button) =>
+            /그림|picture/i.test(`${button.getAttribute("aria-label") || ""} ${button.getAttribute("title") || ""}`)
+            || Boolean(button.querySelector(".note-icon-picture")));
+          if (!picture) {
+            warnings.push("상세설명 편집기의 그림 버튼을 찾지 못했습니다. 화면에서 직접 올리세요.");
+          } else {
+            picture.click();
+            await sleep(800);
+            const input = document.querySelector(".note-modal.open input.note-image-input")
+              || document.querySelector("input.note-image-input");
+            if (!input) {
+              warnings.push("상세설명 그림 창의 파일 칸을 찾지 못했습니다. 화면에서 직접 올리세요.");
+            } else {
+              const transfer = new DataTransfer();
+              transfer.items.add(toFile(payload.detailImage));
+              input.files = transfer.files;
+              input.dispatchEvent(new Event("change", { bubbles: true }));
+              // 몰은 `//shopby-images.cdn-nhncommerce.com/…` 처럼 스킴 없는 주소로 넣는다(라이브 실측).
+              const uploaded = () => [...editor.querySelectorAll(".note-editable img")]
+                .find((el) => /^(https?:)?\/\//.test(el.getAttribute("src") || "")) || null;
+              const until = Date.now() + (note.uploadWaitMs || 15000);
+              while (!uploaded() && Date.now() < until) await sleep(500);
+              if (uploaded()) steps.push("상세설명 이미지(몰 편집기에 올림)");
+              else warnings.push("상세설명 이미지를 편집기에 올렸는데 들어가지 않았습니다. 화면에서 확인하세요.");
+            }
+          }
+        }
+      }
+
       // 5) 이름 없는 칸들. 폼으로 못 닿아 선택자로 찾는다.
       //
       // 계단식(원산지)이라 순서와 기다림이 중요하다. 앞 칸을 고르기 전에 뒤 칸을
@@ -985,6 +2159,24 @@
         if (want === undefined || want === "") continue;
         const el = document.querySelector(entry.selector);
         if (!el) { warnings.push(`${entry.label || entry.key} 칸을 찾지 못했습니다.`); continue; }
+        /**
+         * ⚠️ 잠긴 칸은 **조용히 지나가면 안 된다**(라이브 2026-09-11, 보리보리 담당MD).
+         *
+         * `disabled` 인 칸에 값을 넣으면 아무 일도 안 일어나는데 우리는 '채웠다' 고
+         * 보고했다. 사장님 화면에서는 필수 칸이 빈 채로 남아 **거기서 멈춘 것처럼**
+         * 보였다. 못 넣었으면 못 넣었다고 말해야 사람이 손댈 곳을 안다.
+         */
+        if (el.disabled) {
+          warnings.push(`${entry.label || entry.key} 칸이 잠겨 있어 넣지 못했습니다. 화면에서 직접 고르세요.`);
+          continue;
+        }
+        // 계단식 목록은 앞 단을 고른 뒤 AJAX 로 채워진다. 고를 항목이 생길 때까지 본다.
+        if (el.tagName === "SELECT" && entry.waitForOption) {
+          const until = Date.now() + 8000;
+          while (![...el.options].some((option) => option.value === want) && Date.now() < until) {
+            await sleep(250);
+          }
+        }
         assign(el, want);
         // 고른 값이 목록에 없으면 브라우저가 조용히 빈 값으로 되돌린다. 그냥 넘기지 않는다.
         if (el.tagName === "SELECT" && el.value !== want) {
@@ -993,6 +2185,44 @@
         }
         steps.push(entry.label || entry.key);
         if (entry.waitMs) await sleep(entry.waitMs);
+      }
+
+      // 5-1) 다 고른 뒤 눌러야 반영되는 버튼(꼬망세 `선택 카테고리 추가`).
+      //
+      // 누르고 끝내지 않는다 — 반영의 증거(`expectSelector`)가 늘어나는지 본다. 고른 값이
+      // 하나라도 빠졌으면 누르지 않는다. 반쯤 고른 분류를 붙이면 엉뚱한 자리에 걸린다.
+      for (const entry of payload.afterSelectorClicks || []) {
+        if (entry.requireFilled) {
+          const complete = (payload.selectorFields || []).every((field) => {
+            const want = payload.selectorFieldValues[field.key];
+            if (want === undefined || want === "") return true;
+            const box = document.querySelector(field.selector);
+            return Boolean(box) && box.value === want;
+          });
+          if (!complete) {
+            warnings.push(`고를 칸이 다 채워지지 않아 '${entry.text}' 를 누르지 않았습니다.`);
+            continue;
+          }
+        }
+        const button = [...document.querySelectorAll("a,button,input[type=button]")]
+          .find((el) => (el.textContent || el.value || "").replace(/\s+/g, " ").trim() === entry.text);
+        if (!button) { warnings.push(`'${entry.text}' 버튼을 찾지 못했습니다.`); continue; }
+        const before = entry.expectSelector ? document.querySelectorAll(entry.expectSelector).length : 0;
+        button.click();
+        await sleep(entry.waitMs || 1000);
+        if (entry.expectSelector) {
+          const until = Date.now() + 8000;
+          let after = document.querySelectorAll(entry.expectSelector).length;
+          while (after <= before && Date.now() < until) {
+            await sleep(400);
+            after = document.querySelectorAll(entry.expectSelector).length;
+          }
+          if (after <= before) {
+            warnings.push(`'${entry.text}' 를 눌렀는데 반영되지 않았습니다. 화면에서 확인하세요.`);
+            continue;
+          }
+        }
+        steps.push(entry.label || entry.text);
       }
 
       // 저장된 주소는 하나뿐인 경우가 많다. 내부 번호를 적어두지 않고 첫 항목을 고른다.
@@ -1168,6 +2398,65 @@
         }
       }
 
+      // 8-1-0) 칸을 늘려 가며 넣는 이미지(아이스크림몰 추가 이미지 · 꼬망세 상세 2~5).
+      //
+      // 구역은 id(`section`)로 찾는다. id 가 없는 몰(꼬망세)은 기준 칸(`anchorSelector`)
+      // 에서 올라가 찾는다(`sectionClosest`). 누를 버튼도 글자(`addLabel`) 대신
+      // 선택자(`addSelector`)로 줄 수 있다.
+      const repeat = payload.imageRepeat;
+      if (repeat) {
+        const files = (payload.imageGroups || {})[repeat.groupKey] || [];
+        const want = Math.min(files.length, repeat.max);
+        const section = repeat.anchorSelector
+          ? document.querySelector(repeat.anchorSelector)?.closest(repeat.sectionClosest) || null
+          : document.getElementById(repeat.section);
+        if (want > 0 && !section) {
+          warnings.push(`${repeat.label} 구역을 찾지 못했습니다.`);
+        } else if (want > 0) {
+          const add = repeat.addSelector
+            ? section.querySelector(repeat.addSelector)
+            : [...section.querySelectorAll("button")]
+              .find((el) => (el.textContent || "").trim() === repeat.addLabel);
+          const slotSelector = repeat.slotSelector || 'input[type="file"][name^="imgInfo"]';
+          const slots = () => section.querySelectorAll(slotSelector).length;
+          // 번호가 2 부터면(꼬망세) 1번 칸은 이미 있는 다른 칸이다. 그만큼 더 있어야
+          // 우리 칸이 다 생긴다.
+          const first = repeat.firstIndex || 0;
+          const base = first > 1 ? first - 1 : 0;
+          if (!add) {
+            warnings.push(`${repeat.label} 추가 버튼을 찾지 못했습니다.`);
+          } else {
+            // 배경 탭은 `setTimeout` 이 1초에 한 번으로 묶인다. 사이에 기다리면 한 장에
+            // 1초씩 걸리므로 모자란 만큼 연속으로 누르고 한 번만 가라앉힌다(티처몰과 같다).
+            for (let i = slots(); i < base + want; i += 1) add.click();
+            await sleep(1200);
+            let placed = 0;
+            for (let i = 0; i < want; i += 1) {
+              const name = repeat.namePattern
+                .replace("{i}", String(i))
+                .replace("{n}", String(first + i));
+              // 같은 이름의 글자 칸(외부 주소용)이 있는 몰이 있다(꼬망세). 파일 칸만 집는다.
+              const box = section.querySelector(`input[type="file"][name="${name}"]`);
+              if (!box) { warnings.push(`${repeat.label} ${i + 1}번 칸이 없습니다.`); continue; }
+              try {
+                const transfer = new DataTransfer();
+                transfer.items.add(toFile(files[i]));
+                box.files = transfer.files;
+                box.dispatchEvent(new Event("change", { bubbles: true }));
+                await sleep(2500);
+                placed += 1;
+              } catch (error) {
+                warnings.push(`${repeat.label} ${i + 1}번 실패: ${error?.message || error}`);
+              }
+            }
+            if (placed > 0) steps.push(`${repeat.label} ${placed}장`);
+          }
+        }
+        if (files.length > repeat.max) {
+          warnings.push(`${repeat.label}는 ${repeat.max}장까지라 앞의 ${repeat.max}장만 넣었습니다.`);
+        }
+      }
+
       // 8-1-1) 창을 열어 넣는 이미지(11번가).
       //
       // 넣으면 몰이 자기 CDN 으로 올리고 창을 스스로 닫는다(라이브 확인: 넣은 뒤
@@ -1316,7 +2605,150 @@
       //    HTML 만 보고 막으면 그 몰은 이 단계가 통째로 건너뛰어져 상세설명도,
       //    편집기 탭 전환도 일어나지 않는다(라이브 확인 2026-09-10).
       const hasDetailWork = Boolean(payload.detailHtml) || Boolean(payload.detailImage?.dataUrl);
-      if ((payload.detailHtmlTarget || payload.detailSelector) && hasDetailWork) {
+
+      // 11-0) SmartEditor 2(아이스크림몰). 편집면 iframe 과 뒷단 textarea 를 함께 채운다.
+      //       둘 다 해야 한다 — 화면에도 보이고 제출값도 맞는다.
+      const se2 = payload.detailSmartEditor;
+      if (se2 && !hasDetailWork) {
+        // 조용히 건너뛰면 상품 설명이 빈 채로 등록된다. 반드시 말한다.
+        warnings.push("상세설명에 넣을 것이 없습니다. 상세페이지를 먼저 확정하세요.");
+      }
+      // ⚠️ `detailHtml` 로 막지 않는다.
+      //
+      // 그 값은 남의 호스팅(diskn)이 성공해야 생기는데, **몰 업로드는 바로 그게 없을
+      // 때 쓰라고 만든 길**이다. `detailHtml` 뒤에 가뒀더니 호스팅이 실패한 순간
+      // 업로드까지 통째로 건너뛰어져 상세설명이 세 번 연속 빈 채로 남았다
+      // (라이브 2026-09-11). 올릴 이미지가 있으면 들어온다.
+      if (se2 && hasDetailWork) {
+        // 구역 id 안에 칸이 있는 몰(아이스크림)과, textarea 자체에 id 가 있는 몰(꼬망세)이 있다.
+        // 꼬망세는 같은 화면에 에디터가 둘이라 textarea 의 부모 칸으로 좁혀야 한다.
+        const area = se2.section
+          ? document.getElementById(se2.section)
+          : (document.getElementById(se2.anchorId)?.parentElement || null);
+        const box = area?.querySelector(`textarea[name="${se2.target}"]`);
+
+        /**
+         * SmartEditor 2 에 HTML 을 넣는 길은 **HTML 탭뿐**이다.
+         *
+         * 편집면(`iframe#se2_iframe`)의 `body.innerHTML` 에 직접 써 봐야 소용없다 —
+         * 에디터가 제 모델로 다시 그리면서 1초쯤 뒤 `<p><br></p>` 로 되돌린다
+         * (라이브 실측 2026-09-11: 쓰기 직후 77자 → 1초 뒤 11자). 그래서 두 번이나
+         * 빈 채로 등록될 뻔했다.
+         *
+         * 사람이 하는 것과 같은 순서로 간다 —
+         *   `HTML` 탭 → 소스 textarea 에 붙여넣기 → `Editor` 탭으로 복귀.
+         * 그러면 에디터가 그 HTML 을 제 모델로 읽어 들여 7초 뒤에도 남는다.
+         */
+        const skin = area
+          ? [...document.querySelectorAll("iframe")].find((el) => area.contains(el))
+          : null;
+
+        /**
+         * 이미지를 **몰 서버에 먼저 올린다.**
+         *
+         * 에디터의 `사진` 버튼이 여는 팝업이 쓰는 그 엔드포인트다(라이브 실측
+         * 2026-09-11: `attach_photo.js` → `POST /common/file/uploadImgEditor.do`,
+         * 칸 이름 `UPLOAD_FILE`, 응답 `{Val:"sFileURL=/files/editor/…"}`).
+         * 팝업을 열지 않는다 — 확장이 여는 창은 팝업 차단에 걸린다.
+         *
+         * 남의 호스팅 주소를 그대로 두면 몰이 "이미지가 출력되는지 확인하세요"
+         * 라고 경고하는 그 상태가 된다. 몰 주소로 바꿔 두면 그 걱정이 사라진다.
+         */
+        let detailHtml = payload.detailHtml;
+        const upload = se2.upload;
+        if (upload && payload.detailImage?.dataUrl) {
+          try {
+            const file = toFile(payload.detailImage);
+            let hosted = "";
+            if (upload.mode === "html5") {
+              /**
+               * SmartEditor 2 표준 샘플(`file_uploader_html5.php`, 꼬망세).
+               *
+               * 파일 바이트를 **본문 그대로** 보내고 이름·크기·형식은 헤더로 준다 — 에디터의
+               * `callAjaxForHTML5` 가 그렇게 한다(실측 `attach_photo.js`). 답은 JSON 이 아니라
+               * `sFileInfo=…&sFileName=…&sFileURL=…` 글자다. 형식을 거절하면 `NOTALLOW_` 다.
+               */
+              const response = await fetch(upload.endpoint, {
+                method: "POST",
+                body: file,
+                credentials: "include",
+                headers: {
+                  contentType: "multipart/form-data",
+                  "file-name": encodeURIComponent(file.name),
+                  "file-size": String(file.size),
+                  "file-Type": file.type,
+                },
+              });
+              // ⚠️ 꼬망세 서버는 PHP Notice 경고문(HTML)을 **응답 앞에** 찍고 그 뒤에
+              // `&bNewLine=true&sFileName=…&sFileURL=https://nfile.edupre.co.kr/…` 를 붙인다
+              // (라이브 실측 2026-09-11, 747자 중 뒤 220자). 앞부분만 잘라 보면 주소가 없다 —
+              // 반드시 **전체 응답**을 `&` 로 쪼개 본다.
+              const text = await response.text();
+              if (text.includes("NOTALLOW_")) throw new Error("몰이 이 이미지 형식을 받지 않습니다.");
+              for (const part of text.split("&")) {
+                const at = part.indexOf("=");
+                if (at > 0 && part.slice(0, at) === "sFileURL") hosted = part.slice(at + 1).trim();
+              }
+            } else {
+              const body = new FormData();
+              body.append(upload.field, file);
+              const sig = document.querySelector('input[name="csSignature"]')?.value;
+              if (sig) body.append("csSignature", sig);
+              const response = await fetch(upload.endpoint, {
+                method: "POST", body, credentials: "include",
+              });
+              const parsed = await response.json();
+              hosted = new URLSearchParams(parsed?.Val || "").get("sFileURL") || "";
+            }
+            if (!hosted) throw new Error("응답에 주소가 없습니다.");
+            // 상대 주소면 몰 주소로 굳힌다. 구매자 화면이 다른 도메인일 수 있다.
+            hosted = new URL(hosted, location.origin).href;
+            // 실측 등록물이 폭을 적은 몰(아이스크림 900)만 적는다.
+            const width = upload.imgWidth ? ` width="${upload.imgWidth}"` : "";
+            detailHtml = `<center><img src="${hosted}"${width}></center>`;
+            steps.push("상세이미지 몰 업로드");
+          } catch (error) {
+            warnings.push(
+              `상세이미지를 몰에 올리지 못했습니다: ${error?.message || error}`,
+            );
+          }
+        }
+        if (!detailHtml) {
+          // 올리지도 못했고 읽을 수 있는 주소도 없다. 넣을 것이 없다는 사실을 말한다.
+          warnings.push("상세설명에 넣을 이미지를 만들지 못했습니다. 화면에서 직접 넣으세요.");
+        }
+        let wrote = false;
+        const deadline = detailHtml ? Date.now() + 15000 : 0;
+        while (Date.now() < deadline) {
+          let doc = null;
+          try { doc = skin?.contentDocument || null; } catch { doc = null; }
+          const source = doc?.querySelector(se2.sourceSelector);
+          const toSource = doc?.querySelector(se2.toSourceSelector);
+          const toEditor = doc?.querySelector(se2.toEditorSelector);
+          if (!source || !toSource || !toEditor) { await sleep(500); continue; }
+          try {
+            toSource.click();
+            await sleep(600);
+            assign(source, detailHtml);
+            await sleep(400);
+            toEditor.click();
+            await sleep(1500);
+            const inner = doc.querySelector("iframe#se2_iframe");
+            const written = inner?.contentDocument?.body?.innerHTML || "";
+            // 빈 문단만 남았으면 들어간 것이 아니다. 길이로 보지 말고 내용으로 본다.
+            wrote = written.replace(/<p>\s*<br\s*\/?>\s*<\/p>/gi, "").trim().length > 0;
+          } catch (error) {
+            warnings.push(`상세설명을 넣지 못했습니다: ${error?.message || error}`);
+          }
+          break;
+        }
+        // 제출값은 뒷단 textarea 가 들고 간다. 에디터가 제출 때 맞추지만 함께 채워 둔다.
+        if (box) assign(box, detailHtml);
+        if (wrote) steps.push("상세설명");
+        else warnings.push("상세설명 편집기에 넣지 못했습니다. 화면에서 직접 넣으세요.");
+      }
+
+      if (!se2 && (payload.detailHtmlTarget || payload.detailSelector) && hasDetailWork) {
         // 위지윅 에디터가 붙은 칸은 에디터에 넣어야 한다. 숨은 textarea 에 써 봐야
         // 제출할 때 에디터 내용으로 덮인다.
         const spec = payload.detailRich;
@@ -1811,9 +3243,22 @@
       const imageSlotSpecs = [
         ...(spec.imageFileInputs || []),
         ...(spec.imageDialogs || []),
+        // 칸을 늘려 가며 넣는 몰(아이스크림몰 추가 이미지). 여기 없으면 이미지를
+        // 내려받지 않아 칸만 생기고 빈 채로 남는다.
+        ...(spec.imageRepeat
+          ? [{ key: spec.imageRepeat.groupKey, label: spec.imageRepeat.label }]
+          : []),
         ...(spec.imageUpload
           ? [{ key: spec.imageUpload.groupKey, label: spec.imageUpload.label }]
           : []),
+        // 칸 하나에 여러 장을 한 번에 넣는 몰(ESM Plus). 여기 없으면 내려받지 않아
+        // 칸이 빈 채로 남는다.
+        ...(spec.sectionImages
+          ? [{ key: spec.sectionImages.groupKey, label: spec.sectionImages.label }]
+          : []),
+        // 표의 줄 제목으로 찾는 이미지 칸(떠리몰). 여기 없으면 내려받지 않는다.
+        ...((spec.tableForm && spec.tableForm.images) || [])
+          .map((slot) => ({ key: slot.key, label: slot.row })),
       ];
       for (const slot of imageSlotSpecs) {
         const urls = form.imageGroups[slot.key] || [];
@@ -1847,6 +3292,37 @@
       // 로딩이 끝나도 SPA 는 한 박자 뒤에 폼을 그린다. 기다림을 못 쓴 환경이라면
       // 예전만큼(2.5초) 자 준다.
       await new Promise((resolve) => setTimeout(resolve, waited ? 1200 : 2500));
+
+      // 폼이 다른 도메인 iframe 에 있는 몰(떠리몰)은 그 프레임이 붙고 **가라앉을 때까지**
+      // 기다린다.
+      //  - 겉 로딩이 끝난 뒤에 SPA 가 iframe 을 붙인다 — 그 전에 넣으면 겉에만 들어가서
+      //    `상품등록 화면을 찾지 못했습니다` 로 끝난다.
+      //  - 붙은 뒤에도 한 번 더 다시 붙는다(라이브 실측 2026-09-11: 6.9초에 붙고 10.7초에 다시).
+      //    채우는 도중에 문서가 새로 뜨면 채운 것이 통째로 날아간다(라이브 시험에서 한 번 겪음).
+      //    그래서 칸이 그려진 **같은 문서**가 2초 동안 그대로일 때 넣는다.
+      const waitForFormFrame = async () => {
+        if (!spec.frameUrlIncludes) return;
+        const until = Date.now() + (spec.frameWaitMs || 30000);
+        let lastDoc = null;
+        let steady = 0;
+        while (Date.now() < until && steady < 2) {
+          const frames = await chromeApi.scripting.executeScript({
+            target: { tabId: tab.id, allFrames: true },
+            func: (ready) => ({
+              href: location.href,
+              doc: performance.timeOrigin,
+              ready: !ready || Boolean(document.querySelector(ready)),
+            }),
+            args: [spec.readySelector || ""],
+          }).catch(() => []);
+          const hit = (frames || []).map((entry) => entry?.result)
+            .find((entry) => entry && String(entry.href || "").includes(spec.frameUrlIncludes));
+          steady = hit && hit.ready && hit.doc === lastDoc ? steady + 1 : 0;
+          lastDoc = hit ? hit.doc : null;
+          if (steady < 2) await new Promise((resolve) => setTimeout(resolve, 1000));
+        }
+      };
+      await waitForFormFrame();
 
       // 팝업 에디터가 있는 몰은 칸에 직접 쓰지 않는다. 폼을 채운 뒤 버튼을 눌러서 넣는다.
       const editor = spec.detailEditor || null;
@@ -1886,6 +3362,7 @@
           detailSelector: spec.detailSelector || "",
           detailPreviewSelector: spec.detailPreviewSelector || "",
           imageFileInputs: spec.imageFileInputs || [],
+          imageRepeat: spec.imageRepeat || null,
           imageDialogs: spec.imageDialogs || [],
           imageUpload: spec.imageUpload || null,
           imageGroups,
@@ -1895,6 +3372,48 @@
           images,
           detailHtmlTarget: editor ? "" : form.detailHtmlTarget,
           detailHtml: editor ? "" : detailHtml,
+          // 폼이 섹션마다 있는 몰(아이스크림몰).
+          multiFormFields: form.multiFormFields || {},
+          multiFormRadios: form.multiFormRadios || {},
+          multiFormChecks: form.multiFormChecks || {},
+          categoryFields: spec.categoryFields || null,
+          categoryCode: form.category?.code || "",
+          categoryPath: form.category?.path || "",
+          noticeSection: spec.noticeSection || null,
+          noticeItemCode: form.notice?.itemCode || "",
+          noticeSafeYn: form.notice?.safeYn || "N",
+          noticeRows: form.notice?.rows || [],
+          noticeRadios: form.notice?.radios || {},
+          detailSmartEditor: spec.detailSmartEditor || null,
+          // 섹션 제목이 유일한 손잡이인 몰(ESM Plus). 스펙 네 조각을 한 덩어리로 묶어
+          // 넘긴다 — 주입 함수는 클로저를 못 써서 필요한 것을 전부 인자로 받아야 한다.
+          sectionLayout: spec.sectionForm
+            ? {
+              ...spec.sectionForm,
+              category: spec.sectionCategory || null,
+              detail: spec.sectionDetail || null,
+              images: spec.sectionImages || null,
+            }
+            : null,
+          sectionFields: form.sectionFields || {},
+          sectionRadios: form.sectionRadios || {},
+          sectionDropdowns: form.sectionDropdowns || {},
+          sectionCategory: form.sectionCategory || null,
+          optionalSections: form.optionalSections || [],
+          dismissDialogs: spec.dismissDialogs || null,
+          // 느리게 그려지는 SPA 를 페이지 안에서 기다린다.
+          formWaitMs: spec.formWaitMs || 0,
+          readySelector: spec.readySelector || "",
+          // 칸을 여는 라디오(꼬망세 KC)와, 다 고른 뒤 눌러야 반영되는 버튼(분류 추가).
+          preRadios: spec.preRadios || [],
+          afterSelectorClicks: spec.afterSelectorClicks || [],
+          // 표의 줄 제목이 손잡이인 몰(떠리몰)과, 그 폼이 든 프레임.
+          tableForm: spec.tableForm || null,
+          tableFields: form.tableFields,
+          tableRadios: form.tableRadios,
+          tableSelects: form.tableSelects,
+          tablePicks: form.tablePicks,
+          frameUrlIncludes: spec.frameUrlIncludes || "",
         }],
       };
       const injected = await injectWithRetry(injectOptions);
@@ -1902,6 +3421,14 @@
       // 폼이 없는 프레임의 응답(`noForm`)은 실패가 아니라 '여기 아님'이다. 그것만
       // 남으면 진짜로 화면을 못 찾은 것이므로 그때 그 오류를 올린다.
       let outcome = pickOutcome(injected);
+
+      // 폼 프레임이 채우는 도중에 새로 뜨면(토큰 갱신) 그 프레임의 답이 사라져 겉의 '여기
+      // 아님'만 남는다. 가라앉기를 기다려 한 번만 다시 넣는다. 답이 사라졌다는 건 문서가
+      // 새로 떴다는 뜻이라 반쯤 채운 값이 남아 있지 않다 — 다시 넣어도 겹치지 않는다.
+      if (!outcome.ok && outcome.noForm && spec.frameUrlIncludes) {
+        await waitForFormFrame();
+        outcome = pickOutcome(await injectWithRetry(injectOptions));
+      }
 
       // 폼이 없다 = 대개 로그인이 풀려 로그인 화면이 열린 것이다. 자격증명이 있으면
       // **이미 열어 둔 탭에서** 로그인하고 한 번만 다시 채운다. 새 탭을 열지 않는 이유는

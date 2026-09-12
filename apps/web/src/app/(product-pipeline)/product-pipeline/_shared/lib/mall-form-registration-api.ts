@@ -26,7 +26,8 @@ import {
 const MALL_FILL_TIMEOUT_MS = 120_000;
 
 export type MallFormRegisterMall =
-  | 'domeggook' | 'onch' | 'artgonggu' | 'alwayz' | 'teacherville' | '11st';
+  | 'domeggook' | 'onch' | 'artgonggu' | 'alwayz' | 'teacherville' | '11st' | 'icecream'
+  | 'esmplus' | 'boribori' | 'kkomangse' | 'thirtymall';
 
 /**
  * 확장 폼 스펙 이름 → 쇼핑몰 계정 키.
@@ -44,6 +45,18 @@ export const MALL_ACCOUNT_KEY: Record<MallFormRegisterMall, string> = {
   alwayz: 'always',
   teacherville: 'teacher-mall',
   '11st': '11st',
+  icecream: 'icecream-mall',
+  // ESM Plus(G마켓·옥션)는 주문수집에 붙어 있지 않아 저장된 계정이 없다. 그래서 이 키로
+  // 찾으면 `null` 이 나오고, 확장은 예전처럼 지금 열려 있는 세션에 기댄다 — 맞는 동작이다.
+  // 사장님이 나중에 쇼핑몰 계정 설정에 넣으면 그때부터 자동 로그인이 붙는다.
+  esmplus: 'esmplus',
+  // 주문수집에 이미 붙어 있는 몰이라 저장된 계정이 있다 — 자동 로그인이 붙는다.
+  boribori: 'boribori',
+  // 주문수집에 이미 붙어 있다 — 저장된 계정으로 자동 로그인이 붙는다.
+  kkomangse: 'kkomangse',
+  // 쇼핑몰 계정 목록에 이미 있는 키다(주문수집은 아직). 샵바이 로그인 화면은 실측 전이라
+  // 자동 로그인이 못 붙으면 확장이 "직접 로그인하세요" 로 멈춘다 — 그게 맞는 동작이다.
+  thirtymall: 'thirtymall',
 };
 
 export interface MallFormRegistrationResult {

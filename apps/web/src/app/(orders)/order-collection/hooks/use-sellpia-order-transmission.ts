@@ -3,6 +3,7 @@
 import { useCallback, useState } from 'react';
 import { toast } from 'sonner';
 import { friendlyError } from '@/lib/api-error';
+import { recordMallOperationOutcome } from '@/lib/mall-operation-outcomes-api';
 import { sendOrderFileToSellpiaViaExtension } from '../lib/order-collection-extension';
 import {
   markGeneratedOrderFileTransmissionRequested,
@@ -58,6 +59,20 @@ export function useSellpiaOrderTransmission({
         }
 
         onTransmissionRequested(result.file);
+        // 몰별 '신규(미전송)'를 서버에서 계산하려면 몇 건을 보냈는지가 서버에 남아야 한다.
+        // 셀피아가 접수한 것이 확인된 이 자리에서만 적는다 — 개수와 몰 키만 담는다.
+        if (result.file.mallKey) {
+          void recordMallOperationOutcome({
+            mallKey: result.file.mallKey,
+            operation: 'sellpia_transfer',
+            outcome: 'succeeded',
+            reasonCode: 'transmission_requested',
+            itemCount: result.file.orderNumbers?.length
+              ?? result.file.collectedRows
+              ?? null,
+            trigger: 'manual',
+          });
+        }
         if (result.finalizationWarning) {
           toast.warning(
             '셀피아 전송 요청은 완료됐지만 전송 상태 저장에 실패했습니다. 재전송하지 말고 이전 전송 결과를 확인하세요.',

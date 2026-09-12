@@ -1,7 +1,12 @@
 'use client';
 
 import { useCallback, useRef, useState } from 'react';
+import {
+  recordMallOperationOutcome,
+  type MallOperationOutcomeInput,
+} from '@/lib/mall-operation-outcomes-api';
 import { getMallPublishAdapter } from '../../_shared/adapters';
+import type { MallSendOutcome } from '../../_shared/mall-publish-adapter';
 import type { PublishTask } from '../lib/publish-plan';
 
 /**
@@ -13,10 +18,38 @@ import type { PublishTask } from '../lib/publish-plan';
  *
  * 작업 하나가 실패해도 멈추지 않는다. 몰 하나의 로그인이 풀렸다고 나머지 몰까지
  * 못 보내는 것은 운영에서 더 나쁘다. 실패는 그 작업에만 남는다.
+ *
+ * 작업이 끝날 때마다 결과를 기억(몰 작업 결과)에 한 줄 남긴다. 시작 전에 멈춘 작업은 몰에서
+ * 한 일이 없으므로 남기지 않는다.
  */
 
 function toMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+type PublishRecord = Pick<MallOperationOutcomeInput, 'outcome' | 'reasonCode' | 'message' | 'warningCount'>;
+
+/**
+ * 폼을 채운 것은 등록이 아니다 — 사람이 제출해야 하므로 '확인 필요'로 남긴다. 몰에서 다시
+ * 확인된 것만 성공이다(ok ≠ confirmed).
+ */
+function sendRecord(outcome: MallSendOutcome): PublishRecord {
+  const warningCount = outcome.warnings.length;
+  if (!outcome.ok) {
+    return { outcome: 'failed', reasonCode: 'send_failed', message: outcome.error ?? null, warningCount };
+  }
+  if (outcome.confirmed) return { outcome: 'succeeded', reasonCode: null, message: null, warningCount };
+  return { outcome: 'attention', reasonCode: 'manual_submit_required', message: null, warningCount };
+}
+
+function recordTask(task: PublishTask, record: PublishRecord): void {
+  void recordMallOperationOutcome({
+    mallKey: task.mallKey,
+    operation: 'registration_fill',
+    itemCount: task.items.length,
+    trigger: 'manual',
+    ...record,
+  });
 }
 
 export function useMallPublishRun() {
@@ -54,6 +87,7 @@ export function useMallPublishRun() {
           const adapter = getMallPublishAdapter(task.mallKey);
           if (!adapter) {
             patch(task.id, { status: 'failed', error: `${task.mallName} 어댑터가 없습니다.` });
+            recordTask(task, { outcome: 'failed', reasonCode: 'adapter_missing', message: null, warningCount: null });
             continue;
           }
           patch(task.id, { status: 'running', error: null });
@@ -64,8 +98,10 @@ export function useMallPublishRun() {
               outcome,
               error: outcome.error ?? null,
             });
+            recordTask(task, sendRecord(outcome));
           } catch (error) {
             patch(task.id, { status: 'failed', error: toMessage(error) });
+            recordTask(task, { outcome: 'failed', reasonCode: 'send_error', message: toMessage(error), warningCount: null });
           }
         }
       } finally {

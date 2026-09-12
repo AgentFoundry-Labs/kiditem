@@ -59,6 +59,12 @@ export function isChromeExtensionRuntimeAvailable(): boolean {
 // 이 경우에만 워커가 깨어날 시간을 주고 재시도한다(다른 오류는 즉시 전파).
 const EXTENSION_WAKE_RETRY_DELAYS_MS = [250, 600, 1200];
 
+/**
+ * 확장이 제 시간에 답하지 않았다는 말. 몰이 실패한 것도, 로그인이 풀린 것도 아니다 — 우리가
+ * 물어봤는데 못 들었을 뿐이다. 부르는 쪽이 이 상수로 알아보고 '실패'와 다르게 다룬다.
+ */
+export const EXTENSION_TIMEOUT_MESSAGE = '익스텐션 응답 시간이 초과되었습니다.';
+
 function isExtensionWakeError(message: string | undefined): boolean {
   if (!message) return false;
   return /Receiving end does not exist|Could not establish connection/i.test(message);
@@ -107,7 +113,7 @@ function sendToExtensionOnce<TResponse = unknown>(
     };
     if (timeoutMs !== null) {
       timeout = window.setTimeout(() => {
-        settle(() => reject(new Error('익스텐션 응답 시간이 초과되었습니다.')));
+        settle(() => reject(new Error(EXTENSION_TIMEOUT_MESSAGE)));
       }, timeoutMs);
     }
 
@@ -198,7 +204,7 @@ export function sendToExtensionViaPort<TResponse = unknown>(
     };
     if (timeoutMs !== null) {
       timeout = window.setTimeout(() => {
-        finish(() => reject(new Error('익스텐션 응답 시간이 초과되었습니다.')));
+        finish(() => reject(new Error(EXTENSION_TIMEOUT_MESSAGE)));
       }, timeoutMs);
     }
 

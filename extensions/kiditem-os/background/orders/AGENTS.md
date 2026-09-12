@@ -18,6 +18,11 @@ registration, and Coupang cookie-overflow recovery.
   Coupang cookie recovery is limited to named/path cookies for the supplier
   origin and must warn that shared Coupang sessions will be signed out; never
   read or return cookie values.
+- `mall-session-probe.js` reports login state only: one fixed, read-only GET per
+  mall with the operator's cookies — no tab, no credentials, no login, and no
+  URL, body, or header in the answer. `signed_in` needs a positive admin marker
+  and `signed_out` a login signal; anything else is `unknown`. Never add export,
+  audit-logging, or mutating URLs, and never reuse `ensureMallLogin` for checks.
 
 ## Collection Contract
 
@@ -28,7 +33,10 @@ registration, and Coupang cookie-overflow recovery.
   stale extension is incompatible, not absent, and the web app must show its
   loaded version and missing capabilities.
 - Managed collectors use inactive tabs, attach created tabs to the run before
-  work, and leave a tab open only for explicit operator attention.
+  work, and leave a tab open only for explicit operator attention. Close the tab
+  you created on every other path, including failure — a collector that runs
+  each round and never closes leaves one tab per round, and those tabs pile up
+  until the service worker misses its deadlines and healthy malls time out.
 - Normalize, bound, deduplicate, validate, and deterministically sort provider
   rows. Never return raw responses, headers, DOM dumps, redirects, or secrets.
 - The detailed failure-code, capability, evidence-field, tab-lifecycle, and

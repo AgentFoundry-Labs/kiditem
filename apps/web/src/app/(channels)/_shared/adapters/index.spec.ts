@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { MALL_PUBLISH_ADAPTERS, getMallPublishAdapter, hasMallPublishAdapter } from './index';
+import {
+  MALL_PUBLISH_ADAPTERS,
+  getMallPublishAdapter,
+  hasMallPublishAdapter,
+  registrationAdapterFor,
+} from './index';
 
 /**
  * 레지스트리 계약.
@@ -10,7 +15,7 @@ import { MALL_PUBLISH_ADAPTERS, getMallPublishAdapter, hasMallPublishAdapter } f
 describe('몰 등록 어댑터 레지스트리', () => {
   it('등록된 몰 목록이 레지스트리와 같다', () => {
     expect(MALL_PUBLISH_ADAPTERS.map((a) => a.mallKey).sort())
-      .toEqual(['11st', 'always', 'art09', 'coupang', 'domeggook', 'kidsnote', 'onch', 'teacher-mall']);
+      .toEqual(['11st', 'always', 'art09', 'boribori', 'coupang', 'domeggook', 'gmarket', 'icecream-mall', 'kidsnote', 'kkomangse', 'onch', 'teacher-mall', 'thirtymall']);
   });
 
   it('몰키가 서버 매니페스트 키와 같다', () => {
@@ -20,10 +25,34 @@ describe('몰 등록 어댑터 레지스트리', () => {
     // 어긋나면 계정이 있는데도 카드가 빨강으로 남고 등록현황 열이 통째로 빈다.
     const manifestKeys = new Set([
       'coupang', 'kidsnote', 'domeggook', 'onch', 'art09', 'always', 'teacher-mall', '11st',
+      'icecream-mall', 'gmarket', 'boribori', 'kkomangse', 'thirtymall',
     ]);
     for (const adapter of MALL_PUBLISH_ADAPTERS) {
       expect(manifestKeys.has(adapter.mallKey)).toBe(true);
     }
+  });
+
+  /**
+   * ESM Plus 는 한 번 등록하면 G마켓과 옥션 양쪽에 올라간다(실측 2026-09-11:
+   * 빈 폼의 `판매사이트` 에 둘 다 켜진 채로 열린다). 매니페스트도 같은 사실을
+   * 적어 두고 있다 — `gmarket` 은 "ESM 1콜로 지마켓+옥션 동시 등록".
+   *
+   * 그래서 `auction` 어댑터를 따로 만들면 같은 폼을 두 번 열어 같은 상품을 두 번
+   * 올린다. 여기서 막는다.
+   */
+  it('⭐ 옥션 어댑터를 따로 두지 않는다 — G마켓 등록 한 번이 옥션까지다', () => {
+    expect(hasMallPublishAdapter('auction')).toBe(false);
+    expect(getMallPublishAdapter('gmarket')?.mallName).toBe('G마켓 · 옥션');
+  });
+
+  /**
+   * 버튼은 없지만 옥션에도 올라간다. 허브가 옥션 상품등록을 '아직' 으로 칠하면
+   * "옥션은 따로 등록해야 하나" 로 읽힌다(사장님 지적 2026-09-11).
+   */
+  it('옥션은 G마켓 등록에 함께 올라가는 몰로 찾아진다', () => {
+    expect(registrationAdapterFor('auction')?.mallKey).toBe('gmarket');
+    expect(registrationAdapterFor('gmarket')?.mallKey).toBe('gmarket');
+    expect(registrationAdapterFor('toss')).toBeNull();
   });
 
   it('몰키가 겹치지 않는다', () => {

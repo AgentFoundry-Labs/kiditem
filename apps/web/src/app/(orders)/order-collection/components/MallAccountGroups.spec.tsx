@@ -1,6 +1,11 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  blockMallAutoLogin,
+  isMallAutoLoginBlocked,
+  resetMallLoginBlocksForTest,
+} from '@/lib/mall-login-block';
 import { MallAccountGroups } from './MallAccountGroups';
 import type { MallCollectionStat } from '../lib/order-collection-stats';
 import type { OrderCollectionMallAccount } from '../lib/order-mall-account-api';
@@ -175,5 +180,73 @@ describe('MallAccountGroups', () => {
     const okDot = screen.getByTitle('수집 가능');
     expect(okDot).toHaveClass('bg-emerald-500');
     expect(okDot).not.toHaveClass('bg-red-500');
+  });
+
+  describe('자동 로그인이 막힌 몰 — 다시 켜는 건 사람이 정한다', () => {
+    beforeEach(() => {
+      resetMallLoginBlocksForTest();
+      window.localStorage.clear();
+    });
+
+    function renderCard(stats = new Map<string, MallCollectionStat>()) {
+      render(
+        <MallAccountGroups
+          accounts={[account('art09', { name: '아트공구' })]}
+          stats={stats}
+          selectedMall={null}
+          settingsOpen={false}
+          collectingKeys={new Set()}
+          cancellingKeys={new Set()}
+          autoDetect={false}
+          autoNextRunAt={null}
+          autoRunning={false}
+          onOpenSettings={vi.fn()}
+          onCollectMall={vi.fn()}
+          onCancelMall={vi.fn()}
+          onUploadTracking={vi.fn()}
+        />,
+      );
+    }
+
+    /** 기계는 멈췄다는 사실과, 다시 켤 권한이 사람에게 있다는 것을 한 줄로 말한다. */
+    it('⭐ 자동이 멈췄다고 적고, 눌러서 사람이 직접 다시 켤 수 있다', async () => {
+      const user = userEvent.setup();
+      blockMallAutoLogin('art09', '아트공구 로그인이 필요합니다.');
+      renderCard();
+
+      const control = screen.getByRole('button', { name: '아트공구 자동 수집 다시 켜기' });
+      expect(control).toHaveTextContent('자동 멈춤 · 직접 로그인');
+      expect(isMallAutoLoginBlocked('art09')).toBe(true);
+
+      await user.click(control);
+      expect(isMallAutoLoginBlocked('art09')).toBe(false);
+    });
+
+    it('인증이 막힌 몰은 "직접 인증"이라고 적는다 — 사람이 할 일이 다르다', () => {
+      blockMallAutoLogin('art09', '본인 인증이 필요합니다.', 'verification');
+      renderCard();
+      expect(
+        screen.getByRole('button', { name: '아트공구 자동 수집 다시 켜기' }),
+      ).toHaveTextContent('자동 멈춤 · 직접 인증');
+    });
+
+    /** 막힌 상태가 서버의 지난 수집 결과보다 앞에 선다. 지금 사람이 해야 할 일이라서. */
+    it('⭐ 막힘 표시가 서버 상태 줄을 덮는다', () => {
+      blockMallAutoLogin('art09', '아트공구 로그인이 필요합니다.');
+      renderCard(new Map<string, MallCollectionStat>([
+        ['art09', {
+          key: 'art09',
+          name: '아트공구',
+          files: 0,
+          orderRows: 0,
+          newRows: 0,
+          productRows: 0,
+          latestAt: Date.now(),
+          serverStatus: { label: '신규 주문 없음', tone: 'empty', detail: null },
+        }],
+      ]));
+      expect(screen.queryByText('신규 주문 없음')).toBeNull();
+      expect(screen.getByText('자동 멈춤 · 직접 로그인')).toBeInTheDocument();
+    });
   });
 });

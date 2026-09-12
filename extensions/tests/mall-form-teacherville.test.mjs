@@ -119,7 +119,13 @@ test('등록화면 주소를 알아본다', () => {
 test('HTML 로 상세설명을 넣는 몰은 전부 올릴 곳을 갖는다', () => {
   const { SPECS } = loadModule();
   for (const [mall, spec] of Object.entries(SPECS)) {
-    const writesHtml = Boolean(spec.detailPreviewSelector || spec.detailRich || spec.detailEditor);
+    // ⚠️ 방식을 나열하지 않는다. 예전엔 셋만 적어 뒀는데 새 방식(아이스크림몰의
+    // `detailSmartEditor`)이 그대로 빠져나갔다(2026-09-11). 상세설명 칸을 가리키는
+    // 손잡이가 하나라도 있으면 HTML 을 넣는 몰이다.
+    const writesHtml = Boolean(
+      spec.detailPreviewSelector || spec.detailRich || spec.detailEditor
+      || spec.detailSmartEditor || spec.detailHtmlTarget || spec.detailSelector,
+    );
     if (!writesHtml) continue;
     const canHost = Boolean(spec.detailHost || spec.detailSelfUpload);
     assert.ok(canHost, `${mall} 이 상세설명 HTML 을 넣는데 올릴 곳이 없습니다.`);

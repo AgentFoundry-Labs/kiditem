@@ -1,4 +1,4 @@
-import type { MallProductDraft } from './mall-product-draft';
+import { KIDITEM_AS_PHONE, MallProductDraft } from './mall-product-draft';
 
 /**
  * 몰 중립 초안 → 키즈노트(WISA 스마트윙) 입점사 상품등록 폼.
@@ -84,7 +84,7 @@ export const KIDSNOTE_SELLER_VALUE = {
 export const KIDSNOTE_ETC_NOTICE_DEFAULTS: Record<string, string> = {
   법인증허가확인: '해당없음',
   제조국: '중국',
-  AS책임자: '031-908-5401',
+  AS책임자: KIDITEM_AS_PHONE,
   품질보증기준: '관련 법 및 소비자 분쟁 해결 기준을 따름',
   수입여부: 'Y',
   안전인증여부: '해당없음',

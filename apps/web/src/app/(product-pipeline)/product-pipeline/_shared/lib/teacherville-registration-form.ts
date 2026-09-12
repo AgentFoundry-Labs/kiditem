@@ -1,4 +1,4 @@
-import type { MallProductDraft } from './mall-product-draft';
+import { KIDITEM_AS_PHONE, MallProductDraft } from './mall-product-draft';
 
 /**
  * 몰 중립 초안 → 티처몰(퍼스트몰) 판매자 상품등록.
@@ -37,7 +37,7 @@ export const TEACHERVILLE_STOCK = 999;
 export const TEACHERVILLE_DEFAULT_CATEGORY = '티처몰 > 학급운영';
 
 /** A/S 전화. 실측 그대로. */
-export const TEACHERVILLE_AS_PHONE = '031-908-5401';
+export const TEACHERVILLE_AS_PHONE = KIDITEM_AS_PHONE;
 
 /**
  * 상품정보고시 서른아홉 줄.

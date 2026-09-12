@@ -132,6 +132,7 @@ model Organization {
   mallListingProfiles                     MallListingProfile[]                     @relation("MallListingProfileOrganization")
   productNoticeAttributes                 ProductNoticeAttribute[]                 @relation("ProductNoticeAttributeOrganization")
   productCertifications                   ProductCertification[]                   @relation("ProductCertificationOrganization")
+  mallOperationOutcomes                   MallOperationOutcome[]                   @relation("MallOperationOutcomeOrganization")
 
   // Channels — market-data snapshots (Wave C0)
   channelScrapeRuns                  ChannelScrapeRun[]
@@ -180,6 +181,7 @@ model Organization {
   liveCommerceProductDailySnapshots   LiveCommerceProductDailySnapshot[]
   tiktokCreativeTrendDailySnapshots   TiktokCreativeTrendDailySnapshot[]
   sourcingCollectionSourceControls    SourcingCollectionSourceControl[]
+  sourcingSourceEntitlementVersions   SourcingSourceEntitlementVersion[]
   sourcingEvidenceIngestionRuns       SourcingEvidenceIngestionRun[]
   sourcingEvidenceObservations        SourcingEvidenceObservation[]
   sourcingLaunchCandidates            SourcingLaunchCandidate[]
@@ -221,6 +223,7 @@ model User {
   requestedProductRegistrationExecutions     ProductRegistrationExecution[]                 @relation("ProductRegistrationExecutionRequestedBy")
   requestedChannelListingDeletionOperations  ChannelListingDeletionOperation[]              @relation("ChannelListingDeletionOperationRequestedBy")
   triggeredSourcingEvidenceIngestionRuns     SourcingEvidenceIngestionRun[]                 @relation("SourcingEvidenceIngestionRunTriggeredBy")
+  reviewedSourcingSourceEntitlementVersions  SourcingSourceEntitlementVersion[]             @relation("SourcingSourceEntitlementVersionReviewedBy")
   requestedSourcingDecisionBatches           SourcingDecisionBatch[]                        @relation("SourcingDecisionBatchRequestedBy")
   requestedSourcingReviewBatches             SourcingReviewBatch[]                          @relation("SourcingReviewBatchRequestedBy")
   createdSourcingLaunchCandidates            SourcingLaunchCandidate[]                      @relation("SourcingLaunchCandidateCreatedBy")
@@ -232,6 +235,7 @@ model User {
   requestedDetailPageImageRenderIntents      DetailPageImageRenderIntent[]                  @relation("DetailPageImageRenderIntentRequestedBy")
   claimedDetailPageImageRenderIntents        DetailPageImageRenderIntent[]                  @relation("DetailPageImageRenderIntentClaimedBy")
   actorAlerts                                Alert[]                                        @relation("AlertActor")
+  recordedMallOperationOutcomes              MallOperationOutcome[]                         @relation("MallOperationOutcomeActor")
   requestedOperationRuns                     OperationRun[]                                 @relation("OperationRunRequestedBy")
   createdOperationSchedules                  OperationSchedule[]                            @relation("OperationScheduleCreatedBy")
   assignedActionTasks                        ActionTask[]                                   @relation("ActionTaskAssignee")

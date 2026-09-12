@@ -103,6 +103,42 @@ export interface MallAdapterManifest {
   readonly note: string;
 }
 
+/**
+ * 몰에서 **우리 쪽으로** 들어오는 방향의 능력.
+ *
+ * 상품등록(`supports`)과 반대 방향이라 따로 둔다. 화면이 "이 몰은 연결만 돼 있다" 로
+ * 보여 주던 자리에 **무엇이 실제로 되는지**를 말해 주기 위한 값이다.
+ *
+ * ⚠️ 근거는 **코드에 실제로 있는 경로**다. 문서에 스펙만 적힌 것은 켜지 않는다 —
+ * 그러면 화면이 되는 것처럼 말하고 사람이 눌렀을 때 아무 일도 안 일어난다.
+ *
+ *  - `collectsOrders`: 서버에 주문수집 변환 엔드포인트가 있는 몰
+ *    (`orders/collection/{몰}/convert`, 2026-09-11 기준 13곳).
+ *  - `uploadsTracking`: 확장에 발송처리(송장 등록) 액션이 있는 몰
+ *    (`uploadOnchTracking`·`uploadKidkidsTracking`·`uploadDomeggookTracking`, 3곳).
+ *    아이스크림몰·티쳐몰·키즈노트·보리보리·카카오는 **스펙만 있고 미구현**이다.
+ */
+export interface MallInboundSupports {
+  readonly collectsOrders: boolean;
+  readonly uploadsTracking: boolean;
+}
+
+/** 주문수집 변환 엔드포인트가 있는 몰. 엔드포인트 이름과 몰 키가 다른 것이 정상이다. */
+const ORDER_COLLECTING_KEYS: ReadonlySet<string> = new Set([
+  'always', 'boribori', 'coupang-direct', 'domeggook', 'gs-shop', 'haebub-mall',
+  'icecream-mall', 'kidkids', 'kidsnote', 'kkomangse', 'lotte-on', 'onch', 'teacher-mall',
+]);
+
+/** 발송처리(송장 등록)까지 되는 몰. 조인 키가 깔끔한 셋뿐이다. */
+const TRACKING_UPLOAD_KEYS: ReadonlySet<string> = new Set(['onch', 'kidkids', 'domeggook']);
+
+export function mallInboundSupports(mallKey: string): MallInboundSupports {
+  return {
+    collectsOrders: ORDER_COLLECTING_KEYS.has(mallKey),
+    uploadsTracking: TRACKING_UPLOAD_KEYS.has(mallKey),
+  };
+}
+
 /** 몰 종류와 무관하게 항상 검사하는 항목. */
 const BASE_RULES: readonly MallPreflightRule[] = [
   'mall_category_mapped',

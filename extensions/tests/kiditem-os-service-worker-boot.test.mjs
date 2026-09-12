@@ -223,6 +223,7 @@ test('ping 이 세 도메인의 capabilities 를 합쳐 한 번만 응답한다'
     'collectSellpiaManualMatchV1',
     'collectSellpiaManualMatchPortV1',
     'orderCollectionFailureEvidenceV1',
+    'mallSessionProbeV1',
     // 쿠팡
     'profitabilityAdvertisingRefreshV1',
     'coupangCatalogSnapshot',

@@ -41,8 +41,11 @@ vi.mock('../extension-bridge', () => ({
 }));
 
 import {
+  BROWSER_COLLECTION_SESSION_RETENTION_MS,
   browserCollectionOperationKey,
   browserCollectionRunIdFromOperationKey,
+  closeExpiredBrowserCollectionAlerts,
+  isExpiredBrowserCollectionAlert,
   findBrowserCollectionSession,
   issueBrowserCollectionRunId,
   listBrowserCollectionSessions,
@@ -119,9 +122,81 @@ describe('browser collection alert synchronization', () => {
         collectionAttempt: 1,
         collectionUpdatedAt: 1_700_000_001_000,
         attentionReason: null,
+        mallKey: null,
       },
     });
     expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it('keeps the mall key of a mall order collection on the alert', async () => {
+    await syncBrowserCollectionAlert(session({
+      producer: 'orders.mall',
+      inputIdentity: { mallKey: 'icecream-mall', date: '2026-09-11' },
+    }));
+
+    expect(mockStart).toHaveBeenCalledWith(expect.objectContaining({
+      sourceId: 'orders.mall',
+      metadata: expect.objectContaining({ mallKey: 'icecream-mall' }),
+    }));
+  });
+
+  describe('expired browser collection alerts', () => {
+    const NOW = Date.UTC(2026, 8, 11, 12);
+    const DAY = 24 * 60 * 60 * 1000;
+    type AlertLike = {
+      id?: string;
+      status: string;
+      operationKey: string | null;
+      metadata: Record<string, unknown>;
+      createdAt: string;
+    };
+    const expiredAlert = (overrides: Partial<AlertLike> = {}): AlertLike => ({
+      status: 'pending',
+      operationKey: `browser-collection:${RUN_ID}`,
+      metadata: { collectionAttempt: 2, collectionUpdatedAt: NOW - 8 * DAY },
+      createdAt: new Date(NOW - 8 * DAY).toISOString(),
+      ...overrides,
+    });
+
+    it('treats a stopped collection older than the extension session retention as expired', () => {
+      expect(BROWSER_COLLECTION_SESSION_RETENTION_MS).toBe(7 * DAY);
+      expect(isExpiredBrowserCollectionAlert(expiredAlert(), NOW)).toBe(true);
+      expect(isExpiredBrowserCollectionAlert(
+        expiredAlert({ metadata: { collectionAttempt: 1, collectionUpdatedAt: NOW - 6 * DAY } }),
+        NOW,
+      )).toBe(false);
+      expect(isExpiredBrowserCollectionAlert(expiredAlert({ status: 'succeeded' }), NOW)).toBe(false);
+      expect(isExpiredBrowserCollectionAlert(expiredAlert({ operationKey: 'coupang-sync:orders' }), NOW)).toBe(false);
+    });
+
+    it('closes expired alerts as cancelled with fresh ordering metadata and skips foreign rows', async () => {
+      mockUpdate.mockReset();
+      mockUpdate.mockResolvedValueOnce({ id: 'alert-1' }).mockResolvedValueOnce(null);
+
+      const result = await closeExpiredBrowserCollectionAlerts([
+        expiredAlert({ id: 'alert-1' }),
+        expiredAlert({ id: 'alert-2', operationKey: `browser-collection:${OTHER_RUN_ID}` }),
+        expiredAlert({
+          operationKey: `browser-collection:${OTHER_RUN_ID}`,
+          metadata: { collectionAttempt: 1, collectionUpdatedAt: NOW - DAY },
+        }),
+      ], NOW);
+
+      expect(result).toEqual({ closed: [`browser-collection:${RUN_ID}`], skipped: 1, failed: 0 });
+      expect(mockUpdate).toHaveBeenCalledTimes(2);
+      expect(mockUpdate).toHaveBeenCalledWith(`browser-collection:${RUN_ID}`, expect.objectContaining({
+        status: 'cancelled',
+        metadata: expect.objectContaining({
+          browserCollection: true,
+          collectionAttempt: 2,
+          collectionUpdatedAt: NOW,
+          staleReconciled: true,
+        }),
+      }));
+      // 닫힌 것만 읽음으로 — 남의 알림(404)은 건드리지 않는다.
+      expect(mockApiPost).toHaveBeenCalledWith('/api/alerts/alert-1/dismiss');
+      expect(mockApiPost).not.toHaveBeenCalledWith('/api/alerts/alert-2/dismiss');
+    });
   });
 
   it('maps attention_required to one personal pending operation alert', async () => {

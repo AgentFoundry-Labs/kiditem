@@ -1167,6 +1167,18 @@ function mallFormRegister() {
   return mallFormRegisterInstance;
 }
 
+// 몰 로그인 상태 조용히 확인. 몰마다 정해진 읽기 전용 주소를 한 번 읽을 뿐, 로그인하지 않고
+// 탭도 열지 않는다. 자격증명을 받지 않으므로 ensureMallLogin 과 섞지 않는다.
+let mallSessionProbeInstance = null;
+function mallSessionProbe() {
+  if (!mallSessionProbeInstance) {
+    mallSessionProbeInstance = KidItemMallSessionProbe.create({
+      fetch: (...args) => fetch(...args),
+    });
+  }
+  return mallSessionProbeInstance;
+}
+
 chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   const senderEnvironment = ordersEnvironmentContext.resolveSender(sender);
   if (!senderEnvironment) {
@@ -1579,6 +1591,11 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
         sendResponse({ success: false, error: error?.message || "도매꾹 송장 업로드 실패" });
       });
     return true;
+  }
+
+  // 로그인 상태만 본다. 몰 키 하나만 받고, 주소는 모듈의 고정 목록에서만 나온다.
+  if (msg?.action === "probeMallSession") {
+    return respond(mallSessionProbe().probe(typeof msg.mallKey === "string" ? msg.mallKey : ""));
   }
 
   if (msg?.action === "ensureMallLoggedIn") {
@@ -5806,73 +5823,89 @@ async function collectIcecreamMallOrders(date, credentials, collection) {
   }
   await attachOrderCollectionTab(collection, tab, created);
 
-  await waitForTabReady(tab.id);
-  const login = await withTimeout(
-    ensureIcecreamMallLogin(tab.id, credentials),
-    35000,
-    "아이스크림몰 로그인 자동 입력 시간이 초과되었습니다.",
-  );
-  if (!login.success) {
-    const currentTab = await chrome.tabs.get(tab.id).catch(() => tab);
+  // 우리가 연 탭은 우리가 닫는다. 사람이 로그인해야 할 때만 열어 둔다 — 다른 몰 수집기와
+  // 같은 규칙이다. 이게 없어 바퀴마다 아이스크림몰 탭이 하나씩 남았고, 그 탭들이 쌓여
+  // 서비스워커를 눌러 멀쩡한 몰까지 '응답 없음'으로 끌어내렸다.
+  let keepOpen = false;
+  try {
+    await waitForTabReady(tab.id);
+    const login = await withTimeout(
+      ensureIcecreamMallLogin(tab.id, credentials),
+      35000,
+      "아이스크림몰 로그인 자동 입력 시간이 초과되었습니다.",
+    );
+    if (!login.success) {
+      const currentTab = await chrome.tabs.get(tab.id).catch(() => tab);
+      keepOpen = created; // 사장님이 이 탭에서 직접 로그인하셔야 한다.
+      return {
+        success: false,
+        pendingLogin: login.pendingLogin ?? true,
+        url: currentTab.url || tab.url || ICECREAM_MALL_URL,
+        error: login.error || "아이스크림몰 로그인 자동 입력에 실패했습니다.",
+      };
+    }
+
+    const deliveryInquiry = await withTimeout(
+      openIcecreamMallDeliveryInquiry(tab.id),
+      15000,
+      "아이스크림몰 배송조회 화면 이동 시간이 초과되었습니다.",
+    );
+    if (!deliveryInquiry.success) {
+      const currentTab = await chrome.tabs.get(tab.id).catch(() => tab);
+      keepOpen = created && Boolean(deliveryInquiry.pendingLogin);
+      return {
+        success: false,
+        pendingLogin: deliveryInquiry.pendingLogin,
+        url: currentTab.url || tab.url || ICECREAM_MALL_URL,
+        error: deliveryInquiry.error,
+      };
+    }
+
+    const deliveryFrameId = await findIcecreamMallDeliveryFrameId(tab.id);
+    const target =
+      deliveryFrameId == null ? { tabId: tab.id, allFrames: true } : { tabId: tab.id, frameIds: [deliveryFrameId] };
+    const injected = await withTimeout(
+      chrome.scripting.executeScript({
+        target,
+        world: "MAIN", // ⭐페이지 컨텍스트로 실행: 조회(#btn_list) 클릭이 몰 프레임워크(WebSquare) 핸들러를
+        // 확실히 발동시켜 그리드가 로딩됨. ISOLATED 월드 클릭은 핸들러를 못 깨워 "총 0건"에서 멈춘다.
+        func: scrapeIcecreamMallDeliveryGrid,
+        args: [date, ICECREAM_DELIVERY_HEADERS, ICECREAM_EXCLUDED_DELIVERY_STATUSES],
+      }),
+      35000,
+      "아이스크림몰 배송목록 수집 시간이 초과되었습니다.",
+    );
+
+    const results = injected.map((item) => item.result).filter(Boolean);
+    const candidates = results.filter((item) => item?.success && Array.isArray(item.rows));
+    candidates.sort((a, b) => b.rows.length - a.rows.length);
+    const best = candidates[0];
+
+    if (!best) {
+      const failure = summarizeScrapeFailures(results);
+      return {
+        success: false,
+        pendingLogin: false,
+        url: tab.url || ICECREAM_MALL_URL,
+        error: failure || "아이스크림몰 배송조회 화면은 열었지만 배송목록 표를 찾지 못했습니다.",
+      };
+    }
+
     return {
-      success: false,
-      pendingLogin: login.pendingLogin ?? true,
-      url: currentTab.url || tab.url || ICECREAM_MALL_URL,
-      error: login.error || "아이스크림몰 로그인 자동 입력에 실패했습니다.",
-    };
-  }
-
-  const deliveryInquiry = await withTimeout(
-    openIcecreamMallDeliveryInquiry(tab.id),
-    15000,
-    "아이스크림몰 배송조회 화면 이동 시간이 초과되었습니다.",
-  );
-  if (!deliveryInquiry.success) {
-    const currentTab = await chrome.tabs.get(tab.id).catch(() => tab);
-    return {
-      success: false,
-      pendingLogin: deliveryInquiry.pendingLogin,
-      url: currentTab.url || tab.url || ICECREAM_MALL_URL,
-      error: deliveryInquiry.error,
-    };
-  }
-
-  const deliveryFrameId = await findIcecreamMallDeliveryFrameId(tab.id);
-  const target =
-    deliveryFrameId == null ? { tabId: tab.id, allFrames: true } : { tabId: tab.id, frameIds: [deliveryFrameId] };
-  const injected = await withTimeout(
-    chrome.scripting.executeScript({
-      target,
-      world: "MAIN", // ⭐페이지 컨텍스트로 실행: 조회(#btn_list) 클릭이 몰 프레임워크(WebSquare) 핸들러를
-      // 확실히 발동시켜 그리드가 로딩됨. ISOLATED 월드 클릭은 핸들러를 못 깨워 "총 0건"에서 멈춘다.
-      func: scrapeIcecreamMallDeliveryGrid,
-      args: [date, ICECREAM_DELIVERY_HEADERS, ICECREAM_EXCLUDED_DELIVERY_STATUSES],
-    }),
-    35000,
-    "아이스크림몰 배송목록 수집 시간이 초과되었습니다.",
-  );
-
-  const results = injected.map((item) => item.result).filter(Boolean);
-  const candidates = results.filter((item) => item?.success && Array.isArray(item.rows));
-  candidates.sort((a, b) => b.rows.length - a.rows.length);
-  const best = candidates[0];
-
-  if (!best) {
-    const failure = summarizeScrapeFailures(results);
-    return {
-      success: false,
-      pendingLogin: false,
+      success: true,
+      tabId: tab.id,
       url: tab.url || ICECREAM_MALL_URL,
-      error: failure || "아이스크림몰 배송조회 화면은 열었지만 배송목록 표를 찾지 못했습니다.",
+      ...best,
     };
+  } finally {
+    if (created && tab.id && !keepOpen) {
+      try {
+        await chrome.tabs.remove(tab.id); // 우리가 연 백그라운드 탭 정리
+      } catch {
+        /* 이미 닫힘 */
+      }
+    }
   }
-
-  return {
-    success: true,
-    tabId: tab.id,
-    url: tab.url || ICECREAM_MALL_URL,
-    ...best,
-  };
 }
 
 async function findIcecreamMallDeliveryFrameId(tabId) {
@@ -8031,10 +8064,13 @@ KidItemDomains.register({
     kidsnoteFormRegisterSource: "kidsnote-product-register-fill",
     // 도매꾹·온채널 상품등록 폼 자동 채움(제출은 사람이 한다).
     mallFormRegister: true,
-    mallFormRegisterMalls: ["domeggook", "onch", "artgonggu", "alwayz", "teacherville", "11st"],
+    mallFormRegisterMalls: ["domeggook", "onch", "artgonggu", "alwayz", "teacherville", "11st", "icecream"],
     // 분류를 몰에서 그때그때 읽어 화면이 계단식으로 보여줄 수 있다.
     mallCategoryLookup: true,
     mallCategoryLookupMalls: ["onch"],
+    // 몰 로그인 상태를 조용히 확인한다 — 읽기 전용 주소 한 번, 로그인하지 않는다.
+    mallSessionProbeV1: true,
+    mallSessionProbeMalls: ["domeggook", "onch", "kidsnote", "kidkids", "icecream-mall", "art09", "haebub-mall", "teacher-mall", "kkomangse"],
     collectHaebeopOrders: true,
     sellpiaPostTransfer: true,
     sellpiaAutoInvoice: true,

@@ -28,12 +28,12 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | [AgentOS](erd/agentos.md) | 1 |
 | [AI](erd/ai.md) | 22 |
 | [Automation](erd/automation.md) | 2 |
-| [Channels](erd/channels.md) | 25 |
+| [Channels](erd/channels.md) | 26 |
 | [Core](erd/core.md) | 16 |
 | [Finance](erd/finance.md) | 1 |
 | [Inventory](erd/inventory.md) | 6 |
 | [Orders](erd/orders.md) | 9 |
-| [Sourcing](erd/sourcing.md) | 31 |
+| [Sourcing](erd/sourcing.md) | 32 |
 | [Supply](erd/supply.md) | 13 |
 | [System](erd/system.md) | 12 |
 
@@ -88,6 +88,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | CoupangWingTrackedProduct | Channels | `coupang_wing_tracked_products` | 쿠팡 Wing 카탈로그 경쟁상품 추적 대상. 상품분석(wing-catalog)에서 사용자가 추적 등록한 카탈로그 상품(자사/경쟁 무관). sourceKeyword = 지표 갱신 시 재검색할 키워드. |
 | CoupangWingTrackedProductDailySnapshot | Channels | `coupang_wing_tracked_product_daily_snapshots` | 쿠팡 Wing 추적상품 일별 지표 스냅샷(상품×일자당 최신본 upsert). Wing 카탈로그 28일 지표(클릭 pv·판매·매출·전환) + 판매가·리뷰. |
 | MallListingProfile | Channels | `mall_listing_profiles` | 몰 계정별 송신 프로필(배송/반품/출고지/판매정책). 사방넷 부가정보와 달리 복제·대량 적용·삭제가 가능하다. |
+| MallOperationOutcome | Channels | `mall_operation_outcomes` | 쇼핑몰 에이전트의 기억 — 몰 작업 결과 한 줄(주문수집 · 송장 전송 · 등록 폼 채움 · 로그인 테스트 · 로그인 확인). append-only 이고 같은 idempotencyKey 는 한 번만 쓴다. 비밀번호 · 받는 사람 · 주소 · 주문번호는 담지 않는다 — 개수와 이유 코드만. |
 | ProductCertification | Channels | `product_certifications` | KC/어린이제품 인증. 유효기간이 지난 인증은 송신 게이트에서 차단한다. certType='none'은 '해당 없음'을 운영자가 명시적으로 선언한 상태다. |
 | ProductNoticeAttribute | Channels | `product_notice_attributes` | 상품정보고시. 미충족이면 송신을 시작하지 않는다 — 사방넷은 몰이 거절한 뒤에야 알려줬다. channel 이 있으면 그 몰 전용 override. |
 | RocketPoCatalogLine | Channels | `rocket_po_catalog_lines` | Normalized Rocket PO line and confirmation-workbook evidence owned by one completed catalog snapshot. |
@@ -153,6 +154,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | SourcingReviewBatch | Sourcing | `sourcing_review_batches` | Final 화면에서 생성하는 immutable review handoff. procurement intent나 provider side effect를 만들지 않는다. |
 | SourcingReviewBatchItem | Sourcing | `sourcing_review_batch_items` | review batch가 실제로 검토한 recommendation, validation, exact offer observation을 동결한다. |
 | SourcingReviewSelection | Sourcing | `sourcing_review_selections` | Entry/Final 화면 선택 상태의 org-scoped, optimistic-concurrency record. |
+| SourcingSourceEntitlementVersion | Sourcing | `sourcing_source_entitlement_versions` | Reviewed permission and coverage contract for one collection source scope. Append-only versions; exactly one row per scope is current. |
 | SourcingValidationCheck | Sourcing | `sourcing_validation_checks` | 하나의 검증 episode를 구성하는 데이터 기반 check 결과. |
 | SourcingValidationCheckEvidence | Sourcing | `sourcing_validation_check_evidence` | 검증 check가 참조한 immutable evidence link. |
 | SourcingValidationEpisode | Sourcing | `sourcing_validation_episodes` | 추천 후보의 실데이터 검증 life-cycle. fixture 점수는 이 record로 대체된다. |
@@ -1131,6 +1133,24 @@ erDiagram
     DateTime deletedAt
     DateTime createdAt
     DateTime updatedAt
+  }
+  MallOperationOutcome {
+    String id PK
+    String organizationId FK
+    String actorUserId FK
+    String idempotencyKey
+    String mallKey
+    String operation
+    String outcome
+    String reasonCode
+    String message
+    Int itemCount
+    Int failedCount
+    Int warningCount
+    String trigger
+    String runId
+    DateTime occurredAt
+    DateTime createdAt
   }
   Marketplace {
     String id PK
@@ -2345,6 +2365,46 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  SourcingSourceEntitlementVersion {
+    String id PK
+    String organizationId FK
+    String sourceKey
+    String scopeKey
+    Int version
+    String versionHash
+    String sourceLifecycle
+    String decisionImpact
+    String ownerLabel
+    String legalBasis
+    String allowedMethod
+    String credentialRef
+    StringArray permittedFields
+    StringArray prohibitedUses
+    Int rateLimitValue
+    Int rateLimitWindowSeconds
+    StringArray geographyCoverage
+    String coverageDefinition
+    String accountCoverage
+    String searchCoverage
+    String categoryCoverage
+    String denominatorDefinition
+    String historyBackfillPolicy
+    Int expectedDelaySeconds
+    Int maxStalenessSeconds
+    Int minimumCoverageBps
+    String revisionPolicy
+    Int retentionDays
+    DateTime permissionStartsAt
+    DateTime permissionExpiresAt
+    Boolean killSwitch
+    String killReason
+    Boolean isCurrent
+    String reviewedByUserId FK
+    DateTime reviewedAt
+    DateTime retiredAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
   SourcingValidationCheck {
     String id PK
     String organizationId FK
@@ -2903,6 +2963,7 @@ erDiagram
   Organization ||--o{ LiveCommerceBroadcastDailySnapshot : "organization"
   Organization ||--o{ LiveCommerceProductDailySnapshot : "organization"
   Organization ||--o{ MallListingProfile : "organization"
+  Organization ||--o{ MallOperationOutcome : "organization"
   Organization ||--o{ MasterProduct : "organization"
   Organization ||--o{ MasterProductAbcEvaluation : "organization"
   Organization ||--o{ MasterProductAbcFormulaState : "organization"
@@ -2966,6 +3027,7 @@ erDiagram
   Organization ||--o{ SourcingReviewBatch : "organization"
   Organization ||--o{ SourcingReviewBatchItem : "organization"
   Organization ||--o{ SourcingReviewSelection : "organization"
+  Organization ||--o{ SourcingSourceEntitlementVersion : "organization"
   Organization ||--o{ SourcingValidationCheck : "organization"
   Organization ||--o{ SourcingValidationCheckEvidence : "organization"
   Organization ||--o{ SourcingValidationEpisode : "organization"
@@ -3086,6 +3148,7 @@ erDiagram
   User o|--o{ DetailPageImageRenderIntent : "claimedBy"
   User o|--o{ DetailPageImageRenderIntent : "requestedBy"
   User o|--o{ DetailPageRevision : "createdByUser"
+  User o|--o{ MallOperationOutcome : "actorUser"
   User o|--o{ OperationRun : "requestedBy"
   User o|--o{ OperationSchedule : "createdBy"
   User o|--o{ OrganizationMembership : "invitedBy"
@@ -3108,6 +3171,7 @@ erDiagram
   User o|--o{ SourcingEvidenceIngestionRun : "triggeredByUser"
   User ||--o{ SourcingLaunchCandidate : "createdByUser"
   User ||--o{ SourcingReviewBatch : "requestedBy"
+  User o|--o{ SourcingSourceEntitlementVersion : "reviewedByUser"
   User o|--o{ ThumbnailGeneration : "triggeredByUser"
   User o|--o{ ThumbnailGenerationEvent : "actor"
   User o|--o{ WorkflowRun : "triggeredByUser"

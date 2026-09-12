@@ -412,6 +412,7 @@ erDiagram
 | Organization | organization | referenced by external | Channels | CoupangWingTrackedProduct |
 | Organization | organization | referenced by external | Channels | CoupangWingTrackedProductDailySnapshot |
 | Organization | organization | referenced by external | Channels | MallListingProfile |
+| Organization | organization | referenced by external | Channels | MallOperationOutcome |
 | Organization | organization | referenced by external | Channels | ProductCertification |
 | Organization | organization | referenced by external | Channels | ProductNoticeAttribute |
 | Organization | organization | referenced by external | Channels | RocketPoCatalogLine |
@@ -461,6 +462,7 @@ erDiagram
 | Organization | organization | referenced by external | Sourcing | SourcingReviewBatch |
 | Organization | organization | referenced by external | Sourcing | SourcingReviewBatchItem |
 | Organization | organization | referenced by external | Sourcing | SourcingReviewSelection |
+| Organization | organization | referenced by external | Sourcing | SourcingSourceEntitlementVersion |
 | Organization | organization | referenced by external | Sourcing | SourcingValidationCheck |
 | Organization | organization | referenced by external | Sourcing | SourcingValidationCheckEvidence |
 | Organization | organization | referenced by external | Sourcing | SourcingValidationEpisode |
@@ -498,6 +500,7 @@ erDiagram
 | SourceImportRun | sourceImportRun | referenced by external | Supply | RocketPurchaseConfirmationTransmission |
 | User | activeSyncOwner | referenced by external | Inventory | SellpiaInventoryState |
 | User | actor | referenced by external | AI | ThumbnailGenerationEvent |
+| User | actorUser | referenced by external | Channels | MallOperationOutcome |
 | User | actorUser | referenced by external | System | Alert |
 | User | approvalDecidedByUser | referenced by external | AgentOS | CapabilityInvocation |
 | User | approvedByUser | referenced by external | AI | ProductPreparation |
@@ -526,6 +529,7 @@ erDiagram
 | User | requestedByUser | referenced by external | Sourcing | ProductRegistrationExecution |
 | User | requestedByUser | referenced by external | Sourcing | SourcingDecisionBatch |
 | User | requestedByUser | referenced by external | Supply | ProcurementTestIntent |
+| User | reviewedByUser | referenced by external | Sourcing | SourcingSourceEntitlementVersion |
 | User | reviewedByUser | referenced by external | Supply | ProcurementTestIntent |
 | User | triggeredByUser | referenced by external | AI | ContentGeneration |
 | User | triggeredByUser | referenced by external | AI | ThumbnailGeneration |

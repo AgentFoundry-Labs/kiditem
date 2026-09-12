@@ -34,6 +34,7 @@
 | SourcingReviewBatch | `sourcing_review_batches` | Final 화면에서 생성하는 immutable review handoff. procurement intent나 provider side effect를 만들지 않는다. |
 | SourcingReviewBatchItem | `sourcing_review_batch_items` | review batch가 실제로 검토한 recommendation, validation, exact offer observation을 동결한다. |
 | SourcingReviewSelection | `sourcing_review_selections` | Entry/Final 화면 선택 상태의 org-scoped, optimistic-concurrency record. |
+| SourcingSourceEntitlementVersion | `sourcing_source_entitlement_versions` | Reviewed permission and coverage contract for one collection source scope. Append-only versions; exactly one row per scope is current. |
 | SourcingValidationCheck | `sourcing_validation_checks` | 하나의 검증 episode를 구성하는 데이터 기반 check 결과. |
 | SourcingValidationCheckEvidence | `sourcing_validation_check_evidence` | 검증 check가 참조한 immutable evidence link. |
 | SourcingValidationEpisode | `sourcing_validation_episodes` | 추천 후보의 실데이터 검증 life-cycle. fixture 점수는 이 record로 대체된다. |
@@ -535,6 +536,46 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  SourcingSourceEntitlementVersion {
+    String id PK
+    String organizationId FK
+    String sourceKey
+    String scopeKey
+    Int version
+    String versionHash
+    String sourceLifecycle
+    String decisionImpact
+    String ownerLabel
+    String legalBasis
+    String allowedMethod
+    String credentialRef
+    StringArray permittedFields
+    StringArray prohibitedUses
+    Int rateLimitValue
+    Int rateLimitWindowSeconds
+    StringArray geographyCoverage
+    String coverageDefinition
+    String accountCoverage
+    String searchCoverage
+    String categoryCoverage
+    String denominatorDefinition
+    String historyBackfillPolicy
+    Int expectedDelaySeconds
+    Int maxStalenessSeconds
+    Int minimumCoverageBps
+    String revisionPolicy
+    Int retentionDays
+    DateTime permissionStartsAt
+    DateTime permissionExpiresAt
+    Boolean killSwitch
+    String killReason
+    Boolean isCurrent
+    String reviewedByUserId FK
+    DateTime reviewedAt
+    DateTime retiredAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
   SourcingValidationCheck {
     String id PK
     String organizationId FK
@@ -698,6 +739,8 @@ erDiagram
 | SourcingReviewBatch | requestedBy | references external | Core | User |
 | SourcingReviewBatchItem | organization | references external | Core | Organization |
 | SourcingReviewSelection | organization | references external | Core | Organization |
+| SourcingSourceEntitlementVersion | organization | references external | Core | Organization |
+| SourcingSourceEntitlementVersion | reviewedByUser | references external | Core | User |
 | SourcingValidationCheck | organization | references external | Core | Organization |
 | SourcingValidationCheckEvidence | organization | references external | Core | Organization |
 | SourcingValidationEpisode | organization | references external | Core | Organization |

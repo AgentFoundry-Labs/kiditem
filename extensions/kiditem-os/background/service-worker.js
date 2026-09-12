@@ -47,6 +47,7 @@ importScripts(
   "orders/coupang-po-session.js",
   "orders/kidsnote-product-register.js",
   "orders/mall-form-register.js",
+  "orders/mall-session-probe.js",
   "orders/rocket-po-collection.js",
   // 소싱 도메인 모듈
   "sourcing/url-policy.js",

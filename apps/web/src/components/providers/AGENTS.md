@@ -31,6 +31,12 @@ here affect every route.
 - `SellpiaInventorySyncProvider` is a projection only. It renders no freshness
   drawer, status entry, or manual-import UI; explicit Sellpia sync buttons call
   the shared operation hook and terminal state comes from OperationRun.
+- `MallAgentLoopProvider` runs the 쇼핑몰 에이전트 자동 운전 loop while the app is
+  open: passive mall login check, then order collection inside business hours.
+  It mounts the runner only when auth is ready and the operator kept the loop
+  on, so a disabled loop creates no query, timer, or extension traffic. One tab
+  runs at a time (`navigator.locks`). The loop may only read and collect; send,
+  submit, delete, and sold-out stay human-pressed on their own screens.
 
 ## Boundary Rules
 

@@ -17,6 +17,8 @@ import {
   type GeneratedFilesBulkAction,
 } from './GeneratedFilesSection';
 import { MallAccountSection } from './MallAccountSection';
+import { useServerMallCollectionStats } from '../hooks/use-server-mall-collection-stats';
+import { describeServerMallCollection } from '../lib/server-mall-collection-stats';
 import { OrderActivityFeed } from './OrderActivityFeed';
 import { OrderCollectionDailyPanel } from './OrderCollectionDailyPanel';
 import { OrderCollectionPipeline } from './OrderCollectionPipeline';
@@ -53,6 +55,7 @@ import {
   createStoredTrackingFile,
   deleteGeneratedOrderFile,
   loadGeneratedOrderFiles,
+  subscribeGeneratedOrderFiles,
   saveGeneratedOrderFile,
 } from '../lib/order-generated-file-store';
 import {
@@ -200,16 +203,43 @@ export function OrderCollectionWorkspace() {
   );
   // 셀피아 실측 대조 결과. 버튼을 눌렀을 때만 조회하며, 있으면 몰 카드 "신규"가 이 값을 쓴다.
   const [sellpiaReconcile, setSellpiaReconcile] = useState<SellpiaReconcileResult | null>(null);
-  // 대조를 돌렸으면 "신규"(=아직 셀피아에 안 올라간 주문)를 로컬 전송기록 대신 실측으로 바꾼다.
+  // 몰 카드의 "당일"은 서버 기억(몰별 수집 결과)에서 읽는다 — 대시보드 버튼 · 자동 운전 고리 ·
+  // 다른 기기에서 돌린 수집도 같은 숫자로 보이게. "신규"(셀피아 미전송)는 서버가 몰 단위로
+  // 모르므로 이 브라우저 기록이 답하고, 셀피아 대조를 돌렸으면 그 실측이 이긴다.
+  const serverCollection = useServerMallCollectionStats();
   const mallStatsByKey = useMemo(() => {
-    if (!sellpiaReconcile) return orderCollectionSummary.mallStatsByKey;
     const merged = new Map(orderCollectionSummary.mallStatsByKey);
-    for (const [mallKey, missing] of sellpiaReconcile.missingCountByMallKey) {
-      const stat = merged.get(mallKey);
-      if (stat) merged.set(mallKey, { ...stat, newRows: missing });
+    for (const [mallKey, serverStat] of serverCollection.stats) {
+      const local = merged.get(mallKey);
+      merged.set(mallKey, {
+        key: mallKey,
+        name: local?.name
+          ?? mallAccounts.find((account) => account.key === mallKey)?.name
+          ?? mallKey,
+        files: local?.files ?? serverStat.runs,
+        orderRows: serverStat.orderRows,
+        // 신규 = 오늘 수집 − 오늘 셀피아 전송. 둘 다 서버 기억에서 오므로 다른 기기에서 보낸
+        // 것도 빠진다. 셀피아 실측 대조를 돌렸으면 아래에서 그 값이 이긴다.
+        newRows: serverStat.newRows,
+        // 로그인 필요 · 인증 필요 · 실패도 같은 기록에서 읽는다 — 쇼핑몰 홈 몰별 상태와 한 몸.
+        serverStatus: describeServerMallCollection(serverStat),
+        productRows: local?.productRows ?? 0,
+        latestAt: Math.max(local?.latestAt ?? 0, serverStat.latestAt),
+      });
+    }
+    if (sellpiaReconcile) {
+      for (const [mallKey, missing] of sellpiaReconcile.missingCountByMallKey) {
+        const stat = merged.get(mallKey);
+        if (stat) merged.set(mallKey, { ...stat, newRows: missing });
+      }
     }
     return merged;
-  }, [orderCollectionSummary.mallStatsByKey, sellpiaReconcile]);
+  }, [
+    mallAccounts,
+    orderCollectionSummary.mallStatsByKey,
+    sellpiaReconcile,
+    serverCollection.stats,
+  ]);
   const [reconciling, setReconciling] = useState(false);
   const handleReconcileWithSellpia = async (
     { silentWhenClean = false }: { silentWhenClean?: boolean } = {},
@@ -355,17 +385,32 @@ export function OrderCollectionWorkspace() {
     );
   }, [mallAccounts]);
 
+  // 수집 파일 목록은 이 화면만 담는 게 아니다 — 대시보드 부서 버튼, 자동 운전 고리, 다른 탭도
+  // 같은 저장소에 쌓는다. 저장소가 바뀌었다고 알릴 때와 창으로 돌아올 때 다시 읽어, 몰 카드의
+  // '당일 · 신규'가 다른 곳의 수집을 따라가게 한다.
   useEffect(() => {
     let active = true;
-    loadGeneratedOrderFiles()
-      .then((files) => {
-        if (active) setHistory(files);
-      })
-      .catch(() => {
-        if (active) setHistory([]);
-      });
+    const refresh = () => {
+      loadGeneratedOrderFiles()
+        .then((files) => {
+          if (active) setHistory(files);
+        })
+        .catch(() => {
+          if (active) setHistory([]);
+        });
+    };
+    refresh();
+    const unsubscribe = subscribeGeneratedOrderFiles(refresh);
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') refresh();
+    };
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', refreshWhenVisible);
     return () => {
       active = false;
+      unsubscribe();
+      window.removeEventListener('focus', refresh);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
     };
   }, []);
 

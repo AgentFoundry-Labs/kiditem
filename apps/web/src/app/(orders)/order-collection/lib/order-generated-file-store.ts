@@ -64,6 +64,48 @@ export function createStoredTrackingFile(
   };
 }
 
+/**
+ * 수집 파일이 바뀌었다는 알림.
+ *
+ * 수집은 주문수집 화면 말고도 여러 곳에서 돈다 — 대시보드 부서 버튼, 자동 운전 고리,
+ * 다른 탭. 파일은 이 브라우저의 IndexedDB 한 곳에 쌓이지만, 화면은 자기가 담은 것만 알아서
+ * 다른 곳이 수집하면 숫자가 멈춘 것처럼 보였다. 저장이 끝나면 여기서 알리고, 화면은 그때
+ * 목록을 다시 읽는다.
+ */
+export const ORDER_GENERATED_FILES_EVENT = 'kiditem:order-generated-files';
+const ORDER_GENERATED_FILES_CHANNEL = 'kiditem-order-generated-files';
+
+let changeChannel: BroadcastChannel | null = null;
+
+function orderFilesChannel(): BroadcastChannel | null {
+  if (typeof window === 'undefined' || typeof BroadcastChannel === 'undefined') return null;
+  if (!changeChannel) changeChannel = new BroadcastChannel(ORDER_GENERATED_FILES_CHANNEL);
+  return changeChannel;
+}
+
+/** 저장 · 삭제가 끝난 뒤 같은 탭과 다른 탭에 알린다. */
+export function publishGeneratedOrderFilesChanged(): void {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent(ORDER_GENERATED_FILES_EVENT));
+  try {
+    orderFilesChannel()?.postMessage('changed');
+  } catch {
+    // 탭 간 알림은 되면 좋은 것이다. 안 되면 같은 탭 알림과 창 포커스로 따라간다.
+  }
+}
+
+export function subscribeGeneratedOrderFiles(listener: () => void): () => void {
+  if (typeof window === 'undefined') return () => undefined;
+  const handle = () => listener();
+  window.addEventListener(ORDER_GENERATED_FILES_EVENT, handle);
+  const channel = orderFilesChannel();
+  channel?.addEventListener('message', handle);
+  return () => {
+    window.removeEventListener(ORDER_GENERATED_FILES_EVENT, handle);
+    channel?.removeEventListener('message', handle);
+  };
+}
+
 export async function loadGeneratedOrderFiles(): Promise<StoredOrderCollectionFile[]> {
   if (!canUseIndexedDb()) return [];
   const db = await openDb();
@@ -84,6 +126,7 @@ export async function saveGeneratedOrderFile(file: StoredOrderCollectionFile): P
     .slice(MAX_FILES);
   await Promise.all(staleFiles.map((item) => deleteFile(db, item.id)));
   db.close();
+  publishGeneratedOrderFilesChanged();
 }
 
 export async function markGeneratedOrderFileTransmissionRequested(
@@ -121,6 +164,7 @@ export async function deleteGeneratedOrderFile(id: string): Promise<void> {
   const db = await openDb();
   await deleteFile(db, id);
   db.close();
+  publishGeneratedOrderFilesChanged();
 }
 
 function canUseIndexedDb(): boolean {

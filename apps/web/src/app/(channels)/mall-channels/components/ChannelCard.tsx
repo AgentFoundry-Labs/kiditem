@@ -1,86 +1,83 @@
 'use client';
 
-import { Boxes, PackageCheck, Send, ShoppingCart } from 'lucide-react';
+import { Boxes, PackageCheck, ShoppingCart } from 'lucide-react';
 import type { MallChannelSummary } from '@kiditem/shared/mall-publishing';
 import { cn, formatNumber } from '@/lib/utils';
+import { mallAccentClass, mallLogoPath, mallMonogram } from '../../_shared/mall-presentation';
 import {
-  MALL_READINESS_LABEL,
-  MALL_READINESS_TONE,
-  mallAccentClass,
-  mallLogoPath,
-  mallMonogram,
-} from '../../_shared/mall-presentation';
+  CAPABILITY_KEYS,
+  type CapabilityKey,
+  type MallCapabilities,
+} from '../../_shared/mall-capabilities';
+import { CapabilityPill } from './CapabilityPill';
 
 /**
- * 몰 카드 한 장.
+ * 연결된 몰 카드 한 장 — 세로로 세운 카드.
  *
- * 숫자는 우리 DB 에서 센 것이다. 몰에 물어본 값이 아니다. 리스팅을 한 번도
- * 가져오지 않은 몰에 0 을 세 개 찍으면 "이 몰엔 아무것도 없다"로 읽히는데,
- * 실제로는 "우리가 아직 안 가져왔다"이다. 그래서 그 경우 숫자를 감춘다.
+ * 로고 · 이름 · 되는 일 넷(주문수집 · 송장전송 · 상품등록 · 품절관리) · 숫자 셋(상품 · 리스팅
+ * · 주문). **모든 카드가 같은 틀이다** — 칸이 있다 없다 하면 카드 높이가 들쭉날쭉하고, 없는
+ * 칸이 '0' 인지 '안 적음' 인지 구별이 안 된다.
+ *
+ * 숫자는 우리 DB 에서 센 것이다. 몰에 물어본 값이 아니다. 리스팅을 한 번도 가져오지
+ * 않은 몰에 0 을 찍으면 "이 몰엔 아무것도 없다"로 읽히는데, 실제로는 "우리가 아직 안
+ * 가져왔다"이다. 그래서 그 칸은 0 대신 `—` 로 둔다.
  */
-export function ChannelCard({ channel }: { channel: MallChannelSummary }) {
+export function ChannelCard({
+  channel,
+  capabilities,
+  notes,
+}: {
+  channel: MallChannelSummary;
+  capabilities: MallCapabilities;
+  /** 줄마다 기본 설명 대신 붙는 사연(옥션 상품등록 · 완전품절=삭제 몰의 품절관리). */
+  notes?: Partial<Record<CapabilityKey, string | null>>;
+}) {
+  const logo = mallLogoPath(channel.mallKey);
   return (
-    <article className="rounded-xl border border-slate-200 bg-white p-4 transition hover:border-slate-300">
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex min-w-0 items-center gap-2.5">
-          {mallLogoPath(channel.mallKey) ? (
-            // eslint-disable-next-line @next/next/no-img-element -- public 정적 파일
-            <img
-              src={mallLogoPath(channel.mallKey) as string}
-              alt=""
-              className="h-9 w-9 flex-none rounded-lg border border-slate-200 bg-white object-contain p-1"
-            />
-          ) : (
-            <span
-              aria-hidden
-              className={cn(
-                'flex h-9 w-9 flex-none items-center justify-center rounded-lg text-xs font-bold',
-                mallAccentClass(channel.mallKey),
-              )}
-            >
-              {mallMonogram(channel.mallName)}
-            </span>
+    <article className="flex flex-col items-center rounded-xl border border-slate-200 bg-white px-2.5 pb-3 pt-4 transition hover:border-slate-300">
+      {logo ? (
+        // eslint-disable-next-line @next/next/no-img-element -- public 정적 파일
+        <img
+          src={logo}
+          alt=""
+          className="h-14 w-14 flex-none rounded-2xl border border-slate-200 bg-white object-contain p-1.5"
+        />
+      ) : (
+        <span
+          aria-hidden
+          className={cn(
+            'flex h-14 w-14 flex-none items-center justify-center rounded-2xl text-base font-bold',
+            mallAccentClass(channel.mallKey),
           )}
-          <div className="min-w-0">
-            <div className="truncate text-sm font-semibold text-slate-900">{channel.mallName}</div>
-            <div className="mt-0.5 flex items-center gap-1.5">
-              <span className={cn('h-1.5 w-1.5 flex-none rounded-full', MALL_READINESS_TONE[channel.readiness])} />
-              <span className="text-[11px] text-slate-400">
-                {MALL_READINESS_LABEL[channel.readiness]}
-              </span>
-            </div>
-          </div>
-        </div>
-        {channel.canPublish ? (
-          <span
-            title="이 몰로 상품을 보낼 수 있습니다."
-            className="inline-flex flex-none items-center gap-1 rounded bg-primary-soft px-1.5 py-0.5 text-[10px] font-medium text-primary"
-          >
-            <Send size={9} />
-            등록
-          </span>
-        ) : null}
-      </div>
+        >
+          {mallMonogram(channel.mallName)}
+        </span>
+      )}
+      <h3 className="mt-2 w-full truncate text-center text-xs font-semibold text-slate-900">
+        {channel.mallName}
+      </h3>
 
-      {channel.imported ? (
-        <dl className="mt-3 grid grid-cols-3 gap-2 border-t border-slate-100 pt-3">
-          <Stat icon={Boxes} label="상품" value={channel.productCount} />
-          <Stat icon={PackageCheck} label="리스팅" value={channel.listingCount} />
-          <Stat icon={ShoppingCart} label="주문" value={channel.orderCount} />
-        </dl>
-      ) : channel.orderCount > 0 ? (
-        // 리스팅은 안 가져왔지만 주문은 있는 몰. 그 사실만 짧게 남긴다.
-        // 같은 안내 문장을 스물일곱 장에 반복하면 아무도 읽지 않는다.
-        <div className="mt-3 border-t border-slate-100 pt-3">
-          <p className="text-[11px] text-slate-500">
-            주문 {formatNumber(channel.orderCount)}건
-          </p>
-        </div>
-      ) : null}
+      {/* 이 몰로 무엇이 되는가. 줄이 늘 같은 순서·같은 자리에 선다. */}
+      <ul className="mt-2.5 w-full space-y-1">
+        {CAPABILITY_KEYS.map((key) => (
+          <CapabilityPill key={key} kind={key} state={capabilities[key]} note={notes?.[key]} />
+        ))}
+      </ul>
+
+      <dl className="mt-2.5 grid w-full grid-cols-3 gap-1 border-t border-slate-100 pt-2 text-center">
+        <Stat icon={Boxes} label="상품" value={channel.imported ? channel.productCount : null} />
+        <Stat icon={PackageCheck} label="리스팅" value={channel.imported ? channel.listingCount : null} />
+        <Stat
+          icon={ShoppingCart}
+          label="주문"
+          value={channel.imported || channel.orderCount > 0 ? channel.orderCount : null}
+        />
+      </dl>
     </article>
   );
 }
 
+/** 숫자 한 칸. 모르는 값(`null`)은 0 이 아니라 `—` 다. */
 function Stat({
   icon: Icon,
   label,
@@ -88,17 +85,23 @@ function Stat({
 }: {
   icon: typeof Boxes;
   label: string;
-  value: number;
+  value: number | null;
 }) {
   return (
-    <div>
-      <dt className="flex items-center gap-1 text-[10px] text-slate-400">
+    <div className="min-w-0">
+      <dt className="flex items-center justify-center gap-0.5 text-[10px] text-slate-400">
         <Icon size={9} />
         {label}
       </dt>
-      <dd className="mt-0.5 text-sm font-semibold tabular-nums text-slate-900">
-        {formatNumber(value)}
-      </dd>
+      {value === null ? (
+        <dd title="아직 가져온 적이 없습니다" className="mt-0.5 text-xs font-semibold text-slate-300">
+          —
+        </dd>
+      ) : (
+        <dd className="mt-0.5 truncate text-xs font-semibold tabular-nums text-slate-900">
+          {formatNumber(value)}
+        </dd>
+      )}
     </div>
   );
 }

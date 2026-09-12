@@ -135,6 +135,11 @@
       "import": "./dist/mall-publishing.js",
       "require": "./dist/mall-publishing.cjs"
     },
+    "./mall-operation-outcomes": {
+      "types": "./dist/mall-operation-outcomes.d.ts",
+      "import": "./dist/mall-operation-outcomes.js",
+      "require": "./dist/mall-operation-outcomes.cjs"
+    },
     "./inventory-availability": {
       "types": "./dist/inventory-availability.d.ts",
       "import": "./dist/inventory-availability.js",
@@ -359,6 +364,9 @@
       ],
       "mall-publishing": [
         "dist/mall-publishing.d.ts"
+      ],
+      "mall-operation-outcomes": [
+        "dist/mall-operation-outcomes.d.ts"
       ],
       "inventory-availability": [
         "dist/inventory-availability.d.ts"

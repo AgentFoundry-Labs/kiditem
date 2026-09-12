@@ -23,6 +23,7 @@ import {
   getMallAdapterManifest,
   resolveSoldOutCommand,
   type MallAdapterManifest,
+  mallInboundSupports,
 } from '../../domain/mall/mall-adapter-manifest';
 import {
   evaluateMallPreflight,
@@ -681,6 +682,8 @@ export class MallPublishingService {
         canPublish: manifest.applicable && manifest.supports.createListing,
         hasCredentials,
         imported: listingCount > 0,
+        // 몰 → 우리 방향. 상품등록과 반대라 매니페스트가 따로 들고 있다.
+        ...mallInboundSupports(manifest.key),
         listingCount,
         orderCount,
         productCount: account?.productCount ?? 0,

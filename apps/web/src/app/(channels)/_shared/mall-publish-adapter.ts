@@ -113,6 +113,14 @@ export interface MallPublishAdapter {
    */
   mallKey: string;
   mallName: string;
+  /**
+   * 이 어댑터의 등록 한 번에 **함께 올라가는** 다른 몰 키.
+   *
+   * ESM Plus 는 G마켓 등록 한 번이 옥션까지 올라간다(실측 2026-09-11: 빈 폼의 판매사이트에
+   * 둘 다 켜진 채로 열린다). 그런 몰에는 어댑터를 따로 두지 않는다 — 두면 같은 폼을 두 번
+   * 열어 같은 상품을 두 번 올린다. 화면은 이 값으로 그 몰도 '상품등록 됨' 으로 본다.
+   */
+  alsoPublishesTo?: readonly string[];
   mode: MallPublishMode;
   /**
    * 한 작업이 담을 수 있는 상품 수.

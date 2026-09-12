@@ -287,6 +287,10 @@ export const MallChannelSummarySchema = z.object({
   hasCredentials: z.boolean(),
   /** 리스팅을 가져온 적이 있는가. */
   imported: z.boolean(),
+  /** 이 몰에서 주문을 수집할 수 있는가(서버에 변환 경로가 있는가). */
+  collectsOrders: z.boolean(),
+  /** 이 몰에 송장(발송처리)을 올릴 수 있는가(확장에 액션이 있는가). */
+  uploadsTracking: z.boolean(),
   listingCount: z.number(),
   orderCount: z.number(),
   /** 이 몰에 올라간 서로 다른 상품 수. */
