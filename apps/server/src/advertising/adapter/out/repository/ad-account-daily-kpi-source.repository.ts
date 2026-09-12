@@ -662,7 +662,6 @@ export class AdAccountDailyKpiSourceRepository
         if (!account) {
           return AdAccountDailyKpiPublishedSchema.parse({
             channelAccountId: null,
-            evidence: 'NOT_APPLIED',
             rows: [],
           });
         }
@@ -712,13 +711,6 @@ export class AdAccountDailyKpiSourceRepository
           });
         return AdAccountDailyKpiPublishedSchema.parse({
           channelAccountId: account.id,
-          // An account that published only explicit zeroes has proved no
-          // spend; an account that published nothing has proved nothing.
-          evidence: publishedRows.length === 0
-            ? 'MISSING'
-            : publishedRows.every((row) => row.normalized.adSpend === 0)
-              ? 'CONFIRMED_ZERO'
-              : 'OBSERVED',
           rows: publishedRows,
         });
       },

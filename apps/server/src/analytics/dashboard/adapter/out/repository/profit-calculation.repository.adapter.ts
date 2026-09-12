@@ -14,11 +14,10 @@
 // ChannelListingDailySnapshot is deliberately not an account-ad source: its
 // listing/traffic rows cannot prove complete account coverage.
 //
-// The owner answers with an evidence word, not just a row set, and this
-// adapter consumes that word instead of inferring intent from an empty array:
-// `NOT_APPLIED` (no advertising account) means advertising is not a required
-// input, so ad cost is a genuine 0 and profit is still publishable, while
-// `MISSING` stays absent evidence that withholds profit. A failed read is
+// The owner answers with whether an advertising account exists and the rows
+// it published. No account means advertising is not a required input, so ad
+// cost is a genuine 0 and profit is still publishable; an account that
+// published nothing is absent evidence that withholds profit. A failed read is
 // distinct from both and keeps `adEvidenceError`.
 
 import { Inject, Injectable, Logger } from '@nestjs/common';
@@ -33,7 +32,6 @@ import {
 } from '../../../../../advertising/application/port/in/ad-account-daily-kpi-source.port';
 import type {
   AdAccountDailyKpiPublished,
-  AdAccountDailyKpiPublishedEvidence,
   AdAccountDailyKpiPublishedRow,
 } from '@kiditem/shared/advertising';
 import type {
@@ -133,18 +131,18 @@ export class ProfitCalculationRepositoryAdapter
 
     const published = await this.readPublishedAds(organizationId, requestedDates);
     const adRows = published.rows;
-    const adEvidence = published.evidence;
+    const hasAdAccount = published.hasAdAccount;
     const adEvidenceError = published.error;
     const adTotals = sumAdRows(adRows);
     const costComplete = costIncompleteReasons.size === 0;
     const sourceCoverage: ProfitSourceCoverage = {
       requestedDates,
       orderDates: coveredDates(requestedDates, orderedDates),
-      // A failed ad read leaves `adRows` empty, and so does `NOT_APPLIED`.
-      // `adEvidence` is what keeps those apart from an account that published
+      // A failed ad read leaves `adRows` empty, and so does having no account.
+      // `hasAdAccount` is what keeps those apart from an account that published
       // nothing; no date is ever synthesized to close the equality below.
       adDates: coveredDates(requestedDates, adRows.map((row) => row.businessDate)),
-      adEvidence,
+      hasAdAccount,
     };
     const adEvidenceComplete = isAdEvidenceComplete(sourceCoverage);
     const netProfit = costComplete && adEvidenceComplete
@@ -224,7 +222,7 @@ export class ProfitCalculationRepositoryAdapter
       });
     const published = await this.readPublishedAds(organizationId, requestedDates);
     const adRows = published.rows;
-    const adEvidence = published.evidence;
+    const hasAdAccount = published.hasAdAccount;
     const adEvidenceError = published.error;
 
     const requested = new Set(requestedDates);
@@ -232,7 +230,7 @@ export class ProfitCalculationRepositoryAdapter
     for (const order of orders) {
       const date = businessDateText(order.orderedAt);
       if (!requested.has(date)) continue;
-      const metrics = byDate.get(date) ?? createDailyProfitMetrics(date, adEvidence);
+      const metrics = byDate.get(date) ?? createDailyProfitMetrics(date, hasAdAccount);
       metrics.hasOrderEvidence = true;
       metrics.orderCount += 1;
       if (order.shippingPrice > 0) {
@@ -258,13 +256,13 @@ export class ProfitCalculationRepositoryAdapter
       // order/ad-empty; the dashboard uses the error marker only to publish
       // unverified basis metadata, never as a zero-valued metric.
       for (const date of requestedDates) {
-        const metrics = byDate.get(date) ?? createDailyProfitMetrics(date, adEvidence);
+        const metrics = byDate.get(date) ?? createDailyProfitMetrics(date, hasAdAccount);
         metrics.adEvidenceError = adEvidenceError;
         byDate.set(date, metrics);
       }
     }
 
-    if (adEvidence === 'NOT_APPLIED') {
+    if (!hasAdAccount) {
       // No advertising account exists, so no ad fact can ever be published for
       // these days. That is a genuine zero rather than an unknown: the additive
       // ad metrics settle at 0 while `hasAdEvidence` stays false, because there
@@ -281,7 +279,7 @@ export class ProfitCalculationRepositoryAdapter
     for (const adRow of adRows) {
       const date = adRow.businessDate;
       if (!requested.has(date)) continue;
-      const metrics = byDate.get(date) ?? createDailyProfitMetrics(date, adEvidence);
+      const metrics = byDate.get(date) ?? createDailyProfitMetrics(date, hasAdAccount);
       metrics.adEvidenceError = adEvidenceError;
       metrics.hasAdEvidence = true;
       metrics.adCost = (metrics.adCost ?? 0) + adRow.normalized.adSpend;
@@ -300,10 +298,9 @@ export class ProfitCalculationRepositoryAdapter
           + metrics.shippingCost
           + metrics.otherCost;
         const costComplete = metrics.costIncompleteReasons.size === 0;
-        // `NOT_APPLIED` satisfies the ad input without an ad row; every other
-        // word still needs same-date evidence, so `MISSING` keeps withholding.
-        const adSatisfied = metrics.adEvidence === 'NOT_APPLIED'
-          || metrics.hasAdEvidence;
+        // No advertising account satisfies the ad input without an ad row; an
+        // account still needs same-date evidence, so an unpublished day withholds.
+        const adSatisfied = !metrics.hasAdAccount || metrics.hasAdEvidence;
         const complete = metrics.hasOrderEvidence
           && adSatisfied
           && costComplete
@@ -338,24 +335,25 @@ export class ProfitCalculationRepositoryAdapter
   }
 
   /**
-   * Read the owner publication for the window, keeping its evidence word.
-   * An organization with no advertising account is answered by the owner as
-   * `NOT_APPLIED`; it is no longer a `COUPANG_ACCOUNT_NOT_FOUND` failure to
-   * swallow, and swallowing it here is what made "does not advertise",
-   * "never collected", and "collected zeros" one indistinguishable state.
+   * Read the owner publication for the window, keeping whether an account
+   * exists. An organization with no advertising account is answered by the
+   * owner with a null account and no rows; it is no longer a
+   * `COUPANG_ACCOUNT_NOT_FOUND` failure to swallow, and swallowing it here is
+   * what made "does not advertise", "never collected", and "collected zeros"
+   * one indistinguishable state.
    */
   private async readPublishedAds(
     organizationId: string,
     requestedDates: readonly string[],
   ): Promise<{
     rows: AdAccountDailyKpiPublishedRow[];
-    evidence: AdAccountDailyKpiPublishedEvidence;
+    hasAdAccount: boolean;
     error?: ProfitEvidenceError;
   }> {
     if (requestedDates.length === 0) {
       // A degenerate window asks the owner nothing, so it proves nothing:
       // absent evidence, exactly like an account that published nothing.
-      return { rows: [], evidence: 'MISSING' };
+      return { rows: [], hasAdAccount: true };
     }
     const range = publishedDateRange(requestedDates);
     let published: AdAccountDailyKpiPublished;
@@ -371,22 +369,21 @@ export class ProfitCalculationRepositoryAdapter
         organizationId,
         error: error instanceof Error ? error.message : 'unknown error',
       });
-      return { rows: [], evidence: 'MISSING', error: 'AD_EVIDENCE_READ_FAILED' };
+      return { rows: [], hasAdAccount: true, error: 'AD_EVIDENCE_READ_FAILED' };
     }
-    return { rows: published.rows, evidence: published.evidence };
+    return { rows: published.rows, hasAdAccount: published.channelAccountId !== null };
   }
 }
 
 /**
  * Advertising is a satisfied input when the owner published a row for every
- * requested business day, or when advertising does not apply to the
- * organization at all. `MISSING` — an account that published nothing, or a
- * window the owner was never asked about — is not satisfied: it is not an
- * advertising cost of zero.
+ * requested business day, or when the organization has no advertising account
+ * at all. An account that published nothing, or a window the owner was never
+ * asked about, is not satisfied: it is not an advertising cost of zero.
  */
 function isAdEvidenceComplete(coverage: ProfitSourceCoverage): boolean {
   if (coverage.requestedDates.length === 0) return false;
-  if (coverage.adEvidence === 'NOT_APPLIED') return true;
+  if (!coverage.hasAdAccount) return true;
   return coverage.adDates.length === coverage.requestedDates.length;
 }
 
@@ -407,17 +404,17 @@ interface MutableDailyProfitMetrics {
   hasOrderEvidence: boolean;
   hasAdEvidence: boolean;
   costIncompleteReasons: Set<ProfitCostIncompleteReason>;
-  adEvidence: AdAccountDailyKpiPublishedEvidence;
+  hasAdAccount: boolean;
   adEvidenceError?: ProfitEvidenceError;
 }
 
 function createDailyProfitMetrics(
   date: string,
-  adEvidence: AdAccountDailyKpiPublishedEvidence,
+  hasAdAccount: boolean,
 ): MutableDailyProfitMetrics {
   return {
     date,
-    adEvidence,
+    hasAdAccount,
     revenue: 0,
     qty: 0,
     costOfGoods: 0,
@@ -589,7 +586,7 @@ function emptyRangeProfitMetrics(): RangeProfitMetrics {
       requestedDates: [],
       orderDates: [],
       adDates: [],
-      adEvidence: 'MISSING',
+      hasAdAccount: true,
     },
   };
 }

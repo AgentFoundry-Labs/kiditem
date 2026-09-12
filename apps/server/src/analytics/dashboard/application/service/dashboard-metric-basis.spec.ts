@@ -7,7 +7,6 @@ import {
   buildMockWingAdSummaryRepo,
   buildMockWingTrafficAggregationRepo,
 } from '../../__tests__/test-helpers/build-mock-ports';
-import type { AdAccountDailyKpiPublishedEvidence } from '@kiditem/shared/advertising';
 import type { RangeProfitMetrics } from '../port/out/repository/profit-calculation.repository.port';
 import type {
   CoupangAdsMetrics,
@@ -48,7 +47,7 @@ interface ProfitFixture {
   costComplete?: boolean;
   orderDates?: readonly string[];
   adDates?: readonly string[];
-  adEvidence?: AdAccountDailyKpiPublishedEvidence;
+  hasAdAccount?: boolean;
   adEvidenceError?: boolean;
 }
 
@@ -64,8 +63,8 @@ function profitMetrics(
   const requestedDates = period.selectedDates;
   const orderDates = [...(fixture.orderDates ?? requestedDates)]
     .filter((date) => requestedDates.includes(date));
-  const adEvidence = fixture.adEvidence ?? 'OBSERVED';
-  const adDates = adEvidence === 'NOT_APPLIED'
+  const hasAdAccount = fixture.hasAdAccount ?? true;
+  const adDates = !hasAdAccount
     ? []
     : [...(fixture.adDates ?? requestedDates)].filter((date) => requestedDates.includes(date));
   return {
@@ -84,9 +83,9 @@ function profitMetrics(
     adConversions: 0,
     costComplete: fixture.costComplete ?? true,
     costIncompleteReasons: [],
-    adEvidenceComplete: adEvidence === 'NOT_APPLIED' || adDates.length === requestedDates.length,
+    adEvidenceComplete: !hasAdAccount || adDates.length === requestedDates.length,
     ...(fixture.adEvidenceError ? { adEvidenceError: 'AD_EVIDENCE_READ_FAILED' as const } : {}),
-    sourceCoverage: { requestedDates, orderDates, adDates, adEvidence },
+    sourceCoverage: { requestedDates, orderDates, adDates, hasAdAccount },
   };
 }
 
@@ -216,7 +215,7 @@ describe('dashboard sales metricBasis', () => {
 
   it('names orders alone when the organization has no advertising account', async () => {
     const { sales } = salesService({
-      profitFor: selectedOnly({ adEvidence: 'NOT_APPLIED' }),
+      profitFor: selectedOnly({ hasAdAccount: false }),
     });
 
     const result = await sales.getSummary(customContext(), ORGANIZATION_ID);
@@ -268,13 +267,12 @@ describe('dashboard sales metricBasis', () => {
     const { sales } = salesService({
       profitFor: selectedOnly({
         adDates: [],
-        adEvidence: 'MISSING',
         adEvidenceError: true,
         netProfit: null,
       }),
     });
     const empty = salesService({
-      profitFor: selectedOnly({ adDates: [], adEvidence: 'MISSING', netProfit: null }),
+      profitFor: selectedOnly({ adDates: [], netProfit: null }),
     });
 
     const failed = await sales.getSummary(customContext(), ORGANIZATION_ID);

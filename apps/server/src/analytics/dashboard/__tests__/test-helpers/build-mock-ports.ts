@@ -43,7 +43,7 @@ export function buildProfitSourceCoverage(
     requestedDates,
     orderDates: options.orders === false ? [] : [...requestedDates],
     adDates: [...requestedDates],
-    adEvidence: 'OBSERVED',
+    hasAdAccount: true,
   };
 }
 

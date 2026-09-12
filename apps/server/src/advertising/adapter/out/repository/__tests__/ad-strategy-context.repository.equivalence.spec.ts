@@ -51,7 +51,6 @@ describe('AdStrategyContextRepositoryAdapter — loadStrategyContext equivalence
   const buildAdAccountKpiMock = () => ({
     readPublished: vi.fn().mockResolvedValue({
       channelAccountId: null,
-      evidence: 'NOT_APPLIED',
       rows: [],
     }),
   });

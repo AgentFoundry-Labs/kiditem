@@ -299,7 +299,7 @@ describe('ProfitCalculationRepositoryAdapter.calculateForRange — business-date
       adDates: [],
       // The owner is never asked for a window with no dates, so nothing was
       // published for it: absent evidence, never a claim of zero ad cost.
-      adEvidence: 'MISSING',
+      hasAdAccount: true,
     });
     expect(result.adEvidenceComplete).toBe(false);
   });
@@ -314,7 +314,7 @@ describe('ProfitCalculationRepositoryAdapter.calculateForRange — business-date
       requestedDates: ['2026-05-01'],
       orderDates: ['2026-05-01'],
       adDates: ['2026-05-01'],
-      adEvidence: 'CONFIRMED_ZERO',
+      hasAdAccount: true,
     });
     expect(result.adEvidenceComplete).toBe(true);
   });
@@ -377,7 +377,7 @@ describe('ProfitCalculationRepositoryAdapter.calculateDailyForRange', () => {
       adCost: 0,
       adRevenue: 0,
       hasAdEvidence: false,
-      adEvidence: 'NOT_APPLIED',
+      hasAdAccount: false,
       netProfit: 50,
     });
   });
@@ -392,7 +392,7 @@ describe('ProfitCalculationRepositoryAdapter.calculateDailyForRange', () => {
       revenue: 100,
       adCost: null,
       hasAdEvidence: false,
-      adEvidence: 'MISSING',
+      hasAdAccount: true,
       netProfit: null,
     });
   });

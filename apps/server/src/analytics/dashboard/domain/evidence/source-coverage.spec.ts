@@ -17,23 +17,20 @@ function coverage(overrides: Partial<ProfitCoverageEvidence> = {}): ProfitCovera
     requestedDates: REQUESTED,
     orderDates: REQUESTED,
     adDates: REQUESTED,
-    adEvidence: 'OBSERVED',
+    hasAdAccount: true,
     ...overrides,
   };
 }
 
 describe('profit source coverage', () => {
-  // `adDates.length` cannot tell these two apart; `adEvidence` can.
+  // `adDates.length` cannot tell an account that published nothing from an
+  // organization with no account; `hasAdAccount` can.
   it.each([
-    ['OBSERVED', true, REQUESTED],
-    ['CONFIRMED_ZERO', true, REQUESTED],
-    ['MISSING', true, []],
-    ['NOT_APPLIED', false, REQUESTED],
-  ])('reads %s as applies=%s', (adEvidence, applies, dates) => {
-    const value = coverage({
-      adEvidence,
-      adDates: adEvidence === 'OBSERVED' || adEvidence === 'CONFIRMED_ZERO' ? REQUESTED : [],
-    });
+    ['an account that published every date', true, REQUESTED, true, REQUESTED],
+    ['an account that published nothing', true, [], true, []],
+    ['no advertising account', false, [], false, REQUESTED],
+  ])('reads %s', (_name, hasAdAccount, adDates, applies, dates) => {
+    const value = coverage({ hasAdAccount, adDates });
     expect(adEvidenceApplies(value)).toBe(applies);
     expect(adEvidenceDates(value)).toEqual(dates);
   });

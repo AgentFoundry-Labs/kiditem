@@ -192,36 +192,17 @@ export const AdAccountDailyKpiSourceStatusSchema = z
   .strict();
 
 /**
- * How the published account-daily row set should be read as advertising
- * evidence. It reuses the words ABC already consumes so a consumer never has
- * to infer intent from an empty array.
- *
- * - `OBSERVED` — an advertising account exists and at least one published row
- *   carries non-zero ad spend.
- * - `CONFIRMED_ZERO` — an advertising account exists and every published row
- *   is an explicit zero. The collector emits a complete all-zero row for a day
- *   whose ad report is empty, so this is proof of no spend.
- * - `MISSING` — an advertising account exists but published no complete row in
- *   the requested range. This is absent evidence, never an ad cost of zero.
- * - `NOT_APPLIED` — the organization has no active advertising account, so no
- *   collection can exist and advertising does not apply to the period.
- *
- * The word describes the returned rows only. It does not claim the rows cover
- * every date the caller asked for; range coverage and collection freshness
- * stay with `AdAccountDailyKpiSourceStatusSchema`.
+ * The published account-daily rows for a window. `channelAccountId` is `null`
+ * exactly when the organization has no active advertising account: then no
+ * collection can exist and advertising does not apply to the period. With an
+ * account, the rows are the whole answer — a day with an explicit all-zero row
+ * is a measured zero, a day with no row was never published. The rows say
+ * nothing about range coverage; that stays with
+ * `AdAccountDailyKpiSourceStatusSchema`.
  */
-export const AdAccountDailyKpiPublishedEvidenceSchema = z.enum([
-  'OBSERVED',
-  'CONFIRMED_ZERO',
-  'MISSING',
-  'NOT_APPLIED',
-]);
-
 export const AdAccountDailyKpiPublishedSchema = z
   .object({
-    /** `null` only when `evidence` is `NOT_APPLIED`. */
     channelAccountId: z.string().uuid().nullable(),
-    evidence: AdAccountDailyKpiPublishedEvidenceSchema,
     rows: z.array(AdAccountDailyKpiPublishedRowSchema),
   })
   .strict();
@@ -240,6 +221,4 @@ export type AdAccountDailyKpiSourceComplete = z.infer<typeof AdAccountDailyKpiSo
 export type AdAccountDailyKpiSourceFail = z.infer<typeof AdAccountDailyKpiSourceFailSchema>;
 export type AdAccountDailyKpiPublishedRow = z.infer<typeof AdAccountDailyKpiPublishedRowSchema>;
 export type AdAccountDailyKpiSourceStatus = z.infer<typeof AdAccountDailyKpiSourceStatusSchema>;
-export type AdAccountDailyKpiPublishedEvidence =
-  z.infer<typeof AdAccountDailyKpiPublishedEvidenceSchema>;
 export type AdAccountDailyKpiPublished = z.infer<typeof AdAccountDailyKpiPublishedSchema>;

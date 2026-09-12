@@ -34,7 +34,6 @@ describe('SettlementsService — settlement create and update flow', () => {
     service = new SettlementsService(prisma as any, {
       readPublished: vi.fn().mockResolvedValue({
         channelAccountId: null,
-        evidence: 'NOT_APPLIED',
         rows: [],
       }),
     });

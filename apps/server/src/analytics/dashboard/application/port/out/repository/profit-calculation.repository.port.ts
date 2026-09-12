@@ -4,7 +4,6 @@
 // canonical). Caller scopes by organizationId; the adapter binds the same
 // predicate on every read (orders + owner-published account KPI rows).
 
-import type { AdAccountDailyKpiPublishedEvidence } from '@kiditem/shared/advertising';
 import type { ResolvedDashboardPeriod } from '../../../../domain/period/dashboard-period';
 
 export const PROFIT_CALCULATION_REPOSITORY_PORT = Symbol(
@@ -36,20 +35,20 @@ export interface ProfitSourceCoverage {
   orderDates: string[];
   /**
    * Business dates with a published account ad KPI row. Ad dates are never
-   * fabricated to satisfy a coverage equality: under `NOT_APPLIED` there is no
-   * account that could publish anything, so this stays empty and the period's
+   * fabricated to satisfy a coverage equality: with no advertising account
+   * there is nothing that could publish, so this stays empty and the period's
    * calculation basis names orders alone rather than claiming Coupang ads
    * covered the window.
    */
   adDates: string[];
   /**
-   * How to read `adDates`, in the Advertising owner's own vocabulary. An empty
-   * `adDates` is a gap under `MISSING` — including when the owner was never
-   * asked or the read failed, which `adEvidenceError` separates — and the
-   * complete answer under `NOT_APPLIED`; a consumer building a per-metric
-   * calculation basis reads this word rather than the array's length.
+   * Whether the organization has an advertising account. Without one an empty
+   * `adDates` is the complete answer; with one it is a gap — including when
+   * the owner was never asked or the read failed, which `adEvidenceError`
+   * separates. A consumer building a per-metric calculation basis reads this
+   * rather than the array's length.
    */
-  adEvidence: AdAccountDailyKpiPublishedEvidence;
+  hasAdAccount: boolean;
 }
 
 export interface RangeProfitMetrics {
@@ -71,9 +70,9 @@ export interface RangeProfitMetrics {
   costIncompleteReasons: ProfitCostIncompleteReason[];
   /**
    * True when advertising is a satisfied input for the window: either the
-   * owner published a row for every requested business day, or advertising
-   * does not apply to this organization (`NOT_APPLIED`). `MISSING` and a
-   * failed read are never satisfied.
+   * owner published a row for every requested business day, or the
+   * organization has no advertising account. An account that published
+   * nothing, and a failed read, are never satisfied.
    */
   adEvidenceComplete: boolean;
   /** Present when the owner ad publication could not be read. */
@@ -111,11 +110,11 @@ export interface DailyProfitMetrics {
   costComplete: boolean;
   costIncompleteReasons: ProfitCostIncompleteReason[];
   /**
-   * How the owner answered for the window this row belongs to. Under
-   * `NOT_APPLIED` the ad values are a genuine zero with `hasAdEvidence` still
-   * false: there is no ad fact, because there is no advertising account.
+   * Whether the organization has an advertising account. Without one the ad
+   * values are a genuine zero with `hasAdEvidence` still false: there is no ad
+   * fact, because there is no advertising account.
    */
-  adEvidence: AdAccountDailyKpiPublishedEvidence;
+  hasAdAccount: boolean;
   /** Present when the owner ad publication could not be read. */
   adEvidenceError?: ProfitEvidenceError;
 }

@@ -85,12 +85,12 @@ function confirmedZeroPublication(input: {
 
 /** An organization with no advertising account: nothing can ever be collected. */
 function notAppliedPublication(): AdAccountDailyKpiPublished {
-  return { channelAccountId: null, evidence: 'NOT_APPLIED', rows: [] };
+  return { channelAccountId: null, rows: [] };
 }
 
 /** An advertising account that has published nothing for the range. */
 function missingPublication(): AdAccountDailyKpiPublished {
-  return { channelAccountId: AD_ACCOUNT_ID, evidence: 'MISSING', rows: [] };
+  return { channelAccountId: AD_ACCOUNT_ID, rows: [] };
 }
 
 describe('DashboardSalesService.getSummary (PG integration)', () => {
@@ -750,7 +750,6 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
     function notApplied(): AdAccountDailyKpiReadPort['readPublished'] {
       return async () => ({
         channelAccountId: null,
-        evidence: 'NOT_APPLIED',
         rows: [],
       });
     }
@@ -890,7 +889,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
       // The window is still named honestly: no ad date is fabricated to close
       // the coverage equality, so a later basis reads orders alone.
       expect(result.sourceCoverage.adDates).toEqual([]);
-      expect(result.sourceCoverage.adEvidence).toBe('NOT_APPLIED');
+      expect(result.sourceCoverage.hasAdAccount).toBe(false);
       expect(result.sourceCoverage.orderDates).toEqual(REQUESTED);
     });
 
@@ -905,7 +904,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
       // Absent evidence is not an advertising cost of zero, so the same order
       // rows that computed a profit above must not produce one here.
       expect(result.revenue).toBe(DAILY_REVENUE * REQUESTED.length);
-      expect(result.sourceCoverage.adEvidence).toBe('MISSING');
+      expect(result.sourceCoverage.hasAdAccount).toBe(true);
       expect(result.adEvidenceComplete).toBe(false);
       expect(result.adEvidenceError).toBeUndefined();
       expect(result.netProfit).toBeNull();
@@ -921,7 +920,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
       // 03-03 was never published. A partially covered range cannot be read as
       // a whole-period ad cost, so profit stays withheld.
       expect(result.sourceCoverage.adDates).toEqual(['2026-03-01', '2026-03-02']);
-      expect(result.sourceCoverage.adEvidence).toBe('CONFIRMED_ZERO');
+      expect(result.sourceCoverage.hasAdAccount).toBe(true);
       expect(result.adEvidenceComplete).toBe(false);
       expect(result.netProfit).toBeNull();
     });
@@ -936,7 +935,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
 
       // A collector-observed zero on every day is real evidence: it behaves
       // like OBSERVED with zero values, not like an absent source.
-      expect(result.sourceCoverage.adEvidence).toBe('CONFIRMED_ZERO');
+      expect(result.sourceCoverage.hasAdAccount).toBe(true);
       expect(result.adEvidenceComplete).toBe(true);
       expect(result.netProfit).toBe(DAILY_PROFIT * REQUESTED.length);
     });

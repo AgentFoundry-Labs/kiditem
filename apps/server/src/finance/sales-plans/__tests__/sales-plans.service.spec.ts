@@ -17,7 +17,6 @@ const mockedBuildPerListingMetrics = vi.mocked(buildPerListingMetrics);
 const notAppliedAdRead = {
   readPublished: vi.fn().mockResolvedValue({
     channelAccountId: null,
-    evidence: 'NOT_APPLIED',
     rows: [],
   }),
 };
@@ -186,7 +185,7 @@ describe('SalesPlansService', () => {
         'organization-1',
         window.gte,
         window.lt,
-        { evidence: 'NOT_APPLIED', coversWindow: false },
+        { hasAdAccount: false, publishedDates: 0, accountSpend: 0, coversWindow: false },
       );
     });
 
@@ -289,7 +288,7 @@ describe('SalesPlansService', () => {
         'organization-1',
         window.gte,
         window.lt,
-        { evidence: 'NOT_APPLIED', coversWindow: false },
+        { hasAdAccount: false, publishedDates: 0, accountSpend: 0, coversWindow: false },
       );
     });
   });

@@ -24,15 +24,14 @@ import {
 import type { DashboardSourceName } from './dashboard-source';
 
 /**
- * Structural mirror of `ProfitSourceCoverage`. `adEvidence` is the
- * Advertising owner's word for the window, and it — not `adDates.length` — is
- * what says whether advertising is an input at all.
+ * Structural mirror of `ProfitSourceCoverage`. `hasAdAccount` — not
+ * `adDates.length` — is what says whether advertising is an input at all.
  */
 export interface ProfitCoverageEvidence {
   requestedDates: readonly string[];
   orderDates: readonly string[];
   adDates: readonly string[];
-  adEvidence: string;
+  hasAdAccount: boolean;
 }
 
 /** Structural mirror of `TrafficCoverage` / `AdCoverage`. */
@@ -43,19 +42,18 @@ export interface WindowCoverageEvidence {
 }
 
 /**
- * True when advertising is an input to this window at all. Under
- * `NOT_APPLIED` the organization has no advertising account, so an empty
- * `adDates` is the complete answer and the basis names orders alone rather
- * than claiming Coupang ads covered the window.
+ * True when advertising is an input to this window at all. With no
+ * advertising account an empty `adDates` is the complete answer and the basis
+ * names orders alone rather than claiming Coupang ads covered the window.
  */
 export function adEvidenceApplies(coverage: ProfitCoverageEvidence): boolean {
-  return coverage.adEvidence !== 'NOT_APPLIED';
+  return coverage.hasAdAccount;
 }
 
 /**
- * Advertising dates entering a window's calculation. Under `NOT_APPLIED` every
- * requested date is satisfied without an ad row; otherwise only the dates the
- * owner actually published count, and the rest are a real gap.
+ * Advertising dates entering a window's calculation. With no advertising
+ * account every requested date is satisfied without an ad row; otherwise only
+ * the dates the owner actually published count, and the rest are a real gap.
  */
 export function adEvidenceDates(coverage: ProfitCoverageEvidence): readonly string[] {
   return adEvidenceApplies(coverage) ? coverage.adDates : coverage.requestedDates;

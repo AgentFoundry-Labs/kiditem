@@ -16,7 +16,6 @@ const mockedBuildPerListingProfit = vi.mocked(buildPerListingProfit);
 const notAppliedAdRead = {
   readPublished: vi.fn().mockResolvedValue({
     channelAccountId: null,
-    evidence: 'NOT_APPLIED',
     rows: [],
   }),
 };
@@ -89,7 +88,7 @@ describe('StatisticsService', () => {
         'organization-1',
         new Date('2026-03-31T15:00:00.000Z'),
         new Date('2026-04-30T15:00:00.000Z'),
-        { evidence: 'NOT_APPLIED', coversWindow: false },
+        { hasAdAccount: false, publishedDates: 0, accountSpend: 0, coversWindow: false },
       );
       // The advertising owner is asked about the same window, in the inclusive
       // business dates its published range uses.
@@ -133,7 +132,7 @@ describe('StatisticsService', () => {
         'organization-1',
         new Date(0),
         new Date('2026-04-30T15:00:00.000Z'),
-        { evidence: 'NOT_APPLIED', coversWindow: false },
+        { hasAdAccount: false, publishedDates: 0, accountSpend: 0, coversWindow: false },
       );
       expect(notAppliedAdRead.readPublished).toHaveBeenCalledWith({
         organizationId: 'organization-1',

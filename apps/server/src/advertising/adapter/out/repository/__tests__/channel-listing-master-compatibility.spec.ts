@@ -145,7 +145,6 @@ describe('advertising MasterProduct ownership compatibility', () => {
       // requirement, not a dependency of this path.
       readPublished: async () => ({
         channelAccountId: null,
-        evidence: 'NOT_APPLIED' as const,
         rows: [],
       }),
     });

@@ -1,5 +1,4 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { AdAccountDailyKpiPublishedEvidence } from '@kiditem/shared/advertising';
 import type { AdAccountDailyKpiReadPort } from '../../../advertising/application/port/in/ad-account-daily-kpi-source.port';
 import { ProfitLossService } from '../profit-loss.service';
 
@@ -9,14 +8,17 @@ import { ProfitLossService } from '../profit-loss.service';
  * listing calendar stand in for "no ads".
  */
 function adEvidence(
-  evidence: AdAccountDailyKpiPublishedEvidence,
+  answer: 'NOT_APPLIED' | 'OBSERVED',
 ): AdAccountDailyKpiReadPort {
   return {
-    readPublished: vi.fn().mockResolvedValue({
-      channelAccountId: null,
-      evidence,
-      rows: [],
-    }),
+    readPublished: vi.fn().mockResolvedValue(
+      answer === 'NOT_APPLIED'
+        ? { channelAccountId: null, rows: [] }
+        : {
+          channelAccountId: 'ad-account',
+          rows: [{ businessDate: '2026-01-01', observedAt: '2026-01-02T00:00:00.000Z', normalized: { adSpend: 1 } }],
+        },
+    ),
   };
 }
 

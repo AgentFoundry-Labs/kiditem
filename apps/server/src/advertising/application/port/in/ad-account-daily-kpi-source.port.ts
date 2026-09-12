@@ -56,10 +56,10 @@ export interface AdAccountDailyKpiSourcePort {
 
 export interface AdAccountDailyKpiReadPort {
   /**
-   * Returns the latest complete account-daily rows plus the evidence word that
-   * says how to read them. An organization with no active advertising account
-   * answers `NOT_APPLIED` with no rows rather than throwing; an account that
-   * has published nothing for the range answers `MISSING`, which is absent
+   * Returns the latest complete account-daily rows and the account they
+   * belong to. An organization with no active advertising account answers
+   * with a null account and no rows rather than throwing; an account that has
+   * published nothing for the range answers with no rows, which is absent
    * evidence and never an advertising cost of zero.
    */
   readPublished(input: {

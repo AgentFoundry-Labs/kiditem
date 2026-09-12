@@ -378,9 +378,9 @@ describe('Advertising account daily KPI source incoming HTTP + disposable Postgr
 
     const published = (await get('/published').expect(200)).body;
     expect(published.channelAccountId).toBe(accountId);
-    // Rows carrying real spend are OBSERVED evidence — the producer derives
-    // the word from the rows it publishes, so this is where it is asserted.
-    expect(published.evidence).toBe('OBSERVED');
+    // The rows are the whole answer: a published day with real spend is the
+    // evidence, and the account they belong to is named beside them.
+    expect(published.channelAccountId).toBe(accountId);
     expect(published.rows).toHaveLength(attempt.plan.businessDates.length);
     expect(published.rows[0]).toMatchObject({
       businessDate: attempt.plan.businessDates[0],
@@ -636,7 +636,7 @@ describe('Advertising account daily KPI source incoming HTTP + disposable Postgr
     expect(published.rows[0]).toMatchObject({ businessDate: targetDate });
   });
 
-  it('publishes an explicit all-zero day as CONFIRMED_ZERO rather than absent evidence', async () => {
+  it('publishes an explicit all-zero day as a measured zero rather than absent evidence', async () => {
     const targetDate = new Date(currentBusinessDate().getTime() - 86_400_000)
       .toISOString()
       .slice(0, 10);
@@ -673,7 +673,6 @@ describe('Advertising account daily KPI source incoming HTTP + disposable Postgr
     const published = (await get('/published').expect(200)).body;
     expect(published).toMatchObject({
       channelAccountId: accountId,
-      evidence: 'CONFIRMED_ZERO',
     });
     expect(published.rows).toHaveLength(1);
     expect(published.rows[0]).toMatchObject({
@@ -700,7 +699,7 @@ describe('Advertising account daily KPI source incoming HTTP + disposable Postgr
     });
   });
 
-  it('answers NOT_APPLIED for an organization with no advertising account', async () => {
+  it('answers a null account for an organization with no advertising account', async () => {
     const published = (
       await request(httpUrl)
         .get(`${base}/published`)
@@ -708,23 +707,20 @@ describe('Advertising account daily KPI source incoming HTTP + disposable Postgr
         .expect(200)
     ).body;
     // No account can never become a collection, so this is a business answer,
-    // not a missing resource. `NOT_APPLIED` is the only evidence word allowed
-    // without a channel account.
+    // not a missing resource: a null account and no rows.
     expect(published).toEqual({
       channelAccountId: null,
-      evidence: 'NOT_APPLIED',
       rows: [],
     });
 
     // The owner's own account keeps its separate answer: an account that has
-    // published nothing is MISSING evidence, never a zero.
+    // published nothing is absent evidence, never a zero.
     expect((await get('/published').expect(200)).body).toEqual({
       channelAccountId: accountId,
-      evidence: 'MISSING',
       rows: [],
     });
 
-    // Collection status stays MISSING for the account-less organization. That
+    // Collection status stays not ready for the account-less organization. That
     // endpoint reports whether a complete collection exists, and `null`
     // channelAccountId already carries the not-applicable fact.
     expect(

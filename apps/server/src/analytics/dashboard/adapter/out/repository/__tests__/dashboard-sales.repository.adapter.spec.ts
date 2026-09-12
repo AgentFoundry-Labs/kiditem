@@ -11,7 +11,7 @@ import { DashboardSalesRepositoryAdapter } from '../dashboard-sales.repository.a
  * cases are about the grade and the ranking, not about ad spend.
  */
 const adReader = () => ({
-  readPublished: vi.fn().mockResolvedValue({ evidence: 'NOT_APPLIED', rows: [] }),
+  readPublished: vi.fn().mockResolvedValue({ channelAccountId: null, rows: [] }),
 }) as never;
 
 /**

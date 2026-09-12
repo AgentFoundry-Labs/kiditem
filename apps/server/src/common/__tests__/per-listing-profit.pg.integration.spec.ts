@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
-import type { AdAccountDailyKpiPublishedEvidence } from '@kiditem/shared/advertising';
 import {
   buildPerListingMetrics,
   buildPerListingMetricsCoverage,
@@ -38,9 +37,14 @@ import {
  * nothing and the calendar is consulted.
  */
 const accountEvidence = (
-  evidence: AdAccountDailyKpiPublishedEvidence,
+  answer: 'NOT_APPLIED' | 'MISSING' | 'CONFIRMED_ZERO' | 'OBSERVED',
   coversWindow = false,
-): AccountAdEvidence => ({ evidence, coversWindow });
+): AccountAdEvidence => ({
+  hasAdAccount: answer !== 'NOT_APPLIED',
+  publishedDates: answer === 'NOT_APPLIED' || answer === 'MISSING' ? 0 : 1,
+  accountSpend: answer === 'OBSERVED' ? 1 : 0,
+  coversWindow,
+});
 
 describe('buildPerListingMetrics (PG integration)', () => {
   let prisma: PrismaClient;
