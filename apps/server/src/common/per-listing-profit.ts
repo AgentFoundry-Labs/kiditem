@@ -1,6 +1,7 @@
 import type { AdAccountDailyKpiPublishedEvidence } from '@kiditem/shared/advertising';
 import type { PrismaService } from '../prisma/prisma.service';
 import { kstBusinessDate } from './kst';
+import { measuredAdCoverageWhere } from './ad-window-facts';
 
 /**
  * Plan F1 T1 (extracted from `finance/services/profit-loss.service.ts:findAll`).
@@ -76,21 +77,6 @@ export interface PerListingMetrics extends PerListingProfit {
 
 const EXCLUDED_ORDER_STATUSES = ['cancelled', 'returned', 'refunded'] as const;
 
-/**
- * The ad evidence a `ChannelListingDailySnapshot` row must carry before its
- * `adSpend` counts as a measurement. Identical to Advertising's
- * `master-product-ad-spend-read` filter (ADR-0003): `adSpend` is
- * `Int @default(0)`, so an uncollected row is otherwise indistinguishable from
- * a confirmed-zero one.
- */
-function measuredAdCoverageWhere(organizationId: string, from: Date, to: Date) {
-  return {
-    organizationId,
-    businessDate: { gte: from, lt: to },
-    adCoverageStatus: { in: ['OBSERVED', 'CONFIRMED_ZERO'] },
-    adObservedAt: { not: null },
-  };
-}
 
 const DAY_MS = 86_400_000;
 

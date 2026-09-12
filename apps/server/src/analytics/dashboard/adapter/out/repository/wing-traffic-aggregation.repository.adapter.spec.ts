@@ -6,20 +6,6 @@ const ORGANIZATION_ID = '00000000-0000-4000-8000-000000000001';
 const ACTIVE_ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
 const ATTEMPT_ID = '22222222-2222-4222-8222-222222222222';
 
-function normalized(overrides: Record<string, number> = {}) {
-  return {
-    adSpend: 100,
-    adRevenue: 900,
-    impressions: 2_000,
-    clicks: 50,
-    conversions: 700,
-    orders: 7,
-    providerRoas: 9,
-    providerCtr: 2.5,
-    providerConversionRate: 14,
-    ...overrides,
-  };
-}
 
 function accountDaily(
   businessDate: string,
@@ -174,16 +160,6 @@ function legacyPublication() {
   };
 }
 
-function adPublishedRow(
-  businessDate: string,
-  observedAt = '2026-05-02T01:00:00.000Z',
-) {
-  return {
-    businessDate,
-    observedAt,
-    normalized: normalized(),
-  };
-}
 
 function buildAdapter() {
   const trafficReadPublished = vi.fn().mockResolvedValue(
@@ -193,17 +169,30 @@ function buildAdapter() {
       accountDaily('2026-07-03'),
     ]),
   );
-  const readPublished = vi.fn().mockResolvedValue({
-    channelAccountId: ACTIVE_ACCOUNT_ID,
-    rows: [],
-  });
+  // Ad facts come from the listing ledger, not the account summary: the
+  // account table only has a row on the days the ad-centre scrape ran.
+  const adsGroupBy = vi.fn().mockResolvedValue([]);
   return {
     adapter: new WingTrafficAggregationRepositoryAdapter(
       { readPublished: trafficReadPublished },
-      { readPublished },
+      { channelListingDailySnapshot: { groupBy: adsGroupBy, findFirst: vi.fn() } } as never,
     ),
     trafficReadPublished,
-    readPublished,
+    adsGroupBy,
+  };
+}
+
+/** One grouped business date, as `readAdWindowFacts` sees it. */
+function adsDay(businessDate: string, overrides: Record<string, number> = {}) {
+  const sums = {
+    adSpend: 100, adRevenue: 900, adImpressions: 2_000,
+    adClicks: 50, adConversions: 700, adOrders: 7,
+    ...overrides,
+  };
+  return {
+    businessDate: new Date(`${businessDate}T00:00:00.000Z`),
+    _sum: sums,
+    _max: { adObservedAt: new Date(`${businessDate}T01:00:00.000Z`) },
   };
 }
 
@@ -391,29 +380,14 @@ describe('WingTrafficAggregationRepositoryAdapter account daily read', () => {
 
 describe('WingTrafficAggregationRepositoryAdapter Coupang ads read', () => {
   it('maps complete owner rows, preserves ad sums, observed cutoff, and KST half-open bounds', async () => {
-    const { adapter, readPublished } = buildAdapter();
-    readPublished.mockResolvedValue({
-      channelAccountId: ACTIVE_ACCOUNT_ID,
-      rows: [
-        {
-          businessDate: '2026-07-01',
-          observedAt: '2026-07-02T01:00:00.000Z',
-          normalized: normalized(),
-        },
-        {
-          businessDate: '2026-07-02',
-          observedAt: '2026-07-03T01:00:00.000Z',
-          normalized: normalized({
-            adSpend: 200,
-            adRevenue: 1_800,
-            impressions: 3_000,
-            clicks: 80,
-            conversions: 1_200,
-            orders: 11,
-          }),
-        },
-      ],
-    });
+    const { adapter, adsGroupBy } = buildAdapter();
+    adsGroupBy.mockResolvedValue([
+      adsDay('2026-07-01'),
+      adsDay('2026-07-02', {
+        adSpend: 200, adRevenue: 1_800, adImpressions: 3_000,
+        adClicks: 80, adConversions: 1_200, adOrders: 11,
+      }),
+    ]);
 
     await expect(
       adapter.aggregateCoupangAds(ORGANIZATION_ID, periodOf(new Date('2026-06-30T15:00:00.000Z'), new Date('2026-07-02T15:00:00.000Z'))),
@@ -436,32 +410,32 @@ describe('WingTrafficAggregationRepositoryAdapter Coupang ads read', () => {
       },
       isCollected: true,
       hasData: true,
-      lastObservedAt: new Date('2026-07-03T01:00:00.000Z'),
+      lastObservedAt: new Date('2026-07-02T01:00:00.000Z'),
     });
-    expect(readPublished).toHaveBeenCalledWith({
-      organizationId: ORGANIZATION_ID,
-      from: '2026-07-01',
-      to: '2026-07-02',
-    });
+    // Half-open `[from, to)` over the window's business dates, so the last
+    // selected date is included and the day after it is not.
+    expect(adsGroupBy).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        organizationId: ORGANIZATION_ID,
+        businessDate: {
+          gte: new Date('2026-07-01T00:00:00.000Z'),
+          lt: new Date('2026-07-03T00:00:00.000Z'),
+        },
+        adCoverageStatus: { in: ['OBSERVED', 'CONFIRMED_ZERO'] },
+      }),
+    }));
   });
 
   it('keeps an all-zero ads row distinct from missing ads rows', async () => {
-    const { adapter, readPublished } = buildAdapter();
-    readPublished.mockResolvedValue({
-      channelAccountId: ACTIVE_ACCOUNT_ID,
-      rows: [{
-        businessDate: '2026-07-01',
-        observedAt: '2026-07-02T01:00:00.000Z',
-        normalized: normalized({
-          adSpend: 0,
-          adRevenue: 0,
-          impressions: 0,
-          clicks: 0,
-          conversions: 0,
-          orders: 0,
-        }),
-      }],
-    });
+    const { adapter, adsGroupBy } = buildAdapter();
+    // `CONFIRMED_ZERO` rows group to zero sums and are still a covered day —
+    // that is the whole point of the coverage filter.
+    adsGroupBy.mockResolvedValue([
+      adsDay('2026-07-01', {
+        adSpend: 0, adRevenue: 0, adImpressions: 0,
+        adClicks: 0, adConversions: 0, adOrders: 0,
+      }),
+    ]);
 
     await expect(adapter.aggregateCoupangAds(ORGANIZATION_ID, periodOf(new Date('2026-06-30T15:00:00.000Z'), new Date('2026-07-01T15:00:00.000Z')))).resolves.toMatchObject({
       hasData: true,
@@ -480,15 +454,8 @@ describe('WingTrafficAggregationRepositoryAdapter Coupang ads read', () => {
   // a historical calendar. Reading the process clock here silently unanchored
   // every anchored caller, so the cutoff must come from the resolved period.
   it('takes the ads coverage cutoff from the caller anchor, not the wall clock', async () => {
-    const { adapter, readPublished } = buildAdapter();
-    readPublished.mockResolvedValue({
-      channelAccountId: ACTIVE_ACCOUNT_ID,
-      rows: [{
-        businessDate: '2026-07-01',
-        observedAt: '2026-07-02T01:00:00.000Z',
-        normalized: normalized({ adSpend: 10 }),
-      }],
-    });
+    const { adapter, adsGroupBy } = buildAdapter();
+    adsGroupBy.mockResolvedValue([adsDay('2026-07-01', { adSpend: 10 })]);
 
     const result = await adapter.aggregateCoupangAds(
       ORGANIZATION_ID,

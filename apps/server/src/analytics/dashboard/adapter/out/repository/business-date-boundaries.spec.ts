@@ -29,7 +29,7 @@ describe('dashboard business-date boundaries', () => {
 
     await new WingTrafficAggregationRepositoryAdapter(
       { readPublished },
-      { readPublished: vi.fn() },
+      { channelListingDailySnapshot: { groupBy: vi.fn(), findFirst: vi.fn() } } as never,
     ).aggregateTraffic('organization-id', periodOf(JULY_START_KST, AUGUST_START_KST));
 
     expect(readPublished).toHaveBeenCalledWith({

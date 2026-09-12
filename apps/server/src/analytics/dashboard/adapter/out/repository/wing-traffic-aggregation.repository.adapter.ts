@@ -1,19 +1,16 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { PrismaService } from '../../../../../prisma/prisma.service';
+import { readAdWindowFacts } from '../../../../../common/ad-window-facts';
 import {
   businessDateText,
   businessDatesInWindow,
   type ResolvedDashboardPeriod,
 } from '../../../domain/period/dashboard-period';
 import {
-  AD_ACCOUNT_DAILY_KPI_READ_PORT,
-  type AdAccountDailyKpiReadPort,
-} from '../../../../../advertising/application/port/in/ad-account-daily-kpi-source.port';
-import {
   AD_TRAFFIC_READ_PORT,
   type AdTrafficReadPort,
 } from '../../../../../advertising/application/port/in/ad-traffic-source.port';
 import type {
-  AdAccountDailyKpiPublishedRow,
   AdTrafficSourceAccountDaily,
   AdTrafficSourceDailyPublished,
   AdTrafficSourcePublished,
@@ -57,8 +54,7 @@ export class WingTrafficAggregationRepositoryAdapter
   constructor(
     @Inject(AD_TRAFFIC_READ_PORT)
     private readonly trafficRead: AdTrafficReadPort,
-    @Inject(AD_ACCOUNT_DAILY_KPI_READ_PORT)
-    private readonly dailyKpiRead: AdAccountDailyKpiReadPort,
+    private readonly prisma: PrismaService,
   ) {}
 
   async aggregateTraffic(
@@ -131,7 +127,13 @@ export class WingTrafficAggregationRepositoryAdapter
     const targetDates = period.selectedDates;
     const range = dateRangeOf(targetDates);
     if (!range) return emptyCoupangAdsMetrics();
-    const rows = selectAdsRows(await this.readPublishedRows(organizationId, range), range);
+    // The listing ledger holds the facts; the account ledger holds only the
+    // days the ad-centre scrape happened to run. Reading the numbers from the
+    // account summary is what made a fully covered month read `0/31일`.
+    const { days: rows, observedAt: lastObservedAt } = await readAdWindowFacts(
+      this.prisma,
+      { organizationId, from: dayStart(range.from), to: dayAfter(range.to) },
+    );
     // The cutoff is the caller's anchor, never this process's clock.
     const coverage = buildAdsCoverage(targetDates, period.knownThrough, rows);
 
@@ -141,27 +143,22 @@ export class WingTrafficAggregationRepositoryAdapter
     let clicks = 0;
     let conversions = 0;
     let orders = 0;
-    let lastObservedAt: Date | null = null;
 
     for (const row of rows) {
-      spend += toInt(row.normalized.adSpend);
-      revenue += toInt(row.normalized.adRevenue);
-      impressions += toInt(row.normalized.impressions);
-      clicks += toInt(row.normalized.clicks);
-      conversions += toInt(row.normalized.conversions);
-      orders += toInt(row.normalized.orders);
-      const observedAt = new Date(row.observedAt);
-      if (!lastObservedAt || observedAt > lastObservedAt) {
-        lastObservedAt = observedAt;
-      }
+      spend += row.spend;
+      revenue += row.revenue;
+      impressions += row.impressions;
+      clicks += row.clicks;
+      conversions += row.conversions;
+      orders += row.orders;
     }
 
     const hasData = coverage.targetDays > 0
       && coverage.completedDays === coverage.targetDays;
     const conversionRate = clicks > 0 ? (orders / clicks) * 100 : null;
-    const providerConversionRate = rows.length === 1
-      ? numberOrNull(rows[0]?.normalized.providerConversionRate)
-      : null;
+    // The provider's own ratio lives on the account summary, which is no
+    // longer this read's source. Ours is orders/clicks, published above.
+    const providerConversionRate = null;
 
     return {
       spend,
@@ -240,41 +237,24 @@ export class WingTrafficAggregationRepositoryAdapter
       ? dateRangeOf(businessDatesInWindow(since, until))
       : { from: businessDateText(since) };
     if (!range) return [];
-    const rows = selectAdsRows(await this.readPublishedRows(organizationId, range), range);
+    const { days, observedAt } = await readAdWindowFacts(this.prisma, {
+      organizationId,
+      from: dayStart(range.from),
+      to: dayAfter('to' in range ? range.to : range.from),
+    });
 
-    return rows.map((row) => ({
+    return days.map((row) => ({
       date: row.businessDate,
-      ad_cost: toInt(row.normalized.adSpend),
-      ad_revenue: toInt(row.normalized.adRevenue),
-      clicks: toInt(row.normalized.clicks),
-      impressions: toInt(row.normalized.impressions),
-      conversions: toInt(row.normalized.conversions),
-      orders: toInt(row.normalized.orders),
-      observedAt: row.observedAt,
+      ad_cost: row.spend,
+      ad_revenue: row.revenue,
+      clicks: row.clicks,
+      impressions: row.impressions,
+      conversions: row.conversions,
+      orders: row.orders,
+      observedAt: (observedAt ?? new Date()).toISOString(),
     } satisfies CoupangAdsDailyRow));
   }
 
-  private async readPublishedRows(
-    organizationId: string,
-    range: { from: string; to?: string },
-  ): Promise<AdAccountDailyKpiPublishedRow[]> {
-    try {
-      return (
-        await this.dailyKpiRead.readPublished({
-          organizationId,
-          ...range,
-        })
-      ).rows;
-    } catch (error) {
-      if (
-        error instanceof NotFoundException &&
-        error.message === 'COUPANG_ACCOUNT_NOT_FOUND'
-      ) {
-        return [];
-      }
-      throw error;
-    }
-  }
 
   private async readTrafficPublished(
     organizationId: string,
@@ -296,14 +276,20 @@ export class WingTrafficAggregationRepositoryAdapter
     }
   }
 
+  /** The newest business date the ad source reported, from the fact ledger. */
   private async findLatestCoupangAdsDate(
     organizationId: string,
   ): Promise<Date | null> {
-    const rows = await this.readPublishedRows(organizationId, { from: '0001-01-01' });
-    return rows.reduce<Date | null>((latest, row) => {
-      const date = new Date(`${row.businessDate}T00:00:00.000Z`);
-      return !latest || date > latest ? date : latest;
-    }, null);
+    const row = await this.prisma.channelListingDailySnapshot.findFirst({
+      where: {
+        organizationId,
+        adCoverageStatus: { in: ['OBSERVED', 'CONFIRMED_ZERO'] },
+        adObservedAt: { not: null },
+      },
+      orderBy: { businessDate: 'desc' },
+      select: { businessDate: true },
+    });
+    return row?.businessDate ?? null;
   }
 }
 
@@ -425,20 +411,6 @@ function latestTrafficDate(published: AdTrafficSourcePublished): Date | null {
   }, null);
 }
 
-function selectAdsRows(
-  rows: ReadonlyArray<AdAccountDailyKpiPublishedRow>,
-  range: DateRange,
-): AdAccountDailyKpiPublishedRow[] {
-  const byDate = new Map<string, AdAccountDailyKpiPublishedRow>();
-  for (const row of rows) {
-    if (!dateInRange(row.businessDate, range)) continue;
-    const current = byDate.get(row.businessDate);
-    if (!current || Date.parse(row.observedAt) >= Date.parse(current.observedAt)) {
-      byDate.set(row.businessDate, row);
-    }
-  }
-  return [...byDate.values()].sort((a, b) => a.businessDate.localeCompare(b.businessDate));
-}
 
 function buildAdsCoverage(
   targetDates: readonly string[],
@@ -449,7 +421,7 @@ function buildAdsCoverage(
    * outside the known cutoff rather than moving the cutoff forward.
    */
   knownThroughDate: string,
-  rows: ReadonlyArray<AdAccountDailyKpiPublishedRow>,
+  rows: ReadonlyArray<{ businessDate: string }>,
 ) {
   const completedDates = new Set(rows.map((row) => row.businessDate));
   const to = targetDates[targetDates.length - 1]!;
@@ -461,6 +433,16 @@ function buildAdsCoverage(
     completedDays: targetDates.filter((date) => completedDates.has(date)).length,
     missingDates: targetDates.filter((date) => !completedDates.has(date)),
   };
+}
+
+/** UTC midnight of a business date, the key `businessDate` is stored under. */
+function dayStart(date: string): Date {
+  return new Date(`${date}T00:00:00.000Z`);
+}
+
+/** The exclusive end of a `[from, to)` window whose last business date is `date`. */
+function dayAfter(date: string): Date {
+  return new Date(dayStart(date).getTime() + 86_400_000);
 }
 
 /** Inclusive owner-read bounds for a resolved date set. */
@@ -534,14 +516,3 @@ function emptyCoupangAdsMetrics(): CoupangAdsMetrics {
   };
 }
 
-function toInt(value: unknown): number {
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return Math.max(0, Math.round(value));
-  }
-  if (typeof value === 'string' && value.trim() !== '') {
-    const cleaned = value.replace(/[,%]/g, '');
-    const n = Number(cleaned);
-    if (Number.isFinite(n)) return Math.max(0, Math.round(n));
-  }
-  return 0;
-}
