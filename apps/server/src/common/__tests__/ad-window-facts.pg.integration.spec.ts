@@ -25,10 +25,10 @@ import {
 /**
  * The one reader of listing-day ad values, over the advertising target-day
  * ledger. What these cases pin down is the evidence gate: a day is measured
- * when a product-grain target row exists for it, from a completed campaign
- * sweep or from the pre-cutover history; a day without a row is absent, never
- * zero; and a superseded generation loses to the newer one instead of being
- * summed with it.
+ * only when a completed campaign sweep declares it; a day inside that window
+ * may be a measured zero, while rows with no completion proof remain
+ * unavailable; and a superseded generation loses to the newer one instead of
+ * being summed with it.
  */
 describe('ad-window-facts (PG)', () => {
   let prisma: PrismaClient;
@@ -48,7 +48,11 @@ describe('ad-window-facts (PG)', () => {
     await seedBaseFixture(prisma);
   });
 
-  async function listing(organizationId: string, code: string) {
+  async function listing(
+    organizationId: string,
+    code: string,
+    channelAccountId?: string,
+  ) {
     const master = await setupMaster(prisma, { organizationId, code, name: `Listing ${code}` });
     const option = await setupProductOption(prisma, {
       organizationId,
@@ -62,6 +66,7 @@ describe('ad-window-facts (PG)', () => {
       externalId: `EXT-${code}`,
       optionId: option.id,
       externalOptionId: `VI-${code}`,
+      channelAccountId,
     });
   }
 
@@ -112,12 +117,32 @@ describe('ad-window-facts (PG)', () => {
 
   it('a newer completed sweep generation supersedes an older one for the same target-day; a running one is not evidence', async () => {
     const a = await listing(TEST_ORGANIZATION_ID, 'A');
-    const gen1 = await seedCompletedAdSweepRun(prisma, { organizationId: TEST_ORGANIZATION_ID, generation: 1 });
-    const gen2 = await seedCompletedAdSweepRun(prisma, { organizationId: TEST_ORGANIZATION_ID, generation: 2 });
-    const running = await seedCompletedAdSweepRun(prisma, { organizationId: TEST_ORGANIZATION_ID, generation: 3, status: 'running' });
+    const gen1 = await seedCompletedAdSweepRun(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      generation: 1,
+      window: { startDate: '2026-04-10', endDate: '2026-04-10' },
+    });
+    const gen2 = await seedCompletedAdSweepRun(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      generation: 2,
+      window: { startDate: '2026-04-10', endDate: '2026-04-10' },
+    });
+    const running = await seedCompletedAdSweepRun(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      generation: 3,
+      status: 'running',
+      window: { startDate: '2026-04-11', endDate: '2026-04-11' },
+    });
+    const failed = await seedCompletedAdSweepRun(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      generation: 4,
+      status: 'failed',
+      window: { startDate: '2026-04-11', endDate: '2026-04-11' },
+    });
     await seedAd(prisma, { organizationId: TEST_ORGANIZATION_ID, listingId: a.listingId, date: '2026-04-10', spend: 100, runId: gen1 });
     await seedAd(prisma, { organizationId: TEST_ORGANIZATION_ID, listingId: a.listingId, date: '2026-04-10', spend: 120, runId: gen2 });
     await seedAd(prisma, { organizationId: TEST_ORGANIZATION_ID, listingId: a.listingId, date: '2026-04-11', spend: 999, runId: running });
+    await seedAd(prisma, { organizationId: TEST_ORGANIZATION_ID, listingId: a.listingId, date: '2026-04-11', spend: 888, runId: failed });
 
     const facts = await readAdWindowFacts(prisma, { organizationId: TEST_ORGANIZATION_ID, from: day('2026-04-10'), to: day('2026-04-12') });
 
@@ -165,16 +190,269 @@ describe('ad-window-facts (PG)', () => {
     ]);
   });
 
-  it('a pre-cutover row without a run is still measured', async () => {
+  it('a pre-cutover row without a completed declaration is unavailable', async () => {
     const a = await listing(TEST_ORGANIZATION_ID, 'A');
     await seedAd(prisma, { organizationId: TEST_ORGANIZATION_ID, listingId: a.listingId, date: '2026-04-10', spend: 70, runId: null });
 
-    expect(await readLatestAdDate(prisma, TEST_ORGANIZATION_ID)).toEqual(day('2026-04-10'));
+    expect(await readLatestAdDate(prisma, TEST_ORGANIZATION_ID)).toBeNull();
+    await expect(readAdWindowFacts(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      from: day('2026-04-10'),
+      to: day('2026-04-11'),
+    })).resolves.toEqual({ days: [], observedAt: null });
+  });
+
+  it('does not treat requested plan dates as a completed coverage declaration', async () => {
+    const a = await listing(TEST_ORGANIZATION_ID, 'PLAN-ONLY');
+    const run = await seedCompletedAdSweepRun(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      generation: 1,
+      window: { startDate: '2026-04-10', endDate: '2026-04-10' },
+    });
+    await prisma.sourceImportRun.update({
+      where: { id: run },
+      data: { coverageStartDate: null, coverageEndDate: null },
+    });
+    await seedAd(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      listingId: a.listingId,
+      date: '2026-04-10',
+      spend: 70,
+      runId: run,
+    });
+
+    await expect(readAdWindowFacts(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      from: day('2026-04-10'),
+      to: day('2026-04-11'),
+    })).resolves.toEqual({ days: [], observedAt: null });
+  });
+
+  it('keeps an organization day unavailable while an active account has no completed declaration', async () => {
+    const a = await listing(TEST_ORGANIZATION_ID, 'COMPLETE-ACCOUNT');
+    const accountA = await prisma.channelListing.findUniqueOrThrow({
+      where: { id: a.listingId },
+      select: { channelAccountId: true },
+    });
+    const accountB = await prisma.channelAccount.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channel: 'coupang',
+        externalAccountId: 'UNMEASURED-ACCOUNT',
+        name: 'Unmeasured account',
+        status: 'active',
+      },
+      select: { id: true },
+    });
+    await listing(TEST_ORGANIZATION_ID, 'UNMEASURED-ACCOUNT', accountB.id);
+    const runA = await seedCompletedAdSweepRun(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      channelAccountId: accountA.channelAccountId,
+      generation: 1,
+      window: { startDate: '2026-04-10', endDate: '2026-04-10' },
+    });
+    await seedAd(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      listingId: a.listingId,
+      date: '2026-04-10',
+      spend: 10,
+      runId: runA,
+    });
+
+    await expect(readAdWindowFacts(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      from: day('2026-04-10'),
+      to: day('2026-04-11'),
+    })).resolves.toEqual({ days: [], observedAt: null });
+    await expect(readListingAdWindowFacts(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      from: day('2026-04-10'),
+      to: day('2026-04-11'),
+    })).resolves.toEqual([]);
+    await expect(readLatestAdDate(prisma, TEST_ORGANIZATION_ID)).resolves.toBeNull();
+  });
+
+  it('uses the shared account coverage dates for listing totals and date bounds', async () => {
+    const a = await listing(TEST_ORGANIZATION_ID, 'LONGER-ACCOUNT');
+    const accountA = await prisma.channelListing.findUniqueOrThrow({
+      where: { id: a.listingId },
+      select: { channelAccountId: true },
+    });
+    const accountB = await prisma.channelAccount.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channel: 'coupang',
+        externalAccountId: 'SHORTER-ACCOUNT',
+        name: 'Shorter account',
+        status: 'active',
+      },
+      select: { id: true },
+    });
+    await listing(TEST_ORGANIZATION_ID, 'SHORTER-ACCOUNT', accountB.id);
+    const runA = await seedCompletedAdSweepRun(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      channelAccountId: accountA.channelAccountId,
+      generation: 1,
+      window: { startDate: '2026-04-01', endDate: '2026-04-10' },
+    });
+    await seedCompletedAdSweepRun(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      channelAccountId: accountB.id,
+      generation: 1,
+      window: { startDate: '2026-04-06', endDate: '2026-04-10' },
+    });
+    await seedAd(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      listingId: a.listingId,
+      date: '2026-04-01',
+      spend: 100,
+      runId: runA,
+    });
+    await seedAd(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      listingId: a.listingId,
+      date: '2026-04-06',
+      spend: 20,
+      runId: runA,
+    });
+
+    const perListing = await readListingAdWindowFacts(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      from: day('2026-04-01'),
+      to: day('2026-04-11'),
+    });
+    expect(perListing).toHaveLength(1);
+    expect(perListing[0]).toMatchObject({
+      listingId: a.listingId,
+      days: 5,
+      spend: 20,
+      firstDate: '2026-04-06',
+      lastDate: '2026-04-06',
+    });
+
+    const perDay = await readListingDayAdFacts(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      from: day('2026-04-01'),
+      to: day('2026-04-11'),
+    });
+    expect(perDay.map(({ businessDate, spend }) => [
+      businessDate.toISOString().slice(0, 10),
+      spend,
+    ])).toEqual([['2026-04-06', 20]]);
+  });
+
+  it('selects campaign or product grain per account-day without crossing account fences', async () => {
+    const a = await listing(TEST_ORGANIZATION_ID, 'ACCOUNT-A');
+    const accountA = await prisma.channelListing.findUniqueOrThrow({
+      where: { id: a.listingId },
+      select: { channelAccountId: true },
+    });
+    const accountB = await prisma.channelAccount.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channel: 'coupang',
+        externalAccountId: 'ACCOUNT-B',
+        name: 'Account B',
+        status: 'active',
+      },
+      select: { id: true },
+    });
+    const b = await listing(TEST_ORGANIZATION_ID, 'ACCOUNT-B', accountB.id);
+    const runA1 = await seedCompletedAdSweepRun(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      channelAccountId: accountA.channelAccountId,
+      generation: 1,
+      window: { startDate: '2026-04-10', endDate: '2026-04-12' },
+    });
+    const runB1 = await seedCompletedAdSweepRun(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      channelAccountId: accountB.id,
+      generation: 1,
+      window: { startDate: '2026-04-10', endDate: '2026-04-12' },
+    });
+    const campaignRow = async (
+      channelAccountId: string,
+      runId: string,
+      date: string,
+      spend: number,
+    ) => prisma.channelAdTargetDailySnapshot.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId,
+        channel: 'coupang',
+        businessDate: day(date),
+        targetType: 'product',
+        targetKey: 'campaign:shared',
+        campaignIdentity: 'campaign:shared',
+        sourceImportRunId: runId,
+        spend,
+        adSpend: spend,
+        metaJson: { data: { granularity: 'campaign' } },
+      },
+    });
+    await campaignRow(accountA.channelAccountId, runA1, '2026-04-10', 10);
+    await seedAd(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      listingId: b.listingId,
+      date: '2026-04-10',
+      spend: 20,
+      runId: runB1,
+    });
+    await campaignRow(accountA.channelAccountId, runA1, '2026-04-11', 11);
+    await campaignRow(accountB.id, runB1, '2026-04-11', 13);
+    await seedAd(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      listingId: b.listingId,
+      date: '2026-04-11',
+      spend: 99,
+      runId: runB1,
+    });
+    await campaignRow(accountA.channelAccountId, runA1, '2026-04-12', 5);
+    await seedAd(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      listingId: b.listingId,
+      date: '2026-04-12',
+      spend: 7,
+      runId: runB1,
+    });
+    // A target cannot borrow the other account's completed declaration.
+    await seedAd(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      listingId: b.listingId,
+      date: '2026-04-10',
+      spend: 1_000,
+      runId: runA1,
+      targetKey: 'product:borrowed-declaration',
+    });
+    // A's newer zero sweep replaces only A's old day; B's 7 remains current.
+    await seedCompletedAdSweepRun(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      channelAccountId: accountA.channelAccountId,
+      generation: 2,
+      window: { startDate: '2026-04-12', endDate: '2026-04-12' },
+    });
+
+    const facts = await readAdWindowFacts(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      from: day('2026-04-10'),
+      to: day('2026-04-13'),
+    });
+
+    expect(facts.days.map(({ businessDate, spend }) => [businessDate, spend])).toEqual([
+      ['2026-04-10', 30],
+      ['2026-04-11', 24],
+      ['2026-04-12', 7],
+    ]);
   });
 
   it('a campaign rollup row is the account-level day; product rows under it are not added on top', async () => {
     const a = await listing(TEST_ORGANIZATION_ID, 'A');
-    await seedAd(prisma, { organizationId: TEST_ORGANIZATION_ID, listingId: a.listingId, date: '2026-04-10', spend: 40 });
+    const run = await seedCompletedAdSweepRun(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      generation: 1,
+      window: { startDate: '2026-04-10', endDate: '2026-04-10' },
+    });
+    await seedAd(prisma, { organizationId: TEST_ORGANIZATION_ID, listingId: a.listingId, date: '2026-04-10', spend: 40, runId: run });
     const account = await prisma.channelListing.findUniqueOrThrow({ where: { id: a.listingId }, select: { channelAccountId: true } });
     await prisma.channelAdTargetDailySnapshot.create({
       data: {
@@ -185,6 +463,7 @@ describe('ad-window-facts (PG)', () => {
         targetType: 'product',
         targetKey: 'campaign:c1',
         campaignIdentity: 'campaign:c1',
+        sourceImportRunId: run,
         spend: 100,
         adSpend: 100,
         metaJson: { data: { granularity: 'campaign' } },
