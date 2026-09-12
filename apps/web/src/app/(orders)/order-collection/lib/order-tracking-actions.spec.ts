@@ -31,7 +31,6 @@ vi.mock('./icecream-tracking-api', async (importOriginal) => {
   return {
     ...actual,
     buildIcecreamSendFinishFile: mocks.buildIcecreamFile,
-    collectSellpiaDeliTrackingFromExtension: mocks.collectTracking,
     uploadOnchTrackingViaExtension: mocks.uploadOnch,
   };
 });
@@ -137,6 +136,7 @@ describe('order tracking actions', () => {
       history: [],
       logError: vi.fn(),
       onGeneratedFile,
+      collectTracking: mocks.collectTracking,
     });
 
     expect(onGeneratedFile).toHaveBeenCalledWith(expect.objectContaining({
@@ -185,6 +185,7 @@ describe('order tracking actions', () => {
       history: [],
       logError: vi.fn(),
       onGeneratedFile,
+      collectTracking: mocks.collectTracking,
     });
 
     expect(mocks.buildIcecreamFile).toHaveBeenCalledWith(

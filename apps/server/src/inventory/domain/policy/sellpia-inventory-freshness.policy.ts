@@ -10,9 +10,6 @@ import {
 export const SELLPIA_SOURCE_ORIGIN = 'https://kiditem.sellpia.com' as const;
 export const SELLPIA_SOURCE_ACCOUNT_KEY = 'kiditem' as const;
 export const SELLPIA_FRESHNESS_TTL_MS = 10 * 60_000;
-export const SELLPIA_CLAIM_LEASE_MS = 90_000;
-export const SELLPIA_EXPIRED_LEASE_ERROR_MESSAGE =
-  '브라우저 수집 세션 응답이 없어 재고 갱신을 완료하지 못했습니다. 다시 시도해 주세요.';
 // HTTP accepts only manual/retry. This policy also preserves established
 // internal inventory triggers when replaying an existing generation.
 type SellpiaInventoryRequestReason = SellpiaInventoryRefreshReason;
@@ -46,22 +43,6 @@ export type SellpiaInventoryFreshnessState = {
 export type SellpiaInventoryFreshnessStatePatch = Partial<
   Omit<SellpiaInventoryFreshnessState, 'organizationId'>
 >;
-
-export type SellpiaClaimDecision =
-  | { kind: 'joined' }
-  | {
-    kind: 'expired';
-    patch: SellpiaInventoryFreshnessStatePatch;
-    generation: bigint;
-    claimToken: string;
-    createdBy: string;
-  }
-  | {
-    kind: 'claimed';
-    patch: SellpiaInventoryFreshnessStatePatch;
-    generation: bigint;
-    leaseExpiresAt: Date;
-  };
 
 export function createInitialFreshnessState(input: {
   organizationId: string;
@@ -100,6 +81,7 @@ export function deriveFreshnessStatus(
   state: SellpiaInventoryFreshnessState,
   now: Date,
 ): SellpiaInventoryFreshnessStatus {
+  if (hasExpiredCurrentAttempt(state, now)) return 'failed';
   return deriveSellpiaInventoryFreshness({
     now,
     lastVerifiedAt: state.lastVerifiedAt,
@@ -115,6 +97,8 @@ export function toFreshnessView(
   now: Date,
   userId: string | null,
 ): SellpiaInventoryFreshnessView {
+  const status = deriveFreshnessStatus(state, now);
+  const expiredCurrentAttempt = hasExpiredCurrentAttempt(state, now);
   const activeSync = hasLiveLease(state, now)
     && state.activeSyncToken
     && state.activeGeneration !== null
@@ -129,19 +113,28 @@ export function toFreshnessView(
       canControl: userId !== null && state.activeSyncOwnerUserId === userId,
     }
     : null;
-  const lastAttempt = state.lastAttemptAt && state.lastAttemptStatus
+  const lastAttempt = expiredCurrentAttempt && state.activeSyncStartedAt
     ? {
-      attemptedAt: state.lastAttemptAt.toISOString(),
-      status: state.lastAttemptStatus,
+      attemptedAt: state.activeSyncStartedAt.toISOString(),
+      status: 'failed' as const,
       trigger: state.refreshReason,
-      scope: state.lastAttemptSyncScope ?? 'inventory',
-      errorCode: state.lastErrorCode,
-      errorMessage: state.lastErrorMessage,
+      scope: state.activeSyncScope ?? state.requestedSyncScope,
+      errorCode: null,
+      errorMessage: 'Sellpia inventory collection attempt expired.',
     }
-    : null;
+    : state.lastAttemptAt && state.lastAttemptStatus
+      ? {
+        attemptedAt: state.lastAttemptAt.toISOString(),
+        status: state.lastAttemptStatus,
+        trigger: state.refreshReason,
+        scope: state.lastAttemptSyncScope ?? 'inventory',
+        errorCode: state.lastErrorCode,
+        errorMessage: state.lastErrorMessage,
+      }
+      : null;
 
   return {
-    status: deriveFreshnessStatus(state, now),
+    status,
     sourceBinding: isSourceBindingConfirmed(state)
       ? {
         origin: SELLPIA_SOURCE_ORIGIN,
@@ -166,6 +159,17 @@ export function toFreshnessView(
     activeSync,
     lastAttempt,
   };
+}
+
+function hasExpiredCurrentAttempt(
+  state: SellpiaInventoryFreshnessState,
+  now: Date,
+): boolean {
+  return state.activeGeneration !== null
+    && state.activeGeneration === state.requestedGeneration
+    && state.activeGeneration > state.verifiedGeneration
+    && state.activeSyncLeaseExpiresAt !== null
+    && state.activeSyncLeaseExpiresAt <= now;
 }
 
 export function planSourceBindingConfirmation(
@@ -223,153 +227,6 @@ export function planRefreshRequest(
   };
 }
 
-export function planClaim(
-  state: SellpiaInventoryFreshnessState,
-  input: {
-    now: Date;
-    userId: string;
-    claimToken: string;
-    freshnessFence: string;
-  },
-): SellpiaClaimDecision {
-  if (hasLiveLease(state, input.now)) {
-    return { kind: 'joined' };
-  }
-
-  if (
-    state.activeSyncToken !== null
-    && state.activeGeneration !== null
-    && state.activeSyncLeaseExpiresAt !== null
-    && state.activeSyncLeaseExpiresAt <= input.now
-  ) {
-    return {
-      kind: 'expired',
-      generation: state.activeGeneration,
-      claimToken: state.activeSyncToken,
-      createdBy: state.activeSyncOwnerUserId ?? input.userId,
-      patch: {
-        activeSyncToken: null,
-        activeSyncOwnerUserId: null,
-        activeSyncStartedAt: null,
-        activeSyncLeaseExpiresAt: null,
-        activeSyncScope: null,
-        activeGeneration: null,
-        failedGeneration: state.activeGeneration,
-        lastAttemptAt: input.now,
-        lastAttemptStatus: 'failed',
-        lastAttemptSyncScope: state.activeSyncScope ?? state.requestedSyncScope,
-        lastErrorCode: 'sellpia_background_timeout',
-        lastErrorMessage: SELLPIA_EXPIRED_LEASE_ERROR_MESSAGE,
-        freshnessFence: input.freshnessFence,
-      },
-    };
-  }
-
-  if (!isSourceBindingConfirmed(state)) return { kind: 'joined' };
-
-  const ttlExpired = state.requestedGeneration === state.verifiedGeneration
-    && state.lastVerifiedAt !== null
-    && input.now.getTime() - state.lastVerifiedAt.getTime() >= SELLPIA_FRESHNESS_TTL_MS;
-  const generation = ttlExpired
-    ? state.requestedGeneration + 1n
-    : state.requestedGeneration;
-  const pending = ttlExpired || generation > state.verifiedGeneration;
-  const failedWithoutRetry = !ttlExpired
-    && state.failedGeneration === generation
-    && generation > state.verifiedGeneration;
-  const due = ttlExpired
-    || state.syncNotBefore === null
-    || state.syncNotBefore <= input.now;
-  if (!pending || failedWithoutRetry || !due) return { kind: 'joined' };
-
-  const leaseExpiresAt = new Date(input.now.getTime() + SELLPIA_CLAIM_LEASE_MS);
-  return {
-    kind: 'claimed',
-    generation,
-    leaseExpiresAt,
-    patch: {
-      requestedGeneration: generation,
-      refreshRequestedAt: ttlExpired ? input.now : state.refreshRequestedAt,
-      refreshReason: ttlExpired ? 'ttl_expired' : state.refreshReason,
-      requestedSyncScope: ttlExpired ? 'inventory' : state.requestedSyncScope,
-      syncNotBefore: ttlExpired ? input.now : state.syncNotBefore,
-      activeSyncToken: input.claimToken,
-      activeSyncOwnerUserId: input.userId,
-      activeSyncStartedAt: input.now,
-      activeSyncLeaseExpiresAt: leaseExpiresAt,
-      activeSyncScope: ttlExpired ? 'inventory' : state.requestedSyncScope,
-      activeGeneration: generation,
-      freshnessFence: input.freshnessFence,
-    },
-  };
-}
-
-export function planHeartbeat(
-  state: SellpiaInventoryFreshnessState,
-  input: {
-    now: Date;
-    userId: string;
-    claimToken: string;
-    freshnessFence: string;
-  },
-): SellpiaInventoryFreshnessStatePatch | null {
-  if (!ownsLiveLease(state, input)) return null;
-  return {
-    activeSyncLeaseExpiresAt: new Date(input.now.getTime() + SELLPIA_CLAIM_LEASE_MS),
-    freshnessFence: input.freshnessFence,
-  };
-}
-
-export function planFailure(
-  state: SellpiaInventoryFreshnessState,
-  input: {
-    now: Date;
-    userId: string;
-    claimToken: string;
-    errorCode: SellpiaInventoryCollectionFailureCode;
-    errorMessage: string;
-    freshnessFence: string;
-  },
-): SellpiaInventoryFreshnessStatePatch | null {
-  if (!ownsLiveLease(state, input) || state.activeGeneration === null) return null;
-  return {
-    activeSyncToken: null,
-    activeSyncOwnerUserId: null,
-    activeSyncStartedAt: null,
-    activeSyncLeaseExpiresAt: null,
-    activeSyncScope: null,
-    activeGeneration: null,
-    failedGeneration: state.activeGeneration,
-    lastAttemptAt: input.now,
-    lastAttemptStatus: 'failed',
-    lastAttemptSyncScope: state.activeSyncScope ?? state.requestedSyncScope,
-    lastErrorCode: input.errorCode,
-    lastErrorMessage: input.errorMessage,
-    freshnessFence: input.freshnessFence,
-  };
-}
-
-export function planCancel(
-  state: SellpiaInventoryFreshnessState,
-  input: {
-    now: Date;
-    userId: string;
-    claimToken: string;
-    freshnessFence: string;
-  },
-): SellpiaInventoryFreshnessStatePatch | null {
-  if (!ownsLiveLease(state, input)) return null;
-  return {
-    activeSyncToken: null,
-    activeSyncOwnerUserId: null,
-    activeSyncStartedAt: null,
-    activeSyncLeaseExpiresAt: null,
-    activeSyncScope: null,
-    activeGeneration: null,
-    freshnessFence: input.freshnessFence,
-  };
-}
-
 export function hasLiveLease(
   state: SellpiaInventoryFreshnessState,
   now: Date,
@@ -383,15 +240,6 @@ export function isSourceBindingConfirmed(
 ): boolean {
   return state.sourceOrigin === SELLPIA_SOURCE_ORIGIN
     && state.sourceAccountKey === SELLPIA_SOURCE_ACCOUNT_KEY;
-}
-
-function ownsLiveLease(
-  state: SellpiaInventoryFreshnessState,
-  input: { now: Date; userId: string; claimToken: string },
-): boolean {
-  return hasLiveLease(state, input.now)
-    && state.activeSyncToken === input.claimToken
-    && state.activeSyncOwnerUserId === input.userId;
 }
 
 function strongestScope(

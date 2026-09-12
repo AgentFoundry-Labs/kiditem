@@ -28,6 +28,12 @@ function successfulResponse(url: string) {
   if (url.startsWith("/api/ads/campaigns/trends")) {
     return Promise.resolve({ accountSummary: null });
   }
+  if (url.startsWith("/api/ads/ad-campaigns/reports?")) {
+    return Promise.resolve({
+      channelAccountId: "11111111-1111-4111-8111-111111111111",
+      reports: [],
+    });
+  }
   if (url.startsWith("/api/ads/campaigns")) {
     return Promise.resolve([]);
   }
@@ -77,6 +83,211 @@ describe("CampaignContent", () => {
     },
   );
 
+  it("renders every exact-range manual report with captured rows without replacing campaign facts", async () => {
+    mockApiGet.mockImplementation((url: string) => {
+      if (url.startsWith("/api/ads/ad-campaigns/reports?")) {
+        return Promise.resolve({
+          channelAccountId: "11111111-1111-4111-8111-111111111111",
+          reports: [
+            {
+              attemptId: "22222222-2222-4222-8222-222222222222",
+              generation: "3",
+              plan: {
+                sourceType: "coupang_ad_campaign",
+                parserVersion: "ad-campaign-v1",
+                captureMode: "manual_report",
+                period: "7d",
+                channelAccountId: "11111111-1111-4111-8111-111111111111",
+                expectedAdvertiserId: "advertiser-1",
+                startDate: "2026-08-30",
+                endDate: "2026-09-05",
+                targetUrl: "https://advertising.coupang.com/campaigns",
+                businessDates: ["2026-09-05"],
+              },
+              payload: {
+                data: [{ campaign: "displayed-range-a" }],
+                normalizedRows: [{
+                  campaignName: "캠페인 A",
+                  productName: "상품 A",
+                  spend: 1234,
+                  revenue: 5678,
+                  impressions: 100,
+                  clicks: 12,
+                  conversions: 3,
+                  roas: 460.3,
+                  ctr: 12,
+                  conversionRate: 25,
+                }],
+                campaignName: "manual-report-a",
+                timestamp: "2026-09-06T00:00:00.000Z",
+              },
+            },
+            {
+              attemptId: "33333333-3333-4333-8333-333333333333",
+              generation: "4",
+              plan: {
+                sourceType: "coupang_ad_campaign",
+                parserVersion: "ad-campaign-v1",
+                captureMode: "manual_report",
+                period: "7d",
+                channelAccountId: "33333333-3333-4333-8333-333333333333",
+                expectedAdvertiserId: "advertiser-2",
+                startDate: "2026-08-29",
+                endDate: "2026-09-04",
+                targetUrl: "https://advertising.coupang.com/campaigns?scope=second",
+                businessDates: ["2026-09-04"],
+              },
+              payload: {
+                data: [{ campaign: "displayed-range-b" }],
+                normalizedRows: [{
+                  campaignName: "캠페인 B",
+                  productName: "상품 B",
+                  spend: 2000,
+                  revenue: 9000,
+                  impressions: 200,
+                  clicks: 20,
+                  conversions: 5,
+                  roas: 450,
+                  ctr: 10,
+                  conversionRate: 25,
+                }],
+                campaignName: "manual-report-b",
+                timestamp: "2026-09-05T00:00:00.000Z",
+              },
+            },
+          ],
+        });
+      }
+      return successfulResponse(url);
+    });
+
+    render(<CampaignContent initialCampaign={null} period="7d" />, {
+      wrapper: wrapper(),
+    });
+
+    const manualPanel = await screen.findByTestId("manual-report-panel");
+    expect(manualPanel).toHaveTextContent("캠페인 A");
+    expect(manualPanel).toHaveTextContent("상품 A");
+    expect(manualPanel).toHaveTextContent("1,234원");
+    expect(manualPanel).toHaveTextContent("5,678원");
+    expect(manualPanel).toHaveTextContent("460.3%");
+    expect(manualPanel).toHaveTextContent("12.0%");
+    expect(manualPanel).toHaveTextContent("25.0%");
+    expect(manualPanel).toHaveTextContent("캠페인 B");
+    expect(manualPanel).toHaveTextContent("상품 B");
+    expect(manualPanel).toHaveTextContent("2,000원");
+    expect(manualPanel).toHaveTextContent("9,000원");
+    expect(manualPanel).toHaveTextContent("450.0%");
+    expect(screen.getByTestId("manual-report-22222222-2222-4222-8222-222222222222")).toBeInTheDocument();
+    expect(screen.getByTestId("manual-report-33333333-3333-4333-8333-333333333333")).toBeInTheDocument();
+    expect(mockApiGet).toHaveBeenCalledWith(
+      expect.stringMatching(/^\/api\/ads\/ad-campaigns\/reports\?startDate=\d{4}-\d{2}-\d{2}&endDate=\d{4}-\d{2}-\d{2}$/),
+    );
+  });
+
+  it("keeps raw report column labels and units unchanged when normalized rows are absent", async () => {
+    mockApiGet.mockImplementation((url: string) => {
+      if (url.startsWith("/api/ads/ad-campaigns/reports?")) {
+        return Promise.resolve({
+          channelAccountId: "11111111-1111-4111-8111-111111111111",
+          reports: [{
+            attemptId: "55555555-5555-4555-8555-555555555555",
+            generation: "6",
+            plan: {
+              sourceType: "coupang_ad_campaign",
+              parserVersion: "ad-campaign-v1",
+              captureMode: "manual_report",
+              period: "7d",
+              channelAccountId: "11111111-1111-4111-8111-111111111111",
+              expectedAdvertiserId: "advertiser-1",
+              startDate: "2026-08-30",
+              endDate: "2026-09-05",
+              targetUrl: "https://advertising.coupang.com/campaigns",
+              businessDates: ["2026-09-05"],
+            },
+            payload: {
+              data: [{ "광고상품": "원본 상품", "전환매출": "1.2만", "클릭률": "4.5%" }],
+              normalizedRows: [],
+              campaignName: "raw-report",
+              timestamp: "2026-09-06T00:00:00.000Z",
+            },
+          }],
+        });
+      }
+      return successfulResponse(url);
+    });
+
+    render(<CampaignContent initialCampaign={null} period="7d" />, {
+      wrapper: wrapper(),
+    });
+
+    const rawTable = await screen.findByTestId("manual-report-raw-table-55555555-5555-4555-8555-555555555555");
+    expect(rawTable).toHaveTextContent("전환매출");
+    expect(rawTable).toHaveTextContent("1.2만");
+    expect(rawTable).toHaveTextContent("클릭률");
+    expect(rawTable).toHaveTextContent("4.5%");
+    expect(rawTable).not.toHaveTextContent("12,000원");
+  });
+
+  it("renders an explicit empty manual report as confirmed empty evidence", async () => {
+    mockApiGet.mockImplementation((url: string) => {
+      if (url.startsWith("/api/ads/ad-campaigns/reports?")) {
+        return Promise.resolve({
+          channelAccountId: "11111111-1111-4111-8111-111111111111",
+          reports: [{
+            attemptId: "44444444-4444-4444-8444-444444444444",
+            generation: "5",
+            plan: {
+              sourceType: "coupang_ad_campaign",
+              parserVersion: "ad-campaign-v1",
+              captureMode: "manual_report",
+              period: "7d",
+              channelAccountId: "11111111-1111-4111-8111-111111111111",
+              expectedAdvertiserId: "advertiser-1",
+              startDate: "2026-08-30",
+              endDate: "2026-09-05",
+              targetUrl: "https://advertising.coupang.com/campaigns",
+              businessDates: ["2026-09-05"],
+            },
+            payload: {
+              data: [],
+              normalizedRows: [],
+              campaignName: "_전체",
+              timestamp: "2026-09-06T00:00:00.000Z",
+            },
+          }],
+        });
+      }
+      return successfulResponse(url);
+    });
+
+    render(<CampaignContent initialCampaign={null} period="7d" />, {
+      wrapper: wrapper(),
+    });
+
+    expect(
+      await screen.findByTestId("manual-report-empty-44444444-4444-4444-8444-444444444444"),
+    ).toHaveTextContent("명시적 빈 결과로 보관했습니다");
+  });
+
+  it("surfaces a manual report read error without hiding the sweep consumer", async () => {
+    mockApiGet.mockImplementation((url: string) => {
+      if (url.startsWith("/api/ads/ad-campaigns/reports?")) {
+        return Promise.reject(new Error("manual report read failed"));
+      }
+      return successfulResponse(url);
+    });
+
+    render(<CampaignContent initialCampaign={null} period="7d" />, {
+      wrapper: wrapper(),
+    });
+
+    expect(await screen.findByTestId("manual-report-error")).toHaveTextContent(
+      "표시 범위 원본 보고서를 불러오지 못했습니다",
+    );
+    expect(await screen.findByText("이 기간에 수집된 캠페인 목록이 없습니다.")).toBeInTheDocument();
+  });
+
   it("does not keep the previous period campaign totals visible while the next period loads", async () => {
     let resolveSevenDayCampaigns:
       | ((campaigns: Record<string, unknown>[]) => void)
@@ -114,6 +325,12 @@ describe("CampaignContent", () => {
       }
       if (url.startsWith("/api/ads/campaigns/trends")) {
         return Promise.resolve({ accountSummary: null });
+      }
+      if (url.startsWith("/api/ads/ad-campaigns/reports?")) {
+        return Promise.resolve({
+          channelAccountId: "11111111-1111-4111-8111-111111111111",
+          reports: [],
+        });
       }
       if (url === "/api/ads/campaigns?period=14d") {
         return Promise.resolve([snapshot("14일 캠페인", 1400)]);
@@ -206,6 +423,12 @@ describe("CampaignContent", () => {
       }
       if (url === "/api/ads/campaigns?period=7d") {
         return Promise.resolve([]);
+      }
+      if (url.startsWith("/api/ads/ad-campaigns/reports?")) {
+        return Promise.resolve({
+          channelAccountId: "11111111-1111-4111-8111-111111111111",
+          reports: [],
+        });
       }
       if (url.startsWith("/api/ads/products?")) {
         return Promise.resolve([]);

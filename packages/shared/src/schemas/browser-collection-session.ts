@@ -1,35 +1,36 @@
 import { z } from 'zod';
 
 export const BROWSER_COLLECTION_PRODUCERS = [
-  'dashboard.wing_sales',
+  'advertising.ad_account_daily_kpi',
+  'advertising.ad_keyword',
+  'advertising.ad_sync',
+  'advertising.profitability_import',
+  'advertising.competitor_catalog',
+  'advertising.competitor_seller_identity',
+  'advertising.keyword_rank',
+  'advertising.wing_rank',
+  'advertising.wing_tracked_products',
+  'channels.coupang_catalog',
   'dashboard.coupang_ads',
   'dashboard.coupang_products',
   'dashboard.wing_kpi',
-  'advertising.ad_sync',
-  'advertising.ad_keyword',
-  'advertising.scrape_targets',
-  'advertising.wing_rank',
-  'advertising.keyword_rank',
-  'advertising.competitor_catalog',
-  'channels.coupang_catalog',
-  'sourcing.wing_catalog',
-  'sourcing.1688_trend',
-  'sourcing.live_commerce',
-  'sourcing.tiktok_cc_trend',
-  'orders.mall',
-  'orders.coupang_shipment_summary',
-  'orders.coupang_rocket_po',
+  'dashboard.wing_sales',
   'inventory.sellpia',
+  'orders.coupang_directship',
+  'orders.coupang_reviews',
+  'orders.coupang_rocket_po',
+  'orders.coupang_shipment_summary',
+  'orders.mall',
   'orders.sellpia_manual_match',
-] as const;
-
-export const BROWSER_COLLECTION_STATES = [
-  'idle',
-  'running',
-  'attention_required',
-  'succeeded',
-  'failed',
-  'cancelled',
+  'orders.sellpia_product_profitability',
+  'orders.sellpia_sales',
+  'orders.sellpia_shipment_tracking',
+  'sourcing.1688_trend',
+  'sourcing.keyword_suggestion',
+  'sourcing.live_commerce',
+  'sourcing.product_extension',
+  'sourcing.tiktok_cc_trend',
+  'sourcing.wing_catalog',
 ] as const;
 
 export const BROWSER_COLLECTION_ATTENTION_REASONS = [
@@ -48,150 +49,75 @@ export const BROWSER_COLLECTION_ATTENTION_REASONS = [
 export const BrowserCollectionProducerSchema = z.enum(
   BROWSER_COLLECTION_PRODUCERS,
 );
-export const BrowserCollectionStateSchema = z.enum(BROWSER_COLLECTION_STATES);
-export const BrowserCollectionClassificationSchema = z.enum([
-  'background_safe',
-  'background_preferred',
-  'interactive_only',
-]);
 export const BrowserCollectionAttentionReasonSchema = z.enum(
   BROWSER_COLLECTION_ATTENTION_REASONS,
 );
-export const BrowserCollectionRunIdSchema = z.string().uuid();
-export const BrowserCollectionRunIssueResponseSchema = z.object({
-  runId: BrowserCollectionRunIdSchema,
-}).strict();
 
-const InputValueSchema = z.union([
-  z.string().max(500),
-  z.number().finite(),
-  z.boolean(),
-  z.null(),
-]);
-const SecretIdentityKeyPattern =
-  /response|body|html|token|password|secret|cookie|credential|file|rows|payload/i;
-const InputIdentitySchema = z
-  .record(z.string().min(1).max(80), InputValueSchema)
-  .superRefine((value, context) => {
-    if (Object.keys(value).length > 20) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'Too many identity fields',
-      });
-    }
-    for (const key of Object.keys(value)) {
-      if (SecretIdentityKeyPattern.test(key)) {
-        context.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: `Secret identity field is not allowed: ${key}`,
-        });
-      }
-    }
-  });
+// This is the owner-issued SourceImportAttempt id. An extension collection
+// session must never mint a second id or invent a second lifecycle for it.
+export const BrowserCollectionAttemptIdSchema = z.string().uuid();
 
-export const BrowserCollectionSessionViewSchema = z
+const BoundedCountSchema = z.number().int().min(0).max(1_000_000);
+
+export const BrowserCollectionProgressSchema = z
   .object({
-    // Universal extensions expose their local/office owner so one
-    // installed copy can isolate concurrent collection sessions. Keep this
-    // optional for web-created attention views and older extension sessions.
-    environmentId: z.enum(['local', 'office']).optional(),
-    runId: BrowserCollectionRunIdSchema,
-    producer: BrowserCollectionProducerSchema,
-    classification: BrowserCollectionClassificationSchema.exclude([
-      'interactive_only',
-    ]),
-    status: BrowserCollectionStateSchema,
-    attempt: z.number().int().min(1),
-    restartStrategy: z.enum(['extension', 'web']),
-    progress: z
-      .object({
-        current: z.number().int().min(0),
-        total: z.number().int().min(0),
-        completed: z.number().int().min(0),
-        failed: z.number().int().min(0),
-        label: z.string().max(300).nullable(),
-      })
-      .strict(),
-    inputIdentity: InputIdentitySchema,
-    attention: z
-      .object({
-        reason: BrowserCollectionAttentionReasonSchema,
-        message: z.string().min(1).max(2000),
-        canOpenTab: z.boolean(),
-      })
-      .strict()
-      .nullable(),
-    startedAt: z.number().int().nonnegative(),
-    updatedAt: z.number().int().nonnegative(),
-    finishedAt: z.number().int().nonnegative().nullable(),
+    current: BoundedCountSchema,
+    total: BoundedCountSchema,
+    completed: BoundedCountSchema,
+    failed: BoundedCountSchema,
+    label: z.string().max(300).nullable(),
   })
   .strict()
-  .superRefine((session, context) => {
+  .superRefine((progress, context) => {
     if (
-      session.progress.current > session.progress.total ||
-      session.progress.completed + session.progress.failed >
-        session.progress.total
+      progress.current > progress.total ||
+      progress.completed + progress.failed > progress.total
     ) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         message: 'Invalid progress bounds',
       });
     }
-    if (session.status === 'attention_required' && session.attention === null) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'Attention details are required',
-      });
-    }
-    if (session.status !== 'attention_required' && session.attention !== null) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'Unexpected attention details',
-      });
-    }
-    const terminal = ['succeeded', 'failed', 'cancelled'].includes(
-      session.status,
-    );
-    if (terminal !== (session.finishedAt !== null)) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'Invalid terminal timestamp',
-      });
-    }
   });
+
+export const BrowserCollectionAttentionSchema = z
+  .object({
+    reason: BrowserCollectionAttentionReasonSchema,
+    message: z.string().min(1).max(2_000),
+    canOpenTab: z.boolean(),
+  })
+  .strict();
+
+export const BrowserCollectionSessionViewSchema = z
+  .object({
+    // Environment ownership is local extension metadata, not part of the
+    // owner attempt. It remains optional for callers with one environment.
+    environmentId: z.enum(['local', 'office']).optional(),
+    attemptId: BrowserCollectionAttemptIdSchema,
+    producer: BrowserCollectionProducerSchema,
+    progress: BrowserCollectionProgressSchema,
+    attention: BrowserCollectionAttentionSchema.nullable(),
+  })
+  .strict();
 
 export const BrowserCollectionCommandSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('listCollectionSessions') }).strict(),
   z
     .object({
       action: z.literal('getCollectionSession'),
-      runId: BrowserCollectionRunIdSchema,
+      attemptId: BrowserCollectionAttemptIdSchema,
     })
     .strict(),
   z
     .object({
       action: z.literal('cancelCollectionSession'),
-      runId: BrowserCollectionRunIdSchema,
+      attemptId: BrowserCollectionAttemptIdSchema,
     })
     .strict(),
   z
     .object({
       action: z.literal('openCollectionAttentionTab'),
-      runId: BrowserCollectionRunIdSchema,
-    })
-    .strict(),
-  z
-    .object({
-      action: z.literal('restartCollectionSession'),
-      runId: BrowserCollectionRunIdSchema,
-    })
-    .strict(),
-  z
-    .object({
-      action: z.literal('finalizeCollectionSession'),
-      runId: BrowserCollectionRunIdSchema,
-      status: z.enum(['succeeded', 'failed']),
-      message: z.string().min(1).max(300),
+      attemptId: BrowserCollectionAttemptIdSchema,
     })
     .strict(),
 ]);
@@ -199,15 +125,18 @@ export const BrowserCollectionCommandSchema = z.discriminatedUnion('action', [
 export type BrowserCollectionProducer = z.infer<
   typeof BrowserCollectionProducerSchema
 >;
-export type BrowserCollectionState = z.infer<
-  typeof BrowserCollectionStateSchema
+export type BrowserCollectionAttemptId = z.infer<
+  typeof BrowserCollectionAttemptIdSchema
+>;
+export type BrowserCollectionProgress = z.infer<
+  typeof BrowserCollectionProgressSchema
+>;
+export type BrowserCollectionAttention = z.infer<
+  typeof BrowserCollectionAttentionSchema
 >;
 export type BrowserCollectionSessionView = z.infer<
   typeof BrowserCollectionSessionViewSchema
 >;
 export type BrowserCollectionCommand = z.infer<
   typeof BrowserCollectionCommandSchema
->;
-export type BrowserCollectionRunIssueResponse = z.infer<
-  typeof BrowserCollectionRunIssueResponseSchema
 >;

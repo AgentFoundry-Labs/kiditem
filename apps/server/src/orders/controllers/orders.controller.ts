@@ -1,8 +1,7 @@
-import { Controller, Get, Post, Body, Param, Query, ServiceUnavailableException, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Query, BadRequestException } from '@nestjs/common';
 import { OrdersService } from '../services/orders.service';
 import { ListOrdersQueryDto, OrderActionBodyDto } from '../dto';
 import { CurrentOrganization } from '../../auth/decorators/current-organization.decorator';
-import { isCoupangCredentialResolutionError } from '../../channels/application/service/channel-account.service';
 
 @Controller('orders')
 export class OrdersController {
@@ -20,7 +19,7 @@ export class OrdersController {
 
   @Get(':id')
   async findOne(@Param('id') id: string, @CurrentOrganization() organizationId: string) {
-    // 서비스가 NotFoundException 을 throw 한다 (null 반환 금지 — apps/server/AGENTS.md 규칙)
+    // 서비스가 NotFoundException 을 throw 한다 (null 반환 금지 — apps/server/CLAUDE.md 규칙)
     return this.ordersService.findOne(id, organizationId);
   }
 
@@ -30,29 +29,16 @@ export class OrdersController {
     @CurrentOrganization() organizationId: string,
   ) {
     if (body.action === 'confirm') {
-      try {
-        return await this.ordersService.confirm(body.shipmentBoxIds!, organizationId);
-      } catch (err) {
-        // 소유권 검증 실패 (NotFoundException) 는 그대로 통과 — 외부 API 다운으로 위장 금지.
-        if (err instanceof NotFoundException) throw err;
-        if (isCoupangCredentialResolutionError(err)) throw err;
-        throw new ServiceUnavailableException('쿠팡 API가 연결되지 않았습니다.');
-      }
+      return this.ordersService.confirm(body.shipmentBoxIds!, organizationId);
     }
 
     if (body.action === 'invoice') {
-      try {
-        return await this.ordersService.uploadInvoice(
-          body.shipmentBoxId!,
-          body.deliveryCompanyCode!,
-          body.invoiceNumber!,
-          organizationId,
-        );
-      } catch (err) {
-        if (err instanceof NotFoundException) throw err;
-        if (isCoupangCredentialResolutionError(err)) throw err;
-        throw new ServiceUnavailableException('쿠팡 API가 연결되지 않았습니다.');
-      }
+      return this.ordersService.uploadInvoice(
+        body.shipmentBoxId!,
+        body.deliveryCompanyCode!,
+        body.invoiceNumber!,
+        organizationId,
+      );
     }
     throw new BadRequestException(`Unknown action: ${body.action}`);
   }

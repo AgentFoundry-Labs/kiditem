@@ -6,6 +6,11 @@ import {
   SellpiaInventoryBrowserSnapshotSchema,
   SellpiaInventoryImportOutcomeSchema,
   SellpiaInventoryImportResponseSchema,
+  SellpiaProfitabilityAttemptSchema,
+  SellpiaProfitabilityAttemptControlSchema,
+  SellpiaProfitabilityAttemptSummarySchema,
+  SellpiaProfitabilityPlanSchema,
+  SellpiaProfitabilitySourceStatusSchema,
   SourceImportRunSchema,
   SourceImportTypeSchema,
   VerifiedSellpiaSourceImportRunSchema,
@@ -394,5 +399,82 @@ describe('source import contracts', () => {
     expect(SourceImportTypeSchema.parse('coupang_rocket_catalog_seed')).toBe(
       'coupang_rocket_catalog_seed',
     );
+    expect(SourceImportTypeSchema.parse('sellpia_product_profitability')).toBe(
+      'sellpia_product_profitability',
+    );
+  });
+
+  it('keeps Sellpia profitability control and token-free status bounded', () => {
+    const attempt = SellpiaProfitabilityAttemptSchema.parse({
+      attemptId: '00000000-0000-4000-8000-000000000010',
+      attemptToken: '00000000-0000-4000-8000-000000000011',
+      state: 'COMPLETE',
+      expiresAt: '2026-09-03T01:30:00.000Z',
+      capturedAt: '2026-09-03T01:00:00.000Z',
+      generation: '7',
+      errorCode: null,
+      errorMessage: null,
+      plan: {
+        from: '2025-09-01',
+        to: '2026-08-31',
+        coveredMonths: ['2025-09', '2026-08'],
+      },
+    });
+    expect(attempt.generation).toBe('7');
+
+    expect(SellpiaProfitabilityAttemptControlSchema.parse({
+      attemptId: attempt.attemptId,
+      attemptToken: attempt.attemptToken,
+      state: 'RUNNING',
+      expiresAt: attempt.expiresAt,
+      plan: attempt.plan,
+    })).toMatchObject({ state: 'RUNNING' });
+
+    const summary = SellpiaProfitabilityAttemptSummarySchema.parse({
+      attemptId: attempt.attemptId,
+      state: attempt.state,
+      expiresAt: attempt.expiresAt,
+      capturedAt: attempt.capturedAt,
+      generation: attempt.generation,
+      errorCode: attempt.errorCode,
+      errorMessage: attempt.errorMessage,
+      plan: attempt.plan,
+    });
+    expect(summary).not.toHaveProperty('attemptToken');
+
+    expect(SellpiaProfitabilitySourceStatusSchema.parse({
+      latestAttempt: summary,
+      latestComplete: {
+        sourceImportRunId: attempt.attemptId,
+        generation: '7',
+        coveredThrough: '2026-08-31',
+        capturedAt: '2026-09-03T01:00:00.000Z',
+        mappingGeneration: '3',
+      },
+      ready: true,
+    }).ready).toBe(true);
+    expect(() => SellpiaProfitabilitySourceStatusSchema.parse({
+      latestAttempt: attempt,
+      latestComplete: null,
+      ready: false,
+    })).toThrow();
+  });
+
+  it('allows the actual 401-day window to span at most fifteen month partitions', () => {
+    const coveredMonths = [
+      '2025-07', '2025-08', '2025-09', '2025-10', '2025-11', '2025-12',
+      '2026-01', '2026-02', '2026-03', '2026-04', '2026-05', '2026-06',
+      '2026-07', '2026-08', '2026-09',
+    ];
+    expect(SellpiaProfitabilityPlanSchema.parse({
+      from: '2025-07-29',
+      to: '2026-09-02',
+      coveredMonths,
+    }).coveredMonths).toEqual(coveredMonths);
+    expect(() => SellpiaProfitabilityPlanSchema.parse({
+      from: '2025-07-29',
+      to: '2026-09-02',
+      coveredMonths: [...coveredMonths, '2026-10'],
+    })).toThrow();
   });
 });

@@ -43,6 +43,14 @@
     return { success: false, result: result ?? sessionError(), tab, created };
   }
 
+  function cancellationResult() {
+    return {
+      success: false,
+      errorCode: "COLLECTION_CANCELLED",
+      error: "Coupang PO collection was cancelled.",
+    };
+  }
+
   function create({ chrome: chromeApi, attachOrderCollectionTab, waitForTabReady }) {
     // 400 응답은 탭 URL 이 그대로라 본문으로만 구분된다("HTTP Status 400 – Bad Request").
     async function isCookieBloatTab(tabId) {
@@ -63,7 +71,14 @@
       let tab;
       let created = false;
 
-      if (!forceNew) {
+      if (!(await isCollectionActive(collection))) {
+        return preparationError(null, false, cancellationResult());
+      }
+
+      // Rocket PO runs must never reuse an operator's visible Supplier tab.
+      // They use a fresh inactive tab so the common cancellation fence can
+      // close the exact in-page request loop even after app-close/restart.
+      if (!forceNew && collection?.requireOwnedTab !== true) {
         const tabs = await chromeApi.tabs.query({ url: SUPPLIER_TAB_MATCHES });
         tab = tabs.find((candidate) => isReadyPoUrl(candidate.url));
       }
@@ -74,8 +89,14 @@
       }
       if (!tab?.id) return preparationError(tab, created);
 
-      await attachOrderCollectionTab(collection, tab, created);
+      const attached = await attachOrderCollectionTab(collection, tab, created);
+      if (attached === null || attached === false) {
+        return preparationError(tab, created, cancellationResult());
+      }
       await waitForTabReady(tab.id);
+      if (!(await isCollectionActive(collection))) {
+        return preparationError(tab, created, cancellationResult());
+      }
 
       let currentTab;
       try {
@@ -103,12 +124,21 @@
     }
 
     async function executePrepared(collection, prepared, execute, retainSessionError) {
+      if (!(await isCollectionActive(collection))) {
+        await release(collection, prepared);
+        return cancellationResult();
+      }
       let result;
       try {
         result = await execute(prepared.tab);
       } catch (error) {
         await release(collection, prepared);
         throw error;
+      }
+
+      if (!(await isCollectionActive(collection))) {
+        await release(collection, prepared);
+        return cancellationResult();
       }
 
       if (!retainSessionError || result?.errorCode !== SESSION_ERROR_CODE) {
@@ -121,8 +151,12 @@
       let prepared = await prepare(collection, false);
       if (!prepared.success) {
         if (prepared.tab?.id) await release(collection, prepared);
+        if (prepared.result?.errorCode === "COLLECTION_CANCELLED") {
+          return prepared.result;
+        }
         // 쿠키 과다는 새 탭을 열어도 같은 쿠키가 실려 그대로 400 이다. 한 번 더 기다리게 하지 않는다.
         if (prepared.result?.errorCode === COOKIE_BLOAT_ERROR_CODE) return prepared.result;
+        if (!(await isCollectionActive(collection))) return cancellationResult();
         prepared = await prepare(collection, true);
         if (!prepared.success) return prepared.result;
         return executePrepared(collection, prepared, execute, true);
@@ -136,9 +170,20 @@
       );
       if (firstResult?.errorCode !== SESSION_ERROR_CODE) return firstResult;
 
+      if (!(await isCollectionActive(collection))) return cancellationResult();
+
       const retryPrepared = await prepare(collection, true);
       if (!retryPrepared.success) return retryPrepared.result;
       return executePrepared(collection, retryPrepared, execute, true);
+    }
+
+    async function isCollectionActive(collection) {
+      if (typeof collection?.isActive !== "function") return true;
+      try {
+        return (await collection.isActive()) !== false;
+      } catch {
+        return false;
+      }
     }
 
     return Object.freeze({ run });

@@ -124,6 +124,12 @@ export interface SourcingCandidateRepositoryPort {
   upsertSourcedWithIdempotencyReceipt(
     input: UpsertCandidateWithIdempotencyReceiptInput,
   ): Promise<{ candidateId: string }>;
+  claimQuickProcessCandidate(input: {
+    organizationId: string;
+    candidateId: string;
+    idempotencyKey: string;
+    requestHash: string;
+  }): Promise<{ candidateId: string }>;
   mergeDescription(input: {
     organizationId: string;
     sourceUrl: string;

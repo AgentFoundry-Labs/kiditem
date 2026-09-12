@@ -24,7 +24,6 @@ const implementation = (capabilityKey = "products.inspect") => ({
     outcome: "completed" as const,
     summary: "Done.",
     resourceRefs: [],
-    operationRefs: [],
   }),
 });
 

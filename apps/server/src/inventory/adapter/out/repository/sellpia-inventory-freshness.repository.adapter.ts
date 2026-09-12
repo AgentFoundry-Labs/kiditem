@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { ConflictException, Injectable } from '@nestjs/common';
 import { Prisma, type SellpiaInventoryState } from '@prisma/client';
 import {
@@ -7,8 +6,8 @@ import {
   SellpiaSyncScopeSchema,
 } from '@kiditem/shared/sellpia-inventory-freshness';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { lockSellpiaInventoryTransaction } from './sellpia-inventory-transaction-lock';
 import type {
-  FailedSellpiaInventoryAttempt,
   SellpiaInventoryFreshnessRepositoryPort,
   SellpiaInventoryFreshnessRepositoryTransaction,
   SellpiaInventoryStateExpectation,
@@ -17,15 +16,15 @@ import type {
 import type {
   SellpiaInventoryFreshnessState,
 } from '../../../domain/policy/sellpia-inventory-freshness.policy';
-import { lockSellpiaInventoryTransaction } from './sellpia-inventory-transaction-lock';
 
-const SOURCE_TYPE = 'sellpia_inventory';
 const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;
 
 @Injectable()
 export class SellpiaInventoryFreshnessRepositoryAdapter
 implements SellpiaInventoryFreshnessRepositoryPort {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+  ) {}
 
   readState(
     organizationId: string,
@@ -65,7 +64,10 @@ implements SellpiaInventoryFreshnessRepositoryPort {
         WHERE organization_id = ${input.organizationId}::uuid
         FOR UPDATE
       `;
-      return operation(new LockedFreshnessTransaction(tx, input.organizationId));
+      return operation(new LockedFreshnessTransaction(
+        tx,
+        input.organizationId,
+      ));
     }, TRANSACTION_OPTIONS);
   }
 }
@@ -96,85 +98,6 @@ implements SellpiaInventoryFreshnessRepositoryTransaction {
       throw new ConflictException('Sellpia inventory freshness fence was lost');
     }
     return this.getState();
-  }
-
-  async hasFailedAttempt(input: {
-    claimToken: string;
-    createdBy: string;
-  }): Promise<boolean> {
-    const run = await this.tx.sourceImportRun.findFirst({
-      where: {
-        organizationId: this.organizationId,
-        sourceType: SOURCE_TYPE,
-        channelAccountId: null,
-        fileHash: null,
-        status: 'failed',
-        attemptToken: input.claimToken,
-        createdBy: input.createdBy,
-        freshnessGeneration: { not: null },
-      },
-      select: { id: true },
-    });
-    return run !== null;
-  }
-
-  async upsertFailedAttempt(input: FailedSellpiaInventoryAttempt): Promise<void> {
-    const runId = randomUUID();
-    await this.tx.$executeRaw`
-      INSERT INTO source_import_runs (
-        id,
-        organization_id,
-        source_type,
-        channel_account_id,
-        file_name,
-        file_hash,
-        status,
-        row_count,
-        imported_at,
-        last_verified_at,
-        verification_count,
-        last_trigger,
-        freshness_generation,
-        quality_report,
-        error_code,
-        error_message,
-        created_by,
-        attempt_token,
-        created_at,
-        updated_at
-      ) VALUES (
-        ${runId}::uuid,
-        ${this.organizationId}::uuid,
-        ${SOURCE_TYPE},
-        NULL,
-        NULL,
-        NULL,
-        'failed',
-        0,
-        NULL,
-        NULL,
-        0,
-        ${input.trigger},
-        ${input.generation},
-        NULL,
-        ${input.errorCode},
-        ${input.errorMessage},
-        ${input.createdBy},
-        ${input.claimToken}::uuid,
-        ${input.attemptedAt},
-        ${input.attemptedAt}
-      )
-      ON CONFLICT (organization_id, source_type, freshness_generation)
-      WHERE file_hash IS NULL
-        AND source_type = 'sellpia_inventory'
-        AND status = 'failed'
-        AND freshness_generation IS NOT NULL
-      DO UPDATE SET
-        last_trigger = EXCLUDED.last_trigger,
-        error_code = EXCLUDED.error_code,
-        error_message = EXCLUDED.error_message,
-        updated_at = EXCLUDED.updated_at
-    `;
   }
 
   findInventorySkus(

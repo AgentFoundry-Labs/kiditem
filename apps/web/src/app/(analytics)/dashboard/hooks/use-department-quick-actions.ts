@@ -5,11 +5,12 @@ import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { usePersistedAllMarketplaceOrderCollection } from '@/hooks/useAllMarketplaceOrderCollection';
 import { useRocketChannelAccounts } from '@/hooks/useRocketChannelAccounts';
-import { useSellpiaInventoryFreshness } from '@/hooks/useSellpiaInventoryFreshness';
+import { useSellpiaInventorySourceOwner } from '@/app/(inventory)/_shared/sellpia-inventory-source-owner';
 import { collectAndPersistCoupangShipmentSummary } from '@/lib/coupang-shipment-summary-action';
-import { startTrendCollectionAction } from '@/lib/manual-operation-actions';
+import { useTrendSourceCollection } from '@/hooks/use-trend-source-collection';
 import { queryKeys } from '@/lib/query-keys';
-import { collectAndPersistRocketPurchaseOrders } from '@/lib/rocket-purchase-collection-action';
+import { useRocketPoSource } from '@/hooks/use-rocket-po-source';
+import { RocketPoSourceError } from '@/lib/rocket-sales-collection';
 import { formatNumber } from '@/lib/utils';
 
 export type DepartmentQuickAction =
@@ -37,21 +38,20 @@ function currentMonthRange(): { from: string; to: string } {
 
 /**
  * Dashboard buttons call the same executable browser actions as their domain
- * screens. Only Operation-backed actions retain dashboard source metadata.
+ * screens. Inventory collection is admitted by the Sellpia source owner.
  */
 export function useDepartmentQuickActions() {
   const queryClient = useQueryClient();
+  const { collect: collectTrend } = useTrendSourceCollection();
   const { rocketAccounts, isBootstrapping: rocketAccountBootstrapping } =
     useRocketChannelAccounts();
   const rocketAccountId = rocketAccounts[0]?.id ?? null;
+  const { collect: collectRocket } = useRocketPoSource(rocketAccountId ?? '');
   const { collectAllOrders } = usePersistedAllMarketplaceOrderCollection({
     rocketChannelAccountId: rocketAccountId,
   });
-  const { requestRefresh: requestSellpiaInventoryRefresh } =
-    useSellpiaInventoryFreshness({
-      enabled: true,
-      sourceSurface: 'dashboard',
-    });
+  const { start: startSellpiaInventoryRefresh } =
+    useSellpiaInventorySourceOwner({ enabled: true });
 
   const collectShipmentSummary = useCallback(async () => {
     const result = await collectAndPersistCoupangShipmentSummary();
@@ -71,7 +71,7 @@ export function useDepartmentQuickActions() {
         : '쿠팡 로켓 계정을 먼저 연결해주세요.');
     }
     const { from, to } = currentMonthRange();
-    const result = await collectAndPersistRocketPurchaseOrders({
+    const result = await collectRocket({
       from,
       to,
       onCatalogSaved: () => {
@@ -82,17 +82,23 @@ export function useDepartmentQuickActions() {
       },
       createPreviewRequest: (collected) => ({
         channelAccountId: rocketAccountId,
-        collection: collected.collection,
-        rows: collected.rows,
+        sourceImportRunId: collected.sourceImportRunId,
         editedQuantities: {},
         clampEditedQuantities: true,
         previewScope: 'confirmation_requested',
       }),
+    }).catch((cause: unknown) => {
+      if (cause instanceof RocketPoSourceError && cause.attempt.state === 'RUNNING') {
+        toast.info(cause.message);
+        return null;
+      }
+      throw cause;
     });
+    if (!result) return;
     toast.success(
       `로켓 PO ${result.collected.collection.detailPoCount}/${result.collected.poCount}건 수집·저장 완료`,
     );
-  }, [queryClient, rocketAccountBootstrapping, rocketAccountId]);
+  }, [collectRocket, queryClient, rocketAccountBootstrapping, rocketAccountId]);
 
   const start = useCallback(async (action: DepartmentQuickAction): Promise<void> => {
     if (action === 'collectAllOrders') return collectAllOrders();
@@ -102,17 +108,26 @@ export function useDepartmentQuickActions() {
     }
 
     if (action === 'collectTrend') {
-      await startTrendCollectionAction({ sourceSurface: 'dashboard' });
-      toast.success('트렌드 수집을 시작했습니다.');
+      const result = await collectTrend();
+      if (!result) return;
+      if (result.results.length > 0 && result.results.every((source) => source.state === 'COMPLETE' && source.ok)) {
+        toast.success('트렌드 수집이 완료됐습니다.');
+      } else if (result.results.length > 0 && result.results.every((source) =>
+        source.state === 'RUNNING' || (source.state === 'COMPLETE' && source.ok))) {
+        toast.info('트렌드 수집이 진행 중입니다.');
+      } else {
+        toast.error('일부 트렌드 수집에 실패했습니다. 다시 시도해주세요.');
+      }
       return;
     }
-    await requestSellpiaInventoryRefresh('inventory');
+    await startSellpiaInventoryRefresh();
     toast.success('셀피아 재고 동기화를 시작했습니다.');
   }, [
     collectAllOrders,
+    collectTrend,
     collectRocketPurchaseOrders,
     collectShipmentSummary,
-    requestSellpiaInventoryRefresh,
+    startSellpiaInventoryRefresh,
   ]);
 
   return { start };

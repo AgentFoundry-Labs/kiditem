@@ -1,10 +1,9 @@
 // Product-owned advertising metadata hydrated through a scoped channel link.
 
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
   AdListingRepositoryPort,
-  AdSyncListingMap,
   ScopedAdListingReadModel,
 } from '../../../application/port/out/repository/ad-listing.repository.port';
 
@@ -91,108 +90,4 @@ export class AdListingRepositoryAdapter implements AdListingRepositoryPort {
     return updated.count === 1;
   }
 
-  async buildAdSyncListingMap(
-    organizationId: string,
-    channelAccountId?: string,
-  ): Promise<AdSyncListingMap> {
-    const account = await this.resolveCoupangAccount(
-      organizationId,
-      channelAccountId,
-    );
-
-    const [options, listings] = await Promise.all([
-      this.prisma.channelListingOption.findMany({
-        where: {
-          organizationId,
-          isActive: true,
-          listing: {
-            organizationId,
-            channelAccountId: account.id,
-            isActive: true,
-          },
-        },
-        select: {
-          id: true,
-          externalOptionId: true,
-          listingId: true,
-        },
-      }),
-      this.prisma.channelListing.findMany({
-        where: {
-          organizationId,
-          channelAccountId: account.id,
-          isActive: true,
-        },
-        select: { id: true, externalId: true },
-      }),
-    ]);
-
-    const listingMap = new Map(
-      listings.map((listing) => [listing.id, listing]),
-    );
-    const externalOptionIdMap: AdSyncListingMap['externalOptionIdMap'] =
-      new Map();
-    for (const option of options) {
-      if (!option.externalOptionId) continue;
-      const listing = listingMap.get(option.listingId);
-      if (!listing) continue;
-      externalOptionIdMap.set(option.externalOptionId, {
-        listingId: option.listingId,
-        listingOptionId: option.id,
-        externalId: listing.externalId,
-      });
-    }
-
-    const externalIdMap = new Map<string, { listingId: string }>();
-    for (const listing of listings) {
-      externalIdMap.set(listing.externalId, { listingId: listing.id });
-    }
-
-    return {
-      channelAccountId: account.id,
-      externalOptionIdMap,
-      externalIdMap,
-    };
-  }
-
-  private async resolveCoupangAccount(
-    organizationId: string,
-    channelAccountId?: string,
-  ): Promise<{ id: string }> {
-    if (channelAccountId) {
-      const account = await this.prisma.channelAccount.findFirst({
-        where: {
-          id: channelAccountId,
-          organizationId,
-          channel: 'coupang',
-          status: 'active',
-        },
-        select: { id: true },
-      });
-      if (!account) {
-        throw new NotFoundException(
-          '선택한 활성 쿠팡 채널 계정을 찾을 수 없습니다.',
-        );
-      }
-      return account;
-    }
-
-    const account = await this.prisma.channelAccount.findFirst({
-      where: { organizationId, channel: 'coupang', status: 'active' },
-      // Readiness and account-less extension ingest must resolve the exact
-      // same account. The browser integration currently has no account picker,
-      // so prefer the explicitly primary account and use a deterministic
-      // fallback when an older organization has no primary flag.
-      orderBy: [
-        { isPrimary: 'desc' },
-        { updatedAt: 'desc' },
-        { id: 'asc' },
-      ],
-      select: { id: true },
-    });
-    if (!account) {
-      throw new NotFoundException('활성 쿠팡 채널 계정을 찾을 수 없습니다.');
-    }
-    return account;
-  }
 }

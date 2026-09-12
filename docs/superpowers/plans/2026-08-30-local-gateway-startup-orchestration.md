@@ -377,7 +377,7 @@ git commit -m "feat: orchestrate local gateway startup"
 **Files:**
 - Modify: `docs/runbooks/local-development.md`
 - Modify: `docs/runbooks/environment-variables.md`
-- Verify: `docs/superpowers/specs/2026-08-29-macos-developer-onboarding-design.md`
+- Verify: `docs/superpowers/specs/archive/2026-08-29-macos-developer-onboarding-design.md`
 
 **Interfaces:**
 - Consumes: the final package commands and stable error codes from Tasks 1–3.

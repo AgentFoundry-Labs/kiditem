@@ -14,7 +14,6 @@ const RETIRED_DIRECT_EXTENSION_HELPERS = [
   'collect1688TrendsFromChrome',
   'collectTiktokCcFromChrome',
   'collectLiveCommerceFromChrome',
-  'collectTaobaoLive',
 ];
 
 const RETIRED_DIRECT_EXTENSION_MODULES = [
@@ -35,7 +34,7 @@ const RETIRED_DIRECT_EXTENSION_ACTIONS = [
   'collectLiveCommerceUrl',
 ];
 
-// These calls used to bypass OperationRun creation from an approved web
+// These calls used to bypass source-owner admission from an approved web
 // origin. They are intentionally checked only inside an external-message
 // listener, so the exact browser-operation handlers may continue to use the
 // underlying collectors.
@@ -290,11 +289,6 @@ function hasLegacyDirectCollectionPost(source) {
   );
 }
 
-function hasDirectShadowSignalCollection(source) {
-  return /\bSourcingShadowSignalService\b/.test(source)
-    && /\bthis\.[A-Za-z_$][\w$]*\.collect\s*\(/.test(source);
-}
-
 function hasMountedNaverProviderCollection(file) {
   return file.path.includes('/market/')
     && /\bapiClient\.post\s*(?:<[^>]*>)?\s*\(\s*['"]\/api\/sourcing\/keyword-research\/naver\/(?:related-keywords|datalab\/search-trends)['"]/.test(file.source);
@@ -303,11 +297,6 @@ function hasMountedNaverProviderCollection(file) {
 function hasIndirectKeywordProviderBridge(file) {
   return file.path.includes('/keywords/')
     && /\bfrom\s*['"][^'"]*recommendations\/lib\/naver-keyword-api['"]/.test(file.source);
-}
-
-function hasDirectRecommendationRefresh(source) {
-  return /@Post\s*\(\s*['"]recommendations\/refresh['"]\s*\)/.test(source)
-    && /\bthis\.[A-Za-z_$][\w$]*\.refresh\s*\(/.test(source);
 }
 
 function externalMessageListenerBodies(source) {
@@ -381,7 +370,7 @@ export function analyzeSourcingLongRunningActions({
       findings.push(finding(
         'mounted_naver_provider_collection',
         file.path,
-        'Naver provider collection must start from an explicit OperationRun CTA; mounted views read persisted snapshots only.',
+        'Naver provider collection must start from an explicit source-owner CTA; mounted views read persisted snapshots only.',
       ));
     }
 
@@ -389,7 +378,7 @@ export function analyzeSourcingLongRunningActions({
       findings.push(finding(
         'indirect_keyword_provider_bridge',
         file.path,
-        'Keyword workflows may not reach a Naver provider facade through the recommendations helper; use the exact OperationRun-backed owner snapshot instead.',
+        'Keyword workflows may not reach a Naver provider facade through the recommendations helper; use the exact source-owner-backed snapshot instead.',
       ));
     }
 
@@ -425,24 +414,17 @@ export function analyzeSourcingLongRunningActions({
       findings.push(finding(
         'legacy_direct_collection_post',
         file.path,
-        'Collection starts and owner ingest must use fixed Operations routes, not legacy direct POST endpoints.',
+        'Collection starts and ingest use fenced source-owner attempts, not legacy unfenced POST endpoints.',
       ));
     }
     if (
       (file.path.includes('/adapter/in/http/') || file.path.includes('/adapter/in/agent/'))
-      && hasDirectShadowSignalCollection(file.source)
+      && /\b(?:MARKET_SHADOW_OPERATION_PORT|startShadowCollection)\b|sourcing\.collect_shadow_signals/.test(file.source)
     ) {
       findings.push(finding(
-        'direct_shadow_signal_collection_from_entrypoint',
+        'retired_shadow_operation_entrypoint',
         file.path,
-        'Shadow provider collection and canonical snapshot writes belong only to the exact Operation handler.',
-      ));
-    }
-    if (file.path.includes('/adapter/in/http/') && hasDirectRecommendationRefresh(file.source)) {
-      findings.push(finding(
-        'direct_recommendation_refresh_from_http_controller',
-        file.path,
-        'Recommendation publication belongs to the owning fenced Operation handler, not a direct HTTP refresh facade.',
+        'Shadow entrypoints call the Sourcing source owner directly; Operation admission is retired.',
       ));
     }
     if (/\blatestOrDetect\b/.test(file.source)) {
@@ -456,7 +438,7 @@ export function analyzeSourcingLongRunningActions({
       findings.push(finding(
         'legacy_rising_detect_post',
         file.path,
-        'Sourcing detection starts through Operations; no compatibility POST /detect facade remains.',
+        'Sourcing detection starts through its source-owner entrypoint; no compatibility POST /detect facade remains.',
       ));
     }
   }
@@ -473,7 +455,7 @@ export function analyzeSourcingLongRunningActions({
       findings.push(finding(
         'retired_external_source_collection_bridge',
         file.path,
-        'Approved web origins may start sourcing only through an exact OperationRun, never a direct external collector action.',
+        'Approved web origins may start sourcing only through an exact source-owner action, never a direct external collector action.',
       ));
     }
   }

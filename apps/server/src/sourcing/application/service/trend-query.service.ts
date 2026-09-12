@@ -162,12 +162,13 @@ export class TrendQueryService {
     organizationId: string,
     days: number,
   ): Promise<{ days: number; boards: PopularKeywordBoardView[] }> {
-    const rows = await this.repository.findPopularKeywordHistory({ organizationId, days });
+    const { rows, coverage } = await this.repository.findPopularKeywordHistory({ organizationId, days });
     const byBoard = groupBy(rows, (row) => row.boardKey);
 
     const boards: PopularKeywordBoardView[] = [];
-    for (const [boardKey, boardRows] of byBoard) {
-      const latestDate = maxBusinessDateMs(boardRows);
+    for (const boardKey of new Set(coverage.map((row) => row.boardKey))) {
+      const boardRows = byBoard.get(boardKey) ?? [];
+      const latestDate = maxBusinessDateMs(coverage.filter((row) => row.boardKey === boardKey));
       const oldestDate = minBusinessDateMs(boardRows);
 
       const latestRows = boardRows

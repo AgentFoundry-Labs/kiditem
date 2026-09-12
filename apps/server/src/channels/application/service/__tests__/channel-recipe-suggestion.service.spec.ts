@@ -67,7 +67,7 @@ describe('ChannelRecipeSuggestionService', () => {
     );
   });
 
-  it('reuses the channel recipe matcher before registration and strips a leading Sellpia price code', async () => {
+  it('strips a leading Sellpia price code but requires registration quantity confirmation', async () => {
     const repository = { getContext: vi.fn() };
     const sellpiaSku = {
       sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000051',
@@ -92,9 +92,9 @@ describe('ChannelRecipeSuggestionService', () => {
     })).resolves.toMatchObject({
       channelListingOptionId: optionId,
       masterProductId: null,
-      status: 'high_confidence_name',
-      automationDecision: 'auto_apply',
-      recommendedQuantity: 1,
+      status: 'quantity_review',
+      automationDecision: 'quantity_review',
+      recommendedQuantity: null,
       proposals: [{
         sellpiaInventorySkuId: sellpiaSku.sellpiaInventorySkuId,
         code: '10451-1',
@@ -129,12 +129,101 @@ describe('ChannelRecipeSuggestionService', () => {
 
     const result = await service.suggest(organizationId, optionId);
 
-    expect(result.status).toBe('unique_code');
+    expect(result.status).toBe('quantity_review');
     expect(evidence.findByCodes).toHaveBeenCalledWith(organizationId, ['MODEL-001', 'SP-001']);
     expect(evidence.findByNormalizedBarcodes).toHaveBeenCalledWith(organizationId, ['001234567890']);
     expect(evidence.findByNormalizedNames).toHaveBeenCalledWith(organizationId, ['키즈식판']);
-    expect(result.proposals[0]?.requiresQuantityConfirmation).toBe(false);
-    expect(result.recommendedQuantity).toBe(1);
+    expect(result.proposals[0]?.requiresQuantityConfirmation).toBe(true);
+    expect(result.recommendedQuantity).toBeNull();
+  });
+
+  it('retains an incompatible barcode candidate as a blocking conflict', async () => {
+    const context = {
+      channelListingOptionId: optionId,
+      masterProductId: '00000000-0000-4000-8000-000000000004',
+      options: [{
+        channelListingOptionId: optionId,
+        listingName: '키즈 식판',
+        itemName: null,
+        sellerSku: null,
+        modelNumber: null,
+        barcode: '001234567890',
+      }],
+      existingComponents: [],
+    };
+    const rejectedBarcodeSku = {
+      sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000005',
+      code: 'SP-BAD',
+      name: '전혀 다른 상품',
+      optionName: null,
+      barcode: '001234567890',
+      currentStock: 8,
+    };
+    const validNameSku = {
+      sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000006',
+      code: 'SP-GOOD',
+      name: '키즈 식판',
+      optionName: null,
+      barcode: null,
+      currentStock: 8,
+    };
+    const repository = { getContext: vi.fn().mockResolvedValue(context) };
+    const evidence = {
+      findByCodes: vi.fn().mockResolvedValue([]),
+      findByNormalizedBarcodes: vi.fn().mockResolvedValue([rejectedBarcodeSku]),
+      findByNormalizedNames: vi.fn().mockResolvedValue([]),
+      listActiveForMatching: vi.fn().mockResolvedValue([validNameSku]),
+    };
+    const service = new ChannelRecipeSuggestionService(repository as never, evidence as never);
+
+    const result = await service.suggest(organizationId, optionId);
+    expect(result).toMatchObject({
+      status: 'identifier_name_mismatch',
+      automationDecision: 'operator_review',
+    });
+    expect(result.proposals.map(({ sellpiaInventorySkuId }) => sellpiaInventorySkuId))
+      .toEqual([
+        rejectedBarcodeSku.sellpiaInventorySkuId,
+        validNameSku.sellpiaInventorySkuId,
+      ]);
+  });
+
+  it('keeps barcode evidence when no comparable listing name is available', async () => {
+    const context = {
+      channelListingOptionId: optionId,
+      masterProductId: '00000000-0000-4000-8000-000000000004',
+      options: [{
+        channelListingOptionId: optionId,
+        listingName: null,
+        itemName: null,
+        sellerSku: null,
+        modelNumber: null,
+        barcode: '001234567890',
+      }],
+      existingComponents: [],
+    };
+    const barcodeSku = {
+      sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000007',
+      code: 'SP-UNKNOWN-NAME',
+      name: '알 수 없는 상품',
+      optionName: null,
+      barcode: '001234567890',
+      currentStock: 8,
+    };
+    const repository = { getContext: vi.fn().mockResolvedValue(context) };
+    const evidence = {
+      findByCodes: vi.fn().mockResolvedValue([]),
+      findByNormalizedBarcodes: vi.fn().mockResolvedValue([barcodeSku]),
+      findByNormalizedNames: vi.fn().mockResolvedValue([]),
+      listActiveForMatching: vi.fn().mockResolvedValue([]),
+    };
+    const service = new ChannelRecipeSuggestionService(repository as never, evidence as never);
+
+    await expect(service.suggest(organizationId, optionId)).resolves.toMatchObject({
+      status: 'quantity_review',
+      automationDecision: 'quantity_review',
+      proposals: [{ sellpiaInventorySkuId: barcodeSku.sellpiaInventorySkuId }],
+    });
   });
 
   it('classifies a strict product-and-option match as automatic', async () => {

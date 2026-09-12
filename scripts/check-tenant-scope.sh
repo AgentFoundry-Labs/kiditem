@@ -6,7 +6,7 @@
 #
 #   1. findUnique({ where: { id } })
 #      Bare-id reads are IDOR candidates — organizationId must be in the where clause
-#      (root AGENTS.md "Multi-tenant scope" rule).
+#      (root CLAUDE.md "Multi-tenant scope" rule).
 #
 #   2. update/delete({ where: { id } })
 #      Bare-id mutations without a tenant-scoped read in the preceding ~25 lines
@@ -281,7 +281,7 @@ echo ""
 if [ "$FAIL_PATTERNS" -gt 0 ]; then
   echo "❌ check:tenant-scope FAIL — $FAIL_PATTERNS pattern(s) failing."
   echo ""
-  echo "  Tenant scope rules (root AGENTS.md → Cross-Domain Rules):"
+  echo "  Tenant scope rules (root CLAUDE.md → Cross-Domain Rules):"
   echo "    - GET/PATCH/DELETE single resource: findFirst({ where: { id, organizationId } })"
   echo "    - Mutating service: organizationId from @CurrentOrganization() as explicit arg"
   echo "    - DTOs do NOT carry organizationId; controllers do NOT receive it from clients"

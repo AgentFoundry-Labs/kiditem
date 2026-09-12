@@ -9,27 +9,19 @@ interface OrderTableProps {
   activeOrders: OrderListItem[];
   allNodes: OrderPipelineNode[];
   selectedOrders: Record<string, boolean>;
-  selectedCount: number;
   allChecked: boolean;
   loading: boolean;
   error: string | null;
-  confirming: boolean;
-  invoicing: boolean;
   onToggleAll: () => void;
   onToggleOrder: (id: string) => void;
-  onConfirm: () => void;
   onPrintLabel: () => void;
-  onInvoice: () => void;
 }
 
 export default function OrderTable({
-  activeNode, activeOrders, allNodes, selectedOrders, selectedCount,
-  allChecked, loading, error, confirming, invoicing,
-  onToggleAll, onToggleOrder, onConfirm, onPrintLabel, onInvoice,
+  activeNode, activeOrders, allNodes, selectedOrders,
+  allChecked, loading, error, onToggleAll, onToggleOrder, onPrintLabel,
 }: OrderTableProps) {
   const nodeInfo = allNodes.find((n) => n.key === activeNode);
-  const actionPending = confirming || invoicing;
-  const isAcceptNode = activeNode === 'ACCEPT';
 
   return (
     <div className="table-card">
@@ -43,13 +35,12 @@ export default function OrderTable({
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={onConfirm}
-            disabled={selectedCount === 0 || !isAcceptNode || actionPending}
-            title={!isAcceptNode ? '신규주문 단계에서만 발주확인 가능' : undefined}
+            disabled
+            title="쿠팡 발주확인은 현재 지원하지 않습니다."
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono rounded-full bg-purple-500 text-white hover:bg-purple-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
             <Check size={12} />
-            CONFIRM ({selectedCount})
+            CONFIRM (지원 안 함)
           </button>
           <button
             onClick={onPrintLabel}
@@ -59,12 +50,12 @@ export default function OrderTable({
             PRINT LABEL
           </button>
           <button
-            onClick={onInvoice}
-            disabled={selectedCount === 0 || actionPending}
+            disabled
+            title="쿠팡 송장 전송은 현재 지원하지 않습니다."
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono rounded-full bg-purple-500 text-white hover:bg-purple-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
             <FileText size={12} />
-            INVOICE ({selectedCount})
+            INVOICE (지원 안 함)
           </button>
         </div>
       </div>

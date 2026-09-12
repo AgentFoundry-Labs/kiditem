@@ -850,7 +850,7 @@ rtk git commit -m "refactor: package universal extensions"
 
 **Files:**
 - Modify only when a failing in-scope regression requires correction: files already listed in Tasks 1-8.
-- Verify: `docs/superpowers/specs/2026-07-25-universal-extension-environment-context-design.md`
+- Verify: `docs/superpowers/specs/archive/2026-07-25-universal-extension-environment-context-design.md`
 - Verify: `docs/superpowers/plans/2026-07-25-universal-extension-environment-context.md`
 
 **Interfaces:**

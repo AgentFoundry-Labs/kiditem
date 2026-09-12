@@ -19,16 +19,25 @@ const RUN_ID = '22222222-2222-4222-8222-222222222222';
 function input() {
   return {
     channelAccountId: ACCOUNT_ID,
-    collection: {
-      collectionRunId: RUN_ID,
-      vendorId: 'VENDOR-1',
-      listPagesRead: 1,
-      totalListPages: 1,
-      truncated: false,
-      detailPoCount: 1,
-      failedPoNumbers: [],
-    },
-    rows: [{
+    sourceImportRunId: RUN_ID,
+    editedQuantities: {},
+  };
+}
+
+function collection() {
+  return {
+    collectionRunId: RUN_ID,
+    vendorId: 'VENDOR-1',
+    listPagesRead: 1,
+    totalListPages: 1,
+    truncated: false,
+    detailPoCount: 1,
+    failedPoNumbers: [],
+  };
+}
+
+function rows() {
+  return [{
       poLineId: '1001:P-1::1',
       poNumber: '1001',
       vendorId: 'VENDOR-1',
@@ -37,14 +46,12 @@ function input() {
       productName: 'Rocket item',
       orderQty: 2,
       plannedDeliveryDate: '2026-07-20',
-    }],
-    editedQuantities: {},
-  };
+    }];
 }
 
 describe('previewRocketPurchases', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
     vi.mocked(apiClient.post).mockResolvedValue({
       status: 'ready',
       collectionRunId: RUN_ID,
@@ -157,8 +164,8 @@ describe('previewRocketPurchases', () => {
     vi.mocked(apiClient.post).mockResolvedValueOnce({
       sourceImportRunId: RUN_ID,
       channelAccountId: ACCOUNT_ID,
-      collection: input().collection,
-      rows: input().rows,
+      collection: collection(),
+      rows: rows(),
       exportedPoLineIds: [],
     });
     await loadSavedRocketCollection({
@@ -176,8 +183,8 @@ describe('previewRocketPurchases', () => {
     vi.mocked(apiClient.post).mockResolvedValueOnce({
       sourceImportRunId: RUN_ID,
       channelAccountId: ACCOUNT_ID,
-      collection: input().collection,
-      rows: input().rows,
+      collection: collection(),
+      rows: rows(),
     });
     await expect(loadSavedRocketCollection({
       channelAccountId: ACCOUNT_ID,
@@ -188,33 +195,10 @@ describe('previewRocketPurchases', () => {
 
 function publication() {
   return {
-    run: {
-      id: '33333333-3333-4333-8333-333333333333',
-      sourceType: 'coupang_rocket_po_catalog',
-      channelAccountId: ACCOUNT_ID,
-      fileName: 'rocket-po-catalog.json',
-      fileHash: 'a'.repeat(64),
-      status: 'completed',
-      rowCount: 1,
-      importedAt: '2026-07-27T00:00:00.000Z',
-      lastVerifiedAt: null,
-      verificationCount: 0,
-      lastTrigger: null,
-      freshnessGeneration: null,
-      manualFreshExportConfirmedAt: null,
-      manualFreshExportConfirmedBy: null,
-      qualityReport: null,
-      errorCode: null,
-      errorMessage: null,
-      createdAt: '2026-07-27T00:00:00.000Z',
-      updatedAt: '2026-07-27T00:00:00.000Z',
-    },
-    duplicate: false,
-    changes: {
-      createdProductCount: 0,
-      updatedProductCount: 0,
-      createdSkuCount: 0,
-      updatedSkuCount: 0,
-    },
+    sourceImportRunId: RUN_ID,
+    channelAccountId: ACCOUNT_ID,
+    generation: '1',
+    actualCutoffAt: '2026-07-19T00:00:00.000Z',
+    rowCount: 1,
   };
 }

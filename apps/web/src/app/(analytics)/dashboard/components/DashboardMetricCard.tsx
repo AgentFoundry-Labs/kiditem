@@ -1,140 +1,84 @@
-import type { LucideIcon } from 'lucide-react';
-import { Minus, TrendingDown, TrendingUp } from 'lucide-react';
-import { cn, formatKRW } from '@/lib/utils';
+import { cn } from '@/lib/utils';
 
+/**
+ * One cell of the period-metric row: a label, a number, and the one line of
+ * context that makes the number mean something.
+ *
+ * It used to carry a goal gauge as well — a target, an achievement percentage,
+ * a progress bar, and a "N%p 남음" line, on four of the six cells. The targets
+ * were constants in the page (15%, 10%, 5%, 400%), not anything an operator had
+ * set, so the bar measured the number against a number nobody had chosen. It
+ * also made four cells taller than the other two, which is the opposite of what
+ * a row of comparable measurements should do. Industry reference figures live in
+ * the chart's own tab, where they are labelled as reference.
+ *
+ * Every cell is three lines, whether the value is measured or withheld, so the
+ * row keeps one height and the operator finds each number in the same place.
+ */
 export function MetricCard({
   label,
   value,
   unit,
   change,
   prevLabel,
-  accentColor,
-  icon: Icon,
   invertColor,
-  goal,
-  current,
-  goalUnit,
-  goalLabel,
-  invertGoal,
   onClick,
 }: {
   label: string;
   value: string;
   unit: string;
-  change: number;
+  change: number | null;
   prevLabel: string;
-  accentColor: string;
-  icon: LucideIcon;
+  /** A metric where down is good, such as the ad-cost ratio. */
   invertColor?: boolean;
-  goal?: number;
-  current?: number;
-  goalUnit?: string;
-  goalLabel?: string;
-  invertGoal?: boolean;
   onClick?: () => void;
 }) {
-  const isPositive = invertColor ? change < 0 : change > 0;
-  const isNeutral = Math.abs(change) < 0.5;
-  const ChangeIcon = isNeutral ? Minus : isPositive ? TrendingUp : TrendingDown;
-  const changeColorStyle = isNeutral ? '#94a3b8' : isPositive ? '#059669' : '#ef4444';
-  const changeBgStyle = isNeutral ? 'rgba(148,163,184,0.1)' : isPositive ? 'rgba(5,150,105,0.1)' : 'rgba(239,68,68,0.1)';
-
-  const hasGoal = goal !== undefined && current !== undefined && goal > 0;
-  const isPercent = goalUnit === '%';
-
-  let achievementRate = 0;
-  let progressPct = 0;
-  let goalMet = false;
-
-  if (hasGoal) {
-    if (invertGoal) {
-      goalMet = current <= goal;
-      const maxBad = goal * 2;
-      progressPct = Math.max(0, Math.min(100, ((maxBad - current) / (maxBad - goal)) * 100));
-      achievementRate = goalMet ? 100 : Math.round(progressPct);
-    } else {
-      achievementRate = Math.min(Math.round((current / goal) * 100), 999);
-      progressPct = Math.min((current / goal) * 100, 100);
-      goalMet = achievementRate >= 100;
-    }
-  }
-
-  const displayGoalLabel = goalLabel || (isPercent ? `목표 ${goal}%` : `목표 ${formatKRW(goal!)}원`);
-  const remaining = hasGoal && !goalMet
-    ? invertGoal
-      ? `${(current! - goal!).toFixed(1)}%p 초과`
-      : isPercent
-        ? `${(goal! - current!).toFixed(1)}%p 남음`
-        : `${formatKRW(goal! - current!)}원 남음`
-    : null;
+  const isUnavailable = change === null;
+  const isPositive = !isUnavailable && (invertColor ? change < 0 : change > 0);
+  const isNeutral = !isUnavailable && Math.abs(change) < 0.5;
 
   return (
-    <div className={cn('rounded-2xl transition-all hover:shadow-md h-full bg-white border border-slate-100 shadow-sm', onClick && 'cursor-pointer')} onClick={onClick}>
-      <div className="px-4 py-3 h-full flex flex-col">
-        <div>
-          <div className="flex items-center justify-between mb-1">
-            <div className="flex items-center gap-2">
-              <Icon size={16} style={{ color: accentColor }} />
-              <span className="text-xs font-bold uppercase tracking-wider" style={{ color: accentColor }}>{label}</span>
-            </div>
-            <div className="flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-xs font-mono" style={{ background: changeBgStyle, color: changeColorStyle }}>
-              <ChangeIcon size={12} />
-              {!isNeutral && <span>{change > 0 ? '+' : ''}{change.toFixed(1)}%</span>}
-              {isNeutral && <span>-</span>}
-            </div>
-          </div>
-          <div className="flex items-baseline gap-1">
-            <span className="text-lg sm:text-2xl font-extrabold tabular-nums tracking-tight" style={{ color: accentColor }}>{value}</span>
-            <span className="text-base font-semibold" style={{ color: accentColor, opacity: 0.6 }}>{unit}</span>
-          </div>
-          {prevLabel && <div className="text-xs mt-0.5 text-slate-500">{prevLabel}</div>}
-        </div>
-        {hasGoal && (
-          <div className="mt-auto pt-2" style={{ borderTop: `1px solid ${accentColor}20` }}>
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-[11px] font-medium" style={{ color: `${accentColor}99` }}>{displayGoalLabel}</span>
-              <span className="text-[12px] font-bold tabular-nums" style={{ color: accentColor }}>
-                {invertGoal ? (goalMet ? '달성' : `${current}%`) : `${achievementRate}%`}
-              </span>
-            </div>
-            <div className="h-1.5 rounded-full overflow-hidden" style={{ background: `${accentColor}15` }}>
-              <div className="h-full rounded-full transition-all duration-500" style={{ width: `${progressPct}%`, background: accentColor }} />
-            </div>
-            {!goalMet && remaining && <div className="text-[10px] mt-0.5" style={{ color: `${accentColor}88` }}>{remaining}</div>}
-            {goalMet && <div className="text-[10px] mt-0.5 font-semibold" style={{ color: accentColor }}>목표 달성!</div>}
-          </div>
-        )}
+    <div
+      className={cn('h-full bg-white transition-colors hover:bg-slate-50', onClick && 'cursor-pointer')}
+      data-testid="dashboard-metric-card"
+      onClick={onClick}
+    >
+      <div className="flex h-full flex-col px-4 py-3">
+        <p className="font-mono text-[11px] uppercase tracking-wider text-slate-500">{label}</p>
+        <p className="flex items-baseline gap-0.5 text-xl font-bold leading-tight tracking-tight tabular-nums text-slate-900">
+          {value}
+          <span className="text-[13px] font-semibold text-slate-500">{unit}</span>
+        </p>
+        <p className="mt-0.5 text-xs leading-snug text-slate-500">
+          {!isUnavailable && !isNeutral && (
+            <span className={cn('mr-1 font-medium', isPositive ? 'text-emerald-700' : 'text-red-600')}>
+              {change > 0 ? '▲' : '▼'} {Math.abs(change).toFixed(1)}%
+            </span>
+          )}
+          {prevLabel}
+        </p>
       </div>
     </div>
   );
 }
 
-export function UnavailableMetricCard({
-  label,
-  icon: Icon,
-  accentColor,
-  note,
-}: {
-  label: string;
-  icon: LucideIcon;
-  accentColor: string;
-  note: string;
-}) {
+/**
+ * The same three lines, with the value slot held open by a dash.
+ *
+ * The third line used to carry the reason — `미수집`, `정산 데이터 없음`,
+ * `부분 0/11일` — one per blank card. The section's ⓘ now says the same thing
+ * per value and says it in full ("주문 · Wing 트래픽에서 이 기간에 수집된 날이
+ * 없어…"), so the caption was the affordance's job written out six times in
+ * eleven pixels. The line itself stays: without it a blank cell would be
+ * shorter than a measured one and the row would step.
+ */
+export function UnavailableMetricCard({ label }: { label: string }) {
   return (
-    <div className="rounded-2xl transition-all h-full bg-white border border-slate-100 shadow-sm">
-      <div className="px-4 py-3 h-full flex flex-col">
-        <div>
-          <div className="flex items-center justify-between mb-1">
-            <div className="flex items-center gap-2">
-              <Icon size={16} style={{ color: accentColor, opacity: 0.5 }} />
-              <span className="text-xs font-bold uppercase tracking-wider" style={{ color: accentColor, opacity: 0.6 }}>{label}</span>
-            </div>
-          </div>
-          <div className="flex items-baseline gap-1">
-            <span className="text-lg sm:text-2xl font-extrabold tabular-nums tracking-tight text-slate-300">—</span>
-          </div>
-          <div className="text-xs mt-1 text-slate-400">{note}</div>
-        </div>
+    <div className="h-full bg-white" data-testid="dashboard-metric-card">
+      <div className="flex h-full flex-col px-4 py-3">
+        <p className="font-mono text-[11px] uppercase tracking-wider text-slate-500">{label}</p>
+        <p className="text-xl font-medium leading-tight tracking-tight tabular-nums text-slate-400">—</p>
+        <p className="mt-0.5 text-xs leading-snug text-slate-500" aria-hidden="true">&nbsp;</p>
       </div>
     </div>
   );

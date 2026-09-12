@@ -1,8 +1,8 @@
 import { Inject, Injectable } from '@nestjs/common';
 import {
-  OPERATION_RUNNER_PORT,
-  type OperationRunnerPort,
-} from '../../../../operations/application/port/in/operation-runner.port';
+  PRODUCT_GENERATION_AI_TRIGGER_PORT,
+  type ProductGenerationAiTriggerPort,
+} from '../../../../ai/application/port/in/generation/product-generation-ai-trigger.port';
 import { canonicalOwnerInputHash } from '../../../../common/owner-idempotency-key';
 import type {
   ProductsListingGenerationCapabilityPort,
@@ -10,14 +10,14 @@ import type {
   ProductsListingGenerationResult,
 } from '../../../application/port/in/capability/listing-generation.port';
 
-/** Products owns generation-package enqueueing for an already persisted candidate. */
+/** Products owns the capability boundary for generation on an existing candidate. */
 @Injectable()
 export class ProductsListingGenerationCapabilityAdapter
   implements ProductsListingGenerationCapabilityPort
 {
   constructor(
-    @Inject(OPERATION_RUNNER_PORT)
-    private readonly operations: OperationRunnerPort,
+    @Inject(PRODUCT_GENERATION_AI_TRIGGER_PORT)
+    private readonly productGeneration: ProductGenerationAiTriggerPort,
   ) {}
 
   async createListingGenerationPackage(
@@ -28,22 +28,19 @@ export class ProductsListingGenerationCapabilityAdapter
       input.inputHash,
       capabilityInput(input),
     );
-    const run = await this.operations.start({
+    const result = await this.productGeneration.startForCandidate({
+      ...generation,
       organizationId: input.organizationId,
-      operationKey: 'products.generate_listing_package',
-      triggerSource: 'agent',
-      input: {
-        ...generation,
-        idempotencyKey: input.idempotencyKey,
-        requestHash,
-      },
-      requestedByUserId: input.triggeredByUserId ?? null,
       idempotencyKey: input.idempotencyKey,
+      requestHash,
+      triggeredByUserId: input.triggeredByUserId ?? null,
     });
     return {
-      candidateId: generation.candidateId,
-      operationRunId: run.id,
-      status: run.status,
+      candidateId: result.candidateId,
+      detailGenerationId: result.detailGenerationId,
+      thumbnailGenerationId: result.thumbnailGenerationId,
+      contentWorkspaceId: result.contentWorkspaceId,
+      href: result.href,
     };
   }
 }

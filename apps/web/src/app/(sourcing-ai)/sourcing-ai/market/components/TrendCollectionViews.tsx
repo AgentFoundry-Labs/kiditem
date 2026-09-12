@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, type ReactNode } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   AlertCircle,
   ArrowUpRight,
@@ -15,11 +15,8 @@ import {
   Sparkles,
   TrendingUp,
 } from 'lucide-react';
-import { isTerminalOperationStatus } from '@/hooks/useOperationRun';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatDateTime, formatNumber } from '@/lib/utils';
-import { SourcingOperationRunPanel } from '../../components/SourcingOperationRunPanel';
-import { useSourcingOperationAction } from '../../hooks/use-sourcing-operation-action';
 import {
   fetch1688HotProducts,
   fetchNaverKeywordTrends,
@@ -34,6 +31,11 @@ import {
 } from '../lib/trend-collection-api';
 import { fetchLiveCommerceKeywords, type LiveTrendKeywordView } from '../lib/live-commerce-api';
 import { isDouyinTrendSourceKeyword } from '../lib/douyin-trend';
+import {
+  collectSourcingTiktokCcTrendsFromExtension,
+  fetchSourcingTiktokCcSourceStatus,
+  type SourcingTiktokCcSourceStatus,
+} from '../../lib/sourcing-tiktok-source-owner';
 import { LiveCommerceSection } from './LiveCommerceSection';
 
 const POPULAR_DAYS = 7;
@@ -42,6 +44,7 @@ const HOT_1688_DAYS = 7;
 const SHORTS_DAYS = 7;
 const TIKTOK_CC_DAYS = 7;
 const LIVE_KEYWORD_DAYS = 7;
+const TIKTOK_SOURCE_REQUEST_FINGERPRINT = 'tiktok.creative:default';
 
 const EMPTY_HINT = '아직 수집 안 됨 — 지금 트렌드 수집 눌러주세요';
 
@@ -140,32 +143,75 @@ function LiveKeywordCard({ keyword }: { keyword: LiveTrendKeywordView }) {
   );
 }
 
-/** 틱톡 크리에이티브 센터 인기 해시태그·키워드·상품 (확장 수집 + 트리거). */
+/** 틱톡 크리에이티브 센터 인기 해시태그·키워드·상품. */
 function TiktokCcTrendView() {
   const snapshotQueryKey = queryKeys.sourcing.trendTiktokCc(TIKTOK_CC_DAYS);
+  const sourceStatusQueryKey = [...snapshotQueryKey, 'source-status'] as const;
+  const queryClient = useQueryClient();
+  const retryKeysByRequestFingerprint = useRef(new Map<string, string>());
 
   const query = useQuery({
     queryKey: snapshotQueryKey,
     queryFn: () => fetchTiktokCcTrends(TIKTOK_CC_DAYS),
     staleTime: 5 * 60 * 1000,
   });
-  const collectionOperation = useSourcingOperationAction({
-    operationKey: 'sourcing.collect_tiktok_cc_trends',
-    input: {},
-    snapshotQueryKey,
+  const sourceStatusQuery = useQuery({
+    queryKey: sourceStatusQueryKey,
+    queryFn: fetchSourcingTiktokCcSourceStatus,
+    refetchInterval: (statusQuery) => (
+      statusQuery.state.data?.latestAttempt?.state === 'RUNNING' ? 5_000 : false
+    ),
   });
-  const running = collectionOperation.isStarting
-    || (collectionOperation.run !== null
-      && !isTerminalOperationStatus(collectionOperation.run.status));
+  useEffect(() => {
+    const state = sourceStatusQuery.data?.latestAttempt?.state;
+    if (state === 'COMPLETE' || state === 'FAILED') {
+      retryKeysByRequestFingerprint.current.delete(TIKTOK_SOURCE_REQUEST_FINGERPRINT);
+    }
+  }, [sourceStatusQuery.data?.latestAttempt?.attemptId, sourceStatusQuery.data?.latestAttempt?.state]);
+  const collectionMutation = useMutation({
+    mutationFn: async () => {
+      // This view has no collection options. Keep the former empty CTA semantics
+      // and retain one key only while its direct owner outcome is uncertain.
+      const idempotencyKey = retryKeysByRequestFingerprint.current.get(TIKTOK_SOURCE_REQUEST_FINGERPRINT)
+        ?? crypto.randomUUID();
+      retryKeysByRequestFingerprint.current.set(TIKTOK_SOURCE_REQUEST_FINGERPRINT, idempotencyKey);
+      const clearRetryKey = () => {
+        if (retryKeysByRequestFingerprint.current.get(TIKTOK_SOURCE_REQUEST_FINGERPRINT) === idempotencyKey) {
+          retryKeysByRequestFingerprint.current.delete(TIKTOK_SOURCE_REQUEST_FINGERPRINT);
+        }
+      };
+      const result = await collectSourcingTiktokCcTrendsFromExtension({ idempotencyKey });
+      if (result.terminalState === 'COMPLETE') {
+        if (!result.success) {
+          throw new Error('KidItem OS 익스텐션이 완료 상태와 충돌하는 결과를 반환했습니다.');
+        }
+        clearRetryKey();
+        return result;
+      }
+      if (result.terminalState === 'FAILED') {
+        clearRetryKey();
+        throw new Error(result.error ?? '틱톡 수집에 실패했습니다. 새로 시도해주세요.');
+      }
+      return result;
+    },
+    onSuccess: async (result) => {
+      await queryClient.invalidateQueries({ queryKey: sourceStatusQueryKey });
+      if (result.terminalState === 'COMPLETE') {
+        await queryClient.invalidateQueries({ queryKey: snapshotQueryKey });
+      }
+    },
+    onError: () => {
+      void queryClient.invalidateQueries({ queryKey: sourceStatusQueryKey });
+    },
+  });
+  const collecting = collectionMutation.isPending
+    || sourceStatusQuery.data?.latestAttempt?.state === 'RUNNING';
 
   return (
     <div className="space-y-3">
-      <SourcingOperationRunPanel
-        run={collectionOperation.run}
-        onCancel={() => { void collectionOperation.cancel(); }}
-        onRetryAttention={() => { void collectionOperation.retryAttention(); }}
-        isCancelling={collectionOperation.isCancelling}
-        isRetrying={collectionOperation.isRetrying}
+      <TiktokCcSourceStatus
+        source={sourceStatusQuery.data}
+        collectionError={collectionMutation.error}
       />
       <ViewCard
         icon={Hash}
@@ -180,15 +226,15 @@ function TiktokCcTrendView() {
         action={
           <button
             type="button"
-            onClick={() => { void collectionOperation.start({}); }}
-            disabled={running}
+            onClick={() => { collectionMutation.mutate(); }}
+            disabled={collecting}
             className={cn(
               'inline-flex h-8 items-center justify-center gap-1.5 rounded-lg bg-slate-900 px-3 text-xs font-semibold text-white hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50',
               'transition-[transform,background-color] duration-150 ease-out active:scale-[0.97] motion-reduce:transform-none',
             )}
           >
-            {running ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
-            {running ? '수집 중…' : '틱톡 수집'}
+            {collecting ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+            {collecting ? '수집 중…' : '틱톡 수집'}
           </button>
         }
       >
@@ -199,6 +245,41 @@ function TiktokCcTrendView() {
         </div>
       </ViewCard>
     </div>
+  );
+}
+
+function TiktokCcSourceStatus({
+  source,
+  collectionError,
+}: {
+  source: SourcingTiktokCcSourceStatus | undefined;
+  collectionError: Error | null;
+}) {
+  const errorMessage = collectionError?.message ?? null;
+  if ((!source || source.ready && !source.refreshing) && !errorMessage) return null;
+
+  const refreshing = source?.latestAttempt?.state === 'RUNNING';
+  const message = refreshing
+    ? '틱톡 트렌드를 수집 중입니다. 마지막 완료 데이터는 계속 표시됩니다.'
+    : source?.errorMessage ?? errorMessage ?? '틱톡 수집 데이터가 최신 계획과 일치하지 않습니다.';
+
+  return (
+    <p
+      role="status"
+      className={cn(
+        'rounded-lg border px-3 py-2 text-xs font-semibold',
+        refreshing ? 'border-sky-200 bg-sky-50 text-sky-700' : 'border-amber-200 bg-amber-50 text-amber-800',
+      )}
+    >
+      {message}
+      {source?.actualCutoffAt && (
+        <span className="ml-1.5 font-medium opacity-80">
+          최근 완료 기준 {formatDateTime(source.actualCutoffAt, {
+            month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
+          })}
+        </span>
+      )}
+    </p>
   );
 }
 

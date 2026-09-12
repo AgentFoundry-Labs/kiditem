@@ -186,8 +186,6 @@ describe('integration test runtime contract', () => {
       'apps/server/src/test-helpers/postgres-global-setup.ts',
       'apps/server/src/test-helpers/postgres-test-env.setup.ts',
       'apps/server/src/test-helpers/real-prisma.ts',
-      'apps/server/src/automation/adapter/out/panel-event/__tests__/panel-pr3.integration.spec.ts',
-      'apps/server/src/automation/adapter/out/panel-event/__tests__/panel-pr3.pg.integration.spec.ts',
       'docs/TESTING.md',
     ]) {
       if (!existsSync(join(repoRoot, relativePath))) continue;

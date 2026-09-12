@@ -3,7 +3,6 @@ import {
   SourcingWingCatalogKeywordSchema,
   sourcingWingCatalogKeywordIdentity,
 } from './browser-operations.js';
-import { SourcingOperationResultSchema } from './operation-result.js';
 
 const InstantSchema = z.string().datetime({ offset: true });
 const NullableBoundedTextSchema = z.string().trim().max(500).nullable();
@@ -165,6 +164,17 @@ export const Sourcing1688SearchSnapshotSchema = z
   .object({
     generatedAt: InstantSchema.nullable(),
     observations: z.array(Sourcing1688SearchObservationSchema).max(30),
+    sourceStatuses: z.array(z.object({
+      keyword: SourcingWingCatalogKeywordSchema,
+      targetId: Sourcing1688TargetIdSchema.nullable(),
+      ready: z.boolean(),
+      refreshing: z.boolean(),
+      latestAttemptId: z.string().uuid().nullable(),
+      latestAttemptState: z.enum(['RUNNING', 'COMPLETE', 'FAILED']).nullable(),
+      actualCutoffAt: InstantSchema.nullable(),
+      errorCode: z.string().nullable(),
+      errorMessage: z.string().nullable(),
+    }).strict()).max(30),
   })
   .strict();
 
@@ -181,8 +191,25 @@ export const Sourcing1688BatchUnitResultSchema = z
   })
   .strict();
 
-export const Sourcing1688BatchResultSchema = SourcingOperationResultSchema
-  .extend({
+const BoundedCountSchema = z.number().int().nonnegative().max(2_147_483_647);
+
+export const Sourcing1688BatchResultSchema = z.object({
+    outcome: z.enum(['complete', 'partial', 'no_change']),
+    summary: z.object({
+      discovered: BoundedCountSchema,
+      accepted: BoundedCountSchema,
+      duplicate: BoundedCountSchema,
+      unchanged: BoundedCountSchema,
+      failed: BoundedCountSchema,
+    }).strict(),
+    sources: z.array(z.object({
+      source: z.string().trim().min(1).max(120),
+      outcome: z.enum(['complete', 'partial', 'no_change', 'failed', 'skipped']),
+      accepted: BoundedCountSchema,
+      failed: BoundedCountSchema,
+      errorCode: z.string().trim().min(1).max(120).optional(),
+    }).strict()).max(32),
+    snapshotGeneratedAt: InstantSchema.optional(),
     units: z.array(Sourcing1688BatchUnitResultSchema).min(1).max(24),
   })
   .strict();

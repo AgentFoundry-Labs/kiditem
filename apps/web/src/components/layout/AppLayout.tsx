@@ -5,9 +5,6 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useStore } from '@/store/useStore';
 import { cn } from '@/lib/utils';
 import PageSkeleton from '@/components/ui/PageSkeleton';
-import { PanelErrorBoundary } from '@/components/panel/PanelErrorBoundary';
-import { usePanelStream } from '@/components/panel/hooks/usePanelStream';
-import ReadinessModal from '@/components/ReadinessModal';
 import GlobalConfirmDialog from '@/components/GlobalConfirmDialog';
 import GenerationCompletionWatcher from '@/components/GenerationCompletionWatcher';
 import QuickActionFab from '@/components/QuickActionFab';
@@ -24,11 +21,6 @@ import { RightAuxiliaryPanel } from './RightAuxiliaryPanel';
 import { RightSurfaceLauncherProvider } from './right-surface-launcher-context';
 import Sidebar from './Sidebar';
 import { useDesktopAiChatWidth } from './useDesktopAiChatWidth';
-
-function NotificationDataMount() {
-  usePanelStream();
-  return null;
-}
 
 function ConversationRuntimeShell({
   children,
@@ -151,7 +143,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const isFinalSelectionRoute = pathname === '/sourcing-ai/final-selection';
   const isWingCatalogRoute = pathname === '/sourcing-ai/wing-catalog';
   const collapsedForEditor = isEditorRoute || !sidebarOpen;
-  const showAutoReadinessModal = pathname === '/dashboard';
+  // Mirrors when QuickActionFab actually paints: it hides itself whenever a
+  // right-hand surface is open, and the editor route never renders it.
+  const quickActionFabVisible = !isEditorRoute && activeRightSurface === null;
   const visibleRightSurface = isAgentWorkspace && activeRightSurface === 'ai_chat'
     ? null
     : activeRightSurface;
@@ -206,15 +200,20 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         )}
       >
         <RebuildReadinessBanner />
+        {/* The quick-action button is fixed over the right edge at every scroll
+            position, so page content has to end before it — otherwise whatever
+            a page puts at its right edge is unreachable. 76px is the button's
+            own footprint (56px) plus its 20px offset. Screens were each
+            working around this with their own right margin. */}
         <main
           className={cn(
             isEditorRoute || isWingCatalogRoute ? 'p-0' : isFinalSelectionRoute ? 'p-3' : 'p-6',
+            quickActionFabVisible && 'pr-[76px]',
           )}
         >
           {children}
         </main>
       </div>
-      {showAutoReadinessModal && <ReadinessModal autoOpenWhen="collectionIssue" />}
       <GlobalConfirmDialog />
       <GenerationCompletionWatcher />
       {isEditorRoute ? null : (
@@ -228,7 +227,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <ConversationRuntimeShell key={authenticatedIdentityKey} identity={authenticatedIdentity!}>
-      <NotificationDataMount />
       <RightSurfaceLauncherProvider openConversationFromLauncher={openConversationFromLauncher}>
         <div
           data-testid="authenticated-work-surface"
@@ -243,14 +241,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           {isAgentWorkspace ? children : content}
         </div>
       </RightSurfaceLauncherProvider>
-      <PanelErrorBoundary>
-        <RightAuxiliaryPanel
-          activeRightSurface={visibleRightSurface}
-          onClose={closeRightSurface}
-          launcherRef={launcherRef}
-          desktopAiChatWidth={desktopAiChatWidth}
-        />
-      </PanelErrorBoundary>
+      <RightAuxiliaryPanel
+        activeRightSurface={visibleRightSurface}
+        onClose={closeRightSurface}
+        launcherRef={launcherRef}
+        desktopAiChatWidth={desktopAiChatWidth}
+      />
     </ConversationRuntimeShell>
   );
 }

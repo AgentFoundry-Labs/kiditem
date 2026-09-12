@@ -1,10 +1,15 @@
-// 30-day organization-wide ad benchmark read. Source:
-// `ChannelListingDailySnapshot` over the inclusive 30-day KST window.
-// Returns additive sums; ratios recompute in `domain/ad-metrics`.
+// 30-day organization-wide ad benchmark read. Source: the listing-day ad
+// ledger through its one reader (`common/ad-window-facts`), over the inclusive
+// 30-day KST window. Returns additive sums; ratios recompute in
+// `domain/ad-metrics`.
 
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { kstInclusiveDaysStart } from '../../../../common/kst';
+import {
+  readAdWindowFacts,
+  readListingAdWindowFacts,
+} from '../../../../common/ad-window-facts';
 import type {
   AdBenchmarkRepositoryPort,
   BenchmarkAggregates,
@@ -19,54 +24,33 @@ export class AdBenchmarkRepositoryAdapter
   async findBenchmarkAggregates(
     organizationId: string,
   ): Promise<BenchmarkAggregates> {
-    const thirtyDaysAgo = kstInclusiveDaysStart(30);
-    const [totals, perListing] = await Promise.all([
-      this.prisma.channelListingDailySnapshot.aggregate({
-        where: { organizationId, businessDate: { gte: thirtyDaysAgo } },
-        _sum: {
-          adSpend: true,
-          adImpressions: true,
-          adClicks: true,
-          adConversions: true,
-          adRevenue: true,
-        },
-      }),
-      this.prisma.channelListingDailySnapshot.groupBy({
-        by: ['listingId'],
-        where: { organizationId, businessDate: { gte: thirtyDaysAgo } },
-        _sum: {
-          adSpend: true,
-          adImpressions: true,
-          adClicks: true,
-          adConversions: true,
-          adRevenue: true,
-        },
-      }),
+    const from = kstInclusiveDaysStart(30);
+    const [window, perListing] = await Promise.all([
+      readAdWindowFacts(this.prisma, { organizationId, from }),
+      readListingAdWindowFacts(this.prisma, { organizationId, from }),
     ]);
 
+    const totals = { spend: 0, impressions: 0, clicks: 0, conversions: 0, revenue: 0 };
+    for (const day of window.days) {
+      totals.spend += day.spend;
+      totals.impressions += day.impressions;
+      totals.clicks += day.clicks;
+      totals.conversions += day.conversions;
+      totals.revenue += day.revenue;
+    }
+
     return {
-      totals: {
-        spend: totals._sum.adSpend ?? 0,
-        impressions: totals._sum.adImpressions ?? 0,
-        clicks: totals._sum.adClicks ?? 0,
-        conversions: totals._sum.adConversions ?? 0,
-        revenue: totals._sum.adRevenue ?? 0,
-      },
-      perListing: perListing.flatMap((row) => {
-        if (!row.listingId) return [];
-        return [
-          {
-            listingId: row.listingId,
-            sums: {
-              spend: row._sum.adSpend ?? 0,
-              impressions: row._sum.adImpressions ?? 0,
-              clicks: row._sum.adClicks ?? 0,
-              conversions: row._sum.adConversions ?? 0,
-              revenue: row._sum.adRevenue ?? 0,
-            },
-          },
-        ];
-      }),
+      totals,
+      perListing: perListing.map((row) => ({
+        listingId: row.listingId,
+        sums: {
+          spend: row.spend,
+          impressions: row.impressions,
+          clicks: row.clicks,
+          conversions: row.conversions,
+          revenue: row.revenue,
+        },
+      })),
     };
   }
 }

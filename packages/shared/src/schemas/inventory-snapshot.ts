@@ -181,13 +181,9 @@ export const SellpiaImportRunSummarySchema = z.object({
 }).strict().superRefine((run, ctx) => {
   const missingFileName = run.fileName === null;
   const missingFileHash = run.fileHash === null;
-  if (missingFileName !== missingFileHash) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: missingFileName ? ['fileName'] : ['fileHash'],
-      message: 'File name and hash must be present or null together',
-    });
-  }
+  // This read summary exposes legacy file provenance independently. A Sellpia
+  // JSON snapshot may retain fileName while fileHash stays null; the
+  // canonical source-import contract validates artifact pairing separately.
   if (!missingFileName || !missingFileHash) return;
   if (
     run.status !== 'failed'

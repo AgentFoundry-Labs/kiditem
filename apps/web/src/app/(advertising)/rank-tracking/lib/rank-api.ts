@@ -1,7 +1,22 @@
 // /api/ads/keyword-rank/* 라우트 전용 API 래퍼 — 키워드 트래커 CRUD 와
 // 순위 추이/최신 SERP 조회. 순위 수집 자체는 확장(rank-extension.ts)이 담당.
 
+import { WingRankBatchSchema, type WingRankBatch } from '@kiditem/shared/advertising';
 import { apiClient } from '@/lib/api-client';
+
+const WING_BATCH_PATH = '/api/ads/keyword-rank/wing/batch-attempts';
+
+export async function beginWingRankBatch(idempotencyKey: string): Promise<WingRankBatch> {
+  return WingRankBatchSchema.parse(await apiClient.post(WING_BATCH_PATH, {}, {
+    headers: { 'Idempotency-Key': idempotencyKey },
+  }));
+}
+
+export async function fetchWingRankBatch(idempotencyKey: string): Promise<WingRankBatch> {
+  return WingRankBatchSchema.parse(await apiClient.get(WING_BATCH_PATH, {
+    headers: { 'Idempotency-Key': idempotencyKey },
+  }));
+}
 
 export interface KeywordTracker {
   id: string;

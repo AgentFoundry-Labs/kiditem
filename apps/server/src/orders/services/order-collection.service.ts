@@ -99,6 +99,30 @@ const NUMERIC_OUTPUT_HEADERS = new Set<OutputHeader>([
   '배송비',
 ]);
 
+const ART09_HEADERS = [
+  '쇼핑몰',
+  '쇼핑몰번호',
+  '주문번호',
+  '품목별 주문번호',
+  '배송메시지',
+  '총 주문금액',
+  '총 결제금액',
+  '상품번호',
+  '주문상품명',
+  '주문상품명(옵션포함)',
+  '수량',
+  '판매가',
+  '수령인',
+  '수령인 휴대전화',
+  '수령인 우편번호',
+  '수령인 주소',
+  '수령인 상세 주소',
+  '결제구분',
+  '결제수단',
+  '발주일',
+  '배송국가',
+] as const;
+
 type OutputHeader = (typeof OUTPUT_HEADERS)[number];
 type SourceRow = Record<string, string>;
 type OutputRow = Record<OutputHeader, string | number>;
@@ -120,6 +144,47 @@ export interface OrderCollectionRowsInput {
   headers: unknown;
   rows: unknown;
   fileName?: unknown;
+}
+
+export interface IcecreamSendFinishInput {
+  headers: unknown;
+  rows: unknown;
+  tracking: unknown;
+  fileName?: unknown;
+}
+
+interface IcecreamSendFinishTrackingRow {
+  ordNo: string;
+  invNo: string;
+  courier: string;
+}
+
+export interface Art09OrderRow {
+  shopName?: string;
+  shopNo?: string;
+  orderId?: string;
+  orderItemId?: string;
+  message?: string;
+  totalOrderAmount?: string;
+  totalPaymentAmount?: string;
+  productNo?: string;
+  productName?: string;
+  productNameWithOption?: string;
+  qty?: string | number;
+  salePrice?: string;
+  receiver?: string;
+  receiverPhone?: string;
+  receiverZip?: string;
+  receiverAddress?: string;
+  receiverAddressDetail?: string;
+  paymentType?: string;
+  paymentMethod?: string;
+  orderedAt?: string;
+  country?: string;
+}
+
+export interface Art09ConvertInput {
+  rows?: unknown;
 }
 
 export interface KidsnoteConvertItem {
@@ -270,6 +335,46 @@ export class OrderCollectionService {
         : `아이스크림몰_${dayStamp(new Date())}_브라우저수집`;
 
     return convertIcecreamMallRows(sourceRows, buildOutputFileName(inputFileName));
+  }
+
+  /**
+   * 셀피아 송장과 아이스크림몰 배송 원본을 조인해 출고완료 일괄등록용 xlsx를
+   * 일회성 응답으로 만든다. 이 파일은 원본/송장 조인 결과를 저장하지 않는다.
+   */
+  convertIcecreamSendFinish(input: IcecreamSendFinishInput): OrderCollectionConversion {
+    const headers = parseStringArray(input.headers, 'headers');
+    const rows = parseRows(input.rows);
+    const tracking = parseIcecreamSendFinishTracking(input.tracking);
+    if (headers.length === 0 || rows.length === 0) {
+      throw new BadRequestException('아이스크림몰 출고완료 파일의 원본 행이 없습니다.');
+    }
+    if (rows.length > 10_000 || tracking.length > 10_000) {
+      throw new BadRequestException('한 번에 처리할 수 있는 행은 10,000개까지입니다.');
+    }
+
+    const built = buildIcecreamSendFinishRows(headers, rows, tracking);
+    const fileName = icecreamSendFinishFileName(input.fileName);
+    const workbook = buildIcecreamSendFinishWorkbook(built.previewRows);
+    const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
+    return {
+      buffer,
+      fileName,
+      sourceRows: rows.length,
+      productRows: 0,
+      outputRows: built.matchedRows,
+      skippedRows: rows.length - built.matchedRows,
+    };
+  }
+
+  convertArt09Orders(input: Art09ConvertInput): OrderCollectionConversion {
+    if (!Array.isArray(input?.rows)) {
+      throw new BadRequestException('변환할 아트공구 주문 데이터가 없습니다.');
+    }
+    if (input.rows.length > 10_000) {
+      throw new BadRequestException('한 번에 변환할 수 있는 주문은 10,000건까지입니다.');
+    }
+
+    return convertArt09Rows(input.rows.filter(isValidArt09OrderRow));
   }
 
   convertKidsnoteOrders(input: KidsnoteConvertInput): OrderCollectionConversion {
@@ -1455,6 +1560,133 @@ function parseRows(value: unknown): string[][] {
   return value.map((row) => parseStringArray(row, 'row'));
 }
 
+function parseIcecreamSendFinishTracking(
+  value: unknown,
+): IcecreamSendFinishTrackingRow[] {
+  if (!Array.isArray(value)) {
+    throw new BadRequestException('tracking 값이 올바르지 않습니다.');
+  }
+  return value.map((row, index) => {
+    if (!row || typeof row !== 'object' || Array.isArray(row)) {
+      throw new BadRequestException(`tracking[${index}] 값이 올바르지 않습니다.`);
+    }
+    const input = row as Record<string, unknown>;
+    return {
+      ordNo: normalizeUnknownCell(input.ordNo),
+      invNo: normalizeUnknownCell(input.invNo),
+      courier: normalizeUnknownCell(input.courier),
+    };
+  });
+}
+
+function buildIcecreamSendFinishRows(
+  headers: string[],
+  rows: string[][],
+  tracking: IcecreamSendFinishTrackingRow[],
+): { previewRows: string[][]; matchedRows: number; unmappedCouriers: string[] } {
+  const orderIndex = icecreamHeaderIndex(headers, '주문번호');
+  const deliveryIndex = icecreamHeaderIndex(headers, '배송번호');
+  const sequenceIndex = icecreamHeaderIndex(headers, '배송순번');
+  if (orderIndex < 0 || deliveryIndex < 0) {
+    throw new BadRequestException(
+      '아이스크림몰 주문번호 또는 배송번호가 없어 송장 파일을 만들 수 없습니다.',
+    );
+  }
+
+  const trackingByOrder = new Map<string, { invoice: string; hdcCode: string }>();
+  const unmappedCouriers = new Set<string>();
+  for (const row of tracking) {
+    if (!row.ordNo || !row.invNo) continue;
+    const hdcCode = icecreamCourierHdcCode(row.courier);
+    if (!hdcCode) {
+      unmappedCouriers.add(row.courier || '(없음)');
+      continue;
+    }
+    const previous = trackingByOrder.get(row.ordNo);
+    if (
+      previous &&
+      (previous.invoice !== row.invNo || previous.hdcCode !== hdcCode)
+    ) {
+      throw new BadRequestException(
+        `아이스크림몰 주문 ${row.ordNo}에 서로 다른 송장이 있어 자동 매칭을 중단했습니다.`,
+      );
+    }
+    trackingByOrder.set(row.ordNo, { invoice: row.invNo, hdcCode });
+  }
+  if (unmappedCouriers.size > 0) {
+    throw new BadRequestException(
+      `아이스크림몰 택배사 코드가 없는 송장이 있습니다: ${[...unmappedCouriers].join(', ')}`,
+    );
+  }
+
+  const uploadRows = new Map<string, string[]>();
+  for (const row of rows) {
+    const orderNo = normalizeUnknownCell(row[orderIndex]);
+    const deliveryNo = normalizeUnknownCell(row[deliveryIndex]);
+    const deliverySequence =
+      sequenceIndex >= 0
+        ? normalizeUnknownCell(row[sequenceIndex]) || '1'
+        : '1';
+    const tracked = trackingByOrder.get(orderNo);
+    if (!orderNo || !deliveryNo || !tracked) continue;
+
+    const deliveryKey = `${deliveryNo}\u001f${deliverySequence}`;
+    const uploadRow = [deliveryNo, deliverySequence, tracked.hdcCode, tracked.invoice];
+    const previous = uploadRows.get(deliveryKey);
+    if (previous && previous.join('\u001f') !== uploadRow.join('\u001f')) {
+      throw new BadRequestException(
+        `아이스크림몰 배송번호 ${deliveryNo}-${deliverySequence}에 서로 다른 송장이 매칭되었습니다.`,
+      );
+    }
+    uploadRows.set(deliveryKey, uploadRow);
+  }
+
+  const values = [...uploadRows.values()];
+  return {
+    previewRows: [['배송번호', '배송순번', '택배사', '송장번호'], ...values],
+    matchedRows: values.length,
+    unmappedCouriers: [...unmappedCouriers],
+  };
+}
+
+function icecreamHeaderIndex(headers: string[], expected: string): number {
+  return headers.findIndex((header) => header.replace(/\s+/g, '') === expected);
+}
+
+function icecreamCourierHdcCode(courier: string): string | null {
+  if (courier === '1136' || courier === '10' || courier === 'CJ대한통운') return '10';
+  return null;
+}
+
+function icecreamSendFinishFileName(value: unknown): string {
+  const fileName = normalizeUnknownCell(value);
+  if (!fileName) return `아이스크림몰_출고완료_${dayStamp(new Date())}.xlsx`;
+  return fileName.toLowerCase().endsWith('.xlsx') ? fileName : `${fileName}.xlsx`;
+}
+
+function buildIcecreamSendFinishWorkbook(previewRows: string[][]): XLSX.WorkBook {
+  const worksheet = XLSX.utils.aoa_to_sheet(previewRows);
+  worksheet['!cols'] = [
+    { wch: 14 },
+    { wch: 10 },
+    { wch: 10 },
+    { wch: 18 },
+  ];
+  for (let rowIndex = 1; rowIndex < previewRows.length; rowIndex += 1) {
+    for (let columnIndex = 0; columnIndex < 4; columnIndex += 1) {
+      const address = XLSX.utils.encode_cell({ r: rowIndex, c: columnIndex });
+      const cell = worksheet[address];
+      if (!cell) continue;
+      cell.t = 's';
+      cell.z = '@';
+      cell.v = String(cell.v ?? '');
+    }
+  }
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Sheet1');
+  return workbook;
+}
+
 function mapSourceRow(headers: string[], row: string[]): SourceRow {
   const mapped: SourceRow = {};
   headers.forEach((header, index) => {
@@ -1638,6 +1870,11 @@ function normalizeCell(value: string | number | null | undefined): string {
   return String(value).trim();
 }
 
+function normalizeUnknownCell(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  return String(value).trim();
+}
+
 function ordererPhone(source: SourceRow): string {
   return cell(source, '주문자휴대폰번호') || cell(source, '수취인휴대폰번호');
 }
@@ -1705,6 +1942,77 @@ function containsHangul(value: string): boolean {
 
 function containsControlCharacters(value: string): boolean {
   return /[\u0000-\u001F\u007F-\u009F]/.test(value);
+}
+
+function convertArt09Rows(rows: Art09OrderRow[]): OrderCollectionConversion {
+  const csvRows = rows.map(art09RowToCsv);
+  const csv = `\uFEFF${[ART09_HEADERS, ...csvRows].map(art09CsvLine).join('\r\n')}\r\n`;
+  const orderNumbers = distinctNonEmpty(rows.map((row) => row.orderId ?? ''));
+  return {
+    buffer: Buffer.from(csv, 'utf8'),
+    fileName: `zzogzzog1_${dayStamp(new Date())}_주문수집.csv`,
+    sourceRows: orderNumbers.length,
+    productRows: rows.length,
+    outputRows: rows.length,
+    skippedRows: 0,
+  };
+}
+
+function art09RowToCsv(row: Art09OrderRow): string[] {
+  return [
+    row.shopName ?? '한국어 쇼핑몰',
+    row.shopNo ?? '1',
+    row.orderId ?? '',
+    row.orderItemId ?? '',
+    row.message ?? '',
+    row.totalOrderAmount ?? '****',
+    row.totalPaymentAmount ?? '****',
+    row.productNo ?? '',
+    row.productName ?? '',
+    row.productNameWithOption ?? row.productName ?? '',
+    String(row.qty ?? ''),
+    row.salePrice ?? '****',
+    row.receiver ?? '',
+    row.receiverPhone ?? '',
+    row.receiverZip ?? '',
+    row.receiverAddress ?? '',
+    row.receiverAddressDetail ?? '',
+    row.paymentType ?? 'T',
+    row.paymentMethod ?? '',
+    row.orderedAt ?? '',
+    row.country ?? '',
+  ];
+}
+
+function isValidArt09OrderRow(value: unknown): value is Art09OrderRow {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const row = value as Art09OrderRow;
+  const orderId = row.orderId?.trim() ?? '';
+  const orderItemId = row.orderItemId?.trim() ?? '';
+  const quantity = Number(row.qty);
+  return /^\d{8}-\d{7}$/.test(orderId)
+    && (!orderItemId || new RegExp(`^${orderId}-\\d{2,}$`).test(orderItemId))
+    && Boolean(row.productName?.trim())
+    && Number.isFinite(quantity)
+    && quantity > 0;
+}
+
+function art09CsvLine(row: readonly string[]): string {
+  return row.map(art09CsvCell).join(',');
+}
+
+function art09CsvCell(value: string): string {
+  if (!/[",\r\n]/.test(value)) return value;
+  return `"${value.replace(/"/g, '""')}"`;
+}
+
+function distinctNonEmpty(values: string[]): string[] {
+  const seen = new Set<string>();
+  for (const value of values) {
+    const trimmed = value.trim();
+    if (trimmed) seen.add(trimmed);
+  }
+  return Array.from(seen);
 }
 
 function dayStamp(value: Date): string {

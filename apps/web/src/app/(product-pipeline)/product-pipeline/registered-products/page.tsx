@@ -1,29 +1,32 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { Suspense, useEffect, useMemo, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Plus, RefreshCw, SlidersHorizontal } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { Pagination } from '@/components/ui/Pagination';
+import PageSkeleton from '@/components/ui/PageSkeleton';
 import { formatNumber } from '@/lib/utils';
 import { queryKeys } from '@/lib/query-keys';
+import ReadinessModal from '@/components/ReadinessModal';
 import { ProductPipelineHeader } from '../_shared/components/inbox/ProductPipelineHeader';
 import { ProductPipelineStats } from '../_shared/components/inbox/ProductPipelineStats';
 import { ProductInboxListFrame } from '../_shared/components/inbox/ProductInboxListFrame';
 import { ProductInboxToolbar } from '../_shared/components/inbox/ProductInboxToolbar';
 import { channelDisplayName, RegisteredListingCard } from './components/RegisteredListingCard';
-import { CoupangCatalogImportPanel } from './components/CoupangCatalogImportPanel';
 import ListingDeleteDialog from './components/ListingDeleteDialog';
 import {
   channelListingsApi,
   type RegisteredChannelListing,
   type RegisteredListingSort,
   type RegisteredMarketCount,
+  readCoupangCatalogCollectionLink,
 } from './lib/channel-listings-api';
 import { registeredListingWorkspaceHref } from './lib/registered-listing-navigation';
 
 type RegisteredListingFilter = 'registered' | 'recent' | 'deleted';
 type MarketFilter = 'all' | `channel:${string}`;
+const SEARCH_DEBOUNCE_MS = 300;
 
 const MARKET_SUMMARY_CHANNELS = [
   { channel: 'smartstore', label: '스마트스토어' },
@@ -34,7 +37,22 @@ const MARKET_SUMMARY_CHANNELS = [
 ] as const;
 
 export default function RegisteredProductsPage() {
+  return (
+    <Suspense fallback={<PageSkeleton variant="table" />}>
+      <RegisteredProductsPageContent />
+    </Suspense>
+  );
+}
+
+function RegisteredProductsPageContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const searchParamString = searchParams.toString();
+  const catalogLink = useMemo(
+    () => readCoupangCatalogCollectionLink(searchParamString),
+    [searchParamString],
+  );
+  const catalogHandoffOpen = catalogLink !== null;
   const recentCreatedSince = useMemo(
     () => new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
     [],
@@ -44,6 +62,8 @@ export default function RegisteredProductsPage() {
   const [sort, setSort] = useState<RegisteredListingSort>('newest');
   const [filter, setFilter] = useState<RegisteredListingFilter>('registered');
   const [marketFilter, setMarketFilter] = useState<MarketFilter>('all');
+  const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   // ⚠️ 파괴적 동작. 다이얼로그가 열려 있는 동안에만 대상이 존재한다.
   const [deleteTarget, setDeleteTarget] = useState<RegisteredChannelListing | null>(null);
@@ -54,12 +74,21 @@ export default function RegisteredProductsPage() {
   const listingTab = filter === 'deleted' ? 'deleted' : 'registered';
   const recentFilterCreatedSince = filter === 'recent' ? recentCreatedSince : null;
 
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      setDebouncedSearch(search.trim());
+      setPage(1);
+    }, SEARCH_DEBOUNCE_MS);
+    return () => window.clearTimeout(timeout);
+  }, [search]);
+
   const queryParams = {
     page: String(page),
     limit: String(pageSize),
     sort,
     tab: filter,
     market: marketFilter,
+    search: debouncedSearch,
     ...(recentFilterCreatedSince ? { createdSince: recentFilterCreatedSince } : {}),
   };
   const summaryQueryParams = {
@@ -73,6 +102,7 @@ export default function RegisteredProductsPage() {
       sort,
       tab: listingTab,
       channel: selectedChannel,
+      search: debouncedSearch,
       createdSince: recentFilterCreatedSince,
     }),
     placeholderData: previousData => previousData,
@@ -130,11 +160,21 @@ export default function RegisteredProductsPage() {
   }, [marketCounts]);
 
   return (
-    <div className="flex h-full flex-col bg-slate-50">
+    <>
+      <ReadinessModal
+        open={catalogHandoffOpen}
+        catalogLink={catalogLink}
+        onClose={() => {
+          router.replace('/product-pipeline/registered-products');
+        }}
+      />
+      <div className="flex h-full flex-col bg-slate-50">
       <ProductPipelineHeader
         title="등록 상품"
         subtitle="마켓 채널별 등록 상품 관리"
         searchPlaceholder="상품명 · 상품코드 · 마켓 상품번호 검색"
+        searchValue={search}
+        onSearchChange={setSearch}
       />
 
       <MarketplaceSummaryBar
@@ -145,8 +185,6 @@ export default function RegisteredProductsPage() {
           setPage(1);
         }}
       />
-
-      <CoupangCatalogImportPanel />
 
       <ProductPipelineStats
         draftLabel="선택 상품"
@@ -235,16 +273,20 @@ export default function RegisteredProductsPage() {
           isLoading={isLoading && !data}
           isEmpty={listings.length === 0}
           emptyState={{
-            title: filter === 'deleted'
-              ? '삭제된 마켓 상품이 없어요.'
-              : filter === 'recent'
-                ? '최근 7일 동안 등록된 상품이 없어요.'
-                : '아직 등록된 상품이 없어요.',
-            description: filter === 'deleted'
-              ? '모든 마켓에서 삭제 처리된 상품이 생기면 여기에 표시됩니다.'
-              : filter === 'recent'
-                ? '최근 등록 상품은 등록일 기준 7일 동안 이 탭에 표시됩니다.'
-                : '수집 상품에서 제품 등록을 완료한 뒤 마켓에 등록하면 여기에 표시됩니다.',
+            title: debouncedSearch
+              ? '검색 결과가 없어요.'
+              : filter === 'deleted'
+                ? '삭제된 마켓 상품이 없어요.'
+                : filter === 'recent'
+                  ? '최근 7일 동안 등록된 상품이 없어요.'
+                  : '아직 등록된 상품이 없어요.',
+            description: debouncedSearch
+              ? '다른 검색어로 다시 시도해 보세요.'
+              : filter === 'deleted'
+                ? '모든 마켓에서 삭제 처리된 상품이 생기면 여기에 표시됩니다.'
+                : filter === 'recent'
+                  ? '최근 등록 상품은 등록일 기준 7일 동안 이 탭에 표시됩니다.'
+                  : '수집 상품에서 제품 등록을 완료한 뒤 마켓에 등록하면 여기에 표시됩니다.',
           }}
           selectionAction={{
             checked: allVisibleSelected,
@@ -272,7 +314,8 @@ export default function RegisteredProductsPage() {
           <Pagination page={page} limit={pageSize} total={total} onPageChange={setPage} />
         </div>
       </div>
-    </div>
+      </div>
+    </>
   );
 }
 

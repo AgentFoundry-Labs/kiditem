@@ -13,7 +13,7 @@ mutation from general chat itself.
 
 Provider-native subagent IDs, routing, and transcripts remain provider-owned.
 Never create or describe a KidItem Agent, grant, Task, child Task, or
-specialist record. Keep business results to returned `resourceRefs and
-operationRefs`, never a UI href. Use `invocation_status` and
-`operation_status` only for current receipt/Operation reads; an approval is
-made exclusively by the authenticated KidItem web experience.
+specialist record. Keep business results to returned `resourceRefs` and
+bounded read output; mutations return a durable invocation receipt/status,
+never a UI href. Use `invocation_status` to read the current mutation receipt;
+an approval is made exclusively by the authenticated KidItem web experience.

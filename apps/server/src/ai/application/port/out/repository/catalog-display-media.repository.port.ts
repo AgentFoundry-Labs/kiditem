@@ -10,6 +10,8 @@ export type CatalogDisplayMediaCandidate = Readonly<{
   role: 'primary' | 'option';
   sortOrder: number;
   externalOptionId: string | null;
+  /** All option identities sharing this provider asset; empty for primary media. */
+  externalOptionIds?: readonly string[];
 }>;
 
 export interface CatalogDisplayMediaRepositoryPort {

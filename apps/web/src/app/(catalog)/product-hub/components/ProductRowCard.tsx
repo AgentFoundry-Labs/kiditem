@@ -131,9 +131,9 @@ export function ProductRowCard({
         <span>활성 옵션 {formatNumber(product.channelOptionSummary.active)}개</span>
         <span>{product.depletion.minMonthsOfAvailableStockLeft === null ? '가용재고 소진 미계산' : `가용재고 ${product.depletion.minMonthsOfAvailableStockLeft}개월`}</span>
         <span>광고비 {product.adSpend === null ? '—' : `${formatKRW(product.adSpend)}원`}</span>
-        <span>기여이익 {product.abcEvaluation?.weightedContributionProfit == null
+        <span>기간 실제 이익 {product.contribution?.operatingProfit == null
           ? '—'
-          : `${formatKRW(product.abcEvaluation.weightedContributionProfit)}원`}</span>
+          : `${formatKRW(product.contribution.operatingProfit)}원`}</span>
         <span>상품 건강도 {product.healthScore === null ? '—' : `${formatNumber(product.healthScore)}점`}</span>
       </div>
     </article>

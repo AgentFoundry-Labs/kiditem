@@ -9,6 +9,10 @@ function listingRow(overrides: Record<string, unknown> = {}) {
     externalId: 'seller-product-1',
     channelName: '쿠팡 등록명',
     displayName: 'KidItem 등록명',
+    category: null,
+    brand: null,
+    manufacturer: null,
+    rawJson: null,
     sourceCandidateId: 'candidate-1',
     masterProductId: 'master-1',
     status: 'active',
@@ -37,6 +41,7 @@ function listingRow(overrides: Record<string, unknown> = {}) {
       currentThumbnailSelection: {
         contentAsset: { url: 'https://cdn.example.com/workspace.jpg' },
       },
+      contentGenerationGroups: [],
     }],
     thumbnails: [],
     ...overrides,
@@ -92,7 +97,7 @@ describe('ChannelListingRepositoryAdapter', () => {
           { options: { some: { sellerSku: { contains: '다트', mode: 'insensitive' } } } },
         ]),
       },
-      include: expect.objectContaining({
+      select: expect.objectContaining({
         channelAccount: expect.any(Object),
         options: expect.objectContaining({
           where: { isActive: true },
@@ -116,6 +121,9 @@ describe('ChannelListingRepositoryAdapter', () => {
       channelAccountName: '쿠팡 본계정',
       externalId: 'seller-product-1',
       channelName: '쿠팡 등록명',
+      category: null,
+      brand: null,
+      manufacturer: null,
       channelPrice: 12_900,
       sourceCandidateId: 'candidate-1',
       contentWorkspaceId: 'workspace-1',
@@ -196,6 +204,124 @@ describe('ChannelListingRepositoryAdapter', () => {
       contentWorkspaceId: 'workspace-1',
       channelAccountId: 'account-1',
     }));
+  });
+
+  it('projects only the canonical detail-document writer shape on the workspace read', async () => {
+    prisma.channelListing.findFirst.mockResolvedValueOnce(listingRow({
+      rawJson: {
+        // These aliases were never written by updateChannelCatalogDetails and
+        // must not become a second read contract.
+        providerDetail: { contents: '<script>unsafe()</script>' },
+        detailDocuments: [{
+          id: 'contents-1',
+          kind: 'contents',
+          value: '<script>unsafe()</script>',
+        }],
+      },
+      options: [{
+        externalOptionId: 'option-1',
+        itemName: '빨강',
+        salePrice: null,
+        sellerSku: null,
+        barcode: null,
+        modelNumber: null,
+        status: 'active',
+        attributesJson: { color: 'red' },
+        rawJson: {
+          vendorItemId: 'vendor-item-1',
+          sellerProductItemId: 'seller-item-1',
+          detailDocumentIds: ['contents-1'],
+        },
+        inventoryComponents: [],
+      }],
+      contentWorkspaces: [{
+        id: 'workspace-1',
+        currentDetailPageArtifactId: 'artifact-1',
+        currentDetailPageRevisionId: 'revision-1',
+        currentThumbnailSelection: {
+          contentAsset: { url: 'https://cdn.example.com/workspace.jpg' },
+        },
+        contentGenerationGroups: [{
+          originatingAssets: [
+            {
+              id: 'provider-primary',
+              url: 'https://cdn.example.com/provider.png',
+              role: 'primary',
+              sortOrder: 0,
+              metadata: {
+                sourceType: 'channel_catalog',
+                channel: 'coupang',
+                active: true,
+              },
+            },
+            {
+              id: 'provider-option',
+              url: 'https://cdn.example.com/provider-option.png',
+              role: 'option',
+              sortOrder: 1,
+              metadata: {
+                sourceType: 'channel_catalog',
+                channel: 'coupang',
+                externalOptionId: 'option-1',
+                externalOptionIds: ['option-1'],
+                active: true,
+              },
+            },
+            {
+              id: 'inactive-provider',
+              url: 'https://cdn.example.com/old-provider.png',
+              role: 'detail',
+              sortOrder: 2,
+              metadata: {
+                sourceType: 'channel_catalog',
+                channel: 'coupang',
+                active: false,
+              },
+            },
+          ],
+        }],
+      }],
+    }));
+
+    const result = await repository.getWorkspace('org-1', 'listing-1');
+
+    expect(result.providerDetail).toEqual({
+      category: null,
+      brand: null,
+      manufacturer: null,
+      sourceDetail: {
+        documents: [{
+          id: 'contents-1',
+          kind: 'contents',
+          value: '<script>unsafe()</script>',
+        }],
+        options: [{ externalOptionId: 'option-1', documentIds: ['contents-1'] }],
+      },
+      options: [{
+        externalOptionId: 'option-1',
+        itemName: '빨강',
+        vendorItemId: 'vendor-item-1',
+        sellerProductItemId: 'seller-item-1',
+        salePrice: null,
+        sellerSku: null,
+        barcode: null,
+        modelNumber: null,
+        status: 'active',
+        attributes: { color: 'red' },
+      }],
+      media: [{
+        sourceUrl: 'https://cdn.example.com/provider.png',
+        role: 'primary',
+        sortOrder: 0,
+        externalOptionIds: [],
+      }, {
+        sourceUrl: 'https://cdn.example.com/provider-option.png',
+        role: 'option',
+        sortOrder: 1,
+        externalOptionIds: ['option-1'],
+      }],
+    });
+    expect(result.providerDetail?.sourceDetail).not.toHaveProperty('contents');
   });
 
   it('rejects an inactive or cross-organization workspace', async () => {

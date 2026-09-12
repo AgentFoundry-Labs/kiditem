@@ -1,10 +1,9 @@
 'use client';
 
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import dynamic from 'next/dynamic';
 import { useQuery } from '@tanstack/react-query';
-import type { RocketSavedPoSummary } from '@kiditem/shared/rocket-purchase-preview';
 import {
   ChevronDown,
   ChevronRight,
@@ -13,14 +12,16 @@ import {
 } from 'lucide-react';
 import { cn, formatKRW, formatNumber } from '@/lib/utils';
 import { queryKeys } from '@/lib/query-keys';
+import { useRocketPoSource } from '@/hooks/use-rocket-po-source';
 import PageSkeleton from '@/components/ui/PageSkeleton';
-import { RocketAccountBootstrap } from './RocketAccountBootstrap';
 import { listSavedRocketPos } from '@/app/(supply)/purchase-orders/lib/rocket-purchase-preview-api';
-import { RocketOrderActivityPanel } from './RocketOrderActivityPanel';
-import { RocketMonthCalendar, type MonthDayData } from './RocketMonthCalendar';
+import type { RocketOrderActivityInput } from '@/lib/rocket-order-activity';
 import { useRocketOrderActivity } from '../hooks/useRocketOrderActivity';
 import { useRocketOrdersViewState } from '../hooks/useRocketOrdersViewState';
-import type { RocketOrderActivityInput } from '@/lib/rocket-order-activity';
+import { RocketAccountBootstrap } from './RocketAccountBootstrap';
+import { RocketOrderActivityPanel } from './RocketOrderActivityPanel';
+import { RocketMonthCalendar, type MonthDayData } from './RocketMonthCalendar';
+import type { RocketSavedPoSummary } from '@kiditem/shared/rocket-purchase-preview';
 import type { RocketChartPoint } from './RocketOrdersChart';
 
 const RocketOrdersChart = dynamic(
@@ -122,7 +123,8 @@ export function RocketOrdersWorkspace({
   // RocketAccountBootstrap 이 익스텐션에서 확보한 내부 로켓 식별자를 유지한다.
   const [selectedRocketAccountName, setSelectedRocketAccountName] = useState('');
   const [hasConfiguredVendorId, setHasConfiguredVendorId] = useState(false);
-  const [selectedSourceImportRunId, setSelectedSourceImportRunId] = useState<string | null>(null);
+  const rocketSource = useRocketPoSource(selectedRocketAccountId, viewStateReady);
+  const selectedSourceImportRunId = rocketSource.data?.latestComplete?.attemptId ?? null;
   const { events, record: recordActivity } = useRocketOrderActivity();
 
   const handleRocketAccountChange = useCallback((account: {
@@ -140,30 +142,28 @@ export function RocketOrdersWorkspace({
         });
     setSelectedRocketAccountName(account?.name ?? '');
     setHasConfiguredVendorId(Boolean(account?.vendorId?.trim()));
-    setSelectedSourceImportRunId(null);
   }, [setViewState]);
 
   const handleRocketAccountSelection = useCallback((accountId: string) => {
     setViewState((current) => current.account === accountId
       ? current
       : { ...current, account: accountId, date: current.account ? '' : current.date });
-    setSelectedSourceImportRunId(null);
   }, [setViewState]);
 
   const { data, isLoading, isError, error, refetch } = useQuery({
-    queryKey: queryKeys.orders.rocketSavedPoList({
+    queryKey: [...queryKeys.orders.rocketSavedPoList({
       channelAccountId: selectedRocketAccountId,
       from,
       to,
       status,
-    }),
+    }), selectedSourceImportRunId],
     queryFn: () => listSavedRocketPos({
       channelAccountId: selectedRocketAccountId,
       from,
       to,
       status: status || undefined,
     }),
-    enabled: viewStateReady && selectedRocketAccountId.length > 0,
+    enabled: viewStateReady && selectedRocketAccountId.length > 0 && Boolean(selectedSourceImportRunId),
     meta: { suppressGlobalErrorToast: true },
     staleTime: 0,
     retry: false,
@@ -171,10 +171,7 @@ export function RocketOrdersWorkspace({
   });
 
   const orders = data ?? EMPTY_ROCKET_POS;
-  const latestSourceImportRunId = useMemo(
-    () => newestSourceImportRunId(orders),
-    [orders],
-  );
+  const latestSourceImportRunId = selectedSourceImportRunId;
 
   // 과거 원본이 정리되기 전에도 운영 화면은 최신 정상 수집본 하나만 사용한다.
   const latestOrders = useMemo(
@@ -225,9 +222,6 @@ export function RocketOrdersWorkspace({
   const selectedDaySourceRunCount = new Set(
     selectedDayOrders.map(({ sourceImportRunId }) => sourceImportRunId),
   ).size;
-  useEffect(() => {
-    setSelectedSourceImportRunId(latestSourceImportRunId);
-  }, [latestSourceImportRunId]);
 
   function selectOrderDay(
     date: string | null,
@@ -238,7 +232,6 @@ export function RocketOrdersWorkspace({
       ? latestOrders.filter(({ plannedDeliveryDate }) => plannedDeliveryDate === date)
       : [];
     const sourceRuns = new Set(rowsForDate.map(({ sourceImportRunId }) => sourceImportRunId));
-    setSelectedSourceImportRunId(latestSourceImportRunId);
     onSelectDate(date, sourceRuns.size);
   }
 
@@ -449,6 +442,22 @@ export function RocketOrdersWorkspace({
         onAccountChange={handleRocketAccountChange}
       />
 
+      <div role="status" aria-label="로켓 수집 상태" className="text-sm text-slate-500">
+        {rocketSource.isError ? '로켓 수집 상태를 불러오지 못했습니다.' : (
+          <>
+            {rocketSource.data?.ready ? 'COMPLETE 수집본' :
+              rocketSource.data?.latestComplete ? '이전 COMPLETE 수집본 · 최신 수집 필요' : '완료된 로켓 수집본 없음'}
+            {rocketSource.data?.latestComplete?.actualCutoffAt && (
+              <span> · 실제 수집 기준 <time dateTime={rocketSource.data.latestComplete.actualCutoffAt}>{rocketSource.data.latestComplete.actualCutoffAt}</time></span>
+            )}
+            {rocketSource.data?.refreshing && <span> · 수집 진행 중</span>}
+            {rocketSource.data?.latestAttempt?.state === 'FAILED' && (
+              <span className="text-amber-700"> · 수집 실패: {rocketSource.data.latestAttempt.errorMessage ?? rocketSource.data.latestAttempt.errorCode ?? '다시 수집해주세요.'}</span>
+            )}
+          </>
+        )}
+      </div>
+
       {decisionWorkspace({
         activeMonth: (from || todayYmd()).slice(0, 7),
         channelAccountId: selectedRocketAccountId,
@@ -460,19 +469,10 @@ export function RocketOrdersWorkspace({
         selectedDate: selectedDay || null,
         selectedDateSourceRunCount: selectedDaySourceRunCount,
         onActivity: recordActivity,
-        onOrdersChanged: () => void refetch(),
+        onOrdersChanged: () => { void refetch(); void rocketSource.refetch(); },
         renderOrderExplorer,
       })}
 
     </div>
   );
-}
-
-function newestSourceImportRunId(
-  orders: RocketSavedPoSummary[],
-): string | null {
-  const newest = [...orders].sort((left, right) =>
-    right.collectedAt.localeCompare(left.collectedAt)
-    || right.sourceImportRunId.localeCompare(left.sourceImportRunId))[0];
-  return newest?.sourceImportRunId ?? null;
 }

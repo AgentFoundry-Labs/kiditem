@@ -1,8 +1,10 @@
-import { issueBrowserCollectionRunId } from '@/lib/browser-collection-session';
 import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extension-bridge';
 import { convertDomeggookOrderFile } from './order-collection-api';
 import type { OrderCollectionConversionResult } from './order-collection-api';
-import type { OrderCollectionExtensionRun } from './order-collection-extension';
+import {
+  orderCollectionExtensionRunFields,
+  type OrderCollectionExtensionRun,
+} from './order-collection-extension';
 
 interface DomeggookCollectResponse {
   success?: boolean;
@@ -34,8 +36,8 @@ export async function collectDomeggookCsvFromExtension(
     {
       action: 'collectDomeggookOrders',
       date,
-      runId: await issueBrowserCollectionRunId(run?.runId),
-      deferTerminal: Boolean(run?.runId),
+      // attemptId/deferTerminal: true are included by shared fenced run fields.
+      ...orderCollectionExtensionRunFields(run),
     },
     260000, // 도매꾹은 엑셀 생성(비동기, 최대 4분 폴링) 후 다운로드라 넉넉히
   );
@@ -52,7 +54,7 @@ export async function collectDomeggookCsvFromExtension(
 export async function convertDomeggookCsvBase64(
   csvBase64: string,
   fileName: string,
-  options?: { date?: string; download?: boolean },
+  options?: { date?: string; download?: boolean; run?: OrderCollectionExtensionRun },
 ): Promise<OrderCollectionConversionResult> {
   const bin = atob(csvBase64);
   const bytes = new Uint8Array(bin.length);

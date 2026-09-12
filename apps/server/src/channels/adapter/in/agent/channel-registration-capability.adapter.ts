@@ -5,14 +5,10 @@ import type {
   ExternalProductRegistrationMatchPreviewResult,
   ExternalProductRegistrationPreflightInput,
   ExternalProductRegistrationPreflightResult,
-  ProductRegistrationSubmissionCapabilityInput,
   ResolveProductRegistrationCapabilityInput,
   ResolveProductRegistrationWithOwnerReceiptInput,
 } from "../../../application/port/in/capability/marketplace-registration.port";
-import type {
-  ChannelListingRegistrationResult,
-  MarketplaceSubmissionResult,
-} from "@kiditem/shared/channel-listing";
+import type { ChannelListingRegistrationResult } from "@kiditem/shared/channel-listing";
 import { MarketplaceRegistrationService } from "../../../application/service/marketplace-registration.service";
 import { ChannelRecipeSuggestionService } from "../../../application/service/channel-recipe-suggestion.service";
 
@@ -129,22 +125,6 @@ export class ChannelRegistrationCapabilityAdapter implements ChannelsMarketplace
   }): Promise<{ channel: "coupang"; vendorId: string }> {
     return this.marketplaceRegistration.assertExternalProductRegistrationAccount(
       input,
-    );
-  }
-
-  reconcileProductRegistration(
-    input: ProductRegistrationSubmissionCapabilityInput,
-  ): Promise<MarketplaceSubmissionResult | null> {
-    return this.marketplaceRegistration.reconcileProductRegistration(input);
-  }
-
-  submitProductRegistration(
-    input: ProductRegistrationSubmissionCapabilityInput,
-    beforeProviderCreate: () => Promise<void>,
-  ): Promise<MarketplaceSubmissionResult> {
-    return this.marketplaceRegistration.submitProductRegistration(
-      input,
-      beforeProviderCreate,
     );
   }
 

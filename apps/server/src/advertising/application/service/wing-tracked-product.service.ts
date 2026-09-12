@@ -1,21 +1,24 @@
-import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import {
-  AdvertisingTrackedWingProductsInputSchema,
-  sourcingWingCatalogKeywordIdentity,
-} from '@kiditem/shared/sourcing';
-import {
-  OPERATION_ATTEMPT_VERIFIER_PORT,
-  type OperationAttemptVerifierPort,
-} from '../../../operations/application/port/in/operation-attempt-verifier.port';
-import { currentBusinessDate } from '../../domain/business-date';
+  BadRequestException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import {
   WING_TRACKED_PRODUCT_REPOSITORY_PORT,
+  type WingTrackedProductAttemptPlan,
+  type WingTrackedProductAttemptUpload,
   type WingTrackedProductRepositoryPort,
+  type WingTrackedProductSourceView,
   type WingTrackedHistory,
   type WingTrackedProductWithLatest,
   type WingTrackedSnapshotRow,
   type WingTrackedSnapshotValues,
 } from '../port/out/repository/wing-tracked-product.repository.port';
+import {
+  WING_TRACKED_PRODUCT_SOURCE_ATTEMPT_REPOSITORY_PORT,
+  type WingTrackedProductSourceAttemptRepositoryPort,
+} from '../port/out/repository/wing-tracked-product-source-attempt.repository.port';
 
 /** 컨트롤러가 지표 매핑에 쓰는 스냅샷 값 타입. */
 export type WingTrackedSnapshotValuesInput = WingTrackedSnapshotValues;
@@ -36,13 +39,26 @@ export interface IngestWingSnapshotItem extends WingTrackedSnapshotValues {
   sourceKeyword?: string | null;
 }
 
+export interface BeginWingTrackedProductAttemptInput {
+  organizationId: string;
+  idempotencyKey: string;
+  keywords: readonly string[];
+}
+
+export interface SubmitWingTrackedProductAttemptInput {
+  organizationId: string;
+  attemptId: string;
+  attemptToken: string;
+  items: readonly IngestWingSnapshotItem[];
+}
+
 @Injectable()
 export class WingTrackedProductService {
   constructor(
     @Inject(WING_TRACKED_PRODUCT_REPOSITORY_PORT)
     private readonly repo: WingTrackedProductRepositoryPort,
-    @Inject(OPERATION_ATTEMPT_VERIFIER_PORT)
-    private readonly attemptVerifier: OperationAttemptVerifierPort,
+    @Inject(WING_TRACKED_PRODUCT_SOURCE_ATTEMPT_REPOSITORY_PORT)
+    private readonly attempts: WingTrackedProductSourceAttemptRepositoryPort,
   ) {}
 
   list(organizationId: string): Promise<WingTrackedProductWithLatest[]> {
@@ -54,77 +70,78 @@ export class WingTrackedProductService {
     input: AddWingTrackedProductInput,
     organizationId: string,
   ): Promise<WingTrackedProductWithLatest> {
-    const tracker = await this.repo.upsertByProductId(
-      {
-        productId: input.productId,
-        itemId: input.itemId,
-        vendorItemId: input.vendorItemId,
-        productName: input.productName,
-        imagePath: input.imagePath,
-        brandName: input.brandName,
-        categoryHierarchy: input.categoryHierarchy,
-        sourceKeyword: input.sourceKeyword,
-      },
-      organizationId,
-    );
-    const capturedAt = new Date();
-    await this.repo.upsertSnapshotsByProductId(
-      [
-        {
-          productId: input.productId,
-          businessDate: currentBusinessDate(),
-          sourceKeyword: input.sourceKeyword ?? null,
-          capturedAt,
-          ...snapshotValues(input),
-        },
-      ],
-      organizationId,
-    );
+    const tracker = await this.repo.registerWithInitialSnapshot(input, organizationId);
     const rows = await this.repo.list(organizationId);
     return rows.find((row) => row.id === tracker.id) ?? { ...tracker, latestSnapshot: null };
   }
 
-  async ingestBrowserSnapshots(input: {
+  async beginAttempt(
+    input: BeginWingTrackedProductAttemptInput,
+  ): Promise<WingTrackedProductAttemptPlan> {
+    const organizationId = requiredText(input.organizationId, 'INVALID_ORGANIZATION');
+    const idempotencyKey = requiredText(input.idempotencyKey, 'INVALID_IDEMPOTENCY_KEY');
+    if (idempotencyKey.length > 128) {
+      throw new BadRequestException('INVALID_IDEMPOTENCY_KEY');
+    }
+    const keywords = normalizeKeywords(input.keywords);
+    if (keywords.length === 0 || keywords.length > 12) {
+      throw new BadRequestException('INVALID_WING_TRACKED_KEYWORDS');
+    }
+    return this.attempts.beginAttempt({ organizationId, idempotencyKey, keywords });
+  }
+
+  async readSourceStatus(organizationId: string): Promise<WingTrackedProductSourceView> {
+    return this.attempts.readSourceStatus({
+      organizationId: requiredText(organizationId, 'INVALID_ORGANIZATION'),
+    });
+  }
+
+  async readAttemptControl(input: {
     organizationId: string;
-    operationRunId: string;
+    attemptId: string;
+  }): Promise<WingTrackedProductAttemptPlan | null> {
+    return this.attempts.readAttemptControl({
+      organizationId: requiredText(input.organizationId, 'INVALID_ORGANIZATION'),
+      attemptId: requiredText(input.attemptId, 'INVALID_ATTEMPT_ID'),
+    });
+  }
+
+  async submitAttempt(
+    input: SubmitWingTrackedProductAttemptInput,
+  ): Promise<WingTrackedProductSourceView> {
+    const organizationId = requiredText(input.organizationId, 'INVALID_ORGANIZATION');
+    const attemptId = requiredText(input.attemptId, 'INVALID_ATTEMPT_ID');
+    const attemptToken = requiredText(input.attemptToken, 'INVALID_ATTEMPT_TOKEN');
+    if (!Array.isArray(input.items)) {
+      throw new BadRequestException('INVALID_WING_TRACKED_SNAPSHOT');
+    }
+    const items = input.items.map(normalizeAttemptItem);
+    return this.attempts.submitAttempt({
+      organizationId,
+      attemptId,
+      attemptToken,
+      items,
+    });
+  }
+
+  async failAttempt(input: {
+    organizationId: string;
+    attemptId: string;
     attemptToken: string;
-    items: IngestWingSnapshotItem[];
-  }): Promise<{ captured: number; ignored: number }> {
-    return this.attemptVerifier.withActiveBrowserAttemptFence({
-      organizationId: input.organizationId,
-      runId: input.operationRunId,
-      expectedOperationKey: 'advertising.refresh_tracked_wing_products',
-      attemptToken: input.attemptToken,
-    }, async (attempt, transaction) => {
-      const operationInput = AdvertisingTrackedWingProductsInputSchema.safeParse(
-        attempt.input,
-      );
-      if (!operationInput.success) {
-        throw new ConflictException('tracked_wing_operation_input_invalid');
-      }
-      const allowedProductIds = new Set(operationInput.data.trackedProductIds);
-      const allowedKeywords = new Set(
-        operationInput.data.keywords.map(sourcingWingCatalogKeywordIdentity),
-      );
-      if (input.items.some((item) =>
-        !allowedProductIds.has(item.productId)
-        || !item.sourceKeyword
-        || !allowedKeywords.has(sourcingWingCatalogKeywordIdentity(item.sourceKeyword)))) {
-        throw new ConflictException('tracked_wing_operation_input_mismatch');
-      }
-      const capturedAt = new Date();
-      const businessDate = currentBusinessDate();
-      return this.repo.upsertSnapshotsByProductIdInAttempt(
-        transaction,
-        input.items.map((item) => ({
-          productId: item.productId,
-          businessDate,
-          sourceKeyword: item.sourceKeyword ?? null,
-          capturedAt,
-          ...snapshotValues(item),
-        })),
-        input.organizationId,
-      );
+    code: string;
+    message: string;
+  }): Promise<WingTrackedProductSourceView> {
+    const code = requiredText(input.code, 'INVALID_FAILURE_CODE');
+    const message = requiredText(input.message, 'INVALID_FAILURE_MESSAGE');
+    if (code.length > 100 || message.length > 300) {
+      throw new BadRequestException('INVALID_WING_TRACKED_FAILURE');
+    }
+    return this.attempts.failAttempt({
+      organizationId: requiredText(input.organizationId, 'INVALID_ORGANIZATION'),
+      attemptId: requiredText(input.attemptId, 'INVALID_ATTEMPT_ID'),
+      attemptToken: requiredText(input.attemptToken, 'INVALID_ATTEMPT_TOKEN'),
+      code,
+      message,
     });
   }
 
@@ -163,4 +180,60 @@ function snapshotValues(input: WingTrackedSnapshotValues): WingTrackedSnapshotVa
     estimatedRevenue28d: input.estimatedRevenue28d,
     conversionRate28d: input.conversionRate28d,
   };
+}
+
+function requiredText(value: unknown, code: string): string {
+  if (typeof value !== 'string') throw new BadRequestException(code);
+  const normalized = value.trim();
+  if (normalized.length === 0) throw new BadRequestException(code);
+  return normalized;
+}
+
+function normalizeKeywords(value: readonly string[]): string[] {
+  if (!Array.isArray(value)) throw new BadRequestException('INVALID_WING_TRACKED_KEYWORDS');
+  const unique = new Map<string, string>();
+  for (const keyword of value) {
+    const normalized = requiredText(keyword, 'INVALID_WING_TRACKED_KEYWORDS')
+      .replace(/\s+/gu, ' ')
+      .normalize('NFC');
+    if (normalized.length > 100) {
+      throw new BadRequestException('INVALID_WING_TRACKED_KEYWORDS');
+    }
+    const identity = normalized.toLocaleLowerCase('en-US');
+    if (!unique.has(identity)) unique.set(identity, normalized);
+  }
+  return [...unique.values()];
+}
+
+function normalizeAttemptItem(
+  input: IngestWingSnapshotItem,
+): WingTrackedProductAttemptUpload['items'][number] {
+  const productId = requiredText(input.productId, 'INVALID_WING_TRACKED_PRODUCT_ID');
+  if (productId.length > 40) throw new BadRequestException('INVALID_WING_TRACKED_PRODUCT_ID');
+  const sourceKeyword = input.sourceKeyword == null
+    ? null
+    : requiredText(input.sourceKeyword, 'INVALID_WING_TRACKED_KEYWORD')
+      .replace(/\s+/gu, ' ')
+      .normalize('NFC');
+  const values = snapshotValues(input);
+  assertMetric(values.salePriceKrw, 'INVALID_WING_TRACKED_SALE_PRICE');
+  assertMetric(values.ratingCount, 'INVALID_WING_TRACKED_RATING_COUNT');
+  assertMetric(values.pvLast28Day, 'INVALID_WING_TRACKED_PAGE_VIEWS');
+  assertMetric(values.salesLast28d, 'INVALID_WING_TRACKED_SALES');
+  assertMetric(values.estimatedRevenue28d, 'INVALID_WING_TRACKED_REVENUE');
+  assertDecimal(values.ratingAverage, 5, 'INVALID_WING_TRACKED_RATING');
+  assertDecimal(values.conversionRate28d, 1, 'INVALID_WING_TRACKED_CONVERSION');
+  return { productId, sourceKeyword, ...values };
+}
+
+function assertMetric(value: number | null, code: string): void {
+  if (value !== null && (!Number.isSafeInteger(value) || value < 0)) {
+    throw new BadRequestException(code);
+  }
+}
+
+function assertDecimal(value: number | null, max: number, code: string): void {
+  if (value !== null && (!Number.isFinite(value) || value < 0 || value > max)) {
+    throw new BadRequestException(code);
+  }
 }

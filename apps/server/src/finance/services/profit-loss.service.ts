@@ -2,18 +2,32 @@ import { Injectable, Logger } from '@nestjs/common';
 import type { PLData } from '@kiditem/shared/finance';
 import { PrismaService } from '../../prisma/prisma.service';
 import { kstMonthStart } from '../../common/kst';
-import { buildPerListingMetrics } from '../../common/per-listing-profit';
+import {
+  buildPerListingProfit,
+  readAdEvidenceFromLedger,
+} from '../../common/per-listing-profit';
 
 /**
  * Live aggregation.
  * Plan F1 T1 — per-listing core extracted to common/per-listing-profit.ts so dashboard
- * can share the math. This service adds returnCount + maps PerListingMetrics → PLData.
+ * can share the math. This service adds returnCount + maps PerListingProfit → PLData.
+ *
+ * This is the precise per-listing surface named in ADR-0006, so it publishes an
+ * unavailable profit for a listing whose ad coverage is incomplete rather than
+ * one computed from a partial ad sum. Rows still sort by revenue, which is
+ * always measured.
+ *
+ * Whether advertising applies to this organization at all is Advertising's
+ * answer, read here from the advertising target-day ledger — the campaign
+ * sweep's measured windows — for the same month window.
  */
 @Injectable()
 export class ProfitLossService {
   private readonly logger = new Logger(ProfitLossService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+  ) {}
 
   async findAll(
     organizationId: string,
@@ -24,8 +38,15 @@ export class ProfitLossService {
     const from = kstMonthStart(year, month);
     const to = kstMonthStart(year, month + 1);
 
+    const accountAdEvidence = await readAdEvidenceFromLedger(
+      this.prisma,
+      organizationId,
+      from,
+      to,
+    );
+
     const [metrics, returnRows] = await Promise.all([
-      buildPerListingMetrics(this.prisma, organizationId, from, to),
+      buildPerListingProfit(this.prisma, organizationId, from, to, accountAdEvidence),
       this.prisma.orderReturnLineItem.findMany({
         where: {
           organizationId,
@@ -74,6 +95,7 @@ export class ProfitLossService {
       year,
       month,
       listingCount: rows.length,
+      unavailableProfitCount: rows.filter((row) => row.netProfit === null).length,
       latencyMs: Date.now() - startedAt,
     });
 

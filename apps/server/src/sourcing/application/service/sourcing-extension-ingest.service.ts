@@ -1,22 +1,22 @@
-import { randomUUID } from 'node:crypto';
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { z } from 'zod';
 import {
   SourcingExtensionV1ProductSchema,
-  SourcingExtensionV2ProductSchema,
   type SourcingExtensionV1Product,
 } from '@kiditem/shared/sourcing';
+import { parseAllowedSupplierUrl, extractSupplierOfferId } from '../../domain/supplier-source-url-policy';
+import { canonicalSourcingCandidateIdentity } from '../../domain/sourcing-candidate-identity';
+import { SOURCING_BROWSER_SOURCE_ATTEMPT_REPOSITORY_PORT, type SourcingBrowserSourceAttemptRepositoryPort } from '../port/out/repository/sourcing-browser-source-attempt.repository.port';
+import { assertToken, boundedText, requireIdempotencyKey, toPermit } from './sourcing-source-attempt-primitives';
+import {
+  hashCollectionRequest,
+  normalizeCollectionTarget,
+} from './sourcing-collection-mappers';
 import type {
   AuthorizedCollectionOutput,
   SourcingExtensionCandidateProjection,
   SourcingCollectionPermit,
 } from '../port/out/repository/sourcing-collection.repository.port';
-import { parseAllowedSupplierUrl, extractSupplierOfferId } from '../../domain/supplier-source-url-policy';
-import { canonicalSourcingCandidateIdentity } from '../../domain/sourcing-candidate-identity';
-import { SourcingCollectionCoordinator } from './sourcing-collection-coordinator.service';
-import {
-  hashCollectionRequest,
-  normalizeCollectionTarget,
-} from './sourcing-collection-mappers';
 
 const EXTENSION_LEASE_MS = 2 * 60_000;
 
@@ -25,169 +25,102 @@ export interface AuthenticatedSourcingContext {
   userId: string | null;
 }
 
-export interface ExtensionV1Response {
-  ok: true;
-  message: string;
-  product_count: number;
-}
-
-export interface CreateExtensionV2CollectionSessionInput {
-  sourcePlatform: '1688' | 'alibaba';
-  sourceUrl: string;
-  externalOfferId: string;
-  variantKey: string;
-}
+const BeginSchema = z.object({ sourceUrl: z.string().min(1).max(2000) }).strict();
+const CompleteSchema = z.object({ product: SourcingExtensionV1ProductSchema,
+  description: SourcingExtensionV1ProductSchema.optional(), hadDescription: z.boolean() }).strict();
 
 /**
- * Owns the compatibility translation for browser extension product payloads.
- * The legacy controller path remains stable, while every durable write is
- * preceded by the same allowed-source/lease gate used by provider collectors.
+ * Maps the deployed extension wire payload into Sourcing candidate evidence.
  */
 @Injectable()
 export class SourcingExtensionIngestService {
   constructor(
-    private readonly collections: SourcingCollectionCoordinator,
+    @Inject(SOURCING_BROWSER_SOURCE_ATTEMPT_REPOSITORY_PORT)
+    private readonly attempts: SourcingBrowserSourceAttemptRepositoryPort,
   ) {}
 
-  async ingestV1(
-    context: AuthenticatedSourcingContext,
-    raw: unknown,
-  ): Promise<ExtensionV1Response> {
-    const product = parseV1(raw);
-    if ((product.page_type ?? 'detail') === 'search') {
-      return {
-        ok: true,
-        message: `received search data from ${product.source_platform ?? 'supplier'}`,
-        product_count: product.total_found ?? 0,
-      };
-    }
-    const command = toV1Command(product);
-    return this.commitAndPersist(context, command, 'v1');
+  async begin(context: AuthenticatedSourcingContext, raw: unknown, idempotencyKey: string) {
+    const parsed = BeginSchema.safeParse(raw);
+    if (!parsed.success) throw new BadRequestException('INVALID_PRODUCT_SOURCE_PLAN');
+    const plan = productPlan(parsed.data.sourceUrl);
+    return (await this.attempts.beginAttempt({ organizationId: context.organizationId,
+      sourceKey: plan.source, scopeKey: 'current-tab', targetKey: hashCollectionRequest(parseSupplierUrl(plan.sourceUrl).normalizedUrl),
+      idempotencyKey: requireIdempotencyKey(idempotencyKey), requestFingerprint: hashCollectionRequest(plan),
+      plan, planChecksum: hashCollectionRequest(plan), requestedByUserId: context.userId,
+      collectorKey: 'kiditem-os-product-extension', collectorVersion: 'kiditem-os/v1',
+      triggerKind: 'extension', expiresInMs: EXTENSION_LEASE_MS, failureAlert: productAlert(plan.source),
+    })).attempt;
   }
 
-  async ingestV2(
-    context: AuthenticatedSourcingContext,
-    raw: unknown,
-  ): Promise<ExtensionV1Response> {
-    const parsed = SourcingExtensionV2ProductSchema.safeParse(raw);
-    if (!parsed.success) throw new BadRequestException('v2 확장 수집 payload 형식이 올바르지 않습니다.');
-    const product = parsed.data;
-    const supplier = parseSupplierUrl(product.sourceUrl);
-    if (supplier.platform !== product.sourcePlatform) {
-      throw new BadRequestException('공급사 URL과 sourcePlatform이 일치하지 않습니다.');
+  async read(organizationId: string, attemptId: string) {
+    const attempt = await this.attempts.readAttempt({ organizationId, attemptId });
+    if (!attempt || !['1688.product_extension', 'alibaba.product_extension'].includes(attempt.sourceKey)) {
+      throw new NotFoundException('SOURCE_ATTEMPT_NOT_FOUND');
     }
-    const command: ExtensionProductCommand = {
-      pageType: 'detail',
-      sourceUrl: supplier.normalizedUrl,
-      sourcePlatform: product.sourcePlatform,
-      externalOfferId: product.externalOfferId.trim(),
-      variantKeyNormalized: normalizedVariantKey(product.variantKey),
-      title: product.title.trim(),
-      capturedAt: new Date(product.capturedAt),
-      payload: {
-        page_type: 'detail',
-        source_url: supplier.normalizedUrl,
-        source_platform: product.sourcePlatform,
-        product_id: product.externalOfferId.trim(),
-        title: product.title.trim(),
-        price_min: product.priceMin ?? undefined,
-        price_max: product.priceMax ?? undefined,
-        moq: product.minOrderQuantity ?? undefined,
-        supplier_name: product.supplierName ?? undefined,
-        sku_attrs: product.skuAttributes,
-        sku_list: product.skuItems,
-        price_tiers: product.priceTiers.map((tier) => ({
-          beginAmount: tier.minQuantity,
-          price: tier.unitPriceCny,
-        })),
-      },
-      requestHash: extensionSessionRequestHash({
-        collectionSessionId: product.collectionSessionId,
-        sourcePlatform: supplier.platform,
-        sourceUrl: supplier.normalizedUrl,
-        externalOfferId: product.externalOfferId.trim(),
-        variantKey: product.variantKey,
-      }),
-      idempotencyKey: `extension:v2:${product.collectionSessionId}`,
-      collectorVersion: product.extractorVersion,
+    return attempt;
+  }
+
+  status(organizationId: string, sourceUrl: string) {
+    const plan = productPlan(sourceUrl);
+    return this.attempts.readSourceStatus({ organizationId, sourceKey: plan.source,
+      scopeKey: 'current-tab', targetKey: hashCollectionRequest(parseSupplierUrl(plan.sourceUrl).normalizedUrl), currentPlanChecksum: hashCollectionRequest(plan) });
+  }
+
+  async complete(context: AuthenticatedSourcingContext, attemptId: string, attemptToken: string, raw: unknown) {
+    const attempt = await this.read(context.organizationId, attemptId);
+    assertToken(attempt, attemptToken);
+    let outputs: AuthorizedCollectionOutput[];
+    let content: unknown;
+    try {
+      const parsed = CompleteSchema.safeParse(raw);
+      if (!parsed.success) throw new BadRequestException('INVALID_PRODUCT_SOURCE_BATCH');
+      const { product, description, hadDescription } = parsed.data;
+      const plan = productPlan(product.source_url);
+      if (hashCollectionRequest(plan) !== attempt.planChecksum || plan.source !== attempt.sourceKey
+        || product.source_platform && product.source_platform.toLowerCase() !== plan.platform
+        || hadDescription !== Boolean(description) || product.page_type === 'description'
+        || description && (product.page_type === 'search' || description.source_url !== product.source_url
+          || description.product_id !== product.product_id)) {
+        throw new BadRequestException('PRODUCT_SOURCE_PLAN_MISMATCH');
+      }
+      const commands = product.page_type === 'search' ? [] : [toV1Command(product),
+        ...(description ? [toV1Command({ ...description, page_type: 'description' })] : [])];
+      const permit = toPermit(attempt, context.organizationId);
+      outputs = commands.map((command) => buildExtensionOutput(permit, command, extensionCandidateProjection(command, context)));
+      content = parsed.data;
+    } catch (error) {
+      await this.fail(context.organizationId, attemptId, attemptToken, { code: 'INVALID_PRODUCT_SOURCE_BATCH', message: 'The extracted product does not match the complete frozen source plan.' });
+      throw error;
+    }
+    const output: AuthorizedCollectionOutput = {
+      observations: outputs.flatMap((output) => output.observations),
+      typedRecords: outputs.flatMap((output) => output.typedRecords),
+      discoveredCount: outputs.length, rejectedCount: 0,
+      qualityReport: { schemaVersion: 'v1', completeSnapshot: true, searchArtifact: outputs.length === 0 },
     };
-    return this.commitAndPersist(context, command, 'v2');
+    return this.attempts.completeAttempt({ organizationId: context.organizationId, attemptId, attemptToken,
+      planChecksum: attempt.planChecksum, contentChecksum: hashCollectionRequest(content), output,
+      sourceWindowStartAt: null, sourceWindowEndAt: new Date(),});
   }
 
-  async issueV2CollectionSession(
-    context: AuthenticatedSourcingContext,
-    input: CreateExtensionV2CollectionSessionInput,
-  ): Promise<{ collectionSessionId: string; expiresAt: string }> {
-    const supplier = parseSupplierUrl(input.sourceUrl);
-    if (supplier.platform !== input.sourcePlatform) {
-      throw new BadRequestException('공급사 URL과 sourcePlatform이 일치하지 않습니다.');
-    }
-    const externalOfferId = input.externalOfferId.trim();
-    if (!externalOfferId) throw new BadRequestException('공급사 상품 식별자가 필요합니다.');
-    const collectionSessionId = randomUUID();
-    const variantKeyNormalized = normalizedVariantKey(input.variantKey);
-    const requestHash = extensionSessionRequestHash({
-      collectionSessionId,
-      sourcePlatform: supplier.platform,
-      sourceUrl: supplier.normalizedUrl,
-      externalOfferId,
-      variantKey: variantKeyNormalized,
-    });
-    const permit = await this.collections.issuePermit({
-      organizationId: context.organizationId,
-      sourceKey: `${supplier.platform}.product_extension`,
-      scopeKey: 'detail',
-      targetKey: `${externalOfferId}:${variantKeyNormalized}`,
-      idempotencyKey: `extension:v2:${collectionSessionId}`,
-      requestHash,
-      collectorKey: 'kiditem-os-product-extension',
-      collectorVersion: 'kiditem-os/v2',
-      triggerKind: 'extension',
-      triggeredByUserId: context.userId,
-      leaseDurationMs: EXTENSION_LEASE_MS,
-    });
-    return {
-      collectionSessionId,
-      expiresAt: permit.leaseExpiresAt.toISOString(),
-    };
+  async fail(organizationId: string, attemptId: string, attemptToken: string, raw: unknown) {
+    const attempt = await this.read(organizationId, attemptId);
+    const body = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
+    return this.attempts.failAttempt({ organizationId, attemptId, attemptToken,
+      code: boundedText(body.code, 100) || 'SOURCE_COLLECTION_FAILED',
+      message: boundedText(body.message, 1000) || 'Product extraction failed.',});
   }
+}
 
-  private async commitAndPersist(
-    context: AuthenticatedSourcingContext,
-    command: ExtensionProductCommand,
-    schemaVersion: 'v1' | 'v2',
-  ): Promise<ExtensionV1Response> {
-    const sourceKey = `${command.sourcePlatform}.product_extension`;
-    const result = await this.collections.execute({
-      organizationId: context.organizationId,
-      sourceKey,
-      scopeKey: command.pageType,
-      targetKey: `${command.externalOfferId}:${command.variantKeyNormalized}`,
-      idempotencyKey: command.idempotencyKey,
-      requestHash: command.requestHash,
-      collectorKey: 'kiditem-os-product-extension',
-      collectorVersion: command.collectorVersion,
-      triggerKind: 'extension',
-      triggeredByUserId: context.userId,
-      leaseDurationMs: EXTENSION_LEASE_MS,
-      requireExistingPermit: schemaVersion === 'v2',
-    }, async ({ permit }) => buildExtensionOutput(
-      permit,
-      command,
-      schemaVersion,
-      extensionCandidateProjection(command, context),
-    ));
+function productPlan(sourceUrl: string) {
+  const supplier = parseSupplierUrl(sourceUrl);
+  // Freeze the actual tab, including its search query/fragment. Candidate
+  // identity normalization remains in toV1Command, not in the execution plan.
+  return { source: `${supplier.platform}.product_extension`, sourceUrl: new URL(sourceUrl).toString(), platform: supplier.platform };
+}
 
-    if (result.kind === 'existing') {
-      return { ok: true, message: 'already collected', product_count: 0 };
-    }
-
-    return {
-      ok: true,
-      message: 'collected',
-      product_count: 1,
-    };
-  }
+function productAlert(source: string) {
+  return { sourceType: source, dedupeKey: `source:${source}`, title: `${source.startsWith('1688') ? '1688' : 'Alibaba'} 상품 수집 실패`, href: '/sourcing-ai' };
 }
 
 interface ExtensionProductCommand {
@@ -199,15 +132,6 @@ interface ExtensionProductCommand {
   title: string | null;
   capturedAt: Date;
   payload: Record<string, unknown>;
-  requestHash: string;
-  idempotencyKey: string;
-  collectorVersion: string;
-}
-
-function parseV1(raw: unknown): SourcingExtensionV1Product {
-  const parsed = SourcingExtensionV1ProductSchema.safeParse(raw);
-  if (!parsed.success) throw new BadRequestException('확장 수집 payload 형식이 올바르지 않습니다.');
-  return parsed.data;
 }
 
 function toV1Command(product: SourcingExtensionV1Product): ExtensionProductCommand {
@@ -225,7 +149,6 @@ function toV1Command(product: SourcingExtensionV1Product): ExtensionProductComma
     throw new BadRequestException('상세 수집에는 상품명이 필요합니다.');
   }
   const payload = sanitizeV1(product, supplier.normalizedUrl, sourcePlatform);
-  const requestHash = hashCollectionRequest(payload);
   return {
     pageType,
     sourceUrl: supplier.normalizedUrl,
@@ -235,9 +158,6 @@ function toV1Command(product: SourcingExtensionV1Product): ExtensionProductComma
     title: product.title?.trim() ?? null,
     capturedAt: new Date(),
     payload,
-    requestHash,
-    idempotencyKey: `extension:v1:${requestHash}`,
-    collectorVersion: 'kiditem-os/v1',
   };
 }
 
@@ -292,7 +212,6 @@ function sanitizeV1(
 function buildExtensionOutput(
   permit: SourcingCollectionPermit,
   command: ExtensionProductCommand,
-  schemaVersion: 'v1' | 'v2',
   projection: SourcingExtensionCandidateProjection,
 ): AuthorizedCollectionOutput {
   const rawPayload = {
@@ -314,8 +233,10 @@ function buildExtensionOutput(
       conceptKey: command.title ? normalizeCollectionTarget(command.title) : null,
       sourceEntityType: 'supplier_offer',
       sourceEntityId: command.externalOfferId,
-      schemaVersion: `supplier-extension/${schemaVersion}`,
+      schemaVersion: 'supplier-extension/v1',
       observationKey: hashCollectionRequest({
+        attemptId: permit.runId,
+        pageType: command.pageType,
         platform: command.sourcePlatform,
         externalOfferId: command.externalOfferId,
         variantKey: command.variantKeyNormalized,
@@ -335,7 +256,7 @@ function buildExtensionOutput(
     typedRecords: [{ kind: 'extension_candidate', row: projection }],
     discoveredCount: 1,
     rejectedCount: 0,
-    qualityReport: { schemaVersion, externalOfferId: command.externalOfferId },
+    qualityReport: { schemaVersion: 'v1', externalOfferId: command.externalOfferId },
   };
 }
 
@@ -436,20 +357,4 @@ function normalizedVariantKey(value: unknown): string {
 
 function omitUndefined(value: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined));
-}
-
-function extensionSessionRequestHash(input: {
-  collectionSessionId: string;
-  sourcePlatform: string;
-  sourceUrl: string;
-  externalOfferId: string;
-  variantKey: string;
-}): string {
-  return hashCollectionRequest({
-    collectionSessionId: input.collectionSessionId,
-    sourcePlatform: input.sourcePlatform,
-    sourceUrl: input.sourceUrl,
-    externalOfferId: input.externalOfferId,
-    variantKey: normalizedVariantKey(input.variantKey),
-  });
 }

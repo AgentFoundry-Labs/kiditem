@@ -7,9 +7,14 @@
  * 대신 헤더 컨트롤과 시리즈 선택/폴백 판정을 검증한다.
  */
 import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
-import type { AdTrendsData } from '@kiditem/shared/advertising';
+import { describe, expect, it, vi } from 'vitest';
+import { exportTrendXlsx } from '../lib/xlsx-export';
 import AdPerformanceTrendChart from './AdPerformanceTrendChart';
+import type { AdTrendsData } from '@kiditem/shared/advertising';
+
+vi.mock('../lib/xlsx-export', () => ({
+  exportTrendXlsx: vi.fn().mockResolvedValue(undefined),
+}));
 
 function metrics(spend: number, revenue: number) {
   return {
@@ -141,5 +146,32 @@ describe('AdPerformanceTrendChart', () => {
     expect(
       (screen.getByLabelText('성과 그래프 다운로드') as HTMLButtonElement).disabled,
     ).toBe(true);
+  });
+
+  it('sends the selected chart rows to the server export bridge', () => {
+    render(
+      <AdPerformanceTrendChart
+        period="7d"
+        trends={buildTrends({
+          daily: [{ date: '2026-07-17', metrics: metrics(64_512, 368_890) }],
+        })}
+      />,
+    );
+
+    fireEvent.click(screen.getByLabelText('성과 그래프 다운로드'));
+
+    expect(exportTrendXlsx).toHaveBeenCalledWith({
+      period: '7d',
+      leftMetric: 'spend',
+      rightMetric: 'revenue',
+      leftLabel: '집행 광고비',
+      rightLabel: '광고 전환 매출',
+      points: [{
+        businessDate: '2026-07-17',
+        axisLabel: '07/17(금)',
+        leftValue: 64_512,
+        rightValue: 368_890,
+      }],
+    });
   });
 });

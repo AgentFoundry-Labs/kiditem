@@ -113,7 +113,8 @@ export class SourcingDecisionBatchRepositoryAdapter implements SourcingDecisionB
           ingestedAt: { lte: transactionAt },
           ingestionRun: {
             targetKey: evidence.scopeKey,
-            status: 'complete',
+            status: 'COMPLETE',
+            isCurrentComplete: true,
             completedAt: { lte: transactionAt },
           },
         },

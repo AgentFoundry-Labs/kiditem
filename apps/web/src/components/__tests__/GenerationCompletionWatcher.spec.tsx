@@ -1,13 +1,16 @@
+import { type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, waitFor } from '@testing-library/react';
-import { act, type ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { toast } from 'sonner';
-import type { PanelAlertItem } from '@kiditem/shared/panel';
+import type { KidsPlayfulGenerationItem } from '@/app/(product-pipeline)/product-pipeline/detail-template-generation/hooks/useKidsPlayfulGenerate';
 import GenerationCompletionWatcher from '../GenerationCompletionWatcher';
-import { usePanelStore } from '../panel/lib/panel-store';
 
 const mockPush = vi.hoisted(() => vi.fn());
+const mockGenerationLists = vi.hoisted(() => ({
+  kids: [] as KidsPlayfulGenerationItem[],
+  bold: [] as KidsPlayfulGenerationItem[],
+}));
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: mockPush }),
@@ -24,8 +27,8 @@ vi.mock('sonner', () => ({
 vi.mock(
   '@/app/(product-pipeline)/product-pipeline/detail-template-generation/hooks/useKidsPlayfulGenerate',
   () => ({
-    useKidsPlayfulGenerationList: () => ({ data: [] }),
-    useBoldVerticalGenerationList: () => ({ data: [] }),
+    useKidsPlayfulGenerationList: () => ({ data: mockGenerationLists.kids }),
+    useBoldVerticalGenerationList: () => ({ data: mockGenerationLists.bold }),
   }),
 );
 
@@ -35,67 +38,49 @@ function wrapper(queryClient: QueryClient) {
   );
 }
 
-function makeDetailPageAlert(
-  status: PanelAlertItem['status'],
-  overrides: Partial<PanelAlertItem> = {},
-): PanelAlertItem {
+function makeGeneration(
+  imageProcessingStatus: KidsPlayfulGenerationItem['imageProcessingStatus'],
+): KidsPlayfulGenerationItem {
   return {
-    kind: 'alert',
-    id: '00000000-0000-0000-0000-000000000245',
-    alertKind: 'operation',
-    status,
-    severity: 'info',
-    type: 'detail_page_generation',
-    title: '상세페이지 생성: 매직 큐브 퍼즐',
-    message: null,
-    targetType: 'sourcing_candidate',
-    targetId: '00000000-0000-0000-0000-000000000001',
-    operationKey: 'detail-page:generation-245',
-    sourceType: 'content_generation',
-    sourceId: 'generation-245',
-    isRead: false,
-    actionTaskId: null,
-    actorUserId: '00000000-0000-0000-0000-000000000002',
-    href: '/product-pipeline/detail-pages/generation-245/editor',
-    progress: status === 'running' ? 0.5 : null,
-    metadata: {
-      generatedTitle: '매직 큐브 퍼즐',
-      templateId: 'kids-playful',
+    id: 'generation-245',
+    productId: null,
+    sourceCandidateId: 'candidate-245',
+    contentWorkspaceId: null,
+    templateId: 'kids-playful',
+    productName: '매직 큐브 퍼즐',
+    rawInput: {
+      sourceReferences: [
+        { sourceType: 'sourcing_candidate', sourceCandidateId: 'candidate-245' },
+      ],
     },
-    readAt: null,
-    startedAt: '2026-05-18T14:54:08.249Z',
-    finishedAt: status === 'running' ? null : '2026-05-18T14:56:24.511Z',
+    result: {} as KidsPlayfulGenerationItem['result'],
+    imageUrls: [],
+    processedImages: {},
+    imageProcessingStatus,
+    imageProcessingError: imageProcessingStatus === 'failed' ? '생성 실패' : null,
     createdAt: '2026-05-18T14:54:08.253Z',
-    ...overrides,
   };
 }
 
 describe('GenerationCompletionWatcher', () => {
   beforeEach(() => {
     mockPush.mockReset();
+    mockGenerationLists.kids = [];
+    mockGenerationLists.bold = [];
     vi.mocked(toast.success).mockReset();
     vi.mocked(toast.info).mockReset();
     vi.mocked(toast.error).mockReset();
-    usePanelStore.setState({ byId: {}, lastSeq: 0 });
   });
 
-  it('shows the detail-page completion toast as soon as the panel alert completes', async () => {
+  it('shows a completion toast when the generation source status becomes terminal', async () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
     });
-    const runningAlert = makeDetailPageAlert('running');
-    usePanelStore.setState({ byId: { [runningAlert.id]: runningAlert } });
+    mockGenerationLists.kids = [makeGeneration('processing')];
+    const view = render(<GenerationCompletionWatcher />, { wrapper: wrapper(queryClient) });
 
-    render(<GenerationCompletionWatcher />, { wrapper: wrapper(queryClient) });
-
-    await waitFor(() => {
-      expect(toast.success).not.toHaveBeenCalled();
-    });
-
-    const completedAlert = makeDetailPageAlert('succeeded');
-    act(() => {
-      usePanelStore.getState().upsertItem(completedAlert);
-    });
+    mockGenerationLists.kids = [makeGeneration('completed')];
+    view.rerender(<GenerationCompletionWatcher />);
 
     await waitFor(() => {
       expect(toast.success).toHaveBeenCalledWith(
@@ -111,6 +96,26 @@ describe('GenerationCompletionWatcher', () => {
       action: { onClick: () => void };
     };
     toastOptions.action.onClick();
-    expect(mockPush).toHaveBeenCalledWith('/product-pipeline/detail-pages/generation-245/editor');
+    expect(mockPush).toHaveBeenCalledWith(
+      expect.stringContaining('/product-pipeline/detail-pages/generation-245/editor'),
+    );
+  });
+
+  it('shows a failure toast with the source error', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    mockGenerationLists.kids = [makeGeneration('pending')];
+    const view = render(<GenerationCompletionWatcher />, { wrapper: wrapper(queryClient) });
+
+    mockGenerationLists.kids = [makeGeneration('failed')];
+    view.rerender(<GenerationCompletionWatcher />);
+
+    await waitFor(() => {
+      expect(toast.error).toHaveBeenCalledWith(
+        '매직 큐브 퍼즐 생성 실패',
+        expect.objectContaining({ description: '생성 실패' }),
+      );
+    });
   });
 });

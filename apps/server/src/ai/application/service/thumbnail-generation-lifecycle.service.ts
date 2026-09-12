@@ -12,7 +12,6 @@ import {
   THUMBNAIL_GENERATION_LEDGER_REPOSITORY_PORT,
   type ThumbnailGenerationAttemptChange,
   type ThumbnailGenerationLedgerRepositoryPort,
-  type ThumbnailGenerationStatusChange,
 } from '../port/out/repository/thumbnail-generation-ledger.repository.port';
 
 type LifecycleStatusInput = Omit<AppendThumbnailGenerationEventInput, 'eventType'> & {
@@ -63,30 +62,6 @@ export class ThumbnailGenerationLifecycleService {
       ...input,
       eventType: 'phase_change',
     });
-  }
-
-  async markCancelled(input: {
-    organizationId: string;
-    generationId: string;
-    actorUserId?: string | null;
-    payload?: unknown | null;
-  }): Promise<ThumbnailGenerationStatusChange | null> {
-    const change = await this.ledger.markGenerationCancelled(
-      input.generationId,
-      input.organizationId,
-    );
-    if (!change) return null;
-    await this.recordStatusChange({
-      organizationId: input.organizationId,
-      generationId: input.generationId,
-      fromStatus: change.fromStatus,
-      toStatus: 'cancelled',
-      fromPhase: change.fromPhase,
-      toPhase: null,
-      actorUserId: input.actorUserId,
-      payload: input.payload,
-    });
-    return change;
   }
 
   async startAttempt(input: {

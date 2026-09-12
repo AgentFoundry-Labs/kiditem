@@ -5,14 +5,8 @@ import {
   SELLPIA_INVENTORY_COLLECTION_FAILURE_CODES,
   SELLPIA_INVENTORY_FRESHNESS_STATUSES,
   SELLPIA_INVENTORY_REFRESH_REASONS,
-  SellpiaInventoryCancelRequestSchema,
-  SellpiaInventoryClaimRequestSchema,
-  SellpiaInventoryClaimResponseSchema,
-  SellpiaInventoryFailRequestSchema,
   SellpiaInventoryFreshnessViewSchema,
-  SellpiaInventoryHeartbeatRequestSchema,
   SellpiaInventoryQualityReportSchema,
-  SellpiaInventoryRefreshRequestSchema,
   SellpiaInventorySourceBindingRequestSchema,
   SellpiaSyncScopeSchema,
 } from './sellpia-inventory-freshness';
@@ -253,12 +247,8 @@ describe('SellpiaInventoryFreshnessViewSchema', () => {
 });
 
 describe('Sellpia freshness mutation contracts', () => {
-  it('requires a persisted full or inventory-only scope on requests and visible attempts', () => {
+  it('requires a persisted full or inventory-only scope on visible attempts', () => {
     expect(SellpiaSyncScopeSchema.options).toEqual(['full', 'inventory']);
-    expect(SellpiaInventoryRefreshRequestSchema.parse({
-      reason: 'manual_request',
-      scope: 'full',
-    })).toEqual({ reason: 'manual_request', scope: 'full' });
     expect(SellpiaInventoryFreshnessViewSchema.parse({
       ...createFreshnessView(),
       requestedSyncScope: 'full',
@@ -281,43 +271,7 @@ describe('Sellpia freshness mutation contracts', () => {
     }).activeSync?.scope).toBe('full');
   });
 
-  it('accepts only public refresh reasons and no organization or actor identity', () => {
-    for (const reason of [
-      'manual_request',
-      'retry',
-    ] as const) {
-      expect(SellpiaInventoryRefreshRequestSchema.parse({
-        reason,
-        scope: 'inventory',
-      })).toEqual({ reason, scope: 'inventory' });
-    }
-    expect(() => SellpiaInventoryRefreshRequestSchema.parse({
-      reason: 'ttl_expired',
-      scope: 'inventory',
-    })).toThrow();
-    expect(() => SellpiaInventoryRefreshRequestSchema.parse({
-      reason: 'order_transmission_requested',
-      scope: 'inventory',
-    })).toThrow();
-    expect(() => SellpiaInventoryRefreshRequestSchema.parse({
-      reason: 'manual_request',
-      scope: 'inventory',
-      organizationId: RUN_ID,
-    })).toThrow();
-  });
-
-  it('keeps claim, heartbeat, and cancel request bodies strictly empty', () => {
-    for (const schema of [
-      SellpiaInventoryClaimRequestSchema,
-      SellpiaInventoryHeartbeatRequestSchema,
-      SellpiaInventoryCancelRequestSchema,
-    ]) {
-      expect(schema.parse({})).toEqual({});
-      expect(() => schema.parse({ userId: RUN_ID })).toThrow();
-    }
-  });
-
-  it('accepts only the five typed Sellpia collection failures', () => {
+  it('keeps the persisted Sellpia collection failure codes bounded', () => {
     expect(SELLPIA_INVENTORY_COLLECTION_FAILURE_CODES).toEqual([
       'sellpia_login_required',
       'sellpia_download_contract_drift',
@@ -325,24 +279,6 @@ describe('Sellpia freshness mutation contracts', () => {
       'sellpia_background_timeout',
       'sellpia_network_failed',
     ]);
-    for (const errorCode of SELLPIA_INVENTORY_COLLECTION_FAILURE_CODES) {
-      expect(SellpiaInventoryFailRequestSchema.parse({
-        errorCode,
-        errorMessage: 'Collection failed',
-      }).errorCode).toBe(errorCode);
-    }
-    expect(() => SellpiaInventoryFailRequestSchema.parse({
-      errorCode: 'Collection failed',
-      errorMessage: 'Collection failed',
-    })).toThrow();
-    expect(() => SellpiaInventoryFailRequestSchema.parse({
-      errorCode: 'sellpia_network_failed',
-      errorMessage: '   ',
-    })).toThrow();
-    expect(() => SellpiaInventoryFailRequestSchema.parse({
-      errorCode: 'sellpia_network_failed',
-      errorMessage: 'x'.repeat(301),
-    })).toThrow();
   });
 
   it('binds only the fixed Sellpia origin and account', () => {
@@ -362,30 +298,6 @@ describe('Sellpia freshness mutation contracts', () => {
     })).toThrow();
   });
 
-  it('distinguishes an atomic claim winner from a joined observer', () => {
-    const joined = {
-      claimed: false,
-      state: createFreshnessView(),
-    } as const;
-    expect(SellpiaInventoryClaimResponseSchema.parse(joined)).toEqual(joined);
-
-    const winner = {
-      claimed: true,
-      claimToken: RUN_ID,
-      activeGeneration: '5',
-      leaseExpiresAt: '2026-07-15T00:03:30.000Z',
-      state: createFreshnessView(),
-    } as const;
-    expect(SellpiaInventoryClaimResponseSchema.parse(winner)).toEqual(winner);
-    expect(() => SellpiaInventoryClaimResponseSchema.parse({
-      ...joined,
-      claimToken: RUN_ID,
-    })).toThrow();
-    expect(() => SellpiaInventoryClaimResponseSchema.parse({
-      ...winner,
-      actorUserId: RUN_ID,
-    })).toThrow();
-  });
 });
 
 describe('SellpiaInventoryQualityReportSchema', () => {

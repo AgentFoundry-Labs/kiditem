@@ -9,6 +9,15 @@ vi.mock('@/lib/api-client', () => ({
   apiClient: { getParsed: vi.fn() },
 }));
 
+const sourceOwner = vi.hoisted(() => ({ start: vi.fn() }));
+vi.mock('@/app/(inventory)/_shared/sellpia-inventory-source-owner', () => ({
+  useSellpiaInventorySourceOwner: () => ({
+    start: sourceOwner.start,
+    state: null,
+    isStarting: false,
+  }),
+}));
+
 const rocketAccountId = '11111111-1111-4111-8111-111111111111';
 const secondRocketAccountId = '33333333-3333-4333-8333-333333333333';
 

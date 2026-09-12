@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react';
-import { vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { ProductRowCard } from './ProductRowCard';
 import type { MasterProductOperationsListItem } from '@kiditem/shared/product-operations';
 import { productAbcEvaluation } from '@/test/fixtures/product-abc';
@@ -60,20 +60,20 @@ describe('ProductRowCard', () => {
     expect(screen.queryByText('미수집')).not.toBeInTheDocument();
   });
 
-  it('renders weighted ABC contribution profit as the profitability metric', () => {
+  it('renders Task 5 actual contribution profit as the profitability metric', () => {
     render(<ProductRowCard product={product()} />);
 
-    expect(screen.getByText('기여이익 120,000원')).toBeInTheDocument();
+    expect(screen.getByText('기간 실제 이익 120,000원')).toBeInTheDocument();
     expect(screen.queryByText(/^이익 /)).not.toBeInTheDocument();
   });
 
-  it('renders a dash when ABC contribution profit is absent', () => {
+  it('renders a dash when actual contribution profit is absent', () => {
     render(<ProductRowCard product={{
       ...product(),
-      abcEvaluation: productAbcEvaluation({ weightedContributionProfit: null }),
+      contribution: null,
     }} />);
 
-    expect(screen.getByText('기여이익 —')).toBeInTheDocument();
+    expect(screen.getByText('기간 실제 이익 —')).toBeInTheDocument();
   });
 
   it('hides opaque category references and stock-basis labels from the product list', () => {
@@ -121,6 +121,7 @@ describe('ProductRowCard', () => {
 });
 
 function product(): MasterProductOperationsListItem {
+  const evaluation = productAbcEvaluation();
   return {
     id: '11111111-1111-4111-8111-111111111111',
     code: 'MASTER-1',
@@ -133,7 +134,37 @@ function product(): MasterProductOperationsListItem {
     imageUrls: [],
     displayImageUrls: ['https://cdn.example.com/channel.jpg'],
     abcGrade: 'A',
-    abcEvaluation: productAbcEvaluation(),
+    abcEvaluation: evaluation,
+    abc: {
+      abcGrade: 'A',
+      evaluation,
+      displayStatus: 'READY',
+      formulaRevision: 2,
+      publicationRevision: 4,
+      officialCutoffDate: '2026-07-31',
+      publishedAt: '2026-08-01T00:00:00.000Z',
+      actualCutoffDate: '2026-08-31',
+      sources: {
+        sellpia: abcSource(),
+        advertising: abcSource(),
+        mapping: { status: 'READY', mappingGeneration: '7' },
+      },
+    },
+    contribution: {
+      masterProductId: '11111111-1111-4111-8111-111111111111',
+      revenue: 220_000,
+      operatingProfit: 120_000,
+      salesContribution: 1,
+      positiveOperatingProfitContribution: 1,
+      lossImpact: null,
+      salesRank: 1,
+      positiveOperatingProfitRank: 1,
+      lossRank: null,
+      cumulativeSalesContribution: 1,
+      cumulativePositiveOperatingProfitContribution: 1,
+      cumulativeLossImpact: null,
+      metricCompleteness: { sales: true, operatingProfit: true },
+    },
     profitTag: null,
     adTier: null,
     adBudgetLimit: null,
@@ -169,19 +200,31 @@ function product(): MasterProductOperationsListItem {
     adSpendRate: 10,
     metricsFreshness: {
       traffic: {
-        status: 'READY',
+        ready: true,
         coverageStartDate: '2026-07-01',
         coverageEndDate: '2026-07-31',
         capturedAt: '2026-08-01T00:00:00.000Z',
       },
       advertising: {
-        status: 'READY',
+        ready: true,
         coverageStartDate: '2026-07-01',
         coverageEndDate: '2026-07-31',
         capturedAt: '2026-08-01T00:00:00.000Z',
       },
     },
-    contributionProfitVelocity30: 120_000,
-    contributionMargin: 0.32,
+  };
+}
+
+function abcSource() {
+  return {
+    ready: true,
+    sourceImportRunId: '11111111-1111-4111-8111-111111111112',
+    generation: '7',
+    coverageStartDate: '2026-01-01',
+    coverageEndDate: '2026-08-31',
+    actualCutoffDate: '2026-08-31',
+    capturedAt: '2026-09-01T00:00:00.000Z',
+    latestAttemptState: 'COMPLETE' as const,
+    errorCode: null,
   };
 }

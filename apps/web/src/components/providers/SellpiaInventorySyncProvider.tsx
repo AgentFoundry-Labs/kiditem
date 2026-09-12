@@ -1,12 +1,11 @@
 'use client';
 
 import { useAuth } from '@/hooks/useAuth';
-import { useSellpiaInventoryFreshness } from '@/hooks/useSellpiaInventoryFreshness';
+import { useSellpiaInventorySourceOwner } from '@/app/(inventory)/_shared/sellpia-inventory-source-owner';
 
 /**
- * Global freshness projection only. Browser claiming, scoped Sellpia
- * collection, upload, and terminal reporting are owned by the server-issued
- * OperationRun and the extension runtime.
+ * Global freshness projection only. Browser collection, upload, and terminal
+ * reporting are owned by the server-issued source attempt and extension.
  */
 export function SellpiaInventorySyncProvider({
   children,
@@ -14,7 +13,7 @@ export function SellpiaInventorySyncProvider({
   children?: React.ReactNode;
 }) {
   const { status, user } = useAuth();
-  useSellpiaInventoryFreshness({
+  useSellpiaInventorySourceOwner({
     enabled: status === 'ready' && Boolean(user?.organizationId),
   });
   return children;

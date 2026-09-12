@@ -126,7 +126,7 @@
   대입하지 않아 엑셀 전 행이 공란이다. 이건 상수 한 개면 끝난다.
 - **미루는 것**: 기대값을 어디에 둘지. 지금은 단일 조직·단일 출고지라 판매자 프리셋
   상수로 충분하다. 조직이 둘 이상 되면 그때 `ChannelAccount`/`LegalEntity` 스코프로
-  올린다 — 루트 `AGENTS.md` 의 조직 경계 계약상 **전역 리터럴로 굳히지는 말 것**.
+  올린다 — 루트 `CLAUDE.md` 의 조직 경계 계약상 **전역 리터럴로 굳히지는 말 것**.
   `LegalEntity.address`(core.prisma:268)는 존재하지만 읽는 코드가 저장소에 0건이다.
 - **폐기된 근거**: 이전 판단이 근거로 삼은 "`WING_COL` 75~86 반품 미매핑" 과
   "`emptyRow()` 가 템플릿 기본값을 지운다" 는 **둘 다 사실이 아니었다**(§1 표).
@@ -227,7 +227,7 @@
   (`product-registration.service.ts` 의 `createDraft`/`submit`/`cancel`/`fail`)이
   다른 버튼에서 이미 가동 중이고, 웹 클라이언트도 `sourcing-api.ts:655` 에서
   `POST /api/sourcing/candidates/{id}/preparations` 를 호출한다.
-  **WING 경로만 이 배선을 우회**한다. 도메인 계약은 `collected-products/AGENTS.md` 참조.
+  **WING 경로만 이 배선을 우회**한다. 도메인 계약은 `collected-products/CLAUDE.md` 참조.
 
 ## 4. 데이터 공백 — 우리 서비스에 없어서 새로 만들어야 하는 것
 
@@ -449,7 +449,7 @@ owner-provided read-port 패턴을 그대로 복제한다.
 | **무엇을** | WING 등록 시도를 `ProductPreparation` 상태머신에 연결(draft → submitting → registered/failed). 성공 시 `ChannelListing` 연결 |
 | **어디를** | `wing-registration-flow.ts:175-207`(백엔드 기록 호출 추가), `sourcing-api.ts:655` 의 기존 preparations 라우트 재사용 |
 | **왜** | 재시도·중복등록 방지·성공률 추적의 전제. **S8(제출 자동화) 이전에 반드시** — 자동 제출 결과가 유실되면 복구 불가 |
-| **검증** | `collected-products/AGENTS.md` 의 등록 플로우 계약 준수. 등록 후 DB 상태 확인 |
+| **검증** | `collected-products/CLAUDE.md` 의 등록 플로우 계약 준수. 등록 후 DB 상태 확인 |
 | **독립배포** | ✅ (S0 이후 — 실패 판정이 정확해야 상태가 정확하다) |
 
 ### S8. 제출 게이트 + 중간저장 (13·14단계)
@@ -571,6 +571,6 @@ S2~S6 의 모든 변경을 두 번 구현해야 한다. **`candidateToWingProduc
 | 주제 | 문서 |
 |---|---|
 | WING 폼 구조·API·DOM 함정(리버스 결과) | [`coupang-wing-registration-spec.md`](./coupang-wing-registration-spec.md) |
-| 수집상품 워크스페이스 등록 계약 | [`apps/web/src/app/(product-pipeline)/product-pipeline/collected-products/AGENTS.md`](../apps/web/src/app/(product-pipeline)/product-pipeline/collected-products/AGENTS.md) |
-| 스키마 변경 절차 | [`prisma/AGENTS.md`](../prisma/AGENTS.md) |
+| 수집상품 워크스페이스 등록 계약 | [`apps/web/src/app/(product-pipeline)/product-pipeline/collected-products/CLAUDE.md`](../apps/web/src/app/(product-pipeline)/product-pipeline/collected-products/CLAUDE.md) |
+| 스키마 변경 절차 | [`prisma/CLAUDE.md`](../prisma/CLAUDE.md) |
 | 아키텍처 맵 | [`ARCHITECTURE.md`](./ARCHITECTURE.md) |

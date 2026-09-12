@@ -15,17 +15,12 @@ export type ChannelAccountListItem = z.infer<typeof ChannelAccountListItemSchema
 export const CoupangAccountSettingsSchema = z.object({
   configured: z.boolean(),
   vendorId: z.string().nullable(),
-  accessKeyMasked: z.string().nullable(),
-  hasAccessKey: z.boolean(),
-  hasSecretKey: z.boolean(),
   status: z.string().nullable(),
   updatedAt: zIsoDate.nullable(),
-});
+}).strict();
 export type CoupangAccountSettings = z.infer<typeof CoupangAccountSettingsSchema>;
 
 export const UpdateCoupangAccountSettingsSchema = z.object({
   vendorId: z.string().trim().min(1),
-  accessKey: z.string().trim().min(1).optional(),
-  secretKey: z.string().trim().min(1).optional(),
-});
+}).strict();
 export type UpdateCoupangAccountSettings = z.infer<typeof UpdateCoupangAccountSettingsSchema>;

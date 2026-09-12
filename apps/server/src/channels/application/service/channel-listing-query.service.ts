@@ -4,6 +4,7 @@ import {
   type ChannelListingQuery,
   type ChannelListingRepositoryPort,
 } from '../port/out/repository/channel-listing.repository.port';
+import type { ChannelListingReportReadPort } from '../port/in/channel-listing-report-read.port';
 export type {
   ChannelListingMarketCount,
   ChannelListingQuery,
@@ -12,7 +13,7 @@ export type {
 } from '../port/out/repository/channel-listing.repository.port';
 
 @Injectable()
-export class ChannelListingQueryService {
+export class ChannelListingQueryService implements ChannelListingReportReadPort {
   constructor(
     @Inject(CHANNEL_LISTING_REPOSITORY_PORT)
     private readonly repository: ChannelListingRepositoryPort,

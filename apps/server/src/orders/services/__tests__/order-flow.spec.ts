@@ -1,8 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { OrdersService } from '../orders.service';
-import { NotFoundException, BadRequestException } from '@nestjs/common';
-import { OrderListResponseSchema, OrderActionResponseSchema, OrderStatsResponseSchema } from '@kiditem/shared/order';
-import type { CoupangProviderPort } from '../../../channels/application/port/out/provider/coupang-provider.port';
+import { NotFoundException, NotImplementedException } from '@nestjs/common';
+import { OrderListResponseSchema, OrderStatsResponseSchema } from '@kiditem/shared/order';
 
 function makePrisma() {
   return {
@@ -18,25 +17,6 @@ function makePrisma() {
 const ORGANIZATION_ID = 'organization-1';
 const OTHER_ORGANIZATION_ID = 'organization-2';
 const CHANNEL_ACCOUNT_ID = '00000000-0000-4000-8000-000000000010';
-
-function ownedRows(ids: number[]): Array<{ externalOrderId: string; channelAccountId: string }> {
-  return ids.map((id) => ({ externalOrderId: String(id), channelAccountId: CHANNEL_ACCOUNT_ID }));
-}
-
-function makeCoupangPort(): CoupangProviderPort {
-  return {
-    getDeliveryCompanies: vi.fn(() => [
-      { code: 'CJGLS', name: 'CJ대한통운' },
-      { code: 'KGB', name: '로젠택배' },
-    ]),
-    getSellerProducts: vi.fn(),
-    getSellerProduct: vi.fn(),
-    getOrderSheets: vi.fn(),
-    confirmOrderSheets: vi.fn(),
-    uploadInvoice: vi.fn(),
-    approveReturn: vi.fn(),
-  };
-}
 
 const MOCK_LINE_ITEM = {
   id: '00000000-0000-4000-8000-000000000002',
@@ -75,12 +55,10 @@ const MOCK_ORDER = {
 describe('OrdersService — order query and actions', () => {
   let service: OrdersService;
   let prisma: ReturnType<typeof makePrisma>;
-  let coupang: CoupangProviderPort;
 
   beforeEach(() => {
     prisma = makePrisma();
-    coupang = makeCoupangPort();
-    service = new OrdersService(prisma as any, coupang);
+    service = new OrdersService(prisma as any);
     vi.clearAllMocks();
   });
 
@@ -96,7 +74,6 @@ describe('OrdersService — order query and actions', () => {
         }),
       );
       expect(result.total).toBe(1);
-      expect(result.deliveryCompanies).toBeDefined();
 
       // Derived list item shape assertions
       expect(result.items[0]).toEqual(expect.objectContaining({
@@ -305,95 +282,20 @@ describe('OrdersService — order query and actions', () => {
   });
 
   describe('confirm', () => {
-    it('confirm action → 소유권 검증 후 coupang confirmOrderSheets 호출', async () => {
-      prisma.order.findMany.mockResolvedValueOnce(ownedRows([12345, 67890]));
-      vi.mocked(coupang.confirmOrderSheets).mockResolvedValue({
-        code: '200',
-        message: 'success',
-      });
-
-      const result = await service.confirm([12345, 67890], ORGANIZATION_ID);
-
-      // 소유권 lookup 이 organizationId + account + externalOrderId 로 발생
-      expect(prisma.order.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({
-            organizationId: ORGANIZATION_ID,
-            externalOrderId: { in: ['12345', '67890'] },
-            channelAccount: { channel: 'coupang', status: 'active' },
-          }),
-        }),
+    it('confirm action is explicitly unsupported before database/provider access', async () => {
+      await expect(service.confirm([12345], ORGANIZATION_ID)).rejects.toBeInstanceOf(
+        NotImplementedException,
       );
-      expect(coupang.confirmOrderSheets).toHaveBeenCalledWith(
-        ORGANIZATION_ID,
-        CHANNEL_ACCOUNT_ID,
-        [12345, 67890],
-      );
-      expect(result.message).toBe('2건 승인 완료');
-      expect(result.data).toEqual({ code: '200', message: 'success' });
-
-      const parsed = OrderActionResponseSchema.safeParse(result);
-      expect(parsed.success).toBe(true);
-    });
-
-    it('다른 회사의 shipmentBoxId 가 섞여있으면 NotFoundException + adapter 호출 안 함 (IDOR)', async () => {
-      // 12345 만 owned, 99999 는 missing
-      prisma.order.findMany.mockResolvedValueOnce(ownedRows([12345]));
-
-      await expect(service.confirm([12345, 99999], ORGANIZATION_ID)).rejects.toBeInstanceOf(
-        NotFoundException,
-      );
-      expect(coupang.confirmOrderSheets).not.toHaveBeenCalled();
-    });
-
-    it('shipmentBoxId 가 safe integer 범위 밖이면 BadRequest + adapter/lookup 호출 안 함 (defensive)', async () => {
-      const unsafeId = Number.MAX_SAFE_INTEGER + 2;
-      await expect(service.confirm([12345, unsafeId], ORGANIZATION_ID)).rejects.toBeInstanceOf(
-        BadRequestException,
-      );
-      expect(coupang.confirmOrderSheets).not.toHaveBeenCalled();
       expect(prisma.order.findMany).not.toHaveBeenCalled();
     });
   });
 
   describe('uploadInvoice', () => {
-    it('invoice action → 소유권 검증 후 coupang uploadInvoice 호출', async () => {
-      prisma.order.findMany.mockResolvedValueOnce(ownedRows([12345]));
-      vi.mocked(coupang.uploadInvoice).mockResolvedValue({ code: '200', message: 'ok' });
-
-      const result = await service.uploadInvoice(12345, 'CJGLS', 'INV-001', ORGANIZATION_ID);
-
-      expect(prisma.order.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({
-            organizationId: ORGANIZATION_ID,
-            externalOrderId: { in: ['12345'] },
-            channelAccount: { channel: 'coupang', status: 'active' },
-          }),
-        }),
-      );
-      expect(coupang.uploadInvoice).toHaveBeenCalledWith(
-        ORGANIZATION_ID,
-        CHANNEL_ACCOUNT_ID,
-        12345,
-        expect.objectContaining({
-          deliveryCompanyCode: 'CJGLS',
-          invoiceNumber: 'INV-001',
-        }),
-      );
-      expect(result.message).toBe('송장 전송 완료');
-
-      const parsed = OrderActionResponseSchema.safeParse(result);
-      expect(parsed.success).toBe(true);
-    });
-
-    it('다른 회사의 shipmentBoxId 면 NotFoundException + adapter 호출 안 함 (IDOR)', async () => {
-      prisma.order.findMany.mockResolvedValueOnce([]);
-
+    it('invoice action is explicitly unsupported before database/provider access', async () => {
       await expect(
-        service.uploadInvoice(99999, 'CJGLS', 'INV-001', ORGANIZATION_ID),
-      ).rejects.toBeInstanceOf(NotFoundException);
-      expect(coupang.uploadInvoice).not.toHaveBeenCalled();
+        service.uploadInvoice(12345, 'CJGLS', 'INV-001', ORGANIZATION_ID),
+      ).rejects.toBeInstanceOf(NotImplementedException);
+      expect(prisma.order.findMany).not.toHaveBeenCalled();
     });
   });
 

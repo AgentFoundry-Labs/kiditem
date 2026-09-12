@@ -1,9 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
-import type {
-  CreateProductGenerationCommand,
-  RegisterManualProductCommand,
-} from '../port/in/sourcing.commands';
+import { BadRequestException, ConflictException, Inject, Injectable } from '@nestjs/common';
 import {
   SOURCING_CANDIDATE_REPOSITORY_PORT,
   type SourcingCandidateRepositoryPort,
@@ -12,8 +8,17 @@ import {
   SOURCING_AGENT_GATEWAY_PORT,
   type SourcingAgentGatewayPort,
 } from '../port/out/runtime/sourcing-agent.gateway.port';
+import type {
+  CreateProductGenerationCommand,
+  RegisterManualProductCommand,
+} from '../port/in/sourcing.commands';
 
 const MANUAL_PRODUCT_REGISTRATION_PLATFORM = 'KIDITEM_PRODUCT_REGISTRATION';
+
+interface ProductGenerationRequestCoordinate {
+  idempotencyKey: string;
+  requestHash: string;
+}
 
 function uniqueNonEmptyStrings(values: string[]): string[] {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
@@ -33,6 +38,97 @@ export class SourcingAgentCommandService {
   ) {}
 
   async registerManualProduct(
+    data: RegisterManualProductCommand,
+    organizationId: string,
+    triggeredByUserId: string | null,
+    idempotencyKey?: string,
+  ) {
+    const candidateInput = this.manualProductCandidateInput(
+      data,
+      organizationId,
+      triggeredByUserId,
+      idempotencyKey,
+    );
+    const candidate = await this.candidates.upsertSourced(candidateInput);
+
+    return {
+      ok: true,
+      message: '상품 등록 후보가 생성되었습니다.',
+      product_count: 1,
+      candidateId: candidate.id,
+      href: collectedCandidateHref(candidate.id),
+    };
+  }
+
+  async createProductGeneration(
+    data: CreateProductGenerationCommand,
+    organizationId: string,
+    triggeredByUserId: string | null,
+    coordinate: ProductGenerationRequestCoordinate,
+  ) {
+    const candidateInput = this.manualProductCandidateInput(
+      data,
+      organizationId,
+      triggeredByUserId,
+      coordinate.idempotencyKey,
+    );
+    let candidate: { candidateId: string };
+    try {
+      candidate = await this.candidates.upsertSourcedWithIdempotencyReceipt({
+        ...candidateInput,
+        capabilityKey: 'sourcing.product_generation',
+        idempotencyKey: coordinate.idempotencyKey,
+        requestHash: coordinate.requestHash,
+      });
+    } catch (error) {
+      if (error instanceof Error && error.message === 'owner_idempotency_input_conflict') {
+        throw new ConflictException('product_generation_idempotency_conflict');
+      }
+      throw error;
+    }
+
+    const thumbnailUrls = uniqueNonEmptyStrings(data.thumbnailUrls ?? []).slice(0, 10);
+    const representativeThumbnailUrl = typeof data.thumbnailUrl === 'string' && data.thumbnailUrl.trim()
+      ? data.thumbnailUrl.trim()
+      : thumbnailUrls[0] ?? null;
+    const ai = await this.agentGateway.startProductGeneration({
+      organizationId,
+      triggeredByUserId,
+      idempotencyKey: coordinate.idempotencyKey,
+      requestHash: coordinate.requestHash,
+      candidateId: candidate.candidateId,
+      productName: data.title.trim(),
+      category: data.category ?? null,
+      description: data.description ?? null,
+      target: data.target ?? null,
+      imageUrls: uniqueNonEmptyStrings(data.imageUrls),
+      thumbnailUrl: representativeThumbnailUrl,
+      optionNames: uniqueNonEmptyStrings(data.optionNames ?? []),
+      templateId: data.templateId ?? 'bold-vertical',
+      ageGroup: data.ageGroup ?? 'age-8-plus',
+      detailImageCount: data.detailImageCount ?? '2',
+      usageSectionMode: data.usageSectionMode ?? 'include',
+      kcCertificationStatus: data.kcCertificationStatus ?? 'unknown',
+      kcCertificationNumber: data.kcCertificationNumber ?? null,
+      productSize: data.productSize ?? null,
+      colorVariantStatus: data.colorVariantStatus ?? 'auto',
+      colorVariantNames: data.colorVariantNames ?? null,
+      boxSetStatus: data.boxSetStatus ?? 'auto',
+      boxSetQuantity: data.boxSetQuantity ?? null,
+    });
+    return {
+      ok: true,
+      message: '상품 생성 작업이 시작되었습니다.',
+      product_count: 1,
+      candidateId: candidate.candidateId,
+      href: ai.href,
+      detailGenerationId: ai.detailGenerationId,
+      thumbnailGenerationId: ai.thumbnailGenerationId,
+      contentWorkspaceId: ai.contentWorkspaceId,
+    };
+  }
+
+  private manualProductCandidateInput(
     data: RegisterManualProductCommand,
     organizationId: string,
     triggeredByUserId: string | null,
@@ -63,7 +159,7 @@ export class SourcingAgentCommandService {
     const sourceUrl = identityHash
       ? `kiditem://manual-product-registration/${identityHash}`
       : `kiditem://manual-product-registration/${randomUUID()}`;
-    const candidate = await this.candidates.upsertSourced({
+    return {
       organizationId,
       sourceUrl,
       sourcePlatform: MANUAL_PRODUCT_REGISTRATION_PLATFORM,
@@ -104,70 +200,6 @@ export class SourcingAgentCommandService {
         source: 'kiditem-product-registration',
         isPrimary: url === primaryImageUrl,
       })),
-    });
-
-    return {
-      ok: true,
-      message: '상품 등록 후보가 생성되었습니다.',
-      product_count: 1,
-      candidateId: candidate.id,
-      href: collectedCandidateHref(candidate.id),
-    };
-  }
-
-  async createProductGeneration(
-    data: CreateProductGenerationCommand,
-    organizationId: string,
-    triggeredByUserId: string | null,
-    idempotencyKey?: string,
-  ) {
-    const thumbnailUrls = uniqueNonEmptyStrings(data.thumbnailUrls ?? []).slice(0, 10);
-    const representativeThumbnailUrl = typeof data.thumbnailUrl === 'string' && data.thumbnailUrl.trim()
-      ? data.thumbnailUrl.trim()
-      : thumbnailUrls[0] ?? null;
-    const candidate = await this.registerManualProduct(
-      data,
-      organizationId,
-      triggeredByUserId,
-      idempotencyKey,
-    );
-    const ai = await this.agentGateway.startProductGeneration({
-      organizationId,
-      triggeredByUserId,
-      idempotencyKey,
-      requestHash: createHash('sha256')
-        .update(JSON.stringify(data))
-        .digest('hex'),
-      candidateId: candidate.candidateId,
-      productName: data.title.trim(),
-      category: data.category ?? null,
-      description: data.description ?? null,
-      target: data.target ?? null,
-      imageUrls: uniqueNonEmptyStrings(data.imageUrls),
-      thumbnailUrl: representativeThumbnailUrl,
-      optionNames: uniqueNonEmptyStrings(data.optionNames ?? []),
-      templateId: data.templateId ?? 'bold-vertical',
-      ageGroup: data.ageGroup ?? 'age-8-plus',
-      detailImageCount: data.detailImageCount ?? '2',
-      usageSectionMode: data.usageSectionMode ?? 'include',
-      kcCertificationStatus: data.kcCertificationStatus ?? 'unknown',
-      kcCertificationNumber: data.kcCertificationNumber ?? null,
-      productSize: data.productSize ?? null,
-      colorVariantStatus: data.colorVariantStatus ?? 'auto',
-      colorVariantNames: data.colorVariantNames ?? null,
-      boxSetStatus: data.boxSetStatus ?? 'auto',
-      boxSetQuantity: data.boxSetQuantity ?? null,
-    });
-    return {
-      ok: true,
-      message: '상품 생성 작업이 시작되었습니다.',
-      product_count: 1,
-      candidateId: candidate.candidateId,
-      href: ai.href,
-      parentOperationKey: ai.parentOperationKey,
-      detailGenerationId: ai.detailGenerationId,
-      thumbnailGenerationId: ai.thumbnailGenerationId,
-      contentWorkspaceId: ai.contentWorkspaceId,
     };
   }
 

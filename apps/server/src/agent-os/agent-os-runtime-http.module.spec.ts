@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { MODULE_METADATA } from '@nestjs/common/constants';
 import { describe, expect, it } from 'vitest';
 import { AgentMcpHttpController } from './adapter/in/http/runtime/agent-mcp-http.controller';
@@ -21,6 +23,8 @@ describe('AgentOsRuntimeHttpModule', () => {
     const providers = Reflect.getMetadata(MODULE_METADATA.PROVIDERS, AgentOsRuntimeHttpModule);
 
     expect(imports).toContain(AgentOsInvocationModule);
+    expect(imports.map((entry: { name?: string }) => entry.name ?? String(entry)))
+      .not.toContain('OperationsModule');
     expect(imports).toContain(GatewayControlSessionModule);
     expect(controllers).toContain(AgentMcpHttpController);
     expect(providers).toEqual(expect.arrayContaining([
@@ -58,5 +62,10 @@ describe('AgentOsRuntimeHttpModule', () => {
       }),
     ]));
     expect(rendered).not.toMatch(/Prisma|ConversationRepository|ConversationPreferenceStore|conversation-preferences\.json/i);
+  });
+
+  it('keeps the Agent OS HTTP composition free of generic execution/runtime dependencies', () => {
+    const source = readFileSync(resolve(__dirname, 'agent-os-runtime-http.module.ts'), 'utf8');
+    expect(source).not.toMatch(/OperationsModule|OperationRun|OperationAlert|Panel/);
   });
 });

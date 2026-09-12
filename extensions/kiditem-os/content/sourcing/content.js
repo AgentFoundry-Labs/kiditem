@@ -41,7 +41,7 @@
 
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.type === "TRIGGER_EXTRACT") {
-      doExtract();
+      doExtract(msg.attemptId);
       sendResponse({ ok: true });
     }
     if (msg.type === "TRIGGER_1688_TREND_EXTRACT") {
@@ -164,7 +164,7 @@
     });
   }
 
-  async function doExtract() {
+  async function doExtract(attemptId) {
     const platform = ProductScraper.common.detectPlatform();
     if (!platform) return;
 
@@ -187,20 +187,21 @@
 
     if (!data) return;
 
-    sendResult(data);
+    sendResult(data, attemptId);
 
     if (isDetail && (platform === "ALIBABA" || platform === "1688")) {
-      extractDescriptionPhase(extractor, data).then((hadDescription) => {
+      extractDescriptionPhase(extractor, data, attemptId).then((hadDescription) => {
         if (!alive()) return;
         chrome.runtime.sendMessage({
           type: "EXTRACTION_COMPLETE",
+          attemptId,
           hadDescription,
         });
       });
     }
   }
 
-  async function extractDescriptionPhase(extractor, baseData) {
+  async function extractDescriptionPhase(extractor, baseData, attemptId) {
     const descEl = extractor.scrollToDescription();
     if (!descEl) {
       console.log("[product-scraper] description section not found");
@@ -223,6 +224,7 @@
     if (alive()) {
       chrome.runtime.sendMessage({
         type: "DESCRIPTION_DATA",
+        attemptId,
         data: {
           source_url: baseData.source_url,
           product_id: baseData.product_id || "",
@@ -235,7 +237,7 @@
 
   // ── Send result to background ──
 
-  function sendResult(data) {
+  function sendResult(data, attemptId) {
     const filledFields = Object.entries(data).filter(([, v]) => {
       if (v === null || v === undefined || v === "") return false;
       if (Array.isArray(v) && v.length === 0) return false;
@@ -248,7 +250,7 @@
       location.href
     );
 
-    if (alive()) chrome.runtime.sendMessage({ type: "PRODUCT_DATA", data });
+    if (alive()) chrome.runtime.sendMessage({ type: "PRODUCT_DATA", attemptId, data });
 
   }
 

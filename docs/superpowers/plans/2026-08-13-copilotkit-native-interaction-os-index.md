@@ -2,7 +2,7 @@
 
 > Superseded (2026-08-23). Do not use this index or its completion checklist.
 > A new implementation plan will be derived from the
-> [KID-25 Agent OS Clean Contraction Design](../specs/2026-08-23-kid-25-agent-os-clean-contraction-design.md).
+> [KID-25 Agent OS Clean Contraction Design](../specs/archive/2026-08-23-kid-25-agent-os-clean-contraction-design.md).
 
 Last amended: 2026-08-21 — owner-port execution boundaries, canonical ID
 system, AgentOS lane-first/capability-second hexagonal deepening, and zero-data
@@ -152,7 +152,7 @@ Testing Library, and Playwright
 ## Source Design
 
 Implementation must satisfy
-[the approved Interaction OS design](../specs/2026-08-13-ai-chat-interactive-response-design.md).
+[the approved Interaction OS design](../specs/archive/2026-08-13-ai-chat-interactive-response-design.md).
 If discovery changes a product decision, stop the affected plan and amend the
 design plus this index before implementing around it.
 

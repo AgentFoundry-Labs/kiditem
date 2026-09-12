@@ -17,6 +17,7 @@ import {
   setupChannelListing,
   seedOrderWithLineItems,
   seedAd,
+  seedCompletedAdSweepRun,
 } from '../../../test-helpers/finance-seeds';
 
 describe('Sales-plans flow (PG integration)', () => {
@@ -267,11 +268,19 @@ describe('Sales-plans flow (PG integration)', () => {
           listingOptionId: fixture.listing.listingOptionId,
         }],
       });
+      // The campaign sweep measured every April date, so the listing's own
+      // rows are its whole April ad cost and its profit is a measurement.
+      const runId = await seedCompletedAdSweepRun(prisma, {
+        organizationId: TEST_ORGANIZATION_ID,
+        generation: 1,
+        window: { startDate: '2026-04-01', endDate: '2026-04-30' },
+      });
       await seedAd(prisma, {
         organizationId: TEST_ORGANIZATION_ID,
         listingId: fixture.listing.listingId,
         date: '2026-04-10',
         spend: 2_000,
+        runId,
       });
 
       const synced = await service.syncActuals(plan.id, TEST_ORGANIZATION_ID);
@@ -344,6 +353,24 @@ describe('Sales-plans flow (PG integration)', () => {
         }],
       });
 
+      // The listing sold in both months and the campaign sweep measured every
+      // date of both, confirming zero spend on each side of the boundary, so
+      // both profits are measurements.
+      const runId = await seedCompletedAdSweepRun(prisma, {
+        organizationId: TEST_ORGANIZATION_ID,
+        generation: 1,
+        window: { startDate: '2026-04-01', endDate: '2026-05-31' },
+      });
+      for (const date of ['2026-04-30', '2026-05-01']) {
+        await seedAd(prisma, {
+          organizationId: TEST_ORGANIZATION_ID,
+          listingId: fixture.listing.listingId,
+          date,
+          spend: 0,
+          runId,
+        });
+      }
+
       const apriled = await service.syncActuals(aprilPlan.id, TEST_ORGANIZATION_ID);
       expect(apriled.actualRevenue).toBe(10_000);
       expect(apriled.actualOrders).toBe(1);
@@ -403,11 +430,32 @@ describe('Sales-plans flow (PG integration)', () => {
           listingOptionId: foreignFixture.listing.listingOptionId,
         }],
       });
+      // Both organizations' sweeps measured all of April. TEST's own
+      // advertising confirmed zero spend; the foreign organization's million
+      // must not become TEST's ad cost.
+      const foreignRunId = await seedCompletedAdSweepRun(prisma, {
+        organizationId: OTHER_ORGANIZATION_ID,
+        generation: 1,
+        window: { startDate: '2026-04-01', endDate: '2026-04-30' },
+      });
       await seedAd(prisma, {
         organizationId: OTHER_ORGANIZATION_ID,
         listingId: foreignFixture.listing.listingId,
         date: '2026-04-10',
         spend: 1_000_000,
+        runId: foreignRunId,
+      });
+      const ownRunId = await seedCompletedAdSweepRun(prisma, {
+        organizationId: TEST_ORGANIZATION_ID,
+        generation: 1,
+        window: { startDate: '2026-04-01', endDate: '2026-04-30' },
+      });
+      await seedAd(prisma, {
+        organizationId: TEST_ORGANIZATION_ID,
+        listingId: ownFixture.listing.listingId,
+        date: '2026-04-10',
+        spend: 0,
+        runId: ownRunId,
       });
 
       const synced = await service.syncActuals(plan.id, TEST_ORGANIZATION_ID);

@@ -9,7 +9,18 @@ import {
   VerifiedSellpiaSourceImportRunSchema,
   type SellpiaInventoryImportResponse,
 } from '@kiditem/shared/source-import';
+import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { evaluateSellpiaInventoryQuality } from '../../../domain/policy/sellpia-inventory-quality.policy';
+import {
+  advanceProductMappingGeneration,
+  lockProductMapping,
+} from '../../../../common/product-mapping-generation';
+import { lockSellpiaInventoryTransaction } from './sellpia-inventory-transaction-lock';
+import {
+  SELLPIA_INVENTORY_ALERT_DEDUPE_KEY,
+  sellpiaInventorySourceFailureAlert,
+} from './sellpia-inventory-source-failure-alert';
 import type {
   SellpiaPublicationExecution,
 } from '../../../application/port/out/repository/sellpia-import-run.repository.port';
@@ -18,8 +29,6 @@ import type {
   SellpiaSnapshotPublicationResult,
 } from '../../../application/port/out/repository/sellpia-snapshot-publication.repository.port';
 import type { ParsedSellpiaInventoryRow } from '../../../application/service/sellpia-inventory-workbook.parser';
-import { evaluateSellpiaInventoryQuality } from '../../../domain/policy/sellpia-inventory-quality.policy';
-import { lockSellpiaInventoryTransaction } from './sellpia-inventory-transaction-lock';
 
 const SOURCE_TYPE = 'sellpia_inventory';
 const SOURCE_ORIGIN = 'https://kiditem.sellpia.com';
@@ -37,17 +46,28 @@ type VerifyInput = Parameters<
 type PublicationResult =
   | { kind: 'completed'; response: SellpiaSnapshotPublicationResult }
   | { kind: 'blocked'; message: string };
+type MappingIdentityBasis = {
+  id: string;
+  isActive: boolean;
+  code: string;
+  barcode: string | null;
+  masterProductId: string | null;
+};
 
 @Injectable()
 export class SellpiaSnapshotPublicationRepositoryAdapter
 implements SellpiaSnapshotPublicationRepositoryPort {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly alerts: SourceFailureAlerts,
+  ) {}
 
   async publishSnapshot(input: PublishInput): Promise<SellpiaSnapshotPublicationResult> {
     if (input.rows.length === 0) {
       throw new BadRequestException('Sellpia inventory snapshot has no valid rows');
     }
     const result = await this.prisma.$transaction(async (tx): Promise<PublicationResult> => {
+      await lockProductMapping(tx, input.organizationId);
       await lockSellpiaInventoryTransaction(tx, input.organizationId);
       const [state, run] = await Promise.all([
         lockedState(tx, input.organizationId),
@@ -84,7 +104,7 @@ implements SellpiaSnapshotPublicationRepositoryPort {
       });
       if (quality.blocked) {
         const message = 'Sellpia inventory snapshot failed quality thresholds';
-        await recordPublicationFailure(tx, state, input, generation, {
+        await recordPublicationFailure(tx, this.alerts, state, input, generation, {
           qualityReport: quality.report as Prisma.InputJsonValue,
           errorCode: 'sellpia_invalid_workbook',
           errorMessage: message,
@@ -99,6 +119,21 @@ implements SellpiaSnapshotPublicationRepositoryPort {
         tx,
         input.organizationId,
       );
+      const fileProvenance = ownerBrowserAttempt(input)
+        ? {
+            // Browser-owner attempts are generations, not file-import claims.
+            // Keep the exact bytes hash in contentChecksum so a repeated
+            // artifact can publish as a new generation without colliding with
+            // the legacy fileHash uniqueness contract.
+            fileHash: null,
+            contentChecksum: input.contentChecksum ?? input.fileHash,
+          }
+        : {
+            fileHash: input.fileHash,
+            ...(input.contentChecksum !== undefined
+              ? { contentChecksum: input.contentChecksum }
+              : {}),
+          };
       const completed = await tx.sourceImportRun.updateMany({
         where: {
           id: input.runId,
@@ -119,6 +154,17 @@ implements SellpiaSnapshotPublicationRepositoryPort {
           qualityReport: quality.report as Prisma.InputJsonValue,
           errorCode: null,
           errorMessage: null,
+          ...(input.fileName !== undefined ? { fileName: input.fileName } : {}),
+          ...fileProvenance,
+          ...(input.contentByteCount !== undefined
+            ? { contentByteCount: input.contentByteCount }
+            : {}),
+          ...(input.execution.kind === 'manual'
+            ? {
+                manualFreshExportConfirmedAt: now,
+                manualFreshExportConfirmedBy: input.userId,
+              }
+            : {}),
           publicationSequence,
         },
       });
@@ -126,6 +172,11 @@ implements SellpiaSnapshotPublicationRepositoryPort {
         throw new ConflictException('Sellpia inventory publication lost its run fence');
       }
       await completeGeneration(tx, state, input, generation, now, input.runId);
+      await this.alerts.resolveSourceFailure(tx, {
+        organizationId: input.organizationId,
+        dedupeKey: SELLPIA_INVENTORY_ALERT_DEDUPE_KEY,
+        attemptId: run.id,
+      });
       const completedRun = await tx.sourceImportRun.findFirstOrThrow({
         where: {
           id: input.runId,
@@ -249,6 +300,11 @@ implements SellpiaSnapshotPublicationRepositoryPort {
         throw new ConflictException('Sellpia same-hash verification lost its run fence');
       }
       await completeGeneration(tx, state, input, generation, now, run.id);
+      await this.alerts.resolveSourceFailure(tx, {
+        organizationId: input.organizationId,
+        dedupeKey: SELLPIA_INVENTORY_ALERT_DEDUPE_KEY,
+        attemptId: run.id,
+      });
       const verified = await tx.sourceImportRun.findFirstOrThrow({
         where: {
           id: run.id,
@@ -272,6 +328,16 @@ async function replaceInventorySkus(
   tx: Prisma.TransactionClient,
   input: PublishInput,
 ): Promise<SellpiaSnapshotPublicationResult['changes']> {
+  const mappingIdentityBefore = await tx.sellpiaInventorySku.findMany({
+    where: { organizationId: input.organizationId },
+    select: {
+      id: true,
+      isActive: true,
+      code: true,
+      barcode: true,
+      masterProductId: true,
+    },
+  });
   const existing = await tx.sellpiaInventorySku.findMany({
     where: {
       organizationId: input.organizationId,
@@ -346,7 +412,29 @@ async function replaceInventorySkus(
     },
   });
   await ensureCanonicalInventoryProducts(tx, input.organizationId);
-  await rebuildChannelListingProductSummaries(tx, input.organizationId);
+  const listingSummaryChanged = await rebuildChannelListingProductSummaries(
+    tx,
+    input.organizationId,
+  );
+  const mappingIdentityAfter = await tx.sellpiaInventorySku.findMany({
+    where: { organizationId: input.organizationId },
+    select: {
+      id: true,
+      isActive: true,
+      code: true,
+      barcode: true,
+      masterProductId: true,
+    },
+  });
+  // The listing owner is a persisted canonical mapping summary used by
+  // Products and order reads. A correction is therefore mapping evidence even
+  // when the Sellpia resolver's SKU identity basis itself is unchanged.
+  if (
+    mappingIdentityChanged(mappingIdentityBefore, mappingIdentityAfter)
+    || listingSummaryChanged
+  ) {
+    await advanceProductMappingGeneration(tx, input.organizationId);
+  }
   return {
     createdSkuCount,
     updatedSkuCount,
@@ -398,8 +486,8 @@ async function ensureCanonicalInventoryProducts(
 async function rebuildChannelListingProductSummaries(
   tx: Prisma.TransactionClient,
   organizationId: string,
-): Promise<void> {
-  await tx.$executeRaw`
+): Promise<boolean> {
+  const updated = await tx.$executeRaw`
     WITH option_owners AS (
       SELECT
         option.listing_id,
@@ -440,10 +528,28 @@ async function rebuildChannelListingProductSummaries(
       AND listing.organization_id = ${organizationId}::uuid
       AND listing.master_product_id IS DISTINCT FROM listing_owners.owner_id
   `;
+  return updated > 0;
+}
+
+function mappingIdentityChanged(
+  before: MappingIdentityBasis[],
+  after: MappingIdentityBasis[],
+): boolean {
+  if (before.length !== after.length) return true;
+  const beforeById = new Map(before.map((basis) => [basis.id, basis]));
+  return after.some((basis) => {
+    const previous = beforeById.get(basis.id);
+    return !previous
+      || previous.isActive !== basis.isActive
+      || previous.code !== basis.code
+      || previous.barcode !== basis.barcode
+      || previous.masterProductId !== basis.masterProductId;
+  });
 }
 
 async function recordPublicationFailure(
   tx: Prisma.TransactionClient,
+  alerts: SourceFailureAlerts,
   state: SellpiaInventoryState,
   input: PublishInput,
   generation: bigint,
@@ -455,6 +561,17 @@ async function recordPublicationFailure(
   },
 ): Promise<void> {
   const now = new Date();
+  const fileProvenance = ownerBrowserAttempt(input)
+    ? {
+        fileHash: null,
+        contentChecksum: input.contentChecksum ?? input.fileHash,
+      }
+    : {
+        fileHash: input.fileHash,
+        ...(input.contentChecksum !== undefined
+          ? { contentChecksum: input.contentChecksum }
+          : {}),
+      };
   const failed = await tx.sourceImportRun.updateMany({
     where: {
       id: input.runId,
@@ -470,6 +587,11 @@ async function recordPublicationFailure(
       qualityReport: failure.qualityReport,
       errorCode: failure.errorCode,
       errorMessage: failure.errorMessage,
+      ...fileProvenance,
+      ...(input.fileName !== undefined ? { fileName: input.fileName } : {}),
+      ...(input.contentByteCount !== undefined
+        ? { contentByteCount: input.contentByteCount }
+        : {}),
     },
   });
   if (failed.count !== 1) {
@@ -490,6 +612,19 @@ async function recordPublicationFailure(
     lastErrorMessage: failure.errorMessage,
     freshnessFence: randomUUID(),
   });
+  await alerts.recordTerminalOutcome(
+    tx,
+    sellpiaInventorySourceFailureAlert({
+      organizationId: input.organizationId,
+      attemptId: input.runId,
+      errorCode: failure.errorCode,
+      errorMessage: failure.errorMessage,
+    }),
+  );
+}
+
+function ownerBrowserAttempt(input: PublishInput): boolean {
+  return input.execution.kind === 'browser' && input.execution.ownerAttempt === true;
 }
 
 async function completeGeneration(
@@ -534,7 +669,9 @@ async function updateStateWithFence(
       sourceOrigin: SOURCE_ORIGIN,
       sourceAccountKey: SOURCE_ACCOUNT_KEY,
       activeSyncToken: input.execution.claimToken,
-      activeSyncOwnerUserId: input.userId,
+      ...(input.execution.ownerAttempt
+        ? {}
+        : { activeSyncOwnerUserId: input.userId }),
       activeGeneration: generation,
     },
     data,
@@ -572,7 +709,8 @@ function assertPublicationFence(
   const generation = parseGeneration(input.execution.activeGeneration);
   if (
     state.activeSyncToken !== input.execution.claimToken
-    || state.activeSyncOwnerUserId !== input.userId
+    || (!input.execution.ownerAttempt
+      && state.activeSyncOwnerUserId !== input.userId)
     || state.activeGeneration !== generation
   ) {
     throw new ConflictException('Sellpia inventory publication generation is stale');
@@ -585,11 +723,17 @@ function assertRunningRun(run: SourceImportRun, input: PublishInput): void {
     run.organizationId !== input.organizationId
     || run.sourceType !== SOURCE_TYPE
     || run.channelAccountId !== null
-    || run.fileHash !== input.fileHash
+    || (run.fileHash !== null && run.fileHash !== input.fileHash)
     || run.status !== 'running'
     || run.attemptToken !== input.attemptToken
   ) {
     throw new ConflictException('Sellpia inventory run publication fence is stale');
+  }
+  if (
+    input.execution.ownerAttempt
+    && (!run.expiresAt || run.expiresAt.getTime() <= Date.now())
+  ) {
+    throw new ConflictException('ATTEMPT_EXPIRED');
   }
 }
 
@@ -681,7 +825,7 @@ function importResponse(
   outcome: SellpiaInventoryImportResponse['outcome'],
   changes: SellpiaSnapshotPublicationResult['changes'],
 ): SellpiaSnapshotPublicationResult {
-  const verifiedRun = VerifiedSellpiaSourceImportRunSchema.parse({
+  const runData = {
     id: run.id,
     sourceType: 'sellpia_inventory',
     channelAccountId: null,
@@ -702,6 +846,13 @@ function importResponse(
     errorMessage: run.errorMessage,
     createdAt: run.createdAt.toISOString(),
     updatedAt: run.updatedAt.toISOString(),
-  });
+  };
+  // Browser-owner generations intentionally keep fileHash null and carry the
+  // exact artifact identity in contentChecksum. The owner completion path
+  // discards this legacy import response, but it still needs a result object
+  // after the canonical publication transaction commits.
+  const verifiedRun = run.fileHash === null && run.contentChecksum !== null
+    ? (runData as unknown as SellpiaSnapshotPublicationResult['run'])
+    : VerifiedSellpiaSourceImportRunSchema.parse(runData);
   return { run: verifiedRun, duplicate, outcome, changes };
 }

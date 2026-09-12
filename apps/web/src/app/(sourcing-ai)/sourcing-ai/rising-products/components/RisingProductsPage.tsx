@@ -2,23 +2,23 @@
 
 import { useMemo } from 'react';
 import Link from 'next/link';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, ExternalLink, Flame, Loader2, Sparkles } from 'lucide-react';
 import { cn, formatKRW, formatNumber } from '@/lib/utils';
 import { queryKeys } from '@/lib/query-keys';
+import { friendlyError } from '@/lib/api-error';
 import {
   fetchKeywordTrackers,
   fetchLatestRisingProducts,
+  calculateRisingProducts,
   type RisingProductCandidate,
   type RisingProductGrade,
 } from '../lib/rising-products-api';
 import { normalizeKeyword } from '../lib/rising-keywords';
-import { useSourcingOperationAction } from '../../hooks/use-sourcing-operation-action';
-import { SourcingOperationRunPanel } from '../../components/SourcingOperationRunPanel';
 import { RisingKeywordsPanel } from './RisingKeywordsPanel';
 
 const RISING_QUERY_KEY = queryKeys.sourcing.risingProducts();
-const RISING_OPERATION_INPUT = { windowDays: 14 } as const;
+const RISING_CALCULATION_INPUT = { windowDays: 14 } as const;
 
 const GRADE_TONE: Record<RisingProductGrade, string> = {
   A: 'bg-emerald-500/15 text-emerald-600',
@@ -29,16 +29,16 @@ const GRADE_TONE: Record<RisingProductGrade, string> = {
 };
 
 export function RisingProductsPage() {
+  const queryClient = useQueryClient();
   const { data, isLoading } = useQuery({
     queryKey: RISING_QUERY_KEY,
     queryFn: fetchLatestRisingProducts,
   });
 
-  const risingOperation = useSourcingOperationAction({
-    operationKey: 'sourcing.detect_rising_products',
-    input: RISING_OPERATION_INPUT,
-    snapshotQueryKey: RISING_QUERY_KEY,
-    wakeBrowserRuntime: false,
+  const calculation = useMutation({
+    mutationFn: () => calculateRisingProducts(RISING_CALCULATION_INPUT),
+    retry: false,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: RISING_QUERY_KEY }),
   });
 
   // 추적 키워드 목록 — 우측 패널과 같은 queryKey 라 캐시 공유(추가 요청 없음).
@@ -88,11 +88,11 @@ export function RisingProductsPage() {
           </div>
           <button
             type="button"
-            onClick={() => void risingOperation.start()}
-            disabled={risingOperation.isStarting}
+            onClick={() => calculation.mutate()}
+            disabled={calculation.isPending}
             className="inline-flex h-11 items-center gap-2 rounded-lg bg-[#ff5a1f] px-4 text-sm font-black text-white transition hover:bg-[#ef4f18] disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {risingOperation.isStarting ? (
+            {calculation.isPending ? (
               <Loader2 size={16} className="animate-spin" />
             ) : (
               <Sparkles size={16} />
@@ -101,17 +101,8 @@ export function RisingProductsPage() {
           </button>
         </header>
 
-        <SourcingOperationRunPanel
-          run={risingOperation.run}
-          onCancel={async () => {
-            await risingOperation.cancel();
-          }}
-          onRetryAttention={async () => {
-            await risingOperation.retryAttention();
-          }}
-          isCancelling={risingOperation.isCancelling}
-          isRetrying={risingOperation.isRetrying}
-        />
+        {calculation.isPending && <p role="status">저장된 데이터로 급상승 후보를 계산 중입니다.</p>}
+        {calculation.error && <p role="alert">감지 실행 실패: {friendlyError(calculation.error)}</p>}
 
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1fr_320px]">
           <section className="min-w-0">

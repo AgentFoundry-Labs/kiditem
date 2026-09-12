@@ -13,13 +13,17 @@ export const SCRIPT_INVENTORY = Object.freeze([
   'check-directory-architecture.mjs',
   'check-frontend-db-boundary.sh',
   'check-identifier-contracts.mjs',
+  'check-operation-automation-cutover.mjs',
   'check-pr-reconstruction-contract.mjs',
   'check-pr-release-contract.mjs',
   'check-queryraw-tenancy.sh',
   'check-raw-snapshot-read-models.sh',
+  'check-listing-day-ad-reader.sh',
   'check-schema-artifact-sync.mjs',
   'check-sourcing-long-running-actions.mjs',
   'check-script-inventory.mjs',
+  'check-cutover-data-blockers.mjs',
+  'check-server-type-baseline.mjs',
   'check-shared-interface-names.mjs',
   'check-shared-root-imports.sh',
   'check-tenant-scope.sh',
@@ -28,6 +32,7 @@ export const SCRIPT_INVENTORY = Object.freeze([
   'generate-prisma-erd.mjs',
   'local-agent-gateway.mjs',
   'office-deploy.mjs',
+  'operation-automation-cutover-preflight.mjs',
   'manage-extension-release.mjs',
   'qa-agent-os-clean-cutover.mjs',
   'run-data-migrations.ts',
@@ -41,6 +46,7 @@ export const SCRIPT_INVENTORY = Object.freeze([
 ]);
 
 const SUPPORT_FILES = new Set([
+  '.server-type-baseline.txt',
   '.shared-interface-names-baseline.txt',
   '.shared-root-imports-baseline.txt',
   '.tenant-scope-allowlist.txt',
@@ -92,6 +98,12 @@ export function analyzeInventory({ actualFiles, readme, packageScripts }) {
     'node scripts/check-agent-os-contraction.mjs'
   ) {
     missingPackageHooks.push('check:agent-os-contraction');
+  }
+  if (
+    packageScripts['check:operation-automation-cutover'] !==
+    'node scripts/check-operation-automation-cutover.mjs'
+  ) {
+    missingPackageHooks.push('check:operation-automation-cutover');
   }
   if (
     packageScripts['qa:agent-os:clean-cutover'] !==

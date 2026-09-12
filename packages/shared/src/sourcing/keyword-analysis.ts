@@ -130,12 +130,12 @@ export const SourcingNaverDatalabKeywordTrendSchema = z
 export const SourcingNaverDatalabSearchTrendResultSchema = z
   .object({
     source: z.literal('naver-datalab-search-trend'),
-    keywords: z.array(KeywordTextSchema).min(1).max(40),
+    keywords: z.array(KeywordTextSchema).min(1).max(50),
     startDate: CalendarDateSchema,
     endDate: CalendarDateSchema,
     timeUnit: z.enum(['date', 'week', 'month']),
     generatedAt: InstantSchema,
-    items: z.array(SourcingNaverDatalabKeywordTrendSchema).max(40),
+    items: z.array(SourcingNaverDatalabKeywordTrendSchema).max(50),
   })
   .strict();
 

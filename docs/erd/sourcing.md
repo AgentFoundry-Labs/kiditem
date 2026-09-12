@@ -12,7 +12,7 @@
 | CandidateImage | `sourcing_candidate_images` | 소싱 후보가 소유하는 이미지 갤러리. 소싱 콘텐츠와 썸네일 생성 입력으로 사용한다. |
 | LiveCommerceBroadcastDailySnapshot | `live_commerce_broadcast_daily_snapshots` | 타오바오 공식 API 또는 로그인된 1688·도우인 브라우저 화면에서 수집한 라이브 방송 일별 스냅샷. source와 broadcastId가 외부 방송 식별자를 이룬다. |
 | LiveCommerceProductDailySnapshot | `live_commerce_product_daily_snapshots` | 중국 라이브 방송에 노출된 상품의 일별 스냅샷. broadcastId로 방송 스냅샷과 논리적으로 연결하고 상품 단위 비교를 지원한다. |
-| NaverKeywordDailySnapshot | `naver_keyword_daily_snapshots` | 네이버 키워드(검색광고 월검색량 + 데이터랩 검색어트렌드) 일별 스냅샷. 시드 키워드당 하루 1행(최신본 upsert). trendRatio 는 latestRatio 반올림(0-100). |
+| NaverKeywordDailySnapshot | `naver_keyword_daily_snapshots` | 네이버 키워드(검색광고 월검색량 + 데이터랩 검색어트렌드) 일별 스냅샷. 수집 attempt별 키워드/날짜 불변 관측. COMPLETE 범위에서 최신 관측을 조회한다. trendRatio 는 latestRatio 반올림(0-100). |
 | NaverPopularKeywordDailySnapshot | `naver_popular_keyword_daily_snapshots` | 네이버 데이터랩 인기키워드 보드(출산/육아·완구/인형·문구/사무 등)의 일별 순위 스냅샷. 보드×키워드 identity를 사용하고 매 수집마다 보드×일자 범위를 통째로 교체한다. |
 | ProductRegistrationExecution | `product_registration_executions` | Reviewed product preparation의 marketplace create/reconcile side effect 실행 기록. 준비 입력과 provider lifecycle을 분리해 보존한다. |
 | ShortsTrendDailySnapshot | `shorts_trend_daily_snapshots` | 쇼츠트렌드(shortstrend.co.kr) 급상승 쇼츠 일별 스냅샷. rank 는 소스 노출 순위, videoKey 는 영상 식별자. video×일자당 1행. |
@@ -22,7 +22,7 @@
 | SourcingDecisionBatch | `sourcing_decision_batches` | Immutable point-in-time policy decision header. Items and evidence are inserted in the same transaction after deterministic evaluation succeeds. |
 | SourcingDecisionBatchItem | `sourcing_decision_batch_items` | One immutable canonical test_order, hold, or reject decision. Offer-only rows support RFQ provenance before an exact LaunchCandidate exists. |
 | SourcingDecisionEvidence | `sourcing_decision_evidence` | Immutable many-to-many link from one decision item to the exact observations available at its decision cutoff. |
-| SourcingEvidenceIngestionRun | `sourcing_evidence_ingestion_runs` | Durable collector attempt with a fenced lease, request identity, collection window, coverage, and terminal result. |
+| SourcingEvidenceIngestionRun | `sourcing_evidence_ingestion_runs` | Durable source-owner attempt. Browser sources use RUNNING, COMPLETE, and FAILED with a frozen plan and current COMPLETE pointer. |
 | SourcingEvidenceObservation | `sourcing_evidence_observations` | Append-only, revision-aware source fact. Feature and decision reads must apply both availableAt and ingestedAt point-in-time cutoffs. |
 | SourcingInterestTarget | `sourcing_interest_targets` | 서버가 소유하는 관심 키워드. 화면의 전체 JSON snapshot 대체를 금지하고 낙관적 버전으로 개별 변경을 보장한다. |
 | SourcingKeywordPreference | `sourcing_keyword_preferences` | 조직별 키워드 제외 설정. 전체 JSON snapshot 대신 키 하나를 낙관적으로 갱신한다. |
@@ -68,6 +68,7 @@ erDiagram
   LiveCommerceBroadcastDailySnapshot {
     String id PK
     String organizationId FK
+    String ingestionRunId FK
     DateTime businessDate
     String source
     String broadcastId
@@ -88,6 +89,7 @@ erDiagram
   LiveCommerceProductDailySnapshot {
     String id PK
     String organizationId FK
+    String ingestionRunId FK
     DateTime businessDate
     String source
     String broadcastId
@@ -105,6 +107,7 @@ erDiagram
   NaverKeywordDailySnapshot {
     String id PK
     String organizationId FK
+    String ingestionRunId FK
     String keyword
     DateTime businessDate
     Int monthlyTotalSearchCount
@@ -122,6 +125,7 @@ erDiagram
   NaverPopularKeywordDailySnapshot {
     String id PK
     String organizationId FK
+    String ingestionRunId FK
     String boardKey
     String boardLabel
     String cid
@@ -164,6 +168,7 @@ erDiagram
   ShortsTrendDailySnapshot {
     String id PK
     String organizationId FK
+    String ingestionRunId FK
     DateTime businessDate
     String videoKey
     Int rank
@@ -320,6 +325,10 @@ erDiagram
     String triggerKind
     String triggeredByUserId FK
     String status
+    Json attemptPlan
+    String planChecksum
+    String contentChecksum
+    Boolean isCurrentComplete
     DateTime sourceWindowStartAt
     DateTime sourceWindowEndAt
     String watermarkBefore
@@ -589,6 +598,7 @@ erDiagram
   TiktokCreativeTrendDailySnapshot {
     String id PK
     String organizationId FK
+    String ingestionRunId FK
     DateTime businessDate
     String region
     String trendType
@@ -622,8 +632,14 @@ erDiagram
   SourcingCandidate o|--o{ SourcingLaunchCandidate : "sourceCandidate"
   SourcingDecisionBatch ||--o{ SourcingDecisionBatchItem : "decisionBatch"
   SourcingDecisionBatchItem ||--o{ SourcingDecisionEvidence : "decisionBatchItem"
+  SourcingEvidenceIngestionRun ||--o{ LiveCommerceBroadcastDailySnapshot : "ingestionRun"
+  SourcingEvidenceIngestionRun ||--o{ LiveCommerceProductDailySnapshot : "ingestionRun"
+  SourcingEvidenceIngestionRun ||--o{ NaverKeywordDailySnapshot : "ingestionRun"
+  SourcingEvidenceIngestionRun ||--o{ NaverPopularKeywordDailySnapshot : "ingestionRun"
+  SourcingEvidenceIngestionRun ||--o{ ShortsTrendDailySnapshot : "ingestionRun"
   SourcingEvidenceIngestionRun ||--o{ Sourcing1688OfferKeywordObservation : "ingestionRun"
   SourcingEvidenceIngestionRun ||--o{ SourcingEvidenceObservation : "ingestionRun"
+  SourcingEvidenceIngestionRun ||--o{ TiktokCreativeTrendDailySnapshot : "ingestionRun"
   SourcingEvidenceObservation ||--|| Sourcing1688OfferKeywordObservation : "evidenceObservation"
   SourcingEvidenceObservation ||--o{ SourcingDecisionEvidence : "evidenceObservation"
   SourcingEvidenceObservation o|--o| SourcingEvidenceObservation : "supersedesObservation"

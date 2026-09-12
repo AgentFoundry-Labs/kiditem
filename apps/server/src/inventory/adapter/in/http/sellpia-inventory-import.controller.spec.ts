@@ -10,7 +10,6 @@ import type { SellpiaInventoryImportPort } from '../../../application/port/in/st
 
 const ORGANIZATION_ID = '00000000-0000-4000-8000-000000000001';
 const USER_ID = '00000000-0000-4000-8000-000000000002';
-const CLAIM_TOKEN = '00000000-0000-4000-8000-000000000003';
 
 describe('SellpiaInventoryImportController', () => {
   it('exposes exactly POST inventory/sellpia-sync/import', () => {
@@ -32,12 +31,12 @@ describe('SellpiaInventoryImportController', () => {
     expect(() => controller.importArtifact(
       ORGANIZATION_ID,
       { id: USER_ID } as never,
-      browserDto(),
+      manualDto(),
       undefined,
     )).toThrow(BadRequestException);
   });
 
-  it('passes raw bytes, MIME, filename, browser execution, and authenticated scope', async () => {
+  it('passes raw bytes, MIME, filename, manual attestation, and authenticated scope', async () => {
     const port = makePort();
     const controller = new SellpiaInventoryImportController(port);
     const buffer = Buffer.from('{"source":"sellpia_product_search"}');
@@ -45,7 +44,7 @@ describe('SellpiaInventoryImportController', () => {
     await controller.importArtifact(
       ORGANIZATION_ID,
       { id: USER_ID } as never,
-      browserDto(),
+      manualDto(),
       {
         buffer,
         originalname: 'sellpia-inventory-snapshot-v1.json',
@@ -62,12 +61,8 @@ describe('SellpiaInventoryImportController', () => {
         mimeType: 'application/json',
       },
       execution: {
-        kind: 'browser',
-        claimToken: CLAIM_TOKEN,
-        activeGeneration: '7',
-        trigger: 'ttl_expired',
-        sourceOrigin: 'https://kiditem.sellpia.com',
-        sourceAccountKey: 'kiditem',
+        kind: 'manual',
+        manualFreshExportConfirmed: true,
       },
     });
   });
@@ -95,24 +90,19 @@ describe('SellpiaInventoryImportController', () => {
     }));
   });
 
-  it('validates browser multipart strings and rejects malformed claim metadata', async () => {
-    const valid = plainToInstance(SellpiaInventoryImportDto, {
+  it('rejects the retired browser execution at the HTTP DTO boundary', async () => {
+    const browser = plainToInstance(SellpiaInventoryImportDto, {
       kind: 'browser',
-      claimToken: CLAIM_TOKEN,
       activeGeneration: '9007199254740993',
       trigger: 'purchase_preflight',
       sourceOrigin: 'https://kiditem.sellpia.com',
       sourceAccountKey: 'kiditem',
     });
-    expect(await validate(valid)).toEqual([]);
+    expect(await validate(browser)).not.toEqual([]);
 
     const invalid = plainToInstance(SellpiaInventoryImportDto, {
-      kind: 'browser',
-      claimToken: 'not-a-uuid',
-      activeGeneration: '-1',
-      trigger: 'unknown',
-      sourceOrigin: 'https://evil.example',
-      sourceAccountKey: 'other',
+      kind: 'manual',
+      manualFreshExportConfirmed: 'false',
     });
     expect(await validate(invalid)).not.toEqual([]);
   });
@@ -138,14 +128,10 @@ describe('SellpiaInventoryImportController', () => {
   });
 });
 
-function browserDto(): SellpiaInventoryImportDto {
+function manualDto(): SellpiaInventoryImportDto {
   return Object.assign(new SellpiaInventoryImportDto(), {
-    kind: 'browser' as const,
-    claimToken: CLAIM_TOKEN,
-    activeGeneration: '7',
-    trigger: 'ttl_expired' as const,
-    sourceOrigin: 'https://kiditem.sellpia.com' as const,
-    sourceAccountKey: 'kiditem' as const,
+    kind: 'manual' as const,
+    manualFreshExportConfirmed: true as const,
   });
 }
 
@@ -153,6 +139,18 @@ function makePort() {
   return {
     importInventory: vi
       .fn<SellpiaInventoryImportPort['importInventory']>()
+      .mockResolvedValue({} as never),
+    beginAttempt: vi
+      .fn<SellpiaInventoryImportPort['beginAttempt']>()
+      .mockResolvedValue({} as never),
+    readAttempt: vi
+      .fn<SellpiaInventoryImportPort['readAttempt']>()
+      .mockResolvedValue({} as never),
+    completeAttempt: vi
+      .fn<SellpiaInventoryImportPort['completeAttempt']>()
+      .mockResolvedValue({} as never),
+    failAttempt: vi
+      .fn<SellpiaInventoryImportPort['failAttempt']>()
       .mockResolvedValue({} as never),
   };
 }

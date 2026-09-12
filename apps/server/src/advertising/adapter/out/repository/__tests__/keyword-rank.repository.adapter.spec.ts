@@ -48,10 +48,12 @@ describe('KeywordRankRepositoryAdapter', () => {
 
     const result = await adapter.listOwnVendorItems('organization-1');
 
-    expect(findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({ organizationId: 'organization-1' }),
-      select: expect.objectContaining({ listing: expect.any(Object) }),
-    }));
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ organizationId: 'organization-1' }),
+        select: expect.objectContaining({ listing: expect.any(Object) }),
+      }),
+    );
     expect(result).toEqual([
       expect.objectContaining({
         vendorItemId: 'V-CHANNEL',
@@ -107,7 +109,9 @@ describe('KeywordRankRepositoryAdapter', () => {
                 row.keyword === where.keyword &&
                 row.businessDate.getTime() === where.businessDate.getTime(),
             )
-            .sort((a, b) => b.capturedAt.getTime() - a.capturedAt.getTime())[0] ?? null,
+            .sort(
+              (a, b) => b.capturedAt.getTime() - a.capturedAt.getTime(),
+            )[0] ?? null,
         deleteMany: async ({ where }: { where: DeleteWhere }) => {
           const before = stored.length;
           for (let index = stored.length - 1; index >= 0; index -= 1) {
@@ -117,7 +121,8 @@ describe('KeywordRankRepositoryAdapter', () => {
               row.keyword === where.keyword &&
               row.businessDate.getTime() === where.businessDate.getTime();
             const matchesVendor =
-              !where.vendorItemId || where.vendorItemId.in.includes(row.vendorItemId);
+              !where.vendorItemId ||
+              where.vendorItemId.in.includes(row.vendorItemId);
             if (matchesScope && matchesVendor) stored.splice(index, 1);
           }
           return { count: before - stored.length };
@@ -129,13 +134,15 @@ describe('KeywordRankRepositoryAdapter', () => {
       },
     };
     const prisma = {
-      $transaction: async (operation: (tx: typeof transactionClient) => Promise<number>) =>
-        operation(transactionClient),
+      $transaction: async (
+        operation: (tx: typeof transactionClient) => Promise<number>,
+      ) => operation(transactionClient),
     } as unknown as PrismaService;
     const adapter = new KeywordRankRepositoryAdapter(prisma);
 
     await adapter.replaceWingSalesRankSnapshots([
       {
+        sourceImportRunId: 'source-new',
         organizationId: 'organization-1',
         keyword: '슬라임',
         vendorItemId: 'V-NEW',
@@ -162,6 +169,7 @@ describe('KeywordRankRepositoryAdapter', () => {
     ]);
     const staleCount = await adapter.replaceWingSalesRankSnapshots([
       {
+        sourceImportRunId: 'source-stale',
         organizationId: 'organization-1',
         keyword: '슬라임',
         vendorItemId: 'V-STALE',
@@ -205,12 +213,22 @@ describe('KeywordRankRepositoryAdapter', () => {
     const businessDate = new Date('2026-07-14T00:00:00.000Z');
     const stored = {
       id: 'serp-1',
+      sourceImportRun: {
+        organizationId: 'organization-1',
+        rankKeyword: '문구',
+        sourceType: 'coupang_keyword_serp',
+        parserVersion: 'keyword-serp-v1',
+        status: 'completed',
+      },
       keyword: '문구',
       businessDate,
       capturedAt: new Date('2026-07-14T04:00:00.000Z'),
       pagesScanned: 2,
       itemCount: 1,
-      items: { serpItems: [{ vendorItemId: 'V1' }], sellerCatalogs: [{ sellerId: 'A' }] },
+      items: {
+        serpItems: [{ vendorItemId: 'V1' }],
+        sellerCatalogs: [{ sellerId: 'A' }],
+      },
     };
     const transactionClient = {
       $queryRaw: async () => [{ lock: '' }],
@@ -224,14 +242,18 @@ describe('KeywordRankRepositoryAdapter', () => {
       },
     };
     const prisma = {
-      $transaction: async (operation: (tx: typeof transactionClient) => Promise<{ id: string }>) =>
-        operation(transactionClient),
+      $transaction: async (
+        operation: (tx: typeof transactionClient) => Promise<{ id: string }>,
+      ) => operation(transactionClient),
     } as unknown as PrismaService;
     const adapter = new KeywordRankRepositoryAdapter(prisma);
-    const staleMerge = vi.fn(() => ({ sellerCatalogs: [{ sellerId: 'STALE' }] }));
+    const staleMerge = vi.fn(() => ({
+      sellerCatalogs: [{ sellerId: 'STALE' }],
+    }));
 
     await adapter.upsertSerpSnapshot(
       {
+        sourceImportRunId: 'source-stale',
         organizationId: 'organization-1',
         keyword: '문구',
         businessDate,
@@ -244,6 +266,7 @@ describe('KeywordRankRepositoryAdapter', () => {
     );
     await adapter.upsertSerpSnapshot(
       {
+        sourceImportRunId: 'source-fresh',
         organizationId: 'organization-1',
         keyword: '문구',
         businessDate,

@@ -65,68 +65,41 @@ export function findStaleInstructionLines(file, content) {
   return findings;
 }
 
-export function findClaudeShimFindings(agentFiles, claudeContents) {
-  const findings = [];
-  const agentFileSet = new Set(agentFiles);
-  for (const agentFile of agentFiles) {
-    const claudeFile = join(dirname(agentFile), 'CLAUDE.md');
-    if (!claudeContents.has(claudeFile)) {
-      findings.push({
-        file: claudeFile,
-        line: 1,
-        name: 'missing CLAUDE.md shim',
-        text: 'Every AGENTS.md must have a same-directory CLAUDE.md containing only @AGENTS.md',
-      });
-      continue;
-    }
-    if (claudeContents.get(claudeFile).trim() !== '@AGENTS.md') {
-      findings.push({
-        file: claudeFile,
-        line: 1,
-        name: 'CLAUDE.md drift',
-        text: 'CLAUDE.md must contain only @AGENTS.md',
-      });
-    }
-  }
-  for (const claudeFile of claudeContents.keys()) {
-    const agentFile = join(dirname(claudeFile), 'AGENTS.md');
-    if (!agentFileSet.has(agentFile)) {
-      findings.push({
-        file: claudeFile,
-        line: 1,
-        name: 'orphan CLAUDE.md shim',
-        text: 'CLAUDE.md shim requires a same-directory AGENTS.md',
-      });
-    }
-  }
-  return findings;
+export function findLegacyInstructionFindings(legacyFiles) {
+  return legacyFiles.map((file) => ({
+    file,
+    line: 1,
+    name: 'legacy instruction file',
+    text: 'Instruction guides must use CLAUDE.md; remove the legacy AGENTS file',
+  }));
 }
 
 export function findInstructionChainSizeFindings(
-  agentContents,
-  limitBytes = 18 * 1024,
+  instructionContents,
+  limitBytes = 32 * 1024,
 ) {
   const findings = [];
-  for (const agentFile of agentContents.keys()) {
+  for (const instructionFile of instructionContents.keys()) {
     const chain = [];
-    let directory = dirname(agentFile);
+    let directory = dirname(instructionFile);
     while (true) {
-      const candidate = join(directory, 'AGENTS.md');
-      if (agentContents.has(candidate)) chain.unshift(candidate);
+      const candidate = join(directory, 'CLAUDE.md');
+      if (instructionContents.has(candidate)) chain.unshift(candidate);
       if (directory === '.') break;
       directory = dirname(directory);
     }
 
     const size = chain.reduce(
-      (total, file) => total + Buffer.byteLength(agentContents.get(file)),
+      (total, file) =>
+        total + Buffer.byteLength(instructionContents.get(file)),
       0,
     );
-    if (size > limitBytes) {
+    if (size >= limitBytes) {
       findings.push({
-        file: agentFile,
+        file: instructionFile,
         line: 1,
-        name: 'AGENTS.md active chain too large',
-        text: `Active AGENTS.md chain is ${size} bytes; limit is ${limitBytes} bytes`,
+        name: 'CLAUDE.md active chain reached byte limit',
+        text: `Active CLAUDE.md chain is ${size} bytes; it must stay below ${limitBytes} bytes`,
       });
     }
   }
@@ -146,12 +119,21 @@ function checkTrackedClaudeDirectory() {
 
 export function runChecks() {
   const findings = [];
-  const agentFiles = listRepositoryFiles(['AGENTS.md', '**/AGENTS.md'])
+  const legacyInstructionFiles = listRepositoryFiles([
+    'AGENTS.md',
+    '**/AGENTS.md',
+    'AGENTS.override.md',
+    '**/AGENTS.override.md',
+  ])
     .filter((file) => existsSync(file));
-  const agentContents = new Map(
-    agentFiles.map((file) => [file, readFileSync(file, 'utf8')]),
+  findings.push(...findLegacyInstructionFindings(legacyInstructionFiles));
+
+  const claudeContents = new Map(
+    listRepositoryFiles(['CLAUDE.md', '**/CLAUDE.md'])
+      .filter((file) => existsSync(file))
+      .map((file) => [file, readFileSync(file, 'utf8')]),
   );
-  for (const [file, content] of agentContents) {
+  for (const [file, content] of claudeContents) {
     findings.push(...findStaleInstructionLines(file, content));
   }
 
@@ -160,13 +142,7 @@ export function runChecks() {
     findings.push(...findStaleInstructionLines(file, readFileSync(file, 'utf8')));
   }
 
-  const claudeContents = new Map(
-    listRepositoryFiles(['CLAUDE.md', '**/CLAUDE.md'])
-      .filter((file) => existsSync(file))
-      .map((file) => [file, readFileSync(file, 'utf8')]),
-  );
-  findings.push(...findClaudeShimFindings(agentFiles, claudeContents));
-  findings.push(...findInstructionChainSizeFindings(agentContents));
+  findings.push(...findInstructionChainSizeFindings(claudeContents));
   findings.push(...checkTrackedClaudeDirectory());
   return findings;
 }

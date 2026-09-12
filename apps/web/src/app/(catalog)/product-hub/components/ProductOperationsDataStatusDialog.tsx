@@ -1,23 +1,23 @@
 'use client';
 
-import { useState } from 'react';
 import Link from 'next/link';
 import * as Dialog from '@radix-ui/react-dialog';
-import { ExternalLink, Loader2, RefreshCw, Square, X } from 'lucide-react';
+import { ExternalLink, Loader2, RefreshCw, X } from 'lucide-react';
 import type {
   ProductOperationsDataSourceStatus,
   ProductOperationsDataStatus,
 } from '@kiditem/shared/product-operations';
-import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { formatDateTime, formatNumber } from '@/lib/utils';
 
-const STATUS_LABEL: Record<ProductOperationsDataSourceStatus['status'], string> = {
-  CURRENT: '최신',
-  OUTDATED: '갱신 필요',
-  NOT_COLLECTED: '미수집',
-  UPDATING: '갱신 중',
-  ACTION_REQUIRED: '확인 필요',
-  FAILED: '실패',
+/** Ready, or collected once but behind, or never collected. */
+function sourceLabel(source: { ready: boolean; actualCutoff: string | null }): string {
+  if (source.ready) return '최신';
+  return source.actualCutoff ? '갱신 필요' : '미수집';
+}
+
+export type ProductOperationsDataStatusFeedback = {
+  tone: 'success' | 'warning' | 'error';
+  message: string;
 };
 
 export function ProductOperationsDataStatusDialog({
@@ -27,9 +27,8 @@ export function ProductOperationsDataStatusDialog({
   loading,
   error,
   refreshing,
-  cancelling,
+  feedback,
   onRefresh,
-  onCancel,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -37,30 +36,23 @@ export function ProductOperationsDataStatusDialog({
   loading: boolean;
   error: boolean;
   refreshing: boolean;
-  cancelling: boolean;
+  feedback?: ProductOperationsDataStatusFeedback | null;
   onRefresh: () => void;
-  onCancel: () => Promise<void>;
 }) {
-  const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
-  const refreshDisabled = refreshing || data?.activeRun != null;
-  const confirmCancel = async () => {
-    try {
-      await onCancel();
-      setCancelConfirmOpen(false);
-    } catch {
-      // The caller owns the error toast. Keep confirmation open for retry.
-    }
-  };
+  const sourcesReady = data !== undefined
+    && data.sources.sellpia.ready
+    && data.sources.advertising.ready
+    && data.sources.mapping.ready;
+
   return (
-    <>
-      <Dialog.Root open={open} onOpenChange={onOpenChange}>
-        <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 z-[120] bg-slate-950/45 backdrop-blur-sm" />
-          <Dialog.Content className="fixed left-1/2 top-1/2 z-[130] max-h-[92vh] w-[min(94vw,720px)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface)] p-6 shadow-2xl">
+    <Dialog.Root open={open} onOpenChange={onOpenChange}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-[120] bg-slate-950/45 backdrop-blur-sm" />
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-[130] max-h-[92vh] w-[min(94vw,720px)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface)] p-6 shadow-2xl">
           <div className="flex items-start justify-between gap-4">
             <div>
               <Dialog.Title className="text-lg font-extrabold text-[var(--text-primary)]">상품 운영 데이터 현황</Dialog.Title>
-              <Dialog.Description className="mt-1 text-sm text-[var(--text-secondary)]">화면의 숫자와 ABC 등급이 어느 시점의 원천을 기준으로 하는지 확인합니다.</Dialog.Description>
+              <Dialog.Description className="mt-1 text-sm text-[var(--text-secondary)]">현재 원천과 마지막 공식 ABC 발행 기준을 확인합니다.</Dialog.Description>
             </div>
             <Dialog.Close aria-label="닫기" className="rounded-lg p-2 text-[var(--text-tertiary)] hover:bg-[var(--surface-sunken)]"><X size={18} /></Dialog.Close>
           </div>
@@ -68,126 +60,91 @@ export function ProductOperationsDataStatusDialog({
           {loading ? <div className="flex items-center justify-center gap-2 py-16 text-sm text-[var(--text-secondary)]"><Loader2 className="animate-spin" size={18} />현황을 불러오는 중입니다.</div> : null}
           {error ? <p className="mt-5 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">데이터 현황을 불러오지 못했습니다.</p> : null}
           {data ? <div className="mt-5 space-y-4">
-            {data.activeRun ? (
-              <section className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 text-sm font-extrabold text-blue-800"><Loader2 size={15} className="animate-spin" />수익성 데이터 갱신 중</div>
-                    <p className="mt-1 truncate text-xs text-blue-700">{data.activeRun.title}{data.activeRun.progress == null ? '' : ` · ${Math.round(data.activeRun.progress * 100)}%`}</p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setCancelConfirmOpen(true)}
-                    disabled={cancelling}
-                    className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-rose-300 bg-white px-3 text-xs font-extrabold text-rose-700 hover:bg-rose-50 disabled:opacity-50"
-                  >
-                    {cancelling ? <Loader2 size={13} className="animate-spin" /> : <Square size={12} />}
-                    수익성 데이터 갱신 중단
-                  </button>
-                </div>
-              </section>
-            ) : null}
+            <section className="grid gap-2 rounded-xl border border-[var(--border-subtle)] p-4 text-sm sm:grid-cols-2">
+              <Cutoff label="공식 등급 기준일" value={data.officialCutoff} />
+              <Cutoff label="표시 데이터 기준일" value={data.actualCutoff} />
+              <Cutoff label="화면 전체 기준일" value={data.displayDataAsOf} />
+              <p className="text-[var(--text-tertiary)]">발행 {data.publishedAt ? formatDateTime(data.publishedAt) : '없음'} · 수식 r{data.formulaRevision} · 발행 r{data.publicationRevision}</p>
+            </section>
 
             <section className="divide-y divide-[var(--border-subtle)] rounded-xl border border-[var(--border-subtle)]">
-              <SourceRow label="판매 지표" source={data.sources.traffic} recoveryHref="/settings" recoveryLabel="트래픽 업로드" />
+              <SourceRow label="판매 지표" source={data.sources.traffic} />
               <SourceRow label="광고비" source={data.sources.advertising} />
-              <SourceRow label="상품별 이익" source={data.sources.sellpiaProfit} />
-              <SourceRow label="ABC 등급" source={data.sources.abc} />
+              <SourceRow label="Sellpia 이익" source={data.sources.sellpia} />
+              <MappingRow ready={data.sources.mapping.ready} generation={data.sources.mapping.generation} />
             </section>
+
+            {!sourcesReady ? <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">필수 원천이 준비될 때까지 기존 공식 등급은 유지됩니다.</p> : null}
+            {feedback ? <p role="status" className={feedbackClass(feedback.tone)}>{feedback.message}</p> : null}
 
             <section className="rounded-xl border border-[var(--border-subtle)] p-4">
               <h3 className="text-sm font-extrabold text-[var(--text-primary)]">ABC 등급 현황</h3>
-              <dl className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
+              <dl className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
                 <Count label="등급 산정" value={data.abcSummary.classifiedProductCount} />
                 <Count label="등급 미산정" value={data.abcSummary.unclassifiedProductCount} />
                 <Count label="매핑 확인 필요" value={data.abcSummary.mappingRequiredProductCount} />
                 <Count label="기타 대기" value={data.abcSummary.otherPendingProductCount} />
               </dl>
-              <div className="mt-4 flex flex-wrap gap-3 text-xs font-bold">
-                <Link href="/product-hub/matching" className="inline-flex items-center gap-1 text-[var(--primary)] hover:underline">상품 매핑 확인 <ExternalLink size={12} /></Link>
-              </div>
+              <Link href="/product-hub/matching" className="mt-4 inline-flex items-center gap-1 text-xs font-bold text-[var(--primary)] hover:underline">상품 매핑 확인 <ExternalLink size={12} /></Link>
             </section>
 
-            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-[var(--surface-sunken)] px-4 py-3">
-              <div className="text-xs text-[var(--text-tertiary)]">
-                <p>화면 기준 {data.displayDataAsOf ?? '없음'}</p>
-                <p>최근 완료 {data.lastCompletedRefreshAt ? formatDateTime(data.lastCompletedRefreshAt) : '없음'}</p>
-              </div>
-              <button type="button" onClick={onRefresh} disabled={refreshDisabled} className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-[var(--primary)] px-4 text-[13px] font-bold text-white disabled:opacity-50">
-                {refreshDisabled ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
-                {data.activeRun ? '갱신 중' : refreshing ? '요청 중' : '수익성 데이터 갱신'}
+            <div className="flex justify-end rounded-xl bg-[var(--surface-sunken)] px-4 py-3">
+              <button type="button" onClick={onRefresh} disabled={refreshing || !sourcesReady} className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-[var(--primary)] px-4 text-[13px] font-bold text-white disabled:opacity-50">
+                {refreshing ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+                {refreshing ? '계산 중' : '등급 새로고침'}
               </button>
             </div>
           </div> : null}
-          </Dialog.Content>
-        </Dialog.Portal>
-      </Dialog.Root>
-      <ConfirmDialog
-        open={cancelConfirmOpen}
-        onOpenChange={setCancelConfirmOpen}
-        title="수익성 데이터 갱신을 중단할까요?"
-        description="이미 완료된 수집 결과는 유지하고, 현재 실행과 아직 시작하지 않은 단계만 중단합니다."
-        confirmText="중단"
-        cancelText="계속 실행"
-        tone="danger"
-        isLoading={cancelling}
-        onConfirm={() => void confirmCancel()}
-      />
-    </>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }
 
 function SourceRow({
   label,
   source,
-  recoveryHref,
-  recoveryLabel,
 }: {
   label: string;
   source: ProductOperationsDataSourceStatus;
-  recoveryHref?: string;
-  recoveryLabel?: string;
 }) {
-  const attention = source.status === 'ACTION_REQUIRED'
-    ? sourceAttention(source.attentionReason)
-    : null;
   return (
     <div className="flex flex-wrap items-center gap-3 px-4 py-3">
       <div className="min-w-[92px] text-sm font-extrabold text-[var(--text-primary)]">{label}</div>
-      <span className="rounded-md bg-[var(--surface-sunken)] px-2 py-1 text-xs font-bold text-[var(--text-secondary)]">{attention?.label ?? STATUS_LABEL[source.status]}</span>
+      <span className="rounded-md bg-[var(--surface-sunken)] px-2 py-1 text-xs font-bold text-[var(--text-secondary)]">{sourceLabel(source)}</span>
       <div className="min-w-0 flex-1 text-right text-xs text-[var(--text-tertiary)]">
-        <p>{source.coverageEndDate ? `${source.coverageEndDate}까지` : '수집 기준일 없음'}</p>
+        <p>{source.actualCutoff ? `${source.actualCutoff}까지` : '수집 기준일 없음'}</p>
         <p>{source.capturedAt ? formatDateTime(source.capturedAt) : '수집 시각 없음'}</p>
+        {source.errorCode ? <p className="font-bold text-rose-700">{source.errorCode}</p> : null}
       </div>
-      {recoveryHref && recoveryLabel ? <Link href={recoveryHref} className="text-xs font-bold text-[var(--primary)] hover:underline">{recoveryLabel}</Link> : null}
-      {attention ? <p className="basis-full text-xs font-bold text-amber-700">{attention.message}</p> : null}
     </div>
   );
 }
 
-function sourceAttention(reason?: string | null): { label: string; message: string } {
-  if (reason === 'marketplace_login') {
-    return {
-      label: '로그인 필요',
-      message: '쿠팡 광고센터에 로그인한 뒤 수익성 데이터를 다시 갱신해 주세요.',
-    };
-  }
-  if (reason === 'sellpia_login_required') {
-    return {
-      label: '로그인 필요',
-      message: 'Sellpia에 로그인한 뒤 수익성 데이터를 다시 갱신해 주세요.',
-    };
-  }
-  if (reason === 'captcha') {
-    return {
-      label: '보안문자 확인 필요',
-      message: '열린 수집 화면에서 보안문자를 확인한 뒤 다시 갱신해 주세요.',
-    };
-  }
-  return {
-    label: STATUS_LABEL.ACTION_REQUIRED,
-    message: '열린 수집 화면에서 필요한 조치를 마친 뒤 다시 갱신해 주세요.',
-  };
+function MappingRow({
+  ready,
+  generation,
+}: {
+  ready: boolean;
+  generation: string | null;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-3 px-4 py-3">
+      <div className="min-w-[92px] text-sm font-extrabold text-[var(--text-primary)]">상품 매핑</div>
+      <span className="rounded-md bg-[var(--surface-sunken)] px-2 py-1 text-xs font-bold text-[var(--text-secondary)]">{ready ? '최신' : '갱신 필요'}</span>
+      <p className="min-w-0 flex-1 text-right text-xs text-[var(--text-tertiary)]">{generation ? `세대 ${generation}` : '매핑 세대 없음'}</p>
+    </div>
+  );
+}
+
+function Cutoff({ label, value }: { label: string; value: string | null }) {
+  return <p className="font-semibold text-[var(--text-secondary)]">{label} {value ?? '없음'}</p>;
+}
+
+function feedbackClass(tone: ProductOperationsDataStatusFeedback['tone']): string {
+  if (tone === 'success') return 'rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800';
+  if (tone === 'warning') return 'rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800';
+  return 'rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800';
 }
 
 function Count({ label, value }: { label: string; value: number }) {

@@ -9,22 +9,21 @@ const channelsSchema = readFileSync(join(repoRoot, 'prisma/models/channels.prism
 const packageJson = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8'));
 const localDevelopment = readFileSync(join(repoRoot, 'scripts/run-local-development.mjs'), 'utf8');
 
-test('persists independent profitability source provenance', () => {
+test('persists exact source provenance for absolute ABC publication', () => {
   for (const field of [
-    'evaluationCutoffDate',
-    'sellpiaCoverageStartDate',
-    'sellpiaCoverageEndDate',
-    'advertisingCoverageStartDate',
-    'advertisingCoverageEndDate',
-    'ordersSourceStatus',
-    'ordersCoverageStartDate',
-    'ordersCoverageEndDate',
-    'ordersSourceCapturedAt',
-    'mappingSourceStatus',
-    'mappingInventoryGeneration',
-    'mappingVerifiedAt',
-    'coverageStartDate',
-    'coverageEndDate',
+    'officialCutoffDate',
+    'publishedSellpiaSourceImportRunId',
+    'publishedAdvertisingSourceImportRunId',
+    'publishedMappingGeneration',
+    'gradeBasisCutoffDate',
+    'sellpiaSourceImportRunId',
+    'advertisingSourceImportRunId',
+    'sellpiaGeneration',
+    'advertisingGeneration',
+    'previousSellpiaSourceImportRunId',
+    'nextSellpiaSourceImportRunId',
+    'previousAdvertisingSourceImportRunId',
+    'nextAdvertisingSourceImportRunId',
   ]) {
     assert.match(coreSchema, new RegExp(`\\b${field}\\b`));
   }
@@ -39,11 +38,8 @@ test('persists independent profitability source provenance', () => {
   }
 });
 
-test('starts the operation runtime worker in the all-in-one local development command', () => {
-  assert.match(
-    packageJson.scripts['dev:core'],
-    /OPERATION_RUNTIME_WORKER_ENABLED=1 npm run dev:server/,
-  );
+test('starts the API and web processes in the all-in-one local development command', () => {
+  assert.doesNotMatch(packageJson.scripts['dev:core'], /OPERATION_RUNTIME_WORKER_ENABLED/);
   assert.equal(packageJson.scripts['dev:all'], 'node scripts/run-local-development.mjs');
   assert.match(localDevelopment, /command: 'npm run dev:core'/);
 });

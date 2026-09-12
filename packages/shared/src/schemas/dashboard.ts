@@ -3,11 +3,118 @@ import { AlertKindSchema, AlertStatusSchema } from './alerts.js';
 import { zIsoDate } from './common.js';
 import {
   ProductAbcEvaluationSchema,
-  ProductAbcFormulaSummarySchema,
+  ProductAbcFormulaPayloadSchema,
   ProductAbcGradeSchema,
+  ProductAbcReadModelSchema,
 } from './product-abc.js';
 
 // ─── Shared building blocks ───────────────────────────────────────────────
+
+/**
+ * A strict KST calendar date used by dashboard evidence. `zIsoDate` is
+ * intentionally looser because it also accepts Prisma Date values; source
+ * coverage needs an exact, comparable date key instead.
+ */
+export const DashboardCalendarDateSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected YYYY-MM-DD')
+  .refine((value) => {
+    const date = new Date(`${value}T00:00:00.000Z`);
+    return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+  }, 'Expected a valid calendar date');
+
+export const DashboardPeriodBasisStatusSchema = z.enum([
+  'complete',
+  'partial',
+  'empty',
+  'unverified',
+]);
+
+export const DashboardSnapshotBasisStatusSchema = z.enum([
+  'current',
+  'stale',
+  'unavailable',
+  'unknown',
+]);
+
+/**
+ * Evidence basis for one period metric: what was asked for and what was
+ * measured. `from`/`to` and `targetDays` are the request; `includedDates`
+ * are the dates that carry a measurement, collected zeroes included;
+ * `invalidDates` were read and rejected and are never treated as collected
+ * zeroes; `queryFailedSources` says a required read threw.
+ *
+ * Nothing derived travels on the wire. The status word, the missing dates and
+ * the day count are functions of these fields, and `schemas/dashboard-basis.ts`
+ * holds those functions for every reader, server and web alike. Sorted unique
+ * date arrays inside the range are guaranteed by `buildPeriodBasis`, the one
+ * constructor the server authors these payloads with; this is a
+ * server-authored response schema, so it validates shape only.
+ */
+export const DashboardPeriodBasisSchema = z.object({
+  kind: z.literal('period'),
+  from: DashboardCalendarDateSchema,
+  to: DashboardCalendarDateSchema,
+  targetDays: z.number().int().nonnegative(),
+  includedDates: z.array(DashboardCalendarDateSchema),
+  invalidDates: z.array(DashboardCalendarDateSchema),
+  sources: z.array(z.string().trim().min(1)).min(1),
+  /** Sources whose required read failed; distinct from an empty result. */
+  queryFailedSources: z.array(z.string().trim().min(1)).optional(),
+}).strict();
+
+/**
+ * Evidence basis for one stored-owner-result value: whether an owner result
+ * was measured at all, the as-of it actually reached, the as-of the reader
+ * needed, and how many members of the population were left out.
+ *
+ * The age word (current / stale / unknown / unavailable) and whether the count
+ * is partial are functions of these fields; `schemas/dashboard-basis.ts` holds
+ * them for every reader. Normalised by `buildSnapshotBasis`, the one
+ * constructor the server authors these payloads with.
+ */
+export const DashboardSnapshotBasisSchema = z.object({
+  kind: z.literal('snapshot'),
+  /** Whether any owner result backs the value. A counted zero is measured. */
+  measured: z.boolean(),
+  /** The as-of the owner result actually reached; `null` when unmeasured or unknown. */
+  asOf: DashboardCalendarDateSchema.nullable(),
+  /** The as-of the reader needed; `null` when it had no requirement. */
+  requiredAsOf: DashboardCalendarDateSchema.nullable(),
+  observedAt: zIsoDate.nullable(),
+  sources: z.array(z.string().trim().min(1)).min(1),
+  /** Population members left out because they could not be measured. */
+  withheldCount: z.number().int().nonnegative(),
+}).strict();
+
+// Both bases are plain strict objects now that their cross-field invariants
+// are guaranteed by their constructor, so `kind` can discriminate and a
+// malformed basis reports the one branch's real error.
+export const DashboardMetricBasisSchema = z.discriminatedUnion('kind', [
+  DashboardPeriodBasisSchema,
+  DashboardSnapshotBasisSchema,
+]);
+
+/** Stable dotted paths such as `monthly.profit` or `warnings.highAdProducts`. */
+export const DashboardMetricBasisMapSchema = z.record(
+  z.string().trim().min(1),
+  DashboardMetricBasisSchema,
+);
+
+export type DashboardCalendarDate = z.infer<typeof DashboardCalendarDateSchema>;
+export type DashboardPeriodBasis = z.infer<typeof DashboardPeriodBasisSchema>;
+export type DashboardSnapshotBasis = z.infer<typeof DashboardSnapshotBasisSchema>;
+export type DashboardMetricBasis = z.infer<typeof DashboardMetricBasisSchema>;
+export type DashboardMetricBasisMap = z.infer<typeof DashboardMetricBasisMapSchema>;
+
+/** Actual numeric inputs used by a computed dashboard profit value. */
+export const DashboardProfitInputsSchema = z.object({
+  revenue: z.number().finite(),
+  cost: z.number().finite(),
+  adCost: z.number().finite(),
+  qty: z.number().finite().nullable(),
+  basis: DashboardPeriodBasisSchema,
+}).strict();
 
 // schemas/dashboard.ts: DashboardAlertItemSchema — dashboard card projection
 // (nullable+optional targetType/targetId; server may omit them when a card row has no polymorphic target).
@@ -22,10 +129,8 @@ export const DashboardAlertItemSchema = z.object({
   severity: z.string(),
   title: z.string(),
   message: z.string().nullable(),
-  operationKey: z.string().nullable().optional(),
   sourceType: z.string().nullable().optional(),
   href: z.string().nullable().optional(),
-  progress: z.number().min(0).max(1).nullable().optional(),
   targetType: z.string().nullable().optional(),
   targetId: z.string().nullable().optional(),
   isRead: z.boolean(),
@@ -40,15 +145,26 @@ export const TopProductSchema = z.object({
   grade: ProductAbcGradeSchema.nullable(),
   abcEvaluation: ProductAbcEvaluationSchema.nullable(),
   revenue: z.number(),
-  netProfit: z.number(),
-  profitRate: z.number(),
+  /**
+   * Null when this row's profit was not measured, which is the same rule
+   * `ProfitBreakdownSchema` follows: a Rocket purchase-order line carries no
+   * listing to settle against, and a listing whose ad coverage is incomplete is
+   * withheld by `buildPerListingProfit`. Revenue is always measured; profit is
+   * not, and a margin assumption standing in for it was indistinguishable from
+   * a measurement on screen.
+   */
+  netProfit: z.number().nullable(),
+  profitRate: z.number().nullable(),
 });
 
 export const MonthlyTrendItemSchema = z.object({
   period: z.string(),
-  revenue: z.number(),
-  profit: z.number(),
-  adCost: z.number(),
+  // A month with no complete order/Wing/ads evidence is unavailable, not a
+  // measured zero. Consumers can distinguish an explicit collected zero.
+  revenue: z.number().nullable(),
+  profit: z.number().nullable(),
+  adCost: z.number().nullable(),
+  metricBasis: DashboardMetricBasisMapSchema.optional(),
 });
 
 export const ProfitBreakdownSchema = z.object({
@@ -58,29 +174,68 @@ export const ProfitBreakdownSchema = z.object({
   shippingCost: z.number(),
   adCost: z.number(),
   otherCost: z.number(),
-  netProfit: z.number(),
+  /** Null when a cost input is unavailable; never a measured zero. */
+  netProfit: z.number().nullable(),
   orderCount: z.number(),
+  metricBasis: DashboardMetricBasisMapSchema.optional(),
 });
 
+export const TrafficCoverageSchema = z.object({
+  from: z.string(),
+  to: z.string(),
+  targetDays: z.number().int().nonnegative(),
+  completedDays: z.number().int().nonnegative(),
+  missingDates: z.array(z.string()),
+}).strict();
+
+export const TrafficReconciliationStatusSchema = z.enum([
+  'MATCHED',
+  'MISMATCH',
+  'UNVERIFIED',
+]);
+
+export const TrafficMetricReconciliationSchema = z.object({
+  status: TrafficReconciliationStatusSchema,
+  dailySum: z.number().nullable(),
+  periodValue: z.number().nullable(),
+}).strict();
+
+export const TrafficReconciliationSchema = z.object({
+  views: TrafficMetricReconciliationSchema,
+  cartAdds: TrafficMetricReconciliationSchema,
+  orders: TrafficMetricReconciliationSchema,
+  salesQty: TrafficMetricReconciliationSchema,
+  revenue: TrafficMetricReconciliationSchema,
+}).strict();
+
 export const TrafficKpiSchema = z.object({
-  visitors: z.number(),
-  views: z.number(),
-  orders: z.number(),
-  salesQty: z.number(),
-  revenue: z.number(),
-  cartAdds: z.number(),
+  // A nullable value means unavailable (missing coverage or restricted by
+  // reconciliation). Zero remains a valid collected value.
+  visitors: z.number().nullable(),
+  views: z.number().nullable(),
+  orders: z.number().nullable(),
+  salesQty: z.number().nullable(),
+  revenue: z.number().nullable(),
+  cartAdds: z.number().nullable(),
   date: z.string().optional(),
   periodDays: z.number().optional(),
   productCount: z.number().optional(),
-  conversionRate: z.number().optional(),
+  /** Our orders / views ratio; providerConversionRate is kept separately. */
+  conversionRate: z.number().nullable(),
+  dailyAverageVisitors: z.number().nullable(),
+  providerConversionRate: z.number().nullable(),
+  coverage: TrafficCoverageSchema.nullable(),
+  reconciliation: TrafficReconciliationSchema.nullable(),
+  exactPeriodEvidence: z.record(z.any()).nullable(),
   adSummary: z.record(z.any()).nullable().optional(),
   source: z.string().optional(),
-  netProfit: z.number().optional(),
-  profitRate: z.number().optional(),
+  netProfit: z.number().nullable().optional(),
+  profitRate: z.number().nullable().optional(),
   costCoverage: z.number().optional(),
   needsScrape: z.boolean().optional(),
   trafficAvailable: z.boolean().optional(),
   trafficObservedAt: zIsoDate.nullable().optional(),
+  metricBasis: DashboardMetricBasisMapSchema.optional(),
 });
 
 export const PlanAchievementSchema = z.object({
@@ -97,14 +252,6 @@ export const GradeChangesSchema = z.object({
   total: z.number(),
 });
 
-export const DataFreshnessSchema = z.object({
-  lastSync: z.string(),
-  attributionWindow: z.string(),
-  attributionWindowDays: z.number().optional(),
-  confirmedUntil: z.string().optional(),
-  note: z.string().optional(),
-});
-
 export const WarningsSchema = z.object({
   minusProducts: z.number(),
   lowProfitProducts: z.number(),
@@ -113,51 +260,71 @@ export const WarningsSchema = z.object({
   mappingAttentionSkus: z.number(),
   lowCtrProducts: z.number().optional(),
   lowReviewProducts: z.number().optional(),
+  metricBasis: DashboardMetricBasisMapSchema.optional(),
 });
 
 export const DailyRevenueItemSchema = z.object({
   date: z.string(),
   revenue: z.number(),
   profitRate: z.number().optional(),
+  metricBasis: DashboardMetricBasisMapSchema.optional(),
 });
 
 export const DailyAdItemSchema = z.object({
   date: z.string(),
   adCost: z.number(),
   adRate: z.number().optional(),
+  source: z.enum(['coupang_ads', 'listing', 'orders', 'unavailable']).optional(),
+  metricBasis: DashboardMetricBasisMapSchema.optional(),
 });
 
+export const AdCoverageSchema = z.object({
+  from: z.string(),
+  to: z.string(),
+  knownThrough: z.string().nullable(),
+  targetDays: z.number().int().nonnegative(),
+  completedDays: z.number().int().nonnegative(),
+  missingDates: z.array(z.string()),
+}).strict();
+
+export const AdMetricSourceSchema = z.enum([
+  'coupang_ads',
+  'listing',
+  'orders',
+  'unavailable',
+]);
+
+// Our own measured ratios only. There is no configured industry reference
+// data source, so the card carries no comparison figures.
 export const IndustryBenchmarkSchema = z.object({
-  avgAdRate: z.number(),
-  avgProfitRate: z.number(),
-  avgRoas: z.number(),
-  avgCtr: z.number(),
-  avgCvr: z.number().optional(),
   myAdRate: z.number().optional(),
   myRoas: z.number().optional(),
   myCtr: z.number().optional(),
-  adRateVsIndustry: z.string().optional(),
-  roasVsIndustry: z.string().optional(),
+  myCvr: z.number().nullable().optional(),
+  metricBasis: DashboardMetricBasisMapSchema.optional(),
 });
 
 export const AdMetricsDetailSchema = z.object({
-  totalSpend: z.number(),
-  impressions: z.number(),
-  clicks: z.number(),
-  convRevenue: z.number(),
-  ctr: z.number(),
-  roas: z.number(),
-  conversions: z.number().optional(),
-  cvr: z.number().optional(),
-  prevSpend: z.number().optional(),
-  prevConvRevenue: z.number().optional(),
-  prevCtr: z.number().optional(),
-  prevRoas: z.number().optional(),
-  spendChange: z.number().optional(),
-  convRevenueChange: z.number().optional(),
-  roasChange: z.number().optional(),
-  ctrChange: z.number().optional(),
-  totalRevenue: z.number().optional(),
+  totalSpend: z.number().nullable(),
+  impressions: z.number().nullable(),
+  clicks: z.number().nullable(),
+  convRevenue: z.number().nullable(),
+  ctr: z.number().nullable(),
+  roas: z.number().nullable(),
+  conversions: z.number().nullable().optional(),
+  cvr: z.number().nullable().optional(),
+  providerConversionRate: z.number().nullable().optional(),
+  coverage: AdCoverageSchema.nullable().optional(),
+  source: AdMetricSourceSchema.optional(),
+  prevSpend: z.number().nullable().optional(),
+  prevConvRevenue: z.number().nullable().optional(),
+  prevCtr: z.number().nullable().optional(),
+  prevRoas: z.number().nullable().optional(),
+  spendChange: z.number().nullable().optional(),
+  convRevenueChange: z.number().nullable().optional(),
+  roasChange: z.number().nullable().optional(),
+  ctrChange: z.number().nullable().optional(),
+  totalRevenue: z.number().nullable().optional(),
 });
 
 // Wing ad-summary (A8 addition — shared between sales + ad endpoints)
@@ -195,79 +362,91 @@ export const DashboardSalesSummarySchema = z.object({
     orders: z.number(),
   }),
   monthly: z.object({
-    revenue: z.number(),
-    wingRevenue: z.number().optional(), // 쿠팡 윙 매출 (분리 표시용)
-    profit: z.number(),
-    adRate: z.number(),
-    prevRevenue: z.number(),
-    prevProfit: z.number(),
-    revenueChange: z.number(),
-    profitChange: z.number(),
-    prevAdRate: z.number(),
+    // `null` means the period has no complete order or Wing evidence. A
+    // collected zero remains `0` and is therefore distinguishable from an
+    // unavailable period.
+    revenue: z.number().nullable(),
+    wingRevenue: z.number().nullable().optional(), // 쿠팡 윙 매출 (분리 표시용)
+    profit: z.number().nullable(),
+    adRate: z.number().nullable(),
+    prevRevenue: z.number().nullable(),
+    prevProfit: z.number().nullable(),
+    revenueChange: z.number().nullable(),
+    profitChange: z.number().nullable(),
+    prevAdRate: z.number().nullable(),
+    available: z.boolean(),
+    previousAvailable: z.boolean(),
   }),
   topProducts: z.array(TopProductSchema),
-  monthlyTrend: z.array(MonthlyTrendItemSchema),
   profitDetail: ProfitBreakdownSchema.optional(),
   rangeKpi: z.object({
     range: z.string(),
-    revenue: z.number(),
-    profit: z.number(),
-    prevRevenue: z.number(),
-    prevProfit: z.number(),
-    revenueChange: z.number(),
-    profitChange: z.number(),
-    profitRate: z.number().optional(),
-    prevProfitRate: z.number().optional(),
-    profitRateChange: z.number().optional(),
+    revenue: z.number().nullable(),
+    profit: z.number().nullable(),
+    prevRevenue: z.number().nullable(),
+    prevProfit: z.number().nullable(),
+    revenueChange: z.number().nullable(),
+    profitChange: z.number().nullable(),
+    profitRate: z.number().nullable().optional(),
+    prevProfitRate: z.number().nullable().optional(),
+    profitRateChange: z.number().nullable().optional(),
+    available: z.boolean(),
+    previousAvailable: z.boolean(),
   }).optional(),
-  dailyRevenue: z.array(DailyRevenueItemSchema).optional(),
   planAchievement: PlanAchievementSchema.nullable().optional(),
   trafficKpi: TrafficKpiSchema.optional(),
   lastSyncAt: zIsoDate.nullable().optional(),
   effectivePeriod: DashboardEffectivePeriodSchema.optional(),
+  metricBasis: DashboardMetricBasisMapSchema.optional(),
+  profitInputs: DashboardProfitInputsSchema.nullable().optional(),
 });
 
 // ─── Ad endpoint: GET /api/dashboard/ad ───────────────────────────────────
 export const DashboardAdSummarySchema = z.object({
   monthly: z.object({
-    roas: z.number(),
-    ctr: z.number(),
-    adRevenue: z.number(),
-    totalAdSpend: z.number(),
-    prevRoas: z.number(),
-    prevCtr: z.number(),
-    prevAdRevenue: z.number(),
-    prevTotalAdSpend: z.number(),
+    roas: z.number().nullable(),
+    ctr: z.number().nullable(),
+    adRevenue: z.number().nullable(),
+    totalAdSpend: z.number().nullable(),
+    prevRoas: z.number().nullable(),
+    prevCtr: z.number().nullable(),
+    prevAdRevenue: z.number().nullable(),
+    prevTotalAdSpend: z.number().nullable(),
+    source: AdMetricSourceSchema.optional(),
+    coverage: AdCoverageSchema.nullable().optional(),
   }),
   rangeKpi: z.object({
-    adSpend: z.number(),
-    adConvRevenue: z.number(),
-    adRoas: z.number(),
-    adCtr: z.number().optional(),
-    adCost: z.number().optional(),
-    adRate: z.number().optional(),
-    prevAdSpend: z.number().optional(),
-    prevAdConvRevenue: z.number().optional(),
-    prevAdRoas: z.number().optional(),
-    prevAdCtr: z.number().optional(),
-    prevAdCost: z.number().optional(),
-    prevAdRate: z.number().optional(),
-    adSpendChange: z.number().optional(),
-    adConvRevenueChange: z.number().optional(),
-    adRoasChange: z.number().optional(),
-    adCtrChange: z.number().optional(),
-    adRateChange: z.number().optional(),
+    adSpend: z.number().nullable(),
+    adConvRevenue: z.number().nullable(),
+    adRoas: z.number().nullable(),
+    adCtr: z.number().nullable().optional(),
+    adCost: z.number().nullable().optional(),
+    adRate: z.number().nullable().optional(),
+    prevAdSpend: z.number().nullable().optional(),
+    prevAdConvRevenue: z.number().nullable().optional(),
+    prevAdRoas: z.number().nullable().optional(),
+    prevAdCtr: z.number().nullable().optional(),
+    prevAdCost: z.number().nullable().optional(),
+    prevAdRate: z.number().nullable().optional(),
+    adSpendChange: z.number().nullable().optional(),
+    adConvRevenueChange: z.number().nullable().optional(),
+    adRoasChange: z.number().nullable().optional(),
+    adCtrChange: z.number().nullable().optional(),
+    adRateChange: z.number().nullable().optional(),
+    source: AdMetricSourceSchema.optional(),
+    coverage: AdCoverageSchema.nullable().optional(),
   }).optional(),
   adKpi: AdMetricsDetailSchema.optional(),
   dailyAd: z.array(DailyAdItemSchema).optional(),
   industryBenchmark: IndustryBenchmarkSchema.optional(),
   saving: z.object({
-    adSaving: z.number(),
-    prevAdCost: z.number(),
+    adSaving: z.number().nullable(),
+    prevAdCost: z.number().nullable(),
   }).optional(),
   // A9: ad-ops consumer needs Wing adSummary that used to live in trafficKpi.adSummary
   wingAdData: WingAdSummarySchema.nullable().optional(),
   effectivePeriod: DashboardEffectivePeriodSchema.optional(),
+  metricBasis: DashboardMetricBasisMapSchema.optional(),
 });
 
 // ─── Inventory endpoint: GET /api/dashboard/inventory ─────────────────────
@@ -284,12 +463,8 @@ export const DashboardInventorySummarySchema = z.object({
     READY: z.number().int().nonnegative(),
     INSUFFICIENT_EVIDENCE: z.number().int().nonnegative(),
     SOURCE_UNMAPPED: z.number().int().nonnegative(),
-    CALIBRATION_PENDING: z.number().int().nonnegative(),
-    RECALCULATING: z.number().int().nonnegative(),
     SELLPIA_SOURCE_STALE: z.number().int().nonnegative(),
     AD_SOURCE_STALE: z.number().int().nonnegative(),
-    ORDERS_SOURCE_STALE: z.number().int().nonnegative(),
-    CALCULATION_ERROR: z.number().int().nonnegative(),
   }).strict(),
   abcContributionProfit: z.object({
     amountByGrade: z.object({
@@ -303,7 +478,7 @@ export const DashboardInventorySummarySchema = z.object({
       C: z.number().finite(),
     }).strict(),
   }).strict(),
-  abcFormula: ProductAbcFormulaSummarySchema.nullable(),
+  abcFormula: ProductAbcFormulaPayloadSchema.nullable(),
   classifiedProductCount: z.number().int().nonnegative(),
   unclassifiedProductCount: z.number().int().nonnegative(),
   mappingStatusCounts: z.object({
@@ -314,15 +489,16 @@ export const DashboardInventorySummarySchema = z.object({
   alerts: z.array(DashboardAlertItemSchema),
   warnings: WarningsSchema,
   gradeChanges: GradeChangesSchema.optional(),
-  dataFreshness: DataFreshnessSchema.optional(),
+  metricBasis: DashboardMetricBasisMapSchema.optional(),
 });
 
 // ─── Trend endpoint: GET /api/dashboard/trend (unchanged) ─────────────────
 export const DashboardTrendItemSchema = z.object({
   date: z.string(),
-  revenue: z.number(),
-  profit: z.number(),
-  adCost: z.number(),
+  revenue: z.number().nullable(),
+  profit: z.number().nullable(),
+  adCost: z.number().nullable(),
+  metricBasis: DashboardMetricBasisMapSchema.optional(),
 });
 
 // ─── Sellpia 판매현황(몰별 매출) ──────────────────────────────────────────
@@ -405,6 +581,10 @@ export const SellpiaSalesDailyPointSchema = z.object({
   date: z.string(), // YYYY-MM-DD
   revenue: z.number(),
   qty: z.number(),
+  // Usually inherited from the containing group `metricBasis` because the
+  // group's date basis already exposes internal holes. Set this only when
+  // this point has evidence that differs from the parent daily basis.
+  metricBasis: DashboardMetricBasisMapSchema.optional(),
 });
 export const SellpiaSalesMallSchema = z.object({
   sellerId: z.string(),
@@ -413,6 +593,12 @@ export const SellpiaSalesMallSchema = z.object({
   qty: z.number(),
   cost: z.number(),
   daily: z.array(SellpiaSalesDailyPointSchema),
+  // Mall scalar fields inherit the containing group's descendant basis
+  // (`metricBasis['rocket.malls']` or `metricBasis['others.malls']` at the
+  // summary root) when the seller uses the same selected-date basis. Do not
+  // encode seller IDs as dynamic metric-basis keys; attach a row-local basis
+  // only for divergence.
+  metricBasis: DashboardMetricBasisMapSchema.optional(),
 });
 export const SellpiaSalesGroupSchema = z.object({
   revenue: z.number(),
@@ -420,6 +606,11 @@ export const SellpiaSalesGroupSchema = z.object({
   cost: z.number(),
   daily: z.array(SellpiaSalesDailyPointSchema),
   malls: z.array(SellpiaSalesMallSchema), // rocket 은 보통 1개, others 는 다수
+  // A compact group basis can cover all group scalars when their required
+  // sources share the same dates. `daily` and `malls` are separate explicit
+  // descendants so consumers can inherit their basis without duplicating the
+  // full date arrays on every scalar, mall, or daily point.
+  metricBasis: DashboardMetricBasisMapSchema.optional(),
 });
 export const SellpiaSalesSummarySchema = z.object({
   range: z.object({ from: z.string(), to: z.string() }),
@@ -427,12 +618,21 @@ export const SellpiaSalesSummarySchema = z.object({
   others: SellpiaSalesGroupSchema, // 쿠팡윙 + 기타 전체몰 합산 (malls = 드릴다운)
   totalRevenue: z.number(),
   totalCost: z.number(), // 셀피아 매입금액 합계
-  adCost: z.number(), // 같은 기간에 수집된 쿠팡 광고비
-  netProfit: z.number(), // totalRevenue - totalCost - adCost
-  profitRate: z.number(), // netProfit / totalRevenue * 100 (소수점 한 자리)
+  // 광고 계정 범위가 완전히 수집되지 않으면 광고비를 0으로 추정하지 않는다.
+  adCost: z.number().finite().nullable(), // 같은 기간에 수집된 쿠팡 광고비
+  netProfit: z.number().finite().nullable(), // totalRevenue - totalCost - adCost
+  profitRate: z.number().finite().nullable(), // netProfit / totalRevenue * 100 (소수점 한 자리)
   lastCapturedAt: zIsoDate.nullable(),
-  // 조회 범위의 마감일(어제까지)이 모두 coverage 됐는지. 오늘 단일 조회는 당일 coverage 필요.
+  // True means the service has at least one valid numeric observation,
+  // including an explicitly collected all-zero observation. It does not
+  // claim every requested date is covered; metricBasis carries that detail.
   hasData: z.boolean(),
+  // Use stable paths for root scalars and the fixed `rocket`/`others` tree
+  // (`rocket.daily`, `rocket.malls`, etc.). A child inherits its nearest
+  // ancestor basis when the selected-date evidence is identical; a child
+  // `metricBasis` is present only when it actually differs.
+  metricBasis: DashboardMetricBasisMapSchema.optional(),
+  profitInputs: DashboardProfitInputsSchema.nullable().optional(),
 });
 
 // ─── Sellpia 상품별 소진(재고관리) ────────────────────────────────────────
@@ -509,8 +709,7 @@ export const SellpiaProductDestinationSchema = z.object({
   externalOptionId: z.string().min(1),
   optionName: z.string().nullable(),
   unitsPerSale: z.number().int().positive(),
-  abcGrade: ProductAbcGradeSchema.nullable(),
-  abcEvaluation: ProductAbcEvaluationSchema.nullable(),
+  abc: ProductAbcReadModelSchema,
   displayImage: SellpiaProductDestinationDisplayImageSchema.nullable(),
 }).strict();
 
@@ -518,8 +717,7 @@ export const SellpiaInventoryMasterProductSchema = z.object({
   masterProductId: z.string().uuid(),
   masterProductCode: z.string().min(1),
   masterProductName: z.string().min(1),
-  abcGrade: ProductAbcGradeSchema.nullable(),
-  abcEvaluation: ProductAbcEvaluationSchema.nullable(),
+  abc: ProductAbcReadModelSchema,
 }).strict();
 
 export const SellpiaProductInventoryResolutionSchema = z.discriminatedUnion(
@@ -612,12 +810,8 @@ export const SellpiaProductSalesSummarySchema = z.object({
     READY: z.number().int().nonnegative(),
     INSUFFICIENT_EVIDENCE: z.number().int().nonnegative(),
     SOURCE_UNMAPPED: z.number().int().nonnegative(),
-    CALIBRATION_PENDING: z.number().int().nonnegative(),
-    RECALCULATING: z.number().int().nonnegative(),
     SELLPIA_SOURCE_STALE: z.number().int().nonnegative(),
     AD_SOURCE_STALE: z.number().int().nonnegative(),
-    ORDERS_SOURCE_STALE: z.number().int().nonnegative(),
-    CALCULATION_ERROR: z.number().int().nonnegative(),
   }).strict(),
   abcContributionProfitByGrade: z.object({
     A: z.number().int(),
@@ -634,21 +828,27 @@ export type DashboardSalesSummary = z.infer<typeof DashboardSalesSummarySchema>;
 export type DashboardAdSummary = z.infer<typeof DashboardAdSummarySchema>;
 export type DashboardInventorySummary = z.infer<typeof DashboardInventorySummarySchema>;
 export type DashboardTrendItem = z.infer<typeof DashboardTrendItemSchema>;
+export type DashboardProfitInputs = z.infer<typeof DashboardProfitInputsSchema>;
 
 // sub-types (exposed so backend services can use when assembling partial results)
 export type ProfitBreakdown = z.infer<typeof ProfitBreakdownSchema>;
 export type TopProduct = z.infer<typeof TopProductSchema>;
 export type Warnings = z.infer<typeof WarningsSchema>;
 export type DashboardAlertItem = z.infer<typeof DashboardAlertItemSchema>;
+export type TrafficCoverage = z.infer<typeof TrafficCoverageSchema>;
+export type TrafficReconciliationStatus = z.infer<typeof TrafficReconciliationStatusSchema>;
+export type TrafficMetricReconciliation = z.infer<typeof TrafficMetricReconciliationSchema>;
+export type TrafficReconciliation = z.infer<typeof TrafficReconciliationSchema>;
 export type TrafficKpi = z.infer<typeof TrafficKpiSchema>;
 export type MonthlyTrendItem = z.infer<typeof MonthlyTrendItemSchema>;
 export type DailyRevenueItem = z.infer<typeof DailyRevenueItemSchema>;
 export type DailyAdItem = z.infer<typeof DailyAdItemSchema>;
+export type AdCoverage = z.infer<typeof AdCoverageSchema>;
+export type AdMetricSource = z.infer<typeof AdMetricSourceSchema>;
 export type IndustryBenchmark = z.infer<typeof IndustryBenchmarkSchema>;
 export type AdMetricsDetail = z.infer<typeof AdMetricsDetailSchema>;
 export type PlanAchievement = z.infer<typeof PlanAchievementSchema>;
 export type GradeChanges = z.infer<typeof GradeChangesSchema>;
-export type DataFreshness = z.infer<typeof DataFreshnessSchema>;
 export type WingAdSummary = z.infer<typeof WingAdSummarySchema>;
 
 // Sellpia 판매현황(몰별 매출)
@@ -675,3 +875,20 @@ export type SellpiaProductInventoryResolution = z.infer<
 >;
 export type SellpiaProductSalesRow = z.infer<typeof SellpiaProductSalesRowSchema>;
 export type SellpiaProductSalesSummary = z.infer<typeof SellpiaProductSalesSummarySchema>;
+
+// ─── Collections endpoint: GET /api/dashboard/collections ─────────────────
+
+/**
+ * When each collection last completed, so the dashboard's collection row can
+ * say what it is rather than only what it does.
+ *
+ * Keyed by the `sourceType` the owner writes to `source_import_runs`, which is
+ * a ledger that already exists — the row simply never read it. A source absent
+ * from the map has never completed a run: that is not a collection at time
+ * zero, it is no collection, and the two must not read the same.
+ */
+export const DashboardCollectionsSchema = z.object({
+  lastCompleted: z.record(z.string().min(1), zIsoDate),
+}).strict();
+
+export type DashboardCollections = z.infer<typeof DashboardCollectionsSchema>;

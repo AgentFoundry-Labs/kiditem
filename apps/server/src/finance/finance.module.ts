@@ -1,7 +1,9 @@
 import { Module } from '@nestjs/common';
-import { AutomationModule } from '../automation/automation.module';
+import { AdvertisingModule } from '../advertising/advertising.module';
 import { AnalyticsModule } from '../analytics/analytics.module';
-import { AdvertisingProfitabilityReadModule } from '../advertising/advertising-profitability-read.module';
+import { ChannelsModule } from '../channels/channels.module';
+import { InventoryModule } from '../inventory/inventory.module';
+import { FinanceReportExportController } from './controllers/finance-report-export.controller';
 import { ProfitLossController } from './controllers/profit-loss.controller';
 import { ProfitLossService } from './services/profit-loss.service';
 import { SalesAnalysisController } from './controllers/sales-analysis.controller';
@@ -13,19 +15,24 @@ import { SalesPlansController } from './sales-plans/sales-plans.controller';
 import { SalesPlansService } from './sales-plans/sales-plans.service';
 import { SettlementsController } from './settlements/settlements.controller';
 import { SettlementsService } from './settlements/settlements.service';
-import { FinanceOperationAlertAdapter } from './adapter/out/automation/operation-alert.adapter';
-import { FINANCE_OPERATION_ALERT_PORT } from './application/port/out/cross-domain/operation-alert.port';
-import { MasterProductProfitabilityReadService } from './application/service/master-product-profitability-read.service';
-import { MASTER_PRODUCT_PROFITABILITY_READ_PORT } from './application/port/in/master-product-profitability-read.port';
+import { ProfitabilityEvidenceModule } from './profitability-evidence.module';
+import { MasterProductContributionRepositoryAdapter } from './adapter/out/repository/master-product-contribution.repository.adapter';
+import { MASTER_PRODUCT_CONTRIBUTION_READ_PORT } from './application/port/in/master-product-contribution-read.port';
+import { MASTER_PRODUCT_CONTRIBUTION_REPOSITORY_PORT } from './application/port/out/repository/master-product-contribution.repository.port';
+import { MasterProductContributionReadService } from './application/service/master-product-contribution-read.service';
+import { FinanceReportExportService } from './report-export/finance-report-export.service';
 
 @Module({
   imports: [
-    AutomationModule,
     AnalyticsModule,
-    AdvertisingProfitabilityReadModule,
+    AdvertisingModule,
+    ChannelsModule,
+    InventoryModule,
+    ProfitabilityEvidenceModule,
   ],
   controllers: [
     ProfitLossController,
+    FinanceReportExportController,
     SalesAnalysisController,
     SupplierPaymentsController,
     SalesPlansController,
@@ -38,14 +45,18 @@ import { MASTER_PRODUCT_PROFITABILITY_READ_PORT } from './application/port/in/ma
     SupplierPaymentsService,
     SalesPlansService,
     SettlementsService,
-    FinanceOperationAlertAdapter,
-    MasterProductProfitabilityReadService,
-    { provide: FINANCE_OPERATION_ALERT_PORT, useExisting: FinanceOperationAlertAdapter },
+    MasterProductContributionRepositoryAdapter,
+    MasterProductContributionReadService,
+    FinanceReportExportService,
     {
-      provide: MASTER_PRODUCT_PROFITABILITY_READ_PORT,
-      useExisting: MasterProductProfitabilityReadService,
+      provide: MASTER_PRODUCT_CONTRIBUTION_REPOSITORY_PORT,
+      useExisting: MasterProductContributionRepositoryAdapter,
+    },
+    {
+      provide: MASTER_PRODUCT_CONTRIBUTION_READ_PORT,
+      useExisting: MasterProductContributionReadService,
     },
   ],
-  exports: [MASTER_PRODUCT_PROFITABILITY_READ_PORT],
+  exports: [ProfitabilityEvidenceModule, MASTER_PRODUCT_CONTRIBUTION_READ_PORT],
 })
 export class FinanceModule {}

@@ -1,3 +1,5 @@
+import type { MarketShadowCollectionResult } from '../../../service/sourcing-shadow-signal.service';
+
 export const MARKET_SHADOW_COLLECTION_CAPABILITY_PORT = Symbol(
   'MARKET_SHADOW_COLLECTION_CAPABILITY_PORT',
 );
@@ -8,10 +10,7 @@ export interface MarketShadowCollectionCapabilityInput {
   idempotencyKey: string;
 }
 
-export interface MarketShadowCollectionCapabilityResult {
-  operationRunId: string;
-  status: string;
-}
+export type MarketShadowCollectionCapabilityResult = MarketShadowCollectionResult;
 
 export interface MarketShadowCollectionCapabilityPort {
   collectShadowSignals(

@@ -8,10 +8,10 @@ import {
   useSourcingRecommendations,
   useSourcingValidation,
 } from '../hooks/use-sourcing-workspace';
-import { SourcingReadState } from './SourcingReadState';
-import { SourcingOperationRunPanel } from './SourcingOperationRunPanel';
-import { useSourcingOperationAction } from '../hooks/use-sourcing-operation-action';
+import { useWingCatalogSource } from '../hooks/use-wing-catalog-source';
 import { normalizeWingOperationKeywords } from '../lib/wing-operation-input';
+import { SourcingReadState } from './SourcingReadState';
+import { WingCatalogSourceStatus } from './WingCatalogSourceStatus';
 
 const STATUS_LABELS = {
   pending: '검증 대기',
@@ -46,12 +46,11 @@ export function SellochValidationPage() {
     maxPages: 1,
     purpose: 'recommendation_validation' as const,
   }), [keywords]);
-  const operation = useSourcingOperationAction({
-    operationKey: 'sourcing.collect_wing_catalog_batch',
+  const wingSource = useWingCatalogSource({
     input: operationInput,
     snapshotQueryKey: queryKeys.sourcing.all,
   });
-  const isRunning = operation.isStarting || isActiveOperation(operation.run?.status);
+  const isRunning = wingSource.isRunning;
 
   const refreshValidation = () => {
     if (keywords.length === 0) {
@@ -59,7 +58,7 @@ export function SellochValidationPage() {
       return;
     }
     setInputError(null);
-    void operation.start();
+    void wingSource.start();
   };
 
   return (
@@ -88,13 +87,7 @@ export function SellochValidationPage() {
         </header>
 
         {inputError ? <p className="text-sm font-bold text-rose-700">{inputError}</p> : null}
-        <SourcingOperationRunPanel
-          run={operation.run}
-          onCancel={() => { void operation.cancel(); }}
-          onRetryAttention={() => { void operation.retryAttention(); }}
-          isCancelling={operation.isCancelling}
-          isRetrying={operation.isRetrying}
-        />
+        <WingCatalogSourceStatus source={wingSource} />
 
         <section className="overflow-hidden rounded-[18px] border border-[#eef1f5] bg-white">
           <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-4">
@@ -147,13 +140,7 @@ export function SellochValidationPage() {
   );
 }
 
-function isActiveOperation(status: string | undefined): boolean {
-  return status === 'queued'
-    || status === 'waiting_runtime'
-    || status === 'waiting_dependency'
-    || status === 'running'
-    || status === 'attention_required';
-}
+
 
 function scoreLabel(value: number | null): string {
   return value == null ? '자료 없음' : `${formatNumber(value)}점`;

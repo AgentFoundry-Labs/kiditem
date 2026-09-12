@@ -1,11 +1,13 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
-import type { ExtensionSyncDto } from '../../adapter/in/http/dto';
+import { Inject, Injectable } from '@nestjs/common';
 import { resolveBusinessDate } from '../../domain/business-date';
 import {
   buildRepresentativeKeywordSearchAssignments,
   type RepresentativeKeywordSearchAssignment,
 } from '../../domain/representative-keyword';
-import { cleanString, toNumberOrNull } from '../../domain/scrape-row-normalizers';
+import {
+  cleanString,
+  toNumberOrNull,
+} from '../../domain/scrape-row-normalizers';
 import {
   KEYWORD_RANK_REPOSITORY_PORT,
   type KeywordRankRepositoryPort,
@@ -30,14 +32,12 @@ interface ParsedWingSalesItem {
 /** Wing pre-matching 상품분석의 최근 28일 판매량순 결과를 자사 상품에 투영. */
 @Injectable()
 export class WingSalesRankIngestHandler {
-  private readonly logger = new Logger(WingSalesRankIngestHandler.name);
-
   constructor(
     @Inject(KEYWORD_RANK_REPOSITORY_PORT)
     private readonly keywordRankRepo: KeywordRankRepositoryPort,
   ) {}
 
-  async execute(payload: ExtensionSyncDto, organizationId: string) {
+  async resolveTargets(organizationId: string, keyword: string) {
     const [ownItems, overrides, previousSnapshots] = await Promise.all([
       this.keywordRankRepo.listOwnVendorItems(organizationId),
       this.keywordRankRepo.listRepresentativeKeywordOverrides(organizationId),
@@ -54,51 +54,52 @@ export class WingSalesRankIngestHandler {
       products,
       manualKeywordByVendorItemId,
     );
-    const assignmentsByKeyword = groupAssignments(assignments);
-    const results: Array<{
+
+    return assignments
+      .filter((assignment) => assignment.keyword === keyword)
+      .map(({ vendorItemId, productName, category, candidateIndex }) => ({
+        vendorItemId,
+        productName,
+        category,
+        keyword,
+        candidateIndex,
+      }));
+  }
+
+  normalizeCapture(
+    entry: {
       keyword: string;
-      businessDate: string;
-      productCount: number;
-      rankedCount: number;
-      outOfRangeCount: number;
-    }> = [];
-
-    for (const candidate of payload.data ?? []) {
-      if (!candidate || typeof candidate !== 'object') continue;
-      const entry = candidate as Record<string, unknown>;
-      const keyword = cleanString(entry.keyword);
-      if (!keyword) continue;
-      const targets = assignmentsByKeyword.get(keyword) ?? [];
-      if (targets.length === 0) {
-        this.logger.warn(
-          `wing_sales_rank ingest skipped keyword without own targets (${keyword})`,
-        );
-        continue;
+      capturedAt: string;
+      items: unknown;
+      pagesScanned: number;
+      collectedCount: number;
+      totalResults: number | null;
+    },
+    targets: RepresentativeKeywordSearchAssignment[],
+    organizationId: string,
+  ) {
+    const keyword = entry.keyword;
+    const capturedAt = new Date(entry.capturedAt);
+    const businessDate = resolveBusinessDate(
+      entry.capturedAt,
+      entry.capturedAt,
+    );
+    const items = parseItems(entry.items);
+    const bestByVendorItemId = new Map<string, ParsedWingSalesItem>();
+    for (const item of items) {
+      if (!item.vendorItemId) continue;
+      const previous = bestByVendorItemId.get(item.vendorItemId);
+      if (!previous || item.salesRank < previous.salesRank) {
+        bestByVendorItemId.set(item.vendorItemId, item);
       }
+    }
 
-      const capturedAtRaw = cleanString(entry.capturedAt) ?? payload.timestamp;
-      const parsedAt = capturedAtRaw ? new Date(capturedAtRaw) : null;
-      const capturedAt =
-        parsedAt && Number.isFinite(parsedAt.getTime()) ? parsedAt : new Date();
-      const businessDate = resolveBusinessDate(
-        cleanString(entry.capturedAt),
-        payload.timestamp,
-      );
-      const items = parseItems(entry.items);
-      const bestByVendorItemId = new Map<string, ParsedWingSalesItem>();
-      for (const item of items) {
-        if (!item.vendorItemId) continue;
-        const previous = bestByVendorItemId.get(item.vendorItemId);
-        if (!previous || item.salesRank < previous.salesRank) {
-          bestByVendorItemId.set(item.vendorItemId, item);
-        }
-      }
-
-      const pagesScanned = toNumberOrNull(entry.pagesScanned) ?? 0;
-      const collectedCount = toNumberOrNull(entry.collectedCount) ?? items.length;
-      const totalResults = toNumberOrNull(entry.totalResults);
-      const keywordMetrics = aggregateKeywordMetrics(items);
-      const rows: ReplaceWingSalesRankSnapshotInput[] = targets.map((target) => {
+    const pagesScanned = toNumberOrNull(entry.pagesScanned) ?? 0;
+    const collectedCount = toNumberOrNull(entry.collectedCount) ?? items.length;
+    const totalResults = toNumberOrNull(entry.totalResults);
+    const keywordMetrics = aggregateKeywordMetrics(items);
+    const rows: Omit<ReplaceWingSalesRankSnapshotInput, 'sourceImportRunId'>[] =
+      targets.map((target) => {
         const item = bestByVendorItemId.get(target.vendorItemId) ?? null;
         return {
           organizationId,
@@ -108,8 +109,7 @@ export class WingSalesRankIngestHandler {
           productId: item?.productId ?? null,
           itemId: item?.itemId ?? null,
           productName: item?.productName ?? target.productName,
-          categoryHierarchy:
-            item?.categoryHierarchy ?? target.category ?? null,
+          categoryHierarchy: item?.categoryHierarchy ?? target.category ?? null,
           salesRank: item?.salesRank ?? null,
           salesLast28d: item?.salesLast28d ?? null,
           viewsLast28d: item?.viewsLast28d ?? null,
@@ -126,25 +126,27 @@ export class WingSalesRankIngestHandler {
           capturedAt,
         };
       });
-      await this.keywordRankRepo.replaceWingSalesRankSnapshots(rows);
-      const rankedCount = rows.filter((row) => row.salesRank !== null).length;
-      results.push({
-        keyword,
-        businessDate: businessDate.toISOString().slice(0, 10),
-        productCount: rows.length,
-        rankedCount,
-        outOfRangeCount: rows.length - rankedCount,
-      });
-    }
 
-    return { success: true, results };
+    const rankedCount = rows.filter((row) => row.salesRank !== null).length;
+    return {
+      rows,
+      items,
+      capturedAt,
+      businessDate,
+      rankedCount,
+      outOfRangeCount: rows.length - rankedCount,
+    };
   }
 }
 
 function parseItems(raw: unknown): ParsedWingSalesItem[] {
   if (!Array.isArray(raw)) return [];
   return raw.flatMap((candidate, index) => {
-    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
+    if (
+      !candidate ||
+      typeof candidate !== 'object' ||
+      Array.isArray(candidate)
+    ) {
       return [];
     }
     const row = candidate as Record<string, unknown>;
@@ -176,18 +178,6 @@ function dedupeOwnItems<T extends { vendorItemId: string }>(items: T[]): T[] {
   return [...new Map(items.map((item) => [item.vendorItemId, item])).values()];
 }
 
-function groupAssignments(
-  assignments: RepresentativeKeywordSearchAssignment[],
-) {
-  const grouped = new Map<string, RepresentativeKeywordSearchAssignment[]>();
-  for (const assignment of assignments) {
-    const rows = grouped.get(assignment.keyword) ?? [];
-    rows.push(assignment);
-    grouped.set(assignment.keyword, rows);
-  }
-  return grouped;
-}
-
 function applyObservedCategories<
   T extends {
     vendorItemId: string;
@@ -215,7 +205,9 @@ function applyObservedCategories<
   return products.map((product) => ({
     ...product,
     category:
-      product.category ?? latestCategory.get(product.vendorItemId)?.value ?? null,
+      product.category ??
+      latestCategory.get(product.vendorItemId)?.value ??
+      null,
   }));
 }
 

@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import {
   Compass,
   Database,
@@ -13,13 +13,12 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatNumber, formatTime } from '@/lib/utils';
-import { friendlyError } from '@/lib/api-error';
+import { useTrendSourceCollection } from '@/hooks/use-trend-source-collection';
 import {
   fetchKeywordTrackers,
   fetchLatestRisingProducts,
 } from '../rising-products/lib/rising-products-api';
 import {
-  collectTrend,
   fetchNaverKeywordTrends,
   fetchPopularKeywordBoards,
   fetchShortsTrends,
@@ -31,13 +30,14 @@ import { SourcingHomeRankBoard, type RankColumn } from './SourcingHomeRankBoard'
 // 실시간 폴링 간격 — 메인 대시보드와 동일하게 60초.
 const REFETCH_MS = 60_000;
 const LIST_LIMIT = 10;
+const SOURCING_QUERY_KEY = ['sourcing'] as const;
 
 /**
  * 소싱 홈 상단 — 실시간 헤더 + KPI 5열 랭킹 보드 + 오늘의 추천 레일.
  * 5열: 급상승 후보 / 신규 키워드 / SNS 소셜 인기 / 추적 키워드 / 인기 키워드.
  */
 export function SourcingHomeHero() {
-  const queryClient = useQueryClient();
+  const { collect, isCollecting } = useTrendSourceCollection({ snapshotQueryKey: SOURCING_QUERY_KEY });
 
   const risingQuery = useQuery({
     queryKey: ['sourcing', 'home', 'rising'],
@@ -145,17 +145,17 @@ export function SourcingHomeHero() {
 
   const lastUpdated = risingQuery.dataUpdatedAt || undefined;
 
-  const collectMutation = useMutation({
-    mutationFn: () => collectTrend(),
-    onSuccess: () => {
-      toast.success('데이터 수집을 시작했습니다. 완료되면 최신 소싱 데이터가 반영됩니다.');
-    },
-    onError: (error) => toast.error(friendlyError(error) ?? '데이터 수집에 실패했습니다.'),
-    // 성공/실패와 무관하게 전체 소싱 데이터를 다시 불러온다.
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: ['sourcing'] });
-    },
-  });
+  const handleCollect = async () => {
+    const result = await collect();
+    if (!result) return;
+    if (result.results.length > 0 && result.results.every((row) => row.state === 'COMPLETE' && row.ok)) {
+      toast.success('트렌드 수집이 완료됐습니다.');
+    } else if (result.results.length > 0 && result.results.every((row) => row.state === 'RUNNING' || (row.state === 'COMPLETE' && row.ok))) {
+      toast.info('트렌드 수집이 진행 중입니다.');
+    } else {
+      toast.error('일부 트렌드 수집에 실패했습니다. 다시 시도해주세요.');
+    }
+  };
 
   const columns: RankColumn[] = [
     {
@@ -247,13 +247,13 @@ export function SourcingHomeHero() {
         </div>
         <button
           type="button"
-          onClick={() => collectMutation.mutate()}
-          disabled={collectMutation.isPending}
-          title="네이버·1688·쇼츠 트렌드를 수집하고 전체 소싱 데이터를 갱신합니다"
+          onClick={() => void handleCollect()}
+          disabled={isCollecting}
+          title="네이버·쇼츠 트렌드를 수집하고 전체 소싱 데이터를 갱신합니다"
           className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-purple-600 px-4 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          <Database size={14} className={collectMutation.isPending ? 'animate-pulse' : undefined} />
-          {collectMutation.isPending ? '수집 중…' : '데이터 수집'}
+          <Database size={14} className={isCollecting ? 'animate-pulse' : undefined} />
+          {isCollecting ? '수집 중…' : '데이터 수집'}
         </button>
       </div>
 

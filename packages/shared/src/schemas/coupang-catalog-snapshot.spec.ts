@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   CoupangCatalogCollectionRunSchema,
+  CoupangCatalogCollectionPermitSchema,
+  CoupangCatalogDetailProductV1Schema,
   CoupangCatalogDiscoveryPageV1Schema,
   CoupangCatalogManifestConfirmationV1Schema,
   CoupangCatalogProductDetailsChunkV1Schema,
@@ -120,6 +122,112 @@ describe('Coupang catalog snapshot contracts', () => {
     })).toThrow();
   });
 
+  it('accepts shared detail media when each option stays within its owner limit', () => {
+    const optionIds = Array.from({ length: 73 }, (_, index) => 'option-' + (index + 1));
+    const detailMedia = [
+      {
+        sourceUrl: 'https://image.example/shared-detail.jpg',
+        role: 'detail' as const,
+        sortOrder: 0,
+        externalOptionIds: optionIds,
+      },
+      ...optionIds.map((externalOptionId, index) => ({
+        sourceUrl: 'https://image.example/detail-' + (index + 1) + '.jpg',
+        role: 'detail' as const,
+        sortOrder: index + 1,
+        externalOptionIds: [externalOptionId],
+      })),
+      ...optionIds.map((externalOptionId, index) => ({
+        sourceUrl: 'https://image.example/option-' + (index + 1) + '.jpg',
+        role: 'option' as const,
+        sortOrder: 74 + index,
+        externalOptionIds: [externalOptionId],
+      })),
+    ];
+    const parsed = CoupangCatalogDetailProductV1Schema.parse({
+      externalProductId: 'detail-1',
+      options: optionIds.map((externalOptionId) => ({
+        externalOptionId,
+        documentIds: [],
+        raw: {},
+      })),
+      documents: [],
+      media: detailMedia,
+      raw: { source: 'fixture' },
+    });
+
+    expect(parsed.media).toHaveLength(147);
+    expect(parsed.media[0]?.externalOptionIds).toEqual(optionIds);
+    const ownerCounts = new Map<string, number>();
+    for (const media of parsed.media) {
+      for (const ownerId of new Set(media.externalOptionIds ?? [])) {
+        ownerCounts.set(ownerId, (ownerCounts.get(ownerId) ?? 0) + 1);
+      }
+    }
+    expect([...ownerCounts.values()].every((count) => count === 3)).toBe(true);
+  });
+
+  it('enforces per-option and unassociated media limits without weakening legacy or byte guards', () => {
+    const base = {
+      externalProductId: 'detail-1',
+      options: [{ externalOptionId: 'option-1', documentIds: [], raw: {} }],
+      documents: [],
+      media: [],
+      raw: { source: 'fixture' },
+    };
+    const mediaFor = (count: number, externalOptionIds: string[]) =>
+      Array.from({ length: count }, (_, index) => ({
+        sourceUrl: 'https://image.example/media-' + (index + 1) + '.jpg',
+        role: 'detail' as const,
+        sortOrder: index,
+        externalOptionIds,
+      }));
+
+    expect(CoupangCatalogDetailProductV1Schema.parse({
+      ...base,
+      media: mediaFor(100, []),
+    }).media).toHaveLength(100);
+    expect(CoupangCatalogDetailProductV1Schema.parse({
+      ...base,
+      media: mediaFor(100, ['option-1', 'option-1']),
+    }).media).toHaveLength(100);
+    expect(CoupangCatalogDetailProductV1Schema.parse({
+      ...base,
+      media: Array.from({ length: 100 }, (_, index) => ({
+        sourceUrl: 'https://image.example/legacy-' + (index + 1) + '.jpg',
+        role: 'detail' as const,
+        sortOrder: index,
+        externalOptionId: 'option-1',
+      })),
+    }).media).toHaveLength(100);
+    expect(() => CoupangCatalogDetailProductV1Schema.parse({
+      ...base,
+      media: mediaFor(101, ['option-1']),
+    })).toThrow(/media exceeds.*option-1/);
+    expect(() => CoupangCatalogDetailProductV1Schema.parse({
+      ...base,
+      media: mediaFor(101, []),
+    })).toThrow(/unassociated media exceeds/);
+    expect(() => CoupangCatalogDetailProductV1Schema.parse({
+      ...base,
+      media: mediaFor(1, ['unknown-option']),
+    })).toThrow(/unknown option/);
+
+    const oversizedDocuments = Array.from({ length: 2_000 }, (_, index) => ({
+      id: 'doc-' + index,
+      kind: 'contents' as const,
+      value: String(index) + '-' + 'x'.repeat(240),
+    }));
+    expect(() => CoupangCatalogDetailProductV1Schema.parse({
+      ...base,
+      options: [{
+        ...base.options[0],
+        documentIds: oversizedDocuments.map((document) => document.id),
+      }],
+      documents: oversizedDocuments,
+    })).toThrow(/detail product exceeds/);
+  });
+
   it('validates discovery identity, ordinals, and manifest page math', () => {
     const page = CoupangCatalogDiscoveryPageV1Schema.parse({
       version: 1,
@@ -207,19 +315,20 @@ describe('Coupang catalog snapshot contracts', () => {
 
   it('validates start and resumable status responses', () => {
     expect(StartCoupangCatalogCollectionRequestSchema.parse({
-      clientRunKey,
       collectorVersion: 'wing-inventory-v1',
-    }).clientRunKey).toBe(clientRunKey);
+    }).collectorVersion).toBe('wing-inventory-v1');
     expect(() => StartCoupangCatalogCollectionRequestSchema.parse({
       clientRunKey: 'not-a-uuid',
       collectorVersion: '',
     })).toThrow();
 
     const parsed = CoupangCatalogCollectionRunSchema.parse({
-      id: runId,
+      attemptId: runId,
       channelAccountId: accountId,
-      clientRunKey,
-      status: 'running',
+      idempotencyKey: clientRunKey,
+      state: 'RUNNING',
+      expiresAt: '2026-07-15T00:00:00.000Z',
+      plan: { channelAccountId: accountId, vendorId: 'V1', collectorVersion: 'wing-inventory-v1', listUrl: 'https://wing.coupang.com/list', detailUrl: 'https://wing.coupang.com/detail', publicationRevision: '0' },
       phase: 'hydration',
       collectorVersion: 'wing-inventory-v1',
       manifest,
@@ -249,6 +358,8 @@ describe('Coupang catalog snapshot contracts', () => {
       finishedAt: null,
     });
     expect(parsed.missing.productIds).toEqual(['10002']);
+    expect(CoupangCatalogCollectionPermitSchema.parse({ attemptId: runId, attemptToken: clientRunKey, state: parsed.state, expiresAt: parsed.expiresAt, plan: parsed.plan }).attemptToken).toBe(clientRunKey);
+    expect(CoupangCatalogCollectionRunSchema.parse({ ...parsed, attemptToken: clientRunKey })).not.toHaveProperty('attemptToken');
     expect(parsed.progress.publishedProducts).toBe(1);
     expect(parsed.progress.lastPublishedAt).toBe('2026-07-14T00:00:30.000Z');
     expect(() => CoupangCatalogCollectionRunSchema.parse({

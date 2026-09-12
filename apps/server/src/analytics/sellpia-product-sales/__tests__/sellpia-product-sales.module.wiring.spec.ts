@@ -1,11 +1,16 @@
 import 'reflect-metadata';
 import { describe, expect, it } from 'vitest';
+import { ProductAbcReadModule } from '../../../products/product-abc-read.module';
 import { InventoryModule } from '../../../inventory/inventory.module';
 import { AiModule } from '../../../ai/ai.module';
 import { SellpiaProductSalesModule } from '../sellpia-product-sales.module';
 import { SellpiaProductSalesService } from '../sellpia-product-sales.service';
 import { SELLPIA_PRODUCT_DEPLETION_READ_PORT } from '../sellpia-product-depletion-read.port';
 import { MASTER_PRODUCT_PROFIT_FACT_READ_PORT } from '../../application/port/in/master-product-profit-fact-read.port';
+import { SELLPIA_PROFITABILITY_SOURCE_READ_PORT } from '../../application/port/in/sellpia-profitability-source-read.port';
+import { SellpiaProfitabilitySourceService } from '../sellpia-profitability-source.service';
+import { SellpiaProfitabilitySourceModule } from '../sellpia-profitability-source.module';
+import { AlertsModule } from '../../../alerts/alerts.module';
 
 describe('SellpiaProductSalesModule wiring', () => {
   it('imports Inventory and AI owner ports, and exports the depletion read port through the service', () => {
@@ -21,7 +26,10 @@ describe('SellpiaProductSalesModule wiring', () => {
         } | undefined;
 
     expect(imports).toContain(InventoryModule);
+    expect(imports).toContain(ProductAbcReadModule);
     expect(imports).toContain(AiModule);
+    expect(imports).toContain(SellpiaProfitabilitySourceModule);
+    expect(exports).toContain(SellpiaProfitabilitySourceModule);
     expect(binding?.useExisting).toBe(SellpiaProductSalesService);
     expect(exports).toContain(SELLPIA_PRODUCT_DEPLETION_READ_PORT);
   });
@@ -40,5 +48,20 @@ describe('SellpiaProductSalesModule wiring', () => {
     expect(abcBinding?.useExisting).not.toBe(SellpiaProductSalesService);
     expect(exports).toContain(MASTER_PRODUCT_PROFIT_FACT_READ_PORT);
     expect(exports).not.toContain(abcBinding?.useExisting);
+  });
+
+  it('exports the typed deep source read capability through the owner service', () => {
+    const providers: unknown[] = Reflect.getMetadata('providers', SellpiaProfitabilitySourceModule) ?? [];
+    const exports: unknown[] = Reflect.getMetadata('exports', SellpiaProfitabilitySourceModule) ?? [];
+    const binding = providers.find((provider) =>
+      typeof provider === 'object'
+      && provider !== null
+      && (provider as { provide?: unknown }).provide === SELLPIA_PROFITABILITY_SOURCE_READ_PORT) as {
+        useExisting?: unknown;
+      } | undefined;
+
+    expect(binding?.useExisting).toBe(SellpiaProfitabilitySourceService);
+    expect(exports).toContain(SELLPIA_PROFITABILITY_SOURCE_READ_PORT);
+    expect(Reflect.getMetadata('imports', SellpiaProfitabilitySourceModule)).toEqual([AlertsModule]);
   });
 });

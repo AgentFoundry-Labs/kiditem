@@ -11,6 +11,7 @@ import {
   createChannelRecipeNameIndex,
   rankChannelRecipeNameCandidates,
   scoreChannelRecipeNameCandidate,
+  scoreChannelRecipeNameCandidateIfComparable,
 } from '../../domain/channel-recipe-name-matcher';
 import {
   SELLPIA_RECIPE_EVIDENCE_PORT,
@@ -170,10 +171,10 @@ export class ChannelRecipeSuggestionService {
             kind: 'unique_physical_barcode' as const,
             channelValue: option.barcode!,
             normalizedValue,
-            nameCompatibilityScore: scoreChannelRecipeNameCandidate(
+            nameCompatibilityScore: scoreChannelRecipeNameCandidateIfComparable(
               context.allLinkedOptions,
               sku,
-            ).score,
+            ),
             sku,
           }));
       });

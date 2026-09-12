@@ -1,15 +1,11 @@
-import { describe, expect, it, vi } from 'vitest';
-import { SourcingScrapeResultService } from '../sourcing-scrape-result.service';
+import { describe, expect, it } from 'vitest';
+import { prepareSourcingScrapeResult } from '../sourcing-scrape-result.service';
 import { canonicalSourcingCandidateIdentity } from '../../../domain/sourcing-candidate-identity';
 
-describe('SourcingScrapeResultService', () => {
-  it('normalizes and upserts a canonical candidate before returning its route', async () => {
-    const candidates = {
-      upsertSourced: vi.fn().mockResolvedValue({ id: 'candidate-1' }),
-    };
-    const service = new SourcingScrapeResultService(candidates as never);
+describe('prepareSourcingScrapeResult', () => {
+  it('prepares the retained canonical candidate projection', async () => {
 
-    const result = await service.persist({
+    const result = prepareSourcingScrapeResult({
       organizationId: 'org-1',
       triggeredByUserId: 'user-1',
       output: {
@@ -29,7 +25,7 @@ describe('SourcingScrapeResultService', () => {
       },
     });
 
-    expect(candidates.upsertSourced).toHaveBeenCalledWith(
+    expect(result).toEqual(
       expect.objectContaining({
         organizationId: 'org-1',
         sourceUrl: 'https://detail.1688.com/offer/123.html',
@@ -55,31 +51,22 @@ describe('SourcingScrapeResultService', () => {
         ],
       }),
     );
-    expect(result).toEqual({
-      candidateId: 'candidate-1',
-      href: '/product-pipeline/collected-products/candidate-1',
-    });
   });
 
   it('rejects malformed output without writing a candidate', async () => {
-    const candidates = { upsertSourced: vi.fn() };
-    const service = new SourcingScrapeResultService(candidates as never);
 
-    await expect(service.persist({
+    expect(() => prepareSourcingScrapeResult({
       organizationId: 'org-1',
       triggeredByUserId: null,
       output: { ok: true, scraped_data: { title: '실리콘 식판' } },
-    })).rejects.toMatchObject({
+    })).toThrowError(expect.objectContaining({
       code: 'sourcing_scrape_missing_source_url',
-    });
-    expect(candidates.upsertSourced).not.toHaveBeenCalled();
+    }));
   });
 
   it('rejects a non-supplier output URL without writing a candidate', async () => {
-    const candidates = { upsertSourced: vi.fn() };
-    const service = new SourcingScrapeResultService(candidates as never);
 
-    await expect(service.persist({
+    expect(() => prepareSourcingScrapeResult({
       organizationId: 'org-1',
       triggeredByUserId: null,
       output: {
@@ -89,9 +76,8 @@ describe('SourcingScrapeResultService', () => {
           title: '실리콘 식판',
         },
       },
-    })).rejects.toMatchObject({
+    })).toThrowError(expect.objectContaining({
       code: 'sourcing_scrape_invalid_source_url',
-    });
-    expect(candidates.upsertSourced).not.toHaveBeenCalled();
+    }));
   });
 });

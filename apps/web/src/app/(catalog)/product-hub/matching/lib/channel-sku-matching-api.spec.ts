@@ -2,10 +2,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiClient } from '@/lib/api-client';
 import {
   autoMatchChannelProducts,
+  beginSellpiaManualMatchSourceAttempt,
   getSellpiaManualMatchTargets,
   importCoupangRocketMatchingCsv,
-  importSellpiaManualMatchSnapshot,
   listChannelProductMappings,
+  readSellpiaManualMatchSourceAttempt,
+  readSellpiaManualMatchSourceCurrent,
   listRecipeComponentCandidates,
   saveProductInventoryMatching,
 } from './channel-sku-matching-api';
@@ -102,21 +104,7 @@ describe('channel product matching API', () => {
     ]);
   });
 
-  it('reads and imports the bounded Sellpia manual-match snapshot', async () => {
-    const snapshot = {
-      source: 'sellpia_product_manual_match' as const,
-      version: 1 as const,
-      targetCount: 1,
-      targetCodes: ['634-1'],
-      rowCount: 1,
-      rows: [{
-        productCode: '634-1',
-        aliasTitle: '샤이니무지개칼라링(12개입)',
-        itemCount: 12,
-        matchedType: 'M' as const,
-        evidenceCount: 1,
-      }],
-    };
+  it('reads the target set and starts a frozen manual-match source attempt', async () => {
     vi.mocked(apiClient.getParsed).mockResolvedValue({
       sourceOrigin: 'https://kiditem.sellpia.com',
       sourcePath: '/product_manual_match.html',
@@ -126,27 +114,90 @@ describe('channel product matching API', () => {
       currentSnapshot: null,
     });
     vi.mocked(apiClient.post).mockResolvedValue({
-      status: {
+      attemptId: '11111111-1111-4111-8111-111111111111',
+      attemptToken: '22222222-2222-4222-8222-222222222222',
+      state: 'RUNNING',
+      expiresAt: '2099-01-01T00:00:00.000Z',
+      plan: {
+        sourceType: 'sellpia_product_manual_match',
+        parserVersion: 'sellpia-manual-match-v1',
+        sourceOrigin: 'https://kiditem.sellpia.com',
+        sourcePath: '/product_manual_match.html',
         targetCount: 1,
-        matchedTargetCount: 1,
-        aliasCount: 1,
-        snapshotHash: 'b'.repeat(64),
-        capturedAt: '2026-07-31T04:00:00.000Z',
+        targetCodes: ['634-1'],
       },
+      contentChecksum: null,
+      capturedAt: null,
+      errorCode: null,
+      errorMessage: null,
     });
 
     await getSellpiaManualMatchTargets();
-    await expect(importSellpiaManualMatchSnapshot(snapshot)).resolves.toMatchObject({
-      status: { aliasCount: 1 },
-    });
+    await beginSellpiaManualMatchSourceAttempt({ idempotencyKey: 'key-1' });
 
     expect(apiClient.getParsed).toHaveBeenCalledWith(
       '/api/channels/product-mappings/sellpia-manual-match/targets',
       expect.any(Object),
     );
     expect(apiClient.post).toHaveBeenCalledWith(
-      '/api/channels/product-mappings/sellpia-manual-match/import',
-      snapshot,
+      '/api/channels/product-mappings/sellpia-manual-match/attempts',
+      {},
+      { headers: { 'Idempotency-Key': 'key-1' } },
     );
+  });
+
+  it('reads the owner attempt and current status without re-importing a page snapshot', async () => {
+    vi.mocked(apiClient.getParsed)
+      .mockResolvedValueOnce({
+        attemptId: '11111111-1111-4111-8111-111111111111',
+        attemptToken: '22222222-2222-4222-8222-222222222222',
+        state: 'COMPLETE',
+        expiresAt: '2099-01-01T00:00:00.000Z',
+        plan: {
+          sourceType: 'sellpia_product_manual_match',
+          parserVersion: 'sellpia-manual-match-v1',
+          sourceOrigin: 'https://kiditem.sellpia.com',
+          sourcePath: '/product_manual_match.html',
+          targetCount: 1,
+          targetCodes: ['634-1'],
+        },
+        contentChecksum: 'c'.repeat(64),
+        capturedAt: '2026-07-31T04:00:00.000Z',
+        errorCode: null,
+        errorMessage: null,
+      })
+      .mockResolvedValueOnce({
+        latestAttempt: {
+          attemptId: '11111111-1111-4111-8111-111111111111',
+          attemptToken: '22222222-2222-4222-8222-222222222222',
+          state: 'COMPLETE',
+          expiresAt: '2099-01-01T00:00:00.000Z',
+          plan: {
+            sourceType: 'sellpia_product_manual_match',
+            parserVersion: 'sellpia-manual-match-v1',
+            sourceOrigin: 'https://kiditem.sellpia.com',
+            sourcePath: '/product_manual_match.html',
+            targetCount: 1,
+            targetCodes: ['634-1'],
+          },
+          contentChecksum: 'c'.repeat(64),
+          capturedAt: '2026-07-31T04:00:00.000Z',
+          errorCode: null,
+          errorMessage: null,
+        },
+        currentSnapshot: {
+          targetCount: 1,
+          matchedTargetCount: 1,
+          aliasCount: 1,
+          snapshotHash: 'c'.repeat(64),
+          capturedAt: '2026-07-31T04:00:00.000Z',
+        },
+      });
+
+    await expect(readSellpiaManualMatchSourceAttempt('11111111-1111-4111-8111-111111111111'))
+      .resolves.toMatchObject({ state: 'COMPLETE' });
+    await expect(readSellpiaManualMatchSourceCurrent()).resolves.toMatchObject({
+      currentSnapshot: { aliasCount: 1 },
+    });
   });
 });

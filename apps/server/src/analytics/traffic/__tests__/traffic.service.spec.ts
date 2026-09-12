@@ -56,6 +56,7 @@ function makePrisma() {
     channelListingDailySnapshot: {
       upsert: vi.fn(async () => ({})),
     },
+    $executeRaw: vi.fn(async () => 1),
   };
   const prisma = {
     channelAccount: {
@@ -80,11 +81,60 @@ function makePrisma() {
   return { prisma, tx };
 }
 
-function makeOperationAlerts() {
+function accountDaily(
+  businessDate: string,
+  metrics: Partial<{
+    visitors: number;
+    views: number;
+    cartAdds: number;
+    orders: number;
+    salesQty: number;
+    revenue: number;
+  }> = {},
+) {
   return {
-    start: vi.fn(async () => ({})),
-    succeed: vi.fn(async () => ({})),
-    fail: vi.fn(async () => ({})),
+    businessDate,
+    observedAt: `${businessDate}T01:00:00.000Z`,
+    sourceAttemptId: '00000000-0000-4000-8000-000000000010',
+    providerConversionRate: null,
+    visitors: metrics.visitors ?? 0,
+    views: metrics.views ?? 0,
+    cartAdds: metrics.cartAdds ?? 0,
+    orders: metrics.orders ?? 0,
+    salesQty: metrics.salesQty ?? 0,
+    revenue: metrics.revenue ?? 0,
+  };
+}
+
+function makeTrafficRead(
+  rows: ReturnType<typeof accountDaily>[] = [],
+  reconciliation?: Record<string, unknown>,
+) {
+  return {
+    readPublished: vi.fn().mockResolvedValue({ accountDaily: rows, reconciliation }),
+  };
+}
+
+function completeMayRows() {
+  return Array.from({ length: 31 }, (_, index) => accountDaily(
+    `2026-05-${String(index + 1).padStart(2, '0')}`,
+    { visitors: 10, views: 20, cartAdds: 3, orders: 2, salesQty: 2, revenue: 100 },
+  ));
+}
+
+function reconciliation(overrides: Record<string, unknown> = {}) {
+  const base = {
+    dailySum: 620,
+    periodValue: 620,
+    status: 'MATCHED',
+  };
+  return {
+    views: { ...base },
+    cartAdds: { ...base },
+    orders: { ...base },
+    salesQty: { ...base },
+    revenue: { ...base },
+    ...overrides,
   };
 }
 
@@ -95,7 +145,7 @@ describe('TrafficService — scrape-run tenant-scoped writes', () => {
 
   it('scopes the completed scrape-run update to organizationId', async () => {
     const { prisma } = makePrisma();
-    const service = new TrafficService(prisma as never);
+    const service = new TrafficService(prisma as never, makeTrafficRead() as never);
 
     await service.uploadTrafficStats(makeUploadFile(), ORGANIZATION_ID);
 
@@ -112,7 +162,7 @@ describe('TrafficService — scrape-run tenant-scoped writes', () => {
   it('scopes the error scrape-run update to organizationId', async () => {
     const { prisma } = makePrisma();
     prisma.$transaction.mockRejectedValueOnce(new Error('daily upsert failed'));
-    const service = new TrafficService(prisma as never);
+    const service = new TrafficService(prisma as never, makeTrafficRead() as never);
 
     await expect(
       service.uploadTrafficStats(makeUploadFile(), ORGANIZATION_ID),
@@ -132,7 +182,7 @@ describe('TrafficService — scrape-run tenant-scoped writes', () => {
   it('throws when the scoped scrape-run update is a no-op', async () => {
     const { prisma } = makePrisma();
     prisma.channelScrapeRun.updateMany.mockResolvedValueOnce({ count: 0 });
-    const service = new TrafficService(prisma as never);
+    const service = new TrafficService(prisma as never, makeTrafficRead() as never);
 
     await expect(
       service.uploadTrafficStats(makeUploadFile(), ORGANIZATION_ID),
@@ -141,163 +191,119 @@ describe('TrafficService — scrape-run tenant-scoped writes', () => {
 
   it('queries monthly traffic with exact @db.Date calendar boundaries', async () => {
     const { prisma } = makePrisma();
-    const service = new TrafficService(prisma as never);
+    const trafficRead = makeTrafficRead([accountDaily('2026-05-01', { revenue: 100 })]);
+    const service = new TrafficService(prisma as never, trafficRead as never);
 
     await service.getMonthlyRevenue(2026, 5, ORGANIZATION_ID);
 
-    expect(prisma.channelListingDailySnapshot.groupBy).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: {
-          organizationId: ORGANIZATION_ID,
-          businessDate: {
-            gte: new Date('2026-05-01T00:00:00.000Z'),
-            lt: new Date('2026-06-01T00:00:00.000Z'),
-          },
-        },
+    expect(trafficRead.readPublished).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      from: '2026-05-01',
+      to: '2026-05-31',
+    });
+  });
+
+  it('reads account daily metrics and leaves guessed Wing profit fields unavailable', async () => {
+    const { prisma } = makePrisma();
+    const trafficRead = makeTrafficRead([
+      accountDaily('2026-05-01', {
+        visitors: 10,
+        views: 20,
+        orders: 1,
+        salesQty: 1,
+        revenue: 10_000,
       }),
-    );
-  });
-
-  it('skips a ChannelProduct without an active ChannelSku in period profit calculations', async () => {
-    const prisma = {
-      channelListingDailySnapshot: {
-        aggregate: vi.fn()
-          .mockResolvedValueOnce({
-            _sum: {
-              trafficRevenue: 10_000,
-              trafficOrders: 1,
-              trafficSalesQty: 1,
-              trafficVisitors: 10,
-              trafficViews: 20,
-              trafficCartAdds: 1,
-            },
-          })
-          .mockResolvedValueOnce({
-            _sum: {
-              trafficRevenue: 0,
-              trafficOrders: 0,
-              trafficSalesQty: 0,
-              trafficVisitors: 0,
-            },
-          }),
-        groupBy: vi.fn().mockResolvedValue([
-          {
-            listingId: 'imported-listing-1',
-            _sum: {
-              trafficRevenue: 10_000,
-              trafficSalesQty: 1,
-              trafficOrders: 1,
-            },
-          },
-        ]),
-      },
-      channelListing: {
-        findMany: vi.fn().mockResolvedValue([
-          { id: 'imported-listing-1', options: [] },
-        ]),
-      },
-    };
-    const service = new TrafficService(prisma as never);
-
-    const result = await service.getTrafficSummary(1, ORGANIZATION_ID);
-
-    expect(result).toEqual(expect.objectContaining({
-      revenue: 10_000,
-      netProfit: 0,
-      profitRate: 0,
-      costCoverage: 0,
-    }));
-  });
-
-  it('skips a ChannelProduct without an active ChannelSku in monthly profit calculations', async () => {
-    const prisma = {
-      channelListingDailySnapshot: {
-        groupBy: vi.fn()
-          .mockResolvedValueOnce([
-            {
-              businessDate: new Date('2026-05-01T00:00:00.000Z'),
-              _sum: {
-                trafficRevenue: 10_000,
-                trafficOrders: 1,
-                trafficSalesQty: 1,
-                trafficVisitors: 10,
-              },
-            },
-          ])
-          .mockResolvedValueOnce([
-            {
-              listingId: 'imported-listing-1',
-              businessDate: new Date('2026-05-01T00:00:00.000Z'),
-              _sum: {
-                trafficRevenue: 10_000,
-                trafficSalesQty: 1,
-                trafficOrders: 1,
-              },
-            },
-          ]),
-      },
-      channelListing: {
-        findMany: vi.fn().mockResolvedValue([
-          { id: 'imported-listing-1', options: [] },
-        ]),
-      },
-    };
-    const service = new TrafficService(prisma as never);
+    ]);
+    const service = new TrafficService(prisma as never, trafficRead as never);
 
     const result = await service.getMonthlyRevenue(2026, 5, ORGANIZATION_ID);
 
     expect(result.days).toEqual([
-      expect.objectContaining({
-        date: '2026-05-01',
-        revenue: 10_000,
-        netProfit: 0,
-        profitRate: 0,
-      }),
+      expect.objectContaining({ date: '2026-05-01', revenue: 10_000 }),
     ]);
+    expect(result.total.visitors).toBeNull();
+    expect(result).not.toHaveProperty('netProfit');
+    expect(result).not.toHaveProperty('profitRate');
+    expect(result).not.toHaveProperty('costCoverage');
   });
 
-  it('opens and closes an operation alert for product-list traffic uploads', async () => {
+  it('keeps collected daily rows numeric but withholds period totals for incomplete coverage', async () => {
     const { prisma } = makePrisma();
-    const operationAlerts = makeOperationAlerts();
-    const service = new TrafficService(prisma as never, operationAlerts as never);
+    const trafficRead = makeTrafficRead([
+      accountDaily('2026-05-01', { orders: 2, revenue: 10_000 }),
+    ]);
+    const service = new TrafficService(prisma as never, trafficRead as never);
 
-    const result = await service.uploadTrafficStats(makeUploadFile(), ORGANIZATION_ID, {
-      actorUserId: 'user-1',
-      source: 'products',
+    const result = await service.getMonthlyRevenue(2026, 5, ORGANIZATION_ID);
+
+    expect(result.days[0]).toMatchObject({ orders: 2, revenue: 10_000 });
+    expect(result.total).toEqual({
+      revenue: null,
+      orders: null,
+      salesQty: null,
+      visitors: null,
+      views: null,
+      cartAdds: null,
+    });
+  });
+
+  it('nulls only a mismatched additive metric and preserves reconciliation provenance', async () => {
+    const { prisma } = makePrisma();
+    const publishedReconciliation = reconciliation({
+      views: { dailySum: 620, periodValue: 999, status: 'MISMATCH' },
+      orders: { dailySum: 62, periodValue: null, status: 'UNVERIFIED' },
+    });
+    const trafficRead = makeTrafficRead(completeMayRows(), publishedReconciliation);
+    const service = new TrafficService(prisma as never, trafficRead as never);
+
+    const result = await service.getMonthlyRevenue(2026, 5, ORGANIZATION_ID);
+
+    expect(result.total.views).toBeNull();
+    expect(result.total.revenue).toBe(3_100);
+    expect(result.total.orders).toBe(62);
+    expect(result.total.salesQty).toBe(62);
+    expect(result.reconciliation).toEqual(publishedReconciliation);
+  });
+
+  it('uses yesterday as the current-month cutoff and returns null totals for a future month', async () => {
+    const { prisma } = makePrisma();
+    const trafficRead = makeTrafficRead();
+    const service = new TrafficService(prisma as never, trafficRead as never);
+    const today = new Date();
+    const todayKst = new Date(today.getTime() + 9 * 60 * 60 * 1000);
+    const year = todayKst.getUTCFullYear();
+    const month = todayKst.getUTCMonth() + 1;
+    const yesterday = new Date(Date.UTC(year, todayKst.getUTCMonth(), todayKst.getUTCDate() - 1));
+
+    await service.getMonthlyRevenue(year, month, ORGANIZATION_ID);
+
+    expect(trafficRead.readPublished).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      from: `${year}-${String(month).padStart(2, '0')}-01`,
+      to: yesterday.toISOString().slice(0, 10),
     });
 
-    expect(result.success).toBe(true);
-    expect(operationAlerts.start).toHaveBeenCalledWith(
-      expect.objectContaining({
-        organizationId: ORGANIZATION_ID,
-        actorUserId: 'user-1',
-        operationKey: 'traffic-upload:products',
-        type: 'traffic_upload',
-        title: '트래픽 데이터 업로드',
-        sourceType: 'traffic_upload',
-        sourceId: 'products',
-        href: '/product-hub',
-      }),
-    );
-    expect(operationAlerts.succeed).toHaveBeenCalledWith(
+    const futureMonth = new Date(Date.UTC(year, todayKst.getUTCMonth() + 1, 1));
+    trafficRead.readPublished.mockClear();
+    const future = await service.getMonthlyRevenue(
+      futureMonth.getUTCFullYear(),
+      futureMonth.getUTCMonth() + 1,
       ORGANIZATION_ID,
-      'traffic-upload:products',
-      expect.objectContaining({
-        href: '/product-hub',
-        metadata: expect.objectContaining({
-          fileName: 'traffic-upload.xlsx',
-          source: 'products',
-          upserted: 1,
-          skipped: 0,
-        }),
-      }),
     );
-    expect(operationAlerts.fail).not.toHaveBeenCalled();
+    expect(future.total).toEqual({
+      revenue: null,
+      orders: null,
+      salesQty: null,
+      visitors: null,
+      views: null,
+      cartAdds: null,
+    });
+    expect(trafficRead.readPublished).not.toHaveBeenCalled();
   });
 
   it('detects Korean headers in UTF-8 CSV uploads', async () => {
     const { prisma } = makePrisma();
-    const service = new TrafficService(prisma as never);
+    const service = new TrafficService(prisma as never, makeTrafficRead() as never);
 
     const result = await service.uploadTrafficStats(
       makeUtf8CsvUploadFile(),
@@ -310,29 +316,4 @@ describe('TrafficService — scrape-run tenant-scoped writes', () => {
     expect(result.detectedColumns.visitors).toBe('방문자');
   });
 
-  it('fails the operation alert when upload normalization fails', async () => {
-    const { prisma } = makePrisma();
-    prisma.$transaction.mockRejectedValueOnce(new Error('daily upsert failed'));
-    const operationAlerts = makeOperationAlerts();
-    const service = new TrafficService(prisma as never, operationAlerts as never);
-
-    await expect(
-      service.uploadTrafficStats(makeUploadFile(), ORGANIZATION_ID, {
-        actorUserId: 'user-1',
-        source: 'settings',
-      }),
-    ).rejects.toThrow('daily upsert failed');
-
-    expect(operationAlerts.fail).toHaveBeenCalledWith(
-      ORGANIZATION_ID,
-      'traffic-upload:settings',
-      expect.objectContaining({
-        href: '/settings',
-        metadata: expect.objectContaining({
-          error: 'daily upsert failed',
-          source: 'settings',
-        }),
-      }),
-    );
-  });
 });

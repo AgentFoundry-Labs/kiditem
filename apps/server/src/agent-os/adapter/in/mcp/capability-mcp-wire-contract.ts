@@ -12,7 +12,6 @@ export const CAPABILITY_MCP_TOOL_NAMES = [
   'capability_catalog_search',
   'capability_invoke',
   'invocation_status',
-  'operation_status',
   'readiness_probe',
 ] as const;
 
@@ -60,10 +59,6 @@ export const InvocationStatusInputSchema = z4
   .object({ invocationId: z4.string().uuid() })
   .strict();
 
-export const OperationStatusInputSchema = z4
-  .object({ operationId: z4.string().uuid() })
-  .strict();
-
 export const ReadinessProbeInputSchema = z4.object({}).strict();
 
 export const CapabilityResultReceiptWireSchema = z4
@@ -73,10 +68,6 @@ export const CapabilityResultReceiptWireSchema = z4
       kind: z4.string().min(1).max(64),
       id: z4.string().min(1).max(128),
       version: z4.string().min(1).max(128).nullable(),
-    }).strict()).max(50),
-    operationRefs: z4.array(z4.object({
-      kind: z4.string().min(1).max(64),
-      id: z4.string().min(1).max(128),
     }).strict()).max(50),
   })
   .strict();
@@ -157,29 +148,6 @@ const InvocationStatusSuccessOutputSchema = z4
   })
   .strict();
 
-const OperationStatusSuccessOutputSchema = z4
-  .object({
-    operation: z4.object({
-      id: z4.string().uuid(),
-      operationKey: z4.string().min(1).max(200),
-      status: z4.enum([
-        'queued',
-        'waiting_runtime',
-        'waiting_dependency',
-        'running',
-        'attention_required',
-        'succeeded',
-        'failed',
-        'cancelled',
-        'skipped',
-      ]),
-      stage: z4.string().min(1).max(80).nullable(),
-      progress: z4.number().min(0).max(1).nullable(),
-      error: CapabilityMcpErrorWireSchema.nullable(),
-    }).strict(),
-  })
-  .strict();
-
 const ReadinessProbeSuccessOutputSchema = z4
   .object({
     protocolVersion: z4.literal(MCP_PROTOCOL_VERSION),
@@ -189,7 +157,6 @@ const ReadinessProbeSuccessOutputSchema = z4
       z4.literal('capability_catalog_search'),
       z4.literal('capability_invoke'),
       z4.literal('invocation_status'),
-      z4.literal('operation_status'),
       z4.literal('readiness_probe'),
     ]),
   })
@@ -204,11 +171,6 @@ export const InvocationStatusOutputSchema = z4.union([
   StructuredErrorOutputSchema,
 ]);
 
-export const OperationStatusOutputSchema = z4.union([
-  OperationStatusSuccessOutputSchema,
-  StructuredErrorOutputSchema,
-]);
-
 export const ReadinessProbeOutputSchema = z4.union([
   ReadinessProbeSuccessOutputSchema,
   StructuredErrorOutputSchema,
@@ -218,7 +180,6 @@ export const CapabilityMcpWireInputSchemas = {
   capability_catalog_search: CapabilityCatalogSearchInputSchema,
   capability_invoke: CapabilityInvokeInputSchema,
   invocation_status: InvocationStatusInputSchema,
-  operation_status: OperationStatusInputSchema,
   readiness_probe: ReadinessProbeInputSchema,
 } as const;
 
@@ -226,7 +187,6 @@ export const CapabilityMcpWireOutputSchemas = {
   capability_catalog_search: CapabilityCatalogSearchOutputSchema,
   capability_invoke: CapabilityInvokeOutputSchema,
   invocation_status: InvocationStatusOutputSchema,
-  operation_status: OperationStatusOutputSchema,
   readiness_probe: ReadinessProbeOutputSchema,
 } as const;
 

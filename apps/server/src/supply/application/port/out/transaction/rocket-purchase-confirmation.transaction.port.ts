@@ -1,5 +1,5 @@
 import type {
-  RocketWorkbookExportRequest,
+  RocketWorkbookDecisionRequest,
   RocketWorkbookExportResponse,
   RocketPurchasePreviewResponse,
 } from '@kiditem/shared/rocket-purchase-preview';
@@ -9,7 +9,7 @@ export interface RocketWorkbookExportTransactionPort {
     organizationId: string;
     userId: string;
     sourceImportRunId: string;
-    request: RocketWorkbookExportRequest;
+    request: RocketWorkbookDecisionRequest;
     preview: Extract<RocketPurchasePreviewResponse, { status: 'ready' }>;
     artifactBytes: Buffer;
   }): Promise<RocketWorkbookExportResponse>;

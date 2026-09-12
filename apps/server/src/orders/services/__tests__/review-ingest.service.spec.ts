@@ -15,14 +15,21 @@ interface PrismaMock {
 }
 
 function makePrismaMock(): PrismaMock {
-  return {
+  const prisma: PrismaMock = {
     review: {
       upsert: vi.fn((args: unknown) => args),
       findMany: vi.fn().mockResolvedValue([]),
     },
     channelListingOption: { findMany: vi.fn().mockResolvedValue([]) },
-    $transaction: vi.fn().mockResolvedValue([]),
+    $transaction: vi.fn(),
   };
+  prisma.$transaction.mockImplementation(async (operation: unknown) => {
+    if (typeof operation === 'function') {
+      return (operation as (tx: PrismaMock) => unknown)(prisma);
+    }
+    return Promise.all(operation as Promise<unknown>[]);
+  });
+  return prisma;
 }
 
 function makeItem(overrides: Partial<ReviewIngestItem> = {}): ReviewIngestItem {

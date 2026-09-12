@@ -95,7 +95,7 @@ describe('profile-based dev data workflow', () => {
     expect(stderr).not.toContain('ECONNREFUSED');
   });
 
-  it('publishes a domain bundle and syncs it through a profile dry run', async () => {
+  it('publishes a domain bundle and syncs it through a pull-only profile dry run', async () => {
     const tempRoot = mkdtempSync(join(tmpdir(), 'kiditem-profile-data-'));
     const producerRoot = join(tempRoot, 'producer');
     const consumerRoot = join(tempRoot, 'consumer');
@@ -205,7 +205,8 @@ describe('profile-based dev data workflow', () => {
         {
           domain: 'coupang',
           dataset: 'latest',
-          mode: 'scoped-replace',
+          mode: 'pull-only',
+          replay: false,
         },
       ],
     }));
@@ -224,7 +225,12 @@ describe('profile-based dev data workflow', () => {
         lane: string;
         datasetId: string;
         mode: string;
-        replay?: { payloads: number; sources: string[] };
+        replay?: {
+          skipped?: boolean;
+          reason?: string;
+          payloads?: number;
+          sources?: string[];
+        };
       }>;
     };
 
@@ -236,14 +242,16 @@ describe('profile-based dev data workflow', () => {
           domain: 'coupang',
           lane: 'real',
           datasetId,
-          mode: 'scoped-replace',
+          mode: 'pull-only',
         },
       ],
     });
-    expect(syncOutput.steps[0]?.replay).toMatchObject({ payloads: 3 });
-    expect(syncOutput.steps[0]?.replay?.sources).toContain('wing');
-    expect(syncOutput.steps[0]?.replay?.sources).toContain('coupang_ads');
+    expect(syncOutput.steps[0]?.replay).toMatchObject({
+      skipped: true,
+      reason: 'Profile step is pull-only.',
+    });
     expect(existsSync(join(consumerRoot, 'coupang', datasetId, 'manifest.json'))).toBe(true);
+    expect(existsSync(join(consumerRoot, 'coupang', datasetId, 'payloads', 'wing-traffic.json'))).toBe(true);
     expect(existsSync(join(consumerRoot, 'coupang', datasetId, 'references', 'kiditem_list.xlsx'))).toBe(true);
     expect(existsSync(join(consumerRoot, 'coupang', datasetId, 'references', 'wing-inventory-matched.xlsx'))).toBe(true);
   }, 30000);
@@ -325,6 +333,12 @@ describe('profile-based dev data workflow', () => {
     ]);
     expect(existsSync(join(driveRoot, 'profiles', 'workspace.json'))).toBe(true);
     expect(existsSync(join(driveRoot, 'profiles', 'coupang.json'))).toBe(true);
+    expect(JSON.parse(readFileSync(join(driveRoot, 'profiles', 'workspace.json'), 'utf8'))).toMatchObject({
+      steps: [{ domain: 'coupang', dataset: 'latest', mode: 'pull-only', replay: false }],
+    });
+    expect(JSON.parse(readFileSync(join(driveRoot, 'profiles', 'coupang.json'), 'utf8'))).toMatchObject({
+      steps: [{ domain: 'coupang', dataset: 'latest', mode: 'pull-only', replay: false }],
+    });
     expect(existsSync(join(driveRoot, 'references', 'kiditem_list.xlsx'))).toBe(true);
     expect(existsSync(join(driveRoot, 'references', 'wing-inventory-matched.xlsx'))).toBe(true);
     expect(existsSync(join(driveRoot, 'coupang', 'bundles'))).toBe(true);

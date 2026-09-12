@@ -2,7 +2,7 @@
 
 > Superseded (2026-08-23). Do not resume unchecked tasks or its artifact/runtime
 > cleanup graph. A new implementation plan will be derived from the
-> [KID-25 Agent OS Clean Contraction Design](../specs/2026-08-23-kid-25-agent-os-clean-contraction-design.md).
+> [KID-25 Agent OS Clean Contraction Design](../specs/archive/2026-08-23-kid-25-agent-os-clean-contraction-design.md).
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -16,7 +16,7 @@
 
 ## Source authority and execution protocol
 
-- Design authority: `docs/superpowers/specs/2026-08-21-agent-session-deletion-design.md`.
+- Design authority: `docs/superpowers/specs/archive/2026-08-21-agent-session-deletion-design.md`.
 - This plan replaces Task 1 of `docs/superpowers/plans/2026-08-13-interaction-os-first-deployment.md`; later pre-launch contraction tasks remain authoritative.
 - Keep one domain exception: AgentOS deletion composes with the Operations platform and shared/schema/scanner boundaries. Do not touch InventoryCommitment or unrelated business behavior.
 - Use a fresh Terra implementation agent per task. Use Sol only for integrated review.

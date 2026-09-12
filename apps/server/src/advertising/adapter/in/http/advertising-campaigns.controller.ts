@@ -98,13 +98,6 @@ export class AdvertisingCampaignsController {
     return this.adStrategyService.registerCampaign(body, organizationId);
   }
 
-  @Get('campaigns/sync-status')
-  getCampaignSyncStatus(
-    @CurrentOrganization() organizationId: string,
-  ) {
-    return this.adCampaignsService.getCampaignSyncStatus(organizationId);
-  }
-
   @Get('campaigns')
   getCampaigns(@Query() query: CampaignQueryDto, @CurrentOrganization() organizationId: string) {
     const period = (query.period ?? '7d') as '7d' | '14d' | 'month';

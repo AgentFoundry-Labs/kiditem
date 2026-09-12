@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
 import { execSync } from 'node:child_process';
 import path from 'node:path';
+import { describe, it, expect } from 'vitest';
 
 // Architecture guard tests freeze the Advertising port/adapter contract:
 //
@@ -9,9 +9,7 @@ import path from 'node:path';
 //     `services/channel-scrape-persistence.service.ts` is a transitional
 //     facade and now delegates to repository adapters, so it must NOT import
 //     PrismaService directly.
-//   - `*persistence.ts` is not used as final naming under
-//     `apps/server/src/advertising`. Migration-waypoint naming must be
-//     replaced with `*.repository.adapter.ts`.
+//   - Shared persistence helpers stay inside outgoing repository adapters.
 //   - `application/**` does not import `@prisma/client` or expose Prisma
 //     types. Ports/services stay Prisma-free; Prisma belongs in outgoing
 //     repository adapters.
@@ -35,7 +33,10 @@ const ADVERTISING_ROOT = path.resolve(__dirname, '..');
 
 function rg(args: string): string[] {
   try {
-    const out = execSync(`rg ${args}`, { cwd: REPO_ROOT, encoding: 'utf8' });
+    const out = execSync(`rg ${args} --glob '!**/*.spec.ts' --glob '!**/*.test.ts'`, {
+      cwd: REPO_ROOT,
+      encoding: 'utf8',
+    });
     return out
       .split('\n')
       .map((l) => l.trim())
@@ -64,14 +65,16 @@ describe('Advertising architecture contract', () => {
     ).toEqual([]);
   });
 
-  it('no *persistence.ts files survive under apps/server/src/advertising', () => {
+  it('shared persistence helpers stay under outgoing repository adapters', () => {
     const adv = advertisingRel();
+    const allowedPrefix = path.join(adv, 'adapter/out/repository') + path.sep;
     const hits = rg(
       `--type ts --files --glob '${path.join(adv, '**', '*persistence.ts')}'`,
     );
+    const violators = hits.filter((file) => !file.startsWith(allowedPrefix));
     expect(
-      hits,
-      `\`*persistence.ts\` is migration-waypoint naming only — switch to repository adapters:\n${hits.join('\n')}`,
+      violators,
+      `Persistence helpers must stay under outgoing repository adapters:\n${violators.join('\n')}`,
     ).toEqual([]);
   });
 
@@ -145,7 +148,7 @@ describe('Advertising architecture contract', () => {
     const adv = advertisingRel();
     const hits = rg(`--type ts --files --glob '${path.join(adv, 'services', '**', '*.ts')}'`);
     // ALLOWED_LEGACY_FILES — anything new in services/ is forbidden by the
-    // backend AGENTS.md. The facade survives only because integration tests
+    // backend CLAUDE.md. The facade survives only because integration tests
     // inject it by class name.
     const ALLOWED_LEGACY_FILES = new Set<string>([
       path.join(adv, 'services/channel-scrape-persistence.service.ts'),

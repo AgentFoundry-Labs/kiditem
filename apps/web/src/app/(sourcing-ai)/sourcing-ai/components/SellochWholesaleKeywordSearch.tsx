@@ -23,10 +23,9 @@ import {
   useSourcingRecommendations,
 } from '../hooks/use-sourcing-workspace';
 import { InterestKeywordManager } from '../keywords/components/InterestKeywordManager';
-import { useSourcingOperationAction } from '../hooks/use-sourcing-operation-action';
-import { useWholesale1688Results } from '../hooks/use-wholesale-1688-results';
+import { useWholesale1688Command, useWholesale1688Results } from '../hooks/use-wholesale-1688-results';
 import { wholesale1688ResultsQueryKey } from '../lib/wholesale-1688-results-api';
-import { SourcingOperationRunPanel } from './SourcingOperationRunPanel';
+import { Wholesale1688SourceStatus } from './Wholesale1688SourceStatus';
 import { SellochWholesaleOfferGrid } from './SellochWholesaleOfferGrid';
 
 const AUTO_KEYWORD_SEARCH_LIMIT = 6;
@@ -100,17 +99,8 @@ export function SellochWholesaleKeywordSearch() {
   const snapshotQueryKey = wholesale1688ResultsQueryKey({
     keywords: operationKeywords,
   });
-  const operationInput = useMemo(
-    () => ({ keywords: operationKeywords }),
-    [operationKeywords],
-  );
-  const operation = useSourcingOperationAction({
-    operationKey: 'sourcing.search_1688_keyword_batch',
-    input: operationInput,
-    snapshotQueryKey,
-    wakeBrowserRuntime: true,
-  });
-  const operationActive = operation.isStarting || isActiveOperation(operation.run?.status);
+  const command = useWholesale1688Command(snapshotQueryKey);
+  const collecting = command.isPending || (resultQuery.data?.sourceStatuses.some((source) => source.refreshing) ?? false);
   const observationsByKeyword = useMemo(
     () => new Map(
       (resultQuery.data?.observations ?? [])
@@ -124,13 +114,13 @@ export function SellochWholesaleKeywordSearch() {
   );
 
   const runKeywordSearch = useCallback((match: KeywordSearchCandidate) => {
-    void operation.start({ keywords: [match.searchQuery] }, [snapshotQueryKey]);
-  }, [operation, snapshotQueryKey]);
+    command.start({ kind: 'keyword-search', input: { keywords: [match.searchQuery] } });
+  }, [command]);
 
   const rerunTopSearches = useCallback(() => {
     if (operationKeywords.length === 0) return;
-    void operation.start();
-  }, [operation, operationKeywords.length]);
+    command.start({ kind: 'keyword-search', input: { keywords: operationKeywords } });
+  }, [command, operationKeywords]);
 
   const loadInterestKeywords = useCallback(async () => {
     setInterestNotice(null);
@@ -193,22 +183,15 @@ export function SellochWholesaleKeywordSearch() {
         <button
           type="button"
           onClick={rerunTopSearches}
-          disabled={operationKeywords.length === 0 || operationActive}
+          disabled={operationKeywords.length === 0 || collecting}
           className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-lg border border-[#dbe2ea] bg-[#fbfbfc] px-4 text-xs font-black text-[#4b5563] transition hover:border-[#6d5dfc] hover:text-[#6d5dfc] disabled:opacity-60"
         >
-          {operationActive ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}
+          {collecting ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}
           상위 {AUTO_KEYWORD_SEARCH_LIMIT}개 검색
         </button>
       </div>
 
-      <SourcingOperationRunPanel
-        run={operation.run}
-        onCancel={() => { void operation.cancel(); }}
-        onRetryAttention={() => { void operation.retryAttention(); }}
-        isCancelling={operation.isCancelling}
-        isRetrying={operation.isRetrying}
-        className="mt-5"
-      />
+      <Wholesale1688SourceStatus sources={resultQuery.data?.sourceStatuses ?? []} attempts={command.attempts} error={command.error ?? resultQuery.error} />
 
       <div className="mt-5 rounded-xl border border-[#eef1f5] bg-[#fbfcfe] p-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
@@ -273,7 +256,7 @@ export function SellochWholesaleKeywordSearch() {
                 sourcingWingCatalogKeywordIdentity(match.searchQuery),
               )}
               onSearch={runKeywordSearch}
-              busy={operationActive}
+              busy={collecting}
             />
           ))}
         </div>
@@ -374,8 +357,4 @@ function parseKeywordText(value: string): string[] {
       seen.add(keyword);
       return true;
     });
-}
-
-function isActiveOperation(status: string | undefined): boolean {
-  return status === 'queued' || status === 'running' || status === 'attention_required';
 }

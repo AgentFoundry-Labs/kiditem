@@ -83,15 +83,21 @@ export class CatalogDisplayMediaRepositoryAdapter
             || !asset.url.trim()
             || (asset.role !== 'primary' && asset.role !== 'option')
           ) return [];
-          return [{
+          const role: 'primary' | 'option' = asset.role === 'primary' ? 'primary' : 'option';
+          const optionIds = role === 'option'
+            ? optionIdsFromMetadata(metadata)
+            : [];
+          const candidate = {
             id: asset.id,
             channel,
             channelListingId,
             url: asset.url,
-            role: asset.role,
+            role,
             sortOrder: asset.sortOrder,
-            externalOptionId: nonEmptyString(metadata?.externalOptionId),
-          }];
+            externalOptionId: optionIds.length === 1 ? optionIds[0]! : null,
+            ...(role === 'option' ? { externalOptionIds: optionIds } : {}),
+          };
+          return [candidate];
         }),
       );
     });
@@ -115,4 +121,17 @@ function record(value: unknown): Record<string, unknown> | null {
 
 function nonEmptyString(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+}
+
+function optionIdsFromMetadata(metadata: Record<string, unknown> | null): string[] {
+  const arrayValue = Array.isArray(metadata?.externalOptionIds)
+    ? metadata.externalOptionIds
+    : [];
+  const ids = [...new Set([
+    ...arrayValue,
+    metadata?.externalOptionId,
+  ].filter((value): value is string => typeof value === 'string')
+    .map((value) => value.trim())
+    .filter(Boolean))].sort((left, right) => left.localeCompare(right));
+  return ids;
 }

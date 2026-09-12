@@ -108,11 +108,10 @@ describe('resolveGenerateOwnerInputs', () => {
 });
 
 describe('resolveProductGenerationDialogPhase', () => {
-  it('waits for the parent operation when an expected child has no generation id', () => {
+  it('treats an omitted child as complete instead of waiting for a parent operation', () => {
     expect(
       resolveProductGenerationDialogPhase({
         currentPhase: 'started',
-        operationKey: 'product-generation:batch-1',
         detailGenerationId: null,
         thumbnailGenerationId: 'thumbnail-1',
         thumbnail: {
@@ -138,6 +137,6 @@ describe('resolveProductGenerationDialogPhase', () => {
           },
         },
       }),
-    ).toBe('started');
+    ).toBe('completed');
   });
 });

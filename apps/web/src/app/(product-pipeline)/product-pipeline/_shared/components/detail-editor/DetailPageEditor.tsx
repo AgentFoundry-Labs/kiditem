@@ -48,7 +48,6 @@ import { toast } from 'sonner';
 import { API_BASE } from '@/lib/api';
 import { apiClient } from '@/lib/api-client';
 import { getImageDownloadFetchInit } from '@/lib/browser-download';
-import { cancelOperation } from '@/lib/operation-cancellation';
 import { cn } from '@/lib/utils';
 import { useStore } from '@/store/useStore';
 import 'grapesjs/dist/css/grapes.min.css';
@@ -3454,9 +3453,7 @@ function RightPanel({
       setAiFillTaskId(started.id);
       setAiFillStep('상세페이지 생성 중...');
       if (aiFillCancelRequestedRef.current) {
-        await cancelOperation({
-          targetType: 'content_generation',
-          generationId: started.id,
+        await apiClient.post(`/api/ai/detail-page/${started.id}/cancel`, {
           reason: '사용자 요청',
         });
         throw new Error('AI_FILL_CANCELLED');
@@ -3527,9 +3524,7 @@ function RightPanel({
       return;
     }
     try {
-      await cancelOperation({
-        targetType: 'content_generation',
-        generationId: aiFillTaskId,
+      await apiClient.post(`/api/ai/detail-page/${aiFillTaskId}/cancel`, {
         reason: '사용자 요청',
       });
       toast.success('AI 작업 중단 요청 완료');

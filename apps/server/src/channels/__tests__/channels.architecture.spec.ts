@@ -164,20 +164,22 @@ describe('channels architecture contract', () => {
     ).toEqual([]);
   });
 
-  it('legacy adapters/coupang folder contains only compatibility shims', () => {
+  it('delegates every component-row mutation to Products', () => {
+    const channels = channelsRel();
+    const hits = rg(
+      `--type ts --files-with-matches 'channelListingOptionInventoryComponent\\.(create|createMany|update|updateMany|delete|deleteMany|upsert)' ${channels} --glob '!**/__tests__/**' --glob '!**/*.spec.ts'`,
+    );
+    expect(
+      hits,
+      `Channels must call the Products recipe mutation port:\n${hits.join('\n')}`,
+    ).toEqual([]);
+  });
+
+  it('does not retain the retired Open API adapter folder', () => {
     const channels = channelsRel();
     const legacyFiles = rg(
       `--type ts --files --glob '${path.join(channels, 'adapters/coupang', '**', '*.ts')}'`,
     );
-    expect(legacyFiles).toEqual([
-      path.join(channels, 'adapters/coupang/orders.ts'),
-    ]);
-    const nonShimHits = rg(
-      `--type ts --files-with-matches 'PrismaService|fetch\\(|@nestjs/common' --glob '${path.join(channels, 'adapters/coupang', '**', '*.ts')}'`,
-    );
-    expect(
-      nonShimHits,
-      `legacy adapters/coupang files must stay compat-only:\n${nonShimHits.join('\n')}`,
-    ).toEqual([]);
+    expect(legacyFiles).toEqual([]);
   });
 });

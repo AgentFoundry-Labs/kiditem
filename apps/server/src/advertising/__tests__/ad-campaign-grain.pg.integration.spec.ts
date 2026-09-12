@@ -18,6 +18,7 @@ const OTHER_ACCOUNT = '33333333-3333-4333-8333-333333333333';
 describe('AdCampaignRepositoryAdapter account + stable campaign grain (PG)', () => {
   let prisma: PrismaClient;
   let adapter: AdCampaignRepositoryAdapter;
+  const owners = new Map<string, string>();
   const businessDate = periodBounds('7d').to;
 
   beforeAll(async () => {
@@ -40,6 +41,19 @@ describe('AdCampaignRepositoryAdapter account + stable campaign grain (PG)', () 
         { id: OTHER_ACCOUNT, organizationId: OTHER_ORGANIZATION_ID, channel: 'coupang', name: 'Other' },
       ],
     });
+    owners.clear();
+    for (const [channelAccountId, organizationId] of [
+      [ACCOUNT_A, TEST_ORGANIZATION_ID], [ACCOUNT_B, TEST_ORGANIZATION_ID],
+      [OTHER_ACCOUNT, OTHER_ORGANIZATION_ID],
+    ]) {
+      const owner = await prisma.sourceImportRun.create({ data: {
+        organizationId, channelAccountId, sourceType: 'coupang_ad_campaign',
+        parserVersion: 'ad-campaign-v1', status: 'completed', freshnessGeneration: 1,
+        plan: { captureMode: 'campaign_sweep' },
+        qualityReport: { campaignDescriptors: [] },
+      } });
+      owners.set(channelAccountId, owner.id);
+    }
   });
 
   async function createCampaignFact(input: {
@@ -55,6 +69,7 @@ describe('AdCampaignRepositoryAdapter account + stable campaign grain (PG)', () 
       data: {
         organizationId: input.organizationId ?? TEST_ORGANIZATION_ID,
         channelAccountId: input.channelAccountId,
+        sourceImportRunId: owners.get(input.channelAccountId),
         channel: 'coupang',
         businessDate: input.businessDate ?? businessDate,
         targetType: 'campaign',
@@ -88,6 +103,7 @@ describe('AdCampaignRepositoryAdapter account + stable campaign grain (PG)', () 
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         channelAccountId: input.channelAccountId,
+        sourceImportRunId: owners.get(input.channelAccountId),
         channel: 'coupang',
         businessDate: input.businessDate ?? businessDate,
         targetType: 'product',
@@ -114,180 +130,6 @@ describe('AdCampaignRepositoryAdapter account + stable campaign grain (PG)', () 
     });
   }
 
-  it('binds account-less sync evidence to the primary account even when a secondary marker is newer', async () => {
-    await prisma.channelAccount.update({
-      where: { id: ACCOUNT_A },
-      data: { isPrimary: true },
-    });
-    const markerMeta = (
-      collectionRunId: string,
-    ): Record<string, unknown> => ({
-      collectionRunId,
-      collectionAttempt: 1,
-      campaignSweepComplete: true,
-      campaignIdentityComplete: true,
-      campaignCount: 0,
-      campaignDailyCollectionComplete: true,
-      campaignDailyWindowDays: 31,
-      campaignDailyFrom: '2026-06-24',
-      campaignDailyTo: '2026-07-24',
-    });
-    await prisma.channelScrapeRun.createMany({
-      data: [
-        {
-          organizationId: TEST_ORGANIZATION_ID,
-          channelAccountId: ACCOUNT_A,
-          channel: 'coupang',
-          source: 'advertising',
-          pageType: 'campaign',
-          status: 'complete',
-          startedAt: new Date('2026-07-25T01:00:00.000Z'),
-          finishedAt: new Date('2026-07-25T01:01:00.000Z'),
-          metaJson: markerMeta(
-            'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
-          ),
-        },
-        {
-          organizationId: TEST_ORGANIZATION_ID,
-          channelAccountId: ACCOUNT_B,
-          channel: 'coupang',
-          source: 'advertising',
-          pageType: 'campaign',
-          status: 'complete',
-          startedAt: new Date('2026-07-25T02:00:00.000Z'),
-          finishedAt: new Date('2026-07-25T02:01:00.000Z'),
-          metaJson: markerMeta(
-            'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
-          ),
-        },
-      ],
-    });
-
-    await expect(
-      adapter.findAccountlessSyncCampaignSweep(TEST_ORGANIZATION_ID),
-    ).resolves.toMatchObject({
-      channelAccountId: ACCOUNT_A,
-      collectionRunId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
-      rosterComplete: true,
-      dailyFactsComplete: true,
-    });
-  });
-
-  it('proves every exact day from same-run persisted facts, including explicit-empty descriptors', async () => {
-    await prisma.channelAccount.update({
-      where: { id: ACCOUNT_A },
-      data: { isPrimary: true },
-    });
-    const collectionRunId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
-    const from = new Date('2026-06-24T00:00:00.000Z');
-    const factIds: string[] = [];
-    for (let offset = 0; offset < 31; offset += 1) {
-      const date = new Date(from.getTime() + offset * 86_400_000);
-      const run = await prisma.channelScrapeRun.create({
-        data: {
-          organizationId: TEST_ORGANIZATION_ID,
-          channelAccountId: ACCOUNT_A,
-          channel: 'coupang',
-          source: 'advertising',
-          pageType: 'campaign',
-          businessDate: date,
-          periodStart: date,
-          periodEnd: date,
-          status: 'complete',
-          startedAt: new Date('2026-07-25T01:00:00.000Z'),
-          finishedAt: new Date('2026-07-25T01:01:00.000Z'),
-          metaJson: {
-            collectionRunId,
-            collectionAttempt: 2,
-            requestedCampaignReportScope:
-              'single_campaign_authoritative',
-            effectiveCampaignReportScope:
-              'single_campaign_authoritative',
-            dailyProjectionSkipped: false,
-            dashboardOnOff: 'OFF',
-          },
-        },
-      });
-      const snapshot = await prisma.channelScrapeSnapshot.create({
-        data: {
-          organizationId: TEST_ORGANIZATION_ID,
-          scrapeRunId: run.id,
-          channel: 'coupang',
-          source: 'advertising',
-          pageType: 'campaign',
-          businessDate: date,
-          rawJson: {
-            campaignId: 'DETAIL-OFF',
-            _campaignOnly: true,
-          },
-          normalizedJson: {
-            campaignId: 'DETAIL-OFF',
-            campaignIdentity: 'campaign:DETAIL-OFF',
-            campaignName: '현재 OFF인 상세 캠페인',
-            onOff: 'OFF',
-            _campaignOnly: true,
-          },
-        },
-      });
-      const fact = await prisma.channelAdTargetDailySnapshot.create({
-        data: {
-          organizationId: TEST_ORGANIZATION_ID,
-          channelAccountId: ACCOUNT_A,
-          channel: 'coupang',
-          businessDate: date,
-          targetType: 'campaign',
-          targetKey: 'account:primary:campaign:DETAIL-OFF',
-          campaignId: 'DETAIL-OFF',
-          campaignIdentity: 'campaign:DETAIL-OFF',
-          campaignName: '현재 OFF인 상세 캠페인',
-          onOff: 'OFF',
-          rawSnapshotId: snapshot.id,
-        },
-      });
-      factIds.push(fact.id);
-    }
-    await prisma.channelScrapeRun.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        channelAccountId: ACCOUNT_A,
-        channel: 'coupang',
-        source: 'advertising',
-        pageType: 'campaign',
-        status: 'complete',
-        startedAt: new Date('2026-07-25T02:00:00.000Z'),
-        finishedAt: new Date('2026-07-25T02:01:00.000Z'),
-        metaJson: {
-          collectionRunId,
-          collectionAttempt: 2,
-          campaignSweepComplete: true,
-          campaignIdentityComplete: true,
-          campaignCount: 1,
-          campaignDailyCollectionComplete: true,
-          campaignDailyWindowDays: 31,
-          campaignDailyFrom: '2026-06-24',
-          campaignDailyTo: '2026-07-24',
-        },
-      },
-    });
-
-    await expect(
-      adapter.findAccountlessSyncCampaignSweep(TEST_ORGANIZATION_ID),
-    ).resolves.toMatchObject({
-      rosterComplete: true,
-      dailyFactsComplete: true,
-    });
-
-    await prisma.channelAdTargetDailySnapshot.delete({
-      where: { id: factIds[0] },
-    });
-    await expect(
-      adapter.findAccountlessSyncCampaignSweep(TEST_ORGANIZATION_ID),
-    ).resolves.toMatchObject({
-      rosterComplete: true,
-      dailyFactsComplete: false,
-    });
-  });
-
   it('keeps the same provider campaign id in two accounts as two campaigns', async () => {
     await createCampaignFact({
       channelAccountId: ACCOUNT_A,
@@ -304,7 +146,7 @@ describe('AdCampaignRepositoryAdapter account + stable campaign grain (PG)', () 
       spend: 200,
     });
 
-    const rows = await adapter.findCampaignRollups(TEST_ORGANIZATION_ID, '7d');
+    const rows = await adapter.findCampaignSnapshot(TEST_ORGANIZATION_ID, '7d').then((snapshot) => snapshot.rollups);
     expect(rows).toHaveLength(2);
     expect(rows.map((row) => row.channelAccountId).sort()).toEqual([ACCOUNT_A, ACCOUNT_B].sort());
     expect(rows.map((row) => row.spend).sort((a, b) => a - b)).toEqual([100, 200]);
@@ -324,7 +166,7 @@ describe('AdCampaignRepositoryAdapter account + stable campaign grain (PG)', () 
       spend: 400,
     });
 
-    const rows = await adapter.findCampaignRollups(TEST_ORGANIZATION_ID, '7d');
+    const rows = await adapter.findCampaignSnapshot(TEST_ORGANIZATION_ID, '7d').then((snapshot) => snapshot.rollups);
     expect(rows).toHaveLength(2);
     expect(rows.map((row) => row.campaignIdentity).sort()).toEqual([
       'campaign:provider-a',
@@ -352,7 +194,7 @@ describe('AdCampaignRepositoryAdapter account + stable campaign grain (PG)', () 
       revenue: 70,
     });
 
-    const rows = await adapter.findCampaignRollups(TEST_ORGANIZATION_ID, '7d');
+    const rows = await adapter.findCampaignSnapshot(TEST_ORGANIZATION_ID, '7d').then((snapshot) => snapshot.rollups);
 
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({
@@ -396,7 +238,7 @@ describe('AdCampaignRepositoryAdapter account + stable campaign grain (PG)', () 
       spend: 20,
     });
 
-    const rows = await adapter.findCampaignRollups(TEST_ORGANIZATION_ID, '7d');
+    const rows = await adapter.findCampaignSnapshot(TEST_ORGANIZATION_ID, '7d').then((snapshot) => snapshot.rollups);
 
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({
@@ -445,7 +287,7 @@ describe('AdCampaignRepositoryAdapter account + stable campaign grain (PG)', () 
       businessDate: previousBusinessDate,
     });
 
-    const rows = await adapter.findCampaignRollups(TEST_ORGANIZATION_ID, '7d');
+    const rows = await adapter.findCampaignSnapshot(TEST_ORGANIZATION_ID, '7d').then((snapshot) => snapshot.rollups);
 
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({
@@ -466,6 +308,7 @@ describe('AdCampaignRepositoryAdapter account + stable campaign grain (PG)', () 
         {
           organizationId: TEST_ORGANIZATION_ID,
           channelAccountId: ACCOUNT_A,
+          sourceImportRunId: owners.get(ACCOUNT_A),
           channel: 'coupang',
           businessDate,
           targetType: 'product',
@@ -481,6 +324,7 @@ describe('AdCampaignRepositoryAdapter account + stable campaign grain (PG)', () 
         {
           organizationId: TEST_ORGANIZATION_ID,
           channelAccountId: ACCOUNT_A,
+          sourceImportRunId: owners.get(ACCOUNT_A),
           channel: 'coupang',
           businessDate,
           targetType: 'product',
@@ -511,6 +355,7 @@ describe('AdCampaignRepositoryAdapter account + stable campaign grain (PG)', () 
         {
           organizationId: TEST_ORGANIZATION_ID,
           channelAccountId: ACCOUNT_A,
+          sourceImportRunId: owners.get(ACCOUNT_A),
           channel: 'coupang',
           businessDate,
           targetType: 'product',
@@ -525,6 +370,7 @@ describe('AdCampaignRepositoryAdapter account + stable campaign grain (PG)', () 
         {
           organizationId: OTHER_ORGANIZATION_ID,
           channelAccountId: OTHER_ACCOUNT,
+          sourceImportRunId: owners.get(OTHER_ACCOUNT),
           channel: 'coupang',
           businessDate,
           targetType: 'product',

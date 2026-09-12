@@ -1,309 +1,159 @@
-import { useMemo, useState } from 'react';
 import Link from 'next/link';
-import type { QueryClient } from '@tanstack/react-query';
-import {
-  AlertTriangle,
-  Loader2,
-  Megaphone,
-  MinusCircle,
-  ShieldCheck,
-  Square,
-  Truck,
-  X,
-} from 'lucide-react';
-import { type DashboardAlertItem } from '@kiditem/shared/dashboard';
-import type { PanelAlertItem } from '@kiditem/shared/panel';
-import { usePanelStore } from '@/components/panel/lib/panel-store';
-import { apiClient } from '@/lib/api-client';
-import { isApiError } from '@/lib/api-error';
-import {
-  browserCollectionRunIdFromOperationKey,
-  sendBrowserCollectionControl,
-  syncBrowserCollectionAlert,
-} from '@/lib/browser-collection-session';
-import { cancelOperation } from '@/lib/operation-cancellation';
-import { isOperationAlertCancellable } from '@/lib/operation-alert-actions';
-import { queryKeys } from '@/lib/query-keys';
+import { AlertTriangle, CheckCircle2, RotateCcw, ShieldCheck, X } from 'lucide-react';
+import { useDismissAlert } from '@/lib/alerts-api';
 import { cn } from '@/lib/utils';
-import { toast } from 'sonner';
-import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import type { DashboardAlertItem } from '@kiditem/shared/dashboard';
 
-function alertIcon(type: string) {
-  if (type === 'minus_product') return <MinusCircle size={14} className="text-red-500 shrink-0" />;
-  if (type === 'ad_high') return <Megaphone size={14} className="text-amber-500 shrink-0" />;
-  if (type === 'stock_low') return <Truck size={14} className="text-blue-500 shrink-0" />;
-  return <AlertTriangle size={14} className="text-slate-400 shrink-0" />;
+/**
+ * Two alert types are ever written: `source_failure` and `rule_violation`. This
+ * branched on four others — `minus_product`, `ad_high`, `stock_low`,
+ * `strategy_change` — which appear nowhere in the server. Three of them name a
+ * **Warning**, a standing count of products currently in a bad state, which the
+ * glossary says not to call an alert.
+ */
+function alertIcon() {
+  return <AlertTriangle size={14} className="shrink-0 text-slate-400" />;
+}
+
+function isOpenAlert(alert: DashboardAlertItem): boolean {
+  return isOpenAlertStatus(alert.status);
+}
+
+function isOpenAlertStatus(status: DashboardAlertItem['status']): boolean {
+  return status === 'OPEN';
 }
 
 function alertStatusLabel(status: DashboardAlertItem['status']): string | null {
-  if (status === 'running') return '진행 중';
-  if (status === 'pending') return '대기 중';
-  if (status === 'succeeded') return '완료';
-  if (status === 'failed') return '실패';
-  if (status === 'cancelled') return '취소';
-  if (status === 'resolved') return '해결';
+  if (isOpenAlertStatus(status)) return '확인 필요';
+  if (status === 'RESOLVED') return '해결됨';
   return null;
 }
 
-function alertStatusClass(status: DashboardAlertItem['status']): string {
-  if (status === 'succeeded') return 'bg-emerald-50 text-emerald-700';
-  if (status === 'failed') return 'bg-red-50 text-red-700';
-  if (status === 'running' || status === 'pending') return 'bg-blue-50 text-blue-700';
-  return 'bg-slate-100 text-slate-600';
+/**
+ * A dashboard read that failed, which is a notification like any other: it needs
+ * attention and it has one action. It used to be a red block across the top of
+ * the page, which put a partial read failure above everything that did load.
+ *
+ * It says the read's name and nothing else. A reason a person cannot act on is
+ * not worth a line — the schema-drift sentinel literally reads "개발팀에
+ * 문의하세요", which is a message for us, not for whoever is looking at this.
+ */
+export type DashboardReadFailure = {
+  key: string;
+  label: string;
+  retry: () => void;
+};
+
+function DashboardReadFailureRow({ failure }: { failure: DashboardReadFailure }) {
+  return (
+    <div
+      className="group flex items-start gap-2.5 border-b border-slate-50 px-4 py-2.5"
+      data-testid="dashboard-read-failure"
+      data-read-failure={failure.label}
+    >
+      <div className="mt-0.5">
+        <AlertTriangle size={14} className="shrink-0 text-red-500" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <span className="truncate text-sm font-medium leading-relaxed text-slate-700">{failure.label}</span>
+          <span className="shrink-0 rounded bg-red-50 px-1.5 py-0.5 text-[11px] font-semibold text-red-700">
+            읽기 실패
+          </span>
+        </div>
+      </div>
+      <button
+        type="button"
+        aria-label="다시 시도"
+        title="다시 시도"
+        onClick={failure.retry}
+        className="shrink-0 rounded border border-slate-200 p-1 text-slate-400 transition hover:bg-slate-50 hover:text-slate-600"
+      >
+        <RotateCcw className="h-3 w-3" aria-hidden="true" />
+      </button>
+    </div>
+  );
 }
 
-function isActiveOperation(alert: DashboardAlertItem): boolean {
-  return alert.kind === 'operation' && (alert.status === 'running' || alert.status === 'pending');
-}
-
-function operationKeyOf(alert: DashboardAlertItem): string | null {
-  const value = (alert as DashboardAlertItem & { operationKey?: string | null }).operationKey;
-  return typeof value === 'string' && value.length > 0 ? value : null;
-}
-
-function isPanelAlertItem(item: unknown): item is PanelAlertItem {
-  return typeof item === 'object' && item !== null && (item as { kind?: unknown }).kind === 'alert';
-}
-
-function dashboardAlertFromPanelAlert(item: PanelAlertItem): DashboardAlertItem {
-  return {
-    id: item.id,
-    kind: item.alertKind,
-    status: item.status,
-    type: item.type,
-    severity: item.severity,
-    title: item.title,
-    message: item.message,
-    operationKey: item.operationKey,
-    sourceType: item.sourceType,
-    href: item.href,
-    progress: item.progress,
-    targetType: item.targetType,
-    targetId: item.targetId,
-    isRead: item.isRead,
-    createdAt: item.createdAt,
+function DashboardAlertRow({ alert }: { alert: DashboardAlertItem }) {
+  const dismissMutation = useDismissAlert();
+  // The source owner names where to send the operator. The fallbacks here keyed
+  // off types nothing writes, so they never fired.
+  const href = alert.href ?? undefined;
+  const open = isOpenAlert(alert);
+  const dismiss = (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    // Which surfaces have to reconcile is the hook's answer, not this row's.
+    // A failure needs no branch here: the next poll reconciles the row.
+    dismissMutation.mutate(alert.id);
   };
-}
-
-function DashboardAlertRow({
-  alert,
-  queryClient,
-}: {
-  alert: DashboardAlertItem;
-  queryClient: QueryClient;
-}) {
-  const [isCancelling, setIsCancelling] = useState(false);
-  const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
-  const dismissPanelItem = usePanelStore((state) => state.dismissItem);
-  const href = alert.href ?? (alert.type === 'strategy_change' ? '/ad-ops' : alert.type === 'stock_low' ? '/inventory-hub' : alert.type === 'minus_product' ? '/product-hub?tab=cleanup' : alert.type === 'ad_high' ? '/ad-ops' : undefined);
-  const statusLabel = alert.kind === 'operation' ? alertStatusLabel(alert.status) : null;
-  const operationKey = operationKeyOf(alert);
-  const browserCollectionRunId =
-    browserCollectionRunIdFromOperationKey(operationKey);
-  const canCancel = isOperationAlertCancellable({
-    status: alert.status,
-    operationKey,
-    sourceType: alert.sourceType,
-  });
-  const canDismiss =
-    isActiveOperation(alert) && alert.status === 'pending' && !canCancel;
   const content = (
     <>
-      <div className="mt-0.5">{alertIcon(alert.type)}</div>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-1.5 min-w-0">
-          <span className="text-sm font-medium leading-relaxed text-slate-700 truncate">{alert.title}</span>
-          {statusLabel && (
-            <span className={cn('shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold', alertStatusClass(alert.status))}>
-              {statusLabel}
+      <div className="mt-0.5">{open ? alertIcon() : <CheckCircle2 size={14} className="shrink-0 text-emerald-500" />}</div>
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <span className="truncate text-sm font-medium leading-relaxed text-slate-700">{alert.title}</span>
+          {!alert.isRead && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-red-500" aria-label="읽지 않음" />}
+          {alertStatusLabel(alert.status) && (
+            <span className={cn(
+              'shrink-0 rounded px-1.5 py-0.5 text-[11px] font-semibold',
+              open ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700',
+            )}>
+              {alertStatusLabel(alert.status)}
             </span>
           )}
-          {href && <span className="text-[10px] text-purple-600">→</span>}
         </div>
-        {alert.message && (
-          <div className="mt-0.5 truncate text-xs text-slate-500">{alert.message}</div>
-        )}
+        {alert.message && <div className="mt-0.5 truncate text-[13px] text-slate-500">{alert.message}</div>}
       </div>
     </>
   );
-  const rowClass = cn('group flex items-start gap-2.5 px-4 py-2.5 border-b border-slate-50 transition-colors', href && 'hover:bg-slate-50');
-  const contentClass = cn('flex min-w-0 flex-1 items-start gap-2.5', href && 'cursor-pointer');
-
-  const requestCancel = async (event: React.MouseEvent<HTMLButtonElement>) => {
-    event.preventDefault();
-    event.stopPropagation();
-    if (!operationKey || isCancelling) return;
-    setCancelConfirmOpen(true);
-  };
-
-  const dismiss = async (event: React.MouseEvent<HTMLButtonElement>) => {
-    event.preventDefault();
-    event.stopPropagation();
-    try {
-      await apiClient.post(
-        `/api/alerts/${encodeURIComponent(alert.id)}/dismiss`,
-      );
-      dismissPanelItem(alert.id);
-      await queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
-    } catch (error) {
-      toast.error(isApiError(error) ? error.detail : '알림 정리에 실패했습니다.');
-    }
-  };
-
-  const confirmCancel = async () => {
-    if (!operationKey || isCancelling) return;
-    setIsCancelling(true);
-    try {
-      if (browserCollectionRunId) {
-        const session = await sendBrowserCollectionControl(
-          browserCollectionRunId,
-          'cancelCollectionSession',
-        );
-        if (!session || session.status !== 'cancelled') {
-          throw new Error('브라우저 수집 중단 상태를 확인하지 못했습니다.');
-        }
-        await syncBrowserCollectionAlert(session).catch((error) => {
-          console.warn('[dashboard] browser collection alert sync failed', error);
-        });
-        queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
-        return;
-      }
-
-      await cancelOperation({
-        targetType: 'operation_key',
-        operationKey,
-        reason: '사용자 요청',
-      });
-      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
-    } catch (error) {
-      toast.error(isApiError(error) ? error.detail : '작업 중단 요청에 실패했습니다.');
-    } finally {
-      setIsCancelling(false);
-      setCancelConfirmOpen(false);
-    }
-  };
 
   return (
-    <>
-      <div className={rowClass}>
-        {href ? (
-          <Link href={href} className={contentClass}>
-            {content}
-          </Link>
-        ) : (
-          <div className={contentClass}>{content}</div>
-        )}
-        {canCancel && (
-          <button
-            type="button"
-            onClick={requestCancel}
-            disabled={isCancelling}
-            aria-label="작업 중단"
-            title="작업 중단"
-            className={cn(
-              'relative z-[60] mt-0.5 mr-12 shrink-0 rounded border border-slate-200 p-1 text-slate-400 transition',
-              'opacity-0 group-hover:opacity-100 focus:opacity-100 hover:bg-slate-50 hover:text-red-600',
-              isCancelling && 'cursor-wait opacity-100',
-            )}
-          >
-            {isCancelling ? (
-              <Loader2 className="h-3 w-3 animate-spin" />
-            ) : (
-              <Square className="h-3 w-3" />
-            )}
-          </button>
-        )}
-        {canDismiss && (
-          <button
-            type="button"
-            onClick={dismiss}
-            aria-label="알림 정리"
-            title="알림 정리"
-            className={cn(
-              'relative z-[60] mt-0.5 mr-12 shrink-0 rounded border border-slate-200 p-1 text-slate-400 transition',
-              'opacity-0 group-hover:opacity-100 focus:opacity-100 hover:bg-slate-50 hover:text-slate-600',
-            )}
-          >
-            <X className="h-3 w-3" />
-          </button>
-        )}
-      </div>
-      <ConfirmDialog
-        open={cancelConfirmOpen}
-        onOpenChange={setCancelConfirmOpen}
-        title="작업을 중단할까요?"
-        description="이미 완료된 결과는 유지하고, 아직 진행 중인 실행만 중단합니다."
-        confirmText="중단"
-        cancelText="계속 실행"
-        tone="danger"
-        isLoading={isCancelling}
-        onConfirm={confirmCancel}
-      />
-    </>
+    <div className="group flex items-start gap-2.5 border-b border-slate-50 px-4 py-2.5">
+      {href ? <Link href={href} className="flex min-w-0 flex-1 items-start gap-2.5 hover:bg-slate-50">{content}</Link> : <div className="flex min-w-0 flex-1 items-start gap-2.5">{content}</div>}
+      {open && (
+        <button
+          type="button"
+          aria-label="알림 닫기"
+          title="알림 닫기"
+          onClick={(event) => void dismiss(event)}
+          className="shrink-0 rounded border border-slate-200 p-1 text-slate-400 opacity-0 transition hover:bg-slate-50 hover:text-slate-600 focus:opacity-100 group-hover:opacity-100"
+        >
+          <X className="h-3 w-3" aria-hidden="true" />
+        </button>
+      )}
+    </div>
   );
 }
 
 export function DashboardSidePanel({
   alerts,
-  queryClient,
+  readFailures = [],
 }: {
   alerts: DashboardAlertItem[];
-  queryClient: QueryClient;
+  readFailures?: readonly DashboardReadFailure[];
 }) {
-  const panelById = usePanelStore((state) => state.byId);
-  const panelHasHydrated = usePanelStore((state) => state.hasHydrated);
-  const upsertPanelItem = usePanelStore((state) => state.upsertItem);
-  const panelAlertItems = useMemo(
-    () => Object.values(panelById).filter(isPanelAlertItem),
-    [panelById],
-  );
-  const panelAlerts = useMemo(
-    () => panelAlertItems.map(dashboardAlertFromPanelAlert),
-    [panelAlertItems],
-  );
-  const visibleAlerts = panelHasHydrated ? panelAlerts : alerts;
-  const unreadCount = visibleAlerts.filter((alert) => !alert.isRead).length;
-
-  const markAllRead = async () => {
-    try {
-      await apiClient.patch('/api/alerts/read-all', {});
-      if (panelHasHydrated) {
-        const readAt = new Date().toISOString();
-        for (const item of panelAlertItems) {
-          if (!item.isRead) {
-            upsertPanelItem({ ...item, isRead: true, readAt });
-          }
-        }
-      }
-      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
-    } catch {
-      // Best-effort notification cleanup. The panel refreshes on the next poll.
-    }
-  };
+  // A failed read needs attention the same way an open alert does, so it counts.
+  const unreadCount = alerts.filter((alert) => !alert.isRead && isOpenAlert(alert)).length
+    + readFailures.length;
 
   return (
-    <div className="rounded-2xl overflow-hidden flex flex-col h-full bg-white border border-slate-100 shadow-sm">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
-        <div className="flex items-center gap-1.5">
-          <AlertTriangle size={14} className="text-slate-500" />
-          <span className="text-sm font-semibold text-slate-900">알림</span>
-          {unreadCount > 0 && (
-            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-red-100 text-red-700">{unreadCount}</span>
-          )}
-        </div>
-        {unreadCount > 0 && (
-          <button onClick={markAllRead} className="text-xs text-purple-600 font-semibold hover:underline">전체 읽음</button>
-        )}
+    <div className="flex h-full flex-col overflow-hidden rounded-xl border border-slate-200 bg-white">
+      <div className="flex items-center gap-1.5 border-b border-slate-200 bg-slate-50 px-4 py-2.5">
+        <AlertTriangle size={13} className="text-slate-500" />
+        <span className="text-sm font-semibold text-slate-900">알림</span>
+        {unreadCount > 0 && <span className="rounded-full bg-red-100 px-1.5 py-0.5 text-[11px] font-medium text-red-700">{unreadCount}</span>}
       </div>
-
-      <div className="flex-1 overflow-y-auto min-h-0">
-        {visibleAlerts.map((alert) => (
-          <DashboardAlertRow key={alert.id} alert={alert} queryClient={queryClient} />
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {readFailures.map((failure) => (
+          <DashboardReadFailureRow key={failure.key} failure={failure} />
         ))}
-        {visibleAlerts.length === 0 && (
+        {alerts.map((alert) => <DashboardAlertRow key={alert.id} alert={alert} />)}
+        {alerts.length === 0 && readFailures.length === 0 && (
           <div className="px-4 py-8 text-center">
             <ShieldCheck size={24} className="mx-auto mb-2 text-emerald-500" />
-            <div className="text-xs text-slate-400">표시할 알림이 없습니다</div>
+            <div className="text-[13px] text-slate-400">표시할 알림이 없습니다</div>
           </div>
         )}
       </div>

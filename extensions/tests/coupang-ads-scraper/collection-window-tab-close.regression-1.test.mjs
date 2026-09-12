@@ -9,6 +9,10 @@ const helperPath = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   '../../../extensions/kiditem-os/background/coupang/collection-window.js',
 );
+const collectorPath = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '../../../extensions/kiditem-os/background/coupang/ad-center-collector.js',
+);
 
 function createControlledTimers() {
   let nextId = 1;
@@ -168,10 +172,13 @@ function createChromeHarness() {
       calls.attached.push([runId, structuredClone(tab)]);
       return { status: 'running' };
     },
-    async cancel() {},
-    async fail() {},
-    async get() {
-      return { status: 'running', attempt: 1 };
+    async get(attemptId) {
+      return {
+        attemptId,
+        environmentId: 'local',
+        producer: 'advertising.ad_sync',
+        progress: { current: 0, total: 0, completed: 0, failed: 0, label: null },
+      };
     },
     async progress() {},
     async requireAttention() {},
@@ -190,36 +197,42 @@ function createChromeHarness() {
   vm.runInContext(fs.readFileSync(helperPath, 'utf8'), context, {
     filename: helperPath,
   });
+  vm.runInContext(fs.readFileSync(collectorPath, 'utf8'), context, {
+    filename: collectorPath,
+  });
   const helper = context.KidItemCollectionWindow.create({
-    cancelKey: 'collection-cancel',
     chrome,
     delay: async () => {},
     sessions,
-    statusKey: 'collection-status',
     storageKey: 'owned-window',
   });
 
-  return { calls, helper, timers };
+  const collector = context.KidItemAdCenterCollector.create({
+    window: helper,
+    chrome,
+    sessions,
+    bindTab: async () => {},
+    cancelKey: 'collection-cancel',
+    delay: async () => {},
+    statusKey: 'collection-status',
+  });
+
+  return { calls, collector, helper, timers };
 }
 
 // Regression: ISSUE-002 — a tab closed after manualSync starts waited 180s
 // instead of entering the existing one-shot replacement path.
 // Found by /qa on 2026-07-28
 // Report: .gstack/qa-reports/qa-report-localhost-2026-07-28.md
-test('ad sync immediately replaces a tab closed after its message channel opens', async () => {
-  const { calls, helper, timers } = createChromeHarness();
-  const collection = helper.collectTargets({
+test('ad collector immediately replaces a tab closed after its message channel opens', async () => {
+  const { calls, collector, timers } = createChromeHarness();
+  const collection = collector.collectCampaigns({
     environmentId: 'local',
-    producer: 'advertising.ad_sync',
-    runId: 'run-channel-close-recovery',
-    startedAt: 1,
-    targets: [
-      {
-        id: 'ads',
-        label: '광고 동기화',
-        url: 'https://advertising.coupang.com/marketing/dashboard/sales#kiditemAdSync=1',
-      },
-    ],
+    attemptId: 'run-channel-close-recovery',
+    control: {
+      attemptId: 'run-channel-close-recovery',
+      plan: { captureMode: 'campaign_sweep' },
+    },
   });
   const outcome = await Promise.race([
     collection.then(() => 'completed'),

@@ -1,6 +1,5 @@
-import type { OperationRun } from '@kiditem/shared/operations';
 import { apiClient } from '@/lib/api-client';
-import { operationsApi } from '@/lib/operations-api';
+import { collectTrendSources, type TrendSourceCollectionResult } from '@/lib/source-trend-api';
 
 export interface TrendSeed {
   id: string;
@@ -47,11 +46,8 @@ export interface PopularKeywordBoardView {
   risers: Array<{ keyword: string; rankDelta: number | null }>;
 }
 
-export function collectNaverTrend(): Promise<OperationRun> {
-  return operationsApi.start('sourcing.collect_daily_trends', {
-    sourceSurface: 'domain_screen',
-    input: { sources: ['naver'] },
-  });
+export function collectNaverTrend(): Promise<TrendSourceCollectionResult> {
+  return collectTrendSources(['naver']);
 }
 
 export async function fetchTrendSeeds(): Promise<TrendSeed[]> {

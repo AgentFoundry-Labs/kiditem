@@ -7,6 +7,7 @@ import {
   CapabilityInvokeInputSchema,
   CapabilityInvokeOutputSchema,
   CAPABILITY_MCP_TOOL_NAMES,
+  CapabilityResultReceiptWireSchema,
   MCP_JSON_SCHEMA_DIALECT,
 } from './capability-mcp-wire-contract';
 
@@ -14,12 +15,11 @@ const ORGANIZATION_ID = '00000000-0000-4000-8000-000000000001';
 const USER_ID = '00000000-0000-4000-8000-000000000002';
 
 describe('Capability MCP v2 wire contract', () => {
-  it('keeps the exact five-tool surface and a strict transport envelope separate from owner business input', () => {
+  it('keeps the exact four-tool surface and a strict transport envelope separate from owner business input', () => {
     expect(CAPABILITY_MCP_TOOL_NAMES).toEqual([
       'capability_catalog_search',
       'capability_invoke',
       'invocation_status',
-      'operation_status',
       'readiness_probe',
     ]);
     expect(CapabilityInvokeInputSchema.safeParse({
@@ -31,11 +31,16 @@ describe('Capability MCP v2 wire contract', () => {
       input: {},
       unexpected: true,
     }).success).toBe(false);
+    expect(CapabilityResultReceiptWireSchema.safeParse({
+      summary: 'completed',
+      resourceRefs: [],
+      operationRefs: [],
+    }).success).toBe(false);
   });
 
   it('advertises strict owner schemas as JSON Schema 2020-12 and has the owner revalidate business input/output', async () => {
     const sourceDefinition = FINAL_CAPABILITY_DEFINITIONS.find(
-      ({ key }) => key === 'sourcing.collect_shadow_signals',
+      ({ key }) => key === 'sourcing.ingestCandidate',
     );
     expect(sourceDefinition).toBeDefined();
     const catalog = capabilityDefinitionToCatalogEntry(sourceDefinition!);
@@ -122,7 +127,6 @@ describe('Capability MCP v2 wire contract', () => {
     const result = {
       summary: 'Thumbnail registration completed.',
       resourceRefs: [],
-      operationRefs: [],
       output: { screenshotPath: '/tmp/host-only/wing-capture.png' },
     };
     const mutation = {

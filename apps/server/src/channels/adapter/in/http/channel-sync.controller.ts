@@ -1,40 +1,28 @@
-import { Controller, Get, Post, Body } from '@nestjs/common';
-import { ChannelSyncService } from '../../../application/service/channel-sync.service';
-import { SyncOrdersBodyDto } from './dto';
+import { Controller, Get, NotImplementedException, Post } from '@nestjs/common';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
-import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
-import type { AuthUser } from '../../../../auth/auth.types';
+
+const COUPANG_OPEN_API_UNSUPPORTED_MESSAGE =
+  '쿠팡 Open API 동기화는 지원하지 않습니다. WING 브라우저 또는 승인된 내부 소스를 사용하세요.';
 
 @Controller('coupang-sync')
 export class ChannelSyncController {
-  constructor(private readonly syncService: ChannelSyncService) {}
-
   @Get('health')
-  async checkHealth(@CurrentOrganization() organizationId: string) {
-    return this.syncService.checkHealth(organizationId);
+  checkHealth(@CurrentOrganization() _organizationId: string): never {
+    throw new NotImplementedException(COUPANG_OPEN_API_UNSUPPORTED_MESSAGE);
   }
 
   @Post('products')
-  async syncProducts(
-    @CurrentOrganization() organizationId: string,
-    @CurrentUser() user: AuthUser,
-  ) {
-    return this.syncService.syncProductsWithAlert(organizationId, user.id);
+  syncProducts(@CurrentOrganization() _organizationId: string): never {
+    throw new NotImplementedException(COUPANG_OPEN_API_UNSUPPORTED_MESSAGE);
   }
 
   @Post('orders')
-  async syncOrders(
-    @Body() body: SyncOrdersBodyDto,
-    @CurrentOrganization() organizationId: string,
-    @CurrentUser() user: AuthUser,
-  ) {
-    const from = body.from ? new Date(body.from) : undefined;
-    const to = body.to ? new Date(body.to) : undefined;
-    return this.syncService.syncOrdersWithAlert(organizationId, user.id, from, to);
+  syncOrders(@CurrentOrganization() _organizationId: string): never {
+    throw new NotImplementedException(COUPANG_OPEN_API_UNSUPPORTED_MESSAGE);
   }
 
   @Post('inventory')
-  async syncInventory(@CurrentOrganization() organizationId: string) {
-    return this.syncService.syncInventory(organizationId);
+  syncInventory(@CurrentOrganization() _organizationId: string): never {
+    throw new NotImplementedException(COUPANG_OPEN_API_UNSUPPORTED_MESSAGE);
   }
 }

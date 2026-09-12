@@ -6,6 +6,6 @@ export class DirectShadowSignalController {
 
   @Post('collect')
   collect() {
-    return this.shadowSignals.collect('organization-id');
+    return this.shadowSignals.collect({ organizationId: 'organization-id', idempotencyKey: 'owner-key' });
   }
 }

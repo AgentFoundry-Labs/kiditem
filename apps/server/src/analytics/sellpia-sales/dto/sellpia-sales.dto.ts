@@ -101,6 +101,19 @@ export class SellpiaSalesIngestBodyDto {
   capturedAt!: string;
 }
 
+export class SellpiaSalesSourceFailureDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(100)
+  @Matches(/^[A-Z0-9_:-]+$/)
+  errorCode!: string;
+
+  @IsString()
+  @MinLength(1)
+  @MaxLength(300)
+  errorMessage!: string;
+}
+
 export class SellpiaSalesQueryDto {
   @IsOptional()
   @IsString()

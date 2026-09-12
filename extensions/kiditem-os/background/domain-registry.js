@@ -6,10 +6,24 @@
   // `producer` 접두사가 그 세션을 만든 도메인을 가리키는 유일한 식별자다.
   const byProducerPrefix = new Map();
   const byExternalPortName = new Map();
-  const byOperationKey = new Map();
+  const byExternalAction = new Map();
   const capabilityMaps = [];
+  const registeredDomains = [];
 
   function register(domain) {
+    if (!domain || typeof domain !== "object") {
+      throw new Error("Invalid domain registration");
+    }
+    for (const hookName of [
+      "cancelAdditionalCollections",
+      "retryAdditionalCollections",
+      "recoverCollections",
+    ]) {
+      if (domain[hookName] !== undefined && typeof domain[hookName] !== "function") {
+        throw new Error(`Invalid domain lifecycle hook: ${hookName}`);
+      }
+    }
+    registeredDomains.push(domain);
     if (domain.capabilities) capabilityMaps.push(domain.capabilities);
     for (const prefix of domain.producerPrefixes || []) {
       if (byProducerPrefix.has(prefix)) {
@@ -26,17 +40,18 @@
       }
       byExternalPortName.set(portName, handler);
     }
-    for (const [operationKey, handler] of Object.entries(domain.operations || {})) {
-      if (typeof operationKey !== "string" || !operationKey) {
-        throw new Error("Invalid browser operation key");
+    for (const [action, contract] of Object.entries(domain.externalActions || {})) {
+      if (byExternalAction.has(action)) {
+        throw new Error(`Duplicate external action: ${action}`);
       }
-      if (byOperationKey.has(operationKey)) {
-        throw new Error(`Duplicate browser operation key: ${operationKey}`);
+      if (
+        !contract ||
+        typeof contract.validate !== "function" ||
+        typeof contract.handle !== "function"
+      ) {
+        throw new Error(`Invalid external action handler: ${action}`);
       }
-      if (typeof handler !== "function") {
-        throw new Error(`Invalid browser operation handler: ${operationKey}`);
-      }
-      byOperationKey.set(operationKey, handler);
+      byExternalAction.set(action, contract);
     }
   }
 
@@ -56,26 +71,30 @@
     return byExternalPortName.get(portName) || null;
   }
 
-  // Browser runtime은 exact operation key만 dispatch한다. URL/action을 받아
-  // 임의 실행하는 범용 executor를 만들지 않아 도메인별 브라우저 경계를 지킨다.
-  function runOperation(operationKey) {
-    if (typeof operationKey !== "string") return null;
-    return byOperationKey.get(operationKey) || null;
+  function forExternalAction(action) {
+    if (typeof action !== "string") return null;
+    return byExternalAction.get(action) || null;
+  }
+
+  function list() {
+    return [...new Set(registeredDomains)];
   }
 
   function reset() {
     byProducerPrefix.clear();
     byExternalPortName.clear();
-    byOperationKey.clear();
+    byExternalAction.clear();
     capabilityMaps.length = 0;
+    registeredDomains.length = 0;
   }
 
   root.KidItemDomains = Object.freeze({
     register,
     capabilities,
     forProducer,
+    forExternalAction,
     forExternalPort,
-    runOperation,
+    list,
     reset,
   });
 })(globalThis);

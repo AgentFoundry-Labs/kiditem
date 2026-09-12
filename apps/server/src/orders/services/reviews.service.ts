@@ -1,6 +1,14 @@
 // apps/server/src/orders/services/reviews.service.ts
 import { Injectable } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
+import { PrismaService } from '../../prisma/prisma.service';
+import { ListReviewsQueryDto, type ReviewFilter } from '../dto/list-reviews.dto';
+import { ListReviewItemsQueryDto } from '../dto/list-review-items.dto';
+import type {
+  OrdersReviewListingStatsReadPort,
+  ReviewListingStatsReadRequest,
+  ReviewListingStatsReadResult,
+} from '../application/port/in/review-listing-stats-read.port';
 import type {
   ReviewItem,
   ReviewItemListResponse,
@@ -8,9 +16,8 @@ import type {
   ReviewListResponse,
   ReviewSummary,
 } from '@kiditem/shared/reviews';
-import { PrismaService } from '../../prisma/prisma.service';
-import { ListReviewsQueryDto, type ReviewFilter } from '../dto/list-reviews.dto';
-import { ListReviewItemsQueryDto } from '../dto/list-review-items.dto';
+
+const COUPANG_REVIEW_SOURCE_TYPE = 'coupang_reviews';
 
 const RECENT_DAYS = 30;
 const RECENT_WINDOW_MS = RECENT_DAYS * 24 * 60 * 60 * 1000;
@@ -25,15 +32,6 @@ const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 50;
 const DEFAULT_FILTER: ReviewFilter = 'all';
 
-// 채널에서 삭제/블라인드된 상품평은 노출 평점에 반영되지 않으므로 집계에서도 뺀다.
-// 크롤링 적재(`ReviewIngestService`)는 두 상태를 버리지 않고 플래그로 보존한다.
-const VISIBLE_REVIEW_WHERE = { isDeleted: false, isBlinded: false } as const;
-
-// 쿠팡은 별점만 남기는 상품평이 대부분이라 "본문 있는 리뷰"가 별도 필터로 필요하다.
-const HAS_CONTENT_WHERE: Prisma.ReviewWhereInput = {
-  OR: [{ content: { not: null } }, { title: { not: null } }],
-};
-
 interface ListingAggregate {
   listingId: string;
   totalReviews: number;
@@ -41,9 +39,92 @@ interface ListingAggregate {
   lastReviewAt: Date | null;
 }
 
+type ReviewReadRow = {
+  id: string;
+  listingId: string | null;
+  itemName: string | null;
+  externalOptionId: string | null;
+  externalProductId: string | null;
+  rating: number;
+  title: string | null;
+  content: string | null;
+  reviewerName: string | null;
+  reviewedAt: Date;
+  imageCount: number;
+  videoCount: number;
+};
+
+type RawAggregateRow = {
+  listingId: string;
+  totalReviews: number;
+  avgRating: number | null;
+  lastReviewAt: Date | null;
+};
+
+type RawRecentRow = { listingId: string; count: number };
+
+type RawListingStatsRow = {
+  listingId: string;
+  totalReviews: number;
+  avgRating: number | null;
+};
+
 @Injectable()
-export class ReviewsService {
+export class ReviewsService implements OrdersReviewListingStatsReadPort {
   constructor(private readonly prisma: PrismaService) {}
+
+  /**
+   * Listing review metrics for another owner domain.
+   *
+   * This is intentionally the only cross-domain review aggregate surface:
+   * `currentReviewsCte` applies the COMPLETE/latest-per-review policy before
+   * the requested listing-level counts are computed.
+   */
+  async loadListingReviewStats(
+    request: ReviewListingStatsReadRequest,
+  ): Promise<ReviewListingStatsReadResult> {
+    const listingIds = [...new Set(request.listingIds.filter(Boolean))];
+    if (listingIds.length === 0) {
+      return { lifetime: [], recent: [] };
+    }
+    const listingIdSql = Prisma.join(
+      listingIds.map((listingId) => Prisma.sql`${listingId}::uuid`),
+    );
+    const [lifetimeRows, recentRows] = await Promise.all([
+      this.prisma.$queryRaw<RawListingStatsRow[]>(Prisma.sql`
+        ${currentReviewsCte(request.organizationId)}
+        SELECT listing_id AS "listingId", COUNT(*)::int AS "totalReviews",
+               AVG(rating)::float8 AS "avgRating"
+        FROM current_reviews
+        WHERE organization_id = ${request.organizationId}::uuid
+          AND listing_id IN (${listingIdSql})
+          AND is_deleted = FALSE AND is_blinded = FALSE
+        GROUP BY listing_id
+      `),
+      this.prisma.$queryRaw<RawRecentRow[]>(Prisma.sql`
+        ${currentReviewsCte(request.organizationId)}
+        SELECT listing_id AS "listingId", COUNT(*)::int AS count
+        FROM current_reviews
+        WHERE organization_id = ${request.organizationId}::uuid
+          AND listing_id IN (${listingIdSql})
+          AND reviewed_at >= ${request.recentSince}
+          AND is_deleted = FALSE AND is_blinded = FALSE
+        GROUP BY listing_id
+      `),
+    ]);
+
+    return {
+      lifetime: lifetimeRows.map((row) => ({
+        listingId: row.listingId,
+        totalReviews: Number(row.totalReviews),
+        avgRating: Number(row.avgRating ?? 0),
+      })),
+      recent: recentRows.map((row) => ({
+        listingId: row.listingId,
+        count: Number(row.count),
+      })),
+    };
+  }
 
   /**
    * Per-listing aggregate review rows for `/reviews` UI.
@@ -132,60 +213,29 @@ export class ReviewsService {
   ): Promise<ReviewItemListResponse> {
     const page = query.page ?? DEFAULT_PAGE;
     const limit = query.limit ?? DEFAULT_LIMIT;
-    const where = buildReviewItemWhere(organizationId, query);
-
-    const [total, rows, ratingGroups, withContentCount] = await Promise.all([
-      this.prisma.review.count({ where }),
-      this.prisma.review.findMany({
-        where,
-        orderBy: [{ reviewedAt: 'desc' }, { id: 'asc' }],
-        skip: (page - 1) * limit,
-        take: limit,
-        select: {
-          id: true,
-          listingId: true,
-          itemName: true,
-          externalOptionId: true,
-          externalProductId: true,
-          rating: true,
-          title: true,
-          content: true,
-          reviewerName: true,
-          reviewedAt: true,
-          imageCount: true,
-          videoCount: true,
-          listing: {
-            select: {
-              displayName: true,
-              channelName: true,
-              masterProduct: { select: { name: true } },
-            },
-          },
-        },
-      }),
-      // 별점 분포는 별점 필터를 뺀 나머지 조건 기준이라야 탭 카운트가 안 흔들린다.
-      this.prisma.review.groupBy({
-        by: ['rating'],
-        where: buildReviewItemWhere(organizationId, { ...query, rating: undefined }),
-        _count: { _all: true },
-      }),
-      this.prisma.review.count({
-        where: { ...where, ...HAS_CONTENT_WHERE },
-      }),
+    const [totalRows, rows, ratingGroups, contentRows] = await Promise.all([
+      this.queryReviewItemCount(organizationId, query),
+      this.queryReviewItems(organizationId, query, page, limit),
+      this.queryReviewRatingCounts(organizationId, query),
+      this.queryReviewContentCount(organizationId, query),
     ]);
+    const total = Number(totalRows[0]?.count ?? 0);
+    const withContentCount = Number(contentRows[0]?.count ?? 0);
 
     const optionNames = await this.loadOptionNames(
       organizationId,
       rows.map((row) => row.externalOptionId),
+    );
+    const listingDisplays = await this.loadListingDisplays(
+      organizationId,
+      rows.map((row) => row.listingId).filter((value): value is string => !!value),
     );
 
     const items: ReviewItem[] = rows.map((row) => ({
       id: row.id,
       listingId: row.listingId,
       productName:
-        row.listing?.masterProduct?.name ??
-        row.listing?.displayName ??
-        row.listing?.channelName ??
+        (row.listingId ? listingDisplays.get(row.listingId)?.productName : null) ??
         row.itemName ??
         '-',
       optionName: row.externalOptionId
@@ -203,7 +253,7 @@ export class ReviewsService {
 
     const ratingCounts: Record<string, number> = {};
     for (const group of ratingGroups) {
-      ratingCounts[String(group.rating)] = group._count._all;
+      ratingCounts[String(group.rating)] = Number(group.count);
     }
 
     return {
@@ -214,6 +264,67 @@ export class ReviewsService {
       ratingCounts,
       withContentCount,
     } satisfies ReviewItemListResponse;
+  }
+
+  private queryReviewItemCount(
+    organizationId: string,
+    query: ListReviewItemsQueryDto,
+  ): Promise<Array<{ count: number }>> {
+    return this.prisma.$queryRaw<Array<{ count: number }>>(Prisma.sql`
+      ${currentReviewsCte(organizationId)}
+      SELECT COUNT(*)::int AS count
+      FROM current_reviews
+      WHERE organization_id = ${organizationId}::uuid
+        AND ${reviewItemPredicatesSql(query)}
+    `);
+  }
+
+  private queryReviewContentCount(
+    organizationId: string,
+    query: ListReviewItemsQueryDto,
+  ): Promise<Array<{ count: number }>> {
+    return this.prisma.$queryRaw<Array<{ count: number }>>(Prisma.sql`
+      ${currentReviewsCte(organizationId)}
+      SELECT COUNT(*)::int AS count
+      FROM current_reviews
+      WHERE organization_id = ${organizationId}::uuid
+        AND ${reviewItemPredicatesSql(query, { includeContent: true })}
+    `);
+  }
+
+  private queryReviewRatingCounts(
+    organizationId: string,
+    query: ListReviewItemsQueryDto,
+  ): Promise<Array<{ rating: number; count: number }>> {
+    return this.prisma.$queryRaw<Array<{ rating: number; count: number }>>(Prisma.sql`
+      ${currentReviewsCte(organizationId)}
+      SELECT rating, COUNT(*)::int AS count
+      FROM current_reviews
+      WHERE organization_id = ${organizationId}::uuid
+        AND ${reviewItemPredicatesSql(query, { omitRating: true })}
+      GROUP BY rating
+      ORDER BY rating ASC
+    `);
+  }
+
+  private queryReviewItems(
+    organizationId: string,
+    query: ListReviewItemsQueryDto,
+    page: number,
+    limit: number,
+  ): Promise<ReviewReadRow[]> {
+    return this.prisma.$queryRaw<ReviewReadRow[]>(Prisma.sql`
+      ${currentReviewsCte(organizationId)}
+      SELECT id, listing_id AS "listingId", item_name AS "itemName",
+             external_option_id AS "externalOptionId", external_product_id AS "externalProductId",
+             rating, title, content, reviewer_name AS "reviewerName", reviewed_at AS "reviewedAt",
+             image_count AS "imageCount", video_count AS "videoCount"
+      FROM current_reviews
+      WHERE organization_id = ${organizationId}::uuid
+        AND ${reviewItemPredicatesSql(query)}
+      ORDER BY reviewed_at DESC, id ASC
+      LIMIT ${limit} OFFSET ${(page - 1) * limit}
+    `);
   }
 
   private async loadOptionNames(
@@ -238,23 +349,22 @@ export class ReviewsService {
   }
 
   private async aggregateListings(organizationId: string): Promise<ListingAggregate[]> {
-    const rows = await this.prisma.review.groupBy({
-      by: ['listingId'],
-      where: { organizationId, listingId: { not: null }, ...VISIBLE_REVIEW_WHERE },
-      _count: { _all: true },
-      _avg: { rating: true },
-      _max: { reviewedAt: true },
-    });
+    const rows = await this.prisma.$queryRaw<RawAggregateRow[]>(Prisma.sql`
+      ${currentReviewsCte(organizationId)}
+      SELECT listing_id AS "listingId", COUNT(*)::int AS "totalReviews",
+             AVG(rating)::float8 AS "avgRating", MAX(reviewed_at) AS "lastReviewAt"
+      FROM current_reviews
+      WHERE organization_id = ${organizationId}::uuid
+        AND listing_id IS NOT NULL AND is_deleted = FALSE AND is_blinded = FALSE
+      GROUP BY listing_id
+    `);
     const out: ListingAggregate[] = [];
     for (const r of rows) {
-      // Prisma typing on groupBy keeps `listingId` as `string | null`; we
-      // already filtered nulls in WHERE so this is a narrow refinement.
-      if (!r.listingId) continue;
       out.push({
         listingId: r.listingId,
-        totalReviews: r._count._all,
-        avgRating: r._avg.rating ?? 0,
-        lastReviewAt: r._max.reviewedAt ?? null,
+        totalReviews: Number(r.totalReviews),
+        avgRating: Number(r.avgRating ?? 0),
+        lastReviewAt: r.lastReviewAt,
       });
     }
     return out;
@@ -266,20 +376,19 @@ export class ReviewsService {
   ): Promise<Map<string, number>> {
     if (listingIds.length === 0) return new Map();
     const since = new Date(Date.now() - RECENT_WINDOW_MS);
-    const rows = await this.prisma.review.groupBy({
-      by: ['listingId'],
-      where: {
-        organizationId,
-        listingId: { in: listingIds },
-        reviewedAt: { gte: since },
-        ...VISIBLE_REVIEW_WHERE,
-      },
-      _count: { _all: true },
-    });
+    const rows = await this.prisma.$queryRaw<RawRecentRow[]>(Prisma.sql`
+      ${currentReviewsCte(organizationId)}
+      SELECT listing_id AS "listingId", COUNT(*)::int AS count
+      FROM current_reviews
+      WHERE organization_id = ${organizationId}::uuid
+        AND listing_id IN (${Prisma.join(listingIds.map((id) => Prisma.sql`${id}::uuid`))})
+        AND reviewed_at >= ${since}
+        AND is_deleted = FALSE AND is_blinded = FALSE
+      GROUP BY listing_id
+    `);
     const map = new Map<string, number>();
     for (const r of rows) {
-      if (!r.listingId) continue;
-      map.set(r.listingId, r._count._all);
+      map.set(r.listingId, Number(r.count));
     }
     return map;
   }
@@ -358,38 +467,6 @@ export function computeSummary(aggregates: ReadonlyArray<ListingAggregate>): Rev
   } satisfies ReviewSummary;
 }
 
-/**
- * 개별 리뷰 조회 조건. `hasContent` 와 `search` 가 각각 OR 를 쓰므로 최상위 OR
- * 하나로는 표현할 수 없다. 둘 다 `AND` 배열에 넣어 서로 덮어쓰지 않게 한다.
- */
-function buildReviewItemWhere(
-  organizationId: string,
-  query: ListReviewItemsQueryDto,
-): Prisma.ReviewWhereInput {
-  const and: Prisma.ReviewWhereInput[] = [];
-  if (query.hasContent === 'true') and.push(HAS_CONTENT_WHERE);
-
-  const search = query.search?.trim();
-  if (search) {
-    and.push({
-      OR: [
-        { content: { contains: search, mode: 'insensitive' } },
-        { title: { contains: search, mode: 'insensitive' } },
-        { itemName: { contains: search, mode: 'insensitive' } },
-        { reviewerName: { contains: search, mode: 'insensitive' } },
-      ],
-    });
-  }
-
-  return {
-    organizationId,
-    ...VISIBLE_REVIEW_WHERE,
-    ...(query.listingId ? { listingId: query.listingId } : {}),
-    ...(query.rating ? { rating: query.rating } : {}),
-    ...(and.length > 0 ? { AND: and } : {}),
-  };
-}
-
 function applyReviewFilter(
   aggregates: ListingAggregate[],
   filter: ReviewFilter,
@@ -409,4 +486,91 @@ function applyReviewFilter(
 
 function round2(value: number): number {
   return Math.round(value * 100) / 100;
+}
+
+/**
+ * Coupang review collection is cumulative: a new recent-month run must update
+ * matching review ids without making older complete facts disappear. The
+ * selector therefore chooses the newest COMPLETE fact per external id while
+ * retaining facts from older COMPLETE generations outside the new window.
+ * Unowned legacy Coupang rows are intentionally excluded; other platforms
+ * keep their existing rows.
+ */
+function currentReviewsCte(organizationId: string): Prisma.Sql {
+  return Prisma.sql`
+    WITH ranked_coupang AS (
+      SELECT
+        r.id,
+        r.organization_id,
+        r.source_import_run_id,
+        r.listing_id,
+        r.platform,
+        r.rating,
+        r.title,
+        r.content,
+        r.reviewer_name,
+        r.external_review_id,
+        r.external_option_id,
+        r.external_product_id,
+        r.item_name,
+        r.image_count,
+        r.video_count,
+        r.is_deleted,
+        r.is_blinded,
+        r.reviewed_at,
+        ROW_NUMBER() OVER (
+          PARTITION BY r.external_review_id
+          ORDER BY COALESCE(s.imported_at, s.created_at) DESC, s.id DESC, r.id DESC
+        ) AS generation_rank
+      FROM reviews r
+      INNER JOIN source_import_runs s
+        ON s.id = r.source_import_run_id
+       AND s.organization_id = r.organization_id
+      WHERE r.organization_id = ${organizationId}::uuid
+        AND r.platform = 'coupang'
+        AND r.source_import_run_id IS NOT NULL
+        AND s.source_type = ${COUPANG_REVIEW_SOURCE_TYPE}
+        AND s.status = 'completed'
+    ), current_reviews AS (
+      SELECT id, organization_id, source_import_run_id, listing_id, platform, rating,
+             title, content, reviewer_name, external_review_id, external_option_id,
+             external_product_id, item_name, image_count, video_count, is_deleted,
+             is_blinded, reviewed_at
+      FROM ranked_coupang
+      WHERE generation_rank = 1
+      UNION ALL
+      SELECT r.id, r.organization_id, r.source_import_run_id, r.listing_id, r.platform,
+             r.rating, r.title, r.content, r.reviewer_name, r.external_review_id,
+             r.external_option_id, r.external_product_id, r.item_name, r.image_count,
+             r.video_count, r.is_deleted, r.is_blinded, r.reviewed_at
+      FROM reviews r
+      WHERE r.organization_id = ${organizationId}::uuid
+        AND r.platform <> 'coupang'
+    )
+  `;
+}
+
+function reviewItemPredicatesSql(
+  query: ListReviewItemsQueryDto,
+  options: { omitRating?: boolean; includeContent?: boolean } = {},
+): Prisma.Sql {
+  const predicates: Prisma.Sql[] = [
+    Prisma.sql`is_deleted = FALSE`,
+    Prisma.sql`is_blinded = FALSE`,
+  ];
+  if (query.listingId) predicates.push(Prisma.sql`listing_id = ${query.listingId}::uuid`);
+  if (!options.omitRating && query.rating) predicates.push(Prisma.sql`rating = ${query.rating}`);
+  if (query.hasContent === 'true' || options.includeContent) {
+    predicates.push(Prisma.sql`(content IS NOT NULL OR title IS NOT NULL)`);
+  }
+  const search = query.search?.trim();
+  if (search) {
+    predicates.push(Prisma.sql`(
+      content ILIKE '%' || ${search} || '%' OR
+      title ILIKE '%' || ${search} || '%' OR
+      item_name ILIKE '%' || ${search} || '%' OR
+      reviewer_name ILIKE '%' || ${search} || '%'
+    )`);
+  }
+  return Prisma.sql`${Prisma.join(predicates, ' AND ')}`;
 }

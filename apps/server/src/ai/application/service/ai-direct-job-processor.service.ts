@@ -23,12 +23,6 @@ import {
   THUMBNAIL_DIRECT_OUTPUT_SINK_PORT,
   type ThumbnailDirectOutputSinkPort,
 } from '../port/out/sink/thumbnail-direct-output-sink.port';
-import {
-  AI_OPERATION_ALERT_PORT,
-  type OperationAlertPort,
-} from '../port/out/cross-domain/operation-alert.port';
-import { readProductGenerationAlertLink } from './product-generation-alert-link';
-import { ProductGenerationAlertService } from './product-generation-alert.service';
 import { ThumbnailDirectGenerationExecutorService } from './thumbnail-direct-generation-executor.service';
 import { DetailPageDirectGenerationExecutorService } from './detail-page-direct-generation-executor.service';
 import { ImageEditDirectGenerationExecutorService } from './image-edit-direct-generation-executor.service';
@@ -49,13 +43,6 @@ const DETAIL_TERMINAL = new Set([
   'failed',
   'cancelled',
 ]);
-const ALERT_TERMINAL = new Set([
-  'succeeded',
-  'failed',
-  'cancelled',
-  'skipped',
-]);
-
 export interface NormalizedAiDirectJobError {
   errorCode: string;
   errorMessage: string;
@@ -91,9 +78,6 @@ export class AiDirectJobProcessorService implements AiDirectJobProcessor {
     private readonly thumbnailLedger: ThumbnailGenerationLedgerRepositoryPort,
     @Inject(DETAIL_PAGE_GENERATION_REPOSITORY_PORT)
     private readonly detailPageRepository: DetailPageGenerationRepositoryPort,
-    @Inject(AI_OPERATION_ALERT_PORT)
-    private readonly operationAlerts: OperationAlertPort,
-    private readonly productGenerationAlerts: ProductGenerationAlertService,
   ) {}
 
   async preflight(
@@ -108,19 +92,6 @@ export class AiDirectJobProcessorService implements AiDirectJobProcessor {
         });
         if (!row) return 'invalid';
         if (THUMBNAIL_TERMINAL.has(row.status)) return 'cancelled';
-        const parent = await this.thumbnailLedger.readParentAlertLink({
-          organizationId: job.organizationId,
-          generationId: job.sourceResourceId,
-        });
-        if (
-          parent &&
-          !(await this.productGenerationAlerts.canStartChild({
-            organizationId: job.organizationId,
-            parentOperationKey: parent.parentOperationKey,
-          }))
-        ) {
-          return 'cancelled';
-        }
         return 'runnable';
       }
       case 'detail_page_generate': {
@@ -130,25 +101,10 @@ export class AiDirectJobProcessorService implements AiDirectJobProcessor {
         });
         if (!row) return 'invalid';
         if (DETAIL_TERMINAL.has(row.status)) return 'cancelled';
-        const parent = readProductGenerationAlertLink(row.generationInput);
-        if (
-          parent &&
-          !(await this.productGenerationAlerts.canStartChild({
-            organizationId: job.organizationId,
-            parentOperationKey: parent.parentOperationKey,
-          }))
-        ) {
-          return 'cancelled';
-        }
         return 'runnable';
       }
       case 'image_edit': {
-        const alert = await this.operationAlerts.findByOperationKey(
-          job.organizationId,
-          imageEditOperationKey(job.id),
-        );
-        if (!alert) return 'invalid';
-        return ALERT_TERMINAL.has(alert.status) ? 'cancelled' : 'runnable';
+        return 'runnable';
       }
       default:
         return assertNever(job.jobType);
@@ -227,16 +183,7 @@ export class AiDirectJobProcessorService implements AiDirectJobProcessor {
         });
         return;
       case 'image_edit': {
-        const output = ImageEditDirectOutputSchema.parse(result);
-        await this.operationAlerts.succeed(
-          job.organizationId,
-          imageEditOperationKey(job.id),
-          {
-            progress: 1,
-            message: '이미지 편집 완료',
-            metadata: { output, imageUrl: output.image_url },
-          },
-        );
+        ImageEditDirectOutputSchema.parse(result);
         return;
       }
       case 'thumbnail_reedit':
@@ -273,20 +220,6 @@ export class AiDirectJobProcessorService implements AiDirectJobProcessor {
         return;
       case 'image_edit':
       case 'thumbnail_reedit':
-        await this.operationAlerts.fail(
-          job.organizationId,
-          job.jobType === 'image_edit'
-            ? imageEditOperationKey(job.id)
-            : `thumbnail-edit:${job.sourceResourceId}`,
-          {
-            message: error.errorMessage,
-            severity: 'error',
-            metadata: {
-              errorCode: error.errorCode,
-              errorMessage: error.errorMessage,
-            },
-          },
-        );
         return;
       default:
         return assertNever(job.jobType);
@@ -296,10 +229,6 @@ export class AiDirectJobProcessorService implements AiDirectJobProcessor {
 
 function directRequestId(jobId: string): string {
   return `direct-ai:${jobId}`;
-}
-
-function imageEditOperationKey(jobId: string): string {
-  return `image-edit:${jobId}`;
 }
 
 function payloadMismatch(): never {

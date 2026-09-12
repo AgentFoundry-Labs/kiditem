@@ -17,14 +17,12 @@ import { SourcingEvidenceLedgerService } from '../../../application/service/sour
 import { SourcingLaunchCandidateService } from '../../../application/service/sourcing-launch-candidate.service';
 import { SourcingCollectionSourceControlService } from '../../../application/service/sourcing-collection-source-control.service';
 import {
-  AppendEvidenceObservationsDto,
   CreateDecisionBatchDto,
   CreateDecisionProcurementIntentDto,
   CreateLaunchCandidateDto,
-  FinalizeEvidenceRunDto,
-  StartEvidenceRunDto,
   SetSourcingCollectionSourceEnabledDto,
 } from './dto/sourcing-intelligence.dto';
+import { toPublicAttempt } from './sourcing-source-attempt-http';
 import type { AuthUser } from '../../../../auth/auth.types';
 
 @Controller('sourcing/intelligence')
@@ -55,63 +53,12 @@ export class SourcingIntelligenceController {
     });
   }
 
-  @Post('evidence-runs')
-  @Roles('owner', 'admin')
-  startEvidenceRun(
-    @Body() body: StartEvidenceRunDto,
-    @CurrentOrganization() organizationId: string,
-    @CurrentUser() user: AuthUser,
-  ) {
-    return this.evidence.startRun({
-      organizationId,
-      triggeredByUserId: requireUserId(user),
-      ...body,
-      windowStartAt: toOptionalDate(body.windowStartAt),
-      windowEndAt: toOptionalDate(body.windowEndAt),
-    });
-  }
-
-  @Post('evidence-runs/:id/observations')
-  @Roles('owner', 'admin')
-  appendEvidence(
-    @Param('id', ParseUUIDPipe) runId: string,
-    @Body() body: AppendEvidenceObservationsDto,
-    @CurrentOrganization() organizationId: string,
-  ) {
-    return this.evidence.appendObservations({
-      organizationId,
-      runId,
-      observations: body.observations.map((observation) => ({
-        ...observation,
-        eventAt: new Date(observation.eventAt),
-        observedAt: new Date(observation.observedAt),
-        availableAt: new Date(observation.availableAt),
-        revisionAt: toOptionalDate(observation.revisionAt),
-      })),
-    });
-  }
-
-  @Post('evidence-runs/:id/finalize')
-  @Roles('owner', 'admin')
-  finalizeEvidenceRun(
-    @Param('id', ParseUUIDPipe) runId: string,
-    @Body() body: FinalizeEvidenceRunDto,
-    @CurrentOrganization() organizationId: string,
-  ) {
-    return this.evidence.finalizeRun({
-      organizationId,
-      runId,
-      ...body,
-      watermarkEventAt: toOptionalDate(body.watermarkEventAt),
-    });
-  }
-
   @Get('evidence-runs/:id')
-  getEvidenceRun(
+  async getEvidenceRun(
     @Param('id', ParseUUIDPipe) runId: string,
     @CurrentOrganization() organizationId: string,
   ) {
-    return this.evidence.getRun(organizationId, runId);
+    return toPublicAttempt(await this.evidence.getRun(organizationId, runId));
   }
 
   @Post('launch-candidates')
@@ -196,8 +143,4 @@ export class SourcingIntelligenceController {
 function requireUserId(user: AuthUser): string {
   if (!user.id) throw new UnauthorizedException('Authenticated user id is required');
   return user.id;
-}
-
-function toOptionalDate(value: string | null | undefined): Date | null {
-  return value ? new Date(value) : null;
 }

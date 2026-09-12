@@ -43,7 +43,7 @@ export interface TaobaoLivePort {
     queryDate: string;
     liveIds: string[];
     pageSize: number;
-    /** The owning OperationRun's abort signal. */
+    /** The caller's abort signal. */
     signal?: AbortSignal;
   }): Promise<TaobaoLiveCollection>;
 }

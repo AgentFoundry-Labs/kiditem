@@ -1,5 +1,10 @@
 # Background Browser Collection Sessions Implementation Plan
 
+> **Partially superseded (2026-09-03):** Do not resume the server
+> Operation/Alert synchronization or shared terminal/restart protocol in this
+> plan. The current execution contract is the
+> [Operation And Automation Hard Cutover Design](../specs/2026-09-03-operation-automation-hard-cutover-design.md).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make every automatic Chrome collector run without stealing focus, persist its control state across service-worker restarts, and surface personal durable alerts when user intervention is required.

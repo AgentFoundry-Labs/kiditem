@@ -22,21 +22,15 @@ import {
 } from './_shared/cli-args';
 import { readJson, readTextIfExists, sha256, writeJson } from './_shared/fs';
 import { assertSafeRelativePath, expandHome, repoPath } from './_shared/path';
-import {
-  createTemporaryAuthSession,
-  revokeTemporaryAuthSession,
-  type TemporaryAuthSession,
-} from './_shared/temporary-auth-session';
 
 const SCHEMA_VERSION = 'kiditem.dev-data.coupang.v1';
 const LOCAL_DATA_ROOT = path.join('.data', 'coupang');
 const LEGACY_MARKET_DATA_SEED = 'scripts/seed-channel-market-data';
-const SUPPORTED_REPLAY_PAYLOAD_TYPES = new Set([
-  'ad_campaign',
-  'raw_scrape',
-  'traffic',
-  'coupang_ads_daily',
-]);
+// The former replay lane posted generic extension-sync payloads. That ingress
+// is retired; named source-owner APIs own all new captures. Keep replay
+// disabled until this utility is migrated to those owner contracts rather
+// than silently sending an obsolete payload shape.
+const SUPPORTED_REPLAY_PAYLOAD_TYPES = new Set<string>();
 
 const COMMANDS = ['replay', 'sanitize', 'export'] as const;
 type Command = (typeof COMMANDS)[number];
@@ -80,16 +74,6 @@ type BundleManifest = {
   references?: BundleReference[];
   checksums?: Record<string, string>;
 };
-
-type ReplayResult = {
-  payload: string;
-  type: string;
-  ok: boolean;
-  response?: unknown;
-  error?: string;
-};
-
-let cachedGeneratedApiSession: TemporaryAuthSession | null = null;
 
 function parseArgs(raw = process.argv.slice(2)): Args {
   return parseRawArgs(raw, { commands: COMMANDS, defaultCommand: 'replay' });
@@ -356,108 +340,6 @@ async function scopedReplace(
   };
 }
 
-async function postToServer(
-  args: Args,
-  payload: Record<string, unknown>,
-): Promise<unknown> {
-  return requestApi(args, '/api/ads/extension/sync', {
-    method: 'POST',
-    body: JSON.stringify(payload),
-  });
-}
-
-function apiUrl(args: Args): string {
-  return value(args, 'api-url') ?? process.env.KIDITEM_API_URL ?? 'http://localhost:4000';
-}
-
-async function generateDevApiAccessToken(args: Args): Promise<string> {
-  if (cachedGeneratedApiSession) return cachedGeneratedApiSession.token;
-
-  const devUserId =
-    value(args, 'dev-user-id') ??
-    process.env.KIDITEM_DEV_USER_ID ??
-    process.env.DEV_DEFAULT_USER_ID;
-  if (!devUserId) {
-    throw new Error('API replay requires --dev-user-id, KIDITEM_DEV_USER_ID, or DEV_DEFAULT_USER_ID.');
-  }
-
-  const prisma = await createPrisma();
-  try {
-    const devUser = await prisma.user.findUnique({
-      where: { id: devUserId },
-      include: {
-        memberships: {
-          where: { status: 'active' },
-          orderBy: [{ lastSelectedAt: 'desc' }, { joinedAt: 'asc' }],
-        },
-      },
-    });
-    if (!devUser?.email) {
-      throw new Error(`Dev user ${devUserId} does not exist locally or has no email.`);
-    }
-
-    const organizationId =
-      value(args, 'organization-id') ??
-      devUser.memberships[0]?.organizationId ??
-      process.env.KIDITEM_DEV_ORGANIZATION_ID;
-    if (!organizationId) {
-      throw new Error(
-        'API replay requires an organization scope from --organization-id, KIDITEM_DEV_ORGANIZATION_ID, or the dev user active membership.',
-      );
-    }
-
-    if (!devUser.memberships.some((membership) => membership.organizationId === organizationId)) {
-      throw new Error(`Dev user ${devUserId} has no active membership in ${organizationId}.`);
-    }
-
-    cachedGeneratedApiSession = await createTemporaryAuthSession(prisma, {
-      userId: devUser.id,
-      email: devUser.email,
-    });
-    return cachedGeneratedApiSession.token;
-  } finally {
-    await prisma.$disconnect();
-  }
-}
-
-async function revokeGeneratedDevApiSession(): Promise<void> {
-  const session = cachedGeneratedApiSession;
-  cachedGeneratedApiSession = null;
-  if (!session) return;
-  const prisma = await createPrisma();
-  try {
-    await revokeTemporaryAuthSession(prisma, session.id);
-  } finally {
-    await prisma.$disconnect();
-  }
-}
-
-async function apiHeaders(args: Args): Promise<Record<string, string>> {
-  const accessToken = await generateDevApiAccessToken(args);
-  const headers: Record<string, string> = { 'content-type': 'application/json' };
-  headers.Authorization = `Bearer ${accessToken}`;
-  return headers;
-}
-
-async function requestApi(
-  args: Args,
-  route: string,
-  init: RequestInit,
-): Promise<unknown> {
-  const response = await fetch(`${apiUrl(args).replace(/\/$/, '')}${route}`, {
-    ...init,
-    headers: {
-      ...(await apiHeaders(args)),
-      ...(init.headers ?? {}),
-    },
-  });
-  const json = await response.json().catch(() => null);
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status}: ${JSON.stringify(json)}`);
-  }
-  return json;
-}
-
 async function commandReplay(args: Args): Promise<unknown> {
   const datasetId = await resolveDatasetId(args);
   const bundleDir = localBundleDir(args, datasetId);
@@ -502,37 +384,20 @@ async function commandReplay(args: Args): Promise<unknown> {
     }
   }
 
-  try {
-    const results: ReplayResult[] = [];
-    for (const { payload, body } of bodies) {
-      try {
-        const response = await postToServer(args, body);
-        results.push({ payload: payload.path, type: payload.type, ok: true, response });
-      } catch (error) {
-        results.push({
-          payload: payload.path,
-          type: payload.type,
-          ok: false,
-          error: error instanceof Error ? error.message : String(error),
-        });
-        break;
-      }
-    }
-
-    const report = {
-      datasetId,
-      mode,
-      cleanup,
-      results,
-      replayedAt: new Date().toISOString(),
-    };
-    const reportPath = path.join(localDataRoot(args), `replay-report-${datasetId}.json`);
-    await writeJson(reportPath, report);
-    if (results.some((result) => !result.ok)) process.exitCode = 1;
-    return { reportPath, ...report };
-  } finally {
-    await revokeGeneratedDevApiSession();
-  }
+  // `assertSupportedReplayPayloads` currently rejects every legacy payload
+  // before cleanup/network work. This return keeps the control flow explicit
+  // for the eventual named-owner migration.
+  const results: unknown[] = [];
+  const report = {
+    datasetId,
+    mode,
+    cleanup,
+    results,
+    replayedAt: new Date().toISOString(),
+  };
+  const reportPath = path.join(localDataRoot(args), `replay-report-${datasetId}.json`);
+  await writeJson(reportPath, report);
+  return { reportPath, ...report };
 }
 
 function sanitizeValue(key: string, valueToSanitize: unknown): unknown {

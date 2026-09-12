@@ -3,7 +3,6 @@ import { ImageEditDirectGenerationJobService } from '../image-edit-direct-genera
 
 const ORG = '11111111-1111-4111-8111-111111111111';
 const TASK_ID = '22222222-2222-4222-8222-222222222222';
-const OPERATION_KEY = `image-edit:${TASK_ID}`;
 
 function job(status = 'running', result: unknown = null) {
   return {
@@ -44,15 +43,10 @@ function makeService() {
     persistImageEditInputs: vi.fn(async ({ payload }) => payload),
   };
   const worker = { wake: vi.fn() };
-  const operationAlerts = {
-    start: vi.fn().mockResolvedValue({}),
-    cancel: vi.fn().mockResolvedValue({ status: 'cancelled' }),
-  };
   return {
     repository,
     inputAssets,
     worker,
-    operationAlerts,
     service: new ImageEditDirectGenerationJobService(
       repository as never,
       inputAssets as never,
@@ -67,7 +61,6 @@ function makeService() {
         heldRecoveryMs: 30_000,
         retryDelaysMs: [5_000, 30_000, 120_000],
       },
-      operationAlerts as never,
     ),
   };
 }
@@ -77,8 +70,8 @@ describe('ImageEditDirectGenerationJobService', () => {
     process.env.AI_IMAGE_MODEL = 'gemini-image-model';
   });
 
-  it('creates, alerts, releases, and wakes a durable image-edit job', async () => {
-    const { service, repository, operationAlerts, worker } = makeService();
+  it('creates, releases, and wakes a durable image-edit job', async () => {
+    const { service, repository, worker } = makeService();
 
     const result = await service.schedule({
       organizationId: ORG,
@@ -97,13 +90,12 @@ describe('ImageEditDirectGenerationJobService', () => {
         status: 'held',
       }),
     );
-    expect(operationAlerts.start).toHaveBeenCalled();
     expect(repository.release).toHaveBeenCalled();
     expect(worker.wake).toHaveBeenCalled();
   });
 
-  it('marks a running durable task and its alert cancelled', async () => {
-    const { service, repository, operationAlerts } = makeService();
+  it('marks a running durable task cancelled', async () => {
+    const { service, repository } = makeService();
 
     await expect(
       service.cancel({
@@ -115,7 +107,6 @@ describe('ImageEditDirectGenerationJobService', () => {
     ).resolves.toEqual({
       status: 'cancelled',
       jobId: TASK_ID,
-      operationKey: OPERATION_KEY,
       preserved: false,
     });
 
@@ -124,11 +115,6 @@ describe('ImageEditDirectGenerationJobService', () => {
       jobId: TASK_ID,
       reason: '사용자 요청',
     });
-    expect(operationAlerts.cancel).toHaveBeenCalledWith(
-      ORG,
-      OPERATION_KEY,
-      expect.objectContaining({ message: '사용자 요청' }),
-    );
   });
 
   it('maps a checkpointed projecting job to a readable succeeded result', async () => {
@@ -144,8 +130,25 @@ describe('ImageEditDirectGenerationJobService', () => {
     });
   });
 
+  it('exposes a direct-job failure through its durable status fields', async () => {
+    const { service, repository } = makeService();
+    repository.findById.mockResolvedValueOnce({
+      ...job('failed'),
+      lastErrorCode: 'provider_timeout',
+      lastErrorMessage: 'image provider timed out',
+    });
+
+    await expect(service.getStatus(ORG, TASK_ID)).resolves.toEqual({
+      taskId: TASK_ID,
+      status: 'failed',
+      output: null,
+      errorCode: 'provider_timeout',
+      errorMessage: 'image provider timed out',
+    });
+  });
+
   it('preserves a success when cancellation loses the terminal race', async () => {
-    const { service, repository, operationAlerts } = makeService();
+    const { service, repository } = makeService();
     repository.findById.mockResolvedValueOnce(
       job('succeeded', { image_url: 'https://storage.example.com/output.png' }),
     );
@@ -162,6 +165,5 @@ describe('ImageEditDirectGenerationJobService', () => {
       preserved: true,
     });
     expect(repository.cancel).not.toHaveBeenCalled();
-    expect(operationAlerts.cancel).not.toHaveBeenCalled();
   });
 });

@@ -28,12 +28,7 @@ export interface DetailPageRawInput {
   kcCertificationStatus?: KcCertificationStatus;
   kcCertificationNumber?: string;
   sourceReferences?: DetailPageSourceReference[];
-  productGeneration?: {
-    mode: 'parent';
-    productGenerationBatchId: string;
-    parentOperationKey: string;
-    childKind: 'detail_page' | 'thumbnail';
-  };
+  productGenerationRequestHash?: string;
 }
 
 export interface DetailPageSourceReference {

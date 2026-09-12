@@ -17,48 +17,50 @@ const profitLossReportMapperSource = readFileSync(
   resolve(webRoot, 'src/lib/profit-loss-report.ts'),
   'utf8',
 );
+const serverExportSource = readFileSync(
+  resolve(webRoot, 'src/lib/finance-report-export.ts'),
+  'utf8',
+);
 
-describe('Sellpia inventory report boundary', () => {
+describe('server-owned Finance report boundary', () => {
   it.each([
     ['finance report', financeReportSource],
     ['settings report', settingsReportSource],
-  ])('%s exports the complete Sellpia snapshot instead of legacy inventory policy', (_name, source) => {
-    expect(source).toContain('fetchAllSellpiaInventorySkus');
-    expect(source).toContain('i.code');
-    expect(source).not.toContain('sellpiaProductCode');
-    expect(source).toContain('purchasePrice');
-    expect(source).toContain('stockValue');
-    expect(source).toContain('lastImportedAt');
-    expect(source).not.toMatch(/['"]\/api\/inventory['"]/);
-    expect(source).not.toContain('/api/products');
-    expect(source).not.toMatch(
-      /optimalStock|reorderPoint|avgDailySales|daysRemaining|recommendedOrder|p\.currentStock/,
+  ])('%s delegates workbook creation to the server report owner', (_name, source) => {
+    expect(source).toContain('downloadFinanceReport');
+    expect(source).not.toContain('fetchAllSellpiaInventorySkus');
+    expect(source).not.toContain('fetchAllChannelListingsForReport');
+    expect(source).not.toContain('import("xlsx")');
+    expect(source).not.toContain('XLSX.writeFile');
+  });
+
+  it('uses one fixed endpoint for settings and finance report surfaces', () => {
+    expect(serverExportSource).toContain('`/api/reports/export?${params}`');
+    expect(settingsReportSource).toContain("surface: 'settings'");
+    expect(financeReportSource).toContain("surface: 'reports'");
+    expect(serverExportSource).toContain("params.set('period', options.period)");
+  });
+
+  it('moves page-specific workbooks to fixed owner endpoints while preserving filters', () => {
+    const profitLossSource = readFileSync(
+      resolve(webRoot, 'src/app/(finance)/profit-loss/page.tsx'),
+      'utf8',
     );
+    const settlementsSource = readFileSync(
+      resolve(webRoot, 'src/app/(finance)/sales-analysis/components/Settlements.tsx'),
+      'utf8',
+    );
+    expect(profitLossSource).toContain('downloadProfitLossReport');
+    expect(profitLossSource).toContain('selectedGrades');
+    expect(profitLossSource).toContain('sortDirection');
+    expect(profitLossSource).not.toContain('import("xlsx")');
+    expect(settlementsSource).toContain('downloadSettlementReconcileReport');
+    expect(settlementsSource).not.toContain('import("xlsx")');
   });
 
-  it('fetches Sellpia inventory only for inventory-bearing finance reports', () => {
-    expect(financeReportSource).toContain("type === 'full'");
-    expect(financeReportSource).toContain("[type as ReportDataKey]");
-    expect(financeReportSource).toContain("key === 'inventory'");
-    expect(financeReportSource).not.toContain('const [productsRes, profitLoss, inventory, adsData]');
-  });
-
-  it.each([
-    ['finance report', financeReportSource],
-    ['settings report', settingsReportSource],
-  ])('%s maps final profit-loss rows through the shared export contract', (_name, source) => {
-    expect(source).toContain('mapProfitLossReportRow');
-    expect(source).not.toContain('d.productName');
-    expect(source).not.toContain('d.organization');
-    expect(source).not.toContain('d.costOfGoods');
-  });
-
-  it.each([
-    ['finance report', financeReportSource],
-    ['settings report', settingsReportSource],
-    ['shared report mapper', profitLossReportMapperSource],
-  ])('%s imports PLData from the canonical finance contract', (_name, source) => {
-    expect(source).toContain("from '@kiditem/shared/finance'");
-    expect(source).not.toContain("from '@kiditem/shared/profit-loss'");
+  it('keeps the legacy shared profit-loss mapper out of browser workbook generation', () => {
+    expect(profitLossReportMapperSource).toContain("from '@kiditem/shared/finance'");
+    expect(financeReportSource).not.toContain('mapProfitLossReportRow');
+    expect(settingsReportSource).not.toContain('mapProfitLossReportRow');
   });
 });

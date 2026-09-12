@@ -5,6 +5,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, type AdAction } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { completeAdCampaignSourceIds, readCompleteAdKeywordFacts } from './ad-keyword-complete-read';
 import { AdListingRepositoryAdapter } from './ad-listing.repository.adapter';
 import type { ActionCandidate } from '../../../domain/ad-action-rules';
 import type {
@@ -111,12 +112,34 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
     };
   }
 
-  async findLatestTargetRows(
-    organizationId: string,
-  ): Promise<LatestTargetRow[]> {
-    return this.prisma.$queryRaw<LatestTargetRow[]>(
-      Prisma.sql`
-        WITH latest AS (
+  async findLatestTargetRows(organizationId: string): Promise<LatestTargetRow[]> {
+    return this.prisma.$transaction(
+      async (tx) => {
+        const { rows } = await readCompleteAdKeywordFacts(tx, organizationId);
+        const keywordRows = rows.map((row) => ({
+          id: row.id,
+          target_type: row.targetType,
+          target_key: row.targetKey,
+          listing_id: row.listingId,
+          listing_option_id: row.listingOptionId,
+          external_id: row.externalId,
+          external_option_id: row.externalOptionId,
+          campaign_id: row.campaignId,
+          campaign_name: row.campaignName,
+          keyword: row.keyword,
+          status: row.status,
+          current_bid: row.currentBid,
+          daily_budget: row.dailyBudget,
+          spend: row.spend,
+          revenue: row.revenue,
+          impressions: row.impressions,
+          clicks: row.clicks,
+          conversions: row.conversions,
+          meta_json: row.metaJson,
+        }));
+        return tx.$queryRaw<LatestTargetRow[]>(
+          Prisma.sql`
+        WITH non_keyword AS (
           SELECT DISTINCT ON (cad.target_key)
             cad.id,
             cad.target_type,
@@ -140,13 +163,24 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
           FROM channel_ad_target_daily_snapshots cad
           WHERE cad.organization_id = ${organizationId}::uuid
             AND cad.channel = 'coupang'
-            AND cad.target_type IN ('campaign', 'keyword', 'product')
+            AND cad.target_type IN ('campaign', 'product')
+            AND cad.source_import_run_id IN (${completeAdCampaignSourceIds(organizationId)})
           ORDER BY
             cad.target_key,
             cad.business_date DESC,
             cad.last_observed_at DESC NULLS LAST,
             cad.updated_at DESC NULLS LAST,
             cad.id DESC
+        ), latest AS (
+          SELECT * FROM non_keyword
+          UNION ALL
+          SELECT * FROM jsonb_to_recordset(${JSON.stringify(keywordRows)}::jsonb) AS keyword (
+            id uuid, target_type text, target_key text, listing_id uuid, listing_option_id uuid,
+            external_id text, external_option_id text, campaign_id text, campaign_name text,
+            keyword text, status text, current_bid integer, daily_budget integer,
+            spend integer, revenue integer, impressions integer, clicks integer,
+            conversions integer, meta_json jsonb
+          )
         )
         SELECT
           latest.id,
@@ -179,7 +213,8 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
             cl.channel_name,
             cl.external_id,
             latest.meta_json -> 'advertising.keyword.target' ->> 'productName',
-            latest.meta_json -> 'advertising.campaign.target' ->> 'productName'
+            latest.meta_json -> 'advertising.campaign.target' ->> 'productName',
+            latest.meta_json -> 'data' ->> 'productName'
           )                            AS "productName"
         FROM latest
         LEFT JOIN channel_listings cl
@@ -204,6 +239,9 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
               AND mp.organization_id = ${organizationId}::uuid
               AND mp.is_active = true
       `,
+        );
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
     );
   }
 

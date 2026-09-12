@@ -3,7 +3,6 @@ import {
   Get,
   Post,
   Query,
-  Body,
   UploadedFile,
   UseInterceptors,
   BadRequestException,
@@ -11,8 +10,7 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { TrafficService } from './traffic.service';
 import { CurrentOrganization } from '../../auth/decorators/current-organization.decorator';
-import { CurrentUser } from '../../auth/decorators/current-user.decorator';
-import type { AuthUser } from '../../auth/auth.types';
+import type { AdTrafficSourceReconciliation } from '@kiditem/shared/advertising';
 
 interface MulterFile {
   fieldname: string;
@@ -32,16 +30,26 @@ interface MonthlyTrafficResponse {
     orders: number;
     salesQty: number;
     visitors: number;
-    netProfit?: number;
-    profitRate?: number;
+    views: number;
+    cartAdds: number;
   }>;
   total: {
-    revenue: number;
-    orders: number;
-    salesQty: number;
-    visitors: number;
-    netProfit: number;
+    revenue: number | null;
+    orders: number | null;
+    salesQty: number | null;
+    visitors: number | null;
+    views: number | null;
+    cartAdds: number | null;
   };
+  averageDailyVisitors: number | null;
+  coverage: {
+    from: string;
+    to: string;
+    targetDays: number;
+    completedDays: number;
+    missingDates: string[];
+  };
+  reconciliation: AdTrafficSourceReconciliation | null;
 }
 
 const MAX_UPLOAD_SIZE = 10 * 1024 * 1024; // 10MB
@@ -92,16 +100,11 @@ export class TrafficController {
   )
   async upload(
     @UploadedFile() file: MulterFile,
-    @Body('source') source: string | undefined,
     @CurrentOrganization() organizationId: string,
-    @CurrentUser() user: AuthUser,
   ) {
     if (!file) {
       throw new BadRequestException('파일이 필요합니다.');
     }
-    return this.trafficService.uploadTrafficStats(file, organizationId, {
-      actorUserId: user.id,
-      source,
-    });
+    return this.trafficService.uploadTrafficStats(file, organizationId);
   }
 }

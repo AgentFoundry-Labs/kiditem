@@ -79,6 +79,8 @@
       ],
       "js": [
         "utils/dom.js",
+        "shared/wing-account-identity.js",
+        "content/coupang/wing-read-api.js",
         "content/coupang/wing-unified.js"
       ],
       "run_at": "document_idle"
@@ -149,6 +151,7 @@
       "js": [
         "utils/dom.js",
         "content/coupang/profitability-report.js",
+        "content/coupang/ad-product-metrics.js",
         "content/coupang/ads-report.js"
       ],
       "run_at": "document_idle"

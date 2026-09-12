@@ -4,6 +4,8 @@ import type {
   CoupangDirectPoSnapshotResponse,
 } from '@kiditem/shared/coupang-direct-order';
 import type { CoupangDirectPo } from './coupang-directship-api';
+import type { OrderCollectionExtensionRun } from './order-collection-extension';
+import { coupangDirectOwnerAttemptHeaders } from './coupang-directship-source-owner';
 
 const PATH = '/api/orders/collection/coupang-directship/snapshot';
 
@@ -69,9 +71,14 @@ export async function readCoupangDirectSnapshot(
 export async function saveCoupangDirectSnapshot(
   channelAccountId: string,
   pos: readonly CoupangDirectPo[],
+  run: OrderCollectionExtensionRun,
 ): Promise<void> {
-  await apiClient.post(PATH, {
-    channelAccountId,
-    entries: poToSnapshotEntries(pos),
-  });
+  await apiClient.post(
+    PATH,
+    {
+      channelAccountId,
+      entries: poToSnapshotEntries(pos),
+    },
+    { headers: coupangDirectOwnerAttemptHeaders(run) },
+  );
 }

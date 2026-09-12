@@ -42,7 +42,6 @@ export {
   isCoupangCookieBloatError,
   isCoupangShipmentSessionRequiredError,
   type CoupangShipmentDateSummaryItem,
-  collectCoupangShipmentDateSummaryViaExtension,
 } from '@/lib/coupang-shipment-summary-action';
 
 const ORDER_COLLECTOR_REQUIRED_MESSAGE =

@@ -1,13 +1,22 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { BadRequestException } from '@nestjs/common';
-import { buildPerListingMetrics } from '../../../common/per-listing-profit';
+import { buildPerListingProfit, readAdEvidenceFromLedger } from '../../../common/per-listing-profit';
 import { SettlementsService } from '../settlements.service';
 
-vi.mock('../../../common/per-listing-profit', () => ({
-  buildPerListingMetrics: vi.fn(),
+// The per-listing aggregation and the ledger's account-level ad evidence are
+// faked together: both are handed the same `[from, to)` window, and these cases
+// check that the window this service derives is the one both reads receive.
+vi.mock('../../../common/per-listing-profit', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../common/per-listing-profit')>()),
+  buildPerListingProfit: vi.fn(),
+  readAdEvidenceFromLedger: vi.fn(),
 }));
 
-const mockedBuildPerListingMetrics = vi.mocked(buildPerListingMetrics);
+const mockedBuildPerListingProfit = vi.mocked(buildPerListingProfit);
+const mockedReadAdEvidenceFromLedger = vi.mocked(readAdEvidenceFromLedger);
+
+/** An organization with no advertising account: ad cost is a genuine zero. */
+const NOT_APPLIED_AD_EVIDENCE = { hasAdAccount: false, publishedDates: 0, accountSpend: 0, coversWindow: false };
 
 function makePrisma() {
   return {
@@ -18,14 +27,6 @@ function makePrisma() {
       update: vi.fn(),
     },
     $queryRaw: vi.fn().mockResolvedValue([]),
-  };
-}
-
-function makeOperationAlerts() {
-  return {
-    start: vi.fn(async () => ({})),
-    succeed: vi.fn(async () => ({})),
-    fail: vi.fn(async () => ({})),
   };
 }
 
@@ -65,8 +66,10 @@ describe('SettlementsService', () => {
   beforeEach(() => {
     prisma = makePrisma();
     service = new SettlementsService(prisma as any);
-    mockedBuildPerListingMetrics.mockReset();
-    mockedBuildPerListingMetrics.mockResolvedValue([]);
+    mockedReadAdEvidenceFromLedger.mockReset();
+    mockedReadAdEvidenceFromLedger.mockResolvedValue(NOT_APPLIED_AD_EVIDENCE);
+    mockedBuildPerListingProfit.mockReset();
+    mockedBuildPerListingProfit.mockResolvedValue([]);
   });
 
   describe('findAll', () => {
@@ -123,7 +126,7 @@ describe('SettlementsService', () => {
 
   describe('reconcile', () => {
     it('tolerance: matched when diff <= 100', async () => {
-      mockedBuildPerListingMetrics.mockResolvedValue([baseMetric]);
+      mockedBuildPerListingProfit.mockResolvedValue([baseMetric]);
       prisma.$queryRaw.mockResolvedValue([
         { listing_id: baseMetric.listingId, total_price: 10_050n, order_count: 5n },
       ]);
@@ -140,7 +143,7 @@ describe('SettlementsService', () => {
     });
 
     it('tolerance: minor_diff when 100 < diff <= 1000', async () => {
-      mockedBuildPerListingMetrics.mockResolvedValue([baseMetric]);
+      mockedBuildPerListingProfit.mockResolvedValue([baseMetric]);
       prisma.$queryRaw.mockResolvedValue([
         { listing_id: baseMetric.listingId, total_price: 10_500n, order_count: 5n },
       ]);
@@ -153,7 +156,7 @@ describe('SettlementsService', () => {
     });
 
     it('tolerance: mismatch when diff > 1000', async () => {
-      mockedBuildPerListingMetrics.mockResolvedValue([baseMetric]);
+      mockedBuildPerListingProfit.mockResolvedValue([baseMetric]);
       prisma.$queryRaw.mockResolvedValue([
         { listing_id: baseMetric.listingId, total_price: 12_000n, order_count: 5n },
       ]);
@@ -165,7 +168,7 @@ describe('SettlementsService', () => {
     });
 
     it('returns empty details and zero summary when live metrics are empty', async () => {
-      mockedBuildPerListingMetrics.mockResolvedValue([]);
+      mockedBuildPerListingProfit.mockResolvedValue([]);
       prisma.$queryRaw.mockResolvedValue([]);
 
       const result = await service.reconcile('c1', '2025-03');
@@ -186,7 +189,7 @@ describe('SettlementsService', () => {
     });
 
     it('converts bigint SUM to Number in Number() conversion', async () => {
-      mockedBuildPerListingMetrics.mockResolvedValue([
+      mockedBuildPerListingProfit.mockResolvedValue([
         {
           ...baseMetric,
           revenue: 3_000_000_000,
@@ -211,8 +214,16 @@ describe('SettlementsService', () => {
     it('uses KST month window and aligns refunded exclusion with live helper', async () => {
       await service.reconcile('c1', '2025-03');
 
-      expect(mockedBuildPerListingMetrics).toHaveBeenCalledTimes(1);
-      expect(mockedBuildPerListingMetrics).toHaveBeenCalledWith(
+      expect(mockedBuildPerListingProfit).toHaveBeenCalledTimes(1);
+      expect(mockedBuildPerListingProfit).toHaveBeenCalledWith(
+        prisma as any,
+        'c1',
+        new Date('2025-02-28T15:00:00.000Z'),
+        new Date('2025-03-31T15:00:00.000Z'),
+        NOT_APPLIED_AD_EVIDENCE,
+      );
+      // The ledger is asked about the same `[from, to)` window.
+      expect(mockedReadAdEvidenceFromLedger).toHaveBeenCalledWith(
         prisma as any,
         'c1',
         new Date('2025-02-28T15:00:00.000Z'),
@@ -230,62 +241,11 @@ describe('SettlementsService', () => {
       );
     });
 
-    it('opens and closes an operation alert for manual reconcile runs', async () => {
-      const operationAlerts = makeOperationAlerts();
-      service = new SettlementsService(prisma as any, operationAlerts as never);
-      mockedBuildPerListingMetrics.mockResolvedValue([baseMetric]);
-      prisma.$queryRaw.mockResolvedValue([
-        { listing_id: baseMetric.listingId, total_price: 10_000n, order_count: 5n },
-      ]);
+    it('propagates aggregation failures to the synchronous caller', async () => {
+      mockedBuildPerListingProfit.mockRejectedValueOnce(new Error('aggregation failed'));
 
-      await service.reconcile('c1', '2025-03', 'user-1');
-
-      expect(operationAlerts.start).toHaveBeenCalledWith(
-        expect.objectContaining({
-          organizationId: 'c1',
-          actorUserId: 'user-1',
-          operationKey: 'settlements-reconcile:2025-03',
-          type: 'settlements_reconcile',
-          title: '정산 대사 실행',
-          sourceType: 'finance_reconcile',
-          sourceId: '2025-03',
-          href: '/sales-analysis',
-        }),
-      );
-      expect(operationAlerts.succeed).toHaveBeenCalledWith(
-        'c1',
-        'settlements-reconcile:2025-03',
-        expect.objectContaining({
-          href: '/sales-analysis',
-          metadata: expect.objectContaining({
-            period: '2025-03',
-            matchedCount: 1,
-            mismatchCount: 0,
-          }),
-        }),
-      );
-      expect(operationAlerts.fail).not.toHaveBeenCalled();
-    });
-
-    it('marks the reconcile operation alert failed when aggregation throws', async () => {
-      const operationAlerts = makeOperationAlerts();
-      service = new SettlementsService(prisma as any, operationAlerts as never);
-      mockedBuildPerListingMetrics.mockRejectedValueOnce(new Error('aggregation failed'));
-
-      await expect(service.reconcile('c1', '2025-03', 'user-1')).rejects.toThrow(
+      await expect(service.reconcile('c1', '2025-03')).rejects.toThrow(
         'aggregation failed',
-      );
-
-      expect(operationAlerts.fail).toHaveBeenCalledWith(
-        'c1',
-        'settlements-reconcile:2025-03',
-        expect.objectContaining({
-          href: '/sales-analysis',
-          metadata: expect.objectContaining({
-            period: '2025-03',
-            error: 'aggregation failed',
-          }),
-        }),
       );
     });
   });

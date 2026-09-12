@@ -5,7 +5,7 @@ import { findStaleInstructionLines } from '../check-agents-hygiene.mjs';
 
 test('flags stale phase and PR history in instruction files', () => {
   const findings = findStaleInstructionLines(
-    'apps/server/src/foo/AGENTS.md',
+    'apps/server/src/foo/CLAUDE.md',
     'Phase 3 완료: old migration note\nPR #123 changed this\n',
   );
   assert.equal(findings.length, 2);
@@ -17,71 +17,60 @@ test('flags stale phase and PR history in instruction files', () => {
 
 test('allows root no-follow-up policy wording', () => {
   const findings = findStaleInstructionLines(
-    'AGENTS.md',
+    'CLAUDE.md',
     '- **No follow-up issues** - apply all files in scope.\n',
   );
   assert.equal(findings.length, 0);
 });
 
-test('flags an AGENTS.md without a same-directory CLAUDE.md shim', () => {
-  assert.equal(typeof agentsHygiene.findClaudeShimFindings, 'function');
+test('flags legacy AGENTS instruction files', () => {
+  assert.equal(typeof agentsHygiene.findLegacyInstructionFindings, 'function');
 
-  const findings = agentsHygiene.findClaudeShimFindings(
-    ['AGENTS.md', 'apps/web/AGENTS.md'],
-    new Map([['CLAUDE.md', '@AGENTS.md\n']]),
-  );
+  const findings = agentsHygiene.findLegacyInstructionFindings([
+    'AGENTS.md',
+    'apps/web/AGENTS.md',
+  ]);
 
   assert.deepEqual(findings, [{
-    file: 'apps/web/CLAUDE.md',
+    file: 'AGENTS.md',
     line: 1,
-    name: 'missing CLAUDE.md shim',
-    text: 'Every AGENTS.md must have a same-directory CLAUDE.md containing only @AGENTS.md',
+    name: 'legacy instruction file',
+    text: 'Instruction guides must use CLAUDE.md; remove the legacy AGENTS file',
+  }, {
+    file: 'apps/web/AGENTS.md',
+    line: 1,
+    name: 'legacy instruction file',
+    text: 'Instruction guides must use CLAUDE.md; remove the legacy AGENTS file',
   }]);
 });
 
-test('flags a CLAUDE.md shim whose content drifts from @AGENTS.md', () => {
-  const findings = agentsHygiene.findClaudeShimFindings(
-    ['AGENTS.md'],
-    new Map([['CLAUDE.md', 'Duplicated instructions\n']]),
-  );
-
-  assert.deepEqual(findings, [{
-    file: 'CLAUDE.md',
-    line: 1,
-    name: 'CLAUDE.md drift',
-    text: 'CLAUDE.md must contain only @AGENTS.md',
-  }]);
-});
-
-test('flags a CLAUDE.md shim without a same-directory AGENTS.md', () => {
-  const findings = agentsHygiene.findClaudeShimFindings(
-    [],
-    new Map([['apps/web/CLAUDE.md', '@AGENTS.md\n']]),
-  );
-
-  assert.deepEqual(findings, [{
-    file: 'apps/web/CLAUDE.md',
-    line: 1,
-    name: 'orphan CLAUDE.md shim',
-    text: 'CLAUDE.md shim requires a same-directory AGENTS.md',
-  }]);
-});
-
-test('flags an active AGENTS.md chain that exceeds the configured byte limit', () => {
+test('flags an active CLAUDE.md chain that reaches the configured byte limit', () => {
   assert.equal(typeof agentsHygiene.findInstructionChainSizeFindings, 'function');
 
   const findings = agentsHygiene.findInstructionChainSizeFindings(
     new Map([
-      ['AGENTS.md', '123456'],
-      ['apps/web/AGENTS.md', 'abcdef'],
+      ['CLAUDE.md', '123456'],
+      ['apps/web/CLAUDE.md', 'abcdef'],
     ]),
     10,
   );
 
   assert.deepEqual(findings, [{
-    file: 'apps/web/AGENTS.md',
+    file: 'apps/web/CLAUDE.md',
     line: 1,
-    name: 'AGENTS.md active chain too large',
-    text: 'Active AGENTS.md chain is 12 bytes; limit is 10 bytes',
+    name: 'CLAUDE.md active chain reached byte limit',
+    text: 'Active CLAUDE.md chain is 12 bytes; it must stay below 10 bytes',
   }]);
+});
+
+test('uses the Codex 32 KiB project-instruction limit by default', () => {
+  const belowLimit = agentsHygiene.findInstructionChainSizeFindings(
+    new Map([['CLAUDE.md', 'x'.repeat((32 * 1024) - 1)]]),
+  );
+  const atLimit = agentsHygiene.findInstructionChainSizeFindings(
+    new Map([['CLAUDE.md', 'x'.repeat(32 * 1024)]]),
+  );
+
+  assert.equal(belowLimit.length, 0);
+  assert.equal(atLimit.length, 1);
 });

@@ -105,6 +105,17 @@ describe('apiClient HTTP method envelopes', () => {
     );
   });
 
+  it('GET preserves an owner admission lookup header without sending a body', async () => {
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(jsonResponse(200, { attempts: [] }));
+    await apiClient.get('/api/ads/keyword-rank/wing/batch-attempts', {
+      headers: { 'Idempotency-Key': 'rank-admission' },
+    });
+    const init = (fetch as ReturnType<typeof vi.fn>).mock.calls[0]?.[1] as RequestInit;
+    expect(new Headers(init.headers).get('Idempotency-Key')).toBe('rank-admission');
+    expect(init.credentials).toBe('include');
+    expect(init.body).toBeUndefined();
+  });
+
   it('POST sends JSON body only when a body is provided', async () => {
     const fetchMock = fetch as ReturnType<typeof vi.fn>;
     fetchMock

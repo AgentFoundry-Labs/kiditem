@@ -102,7 +102,7 @@ Immediately before merging, the executor must read the live PR and confirm:
 - required checks succeeded and no conflict or blocking conversation remains;
 - every review required by branch protection, the issue, or risk policy passed;
 - the issue is neither `Human Input` nor `Blocked` and all named approvals exist;
-- the merge method matches root `AGENTS.md`.
+- the merge method matches root `CLAUDE.md`.
 
 The merge executor does not count as an independent reviewer for work it
 implemented. If an independent review is required, a different human or Agent

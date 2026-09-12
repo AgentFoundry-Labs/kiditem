@@ -24,11 +24,10 @@ const sharedEnvironmentContext = KidItemEnvironmentContext.create({
   requiresAuth: false,
 });
 
-// Server-owned browser Operation claim/report calls always require the opaque
-// KidItem session. This context shares the same per-environment profile store
-// with the domain workers, but is intentionally separate from the unauthenticated
-// session-broadcast context above.
-const browserOperationRuntimeEnvironmentContext = KidItemEnvironmentContext.create({
+// Source-owner API calls require the opaque KidItem session. This context shares
+// the same per-environment profile store with the domain workers, but is
+// intentionally separate from the unauthenticated session-broadcast context above.
+const sourceOwnerEnvironmentContext = KidItemEnvironmentContext.create({
   chrome,
   fetchFn: fetch,
 });
@@ -37,6 +36,11 @@ const collectionSessions = KidItemCollectionSession.create({
   chrome,
   storageKey: "kiditem_collection_sessions",
   environmentContext: sharedEnvironmentContext,
+  // The lifetime module is loaded after all domain workers have registered.
+  // Resolve the runtime lazily so the callback remains outside the session
+  // storage queue without creating a second session authority.
+  onStarted: (started) =>
+    globalThis.KidItemWebAppCollectionRuntime?.ensureSessionCanRun(started),
 });
 
 const interactiveTabs = KidItemInteractiveTabs.create({ chrome });

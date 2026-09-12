@@ -8,7 +8,6 @@ const RETIRED_LIFECYCLE_IDENTIFIERS = [
 
 const APPLICATION_COMPOSITION_ROOTS = [
   'agent-runtime-application.module.ts',
-  'agent-worker-application.module.ts',
 ] as const;
 const DIRECT_RUNTIME_HTTP_MODULE = 'agent-os/agent-os-runtime-http.module.ts';
 

@@ -62,8 +62,8 @@ describe('readiness modal model', () => {
       totalCount: 3,
       pendingCount: 2,
       progressRatio: 1 / 3,
-      headline: '2개만 업데이트하면 돼요',
-      subhead: '어제까지의 숫자를 채워두면 오늘 대시보드가 정확해져요.',
+      headline: '데이터 상태를 확인해 보세요',
+      subhead: '누락된 데이터는 아래에서 확인할 수 있어요. 지금도 대시보드를 볼 수 있어요.',
       actionChecks: [data.checks[1], data.checks[2]],
       okChecks: [ready],
     });

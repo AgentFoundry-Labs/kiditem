@@ -4,15 +4,20 @@ import { Suspense, useMemo, useState, useEffect } from "react";
 import Link from "next/link";
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import { Download, Info, RefreshCw, TrendingUp } from "lucide-react";
+import { toast } from 'sonner';
 import { useQuery } from "@tanstack/react-query";
 import { z } from 'zod';
 import { PLDataSchema, SalesAnalysisDataSourcesSchema } from '@kiditem/shared/finance';
 import { ChannelDashboardSummarySchema } from '@kiditem/shared/channel-dashboard';
 import { usePeriodSelector } from '@/hooks/usePeriodSelector';
 import PeriodSelector from '@/components/ui/PeriodSelector';
-import { cn, formatNumber, timeAgo } from "@/lib/utils";
+import { cn, formatNumber, sumOrUnavailable, timeAgo } from "@/lib/utils";
 import { apiClient } from "@/lib/api-client";
 import { friendlyError } from "@/lib/api-error";
+import {
+  downloadProfitLossReport,
+  type ProfitLossFilter,
+} from '@/lib/finance-report-export';
 import { queryKeys } from "@/lib/query-keys";
 import PageSkeleton from "@/components/ui/PageSkeleton";
 import { ErrorState } from "@/components/ui/EmptyState";
@@ -45,7 +50,7 @@ function ProfitLossContent() {
     router.replace(`${pathname}?${params.toString()}`);
   };
 
-  const [filter, setFilter] = useState("all");
+  const [filter, setFilter] = useState<ProfitLossFilter>('all');
   const [selectedGrades, setSelectedGrades] = useState<string[]>([]);
   const [sortField, setSortField] = useState<SortField | null>(null);
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc' | null>(null);
@@ -87,10 +92,11 @@ function ProfitLossContent() {
   const ordersEmpty = dataSources?.orders?.count === 0;
 
   const filtered = useMemo(() => data.filter((d) => {
+    // An unavailable profit rate answers none of the three profit filters.
     const matchesProfitFilter =
-      filter === "minus" ? d.profitRate < 0
-        : filter === "low" ? d.profitRate >= 0 && d.profitRate <= 3
-          : filter === "normal" ? d.profitRate > 3
+      filter === "minus" ? d.profitRate !== null && d.profitRate < 0
+        : filter === "low" ? d.profitRate !== null && d.profitRate >= 0 && d.profitRate <= 3
+          : filter === "normal" ? d.profitRate !== null && d.profitRate > 3
             : true;
     const matchesGrade =
       selectedGrades.length === 0 || selectedGrades.includes((d.grade || "").toUpperCase());
@@ -103,6 +109,9 @@ function ProfitLossContent() {
       const left = a[sortField];
       const right = b[sortField];
       if (left === right) return 0;
+      // An unavailable value has no place on the scale — it sorts last either way.
+      if (left === null) return 1;
+      if (right === null) return -1;
       return sortDirection === 'asc' ? (left > right ? 1 : -1) : (left < right ? 1 : -1);
     });
   }, [filtered, sortField, sortDirection]);
@@ -128,25 +137,27 @@ function ProfitLossContent() {
     );
   };
 
+  // Revenue never depends on ad coverage. A profit or ad-cost total that would
+  // have to skip an unavailable row is itself unavailable, not a smaller number.
   const totalRevenue = sorted.reduce((s, d) => s + d.revenue, 0);
-  const totalProfit = sorted.reduce((s, d) => s + d.netProfit, 0);
-  const totalAdCost = sorted.reduce((s, d) => s + d.adCost, 0);
-  const overallRate = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0;
+  const totalProfit = sumOrUnavailable(sorted.map((d) => d.netProfit));
+  const totalAdCost = sumOrUnavailable(sorted.map((d) => d.adCost));
+  const overallRate = totalProfit === null || totalRevenue <= 0
+    ? null
+    : (totalProfit / totalRevenue) * 100;
 
-  const handleExcel = () => {
-    import("xlsx").then((XLSX) => {
-      const ws = XLSX.utils.json_to_sheet(
-        sorted.map((d) => ({
-          등급: d.grade, 상품명: d.masterName, SKU: d.masterCode, 채널: d.channelName ?? '',
-          매출: d.revenue, 매입원가: d.cogs, 수수료: d.commission,
-          배송비: d.shippingCost, 광고비: d.adCost, 기타비용: d.otherCost,
-          순이익: d.netProfit, "이익률(%)": d.profitRate, 주문수: d.orderCount,
-        }))
-      );
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, "손익표");
-      XLSX.writeFile(wb, `손익표_${period}.xlsx`);
-    });
+  const handleExcel = async () => {
+    try {
+      await downloadProfitLossReport({
+        period,
+        profitFilter: filter,
+        grades: selectedGrades,
+        sortField,
+        sortDirection,
+      });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '손익표 내보내기에 실패했습니다.');
+    }
   };
 
   return (
@@ -234,7 +245,11 @@ function ProfitLossContent() {
             data={data}
             filtered={paginated}
             filter={filter}
-            onFilter={setFilter}
+            onFilter={(next) => {
+              if (next === 'all' || next === 'minus' || next === 'low' || next === 'normal') {
+                setFilter(next);
+              }
+            }}
             selectedGrades={selectedGrades}
             onToggleGrade={toggleGrade}
             onResetGrades={() => setSelectedGrades([])}

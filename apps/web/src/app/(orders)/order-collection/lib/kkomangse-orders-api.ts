@@ -1,10 +1,11 @@
-import * as XLSX from 'xlsx';
-import { issueBrowserCollectionRunId } from '@/lib/browser-collection-session';
 import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extension-bridge';
 import { apiClient } from '@/lib/api-client';
-import { downloadBlob } from '@/lib/browser-download';
 import type { OrderCollectionConversionResult } from './order-collection-api';
-import type { OrderCollectionExtensionRun } from './order-collection-extension';
+import { conversionResultFrom } from './order-collection-conversion-response';
+import {
+  orderCollectionExtensionRunFields,
+  type OrderCollectionExtensionRun,
+} from './order-collection-extension';
 
 interface KkomangseCollectResponse {
   success?: boolean;
@@ -29,8 +30,8 @@ export async function collectKkomangseXlsxFromExtension(run?: OrderCollectionExt
     {
       action: 'collectKkomangseOrders',
       date: run?.date,
-      runId: await issueBrowserCollectionRunId(run?.runId),
-      deferTerminal: Boolean(run?.runId),
+      // attemptId/deferTerminal: true are included by shared fenced run fields.
+      ...orderCollectionExtensionRunFields(run),
     },
     90000,
   );
@@ -43,50 +44,25 @@ export async function collectKkomangseXlsxFromExtension(run?: OrderCollectionExt
 /** 수집한 꼬망세 xlsx(base64)를 셀피아 업로드 양식(.xls)으로 변환. 생성 파일 목록 등록용 결과 반환. */
 export async function convertKkomangseToSellpiaFile(
   xlsxBase64: string,
-  options?: { download?: boolean; date?: string },
+  options?: { download?: boolean; date?: string; run?: OrderCollectionExtensionRun },
 ): Promise<OrderCollectionConversionResult> {
   const res = await apiClient.fetchRaw('/api/orders/collection/kkomangse/convert', {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: {
+      'content-type': 'application/json',
+      ...(options?.run ? {
+        'x-order-collection-attempt-id': options.run.attemptId,
+        'x-source-attempt-token': options.run.attemptToken,
+      } : {}),
+    },
     body: JSON.stringify({ xlsxBase64, date: options?.date }),
   });
   if (!res.ok) {
     throw new Error((await res.text().catch(() => '')) || '꼬망세 변환에 실패했습니다.');
   }
-  const blob = await res.blob();
-  const cd = res.headers.get('Content-Disposition') ?? '';
-  const m = /filename\*=UTF-8''([^;]+)/.exec(cd);
-  const fileName = m ? decodeURIComponent(m[1]) : '꼬망세_셀피아변환.xls';
-  if (options?.download !== false) {
-    downloadBlob(blob, fileName);
-  }
-  return {
-    fileName,
-    blob,
-    previewRows: await readKkomangsePreviewRows(blob),
-    sourceRows: kkomangseNumHeader(res, 'X-Order-Collection-Source-Rows'),
-    productRows: kkomangseNumHeader(res, 'X-Order-Collection-Product-Rows'),
-    outputRows: kkomangseNumHeader(res, 'X-Order-Collection-Output-Rows'),
-    skippedRows: kkomangseNumHeader(res, 'X-Order-Collection-Skipped-Rows'),
-  };
-}
-
-function kkomangseNumHeader(res: Response, name: string): number | null {
-  const v = res.headers.get(name);
-  if (!v) return null;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
-}
-
-/** 생성된 .xls(꼬망세 27컬럼)에서 미리보기 행 추출. */
-async function readKkomangsePreviewRows(blob: Blob): Promise<string[][]> {
-  const wb = XLSX.read(await blob.arrayBuffer(), { type: 'array' });
-  const sheet = wb.Sheets[wb.SheetNames[0] ?? ''];
-  if (!sheet) return [];
-  const rows = XLSX.utils.sheet_to_json<Array<string | number | null | undefined>>(sheet, {
-    header: 1,
-    raw: false,
-    defval: '',
+  return conversionResultFrom(res, {
+    defaultFileName: '꼬망세_셀피아변환.xls',
+    preview: { xlsxColumns: 27 },
+    download: options?.download,
   });
-  return rows.slice(0, 24).map((row) => row.slice(0, 27).map((cell) => String(cell ?? '')));
 }

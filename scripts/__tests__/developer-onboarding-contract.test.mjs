@@ -40,8 +40,10 @@ test('local service images are version-pinned instead of following floating tags
 test('the Office Gateway package is built only by the exact-SHA local deployer', () => {
   assert.equal(existsSync(resolve(root, '.github/workflows/develop-gateway-package.yml')), false);
   const deployer = read('deploy/office/apply-deployment.ps1');
-  assert.match(deployer, /npm\.cmd ci/);
-  assert.match(deployer, /dotnet publish apps\/agent-gateway\/windows/);
+  const gatewayBuild = read('deploy/office/gateway-build.ps1');
+  assert.match(deployer, /deploy\\office\\gateway-build\.ps1/);
+  assert.match(gatewayBuild, /npm\.cmd ci/);
+  assert.match(gatewayBuild, /apps\/agent-gateway\/windows\/KidItem\.JobRunner/);
 });
 
 test('root commands keep the optional Python runtime out of the default development path', () => {
@@ -49,7 +51,7 @@ test('root commands keep the optional Python runtime out of the default developm
   assert.equal(scripts['setup:macos'], 'node scripts/setup-macos-development.mjs');
   assert.match(scripts['dev:core'], /npm run dev/);
   assert.match(scripts['dev:core'], /npm run dev:server/);
-  assert.match(scripts['dev:core'], /OPERATION_RUNTIME_WORKER_ENABLED=1/);
+  assert.doesNotMatch(scripts['dev:core'], /OPERATION_RUNTIME_WORKER_ENABLED/);
   assert.match(scripts['dev:core'], /--kill-others-on-fail/);
   assert.doesNotMatch(scripts['dev:core'], /dev:agents/);
   assert.equal(scripts['dev:all'], 'node scripts/run-local-development.mjs');

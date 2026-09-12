@@ -1,6 +1,6 @@
 // Application service for `/api/ads/keyword-rank/*` — 키워드 트래커 CRUD 와
 // 순위 추이/최신 SERP 읽기. ingest 는 `KeywordRankIngestHandler` 가
-// `AdSyncService.sync` dispatch 를 통해 처리한다.
+// the keyword source-owner repository and handler.
 
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import {
@@ -294,6 +294,10 @@ export class KeywordRankService {
 
   /** 확장이 한 번의 Wing 조회로 같은 대표 키워드 상품을 함께 처리하도록 그룹화. */
   async getWingSalesRankTargets(organizationId: string) {
+    return (await this.resolveWingSalesRankSelection(organizationId)).selection;
+  }
+
+  async resolveWingSalesRankSelection(organizationId: string) {
     const [overrides, ownItems, snapshots] = await Promise.all([
       this.keywordRankRepo.listRepresentativeKeywordOverrides(organizationId),
       this.keywordRankRepo.listOwnVendorItems(organizationId),
@@ -367,8 +371,11 @@ export class KeywordRankService {
         primaryProductCount: target.primaryVendorItemIds.size,
         pendingProductCount: target.pendingVendorItemIds.size,
         pendingPrimaryProductCount: target.pendingPrimaryVendorItemIds.size,
-        phase: target.primaryVendorItemIds.size > 0 ? "primary" : "comparison",
-        maxPages: 5,
+        phase:
+          target.primaryVendorItemIds.size > 0
+            ? ("primary" as const)
+            : ("comparison" as const),
+        maxPages: 5 as const,
       }))
       .sort(
         (a, b) =>
@@ -387,7 +394,7 @@ export class KeywordRankService {
     // 같은 날 중단된 실행은 이미 저장한 키워드를 건너뛰고 이어서 수집한다.
     // 오늘 대상이 모두 수집된 뒤 다시 누르면 전체를 새로 갱신한다.
     const targets = pendingTargets.length > 0 ? pendingTargets : allTargets;
-    return {
+    const selection = {
       productCount: deduped.length,
       candidateCount: assignments.length,
       keywordCount: allTargets.length,
@@ -397,6 +404,7 @@ export class KeywordRankService {
       pendingProductCount: pendingVendorItemIds.size,
       targets,
     };
+    return { selection, assignments };
   }
 
   /**

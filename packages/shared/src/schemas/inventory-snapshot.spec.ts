@@ -224,4 +224,49 @@ describe('InventorySku snapshot contracts', () => {
       errorCode: 'sellpia_network_failed',
     });
   });
+
+  it('parses a completed browser JSON snapshot without inventing a file hash', () => {
+    const parsed = InventorySkuSnapshotListResponseSchema.parse({
+      items: [snapshotItem],
+      total: 1,
+      page: 1,
+      limit: 50,
+      summary: {
+        totalSkus: 1,
+        linkedSkus: 1,
+        unlinkedSkus: 0,
+        inStockSkus: 1,
+        outOfStockSkus: 0,
+        totalUnits: 8,
+        pricedAssetValue: 8_000,
+        unpricedSkuCount: 0,
+      },
+      latestImport: {
+        id: runId,
+        fileName: 'sellpia-inventory-snapshot-v1.json',
+        fileHash: null,
+        status: 'completed',
+        rowCount: 1_820,
+        importedAt: '2026-07-12T00:00:00.000Z',
+        lastVerifiedAt: '2026-07-12T00:00:00.000Z',
+        verificationCount: 1,
+        lastTrigger: 'manual_request',
+        freshnessGeneration: '7',
+        manualFreshExportConfirmedAt: null,
+        manualFreshExportConfirmedBy: null,
+        qualityReport: null,
+        errorCode: null,
+        errorMessage: null,
+        createdAt: '2026-07-12T00:00:00.000Z',
+        updatedAt: '2026-07-12T00:00:00.000Z',
+      },
+    });
+
+    expect(parsed.latestImport).toMatchObject({
+      fileName: 'sellpia-inventory-snapshot-v1.json',
+      fileHash: null,
+      status: 'completed',
+      rowCount: 1_820,
+    });
+  });
 });

@@ -69,8 +69,8 @@
 - `apps/web/src/app/(catalog)/product-hub/matching/components/__tests__/ChannelSkuMappingTable.spec.tsx`: prove the recipe remains read-only and the warning is visible.
 - `apps/web/src/app/(catalog)/product-hub/AGENTS.md`, `apps/web/src/app/(catalog)/product-hub/matching/AGENTS.md`, `apps/web/src/app/(product-pipeline)/product-pipeline/registered-products/AGENTS.md`: describe channel-origin rows, exact-only correction, and progressive refresh.
 - `docs/ARCHITECTURE.md`: document the new Products incoming capability consumed during Channels catalog publication.
-- `docs/superpowers/specs/2026-07-17-coupang-channel-first-master-product-provisioning-design.md`: mark the approved design current and align it with typed Coupang evidence, bulk publication, and failure behavior.
-- `docs/superpowers/specs/2026-07-16-master-product-operations-inventory-design.md`: point the superseded channel-first section at the approved 2026-07-17 design.
+- `docs/superpowers/specs/archive/2026-07-17-coupang-channel-first-master-product-provisioning-design.md`: mark the approved design current and align it with typed Coupang evidence, bulk publication, and failure behavior.
+- `docs/superpowers/specs/archive/2026-07-16-master-product-operations-inventory-design.md`: point the superseded channel-first section at the approved 2026-07-17 design.
 
 ---
 
@@ -706,8 +706,8 @@ rtk git commit -m "feat: connect Coupang catalog to product operations"
 - Modify: `apps/web/src/app/(catalog)/product-hub/matching/AGENTS.md`
 - Modify: `apps/web/src/app/(product-pipeline)/product-pipeline/registered-products/AGENTS.md`
 - Modify: `docs/ARCHITECTURE.md`
-- Modify: `docs/superpowers/specs/2026-07-17-coupang-channel-first-master-product-provisioning-design.md`
-- Modify: `docs/superpowers/specs/2026-07-16-master-product-operations-inventory-design.md`
+- Modify: `docs/superpowers/specs/archive/2026-07-17-coupang-channel-first-master-product-provisioning-design.md`
+- Modify: `docs/superpowers/specs/archive/2026-07-16-master-product-operations-inventory-design.md`
 
 **Interfaces:**
 - Consumes: existing `CoupangCatalogCollectionRun.progress.publishedProducts`, `queryKeys.channelListings`, `queryKeys.products.operations`, `queryKeys.channelProductMappings`, and existing inventory warning enums.
@@ -883,7 +883,7 @@ remains.
 - [ ] **Step 7: Commit Task 3**
 
 ```bash
-rtk git add apps/web/src/app/'(catalog)'/product-hub apps/web/src/app/'(product-pipeline)'/product-pipeline/registered-products docs/ARCHITECTURE.md docs/superpowers/specs/2026-07-17-coupang-channel-first-master-product-provisioning-design.md docs/superpowers/specs/2026-07-16-master-product-operations-inventory-design.md docs/ERD.md docs/erd graphify-out
+rtk git add apps/web/src/app/'(catalog)'/product-hub apps/web/src/app/'(product-pipeline)'/product-pipeline/registered-products docs/ARCHITECTURE.md docs/superpowers/specs/archive/2026-07-17-coupang-channel-first-master-product-provisioning-design.md docs/superpowers/specs/archive/2026-07-16-master-product-operations-inventory-design.md docs/ERD.md docs/erd graphify-out
 rtk git commit -m "fix: surface collected products in operations"
 ```
 

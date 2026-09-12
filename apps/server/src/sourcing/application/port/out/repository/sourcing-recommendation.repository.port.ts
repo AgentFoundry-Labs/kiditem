@@ -1,5 +1,3 @@
-import type { ActiveBrowserAttemptTransaction } from '../../../../../operations/application/port/active-browser-attempt-transaction';
-
 export const SOURCING_RECOMMENDATION_REPOSITORY_PORT = Symbol(
   'SourcingRecommendationRepositoryPort',
 );
@@ -65,10 +63,6 @@ export type CreateRecommendationRunResult =
   | { kind: 'existing'; run: SourcingRecommendationRunGraph };
 
 export interface SourcingRecommendationRepositoryPort {
-  publishStagedRunInAttempt(
-    transaction: ActiveBrowserAttemptTransaction,
-    input: { organizationId: string; runId: string },
-  ): Promise<'published' | 'already_published' | 'missing'>;
   findById(input: {
     organizationId: string;
     id: string;

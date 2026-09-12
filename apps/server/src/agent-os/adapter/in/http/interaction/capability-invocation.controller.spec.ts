@@ -15,7 +15,6 @@ describe('CapabilityInvocationController', () => {
       result: {
         summary: '발주서를 만들었습니다.',
         resourceRefs: [{ kind: 'purchase_order', id: 'purchase-order-1', version: null }],
-        operationRefs: [],
       },
     };
     const invocations = { getReceipt: vi.fn().mockResolvedValue(receipt) };

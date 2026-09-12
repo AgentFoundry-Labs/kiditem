@@ -1,0 +1,307 @@
+import { enumerateDashboardDates } from '@kiditem/shared/dashboard';
+import { kstBusinessDate, kstDayStart } from '../../../../common/kst';
+
+/**
+ * The single place the dashboard turns a period selection into query windows.
+ *
+ * A window is not just a pair of timestamps: every source closes its period on
+ * a different rule, and the rule used to be re-derived inside each service and
+ * each outgoing adapter. `DashboardSourceClass` names those rules so the set is
+ * enumerable rather than implicit in three switch statements, and the resolved
+ * value carries the KST business dates the window covers so adapters no longer
+ * re-derive date keys or read the wall clock.
+ *
+ * The closure rules, as the dashboard actually applies them:
+ *
+ * - `order_timestamps` — the selected calendar window verbatim, half-open
+ *   `[from, to)`. `day`/`month` selections therefore include the in-progress
+ *   KST day; order rows exist for it.
+ * - `closed_day_clipped` — only closed KST days feed Wing traffic and
+ *   owner-published account ad rows, so a preset window is clipped forward to
+ *   the anchor's last completed KST day and a `day` preset is rewritten to
+ *   yesterday.
+ *
+ * Both rules take the month from the *anchor's* calendar month, so no month
+ * value is ever built from a period other than the one it is labelled with.
+ * Under `closed_day_clipped` that month is empty on the 1st; the affected
+ * cards showing nothing is the intended outcome, not a window to widen — see
+ * `docs/adr/0001-dashboard-month-window-is-anchor-clipped.md`.
+ *
+ * One rule cuts across both: an explicit custom range stays exact, including
+ * future dates, so missing coverage stays visible to the caller instead of
+ * being silently trimmed away.
+ */
+export type DashboardSourceClass =
+  | 'order_timestamps'
+  | 'closed_day_clipped';
+
+/** Half-open timestamp window, `[from, to)`. */
+export interface DashboardQueryWindow {
+  from: Date;
+  to: Date;
+}
+
+export interface ResolvedDashboardPeriod {
+  sourceClass: DashboardSourceClass;
+  /**
+   * Contiguous, sorted, unique `YYYY-MM-DD` KST business dates covered by
+   * `queryWindow`. Empty when the window is empty.
+   */
+  selectedDates: string[];
+  queryWindow: DashboardQueryWindow;
+  /**
+   * Last KST business date the resolving anchor treats as closed. Adapters use
+   * it as their coverage cutoff instead of reading the wall clock, which is
+   * what keeps an injected anchor authoritative all the way down.
+   */
+  knownThrough: string;
+}
+
+/**
+ * The four windows every period-aware dashboard read needs. `month` /
+ * `previousMonth` are the calendar months the effective-period label is built
+ * from; `selected` / `previousSelected` follow the caller's range selection.
+ */
+export interface DashboardPeriodSet {
+  sourceClass: DashboardSourceClass;
+  selected: ResolvedDashboardPeriod;
+  previousSelected: ResolvedDashboardPeriod;
+  month: ResolvedDashboardPeriod;
+  previousMonth: ResolvedDashboardPeriod;
+}
+
+/**
+ * Structural view of the calendar a selection resolves to. `DashboardContext`
+ * satisfies this; the module declares its own shape so `domain/**` keeps no
+ * dependency on application contracts.
+ */
+export interface DashboardPeriodSelection {
+  /** 'day' | 'week' | 'month' | 'custom'; any other value behaves as 'month'. */
+  effectiveRange: string;
+  dateRange: {
+    start: Date;
+    end: Date;
+    prevStart: Date;
+    prevEnd: Date;
+  };
+  monthStart: Date;
+  monthEnd: Date;
+  prevMonthDate: Date;
+}
+
+const DAY_MS = 86_400_000;
+
+export function resolveDashboardPeriod(
+  selection: DashboardPeriodSelection,
+  anchor: Date,
+  sourceClass: DashboardSourceClass,
+): DashboardPeriodSet {
+  const windows = sourceClass === 'closed_day_clipped'
+    ? closedDayClippedWindows(selection, anchor)
+    : orderTimestampWindows(selection);
+
+  return {
+    sourceClass,
+    selected: resolveExactPeriod(windows.selected, anchor, sourceClass),
+    previousSelected: resolveExactPeriod(windows.previousSelected, anchor, sourceClass),
+    month: resolveExactPeriod(windows.month, anchor, sourceClass),
+    previousMonth: resolveExactPeriod(windows.previousMonth, anchor, sourceClass),
+  };
+}
+
+/**
+ * Rolling closed-day trend window for `/api/dashboard/trend`. The in-progress
+ * KST day is excluded, so no partial row can shift the selected date set or
+ * make a missing day look collected.
+ *
+ * Every trend source — orders, Wing traffic and account ads alike — reads this
+ * one window, so the whole series obeys the `closed_day_clipped` rule rather
+ * than the per-source rules the selection-driven windows use.
+ */
+export function resolveTrendPeriod(
+  range: string,
+  anchor: Date,
+  /**
+   * An explicit window, when the caller selected one. The chart sits inside
+   * the period section and under its filter, so a selected range has to reach
+   * it; without this it always answered with a rolling window from the anchor,
+   * and a July selection drew September.
+   */
+  explicit?: { from: Date; to: Date } | null,
+): ResolvedDashboardPeriod {
+  if (explicit) {
+    return resolveExactPeriod(explicit, anchor, 'closed_day_clipped');
+  }
+  const days = trendDays(range);
+  const to = kstDayStart(anchor);
+  const from = new Date(to.getTime() - days * DAY_MS);
+  return resolveExactPeriod({ from, to }, anchor, 'closed_day_clipped');
+}
+
+/** Day count behind a `/api/dashboard/trend` range token. */
+function trendDays(range: string): number {
+  return range === '7d' ? 7 : range === '90d' ? 90 : 30;
+}
+
+/**
+ * Wing window for one month of the six-month sales trend. The anchor's own
+ * month is still open, so it is clipped to closed days like every other month
+ * window; every older month is already closed and stays exact.
+ */
+export function resolveWingMonthlyTrendPeriod(
+  monthStart: Date,
+  monthEnd: Date,
+  anchor: Date,
+): ResolvedDashboardPeriod {
+  const periodStart = kstBusinessDate(monthStart);
+  const anchorDate = kstBusinessDate(anchor);
+  const window = periodStart.getUTCFullYear() === anchorDate.getUTCFullYear()
+    && periodStart.getUTCMonth() === anchorDate.getUTCMonth()
+    ? clipToClosedDays(anchor, monthStart, monthEnd)
+    : { from: monthStart, to: monthEnd };
+  return resolveExactPeriod(window, anchor, 'closed_day_clipped');
+}
+
+/**
+ * KST business dates touched by a half-open `[from, to)` timestamp window. The
+ * last date is the one containing the final instant before `to`, so a
+ * day-aligned end excludes its own date and a mid-day end includes it.
+ */
+export function businessDatesInWindow(from: Date, to: Date): string[] {
+  if (from.getTime() >= to.getTime()) return [];
+  return enumerateDashboardDates(
+    businessDateText(from),
+    businessDateText(new Date(to.getTime() - 1)),
+  );
+}
+
+/** Last KST business date an anchor treats as closed. */
+function knownThroughDate(anchor: Date): string {
+  const yesterday = kstBusinessDate(anchor);
+  yesterday.setUTCDate(yesterday.getUTCDate() - 1);
+  return yesterday.toISOString().slice(0, 10);
+}
+
+/**
+ * Resolve a window whose bounds are already decided into the resolved shape.
+ * Every resolver above ends here, and a caller with its own exact window (a
+ * historical trend month, for example) gets the same treatment.
+ */
+export function resolveExactPeriod(
+  queryWindow: DashboardQueryWindow,
+  anchor: Date,
+  sourceClass: DashboardSourceClass,
+): ResolvedDashboardPeriod {
+  return {
+    sourceClass,
+    selectedDates: businessDatesInWindow(queryWindow.from, queryWindow.to),
+    queryWindow,
+    knownThrough: knownThroughDate(anchor),
+  };
+}
+
+interface PeriodWindows {
+  selected: DashboardQueryWindow;
+  previousSelected: DashboardQueryWindow;
+  month: DashboardQueryWindow;
+  previousMonth: DashboardQueryWindow;
+}
+
+function orderTimestampWindows(selection: DashboardPeriodSelection): PeriodWindows {
+  return {
+    selected: { from: selection.dateRange.start, to: selection.dateRange.end },
+    previousSelected: {
+      from: selection.dateRange.prevStart,
+      to: selection.dateRange.prevEnd,
+    },
+    month: { from: selection.monthStart, to: selection.monthEnd },
+    previousMonth: { from: selection.prevMonthDate, to: selection.monthStart },
+  };
+}
+
+function closedDayClippedWindows(
+  selection: DashboardPeriodSelection,
+  anchor: Date,
+): PeriodWindows {
+  const preset = closedDayPreset(selection.effectiveRange);
+  return {
+    selected: presetWindow(anchor, selection.dateRange.start, selection.dateRange.end, preset),
+    previousSelected: previousPresetWindow(
+      anchor,
+      selection.dateRange.prevStart,
+      selection.dateRange.prevEnd,
+      preset,
+    ),
+    // The month is the anchor's calendar month under the same clip. Anchoring
+    // it on yesterday instead would, on the 1st, answer a September question
+    // with August's rows.
+    month: clipToClosedDays(anchor, selection.monthStart, selection.monthEnd),
+    // The previous calendar month is already closed; clipping it would be a
+    // no-op, and leaving it exact keeps the owner coverage report honest.
+    previousMonth: { from: selection.prevMonthDate, to: selection.monthStart },
+  };
+}
+
+type ClosedDayPreset = 'month' | 'day' | null;
+
+function closedDayPreset(effectiveRange: string): ClosedDayPreset {
+  if (effectiveRange === 'day') return 'day';
+  // A week selection is already built from closed days, and an explicit custom
+  // range stays exact so uncovered/future dates remain visible in the owner's
+  // `coverage`. Anything else is a month selection.
+  if (effectiveRange === 'week' || effectiveRange === 'custom') return null;
+  return 'month';
+}
+
+function presetWindow(
+  anchor: Date,
+  from: Date,
+  to: Date,
+  preset: ClosedDayPreset,
+): DashboardQueryWindow {
+  if (!preset) return { from, to };
+  if (preset === 'day') {
+    const todayStart = kstDayStart(anchor);
+    return { from: new Date(todayStart.getTime() - DAY_MS), to: todayStart };
+  }
+  return clipToClosedDays(anchor, from, to);
+}
+
+function previousPresetWindow(
+  anchor: Date,
+  from: Date,
+  to: Date,
+  preset: ClosedDayPreset,
+): DashboardQueryWindow {
+  if (preset !== 'day') return { from, to };
+  const yesterdayStart = new Date(kstDayStart(anchor).getTime() - DAY_MS);
+  return {
+    from: new Date(yesterdayStart.getTime() - DAY_MS),
+    to: yesterdayStart,
+  };
+}
+
+/**
+ * Clip a window forward to the last completed KST business day. The explicit
+ * dashboard anchor is the cutoff; provider latest-row dates must not shrink the
+ * requested range.
+ */
+function clipToClosedDays(anchor: Date, from: Date, to: Date): DashboardQueryWindow {
+  const todayStart = kstDayStart(anchor);
+  return {
+    from,
+    // A window with no completed day yet — the anchor's month on the 1st —
+    // stays empty so the owner adapter returns unavailable rather than
+    // accidentally admitting a same-day row or another month's rows.
+    to: todayStart.getTime() <= from.getTime()
+      ? from
+      : todayStart.getTime() < to.getTime()
+        ? todayStart
+        : to,
+  };
+}
+
+/** KST business date of an instant, `YYYY-MM-DD`. */
+export function businessDateText(value: Date): string {
+  return kstBusinessDate(value).toISOString().slice(0, 10);
+}

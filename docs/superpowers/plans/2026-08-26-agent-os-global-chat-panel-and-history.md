@@ -17,8 +17,8 @@
 
 Implement this plan on top of the current KID-25 branch and the approved design:
 
-- docs/superpowers/specs/2026-08-26-agent-os-chat-workspace-ux-design.md
-- docs/superpowers/specs/2026-08-23-kid-25-agent-os-clean-contraction-design.md
+- docs/superpowers/specs/archive/2026-08-26-agent-os-chat-workspace-ux-design.md
+- docs/superpowers/specs/archive/2026-08-23-kid-25-agent-os-clean-contraction-design.md
 - DESIGN.md
 
 The 2026-08-26 design controls this UX extension. The clean-contraction design
@@ -1970,7 +1970,7 @@ starting Task 7.
 - Modify: scripts/__tests__/smoke-interaction-os.test.mjs
 - Modify: docs/ARCHITECTURE.md
 - Modify: docs/TESTING.md
-- Verify only: docs/superpowers/specs/2026-08-26-agent-os-chat-workspace-ux-design.md
+- Verify only: docs/superpowers/specs/archive/2026-08-26-agent-os-chat-workspace-ux-design.md
 - Verify only: apps/web/src/app/(analytics)/dashboard/components/DashboardChartPanel.agent-os-cutover.regression-1.spec.ts
 
 - [x] **Step 0: Finish Runtime Module Locality cleanup without changing behavior**
@@ -2369,7 +2369,7 @@ Confirm:
 - [x] **Step 10: Commit documentation and acceptance updates**
 
 ~~~bash
-rtk git add scripts/smoke-interaction-os.mjs scripts/__tests__/smoke-interaction-os.test.mjs docs/ARCHITECTURE.md docs/TESTING.md DESIGN.md docs/superpowers/specs/2026-08-26-agent-os-chat-workspace-ux-design.md docs/superpowers/plans/2026-08-26-agent-os-global-chat-panel-and-history.md
+rtk git add scripts/smoke-interaction-os.mjs scripts/__tests__/smoke-interaction-os.test.mjs docs/ARCHITECTURE.md docs/TESTING.md DESIGN.md docs/superpowers/specs/archive/2026-08-26-agent-os-chat-workspace-ux-design.md docs/superpowers/plans/2026-08-26-agent-os-global-chat-panel-and-history.md
 rtk git commit -m "docs(agent-os): verify global conversation workspace"
 ~~~
 

@@ -16,7 +16,7 @@ export function OverviewPanel({ overview }: OverviewPanelProps) {
         <StatBox label="총 이익" value={formatKRW(overview.totalProfit)} unit="원" />
         <StatBox
           label="평균 마진"
-          value={formatPercent(overview.avgMargin * 100)}
+          value={formatPercent(overview.avgMargin === null ? null : overview.avgMargin * 100)}
           unit=""
         />
       </div>

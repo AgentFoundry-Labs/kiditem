@@ -2,11 +2,15 @@
 // reads. Owns only the run lifecycle (create run → append snapshot → finalize)
 // and the buckets-by-source counts surfaced on the ops dashboard.
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import {
+  WING_ITEMWINNER_KPI_READ_PORT,
+  type WingItemwinnerKpiReadPort,
+} from '../../../application/port/in/wing-itemwinner-kpi-source.port';
+import { adIngestRepositoryClient } from './ad-ingest-transaction-context';
 import type {
-  AdCollectStatusSummary,
   ChannelScrapeRepositoryPort,
   ExtensionStatusSnapshot,
   ScrapeRunErrorFinalize,
@@ -14,7 +18,6 @@ import type {
   ScrapeRunInput,
   ScrapeSnapshotInput,
 } from '../../../application/port/out/repository/channel-scrape.repository.port';
-import { adIngestRepositoryClient } from './ad-ingest-transaction-context';
 
 const logger = new Logger('ChannelScrapeRepositoryAdapter');
 
@@ -22,7 +25,11 @@ const logger = new Logger('ChannelScrapeRepositoryAdapter');
 export class ChannelScrapeRepositoryAdapter
   implements ChannelScrapeRepositoryPort
 {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(WING_ITEMWINNER_KPI_READ_PORT)
+    private readonly wingItemwinnerRead: WingItemwinnerKpiReadPort,
+  ) {}
 
   async createRun(input: ScrapeRunInput): Promise<{ id: string }> {
     return adIngestRepositoryClient(this.prisma).channelScrapeRun.create({
@@ -142,9 +149,16 @@ export class ChannelScrapeRepositoryAdapter
   async findExtensionStatusSnapshot(
     organizationId: string,
   ): Promise<ExtensionStatusSnapshot> {
-    const channelAccountId = await this.findActiveCoupangAccountId(
+    // The itemwinner owner is the authority for which COMPLETE generation is
+    // published. Reuse that selection so this read cannot resurrect listing
+    // rows from an older generation when the newest capture is confirmed
+    // empty.
+    const wingPublished = await this.wingItemwinnerRead.readPublished({
       organizationId,
-    );
+    });
+    const channelAccountId =
+      wingPublished?.channelAccountId ??
+      (await this.findActiveCoupangAccountId(organizationId));
     if (!channelAccountId) {
       return {
         listingCount: 0,
@@ -155,126 +169,59 @@ export class ChannelScrapeRepositoryAdapter
       };
     }
 
-    const [
-      listingCount,
-      latestPerListing,
-      rawSnapshotCount,
-      latestRun,
-      wingKpiRow,
-    ] = await Promise.all([
+    // Listing observations are captured in the selected COMPLETE owner's
+    // immutable normalized snapshot. Do not remap them through the mutable
+    // daily table: a later same-day publication can move that table's raw
+    // pointer while this read is still using the earlier KPI publication.
+    const latestPerListing =
+      wingPublished?.listingObservations.map((observation) => ({
+        isOfferWinner: observation.isOfferWinner,
+        lastObservedAt: new Date(observation.lastObservedAt),
+      })) ?? [];
+    const rawSnapshotCountPromise = wingPublished
+      ? this.prisma.channelScrapeSnapshot.count({
+          where: {
+            organizationId,
+            sourceImportRunId: wingPublished.attemptId,
+            sourceImportRun: { status: 'completed' },
+          },
+        })
+      : Promise.resolve(0);
+    const latestRunPromise = wingPublished
+      ? this.prisma.channelScrapeRun.findFirst({
+          where: {
+            organizationId,
+            channelAccountId,
+            sourceImportRunId: wingPublished.attemptId,
+            sourceImportRun: { status: 'completed' },
+          },
+          orderBy: [
+            { finishedAt: 'desc' },
+            { startedAt: 'desc' },
+            { id: 'desc' },
+          ],
+          select: { finishedAt: true, startedAt: true, pageType: true },
+        })
+      : Promise.resolve(null);
+
+    const [listingCount, rawSnapshotCount, latestRun] = await Promise.all([
       this.prisma.channelListing.count({
         where: { organizationId, channelAccountId, isActive: true },
       }),
-      this.prisma.$queryRaw<
-        { isOfferWinner: boolean | null; lastObservedAt: Date }[]
-      >(Prisma.sql`
-        SELECT DISTINCT ON (snapshot.listing_id)
-          snapshot.is_offer_winner   AS "isOfferWinner",
-          snapshot.last_observed_at  AS "lastObservedAt"
-        FROM channel_listing_daily_snapshots snapshot
-        JOIN channel_listings listing
-          ON listing.id = snapshot.listing_id
-         AND listing.organization_id = snapshot.organization_id
-        WHERE snapshot.organization_id = ${organizationId}::uuid
-          AND listing.channel_account_id = ${channelAccountId}::uuid
-          AND listing.is_active = true
-        ORDER BY
-          snapshot.listing_id,
-          snapshot.business_date DESC,
-          snapshot.last_observed_at DESC,
-          snapshot.updated_at DESC,
-          snapshot.id DESC
-      `),
-      this.prisma.channelScrapeSnapshot.count({
-        where: { organizationId, scrapeRun: { channelAccountId } },
-      }),
-      this.prisma.channelScrapeRun.findFirst({
-        where: { organizationId, channelAccountId },
-        orderBy: [
-          { finishedAt: 'desc' },
-          { startedAt: 'desc' },
-          { id: 'desc' },
-        ],
-        select: { finishedAt: true, startedAt: true, pageType: true },
-      }),
-      this.prisma.channelAccountDailyKpiSnapshot.findFirst({
-        where: {
-          organizationId,
-          channelAccountId,
-          source: 'wing',
-          kpiType: 'wing_itemwinner_kpi',
-        },
-        orderBy: [
-          { businessDate: 'desc' },
-          { lastObservedAt: 'desc' },
-          { id: 'desc' },
-        ],
-        select: { normalizedJson: true, lastObservedAt: true },
-      }),
+      rawSnapshotCountPromise,
+      latestRunPromise,
     ]);
     return {
       listingCount,
       latestPerListing,
       rawSnapshotCount,
       latestRun,
-      wingKpi: wingKpiRow
+      wingKpi: wingPublished
         ? {
-            normalizedJson:
-              (wingKpiRow.normalizedJson as Record<string, unknown> | null) ??
-              null,
-            lastObservedAt: wingKpiRow.lastObservedAt ?? null,
+            normalizedJson: wingPublished.normalizedJson,
+            lastObservedAt: new Date(wingPublished.observedAt),
           }
         : null,
-    };
-  }
-
-  async findAdCollectStatus(
-    organizationId: string,
-  ): Promise<AdCollectStatusSummary> {
-    const channelAccountId = await this.findActiveCoupangAccountId(
-      organizationId,
-    );
-    if (!channelAccountId) {
-      return {
-        lastCollectedAt: null,
-        campaignScrapeRunCount: 0,
-        productScrapeRunCount: 0,
-      };
-    }
-
-    const [latestRun, campaignCount, productCount] = await Promise.all([
-      this.prisma.channelScrapeRun.findFirst({
-        where: { organizationId, channelAccountId },
-        orderBy: [
-          { finishedAt: 'desc' },
-          { startedAt: 'desc' },
-          { id: 'desc' },
-        ],
-        select: { finishedAt: true, startedAt: true },
-      }),
-      this.prisma.channelScrapeRun.count({
-        where: {
-          organizationId,
-          channelAccountId,
-          source: 'advertising',
-          pageType: { in: ['campaign', 'keyword', 'product', 'advertising'] },
-        },
-      }),
-      this.prisma.channelScrapeRun.count({
-        where: {
-          organizationId,
-          channelAccountId,
-          source: 'wing',
-          pageType: { in: ['itemwinner', 'traffic'] },
-        },
-      }),
-    ]);
-
-    return {
-      lastCollectedAt:
-        latestRun?.finishedAt ?? latestRun?.startedAt ?? null,
-      campaignScrapeRunCount: campaignCount,
-      productScrapeRunCount: productCount,
     };
   }
 

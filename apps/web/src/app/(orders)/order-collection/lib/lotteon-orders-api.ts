@@ -1,9 +1,11 @@
-import { issueBrowserCollectionRunId } from '@/lib/browser-collection-session';
 import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extension-bridge';
 import { apiClient } from '@/lib/api-client';
-import { downloadBlob } from '@/lib/browser-download';
 import type { OrderCollectionConversionResult } from './order-collection-api';
-import type { OrderCollectionExtensionRun } from './order-collection-extension';
+import { conversionResultFrom } from './order-collection-conversion-response';
+import {
+  orderCollectionExtensionRunFields,
+  type OrderCollectionExtensionRun,
+} from './order-collection-extension';
 
 interface LotteonCollectResponse {
   success?: boolean;
@@ -30,8 +32,8 @@ export async function collectLotteonXlsxFromExtension(run?: OrderCollectionExten
     {
       action: 'collectLotteonOrders',
       date: run?.date,
-      runId: await issueBrowserCollectionRunId(run?.runId),
-      deferTerminal: Boolean(run?.runId),
+      // attemptId/deferTerminal: true are included by shared fenced run fields.
+      ...orderCollectionExtensionRunFields(run),
     },
     120000,
   );
@@ -45,7 +47,7 @@ export async function collectLotteonXlsxFromExtension(run?: OrderCollectionExten
 export async function convertLotteonToSellpiaFile(
   xlsxBase64: string,
   fileName: string,
-  options?: { download?: boolean },
+  options?: { download?: boolean; run?: OrderCollectionExtensionRun },
 ): Promise<OrderCollectionConversionResult> {
   const bin = atob(xlsxBase64);
   const bytes = new Uint8Array(bin.length);
@@ -59,57 +61,19 @@ export async function convertLotteonToSellpiaFile(
   const response = await apiClient.fetchRaw('/api/orders/collection/lotteon/convert', {
     method: 'POST',
     body: formData,
+    headers: options?.run ? {
+      'x-order-collection-attempt-id': options.run.attemptId,
+      'x-source-attempt-token': options.run.attemptToken,
+    } : undefined,
   });
   if (!response.ok) {
     const body = (await response.clone().json().catch(() => null)) as { message?: unknown } | null;
     throw new Error(typeof body?.message === 'string' ? body.message : `변환 실패 (${response.status})`);
   }
 
-  const blob = await response.blob();
-  const outName =
-    fileNameFromContentDisposition(response.headers.get('Content-Disposition')) ?? '롯데ON_셀피아변환.xls';
-  if (options?.download !== false) downloadBlob(blob, outName);
-
-  return {
-    fileName: outName,
-    blob,
-    previewRows: await readPreviewRows(blob),
-    sourceRows: numericHeader(response, 'X-Order-Collection-Source-Rows'),
-    productRows: numericHeader(response, 'X-Order-Collection-Product-Rows'),
-    outputRows: numericHeader(response, 'X-Order-Collection-Output-Rows'),
-    skippedRows: numericHeader(response, 'X-Order-Collection-Skipped-Rows'),
-  };
-}
-
-function numericHeader(response: Response, name: string): number | null {
-  const value = response.headers.get(name);
-  if (!value) return null;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-function fileNameFromContentDisposition(value: string | null): string | null {
-  if (!value) return null;
-  const encoded = /filename\*=UTF-8''([^;]+)/i.exec(value)?.[1];
-  if (encoded) {
-    try {
-      return decodeURIComponent(encoded);
-    } catch {
-      return encoded;
-    }
-  }
-  return /filename="([^"]+)"/i.exec(value)?.[1] ?? null;
-}
-
-async function readPreviewRows(blob: Blob): Promise<string[][]> {
-  const XLSX = await import('xlsx');
-  const workbook = XLSX.read(await blob.arrayBuffer(), { type: 'array' });
-  const sheet = workbook.Sheets[workbook.SheetNames[0] ?? ''];
-  if (!sheet) return [];
-  const rows = XLSX.utils.sheet_to_json<Array<string | number | boolean | null | undefined>>(sheet, {
-    header: 1,
-    raw: false,
-    defval: '',
+  return conversionResultFrom(response, {
+    defaultFileName: '롯데ON_셀피아변환.xls',
+    preview: { xlsxColumns: 57 },
+    download: options?.download,
   });
-  return rows.slice(0, 24).map((row) => row.slice(0, 57).map((cell) => String(cell ?? '')));
 }

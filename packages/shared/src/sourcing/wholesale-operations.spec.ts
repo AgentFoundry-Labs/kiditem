@@ -5,9 +5,10 @@ import {
   Sourcing1688ImageMatchInputSchema,
   Sourcing1688KeywordBatchInputSchema,
   Sourcing1688SearchSnapshotSchema,
+  Sourcing1688BatchResultSchema,
 } from './wholesale-operations.js';
 
-describe('1688 wholesale operation contracts', () => {
+describe('1688 wholesale source contracts', () => {
   it('shares the existing target identity and match searchQuery policy across server and web', () => {
     expect(buildSourcing1688TargetId({
       productId: 'product-1',
@@ -62,6 +63,7 @@ describe('1688 wholesale operation contracts', () => {
   it('exposes only typed completed observations with persisted capture time', () => {
     expect(Sourcing1688SearchSnapshotSchema.parse({
       generatedAt: '2026-08-14T00:00:01.000Z',
+      sourceStatuses: [],
       observations: [{
         keyword: '儿童笔袋',
         targetId: 'product-1::',
@@ -104,5 +106,15 @@ describe('1688 wholesale operation contracts', () => {
         rawSnapshot: { cookie: 'secret' },
       }],
     }).success).toBe(false);
+  });
+
+  it('retains the bounded per-unit receipt independently of the retired Operation contract', () => {
+    const receipt = { outcome: 'complete', summary: { discovered: 1, accepted: 1, duplicate: 0, unchanged: 0, failed: 0 },
+      sources: [{ source: '1688_keyword_search', outcome: 'complete', accepted: 1, failed: 0 }],
+      units: [{ keyword: '儿童笔袋', targetId: null, outcome: 'complete', discovered: 1, accepted: 1, duplicate: 0, failed: 0 }],
+      snapshotGeneratedAt: '2026-08-14T00:00:01.000Z' };
+    expect(Sourcing1688BatchResultSchema.parse(receipt)).toEqual(receipt);
+    expect(Sourcing1688BatchResultSchema.safeParse({ ...receipt, operationRunId: 'retired' }).success).toBe(false);
+    expect(Sourcing1688BatchResultSchema.safeParse({ ...receipt, units: [] }).success).toBe(false);
   });
 });

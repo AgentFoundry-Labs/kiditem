@@ -35,7 +35,6 @@ export interface PollImageEditTaskOptions {
 export interface ImageEditTaskCancellationResult {
   status: 'cancelled' | 'already_terminal' | 'not_found';
   jobId: string;
-  operationKey: string | null;
   preserved: boolean;
 }
 

@@ -13,6 +13,7 @@ import {
 } from '../../../test-helpers/real-prisma';
 import {
   seedAd,
+  seedCompletedAdSweepRun,
   seedOrderWithLineItems,
   setupChannelListing,
   setupMaster,
@@ -188,17 +189,26 @@ describe('Statistics flow (PG integration)', () => {
     });
     await prisma.order.update({ where: { id: o5 }, data: { receiverName: 'D' } });
 
+    // The campaign sweep measured every April date, so each listing's rows
+    // are its whole April ad cost and every April profit is a measurement.
+    const runId = await seedCompletedAdSweepRun(prisma, {
+      organizationId,
+      generation: 1,
+      window: { startDate: '2026-04-01', endDate: '2026-04-30' },
+    });
     await seedAd(prisma, {
       organizationId,
       listingId: listingL1.listingId,
       date: '2026-04-15',
       spend: 3_000,
+      runId,
     });
     await seedAd(prisma, {
       organizationId,
       listingId: listingL2.listingId,
       date: '2026-04-15',
       spend: 1_000,
+      runId,
     });
 
     return {

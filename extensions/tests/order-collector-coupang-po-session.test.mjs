@@ -27,7 +27,7 @@ function loadSessionModule() {
   return context.KidItemCoupangPoSession;
 }
 
-function createHarness({ tabs, finalCreatedUrl, finalCreatedUrls, executeResults }) {
+function createHarness({ tabs, finalCreatedUrl, finalCreatedUrls, executeResults, activeSequence }) {
   const calls = { create: [], attach: [], detach: [], execute: [] };
   let nextTabId = 100;
   const chrome = {
@@ -57,6 +57,14 @@ function createHarness({ tabs, finalCreatedUrl, finalCreatedUrls, executeResults
       calls.detach.push({ tab: { ...tab }, options: { ...options } });
     },
   };
+  if (Array.isArray(activeSequence)) {
+    let activeIndex = 0;
+    collection.isActive = async () => {
+      const value = activeSequence[Math.min(activeIndex, activeSequence.length - 1)];
+      activeIndex += 1;
+      return value !== false;
+    };
+  }
   const session = loadSessionModule().create({
     chrome,
     async attachOrderCollectionTab(receivedCollection, tab, created) {
@@ -112,6 +120,25 @@ test('an existing PO tab is reused but a session failure retries once in a new m
   assert.equal(harness.calls.create.length, 1);
   assert.equal(harness.calls.attach[0].created, false);
   assert.equal(harness.calls.attach[1].created, true);
+});
+
+test('Rocket PO requests a fresh owned tab and preserves the operator Supplier tab', async () => {
+  const harness = createHarness({
+    tabs: [{ id: 9, active: true, url: 'https://supplier.coupang.com/po-web/purchase/order/list' }],
+    finalCreatedUrl: 'https://supplier.coupang.com/po-web/purchase/order/list',
+    executeResults: [{ success: true, pos: [] }],
+  });
+  harness.collection.requireOwnedTab = true;
+
+  const result = await harness.session.run(harness.collection, harness.execute);
+
+  assert.equal(result.success, true);
+  assert.deepEqual(harness.calls.create, [{ url: BOOTSTRAP_URL, active: false }]);
+  assert.deepEqual(harness.calls.execute.map((tab) => tab.id), [100]);
+  assert.equal(harness.calls.attach[0].created, true);
+  assert.deepEqual(harness.calls.detach.map(({ tab, options }) => ({ id: tab.id, owned: options.owned })), [
+    { id: 100, owned: true },
+  ]);
 });
 
 test('a failed created PO tab is released before the one fresh-tab retry', async () => {
@@ -204,7 +231,27 @@ test('a failed fresh-tab retry returns only the public session error and retains
   assert.equal(harness.calls.attach.at(-1).created, true);
 });
 
-test('Rocket summary and detail collection share the extracted PO session boundary', () => {
+test('a cancellation fence prevents the session-error retry from reopening a PO tab', async () => {
+  const harness = createHarness({
+    tabs: [],
+    finalCreatedUrl: 'https://supplier.coupang.com/po-web/purchase/order/list',
+    executeResults: [{ success: false, errorCode: 'coupang_po_session_required' }],
+    activeSequence: [true, true, true, false],
+  });
+
+  const result = await harness.session.run(harness.collection, harness.execute);
+
+  assert.equal(result.success, false);
+  assert.equal(result.errorCode, 'COLLECTION_CANCELLED');
+  assert.deepEqual(harness.calls.create, [{ url: BOOTSTRAP_URL, active: false }]);
+  assert.equal(harness.calls.execute.length, 1);
+  assert.deepEqual(
+    harness.calls.detach.map(({ tab, options }) => ({ id: tab.id, owned: options.owned })),
+    [{ id: 100, owned: true }],
+  );
+});
+
+test('Rocket detail and direct-order collection share the extracted PO session boundary', () => {
   const workerSource = readFileSync(workerPath, 'utf8');
   const rocketSource = readFileSync(rocketModulePath, 'utf8');
 
@@ -221,7 +268,7 @@ test('Rocket summary and detail collection share the extracted PO session bounda
   assert.match(workerSource, /KidItemCoupangPoSession\.create/);
   assert.match(rocketSource, /coupangPoSession\.run/);
   assert.match(rocketSource, /world:\s*["']MAIN["']/);
-  assert.match(rocketSource, /async function scrapeRocketPoList/);
+  assert.match(rocketSource, /async function scrapeRocketPoRows/);
   assert.match(workerSource, /async function collectCoupangDirectOrders[\s\S]*coupangPoSession\.run/);
   assert.doesNotMatch(workerSource, /findOrCreateCoupangSupplierTab/);
   assert.doesNotMatch(workerSource, /findOrCreateCoupangPoTab/);

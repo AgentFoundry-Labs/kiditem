@@ -36,9 +36,11 @@ export default function ProfitLossTable({
       <div className="flex gap-2">
         {[
           { key: "all", label: `전체 (${data.length})` },
-          { key: "minus", label: `적자 (${data.filter(d => d.profitRate < 0).length})`, color: "text-red-600" },
-          { key: "low", label: `3%이하 (${data.filter(d => d.profitRate >= 0 && d.profitRate <= 3).length})`, color: "text-orange-600" },
-          { key: "normal", label: `정상 (${data.filter(d => d.profitRate > 3).length})`, color: "text-green-600" },
+          // A row whose profit is unavailable answers none of these three — it
+          // is not known to be loss-making, thin or healthy.
+          { key: "minus", label: `적자 (${data.filter(d => d.profitRate !== null && d.profitRate < 0).length})`, color: "text-red-600" },
+          { key: "low", label: `3%이하 (${data.filter(d => d.profitRate !== null && d.profitRate >= 0 && d.profitRate <= 3).length})`, color: "text-orange-600" },
+          { key: "normal", label: `정상 (${data.filter(d => d.profitRate !== null && d.profitRate > 3).length})`, color: "text-green-600" },
         ].map((f) => (
           <button
             key={f.key}
@@ -153,7 +155,7 @@ export default function ProfitLossTable({
                   <td colSpan={13} className="empty-state">해당 기간 데이터가 없습니다.</td>
                 </tr>
               ) : filtered.map((d) => (
-                <tr key={d.listingId} className={d.profitRate < 0 ? "bg-red-50/50" : d.profitRate <= 3 ? "bg-orange-50/30" : ""}>
+                <tr key={d.listingId} className={d.profitRate === null ? "" : d.profitRate < 0 ? "bg-red-50/50" : d.profitRate <= 3 ? "bg-orange-50/30" : ""}>
                   <td><span className={cn('px-2 py-0.5 rounded text-xs font-bold', getGradeColor(d.grade ?? ''))}>{d.grade}</span></td>
                   <td className="font-medium text-slate-900">{d.masterName}</td>
                   <td className="text-slate-500 text-xs font-mono">{d.masterCode ?? '-'}</td>

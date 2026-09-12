@@ -1,72 +1,11 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { ThumbnailGenerationSinkAdapter } from '../thumbnail-generation-sink.adapter';
-import { ThumbnailGenerationLifecycleService } from '../../../../application/service/thumbnail-generation-lifecycle.service';
-import type { OperationAlertPort } from '../../../../application/port/out/cross-domain/operation-alert.port';
-import type { ThumbnailGenerationEventPort } from '../../../../application/port/out/event/thumbnail-generation-event.port';
-import type { ProductGenerationAlertService } from '../../../../application/service/product-generation-alert.service';
-import type { ThumbnailGenerationLedgerRepositoryPort } from '../../../../application/port/out/repository/thumbnail-generation-ledger.repository.port';
 import type { ImageStoragePort } from '../../../../application/port/out/storage/image-storage.port';
 
 const ORG = '11111111-1111-1111-1111-111111111111';
 const REQUEST = '22222222-2222-2222-2222-222222222222';
 const RUN = '33333333-3333-3333-3333-333333333333';
 const GEN_ID = '44444444-4444-4444-4444-444444444444';
-
-function makeLedger(
-  overrides: Partial<ThumbnailGenerationLedgerRepositoryPort> = {},
-): ThumbnailGenerationLedgerRepositoryPort {
-  return {
-    claimForDirectProjection: vi
-      .fn()
-      .mockResolvedValue({ fromStatus: 'pending', fromPhase: null, attemptNumber: 1 }),
-    projectDirectSuccess: vi
-      .fn()
-      .mockResolvedValue({ fromStatus: 'running', fromPhase: null, attemptNumber: 1 }),
-    projectDirectFailure: vi
-      .fn()
-      .mockResolvedValue({ fromStatus: 'running', fromPhase: null, attemptNumber: 1 }),
-    readParentAlertLink: vi.fn().mockResolvedValue(null),
-    ...overrides,
-  } as unknown as ThumbnailGenerationLedgerRepositoryPort;
-}
-
-function makeAlerts(): OperationAlertPort {
-  return {
-    succeed: vi.fn().mockResolvedValue(null),
-    fail: vi.fn().mockResolvedValue(null),
-  } as unknown as OperationAlertPort;
-}
-
-function makeEvents(): ThumbnailGenerationEventPort {
-  return { append: vi.fn().mockResolvedValue(undefined) };
-}
-
-function makeProductGenerationAlerts(): ProductGenerationAlertService {
-  return {
-    markChildFinished: vi.fn().mockResolvedValue({}),
-  } as unknown as ProductGenerationAlertService;
-}
-
-function makeStorage(): ImageStoragePort {
-  return {
-    getUrl: vi.fn((key: string) => `https://storage.example.com/${key}`),
-  } as unknown as ImageStoragePort;
-}
-
-function makeSink(
-  ledger: ThumbnailGenerationLedgerRepositoryPort,
-  alerts: OperationAlertPort,
-  events: ThumbnailGenerationEventPort,
-  productGenerationAlerts?: ProductGenerationAlertService,
-): ThumbnailGenerationSinkAdapter {
-  return new ThumbnailGenerationSinkAdapter(
-    ledger,
-    alerts,
-    new ThumbnailGenerationLifecycleService(ledger, events),
-    makeStorage(),
-    productGenerationAlerts,
-  );
-}
 
 const VALID_OUTPUT = {
   candidates: [
@@ -80,257 +19,204 @@ const VALID_OUTPUT = {
   ],
 };
 
+function makeLifecycle() {
+  return {
+    projectDirectSuccess: vi.fn().mockResolvedValue({
+      fromStatus: 'running',
+      fromPhase: null,
+      attemptNumber: 1,
+    }),
+    projectDirectFailure: vi.fn().mockResolvedValue({
+      fromStatus: 'running',
+      fromPhase: null,
+      attemptNumber: 1,
+    }),
+  };
+}
+
+function makeStorage(): ImageStoragePort {
+  return {
+    getUrl: vi.fn((key: string) => `https://storage.example.com/${key}`),
+  } as unknown as ImageStoragePort;
+}
+
 describe('ThumbnailGenerationSinkAdapter', () => {
-  let alerts: OperationAlertPort;
-  let events: ThumbnailGenerationEventPort;
-  let ledger: ThumbnailGenerationLedgerRepositoryPort;
-  let productGenerationAlerts: ProductGenerationAlertService;
+  it('projects validated provider output through the thumbnail lifecycle owner', async () => {
+    const lifecycle = makeLifecycle();
+    const sink = new ThumbnailGenerationSinkAdapter(
+      lifecycle as never,
+      makeStorage(),
+    );
 
-  beforeEach(() => {
-    alerts = makeAlerts();
-    events = makeEvents();
-    ledger = makeLedger();
-    productGenerationAlerts = makeProductGenerationAlerts();
-  });
-
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  describe('applySuccess', () => {
-    it('claims -> projectDirectSuccess -> terminal events -> alert succeed (with results href)', async () => {
-      const sink = makeSink(ledger, alerts, events);
-      await sink.applySuccess({
-        organizationId: ORG,
-        requestId: REQUEST,
-        runId: RUN,
-        sourceResourceId: GEN_ID,
-        output: VALID_OUTPUT,
-      });
-
-      expect(ledger.claimForDirectProjection).toHaveBeenCalledWith({
-        generationId: GEN_ID,
-        organizationId: ORG,
-      });
-      expect(ledger.projectDirectSuccess).toHaveBeenCalledWith(
-        expect.objectContaining({
-          generationId: GEN_ID,
-          organizationId: ORG,
-          inputMeta: expect.objectContaining({ aiJobId: REQUEST }),
-        }),
-      );
-      expect(events.append).toHaveBeenCalledWith(
-        expect.objectContaining({
-          eventType: 'status_change',
-          fromStatus: 'running',
-          toStatus: 'succeeded',
-          toPhase: 'ready',
-        }),
-      );
-      expect(events.append).toHaveBeenCalledWith(
-        expect.objectContaining({
-          eventType: 'attempt_finished',
-          fromStatus: 'running',
-          toStatus: 'succeeded',
-          toPhase: 'ready',
-          attemptNumber: 1,
-        }),
-      );
-      expect(events.append).toHaveBeenCalledTimes(3);
-      expect(alerts.succeed).toHaveBeenCalledWith(
-        ORG,
-        `thumbnail-edit:${GEN_ID}`,
-        expect.objectContaining({
-          href: `/product-pipeline/thumbnail-generation?generationId=${encodeURIComponent(GEN_ID)}`,
-          metadata: expect.objectContaining({
-            candidateCount: 1,
-            aiJobId: REQUEST,
-          }),
-        }),
-      );
+    await sink.applySuccess({
+      organizationId: ORG,
+      requestId: REQUEST,
+      runId: RUN,
+      sourceResourceId: GEN_ID,
+      output: VALID_OUTPUT,
     });
 
-    it('rebuilds managed candidate URLs from the current storage configuration', async () => {
-      const sink = makeSink(ledger, alerts, events);
-
-      await sink.applySuccess({
-        organizationId: ORG,
-        requestId: REQUEST,
-        runId: RUN,
-        sourceResourceId: GEN_ID,
-        output: {
-          candidates: [
-            {
-              url: 'http://old-storage.example.com/kiditem/thumbnail-generations/output.png',
-              storageKey: 'thumbnail-generations/output.png',
-            },
-          ],
+    expect(lifecycle.projectDirectSuccess).toHaveBeenCalledWith({
+      generationId: GEN_ID,
+      organizationId: ORG,
+      candidates: [
+        {
+          ...VALID_OUTPUT.candidates[0],
+          url: 'https://storage.example.com/thumbnail-generations/org/c1.png',
         },
-      });
-
-      expect(ledger.projectDirectSuccess).toHaveBeenCalledWith(
-        expect.objectContaining({
-          candidates: [
-            expect.objectContaining({
-              url: 'https://storage.example.com/thumbnail-generations/output.png',
-              storageKey: 'thumbnail-generations/output.png',
-            }),
-          ],
-        }),
-      );
-    });
-
-    it('no-ops when claim returns null (row already terminal - retry safe)', async () => {
-      vi.mocked(ledger.claimForDirectProjection).mockResolvedValueOnce(null);
-      const sink = makeSink(ledger, alerts, events);
-      await sink.applySuccess({
-        organizationId: ORG,
-        requestId: REQUEST,
-        runId: RUN,
-        sourceResourceId: GEN_ID,
-        output: VALID_OUTPUT,
-      });
-      expect(ledger.projectDirectSuccess).not.toHaveBeenCalled();
-      expect(alerts.succeed).not.toHaveBeenCalled();
-    });
-
-    it('no-ops when sourceResourceId is missing (defensive)', async () => {
-      const sink = makeSink(ledger, alerts, events);
-      await sink.applySuccess({
-        organizationId: ORG,
-        requestId: REQUEST,
-        runId: RUN,
-        sourceResourceId: null,
-        output: VALID_OUTPUT,
-      });
-      expect(ledger.claimForDirectProjection).not.toHaveBeenCalled();
+      ],
+      inputMeta: { executionMode: 'direct_ai', aiJobId: REQUEST },
+      payload: {
+        executionMode: 'direct_ai',
+        aiJobId: REQUEST,
+        candidateCount: 1,
+      },
     });
   });
 
-  describe('applyFailure', () => {
-    it('claims -> projectDirectFailure -> terminal events -> alert fail (with code metadata)', async () => {
-      const sink = makeSink(ledger, alerts, events);
-      await sink.applyFailure({
-        organizationId: ORG,
-        requestId: REQUEST,
-        runId: RUN,
-        sourceResourceId: GEN_ID,
-        errorCode: 'runtime_not_configured',
-        errorMessage: 'no provider',
-      });
-      expect(ledger.claimForDirectProjection).toHaveBeenCalledWith({
-        generationId: GEN_ID,
-        organizationId: ORG,
-      });
-      expect(ledger.projectDirectFailure).toHaveBeenCalledWith({
-        generationId: GEN_ID,
-        organizationId: ORG,
-        errorMessage: 'no provider',
-      });
-      expect(events.append).toHaveBeenCalledWith(
-        expect.objectContaining({
-          fromStatus: 'running',
-          toStatus: 'failed',
-          errorMessage: 'no provider',
-        }),
-      );
-      expect(events.append).toHaveBeenCalledWith(
-        expect.objectContaining({
-          eventType: 'error',
-          fromStatus: 'running',
-          toStatus: 'failed',
-          errorMessage: 'no provider',
-          attemptNumber: 1,
-        }),
-      );
-      expect(events.append).toHaveBeenCalledTimes(2);
-      expect(alerts.fail).toHaveBeenCalledWith(
-        ORG,
-        `thumbnail-edit:${GEN_ID}`,
-        expect.objectContaining({
-          message: 'no provider',
-          metadata: expect.objectContaining({
-            errorCode: 'runtime_not_configured',
-            aiJobId: REQUEST,
+  it('rebuilds managed candidate URLs from the current storage configuration', async () => {
+    const lifecycle = makeLifecycle();
+    const storage = makeStorage();
+    const sink = new ThumbnailGenerationSinkAdapter(
+      lifecycle as never,
+      storage,
+    );
+
+    await sink.applySuccess({
+      organizationId: ORG,
+      requestId: REQUEST,
+      runId: RUN,
+      sourceResourceId: GEN_ID,
+      output: {
+        candidates: [
+          {
+            url: 'http://old-storage.example.com/kiditem/thumbnail-generations/output.png',
+            storageKey: 'thumbnail-generations/output.png',
+          },
+        ],
+      },
+    });
+
+    expect(storage.getUrl).toHaveBeenCalledWith(
+      'thumbnail-generations/output.png',
+    );
+    expect(lifecycle.projectDirectSuccess).toHaveBeenCalledWith(
+      expect.objectContaining({
+        candidates: [
+          expect.objectContaining({
+            url: 'https://storage.example.com/thumbnail-generations/output.png',
+            storageKey: 'thumbnail-generations/output.png',
           }),
-        }),
-      );
+        ],
+      }),
+    );
+  });
+
+  it('projects provider failure through the same lifecycle owner', async () => {
+    const lifecycle = makeLifecycle();
+    const sink = new ThumbnailGenerationSinkAdapter(
+      lifecycle as never,
+      makeStorage(),
+    );
+
+    await sink.applyFailure({
+      organizationId: ORG,
+      requestId: REQUEST,
+      runId: undefined,
+      sourceResourceId: GEN_ID,
+      errorCode: 'runtime_not_configured',
+      errorMessage: 'no provider',
     });
 
-    it('updates the product generation parent alert on thumbnail failure', async () => {
-      const parentLedger = makeLedger({
-        readParentAlertLink: vi.fn().mockResolvedValue({
-          parentOperationKey: 'product-generation:batch-1',
-          childKind: 'thumbnail',
-          productGenerationBatchId: 'batch-1',
-        }),
-      });
-      const sink = makeSink(parentLedger, alerts, events, productGenerationAlerts);
+    expect(lifecycle.projectDirectFailure).toHaveBeenCalledWith({
+      generationId: GEN_ID,
+      organizationId: ORG,
+      errorMessage: 'no provider',
+      payload: {
+        errorCode: 'runtime_not_configured',
+        executionMode: 'direct_ai',
+        aiJobId: REQUEST,
+      },
+    });
+  });
 
-      await sink.applyFailure({
-        organizationId: ORG,
-        requestId: REQUEST,
-        runId: RUN,
-        sourceResourceId: GEN_ID,
-        errorCode: 'direct_ai_execution_failed',
-        errorMessage: 'thumbnail failed',
-      });
+  it('does not project success or failure without a source generation id', async () => {
+    const lifecycle = makeLifecycle();
+    const sink = new ThumbnailGenerationSinkAdapter(
+      lifecycle as never,
+      makeStorage(),
+    );
 
-      expect(productGenerationAlerts.markChildFinished).toHaveBeenCalledWith({
-        organizationId: ORG,
-        parentOperationKey: 'product-generation:batch-1',
-        childKind: 'thumbnail',
-        status: 'failed',
-        childId: GEN_ID,
-        errorMessage: 'thumbnail failed',
-      });
-      expect(alerts.fail).not.toHaveBeenCalledWith(
-        ORG,
-        `thumbnail-edit:${GEN_ID}`,
-        expect.anything(),
-      );
+    await sink.applySuccess({
+      organizationId: ORG,
+      requestId: REQUEST,
+      runId: undefined,
+      sourceResourceId: null,
+      output: VALID_OUTPUT,
+    });
+    await sink.applyFailure({
+      organizationId: ORG,
+      requestId: REQUEST,
+      runId: undefined,
+      sourceResourceId: null,
+      errorCode: 'runtime_failed',
+      errorMessage: 'missing source row',
     });
 
-    it('does not apply thumbnail success when parent product operation is cancelled', async () => {
-      const parentLedger = makeLedger({
-        readParentAlertLink: vi.fn().mockResolvedValue({
-          parentOperationKey: 'product-generation:batch-1',
-          childKind: 'thumbnail',
-          productGenerationBatchId: 'batch-1',
-        }),
-      });
-      const operationAlerts = {
-        ...makeAlerts(),
-        findByOperationKey: vi.fn().mockResolvedValue({ status: 'cancelled' }),
-      } as unknown as OperationAlertPort;
-      const sink = makeSink(parentLedger, operationAlerts, events, productGenerationAlerts);
+    expect(lifecycle.projectDirectSuccess).not.toHaveBeenCalled();
+    expect(lifecycle.projectDirectFailure).not.toHaveBeenCalled();
+  });
 
-      await sink.applySuccess({
-        organizationId: ORG,
-        requestId: REQUEST,
-        runId: RUN,
-        sourceResourceId: GEN_ID,
-        output: VALID_OUTPUT,
-      });
+  it('forwards the authenticated organization fence to the lifecycle owner', async () => {
+    const lifecycle = makeLifecycle();
+    const sink = new ThumbnailGenerationSinkAdapter(
+      lifecycle as never,
+      makeStorage(),
+    );
+    const otherOrganizationId = '55555555-5555-4555-8555-555555555555';
 
-      expect(parentLedger.claimForDirectProjection).not.toHaveBeenCalled();
-      expect(parentLedger.projectDirectSuccess).not.toHaveBeenCalled();
-      expect(productGenerationAlerts.markChildFinished).not.toHaveBeenCalled();
+    await sink.applySuccess({
+      organizationId: otherOrganizationId,
+      requestId: REQUEST,
+      runId: RUN,
+      sourceResourceId: GEN_ID,
+      output: VALID_OUTPUT,
     });
 
-    it('no-ops when claim returns null (already terminal)', async () => {
-      vi.mocked(ledger.claimForDirectProjection).mockResolvedValueOnce(null);
-      const sink = makeSink(ledger, alerts, events);
-      await sink.applyFailure({
-        organizationId: ORG,
-        requestId: REQUEST,
-        runId: RUN,
-        sourceResourceId: GEN_ID,
-        errorCode: 'direct_ai_execution_failed',
-        errorMessage: 'second attempt',
-      });
-      expect(ledger.projectDirectFailure).not.toHaveBeenCalled();
-      expect(alerts.fail).not.toHaveBeenCalled();
+    expect(lifecycle.projectDirectSuccess).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: otherOrganizationId,
+        generationId: GEN_ID,
+      }),
+    );
+  });
+
+  it('does not project late success or failure after the lifecycle owner rejects a terminal row', async () => {
+    const lifecycle = makeLifecycle();
+    lifecycle.projectDirectSuccess.mockResolvedValueOnce(null);
+    lifecycle.projectDirectFailure.mockResolvedValueOnce(null);
+    const sink = new ThumbnailGenerationSinkAdapter(
+      lifecycle as never,
+      makeStorage(),
+    );
+
+    await sink.applySuccess({
+      organizationId: ORG,
+      requestId: REQUEST,
+      runId: RUN,
+      sourceResourceId: GEN_ID,
+      output: VALID_OUTPUT,
     });
+    await sink.applyFailure({
+      organizationId: ORG,
+      requestId: REQUEST,
+      runId: RUN,
+      sourceResourceId: GEN_ID,
+      errorCode: 'provider_late_failure',
+      errorMessage: 'late provider failure',
+    });
+
+    expect(lifecycle.projectDirectSuccess).toHaveBeenCalledTimes(1);
+    expect(lifecycle.projectDirectFailure).toHaveBeenCalledTimes(1);
   });
 });

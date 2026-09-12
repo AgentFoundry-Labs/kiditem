@@ -1,6 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { buildPerListingMetrics } from '../../common/per-listing-profit';
+import {
+  buildPerListingProfit,
+  readAdEvidenceFromLedger,
+} from '../../common/per-listing-profit';
 import { kstMonthStart } from '../../common/kst';
 import type {
   StatisticsOverview,
@@ -14,9 +17,34 @@ import type { Prisma } from '@prisma/client';
 
 const EXCLUDED_ORDER_STATUSES = ['cancelled', 'returned', 'refunded'] as const;
 
+/**
+ * Totals a profit column that may be unavailable.
+ *
+ * A rollup over a set containing an unavailable member is itself unavailable
+ * (ADR-0006) — summing only the measured members would silently report a
+ * smaller total as if it were the whole. Revenue and order counts never depend
+ * on ad coverage, so they keep totalling every listing.
+ */
+/** Margin of an possibly-unavailable profit over its revenue. */
+function ratio(netProfit: number | null, revenue: number): number | null {
+  if (netProfit === null) return null;
+  return revenue > 0 ? Math.round((netProfit / revenue) * 10000) / 10000 : 0;
+}
+
+function totalOrUnavailable(values: readonly (number | null)[]): number | null {
+  let total = 0;
+  for (const value of values) {
+    if (value === null) return null;
+    total += value;
+  }
+  return total;
+}
+
 @Injectable()
 export class StatisticsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+  ) {}
 
   private resolveWindow(period?: string) {
     if (period) {
@@ -40,9 +68,19 @@ export class StatisticsService {
     };
   }
 
-  private getListingMetrics(organizationId: string, period?: string) {
+  /**
+   * Whether advertising applies to this window at all is Advertising's answer,
+   * not one this read model may infer from an empty listing calendar.
+   */
+  private async getListingMetrics(organizationId: string, period?: string) {
     const { from, to } = this.resolveWindow(period);
-    return buildPerListingMetrics(this.prisma, organizationId, from, to);
+    const accountAdEvidence = await readAdEvidenceFromLedger(
+      this.prisma,
+      organizationId,
+      from,
+      to,
+    );
+    return buildPerListingProfit(this.prisma, organizationId, from, to, accountAdEvidence);
   }
 
   async overview(organizationId: string, period?: string) {
@@ -57,14 +95,16 @@ export class StatisticsService {
     ]);
 
     const totalRevenue = metrics.reduce((sum, metric) => sum + metric.revenue, 0);
-    const totalProfit = metrics.reduce((sum, metric) => sum + metric.netProfit, 0);
-    const avgMargin = totalRevenue > 0 ? totalProfit / totalRevenue : 0;
+    const totalProfit = totalOrUnavailable(metrics.map((metric) => metric.netProfit));
+    const avgMargin = totalProfit === null
+      ? null
+      : totalRevenue > 0 ? totalProfit / totalRevenue : 0;
 
     return {
       totalRevenue,
       totalOrders,
       totalProfit,
-      avgMargin: Math.round(avgMargin * 10000) / 10000,
+      avgMargin: avgMargin === null ? null : Math.round(avgMargin * 10000) / 10000,
       totalProducts,
     } satisfies StatisticsOverview;
   }
@@ -87,26 +127,26 @@ export class StatisticsService {
         totalRevenue: metric.revenue,
         netProfit: metric.netProfit,
         orderCount: metric.orderCount,
-        profitRate: metric.revenue > 0
-          ? Math.round((metric.netProfit / metric.revenue) * 10000) / 10000
-          : 0,
-        margin: metric.revenue > 0
-          ? Math.round((metric.netProfit / metric.revenue) * 10000) / 10000
-          : 0,
+        profitRate: ratio(metric.netProfit, metric.revenue),
+        margin: ratio(metric.netProfit, metric.revenue),
       } satisfies StatisticsProductRow));
   }
 
   async categories(organizationId: string, period?: string) {
     const metrics = await this.getListingMetrics(organizationId, period);
 
-    const categoryMap = new Map<string, { revenue: number; orders: number; profit: number }>();
+    const categoryMap = new Map<string, {
+      revenue: number;
+      orders: number;
+      profits: (number | null)[];
+    }>();
 
     for (const metric of metrics) {
       const cat = metric.category ?? '미분류';
-      const entry = categoryMap.get(cat) ?? { revenue: 0, orders: 0, profit: 0 };
+      const entry = categoryMap.get(cat) ?? { revenue: 0, orders: 0, profits: [] };
       entry.revenue += metric.revenue;
       entry.orders += metric.orderCount;
-      entry.profit += metric.netProfit;
+      entry.profits.push(metric.netProfit);
       categoryMap.set(cat, entry);
     }
 
@@ -114,7 +154,9 @@ export class StatisticsService {
       .map(([category, data]) => ({
         category,
         name: category,
-        ...data,
+        revenue: data.revenue,
+        orders: data.orders,
+        profit: totalOrUnavailable(data.profits),
         count: data.orders,
       } satisfies StatisticsCategoryRow))
       .sort((a, b) => b.revenue - a.revenue);
@@ -123,15 +165,21 @@ export class StatisticsService {
   async grades(organizationId: string, period?: string) {
     const metrics = await this.getListingMetrics(organizationId, period);
 
-    const gradeMap = new Map<string, { revenue: number; profit: number; productCount: number; adCost: number }>();
+    const gradeMap = new Map<string, {
+      revenue: number;
+      profits: (number | null)[];
+      productCount: number;
+      adCosts: (number | null)[];
+    }>();
 
     for (const metric of metrics) {
       const grade = metric.grade ?? 'N/A';
-      const entry = gradeMap.get(grade) ?? { revenue: 0, profit: 0, productCount: 0, adCost: 0 };
+      const entry = gradeMap.get(grade)
+        ?? { revenue: 0, profits: [], productCount: 0, adCosts: [] };
       entry.revenue += metric.revenue;
-      entry.profit += metric.netProfit;
+      entry.profits.push(metric.netProfit);
       entry.productCount += 1;
-      entry.adCost += metric.adCost;
+      entry.adCosts.push(metric.adCost);
       gradeMap.set(grade, entry);
     }
 
@@ -139,10 +187,10 @@ export class StatisticsService {
       .map(([grade, data]) => ({
         grade,
         revenue: data.revenue,
-        profit: data.profit,
+        profit: totalOrUnavailable(data.profits),
         count: data.productCount,
         productCount: data.productCount,
-        adCost: data.adCost,
+        adCost: totalOrUnavailable(data.adCosts),
       } satisfies StatisticsGradeRow))
       .sort((a, b) => b.revenue - a.revenue);
   }

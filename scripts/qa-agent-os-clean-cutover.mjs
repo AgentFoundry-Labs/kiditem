@@ -397,17 +397,6 @@ export function createBrowserQaChildSpecs(databaseUrl, baseEnvironment = process
   };
   delete apiEnvironment.NEXT_PUBLIC_API_URL;
 
-  const workerEnvironment = {
-    ...environment,
-    OPERATION_RUNTIME_WORKER_ENABLED: '1',
-  };
-  delete workerEnvironment.PORT;
-  delete workerEnvironment.WEB_ORIGIN;
-  delete workerEnvironment.CORS_ORIGINS;
-  delete workerEnvironment.NEXT_PUBLIC_API_URL;
-  delete workerEnvironment.MCP_SDK_GENERATION;
-  delete workerEnvironment.MCP_PROTOCOL_NEGOTIATION;
-
   const webEnvironment = {
     ...environment,
     PORT: '3000',
@@ -424,12 +413,6 @@ export function createBrowserQaChildSpecs(databaseUrl, baseEnvironment = process
       command: 'npm',
       args: ['run', 'start:prod', '--workspace=apps/server'],
       env: apiEnvironment,
-    },
-    {
-      name: 'Operations worker',
-      command: 'npm',
-      args: ['run', 'start:worker:prod', '--workspace=apps/server'],
-      env: workerEnvironment,
     },
     {
       name: 'Web',

@@ -1,5 +1,10 @@
 # Unified Operation Control Plane Implementation Plan
 
+> **Superseded (2026-09-03):** Do not extend or resume this control-plane plan.
+> Operations, schedules, browser claims, Workflow, and Panel projection are
+> removed by the
+> [Operation And Automation Hard Cutover Design](../specs/2026-09-03-operation-automation-hard-cutover-design.md).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 대시보드 Agent OS와 개별 업무 화면의 수동 버튼은 동일한 실행 액션을 사용하고, Agent·서버 예약 실행은 Operations 제어면에서 동일 도메인 capability를 호출하도록 정리한다.
@@ -67,7 +72,7 @@ OperationRun 읽기 전용 투영이 포함된다.
 
 ## 기존 설계와의 관계
 
-이 계획은 docs/superpowers/specs/2026-07-14-background-browser-collection-session-design.md의 다음 두 전제를 대체한다.
+이 계획은 docs/superpowers/specs/archive/2026-07-14-background-browser-collection-session-design.md의 다음 두 전제를 대체한다.
 
 - Server-central browser command queue가 비목표라는 결정
 - 로그인된 KidItem 웹 탭이 항상 열려 있어야 한다는 운영 가정
@@ -178,7 +183,7 @@ Native owner adapter가 위 상태로 명시적으로 매핑한다. WorkflowRun.
 - Create: apps/server/src/operations/__tests__/operations-boundary.spec.ts
 - Modify: AGENTS.md
 - Modify: docs/ARCHITECTURE.md
-- Modify: docs/superpowers/specs/2026-07-14-background-browser-collection-session-design.md
+- Modify: docs/superpowers/specs/archive/2026-07-14-background-browser-collection-session-design.md
 
 - [ ] **Step 1: 새 owner 문서화 실패 테스트 작성**
 
@@ -239,7 +244,7 @@ Run: rtk npm exec --workspace=apps/server vitest -- run src/operations/__tests__
 Expected: PASS.
 
 ~~~bash
-rtk git add AGENTS.md docs/ARCHITECTURE.md docs/superpowers/specs/2026-07-14-background-browser-collection-session-design.md apps/server/src/operations
+rtk git add AGENTS.md docs/ARCHITECTURE.md docs/superpowers/specs/archive/2026-07-14-background-browser-collection-session-design.md apps/server/src/operations
 rtk git commit -m "docs: define unified operations platform boundary"
 ~~~
 

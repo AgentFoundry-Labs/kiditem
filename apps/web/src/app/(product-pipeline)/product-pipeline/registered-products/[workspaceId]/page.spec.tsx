@@ -25,6 +25,25 @@ const { productWorkspaceProps, routerPushMock, listing, contentWorkspace } = vi.
     exposureStatus: 'visible',
     optionCount: 1,
     mappingStatus: 'matched',
+    category: '완구',
+    brand: '키드아이템',
+    manufacturer: '키드아이템 제조사',
+    providerDetail: {
+      category: '완구',
+      brand: '키드아이템',
+      manufacturer: '키드아이템 제조사',
+      sourceDetail: {
+        documents: [{ id: 'contents-1', kind: 'contents', value: '<p>공급자 원문</p>' }],
+        options: [],
+      },
+      options: [],
+      media: [{
+        sourceUrl: 'https://cdn.example.com/provider.png',
+        role: 'primary',
+        sortOrder: 0,
+        externalOptionIds: [],
+      }],
+    },
     createdAt: '2026-07-13T00:00:00.000Z',
     updatedAt: '2026-07-13T01:00:00.000Z',
   } satisfies RegisteredChannelListing,
@@ -104,7 +123,7 @@ describe('RegisteredWorkspaceDetailPage listing projection', () => {
   beforeEach(() => {
     productWorkspaceProps.length = 0;
     routerPushMock.mockReset();
-    contentWorkspace.history[0].detailPageData = {
+    (contentWorkspace.history[0] as { detailPageData: unknown }).detailPageData = {
       ...placeholderDetailPageData,
       title: '저장된 자석 다트게임 상세페이지',
     };
@@ -138,6 +157,8 @@ describe('RegisteredWorkspaceDetailPage listing projection', () => {
     expect(initialWorkspaceData.product.image_urls).toEqual([
       'https://cdn.example.com/workspace.png',
       'https://cdn.example.com/detail.png',
+      'https://cdn.example.com/listing.png',
+      'https://cdn.example.com/provider.png',
     ]);
     expect(initialWorkspaceData.product.thumbnailUrl).not.toBe(listing.thumbnailUrl);
 
@@ -162,6 +183,9 @@ describe('RegisteredWorkspaceDetailPage listing projection', () => {
       selectedDetailPageRevisionId: 'revision-1',
     }));
     expect(screen.getByText('저장된 자석 다트게임 상세페이지')).toBeInTheDocument();
+    expect(screen.getByText('쿠팡 원천 상세 정보')).toBeInTheDocument();
+    expect(screen.getAllByText(/공급자 원문/).some((element) => element.tagName === 'PRE')).toBe(true);
+    expect(screen.getByRole('link', { name: 'https://cdn.example.com/provider.png' })).toBeInTheDocument();
     expect(screen.queryByText('생성된 상세페이지가 없습니다')).not.toBeInTheDocument();
 
     const openDetailGeneration = props?.onOpenDetailTemplateGeneration as (() => void) | undefined;
@@ -170,5 +194,13 @@ describe('RegisteredWorkspaceDetailPage listing projection', () => {
     expect(routerPushMock).toHaveBeenCalledWith(expect.stringMatching(
       /^\/product-pipeline\/detail-template-generation\?.*contentWorkspaceId=listing-workspace-1/,
     ));
+  });
+
+  it('renders an explicit uncaptured price without replacing it with zero', () => {
+    (listing as unknown as RegisteredChannelListing).channelPrice = null;
+    render(<RegisteredWorkspaceDetailPage />);
+
+    expect(screen.getByText('판매가: 미수집')).toBeInTheDocument();
+    (listing as unknown as RegisteredChannelListing).channelPrice = 21900;
   });
 });

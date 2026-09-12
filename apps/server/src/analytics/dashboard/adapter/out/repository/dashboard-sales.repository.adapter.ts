@@ -1,11 +1,12 @@
 import { Injectable } from '@nestjs/common';
+import { ProductAbcEvaluationSchema } from '@kiditem/shared/product-abc';
 import { PrismaService } from '../../../../../prisma/prisma.service';
-import type { TopProduct, DailyRevenueItem } from '@kiditem/shared/dashboard';
 import {
-  ProductAbcEvaluationSchema,
-  ProductAbcFormulaSummarySchema,
-  type ProductAbcEvaluation,
-} from '@kiditem/shared/product-abc';
+  buildPerListingProfit,
+  readAdEvidenceFromLedger,
+  type PerListingProfit,
+} from '../../../../../common/per-listing-profit';
+import type { TopProduct } from '@kiditem/shared/dashboard';
 import type {
   DashboardSalesRepositoryPort,
   TodayKpiRow,
@@ -13,45 +14,14 @@ import type {
 
 interface TopProductRawRow {
   id: string;
+  /**
+   * The listing the row settles against, separate from `id` because `id` also
+   * has to name rows that have no listing. Null is how a Rocket line says so.
+   */
+  listingId: string | null;
   name: string;
   organization: string | null;
-  grade: string | null;
-  abcCalculationStatus: string | null;
-  abcRawScore: number | string | null;
-  abcAdjustedScore: number | string | null;
-  abcReliability: number | string | null;
-  abcWeightedRevenue: number | string | null;
-  abcWeightedOrderTimeCogs: number | string | null;
-  abcWeightedAdSpend: number | string | null;
-  abcWeightedContributionProfit: number | string | null;
-  abcProfitVelocity30: number | string | null;
-  abcWeightedContributionMargin: number | string | null;
-  abcLossRecurrence: number | string | null;
-  abcPaidOrderCount: number | null;
-  abcObservationDays: number | null;
-  abcFirstValidPaidSaleAt: Date | string | null;
-  abcSourceCoverageStartDate: Date | string | null;
-  abcSourceCoverageEndDate: Date | string | null;
-  abcEvaluationCutoffDate: Date | string | null;
-  abcSellpiaCoverageStartDate: Date | string | null;
-  abcSellpiaCoverageEndDate: Date | string | null;
-  abcSellpiaSourceStatus: string | null;
-  abcSellpiaSourceCapturedAt: Date | string | null;
-  abcAdvertisingCoverageStartDate: Date | string | null;
-  abcAdvertisingCoverageEndDate: Date | string | null;
-  abcAdvertisingSourceStatus: string | null;
-  abcAdvertisingSourceCapturedAt: Date | string | null;
-  abcOrdersSourceStatus: string | null;
-  abcOrdersCoverageStartDate: Date | string | null;
-  abcOrdersCoverageEndDate: Date | string | null;
-  abcOrdersSourceCapturedAt: Date | string | null;
-  abcMappingSourceStatus: string | null;
-  abcMappingInventoryGeneration: bigint | string | null;
-  abcMappingVerifiedAt: Date | string | null;
-  abcCostComponents: unknown;
-  abcStatusDetail: string | null;
-  abcCalculatedAt: Date | string | null;
-  abcFormulaJson: unknown;
+  abcEvaluation: unknown;
   revenue: number;
   quantity: number;
 }
@@ -69,7 +39,9 @@ interface TopProductRawRow {
 export class DashboardSalesRepositoryAdapter
   implements DashboardSalesRepositoryPort
 {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+  ) {}
 
   /**
    * KST today KPI — `SUM(oli.total_price)` is the I3 canonical revenue source
@@ -101,8 +73,11 @@ export class DashboardSalesRepositoryAdapter
    * how many Sellpia components its option consumes. Product labels and grade
    * come from the listing's direct operational-product link.
    *
-   * Returns the raw shape; the application service applies the documented
-   * 30%-margin approximation for `netProfit`/`profitRate`.
+   * Revenue comes from this SQL, which is the only read that can see a Rocket
+   * line. Profit comes from `buildPerListingProfit` — the same helper
+   * `/api/profit-loss` uses, for the same window — so the two screens cannot
+   * disagree about one listing's margin. A row the helper has no answer for
+   * publishes no profit (ADR-0004, which withdrew this ranking's exemption).
    */
   async fetchTopProducts(
     organizationId: string,
@@ -116,52 +91,56 @@ export class DashboardSalesRepositoryAdapter
         WHERE organization_id = ${organizationId}::uuid
       )
       SELECT
-        cl.id::text AS id,
-        COALESCE(mp.name, cl.display_name, cl.channel_name, cl.external_id) AS name,
-        cl.channel_name AS organization,
-        mp.abc_grade AS grade,
-        abce.calculation_status AS "abcCalculationStatus",
-        abce.raw_score AS "abcRawScore",
-        abce.adjusted_score AS "abcAdjustedScore",
-        abce.reliability AS "abcReliability",
-        abce.weighted_revenue AS "abcWeightedRevenue",
-        abce.weighted_order_time_cogs AS "abcWeightedOrderTimeCogs",
-        abce.weighted_ad_spend AS "abcWeightedAdSpend",
-        abce.weighted_contribution_profit AS "abcWeightedContributionProfit",
-        abce.profit_velocity_30 AS "abcProfitVelocity30",
-        abce.weighted_contribution_margin AS "abcWeightedContributionMargin",
-        abce.loss_recurrence AS "abcLossRecurrence",
-        abce.paid_order_count AS "abcPaidOrderCount",
-        abce.observation_days AS "abcObservationDays",
-        abce.first_valid_paid_sale_at AS "abcFirstValidPaidSaleAt",
-        abce.source_coverage_start_date AS "abcSourceCoverageStartDate",
-        abce.source_coverage_end_date AS "abcSourceCoverageEndDate",
-        abce.evaluation_cutoff_date AS "abcEvaluationCutoffDate",
-        abce.sellpia_coverage_start_date AS "abcSellpiaCoverageStartDate",
-        abce.sellpia_coverage_end_date AS "abcSellpiaCoverageEndDate",
-        abce.sellpia_source_status AS "abcSellpiaSourceStatus",
-        abce.sellpia_source_captured_at AS "abcSellpiaSourceCapturedAt",
-        abce.advertising_coverage_start_date AS "abcAdvertisingCoverageStartDate",
-        abce.advertising_coverage_end_date AS "abcAdvertisingCoverageEndDate",
-        abce.advertising_source_status AS "abcAdvertisingSourceStatus",
-        abce.advertising_source_captured_at AS "abcAdvertisingSourceCapturedAt",
-        abce.orders_source_status AS "abcOrdersSourceStatus",
-        abce.orders_coverage_start_date AS "abcOrdersCoverageStartDate",
-        abce.orders_coverage_end_date AS "abcOrdersCoverageEndDate",
-        abce.orders_source_captured_at AS "abcOrdersSourceCapturedAt",
-        abce.mapping_source_status AS "abcMappingSourceStatus",
-        abce.mapping_inventory_generation AS "abcMappingInventoryGeneration",
-        abce.mapping_verified_at AS "abcMappingVerifiedAt",
-        abce.cost_components_json AS "abcCostComponents",
-        abce.status_detail AS "abcStatusDetail",
-        abce.calculated_at AS "abcCalculatedAt",
-        abcf.formula_json AS "abcFormulaJson",
+        COALESCE(cl.id::text, 'line-sku:' || oli.sku) AS id,
+        cl.id::text AS "listingId",
+        COALESCE(mp.name, cl.display_name, cl.channel_name, cl.external_id, oli.product_name) AS name,
+        COALESCE(cl.channel_name, ca.name, ca.channel) AS organization,
+        CASE WHEN abce.id IS NULL THEN NULL ELSE jsonb_build_object(
+          'abcGrade', abce.abc_grade,
+          'weightedRevenue', abce.weighted_revenue,
+          'weightedOrderTimeSupplyCost', abce.weighted_order_time_supply_cost,
+          'weightedAdvertisingSpend', abce.weighted_advertising_spend,
+          'weightedOperatingProfit', abce.weighted_operating_profit,
+          'operatingProfitVelocity30', abce.operating_profit_velocity_30,
+          'operatingMargin', abce.operating_margin,
+          'lossPersistence', abce.loss_persistence,
+          'profitScore', abce.profit_score,
+          'marginScore', abce.margin_score,
+          'consistencyScore', abce.consistency_score,
+          'economicScore', abce.economic_score,
+          'validObservationDays', abce.valid_observation_days,
+          'formula', abcf.formula_json,
+          'formulaRevision', abce.formula_revision,
+          'publicationRevision', abce.publication_revision,
+          'gradeBasisCutoffDate', abce.grade_basis_cutoff_date,
+          'saleStartDate', abce.sale_start_date,
+          'sellpiaSourceImportRunId', abce.sellpia_source_import_run_id,
+          'advertisingSourceImportRunId', abce.advertising_source_import_run_id,
+          'sellpiaGeneration', abce.sellpia_generation::text,
+          'advertisingGeneration', abce.advertising_generation::text,
+          'mappingGeneration', abce.mapping_generation::text,
+          'calculatedAt', abce.calculated_at
+        ) END AS "abcEvaluation",
         SUM(oli.total_price)::int AS revenue,
         SUM(oli.quantity)::int AS quantity
       FROM scoped_orders o
       JOIN order_line_items oli ON oli.order_id = o.id
-      JOIN channel_listing_options clo ON clo.id = oli.listing_option_id
-      JOIN channel_listings cl ON cl.id = clo.listing_id
+      -- Rocket purchase orders are channel revenue too, and their lines never
+      -- carry a listing option: the Coupang direct importer resolves product
+      -- identity through Supply's confirmation, not through a listing. An
+      -- inner join here hid that revenue entirely — a July of 18,945,520원
+      -- rendered as "no product revenue". The line's own product identity
+      -- stands in when no listing resolves; the grade and the evidence stay
+      -- absent rather than being guessed at.
+      LEFT JOIN channel_listing_options clo
+        ON clo.id = oli.listing_option_id
+        AND clo.organization_id = ${organizationId}::uuid
+      LEFT JOIN channel_listings cl
+        ON cl.id = clo.listing_id
+        AND cl.organization_id = ${organizationId}::uuid
+      LEFT JOIN channel_accounts ca
+        ON ca.id = o.channel_account_id
+        AND ca.organization_id = ${organizationId}::uuid
       LEFT JOIN master_products mp ON mp.id = cl.master_product_id
         AND mp.organization_id = ${organizationId}::uuid
       LEFT JOIN master_product_abc_evaluations abce
@@ -172,166 +151,81 @@ export class DashboardSalesRepositoryAdapter
         AND abcf.organization_id = ${organizationId}::uuid
       WHERE o.organization_id = ${organizationId}::uuid
         AND oli.organization_id = ${organizationId}::uuid
-        AND clo.organization_id = ${organizationId}::uuid
-        AND cl.organization_id = ${organizationId}::uuid
         AND o.ordered_at >= ${monthStart}
         AND o.ordered_at < ${monthEnd}
         AND o.status NOT IN ('cancelled', 'returned', 'refunded')
-      GROUP BY cl.id, mp.name, mp.abc_grade,
-        abce.calculation_status, abce.raw_score, abce.adjusted_score,
-        abce.reliability, abce.weighted_revenue, abce.weighted_order_time_cogs,
-        abce.weighted_ad_spend, abce.weighted_contribution_profit,
-        abce.profit_velocity_30, abce.weighted_contribution_margin,
-        abce.loss_recurrence, abce.paid_order_count, abce.observation_days,
-        abce.first_valid_paid_sale_at, abce.source_coverage_start_date,
-        abce.source_coverage_end_date, abce.evaluation_cutoff_date,
-        abce.sellpia_coverage_start_date, abce.sellpia_coverage_end_date,
-        abce.sellpia_source_status, abce.sellpia_source_captured_at,
-        abce.advertising_coverage_start_date, abce.advertising_coverage_end_date,
-        abce.advertising_source_status, abce.advertising_source_captured_at,
-        abce.orders_source_status, abce.orders_coverage_start_date,
-        abce.orders_coverage_end_date, abce.orders_source_captured_at,
-        abce.mapping_source_status, abce.mapping_inventory_generation,
-        abce.mapping_verified_at, abce.cost_components_json,
-        abce.status_detail, abce.calculated_at, abcf.formula_json
+      GROUP BY COALESCE(cl.id::text, 'line-sku:' || oli.sku),
+               cl.id, cl.display_name, cl.channel_name, cl.external_id,
+               ca.name, ca.channel, oli.product_name, mp.name, abce.id, abcf.id
       ORDER BY revenue DESC
       LIMIT 10
     `;
 
-    // KNOWN APPROXIMATION (Plan F1 critic MAJOR #2 — documented in release note):
-    // For the top-N ranking widget we approximate netProfit/profitRate using a flat
-    // 30% margin assumption. Precise per-listing math lives in /api/profit-loss
-    // (which uses buildPerListingMetrics). Top-N is a summary visual, not a financial
-    // report — users who need exact margin per master must drill into /profit-loss.
+    // The ranking used to publish `revenue * 0.3` here. A flat margin reads on
+    // screen exactly like a settled figure, and the Rocket rows above — which
+    // have no settlement inputs at all — made that indistinguishable from a
+    // measurement. The precise math was already extracted to be shared, so ask
+    // it for the same window instead of assuming, and leave the answer absent
+    // where it has none.
+    const rankedListingIds = new Set(
+      rows.map((r) => r.listingId).filter((id): id is string => Boolean(id)),
+    );
+    // Nothing in the ranking settles against a listing — an empty month, or a
+    // month of Rocket lines only — so the per-listing read has no consumer and
+    // is not worth its four queries.
+    const profitByListing = rankedListingIds.size === 0
+      ? new Map<string, PerListingProfit>()
+      : await this.readProfitByRankedListing(organizationId, monthStart, monthEnd);
+
     return rows.map((r) => {
       const revenue = Number(r.revenue ?? 0);
-      const netProfit = Math.round(revenue * 0.3);
-      const profitRate = revenue > 0 ? 30.0 : 0;
+      // A row with no listing has nothing to look up, and a listing the helper
+      // withheld (incomplete ad coverage, per ADR-0006) answers `null` itself.
+      const measured = r.listingId ? profitByListing.get(r.listingId) ?? null : null;
+      const parsedEvaluation = ProductAbcEvaluationSchema.safeParse(r.abcEvaluation);
+      const abcEvaluation = parsedEvaluation.success ? parsedEvaluation.data : null;
       return {
         id: r.id,
         name: r.name,
         organization: r.organization ?? '미지정',
-        grade:
-          r.grade === 'A' || r.grade === 'B' || r.grade === 'C'
-            ? r.grade
-            : null,
-        abcEvaluation: mapAbcEvaluation(r),
+        grade: abcEvaluation?.abcGrade ?? null,
+        abcEvaluation,
         revenue,
-        netProfit,
-        profitRate,
+        netProfit: measured?.netProfit ?? null,
+        profitRate: measured?.profitRate ?? null,
       } satisfies TopProduct;
     });
+  }
+
+  /**
+   * One listing's profit, as the shared helper answers it for this window.
+   * Separate so the ranking reads as a ranking: the helper needs Advertising's
+   * account-level evidence for the same window first, because its absence is
+   * what made "runs no ads" and "ad collection failed" the same zero.
+   */
+  private async readProfitByRankedListing(
+    organizationId: string,
+    from: Date,
+    to: Date,
+  ): Promise<Map<string, PerListingProfit>> {
+    const adEvidence = await readAdEvidenceFromLedger(
+      this.prisma,
+      organizationId,
+      from,
+      to,
+    );
+    const rows = await buildPerListingProfit(
+      this.prisma,
+      organizationId,
+      from,
+      to,
+      adEvidence,
+    );
+    return new Map(rows.map((row) => [row.listingId, row]));
   }
 
   /**
    * Per-day revenue for the calendar month, KST-bucketed.
    * `SUM(oli.total_price)` per `o.ordered_at AT TIME ZONE 'Asia/Seoul'::date`.
    */
-  async fetchDailyRevenue(
-    organizationId: string,
-    monthStart: Date,
-    monthEnd: Date,
-  ): Promise<DailyRevenueItem[]> {
-    const rows = await this.prisma.$queryRaw<Array<{ date: string; revenue: number }>>`
-      SELECT
-        TO_CHAR(o.ordered_at AT TIME ZONE 'Asia/Seoul', 'YYYY-MM-DD') AS date,
-        COALESCE(SUM(oli.total_price), 0)::int AS revenue
-      FROM orders o
-      JOIN order_line_items oli ON oli.order_id = o.id
-      WHERE o.organization_id = ${organizationId}::uuid
-        AND o.ordered_at >= ${monthStart}
-        AND o.ordered_at < ${monthEnd}
-        AND o.status NOT IN ('cancelled', 'returned', 'refunded')
-      GROUP BY 1
-      ORDER BY 1
-    `;
-    return rows.map(
-      (r) => ({ date: r.date, revenue: Number(r.revenue) } satisfies DailyRevenueItem),
-    );
-  }
-}
-
-function mapAbcEvaluation(row: TopProductRawRow): ProductAbcEvaluation | null {
-  if (!row.abcCalculationStatus || !row.abcCostComponents) return null;
-  const grade = row.grade === 'A' || row.grade === 'B' || row.grade === 'C'
-    ? row.grade
-    : null;
-  const parseNumber = (value: number | string | null): number | null => {
-    if (value === null) return null;
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : null;
-  };
-  const cutoff = row.abcEvaluationCutoffDate
-    ?? row.abcSourceCoverageEndDate
-    ?? row.abcCalculatedAt;
-  if (!cutoff) return null;
-  const formula = row.abcFormulaJson
-    ? ProductAbcFormulaSummarySchema.safeParse(row.abcFormulaJson)
-    : null;
-  const evaluation = ProductAbcEvaluationSchema.safeParse({
-    abcGrade: grade,
-    calculationStatus: row.abcCalculationStatus,
-    rawScore: parseNumber(row.abcRawScore),
-    adjustedScore: parseNumber(row.abcAdjustedScore),
-    reliability: parseNumber(row.abcReliability),
-    weightedRevenue: parseNumber(row.abcWeightedRevenue),
-    weightedOrderTimeCogs: parseNumber(row.abcWeightedOrderTimeCogs),
-    weightedAdSpend: parseNumber(row.abcWeightedAdSpend),
-    weightedContributionProfit: parseNumber(row.abcWeightedContributionProfit),
-    profitVelocity30: parseNumber(row.abcProfitVelocity30),
-    weightedContributionMargin: parseNumber(row.abcWeightedContributionMargin),
-    lossRecurrence: parseNumber(row.abcLossRecurrence),
-    paidOrderCount: row.abcPaidOrderCount ?? 0,
-    observationDays: row.abcObservationDays ?? 0,
-    firstValidPaidSaleAt: row.abcFirstValidPaidSaleAt,
-    formula: formula?.success ? formula.data : null,
-    sourceFreshness: {
-      evaluationCutoffDate: calendarDate(cutoff),
-      sellpia: {
-        status: row.abcSellpiaSourceStatus,
-        coverageStartDate: row.abcSellpiaCoverageStartDate ?? row.abcSourceCoverageStartDate
-          ? calendarDate((row.abcSellpiaCoverageStartDate ?? row.abcSourceCoverageStartDate)!)
-          : null,
-        coverageEndDate: row.abcSellpiaCoverageEndDate ?? row.abcSourceCoverageEndDate
-          ? calendarDate((row.abcSellpiaCoverageEndDate ?? row.abcSourceCoverageEndDate)!)
-          : null,
-        capturedAt: row.abcSellpiaSourceCapturedAt,
-      },
-      advertising: {
-        status: row.abcAdvertisingSourceStatus,
-        coverageStartDate: row.abcAdvertisingCoverageStartDate
-          ? calendarDate(row.abcAdvertisingCoverageStartDate)
-          : null,
-        coverageEndDate: row.abcAdvertisingCoverageEndDate
-          ? calendarDate(row.abcAdvertisingCoverageEndDate)
-          : null,
-        capturedAt: row.abcAdvertisingSourceCapturedAt,
-      },
-      orders: {
-        status: row.abcOrdersSourceStatus,
-        coverageStartDate: row.abcOrdersCoverageStartDate
-          ? calendarDate(row.abcOrdersCoverageStartDate)
-          : null,
-        coverageEndDate: row.abcOrdersCoverageEndDate
-          ? calendarDate(row.abcOrdersCoverageEndDate)
-          : null,
-        capturedAt: row.abcOrdersSourceCapturedAt,
-      },
-      mapping: {
-        status: row.abcMappingSourceStatus,
-        inventoryGeneration: row.abcMappingInventoryGeneration === null
-          ? null
-          : String(row.abcMappingInventoryGeneration),
-        verifiedAt: row.abcMappingVerifiedAt,
-      },
-    },
-    costBreakdown: row.abcCostComponents,
-    statusDetail: row.abcStatusDetail,
-    calculatedAt: row.abcCalculatedAt,
-  });
-  return evaluation.success ? evaluation.data : null;
-}
-
-function calendarDate(value: Date | string): string {
-  return new Date(value).toISOString().slice(0, 10);
 }

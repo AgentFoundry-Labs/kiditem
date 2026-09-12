@@ -1,14 +1,14 @@
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import { ConflictException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
-import { DefinitiveMarketplaceRegistrationError } from '../../port/in/capability/marketplace-registration.port';
-import { CoupangProviderRequestError } from '../../port/out/provider/coupang-provider.port';
 import { MarketplaceRegistrationService } from '../marketplace-registration.service';
 
-describe('MarketplaceRegistrationService application orchestration', () => {
-  it('finds one existing active Coupang listing from synced channel data without calling Coupang', async () => {
+describe('MarketplaceRegistrationService browser registration boundary', () => {
+  it('finds one existing active Wing listing from synced channel data without Open API IO', async () => {
     const repository = {
       assertActiveRegistrationAccount: vi.fn().mockResolvedValue({
-        channel: 'coupang', vendorId: 'A00012345', externalAccountId: 'A00012345',
+        channel: 'coupang',
+        vendorId: 'A00012345',
+        externalAccountId: 'A00012345',
       }),
       findExistingActiveListingBySellerSku: vi.fn().mockResolvedValue({
         externalListingId: '427011919',
@@ -16,12 +16,7 @@ describe('MarketplaceRegistrationService application orchestration', () => {
         status: 'APPROVED',
       }),
     };
-    const coupang = {
-      getSellerProductsByExternalVendorSku: vi.fn(() => {
-        throw new Error('Coupang Open API must not be called by external WING preflight.');
-      }),
-    };
-    const service = new MarketplaceRegistrationService(repository as never, coupang as never);
+    const service = new MarketplaceRegistrationService(repository as never);
 
     await expect(service.findExistingExternalProductRegistration({
       organizationId: 'org-1',
@@ -37,37 +32,51 @@ describe('MarketplaceRegistrationService application orchestration', () => {
       channelAccountId: 'account-1',
       sellerSku: '10451-1',
     });
-    expect(coupang.getSellerProductsByExternalVendorSku).not.toHaveBeenCalled();
   });
 
-  it('propagates ambiguity found in synced channel data without falling back to Coupang', async () => {
+  it('propagates ambiguity found in synced channel data without a provider fallback', async () => {
     const ambiguity = new ConflictException(
       "Sellpia SKU '10451-1' resolved to multiple active channel listings.",
     );
     const repository = {
       assertActiveRegistrationAccount: vi.fn().mockResolvedValue({
-        channel: 'coupang', vendorId: 'A00012345',
+        channel: 'coupang',
+        vendorId: 'A00012345',
       }),
       findExistingActiveListingBySellerSku: vi.fn().mockRejectedValue(ambiguity),
     };
-    const coupang = {
-      getSellerProductsByExternalVendorSku: vi.fn(() => {
-        throw new Error('Coupang Open API must not be called by external WING preflight.');
-      }),
-    };
-    const service = new MarketplaceRegistrationService(repository as never, coupang as never);
+    const service = new MarketplaceRegistrationService(repository as never);
 
     await expect(service.findExistingExternalProductRegistration({
       organizationId: 'org-1',
       channelAccountId: 'account-1',
       externalVendorSku: '10451-1',
     })).rejects.toBe(ambiguity);
-    expect(coupang.getSellerProductsByExternalVendorSku).not.toHaveBeenCalled();
   });
 
-  it('accepts external confirmation only for the persisted active Wing account', async () => {
+  it('accepts external confirmation only for an active persisted Wing identity', async () => {
     const repository = {
-      assertActiveRegistrationAccount: vi.fn().mockResolvedValue({ channel: 'rocket' }),
+      assertActiveRegistrationAccount: vi.fn().mockResolvedValue({
+        channel: 'coupang',
+        vendorId: ' A00012345 ',
+        externalAccountId: null,
+      }),
+    };
+    const service = new MarketplaceRegistrationService(repository as never);
+
+    await expect(service.assertExternalProductRegistrationAccount({
+      organizationId: 'org-1',
+      channelAccountId: 'account-1',
+    })).resolves.toEqual({ channel: 'coupang', vendorId: 'A00012345' });
+  });
+
+  it('rejects non-Wing accounts before external confirmation', async () => {
+    const repository = {
+      assertActiveRegistrationAccount: vi.fn().mockResolvedValue({
+        channel: 'rocket',
+        vendorId: 'A00012345',
+        externalAccountId: 'A00012345',
+      }),
     };
     const service = new MarketplaceRegistrationService(repository as never);
 
@@ -75,486 +84,38 @@ describe('MarketplaceRegistrationService application orchestration', () => {
       organizationId: 'org-1',
       channelAccountId: 'rocket-account-1',
     })).rejects.toBeInstanceOf(ConflictException);
-    expect(repository.assertActiveRegistrationAccount).toHaveBeenCalledWith({
-      organizationId: 'org-1',
-      channelAccountId: 'rocket-account-1',
-    });
   });
 
-  it('preflights exact KidItem identities before dispatching the provider create', async () => {
-    const preflightError = new Error('Sellpia inventory SKU is inactive or foreign.');
+  it('requires a real Sellpia SKU before querying synced listing identity', async () => {
     const repository = {
-      assertActiveRegistrationAccount: vi.fn().mockResolvedValue({ channel: 'coupang' }),
-      preflightExactProductLinks: vi.fn().mockRejectedValue(preflightError),
-    };
-    const coupang = { createSellerProduct: vi.fn() };
-    const service = new MarketplaceRegistrationService(repository as never, coupang as never);
-
-    await expect(service.submitProductRegistration({
-      organizationId: '00000000-0000-4000-8000-000000000010',
-      preparationId: 'preparation-1',
-      sourceCandidateId: 'candidate-1',
-      channelAccountId: 'account-1',
-      submissionKey: 'submission-key-1',
-      submissionPayloadHash: 'hash-1',
-      submissionPayloadJson: {
-        registrationInput: {
-          masterProductId: '00000000-0000-4000-8000-000000000011',
-          optionLinks: [{
-            externalOptionId: ' BLUE ',
-            sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000012',
-            quantity: 2,
-          }],
-          listingPayload: { items: [{ itemName: 'Blue' }] },
-        },
-      },
-      providerSubmissionId: null,
-      registrationResult: null,
-      isRetry: false,
-      providerOutcome: 'not_attempted',
-      providerCreateAllowed: true,
-    })).rejects.toBe(preflightError);
-
-    expect(repository.preflightExactProductLinks).toHaveBeenCalledWith({
-      organizationId: '00000000-0000-4000-8000-000000000010',
-      masterProductId: '00000000-0000-4000-8000-000000000011',
-      optionLinks: [{
-        externalOptionId: 'BLUE',
-        sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000012',
-        quantity: 2,
-        providerOptionKey: 'submission-key-1',
-      }],
-    });
-    expect(coupang.createSellerProduct).not.toHaveBeenCalled();
-  });
-
-  it('rejects malformed exact UUIDs before dispatching the provider create', async () => {
-    const repository = {
-      assertActiveRegistrationAccount: vi.fn().mockResolvedValue({ channel: 'coupang' }),
-      preflightExactProductLinks: vi.fn(),
-    };
-    const coupang = { createSellerProduct: vi.fn() };
-    const service = new MarketplaceRegistrationService(repository as never, coupang as never);
-
-    await expect(service.submitProductRegistration({
-      organizationId: 'org-1',
-      preparationId: 'preparation-1',
-      sourceCandidateId: 'candidate-1',
-      channelAccountId: 'account-1',
-      submissionKey: 'submission-key-1',
-      submissionPayloadHash: 'hash-1',
-      submissionPayloadJson: {
-        registrationInput: {
-          masterProductId: 'not-a-uuid',
-          optionLinks: [],
-          listingPayload: { items: [{ itemName: 'Blue' }] },
-        },
-      },
-      providerSubmissionId: null,
-      registrationResult: null,
-      isRetry: false,
-      providerOutcome: 'not_attempted',
-      providerCreateAllowed: true,
-    })).rejects.toThrow('masterProductId must be a UUID');
-
-    expect(repository.preflightExactProductLinks).not.toHaveBeenCalled();
-    expect(coupang.createSellerProduct).not.toHaveBeenCalled();
-  });
-
-  it('validates the frozen payload before marking the provider outcome uncertain', async () => {
-    const beforeProviderCreate = vi.fn();
-    const repository = {
-      assertActiveRegistrationAccount: vi.fn().mockResolvedValue({ channel: 'coupang' }),
-    };
-    const coupang = { createSellerProduct: vi.fn() };
-    const service = new MarketplaceRegistrationService(
-      repository as never,
-      coupang as never,
-    );
-
-    await expect(service.submitProductRegistration({
-      organizationId: 'org-1',
-      preparationId: 'preparation-1',
-      sourceCandidateId: 'candidate-1',
-      channelAccountId: 'account-1',
-      submissionKey: 'submission-key-1',
-      submissionPayloadHash: 'hash-1',
-      submissionPayloadJson: { registrationInput: { items: [] } },
-      providerSubmissionId: null,
-      registrationResult: null,
-      isRetry: false,
-      providerOutcome: 'not_attempted',
-      providerCreateAllowed: true,
-    }, beforeProviderCreate)).rejects.toThrow(
-      'Frozen preparation marketplace payload must contain at least one item.',
-    );
-
-    expect(beforeProviderCreate).not.toHaveBeenCalled();
-    expect(coupang.createSellerProduct).not.toHaveBeenCalled();
-  });
-
-  it('marks the provider outcome uncertain immediately before the provider POST', async () => {
-    const callOrder: string[] = [];
-    const beforeProviderCreate = vi.fn(async () => {
-      callOrder.push('mark-uncertain');
-    });
-    const repository = {
-      assertActiveRegistrationAccount: vi.fn().mockResolvedValue({ channel: 'coupang' }),
-    };
-    const coupang = {
-      createSellerProduct: vi.fn().mockImplementation(async (
-        _organizationId: string,
-        _payload: unknown,
-        _channelAccountId: string,
-        beforeDispatch: () => Promise<void>,
-      ) => {
-        await beforeDispatch();
-        callOrder.push('provider-post');
-        return {
-          code: '200',
-          message: '',
-          data: { code: 'SUCCESS', data: 427011919 },
-        };
+      assertActiveRegistrationAccount: vi.fn().mockResolvedValue({
+        channel: 'coupang',
+        vendorId: 'A00012345',
       }),
+      findExistingActiveListingBySellerSku: vi.fn(),
     };
-    const service = new MarketplaceRegistrationService(
-      repository as never,
-      coupang as never,
-    );
+    const service = new MarketplaceRegistrationService(repository as never);
 
-    await service.submitProductRegistration({
+    await expect(service.findExistingExternalProductRegistration({
       organizationId: 'org-1',
-      preparationId: 'preparation-1',
-      sourceCandidateId: 'candidate-1',
       channelAccountId: 'account-1',
-      submissionKey: 'submission-key-1',
-      submissionPayloadHash: 'hash-1',
-      submissionPayloadJson: {
-        registrationInput: { items: [{ itemName: 'Blue', salePrice: 12900 }] },
-      },
-      providerSubmissionId: null,
-      registrationResult: null,
-      isRetry: false,
-      providerOutcome: 'not_attempted',
-      providerCreateAllowed: true,
-    }, beforeProviderCreate);
-
-    expect(beforeProviderCreate).toHaveBeenCalledTimes(1);
-    expect(callOrder).toEqual(['mark-uncertain', 'provider-post']);
-  });
-
-  it('leaves the provider outcome safe when provider setup fails before dispatch', async () => {
-    const beforeProviderCreate = vi.fn();
-    const repository = {
-      assertActiveRegistrationAccount: vi.fn().mockResolvedValue({ channel: 'coupang' }),
-    };
-    const coupang = {
-      createSellerProduct: vi.fn().mockRejectedValue(new Error('missing credentials')),
-    };
-    const service = new MarketplaceRegistrationService(
-      repository as never,
-      coupang as never,
-    );
-
-    await expect(service.submitProductRegistration({
-      organizationId: 'org-1',
-      preparationId: 'preparation-1',
-      sourceCandidateId: 'candidate-1',
-      channelAccountId: 'account-1',
-      submissionKey: 'submission-key-1',
-      submissionPayloadHash: 'hash-1',
-      submissionPayloadJson: {
-        registrationInput: { items: [{ itemName: 'Blue', salePrice: 12900 }] },
-      },
-      providerSubmissionId: null,
-      registrationResult: null,
-      isRetry: false,
-      providerOutcome: 'not_attempted',
-      providerCreateAllowed: true,
-    }, beforeProviderCreate)).rejects.toThrow('missing credentials');
-
-    expect(beforeProviderCreate).not.toHaveBeenCalled();
-  });
-
-  it('submits a frozen preparation through the selected account without a Master identity', async () => {
-    const repository = {
-      assertActiveRegistrationAccount: vi.fn().mockResolvedValue({ channel: 'coupang' }),
-    };
-    const coupang = {
-      createSellerProduct: vi.fn().mockResolvedValue({
-        code: '200',
-        message: '',
-        data: { code: 'SUCCESS', data: 427011919 },
-      }),
-    };
-    const service = new MarketplaceRegistrationService(
-      repository as never,
-      coupang as never,
-    );
-
-    await expect(service.submitProductRegistration({
-      organizationId: 'org-1',
-      preparationId: 'preparation-1',
-      sourceCandidateId: 'candidate-1',
-      channelAccountId: 'account-1',
-      submissionKey: 'submission-key-1',
-      submissionPayloadHash: 'hash-1',
-      submissionPayloadJson: {
-        registrationInput: {
-          listingPayload: {
-            sellerProductName: 'Kids rain boots',
-            items: [{ itemName: 'Blue', salePrice: 12900 }],
-          },
-        },
-      },
-      providerSubmissionId: null,
-      registrationResult: null,
-      isRetry: false,
-      providerOutcome: 'uncertain',
-      providerCreateAllowed: true,
-    })).resolves.toMatchObject({
-      providerSubmissionId: '427011919',
-      externalListingId: '427011919',
-      channel: 'coupang',
-    });
-    expect(coupang.createSellerProduct).toHaveBeenCalledWith(
-      'org-1',
-      {
-        sellerProductName: 'Kids rain boots',
-        items: [{
-          itemName: 'Blue',
-          salePrice: 12900,
-          externalVendorSku: 'submission-key-1',
-        }],
-      },
-      'account-1',
-      expect.any(Function),
-    );
-  });
-
-  it('reconciles a possibly completed provider write by the durable submission key before a lease replay can create again', async () => {
-    const repository = {
-      assertActiveRegistrationAccount: vi.fn().mockResolvedValue({ channel: 'coupang' }),
-    };
-    const coupang = {
-      getSellerProductsByExternalVendorSku: vi.fn().mockResolvedValue({
-        code: 'SUCCESS',
-        message: '',
-        data: [{ sellerProductId: 427011919, sellerProductName: 'Kids rain boots' }],
-      }),
-    };
-    const service = new MarketplaceRegistrationService(
-      repository as never,
-      coupang as never,
-    );
-
-    await expect(service.reconcileProductRegistration({
-      organizationId: 'org-1',
-      preparationId: 'preparation-1',
-      sourceCandidateId: 'candidate-1',
-      channelAccountId: 'account-1',
-      submissionKey: 'submission-key-1',
-      submissionPayloadHash: 'hash-1',
-      submissionPayloadJson: {},
-      providerSubmissionId: null,
-      registrationResult: null,
-      // A worker lease retry does not rewrite the frozen input to set this
-      // flag. The provider key must therefore be checked on every dispatch.
-      isRetry: false,
-      providerOutcome: 'uncertain',
-      providerCreateAllowed: false,
-    })).resolves.toMatchObject({
-      providerSubmissionId: '427011919',
-      externalListingId: '427011919',
-    });
-    expect(coupang.getSellerProductsByExternalVendorSku).toHaveBeenCalledWith(
-      'org-1',
-      'submission-key-1',
-      'account-1',
-    );
-  });
-
-  it('does not create a second listing when retry reconciliation has no result yet', async () => {
-    const repository = {
-      assertActiveRegistrationAccount: vi.fn().mockResolvedValue({ channel: 'coupang' }),
-    };
-    const coupang = {
-      createSellerProduct: vi.fn(),
-    };
-    const service = new MarketplaceRegistrationService(
-      repository as never,
-      coupang as never,
-    );
-
-    await expect(service.submitProductRegistration({
-      organizationId: 'org-1',
-      preparationId: 'preparation-1',
-      sourceCandidateId: 'candidate-1',
-      channelAccountId: 'account-1',
-      submissionKey: 'submission-key-1',
-      submissionPayloadHash: 'hash-1',
-      submissionPayloadJson: {},
-      providerSubmissionId: null,
-      registrationResult: null,
-      isRetry: true,
-      providerOutcome: 'uncertain',
-      providerCreateAllowed: false,
-    })).rejects.toThrow(
-      'Provider outcome is still uncertain; automatic retry will not create a duplicate listing.',
-    );
-    expect(coupang.createSellerProduct).not.toHaveBeenCalled();
-  });
-
-  it('allows a proven definitive non-create retry after reconciliation', async () => {
-    const repository = {
-      assertActiveRegistrationAccount: vi.fn().mockResolvedValue({ channel: 'coupang' }),
-    };
-    const coupang = {
-      createSellerProduct: vi.fn().mockResolvedValue({
-        code: '200',
-        message: '',
-        data: { code: 'SUCCESS', data: 427011919 },
-      }),
-    };
-    const service = new MarketplaceRegistrationService(
-      repository as never,
-      coupang as never,
-    );
-
-    await expect(service.submitProductRegistration({
-      organizationId: 'org-1',
-      preparationId: 'preparation-1',
-      sourceCandidateId: 'candidate-1',
-      channelAccountId: 'account-1',
-      submissionKey: 'submission-key-1',
-      submissionPayloadHash: 'hash-1',
-      submissionPayloadJson: {
-        registrationInput: { items: [{ itemName: 'Blue', salePrice: 12900 }] },
-      },
-      providerSubmissionId: null,
-      registrationResult: null,
-      isRetry: true,
-      providerOutcome: 'uncertain',
-      providerCreateAllowed: true,
-    })).resolves.toMatchObject({ externalListingId: '427011919' });
-    expect(coupang.createSellerProduct).toHaveBeenCalledTimes(1);
-  });
-
-  it('classifies an explicit provider rejection as a definitive non-create', async () => {
-    const repository = {
-      assertActiveRegistrationAccount: vi.fn().mockResolvedValue({ channel: 'coupang' }),
-    };
-    const coupang = {
-      createSellerProduct: vi.fn().mockResolvedValue({
-        code: '400',
-        message: 'invalid category',
-        data: { code: 'ERROR', message: 'invalid category', data: null },
-      }),
-    };
-    const service = new MarketplaceRegistrationService(
-      repository as never,
-      coupang as never,
-    );
-
-    await expect(service.submitProductRegistration({
-      organizationId: 'org-1',
-      preparationId: 'preparation-1',
-      sourceCandidateId: 'candidate-1',
-      channelAccountId: 'account-1',
-      submissionKey: 'submission-key-1',
-      submissionPayloadHash: 'hash-1',
-      submissionPayloadJson: {
-        registrationInput: { items: [{ itemName: 'Blue', salePrice: 12900 }] },
-      },
-      providerSubmissionId: null,
-      registrationResult: null,
-      isRetry: false,
-      providerOutcome: 'uncertain',
-      providerCreateAllowed: true,
-    })).rejects.toBeInstanceOf(DefinitiveMarketplaceRegistrationError);
-  });
-
-  it('maps a typed HTTP validation rejection to a stable product-safe definitive failure', async () => {
-    const providerDiagnostic = 'provider echo: secretKey=secret-key';
-    const repository = {
-      assertActiveRegistrationAccount: vi.fn().mockResolvedValue({ channel: 'coupang' }),
-    };
-    const coupang = {
-      createSellerProduct: vi.fn().mockRejectedValue(
-        new CoupangProviderRequestError(
-          `Coupang API error 400: ${providerDiagnostic}`,
-          400,
-          'definitive_failure',
-        ),
-      ),
-    };
-    const service = new MarketplaceRegistrationService(
-      repository as never,
-      coupang as never,
-    );
-
-    await expect(service.submitProductRegistration({
-      organizationId: 'org-1',
-      preparationId: 'preparation-1',
-      sourceCandidateId: 'candidate-1',
-      channelAccountId: 'account-1',
-      submissionKey: 'submission-key-1',
-      submissionPayloadHash: 'hash-1',
-      submissionPayloadJson: {
-        registrationInput: { items: [{ itemName: 'Blue', salePrice: 12900 }] },
-      },
-      providerSubmissionId: null,
-      registrationResult: null,
-      isRetry: false,
-      providerOutcome: 'uncertain',
-      providerCreateAllowed: true,
-    })).rejects.toSatisfy((error: unknown) => {
-      expect(error).toBeInstanceOf(DefinitiveMarketplaceRegistrationError);
-      expect(error).toMatchObject({
-        code: 'MARKETPLACE_REGISTRATION_REJECTED',
-        message: 'Coupang rejected the listing before it was created. Review the listing data and try again.',
-      });
-      expect((error as Error).message).not.toContain(providerDiagnostic);
-      return true;
-    });
-  });
-
-  it('reconciles recorded provider identity through the same channel account before create', async () => {
-    const repository = {
-      assertActiveRegistrationAccount: vi.fn().mockResolvedValue({ channel: 'coupang' }),
-    };
-    const coupang = {
-      getSellerProduct: vi.fn().mockResolvedValue({
-        code: '200',
-        message: '',
-        data: { sellerProductId: 427011919, sellerProductName: 'Kids rain boots' },
-      }),
-    };
-    const service = new MarketplaceRegistrationService(
-      repository as never,
-      coupang as never,
-    );
-
-    await expect(service.reconcileProductRegistration({
-      organizationId: 'org-1',
-      preparationId: 'preparation-1',
-      sourceCandidateId: 'candidate-1',
-      channelAccountId: 'account-1',
-      submissionKey: 'submission-key-1',
-      submissionPayloadHash: 'hash-1',
-      submissionPayloadJson: {},
-      providerSubmissionId: '427011919',
-      registrationResult: null,
-    })).resolves.toMatchObject({ externalListingId: '427011919' });
-    expect(coupang.getSellerProduct).toHaveBeenCalledWith(
-      'org-1',
-      '427011919',
-      'account-1',
-    );
+      externalVendorSku: '  ',
+    })).rejects.toThrow('real Sellpia SKU code is required');
+    expect(repository.findExistingActiveListingBySellerSku).not.toHaveBeenCalled();
   });
 
   it('resolves the account-scoped listing inside the caller transaction', async () => {
     const tx = { opaque: true };
+    const input = {
+      organizationId: 'org-1',
+      sourceCandidateId: 'candidate-1',
+      channelAccountId: 'account-1',
+      submissionKey: 'submission-key-1',
+      externalListingId: '427011919',
+      displayName: 'Kids rain boots',
+      masterProductId: '00000000-0000-4000-8000-000000000010',
+      optionLinks: [],
+    };
     const repository = {
       resolveProductRegistration: vi.fn().mockResolvedValue({
         listingId: 'listing-1',
@@ -565,200 +126,38 @@ describe('MarketplaceRegistrationService application orchestration', () => {
       }),
     };
     const service = new MarketplaceRegistrationService(repository as never);
-    const input = {
-      organizationId: 'org-1',
-      preparationId: 'preparation-1',
-      sourceCandidateId: 'candidate-1',
-      channelAccountId: 'account-1',
-      submissionKey: 'submission-key-1',
-      submissionPayloadHash: 'hash-1',
-      submissionPayloadJson: {},
-      providerSubmissionId: '427011919',
-      registrationResult: null,
-      externalListingId: '427011919',
-      displayName: 'Kids rain boots',
-    };
 
-    await service.resolveProductRegistration(tx, input);
+    await expect(service.resolveProductRegistration(tx, input)).resolves.toEqual(
+      expect.objectContaining({ listingId: 'listing-1' }),
+    );
     expect(repository.resolveProductRegistration).toHaveBeenCalledWith(tx, input);
   });
 
-  describe.skip('retired family-master registration compatibility', () => {
-  it('stores channel listing identity and product barcode through separate ports', async () => {
-    const repository = {
-      assertLegacyFamilyMaster: vi.fn().mockResolvedValue(undefined),
-      registerConfirmedListing: vi.fn().mockResolvedValue({ id: 'listing-1' }),
-    };
-    const productBarcodes = {
-      assertMasterBarcodeAvailable: vi.fn().mockResolvedValue(undefined),
-      updateMasterBarcode: vi.fn().mockResolvedValue(undefined),
-    };
-    const service = new MarketplaceRegistrationService(repository as never, productBarcodes as never);
-
-    const result = await service.registerConfirmedListing('org-1', {
-      masterId: 'master-1',
-      channelAccountId: 'account-1',
-      externalId: 'COUPANG-720445',
-      productBarcode: ' 8806384882841 ',
-      channelName: '쿠팡 판매명',
-      channelPrice: 12900,
-    });
-
-    expect(result).toEqual({ id: 'listing-1' });
-    expect(productBarcodes.assertMasterBarcodeAvailable).toHaveBeenCalledWith({
+  it('replays the owner receipt through the repository without provider submission', async () => {
+    const tx = { opaque: true };
+    const input = {
       organizationId: 'org-1',
-      masterId: 'master-1',
-      barcode: '8806384882841',
-    });
-    expect(repository.registerConfirmedListing).toHaveBeenCalledWith('org-1', {
-      masterId: 'master-1',
+      sourceCandidateId: 'candidate-1',
       channelAccountId: 'account-1',
-      externalId: 'COUPANG-720445',
-      channelName: '쿠팡 판매명',
-      channelPrice: 12900,
-    });
-    expect(productBarcodes.updateMasterBarcode).toHaveBeenCalledWith({
-      organizationId: 'org-1',
-      masterId: 'master-1',
-      barcode: '8806384882841',
-    });
-    expect(productBarcodes.assertMasterBarcodeAvailable.mock.invocationCallOrder[0])
-      .toBeLessThan(repository.registerConfirmedListing.mock.invocationCallOrder[0]);
-    expect(repository.registerConfirmedListing.mock.invocationCallOrder[0])
-      .toBeLessThan(productBarcodes.updateMasterBarcode.mock.invocationCallOrder[0]);
-  });
-
-  it('does not write a channel listing when product barcode preflight rejects it', async () => {
-    const error = new Error('이미 다른 상품에서 사용 중인 바코드입니다.');
-    const repository = {
-      assertLegacyFamilyMaster: vi.fn().mockResolvedValue(undefined),
-      registerConfirmedListing: vi.fn(),
+      submissionKey: 'submission-key-1',
+      externalListingId: '427011919',
+      displayName: 'Kids rain boots',
+      ownerCapabilityKey: 'channels.register_confirmed_listing' as const,
+      ownerIdempotencyKey: 'capability-invocation:00000000-0000-4000-8000-000000000001',
+      ownerRequestHash: 'a'.repeat(64),
     };
-    const productBarcodes = {
-      assertMasterBarcodeAvailable: vi.fn().mockRejectedValue(error),
-      updateMasterBarcode: vi.fn(),
-    };
-    const service = new MarketplaceRegistrationService(repository as never, productBarcodes as never);
-
-    await expect(service.registerConfirmedListing('org-1', {
-      masterId: 'master-1',
-      channelAccountId: 'account-1',
-      externalId: 'COUPANG-720445',
-      productBarcode: '8806384882841',
-    })).rejects.toBe(error);
-
-    expect(repository.registerConfirmedListing).not.toHaveBeenCalled();
-    expect(productBarcodes.updateMasterBarcode).not.toHaveBeenCalled();
-  });
-
-  it('submits a full Coupang seller product payload then stores the returned listing identity', async () => {
     const repository = {
-      assertLegacyFamilyMaster: vi.fn().mockResolvedValue(undefined),
-      registerConfirmedListing: vi.fn().mockResolvedValue({
-        id: 'listing-1',
-        masterId: 'master-1',
-        channel: 'coupang',
+      resolveProductRegistrationWithOwnerReceipt: vi.fn().mockResolvedValue({
+        listingId: 'listing-1',
         channelAccountId: 'account-1',
+        channel: 'coupang',
         externalId: '427011919',
-        channelName: '쿠팡 판매명',
-        channelPrice: 12900,
-        status: 'pending_approval',
+        status: 'active',
       }),
     };
-    const productBarcodes = {
-      assertMasterBarcodeAvailable: vi.fn().mockResolvedValue(undefined),
-      updateMasterBarcode: vi.fn().mockResolvedValue(undefined),
-    };
-    const coupang = {
-      createSellerProduct: vi.fn().mockResolvedValue({
-        code: '200',
-        message: '',
-        data: {
-          code: 'SUCCESS',
-          message: '',
-          data: 427011919,
-        },
-      }),
-    };
-    const service = new MarketplaceRegistrationService(
-      repository as never,
-      productBarcodes as never,
-      coupang as never,
-    );
+    const service = new MarketplaceRegistrationService(repository as never);
 
-    const result = await service.submitCoupangListing('org-1', {
-      masterId: 'master-1',
-      channelAccountId: 'account-1',
-      productBarcode: ' 8806384882841 ',
-      listingPayload: {
-        vendorId: 'A00012345',
-        sellerProductName: '쿠팡 판매명',
-        requested: true,
-        items: [{ itemName: '단품', salePrice: 12900 }],
-      },
-    });
-
-    expect(result).toEqual({
-      listingId: 'listing-1',
-      sellerProductId: '427011919',
-      masterId: 'master-1',
-      channel: 'coupang',
-      channelAccountId: 'account-1',
-      externalId: '427011919',
-      status: 'pending_approval',
-    });
-    expect(productBarcodes.assertMasterBarcodeAvailable).toHaveBeenCalledWith({
-      organizationId: 'org-1',
-      masterId: 'master-1',
-      barcode: '8806384882841',
-    });
-    expect(coupang.createSellerProduct).toHaveBeenCalledWith('org-1', {
-      vendorId: 'A00012345',
-      sellerProductName: '쿠팡 판매명',
-      requested: true,
-      items: [{ itemName: '단품', salePrice: 12900 }],
-    }, 'account-1');
-    expect(repository.registerConfirmedListing).toHaveBeenCalledWith('org-1', {
-      masterId: 'master-1',
-      channelAccountId: 'account-1',
-      externalId: '427011919',
-      channelName: '쿠팡 판매명',
-      channelPrice: 12900,
-    });
-    expect(productBarcodes.updateMasterBarcode).toHaveBeenCalledWith({
-      organizationId: 'org-1',
-      masterId: 'master-1',
-      barcode: '8806384882841',
-    });
-  });
-
-  it('rejects a staged Sellpia Master before dispatching a live confirmed listing', async () => {
-    const repository = {
-      assertLegacyFamilyMaster: vi.fn().mockRejectedValue(
-        new NotFoundException('재고 상품을 찾을 수 없습니다.'),
-      ),
-      registerConfirmedListing: vi.fn(),
-    };
-    const coupang = {
-      createSellerProduct: vi.fn(),
-    };
-    const service = new MarketplaceRegistrationService(
-      repository as never,
-      {} as never,
-      coupang as never,
-    );
-
-    await expect(service.submitCoupangListing('org-1', {
-      masterId: 'staged-sellpia-master',
-      channelAccountId: 'account-1',
-      listingPayload: {
-        sellerProductName: 'Physical inventory identity',
-        items: [{ itemName: '단품', salePrice: 12900 }],
-      },
-    })).rejects.toBeInstanceOf(NotFoundException);
-
-    expect(coupang.createSellerProduct).not.toHaveBeenCalled();
-    expect(repository.registerConfirmedListing).not.toHaveBeenCalled();
-  });
+    await service.resolveProductRegistrationWithOwnerReceipt(tx, input);
+    expect(repository.resolveProductRegistrationWithOwnerReceipt).toHaveBeenCalledWith(tx, input);
   });
 });

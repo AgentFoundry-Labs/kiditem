@@ -1,5 +1,6 @@
 // apps/server/src/orders/services/review-ingest.service.ts
 import { Injectable, Logger } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import type {
   ReviewIngestItem,
   ReviewIngestRequest,
@@ -8,12 +9,14 @@ import type {
 import { PrismaService } from '../../prisma/prisma.service';
 
 /**
- * 확장이 크롤링해 보낸 채널 상품평 원본을 `reviews` 에 적재한다.
+ * 확장이 정규화한 채널 상품평을 Review facts에 적재한다.
  *
  * - 쿠팡은 Open API 로 판매자 상품평을 주지 않는다. 확장이 Wing 상품평 화면
  *   (`POST /tenants/cs/product/review/search`, 세션 쿠키)을 크롤링해 넘긴다.
- * - `(organizationId, platform, externalReviewId)` upsert 라 재수집/기간 중복
- *   조회는 멱등하다. 별점·본문 수정분은 그대로 덮어쓴다.
+ * - Owner attempts pass a SourceImportRun id, so facts are generation-tagged and
+ *   re-collection within one attempt remains idempotent. The owner terminal
+ *   transaction only advances SourceImportRun metadata; it never rewrites a
+ *   prior complete generation.
  * - `externalOptionId`(쿠팡 vendorItemId = 옵션ID) → `ChannelListingOption` 으로
  *   listing 을 연결한다. 카탈로그에 없는 옵션이면 `listingId` 는 null 로 남기고
  *   `unlinked` 로 보고한다. 리뷰 자체는 버리지 않는다.
@@ -28,17 +31,50 @@ export class ReviewIngestService {
     organizationId: string,
     request: ReviewIngestRequest,
   ): Promise<ReviewIngestResponse> {
+    return this.prisma.$transaction((tx) =>
+      this.ingestInTransaction(tx, organizationId, request),
+    );
+  }
+
+  /**
+   * Stage a normalized generation-tagged fact through a caller-owned
+   * transaction. This is deliberately separate from terminal publication:
+   * the source owner later finalizes only its SourceImportRun metadata.
+   */
+  async stageInTransaction(
+    tx: ReviewWriteClient,
+    organizationId: string,
+    sourceImportRunId: string,
+    request: ReviewIngestRequest,
+  ): Promise<ReviewIngestResponse> {
+    return this.ingestInTransaction(tx, organizationId, request, sourceImportRunId);
+  }
+
+  /**
+   * Write through a caller-owned transaction. Calls without a source run are
+   * retained for the focused legacy service characterization tests; the HTTP
+   * owner path always uses stageInTransaction with a fence.
+   */
+  async ingestInTransaction(
+    tx: ReviewWriteClient,
+    organizationId: string,
+    request: ReviewIngestRequest,
+    sourceImportRunId?: string,
+  ): Promise<ReviewIngestResponse> {
     const platform = request.platform;
     const items = dedupeByExternalReviewId(request.items);
 
     const listingByOptionId = await this.resolveListingIds(
+      tx,
       organizationId,
       items,
     );
     const existingIds = await this.existingExternalReviewIds(
+      tx,
       organizationId,
       platform,
       items,
+      sourceImportRunId,
     );
 
     let linked = 0;
@@ -64,7 +100,22 @@ export class ReviewIngestService {
         reviewedAt: new Date(item.reviewedAt),
       };
 
-      return this.prisma.review.upsert({
+      const existingId = existingIds.get(item.externalReviewId);
+      if (sourceImportRunId) {
+        if (existingId) {
+          return tx.review.update({ where: { id: existingId }, data: writable });
+        }
+        return tx.review.create({
+          data: {
+            organizationId,
+            sourceImportRunId,
+            platform,
+            externalReviewId: item.externalReviewId,
+            ...writable,
+          },
+        });
+      }
+      return tx.review.upsert({
         where: {
           organizationId_platform_externalReviewId: {
             organizationId,
@@ -82,11 +133,9 @@ export class ReviewIngestService {
       });
     });
 
-    await this.prisma.$transaction(operations);
+    await Promise.all(operations);
 
-    const updated = items.filter((item) =>
-      existingIds.has(item.externalReviewId),
-    ).length;
+    const updated = items.filter((item) => existingIds.has(item.externalReviewId)).length;
     const response = {
       received: items.length,
       created: items.length - updated,
@@ -103,6 +152,7 @@ export class ReviewIngestService {
 
   /** vendorItemId → listingId. 같은 옵션이 여러 listing 에 걸리면 가장 먼저 만든 쪽을 쓴다. */
   private async resolveListingIds(
+    client: ReviewWriteClient,
     organizationId: string,
     items: ReadonlyArray<ReviewIngestItem>,
   ): Promise<Map<string, string>> {
@@ -115,7 +165,7 @@ export class ReviewIngestService {
     ];
     if (optionIds.length === 0) return new Map();
 
-    const rows = await this.prisma.channelListingOption.findMany({
+    const rows = await client.channelListingOption.findMany({
       where: { organizationId, externalOptionId: { in: optionIds } },
       select: { externalOptionId: true, listingId: true },
       orderBy: { createdAt: 'asc' },
@@ -129,25 +179,33 @@ export class ReviewIngestService {
   }
 
   private async existingExternalReviewIds(
+    client: ReviewWriteClient,
     organizationId: string,
     platform: string,
     items: ReadonlyArray<ReviewIngestItem>,
-  ): Promise<Set<string>> {
-    const rows = await this.prisma.review.findMany({
+    sourceImportRunId?: string,
+  ): Promise<Map<string, string>> {
+    const rows = await client.review.findMany({
       where: {
         organizationId,
+        ...(sourceImportRunId ? { sourceImportRunId } : { sourceImportRunId: null }),
         platform,
         externalReviewId: { in: items.map((item) => item.externalReviewId) },
       },
-      select: { externalReviewId: true },
+      select: { id: true, externalReviewId: true },
     });
-    return new Set(
+    return new Map(
       rows
-        .map((row) => row.externalReviewId)
-        .filter((value): value is string => !!value),
+        .filter((row): row is { id: string; externalReviewId: string } => !!row.externalReviewId)
+        .map((row) => [row.externalReviewId, row.id]),
     );
   }
 }
+
+type ReviewWriteClient = Pick<
+  Prisma.TransactionClient,
+  'channelListingOption' | 'review'
+>;
 
 /**
  * 같은 배치에 동일 리뷰가 두 번 오면 `$transaction` 안의 upsert 가 서로 충돌한다

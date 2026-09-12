@@ -16,6 +16,7 @@ import {
 } from './_shared/cli-args';
 import {
   dataMigrations,
+  retiredDataMigrations,
 } from './data-migrations/index';
 import type {
   DataMigrationContext,
@@ -127,6 +128,20 @@ export function selectDataMigrationsForRelease(
   if (rawReleaseVersion === undefined || rawReleaseVersion.trim() === '') return migrations;
   const releaseVersion = normalizeReleaseVersion(rawReleaseVersion);
   return migrations.filter((migration) => migration.releaseVersion === releaseVersion);
+}
+
+export function dataMigrationRegistryStatus() {
+  return {
+    migrations: dataMigrations.map((migration) => ({
+      id: migration.id,
+      releaseVersion: migration.releaseVersion,
+      name: migration.name,
+    })),
+    retiredMigrations: retiredDataMigrations.map((migration) => ({
+      ...migration,
+      execution: 'inactive' as const,
+    })),
+  };
 }
 
 export function isDefinitelyProductionDatabaseUrl(databaseUrl: string): boolean {
@@ -300,11 +315,7 @@ async function commandStatus(args: CliArgs): Promise<void> {
     releaseVersion,
     schemaGitSha: await gitSha(),
     prismaSchemaHash: await prismaSchemaHash(),
-    migrations: dataMigrations.map((migration) => ({
-      id: migration.id,
-      releaseVersion: migration.releaseVersion,
-      name: migration.name,
-    })),
+    ...dataMigrationRegistryStatus(),
     checkedAt: new Date().toISOString(),
   };
 

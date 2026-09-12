@@ -34,10 +34,6 @@ import {
   KEYWORD_RELEVANCE_JUDGE_PORT,
   type KeywordRelevanceJudgePort,
 } from '../port/out/cross-domain/keyword-relevance-judge.port';
-import {
-  OPERATION_ALERT_PORT,
-  type OperationAlertPort,
-} from '../port/out/cross-domain/operation-alert.port';
 
 /** Per-product cap. Above this the tail is single-impression noise. */
 const MAX_KEYWORDS_PER_PRODUCT = 400;
@@ -71,8 +67,6 @@ export class AdKeywordAgentService {
     private readonly actionRepo: AdActionRepositoryPort,
     @Inject(KEYWORD_RELEVANCE_JUDGE_PORT)
     private readonly judge: KeywordRelevanceJudgePort,
-    @Inject(OPERATION_ALERT_PORT)
-    private readonly operationAlerts: OperationAlertPort,
   ) {}
 
   /**
@@ -164,34 +158,6 @@ export class AdKeywordAgentService {
             )
           ).length
         : 0;
-
-    if (created > 0) {
-      await this.operationAlerts
-        .start({
-          organizationId: input.organizationId,
-          operationKey: `ad-keyword-relevance:${Date.now()}`,
-          type: 'ad_keyword',
-          title: `연관 없는 광고 키워드 ${created}건 승인 대기`,
-          sourceType: 'ad_keyword_relevance',
-          sourceId: null,
-          actorUserId: input.triggeredByUserId,
-          href: '/ad-ops',
-          metadata: {
-            judgedProductCount: batches.length,
-            judgedKeywordCount,
-            irrelevantCount: candidates.length,
-          },
-        })
-        .catch((error) => {
-          // The proposals are already stored; an alert failure must not undo
-          // them or fail the request.
-          this.logger.warn(
-            `keyword relevance alert failed: ${
-              error instanceof Error ? error.message : String(error)
-            }`,
-          );
-        });
-    }
 
     return {
       ok: true,

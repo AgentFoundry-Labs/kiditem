@@ -144,6 +144,18 @@ export type ChannelRecipeSuggestionResponse = {
   }>;
 };
 
+export const BARCODE_NAME_COMPATIBILITY_THRESHOLD = 0.35;
+
+/**
+ * Reject known name mismatches; a missing comparison score remains unknown and
+ * therefore admissible for legacy barcode-only evidence.
+ */
+export function isBarcodeEvidenceNameCompatible(
+  score: number | null | undefined,
+): boolean {
+  return score === null || score === undefined || score >= BARCODE_NAME_COMPATIBILITY_THRESHOLD;
+}
+
 const PACK_TOKEN = /(?:\d+\s*(?:개입|개|입|팩|pcs?|p)(?![\p{L}\p{N}])|x\s*\d+|세트|묶음|구성|\bbundle\b|\bset\b)/giu;
 
 export function normalizeRecipeIdentityText(value: string | null): string | null {
@@ -183,6 +195,28 @@ export function classifyChannelRecipeSuggestion(
   }
 
   const strongEvidence = collectStrongEvidence(input);
+  const rejectedBarcodeEvidence = input.barcodeEvidence
+    .filter((item) => !isBarcodeEvidenceNameCompatible(item.nameCompatibilityScore))
+    .map((item): StrongEvidence => ({
+      identifier: `physical_barcode:${item.normalizedValue}`,
+      source: 'barcode',
+      sku: item.sku,
+      evidence: {
+        kind: 'physical_barcode',
+        channelValue: item.channelValue,
+        normalizedValue: item.normalizedValue,
+      },
+    }));
+  if (rejectedBarcodeEvidence.length > 0) {
+    return decision(
+      base,
+      reviewEvidence(input, [...strongEvidence, ...rejectedBarcodeEvidence]),
+      'identifier_name_mismatch',
+      'operator_review',
+      null,
+      'A typed barcode points to a name-incompatible Sellpia SKU and requires review',
+    );
+  }
   if (hasAmbiguousIdentifier(strongEvidence)) {
     return decision(base, strongEvidence, 'ambiguous', 'blocked', null,
       'One deterministic identifier resolves to multiple Sellpia SKUs');
@@ -224,9 +258,10 @@ export function classifyChannelRecipeSuggestion(
       return decision(base, strongEvidence, 'identifier_name_mismatch', 'operator_review', null,
         'The exact identifier points to a Sellpia SKU with an incompatible product name');
     }
-    const quantity = manualMatchQuantity ?? inferRecipeQuantity(
-      input.options.flatMap((option) => [option.listingName, option.itemName]),
-    );
+    const quantity = manualMatchQuantity
+      ?? inferRecipeQuantity(
+        input.options.flatMap((option) => [option.listingName, option.itemName]),
+      );
     if (quantity === null) {
       return decision(base, strongEvidence, 'quantity_review', 'quantity_review', null,
         'The channel pack cannot be converted to a verified Sellpia unit quantity');
@@ -236,19 +271,8 @@ export function classifyChannelRecipeSuggestion(
   }
 
   if (input.nameEvidence.length > 0) {
-    const exactSkuIds = new Set(input.nameEvidence.map((item) =>
-      item.sku.sellpiaInventorySkuId));
-    if (exactSkuIds.size === 1) {
-      const quantity = inferRecipeQuantity(
-        input.options.flatMap((option) => [option.listingName, option.itemName]),
-      );
-      if (quantity !== null) {
-        return looseNameDecision(base, input.nameEvidence, 'exact_name', 'auto_apply', quantity,
-          'One unique exact normalized Sellpia product name was found');
-      }
-      return looseNameDecision(base, input.nameEvidence, 'quantity_review', 'quantity_review', null,
-        'The exact-name channel pack cannot be converted to a verified Sellpia unit quantity');
-    }
+    return looseNameDecision(base, input.nameEvidence, 'name_review_only', 'operator_review', null,
+      'The exact product name has an unresolved option or specification mismatch');
   }
 
   const similarityDecision = decideSimilarity(base, input);
@@ -279,16 +303,18 @@ function collectStrongEvidence(input: ChannelRecipeSuggestionInput): StrongEvide
         normalizedValue: item.channelValue,
       },
     })),
-    ...input.barcodeEvidence.map((item): StrongEvidence => ({
-      identifier: `physical_barcode:${item.normalizedValue}`,
-      source: 'barcode',
-      sku: item.sku,
-      evidence: {
-        kind: 'physical_barcode',
-        channelValue: item.channelValue,
-        normalizedValue: item.normalizedValue,
-      },
-    })),
+    ...input.barcodeEvidence
+      .filter((item) => isBarcodeEvidenceNameCompatible(item.nameCompatibilityScore))
+      .map((item): StrongEvidence => ({
+        identifier: `physical_barcode:${item.normalizedValue}`,
+        source: 'barcode',
+        sku: item.sku,
+        evidence: {
+          kind: 'physical_barcode',
+          channelValue: item.channelValue,
+          normalizedValue: item.normalizedValue,
+        },
+      })),
     ...input.nameOptionEvidence.map((item): StrongEvidence => ({
       identifier: `name_option:${item.normalizedProductValue}:${item.normalizedOptionValue ?? ''}`,
       source: 'name_option',
@@ -327,9 +353,13 @@ export function inferRecipeQuantity(
   channelValues: Array<string | null>,
 ): number | null {
   const quantities = packCounts(channelValues);
-  if (quantities.length === 0) return 1;
+  if (quantities.length === 0) {
+    return channelValues.some((value) => value && EXPLICIT_SINGLE_UNIT.test(value)) ? 1 : null;
+  }
   return quantities.length === 1 ? quantities[0]! : null;
 }
+
+const EXPLICIT_SINGLE_UNIT = /(?:단품|단일상품|낱개)(?:\s|$|[()[\]{}])/iu;
 
 function packCounts(values: Array<string | null>): number[] {
   const counts = new Set<number>();
@@ -342,15 +372,15 @@ function packCounts(values: Array<string | null>): number[] {
 
 const QUANTITY_UNIT = String.raw`(?:개입|pcs?|피스|세트|묶음|구성|팩|ea|개|입|권|매|장|봉|종|p)`;
 const QUANTITY_UNIT_TOKEN = new RegExp(
-  String.raw`(\d+)\s*${QUANTITY_UNIT}(?![\p{L}\p{N}])`,
+  String.raw`(?<![\p{N}.])(\d+)\s*${QUANTITY_UNIT}(?![\p{L}\p{N}])`,
   'giu',
 );
 const QUANTITY_UNIT_MULTIPLIER = new RegExp(
-  String.raw`(\d+)\s*${QUANTITY_UNIT}\s*(?:[x×*]\s*)?(\d+)\s*(?:${QUANTITY_UNIT})?`,
+  String.raw`(?<![\p{N}.])(\d+)\s*${QUANTITY_UNIT}\s*[x×*]\s*(\d+)(?:\s*${QUANTITY_UNIT}(?![\p{L}\p{N}])|(?!\s*[\p{L}\p{N}.×x*]))`,
   'giu',
 );
 const QUANTITY_MULTIPLIER_WITH_UNIT = new RegExp(
-  String.raw`(\d+)\s*[x×*]\s*(\d+)\s*${QUANTITY_UNIT}`,
+  String.raw`(?<![\p{N}.])(\d+)\s*[x×*]\s*(\d+)\s*${QUANTITY_UNIT}(?![\p{L}\p{N}])`,
   'giu',
 );
 const CHOICE_OF_ONE = /\d+\s*종\s*(?:중\s*)?(?:택\s*1|랜덤\s*1)/giu;
@@ -402,9 +432,12 @@ function identifierNameMismatch(input: ChannelRecipeSuggestionInput): boolean {
   if (input.nameOptionEvidence.length > 0) return false;
   const scores = [
     ...input.codeEvidence.map((item) => item.nameCompatibilityScore),
-    ...input.barcodeEvidence.map((item) => item.nameCompatibilityScore),
+    ...input.barcodeEvidence
+      .filter((item) => isBarcodeEvidenceNameCompatible(item.nameCompatibilityScore))
+      .map((item) => item.nameCompatibilityScore),
   ].filter((score): score is number => score !== null && score !== undefined);
-  return scores.length > 0 && Math.max(...scores) < 0.35;
+  return scores.length > 0
+    && Math.max(...scores) < BARCODE_NAME_COMPATIBILITY_THRESHOLD;
 }
 
 function looseNameDecision(
@@ -434,11 +467,16 @@ function decideSimilarity(
   const evidence = bestSimilarityPerSku(input.similarityEvidence);
   const best = evidence[0];
   if (!best) return null;
+  if (hasOptionOrSpecificationConflict(input.options, best.sku)) {
+    return similarityDecision(base, evidence, 'name_review_only', 'operator_review', null,
+      'The strongest name candidate conflicts with the channel option or specification');
+  }
   const runnerUp = evidence[1];
   const margin = runnerUp ? best.score - runnerUp.score : 1;
-  const automatic = best.kind === 'normalized_name'
+  const automatic = (best.kind === 'normalized_name' && margin >= 0.12)
     || (best.kind === 'contained_name'
       && best.score >= 0.6
+      && margin >= 0.12
       && runnerUp?.kind !== 'normalized_name'
       && runnerUp?.kind !== 'contained_name')
     || (best.kind === 'fuzzy_name' && best.score >= 0.82 && margin >= 0.12);
@@ -457,6 +495,105 @@ function decideSimilarity(
     best.kind === 'normalized_name'
       ? 'One unique exact normalized product identity was found'
       : 'One unique high-confidence Sellpia name candidate was found');
+}
+
+function reviewEvidence(
+  input: ChannelRecipeSuggestionInput,
+  evidence: StrongEvidence[],
+): StrongEvidence[] {
+  const seen = new Set(evidence.map((item) => item.sku.sellpiaInventorySkuId));
+  const add = (
+    sku: ChannelRecipeSuggestionSku,
+    item: StrongEvidence['evidence'],
+  ) => {
+    if (seen.has(sku.sellpiaInventorySkuId)) return;
+    seen.add(sku.sellpiaInventorySkuId);
+    evidence.push({
+      identifier: `review:${sku.sellpiaInventorySkuId}`,
+      source: 'name_option',
+      sku,
+      evidence: item,
+    });
+  };
+  for (const item of input.nameOptionEvidence) {
+    add(item.sku, {
+      kind: 'normalized_name_option',
+      channelValue: joinIdentity(item.productValue, item.optionValue),
+      normalizedValue: joinIdentity(
+        item.normalizedProductValue,
+        item.normalizedOptionValue,
+      ),
+    });
+  }
+  for (const item of input.nameEvidence) {
+    add(item.sku, {
+      kind: 'normalized_name',
+      channelValue: item.channelValue,
+      normalizedValue: item.normalizedValue,
+    });
+  }
+  for (const item of bestSimilarityPerSku(input.similarityEvidence)) {
+    add(item.sku, {
+      kind: item.kind,
+      channelValue: item.channelValue,
+      normalizedValue: item.normalizedValue,
+      score: item.score,
+    });
+  }
+  return evidence;
+}
+
+function hasOptionOrSpecificationConflict(
+  options: ChannelRecipeSuggestionInput['options'],
+  sku: ChannelRecipeSuggestionSku,
+): boolean {
+  const skuOption = normalizeOptionValue(sku.optionName);
+  const channelOptions = options
+    .map((option) => normalizeOptionValue(option.itemName))
+    .filter(Boolean);
+  if (skuOption) {
+    if (channelOptions.length === 0) return true;
+    if (!channelOptions.some((value) =>
+      value.includes(skuOption) || skuOption.includes(value))) return true;
+  }
+
+  const channelAttributes = extractComparableAttributes(
+    options.flatMap((option) => [option.listingName, option.itemName]),
+  );
+  const skuAttributes = extractComparableAttributes([sku.name, sku.optionName]);
+  for (const group of ['color', 'measure'] as const) {
+    const channel = channelAttributes[group];
+    const sellpia = skuAttributes[group];
+    if (channel.size > 0 && sellpia.size > 0
+      && ![...channel].some((value) => sellpia.has(value))) return true;
+  }
+  return false;
+}
+
+function normalizeOptionValue(value: string | null): string {
+  if (!value) return '';
+  return value.normalize('NFKC').toLocaleLowerCase()
+    .replace(/\d+\s*(?:개입|개|입|팩|pcs?|p|ea|세트|묶음|권|매|장|봉)/giu, '')
+    .replace(/(?:단품|단일상품|낱개|기본옵션|기본|옵션없음|default)/giu, '')
+    .replace(/[^\p{L}\p{N}]+/gu, '');
+}
+
+const COLOR_ATTRIBUTES = [
+  '빨강', '레드', '주황', '오렌지', '노랑', '옐로', '초록', '그린', '파랑', '블루',
+  '남색', '네이비', '보라', '퍼플', '분홍', '핑크', '흰색', '화이트', '검정', '블랙',
+  '회색', '그레이', '갈색', '브라운', '베이지', '투명', '클리어',
+] as const;
+const MEASURE_ATTRIBUTE = /(?<![\p{L}\p{N}.])(\d+(?:\.\d+)?)\s*(mm|cm|kg|mg|ml|g|l|호|인치|inch|색)(?![\p{L}\p{N}])/giu;
+
+function extractComparableAttributes(values: Array<string | null>): {
+  color: Set<string>;
+  measure: Set<string>;
+} {
+  const normalized = values.filter(Boolean).join(' ').normalize('NFKC').toLocaleLowerCase();
+  const color = new Set(COLOR_ATTRIBUTES.filter((value) => normalized.includes(value)));
+  const measure = new Set([...normalized.matchAll(MEASURE_ATTRIBUTE)]
+    .map((match) => `${match[1]}${match[2]}`));
+  return { color, measure };
 }
 
 function bestSimilarityPerSku(evidence: SimilarityEvidence[]): SimilarityEvidence[] {

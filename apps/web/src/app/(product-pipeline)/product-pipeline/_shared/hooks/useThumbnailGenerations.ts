@@ -1,6 +1,5 @@
 'use client';
 import { apiClient } from '@/lib/api-client';
-import { cancelOperation } from '@/lib/operation-cancellation';
 import { queryKeys } from '@/lib/query-keys';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { RecomposeVariantKey, ThumbnailGenerationItem } from '@kiditem/shared/ai';
@@ -142,11 +141,10 @@ export function useCancelGeneration() {
   const qKey = queryKeys.thumbnailAnalysis.generations();
   return useMutation({
     mutationFn: (id: string) =>
-      cancelOperation({
-        targetType: 'thumbnail_generation',
-        generationId: id,
-        reason: '사용자 요청',
-      }),
+      apiClient.post(
+        `/api/thumbnail-analysis/generations/${encodeURIComponent(id)}/cancel`,
+        { reason: '사용자 요청' },
+      ),
     onMutate: async (id) => {
       await queryClient.cancelQueries({ queryKey: qKey });
       const previous = queryClient.getQueryData<ThumbnailGenerationItem[]>(qKey);

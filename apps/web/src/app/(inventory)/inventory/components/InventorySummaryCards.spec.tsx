@@ -37,4 +37,11 @@ describe('InventorySummaryCards', () => {
 
     expect(container.querySelectorAll('[class*="dark:"]')).toHaveLength(0);
   });
+
+  it('does not present the empty summary as zero before the first publication', () => {
+    render(<InventorySummaryCards summary={summary} hasPublishedSnapshot={false} />);
+
+    expect(screen.getAllByText('미수집')).toHaveLength(3);
+    expect(screen.queryByText('12개')).not.toBeInTheDocument();
+  });
 });

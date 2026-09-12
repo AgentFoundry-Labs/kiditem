@@ -4,6 +4,7 @@ import type {
   DetailPageSourceReference,
   DetailPageTemplateId,
 } from '../../../service/detail-page-ai.types';
+import type { ProductGenerationChildIdentity } from '../../../service/product-generation-child-identity';
 import type { CreateAiDirectJobInput } from './ai-direct-job.repository.port';
 
 export const DETAIL_PAGE_GENERATION_REPOSITORY_PORT = Symbol(
@@ -59,10 +60,17 @@ export interface DetailPageCancellableGenerationSnapshot {
   generationResult: unknown;
 }
 
+export interface DetailPageDirectGenerationCancellation {
+  status: 'cancelled' | 'already_terminal' | 'not_found';
+  generationId: string;
+  preserved: boolean;
+}
+
 export type DetailPageOpenProcessingGenerationLedgerResult = {
-  status: 'created';
+  status: 'created' | 'existing';
   row: DetailPageGenerationSnapshot;
   directJobId: string;
+  releaseRequired: boolean;
 };
 
 export interface DetailPageGenerationRepositoryPort {
@@ -89,29 +97,14 @@ export interface DetailPageGenerationRepositoryPort {
     imageUrls: string[];
     rawTitle: string;
     sourceReferences: DetailPageSourceReference[];
+    productGenerationIdentity?: ProductGenerationChildIdentity;
     directJob: Omit<CreateAiDirectJobInput, 'organizationId' | 'sourceResourceId'>;
   }): Promise<DetailPageOpenProcessingGenerationLedgerResult>;
-  markGenerationRejectedByParent(input: {
-    organizationId: string;
-    generationId: string;
-    status: 'CANCELLED' | 'FAILED';
-    errorMessage: string;
-  }): Promise<void>;
   markGenerationFailed(input: {
     organizationId: string;
     generationId: string;
     errorMessage: string;
   }): Promise<void>;
-  findGenerationStatus(input: {
-    organizationId: string;
-    generationId: string;
-  }): Promise<{ status: string } | null>;
-  markGenerationCancelledIfProcessing(input: {
-    organizationId: string;
-    generationId: string;
-    processingStatuses: string[];
-    errorMessage: string;
-  }): Promise<number>;
   findRerunBase(input: {
     organizationId: string;
     generationId: string;
@@ -138,11 +131,9 @@ export interface DetailPageGenerationRepositoryPort {
     organizationId: string;
     generationId: string;
   }): Promise<DetailPageCancellableGenerationSnapshot | null>;
-  cancelProcessingGeneration(input: {
+  cancelDirectGeneration(input: {
     organizationId: string;
     generationId: string;
-    processingStatuses: string[];
     reason: string;
-    generationResult: unknown;
-  }): Promise<number>;
+  }): Promise<DetailPageDirectGenerationCancellation>;
 }

@@ -12,7 +12,6 @@ describe('TrendCollectionController', () => {
     const controller = new TrendCollectionController(
       collectService as never,
       {} as never,
-      {} as never,
     );
 
     const result = await controller.get1688Targets('org-1');

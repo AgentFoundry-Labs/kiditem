@@ -8,44 +8,206 @@ import { toast } from 'sonner';
 import { apiClient } from '@/lib/api-client';
 import { startCoupangCatalogBrowser } from '@/lib/coupang-catalog-extension';
 import { sendToExtension } from '@/lib/extension-bridge';
+import { queryKeys } from '@/lib/query-keys';
+import { COUPANG_CATALOG_ATTEMPT_STORAGE_KEY } from '@/app/(product-pipeline)/product-pipeline/registered-products/lib/channel-listings-api';
 import { runWingSalesRankCheck } from '@/app/(advertising)/rank-tracking/lib/rank-extension';
 import {
-  recordMissingBrowserCollection,
-  syncBrowserCollectionAlert,
-} from '@/lib/browser-collection-session';
-import {
-  assertCompatibleCoupangCollectionExtension,
-  COUPANG_COLLECTION_EXTENSION_MIN_VERSION,
-  READINESS_COLLECTION_PRODUCERS,
-  readinessCollectionTimeoutMs,
-  runReadinessExtensionCollection,
-} from './readiness-extension-collection';
+  AD_ACCOUNT_DAILY_KPI_ATTEMPT_STORAGE_KEY,
+  AD_ACCOUNT_DAILY_KPI_EXTENSION_ACTION,
+  AD_ACCOUNT_DAILY_KPI_SOURCE_PATH,
+} from './ad-account-daily-kpi-owner';
 import { useReadinessCollection } from './useReadinessCollection';
 import type { ReadinessCheck } from '@kiditem/shared/readiness';
-import type { BrowserCollectionSessionView } from '@kiditem/shared/browser-collection-session';
+import type { WingRankBatch } from '@kiditem/shared/advertising';
+import type { CoupangCatalogCollectionRun } from '@kiditem/shared/coupang-catalog-snapshot';
 
 const RUN_ID = '11111111-1111-4111-8111-111111111111';
+const WING_BATCH_PATH = '/api/ads/keyword-rank/wing/batch-attempts';
+const CATALOG_ACCOUNT_ID = '00000000-0000-4000-8000-000000000001';
+const CATALOG_ATTEMPT_ID = '00000000-0000-4000-8000-000000000002';
+const CATALOG_CHILD_ATTEMPT_ID = '00000000-0000-4000-8000-000000000005';
+const CATALOG_ATTEMPT_TOKEN = '00000000-0000-4000-8000-000000000003';
+const CATALOG_IDEMPOTENCY_KEY = '00000000-0000-4000-8000-000000000004';
+const CATALOG_DETAILS_IDEMPOTENCY_KEY = '00000000-0000-4000-8000-000000000006';
+const CATALOG_OWNER_PATH =
+  `/api/channels/accounts/${CATALOG_ACCOUNT_ID}/catalog-imports/coupang-wing/attempts/${CATALOG_ATTEMPT_ID}`;
+const CATALOG_CHILD_OWNER_PATH =
+  `/api/channels/accounts/${CATALOG_ACCOUNT_ID}/catalog-imports/coupang-wing/attempts/${CATALOG_CHILD_ATTEMPT_ID}`;
+const CATALOG_BEGIN_PATH =
+  `/api/channels/accounts/${CATALOG_ACCOUNT_ID}/catalog-imports/coupang-wing/attempts`;
+const CATALOG_BASICS_STORAGE_KEY = `${COUPANG_CATALOG_ATTEMPT_STORAGE_KEY}:basics`;
+const AD_ACCOUNT_ID = '00000000-0000-4000-8000-000000000011';
+const AD_ATTEMPT_ID = '00000000-0000-4000-8000-000000000012';
+const AD_SOURCE_RUN_ID = '00000000-0000-4000-8000-000000000013';
+const AD_IDEMPOTENCY_KEY = '00000000-0000-4000-8000-000000000014';
+const AD_PREVIOUS_ATTEMPT_ID = '00000000-0000-4000-8000-000000000015';
+const AD_PREVIOUS_SOURCE_RUN_ID = '00000000-0000-4000-8000-000000000016';
+const AD_ATTEMPT_PATH =
+  `${AD_ACCOUNT_DAILY_KPI_SOURCE_PATH}/attempts/${AD_ATTEMPT_ID}`;
+const AD_SOURCE_STATUS_PATH = `${AD_ACCOUNT_DAILY_KPI_SOURCE_PATH}/source`;
+const AD_BEGIN_PATH = `${AD_ACCOUNT_DAILY_KPI_SOURCE_PATH}/attempts`;
+const catalogPlan = {
+  channelAccountId: CATALOG_ACCOUNT_ID,
+  collectorVersion: 'wing-inventory-v1',
+  vendorId: 'A001',
+  listUrl: 'https://wing.coupang.com/list',
+  detailUrl: 'https://wing.coupang.com/detail',
+  publicationRevision: '0',
+  stage: 'basics' as const,
+  rootAttemptId: CATALOG_ATTEMPT_ID,
+  detailsIdempotencyKey: CATALOG_DETAILS_IDEMPOTENCY_KEY,
+};
+const catalogPermit = {
+  attemptId: CATALOG_ATTEMPT_ID,
+  attemptToken: CATALOG_ATTEMPT_TOKEN,
+  state: 'RUNNING' as const,
+  expiresAt: '2030-01-01T00:00:00.000Z',
+  plan: catalogPlan,
+};
+const catalogOwner: CoupangCatalogCollectionRun = {
+  attemptId: CATALOG_ATTEMPT_ID,
+  channelAccountId: CATALOG_ACCOUNT_ID,
+  idempotencyKey: CATALOG_IDEMPOTENCY_KEY,
+  state: 'RUNNING' as const,
+  expiresAt: catalogPermit.expiresAt,
+  plan: catalogPlan,
+  phase: 'hydration' as const,
+  collectorVersion: catalogPlan.collectorVersion,
+  manifest: null,
+  progress: {
+    discoveryPagesStored: 0,
+    discoveredProducts: 0,
+    hydratedProducts: 0,
+    optionCount: 0,
+    mediaCount: 0,
+    storedChunks: 0,
+    publishedProducts: 0,
+    publishedOptionCount: 0,
+    publishedMediaCount: 0,
+    publishedChunks: 0,
+    firstPublishedAt: null,
+    lastPublishedAt: null,
+  },
+  missing: { discoverySequences: [], productIds: [] },
+  snapshotHash: null,
+  error: null,
+  publication: null,
+  createdAt: '2026-09-06T00:00:00.000Z',
+  updatedAt: '2026-09-06T00:00:00.000Z',
+  finishedAt: null,
+  rootAttemptId: CATALOG_ATTEMPT_ID,
+  currentAttemptId: CATALOG_ATTEMPT_ID,
+  currentStage: 'basics' as const,
+  overallState: 'RUNNING' as const,
+};
+const catalogDetailsOwner: CoupangCatalogCollectionRun = {
+  ...catalogOwner,
+  attemptId: CATALOG_CHILD_ATTEMPT_ID,
+  idempotencyKey: CATALOG_DETAILS_IDEMPOTENCY_KEY,
+  state: 'COMPLETE' as const,
+  plan: {
+    ...catalogPlan,
+    stage: 'details' as const,
+    basicAttemptId: CATALOG_ATTEMPT_ID,
+    basicManifestHash: 'a'.repeat(64),
+    basicPublicationSequence: '1',
+    basicProductIds: [],
+  },
+  phase: 'finished' as const,
+  currentAttemptId: CATALOG_CHILD_ATTEMPT_ID,
+  currentStage: 'details' as const,
+  overallState: 'COMPLETE' as const,
+  finishedAt: '2026-09-06T00:02:00.000Z',
+  publication: {
+    sourceImportRunId: CATALOG_CHILD_ATTEMPT_ID,
+    duplicate: false,
+    changes: {},
+  },
+};
+const adPlan = {
+  sourceType: 'coupang_ads_daily' as const,
+  parserVersion: 'ad-account-daily-kpi-v1',
+  channelAccountId: AD_ACCOUNT_ID,
+  expectedAdvertiserId: 'advertiser-1',
+  coverageRangeStartDate: '2026-07-01',
+  coverageRangeEndDate: '2026-07-14',
+  expectedDates: ['2026-07-14'],
+  businessDates: ['2026-07-14'],
+};
+function adAttempt(
+  state: 'RUNNING' | 'COMPLETE' | 'FAILED' = 'RUNNING',
+  attemptId = AD_ATTEMPT_ID,
+  sourceImportRunId = AD_SOURCE_RUN_ID,
+) {
+  return {
+    attemptId,
+    sourceImportRunId,
+    channelAccountId: AD_ACCOUNT_ID,
+    state,
+    plan: adPlan,
+    expiresAt: '2030-01-01T00:00:00.000Z',
+    actualCutoffAt:
+      state === 'COMPLETE' ? '2026-07-15T00:00:00.000Z' : null,
+    receiptCount: state === 'COMPLETE' ? 1 : 0,
+    rowCount: state === 'COMPLETE' ? 1 : 0,
+    manifestChecksum: state === 'COMPLETE' ? 'a'.repeat(64) : null,
+    errorCode: state === 'FAILED' ? 'EXTENSION_ERROR' : null,
+    errorMessage: state === 'FAILED' ? '광고 페이지를 읽지 못했습니다.' : null,
+  };
+}
+function adSource(
+  latestAttempt: ReturnType<typeof adAttempt> | null,
+  ready: boolean = latestAttempt?.state === 'COMPLETE',
+  latestComplete: ReturnType<typeof adAttempt> | null =
+    latestAttempt?.state === 'COMPLETE' ? latestAttempt : null,
+) {
+  return {
+    channelAccountId: AD_ACCOUNT_ID,
+    ready,
+    refreshing: latestAttempt?.state === 'RUNNING',
+    latestAttempt,
+    latestComplete,
+    actualCutoffAt: latestComplete?.actualCutoffAt ?? null,
+  };
+}
+function wingBatch(state: 'RUNNING' | 'COMPLETE' = 'RUNNING'): WingRankBatch {
+  return {
+    attempts: [{ attemptId: RUN_ID, keyword: '연필', generation: '1', state,
+      expiresAt: '2026-09-10T00:00:00.000Z', actualCutoffAt: state === 'COMPLETE' ? '2026-09-06T00:00:00.000Z' : null,
+      itemCount: 0, errorCode: null, errorMessage: null,
+      plan: { sourceType: 'coupang_wing_rank', parserVersion: 'wing-rank-v1', keyword: '연필', maxPages: 5,
+        targets: [{ vendorItemId: 'V1', productName: '연필', category: null, keyword: '연필', candidateIndex: 0 }] } }],
+    selection: { productCount: 1, candidateCount: 1, keywordCount: 1, targetKeywordCount: 1,
+      resumed: false, pendingProductCount: 1, targets: [{ keyword: '연필', vendorItemIds: ['V1'], productCount: 1,
+        primaryProductCount: 1, pendingProductCount: 1, pendingPrimaryProductCount: 1, phase: 'primary', maxPages: 5 }] },
+  };
+}
 const COMPATIBLE_PING = {
   success: true,
   version: '1.2.102',
-  capabilities: { browserCollectionSessions: true },
+  capabilities: {
+    browserCollectionSessions: true,
+    advertisingAccountDailyKpiSourceOwnerV1: true,
+  },
 };
+
+let currentAdAttempt = adAttempt();
+let currentAdSource = adSource(null);
 
 const mocks = vi.hoisted(() => ({
   detectExtensionId: vi.fn(),
+  sendToExtension: vi.fn(),
   collectSellpiaSaleSummaryFromExtension: vi.fn(),
-  ingestSellpiaSales: vi.fn(),
   detectRankExtensionGate: vi.fn(),
-  issueRunId: vi.fn(),
   runWingSalesRankCheck: vi.fn(),
   startCoupangCatalogBrowser: vi.fn(),
+  getCoupangCatalogBrowserStatus: vi.fn(),
   transferExtensionAuthTo: vi.fn(),
-  wingSession: null as BrowserCollectionSessionView | null,
 }));
 
 vi.mock('@/lib/extension-bridge', () => ({
   detectExtensionId: mocks.detectExtensionId,
-  sendToExtension: vi.fn(),
+  sendToExtension: mocks.sendToExtension,
 }));
 
 vi.mock('@/hooks/useAuth', () => ({
@@ -54,10 +216,6 @@ vi.mock('@/hooks/useAuth', () => ({
 
 vi.mock('@/lib/extension-auth', () => ({
   transferExtensionAuthTo: mocks.transferExtensionAuthTo,
-}));
-
-vi.mock('@/hooks/useBrowserCollectionSession', () => ({
-  useBrowserCollectionSession: () => ({ data: mocks.wingSession }),
 }));
 
 vi.mock('@/app/(advertising)/rank-tracking/lib/rank-extension', () => ({
@@ -69,21 +227,13 @@ vi.mock('@/app/(advertising)/rank-tracking/lib/rank-extension', () => ({
   runWingSalesRankCheck: mocks.runWingSalesRankCheck,
 }));
 
-vi.mock('@/lib/browser-collection-session', async (importOriginal) => ({
-  ...(await importOriginal<
-    typeof import('@/lib/browser-collection-session')
-  >()),
-  recordMissingBrowserCollection: vi.fn(),
-  issueBrowserCollectionRunId: mocks.issueRunId,
-  syncBrowserCollectionAlert: vi.fn(),
-}));
-
 vi.mock('@/lib/api-client', () => ({
   apiClient: { get: vi.fn(), post: vi.fn() },
 }));
 
 vi.mock('@/lib/coupang-catalog-extension', () => ({
   startCoupangCatalogBrowser: mocks.startCoupangCatalogBrowser,
+  getCoupangCatalogBrowserStatus: mocks.getCoupangCatalogBrowserStatus,
 }));
 
 vi.mock('@/lib/sellpia-sales-collection', () => ({
@@ -92,7 +242,6 @@ vi.mock('@/lib/sellpia-sales-collection', () => ({
 
 vi.mock('@/lib/sellpia-sales-api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/sellpia-sales-api')>()),
-  ingestSellpiaSales: mocks.ingestSellpiaSales,
 }));
 
 vi.mock('sonner', () => ({
@@ -121,32 +270,6 @@ function check(key: string): ReadinessCheck {
   };
 }
 
-function session(
-  producer: BrowserCollectionSessionView['producer'],
-  runId = RUN_ID,
-): BrowserCollectionSessionView {
-  return {
-    runId,
-    producer,
-    classification: 'background_preferred',
-    status: 'succeeded',
-    attempt: 1,
-    restartStrategy: 'web',
-    progress: {
-      current: 1,
-      total: 1,
-      completed: 1,
-      failed: 0,
-      label: 'done',
-    },
-    inputIdentity: { trigger: 'readiness' },
-    attention: null,
-    startedAt: 1_700_000_000_000,
-    updatedAt: 1_700_000_001_000,
-    finishedAt: 1_700_000_001_000,
-  };
-}
-
 function wrapper(
   queryClient = new QueryClient({
     defaultOptions: {
@@ -162,7 +285,8 @@ function wrapper(
 describe('readiness extension collection', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.issueRunId.mockResolvedValue(RUN_ID);
+    window.history.replaceState({}, '', '/');
+    localStorage.clear();
     mocks.detectExtensionId.mockResolvedValue('coupang-extension');
     mocks.detectRankExtensionGate.mockResolvedValue({
       status: 'ready',
@@ -170,72 +294,74 @@ describe('readiness extension collection', () => {
       version: '1.2.42',
     });
     vi.mocked(sendToExtension).mockResolvedValue(COMPATIBLE_PING);
+    currentAdAttempt = adAttempt();
+    currentAdSource = adSource(null);
     mocks.collectSellpiaSaleSummaryFromExtension.mockResolvedValue({
-      range: { from: '2026-07-14', to: '2026-07-14' },
-      sellers: [],
-      provenance: {
-        source: 'sellpia_sale_summary',
-        mode: 'selldate',
-        sellerScope: 'all',
-        responseShape: 'empty_object',
-        explicitEmpty: true,
-      },
-      capturedAt: '2026-07-14T01:00:00.000Z',
-    });
-    mocks.ingestSellpiaSales.mockResolvedValue({
-      upserted: 0,
+      success: true,
+      terminalState: 'COMPLETE',
       businessDates: ['2026-07-14'],
       sellerCount: 0,
     });
     mocks.runWingSalesRankCheck.mockResolvedValue({
       success: true,
       started: true,
-      runId: RUN_ID,
-      productTotal: 244,
     });
-    vi.mocked(apiClient.get).mockResolvedValue([
-      {
-        id: '00000000-0000-4000-8000-000000000001',
-        channel: 'coupang',
-        isPrimary: true,
-      },
-    ]);
-    vi.mocked(apiClient.post).mockResolvedValue({ id: RUN_ID });
+    vi.mocked(apiClient.get).mockImplementation(async (path) => {
+      if (path === WING_BATCH_PATH) return wingBatch();
+      if (path === CATALOG_OWNER_PATH) return catalogOwner;
+      if (path === CATALOG_CHILD_OWNER_PATH) return catalogDetailsOwner;
+      if (path === AD_SOURCE_STATUS_PATH) return currentAdSource;
+      if (path === AD_ATTEMPT_PATH) return currentAdAttempt;
+      return [
+        {
+          id: CATALOG_ACCOUNT_ID,
+          channel: 'coupang',
+          isPrimary: true,
+        },
+      ];
+    });
+    vi.mocked(apiClient.post).mockImplementation(async (path) => {
+      if (path === WING_BATCH_PATH) return wingBatch();
+      if (path === CATALOG_BEGIN_PATH) return catalogPermit;
+      if (path === AD_BEGIN_PATH) {
+        currentAdAttempt = adAttempt();
+        currentAdSource = adSource(currentAdAttempt);
+        return currentAdAttempt;
+      }
+      return { id: RUN_ID };
+    });
     mocks.startCoupangCatalogBrowser.mockResolvedValue('coupang-extension');
+    mocks.sendToExtension.mockResolvedValue({
+      success: true,
+      cancelled: true,
+      capabilities: { advertisingAccountDailyKpiSourceOwnerV1: true },
+    });
+    mocks.getCoupangCatalogBrowserStatus.mockResolvedValue({
+      attemptId: CATALOG_ATTEMPT_ID,
+      active: true,
+      attention: null,
+      phase: 'hydration',
+      currentPage: 2,
+      totalPages: 4,
+      hydratedProducts: 10,
+      discoveredProducts: 20,
+      uploadedChunks: 1,
+      rootAttemptId: CATALOG_ATTEMPT_ID,
+      currentAttemptId: CATALOG_ATTEMPT_ID,
+      currentStage: 'basics',
+      overallState: 'RUNNING',
+    });
     mocks.transferExtensionAuthTo.mockResolvedValue(undefined);
-    mocks.wingSession = null;
-    vi.mocked(syncBrowserCollectionAlert).mockResolvedValue(undefined);
-    vi.mocked(recordMissingBrowserCollection).mockResolvedValue({ runId: RUN_ID });
   });
 
   afterEach(() => {
     vi.unstubAllEnvs();
   });
 
-  it('keeps the web poller alive beyond the 30-minute extension watchdog', () => {
-    expect(readinessCollectionTimeoutMs('advertising.ad_sync', 1)).toBe(
-      35 * 60_000,
-    );
-    expect(readinessCollectionTimeoutMs('dashboard.coupang_ads', 1)).toBe(
-      5 * 60_000,
-    );
-  });
-
   it('collects only the missing Sellpia span through today and refreshes dashboard readiness', async () => {
     mocks.collectSellpiaSaleSummaryFromExtension.mockResolvedValueOnce({
-      range: { from: '2026-07-12', to: '2026-07-15' },
-      sellers: [],
-      provenance: {
-        source: 'sellpia_sale_summary',
-        mode: 'selldate',
-        sellerScope: 'all',
-        responseShape: 'empty_object',
-        explicitEmpty: true,
-      },
-      capturedAt: '2026-07-15T01:00:00.000Z',
-    });
-    mocks.ingestSellpiaSales.mockResolvedValueOnce({
-      upserted: 0,
+      success: true,
+      terminalState: 'COMPLETE',
       businessDates: ['2026-07-12', '2026-07-13', '2026-07-14', '2026-07-15'],
       sellerCount: 0,
     });
@@ -259,11 +385,7 @@ describe('readiness extension collection', () => {
     expect(mocks.collectSellpiaSaleSummaryFromExtension).toHaveBeenCalledWith({
       startDate: '2026-07-12',
       endDate: '2026-07-15',
-      organizationId: 'org-1',
     });
-    expect(mocks.ingestSellpiaSales).toHaveBeenCalledWith(
-      expect.objectContaining({ range: { from: '2026-07-12', to: '2026-07-15' } }),
-    );
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['dashboard'] });
     expect(refetchReadiness).toHaveBeenCalledTimes(1);
     expect(result.current.pendingKey).toBeNull();
@@ -287,12 +409,11 @@ describe('readiness extension collection', () => {
     expect(mocks.collectSellpiaSaleSummaryFromExtension).toHaveBeenCalledWith({
       startDate: '2026-07-01',
       endDate: '2026-07-01',
-      organizationId: 'org-1',
     });
   });
 
   it('hides the raw Prisma timeout message and always clears pending state', async () => {
-    mocks.ingestSellpiaSales.mockRejectedValueOnce(
+    mocks.collectSellpiaSaleSummaryFromExtension.mockRejectedValueOnce(
       new Error('P2028: A rollback cannot be executed on an expired transaction'),
     );
     const { result } = renderHook(
@@ -310,58 +431,6 @@ describe('readiness extension collection', () => {
     expect(result.current.pendingKey).toBeNull();
   });
 
-  it('rejects an extension installed before the three extensions merged', async () => {
-    // The merged extension restarted at 1.0.0, so a pre-merge install reads as
-    // a lower version even though its number looks bigger under the old
-    // per-extension lines.
-    vi.mocked(sendToExtension).mockResolvedValueOnce({
-      success: false,
-      error: 'old worker reached scrapeTargets',
-      version: '0.9.9',
-      capabilities: { browserCollectionSessions: true },
-    });
-
-    await expect(
-      runReadinessExtensionCollection({
-        check: check('wing_sales'),
-        producer: 'dashboard.wing_sales',
-        extensionId: 'coupang-extension',
-        runId: RUN_ID,
-      }),
-    ).rejects.toThrow(/새로고침/);
-    expect(COUPANG_COLLECTION_EXTENSION_MIN_VERSION).toBe('1.0.0');
-    expect(sendToExtension).toHaveBeenCalledTimes(1);
-  });
-
-  it('accepts the merged extension and gates features on capabilities instead', async () => {
-    // Regression: every gate still held its pre-merge floor (1.2.x / 2.x), so a
-    // correctly installed 1.0.x extension was reported as outdated and every
-    // collection button refused to run.
-    vi.mocked(sendToExtension).mockResolvedValueOnce({
-      success: true,
-      version: '1.0.2',
-      capabilities: { browserCollectionSessions: false },
-    });
-
-    await expect(
-      runReadinessExtensionCollection({
-        check: check('wing_sales'),
-        producer: 'dashboard.wing_sales',
-        extensionId: 'coupang-extension',
-        runId: RUN_ID,
-      }),
-    ).rejects.toThrow(/새로고침/);
-
-    vi.mocked(sendToExtension).mockResolvedValue({
-      success: true,
-      version: '1.0.2',
-      capabilities: { browserCollectionSessions: true },
-    });
-    await expect(
-      assertCompatibleCoupangCollectionExtension('coupang-extension'),
-    ).resolves.toBeUndefined();
-  });
-
   it('rejects the stale Wing rank worker before starting its batch', async () => {
     mocks.detectRankExtensionGate.mockResolvedValueOnce({
       status: 'outdated',
@@ -374,7 +443,7 @@ describe('readiness extension collection', () => {
     );
 
     await act(async () => {
-      await result.current.handleCollect(check('wing_kpi'), RUN_ID);
+      await result.current.handleCollect(check('wing_kpi'));
     });
 
     expect(runWingSalesRankCheck).not.toHaveBeenCalled();
@@ -383,235 +452,45 @@ describe('readiness extension collection', () => {
     );
   });
 
-  it('starts a run and reads its generic collection session by run ID', async () => {
-    const completed = {
-      ...session('dashboard.wing_sales'),
-      environmentId: 'office' as const,
-    };
-    const onStarted = vi.fn();
-    const onSession = vi.fn();
-    vi.mocked(sendToExtension)
-      .mockResolvedValueOnce(COMPATIBLE_PING)
-      .mockResolvedValueOnce({ success: true, started: true, runId: RUN_ID })
-      .mockResolvedValueOnce(completed);
-
-    await expect(
-      runReadinessExtensionCollection({
-        check: check('wing_sales'),
-        producer: 'dashboard.wing_sales',
-        extensionId: 'coupang-extension',
-        runId: RUN_ID,
-        onStarted,
-        onSession,
-      }),
-    ).resolves.toEqual(completed);
-
-    expect(mocks.transferExtensionAuthTo).toHaveBeenCalledWith('coupang-extension');
-    expect(sendToExtension).toHaveBeenNthCalledWith(
-      2,
-      'coupang-extension',
-      expect.objectContaining({
-        action: 'scrapeTargets',
-        producer: 'dashboard.wing_sales',
-        runId: RUN_ID,
-      }),
-    );
-    expect(sendToExtension).toHaveBeenNthCalledWith(3, 'coupang-extension', {
-      action: 'getCollectionSession',
-      runId: RUN_ID,
-    }, 2_000);
-    expect(syncBrowserCollectionAlert).toHaveBeenCalledWith(completed);
-    expect(onStarted).toHaveBeenCalledTimes(1);
-    expect(onSession).toHaveBeenCalledWith(completed);
-  });
-
-  it('keeps live readiness polling after an accepted run has delayed session discovery', async () => {
-    vi.useFakeTimers();
-    try {
-      const completed = {
-        ...session('dashboard.coupang_ads'),
-        environmentId: 'office' as const,
-      };
-      const onPoll = vi.fn().mockResolvedValue(undefined);
-      const extension = vi.mocked(sendToExtension)
-        .mockResolvedValueOnce(COMPATIBLE_PING)
-        .mockResolvedValueOnce({ success: true, started: true, runId: RUN_ID });
-      for (let attempt = 0; attempt < 9; attempt += 1) {
-        extension.mockResolvedValueOnce(null);
-      }
-      extension.mockResolvedValueOnce(completed);
-
-      const collection = runReadinessExtensionCollection({
-        check: check('coupang_ads'),
-        producer: 'dashboard.coupang_ads',
-        extensionId: 'coupang-extension',
-        runId: RUN_ID,
-        onPoll,
-      });
-
-      await vi.advanceTimersByTimeAsync(18_000);
-      await expect(collection).resolves.toEqual(completed);
-      expect(onPoll).toHaveBeenCalledTimes(10);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it('does not announce a start before the extension compatibility gate passes', async () => {
-    const onStarted = vi.fn();
-    vi.mocked(sendToExtension).mockResolvedValueOnce({
-      success: false,
-      version: '1.2.71',
-      capabilities: { browserCollectionSessions: true },
-    });
-
-    await expect(
-      runReadinessExtensionCollection({
-        check: check('coupang_ads'),
-        producer: 'advertising.ad_sync',
-        extensionId: 'coupang-extension',
-        runId: RUN_ID,
-        onStarted,
-      }),
-    ).rejects.toThrow(/1\.2\.72|새로고침/);
-
-    expect(onStarted).not.toHaveBeenCalled();
-    expect(sendToExtension).toHaveBeenCalledTimes(1);
-  });
-
-  it('uses the explicit extension handoff before starting collection', async () => {
-    const completed = session('dashboard.coupang_ads');
-    vi.mocked(sendToExtension)
-      .mockResolvedValueOnce(COMPATIBLE_PING)
-      .mockResolvedValueOnce({ success: true, started: true, runId: RUN_ID })
-      .mockResolvedValueOnce(completed);
-
-    await expect(
-      runReadinessExtensionCollection({
-        check: check('coupang_ads'),
-        producer: 'dashboard.coupang_ads',
-        extensionId: 'coupang-extension',
-        runId: RUN_ID,
-      }),
-    ).resolves.toEqual(completed);
-
-    expect(mocks.transferExtensionAuthTo).toHaveBeenCalledWith('coupang-extension');
-    expect(sendToExtension).toHaveBeenNthCalledWith(
-      2,
-      'coupang-extension',
-      expect.objectContaining({
-        action: 'scrapeTargets',
-        producer: 'dashboard.coupang_ads',
-      }),
-    );
-  });
-
-  it('does not open a collection window when extension auth synchronization fails', async () => {
-    vi.mocked(sendToExtension).mockResolvedValueOnce(COMPATIBLE_PING);
-    mocks.transferExtensionAuthTo.mockRejectedValueOnce(new Error('auth rejected'));
-
-    await expect(
-      runReadinessExtensionCollection({
-        check: check('coupang_ads'),
-        producer: 'dashboard.coupang_ads',
-        extensionId: 'coupang-extension',
-        runId: RUN_ID,
-      }),
-    ).rejects.toThrow('auth rejected');
-
-    expect(sendToExtension).toHaveBeenCalledTimes(1);
-    expect(sendToExtension).not.toHaveBeenCalledWith(
-      'coupang-extension',
-      expect.objectContaining({ action: 'scrapeTargets' }),
-    );
-  });
-
-  it('returns the collection result when alert synchronization is unavailable', async () => {
-    const completed = session('dashboard.wing_sales');
-    vi.mocked(sendToExtension)
-      .mockResolvedValueOnce(COMPATIBLE_PING)
-      .mockResolvedValueOnce({ success: true, started: true, runId: RUN_ID })
-      .mockResolvedValueOnce(completed);
-    vi.mocked(syncBrowserCollectionAlert).mockRejectedValueOnce(
-      new Error('alert API unavailable'),
-    );
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-
-    await expect(
-      runReadinessExtensionCollection({
-        check: check('wing_sales'),
-        producer: 'dashboard.wing_sales',
-        extensionId: 'coupang-extension',
-        runId: RUN_ID,
-      }),
-    ).resolves.toEqual(completed);
-    warn.mockRestore();
-  });
-
   it('routes each readiness key to its owned collection flow', async () => {
-    const producerByRun = new Map<string, BrowserCollectionSessionView['producer']>();
-    vi.mocked(sendToExtension).mockImplementation(async (_extensionId, message) => {
-      const command = message as {
-        action?: string;
-        producer?: BrowserCollectionSessionView['producer'];
-        runId?: string;
-      };
-      if (command.action === 'ping') return COMPATIBLE_PING;
-      if (command.action === 'scrapeTargets') {
-        producerByRun.set(command.runId!, command.producer!);
-        return { success: true, started: true, runId: command.runId };
-      }
-      return session(producerByRun.get(command.runId!)!, command.runId);
-    });
-    let sequence = 0;
-    vi.spyOn(globalThis.crypto, 'randomUUID').mockImplementation(() => {
-      sequence += 1;
-      return `11111111-1111-4111-8111-${String(sequence).padStart(12, '0')}`;
-    });
     const refetchReadiness = vi.fn().mockResolvedValue(undefined);
     const { result } = renderHook(
-      () => useReadinessCollection({ refetchReadiness }),
+      () => useReadinessCollection({ refetchReadiness, catalogEnabled: true }),
       { wrapper: wrapper() },
     );
 
-    // wing_sales는 셀피아 수집, wing_kpi는 전용 Wing 판매순위 배치로 실행한다.
-    for (const key of Object.keys(READINESS_COLLECTION_PRODUCERS).filter(
-      (k) => k !== 'wing_sales',
-    )) {
-      await act(async () => {
-        await result.current.handleCollect(check(key));
-      });
-    }
-
-    const producers = vi
-      .mocked(sendToExtension)
-      .mock.calls.filter(
-        ([, message]) =>
-          (message as { action?: string }).action === 'scrapeTargets',
-      )
-      .map(
-        ([, message]) =>
-          (message as { producer?: string }).producer,
-    );
-    expect(producers).toEqual(['dashboard.coupang_ads']);
-    expect(startCoupangCatalogBrowser).toHaveBeenCalledWith({
-      channelAccountId: '00000000-0000-4000-8000-000000000001',
-      runId: RUN_ID,
+    await act(async () => {
+      await result.current.handleCollect(check('wing_sales'));
+      await result.current.handleCollect(check('coupang_ads'));
+      await result.current.handleCollect(check('coupang_products'));
+      await result.current.handleCollect(check('wing_kpi'));
     });
-    expect(READINESS_COLLECTION_PRODUCERS.coupang_products).toBe(
-      'channels.coupang_catalog',
+
+    // Readiness keys use their concrete owner, never the retired generic
+    // scrapeTargets/runId session transport.
+    expect(mocks.collectSellpiaSaleSummaryFromExtension).toHaveBeenCalled();
+    expect(sendToExtension).toHaveBeenCalledWith(
+      'coupang-extension',
+      { action: AD_ACCOUNT_DAILY_KPI_EXTENSION_ACTION, attemptId: AD_ATTEMPT_ID },
+      35 * 60_000,
     );
+    expect(startCoupangCatalogBrowser).toHaveBeenCalledWith({ permit: catalogPermit });
     expect(runWingSalesRankCheck).toHaveBeenCalledWith(
       'coupang-extension',
       expect.stringMatching(/^[0-9a-f-]{36}$/i),
+    );
+    expect(sendToExtension).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ action: 'scrapeTargets' }),
     );
   });
 
   it('keeps product collection pending until the full catalog session settles', async () => {
     const refetchReadiness = vi.fn().mockResolvedValue(undefined);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const view = renderHook(
-      () => useReadinessCollection({ refetchReadiness }),
-      { wrapper: wrapper() },
+      () => useReadinessCollection({ refetchReadiness, catalogEnabled: true }),
+      { wrapper: wrapper(client) },
     );
 
     await act(async () => {
@@ -620,23 +499,564 @@ describe('readiness extension collection', () => {
 
     expect(apiClient.get).toHaveBeenCalledWith('/api/channels/accounts');
     expect(apiClient.post).toHaveBeenCalledWith(
-      '/api/channels/accounts/00000000-0000-4000-8000-000000000001/catalog-imports/coupang-wing/runs',
-      expect.objectContaining({
-        clientRunKey: expect.stringMatching(/^[0-9a-f-]{36}$/i),
-        collectorVersion: expect.any(String),
-      }),
+      CATALOG_BEGIN_PATH,
+      { collectorVersion: 'wing-inventory-v1', stage: 'basics' },
+      { headers: { 'Idempotency-Key': expect.stringMatching(/^[0-9a-f-]{36}$/i) } },
     );
+    expect(apiClient.post).not.toHaveBeenCalledWith(
+      expect.stringContaining('/catalog-imports/coupang-wing/runs'),
+      expect.anything(),
+    );
+    expect(startCoupangCatalogBrowser).toHaveBeenCalledWith({ permit: catalogPermit });
     expect(view.result.current.pendingKey).toBe('coupang_products');
+    await waitFor(() => expect(view.result.current.catalog.owner?.phase).toBe('hydration'));
+    await waitFor(() => expect(view.result.current.catalog.browser).toMatchObject({
+      phase: 'hydration',
+      hydratedProducts: 10,
+      discoveredProducts: 20,
+    }));
 
-    mocks.wingSession = session('channels.coupang_catalog');
-    view.rerender();
+    let childSettled = false;
+    vi.mocked(apiClient.get).mockImplementation(async (path) => {
+      if (path === CATALOG_OWNER_PATH) {
+        return {
+          ...catalogOwner,
+          state: 'COMPLETE' as const,
+          phase: 'finished' as const,
+          updatedAt: '2026-09-06T00:01:00.000Z',
+          finishedAt: '2026-09-06T00:01:00.000Z',
+          rootAttemptId: CATALOG_ATTEMPT_ID,
+          currentAttemptId: CATALOG_CHILD_ATTEMPT_ID,
+          currentStage: 'details' as const,
+          overallState: childSettled ? 'COMPLETE' as const : 'RUNNING' as const,
+        };
+      }
+      if (path === CATALOG_CHILD_OWNER_PATH) {
+        return childSettled
+          ? catalogDetailsOwner
+          : {
+              ...catalogDetailsOwner,
+              state: 'RUNNING' as const,
+              phase: 'hydration' as const,
+              overallState: 'RUNNING' as const,
+              finishedAt: null,
+              publication: null,
+            };
+      }
+      return [
+        { id: CATALOG_ACCOUNT_ID, channel: 'coupang', isPrimary: true },
+      ];
+    });
+    await act(async () => {
+      await client.invalidateQueries({
+        queryKey: queryKeys.coupangCatalogImports.run(
+          CATALOG_ACCOUNT_ID,
+          CATALOG_ATTEMPT_ID,
+        ),
+      });
+    });
+    await waitFor(() => expect(view.result.current.catalog.chainOverallState).toBe('RUNNING'));
+    expect(view.result.current.pendingKey).toBe('coupang_products');
+    expect(refetchReadiness).not.toHaveBeenCalled();
+
+    // Basics is a saved partial publication, not whole-flow completion. The
+    // server root receipt links the internal details child, while extension
+    // status remains only a browser progress/attention hint.
+    mocks.getCoupangCatalogBrowserStatus.mockResolvedValue({
+      attemptId: CATALOG_ATTEMPT_ID,
+      active: true,
+      attention: null,
+      phase: 'hydration',
+      currentAttemptId: CATALOG_CHILD_ATTEMPT_ID,
+      currentStage: 'details',
+      overallState: 'RUNNING',
+      rootAttemptId: CATALOG_ATTEMPT_ID,
+    });
+    await act(async () => {
+      await client.invalidateQueries({
+        queryKey: queryKeys.coupangCatalogImports.extension(CATALOG_ATTEMPT_ID),
+      });
+    });
+    mocks.getCoupangCatalogBrowserStatus.mockResolvedValue({
+      attemptId: CATALOG_ATTEMPT_ID,
+      active: false,
+      attention: null,
+      phase: 'finished',
+      currentAttemptId: CATALOG_CHILD_ATTEMPT_ID,
+      currentStage: 'details',
+      overallState: 'COMPLETE',
+      rootAttemptId: CATALOG_ATTEMPT_ID,
+    });
+    await act(async () => {
+      await client.invalidateQueries({
+        queryKey: queryKeys.coupangCatalogImports.extension(CATALOG_ATTEMPT_ID),
+      });
+    });
+
+    childSettled = true;
+    await act(async () => {
+      await client.invalidateQueries({
+        queryKey: queryKeys.coupangCatalogImports.run(CATALOG_ACCOUNT_ID, CATALOG_ATTEMPT_ID),
+      });
+      await client.invalidateQueries({
+        queryKey: queryKeys.coupangCatalogImports.run(CATALOG_ACCOUNT_ID, CATALOG_CHILD_ATTEMPT_ID),
+      });
+    });
 
     await waitFor(() => expect(view.result.current.pendingKey).toBeNull());
+    expect(view.result.current.catalog.owner?.currentStage).toBe('details');
     expect(refetchReadiness).toHaveBeenCalledTimes(1);
-    expect(toast.success).toHaveBeenCalledWith('1/1개 수집 완료');
+    expect(toast.success).toHaveBeenCalledWith('쿠팡 전체 상품 수집 완료');
   });
 
-  it('records personal attention when detection fails and never opens a tab', async () => {
+  it('does not treat a saved basics owner as whole-catalog completion', async () => {
+    const basicsOnlyOwner: CoupangCatalogCollectionRun = {
+      ...catalogOwner,
+      state: 'COMPLETE',
+      phase: 'finished',
+      plan: { ...catalogPlan, detailsIdempotencyKey: undefined },
+      currentAttemptId: CATALOG_ATTEMPT_ID,
+      currentStage: 'basics',
+      overallState: 'COMPLETE',
+      finishedAt: '2026-09-06T00:01:00.000Z',
+    };
+    localStorage.setItem(CATALOG_BASICS_STORAGE_KEY, JSON.stringify({
+      channelAccountId: CATALOG_ACCOUNT_ID,
+      attemptId: CATALOG_ATTEMPT_ID,
+      idempotencyKey: CATALOG_IDEMPOTENCY_KEY,
+      stage: 'basics',
+    }));
+    vi.mocked(apiClient.get).mockImplementation(async (path) => {
+      if (path === CATALOG_OWNER_PATH) return basicsOnlyOwner;
+      return [{ id: CATALOG_ACCOUNT_ID, channel: 'coupang', isPrimary: true }];
+    });
+
+    const view = renderHook(
+      () => useReadinessCollection({ refetchReadiness: vi.fn(), catalogEnabled: true }),
+      { wrapper: wrapper() },
+    );
+
+    await waitFor(() => expect(view.result.current.catalog.owner?.state).toBe('COMPLETE'));
+    expect(view.result.current.catalog.chainOverallState).toBeNull();
+    expect(view.result.current.catalog.owner?.plan.stage).toBe('basics');
+  });
+
+  it('starts the single 상품 받기 flow for the selected Coupang account', async () => {
+    const secondaryAccountId = '00000000-0000-4000-8000-000000000021';
+    const secondaryPermit = {
+      ...catalogPermit,
+      plan: { ...catalogPlan, channelAccountId: secondaryAccountId },
+    };
+    vi.mocked(apiClient.get).mockImplementation(async (path) => {
+      if (path === '/api/channels/accounts') {
+        return [
+          { id: CATALOG_ACCOUNT_ID, channel: 'coupang', isPrimary: true },
+          { id: secondaryAccountId, channel: 'coupang', name: '보조 계정' },
+        ];
+      }
+      return [
+        { id: CATALOG_ACCOUNT_ID, channel: 'coupang', isPrimary: true },
+      ];
+    });
+    vi.mocked(apiClient.post).mockImplementation(async (path) => {
+      if (path.endsWith('/catalog-imports/coupang-wing/attempts')) return secondaryPermit;
+      return { id: RUN_ID };
+    });
+    const view = renderHook(
+      () => useReadinessCollection({ refetchReadiness: vi.fn(), catalogEnabled: true }),
+      { wrapper: wrapper() },
+    );
+
+    await waitFor(() => expect(view.result.current.catalog.accounts).toHaveLength(2));
+    act(() => view.result.current.catalog.setAccountId(secondaryAccountId));
+    await act(async () => {
+      await view.result.current.handleCollect(check('coupang_products'));
+    });
+
+    expect(apiClient.post).toHaveBeenCalledWith(
+      `${CATALOG_BEGIN_PATH.replace(CATALOG_ACCOUNT_ID, secondaryAccountId)}`,
+      { collectorVersion: 'wing-inventory-v1', stage: 'basics' },
+      { headers: { 'Idempotency-Key': expect.stringMatching(/^[0-9a-f-]{36}$/i) } },
+    );
+    expect(startCoupangCatalogBrowser).toHaveBeenCalledWith({ permit: secondaryPermit });
+  });
+
+  it('resumes the exact details child when the basics root is COMPLETE but the whole flow is RUNNING', async () => {
+    const detailsPlan = {
+      ...catalogPlan,
+      stage: 'details' as const,
+      basicAttemptId: CATALOG_ATTEMPT_ID,
+      basicManifestHash: 'a'.repeat(64),
+      basicPublicationSequence: '1',
+      basicProductIds: [],
+    };
+    const detailsPermit = {
+      ...catalogPermit,
+      attemptId: CATALOG_CHILD_ATTEMPT_ID,
+      attemptToken: '00000000-0000-4000-8000-000000000007',
+      plan: detailsPlan,
+    };
+    const rootOwner: CoupangCatalogCollectionRun = {
+      ...catalogOwner,
+      state: 'COMPLETE',
+      phase: 'finished',
+      currentAttemptId: CATALOG_CHILD_ATTEMPT_ID,
+      currentStage: 'details',
+      overallState: 'RUNNING',
+      finishedAt: '2026-09-06T00:01:00.000Z',
+    };
+    const childOwner: CoupangCatalogCollectionRun = {
+      ...catalogDetailsOwner,
+      state: 'RUNNING',
+      plan: detailsPlan,
+      phase: 'hydration',
+      error: {
+        code: 'WING_PROVIDER_RATE_LIMITED',
+        message: '잠시 후 다시 시도해주세요.',
+        phase: 'hydration',
+        recoverable: true,
+        notBefore: null,
+      },
+      overallState: 'RUNNING',
+      finishedAt: null,
+      publication: null,
+    };
+    localStorage.setItem(CATALOG_BASICS_STORAGE_KEY, JSON.stringify({
+      channelAccountId: CATALOG_ACCOUNT_ID,
+      attemptId: CATALOG_ATTEMPT_ID,
+      idempotencyKey: CATALOG_IDEMPOTENCY_KEY,
+      stage: 'basics',
+    }));
+    vi.mocked(apiClient.get).mockImplementation(async (path) => {
+      if (path === CATALOG_OWNER_PATH) return rootOwner;
+      if (path === CATALOG_CHILD_OWNER_PATH) return childOwner;
+      return [{ id: CATALOG_ACCOUNT_ID, channel: 'coupang', isPrimary: true }];
+    });
+    vi.mocked(apiClient.post).mockImplementation(async (path) => {
+      if (path === CATALOG_BEGIN_PATH) return detailsPermit;
+      return { id: RUN_ID };
+    });
+    mocks.getCoupangCatalogBrowserStatus.mockResolvedValue({
+      attemptId: CATALOG_ATTEMPT_ID,
+      active: false,
+      attention: null,
+      phase: 'hydration',
+      rootAttemptId: CATALOG_ATTEMPT_ID,
+      currentAttemptId: CATALOG_CHILD_ATTEMPT_ID,
+      currentStage: 'details',
+      overallState: 'RUNNING',
+    });
+    const view = renderHook(
+      () => useReadinessCollection({ refetchReadiness: vi.fn(), catalogEnabled: true }),
+      { wrapper: wrapper() },
+    );
+
+    await waitFor(() => expect(view.result.current.catalog.owner?.currentStage).toBe('details'));
+    await act(async () => {
+      await view.result.current.handleCollect(check('coupang_products'));
+    });
+
+    expect(apiClient.post).toHaveBeenCalledWith(
+      CATALOG_BEGIN_PATH,
+      {
+        collectorVersion: 'wing-inventory-v1',
+        stage: 'details',
+        expectedBasicAttemptId: CATALOG_ATTEMPT_ID,
+      },
+      { headers: { 'Idempotency-Key': CATALOG_DETAILS_IDEMPOTENCY_KEY } },
+    );
+    expect(startCoupangCatalogBrowser).toHaveBeenCalledWith({ permit: detailsPermit });
+  });
+
+  it('surfaces a Wing login attention state and opens its confirmation tab', async () => {
+    mocks.getCoupangCatalogBrowserStatus.mockResolvedValue({
+      attemptId: CATALOG_ATTEMPT_ID,
+      active: true,
+      attention: {
+        reason: 'marketplace_login',
+        message: '쿠팡 Wing 로그인이 필요합니다.',
+        canOpenTab: true,
+      },
+      phase: 'discovery',
+    });
+    const view = renderHook(
+      () => useReadinessCollection({ refetchReadiness: vi.fn(), catalogEnabled: true }),
+      { wrapper: wrapper() },
+    );
+
+    await act(async () => {
+      await view.result.current.handleCollect(check('coupang_products'));
+    });
+    await waitFor(() => expect(view.result.current.catalog.browser?.attention).toMatchObject({
+      reason: 'marketplace_login',
+      canOpenTab: true,
+    }));
+
+    await act(async () => {
+      await view.result.current.catalog.openAttention();
+    });
+    expect(sendToExtension).toHaveBeenCalledWith(
+      'coupang-extension',
+      { action: 'openCollectionAttentionTab', attemptId: CATALOG_ATTEMPT_ID },
+    );
+  });
+
+  it('cancels the active full catalog owner and closes the browser session', async () => {
+    let currentCatalogOwner = catalogOwner;
+    vi.mocked(apiClient.get).mockImplementation(async (path) => {
+      if (path === CATALOG_OWNER_PATH) return currentCatalogOwner;
+      return [
+        { id: CATALOG_ACCOUNT_ID, channel: 'coupang', isPrimary: true },
+      ];
+    });
+    vi.mocked(apiClient.post).mockImplementation(async (path) => {
+      if (path === CATALOG_BEGIN_PATH) return catalogPermit;
+      if (path.endsWith('/fail')) {
+        currentCatalogOwner = {
+          ...catalogOwner,
+          state: 'FAILED' as const,
+          phase: 'hydration' as const,
+          error: {
+            code: 'USER_CANCELLED',
+            message: '사용자가 쿠팡 상품 받기를 중단했습니다.',
+            phase: 'hydration' as const,
+            recoverable: false,
+          },
+          overallState: 'FAILED' as const,
+        };
+      }
+      return { id: RUN_ID };
+    });
+    const view = renderHook(
+      () => useReadinessCollection({ refetchReadiness: vi.fn(), catalogEnabled: true }),
+      { wrapper: wrapper() },
+    );
+
+    await act(async () => {
+      await view.result.current.handleCollect(check('coupang_products'));
+    });
+    await act(async () => {
+      await view.result.current.catalog.cancel();
+    });
+
+    expect(apiClient.post).toHaveBeenCalledWith(
+      `${CATALOG_OWNER_PATH}/fail`,
+      expect.objectContaining({ code: 'USER_CANCELLED', phase: 'hydration' }),
+      { headers: { 'x-source-attempt-token': CATALOG_ATTEMPT_TOKEN } },
+    );
+    expect(sendToExtension).toHaveBeenCalledWith(
+      'coupang-extension',
+      { action: 'cancelCoupangCatalogImport', attemptId: CATALOG_ATTEMPT_ID },
+    );
+    expect(toast.info).toHaveBeenCalledWith('쿠팡 상품 받기를 중단했습니다.');
+    expect(view.result.current.catalog.isCancelling).toBe(false);
+  });
+
+  it('keeps a visible cancellation error when the owner remains running', async () => {
+    vi.mocked(apiClient.post).mockImplementation(async (path) => {
+      if (path === CATALOG_BEGIN_PATH) return catalogPermit;
+      if (path.endsWith('/fail')) throw new Error('중단 확인이 지연되었습니다.');
+      return { id: RUN_ID };
+    });
+    const view = renderHook(
+      () => useReadinessCollection({ refetchReadiness: vi.fn(), catalogEnabled: true }),
+      { wrapper: wrapper() },
+    );
+
+    await act(async () => {
+      await view.result.current.handleCollect(check('coupang_products'));
+    });
+    await act(async () => {
+      await expect(view.result.current.catalog.cancel()).rejects.toThrow('중단 확인이 지연되었습니다.');
+    });
+
+    await waitFor(() => expect(view.result.current.catalog.cancelError).toBe('중단 확인이 지연되었습니다.'));
+  });
+
+  it('reconciles a persisted owner attempt on mount without dispatching provider IO', async () => {
+    localStorage.setItem(CATALOG_BASICS_STORAGE_KEY, JSON.stringify({
+      channelAccountId: CATALOG_ACCOUNT_ID,
+      attemptId: CATALOG_ATTEMPT_ID,
+      idempotencyKey: CATALOG_IDEMPOTENCY_KEY,
+      stage: 'basics',
+    }));
+    const refetchReadiness = vi.fn().mockResolvedValue(undefined);
+    const view = renderHook(
+      () => useReadinessCollection({ refetchReadiness, catalogEnabled: true }),
+      { wrapper: wrapper() },
+    );
+
+    await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith(CATALOG_OWNER_PATH));
+    await waitFor(() => expect(view.result.current.pendingKey).toBe('coupang_products'));
+    expect(apiClient.post).not.toHaveBeenCalled();
+    expect(startCoupangCatalogBrowser).not.toHaveBeenCalled();
+    expect(refetchReadiness).not.toHaveBeenCalled();
+  });
+
+  it('keeps a legacy full owner recoverable through the single readiness flow', async () => {
+    localStorage.setItem(COUPANG_CATALOG_ATTEMPT_STORAGE_KEY, JSON.stringify({
+      channelAccountId: CATALOG_ACCOUNT_ID,
+      attemptId: CATALOG_ATTEMPT_ID,
+      idempotencyKey: CATALOG_IDEMPOTENCY_KEY,
+    }));
+    vi.mocked(apiClient.get).mockImplementation(async (path) => {
+      if (path === CATALOG_OWNER_PATH) {
+        return {
+          ...catalogOwner,
+          plan: { ...catalogPlan, stage: undefined, rootAttemptId: undefined, detailsIdempotencyKey: undefined },
+          currentStage: undefined,
+          overallState: undefined,
+        };
+      }
+      return [{ id: CATALOG_ACCOUNT_ID, channel: 'coupang', isPrimary: true }];
+    });
+    const view = renderHook(
+      () => useReadinessCollection({ refetchReadiness: vi.fn(), catalogEnabled: true }),
+      { wrapper: wrapper() },
+    );
+
+    await waitFor(() => expect(view.result.current.catalog.owner?.attemptId).toBe(CATALOG_ATTEMPT_ID));
+    expect(view.result.current.catalog.owner?.plan.stage).toBeUndefined();
+    expect(startCoupangCatalogBrowser).not.toHaveBeenCalled();
+  });
+
+  it('reads a valid URL handoff for its exact account and attempt without auto-starting', async () => {
+    const linkedAccountId = '00000000-0000-4000-8000-000000000021';
+    const linkedAttemptId = '00000000-0000-4000-8000-000000000022';
+    const linkedOwner: CoupangCatalogCollectionRun = {
+      ...catalogOwner,
+      attemptId: linkedAttemptId,
+      channelAccountId: linkedAccountId,
+      plan: { ...catalogPlan, channelAccountId: linkedAccountId },
+      rootAttemptId: linkedAttemptId,
+      currentAttemptId: linkedAttemptId,
+    };
+    window.history.pushState(
+      {},
+      '',
+      `/?collectionAttempt=${linkedAttemptId}&channelAccountId=${linkedAccountId}&collectionStage=basics`,
+    );
+    vi.mocked(apiClient.get).mockImplementation(async (path) => {
+      if (path.includes(`/accounts/${linkedAccountId}/catalog-imports/`)) return linkedOwner;
+      return [{ id: linkedAccountId, channel: 'coupang', isPrimary: true }];
+    });
+    const view = renderHook(
+      () => useReadinessCollection({ refetchReadiness: vi.fn(), catalogEnabled: true }),
+      { wrapper: wrapper() },
+    );
+
+    await waitFor(() => expect(view.result.current.catalog.owner?.attemptId).toBe(linkedAttemptId));
+    expect(view.result.current.catalog.accountId).toBe(linkedAccountId);
+    expect(apiClient.post).not.toHaveBeenCalled();
+    expect(startCoupangCatalogBrowser).not.toHaveBeenCalled();
+    window.history.replaceState({}, '', '/');
+  });
+
+  it('switches the exact handoff owner when the mounted route link changes', async () => {
+    type HandoffLink = {
+      attemptId: string;
+      channelAccountId: string;
+      stage: 'basics' | 'details';
+    };
+    const firstLink: HandoffLink = {
+      attemptId: CATALOG_ATTEMPT_ID,
+      channelAccountId: CATALOG_ACCOUNT_ID,
+      stage: 'basics',
+    };
+    const secondLink: HandoffLink = {
+      attemptId: CATALOG_CHILD_ATTEMPT_ID,
+      channelAccountId: CATALOG_ACCOUNT_ID,
+      stage: 'details',
+    };
+    const secondOwner: CoupangCatalogCollectionRun = {
+      ...catalogDetailsOwner,
+      state: 'RUNNING',
+      overallState: 'RUNNING',
+      finishedAt: null,
+    };
+    vi.mocked(apiClient.get).mockImplementation(async (path) => {
+      if (path === CATALOG_OWNER_PATH) return catalogOwner;
+      if (path === CATALOG_CHILD_OWNER_PATH) return secondOwner;
+      return [{ id: CATALOG_ACCOUNT_ID, channel: 'coupang', isPrimary: true }];
+    });
+    const view = renderHook(
+      ({ link }: { link: HandoffLink }) => useReadinessCollection({
+        refetchReadiness: vi.fn(),
+        catalogEnabled: true,
+        catalogLink: link,
+      }),
+      { initialProps: { link: firstLink }, wrapper: wrapper() },
+    );
+
+    await waitFor(() => expect(view.result.current.catalog.owner?.attemptId).toBe(CATALOG_ATTEMPT_ID));
+    view.rerender({ link: secondLink });
+
+    await waitFor(() => expect(view.result.current.catalog.owner?.attemptId).toBe(CATALOG_CHILD_ATTEMPT_ID));
+    expect(view.result.current.catalog.owner?.plan.stage).toBe('details');
+    expect(apiClient.get).toHaveBeenCalledWith(CATALOG_CHILD_OWNER_PATH);
+    expect(startCoupangCatalogBrowser).not.toHaveBeenCalled();
+  });
+
+  it('blocks a malformed URL handoff instead of creating a new catalog attempt', async () => {
+    window.history.pushState(
+      {},
+      '',
+      `/?collectionAttempt=not-an-attempt&channelAccountId=${CATALOG_ACCOUNT_ID}&collectionStage=basics`,
+    );
+    const view = renderHook(
+      () => useReadinessCollection({ refetchReadiness: vi.fn(), catalogEnabled: true }),
+      { wrapper: wrapper() },
+    );
+
+    await waitFor(() => expect(view.result.current.catalog.linkError).toContain('올바르지 않습니다'));
+    await act(async () => {
+      await view.result.current.handleCollect(check('coupang_products'));
+    });
+    expect(apiClient.post).not.toHaveBeenCalledWith(
+      expect.stringContaining('/catalog-imports/coupang-wing/attempts'),
+      expect.anything(),
+      expect.anything(),
+    );
+    expect(startCoupangCatalogBrowser).not.toHaveBeenCalled();
+    window.history.replaceState({}, '', '/');
+  });
+
+  it('reuses the saved idempotency key after an uncertain begin response', async () => {
+    vi.mocked(apiClient.post).mockRejectedValueOnce(new Error('lost begin ACK'));
+    const view = renderHook(
+      () => useReadinessCollection({ refetchReadiness: vi.fn(), catalogEnabled: true }),
+      { wrapper: wrapper() },
+    );
+
+    await act(async () => {
+      await view.result.current.handleCollect(check('coupang_products'));
+    });
+    const saved = JSON.parse(
+      localStorage.getItem(CATALOG_BASICS_STORAGE_KEY)!,
+    ) as { idempotencyKey: string };
+    expect(saved).toMatchObject({
+      channelAccountId: CATALOG_ACCOUNT_ID,
+      attemptId: null,
+      idempotencyKey: expect.stringMatching(/^[0-9a-f-]{36}$/i),
+    });
+
+    await act(async () => {
+      await view.result.current.handleCollect(check('coupang_products'));
+    });
+    const begins = vi.mocked(apiClient.post).mock.calls.filter(
+      ([path]) => path === CATALOG_BEGIN_PATH,
+    );
+    expect(begins).toHaveLength(2);
+    expect(new Headers(begins[0]![2]?.headers).get('Idempotency-Key')).toBe(
+      saved.idempotencyKey,
+    );
+    expect(new Headers(begins[1]![2]?.headers).get('Idempotency-Key')).toBe(
+      saved.idempotencyKey,
+    );
+    expect(startCoupangCatalogBrowser).toHaveBeenCalledWith({ permit: catalogPermit });
+  });
+
+  it('shows missing Wing guidance without dispatching provider IO or opening a tab', async () => {
     mocks.detectRankExtensionGate.mockResolvedValue({ status: 'missing' });
     const open = vi.spyOn(window, 'open');
     const { result } = renderHook(
@@ -649,48 +1069,12 @@ describe('readiness extension collection', () => {
     });
 
     expect(mocks.detectRankExtensionGate).toHaveBeenCalledTimes(1);
-    expect(recordMissingBrowserCollection).toHaveBeenCalledWith(
-      'advertising.wing_rank',
-      { checkKey: 'wing_kpi', trigger: 'readiness' },
-      undefined,
-    );
+    expect(toast.warning).toHaveBeenCalled();
     expect(sendToExtension).not.toHaveBeenCalled();
     expect(open).not.toHaveBeenCalled();
   });
 
-  it('keeps the current run id when a web restart cannot find the extension', async () => {
-    mocks.detectRankExtensionGate.mockResolvedValue({ status: 'missing' });
-    const { result } = renderHook(
-      () => useReadinessCollection({ refetchReadiness: vi.fn() }),
-      { wrapper: wrapper() },
-    );
-
-    await act(async () => {
-      await result.current.handleCollect(check('wing_kpi'), RUN_ID);
-    });
-
-    expect(recordMissingBrowserCollection).toHaveBeenCalledWith(
-      'advertising.wing_rank',
-      { checkKey: 'wing_kpi', trigger: 'readiness' },
-      RUN_ID,
-    );
-  });
-
-  it('does not automatically start campaign ad sync after daily ads finish', async () => {
-    const producerByRun = new Map<string, BrowserCollectionSessionView['producer']>();
-    vi.mocked(sendToExtension).mockImplementation(async (_extensionId, message) => {
-      const command = message as {
-        action?: string;
-        producer?: BrowserCollectionSessionView['producer'];
-        runId?: string;
-      };
-      if (command.action === 'ping') return COMPATIBLE_PING;
-      if (command.action === 'scrapeTargets') {
-        producerByRun.set(command.runId!, command.producer!);
-        return { success: true, started: true, runId: command.runId };
-      }
-      return session(producerByRun.get(command.runId!)!, command.runId);
-    });
+  it('starts the daily ads owner attempt with an exact extension action', async () => {
     const refetchReadiness = vi.fn().mockResolvedValue(undefined);
     const { result } = renderHook(
       () => useReadinessCollection({ refetchReadiness }),
@@ -701,60 +1085,178 @@ describe('readiness extension collection', () => {
       await result.current.handleCollect(check('coupang_ads'));
     });
 
-    const starts = vi.mocked(sendToExtension).mock.calls.filter(
-      ([, message]) =>
-        (message as { action?: string }).action === 'scrapeTargets',
+    expect(apiClient.post).toHaveBeenCalledWith(
+      AD_BEGIN_PATH,
+      {},
+      { headers: { 'Idempotency-Key': expect.stringMatching(/^[0-9a-f-]{36}$/i) } },
     );
-    expect(
-      starts.map(
-        ([, message]) =>
-          (message as { producer?: string }).producer,
-      ),
-    ).toEqual(['dashboard.coupang_ads']);
-    expect(result.current.activeSession).toEqual(
-      expect.objectContaining({
-        producer: 'dashboard.coupang_ads',
-        status: 'succeeded',
-      }),
+    expect(sendToExtension).toHaveBeenCalledWith(
+      'coupang-extension',
+      { action: AD_ACCOUNT_DAILY_KPI_EXTENSION_ACTION, attemptId: AD_ATTEMPT_ID },
+      35 * 60_000,
     );
-    expect(refetchReadiness).toHaveBeenCalledTimes(2);
+    expect(sendToExtension).not.toHaveBeenCalledWith(
+      'coupang-extension',
+      expect.objectContaining({ action: 'scrapeTargets' }),
+    );
+    expect(result.current.pendingKey).toBe('coupang_ads');
+    expect(refetchReadiness).not.toHaveBeenCalled();
   });
 
-  it('keeps Wing rank pending while its background session runs and settles from session state', async () => {
+  it('persists the begin identity before the request and reuses it after a lost ACK', async () => {
+    vi.mocked(apiClient.post).mockImplementationOnce(async (path, _body, options) => {
+      if (path !== AD_BEGIN_PATH) return { id: RUN_ID };
+      const saved = JSON.parse(
+        localStorage.getItem(AD_ACCOUNT_DAILY_KPI_ATTEMPT_STORAGE_KEY)!,
+      ) as { attemptId: string | null; idempotencyKey: string };
+      expect(saved).toMatchObject({
+        attemptId: null,
+        idempotencyKey: expect.stringMatching(/^[0-9a-f-]{36}$/i),
+      });
+      expect(new Headers(options?.headers).get('Idempotency-Key')).toBe(
+        saved.idempotencyKey,
+      );
+      throw new Error('lost begin ACK');
+    });
+    const { result } = renderHook(
+      () => useReadinessCollection({ refetchReadiness: vi.fn() }),
+      { wrapper: wrapper() },
+    );
+
+    await act(async () => {
+      await result.current.handleCollect(check('coupang_ads'));
+    });
+    const saved = JSON.parse(
+      localStorage.getItem(AD_ACCOUNT_DAILY_KPI_ATTEMPT_STORAGE_KEY)!,
+    ) as { idempotencyKey: string };
+    expect(saved.idempotencyKey).toMatch(/^[0-9a-f-]{36}$/i);
+
+    await act(async () => {
+      await result.current.handleCollect(check('coupang_ads'));
+    });
+    const begins = vi.mocked(apiClient.post).mock.calls.filter(
+      ([path]) => path === AD_BEGIN_PATH,
+    );
+    expect(begins).toHaveLength(2);
+    expect(new Headers(begins[1]![2]?.headers).get('Idempotency-Key')).toBe(
+      saved.idempotencyKey,
+    );
+    expect(sendToExtension).toHaveBeenCalledWith(
+      'coupang-extension',
+      { action: AD_ACCOUNT_DAILY_KPI_EXTENSION_ACTION, attemptId: AD_ATTEMPT_ID },
+      35 * 60_000,
+    );
+  });
+
+  it('reconciles a persisted daily ads attempt on reload without provider IO', async () => {
+    currentAdAttempt = adAttempt();
+    currentAdSource = adSource(currentAdAttempt);
+    localStorage.setItem(
+      AD_ACCOUNT_DAILY_KPI_ATTEMPT_STORAGE_KEY,
+      JSON.stringify({ attemptId: AD_ATTEMPT_ID, idempotencyKey: AD_IDEMPOTENCY_KEY }),
+    );
     const refetchReadiness = vi.fn().mockResolvedValue(undefined);
     const view = renderHook(
       () => useReadinessCollection({ refetchReadiness }),
       { wrapper: wrapper() },
     );
 
+    await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith(AD_ATTEMPT_PATH));
+    await waitFor(() => expect(view.result.current.pendingKey).toBe('coupang_ads'));
+    expect(apiClient.post).not.toHaveBeenCalledWith(
+      AD_BEGIN_PATH,
+      expect.anything(),
+      expect.anything(),
+    );
+    expect(sendToExtension).not.toHaveBeenCalled();
+    expect(refetchReadiness).not.toHaveBeenCalled();
+  });
+
+  it('recovers a stale persisted daily attempt after an owner 404 on explicit retry', async () => {
+    localStorage.setItem(
+      AD_ACCOUNT_DAILY_KPI_ATTEMPT_STORAGE_KEY,
+      JSON.stringify({ attemptId: AD_ATTEMPT_ID, idempotencyKey: AD_IDEMPOTENCY_KEY }),
+    );
+    vi.mocked(apiClient.get).mockImplementation(async (path) => {
+      if (path === AD_SOURCE_STATUS_PATH) return currentAdSource;
+      if (path === AD_ATTEMPT_PATH) throw new Error('attempt not found');
+      return [
+        { id: CATALOG_ACCOUNT_ID, channel: 'coupang', isPrimary: true },
+      ];
+    });
+    const view = renderHook(
+      () => useReadinessCollection({ refetchReadiness: vi.fn() }),
+      { wrapper: wrapper() },
+    );
+
+    await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith(AD_ATTEMPT_PATH));
     await act(async () => {
-      await view.result.current.handleCollect(check('wing_kpi'), RUN_ID);
+      await view.result.current.handleCollect(check('coupang_ads'));
+    });
+
+    const begin = vi.mocked(apiClient.post).mock.calls.find(
+      ([path]) => path === AD_BEGIN_PATH,
+    );
+    expect(begin).toBeDefined();
+    expect(new Headers(begin?.[2]?.headers).get('Idempotency-Key')).not.toBe(
+      AD_IDEMPOTENCY_KEY,
+    );
+    expect(sendToExtension).toHaveBeenCalledWith(
+      'coupang-extension',
+      { action: AD_ACCOUNT_DAILY_KPI_EXTENSION_ACTION, attemptId: AD_ATTEMPT_ID },
+      35 * 60_000,
+    );
+  });
+
+  it('keeps the previous complete owner data visible when a new ads attempt fails', async () => {
+    const previous = adAttempt(
+      'COMPLETE',
+      AD_PREVIOUS_ATTEMPT_ID,
+      AD_PREVIOUS_SOURCE_RUN_ID,
+    );
+    currentAdAttempt = adAttempt('FAILED');
+    currentAdSource = adSource(currentAdAttempt, false, previous);
+    localStorage.setItem(
+      AD_ACCOUNT_DAILY_KPI_ATTEMPT_STORAGE_KEY,
+      JSON.stringify({ attemptId: AD_ATTEMPT_ID, idempotencyKey: AD_IDEMPOTENCY_KEY }),
+    );
+    const refetchReadiness = vi.fn().mockResolvedValue(undefined);
+    const view = renderHook(
+      () => useReadinessCollection({ refetchReadiness }),
+      { wrapper: wrapper() },
+    );
+
+    await waitFor(() => expect(view.result.current.pendingKey).toBeNull());
+    expect(apiClient.get).toHaveBeenCalledWith(AD_SOURCE_STATUS_PATH);
+    expect(toast.error).not.toHaveBeenCalledWith(
+      expect.stringContaining('이전 정상 데이터는 유지됩니다.'),
+    );
+    expect(currentAdSource.latestComplete).toMatchObject({
+      state: 'COMPLETE',
+      actualCutoffAt: '2026-07-15T00:00:00.000Z',
+    });
+  });
+
+  it('keeps Wing pending until the owner receipt settles, ignoring legacy session state', async () => {
+    const refetchReadiness = vi.fn().mockResolvedValue(undefined);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const view = renderHook(
+      () => useReadinessCollection({ refetchReadiness }),
+      { wrapper: wrapper(client) },
+    );
+
+    await act(async () => {
+      await view.result.current.handleCollect(check('wing_kpi'));
     });
 
     expect(view.result.current.pendingKey).toBe('wing_kpi');
     expect(runWingSalesRankCheck).toHaveBeenCalledWith(
       'coupang-extension',
-      RUN_ID,
+      expect.stringMatching(/^[0-9a-f-]{36}$/i),
     );
 
-    mocks.wingSession = {
-      ...session('advertising.wing_rank'),
-      status: 'running',
-      finishedAt: null,
-    };
-    view.rerender();
-    await waitFor(() => {
-      expect(view.result.current.activeSession).toEqual(
-        expect.objectContaining({
-          producer: 'advertising.wing_rank',
-          status: 'running',
-        }),
-      );
-    });
-    expect(view.result.current.pendingKey).toBe('wing_kpi');
-
-    mocks.wingSession = session('advertising.wing_rank');
-    view.rerender();
+    vi.mocked(apiClient.get).mockResolvedValue(wingBatch('COMPLETE'));
+    await act(async () => { await client.invalidateQueries(); });
     await waitFor(() => expect(view.result.current.pendingKey).toBeNull());
     expect(refetchReadiness).toHaveBeenCalledTimes(1);
   });
@@ -768,11 +1270,11 @@ describe('readiness extension collection', () => {
       resolve(process.cwd(), 'src/app/(analytics)/dashboard/page.tsx'),
       'utf8',
     );
-    const scrapeCollectorSource = readFileSync(
-      resolve(
-        process.cwd(),
-        'src/app/(advertising)/ad-ops/components/ScrapeCollector.tsx',
-      ),
+    // The dashboard triggers Wing traffic collection through the source-owner
+    // path, which lives in the hook the readiness modal's collection component
+    // uses. The page renders that component; it does not call the owner itself.
+    const wingCollectionSource = readFileSync(
+      resolve(process.cwd(), 'src/app/(analytics)/dashboard/hooks/use-wing-traffic-collection.ts'),
       'utf8',
     );
     const competitorExtensionSource = readFileSync(
@@ -791,20 +1293,22 @@ describe('readiness extension collection', () => {
     );
 
     expect(readinessSource).not.toContain('fallbackOpenTabs');
-    expect(readinessSource).not.toContain('window.open');
+    expect(readinessSource).not.toContain('runReadinessExtensionCollection');
+    expect(readinessSource).not.toContain('BrowserCollectionRunControls');
+    expect(readinessSource).not.toContain('issueBrowserCollectionRunId');
     expect(dashboardSource).not.toContain('window.open');
-    expect(dashboardSource).toContain("producer: 'dashboard.wing_sales'");
-    expect(scrapeCollectorSource).not.toContain('window.open');
-    expect(scrapeCollectorSource).toContain("'advertising.scrape_targets'");
-    expect(scrapeCollectorSource).toContain('BrowserCollectionRunControls');
+    expect(wingCollectionSource).toContain('collectWingTrafficSource');
+    expect(wingCollectionSource).not.toContain('fallbackOpenTabs');
     expect(competitorExtensionSource).toContain(
       'COMPETITOR_EXTENSION_MIN_VERSION = KIDITEM_EXTENSION_MIN_VERSION',
     );
     expect(competitorExtensionSource).toContain('browserCollectionSessions');
-    expect(competitorPageSource).toContain('useSourcingOperationAction');
-    expect(competitorPageSource).toContain('SourcingOperationRunPanel');
-    expect(competitorPageSource).toContain('operation.start(input, [snapshotQueryKey])');
-    expect(competitorPageSource).toContain('params.set("operationRun", run.id)');
+    expect(competitorPageSource).toContain('collectCompetitorCatalogFromExtension');
+    expect(competitorPageSource).toContain('requireCompetitorCatalogExtension');
+    expect(competitorPageSource).not.toContain('beginCompetitorCatalogAttempt');
+    expect(competitorPageSource).not.toContain('useSourcingOperationAction');
+    expect(competitorPageSource).not.toContain('SourcingOperationRunPanel');
+    expect(competitorPageSource).not.toContain('operationRun');
     expect(competitorPageSource).not.toContain('useBrowserCollectionSession');
     expect(competitorPageSource).not.toContain('BrowserCollectionRunControls');
   });

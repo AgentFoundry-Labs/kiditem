@@ -17,6 +17,10 @@ import type {
 } from '../../../application/port/out/repository/channel-catalog-import.repository.port';
 import type { ParsedWingCatalogRow } from '../../../application/service/coupang-wing-workbook.parser';
 import { resolveCoupangVendorId } from '../../../domain/coupang-account-identity';
+import {
+  advanceProductMappingGeneration,
+  lockProductMapping,
+} from '../../../../common/product-mapping-generation';
 import { buildCoupangWingSnapshotCoverage } from './coupang-wing-snapshot';
 
 const SOURCE_TYPE = 'coupang_wing_catalog';
@@ -112,6 +116,7 @@ implements ChannelCatalogImportRepositoryPort {
       );
     }
     return this.prisma.$transaction(async (tx) => {
+      await lockProductMapping(tx, input.organizationId);
       const lockKey =
         `channel-catalog-import:${input.organizationId}:${SOURCE_TYPE}:${input.channelAccountId}`;
       await tx.$queryRaw`
@@ -199,7 +204,7 @@ implements ChannelCatalogImportRepositoryPort {
             channelAccountId: input.channelAccountId,
             externalId: { in: externalProductIds },
           },
-          select: { id: true, externalId: true },
+          select: { id: true, externalId: true, isActive: true },
         }),
         tx.channelListingOption.findMany({
           where: {
@@ -207,7 +212,7 @@ implements ChannelCatalogImportRepositoryPort {
             listing: { channelAccountId: input.channelAccountId },
             externalOptionId: { in: externalSkuIds },
           },
-          select: { id: true, listingId: true, externalOptionId: true },
+          select: { id: true, listingId: true, externalOptionId: true, isActive: true },
         }),
       ]);
       const existingProductIds = new Set(
@@ -216,6 +221,21 @@ implements ChannelCatalogImportRepositoryPort {
       const existingSkuIds = new Set(
         existingSkus.map((row) => row.externalOptionId),
       );
+      const existingProductByExternalId = new Map(
+        existingProducts.map((row) => [row.externalId, row]),
+      );
+      const existingSkuByExternalId = new Map(
+        existingSkus.map((row) => [row.externalOptionId, row]),
+      );
+      const mappingIdentityChanged =
+        canonicalParents.some((row) => {
+          const existing = existingProductByExternalId.get(row.externalProductId);
+          return !existing || !existing.isActive;
+        })
+        || input.rows.some((row) => {
+          const existing = existingSkuByExternalId.get(row.externalSkuId);
+          return !existing || !existing.isActive;
+        });
       const createdProductCount = canonicalParents.filter(
         (row) => !existingProductIds.has(row.externalProductId),
       ).length;
@@ -383,31 +403,41 @@ implements ChannelCatalogImportRepositoryPort {
         `;
       }
 
+      let deactivatedSkuCount = 0;
       if (snapshotCoverage.canDeactivateUnseenSkus) {
-        await tx.channelListingOption.updateMany({
+        const deactivatedSkus = await tx.channelListingOption.updateMany({
           where: {
             organizationId: input.organizationId,
             listing: { channelAccountId: input.channelAccountId },
             externalOptionId: { notIn: snapshotCoverage.externalSkuIds },
+            isActive: true,
           },
           data: {
             isActive: false,
             lastImportRunId: input.runId,
           },
         });
+        deactivatedSkuCount = deactivatedSkus.count;
       }
+      let deactivatedProductCount = 0;
       if (snapshotCoverage.canDeactivateUnseenProducts) {
-        await tx.channelListing.updateMany({
+        const deactivatedProducts = await tx.channelListing.updateMany({
           where: {
             organizationId: input.organizationId,
             channelAccountId: input.channelAccountId,
             externalId: { notIn: snapshotCoverage.externalProductIds },
+            isActive: true,
           },
           data: {
             isActive: false,
             lastImportRunId: input.runId,
           },
         });
+        deactivatedProductCount = deactivatedProducts.count;
+      }
+
+      if (mappingIdentityChanged || deactivatedSkuCount > 0 || deactivatedProductCount > 0) {
+        await advanceProductMappingGeneration(tx, input.organizationId);
       }
 
       const publicationSequence = await nextPublicationSequence(tx, input.organizationId);

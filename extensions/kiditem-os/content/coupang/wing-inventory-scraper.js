@@ -5,6 +5,10 @@
 (function () {
   "use strict";
 
+  const WING_CATALOG_SEARCH_URL =
+    "https://wing.coupang.com/tenants/seller-web/v2/vendor-inventory/search";
+  const WING_CATALOG_SEARCH_TIMEOUT_MS = 30_000;
+
   if (!location.href.includes("vendor-inventory/list")) return;
 
   console.log("[KIDITEM] wing-inventory-scraper.js loaded");
@@ -69,88 +73,107 @@
     return products;
   }
 
-  function isLoginPage() {
-    const text = document.body?.innerText || "";
-    return /login|signin|xauth|로그인|아이디|비밀번호/i.test(`${location.href}\n${text.slice(0, 3000)}`);
+  function isHtmlResponse(body, response) {
+    const contentType = response?.headers?.get?.("content-type") || "";
+    return /text\/html/i.test(contentType) ||
+      /^\s*<!doctype\s+html/i.test(body) ||
+      /<html(?:\s|>)/i.test(body);
   }
 
-  function pickNameFromRow(row) {
-    const direct =
-      row.querySelector("a.ip-title") ||
-      row.querySelector("td.column-info .item-title") ||
-      row.querySelector('[class*="item-title"]') ||
-      row.querySelector('[class*="product-name"]') ||
-      row.querySelector('a[href*="/vendor-inventory/items/"]');
-    const text = direct?.textContent?.trim();
-    if (text) return text.replace(/\s+/g, " ");
+  function isLoginResponse(response) {
+    const status = Number(response?.status);
+    return response?.type === "opaqueredirect" || status === 0 ||
+      status === 401 || status === 403 || (status >= 300 && status < 400);
+  }
 
-    const cells = Array.from(row.querySelectorAll("td"));
-    for (const cell of cells) {
-      const value = cell.textContent?.trim().replace(/\s+/g, " ");
-      if (value && value.length >= 2 && !/^\d[\d,]*$/.test(value)) return value;
+  function retryAfterDate(response) {
+    const value = String(response?.headers?.get?.("retry-after") || "").trim();
+    if (/^\d+(?:\.\d+)?$/.test(value)) {
+      return new Date(Date.now() + Math.ceil(Number(value) * 1000)).toISOString();
     }
-    return "";
+    const timestamp = Date.parse(value);
+    if (Number.isFinite(timestamp)) return new Date(timestamp).toISOString();
+    return new Date(Date.now() + 60_000).toISOString();
   }
 
-  function parseCatalogDiscoveryPage() {
+  async function fetchCatalogDiscoveryPage(message) {
     const collector = globalThis.KidItemCoupangCatalog;
     if (!collector) {
       return { success: false, error: "쿠팡 카탈로그 수집 모듈을 불러오지 못했습니다" };
     }
-    if (isLoginPage()) {
-      return { success: false, pendingLogin: true, error: "쿠팡 Wing 로그인이 필요합니다" };
+
+    let body;
+    try {
+      body = collector.buildWingCatalogSearchBody(message?.page);
+    } catch (error) {
+      return { success: false, error: error?.message || "Wing 페이지 요청이 올바르지 않습니다" };
     }
 
-    const rows = Array.from(
-      document.querySelectorAll("tr.inventory-line[data-inventory]"),
-    );
-    const records = rows.map((row) => {
-      const image =
-        row.querySelector("td.column-image img[src]") ||
-        row.querySelector('img[src*="coupangcdn.com"]') ||
-        row.querySelector("img[src]");
-      return {
-        externalProductId: row.getAttribute("data-inventory")?.trim() || "",
-        registeredName: pickNameFromRow(row) || null,
-        primaryImageUrl: collector.normalizeImageUrl(
-          image?.getAttribute("src") || image?.src || "",
-        ),
-        saleStatus: collector.saleStatusFromText(row.innerText || row.textContent || ""),
-      };
-    }).filter((record) => record.externalProductId);
+    let response;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), WING_CATALOG_SEARCH_TIMEOUT_MS);
+    try {
+      response = await fetch(WING_CATALOG_SEARCH_URL, {
+        method: "POST",
+        credentials: "include",
+        redirect: "manual",
+        headers: { "content-type": "application/json" },
+        signal: controller.signal,
+        body: JSON.stringify(body),
+      });
+      if (isLoginResponse(response)) {
+        return { success: false, pendingLogin: true, error: "쿠팡 Wing 로그인이 필요합니다" };
+      }
+      if (Number(response?.status) === 429) {
+        return {
+          success: false,
+          rateLimited: true,
+          status: 429,
+          nextAllowedAt: retryAfterDate(response),
+          error: "쿠팡 Wing 상품 목록 API가 요청 한도를 초과했습니다",
+        };
+      }
+      if (response?.ok === false || Number(response?.status) >= 400) {
+        return { success: false, error: `Wing 상품 목록 API 요청 실패 (${response?.status || "unknown"})` };
+      }
 
-    if (records.length === 0) {
-      return { success: false, error: "Wing 등록상품 행을 찾을 수 없습니다" };
-    }
-    const missingTitle = records.find((record) => !record.registeredName);
-    if (missingTitle) {
+      let rawBody;
+      try {
+        rawBody = typeof response?.text === "function"
+          ? await response.text()
+          : JSON.stringify(await response.json());
+      } catch (error) {
+        if (error?.name === "AbortError") throw error;
+        return {
+          success: false,
+          error: error?.message || "Wing 상품 목록 API 응답을 읽지 못했습니다",
+        };
+      }
+      if (isHtmlResponse(rawBody, response)) {
+        return { success: false, pendingLogin: true, error: "쿠팡 Wing 로그인이 필요합니다" };
+      }
+
+      let payload;
+      try {
+        payload = JSON.parse(rawBody);
+      } catch {
+        return { success: false, error: "Wing 상품 목록 API 응답 JSON이 올바르지 않습니다" };
+      }
+      return collector.normalizeWingCatalogSearchResponse(
+        payload,
+        body.page,
+        message?.expectedVendorId,
+      );
+    } catch (error) {
       return {
         success: false,
-        error: `Wing 상품명 선택자(a.ip-title)가 비어 있습니다: ${missingTitle.externalProductId}`,
+        error: error?.name === "AbortError"
+          ? "Wing 상품 목록 API 요청 시간이 초과되었습니다"
+          : error?.message || "Wing 상품 목록 API 요청 실패",
       };
+    } finally {
+      clearTimeout(timeoutId);
     }
-
-    const bodyText = document.body?.innerText || "";
-    const totalMatch =
-      bodyText.match(/(?:전체|총)\s*([\d,]+)\s*(?:건|개)/) ||
-      bodyText.match(/([\d,]+)\s*(?:건|개)\s*(?:의|중)/);
-    const totalItems = totalMatch
-      ? Number(totalMatch[1].replace(/,/g, ""))
-      : null;
-    const url = new URL(location.href);
-    const page = Number(url.searchParams.get("page") || "1");
-    const pageSize = Number(url.searchParams.get("countPerPage") || records.length);
-    if (!Number.isInteger(totalItems) || totalItems <= 0) {
-      return { success: false, error: "Wing 전체 등록상품 수를 확인할 수 없습니다" };
-    }
-
-    return {
-      success: true,
-      page,
-      pageSize,
-      totalItems,
-      records,
-    };
   }
 
   // ── 총 페이지 수 추출 ──
@@ -216,65 +239,42 @@
     return true;
   }
 
-  // ── 엑셀(HTML Table) 다운로드 ──
-  function downloadAsExcel(products) {
-    if (!products.length) {
-      alert("[KIDITEM] 다운로드할 데이터가 없습니다.");
-      return;
-    }
+  // ── 서버 변환 결과 다운로드 ──
+  function requestServerWorkbook(products) {
+    return new Promise((resolve, reject) => {
+      chrome.runtime.sendMessage(
+        { action: "exportWingInventoryWorkbook", products },
+        (response) => {
+          if (chrome.runtime.lastError) {
+            reject(new Error(chrome.runtime.lastError.message));
+            return;
+          }
+          if (!response?.success || typeof response.fileBase64 !== "string") {
+            reject(new Error(response?.error || "Wing 상품목록 엑셀 변환 실패"));
+            return;
+          }
+          resolve(response);
+        },
+      );
+    });
+  }
 
-    // 모든 상품에서 키 수집 (순서 유지)
-    const keySet = new Set();
-    for (const p of products) {
-      for (const k of Object.keys(p)) keySet.add(k);
-    }
-    const keys = Array.from(keySet);
-
-    // 우선 표시 열 (있으면 앞쪽으로)
-    const priority = ["등록상품ID", "이미지URL"];
-    const orderedKeys = [
-      ...priority.filter(k => keys.includes(k)),
-      ...keys.filter(k => !priority.includes(k)),
-    ];
-
-    // HTML 테이블 생성
-    const esc = (s) => String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-
-    let html = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">';
-    html += '<head><meta charset="utf-8"><!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet><x:Name>상품목록</x:Name><x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions></x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]--></head>';
-    html += '<body><table border="1">';
-
-    // 헤더 행
-    html += '<tr>';
-    for (const key of orderedKeys) {
-      html += `<th style="background:#f0f0f0;font-weight:bold;padding:4px 8px;">${esc(key)}</th>`;
-    }
-    html += '</tr>';
-
-    // 데이터 행
-    for (const product of products) {
-      html += '<tr>';
-      for (const key of orderedKeys) {
-        html += `<td style="padding:4px 8px;">${esc(product[key])}</td>`;
-      }
-      html += '</tr>';
-    }
-
-    html += '</table></body></html>';
-
-    const blob = new Blob(['\uFEFF' + html], { type: 'application/vnd.ms-excel;charset=utf-8' });
+  function downloadServerWorkbook(file) {
+    const binary = atob(file.fileBase64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+    const blob = new Blob([bytes], {
+      type: file.contentType || "application/vnd.ms-excel;charset=utf-8",
+    });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    const now = new Date();
-    const ts = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-${String(now.getDate()).padStart(2,"0")}_${String(now.getHours()).padStart(2,"0")}.${String(now.getMinutes()).padStart(2,"0")}`;
-    a.download = `wing-inventory_${ts}.xls`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = file.fileName || "wing-inventory.xls";
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
     URL.revokeObjectURL(url);
-
-    console.log(`[KIDITEM] 엑셀 다운로드 완료: ${products.length}개 상품`);
+    console.log(`[KIDITEM] 서버 엑셀 다운로드 완료: ${file.total || 0}개 상품`);
   }
 
   // ── 메인: 전체 페이지 크롤링 ──
@@ -319,27 +319,35 @@
 
     console.log("[KIDITEM] 총 수집:", allProducts.length, "개");
 
-    // 자동 엑셀 다운로드
-    downloadAsExcel(allProducts);
+    if (!allProducts.length) {
+      alert("[KIDITEM] 다운로드할 데이터가 없습니다.");
+      return { success: true, total: 0 };
+    }
 
-    return { success: true, total: allProducts.length };
+    try {
+      // Raw rows stay in the content script; only authenticated server output
+      // crosses back as a file. The browser never builds the workbook.
+      const file = await requestServerWorkbook(allProducts);
+      downloadServerWorkbook(file);
+      return { success: true, total: allProducts.length };
+    } catch (error) {
+      return { success: false, error: error?.message || "Wing 상품목록 엑셀 변환 실패" };
+    }
   }
 
   // ── 메시지 리스너: 팝업에서 트리거 ──
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-    if (msg.action === "collectCoupangCatalogDiscoveryPage") {
-      waitForSelector("tr.inventory-line[data-inventory]", 20000)
-        .then(() => sleep(500))
-        .then(() => parseCatalogDiscoveryPage())
+    if (msg?.action === "collectCoupangCatalogDiscoveryPage") {
+      fetchCatalogDiscoveryPage(msg)
         .then(sendResponse)
         .catch((error) => sendResponse({
           success: false,
-          error: error?.message || "Wing 등록상품 페이지 수집 실패",
+          error: error?.message || "Wing 상품 목록 API 수집 실패",
         }));
       return true;
     }
 
-    if (msg.action === "scrapeInventoryList") {
+    if (msg?.action === "scrapeInventoryList") {
       scrapeAllPages().then(sendResponse);
       return true; // async
     }

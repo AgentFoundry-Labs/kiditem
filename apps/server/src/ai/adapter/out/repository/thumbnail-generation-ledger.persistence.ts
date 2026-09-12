@@ -164,6 +164,7 @@ export async function saveEditorResult(prisma: PrismaService, input: SaveEditorR
 export async function createPendingEditJob(
   prisma: Prisma.TransactionClient | PrismaService,
   args: {
+    id?: string;
     organizationId: string;
     contentWorkspaceId: string;
     originalUrl: string;
@@ -175,6 +176,7 @@ export async function createPendingEditJob(
 ): Promise<GenerationRow> {
   const generation = await prisma.thumbnailGeneration.create({
     data: {
+      ...(args.id ? { id: args.id } : {}),
       organizationId: args.organizationId,
       originalUrl: args.originalUrl,
       method: args.method,
@@ -199,6 +201,7 @@ export async function createPendingEditJob(
 export async function createPendingCandidateJob(
   prisma: Prisma.TransactionClient | PrismaService,
   args: {
+    id?: string;
     organizationId: string;
     sourceCandidateId: string;
     originalUrl: string;
@@ -245,6 +248,7 @@ export async function createPendingCandidateJob(
   }
   return prisma.thumbnailGeneration.create({
     data: {
+      ...(args.id ? { id: args.id } : {}),
       organizationId: args.organizationId,
       sourceCandidateId: args.sourceCandidateId,
       contentWorkspaceId,
@@ -269,6 +273,7 @@ export async function createPendingCandidateJob(
 export async function createPendingStandaloneJob(
   prisma: Prisma.TransactionClient | PrismaService,
   args: {
+    id?: string;
     organizationId: string;
     originalUrl: string;
     method: string;
@@ -292,6 +297,7 @@ export async function createPendingStandaloneJob(
     ).id;
   return prisma.thumbnailGeneration.create({
     data: {
+      ...(args.id ? { id: args.id } : {}),
       organizationId: args.organizationId,
       sourceCandidateId: null,
       contentWorkspaceId,
@@ -435,28 +441,99 @@ export async function applyGenerationToWorkspace(
   });
 }
 
-export async function markGenerationCancelled(
+export async function cancelDirectGeneration(
   prisma: PrismaService,
-  id: string,
-  organizationId: string,
-): Promise<{ fromStatus: string; fromPhase: string | null } | null> {
+  input: {
+    organizationId: string;
+    generationId: string;
+    reason: string;
+    actorUserId?: string | null;
+    payload?: unknown | null;
+  },
+): Promise<{
+  status: 'cancelled' | 'already_terminal' | 'not_found';
+  generationId: string;
+  preserved: boolean;
+}> {
   return prisma.$transaction(async (tx) => {
-    const current = await tx.thumbnailGeneration.findFirst({
-      where: { id, organizationId, isDeleted: false },
-      select: { status: true, phase: true },
-    });
-    if (!current) return null;
-    const updated = await tx.thumbnailGeneration.updateMany({
-      where: {
-        id,
-        organizationId,
-        isDeleted: false,
-        status: { in: ['pending', 'running'] },
+    const current = await lockThumbnailGeneration(
+      tx,
+      input.generationId,
+      input.organizationId,
+    );
+    if (!current) {
+      return {
+        status: 'not_found' as const,
+        generationId: input.generationId,
+        preserved: false,
+      };
+    }
+    if (!['pending', 'running'].includes(current.status)) {
+      return {
+        status: 'already_terminal' as const,
+        generationId: current.id,
+        preserved: current.status === 'succeeded' || current.phase === 'applied',
+      };
+    }
+
+    await tx.thumbnailGeneration.update({
+      where: { id: current.id },
+      data: {
+        status: 'cancelled',
+        phase: null,
+        errorMessage: input.reason,
       },
-      data: { status: 'cancelled', phase: null },
     });
-    if (updated.count === 0) return null;
-    return { fromStatus: current.status, fromPhase: current.phase };
+    await tx.aiDirectJob.updateMany({
+      where: {
+        organizationId: input.organizationId,
+        sourceResourceId: current.id,
+        jobType: { in: ['thumbnail_generate', 'thumbnail_reedit'] },
+        status: { in: ['held', 'pending', 'running', 'projecting'] },
+      },
+      data: {
+        status: 'cancelled',
+        finishedAt: new Date(),
+        leaseExpiresAt: null,
+        lastErrorCode: 'user_cancelled',
+        lastErrorMessage: input.reason,
+      },
+    });
+    await tx.thumbnailGenerationEvent.create({
+      data: {
+        organizationId: input.organizationId,
+        generationId: current.id,
+        eventType: 'status_change',
+        fromStatus: current.status,
+        toStatus: 'cancelled',
+        fromPhase: current.phase,
+        toPhase: null,
+        attemptNumber: current.attemptCount,
+        actorUserId: input.actorUserId ?? null,
+        payload: input.payload == null ? undefined : input.payload as Prisma.InputJsonValue,
+      },
+    });
+    if (current.phase !== null) {
+      await tx.thumbnailGenerationEvent.create({
+        data: {
+          organizationId: input.organizationId,
+          generationId: current.id,
+          eventType: 'phase_change',
+          fromStatus: current.status,
+          toStatus: 'cancelled',
+          fromPhase: current.phase,
+          toPhase: null,
+          attemptNumber: current.attemptCount,
+          actorUserId: input.actorUserId ?? null,
+          payload: input.payload == null ? undefined : input.payload as Prisma.InputJsonValue,
+        },
+      });
+    }
+    return {
+      status: 'cancelled' as const,
+      generationId: current.id,
+      preserved: false,
+    };
   });
 }
 

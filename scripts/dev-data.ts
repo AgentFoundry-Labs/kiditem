@@ -117,17 +117,17 @@ const DEFAULT_PROFILES: Record<string, DevDataProfile> = {
   workspace: {
     schemaVersion: PROFILE_SCHEMA_VERSION,
     profileId: 'workspace',
-    description: 'Default local workspace data from real Coupang scraper payloads',
+    description: 'Default local workspace bundle pull from real Coupang scraper payloads',
     steps: [
-      { domain: 'coupang', dataset: 'latest', mode: 'scoped-replace' },
+      { domain: 'coupang', dataset: 'latest', mode: 'pull-only', replay: false },
     ],
   },
   coupang: {
     schemaVersion: PROFILE_SCHEMA_VERSION,
     profileId: 'coupang',
-    description: 'Real Coupang scraper payload replay profile',
+    description: 'Coupang scraper payload pull profile',
     steps: [
-      { domain: 'coupang', dataset: 'latest', mode: 'scoped-replace' },
+      { domain: 'coupang', dataset: 'latest', mode: 'pull-only', replay: false },
     ],
   },
 };

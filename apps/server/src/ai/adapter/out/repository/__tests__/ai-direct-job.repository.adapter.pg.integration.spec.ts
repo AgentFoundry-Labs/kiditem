@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import type { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   makeTestPrisma,
@@ -8,10 +7,12 @@ import {
   TEST_ORGANIZATION_ID,
 } from '../../../../../test-helpers/real-prisma';
 import { AiDirectJobRepositoryAdapter } from '../ai-direct-job.repository.adapter';
+import { DetailPageGenerationRepositoryAdapter } from '../detail-page-generation.repository.adapter';
+import { ContentAssetLibraryRepositoryAdapter } from '../content-asset-library.repository.adapter';
+import { deriveProductGenerationChildIdentity } from '../../../../application/service/product-generation-child-identity';
+import { ThumbnailGenerationLedgerRepositoryAdapter } from '../thumbnail-generation-ledger.repository.adapter';
+import type { PrismaClient } from '@prisma/client';
 import type { PrismaService } from '../../../../../prisma/prisma.service';
-import { PrismaProductGenerationIdempotencyAdapter } from '../../transaction/prisma-product-generation-idempotency.adapter';
-import { ProductGenerationAiService } from '../../../../application/service/product-generation-ai.service';
-import { productGenerationOperationKey } from '../../../../application/service/product-generation-alert-link';
 
 describe('AiDirectJobRepositoryAdapter (PG integration)', () => {
   let prisma: PrismaClient;
@@ -102,150 +103,439 @@ describe('AiDirectJobRepositoryAdapter (PG integration)', () => {
     });
   });
 
-  it('serializes the same product-generation key across separate Prisma clients', async () => {
+  it('converges concurrent detail-child replay on one durable row and rejects request-hash drift', async () => {
     const otherPrisma = makeTestPrisma();
     await otherPrisma.$connect();
-    const firstAdapter = new PrismaProductGenerationIdempotencyAdapter(
-      prisma as unknown as PrismaService,
-    );
-    const secondAdapter = new PrismaProductGenerationIdempotencyAdapter(
-      otherPrisma as unknown as PrismaService,
-    );
-    let releaseFirst!: () => void;
-    let markFirstEntered!: () => void;
-    const firstGate = new Promise<void>((resolve) => {
-      releaseFirst = resolve;
+    const workspace = await prisma.contentWorkspace.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        ownerType: 'direct_detail_page',
+        displayName: 'Concurrent child',
+        normalizedTitle: 'concurrent child',
+        createdByUserId: 'f1234567-89ab-4cde-8f01-23456789abcd',
+      },
+      select: { id: true },
     });
-    const firstEntered = new Promise<void>((resolve) => {
-      markFirstEntered = resolve;
-    });
-    let active = 0;
-    let maxActive = 0;
     const coordinate = {
       organizationId: TEST_ORGANIZATION_ID,
-      idempotencyKey: 'operation-1:listing.generate:item-1',
+      idempotencyKey: 'product-generation:concurrent-child',
     };
+    const requestHash = 'a'.repeat(64);
+    const identity = deriveProductGenerationChildIdentity({
+      ...coordinate,
+      requestHash,
+      kind: 'detail_page',
+    });
+    const firstRepository = detailGenerationRepository(prisma);
+    const secondRepository = detailGenerationRepository(otherPrisma);
+    const open = (
+      detailPages: DetailPageGenerationRepositoryAdapter,
+      productGenerationIdentity = identity,
+    ) => detailPages.openProcessingGenerationLedger({
+      organizationId: TEST_ORGANIZATION_ID,
+      contentWorkspaceId: workspace.id,
+      sourceCandidateId: null,
+      triggeredByUserId: 'f1234567-89ab-4cde-8f01-23456789abcd',
+      templateId: 'bold-vertical',
+      rawInput: {
+        rawTitle: 'Concurrent child',
+        rawCategory: '',
+        rawDescription: '',
+        rawOptions: '',
+        imageUrls: [],
+        heroImageMode: 'first',
+        templateId: 'bold-vertical',
+        productGenerationRequestHash: productGenerationIdentity.requestHash,
+      },
+      imageUrls: [],
+      rawTitle: 'Concurrent child',
+      sourceReferences: [],
+      productGenerationIdentity,
+      directJob: {
+        jobType: 'detail_page_generate',
+        payload: {
+          jobType: 'detail_page_generate',
+          models: {
+            image: 'gemini-image-model',
+            text: 'gemini-text-model',
+            vision: 'gemini-vision-model',
+          },
+          input: {
+            templateId: 'bold-vertical',
+            generationMode: 'full',
+            raw: {
+              rawTitle: 'Concurrent child',
+              rawCategory: '',
+              rawDescription: '',
+              rawOptions: '',
+              imageUrls: [],
+              ageGroup: 'age-8-plus',
+              detailImageCount: '2',
+              usageSectionMode: 'include',
+              kcCertificationStatus: 'unknown',
+              kcCertificationNumber: '',
+            },
+            heroImageMode: 'first',
+          },
+        },
+        status: 'held',
+        scheduledFor: new Date('2026-07-19T00:00:00.000Z'),
+      },
+    });
 
     try {
-      const first = firstAdapter.runExclusive(coordinate, async () => {
-        active += 1;
-        maxActive = Math.max(maxActive, active);
-        markFirstEntered();
-        await firstGate;
-        active -= 1;
-        return 'first';
-      });
-      await firstEntered;
-      const second = secondAdapter.runExclusive(coordinate, async () => {
-        active += 1;
-        maxActive = Math.max(maxActive, active);
-        active -= 1;
-        return 'second';
-      });
+      const [first, second] = await Promise.all([
+        open(firstRepository),
+        open(secondRepository),
+      ]);
 
-      releaseFirst();
-      await expect(Promise.all([first, second])).resolves.toEqual(['first', 'second']);
-      expect(maxActive).toBe(1);
+      expect([first.status, second.status].sort()).toEqual(['created', 'existing']);
+      expect(first.row.id).toBe(identity.generationId);
+      expect(second.row.id).toBe(identity.generationId);
+      expect(first.directJobId).toBe(second.directJobId);
+      expect(first.releaseRequired).toBe(true);
+      expect(second.releaseRequired).toBe(true);
+      await expect(prisma.contentGeneration.count({
+        where: { id: identity.generationId, organizationId: TEST_ORGANIZATION_ID },
+      })).resolves.toBe(1);
+      await expect(prisma.aiDirectJob.count({
+        where: {
+          organizationId: TEST_ORGANIZATION_ID,
+          jobType: 'detail_page_generate',
+          sourceResourceId: identity.generationId,
+        },
+      })).resolves.toBe(1);
+
+      await expect(Promise.all([
+        new AiDirectJobRepositoryAdapter(prisma as unknown as PrismaService).release({
+          organizationId: TEST_ORGANIZATION_ID,
+          jobId: first.directJobId,
+        }),
+        new AiDirectJobRepositoryAdapter(otherPrisma as unknown as PrismaService).release({
+          organizationId: TEST_ORGANIZATION_ID,
+          jobId: second.directJobId,
+        }),
+      ])).resolves.toEqual([true, true]);
+      await expect(prisma.aiDirectJob.findUniqueOrThrow({
+        where: { id: first.directJobId },
+        select: { status: true },
+      })).resolves.toEqual({ status: 'pending' });
+
+      const driftIdentity = deriveProductGenerationChildIdentity({
+        ...coordinate,
+        requestHash: 'b'.repeat(64),
+        kind: 'detail_page',
+      });
+      await expect(open(firstRepository, driftIdentity)).rejects.toThrow(
+        'product_generation_idempotency_conflict',
+      );
     } finally {
       await otherPrisma.$disconnect();
     }
   });
 
-  it('replays one keyed ProductGeneration result across concurrent real-PG locks and rejects a mismatched request', async () => {
+  it('converges concurrent thumbnail-child replay on one durable row and rejects request-hash drift', async () => {
     const otherPrisma = makeTestPrisma();
     await otherPrisma.$connect();
-    const firstLock = new PrismaProductGenerationIdempotencyAdapter(
-      prisma as unknown as PrismaService,
-    );
-    const secondLock = new PrismaProductGenerationIdempotencyAdapter(
-      otherPrisma as unknown as PrismaService,
-    );
-    const candidateId = randomUUID();
-    const detailId = randomUUID();
-    const thumbnailId = randomUUID();
-    const workspaceId = randomUUID();
-    const parents = new Map<string, Record<string, unknown>>();
-    let releaseDetail!: () => void;
-    let enterDetail!: () => void;
-    const detailGate = new Promise<void>((resolve) => { releaseDetail = resolve; });
-    const detailEntered = new Promise<void>((resolve) => { enterDetail = resolve; });
-    const parentAlerts = {
-      find: async (_organizationId: string, operationKey: string) =>
-        parents.get(operationKey) ?? null,
-      start: async (input: { batchId: string; requestHash: string }) => {
-        parents.set(productGenerationOperationKey(input.batchId), {
-          metadata: { requestHash: input.requestHash, childIds: {} },
-        });
+    const candidate = await prisma.sourcingCandidate.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceUrl: 'https://example.com/concurrent-thumbnail',
+        sourcePlatform: 'manual',
+        name: 'Concurrent thumbnail',
       },
-      canStartChild: async () => true,
-      markChildFinished: async () => undefined,
-    };
-    const detailPages = {
-      generate: async (_input: unknown, _organizationId: string, _actor: string | null, options: any) => {
-        enterDetail();
-        await detailGate;
-        const parent = parents.get(options.operationAlert.parentOperationKey)!;
-        const metadata = parent.metadata as Record<string, any>;
-        metadata.childIds.detailPageGenerationId = detailId;
-        return { id: detailId, contentWorkspaceId: workspaceId };
+      select: { id: true },
+    });
+    const workspace = await prisma.contentWorkspace.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        ownerType: 'sourcing_candidate',
+        sourceCandidateId: candidate.id,
+        displayName: 'Concurrent thumbnail',
+        normalizedTitle: 'concurrent thumbnail',
+        createdByUserId: 'f1234567-89ab-4cde-8f01-23456789abcd',
       },
-    };
-    const thumbnails = {
-      enqueueCandidateGeneration: async (input: any) => {
-        enterDetail();
-        await detailGate;
-        const parent = parents.get(input.operationAlert.parentOperationKey)!;
-        const metadata = parent.metadata as Record<string, any>;
-        metadata.childIds.thumbnailGenerationId = thumbnailId;
-        return { generationId: thumbnailId };
-      },
-    };
-    const common = [
-      { findCandidate: async () => ({
-        id: candidateId, name: '자석 다트게임', category: '완구',
-        description: '안전한 다트 보드', thumbnailUrl: 'https://example.com/main.jpg',
-        images: [{ url: 'https://example.com/main.jpg', sortOrder: 0 }],
-      }) },
-      detailPages,
-      thumbnails,
-      { resolveInputImage: async () => ({
-        data: 'AAA', url: 'https://example.com/main.jpg', storageKey: null,
-        mimeType: 'image/jpeg', label: 'Product photo', role: 'product', sortOrder: 0,
-        source: 'sourcing_candidate', fileSize: null,
-      }) },
-      parentAlerts,
-    ] as const;
-    const first = new ProductGenerationAiService(...common, firstLock as never);
-    const second = new ProductGenerationAiService(...common, secondLock as never);
-    const request = {
+      select: { id: true },
+    });
+    const coordinate = {
       organizationId: TEST_ORGANIZATION_ID,
-      task: 'thumbnail' as const,
-      idempotencyKey: 'operation-1:listing.generate:item-1',
-      requestHash: 'a'.repeat(64),
-      triggeredByUserId: null,
-      candidateId,
-      productName: '자석 다트게임', category: '완구', description: '안전한 다트 보드',
-      target: '초등학생', imageUrls: ['https://example.com/main.jpg'],
-      thumbnailUrl: 'https://example.com/main.jpg', optionNames: ['기본'],
-      templateId: 'bold-vertical' as const, ageGroup: 'age-8-plus' as const,
-      detailImageCount: '2' as const, usageSectionMode: 'include' as const,
-      kcCertificationStatus: 'unknown' as const, kcCertificationNumber: null,
+      idempotencyKey: 'product-generation:concurrent-thumbnail',
     };
+    const requestHash = 'a'.repeat(64);
+    const identity = deriveProductGenerationChildIdentity({
+      ...coordinate,
+      requestHash,
+      kind: 'thumbnail',
+    });
+    const firstRepository = thumbnailGenerationRepository(prisma);
+    const secondRepository = thumbnailGenerationRepository(otherPrisma);
+    const open = (
+      thumbnails: ThumbnailGenerationLedgerRepositoryAdapter,
+      productGenerationIdentity = identity,
+    ) => thumbnails.openPendingDirectGeneration({
+      subject: 'candidate',
+      organizationId: TEST_ORGANIZATION_ID,
+      sourceCandidateId: candidate.id,
+      contentWorkspaceId: workspace.id,
+      originalUrl: 'https://example.com/concurrent-thumbnail.jpg',
+      method: 'generate',
+      inputMeta: {
+        mode: 'edit',
+        productGenerationRequestHash: productGenerationIdentity.requestHash,
+      },
+      triggeredByUserId: 'f1234567-89ab-4cde-8f01-23456789abcd',
+      inputImages: [{
+        data: 'AAA',
+        mimeType: 'image/jpeg',
+        label: 'Product photo',
+        url: 'https://example.com/concurrent-thumbnail.jpg',
+        storageKey: null,
+        role: 'product',
+        sortOrder: 0,
+        source: 'sourcing_candidate',
+        fileSize: null,
+      }],
+      productGenerationIdentity,
+      directJob: {
+        jobType: 'thumbnail_generate',
+        payload: thumbnailDirectPayload(),
+        status: 'held',
+        scheduledFor: new Date('2026-07-19T00:00:00.000Z'),
+      },
+    });
+
     try {
-      const firstRun = first.startForCandidate(request);
-      await detailEntered;
-      const replay = second.startForCandidate(request);
-      releaseDetail();
-      const [created, replayed] = await Promise.all([firstRun, replay]);
-      expect(replayed).toEqual(created);
-      expect(created).toMatchObject({
-        detailGenerationId: null, thumbnailGenerationId: thumbnailId,
-        contentWorkspaceId: null,
+      const [first, second] = await Promise.all([
+        open(firstRepository),
+        open(secondRepository),
+      ]);
+
+      expect([first.status, second.status].sort()).toEqual(['created', 'existing']);
+      expect(first.generationId).toBe(identity.generationId);
+      expect(second.generationId).toBe(identity.generationId);
+      expect(first.directJobId).toBe(second.directJobId);
+      await expect(prisma.thumbnailGeneration.count({
+        where: { id: identity.generationId, organizationId: TEST_ORGANIZATION_ID },
+      })).resolves.toBe(1);
+      await expect(prisma.aiDirectJob.count({
+        where: {
+          organizationId: TEST_ORGANIZATION_ID,
+          jobType: 'thumbnail_generate',
+          sourceResourceId: identity.generationId,
+        },
+      })).resolves.toBe(1);
+
+      const driftIdentity = deriveProductGenerationChildIdentity({
+        ...coordinate,
+        requestHash: 'b'.repeat(64),
+        kind: 'thumbnail',
       });
-      await expect(second.startForCandidate({ ...request, requestHash: 'b'.repeat(64) }))
-        .rejects.toThrow('product_generation_idempotency_conflict');
+      await expect(open(firstRepository, driftIdentity)).rejects.toThrow(
+        'product_generation_idempotency_conflict',
+      );
     } finally {
       await otherPrisma.$disconnect();
     }
   });
+
+  it('atomically terminalizes detail and thumbnail owner rows with their projecting direct jobs', async () => {
+    const workspace = await prisma.contentWorkspace.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        ownerType: 'direct_detail_page',
+        displayName: 'Cancellation owner',
+        normalizedTitle: 'cancellation owner',
+        createdByUserId: 'f1234567-89ab-4cde-8f01-23456789abcd',
+      },
+      select: { id: true },
+    });
+    const group = await prisma.contentGenerationGroup.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        contentWorkspaceId: workspace.id,
+        title: 'Cancellation owner',
+      },
+      select: { id: true },
+    });
+    const detail = await prisma.contentGeneration.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        generationGroupId: group.id,
+        contentWorkspaceId: workspace.id,
+        contentType: 'detail_page',
+        generationInput: {},
+        generationResult: {},
+        status: 'PROCESSING',
+      },
+      select: { id: true },
+    });
+    const thumbnail = await prisma.thumbnailGeneration.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        contentWorkspaceId: workspace.id,
+        originalUrl: 'https://example.com/input.jpg',
+        inputMeta: {},
+        status: 'running',
+        phase: 'processing',
+      },
+      select: { id: true },
+    });
+
+    const detailJob = await repository.create({
+      organizationId: TEST_ORGANIZATION_ID,
+      jobType: 'detail_page_generate',
+      sourceResourceId: detail.id,
+      payload: detailDirectPayload(),
+      status: 'held',
+      scheduledFor: new Date('2026-07-19T00:00:00.000Z'),
+    });
+    const thumbnailJob = await repository.create({
+      organizationId: TEST_ORGANIZATION_ID,
+      jobType: 'thumbnail_generate',
+      sourceResourceId: thumbnail.id,
+      payload: thumbnailDirectPayload(),
+      status: 'held',
+      scheduledFor: new Date('2026-07-19T00:00:00.000Z'),
+    });
+    await prisma.aiDirectJob.updateMany({
+      where: { id: { in: [detailJob.id, thumbnailJob.id] } },
+      data: { status: 'projecting' },
+    });
+
+    const detailCanceller = detailGenerationRepository(prisma);
+    const thumbnailCanceller = thumbnailGenerationRepository(prisma);
+    const [detailResults, thumbnailResults] = await Promise.all([
+      Promise.all([
+        detailCanceller.cancelDirectGeneration({
+          organizationId: TEST_ORGANIZATION_ID,
+          generationId: detail.id,
+          reason: 'operator_cancelled',
+        }),
+        detailCanceller.cancelDirectGeneration({
+          organizationId: TEST_ORGANIZATION_ID,
+          generationId: detail.id,
+          reason: 'operator_cancelled',
+        }),
+      ]),
+      Promise.all([
+        thumbnailCanceller.cancelDirectGeneration({
+          organizationId: TEST_ORGANIZATION_ID,
+          generationId: thumbnail.id,
+          reason: 'operator_cancelled',
+          actorUserId: 'f1234567-89ab-4cde-8f01-23456789abcd',
+          payload: { reason: 'operator_cancelled' },
+        }),
+        thumbnailCanceller.cancelDirectGeneration({
+          organizationId: TEST_ORGANIZATION_ID,
+          generationId: thumbnail.id,
+          reason: 'operator_cancelled',
+          actorUserId: 'f1234567-89ab-4cde-8f01-23456789abcd',
+          payload: { reason: 'operator_cancelled' },
+        }),
+      ]),
+    ]);
+
+    expect(detailResults.map((result) => result.status).sort()).toEqual([
+      'already_terminal',
+      'cancelled',
+    ]);
+    expect(thumbnailResults.map((result) => result.status).sort()).toEqual([
+      'already_terminal',
+      'cancelled',
+    ]);
+    await expect(prisma.contentGeneration.findUniqueOrThrow({
+      where: { id: detail.id },
+      select: { status: true, errorMessage: true },
+    })).resolves.toEqual({
+      status: 'CANCELLED',
+      errorMessage: 'operator_cancelled',
+    });
+    await expect(prisma.thumbnailGeneration.findUniqueOrThrow({
+      where: { id: thumbnail.id },
+      select: { status: true, phase: true, errorMessage: true },
+    })).resolves.toEqual({
+      status: 'cancelled',
+      phase: null,
+      errorMessage: 'operator_cancelled',
+    });
+    await expect(prisma.aiDirectJob.findMany({
+      where: { id: { in: [detailJob.id, thumbnailJob.id] } },
+      select: { id: true, status: true, lastErrorCode: true },
+      orderBy: { id: 'asc' },
+    })).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: detailJob.id, status: 'cancelled', lastErrorCode: 'user_cancelled' }),
+      expect.objectContaining({ id: thumbnailJob.id, status: 'cancelled', lastErrorCode: 'user_cancelled' }),
+    ]));
+    await expect(prisma.thumbnailGenerationEvent.count({
+      where: { organizationId: TEST_ORGANIZATION_ID, generationId: thumbnail.id },
+    })).resolves.toBe(2);
+  });
+
 });
+
+function detailGenerationRepository(prisma: PrismaClient): DetailPageGenerationRepositoryAdapter {
+  const scopedPrisma = prisma as unknown as PrismaService;
+  return new DetailPageGenerationRepositoryAdapter(
+    scopedPrisma,
+    new ContentAssetLibraryRepositoryAdapter(scopedPrisma),
+    new AiDirectJobRepositoryAdapter(scopedPrisma),
+  );
+}
+
+function thumbnailGenerationRepository(prisma: PrismaClient): ThumbnailGenerationLedgerRepositoryAdapter {
+  const scopedPrisma = prisma as unknown as PrismaService;
+  return new ThumbnailGenerationLedgerRepositoryAdapter(
+    scopedPrisma,
+    new AiDirectJobRepositoryAdapter(scopedPrisma),
+  );
+}
+
+function detailDirectPayload() {
+  return {
+    jobType: 'detail_page_generate' as const,
+    models: {
+      image: 'gemini-image-model',
+      text: 'gemini-text-model',
+      vision: 'gemini-vision-model',
+    },
+    input: {
+      templateId: 'bold-vertical' as const,
+      generationMode: 'full' as const,
+      raw: {
+        rawTitle: 'Cancellation owner',
+        rawCategory: '',
+        rawDescription: '',
+        rawOptions: '',
+        imageUrls: [],
+        ageGroup: 'age-8-plus' as const,
+        detailImageCount: '2' as const,
+        usageSectionMode: 'include' as const,
+        kcCertificationStatus: 'unknown' as const,
+        kcCertificationNumber: '',
+      },
+      heroImageMode: 'first' as const,
+    },
+  };
+}
+
+function thumbnailDirectPayload() {
+  return {
+    jobType: 'thumbnail_generate' as const,
+    models: { image: 'gemini-image-model' },
+    input: {
+      mode: 'edit' as const,
+      editCase: 'single' as const,
+      productName: 'Cancellation owner',
+      inputs: [{
+        mimeType: 'image/jpeg',
+        label: 'Product photo',
+        url: 'https://example.com/input.jpg',
+        storageKey: null,
+        role: 'product' as const,
+        sortOrder: 0,
+        source: 'test',
+        fileSize: null,
+      }],
+    },
+  };
+}

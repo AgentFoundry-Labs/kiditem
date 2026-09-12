@@ -1,19 +1,15 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import { Test } from '@nestjs/testing';
-import type { PrismaClient } from '@prisma/client';
 import { DashboardAdService } from '../application/service/dashboard-ad.service';
 import { buildDashboardContext } from '../domain/context';
-import { DashboardAdRepositoryAdapter } from '../adapter/out/repository/dashboard-ad.repository.adapter';
 import { WingTrafficAggregationRepositoryAdapter } from '../adapter/out/repository/wing-traffic-aggregation.repository.adapter';
 import { ProfitCalculationRepositoryAdapter } from '../adapter/out/repository/profit-calculation.repository.adapter';
-import { AdAggregationRepositoryAdapter } from '../adapter/out/repository/ad-aggregation.repository.adapter';
 import { WingAdSummaryRepositoryAdapter } from '../adapter/out/repository/wing-ad-summary.repository.adapter';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { PROFIT_CALCULATION_REPOSITORY_PORT } from '../application/port/out/repository/profit-calculation.repository.port';
-import { AD_AGGREGATION_REPOSITORY_PORT } from '../application/port/out/repository/ad-aggregation.repository.port';
 import { WING_AD_SUMMARY_REPOSITORY_PORT } from '../application/port/out/repository/wing-ad-summary.repository.port';
-import { DASHBOARD_AD_REPOSITORY_PORT } from '../application/port/out/repository/dashboard-ad.repository.port';
 import { WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT } from '../application/port/out/repository/wing-traffic-aggregation.repository.port';
+import { AD_TRAFFIC_READ_PORT } from '../../../advertising/application/port/in/ad-traffic-source.port';
 import {
   makeTestPrisma,
   resetDb,
@@ -22,10 +18,20 @@ import {
   OTHER_ORGANIZATION_ID,
   IDOR_SENTINEL,
 } from '../../../test-helpers/real-prisma';
+import type { PrismaClient } from '@prisma/client';
+import { seedAd, seedCompletedAdSweepRun } from '../../../test-helpers/finance-seeds';
 
 describe('DashboardAdService.getSummary (PG integration) — IDOR + dailyAdRows', () => {
   let prisma: PrismaClient;
   let service: DashboardAdService;
+  const trafficRead = {
+    readPublished: async () => ({
+      channelAccountId: null,
+      rows: [],
+      dashboard: null,
+      plan: { businessDate: '1970-01-01' },
+    }),
+  };
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
@@ -34,17 +40,14 @@ describe('DashboardAdService.getSummary (PG integration) — IDOR + dailyAdRows'
     const m = await Test.createTestingModule({
       providers: [
         DashboardAdService,
-        DashboardAdRepositoryAdapter,
         WingTrafficAggregationRepositoryAdapter,
         ProfitCalculationRepositoryAdapter,
-        AdAggregationRepositoryAdapter,
         WingAdSummaryRepositoryAdapter,
         { provide: PrismaService, useValue: prisma },
         { provide: PROFIT_CALCULATION_REPOSITORY_PORT, useExisting: ProfitCalculationRepositoryAdapter },
-        { provide: AD_AGGREGATION_REPOSITORY_PORT, useExisting: AdAggregationRepositoryAdapter },
         { provide: WING_AD_SUMMARY_REPOSITORY_PORT, useExisting: WingAdSummaryRepositoryAdapter },
-        { provide: DASHBOARD_AD_REPOSITORY_PORT, useExisting: DashboardAdRepositoryAdapter },
         { provide: WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT, useExisting: WingTrafficAggregationRepositoryAdapter },
+        { provide: AD_TRAFFIC_READ_PORT, useValue: trafficRead },
       ],
     }).compile();
     service = m.get(DashboardAdService);
@@ -59,11 +62,30 @@ describe('DashboardAdService.getSummary (PG integration) — IDOR + dailyAdRows'
     await seedBaseFixture(prisma);
   });
 
+  function latestClosedBusinessDate(): string {
+    const now = new Date();
+    const yesterday = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate() - 1));
+    return yesterday
+      .toISOString()
+      .slice(0, 10);
+  }
+
+  function enumerateDates(from: string, to: string): string[] {
+    const result: string[] = [];
+    const cursor = new Date(`${from}T00:00:00.000Z`);
+    const end = new Date(`${to}T00:00:00.000Z`);
+    while (cursor.getTime() <= end.getTime()) {
+      result.push(cursor.toISOString().slice(0, 10));
+      cursor.setUTCDate(cursor.getUTCDate() + 1);
+    }
+    return result;
+  }
+
   async function seedAdsTwoOrganizations() {
-    // Hard rewrite Phase H3b — seed `ChannelListingDailySnapshot` rows
-    // (daily-fact source-of-truth) instead of legacy `Ad` rows. Reads still
-    // assert IDOR + value isolation but on the new column shape.
+    // Seed the advertising target-day ledger, the one ad source. Reads assert
+    // IDOR + value isolation on it.
     const today = new Date();
+    today.setDate(today.getDate() - 1);
     const businessDate = new Date(
       Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()),
     );
@@ -99,36 +121,41 @@ describe('DashboardAdService.getSummary (PG integration) — IDOR + dailyAdRows'
       },
     });
 
-    // TEST daily fact — adSpend 500
-    await prisma.channelListingDailySnapshot.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        listingId: listingT.id,
-        channel: 'coupang',
-        externalId: 'L-T',
-        businessDate,
-        adSpend: 500,
-        adImpressions: 100,
-        adClicks: 10,
-        adConversions: 1,
-        adRevenue: 1500,
-      },
+    const date = businessDate.toISOString().slice(0, 10);
+    // Both sweeps declare a window that covers the whole 30-day context, so
+    // the days without rows are measured zeros rather than gaps.
+    const windowStart = new Date(businessDate.getTime() - 40 * 86_400_000).toISOString().slice(0, 10);
+    const runs = new Map<string, string>();
+    for (const organizationId of [TEST_ORGANIZATION_ID, OTHER_ORGANIZATION_ID]) {
+      runs.set(organizationId, await seedCompletedAdSweepRun(prisma, {
+        organizationId,
+        generation: 1,
+        window: { startDate: windowStart, endDate: date },
+      }));
+    }
+    // TEST measured ad day — spend 500
+    await seedAd(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      listingId: listingT.id,
+      runId: runs.get(TEST_ORGANIZATION_ID),
+      date,
+      spend: 500,
+      revenue: 1500,
+      impressions: 100,
+      clicks: 10,
+      conversions: 1,
     });
-
-    // OTHER daily fact — sentinel
-    await prisma.channelListingDailySnapshot.create({
-      data: {
-        organizationId: OTHER_ORGANIZATION_ID,
-        listingId: listingO.id,
-        channel: 'coupang',
-        externalId: 'L-O',
-        businessDate,
-        adSpend: IDOR_SENTINEL,
-        adImpressions: 100,
-        adClicks: 10,
-        adConversions: 1,
-        adRevenue: IDOR_SENTINEL,
-      },
+    // OTHER measured ad day — sentinel
+    await seedAd(prisma, {
+      organizationId: OTHER_ORGANIZATION_ID,
+      listingId: listingO.id,
+      runId: runs.get(OTHER_ORGANIZATION_ID),
+      date,
+      spend: IDOR_SENTINEL,
+      revenue: IDOR_SENTINEL,
+      impressions: 100,
+      clicks: 10,
+      conversions: 1,
     });
   }
 
@@ -137,15 +164,15 @@ describe('DashboardAdService.getSummary (PG integration) — IDOR + dailyAdRows'
     const ctx = buildDashboardContext('30d');
     const result = await service.getSummary(ctx, TEST_ORGANIZATION_ID);
 
-    if (result.dailyAd) {
-      for (const row of result.dailyAd) {
-        expect(row.adCost).not.toBe(IDOR_SENTINEL);
-      }
-      // Positive assertion: if TEST rows present, adCost = 500
-      const testRow = result.dailyAd.find((r) => r.adCost === 500);
-      if (testRow) {
-        expect(testRow.adCost).toBe(500);
-      }
+    expect(result.monthly.totalAdSpend).toBe(500);
+    expect(result.monthly.source).toBe('coupang_ads');
+    expect(result.dailyAd).toContainEqual({
+      date: latestClosedBusinessDate(),
+      adCost: 500,
+      source: 'coupang_ads',
+    });
+    for (const row of result.dailyAd ?? []) {
+      expect(row.adCost).not.toBe(IDOR_SENTINEL);
     }
   });
 
@@ -154,14 +181,15 @@ describe('DashboardAdService.getSummary (PG integration) — IDOR + dailyAdRows'
     const ctx = buildDashboardContext('30d');
     const result = await service.getSummary(ctx, OTHER_ORGANIZATION_ID);
 
-    if (result.dailyAd && result.dailyAd.length > 0) {
-      // TEST value 500 must not appear
-      for (const row of result.dailyAd) {
-        expect(row.adCost).not.toBe(500);
-      }
-      // At least one row should be the sentinel
-      const hasSentinel = result.dailyAd.some((r) => r.adCost === IDOR_SENTINEL);
-      expect(hasSentinel).toBe(true);
+    expect(result.monthly.totalAdSpend).toBe(IDOR_SENTINEL);
+    expect(result.monthly.source).toBe('coupang_ads');
+    expect(result.dailyAd).toContainEqual({
+      date: latestClosedBusinessDate(),
+      adCost: IDOR_SENTINEL,
+      source: 'coupang_ads',
+    });
+    for (const row of result.dailyAd ?? []) {
+      expect(row.adCost).not.toBe(500);
     }
   });
 
@@ -170,9 +198,9 @@ describe('DashboardAdService.getSummary (PG integration) — IDOR + dailyAdRows'
     const ctx = buildDashboardContext('30d');
     const result = await service.getSummary(ctx, TEST_ORGANIZATION_ID);
 
-    // TEST has 1 ad row this month with spend=500
-    // monthly.totalAdSpend comes from ProfitCalculationRepositoryAdapter (organizationId-scoped via port)
-    // Just assert no sentinel bleed
+    // The target-day ledger is the only ad source; the sum over its measured
+    // days is the month.
+    expect(result.monthly.totalAdSpend).toBe(500);
     expect(result.monthly.totalAdSpend).not.toBe(IDOR_SENTINEL);
   });
 });

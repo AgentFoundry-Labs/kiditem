@@ -2,7 +2,6 @@ import { Module } from '@nestjs/common';
 import { AnalyticsModule } from '../analytics/analytics.module';
 import { ChannelsFinalCapabilityModule } from '../channels/channels-final-capability.module';
 import { ChannelsModule } from '../channels/channels.module';
-import { OperationsModule } from '../operations/operations.module';
 import { PrismaModule } from '../prisma/prisma.module';
 import { ProductsModule } from '../products/products.module';
 import { SourcingModule } from '../sourcing/sourcing.module';
@@ -39,7 +38,6 @@ import { AgentOsCapabilityModule } from './agent-os-capability.module';
     SourcingModule,
     AgentOsCapabilityModule,
     SupplyAgentRuntimeModule,
-    OperationsModule,
   ],
   providers: [
     FinalCapabilityCatalogRegistrar,

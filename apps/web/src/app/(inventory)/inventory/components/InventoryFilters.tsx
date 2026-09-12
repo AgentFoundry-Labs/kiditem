@@ -96,7 +96,7 @@ export function InventoryFilters({
           selected={linkStatus}
           onChange={onLinkStatusChange}
         />
-        <span className="text-xs text-[var(--text-secondary)]">Sellpia 최신 전체 스냅샷 기준</span>
+        <span className="text-xs text-[var(--text-secondary)]">Sellpia 마지막 정상 수집 기준</span>
       </div>
     </div>
   );

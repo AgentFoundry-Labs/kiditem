@@ -1,37 +1,4 @@
-import { Equals, IsIn, IsString, MaxLength, MinLength } from 'class-validator';
-import type {
-  SellpiaInventoryCollectionFailureCode,
-  SellpiaInventoryRefreshRequest,
-} from '@kiditem/shared/sellpia-inventory-freshness';
-
-export class SellpiaInventoryRefreshRequestDto
-implements SellpiaInventoryRefreshRequest {
-  @IsIn(['manual_request', 'retry'])
-  reason!: SellpiaInventoryRefreshRequest['reason'];
-
-  @IsIn(['full', 'inventory'])
-  scope!: SellpiaInventoryRefreshRequest['scope'];
-}
-
-export class SellpiaInventoryClaimRequestDto {}
-export class SellpiaInventoryHeartbeatRequestDto {}
-export class SellpiaInventoryCancelRequestDto {}
-
-export class SellpiaInventoryFailRequestDto {
-  @IsIn([
-    'sellpia_login_required',
-    'sellpia_download_contract_drift',
-    'sellpia_invalid_workbook',
-    'sellpia_background_timeout',
-    'sellpia_network_failed',
-  ])
-  errorCode!: SellpiaInventoryCollectionFailureCode;
-
-  @IsString()
-  @MinLength(1)
-  @MaxLength(300)
-  errorMessage!: string;
-}
+import { Equals } from 'class-validator';
 
 export class SellpiaInventorySourceBindingRequestDto {
   @Equals('https://kiditem.sellpia.com')

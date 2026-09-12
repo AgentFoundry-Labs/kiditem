@@ -1,3 +1,5 @@
+import type { SourcingKeywordAnalysisSnapshot } from '@kiditem/shared/sourcing';
+
 export const TREND_COLLECTION_REPOSITORY_PORT = Symbol('TrendCollectionRepositoryPort');
 
 export const TREND_SEED_SOURCES = ['naver', 'shorts', '1688', 'tiktok-cc'] as const;
@@ -165,6 +167,7 @@ export interface ShortsSnapshotRow {
 
 export interface TiktokCcSnapshotUpsert {
   organizationId: string;
+  ingestionRunId: string;
   businessDate: Date;
   region: string;
   trendType: string;
@@ -204,13 +207,15 @@ export interface TrendHistoryQuery {
 }
 
 export interface TrendCollectionRepositoryPort {
+  findLatestCompleteTrendScope(input: { organizationId: string; source: 'naver' | 'shorts' }): Promise<string | null>;
+  findKeywordAnalysisSnapshot(input: { organizationId: string; inputHash: string; attemptId?: string }): Promise<SourcingKeywordAnalysisSnapshot | null>;
   listSeeds(organizationId: string): Promise<TrendSeedRow[]>;
   upsertSeedByKeyword(input: UpsertTrendSeedInput): Promise<TrendSeedRow>;
   updateSeed(input: UpdateTrendSeedInput): Promise<TrendSeedRow>;
   deleteSeed(input: { id: string; organizationId: string }): Promise<void>;
 
   findNaverKeywordHistory(query: TrendHistoryQuery): Promise<NaverKeywordSnapshotRow[]>;
-  findPopularKeywordHistory(query: TrendHistoryQuery): Promise<NaverPopularKeywordSnapshotRow[]>;
+  findPopularKeywordHistory(query: TrendHistoryQuery): Promise<{ rows: NaverPopularKeywordSnapshotRow[]; coverage: Array<{ boardKey: string; businessDate: Date }> }>;
   find1688HotHistory(query: TrendHistoryQuery): Promise<Sourcing1688HotProductSnapshotRow[]>;
   findShortsHistory(query: TrendHistoryQuery): Promise<ShortsSnapshotRow[]>;
   findTiktokCcHistory(query: TrendHistoryQuery): Promise<TiktokCcSnapshotRow[]>;

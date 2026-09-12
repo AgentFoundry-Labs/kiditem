@@ -1,12 +1,14 @@
 import { z } from 'zod';
 import { zIsoDate } from './common.js';
 import {
-  ProductAbcCalculationStatusSchema,
+  ProductAbcContributionOverviewSchema,
+  ProductAbcContributionProductSchema,
+  ProductAbcDisplayStatusSchema,
   ProductAbcEvaluationSchema,
-  ProductAbcFormulaSummarySchema,
+  ProductAbcFormulaPayloadSchema,
   ProductAbcGradeSchema,
+  ProductAbcReadModelSchema,
 } from './product-abc.js';
-import { OperationRunSchema } from './operations.js';
 
 export const ProductInventoryStatusSchema = z.enum([
   'sellable',
@@ -71,7 +73,7 @@ export type ProductOperationsAbcGradeFilter = z.infer<
 >;
 
 export const ProductOperationsAbcCalculationStatusFilterSchema =
-  ProductAbcCalculationStatusSchema;
+  ProductAbcDisplayStatusSchema;
 export type ProductOperationsAbcCalculationStatusFilter = z.infer<
   typeof ProductOperationsAbcCalculationStatusFilterSchema
 >;
@@ -146,6 +148,8 @@ export const MasterProductOperationsMetadataSchema = z.object({
   displayImageUrls: z.array(z.string().min(1)),
   abcGrade: ProductAbcGradeSchema.nullable(),
   abcEvaluation: ProductAbcEvaluationSchema.nullable(),
+  abc: ProductAbcReadModelSchema,
+  contribution: ProductAbcContributionProductSchema.nullable(),
   profitTag: z.string().nullable(),
   adTier: z.string().nullable(),
   adBudgetLimit: z.number().int().nonnegative().nullable(),
@@ -176,47 +180,43 @@ export type ProductDepletionProjection = z.infer<
 >;
 
 const ProductOperationsMetricFreshnessSchema = z.object({
-  status: z.enum(['READY', 'STALE', 'MISSING']),
+  ready: z.boolean(),
   coverageStartDate: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/).nullable(),
   coverageEndDate: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/).nullable(),
   capturedAt: zIsoDate.nullable(),
 }).strict();
 
 export const ProductOperationsDataSourceStatusSchema = z.object({
-  status: z.enum(['CURRENT', 'OUTDATED', 'NOT_COLLECTED', 'UPDATING', 'ACTION_REQUIRED', 'FAILED']),
-  coverageEndDate: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/).nullable(),
+  ready: z.boolean(),
+  actualCutoff: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/).nullable(),
   capturedAt: zIsoDate.nullable(),
-  lastErrorAt: zIsoDate.nullable(),
-  attentionReason: z.string().trim().min(1).max(120).nullable().optional(),
-}).strict().superRefine((source, context) => {
-  if (source.status === 'NOT_COLLECTED' && (source.coverageEndDate !== null || source.capturedAt !== null)) {
-    context.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['coverageEndDate'],
-      message: 'not-collected sources cannot claim coverage or capture time',
-    });
-  }
-});
+  latestAttemptState: z.enum(['RUNNING', 'COMPLETE', 'FAILED']).nullable(),
+  errorCode: z.string().trim().min(1).max(120).nullable(),
+}).strict();
 export type ProductOperationsDataSourceStatus = z.infer<
   typeof ProductOperationsDataSourceStatusSchema
 >;
 
 export const ProductOperationsDataStatusSchema = z.object({
   displayDataAsOf: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/).nullable(),
-  lastCompletedRefreshAt: zIsoDate.nullable(),
-  activeRun: OperationRunSchema.nullable(),
+  formulaRevision: z.number().int().nonnegative(),
+  publicationRevision: z.number().int().nonnegative(),
+  officialCutoff: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/).nullable(),
+  publishedAt: zIsoDate.nullable(),
+  actualCutoff: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/).nullable(),
   sources: z.object({
     traffic: ProductOperationsDataSourceStatusSchema,
     advertising: ProductOperationsDataSourceStatusSchema,
-    sellpiaProfit: ProductOperationsDataSourceStatusSchema,
-    abc: ProductOperationsDataSourceStatusSchema,
+    sellpia: ProductOperationsDataSourceStatusSchema,
+    mapping: z.object({
+      ready: z.boolean(),
+      generation: z.string().regex(/^\d+$/).nullable(),
+    }).strict(),
   }).strict(),
   abcSummary: z.object({
     classifiedProductCount: z.number().int().nonnegative(),
     unclassifiedProductCount: z.number().int().nonnegative(),
     mappingRequiredProductCount: z.number().int().nonnegative(),
-    orderEvidenceRequiredProductCount: z.number().int().nonnegative()
-      .describe('Legacy compatibility field; new profitability evaluations always return zero'),
     otherPendingProductCount: z.number().int().nonnegative(),
   }).strict(),
 }).strict();
@@ -252,8 +252,6 @@ export const MasterProductOperationsListItemSchema =
       traffic: ProductOperationsMetricFreshnessSchema,
       advertising: ProductOperationsMetricFreshnessSchema,
     }).strict(),
-    contributionProfitVelocity30: z.number().finite().nullable(),
-    contributionMargin: z.number().finite().nullable(),
   });
 export type MasterProductOperationsListItem = z.infer<
   typeof MasterProductOperationsListItemSchema
@@ -286,24 +284,12 @@ export const ProductOperationsListSummarySchema = z.object({
     READY: z.number().int().nonnegative(),
     INSUFFICIENT_EVIDENCE: z.number().int().nonnegative(),
     SOURCE_UNMAPPED: z.number().int().nonnegative(),
-    CALIBRATION_PENDING: z.number().int().nonnegative(),
-    RECALCULATING: z.number().int().nonnegative(),
     SELLPIA_SOURCE_STALE: z.number().int().nonnegative(),
     AD_SOURCE_STALE: z.number().int().nonnegative(),
-    ORDERS_SOURCE_STALE: z.number().int().nonnegative(),
-    CALCULATION_ERROR: z.number().int().nonnegative(),
+
   }).strict(),
-  abcContributionProfitByGrade: z.object({
-    A: z.number().int(),
-    B: z.number().int(),
-    C: z.number().int(),
-  }).strict(),
-  abcContributionProfitShareByGrade: z.object({
-    A: z.number().finite(),
-    B: z.number().finite(),
-    C: z.number().finite(),
-  }).strict(),
-  abcFormula: ProductAbcFormulaSummarySchema.nullable(),
+  contributionOverview: ProductAbcContributionOverviewSchema.nullable(),
+  abcFormula: ProductAbcFormulaPayloadSchema.nullable(),
   displayDataAsOf: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/).nullable(),
   channelProductCounts: z.array(ProductOperationsChannelProductCountSchema),
   inventoryStatusCounts: z.object({

@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { useQuery } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { productAbcReadModel } from '@/test/fixtures/product-abc';
 import ProductHubDetailPage from './page';
 
 const navigation = vi.hoisted(() => ({ params: new URLSearchParams(), back: vi.fn(), replace: vi.fn() }));
@@ -57,6 +58,7 @@ const product = {
   imageUrls: [],
   displayImageUrls: [],
   abcGrade: 'A',
+  abc: productAbcReadModel(),
   profitTag: null,
   adTier: null,
   adBudgetLimit: null,
@@ -168,6 +170,6 @@ describe('/product-hub/[id] MasterProduct detail', () => {
     fireEvent.click(screen.getByRole('button', { name: '동물 친구들 블록 ABC 근거 보기' }));
 
     expect(screen.getByRole('dialog', { name: 'ABC 평가 근거' })).toBeInTheDocument();
-    expect(screen.getByText(/상품 이익 = 매출/)).toBeInTheDocument();
+    expect(screen.getByText(/PRODUCT_ABC_ABSOLUTE · v2 · 반감기 90일/)).toBeInTheDocument();
   });
 });

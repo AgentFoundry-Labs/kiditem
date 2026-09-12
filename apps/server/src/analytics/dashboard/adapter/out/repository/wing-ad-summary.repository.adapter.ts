@@ -18,7 +18,7 @@
 
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../../../prisma/prisma.service';
-import { pct2 } from '../../../domain/util/percent';
+import { measuredPercent2 } from '../../../domain/util/percent';
 import type {
   WingAdSummaryRepositoryPort,
   WingAdSummaryResult,
@@ -98,7 +98,10 @@ export class WingAdSummaryRepositoryAdapter
     const summary = chosen.normalized.adSummary as Record<string, unknown>;
     const adRevenue = Math.round(Number(summary.adGmv) || 0);
     const adSpend = Math.round(Number(summary.adSpend) || 0);
-    const adRoas = pct2(adRevenue, adSpend);
+    // The shared `WingAdSummary` contract types adRoas as a plain number, so
+    // a spend-less summary still reports 0 here. Widening that contract is a
+    // separate change.
+    const adRoas = measuredPercent2(adRevenue, adSpend) ?? 0;
 
     return {
       adRevenue,

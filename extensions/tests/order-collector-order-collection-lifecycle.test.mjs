@@ -70,7 +70,7 @@ test('attaches normalized evidence to returned collector failures', async () => 
     operatorAction: 'complete_login',
   });
 });
-test('attaches normalized evidence when a collector throws', async () => {
+test('keeps local session running while a throwing collector exposes failure evidence', async () => {
   const lifecycleModule = loadLifecycle();
   const lifecycle = lifecycleModule.create({
     sessions: createSessions(),
@@ -93,7 +93,11 @@ test('attaches normalized evidence when a collector throws', async () => {
     async () => { throw new Error('Failed to fetch'); },
   );
 
-  assert.equal(result.collectionSession.status, 'failed');
+  // Terminal truth belongs to the server-owned attempt. The local browser
+  // session remains resumable/running until its owner acknowledges terminal
+  // state, so this compatibility lifecycle must not invent a local failure.
+  assert.equal(result.collectionSession.status, 'running');
+  assert.equal(result.success, false);
   assert.equal(result.failure.code, 'network_failed');
   assert.equal(result.failure.provider, 'boribori');
 });
@@ -126,7 +130,7 @@ test('promotes normalized login evidence to attention before terminal failure', 
   assert.equal(result.failure.code, 'login_required');
 });
 
-test('accepts the office environment owner', async () => {
+test('keeps the office environment session running after owner success', async () => {
   const lifecycleModule = loadLifecycle();
   const lifecycle = lifecycleModule.create({
     sessions: createSessions(),
@@ -140,5 +144,6 @@ test('accepts the office environment owner', async () => {
   );
 
   assert.equal(result.collectionSession.environmentId, 'office');
-  assert.equal(result.collectionSession.status, 'succeeded');
+  assert.equal(result.collectionSession.status, 'running');
+  assert.equal(result.success, true);
 });

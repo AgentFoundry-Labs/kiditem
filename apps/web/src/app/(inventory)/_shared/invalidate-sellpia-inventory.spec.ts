@@ -19,6 +19,7 @@ describe('invalidateSellpiaInventory', () => {
       queryKeys.inventory.productSalesAll(),
       queryKeys.channelSkuAvailability.all,
       queryKeys.channelSkuMappings.all,
+      queryKeys.channelProductMappings.all,
       queryKeys.dashboard.inventory(),
       queryKeys.products.all,
       queryKeys.ads.all,

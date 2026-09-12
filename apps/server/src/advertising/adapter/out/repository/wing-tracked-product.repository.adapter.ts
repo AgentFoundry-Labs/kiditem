@@ -1,38 +1,29 @@
-// Coupang Wing 카탈로그 상품 추적 persistence adapter.
-//
-// Tracker mutations use `(id, organizationId)` predicate + tenant-scoped
-// re-read so a cross-tenant id never leaks (keyword-rank adapter pattern).
-// Snapshots are idempotent on `(trackedProductId, businessDate)` with
-// latest-capture-wins overwrite; ingest matches trackers by
-// `(organizationId, productId)` and skips unmatched inputs.
-
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import type { ActiveBrowserAttemptTransaction } from '../../../../operations/application/port/active-browser-attempt-transaction';
+import { currentBusinessDate } from '../../../domain/business-date';
+import { upsertWingTrackedProductSnapshots } from './wing-tracked-product-snapshot.persistence';
+import { lockWingTrackedProductsSource } from './wing-tracked-product-source-lock';
+import type { Prisma } from '@prisma/client';
 import type {
-  UpsertWingSnapshotByProductIdInput,
   UpsertWingTrackedProductInput,
-  WingTrackedProductRepositoryPort,
   WingTrackedHistory,
+  WingTrackedProductRepositoryPort,
   WingTrackedProductRow,
   WingTrackedProductWithLatest,
   WingTrackedSnapshotRow,
+  WingTrackedSnapshotValues,
 } from '../../../application/port/out/repository/wing-tracked-product.repository.port';
 
+/** Organization-scoped tracker CRUD and snapshot reads. */
 @Injectable()
-export class WingTrackedProductRepositoryAdapter
-  implements WingTrackedProductRepositoryPort
-{
+export class WingTrackedProductRepositoryAdapter implements WingTrackedProductRepositoryPort {
   constructor(private readonly prisma: PrismaService) {}
 
   async list(organizationId: string): Promise<WingTrackedProductWithLatest[]> {
     const rows = await this.prisma.coupangWingTrackedProduct.findMany({
       where: { organizationId },
       orderBy: { createdAt: 'desc' },
-      include: {
-        snapshots: { orderBy: { businessDate: 'desc' }, take: 1 },
-      },
+      include: { snapshots: { orderBy: { businessDate: 'desc' }, take: 1 } },
     });
     return rows.map((row) => ({
       ...toTrackerRow(row),
@@ -40,132 +31,72 @@ export class WingTrackedProductRepositoryAdapter
     }));
   }
 
-  async upsertByProductId(
-    input: UpsertWingTrackedProductInput,
+  async registerWithInitialSnapshot(
+    input: UpsertWingTrackedProductInput & WingTrackedSnapshotValues,
     organizationId: string,
   ): Promise<WingTrackedProductRow> {
-    const row = await this.prisma.coupangWingTrackedProduct.upsert({
-      where: { organizationId_productId: { organizationId, productId: input.productId } },
-      create: {
-        organizationId,
+    const capturedAt = new Date();
+    return this.prisma.$transaction(async (tx) => {
+      await lockWingTrackedProductsSource(tx, organizationId);
+      const row = await tx.coupangWingTrackedProduct.upsert({
+        where: { organizationId_productId: { organizationId, productId: input.productId } },
+        create: {
+          organizationId,
+          productId: input.productId,
+          itemId: input.itemId ?? null,
+          vendorItemId: input.vendorItemId ?? null,
+          productName: input.productName,
+          imagePath: input.imagePath ?? null,
+          brandName: input.brandName ?? null,
+          categoryHierarchy: input.categoryHierarchy ?? null,
+          sourceKeyword: input.sourceKeyword ?? null,
+          enabled: true,
+        },
+        update: {
+          enabled: true,
+          productName: input.productName,
+          ...(input.itemId !== undefined ? { itemId: input.itemId } : {}),
+          ...(input.vendorItemId !== undefined ? { vendorItemId: input.vendorItemId } : {}),
+          ...(input.imagePath !== undefined ? { imagePath: input.imagePath } : {}),
+          ...(input.brandName !== undefined ? { brandName: input.brandName } : {}),
+          ...(input.categoryHierarchy !== undefined ? { categoryHierarchy: input.categoryHierarchy } : {}),
+          ...(input.sourceKeyword !== undefined ? { sourceKeyword: input.sourceKeyword } : {}),
+        },
+      });
+      const stored = await upsertWingTrackedProductSnapshots(tx, [{
         productId: input.productId,
-        itemId: input.itemId ?? null,
-        vendorItemId: input.vendorItemId ?? null,
-        productName: input.productName,
-        imagePath: input.imagePath ?? null,
-        brandName: input.brandName ?? null,
-        categoryHierarchy: input.categoryHierarchy ?? null,
-        sourceKeyword: input.sourceKeyword ?? null,
-        enabled: true,
-      },
-      update: {
-        enabled: true,
-        productName: input.productName,
-        ...(input.itemId !== undefined ? { itemId: input.itemId } : {}),
-        ...(input.vendorItemId !== undefined ? { vendorItemId: input.vendorItemId } : {}),
-        ...(input.imagePath !== undefined ? { imagePath: input.imagePath } : {}),
-        ...(input.brandName !== undefined ? { brandName: input.brandName } : {}),
-        ...(input.categoryHierarchy !== undefined
-          ? { categoryHierarchy: input.categoryHierarchy }
-          : {}),
-        ...(input.sourceKeyword !== undefined ? { sourceKeyword: input.sourceKeyword } : {}),
-      },
-    });
-    return toTrackerRow(row);
+        businessDate: currentBusinessDate(capturedAt),
+        sourceKeyword: input.sourceKeyword ?? row.sourceKeyword,
+        capturedAt,
+        salePriceKrw: input.salePriceKrw,
+        ratingCount: input.ratingCount,
+        ratingAverage: input.ratingAverage,
+        pvLast28Day: input.pvLast28Day,
+        salesLast28d: input.salesLast28d,
+        estimatedRevenue28d: input.estimatedRevenue28d,
+        conversionRate28d: input.conversionRate28d,
+      }], organizationId);
+      if (stored.captured !== 1) {
+        throw new ConflictException('WING_TRACKED_INITIAL_SNAPSHOT_NOT_WRITTEN');
+      }
+      return { ...toTrackerRow(row), lastCapturedAt: capturedAt };
+    }, trackerMutationTransactionOptions());
   }
 
   async delete(id: string, organizationId: string): Promise<WingTrackedProductRow> {
-    const existing = await this.findByIdOrThrow(id, organizationId);
-    await this.prisma.coupangWingTrackedProduct.deleteMany({
-      where: { id, organizationId },
-    });
-    return existing;
+    return this.prisma.$transaction(async (tx) => {
+      await lockWingTrackedProductsSource(tx, organizationId);
+      const existing = await tx.coupangWingTrackedProduct.findFirst({ where: { id, organizationId } });
+      if (!existing) throw new NotFoundException('Wing tracked product not found');
+      const deleted = await tx.coupangWingTrackedProduct.deleteMany({ where: { id, organizationId } });
+      if (deleted.count !== 1) throw new ConflictException('WING_TRACKED_TARGET_CHANGED');
+      return toTrackerRow(existing);
+    }, trackerMutationTransactionOptions());
   }
 
-  async findById(
-    id: string,
-    organizationId: string,
-  ): Promise<WingTrackedProductRow | null> {
-    const row = await this.prisma.coupangWingTrackedProduct.findFirst({
-      where: { id, organizationId },
-    });
+  async findById(id: string, organizationId: string): Promise<WingTrackedProductRow | null> {
+    const row = await this.prisma.coupangWingTrackedProduct.findFirst({ where: { id, organizationId } });
     return row ? toTrackerRow(row) : null;
-  }
-
-  async upsertSnapshotsByProductId(
-    rows: UpsertWingSnapshotByProductIdInput[],
-    organizationId: string,
-  ): Promise<number> {
-    return (await this.upsertSnapshots(this.prisma, rows, organizationId)).captured;
-  }
-
-  async upsertSnapshotsByProductIdInAttempt(
-    transaction: ActiveBrowserAttemptTransaction,
-    rows: UpsertWingSnapshotByProductIdInput[],
-    organizationId: string,
-  ): Promise<{ captured: number; ignored: number }> {
-    return this.upsertSnapshots(
-      transaction as unknown as Prisma.TransactionClient,
-      rows,
-      organizationId,
-    );
-  }
-
-  private async upsertSnapshots(
-    client: Pick<Prisma.TransactionClient,
-      'coupangWingTrackedProduct' | 'coupangWingTrackedProductDailySnapshot'>,
-    rows: UpsertWingSnapshotByProductIdInput[],
-    organizationId: string,
-  ): Promise<{ captured: number; ignored: number }> {
-    if (rows.length === 0) return { captured: 0, ignored: 0 };
-    const productIds = [...new Set(rows.map((row) => row.productId))];
-    const trackers = await client.coupangWingTrackedProduct.findMany({
-      where: { organizationId, enabled: true, productId: { in: productIds } },
-      select: { id: true, productId: true },
-    });
-    const trackerByProductId = new Map(trackers.map((t) => [t.productId, t.id]));
-    if (trackerByProductId.size === 0) {
-      return { captured: 0, ignored: rows.length };
-    }
-
-    const touchedTrackerIds = new Set<string>();
-    let processed = 0;
-    for (const row of rows) {
-      const trackedProductId = trackerByProductId.get(row.productId);
-      if (!trackedProductId) continue;
-      await client.coupangWingTrackedProductDailySnapshot.upsert({
-        where: {
-          trackedProductId_businessDate: {
-            trackedProductId,
-            businessDate: row.businessDate,
-          },
-        },
-        create: {
-          organizationId,
-          trackedProductId,
-          businessDate: row.businessDate,
-          ...snapshotWriteValues(row),
-          sourceKeyword: row.sourceKeyword,
-          capturedAt: row.capturedAt,
-        },
-        update: {
-          ...snapshotWriteValues(row),
-          sourceKeyword: row.sourceKeyword,
-          capturedAt: row.capturedAt,
-        },
-      });
-      touchedTrackerIds.add(trackedProductId);
-      processed += 1;
-    }
-
-    if (touchedTrackerIds.size > 0) {
-      const capturedAt = rows[0].capturedAt;
-      await client.coupangWingTrackedProduct.updateMany({
-        where: { id: { in: [...touchedTrackerIds] }, organizationId, enabled: true },
-        data: { lastCapturedAt: capturedAt },
-      });
-    }
-    return { captured: processed, ignored: rows.length - processed };
   }
 
   async findHistory(
@@ -174,38 +105,23 @@ export class WingTrackedProductRepositoryAdapter
     days: number,
   ): Promise<WingTrackedSnapshotRow[]> {
     const rows = await this.prisma.coupangWingTrackedProductDailySnapshot.findMany({
-      where: {
-        trackedProductId: id,
-        organizationId,
-        businessDate: { gte: historyCutoff(days) },
-      },
+      where: { trackedProductId: id, organizationId, businessDate: { gte: historyCutoff(days) } },
       orderBy: { businessDate: 'asc' },
     });
     return rows.map(toSnapshotRow);
   }
 
-  async findBulkHistory(
-    organizationId: string,
-    days: number,
-  ): Promise<WingTrackedHistory[]> {
+  async findBulkHistory(organizationId: string, days: number): Promise<WingTrackedHistory[]> {
     const rows = await this.prisma.coupangWingTrackedProductDailySnapshot.findMany({
-      where: {
-        organizationId,
-        businessDate: { gte: historyCutoff(days) },
-      },
-      orderBy: [
-        { trackedProductId: 'asc' },
-        { businessDate: 'asc' },
-      ],
-      include: {
-        trackedProduct: { select: { productName: true } },
-      },
+      where: { organizationId, businessDate: { gte: historyCutoff(days) } },
+      orderBy: [{ trackedProductId: 'asc' }, { businessDate: 'asc' }],
+      include: { trackedProduct: { select: { productName: true } } },
     });
     const histories = new Map<string, WingTrackedHistory>();
     for (const row of rows) {
-      const history = histories.get(row.trackedProductId);
-      if (history) {
-        history.points.push(toSnapshotRow(row));
+      const existing = histories.get(row.trackedProductId);
+      if (existing) {
+        existing.points.push(toSnapshotRow(row));
         continue;
       }
       histories.set(row.trackedProductId, {
@@ -217,20 +133,10 @@ export class WingTrackedProductRepositoryAdapter
     return [...histories.values()];
   }
 
-  private async findByIdOrThrow(
-    id: string,
-    organizationId: string,
-  ): Promise<WingTrackedProductRow> {
-    const row = await this.findById(id, organizationId);
-    if (!row) throw new NotFoundException('Wing tracked product not found');
-    return row;
-  }
 }
 
 type PrismaTrackerRow = Prisma.CoupangWingTrackedProductGetPayload<Record<string, never>>;
-type PrismaSnapshotRow = Prisma.CoupangWingTrackedProductDailySnapshotGetPayload<
-  Record<string, never>
->;
+type PrismaSnapshotRow = Prisma.CoupangWingTrackedProductDailySnapshotGetPayload<Record<string, never>>;
 
 function toTrackerRow(row: PrismaTrackerRow): WingTrackedProductRow {
   return {
@@ -257,43 +163,25 @@ function toSnapshotRow(row: PrismaSnapshotRow): WingTrackedSnapshotRow {
     businessDate: row.businessDate,
     salePriceKrw: row.salePriceKrw,
     ratingCount: row.ratingCount,
-    ratingAverage: toNumber(row.ratingAverage),
+    ratingAverage: row.ratingAverage == null ? null : Number(row.ratingAverage),
     pvLast28Day: row.pvLast28Day,
     salesLast28d: row.salesLast28d,
     estimatedRevenue28d: row.estimatedRevenue28d,
-    conversionRate28d: toNumber(row.conversionRate28d),
+    conversionRate28d: row.conversionRate28d == null ? null : Number(row.conversionRate28d),
     capturedAt: row.capturedAt,
   };
-}
-
-function snapshotWriteValues(row: UpsertWingSnapshotByProductIdInput) {
-  // Int 컬럼은 정수만 허용하므로 반올림(프론트가 float 를 보내도 방어).
-  // ratingAverage/conversionRate28d 는 Decimal 이라 그대로 둔다.
-  return {
-    salePriceKrw: roundOrNull(row.salePriceKrw),
-    ratingCount: roundOrNull(row.ratingCount),
-    ratingAverage: row.ratingAverage,
-    pvLast28Day: roundOrNull(row.pvLast28Day),
-    salesLast28d: roundOrNull(row.salesLast28d),
-    estimatedRevenue28d: roundOrNull(row.estimatedRevenue28d),
-    conversionRate28d: row.conversionRate28d,
-  };
-}
-
-function roundOrNull(value: number | null): number | null {
-  return value == null ? null : Math.round(value);
-}
-
-function toNumber(value: Prisma.Decimal | null): number | null {
-  return value == null ? null : Number(value);
-}
-
-function startOfUtcDay(date: Date): Date {
-  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
 }
 
 function historyCutoff(days: number): Date {
   const cutoff = new Date();
   cutoff.setUTCDate(cutoff.getUTCDate() - (days - 1));
-  return startOfUtcDay(cutoff);
+  return new Date(Date.UTC(cutoff.getUTCFullYear(), cutoff.getUTCMonth(), cutoff.getUTCDate()));
+}
+
+function trackerMutationTransactionOptions() {
+  return {
+    timeout: 30_000,
+    maxWait: 10_000,
+    isolationLevel: 'ReadCommitted' as const,
+  };
 }

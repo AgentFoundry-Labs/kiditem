@@ -1,20 +1,20 @@
-import { Inject, Injectable } from '@nestjs/common';
-
+import { Inject, Injectable } from "@nestjs/common";
+import {
+  COUPANG_SHIPMENT_FILE_STORAGE_PORT,
+  type CoupangShipmentFileStoragePort,
+} from "../port/out/storage";
+import {
+  COUPANG_SHIPMENT_DATE_SUMMARY_REPOSITORY_PORT,
+  type CoupangShipmentDateSummaryRepositoryPort,
+} from "../port/out/repository/coupang-shipment-date-summary.repository.port";
 import type {
   CoupangShipmentDateSummaryResult,
   CoupangShipmentFileRequest,
   CoupangShipmentFilesResponse,
   CoupangShipmentResolvedFile,
   CoupangShipmentsPort,
-} from '../port/in/fulfillment';
-import {
-  COUPANG_SHIPMENT_FILE_STORAGE_PORT,
-  type CoupangShipmentFileStoragePort,
-} from '../port/out/storage';
-import {
-  COUPANG_SHIPMENT_DATE_SUMMARY_REPOSITORY_PORT,
-  type CoupangShipmentDateSummaryRepositoryPort,
-} from '../port/out/repository/coupang-shipment-date-summary.repository.port';
+  ShipmentSummarySubmission,
+} from "../port/in/fulfillment";
 
 @Injectable()
 export class CoupangShipmentsService implements CoupangShipmentsPort {
@@ -25,7 +25,9 @@ export class CoupangShipmentsService implements CoupangShipmentsPort {
     private readonly dateSummary: CoupangShipmentDateSummaryRepositoryPort,
   ) {}
 
-  listLocalFiles(organizationId: string): Promise<CoupangShipmentFilesResponse> {
+  listLocalFiles(
+    organizationId: string,
+  ): Promise<CoupangShipmentFilesResponse> {
     return this.storage.listMergedFiles(organizationId);
   }
 
@@ -43,11 +45,41 @@ export class CoupangShipmentsService implements CoupangShipmentsPort {
     return { items };
   }
 
-  async saveDateSummary(
+  beginSummary(organizationId: string, key: string, maxPages?: number) {
+    return this.dateSummary.beginSummary(organizationId, key, maxPages);
+  }
+  readSummarySource(organizationId: string, maxPages?: number) {
+    return this.dateSummary.readSummarySource(organizationId, maxPages);
+  }
+  readSummaryAttempt(organizationId: string, attemptId: string) {
+    return this.dateSummary.readSummaryAttempt(organizationId, attemptId);
+  }
+  completeSummary(
     organizationId: string,
-    items: Array<{ date: string; count: number; boxes: number }>,
-  ): Promise<CoupangShipmentDateSummaryResult> {
-    const persisted = await this.dateSummary.upsertDateSummary(organizationId, items);
-    return { items: persisted };
+    attemptId: string,
+    token: string,
+    input: ShipmentSummarySubmission,
+  ) {
+    return this.dateSummary.completeSummary(
+      organizationId,
+      attemptId,
+      token,
+      input,
+    );
+  }
+  failSummary(
+    organizationId: string,
+    attemptId: string,
+    token: string,
+    code: string,
+    message: string,
+  ) {
+    return this.dateSummary.failSummary(
+      organizationId,
+      attemptId,
+      token,
+      code,
+      message,
+    );
   }
 }

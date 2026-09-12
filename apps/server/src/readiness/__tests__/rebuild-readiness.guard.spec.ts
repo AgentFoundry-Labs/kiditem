@@ -85,34 +85,6 @@ describe('RebuildReadinessGuard', () => {
     }
   });
 
-  it('allows ads replay only when its bounded idempotency key matches the current rebuild run', async () => {
-    const prisma = {
-      systemSetting: {
-        findUnique: vi.fn(async () => ({
-          value: { state: 'snapshot_required', target: 'office', originRunId: '12345' },
-        })),
-      },
-    };
-    const guard = new RebuildReadinessGuard(prisma as never);
-    const sourceRunId = '550e8400-e29b-41d4-a716-446655440000';
-
-    for (const idempotencyKey of [
-      undefined,
-      `authoritative-rebuild:99999:${sourceRunId}`,
-      'authoritative-rebuild:12345:not-a-source-run-uuid',
-    ]) {
-      await expect(guard.canActivate(context('/api/ads/extension/sync', {
-        method: 'POST',
-        body: idempotencyKey ? { idempotencyKey } : {},
-      }))).rejects.toBeInstanceOf(ServiceUnavailableException);
-    }
-
-    await expect(guard.canActivate(context('/api/ads/extension/sync', {
-      method: 'POST',
-      body: { idempotencyKey: `authoritative-rebuild:12345:${sourceRunId}` },
-    }))).resolves.toBe(true);
-  });
-
   it('allows ordinary operations when no rebuild is active or it is ready', async () => {
     for (const value of [null, { value: { state: 'ready' } }]) {
       const prisma = { systemSetting: { findUnique: vi.fn(async () => value) } };

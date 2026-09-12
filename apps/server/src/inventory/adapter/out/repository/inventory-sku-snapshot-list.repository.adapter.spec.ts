@@ -6,7 +6,7 @@ const SKU_ID = '00000000-0000-4000-8000-000000000002';
 const UNVERIFIED_RUN_ID = '00000000-0000-4000-8000-000000000003';
 
 describe('InventorySkuSnapshotListRepositoryAdapter', () => {
-  it('reads every snapshot fact in one repeatable-read transaction and nulls unverified provenance', async () => {
+  it('returns no official snapshot when the organization has no current completed pointer', async () => {
     const tx = {
       sellpiaInventorySku: {
         findMany: vi.fn().mockResolvedValue([{
@@ -94,37 +94,25 @@ describe('InventorySkuSnapshotListRepositoryAdapter', () => {
       expect.any(Function),
       { isolationLevel: 'RepeatableRead' },
     );
-    expect(tx.sellpiaInventorySku.findMany).toHaveBeenCalledOnce();
-    expect(tx.sellpiaInventorySku.count).toHaveBeenCalledOnce();
-    expect(tx.$queryRaw).toHaveBeenCalledOnce();
     expect(tx.sellpiaInventoryState.findUnique).toHaveBeenCalledOnce();
     expect(tx.sourceImportRun.findFirst).not.toHaveBeenCalled();
-    expect(tx.sourceImportRun.findMany).toHaveBeenCalledOnce();
-    expect(result.rows[0]).toMatchObject({
-      lastImportRunId: null,
-      lastImportedAt: null,
-      linkedChannelOptionCount: 2,
-      linkedProductCount: 1,
-      linkedProducts: [{ id: 'product-1', code: 'PRODUCT-1', name: '상품 1' }],
-      linkedChannelOptions: [
-        { id: 'option-1', masterProductId: 'product-1', channelListingId: 'listing-1', channel: 'coupang', externalOptionId: 'OPTION-1', itemName: '옵션 1' },
-        { id: 'option-2', masterProductId: 'product-1', channelListingId: 'listing-1', channel: 'coupang', externalOptionId: 'OPTION-2', itemName: '옵션 2' },
-      ],
-    });
+    expect(tx.sellpiaInventorySku.findMany).not.toHaveBeenCalled();
+    expect(tx.sellpiaInventorySku.count).not.toHaveBeenCalled();
+    expect(tx.$queryRaw).not.toHaveBeenCalled();
+    expect(tx.sourceImportRun.findMany).not.toHaveBeenCalled();
+    expect(result.rows).toEqual([]);
+    expect(result.total).toBe(0);
     expect(result.summary).toEqual({
-      totalSkus: 1,
-      linkedSkus: 1,
+      totalSkus: 0,
+      linkedSkus: 0,
       unlinkedSkus: 0,
-      inStockSkus: 1,
+      inStockSkus: 0,
       outOfStockSkus: 0,
-      totalUnits: 3,
-      pricedAssetValue: 3_000,
+      totalUnits: 0,
+      pricedAssetValue: 0,
       unpricedSkuCount: 0,
     });
-    const summarySql = String(tx.$queryRaw.mock.calls[0]?.[0]);
-    expect(summarySql).toContain('EXISTS');
-    expect(summarySql).toContain('channel_listing_option_inventory_components');
-    expect(summarySql).toContain('component.organization_id =');
+    expect(result.latestImport).toBeNull();
   });
 
   it('scopes a single snapshot read by both organization and inventory SKU id', async () => {
@@ -149,13 +137,28 @@ describe('InventorySkuSnapshotListRepositoryAdapter', () => {
       },
     });
     const repository = new InventorySkuSnapshotListRepositoryAdapter({
-      sellpiaInventorySku: { findFirst },
+      $transaction: vi.fn(async (operation: (client: unknown) => unknown) =>
+        operation({
+          sellpiaInventorySku: { findFirst },
+          sellpiaInventoryState: {
+            findUnique: vi.fn().mockResolvedValue({
+              lastCompletedImportRunId: UNVERIFIED_RUN_ID,
+            }),
+          },
+          sourceImportRun: {
+            findFirst: vi.fn().mockResolvedValue({ id: UNVERIFIED_RUN_ID }),
+          },
+        })),
     } as never);
 
     const result = await repository.getSnapshot(ORGANIZATION_ID, SKU_ID);
 
     expect(findFirst).toHaveBeenCalledWith(expect.objectContaining({
-      where: { id: SKU_ID, organizationId: ORGANIZATION_ID },
+      where: {
+        id: SKU_ID,
+        organizationId: ORGANIZATION_ID,
+        lastImportRunId: UNVERIFIED_RUN_ID,
+      },
     }));
     expect(result).toMatchObject({
       sellpiaInventorySkuId: SKU_ID,

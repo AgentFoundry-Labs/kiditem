@@ -25,7 +25,9 @@ function repositoryStub(): TrendCollectionRepositoryPort {
     updateSeed: vi.fn(),
     deleteSeed: vi.fn(),
     findNaverKeywordHistory: vi.fn(async () => []),
-    findPopularKeywordHistory: vi.fn(async () => []),
+    findPopularKeywordHistory: vi.fn(async () => ({ rows: [], coverage: [] })),
+    findKeywordAnalysisSnapshot: vi.fn(async () => null),
+    findLatestCompleteTrendScope: vi.fn(async () => null),
     find1688HotHistory: vi.fn(async () => []),
     findTiktokCcHistory: vi.fn(async () => []),
     findShortsHistory: vi.fn(async () => [
@@ -283,5 +285,21 @@ describe('TrendQueryService TikTok Creative Center', () => {
     vi.mocked(repository.findTiktokCcHistory).mockResolvedValue([]);
     const result = await new TrendQueryService(repository).getTiktokCc(ORGANIZATION_ID, 7);
     expect(result).toEqual({ days: 7, businessDate: null, capturedAt: null, regions: [] });
+  });
+});
+
+describe('TrendQueryService popular board coverage', () => {
+  it('keeps an older board history but presents the latest covered empty day as empty', async () => {
+    const repository = repositoryStub();
+    vi.mocked(repository.findPopularKeywordHistory).mockResolvedValue({
+      rows: [{ boardKey: 'toys_dolls', boardLabel: '완구', cid: null, businessDate: BUSINESS_DATE,
+        rank: 1, keyword: '레고', linkId: null }],
+      coverage: [
+        { boardKey: 'toys_dolls', businessDate: BUSINESS_DATE },
+        { boardKey: 'toys_dolls', businessDate: new Date('2026-07-14T00:00:00Z') },
+      ],
+    });
+    expect((await new TrendQueryService(repository).getPopularKeywords(ORGANIZATION_ID, 7)).boards)
+      .toEqual([{ boardKey: 'toys_dolls', boardLabel: '완구', latest: [], risers: [] }]);
   });
 });

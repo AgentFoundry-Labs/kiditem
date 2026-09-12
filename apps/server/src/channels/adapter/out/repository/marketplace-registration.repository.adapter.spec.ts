@@ -2,52 +2,7 @@ import { BadRequestException, ConflictException } from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
 import { MarketplaceRegistrationRepositoryAdapter } from "./marketplace-registration.repository.adapter";
 
-describe("MarketplaceRegistrationRepositoryAdapter preparation registration", () => {
-  it("rejects a non-invocation owner key before claiming a provider write", async () => {
-    const $transaction = vi.fn().mockResolvedValue(undefined);
-    const repository = new MarketplaceRegistrationRepositoryAdapter({
-      $transaction,
-    } as never);
-
-    await expect(
-      repository.claimProviderWrite({
-        organizationId: "org-1",
-        executionId: "execution-1",
-        preparationId: "preparation-1",
-        channelAccountId: "account-1",
-        sourceCandidateId: "candidate-1",
-        idempotencyKey: "submission-1",
-        requestHash: "a".repeat(64),
-        ownerIdempotencyKey: "not-a-canonical-sha256-key",
-      }),
-    ).rejects.toThrow(
-      "Provider write requires an invocation owner idempotency key.",
-    );
-    expect($transaction).not.toHaveBeenCalled();
-  });
-
-  it("accepts the opaque CapabilityInvocation owner key before claiming a provider write", async () => {
-    const $transaction = vi.fn().mockResolvedValue({ mode: "created" });
-    const repository = new MarketplaceRegistrationRepositoryAdapter({
-      $transaction,
-    } as never);
-
-    await expect(
-      repository.claimProviderWrite({
-        organizationId: "org-1",
-        executionId: "execution-1",
-        preparationId: "preparation-1",
-        channelAccountId: "account-1",
-        sourceCandidateId: "candidate-1",
-        idempotencyKey: "submission-1",
-        requestHash: "a".repeat(64),
-        ownerIdempotencyKey:
-          "capability-invocation:00000000-0000-4000-8000-000000000001",
-      }),
-    ).resolves.toEqual({ mode: "created" });
-    expect($transaction).toHaveBeenCalledTimes(1);
-  });
-
+describe("MarketplaceRegistrationRepositoryAdapter browser registration", () => {
   it("finds an active account-scoped listing by its synced seller SKU", async () => {
     const findMany = vi.fn().mockResolvedValue([
       {
@@ -118,16 +73,17 @@ describe("MarketplaceRegistrationRepositoryAdapter preparation registration", ()
   });
 
   it("preflights tenant-owned active product and inventory SKU identities", async () => {
-    const prisma = {
-      masterProduct: {
-        findFirst: vi
-          .fn()
-          .mockResolvedValue({ id: "00000000-0000-4000-8000-000000000001" }),
-      },
-      sellpiaInventorySku: { findMany: vi.fn().mockResolvedValue([]) },
+    const validateRecipeTargets = vi.fn().mockRejectedValue(
+      new BadRequestException(
+        "One or more SellpiaInventorySku components do not belong to this organization",
+      ),
+    );
+    const recipeMutations = {
+      validateRecipeTargets,
     };
     const repository = new MarketplaceRegistrationRepositoryAdapter(
-      prisma as never,
+      {} as never,
+      recipeMutations as never,
     );
 
     await expect(
@@ -144,15 +100,15 @@ describe("MarketplaceRegistrationRepositoryAdapter preparation registration", ()
         ],
       }),
     ).rejects.toThrow(
-      "Every KidItem-first inventory SKU must be active and belong to the organization.",
+      "One or more SellpiaInventorySku components do not belong to this organization",
     );
-    expect(prisma.masterProduct.findFirst).toHaveBeenCalledWith({
-      where: {
-        id: "00000000-0000-4000-8000-000000000001",
-        organizationId: "00000000-0000-4000-8000-000000000010",
-        isActive: true,
-      },
-      select: { id: true },
+    expect(validateRecipeTargets).toHaveBeenCalledWith({
+      organizationId: "00000000-0000-4000-8000-000000000010",
+      expectedMasterProductId: "00000000-0000-4000-8000-000000000001",
+      components: [{
+        sellpiaInventorySkuId: "00000000-0000-4000-8000-000000000002",
+        quantity: 1,
+      }],
     });
   });
 
@@ -162,6 +118,9 @@ describe("MarketplaceRegistrationRepositoryAdapter preparation registration", ()
         findFirst: vi
           .fn()
           .mockResolvedValue({ id: "account-1", channel: "coupang" }),
+      },
+      masterProductAbcFormulaState: {
+        upsert: vi.fn().mockResolvedValue({ mappingGeneration: 1n }),
       },
       $queryRaw: vi.fn().mockResolvedValue([{ id: "listing-1" }]),
       channelListingDeletionOperation: {
@@ -180,6 +139,7 @@ describe("MarketplaceRegistrationRepositoryAdapter preparation registration", ()
             channelAccount: { channel: "coupang" },
             externalId: "427011919",
             status: "inactive",
+            isActive: false,
           })
           .mockResolvedValueOnce({
             id: "listing-1",
@@ -188,6 +148,7 @@ describe("MarketplaceRegistrationRepositoryAdapter preparation registration", ()
             channelAccount: { channel: "coupang" },
             externalId: "427011919",
             status: "inactive",
+            isActive: false,
             masterProductId: null,
           })
           .mockResolvedValueOnce({

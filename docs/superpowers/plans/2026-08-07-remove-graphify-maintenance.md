@@ -337,7 +337,7 @@ rtk git commit -m "chore: remove Graphify artifacts and tooling"
 - Modify: `scripts/README.md`
 - Modify: `docs/runbooks/product-profitability-refresh.md`
 - Modify: `docs/runbooks/sellpia-inventory-freshness.md`
-- Modify: `docs/superpowers/specs/2026-07-12-sellpia-authoritative-inventory-cutover-design.md`
+- Modify: `docs/superpowers/specs/archive/2026-07-12-sellpia-authoritative-inventory-cutover-design.md`
 - Delete: `docs/GRAPHIFY.md`
 
 - [ ] **Step 1: 루트와 Prisma 지침을 ERD-only로 변경**
@@ -375,7 +375,7 @@ rtk git commit -m "chore: remove Graphify artifacts and tooling"
 
 - `docs/runbooks/product-profitability-refresh.md`: `GRAPHIFY_VIZ_NODE_LIMIT=7000 rtk npm run graphify:schema`
 - `docs/runbooks/sellpia-inventory-freshness.md`: `rtk npm run graphify:schema`
-- `docs/superpowers/specs/2026-07-12-sellpia-authoritative-inventory-cutover-design.md`: `npm run graphify:schema`
+- `docs/superpowers/specs/archive/2026-07-12-sellpia-authoritative-inventory-cutover-design.md`: `npm run graphify:schema`
 
 `docs/GRAPHIFY.md`는 현재 계약 전체가 폐기되므로 삭제한다. 대체 문서를 만들지 않는다. ERD 사용법은 `docs/README.md`와 `prisma/AGENTS.md`가 소유한다.
 
@@ -398,7 +398,7 @@ Expected: no output. Negative regression tests and this ignored implementation p
 - [ ] **Step 5: 커밋**
 
 ```bash
-rtk git add AGENTS.md prisma/AGENTS.md docs/README.md docs/TESTING.md scripts/README.md docs/runbooks/product-profitability-refresh.md docs/runbooks/sellpia-inventory-freshness.md docs/superpowers/specs/2026-07-12-sellpia-authoritative-inventory-cutover-design.md
+rtk git add AGENTS.md prisma/AGENTS.md docs/README.md docs/TESTING.md scripts/README.md docs/runbooks/product-profitability-refresh.md docs/runbooks/sellpia-inventory-freshness.md docs/superpowers/specs/archive/2026-07-12-sellpia-authoritative-inventory-cutover-design.md
 rtk git commit -m "docs: remove Graphify workflow references"
 ```
 

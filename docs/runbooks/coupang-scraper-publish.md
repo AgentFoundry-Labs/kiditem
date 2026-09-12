@@ -2,15 +2,16 @@
 
 Use this runbook after a human or agent has run the Coupang scraper and has
 scraper output JSON files ready on the local machine. The goal is to publish a
-replayable dev-data bundle to Google Drive so teammates can reproduce the same
-local DB/UI state.
+dev-data bundle to Google Drive so teammates can pull the same source payload
+and reference files for inspection. The former generic DB replay adapter is
+retired; database imports use the owning source runtime.
 
 Related docs:
 
 - [Google Drive Dev Data Runbook](google-drive-dev-data.md) — first-time Drive
   setup.
 - [Dev Data Profiles and Bundles](../DEV_DATA_BUNDLES.md) — bundle contract,
-  replay semantics, and verification manual.
+  pull semantics, and verification manual.
 
 ## Human Prerequisites
 

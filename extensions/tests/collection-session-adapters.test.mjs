@@ -8,13 +8,12 @@ import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const canonicalPath = path.join(repoRoot, 'extensions/shared/collection-session.js');
-const generatedPaths = [
+const generatedPath = path.join(
+  repoRoot,
   'extensions/kiditem-os/background/collection-session.js',
-  'extensions/kiditem-os/background/collection-session.js',
-  'extensions/kiditem-os/background/collection-session.js',
-];
-const RUN_ID = '11111111-1111-4111-8111-111111111111';
-const OTHER_RUN_ID = '22222222-2222-4222-8222-222222222222';
+);
+const ATTEMPT_ID = '11111111-1111-4111-8111-111111111111';
+const OTHER_ATTEMPT_ID = '22222222-2222-4222-8222-222222222222';
 
 function createFakeChrome(initialStorage = {}) {
   const storage = structuredClone(initialStorage);
@@ -37,6 +36,9 @@ function createFakeChrome(initialStorage = {}) {
           },
           async set(values) {
             Object.assign(storage, structuredClone(values));
+          },
+          async remove(key) {
+            delete storage[key];
           },
         },
       },
@@ -66,270 +68,133 @@ function createFakeChrome(initialStorage = {}) {
   };
 }
 
-function loadAdapter(relativePath, fake = createFakeChrome()) {
-  const filename = path.join(repoRoot, relativePath);
+function loadAdapter(fake = createFakeChrome()) {
   const context = vm.createContext({
     chrome: fake.chrome,
     console,
     structuredClone,
   });
-  vm.runInContext(fs.readFileSync(filename, 'utf8'), context, { filename });
+  vm.runInContext(fs.readFileSync(generatedPath, 'utf8'), context, {
+    filename: generatedPath,
+  });
   return {
     ...fake,
     create: context.KidItemCollectionSession.create,
   };
 }
 
-function startInput(runId = RUN_ID) {
+function startInput(attemptId = ATTEMPT_ID) {
   return {
     environmentId: 'local',
-    runId,
-    producer: 'sourcing.1688_trend',
-    classification: 'background_preferred',
-    restartStrategy: 'extension',
-    inputIdentity: {
-      keywordCount: 2,
-      password: 'must-not-persist',
-      accessToken: 'must-not-persist',
-      cookieJar: 'must-not-persist',
-      credentialId: 'must-not-persist',
-      sourceFile: 'must-not-persist',
-      rawRows: 'must-not-persist',
-      requestPayload: 'must-not-persist',
-    },
+    attemptId,
+    producer: 'inventory.sellpia',
+    attemptToken: 'owner-token',
+    plan: { from: '2025-08-01', to: '2026-08-31' },
   };
 }
 
-test('generated adapters are byte-identical to the canonical source', () => {
-  const canonical = fs.readFileSync(canonicalPath);
-  for (const relativePath of generatedPaths) {
-    assert.deepEqual(fs.readFileSync(path.join(repoRoot, relativePath)), canonical);
-  }
+function createManager(fake = createFakeChrome(), now = () => 100) {
+  const runtime = loadAdapter(fake);
+  const manager = runtime.create({
+    chrome: runtime.chrome,
+    storageKey: 'sessions',
+    webUrlPatterns: ['http://localhost:3000/*'],
+    now,
+  });
+  return { ...runtime, manager };
+}
+
+test('generated adapter is byte-identical to the canonical source', () => {
+  assert.deepEqual(fs.readFileSync(generatedPath), fs.readFileSync(canonicalPath));
 });
 
-test('sync --check succeeds for exact copies and detects drift', () => {
+test('sync --check succeeds for the canonical and generated adapters', () => {
   const scriptPath = path.join(
     repoRoot,
     'extensions/scripts/sync-collection-session-adapters.mjs',
   );
-  const clean = spawnSync(process.execPath, [scriptPath, '--check'], {
+  const result = spawnSync(process.execPath, [scriptPath, '--check'], {
     cwd: repoRoot,
     encoding: 'utf8',
   });
-  assert.equal(clean.status, 0, clean.stderr || clean.stdout);
-
-  const driftPath = path.join(repoRoot, generatedPaths[0]);
-  const original = fs.readFileSync(driftPath);
-  try {
-    fs.appendFileSync(driftPath, '\n// drift\n');
-    const drifted = spawnSync(process.execPath, [scriptPath, '--check'], {
-      cwd: repoRoot,
-      encoding: 'utf8',
-    });
-    assert.notEqual(drifted.status, 0);
-  } finally {
-    fs.writeFileSync(driftPath, original);
-  }
+  assert.equal(result.status, 0, result.stderr || result.stdout);
 });
 
-for (const relativePath of generatedPaths) {
-  test(`${relativePath} exposes the complete manager contract`, () => {
-    const runtime = loadAdapter(relativePath);
-    const manager = runtime.create({
-      chrome: runtime.chrome,
-      storageKey: 'sessions',
-      webUrlPatterns: ['http://localhost:3000/*'],
-      now: () => 100,
-    });
+test('manager exposes only owner-correlated session controls', () => {
+  const { manager } = createManager();
 
-    assert.deepEqual(
-      Object.keys(manager).sort(),
-      [
-        'attachTab',
-        'cancel',
-        'detachTab',
-        'fail',
-        'get',
-        'getOwned',
-        'list',
-        'listAll',
-        'openAttentionTab',
-        'progress',
-        'requireAttention',
-        'restart',
-        'start',
-        'succeed',
-      ].sort(),
-    );
-  });
-}
-
-test('requires, persists, filters, and publishes the collection environment owner', async () => {
-  const runtime = loadAdapter(generatedPaths[1]);
-  const published = [];
-  const environmentContext = {
-    requireEnvironment(environmentId) {
-      if (!['local', 'office'].includes(environmentId)) {
-        throw new Error('Unsupported KidItem environment');
-      }
-      return { environmentId };
-    },
-    async publish(environmentId, eventName, detail) {
-      published.push({ environmentId, eventName, detail });
-    },
-  };
-  const manager = runtime.create({
-    chrome: runtime.chrome,
-    storageKey: 'sessions',
-    environmentContext,
-    now: () => 100,
-  });
-
-  await assert.rejects(
-    manager.start({ ...startInput(), environmentId: undefined }),
-    /Collection environment is required/,
-  );
-  const local = await manager.start(startInput());
-  await manager.start({
-    ...startInput('33333333-3333-4333-8333-333333333333'),
-    environmentId: 'office',
-  });
-
-  assert.equal(local.environmentId, 'local');
-  assert.deepEqual(Array.from((await manager.list('local')).map((item) => item.runId)), [RUN_ID]);
-  assert.equal(await manager.getOwned(RUN_ID, 'office'), null);
-  assert.equal((await manager.getOwned(RUN_ID, 'local')).runId, RUN_ID);
-  assert.equal((await manager.listAll()).length, 2);
-  assert.deepEqual(
-    published.map(({ environmentId, eventName }) => ({ environmentId, eventName })),
-    [
-      { environmentId: 'local', eventName: 'kiditem:browser-collection-session' },
-      { environmentId: 'office', eventName: 'kiditem:browser-collection-session' },
-    ],
-  );
+  assert.deepEqual(Object.keys(manager).sort(), [
+    'attachTab',
+    'cancel',
+    'detachTab',
+    'get',
+    'getOwned',
+    'isActive',
+    'list',
+    'listAll',
+    'listCancellationRequests',
+    'openAttentionTab',
+    'ownsTab',
+    'progress',
+    'remove',
+    'retryPendingManagedTabs',
+    'requestCancellation',
+    'requireAttention',
+    'start',
+  ].sort());
+  assert.equal('restart' in manager, false);
+  assert.equal('finalize' in manager, false);
+  assert.equal('succeed' in manager, false);
+  assert.equal('fail' in manager, false);
 });
 
-test('start sanitizes identity and publishes only the public session view', async () => {
-  const runtime = loadAdapter(generatedPaths[1]);
-  const manager = runtime.create({
-    chrome: runtime.chrome,
-    storageKey: 'sessions',
-    webUrlPatterns: ['http://localhost:3000/*'],
-    now: () => 100,
-  });
+test('start stores only local session state and publishes no terminal lifecycle fields', async () => {
+  const { manager, storage, calls } = createManager();
 
   const view = await manager.start(startInput());
 
-  assert.deepEqual(JSON.parse(JSON.stringify(view.inputIdentity)), { keywordCount: 2 });
-  assert.deepEqual(JSON.parse(JSON.stringify(view.progress)), {
-    current: 0,
-    total: 0,
-    completed: 0,
-    failed: 0,
-    label: null,
-  });
-  assert.equal(view.status, 'running');
-  assert.equal(view.attempt, 1);
-  assert.equal(view.startedAt, 100);
-  assert.equal(view.updatedAt, 100);
-  assert.equal(view.finishedAt, null);
-  assert.equal(runtime.calls.executeScript.length, 2);
-  for (const call of runtime.calls.executeScript) {
-    assert.doesNotThrow(
-      () => new Function(`return (${call.func.toString()});`),
-      'chrome.scripting.executeScript func must serialize as a standalone function expression',
-    );
-    const published = call.args[0];
-    assert.equal(published.inputIdentity.password, undefined);
-    assert.equal(published._managedTabId, undefined);
-    assert.equal(published._managedWindowId, undefined);
-    assert.deepEqual(JSON.parse(JSON.stringify(call.target)), {
-      tabId: call.target.tabId,
-    });
-  }
-});
-
-test('start enforces the shared bounded primitive identity contract', async () => {
-  const runtime = loadAdapter(generatedPaths[1]);
-  const manager = runtime.create({
-    chrome: runtime.chrome,
-    storageKey: 'sessions',
-    webUrlPatterns: ['http://localhost:3000/*'],
-    now: () => 100,
-  });
-  const boundedFields = Object.fromEntries(
-    Array.from({ length: 25 }, (_, index) => [`field${index}`, index]),
-  );
-
-  const view = await manager.start({
-    ...startInput(),
-    inputIdentity: {
-      ...boundedFields,
-      response: 'raw',
-      responseBody: 'raw',
-      body: 'raw',
-      rawHtml: '<html />',
-      accessToken: 'secret',
-      nested: { raw: true },
-      array: ['raw'],
-      infinite: Number.POSITIVE_INFINITY,
-      tooLong: 'x'.repeat(501),
-      ['x'.repeat(81)]: 'long key',
-      '': 'empty key',
+  assert.deepEqual(JSON.parse(JSON.stringify(view)), {
+    environmentId: 'local',
+    attemptId: ATTEMPT_ID,
+    producer: 'inventory.sellpia',
+    progress: {
+      current: 0,
+      total: 0,
+      completed: 0,
+      failed: 0,
+      label: null,
     },
+    attention: null,
   });
-
-  assert.deepEqual(
-    JSON.parse(JSON.stringify(view.inputIdentity)),
-    Object.fromEntries(Array.from({ length: 20 }, (_, index) => [`field${index}`, index])),
-  );
+  for (const key of [
+    'runId',
+    'status',
+    'restartStrategy',
+    'attempt',
+    'finishedAt',
+    'inputIdentity',
+  ]) {
+    assert.equal(key in view, false, key);
+  }
+  assert.equal(storage.sessions[ATTEMPT_ID]._ownerAttemptToken, undefined);
+  assert.equal(storage.sessions[ATTEMPT_ID]._ownerPlan, undefined);
+  assert.equal(calls.executeScript[0].args[0]._ownerAttemptToken, undefined);
 });
 
-test('concurrent starts retain both sessions in the same storage map', async () => {
-  const runtime = loadAdapter(generatedPaths[0]);
-  const manager = runtime.create({
-    chrome: runtime.chrome,
-    storageKey: 'sessions',
-    webUrlPatterns: ['http://localhost:3000/*'],
-    now: () => 100,
-  });
-
-  await Promise.all([
-    manager.start(startInput(RUN_ID)),
-    manager.start(startInput(OTHER_RUN_ID)),
-  ]);
-
-  assert.deepEqual(Object.keys(runtime.storage.sessions).sort(), [
-    RUN_ID,
-    OTHER_RUN_ID,
-  ]);
-});
-
-test('managed tab IDs stay private while transitions are stored and published', async () => {
+test('progress and attention remain bounded local control state', async () => {
   let time = 100;
-  const runtime = loadAdapter(generatedPaths[1]);
-  const manager = runtime.create({
-    chrome: runtime.chrome,
-    storageKey: 'sessions',
-    webUrlPatterns: ['http://localhost:3000/*'],
-    now: () => time,
-  });
-
+  const { manager } = createManager(createFakeChrome(), () => time);
   await manager.start(startInput());
+
   time = 110;
-  const attached = await manager.attachTab(RUN_ID, { tabId: 7, windowId: 2 });
-  time = 120;
-  const progressed = await manager.progress(RUN_ID, {
+  const progressed = await manager.progress(ATTEMPT_ID, {
     current: 3,
     total: 5,
     completed: 2,
     failed: 1,
     label: '상품 수집 중',
   });
-
-  assert.equal(attached._managedTabId, undefined);
-  assert.equal(attached._managedWindowId, undefined);
-  assert.equal(progressed.updatedAt, 120);
+  assert.equal(progressed.attemptId, ATTEMPT_ID);
   assert.deepEqual(JSON.parse(JSON.stringify(progressed.progress)), {
     current: 3,
     total: 5,
@@ -337,443 +202,442 @@ test('managed tab IDs stay private while transitions are stored and published', 
     failed: 1,
     label: '상품 수집 중',
   });
-  assert.equal(runtime.storage.sessions[RUN_ID]._managedTabId, 7);
-  assert.equal(runtime.storage.sessions[RUN_ID]._managedWindowId, 2);
-  assert.equal(runtime.calls.executeScript.length, 6);
-  assert.deepEqual(
-    runtime.calls.executeScript.map((call) => call.args[0].updatedAt),
-    [100, 100, 110, 110, 120, 120],
-  );
-});
 
-test('detach closes the expected managed tab before clearing persisted ownership', async () => {
-  const runtime = loadAdapter(generatedPaths[2]);
-  const manager = runtime.create({
-    chrome: runtime.chrome,
-    storageKey: 'sessions',
-    webUrlPatterns: ['http://localhost:3000/*'],
-    now: () => 100,
-  });
-  await manager.start(startInput());
-  await manager.attachTab(RUN_ID, { tabId: 7, windowId: 2 });
-
-  const detached = await manager.detachTab(RUN_ID, {
-    tabId: 7,
-    closeManagedTab: true,
-  });
-
-  assert.equal(detached.status, 'running');
-  assert.deepEqual(runtime.calls.tabsRemove, [7]);
-  assert.equal(runtime.storage.sessions[RUN_ID]._managedTabId, undefined);
-  assert.equal(runtime.storage.sessions[RUN_ID]._managedWindowId, undefined);
-  assert.equal(runtime.storage.sessions[RUN_ID]._managedTabCloseOnRestart, undefined);
-});
-
-test('late duplicate detach cannot clear a newer managed-tab attachment', async () => {
-  const runtime = loadAdapter(generatedPaths[2]);
-  const manager = runtime.create({
-    chrome: runtime.chrome,
-    storageKey: 'sessions',
-    webUrlPatterns: ['http://localhost:3000/*'],
-    now: () => 100,
-  });
-  await manager.start(startInput());
-  await manager.attachTab(RUN_ID, { tabId: 8, windowId: 3 });
-
-  await manager.detachTab(RUN_ID, { tabId: 7, closeManagedTab: true });
-
-  assert.deepEqual(runtime.calls.tabsRemove, [7]);
-  assert.equal(runtime.storage.sessions[RUN_ID]._managedTabId, 8);
-  assert.equal(runtime.storage.sessions[RUN_ID]._managedWindowId, 3);
-});
-
-test('detach preserves retryable ownership when a live managed tab cannot be removed', async () => {
-  const fake = createFakeChrome();
-  fake.chrome.tabs.remove = async (tabId) => {
-    fake.calls.tabsRemove.push(tabId);
-    throw new Error('temporary browser failure');
-  };
-  fake.chrome.tabs.get = async (tabId) => ({ id: tabId });
-  const runtime = loadAdapter(generatedPaths[2], fake);
-  const manager = runtime.create({
-    chrome: runtime.chrome,
-    storageKey: 'sessions',
-    webUrlPatterns: ['http://localhost:3000/*'],
-    now: () => 100,
-  });
-  await manager.start(startInput());
-  await manager.attachTab(RUN_ID, { tabId: 7, windowId: 2 });
-
-  await assert.rejects(
-    manager.detachTab(RUN_ID, { tabId: 7, closeManagedTab: true }),
-    /could not be removed/,
-  );
-
-  assert.equal(runtime.storage.sessions[RUN_ID]._managedTabId, 7);
-  assert.equal(runtime.storage.sessions[RUN_ID]._managedWindowId, 2);
-});
-
-test('duplicate detach heals stale ownership when the managed tab is already absent', async () => {
-  const fake = createFakeChrome();
-  fake.chrome.tabs.remove = async (tabId) => {
-    fake.calls.tabsRemove.push(tabId);
-    throw new Error('No tab with id');
-  };
-  fake.chrome.tabs.get = async () => {
-    throw new Error('No tab with id');
-  };
-  const runtime = loadAdapter(generatedPaths[2], fake);
-  const manager = runtime.create({
-    chrome: runtime.chrome,
-    storageKey: 'sessions',
-    webUrlPatterns: ['http://localhost:3000/*'],
-    now: () => 100,
-  });
-  await manager.start(startInput());
-  await manager.attachTab(RUN_ID, { tabId: 7, windowId: 2 });
-
-  await manager.detachTab(RUN_ID, { tabId: 7, closeManagedTab: true });
-
-  assert.equal(runtime.storage.sessions[RUN_ID]._managedTabId, undefined);
-  assert.equal(runtime.storage.sessions[RUN_ID]._managedWindowId, undefined);
-});
-
-test('restart begins a new attempt from progress zero with sanitized restart input', async () => {
-  let time = 100;
-  const runtime = loadAdapter(generatedPaths[2]);
-  const manager = runtime.create({
-    chrome: runtime.chrome,
-    storageKey: 'sessions',
-    webUrlPatterns: ['http://localhost:3000/*'],
-    now: () => time,
-  });
-  await manager.start(startInput());
-  await manager.progress(RUN_ID, {
-    current: 4,
-    total: 5,
-    completed: 3,
-    failed: 1,
-    label: 'almost done',
-  });
-  time = 200;
-  await manager.fail(RUN_ID);
-  time = 300;
-
-  const restarted = await manager.restart(RUN_ID);
-
-  assert.equal(restarted.status, 'running');
-  assert.equal(restarted.attempt, 2);
-  assert.equal(restarted.finishedAt, null);
-  assert.equal(restarted.attention, null);
-  assert.deepEqual(JSON.parse(JSON.stringify(restarted.progress)), {
-    current: 0,
-    total: 0,
-    completed: 0,
-    failed: 0,
-    label: null,
-  });
-  assert.deepEqual(JSON.parse(JSON.stringify(restarted.inputIdentity)), { keywordCount: 2 });
-  assert.equal(restarted.restartStrategy, 'extension');
-});
-
-test('restart preserves the managed tab by default', async () => {
-  const runtime = loadAdapter(generatedPaths[2]);
-  const manager = runtime.create({
-    chrome: runtime.chrome,
-    storageKey: 'sessions',
-    webUrlPatterns: ['http://localhost:3000/*'],
-    now: () => 100,
-  });
-  await manager.start(startInput());
-  await manager.attachTab(RUN_ID, { tabId: 7, windowId: 2 });
-
-  const restarted = await manager.restart(RUN_ID);
-
-  assert.equal(restarted.attempt, 2);
-  assert.deepEqual(runtime.calls.tabsRemove, []);
-  assert.equal(runtime.storage.sessions[RUN_ID]._managedTabId, 7);
-  assert.equal(runtime.storage.sessions[RUN_ID]._managedWindowId, 2);
-});
-
-test('restart can close and detach the previous managed attention tab', async () => {
-  const runtime = loadAdapter(generatedPaths[2]);
-  const manager = runtime.create({
-    chrome: runtime.chrome,
-    storageKey: 'sessions',
-    webUrlPatterns: ['http://localhost:3000/*'],
-    now: () => 100,
-  });
-  await manager.start(startInput());
-  await manager.attachTab(RUN_ID, { tabId: 7, windowId: 2 });
-  await manager.requireAttention(RUN_ID, {
+  const attention = await manager.requireAttention(ATTEMPT_ID, {
     reason: 'marketplace_login',
-    message: '로그인이 필요합니다.',
+    message: 'Sellpia 로그인이 필요합니다.',
   });
-
-  const restarted = await manager.restart(RUN_ID, { closeManagedTab: true });
-
-  assert.equal(restarted.status, 'running');
-  assert.equal(restarted.attempt, 2);
-  assert.equal(restarted.attention, null);
-  assert.deepEqual(runtime.calls.tabsRemove, [7]);
-  assert.equal(runtime.storage.sessions[RUN_ID]._managedTabId, undefined);
-  assert.equal(runtime.storage.sessions[RUN_ID]._managedWindowId, undefined);
+  assert.deepEqual(JSON.parse(JSON.stringify(attention.attention)), {
+    reason: 'marketplace_login',
+    message: 'Sellpia 로그인이 필요합니다.',
+    canOpenTab: false,
+  });
+  assert.equal('status' in attention, false);
 });
 
-test('restart detaches but preserves a managed tab owned by the user', async () => {
-  const runtime = loadAdapter(generatedPaths[2]);
-  const manager = runtime.create({
-    chrome: runtime.chrome,
-    storageKey: 'sessions',
-    webUrlPatterns: ['http://localhost:3000/*'],
-    now: () => 100,
-  });
+test('managed tab identity is private but survives for explicit attention resume', async () => {
+  const { manager, storage, calls } = createManager();
   await manager.start(startInput());
-  await manager.attachTab(RUN_ID, {
-    tabId: 7,
-    windowId: 2,
-    closeOnRestart: false,
-  });
+  await manager.attachTab(ATTEMPT_ID, { tabId: 7, windowId: 2 });
 
-  const restarted = await manager.restart(RUN_ID, { closeManagedTab: true });
-
-  assert.equal(restarted.attempt, 2);
-  assert.deepEqual(runtime.calls.tabsRemove, []);
-  assert.equal(runtime.storage.sessions[RUN_ID]._managedTabId, undefined);
-  assert.equal(runtime.storage.sessions[RUN_ID]._managedWindowId, undefined);
-  assert.equal(runtime.storage.sessions[RUN_ID]._managedTabCloseOnRestart, undefined);
-});
-
-test('session publication is best effort across stale KidItem tabs', async () => {
-  const fake = createFakeChrome();
-  fake.chrome.scripting.executeScript = async (details) => {
-    fake.calls.executeScript.push(details);
-    if (details.target.tabId === 90) throw new Error('The tab was closed');
-  };
-  const runtime = loadAdapter(generatedPaths[1], fake);
-  const manager = runtime.create({
-    chrome: runtime.chrome,
-    storageKey: 'sessions',
-    webUrlPatterns: ['http://localhost:3000/*'],
-    now: () => 100,
-  });
-
-  const started = await manager.start(startInput());
-
-  assert.equal(started.status, 'running');
-  assert.equal(runtime.storage.sessions[RUN_ID].status, 'running');
-  assert.deepEqual(
-    runtime.calls.executeScript.map((call) => call.target.tabId),
-    [90, 91],
-  );
-});
-
-test('session transition survives a failed KidItem tab query', async () => {
-  const fake = createFakeChrome();
-  fake.chrome.tabs.query = async () => {
-    throw new Error('Tabs unavailable');
-  };
-  const runtime = loadAdapter(generatedPaths[1], fake);
-  const manager = runtime.create({
-    chrome: runtime.chrome,
-    storageKey: 'sessions',
-    webUrlPatterns: ['http://localhost:3000/*'],
-    now: () => 100,
-  });
-
-  const started = await manager.start(startInput());
-
-  assert.equal(started.status, 'running');
-  assert.equal(runtime.storage.sessions[RUN_ID].status, 'running');
-});
-
-test('cancellation is cooperative and never changes browser focus', async () => {
-  const runtime = loadAdapter(generatedPaths[0]);
-  const manager = runtime.create({
-    chrome: runtime.chrome,
-    storageKey: 'sessions',
-    webUrlPatterns: ['http://localhost:3000/*'],
-    now: () => 100,
-  });
-  await manager.start(startInput());
-  await manager.attachTab(RUN_ID, { tabId: 7, windowId: 2 });
-
-  const cancelled = await manager.cancel(RUN_ID);
-
-  assert.equal(cancelled.status, 'cancelled');
-  assert.equal(cancelled.finishedAt, 100);
-  assert.equal(runtime.calls.tabsUpdate.length, 0);
-  assert.equal(runtime.calls.windowsUpdate.length, 0);
-  assert.deepEqual(runtime.calls.tabsRemove, []);
-  assert.equal(runtime.storage.sessions[RUN_ID]._managedTabId, 7);
-});
-
-test('cancellation can close and detach the managed order tab', async () => {
-  const runtime = loadAdapter(generatedPaths[2]);
-  const manager = runtime.create({
-    chrome: runtime.chrome,
-    storageKey: 'sessions',
-    webUrlPatterns: ['http://localhost:3000/*'],
-    now: () => 100,
-  });
-  await manager.start(startInput());
-  await manager.attachTab(RUN_ID, { tabId: 7, windowId: 2 });
-
-  const cancelled = await manager.cancel(RUN_ID, { closeManagedTab: true });
-
-  assert.equal(cancelled.status, 'cancelled');
-  assert.deepEqual(runtime.calls.tabsRemove, [7]);
-  assert.equal(runtime.storage.sessions[RUN_ID]._managedTabId, undefined);
-  assert.equal(runtime.storage.sessions[RUN_ID]._managedWindowId, undefined);
-});
-
-test('cancellation detaches but preserves a managed tab owned by the user', async () => {
-  const runtime = loadAdapter(generatedPaths[2]);
-  const manager = runtime.create({
-    chrome: runtime.chrome,
-    storageKey: 'sessions',
-    webUrlPatterns: ['http://localhost:3000/*'],
-    now: () => 100,
-  });
-  await manager.start(startInput());
-  await manager.attachTab(RUN_ID, {
-    tabId: 7,
-    windowId: 2,
-    closeOnRestart: false,
-  });
-
-  const cancelled = await manager.cancel(RUN_ID, { closeManagedTab: true });
-
-  assert.equal(cancelled.status, 'cancelled');
-  assert.deepEqual(runtime.calls.tabsRemove, []);
-  assert.equal(runtime.storage.sessions[RUN_ID]._managedTabId, undefined);
-  assert.equal(runtime.storage.sessions[RUN_ID]._managedWindowId, undefined);
-  assert.equal(runtime.storage.sessions[RUN_ID]._managedTabCloseOnRestart, undefined);
-});
-
-test('late operation transitions cannot overwrite a cancelled session', async () => {
-  const runtime = loadAdapter(generatedPaths[2]);
-  const manager = runtime.create({
-    chrome: runtime.chrome,
-    storageKey: 'sessions',
-    webUrlPatterns: ['http://localhost:3000/*'],
-    now: () => 100,
-  });
-  await manager.start(startInput());
-  await manager.cancel(RUN_ID);
-
-  const lateViews = [
-    await manager.attachTab(RUN_ID, { tabId: 8, windowId: 3 }),
-    await manager.progress(RUN_ID, {
-      current: 1,
-      total: 1,
-      completed: 1,
-      failed: 0,
-      label: 'late progress',
-    }),
-    await manager.requireAttention(RUN_ID, {
-      reason: 'marketplace_login',
-      message: '늦은 로그인 요청',
-    }),
-    await manager.fail(RUN_ID),
-    await manager.succeed(RUN_ID),
-  ];
-
-  assert.ok(lateViews.every((view) => view.status === 'cancelled'));
-  assert.equal(runtime.storage.sessions[RUN_ID].status, 'cancelled');
-  assert.deepEqual(runtime.calls.tabsRemove, [8]);
-});
-
-test('a user-owned tab attached after cancellation is preserved', async () => {
-  const runtime = loadAdapter(generatedPaths[2]);
-  const manager = runtime.create({
-    chrome: runtime.chrome,
-    storageKey: 'sessions',
-    webUrlPatterns: ['http://localhost:3000/*'],
-    now: () => 100,
-  });
-  await manager.start(startInput());
-  await manager.cancel(RUN_ID);
-
-  const view = await manager.attachTab(RUN_ID, {
-    tabId: 9,
-    windowId: 3,
-    closeOnRestart: false,
-  });
-
-  assert.equal(view.status, 'cancelled');
-  assert.deepEqual(runtime.calls.tabsRemove, []);
-});
-
-test('attention never focuses until the explicit open command', async () => {
-  const runtime = loadAdapter(generatedPaths[1]);
-  const manager = runtime.create({
-    chrome: runtime.chrome,
-    storageKey: 'sessions',
-    webUrlPatterns: ['http://localhost:3000/*'],
-    now: () => 100,
-  });
-  await manager.start(startInput());
-  await manager.attachTab(RUN_ID, { tabId: 7, windowId: 2 });
-  const view = await manager.requireAttention(RUN_ID, {
+  const attention = await manager.requireAttention(ATTEMPT_ID, {
     reason: 'captcha',
-    message: '1688 보안 확인이 필요합니다.',
+    message: '보안 확인이 필요합니다.',
   });
+  assert.equal(attention.attention.canOpenTab, true);
+  assert.equal(attention._managedTabId, undefined);
+  assert.equal(storage.sessions[ATTEMPT_ID]._managedTabId, 7);
+  assert.equal(storage.sessions[ATTEMPT_ID]._managedWindowId, 2);
 
-  assert.equal(runtime.calls.tabsUpdate.length, 0);
-  assert.equal(runtime.calls.windowsUpdate.length, 0);
-  assert.equal(view.attention.canOpenTab, true);
-  assert.equal(view.inputIdentity.password, undefined);
-
-  await manager.openAttentionTab(RUN_ID);
-  assert.deepEqual(runtime.calls.tabsUpdate, [
+  await manager.openAttentionTab(ATTEMPT_ID);
+  assert.deepEqual(calls.tabsUpdate, [
     { tabId: 7, properties: { active: true } },
   ]);
-  assert.deepEqual(runtime.calls.windowsUpdate, [
+  assert.deepEqual(calls.windowsUpdate, [
     { windowId: 2, properties: { focused: true } },
   ]);
 });
 
-test('openAttentionTab rejects sessions that do not require attention', async () => {
-  const runtime = loadAdapter(generatedPaths[1]);
-  const manager = runtime.create({
-    chrome: runtime.chrome,
-    storageKey: 'sessions',
-    webUrlPatterns: ['http://localhost:3000/*'],
-    now: () => 100,
-  });
+test('ownsTab verifies the private managed tab against the exact environment and producer', async () => {
+  const { manager } = createManager();
   await manager.start(startInput());
-  await manager.attachTab(RUN_ID, { tabId: 7, windowId: 2 });
+  await manager.attachTab(ATTEMPT_ID, { tabId: 7, windowId: 2 });
 
-  await assert.rejects(() => manager.openAttentionTab(RUN_ID), /attention/i);
-  assert.equal(runtime.calls.tabsUpdate.length, 0);
-  assert.equal(runtime.calls.windowsUpdate.length, 0);
+  assert.equal(await manager.ownsTab(ATTEMPT_ID, 'local', 'inventory.sellpia', 7), true);
+  assert.equal(await manager.ownsTab(ATTEMPT_ID, 'local', 'orders.mall', 7), false);
+  assert.equal(await manager.ownsTab(ATTEMPT_ID, 'office', 'inventory.sellpia', 7), false);
+  assert.equal(await manager.ownsTab(ATTEMPT_ID, 'local', 'inventory.sellpia', 8), false);
+  assert.equal(await manager.ownsTab(ATTEMPT_ID, 'local', 'inventory.sellpia', '7'), false);
+  assert.throws(
+    () => manager.ownsTab(ATTEMPT_ID, 'unknown', 'inventory.sellpia', 7),
+    /Collection environment is required/,
+  );
+
+  const publicView = await manager.get(ATTEMPT_ID);
+  assert.equal('tabs' in publicView, false);
+  assert.equal('_managedTabId' in publicView, false);
 });
 
-test('get and list prune terminal sessions older than seven days', async () => {
-  const eightDays = 8 * 24 * 60 * 60 * 1000;
-  const now = eightDays + 1_000;
-  const stale = {
-    ...startInput(OTHER_RUN_ID),
-    status: 'succeeded',
-    attempt: 1,
-    progress: { current: 1, total: 1, completed: 1, failed: 0, label: null },
-    attention: null,
-    startedAt: 1,
-    updatedAt: 1,
-    finishedAt: 1,
+test('ownsTab stops authorizing a tab after detach and cancel', async () => {
+  const { manager } = createManager();
+  await manager.start(startInput());
+  await manager.attachTab(ATTEMPT_ID, { tabId: 7, windowId: 2 });
+  assert.equal(await manager.ownsTab(ATTEMPT_ID, 'local', 'inventory.sellpia', 7), true);
+
+  await manager.detachTab(ATTEMPT_ID, { tabId: 7 });
+  assert.equal(await manager.ownsTab(ATTEMPT_ID, 'local', 'inventory.sellpia', 7), false);
+
+  await manager.attachTab(ATTEMPT_ID, { tabId: 7, windowId: 2 });
+  await manager.cancel(ATTEMPT_ID, {
+    async ownerFailure() { return { accepted: true }; },
+  });
+  assert.equal(await manager.ownsTab(ATTEMPT_ID, 'local', 'inventory.sellpia', 7), false);
+});
+
+test('cancel submits owner failure before clearing local state', async () => {
+  const { manager, storage } = createManager();
+  await manager.start(startInput());
+  await manager.attachTab(ATTEMPT_ID, { tabId: 7, windowId: 2 });
+  const order = [];
+
+  const cancelled = await manager.cancel(ATTEMPT_ID, {
+    closeManagedTab: true,
+    async ownerFailure(metadata) {
+      order.push({ ...metadata });
+      assert.ok(storage.sessions[ATTEMPT_ID]);
+      return { accepted: true };
+    },
+  });
+
+  assert.deepEqual(JSON.parse(JSON.stringify(order)), [{ attemptId: ATTEMPT_ID }]);
+  assert.equal(cancelled.attemptId, ATTEMPT_ID);
+  assert.equal(storage.sessions[ATTEMPT_ID], undefined);
+});
+
+test('cancel keeps local state when owner rejects the failure', async () => {
+  const { manager, storage, calls } = createManager();
+  await manager.start(startInput());
+  await manager.attachTab(ATTEMPT_ID, { tabId: 7, windowId: 2 });
+
+  await assert.rejects(
+    manager.cancel(ATTEMPT_ID, {
+      closeManagedTab: true,
+      async ownerFailure() {
+        return { accepted: false };
+      },
+    }),
+    /owner/i,
+  );
+  assert.ok(storage.sessions[ATTEMPT_ID]);
+  assert.deepEqual(calls.tabsRemove, []);
+});
+
+test('get/list are environment-scoped and duplicate starts resume the same owner attempt', async () => {
+  const { manager } = createManager();
+  const first = await manager.start(startInput());
+  const resumed = await manager.start({
+    ...startInput(),
+    plan: { from: '2025-08-01', to: '2026-08-31' },
+  });
+  await manager.start({ ...startInput(OTHER_ATTEMPT_ID), environmentId: 'office' });
+
+  assert.deepEqual(JSON.parse(JSON.stringify(resumed)), JSON.parse(JSON.stringify(first)));
+  assert.equal((await manager.get(ATTEMPT_ID)).attemptId, ATTEMPT_ID);
+  assert.equal(await manager.getOwned(ATTEMPT_ID, 'office'), null);
+  assert.deepEqual(JSON.parse(JSON.stringify((await manager.list('local')).map(({ attemptId }) => attemptId))), [ATTEMPT_ID]);
+  assert.deepEqual(JSON.parse(JSON.stringify((await manager.list('office')).map(({ attemptId }) => attemptId))), [OTHER_ATTEMPT_ID]);
+});
+
+test('requestCancellation fences a session before tab teardown and preserves owner correlation', async () => {
+  const { manager, storage, calls } = createManager();
+  await manager.start(startInput());
+  await manager.attachTab(ATTEMPT_ID, { tabId: 7, windowId: 2 });
+
+  const stopped = await manager.requestCancellation(ATTEMPT_ID, 'local');
+  assert.equal(stopped.attemptId, ATTEMPT_ID);
+  assert.equal(typeof storage.sessions[ATTEMPT_ID]._cancellationRequestedAt, 'number');
+  assert.deepEqual(calls.tabsRemove, [7]);
+  assert.equal(await manager.isActive(ATTEMPT_ID, 'local', 'inventory.sellpia'), false);
+  assert.deepEqual(JSON.parse(JSON.stringify(await manager.listCancellationRequests('local'))), [{
+    attemptId: ATTEMPT_ID,
+    environmentId: 'local',
+    producer: 'inventory.sellpia',
+    requestedAt: storage.sessions[ATTEMPT_ID]._cancellationRequestedAt,
+  }]);
+
+  await assert.rejects(
+    manager.start(startInput()),
+    /cancellation was already requested/i,
+  );
+
+  let ownerSawCorrelation = false;
+  await manager.cancel(ATTEMPT_ID, {
+    ownerFailure: async ({ attemptId }) => {
+      ownerSawCorrelation = Boolean(storage.sessions[attemptId]);
+      return { accepted: true };
+    },
+  });
+  assert.equal(ownerSawCorrelation, true);
+  assert.equal(storage.sessions[ATTEMPT_ID], undefined);
+  assert.deepEqual(JSON.parse(JSON.stringify(await manager.listCancellationRequests('local'))), []);
+});
+
+test('requestCancellation writes the stop fence before a delayed owned-tab close resolves', async () => {
+  const fake = createFakeChrome();
+  let closeStarted;
+  const closeStartedPromise = new Promise((resolve) => {
+    closeStarted = resolve;
+  });
+  let releaseClose;
+  const closeGate = new Promise((resolve) => {
+    releaseClose = resolve;
+  });
+  fake.chrome.tabs.remove = async (tabId) => {
+    fake.calls.tabsRemove.push(tabId);
+    closeStarted();
+    await closeGate;
   };
-  const runtime = loadAdapter(generatedPaths[0], createFakeChrome({ sessions: {
-    [OTHER_RUN_ID]: stale,
-  } }));
-  const manager = runtime.create({
+  const { manager, storage } = createManager(fake);
+  await manager.start(startInput());
+  await manager.attachTab(ATTEMPT_ID, { tabId: 7, windowId: 2 });
+
+  const requesting = manager.requestCancellation(ATTEMPT_ID, 'local');
+  await closeStartedPromise;
+  assert.equal(typeof storage.sessions[ATTEMPT_ID]._cancellationRequestedAt, 'number');
+  assert.equal(await manager.isActive(ATTEMPT_ID, 'local', 'inventory.sellpia'), false);
+  releaseClose();
+  await requesting;
+});
+
+test('late owned-tab attachment after a stop fence closes only that tab', async () => {
+  const { manager, calls } = createManager();
+  await manager.start(startInput());
+  await manager.requestCancellation(ATTEMPT_ID, 'local');
+
+  const attached = await manager.attachTab(ATTEMPT_ID, {
+    tabId: 42,
+    windowId: 9,
+    closeOnCancel: true,
+  });
+  assert.equal(attached, null);
+  assert.deepEqual(calls.tabsRemove, [42]);
+  assert.equal(await manager.isActive(ATTEMPT_ID, 'local', 'inventory.sellpia'), false);
+});
+
+test('late managed-tab close failures stay durable across worker restart and retry', async () => {
+  const fake = createFakeChrome();
+  const liveTabIds = new Set();
+  fake.chrome.tabs.query = async (query) => query?.url
+    ? []
+    : [...liveTabIds].map((id) => ({ id }));
+  let closeAttempts = 0;
+  fake.chrome.tabs.remove = async (tabId) => {
+    closeAttempts += 1;
+    fake.calls.tabsRemove.push(tabId);
+    liveTabIds.add(tabId);
+    throw new Error('tab is temporarily unavailable');
+  };
+  const { manager, storage } = createManager(fake);
+  await manager.start(startInput());
+  await manager.requestCancellation(ATTEMPT_ID, 'local');
+
+  const incomingTabIds = Array.from({ length: 20 }, (_, index) => 400 + index);
+  for (const tabId of incomingTabIds) {
+    await assert.rejects(
+      manager.attachTab(ATTEMPT_ID, { tabId, windowId: 9, closeOnCancel: true }),
+      /Managed collection tab could not be removed/i,
+    );
+  }
+  assert.equal(closeAttempts, incomingTabIds.length);
+  assert.deepEqual(
+    storage.sessions[ATTEMPT_ID]._pendingManagedTabIds,
+    incomingTabIds,
+  );
+  assert.equal(await manager.isActive(ATTEMPT_ID, 'local', 'inventory.sellpia'), false);
+
+  fake.chrome.tabs.remove = async (tabId) => {
+    fake.calls.tabsRemove.push(tabId);
+  };
+  // A service-worker restart creates a new adapter instance over the same
+  // durable chrome.storage record; the first four IDs must survive the retry.
+  const restarted = createManager(fake).manager;
+  assert.equal(await restarted.retryPendingManagedTabs(ATTEMPT_ID, 'local'), true);
+  assert.equal(storage.sessions[ATTEMPT_ID]._pendingManagedTabIds, undefined);
+  assert.deepEqual(fake.calls.tabsRemove.slice(-incomingTabIds.length), incomingTabIds);
+
+  await restarted.cancel(ATTEMPT_ID, {
+    async ownerFailure() { return { accepted: true }; },
+  });
+  assert.equal(storage.sessions[ATTEMPT_ID], undefined);
+});
+
+test('remove retains a fenced session when a pending late tab still cannot close', async () => {
+  const fake = createFakeChrome();
+  const liveTabIds = new Set();
+  fake.chrome.tabs.query = async (query) => query?.url
+    ? []
+    : [...liveTabIds].map((id) => ({ id }));
+  fake.chrome.tabs.remove = async () => {
+    liveTabIds.add(42);
+    throw new Error('tab is temporarily unavailable');
+  };
+  const { manager, storage } = createManager(fake);
+  await manager.start(startInput());
+  await manager.requestCancellation(ATTEMPT_ID, 'local');
+  await assert.rejects(
+    manager.attachTab(ATTEMPT_ID, { tabId: 42, windowId: 9, closeOnCancel: true }),
+    /Managed collection tab could not be removed/i,
+  );
+
+  await assert.rejects(
+    manager.remove(ATTEMPT_ID),
+    /pending managed collection tabs/i,
+  );
+  assert.deepEqual(storage.sessions[ATTEMPT_ID]._pendingManagedTabIds, [42]);
+});
+
+test('cancel does not ACK or delete a session while a pending late tab remains open', async () => {
+  const fake = createFakeChrome();
+  const liveTabIds = new Set();
+  fake.chrome.tabs.query = async (query) => query?.url
+    ? []
+    : [...liveTabIds].map((id) => ({ id }));
+  fake.chrome.tabs.remove = async (tabId) => {
+    liveTabIds.add(tabId);
+    throw new Error('tab is temporarily unavailable');
+  };
+  const { manager, storage } = createManager(fake);
+  await manager.start(startInput());
+  await manager.requestCancellation(ATTEMPT_ID, 'local');
+  await assert.rejects(
+    manager.attachTab(ATTEMPT_ID, { tabId: 42, windowId: 9, closeOnCancel: true }),
+    /Managed collection tab could not be removed/i,
+  );
+
+  let ownerCalls = 0;
+  await assert.rejects(
+    manager.cancel(ATTEMPT_ID, {
+      async ownerFailure() {
+        ownerCalls += 1;
+        return { accepted: true };
+      },
+    }),
+    /pending managed collection tabs/i,
+  );
+  assert.equal(ownerCalls, 0);
+  assert.deepEqual(storage.sessions[ATTEMPT_ID]._pendingManagedTabIds, [42]);
+
+  fake.chrome.tabs.remove = async (tabId) => {
+    liveTabIds.delete(tabId);
+  };
+  await manager.cancel(ATTEMPT_ID, {
+    async ownerFailure() {
+      ownerCalls += 1;
+      return { accepted: true };
+    },
+  });
+  assert.equal(ownerCalls, 1);
+  assert.equal(storage.sessions[ATTEMPT_ID], undefined);
+});
+
+test('remove rechecks pending late attachments before deleting the fenced session', async () => {
+  const fake = createFakeChrome();
+  const liveTabIds = new Set();
+  fake.chrome.tabs.query = async (query) => query?.url
+    ? []
+    : [...liveTabIds].map((id) => ({ id }));
+  let releaseFirstRetry;
+  const firstRetryGate = new Promise((resolve) => {
+    releaseFirstRetry = resolve;
+  });
+  let firstRetryStarted;
+  const firstRetryStartedPromise = new Promise((resolve) => {
+    firstRetryStarted = resolve;
+  });
+  let initial42Failure = true;
+  let retry42Started = false;
+  let tab43Attempts = 0;
+  fake.chrome.tabs.remove = async (tabId) => {
+    if (initial42Failure && tabId === 42) {
+      initial42Failure = false;
+      liveTabIds.add(tabId);
+      throw new Error('tab is temporarily unavailable');
+    }
+    if (tabId === 42) {
+      retry42Started = true;
+      firstRetryStarted();
+      await firstRetryGate;
+      liveTabIds.delete(tabId);
+      return;
+    }
+    if (tabId === 43) {
+      tab43Attempts += 1;
+      if (tab43Attempts === 1) {
+        liveTabIds.add(tabId);
+        throw new Error('tab is temporarily unavailable');
+      }
+      liveTabIds.delete(tabId);
+    }
+  };
+  const { manager, storage } = createManager(fake);
+  await manager.start(startInput());
+  await manager.requestCancellation(ATTEMPT_ID, 'local');
+  await assert.rejects(
+    manager.attachTab(ATTEMPT_ID, { tabId: 42, windowId: 9, closeOnCancel: true }),
+    /Managed collection tab could not be removed/i,
+  );
+
+  // Switch to the retry behavior, then let remove() begin its out-of-queue
+  // close. A second late attachment lands while that close is in flight.
+  const removing = manager.remove(ATTEMPT_ID);
+  await firstRetryStartedPromise;
+  await assert.rejects(
+    manager.attachTab(ATTEMPT_ID, { tabId: 43, windowId: 9, closeOnCancel: true }),
+    /Managed collection tab could not be removed/i,
+  );
+  assert.deepEqual(storage.sessions[ATTEMPT_ID]._pendingManagedTabIds, [42, 43]);
+  releaseFirstRetry();
+  await removing;
+
+  assert.equal(tab43Attempts, 2);
+  assert.equal(storage.sessions[ATTEMPT_ID], undefined);
+});
+
+test('a pending or rejected owner cancellation keeps the local stop fence and correlation', async () => {
+  const { manager, storage } = createManager();
+  await manager.start(startInput());
+  await manager.requestCancellation(ATTEMPT_ID, 'local');
+
+  let ownerStarted;
+  const ownerStartedPromise = new Promise((resolve) => {
+    ownerStarted = resolve;
+  });
+  let releaseOwner;
+  const ownerGate = new Promise((resolve) => {
+    releaseOwner = resolve;
+  });
+  const cancelling = manager.cancel(ATTEMPT_ID, {
+    ownerFailure: async ({ attemptId }) => {
+      ownerStarted({ attemptId, present: Boolean(storage.sessions[attemptId]) });
+      await ownerGate;
+      return { accepted: false };
+    },
+  });
+
+  assert.deepEqual(await ownerStartedPromise, {
+    attemptId: ATTEMPT_ID,
+    present: true,
+  });
+  assert.equal(await manager.isActive(ATTEMPT_ID, 'local', 'inventory.sellpia'), false);
+  assert.equal(typeof storage.sessions[ATTEMPT_ID]._cancellationRequestedAt, 'number');
+  releaseOwner();
+  await assert.rejects(cancelling, /owner/i);
+  assert.equal(Boolean(storage.sessions[ATTEMPT_ID]), true);
+});
+
+test('onStarted runs after the storage mutation queue releases', async () => {
+  const fake = createFakeChrome();
+  const runtime = loadAdapter(fake);
+  const callbacks = [];
+  let manager;
+  manager = runtime.create({
     chrome: runtime.chrome,
     storageKey: 'sessions',
     webUrlPatterns: ['http://localhost:3000/*'],
-    now: () => now,
+    onStarted: async (started) => {
+      callbacks.push(started);
+      assert.equal((await manager.get(started.attemptId)).attemptId, ATTEMPT_ID);
+    },
   });
 
-  assert.equal(await manager.get(OTHER_RUN_ID), null);
-  assert.deepEqual(JSON.parse(JSON.stringify(await manager.list())), []);
-  assert.deepEqual(runtime.storage.sessions, {});
+  await manager.start(startInput());
+  assert.deepEqual(callbacks.map(({ attemptId, environmentId, producer }) => ({
+    attemptId,
+    environmentId,
+    producer,
+  })), [{
+    attemptId: ATTEMPT_ID,
+    environmentId: 'local',
+    producer: 'inventory.sellpia',
+  }]);
 });

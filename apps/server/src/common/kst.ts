@@ -27,6 +27,31 @@ export function kstBusinessDate(date: Date): Date {
   return new Date(`${year}-${month}-${day}T00:00:00.000Z`);
 }
 
+/** Returns the final calendar day for a YYYY-MM value as YYYY-MM-DD. */
+export function kstMonthEnd(yearMonth: string): string {
+  const match = /^(\d{4})-(0[1-9]|1[0-2])$/.exec(yearMonth);
+  if (!match) throw new Error('Expected YYYY-MM');
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return `${match[1]}-${match[2]}-${String(day).padStart(2, '0')}`;
+}
+
+/** Returns the newest `count` calendar months ending at a complete cutoff. */
+export function kstMonthRange(targetCutoff: string, count: number): string[] {
+  const match = /^(\d{4})-(0[1-9]|1[0-2])-\d{2}$/.exec(targetCutoff);
+  if (!match || kstMonthEnd(`${match[1]}-${match[2]}`) !== targetCutoff) {
+    throw new Error('Expected a complete YYYY-MM-DD cutoff');
+  }
+  const normalizedCount = Math.max(1, Math.floor(count));
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  return Array.from({ length: normalizedCount }, (_, index) => {
+    const date = new Date(Date.UTC(year, month - 1 - (normalizedCount - 1 - index), 1));
+    return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
+  });
+}
+
 /**
  * Returns the UTC Date that equals '{year}-{month}-01 00:00:00+09:00' (KST midnight).
  * month 는 1-12. month === 13 은 다음해 1월로 wrap (reconcile 의 periodEnd 용).

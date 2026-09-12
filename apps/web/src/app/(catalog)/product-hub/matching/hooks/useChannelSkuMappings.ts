@@ -1,14 +1,12 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useAuth } from '@/hooks/useAuth';
 import { queryKeys } from '@/lib/query-keys';
-import { issueBrowserCollectionRunId } from '@/lib/browser-collection-session';
 import {
   autoMatchChannelProducts,
-  getSellpiaManualMatchTargets,
   importCoupangRocketMatchingCsv,
   importCoupangWingCatalog,
-  importSellpiaManualMatchSnapshot,
   listChannelAccounts,
   listChannelProductMappings,
   listRecipeComponentCandidates,
@@ -16,7 +14,6 @@ import {
 } from '../lib/channel-sku-matching-api';
 import {
   collectSellpiaManualMatchSnapshot,
-  finalizeSellpiaManualMatchCollection,
 } from '../lib/sellpia-manual-match-collection';
 import type {
   CoupangRocketMatchingCsvImportResponse,
@@ -48,6 +45,7 @@ export function useChannelProductMappings(params: {
 
 export function useRunChannelProductMatching() {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
   return useMutation({
     mutationFn: async ({ channelAccountIds }: { channelAccountIds: string[] }) => {
       const uniqueAccountIds = [...new Set(channelAccountIds)].sort();
@@ -55,29 +53,10 @@ export function useRunChannelProductMatching() {
         throw new Error('상품 매칭을 실행할 채널 계정이 없습니다.');
       }
 
-      const targets = await getSellpiaManualMatchTargets();
-      const runId = await issueBrowserCollectionRunId();
-      const collected = await collectSellpiaManualMatchSnapshot(
-        runId,
-        targets.targetCodes,
-      );
-      let collectedAliases = 0;
-      try {
-        const imported = await importSellpiaManualMatchSnapshot(collected.snapshot);
-        collectedAliases = imported.status.aliasCount;
-        await finalizeSellpiaManualMatchCollection(
-          collected,
-          'succeeded',
-          `Sellpia 수동상품매칭 별칭 ${imported.status.aliasCount}개를 저장했습니다.`,
-        );
-      } catch (error) {
-        await finalizeSellpiaManualMatchCollection(
-          collected,
-          'failed',
-          error instanceof Error ? error.message : '수동상품매칭 근거 저장 실패',
-        ).catch(() => undefined);
-        throw error;
-      }
+      const collected = await collectSellpiaManualMatchSnapshot({
+        organizationId: user?.organizationId ?? '',
+      });
+      const collectedAliases = collected.status.aliasCount;
 
       const result = { collectedAliases, evaluatedListings: 0, matchedListings: 0, configuredOptions: 0 };
       for (const channelAccountId of uniqueAccountIds) {
@@ -144,6 +123,7 @@ type ChannelCatalogImportResponse =
 
 export function useImportChannelCatalog() {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
   return useMutation({
     mutationFn: async (input: {
       source: ChannelCatalogImportSource;
@@ -158,7 +138,10 @@ export function useImportChannelCatalog() {
         : await importCoupangRocketMatchingCsv(input.channelAccountId, input.file);
       return {
         response,
-        automaticMatching: await collectAndAutoConfigureChannel(input.channelAccountId),
+        automaticMatching: await collectAndAutoConfigureChannel(
+          input.channelAccountId,
+          { organizationId: user?.organizationId ?? '' },
+        ),
       };
     },
     onSettled: () => Promise.all([
@@ -180,31 +163,14 @@ export type CatalogAutomaticMatchingResult = {
 
 async function collectAndAutoConfigureChannel(
   channelAccountId: string,
+  scope: { organizationId: string },
 ): Promise<CatalogAutomaticMatchingResult> {
   let collected: Awaited<ReturnType<typeof collectSellpiaManualMatchSnapshot>> | null = null;
   try {
-    const targets = await getSellpiaManualMatchTargets();
-    const runId = await issueBrowserCollectionRunId();
-    collected = await collectSellpiaManualMatchSnapshot(runId, targets.targetCodes);
-    let imported;
-    try {
-      imported = await importSellpiaManualMatchSnapshot(collected.snapshot);
-    } catch (error) {
-      await finalizeSellpiaManualMatchCollection(
-        collected,
-        'failed',
-        matchingErrorMessage(error),
-      ).catch(() => undefined);
-      throw error;
-    }
-    await finalizeSellpiaManualMatchCollection(
-      collected,
-      'succeeded',
-      `Sellpia 수동상품매칭 별칭 ${imported.status.aliasCount}개를 저장했습니다.`,
-    ).catch(() => undefined);
+    collected = await collectSellpiaManualMatchSnapshot(scope);
     const matched = await autoMatchChannelProducts(channelAccountId);
     return {
-      collectedAliases: imported.status.aliasCount,
+      collectedAliases: collected.status.aliasCount,
       ...matched,
       error: null,
     };

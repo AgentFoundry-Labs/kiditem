@@ -132,8 +132,7 @@ export class ProcurementController {
         inventoryRequirement: body.inventoryRequirement ?? 'advisory',
         request: {
           channelAccountId: body.channelAccountId!,
-          collection: body.collection!,
-          rows: body.rows!,
+          sourceImportRunId: body.sourceImportRunId!,
           editedQuantities: body.editedQuantities ?? {},
           ...(body.clampEditedQuantities !== undefined && {
             clampEditedQuantities: body.clampEditedQuantities,
@@ -144,6 +143,31 @@ export class ProcurementController {
         },
       });
       return result;
+    }
+    if (body.action === 'convertRocketConfirmationWorkbook') {
+      let request: unknown;
+      try {
+        request = JSON.parse(body.requestJson!);
+      } catch {
+        throw new BadRequestException('Rocket workbook conversion request JSON is invalid.');
+      }
+      const result = await this.rocketWorkbooks.convertWorkbook({
+        request,
+        ...(workbook && {
+          templateBytes: workbook.buffer,
+          templateFileName: workbook.originalname,
+        }),
+      });
+      response?.setHeader('Content-Type', result.contentType);
+      response?.setHeader(
+        'Content-Disposition',
+        `attachment; filename*=UTF-8''${encodeURIComponent(result.fileName)}`,
+      );
+      response?.setHeader('X-Rocket-Workbook-Total-Rows', String(result.summary.totalRows));
+      response?.setHeader('X-Rocket-Workbook-Quantity', String(result.summary.workbookQuantity));
+      response?.setHeader('X-Rocket-Workbook-Fully-Confirmed-Rows', String(result.summary.fullyConfirmedRows));
+      response?.setHeader('X-Rocket-Workbook-Short-Rows', String(result.summary.shortRows));
+      return new StreamableFile(result.bytes);
     }
     if (body.action === 'exportRocketWorkbook') {
       if (!workbook) throw new BadRequestException('Rocket workbook file is required.');
@@ -192,9 +216,6 @@ export class ProcurementController {
         from: body.from!,
         to: body.to!,
         ...(body.rocketStatus && { status: body.rocketStatus }),
-        ...(responseProfile === ROCKET_SAVED_PO_RESPONSE_PROFILE && {
-          includeRepeatedSnapshots: true,
-        }),
       });
     }
     if (body.action === 'loadSavedRocketCollection') {

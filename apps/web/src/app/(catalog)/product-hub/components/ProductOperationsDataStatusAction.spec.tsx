@@ -1,159 +1,174 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { OperationRun } from '@kiditem/shared/operations';
+import { ApiError } from '@/lib/api-error';
 import { ProductOperationsDataStatusAction } from './ProductOperationsDataStatusAction';
 
 const mocks = vi.hoisted(() => ({
-  invalidateQueries: vi.fn(),
-  startRefresh: vi.fn(),
-  cancelRun: vi.fn(),
-  activeRun: null as OperationRun | null,
+  recalculateProductAbc: vi.fn(),
+  refetchProducts: vi.fn(),
+  refetchQueries: vi.fn(),
+  mutationOptions: null as null | {
+    mutationFn: () => Promise<unknown>;
+    onSuccess?: (result: unknown) => Promise<void> | void;
+    onError?: (error: unknown) => Promise<void> | void;
+    retry?: boolean;
+  },
+  statusData: null as unknown as ReturnType<typeof readyStatus>,
 }));
 
 vi.mock('@tanstack/react-query', () => ({
-  useMutation: (options: {
-    mutationFn: () => Promise<unknown>;
-    onSuccess: () => Promise<void>;
-  }) => ({
-    isPending: false,
-    mutate: () => void options.mutationFn().then(options.onSuccess),
-  }),
-  useQueryClient: () => ({ invalidateQueries: mocks.invalidateQueries }),
+  useMutation: (options: NonNullable<typeof mocks.mutationOptions>) => {
+    mocks.mutationOptions = options;
+    return {
+      isPending: false,
+      mutate: () => {
+        void options.mutationFn()
+          .then((result) => options.onSuccess?.(result))
+          .catch((error) => options.onError?.(error));
+      },
+    };
+  },
+  useQueryClient: () => ({ refetchQueries: mocks.refetchQueries }),
 }));
 
-vi.mock('@/lib/manual-operation-actions', () => ({
-  startProductProfitabilityRefreshAction: mocks.startRefresh,
-}));
-
-vi.mock('@/hooks/useOperationRun', () => ({
-  useCancelOperationRun: () => ({ mutateAsync: mocks.cancelRun, isPending: false }),
+vi.mock('@/lib/product-abc-api', () => ({
+  recalculateProductAbc: mocks.recalculateProductAbc,
 }));
 
 vi.mock('../hooks/useProductOperationsDataStatus', () => ({
   useProductOperationsDataStatus: () => ({
-    data: {
-      displayDataAsOf: '2026-08-02',
-      lastCompletedRefreshAt: null,
-      activeRun: mocks.activeRun,
-      sources: {
-        traffic: source('CURRENT'),
-        advertising: source('CURRENT'),
-        sellpiaProfit: source('CURRENT'),
-        abc: source('CURRENT'),
-      },
-      abcSummary: {
-        classifiedProductCount: 1,
-        unclassifiedProductCount: 0,
-        mappingRequiredProductCount: 0,
-        orderEvidenceRequiredProductCount: 0,
-        otherPendingProductCount: 0,
-      },
-    },
+    data: mocks.statusData,
     isLoading: false,
     isError: false,
   }),
 }));
 
+vi.mock('./ProductOperationsFullRefreshAction', () => ({
+  ProductOperationsFullRefreshAction: () => <button type="button">상품 전체 데이터 갱신</button>,
+}));
+
 describe('ProductOperationsDataStatusAction', () => {
   beforeEach(() => {
-    mocks.activeRun = null;
-    mocks.invalidateQueries.mockReset();
-    mocks.startRefresh.mockReset();
-    mocks.cancelRun.mockReset();
+    mocks.statusData = readyStatus();
+    mocks.recalculateProductAbc.mockReset();
+    mocks.refetchProducts.mockReset();
+    mocks.refetchQueries.mockReset();
+    mocks.refetchProducts.mockResolvedValue(undefined);
+    mocks.refetchQueries.mockResolvedValue(undefined);
+    mocks.mutationOptions = null;
   });
 
-  it('labels the data status entry point as a refresh action', () => {
-    render(
-      <ProductOperationsDataStatusAction
-        open={false}
-        onOpenChange={vi.fn()}
-        periodDays={30}
-      />,
-    );
+  it('is the only Product Hub action that explicitly recalculates ABC and refetches its reads', async () => {
+    mocks.recalculateProductAbc.mockResolvedValue({
+      outcome: 'PUBLISHED',
+      publicationRevision: 5,
+      formulaRevision: 2,
+      officialCutoff: '2026-08-31',
+      classifiedProductCount: 7,
+      unclassifiedProductCount: 2,
+      changedProductCount: 3,
+    });
 
-    expect(screen.getByRole('button', { name: '데이터 갱신' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /데이터 기준/ })).not.toBeInTheDocument();
-  });
-
-  it('closes the status dialog after the profitability refresh has started', async () => {
-    mocks.startRefresh.mockResolvedValue({ id: 'operation-1' });
-    const onOpenChange = vi.fn();
-
-    render(
-      <ProductOperationsDataStatusAction
-        open
-        onOpenChange={onOpenChange}
-        periodDays={30}
-      />,
-    );
-
-    fireEvent.click(screen.getByRole('button', { name: '수익성 데이터 갱신' }));
+    renderAction();
+    fireEvent.click(screen.getByRole('button', { name: '등급 새로고침' }));
 
     await waitFor(() => {
-      expect(mocks.startRefresh).toHaveBeenCalledWith({ sourceSurface: 'domain_screen' });
-      expect(onOpenChange).toHaveBeenCalledWith(false);
+      expect(mocks.recalculateProductAbc).toHaveBeenCalledTimes(1);
+      expect(mocks.refetchProducts).toHaveBeenCalledTimes(1);
+      expect(mocks.refetchQueries).toHaveBeenCalledTimes(2);
     });
+    expect(mocks.mutationOptions?.retry).toBe(false);
   });
 
-  it('cancels the active profitability parent run from the status dialog', async () => {
-    mocks.activeRun = operationRun('running');
-    mocks.cancelRun.mockResolvedValue(operationRun('cancelled'));
+  it.each([
+    ['sellpia', () => { mocks.statusData.sources.sellpia.ready = false; }],
+    ['advertising', () => { mocks.statusData.sources.advertising = source(false, false); }],
+    ['mapping', () => { mocks.statusData.sources.mapping.ready = false; }],
+  ])('disables recalculation until %s is ready', (_source, makeUnavailable) => {
+    makeUnavailable();
+    renderAction();
 
-    render(
-      <ProductOperationsDataStatusAction
-        open
-        onOpenChange={vi.fn()}
-        periodDays={30}
-      />,
+    expect(screen.getByRole('button', { name: '등급 새로고침' })).toBeDisabled();
+  });
+
+  it('keeps official grades and explains SOURCE_NOT_READY inline', async () => {
+    mocks.recalculateProductAbc.mockResolvedValue({
+      outcome: 'SOURCE_NOT_READY',
+      publicationRevision: 4,
+      officialCutoff: '2026-07-31',
+      actualCutoff: '2026-08-31',
+      sources: {
+        sellpia: source(false),
+        advertising: source(true),
+      },
+    });
+
+    renderAction();
+    fireEvent.click(screen.getByRole('button', { name: '등급 새로고침' }));
+
+    expect(await screen.findByText(/원천이 준비되지 않아 기존 공식 등급을 유지합니다/))
+      .toBeInTheDocument();
+    expect(screen.getByText(/^공식 등급 기준일 2026-07-31$/)).toBeInTheDocument();
+    expect(mocks.refetchProducts).not.toHaveBeenCalled();
+  });
+
+  it('refetches once and shows retry guidance for INPUT_CHANGED without auto-retry', async () => {
+    mocks.recalculateProductAbc.mockRejectedValue(
+      new ApiError(409, 'INPUT_CHANGED', 'Inputs changed'),
     );
 
-    fireEvent.click(screen.getByRole('button', { name: '수익성 데이터 갱신 중단' }));
-    fireEvent.click(screen.getByRole('button', { name: '중단' }));
+    renderAction();
+    fireEvent.click(screen.getByRole('button', { name: '등급 새로고침' }));
 
-    await waitFor(() => {
-      expect(mocks.cancelRun).toHaveBeenCalledWith(mocks.activeRun?.id);
-    });
+    expect(await screen.findByText(/입력이 변경되었습니다.*다시 시도/)).toBeInTheDocument();
+    expect(mocks.recalculateProductAbc).toHaveBeenCalledTimes(1);
+    expect(mocks.refetchProducts).toHaveBeenCalledTimes(1);
+    expect(mocks.refetchQueries).toHaveBeenCalledTimes(2);
+    expect(mocks.mutationOptions?.retry).toBe(false);
   });
 });
 
-function source(status: 'CURRENT') {
-  return {
-    status,
-    coverageEndDate: '2026-08-02',
-    capturedAt: '2026-08-03T00:00:00.000Z',
-    lastErrorAt: null,
-  } as const;
+function renderAction() {
+  return render(
+    <ProductOperationsDataStatusAction
+      open
+      onOpenChange={vi.fn()}
+      onProductsRefetch={mocks.refetchProducts}
+      periodDays={30}
+    />,
+  );
 }
 
-function operationRun(status: OperationRun['status']): OperationRun {
+function readyStatus() {
   return {
-    id: '11111111-1111-4111-8111-111111111111',
-    operationKey: 'products.refresh_profitability_evidence',
-    definitionVersion: 1,
-    title: '수익성 데이터 갱신',
-    ownerDomain: 'products',
-    engineType: 'composite',
-    resourceClass: 'default',
-    executionTimeoutMs: 900_000,
-    status,
-    triggerSource: 'domain_screen',
-    parentRunId: null,
-    scheduleId: null,
-    nativeRunType: null,
-    nativeRunId: null,
-    progress: null,
-    stage: null,
-    stageUpdatedAt: null,
-    progressCurrent: null,
-    progressTotal: null,
-    deadlineAt: null,
-    result: null,
-    error: null,
-    requestedBy: null,
-    scheduledFor: null,
-    startedAt: '2026-08-02T00:00:00.000Z',
-    finishedAt: status === 'cancelled' ? '2026-08-02T00:01:00.000Z' : null,
-    createdAt: '2026-08-02T00:00:00.000Z',
-    updatedAt: '2026-08-02T00:00:00.000Z',
+    displayDataAsOf: '2026-08-31',
+    formulaRevision: 2,
+    publicationRevision: 4,
+    officialCutoff: '2026-07-31',
+    publishedAt: '2026-08-01T00:00:00.000Z',
+    actualCutoff: '2026-08-31',
+    sources: {
+      traffic: source(true),
+      advertising: source(true),
+      sellpia: source(true),
+      mapping: { ready: true, generation: '7' },
+    },
+    abcSummary: {
+      classifiedProductCount: 7,
+      unclassifiedProductCount: 3,
+      mappingRequiredProductCount: 0,
+      otherPendingProductCount: 3,
+    },
+  };
+}
+
+/** `collected: false` is the never-collected source: not ready and no cutoff to show. */
+function source(ready: boolean, collected = true) {
+  return {
+    ready,
+    actualCutoff: collected ? '2026-08-31' : null,
+    capturedAt: collected ? '2026-09-01T00:00:00.000Z' : null,
+    latestAttemptState: collected ? 'COMPLETE' as const : null,
+    errorCode: null,
   };
 }

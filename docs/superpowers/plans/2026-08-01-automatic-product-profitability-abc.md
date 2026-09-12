@@ -1,5 +1,9 @@
 # Automatic Product Profitability ABC Implementation Plan
 
+> **Superseded (2026-09-03):** Do not execute this plan. Its relative grading,
+> Operation workflow, and persistence contracts are replaced by the
+> [Operation And Automation Hard Cutover Design](../specs/2026-09-03-operation-automation-hard-cutover-design.md).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the unshipped cumulative-share ABC implementation with an automatically calibrated product profitability grade fed by Sellpia product-profit history, authoritative advertising spend, and paid-order evidence, while separating full Sellpia synchronization from inventory-only synchronization and presenting the same grade/status semantics on Dashboard, Product Management, and Product Outflow.
@@ -18,7 +22,7 @@
 
 ## Implementation Constraints
 
-- Implement the approved design in [`docs/superpowers/specs/2026-08-01-automatic-product-profitability-abc-design.md`](../specs/2026-08-01-automatic-product-profitability-abc-design.md). If implementation pressure exposes a design conflict, amend and re-approve the design before changing the business policy.
+- Implement the approved design in [`docs/superpowers/specs/archive/2026-08-01-automatic-product-profitability-abc-design.md`](../specs/archive/2026-08-01-automatic-product-profitability-abc-design.md). If implementation pressure exposes a design conflict, amend and re-approve the design before changing the business policy.
 - Treat the existing ABC commits on this feature branch as unshipped intermediate work. Remove their cumulative 70/90 share thresholds, fixed 30/90/180/360-day selection, lifecycle, provisional/official distinction, and manual criteria selection rather than preserving those concepts in compatibility DTOs.
 - Do not review every Task. Use focused contract tests at each Task boundary and one final integration QA after all Tasks are complete.
 - Keep the computation deterministic. No ABC workflow may create an Agent OS run or require an LLM judgment.

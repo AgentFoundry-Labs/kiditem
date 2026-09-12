@@ -7,40 +7,21 @@ const mocks = vi.hoisted(() => ({
   start: vi.fn(),
   cancel: vi.fn(),
   retryAttention: vi.fn(),
-  collectTrend: vi.fn(),
   useAction: vi.fn(),
 }));
 
-vi.mock('../../hooks/use-sourcing-operation-action', () => ({
-  useSourcingOperationAction: mocks.useAction,
+vi.mock('@/hooks/use-trend-source-collection', () => ({
+  useTrendSourceCollection: mocks.useAction,
 }));
 
-vi.mock('../../components/SourcingOperationRunPanel', () => ({
-  SourcingOperationRunPanel: ({
-    run,
-    onCancel,
-    onRetryAttention,
-  }: {
-    run: { status: string } | null;
-    onCancel: () => Promise<void> | void;
-    onRetryAttention: () => Promise<void> | void;
-  }) => (
-    <div>
-      <span>run:{run?.status ?? 'none'}</span>
-      <button type="button" onClick={() => void onCancel()}>cancel-run</button>
-      <button type="button" onClick={() => void onRetryAttention()}>retry-run</button>
-    </div>
-  ),
-}));
 
 vi.mock('../lib/trend-collection-api', () => ({
-  TREND_SOURCE_ORDER: ['naver', '1688', 'shorts'],
+  TREND_SOURCE_ORDER: ['naver', 'shorts'],
   TREND_SOURCE_META: {
     naver: { label: 'Naver', className: 'naver' },
     '1688': { label: '1688', className: 'wholesale' },
     shorts: { label: 'Shorts', className: 'shorts' },
   },
-  collectTrend: mocks.collectTrend,
   fetchTrendSeeds: vi.fn().mockResolvedValue([]),
 }));
 
@@ -70,11 +51,11 @@ describe('TrendCollectionSection operation migration', () => {
     mocks.cancel.mockResolvedValue(null);
     mocks.retryAttention.mockResolvedValue(null);
     mocks.useAction.mockReturnValue({
-      run: null,
-      start: mocks.start,
+      error: null, actualCutoffAt: null, result: null,
+      collect: mocks.start,
       cancel: mocks.cancel,
       retryAttention: mocks.retryAttention,
-      isStarting: false,
+      isCollecting: false,
       isCancelling: false,
       isRetrying: false,
     });
@@ -84,86 +65,30 @@ describe('TrendCollectionSection operation migration', () => {
     renderSection();
 
     expect(mocks.start).not.toHaveBeenCalled();
-    expect(mocks.collectTrend).not.toHaveBeenCalled();
     expect(screen.getByText('persisted-trend-snapshots')).toBeInTheDocument();
-    expect(screen.getByText('run:none')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '트렌드 수집' }));
 
     await waitFor(() => expect(mocks.start).toHaveBeenCalledOnce());
     expect(mocks.start).toHaveBeenCalledWith({
-      sources: ['naver', '1688', 'shorts'],
+      sources: ['naver', 'shorts'],
     });
-    expect(mocks.collectTrend).not.toHaveBeenCalled();
     expect(mocks.useAction).toHaveBeenCalledWith({
-      operationKey: 'sourcing.collect_daily_trends',
-      input: { sources: ['naver', '1688', 'shorts'] },
+      input: { sources: ['naver', 'shorts'] },
       snapshotQueryKey: ['sourcing', 'trend'],
-      wakeBrowserRuntime: true,
     });
   });
 
-  it('delegates cancellation and attention retry to the shared run panel', async () => {
-    mocks.useAction.mockReturnValue({
-      run: { status: 'attention_required', result: null },
-      start: mocks.start,
-      cancel: mocks.cancel,
-      retryAttention: mocks.retryAttention,
-      isStarting: false,
-      isCancelling: false,
-      isRetrying: false,
-    });
+  it('shows source failure and permits an explicit retry without a false success panel', () => {
+    mocks.useAction.mockReturnValue({ collect: mocks.start, isCollecting: false, error: 'Shorts provider failed', actualCutoffAt: null,
+      result: { businessDate: '2026-09-06', results: [
+        { source: 'naver', state: 'COMPLETE', ok: true, collected: 12 },
+        { source: 'shorts', state: 'FAILED', ok: false, collected: 0, error: 'Shorts provider failed' },
+      ] } });
     renderSection();
-
-    fireEvent.click(screen.getByRole('button', { name: 'cancel-run' }));
-    fireEvent.click(screen.getByRole('button', { name: 'retry-run' }));
-
-    await waitFor(() => {
-      expect(mocks.cancel).toHaveBeenCalledOnce();
-      expect(mocks.retryAttention).toHaveBeenCalledOnce();
-    });
-  });
-
-  it('presents only canonical bounded source summaries for a partial trend run', () => {
-    mocks.useAction.mockReturnValue({
-      run: {
-        status: 'succeeded',
-        result: {
-          outcome: 'partial',
-          summary: {
-            discovered: 16,
-            accepted: 16,
-            duplicate: 0,
-            unchanged: 0,
-            failed: 1,
-          },
-          sources: [
-            { source: 'naver', outcome: 'complete', accepted: 12, failed: 0 },
-            {
-              source: '1688',
-              outcome: 'partial',
-              accepted: 4,
-              failed: 1,
-              errorCode: 'trend_source_partial',
-            },
-          ],
-        },
-      },
-      start: mocks.start,
-      cancel: mocks.cancel,
-      retryAttention: mocks.retryAttention,
-      isStarting: false,
-      isCancelling: false,
-      isRetrying: false,
-    });
-
-    renderSection();
-
-    expect(screen.getByText('최근 수집 결과')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('Shorts provider failed');
     expect(screen.getByText('12건')).toBeInTheDocument();
-    expect(screen.getByText('4건')).toBeInTheDocument();
-    expect(screen.getByText('일부 항목 수집에 실패했습니다.'))
-      .toBeInTheDocument();
-    expect(screen.queryByText(/raw provider/i)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '트렌드 수집' }));
+    expect(mocks.start).toHaveBeenCalledOnce();
   });
 });

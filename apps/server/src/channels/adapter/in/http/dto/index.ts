@@ -1,5 +1,4 @@
 export { CoupangDateRangeQueryDto } from './coupang-date-range.dto';
-export { SyncOrdersBodyDto } from './sync-orders.dto';
 export { UpdateCoupangAccountSettingsDto } from './coupang-account-settings.dto';
 export {
   ChannelListingQueryDto,

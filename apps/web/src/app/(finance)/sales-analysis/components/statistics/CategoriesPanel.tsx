@@ -41,10 +41,12 @@ export function CategoriesPanel({
                 <td
                   className={cn(
                     'text-right tabular-nums',
-                    category.profit < 0 ? 'text-red-600' : 'text-green-600',
+                    category.profit === null
+                      ? 'text-slate-400'
+                      : category.profit < 0 ? 'text-red-600' : 'text-green-600',
                   )}
                 >
-                  {formatKRW(category.profit)}원
+                  {category.profit === null ? '-' : `${formatKRW(category.profit)}원`}
                 </td>
               </tr>
             ))}

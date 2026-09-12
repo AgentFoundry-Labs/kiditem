@@ -79,7 +79,8 @@ describe('Rocket purchase decision boundary', () => {
     expect(operationsSource).toContain('selectedRocketAccountId');
     expect(operationsSource).toContain('selectedSourceImportRunId');
     expect(operationsSource).toContain('sourceImportRunId');
-    expect(operationsSource).toContain('newestSourceImportRunId');
+    expect(operationsSource).toContain('useRocketPoSource');
+    expect(operationsSource).not.toContain('newestSourceImportRunId');
     expect(operationsSource).not.toContain('이 수집본으로 납품 판단');
     // 저장 발주 빈 상태 문구는 양쪽 워크스페이스 판본에 공통으로 존재하는 문구를 기준으로 검증한다.
     expect(operationsSource).toContain('이 달엔 해당 발주가 없습니다');
@@ -139,8 +140,8 @@ describe('Rocket purchase decision boundary', () => {
     expect(previewApiSource).toContain("action: 'loadSavedRocketCollection'");
     expect(previewApiSource).not.toMatch(/confirmRocket|releaseRocketConfirmation/);
     expect(previewApiSource).not.toContain('/api/orders/rocket');
-    expect(extensionSource).toContain('collectRocketPoRowsEvidenceV1: true');
-    expect(extensionSource).toContain('collectRocketPoRowsConfirmationV1: true');
+    expect(extensionSource).toContain('coupangRocketPoSourceOwnerV1: true');
+    expect(extensionSource).not.toMatch(/collectRocketPoRows(?:Evidence|Confirmation)V1: true/);
     expect(extensionSource).toContain('collectSellpiaInventoryJsonV1: true');
   });
 });

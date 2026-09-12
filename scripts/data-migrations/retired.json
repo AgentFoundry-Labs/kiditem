@@ -1,0 +1,20 @@
+[
+  {
+    "id": "v0.1.26:001_initialize_master_product_abc_policy",
+    "releaseVersion": "0.1.26",
+    "name": "Initialize automatic MasterProduct ABC policies",
+    "sourcePath": "scripts/data-migrations/v0.1.26/001_initialize_master_product_abc_policy.ts",
+    "sourceSha256": "72683894592b789de0b996b67e3e8de9ac197865dc8739c75e435de24db2b921",
+    "baselineCommit": "9415a6e01f02db28531fc00b32f933ac16776211",
+    "replacementMigrations": [
+      {
+        "id": "v0.1.31:001_reset_absolute_product_abc",
+        "path": "scripts/data-migrations/v0.1.31/001_reset_absolute_product_abc.ts"
+      },
+      {
+        "id": "v0.1.31:002_initialize_absolute_product_abc_formula",
+        "path": "scripts/data-migrations/v0.1.31/002_initialize_absolute_product_abc_formula.ts"
+      }
+    ]
+  }
+]

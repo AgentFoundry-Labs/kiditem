@@ -1,8 +1,4 @@
 import type {
-  SellpiaInventoryCollectionFailureCode,
-  SellpiaInventoryRefreshReason,
-} from '@kiditem/shared/sellpia-inventory-freshness';
-import type {
   SellpiaInventoryFreshnessState,
   SellpiaInventoryFreshnessStatePatch,
 } from '../../../../domain/policy/sellpia-inventory-freshness.policy';
@@ -18,17 +14,6 @@ export type SellpiaInventoryStateExpectation = {
   activeSyncLeaseExpiresAt?: Date | null;
 };
 
-export type FailedSellpiaInventoryAttempt = {
-  organizationId: string;
-  generation: bigint;
-  claimToken: string;
-  trigger: SellpiaInventoryRefreshReason | null;
-  errorCode: SellpiaInventoryCollectionFailureCode;
-  errorMessage: string;
-  attemptedAt: Date;
-  createdBy: string;
-};
-
 export interface SellpiaInventoryFreshnessRepositoryTransaction {
   getState(): Promise<SellpiaInventoryFreshnessState>;
 
@@ -36,13 +21,6 @@ export interface SellpiaInventoryFreshnessRepositoryTransaction {
     expected: SellpiaInventoryStateExpectation;
     patch: SellpiaInventoryStatePatch;
   }): Promise<SellpiaInventoryFreshnessState>;
-
-  hasFailedAttempt(input: {
-    claimToken: string;
-    createdBy: string;
-  }): Promise<boolean>;
-
-  upsertFailedAttempt(input: FailedSellpiaInventoryAttempt): Promise<void>;
 
   findInventorySkus(
     sellpiaInventorySkuIds: string[],

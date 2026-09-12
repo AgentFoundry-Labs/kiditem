@@ -110,6 +110,9 @@ const retiredSidebarRoutes = [
   '/supplier-hub',
   '/suppliers',
   '/product-hub/options',
+  '/action-board',
+  '/workflows',
+  '/marketplace',
 ] as const;
 interface AppPageEntrypoint { href: string; relativePath: string; }
 

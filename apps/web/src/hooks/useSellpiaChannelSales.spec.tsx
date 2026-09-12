@@ -2,54 +2,26 @@ import { createElement, type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { safeStorageGet, safeStorageSet } from '@/lib/browser-storage';
-import { fetchSellpiaSalesSummary, ingestSellpiaSales } from '@/lib/sellpia-sales-api';
-import {
-  clearSellpiaSalesCacheFromExtension,
-  collectSellpiaSaleSummaryFromExtension,
-  readSellpiaSalesCacheFromExtension,
-} from '@/lib/sellpia-sales-collection';
+import { fetchSellpiaSalesSummary } from '@/lib/sellpia-sales-api';
+import { collectSellpiaSaleSummaryFromExtension } from '@/lib/sellpia-sales-collection';
 import {
   sellpiaMonthRange,
   useSellpiaChannelSales,
 } from './useSellpiaChannelSales';
 
-vi.mock('@/lib/browser-storage', () => ({
-  safeStorageGet: vi.fn(),
-  safeStorageSet: vi.fn(),
-}));
-
-vi.mock('@/hooks/useAuth', () => ({
-  useAuth: () => ({ status: 'ready', user: { organizationId: 'org-1' } }),
-}));
-
 vi.mock('@/lib/sellpia-sales-api', () => ({
   fetchSellpiaSalesSummary: vi.fn(),
-  ingestSellpiaSales: vi.fn(),
+  sellpiaSalesErrorMessage: (error: unknown) =>
+    error instanceof Error ? error.message : '판매현황 수집에 실패했습니다.',
 }));
 
 vi.mock('@/lib/sellpia-sales-collection', () => ({
-  clearSellpiaSalesCacheFromExtension: vi.fn(),
   collectSellpiaSaleSummaryFromExtension: vi.fn(),
-  readSellpiaSalesCacheFromExtension: vi.fn(),
 }));
 
 vi.mock('sonner', () => ({
   toast: { error: vi.fn(), success: vi.fn() },
 }));
-
-const payload = {
-  range: { from: '2026-07-18', to: '2026-07-18' },
-  sellers: [],
-  provenance: {
-    source: 'sellpia_sale_summary' as const,
-    mode: 'selldate' as const,
-    sellerScope: 'all' as const,
-    responseShape: 'empty_object' as const,
-    explicitEmpty: true as const,
-  },
-  capturedAt: '2026-07-18T10:00:00.000Z',
-};
 
 function makeQueryClient() {
   return new QueryClient({
@@ -68,105 +40,79 @@ describe('useSellpiaChannelSales synchronization', () => {
     vi.setSystemTime(new Date('2026-07-18T10:00:00.000Z'));
     vi.clearAllMocks();
     vi.mocked(fetchSellpiaSalesSummary).mockResolvedValue({} as never);
-    vi.mocked(ingestSellpiaSales).mockResolvedValue({
-      upserted: 0,
-      businessDates: ['2026-07-17'],
-      sellerCount: 0,
+    vi.mocked(collectSellpiaSaleSummaryFromExtension).mockResolvedValue({
+      success: true,
+      terminalState: 'COMPLETE',
+      attemptId: '11111111-1111-4111-8111-111111111111',
+      state: 'COMPLETE',
+      sourceType: 'sellpia_sales_daily',
+      expiresAt: '2099-01-01T00:00:00.000Z',
+      plan: {} as never,
+      actualCutoffAt: '2026-07-18T00:00:00.000Z',
+      completedAt: '2026-07-18T10:00:00.000Z',
+      contentChecksum: 'a'.repeat(64),
+      contentByteCount: 100,
+      rowCount: 2,
+      sellerCount: 1,
+      businessDates: ['2026-07-17', '2026-07-18'],
+      errorCode: null,
+      errorMessage: null,
     });
-    vi.mocked(clearSellpiaSalesCacheFromExtension).mockResolvedValue(undefined);
-    vi.mocked(collectSellpiaSaleSummaryFromExtension).mockResolvedValue(payload);
-    vi.mocked(readSellpiaSalesCacheFromExtension).mockResolvedValue(null);
-    vi.mocked(safeStorageGet).mockReturnValue('2026-07-18');
   });
 
   afterEach(() => {
     vi.useRealTimers();
   });
 
-  it('flushes a cached payload once and skips the duplicate live 93-day collection', async () => {
-    vi.mocked(safeStorageGet).mockReturnValue(null);
-    vi.mocked(readSellpiaSalesCacheFromExtension).mockResolvedValue({
-      payload,
-      capturedAt: Date.now(),
-    });
-    const queryClient = makeQueryClient();
-
-    renderHook(
-      () => useSellpiaChannelSales({ from: '2026-07-01', to: '2026-07-18' }),
-      { wrapper: wrapper(queryClient) },
-    );
-
-    await waitFor(() => expect(ingestSellpiaSales).toHaveBeenCalledTimes(1));
-    expect(ingestSellpiaSales).toHaveBeenCalledWith(payload);
-    expect(clearSellpiaSalesCacheFromExtension).toHaveBeenCalledTimes(1);
-    expect(safeStorageSet).toHaveBeenCalledWith(
-      'local',
-      'kiditem-sellpia-sales-autosync:org-1',
-      '2026-07-18',
-    );
-    expect(collectSellpiaSaleSummaryFromExtension).not.toHaveBeenCalled();
-  });
-
-  it('keeps a successful cache ingest single even when cache cleanup fails', async () => {
-    vi.mocked(safeStorageGet).mockReturnValue(null);
-    vi.mocked(readSellpiaSalesCacheFromExtension).mockResolvedValue({
-      payload,
-      capturedAt: Date.now(),
-    });
-    vi.mocked(clearSellpiaSalesCacheFromExtension).mockRejectedValueOnce(
-      new Error('extension worker restarted'),
-    );
-
+  it('does not start provider collection while the dashboard only reads data', async () => {
     renderHook(
       () => useSellpiaChannelSales({ from: '2026-07-01', to: '2026-07-18' }),
       { wrapper: wrapper(makeQueryClient()) },
     );
 
-    await waitFor(() => expect(ingestSellpiaSales).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(fetchSellpiaSalesSummary).toHaveBeenCalledTimes(1));
     expect(collectSellpiaSaleSummaryFromExtension).not.toHaveBeenCalled();
   });
 
-  it('persists an old cache and then collects today instead of marking the day complete', async () => {
-    const stalePayload = {
-      ...payload,
-      range: { from: '2026-07-17', to: '2026-07-17' },
-    };
-    vi.mocked(safeStorageGet).mockReturnValue(null);
-    vi.mocked(readSellpiaSalesCacheFromExtension).mockResolvedValue({
-      payload: stalePayload,
-      capturedAt: Date.now() - 24 * 60 * 60 * 1000,
-    });
-
-    renderHook(
-      () => useSellpiaChannelSales({ from: '2026-07-01', to: '2026-07-18' }),
-      { wrapper: wrapper(makeQueryClient()) },
-    );
-
-    await waitFor(() => expect(ingestSellpiaSales).toHaveBeenCalledTimes(2));
-    expect(ingestSellpiaSales).toHaveBeenNthCalledWith(1, stalePayload);
-    expect(ingestSellpiaSales).toHaveBeenNthCalledWith(2, payload);
-    expect(collectSellpiaSaleSummaryFromExtension).toHaveBeenCalledTimes(1);
-  });
-
-  it('manual sync invalidates both dashboard sales and readiness state', async () => {
+  it('starts the frozen source owner only on explicit sync and invalidates reads', async () => {
     const queryClient = makeQueryClient();
     const invalidate = vi.spyOn(queryClient, 'invalidateQueries');
     const { result } = renderHook(
       () => useSellpiaChannelSales({ from: '2026-07-01', to: '2026-07-18' }),
       { wrapper: wrapper(queryClient) },
     );
-    await waitFor(() => expect(readSellpiaSalesCacheFromExtension).toHaveBeenCalledTimes(1));
 
     await act(async () => {
       await result.current.sync();
     });
 
     expect(collectSellpiaSaleSummaryFromExtension).toHaveBeenCalledTimes(1);
-    expect(ingestSellpiaSales).toHaveBeenCalledWith(payload);
+    expect(collectSellpiaSaleSummaryFromExtension).toHaveBeenCalledWith();
     expect(invalidate).toHaveBeenCalledWith({
       queryKey: ['dashboard', 'sellpia-sales'],
     });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['readiness'] });
+    expect(result.current.syncing).toBe(false);
+  });
+
+  it('keeps failed owner publication hidden from dashboard invalidation', async () => {
+    vi.mocked(collectSellpiaSaleSummaryFromExtension).mockResolvedValueOnce({
+      success: false,
+      terminalState: 'FAILED',
+      errorMessage: '로그인이 필요합니다.',
+    } as never);
+    const queryClient = makeQueryClient();
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries');
+    const { result } = renderHook(
+      () => useSellpiaChannelSales({ from: '2026-07-01', to: '2026-07-18' }),
+      { wrapper: wrapper(queryClient) },
+    );
+
+    await act(async () => {
+      await result.current.sync();
+    });
+
+    expect(invalidate).not.toHaveBeenCalled();
     expect(result.current.syncing).toBe(false);
   });
 });

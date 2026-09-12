@@ -132,7 +132,7 @@ RUN tmpdir="$(mktemp -d)" \
     && test -s "$tmpdir/output.xls" \
     && rm -rf "$tmpdir"
 
-RUN node -e "require('./apps/server/dist/api-application.module.js'); require('./apps/server/dist/agent-worker-application.module.js')"
+RUN node -e "require('./apps/server/dist/api-application.module.js')"
 
 WORKDIR /app/apps/server
 

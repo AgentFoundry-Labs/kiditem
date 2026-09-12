@@ -8,7 +8,6 @@ export {
   CapabilityIdempotencySchema,
   CapabilityResultReceiptSchema,
   CapabilityResultEnvelopeSchema,
-  OperationRefSchema,
   ResourceRefSchema,
 } from './work';
 export type {
@@ -18,6 +17,5 @@ export type {
   CapabilityInvocationStatus,
   CapabilityResultEnvelope,
   CapabilityResultReceipt,
-  OperationRef,
   ResourceRef,
 } from './work';

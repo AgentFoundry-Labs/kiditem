@@ -1,12 +1,10 @@
+import { NotImplementedException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import type {
   ProductPreparationRepositoryPort,
   FrozenProductPreparationSubmission,
 } from '../port/out/repository/product-preparation.repository.port';
-import {
-  DefinitiveChannelProductRegistrationError,
-  type ChannelProductRegistrationPort,
-} from '../port/out/cross-domain/channel-product-registration.port';
+import type { ChannelProductRegistrationPort } from '../port/out/cross-domain/channel-product-registration.port';
 import type { RegistrationContentWorkspacePort } from '../port/out/cross-domain/registration-content-workspace.port';
 import { ProductRegistrationService } from './product-registration.service';
 
@@ -144,16 +142,6 @@ function setup(overrides: {
       existingListing: null,
     }),
     assertExternalRegistrationAccount: vi.fn().mockResolvedValue({ channel: 'coupang', vendorId: 'A00012345' }),
-    reconcile: vi.fn().mockResolvedValue(null),
-    submit: vi.fn().mockImplementation(async (_input, beforeProviderCreate) => {
-      await beforeProviderCreate();
-      return {
-        providerSubmissionId: 'provider-1',
-        externalListingId: '427011919',
-        channel: 'coupang',
-        rawResult: { code: 'SUCCESS' },
-      };
-    }),
     resolveListing: vi.fn().mockResolvedValue({
       listingId: LISTING_ID,
       channelAccountId: ACCOUNT_ID,
@@ -390,295 +378,22 @@ describe('ProductRegistrationService', () => {
     );
   });
 
-  it('marks a provider failure retriable without finalizing locally', async () => {
-    const failure = new Error('provider unavailable');
-    const { service, repository, channel, content } = setup({
-      channel: {
-        submit: vi.fn().mockImplementation(async (_input, beforeProviderCreate) => {
-          await beforeProviderCreate();
-          throw failure;
-        }),
-      },
-    });
+  it('returns an HTTP 501-style unsupported error before claiming or mutating a preparation', () => {
+    const { service, repository, content } = setup();
+    let thrown: unknown;
 
-    await expect(service.submit(ORG_ID, PREPARATION_ID, USER_ID)).resolves.toEqual({
-      preparationId: PREPARATION_ID,
-      status: 'failed',
-    });
-    expect(repository.markFailed).toHaveBeenCalledWith({
-      organizationId: ORG_ID,
-      preparationId: PREPARATION_ID,
-      submissionLeaseToken: '33333333-3333-4333-8333-333333333333',
-      error: 'provider unavailable',
-    });
-    expect(repository.finalizeRegistered).not.toHaveBeenCalled();
+    try {
+      service.submit(ORG_ID, PREPARATION_ID, USER_ID);
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(NotImplementedException);
+    expect((thrown as NotImplementedException).getStatus()).toBe(501);
+    expect((thrown as Error).message).toContain('product submission is not supported');
+    expect(repository.claimForSubmission).not.toHaveBeenCalled();
+    expect(repository.markFailed).not.toHaveBeenCalled();
     expect(content.branchToListing).not.toHaveBeenCalled();
-    expect(channel.reconcile).toHaveBeenCalledWith(
-      expect.objectContaining({
-        executionId: 'execution-1',
-        submissionKey: 'submission-key-1',
-        submissionPayloadHash: 'hash-1',
-      }),
-    );
-  });
-
-  it('records a fresh not-attempted reconciliation/account failure as definitive local failure', async () => {
-    const failure = new Error('selected account is inactive');
-    const { service, repository, channel } = setup({
-      channel: { reconcile: vi.fn().mockRejectedValue(failure) },
-    });
-
-    await expect(service.submit(ORG_ID, PREPARATION_ID, USER_ID)).resolves.toEqual({
-      preparationId: PREPARATION_ID,
-      status: 'failed',
-    });
-    expect(repository.markFailed).toHaveBeenCalledWith({
-      organizationId: ORG_ID,
-      preparationId: PREPARATION_ID,
-      submissionLeaseToken: '33333333-3333-4333-8333-333333333333',
-      providerOutcome: 'definitive_failure',
-      error: 'selected account is inactive',
-    });
-    expect(channel.submit).not.toHaveBeenCalled();
-  });
-
-  it('keeps an uncertain replay failure uncertain before another provider create', async () => {
-    const failure = new Error('reconciliation unavailable');
-    const { service, repository } = setup({
-      repository: {
-        claimForSubmission: vi.fn().mockResolvedValue(frozenSubmission({
-          providerOutcome: 'uncertain',
-          isRetry: true,
-        })),
-      },
-      channel: { reconcile: vi.fn().mockRejectedValue(failure) },
-    });
-
-    await service.submit(ORG_ID, PREPARATION_ID, USER_ID);
-    expect(repository.markFailed).toHaveBeenCalledWith({
-      organizationId: ORG_ID,
-      preparationId: PREPARATION_ID,
-      submissionLeaseToken: '33333333-3333-4333-8333-333333333333',
-      error: 'reconciliation unavailable',
-    });
-  });
-
-  it('resolves source-owned selections inside the claim transaction before provider IO', async () => {
-    const { service, repository, channel, content } = setup();
-
-    await service.submit(ORG_ID, PREPARATION_ID, USER_ID);
-
-    expect(repository.claimForSubmission).toHaveBeenCalledWith(
-      ORG_ID,
-      PREPARATION_ID,
-      USER_ID,
-      expect.any(Function),
-    );
-    expect(content.resolveSourceSelections).toHaveBeenCalledWith(
-      TX,
-      expect.objectContaining({
-        organizationId: ORG_ID,
-        sourceWorkspaceId: WORKSPACE_ID,
-      }),
-    );
-    expect(content.resolveSourceSelections.mock.invocationCallOrder[0])
-      .toBeLessThan(channel.reconcile.mock.invocationCallOrder[0]);
-  });
-
-  it('reconciles an uncertain prior success and does not create a duplicate provider product', async () => {
-    const reconciled = {
-      providerSubmissionId: 'provider-1',
-      externalListingId: '427011919',
-      channel: 'coupang',
-      rawResult: { code: 'RECONCILED' },
-    };
-    const finalizeRegistered = vi.fn()
-      .mockRejectedValueOnce(new Error('local transaction failed'))
-      .mockImplementationOnce(async (_orgId, _id, _leaseToken, finalize) => {
-        const result = await finalize(TX);
-        return { preparationId: PREPARATION_ID, status: 'registered', listingId: result.listingId };
-      });
-    const reconcile = vi.fn().mockResolvedValue(reconciled);
-    const { service, channel, repository } = setup({
-      repository: {
-        claimForSubmission: vi.fn().mockResolvedValue(frozenSubmission({
-          providerOutcome: 'uncertain',
-          isRetry: true,
-        })),
-        finalizeRegistered,
-      },
-      channel: { reconcile },
-    });
-
-    await expect(service.submit(ORG_ID, PREPARATION_ID, USER_ID)).resolves.toEqual({
-      preparationId: PREPARATION_ID,
-      status: 'failed',
-    });
-    await expect(service.submit(ORG_ID, PREPARATION_ID, USER_ID)).resolves.toEqual({
-      preparationId: PREPARATION_ID,
-      status: 'registered',
-      listingId: LISTING_ID,
-    });
-
-    expect(channel.submit).not.toHaveBeenCalled();
-    expect(reconcile).toHaveBeenCalledTimes(2);
-    expect(repository.recordProviderResult).toHaveBeenCalledWith(
-      ORG_ID,
-      PREPARATION_ID,
-      '33333333-3333-4333-8333-333333333333',
-      reconciled,
-    );
-  });
-
-  it('resolves the listing, branches content, and registers in one repository transaction', async () => {
-    const { service, repository, channel, content } = setup();
-
-    await expect(service.submit(ORG_ID, PREPARATION_ID, USER_ID)).resolves.toEqual({
-      preparationId: PREPARATION_ID,
-      status: 'registered',
-      listingId: LISTING_ID,
-    });
-
-    expect(repository.finalizeRegistered).toHaveBeenCalledTimes(1);
-    expect(channel.resolveListing).toHaveBeenCalledWith(
-      TX,
-      expect.objectContaining({
-        organizationId: ORG_ID,
-        sourceCandidateId: CANDIDATE_ID,
-        channelAccountId: ACCOUNT_ID,
-        externalListingId: '427011919',
-      }),
-    );
-    expect(content.branchToListing).toHaveBeenCalledWith(
-      TX,
-      expect.objectContaining({
-        organizationId: ORG_ID,
-        sourceWorkspaceId: WORKSPACE_ID,
-        listingId: LISTING_ID,
-        createdByUserId: USER_ID,
-      }),
-    );
-  });
-
-  it('carries frozen KidItem-first product and option identities to the channel finalizer', async () => {
-    const exactSubmission = frozenSubmission({
-      submissionPayloadJson: {
-        channelAccountId: ACCOUNT_ID,
-        displayName: 'Kids rain boots',
-        registrationInput: {
-          ...DRAFT_INPUT.registrationInput,
-          masterProductId: MASTER_PRODUCT_ID,
-          optionLinks: [{
-            externalOptionId: ' RAIN-BOOT-PINK ',
-            sellpiaInventorySkuId: SELLPIA_INVENTORY_SKU_ID,
-            quantity: 2,
-          }],
-        },
-      },
-    });
-    const { service, channel } = setup({
-      repository: {
-        claimForSubmission: vi.fn().mockResolvedValue(exactSubmission),
-      },
-    });
-
-    await service.submit(ORG_ID, PREPARATION_ID, USER_ID);
-
-    expect(channel.resolveListing).toHaveBeenCalledWith(TX, expect.objectContaining({
-      masterProductId: MASTER_PRODUCT_ID,
-      optionLinks: [{
-        externalOptionId: 'RAIN-BOOT-PINK',
-        sellpiaInventorySkuId: SELLPIA_INVENTORY_SKU_ID,
-        quantity: 2,
-      }],
-    }));
-  });
-
-  it('never blind-creates when an uncertain attempt cannot be reconciled', async () => {
-    const { service, repository, channel } = setup({
-      repository: {
-        claimForSubmission: vi.fn().mockResolvedValue(frozenSubmission({
-          providerOutcome: 'uncertain',
-          isRetry: true,
-        })),
-      },
-      channel: { reconcile: vi.fn().mockResolvedValue(null) },
-    });
-
-    await expect(service.submit(ORG_ID, PREPARATION_ID, USER_ID)).resolves.toEqual({
-      preparationId: PREPARATION_ID,
-      status: 'failed',
-    });
-    expect(channel.submit).not.toHaveBeenCalled();
-    expect(repository.markProviderAttemptStarted).not.toHaveBeenCalled();
-    expect(repository.markFailed).toHaveBeenCalledWith({
-      organizationId: ORG_ID,
-      preparationId: PREPARATION_ID,
-      submissionLeaseToken: '33333333-3333-4333-8333-333333333333',
-      error: 'Provider outcome remains uncertain after reconciliation.',
-    });
-  });
-
-  it('durably marks the attempt uncertain immediately before an allowed provider create', async () => {
-    const providerCreateBoundary = vi.fn();
-    const { service, repository, channel } = setup({
-      repository: {
-        claimForSubmission: vi.fn().mockResolvedValue(frozenSubmission({
-          providerOutcome: 'definitive_failure',
-          isRetry: true,
-        })),
-      },
-      channel: {
-        submit: vi.fn().mockImplementation(async (_input, beforeProviderCreate) => {
-          await beforeProviderCreate();
-          providerCreateBoundary();
-          return {
-            providerSubmissionId: 'provider-1',
-            externalListingId: '427011919',
-            channel: 'coupang',
-            rawResult: { code: 'SUCCESS' },
-          };
-        }),
-      },
-    });
-
-    await service.submit(ORG_ID, PREPARATION_ID, USER_ID);
-
-    expect(repository.markProviderAttemptStarted).toHaveBeenCalledWith(
-      ORG_ID,
-      PREPARATION_ID,
-      '33333333-3333-4333-8333-333333333333',
-    );
-    expect(channel.submit).toHaveBeenCalledWith(
-      expect.objectContaining({
-        providerOutcome: 'uncertain',
-        providerCreateAllowed: true,
-      }),
-      expect.any(Function),
-    );
-    expect(repository.markProviderAttemptStarted.mock.invocationCallOrder[0])
-      .toBeLessThan(providerCreateBoundary.mock.invocationCallOrder[0]);
-  });
-
-  it('does not mark an attempt uncertain when local channel validation rejects before provider create', async () => {
-    const { service, repository } = setup({
-      channel: {
-        submit: vi.fn().mockRejectedValue(new Error('invalid frozen listing payload')),
-      },
-    });
-
-    await expect(service.submit(ORG_ID, PREPARATION_ID, USER_ID)).resolves.toEqual({
-      preparationId: PREPARATION_ID,
-      status: 'failed',
-    });
-    expect(repository.markProviderAttemptStarted).not.toHaveBeenCalled();
-    expect(repository.markFailed).toHaveBeenCalledWith({
-      organizationId: ORG_ID,
-      preparationId: PREPARATION_ID,
-      submissionLeaseToken: '33333333-3333-4333-8333-333333333333',
-      providerOutcome: 'definitive_failure',
-      error: 'invalid frozen listing payload',
-    });
   });
 
   it('accepts matching WING extension evidence without calling the Coupang Open API', async () => {
@@ -820,44 +535,6 @@ describe('ProductRegistrationService', () => {
     })).resolves.toEqual({ preparationId: PREPARATION_ID, status: 'registered', listingId: LISTING_ID });
     expect(repository.recordProviderResult).not.toHaveBeenCalled();
     expect(repository.finalizeRegistered).not.toHaveBeenCalled();
-  });
-
-  it('records a definitive provider rejection without leaving an uncertain identity', async () => {
-    const rejection = new DefinitiveChannelProductRegistrationError('invalid category');
-    const { service, repository } = setup({
-      channel: { submit: vi.fn().mockRejectedValue(rejection) },
-    });
-
-    await expect(service.submit(ORG_ID, PREPARATION_ID, USER_ID)).resolves.toEqual({
-      preparationId: PREPARATION_ID,
-      status: 'failed',
-    });
-    expect(repository.markFailed).toHaveBeenCalledWith({
-      organizationId: ORG_ID,
-      preparationId: PREPARATION_ID,
-      submissionLeaseToken: '33333333-3333-4333-8333-333333333333',
-      providerOutcome: 'definitive_failure',
-      error: 'invalid category',
-    });
-  });
-
-  it('retains succeeded provider identity when local finalization fails', async () => {
-    const { service, repository } = setup({
-      repository: {
-        finalizeRegistered: vi.fn().mockRejectedValue(new Error('local transaction failed')),
-      },
-    });
-
-    await expect(service.submit(ORG_ID, PREPARATION_ID, USER_ID)).resolves.toEqual({
-      preparationId: PREPARATION_ID,
-      status: 'failed',
-    });
-    expect(repository.markFailed).toHaveBeenLastCalledWith({
-      organizationId: ORG_ID,
-      preparationId: PREPARATION_ID,
-      submissionLeaseToken: '33333333-3333-4333-8333-333333333333',
-      error: 'local transaction failed',
-    });
   });
 
   it('cancels through the row-locked repository command', async () => {

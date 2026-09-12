@@ -8,8 +8,6 @@ import {
 
 const Uuid = z.string().uuid();
 const Identifier = z.string().trim().min(1).max(200);
-const OperationStatus = z.enum(['queued', 'waiting_runtime', 'waiting_dependency', 'running', 'attention_required', 'succeeded', 'failed', 'cancelled', 'skipped']);
-const OperationOutput = z.object({ operationRunId: Uuid, status: OperationStatus }).strict();
 const SupplierUrl = z.string()
   .trim()
   .max(SUPPLIER_URL_MAX_LENGTH)
@@ -34,7 +32,7 @@ const SourceSnapshot = z.object({
   contentHash: z.string().regex(/^[a-f0-9]{64}$/),
 }).strict();
 
-/** Sourcing owns all ten final Agent-facing definitions and their strict business schemas. */
+/** Sourcing owns its direct final Agent-facing definitions and strict business schemas. */
 export const SOURCING_CAPABILITIES = [
   {
     key: 'sourcing.duplicateCheck', ownerDomain: 'sourcing', ownerInputPort: 'sourcing.duplicateCheck',
@@ -59,17 +57,6 @@ export const SOURCING_CAPABILITIES = [
     inputSchema: z.object({ snapshot: SourceSnapshot }).strict(),
     outputSchema: z.object({ candidateId: Uuid }).strict(),
     effects: ['db_write'], approvalRisk: 'medium', idempotency: 'required',
-  },
-  {
-    key: 'sourcing.scrapeUrlWorkflow', ownerDomain: 'sourcing', ownerInputPort: 'sourcing.scrapeUrlWorkflow',
-    description: 'Run the durable sourcing URL scrape and candidate-ingest workflow.',
-    resultSummary: '상품 수집 작업을 처리했습니다.',
-    inputSchema: z.object({ sourceUrl: SupplierUrl }).strict(),
-    outputSchema: z.discriminatedUnion('kind', [
-      z.object({ kind: z.literal('existing'), candidateId: Uuid }).strict(),
-      z.object({ kind: z.literal('enqueued'), operationRunId: Uuid, status: OperationStatus }).strict(),
-    ]),
-    effects: ['read', 'browser', 'external_io', 'db_write', 'job_enqueue'], approvalRisk: 'low', idempotency: 'required',
   },
   {
     key: 'sourcing.retrieveWorkspaceEvidence', ownerDomain: 'sourcing', ownerInputPort: 'sourcing.retrieveWorkspaceEvidence',
@@ -102,13 +89,6 @@ export const SOURCING_CAPABILITIES = [
     effects: ['read'], approvalRisk: 'none', idempotency: 'recommended',
   },
   {
-    key: 'sourcing.refreshCollection', ownerDomain: 'sourcing', ownerInputPort: 'sourcing.refreshCollection',
-    description: 'Enqueue durable source collection for selected approved market sources.',
-    resultSummary: '시장 소스 수집을 시작했습니다.',
-    inputSchema: z.object({ sources: z.array(z.enum(['naver', '1688', 'shorts'])).min(1).max(3) }).strict(), outputSchema: OperationOutput,
-    effects: ['external_io', 'job_enqueue'], approvalRisk: 'low', idempotency: 'required',
-  },
-  {
     key: 'sourcing.refreshValidation', ownerDomain: 'sourcing', ownerInputPort: 'sourcing.refreshValidation',
     description: 'Refresh bounded validation evidence for one recommendation run.',
     resultSummary: '추천 근거 검증을 갱신했습니다.',
@@ -123,13 +103,6 @@ export const SOURCING_CAPABILITIES = [
     inputSchema: z.object({ recommendationRunId: Uuid, workspaceKey: z.enum(['entry', 'final']), items: z.array(z.object({ itemKey: Identifier, expectedVersion: z.number().int().nonnegative() }).strict()).min(1).max(100) }).strict(),
     outputSchema: z.object({ reviewBatchId: Identifier, itemCount: z.number().int().nonnegative(), status: Identifier }).strict(),
     effects: ['db_write'], approvalRisk: 'low', idempotency: 'required',
-  },
-  {
-    key: 'sourcing.collect_shadow_signals', ownerDomain: 'sourcing', ownerInputPort: 'sourcing.collectShadowSignals',
-    description: 'Enqueue durable collection of external market-shadow signals.',
-    resultSummary: '시장 신호 수집을 시작했습니다.',
-    inputSchema: z.object({}).strict(), outputSchema: OperationOutput,
-    effects: ['external_io', 'job_enqueue'], approvalRisk: 'low', idempotency: 'required',
   },
 ] as const satisfies readonly CapabilityDefinition[];
 

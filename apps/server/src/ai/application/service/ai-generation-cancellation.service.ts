@@ -22,9 +22,8 @@ export class AiGenerationCancellationService
     generationId: string;
     actorUserId: string | null;
     reason: string;
-    notifyProductGenerationParent?: boolean;
   }): Promise<AiGenerationCancellationTargetResult> {
-    return this.detailPages.cancelForOperation(input);
+    return this.detailPages.cancelGeneration(input);
   }
 
   cancelThumbnailGeneration(input: {
@@ -32,9 +31,8 @@ export class AiGenerationCancellationService
     generationId: string;
     actorUserId: string | null;
     reason: string;
-    notifyProductGenerationParent?: boolean;
   }): Promise<AiGenerationCancellationTargetResult> {
-    return this.thumbnails.cancelForOperation(input);
+    return this.thumbnails.cancelGeneration(input);
   }
 
   cancelImageEditJob(input: {

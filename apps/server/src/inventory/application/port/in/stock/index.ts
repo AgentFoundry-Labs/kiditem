@@ -1,4 +1,5 @@
 export * from './inventory-sku-snapshot-list.port';
+export * from './inventory-sku-export.port';
 export * from './inventory-availability.port';
 export * from './rocket-workbook-progress.port';
 export * from './sellpia-inventory-import.port';

@@ -56,7 +56,6 @@ describe('MCP v2 readiness canary', () => {
         listDefinitions: () => [],
         resolveDefinition: () => null,
       },
-      operations: { get: vi.fn() },
       readiness,
       approvalEvents: { publish: vi.fn() },
     } as unknown as CapabilityMcpDependencies;

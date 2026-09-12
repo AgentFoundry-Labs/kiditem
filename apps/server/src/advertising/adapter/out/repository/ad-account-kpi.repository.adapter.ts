@@ -2,77 +2,59 @@
 // across `ad-account-kpi.query.ts` and `channel-account-kpi.persistence.ts`
 // because both target the `ChannelAccountDailyKpiSnapshot` aggregate.
 //
-// Daily-fact metric semantics: `normalizedJson.conversions` carries the
-// conversion *revenue* for `coupang_ads_daily`; CVR computation downstream
-// uses `orders` (count) instead.
+// Daily-fact metric semantics: `normalizedJson.conversions` carries Coupang's
+// attributed selling-unit count (`adAttributedUnits`); CVR computation
+// downstream uses `orders` (`adAttributedOrders`) instead.
 
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import type { AdPeriod } from '../../../domain/ad-metrics';
 import { periodBounds } from '../../../domain/ad-metrics';
+import {
+  AD_ACCOUNT_DAILY_KPI_READ_PORT,
+  type AdAccountDailyKpiReadPort,
+} from '../../../application/port/in/ad-account-daily-kpi-source.port';
+import { adIngestRepositoryClient } from './ad-ingest-transaction-context';
+import type { AdPeriod } from '../../../domain/ad-metrics';
 import type {
   AdAccountKpiDayRow,
   AdAccountKpiRepositoryPort,
   UpsertAccountKpiInput,
 } from '../../../application/port/out/repository/ad-account-kpi.repository.port';
-import { adIngestRepositoryClient } from './ad-ingest-transaction-context';
 
 @Injectable()
 export class AdAccountKpiRepositoryAdapter
   implements AdAccountKpiRepositoryPort
 {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(AD_ACCOUNT_DAILY_KPI_READ_PORT)
+    private readonly dailyKpiRead: AdAccountDailyKpiReadPort,
+  ) {}
 
   async findCoupangAdsDaily(
     organizationId: string,
     period: AdPeriod,
     dateRange?: { from: Date; to: Date },
   ): Promise<AdAccountKpiDayRow[]> {
-    const channelAccountId = await this.findActiveCoupangAccountId(
-      organizationId,
-    );
-    if (!channelAccountId) return [];
-
     const bounds = dateRange ?? periodBounds(period);
-    const rows = await this.prisma.$queryRaw<
-      Array<{
-        businessDate: Date;
-        adSpend: number | null;
-        adRevenue: number | null;
-        clicks: number | null;
-        impressions: number | null;
-        conversions: number | null;
-        orders: number | null;
-      }>
-    >(Prisma.sql`
-      SELECT
-        business_date                                              AS "businessDate",
-        (normalized_json->>'adSpend')::int                          AS "adSpend",
-        (normalized_json->>'adRevenue')::int                        AS "adRevenue",
-        (normalized_json->>'clicks')::int                           AS "clicks",
-        (normalized_json->>'impressions')::int                      AS "impressions",
-        (normalized_json->>'conversions')::int                      AS "conversions",
-        (normalized_json->>'orders')::int                           AS "orders"
-      FROM channel_account_daily_kpi_snapshots
-      WHERE organization_id = ${organizationId}::uuid
-        AND channel_account_id = ${channelAccountId}::uuid
-        AND source = 'coupang_ads'
-        AND kpi_type = 'coupang_ads_daily'
-        AND business_date >= ${bounds.from}
-        AND business_date <= ${bounds.to}
-      ORDER BY business_date ASC
-    `);
-    return rows.map((row) => ({
-      businessDate: row.businessDate.toISOString().slice(0, 10),
+    if (bounds.from.getTime() > bounds.to.getTime()) return [];
+
+    const published = await this.dailyKpiRead.readPublished({
+      organizationId,
+      from: bounds.from.toISOString().slice(0, 10),
+      to: bounds.to.toISOString().slice(0, 10),
+    });
+    return published.rows.map((row) => ({
+      businessDate: row.businessDate,
       sums: {
-        spend: row.adSpend ?? 0,
-        revenue: row.adRevenue ?? 0,
-        clicks: row.clicks ?? 0,
-        impressions: row.impressions ?? 0,
-        conversions: row.orders ?? 0,
+        spend: row.normalized.adSpend,
+        revenue: row.normalized.adRevenue,
+        clicks: row.normalized.clicks,
+        impressions: row.normalized.impressions,
+        conversions: row.normalized.orders,
       },
-      orders: row.orders ?? 0,
+      orders: row.normalized.orders,
     }));
   }
 
@@ -131,18 +113,4 @@ export class AdAccountKpiRepositoryAdapter
     });
   }
 
-  private async findActiveCoupangAccountId(
-    organizationId: string,
-  ): Promise<string | null> {
-    const account = await this.prisma.channelAccount.findFirst({
-      where: { organizationId, channel: 'coupang', status: 'active' },
-      orderBy: [
-        { isPrimary: 'desc' },
-        { updatedAt: 'desc' },
-        { id: 'asc' },
-      ],
-      select: { id: true },
-    });
-    return account?.id ?? null;
-  }
 }

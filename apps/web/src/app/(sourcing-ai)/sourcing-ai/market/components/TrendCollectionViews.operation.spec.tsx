@@ -1,35 +1,20 @@
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { TrendCollectionViews } from './TrendCollectionViews';
 
-const mocks = vi.hoisted(() => ({
-  start: vi.fn(),
-  cancel: vi.fn(),
-  retryAttention: vi.fn(),
-  useAction: vi.fn(),
+const directOwnerMocks = vi.hoisted(() => ({
+  collect: vi.fn(),
+  fetchStatus: vi.fn(),
 }));
-
-vi.mock('../../hooks/use-sourcing-operation-action', () => ({
-  useSourcingOperationAction: mocks.useAction,
-}));
-
-vi.mock('../../components/SourcingOperationRunPanel', () => ({
-  SourcingOperationRunPanel: ({
-    run,
-    onCancel,
-    onRetryAttention,
-  }: {
-    run: { status: string } | null;
-    onCancel?: () => void;
-    onRetryAttention?: () => void;
-  }) => (
-    <div>
-      <span>tiktok-run:{run?.status ?? 'none'}</span>
-      <button type="button" onClick={onCancel}>tiktok-operation-cancel</button>
-      <button type="button" onClick={onRetryAttention}>tiktok-operation-retry</button>
-    </div>
-  ),
+const trendMocks = vi.hoisted(() => ({
+  fetch1688HotProducts: vi.fn(),
+  fetchNaverKeywordTrends: vi.fn(),
+  fetchPopularKeywordBoards: vi.fn(),
+  fetchShortsTrends: vi.fn(),
+  fetchTiktokCcTrends: vi.fn(),
 }));
 
 vi.mock('./LiveCommerceSection', () => ({
@@ -37,25 +22,16 @@ vi.mock('./LiveCommerceSection', () => ({
 }));
 
 vi.mock('../lib/trend-collection-api', () => ({
-  fetch1688HotProducts: vi.fn(async () => ({ offers: [], capturedAt: null })),
-  fetchNaverKeywordTrends: vi.fn(async () => ({ keywords: [] })),
-  fetchPopularKeywordBoards: vi.fn(async () => ({ boards: [] })),
-  fetchShortsTrends: vi.fn(async () => ({ items: [] })),
-  fetchTiktokCcTrends: vi.fn(async () => ({
-    regions: [{
-      region: 'KR',
-      items: [{
-        trendType: 'keyword',
-        entityKey: 'persisted-tiktok',
-        label: '보존된 틱톡 스냅샷',
-        rank: 1,
-        newlyRanked: false,
-        growthPct: null,
-        sourceUrl: null,
-      }],
-    }],
-    capturedAt: '2026-08-14T00:00:00.000Z',
-  })),
+  fetch1688HotProducts: trendMocks.fetch1688HotProducts,
+  fetchNaverKeywordTrends: trendMocks.fetchNaverKeywordTrends,
+  fetchPopularKeywordBoards: trendMocks.fetchPopularKeywordBoards,
+  fetchShortsTrends: trendMocks.fetchShortsTrends,
+  fetchTiktokCcTrends: trendMocks.fetchTiktokCcTrends,
+}));
+
+vi.mock('../../lib/sourcing-tiktok-source-owner', () => ({
+  collectSourcingTiktokCcTrendsFromExtension: directOwnerMocks.collect,
+  fetchSourcingTiktokCcSourceStatus: directOwnerMocks.fetchStatus,
 }));
 
 vi.mock('../lib/live-commerce-api', () => ({
@@ -73,45 +49,157 @@ function renderViews() {
   );
 }
 
-describe('TrendCollectionViews TikTok browser operation', () => {
+function persistedSnapshot() {
+  return {
+    regions: [{
+      region: 'US',
+      items: [{
+        trendType: 'keyword',
+        entityKey: 'persisted-tiktok',
+        label: '보존된 틱톡 스냅샷',
+        rank: 1,
+        newlyRanked: false,
+        growthPct: null,
+        sourceUrl: null,
+      }],
+    }],
+    capturedAt: '2026-08-14T00:00:00.000Z',
+  };
+}
+
+function readyStatus() {
+  return {
+    ready: true,
+    refreshing: false,
+    latestAttempt: null,
+    latestComplete: null,
+    actualCutoffAt: null,
+    errorCode: null,
+    errorMessage: null,
+  };
+}
+
+describe('TrendCollectionViews TikTok direct source-owner collection', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.start.mockResolvedValue({ id: 'tiktok-operation-run' });
-    mocks.useAction.mockReturnValue({
-      run: null,
-      start: mocks.start,
-      cancel: mocks.cancel,
-      retryAttention: mocks.retryAttention,
-      isStarting: false,
-      isCancelling: false,
-      isRetrying: false,
+    trendMocks.fetch1688HotProducts.mockResolvedValue({ offers: [], capturedAt: null });
+    trendMocks.fetchNaverKeywordTrends.mockResolvedValue({ keywords: [] });
+    trendMocks.fetchPopularKeywordBoards.mockResolvedValue({ boards: [] });
+    trendMocks.fetchShortsTrends.mockResolvedValue({ items: [] });
+    trendMocks.fetchTiktokCcTrends.mockResolvedValue(persistedSnapshot());
+    directOwnerMocks.fetchStatus.mockResolvedValue(readyStatus());
+    directOwnerMocks.collect.mockResolvedValue({
+      success: true,
+      attemptId: '00000000-0000-4000-8000-000000000777',
+      terminalState: 'COMPLETE',
     });
   });
 
-  it('reads persisted trend snapshots on mount and starts TikTok only from its CTA', async () => {
-    const view = renderViews();
+  it('keeps the persisted snapshot on mount, starts only from the direct extension CTA, and refetches after COMPLETE', async () => {
+    renderViews();
 
     expect(screen.getByText('persisted-live-commerce-snapshot')).toBeInTheDocument();
     expect(await screen.findByText('보존된 틱톡 스냅샷')).toBeInTheDocument();
-    expect(mocks.start).not.toHaveBeenCalled();
-    expect(mocks.useAction).toHaveBeenCalledWith({
-      operationKey: 'sourcing.collect_tiktok_cc_trends',
-      input: {},
-      snapshotQueryKey: ['sourcing', 'trend', 'tiktok-cc', 7],
-    });
+    expect(directOwnerMocks.collect).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole('button', { name: '틱톡 수집' }));
 
-    await waitFor(() => expect(mocks.start).toHaveBeenCalledWith({}));
+    await waitFor(() => expect(directOwnerMocks.collect).toHaveBeenCalledTimes(1));
+    expect(directOwnerMocks.collect).toHaveBeenCalledWith({ idempotencyKey: expect.any(String) });
+    await waitFor(() => expect(trendMocks.fetchTiktokCcTrends).toHaveBeenCalledTimes(2));
     expect(screen.getByText('보존된 틱톡 스냅샷')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'tiktok-operation-cancel' }));
-    fireEvent.click(screen.getByRole('button', { name: 'tiktok-operation-retry' }));
-    expect(mocks.cancel).toHaveBeenCalledTimes(1);
-    expect(mocks.retryAttention).toHaveBeenCalledTimes(1);
+  });
 
-    view.unmount();
+  it('reuses the same idempotency key after an uncertain extension failure while retaining the persisted snapshot', async () => {
+    directOwnerMocks.collect
+      .mockRejectedValueOnce(new Error('extension response lost'))
+      .mockResolvedValueOnce({
+        success: true,
+        attemptId: '00000000-0000-4000-8000-000000000777',
+        terminalState: 'COMPLETE',
+      });
     renderViews();
-    expect(await screen.findByText('보존된 틱톡 스냅샷')).toBeInTheDocument();
-    expect(mocks.start).toHaveBeenCalledTimes(1);
+
+    await screen.findByText('보존된 틱톡 스냅샷');
+    fireEvent.click(screen.getByRole('button', { name: '틱톡 수집' }));
+    await screen.findByText('extension response lost');
+    expect(screen.getByText('보존된 틱톡 스냅샷')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '틱톡 수집' }));
+    await waitFor(() => expect(directOwnerMocks.collect).toHaveBeenCalledTimes(2));
+    expect(directOwnerMocks.collect.mock.calls[1][0].idempotencyKey)
+      .toBe(directOwnerMocks.collect.mock.calls[0][0].idempotencyKey);
+  });
+
+  it('clears a pending key once source status confirms the asynchronously started attempt is terminal', async () => {
+    directOwnerMocks.collect
+      .mockResolvedValueOnce({
+        success: false,
+        attemptId: '00000000-0000-4000-8000-000000000777',
+        terminalState: 'RUNNING',
+      })
+      .mockResolvedValueOnce({
+        success: true,
+        attemptId: '00000000-0000-4000-8000-000000000778',
+        terminalState: 'COMPLETE',
+      });
+    directOwnerMocks.fetchStatus
+      .mockResolvedValueOnce(readyStatus())
+      .mockResolvedValueOnce({
+        ...readyStatus(),
+        latestAttempt: {
+          attemptId: '00000000-0000-4000-8000-000000000777',
+          state: 'COMPLETE',
+          expiresAt: '2026-09-04T01:30:00.000Z',
+          errorCode: null,
+          errorMessage: null,
+        },
+      });
+    renderViews();
+
+    await screen.findByText('보존된 틱톡 스냅샷');
+    fireEvent.click(screen.getByRole('button', { name: '틱톡 수집' }));
+    await waitFor(() => expect(directOwnerMocks.fetchStatus).toHaveBeenCalledTimes(2));
+
+    fireEvent.click(screen.getByRole('button', { name: '틱톡 수집' }));
+    await waitFor(() => expect(directOwnerMocks.collect).toHaveBeenCalledTimes(2));
+    expect(directOwnerMocks.collect.mock.calls[1][0].idempotencyKey)
+      .not.toBe(directOwnerMocks.collect.mock.calls[0][0].idempotencyKey);
+  });
+
+  it('shows stale source failure and its actual cutoff without hiding the previous snapshot', async () => {
+    directOwnerMocks.fetchStatus.mockResolvedValue({
+      ready: false,
+      refreshing: false,
+      latestAttempt: {
+        attemptId: '00000000-0000-4000-8000-000000000777',
+        state: 'FAILED',
+        expiresAt: '2026-09-04T01:30:00.000Z',
+        errorCode: 'ATTEMPT_EXPIRED',
+        errorMessage: 'TikTok source attempt expired.',
+      },
+      latestComplete: {
+        attemptId: '00000000-0000-4000-8000-000000000776',
+        completedAt: '2026-09-03T01:00:00.000Z',
+      },
+      actualCutoffAt: '2026-09-03T01:00:00.000Z',
+      errorCode: 'ATTEMPT_EXPIRED',
+      errorMessage: 'TikTok source attempt expired.',
+    });
+    renderViews();
+
+    expect(await screen.findByText('TikTok source attempt expired.')).toBeInTheDocument();
+    expect(screen.getByText(/최근 완료 기준/)).toBeInTheDocument();
+    expect(screen.getByText('보존된 틱톡 스냅샷')).toBeInTheDocument();
+  });
+
+  it('contains no TikTok Operation hook, panel, or legacy operation key', async () => {
+    const source = await readFile(resolve(
+      process.cwd(),
+      'src/app/(sourcing-ai)/sourcing-ai/market/components/TrendCollectionViews.tsx',
+    ), 'utf8');
+    expect(source).not.toContain('useSourcingOperationAction');
+    expect(source).not.toContain('SourcingOperationRunPanel');
+    expect(source).not.toContain('sourcing.collect_tiktok_cc_trends');
   });
 });

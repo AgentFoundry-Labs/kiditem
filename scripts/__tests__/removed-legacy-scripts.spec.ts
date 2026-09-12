@@ -129,7 +129,7 @@ describe('removed legacy staging deploy entrypoints', () => {
 });
 
 describe('dev data coupang domain adapter', () => {
-  it('exports scraper payloads and replays them in dry-run mode', () => {
+  it('exports scraper payloads but rejects retired replay before cleanup', () => {
     const tempRoot = mkdtempSync(join(tmpdir(), 'kiditem-coupang-adapter-'));
     const payloadDir = join(tempRoot, 'payloads');
     const referenceDir = join(tempRoot, 'references');
@@ -166,19 +166,26 @@ describe('dev data coupang domain adapter', () => {
     expect(existsSync(join(dataRoot, 'coupang', datasetId, 'references', 'kiditem_list.xlsx'))).toBe(true);
     expect(existsSync(join(dataRoot, 'coupang', datasetId, 'references', 'wing-inventory-matched.xlsx'))).toBe(true);
 
-    const dryRun = JSON.parse(runDevData([
-      'replay',
-      '--domain', 'coupang',
-      '--dataset', datasetId,
-      '--data-root', dataRoot,
-      '--dry-run',
-    ])) as { datasetId: string; mode: string; payloads: number; sources: string[] };
+    let replayError: unknown;
+    try {
+      runDevData([
+        'replay',
+        '--domain', 'coupang',
+        '--dataset', datasetId,
+        '--data-root', dataRoot,
+        '--dry-run',
+      ]);
+    } catch (error) {
+      replayError = error;
+    }
 
-    expect(dryRun).toMatchObject({
-      datasetId,
-      mode: 'scoped-replace',
-      payloads: 1,
-    });
-    expect(dryRun.sources).toContain('wing');
+    expect(replayError).toBeDefined();
+    const stderr = String(
+      (replayError as { stderr?: string | Buffer }).stderr ?? replayError,
+    );
+    expect(stderr).toContain('Unsupported Coupang dev-data payload type');
+    expect(stderr).toContain('payloads/wing-traffic.json (traffic)');
+    expect(stderr).toContain('No cleanup was performed');
+    expect(stderr).not.toContain('ECONNREFUSED');
   });
 });

@@ -20,9 +20,9 @@ import {
   type TodayRecommendationRow,
 } from '../recommendations/lib/today-recommendations';
 import { useSourcingRecommendations } from '../hooks/use-sourcing-workspace';
-import { useSourcingOperationAction } from '../hooks/use-sourcing-operation-action';
-import { SourcingOperationRunPanel } from './SourcingOperationRunPanel';
+import { useWingCatalogSource } from '../hooks/use-wing-catalog-source';
 import { normalizeWingOperationKeywords } from '../lib/wing-operation-input';
+import { WingCatalogSourceStatus } from './WingCatalogSourceStatus';
 
 const MARKET_ANALYSIS_KEYWORD_LIMIT = 12;
 const MARKET_ANALYSIS_MAX_PAGES = 1;
@@ -58,12 +58,11 @@ export function SellochMarketAnalysisPage({ compact = false }: SellochMarketAnal
     maxPages: MARKET_ANALYSIS_MAX_PAGES,
     purpose: 'market_analysis' as const,
   }), [operationKeywords]);
-  const operation = useSourcingOperationAction({
-    operationKey: 'sourcing.collect_wing_catalog_batch',
+  const wingSource = useWingCatalogSource({
     input: operationInput,
     snapshotQueryKey: queryKeys.sourcing.all,
   });
-  const isRunning = operation.isStarting || isActiveOperation(operation.run?.status);
+  const isRunning = wingSource.isRunning;
   const summary = buildRecommendationSummary(rows);
   const opportunities = buildRisingKeywordOpportunities(rows).slice(0, compact ? 4 : 8);
   const topProducts = sortMarketProducts(rows).slice(0, compact ? 8 : 24);
@@ -89,8 +88,8 @@ export function SellochMarketAnalysisPage({ compact = false }: SellochMarketAnal
       return;
     }
     setInputError(null);
-    void operation.start();
-  }, [operation, operationKeywords.length, popularKeywordsQuery.error, popularKeywordsQuery.isLoading]);
+    void wingSource.start();
+  }, [wingSource, operationKeywords.length, popularKeywordsQuery.error, popularKeywordsQuery.isLoading]);
 
   if (rows.length === 0) {
     return (
@@ -98,7 +97,7 @@ export function SellochMarketAnalysisPage({ compact = false }: SellochMarketAnal
         compact={compact}
         inputError={inputError}
         isRunning={isRunning}
-        operation={operation}
+        wingSource={wingSource}
         onRun={runMarketAnalysis}
       />
     );
@@ -139,14 +138,7 @@ export function SellochMarketAnalysisPage({ compact = false }: SellochMarketAnal
           </div>
         </div>
         {inputError ? <p className="mt-4 text-sm font-bold text-red-700">{inputError}</p> : null}
-        <SourcingOperationRunPanel
-          className="mt-4"
-          run={operation.run}
-          onCancel={() => { void operation.cancel(); }}
-          onRetryAttention={() => { void operation.retryAttention(); }}
-          isCancelling={operation.isCancelling}
-          isRetrying={operation.isRetrying}
-        />
+        <WingCatalogSourceStatus source={wingSource} />
 
         <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
           <SummaryMetric icon={PackageSearch} label="분석 상품" value={`${formatNumber(summary.totalCandidates)}개`} caption="중복 제거 후" />
@@ -191,13 +183,13 @@ function EmptyMarketState({
   compact,
   inputError,
   isRunning,
-  operation,
+  wingSource,
   onRun,
 }: {
   compact: boolean;
   inputError: string | null;
   isRunning: boolean;
-  operation: ReturnType<typeof useSourcingOperationAction>;
+  wingSource: ReturnType<typeof useWingCatalogSource>;
   onRun: () => void;
 }) {
   return (
@@ -231,14 +223,7 @@ function EmptyMarketState({
         </div>
       )}
       {inputError ? <p className="mt-4 text-sm font-bold text-red-700">{inputError}</p> : null}
-      <SourcingOperationRunPanel
-        className="mt-4 text-left"
-        run={operation.run}
-        onCancel={() => { void operation.cancel(); }}
-        onRetryAttention={() => { void operation.retryAttention(); }}
-        isCancelling={operation.isCancelling}
-        isRetrying={operation.isRetrying}
-      />
+      <WingCatalogSourceStatus source={wingSource} />
     </section>
   );
 }
@@ -495,12 +480,4 @@ function marketProductKey(row: Pick<TodayRecommendationRow, 'productId' | 'itemI
 
 function resolveSalesLast3d(row: TodayRecommendationRow): number | null {
   return row.salesLast3d;
-}
-
-function isActiveOperation(status: string | undefined): boolean {
-  return status === 'queued'
-    || status === 'waiting_runtime'
-    || status === 'waiting_dependency'
-    || status === 'running'
-    || status === 'attention_required';
 }

@@ -147,20 +147,20 @@ export function CampaignTable({ campaigns, sortBy, onSortChange, selectedCampaig
                   <td className="text-right">{hasMetrics ? formatKRW(c.metrics.revenue) : '-'}</td>
                   <td className={cn(
                     'text-right font-semibold',
-                    hasMetrics && roasColor(c.metrics.roas ?? 0, roasT),
+                    hasMetrics && c.metrics.roas != null && roasColor(c.metrics.roas, roasT),
                   )}>
-                    {hasMetrics ? `${c.metrics.roas ?? 0}%` : '-'}
+                    {hasMetrics && c.metrics.roas != null ? `${c.metrics.roas}%` : '-'}
                   </td>
                   <td className="text-right">{hasMetrics ? formatNumber(c.metrics.impressions) : '-'}</td>
                   <td className="text-right">{hasMetrics ? formatNumber(c.metrics.clicks) : '-'}</td>
-                  <td className="text-right">{hasMetrics ? `${(c.metrics.ctr ?? 0).toFixed(2)}%` : '-'}</td>
+                  <td className="text-right">{hasMetrics && c.metrics.ctr != null ? `${c.metrics.ctr.toFixed(2)}%` : '-'}</td>
                   {/* Coupang's campaign list grid has no conversion-count
                       column, so a 0 here is "not collected", not "zero sales".
                       Show unknown instead of fabricating a number. */}
                   <td className="text-right" style={hasMetrics && c.conversionsAvailable ? undefined : { color: 'var(--text-tertiary)' }}>
                     {hasMetrics && c.conversionsAvailable ? formatNumber(c.metrics.conversions) : '-'}
                   </td>
-                  <td className="text-right">{hasMetrics ? `${(c.metrics.cvr ?? 0).toFixed(2)}%` : '-'}</td>
+                  <td className="text-right">{hasMetrics && c.metrics.cvr != null ? `${c.metrics.cvr.toFixed(2)}%` : '-'}</td>
                 </tr>
               );
             })}

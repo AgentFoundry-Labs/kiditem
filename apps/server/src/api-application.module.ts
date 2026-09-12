@@ -7,20 +7,18 @@ import { AdvertisingModule } from './advertising/advertising.module';
 import { AgentOsInteractionHttpModule } from './agent-os/agent-os-interaction-http.module';
 import { AgentOsRuntimeHttpModule } from './agent-os/agent-os-runtime-http.module';
 import { AiModule } from './ai/ai.module';
+import { AlertsModule } from './alerts/alerts.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { AuthModule } from './auth/auth.module';
 import { OrganizationScopeGuard } from './auth/guards/organization-scope.guard';
 import { RolesGuard } from './auth/guards/roles.guard';
 import { SessionAuthMiddleware } from './auth/middleware/session-auth.middleware';
-import { AutomationModule } from './automation/automation.module';
 import { ChannelsModule } from './channels/channels.module';
 import { CommonModule } from './common/common.module';
 import { StorageModule } from './common/storage/storage.module';
 import { FeatureGateModule } from './feature-gate/feature-gate.module';
 import { FinanceModule } from './finance/finance.module';
 import { InventoryModule } from './inventory/inventory.module';
-import { OperationCancellationModule } from './operation-cancellation/operation-cancellation.module';
-import { OperationsHttpModule } from './operations/operations-http.module';
 import { OrdersModule } from './orders/orders.module';
 import { OrganizationsModule } from './organizations/organizations.module';
 import { PrismaModule } from './prisma/prisma.module';
@@ -37,6 +35,7 @@ import { UploadsModule } from './uploads/uploads.module';
     EventEmitterModule.forRoot(),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 120 }]),
     PrismaModule,
+    AlertsModule,
     AuthModule,
     CommonModule,
     StorageModule,
@@ -55,9 +54,6 @@ import { UploadsModule } from './uploads/uploads.module';
     RulesModule,
     AgentOsInteractionHttpModule,
     AgentOsRuntimeHttpModule,
-    AutomationModule,
-    OperationCancellationModule,
-    OperationsHttpModule,
     AdvertisingModule,
     UploadsModule,
     ReadinessModule,

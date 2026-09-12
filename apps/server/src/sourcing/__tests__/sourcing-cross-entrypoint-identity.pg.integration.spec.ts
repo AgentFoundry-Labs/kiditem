@@ -1,6 +1,4 @@
-import type { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import type { PrismaService } from '../../prisma/prisma.service';
 import {
   makeTestPrisma,
   resetDb,
@@ -9,12 +7,14 @@ import {
   TEST_USER_ID,
 } from '../../test-helpers/real-prisma';
 import { canonicalOwnerInputHash } from '../../common/owner-idempotency-key';
-import { SourcingCollectionRepositoryAdapter } from '../adapter/out/repository/sourcing-collection.repository.adapter';
+import { SourceFailureAlerts } from '../../alerts/alerts.service';
+import { SourcingBrowserSourceAttemptRepositoryAdapter } from '../adapter/out/repository/sourcing-browser-source-attempt.repository.adapter';
 import { SourcingCandidateRepositoryAdapter } from '../adapter/out/repository/sourcing-candidate.repository.adapter';
 import { SourcingFinalDiscoveryCapabilityAdapter } from '../adapter/in/agent/sourcing-final-discovery-capability.adapter';
 import { SourcingExtensionIngestService } from '../application/service/sourcing-extension-ingest.service';
-import { SourcingCollectionCoordinator } from '../application/service/sourcing-collection-coordinator.service';
 import { canonicalSourcingCandidateIdentity } from '../domain/sourcing-candidate-identity';
+import type { PrismaService } from '../../prisma/prisma.service';
+import type { PrismaClient } from '@prisma/client';
 
 describe('Sourcing cross-entrypoint candidate identity (PG integration)', () => {
   let agentPrisma: PrismaClient;
@@ -27,10 +27,7 @@ describe('Sourcing cross-entrypoint candidate identity (PG integration)', () => 
     extensionPrisma = makeTestPrisma();
     await Promise.all([agentPrisma.$connect(), extensionPrisma.$connect()]);
     candidates = new SourcingCandidateRepositoryAdapter(agentPrisma as unknown as PrismaService);
-    const collections = new SourcingCollectionRepositoryAdapter(
-      extensionPrisma as unknown as PrismaService,
-    );
-    extension = new SourcingExtensionIngestService(new SourcingCollectionCoordinator(collections));
+    extension = extensionOwner(extensionPrisma);
   });
 
   afterAll(async () => Promise.all([agentPrisma?.$disconnect(), extensionPrisma?.$disconnect()]));
@@ -78,8 +75,7 @@ describe('Sourcing cross-entrypoint candidate identity (PG integration)', () => 
           isPrimary: true,
         }],
       }),
-      extension.ingestV1(
-        { organizationId: TEST_ORGANIZATION_ID, userId: TEST_USER_ID },
+      completeExtension(extension,
         {
           page_type: 'detail',
           source_url: sourceUrl,
@@ -91,7 +87,7 @@ describe('Sourcing cross-entrypoint candidate identity (PG integration)', () => 
       ),
     ]);
 
-    expect(extensionResult).toEqual({ ok: true, message: 'collected', product_count: 1 });
+    expect(extensionResult).toMatchObject({ state: 'COMPLETE', acceptedCount: 1 });
     const canonical = await agentPrisma.sourcingCandidate.findFirstOrThrow({
       where: {
         organizationId: TEST_ORGANIZATION_ID,
@@ -127,9 +123,6 @@ describe('Sourcing cross-entrypoint candidate identity (PG integration)', () => 
     const agentCandidates = new SourcingCandidateRepositoryAdapter(
       prismaWithCandidateReadBarrier(agentPrisma, waitForPeerCandidateRead) as unknown as PrismaService,
     );
-    const extensionCollections = new SourcingCollectionRepositoryAdapter(
-      prismaWithCandidateReadBarrier(extensionPrisma, waitForPeerCandidateRead) as unknown as PrismaService,
-    );
     const agent = new SourcingFinalDiscoveryCapabilityAdapter(agentCandidates, {
       scrapeProductUrl: async () => ({
         ok: true,
@@ -137,8 +130,8 @@ describe('Sourcing cross-entrypoint candidate identity (PG integration)', () => 
         scraped_data: { title: 'Agent Alibaba candidate', variant_key: '  Blue   Set ', images: [] },
       }),
     } as never);
-    const extension = new SourcingExtensionIngestService(
-      new SourcingCollectionCoordinator(extensionCollections),
+    const extension = extensionOwner(
+      prismaWithCandidateReadBarrier(extensionPrisma, waitForPeerCandidateRead),
     );
     const snapshot = await agent.scrapeProductUrl({ sourceUrl: agentSourceUrl });
     const requestHash = canonicalOwnerInputHash({ snapshot });
@@ -151,8 +144,7 @@ describe('Sourcing cross-entrypoint candidate identity (PG integration)', () => 
         requestHash,
         snapshot,
       }),
-      extension.ingestV1(
-        { organizationId: TEST_ORGANIZATION_ID, userId: TEST_USER_ID },
+      completeExtension(extension,
         {
           page_type: 'detail',
           source_url: extensionSourceUrl,
@@ -165,7 +157,7 @@ describe('Sourcing cross-entrypoint candidate identity (PG integration)', () => 
       ),
     ]);
 
-    expect(extensionResult).toEqual({ ok: true, message: 'collected', product_count: 1 });
+    expect(extensionResult).toMatchObject({ state: 'COMPLETE', acceptedCount: 1 });
     await expect(agentPrisma.sourcingCandidate.count({
       where: { organizationId: TEST_ORGANIZATION_ID, isDeleted: false, status: 'sourced' },
     })).resolves.toBe(1);
@@ -193,6 +185,22 @@ describe('Sourcing cross-entrypoint candidate identity (PG integration)', () => 
     })).resolves.toEqual([{ result: { candidateId: canonical.id } }]);
   });
 });
+
+function extensionOwner(prisma: PrismaClient): SourcingExtensionIngestService {
+  return new SourcingExtensionIngestService(new SourcingBrowserSourceAttemptRepositoryAdapter(
+    prisma as unknown as PrismaService,
+    new SourceFailureAlerts(prisma as unknown as PrismaService),
+  ));
+}
+
+async function completeExtension(
+  extension: SourcingExtensionIngestService,
+  product: Record<string, unknown> & { source_url: string },
+) {
+  const context = { organizationId: TEST_ORGANIZATION_ID, userId: TEST_USER_ID };
+  const attempt = await extension.begin(context, { sourceUrl: product.source_url }, 'extension:cross-entrypoint');
+  return extension.complete(context, attempt.attemptId, attempt.attemptToken, { product, hadDescription: false });
+}
 
 /**
  * Forces the pre-fix cross-entrypoint read/create window. Once both writers

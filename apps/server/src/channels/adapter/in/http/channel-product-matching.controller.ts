@@ -1,7 +1,9 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
+  Headers,
   Param,
   ParseUUIDPipe,
   Post,
@@ -46,12 +48,71 @@ export class ChannelProductMatchingController {
     return this.sellpiaManualMatches.targets(organizationId);
   }
 
-  @Post('sellpia-manual-match/import')
-  importSellpiaManualMatches(
+  @Post('sellpia-manual-match/attempts')
+  beginSellpiaManualMatch(
     @CurrentOrganization() organizationId: string,
+    @Headers('idempotency-key') idempotencyKey: string | undefined,
+  ) {
+    if (!idempotencyKey?.trim() || idempotencyKey.length > 128) {
+      throw new BadRequestException('INVALID_SELLPIA_MANUAL_MATCH_IDEMPOTENCY_KEY');
+    }
+    return this.sellpiaManualMatches.beginAttempt({
+      organizationId,
+      idempotencyKey,
+    });
+  }
+
+  @Get('sellpia-manual-match/attempts/current')
+  sellpiaManualMatchCurrent(
+    @CurrentOrganization() organizationId: string,
+  ) {
+    return this.sellpiaManualMatches.readCurrent(organizationId);
+  }
+
+  @Get('sellpia-manual-match/attempts/:attemptId')
+  sellpiaManualMatchAttempt(
+    @CurrentOrganization() organizationId: string,
+    @Param('attemptId', new ParseUUIDPipe()) attemptId: string,
+  ) {
+    return this.sellpiaManualMatches.readAttempt({ organizationId, attemptId });
+  }
+
+  @Post('sellpia-manual-match/attempts/:attemptId/complete')
+  completeSellpiaManualMatch(
+    @CurrentOrganization() organizationId: string,
+    @Param('attemptId', new ParseUUIDPipe()) attemptId: string,
+    @Headers('x-source-attempt-token') attemptToken: string | undefined,
     @Body() body: unknown,
   ) {
-    return this.sellpiaManualMatches.import(organizationId, body);
+    if (!attemptToken?.trim()) {
+      throw new BadRequestException('INVALID_SELLPIA_MANUAL_MATCH_ATTEMPT_TOKEN');
+    }
+    return this.sellpiaManualMatches.completeAttempt({
+      organizationId,
+      attemptId,
+      attemptToken,
+      snapshot: body,
+    });
+  }
+
+  @Post('sellpia-manual-match/attempts/:attemptId/fail')
+  failSellpiaManualMatch(
+    @CurrentOrganization() organizationId: string,
+    @Param('attemptId', new ParseUUIDPipe()) attemptId: string,
+    @Headers('x-source-attempt-token') attemptToken: string | undefined,
+    @Body() body: unknown,
+  ) {
+    if (!attemptToken?.trim()) {
+      throw new BadRequestException('INVALID_SELLPIA_MANUAL_MATCH_ATTEMPT_TOKEN');
+    }
+    const failure = parseFailure(body);
+    return this.sellpiaManualMatches.failAttempt({
+      organizationId,
+      attemptId,
+      attemptToken,
+      errorCode: failure.errorCode,
+      errorMessage: failure.errorMessage,
+    });
   }
 
   @Get(':channelListingId/candidates')
@@ -71,4 +132,25 @@ export class ChannelProductMatchingController {
   ) {
     return this.matching.linkProduct(organizationId, channelListingId, body);
   }
+}
+
+function parseFailure(body: unknown): { errorCode: string; errorMessage: string } {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    throw new BadRequestException('INVALID_SELLPIA_MANUAL_MATCH_FAILURE');
+  }
+  const value = body as Record<string, unknown>;
+  if (
+    typeof value.errorCode !== 'string'
+    || typeof value.errorMessage !== 'string'
+    || !value.errorCode.trim()
+    || !value.errorMessage.trim()
+    || value.errorCode.trim().length > 100
+    || value.errorMessage.trim().length > 300
+  ) {
+    throw new BadRequestException('INVALID_SELLPIA_MANUAL_MATCH_FAILURE');
+  }
+  return {
+    errorCode: value.errorCode.trim(),
+    errorMessage: value.errorMessage.trim(),
+  };
 }

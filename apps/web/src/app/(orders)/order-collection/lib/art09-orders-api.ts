@@ -1,32 +1,11 @@
-import { issueBrowserCollectionRunId } from '@/lib/browser-collection-session';
-import { downloadBlob } from '@/lib/browser-download';
+import { apiClient } from '@/lib/api-client';
 import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extension-bridge';
 import type { OrderCollectionConversionResult } from './order-collection-api';
-import type { OrderCollectionExtensionRun } from './order-collection-extension';
-
-const ART09_HEADERS = [
-  '쇼핑몰',
-  '쇼핑몰번호',
-  '주문번호',
-  '품목별 주문번호',
-  '배송메시지',
-  '총 주문금액',
-  '총 결제금액',
-  '상품번호',
-  '주문상품명',
-  '주문상품명(옵션포함)',
-  '수량',
-  '판매가',
-  '수령인',
-  '수령인 휴대전화',
-  '수령인 우편번호',
-  '수령인 주소',
-  '수령인 상세 주소',
-  '결제구분',
-  '결제수단',
-  '발주일',
-  '배송국가',
-] as const;
+import { conversionResultFrom } from './order-collection-conversion-response';
+import {
+  orderCollectionExtensionRunFields,
+  type OrderCollectionExtensionRun,
+} from './order-collection-extension';
 
 export interface Art09OrderRow {
   shopName?: string;
@@ -60,10 +39,6 @@ interface Art09CollectResponse {
   error?: string;
 }
 
-export interface Art09CsvResult extends OrderCollectionConversionResult {
-  orderNumbers: string[];
-}
-
 export async function collectArt09OrdersFromExtension(run?: OrderCollectionExtensionRun): Promise<Art09OrderRow[]> {
   const extensionId = run?.extensionId ?? await detectOrderCollectionExtensionId();
   if (!extensionId) {
@@ -77,8 +52,8 @@ export async function collectArt09OrdersFromExtension(run?: OrderCollectionExten
     {
       action: 'collectArt09Orders',
       date: run?.date,
-      runId: await issueBrowserCollectionRunId(run?.runId),
-      deferTerminal: Boolean(run?.runId),
+      // attemptId/deferTerminal: true are included by shared fenced run fields.
+      ...orderCollectionExtensionRunFields(run),
     },
     190000,
   );
@@ -90,53 +65,30 @@ export async function collectArt09OrdersFromExtension(run?: OrderCollectionExten
   return res.rows.filter(isValidArt09OrderRow);
 }
 
-export async function collectArt09CsvFromExtension(
+/** Server-owned Art09 conversion; the CSV response remains an immediate download. */
+export async function convertArt09ToSellpiaFile(
+  rows: Art09OrderRow[],
   options?: { download?: boolean; run?: OrderCollectionExtensionRun },
-): Promise<Art09CsvResult> {
-  const rows = await collectArt09OrdersFromExtension(options?.run);
-  const csvRows = rows.map(rowToCsv);
-  const csv = `\uFEFF${[ART09_HEADERS, ...csvRows].map(csvLine).join('\r\n')}\r\n`;
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-  const fileName = `zzogzzog1_${todayCompact()}_주문수집.csv`;
-  if (options?.download !== false) downloadBlob(blob, fileName);
-
-  const orderNumbers = distinctNonEmpty(rows.map((row) => row.orderId ?? ''));
-  return {
-    fileName,
-    blob,
-    previewRows: [Array.from(ART09_HEADERS), ...csvRows].slice(0, 24),
-    sourceRows: orderNumbers.length,
-    productRows: rows.length,
-    outputRows: rows.length,
-    skippedRows: 0,
-    orderNumbers,
-  };
-}
-
-function rowToCsv(row: Art09OrderRow): string[] {
-  return [
-    row.shopName ?? '한국어 쇼핑몰',
-    row.shopNo ?? '1',
-    row.orderId ?? '',
-    row.orderItemId ?? '',
-    row.message ?? '',
-    row.totalOrderAmount ?? '****',
-    row.totalPaymentAmount ?? '****',
-    row.productNo ?? '',
-    row.productName ?? '',
-    row.productNameWithOption ?? row.productName ?? '',
-    String(row.qty ?? ''),
-    row.salePrice ?? '****',
-    row.receiver ?? '',
-    row.receiverPhone ?? '',
-    row.receiverZip ?? '',
-    row.receiverAddress ?? '',
-    row.receiverAddressDetail ?? '',
-    row.paymentType ?? 'T',
-    row.paymentMethod ?? '',
-    row.orderedAt ?? '',
-    row.country ?? '',
-  ];
+): Promise<OrderCollectionConversionResult> {
+  const response = await apiClient.fetchRaw('/api/orders/collection/art09/convert', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      ...(options?.run ? {
+        'x-order-collection-attempt-id': options.run.attemptId,
+        'x-source-attempt-token': options.run.attemptToken,
+      } : {}),
+    },
+    body: JSON.stringify({ rows }),
+  });
+  if (!response.ok) {
+    throw new Error((await response.text().catch(() => '')) || '아트공구 변환에 실패했습니다.');
+  }
+  return conversionResultFrom(response, {
+    defaultFileName: `zzogzzog1_${todayCompact()}_주문수집.csv`,
+    preview: { csv: true },
+    download: options?.download,
+  });
 }
 
 function isValidArt09OrderRow(row: Art09OrderRow): boolean {
@@ -148,24 +100,6 @@ function isValidArt09OrderRow(row: Art09OrderRow): boolean {
     && Boolean(row.productName?.trim())
     && Number.isFinite(quantity)
     && quantity > 0;
-}
-
-function csvLine(row: readonly string[]): string {
-  return row.map(csvCell).join(',');
-}
-
-function csvCell(value: string): string {
-  if (!/[",\r\n]/.test(value)) return value;
-  return `"${value.replace(/"/g, '""')}"`;
-}
-
-function distinctNonEmpty(values: string[]): string[] {
-  const seen = new Set<string>();
-  for (const value of values) {
-    const trimmed = value.trim();
-    if (trimmed) seen.add(trimmed);
-  }
-  return Array.from(seen);
 }
 
 function todayCompact(): string {

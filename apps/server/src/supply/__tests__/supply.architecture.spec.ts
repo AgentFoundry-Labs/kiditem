@@ -99,7 +99,7 @@ describe('supply architecture contract', () => {
   it('no legacy flat transitional exception remains documented', () => {
     const supply = supplyRel();
     const hits = rg(
-      `--type md --files-with-matches 'transitional flat|transitional legacy CRUD|Transitional Exceptions' ${path.join(supply, 'AGENTS.md')}`,
+      `--type md --files-with-matches 'transitional flat|transitional legacy CRUD|Transitional Exceptions' ${path.join(supply, 'CLAUDE.md')}`,
     );
     expect(
       hits,

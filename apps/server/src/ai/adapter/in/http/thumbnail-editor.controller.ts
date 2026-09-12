@@ -33,9 +33,8 @@ export class ThumbnailEditorController {
    * `/api/thumbnail-editor/generate` — two paths:
    *
    * - **Workspace-bound (`contentWorkspaceId` set, default for the editor UI)**:
-   *   creates a `pending` `ThumbnailGeneration` row, opens an
-   *   `(operationKey='thumbnail-edit:<id>', sourceType='thumbnail_generation')`
-   *   operation alert, and schedules direct thumbnail AI execution. Returns
+   *   creates a `pending` `ThumbnailGeneration` row and schedules direct
+   *   thumbnail AI execution. Returns
    *   `{ generationId, status: 'pending' }` immediately.
    *   Frontend polls the generation row to surface candidates when the
    *   direct job sink finalizes.

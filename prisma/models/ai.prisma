@@ -234,16 +234,16 @@ model ThumbnailRegistrationAttempt {
   organizationId String @map("organization_id") @db.Uuid
   generationId   String @map("generation_id") @db.Uuid
 
-  status        String  @default("uploaded")
+  status              String  @default("uploaded")
   // Nullable for pre-Agent browser attempts. New Agent-owner submissions bind
   // one durable receipt before provider IO.
   ownerIdempotencyKey String? @map("owner_idempotency_key")
   requestHash         String? @map("request_hash")
   providerOutcome     String? @map("provider_outcome")
   resultJson          Json?   @map("result_json") @db.JsonB
-  errorMessage  String? @map("error_message")
-  screenshotUrl String? @map("screenshot_url")
-  externalId    String? @map("external_id")
+  errorMessage        String? @map("error_message")
+  screenshotUrl       String? @map("screenshot_url")
+  externalId          String? @map("external_id")
 
   startedAt  DateTime? @map("started_at") @db.Timestamptz
   finishedAt DateTime? @map("finished_at") @db.Timestamptz
@@ -253,10 +253,10 @@ model ThumbnailRegistrationAttempt {
   organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   generation   ThumbnailGeneration @relation(fields: [generationId], references: [id], onDelete: Cascade)
 
+  @@unique([organizationId, ownerIdempotencyKey], map: "thumbnail_registration_attempts_org_owner_key", where: raw("owner_idempotency_key IS NOT NULL"))
   @@index([organizationId])
   @@index([generationId])
   @@index([organizationId, generationId])
-  @@unique([organizationId, ownerIdempotencyKey], map: "thumbnail_registration_attempts_org_owner_key", where: raw("owner_idempotency_key IS NOT NULL"))
   @@index([status])
   @@map("thumbnail_registration_attempts")
 }

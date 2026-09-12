@@ -31,11 +31,12 @@ vi.mock('@/store/useStore', () => ({
     selector ? selector(appStoreState) : appStoreState,
 }));
 
-vi.mock('@/components/panel/lib/panel-store', () => ({
-  usePanelStore: (selector: (state: {
-    unreadCount(): number;
-    runningCount(): number;
-  }) => unknown) => selector({ unreadCount: () => 0, runningCount: () => 0 }),
+vi.mock('@/lib/alerts-api', () => ({
+  useAlertsQuery: () => ({ data: [] }),
+  // The badge's "unread and open" rule is shared now, so the mock carries it
+  // rather than each surface deciding for itself.
+  unreadOpenAlertCount: (alerts: readonly { isRead: boolean; status: string }[]) =>
+    alerts.filter((alert) => !alert.isRead && alert.status === 'OPEN').length,
 }));
 
 vi.mock('@/hooks/useAuth', () => ({

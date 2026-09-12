@@ -23,10 +23,6 @@ function makeLedger(): ThumbnailGenerationLedgerRepositoryPort {
       fromPhase: 'processing',
       attemptNumber: 2,
     }),
-    markGenerationCancelled: vi.fn().mockResolvedValue({
-      fromStatus: 'pending',
-      fromPhase: null,
-    }),
   } as unknown as ThumbnailGenerationLedgerRepositoryPort;
 }
 
@@ -234,30 +230,22 @@ describe('ThumbnailGenerationLifecycleService', () => {
     expect(events.append).not.toHaveBeenCalled();
   });
 
-  it('marks cancellation and records a status event through the same seam', async () => {
+  it('does not project direct failure or events when the row is already terminal', async () => {
     const ledger = makeLedger();
+    vi.mocked(ledger.claimForDirectProjection).mockResolvedValueOnce(null);
     const events = makeEvents();
     const lifecycle = new ThumbnailGenerationLifecycleService(ledger, events);
 
-    const result = await lifecycle.markCancelled({
+    const result = await lifecycle.projectDirectFailure({
       organizationId: ORGANIZATION_ID,
       generationId: GENERATION_ID,
-      actorUserId: 'user-1',
-      payload: { reason: '사용자 요청' },
+      errorMessage: 'late provider failure',
+      payload: { aiJobId: 'request-2' },
     });
 
-    expect(result).toEqual({ fromStatus: 'pending', fromPhase: null });
-    expect(ledger.markGenerationCancelled).toHaveBeenCalledWith(
-      GENERATION_ID,
-      ORGANIZATION_ID,
-    );
-    expect(events.append).toHaveBeenCalledWith(
-      expect.objectContaining({
-        eventType: 'status_change',
-        toStatus: 'cancelled',
-        actorUserId: 'user-1',
-        payload: { reason: '사용자 요청' },
-      }),
-    );
+    expect(result).toBeNull();
+    expect(ledger.projectDirectFailure).not.toHaveBeenCalled();
+    expect(events.append).not.toHaveBeenCalled();
   });
+
 });

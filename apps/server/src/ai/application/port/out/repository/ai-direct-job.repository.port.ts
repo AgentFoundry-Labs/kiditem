@@ -92,12 +92,6 @@ export interface AiDirectJobRepositoryPort {
     jobId: string;
     reason: string;
   }): Promise<AiDirectJobRecord | null>;
-  cancelBySource(input: {
-    organizationId: string;
-    sourceResourceId: string;
-    jobTypes: AiDirectJobType[];
-    reason: string;
-  }): Promise<number>;
   findById(input: {
     organizationId: string;
     jobId: string;
