@@ -437,6 +437,16 @@ function hasReachableRelationProperty(
         )
       : false;
   }
+  if (ts.isArrayLiteralExpression(expression)) {
+    return expression.elements.some((element) =>
+      hasReachableRelationProperty(
+        ts.isSpreadElement(element) ? element.expression : element,
+        relationNames,
+        initializers,
+        visited,
+      ),
+    );
+  }
   if (ts.isObjectLiteralExpression(expression)) {
     return expression.properties.some((property) => {
       if (

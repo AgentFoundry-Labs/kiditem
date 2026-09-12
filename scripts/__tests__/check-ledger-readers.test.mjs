@@ -188,6 +188,11 @@ model ChannelAdTargetDailySnapshot {
     );
     write(
       root,
+      'apps/server/src/array-relation-filter-consumer.ts',
+      'const filters = [{ adTargetDaily: { isNot: null } }];\nawait tx.adAction.findMany({ where: { AND: [...filters] } });\n',
+    );
+    write(
+      root,
       'apps/server/src/query-then-dto-mapper.ts',
       'const actions = await tx.adAction.findMany({});\nexport const response = actions.map(() => ({ adTargetDaily: null }));\n',
     );
@@ -257,6 +262,10 @@ model ChannelAdTargetDailySnapshot {
       /spread-relation-alias-consumer\.ts.*Prisma relation read/,
     );
     assert.doesNotMatch(failedOutput, /standalone-dto\.ts/);
+    assert.match(
+      failedOutput,
+      /array-relation-filter-consumer\.ts.*Prisma relation read/,
+    );
     assert.doesNotMatch(failedOutput, /query-then-dto-mapper\.ts/);
     assert.match(
       failedOutput,
@@ -299,6 +308,7 @@ model ChannelAdTargetDailySnapshot {
     rmSync(path.join(root, 'apps/server/src/listing-prisma-consumer.ts'));
     rmSync(path.join(root, 'apps/server/src/listing-sql-consumer.ts'));
     rmSync(path.join(root, 'apps/server/src/coverage-consumer.ts'));
+    rmSync(path.join(root, 'apps/server/src/array-relation-filter-consumer.ts'));
 
     assert.doesNotThrow(() => {
       execFileSync(process.execPath, [scanner, '--root', root], {
