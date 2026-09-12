@@ -87,7 +87,6 @@ export interface PeriodEvidenceInput {
   sources: readonly DashboardSourceName[];
   /** Sources whose required read threw; never a normal empty result. */
   queryFailedSources?: readonly DashboardSourceName[];
-  observedAt?: Date | string | null;
 }
 
 /**
@@ -105,7 +104,6 @@ export function periodEvidence(input: PeriodEvidenceInput): DashboardPeriodBasis
     invalidDates: input.invalidDates,
     sources: input.sources,
     queryFailedSources: input.queryFailedSources,
-    observedAt: input.observedAt,
   });
 }
 

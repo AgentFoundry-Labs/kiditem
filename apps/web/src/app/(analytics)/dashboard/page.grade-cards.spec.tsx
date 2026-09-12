@@ -90,8 +90,6 @@ const sales = {
       invalidDates: [],
       sources: ['orders'],
       status: 'complete' as const,
-      partial: false,
-      observedAt: null,
     },
   },
   planAchievement: null,
@@ -186,8 +184,6 @@ const completeSellpiaProfitBasis = {
   invalidDates: [],
   sources: ['sellpia', 'coupang_ads'],
   status: 'complete' as const,
-  partial: false,
-  observedAt: '2026-09-06T01:00:00.000Z',
 };
 
 beforeEach(() => {

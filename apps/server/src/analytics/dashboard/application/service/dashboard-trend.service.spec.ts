@@ -280,33 +280,6 @@ describe('DashboardTrendService daily profit basis', () => {
     });
   });
 
-  it('does not attach Wing observation time to order-backed revenue', async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-09-10T16:30:00.000Z'));
-    const date = '2026-09-09';
-    const profit = buildMockProfitCalculationRepo();
-    profit.calculateDailyForRange.mockResolvedValue([]);
-    const trend = buildMockDashboardTrendRepo();
-    trend.fetchTrendRevenueRows.mockResolvedValue([{ date, revenue: 100 }]);
-    const wing = buildMockWingTrafficAggregationRepo();
-    wing.fetchDailyTrend.mockResolvedValue([{
-      date,
-      revenue: 120,
-      orders: 1,
-      salesQty: 1,
-      visitors: 1,
-      views: 1,
-      cartAdds: 1,
-      observedAt: '2026-09-10T01:00:00.000Z',
-    }]);
-    wing.fetchDailyAds.mockResolvedValue([]);
-
-    const result = await new DashboardTrendService(profit, trend, wing).getTrend(buildDashboardContext(), 'org-1', '7d');
-    const row = result.find((item) => item.date === date)!;
-    expect(row.revenue).toBe(100);
-    expect(row.metricBasis?.revenue?.observedAt).toBeNull();
-  });
-
   it('emits schema-valid unique failures when both ad readers fail', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-09-10T16:30:00.000Z'));

@@ -6,8 +6,8 @@
  * displayed value to expose an unambiguous basis: the selected range, the
  * dates actually included, the dates missing, which sources answered, and
  * whether a required read failed. Those fields are not independent — status,
- * `partial`, the included/missing partition, `invalid ⊆ missing`, sorting and
- * uniqueness are all functions of the date sets a producer measured.
+ * the included/missing partition, `invalid ⊆ missing`, sorting and uniqueness
+ * are all functions of the date sets a producer measured.
  *
  * They are therefore *derived here and never passed*. A producer supplies the
  * evidence it actually observed; every cross-field invariant the wire contract
@@ -48,7 +48,6 @@ export interface DashboardPeriodBasisInput {
    * `partial` and names the failed source.
    */
   queryFailedSources?: Iterable<string>;
-  observedAt?: Date | string | null;
 }
 
 /**
@@ -122,21 +121,12 @@ function toIsoOrNull(value: Date | string | null | undefined): string | null {
   return Number.isFinite(parsed.getTime()) ? parsed.toISOString() : null;
 }
 
-function latestIso(values: readonly (Date | string | null | undefined)[]): string | null {
-  return values.reduce<string | null>((latest, value) => {
-    const iso = toIsoOrNull(value);
-    if (iso === null) return latest;
-    if (latest === null) return iso;
-    return Date.parse(iso) > Date.parse(latest) ? iso : latest;
-  }, null);
-}
-
 /**
  * Status is a function of the measured evidence:
  * - no included date + a failed required read → `unverified`;
  * - no included date otherwise → `empty` (an empty computable subset);
  * - every selected date included → `complete`;
- * - anything else → `partial`, which is also what `partial` means.
+ * - anything else → `partial`.
  */
 function derivePeriodStatus(
   includedDays: number,
@@ -178,8 +168,6 @@ export function buildPeriodBasis(input: DashboardPeriodBasisInput): DashboardPer
     sources: requireSources(input.sources),
     ...(queryFailedSources.length > 0 ? { queryFailedSources } : {}),
     status,
-    partial: status === 'partial',
-    observedAt: toIsoOrNull(input.observedAt),
   };
 }
 
@@ -206,7 +194,6 @@ export function intersectBases(
       ...(left.queryFailedSources ?? []),
       ...(right.queryFailedSources ?? []),
     ],
-    observedAt: latestIso([left.observedAt, right.observedAt]),
   });
 }
 
@@ -318,13 +305,11 @@ export function buildSnapshotBasis(
 
 /**
  * Narrow a period basis onto one date — the per-day row basis for a trend
- * point or a daily table row. `observedAt` defaults to the parent's; pass a
- * per-date capture time when the producer knows one.
+ * point or a daily table row.
  */
 export function narrowToDate(
   basis: DashboardPeriodBasis,
   date: string,
-  observedAt?: Date | string | null,
 ): DashboardPeriodBasis {
   return buildPeriodBasis({
     from: date,
@@ -333,7 +318,6 @@ export function narrowToDate(
     invalidDates: basis.invalidDates.includes(date) ? [date] : [],
     sources: basis.sources,
     queryFailedSources: basis.queryFailedSources ?? [],
-    observedAt: observedAt === undefined ? basis.observedAt : observedAt,
   });
 }
 

@@ -24,8 +24,6 @@ function periodBasis(
     invalidDates: [],
     sources: ['orders'],
     status: 'complete',
-    partial: false,
-    observedAt: null,
     ...overrides,
   } as DashboardMetricBasis;
 }

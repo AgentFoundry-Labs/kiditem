@@ -650,67 +650,6 @@ describe('SellpiaSalesService.getSummary', () => {
     expect(out.metricBasis.profitInputs.includedDates).toEqual([]);
   });
 
-  it('anchors profit freshness to Sellpia captures inside the profit date intersection', async () => {
-    const published = makePublishedSource();
-    published.readPublishedRows.mockResolvedValueOnce([
-      snap({
-        date: '2026-07-14',
-        sellerId: '118',
-        sellerName: '스마트스토어',
-        channelGroup: 'others',
-        revenueKrw: 100,
-        costKrw: 40,
-        capturedAt: '2026-07-14T01:00:00.000Z',
-      }),
-      snap({
-        date: '2026-07-15',
-        sellerId: '118',
-        sellerName: '스마트스토어',
-        channelGroup: 'others',
-        revenueKrw: 200,
-        costKrw: 80,
-        capturedAt: '2026-07-20T01:00:00.000Z',
-      }),
-      snap({
-        date: '2026-07-14',
-        sellerId: SELLPIA_SALES_COVERAGE_SELLER_ID,
-        sellerName: 'KidItem 수집 완료',
-        channelGroup: 'others',
-        revenueKrw: 0,
-        capturedAt: '2026-07-14T01:00:00.000Z',
-      }),
-      snap({
-        date: '2026-07-15',
-        sellerId: SELLPIA_SALES_COVERAGE_SELLER_ID,
-        sellerName: 'KidItem 수집 완료',
-        channelGroup: 'others',
-        revenueKrw: 0,
-        capturedAt: '2026-07-20T01:00:00.000Z',
-      }),
-    ]);
-    const coupangAds = makeCoupangAds(10, true);
-    coupangAds.fetchDailyAds.mockResolvedValueOnce([{
-      date: '2026-07-14',
-      ad_cost: 10,
-      ad_revenue: 0,
-      clicks: 0,
-      impressions: 0,
-      conversions: 0,
-      orders: 0,
-      observedAt: null,
-    }]);
-    const service = new SellpiaSalesService(
-      coupangAds.repo as never,
-      published.source as never,
-    );
-
-    const out = await service.getSummary(ORGANIZATION_ID, '2026-07-14', '2026-07-15');
-
-    expect(out.lastCapturedAt).toBe('2026-07-20T01:00:00.000Z');
-    expect(out.metricBasis.profitInputs.includedDates).toEqual(['2026-07-14']);
-    expect(out.metricBasis.profitInputs.observedAt).toBe('2026-07-14T01:00:00.000Z');
-  });
-
   it('keeps Sellpia totals when the daily Ads read fails and marks profit unverified', async () => {
     const published = makePublishedSource();
     published.readPublishedRows.mockResolvedValueOnce([

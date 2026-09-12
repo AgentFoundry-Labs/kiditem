@@ -192,14 +192,12 @@ export class DashboardSalesService {
         wingPeriod: closedDayPeriods.month,
         profit: curMonthProfit,
         wing: wingTrafficMonth,
-        observedAt: coupangAdsMonth.lastObservedAt,
       });
       const rangeEvidence = salesEvidence({
         orderPeriod: orderPeriods.selected,
         wingPeriod: closedDayPeriods.selected,
         profit: rangeCurProfit,
         wing: wingTrafficRange,
-        observedAt: coupangAdsForRange.lastObservedAt,
       });
 
       const trafficKpi = this.buildTrafficKpi(
@@ -223,7 +221,6 @@ export class DashboardSalesService {
           ? closedDayPeriods.selected.selectedDates
           : [],
         sources: [WING_TRAFFIC_SOURCE],
-        observedAt: wingTrafficRange.lastObservedAt,
       });
       // Revenue is ranked from orders alone, so orders decide its basis.
       const topProductsBasis = periodEvidence({
@@ -596,7 +593,6 @@ function salesEvidence(args: {
   wingPeriod: ResolvedDashboardPeriod;
   profit: RangeProfitMetrics;
   wing: WingTrafficMetrics;
-  observedAt?: Date | null;
 }): SalesEvidence {
   const { orderPeriod, wingPeriod, profit, wing } = args;
   const coverage = profit.sourceCoverage;
@@ -622,7 +618,6 @@ function salesEvidence(args: {
       ? wingPeriod.selectedDates
       : [],
     sources: [WING_TRAFFIC_SOURCE],
-    observedAt: wing.lastObservedAt,
   });
   const revenue = orderBacked
     ? ordersBasis
@@ -640,7 +635,6 @@ function salesEvidence(args: {
     includedDates: adDates,
     sources: [COUPANG_ADS_SOURCE],
     queryFailedSources,
-    observedAt: args.observedAt ?? null,
   });
   // Revenue, cost and advertising entering profit use identical dates. The
   // range aggregate computes a profit only when every cost input is present
@@ -658,7 +652,6 @@ function salesEvidence(args: {
       ? [ORDERS_SOURCE, COUPANG_ADS_SOURCE]
       : [ORDERS_SOURCE],
     queryFailedSources,
-    observedAt: args.observedAt ?? null,
   });
 
   return {

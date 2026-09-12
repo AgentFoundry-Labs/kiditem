@@ -32,7 +32,6 @@ describe('buildPeriodBasis', () => {
       input: { ...range, includedDates: allDates, sources: ['orders'] },
       expected: {
         status: 'complete',
-        partial: false,
         includedDays: 5,
         targetDays: 5,
         missingDates: [],
@@ -48,7 +47,6 @@ describe('buildPeriodBasis', () => {
       },
       expected: {
         status: 'partial',
-        partial: true,
         includedDays: 3,
         missingDates: ['2026-09-04', '2026-09-05'],
       },
@@ -86,7 +84,6 @@ describe('buildPeriodBasis', () => {
       input: { ...range, includedDates: [], sources: ['orders'] },
       expected: {
         status: 'empty',
-        partial: false,
         includedDays: 0,
         missingDates: allDates,
       },
@@ -101,7 +98,6 @@ describe('buildPeriodBasis', () => {
       },
       expected: {
         status: 'unverified',
-        partial: false,
         includedDays: 0,
         missingDates: allDates,
         queryFailedSources: ['coupang_ads'],
@@ -144,7 +140,6 @@ describe('buildPeriodBasis', () => {
     expect(DashboardPeriodBasisSchema.safeParse(basis).success).toBe(true);
     expect(basis.includedDays).toBe(basis.includedDates.length);
     expect(basis.includedDays + basis.missingDates.length).toBe(basis.targetDays);
-    expect(basis.partial).toBe(basis.status === 'partial');
     for (const date of basis.invalidDates) {
       expect(basis.missingDates).toContain(date);
     }
@@ -153,14 +148,7 @@ describe('buildPeriodBasis', () => {
       .toBe([...(input.queryFailedSources ?? [])].length > 0);
   });
 
-  it('normalizes observedAt and rejects a nameless basis', () => {
-    expect(buildPeriodBasis({
-      ...range,
-      sources: ['orders'],
-      observedAt: new Date('2026-09-06T02:30:00.000Z'),
-    }).observedAt).toBe('2026-09-06T02:30:00.000Z');
-    expect(buildPeriodBasis({ ...range, sources: ['orders'], observedAt: 'not a date' }).observedAt)
-      .toBeNull();
+  it('rejects a nameless basis', () => {
     expect(() => buildPeriodBasis({ ...range, sources: [] })).toThrow(TypeError);
   });
 
@@ -183,14 +171,12 @@ describe('intersectBases', () => {
     to: '2026-09-05',
     includedDates: ['2026-09-01', '2026-09-02', '2026-09-03', '2026-09-04'],
     sources: ['orders'],
-    observedAt: '2026-09-05T00:00:00.000Z',
   });
   const ads = buildPeriodBasis({
     from: '2026-09-01',
     to: '2026-09-05',
     includedDates: ['2026-09-03', '2026-09-04', '2026-09-05'],
     sources: ['coupang_ads'],
-    observedAt: '2026-09-06T00:00:00.000Z',
   });
 
   it('keeps only dates every required source covered', () => {
@@ -200,7 +186,6 @@ describe('intersectBases', () => {
       includedDates: ['2026-09-03', '2026-09-04'],
       missingDates: ['2026-09-01', '2026-09-02', '2026-09-05'],
       sources: ['orders', 'coupang_ads'],
-      observedAt: '2026-09-06T00:00:00.000Z',
     });
   });
 
@@ -276,7 +261,6 @@ describe('narrowToDate', () => {
     includedDates: ['2026-09-01'],
     invalidDates: ['2026-09-02'],
     sources: ['sellpia_sales'],
-    observedAt: '2026-09-04T00:00:00.000Z',
   });
 
   it.each([
@@ -287,12 +271,6 @@ describe('narrowToDate', () => {
     const narrowed = narrowToDate(parent, date);
     expect(narrowed).toMatchObject({ from: date, to: date, targetDays: 1, ...expected });
     expect(narrowed.sources).toEqual(['sellpia_sales']);
-    expect(narrowed.observedAt).toBe('2026-09-04T00:00:00.000Z');
-  });
-
-  it('accepts a per-date capture time', () => {
-    expect(narrowToDate(parent, '2026-09-01', new Date('2026-09-01T10:00:00.000Z')).observedAt)
-      .toBe('2026-09-01T10:00:00.000Z');
   });
 
   it('keeps a failed source unverified on an uncovered date', () => {

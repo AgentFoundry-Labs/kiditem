@@ -26,8 +26,6 @@ describe('dashboard schemas', () => {
     invalidDates: [],
     sources: ['orders', 'coupang_ads'],
     status: 'complete' as const,
-    partial: false,
-    observedAt: '2026-09-04T01:00:00.000Z',
   };
 
   it('carries an exact period partition that preserves internal holes', () => {
@@ -40,7 +38,6 @@ describe('dashboard schemas', () => {
       missingDates: ['2026-09-02'],
       invalidDates: [],
       status: 'partial',
-      partial: true,
     });
     expect(partial.missingDates).toEqual(['2026-09-02']);
     expect(partial.includedDates).toEqual(['2026-09-01', '2026-09-03']);
@@ -54,7 +51,6 @@ describe('dashboard schemas', () => {
       missingDates: ['2026-09-01', '2026-09-02', '2026-09-03'],
       invalidDates: [],
       status: 'unverified',
-      partial: false,
       queryFailedSources: ['coupang_ads'],
     });
     expect(failed.queryFailedSources).toEqual(['coupang_ads']);
@@ -64,7 +60,6 @@ describe('dashboard schemas', () => {
       includedDays: 0,
       missingDates: ['2026-09-01', '2026-09-02', '2026-09-03'],
       status: 'empty',
-      partial: false,
     }).queryFailedSources).toBeUndefined();
   });
 

@@ -521,7 +521,6 @@ function adEvidence(
       ? windowCoverageDates(period.selectedDates, metrics.coverage, true)
       : [],
     sources: [COUPANG_ADS_SOURCE],
-    observedAt: owner.lastObservedAt,
   });
 }
 
@@ -550,7 +549,6 @@ function adRateRevenueEvidence(
         wing.isCollected,
       ),
       sources: [WING_TRAFFIC_SOURCE],
-      observedAt: wing.lastObservedAt,
     });
   }
   return periodEvidence({

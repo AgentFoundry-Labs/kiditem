@@ -78,19 +78,16 @@ export class SellpiaSalesService {
       includedDates: coverageDates,
       invalidDates: normalizedSellpia.invalidDates,
       sources: [SELLPIA_SALES_SOURCE],
-      observedAt: normalizedSellpia.lastCapturedAt,
     });
     const rocket = buildGroup(
       salesRows.filter((r) => r.channelGroup === 'rocket'),
       coverageDates,
       sellpiaBasis,
-      normalizedSellpia.lastCapturedAtByDate,
     );
     const others = buildGroup(
       salesRows.filter((r) => r.channelGroup !== 'rocket'),
       coverageDates,
       sellpiaBasis,
-      normalizedSellpia.lastCapturedAtByDate,
     );
     const dailySales = aggregateSalesByDate(salesRows, coverageDates);
     // A failed ad read is named as a failed source. With no usable ad date the
@@ -106,24 +103,10 @@ export class SellpiaSalesService {
       invalidDates: normalizedAds.invalidDates,
       sources: [COUPANG_ADS_SOURCE],
       queryFailedSources: adsQueryFailedSources,
-      observedAt: latestObservedAtForDates(
-        normalizedAds.observedAtByDate,
-        [...adDates],
-      ),
     });
     // Revenue, cost and advertising entering profit use identical dates.
-    const profitDateEvidence = intersectBases(sellpiaBasis, adsBasis);
-    const profitDates = profitDateEvidence.includedDates;
-    // Freshness of a combined value is the newest capture *inside* the dates
-    // that actually entered it, which no algebra over two basis-level
-    // timestamps can recover; only the producer holds the per-date captures.
-    const profitBasis: DashboardPeriodBasis = {
-      ...profitDateEvidence,
-      observedAt: latestObservedAt(
-        latestObservedAtForDates(normalizedSellpia.lastCapturedAtByDate, profitDates),
-        latestObservedAtForDates(normalizedAds.observedAtByDate, profitDates),
-      )?.toISOString() ?? null,
-    };
+    const profitBasis = intersectBases(sellpiaBasis, adsBasis);
+    const profitDates = profitBasis.includedDates;
     const profitInputs = buildProfitInputs(
       profitDates,
       dailySales,
@@ -194,7 +177,6 @@ function buildGroup(
   rows: SnapshotRow[],
   coverageDates: Iterable<string> = [],
   basis?: DashboardPeriodBasis,
-  lastCapturedAtByDate: Map<string, Date> = new Map(),
 ): SellpiaSalesGroup {
   let revenue = 0;
   let qty = 0;
@@ -261,7 +243,7 @@ function buildGroup(
       revenue: m.revenue,
       qty: m.qty,
       cost: m.cost,
-      daily: toDailyPoints(m.daily, basis, lastCapturedAtByDate),
+      daily: toDailyPoints(m.daily, basis),
     }))
     .sort((a, b) => b.revenue - a.revenue);
 
@@ -269,7 +251,7 @@ function buildGroup(
     revenue,
     qty,
     cost,
-    daily: toDailyPoints(dailyMap, basis, lastCapturedAtByDate),
+    daily: toDailyPoints(dailyMap, basis),
     malls,
   } satisfies SellpiaSalesGroup;
 }
@@ -289,7 +271,6 @@ function accumulate(
 function toDailyPoints(
   map: Map<string, { revenue: number; qty: number }>,
   basis?: DashboardPeriodBasis,
-  lastCapturedAtByDate: Map<string, Date> = new Map(),
 ): SellpiaSalesDailyPoint[] {
   return [...map.entries()]
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
@@ -300,16 +281,8 @@ function toDailyPoints(
       ...(basis
         ? {
             metricBasis: {
-              revenue: narrowToDate(
-                basis,
-                date,
-                lastCapturedAtByDate.get(date) ?? null,
-              ),
-              qty: narrowToDate(
-                basis,
-                date,
-                lastCapturedAtByDate.get(date) ?? null,
-              ),
+              revenue: narrowToDate(basis, date),
+              qty: narrowToDate(basis, date),
             },
           }
         : {}),
@@ -351,14 +324,12 @@ interface NormalizedSellpiaRows {
   invalidDates: Set<string>;
   salesRows: SnapshotRow[];
   lastCapturedAt: Date | null;
-  lastCapturedAtByDate: Map<string, Date>;
 }
 
 interface NormalizedDailyAds {
   validDates: Set<string>;
   invalidDates: Set<string>;
   byDate: Map<string, CoupangAdsDailyRow>;
-  observedAtByDate: Map<string, Date>;
 }
 
 interface DailyAdsReadResult {
@@ -426,7 +397,7 @@ function normalizeSellpiaRows(
     null,
   );
 
-  return { validDates, invalidDates, salesRows, lastCapturedAt, lastCapturedAtByDate };
+  return { validDates, invalidDates, salesRows, lastCapturedAt };
 }
 
 function normalizeDailyAds(
@@ -435,26 +406,21 @@ function normalizeDailyAds(
 ): NormalizedDailyAds {
   const byDate = new Map<string, CoupangAdsDailyRow>();
   const invalidDates = new Set<string>();
-  const observedAtByDate = new Map<string, Date>();
   for (const row of rows) {
     const date = validDateText(row.date);
     if (!date || !selectedDates.has(date)) continue;
     if (!Number.isFinite(row.ad_cost) || row.ad_cost < 0) {
       invalidDates.add(date);
       byDate.delete(date);
-      observedAtByDate.delete(date);
       continue;
     }
     if (invalidDates.has(date)) continue;
     byDate.set(date, { ...row, date });
-    const observedAt = parseObservedAt(row.observedAt);
-    if (observedAt) observedAtByDate.set(date, observedAt);
   }
   return {
     validDates: new Set(byDate.keys()),
     invalidDates,
     byDate,
-    observedAtByDate,
   };
 }
 
@@ -523,32 +489,6 @@ function buildMetricBasis(args: {
     'others.malls': args.sellpiaBasis,
   };
   return metricBasis;
-}
-
-function latestObservedAt(
-  left: Date | null | undefined,
-  right: Date | null | undefined,
-): Date | null {
-  const leftTime = left instanceof Date && Number.isFinite(left.getTime()) ? left.getTime() : -Infinity;
-  const rightTime = right instanceof Date && Number.isFinite(right.getTime()) ? right.getTime() : -Infinity;
-  if (leftTime === -Infinity && rightTime === -Infinity) return null;
-  return new Date(Math.max(leftTime, rightTime));
-}
-
-function latestObservedAtForDates(
-  observedAtByDate: ReadonlyMap<string, Date>,
-  dates: readonly string[],
-): Date | null {
-  return dates.reduce<Date | null>(
-    (latest, date) => latestObservedAt(latest, observedAtByDate.get(date) ?? null),
-    null,
-  );
-}
-
-function parseObservedAt(value: string | null | undefined): Date | null {
-  if (!value) return null;
-  const parsed = new Date(value);
-  return Number.isFinite(parsed.getTime()) ? parsed : null;
 }
 
 function isValidSnapshotRow(row: SnapshotRow): boolean {

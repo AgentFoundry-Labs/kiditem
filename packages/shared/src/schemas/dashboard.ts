@@ -44,7 +44,7 @@ export const DashboardSnapshotBasisStatusSchema = z.enum([
  * `missingDates` and are never treated as collected zeroes.
  *
  * The cross-field invariants — the included/missing partition, `invalid ⊆
- * missing`, sorted unique date arrays, and `status`/`partial` — are derived by
+ * missing`, sorted unique date arrays, and `status` — are derived by
  * `buildPeriodBasis` in `schemas/dashboard-basis.ts`, the one constructor the
  * server authors these payloads with. This is a server-authored response
  * schema, not an ingest schema, so it validates shape and leaves the derived
@@ -63,8 +63,6 @@ export const DashboardPeriodBasisSchema = z.object({
   /** Sources whose required read failed; distinct from an empty result. */
   queryFailedSources: z.array(z.string().trim().min(1)).optional(),
   status: DashboardPeriodBasisStatusSchema,
-  partial: z.boolean(),
-  observedAt: zIsoDate.nullable(),
 }).strict();
 
 /**

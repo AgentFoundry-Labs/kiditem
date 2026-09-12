@@ -162,7 +162,6 @@ export class DashboardTrendService {
             includedDates: revenue !== null ? [date] : [],
             sources: revenueSource,
             queryFailedSources: revenueQueryFailures,
-            observedAt: hasOrderRow ? null : wingRow?.observedAt ?? null,
           }),
           profit: buildPeriodBasis({
             from: date,
@@ -175,7 +174,6 @@ export class DashboardTrendService {
               : [],
             sources: [ORDERS_SOURCE, COUPANG_ADS_SOURCE],
             queryFailedSources: profitQueryFailures,
-            observedAt: adRow?.observedAt ?? null,
           }),
           adCost: buildPeriodBasis({
             from: date,
@@ -183,7 +181,6 @@ export class DashboardTrendService {
             includedDates: adCost !== null ? [date] : [],
             sources: [COUPANG_ADS_SOURCE],
             queryFailedSources: adQueryFailures,
-            observedAt: adRow?.observedAt ?? null,
           }),
         };
         return { date, revenue, profit, adCost, metricBasis } satisfies DashboardTrendItem;

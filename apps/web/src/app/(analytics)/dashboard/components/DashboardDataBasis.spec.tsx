@@ -20,8 +20,6 @@ const periodBasis: DashboardPeriodBasis = {
   invalidDates: [],
   sources: ['sellpia_sales', 'coupang_ads'],
   status: 'partial',
-  partial: true,
-  observedAt: '2026-09-04T00:00:00.000Z',
 };
 
 const MONTH = Array.from({ length: 30 }, (_, index) => `2026-09-${String(index + 1).padStart(2, '0')}`);
@@ -136,7 +134,7 @@ describe('DashboardDataBasis', () => {
           basis: {
             kind: 'period', from: '2026-09-01', to: '2026-09-30', targetDays: 30,
             includedDates: [], includedDays: 0, missingDates: MONTH, invalidDates: [],
-            sources: ['wing_traffic'], status: 'empty', partial: false,
+            sources: ['wing_traffic'], status: 'empty',
           } as DashboardMetricBasis,
         }]}
       />,
@@ -156,7 +154,7 @@ describe('DashboardDataBasis', () => {
     const basis = (missingDates: string[]): DashboardMetricBasis => ({
       kind: 'period', from: '2026-09-01', to: '2026-09-10', targetDays: 10,
       includedDates: [], includedDays: 0, missingDates, invalidDates: [],
-      sources: ['orders'], status: 'partial', partial: true,
+      sources: ['orders'], status: 'partial',
     } as DashboardMetricBasis);
 
     const { rerender } = render(

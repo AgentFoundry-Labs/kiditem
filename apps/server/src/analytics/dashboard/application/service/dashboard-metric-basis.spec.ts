@@ -182,7 +182,6 @@ describe('dashboard sales metricBasis', () => {
       missingDates: ['2026-09-02', '2026-09-04'],
       sources: ['orders'],
       status: 'partial',
-      partial: true,
     });
     expect(result.rangeKpi?.revenue).toBe(100_000);
   });
@@ -386,7 +385,6 @@ describe('dashboard ad metricBasis', () => {
       sources: ['coupang_ads'],
       includedDates: SELECTED,
       status: 'complete',
-      observedAt: '2026-09-06T01:00:00.000Z',
     });
     // adRate divides account ad spend by order revenue, so it uses the dates
     // both sources cover.
