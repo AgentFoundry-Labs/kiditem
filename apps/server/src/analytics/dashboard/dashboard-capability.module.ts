@@ -10,6 +10,7 @@ import { DashboardSalesRepositoryAdapter } from './adapter/out/repository/dashbo
 import { DashboardTrendRepositoryAdapter } from './adapter/out/repository/dashboard-trend.repository.adapter';
 import { WingTrafficAggregationRepositoryAdapter } from './adapter/out/repository/wing-traffic-aggregation.repository.adapter';
 import { DashboardInventoryRepositoryAdapter } from './adapter/out/repository/dashboard-inventory.repository.adapter';
+import { CollectionFreshnessRepositoryAdapter } from './adapter/out/repository/collection-freshness.repository.adapter';
 import { ANALYTICS_OVERVIEW_CAPABILITY_PORT } from './application/port/in/analytics-overview-capability.port';
 import { PROFIT_CALCULATION_REPOSITORY_PORT } from './application/port/out/repository/profit-calculation.repository.port';
 import { WING_AD_SUMMARY_REPOSITORY_PORT } from './application/port/out/repository/wing-ad-summary.repository.port';
@@ -17,10 +18,12 @@ import { DASHBOARD_SALES_REPOSITORY_PORT } from './application/port/out/reposito
 import { DASHBOARD_TREND_REPOSITORY_PORT } from './application/port/out/repository/dashboard-trend.repository.port';
 import { WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT } from './application/port/out/repository/wing-traffic-aggregation.repository.port';
 import { DASHBOARD_INVENTORY_REPOSITORY_PORT } from './application/port/out/repository/dashboard-inventory.repository.port';
+import { COLLECTION_FRESHNESS_REPOSITORY_PORT } from './application/port/out/repository/collection-freshness.repository.port';
 import { DashboardSalesService } from './application/service/dashboard-sales.service';
 import { DashboardAdService } from './application/service/dashboard-ad.service';
 import { DashboardInventoryService } from './application/service/dashboard-inventory.service';
 import { DashboardTrendService } from './application/service/dashboard-trend.service';
+import { DashboardCollectionsService } from './application/service/dashboard-collections.service';
 
 const repositoryAdapters = [
   ProfitCalculationRepositoryAdapter,
@@ -29,6 +32,7 @@ const repositoryAdapters = [
   DashboardTrendRepositoryAdapter,
   WingTrafficAggregationRepositoryAdapter,
   DashboardInventoryRepositoryAdapter,
+  CollectionFreshnessRepositoryAdapter,
 ];
 
 const repositoryPorts = [
@@ -38,6 +42,7 @@ const repositoryPorts = [
   { provide: DASHBOARD_TREND_REPOSITORY_PORT, useExisting: DashboardTrendRepositoryAdapter },
   { provide: WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT, useExisting: WingTrafficAggregationRepositoryAdapter },
   { provide: DASHBOARD_INVENTORY_REPOSITORY_PORT, useExisting: DashboardInventoryRepositoryAdapter },
+  { provide: COLLECTION_FRESHNESS_REPOSITORY_PORT, useExisting: CollectionFreshnessRepositoryAdapter },
 ];
 
 const dashboardServices = [
@@ -45,6 +50,7 @@ const dashboardServices = [
   DashboardAdService,
   DashboardInventoryService,
   DashboardTrendService,
+  DashboardCollectionsService,
 ];
 
 @Module({

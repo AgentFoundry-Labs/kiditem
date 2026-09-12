@@ -14,6 +14,7 @@ import { DashboardSalesRepositoryAdapter } from '../adapter/out/repository/dashb
 import { DashboardTrendRepositoryAdapter } from '../adapter/out/repository/dashboard-trend.repository.adapter';
 import { WingTrafficAggregationRepositoryAdapter } from '../adapter/out/repository/wing-traffic-aggregation.repository.adapter';
 import { DashboardInventoryRepositoryAdapter } from '../adapter/out/repository/dashboard-inventory.repository.adapter';
+import { CollectionFreshnessRepositoryAdapter } from '../adapter/out/repository/collection-freshness.repository.adapter';
 // application/service
 import { DashboardSalesService } from '../application/service/dashboard-sales.service';
 import { DashboardAdService } from '../application/service/dashboard-ad.service';
@@ -28,6 +29,7 @@ import { DASHBOARD_SALES_REPOSITORY_PORT } from '../application/port/out/reposit
 import { DASHBOARD_TREND_REPOSITORY_PORT } from '../application/port/out/repository/dashboard-trend.repository.port';
 import { WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT } from '../application/port/out/repository/wing-traffic-aggregation.repository.port';
 import { DASHBOARD_INVENTORY_REPOSITORY_PORT } from '../application/port/out/repository/dashboard-inventory.repository.port';
+import { COLLECTION_FRESHNESS_REPOSITORY_PORT } from '../application/port/out/repository/collection-freshness.repository.port';
 
 const IMPORTS_KEY = 'imports';
 const CONTROLLERS_KEY = 'controllers';
@@ -41,6 +43,7 @@ const EXPECTED_PORT_BINDINGS = [
   [DASHBOARD_TREND_REPOSITORY_PORT, DashboardTrendRepositoryAdapter],
   [WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT, WingTrafficAggregationRepositoryAdapter],
   [DASHBOARD_INVENTORY_REPOSITORY_PORT, DashboardInventoryRepositoryAdapter],
+  [COLLECTION_FRESHNESS_REPOSITORY_PORT, CollectionFreshnessRepositoryAdapter],
 ] as const;
 
 // Architecture-guard companion to dashboard.architecture.spec.ts. This spec

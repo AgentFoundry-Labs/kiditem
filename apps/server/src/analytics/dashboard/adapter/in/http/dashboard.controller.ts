@@ -5,8 +5,10 @@ import { DashboardSalesService } from '../../../application/service/dashboard-sa
 import { DashboardAdService } from '../../../application/service/dashboard-ad.service';
 import { DashboardInventoryService } from '../../../application/service/dashboard-inventory.service';
 import { DashboardTrendService } from '../../../application/service/dashboard-trend.service';
+import { DashboardCollectionsService } from '../../../application/service/dashboard-collections.service';
 import { DashboardQueryDto, DashboardTrendQueryDto } from './dto/dashboard-query.dto';
 import type {
+  DashboardCollections,
   DashboardSalesSummary,
   DashboardAdSummary,
   DashboardInventorySummary,
@@ -20,7 +22,16 @@ export class DashboardController {
     private readonly adService: DashboardAdService,
     private readonly inventoryService: DashboardInventoryService,
     private readonly trendService: DashboardTrendService,
+    private readonly collectionsService: DashboardCollectionsService,
   ) {}
+
+  /** When each collection last completed. Not a period read: no window applies. */
+  @Get('collections')
+  async getCollections(
+    @CurrentOrganization() organizationId: string,
+  ): Promise<DashboardCollections> {
+    return this.collectionsService.getCollections(organizationId);
+  }
 
   @Get('sales')
   async getSales(

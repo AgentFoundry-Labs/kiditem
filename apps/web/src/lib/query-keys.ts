@@ -114,6 +114,9 @@ export const queryKeys = {
     // Inventory (range-agnostic)
     inventory: () =>
       [...queryKeys.dashboard.all, 'inventory'] as const,
+    // When each collection last completed (range-agnostic)
+    collections: () =>
+      [...queryKeys.dashboard.all, 'collections'] as const,
     // Trend — keyed by the window it asked for, so a selected range does not
     // read the rolling window's cache.
     trend: (range: string, from?: string, to?: string) =>

@@ -10,6 +10,7 @@ import {
   type DepartmentQuickAction,
 } from '../hooks/use-department-quick-actions';
 import { DashboardBasisDisclosure, type DashboardMetricBasis } from './DashboardDataBasis';
+import { useCollectionFreshness } from '../hooks/use-collection-freshness';
 
 const DashboardCharts = dynamic(
   () => import('./DashboardCharts').then((mod) => ({ default: mod.DashboardCharts })),
@@ -70,13 +71,44 @@ const COLLECTIONS: ReadonlyArray<{
   key: string;
   label: string;
   action: DepartmentQuickAction;
+  /** What this actually does, for the cell's tooltip. */
+  hint: string;
+  /**
+   * What the state line says when this collection publishes no run to read.
+   * Two of the six do not, and each for its own reason worth stating.
+   */
+  standing: string;
 }> = [
-  { key: 'sourcing', label: '시장분석', action: 'collectTrend' },
-  { key: 'order', label: '몰 주문수집', action: 'collectAllOrders' },
-  { key: 'shipping', label: '쿠팡 쉽먼트', action: 'collectCoupangShipmentSummary' },
-  { key: 'rocket', label: '쿠팡 로켓 PO', action: 'collectCoupangRocketPurchaseOrders' },
-  { key: 'inventory', label: '재고 분석', action: 'refreshInventory' },
-  { key: 'sellpia', label: '셀피아 동기화', action: 'syncSellpia' },
+  {
+    key: 'sourcing', label: '시장분석', action: 'collectTrend',
+    hint: '네이버·쇼츠 트렌드 소스를 수집합니다.',
+    standing: '소싱 화면에서 확인',
+  },
+  {
+    key: 'order', label: '몰 주문수집', action: 'collectAllOrders',
+    hint: '연결된 모든 몰의 주문을 내려받아 셀피아 변환 파일을 만듭니다.',
+    standing: '미수집',
+  },
+  {
+    key: 'shipping', label: '쿠팡 쉽먼트', action: 'collectCoupangShipmentSummary',
+    hint: '쿠팡 Wing의 날짜별 출고 요약을 수집합니다.',
+    standing: '미수집',
+  },
+  {
+    key: 'rocket', label: '쿠팡 로켓 PO', action: 'collectCoupangRocketPurchaseOrders',
+    hint: '쿠팡 로켓 발주서와 상세 품목을 수집합니다.',
+    standing: '미수집',
+  },
+  {
+    key: 'inventory', label: '재고 분석', action: 'refreshInventory',
+    hint: '이미 수집된 재고·판매 데이터로 분석을 다시 계산합니다.',
+    standing: '수집이 아닌 재계산',
+  },
+  {
+    key: 'sellpia', label: '셀피아 동기화', action: 'syncSellpia',
+    hint: '셀피아 재고를 동기화합니다.',
+    standing: '미수집',
+  },
 ];
 
 export function DashboardChartPanel({
@@ -104,6 +136,7 @@ export function DashboardChartPanel({
   const hasBenchmark = !!industryBenchmark;
 
   const quickActions = useDepartmentQuickActions();
+  const freshnessOf = useCollectionFreshness();
   const [runningAction, setRunningAction] = useState<string | null>(null);
 
   const runAction = async (deptKey: string, action: DepartmentQuickAction) => {
@@ -183,35 +216,51 @@ export function DashboardChartPanel({
           into one row under the chart. It was a tab holding a full-height board
           to show five idle agents; as a row it stays reachable without deciding
           the height of the screen. */}
-      <div className="grid grid-cols-2 gap-px border-t border-slate-200 bg-slate-200 sm:grid-cols-3 lg:grid-cols-6">
-        {COLLECTIONS.map(collection => {
-          const running = runningAction === `${collection.key}:${collection.action}`;
-          return (
-            <button
-              key={collection.key}
-              type="button"
-              onClick={() => void runAction(collection.key, collection.action)}
-              disabled={runningAction !== null}
-              className="flex flex-col items-start bg-white px-3.5 py-2.5 text-left transition-colors hover:bg-slate-50 disabled:opacity-60"
-            >
-              <span className="flex w-full items-center gap-1.5">
-                {running
-                  ? <Loader2 size={12} className="shrink-0 animate-spin text-violet-600" />
-                  : <Play size={12} className="shrink-0 text-slate-400" />}
-                <span className="truncate text-[13px] font-semibold text-slate-900">{collection.label}</span>
-              </span>
-              {/* The slot the collection's own state belongs in. Today it holds
-                  only "running", because the dashboard read model publishes an
-                  `observedAt` for Wing traffic and for the inventory snapshot and
-                  for nothing else — the four other collections have no freshness
-                  to show yet. The line is reserved so the row will not step when
-                  they gain one. */}
-              <span className="mt-0.5 truncate text-[11px] text-slate-500">
-                {running ? '수집 중…' : '\u00a0'}
-              </span>
-            </button>
-          );
-        })}
+      {/* The row is a shelf of collections, and it says so. Six icons in a
+          line said only that six things were clickable — not that clicking one
+          opens a browser and runs for minutes, and not whether it needs running
+          at all. The heading names the shelf; each cell carries when it last
+          finished. */}
+      <div className="border-t border-slate-200">
+        <div className="flex items-center justify-between gap-2 px-4 py-2">
+          <span className="text-[13px] font-semibold text-slate-900">데이터 수집</span>
+          <span className="text-[11px] text-slate-500">
+            누르면 브라우저가 열려 수집합니다
+          </span>
+        </div>
+        <div className="grid grid-cols-2 gap-px border-t border-slate-200 bg-slate-200 sm:grid-cols-3 lg:grid-cols-6">
+          {COLLECTIONS.map(collection => {
+            const running = runningAction === `${collection.key}:${collection.action}`;
+            const state = freshnessOf(collection.action);
+            return (
+              <button
+                key={collection.key}
+                type="button"
+                onClick={() => void runAction(collection.key, collection.action)}
+                disabled={runningAction !== null}
+                title={collection.hint}
+                className="flex flex-col items-start gap-0.5 bg-white px-4 py-2.5 text-left transition-colors hover:bg-slate-50 disabled:opacity-60"
+              >
+                <span className="flex w-full items-center gap-1.5">
+                  {running
+                    ? <Loader2 size={13} className="shrink-0 animate-spin text-violet-600" />
+                    : <Play size={13} className="shrink-0 text-slate-400" />}
+                  <span className="truncate text-[13px] font-semibold text-slate-900">{collection.label}</span>
+                </span>
+                {/* Never a blank: a collection that publishes no run says that,
+                    rather than looking like one that has never run. */}
+                <span className={cn(
+                  'truncate text-[11px]',
+                  running ? 'font-medium text-violet-700'
+                    : state?.label === '미수집' ? 'font-medium text-amber-700'
+                    : 'text-slate-500',
+                )}>
+                  {running ? '수집 중…' : state?.label ?? collection.standing}
+                </span>
+              </button>
+            );
+          })}
+        </div>
       </div>
     </div>
   );

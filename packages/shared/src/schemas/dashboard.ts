@@ -889,3 +889,20 @@ export type SellpiaProductInventoryResolution = z.infer<
 >;
 export type SellpiaProductSalesRow = z.infer<typeof SellpiaProductSalesRowSchema>;
 export type SellpiaProductSalesSummary = z.infer<typeof SellpiaProductSalesSummarySchema>;
+
+// ─── Collections endpoint: GET /api/dashboard/collections ─────────────────
+
+/**
+ * When each collection last completed, so the dashboard's collection row can
+ * say what it is rather than only what it does.
+ *
+ * Keyed by the `sourceType` the owner writes to `source_import_runs`, which is
+ * a ledger that already exists — the row simply never read it. A source absent
+ * from the map has never completed a run: that is not a collection at time
+ * zero, it is no collection, and the two must not read the same.
+ */
+export const DashboardCollectionsSchema = z.object({
+  lastCompleted: z.record(z.string().min(1), zIsoDate),
+}).strict();
+
+export type DashboardCollections = z.infer<typeof DashboardCollectionsSchema>;
