@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ThumbnailGenerationSinkAdapter } from '../thumbnail-generation-sink.adapter';
+import type { ImageStoragePort } from '../../../../application/port/out/storage/image-storage.port';
 
 const ORG = '11111111-1111-1111-1111-111111111111';
 const REQUEST = '22222222-2222-2222-2222-222222222222';
@@ -33,10 +34,19 @@ function makeLifecycle() {
   };
 }
 
+function makeStorage(): ImageStoragePort {
+  return {
+    getUrl: vi.fn((key: string) => `https://storage.example.com/${key}`),
+  } as unknown as ImageStoragePort;
+}
+
 describe('ThumbnailGenerationSinkAdapter', () => {
   it('projects validated provider output through the thumbnail lifecycle owner', async () => {
     const lifecycle = makeLifecycle();
-    const sink = new ThumbnailGenerationSinkAdapter(lifecycle as never);
+    const sink = new ThumbnailGenerationSinkAdapter(
+      lifecycle as never,
+      makeStorage(),
+    );
 
     await sink.applySuccess({
       organizationId: ORG,
@@ -49,7 +59,12 @@ describe('ThumbnailGenerationSinkAdapter', () => {
     expect(lifecycle.projectDirectSuccess).toHaveBeenCalledWith({
       generationId: GEN_ID,
       organizationId: ORG,
-      candidates: VALID_OUTPUT.candidates,
+      candidates: [
+        {
+          ...VALID_OUTPUT.candidates[0],
+          url: 'https://storage.example.com/thumbnail-generations/org/c1.png',
+        },
+      ],
       inputMeta: { executionMode: 'direct_ai', aiJobId: REQUEST },
       payload: {
         executionMode: 'direct_ai',
@@ -59,9 +74,50 @@ describe('ThumbnailGenerationSinkAdapter', () => {
     });
   });
 
+  it('rebuilds managed candidate URLs from the current storage configuration', async () => {
+    const lifecycle = makeLifecycle();
+    const storage = makeStorage();
+    const sink = new ThumbnailGenerationSinkAdapter(
+      lifecycle as never,
+      storage,
+    );
+
+    await sink.applySuccess({
+      organizationId: ORG,
+      requestId: REQUEST,
+      runId: RUN,
+      sourceResourceId: GEN_ID,
+      output: {
+        candidates: [
+          {
+            url: 'http://old-storage.example.com/kiditem/thumbnail-generations/output.png',
+            storageKey: 'thumbnail-generations/output.png',
+          },
+        ],
+      },
+    });
+
+    expect(storage.getUrl).toHaveBeenCalledWith(
+      'thumbnail-generations/output.png',
+    );
+    expect(lifecycle.projectDirectSuccess).toHaveBeenCalledWith(
+      expect.objectContaining({
+        candidates: [
+          expect.objectContaining({
+            url: 'https://storage.example.com/thumbnail-generations/output.png',
+            storageKey: 'thumbnail-generations/output.png',
+          }),
+        ],
+      }),
+    );
+  });
+
   it('projects provider failure through the same lifecycle owner', async () => {
     const lifecycle = makeLifecycle();
-    const sink = new ThumbnailGenerationSinkAdapter(lifecycle as never);
+    const sink = new ThumbnailGenerationSinkAdapter(
+      lifecycle as never,
+      makeStorage(),
+    );
 
     await sink.applyFailure({
       organizationId: ORG,
@@ -86,7 +142,10 @@ describe('ThumbnailGenerationSinkAdapter', () => {
 
   it('does not project success or failure without a source generation id', async () => {
     const lifecycle = makeLifecycle();
-    const sink = new ThumbnailGenerationSinkAdapter(lifecycle as never);
+    const sink = new ThumbnailGenerationSinkAdapter(
+      lifecycle as never,
+      makeStorage(),
+    );
 
     await sink.applySuccess({
       organizationId: ORG,
@@ -110,7 +169,10 @@ describe('ThumbnailGenerationSinkAdapter', () => {
 
   it('forwards the authenticated organization fence to the lifecycle owner', async () => {
     const lifecycle = makeLifecycle();
-    const sink = new ThumbnailGenerationSinkAdapter(lifecycle as never);
+    const sink = new ThumbnailGenerationSinkAdapter(
+      lifecycle as never,
+      makeStorage(),
+    );
     const otherOrganizationId = '55555555-5555-4555-8555-555555555555';
 
     await sink.applySuccess({
@@ -133,7 +195,10 @@ describe('ThumbnailGenerationSinkAdapter', () => {
     const lifecycle = makeLifecycle();
     lifecycle.projectDirectSuccess.mockResolvedValueOnce(null);
     lifecycle.projectDirectFailure.mockResolvedValueOnce(null);
-    const sink = new ThumbnailGenerationSinkAdapter(lifecycle as never);
+    const sink = new ThumbnailGenerationSinkAdapter(
+      lifecycle as never,
+      makeStorage(),
+    );
 
     await sink.applySuccess({
       organizationId: ORG,

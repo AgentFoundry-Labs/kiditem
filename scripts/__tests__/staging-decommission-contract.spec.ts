@@ -21,7 +21,6 @@ const retiredPaths = [
   'docs/runbooks/storage-cache-control.md',
   'scripts/staging-db-baseline.ts',
   'scripts/storage-cache-control.ts',
-  'tools/codex/skills/staging-deploy-operator',
 ];
 
 describe('retired hosted deployment environments', () => {

@@ -1,41 +1,48 @@
-# Codex Skill Profiles
+# Agent Skills
 
 ## Purpose
 
-Shared development skills and KidItem-owned skills have separate owners:
+Shared development skills and KidItem-owned skills have separate owners, and
+both harnesses read the same sources:
 
 ```text
-agent-skill-hub marketplace -> Development plugin -> global Codex skills
-KidItem tools/codex/skills  -> .agents/skills    -> project-only skills
+agent-skill-hub marketplace -> Development plugin -> .agents/skills, .claude/skills
+KidItem skills/             -> update command     -> .agents/skills, .claude/skills
 ```
+
+`.agents/skills` is Codex discovery and `.claude/skills` is Claude Code
+discovery. Both are gitignored and hold only symlinks. Each owner reconciles
+its own links and leaves the other owner's entries untouched.
 
 KidItem never clones external skill repositories or exports shared profiles.
 The Development plugin follows the latest configured upstream revisions and
-keeps its repositories under Codex-managed plugin data.
+keeps its repositories under plugin-managed data.
 
 ## Set Up Another Computer
 
-Install the shared Development profile from the private Git marketplace:
+Install the shared Development profile from the private Git marketplace.
+
+Codex:
 
 ```bash
 rtk codex plugin marketplace add yhc125/agent-skill-hub --ref main
 rtk codex plugin add development@agent-skill-hub
 ```
 
-The GitHub account used by Git must be able to read the repository. No manual
-clone of `agent-skill-hub`, gstack, Ponytail, Understand Anything, Supabase, or
-another included source is required. Superpowers is not part of the Development
-profile because its workflow overlaps with the selected gstack skills.
-
-Refresh the marketplace package after its profile or plugin code changes:
+Claude Code:
 
 ```bash
-rtk codex plugin marketplace upgrade agent-skill-hub
-rtk codex plugin add development@agent-skill-hub
+rtk claude plugin marketplace add yhc125/agent-skill-hub
+rtk claude plugin install development@agent-skill-hub
 ```
 
-The trusted plugin hook refreshes upstream skill revisions during normal Codex
-use. Plugin cache and plugin-data directories are managed runtime state, not
+The GitHub account used by Git must be able to read the repository. No manual
+clone of `agent-skill-hub` or an included upstream source is required.
+
+The plugin's SessionStart hook refreshes upstream revisions during normal use
+and syncs both discovery directories. A git worktree inherits the main
+checkout's opt-in, so a fresh worktree exposes the same skills without extra
+setup. Plugin cache and plugin-data directories are managed runtime state, not
 duplicate workspace clones; do not remove them manually.
 
 ## KidItem-Owned Skills
@@ -43,17 +50,21 @@ duplicate workspace clones; do not remove them manually.
 KidItem always exposes these repository-owned skills:
 
 - `agents-md-audit`
-- `kiditem-market-sourcing-radar`
+- `magic-scraper`
 - `update-project-skills`
 
-Their sources live under `tools/codex/skills`. The gitignored `.agents/skills`
-directory contains only relative symlinks to those sources. The update command
-owns that discovery directory: it removes external symlinks and refuses to
-overwrite real files or directories.
+Their sources live under `skills/`, tracked in git. Keeping them in the
+repository is deliberate: a skill that cites repository contracts, resolves
+scripts relative to its own directory, or depends on workspace tooling drifts
+out of sync the moment it moves outside the repository.
+
+The update command owns only its own `../../skills/*` links. It removes those
+when a source disappears and preserves every other entry, including the shared
+profile's.
 
 ## Update And Verify
 
-Apply the fixed project-local set:
+Apply the fixed project-local set to both discovery directories:
 
 ```bash
 rtk npm run skills:update
@@ -65,9 +76,11 @@ Verify without changing links:
 rtk npm run skills:verify
 ```
 
-Both commands verify that every link resolves to `SKILL.md` and that a fresh
-Codex prompt exposes all three KidItem-owned skills. Start a fresh Codex task
-after changing links so injected skill metadata is reloaded.
+Both commands verify that every KidItem-owned link resolves to `SKILL.md`. The
+Codex prompt-scope probe runs only when the Codex CLI starts; it reports a
+warning rather than failing when the CLI is unavailable or misconfigured.
+Start a fresh agent session after changing links so injected skill metadata is
+reloaded.
 
 ## Boundaries And Blockers
 
@@ -78,10 +91,11 @@ Stop and report the exact path when:
 
 - a KidItem-owned source lacks `SKILL.md`;
 - a real file or directory occupies a managed discovery name;
-- an unexpected real path exists under `.agents/skills`; or
+- a link this command owns points somewhere unexpected; or
 - the Development plugin reports an unhealthy managed runtime.
 
 ## Final Report
 
-Report the three project-local skills, Development plugin health when relevant,
-verification commands and exit codes, and whether a fresh Codex task is needed.
+Report the project-local skills, Development plugin health when relevant,
+verification commands and exit codes, and whether a fresh agent session is
+needed.

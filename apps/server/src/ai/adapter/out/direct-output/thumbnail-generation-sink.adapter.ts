@@ -1,8 +1,12 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
+import {
+  IMAGE_STORAGE_PORT,
+  type ImageStoragePort,
+} from '../../../application/port/out/storage/image-storage.port';
+import { ThumbnailGenerationLifecycleService } from '../../../application/service/thumbnail-generation-lifecycle.service';
 import type { ThumbnailDirectOutputSinkPort } from '../../../application/port/out/sink/thumbnail-direct-output-sink.port';
 import type { ThumbnailGenerateDirectOutput } from '../../../domain/direct-generation';
 import type { ThumbnailEditorCandidate } from '../../../domain/model/thumbnail-editor';
-import { ThumbnailGenerationLifecycleService } from '../../../application/service/thumbnail-generation-lifecycle.service';
 
 /**
  * Real `ThumbnailDirectOutputSinkPort` adapter — applies validated thumbnail
@@ -28,6 +32,8 @@ export class ThumbnailGenerationSinkAdapter
 
   constructor(
     private readonly lifecycle: ThumbnailGenerationLifecycleService,
+    @Inject(IMAGE_STORAGE_PORT)
+    private readonly storage: ImageStoragePort,
   ) {}
 
   async applySuccess(input: {
@@ -46,7 +52,9 @@ export class ThumbnailGenerationSinkAdapter
 
     const candidates: ThumbnailEditorCandidate[] = input.output.candidates.map(
       (candidate) => ({
-        url: candidate.url,
+        url: candidate.storageKey
+          ? this.storage.getUrl(candidate.storageKey)
+          : candidate.url,
         storageKey: candidate.storageKey ?? null,
         filename: candidate.filename ?? null,
         mimeType: candidate.mimeType ?? null,
@@ -115,7 +123,6 @@ export class ThumbnailGenerationSinkAdapter
       `thumbnail_generate applied failure → ThumbnailGeneration ${input.sourceResourceId} failed (code=${input.errorCode} request=${input.requestId}).`,
     );
   }
-
 }
 
 function projectionMetadata(

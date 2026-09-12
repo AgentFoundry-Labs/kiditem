@@ -13,23 +13,30 @@
  */
 import { z } from 'zod';
 
-const dataOrHttpsUrl = z
-  .string()
-  .min(1)
-  .refine(
-    (value) => value.startsWith('data:image/') || value.startsWith('https://') || value.startsWith('http://localhost'), // dev fallback only
-    {
-      message:
-        'thumbnail_generate.url must be a data:image URL or https:// URL (dev http://localhost allowed for local provider stubs).',
-    },
-  );
-
 export const ThumbnailCandidateSchema = z.object({
-  url: dataOrHttpsUrl,
+  url: z.string().min(1),
   filename: z.string().nullable().optional(),
   storageKey: z.string().nullable().optional(),
   mimeType: z.string().nullable().optional(),
   fileSize: z.number().int().nullable().optional(),
+}).superRefine((candidate, ctx) => {
+  const isPortableUrl =
+    candidate.url.startsWith('data:image/') ||
+    candidate.url.startsWith('https://') ||
+    candidate.url.startsWith('http://localhost'); // dev fallback only
+  const isManagedHttpUrl =
+    candidate.url.startsWith('http://') &&
+    typeof candidate.storageKey === 'string' &&
+    candidate.storageKey.trim().length > 0;
+
+  if (!isPortableUrl && !isManagedHttpUrl) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['url'],
+      message:
+        'thumbnail_generate.url must be a data:image URL, https:// URL, or a managed http:// URL with storageKey (dev http://localhost allowed).',
+    });
+  }
 });
 
 /**

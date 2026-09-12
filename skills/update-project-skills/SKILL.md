@@ -9,12 +9,12 @@ Run from the KidItem repository.
 
 ## Guardrails
 
-- Treat `.agents/skills` as discovery-only symlinks selected by the active
-  project setup. Keep KidItem-owned sources under `tools/codex/skills`.
+- Treat `.agents/skills and .claude/skills` as discovery-only symlinks selected by the active
+  project setup. Keep KidItem-owned sources under `skills`.
 - Shared development skills come from the globally installed
   `development@agent-skill-hub` plugin and stay outside this workflow.
 - Preserve unrelated repository changes and global Codex skill locations.
-- Read [`docs/runbooks/codex-skill-profiles.md`](../../../../docs/runbooks/codex-skill-profiles.md)
+- Read [`docs/runbooks/codex-skill-profiles.md`](../../docs/runbooks/codex-skill-profiles.md)
   when setting up another computer, interpreting ownership boundaries, or
   resolving a blocker.
 
