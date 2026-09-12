@@ -23,8 +23,25 @@ const PRISMA_READ_METHOD_NAMES = [
   'findUniqueOrThrow',
   'groupBy',
 ];
-const PRISMA_READ_METHODS = PRISMA_READ_METHOD_NAMES.join('|');
 const PRISMA_READ_METHOD_SET = new Set(PRISMA_READ_METHOD_NAMES);
+const PRISMA_RELATION_METHOD_SET = new Set([
+  ...PRISMA_READ_METHOD_NAMES,
+  'create',
+  'createMany',
+  'delete',
+  'deleteMany',
+  'update',
+  'updateMany',
+  'upsert',
+]);
+const RETIRED_LISTING_AD_FIELDS = new Set([
+  'adClicks',
+  'adConversions',
+  'adImpressions',
+  'adOrders',
+  'adRevenue',
+  'adSpend',
+]);
 const RETIRED_LISTING_AD_WRITERS = new Set([
   'apps/server/src/advertising/adapter/out/repository/channel-listing-daily.repository.adapter.ts',
   'apps/server/src/advertising/adapter/out/repository/ad-traffic-source.repository.ts',
@@ -384,25 +401,84 @@ function unwrapExpression(node) {
   return current;
 }
 
-function collectConstInitializers(sourceFile) {
-  const initializers = new Map();
-  const visit = (node) => {
-    if (
-      ts.isVariableDeclaration(node) &&
-      node.initializer &&
-      ts.isIdentifier(node.name) &&
-      ts.isVariableDeclarationList(node.parent) &&
-      (node.parent.flags & ts.NodeFlags.Const) !== 0
-    ) {
-      initializers.set(node.name.text, node.initializer);
-    }
-    ts.forEachChild(node, visit);
+function createSourceAnalysis(source) {
+  const fileName = 'ledger-reader.tsx';
+  const options = {
+    jsx: ts.JsxEmit.Preserve,
+    noLib: true,
+    noResolve: true,
+    target: ts.ScriptTarget.Latest,
   };
-  visit(sourceFile);
-  return initializers;
+  const sourceFile = ts.createSourceFile(
+    fileName,
+    source,
+    options.target,
+    true,
+    ts.ScriptKind.TSX,
+  );
+  const host = ts.createCompilerHost(options, true);
+  host.fileExists = (candidate) => candidate === fileName;
+  host.getSourceFile = (candidate) =>
+    candidate === fileName ? sourceFile : undefined;
+  host.readFile = (candidate) => (candidate === fileName ? source : undefined);
+  const program = ts.createProgram([fileName], options, host);
+  return {
+    checker: program.getTypeChecker(),
+    sourceFile: program.getSourceFile(fileName),
+  };
 }
 
-function resolveDelegateName(node, initializers, visited = new Set()) {
+function containingConstDeclaration(node) {
+  let current = node;
+  while (current && !ts.isSourceFile(current)) {
+    if (ts.isVariableDeclaration(current)) {
+      return ts.isVariableDeclarationList(current.parent) &&
+        (current.parent.flags & ts.NodeFlags.Const) !== 0
+        ? current
+        : null;
+    }
+    current = current.parent;
+  }
+  return null;
+}
+
+function symbolForIdentifier(identifier, checker) {
+  if (ts.isShorthandPropertyAssignment(identifier.parent)) {
+    return checker.getShorthandAssignmentValueSymbol(identifier.parent);
+  }
+  return checker.getSymbolAtLocation(identifier);
+}
+
+function resolveConstBinding(identifier, checker) {
+  const symbol = symbolForIdentifier(identifier, checker);
+  const declaration =
+    symbol?.valueDeclaration ??
+    symbol?.declarations?.find(
+      (candidate) =>
+        ts.isVariableDeclaration(candidate) || ts.isBindingElement(candidate),
+    );
+  if (!declaration || !containingConstDeclaration(declaration)) return null;
+  if (ts.isVariableDeclaration(declaration)) {
+    return declaration.initializer
+      ? { initializer: declaration.initializer }
+      : null;
+  }
+  if (!ts.isBindingElement(declaration)) return null;
+  const name = declaration.propertyName ?? declaration.name;
+  if (
+    ts.isIdentifier(name) ||
+    ts.isStringLiteral(name) ||
+    ts.isNumericLiteral(name)
+  ) {
+    return { propertyName: name.text };
+  }
+  if (ts.isComputedPropertyName(name) && ts.isStringLiteral(name.expression)) {
+    return { propertyName: name.expression.text };
+  }
+  return null;
+}
+
+function resolveDelegateName(node, checker, visited = new Set()) {
   const expression = unwrapExpression(node);
   if (visited.has(expression)) return null;
   visited.add(expression);
@@ -410,29 +486,25 @@ function resolveDelegateName(node, initializers, visited = new Set()) {
   const directName = memberAccessName(expression);
   if (directName) return directName;
   if (!ts.isIdentifier(expression)) return null;
-  const initializer = initializers.get(expression.text);
-  return initializer
-    ? resolveDelegateName(initializer, initializers, visited)
+  const binding = resolveConstBinding(expression, checker);
+  if (binding?.propertyName) return binding.propertyName;
+  return binding?.initializer
+    ? resolveDelegateName(binding.initializer, checker, visited)
     : null;
 }
 
-function hasReachableRelationProperty(
-  node,
-  relationNames,
-  initializers,
-  visited,
-) {
+function hasReachableRelationProperty(node, relationNames, checker, visited) {
   const expression = unwrapExpression(node);
   if (visited.has(expression)) return false;
   visited.add(expression);
 
   if (ts.isIdentifier(expression)) {
-    const initializer = initializers.get(expression.text);
-    return initializer
+    const binding = resolveConstBinding(expression, checker);
+    return binding?.initializer
       ? hasReachableRelationProperty(
-          initializer,
+          binding.initializer,
           relationNames,
-          initializers,
+          checker,
           visited,
         )
       : false;
@@ -442,7 +514,7 @@ function hasReachableRelationProperty(
       hasReachableRelationProperty(
         ts.isSpreadElement(element) ? element.expression : element,
         relationNames,
-        initializers,
+        checker,
         visited,
       ),
     );
@@ -460,7 +532,7 @@ function hasReachableRelationProperty(
         return hasReachableRelationProperty(
           property.initializer,
           relationNames,
-          initializers,
+          checker,
           visited,
         );
       }
@@ -468,7 +540,7 @@ function hasReachableRelationProperty(
         return hasReachableRelationProperty(
           property.name,
           relationNames,
-          initializers,
+          checker,
           visited,
         );
       }
@@ -476,7 +548,7 @@ function hasReachableRelationProperty(
         return hasReachableRelationProperty(
           property.expression,
           relationNames,
-          initializers,
+          checker,
           visited,
         );
       }
@@ -488,14 +560,10 @@ function hasReachableRelationProperty(
 
 function hasPrismaRelationRead(source, prismaRelations) {
   if (prismaRelations.length === 0) return false;
-  const sourceFile = ts.createSourceFile(
-    'ledger-reader.tsx',
-    source,
-    ts.ScriptTarget.Latest,
-    true,
-    ts.ScriptKind.TSX,
-  );
-  const initializers = collectConstInitializers(sourceFile);
+  if (!prismaRelations.some((relation) => source.includes(relation.name))) {
+    return false;
+  }
+  const { checker, sourceFile } = createSourceAnalysis(source);
   const relationsByDelegate = new Map();
   for (const relation of prismaRelations) {
     const relationNames = relationsByDelegate.get(relation.parentDelegate);
@@ -511,10 +579,10 @@ function hasPrismaRelationRead(source, prismaRelations) {
     if (found) return;
     if (ts.isCallExpression(node)) {
       const methodName = memberAccessName(node.expression);
-      if (methodName && PRISMA_READ_METHOD_SET.has(methodName)) {
+      if (methodName && PRISMA_RELATION_METHOD_SET.has(methodName)) {
         const delegateName = resolveDelegateName(
           node.expression.expression,
-          initializers,
+          checker,
         );
         const relationNames = delegateName
           ? relationsByDelegate.get(delegateName)
@@ -525,7 +593,7 @@ function hasPrismaRelationRead(source, prismaRelations) {
             hasReachableRelationProperty(
               argument,
               relationNames,
-              initializers,
+              checker,
               new Set(),
             ),
           )
@@ -533,6 +601,43 @@ function hasPrismaRelationRead(source, prismaRelations) {
           found = true;
           return;
         }
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return found;
+}
+
+function hasRetiredListingPrismaRead(source) {
+  if (
+    !source.includes('channelListingDailySnapshot') ||
+    ![...RETIRED_LISTING_AD_FIELDS].some((field) => source.includes(field))
+  ) {
+    return false;
+  }
+  const { checker, sourceFile } = createSourceAnalysis(source);
+  let found = false;
+  const visit = (node) => {
+    if (found) return;
+    if (ts.isCallExpression(node)) {
+      const methodName = memberAccessName(node.expression);
+      if (
+        methodName &&
+        PRISMA_READ_METHOD_SET.has(methodName) &&
+        resolveDelegateName(node.expression.expression, checker) ===
+          'channelListingDailySnapshot' &&
+        node.arguments.some((argument) =>
+          hasReachableRelationProperty(
+            argument,
+            RETIRED_LISTING_AD_FIELDS,
+            checker,
+            new Set(),
+          ),
+        )
+      ) {
+        found = true;
+        return;
       }
     }
     ts.forEachChild(node, visit);
@@ -553,11 +658,20 @@ function detectLedgerAccess(source, ledger) {
     reads.push('Prisma relation read');
   }
 
-  const rawSqlPattern = new RegExp(
-    `\\b(?:from|join)\\s+(?:"?[A-Za-z_][A-Za-z0-9_]*"?\\.)?"?${escapeRegExp(ledger.table)}"?\\b`,
+  const tableTarget = `(?:"?[A-Za-z_][A-Za-z0-9_]*"?\\s*\\.\\s*)?"?${escapeRegExp(ledger.table)}"?`;
+  const rawSqlMutationPattern = new RegExp(
+    `\\b(?:insert\\s+into|update|delete\\s+from)\\s+${tableTarget}\\b`,
     'im',
   );
-  if (rawSqlPattern.test(source)) reads.push('raw SQL read');
+  const hasRawSqlMutation = rawSqlMutationPattern.test(source);
+  if (hasRawSqlMutation) reads.push('raw SQL mutation');
+  const rawSqlReadPattern = new RegExp(
+    `\\b(?:from|join)\\s+${tableTarget}\\b`,
+    'im',
+  );
+  if (!hasRawSqlMutation && rawSqlReadPattern.test(source)) {
+    reads.push('raw SQL read');
+  }
   return reads;
 }
 
@@ -569,12 +683,7 @@ function detectRetiredListingAdReads(source) {
   if (/\b(?:adCoverageStatus|trafficCoverageStatus)\b/.test(source)) {
     reads.push('retired coverage-status read');
   }
-  if (
-    new RegExp(
-      `\\bchannelListingDailySnapshots?\\s*\\.\\s*(?:${PRISMA_READ_METHODS})\\s*\\([^;]*?\\bad(?:Spend|Revenue|Impressions|Clicks|Conversions|Orders)\\b`,
-      'ms',
-    ).test(source)
-  ) {
+  if (hasRetiredListingPrismaRead(source)) {
     reads.push('retired Prisma read');
   }
   if (
@@ -599,15 +708,22 @@ export function inspectLedgerReaders({
   );
 
   for (const ledger of manifest.ledgers) {
-    const allowed = new Set([
+    const readAllowed = new Set([
       ledger.reader,
       ...ledger.ownerPublications.map((publication) => publication.path),
       ...ledger.legacyReaders.map((legacy) => legacy.path),
     ]);
+    const mutationAllowed = new Set(
+      ledger.ownerPublications.map((publication) => publication.path),
+    );
     for (const file of files) {
-      if (allowed.has(file)) continue;
       const source = readFileSync(path.join(root, file), 'utf8');
       for (const kind of detectLedgerAccess(source, ledger)) {
+        const allowed =
+          kind === 'raw SQL mutation'
+            ? mutationAllowed.has(file)
+            : readAllowed.has(file);
+        if (allowed) continue;
         violations.push({
           file,
           kind,

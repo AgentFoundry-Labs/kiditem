@@ -16,6 +16,10 @@
       "reader": "apps/server/src/common/ad-window-facts.ts",
       "ownerPublications": [
         {
+          "path": "apps/server/src/advertising/adapter/out/repository/daily-fact-helpers.ts",
+          "reason": "Merges namespaced metadata into target-day rows for registered owner publication adapters."
+        },
+        {
           "path": "apps/server/src/advertising/adapter/out/repository/ad-campaign-source.repository.ts",
           "reason": "Stages campaign and product target rows during capture; the owner's later completed source-import gate makes those rows eligible for publication reads."
         },

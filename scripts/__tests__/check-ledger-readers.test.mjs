@@ -94,7 +94,7 @@ model ChannelAdTargetDailySnapshot {
     write(
       root,
       'apps/server/src/advertising/write/ad-target-owner.ts',
-      'const ledger = tx.channelAdTargetDailySnapshot;\nledger.createMany({ data: [] });\n',
+      "const ledger = tx.channelAdTargetDailySnapshot;\nledger.createMany({ data: [] });\nsql`INSERT INTO channel_ad_target_daily_snapshots (id) VALUES ('owned')`;\nsql`UPDATE channel_ad_target_daily_snapshots SET id = 'owned'`;\nsql`DELETE FROM channel_ad_target_daily_snapshots WHERE id = 'owned'`;\n",
     );
     write(
       root,
@@ -125,6 +125,26 @@ model ChannelAdTargetDailySnapshot {
       root,
       'apps/server/src/raw-sql-consumer.ts',
       'sql`SELECT *\nFROM "channel_ad_target_daily_snapshots"`;\n',
+    );
+    write(
+      root,
+      'apps/server/src/raw-sql-insert-consumer.ts',
+      'sql`INSERT INTO "channel_ad_target_daily_snapshots" (id) VALUES (\'unowned\')`;\n',
+    );
+    write(
+      root,
+      'apps/server/src/raw-sql-update-consumer.ts',
+      "sql`UPDATE public.channel_ad_target_daily_snapshots SET id = 'unowned'`;\n",
+    );
+    write(
+      root,
+      'apps/server/src/raw-sql-delete-consumer.ts',
+      'sql`DELETE FROM "public"."channel_ad_target_daily_snapshots" WHERE id = \'unowned\'`;\n',
+    );
+    write(
+      root,
+      'apps/server/src/advertising/write/ad-target-owner-helper.ts',
+      "sql`INSERT INTO channel_ad_target_daily_snapshots (id) VALUES ('lookalike')`;\n",
     );
     write(
       root,
@@ -168,6 +188,21 @@ model ChannelAdTargetDailySnapshot {
     );
     write(
       root,
+      'apps/server/src/destructured-parent-relation-consumer.ts',
+      'const { adAction: actions } = tx;\nawait actions.findMany({ include: { adTargetDaily: true } });\n',
+    );
+    write(
+      root,
+      'apps/server/src/relation-update-many-consumer.ts',
+      "await tx.adAction.updateMany({ where: { adTargetDaily: { isNot: null } }, data: { status: 'ready' } });\n",
+    );
+    write(
+      root,
+      'apps/server/src/relation-update-include-consumer.ts',
+      "await tx.adAction.update({ where: { id: 'action-1' }, data: { status: 'ready' }, include: { adTargetDaily: true } });\n",
+    );
+    write(
+      root,
       'apps/server/src/detached-relation-where-consumer.ts',
       'const where = { adTargetDaily: { isNot: null } };\nawait tx.adAction.findMany({ where });\n',
     );
@@ -198,8 +233,38 @@ model ChannelAdTargetDailySnapshot {
     );
     write(
       root,
+      'apps/server/src/scoped-benign-relation-name.ts',
+      "async function loadActions() {\n  const where = { status: 'ready' };\n  return tx.adAction.findMany({ where });\n}\nfunction mapDto() {\n  const where = { adTargetDaily: null };\n  return where;\n}\n",
+    );
+    write(
+      root,
+      'apps/server/src/scoped-ledger-relation-consumer.ts',
+      "async function loadActions() {\n  const where = { adTargetDaily: { isNot: null } };\n  return tx.adAction.findMany({ where });\n}\nfunction unrelated() {\n  const where = { status: 'ready' };\n  return where;\n}\n",
+    );
+    write(
+      root,
       'apps/server/src/listing-prisma-consumer.ts',
       'tx.channelListingDailySnapshot.findMany({ select: { adSpend: true } });\n',
+    );
+    write(
+      root,
+      'apps/server/src/listing-prisma-alias-consumer.ts',
+      'const rows = tx.channelListingDailySnapshot;\nrows.findMany({ select: { adSpend: true } });\n',
+    );
+    write(
+      root,
+      'apps/server/src/listing-prisma-bracket-alias-consumer.ts',
+      "const rows = tx['channelListingDailySnapshot'];\nrows.findMany({ select: { adRevenue: true } });\n",
+    );
+    write(
+      root,
+      'apps/server/src/listing-prisma-destructure-consumer.ts',
+      'const { channelListingDailySnapshot: rows } = tx;\nrows.findMany({ select: { adClicks: true } });\n',
+    );
+    write(
+      root,
+      'apps/server/src/listing-traffic-only-consumer.ts',
+      'const rows = tx.channelListingDailySnapshot;\nrows.findMany({ select: { traffic: true } });\n',
     );
     write(
       root,
@@ -226,6 +291,11 @@ model ChannelAdTargetDailySnapshot {
       /advertising\/read\/unregistered-consumer\.ts.*Prisma delegate access/,
     );
     assert.match(failedOutput, /raw-sql-consumer\.ts.*raw SQL read/);
+    assert.match(failedOutput, /raw-sql-insert-consumer\.ts.*raw SQL mutation/);
+    assert.match(failedOutput, /raw-sql-update-consumer\.ts.*raw SQL mutation/);
+    assert.match(failedOutput, /raw-sql-delete-consumer\.ts.*raw SQL mutation/);
+    assert.match(failedOutput, /ad-target-owner-helper\.ts.*raw SQL mutation/);
+    assert.doesNotMatch(failedOutput, /ad-target-owner\.ts/);
     assert.match(failedOutput, /alias-consumer\.ts.*Prisma delegate access/);
     assert.match(
       failedOutput,
@@ -251,6 +321,18 @@ model ChannelAdTargetDailySnapshot {
     );
     assert.match(
       failedOutput,
+      /destructured-parent-relation-consumer\.ts.*Prisma relation read/,
+    );
+    assert.match(
+      failedOutput,
+      /relation-update-many-consumer\.ts.*Prisma relation read/,
+    );
+    assert.match(
+      failedOutput,
+      /relation-update-include-consumer\.ts.*Prisma relation read/,
+    );
+    assert.match(
+      failedOutput,
       /detached-relation-where-consumer\.ts.*Prisma relation read/,
     );
     assert.match(
@@ -267,10 +349,28 @@ model ChannelAdTargetDailySnapshot {
       /array-relation-filter-consumer\.ts.*Prisma relation read/,
     );
     assert.doesNotMatch(failedOutput, /query-then-dto-mapper\.ts/);
+    assert.doesNotMatch(failedOutput, /scoped-benign-relation-name\.ts/);
+    assert.match(
+      failedOutput,
+      /scoped-ledger-relation-consumer\.ts.*Prisma relation read/,
+    );
     assert.match(
       failedOutput,
       /listing-prisma-consumer\.ts.*retired Prisma read/,
     );
+    assert.match(
+      failedOutput,
+      /listing-prisma-alias-consumer\.ts.*retired Prisma read/,
+    );
+    assert.match(
+      failedOutput,
+      /listing-prisma-bracket-alias-consumer\.ts.*retired Prisma read/,
+    );
+    assert.match(
+      failedOutput,
+      /listing-prisma-destructure-consumer\.ts.*retired Prisma read/,
+    );
+    assert.doesNotMatch(failedOutput, /listing-traffic-only-consumer\.ts/);
     assert.match(
       failedOutput,
       /listing-sql-consumer\.ts.*retired raw SQL read/,
@@ -288,6 +388,15 @@ model ChannelAdTargetDailySnapshot {
       ),
     );
     rmSync(path.join(root, 'apps/server/src/raw-sql-consumer.ts'));
+    rmSync(path.join(root, 'apps/server/src/raw-sql-insert-consumer.ts'));
+    rmSync(path.join(root, 'apps/server/src/raw-sql-update-consumer.ts'));
+    rmSync(path.join(root, 'apps/server/src/raw-sql-delete-consumer.ts'));
+    rmSync(
+      path.join(
+        root,
+        'apps/server/src/advertising/write/ad-target-owner-helper.ts',
+      ),
+    );
     rmSync(path.join(root, 'apps/server/src/alias-consumer.ts'));
     rmSync(path.join(root, 'apps/server/src/destructure-consumer.ts'));
     rmSync(path.join(root, 'apps/server/src/bracket-consumer.ts'));
@@ -296,6 +405,16 @@ model ChannelAdTargetDailySnapshot {
     rmSync(path.join(root, 'apps/server/src/relation-include-consumer.ts'));
     rmSync(path.join(root, 'apps/server/src/relation-select-consumer.ts'));
     rmSync(path.join(root, 'apps/server/src/relation-where-consumer.ts'));
+    rmSync(
+      path.join(
+        root,
+        'apps/server/src/destructured-parent-relation-consumer.ts',
+      ),
+    );
+    rmSync(path.join(root, 'apps/server/src/relation-update-many-consumer.ts'));
+    rmSync(
+      path.join(root, 'apps/server/src/relation-update-include-consumer.ts'),
+    );
     rmSync(
       path.join(root, 'apps/server/src/detached-relation-where-consumer.ts'),
     );
@@ -306,9 +425,24 @@ model ChannelAdTargetDailySnapshot {
       path.join(root, 'apps/server/src/spread-relation-alias-consumer.ts'),
     );
     rmSync(path.join(root, 'apps/server/src/listing-prisma-consumer.ts'));
+    rmSync(path.join(root, 'apps/server/src/listing-prisma-alias-consumer.ts'));
+    rmSync(
+      path.join(
+        root,
+        'apps/server/src/listing-prisma-bracket-alias-consumer.ts',
+      ),
+    );
+    rmSync(
+      path.join(root, 'apps/server/src/listing-prisma-destructure-consumer.ts'),
+    );
     rmSync(path.join(root, 'apps/server/src/listing-sql-consumer.ts'));
     rmSync(path.join(root, 'apps/server/src/coverage-consumer.ts'));
-    rmSync(path.join(root, 'apps/server/src/array-relation-filter-consumer.ts'));
+    rmSync(
+      path.join(root, 'apps/server/src/array-relation-filter-consumer.ts'),
+    );
+    rmSync(
+      path.join(root, 'apps/server/src/scoped-ledger-relation-consumer.ts'),
+    );
 
     assert.doesNotThrow(() => {
       execFileSync(process.execPath, [scanner, '--root', root], {
