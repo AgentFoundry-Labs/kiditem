@@ -78,7 +78,6 @@ function confirmedZeroPublication(input: {
     : [];
   return {
     channelAccountId: AD_ACCOUNT_ID,
-    evidence: dates.length === 0 ? 'MISSING' : 'CONFIRMED_ZERO',
     rows: dates.map(zeroAdRow),
   };
 }
@@ -741,7 +740,6 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
     ): AdAccountDailyKpiReadPort['readPublished'] {
       return async () => ({
         channelAccountId: '00000000-0000-4000-8000-000000000001',
-        evidence: businessDates.length === 0 ? 'MISSING' : 'CONFIRMED_ZERO',
         rows: businessDates.map(zeroAdRow),
       });
     }
