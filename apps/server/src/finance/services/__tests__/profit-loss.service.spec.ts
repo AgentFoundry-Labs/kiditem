@@ -36,7 +36,7 @@ function makePrisma(
   opts: {
     returnLineItems?: unknown[];
     adRows?: { listingId: string; _sum: { adSpend: number }; _count?: number }[];
-    collectedDates?: unknown[];
+    collectedDates?: { businessDate: Date }[];
   } = {},
 ) {
   const adRows = opts.adRows ?? [];
@@ -45,6 +45,10 @@ function makePrisma(
       { length: adRows.reduce((max, row) => Math.max(max, row._count ?? 1), 0) },
       (_, index) => ({ businessDate: new Date(Date.UTC(2026, 3, index + 1)) }),
     );
+  // The listing-day ad reader groups by business date (window calendar) and
+  // by listing (per-listing facts); mirror the aggregate shapes it reads.
+  const firstDate = collectedDates[0]?.businessDate ?? new Date(Date.UTC(2026, 3, 1));
+  const lastDate = collectedDates[collectedDates.length - 1]?.businessDate ?? firstDate;
   return {
     order: { findMany: vi.fn().mockResolvedValue(orders) },
     orderReturnLineItem: { findMany: vi.fn().mockResolvedValue(opts.returnLineItems ?? []) },
@@ -52,8 +56,13 @@ function makePrisma(
       groupBy: vi.fn().mockImplementation((args: { by: string[] }) =>
         Promise.resolve(
           args.by[0] === 'businessDate'
-            ? collectedDates
-            : adRows.map((row) => ({ _count: 1, ...row })),
+            ? collectedDates.map((row) => ({ ...row, _sum: {}, _max: { adObservedAt: row.businessDate } }))
+            : adRows.map((row) => ({
+              _count: 1,
+              _min: { businessDate: firstDate },
+              _max: { businessDate: lastDate, adObservedAt: lastDate },
+              ...row,
+            })),
         ),
       ),
     },
@@ -243,7 +252,7 @@ describe('ProfitLossService.findAll (live aggregation)', () => {
     }));
   });
 
-  it('adCost aggregated from channelListingDailySnapshot.groupBy by listingId with organizationId filter', async () => {
+  it('adCost aggregated from measured listing-day facts per listing with organizationId filter', async () => {
     const l = { id: 'l1', externalId: 'e1', channelName: 'coupang', master: { id: 'm1', code: 'M1', legacyCode: null, name: 'P1', category: null, abcGrade: null, thumbnailUrl: null } };
     const orders = [{ id: 'o1', shippingPrice: 3000, lineItems: [mkLineItem(l, { quantity: 1, totalPrice: 10000, costPrice: 5000, commissionRate: 0.1, otherCost: 0 })] }];
     const adRows = [{ listingId: 'l1', _sum: { adSpend: 1500 } }];
@@ -254,10 +263,11 @@ describe('ProfitLossService.findAll (live aggregation)', () => {
     expect(row.netProfit).toBe(10000 - 5000 - 1000 - 3000 - 1500 - 0);
     expect(prisma.channelListingDailySnapshot.groupBy).toHaveBeenCalledWith(expect.objectContaining({
       by: ['listingId'],
-      _sum: { adSpend: true },
+      _sum: expect.objectContaining({ adSpend: true }),
       where: expect.objectContaining({
         organizationId: 'companyA',
         businessDate: expect.objectContaining({ gte: expect.any(Date), lt: expect.any(Date) }),
+        adObservedAt: { not: null },
       }),
     }));
   });

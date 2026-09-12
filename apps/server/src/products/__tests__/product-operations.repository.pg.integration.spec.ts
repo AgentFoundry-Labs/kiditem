@@ -819,6 +819,8 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
         trafficSalesQty: 4,
         trafficRevenue: 40_000,
         adSpend: 5_000,
+        adCoverageStatus: 'OBSERVED',
+        adObservedAt: now,
         trafficCoverageStatus: 'OBSERVED',
         trafficObservedAt: now,
         lastObservedAt: now,

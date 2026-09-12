@@ -108,10 +108,12 @@ describe('AdStrategyContextRepositoryAdapter — loadStrategyContext equivalence
     await adapter.loadStrategyContext('org-1', 2026, 5, '7d', config);
 
     expect(prismaMock.channelListingDailySnapshot.groupBy).toHaveBeenCalledTimes(1);
-    expect(prismaMock.channelListingDailySnapshot.groupBy.mock.calls[0]![0].where.businessDate).toEqual({
-      gte: expect.any(Date),
-      lte: expect.any(Date),
-    });
+    // The listing-day ad reader's window is half-open and gated on the
+    // observation timestamp.
+    expect(prismaMock.channelListingDailySnapshot.groupBy.mock.calls[0]![0].where).toEqual(expect.objectContaining({
+      businessDate: { gte: expect.any(Date), lt: expect.any(Date) },
+      adObservedAt: { not: null },
+    }));
     expect(prismaMock.channelListingDailySnapshot.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({

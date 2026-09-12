@@ -7,6 +7,7 @@ const sellingMasterProductId = '00000000-0000-4000-8000-000000000002';
 describe('ProductOperationsRepositoryAdapter', () => {
   it('uses the latest channel snapshot to project selling channel products', async () => {
     const prisma = {
+      channelListingDailySnapshot: { groupBy: vi.fn().mockResolvedValue([]) },
       masterProduct: {
         findMany: vi.fn().mockResolvedValue([]),
       },
@@ -44,6 +45,7 @@ describe('ProductOperationsRepositoryAdapter', () => {
   it('projects only Product Hub fields for channel listings and options', async () => {
     const masterProductFindMany = vi.fn().mockResolvedValue([]);
     const prisma = {
+      channelListingDailySnapshot: { groupBy: vi.fn().mockResolvedValue([]) },
       masterProduct: { findMany: masterProductFindMany },
       channelListing: { findMany: vi.fn().mockResolvedValue([]) },
     };
@@ -98,7 +100,6 @@ describe('ProductOperationsRepositoryAdapter', () => {
         trafficOrders: true,
         trafficSalesQty: true,
         trafficRevenue: true,
-        adSpend: true,
         metaJson: true,
       }),
     }));
@@ -194,6 +195,7 @@ describe('ProductOperationsRepositoryAdapter', () => {
       }],
     }]);
     const prisma = {
+      channelListingDailySnapshot: { groupBy: vi.fn().mockResolvedValue([]) },
       masterProduct: { findMany: masterProductFindMany },
       channelListing: { findMany: vi.fn().mockResolvedValue([]) },
     };

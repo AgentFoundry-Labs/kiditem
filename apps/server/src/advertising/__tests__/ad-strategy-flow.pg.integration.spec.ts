@@ -918,6 +918,8 @@ describe('AdStrategy flow (PG integration)', () => {
           adClicks: 100,
           adImpressions: 10000,
           adConversions: 10,
+          adCoverageStatus: 'OBSERVED',
+          adObservedAt: new Date(),
         },
       });
       await seedOptionDaily({
@@ -1000,6 +1002,8 @@ describe('AdStrategy flow (PG integration)', () => {
           adClicks: 100,
           adImpressions: 10000,
           adConversions: 10,
+          adCoverageStatus: 'OBSERVED',
+          adObservedAt: new Date(),
         },
       });
       await seedOptionDaily({

@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { readListingAdWindowFacts, type AdListingWindowFacts } from '../../../../common/ad-window-facts';
 import {
   isChannelListingOnSale,
   resolveChannelListingSaleStatus,
@@ -74,9 +75,6 @@ function productInclude(organizationId: string, periodStart?: Date) {
             trafficOrders: true,
             trafficSalesQty: true,
             trafficRevenue: true,
-            adSpend: true,
-            adCoverageStatus: true,
-            adObservedAt: true,
             trafficObservedAt: true,
             lastObservedAt: true,
             metaJson: true,
@@ -171,15 +169,19 @@ implements ProductOperationsRepositoryPort {
       this.listSellingChannelProducts(organizationId),
     ]);
     const sellingMasterProductIdSet = new Set(sellingMasterProductIds);
-    const rows = await this.prisma.masterProduct.findMany({
-      where: productListWhere(organizationId, query, sellingMasterProductIds),
-      include: productInclude(organizationId, periodStart),
-      orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
-    });
+    const [rows, adByListing] = await Promise.all([
+      this.prisma.masterProduct.findMany({
+        where: productListWhere(organizationId, query, sellingMasterProductIds),
+        include: productInclude(organizationId, periodStart),
+        orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
+      }),
+      readListingAdWindowFacts(this.prisma, { organizationId, from: periodStart }),
+    ]);
+    const adFactsByListing = new Map(adByListing.map((facts) => [facts.listingId, facts]));
     return {
       items: rows.map((row) => toListItem(
         row,
-        periodStart,
+        adFactsByListing,
         sellingMasterProductIdSet.has(row.id),
       )),
       page: query.page,
@@ -521,7 +523,7 @@ function toDetail(row: ProductRow): ProductOperationsRepositoryDetail {
 
 function toListItem(
   row: ProductRow,
-  periodStart: Date,
+  adFactsByListing: ReadonlyMap<string, AdListingWindowFacts>,
   isSelling: boolean,
 ): ProductOperationsRepositoryListItem {
   const activeListings = row.channelListings.filter((listing) => listing.isActive);
@@ -529,7 +531,10 @@ function toListItem(
     (listing) => listing.channelListingDailySnapshots,
   );
   const trafficFacts = dailyFacts.filter(isAcceptedTrafficFact);
-  const advertisingFacts = dailyFacts.filter(hasAdvertisingEvidence);
+  const advertisingFacts = row.channelListings.flatMap((listing) => {
+    const facts = adFactsByListing.get(listing.id);
+    return facts ? [facts] : [];
+  });
   const csvTrafficFacts = trafficFacts.filter(
     (fact) => trafficFactSource(fact) === 'csv_upload',
   );
@@ -542,7 +547,7 @@ function toListItem(
   const orderCount = nullableTrafficMetricSum(trafficFacts, (fact) => fact.trafficOrders);
   const salesQuantity = nullableTrafficMetricSum(trafficFacts, (fact) => fact.trafficSalesQty);
   const salesAmount = nullableTrafficMetricSum(trafficFacts, (fact) => fact.trafficRevenue);
-  const adSpend = nullableSum(advertisingFacts, (fact) => fact.adSpend);
+  const adSpend = nullableSum(advertisingFacts, (fact) => fact.spend);
   return {
     ...metadata(row),
     abcCreatedAt: row.createdAt,
@@ -574,29 +579,44 @@ function toListItem(
       ? (adSpend / salesAmount) * 100
       : null,
     metricsFreshness: {
-      traffic: dailyMetricFreshness(trafficFacts, 'traffic'),
-      advertising: dailyMetricFreshness(advertisingFacts, 'advertising'),
+      traffic: dailyMetricFreshness(trafficFacts),
+      advertising: advertisingFreshness(advertisingFacts),
     },
   };
+}
+
+/** Ready when the measured window reaches yesterday (KST). */
+function freshness(coverageStart: string, coverageEnd: string, capturedAt: Date) {
+  const yesterdayKst = new Date(Date.now() + (9 * 60 * 60 * 1000) - 86_400_000)
+    .toISOString()
+    .slice(0, 10);
+  return {
+    ready: coverageEnd >= yesterdayKst,
+    coverageStartDate: coverageStart,
+    coverageEndDate: coverageEnd,
+    capturedAt,
+  };
+}
+
+const NO_FRESHNESS = { ready: false, coverageStartDate: null, coverageEndDate: null, capturedAt: null };
+
+function advertisingFreshness(facts: readonly AdListingWindowFacts[]) {
+  if (facts.length === 0) return NO_FRESHNESS;
+  const first = facts[0]!;
+  const start = facts.reduce((earliest, f) => (f.firstDate < earliest ? f.firstDate : earliest), first.firstDate);
+  const end = facts.reduce((latest, f) => (f.lastDate > latest ? f.lastDate : latest), first.lastDate);
+  const capturedAt = facts.reduce((latest, f) => (f.observedAt > latest ? f.observedAt : latest), first.observedAt);
+  return freshness(start, end, capturedAt);
 }
 
 function dailyMetricFreshness(
   facts: readonly {
     businessDate: Date;
     lastObservedAt: Date;
-    adObservedAt: Date | null;
     trafficObservedAt: Date | null;
   }[],
-  source: 'traffic' | 'advertising',
 ) {
-  if (facts.length === 0) {
-    return {
-      ready: false,
-      coverageStartDate: null,
-      coverageEndDate: null,
-      capturedAt: null,
-    };
-  }
+  if (facts.length === 0) return NO_FRESHNESS;
   const first = facts[0]!;
   const coverageStart = facts.reduce(
     (earliest, fact) => fact.businessDate < earliest ? fact.businessDate : earliest,
@@ -608,24 +628,12 @@ function dailyMetricFreshness(
   );
   const capturedAt = facts.reduce(
     (latest, fact) => {
-      const observedAt = source === 'traffic'
-        ? fact.trafficObservedAt ?? fact.lastObservedAt
-        : fact.adObservedAt ?? fact.lastObservedAt;
+      const observedAt = fact.trafficObservedAt ?? fact.lastObservedAt;
       return observedAt > latest ? observedAt : latest;
     },
-    source === 'traffic'
-      ? first.trafficObservedAt ?? first.lastObservedAt
-      : first.adObservedAt ?? first.lastObservedAt,
+    first.trafficObservedAt ?? first.lastObservedAt,
   );
-  const yesterdayKst = new Date(Date.now() + (9 * 60 * 60 * 1000) - 86_400_000)
-    .toISOString()
-    .slice(0, 10);
-  return {
-    ready: calendarDate(coverageEnd) >= yesterdayKst,
-    coverageStartDate: calendarDate(coverageStart),
-    coverageEndDate: calendarDate(coverageEnd),
-    capturedAt,
-  };
+  return freshness(calendarDate(coverageStart), calendarDate(coverageEnd), capturedAt);
 }
 
 type ProductTrafficFact = ProductRow['channelListings'][number]['channelListingDailySnapshots'][number];
@@ -636,12 +644,6 @@ function trafficFactSource(fact: ProductTrafficFact): DailyTrafficFactSource | n
 
 function isAcceptedTrafficFact(fact: ProductTrafficFact): boolean {
   return trafficFactSource(fact) !== null;
-}
-
-function hasAdvertisingEvidence(
-  fact: ProductRow['channelListings'][number]['channelListingDailySnapshots'][number],
-): boolean {
-  return fact.adCoverageStatus !== null || fact.adSpend !== 0;
 }
 
 function metadata(row: ProductRow) {

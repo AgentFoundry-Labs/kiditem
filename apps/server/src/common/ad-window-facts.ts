@@ -1,44 +1,43 @@
 import type { Prisma, PrismaClient } from '@prisma/client';
 
 /**
- * What advertising cost and returned over one window, and on which days.
+ * The one reader of listing-day advertising values.
  *
- * Two ledgers answer about advertising and they answer different questions.
- * `channel_account_daily_kpi_snapshots` carries the account's own evidence
- * word — whether an advertising account exists at all, and whether the owner
- * published anything — and `channel_listing_daily_snapshots` carries the
- * facts, one row per listing per day. Consumers need both: the account says
- * *how to read* the window, the listing ledger says *what is in it*.
+ * `channel_listing_daily_snapshots` carries the facts, one row per listing per
+ * day, and its ad columns are `Int @default(0)`: an uncollected day and a
+ * genuinely zero-spend day are the same number. What tells them apart is
+ * `adObservedAt` — a day the ad source reported carries the moment it was
+ * observed, and a day it never reported carries nothing. That timestamp is the
+ * only evidence a listing-day ad value needs, and every read in this module is
+ * gated on it (ADR-0003).
  *
- * `per-listing-profit` has read them that way since ADR-0003. The dashboard's
- * ad panel did not: it asked the account ledger for the numbers as well, and
- * that ledger is a per-day account summary the browser only writes when the
- * ad-centre scrape runs. On this database that is 13 rows for July against
- * 38,068 listing-days holding the same month's 431,238원, so the panel read
- * `0/31일` over a fully covered month.
+ * This module exists so the gate is written once. A consumer that wants an ad
+ * value over a window asks here — per day, per listing, or per listing-day —
+ * and can never reach the raw sum without the gate. The dashboard's ad panel
+ * once read the account ledger for numbers that only this ledger holds (13
+ * rows against 38,068 listing-days for one July); `per-listing-profit`,
+ * Advertising's strategy and benchmark reads, Finance's sales analysis and
+ * Products' operations list each carried their own copy of the sum, four of
+ * them without the gate. This is the read, in one place.
  *
- * This is the read, in one place, so the next consumer cannot pick the wrong
- * half of it.
+ * Which dates the account's advertising owner published, and whether an
+ * account exists at all, is a different question with a different ledger; see
+ * `readAccountAdEvidence` in `per-listing-profit`.
  */
 
-/**
- * The ad evidence a `ChannelListingDailySnapshot` row must carry before its
- * `adSpend` counts as a measurement. `adSpend` is `Int @default(0)`, so an
- * uncollected row is otherwise indistinguishable from a confirmed-zero one —
- * which is the difference between "no advertising ran" and "nobody looked".
- *
- * This is the filter's single definition (ADR-0003); `per-listing-profit`
- * imports it from here.
- */
-export function measuredAdCoverageWhere(
+type AdReadable = Pick<PrismaClient, 'channelListingDailySnapshot'>;
+
+/** Rows carrying a measured ad value inside `[from, to)`; either bound may be open. */
+export function measuredAdWhere(
   organizationId: string,
-  from: Date,
-  to: Date,
+  from?: Date,
+  to?: Date,
 ): Prisma.ChannelListingDailySnapshotWhereInput {
   return {
     organizationId,
-    businessDate: { gte: from, lt: to },
-    adCoverageStatus: { in: ['OBSERVED', 'CONFIRMED_ZERO'] },
+    ...(from || to
+      ? { businessDate: { ...(from ? { gte: from } : {}), ...(to ? { lt: to } : {}) } }
+      : {}),
     adObservedAt: { not: null },
   };
 }
@@ -65,8 +64,6 @@ export type AdWindowFacts = Readonly<{
   observedAt: Date | null;
 }>;
 
-type AdReadable = Pick<PrismaClient, 'channelListingDailySnapshot'>;
-
 /**
  * Ad facts for `[from, to)`, one entry per business date the source reported.
  *
@@ -78,11 +75,11 @@ type AdReadable = Pick<PrismaClient, 'channelListingDailySnapshot'>;
  */
 export async function readAdWindowFacts(
   prisma: AdReadable,
-  input: { organizationId: string; from: Date; to: Date },
+  input: { organizationId: string; from?: Date; to?: Date },
 ): Promise<AdWindowFacts> {
   const rows = await prisma.channelListingDailySnapshot.groupBy({
     by: ['businessDate'],
-    where: measuredAdCoverageWhere(input.organizationId, input.from, input.to),
+    where: measuredAdWhere(input.organizationId, input.from, input.to),
     _sum: {
       adSpend: true,
       adRevenue: true,
@@ -111,4 +108,115 @@ export async function readAdWindowFacts(
   });
 
   return { days, observedAt };
+}
+
+/** One listing's measured ad totals over a window, and the days behind them. */
+export type AdListingWindowFacts = Readonly<{
+  listingId: string;
+  /** Business dates the source reported for this listing inside the window. */
+  days: number;
+  firstDate: string;
+  lastDate: string;
+  /** The latest moment any of those days was observed. */
+  observedAt: Date;
+  spend: number;
+  revenue: number;
+  impressions: number;
+  clicks: number;
+  conversions: number;
+  orders: number;
+}>;
+
+/**
+ * Ad facts per listing for `[from, to)`; either bound may be open. A listing
+ * the source never reported inside the window is absent, not zero. `days` is
+ * the listing's own covered-day count, which a caller compares against the
+ * window's calendar (`readAdWindowFacts(...).days`) to tell a complete listing
+ * from one with a hole.
+ */
+export async function readListingAdWindowFacts(
+  prisma: AdReadable,
+  input: { organizationId: string; from?: Date; to?: Date },
+): Promise<readonly AdListingWindowFacts[]> {
+  const rows = await prisma.channelListingDailySnapshot.groupBy({
+    by: ['listingId'],
+    where: measuredAdWhere(input.organizationId, input.from, input.to),
+    _count: true,
+    _min: { businessDate: true },
+    _max: { businessDate: true, adObservedAt: true },
+    _sum: {
+      adSpend: true,
+      adRevenue: true,
+      adImpressions: true,
+      adClicks: true,
+      adConversions: true,
+      adOrders: true,
+    },
+  });
+  return rows.map((row) => ({
+    listingId: row.listingId,
+    days: row._count,
+    firstDate: row._min.businessDate!.toISOString().slice(0, 10),
+    lastDate: row._max.businessDate!.toISOString().slice(0, 10),
+    observedAt: row._max.adObservedAt!,
+    spend: row._sum.adSpend ?? 0,
+    revenue: row._sum.adRevenue ?? 0,
+    impressions: row._sum.adImpressions ?? 0,
+    clicks: row._sum.adClicks ?? 0,
+    conversions: row._sum.adConversions ?? 0,
+    orders: row._sum.adOrders ?? 0,
+  }));
+}
+
+/** One listing on one business date the ad source reported. */
+export type AdListingDayFacts = Readonly<{
+  listingId: string;
+  businessDate: Date;
+  spend: number;
+  revenue: number;
+  impressions: number;
+  clicks: number;
+  conversions: number;
+}>;
+
+/** Measured listing-day ad rows for `[from, to)`, ascending by date. */
+export async function readListingDayAdFacts(
+  prisma: AdReadable,
+  input: { organizationId: string; from: Date; to: Date },
+): Promise<readonly AdListingDayFacts[]> {
+  const rows = await prisma.channelListingDailySnapshot.findMany({
+    where: measuredAdWhere(input.organizationId, input.from, input.to),
+    select: {
+      listingId: true,
+      businessDate: true,
+      adSpend: true,
+      adRevenue: true,
+      adImpressions: true,
+      adClicks: true,
+      adConversions: true,
+    },
+    orderBy: { businessDate: 'asc' },
+  });
+  return rows.map((row) => ({
+    listingId: row.listingId,
+    businessDate: row.businessDate,
+    spend: row.adSpend,
+    revenue: row.adRevenue,
+    impressions: row.adImpressions,
+    clicks: row.adClicks,
+    conversions: row.adConversions,
+  }));
+}
+
+/** The newest business date the ad source reported for the organization. */
+export async function readLatestAdDate(
+  prisma: AdReadable,
+  organizationId: string,
+): Promise<Date | null> {
+  const row = await prisma.channelListingDailySnapshot.findFirst({
+    where: measuredAdWhere(organizationId),
+    orderBy: { businessDate: 'desc' },
+    select: { businessDate: true },
+  });
+  return row?.businessDate ?? null;
 }

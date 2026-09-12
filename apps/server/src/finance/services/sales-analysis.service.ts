@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import type { SalesAnalysisData, ChannelAnalysis } from '@kiditem/shared/finance';
 import { PrismaService } from '../../prisma/prisma.service';
 import { kstMonthStart } from '../../common/kst';
+import { readListingAdWindowFacts } from '../../common/ad-window-facts';
 import { resolvePricing } from '../../common/option-pricing-resolver';
 
 const EXCLUDED_ORDER_STATUSES = ['cancelled', 'returned', 'refunded'] as const;
@@ -33,7 +34,7 @@ function resolveChannelType(channel: string): 'marketplace' | 'direct' | 'other'
  * Data flow:
  *   Order (+ shippingPrice) → OrderLineItem → ChannelListingOption.listing.channelAccount.channel
  *   + OrderReturnLineItem INNER JOIN Order (3-hop IDOR)
- *   + ChannelListingDailySnapshot.groupBy(['listingId'], _sum.adSpend)
+ *   + measured listing-day ad spend per listing (`common/ad-window-facts`)
  *     → listingId→channel map
  *
  * Group key: `ChannelListing.channel` (platform)
@@ -127,17 +128,9 @@ export class SalesAnalysisService {
           },
         },
       }),
-      // 3) Ad spend grouped by listingId — sourced from
-      // `ChannelListingDailySnapshot.adSpend`. listingId is non-nullable on
-      // the daily-fact row so the resulting shape is straightforward.
-      this.prisma.channelListingDailySnapshot.groupBy({
-        by: ['listingId'],
-        _sum: { adSpend: true },
-        where: {
-          organizationId,
-          businessDate: { gte: from, lt: to },
-        },
-      }),
+      // 3) Measured ad spend per listing over the window, through the one
+      // listing-day ad reader.
+      readListingAdWindowFacts(this.prisma, { organizationId, from, to }),
       // 4) Orphan return count — orderId NULL, requestedAt in period
       this.prisma.orderReturn.count({
         where: {
@@ -184,7 +177,7 @@ export class SalesAnalysisService {
     for (const row of adGroupRows) {
       const channel = listingIdToChannel.get(row.listingId);
       if (!channel) continue;
-      adCostMap.set(channel, (adCostMap.get(channel) ?? 0) + (row._sum.adSpend ?? 0));
+      adCostMap.set(channel, (adCostMap.get(channel) ?? 0) + row.spend);
     }
 
     // Aggregate orders per channel

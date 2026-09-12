@@ -421,7 +421,7 @@ describe('WingTrafficAggregationRepositoryAdapter Coupang ads read', () => {
           gte: new Date('2026-07-01T00:00:00.000Z'),
           lt: new Date('2026-07-03T00:00:00.000Z'),
         },
-        adCoverageStatus: { in: ['OBSERVED', 'CONFIRMED_ZERO'] },
+        adObservedAt: { not: null },
       }),
     }));
   });

@@ -138,38 +138,12 @@ describe('domain/strategy-context — pure transforms', () => {
     expect(strict.has('L2')).toBe(false);
   });
 
-  it('toAdAggregateRows folds groupBy result, drops null listingId', () => {
-    const rows = toAdAggregateRows([
-      {
-        listingId: 'L1',
-        _sum: {
-          adSpend: 100,
-          adRevenue: 500,
-          adClicks: 10,
-          adImpressions: 1000,
-          adConversions: 1,
-        },
-      },
-      {
-        listingId: null,
-        _sum: {
-          adSpend: 1,
-          adRevenue: 2,
-          adClicks: 3,
-          adImpressions: 4,
-          adConversions: 5,
-        },
-      },
+  it('toAdAggregateRows maps per-listing measured facts to the generic shape', () => {
+    expect(toAdAggregateRows([
+      { listingId: 'L1', spend: 100, revenue: 500, clicks: 10, impressions: 1000, conversions: 1 },
+    ])).toEqual([
+      { listingId: 'L1', spend: 100, revenue: 500, clicks: 10, impressions: 1000, conversions: 1 },
     ]);
-    expect(rows).toHaveLength(1);
-    expect(rows[0]).toEqual({
-      listingId: 'L1',
-      spend: 100,
-      revenue: 500,
-      clicks: 10,
-      impressions: 1000,
-      conversions: 1,
-    });
   });
 
   it('computeListingProfitRate returns % scale, 0 when sell <= 0', () => {

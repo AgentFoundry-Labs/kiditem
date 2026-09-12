@@ -1,6 +1,6 @@
 import type { PrismaService } from '../prisma/prisma.service';
 import { kstBusinessDate } from './kst';
-import { measuredAdCoverageWhere } from './ad-window-facts';
+import { readAdWindowFacts, readListingAdWindowFacts } from './ad-window-facts';
 
 /**
  * Plan F1 T1 (extracted from `finance/services/profit-loss.service.ts:findAll`).
@@ -201,7 +201,7 @@ export async function buildPerListingProfit(
 ): Promise<PerListingProfit[]> {
   const businessDateFrom = kstBusinessDate(from);
   const businessDateTo = kstBusinessDate(to);
-  const [orders, adByListing, collectedDates, observedListings] = await Promise.all([
+  const [orders, adByListing, adWindow, observedListings] = await Promise.all([
     prisma.order.findMany({
       where: {
         organizationId,
@@ -260,22 +260,14 @@ export async function buildPerListingProfit(
         },
       },
     }),
-    // Listing-level ad spend over the same `[from, to)` window, counting only
-    // rows that carry ad evidence. `(organizationId, listingId, businessDate)`
-    // is unique, so the group's row count is this listing's covered day count.
-    prisma.channelListingDailySnapshot.groupBy({
-      by: ['listingId'],
-      _sum: { adSpend: true },
-      _count: true,
-      where: measuredAdCoverageWhere(organizationId, businessDateFrom, businessDateTo),
-    }),
+    // Listing-level measured ad spend over the same `[from, to)` window.
+    // `(organizationId, listingId, businessDate)` is unique, so a listing's
+    // `days` is its covered day count.
+    readListingAdWindowFacts(prisma, { organizationId, from: businessDateFrom, to: businessDateTo }),
     // The window's ad-collection calendar: the business dates on which the ad
     // source reported anything at all. A listing the source did report, but
     // that is absent on one of these dates, has a hole in its evidence.
-    prisma.channelListingDailySnapshot.groupBy({
-      by: ['businessDate'],
-      where: measuredAdCoverageWhere(organizationId, businessDateFrom, businessDateTo),
-    }),
+    readAdWindowFacts(prisma, { organizationId, from: businessDateFrom, to: businessDateTo }),
     // Listings the daily-fact source touched at all in the window, with or
     // without ad provenance. A listing present here but absent from the
     // coverage-filtered read was reported without its ad metrics — that is
@@ -365,12 +357,9 @@ export async function buildPerListingProfit(
     }
   }
 
-  const collectedDayCount = collectedDates.length;
+  const collectedDayCount = adWindow.days.length;
   const adEvidenceByListing = new Map(
-    adByListing.map((r) => [
-      r.listingId,
-      { spend: r._sum?.adSpend ?? 0, coveredDays: r._count },
-    ]),
+    adByListing.map((r) => [r.listingId, { spend: r.spend, coveredDays: r.days }]),
   );
 
   const observedListingIds = new Set(observedListings.map((r) => r.listingId));

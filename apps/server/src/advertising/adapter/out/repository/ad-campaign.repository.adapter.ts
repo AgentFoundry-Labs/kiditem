@@ -6,6 +6,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { readListingDayAdFacts } from '../../../../common/ad-window-facts';
 import { periodBounds, type AdPeriod } from '../../../domain/ad-metrics';
 import {
   completeAdCampaignSourceIds,
@@ -353,26 +354,25 @@ export class AdCampaignRepositoryAdapter implements AdCampaignRepositoryPort {
     );
   }
 
-  findAdTrendDailyRows(
+  async findAdTrendDailyRows(
     organizationId: string,
     dateRange: { from: Date; to: Date },
   ): Promise<AdTrendDailyRow[]> {
-    return this.prisma.channelListingDailySnapshot.findMany({
-      where: {
-        organizationId,
-        businessDate: { gte: dateRange.from, lte: dateRange.to },
-      },
-      select: {
-        businessDate: true,
-        adSpend: true,
-        adRevenue: true,
-        adClicks: true,
-        adImpressions: true,
-        adConversions: true,
-        listingId: true,
-      },
-      orderBy: { businessDate: 'asc' },
+    // `to` is an inclusive business date; the reader's window is half-open.
+    const rows = await readListingDayAdFacts(this.prisma, {
+      organizationId,
+      from: dateRange.from,
+      to: new Date(dateRange.to.getTime() + 86_400_000),
     });
+    return rows.map((row) => ({
+      businessDate: row.businessDate,
+      adSpend: row.spend,
+      adRevenue: row.revenue,
+      adClicks: row.clicks,
+      adImpressions: row.impressions,
+      adConversions: row.conversions,
+      listingId: row.listingId,
+    }));
   }
 
   async findGradeBudgetTotals(

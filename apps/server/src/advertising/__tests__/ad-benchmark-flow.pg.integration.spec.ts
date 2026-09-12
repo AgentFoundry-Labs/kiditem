@@ -78,6 +78,9 @@ describe('AdBenchmark flow (PG integration)', () => {
         adImpressions: params.impressions ?? 0,
         adClicks: params.clicks ?? 0,
         adConversions: params.conversions ?? 0,
+        // Measured ad rows carry the moment the source reported them.
+        adCoverageStatus: params.spend !== 0 ? 'OBSERVED' : 'CONFIRMED_ZERO',
+        adObservedAt: date,
       },
     });
   }

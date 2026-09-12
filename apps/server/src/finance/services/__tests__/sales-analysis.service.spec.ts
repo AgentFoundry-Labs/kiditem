@@ -15,7 +15,16 @@ function makePrisma(overrides: {
     order: { findMany: vi.fn().mockResolvedValue(overrides.orders ?? []) },
     orderReturnLineItem: { findMany: vi.fn().mockResolvedValue(overrides.returnRows ?? []) },
     channelListingDailySnapshot: {
-      groupBy: vi.fn().mockResolvedValue(overrides.adGroupRows ?? []),
+      groupBy: vi.fn().mockResolvedValue(
+        // The listing-day ad reader groups per listing with the day count and
+        // date bounds beside the sums; mirror that aggregate shape.
+        (overrides.adGroupRows ?? []).map((row) => ({
+          _count: 1,
+          _min: { businessDate: new Date(Date.UTC(2026, 3, 1)) },
+          _max: { businessDate: new Date(Date.UTC(2026, 3, 1)), adObservedAt: new Date(Date.UTC(2026, 3, 1)) },
+          ...(row as object),
+        })),
+      ),
     },
     orderReturn: { count: vi.fn().mockResolvedValue(overrides.orphanCount ?? 0) },
     channelListing: {
@@ -126,7 +135,7 @@ describe('SalesAnalysisService.getAnalysis — Plan D.3', () => {
     expect(result.totals.totalOrders).toBe(0);
   });
 
-  it('channelListingDailySnapshot.groupBy by listingId → channel via channelListing lookup', async () => {
+  it('measured listing-day ad spend per listing → channel via channelListing lookup', async () => {
     const coup = { id: 'l-c', channel: 'coupang' };
     const orders = [
       { id: 'o1', shippingPrice: 3000, lineItems: [mkLineItem(coup, { quantity: 1, totalPrice: 10000, costPrice: 5000, commissionRate: 0.1, otherCost: 0 })] },
@@ -142,10 +151,11 @@ describe('SalesAnalysisService.getAnalysis — Plan D.3', () => {
     expect(c.totalCost).toBeGreaterThanOrEqual(2000);  // adCost absorbed
     expect(prisma.channelListingDailySnapshot.groupBy).toHaveBeenCalledWith(expect.objectContaining({
       by: ['listingId'],
-      _sum: { adSpend: true },
+      _sum: expect.objectContaining({ adSpend: true }),
       where: expect.objectContaining({
         organizationId: 'cA',
         businessDate: expect.objectContaining({ gte: expect.any(Date), lt: expect.any(Date) }),
+        adObservedAt: { not: null },
       }),
     }));
     expect(prisma.channelListing.findMany).toHaveBeenCalledWith(expect.objectContaining({

@@ -7,6 +7,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { kstInclusiveDaysStart, kstMonthStart } from '../../../../common/kst';
+import { readListingAdWindowFacts } from '../../../../common/ad-window-facts';
 import {
   buildPerListingMetrics,
   readAccountAdEvidence,
@@ -62,19 +63,12 @@ export class AdStrategyContextRepositoryAdapter
     const range = periodBounds(period);
 
     const [adAgg, trafficAgg] = await Promise.all([
-      this.prisma.channelListingDailySnapshot.groupBy({
-        by: ['listingId'],
-        where: {
-          organizationId,
-          businessDate: { gte: range.from, lte: range.to },
-        },
-        _sum: {
-          adSpend: true,
-          adRevenue: true,
-          adClicks: true,
-          adImpressions: true,
-          adConversions: true,
-        },
+      // The period's `to` is an inclusive business date; the reader's window
+      // is half-open, so the bound is the day after.
+      readListingAdWindowFacts(this.prisma, {
+        organizationId,
+        from: range.from,
+        to: new Date(range.to.getTime() + 86_400_000),
       }),
       this.prisma.channelListingDailySnapshot.findMany({
         where: {
@@ -396,24 +390,14 @@ export class AdStrategyContextRepositoryAdapter
   async loadAllTimeAdAggregates(
     organizationId: string,
   ): Promise<AllTimeAdAggregateRow[]> {
-    const rows = await this.prisma.channelListingDailySnapshot.groupBy({
-      by: ['listingId'],
-      where: { organizationId },
-      _sum: {
-        adSpend: true,
-        adRevenue: true,
-        adClicks: true,
-        adImpressions: true,
-        adConversions: true,
-      },
-    });
+    const rows = await readListingAdWindowFacts(this.prisma, { organizationId });
     return rows.map((row) => ({
       listingId: row.listingId,
-      spend: row._sum.adSpend ?? 0,
-      revenue: row._sum.adRevenue ?? 0,
-      clicks: row._sum.adClicks ?? 0,
-      impressions: row._sum.adImpressions ?? 0,
-      conversions: row._sum.adConversions ?? 0,
+      spend: row.spend,
+      revenue: row.revenue,
+      clicks: row.clicks,
+      impressions: row.impressions,
+      conversions: row.conversions,
     }));
   }
 

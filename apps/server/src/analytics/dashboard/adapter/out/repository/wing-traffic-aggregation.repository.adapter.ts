@@ -1,6 +1,6 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../../../prisma/prisma.service';
-import { readAdWindowFacts } from '../../../../../common/ad-window-facts';
+import { readAdWindowFacts, readLatestAdDate } from '../../../../../common/ad-window-facts';
 import {
   businessDateText,
   businessDatesInWindow,
@@ -280,16 +280,7 @@ export class WingTrafficAggregationRepositoryAdapter
   private async findLatestCoupangAdsDate(
     organizationId: string,
   ): Promise<Date | null> {
-    const row = await this.prisma.channelListingDailySnapshot.findFirst({
-      where: {
-        organizationId,
-        adCoverageStatus: { in: ['OBSERVED', 'CONFIRMED_ZERO'] },
-        adObservedAt: { not: null },
-      },
-      orderBy: { businessDate: 'desc' },
-      select: { businessDate: true },
-    });
-    return row?.businessDate ?? null;
+    return readLatestAdDate(this.prisma, organizationId);
   }
 }
 
