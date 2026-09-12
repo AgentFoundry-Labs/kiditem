@@ -27,9 +27,15 @@ export class ActivityEventsService {
     });
   }
 
-  async findByObject(objectType: string, objectId: string, opts?: { eventType?: string; limit?: number }) {
+  async findByObject(
+    organizationId: string,
+    objectType: string,
+    objectId: string,
+    opts?: { eventType?: string; limit?: number },
+  ) {
     return this.prisma.activityEvent.findMany({
       where: {
+        organizationId,
         objectType,
         objectId,
         ...(opts?.eventType && { eventType: opts.eventType }),
