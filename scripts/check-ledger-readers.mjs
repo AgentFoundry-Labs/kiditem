@@ -897,7 +897,10 @@ function resolvePrismaSql(node, checker, visited = new Set()) {
   }
   if (
     ts.isTaggedTemplateExpression(expression) &&
-    isPrismaMember(expression.tag, 'sql', checker)
+    (isPrismaMember(expression.tag, 'sql', checker) ||
+      ['$queryRaw', '$executeRaw'].includes(
+        memberAccessName(expression.tag, checker),
+      ))
   ) {
     if (ts.isNoSubstitutionTemplateLiteral(expression.template)) {
       return expression.template.text;
@@ -915,8 +918,7 @@ function resolvePrismaSql(node, checker, visited = new Set()) {
 
 function collectPrismaRawSql(source) {
   if (
-    !source.includes('Prisma.') ||
-    (!source.includes('$queryRaw') && !source.includes('$executeRaw'))
+    !source.includes('$queryRaw') && !source.includes('$executeRaw')
   ) {
     return [];
   }
@@ -930,6 +932,12 @@ function collectPrismaRawSql(source) {
           const sql = resolvePrismaSql(argument, checker);
           if (sql) queries.push(sql);
         }
+      }
+    } else if (ts.isTaggedTemplateExpression(node)) {
+      const methodName = memberAccessName(node.tag, checker);
+      if (methodName === '$queryRaw' || methodName === '$executeRaw') {
+        const sql = resolvePrismaSql(node, checker);
+        if (sql) queries.push(sql);
       }
     }
     ts.forEachChild(node, visit);

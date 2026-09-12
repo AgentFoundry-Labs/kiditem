@@ -144,6 +144,16 @@ model ChannelAdTargetDailySnapshot {
     );
     write(
       root,
+      'apps/server/src/raw-sql-tagged-fragment-consumer.ts',
+      'const table = Prisma.raw(\'"channel_ad_target_daily_snapshots"\');\nawait tx.$queryRaw`SELECT * FROM ${table}`;\n',
+    );
+    write(
+      root,
+      'apps/server/src/raw-sql-tagged-fragment-delete-consumer.ts',
+      'const table = Prisma[\'raw\'](\'"channel_ad_target_daily_snapshots"\');\nawait tx.$executeRaw`DELETE FROM ${table} WHERE id = ${targetId}`;\n',
+    );
+    write(
+      root,
       'apps/server/src/raw-sql-insert-consumer.ts',
       'sql`INSERT INTO "channel_ad_target_daily_snapshots" (id) VALUES (\'unowned\')`;\n',
     );
@@ -325,6 +335,14 @@ model ChannelAdTargetDailySnapshot {
       failedOutput,
       /raw-sql-fragment-delete-consumer\.ts.*raw SQL mutation/,
     );
+    assert.match(
+      failedOutput,
+      /raw-sql-tagged-fragment-consumer\.ts.*raw SQL read/,
+    );
+    assert.match(
+      failedOutput,
+      /raw-sql-tagged-fragment-delete-consumer\.ts.*raw SQL mutation/,
+    );
     assert.match(failedOutput, /raw-sql-insert-consumer\.ts.*raw SQL mutation/);
     assert.match(failedOutput, /raw-sql-update-consumer\.ts.*raw SQL mutation/);
     assert.match(failedOutput, /raw-sql-delete-consumer\.ts.*raw SQL mutation/);
@@ -430,6 +448,10 @@ model ChannelAdTargetDailySnapshot {
     rmSync(path.join(root, 'apps/server/src/raw-sql-fragment-consumer.ts'));
     rmSync(
       path.join(root, 'apps/server/src/raw-sql-fragment-delete-consumer.ts'),
+    );
+    rmSync(path.join(root, 'apps/server/src/raw-sql-tagged-fragment-consumer.ts'));
+    rmSync(
+      path.join(root, 'apps/server/src/raw-sql-tagged-fragment-delete-consumer.ts'),
     );
     rmSync(path.join(root, 'apps/server/src/raw-sql-insert-consumer.ts'));
     rmSync(path.join(root, 'apps/server/src/raw-sql-update-consumer.ts'));
