@@ -21,7 +21,7 @@ interface UsePeriodSelectorOptions {
   defaultTo?: 'current' | 'prev';
   /** URL 등 외부에서 주입하는 초기 period 값 (YYYY-MM). 지정 시 defaultTo 무시. */
   initial?: string;
-  /** Server-published calendar cutoff (`YYYY-MM-DD`) used as the month anchor. */
+  /** Calendar anchor (`YYYY-MM-DD`), distinct from the last closed business day. */
   referenceDate?: string | null;
 }
 

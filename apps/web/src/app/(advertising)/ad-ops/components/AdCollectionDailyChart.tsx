@@ -17,6 +17,7 @@ import { Calendar, Loader2 } from "lucide-react";
 import type { AdTrendsData } from "@kiditem/shared/advertising";
 import {
   businessDateKey,
+  closedMonthRangeFromCutoff,
   datesInclusive,
   inclusiveDayCount,
   parseBusinessDate,
@@ -61,26 +62,17 @@ function shiftDate(key: string, days: number): string {
   return shiftBusinessDateKey(key, days);
 }
 
-function monthStart(key: string): string {
-  return `${key.slice(0, 7)}-01`;
-}
-
 export function selectableRangeEndDate(today: string): string {
-  const yesterday = shiftDate(today, -1);
-  return yesterday < monthStart(today) ? today : yesterday;
+  return shiftDate(today, -1);
 }
 
 export function presetDateRange(
   preset: Exclude<RangePreset, "custom">,
   throughDate: string,
-  calendarDate = throughDate,
-): { from: string; to: string } {
+): { from: string; to: string } | null {
   if (preset === "7d") return { from: shiftDate(throughDate, -6), to: throughDate };
   if (preset === "14d") return { from: shiftDate(throughDate, -13), to: throughDate };
-  const from = monthStart(calendarDate);
-  // 매월 1일에는 완료 기준일(어제)이 전월이다. 이때 전월 전체를
-  // "이번달"로 보여주지 않고 오늘 한 칸을 미수집 상태로 표시한다.
-  return { from, to: throughDate < from ? from : throughDate };
+  return closedMonthRangeFromCutoff(throughDate);
 }
 
 export function enumerateDateKeys(from: string, to: string): string[] {
@@ -165,7 +157,7 @@ export default function AdCollectionDailyChart({
   const today = referenceDate ? shiftDate(referenceDate, 1) : null;
   const maxSelectableDate = today ? selectableRangeEndDate(today) : null;
   const initialCustom = referenceDate && today
-    ? presetDateRange("month", referenceDate, today)
+    ? presetDateRange("month", referenceDate)
     : null;
   const customEdited = useRef(false);
   const [preset, setPreset] = useState<RangePreset>(period);
@@ -188,7 +180,7 @@ export default function AdCollectionDailyChart({
     preset === "custom"
       ? customRange
       : referenceDate && today
-        ? presetDateRange(preset, referenceDate, today)
+        ? presetDateRange(preset, referenceDate)
         : null;
   const expectedDates = useMemo(
     () => appliedRange
@@ -244,7 +236,9 @@ export default function AdCollectionDailyChart({
             <span style={{ color: "var(--text-tertiary)" }}>
               {appliedRange
                 ? `${appliedRange.from} ~ ${appliedRange.to}${appliedRange.to === referenceDate ? " · 어제까지" : ""}`
-                : "기준일 확인 중"}
+                : referenceDate && preset === "month"
+                  ? "이번 달에 마감된 영업일이 없습니다"
+                  : "기준일 확인 중"}
             </span>
             {trendsQuery.isFetching && <Loader2 size={11} className="animate-spin" />}
           </div>

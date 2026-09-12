@@ -99,12 +99,12 @@ describe("AdCollectionDailyChart data model", () => {
       to: "2026-07-23",
     });
     expect(
-      presetDateRange("month", "2026-07-31", "2026-08-01"),
-    ).toEqual({
-      from: "2026-08-01",
-      to: "2026-08-01",
+      presetDateRange("month", "2026-07-31"),
+    ).toBeNull();
+    expect(presetDateRange("month", "2026-08-01")).toEqual({
+      from: "2026-08-01", to: "2026-08-01",
     });
-    expect(selectableRangeEndDate("2026-08-01")).toBe("2026-08-01");
+    expect(selectableRangeEndDate("2026-08-01")).toBe("2026-07-31");
     expect(selectableRangeEndDate("2026-08-02")).toBe("2026-08-01");
     expect(enumerateDateKeys("2026-07-22", "2026-07-24")).toEqual([
       "2026-07-22",

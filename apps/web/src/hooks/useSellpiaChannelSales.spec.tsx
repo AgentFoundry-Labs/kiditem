@@ -133,6 +133,18 @@ describe('useSellpiaChannelSales synchronization', () => {
 });
 
 describe('sellpiaMonthRange', () => {
+  it('keeps the anchor month empty on day one and rejects future months', () => {
+    expect(sellpiaMonthRange('2026-09', '2026-08-31')).toBeNull();
+    expect(sellpiaMonthRange('2026-08', '2026-08-31')).toEqual({
+      from: '2026-08-01', to: '2026-08-31',
+    });
+    expect(sellpiaMonthRange('2026-09', '2026-09-01')).toEqual({
+      from: '2026-09-01', to: '2026-09-01',
+    });
+    expect(sellpiaMonthRange('2026-10', '2026-09-01')).toBeNull();
+    expect(sellpiaMonthRange('invalid', '2026-09-01')).toBeNull();
+  });
+
   it('uses the server cutoff as the end of the current KST month', () => {
     expect(sellpiaMonthRange('2026-07', '2026-07-25')).toEqual({
       from: '2026-07-01',

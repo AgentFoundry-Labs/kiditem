@@ -35,20 +35,19 @@ export function sellpiaPeriodRange(
 const YEAR_MONTH_PATTERN = /^\d{4}-(0[1-9]|1[0-2])$/;
 
 // 매출분석 월 선택(YYYY-MM)을 Sellpia 일별 조회 범위로 변환한다.
-// 현재 월은 오늘까지만, 지난 월은 달의 마지막 날까지 조회한다.
+// 현재 달력 월은 마감일까지, 지난 월은 월말까지 조회한다. 열린 월초·미래 월은 조회하지 않는다.
 export function sellpiaMonthRange(
   period: string,
   knownThrough: string,
-): { from: string; to: string } {
-  const normalizedPeriod = YEAR_MONTH_PATTERN.test(period)
-    ? period
-    : knownThrough.slice(0, 7);
-  if (normalizedPeriod === knownThrough.slice(0, 7)) {
-    return { from: `${normalizedPeriod}-01`, to: knownThrough };
+): { from: string; to: string } | null {
+  const anchorMonth = shiftBusinessDateKey(knownThrough, 1).slice(0, 7);
+  if (!YEAR_MONTH_PATTERN.test(period) || period > anchorMonth) return null;
+  if (period === anchorMonth) {
+    return closedMonthRangeFromCutoff(knownThrough);
   }
   return {
-    from: `${normalizedPeriod}-01`,
-    to: kstMonthEnd(normalizedPeriod),
+    from: `${period}-01`,
+    to: kstMonthEnd(period),
   };
 }
 

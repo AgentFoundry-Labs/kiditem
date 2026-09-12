@@ -15,7 +15,7 @@ import type {
   AdTrafficSourceAttempt,
   AdTrafficSourceStatus,
 } from '@kiditem/shared/advertising';
-import { shiftBusinessDateKey } from '@kiditem/shared/common';
+import { closedMonthRangeFromCutoff, shiftBusinessDateKey } from '@kiditem/shared/common';
 
 
 export type DashboardPeriod = 'month' | 'week' | 'day' | 'custom';
@@ -46,7 +46,7 @@ export function resolveWingTrafficCollectionRange({
   selectedFrom?: string;
   selectedTo?: string;
   knownThrough: string;
-}): WingTrafficCollectionRange {
+}): WingTrafficCollectionRange | null {
 
   if (period === 'custom' && selectedFrom && selectedTo) {
     return {
@@ -61,9 +61,11 @@ export function resolveWingTrafficCollectionRange({
   }
 
   if (period === 'month') {
+    const month = closedMonthRangeFromCutoff(knownThrough);
+    if (!month) return null;
     return {
-      startDate: `${knownThrough.slice(0, 7)}-01`,
-      endDate: knownThrough,
+      startDate: month.from,
+      endDate: month.to,
       source: 'dashboard-period',
     };
   }
@@ -121,14 +123,15 @@ export function useWingTrafficCollection({
     refetchIntervalInBackground: false,
     meta: { suppressGlobalErrorToast: true },
   });
-  const knownThrough = source.data?.knownThrough ?? '1970-01-01';
-  const range = resolveWingTrafficCollectionRange({
+  const knownThrough = source.data?.knownThrough;
+  const range = knownThrough ? resolveWingTrafficCollectionRange({
     period,
     selectedFrom,
     selectedTo,
     knownThrough,
-  });
+  }) : null;
   const rangeReady = source.isSuccess
+    && range !== null
     && (period !== 'custom' || (!!selectedFrom && !!selectedTo));
 
   useEffect(() => {
@@ -151,20 +154,22 @@ export function useWingTrafficCollection({
   const activeRange = latestAttempt?.state === 'RUNNING'
     ? latestAttempt.plan
     : null;
-  const activeRangeMatches = activeRange
+  const activeRangeMatches = activeRange && range
     ? sameRange(activeRange, range)
     : false;
-  const request: AdTrafficSourceBegin = {
+  const request: AdTrafficSourceBegin | null = range ? {
     ...(channelAccountId ? { channelAccountId } : {}),
     startDate: range.startDate,
     endDate: range.endDate,
     url: wingTrafficTargetUrl(range),
-  };
+  } : null;
 
   const collect = useCallback(async (): Promise<AdTrafficSourceAttempt | null> => {
     if (actionPending || cancelPending) return null;
-    if (!rangeReady) {
-      setActionError('사용자 지정 기간의 시작일과 종료일을 모두 입력해 주세요.');
+    if (!rangeReady || !range || !request) {
+      setActionError(period === 'month' && knownThrough
+        ? '이번 달에 마감된 영업일이 없습니다.'
+        : '수집 가능한 시작일과 종료일을 확인해 주세요.');
       return null;
     }
 
@@ -199,7 +204,7 @@ export function useWingTrafficCollection({
     } finally {
       setActionPending(false);
     }
-  }, [actionPending, cancelPending, queryClient, range, rangeReady, request, source]);
+  }, [actionPending, cancelPending, knownThrough, period, queryClient, range, rangeReady, request, source]);
 
   const cancel = useCallback(async (): Promise<AdTrafficSourceAttempt | null> => {
     if (cancelPending || actionPending) return null;

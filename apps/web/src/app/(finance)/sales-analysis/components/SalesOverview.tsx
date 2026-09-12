@@ -5,6 +5,7 @@ import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { Info, RefreshCw } from 'lucide-react';
 import { SalesAnalysisDataSchema } from '@kiditem/shared/finance';
+import { shiftBusinessDateKey } from '@kiditem/shared/common';
 import { usePeriodSelector } from '@/hooks/usePeriodSelector';
 import {
   sellpiaMonthRange,
@@ -42,7 +43,9 @@ export default function SalesOverview() {
     months: 12,
     defaultTo: 'prev',
     initial: urlPeriod ?? undefined,
-    referenceDate: sellpiaKnownThrough,
+    referenceDate: sellpiaKnownThrough
+      ? shiftBusinessDateKey(sellpiaKnownThrough, 1)
+      : null,
   });
   const setPeriod = (p: string) => {
     setPeriodRaw(p);
