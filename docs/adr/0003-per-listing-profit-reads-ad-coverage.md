@@ -1,12 +1,14 @@
 ---
-status: superseded by ADR-0006
+status: superseded by ADR-0009
 ---
 
 # Per-listing profit reads ad coverage
 
-> **Superseded by [ADR-0006](0006-a-displayed-number-is-a-measurement-or-nothing.md).**
-> The rule below is now one case of that ADR's two rules, and the evidence
-> words it names no longer exist on the wire.
+> **Superseded by [ADR-0009](0009-one-ledger-one-reader.md).**
+> Advertising evidence now comes through the target-day ledger's reader and
+> campaign coverage rather than the historical paths below.
+> [ADR-0006](0006-a-displayed-number-is-a-measurement-or-nothing.md) previously
+> replaced the evidence vocabulary and still governs measured profit.
 
 > The original title ended "and Top-N ranking is exempt". That exemption is
 > **superseded by [ADR-0004](0004-top-n-ranking-publishes-measured-profit-or-none.md)**.
