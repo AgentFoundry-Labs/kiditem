@@ -1,27 +1,8 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
-import type {
-  SettlementListItem,
-  SettlementReconcileDetail,
-  SettlementReconcileResponse,
-} from '@kiditem/shared/settlements';
+import type { SettlementListItem } from '@kiditem/shared/settlements';
 import { PrismaService } from '../../prisma/prisma.service';
-import {
-  isOrderWindowComplete,
-  perListingProfitRows,
-  profitWindowBasis,
-  readProfitWindowFacts,
-  resolveFinanceWindow,
-  totalOrUnavailable,
-} from '../../common/per-listing-profit';
-import { kstMonthWindow } from '../../common/kst';
-import {
-  ORDER_FACT_EXCLUDED_STATUSES,
-  readListingOptionOrderFacts,
-} from '../../orders/read/order-facts.reader';
 import { CreateSettlementDto, UpdateSettlementDto } from './dto';
 import { readSettlements, type SettlementFact } from './read/settlement-facts';
-import { classifySettlementDifference } from './settlement-reconciliation';
 
 /**
  * A settlement's actual amount exists once someone confirmed the deposit.
@@ -76,105 +57,6 @@ export class SettlementsService {
       },
     });
     return toListItem(row);
-  }
-
-  /**
-   * Compares the month's per-listing profit revenue with the same month's
-   * order-line totals, both read from the Orders collection over the month's
-   * KST business days closed at `now` (ADR-0001). Month totals are published
-   * only when that collection covered every one of those days.
-   */
-  async reconcile(
-    organizationId: string,
-    period: string,
-    now: Date,
-  ): Promise<SettlementReconcileResponse> {
-    const [year, month] = period.split('-').map(Number);
-    const window = resolveFinanceWindow(kstMonthWindow(year, month), now);
-
-    const { facts, orderLines, optionListings } = await this.prisma.$transaction(async (tx) => {
-      const facts = await readProfitWindowFacts(tx, organizationId, window);
-      const orderLines = await readListingOptionOrderFacts(tx, {
-        organizationId,
-        ...window.effective,
-        excludedStatuses: ORDER_FACT_EXCLUDED_STATUSES,
-      });
-      const optionIds = [...new Set(orderLines.map((line) => line.listingOptionId))];
-      const optionListings = optionIds.length === 0 ? [] : await tx.channelListingOption.findMany({
-        where: { organizationId, id: { in: optionIds } },
-        select: { id: true, listingId: true },
-      });
-      return { facts, orderLines, optionListings };
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
-
-    const listingByOption = new Map(optionListings.map((option) => [option.id, option.listingId]));
-    const orderSide = new Map<string, { total: number; orderIds: Set<string> }>();
-    for (const line of orderLines) {
-      const listingId = listingByOption.get(line.listingOptionId);
-      if (!listingId) continue;
-      const entry = orderSide.get(listingId) ?? { total: 0, orderIds: new Set<string>() };
-      entry.total += line.revenue;
-      entry.orderIds.add(line.orderId);
-      orderSide.set(listingId, entry);
-    }
-
-    const rows = perListingProfitRows(facts);
-    let matchedCount = 0;
-    let mismatchCount = 0;
-    const details = rows.map((metric) => {
-      // Both sides read the same collected orders, so a listing with no order
-      // lines has a measured order total of zero.
-      const order = orderSide.get(metric.listingId);
-      const orderTotal = order ? order.total : 0;
-      const orderCount = order ? order.orderIds.size : 0;
-      const revenueDiff = metric.revenue - orderTotal;
-      const status = classifySettlementDifference(revenueDiff);
-      if (status === 'matched') matchedCount++;
-      else mismatchCount++;
-
-      return {
-        listingId: metric.listingId,
-        externalId: metric.externalId,
-        channelName: metric.channelName,
-        masterCode: metric.masterCode,
-        masterName: metric.masterName,
-        plRevenue: metric.revenue,
-        plCommission: metric.commission,
-        plNetProfit: metric.netProfit,
-        plOrderCount: metric.orderCount,
-        orderTotal,
-        orderCount,
-        revenueDiff,
-        isMatched: status === 'matched',
-        status,
-      } satisfies SettlementReconcileDetail;
-    });
-
-    const collected = isOrderWindowComplete(facts.orderWindow);
-    const totalPlRevenue = collected ? details.reduce((sum, detail) => sum + detail.plRevenue, 0) : null;
-    const totalOrderRevenue = collected ? details.reduce((sum, detail) => sum + detail.orderTotal, 0) : null;
-    const productCount = details.length;
-
-    return {
-      success: true,
-      period,
-      summary: {
-        totalPlRevenue,
-        totalOrderRevenue,
-        totalCommission: collected ? totalOrUnavailable(rows.map((row) => row.commission)) : null,
-        totalShipping: collected ? rows.reduce((sum, row) => sum + row.shippingCost, 0) : null,
-        revenueDifference: totalPlRevenue === null || totalOrderRevenue === null
-          ? null
-          : totalPlRevenue - totalOrderRevenue,
-        productCount,
-        orderCount: facts.orderWindow.orderCount,
-        matchedCount,
-        mismatchCount,
-        matchRate: productCount > 0 ? Math.round((matchedCount / productCount) * 100) : null,
-      },
-      details,
-      basis: profitWindowBasis(facts),
-    } satisfies SettlementReconcileResponse;
   }
 
   async update(id: string, organizationId: string, dto: UpdateSettlementDto): Promise<SettlementListItem> {

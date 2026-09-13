@@ -13,24 +13,15 @@ import {
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
-  FileSearch,
-  Download,
-  Loader2,
   RefreshCw,
   Receipt,
 } from 'lucide-react';
-import { toast } from 'sonner';
-import type {
-  SettlementListItem,
-  SettlementReconcileResponse,
-} from '@kiditem/shared/settlements';
+import type { SettlementListItem } from '@kiditem/shared/settlements';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatKRW } from '@/lib/utils';
-import { downloadSettlementReconcileReport } from '@/lib/finance-report-export';
 import { usePeriodSelector } from '@/hooks/usePeriodSelector';
 import PeriodSelector from '@/components/ui/PeriodSelector';
-import { FinanceBasisNotice } from '../../_shared/components/FinanceBasisNotice';
 import { compareNullableLast } from '../../_shared/lib/nullable-sort';
 
 type Settlement = SettlementListItem;
@@ -61,7 +52,6 @@ export default function Settlements() {
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc' | null>(null);
   const [editId, setEditId] = useState<string | null>(null);
   const [actualAmount, setActualAmount] = useState(0);
-  const [reconcilePeriod, setReconcilePeriod] = useState('');
 
   const { data: settlements = [], isFetching } = useQuery({
     queryKey: queryKeys.settlements.list(period),
@@ -73,12 +63,6 @@ export default function Settlements() {
     placeholderData: previousData => previousData,
   });
   const isRefreshing = isFetching && settlements.length > 0;
-
-  const reconcileMutation = useMutation({
-    mutationFn: (p: string) =>
-      apiClient.post<SettlementReconcileResponse>('/api/settlements/reconcile', { period: p }),
-  });
-  const reconcile = reconcileMutation.data ?? null;
 
   const confirmMutation = useMutation({
     mutationFn: ({ id, actualAmount: amt }: { id: string; actualAmount: number }) =>
@@ -232,127 +216,6 @@ export default function Settlements() {
           </table>
         </div>
       )}
-
-      {/* 정산 대사 매칭 */}
-      <div className="card p-5">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <FileSearch size={18} className="text-indigo-600" />
-            <h2 className="section-title">정산 대사 (주문-정산 매칭)</h2>
-          </div>
-          <div className="flex items-center gap-2">
-            <select
-              className="border border-slate-200 rounded-md px-3 py-1.5 text-sm"
-              value={reconcilePeriod || settlements[0]?.period || ''}
-              onChange={(e) => setReconcilePeriod(e.target.value)}
-            >
-              {settlements.map((s) => <option key={s.id} value={s.period}>{s.period}</option>)}
-            </select>
-            <button
-              onClick={() => {
-                const p = reconcilePeriod || settlements[0]?.period;
-                if (p) reconcileMutation.mutate(p);
-              }}
-              disabled={reconcileMutation.isPending}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white text-xs rounded-md hover:bg-indigo-700 disabled:opacity-50"
-            >
-              {reconcileMutation.isPending ? <Loader2 size={12} className="animate-spin" /> : <FileSearch size={12} />}
-              대사 실행
-            </button>
-          </div>
-        </div>
-
-        {reconcile && (
-          <div className="space-y-4">
-            <FinanceBasisNotice basis={reconcile.basis} />
-
-            {/* 매칭 요약 */}
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-              <div className="bg-indigo-50 rounded-lg p-3 text-center">
-                <div className="text-xs text-indigo-600">매칭률</div>
-                <div className="text-lg font-bold text-indigo-700">
-                  {reconcile.summary.matchRate === null ? '-' : `${reconcile.summary.matchRate}%`}
-                </div>
-              </div>
-              <div className="bg-green-50 rounded-lg p-3 text-center">
-                <div className="text-xs text-green-600">매칭 완료</div>
-                <div className="text-lg font-bold text-green-700">{reconcile.summary.matchedCount}건</div>
-              </div>
-              <div className="bg-red-50 rounded-lg p-3 text-center">
-                <div className="text-xs text-red-600">불일치</div>
-                <div className="text-lg font-bold text-red-700">{reconcile.summary.mismatchCount}건</div>
-              </div>
-              <div className="bg-slate-50 rounded-lg p-3 text-center">
-                <div className="text-xs text-slate-600">손익 매출합</div>
-                <div className="text-sm font-bold text-slate-900">{formatKRW(reconcile.summary.totalPlRevenue)}</div>
-              </div>
-              <div className="bg-slate-50 rounded-lg p-3 text-center">
-                <div className="text-xs text-slate-600">주문 매출합</div>
-                <div className="text-sm font-bold text-slate-900">{formatKRW(reconcile.summary.totalOrderRevenue)}</div>
-              </div>
-            </div>
-
-            {/* 매칭 상세 테이블 */}
-            <div className="table-scroll">
-              <table className="text-xs">
-                <thead className="sticky top-0">
-                  <tr>
-                    <th>상품명</th>
-                    <th className="text-right">손익 매출</th>
-                    <th className="text-right">주문 합계</th>
-                    <th className="text-right">차이</th>
-                    <th className="text-right">손익건수</th>
-                    <th className="text-right">주문건수</th>
-                    <th className="text-center">상태</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {reconcile.details.map((d) => (
-                    <tr key={d.listingId} className={d.status === 'mismatch' ? 'bg-red-50/50' : d.status === 'minor_diff' ? 'bg-yellow-50/50' : ''}>
-                      <td className="px-3 py-2 font-medium text-slate-900 max-w-[200px] truncate">{d.masterName}</td>
-                      <td className="px-3 py-2 text-right tabular-nums">{formatKRW(d.plRevenue)}</td>
-                      <td className="px-3 py-2 text-right tabular-nums">{formatKRW(d.orderTotal)}</td>
-                      <td className={cn('px-3 py-2 text-right tabular-nums font-medium', d.revenueDiff > 0 ? 'text-green-600' : d.revenueDiff < 0 ? 'text-red-600' : 'text-slate-400')}>
-                        {d.revenueDiff !== 0 ? `${d.revenueDiff > 0 ? '+' : ''}${formatKRW(d.revenueDiff)}` : '-'}
-                      </td>
-                      <td className="px-3 py-2 text-right tabular-nums">{d.plOrderCount}</td>
-                      <td className="px-3 py-2 text-right tabular-nums">{d.orderCount}</td>
-                      <td className="px-3 py-2 text-center">
-                        {d.status === 'matched' ? (
-                          <span className="inline-flex items-center gap-0.5 text-green-600"><CheckCircle size={10} />매칭</span>
-                        ) : d.status === 'minor_diff' ? (
-                          <span className="inline-flex items-center gap-0.5 text-yellow-600"><AlertTriangle size={10} />소차이</span>
-                        ) : (
-                          <span className="inline-flex items-center gap-0.5 text-red-600 font-medium"><AlertTriangle size={10} />불일치</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            {/* 엑셀 내보내기 */}
-            <button
-              onClick={() => {
-                if (!reconcile) return;
-                void downloadSettlementReconcileReport(reconcile.period).catch((err) => {
-                  toast.error(err instanceof Error ? err.message : '정산 대사 내보내기에 실패했습니다.');
-                });
-              }}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 text-white text-xs rounded-md hover:bg-green-700"
-            >
-              <Download size={12} /> 엑셀 내보내기
-            </button>
-          </div>
-        )}
-
-        {!reconcile && !reconcileMutation.isPending && (
-          <div className="empty-state">
-            정산 월을 선택하고 &quot;대사 실행&quot;을 클릭하면 주문-정산 건별 매칭 결과를 확인할 수 있습니다.
-          </div>
-        )}
-      </div>
 
       <div className="bg-purple-50 rounded-xl p-4 border border-purple-200 text-sm text-purple-800">
         <TrendingUp size={16} className="inline mr-1" /><strong>팁:</strong> 쿠팡 셀러 오피스에서 정산 내역을 확인한 후, 실제 입금액을 입력하면 차이를 자동 대조합니다. 차이가 크면 수수료 오류나 반품 미반영을 확인하세요.

@@ -4,10 +4,8 @@ import {
   ProfitLossExportQueryDto,
   ProfitLossQueryDto,
   ReportExportQueryDto,
-  SettlementExportQueryDto,
 } from '../dto';
 import { SalesAnalysisQueryDto } from '../dto/sales-analysis-query.dto';
-import { ReconcileSettlementDto } from '../settlements/dto';
 
 /** The global pipe: whitelist and transform. */
 const pipe = new ValidationPipe({ whitelist: true, transform: true });
@@ -30,17 +28,6 @@ describe('finance month period inputs', () => {
     await expect(transform(SalesAnalysisQueryDto, 'query', {})).resolves.toEqual({});
   });
 
-  it.each(MALFORMED_PERIODS)('rejects reconcile period %s with 400', async (period) => {
-    await expect(transform(ReconcileSettlementDto, 'body', { period }))
-      .rejects.toMatchObject({ status: 400 });
-  });
-
-  it('requires a YYYY-MM reconcile period', async () => {
-    await expect(transform(ReconcileSettlementDto, 'body', { period: '2026-04' }))
-      .resolves.toMatchObject({ period: '2026-04' });
-    await expect(transform(ReconcileSettlementDto, 'body', {}))
-      .rejects.toMatchObject({ status: 400 });
-  });
 });
 
 /** KID-85 follow-up F-2 — `2026-00` used to evaluate December 2025 under a `2026-00` label. */
@@ -48,7 +35,6 @@ describe.each([
   ['profit-loss', ProfitLossQueryDto, {}],
   ['profit-loss export', ProfitLossExportQueryDto, {}],
   ['report export', ReportExportQueryDto, { type: 'profitloss' }],
-  ['settlement reconcile export', SettlementExportQueryDto, {}],
 ] as const)('%s period', (_name, metatype, base) => {
   it.each(MALFORMED_PERIODS)('rejects %s with 400', async (period) => {
     await expect(transform(metatype, 'query', { ...base, period }))

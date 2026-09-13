@@ -11,14 +11,13 @@ function route(method: string) {
 }
 
 describe('FinanceReportExportController', () => {
-  it('exposes only the three fixed server conversion routes', () => {
+  it('exposes only the two fixed server conversion routes', () => {
     expect(Reflect.getMetadata('path', FinanceReportExportController)).toBe('/');
     expect(route('exportReport')).toEqual(['reports/export', RequestMethod.GET]);
     expect(route('exportProfitLoss')).toEqual(['profit-loss/export', RequestMethod.GET]);
-    expect(route('exportSettlementReconcile')).toEqual([
-      'settlements/reconcile/export',
-      RequestMethod.GET,
-    ]);
+    // KID-113: settlement reconciliation compared order facts with themselves and was removed.
+    expect(Object.getOwnPropertyNames(FinanceReportExportController.prototype).sort())
+      .toEqual(['constructor', 'exportProfitLoss', 'exportReport', 'toStream']);
   });
 
   it('passes session organization and validated query to the owner service', async () => {
@@ -31,11 +30,6 @@ describe('FinanceReportExportController', () => {
       exportProfitLoss: vi.fn().mockResolvedValue({
         buffer: Buffer.from('xlsx'),
         fileName: 'pl.xlsx',
-        contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      }),
-      exportSettlementReconcile: vi.fn().mockResolvedValue({
-        buffer: Buffer.from('xlsx'),
-        fileName: 'settlement.xlsx',
         contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       }),
     };
@@ -52,7 +46,6 @@ describe('FinanceReportExportController', () => {
       profitFilter: 'minus',
       grades: 'A',
     }, response as never);
-    await controller.exportSettlementReconcile(ORG, { period: '2026-08' }, response as never);
 
     expect(exporter.exportReport).toHaveBeenCalledWith(ORG, {
       type: 'profitloss',
@@ -64,7 +57,6 @@ describe('FinanceReportExportController', () => {
       profitFilter: 'minus',
       grades: 'A',
     }), expect.any(Date));
-    expect(exporter.exportSettlementReconcile).toHaveBeenCalledWith(ORG, '2026-08', expect.any(Date));
     expect(response.setHeader).toHaveBeenCalledWith(
       'Content-Type',
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',

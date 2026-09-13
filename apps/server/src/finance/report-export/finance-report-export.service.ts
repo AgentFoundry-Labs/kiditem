@@ -14,11 +14,9 @@ import {
 } from '../../inventory/application/port/in/stock/inventory-sku-snapshot-list.port';
 import { kstBusinessDate } from '../../common/kst';
 import { ProfitLossService } from '../services/profit-loss.service';
-import { SettlementsService } from '../settlements/settlements.service';
 import type { AdsHubData, AdsListItem } from '@kiditem/shared/advertising';
 import type { PLData } from '@kiditem/shared/finance';
 import type { InventorySkuSnapshotItem } from '@kiditem/shared/inventory';
-import type { SettlementReconcileResponse } from '@kiditem/shared/settlements';
 import type {
   FinanceReportSurface,
   FinanceReportType,
@@ -57,7 +55,6 @@ type ReportData = {
 export class FinanceReportExportService {
   constructor(
     private readonly profitLoss: ProfitLossService,
-    private readonly settlements: SettlementsService,
     @Inject(CHANNEL_LISTING_REPORT_READ_PORT)
     private readonly listings: ChannelListingReportReadPort,
     @Inject(INVENTORY_SKU_SNAPSHOT_LIST_PORT)
@@ -112,22 +109,6 @@ export class FinanceReportExportService {
     return {
       buffer: writeWorkbook(workbook),
       fileName: `손익표_${query.period ?? formatPeriod(year, month)}.xlsx`,
-      contentType: XLSX_CONTENT_TYPE,
-    };
-  }
-
-  async exportSettlementReconcile(
-    organizationId: string,
-    period: string,
-    now: Date,
-  ): Promise<FinanceReportExportResult> {
-    const result = await this.settlements.reconcile(organizationId, period, now);
-    const workbook = XLSX.utils.book_new();
-    appendSheet(workbook, '정산대사', result.details.map(toSettlementReportRow));
-
-    return {
-      buffer: writeWorkbook(workbook),
-      fileName: `정산대사_${period}.xlsx`,
       contentType: XLSX_CONTENT_TYPE,
     };
   }
@@ -309,25 +290,6 @@ function toAdvertisingReportRow(item: AdsListItem) {
     'ROAS(%)': item.metrics.roas,
     'CTR(%)': item.metrics.ctr,
     '전환율(%)': item.metrics.cvr,
-  };
-}
-
-function toSettlementReportRow(
-  detail: SettlementReconcileResponse['details'][number],
-) {
-  return {
-    상품명: detail.masterName,
-    SKU: detail.masterCode,
-    손익매출: detail.plRevenue,
-    주문합계: detail.orderTotal,
-    차이: detail.revenueDiff,
-    손익건수: detail.plOrderCount,
-    주문건수: detail.orderCount,
-    상태: detail.status === 'matched'
-      ? '매칭'
-      : detail.status === 'minor_diff'
-        ? '소차이'
-        : '불일치',
   };
 }
 

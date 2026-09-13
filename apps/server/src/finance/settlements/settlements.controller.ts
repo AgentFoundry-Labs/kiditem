@@ -1,6 +1,6 @@
 import { Controller, Get, Post, Patch, Param, Query, Body } from '@nestjs/common';
 import { SettlementsService } from './settlements.service';
-import { ListSettlementsQueryDto, CreateSettlementDto, UpdateSettlementDto, ReconcileSettlementDto } from './dto';
+import { ListSettlementsQueryDto, CreateSettlementDto, UpdateSettlementDto } from './dto';
 import { CurrentOrganization } from '../../auth/decorators/current-organization.decorator';
 
 @Controller('settlements')
@@ -20,15 +20,6 @@ export class SettlementsController {
   @Post()
   create(@Body() dto: CreateSettlementDto, @CurrentOrganization() organizationId: string) {
     return this.settlementsService.create(organizationId, dto);
-  }
-
-  @Post('reconcile')
-  async reconcile(
-    @Body() dto: ReconcileSettlementDto,
-    @CurrentOrganization() organizationId: string,
-  ) {
-    // The request's instant decides which KST days of the month are closed.
-    return this.settlementsService.reconcile(organizationId, dto.period, new Date());
   }
 
   @Patch(':id')

@@ -10,7 +10,6 @@ import { CurrentOrganization } from '../../auth/decorators/current-organization.
 import {
   ProfitLossExportQueryDto,
   ReportExportQueryDto,
-  SettlementExportQueryDto,
 } from '../dto';
 import {
   FinanceReportExportService,
@@ -49,19 +48,6 @@ export class FinanceReportExportController {
   ): Promise<StreamableFile> {
     return this.toStream(
       await this.exporter.exportProfitLoss(organizationId, query, new Date()),
-      response,
-    );
-  }
-
-  @Get('settlements/reconcile/export')
-  @Header('Access-Control-Expose-Headers', 'Content-Disposition')
-  async exportSettlementReconcile(
-    @CurrentOrganization() organizationId: string,
-    @Query() query: SettlementExportQueryDto,
-    @Res({ passthrough: true }) response: Response,
-  ): Promise<StreamableFile> {
-    return this.toStream(
-      await this.exporter.exportSettlementReconcile(organizationId, query.period, new Date()),
       response,
     );
   }

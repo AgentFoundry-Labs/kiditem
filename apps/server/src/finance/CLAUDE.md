@@ -3,7 +3,7 @@ Before working in this directory, always read this document first rather than re
 # finance — P&L, Payments, Plans, Settlements
 
 `src/finance/` owns live financial aggregation, supplier payments, sales plans,
-settlement reconciliation, and the profitability evidence port consumed by
+the manual settlement ledger, and the profitability evidence port consumed by
 Products.
 `Settlement` still lives in the Orders Prisma namespace and `SupplierPayment`
 in Supply, but the backend capability owner is finance.
@@ -41,8 +41,10 @@ in Supply, but the backend capability owner is finance.
 
 - Supplier-payment capability lives here even though supplier identity is owned
   by supply.
-- Settlement reconciliation reads order-owned settlement tables through finance
-  services.
+- The manual settlement ledger (list, create, deposit confirmation) reads and
+  writes the Orders-namespace `Settlement` table through finance services.
+  Reconciliation against order facts was removed (KID-113) until a settlement
+  source exists (KID-115).
 - Product profitability evidence is assembled here from Analytics' exact-period
   Sellpia facts and Advertising's listing-daily spend facts for identical dates.
   Keep partial-period totals intact rather than allocating monthly sums to days.

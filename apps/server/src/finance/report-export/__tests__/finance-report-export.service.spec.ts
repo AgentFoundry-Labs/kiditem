@@ -38,40 +38,6 @@ function plRow(overrides: Partial<PLData> = {}): PLData {
 
 function buildService() {
   const profitLoss = { findAll: vi.fn().mockResolvedValue({ rows: [plRow()] }) };
-  const settlements = {
-    reconcile: vi.fn().mockResolvedValue({
-      success: true,
-      period: '2026-08',
-      summary: {
-        totalPlRevenue: 1000,
-        totalOrderRevenue: 1000,
-        totalCommission: 100,
-        totalShipping: 50,
-        revenueDifference: 0,
-        productCount: 1,
-        orderCount: 2,
-        matchedCount: 1,
-        mismatchCount: 0,
-        matchRate: 100,
-      },
-      details: [{
-        listingId: LISTING,
-        externalId: 'EXT-1',
-        channelName: '쿠팡',
-        masterCode: 'SKU-1',
-        masterName: '테스트 상품',
-        plRevenue: 1000,
-        plCommission: 100,
-        plNetProfit: 415,
-        plOrderCount: 2,
-        orderTotal: 1000,
-        orderCount: 2,
-        revenueDiff: 0,
-        isMatched: true,
-        status: 'matched',
-      }],
-    }),
-  };
   const listings: ChannelListingReportReadPort = {
     list: vi.fn().mockResolvedValue({
       items: [{
@@ -164,12 +130,11 @@ function buildService() {
   const advertising = { getHubData: vi.fn().mockResolvedValue(ads) };
   const service = new FinanceReportExportService(
     profitLoss as never,
-    settlements as never,
     listings,
     inventory,
     advertising,
   );
-  return { service, profitLoss, settlements, listings, inventory, advertising };
+  return { service, profitLoss, listings, inventory, advertising };
 }
 
 function readWorkbook(buffer: Buffer) {
@@ -245,19 +210,5 @@ describe('FinanceReportExportService', () => {
     expect(rows[0]).toMatchObject({ SKU: 'A-1', 매출: 100 });
     expect(headerRow(workbook, '손익표')).toContain('SKU');
     expect(headerRow(workbook, '손익표')).not.toContain('셀피아상품코드');
-  });
-
-  it('converts reconciliation details from the canonical settlement owner response', async () => {
-    const { service, settlements } = buildService();
-    const result = await service.exportSettlementReconcile(ORG, '2026-08', NOW);
-    const workbook = readWorkbook(result.buffer);
-    const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(workbook.Sheets['정산대사']!);
-
-    expect(settlements.reconcile).toHaveBeenCalledWith(ORG, '2026-08', NOW);
-    expect(result.fileName).toBe('정산대사_2026-08.xlsx');
-    expect(rows[0]).toMatchObject({ 상품명: '테스트 상품', SKU: 'SKU-1', 상태: '매칭' });
-    expect(headerRow(workbook, '정산대사')).toEqual([
-      '상품명', 'SKU', '손익매출', '주문합계', '차이', '손익건수', '주문건수', '상태',
-    ]);
   });
 });
