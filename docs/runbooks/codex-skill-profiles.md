@@ -1,4 +1,4 @@
-# Agent Skills
+# Skill Installation And Troubleshooting
 
 ## Purpose
 
@@ -45,22 +45,11 @@ checkout's opt-in, so a fresh worktree exposes the same skills without extra
 setup. Plugin cache and plugin-data directories are managed runtime state, not
 duplicate workspace clones; do not remove them manually.
 
-## KidItem-Owned Skills
+## Repository-Owned Skills
 
-KidItem always exposes these repository-owned skills:
-
-- `agents-md-audit`
-- `magic-scraper`
-- `update-project-skills`
-
-Their sources live under `skills/`, tracked in git. Keeping them in the
-repository is deliberate: a skill that cites repository contracts, resolves
-scripts relative to its own directory, or depends on workspace tooling drifts
-out of sync the moment it moves outside the repository.
-
-The update command owns only its own `../../skills/*` links. It removes those
-when a source disappears and preserves every other entry, including the shared
-profile's.
+Sources under `skills/` are tracked with the repository. The update command
+manages their links in both discovery directories and preserves plugin-owned
+entries.
 
 ## Update And Verify
 
@@ -82,20 +71,14 @@ warning rather than failing when the CLI is unavailable or misconfigured.
 Start a fresh agent session after changing links so injected skill metadata is
 reloaded.
 
-## Boundaries And Blockers
+## Troubleshooting
 
 Keep `.agents/` limited to `skills/`. Source checkouts, generated catalogs,
 temporary schemas, and tool output belong to their respective owners.
 
-Stop and report the exact path when:
+Inspect the affected path or plugin diagnostic when verification reports:
 
 - a KidItem-owned source lacks `SKILL.md`;
 - a real file or directory occupies a managed discovery name;
 - a link this command owns points somewhere unexpected; or
 - the Development plugin reports an unhealthy managed runtime.
-
-## Final Report
-
-Report the project-local skills, Development plugin health when relevant,
-verification commands and exit codes, and whether a fresh agent session is
-needed.
