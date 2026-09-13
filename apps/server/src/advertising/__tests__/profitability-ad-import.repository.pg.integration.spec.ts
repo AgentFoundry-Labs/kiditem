@@ -702,12 +702,19 @@ describe('Advertising profitability source owner (PostgreSQL)', () => {
     expect(replacement.attemptId).not.toBe(expired.attemptId);
     await expect(prisma.sourceImportRun.findUnique({ where: { id: expired.attemptId } }))
       .resolves.toMatchObject({ status: 'failed', errorCode: 'ATTEMPT_EXPIRED' });
-    await expect(prisma.alert.findFirst({
+    const alert = await prisma.alert.findFirst({
       where: {
         organizationId: TEST_ORGANIZATION_ID,
         dedupeKey: 'source:coupang-ad-profitability',
       },
-    })).resolves.toMatchObject({ attemptId: expired.attemptId, status: 'OPEN' });
+    });
+    expect(alert).toMatchObject({
+      attemptId: expired.attemptId,
+      status: 'OPEN',
+      message: '광고 수익성 수집이 결과를 저장하기 전에 만료되었습니다. 다시 수집해주세요.',
+    });
+    // The code travels in the attempt's `errorCode`; the line the operator reads is a sentence.
+    expect(alert?.message).not.toMatch(/^[A-Z][A-Z0-9_]+:/);
   });
 
   it('replays complete and failed terminal commands idempotently', async () => {

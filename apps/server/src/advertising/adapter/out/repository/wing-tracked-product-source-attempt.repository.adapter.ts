@@ -295,7 +295,7 @@ export class WingTrackedProductSourceAttemptRepositoryAdapter
       sourceType: WING_TRACKED_PRODUCTS_SOURCE_TYPE,
       attemptId: attempt.id,
       title: 'Coupang Wing 추적상품 수집 만료',
-      message: 'ATTEMPT_EXPIRED: Tracked Wing collection expired before publication.',
+      message: 'Wing 추적상품 수집이 결과를 저장하기 전에 만료되었습니다. 다시 수집해주세요.',
       href: '/sourcing-ai/product-tracking',
     });
   }

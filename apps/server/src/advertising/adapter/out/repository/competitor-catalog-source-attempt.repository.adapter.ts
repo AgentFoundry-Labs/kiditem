@@ -367,7 +367,7 @@ export class CompetitorCatalogSourceAttemptRepositoryAdapter
       sourceType: COMPETITOR_CATALOG_SOURCE_TYPE,
       attemptId: attempt.id,
       title: '쿠팡 경쟁 판매자 수집 만료',
-      message: 'ATTEMPT_EXPIRED: Competitor catalog collection expired before publication.',
+      message: '경쟁 판매자 수집이 결과를 저장하기 전에 만료되었습니다. 다시 수집해주세요.',
       href: '/sourcing-ai/competitor-analysis',
     });
   }

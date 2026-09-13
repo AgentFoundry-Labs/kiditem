@@ -898,7 +898,7 @@ export class ProfitabilityAdImportRepositoryAdapter
       sourceType: PROFITABILITY_SOURCE_TYPE,
       attemptId: attempt.id,
       title: 'Coupang 광고 수익성 수집 만료',
-      message: 'ATTEMPT_EXPIRED: Advertising profitability collection expired before publication.',
+      message: '광고 수익성 수집이 결과를 저장하기 전에 만료되었습니다. 다시 수집해주세요.',
       href: '/ad-ops',
     });
   }

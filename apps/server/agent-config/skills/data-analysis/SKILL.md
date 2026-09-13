@@ -13,7 +13,7 @@ description: >
 
 ```sql
 -- 상품별 현재 ABC/기여이익과 물리 재고
-SELECT mp.id, mp.name, mp.abc_grade, mp.health_score,
+SELECT mp.id, mp.name, mp.abc_grade,
        ev.weighted_contribution_profit,
        sis.current_stock AS available_stock
 FROM master_products mp
