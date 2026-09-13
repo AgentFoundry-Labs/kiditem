@@ -5,13 +5,14 @@
 // origin, templated path, and query parameter names; document and link counts;
 // detail-link patterns; and embedded-state key paths with value types. Query
 // values, fragments, titles, page text, cookies, and embedded values never
-// enter it. Each run writes one owner-only JSON file into a private task
-// directory under the OS temp directory and prints only that file's path.
+// enter it, and names that do not read as words are replaced (see isWordLike).
+// Each run writes one JSON file into a private task directory under the OS temp
+// directory, owner-only on POSIX, and prints only that file's path.
 import { randomBytes } from 'node:crypto';
-import { mkdtempSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { lstatSync, mkdtempSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { basename, dirname, join } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const OBSERVATION_CONTRACT = 'magic-scraper/cdp-page-observation@1';
@@ -49,10 +50,14 @@ const VALUE_TYPES = new Set([
   'unreadable',
   'unparseable',
 ]);
-// Identifier-like names are schema. Anything else (IDs, emails, tokens, text,
-// query arguments) is data and collapses to `*` or `:id`.
-const SAFE_NAME = /^@?[A-Za-z_$][\w$-]{0,39}$/;
-const SAFE_PATH_SEGMENT = /^[A-Za-z][A-Za-z_-]{0,31}$/;
+// Keys and path segments that read as words are kept as schema; everything else
+// collapses to `*` or `:id`. This is a heuristic, not a secret detector: a
+// single-case token or slug within these limits still passes.
+const MAX_NAME_LENGTH = 32;
+const MAX_CASE_SWITCHES = 2;
+const WORD_KEY = /^@?[A-Za-z_$][A-Za-z_$-]*\d{0,3}$/;
+const WORD_SEGMENT = /^[A-Za-z][A-Za-z_-]*$/;
+const CASE_SWITCH = /[a-z](?=[A-Z])/g;
 const PAGE_EXTENSION = /\.(?:s?html?|php|jsp|aspx?|do|action|json|xml)$/i;
 const DETAIL_PATH = /\/(?:products?|items?|details?|offers?|listing|sku)(?:[/.]|$)/i;
 const DETAIL_QUERY_KEYS = new Set(['id', 'itemid', 'productid', 'offerid', 'sku']);
@@ -64,13 +69,16 @@ const USAGE = `Usage:
 
 Connects to an already-running local Chrome CDP endpoint, opens the URL in its
 first page, and writes a redacted page-structure observation
-(${OBSERVATION_CONTRACT}) as an owner-only file in a private
-${TASK_DIR_PREFIX}* directory under the OS temp directory. Prints only the file
-path. Playwright resolves from the current workspace, then from this skill's
-checkout.
+(${OBSERVATION_CONTRACT}) into a private ${TASK_DIR_PREFIX}* directory under
+the OS temp directory (owner-only on POSIX). Prints only the file path.
+Playwright resolves from the current workspace, then from this skill's checkout.
+ID redaction is heuristic, so review the file before sharing it.
 
   --out-dir <dir>  Write into a task directory from an earlier run.
-  --cleanup <dir>  Delete a task directory when the task is finished.`;
+  --cleanup <dir>  Delete a task directory when the task is finished.
+
+Both accept only a ${TASK_DIR_PREFIX}* directory directly under that temp
+directory, never a symlink.`;
 
 function parseHttpUrl(value) {
   try {
@@ -138,9 +146,15 @@ function loadPlaywright(cwd = process.cwd(), modulePath = fileURLToPath(import.m
 }
 
 // Runs inside the page through Playwright, so it must stay self-contained.
-// Values never leave the page: text comes back as lengths and embedded state as
-// key paths with value types. buildObservation() still treats the result as
-// untrusted and redacts it before anything is written.
+function scrollPage(ratio, scope = globalThis) {
+  scope.scrollTo(0, scope.document.documentElement.scrollHeight * ratio);
+}
+
+// Runs inside the page through Playwright, so it must stay self-contained.
+// Text and embedded values stay in the page: text returns as lengths and
+// embedded state as key paths with value types. The page URL and link hrefs
+// return in full, so buildObservation() treats the whole result as untrusted and
+// redacts it before anything is written.
 export function collectPageSnapshot(limits, scope = globalThis) {
   const describe = (root) => {
     const entries = [];
@@ -226,10 +240,17 @@ export function collectPageSnapshot(limits, scope = globalThis) {
   };
 }
 
+// A word-like name fits the pattern, stays within MAX_NAME_LENGTH, and has at
+// most MAX_CASE_SWITCHES lower-to-upper case changes, as camelCase words do.
+function isWordLike(text, pattern) {
+  return typeof text === 'string'
+    && text.length <= MAX_NAME_LENGTH
+    && pattern.test(text)
+    && (text.match(CASE_SWITCH)?.length ?? 0) <= MAX_CASE_SWITCHES;
+}
+
 function safeName(name) {
-  return typeof name === 'string' && SAFE_NAME.test(name) && name.replace(/\D/g, '').length <= 4
-    ? name
-    : '*';
+  return isWordLike(name, WORD_KEY) ? name : '*';
 }
 
 function describeUrl(url) {
@@ -238,7 +259,7 @@ function describeUrl(url) {
     .map((segment) => {
       const extension = PAGE_EXTENSION.exec(segment)?.[0] ?? '';
       const stem = segment.slice(0, segment.length - extension.length);
-      return segment === '' || SAFE_PATH_SEGMENT.test(stem) ? segment : `:id${extension}`;
+      return segment === '' || isWordLike(stem, WORD_SEGMENT) ? segment : `:id${extension}`;
     })
     .join('/');
   const queryKeys = [...new Set([...url.searchParams.keys()].map(safeName))].sort();
@@ -327,11 +348,15 @@ export function buildObservation(snapshot, observedAt = new Date()) {
 }
 
 function resolveTaskDir(dir, root) {
+  // resolve() also drops a trailing slash, which would make lstat follow a symlink.
+  const candidate = resolve(dir);
   let resolved = '';
   let stats;
   try {
-    resolved = realpathSync(dir);
-    stats = statSync(resolved);
+    if (!lstatSync(candidate).isSymbolicLink()) {
+      resolved = realpathSync(candidate);
+      stats = statSync(resolved);
+    }
   } catch {
     // Rejected below like any other directory outside the contract.
   }
@@ -343,7 +368,9 @@ function resolveTaskDir(dir, root) {
     || !basename(resolved).startsWith(TASK_DIR_PREFIX)
     || !ownerOnly
   ) {
-    throw new Error(`Task directory must be a private ${TASK_DIR_PREFIX}* directory directly under ${root}`);
+    throw new Error(
+      `Task directory must be a private ${TASK_DIR_PREFIX}* directory directly under ${root}, not a symlink`,
+    );
   }
   return resolved;
 }
@@ -358,6 +385,15 @@ function writeObservation(observation, root, outDir) {
     throw error;
   }
   return file;
+}
+
+// Page scripts can shape evaluation errors, so a failure reports only the stage.
+async function evaluateStage(page, stage, pageFunction, arg) {
+  try {
+    return await page.evaluate(pageFunction, arg);
+  } catch {
+    throw new Error(`page.evaluate failed during ${stage}`);
+  }
 }
 
 function redactErrorMessage(error) {
@@ -398,13 +434,10 @@ async function main(argv) {
     await page.goto(args.url, { waitUntil: 'domcontentloaded', timeout: 45_000 });
     await page.waitForLoadState('networkidle', { timeout: 12_000 }).catch(() => undefined);
     for (let index = 1; index <= args.scrolls; index += 1) {
-      await page.evaluate(
-        (ratio, scope = globalThis) => scope.scrollTo(0, scope.document.documentElement.scrollHeight * ratio),
-        index / args.scrolls,
-      );
+      await evaluateStage(page, 'scroll', scrollPage, index / args.scrolls);
       await page.waitForTimeout(700);
     }
-    snapshot = await page.evaluate(collectPageSnapshot, PAGE_LIMITS);
+    snapshot = await evaluateStage(page, 'snapshot', collectPageSnapshot, PAGE_LIMITS);
   } finally {
     await browser.close().catch(() => undefined);
   }

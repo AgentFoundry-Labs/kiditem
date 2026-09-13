@@ -2,7 +2,7 @@
 
 // Stands in for Playwright so the probe runs end to end over the synthetic page
 // without a browser. Page functions receive the synthetic scope as globalThis.
-const { createSyntheticPageScope } = require('./synthetic-page.cjs');
+const { SECRET, createSyntheticPageScope } = require('./synthetic-page.cjs');
 
 exports.chromium = {
   async connectOverCDP() {
@@ -20,6 +20,10 @@ exports.chromium = {
       async waitForLoadState() {},
       async waitForTimeout() {},
       async evaluate(pageFunction, arg) {
+        if (new URL(scope.location.href).pathname === '/page-script-error') {
+          // A page script chooses the text of errors thrown inside page.evaluate.
+          throw new Error(`page.evaluate: Error: ${SECRET}-PAGE-SCRIPT at ${scope.location.href}`);
+        }
         const result = await pageFunction(arg, scope);
         return result === undefined ? undefined : JSON.parse(JSON.stringify(result));
       },

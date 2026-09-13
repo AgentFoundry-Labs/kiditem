@@ -37,6 +37,8 @@ const unreachableEndpoint = 'http://127.0.0.1:9';
 const pageUrl = `https://shop.example.test/products/${SECRET}-5d41402a?page=2&token=${SECRET}-ARGUMENT`;
 const observedAt = new Date('2026-01-01T00:00:00.000Z');
 const taskDirRefusal = 'Task directory must be a private magic-scraper-probe-* directory';
+// Windows has no POSIX modes, and creating symlinks there needs extra privileges.
+const posix = process.platform !== 'win32';
 
 const roots: string[] = [];
 
@@ -62,10 +64,12 @@ function sandbox() {
 }
 
 function runProbe(args: string[], options: { cwd: string; tempRoot: string; script?: string }) {
-  return spawnSync(process.execPath, [options.script ?? probeScript, ...args], {
+  // A zero umask makes the observed modes exactly the ones the probe requests.
+  const clearUmask = 'data:text/javascript,process.umask(0)';
+  return spawnSync(process.execPath, ['--import', clearUmask, options.script ?? probeScript, ...args], {
     cwd: options.cwd,
     encoding: 'utf8',
-    env: { ...process.env, TMPDIR: options.tempRoot },
+    env: { ...process.env, TMPDIR: options.tempRoot, TMP: options.tempRoot, TEMP: options.tempRoot },
   });
 }
 
@@ -99,7 +103,8 @@ describe('magic-scraper CDP page probe', () => {
             '$.offerDetail': 'object(3)',
             '$.offerDetail.imageList': 'array(1)',
             '$.offerDetail.imageList[]': 'object(1)',
-            '$.offerDetail.imageList[].fullPathImageURI': 'string',
+            // fullPathImageURI has three case switches, so it collapses like a token.
+            '$.offerDetail.imageList[].*': 'string',
             '$.offerDetail.offerId': 'number',
             '$.offerDetail.subject': 'string',
             '$.tradeModel': 'object(2)',
@@ -223,6 +228,74 @@ describe('magic-scraper CDP page probe', () => {
     });
   });
 
+  it('keeps only word-like embedded-state keys', () => {
+    const kept = ['offerId', '@type', '__typename', 'leafCategoryName', 'sha256', 'k'.repeat(32)];
+    const replaced = [
+      'V1StGXR8_Z5jdHi6B-myT', // nanoid
+      'v1Token', // digit before letters
+      'offer1234', // four trailing digits
+      'offer12345',
+      'mainImageListUrl', // three case switches
+      'k'.repeat(33),
+      'k'.repeat(41),
+    ];
+    const keys = [...kept, ...replaced];
+
+    const observation = buildObservation(
+      {
+        embedded: {
+          init_data: {
+            entries: [
+              { path: [], type: 'object', size: keys.length },
+              ...keys.map((key) => ({ path: [key], type: 'string' })),
+            ],
+          },
+        },
+      },
+      observedAt,
+    );
+
+    expect(observation.embedded.init_data).toEqual({
+      paths: {
+        $: `object(${keys.length})`,
+        ...Object.fromEntries(kept.map((key) => [`$.${key}`, 'string'])),
+        '$.*': 'string',
+      },
+      truncated: false,
+    });
+  });
+
+  it('keeps only word-like path segments', () => {
+    const kept = ['products', 'best-sellers', 'goods_view', 'goodsDetailView', 'ProductDetail.aspx', 's'.repeat(32)];
+    const replaced = [
+      'KxPqRmZtWvNbLcDsQwEr', // letters-only token
+      'mainImageListView', // three case switches
+      'v2',
+      '@shop',
+      's'.repeat(33),
+    ];
+
+    const observation = buildObservation(
+      { href: `https://shop.example.test/${[...kept, ...replaced].join('/')}` },
+      observedAt,
+    );
+
+    expect(observation.page).toEqual({
+      origin: 'https://shop.example.test',
+      path: `/${kept.join('/')}/${replaced.map(() => ':id').join('/')}`,
+      query_keys: [],
+    });
+  });
+
+  it('keeps only word-like query keys, including bare ones', () => {
+    const observation = buildObservation(
+      { href: 'https://shop.example.test/search?pageSize=20&preview&AbCdEfGhIjKlMnOpQrSt' },
+      observedAt,
+    );
+
+    expect(observation.page?.query_keys).toEqual(['*', 'pageSize', 'preview']);
+  });
+
   it('writes an owner-only file in a private temp task directory and prints only its path', () => {
     const { tempRoot, workspace } = sandbox();
 
@@ -235,8 +308,10 @@ describe('magic-scraper CDP page probe', () => {
     const taskDir = dirname(file);
     expect(dirname(taskDir)).toBe(tempRoot);
     expect(basename(taskDir)).toMatch(/^magic-scraper-probe-/);
-    expect(statSync(taskDir).mode & 0o777).toBe(0o700);
-    expect(statSync(file).mode & 0o777).toBe(0o600);
+    if (posix) {
+      expect(statSync(taskDir).mode & 0o777).toBe(0o700);
+      expect(statSync(file).mode & 0o777).toBe(0o600);
+    }
     const written = readFileSync(file, 'utf8');
     expect(written).not.toContain(SECRET);
     expect(JSON.parse(written)).toMatchObject({
@@ -257,19 +332,27 @@ describe('magic-scraper CDP page probe', () => {
     expect(existsSync(taskDir)).toBe(false);
   });
 
-  it('refuses task directories that are shared, foreign, or outside the temp root', () => {
+  it('refuses task directories that are symlinks, shared, foreign, or outside the temp root', () => {
     const { root, tempRoot, workspace } = sandbox();
-    const shared = join(tempRoot, 'magic-scraper-probe-shared');
+    const valid = join(tempRoot, 'magic-scraper-probe-valid');
     const foreign = join(tempRoot, 'other-task');
     const outside = join(root, 'magic-scraper-probe-outside');
-    const redirected = join(tempRoot, 'magic-scraper-probe-link');
-    mkdirSync(shared);
-    chmodSync(shared, 0o755);
+    mkdirSync(valid, { mode: 0o700 });
     mkdirSync(foreign, { mode: 0o700 });
     mkdirSync(outside, { mode: 0o700 });
-    symlinkSync(outside, redirected);
+    const refused = [foreign, outside];
+    if (posix) {
+      const shared = join(tempRoot, 'magic-scraper-probe-shared');
+      const linkToValid = join(root, 'link-to-valid');
+      const linkToOutside = join(tempRoot, 'magic-scraper-probe-link');
+      mkdirSync(shared);
+      chmodSync(shared, 0o755);
+      symlinkSync(valid, linkToValid);
+      symlinkSync(outside, linkToOutside);
+      refused.push(shared, linkToValid, `${linkToValid}/`, linkToOutside);
+    }
 
-    for (const dir of [shared, foreign, outside, redirected]) {
+    for (const dir of refused) {
       const probe = runProbe([pageUrl, '--endpoint', unreachableEndpoint, '--out-dir', dir], { cwd: workspace, tempRoot });
       expect(probe.status, dir).toBe(1);
       expect(probe.stdout, dir).toBe('');
@@ -280,12 +363,17 @@ describe('magic-scraper CDP page probe', () => {
       expect(cleanup.stderr, dir).toContain(taskDirRefusal);
       expect(existsSync(dir), dir).toBe(true);
     }
-    expect(readdirSync(tempRoot).sort()).toEqual([
-      'magic-scraper-probe-link',
-      'magic-scraper-probe-shared',
-      'other-task',
-    ]);
+    expect(readdirSync(valid)).toEqual([]);
     expect(readdirSync(outside)).toEqual([]);
+    expect(readdirSync(tempRoot).filter((name) => name.startsWith('magic-scraper-probe-')).sort()).toEqual(
+      posix
+        ? ['magic-scraper-probe-link', 'magic-scraper-probe-shared', 'magic-scraper-probe-valid']
+        : ['magic-scraper-probe-valid'],
+    );
+
+    const accepted = runProbe(['--cleanup', valid], { cwd: workspace, tempRoot });
+    expect(accepted.status).toBe(0);
+    expect(existsSync(valid)).toBe(false);
   });
 
   it('keeps URLs out of failure output and leaves no task directory behind', () => {
@@ -304,21 +392,43 @@ describe('magic-scraper CDP page probe', () => {
     expect(readdirSync(tempRoot)).toEqual([]);
   });
 
-  it('resolves Playwright from the skill checkout when started elsewhere through a discovery link', () => {
+  it.each([
+    ['snapshot', '0'],
+    ['scroll', '1'],
+  ])('reports only the stage when page evaluation fails during the %s', (stage, scrolls) => {
+    const { tempRoot, workspace } = sandbox();
+
+    const probe = runProbe(
+      ['https://shop.example.test/page-script-error', '--endpoint', unreachableEndpoint, '--scrolls', scrolls],
+      { cwd: workspace, tempRoot },
+    );
+
+    expect(probe.status).toBe(1);
+    expect(probe.stdout).toBe('');
+    expect(probe.stderr).toBe(`probe-cdp-page failed: page.evaluate failed during ${stage}\n`);
+    expect(readdirSync(tempRoot)).toEqual([]);
+  });
+
+  it('resolves Playwright from the skill checkout when run from another directory', () => {
     const { root, tempRoot, workspace } = sandbox();
-    const skillScripts = join(workspace, 'skills', 'magic-scraper', 'scripts');
-    const discovery = join(workspace, '.agents', 'skills');
+    const skillDir = join(workspace, 'skills', 'magic-scraper');
     const elsewhere = join(root, 'elsewhere');
-    mkdirSync(skillScripts, { recursive: true });
-    mkdirSync(discovery, { recursive: true });
+    mkdirSync(join(skillDir, 'scripts'), { recursive: true });
     mkdirSync(elsewhere);
-    cpSync(probeScript, join(skillScripts, 'probe-cdp-page.mjs'));
-    symlinkSync('../../skills/magic-scraper', join(discovery, 'magic-scraper'));
+    cpSync(probeScript, join(skillDir, 'scripts', 'probe-cdp-page.mjs'));
+    let skillEntry = skillDir;
+    if (posix) {
+      // Agents start the probe through a skill discovery link.
+      const discovery = join(workspace, '.agents', 'skills');
+      mkdirSync(discovery, { recursive: true });
+      symlinkSync('../../skills/magic-scraper', join(discovery, 'magic-scraper'));
+      skillEntry = join(discovery, 'magic-scraper');
+    }
 
     const probe = runProbe([pageUrl, '--endpoint', unreachableEndpoint, '--scrolls', '0'], {
       cwd: elsewhere,
       tempRoot,
-      script: join(discovery, 'magic-scraper', 'scripts', 'probe-cdp-page.mjs'),
+      script: join(skillEntry, 'scripts', 'probe-cdp-page.mjs'),
     });
 
     expect(probe.stderr).toBe('');
