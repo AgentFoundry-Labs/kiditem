@@ -91,7 +91,6 @@ describe('direct channel inventory contracts', () => {
       abcEvaluation: null,
       abc: UNCLASSIFIED_ABC,
       contribution: null,
-      profitTag: null,
       adBudgetLimit: null,
       isActive: true,
       createdAt: OBSERVED_AT,

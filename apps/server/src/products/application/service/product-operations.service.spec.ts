@@ -662,7 +662,6 @@ function rawProduct() {
     imageUrls: [],
     abcGrade: null,
     abcEvaluation: null,
-    profitTag: null,
     adBudgetLimit: null,
     isActive: true,
     createdAt: new Date('2026-07-17T00:00:00.000Z'),

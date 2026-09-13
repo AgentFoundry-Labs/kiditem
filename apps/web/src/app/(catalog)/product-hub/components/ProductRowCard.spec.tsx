@@ -175,7 +175,6 @@ function product(): MasterProductOperationsListItem {
       cumulativeLossImpact: null,
       metricCompleteness: { sales: true, operatingProfit: true },
     },
-    profitTag: null,
     adBudgetLimit: null,
     isActive: true,
     isSelling: true,

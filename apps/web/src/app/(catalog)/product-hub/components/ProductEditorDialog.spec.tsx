@@ -30,7 +30,6 @@ describe('<ProductEditorDialog>', () => {
       brand: null,
       tags: [],
       imageUrls: [],
-      profitTag: null,
       adBudgetLimit: null,
       isActive: true,
     }));
@@ -41,6 +40,11 @@ describe('<ProductEditorDialog>', () => {
   it('does not render or submit a manual ABC grade', () => {
     renderDialog({ onOpenChange: vi.fn(), onSaved: vi.fn() });
     expect(screen.queryByLabelText('ABC 등급')).not.toBeInTheDocument();
+  });
+
+  it('does not render a manual profit tag', () => {
+    renderDialog({ onOpenChange: vi.fn(), onSaved: vi.fn() });
+    expect(screen.queryByLabelText('손익 태그')).not.toBeInTheDocument();
   });
 
   it('shows the channel product number without exposing the internal CP code', () => {
@@ -63,7 +67,6 @@ describe('<ProductEditorDialog>', () => {
         imageUrls: [],
         displayImageUrls: ['https://cdn.example.com/channel.jpg'],
         abcGrade: null,
-        profitTag: null,
         adBudgetLimit: null,
         isActive: true,
       },
@@ -133,7 +136,6 @@ function sellpiaInternalProduct(): MasterProductOperationsMetadata {
     displayImageUrls: [],
     abcGrade: null,
     abcEvaluation: null,
-    profitTag: null,
     adBudgetLimit: null,
     isActive: true,
   };

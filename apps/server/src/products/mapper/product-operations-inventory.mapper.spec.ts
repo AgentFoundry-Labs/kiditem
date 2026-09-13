@@ -94,7 +94,6 @@ function rawListItem(): ProductOperationsRepositoryListItem {
     abcGrade: null,
     abcEvaluation: null,
     abcCreatedAt: new Date('2026-07-17T00:00:00.000Z'),
-    profitTag: null,
     adBudgetLimit: null,
     isActive: true,
     isSelling: true,
