@@ -87,11 +87,12 @@ normal deploy refuses any match. An approved cutover is explicit:
 npm run deploy:office:local -- --ref origin/release/office --cutover --confirm APPLY_SCHEMA_DATA
 ```
 
-The deployer stops writers, runs exact-SHA pre-schema migrations, applies
-Prisma with `--accept-data-loss`, runs exact-SHA post-schema migrations, and
-then starts the candidate. The runtime manifest records the changed paths and
-approval. `deploy:office:rollback` refuses an immediate runtime-only rollback
-from that cutover.
+The deployer stops writers, writes a custom-format `pg_dump` to
+`C:\ProgramData\KidItem\deployments\database-dumps`, runs exact-SHA pre-schema
+migrations, applies Prisma with `--accept-data-loss`, runs exact-SHA
+post-schema migrations, and then starts the candidate. The runtime manifest
+records the changed paths and approval. `deploy:office:rollback` refuses an
+immediate runtime-only rollback from that cutover.
 
 ### Data-loss policy
 

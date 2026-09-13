@@ -202,6 +202,75 @@ test('schema and data surfaces fail closed without explicit cutover approval', (
   assert.match(script, /Runtime-only rollback is blocked immediately after a schema\/data cutover/);
 });
 
+test('schema/data cutover dumps the database after writers stop and before any database change', () => {
+  const script = read('deploy/office/apply-deployment.ps1');
+  const install = script.slice(script.indexOf('function Install-Deployment {'), script.indexOf('function Show-OfficeStatus {'));
+  const cutoverStart = install.indexOf("if ($DeploymentMode -eq 'Cutover') {");
+  const cutoverEnd = install.indexOf('Invoke-Checked docker @script:ComposeArgs up --detach --no-build --force-recreate', cutoverStart);
+  assert.ok(cutoverStart > 0 && cutoverEnd > cutoverStart, 'Install-Deployment keeps one schema/data cutover branch');
+  const cutover = install.slice(cutoverStart, cutoverEnd);
+
+  assert.equal(script.match(/New-CutoverDatabaseDump -GitSha/g)?.length, 1, 'the dump has one call site, inside the cutover branch');
+  let previous = -1;
+  for (const step of [
+    'Stop-GatewayScheduledTask',
+    'Invoke-Checked docker @script:ComposeArgs stop api worker web nginx',
+    "Wait-ForContainerHealthy 'kiditem-postgres'",
+    '$cutoverDatabaseDumpPath = New-CutoverDatabaseDump -GitSha $manifest.gitSha',
+    '$cutoverDatabaseWorkStarted = $true',
+    'Invoke-ExactShaDataMigrations -WorktreePath $SourceWorktree -Phase pre-schema',
+    'npx prisma db push --accept-data-loss',
+    'Invoke-ExactShaDataMigrations -WorktreePath $SourceWorktree -Phase post-schema',
+  ]) {
+    const position = cutover.indexOf(step);
+    assert.ok(position > previous, `cutover branch must run "${step}" after the previous step`);
+    previous = position;
+  }
+
+  assert.doesNotMatch(cutover, /\btry\b|\bcatch\b/, 'a dump failure must reach the fail-closed cutover handler');
+  assert.match(
+    install,
+    /Stop-OfficeRuntimeFailClosed 'schema\/data cutover candidate failed'\s+if \(-not \$cutoverDatabaseWorkStarted\) \{\s+throw [^\n]*stopped before database work began/,
+  );
+});
+
+test('cutover dump uses container credentials, counts only verified custom-format archives, and prunes to three after success', () => {
+  const script = read('deploy/office/apply-deployment.ps1');
+  const dumpStart = script.indexOf('function New-CutoverDatabaseDump {');
+  assert.ok(dumpStart > 0, 'New-CutoverDatabaseDump must exist');
+  const dump = script.slice(dumpStart, script.indexOf('\nfunction ', dumpStart));
+
+  assert.match(script, /^\$script:DatabaseDumpsRoot = Join-Path \$script:DeploymentsRoot 'database-dumps'$/m);
+  assert.match(script, /^\$script:DatabaseDumpRetentionCount = 3$/m);
+  assert.match(dump, /'kiditem-\{0\}-\{1\}\.dump' -f \$timestamp, \$GitSha\.Substring\(0, 12\)/);
+  assert.match(dump, /\$partialPath = "\$dumpPath\.partial"/);
+  assert.match(
+    dump,
+    /docker exec kiditem-postgres sh -c \('PGUSER=\$POSTGRES_USER PGDATABASE=\$POSTGRES_DB PGPASSWORD=\$POSTGRES_PASSWORD pg_dump --format=custom --no-password /,
+  );
+  assert.doesNotMatch(dump, /Get-OfficeEnvValue|Get-ProtectedServerEnvValue|DATABASE_URL/);
+
+  let previous = -1;
+  for (const step of [
+    'Invoke-Checked docker exec kiditem-postgres sh -c',
+    'Invoke-Checked docker cp',
+    "-cne 'PGDMP'",
+    'Move-Item -LiteralPath $partialPath -Destination $dumpPath',
+    'Remove-Item -LiteralPath $partialPath -Force -ErrorAction SilentlyContinue',
+    'foreach ($staleDump in @($olderDumps | Select-Object -Skip ($script:DatabaseDumpRetentionCount - 1)))',
+    'Remove-Item -LiteralPath $staleDump.FullName -Force',
+  ]) {
+    const position = dump.indexOf(step);
+    assert.ok(position > previous, `cutover dump must run "${step}" after the previous step`);
+    previous = position;
+  }
+  assert.doesNotMatch(dump.slice(0, dump.indexOf('foreach ($staleDump in')), /\bcatch\b/, 'a failed dump must never reach pruning');
+  assert.ok(
+    dump.includes(String.raw`$_.Name -match '^kiditem-\d{8}T\d{6}Z-[0-9a-f]{12}\.dump$' -and $_.Name -ne $dumpName`),
+    'retention counts only completed dumps and never prunes the dump just written',
+  );
+});
+
 test('controlled recreate preserves runtime evidence and automatically restores app-only failures', () => {
   const script = read('deploy/office/apply-deployment.ps1');
   assert.match(script, /runtime-snapshot\.json/);

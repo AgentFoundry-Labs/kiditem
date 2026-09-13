@@ -32,6 +32,8 @@ $script:DeployEnvPath = Join-Path $script:OfficeRoot '.env.office.deploy'
 $script:DeploymentsRoot = Join-Path $script:OfficeRoot 'deployments'
 $script:CurrentManifestPath = Join-Path $script:DeploymentsRoot 'current.json'
 $script:PreviousManifestPath = Join-Path $script:DeploymentsRoot 'previous.json'
+$script:DatabaseDumpsRoot = Join-Path $script:DeploymentsRoot 'database-dumps'
+$script:DatabaseDumpRetentionCount = 3
 $script:ComposeArgs = @()
 # Office Gateway deliberately uses the invoking operator's existing Windows
 # profile so the bundled CLIs see that profile's approved Codex/Claude login.
@@ -1988,6 +1990,56 @@ function Get-ProtectedServerEnvValue {
   throw "Protected Office server env file is missing $Name."
 }
 
+function New-CutoverDatabaseDump {
+  param([Parameter(Mandatory = $true)][string]$GitSha)
+
+  # pg_dump reads its credentials from the postgres container's own Compose
+  # env; the host passes none. A dump counts toward retention only after it
+  # passes every check and leaves its .partial name, and only then are older
+  # dumps pruned.
+  New-Item -ItemType Directory -Path $script:DatabaseDumpsRoot -Force | Out-Null
+  $timestamp = [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssZ', [System.Globalization.CultureInfo]::InvariantCulture)
+  $dumpName = 'kiditem-{0}-{1}.dump' -f $timestamp, $GitSha.Substring(0, 12)
+  $dumpPath = Join-Path $script:DatabaseDumpsRoot $dumpName
+  $partialPath = "$dumpPath.partial"
+  $containerDumpPath = '/tmp/kiditem-cutover.dump'
+  Write-Host 'Writing the pre-cutover Office database dump.'
+  try {
+    Invoke-Checked docker exec kiditem-postgres sh -c ('PGUSER=$POSTGRES_USER PGDATABASE=$POSTGRES_DB PGPASSWORD=$POSTGRES_PASSWORD pg_dump --format=custom --no-password --file={0}' -f $containerDumpPath)
+    Invoke-Checked docker cp "kiditem-postgres:$containerDumpPath" $partialPath
+    $header = New-Object byte[] 5
+    $stream = [System.IO.File]::OpenRead($partialPath)
+    try { $headerLength = $stream.Read($header, 0, $header.Length) }
+    finally { $stream.Dispose() }
+    if ($headerLength -ne $header.Length -or [System.Text.Encoding]::ASCII.GetString($header) -cne 'PGDMP') {
+      throw 'Pre-cutover database dump is not a pg_dump custom-format archive.'
+    }
+    Move-Item -LiteralPath $partialPath -Destination $dumpPath
+  }
+  finally {
+    Remove-Item -LiteralPath $partialPath -Force -ErrorAction SilentlyContinue
+    & docker exec kiditem-postgres rm -f $containerDumpPath | Out-Null
+  }
+  Write-Host "Pre-cutover database dump: $dumpPath"
+
+  # Keep this dump plus the newest older ones. Excluding it by name means host
+  # clock skew can never prune the dump this cutover depends on.
+  $olderDumps = @(
+    Get-ChildItem -LiteralPath $script:DatabaseDumpsRoot -File |
+      Where-Object { $_.Name -match '^kiditem-\d{8}T\d{6}Z-[0-9a-f]{12}\.dump$' -and $_.Name -ne $dumpName } |
+      Sort-Object -Property Name -Descending
+  )
+  foreach ($staleDump in @($olderDumps | Select-Object -Skip ($script:DatabaseDumpRetentionCount - 1))) {
+    try {
+      Remove-Item -LiteralPath $staleDump.FullName -Force
+    }
+    catch {
+      Write-Warning "Could not prune old database dump $($staleDump.FullName); remove it manually. $($_.Exception.Message)"
+    }
+  }
+  return $dumpPath
+}
+
 function Invoke-ExactShaDataMigrations {
   param(
     [Parameter(Mandatory = $true)][string]$WorktreePath,
@@ -2144,6 +2196,8 @@ function Install-Deployment {
   Assert-GatewayArtifact $sourceGatewayArtifact $manifest
   $script:GatewayLauncherSourcePath = $sourceLauncher
   $gatewayReleaseRoot = $null
+  $cutoverDatabaseDumpPath = $null
+  $cutoverDatabaseWorkStarted = $false
 
   New-Item -ItemType Directory -Path $script:OfficeRoot -Force | Out-Null
   New-Item -ItemType Directory -Path $script:DeploymentsRoot -Force | Out-Null
@@ -2189,6 +2243,8 @@ function Install-Deployment {
       Invoke-Checked docker @script:ComposeArgs stop api worker web nginx
       Invoke-Checked docker @script:ComposeArgs up --detach --no-build postgres
       Wait-ForContainerHealthy 'kiditem-postgres'
+      $cutoverDatabaseDumpPath = New-CutoverDatabaseDump -GitSha $manifest.gitSha
+      $cutoverDatabaseWorkStarted = $true
       Invoke-ExactShaDataMigrations -WorktreePath $SourceWorktree -Phase pre-schema -ReleaseVersion $manifest.appVersion
       Invoke-Checked docker @script:ComposeArgs run --rm --no-deps api sh -lc 'cd /app && npx prisma db push --accept-data-loss'
       Invoke-ExactShaDataMigrations -WorktreePath $SourceWorktree -Phase post-schema -ReleaseVersion $manifest.appVersion
@@ -2203,6 +2259,10 @@ function Install-Deployment {
     $deploymentError = $_
     if ($DeploymentMode -eq 'Cutover') {
       Stop-OfficeRuntimeFailClosed 'schema/data cutover candidate failed'
+      if (-not $cutoverDatabaseWorkStarted) {
+        throw [System.InvalidOperationException]::new("Schema/data cutover stopped before database work began; application surfaces stay stopped. Cause: $($deploymentError.Exception.Message)", $deploymentError.Exception)
+      }
+      Write-Warning "Database dump taken before this cutover: $cutoverDatabaseDumpPath"
       throw [System.InvalidOperationException]::new('Schema/data cutover failed after database work began; application surfaces are stopped because runtime-only rollback is unsafe.', $deploymentError.Exception)
     }
     try {
