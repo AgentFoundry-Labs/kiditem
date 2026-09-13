@@ -93,8 +93,13 @@ export function useSellpiaShipmentTrackingSourceOwner() {
   ) => {
     if (attempt.state !== 'COMPLETE') return null;
     const payload = await readSellpiaShipmentTrackingSource(attempt.attemptId);
-    if (payload.range.start !== attempt.plan.startDate || payload.range.end !== attempt.plan.endDate) {
-      throw new Error('셀피아 송장 원본의 조회 기간이 owner 계획과 일치하지 않습니다.');
+    if (payload.range.start < attempt.plan.startDate || payload.range.end > attempt.plan.endDate
+      || payload.range.start > payload.range.end) {
+      throw new Error('셀피아 송장 원본의 조회 기간이 요청 범위를 벗어났습니다.');
+    }
+    if ((payload.confirmedRange?.start ?? null) !== (attempt.coverageStartDate ?? null)
+      || (payload.confirmedRange?.end ?? null) !== (attempt.coverageEndDate ?? null)) {
+      throw new Error('셀피아 송장 원본의 확인 기간이 저장된 수집 근거와 일치하지 않습니다.');
     }
     return sourcePayloadRows(payload);
   }, []);

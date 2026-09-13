@@ -6,6 +6,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { businessDateKey } from '../../../../common/kst';
 import type {
   AdTargetDailyMetrics,
   ChannelTargetDailyRepositoryPort,
@@ -264,7 +265,7 @@ export class ChannelTargetDailyRepositoryAdapter
         input.organizationId,
         input.channelAccountId,
         input.channel,
-        input.businessDate.toISOString().slice(0, 10),
+        businessDateKey(input.businessDate),
         campaignIdentity,
       ].join(':');
       await tx.$queryRaw(

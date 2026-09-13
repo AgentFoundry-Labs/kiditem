@@ -11,6 +11,7 @@ import {
   snapshotBasisStatus,
 } from '@kiditem/shared/dashboard';
 import { cn } from '@/lib/utils';
+import { shiftBusinessDateKey } from '@kiditem/shared/common';
 import { InfoDisclosure, type DisclosureTone } from '@/components/ui/InfoDisclosure';
 
 export type {
@@ -114,8 +115,7 @@ function sourceText(sources: string[]): string {
 function dateSpansText(dates: readonly string[], targetDays: number): string {
   if (dates.length === 0) return '없음';
   if (targetDays > 0 && dates.length === targetDays) return `${targetDays}일 전체`;
-  const dayAfter = (date: string) =>
-    new Date(Date.parse(`${date}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
+  const dayAfter = (date: string) => shiftBusinessDateKey(date, 1);
   // A run of two reads better as two dates than as a range, so only three or
   // more collapse. Below that a span costs a reader a subtraction and saves
   // nothing.

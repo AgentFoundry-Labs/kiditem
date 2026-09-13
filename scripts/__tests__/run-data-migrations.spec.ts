@@ -49,12 +49,15 @@ describe("data migration registry", () => {
       "v0.1.31:004_remove_retired_capability_operation_refs",
       "v0.1.31:005_remove_retired_operation_alerts",
       "v0.1.31:002_initialize_absolute_product_abc_formula",
+      "v0.1.31:006_backfill_coupang_direct_transport_receipts",
     ]);
     expect(
       DATA_MIGRATION_IDS.filter((id) =>
         /backfill|normalize|rewrite|repoint|verify/.test(id),
       ),
-    ).toEqual([]);
+    ).toEqual([
+      "v0.1.31:006_backfill_coupang_direct_transport_receipts",
+    ]);
   });
 
   it("registers the current ad campaign and absolute ABC migrations without retired ABC backfills", () => {
@@ -225,6 +228,7 @@ describe("data migration registry", () => {
     ).map(({ id }) => id);
     expect(absolutePostSchema).toEqual([
       "v0.1.31:002_initialize_absolute_product_abc_formula",
+      "v0.1.31:006_backfill_coupang_direct_transport_receipts",
     ]);
   });
 

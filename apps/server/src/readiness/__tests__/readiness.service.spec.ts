@@ -196,7 +196,7 @@ describe('ReadinessService', () => {
     expect(status.checks.some((check) => check.key === 'rocket_sales')).toBe(false);
   });
 
-  it('requires today Sellpia coverage on the first day of a KST month', async () => {
+  it('closes Sellpia readiness at yesterday on the first day of a KST month', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-07-01T01:00:00.000Z'));
 
@@ -227,7 +227,7 @@ describe('ReadinessService', () => {
       },
       sourceImportRun: { findFirst: vi.fn(async () => null) },
       sellpiaSalesDailySnapshot: {
-        // 전월 말까지는 모두 있지만 7월 1일 coverage는 아직 없다.
+        // The rolling window is complete through the final closed business day.
         findMany: vi.fn(async () => priorDates.map(row)),
       },
     };
@@ -241,13 +241,13 @@ describe('ReadinessService', () => {
 
     expect(sellpiaQuery.where.businessDate).toEqual({
       gte: new Date('2026-06-17T00:00:00.000Z'),
-      lte: new Date('2026-07-01T00:00:00.000Z'),
+      lte: new Date('2026-06-30T00:00:00.000Z'),
     });
     expect(wingSales).toMatchObject({
-      status: 'missing',
+      status: 'ok',
       referenceDate: '2026-06-30',
-      expectedDates: [...priorDates, '2026-07-01'],
-      missingDates: ['2026-07-01'],
+      expectedDates: priorDates,
+      missingDates: [],
     });
   });
 

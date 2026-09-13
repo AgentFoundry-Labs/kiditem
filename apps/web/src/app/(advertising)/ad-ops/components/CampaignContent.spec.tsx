@@ -26,7 +26,7 @@ function successfulResponse(url: string) {
     });
   }
   if (url.startsWith("/api/ads/campaigns/trends")) {
-    return Promise.resolve({ accountSummary: null });
+    return Promise.resolve({ knownThrough: "2026-07-23", accountSummary: null });
   }
   if (url.startsWith("/api/ads/ad-campaigns/reports?")) {
     return Promise.resolve({
@@ -324,7 +324,7 @@ describe("CampaignContent", () => {
         });
       }
       if (url.startsWith("/api/ads/campaigns/trends")) {
-        return Promise.resolve({ accountSummary: null });
+        return Promise.resolve({ knownThrough: "2026-07-23", accountSummary: null });
       }
       if (url.startsWith("/api/ads/ad-campaigns/reports?")) {
         return Promise.resolve({
@@ -416,7 +416,7 @@ describe("CampaignContent", () => {
         });
       }
       if (url.startsWith("/api/ads/campaigns/trends")) {
-        return Promise.resolve({ accountSummary: null });
+        return Promise.resolve({ knownThrough: "2026-07-23", accountSummary: null });
       }
       if (url === "/api/ads/campaigns?period=14d") {
         return Promise.resolve([campaignSnapshot]);

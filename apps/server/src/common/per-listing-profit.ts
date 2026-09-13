@@ -1,5 +1,5 @@
 import type { PrismaService } from '../prisma/prisma.service';
-import { kstBusinessDate } from './kst';
+import { addDays, datesInclusive, kstBusinessDate } from './kst';
 import { advertisingApplies, readAdWindowFacts, readListingAdWindowFacts } from './ad-window-facts';
 import type { PrismaClient } from '@prisma/client';
 
@@ -75,12 +75,6 @@ export interface PerListingMetrics extends PerListingProfit {
 const EXCLUDED_ORDER_STATUSES = ['cancelled', 'returned', 'refunded'] as const;
 
 
-const DAY_MS = 86_400_000;
-
-function businessDateText(value: Date): string {
-  return value.toISOString().slice(0, 10);
-}
-
 /**
  * The account-level answer for one window, as the ledger states it: whether
  * advertising applies at all, how many business dates the sweep measured, what
@@ -114,7 +108,10 @@ export async function readAdEvidenceFromLedger(
 ): Promise<AccountAdEvidence> {
   const businessDateFrom = kstBusinessDate(from);
   const businessDateTo = kstBusinessDate(to);
-  const windowDays = Math.max(0, Math.round((businessDateTo.getTime() - businessDateFrom.getTime()) / DAY_MS));
+  const windowDays = datesInclusive(
+    businessDateFrom,
+    addDays(businessDateTo, -1),
+  ).length;
   const [applies, facts] = await Promise.all([
     advertisingApplies(prisma, organizationId),
     windowDays === 0

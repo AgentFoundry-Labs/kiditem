@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { kstBusinessDate } from '../../../common/kst';
+import { businessDateKey, kstBusinessDate } from '../../../common/kst';
 import {
   SOURCING_NAVER_DATALAB_POPULAR_KEYWORD_PORT,
   SOURCING_NAVER_DATALAB_TREND_PORT,
@@ -559,7 +559,7 @@ function parseTimestamp(value: string | null | undefined): Date | null {
 }
 
 function toDateString(date: Date): string {
-  return date.toISOString().slice(0, 10);
+  return businessDateKey(date);
 }
 
 function browserOwned1688Result(): TrendSourceCollectResult {

@@ -4,6 +4,7 @@ import type {
   ListingMetricsRow,
 } from './model/strategy-types';
 import { periodBounds } from './ad-metrics';
+import { businessDateKey, kstBusinessDate } from '../../common/kst';
 import type { ChannelSkuAvailabilityItem } from '@kiditem/shared/channel-sku-availability';
 
 /**
@@ -14,8 +15,8 @@ import type { ChannelSkuAvailabilityItem } from '@kiditem/shared/channel-sku-ava
  */
 
 export function getCurrentPeriod(now: Date = new Date()): { year: number; month: number } {
-  const kst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
-  return { year: kst.getUTCFullYear(), month: kst.getUTCMonth() + 1 };
+  const businessDate = kstBusinessDate(now);
+  return { year: businessDate.getUTCFullYear(), month: businessDate.getUTCMonth() + 1 };
 }
 
 /**
@@ -29,8 +30,8 @@ export function getWeekRange(
 ): { start: string; end: string } {
   const bounds = periodBounds(period, now);
   return {
-    start: bounds.from.toISOString().slice(0, 10),
-    end: bounds.to.toISOString().slice(0, 10),
+    start: businessDateKey(bounds.from),
+    end: businessDateKey(bounds.to),
   };
 }
 

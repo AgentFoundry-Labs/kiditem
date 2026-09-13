@@ -162,6 +162,8 @@ function loadWorker(globals = {}) {
       },
       expiresAt: '2099-01-01T00:00:00.000Z',
       artifactId: null,
+      coverageStartDate: null,
+      coverageEndDate: null,
       errorCode: current.errorCode,
       errorMessage: current.errorMessage,
     };
@@ -483,6 +485,7 @@ test('Haebeop collects every marketplace list page before expanding order detail
     ['detail:1002', haebeopDetailDocument('1002')],
   ]);
   const listPages = [];
+  const postedWindows = [];
   const runtime = loadWorker({
     DOMParser: createHaebeopDomParser(documents),
     document: { querySelector: () => null },
@@ -490,7 +493,9 @@ test('Haebeop collects every marketplace list page before expanding order detail
     async fetch(url, init = {}) {
       if (url === '/mall/order/basket_list.php') {
         const page = new URLSearchParams(init.body).get('page') || '1';
+        const body = new URLSearchParams(init.body);
         listPages.push(page);
+        postedWindows.push([body.get('str_date'), body.get('end_date')]);
         return textResponse(`list:${page}`);
       }
       const orderId = new URL(url, 'https://mallseller.genimarket.co.kr').searchParams.get('orderid');
@@ -509,6 +514,14 @@ test('Haebeop collects every marketplace list page before expanding order detail
     ['1001', '1002'],
   );
   assert.deepEqual(listPages, ['1', '2']);
+  assert.deepEqual(postedWindows, [
+    ['2026-07-31', '2026-07-31'],
+    ['2026-07-31', '2026-07-31'],
+  ]);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(result.confirmedCoverage)),
+    { startDate: '2026-07-31', endDate: '2026-07-31' },
+  );
 });
 
 test('Haebeop fails collection instead of producing a zero-value order when detail loading fails', async () => {
@@ -536,6 +549,50 @@ test('Haebeop fails collection instead of producing a zero-value order when deta
       error: '해법몰 주문 상세 조회 실패: 1001 (HTTP 503)',
     },
   );
+});
+
+test('Haebeop confirms the queried day when every discovered page is valid and empty', async () => {
+  const runtime = loadWorker({
+    DOMParser: createHaebeopDomParser(new Map([
+      ['list:1', haebeopListDocument([])],
+    ])),
+    document: { querySelector: () => null },
+    location: { href: 'https://mallseller.genimarket.co.kr/mall/order/basket_list.php' },
+    async fetch() {
+      return textResponse('list:1');
+    },
+  });
+
+  const result = await runtime.context.scrapeHaebeopOrders({ date: '2026-07-31' });
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), {
+    success: true,
+    orders: [],
+    count: 0,
+    confirmedCoverage: { startDate: '2026-07-31', endDate: '2026-07-31' },
+  });
+});
+
+test('Haebeop does not confirm coverage when discovered pagination exceeds its safe bound', async () => {
+  const pages = Array.from({ length: 101 }, (_, index) => index + 1);
+  const documents = new Map([
+    ['list:1', haebeopListDocument([], pages)],
+    ...pages.slice(1, 100).map((page) => [`list:${page}`, haebeopListDocument([])]),
+  ]);
+  const runtime = loadWorker({
+    DOMParser: createHaebeopDomParser(documents),
+    document: { querySelector: () => null },
+    location: { href: 'https://mallseller.genimarket.co.kr/mall/order/basket_list.php' },
+    async fetch(_url, init = {}) {
+      return textResponse(`list:${new URLSearchParams(init.body).get('page') || '1'}`);
+    },
+  });
+
+  const result = await runtime.context.scrapeHaebeopOrders({ date: '2026-07-31' });
+
+  assert.equal(result.success, false);
+  assert.match(result.error, /100페이지를 초과/);
+  assert.equal(result.confirmedCoverage, undefined);
 });
 
 test('automatic order actions publish safe domain-specific sessions from inactive tabs', async () => {
@@ -958,6 +1015,12 @@ test('every named mall collector uses the production attach-before-readiness pat
     const executeIndex = trace.findIndex((event) => event[0] === 'execute');
 
     assert.equal(result.success, true, functionName);
+    if (functionName === 'collectDomeggookOrders') {
+      assert.deepEqual(
+        JSON.parse(JSON.stringify(result.confirmedCoverage)),
+        { startDate: '2026-07-15', endDate: '2026-07-15' },
+      );
+    }
     assert.ok(createEvent, functionName);
     assert.equal(createEvent[2], false, functionName);
     assert.ok(attachIndex >= 0, functionName);

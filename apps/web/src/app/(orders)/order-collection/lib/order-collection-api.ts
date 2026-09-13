@@ -59,11 +59,11 @@ export async function regenerateOrderCollectionSource(
   const fileName =
     fileNameFromContentDisposition(response.headers.get('Content-Disposition')) ??
     '주문수집_셀피아변환.xls';
-  if (options?.download !== false) downloadBlob(blob, fileName);
+  if (response.status !== 204 && options?.download !== false) downloadBlob(blob, fileName);
   return {
     fileName,
     blob,
-    previewRows: await readPreviewRows(blob),
+    previewRows: response.status === 204 ? [] : await readPreviewRows(blob),
     sourceRows: numericHeader(response, 'X-Order-Collection-Source-Rows'),
     productRows: numericHeader(response, 'X-Order-Collection-Product-Rows'),
     outputRows: numericHeader(response, 'X-Order-Collection-Output-Rows'),

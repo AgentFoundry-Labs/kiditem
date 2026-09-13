@@ -221,8 +221,6 @@ implements CoupangDirectOrderCollectionTransactionPort {
             sourceRowCount: input.capture.pos.length,
             partialDetailCount,
             emptyTransports,
-            transportRefs: {},
-            transportSelections: {},
           }),
           errorCode: null,
           errorMessage: null,
@@ -254,41 +252,93 @@ implements CoupangDirectOrderCollectionTransactionPort {
       const stored = await this.readStoredCapture(tx, input.organizationId, row.id);
       assertTransportSelection(stored, input.capture);
 
-      const report = readQualityReport(row.qualityReport);
-      const existing = report.transportRefs[input.transport];
-      const request = transportRequest(input.capture, input.transport);
-      const payloadChecksum = canonicalCoupangDirectOrderHash(request);
+      const projection = transportProjection(input.capture, input.transport);
+      const existing = await tx.coupangDirectTransportConsumption.findUnique({
+        where: {
+          organizationId_sourceImportRunId_transport: {
+            organizationId: input.organizationId,
+            sourceImportRunId: row.id,
+            transport: input.transport,
+          },
+        },
+        include: { receipt: true },
+      });
       if (existing) {
-        if (existing.payloadChecksum !== payloadChecksum) {
+        const storedKeys = new Map(stored.pos
+          .filter((purchaseOrder) => purchaseOrder.items.length > 0)
+          .map((purchaseOrder) => [
+            purchaseOrderKey(purchaseOrder),
+            purchaseOrder.transport,
+          ]));
+        const existingSelection = existing.selectedPurchaseOrderKeys
+          .filter((key) => storedKeys.get(key) === input.transport);
+        if (
+          existing.selectedPurchaseOrderKeys.some((key) => !storedKeys.has(key))
+          || !sameSelection(existingSelection, projection.selectionKeys)
+        ) {
           throw new ConflictException('SOURCE_TRANSPORT_REPLAY_CONFLICT');
         }
-        return { ...existing, duplicate: true };
+        return receiptView(existing.receipt, true);
       }
 
-      const receipt = await this.publishTransport(
+      const canonical = await tx.coupangDirectTransportReceipt.findUnique({
+        where: {
+          organizationId_channelAccountId_transport_payloadChecksum: {
+            organizationId: input.organizationId,
+            channelAccountId: input.capture.channelAccountId,
+            transport: input.transport,
+            payloadChecksum: projection.payloadChecksum,
+          },
+        },
+      });
+      if (canonical) {
+        await this.createConsumption(
+          tx,
+          input.organizationId,
+          row.id,
+          input.transport,
+          canonical.id,
+          projection.selectionKeys,
+        );
+        return receiptView(canonical, true);
+      }
+
+      const reportReceipt = receiptFromQualityReport(row.qualityReport, input.transport);
+      if (reportReceipt && reportReceipt.payloadChecksum !== projection.payloadChecksum) {
+        throw new ConflictException('SOURCE_TRANSPORT_REPLAY_CONFLICT');
+      }
+      const receipt = reportReceipt ?? await this.publishTransport(
         tx,
         input,
         row.id,
-        input.capture,
-        input.transport,
+        projection.request,
+        projection.payloadChecksum,
       );
-      await tx.sourceImportRun.update({
-        where: { id: row.id, organizationId: input.organizationId },
+      const persisted = await tx.coupangDirectTransportReceipt.create({
         data: {
-          qualityReport: json({
-            ...report,
-            transportRefs: {
-              ...report.transportRefs,
-              [input.transport]: receipt,
-            },
-            transportSelections: {
-              ...report.transportSelections,
-              [input.transport]: input.capture.pos.map(purchaseOrderKey),
-            },
-          }),
+          organizationId: input.organizationId,
+          channelAccountId: input.capture.channelAccountId,
+          effectSourceImportRunId: receipt.sourceImportRunId,
+          rocketPurchaseConfirmationId: receipt.exportId,
+          transport: receipt.transport,
+          payloadChecksum: receipt.payloadChecksum,
+          transmissionIntentKey: receipt.transmissionIntentKey,
+          matchedLineCount: receipt.matchedLineCount,
+          reconciledRows: receipt.reconciledRows,
+          collectedLines: json(receipt.collectedLines),
+          matchedLines: json(receipt.matchedLines),
+          unmatchedLines: json(receipt.unmatchedLines),
         },
       });
-      return receipt;
+      await this.createConsumption(
+        tx,
+        input.organizationId,
+        row.id,
+        input.transport,
+        persisted.id,
+        projection.selectionKeys,
+      );
+      return receiptView(persisted, reportReceipt ? true : receipt.duplicate);
     }, TRANSACTION_OPTIONS);
   }
 
@@ -357,10 +407,23 @@ implements CoupangDirectOrderCollectionTransactionPort {
           : 'SOURCE_ATTEMPT_NOT_COMPLETE');
       }
       const capture = await this.readStoredCapture(tx, input.organizationId, row.id);
-      const report = readQualityReport(row.qualityReport);
-      const selectionKeys = report.transportSelections[input.transport];
+      const consumption = await tx.coupangDirectTransportConsumption.findUnique({
+        where: {
+          organizationId_sourceImportRunId_transport: {
+            organizationId: input.organizationId,
+            sourceImportRunId: row.id,
+            transport: input.transport,
+          },
+        },
+        include: { receipt: true },
+      });
+      const report = consumption ? null : readQualityReport(row.qualityReport);
+      const selectionKeys = consumption?.selectedPurchaseOrderKeys
+        ?? report?.transportSelections[input.transport];
       const selected = selectionKeys
-        ? capture.pos.filter((purchaseOrder) => selectionKeys.includes(purchaseOrderKey(purchaseOrder)))
+        ? capture.pos.filter((purchaseOrder) =>
+          purchaseOrder.transport === input.transport
+          && selectionKeys.includes(purchaseOrderKey(purchaseOrder)))
         : capture.pos.filter(({ transport }) => transport === input.transport);
       const collectable = selected.filter(({ items }) => items.length > 0);
       if (selected.length > 0 && collectable.length === 0) {
@@ -368,13 +431,18 @@ implements CoupangDirectOrderCollectionTransactionPort {
           '쿠팡 발주 상세(품목)를 수집하지 못했습니다. 확장에서 발주를 다시 수집한 뒤 시도해주세요.',
         );
       }
-      const receipt = report.transportRefs[input.transport] ?? null;
+      const receipt = consumption
+        ? receiptView(
+          consumption.receipt,
+          consumption.receipt.effectSourceImportRunId !== consumption.sourceImportRunId,
+        )
+        : report?.transportRefs[input.transport] ?? null;
       if (!receipt) throw new Error('COUPANG_DIRECT_RECEIPT_MISSING');
       return {
         importRunId: row.id,
         request: {
           channelAccountId: plan.channelAccountId,
-          centers: capture.centers,
+          centers: centersForPurchaseOrders(capture.centers, collectable),
           pos: collectable,
           transport: input.transport,
         },
@@ -400,17 +468,14 @@ implements CoupangDirectOrderCollectionTransactionPort {
     tx: Prisma.TransactionClient,
     input: Parameters<CoupangDirectOrderCollectionTransactionPort['completeAttempt']>[0],
     ownerRunId: string,
-    capture: CoupangDirectCapture,
-    transport: 'SHIPMENT' | 'MILKRUN',
+    request: CoupangDirectOrderCollectionRequest,
+    payloadChecksum: string,
   ): Promise<CoupangDirectTransportReceipt> {
-    const selected = capture.pos.filter(({ transport: rowTransport }) => rowTransport === transport);
-    const collectable = selected.filter(({ items }) => items.length > 0);
-    const request = { ...capture, pos: collectable, transport };
-    const payloadChecksum = canonicalCoupangDirectOrderHash(request);
+    const { transport } = request;
     const legacy = await tx.sourceImportRun.findFirst({
       where: {
         organizationId: input.organizationId,
-        channelAccountId: capture.channelAccountId,
+        channelAccountId: request.channelAccountId,
         sourceType: SOURCE_TYPE,
         fileHash: payloadChecksum,
         status: 'completed',
@@ -427,15 +492,6 @@ implements CoupangDirectOrderCollectionTransactionPort {
         payloadChecksum,
       );
     }
-    const priorOwner = await this.priorOwnerReceipt(
-      tx,
-      input.organizationId,
-      capture.channelAccountId,
-      transport,
-      payloadChecksum,
-    );
-    if (priorOwner) return { ...priorOwner, duplicate: true };
-
     const reconciliationLines: Array<{
       finalOrderLineId: string;
       poNumber: string;
@@ -443,12 +499,12 @@ implements CoupangDirectOrderCollectionTransactionPort {
       barcode: string | null;
       unitQuantity: number;
     }> = [];
-    for (const purchaseOrder of collectable) {
+    for (const purchaseOrder of request.pos) {
       let mapped: ReturnType<typeof mapCoupangDirectOrder>;
       try {
         mapped = mapCoupangDirectOrder(
           purchaseOrder,
-          capture.centers[purchaseOrder.center],
+          request.centers[purchaseOrder.center],
         );
       } catch (error) {
         throw new BadRequestException(
@@ -459,13 +515,13 @@ implements CoupangDirectOrderCollectionTransactionPort {
         where: {
           organizationId_channelAccountId_externalOrderId: {
             organizationId: input.organizationId,
-            channelAccountId: capture.channelAccountId,
+            channelAccountId: request.channelAccountId,
             externalOrderId: mapped.externalOrderId,
           },
         },
         create: {
           organizationId: input.organizationId,
-          channelAccountId: capture.channelAccountId,
+          channelAccountId: request.channelAccountId,
           sourceImportRunId: ownerRunId,
           ...orderData(mapped),
         },
@@ -511,7 +567,7 @@ implements CoupangDirectOrderCollectionTransactionPort {
       transaction: tx,
       organizationId: input.organizationId,
       userId: input.userId,
-      channelAccountId: capture.channelAccountId,
+      channelAccountId: request.channelAccountId,
       sourceImportRunId: ownerRunId,
       transport,
       lines: reconciliationLines,
@@ -537,28 +593,23 @@ implements CoupangDirectOrderCollectionTransactionPort {
     };
   }
 
-  private async priorOwnerReceipt(
+  private async createConsumption(
     tx: Prisma.TransactionClient,
     organizationId: string,
-    channelAccountId: string,
-    transport: 'SHIPMENT' | 'MILKRUN',
-    payloadChecksum: string,
-  ): Promise<CoupangDirectTransportReceipt | null> {
-    const rows = await tx.sourceImportRun.findMany({
-      where: {
+    sourceImportRunId: string,
+    transport: DirectTransport,
+    receiptId: string,
+    selectedPurchaseOrderKeys: string[],
+  ): Promise<void> {
+    await tx.coupangDirectTransportConsumption.create({
+      data: {
         organizationId,
-        channelAccountId,
-        sourceType: DIRECT_SOURCE_TYPE,
-        status: 'completed',
+        sourceImportRunId,
+        receiptId,
+        transport,
+        selectedPurchaseOrderKeys,
       },
-      select: { qualityReport: true },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     });
-    for (const row of rows) {
-      const receipt = receiptFromQualityReport(row.qualityReport, transport);
-      if (receipt?.payloadChecksum === payloadChecksum) return receipt;
-    }
-    return null;
   }
 
   private async legacyReceipt(
@@ -833,17 +884,57 @@ function readQualityReport(value: Prisma.JsonValue | null): DirectQualityReport 
   return { ...record, transportRefs, transportSelections };
 }
 
-function transportRequest(
+function transportProjection(
   capture: CoupangDirectCapture,
   transport: DirectTransport,
-): CoupangDirectOrderCollectionRequest {
-  return { ...capture, transport };
+): {
+  request: CoupangDirectOrderCollectionRequest;
+  payloadChecksum: string;
+  selectionKeys: string[];
+} {
+  const selected = capture.pos.filter((purchaseOrder) => purchaseOrder.transport === transport);
+  const collectable = selected.filter((purchaseOrder) => purchaseOrder.items.length > 0);
+  if (selected.length > 0 && collectable.length === 0) {
+    throw new BadRequestException(
+      '쿠팡 발주 상세(품목)를 수집하지 못했습니다. 확장에서 발주를 다시 수집한 뒤 시도해주세요.',
+    );
+  }
+  const request = {
+    ...capture,
+    centers: centersForPurchaseOrders(capture.centers, collectable),
+    pos: collectable,
+    transport,
+  };
+  return {
+    request,
+    payloadChecksum: canonicalCoupangDirectOrderHash(request),
+    selectionKeys: collectable.map(purchaseOrderKey),
+  };
+}
+
+function centersForPurchaseOrders(
+  centers: CoupangDirectCapture['centers'],
+  purchaseOrders: CoupangDirectCapture['pos'],
+): CoupangDirectCapture['centers'] {
+  const referenced = new Set(
+    purchaseOrders.map((purchaseOrder) => purchaseOrder.center),
+  );
+  return Object.fromEntries(
+    Object.entries(centers).filter(([name]) => referenced.has(name)),
+  );
 }
 
 function purchaseOrderKey(purchaseOrder: CoupangDirectCapture['pos'][number]): string {
   return createHash('sha256')
     .update(canonicalOwnerInputJson(purchaseOrder))
     .digest('hex');
+}
+
+function sameSelection(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) return false;
+  const sortedLeft = [...left].sort();
+  const sortedRight = [...right].sort();
+  return sortedLeft.every((value, index) => value === sortedRight[index]);
 }
 
 function assertTransportSelection(
@@ -899,6 +990,34 @@ function receiptFromQualityReport(
     matchedLines,
     unmatchedLines,
     duplicate: valueRecord.duplicate,
+  };
+}
+
+function receiptView(
+  row: Prisma.CoupangDirectTransportReceiptGetPayload<{}>,
+  duplicate: boolean,
+): CoupangDirectTransportReceipt {
+  if (row.transport !== 'SHIPMENT' && row.transport !== 'MILKRUN') {
+    throw new Error('COUPANG_DIRECT_RECEIPT_INVALID');
+  }
+  const collectedLines = parseLineRefs(row.collectedLines);
+  const matchedLines = parseLineRefs(row.matchedLines);
+  const unmatchedLines = parseLineRefs(row.unmatchedLines);
+  if (!collectedLines || !matchedLines || !unmatchedLines) {
+    throw new Error('COUPANG_DIRECT_RECEIPT_INVALID');
+  }
+  return {
+    transport: row.transport,
+    payloadChecksum: row.payloadChecksum,
+    sourceImportRunId: row.effectSourceImportRunId,
+    exportId: row.rocketPurchaseConfirmationId,
+    transmissionIntentKey: row.transmissionIntentKey,
+    matchedLineCount: row.matchedLineCount,
+    reconciledRows: row.reconciledRows,
+    collectedLines,
+    matchedLines,
+    unmatchedLines,
+    duplicate,
   };
 }
 

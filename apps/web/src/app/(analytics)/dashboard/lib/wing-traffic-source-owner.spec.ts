@@ -78,6 +78,7 @@ function attempt(
 function source(latestAttempt: ReturnType<typeof attempt>) {
   return {
     channelAccountId: ACCOUNT_ID,
+    knownThrough: '2026-09-07',
     ready: false,
     refreshing: latestAttempt.state === 'RUNNING',
     latestAttempt,

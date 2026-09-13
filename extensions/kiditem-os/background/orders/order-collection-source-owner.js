@@ -57,6 +57,9 @@
       (value?.expiresAt !== null &&
         !Number.isFinite(Date.parse(value?.expiresAt || ""))) ||
       (value?.artifactId !== null && !validUuid(value?.artifactId)) ||
+      !validDate(value?.coverageStartDate) ||
+      !validDate(value?.coverageEndDate) ||
+      ((value?.coverageStartDate === null) !== (value?.coverageEndDate === null)) ||
       (value?.errorCode !== null && typeof value?.errorCode !== "string") ||
       (value?.errorMessage !== null && typeof value?.errorMessage !== "string") ||
       (plan?.selectionMode !== undefined &&

@@ -61,7 +61,7 @@ implements SellpiaShipmentTrackingSourcePort {
     }
     const startDate = validDate(input.startDate);
     const endDate = validDate(input.endDate);
-    if (!startDate || !endDate || startDate !== endDate) {
+    if (!startDate || !endDate || !validRequestedWindow(startDate, endDate)) {
       throw new BadRequestException('INVALID_SELLPIA_SHIPMENT_TRACKING_DATE_RANGE');
     }
 
@@ -180,6 +180,8 @@ implements SellpiaShipmentTrackingSourcePort {
       }
       if (expired(row)) throw new ConflictException('ATTEMPT_EXPIRED');
 
+      const coverage = confirmedCoverage(input.source.bytes, readPlan(row.plan));
+
       await tx.orderCollectionArtifact.create({
         data: {
           organizationId: input.organizationId,
@@ -199,6 +201,8 @@ implements SellpiaShipmentTrackingSourcePort {
           contentChecksum: checksum,
           contentByteCount: input.source.bytes.byteLength,
           fileName: input.source.fileName,
+          coverageStartDate: coverage ? new Date(`${coverage.start}T00:00:00.000Z`) : null,
+          coverageEndDate: coverage ? new Date(`${coverage.end}T00:00:00.000Z`) : null,
           errorCode: null,
           errorMessage: null,
         },
@@ -306,6 +310,8 @@ implements SellpiaShipmentTrackingSourcePort {
           ? 'RUNNING'
           : 'FAILED',
       plan,
+      coverageStartDate: row.coverageStartDate?.toISOString().slice(0, 10) ?? null,
+      coverageEndDate: row.coverageEndDate?.toISOString().slice(0, 10) ?? null,
       expiresAt: row.expiresAt?.toISOString() ?? null,
       artifactId: artifact?.id ?? null,
       sourceFileName: artifact?.sourceFileName ?? row.fileName,
@@ -393,11 +399,55 @@ function readPlan(value: Prisma.JsonValue | null): SellpiaShipmentTrackingPlan {
     || plan.sourceAccountKey !== SELLPIA_SHIPMENT_TRACKING_SOURCE_ACCOUNT_KEY
     || !validDate(String(plan.startDate ?? ''))
     || !validDate(String(plan.endDate ?? ''))
-    || plan.startDate !== plan.endDate
+    || !validRequestedWindow(String(plan.startDate), String(plan.endDate))
   ) {
     throw new Error('SELLPIA_SHIPMENT_TRACKING_PLAN_INVALID');
   }
   return plan as SellpiaShipmentTrackingPlan;
+}
+
+function validRequestedWindow(start: string, end: string): boolean {
+  return start <= end && Date.parse(end) - Date.parse(start) <= 30 * 24 * 60 * 60 * 1_000;
+}
+
+function confirmedCoverage(
+  bytes: Buffer,
+  plan: SellpiaShipmentTrackingPlan,
+): { start: string; end: string } | null {
+  let payload: Record<string, unknown>;
+  try {
+    const value: unknown = JSON.parse(bytes.toString('utf8'));
+    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error();
+    payload = value as Record<string, unknown>;
+    if (!Array.isArray(payload.rows) || !Number.isInteger(payload.total)
+      || Number(payload.total) < payload.rows.length) throw new Error();
+  } catch {
+    throw new BadRequestException('INVALID_SELLPIA_SHIPMENT_TRACKING_EVIDENCE');
+  }
+  const queried = readWindow(payload.range);
+  if (queried.start < plan.startDate || queried.end > plan.endDate) {
+    throw new BadRequestException('SELLPIA_SHIPMENT_TRACKING_RANGE_OUTSIDE_PLAN');
+  }
+  // The historical range is the query, not proof that every date was confirmed.
+  if (payload.confirmedRange == null) return null;
+  const confirmed = readWindow(payload.confirmedRange);
+  if (confirmed.start < queried.start || confirmed.end > queried.end) {
+    throw new BadRequestException('SELLPIA_SHIPMENT_TRACKING_COVERAGE_OUTSIDE_QUERY');
+  }
+  return confirmed;
+}
+
+function readWindow(value: unknown): { start: string; end: string } {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new BadRequestException('INVALID_SELLPIA_SHIPMENT_TRACKING_COVERAGE');
+  }
+  const window = value as Record<string, unknown>;
+  const start = typeof window.start === 'string' ? validDate(window.start) : null;
+  const end = typeof window.end === 'string' ? validDate(window.end) : null;
+  if (!start || !end || start > end) {
+    throw new BadRequestException('INVALID_SELLPIA_SHIPMENT_TRACKING_COVERAGE');
+  }
+  return { start, end };
 }
 
 function expired(row: Pick<SourceRun, 'status' | 'expiresAt'>): boolean {

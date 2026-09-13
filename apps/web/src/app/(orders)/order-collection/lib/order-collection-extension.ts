@@ -127,6 +127,7 @@ export async function detectOrderCollectionSessionExtensionStatus(): Promise<Ext
   return detectOrderCollectionExtensionRuntime(1200, [
     'browserCollectionSessions',
     'orderCollectionFailureEvidenceV1',
+    'orderCollectionConfirmedCoverageV1',
   ]);
 }
 

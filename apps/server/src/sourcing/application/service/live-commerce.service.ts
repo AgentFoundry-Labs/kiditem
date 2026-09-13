@@ -1,5 +1,5 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
-import { kstBusinessDate } from '../../../common/kst';
+import { businessDateKey, kstBusinessDate } from '../../../common/kst';
 import { matchStationeryToyTrend } from '../../domain/stationery-toy-trend';
 import { selectTaobaoLiveIds } from '../../domain/taobao-live-selection';
 import {
@@ -343,7 +343,7 @@ function latestRows<T extends { capturedAt: Date }>(rows: T[], keyOf: (row: T) =
 }
 
 function toDateString(date: Date): string {
-  return date.toISOString().slice(0, 10);
+  return businessDateKey(date);
 }
 
 function taobaoPlan(input: TaobaoLiveRequest, now: Date) {

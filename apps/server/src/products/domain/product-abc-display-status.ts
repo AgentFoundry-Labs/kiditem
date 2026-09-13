@@ -1,4 +1,5 @@
 import type { ProductAbcDisplayStatus } from '@kiditem/shared/product-abc';
+import { businessDateKey, evidenceCutoffDate } from '../../common/kst';
 
 /** Display labels consume owner-derived readiness; they never publish grades. */
 export function productAbcDisplayStatus(
@@ -27,10 +28,5 @@ export function productAbcDisplayStatus(
  * the same instant (ADR 0002).
  */
 export function productAbcEvidenceCutoff(now: Date): string {
-  const kst = new Date(now.getTime() + 9 * 60 * 60 * 1_000);
-  return new Date(Date.UTC(
-    kst.getUTCFullYear(),
-    kst.getUTCMonth(),
-    kst.getUTCDate() - 1,
-  )).toISOString().slice(0, 10);
+  return businessDateKey(evidenceCutoffDate(now));
 }

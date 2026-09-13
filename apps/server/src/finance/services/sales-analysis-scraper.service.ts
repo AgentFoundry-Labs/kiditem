@@ -8,6 +8,7 @@ import {
   type AdTrafficReadPort,
 } from '../../advertising/application/port/in/ad-traffic-source.port';
 import { PrismaService } from '../../prisma/prisma.service';
+import { businessDateKey, datesInclusive, parseBusinessDate } from '../../common/kst';
 import type {
   AdTrafficSourceAccountDaily,
   AdTrafficSourceCoverage,
@@ -149,14 +150,10 @@ function computeMissingAdsDates(
 }
 
 function enumerateDates(fromIso: string, toIso: string): string[] {
-  const out: string[] = [];
-  const cursor = new Date(`${fromIso}T00:00:00.000Z`);
-  const end = new Date(`${toIso}T00:00:00.000Z`);
-  while (cursor.getTime() <= end.getTime()) {
-    out.push(cursor.toISOString().slice(0, 10));
-    cursor.setUTCDate(cursor.getUTCDate() + 1);
-  }
-  return out;
+  const from = parseBusinessDate(fromIso);
+  const to = parseBusinessDate(toIso);
+  if (!from || !to) return [];
+  return datesInclusive(from, to).map(businessDateKey);
 }
 
 function latestObservedAt(

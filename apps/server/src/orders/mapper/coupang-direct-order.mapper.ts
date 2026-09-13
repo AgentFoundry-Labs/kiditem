@@ -54,10 +54,14 @@ export function mapCoupangDirectOrder(
 export function canonicalCoupangDirectOrderHash(
   request: CoupangDirectOrderCollectionRequest,
 ): string {
+  const referencedCenters = new Set(
+    request.pos.map((purchaseOrder) => purchaseOrder.center),
+  );
   const canonical = {
     channelAccountId: request.channelAccountId,
     transport: request.transport,
     centers: Object.fromEntries(Object.entries(request.centers)
+      .filter(([name]) => referencedCenters.has(name))
       .sort(([left], [right]) => left.localeCompare(right))
       .map(([name, center]) => [name, {
         addr: center.addr ?? null,

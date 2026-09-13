@@ -86,6 +86,52 @@ beforeEach(() => {
 });
 
 describe('Sellpia shipment tracking source owner', () => {
+  it('uses a persisted confirmed subset without claiming the requested window was completed', async () => {
+    const complete = attempt('COMPLETE', {
+      plan: { ...attempt().plan, endDate: '2026-09-09' },
+      coverageStartDate: '2026-09-07', coverageEndDate: '2026-09-08',
+    });
+    rememberActiveSellpiaShipmentTrackingAttempt('org-1', { attemptId: ATTEMPT_ID, idempotencyKey: null });
+    api.getParsed.mockResolvedValue(complete);
+    api.fetchRaw.mockResolvedValue({
+      ok: true, status: 200,
+      json: async () => ({
+        rows: [{ ordNo: 'ORDER-1', itemNo: '', invNo: 'INV-1', courier: '1136', provider: '아이스크림몰' }],
+        total: 1,
+        range: { start: '2026-09-07', end: '2026-09-08' },
+        confirmedRange: { start: '2026-09-07', end: '2026-09-08' },
+      }),
+    });
+    const owner = renderOwner();
+    await act(async () => { await expect(owner.result.current.collect()).resolves.toHaveLength(1); });
+    expect(extension.send).not.toHaveBeenCalled();
+    await waitFor(() => expect(owner.result.current.attempt).toMatchObject({
+      coverageEndDate: '2026-09-08',
+    }));
+  });
+
+  it('rejects artifact coverage that disagrees with the persisted owner receipt', async () => {
+    rememberActiveSellpiaShipmentTrackingAttempt('org-1', {
+      attemptId: ATTEMPT_ID, idempotencyKey: null,
+    });
+    api.getParsed.mockResolvedValue(attempt('COMPLETE', {
+      coverageStartDate: '2026-09-07', coverageEndDate: '2026-09-07',
+    }));
+    api.fetchRaw.mockResolvedValue({
+      ok: true, status: 200,
+      json: async () => ({
+        rows: [], total: 0,
+        range: { start: '2026-09-07', end: '2026-09-07' },
+        confirmedRange: null,
+      }),
+    });
+    const owner = renderOwner();
+    await act(async () => {
+      await expect(owner.result.current.collect()).rejects.toThrow('저장된 수집 근거와 일치하지 않습니다');
+    });
+    expect(extension.send).not.toHaveBeenCalled();
+  });
+
   it('persists a lost begin ACK key and reuses it on the next explicit start', async () => {
     const owner = renderOwner();
     api.post.mockRejectedValueOnce(new Error('begin response lost'));

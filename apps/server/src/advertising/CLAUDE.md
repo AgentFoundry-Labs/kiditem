@@ -67,8 +67,9 @@ modal (`cmg-api/tableMetric` with `tableType='keyword'`), not the report grid.
 - `ChannelAdTargetDailySnapshot`, what the campaign sweep publishes, is the
   one advertising ledger. Outside this owner it is read only through
   `common/ad-window-facts`, whose gate is the current completed sweep, product
-  grain, no keyword rows; `npm run check:listing-day-ad-reader` fails any
-  other production read. A day the sweep never reported is absent, never a
+  grain, no keyword rows; `npm run check:ledger-readers` fails any undeclared
+  production read and inventories the remaining exact owner and legacy paths.
+  A day the sweep never reported is absent, never a
   cost of zero. `ChannelListingDailySnapshot`'s ad columns are a dead rollup
   of this ledger awaiting a schema cutover; nothing writes or reads them.
 - The account-daily publication carries the account (`null` when the

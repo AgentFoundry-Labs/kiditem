@@ -39,7 +39,11 @@ describe('order collection extension session bridge', () => {
     );
     expect(bridge.detectOrderCollectionExtensionRuntime).toHaveBeenCalledWith(
       1200,
-      ['browserCollectionSessions', 'orderCollectionFailureEvidenceV1'],
+      [
+        'browserCollectionSessions',
+        'orderCollectionFailureEvidenceV1',
+        'orderCollectionConfirmedCoverageV1',
+      ],
     );
   });
 

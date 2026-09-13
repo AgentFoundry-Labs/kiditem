@@ -6,6 +6,7 @@ import {
 } from '@kiditem/shared/product-abc';
 import { lockProductMapping } from '../../../../common/product-mapping-generation';
 import { readProductSaleAgeEvidence } from '../../../../common/product-sale-age';
+import { businessDateKey, parseBusinessDate } from '../../../../common/kst';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { productAbcEvaluation } from '../../../mapper/product-abc-evaluation.mapper';
 import { listSellingMasterProductIds } from './selling-master-product.query';
@@ -561,7 +562,7 @@ function validGrade(value: string | null): 'A' | 'B' | 'C' | null {
 function dateKey(value: CalendarValue): string | null {
   if (value === null) return null;
   if (typeof value === 'string') return value.slice(0, 10);
-  return value.toISOString().slice(0, 10);
+  return businessDateKey(value);
 }
 
 function minCalendarDate(...values: readonly (string | null)[]): string {
@@ -571,7 +572,9 @@ function minCalendarDate(...values: readonly (string | null)[]): string {
 }
 
 function atUtcDate(value: string): Date {
-  return new Date(`${value}T00:00:00.000Z`);
+  const parsed = parseBusinessDate(value);
+  if (!parsed) throw new Error(`Invalid business date: ${value}`);
+  return parsed;
 }
 
 function decimalOrNull(value: number | null): Prisma.Decimal | null {

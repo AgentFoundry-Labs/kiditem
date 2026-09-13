@@ -6,7 +6,9 @@ import { fetchSellpiaSalesSummary } from '@/lib/sellpia-sales-api';
 import { collectSellpiaSaleSummaryFromExtension } from '@/lib/sellpia-sales-collection';
 import {
   sellpiaMonthRange,
+  sellpiaPeriodRange,
   useSellpiaChannelSales,
+  useSellpiaKnownThrough,
 } from './useSellpiaChannelSales';
 
 vi.mock('@/lib/sellpia-sales-api', () => ({
@@ -74,6 +76,19 @@ describe('useSellpiaChannelSales synchronization', () => {
     expect(collectSellpiaSaleSummaryFromExtension).not.toHaveBeenCalled();
   });
 
+  it('uses the server response as the closed-date clock', async () => {
+    vi.setSystemTime(new Date('2035-01-01T00:00:00.000Z'));
+    vi.mocked(fetchSellpiaSalesSummary).mockResolvedValueOnce({
+      knownThrough: '2026-07-17',
+    } as never);
+
+    const { result } = renderHook(() => useSellpiaKnownThrough(), {
+      wrapper: wrapper(makeQueryClient()),
+    });
+
+    await waitFor(() => expect(result.current).toBe('2026-07-17'));
+  });
+
   it('starts the frozen source owner only on explicit sync and invalidates reads', async () => {
     const queryClient = makeQueryClient();
     const invalidate = vi.spyOn(queryClient, 'invalidateQueries');
@@ -118,7 +133,19 @@ describe('useSellpiaChannelSales synchronization', () => {
 });
 
 describe('sellpiaMonthRange', () => {
-  it('uses today as the end of the current KST month', () => {
+  it('keeps the anchor month empty on day one and rejects future months', () => {
+    expect(sellpiaMonthRange('2026-09', '2026-08-31')).toBeNull();
+    expect(sellpiaMonthRange('2026-08', '2026-08-31')).toEqual({
+      from: '2026-08-01', to: '2026-08-31',
+    });
+    expect(sellpiaMonthRange('2026-09', '2026-09-01')).toEqual({
+      from: '2026-09-01', to: '2026-09-01',
+    });
+    expect(sellpiaMonthRange('2026-10', '2026-09-01')).toBeNull();
+    expect(sellpiaMonthRange('invalid', '2026-09-01')).toBeNull();
+  });
+
+  it('uses the server cutoff as the end of the current KST month', () => {
     expect(sellpiaMonthRange('2026-07', '2026-07-25')).toEqual({
       from: '2026-07-01',
       to: '2026-07-25',
@@ -129,6 +156,16 @@ describe('sellpiaMonthRange', () => {
     expect(sellpiaMonthRange('2024-02', '2026-07-25')).toEqual({
       from: '2024-02-01',
       to: '2024-02-29',
+    });
+  });
+});
+
+describe('sellpiaPeriodRange', () => {
+  it('keeps the current calendar month empty on its first KST day', () => {
+    expect(sellpiaPeriodRange('month', '', '', '2026-08-31')).toBeNull();
+    expect(sellpiaPeriodRange('month', '', '', '2026-09-01')).toEqual({
+      from: '2026-09-01',
+      to: '2026-09-01',
     });
   });
 });

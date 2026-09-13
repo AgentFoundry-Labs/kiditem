@@ -31,6 +31,9 @@ export type ReviewCollectionAttempt = {
   plan: ReviewCollectionPlan;
   expiresAt: string | null;
   completedWindows: number[];
+  windowReceipts: ReviewCollectionWindowCompletion[];
+  coverageStartDate: string | null;
+  coverageEndDate: string | null;
   collected: number;
   created: number;
   updated: number;
@@ -55,6 +58,8 @@ export type ReviewCollectionWindowCompletion = {
   itemCount: number;
   pageCount: number;
   pageLimitReached: boolean;
+  coverageStartDate: string;
+  coverageEndDate: string;
 };
 
 export type ReviewCollectionSourcePort = {

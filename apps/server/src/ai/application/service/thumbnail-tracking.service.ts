@@ -16,6 +16,7 @@ import {
   type ThumbnailTrackingRow,
   type ThumbnailTrackingSnapshotRow,
 } from '../port/out/repository/thumbnail-tracking.repository.port';
+import { businessDateKey, kstBusinessDate } from '../../../common/kst';
 
 function toRecord(row: ThumbnailTrackingRow, nowMs: number = Date.now()): ThumbnailTrackingRecord {
   const status = (THUMBNAIL_TRACKING_STATUSES as readonly string[]).includes(row.status)
@@ -48,7 +49,7 @@ function toSnapshotRecord(row: ThumbnailTrackingSnapshotRow): DailySnapshotRecor
     id: row.id,
     trackingId: row.trackingId,
     capturedAt: row.capturedAt.toISOString(),
-    capturedDate: row.capturedDate.toISOString().slice(0, 10),
+    capturedDate: businessDateKey(row.capturedDate),
     unitsSold30d: row.unitsSold30d,
     unitsSold7d: row.unitsSold7d,
     revenueKrw: row.revenueKrw,
@@ -175,7 +176,7 @@ export class ThumbnailTrackingService {
       throw new NotFoundException(`ThumbnailTracking ${trackingId} 에 productName 을 결정할 수 없습니다.`);
     }
 
-    const today = startOfTodayUtc();
+    const today = kstBusinessDate(new Date());
 
     let scrapeStatus: 'ok' | 'not_found' | 'error' = 'ok';
     let errorMessage: string | null = null;
@@ -256,9 +257,4 @@ export class ThumbnailTrackingService {
     }
     return { collected, failed };
   }
-}
-
-function startOfTodayUtc(): Date {
-  const now = new Date();
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
 }

@@ -2,6 +2,8 @@ import {
   BadRequestException,
   Body,
   Controller,
+  createParamDecorator,
+  ExecutionContext,
   Get,
   Header,
   Headers,
@@ -51,6 +53,7 @@ import {
 import {
   ORDER_COLLECTION_SOURCE_PORT,
   orderCollectionJsonSubmission,
+  type OrderCollectionConfirmedCoverage,
   type OrderCollectionSourcePort,
 } from '../application/port/in/order-collection-source.port';
 
@@ -64,6 +67,15 @@ const ALLOWED_MIME_TYPES = new Set([
   'application/octet-stream',
 ]);
 const ALLOWED_EXTENSIONS = /\.(txt|tsv|csv|xls|xlsx)$/i;
+const OrderCollectionConfirmedCoverageHeader = createParamDecorator(
+  (_data: unknown, context: ExecutionContext): OrderCollectionConfirmedCoverage | null => {
+    const request = context.switchToHttp().getRequest<Request>();
+    return confirmedCoverageFromHeaders(
+      request.headers['x-order-collection-coverage-start-date'],
+      request.headers['x-order-collection-coverage-end-date'],
+    );
+  },
+);
 
 @Controller('orders/collection')
 export class OrderCollectionController {
@@ -577,6 +589,7 @@ export class OrderCollectionController {
     @CurrentOrganization() organizationId: string,
     @Headers('x-order-collection-attempt-id') attemptId: string | undefined,
     @Headers('x-source-attempt-token') attemptToken: string | undefined,
+    @OrderCollectionConfirmedCoverageHeader() confirmedCoverage: OrderCollectionConfirmedCoverage | null,
     @Res({ passthrough: true }) response: Response,
   ): Promise<StreamableFile> {
     const source = orderCollectionJsonSubmission(body, null);
@@ -587,6 +600,7 @@ export class OrderCollectionController {
       attemptToken,
       source,
       () => this.orderCollectionService.convertHaebeopOrders(body),
+      confirmedCoverage,
     );
     this.setConversionHeaders(result, response);
     await this.persistConversion(
@@ -596,6 +610,7 @@ export class OrderCollectionController {
       attemptToken,
       source,
       response,
+      confirmedCoverage,
     );
     return new StreamableFile(result.buffer);
   }
@@ -625,6 +640,7 @@ export class OrderCollectionController {
     @CurrentOrganization() organizationId: string,
     @Headers('x-order-collection-attempt-id') attemptId: string | undefined,
     @Headers('x-source-attempt-token') attemptToken: string | undefined,
+    @OrderCollectionConfirmedCoverageHeader() confirmedCoverage: OrderCollectionConfirmedCoverage | null,
     @Res({ passthrough: true }) response: Response,
   ): Promise<StreamableFile> {
     if (!file) {
@@ -638,6 +654,7 @@ export class OrderCollectionController {
       attemptToken,
       source,
       () => this.orderCollectionService.convertDomeggookOrderFile(file, { date }),
+      confirmedCoverage,
     );
     this.setConversionHeaders(result, response);
     await this.persistConversion(
@@ -647,6 +664,7 @@ export class OrderCollectionController {
       attemptToken,
       source,
       response,
+      confirmedCoverage,
     );
     return new StreamableFile(result.buffer);
   }
@@ -937,8 +955,17 @@ export class OrderCollectionController {
     attemptToken: string | undefined,
     source: Parameters<OrderCollectionSourcePort['completeAttempt']>[0]['source'],
     convert: () => T | Promise<T>,
+    confirmedCoverage: OrderCollectionConfirmedCoverage | null = null,
   ): Promise<Awaited<T>> {
     const fence = this.requireAttemptFence(attemptId, attemptToken);
+    await this.orderCollectionSource.validateCompletion({
+      organizationId,
+      attemptId: fence.attemptId,
+      attemptToken: fence.attemptToken,
+      mallKey,
+      source,
+      confirmedCoverage,
+    });
     try {
       return await convert();
     } catch (error) {
@@ -971,6 +998,7 @@ export class OrderCollectionController {
     attemptToken: string | undefined,
     source: Parameters<OrderCollectionSourcePort['completeAttempt']>[0]['source'],
     response: Response,
+    confirmedCoverage: OrderCollectionConfirmedCoverage | null = null,
   ): Promise<void> {
     const fence = this.requireAttemptFence(attemptId, attemptToken);
     const artifact = await this.orderCollectionSource.completeAttempt({
@@ -979,6 +1007,7 @@ export class OrderCollectionController {
       attemptToken: fence.attemptToken,
       mallKey,
       source,
+      confirmedCoverage,
     });
     response.setHeader('X-Order-Collection-Artifact-Id', artifact.artifactId);
   }
@@ -1026,6 +1055,28 @@ function conversionFailureMessage(error: unknown): string {
   }
   if (error instanceof Error && error.message) return error.message;
   return 'Order collection conversion failed.';
+}
+
+function confirmedCoverageFromHeaders(
+  startDate: string | string[] | undefined,
+  endDate: string | string[] | undefined,
+): OrderCollectionConfirmedCoverage | null {
+  if (startDate === undefined && endDate === undefined) return null;
+  if (
+    typeof startDate !== 'string' ||
+    typeof endDate !== 'string' ||
+    !isDateOnly(startDate) ||
+    !isDateOnly(endDate)
+  ) {
+    throw new BadRequestException('INVALID_ORDER_COLLECTION_CONFIRMED_COVERAGE');
+  }
+  return { startDate, endDate };
+}
+
+function isDateOnly(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
 }
 
 function channelAccountIdFromBody(value: unknown): string {

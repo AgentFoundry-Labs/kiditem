@@ -97,6 +97,81 @@ describe('Sellpia shipment tracking source owner over disposable PostgreSQL', ()
       contentType: 'application/json',
     });
 
+  it('keeps the requested day separate from an unconfirmed provider window', async () => {
+    const attempt = (await begin().expect(201)).body;
+    const completed = (await complete(ORG, attempt).expect(201)).body;
+    expect(completed).toMatchObject({
+      state: 'COMPLETE',
+      plan: { startDate: DATE, endDate: DATE },
+      coverageStartDate: null,
+      coverageEndDate: null,
+    });
+  });
+
+  it('publishes only the narrower window independently confirmed by the provider', async () => {
+    const attempt = (await request(httpUrl)
+      .post(`${BASE}/attempts`)
+      .set('x-test-org', ORG)
+      .set('Idempotency-Key', randomUUID())
+      .send({ startDate: '2026-09-07', endDate: '2026-09-09' })
+      .expect(201)).body;
+    const payload = Buffer.from(JSON.stringify({
+      rows: [], total: 0,
+      range: { start: '2026-09-07', end: '2026-09-09' },
+      confirmedRange: { start: '2026-09-07', end: '2026-09-08' },
+    }));
+    const completed = (await complete(ORG, attempt, payload).expect(201)).body;
+    expect(completed).toMatchObject({
+      state: 'COMPLETE',
+      plan: { startDate: '2026-09-07', endDate: '2026-09-09' },
+      coverageStartDate: '2026-09-07',
+      coverageEndDate: '2026-09-08',
+    });
+    expect((await control(ORG, attempt.attemptId).expect(200)).body).toMatchObject({
+      coverageStartDate: '2026-09-07', coverageEndDate: '2026-09-08',
+    });
+    expect((await complete(ORG, attempt, payload).expect(201)).body).toEqual(completed);
+    await complete(ORG, attempt, Buffer.from(JSON.stringify({
+      rows: [], total: 0,
+      range: { start: '2026-09-07', end: '2026-09-09' },
+      confirmedRange: { start: '2026-09-07', end: '2026-09-09' },
+    }))).expect(409);
+    expect((await control(ORG, attempt.attemptId).expect(200)).body.coverageEndDate)
+      .toBe('2026-09-08');
+  });
+
+  it.each([
+    ['missing query', { rows: [], total: 0 }],
+    ['query outside plan', { rows: [], total: 0, range: { start: DATE, end: '2026-09-08' } }],
+    ['coverage outside query', {
+      rows: [], total: 0, range: { start: DATE, end: DATE },
+      confirmedRange: { start: '2026-09-06', end: DATE },
+    }],
+    ['invalid calendar date', {
+      rows: [], total: 0, range: { start: DATE, end: DATE },
+      confirmedRange: { start: '2026-02-30', end: DATE },
+    }],
+  ])('rejects %s before writing source facts or an artifact', async (_name, payload) => {
+    const attempt = (await begin().expect(201)).body;
+    await complete(ORG, attempt, Buffer.from(JSON.stringify(payload))).expect(400);
+    expect((await control(ORG, attempt.attemptId).expect(200)).body).toMatchObject({
+      state: 'RUNNING', artifactId: null, coverageStartDate: null, coverageEndDate: null,
+    });
+    await expect(prisma.orderCollectionArtifact.count({
+      where: { organizationId: ORG, sourceImportRunId: attempt.attemptId },
+    })).resolves.toBe(0);
+  });
+
+  it('rejects a requested window longer than 31 days without claiming an attempt', async () => {
+    await request(httpUrl)
+      .post(`${BASE}/attempts`)
+      .set('x-test-org', ORG)
+      .set('Idempotency-Key', randomUUID())
+      .send({ startDate: '2026-08-07', endDate: DATE })
+      .expect(400);
+    await expect(prisma.sourceImportRun.count({ where: { organizationId: ORG } })).resolves.toBe(0);
+  });
+
   it('enforces org/token fences and replays duplicate COMPLETE without another artifact', async () => {
     const started = (await begin().expect(201)).body;
     const scopedControl = (await control(ORG, started.attemptId).expect(200)).body;

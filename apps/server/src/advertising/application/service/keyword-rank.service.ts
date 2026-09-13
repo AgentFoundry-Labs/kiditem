@@ -10,6 +10,8 @@ import {
   type RepresentativeKeywordSource,
 } from "../../domain/representative-keyword";
 import { currentBusinessDate } from "../../domain/business-date";
+import { businessDateKey } from '../../../common/kst';
+import { isNewerAttempt } from '../../../common/current-row';
 import {
   KEYWORD_RANK_REPOSITORY_PORT,
   type KeywordRankRepositoryPort,
@@ -240,12 +242,12 @@ export class KeywordRankService {
         collectedCount: latest?.collectedCount ?? null,
         totalResults: latest?.totalResults ?? null,
         businessDate: latest
-          ? latest.businessDate.toISOString().slice(0, 10)
+          ? businessDateKey(latest.businessDate)
           : null,
         capturedAt: latest?.capturedAt ?? null,
         status,
         history: historyRows.map((row) => ({
-          businessDate: row.businessDate.toISOString().slice(0, 10),
+          businessDate: businessDateKey(row.businessDate),
           salesRank: row.salesRank,
           salesLast28d: row.salesLast28d,
         })),
@@ -312,12 +314,12 @@ export class KeywordRankService {
         overrides.map((override) => [override.vendorItemId, override.keyword]),
       ),
     );
-    const todayKey = currentBusinessDate().toISOString().slice(0, 10);
+    const todayKey = businessDateKey(currentBusinessDate());
     const collectedToday = new Set(
       snapshots
         .filter(
           (snapshot) =>
-            snapshot.businessDate.toISOString().slice(0, 10) === todayKey,
+            businessDateKey(snapshot.businessDate) === todayKey,
         )
         .map((snapshot) => targetKey(snapshot.keyword, snapshot.vendorItemId)),
     );
@@ -436,7 +438,7 @@ export class KeywordRankService {
       // 행이 businessDate asc 정렬이므로 마지막 non-null 이름이 최신.
       if (row.productName) series.productName = row.productName;
       series.points.push({
-        businessDate: row.businessDate.toISOString().slice(0, 10),
+        businessDate: businessDateKey(row.businessDate),
         overallRank: row.overallRank,
         organicRank: row.organicRank,
         adRank: row.adRank,
@@ -466,7 +468,7 @@ export class KeywordRankService {
       await this.keywordRankRepo.listOwnVendorItems(organizationId);
     return {
       keyword,
-      businessDate: snapshot.businessDate.toISOString().slice(0, 10),
+      businessDate: businessDateKey(snapshot.businessDate),
       capturedAt: snapshot.capturedAt,
       pagesScanned: snapshot.pagesScanned,
       itemCount: snapshot.itemCount,
@@ -481,19 +483,31 @@ function applyObservedCategories<
 >(
   products: T[],
   snapshots: Array<{
+    id: string;
     vendorItemId: string;
     categoryHierarchy: string | null;
     capturedAt: Date;
+    updatedAt: Date;
   }>,
 ): T[] {
-  const latest = new Map<string, { category: string; capturedAt: Date }>();
+  const latest = new Map<string, {
+    id: string;
+    category: string;
+    capturedAt: Date;
+    updatedAt: Date;
+  }>();
   for (const snapshot of snapshots) {
     if (!snapshot.categoryHierarchy) continue;
     const previous = latest.get(snapshot.vendorItemId);
-    if (!previous || snapshot.capturedAt > previous.capturedAt) {
+    if (!previous || isNewerAttempt(
+      { observedAt: snapshot.capturedAt, importedAt: snapshot.updatedAt, id: snapshot.id },
+      { observedAt: previous.capturedAt, importedAt: previous.updatedAt, id: previous.id },
+    )) {
       latest.set(snapshot.vendorItemId, {
+        id: snapshot.id,
         category: snapshot.categoryHierarchy,
         capturedAt: snapshot.capturedAt,
+        updatedAt: snapshot.updatedAt,
       });
     }
   }

@@ -5,6 +5,7 @@ import {
   type CompletedSourceArtifactRun,
 } from '@kiditem/shared/source-import';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { allocatePublicationSequence } from '../../../../common/publication-sequence';
 import type { ImportRocketSellpiaMatchingCsvInput } from '../../../application/port/in/rocket-sellpia-matching-csv-import.port';
 import type { RocketSellpiaMatchingCsvImportRepositoryPort } from '../../../application/port/out/repository/rocket-sellpia-matching-csv-import.repository.port';
 import { upsertChannelCatalogIdentities } from './channel-catalog-identity-upsert';
@@ -88,7 +89,11 @@ implements RocketSellpiaMatchingCsvImportRepositoryPort {
         data: {
           status: 'completed',
           importedAt: new Date(),
-          publicationSequence: await nextPublicationSequence(tx, input.organizationId),
+          publicationSequence: await allocatePublicationSequence(
+            tx,
+            input.organizationId,
+            ROCKET_SELLPIA_MATCHING_CSV_SOURCE_TYPE,
+          ),
         },
       });
       return CoupangRocketMatchingCsvImportResponseSchema.parse({
@@ -98,26 +103,6 @@ implements RocketSellpiaMatchingCsvImportRepositoryPort {
       });
     }, TRANSACTION_OPTIONS);
   }
-}
-
-async function nextPublicationSequence(
-  tx: Prisma.TransactionClient,
-  organizationId: string,
-): Promise<bigint> {
-  const lockKey = `channel-catalog-sequence:${organizationId}:${ROCKET_SELLPIA_MATCHING_CSV_SOURCE_TYPE}`;
-  await tx.$queryRaw`
-    SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))::text AS "lock"
-  `;
-  const rows = await tx.$queryRaw<Array<{ publicationSequence: bigint }>>`
-    SELECT COALESCE(MAX(publication_sequence), 0::bigint) + 1 AS "publicationSequence"
-    FROM source_import_runs
-    WHERE organization_id = ${organizationId}::uuid
-      AND source_type = ${ROCKET_SELLPIA_MATCHING_CSV_SOURCE_TYPE}
-  `;
-  if (rows[0]?.publicationSequence === undefined) {
-    throw new ConflictException('Could not allocate Rocket matching CSV publication sequence');
-  }
-  return rows[0].publicationSequence;
 }
 
 function toCompletedRun(run: {

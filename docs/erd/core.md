@@ -349,6 +349,7 @@ erDiagram
 | ChannelAccount | channelAccount | referenced by external | Channels | ChannelListingDeletionOperation |
 | ChannelAccount | channelAccount | referenced by external | Channels | ChannelScrapeRun |
 | ChannelAccount | channelAccount | referenced by external | Channels | RocketPoCatalogSnapshot |
+| ChannelAccount | channelAccount | referenced by external | Orders | CoupangDirectTransportReceipt |
 | ChannelAccount | channelAccount | referenced by external | Orders | Order |
 | ChannelAccount | channelAccount | referenced by external | Orders | OrderReturn |
 | ChannelAccount | channelAccount | referenced by external | Sourcing | ProductRegistrationExecution |
@@ -437,6 +438,8 @@ erDiagram
 | Organization | organization | referenced by external | Inventory | StockTransfer |
 | Organization | organization | referenced by external | Inventory | Warehouse |
 | Organization | organization | referenced by external | Orders | CoupangDirectPoSnapshot |
+| Organization | organization | referenced by external | Orders | CoupangDirectTransportConsumption |
+| Organization | organization | referenced by external | Orders | CoupangDirectTransportReceipt |
 | Organization | organization | referenced by external | Orders | Order |
 | Organization | organization | referenced by external | Orders | OrderCollectionArtifact |
 | Organization | organization | referenced by external | Orders | OrderLineItem |
@@ -497,6 +500,7 @@ erDiagram
 | Organization | organization | referenced by external | System | BusinessRule |
 | Organization | organization | referenced by external | System | RulesEvaluationApplication |
 | Organization | organization | referenced by external | System | SystemSetting |
+| SourceImportRun | effectSourceImportRun | referenced by external | Orders | CoupangDirectTransportReceipt |
 | SourceImportRun | lastCompletedImportRun | referenced by external | Inventory | SellpiaInventoryState |
 | SourceImportRun | lastImportRun | referenced by external | Inventory | SellpiaInventorySku |
 | SourceImportRun | sourceImportRun | referenced by external | Channels | ChannelAdListingProductMonthlyFact |
@@ -510,6 +514,7 @@ erDiagram
 | SourceImportRun | sourceImportRun | referenced by external | Channels | SellpiaProductMonthlySales |
 | SourceImportRun | sourceImportRun | referenced by external | Channels | SellpiaSalesDailySnapshot |
 | SourceImportRun | sourceImportRun | referenced by external | Inventory | CoupangShipmentDateSummary |
+| SourceImportRun | sourceImportRun | referenced by external | Orders | CoupangDirectTransportConsumption |
 | SourceImportRun | sourceImportRun | referenced by external | Orders | Order |
 | SourceImportRun | sourceImportRun | referenced by external | Orders | OrderCollectionArtifact |
 | SourceImportRun | sourceImportRun | referenced by external | Orders | Review |

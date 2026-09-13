@@ -14,6 +14,7 @@ import {
 import { KIDITEM_EXTENSION_MIN_VERSION } from '@/lib/extension-version';
 
 export const REVIEW_EXTENSION_MIN_VERSION = KIDITEM_EXTENSION_MIN_VERSION;
+export const REVIEW_WINDOW_RECEIPT_CAPABILITY = 'coupangReviewCollectionWindowReceiptsV1';
 export const REVIEW_EXTENSION_CHROME_REQUIRED =
   '쿠팡 리뷰 수집은 Chrome 확장프로그램으로 실행됩니다. Chrome에서 이 페이지를 열어주세요.';
 export const REVIEW_EXTENSION_REQUIRED =
@@ -33,7 +34,10 @@ export type ReviewExtensionGate =
 interface ExtensionPingResponse {
   success?: boolean;
   version?: string;
-  capabilities?: { coupangReviewCollection?: boolean };
+  capabilities?: {
+    coupangReviewCollection?: boolean;
+    coupangReviewCollectionWindowReceiptsV1?: boolean;
+  };
 }
 
 const ReviewCollectionPlanSchema = z.object({
@@ -57,6 +61,16 @@ const ReviewCollectionAttemptSchema = z.object({
   plan: ReviewCollectionPlanSchema,
   expiresAt: z.string().datetime({ offset: true }).nullable(),
   completedWindows: z.array(z.number().int().nonnegative()),
+  windowReceipts: z.array(z.object({
+    windowIndex: z.number().int().nonnegative(),
+    itemCount: z.number().int().nonnegative(),
+    pageCount: z.number().int().nonnegative(),
+    pageLimitReached: z.boolean(),
+    coverageStartDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    coverageEndDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  }).strict()),
+  coverageStartDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
+  coverageEndDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
   collected: z.number().int().nonnegative(),
   created: z.number().int().nonnegative(),
   updated: z.number().int().nonnegative(),
@@ -124,6 +138,7 @@ export async function detectReviewExtensionGate(): Promise<ReviewExtensionGate> 
   const version = typeof ping.version === 'string' ? ping.version : null;
   if (
     !ping.capabilities?.coupangReviewCollection ||
+    !ping.capabilities?.[REVIEW_WINDOW_RECEIPT_CAPABILITY] ||
     !isReviewExtensionVersionAtLeast(version, REVIEW_EXTENSION_MIN_VERSION)
   ) {
     return { status: 'outdated', extensionId, version };

@@ -21,6 +21,7 @@ vi.mock('@/hooks/useAuth', () => ({
 }));
 vi.mock('@/hooks/useSellpiaChannelSales', () => ({
   sellpiaPeriodRange: () => ({ from: '2026-07-01', to: '2026-07-24' }),
+  useSellpiaKnownThrough: () => '2026-07-24',
   useSellpiaChannelSales: () => ({
     summary: sellpiaState.summary,
     isLoading: false,
