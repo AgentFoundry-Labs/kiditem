@@ -15,6 +15,7 @@ import {
 import { RocketPoSourceController } from '../adapter/in/http/rocket-po-source.controller';
 import { RocketPoCatalogRepositoryAdapter } from '../adapter/out/repository/rocket-po-catalog.repository.adapter';
 import { RocketPoCatalogService } from '../application/service/rocket-po-catalog.service';
+import { readRocketPoSource } from '../read/rocket-po-catalog.reader';
 import { ROCKET_PO_CATALOG_PORT } from '../application/port/in/rocket-po-catalog.port';
 import { RocketPurchasePreviewService } from '../../supply/application/service/rocket-purchase-preview.service';
 import { ChannelSkuAvailabilityService } from '../application/service/channel-sku-availability.service';
@@ -260,6 +261,38 @@ describe('Rocket owner public HTTP + disposable PG', () => {
       { poNumber: '2001', skuCount: 2, orderQuantity: 8, orderAmount: null },
       { poNumber: '2002', skuCount: 1, orderQuantity: 4, orderAmount: 3960 },
     ]);
+  });
+  it('dates the COMPLETE cutoff by its KST business day across the 00:30 KST boundary', async () => {
+    const attempt = (await start()).body;
+    await finish(attempt).expect(200);
+    // 2026-09-14 00:30 KST is still 2026-09-13 in UTC.
+    const importedAt = new Date('2026-09-13T15:30:00.000Z');
+    await prisma.sourceImportRun.update({
+      where: { id: attempt.attemptId },
+      data: { importedAt },
+    });
+    const readAt = (now: string) =>
+      prisma.$transaction((tx) =>
+        readRocketPoSource(tx, {
+          organizationId: ORG,
+          channelAccountId: ACCOUNT,
+          now: new Date(now),
+        }),
+      );
+
+    // At 2026-09-15 00:40 KST the required cutoff is 2026-09-14, the
+    // import's KST business day.
+    await expect(readAt('2026-09-14T15:40:00.000Z')).resolves.toMatchObject({
+      ready: true,
+      latestComplete: {
+        attemptId: attempt.attemptId,
+        actualCutoffAt: importedAt.toISOString(),
+      },
+    });
+    // One KST day later the same import no longer covers the required cutoff.
+    await expect(readAt('2026-09-15T15:40:00.000Z')).resolves.toMatchObject({
+      ready: false,
+    });
   });
   it('serializes concurrent begins into one account attempt without losing same-key replay', async () => {
     const key = randomUUID();

@@ -22,7 +22,7 @@ import {
 import { SOURCE_IMPORT_RUN_COMPLETED_STATUS } from '@kiditem/shared/source-import';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import { completedCatalogRunWhere } from './completed-catalog-run';
+import { completedCatalogRunWhere } from '../../../read/completed-catalog-run';
 import { readInventorySkuIdentities } from '../../../../inventory/read/inventory-availability';
 import { normalizeSellpiaManualMatchAlias } from '../../../domain/sellpia-manual-match-alias';
 import type {

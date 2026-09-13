@@ -185,24 +185,14 @@ describe('ReadinessService', () => {
       organizationId: ORGANIZATION_ID,
       sourceImportRunId: { in: [SELLPIA_COMPLETE_RUN_ID] },
     });
+    // Which import runs count is proven over PostgreSQL in
+    // catalog-readiness.pg.integration.spec.ts; this pins the account fence.
     expect(prisma.channelListing.count).toHaveBeenCalledWith({
-      where: {
+      where: expect.objectContaining({
         organizationId: ORGANIZATION_ID,
         channelAccountId: ACTIVE_COUPANG_ACCOUNT_ID,
         isActive: true,
-        lastImportRun: {
-          is: {
-            organizationId: ORGANIZATION_ID,
-            sourceType: {
-              in: [
-                'coupang_wing_catalog',
-                'coupang_wing_catalog_basics',
-                'coupang_wing_catalog_details',
-              ],
-            },
-          },
-        },
-      },
+      }),
     });
     expect(prisma.sourceImportRun.findFirst).toHaveBeenCalledWith({
       where: {
@@ -606,20 +596,13 @@ describe('ReadinessService', () => {
       detail: '쿠팡 상품 1254건 수집됨',
     });
     expect(readinessState(products)).toBe('ok');
+    // Which import runs count is proven over PostgreSQL in
+    // catalog-readiness.pg.integration.spec.ts; this pins the account fence.
     expect(prisma.channelListing.count).toHaveBeenCalledWith({
       where: expect.objectContaining({
-        lastImportRun: {
-          is: {
-            organizationId: ORGANIZATION_ID,
-            sourceType: {
-              in: [
-                'coupang_wing_catalog',
-                'coupang_wing_catalog_basics',
-                'coupang_wing_catalog_details',
-              ],
-            },
-          },
-        },
+        organizationId: ORGANIZATION_ID,
+        channelAccountId: ACTIVE_COUPANG_ACCOUNT_ID,
+        isActive: true,
       }),
     });
     expect(prisma.sourceImportRun.findFirst).toHaveBeenCalledWith({

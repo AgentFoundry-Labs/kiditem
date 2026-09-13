@@ -13,6 +13,7 @@ import {
   parseBusinessDate,
 } from '@kiditem/shared/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { countPublishedCatalogListings } from '../channels/read/completed-catalog-run';
 import { readSellpiaSalesDailyFacts } from '../analytics/sellpia-sales/read/sellpia-sales-daily-facts';
 import { dayAfter, readAdWindowFacts } from '../common/ad-window-facts';
 import { buildSnapshotBasis } from '@kiditem/shared/dashboard';
@@ -23,17 +24,10 @@ import type {
   RebuildReadinessResponse,
 } from '@kiditem/shared/readiness';
 
-// A staged details publication enriches the rows written by the completed
-// basics publication. Keep all three receipts in the coverage read so a
-// running/failed details child cannot make a previously valid basics snapshot
-// disappear from readiness. Whole-catalog readiness is stricter below: it is
-// satisfied only by the legacy full receipt or a terminal details receipt.
-const READINESS_CATALOG_COVERAGE_SOURCE_TYPES = [
-  'coupang_wing_catalog',
-  COUPANG_CATALOG_BASIC_SOURCE_TYPE,
-  COUPANG_CATALOG_DETAILS_SOURCE_TYPE,
-] as const;
-
+// The product count reads Channels' published catalog identity, which keeps a
+// completed basics snapshot visible while its details child is partial.
+// Whole-catalog readiness is stricter: only the legacy full receipt or a
+// terminal details receipt satisfies it.
 const READINESS_CATALOG_COMPLETE_SOURCE_TYPES = [
   'coupang_wing_catalog',
   COUPANG_CATALOG_DETAILS_SOURCE_TYPE,
@@ -169,18 +163,9 @@ export class ReadinessService {
           })
       : [];
     const coupangProductCount = activeCoupangAccount
-      ? await tx.channelListing.count({
-            where: {
-              organizationId,
-              channelAccountId: activeCoupangAccount.id,
-              isActive: true,
-              lastImportRun: {
-                is: {
-                  organizationId,
-                  sourceType: { in: [...READINESS_CATALOG_COVERAGE_SOURCE_TYPES] },
-                },
-              },
-            },
+      ? await countPublishedCatalogListings(tx, {
+            organizationId,
+            channelAccountId: activeCoupangAccount.id,
           })
       : 0;
     const latestCoupangCatalogRun = activeCoupangAccount

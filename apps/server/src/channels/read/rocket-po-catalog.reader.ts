@@ -14,6 +14,7 @@ import { deriveSourceReadiness } from "@kiditem/shared/source-readiness";
 import {
   businessDateKey,
   evidenceCutoffDate,
+  kstBusinessDate,
   parseBusinessDate,
 } from "../../common/kst";
 import type { RocketPoCompleteCollection } from "../application/port/in/rocket-po-catalog.port";
@@ -93,7 +94,9 @@ export async function readRocketPoSource(
   const now = input.now ?? new Date();
   const latestAttempt = latest ? publicAttempt(latest, now) : null;
   const latestComplete = complete ? publicAttempt(complete, now) : null;
-  const actualCutoff = latestComplete?.actualCutoffAt?.slice(0, 10) ?? null;
+  const actualCutoff = complete?.importedAt
+    ? businessDateKey(kstBusinessDate(complete.importedAt))
+    : null;
   const requiredCutoff = businessDateKey(evidenceCutoffDate(now));
   return {
     ready: deriveSourceReadiness({

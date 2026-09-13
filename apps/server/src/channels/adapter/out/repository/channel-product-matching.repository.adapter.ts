@@ -7,7 +7,7 @@ import {
 import { Prisma } from '@prisma/client';
 import { resolveChannelListingSaleStatus } from '@kiditem/shared/channel-listing';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import { completedCatalogRunWhere } from './completed-catalog-run';
+import { completedCatalogRunWhere } from '../../../read/completed-catalog-run';
 import { readLatestListingSaleStatusFacts } from '../../../read/channel-listing-daily-facts';
 import {
   readActiveInventoryMatchingCandidates,

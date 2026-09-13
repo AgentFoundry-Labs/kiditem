@@ -1,5 +1,5 @@
 import type { Prisma } from '@prisma/client';
-import { completedCatalogRunWhere } from './completed-catalog-run';
+import { completedCatalogRunWhere } from '../../../read/completed-catalog-run';
 
 const PUBLISHED_CATALOG_IDENTITY_SOURCES = [
   'coupang_catalog_browser',
