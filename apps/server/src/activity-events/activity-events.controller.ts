@@ -14,6 +14,7 @@ export class ActivityEventsController {
   ) {
     if (query.objectType && query.objectId) {
       return this.activityEventsService.findByObject(
+        organizationId,
         query.objectType,
         query.objectId,
         {
