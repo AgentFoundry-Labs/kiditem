@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -41,6 +41,19 @@ describe('retired hosted deployment environments', () => {
     expect(packageJson.scripts).not.toHaveProperty('storage:cache-control');
     expect(packageJson.dependencies).not.toHaveProperty('@supabase/supabase-js');
     expect(packageJson.devDependencies).not.toHaveProperty('@supabase/supabase-js');
+  });
+
+  it('keeps the retired staging deploy skill out of the repo-owned skill sources', () => {
+    const skillSources = join(repoRoot, 'skills');
+    // `npm run skills:update` links every skills/*/SKILL.md into agent discovery.
+    // If that source root moves, move this guard with it.
+    expect(
+      readdirSync(skillSources).some((name) => existsSync(join(skillSources, name, 'SKILL.md'))),
+    ).toBe(true);
+    expect(
+      existsSync(join(skillSources, 'staging-deploy-operator')),
+      'skills/staging-deploy-operator',
+    ).toBe(false);
   });
 
   it('keeps Office as the only deployable runtime surface', () => {
