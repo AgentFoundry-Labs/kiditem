@@ -125,7 +125,9 @@ Expected services:
 `db:push` is explicit because it mutates the selected database. The wrapper
 blocks `--force-reset`. Do not pass `--accept-data-loss` for a developer DB
 without first reviewing the schema diff and getting explicit approval. The
-previous authorization for isolated Testcontainer QA does not apply here.
+previous authorization for isolated Testcontainer QA does not apply here. The
+local QA database `kiditem-qa-pg` (port 5434) is disposable for cutover
+rehearsal and QA under the [data-loss policy](deployment-architecture.md#data-loss-policy).
 
 The root and server `DATABASE_URL` values must both be:
 

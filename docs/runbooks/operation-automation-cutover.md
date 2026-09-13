@@ -16,8 +16,8 @@ credentials, cookies, provider payloads, or row data into a ticket or report.
 ## Preconditions
 
 - Confirm the checkout and runtime are the intended Office deployment.
-- Confirm a restorable database backup exists and the writer-stop window is
-  approved. This command does not create or verify that backup.
+- Confirm the writer-stop window. The cutover starts from the dump described
+  in the [data-loss policy](deployment-architecture.md#data-loss-policy).
 - Set `DATABASE_URL` to the explicit PostgreSQL connection URL for the intended
   database. The preflight does not read a fallback URL from the environment.
 - Set `KIDITEM_DEPLOYED_SHA` and `KIDITEM_RELEASE_OFFICE_SHA` to the full,
@@ -63,10 +63,9 @@ not use `--apply`; the command rejects writable execution modes.
 
 ## Approved cutover sequence
 
-The preflight JSON, backup reference, and writer-stop approval are the
-admission record. The following steps run only against the backed-up,
-writer-stopped target. Use a disposable clone for rehearsal; never use the
-operating clone at `localhost:5433` for these commands.
+The preflight JSON is the admission record. The following steps run against
+the writer-stopped target after its dump. Rehearse on the local QA database
+`kiditem-qa-pg`, not on the developer database at `localhost:5433`.
 
 1. Stop every API, worker, scheduler, and other database writer after the
    read-only preflight passes. Keep the backup and the exact deployed/release
@@ -81,8 +80,7 @@ operating clone at `localhost:5433` for these commands.
    ```
 
    If this step fails, do not continue to schema application. The transaction
-   rolls back; correct the writer-stop or data issue and rerun from the backup
-   decision gate.
+   rolls back; correct the writer-stop or data issue and rerun.
 3. Survey what the schema step would hit in this database's data. An empty
    database accepts every schema change, so this is the first point where the
    answer is the real one: the pre-schema migrations have run, and `db push` has
@@ -118,16 +116,16 @@ operating clone at `localhost:5433` for these commands.
 
 ### Irreversible boundary and recovery
 
-Before step 4, stop and restore the approved backup if the pre-schema result,
-writer state, or SHA identity is not exact. Step 4 is destructive: this
+Before step 4, stop if the pre-schema result, writer state, or SHA identity
+is not exact. Step 4 is destructive: this
 runbook does not define an in-place rollback or recreate deleted generic rows.
-After schema application, recovery means restoring the backup into a separate
-database, verifying it, and redeploying the previously approved exact SHA
-through the Office release process. Do not manually reinsert Operation,
+After schema application, recover by fixing forward, or by restoring the
+cutover dump and redeploying the previously approved exact SHA through the
+Office release process. Do not manually reinsert Operation,
 Workflow, Marketplace, or Alert history rows, and do not run a second generic
 compatibility migration. If any post-schema check fails, keep writers stopped,
-preserve the failure and migration-ledger evidence, and use the approved
-backup/redeploy decision.
+preserve the failure and migration-ledger evidence, and fix forward or
+restore the cutover dump.
 
 If the URL is malformed, a required table is absent, a count is invalid, or any
 query fails, treat the preflight as blocked. Keep writers in their current safe

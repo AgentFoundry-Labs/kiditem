@@ -19,7 +19,9 @@ Before working in this directory, always read this document first rather than re
   payloads out of scripts, fixtures, comments, and expected output.
 - Prefer deterministic helpers that run without the database.
 - Database or external-account mutation scripts need a runbook with
-  prerequisites, confirmation flags, verification, and rollback/blocker notes.
+  prerequisites, confirmation flags, verification, and recovery notes. Schema
+  and data cutovers recover under the
+  [data-loss policy](../docs/runbooks/deployment-architecture.md#data-loss-policy).
 - `data-migrations/v0.1.31/003_prepare_operation_automation_cutover.ts` is the
   pre-schema half of the reviewed Operation/Automation cutover. Run it only
   through `npm run data:migrate` after the read-only preflight and writer-stop

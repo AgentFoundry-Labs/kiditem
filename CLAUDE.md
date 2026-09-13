@@ -102,8 +102,10 @@ processing, listing, and operations.
   web, and Gateway from its clean exact-SHA worktree, and preserves the live
   env/volumes while recreating application services. GitHub Office bundles,
   GHCR release digests, and `release/office` promotion PRs are not deployment
-  inputs. Prisma/data diffs require the explicit cutover contract in
-  [deployment-architecture.md](docs/runbooks/deployment-architecture.md).
+  inputs. Prisma/data diffs use the explicit cutover in
+  [deployment-architecture.md](docs/runbooks/deployment-architecture.md), which
+  may discard Office data that no longer fits
+  ([ADR-0010](docs/adr/0010-schema-cleanup-may-discard-office-data.md)).
 
 ## Verification
 
@@ -114,7 +116,7 @@ section only when it has a narrower or different gate.
 |---|---|
 | Backend/NestJS | Focused tests, then `npm run dev:server` and confirm boot |
 | Frontend | `npm run build --workspace=apps/web` |
-| Schema/data | Follow `prisma/CLAUDE.md` and the deployment cutover contract |
+| Schema/data | Follow `prisma/CLAUDE.md` and the deployment cutover's data-loss policy |
 
 Keep tests that document behavior, regression risk, domain policy, or a public
 contract.

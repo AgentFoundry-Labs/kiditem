@@ -93,6 +93,24 @@ then starts the candidate. The runtime manifest records the changed paths and
 approval. `deploy:office:rollback` refuses an immediate runtime-only rollback
 from that cutover.
 
+### Data-loss policy
+
+Until the owner declares that Office data must be preserved, schema cleanup
+takes priority over it
+([ADR-0010](../adr/0010-schema-cleanup-may-discard-office-data.md)).
+
+- Pre-schema data migrations delete rows that cannot fit the new schema instead
+  of stopping. They carry forward users and organizations, channel accounts,
+  confirmed recipes, orders, and transport receipts.
+- A cutover starts from one `pg_dump` of the Office database, kept with the
+  latest three. It needs no restore test, Office-copy rehearsal, backfill or
+  rollback evidence, or confirmation of Office database state.
+- Verify a cutover on Testcontainers PostgreSQL and the local QA database
+  `kiditem-qa-pg` (port 5434). The QA database is disposable: restore it from a
+  local dump, apply the cutover, run real collections, and check the screens.
+  Keep external writes (Sellpia transmission, Rocket PO submission, marketplace
+  registration) out of QA.
+
 ## Gateway and CLI profile
 
 `deploy/office/gateway-build.ps1` is the explicit heavy-build boundary for the
