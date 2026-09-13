@@ -42,7 +42,11 @@ function repository(
     readProductAbcFacts: vi.fn().mockResolvedValue(abcFacts()),
     findUnreadAlerts: vi.fn().mockResolvedValue([]),
     countActiveProducts: vi.fn().mockResolvedValue(0),
-    fetchPerListingMetrics: vi.fn().mockResolvedValue({ rows: [], withheldListings: 0 }),
+    fetchPerListingMetrics: vi.fn().mockResolvedValue({
+      rows: [],
+      withheldListings: 0,
+      orderWindowComplete: true,
+    }),
     readInventoryAvailabilityFacts: vi.fn().mockResolvedValue({
       outOfStockSkus: 0,
       linkedMasterProductCount: 0,

@@ -739,6 +739,29 @@ export function hasMeasuredProfit(
     && row.profitRate !== null;
 }
 
+/** Per-listing rows over a window, with the order-window facts they were read from. */
+async function readPerListingProfit(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+  from: Date,
+  to: Date,
+  accountAdEvidence: AccountAdEvidence,
+): Promise<{ rows: PerListingProfit[]; orderWindow: OrderWindowFacts }> {
+  const lineFacts = await readProfitLines(tx, organizationId, from, to);
+  const listingAdSpend = await readListingAdSpend(tx, organizationId, from, to);
+  const gradeByProductId = await readGrades(tx, organizationId, lineFacts.lines);
+  return {
+    orderWindow: lineFacts.orderWindow,
+    rows: perListingProfitRows({
+      orderWindow: lineFacts.orderWindow,
+      lines: lineFacts.lines,
+      ad: accountAdEvidence,
+      listingAdSpend,
+      gradeByProductId,
+    }),
+  };
+}
+
 /**
  * @param accountAdEvidence how Advertising says this window's account-level
  *   coverage should be read — obtain it with `readAdEvidenceFromLedger` for
@@ -753,37 +776,39 @@ export async function buildPerListingProfit(
   to: Date,
   accountAdEvidence: AccountAdEvidence,
 ): Promise<PerListingProfit[]> {
-  const lineFacts = await readProfitLines(tx, organizationId, from, to);
-  const listingAdSpend = await readListingAdSpend(tx, organizationId, from, to);
-  const gradeByProductId = await readGrades(tx, organizationId, lineFacts.lines);
-  return perListingProfitRows({
-    orderWindow: lineFacts.orderWindow,
-    lines: lineFacts.lines,
-    ad: accountAdEvidence,
-    listingAdSpend,
-    gradeByProductId,
-  });
+  return (await readPerListingProfit(tx, organizationId, from, to, accountAdEvidence)).rows;
 }
 
 /**
- * The measured per-listing rows, and how much of the window's population they
- * left out. A caller that publishes a calculation basis needs both: the count
- * it can compute, and the fact that it counted a subset.
+ * The measured per-listing rows, how much of the window's population they left
+ * out, and whether that population is the window's at all. A caller that
+ * publishes a calculation basis needs all three: the count it can compute, the
+ * fact that it counted a subset, and whether the orders behind it were
+ * collected for every date it counts over.
  */
 export interface PerListingMetricsCoverage {
   /** Listings whose every profit input was measured. */
   metrics: PerListingMetrics[];
   /** Listings withheld because an input was not measured. */
   withheldListings: number;
+  /**
+   * Whether a completed Orders collection covered every business date of the
+   * window (`isOrderWindowComplete`); an empty window covers none. Short of
+   * it, `metrics` and `withheldListings` describe only the orders collected so
+   * far, and a listing that sold only on an uncollected date is in neither.
+   */
+  orderWindowComplete: boolean;
 }
 
 /**
- * Per-listing rows whose profit is measured, with the withheld population.
+ * Per-listing rows whose profit is measured, with the withheld population and
+ * whether the Orders collection covered the window, all from one read.
  *
  * A listing with an unmeasured input is **withheld** rather than published
  * with a partial figure. Withholding shrinks the population a rollup counts,
  * so the size of what was withheld travels with it; `withheldListings > 0`
  * with an empty `metrics` is an empty computable subset, not a counted zero.
+ * Neither is a count over the window unless `orderWindowComplete`.
  */
 export async function buildPerListingMetricsCoverage(
   tx: Prisma.TransactionClient,
@@ -794,10 +819,20 @@ export async function buildPerListingMetricsCoverage(
   /** Limit the population to these listings; every sold listing when omitted. */
   listingIds?: ReadonlySet<string>,
 ): Promise<PerListingMetricsCoverage> {
-  const rows = (await buildPerListingProfit(tx, organizationId, from, to, accountAdEvidence))
-    .filter((row) => listingIds === undefined || listingIds.has(row.listingId));
+  const { rows: soldRows, orderWindow } = await readPerListingProfit(
+    tx,
+    organizationId,
+    from,
+    to,
+    accountAdEvidence,
+  );
+  const rows = soldRows.filter((row) => listingIds === undefined || listingIds.has(row.listingId));
   const metrics = rows.filter(hasMeasuredProfit);
-  return { metrics, withheldListings: rows.length - metrics.length };
+  return {
+    metrics,
+    withheldListings: rows.length - metrics.length,
+    orderWindowComplete: isOrderWindowComplete(orderWindow),
+  };
 }
 
 /**

@@ -24,6 +24,7 @@ import type { ResolvedDashboardPeriod } from '../../domain/period/dashboard-peri
 import type {
   AbcEvaluationAsOf,
   DashboardAbcFacts,
+  DashboardPerListingMetricsResult,
 } from '../port/out/repository/dashboard-inventory.repository.port';
 
 /**
@@ -538,6 +539,7 @@ describe('dashboard inventory metricBasis', () => {
   function inventoryService(
     evaluatedAsOf: Partial<AbcEvaluationAsOf> = {},
     abcOverrides: Partial<DashboardAbcFacts> = {},
+    perListing: Partial<DashboardPerListingMetricsResult> = {},
   ) {
     const repository = buildMockDashboardInventoryRepo();
     repository.readProductAbcFacts.mockResolvedValue({
@@ -563,6 +565,8 @@ describe('dashboard inventory metricBasis', () => {
     repository.fetchPerListingMetrics.mockResolvedValue({
       rows: [{ revenue: 1_000, adCost: 300, netProfit: -200, profitRate: -20 }],
       withheldListings: 0,
+      orderWindowComplete: true,
+      ...perListing,
     });
     repository.readInventoryAvailabilityFacts.mockResolvedValue({
       outOfStockSkus: 3,
@@ -668,6 +672,50 @@ describe('dashboard inventory metricBasis', () => {
       'abcContributionProfit.shareByGrade.B',
       'abcContributionProfit.shareByGrade.C',
     ]);
+  });
+
+  /** The three warning counts drawn from per-listing profit over an order window. */
+  const PER_LISTING_WARNING_KEYS = [
+    'warnings.minusProducts',
+    'warnings.lowProfitProducts',
+    'warnings.highAdProducts',
+  ] as const;
+
+  /**
+   * D2 — the per-listing warnings count listings over collected order rows.
+   * Until the Orders collection covers every date of their window those rows
+   * are only what it has collected so far, so no count over them is a
+   * measurement: an empty read is not "no loss-making listing", and a read
+   * with rows is not a complete count.
+   */
+  it('publishes the per-listing warnings unavailable while orders did not cover their window', async () => {
+    const lossRow = { revenue: 1_000, adCost: 300, netProfit: -200, profitRate: -20 };
+    const shortReads: DashboardPerListingMetricsResult['rows'][] = [[], [lossRow]];
+    for (const rows of shortReads) {
+      const result = await inventoryService({}, {}, { rows, orderWindowComplete: false })
+        .getSummary(customContext(), ORGANIZATION_ID);
+
+      for (const key of PER_LISTING_WARNING_KEYS) {
+        expect(result.metricBasis?.[key], `${key} over ${rows.length} row(s)`).toMatchObject({
+          kind: 'snapshot',
+          measured: false,
+          asOf: null,
+          withheldCount: 0,
+        });
+        expect(snapshotStatusOf(result.metricBasis?.[key]), key).toBe('unavailable');
+      }
+      // Stock and mapping read no order window and keep their own evidence.
+      expect(snapshotStatusOf(result.metricBasis?.['warnings.outOfStockSkus'])).toBe('current');
+      expect(snapshotStatusOf(result.metricBasis?.['warnings.mappingAttentionSkus'])).toBe('current');
+    }
+
+    // Once orders covered every date, an empty population is a counted zero.
+    const covered = await inventoryService({}, {}, { rows: [], orderWindowComplete: true })
+      .getSummary(customContext(), ORGANIZATION_ID);
+    expect(covered.warnings.minusProducts).toBe(0);
+    for (const key of PER_LISTING_WARNING_KEYS) {
+      expect(snapshotStatusOf(covered.metricBasis?.[key]), key).toBe('current');
+    }
   });
 
   it('names the ABC evaluation as-of rather than the read clock for a stored grade', async () => {
