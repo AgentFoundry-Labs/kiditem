@@ -41,6 +41,8 @@ sourcing/
   `/evidence-runs`, `/launch-candidates`, `/decision-batches`, and
   `/decision-items/:id/procurement-intents` beneath that prefix
 - Entry recommendation + assistant: `/api/sourcing/entry/*`
+- Owner confirm report: `GET /api/sourcing/workspace/confirm-report/status`,
+  `POST /api/sourcing/workspace/confirm-report/telegram`
 
 Route shape is frozen. New routes need 2+ segments: `GET /api/sourcing/:id`
 catches single-segment paths and fails as a bad candidate UUID.
@@ -190,3 +192,8 @@ by importing sourcing application services.
 - Candidate status is only `sourced|rejected`. Registration state is derived
   from preparations/listings; concurrent active-draft losers surface as
   conflict.
+- The owner confirm report sends only when a person asks. Telegram answers
+  write the existing `final` review selection through `SourcingReviewService`
+  with its version check, re-resolved against the latest recommendation run on
+  every press; button values carry no state and are signed by the messenger
+  adapter. The bot token, chat, and allowed users stay server-side.

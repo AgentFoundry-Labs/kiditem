@@ -341,7 +341,7 @@ folders are intentionally absent from this map.
 | `apps/server/src/products/categories` | Flat | `/api/categories` compatibility capability under products ownership. |
 | `apps/server/src/readiness` | Flat | readiness controller/service. |
 | `apps/server/src/rules` | Flat | HTTP orchestration delegates execution to Agent OS ports. |
-| `apps/server/src/sourcing` | Hexagonal | Discovery, source/evidence ledger, launch identity, decision policy, and sourcing agent/products boundaries behind ports/adapters; Supply handoffs use only the exported incoming procurement port. |
+| `apps/server/src/sourcing` | Hexagonal | Discovery, source/evidence ledger, launch identity, decision policy, and sourcing agent/products boundaries behind ports/adapters; Supply handoffs use only the exported incoming procurement port. The owner confirm report reaches Telegram only through `SOURCING_CONFIRM_MESSENGER_PORT` (long-polled answers, signed button values) and writes decisions through the existing final review selection. |
 | `apps/server/src/supply` | Hexagonal | Supplier/offer/procurement persistence, create-only pre-purchase intents, idempotent external submission attempts, the narrow opaque Inventory-fence transaction adapter, and Rocket preview policy behind ports/adapters; architecture + module wiring specs freeze invariants. |
 | `apps/server/src/uploads` | Flat | upload controller/service/storage bridge. |
 
