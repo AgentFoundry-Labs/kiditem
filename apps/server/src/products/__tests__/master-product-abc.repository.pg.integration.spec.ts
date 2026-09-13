@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { PrismaClient } from '@prisma/client';
+import type { Prisma, PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD } from '@kiditem/shared/product-abc';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
@@ -205,6 +205,57 @@ describe('MasterProductAbcRepositoryAdapter (PostgreSQL)', () => {
     })).resolves.toBe(0);
     await expect(prisma.masterProduct.findUniqueOrThrow({ where: { id: productId } }))
       .resolves.toMatchObject({ abcGrade: null });
+  });
+
+  // The schema cutover drops the legacy product grade column. Publication
+  // compares, records history, and clears from the retained evaluations alone,
+  // so it publishes the same on a schema that no longer has the column.
+  it('publishes from retained evaluations on a schema without the legacy product grade column', async () => {
+    const { productId, formulaVersionId, sources } = await fixture(prisma);
+    await repository.publish(publication({
+      formulaVersionId,
+      sourceFences: sources,
+      targetProductIds: [productId],
+      candidates: [candidate(productId, sources, 'B')],
+    }));
+    const restore = 'restore master_products.abc_grade';
+
+    await expect(prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`ALTER TABLE master_products DROP COLUMN IF EXISTS abc_grade`;
+      const withoutColumn = new MasterProductAbcRepositoryAdapter({
+        $transaction: (run: (client: Prisma.TransactionClient) => Promise<unknown>) => run(tx),
+      } as never);
+
+      await expect(withoutColumn.publish(publication({
+        formulaVersionId,
+        expectedPublicationRevision: 1,
+        sourceFences: sources,
+        targetProductIds: [productId],
+        candidates: [candidate(productId, sources, 'A')],
+      }))).resolves.toEqual({ outcome: 'PUBLISHED', publicationRevision: 2, changedProductCount: 1 });
+      await expect(tx.masterProductAbcGradeHistory.findMany({
+        where: { organizationId: TEST_ORGANIZATION_ID },
+        select: { oldGrade: true, newGrade: true, publicationRevision: true },
+      })).resolves.toEqual([{ oldGrade: 'B', newGrade: 'A', publicationRevision: 2 }]);
+
+      // A product that stops selling leaves the target set; its retained
+      // evaluation is the one publication clears.
+      await tx.masterProduct.updateMany({
+        where: { id: productId, organizationId: TEST_ORGANIZATION_ID },
+        data: { isActive: false },
+      });
+      await expect(withoutColumn.publish(publication({
+        formulaVersionId,
+        expectedPublicationRevision: 2,
+        sourceFences: sources,
+        targetProductIds: [],
+        candidates: [],
+      }))).resolves.toEqual({ outcome: 'PUBLISHED', publicationRevision: 3, changedProductCount: 1 });
+      await expect(tx.masterProductAbcEvaluation.count({
+        where: { organizationId: TEST_ORGANIZATION_ID },
+      })).resolves.toBe(0);
+      throw new Error(restore);
+    }, { maxWait: 10_000, timeout: 60_000 })).rejects.toThrow(restore);
   });
 
   it('preserves an old official grade when a current product becomes insufficient', async () => {
