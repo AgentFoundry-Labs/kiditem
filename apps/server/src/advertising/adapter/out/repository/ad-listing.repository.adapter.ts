@@ -1,7 +1,9 @@
 // Product-owned advertising metadata hydrated through a scoped channel link.
 
 import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { readPublishedProductAbcGrades } from '../../../../products/read/product-abc-publication.reader';
 import type {
   AdListingRepositoryPort,
   ScopedAdListingReadModel,
@@ -20,7 +22,18 @@ export class AdListingRepositoryAdapter implements AdListingRepositoryPort {
     );
     if (ids.length === 0) return new Map();
 
-    const listings = await this.prisma.channelListing.findMany({
+    return this.prisma.$transaction(
+      (tx) => this.findScopedAdListingsSnapshot(tx, organizationId, ids),
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
+  }
+
+  private async findScopedAdListingsSnapshot(
+    tx: Prisma.TransactionClient,
+    organizationId: string,
+    ids: string[],
+  ): Promise<Map<string, ScopedAdListingReadModel>> {
+    const listings = await tx.channelListing.findMany({
       where: {
         id: { in: ids },
         organizationId,
@@ -36,12 +49,16 @@ export class AdListingRepositoryAdapter implements AdListingRepositoryPort {
             id: true,
             code: true,
             name: true,
-            abcGrade: true,
             adTier: true,
             healthScore: true,
           },
         },
       },
+    });
+    const gradeByProductId = await readPublishedProductAbcGrades(tx, {
+      organizationId,
+      masterProductIds: listings.flatMap((listing) =>
+        listing.masterProduct ? [listing.masterProduct.id] : []),
     });
     const out = new Map<string, ScopedAdListingReadModel>();
     for (const listing of listings) {
@@ -49,7 +66,10 @@ export class AdListingRepositoryAdapter implements AdListingRepositoryPort {
         id: listing.id,
         externalId: listing.externalId,
         channelName: listing.channelName,
-        masterProduct: listing.masterProduct ?? {
+        masterProduct: listing.masterProduct ? {
+          ...listing.masterProduct,
+          abcGrade: gradeByProductId.get(listing.masterProduct.id) ?? null,
+        } : {
           id: listing.id,
           code: listing.externalId,
           name: listing.displayName ?? listing.channelName ?? listing.externalId,

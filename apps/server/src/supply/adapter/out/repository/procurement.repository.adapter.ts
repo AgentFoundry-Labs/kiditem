@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
@@ -7,6 +7,10 @@ import type {
   PurchaseOrderListQuery,
   PurchaseOrderStatusUpdate,
 } from '../../../application/port/out/repository/procurement.repository.port';
+import {
+  SELLPIA_INVENTORY_SKU_READ_PORT,
+  type SellpiaInventorySkuReadPort,
+} from '../../../../inventory/application/port/in/stock/sellpia-inventory-sku-read.port';
 
 type PurchaseOrderSummarySource = {
   totalAmountCny: Prisma.Decimal | number | string;
@@ -15,7 +19,11 @@ type PurchaseOrderSummarySource = {
 
 @Injectable()
 export class ProcurementRepositoryAdapter implements ProcurementRepositoryPort {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(SELLPIA_INVENTORY_SKU_READ_PORT)
+    private readonly inventorySkus: SellpiaInventorySkuReadPort,
+  ) {}
 
   async list(organizationId: string, query: PurchaseOrderListQuery) {
     await this.prisma.$executeRaw`
@@ -96,7 +104,10 @@ export class ProcurementRepositoryAdapter implements ProcurementRepositoryPort {
     };
   }
 
-  async createDraft(organizationId: string, command: PurchaseOrderCreateCommand) {
+  async createDraft(
+    organizationId: string,
+    command: PurchaseOrderCreateCommand,
+  ) {
     const existing = command.idempotencyKey
       ? await this.prisma.purchaseOrder.findFirst({
           where: { organizationId, idempotencyKey: command.idempotencyKey },
@@ -115,13 +126,15 @@ export class ProcurementRepositoryAdapter implements ProcurementRepositoryPort {
         where: { id: command.supplierId, organizationId },
         select: { id: true },
       });
-      if (!supplier) return { ok: false as const, reason: 'supplier_not_found' as const };
+      if (!supplier)
+        return { ok: false as const, reason: 'supplier_not_found' as const };
     }
 
-    const missingSellpiaInventorySkuIds = await this.findMissingOwnedSellpiaInventorySkuIds(
-      organizationId,
-      command,
-    );
+    const missingSellpiaInventorySkuIds =
+      await this.findMissingOwnedSellpiaInventorySkuIds(
+        organizationId,
+        command,
+      );
     if (missingSellpiaInventorySkuIds.length > 0) {
       return {
         ok: false as const,
@@ -158,7 +171,9 @@ export class ProcurementRepositoryAdapter implements ProcurementRepositoryPort {
           expectedDeliveryDate: command.expectedDeliveryDate
             ? new Date(command.expectedDeliveryDate)
             : null,
-          ...(command.idempotencyKey ? { idempotencyKey: command.idempotencyKey } : {}),
+          ...(command.idempotencyKey
+            ? { idempotencyKey: command.idempotencyKey }
+            : {}),
           ...(command.requestHash ? { requestHash: command.requestHash } : {}),
           items: {
             create: command.items.map((item) => ({
@@ -181,7 +196,8 @@ export class ProcurementRepositoryAdapter implements ProcurementRepositoryPort {
       });
       return { ok: true as const, order };
     } catch (error) {
-      if (!command.idempotencyKey || !isUniqueConstraintError(error)) throw error;
+      if (!command.idempotencyKey || !isUniqueConstraintError(error))
+        throw error;
       const raced = await this.prisma.purchaseOrder.findFirst({
         where: { organizationId, idempotencyKey: command.idempotencyKey },
         include: { items: true, supplier: true },
@@ -260,20 +276,22 @@ export class ProcurementRepositoryAdapter implements ProcurementRepositoryPort {
       new Set(command.items.map((item) => item.sellpiaInventorySkuId)),
     );
 
-    const owned = await this.prisma.sellpiaInventorySku.findMany({
-      where: {
-        id: { in: sellpiaInventorySkuIds },
-        organizationId,
-        isActive: true,
-      },
-      select: { id: true },
-    });
-    const ownedSet = new Set(owned.map((row) => row.id));
+    const owned = await this.inventorySkus.findByIds(
+      organizationId,
+      sellpiaInventorySkuIds,
+    );
+    const ownedSet = new Set(
+      owned
+        .filter(({ isActive }) => isActive)
+        .map(({ sellpiaInventorySkuId }) => sellpiaInventorySkuId),
+    );
     return sellpiaInventorySkuIds.filter((id) => !ownedSet.has(id));
   }
 }
 
-function buildStatusCounts(grouped: { status: string; _count: { id: number } }[]) {
+function buildStatusCounts(
+  grouped: { status: string; _count: { id: number } }[],
+) {
   const countMap: Record<string, number> = {};
   let all = 0;
   for (const g of grouped) {
@@ -296,14 +314,18 @@ function summarizePurchaseOrders(orders: PurchaseOrderSummarySource[]) {
   return orders.reduce(
     (summary, order) => ({
       orderCount: summary.orderCount + 1,
-      totalQuantity: summary.totalQuantity + order.items.reduce((sum, item) => sum + item.quantity, 0),
+      totalQuantity:
+        summary.totalQuantity +
+        order.items.reduce((sum, item) => sum + item.quantity, 0),
       totalAmountCny: summary.totalAmountCny + toNumber(order.totalAmountCny),
     }),
     { orderCount: 0, totalQuantity: 0, totalAmountCny: 0 },
   );
 }
 
-function toNumber(value: Prisma.Decimal | number | string | null | undefined): number {
+function toNumber(
+  value: Prisma.Decimal | number | string | null | undefined,
+): number {
   return Number(value ?? 0);
 }
 
@@ -312,6 +334,8 @@ function decimalString(value: Prisma.Decimal | number | string): string {
 }
 
 function isUniqueConstraintError(error: unknown): boolean {
-  return error instanceof Prisma.PrismaClientKnownRequestError
-    && error.code === 'P2002';
+  return (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    error.code === 'P2002'
+  );
 }

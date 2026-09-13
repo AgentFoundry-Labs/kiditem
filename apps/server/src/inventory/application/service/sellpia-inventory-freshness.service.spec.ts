@@ -1,4 +1,5 @@
 import { AppException } from '@kiditem/shared/server-errors';
+import { NotFoundException } from '@nestjs/common';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SellpiaInventoryFreshnessService } from './sellpia-inventory-freshness.service';
 import type { SellpiaInventoryFreshnessState } from '../../domain/policy/sellpia-inventory-freshness.policy';
@@ -484,13 +485,31 @@ implements SellpiaInventoryFreshnessRepositoryPort {
     return updated;
   }
 
-  findInventorySkus(organizationId: string, ids: string[]) {
+  findInventoryAvailability(organizationId: string, ids: string[]) {
     this.lastInventorySkuIds = ids;
     const byOrganization = this.inventorySkus.get(organizationId) ?? new Map();
-    return ids.flatMap((id) => {
+    const items = ids.flatMap((id) => {
       const sku = byOrganization.get(id);
-      return sku === undefined ? [] : [{ id, ...sku }];
+      return sku === undefined ? [] : [{
+        sellpiaInventorySkuId: id,
+        currentStock: sku.currentStock,
+        availableStock: sku.currentStock,
+        isActive: sku.isActive,
+        generation: this.state(organizationId).verifiedGeneration.toString(),
+      }];
     });
+    if (items.length !== ids.length) throw new NotFoundException();
+    const state = this.state(organizationId);
+    return {
+      snapshot: {
+        collected: state.verifiedGeneration > 0n && state.lastVerifiedAt !== null,
+        generation: state.verifiedGeneration > 0n
+          ? state.verifiedGeneration.toString()
+          : null,
+        verifiedAt: state.lastVerifiedAt?.toISOString() ?? null,
+      },
+      items,
+    };
   }
 }
 
@@ -516,14 +535,8 @@ implements SellpiaInventoryFreshnessRepositoryTransaction {
     );
   }
 
-  async findInventorySkus(
-    sellpiaInventorySkuIds: string[],
-  ): Promise<Array<{
-    id: string;
-    isActive: boolean;
-    currentStock: number;
-  }>> {
-    return this.repository.findInventorySkus(
+  async findInventoryAvailability(sellpiaInventorySkuIds: string[]) {
+    return this.repository.findInventoryAvailability(
       this.organizationId,
       sellpiaInventorySkuIds,
     );

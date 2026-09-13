@@ -42,7 +42,7 @@ function makePrisma(overrides: {
   orphanCount?: number;
   listings?: Array<{ id: string; channel: string }>;
 }) {
-  return {
+  const prisma = {
     order: { findMany: vi.fn().mockResolvedValue(overrides.orders ?? []) },
     orderReturnLineItem: { findMany: vi.fn().mockResolvedValue(overrides.returnRows ?? []) },
     $queryRaw: vi.fn().mockResolvedValue((overrides.adRows ?? []).map(listingAdRow)),
@@ -55,7 +55,10 @@ function makePrisma(overrides: {
         })),
       ),
     },
-  } as any;
+  };
+  return Object.assign(prisma, {
+    $transaction: vi.fn((work: (tx: typeof prisma) => unknown) => work(prisma)),
+  }) as any;
 }
 
 const mkLineItem = (
@@ -109,6 +112,10 @@ describe('SalesAnalysisService.getAnalysis — Plan D.3', () => {
   it('IDOR — 3-hop organizationId on return query + channelListing lookup', async () => {
     const prisma = makePrisma({});
     await new SalesAnalysisService(prisma).getAnalysis('cA', '2026-04');
+    expect(prisma.$transaction).toHaveBeenCalledWith(
+      expect.any(Function),
+      { isolationLevel: 'RepeatableRead' },
+    );
     expect(prisma.order.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({ organizationId: 'cA' }),
     }));

@@ -69,7 +69,6 @@ export const InventorySkuSnapshotItemSchema = z.object({
   linkedProductCount: z.number().int().nonnegative(),
   linkedProducts: z.array(InventorySkuLinkedProductSchema),
   linkedChannelOptions: z.array(InventorySkuLinkedChannelOptionSchema),
-  linkStatus: SellpiaInventorySkuLinkStatusSchema,
 }).strict().superRefine((value, ctx) => {
   if (value.purchasePrice === null && value.stockValue !== null) {
     ctx.addIssue({
@@ -86,16 +85,9 @@ export const InventorySkuSnapshotItemSchema = z.object({
     });
   }
   const shouldBeLinked = value.linkedChannelOptionCount > 0;
-  if (shouldBeLinked !== (value.linkStatus === 'linked')) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['linkStatus'],
-      message: 'Link status must agree with the linked channel option count',
-    });
-  }
   if (
-    (value.linkStatus === 'unlinked' && value.linkedProductCount !== 0)
-    || (value.linkStatus === 'linked' && value.linkedProductCount === 0)
+    (!shouldBeLinked && value.linkedProductCount !== 0)
+    || (shouldBeLinked && value.linkedProductCount === 0)
     || value.linkedProductCount > value.linkedChannelOptionCount
   ) {
     ctx.addIssue({
@@ -137,6 +129,17 @@ export const InventorySkuSnapshotItemSchema = z.object({
   });
 });
 export type InventorySkuSnapshotItem = z.infer<typeof InventorySkuSnapshotItemSchema>;
+
+export function deriveInventoryLinkStatus(
+  facts: Pick<InventorySkuSnapshotItem, 'linkedChannelOptionCount'>,
+): SellpiaInventorySkuLinkStatus {
+  return facts.linkedChannelOptionCount > 0 ? 'linked' : 'unlinked';
+}
+
+export const INVENTORY_LINK_LABELS = {
+  linked: '연결됨',
+  unlinked: '미연결',
+} as const satisfies Record<SellpiaInventorySkuLinkStatus, string>;
 
 export const InventorySkuSnapshotSummarySchema = z.object({
   totalSkus: z.number().int().nonnegative(),

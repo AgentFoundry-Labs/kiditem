@@ -6,8 +6,9 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, type AdAction } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { currentRowTieBreakSql } from '../../../../common/current-row';
-import { completeAdCampaignSourceIds, readCompleteAdKeywordFacts } from './ad-keyword-complete-read';
+import { completeAdCampaignSourceIds, readCompleteAdKeywordFacts } from '../../../read/ad-target-facts';
 import { AdListingRepositoryAdapter } from './ad-listing.repository.adapter';
+import { readPublishedProductAbcGrades } from '../../../../products/read/product-abc-publication.reader';
 import type { ActionCandidate } from '../../../domain/ad-action-rules';
 import type {
   AdActionQuery,
@@ -138,7 +139,9 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
           conversions: row.conversions,
           meta_json: row.metaJson,
         }));
-        return tx.$queryRaw<LatestTargetRow[]>(
+        const targets = await tx.$queryRaw<Array<Omit<LatestTargetRow, 'abcGrade'> & {
+          masterProductId: string | null;
+        }>>(
           Prisma.sql`
         WITH non_keyword AS (
           SELECT DISTINCT ON (cad.target_key)
@@ -204,7 +207,7 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
           latest.impressions,
           latest.clicks,
           latest.conversions,
-          mp.abc_grade                 AS "abcGrade",
+          mp.id                        AS "masterProductId",
           clo.commission_rate          AS "optionCommissionRate",
           -- Keyword rows frequently have no listing match (7,432 of 9,266 in
           -- the live account), but the advertised item name is always stamped
@@ -243,6 +246,17 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
               AND mp.is_active = true
       `,
         );
+        const gradeByProductId = await readPublishedProductAbcGrades(tx, {
+          organizationId,
+          masterProductIds: targets.flatMap((target) =>
+            target.masterProductId ? [target.masterProductId] : []),
+        });
+        return targets.map(({ masterProductId, ...target }) => ({
+          ...target,
+          abcGrade: masterProductId
+            ? gradeByProductId.get(masterProductId) ?? null
+            : null,
+        }));
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
     );

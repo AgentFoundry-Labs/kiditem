@@ -183,6 +183,16 @@ function asRecord(value: unknown): Record<string, unknown> {
     : {};
 }
 
+function declaredConfirmedDates(value: Prisma.JsonValue | null): string[] {
+  const dates = asRecord(value).confirmedDates;
+  if (!Array.isArray(dates)) return [];
+  return dates.filter((candidate): candidate is string => {
+    if (typeof candidate !== 'string') return false;
+    const parsed = toBusinessDate(candidate);
+    return parsed !== null && dateText(parsed) === candidate;
+  });
+}
+
 function datesInRange(start: Date, end: Date): number {
   return inclusiveDayCount(start, end);
 }
@@ -1059,6 +1069,7 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
       // reached, and coverage is exactly what consumers read to decide whether a
       // metric is measured.
       const confirmedDates = confirmedDatesOf(plan, entries);
+      const providerBackedEmptyDates = providerBackedEmptyDatesOf(confirmedDates, entries);
       const coverageStart = confirmedDates[0] ?? plan.startDate;
       const coverageEnd = confirmedDates[confirmedDates.length - 1] ?? plan.endDate;
       if (!(await this.accountMatches(tx, row))) {
@@ -1129,6 +1140,7 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
             requestedStartDate: plan.startDate,
             requestedEndDate: plan.endDate,
             confirmedDates,
+            providerBackedEmptyDates,
             targetUrl: plan.targetUrl,
             expectedPages: entries.map((entry) => entry.receipt).find(isPageReceipt)?.expectedPages ?? null,
             visitedPages: entries
@@ -1257,7 +1269,7 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
       }),
       tx.sourceImportRun.findMany({
         where: { ...where, status: 'completed' },
-        select: { plan: true },
+        select: { plan: true, qualityReport: true },
       }),
     ]);
     const latestAttempt = latest ? await this.attemptView(tx, latest) : null;
@@ -1266,7 +1278,9 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
     const coveredDailyDates = new Set(
       allComplete.flatMap((candidate) => {
         const plan = AdTrafficSourcePlanSchema.safeParse(candidate.plan);
-        return plan.success && isDailyPlan(plan.data) ? plan.data.expectedDates : [];
+        return plan.success && isDailyPlan(plan.data)
+          ? declaredConfirmedDates(candidate.qualityReport)
+          : [];
       }),
     );
     const ready = deriveSourceReadiness({
@@ -2427,6 +2441,20 @@ function confirmedDatesOf(
   const end = plan.expectedDates.indexOf(period.endDate);
   if (start < 0 || end < start) return [];
   return plan.expectedDates.slice(start, end + 1);
+}
+
+function providerBackedEmptyDatesOf(
+  confirmedDates: readonly string[],
+  entries: readonly ReceiptEntry[],
+): string[] {
+  const dailyPages = entries
+    .map((entry) => entry.input)
+    .filter((input): input is AdTrafficSourceDailyReceiptInput => isDailyReceipt(input));
+  return confirmedDates.filter((businessDate) => {
+    const pages = dailyPages.filter((page) => page.businessDate === businessDate);
+    return pages.length > 0 && pages.every((page) =>
+      page.data.length === 0 && page.proof.explicitEmpty === true);
+  });
 }
 
 function validateCoverage(plan: ReturnType<typeof AdTrafficSourcePlanSchema.parse>, entries: ReceiptEntry[]): string | null {

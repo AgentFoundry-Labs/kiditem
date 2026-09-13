@@ -226,7 +226,6 @@ describe('MasterProductProfitabilityReadService', () => {
       'state:start',
       'state:end',
       'sale-age:listings',
-      'sale-age:raw',
     ]);
   });
 });

@@ -6,7 +6,11 @@ export type LaunchCandidateIdentityEconomicsStatus =
   | 'unknown'
   | 'known'
   | 'blocked';
-export type LaunchCandidateIdentityGateStatus = 'unknown' | 'passed' | 'blocked';
+export type LaunchCandidateIdentityGateStatus =
+  | 'not_evaluated'
+  | 'unknown'
+  | 'passed'
+  | 'blocked';
 
 export interface LaunchCandidateIdentityInput {
   supplierOfferSkuSnapshotId: string;
@@ -202,17 +206,17 @@ export function normalizeLaunchCandidateIdentity(
     ),
     complianceStatus: requiredStatus(
       input.complianceStatus,
-      ['unknown', 'passed', 'blocked'],
+      ['not_evaluated', 'unknown', 'passed', 'blocked'],
       'complianceStatus',
     ),
     qualityStatus: requiredStatus(
       input.qualityStatus,
-      ['unknown', 'passed', 'blocked'],
+      ['not_evaluated', 'unknown', 'passed', 'blocked'],
       'qualityStatus',
     ),
     ipStatus: requiredStatus(
       input.ipStatus,
-      ['unknown', 'passed', 'blocked'],
+      ['not_evaluated', 'unknown', 'passed', 'blocked'],
       'ipStatus',
     ),
     landedCostKrw: input.landedCostKrw,

@@ -10,9 +10,18 @@ import type {
 import type { AppendSourcingEvidenceObservationCommand } from '../port/out/repository/sourcing-evidence-ledger.repository.port';
 import { canonicalJson } from '../../domain/sourcing-stable-json';
 
-type TrendTypedCollectionRecord = Exclude<
+type TrendTypedCollectionRecord = Extract<
   SourcingTypedCollectionRecord,
-  { kind: 'extension_candidate' }
+  {
+    kind:
+      | 'naver_keyword'
+      | 'naver_popular_keyword'
+      | 'offer_1688_keyword_observation'
+      | 'shorts'
+      | 'tiktok_creative'
+      | 'live_commerce_broadcast'
+      | 'live_commerce_product';
+  }
 >;
 
 export function normalizeCollectionTarget(value: string): string {

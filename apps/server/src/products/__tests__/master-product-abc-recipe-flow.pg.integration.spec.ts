@@ -67,11 +67,11 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
       advertising,
       prismaService,
     );
-    const abcRepository = new MasterProductAbcRepositoryAdapter(prismaService);
-    const abcRead = new ProductAbcReadService(abcRepository, profitability);
     const inventory = new InventoryAvailabilityService(
       new InventoryAvailabilityRepositoryAdapter(prismaService),
     );
+    const abcRepository = new MasterProductAbcRepositoryAdapter(prismaService);
+    const abcRead = new ProductAbcReadService(abcRepository, profitability);
     const displayMedia = new CatalogDisplayMediaService(
       new CatalogDisplayMediaRepositoryAdapter(prismaService),
     );
@@ -161,7 +161,7 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
     expect(replacedDetail).toMatchObject({
       abc: {
         publicationRevision: 0,
-        sources: { mapping: { status: 'STALE', mappingGeneration: '2' } },
+        sources: { mapping: { valid: true, currentMappingGeneration: '2', evidenceMappingGeneration: null } },
       },
       channelListings: [{ options: [{
         id: fixture.normal.optionId,
@@ -272,7 +272,7 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
         publicationRevision: 1,
         officialCutoffDate: EXPECTED_CUTOFF,
         actualCutoffDate: EXPECTED_CUTOFF,
-        sources: { mapping: { status: 'READY', mappingGeneration: '2' } },
+        sources: { mapping: { valid: true, currentMappingGeneration: '2', evidenceMappingGeneration: '2' } },
       },
     });
     expect(insufficientDetail).toMatchObject({
@@ -293,13 +293,6 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
       total: 2,
       summary: {
         abcGradeCounts: { A: 1, B: 0, C: 0, unclassified: 1 },
-        abcStatusCounts: {
-          READY: 1,
-          INSUFFICIENT_EVIDENCE: 1,
-          SOURCE_UNMAPPED: 0,
-          SELLPIA_SOURCE_STALE: 0,
-          AD_SOURCE_STALE: 0,
-        },
       },
     });
     expect(all.items.map(({ id, abcGrade, abc }) => ({

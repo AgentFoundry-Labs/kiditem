@@ -23,8 +23,10 @@ import {
   COUPANG_CATALOG_BASIC_SOURCE_TYPE,
   COUPANG_CATALOG_DETAILS_SOURCE_TYPE,
 } from '@kiditem/shared/coupang-catalog-snapshot';
+import { SOURCE_IMPORT_RUN_COMPLETED_STATUS } from '@kiditem/shared/source-import';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { readInventorySkuIdentities } from '../../../../inventory/read/inventory-availability';
 import { normalizeSellpiaManualMatchAlias } from '../../../domain/sellpia-manual-match-alias';
 import type {
   SellpiaManualMatchAliasRecord,
@@ -35,7 +37,7 @@ import type {
 const CREATE_BATCH_SIZE = 5_000;
 const ATTEMPT_TTL_MS = 30 * 60_000;
 const DB_RUNNING = 'running';
-const DB_COMPLETE = 'completed';
+const DB_COMPLETE = SOURCE_IMPORT_RUN_COMPLETED_STATUS;
 const DB_FAILED = 'failed';
 const ALERT_DEDUPE_KEY = 'source:sellpia-manual-match';
 const ALERT_HREF = '/product-hub/matching';
@@ -494,11 +496,14 @@ async function listCurrentChannelAliasCandidates(
 }
 
 async function listActiveSkus(tx: Transaction, organizationId: string): Promise<ActiveSku[]> {
-  return tx.sellpiaInventorySku.findMany({
-    where: { organizationId, isActive: true },
-    select: { id: true, code: true },
-    orderBy: [{ code: 'asc' }, { id: 'asc' }],
+  const identities = await readInventorySkuIdentities(tx, {
+    organizationId,
+    selector: { kind: 'active' },
   });
+  return identities.map(({ sellpiaInventorySkuId, code }) => ({
+    id: sellpiaInventorySkuId,
+    code,
+  }));
 }
 
 async function currentStatusIn(

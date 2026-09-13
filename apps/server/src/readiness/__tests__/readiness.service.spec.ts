@@ -5,6 +5,7 @@ import { ReadinessService } from '../readiness.service';
 
 const ORGANIZATION_ID = '00000000-0000-0000-0000-0000000c0001';
 const ACTIVE_COUPANG_ACCOUNT_ID = '00000000-0000-4000-8000-0000000c0002';
+const SELLPIA_COMPLETE_RUN_ID = '00000000-0000-4000-8000-0000000c0003';
 
 /** One measured ad day as `readAdWindowFacts` reads it from the ledger. */
 function adPublishedRow(
@@ -49,6 +50,44 @@ function queriedDates(queryRaw: ReturnType<typeof vi.fn>): string[] {
 function queriedOrganization(queryRaw: ReturnType<typeof vi.fn>): string | undefined {
   const sql = queryRaw.mock.calls[0]?.[0] as { values?: unknown[] } | undefined;
   return sql?.values?.[0] as string | undefined;
+}
+
+function withSellpiaReaderTransaction<T extends {
+  sourceImportRun: object;
+  sellpiaSalesDailySnapshot: { findMany: ReturnType<typeof vi.fn> };
+}>(prisma: T): T & { $transaction: ReturnType<typeof vi.fn> } {
+  const legacyFindMany = prisma.sellpiaSalesDailySnapshot.findMany;
+  const tx = {
+    ...prisma,
+    sourceImportRun: {
+      ...prisma.sourceImportRun,
+      findMany: vi.fn(async () => [{ id: SELLPIA_COMPLETE_RUN_ID }]),
+    },
+    sellpiaSalesDailySnapshot: {
+      findMany: vi.fn(async (query: unknown) => {
+        const rows = await legacyFindMany(query) as Array<{
+          businessDate: Date;
+          capturedAt?: Date;
+          lastObservedAt?: Date;
+        }>;
+        return rows.map((row) => ({
+          sourceImportRunId: SELLPIA_COMPLETE_RUN_ID,
+          businessDate: row.businessDate,
+          sellerId: '__kiditem_sellpia_sales_coverage__',
+          sellerName: 'KidItem 수집 완료',
+          channelGroup: 'others',
+          revenueKrw: 0,
+          qty: 0,
+          costKrw: 0,
+          capturedAt: row.capturedAt ?? row.lastObservedAt ?? row.businessDate,
+        }));
+      }),
+    },
+  };
+  return Object.assign(prisma, {
+    $transaction: vi.fn(async (callback: (client: typeof tx) => Promise<unknown>) =>
+      callback(tx)),
+  });
 }
 
 describe('ReadinessService', () => {
@@ -137,7 +176,7 @@ describe('ReadinessService', () => {
         .map((d) => adPublishedRow(d)),
     );
     (prisma as { $queryRaw?: unknown }).$queryRaw = queryRaw;
-    const service = new ReadinessService(prisma as never);
+    const service = new ReadinessService(withSellpiaReaderTransaction(prisma) as never);
     const status = await service.getStatus(ORGANIZATION_ID);
 
     const sellpiaQuery = prisma.sellpiaSalesDailySnapshot.findMany.mock.calls[0]?.[0] as {
@@ -147,7 +186,10 @@ describe('ReadinessService', () => {
     expect(queryRaw).toHaveBeenCalledTimes(1);
     expect(queriedOrganization(queryRaw)).toBe(ORGANIZATION_ID);
     expect(queriedDates(queryRaw)).toEqual(['2026-04-02', '2026-05-02']);
-    expect(sellpiaQuery.where.sellerId).toBe('__kiditem_sellpia_sales_coverage__');
+    expect(sellpiaQuery.where).toMatchObject({
+      organizationId: ORGANIZATION_ID,
+      sourceImportRunId: { in: [SELLPIA_COMPLETE_RUN_ID] },
+    });
     expect(prisma.channelListing.count).toHaveBeenCalledWith({
       where: {
         organizationId: ORGANIZATION_ID,
@@ -237,7 +279,9 @@ describe('ReadinessService', () => {
       },
     };
 
-    const status = await new ReadinessService(Object.assign(prisma, { $queryRaw: adLedger() }) as never).getStatus(
+    const status = await new ReadinessService(withSellpiaReaderTransaction(
+      Object.assign(prisma, { $queryRaw: adLedger() }),
+    ) as never).getStatus(
       ORGANIZATION_ID,
     );
     const sellpiaQuery =
@@ -293,7 +337,9 @@ describe('ReadinessService', () => {
       sellpiaSalesDailySnapshot: { findMany: vi.fn(async (_args: unknown) => []) },
     };
 
-    const status = await new ReadinessService(Object.assign(prisma, { $queryRaw: adLedger() }) as never).getStatus(
+    const status = await new ReadinessService(withSellpiaReaderTransaction(
+      Object.assign(prisma, { $queryRaw: adLedger() }),
+    ) as never).getStatus(
       ORGANIZATION_ID,
     );
     const wingRank = status.checks.find((check) => check.key === 'wing_kpi');
@@ -358,7 +404,7 @@ describe('ReadinessService', () => {
 
     const queryRaw = adLedger();
     (prisma as { $queryRaw?: unknown }).$queryRaw = queryRaw;
-    const status = await new ReadinessService(prisma as never).getStatus(
+    const status = await new ReadinessService(withSellpiaReaderTransaction(prisma) as never).getStatus(
       ORGANIZATION_ID,
     );
 
@@ -412,7 +458,7 @@ describe('ReadinessService', () => {
 
     const queryRaw = adLedger();
     (prisma as { $queryRaw?: unknown }).$queryRaw = queryRaw;
-    const status = await new ReadinessService(prisma as never).getStatus(
+    const status = await new ReadinessService(withSellpiaReaderTransaction(prisma) as never).getStatus(
       ORGANIZATION_ID,
     );
     const sellpiaQuery =
@@ -471,7 +517,7 @@ describe('ReadinessService', () => {
 
     (prisma as { $queryRaw?: unknown }).$queryRaw = queryRaw;
 
-    const status = await new ReadinessService(prisma as never).getStatus(
+    const status = await new ReadinessService(withSellpiaReaderTransaction(prisma) as never).getStatus(
       ORGANIZATION_ID,
     );
     const ads = status.checks.find((check) => check.key === 'coupang_ads');
@@ -544,7 +590,9 @@ describe('ReadinessService', () => {
       sellpiaSalesDailySnapshot: { findMany: vi.fn(async () => []) },
     };
 
-    const status = await new ReadinessService(Object.assign(prisma, { $queryRaw: adLedger() }) as never).getStatus(
+    const status = await new ReadinessService(withSellpiaReaderTransaction(
+      Object.assign(prisma, { $queryRaw: adLedger() }),
+    ) as never).getStatus(
       ORGANIZATION_ID,
     );
 
@@ -573,7 +621,9 @@ describe('ReadinessService', () => {
       },
     });
 
-    const status = await new ReadinessService(Object.assign(prisma, { $queryRaw: adLedger() }) as never).getStatus(
+    const status = await new ReadinessService(withSellpiaReaderTransaction(
+      Object.assign(prisma, { $queryRaw: adLedger() }),
+    ) as never).getStatus(
       ORGANIZATION_ID,
     );
     const products = status.checks.find((check) => check.key === 'coupang_products');
@@ -627,9 +677,9 @@ describe('ReadinessService', () => {
       },
     });
 
-    const status = await new ReadinessService(
-      Object.assign(prisma, { $queryRaw: adLedger() }) as never,
-    ).getStatus(ORGANIZATION_ID);
+    const status = await new ReadinessService(withSellpiaReaderTransaction(
+      Object.assign(prisma, { $queryRaw: adLedger() }),
+    ) as never).getStatus(ORGANIZATION_ID);
     const products = status.checks.find((check) => check.key === 'coupang_products');
 
     expect(products?.basis).toMatchObject({
@@ -646,7 +696,9 @@ describe('ReadinessService', () => {
       latestCatalogRun: null,
     });
 
-    const status = await new ReadinessService(Object.assign(prisma, { $queryRaw: adLedger() }) as never).getStatus(
+    const status = await new ReadinessService(withSellpiaReaderTransaction(
+      Object.assign(prisma, { $queryRaw: adLedger() }),
+    ) as never).getStatus(
       ORGANIZATION_ID,
     );
     const products = status.checks.find((check) => check.key === 'coupang_products');

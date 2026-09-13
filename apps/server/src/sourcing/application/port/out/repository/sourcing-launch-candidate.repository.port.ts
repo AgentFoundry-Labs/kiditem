@@ -2,7 +2,7 @@ export const SOURCING_LAUNCH_CANDIDATE_REPOSITORY_PORT = Symbol(
   'SourcingLaunchCandidateRepositoryPort',
 );
 
-export const SOURCING_GATE_STATUSES = ['unknown', 'passed', 'blocked'] as const;
+export const SOURCING_GATE_STATUSES = ['not_evaluated', 'unknown', 'passed', 'blocked'] as const;
 export type SourcingGateStatus = (typeof SOURCING_GATE_STATUSES)[number];
 
 export const SOURCING_ECONOMICS_STATUSES = ['unknown', 'known', 'blocked'] as const;

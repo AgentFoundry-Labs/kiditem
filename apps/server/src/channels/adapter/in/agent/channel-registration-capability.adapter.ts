@@ -155,7 +155,7 @@ function toSellpiaMatch(
     code: string;
     name: string;
     optionName: string | null;
-    currentStock: number;
+    currentStock: number | null;
   },
   quantity: number,
 ): ExternalProductRegistrationPreflightResult["sellpiaMatch"] {

@@ -1,13 +1,16 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   buildPerListingMetrics,
   readAdEvidenceFromLedger,
 } from '../../common/per-listing-profit';
 import { kstMonthStart } from '../../common/kst';
+import {
+  ORDER_FACT_EXCLUDED_STATUSES,
+  readOrderWindowFacts,
+} from '../../orders/read/order-facts.reader';
 import { CreateSalesPlanDto, UpdateSalesPlanDto } from './dto';
-
-const EXCLUDED_ORDER_STATUSES = ['cancelled', 'returned', 'refunded'] as const;
 
 @Injectable()
 export class SalesPlansService {
@@ -74,38 +77,25 @@ export class SalesPlansService {
     }
 
     const { from, to } = this.resolveWindow(plan.period);
-    const accountAdEvidence = await readAdEvidenceFromLedger(
-      this.prisma,
-      organizationId,
-      from,
-      to,
-    );
-
-    const [orderAgg, metrics] = await Promise.all([
-      this.prisma.order.aggregate({
-        where: {
-          organizationId,
-          orderedAt: {
-            gte: from,
-            lt: to,
-          },
-          status: { notIn: [...EXCLUDED_ORDER_STATUSES] },
-        },
-        _sum: { totalPrice: true },
-        _count: { id: true },
-      }),
-      // `actualProfit` is a stored scalar with no way to say "unavailable", so
-      // it totals the listings whose profit is measured and withholds the rest
-      // (ADR-0006) rather than folding in a partial ad sum.
-      buildPerListingMetrics(this.prisma, organizationId, from, to, accountAdEvidence),
-    ]);
+    const { orderFacts, metrics } = await this.prisma.$transaction(async (tx) => {
+      const orderFacts = await readOrderWindowFacts(tx, {
+        organizationId, from, to, excludedStatuses: ORDER_FACT_EXCLUDED_STATUSES,
+      });
+      if (orderFacts.revenue === null || orderFacts.orderCount === null) {
+        return { orderFacts, metrics: [] };
+      }
+      const accountAdEvidence = await readAdEvidenceFromLedger(tx, organizationId, from, to);
+      const metrics = await buildPerListingMetrics(tx, organizationId, from, to, accountAdEvidence);
+      return { orderFacts, metrics };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
+    if (orderFacts.revenue === null || orderFacts.orderCount === null) return plan;
     const actualProfit = metrics.reduce((sum, metric) => sum + metric.netProfit, 0);
 
     return this.prisma.salesPlan.update({
       where: { id },
       data: {
-        actualRevenue: orderAgg._sum.totalPrice ?? 0,
-        actualOrders: orderAgg._count.id ?? 0,
+        actualRevenue: orderFacts.revenue,
+        actualOrders: orderFacts.orderCount,
         actualProfit,
       },
     });

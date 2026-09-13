@@ -31,9 +31,7 @@ describe('<ProductEditorDialog>', () => {
       tags: [],
       imageUrls: [],
       profitTag: null,
-      adTier: null,
       adBudgetLimit: null,
-      healthScore: null,
       isActive: true,
     }));
     expect(onSaved).toHaveBeenCalledWith('product-1');

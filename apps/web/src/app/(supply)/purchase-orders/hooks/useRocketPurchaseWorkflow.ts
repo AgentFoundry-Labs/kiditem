@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   isRocketWorkbookBlockingReason,
+  ROCKET_CONFIRMATION_REQUEST_STATUSES,
   ROCKET_SHORTAGE_REASONS,
 } from '@kiditem/shared/rocket-purchase-preview';
 import { friendlyError } from '@/lib/api-error';
@@ -68,7 +69,7 @@ export function rocketReviewedQuantity(
   editedQuantity?: number,
 ): number {
   if (row.reason === 'insufficient_capacity') return 0;
-  return editedQuantity ?? row.editedQuantity ?? row.recommendedQuantity;
+  return editedQuantity ?? row.editedQuantity ?? row.recommendedQuantity ?? 0;
 }
 
 export function rocketReviewedQuantityLimit(
@@ -76,7 +77,7 @@ export function rocketReviewedQuantityLimit(
 ): number {
   return row.reason === 'insufficient_capacity'
     ? 0
-    : Math.min(row.maxQuantity, row.orderQuantity);
+    : Math.min(row.maxQuantity ?? 0, row.orderQuantity);
 }
 
 function visibleReviewQuantities(
@@ -106,8 +107,8 @@ function confirmationRequestedRows(
 ): RocketPoCatalogRow[] {
   return rows.filter((row) => (
     ['RI', 'RP'].includes(row.poStatusCode?.toUpperCase() ?? '')
-    || ['거래명세서확인요청', '거래처확인요청'].includes(
-      row.confirmation?.poStatus.trim() ?? '',
+    || ROCKET_CONFIRMATION_REQUEST_STATUSES.some(
+      (status) => status === (row.confirmation?.poStatus.trim() ?? ''),
     )
   ));
 }

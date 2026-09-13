@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from 'vitest';
 import { buildDashboardContext } from '../../domain/context';
 import {
   buildMockProfitCalculationRepo,
-  buildMockWingAdSummaryRepo,
   buildMockWingTrafficAggregationRepo,
   buildProfitSourceCoverage,
 } from '../../__tests__/test-helpers/build-mock-ports';
@@ -144,21 +143,28 @@ function buildService(options: {
     sourceCoverage: buildProfitSourceCoverage(period),
   }));
 
-  const wingAdSummary = buildMockWingAdSummaryRepo();
-  wingAdSummary.fetchCurrentMonthSummary.mockResolvedValue(null);
 
   const wingTraffic = buildMockWingTrafficAggregationRepo();
   wingTraffic.aggregateTraffic.mockResolvedValue(NO_TRAFFIC);
   wingTraffic.aggregateCoupangAds.mockImplementation(async (_organizationId, period) => (
     options.owner ?? adsForRange(period.queryWindow.from, period.queryWindow.to)
   ));
+  wingTraffic.readAdRateFacts.mockImplementation(async (_organizationId, period) => {
+    const ads = options.owner ?? adsForRange(period.queryWindow.from, period.queryWindow.to);
+    return {
+      adSpend: ads.spend,
+      revenue: PROFIT.revenue,
+      revenueSource: 'orders',
+      includedDates: [...period.selectedDates],
+      adCoverageComplete: ads.hasData,
+    };
+  });
   wingTraffic.findLatestDataDate.mockResolvedValue(options.latestDataDate ?? null);
   wingTraffic.fetchDailyAds.mockResolvedValue([]);
 
   return {
     service: new DashboardAdService(
       profit,
-      wingAdSummary,
       wingTraffic,
     ),
     wingTraffic,
@@ -173,28 +179,28 @@ describe('DashboardAdService detailed ad KPI period', () => {
     );
 
     expect(result.adKpi).toMatchObject({
-      clicks: MONTH_ADS.clicks,
-      conversions: MONTH_ADS.orders,
-      cvr: 15.37,
+      clicks: RANGE_ADS.clicks,
+      conversions: RANGE_ADS.orders,
+      cvr: 20.89,
     });
-    expect(result.adKpi?.conversions).not.toBe(MONTH_ADS.conversions);
+    expect(result.adKpi?.conversions).not.toBe(RANGE_ADS.conversions);
   });
 
-  it('uses monthly conversions when a custom range crosses calendar months', async () => {
+  it('uses selected-range conversions when a custom range crosses calendar months', async () => {
     const result = await buildService().service.getSummary(
       buildDashboardContext('custom', '2026-08-25', '2026-09-07', ANCHOR),
       ORGANIZATION_ID,
     );
 
     expect(result.adKpi).toMatchObject({
-      clicks: MONTH_ADS.clicks,
-      conversions: MONTH_ADS.orders,
-      cvr: 15.37,
+      clicks: RANGE_ADS.clicks,
+      conversions: RANGE_ADS.orders,
+      cvr: 20.89,
     });
-    expect(result.adKpi?.conversions).not.toBe(RANGE_ADS.conversions);
+    expect(result.adKpi?.conversions).not.toBe(MONTH_ADS.orders);
   });
 
-  it('keeps conversion counts and CVR on the same monthly period for day and month views', async () => {
+  it('keeps conversion counts and CVR on each selected period', async () => {
     const day = await buildService().service.getSummary(
       buildDashboardContext('day', undefined, undefined, ANCHOR),
       ORGANIZATION_ID,
@@ -205,17 +211,17 @@ describe('DashboardAdService detailed ad KPI period', () => {
     );
 
     expect(day.adKpi).toMatchObject({
-      clicks: MONTH_ADS.clicks,
-      conversions: MONTH_ADS.orders,
-      cvr: 15.37,
+      clicks: DAY_ADS.clicks,
+      conversions: DAY_ADS.orders,
+      cvr: 1.5,
     });
     expect(month.adKpi).toMatchObject({
       clicks: MONTH_ADS.clicks,
       conversions: MONTH_ADS.orders,
       cvr: 15.37,
     });
-    expect(day.adKpi?.conversions).toBe(month.adKpi?.conversions);
-    expect(day.adKpi?.cvr).toBe(month.adKpi?.cvr);
+    expect(day.adKpi?.conversions).not.toBe(month.adKpi?.conversions);
+    expect(day.adKpi?.cvr).not.toBe(month.adKpi?.cvr);
   });
 
   it('keeps a complete all-zero owner range as explicit zero', async () => {
@@ -240,6 +246,28 @@ describe('DashboardAdService detailed ad KPI period', () => {
     });
   });
 
+  it('divides only the ad and revenue inputs recomputed on their common dates', async () => {
+    const { service, wingTraffic } = buildService();
+    wingTraffic.readAdRateFacts.mockResolvedValue({
+      adSpend: 10,
+      revenue: 100,
+      revenueSource: 'orders',
+      includedDates: ['2026-09-01'],
+      adCoverageComplete: false,
+    });
+
+    const result = await service.getSummary(
+      buildDashboardContext('custom', '2026-08-25', '2026-09-07', ANCHOR),
+      ORGANIZATION_ID,
+    );
+
+    expect(result.rangeKpi?.adRate).toBe(10);
+    expect(result.metricBasis?.['rangeKpi.adRate']).toMatchObject({
+      includedDates: ['2026-09-01'],
+      sources: ['coupang_ads', 'orders'],
+    });
+  });
+
   it('returns only observed owner daily rows, including explicit zeroes', async () => {
     const { service, wingTraffic } = buildService();
     wingTraffic.fetchDailyAds.mockResolvedValue([
@@ -249,6 +277,9 @@ describe('DashboardAdService detailed ad KPI period', () => {
         ad_revenue: 120_000,
         clicks: 400,
         impressions: 4_000,
+        conversions: 0,
+        orders: 0,
+        observedAt: '2026-09-06T01:00:00.000Z',
       },
       {
         date: '2026-09-06',
@@ -256,6 +287,9 @@ describe('DashboardAdService detailed ad KPI period', () => {
         ad_revenue: 0,
         clicks: 0,
         impressions: 0,
+        conversions: 0,
+        orders: 0,
+        observedAt: '2026-09-07T01:00:00.000Z',
       },
     ]);
 

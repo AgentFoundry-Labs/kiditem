@@ -1,5 +1,8 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { PRODUCT_ABC_ABSOLUTE_V1_AD_SOURCE_POLICY_HASH } from '@kiditem/shared/product-abc';
+import {
+  PRODUCT_ABC_ABSOLUTE_V1_AD_SOURCE_POLICY_HASH,
+  productAbcContributionMetricStatus,
+} from '@kiditem/shared/product-abc';
 import { MasterProductContributionRepositoryAdapter } from '../adapter/out/repository/master-product-contribution.repository.adapter';
 import {
   makeTestPrisma,
@@ -70,8 +73,12 @@ describe('MasterProductContributionRepositoryAdapter (PostgreSQL)', () => {
     expect(filtered.products[0]?.cumulativePositiveOperatingProfitContribution)
       .toBeCloseTo(140 / 190);
     expect(filtered.metrics.sales).toMatchObject({
-      status: 'READY', includedProductCount: 4, excludedProductCount: 0, denominator: 450,
+      sourceComplete: true,
+      includedProductCount: 4,
+      excludedProductCount: 0,
+      denominator: 450,
     });
+    expect(productAbcContributionMetricStatus(filtered.metrics.sales)).toBe('READY');
     expect(filtered.totals).toEqual({
       revenue: 450,
       positiveOperatingProfit: 190,
@@ -133,11 +140,15 @@ describe('MasterProductContributionRepositoryAdapter (PostgreSQL)', () => {
 
     const result = await repository.readContribution(input(sources));
 
-    expect(result.metrics.sales).toMatchObject({ status: 'NO_DENOMINATOR', denominator: null });
+    expect(result.metrics.sales).toMatchObject({ sourceComplete: true, denominator: null });
     expect(result.metrics.positiveOperatingProfit).toMatchObject({
-      status: 'NO_DENOMINATOR', denominator: null,
+      sourceComplete: true, denominator: null,
     });
-    expect(result.metrics.loss).toMatchObject({ status: 'NO_DENOMINATOR', denominator: null });
+    expect(result.metrics.loss).toMatchObject({ sourceComplete: true, denominator: null });
+    expect(productAbcContributionMetricStatus(result.metrics.sales)).toBe('NO_DENOMINATOR');
+    expect(productAbcContributionMetricStatus(result.metrics.positiveOperatingProfit))
+      .toBe('NO_DENOMINATOR');
+    expect(productAbcContributionMetricStatus(result.metrics.loss)).toBe('NO_DENOMINATOR');
     expect(result.products[0]).toMatchObject({
       revenue: 0,
       operatingProfit: 0,
@@ -162,10 +173,13 @@ describe('MasterProductContributionRepositoryAdapter (PostgreSQL)', () => {
 
     const result = await repository.readContribution(input(sources));
 
-    expect(result.metrics.sales).toMatchObject({ status: 'READY', denominator: 100 });
+    expect(result.metrics.sales).toMatchObject({ sourceComplete: true, denominator: 100 });
+    expect(productAbcContributionMetricStatus(result.metrics.sales)).toBe('READY');
     expect(result.metrics.positiveOperatingProfit).toMatchObject({
-      status: 'SOURCE_INCOMPLETE', includedProductCount: 0, excludedProductCount: 1,
+      sourceComplete: false, includedProductCount: 0, excludedProductCount: 1,
     });
+    expect(productAbcContributionMetricStatus(result.metrics.positiveOperatingProfit))
+      .toBe('SOURCE_INCOMPLETE');
     expect(result.products[0]).toMatchObject({
       revenue: 100,
       operatingProfit: null,
@@ -185,8 +199,10 @@ describe('MasterProductContributionRepositoryAdapter (PostgreSQL)', () => {
 
     const result = await repository.readContribution(input(sources));
 
-    expect(result.metrics.sales).toMatchObject({ status: 'READY', denominator: 100 });
-    expect(result.metrics.positiveOperatingProfit.status).toBe('SOURCE_INCOMPLETE');
+    expect(result.metrics.sales).toMatchObject({ sourceComplete: true, denominator: 100 });
+    expect(productAbcContributionMetricStatus(result.metrics.sales)).toBe('READY');
+    expect(productAbcContributionMetricStatus(result.metrics.positiveOperatingProfit))
+      .toBe('SOURCE_INCOMPLETE');
     expect(result.products[0]).toMatchObject({
       revenue: 100,
       operatingProfit: null,
@@ -206,8 +222,10 @@ describe('MasterProductContributionRepositoryAdapter (PostgreSQL)', () => {
 
     const result = await repository.readContribution(input(sources));
 
-    expect(result.metrics.sales).toMatchObject({ status: 'READY', denominator: 100 });
-    expect(result.metrics.positiveOperatingProfit.status).toBe('SOURCE_INCOMPLETE');
+    expect(result.metrics.sales).toMatchObject({ sourceComplete: true, denominator: 100 });
+    expect(productAbcContributionMetricStatus(result.metrics.sales)).toBe('READY');
+    expect(productAbcContributionMetricStatus(result.metrics.positiveOperatingProfit))
+      .toBe('SOURCE_INCOMPLETE');
     expect(result.products[0]).toMatchObject({
       revenue: 100,
       operatingProfit: null,
@@ -226,8 +244,10 @@ describe('MasterProductContributionRepositoryAdapter (PostgreSQL)', () => {
       basisFromDate: '2026-07-15',
     });
 
-    expect(result.metrics.sales.status).toBe('SOURCE_INCOMPLETE');
-    expect(result.metrics.positiveOperatingProfit.status).toBe('SOURCE_INCOMPLETE');
+    expect(productAbcContributionMetricStatus(result.metrics.sales))
+      .toBe('SOURCE_INCOMPLETE');
+    expect(productAbcContributionMetricStatus(result.metrics.positiveOperatingProfit))
+      .toBe('SOURCE_INCOMPLETE');
     expect(result.products[0]).toMatchObject({
       revenue: null,
       operatingProfit: null,
@@ -248,12 +268,19 @@ describe('MasterProductContributionRepositoryAdapter (PostgreSQL)', () => {
     const result = await repository.readContribution(input(sources));
 
     expect(result.metrics.sales).toMatchObject({
-      status: 'READY', includedProductCount: 2, excludedProductCount: 0, denominator: 140,
+      sourceComplete: true,
+      includedProductCount: 2,
+      excludedProductCount: 0,
+      denominator: 140,
     });
     expect(result.metrics.positiveOperatingProfit).toMatchObject({
-      status: 'SOURCE_INCOMPLETE', includedProductCount: 1, excludedProductCount: 1,
+      sourceComplete: true,
+      includedProductCount: 1,
+      excludedProductCount: 1,
       denominator: 70,
     });
+    expect(productAbcContributionMetricStatus(result.metrics.positiveOperatingProfit))
+      .toBe('SOURCE_INCOMPLETE');
     expect(result.products.find((product) => product.masterProductId === invalid)).toMatchObject({
       revenue: 40,
       operatingProfit: null,
@@ -293,9 +320,12 @@ describe('MasterProductContributionRepositoryAdapter (PostgreSQL)', () => {
     const positiveOnly = await repository.readContribution(input(positiveSources));
 
     expect(positiveOnly.metrics.positiveOperatingProfit).toMatchObject({
-      status: 'READY', denominator: 70,
+      sourceComplete: true, denominator: 70,
     });
-    expect(positiveOnly.metrics.loss.status).toBe('NO_DENOMINATOR');
+    expect(productAbcContributionMetricStatus(positiveOnly.metrics.positiveOperatingProfit))
+      .toBe('READY');
+    expect(productAbcContributionMetricStatus(positiveOnly.metrics.loss))
+      .toBe('NO_DENOMINATOR');
     expect(positiveOnly.totals.netOperatingProfit).toBe(70);
 
     const lossSources = await seedCompleteSources(prisma, TEST_ORGANIZATION_ID);
@@ -305,8 +335,10 @@ describe('MasterProductContributionRepositoryAdapter (PostgreSQL)', () => {
 
     const lossOnly = await repository.readContribution(input(lossSources));
 
-    expect(lossOnly.metrics.positiveOperatingProfit.status).toBe('NO_DENOMINATOR');
-    expect(lossOnly.metrics.loss).toMatchObject({ status: 'READY', denominator: 15 });
+    expect(productAbcContributionMetricStatus(lossOnly.metrics.positiveOperatingProfit))
+      .toBe('NO_DENOMINATOR');
+    expect(lossOnly.metrics.loss).toMatchObject({ sourceComplete: true, denominator: 15 });
+    expect(productAbcContributionMetricStatus(lossOnly.metrics.loss)).toBe('READY');
     expect(lossOnly.totals.netOperatingProfit).toBe(-15);
   });
 });

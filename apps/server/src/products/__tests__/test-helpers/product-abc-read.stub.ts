@@ -28,10 +28,12 @@ export function stubProductAbcRead(
         targetCutoff: CUTOFF,
         actualCutoff: CUTOFF,
         capturedAt: null,
+        publication: null,
         products: masterProductIds.map((masterProductId) => {
           const grade = gradeByMasterProductId[masterProductId] ?? null;
           return {
             masterProductId,
+            contributionEligible: grade !== null,
             abc: buildProductAbcReadModel({
               evaluation: grade === null ? null : publishedEvaluation(grade),
               mappingValid: grade !== null,
@@ -66,8 +68,10 @@ export function stubMissingProductAbcRead(): ProductAbcReadPort {
         targetCutoff: CUTOFF,
         actualCutoff: null,
         capturedAt: null,
+        publication: null,
         products: masterProductIds.map((masterProductId) => ({
           masterProductId,
+          contributionEligible: false,
           abc: buildProductAbcReadModel({
             evaluation: null,
             mappingValid: false,

@@ -13,9 +13,10 @@ import {
   parseBusinessDate,
 } from '@kiditem/shared/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { SELLPIA_SALES_COVERAGE_SELLER_ID } from '../analytics/sellpia-sales/domain/snapshot-coverage';
+import { readSellpiaSalesDailyFacts } from '../analytics/sellpia-sales/read/sellpia-sales-daily-facts';
 import { dayAfter, readAdWindowFacts } from '../common/ad-window-facts';
 import { buildSnapshotBasis } from '@kiditem/shared/dashboard';
+import { readWingRankCoverage } from '../advertising/read/keyword-rank-facts';
 import type {
   ReadinessCheck,
   ReadinessResponse,
@@ -87,6 +88,16 @@ export class ReadinessService {
   }
 
   async getStatus(organizationId: string): Promise<ReadinessResponse> {
+    return this.prisma.$transaction(
+      (tx) => this.getStatusIn(tx, organizationId),
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
+  }
+
+  private async getStatusIn(
+    tx: Prisma.TransactionClient,
+    organizationId: string,
+  ): Promise<ReadinessResponse> {
     const now = new Date();
     // Source readiness ends at the latest fully closed KST business day.
     const todayKst = kstBusinessDate(now);
@@ -113,16 +124,14 @@ export class ReadinessService {
 
     // Sellpia 월 누적: 최근 lookback과 이번 달 1일 중 더 이른 날부터 확인.
     const sellpiaRangeStartKstStr = coverageRangeStartKstStr;
-    const sellpiaRangeStartDate = coverageRangeStart;
     const sellpiaRangeEndKstStr = yesterdayKstStr;
-    const sellpiaRangeEndDate = yesterdayKst;
     const sellpiaExpectedDates = datesInclusive(coverageRangeStart, yesterdayKst)
       .map(businessDateKey);
 
     // Extension ingest/read paths bind to one active Coupang account and
     // prefer the primary account for account-less reads. Readiness must use
     // the same account, otherwise disabled-account facts can mark data ready.
-    const activeCoupangAccount = await this.prisma.channelAccount.findFirst({
+    const activeCoupangAccount = await tx.channelAccount.findFirst({
       where: {
         organizationId,
         channel: 'coupang',
@@ -136,23 +145,16 @@ export class ReadinessService {
       select: { id: true },
     });
 
-    const [
-      adsDailyKpiPublished,
-      activeWingVendorRows,
-      coupangProductCount,
-      latestCoupangCatalogRun,
-      sellpiaDailyRows,
-    ] = await Promise.all([
-      // coupang_ads — 캠페인 sweep이 보고한 영업일 (광고 원장 리더)
-      activeCoupangAccount
-        ? readAdWindowFacts(this.prisma, {
+    // coupang_ads — 캠페인 sweep이 보고한 영업일 (광고 원장 리더)
+    const adsDailyKpiPublished = activeCoupangAccount
+      ? await readAdWindowFacts(tx, {
             organizationId,
             from: adsLookbackStart,
             to: dayAfter(yesterdayKst),
           })
-        : Promise.resolve(null),
-      activeCoupangAccount
-        ? this.prisma.channelListingOption.findMany({
+      : null;
+    const activeWingVendorRows = activeCoupangAccount
+      ? await tx.channelListingOption.findMany({
             where: {
               organizationId,
               isActive: true,
@@ -165,9 +167,9 @@ export class ReadinessService {
             select: { externalOptionId: true, rawJson: true },
             distinct: ['externalOptionId'],
           })
-        : Promise.resolve([]),
-      activeCoupangAccount
-        ? this.prisma.channelListing.count({
+      : [];
+    const coupangProductCount = activeCoupangAccount
+      ? await tx.channelListing.count({
             where: {
               organizationId,
               channelAccountId: activeCoupangAccount.id,
@@ -180,9 +182,9 @@ export class ReadinessService {
               },
             },
           })
-        : Promise.resolve(0),
-      activeCoupangAccount
-        ? this.prisma.sourceImportRun.findFirst({
+      : 0;
+    const latestCoupangCatalogRun = activeCoupangAccount
+      ? await tx.sourceImportRun.findFirst({
             where: {
               organizationId,
               channelAccountId: activeCoupangAccount.id,
@@ -193,20 +195,12 @@ export class ReadinessService {
             orderBy: { importedAt: 'desc' },
             select: { importedAt: true, coverageEndDate: true },
           })
-        : Promise.resolve(null),
-      // 일별 매출(wing_sales) readiness 원천 — 셀피아 판매현황 몰별 일별 스냅샷.
-      // businessDate 별로 데이터가 있는 날을 집계(판매처 무관 distinct).
-      this.prisma.sellpiaSalesDailySnapshot.findMany({
-        where: {
-          organizationId,
-          sellerId: SELLPIA_SALES_COVERAGE_SELLER_ID,
-          businessDate: { gte: sellpiaRangeStartDate, lte: sellpiaRangeEndDate },
-        },
-        select: { businessDate: true, capturedAt: true },
-        distinct: ['businessDate'],
-        orderBy: { businessDate: 'desc' },
-      }),
-    ]);
+      : null;
+    const sellpiaDailyRows = await readSellpiaSalesDailyFacts(tx, {
+      organizationId,
+      from: sellpiaRangeStartKstStr,
+      to: sellpiaRangeEndKstStr,
+    });
 
     const activeWingVendorIds = new Set(
       activeWingVendorRows
@@ -214,61 +208,20 @@ export class ReadinessService {
         .filter((value): value is string => Boolean(value)),
     );
     const activeWingVendorIdList = [...activeWingVendorIds];
-    const completeWingRankSource = {
-      organizationId,
-      sourceType: 'coupang_wing_rank',
-      parserVersion: 'wing-rank-v1',
-      status: 'completed',
-    } satisfies Prisma.SourceImportRunWhereInput;
     // Rank rows do not carry channelAccountId. Fence their date/coverage to
     // vendor items belonging to the selected active account.
-    const wingSalesRank = activeWingVendorIdList.length
-      ? await this.prisma.coupangWingSalesRankDailySnapshot.findFirst({
-          where: {
-            organizationId,
-            vendorItemId: { in: activeWingVendorIdList },
-            sourceImportRun: completeWingRankSource,
-          },
-          orderBy: [{ businessDate: 'desc' }, { capturedAt: 'desc' }],
-          select: { capturedAt: true, businessDate: true },
-        })
-      : null;
-
-    const [latestWingVendorRows, wingSalesRankCount] = wingSalesRank
-      ? await Promise.all([
-          this.prisma.coupangWingSalesRankDailySnapshot.findMany({
-            where: {
-              organizationId,
-              businessDate: wingSalesRank.businessDate,
-              vendorItemId: { in: activeWingVendorIdList },
-              sourceImportRun: completeWingRankSource,
-            },
-            select: { vendorItemId: true },
-            distinct: ['vendorItemId'],
-          }),
-          this.prisma.coupangWingSalesRankDailySnapshot.count({
-            where: {
-              organizationId,
-              businessDate: wingSalesRank.businessDate,
-              vendorItemId: { in: activeWingVendorIdList },
-              sourceImportRun: completeWingRankSource,
-            },
-          }),
-        ])
-      : [[], 0];
+    const wingRankCoverage = await readWingRankCoverage(tx, {
+      organizationId,
+      vendorItemIds: activeWingVendorIdList,
+    });
 
     // 일별 매출(wing_sales) readiness 상태 원천 — 셀피아 판매현황(몰별 일별 매출).
-    const sellpiaPresent = new Set(
-      sellpiaDailyRows.map((r) => businessDateKey(r.businessDate)),
-    );
+    const sellpiaPresent = new Set(sellpiaDailyRows.coverage.includedDates);
     const sellpiaMissing = sellpiaExpectedDates.filter(
       (d) => !sellpiaPresent.has(d),
     );
     const sellpiaLatestOk = sellpiaPresent.has(sellpiaRangeEndKstStr);
-    const sellpiaLastDate = sellpiaDailyRows.reduce<Date | null>(
-      (max, r) => (!max || r.capturedAt > max ? r.capturedAt : max),
-      null,
-    );
+    const sellpiaLastDate = sellpiaDailyRows.latestCapturedAt;
     const sellpiaSortedDates = [...sellpiaPresent].sort();
     const sellpiaActualCutoff = sellpiaSortedDates[sellpiaSortedDates.length - 1] ?? null;
 
@@ -280,15 +233,14 @@ export class ReadinessService {
     const adsSortedDates = [...adsPresent].sort();
     const adsActualCutoff = adsSortedDates[adsSortedDates.length - 1] ?? null;
 
-    const wingSalesRankBusinessDate = wingSalesRank
-      ? businessDateKey(wingSalesRank.businessDate)
+    const wingSalesRankBusinessDate = wingRankCoverage.businessDate
+      ? businessDateKey(wingRankCoverage.businessDate)
       : null;
     const wingSalesRankFresh = wingSalesRankBusinessDate
       ? wingSalesRankBusinessDate >= yesterdayKstStr
       : false;
     const collectedActiveWingVendorCount = new Set(
-      latestWingVendorRows
-        .map((row) => row.vendorItemId)
+      wingRankCoverage.vendorItemIds
         .filter((vendorItemId) => activeWingVendorIds.has(vendorItemId)),
     ).size;
     const wingSalesRankComplete =
@@ -389,20 +341,20 @@ export class ReadinessService {
         basis: buildSnapshotBasis({
           asOf: wingSalesRankBusinessDate,
           requiredAsOf: yesterdayKstStr,
-          observedAt: wingSalesRank?.capturedAt ?? null,
+          observedAt: wingRankCoverage.capturedAt,
           sources: ['coupang_wing_rank'],
-          measured: wingSalesRank !== null,
+          measured: wingRankCoverage.businessDate !== null,
           withheldCount: Math.max(0, activeWingVendorIds.size - collectedActiveWingVendorCount),
         }),
-        detail: wingSalesRank
+        detail: wingRankCoverage.businessDate
           ? wingSalesRankFresh && wingSalesRankComplete
-            ? `Wing 판매순위 ${wingSalesRankCount}행 · ${collectedActiveWingVendorCount}/${activeWingVendorIds.size}상품 — 최종 수집 ${formatKst(wingSalesRank.capturedAt)}`
+            ? `Wing 판매순위 ${wingRankCoverage.rowCount}행 · ${collectedActiveWingVendorCount}/${activeWingVendorIds.size}상품 — 최종 수집 ${formatKst(wingRankCoverage.capturedAt!)}`
             : !wingSalesRankFresh
               ? `Wing 판매순위 최신 날짜(${yesterdayKstStr}) 미반영 — 다시 수집 필요`
               : `Wing 판매순위 불완전 ${collectedActiveWingVendorCount}/${activeWingVendorIds.size}상품 — 다시 수집 필요`
           : 'Wing 판매순위 수집 이력 없음',
-        lastSyncedAt: wingSalesRank?.capturedAt.toISOString() ?? null,
-        count: wingSalesRankCount,
+        lastSyncedAt: wingRankCoverage.capturedAt?.toISOString() ?? null,
+        count: wingRankCoverage.rowCount,
         collector: 'extension',
         collectEndpoint: null,
         // 웹 훅이 기존 advertising.wing_rank background 수집을 직접 시작한다.

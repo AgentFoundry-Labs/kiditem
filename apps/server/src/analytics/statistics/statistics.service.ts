@@ -4,7 +4,15 @@ import {
   buildPerListingProfit,
   readAdEvidenceFromLedger,
 } from '../../common/per-listing-profit';
-import { kstBusinessDate, kstMonthStart } from '../../common/kst';
+import { kstMonthStart } from '../../common/kst';
+import {
+  ORDER_FACT_EXCLUDED_STATUSES,
+  readListingOptionOrderFacts,
+  readObservedOrderBounds,
+  readOrderWindowFacts,
+  readRepurchaseOrderFacts,
+  type OrderWindowInput,
+} from '../../orders/read/order-facts.reader';
 import type {
   StatisticsOverview,
   StatisticsProductRow,
@@ -13,9 +21,7 @@ import type {
   StatisticsParetoResponse,
   StatisticsRepurchaseResponse,
 } from '@kiditem/shared/statistics';
-import type { Prisma } from '@prisma/client';
-
-const EXCLUDED_ORDER_STATUSES = ['cancelled', 'returned', 'refunded'] as const;
+import { Prisma } from '@prisma/client';
 
 /**
  * Totals a profit column that may be unavailable.
@@ -46,26 +52,13 @@ export class StatisticsService {
     private readonly prisma: PrismaService,
   ) {}
 
-  private resolveWindow(period?: string) {
+  private async resolveWindow(organizationId: string, period?: string) {
     if (period) {
       const [year, month] = period.split('-').map(Number);
       return { from: kstMonthStart(year, month), to: kstMonthStart(year, month + 1) };
     }
 
-    const now = kstBusinessDate(new Date());
-    return {
-      from: new Date(0),
-      to: kstMonthStart(now.getUTCFullYear(), now.getUTCMonth() + 2),
-    };
-  }
-
-  private buildOrderWhere(organizationId: string, period?: string): Prisma.OrderWhereInput {
-    const { from, to } = this.resolveWindow(period);
-    return {
-      organizationId,
-      orderedAt: { gte: from, lt: to },
-      status: { notIn: [...EXCLUDED_ORDER_STATUSES] },
-    };
+    return this.prisma.$transaction((tx) => readObservedOrderBounds(tx, organizationId));
   }
 
   /**
@@ -73,26 +66,27 @@ export class StatisticsService {
    * not one this read model may infer from an empty listing calendar.
    */
   private async getListingMetrics(organizationId: string, period?: string) {
-    const { from, to } = this.resolveWindow(period);
-    const accountAdEvidence = await readAdEvidenceFromLedger(
-      this.prisma,
-      organizationId,
-      from,
-      to,
-    );
-    return buildPerListingProfit(this.prisma, organizationId, from, to, accountAdEvidence);
+    const window = await this.resolveWindow(organizationId, period);
+    if (!window) return [];
+    return this.getListingMetricsForWindow(organizationId, window);
   }
 
   async overview(organizationId: string, period?: string) {
-    const [metrics, totalProducts, totalOrders] = await Promise.all([
-      this.getListingMetrics(organizationId, period),
+    const window = await this.resolveWindow(organizationId, period);
+    const [metrics, totalProducts, orderFacts] = await Promise.all([
+      window ? this.getListingMetricsForWindow(organizationId, window) : Promise.resolve([]),
       this.prisma.channelListing.count({
         where: { organizationId, isActive: true },
       }),
-      this.prisma.order.count({
-        where: this.buildOrderWhere(organizationId, period),
-      }),
+      window
+        ? this.prisma.$transaction((tx) => readOrderWindowFacts(tx, {
+          organizationId,
+          ...window,
+          excludedStatuses: ORDER_FACT_EXCLUDED_STATUSES,
+        }))
+        : Promise.resolve(null),
     ]);
+    const totalOrders = orderFacts?.orderCount ?? 0;
 
     const totalRevenue = metrics.reduce((sum, metric) => sum + metric.revenue, 0);
     const totalProfit = totalOrUnavailable(metrics.map((metric) => metric.netProfit));
@@ -239,51 +233,49 @@ export class StatisticsService {
   }
 
   async repurchase(organizationId: string, period?: string) {
-    const whereOrder: Prisma.OrderWhereInput = {
-      organizationId,
-      status: { notIn: ['cancelled', 'returned'] },
-    };
-    if (period) {
-      const [year, month] = period.split('-').map(Number);
-      whereOrder.orderedAt = {
-        gte: kstMonthStart(year, month),
-        lt: kstMonthStart(year, month + 1),
-      };
+    const window = await this.resolveWindow(organizationId, period);
+    if (!window) {
+      return {
+        totalCustomers: 0,
+        repeatCount: 0,
+        repurchaseRate: 0,
+        totalOrders: 0,
+        repeatProducts: [],
+        repeatCustomers: [],
+      } satisfies StatisticsRepurchaseResponse;
     }
-
-    // customer-level aggregate (receiver 기반) — 기존 동작 유지 (Order.totalPrice/orderedAt/receiverName)
-    const orders = await this.prisma.order.findMany({
-      where: whereOrder,
-      select: { receiverName: true, totalPrice: true, orderedAt: true },
-    });
-
-    // listing-level repeat products — channel listing is the registered-product owner.
-    const lines = await this.prisma.orderLineItem.findMany({
-      where: {
-        order: whereOrder,
-        listingOptionId: { not: null },
-      },
-      select: {
-        order: { select: { receiverName: true } },
-        listingOption: {
-          select: {
-            listing: {
-              select: {
-                id: true,
-                displayName: true,
-                channelName: true,
-                externalId: true,
-                category: true,
-              },
+    const input: OrderWindowInput = {
+      organizationId,
+      ...window,
+      excludedStatuses: ['cancelled', 'returned'],
+    };
+    const { orders, lines, optionDisplays } = await this.prisma.$transaction(async (tx) => {
+      const orders = await readRepurchaseOrderFacts(tx, input);
+      const lines = await readListingOptionOrderFacts(tx, input);
+      const optionIds = [...new Set(lines.map((line) => line.listingOptionId))];
+      const optionDisplays = optionIds.length === 0 ? [] : await tx.channelListingOption.findMany({
+        where: { organizationId, id: { in: optionIds } },
+        select: {
+          id: true,
+          listing: {
+            select: {
+              id: true,
+              displayName: true,
+              channelName: true,
+              externalId: true,
+              category: true,
             },
           },
         },
-      },
+      });
+      return { orders, lines, optionDisplays };
     });
+    const displayByOption = new Map(optionDisplays.map((option) => [option.id, option.listing]));
+    const receiverByOrder = new Map(orders.map((order) => [order.orderId, order.receiverName]));
 
     const masterMap = new Map<string, { productName: string; category: string | null; customers: Set<string>; orderCount: number }>();
-    for (const l of lines) {
-      const listing = l.listingOption?.listing;
+    for (const line of lines) {
+      const listing = displayByOption.get(line.listingOptionId);
       if (!listing) continue;
       const mid = listing.id;
       const entry = masterMap.get(mid) ?? {
@@ -292,7 +284,8 @@ export class StatisticsService {
         customers: new Set<string>(),
         orderCount: 0,
       };
-      if (l.order.receiverName) entry.customers.add(l.order.receiverName);
+      const receiverName = receiverByOrder.get(line.orderId);
+      if (receiverName) entry.customers.add(receiverName);
       entry.orderCount += 1;
       masterMap.set(mid, entry);
     }
@@ -315,7 +308,7 @@ export class StatisticsService {
       if (!name) continue;
       const entry = receiverMap.get(name) ?? { count: 0, totalAmount: 0, lastOrder: null };
       entry.count += 1;
-      entry.totalAmount += o.totalPrice ?? 0;
+      entry.totalAmount += o.revenue;
       if (!entry.lastOrder || (o.orderedAt && o.orderedAt > entry.lastOrder)) {
         entry.lastOrder = o.orderedAt;
       }
@@ -347,5 +340,22 @@ export class StatisticsService {
       repeatProducts,
       repeatCustomers,
     } satisfies StatisticsRepurchaseResponse;
+  }
+
+  private async getListingMetricsForWindow(
+    organizationId: string,
+    window: { from: Date; to: Date },
+  ) {
+    return this.prisma.$transaction(
+      async (tx) => {
+        const accountAdEvidence = await readAdEvidenceFromLedger(
+          tx, organizationId, window.from, window.to,
+        );
+        return buildPerListingProfit(
+          tx, organizationId, window.from, window.to, accountAdEvidence,
+        );
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
   }
 }

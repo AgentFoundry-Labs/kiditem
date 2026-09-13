@@ -3,6 +3,11 @@ import { z } from 'zod';
 export const ROCKET_PO_ROW_LIMIT = 4_000;
 const ROCKET_PO_LIST_PAGE_EVIDENCE_LIMIT = 100_000;
 
+export const ROCKET_CONFIRMATION_REQUEST_STATUSES = [
+  '거래명세서확인요청',
+  '거래처확인요청',
+] as const;
+
 const boundedText = (max: number) => z.string().trim().max(max);
 const requiredText = (max: number) => boundedText(max).min(1);
 const isoDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
@@ -345,6 +350,7 @@ export const RocketPurchasePreviewReasonSchema = z.enum([
   'mapping_required',
   'configuration_required',
   'review_required',
+  'inventory_unavailable',
   'insufficient_capacity',
   'collection_incomplete',
   'vendor_mismatch',
@@ -357,6 +363,7 @@ export const ROCKET_WORKBOOK_BLOCKING_REASONS = [
   'mapping_required',
   'configuration_required',
   'review_required',
+  'inventory_unavailable',
 ] as const satisfies readonly RocketPurchasePreviewReason[];
 
 export function isRocketWorkbookBlockingReason(
@@ -381,8 +388,8 @@ export const RocketPurchasePreviewComponentSchema = z.object({
   name: requiredText(240),
   optionName: z.string().trim().min(1).max(240).nullable(),
   quantity: z.number().int().positive(),
-  currentStock: z.number().int().nonnegative(),
-  isActive: z.boolean(),
+  currentStock: z.number().int().nonnegative().nullable(),
+  isActive: z.boolean().nullable(),
 }).strict();
 export type RocketPurchasePreviewComponent = z.infer<
   typeof RocketPurchasePreviewComponentSchema
@@ -395,8 +402,8 @@ export const RocketPurchasePreviewRowSchema = z.object({
   productName: requiredText(240),
   plannedDeliveryDate: isoDay,
   orderQuantity: z.number().int().nonnegative(),
-  recommendedQuantity: z.number().int().nonnegative(),
-  maxQuantity: z.number().int().nonnegative(),
+  recommendedQuantity: z.number().int().nonnegative().nullable(),
+  maxQuantity: z.number().int().nonnegative().nullable(),
   editedQuantity: z.number().int().nonnegative().nullable(),
   reason: RocketPurchasePreviewReasonSchema.nullable(),
   channelListingOptionId: z.string().uuid().nullable(),

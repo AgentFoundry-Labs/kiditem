@@ -13,12 +13,20 @@ import {
 
 export const ProductInventoryStatusSchema = z.enum([
   'sellable',
-  'partial_out_of_stock',
+  'uncollected',
   'out_of_stock',
   'configuration_required',
   'review_required',
 ]);
 export type ProductInventoryStatus = z.infer<typeof ProductInventoryStatusSchema>;
+
+export const ProductInventoryFactsSchema = z.object({
+  skuCount: z.number().int().nonnegative(),
+  measuredSkuCount: z.number().int().nonnegative(),
+  inactiveSkuCount: z.number().int().nonnegative(),
+}).strict().refine((facts) => facts.inactiveSkuCount <= facts.measuredSkuCount
+  && facts.measuredSkuCount <= facts.skuCount, 'inventory counts must be nested subsets');
+export type ProductInventoryFacts = z.infer<typeof ProductInventoryFactsSchema>;
 
 export const ProductOperationsInventoryFocusSchema = z.enum([
   'attention',
@@ -111,7 +119,7 @@ export const ProductRecipeComponentCandidateSchema = z.object({
   name: z.string().min(1),
   optionName: z.string().nullable(),
   barcode: z.string().nullable(),
-  currentStock: z.number().int().nonnegative(),
+  currentStock: z.number().int().nonnegative().nullable(),
 }).strict();
 export type ProductRecipeComponentCandidate = z.infer<
   typeof ProductRecipeComponentCandidateSchema
@@ -201,6 +209,7 @@ export const ProductOperationsDataStatusSchema = z.object({
   actualCutoff: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/).nullable(),
   sources: z.object({
     traffic: ProductOperationsDataSourceStatusSchema,
+    orders: ProductOperationsDataSourceStatusSchema,
     advertising: ProductOperationsDataSourceStatusSchema,
     sellpia: ProductOperationsDataSourceStatusSchema,
     mapping: z.object({
@@ -225,8 +234,8 @@ export const MasterProductOperationsListItemSchema =
     updatedAt: zIsoDate,
     depletion: ProductDepletionProjectionSchema,
     channelOptionSummary: ChannelOptionSummarySchema,
-    inventoryUnits: z.number().int().nonnegative(),
-    inventoryStatus: ProductInventoryStatusSchema,
+    inventoryUnits: z.number().int().nonnegative().nullable(),
+    inventory: ProductInventoryFactsSchema,
     channelCount: z.number().int().nonnegative(),
     channelStatus: ProductChannelStatusSchema,
     activeChannels: z.array(z.object({
@@ -246,6 +255,7 @@ export const MasterProductOperationsListItemSchema =
     metricsFreshness: z.object({
       traffic: ProductOperationsMetricFreshnessSchema,
       advertising: ProductOperationsMetricFreshnessSchema,
+      orders: ProductOperationsMetricFreshnessSchema,
     }).strict(),
   });
 export type MasterProductOperationsListItem = z.infer<
@@ -275,30 +285,21 @@ export const ProductOperationsListSummarySchema = z.object({
     C: z.number().int().nonnegative(),
     unclassified: z.number().int().nonnegative(),
   }).strict(),
-  abcStatusCounts: z.object({
-    READY: z.number().int().nonnegative(),
-    INSUFFICIENT_EVIDENCE: z.number().int().nonnegative(),
-    SOURCE_UNMAPPED: z.number().int().nonnegative(),
-    SELLPIA_SOURCE_STALE: z.number().int().nonnegative(),
-    AD_SOURCE_STALE: z.number().int().nonnegative(),
-
-  }).strict(),
   contributionOverview: ProductAbcContributionOverviewSchema.nullable(),
   abcFormula: ProductAbcFormulaPayloadSchema.nullable(),
   displayDataAsOf: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/).nullable(),
   channelProductCounts: z.array(ProductOperationsChannelProductCountSchema),
   inventoryStatusCounts: z.object({
     sellable: z.number().int().nonnegative(),
-    partial_out_of_stock: z.number().int().nonnegative(),
     out_of_stock: z.number().int().nonnegative(),
     configuration_required: z.number().int().nonnegative(),
     review_required: z.number().int().nonnegative(),
+    uncollected: z.number().int().nonnegative(),
   }).strict(),
   negativeProfitCount: z.number().int().nonnegative(),
   imminentProductCount: z.number().int().nonnegative(),
   reorderProductCount: z.number().int().nonnegative(),
   depletionCoveredProductCount: z.number().int().nonnegative(),
-  sharedDepletionProductCount: z.number().int().nonnegative(),
 }).strict();
 export type ProductOperationsListSummary = z.infer<
   typeof ProductOperationsListSummarySchema
@@ -340,9 +341,9 @@ export const ProductChannelListingSummarySchema = z.object({
       name: z.string().min(1),
       optionName: z.string().nullable(),
       barcode: z.string().nullable(),
-      currentStock: z.number().int().nonnegative(),
-      availableStock: z.number().int().nonnegative(),
-      isActive: z.boolean(),
+      currentStock: z.number().int().nonnegative().nullable(),
+      availableStock: z.number().int().nonnegative().nullable(),
+      isActive: z.boolean().nullable(),
       quantity: z.number().int().positive(),
     }).strict().superRefine((component, ctx) => {
       if (component.availableStock !== component.currentStock) {
@@ -363,8 +364,8 @@ export const MasterProductOperationsDetailSchema =
   MasterProductOperationsMetadataSchema.extend({
     createdAt: zIsoDate,
     updatedAt: zIsoDate,
-    inventoryStatus: ProductInventoryStatusSchema,
-    inventoryUnits: z.number().int().nonnegative(),
+    inventory: ProductInventoryFactsSchema,
+    inventoryUnits: z.number().int().nonnegative().nullable(),
     channelListings: z.array(ProductChannelListingSummarySchema),
   });
 export type MasterProductOperationsDetail = z.infer<

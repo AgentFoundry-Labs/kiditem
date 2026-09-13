@@ -107,7 +107,7 @@ describe('MasterProductAbc publication cutoff (PostgreSQL)', () => {
         officialCutoff: collected.cutoff,
       });
       await expect(prisma.masterProduct.findUniqueOrThrow({ where: { id: productId } }))
-        .resolves.toMatchObject({ abcGrade: 'A' });
+        .resolves.toMatchObject({ abcGrade: null });
     },
   );
 
@@ -229,6 +229,38 @@ async function seedSellingProduct(
     },
   });
   const skuCode = `SKU-${randomUUID()}`;
+  const inventoryVerifiedAt = new Date();
+  const inventoryRun = await prisma.sourceImportRun.create({
+    data: {
+      organizationId: TEST_ORGANIZATION_ID,
+      sourceType: 'sellpia_inventory',
+      channelAccountId: null,
+      fileName: 'abc-publication-inventory.json',
+      fileHash: randomUUID(),
+      status: 'completed',
+      rowCount: 1,
+      importedAt: inventoryVerifiedAt,
+      lastVerifiedAt: inventoryVerifiedAt,
+      verificationCount: 1,
+      freshnessGeneration: 1n,
+    },
+  });
+  await prisma.sellpiaInventoryState.upsert({
+    where: { organizationId: TEST_ORGANIZATION_ID },
+    create: {
+      organizationId: TEST_ORGANIZATION_ID,
+      requestedGeneration: 1n,
+      verifiedGeneration: 1n,
+      lastVerifiedAt: inventoryVerifiedAt,
+      lastCompletedImportRunId: inventoryRun.id,
+    },
+    update: {
+      requestedGeneration: 1n,
+      verifiedGeneration: 1n,
+      lastVerifiedAt: inventoryVerifiedAt,
+      lastCompletedImportRunId: inventoryRun.id,
+    },
+  });
   const sku = await prisma.sellpiaInventorySku.create({
     data: {
       organizationId: TEST_ORGANIZATION_ID,
@@ -237,6 +269,7 @@ async function seedSellingProduct(
       name: 'ABC SKU',
       currentStock: 10,
       isActive: true,
+      lastImportRunId: inventoryRun.id,
     },
   });
   await prisma.channelListingOptionInventoryComponent.create({

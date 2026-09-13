@@ -10,6 +10,12 @@ import type {
   LiveCommerceProductSnapshotUpsert,
 } from './live-commerce.repository.port';
 import type { AppendSourcingEvidenceObservationCommand } from './sourcing-evidence-ledger.repository.port';
+import type {
+  SourcingKeywordAnalysisSnapshot,
+  SourcingKeywordSuggestionObservationBatch,
+  SourcingWingCatalogObservation,
+} from '@kiditem/shared/sourcing';
+import type { MarketShadowSnapshotDocument } from '../../../../domain/market-shadow-snapshot-document';
 export interface SourcingCollectionPermit {
   runId: string;
   organizationId: string;
@@ -32,7 +38,45 @@ export type SourcingTypedCollectionRecord =
   | { kind: 'tiktok_creative'; row: TiktokCcSnapshotUpsert }
   | { kind: 'live_commerce_broadcast'; row: LiveCommerceBroadcastSnapshotUpsert }
   | { kind: 'live_commerce_product'; row: LiveCommerceProductSnapshotUpsert }
+  | { kind: 'wing_catalog_product'; row: SourcingWingCatalogProductFactUpsert }
+  | { kind: 'keyword_suggestion_snapshot'; row: SourcingKeywordSuggestionFactUpsert }
+  | { kind: 'naver_keyword_analysis_snapshot'; row: SourcingNaverKeywordAnalysisFactUpsert }
+  | { kind: 'market_shadow_snapshot'; row: SourcingMarketShadowFactUpsert }
   | { kind: 'extension_candidate'; row: SourcingExtensionCandidateProjection };
+
+interface EvidenceBackedSourceFact {
+  organizationId: string;
+  ingestionRunId: string;
+  evidenceObservationKey: string;
+  evidenceRevision: number;
+}
+
+export interface SourcingWingCatalogProductFactUpsert
+  extends EvidenceBackedSourceFact, SourcingWingCatalogObservation {}
+
+export interface SourcingKeywordSuggestionFactUpsert
+  extends EvidenceBackedSourceFact {
+  schemaVersion: string;
+  keywordNormalized: string;
+  document: SourcingKeywordSuggestionObservationBatch;
+  capturedAt: Date;
+}
+
+export interface SourcingNaverKeywordAnalysisFactUpsert
+  extends EvidenceBackedSourceFact {
+  schemaVersion: string;
+  inputHash: string;
+  document: SourcingKeywordAnalysisSnapshot;
+  capturedAt: Date;
+}
+
+export interface SourcingMarketShadowFactUpsert
+  extends EvidenceBackedSourceFact {
+  schemaVersion: string;
+  businessDate: Date;
+  document: MarketShadowSnapshotDocument;
+  capturedAt: Date;
+}
 
 export interface Sourcing1688OfferKeywordObservationUpsert
   extends Sourcing1688OfferKeywordObservationInput {

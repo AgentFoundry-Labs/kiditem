@@ -67,7 +67,7 @@ const abcReady = {
       latestAttempt: { state: 'COMPLETE' as const },
       latestComplete: { actualCutoff: GRADE_BASIS_CUTOFF_DATE },
     },
-    mapping: { status: 'READY' as const, mappingGeneration: '4' },
+    mapping: { valid: true, currentMappingGeneration: '4', evidenceMappingGeneration: '4' },
   },
 };
 

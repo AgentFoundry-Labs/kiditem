@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import type { SalesAnalysisData, ChannelAnalysis } from '@kiditem/shared/finance';
 import { PrismaService } from '../../prisma/prisma.service';
 import { kstMonthStart } from '../../common/kst';
@@ -56,10 +57,15 @@ export class SalesAnalysisService {
     const from = kstMonthStart(year, month);
     const to = kstMonthStart(year, month + 1);
 
-    // 4 parallel queries (all data-independent)
-    const [orders, returnOrderIdRows, adGroupRows, orphanCount] = await Promise.all([
+    const {
+      orders,
+      returnOrderIdRows,
+      adGroupRows,
+      orphanCount,
+      listings,
+    } = await this.prisma.$transaction(async (tx) => {
       // 1) Orders with nested listingOption.listing.channel
-      this.prisma.order.findMany({
+      const orders = await tx.order.findMany({
         where: {
           organizationId,
           orderedAt: { gte: from, lt: to },
@@ -97,11 +103,11 @@ export class SalesAnalysisService {
             },
           },
         },
-      }),
+      });
       // 2) Return events — need (orderId, channel) per returned lineItem.
       //    3-hop IDOR: OrderReturnLineItem.organizationId + return.organizationId + return.order.organizationId
       //    Status filter mirror on return.order.
-      this.prisma.orderReturnLineItem.findMany({
+      const returnOrderIdRows = await tx.orderReturnLineItem.findMany({
         where: {
           organizationId,
           return: {
@@ -127,28 +133,28 @@ export class SalesAnalysisService {
             },
           },
         },
-      }),
+      });
       // 3) Measured ad spend per listing over the window, through the one
       // listing-day ad reader.
-      readListingAdWindowFacts(this.prisma, { organizationId, from, to }),
+      const adGroupRows = await readListingAdWindowFacts(tx, {
+        organizationId,
+        from,
+        to,
+      });
       // 4) Orphan return count — orderId NULL, requestedAt in period
-      this.prisma.orderReturn.count({
+      const orphanCount = await tx.orderReturn.count({
         where: {
           organizationId,
           orderId: null,
           requestedAt: { gte: from, lt: to },
         },
-      }),
-    ]);
+      });
 
-    // Resolve listingId → channel (for ad rows). `listingId` is non-nullable
-    // on `ChannelListingDailySnapshot` so the filter just dedupes.
-    const adListingIds = Array.from(
-      new Set(adGroupRows.map((r) => r.listingId)),
-    );
-    const listings =
-      adListingIds.length > 0
-        ? await this.prisma.channelListing.findMany({
+      const adListingIds = Array.from(
+        new Set(adGroupRows.map((row) => row.listingId)),
+      );
+      const listings = adListingIds.length > 0
+        ? await tx.channelListing.findMany({
             where: { id: { in: adListingIds }, organizationId },
             select: {
               id: true,
@@ -156,6 +162,11 @@ export class SalesAnalysisService {
             },
           })
         : [];
+      return { orders, returnOrderIdRows, adGroupRows, orphanCount, listings };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
+
+    // Resolve listingId → channel (for ad rows). `listingId` is non-nullable
+    // on `ChannelListingDailySnapshot` so the filter just dedupes.
     const listingIdToChannel = new Map<string, string>(
       listings.map((l) => [l.id, l.channelAccount.channel]),
     );

@@ -25,7 +25,7 @@ const UNCLASSIFIED_ABC = {
   sources: {
     sellpia: missingAbcSource(),
     advertising: missingAbcSource(),
-    mapping: { status: 'UNMAPPED' as const, mappingGeneration: null },
+    mapping: { valid: false, currentMappingGeneration: '0', evidenceMappingGeneration: null },
   },
 };
 
@@ -100,7 +100,7 @@ describe('direct channel inventory contracts', () => {
       isActive: true,
       createdAt: OBSERVED_AT,
       updatedAt: OBSERVED_AT,
-      inventoryStatus: 'sellable',
+      inventory: { skuCount: 1, measuredSkuCount: 1, inactiveSkuCount: 0 },
       inventoryUnits: 80,
       channelListings: [{
         id: LISTING_ID,

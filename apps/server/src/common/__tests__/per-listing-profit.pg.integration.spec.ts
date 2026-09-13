@@ -24,6 +24,7 @@ import {
   seedAd,
   seedCompletedAdSweepRun,
 } from '../../test-helpers/finance-seeds';
+import { seedPublishedProductAbcGrades } from '../../products/__tests__/test-helpers/published-product-abc';
 
 /**
  * Plan F1 T1 — buildPerListingMetrics (PG integration).
@@ -72,7 +73,11 @@ describe('buildPerListingMetrics (PG integration)', () => {
   it('T1: single listing × 1 order × 1 lineItem → metrics math', async () => {
     const { id: masterId } = await setupMaster(prisma, {
       organizationId: TEST_ORGANIZATION_ID,
-      code: 'M-T1', name: 'Master T1', abcGrade: 'A', category: 'Toy',
+      code: 'M-T1', name: 'Master T1', abcGrade: null, category: 'Toy',
+    });
+    await seedPublishedProductAbcGrades(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      grades: [{ masterProductId: masterId, abcGrade: 'A' }],
     });
     const { id: optionId } = await setupProductOption(prisma, {
       organizationId: TEST_ORGANIZATION_ID, masterId,

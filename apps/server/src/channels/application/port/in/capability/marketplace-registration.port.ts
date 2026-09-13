@@ -57,7 +57,7 @@ export interface ExternalProductRegistrationMatchProposal {
   code: string;
   name: string;
   optionName: string | null;
-  currentStock: number;
+  currentStock: number | null;
   recommendedQuantity: number | null;
 }
 
@@ -75,7 +75,7 @@ export interface ExternalProductRegistrationPreflightResult {
     code: string;
     name: string;
     optionName: string | null;
-    currentStock: number;
+    currentStock: number | null;
     quantity: number;
   };
   existingListing: {

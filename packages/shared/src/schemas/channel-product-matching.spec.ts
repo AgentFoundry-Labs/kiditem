@@ -174,7 +174,7 @@ describe('direct channel product and inventory matching contracts', () => {
         code: 'SP-100',
         name: '낱개 재고',
         optionName: null,
-        currentStock: 85,
+        currentStock: null,
         evidence: [{ kind: 'seller_sku_code', channelValue: 'SP-100', normalizedValue: 'SP-100' }],
         requiresQuantityConfirmation: false,
         recommendedQuantity: 1,

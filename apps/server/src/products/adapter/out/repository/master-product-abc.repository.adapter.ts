@@ -8,11 +8,10 @@ import { lockProductMapping } from '../../../../common/product-mapping-generatio
 import { readProductSaleAgeEvidence } from '../../../../common/product-sale-age';
 import { businessDateKey, parseBusinessDate } from '../../../../common/kst';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import { productAbcEvaluation } from '../../../mapper/product-abc-evaluation.mapper';
+import { readProductAbcPublication } from '../../../read/product-abc-publication.reader';
 import { listSellingMasterProductIds } from './selling-master-product.query';
 import type {
   MasterProductAbcCandidateRecord,
-  MasterProductAbcEvaluationRecord,
   MasterProductAbcFormulaStateRecord,
   ProductAbcPublicationInput,
   ProductAbcRepositoryPort,
@@ -39,7 +38,6 @@ type FormulaStateRow = Readonly<{
 
 type ExistingAbcRow = Readonly<{
   masterProductId: string;
-  cachedGrade: string | null;
   evaluationId: string | null;
   evaluationGrade: string | null;
   sellpiaSourceImportRunId: string | null;
@@ -55,27 +53,21 @@ export class MasterProductAbcRepositoryAdapter implements ProductAbcRepositoryPo
     return row ? stateRecord(row) : emptyState(organizationId);
   }
 
-  async listCurrentAbcTargetIds(organizationId: string): Promise<readonly string[]> {
-    return listSellingMasterProductIds(this.prisma, organizationId);
-  }
-
-  async listEvaluations(
+  async readPublication(
     organizationId: string,
     masterProductIds: readonly string[],
-  ): Promise<readonly MasterProductAbcEvaluationRecord[]> {
-    if (masterProductIds.length === 0) return [];
-    const rows = await this.prisma.masterProduct.findMany({
-      where: { organizationId, id: { in: [...masterProductIds] } },
-      orderBy: { id: 'asc' },
-      select: {
-        id: true,
-        abcEvaluation: { include: { formulaVersion: true } },
-      },
-    });
-    return rows.map((row) => ({
-      masterProductId: row.id,
-      evaluation: productAbcEvaluation(row.abcEvaluation),
-    } satisfies MasterProductAbcEvaluationRecord));
+  ) {
+    return this.prisma.$transaction(
+      (tx) => readProductAbcPublication(tx, { organizationId, masterProductIds }),
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
+  }
+
+  async listCurrentAbcTargetIds(organizationId: string): Promise<readonly string[]> {
+    return this.prisma.$transaction(
+      (tx) => listSellingMasterProductIds(tx, organizationId),
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
   }
 
   async publish(input: ProductAbcPublicationInput): Promise<MasterProductAbcPublicationResult> {
@@ -144,13 +136,12 @@ async function publishTx(
   const clearRows = existing.filter((row) =>
     !candidateSet.has(row.masterProductId)
     && !targetSet.has(row.masterProductId)
-    && (row.evaluationId !== null || row.cachedGrade !== null),
+    && row.evaluationId !== null,
   );
   const existingById = new Map(existing.map((row) => [row.masterProductId, row]));
   const changedProductCount = input.candidates.filter((candidate) => {
     const row = existingById.get(candidate.masterProductId);
-    return row?.cachedGrade !== candidate.abcGrade
-      || row?.evaluationGrade !== candidate.abcGrade;
+    return row?.evaluationGrade !== candidate.abcGrade;
   }).length + clearRows.length;
   const nextPublicationRevision = state.publicationRevision + 1;
   const baseline = state.publicationRevision === 0;
@@ -186,8 +177,6 @@ async function publishTx(
     });
   }
   await insertEvaluations(tx, input, nextPublicationRevision);
-  await updateGradeCache(tx, input.organizationId, input.candidates);
-  await clearGradeCache(tx, input.organizationId, clearRows.map(({ masterProductId }) => masterProductId));
   if (transitions.length > 0) await insertHistory(tx, input, transitions, nextPublicationRevision);
 
   return {
@@ -235,42 +224,6 @@ async function insertEvaluations(
   }
 }
 
-async function updateGradeCache(
-  tx: Prisma.TransactionClient,
-  organizationId: string,
-  candidates: readonly MasterProductAbcCandidateRecord[],
-): Promise<void> {
-  for (const grade of ['A', 'B', 'C'] as const) {
-    const ids = candidates.filter((candidate) => candidate.abcGrade === grade)
-      .map(({ masterProductId }) => masterProductId);
-    for (let offset = 0; offset < ids.length; offset += PUBLICATION_INSERT_CHUNK) {
-      await tx.masterProduct.updateMany({
-        where: {
-          organizationId,
-          id: { in: ids.slice(offset, offset + PUBLICATION_INSERT_CHUNK) },
-        },
-        data: { abcGrade: grade },
-      });
-    }
-  }
-}
-
-async function clearGradeCache(
-  tx: Prisma.TransactionClient,
-  organizationId: string,
-  ids: readonly string[],
-): Promise<void> {
-  for (let offset = 0; offset < ids.length; offset += PUBLICATION_INSERT_CHUNK) {
-    await tx.masterProduct.updateMany({
-      where: {
-        organizationId,
-        id: { in: [...ids.slice(offset, offset + PUBLICATION_INSERT_CHUNK)] },
-      },
-      data: { abcGrade: null },
-    });
-  }
-}
-
 type GradeTransition = Readonly<{
   masterProductId: string;
   oldGrade: 'A' | 'B' | 'C';
@@ -291,7 +244,7 @@ function gradeTransitions(
 ): GradeTransition[] {
   return existing.flatMap((row) => {
     const candidate = candidates.get(row.masterProductId);
-    const oldGrade = validGrade(row.evaluationGrade) ?? validGrade(row.cachedGrade);
+    const oldGrade = validGrade(row.evaluationGrade);
     if (!candidate || !oldGrade || oldGrade === candidate.abcGrade) return [];
     return [{
       masterProductId: row.masterProductId,
@@ -346,7 +299,6 @@ async function readExistingAbcRows(
   const lock = forUpdate ? Prisma.sql`FOR UPDATE OF mp` : Prisma.empty;
   return tx.$queryRaw<ExistingAbcRow[]>(Prisma.sql`
     SELECT mp.id AS "masterProductId",
-           mp.abc_grade AS "cachedGrade",
            e.id AS "evaluationId",
            e.abc_grade AS "evaluationGrade",
            e.sellpia_source_import_run_id AS "sellpiaSourceImportRunId",

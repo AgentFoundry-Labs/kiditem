@@ -281,6 +281,151 @@ export async function seedOrderWithLineItems(
   return order.id;
 }
 
+/**
+ * Publish an explicit Order owner coverage window and attach the fixture rows
+ * inside that KST business-date range to the completed run. Tests must call
+ * this deliberately: observing an order row never proves that the collector
+ * exhausted the requested mall/window.
+ */
+export async function seedCompletedOrderCoverageRun(
+  prisma: PrismaClient,
+  opts: {
+    organizationId: string;
+    startDate: string;
+    endDate: string;
+    mallKey?: string;
+  },
+): Promise<string> {
+  const mallKey = opts.mallKey ?? 'dashboard-test-mall';
+  const account = await prisma.channelAccount.upsert({
+    where: {
+      organizationId_channel_externalAccountId: {
+        organizationId: opts.organizationId,
+        channel: 'order_collection',
+        externalAccountId: mallKey,
+      },
+    },
+    create: {
+      organizationId: opts.organizationId,
+      channel: 'order_collection',
+      name: mallKey,
+      externalAccountId: mallKey,
+      isPrimary: false,
+    },
+    update: {},
+    select: { id: true },
+  });
+  const run = await prisma.sourceImportRun.create({
+    data: {
+      organizationId: opts.organizationId,
+      sourceType: 'order_collection_mall',
+      channelAccountId: account.id,
+      status: 'completed',
+      coverageStartDate: new Date(`${opts.startDate}T00:00:00.000Z`),
+      coverageEndDate: new Date(`${opts.endDate}T00:00:00.000Z`),
+      plan: { mallKey, testCoverage: true },
+      importedAt: new Date(`${opts.endDate}T15:00:00.000Z`),
+    },
+    select: { id: true },
+  });
+  const from = new Date(`${opts.startDate}T00:00:00+09:00`);
+  const through = new Date(`${opts.endDate}T00:00:00+09:00`);
+  const to = new Date(through.getTime() + 86_400_000);
+  const attached = await prisma.order.updateMany({
+    where: {
+      organizationId: opts.organizationId,
+      orderedAt: { gte: from, lt: to },
+    },
+    data: { sourceImportRunId: run.id },
+  });
+  await prisma.sourceImportRun.update({
+    where: { id: run.id },
+    data: { providerBackedEmptyProof: attached.count === 0 },
+  });
+  return run.id;
+}
+
+/** Publish every current fixture SKU as one verified Inventory generation. */
+export async function seedCompletedInventorySnapshot(
+  prisma: PrismaClient,
+  organizationId: string,
+): Promise<string> {
+  const verifiedAt = new Date();
+  const run = await prisma.sourceImportRun.create({
+    data: {
+      organizationId,
+      sourceType: 'sellpia_inventory',
+      status: 'completed',
+      freshnessGeneration: 1n,
+      importedAt: verifiedAt,
+      lastVerifiedAt: verifiedAt,
+    },
+    select: { id: true },
+  });
+  await prisma.sellpiaInventorySku.updateMany({
+    where: { organizationId },
+    data: { lastImportRunId: run.id },
+  });
+  await prisma.sellpiaInventoryState.upsert({
+    where: { organizationId },
+    create: {
+      organizationId,
+      sourceAccountKey: 'dashboard-test',
+      verifiedGeneration: 1n,
+      lastVerifiedAt: verifiedAt,
+      lastCompletedImportRunId: run.id,
+    },
+    update: {
+      verifiedGeneration: 1n,
+      lastVerifiedAt: verifiedAt,
+      lastCompletedImportRunId: run.id,
+    },
+  });
+  return run.id;
+}
+
+// ---------------------------------------------------------------------------
+// seedCompletedOrderCollection — explicit mall coverage for selected order fixtures
+// ---------------------------------------------------------------------------
+
+/** Declare measured order coverage independently from the order-row dates. */
+export async function seedCompletedOrderCollection(
+  prisma: PrismaClient,
+  opts: {
+    organizationId: string;
+    startDate: string;
+    endDate: string;
+    orderIds: readonly string[];
+  },
+): Promise<string> {
+  return prisma.$transaction(async (tx) => {
+    const account = await tx.channelAccount.create({
+      data: {
+        organizationId: opts.organizationId,
+        channel: 'order_collection',
+        name: 'Measured finance order fixture',
+        externalAccountId: 'finance-fixture-mall',
+      },
+    });
+    const run = await tx.sourceImportRun.create({
+      data: {
+        organizationId: opts.organizationId,
+        channelAccountId: account.id,
+        sourceType: 'order_collection_mall',
+        status: 'completed',
+        importedAt: new Date(`${opts.endDate}T15:00:00.000Z`),
+        coverageStartDate: new Date(`${opts.startDate}T00:00:00.000Z`),
+        coverageEndDate: new Date(`${opts.endDate}T00:00:00.000Z`),
+      },
+    });
+    await tx.order.updateMany({
+      where: { organizationId: opts.organizationId, id: { in: [...opts.orderIds] } },
+      data: { channelAccountId: account.id, sourceImportRunId: run.id },
+    });
+    return run.id;
+  });
+}
+
 // ---------------------------------------------------------------------------
 // seedReturn — OrderReturn (+ optional OrderReturnLineItem rows)
 // ---------------------------------------------------------------------------

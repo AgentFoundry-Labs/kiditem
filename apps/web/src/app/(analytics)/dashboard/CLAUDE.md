@@ -28,6 +28,13 @@ sales, ads, inventory, trends, health, action tasks, and chart panels.
   Dashboard's links lead to Product Management evidence. New evaluations do
   not wait for paid-order evidence; legacy order-related states are read-only
   compatibility values until recalculation replaces old snapshots.
+- Gate each ABC warning and contribution value on its dedicated Products ABC
+  basis. Show the contribution publication revision, cutoff, formula, included
+  products, withheld products, and denominator; a generic catalog basis does
+  not authorize those values.
+- Advertising performance rows all use the selected period and their own
+  server-published basis. Display the effective ad source and known-through
+  date instead of describing a monthly value as selected-range evidence.
 
 ## Boundary Rules
 

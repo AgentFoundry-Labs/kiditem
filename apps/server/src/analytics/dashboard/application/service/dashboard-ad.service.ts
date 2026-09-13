@@ -10,15 +10,11 @@ import {
   type RangeProfitMetrics,
 } from '../port/out/repository/profit-calculation.repository.port';
 import {
-  WING_AD_SUMMARY_REPOSITORY_PORT,
-  type WingAdSummaryRepositoryPort,
-  type WingAdSummaryResult,
-} from '../port/out/repository/wing-ad-summary.repository.port';
-import {
   WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT,
   type WingTrafficAggregationRepositoryPort,
   type CoupangAdsMetrics,
   type WingTrafficMetrics,
+  type DashboardAdRateFacts,
 } from '../port/out/repository/wing-traffic-aggregation.repository.port';
 import {
   buildEffectivePeriod,
@@ -30,7 +26,6 @@ import {
   oneDecimalDifference,
   percentChange,
 } from '../../domain/util/percent';
-import { addDays, kstDayStart } from '../../../../common/kst';
 import {
   resolveDashboardPeriod,
   type ResolvedDashboardPeriod,
@@ -56,7 +51,6 @@ import type {
   AdMetricsDetail,
   IndustryBenchmark,
   DailyAdItem,
-  WingAdSummary,
 } from '@kiditem/shared/dashboard';
 
 @Injectable()
@@ -66,8 +60,6 @@ export class DashboardAdService {
   constructor(
     @Inject(PROFIT_CALCULATION_REPOSITORY_PORT)
     private readonly profitCalculation: ProfitCalculationRepositoryPort,
-    @Inject(WING_AD_SUMMARY_REPOSITORY_PORT)
-    private readonly wingAdSummary: WingAdSummaryRepositoryPort,
     @Inject(WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT)
     private readonly wingTrafficRepository: WingTrafficAggregationRepositoryPort,
   ) {}
@@ -77,12 +69,7 @@ export class DashboardAdService {
     organizationId: string,
   ): Promise<DashboardAdSummary> {
     try {
-      const { year, month, monthStart, anchor } = ctx;
-
-      // 30-day daily ad cost window — KST-anchored cutoff for owner-published
-      // Coupang account daily KPI rows. Deliberately open-ended so the chart
-      // still shows an in-progress day the owner has already published.
-      const thirtyDaysAgo = addDays(kstDayStart(anchor), -30);
+      const { anchor } = ctx;
 
       // Order aggregates read the selected calendar verbatim; owner ad and Wing
       // reads follow the closed-day clipping rule, which keeps a custom range
@@ -92,9 +79,6 @@ export class DashboardAdService {
 
       const [
         curMonthProfit,
-        rangeProfitCur,
-        rangeProfitPrev,
-        wingAdSummary,
         coupangAdsCurMonth,
         coupangAdsPrevMonth,
         coupangAdsCurRange,
@@ -102,21 +86,32 @@ export class DashboardAdService {
         coupangAdsDaily,
         wingTrafficCurMonth,
         latestDataDate,
+        adRateCur,
+        adRatePrev,
       ] = await Promise.all([
         this.profitCalculation.calculateForRange(organizationId, orderPeriods.month),
-        this.profitCalculation.calculateForRange(organizationId, orderPeriods.selected),
-        this.profitCalculation.calculateForRange(organizationId, orderPeriods.previousSelected),
-        this.wingAdSummary.fetchCurrentMonthSummary(organizationId, year, month, monthStart),
         this.wingTrafficRepository.aggregateCoupangAds(organizationId, closedDayPeriods.month),
         this.wingTrafficRepository.aggregateCoupangAds(organizationId, closedDayPeriods.previousMonth),
         this.wingTrafficRepository.aggregateCoupangAds(organizationId, closedDayPeriods.selected),
         this.wingTrafficRepository.aggregateCoupangAds(organizationId, closedDayPeriods.previousSelected),
-        this.wingTrafficRepository.fetchDailyAds(organizationId, thirtyDaysAgo),
+        this.wingTrafficRepository.fetchDailyAds(
+          organizationId,
+          closedDayPeriods.selected.queryWindow.from,
+          closedDayPeriods.selected.queryWindow.to,
+        ),
         // Wing evidence behind `effectivePeriod` reads the same month window
         // `/api/dashboard/sales` reads. Two endpoints labelling one month must
         // decide `revenueSource` from one period, not from two.
         this.wingTrafficRepository.aggregateTraffic(organizationId, closedDayPeriods.month),
         this.wingTrafficRepository.findLatestDataDate(organizationId),
+        this.wingTrafficRepository.readAdRateFacts(
+          organizationId,
+          closedDayPeriods.selected,
+        ),
+        this.wingTrafficRepository.readAdRateFacts(
+          organizationId,
+          closedDayPeriods.previousSelected,
+        ),
       ]);
 
       // The complete owner range wins, including explicit all-zero rows.
@@ -135,22 +130,12 @@ export class DashboardAdService {
         coupangAdsCurMonthSpend: coupangAdsCurMonth.spend,
       });
 
-      const [wingTrafficCurRange, wingTrafficPrevRange] = await Promise.all([
-        this.wingTrafficRepository.aggregateTraffic(organizationId, orderPeriods.selected),
-        this.wingTrafficRepository.aggregateTraffic(organizationId, orderPeriods.previousSelected),
-      ]);
-
       // Account ad KPIs are calculated from owner-published account rows, so
       // their basis is the ad window's own coverage. Ratios that mix in order
       // or Wing revenue use the exact intersection of both sources' dates.
       const monthAdBasis = adEvidence(closedDayPeriods.month, monthlyMetrics, coupangAdsCurMonth);
       const rangeAdBasis = adEvidence(closedDayPeriods.selected, rangeMetrics, coupangAdsCurRange);
-      const rangeRevenueBasis = adRateRevenueEvidence(
-        orderPeriods.selected,
-        rangeProfitCur,
-        wingTrafficCurRange,
-      );
-      const adRateBasis = intersectEvidence(rangeAdBasis, rangeRevenueBasis);
+      const adRateBasis = adRateEvidence(closedDayPeriods.selected, adRateCur);
       const benchmarkBases = benchmarkEvidence(
         orderPeriods.month,
         curMonthProfit,
@@ -162,20 +147,16 @@ export class DashboardAdService {
         rangeKpi: this.buildRangeKpi(
           rangeMetrics,
           rangePrev,
-          rangeProfitCur,
-          rangeProfitPrev,
-          wingTrafficCurRange,
-          wingTrafficPrevRange,
+          adRateCur,
+          adRatePrev,
         ),
-        adKpi: this.buildAdKpi(monthlyMetrics, monthlyPrev, curMonthProfit),
+        adKpi: this.buildAdKpi(rangeMetrics, rangePrev, adRateCur.revenue),
         dailyAd: this.buildDailyAd(coupangAdsDaily),
         industryBenchmark: this.buildBenchmark(
           monthlyMetrics,
           curMonthProfit,
           benchmarkBases,
         ),
-        saving: this.buildSaving(monthlyMetrics, monthlyPrev),
-        wingAdData: wingAdSummary !== null ? this.buildWingAdData(wingAdSummary) : null,
         effectivePeriod: buildEffectivePeriod(
           ctx,
           latestDataDate,
@@ -196,6 +177,14 @@ export class DashboardAdService {
           'rangeKpi.adRoas': rangeAdBasis,
           'rangeKpi.adCtr': rangeAdBasis,
           'rangeKpi.adRate': adRateBasis,
+          'adKpi.totalSpend': rangeAdBasis,
+          'adKpi.impressions': rangeAdBasis,
+          'adKpi.clicks': rangeAdBasis,
+          'adKpi.convRevenue': rangeAdBasis,
+          'adKpi.ctr': rangeAdBasis,
+          'adKpi.roas': rangeAdBasis,
+          'adKpi.conversions': rangeAdBasis,
+          'adKpi.cvr': rangeAdBasis,
         }),
       } satisfies DashboardAdSummary;
     } catch (error) {
@@ -230,10 +219,8 @@ export class DashboardAdService {
   private buildRangeKpi(
     rangeAdCur: ResolvedAdMetrics,
     rangeAdPrev: ResolvedAdMetrics,
-    rangeProfitCur: RangeProfitMetrics,
-    rangeProfitPrev: RangeProfitMetrics,
-    wingTrafficCur: WingTrafficMetrics,
-    wingTrafficPrev: WingTrafficMetrics,
+    adRateCur: DashboardAdRateFacts,
+    adRatePrev: DashboardAdRateFacts,
   ): NonNullable<DashboardAdSummary['rangeKpi']> {
     const current = periodAdValues(rangeAdCur);
     const previous = periodAdValues(rangeAdPrev);
@@ -244,15 +231,12 @@ export class DashboardAdService {
     // facts on Drive replay so adRate reflects "광고비 / 매출" instead of
     // dividing by zero. Without this, ad-fed dashboards show adRate=0%
     // even when meaningful ad spend exists.
-    const rangeRevenue = rangeProfitCur.revenue > 0
-      ? rangeProfitCur.revenue
-      : (wingTrafficCur.hasData ? wingTrafficCur.revenue : null);
-    const prevRangeRevenue = rangeProfitPrev.revenue > 0
-      ? rangeProfitPrev.revenue
-      : (wingTrafficPrev.hasData ? wingTrafficPrev.revenue : null);
-
-    const adRate = measuredPercent1(rangeAdCostVal, rangeRevenue);
-    const prevAdRate = measuredPercent1(prevAdCostVal, prevRangeRevenue);
+    const adRate = adRateCur.includedDates.length > 0
+      ? measuredPercent1(adRateCur.adSpend, adRateCur.revenue)
+      : null;
+    const prevAdRate = adRatePrev.includedDates.length > 0
+      ? measuredPercent1(adRatePrev.adSpend, adRatePrev.revenue)
+      : null;
     const adRateChange = oneDecimalDifference(adRate, prevAdRate);
     const curAdRoas = measuredPercent2(current.revenue, current.spend);
     const prevAdRoas = measuredPercent2(previous.revenue, previous.spend);
@@ -283,12 +267,12 @@ export class DashboardAdService {
   }
 
   private buildAdKpi(
-    curMonthAd: ResolvedAdMetrics,
-    prevMonthAd: ResolvedAdMetrics,
-    curMonthProfit: RangeProfitMetrics,
+    selectedAd: ResolvedAdMetrics,
+    previousSelectedAd: ResolvedAdMetrics,
+    selectedRevenue: number | null,
   ): AdMetricsDetail {
-    const current = accountAdValues(curMonthAd);
-    const previous = accountAdValues(prevMonthAd);
+    const current = accountAdValues(selectedAd);
+    const previous = accountAdValues(previousSelectedAd);
 
     return {
       totalSpend: current.spend,
@@ -300,8 +284,8 @@ export class DashboardAdService {
       conversions: current.orders,
       cvr: current.cvr,
       providerConversionRate: current.providerConversionRate,
-      coverage: curMonthAd.coverage,
-      source: curMonthAd.source,
+      coverage: selectedAd.coverage,
+      source: selectedAd.source,
       prevSpend: previous.spend,
       prevConvRevenue: previous.revenue,
       prevCtr: previous.ctr,
@@ -310,7 +294,7 @@ export class DashboardAdService {
       convRevenueChange: percentChange(current.revenue, previous.revenue),
       roasChange: pointChange(current.roas, previous.roas),
       ctrChange: pointChange(current.ctr, previous.ctr),
-      totalRevenue: hasOrderEvidence(curMonthProfit) ? curMonthProfit.revenue : null,
+      totalRevenue: selectedRevenue,
     } satisfies AdMetricsDetail;
   }
 
@@ -375,30 +359,6 @@ export class DashboardAdService {
     } satisfies IndustryBenchmark;
   }
 
-  private buildSaving(
-    curAd: ResolvedAdMetrics,
-    prevAd: ResolvedAdMetrics,
-  ): NonNullable<DashboardAdSummary['saving']> {
-    const current = periodAdValues(curAd);
-    const previous = periodAdValues(prevAd);
-    const adSaving = current.spend !== null && previous.spend !== null
-      && previous.spend > 0 && current.spend < previous.spend
-      ? Math.round(previous.spend - current.spend)
-      : null;
-    return {
-      adSaving,
-      prevAdCost: previous.spend,
-    };
-  }
-
-  private buildWingAdData(wingAdSummary: WingAdSummaryResult): WingAdSummary {
-    return {
-      adRevenue: wingAdSummary.adRevenue,
-      adSpend: wingAdSummary.adSpend,
-      adRoas: wingAdSummary.adRoas,
-      rawAdSummary: wingAdSummary.rawAdSummary ?? null,
-    } satisfies WingAdSummary;
-  }
 }
 
 interface ResolvedAdMetrics {
@@ -526,33 +486,19 @@ function adEvidence(
  * Basis for the revenue denominator behind `adRate`, following the same
  * order-first, Wing-fallback decision `buildRangeKpi` makes for the value.
  */
-function adRateRevenueEvidence(
-  orderPeriod: ResolvedDashboardPeriod,
-  profit: RangeProfitMetrics,
-  wing: WingTrafficMetrics,
+function adRateEvidence(
+  period: ResolvedDashboardPeriod,
+  facts: DashboardAdRateFacts,
 ): DashboardPeriodBasis | null {
-  if (profit.revenue > 0) {
-    return periodEvidence({
-      selectedDates: orderPeriod.selectedDates,
-      includedDates: profit.sourceCoverage.orderDates,
-      sources: [ORDERS_SOURCE],
-    });
-  }
-  if (wing.hasData) {
-    return periodEvidence({
-      selectedDates: orderPeriod.selectedDates,
-      includedDates: windowCoverageDates(
-        orderPeriod.selectedDates,
-        wing.coverage,
-        wing.isCollected,
-      ),
-      sources: [WING_TRAFFIC_SOURCE],
-    });
-  }
+  const revenueSources: DashboardSourceName[] = facts.revenueSource === 'orders'
+    ? [ORDERS_SOURCE]
+    : facts.revenueSource === 'wing'
+      ? [WING_TRAFFIC_SOURCE]
+      : [ORDERS_SOURCE, WING_TRAFFIC_SOURCE];
   return periodEvidence({
-    selectedDates: orderPeriod.selectedDates,
-    includedDates: [],
-    sources: [ORDERS_SOURCE, WING_TRAFFIC_SOURCE],
+    selectedDates: period.selectedDates,
+    includedDates: facts.includedDates,
+    sources: [COUPANG_ADS_SOURCE, ...revenueSources],
   });
 }
 

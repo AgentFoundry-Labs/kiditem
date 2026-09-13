@@ -145,6 +145,105 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
     });
   });
 
+  it('uses the latest source-evidenced sale status without requiring traffic evidence', async () => {
+    const listing = await createListing({
+      displayName: 'Stopped listing',
+      rawJson: { saleStatus: '판매중' },
+    });
+    const activeFallback = await createListing({ displayName: 'Active fallback' });
+    const supplierStopped = await createListing({ displayName: 'Supplier stopped' });
+    await prisma.channelListing.update({
+      where: { id: supplierStopped.id },
+      data: { status: '비활성' },
+    });
+    await prisma.channelListingDailySnapshot.createMany({
+      data: [{
+        organizationId: TEST_ORGANIZATION_ID,
+        listingId: listing.id,
+        channel: 'coupang',
+        externalId: listing.externalId,
+        businessDate: new Date('2026-08-01T00:00:00.000Z'),
+        saleStatus: '판매중',
+      }, {
+        organizationId: TEST_ORGANIZATION_ID,
+        listingId: listing.id,
+        channel: 'coupang',
+        externalId: listing.externalId,
+        businessDate: new Date('2026-08-02T00:00:00.000Z'),
+        saleStatus: '판매중지',
+        trafficObservedAt: null,
+      }],
+    });
+
+    const queue = await service.list(TEST_ORGANIZATION_ID);
+
+    const statusByListing = new Map(queue.products.map((row) => [
+      row.listing.id,
+      row.listing.saleStatus,
+    ]));
+    expect(statusByListing).toEqual(new Map([
+      [listing.id, '판매중지'],
+      [activeFallback.id, 'active'],
+      [supplierStopped.id, '비활성'],
+    ]));
+  });
+
+  it('keeps listing identity and latest sale status on one repeatable-read snapshot', async () => {
+    const publisher = makeTestPrisma();
+    const observer = makeTestPrisma();
+    await Promise.all([publisher.$connect(), observer.$connect()]);
+    const listing = await createListing({
+      displayName: 'Concurrent sale status',
+      rawJson: { saleStatus: '판매중' },
+    });
+    await prisma.channelListingDailySnapshot.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        listingId: listing.id,
+        channel: 'coupang',
+        externalId: listing.externalId,
+        businessDate: new Date('2026-09-01T00:00:00.000Z'),
+        saleStatus: '판매중',
+      },
+    });
+
+    const publicationLocked = deferred<void>();
+    const publish = deferred<void>();
+    const publication = publisher.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(
+        'LOCK TABLE channel_listing_daily_snapshots IN ACCESS EXCLUSIVE MODE',
+      );
+      publicationLocked.resolve();
+      await publish.promise;
+      await tx.channelListingDailySnapshot.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          listingId: listing.id,
+          channel: 'coupang',
+          externalId: listing.externalId,
+          businessDate: new Date('2026-09-02T00:00:00.000Z'),
+          saleStatus: '판매중지',
+        },
+      });
+    }, { timeout: 15_000 });
+
+    try {
+      await publicationLocked.promise;
+      const reading = service.list(TEST_ORGANIZATION_ID);
+      await waitForBlockedListingStateRead(observer);
+      publish.resolve();
+      await publication;
+
+      const queue = await reading;
+      expect(queue.products.find((row) => row.listing.id === listing.id)?.listing.saleStatus)
+        .toBe('판매중');
+    } finally {
+      publish.resolve();
+      await publication.catch(() => undefined);
+      await Promise.all([publisher.$disconnect(), observer.$disconnect()]);
+    }
+  }, 20_000);
+
   it('keeps a multi-Master listing fully matched through its option recipes', async () => {
     const firstProduct = await createProduct('INV-FIRST', 'First inventory product');
     const secondProduct = await createProduct('INV-SECOND', 'Second inventory product');
@@ -807,4 +906,70 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
       select: { mappingGeneration: true },
     }).then((state) => state?.mappingGeneration ?? 0n);
   }
+
+  it('includes active Rocket PO listings published by the canonical completed spelling', async () => {
+      const rocketAccount = await prisma.channelAccount.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          channel: 'rocket',
+          name: 'Rocket',
+        },
+      });
+      const rocketRun = await prisma.sourceImportRun.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          channelAccountId: rocketAccount.id,
+          sourceType: 'coupang_rocket_po_catalog',
+          parserVersion: 'rocket-po-v1',
+          status: 'completed',
+          importedAt: new Date(),
+        },
+      });
+      const listing = await prisma.channelListing.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          channelAccountId: rocketAccount.id,
+          externalId: 'ROCKET-PO-ELIGIBLE',
+          displayName: 'Rocket PO eligible',
+          lastImportRunId: rocketRun.id,
+          isActive: true,
+        },
+      });
+      const option = await createOption(listing.id, {
+        sellerSku: 'ROCKET-PO-SKU',
+      });
+
+      const rows = await repository.listAvailabilityRows(TEST_ORGANIZATION_ID, {
+        channelAccountId: rocketAccount.id,
+      });
+
+      expect(rows.map((row) => row.option.id)).toEqual([option.id]);
+    });
 });
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
+async function waitForBlockedListingStateRead(prisma: PrismaClient): Promise<void> {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    const [activity] = await prisma.$queryRaw<Array<{ waiting: boolean }>>`
+      SELECT EXISTS (
+        SELECT 1
+        FROM pg_stat_activity
+        WHERE datname = current_database()
+          AND pid <> pg_backend_pid()
+          AND state = 'active'
+          AND wait_event_type = 'Lock'
+          AND query ILIKE '%channel_listing_daily_snapshots%'
+      ) AS waiting
+    `;
+    if (activity?.waiting) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error('Timed out waiting for the listing-state read to block.');
+}

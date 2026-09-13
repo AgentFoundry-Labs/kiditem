@@ -28,8 +28,9 @@ import type {
 import type {
   SellpiaProfitabilitySubmitBodyDto,
 } from './dto/sellpia-product-sales.dto';
+import { SELLPIA_PROFITABILITY_SOURCE_TYPE } from './domain/sellpia-profitability-source';
 
-export const SOURCE_TYPE = 'sellpia_product_profitability';
+export const SOURCE_TYPE = SELLPIA_PROFITABILITY_SOURCE_TYPE;
 export const PARSER_VERSION = 'sellpia-profitability-v2';
 export const LEGACY_PARSER_VERSION = 'sellpia-profitability-v1';
 export const ATTEMPT_TTL_MS = 30 * 60_000;
@@ -66,6 +67,21 @@ export type SourceAttemptRecord = Readonly<{
   createdAt: Date;
   updatedAt: Date;
 }>;
+
+export type PublishedGenerationRecord = Pick<SourceAttemptRecord,
+  | 'id'
+  | 'status'
+  | 'publicationSequence'
+  | 'mappingGeneration'
+  | 'coverageStartDate'
+  | 'coverageEndDate'
+  | 'coveredMonths'
+  | 'importedAt'
+  | 'updatedAt'
+  | 'contentChecksum'
+  | 'contentByteCount'
+  | 'rowCount'
+  | 'qualityReport'>;
 
 export type InventoryCandidate = Readonly<{
   id: string;
@@ -411,7 +427,7 @@ export function toAttemptSummary(
 }
 
 export function toCompleteGeneration(
-  attempt: SourceAttemptRecord,
+  attempt: PublishedGenerationRecord,
 ): SellpiaProfitabilityCompleteGeneration {
   if (attempt.publicationSequence === null
     || attempt.mappingGeneration === null
@@ -564,7 +580,7 @@ export function isoDate(value: Date): string {
 }
 
 export function generationMetadata(
-  attempt: SourceAttemptRecord,
+  attempt: PublishedGenerationRecord,
 ): SellpiaProfitabilityGenerationMetadata {
   if (attempt.status !== 'completed'
     || attempt.publicationSequence === null

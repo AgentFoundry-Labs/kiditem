@@ -92,6 +92,14 @@ NestJS APIs and shared Zod contracts from `@kiditem/shared`.
 
 ### Source Ownership And Manual Action Parity
 
+Core's shared import history exposes last-completed timestamps through
+`core/read/source-import-run.reader.ts`. Dashboard collection badges compose
+this organization-scoped reader; failed or running attempts do not advance a
+completed timestamp. This read-only metadata boundary adds no Nest module or
+mutation authority. Source owners retain publication, current-generation, and
+coverage gates in their own fact readers; a completion timestamp alone does
+not establish measurement coverage.
+
 Each source owner admits an idempotent attempt and freezes its collection
 inputs. The extension sends captured data directly to that owner. Validated
 facts, COMPLETE publication and the matching Alert change commit together;
@@ -310,6 +318,7 @@ their implementation structures are listed in the Backend Implementation Map.
 | `apps/server/src/alerts` | Platform Capability | Human notifications and transaction-scoped source failure upsert/resolution; no execution or freshness state. |
 | `apps/server/src/channels` | Owner Domain | Marketplace account, account-scoped listing/registration capability, durable listing-deletion operations, order, return, Wing/Rocket catalog identity, typed exact-evidence extraction, option-to-inventory matching, derived listing-product summaries, direct option-component diagnostics, and sellable-capacity projections. |
 | `apps/server/src/common` | Platform Support | Shared backend DTOs, filters, KST/date helpers, security, storage, and pricing helpers. |
+| `apps/server/src/core` | Platform Support | Pure transaction-client reads of shared source-import completion provenance; source owners retain publication and coverage authority. |
 | `apps/server/src/feature-gate` | Platform Capability | Feature flag endpoint and config behavior. |
 | `apps/server/src/finance` | Owner Domain | Live P&L, sales analysis, supplier payments, sales plans, settlements, and read-only profitability evidence consumed by Products' explicit ABC evaluation. |
 | `apps/server/src/inventory` | Owner Domain | Sellpia-authoritative imports, freshness state, browser claim lease, full-snapshot validation/publication, physical SellpiaInventorySku availability, warehouse/transfer/return records, and matching/purchase-preview read boundaries. |

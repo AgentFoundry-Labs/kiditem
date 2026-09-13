@@ -29,9 +29,7 @@ type FormState = {
   tags: string;
   imageUrls: string;
   profitTag: string;
-  adTier: string;
   adBudgetLimit: string;
-  healthScore: string;
   isActive: boolean;
 };
 
@@ -118,9 +116,7 @@ export function ProductEditorDialog({ open, onOpenChange, onSaved, product }: Pr
               <Field label="카테고리" value={form.category} onChange={(category) => setForm((value) => ({ ...value, category }))} />
               <Field label="브랜드" value={form.brand} onChange={(brand) => setForm((value) => ({ ...value, brand }))} />
               <Field label="손익 태그" value={form.profitTag} onChange={(profitTag) => setForm((value) => ({ ...value, profitTag }))} />
-              <Field label="광고 등급" value={form.adTier} onChange={(adTier) => setForm((value) => ({ ...value, adTier }))} />
               <NumberField label="광고 예산 한도" value={form.adBudgetLimit} min={0} onChange={(adBudgetLimit) => setForm((value) => ({ ...value, adBudgetLimit }))} />
-              <NumberField label="상품 건강도" value={form.healthScore} min={0} max={100} onChange={(healthScore) => setForm((value) => ({ ...value, healthScore }))} />
               <Field label="태그" value={form.tags} placeholder="쉼표로 구분" onChange={(tags) => setForm((value) => ({ ...value, tags }))} />
               <Field label="이미지 URL" value={form.imageUrls} placeholder="쉼표로 구분" onChange={(imageUrls) => setForm((value) => ({ ...value, imageUrls }))} />
             </div>
@@ -222,9 +218,7 @@ function toFormState(product?: MasterProductOperationsMetadata): FormState {
     tags: product?.tags.join(', ') ?? '',
     imageUrls: product?.imageUrls.join(', ') ?? '',
     profitTag: product?.profitTag ?? '',
-    adTier: product?.adTier ?? '',
     adBudgetLimit: product?.adBudgetLimit?.toString() ?? '',
-    healthScore: product?.healthScore?.toString() ?? '',
     isActive: product?.isActive ?? true,
   };
 }
@@ -247,9 +241,7 @@ function toEditableProductFields(form: FormState) {
     tags: form.tags.split(',').map((tag) => tag.trim()).filter(Boolean),
     imageUrls: form.imageUrls.split(',').map((url) => url.trim()).filter(Boolean),
     profitTag: nullable(form.profitTag),
-    adTier: nullable(form.adTier),
     adBudgetLimit: nullableNumber(form.adBudgetLimit),
-    healthScore: nullableNumber(form.healthScore),
     isActive: form.isActive,
   };
 }

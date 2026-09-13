@@ -21,7 +21,7 @@ const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 100;
 
 export interface SourcingValidationEnvelope {
-  status: 'ready' | 'collecting' | 'stale' | 'unavailable';
+  ready: boolean;
   generatedAt: string;
   lastSuccessfulAt: string | null;
   freshUntil: string | null;
@@ -287,7 +287,7 @@ function ready(
   nextCursor: string | null,
 ): SourcingValidationEnvelope {
   return {
-    status: 'ready',
+    ready: true,
     generatedAt: new Date().toISOString(),
     lastSuccessfulAt: run.completedAt?.toISOString() ?? run.generatedAt.toISOString(),
     freshUntil: run.expiresAt?.toISOString() ?? null,
@@ -304,7 +304,7 @@ function ready(
 
 function unavailable(now: Date, code: string): SourcingValidationEnvelope {
   return {
-    status: 'unavailable',
+    ready: false,
     generatedAt: now.toISOString(),
     lastSuccessfulAt: null,
     freshUntil: null,

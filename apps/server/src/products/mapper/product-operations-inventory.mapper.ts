@@ -21,9 +21,9 @@ function hydrateOption(
     const availability = inventoryBySkuId.get(component.sellpiaInventorySkuId);
     return {
       ...component,
-      currentStock: availability?.currentStock ?? 0,
-      availableStock: availability?.availableStock ?? 0,
-      isActive: availability?.isActive ?? false,
+      currentStock: availability?.currentStock ?? null,
+      availableStock: availability?.availableStock ?? null,
+      isActive: availability?.isActive ?? null,
     };
   });
   const capacity = projectChannelOptionCapacity(inventoryComponents.map((component) => ({
@@ -39,7 +39,7 @@ function hydrateOption(
 export function mapProductOperationsDetail(
   product: ProductOperationsRepositoryDetail,
   inventoryBySkuId: AvailabilityBySkuId,
-): Omit<MasterProductOperationsDetail, 'abc' | 'contribution'> {
+): Omit<MasterProductOperationsDetail, 'abc' | 'abcGrade' | 'abcEvaluation' | 'contribution'> {
   const channelListings = product.channelListings.map((listing) => ({
     ...listing,
     options: listing.options.map((option) => hydrateOption(option, inventoryBySkuId)),
@@ -51,7 +51,7 @@ export function mapProductOperationsDetail(
     displayImageUrls: [...product.imageUrls],
     channelListings,
     inventoryUnits: inventory.inventoryUnits,
-    inventoryStatus: inventory.inventoryStatus,
+    inventory: inventory.inventory,
   };
 }
 
@@ -59,7 +59,7 @@ export function mapProductOperationsListItem(
   product: ProductOperationsRepositoryListItem,
   inventoryBySkuId: AvailabilityBySkuId,
   depletion: ProductDepletionProjection,
-): Omit<MasterProductOperationsListItem, 'abc' | 'contribution'> {
+): Omit<MasterProductOperationsListItem, 'abc' | 'abcGrade' | 'abcEvaluation' | 'contribution'> {
   const {
     activeChannelProducts,
     abcCreatedAt: _abcCreatedAt,
@@ -84,31 +84,28 @@ export function mapProductOperationsListItem(
       warning: projections.filter(({ warningState }) => warningState !== 'none').length,
     },
     inventoryUnits: inventory.inventoryUnits,
-    inventoryStatus: inventory.inventoryStatus,
+    inventory: inventory.inventory,
   };
 }
 
 function projectCanonicalInventory(
   inventorySkuIds: readonly string[],
   inventoryBySkuId: AvailabilityBySkuId,
-): { inventoryUnits: number; inventoryStatus: MasterProductOperationsListItem['inventoryStatus'] } {
-  if (inventorySkuIds.length === 0) {
-    return { inventoryUnits: 0, inventoryStatus: 'configuration_required' };
-  }
+): {
+  inventoryUnits: number | null;
+  inventory: MasterProductOperationsListItem['inventory'];
+} {
   const inventory = inventorySkuIds.map((id) => inventoryBySkuId.get(id));
-  if (inventory.some((item) => !item || !item.isActive)) {
-    return {
-      inventoryUnits: inventory.reduce(
-        (sum, item) => sum + (item?.isActive ? item.availableStock : 0),
-        0,
-      ),
-      inventoryStatus: 'review_required',
-    };
-  }
-  const inventoryUnits = inventory.reduce((sum, item) => sum + item!.availableStock, 0);
+  const measured = inventory.filter((item): item is InventorySkuAvailability => item !== undefined);
   return {
-    inventoryUnits,
-    inventoryStatus: inventoryUnits === 0 ? 'out_of_stock' : 'sellable',
+    inventoryUnits: inventory.length === 0 || measured.length !== inventory.length
+      ? null
+      : measured.reduce((sum, item) => sum + (item.isActive ? item.availableStock : 0), 0),
+    inventory: {
+      skuCount: inventory.length,
+      measuredSkuCount: measured.length,
+      inactiveSkuCount: measured.filter((item) => !item.isActive).length,
+    },
   };
 }
 

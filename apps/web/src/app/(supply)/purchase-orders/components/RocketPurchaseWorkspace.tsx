@@ -21,6 +21,7 @@ const PREVIEW_REASON_LABELS: Record<RocketPurchasePreviewReason, string> = {
   mapping_required: '상품 매칭 필요',
   configuration_required: '구성 필요',
   review_required: '검토 필요',
+  inventory_unavailable: 'Sellpia 재고 미수집',
   insufficient_capacity: 'Sellpia 재고 부족',
   collection_incomplete: '수집 자료 불완전',
   vendor_mismatch: '채널 계정 불일치',
@@ -284,7 +285,7 @@ export function RocketPurchaseWorkspace({
                   <td className="whitespace-nowrap px-3 py-2 font-mono text-xs">{row.poNumber}</td>
                   <td className="overflow-hidden px-3 py-2"><span className="block truncate" title={row.productName}>{row.productName}</span></td>
                   <td className="whitespace-nowrap px-3 py-2">{row.plannedDeliveryDate}</td>
-                  <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{row.components.length ? row.components.map((component) => component.currentStock).join(' / ') : '—'}</td>
+                  <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{row.components.length ? row.components.map((component) => component.currentStock ?? '미수집').join(' / ') : '—'}</td>
                   <td className="whitespace-nowrap px-3 py-2">{row.orderQuantity}</td>
                   <td className="px-3 py-2">
                     <input
@@ -293,10 +294,9 @@ export function RocketPurchaseWorkspace({
                       min={0}
                       max={rocketReviewedQuantityLimit(row)}
                       step={1}
-                      value={rocketReviewedQuantity(
-                        row,
-                        editedQuantities[row.poLineId],
-                      )}
+                      value={row.recommendedQuantity === null
+                        ? ''
+                        : rocketReviewedQuantity(row, editedQuantities[row.poLineId])}
                       disabled={
                         isRocketWorkbookBlockingReason(row.reason)
                         || row.reason === 'insufficient_capacity'

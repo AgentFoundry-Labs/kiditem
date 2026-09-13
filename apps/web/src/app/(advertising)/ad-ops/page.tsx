@@ -43,7 +43,6 @@ export default function AdOpsPage() {
     rules: rulesQuery,
     wingStatus: wingStatusQuery,
     strategy: strategyQuery,
-    dashboard: dashboardQuery,
     trends: trendsQuery,
     exposure: exposureQuery,
     isLoading,
@@ -57,7 +56,6 @@ export default function AdOpsPage() {
   const rules = rulesQuery.data?.recommendations ?? [];
   const wingKpis = wingStatusQuery.data?.wing?.kpis ?? {};
   const strategy = strategyQuery.data ?? null;
-  const wingAdData = dashboardQuery.data?.wingAdData ?? null;
   const trends = trendsQuery.data ?? null;
   const exposureData = exposureQuery.data ?? null;
   const accountSummary = trends?.accountSummary ?? strategy?.accountSummary ?? null;
@@ -154,7 +152,6 @@ export default function AdOpsPage() {
         <div aria-busy={isRefreshing}>
         <KpiDashboard
           totalKpi={totalKpi}
-          wingAdData={wingAdData}
           period={period}
           roas={roas}
           trendsDaily={trendsDaily}

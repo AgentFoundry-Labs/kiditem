@@ -5,6 +5,7 @@ import {
   advanceProductMappingGeneration,
   lockProductMapping,
 } from '../../../../common/product-mapping-generation';
+import { readInventorySkuIdentities } from '../../../../inventory/read/inventory-availability';
 import type {
   ProductChannelOptionRecipeMutationRepositoryPort,
 } from '../../../application/port/out/repository/product-channel-option-recipe-mutation.repository.port';
@@ -368,11 +369,11 @@ async function loadRecipeTargets(
 ) {
   const ids = [...new Set(components.map((component) => component.sellpiaInventorySkuId))];
   if (ids.length === 0) return new Map<string, { masterProductId: string | null }>();
-  const rows = await tx.sellpiaInventorySku.findMany({
-    where: { organizationId, id: { in: ids } },
-    select: { id: true, isActive: true, masterProductId: true },
+  const rows = await readInventorySkuIdentities(tx, {
+    organizationId,
+    selector: { kind: 'ids', values: ids },
   });
-  const byId = new Map(rows.map((row) => [row.id, row]));
+  const byId = new Map(rows.map((row) => [row.sellpiaInventorySkuId, row]));
   if (ids.some((id) => !byId.has(id))) {
     throw new BadRequestException(
       'One or more SellpiaInventorySku components do not belong to this organization',
@@ -415,21 +416,32 @@ async function resolveListingMasterProductId(
         select: {
           inventoryComponents: {
             where: { organizationId },
-            select: {
-              sellpiaInventorySku: { select: { masterProductId: true } },
-            },
+            select: { sellpiaInventorySkuId: true },
           },
         },
       },
     },
   });
   if (!listing || listing.options.length === 0) return null;
+  const inventorySkuIds = [...new Set(listing.options.flatMap((option) =>
+    option.inventoryComponents.map((component) => component.sellpiaInventorySkuId)))];
+  const inventorySkus = await readInventorySkuIdentities(tx, {
+    organizationId,
+    selector: { kind: 'ids', values: inventorySkuIds },
+  });
+  const inventorySkuById = new Map(inventorySkus.map((sku) => [
+    sku.sellpiaInventorySkuId,
+    sku,
+  ]));
   const masterProductIds = new Set<string>();
   for (const option of listing.options) {
     if (option.inventoryComponents.length === 0) return null;
     for (const component of option.inventoryComponents) {
-      if (!component.sellpiaInventorySku.masterProductId) return null;
-      masterProductIds.add(component.sellpiaInventorySku.masterProductId);
+      const masterProductId = inventorySkuById.get(
+        component.sellpiaInventorySkuId,
+      )?.masterProductId;
+      if (!masterProductId) return null;
+      masterProductIds.add(masterProductId);
     }
   }
   return masterProductIds.size === 1 ? [...masterProductIds][0]! : null;

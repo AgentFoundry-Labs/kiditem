@@ -19,6 +19,7 @@ import {
   seedAd,
   seedCompletedAdSweepRun,
 } from '../../../test-helpers/finance-seeds';
+import { readSettlements } from '../read/settlement-facts';
 
 describe('Settlements flow (PG integration)', () => {
   let prisma: PrismaClient;
@@ -389,6 +390,42 @@ describe('Settlements flow (PG integration)', () => {
 
       expect(updated.actualAmount).toBe(980_000);
       expect(updated.status).toBe('confirmed');
+      expect(updated.expectedAmount).toBe(1_000_000);
     });
+
+    it('#8 missing settlement uses the same public not-found contract', async () => {
+      await expect(service.update(
+        '00000000-0000-4000-8000-000000000099',
+        TEST_ORGANIZATION_ID,
+        { actualAmount: 1 },
+      )).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  it('reads the Finance-owned settlement ledger with period and organization scope', async () => {
+    await service.create(TEST_ORGANIZATION_ID, {
+      period: '2026-03', expectedAmount: 1_000, commission: 100,
+      shippingFee: 50, orderCount: 2, returnCount: 0,
+    });
+    await service.create(TEST_ORGANIZATION_ID, {
+      period: '2026-04', expectedAmount: 2_000, commission: 200,
+      shippingFee: 75, orderCount: 3, returnCount: 1,
+    });
+    await service.create(OTHER_ORGANIZATION_ID, {
+      period: '2026-03', expectedAmount: 999_999, commission: 0,
+      shippingFee: 0, orderCount: 1, returnCount: 0,
+    });
+
+    await expect(prisma.$transaction((tx) => readSettlements(tx, {
+      organizationId: TEST_ORGANIZATION_ID,
+      period: '2026',
+    }))).resolves.toEqual([
+      expect.objectContaining({ period: '2026-04', expectedAmount: 2_000 }),
+      expect.objectContaining({ period: '2026-03', expectedAmount: 1_000 }),
+    ]);
+    await expect(service.findAll(TEST_ORGANIZATION_ID, '2026-03')).resolves.toEqual([
+      expect.objectContaining({ period: '2026-03', expectedAmount: 1_000 }),
+    ]);
+    await expect(service.findAll(TEST_ORGANIZATION_ID, '')).resolves.toHaveLength(2);
   });
 });

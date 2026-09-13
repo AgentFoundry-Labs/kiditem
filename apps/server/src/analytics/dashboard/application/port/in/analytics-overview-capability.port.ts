@@ -7,9 +7,9 @@ export const ANALYTICS_AGENT_OVERVIEW_CAPABILITY_PORT = Symbol(
 
 export interface AnalyticsOverview {
   [key: string]: unknown;
-  sales: { revenue: number; orders: number };
-  inventory: { outOfStockSkus: number; mappingAttentionSkus: number };
-  freshness: { lastSync: string | null; confirmedUntil: string | null };
+  sales: { revenue: number | null; orders: number | null };
+  inventory: { outOfStockSkus: number | null; mappingAttentionSkus: number };
+  freshness: { lastSync: string | null };
 }
 
 export interface AnalyticsOverviewCapabilityPort {

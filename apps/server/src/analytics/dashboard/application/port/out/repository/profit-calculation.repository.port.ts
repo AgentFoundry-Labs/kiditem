@@ -52,19 +52,19 @@ export interface ProfitSourceCoverage {
 }
 
 export interface RangeProfitMetrics {
-  revenue: number;
-  costOfGoods: number;
-  commission: number;
-  shippingCost: number;
-  adCost: number;
-  otherCost: number;
+  revenue: number | null;
+  costOfGoods: number | null;
+  commission: number | null;
+  shippingCost: number | null;
+  adCost: number | null;
+  otherCost: number | null;
   netProfit: number | null;
   profitRate: number | null;
-  orderCount: number;
-  adRevenue: number;
-  adImpressions: number;
-  adClicks: number;
-  adConversions: number;
+  orderCount: number | null;
+  adRevenue: number | null;
+  adImpressions: number | null;
+  adClicks: number | null;
+  adConversions: number | null;
   /** False means one or more order cost inputs were unavailable. */
   costComplete: boolean;
   costIncompleteReasons: ProfitCostIncompleteReason[];

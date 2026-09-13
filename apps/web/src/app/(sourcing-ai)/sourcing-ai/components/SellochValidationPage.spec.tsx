@@ -31,7 +31,7 @@ describe('SellochValidationPage', () => {
   beforeEach(() => {
     vi.mocked(useSourcingValidation).mockReturnValue({
       data: {
-        status: 'ready',
+        ready: true,
         generatedAt: '2026-08-10T00:00:00.000Z',
         lastSuccessfulAt: '2026-08-10T00:00:00.000Z',
         freshUntil: null,

@@ -167,6 +167,7 @@ export const queryKeys = {
   },
   orders: {
     all: ['orders'] as const,
+    stats: () => [...queryKeys.orders.all, 'stats'] as const,
     pipeline: (params?: Record<string, string>) => [...queryKeys.orders.all, 'pipeline', params] as const,
     action: (action: string) => [...queryKeys.orders.all, 'action', action] as const,
     rocketPoSource: (channelAccountId: string) => [...queryKeys.orders.all, 'rocket-po-source', channelAccountId] as const,

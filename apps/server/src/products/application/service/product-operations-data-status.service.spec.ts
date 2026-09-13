@@ -26,6 +26,7 @@ describe('ProductOperationsDataStatusService', () => {
       publishedAt: '2026-08-01T01:00:00.000Z',
       actualCutoff: '2026-08-31',
       sources: {
+        orders: facts().orders,
         traffic: {
           ready: true,
           requiredCutoff: '2026-09-03',
@@ -131,6 +132,13 @@ function facts(): ProductOperationsDataStatusFacts {
     mappingReady: true,
     contributionBasis: { basisFromDate: '2026-01-01', basisCutoffDate: '2026-08-31' },
     displayDataAsOf: '2026-09-03',
+    orders: {
+      ready: true,
+      requiredCutoff: '2026-09-03',
+      actualCutoff: '2026-09-03',
+      latestAttempt: null,
+      latestComplete: { actualCutoff: '2026-09-03' },
+    },
     traffic: {
       ready: true,
       requiredCutoff: '2026-09-03',

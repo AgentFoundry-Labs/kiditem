@@ -4,6 +4,7 @@ import {
   Injectable,
 } from '@nestjs/common';
 import {
+  ROCKET_CONFIRMATION_REQUEST_STATUSES,
   RocketPurchasePreviewRequestSchema,
   RocketPurchasePreviewDecisionSchema,
   type RocketPurchasePreviewRequest,
@@ -127,8 +128,8 @@ export class RocketPurchasePreviewService implements RocketPurchasePreviewPort {
           );
           return {
             ...component,
-            currentStock: inventorySku?.currentStock ?? 0,
-            isActive: inventorySku?.isActive ?? false,
+            currentStock: inventorySku?.currentStock ?? null,
+            isActive: inventorySku?.isActive ?? null,
           };
         });
       }
@@ -150,8 +151,8 @@ function previewRowsForScope(
   if (request.previewScope !== 'confirmation_requested') return request.rows;
   return request.rows.filter((row) => (
     ['RI', 'RP'].includes(row.poStatusCode?.toUpperCase() ?? '')
-    || ['거래명세서확인요청', '거래처확인요청'].includes(
-      row.confirmation?.poStatus.trim() ?? '',
+    || ROCKET_CONFIRMATION_REQUEST_STATUSES.some(
+      (status) => status === (row.confirmation?.poStatus.trim() ?? ''),
     )
   ));
 }

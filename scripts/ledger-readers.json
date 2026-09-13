@@ -1,7 +1,13 @@
 {
   "version": 1,
-  "scanRoots": ["apps/server/src", "apps/web/src", "packages/shared/src"],
-  "prismaSchemaRoots": ["prisma"],
+  "scanRoots": [
+    "apps/server/src",
+    "apps/web/src",
+    "packages/shared/src"
+  ],
+  "prismaSchemaRoots": [
+    "prisma"
+  ],
   "ledgers": [
     {
       "name": "Advertising target day",
@@ -13,7 +19,7 @@
         "adTargetDailySnapshots",
         "channelAdTargetDailySnapshots"
       ],
-      "reader": "apps/server/src/common/ad-window-facts.ts",
+      "reader": "apps/server/src/advertising/read/ad-target-facts.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/advertising/adapter/out/repository/daily-fact-helpers.ts",
@@ -38,11 +44,6 @@
       ],
       "legacyReaders": [
         {
-          "path": "apps/server/src/advertising/adapter/out/repository/ad-keyword-complete-read.ts",
-          "removeWith": "KID-80",
-          "reason": "The current keyword-grain evidence reader moves behind the canonical keyword and rank reader in KID-80."
-        },
-        {
           "path": "apps/server/src/advertising/adapter/out/repository/ad-action.repository.adapter.ts",
           "removeWith": "KID-83",
           "reason": "Ad action hydration and current target selection move to the canonical advertising reader during the ad-ops rewrite."
@@ -53,6 +54,722 @@
           "reason": "Campaign and product rollups move to the canonical advertising reader during the ad-ops rewrite."
         }
       ]
+    },
+    {
+      "name": "Channel listing daily facts",
+      "table": "channel_listing_daily_snapshots",
+      "prismaModel": "channelListingDailySnapshot",
+      "prismaType": "ChannelListingDailySnapshot",
+      "relationNames": [
+        "channelListingDailySnapshots",
+        "listingDailySnapshots"
+      ],
+      "reader": "apps/server/src/channels/read/channel-listing-daily-facts.ts",
+      "ownerPublications": [
+        {
+          "path": "apps/server/src/analytics/traffic/traffic-upload.ts",
+          "reason": "Publishes validated listing-day CSV traffic into the canonical listing fact row inside the traffic owner's transaction."
+        },
+        {
+          "path": "apps/server/src/advertising/adapter/out/repository/channel-listing-daily.repository.adapter.ts",
+          "reason": "Upserts owner-supplied listing-day facts through the canonical listing publication adapter."
+        },
+        {
+          "path": "apps/server/src/advertising/adapter/out/repository/ad-traffic-source.repository.ts",
+          "reason": "Publishes, resets, verifies, and reads back Wing traffic rows inside the source owner's fenced terminal workflow."
+        },
+        {
+          "path": "apps/server/src/advertising/adapter/out/repository/wing-itemwinner-kpi-source.repository.ts",
+          "reason": "Publishes verified Item Winner listing-day state into the canonical listing fact row in the source owner's terminal transaction."
+        },
+        {
+          "path": "apps/server/src/advertising/adapter/out/repository/daily-fact-helpers.ts",
+          "reason": "Merges namespaced metadata into listing-day rows for the registered source publication adapters."
+        }
+      ],
+      "legacyReaders": []
+    },
+    {
+      "name": "Sellpia daily sales",
+      "table": "sellpia_sales_daily_snapshots",
+      "prismaModel": "sellpiaSalesDailySnapshot",
+      "prismaType": "SellpiaSalesDailySnapshot",
+      "relationNames": [
+        "sellpiaSalesDailySnapshots"
+      ],
+      "reader": "apps/server/src/analytics/sellpia-sales/read/sellpia-sales-daily-facts.ts",
+      "ownerPublications": [
+        {
+          "path": "apps/server/src/analytics/sellpia-sales/sellpia-sales-source.service.ts",
+          "reason": "Stages and validates daily facts, writes per-date coverage evidence, and publishes the completed Sellpia sales generation atomically."
+        }
+      ],
+      "legacyReaders": []
+    },
+    {
+      "name": "Sellpia product monthly sales",
+      "table": "sellpia_product_monthly_sales",
+      "prismaModel": "sellpiaProductMonthlySales",
+      "prismaType": "SellpiaProductMonthlySales",
+      "relationNames": [
+        "frozenProfitFacts",
+        "frozenSellpiaProfitFacts",
+        "sellpiaProductMonthlySales"
+      ],
+      "reader": "apps/server/src/analytics/sellpia-product-sales/read/sellpia-product-monthly-facts.ts",
+      "ownerPublications": [
+        {
+          "path": "apps/server/src/analytics/sellpia-product-sales/sellpia-profitability-source.service.ts",
+          "reason": "Stages, verifies, and publishes immutable Sellpia profitability facts under a completed source generation."
+        },
+        {
+          "path": "apps/server/src/analytics/sellpia-product-sales/sellpia-profitability-source.internal.ts",
+          "reason": "Inserts validated immutable monthly profitability facts within the source owner publication transaction."
+        }
+      ],
+      "legacyReaders": []
+    },
+    {
+      "name": "Finance settlements",
+      "table": "settlements",
+      "prismaModel": "settlement",
+      "prismaType": "Settlement",
+      "relationNames": [
+        "settlements"
+      ],
+      "reader": "apps/server/src/finance/settlements/read/settlement-facts.ts",
+      "ownerPublications": [
+        {
+          "path": "apps/server/src/finance/settlements/settlements.service.ts",
+          "reason": "Owns settlement creation, organization-scoped mutation checks, and settlement updates."
+        }
+      ],
+      "legacyReaders": []
+    },
+    {
+      "name": "Orders canonical order",
+      "table": "orders",
+      "prismaModel": "order",
+      "prismaType": "Order",
+      "relationNames": [
+        "order",
+        "orders"
+      ],
+      "reader": "apps/server/src/orders/read/order-facts.reader.ts",
+      "ownerPublications": [
+        {
+          "path": "apps/server/src/orders/adapter/out/transaction/coupang-direct-order-collection.transaction.adapter.ts",
+          "reason": "Publishes canonical orders inside the Orders-owned direct-order collection transaction."
+        }
+      ],
+      "legacyReaders": [
+        {
+          "path": "apps/server/src/common/per-listing-profit.ts",
+          "removeWith": "KID-85",
+          "reason": "Profitability migration remains in its inventory slice."
+        },
+        {
+          "path": "apps/server/src/analytics/supplier-stats/supplier-stats.service.ts",
+          "removeWith": "KID-85",
+          "reason": "Supplier reporting order joins move behind canonical finance and Orders readers."
+        },
+        {
+          "path": "apps/server/src/finance/settlements/settlements.service.ts",
+          "removeWith": "KID-85",
+          "reason": "Settlement order aggregation moves behind the canonical Orders reader in the finance rewrite."
+        },
+        {
+          "path": "apps/server/src/finance/services/sales-analysis.service.ts",
+          "removeWith": "KID-85",
+          "reason": "Finance sales analysis migration remains in its inventory slice."
+        },
+        {
+          "path": "apps/server/src/finance/services/sales-analysis-scraper.service.ts",
+          "removeWith": "KID-85",
+          "reason": "Finance sales analysis scraper migration remains in its inventory slice."
+        }
+      ]
+    },
+    {
+      "name": "Orders canonical line item",
+      "table": "order_line_items",
+      "prismaModel": "orderLineItem",
+      "prismaType": "OrderLineItem",
+      "relationNames": [
+        "lineItems",
+        "orderLineItem",
+        "orderLineItems"
+      ],
+      "reader": "apps/server/src/orders/read/order-facts.reader.ts",
+      "ownerPublications": [
+        {
+          "path": "apps/server/src/orders/adapter/out/transaction/coupang-direct-order-collection.transaction.adapter.ts",
+          "reason": "Publishes canonical line-item amounts and quantity with their owning order."
+        }
+      ],
+      "legacyReaders": [
+        {
+          "path": "apps/server/src/common/per-listing-profit.ts",
+          "removeWith": "KID-85",
+          "reason": "Profitability migration remains in its inventory slice."
+        },
+        {
+          "path": "apps/server/src/analytics/supplier-stats/supplier-stats.service.ts",
+          "removeWith": "KID-85",
+          "reason": "Supplier statistics migration remains in its inventory slice."
+        },
+        {
+          "path": "apps/server/src/finance/settlements/settlements.service.ts",
+          "removeWith": "KID-85",
+          "reason": "Settlement line aggregation moves behind the canonical Orders reader in the finance rewrite."
+        },
+        {
+          "path": "apps/server/src/finance/services/profit-loss.service.ts",
+          "removeWith": "KID-85",
+          "reason": "Profit and loss line aggregation moves behind the canonical Orders reader in the finance rewrite."
+        },
+        {
+          "path": "apps/server/src/finance/services/sales-analysis.service.ts",
+          "removeWith": "KID-85",
+          "reason": "Finance sales analysis migration remains in its inventory slice."
+        }
+      ]
+    },
+    {
+      "name": "Orders canonical return",
+      "table": "order_returns",
+      "prismaModel": "orderReturn",
+      "prismaType": "OrderReturn",
+      "relationNames": [
+        "orderReturns",
+        "return",
+        "returns"
+      ],
+      "reader": "apps/server/src/orders/read/order-facts.reader.ts",
+      "ownerPublications": [],
+      "legacyReaders": [
+        {
+          "path": "apps/server/src/finance/services/profit-loss.service.ts",
+          "removeWith": "KID-85",
+          "reason": "Profit and loss return attribution moves behind the canonical Orders reader in the finance rewrite."
+        },
+        {
+          "path": "apps/server/src/finance/services/sales-analysis.service.ts",
+          "removeWith": "KID-85",
+          "reason": "Finance sales analysis migration remains in its inventory slice."
+        }
+      ]
+    },
+    {
+      "name": "Orders current complete review",
+      "table": "reviews",
+      "prismaModel": "review",
+      "prismaType": "Review",
+      "relationNames": [
+        "reviewCollectionFacts",
+        "reviews"
+      ],
+      "reader": "apps/server/src/orders/read/review-facts.reader.ts",
+      "ownerPublications": [
+        {
+          "path": "apps/server/src/orders/adapter/out/repository/review-collection-source.repository.ts",
+          "reason": "Owns terminal review publication and only completes the source run after facts are committed."
+        },
+        {
+          "path": "apps/server/src/orders/services/review-ingest.service.ts",
+          "reason": "Writes review facts as part of the Orders-owned publication transaction."
+        }
+      ],
+      "legacyReaders": []
+    },
+    {
+      "name": "Sellpia inventory availability",
+      "table": "sellpia_inventory_skus",
+      "prismaModel": "sellpiaInventorySku",
+      "prismaType": "SellpiaInventorySku",
+      "relationNames": [
+        "frozenSellpiaInventorySku",
+        "inventorySkus",
+        "sellpiaInventorySku",
+        "sellpiaInventorySkus"
+      ],
+      "reader": "apps/server/src/inventory/read/inventory-availability.ts",
+      "ownerPublications": [
+        {
+          "path": "apps/server/src/inventory/adapter/out/repository/sellpia-snapshot-publication.repository.adapter.ts",
+          "reason": "Stages, validates, and publishes Sellpia inventory rows inside Inventory’s terminal source-owner transaction."
+        }
+      ],
+      "legacyReaders": [
+        {
+          "path": "apps/server/src/rules/services/rules.service.ts",
+          "removeWith": "KID-88",
+          "reason": "The retiring Rules evaluation still aggregates current stock through a Prisma relation; KID-88 removes this derived rule path instead of preserving a second inventory calculation."
+        }
+      ]
+    },
+    {
+      "name": "Sourcing evidence ingestion run",
+      "table": "sourcing_evidence_ingestion_runs",
+      "prismaModel": "sourcingEvidenceIngestionRun",
+      "prismaType": "SourcingEvidenceIngestionRun",
+      "relationNames": [
+        "ingestionRun",
+        "sourcingEvidenceIngestionRuns",
+        "triggeredSourcingEvidenceIngestionRuns"
+      ],
+      "reader": "apps/server/src/sourcing/read/source-evidence.reader.ts",
+      "ownerPublications": [
+        {
+          "path": "apps/server/src/sourcing/adapter/out/repository/sourcing-browser-source-attempt.repository.adapter.ts",
+          "reason": "Owns attempt admission, terminal publication, current-complete pointer replacement, and transaction-local validation."
+        }
+      ],
+      "legacyReaders": []
+    },
+    {
+      "name": "Sourcing evidence observation",
+      "table": "sourcing_evidence_observations",
+      "prismaModel": "sourcingEvidenceObservation",
+      "prismaType": "SourcingEvidenceObservation",
+      "relationNames": [
+        "evidenceObservation",
+        "observations",
+        "sourcingEvidenceObservations"
+      ],
+      "reader": "apps/server/src/sourcing/read/source-evidence.reader.ts",
+      "ownerPublications": [
+        {
+          "path": "apps/server/src/sourcing/adapter/out/repository/sourcing-browser-source-attempt.persistence.ts",
+          "reason": "Inserts immutable observations and validates the inserted identities inside the source owner's terminal transaction."
+        }
+      ],
+      "legacyReaders": []
+    },
+    {
+      "name": "Sourcing Wing catalog product fact",
+      "table": "sourcing_wing_catalog_product_facts",
+      "prismaModel": "sourcingWingCatalogProductFact",
+      "prismaType": "SourcingWingCatalogProductFact",
+      "relationNames": [
+        "sourcingWingCatalogProductFacts",
+        "wingCatalogProductFact",
+        "wingCatalogProductFacts"
+      ],
+      "reader": "apps/server/src/sourcing/read/source-evidence.reader.ts",
+      "ownerPublications": [
+        {
+          "path": "apps/server/src/sourcing/adapter/out/repository/sourcing-browser-source-attempt.persistence.ts",
+          "reason": "Publishes immutable typed Wing product facts with their evidence inside the source owner transaction."
+        },
+        {
+          "path": "apps/server/src/sourcing/adapter/out/repository/sourcing-browser-source-attempt.repository.adapter.ts",
+          "reason": "Counts the staged keyword's current typed facts inside the source owner transaction to seal its exact accepted receipt."
+        }
+      ],
+      "legacyReaders": []
+    },
+    {
+      "name": "Sourcing keyword suggestion fact",
+      "table": "sourcing_keyword_suggestion_facts",
+      "prismaModel": "sourcingKeywordSuggestionFact",
+      "prismaType": "SourcingKeywordSuggestionFact",
+      "relationNames": [
+        "keywordSuggestionFact",
+        "keywordSuggestionFacts",
+        "sourcingKeywordSuggestionFacts"
+      ],
+      "reader": "apps/server/src/sourcing/read/source-evidence.reader.ts",
+      "ownerPublications": [
+        {
+          "path": "apps/server/src/sourcing/adapter/out/repository/sourcing-browser-source-attempt.persistence.ts",
+          "reason": "Publishes the schema-validated keyword suggestion snapshot with its evidence inside the source owner transaction."
+        }
+      ],
+      "legacyReaders": []
+    },
+    {
+      "name": "Sourcing Naver keyword analysis fact",
+      "table": "sourcing_naver_keyword_analysis_facts",
+      "prismaModel": "sourcingNaverKeywordAnalysisFact",
+      "prismaType": "SourcingNaverKeywordAnalysisFact",
+      "relationNames": [
+        "naverKeywordAnalysisFact",
+        "naverKeywordAnalysisFacts",
+        "sourcingNaverKeywordAnalysisFacts"
+      ],
+      "reader": "apps/server/src/sourcing/read/source-evidence.reader.ts",
+      "ownerPublications": [
+        {
+          "path": "apps/server/src/sourcing/adapter/out/repository/sourcing-browser-source-attempt.persistence.ts",
+          "reason": "Publishes the schema-validated Naver analysis snapshot with its evidence inside the source owner transaction."
+        }
+      ],
+      "legacyReaders": []
+    },
+    {
+      "name": "Sourcing market shadow fact",
+      "table": "sourcing_market_shadow_facts",
+      "prismaModel": "sourcingMarketShadowFact",
+      "prismaType": "SourcingMarketShadowFact",
+      "relationNames": [
+        "marketShadowFact",
+        "marketShadowFacts",
+        "sourcingMarketShadowFacts"
+      ],
+      "reader": "apps/server/src/sourcing/read/source-evidence.reader.ts",
+      "ownerPublications": [
+        {
+          "path": "apps/server/src/sourcing/adapter/out/repository/sourcing-browser-source-attempt.persistence.ts",
+          "reason": "Publishes the bounded market-shadow document with its evidence inside the source owner transaction."
+        }
+      ],
+      "legacyReaders": []
+    },
+    {
+      "name": "Sourcing 1688 offer keyword observation",
+      "table": "sourcing_1688_offer_keyword_observations",
+      "prismaModel": "sourcing1688OfferKeywordObservation",
+      "prismaType": "Sourcing1688OfferKeywordObservation",
+      "relationNames": [
+        "offerKeywordObservation",
+        "offerKeywordObservations",
+        "sourcing1688OfferKeywordObservations"
+      ],
+      "reader": "apps/server/src/sourcing/read/source-evidence.reader.ts",
+      "ownerPublications": [
+        {
+          "path": "apps/server/src/sourcing/adapter/out/repository/sourcing-browser-source-attempt.persistence.ts",
+          "reason": "Inserts typed 1688 rows inside the source owner's terminal publication transaction."
+        }
+      ],
+      "legacyReaders": []
+    },
+    {
+      "name": "Sourcing Naver keyword daily snapshot",
+      "table": "naver_keyword_daily_snapshots",
+      "prismaModel": "naverKeywordDailySnapshot",
+      "prismaType": "NaverKeywordDailySnapshot",
+      "relationNames": [
+        "naverKeywordDailySnapshots"
+      ],
+      "reader": "apps/server/src/sourcing/read/source-evidence.reader.ts",
+      "ownerPublications": [
+        {
+          "path": "apps/server/src/sourcing/adapter/out/repository/sourcing-browser-source-attempt.persistence.ts",
+          "reason": "Inserts typed Naver keyword rows inside the source owner's terminal publication transaction."
+        }
+      ],
+      "legacyReaders": []
+    },
+    {
+      "name": "Sourcing Naver popular keyword daily snapshot",
+      "table": "naver_popular_keyword_daily_snapshots",
+      "prismaModel": "naverPopularKeywordDailySnapshot",
+      "prismaType": "NaverPopularKeywordDailySnapshot",
+      "relationNames": [
+        "naverPopularKeywordDailySnapshots"
+      ],
+      "reader": "apps/server/src/sourcing/read/source-evidence.reader.ts",
+      "ownerPublications": [
+        {
+          "path": "apps/server/src/sourcing/adapter/out/repository/sourcing-browser-source-attempt.persistence.ts",
+          "reason": "Inserts typed Naver board rows inside the source owner's terminal publication transaction."
+        }
+      ],
+      "legacyReaders": []
+    },
+    {
+      "name": "Sourcing Shorts trend daily snapshot",
+      "table": "shorts_trend_daily_snapshots",
+      "prismaModel": "shortsTrendDailySnapshot",
+      "prismaType": "ShortsTrendDailySnapshot",
+      "relationNames": [
+        "shortsTrendDailySnapshots"
+      ],
+      "reader": "apps/server/src/sourcing/read/source-evidence.reader.ts",
+      "ownerPublications": [
+        {
+          "path": "apps/server/src/sourcing/adapter/out/repository/sourcing-browser-source-attempt.persistence.ts",
+          "reason": "Inserts typed Shorts rows inside the source owner's terminal publication transaction."
+        }
+      ],
+      "legacyReaders": []
+    },
+    {
+      "name": "Sourcing TikTok creative trend daily snapshot",
+      "table": "tiktok_creative_trend_daily_snapshots",
+      "prismaModel": "tiktokCreativeTrendDailySnapshot",
+      "prismaType": "TiktokCreativeTrendDailySnapshot",
+      "relationNames": [
+        "tiktokCreativeTrendDailySnapshots"
+      ],
+      "reader": "apps/server/src/sourcing/read/source-evidence.reader.ts",
+      "ownerPublications": [
+        {
+          "path": "apps/server/src/sourcing/adapter/out/repository/sourcing-browser-source-attempt.persistence.ts",
+          "reason": "Inserts typed TikTok rows inside the source owner's terminal publication transaction."
+        }
+      ],
+      "legacyReaders": []
+    },
+    {
+      "name": "Sourcing live commerce broadcast daily snapshot",
+      "table": "live_commerce_broadcast_daily_snapshots",
+      "prismaModel": "liveCommerceBroadcastDailySnapshot",
+      "prismaType": "LiveCommerceBroadcastDailySnapshot",
+      "relationNames": [
+        "liveCommerceBroadcastDailySnapshots"
+      ],
+      "reader": "apps/server/src/sourcing/read/source-evidence.reader.ts",
+      "ownerPublications": [
+        {
+          "path": "apps/server/src/sourcing/adapter/out/repository/sourcing-browser-source-attempt.persistence.ts",
+          "reason": "Inserts typed broadcast rows inside the source owner's terminal publication transaction."
+        }
+      ],
+      "legacyReaders": []
+    },
+    {
+      "name": "Sourcing live commerce product daily snapshot",
+      "table": "live_commerce_product_daily_snapshots",
+      "prismaModel": "liveCommerceProductDailySnapshot",
+      "prismaType": "LiveCommerceProductDailySnapshot",
+      "relationNames": [
+        "liveCommerceProductDailySnapshots"
+      ],
+      "reader": "apps/server/src/sourcing/read/source-evidence.reader.ts",
+      "ownerPublications": [
+        {
+          "path": "apps/server/src/sourcing/adapter/out/repository/sourcing-browser-source-attempt.persistence.ts",
+          "reason": "Inserts typed product rows inside the source owner's terminal publication transaction."
+        }
+      ],
+      "legacyReaders": []
+    },
+    {
+      "name": "Sourcing launch candidate",
+      "table": "sourcing_launch_candidates",
+      "prismaModel": "sourcingLaunchCandidate",
+      "prismaType": "SourcingLaunchCandidate",
+      "relationNames": [
+        "createdSourcingLaunchCandidates",
+        "launchCandidate",
+        "launchCandidates",
+        "sourcingLaunchCandidates"
+      ],
+      "reader": "apps/server/src/sourcing/read/launch-candidate.reader.ts",
+      "ownerPublications": [
+        {
+          "path": "apps/server/src/sourcing/adapter/out/repository/sourcing-launch-candidate.repository.adapter.ts",
+          "reason": "Owns immutable launch-candidate publication and validates the current predecessor inside its transaction."
+        }
+      ],
+      "legacyReaders": []
+    },
+    {
+      "name": "Sourcing recommendation publication",
+      "table": "sourcing_recommendation_runs",
+      "prismaModel": "sourcingRecommendationRun",
+      "prismaType": "SourcingRecommendationRun",
+      "relationNames": [
+        "recommendationRun",
+        "sourcingRecommendationRuns"
+      ],
+      "reader": "apps/server/src/sourcing/read/recommendation-publication.reader.ts",
+      "ownerPublications": [
+        {
+          "path": "apps/server/src/sourcing/adapter/out/repository/sourcing-recommendation.repository.adapter.ts",
+          "reason": "Owns immutable recommendation-run publication and idempotent winner resolution."
+        }
+      ],
+      "legacyReaders": []
+    },
+    {
+      "name": "Sourcing validation publication",
+      "table": "sourcing_validation_episodes",
+      "prismaModel": "sourcingValidationEpisode",
+      "prismaType": "SourcingValidationEpisode",
+      "relationNames": [
+        "sourcingValidationEpisodes",
+        "validationEpisode",
+        "validationEpisodes"
+      ],
+      "reader": "apps/server/src/sourcing/read/validation-publication.reader.ts",
+      "ownerPublications": [
+        {
+          "path": "apps/server/src/sourcing/adapter/out/repository/sourcing-validation.repository.adapter.ts",
+          "reason": "Owns validation-episode publication, duplicate detection, and transaction-local receipt hydration."
+        }
+      ],
+      "legacyReaders": []
+    },
+    {
+      "name": "Sourcing decision publication",
+      "table": "sourcing_decision_batches",
+      "prismaModel": "sourcingDecisionBatch",
+      "prismaType": "SourcingDecisionBatch",
+      "relationNames": [
+        "decisionBatch",
+        "requestedSourcingDecisionBatches",
+        "sourcingDecisionBatches"
+      ],
+      "reader": "apps/server/src/sourcing/read/decision-publication.reader.ts",
+      "ownerPublications": [
+        {
+          "path": "apps/server/src/sourcing/adapter/out/repository/sourcing-decision-batch.repository.adapter.ts",
+          "reason": "Owns immutable decision-batch publication, idempotency validation, and winner resolution."
+        }
+      ],
+      "legacyReaders": []
+    },
+    {
+      "name": "Coupang keyword SERP day",
+      "table": "coupang_keyword_serp_daily_snapshots",
+      "prismaModel": "coupangKeywordSerpDailySnapshot",
+      "prismaType": "CoupangKeywordSerpDailySnapshot",
+      "relationNames": [
+        "coupangKeywordSerpDailySnapshots",
+        "keywordSerpDailyProjections"
+      ],
+      "reader": "apps/server/src/advertising/read/keyword-rank-facts.ts",
+      "ownerPublications": [
+        {
+          "path": "apps/server/src/advertising/adapter/out/repository/keyword-rank.repository.adapter.ts",
+          "reason": "Locks, creates, merges, and updates SERP snapshots inside the advertising source owner's publication transaction."
+        }
+      ],
+      "legacyReaders": []
+    },
+    {
+      "name": "Coupang Wing sales rank day",
+      "table": "coupang_wing_sales_rank_daily_snapshots",
+      "prismaModel": "coupangWingSalesRankDailySnapshot",
+      "prismaType": "CoupangWingSalesRankDailySnapshot",
+      "relationNames": [
+        "coupangWingSalesRankDailySnapshots",
+        "wingRankDailyProjections"
+      ],
+      "reader": "apps/server/src/advertising/read/keyword-rank-facts.ts",
+      "ownerPublications": [
+        {
+          "path": "apps/server/src/advertising/adapter/out/repository/keyword-rank.repository.adapter.ts",
+          "reason": "Locks and replaces one keyword and business-date rank snapshot inside the advertising source owner's publication transaction."
+        }
+      ],
+      "legacyReaders": []
+    },
+    {
+      "name": "Coupang keyword rank day",
+      "table": "coupang_keyword_rank_daily_snapshots",
+      "prismaModel": "coupangKeywordRankDailySnapshot",
+      "prismaType": "CoupangKeywordRankDailySnapshot",
+      "relationNames": [
+        "coupangKeywordRankDailySnapshots",
+        "keywordRankDailyProjections"
+      ],
+      "reader": "apps/server/src/advertising/read/keyword-rank-facts.ts",
+      "ownerPublications": [
+        {
+          "path": "apps/server/src/advertising/adapter/out/repository/keyword-rank.repository.adapter.ts",
+          "reason": "Locks, creates, merges, and updates SERP snapshots inside the advertising source owner's publication transaction."
+        }
+      ],
+      "legacyReaders": []
+    },
+    {
+      "name": "Master product ABC evaluations",
+      "table": "master_product_abc_evaluations",
+      "prismaModel": "masterProductAbcEvaluation",
+      "prismaType": "MasterProductAbcEvaluation",
+      "relationNames": [
+        "masterProductAbcEvaluations",
+        "sellpiaAbcEvaluations",
+        "advertisingAbcEvaluations",
+        "abcEvaluation",
+        "evaluations"
+      ],
+      "reader": "apps/server/src/products/read/product-abc-publication.reader.ts",
+      "ownerPublications": [
+        {
+          "path": "apps/server/src/products/adapter/out/repository/master-product-abc.repository.adapter.ts",
+          "reason": "Publishes, carries forward, and reads Products-owned official ABC evaluation rows inside the explicit publication boundary."
+        }
+      ],
+      "legacyReaders": []
+    },
+    {
+      "name": "Advertising listing-product monthly allocations",
+      "table": "channel_ad_listing_product_monthly_facts",
+      "prismaModel": "channelAdListingProductMonthlyFact",
+      "prismaType": "ChannelAdListingProductMonthlyFact",
+      "relationNames": [
+        "channelAdListingProductMonthlyFacts",
+        "adListingProductMonthlyFacts",
+        "frozenAdvertisingProfitFacts"
+      ],
+      "reader": "apps/server/src/advertising/read/monthly-ad-allocation.reader.ts",
+      "ownerPublications": [
+        {
+          "path": "apps/server/src/advertising/adapter/out/repository/profitability-ad-import.repository.adapter.ts",
+          "reason": "Stages, verifies, allocates, and publishes immutable monthly advertising facts within the source owner's fenced terminal workflow."
+        }
+      ],
+      "legacyReaders": []
+    },
+    {
+      "name": "Rocket PO catalog snapshot",
+      "table": "rocket_po_catalog_snapshots",
+      "prismaModel": "rocketPoCatalogSnapshot",
+      "prismaType": "RocketPoCatalogSnapshot",
+      "relationNames": [
+        "rocketPoCatalogSnapshot",
+        "rocketPoCatalogSnapshots",
+        "snapshot"
+      ],
+      "reader": "apps/server/src/channels/read/rocket-po-catalog.reader.ts",
+      "ownerPublications": [
+        {
+          "path": "apps/server/src/channels/adapter/out/repository/rocket-po-catalog-snapshot.repository.ts",
+          "reason": "Channels publishes one normalized Rocket PO snapshot within the fenced source-owner completion transaction."
+        }
+      ],
+      "legacyReaders": []
+    },
+    {
+      "name": "Rocket PO catalog line",
+      "table": "rocket_po_catalog_lines",
+      "prismaModel": "rocketPoCatalogLine",
+      "prismaType": "RocketPoCatalogLine",
+      "relationNames": [
+        "lines",
+        "rocketPoCatalogLines"
+      ],
+      "reader": "apps/server/src/channels/read/rocket-po-catalog.reader.ts",
+      "ownerPublications": [
+        {
+          "path": "apps/server/src/channels/adapter/out/repository/rocket-po-catalog-snapshot.repository.ts",
+          "reason": "Channels publishes validated Rocket PO lines with their owning snapshot in the source-owner completion transaction."
+        }
+      ],
+      "legacyReaders": []
+    },
+    {
+      "name": "Coupang shipment date summary",
+      "table": "coupang_shipment_date_summaries",
+      "prismaModel": "coupangShipmentDateSummary",
+      "prismaType": "CoupangShipmentDateSummary",
+      "relationNames": [
+        "coupangShipmentDateSummaries"
+      ],
+      "reader": "apps/server/src/inventory/read/coupang-shipment-date-summary.reader.ts",
+      "ownerPublications": [
+        {
+          "path": "apps/server/src/inventory/adapter/out/repository/coupang-shipment-date-summary.repository.adapter.ts",
+          "reason": "Inventory publishes validated per-date shipment summaries before completing the fenced source run in the same transaction."
+        }
+      ],
+      "legacyReaders": []
     }
   ]
 }

@@ -35,11 +35,9 @@ import { DashboardSalesService } from '../application/service/dashboard-sales.se
 import { buildDashboardContext } from '../domain/context';
 import { DashboardSalesRepositoryAdapter } from '../adapter/out/repository/dashboard-sales.repository.adapter';
 import { ProfitCalculationRepositoryAdapter } from '../adapter/out/repository/profit-calculation.repository.adapter';
-import { WingAdSummaryRepositoryAdapter } from '../adapter/out/repository/wing-ad-summary.repository.adapter';
 import { WingTrafficAggregationRepositoryAdapter } from '../adapter/out/repository/wing-traffic-aggregation.repository.adapter';
 import { DASHBOARD_SALES_REPOSITORY_PORT } from '../application/port/out/repository/dashboard-sales.repository.port';
 import { PROFIT_CALCULATION_REPOSITORY_PORT } from '../application/port/out/repository/profit-calculation.repository.port';
-import { WING_AD_SUMMARY_REPOSITORY_PORT } from '../application/port/out/repository/wing-ad-summary.repository.port';
 import { WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT } from '../application/port/out/repository/wing-traffic-aggregation.repository.port';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { SourceFailureAlerts } from '../../../alerts/alerts.service';
@@ -134,15 +132,10 @@ describe('effectivePeriod source agreement across dashboard endpoints (PG integr
         DashboardSalesRepositoryAdapter,
         WingTrafficAggregationRepositoryAdapter,
         ProfitCalculationRepositoryAdapter,
-        WingAdSummaryRepositoryAdapter,
         { provide: PrismaService, useValue: prisma },
         {
           provide: PROFIT_CALCULATION_REPOSITORY_PORT,
           useExisting: ProfitCalculationRepositoryAdapter,
-        },
-        {
-          provide: WING_AD_SUMMARY_REPOSITORY_PORT,
-          useExisting: WingAdSummaryRepositoryAdapter,
         },
         {
           provide: DASHBOARD_SALES_REPOSITORY_PORT,
@@ -362,12 +355,12 @@ describe('effectivePeriod source agreement across dashboard endpoints (PG integr
     return {
       sales: {
         revenueSource: sales.effectivePeriod!.revenueSource,
-        adSource: sales.effectivePeriod!.adSource,
+        adSource: sales.effectivePeriod!.adSource ?? 'none',
         label: sales.effectivePeriod!.label,
       },
       ad: {
         revenueSource: ad.effectivePeriod!.revenueSource,
-        adSource: ad.effectivePeriod!.adSource,
+        adSource: ad.effectivePeriod!.adSource ?? 'none',
         label: ad.effectivePeriod!.label,
       },
       salesMonthly: {
@@ -375,7 +368,7 @@ describe('effectivePeriod source agreement across dashboard endpoints (PG integr
         wingRevenue: sales.monthly.wingRevenue ?? null,
       },
       adMonthly: {
-        source: ad.monthly.source,
+        source: ad.monthly.source ?? 'unavailable',
         totalAdSpend: ad.monthly.totalAdSpend ?? null,
       },
       adMonthCoverage: ad.monthly.coverage ?? null,

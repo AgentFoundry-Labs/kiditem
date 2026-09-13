@@ -1,7 +1,7 @@
-import type { PrismaService } from '../prisma/prisma.service';
 import { addDays, datesInclusive, kstBusinessDate } from './kst';
 import { advertisingApplies, readAdWindowFacts, readListingAdWindowFacts } from './ad-window-facts';
-import type { PrismaClient } from '@prisma/client';
+import type { Prisma } from '@prisma/client';
+import { readPublishedProductAbcGrades } from '../products/read/product-abc-publication.reader';
 
 /**
  * Plan F1 T1 (extracted from `finance/services/profit-loss.service.ts:findAll`).
@@ -101,23 +101,18 @@ export interface AccountAdEvidence {
  * whether every date in the window was measured.
  */
 export async function readAdEvidenceFromLedger(
-  prisma: Pick<PrismaClient, '$queryRaw' | 'channelAccount'>,
+  tx: Prisma.TransactionClient,
   organizationId: string,
   from: Date,
   to: Date,
 ): Promise<AccountAdEvidence> {
   const businessDateFrom = kstBusinessDate(from);
   const businessDateTo = kstBusinessDate(to);
-  const windowDays = datesInclusive(
-    businessDateFrom,
-    addDays(businessDateTo, -1),
-  ).length;
-  const [applies, facts] = await Promise.all([
-    advertisingApplies(prisma, organizationId),
-    windowDays === 0
-      ? Promise.resolve({ days: [] as const, observedAt: null })
-      : readAdWindowFacts(prisma, { organizationId, from: businessDateFrom, to: businessDateTo }),
-  ]);
+  const windowDays = datesInclusive(businessDateFrom, addDays(businessDateTo, -1)).length;
+  const applies = await advertisingApplies(tx, organizationId);
+  const facts = windowDays === 0
+    ? { days: [] as const, observedAt: null }
+    : await readAdWindowFacts(tx, { organizationId, from: businessDateFrom, to: businessDateTo });
   return {
     hasAdAccount: applies,
     publishedDates: facts.days.length,
@@ -142,7 +137,7 @@ export function hasMeasuredProfit(
  *   collection failed for the whole window" the same computed zero.
  */
 export async function buildPerListingProfit(
-  prisma: PrismaService,
+  tx: Prisma.TransactionClient,
   organizationId: string,
   from: Date,
   to: Date,
@@ -150,8 +145,7 @@ export async function buildPerListingProfit(
 ): Promise<PerListingProfit[]> {
   const businessDateFrom = kstBusinessDate(from);
   const businessDateTo = kstBusinessDate(to);
-  const [orders, adByListing] = await Promise.all([
-    prisma.order.findMany({
+  const orders = await tx.order.findMany({
       where: {
         organizationId,
         orderedAt: { gte: from, lt: to },
@@ -191,7 +185,6 @@ export async function buildPerListingProfit(
                         code: true,
                         name: true,
                         category: true,
-                        abcGrade: true,
                       },
                     },
                     channelAccount: { select: { channel: true } },
@@ -208,12 +201,17 @@ export async function buildPerListingProfit(
           },
         },
       },
-    }),
-    // Listing-level measured ad spend over the same `[from, to)` window, from
-    // the ledger's product-grain rows. Coverage is account-level, so a
-    // listing absent here spent nothing on the measured dates.
-    readListingAdWindowFacts(prisma, { organizationId, from: businessDateFrom, to: businessDateTo }),
-  ]);
+    });
+  const adByListing = await readListingAdWindowFacts(tx, {
+    organizationId,
+    from: businessDateFrom,
+    to: businessDateTo,
+  });
+  const gradeByProductId = await readPublishedProductAbcGrades(tx, {
+    organizationId,
+    masterProductIds: orders.flatMap((order) => order.lineItems.flatMap((line) =>
+      line.listingOption?.listing.masterProduct ? [line.listingOption.listing.masterProduct.id] : [])),
+  });
 
   type Agg = {
     listingId: string;
@@ -257,7 +255,9 @@ export async function buildPerListingProfit(
             ?? listing.channelName
             ?? listing.externalId,
           category: listing.masterProduct?.category ?? listing.category,
-          grade: listing.masterProduct?.abcGrade ?? null,
+          grade: listing.masterProduct
+            ? gradeByProductId.get(listing.masterProduct.id) ?? null
+            : null,
           thumbnailUrl: listing.thumbnails[0]?.imageUrl ?? null,
           revenue: 0,
           costOfGoods: 0,
@@ -380,14 +380,14 @@ export interface PerListingMetricsCoverage {
  * a counted zero.
  */
 export async function buildPerListingMetricsCoverage(
-  prisma: PrismaService,
+  tx: Prisma.TransactionClient,
   organizationId: string,
   from: Date,
   to: Date,
   accountAdEvidence: AccountAdEvidence,
 ): Promise<PerListingMetricsCoverage> {
   const rows = await buildPerListingProfit(
-    prisma,
+    tx,
     organizationId,
     from,
     to,
@@ -402,14 +402,14 @@ export async function buildPerListingMetricsCoverage(
  * basis and so have nowhere to say a listing was withheld.
  */
 export async function buildPerListingMetrics(
-  prisma: PrismaService,
+  tx: Prisma.TransactionClient,
   organizationId: string,
   from: Date,
   to: Date,
   accountAdEvidence: AccountAdEvidence,
 ): Promise<PerListingMetrics[]> {
   const coverage = await buildPerListingMetricsCoverage(
-    prisma,
+    tx,
     organizationId,
     from,
     to,

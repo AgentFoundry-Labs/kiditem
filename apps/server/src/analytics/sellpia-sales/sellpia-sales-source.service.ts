@@ -18,9 +18,10 @@ import {
 } from '../../common/kst';
 import { classifySellpiaChannelGroup } from './domain/channel-group';
 import { SELLPIA_SALES_COVERAGE_SELLER_ID } from './domain/snapshot-coverage';
+import { SELLPIA_SALES_SOURCE_TYPE } from './domain/sellpia-sales-source';
 import type { SellpiaSalesIngestBodyDto } from './dto/sellpia-sales.dto';
 
-export const SELLPIA_SALES_SOURCE_TYPE = 'sellpia_sales_daily';
+export { SELLPIA_SALES_SOURCE_TYPE } from './domain/sellpia-sales-source';
 export const SELLPIA_SALES_PARSER_VERSION = 'sellpia-sales-v1';
 export const SELLPIA_SALES_SOURCE_ORIGIN = 'https://kiditem.sellpia.com';
 export const SELLPIA_SALES_SOURCE_PATH = '/sale_summary.html?mode=main_link';
@@ -74,17 +75,6 @@ export type SellpiaSalesSourceControl = SellpiaSalesSourceAttempt & Readonly<{
 
 export type SellpiaSalesSourceRequest = Readonly<{
   range?: Partial<SellpiaSalesSourceRange>;
-}>;
-
-export type SellpiaSalesPublishedRow = Readonly<{
-  businessDate: Date;
-  sellerId: string;
-  sellerName: string;
-  channelGroup: string;
-  revenueKrw: number;
-  qty: number;
-  costKrw: number;
-  capturedAt: Date;
 }>;
 
 function json(value: unknown): Prisma.InputJsonValue {
@@ -546,76 +536,6 @@ export class SellpiaSalesSourceService {
       const failed = await this.failIn(tx, row, errorCode, message);
       return this.attemptView(failed);
     }, { timeout: TRANSACTION_TIMEOUT_MS });
-  }
-
-  async readPublishedRows(
-    organizationId: string,
-    from: string,
-    to: string,
-  ): Promise<SellpiaSalesPublishedRow[]> {
-    const fromDate = parseCalendarDate(from);
-    const toDate = parseCalendarDate(to);
-    if (!fromDate || !toDate || fromDate > toDate) throw new BadRequestException('INVALID_DATE_RANGE');
-    const runs = await this.prisma.sourceImportRun.findMany({
-      where: {
-        organizationId,
-        sourceType: SELLPIA_SALES_SOURCE_TYPE,
-        status: 'completed',
-        publicationSequence: { not: null },
-      },
-      orderBy: { publicationSequence: 'desc' },
-      select: { id: true, publicationSequence: true },
-    });
-    if (runs.length === 0) return [];
-    const rows = await this.prisma.sellpiaSalesDailySnapshot.findMany({
-      where: {
-        organizationId,
-        sourceImportRunId: { in: runs.map((run) => run.id) },
-        businessDate: { gte: fromDate, lte: toDate },
-      },
-      select: {
-        sourceImportRunId: true,
-        businessDate: true,
-        sellerId: true,
-        sellerName: true,
-        channelGroup: true,
-        revenueKrw: true,
-        qty: true,
-        costKrw: true,
-        capturedAt: true,
-      },
-      orderBy: { businessDate: 'asc' },
-    });
-    const grouped = new Map<string, SellpiaSalesPublishedRow[]>();
-    for (const row of rows) {
-      if (!row.sourceImportRunId || !row.businessDate) continue;
-      const date = businessDateKey(row.businessDate);
-      const key = `${row.sourceImportRunId}\u0000${date}`;
-      const values = grouped.get(key) ?? [];
-      values.push({
-        businessDate: row.businessDate,
-        sellerId: row.sellerId,
-        sellerName: row.sellerName,
-        channelGroup: row.channelGroup,
-        revenueKrw: row.revenueKrw,
-        qty: row.qty,
-        costKrw: row.costKrw,
-        capturedAt: row.capturedAt,
-      });
-      grouped.set(key, values);
-    }
-    const selected = new Set<string>();
-    const result: SellpiaSalesPublishedRow[] = [];
-    const dates = [...new Set(rows.filter((row) => row.businessDate).map((row) => businessDateKey(row.businessDate!)))].sort();
-    for (const date of dates) {
-      const candidates = runs.filter((run) => grouped.has(`${run.id}\u0000${date}`));
-      const selectedRun = candidates.find((run) =>
-        grouped.get(`${run.id}\u0000${date}`)?.some((row) => row.sellerId === SELLPIA_SALES_COVERAGE_SELLER_ID));
-      if (!selectedRun || selected.has(date)) continue;
-      selected.add(date);
-      result.push(...(grouped.get(`${selectedRun.id}\u0000${date}`) ?? []));
-    }
-    return result.sort((left, right) => left.businessDate.getTime() - right.businessDate.getTime());
   }
 
   private async findAttempt(tx: Tx, organizationId: string, attemptId: string): Promise<SourceRun> {

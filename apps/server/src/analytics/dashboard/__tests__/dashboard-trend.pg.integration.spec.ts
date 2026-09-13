@@ -23,6 +23,7 @@ import {
   setupChannelListing,
   seedOrderWithLineItems,
   seedAd,
+  seedCompletedOrderCoverageRun,
 } from '../../../test-helpers/finance-seeds';
 import type { PrismaClient } from '@prisma/client';
 import { buildDashboardContext } from '../domain/context';
@@ -65,6 +66,21 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
       plan: { businessDate: '1970-01-01' },
     });
   });
+
+  function yesterdayBusinessDate(): string {
+    return new Date(Date.now() - 24 * 60 * 60 * 1000 + 9 * 60 * 60 * 1000)
+      .toISOString()
+      .slice(0, 10);
+  }
+
+  async function coverYesterday(organizationId: string): Promise<void> {
+    const date = yesterdayBusinessDate();
+    await seedCompletedOrderCoverageRun(prisma, {
+      organizationId,
+      startDate: date,
+      endDate: date,
+    });
+  }
 
   /**
    * Seed a TEST listing + a single yesterday order with given lineItem totalPrice
@@ -159,8 +175,9 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
       organizationId: OTHER_ORGANIZATION_ID, listingId: oL.listingId,
       date: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10), spend: IDOR_SENTINEL,
     });
+    await coverYesterday(TEST_ORGANIZATION_ID);
 
-    const result = await service.getTrend(buildDashboardContext(), TEST_ORGANIZATION_ID, '30d');
+    const result = await service.getTrend(buildDashboardContext('month'), TEST_ORGANIZATION_ID);
     for (const row of result) {
       expect(row.revenue).not.toBe(IDOR_SENTINEL);
       expect(row.adCost).not.toBe(IDOR_SENTINEL);
@@ -184,8 +201,9 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
       shippingPrice: 0,
       lineItems: [{ quantity: 1, totalPrice: IDOR_SENTINEL, optionId: oO.id, listingOptionId: oL.listingOptionId }],
     });
+    await coverYesterday(OTHER_ORGANIZATION_ID);
 
-    const result = await service.getTrend(buildDashboardContext(), OTHER_ORGANIZATION_ID, '30d');
+    const result = await service.getTrend(buildDashboardContext('month'), OTHER_ORGANIZATION_ID);
     for (const row of result) {
       expect(row.revenue).not.toBe(30_000);
     }
@@ -193,7 +211,7 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
   });
 
   it('T3: fresh organization → selected dates remain explicitly empty', async () => {
-    const result = await service.getTrend(buildDashboardContext(), TEST_ORGANIZATION_ID, '7d');
+    const result = await service.getTrend(buildDashboardContext('week'), TEST_ORGANIZATION_ID);
     expect(result).toHaveLength(7);
     expect(result.every((row) => row.revenue === null && row.adCost === null && row.profit === null)).toBe(true);
   });
@@ -221,8 +239,9 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
       date: new Date(yesterday.getTime() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10),
       spend: 0,
     });
+    await coverYesterday(TEST_ORGANIZATION_ID);
 
-    const result = await service.getTrend(buildDashboardContext(), TEST_ORGANIZATION_ID, '30d');
+    const result = await service.getTrend(buildDashboardContext('month'), TEST_ORGANIZATION_ID);
     const yesterdayRow = result.find((r) => r.revenue === 100_000);
     expect(yesterdayRow).toBeDefined();
     expect(yesterdayRow?.profit).toBe(30_000);
@@ -274,6 +293,7 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
         trafficOrders: 4,
         trafficSalesQty: 4,
         trafficRevenue: 120_000,
+        trafficObservedAt: new Date('2026-09-06T01:00:00.000Z'),
       },
     });
     const trafficPublication = {
@@ -339,7 +359,7 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
       orders: 3,
     });
 
-    const result = await service.getTrend(buildDashboardContext(), TEST_ORGANIZATION_ID, '30d');
+    const result = await service.getTrend(buildDashboardContext('month'), TEST_ORGANIZATION_ID);
     const wingRow = result.find((r) => r.date === dateKey);
 
     expect(wingRow).toMatchObject({

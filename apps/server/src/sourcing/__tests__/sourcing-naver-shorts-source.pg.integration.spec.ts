@@ -117,6 +117,15 @@ describe('Naver/Shorts public collection owner (disposable PostgreSQL)', () => {
     expect(await analysis.collectAnalysis({ organizationId, input, idempotencyKey: 'analysis-failed' }))
       .toMatchObject({ attempt: { state: 'FAILED' }, payload: null });
     expect(await analysis.getAnalysisSnapshot(organizationId, input)).toEqual(first.payload);
+    await prisma.sourcingEvidenceObservation.updateMany({
+      where: { organizationId, ingestionRunId: first.attempt.attemptId },
+      data: { payload: { legacy: 'raw evidence must not drive the screen' } },
+    });
+    expect(await analysis.getAnalysisSnapshot(organizationId, input)).toEqual(first.payload);
+    await prisma.sourcingNaverKeywordAnalysisFact.deleteMany({
+      where: { organizationId, ingestionRunId: first.attempt.attemptId },
+    });
+    expect(await analysis.getAnalysisSnapshot(organizationId, input)).toBeNull();
     expect(await prisma.sourcingWorkspaceSnapshot.count({ where: { scope: 'keyword_analysis' } })).toBe(0);
     expect((await prisma.$queryRaw<Array<{ absent: boolean }>>`
       SELECT to_regclass('public.operation_runs') IS NULL AS absent

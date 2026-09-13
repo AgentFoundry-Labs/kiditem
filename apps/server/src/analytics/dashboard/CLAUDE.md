@@ -2,9 +2,10 @@
 
 `src/analytics/dashboard/` owns `/api/dashboard/*` read endpoints for the
 analytics domain. It hydrates report KPIs from order rows, listing-day traffic
-facts, and the advertising target-day ledger (through `common/ad-window-facts`,
-the one ad reader) plus raw SQL on order line items, and falls back to
-Wing/Drive replay daily facts when order data is absent. Advertising has one
+facts, and the advertising target-day ledger through the Orders, Channels,
+Advertising, Inventory, and Products canonical readers. Cross-owner values are
+composed inside one dashboard adapter-owned Repeatable Read transaction. It
+falls back to Wing/Drive replay revenue when complete Order revenue is absent. Advertising has one
 ledger; the account-daily KPI publication is not a second ad source here. Keep this as a read-only reporting
 boundary with HTTP and persistence adapters around Prisma-free orchestration.
 
@@ -37,8 +38,11 @@ boundary with HTTP and persistence adapters around Prisma-free orchestration.
 - `domain/evidence/dashboard-source` owns the source vocabulary. Add a name
   there rather than repeating a string literal in a service.
 - A metric uses the maximal valid dates of its own required sources;
-  a multi-source metric uses `intersectBases`, and a ratio uses one basis for
-  numerator and denominator.
+  a multi-source metric first limits both numeric inputs to their exact
+  listing/date intersection, then uses `intersectBases` for the matching wire
+  evidence. A ratio uses one population and one basis for numerator and
+  denominator; intersecting basis labels after aggregating different windows
+  is invalid.
 - Read `ProfitSourceCoverage.hasAdAccount`, not `adDates.length`: with no
   Coupang channel account the basis names orders alone. `adDates` are the
   dates the campaign sweep measured (its declared window), not dates that
@@ -66,13 +70,21 @@ boundary with HTTP and persistence adapters around Prisma-free orchestration.
 - Ad metrics aggregate additive columns; ratios recompute caller-side through
   `domain/util/percent`, which returns `null` when a ratio has no measurable
   base. Publish that as unavailable; a missing base is never a measured `0`.
-- Wing/Drive replay fallback only activates when the order-based path produces
-  zero revenue.
-- Top-N ranking uses the documented 30% margin approximation; precise
-  per-listing math lives in `/api/profit-loss`.
+- Top-N profit reads `buildPerListingProfit` for the selected window, matching
+  `/api/profit-loss`; insufficient evidence leaves profit and margin `null`
+  ([ADR 0006](../../../../../docs/adr/0006-a-displayed-number-is-a-measurement-or-nothing.md)).
+- Wing/Drive replay revenue fallback activates only when complete Order
+  revenue is absent. Funnel order, quantity, and revenue stages use canonical
+  Order line facts at the active listing/date intersection and never provider
+  traffic order fields.
+- Advertising-rate fallback reads Wing revenue over the same closed-day dates
+  as Advertising. It never divides a closed-day numerator by today's revenue.
+- Channel linkage is a current Products/Channels CONFIG
+  fact. Stock snapshot completeness and `currentStock` affect availability
+  metrics such as out-of-stock only, never whether a configured link exists.
 - Inventory ABC counts, calculation statuses, contribution-profit totals,
-  formula context, and Top Products read Products' stored
-  `MasterProduct.abcGrade` plus current evaluation snapshot. Display statuses
+  formula context, and Top Products read Products' retained official evaluation
+  through its publication reader. Display statuses
   come from Products through `PRODUCT_ABC_READ_PORT`; this read model names the
   product population and counts the published answer, and never chooses an ABC
   evidence cutoff. A/B/C ratios use

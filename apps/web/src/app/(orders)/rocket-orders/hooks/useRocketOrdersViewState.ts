@@ -1,6 +1,7 @@
 'use client';
 
 import { useSessionBackedUrlState } from '@/hooks/useSessionBackedUrlState';
+import { ROCKET_CONFIRMATION_REQUEST_STATUSES } from '@kiditem/shared/rocket-purchase-preview';
 
 export type RocketOrdersView = 'month' | 'chart';
 
@@ -54,8 +55,9 @@ function parseState(
     account: values.account?.trim() ?? '',
     from,
     to,
-    status: values.status === '거래명세서확인요청'
-      || values.status === '거래처확인요청'
+    status: ROCKET_CONFIRMATION_REQUEST_STATUSES.some(
+      (status) => status === values.status,
+    )
       ? '거래처확인요청'
       : '',
     date,

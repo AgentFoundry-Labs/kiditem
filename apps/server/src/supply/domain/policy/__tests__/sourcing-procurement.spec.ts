@@ -331,7 +331,7 @@ describe('sourcing procurement policy', () => {
 
   it('requires a completed evidence run without source-policy lifecycle state', () => {
     const ingestionRun = {
-      status: 'complete',
+      status: 'COMPLETE',
       completedAt: new Date('2026-08-01T00:00:00.000Z'),
       coverageNumerator: 9,
       coverageDenominator: 10,
@@ -356,7 +356,7 @@ describe('sourcing procurement policy', () => {
 
   it('denies source facts from a non-terminal run', () => {
     const ingestionRun = {
-      status: 'partial',
+      status: 'RUNNING',
       completedAt: new Date('2026-08-01T00:00:00.000Z'),
       coverageNumerator: null,
       coverageDenominator: null,

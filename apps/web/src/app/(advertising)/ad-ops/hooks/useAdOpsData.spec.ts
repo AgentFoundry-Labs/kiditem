@@ -112,10 +112,10 @@ describe("useAdOpsData request scope", () => {
       "/api/ads/strategy/rules?period=14d",
       "/api/ads/extension/status",
       "/api/ads/strategy/plan?period=14d",
-      "/api/dashboard/ad",
       "/api/ads/campaigns/trends?period=14d",
     ]));
-    expect(mockApiGet).toHaveBeenCalledTimes(6);
+    expect(mockApiGet).toHaveBeenCalledTimes(5);
+    expect(mockApiGet).not.toHaveBeenCalledWith("/api/dashboard/ad");
     expect(mockApiGet).not.toHaveBeenCalledWith("/api/ads?days=14");
     expect(mockApiGet).not.toHaveBeenCalledWith("/api/ads/strategy/recommend");
     expect(mockApiGet).not.toHaveBeenCalledWith("/api/ads/benchmark?days=14");
@@ -134,10 +134,10 @@ describe("useAdOpsData request scope", () => {
     expect(mockApiGet.mock.calls.map(([url]) => url)).toEqual(expect.arrayContaining([
       "/api/ads/campaigns?period=14d",
       "/api/ads/strategy/rules?period=14d",
-      "/api/dashboard/ad",
       "/api/ads/campaigns/trends?period=14d",
     ]));
-    expect(mockApiGet).toHaveBeenCalledTimes(4);
+    expect(mockApiGet).toHaveBeenCalledTimes(3);
+    expect(mockApiGet).not.toHaveBeenCalledWith("/api/dashboard/ad");
     expect(mockApiGet).not.toHaveBeenCalledWith("/api/ads/extension/status");
     expect(mockApiGet).not.toHaveBeenCalledWith("/api/ads/strategy/plan?period=14d");
   });

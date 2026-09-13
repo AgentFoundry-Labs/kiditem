@@ -216,7 +216,13 @@ export class AdCampaignsService {
       this.actionRepo.findOpenKeywordRelevanceActions(organizationId),
     ]);
     if (rollups.length === 0) {
-      return { period, collectedAt: null, products: [], keywords: [] };
+      return {
+        period: '7d',
+        windowDays: 7,
+        collectedAt: null,
+        products: [],
+        keywords: [],
+      } satisfies AdKeywordsData;
     }
     // An open `pause_keyword` proposal is the agent's verdict awaiting
     // approval. Keyed by keyword text plus the advertised option so the same
@@ -247,7 +253,6 @@ export class AdCampaignsService {
       return toAdKeywordSnapshot(
         rollup,
         rollup.listingId ? listingMap.get(rollup.listingId) ?? null : null,
-        period,
         reason
           ? { verdict: 'irrelevant', reason }
           : { verdict: null, reason: null },
@@ -260,7 +265,8 @@ export class AdCampaignsService {
     );
 
     return {
-      period,
+      period: '7d',
+      windowDays: 7,
       collectedAt: collectedAt ? collectedAt.toISOString() : null,
       products: rollUpKeywordsByProduct(keywords),
       keywords,

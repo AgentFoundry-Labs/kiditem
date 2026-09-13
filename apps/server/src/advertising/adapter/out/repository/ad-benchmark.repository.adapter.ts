@@ -4,6 +4,7 @@
 // `domain/ad-metrics`.
 
 import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { kstInclusiveDaysStart } from '../../../../common/kst';
 import {
@@ -25,10 +26,14 @@ export class AdBenchmarkRepositoryAdapter
     organizationId: string,
   ): Promise<BenchmarkAggregates> {
     const from = kstInclusiveDaysStart(30);
-    const [window, perListing] = await Promise.all([
-      readAdWindowFacts(this.prisma, { organizationId, from }),
-      readListingAdWindowFacts(this.prisma, { organizationId, from }),
-    ]);
+    const [window, perListing] = await this.prisma.$transaction(
+      async (tx) => {
+        const window = await readAdWindowFacts(tx, { organizationId, from });
+        const perListing = await readListingAdWindowFacts(tx, { organizationId, from });
+        return [window, perListing] as const;
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
 
     const totals = { spend: 0, impressions: 0, clicks: 0, conversions: 0, revenue: 0 };
     for (const day of window.days) {

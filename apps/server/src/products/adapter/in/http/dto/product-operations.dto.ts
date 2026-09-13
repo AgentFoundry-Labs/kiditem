@@ -1,5 +1,12 @@
 import { Type } from 'class-transformer';
 import {
+  ProductInventoryStatusSchema,
+  ProductOperationsActiveStatusSchema,
+  ProductOperationsAdStatusSchema,
+  ProductOperationsInventoryFocusSchema,
+  ProductOperationsAbcCalculationStatusFilterSchema,
+} from '@kiditem/shared/product-operations';
+import {
   IsIn,
   IsInt,
   IsOptional,
@@ -10,29 +17,12 @@ import {
   MinLength,
 } from 'class-validator';
 
-const ACTIVE_STATUSES = ['all', 'active', 'inactive'] as const;
-const INVENTORY_STATUSES = [
-  'sellable',
-  'partial_out_of_stock',
-  'out_of_stock',
-  'configuration_required',
-  'review_required',
-] as const;
-const INVENTORY_FOCUSES = [
-  'attention',
-  'out_of_stock',
-  'imminent',
-  'reorder',
-] as const;
-const AD_STATUSES = ['all', 'active', 'inactive', 'unconfigured'] as const;
+const ACTIVE_STATUSES = ProductOperationsActiveStatusSchema.options;
+const INVENTORY_STATUSES = ProductInventoryStatusSchema.options;
+const INVENTORY_FOCUSES = ProductOperationsInventoryFocusSchema.options;
+const AD_STATUSES = ProductOperationsAdStatusSchema.options;
 const PERIOD_DAYS = [7, 14, 30] as const;
-const ABC_STATUSES = [
-  'READY',
-  'INSUFFICIENT_EVIDENCE',
-  'SOURCE_UNMAPPED',
-  'SELLPIA_SOURCE_STALE',
-  'AD_SOURCE_STALE',
-] as const;
+const ABC_STATUSES = ProductOperationsAbcCalculationStatusFilterSchema.options;
 
 export class ProductOperationsDataStatusQueryDto {
   @Type(() => Number)

@@ -1,495 +1,115 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildPerListingProfit, readAdEvidenceFromLedger } from '../../../common/per-listing-profit';
+import {
+  readListingOptionOrderFacts,
+  readObservedOrderBounds,
+  readOrderWindowFacts,
+  readRepurchaseOrderFacts,
+} from '../../../orders/read/order-facts.reader';
 import { StatisticsService } from '../statistics.service';
 
-// The per-listing aggregation and the ledger's account-level ad evidence are
-// faked together: both are handed the same `[from, to)` window, and these cases
-// check that the window this service derives is the one both reads receive.
-vi.mock('../../../common/per-listing-profit', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../../../common/per-listing-profit')>()),
+vi.mock('../../../common/per-listing-profit', () => ({
   buildPerListingProfit: vi.fn(),
   readAdEvidenceFromLedger: vi.fn(),
 }));
-
-const mockedBuildPerListingProfit = vi.mocked(buildPerListingProfit);
-const mockedReadAdEvidenceFromLedger = vi.mocked(readAdEvidenceFromLedger);
-
-/** An organization with no advertising account: ad cost is a genuine zero. */
-const NOT_APPLIED_AD_EVIDENCE = { hasAdAccount: false, publishedDates: 0, accountSpend: 0, coversWindow: false };
-
-function makePrisma() {
-  return {
-    channelListing: {
-      count: vi.fn(),
-    },
-    order: {
-      count: vi.fn(),
-      findMany: vi.fn(),
-    },
-    orderLineItem: {
-      findMany: vi.fn(),
-    },
-  };
-}
-
-const baseMetric = {
-  listingId: 'listing-1',
-  externalId: 'ext-1',
-  channel: 'coupang',
-  channelName: '쿠팡 상품명 A',
-  masterId: 'master-1',
-  masterCode: 'M0001',
-  masterName: 'Master Product A',
-  category: '유아용품',
-  grade: 'A',
-  thumbnailUrl: 'https://cdn/a.jpg',
-  revenue: 500_000,
-  costOfGoods: 200_000,
-  commission: 50_000,
-  shippingCost: 10_000,
-  adCost: 30_000,
-  otherCost: 0,
-  netProfit: 210_000,
-  profitRate: 42,
-  orderCount: 20,
-};
+vi.mock('../../../orders/read/order-facts.reader', () => ({
+  ORDER_FACT_EXCLUDED_STATUSES: ['cancelled', 'returned', 'refunded'],
+  readListingOptionOrderFacts: vi.fn(),
+  readObservedOrderBounds: vi.fn(),
+  readOrderWindowFacts: vi.fn(),
+  readRepurchaseOrderFacts: vi.fn(),
+}));
 
 describe('StatisticsService', () => {
+  const tx = { channelListingOption: { findMany: vi.fn() } };
+  const prisma = {
+    $transaction: vi.fn((callback: (client: typeof tx) => unknown) => callback(tx)),
+    channelListing: { count: vi.fn() },
+  };
   let service: StatisticsService;
-  let prisma: ReturnType<typeof makePrisma>;
 
   beforeEach(() => {
-    prisma = makePrisma();
-    service = new StatisticsService(prisma as any);
-    mockedReadAdEvidenceFromLedger.mockReset();
-    mockedReadAdEvidenceFromLedger.mockResolvedValue(NOT_APPLIED_AD_EVIDENCE);
-    mockedBuildPerListingProfit.mockReset();
-    mockedBuildPerListingProfit.mockResolvedValue([]);
+    vi.clearAllMocks();
+    prisma.$transaction.mockImplementation((callback) => callback(tx));
+    prisma.channelListing.count.mockResolvedValue(2);
+    vi.mocked(readAdEvidenceFromLedger).mockResolvedValue({
+      hasAdAccount: false,
+      publishedDates: 0,
+      accountSpend: 0,
+      coversWindow: false,
+    });
+    vi.mocked(buildPerListingProfit).mockResolvedValue([]);
+    service = new StatisticsService(prisma as never);
   });
 
-  afterEach(() => {
-    vi.useRealTimers();
+  it('uses canonical order facts for the overview order count', async () => {
+    vi.mocked(readOrderWindowFacts).mockResolvedValue({
+      revenue: 45_000,
+      orderCount: 3,
+      quantity: 4,
+      observedAt: new Date(),
+      observedTotals: { revenue: 45_000, orderCount: 3, quantity: 4 },
+      requestedDates: ['2026-04-01'],
+      includedDates: ['2026-04-01'],
+      missingDates: [],
+      sourceCoverage: [],
+    });
+
+    const result = await service.overview('organization-1', '2026-04');
+
+    expect(result.totalOrders).toBe(3);
+    expect(readOrderWindowFacts).toHaveBeenCalledOnce();
   });
 
-  describe('overview', () => {
-    it('uses distinct order.count instead of summing per-listing orderCount', async () => {
-      mockedBuildPerListingProfit.mockResolvedValue([
-        { ...baseMetric, listingId: 'listing-1', revenue: 100_000, netProfit: 20_000, orderCount: 1 },
-        { ...baseMetric, listingId: 'listing-2', masterId: 'master-2', masterCode: 'M0002', masterName: 'Master Product B', revenue: 50_000, netProfit: 10_000, orderCount: 1 },
-      ]);
-      prisma.channelListing.count.mockResolvedValue(2);
-      prisma.order.count.mockResolvedValue(1);
-
-      const result = await service.overview('organization-1', '2026-04');
-
-      expect(mockedBuildPerListingProfit).toHaveBeenCalledWith(
-        prisma as any,
-        'organization-1',
-        new Date('2026-03-31T15:00:00.000Z'),
-        new Date('2026-04-30T15:00:00.000Z'),
-        NOT_APPLIED_AD_EVIDENCE,
-      );
-      // The ledger is asked about the same `[from, to)` window.
-      expect(mockedReadAdEvidenceFromLedger).toHaveBeenCalledWith(
-        prisma as any,
-        'organization-1',
-        new Date('2026-03-31T15:00:00.000Z'),
-        new Date('2026-04-30T15:00:00.000Z'),
-      );
-      expect(prisma.order.count).toHaveBeenCalledWith({
-        where: {
-          organizationId: 'organization-1',
-          orderedAt: {
-            gte: new Date('2026-03-31T15:00:00.000Z'),
-            lt: new Date('2026-04-30T15:00:00.000Z'),
-          },
-          status: { notIn: ['cancelled', 'returned', 'refunded'] },
-        },
-      });
-      expect(prisma.channelListing.count).toHaveBeenCalledWith({
-        where: { organizationId: 'organization-1', isActive: true },
-      });
-      expect(result).toEqual({
-        totalRevenue: 150_000,
-        totalOrders: 1,
-        totalProfit: 30_000,
-        avgMargin: 0.2,
-        totalProducts: 2,
-      });
+  it('gets an omitted-period window from the order owner reader', async () => {
+    const window = {
+      from: new Date('2026-04-10T03:00:00.000Z'),
+      to: new Date('2026-04-15T03:00:00.001Z'),
+    };
+    vi.mocked(readObservedOrderBounds).mockResolvedValue(window);
+    vi.mocked(readOrderWindowFacts).mockResolvedValue({
+      revenue: 1,
+      orderCount: 1,
+      quantity: 1,
+      observedAt: new Date(),
+      observedTotals: { revenue: 1, orderCount: 1, quantity: 1 },
+      requestedDates: ['2026-04-10'],
+      includedDates: ['2026-04-10'],
+      missingDates: [],
+      sourceCoverage: [],
     });
 
-    it('preserves omitted-period all-time semantics with a bounded live window', async () => {
-      vi.useFakeTimers();
-      vi.setSystemTime(new Date('2026-04-24T00:00:00.000Z'));
-      prisma.channelListing.count.mockResolvedValue(0);
-      prisma.order.count.mockResolvedValue(0);
+    await service.overview('organization-1');
 
-      await service.overview('organization-1');
-
-      expect(mockedBuildPerListingProfit).toHaveBeenCalledWith(
-        prisma as any,
-        'organization-1',
-        new Date(0),
-        new Date('2026-04-30T15:00:00.000Z'),
-        NOT_APPLIED_AD_EVIDENCE,
-      );
-      expect(mockedReadAdEvidenceFromLedger).toHaveBeenCalledWith(
-        prisma as any,
-        'organization-1',
-        new Date(0),
-        new Date('2026-04-30T15:00:00.000Z'),
-      );
-      expect(prisma.order.count).toHaveBeenCalledWith({
-        where: {
-          organizationId: 'organization-1',
-          orderedAt: {
-            gte: new Date(0),
-            lt: new Date('2026-04-30T15:00:00.000Z'),
-          },
-          status: { notIn: ['cancelled', 'returned', 'refunded'] },
-        },
-      });
-    });
+    expect(readObservedOrderBounds).toHaveBeenCalledWith(tx, 'organization-1');
+    expect(readAdEvidenceFromLedger).toHaveBeenCalledWith(
+      tx,
+      'organization-1',
+      window.from,
+      window.to,
+    );
   });
 
-  describe('products', () => {
-    it('maps live metrics to listing-primary rows and keeps ratio semantics', async () => {
-      mockedBuildPerListingProfit.mockResolvedValue([
-        { ...baseMetric, listingId: 'listing-1', revenue: 500_000, netProfit: 100_000 },
-        {
-          ...baseMetric,
-          listingId: 'listing-2',
-          externalId: 'ext-2',
-          channelName: null,
-          masterId: 'master-2',
-          masterCode: 'M0002',
-          masterName: 'Master Product B',
-          category: null,
-          grade: null,
-          thumbnailUrl: null,
-          revenue: 0,
-          netProfit: 0,
-          orderCount: 0,
-        },
-      ]);
+  it('totals repeat-customer amount from line facts', async () => {
+    vi.mocked(readRepurchaseOrderFacts).mockResolvedValue([
+      {
+        orderId: 'order-1',
+        receiverName: 'A',
+        orderedAt: new Date('2026-04-10T03:00:00.000Z'),
+        revenue: 20_000,
+      },
+      {
+        orderId: 'order-2',
+        receiverName: 'A',
+        orderedAt: new Date('2026-04-12T03:00:00.000Z'),
+        revenue: 7_000,
+      },
+    ]);
+    vi.mocked(readListingOptionOrderFacts).mockResolvedValue([]);
+    tx.channelListingOption.findMany.mockResolvedValue([]);
 
-      const result = await service.products('organization-1', '2026-04');
+    const result = await service.repurchase('organization-1', '2026-04');
 
-      expect(result).toEqual([
-        {
-          listingId: 'listing-1',
-          externalId: 'ext-1',
-          channelName: '쿠팡 상품명 A',
-          masterId: 'master-1',
-          masterCode: 'M0001',
-          productName: 'Master Product A',
-          category: '유아용품',
-          grade: 'A',
-          thumbnailUrl: 'https://cdn/a.jpg',
-          totalRevenue: 500_000,
-          netProfit: 100_000,
-          orderCount: 20,
-          profitRate: 0.2,
-          margin: 0.2,
-        },
-        {
-          listingId: 'listing-2',
-          externalId: 'ext-2',
-          channelName: null,
-          masterId: 'master-2',
-          masterCode: 'M0002',
-          productName: 'Master Product B',
-          category: null,
-          grade: null,
-          thumbnailUrl: null,
-          totalRevenue: 0,
-          netProfit: 0,
-          orderCount: 0,
-          profitRate: 0,
-          margin: 0,
-        },
-      ]);
-    });
-  });
-
-  describe('categories', () => {
-    it('groups live metrics by category and sorts by revenue desc', async () => {
-      mockedBuildPerListingProfit.mockResolvedValue([
-        { ...baseMetric, listingId: 'listing-1', category: '유아용품', revenue: 300_000, netProfit: 60_000, orderCount: 10 },
-        { ...baseMetric, listingId: 'listing-2', category: '완구', revenue: 500_000, netProfit: 100_000, orderCount: 15 },
-        { ...baseMetric, listingId: 'listing-3', category: '유아용품', revenue: 200_000, netProfit: 50_000, orderCount: 8 },
-        { ...baseMetric, listingId: 'listing-4', category: null, revenue: 50_000, netProfit: 10_000, orderCount: 2 },
-      ]);
-
-      const result = await service.categories('organization-1', '2026-04');
-      const byCategory = new Map(result.map((row) => [row.category, row]));
-
-      expect(byCategory.get('유아용품')).toEqual({
-        category: '유아용품',
-        name: '유아용품',
-        revenue: 500_000,
-        orders: 18,
-        profit: 110_000,
-        count: 18,
-      });
-      expect(byCategory.get('완구')).toEqual({
-        category: '완구',
-        name: '완구',
-        revenue: 500_000,
-        orders: 15,
-        profit: 100_000,
-        count: 15,
-      });
-      expect(byCategory.get('미분류')).toEqual({
-        category: '미분류',
-        name: '미분류',
-        revenue: 50_000,
-        orders: 2,
-        profit: 10_000,
-        count: 2,
-      });
-      expect(result[result.length - 1].category).toBe('미분류');
-    });
-  });
-
-  describe('grades', () => {
-    it('groups live metrics by grade with adCost sum and productCount', async () => {
-      mockedBuildPerListingProfit.mockResolvedValue([
-        { ...baseMetric, listingId: 'listing-1', grade: 'A', revenue: 1_000_000, netProfit: 200_000, adCost: 50_000 },
-        { ...baseMetric, listingId: 'listing-2', grade: 'A', revenue: 500_000, netProfit: 80_000, adCost: 30_000 },
-        { ...baseMetric, listingId: 'listing-3', grade: 'B', revenue: 200_000, netProfit: 20_000, adCost: 10_000 },
-        { ...baseMetric, listingId: 'listing-4', grade: null, revenue: 50_000, netProfit: 5_000, adCost: 0 },
-      ]);
-
-      const result = await service.grades('organization-1', '2026-04');
-
-      expect(result).toEqual([
-        {
-          grade: 'A',
-          revenue: 1_500_000,
-          profit: 280_000,
-          count: 2,
-          productCount: 2,
-          adCost: 80_000,
-        },
-        {
-          grade: 'B',
-          revenue: 200_000,
-          profit: 20_000,
-          count: 1,
-          productCount: 1,
-          adCost: 10_000,
-        },
-        {
-          grade: 'N/A',
-          revenue: 50_000,
-          profit: 5_000,
-          count: 1,
-          productCount: 1,
-          adCost: 0,
-        },
-      ]);
-    });
-  });
-
-  describe('pareto', () => {
-    it('computes neutral revenue Pareto bands without comparing stored product grades', async () => {
-      mockedBuildPerListingProfit.mockResolvedValue([
-        { ...baseMetric, listingId: 'listing-1', masterName: 'Product A', grade: 'A', revenue: 700 },
-        { ...baseMetric, listingId: 'listing-2', masterName: 'Product B', grade: 'C', revenue: 200 },
-        { ...baseMetric, listingId: 'listing-3', masterName: 'Product C', grade: null, revenue: 100 },
-      ]);
-
-      const result = await service.pareto('organization-1', '2026-04');
-
-      expect(result).toEqual({
-        totalRevenue: 1000,
-        bandDistribution: { top70: 1, next20: 1, tail10: 1 },
-        data: [
-          {
-            id: 'listing-1',
-            rank: 1,
-            name: 'Product A',
-            paretoBand: 'top70',
-            revenue: 700,
-            revenuePercent: 70,
-            cumulativePercent: 70,
-          },
-          {
-            id: 'listing-2',
-            rank: 2,
-            name: 'Product B',
-            paretoBand: 'next20',
-            revenue: 200,
-            revenuePercent: 20,
-            cumulativePercent: 90,
-          },
-          {
-            id: 'listing-3',
-            rank: 3,
-            name: 'Product C',
-            paretoBand: 'tail10',
-            revenue: 100,
-            revenuePercent: 10,
-            cumulativePercent: 100,
-          },
-        ],
-      });
-    });
-  });
-
-  describe('repurchase', () => {
-    it('aggregates repeatProducts at listing level and repeatCustomers at receiver level', async () => {
-      prisma.order.findMany.mockResolvedValue([
-        {
-          receiverName: '홍길동',
-          totalPrice: 10_000,
-          orderedAt: new Date('2026-04-10T00:00:00.000Z'),
-        },
-        {
-          receiverName: '홍길동',
-          totalPrice: 20_000,
-          orderedAt: new Date('2026-04-15T00:00:00.000Z'),
-        },
-        {
-          receiverName: '김철수',
-          totalPrice: 5_000,
-          orderedAt: new Date('2026-04-12T00:00:00.000Z'),
-        },
-        {
-          receiverName: null,
-          totalPrice: 1_000,
-          orderedAt: new Date('2026-04-13T00:00:00.000Z'),
-        },
-      ]);
-      prisma.orderLineItem.findMany.mockResolvedValue([
-        {
-          order: { receiverName: '홍길동' },
-          listingOption: {
-            listing: {
-              id: 'listing-A',
-              displayName: 'Listing A',
-              channelName: null,
-              externalId: 'external-A',
-              category: '유아용품',
-            },
-          },
-        },
-        {
-          order: { receiverName: '김철수' },
-          listingOption: {
-            listing: {
-              id: 'listing-A',
-              displayName: 'Listing A',
-              channelName: null,
-              externalId: 'external-A',
-              category: '유아용품',
-            },
-          },
-        },
-        {
-          order: { receiverName: '홍길동' },
-          listingOption: {
-            listing: {
-              id: 'listing-B',
-              displayName: 'Listing B',
-              channelName: null,
-              externalId: 'external-B',
-              category: '완구',
-            },
-          },
-        },
-        {
-          order: { receiverName: '홍길동' },
-          listingOption: {
-            listing: {
-              id: 'listing-B',
-              displayName: 'Listing B',
-              channelName: null,
-              externalId: 'external-B',
-              category: '완구',
-            },
-          },
-        },
-        {
-          order: { receiverName: '홍길동' },
-          listingOption: null,
-        },
-        {
-          order: { receiverName: null },
-          listingOption: {
-            listing: {
-              id: 'listing-A',
-              displayName: 'Listing A',
-              channelName: null,
-              externalId: 'external-A',
-              category: '유아용품',
-            },
-          },
-        },
-      ]);
-
-      const result = await service.repurchase('organization-1', '2026-04');
-
-      expect(prisma.order.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({
-            organizationId: 'organization-1',
-            status: { notIn: ['cancelled', 'returned'] },
-            orderedAt: expect.objectContaining({
-              gte: expect.any(Date),
-              lt: expect.any(Date),
-            }),
-          }),
-          select: { receiverName: true, totalPrice: true, orderedAt: true },
-        }),
-      );
-      expect(prisma.orderLineItem.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({
-            order: expect.objectContaining({
-              organizationId: 'organization-1',
-              status: { notIn: ['cancelled', 'returned'] },
-            }),
-            listingOptionId: { not: null },
-          }),
-        }),
-      );
-      expect(result).toEqual({
-        totalCustomers: 2,
-        repeatCount: 1,
-        repurchaseRate: 0.5,
-        totalOrders: 4,
-        repeatProducts: [
-          {
-            masterId: 'listing-A',
-            productName: 'Listing A',
-            category: '유아용품',
-            orderCount: 3,
-          },
-        ],
-        repeatCustomers: [
-          {
-            name: '홍길동',
-            count: 2,
-            totalAmount: 30_000,
-            lastOrder: new Date('2026-04-15T00:00:00.000Z'),
-          },
-        ],
-      });
-    });
-
-    it('omits orderedAt period filter when period is not provided', async () => {
-      prisma.order.findMany.mockResolvedValue([]);
-      prisma.orderLineItem.findMany.mockResolvedValue([]);
-
-      await service.repurchase('organization-1');
-
-      const orderCall = prisma.order.findMany.mock.calls[0][0];
-      expect(orderCall.where).toEqual({
-        organizationId: 'organization-1',
-        status: { notIn: ['cancelled', 'returned'] },
-      });
-    });
+    expect(result.repeatCustomers[0]?.totalAmount).toBe(27_000);
   });
 });

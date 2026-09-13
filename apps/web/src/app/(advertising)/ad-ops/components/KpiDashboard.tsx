@@ -4,7 +4,6 @@ import {
   TrendingUp, Megaphone, BarChart3, Zap,
 } from "lucide-react";
 import { formatKRW, formatNumber } from "@/lib/utils";
-import type { WingAdSummary } from "@kiditem/shared/dashboard";
 import type { AdAccountKpi } from "@kiditem/shared/advertising";
 
 interface DailyPoint {
@@ -20,14 +19,13 @@ interface DailyPoint {
 
 interface KpiDashboardProps {
   totalKpi: Record<string, number>;
-  wingAdData: WingAdSummary | null;
   period: string;
   roas: number;
   trendsDaily?: DailyPoint[] | null;
   accountSummary?: AdAccountKpi | null;
 }
 
-export default function KpiDashboard({ totalKpi, wingAdData, period, roas, trendsDaily, accountSummary }: KpiDashboardProps) {
+export default function KpiDashboard({ totalKpi, period, roas, trendsDaily, accountSummary }: KpiDashboardProps) {
   // `accountSummary` is explicitly account-grain Coupang ads data. It is not
   // substituted into per-listing rows; the top KPI cards are account-level by
   // design when this source is present.
@@ -39,12 +37,12 @@ export default function KpiDashboard({ totalKpi, wingAdData, period, roas, trend
     ? accountSummary.metrics.spend
     : hasListingTrendSignal
     ? trendsDaily!.reduce((s, d) => s + d.spend, 0)
-    : (wingAdData?.adSpend ? wingAdData.adSpend : (totalKpi.adSpend || 0));
+    : (totalKpi.adSpend || 0);
   const adRevenue = hasAccountSummary
     ? accountSummary.metrics.revenue
     : hasListingTrendSignal
     ? trendsDaily!.reduce((s, d) => s + d.revenue, 0)
-    : (wingAdData?.adRevenue ? wingAdData.adRevenue : (totalKpi.adRevenue || 0));
+    : (totalKpi.adRevenue || 0);
   const impressions = hasAccountSummary
     ? accountSummary.metrics.impressions
     : hasListingTrendSignal
@@ -64,7 +62,7 @@ export default function KpiDashboard({ totalKpi, wingAdData, period, roas, trend
     ? (accountSummary.metrics.roas ?? 0)
     : hasListingTrendSignal
     ? (adSpend > 0 ? Math.round((adRevenue / adSpend) * 100) : 0)
-    : (wingAdData?.adRoas ? wingAdData.adRoas : roas);
+    : roas;
   const ctr = hasAccountSummary
     ? (accountSummary.metrics.ctr ?? 0)
     : hasListingTrendSignal
@@ -94,9 +92,7 @@ export default function KpiDashboard({ totalKpi, wingAdData, period, roas, trend
     ? `쿠팡 광고 계정 기준 · 최근 ${accountSummary.latestBusinessDate ?? "-"}`
     : hasListingTrendSignal
       ? "listing 광고 기준"
-      : wingAdData
-        ? "Wing 대시보드 기준"
-        : "캠페인 합산 기준";
+      : "캠페인 합산 기준";
 
   const renderSmallCard = (kpi: { label: string; value: string; unit: string; current: number; goal: number; goalLabel: string; invertGoal: boolean; accentColor: string; icon: typeof BarChart3; avg: number | null }) => {
     const pct = kpi.invertGoal

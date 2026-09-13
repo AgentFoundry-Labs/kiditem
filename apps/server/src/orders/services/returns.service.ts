@@ -1,10 +1,11 @@
 import { Injectable, NotFoundException, NotImplementedException } from '@nestjs/common';
-import type { OrderReturn, OrderReturnLineItem } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-
-type OrderReturnWithLineItems = OrderReturn & {
-  lineItems: OrderReturnLineItem[];
-};
+import {
+  readOrderReturnByIdFact,
+  readOrderReturns,
+  readOrderReturnStatusCounts,
+  type OrderReturnFact,
+} from '../read/order-facts.reader';
 
 @Injectable()
 export class ReturnsService {
@@ -14,30 +15,29 @@ export class ReturnsService {
     organizationId: string,
     query: { from?: string; to?: string; type?: string },
   ): Promise<{
-    items: OrderReturnWithLineItems[];
+    items: OrderReturnFact[];
     total: number;
     type: string;
   }> {
     const type = query.type || 'return';
 
-    const where: Record<string, unknown> = {
-      organizationId,
-      type: type === 'exchange' ? 'EXCHANGE' : 'RETURN',
-    };
-
+    let from: Date | undefined;
+    let to: Date | undefined;
     if (query.from || query.to) {
-      const from = query.from
+      from = query.from
         ? new Date(query.from)
         : new Date(Date.now() - 30 * 86400000);
-      const to = query.to ? new Date(query.to) : new Date();
-      where.requestedAt = { gte: from, lte: to };
+      to = query.to ? new Date(query.to) : new Date();
     }
 
-    const data = await this.prisma.orderReturn.findMany({
-      where,
-      include: { lineItems: true },
-      orderBy: { requestedAt: 'desc' },
-    });
+    const data = await this.prisma.$transaction((tx) =>
+      readOrderReturns(tx, {
+        organizationId,
+        type: type === 'exchange' ? 'EXCHANGE' : 'RETURN',
+        from,
+        to,
+      }),
+    );
 
     return {
       items: data,
@@ -49,11 +49,10 @@ export class ReturnsService {
   async findOne(
     id: string,
     organizationId: string,
-  ): Promise<OrderReturnWithLineItems> {
-    const ret = await this.prisma.orderReturn.findFirst({
-      where: { id, organizationId },
-      include: { lineItems: true },
-    });
+  ): Promise<OrderReturnFact> {
+    const ret = await this.prisma.$transaction((tx) =>
+      readOrderReturnByIdFact(tx, organizationId, id),
+    );
     if (!ret) throw new NotFoundException('OrderReturn not found');
     return ret;
   }
@@ -61,20 +60,18 @@ export class ReturnsService {
   async getStats(organizationId: string): Promise<{
     stats: { total: number; uc: number; rc: number; completed: number };
   }> {
-    const [total, uc, rc, completed, returnsCompleted] = await Promise.all([
-      this.prisma.orderReturn.count({ where: { organizationId } }),
-      this.prisma.orderReturn.count({ where: { organizationId, status: 'UC' } }),
-      this.prisma.orderReturn.count({ where: { organizationId, status: 'RC' } }),
-      this.prisma.orderReturn.count({
-        where: { organizationId, status: 'COMPLETED' },
-      }),
-      this.prisma.orderReturn.count({
-        where: { organizationId, status: 'RETURNS_COMPLETED' },
-      }),
-    ]);
+    const counts = await this.prisma.$transaction((tx) =>
+      readOrderReturnStatusCounts(tx, organizationId),
+    );
 
     return {
-      stats: { total, uc, rc, completed: completed + returnsCompleted },
+      stats: {
+        total: counts.total,
+        uc: counts.byStatus.UC ?? 0,
+        rc: counts.byStatus.RC ?? 0,
+        completed:
+          (counts.byStatus.COMPLETED ?? 0) + (counts.byStatus.RETURNS_COMPLETED ?? 0),
+      },
     };
   }
 

@@ -13,7 +13,6 @@ import type {
   AdTrendsData,
   ExposureAnalysisData,
 } from '@kiditem/shared/advertising';
-import type { DashboardAdSummary } from '@kiditem/shared/dashboard';
 
 export type CampaignProductData = {
   vendorItemId: string;
@@ -155,13 +154,6 @@ export function useAdOpsData(period: string, tab: string) {
     staleTime: AD_OPS_METRIC_STALE_TIME,
   });
 
-  const dashboard = useQuery({
-    queryKey: queryKeys.dashboard.adBaseline(),
-    queryFn: () =>
-      apiClient.get<DashboardAdSummary>('/api/dashboard/ad'),
-    staleTime: AD_OPS_METRIC_STALE_TIME,
-  });
-
   const trends = useQuery({
     queryKey: queryKeys.ads.trends(period),
     queryFn: () =>
@@ -181,7 +173,6 @@ export function useAdOpsData(period: string, tab: string) {
   const isLoading =
     campaigns.isLoading ||
     rules.isLoading ||
-    dashboard.isLoading ||
     (needsExtensionStatus && wingStatus.isLoading) ||
     (needsStrategyPlan && strategy.isLoading);
   const isRefreshing =
@@ -191,7 +182,6 @@ export function useAdOpsData(period: string, tab: string) {
       wingStatus.isFetching ||
       strategy.isFetching ||
       trends.isFetching ||
-      dashboard.isFetching ||
       exposure.isFetching
     );
 
@@ -200,7 +190,6 @@ export function useAdOpsData(period: string, tab: string) {
     rules,
     wingStatus,
     strategy,
-    dashboard,
     trends,
     exposure,
     isLoading,

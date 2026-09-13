@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { NotFoundException } from '@nestjs/common';
+import { readProductAbcPublication } from '../../../../products/read/product-abc-publication.reader';
 import type { PrismaService } from '../../../../prisma/prisma.service';
 import type { GenerationWorkspaceSummary, GenerationRow } from '../../../mapper/thumbnail-generation.mapper';
 import type { ThumbnailGenerationListScope } from '../../../domain/thumbnail-generation-subject';
@@ -341,7 +342,22 @@ export async function findAutoBatchCandidates(
   organizationId: string,
   take: number,
 ): Promise<Array<{ id: string }>> {
-  const rows = await prisma.contentWorkspace.findMany({
+  return prisma.$transaction(
+    (tx) => findAutoBatchCandidatesSnapshot(tx, organizationId, take),
+    { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+  );
+}
+
+async function findAutoBatchCandidatesSnapshot(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+  take: number,
+): Promise<Array<{ id: string }>> {
+  const publication = await readProductAbcPublication(tx, { organizationId });
+  const aGradeProductIds = publication.products.flatMap((product) =>
+    product.evaluation?.abcGrade === 'A' ? [product.masterProductId] : []);
+  if (aGradeProductIds.length === 0) return [];
+  const rows = await tx.contentWorkspace.findMany({
     where: {
       organizationId,
       status: 'active',
@@ -349,7 +365,7 @@ export async function findAutoBatchCandidates(
       channelListing: {
         is: {
           isActive: true,
-          masterProduct: { is: { organizationId, abcGrade: 'A' } },
+          masterProduct: { is: { organizationId, id: { in: aGradeProductIds } } },
         },
       },
     },
@@ -357,7 +373,9 @@ export async function findAutoBatchCandidates(
     orderBy: { updatedAt: 'desc' },
     take,
   });
-  return rows.filter((workspace) => Boolean(workspaceImageUrl(workspace))).map((workspace) => ({ id: workspace.id }));
+  return rows
+    .filter((workspace) => Boolean(workspaceImageUrl(workspace)))
+    .map((workspace) => ({ id: workspace.id }));
 }
 
 export function findThumbnailAnalysisGrade(

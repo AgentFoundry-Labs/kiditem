@@ -7,8 +7,8 @@ import { businessDateKey } from '../../../../common/kst';
  * decide which sources fed the period, so cost/settlement fields are not read.
  */
 export interface EffectivePeriodProfitMetrics {
-  revenue: number;
-  orderCount: number;
+  revenue: number | null;
+  orderCount: number | null;
 }
 
 /**
@@ -35,10 +35,10 @@ export interface CoupangAdsEvidence {
  * does not.
  */
 export function hasOrderEvidence(metrics: {
-  revenue: number;
-  orderCount?: number;
-}): boolean {
-  return metrics.revenue !== 0 || (metrics.orderCount ?? 0) > 0;
+  revenue: number | null;
+  orderCount?: number | null;
+}): metrics is { revenue: number; orderCount: number } {
+  return metrics.revenue !== null && (metrics.orderCount ?? null) !== null;
 }
 
 /**

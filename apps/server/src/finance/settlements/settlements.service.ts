@@ -1,4 +1,5 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import type {
   SettlementReconcileDetail,
   SettlementReconcileResponse,
@@ -10,6 +11,8 @@ import {
 } from '../../common/per-listing-profit';
 import { kstMonthStart } from '../../common/kst';
 import { CreateSettlementDto, UpdateSettlementDto } from './dto';
+import { readSettlements } from './read/settlement-facts';
+import { classifySettlementDifference } from './settlement-reconciliation';
 
 @Injectable()
 export class SettlementsService {
@@ -28,17 +31,10 @@ export class SettlementsService {
   }
 
   async findAll(organizationId: string, period?: string) {
-    const periodFilter =
-      period?.length === 7
-        ? { period }
-        : period?.length === 4
-          ? { period: { startsWith: period } }
-          : undefined;
-
-    return this.prisma.settlement.findMany({
-      where: { organizationId, ...periodFilter },
-      orderBy: { period: 'desc' },
-    });
+    return this.prisma.$transaction((tx) => readSettlements(tx, {
+      organizationId,
+      period,
+    }));
   }
 
   async create(organizationId: string, dto: CreateSettlementDto) {
@@ -61,19 +57,24 @@ export class SettlementsService {
     // 1. Build live metrics and compare them to the order aggregate side.
     //    SUM(total_price)::bigint — 단일 월 매출이 int32 (~21억 KRW) 초과 가능성 (대형 셀러).
     //    bigint → Number() 로 안전 변환 (2^53 이하 보장).
-    const accountAdEvidence = await readAdEvidenceFromLedger(
-      this.prisma,
-      organizationId,
-      from,
-      to,
-    );
-
-    const [metrics, rows] = await Promise.all([
+    const [metrics, rows] = await this.prisma.$transaction(async (tx) => {
+      const accountAdEvidence = await readAdEvidenceFromLedger(
+        tx,
+        organizationId,
+        from,
+        to,
+      );
       // Reconciliation compares revenue, which never depends on ad coverage, so
       // every listing stays in the detail list. Only `plNetProfit` can be
       // unavailable (ADR-0006); dropping the row would hide a revenue mismatch.
-      buildPerListingProfit(this.prisma, organizationId, from, to, accountAdEvidence),
-      this.prisma.$queryRaw<
+      const metrics = await buildPerListingProfit(
+        tx,
+        organizationId,
+        from,
+        to,
+        accountAdEvidence,
+      );
+      const rows = await tx.$queryRaw<
         Array<{
           listing_id: string;
           total_price: bigint;
@@ -91,8 +92,9 @@ export class SettlementsService {
            AND o.ordered_at <  ${to}
            AND o.status NOT IN ('cancelled', 'returned', 'refunded')
          GROUP BY clo.listing_id
-      `,
-    ]);
+      `;
+      return [metrics, rows] as const;
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
     const orderMap = new Map<string, { total: number; count: number }>(
       rows.map((r) => [r.listing_id, { total: Number(r.total_price), count: Number(r.order_count) }]),
     );
@@ -106,9 +108,7 @@ export class SettlementsService {
     const details = metrics.map((metric) => {
       const od = orderMap.get(metric.listingId) ?? { total: 0, count: 0 };
       const revenueDiff = metric.revenue - od.total;
-      const absDiff = Math.abs(revenueDiff);
-      const status: 'matched' | 'minor_diff' | 'mismatch' =
-        absDiff <= 100 ? 'matched' : absDiff <= 1000 ? 'minor_diff' : 'mismatch';
+      const status = classifySettlementDifference(revenueDiff);
 
       totalPlRevenue += metric.revenue;
       totalOrderRevenue += od.total;

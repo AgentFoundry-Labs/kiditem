@@ -7,7 +7,7 @@ import { BadRequestException } from '@nestjs/common';
 // (Plan B2c.dashboard T14 — listingId/master hydrate + Decimal + satisfies drift).
 
 function makePrisma() {
-  return {
+  const prisma = {
     settlement: {
       findMany: vi.fn().mockResolvedValue([]),
       // T8 IDOR fix — update path 는 findFirst({id, organizationId}) 경유. findUnique 는 레거시 (이 spec 외 무사용).
@@ -20,6 +20,11 @@ function makePrisma() {
       findMany: vi.fn().mockResolvedValue([]),
     },
     $queryRaw: vi.fn().mockResolvedValue([]),
+  };
+  return {
+    ...prisma,
+    $transaction: vi.fn(async (callback: (tx: typeof prisma) => Promise<unknown>) =>
+      callback(prisma)),
   };
 }
 

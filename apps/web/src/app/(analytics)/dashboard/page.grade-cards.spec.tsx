@@ -1,8 +1,8 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import Dashboard from './page';
 import { buildSnapshotBasis, type SellpiaSalesSummary } from '@kiditem/shared/dashboard';
+import Dashboard from './page';
 const sellpiaState = vi.hoisted(() => ({
   summary: undefined as SellpiaSalesSummary | undefined,
 }));
@@ -104,7 +104,6 @@ const sales = {
     coverage: null,
     reconciliation: null,
     exactPeriodEvidence: null,
-    adSummary: null,
     source: 'orders',
     netProfit: null,
     profitRate: null,
@@ -145,9 +144,9 @@ const inventory = {
   abcContributionProfit: {
     amountByGrade: { A: 12_000, B: 4_000, C: -500 },
     shareByGrade: { A: 0.77, B: 0.26, C: -0.03 },
+    basis: { publicationRevision: null, officialCutoffDate: null, publishedAt: null, sellpiaSourceImportRunId: null, advertisingSourceImportRunId: null, mappingGeneration: null, includedProductCount: 0, withheldProductCount: 0, denominator: 15_500 },
   },
   abcFormula: null,
-  mappingStatusCounts: { matched: 0, unmatched: 0, needsReview: 0 },
   alerts: [],
   warnings: {
     minusProducts: 3,
@@ -223,6 +222,24 @@ async function openProfitDetail(): Promise<HTMLElement> {
 
 describe('Dashboard absolute ABC grade cards', () => {
   it('uses the classified denominator, exposes unclassified, and links exact filters', async () => {
+    const abcBasis = {
+      kind: 'snapshot' as const,
+      measured: true,
+      asOf: '2026-08-31',
+      requiredAsOf: '2026-08-31',
+      observedAt: '2026-09-01T00:00:00.000Z',
+      sources: ['products', 'product_abc'],
+      withheldCount: 0,
+    };
+    inventoryResponse = {
+      ...inventory,
+      metricBasis: {
+        'gradeCount.A': abcBasis,
+        unclassifiedProductCount: abcBasis,
+        'gradeChanges.downgraded': abcBasis,
+        'abcContributionProfit.amountByGrade.A': abcBasis,
+      },
+    };
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },
     });
@@ -288,6 +305,68 @@ describe('Dashboard absolute ABC grade cards', () => {
     // screen reader too rather than only in colour.
     expect(funnel.getByRole('button', { name: /Wing 트래픽 퍼널 근거 안내 · 미수집/ })).toBeInTheDocument();
     expect(funnel.getByRole('button', { name: '수집 시작 →' })).toBeInTheDocument();
+  });
+
+  it('renders an uncovered Today read as unavailable rather than zero', async () => {
+    salesResponse = {
+      ...sales,
+      today: { revenue: null, orders: null },
+      metricBasis: {
+        'today.revenue': {
+          kind: 'period',
+          from: '2026-09-08',
+          to: '2026-09-08',
+          targetDays: 1,
+          includedDates: [],
+          invalidDates: [],
+          sources: ['orders'],
+        },
+        'today.orders': {
+          kind: 'period',
+          from: '2026-09-08',
+          to: '2026-09-08',
+          targetDays: 1,
+          includedDates: [],
+          invalidDates: [],
+          sources: ['orders'],
+        },
+      },
+    };
+
+    renderDashboard();
+    await waitFor(() => expect(screen.getByText('Kiditem Foundry')).toBeInTheDocument());
+
+    const todayCard = screen.getByTestId('dashboard-today-orders');
+    expect(todayCard).toHaveTextContent('오늘 주문—미측정');
+    expect(todayCard).not.toHaveTextContent('0건');
+    expect(todayCard).not.toHaveTextContent('0원');
+  });
+
+  it('keeps uncollected Inventory counts unavailable in the header and warning card', async () => {
+    inventoryResponse = {
+      ...inventory,
+      channelLinkedProducts: null,
+      channelUnlinkedProducts: null,
+      warnings: { ...inventory.warnings, outOfStockSkus: null },
+      metricBasis: {
+        'warnings.outOfStockSkus': {
+          kind: 'snapshot',
+          measured: false,
+          asOf: null,
+          requiredAsOf: null,
+          observedAt: null,
+          sources: ['sellpia_inventory'],
+          withheldCount: 0,
+        },
+      },
+    };
+
+    renderDashboard();
+    await waitFor(() => expect(screen.getByText('Kiditem Foundry')).toBeInTheDocument());
+
+    expect(screen.getByText('채널 연결 —')).toBeInTheDocument();
+    expect(screen.getByText('—', { selector: '[data-warning-count="out-of-stock"]' })).toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent('채널 연결 0');
   });
 
   it('renders collected zeroes and daily-average visitors without conflating provider conversion', async () => {
@@ -382,6 +461,10 @@ describe('Dashboard absolute ABC grade cards', () => {
         salesQty: 537,
         revenue: 742730,
         cartAdds: 261,
+        // Deliberately differ from counts: the server computed these on each
+        // rate's valid owner population and the browser must not recompute.
+        cartRate: 7.7,
+        orderCartRate: 8.8,
         conversionRate: 3.96,
         dailyAverageVisitors: 185.1,
         providerConversionRate: 3.96,
@@ -421,9 +504,10 @@ describe('Dashboard absolute ABC grade cards', () => {
     // The first step is a daily average and the rest are period sums, so there
     // is no share of visitors to show. Dividing them read 1256.1%.
     expect(funnel.getByText('조회').parentElement).not.toHaveTextContent('%');
-    // Later steps compare sum to sum and keep their rates.
-    expect(funnel.getByText('장바구니').parentElement).toHaveTextContent('11.2%');
-    expect(funnel.getByText('주문').parentElement).toHaveTextContent('35.2%');
+    // Later steps display the server-owned population-aligned ratios, not a
+    // quotient recomputed from the headline counts above.
+    expect(funnel.getByText('장바구니').parentElement).toHaveTextContent('7.7%');
+    expect(funnel.getByText('주문').parentElement).toHaveTextContent('8.8%');
   });
 
   it('keeps nullable traffic orders unavailable instead of falling back to today orders', async () => {

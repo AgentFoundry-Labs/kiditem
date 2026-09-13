@@ -7,7 +7,6 @@ describe('KpiDashboard period averages', () => {
     render(
       <KpiDashboard
         totalKpi={{}}
-        wingAdData={null}
         period="month"
         roas={0}
         trendsDaily={null}

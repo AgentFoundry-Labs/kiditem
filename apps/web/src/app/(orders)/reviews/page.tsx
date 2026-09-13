@@ -41,7 +41,7 @@ export default function ReviewsPage() {
   const summary = data?.summary ?? {
     listingCount: 0,
     totalReviewCount: 0,
-    weightedAvgRating: 0,
+    weightedAvgRating: null,
     newListingCount: 0,
     needsResponseCount: 0,
     needsAttentionCount: 0,
@@ -103,7 +103,9 @@ export default function ReviewsPage() {
           <div className="card-label">평균 평점</div>
           <div className="card-value flex items-center gap-1">
             <Star className="w-5 h-5 text-yellow-500 fill-yellow-500" />
-            {summary.weightedAvgRating.toFixed(1)}
+            {summary.weightedAvgRating === null
+              ? <span className="text-base text-slate-500">미측정</span>
+              : summary.weightedAvgRating.toFixed(1)}
           </div>
         </div>
         <div className="bg-white rounded-xl p-4 border border-red-200 bg-red-50">
@@ -197,11 +199,6 @@ export default function ReviewsPage() {
       )}
       </div>
 
-      {view === 'products' && (
-        <p className="text-xs text-slate-400 px-1">
-          주문 수 컬럼은 R3 범위에서 산출하지 않으며, listing × order line item 조인이 추가될 때 별도 PR 로 채웁니다 (현재는 모든 row 가 0).
-        </p>
-      )}
     </div>
   );
 }

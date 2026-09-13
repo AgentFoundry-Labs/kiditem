@@ -1,7 +1,8 @@
+import { randomUUID } from 'node:crypto';
 import { PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD, PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH } from '@kiditem/shared/product-abc';
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
-import { snapshotPartialOf } from '../../../test-helpers/dashboard-basis-assertions';
 import { Test } from '@nestjs/testing';
+import { snapshotPartialOf } from '../../../test-helpers/dashboard-basis-assertions';
 import { ProfitabilityAdImportRepositoryAdapter } from '../../../advertising/adapter/out/repository/profitability-ad-import.repository.adapter';
 import { AdAccountDailyKpiSourceRepository } from '../../../advertising/adapter/out/repository/ad-account-daily-kpi-source.repository';
 import { MasterProductProfitabilityReadService } from '../../../finance/application/service/master-product-profitability-read.service';
@@ -33,20 +34,27 @@ import {
   seedOrderWithLineItems,
   seedAd,
   seedCompletedAdSweepRun,
+  seedCompletedInventorySnapshot,
 } from '../../../test-helpers/finance-seeds';
 import type { PrismaClient } from '@prisma/client';
 
 describe('DashboardInventoryService.getSummary (PG integration)', () => {
   let prisma: PrismaClient;
   let service: DashboardInventoryService;
+  let sellpiaSource: SellpiaProfitabilitySourceService;
+  let advertisingSource: ProfitabilityAdImportRepositoryAdapter;
+  let repository: DashboardInventoryRepositoryAdapter;
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
     const alerts = new SourceFailureAlerts(prisma as never);
+    sellpiaSource = new SellpiaProfitabilitySourceService(prisma as never, alerts);
+    advertisingSource = new ProfitabilityAdImportRepositoryAdapter(prisma as never, alerts);
     const evidence = new MasterProductProfitabilityReadService(
-      new SellpiaProfitabilitySourceService(prisma as never, alerts),
-      new ProfitabilityAdImportRepositoryAdapter(prisma as never, alerts), prisma as never,
+      sellpiaSource,
+      advertisingSource,
+      prisma as never,
     );
     const m = await Test.createTestingModule({
       providers: [
@@ -67,6 +75,7 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
       ],
     }).compile();
     service = m.get(DashboardInventoryService);
+    repository = m.get(DashboardInventoryRepositoryAdapter);
   });
 
   afterAll(async () => {
@@ -77,6 +86,14 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
     await resetDb(prisma);
     await seedBaseFixture(prisma);
   });
+
+  async function readSummary(
+    ctx: ReturnType<typeof buildDashboardContext>,
+    organizationId: string,
+  ) {
+    await seedCompletedInventorySnapshot(prisma, organizationId);
+    return service.getSummary(ctx, organizationId);
+  }
 
   function midMonth(): Date {
     const now = new Date();
@@ -156,7 +173,7 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
     const masterT1 = await setupMaster(prisma, {
       organizationId: TEST_ORGANIZATION_ID, code: 'M-T-1', name: 'Master T1', abcGrade: 'A',
     });
-    await setupMaster(prisma, {
+    const masterT2 = await setupMaster(prisma, {
       organizationId: TEST_ORGANIZATION_ID, code: 'M-T-2', name: 'Master T2', abcGrade: 'B',
     });
     await prisma.alert.create({
@@ -167,11 +184,13 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
       },
     });
 
+    const otherGrades: Array<{ masterProductId: string; abcGrade: 'A' | 'B' }> = [];
     for (let i = 1; i <= 5; i++) {
-      await setupMaster(prisma, {
+      const product = await setupMaster(prisma, {
         organizationId: OTHER_ORGANIZATION_ID, code: `M-O-${i}`, name: `Master O${i}`,
         abcGrade: i <= 3 ? 'A' : 'B',
       });
+      otherGrades.push({ masterProductId: product.id, abcGrade: i <= 3 ? 'A' : 'B' });
     }
     for (let i = 1; i <= 3; i++) {
       await prisma.alert.create({
@@ -182,12 +201,17 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
         },
       });
     }
+    await seedPublishedGrades(TEST_ORGANIZATION_ID, [
+      { masterProductId: masterT1.id, abcGrade: 'A' },
+      { masterProductId: masterT2.id, abcGrade: 'B' },
+    ]);
+    await seedPublishedGrades(OTHER_ORGANIZATION_ID, otherGrades);
   }
 
   it('T1: TEST sees only TEST listings, alerts, and grades', async () => {
     await seedBaseStructure();
     const ctx = buildDashboardContext();
-    const result = await service.getSummary(ctx, TEST_ORGANIZATION_ID);
+    const result = await readSummary(ctx, TEST_ORGANIZATION_ID);
 
     expect(result.totalProducts).toBe(2);
     expect(result.channelLinkedProducts).toBe(0);
@@ -220,7 +244,7 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
       optionId: optionLinked.id,
       externalOptionId: 'VI-T-LINKED',
     });
-    await setupMaster(prisma, {
+    const inventoryOnly = await setupMaster(prisma, {
       organizationId: TEST_ORGANIZATION_ID, code: 'M-T-ONLY', name: 'Inventory Only Master', abcGrade: 'B',
     });
     const inactiveMaster = await setupMaster(prisma, {
@@ -255,8 +279,12 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
       optionId: otherOption.id,
       externalOptionId: 'VI-O-LINKED',
     });
+    await seedPublishedGrades(TEST_ORGANIZATION_ID, [
+      { masterProductId: masterLinked.id, abcGrade: 'A' },
+      { masterProductId: inventoryOnly.id, abcGrade: 'B' },
+    ]);
 
-    const result = await service.getSummary(buildDashboardContext(), TEST_ORGANIZATION_ID);
+    const result = await readSummary(buildDashboardContext(), TEST_ORGANIZATION_ID);
 
     expect(result.totalProducts).toBe(2);
     expect(result.channelLinkedProducts).toBe(1);
@@ -265,10 +293,192 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
     expect(result.gradeCount.B).toBe(1);
   });
 
+  it('keeps CONFIG linkage measured when inventory is absent or stock is zero', async () => {
+    const master = await setupMaster(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      code: 'M-T-CONFIG-LINK',
+      name: 'Config linked master',
+    });
+    const inventory = await setupProductOption(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      masterId: master.id,
+      sku: 'SKU-T-CONFIG-LINK',
+    });
+    await prisma.sellpiaInventorySku.update({
+      where: { id: inventory.id },
+      data: { masterProductId: master.id, currentStock: 0 },
+    });
+    const linkedListing = await setupChannelListing(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      masterId: master.id,
+      channel: 'coupang',
+      externalId: 'EXT-T-CONFIG-LINK',
+      optionId: inventory.id,
+      externalOptionId: 'VI-T-CONFIG-LINK',
+    });
+    // The product↔listing identity is direct CONFIG. Recipe/inventory mapping
+    // can be missing and is reported separately as mapping attention.
+    await prisma.channelListingOptionInventoryComponent.deleteMany({
+      where: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelListingOptionId: linkedListing.listingOptionId,
+      },
+    });
+
+    const withoutInventory = await service.getSummary(
+      buildDashboardContext(),
+      TEST_ORGANIZATION_ID,
+    );
+    expect(withoutInventory).toMatchObject({
+      channelLinkedProducts: 1,
+      channelUnlinkedProducts: 0,
+      warnings: { outOfStockSkus: null },
+    });
+    expect(withoutInventory.metricBasis?.channelLinkedProducts).toMatchObject({
+      measured: true,
+      sources: ['products', 'channel_listings'],
+    });
+
+    await seedCompletedInventorySnapshot(prisma, TEST_ORGANIZATION_ID);
+    const withZeroStock = await service.getSummary(
+      buildDashboardContext(),
+      TEST_ORGANIZATION_ID,
+    );
+    expect(withZeroStock).toMatchObject({
+      channelLinkedProducts: 1,
+      channelUnlinkedProducts: 0,
+      warnings: { outOfStockSkus: 1 },
+    });
+  });
+
+  it('uses source-evidenced sale status for channel-linked products without a traffic gate', async () => {
+    const master = await setupMaster(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      code: 'M-T-SALE-STATUS',
+      name: 'Sale Status Master',
+      abcGrade: 'A',
+    });
+    const inventory = await setupProductOption(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      masterId: master.id,
+      sku: 'SKU-T-SALE-STATUS',
+    });
+    await prisma.sellpiaInventorySku.update({
+      where: { id: inventory.id },
+      data: { masterProductId: master.id },
+    });
+    const listing = await setupChannelListing(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      masterId: master.id,
+      channel: 'coupang',
+      externalId: 'EXT-T-SALE-STATUS',
+      optionId: inventory.id,
+      externalOptionId: 'VI-T-SALE-STATUS',
+    });
+    const status = await prisma.channelListingDailySnapshot.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        listingId: listing.listingId,
+        channel: 'coupang',
+        externalId: 'EXT-T-SALE-STATUS',
+        businessDate: new Date('2026-09-01T00:00:00.000Z'),
+        saleStatus: '판매중지',
+        trafficObservedAt: null,
+      },
+    });
+
+    await expect(readSummary(
+      buildDashboardContext(),
+      TEST_ORGANIZATION_ID,
+    )).resolves.toMatchObject({ channelLinkedProducts: 0 });
+
+    await prisma.channelListingDailySnapshot.update({
+      where: { id: status.id },
+      data: { saleStatus: '판매중' },
+    });
+    await expect(readSummary(
+      buildDashboardContext(),
+      TEST_ORGANIZATION_ID,
+    )).resolves.toMatchObject({ channelLinkedProducts: 1 });
+  });
+
+  it('keeps mapping configuration and latest sale status on one repeatable-read snapshot', async () => {
+    const publisher = makeTestPrisma();
+    const observer = makeTestPrisma();
+    await Promise.all([publisher.$connect(), observer.$connect()]);
+    const master = await setupMaster(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      code: 'M-T-CONCURRENT-STATUS',
+      name: 'Concurrent Status Master',
+      abcGrade: 'A',
+    });
+    const inventory = await setupProductOption(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      masterId: master.id,
+      sku: 'SKU-T-CONCURRENT-STATUS',
+    });
+    await prisma.sellpiaInventorySku.update({
+      where: { id: inventory.id },
+      data: { masterProductId: master.id },
+    });
+    const listing = await setupChannelListing(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      masterId: master.id,
+      channel: 'coupang',
+      externalId: 'EXT-T-CONCURRENT-STATUS',
+      optionId: inventory.id,
+      externalOptionId: 'VI-T-CONCURRENT-STATUS',
+    });
+    await prisma.channelListingDailySnapshot.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        listingId: listing.listingId,
+        channel: 'coupang',
+        externalId: 'EXT-T-CONCURRENT-STATUS',
+        businessDate: new Date('2026-09-01T00:00:00.000Z'),
+        saleStatus: '판매중',
+      },
+    });
+
+    const publicationLocked = deferred<void>();
+    const publish = deferred<void>();
+    const publication = publisher.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(
+        'LOCK TABLE channel_listing_daily_snapshots IN ACCESS EXCLUSIVE MODE',
+      );
+      publicationLocked.resolve();
+      await publish.promise;
+      await tx.channelListingDailySnapshot.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          listingId: listing.listingId,
+          channel: 'coupang',
+          externalId: 'EXT-T-CONCURRENT-STATUS',
+          businessDate: new Date('2026-09-02T00:00:00.000Z'),
+          saleStatus: '판매중지',
+        },
+      });
+    }, { timeout: 15_000 });
+
+    try {
+      await publicationLocked.promise;
+      const reading = repository.readInventoryAvailabilityFacts(TEST_ORGANIZATION_ID);
+      await waitForBlockedListingStateRead(observer);
+      publish.resolve();
+      await publication;
+
+      await expect(reading).resolves.toMatchObject({ linkedMasterProductCount: 1 });
+    } finally {
+      publish.resolve();
+      await publication.catch(() => undefined);
+      await Promise.all([publisher.$disconnect(), observer.$disconnect()]);
+    }
+  }, 20_000);
+
   it('T2: OTHER sees only OTHER — TEST does not leak', async () => {
     await seedBaseStructure();
     const ctx = buildDashboardContext();
-    const result = await service.getSummary(ctx, OTHER_ORGANIZATION_ID);
+    const result = await readSummary(ctx, OTHER_ORGANIZATION_ID);
 
     expect(result.totalProducts).toBe(5);
     expect(result.channelLinkedProducts).toBe(0);
@@ -280,7 +490,7 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
 
   it('T3: fresh organization → zero-valued summary', async () => {
     const ctx = buildDashboardContext();
-    const result = await service.getSummary(ctx, TEST_ORGANIZATION_ID);
+    const result = await readSummary(ctx, TEST_ORGANIZATION_ID);
     expect(result.totalProducts).toBe(0);
     expect(result.alerts.length).toBe(0);
     expect(result.warnings.minusProducts).toBe(0);
@@ -294,7 +504,7 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
   });
 
   it('keeps active products without an automatic grade unclassified', async () => {
-    await setupMaster(prisma, {
+    const classified = await setupMaster(prisma, {
       organizationId: TEST_ORGANIZATION_ID,
       code: 'M-T-CLASSIFIED',
       name: 'Classified Master',
@@ -306,8 +516,11 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
       name: 'Unclassified Master',
       abcGrade: null,
     });
+    await seedPublishedGrades(TEST_ORGANIZATION_ID, [
+      { masterProductId: classified.id, abcGrade: 'A' },
+    ]);
 
-    const result = await service.getSummary(
+    const result = await readSummary(
       buildDashboardContext(),
       TEST_ORGANIZATION_ID,
     );
@@ -315,6 +528,85 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
     expect(result.gradeCount).toEqual({ A: 1, B: 0, C: 0 });
     expect(result.classifiedProductCount).toBe(1);
     expect(result.unclassifiedProductCount).toBe(1);
+  });
+
+  it('counts low reviews from the official A publication when the grade cache is null or stale', async () => {
+    const officialA = await setupMaster(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      code: 'M-T-OFFICIAL-A',
+      name: 'Official A',
+      abcGrade: null,
+    });
+    const staleCacheA = await setupMaster(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      code: 'M-T-STALE-A',
+      name: 'Stale cache A',
+      abcGrade: 'A',
+    });
+    const officialOption = await setupProductOption(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      masterId: officialA.id,
+      sku: 'SKU-T-OFFICIAL-A',
+    });
+    const staleOption = await setupProductOption(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      masterId: staleCacheA.id,
+      sku: 'SKU-T-STALE-A',
+    });
+    const officialListing = await setupChannelListing(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      masterId: officialA.id,
+      channel: 'coupang',
+      externalId: 'EXT-T-OFFICIAL-A',
+      optionId: officialOption.id,
+      externalOptionId: 'VI-T-OFFICIAL-A',
+    });
+    const staleListing = await setupChannelListing(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      masterId: staleCacheA.id,
+      channel: 'coupang',
+      externalId: 'EXT-T-STALE-A',
+      optionId: staleOption.id,
+      externalOptionId: 'VI-T-STALE-A',
+    });
+    await seedPublishedGrades(TEST_ORGANIZATION_ID, [
+      { masterProductId: officialA.id, abcGrade: 'A' },
+      { masterProductId: staleCacheA.id, abcGrade: 'B' },
+    ]);
+    const reviewRun = await prisma.sourceImportRun.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceType: 'coupang_reviews',
+        status: 'completed',
+        importedAt: new Date('2026-09-01T01:00:00.000Z'),
+      },
+    });
+    await prisma.review.createMany({
+      data: [
+        {
+          organizationId: TEST_ORGANIZATION_ID,
+          sourceImportRunId: reviewRun.id,
+          listingId: officialListing.listingId,
+          externalReviewId: 'OFFICIAL-A-LOW-1',
+          rating: 5,
+        },
+        ...Array.from({ length: 15 }, (_, index) => ({
+          organizationId: TEST_ORGANIZATION_ID,
+          sourceImportRunId: reviewRun.id,
+          listingId: staleListing.listingId,
+          externalReviewId: `STALE-A-HIGH-${index}`,
+          rating: 5,
+        })),
+      ],
+    });
+
+    const result = await readSummary(
+      buildDashboardContext(),
+      TEST_ORGANIZATION_ID,
+    );
+
+    expect(result.gradeCount).toEqual({ A: 1, B: 1, C: 0 });
+    expect(result.warnings.lowReviewProducts).toBe(1);
   });
 
   it('counts only organization-scoped automatic MasterProduct grade history', async () => {
@@ -330,16 +622,30 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
       name: 'Foreign History Master',
       abcGrade: 'C',
     });
-    const [ownFormula, foreignFormula] = await Promise.all([
-      createFormula(TEST_ORGANIZATION_ID),
-      createFormula(OTHER_ORGANIZATION_ID),
+    await Promise.all([
+      seedPublishedGrades(TEST_ORGANIZATION_ID, [
+        { masterProductId: ownMaster.id, abcGrade: 'A' },
+      ]),
+      seedPublishedGrades(OTHER_ORGANIZATION_ID, [
+        { masterProductId: foreignMaster.id, abcGrade: 'C' },
+      ]),
+    ]);
+    const [ownState, foreignState] = await Promise.all([
+      prisma.masterProductAbcFormulaState.findUniqueOrThrow({
+        where: { organizationId: TEST_ORGANIZATION_ID },
+        select: { activeFormulaVersionId: true },
+      }),
+      prisma.masterProductAbcFormulaState.findUniqueOrThrow({
+        where: { organizationId: OTHER_ORGANIZATION_ID },
+        select: { activeFormulaVersionId: true },
+      }),
     ]);
     await prisma.masterProductAbcGradeHistory.createMany({
       data: [
         {
           organizationId: TEST_ORGANIZATION_ID,
           masterProductId: ownMaster.id,
-          formulaVersionId: ownFormula.id,
+          formulaVersionId: ownState.activeFormulaVersionId!,
           formulaRevision: 1, publicationRevision: 1,
           oldGrade: null,
           newGrade: 'A',
@@ -350,7 +656,7 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
         {
           organizationId: OTHER_ORGANIZATION_ID,
           masterProductId: foreignMaster.id,
-          formulaVersionId: foreignFormula.id,
+          formulaVersionId: foreignState.activeFormulaVersionId!,
           formulaRevision: 1, publicationRevision: 1,
           oldGrade: 'A',
           newGrade: 'C',
@@ -361,7 +667,7 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
       ],
     });
 
-    const result = await service.getSummary(
+    const result = await readSummary(
       buildDashboardContext(),
       TEST_ORGANIZATION_ID,
     );
@@ -378,6 +684,95 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
         formulaChecksum: PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH,
         formulaJson: JSON.parse(JSON.stringify(PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD)),
       },
+    });
+  }
+
+  async function seedPublishedGrades(
+    organizationId: string,
+    grades: readonly { masterProductId: string; abcGrade: 'A' | 'B' | 'C' }[],
+  ): Promise<void> {
+    const cutoff = new Date('2026-08-31T00:00:00.000Z');
+    const calculatedAt = new Date('2026-09-01T00:00:00.000Z');
+    const formula = await createFormula(organizationId);
+    const state = await prisma.masterProductAbcFormulaState.findUnique({
+      where: { organizationId },
+      select: { mappingGeneration: true },
+    });
+    const mappingGeneration = state?.mappingGeneration ?? 0n;
+    const sellpia = await sellpiaSource.beginAttempt(organizationId, randomUUID());
+    await sellpiaSource.failAttempt(organizationId, sellpia.attemptId, {
+      attemptToken: sellpia.attemptToken,
+      errorCode: 'COLLECTION_FAILED',
+      errorMessage: 'Historical publication retained by fixture',
+    });
+    const advertising = await advertisingSource.beginAttempt({
+      organizationId,
+      idempotencyKey: randomUUID(),
+    });
+    await advertisingSource.failAttempt({
+      organizationId,
+      attemptId: advertising.attemptId,
+      attemptToken: advertising.attemptToken,
+      code: 'COLLECTION_FAILED',
+      message: 'Historical publication retained by fixture',
+    });
+    await prisma.alert.updateMany({
+      where: { organizationId, sourceType: { not: null } },
+      data: { isRead: true },
+    });
+    await prisma.$transaction(async (tx) => {
+      await tx.masterProductAbcFormulaState.upsert({
+        where: { organizationId },
+        create: {
+          organizationId,
+          activeFormulaVersionId: formula.id,
+          formulaRevision: 1,
+          publicationRevision: 1,
+          officialCutoffDate: cutoff,
+          publishedAt: calculatedAt,
+          publishedSellpiaSourceImportRunId: sellpia.attemptId,
+          publishedAdvertisingSourceImportRunId: advertising.attemptId,
+          publishedMappingGeneration: mappingGeneration,
+          mappingGeneration,
+        },
+        update: {
+          activeFormulaVersionId: formula.id,
+          formulaRevision: 1,
+          publicationRevision: 1,
+          officialCutoffDate: cutoff,
+          publishedAt: calculatedAt,
+          publishedSellpiaSourceImportRunId: sellpia.attemptId,
+          publishedAdvertisingSourceImportRunId: advertising.attemptId,
+          publishedMappingGeneration: mappingGeneration,
+        },
+      });
+      await tx.masterProductAbcEvaluation.createMany({ data: grades.map((grade) => ({
+        organizationId,
+        masterProductId: grade.masterProductId,
+        formulaVersionId: formula.id,
+        abcGrade: grade.abcGrade,
+        weightedRevenue: 100,
+        weightedOrderTimeSupplyCost: 20,
+        weightedAdvertisingSpend: 10,
+        weightedOperatingProfit: 70,
+        operatingProfitVelocity30: 70,
+        operatingMargin: 0.7,
+        lossPersistence: 0,
+        profitScore: 70,
+        marginScore: 100,
+        consistencyScore: 100,
+        economicScore: grade.abcGrade === 'A' ? 85 : grade.abcGrade === 'B' ? 70 : 20,
+        validObservationDays: 30,
+        formulaRevision: 1,
+        publicationRevision: 1,
+        gradeBasisCutoffDate: cutoff,
+        sellpiaSourceImportRunId: sellpia.attemptId,
+        advertisingSourceImportRunId: advertising.attemptId,
+        sellpiaGeneration: 1n,
+        advertisingGeneration: 1n,
+        mappingGeneration,
+        calculatedAt,
+      })) });
     });
   }
 
@@ -413,7 +808,7 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
     });
 
     const ctx = buildDashboardContext();
-    const result = await service.getSummary(ctx, TEST_ORGANIZATION_ID);
+    const result = await readSummary(ctx, TEST_ORGANIZATION_ID);
 
     expect(result.warnings.minusProducts).toBe(1);
     expect(result.warnings.lowProfitProducts).toBe(0);
@@ -460,7 +855,7 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
     await coverMonth();
 
     const ctx = buildDashboardContext();
-    const result = await service.getSummary(ctx, TEST_ORGANIZATION_ID);
+    const result = await readSummary(ctx, TEST_ORGANIZATION_ID);
 
     expect(result.warnings.minusProducts).toBe(1);
     expect(result.warnings.lowProfitProducts).toBe(1);
@@ -513,7 +908,7 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
       // Rows on two dates measure two dates; the rest of the month is unmeasured.
 
       const ctx = buildDashboardContext();
-      const result = await service.getSummary(ctx, TEST_ORGANIZATION_ID);
+      const result = await readSummary(ctx, TEST_ORGANIZATION_ID);
 
       // Coverage is account-level: a window the sweep measured only in part
       // gives no listing a measured ad cost, whatever its own rows say.
@@ -542,7 +937,7 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
       await seedAdDays(second, [AD_DAYS[0]]);
       await coverMonth();
 
-      const result = await service.getSummary(buildDashboardContext(), TEST_ORGANIZATION_ID);
+      const result = await readSummary(buildDashboardContext(), TEST_ORGANIZATION_ID);
 
       // The sweep measured the whole month; a listing without a row on a
       // measured date spent nothing that day, not an unknown amount.
@@ -568,7 +963,7 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
       // window carries no published account day at all.
       await seedLossListingOnChannel('coupang', 'ACCT-MISSING');
 
-      const result = await service.getSummary(buildDashboardContext(), TEST_ORGANIZATION_ID);
+      const result = await readSummary(buildDashboardContext(), TEST_ORGANIZATION_ID);
 
       // Absent evidence, not an ad cost of zero: the loss-making listing is
       // withheld and the cards blank rather than reporting a computed profit.
@@ -596,7 +991,7 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
       await seedLossListingOnChannel('coupang', 'ACCT-ZERO-FULL');
       await coverMonth();
 
-      const result = await service.getSummary(buildDashboardContext(), TEST_ORGANIZATION_ID);
+      const result = await readSummary(buildDashboardContext(), TEST_ORGANIZATION_ID);
 
       // The account proved zero spend on every date the window asked about, so
       // the loss-making listing has a measured ad cost of 0 and a computed
@@ -620,7 +1015,7 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
       await seedLossListingOnChannel('coupang', 'ACCT-ZERO-PARTIAL');
       await coverMonth(1);
 
-      const result = await service.getSummary(buildDashboardContext(), TEST_ORGANIZATION_ID);
+      const result = await readSummary(buildDashboardContext(), TEST_ORGANIZATION_ID);
 
       expect(result.warnings.minusProducts).toBe(0);
       for (const key of PER_LISTING_KEYS) {
@@ -643,7 +1038,7 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
       // no collection can exist, so zero is a satisfied input.
       await seedLossListingOnChannel('naver', 'ACCT-NOT-APPLIED');
 
-      const result = await service.getSummary(buildDashboardContext(), TEST_ORGANIZATION_ID);
+      const result = await readSummary(buildDashboardContext(), TEST_ORGANIZATION_ID);
 
       expect(result.warnings.minusProducts).toBe(1);
       expect(result.warnings.highAdProducts).toBe(0);
@@ -657,3 +1052,30 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
     });
   });
 });
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
+async function waitForBlockedListingStateRead(prisma: PrismaClient): Promise<void> {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    const [activity] = await prisma.$queryRaw<Array<{ waiting: boolean }>>`
+      SELECT EXISTS (
+        SELECT 1
+        FROM pg_stat_activity
+        WHERE datname = current_database()
+          AND pid <> pg_backend_pid()
+          AND state = 'active'
+          AND wait_event_type = 'Lock'
+          AND query ILIKE '%channel_listing_daily_snapshots%'
+      ) AS waiting
+    `;
+    if (activity?.waiting) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error('Timed out waiting for the dashboard listing-state read to block.');
+}

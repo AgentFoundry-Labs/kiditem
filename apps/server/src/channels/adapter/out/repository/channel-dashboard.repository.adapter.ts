@@ -1,5 +1,16 @@
 import { Injectable, Logger } from '@nestjs/common';
-import type { ReturnSummary } from '@kiditem/shared/return-summary';
+import { PrismaService } from '../../../../prisma/prisma.service';
+import { addDays, kstDayStart } from '../../../../common/kst';
+import {
+  readDailyOrderFacts,
+  readListingOptionOrderFacts,
+  readOrderReturnFaultFacts,
+  readOrderReturnReasonFacts,
+  readOrderReturnStatusCount,
+  readOrderReturnWindowFacts,
+  readOrderStatusCount,
+  readOrderWindowFacts,
+} from '../../../../orders/read/order-facts.reader';
 import type {
   ChannelDashboardSummary,
   RevenueTrendPoint,
@@ -7,8 +18,7 @@ import type {
   ReturnReasonRow,
   ReturnFaultSplit,
 } from '@kiditem/shared/channel-dashboard';
-import { PrismaService } from '../../../../prisma/prisma.service';
-import { kstDayStart } from '../../../../common/kst';
+import type { ReturnSummary } from '@kiditem/shared/return-summary';
 import type { ChannelDashboardRepositoryPort } from '../../../application/port/out/repository/channel-dashboard.repository.port';
 
 /**
@@ -35,8 +45,8 @@ import type { ChannelDashboardRepositoryPort } from '../../../application/port/o
  *   returnRate contract. Past-period orders' returns therefore stay outside the current
  *   period numerator.
  *
- * Raw SQL stays in this outgoing repository adapter so application services
- * depend on a Channels port rather than Prisma directly.
+ * Canonical order SQL lives in the Orders reader. This adapter owns each
+ * transaction and resolves Channels display metadata inside that transaction.
  */
 
 @Injectable()
@@ -47,33 +57,34 @@ export class ChannelDashboardRepositoryAdapter implements ChannelDashboardReposi
 
   async getSummary(organizationId: string): Promise<ChannelDashboardSummary> {
     const todayStart = kstDayStart(new Date());
-    const [todayOrders, pendingAccept, pendingReturns, lastSync] = await Promise.all([
-      this.prisma.order.aggregate({
-        where: { organizationId, orderedAt: { gte: todayStart } },
-        _count: { id: true },
-        _sum: { totalPrice: true },
-      }),
-      this.prisma.order.count({
-        where: { organizationId, status: 'accept_wait' },
-      }),
-      this.prisma.orderReturn.count({
-        where: { organizationId, status: 'return_request' },
-      }),
-      this.prisma.channelListing.findFirst({
+    const tomorrowStart = addDays(todayStart, 1);
+    return this.prisma.$transaction(async (tx) => {
+      const todayOrders = await readOrderWindowFacts(
+        tx,
+        { organizationId, from: todayStart, to: tomorrowStart },
+      );
+      const pendingAccept = await readOrderStatusCount(tx, organizationId, 'accept_wait');
+      const pendingReturns = await readOrderReturnStatusCount(
+        tx,
+        organizationId,
+        'return_request',
+      );
+      const lastSync = await tx.channelListing.findFirst({
         where: { organizationId },
         orderBy: { updatedAt: 'desc' },
         select: { updatedAt: true },
-      }),
-    ]);
-    return {
-      todayOrders: {
-        count: todayOrders._count.id,
-        revenue: todayOrders._sum.totalPrice ?? 0,
-      },
-      pendingAccept,
-      pendingReturns,
-      lastModifiedAt: lastSync?.updatedAt ?? null,
-    } satisfies ChannelDashboardSummary;
+      });
+      const todayOrderSummary: ChannelDashboardSummary['todayOrders'] =
+        todayOrders.orderCount === null || todayOrders.revenue === null
+          ? { count: null, revenue: null }
+          : { count: todayOrders.orderCount, revenue: todayOrders.revenue };
+      return {
+        todayOrders: todayOrderSummary,
+        pendingAccept,
+        pendingReturns,
+        lastModifiedAt: lastSync?.updatedAt ?? null,
+      } satisfies ChannelDashboardSummary;
+    });
   }
 
   async getRevenueTrend(
@@ -81,27 +92,14 @@ export class ChannelDashboardRepositoryAdapter implements ChannelDashboardReposi
     from: Date,
     to: Date,
   ): Promise<RevenueTrendPoint[]> {
-    type Row = { day: Date; revenue: bigint | null; orderCount: bigint };
-    // 2-hop tenant predicate (R2): bind ${organizationId}::uuid on both `orders`
-    // and `order_line_items` so a stray cross-tenant `OrderLineItem.organizationId`
-    // cannot leak into the SUM. See channels/CLAUDE.md.
-    const rows = await this.prisma.$queryRaw<Row[]>`
-      SELECT DATE_TRUNC('day', o.ordered_at AT TIME ZONE 'Asia/Seoul')::date AS day,
-             SUM(oli.total_price)::bigint AS revenue,
-             COUNT(DISTINCT o.id)::bigint AS "orderCount"
-      FROM orders o
-      JOIN order_line_items oli ON oli.order_id = o.id
-      WHERE o.organization_id = ${organizationId}::uuid
-        AND oli.organization_id = ${organizationId}::uuid
-        AND o.ordered_at >= ${from} AND o.ordered_at < ${to}
-      GROUP BY 1
-      ORDER BY 1
-    `;
-    return rows.map((r) => ({
-      day: r.day.toISOString().split('T')[0],
-      revenue: Number(r.revenue ?? 0n),
-      orderCount: Number(r.orderCount),
-    }) satisfies RevenueTrendPoint);
+    return this.prisma.$transaction(async (tx) => {
+      const rows = await readDailyOrderFacts(tx, { organizationId, from, to });
+      return rows.map(({ day, revenue, orderCount }) => ({
+        day,
+        revenue,
+        orderCount,
+      }) satisfies RevenueTrendPoint);
+    });
   }
 
   async getProductRanking(
@@ -109,42 +107,58 @@ export class ChannelDashboardRepositoryAdapter implements ChannelDashboardReposi
     from: Date,
     to: Date,
   ): Promise<ProductRankingRow[]> {
-    type Row = {
-      sellerProductId: string;
-      sellerProductName: string;
-      revenue: bigint | null;
-      orderCount: bigint;
-    };
-    // 2-hop tenant predicate (R1): bind ${organizationId}::uuid on every joined
-    // tenant-owned table (orders, order_line_items, channel_listing_options,
-    // channel_listings). Channel products are independent marketplace metadata;
-    // ranking resolves them through the ordered ChannelSku, never MasterProduct.
-    const rows = await this.prisma.$queryRaw<Row[]>`
-      SELECT cl.external_id AS "sellerProductId",
-             COALESCE(cl.channel_name, cl.display_name, cl.external_id) AS "sellerProductName",
-             SUM(oli.total_price)::bigint AS revenue,
-             COUNT(DISTINCT o.id)::bigint AS "orderCount"
-      FROM orders o
-      JOIN order_line_items oli ON oli.order_id = o.id
-      JOIN channel_listing_options clo ON clo.id = oli.listing_option_id
-      JOIN channel_listings cl ON cl.id = clo.listing_id
-      WHERE o.organization_id = ${organizationId}::uuid
-          AND oli.organization_id = ${organizationId}::uuid
-          AND clo.organization_id = ${organizationId}::uuid
-          AND cl.organization_id = ${organizationId}::uuid
-          AND cl.channel_account_id = o.channel_account_id
-          AND o.ordered_at >= ${from} AND o.ordered_at < ${to}
-          AND oli.listing_option_id IS NOT NULL
-      GROUP BY cl.id, cl.external_id, COALESCE(cl.channel_name, cl.display_name, cl.external_id)
-        ORDER BY revenue DESC
-        LIMIT 10
-      `;
-    return rows.map((r) => ({
-      sellerProductId: r.sellerProductId,
-      sellerProductName: r.sellerProductName,
-      revenue: Number(r.revenue ?? 0n),
-      orderCount: Number(r.orderCount),
-    }) satisfies ProductRankingRow);
+    return this.prisma.$transaction(async (tx) => {
+      const facts = await readListingOptionOrderFacts(tx, { organizationId, from, to });
+      const optionIds = [...new Set(facts.map((fact) => fact.listingOptionId))];
+      const options = optionIds.length === 0
+        ? []
+        : await tx.channelListingOption.findMany({
+          where: { organizationId, id: { in: optionIds } },
+          select: {
+            id: true,
+            listing: {
+              select: {
+                id: true,
+                organizationId: true,
+                channelAccountId: true,
+                externalId: true,
+                channelName: true,
+                displayName: true,
+              },
+            },
+          },
+        });
+      const optionById = new Map(options.map((option) => [option.id, option.listing]));
+      const byListing = new Map<string, {
+        sellerProductId: string;
+        sellerProductName: string;
+        revenue: number;
+        orderIds: Set<string>;
+      }>();
+      for (const fact of facts) {
+        const listing = optionById.get(fact.listingOptionId);
+        if (!listing || listing.organizationId !== organizationId
+          || listing.channelAccountId !== fact.channelAccountId) continue;
+        const current = byListing.get(listing.id) ?? {
+          sellerProductId: listing.externalId,
+          sellerProductName: listing.channelName ?? listing.displayName ?? listing.externalId,
+          revenue: 0,
+          orderIds: new Set<string>(),
+        };
+        current.revenue += fact.revenue;
+        current.orderIds.add(fact.orderId);
+        byListing.set(listing.id, current);
+      }
+      return [...byListing.values()]
+        .sort((a, b) => b.revenue - a.revenue)
+        .slice(0, 10)
+        .map((row) => ({
+          sellerProductId: row.sellerProductId,
+          sellerProductName: row.sellerProductName,
+          revenue: row.revenue,
+          orderCount: row.orderIds.size,
+        }) satisfies ProductRankingRow);
+    });
   }
 
   async getReturnSummary(
@@ -154,33 +168,9 @@ export class ChannelDashboardRepositoryAdapter implements ChannelDashboardReposi
   ): Promise<ReturnSummary> {
     const startedAt = Date.now();
 
-    const [orderCount, returnCount, orphanReturnCount] = await Promise.all([
-      // 분모: 이 기간 내 주문 수
-      this.prisma.order.count({
-        where: {
-          organizationId,
-          orderedAt: { gte: from, lt: to },
-        },
-      }),
-      // 분자: 이 기간 내 주문 중 return 된 건 (INNER JOIN + 2-hop IDOR)
-      this.prisma.orderReturn.count({
-        where: {
-          organizationId,
-          order: {
-            organizationId,                                  // 2-hop defense-in-depth
-            orderedAt: { gte: from, lt: to },
-          },
-        },
-      }),
-      // Side metric: orphan (orderId NULL) requestedAt ∈ period
-      this.prisma.orderReturn.count({
-        where: {
-          organizationId,
-          orderId: null,
-          requestedAt: { gte: from, lt: to },
-        },
-      }),
-    ]);
+    const { orderCount, returnCount, orphanReturnCount } = await this.prisma.$transaction(
+      (tx) => readOrderReturnWindowFacts(tx, { organizationId, from, to }),
+    );
 
     const returnRate = orderCount === 0 ? 0 : returnCount / orderCount;
 
@@ -211,13 +201,10 @@ export class ChannelDashboardRepositoryAdapter implements ChannelDashboardReposi
     from: Date,
     to: Date,
   ): Promise<ReturnReasonRow[]> {
-    const groups = await this.prisma.orderReturn.groupBy({
-      by: ['reason'],
-      _count: true,
-      where: { organizationId, requestedAt: { gte: from, lt: to } },
-    });
-    // R-12 flat _count: Prisma returns `_count: number` for flat form.
-    return groups.map((g) => ({ reason: g.reason, count: g._count }) satisfies ReturnReasonRow);
+    const groups = await this.prisma.$transaction((tx) =>
+      readOrderReturnReasonFacts(tx, { organizationId, from, to }),
+    );
+    return groups.map((group) => ({ ...group }) satisfies ReturnReasonRow);
   }
 
   async getReturnFaultSplit(
@@ -225,13 +212,11 @@ export class ChannelDashboardRepositoryAdapter implements ChannelDashboardReposi
     from: Date,
     to: Date,
   ): Promise<ReturnFaultSplit> {
-    const groups = await this.prisma.orderReturn.groupBy({
-      by: ['faultBy'],
-      _count: true,
-      where: { organizationId, requestedAt: { gte: from, lt: to } },
-    });
+    const groups = await this.prisma.$transaction((tx) =>
+      readOrderReturnFaultFacts(tx, { organizationId, from, to }),
+    );
     // C-11 unknown faultBy drop: faultBy is VarChar(20) — only CUSTOMER/VENDOR are reported.
-    const find = (key: string) => groups.find((g) => g.faultBy === key)?._count ?? 0;
+    const find = (key: string) => groups.find((g) => g.faultBy === key)?.count ?? 0;
     return { customer: find('CUSTOMER'), vendor: find('VENDOR') } satisfies ReturnFaultSplit;
   }
 }

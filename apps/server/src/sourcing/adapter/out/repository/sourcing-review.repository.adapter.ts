@@ -1,7 +1,9 @@
-import { Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import { PrismaService } from '../../../../prisma/prisma.service';
+import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { PrismaService } from '../../../../prisma/prisma.service';
+import { readCurrentComplete1688OfferSnapshotsByIds } from '../../../read/source-evidence.reader';
+import { readValidationEpisodesForReviewItems } from '../../../read/validation-publication.reader';
 import type {
   CreateReviewBatchCommand,
   CreateReviewBatchResult,
@@ -175,16 +177,9 @@ export class SourcingReviewRepositoryAdapter implements SourcingReviewRepository
     if (observationIds.length === 0) {
       return { kind: 'invalid_items', itemKeys: command.itemKeys };
     }
-    const observations = await tx.sourcing1688OfferKeywordObservation.findMany({
-      where: {
-        organizationId: command.organizationId,
-        id: { in: observationIds },
-      },
-      select: {
-        id: true,
-        externalOfferId: true,
-        variantKeyNormalized: true,
-      },
+    const observations = await readCurrentComplete1688OfferSnapshotsByIds(tx, {
+      organizationId: command.organizationId,
+      observationIds,
     });
     const observationsById = new Map(observations.map((item) => [item.id, item]));
     const offerObservationByItemId = new Map<string, string>();
@@ -204,13 +199,10 @@ export class SourcingReviewRepositoryAdapter implements SourcingReviewRepository
       return { kind: 'invalid_items', itemKeys: [...new Set(invalidKeys)].sort() };
     }
 
-    const validationEpisodes = await tx.sourcingValidationEpisode.findMany({
-      where: {
-        organizationId: command.organizationId,
-        recommendationRunId: command.recommendationRunId,
-        recommendationItemId: { in: recommendationItems.map((item) => item.id) },
-      },
-      select: { id: true, recommendationItemId: true },
+    const validationEpisodes = await readValidationEpisodesForReviewItems(tx, {
+      organizationId: command.organizationId,
+      recommendationRunId: command.recommendationRunId,
+      recommendationItemIds: recommendationItems.map((item) => item.id),
     });
     const validationByItemId = new Map(
       validationEpisodes.map((episode) => [episode.recommendationItemId, episode.id]),

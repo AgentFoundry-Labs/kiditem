@@ -31,7 +31,7 @@ import {
   normalizeAdKeywordTarget,
   mergeKeywordTargets,
 } from '../../../application/service/ad-keyword-normalizer';
-import { readCompleteAdKeywordFacts } from './ad-keyword-complete-read';
+import { readCompleteAdKeywordFacts } from '../../../read/ad-target-facts';
 import type { UpsertAdTargetDailyInput } from '../../../application/port/out/repository/channel-target-daily.repository.port';
 import type { ListingMap } from '../../../domain/listing-match';
 

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { zIsoDate } from './common.js';
 
 export const AdExtensionReplayIdempotencyKeySchema = z.string()
   .max(160)
@@ -179,7 +180,10 @@ export const AdKeywordSnapshotSchema = z.object({
   externalOptionId: z.string().nullable(),
   productName: z.string().nullable(),
   listing: AdListingSummarySchema.nullable(),
-  period: z.string(),
+  /** Source-declared non-additive observation window. */
+  period: z.literal('7d'),
+  windowDays: z.literal(7),
+  businessDate: zIsoDate,
   metrics: AdMetricsSchema,
   relevance: AdKeywordRelevanceSchema.nullable(),
   relevanceReason: z.string().nullable(),
@@ -207,7 +211,8 @@ export type AdKeywordProductSummary = z.infer<
 >;
 
 export const AdKeywordsDataSchema = z.object({
-  period: z.string(),
+  period: z.literal('7d'),
+  windowDays: z.literal(7),
   collectedAt: z.string().nullable(),
   products: z.array(AdKeywordProductSummarySchema),
   keywords: z.array(AdKeywordSnapshotSchema),

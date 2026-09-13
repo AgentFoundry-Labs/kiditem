@@ -435,4 +435,76 @@ describe('Sellpia manual-match source owner (PostgreSQL)', () => {
       ],
     };
   }
+
+  it('accepts aliases from active listings published by a completed Rocket PO catalog run', async () => {
+      await prisma.channelListing.updateMany({
+        where: { organizationId: TEST_ORGANIZATION_ID },
+        data: { isActive: false },
+      });
+      const rocketAccount = await prisma.channelAccount.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          channel: 'rocket',
+          name: 'Rocket',
+        },
+      });
+      const rocketRun = await prisma.sourceImportRun.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          channelAccountId: rocketAccount.id,
+          sourceType: 'coupang_rocket_po_catalog',
+          parserVersion: 'rocket-po-v1',
+          status: 'completed',
+          importedAt: new Date(),
+        },
+      });
+      await prisma.channelListing.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          channelAccountId: rocketAccount.id,
+          externalId: 'ROCKET-ALIAS',
+          displayName: 'Rocket Alias',
+          lastImportRunId: rocketRun.id,
+          isActive: true,
+        },
+      });
+      const attempt = await owner.beginAttempt({
+        organizationId: TEST_ORGANIZATION_ID,
+        idempotencyKey: 'rocket-alias',
+      });
+
+      await owner.completeAttempt({
+        organizationId: TEST_ORGANIZATION_ID,
+        attemptId: attempt.attemptId,
+        attemptToken: attempt.attemptToken,
+        snapshot: {
+          source: SOURCE_TYPE,
+          version: 1,
+          targetCount: 2,
+          targetCodes: ['6402-1', '6402-2'],
+          rowCount: 1,
+          rows: [
+            {
+              productCode: '6402-1',
+              aliasTitle: 'Rocket Alias',
+              itemCount: 1,
+              matchedType: 'M',
+              evidenceCount: 1,
+            },
+          ],
+        },
+      });
+
+      await expect(
+        prisma.sellpiaManualMatchAlias.findMany({
+          where: { organizationId: TEST_ORGANIZATION_ID },
+          select: { aliasTitle: true, sellpiaInventorySkuId: true },
+        }),
+      ).resolves.toEqual([
+        {
+          aliasTitle: 'Rocket Alias',
+          sellpiaInventorySkuId: firstSkuId,
+        },
+      ]);
+    });
 });

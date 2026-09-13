@@ -32,6 +32,7 @@ export type OrphanSellpiaProductProfitFact = Readonly<{
     | 'SOURCE_UNMAPPED'
     | 'AMBIGUOUS_MASTER_PRODUCT'
     | 'LEGACY_COVERAGE_MISSING'
+    | 'COST_PROVENANCE_MISSING'
     | 'COVERAGE_MISMATCH';
 }>;
 

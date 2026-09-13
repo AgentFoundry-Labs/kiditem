@@ -8,7 +8,7 @@ export type ChannelRecipeNameSku = {
   code: string;
   name: string;
   optionName: string | null;
-  currentStock: number;
+  currentStock: number | null;
 };
 
 export type ChannelRecipeNameEvidence = {

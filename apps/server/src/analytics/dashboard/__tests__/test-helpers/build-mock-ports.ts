@@ -12,8 +12,8 @@ import type {
   ProfitCalculationRepositoryPort,
   ProfitSourceCoverage,
 } from '../../application/port/out/repository/profit-calculation.repository.port';
-import type { WingAdSummaryRepositoryPort } from '../../application/port/out/repository/wing-ad-summary.repository.port';
 import type { DashboardSalesRepositoryPort } from '../../application/port/out/repository/dashboard-sales.repository.port';
+import type { TodayKpiRow } from '../../application/port/out/repository/dashboard-sales.repository.port';
 import type { DashboardTrendRepositoryPort } from '../../application/port/out/repository/dashboard-trend.repository.port';
 import type { WingTrafficAggregationRepositoryPort } from '../../application/port/out/repository/wing-traffic-aggregation.repository.port';
 import type { DashboardInventoryRepositoryPort } from '../../application/port/out/repository/dashboard-inventory.repository.port';
@@ -47,20 +47,26 @@ export function buildProfitSourceCoverage(
   };
 }
 
-export type MockWingAdSummaryRepo = Mocked<WingAdSummaryRepositoryPort>;
-
-export function buildMockWingAdSummaryRepo(): MockWingAdSummaryRepo {
-  return {
-    fetchCurrentMonthSummary: vi.fn(),
-  };
-}
-
 export type MockDashboardSalesRepo = Mocked<DashboardSalesRepositoryPort>;
 
 export function buildMockDashboardSalesRepo(): MockDashboardSalesRepo {
   return {
     fetchTodayKpis: vi.fn(),
     fetchTopProducts: vi.fn(),
+  };
+}
+
+export function buildTodayKpiRow(
+  overrides: Partial<TodayKpiRow> = {},
+): TodayKpiRow {
+  return {
+    revenue: 0,
+    orders: 0,
+    requestedDates: ['2026-09-08'],
+    includedDates: ['2026-09-08'],
+    missingDates: [],
+    observedAt: new Date('2026-09-08T01:00:00.000Z'),
+    ...overrides,
   };
 }
 
@@ -78,6 +84,41 @@ export function buildMockWingTrafficAggregationRepo(): MockWingTrafficAggregatio
   return {
     aggregateTraffic: vi.fn(),
     aggregateCoupangAds: vi.fn(),
+    readTrafficFunnel: vi.fn().mockResolvedValue({
+      visitors: null,
+      views: null,
+      cartAdds: null,
+      cartRate: null,
+      orders: null,
+      orderCartRate: null,
+      salesQty: null,
+      revenue: null,
+      conversionRate: null,
+      dailyAverageVisitors: null,
+      metricDates: {
+        visitors: [],
+        views: [],
+        cartAdds: [],
+        cartRate: [],
+        orders: [],
+        orderCartRate: [],
+        salesQty: [],
+        revenue: [],
+        conversionRate: [],
+      },
+      intersectionListingCount: 0,
+      intersectionListingDateCount: 0,
+      trafficCoverage: null,
+      trafficObservedAt: null,
+      orderObservedAt: null,
+    }),
+    readAdRateFacts: vi.fn().mockResolvedValue({
+      adSpend: null,
+      revenue: null,
+      revenueSource: 'unavailable',
+      includedDates: [],
+      adCoverageComplete: false,
+    }),
     findLatestDataDate: vi.fn(),
     fetchDailyTrend: vi.fn(),
     fetchDailyAds: vi.fn(),
@@ -88,18 +129,12 @@ export type MockDashboardInventoryRepo = Mocked<DashboardInventoryRepositoryPort
 
 export function buildMockDashboardInventoryRepo(): MockDashboardInventoryRepo {
   return {
-    countActiveProductsByGrade: vi.fn(),
-    countActiveProductsByAbcStatus: vi.fn(),
-    findActiveAbcContributions: vi.fn(),
-    countUnclassifiedActiveProducts: vi.fn(),
-    findAbcFormula: vi.fn(),
+    readProductAbcFacts: vi.fn(),
     findUnreadAlerts: vi.fn(),
     countActiveProducts: vi.fn(),
     fetchPerListingMetrics: vi.fn(),
-    countOutOfStockMasterProducts: vi.fn(),
-    getSellingChannelMappingSummary: vi.fn(),
-    findGradeHistory: vi.fn(),
+    readInventoryAvailabilityFacts: vi.fn(),
     countLowCtrThumbnails: vi.fn(),
-    findAGradeReviewCounts: vi.fn(),
+    findReviewCountsForProducts: vi.fn(),
   };
 }

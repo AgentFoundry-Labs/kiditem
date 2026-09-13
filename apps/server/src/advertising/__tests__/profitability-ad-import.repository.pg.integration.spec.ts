@@ -117,6 +117,47 @@ describe('Advertising profitability source owner (PostgreSQL)', () => {
       && fact.allocatedSpend === 7n)).toBe(true);
   });
 
+  it('uses the same slice clamp when a legacy monthly fact extends past collection coverage', async () => {
+    const coverage = profitabilityCoverageForKstYesterday(new Date());
+    const cutoffPeriod = coverage.periods.at(-1)!;
+    const attempt = await owner.beginAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      idempotencyKey: FIRST_KEY,
+    });
+    await uploadAllSlices(owner, attempt);
+    await owner.finalizeAttempt(fence(attempt));
+
+    const monthLastDay = new Date(Date.UTC(
+      Number(cutoffPeriod.month.slice(0, 4)),
+      Number(cutoffPeriod.month.slice(5, 7)),
+      0,
+    ));
+    await prisma.channelAdListingProductMonthlyFact.updateMany({
+      where: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceImportRunId: attempt.attemptId,
+        month: new Date(`${cutoffPeriod.month}-01T00:00:00.000Z`),
+      },
+      data: {
+        coveredEndDate: monthLastDay,
+        observedTargetDayCount: monthLastDay.getUTCDate(),
+      },
+    });
+
+    const generation = await owner.readGeneration({
+      organizationId: TEST_ORGANIZATION_ID,
+      sourceImportRunId: attempt.attemptId,
+    });
+    expect(generation?.allocations.filter((fact) => fact.month === cutoffPeriod.month))
+      .toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          coveredStartDate: cutoffPeriod.from,
+          coveredEndDate: cutoffPeriod.to,
+          observedTargetDayCount: cutoffPeriod.businessDates.length,
+        }),
+      ]));
+  });
+
   it('preserves the previous complete snapshot when the partial-cutoff attempt fails', async () => {
     const coverage = profitabilityCoverageForKstYesterday(new Date());
     const first = await owner.beginAttempt({

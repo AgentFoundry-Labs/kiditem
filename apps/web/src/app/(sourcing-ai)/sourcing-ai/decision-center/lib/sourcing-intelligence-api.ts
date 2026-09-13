@@ -50,7 +50,7 @@ export interface SourcingSourceEntitlement {
   createdAt: IsoDateTimeString;
 }
 
-export type SourcingGateStatus = 'unknown' | 'passed' | 'blocked';
+export type SourcingGateStatus = 'not_evaluated' | 'unknown' | 'passed' | 'blocked';
 export type SourcingEconomicsStatus = 'unknown' | 'known' | 'blocked';
 
 export interface SourcingLaunchCandidate {
@@ -116,12 +116,6 @@ export type SourcingNextEvidenceAction =
   | 'reassess_baseline_decision'
   | 'resolve_supplier_variant';
 
-export interface SourcingDecisionEvidence {
-  id: string;
-  observationId: string;
-  evidenceRole: string;
-}
-
 export interface SourcingDecisionBatchItem {
   id: string;
   organizationId: string;
@@ -147,7 +141,6 @@ export interface SourcingDecisionBatchItem {
   riskCodes: string[];
   modelOutput: Record<string, unknown>;
   createdAt: IsoDateTimeString;
-  evidence: SourcingDecisionEvidence[];
 }
 
 export interface SourcingDecisionBatch {

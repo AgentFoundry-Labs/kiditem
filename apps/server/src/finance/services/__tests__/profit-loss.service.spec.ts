@@ -9,6 +9,16 @@ vi.mock('../../../common/per-listing-profit', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../common/per-listing-profit')>()),
   readAdEvidenceFromLedger: vi.fn(),
 }));
+vi.mock('../../../products/read/product-abc-publication.reader', () => ({
+  readPublishedProductAbcGrades: vi.fn(async (
+    _prisma: unknown,
+    input: { masterProductIds: readonly string[] },
+  ) => new Map(input.masterProductIds.flatMap<[string, 'A' | 'B' | 'C']>((id) => {
+    if (id === 'master-a1' || id === 'm1') return [[id, 'A'] as const];
+    if (id === 'master-a2') return [[id, 'B'] as const];
+    return [];
+  }))),
+}));
 
 const mockedReadAdEvidenceFromLedger = vi.mocked(readAdEvidenceFromLedger);
 
@@ -46,7 +56,7 @@ function makePrisma(
   const adRows = opts.adRows ?? [];
   const firstDate = new Date(Date.UTC(2026, 3, 1));
   const lastDate = new Date(Date.UTC(2026, 3, 30));
-  return {
+  const prisma = {
     order: { findMany: vi.fn().mockResolvedValue(orders) },
     orderReturnLineItem: { findMany: vi.fn().mockResolvedValue(opts.returnLineItems ?? []) },
     $queryRaw: vi.fn().mockResolvedValue(
@@ -64,7 +74,10 @@ function makePrisma(
         orders: 0,
       })),
     ),
-  } as any;
+  };
+  return Object.assign(prisma, {
+    $transaction: vi.fn((work: (tx: typeof prisma) => unknown) => work(prisma)),
+  }) as any;
 }
 
 // Final-owner lineItem shape — listing metadata comes from MasterProduct and

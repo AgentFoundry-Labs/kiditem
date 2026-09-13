@@ -4,14 +4,16 @@ import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import { makeTestPrisma, resetDb, seedBaseFixture, TEST_ORGANIZATION_ID, TEST_USER_ID } from '../../test-helpers/real-prisma';
 import { SourcingBrowserSourceAttemptRepositoryAdapter } from '../adapter/out/repository/sourcing-browser-source-attempt.repository.adapter';
 import { SourcingRecommendationSourceRepositoryAdapter } from '../adapter/out/repository/sourcing-recommendation-source.repository.adapter';
+import { Sourcing1688SearchResultRepositoryAdapter } from '../adapter/out/repository/sourcing-1688-search-result.repository.adapter';
 import { SourcingWingCatalogIngestService } from '../application/service/sourcing-wing-catalog-ingest.service';
 import { SourcingWorkspaceController } from '../adapter/in/http/sourcing-workspace.controller';
 import type { PrismaClient } from '@prisma/client';
+import type { SourcingWingCatalogObservation } from '@kiditem/shared/sourcing';
 
 const organizationId = TEST_ORGANIZATION_ID;
 const user = { id: TEST_USER_ID };
 const input = { keywords: [' Ａ   Pencil '], maxPages: 2, purpose: 'catalog_search' };
-const item = { productId: '123', itemId: null, vendorItemId: null, productName: '연필',
+const item: SourcingWingCatalogObservation = { productId: '123', itemId: null, vendorItemId: null, productName: '연필',
   itemName: null, brandName: null, manufacture: null, categoryHierarchy: null, imagePath: null,
   salePriceKrw: 1000, ratingAverage: null, ratingCount: null, viewsLast28d: null,
   salesLast28d: null, estimatedRevenue28d: null, conversionRate28d: null, deliveryInfo: null,
@@ -71,7 +73,11 @@ describe('Wing source owner HTTP with disposable PostgreSQL', () => {
     const receipts = [await upload(empty, []), await upload(empty, [], '고무')];
     await controller.completeWingCatalog(empty.attemptId, empty.attemptToken, { purpose: 'catalog_search', receipts,
       keywords: [result('A Pencil', 0), result('고무', 0)] }, organizationId);
-    await expect(controller.getWingCatalogSnapshot('A Pencil', organizationId)).resolves.toMatchObject({ items: [] });
+    await expect(controller.getWingCatalogSnapshot('A Pencil', organizationId)).resolves.toMatchObject({
+      generatedAt: expect.any(String),
+      items: [],
+      rejectedCount: 0,
+    });
     expect(await prisma.alert.count({ where: { organizationId, type: 'source_failure', status: 'OPEN' } })).toBe(0);
   });
 
@@ -120,20 +126,43 @@ describe('Wing source owner HTTP with disposable PostgreSQL', () => {
     await expect(controller.getWingCatalogSnapshot('A Pencil', organizationId)).resolves.toMatchObject({ items: [] });
   });
 
-  it('exposes only the latest complete coverage to explicit recommendation readers, including confirmed empty replacement', async () => {
+  it('selects latest complete coverage per keyword, including confirmed empty replacement', async () => {
     const sources = new SourcingRecommendationSourceRepositoryAdapter(prisma as never);
     const read = () => sources.listLatestCoupangObservations({ organizationId, cutoffAt: new Date(), lookbackDays: 30, limit: 50 });
     const first = await begin('reader-first');
     await publish(first, [item]);
     await expect(read()).resolves.toMatchObject({ items: [{ productId: '123' }] });
+
+    const clayItem = { ...item, productId: '456', sourceKeyword: '클레이' };
+    const clay = await begin('reader-clay', ['클레이']);
+    const clayReceipt = await upload(clay, [clayItem], '클레이');
+    await controller.completeWingCatalog(clay.attemptId, clay.attemptToken, {
+      purpose: 'catalog_search',
+      keywords: [result('클레이', 1)],
+      receipts: [clayReceipt],
+    }, organizationId);
+    await expect(read()).resolves.toMatchObject({
+      items: expect.arrayContaining([
+        expect.objectContaining({ productId: '123' }),
+        expect.objectContaining({ productId: '456' }),
+      ]),
+    });
+    await expect(controller.getWingCatalogSnapshot('A Pencil', organizationId))
+      .resolves.toMatchObject({ items: [{ productId: '123' }] });
+
     const partial = await begin('reader-partial');
     await upload(partial, [{ ...item, productId: 'staged' }]);
-    await expect(read()).resolves.toMatchObject({ items: [{ productId: '123' }] });
+    await expect(read()).resolves.toMatchObject({
+      items: expect.arrayContaining([
+        expect.objectContaining({ productId: '123' }),
+        expect.objectContaining({ productId: '456' }),
+      ]),
+    });
     await controller.failWingCatalog(partial.attemptId, partial.attemptToken, { code: 'FAILED', message: 'failed' }, organizationId);
     const empty = await begin('reader-empty');
     await publish(empty, []);
-    await expect(read()).resolves.toMatchObject({ items: [] });
-    expect(await prisma.sourcingEvidenceObservation.count()).toBe(2);
+    await expect(read()).resolves.toMatchObject({ items: [{ productId: '456' }] });
+    expect(await prisma.sourcingEvidenceObservation.count()).toBe(3);
   });
 
   it('excludes v1 evidence from both current Wing readers', async () => {
@@ -142,10 +171,10 @@ describe('Wing source owner HTTP with disposable PostgreSQL', () => {
     await prisma.sourcingEvidenceObservation.updateMany({ data: { schemaVersion: 'coupang-wing-catalog/v1' } });
     await expect(controller.getWingCatalogSnapshot('A Pencil', organizationId)).resolves.toMatchObject({ items: [] });
     await expect(sources.listLatestCoupangObservations({ organizationId, cutoffAt: new Date(), lookbackDays: 30, limit: 50 }))
-      .resolves.toEqual({ items: [], rejectedCount: 0 });
+      .resolves.toEqual({ items: [], rejectedCount: 1 });
   });
 
-  it('rejects legacy manual payloads mislabeled as v2 instead of repairing them on read', async () => {
+  it('keeps typed Wing facts authoritative when the retained raw evidence payload changes', async () => {
     const sources = new SourcingRecommendationSourceRepositoryAdapter(prisma as never);
     await publish(await begin('legacy-payload'), [item]);
     await prisma.sourcingEvidenceObservation.updateMany({ data: { payload: {
@@ -155,9 +184,120 @@ describe('Wing source owner HTTP with disposable PostgreSQL', () => {
       sourceKeyword: item.sourceKeyword, capturedAt: item.capturedAt,
     } } });
     await expect(sources.listWingCatalogSnapshot({ organizationId, normalizedKeyword: 'a pencil', limit: 50 }))
-      .resolves.toMatchObject({ items: [], rejectedCount: 1 });
+      .resolves.toMatchObject({ items: [{ productId: '123' }], rejectedCount: 0 });
+    await expect(sources.listLatestCoupangObservations({ organizationId, cutoffAt: new Date(), lookbackDays: 30, limit: 50 }))
+      .resolves.toMatchObject({ items: [{ productId: '123' }], rejectedCount: 0 });
+  });
+
+  it('treats legacy positive COMPLETE Wing evidence without receipts or typed publication as unavailable', async () => {
+    const sources = new SourcingRecommendationSourceRepositoryAdapter(prisma as never);
+    await publish(await begin('prior-typed-publication'), [{ ...item, productId: 'prior' }]);
+    const attempt = await begin('missing-typed-publication');
+    await publish(attempt, [item]);
+    expect(await prisma.sourcingEvidenceObservation.count()).toBe(2);
+    await prisma.sourcingEvidenceIngestionRun.update({
+      where: { id: attempt.attemptId },
+      data: { qualityReport: { snapshots: [{ keyword: 'a pencil' }] } },
+    });
+    await prisma.sourcingWingCatalogProductFact.deleteMany({
+      where: { organizationId, ingestionRunId: attempt.attemptId },
+    });
+
+    await expect(sources.listWingCatalogSnapshot({ organizationId, normalizedKeyword: 'a pencil', limit: 50 }))
+      .resolves.toEqual({ generatedAt: null, items: [], rejectedCount: 1 });
     await expect(sources.listLatestCoupangObservations({ organizationId, cutoffAt: new Date(), lookbackDays: 30, limit: 50 }))
       .resolves.toEqual({ items: [], rejectedCount: 1 });
+  });
+
+  it('excludes an entire Wing publication when its typed fact count is partial', async () => {
+    const sources = new SourcingRecommendationSourceRepositoryAdapter(prisma as never);
+    const attempt = await begin('partial-typed-publication');
+    await publish(attempt, [item]);
+    await prisma.sourcingEvidenceIngestionRun.update({
+      where: { id: attempt.attemptId },
+      data: {
+        acceptedCount: 2,
+        qualityReport: {
+          snapshots: [{ keyword: 'a pencil' }],
+          wingReceipts: [{ count: 2, duplicateCount: 0 }],
+        },
+      },
+    });
+
+    await expect(sources.listLatestCoupangObservations({
+      organizationId,
+      cutoffAt: new Date(),
+      lookbackDays: 30,
+      limit: 50,
+    })).resolves.toEqual({ items: [], rejectedCount: 2 });
+
+    await prisma.sourcingEvidenceIngestionRun.update({
+      where: { id: attempt.attemptId },
+      data: {
+        qualityReport: {
+          snapshots: [{ keyword: 'a pencil' }],
+          wingReceipts: [{ count: 2, duplicateCount: 1 }],
+        },
+      },
+    });
+    await expect(sources.listLatestCoupangObservations({
+      organizationId,
+      cutoffAt: new Date(),
+      lookbackDays: 30,
+      limit: 50,
+    })).resolves.toMatchObject({ items: [{ productId: '123' }], rejectedCount: 0 });
+  });
+
+  it('publishes one accepted fact for duplicate discoveries to both public readers', async () => {
+    const recommendationSources = new SourcingRecommendationSourceRepositoryAdapter(prisma as never);
+    const imageTargets = new Sourcing1688SearchResultRepositoryAdapter(prisma as never);
+    const attempt = await begin('duplicate-publication');
+    const duplicateItem = { ...item, imagePath: 'catalog/duplicate.jpg' };
+    const receipt = await upload(attempt, [duplicateItem, duplicateItem]);
+    expect(receipt).toMatchObject({ count: 2, acceptedCount: 1, duplicateCount: 1 });
+
+    await controller.completeWingCatalog(attempt.attemptId, attempt.attemptToken, {
+      purpose: 'catalog_search',
+      keywords: [{
+        keyword: 'A Pencil',
+        outcome: 'complete',
+        discovered: 2,
+        accepted: 1,
+        duplicate: 1,
+        failed: 0,
+      }],
+      receipts: [receipt],
+    }, organizationId);
+
+    await expect(recommendationSources.listLatestCoupangObservations({
+      organizationId,
+      cutoffAt: new Date(),
+      lookbackDays: 30,
+      limit: 50,
+    })).resolves.toMatchObject({ items: [{ productId: '123' }], rejectedCount: 0 });
+    await expect(imageTargets.resolveImageTargets({
+      organizationId,
+      targetIds: ['123::'],
+    })).resolves.toMatchObject({
+      targets: [{ targetId: '123::' }],
+      missingTargetIds: [],
+    });
+  });
+
+  it('preserves a legacy owner-confirmed zero-count Wing publication as measured empty', async () => {
+    const sources = new SourcingRecommendationSourceRepositoryAdapter(prisma as never);
+    const attempt = await begin('legacy-empty-publication');
+    await publish(attempt, []);
+    await prisma.sourcingEvidenceIngestionRun.update({
+      where: { id: attempt.attemptId },
+      data: { qualityReport: { snapshots: [{ keyword: 'a pencil' }] } },
+    });
+
+    await expect(sources.listWingCatalogSnapshot({
+      organizationId,
+      normalizedKeyword: 'a pencil',
+      limit: 50,
+    })).resolves.toEqual({ generatedAt: expect.any(Date), items: [], rejectedCount: 0 });
   });
 
   it('preserves the separate bounded manual-ingestion contract on the same owner path without implicit recommendation work', async () => {
@@ -174,6 +314,43 @@ describe('Wing source owner HTTP with disposable PostgreSQL', () => {
     });
     expect(await prisma.sourcingEvidenceIngestionRun.count()).toBe(1);
     expect(await prisma.sourcingRecommendationRun.count()).toBe(0);
+  });
+
+  it('deduplicates identical manual observations before publishing exact reader coverage', async () => {
+    const sources = new SourcingRecommendationSourceRepositoryAdapter(prisma as never);
+    const manualItem = {
+      productId: 'manual-duplicate',
+      productName: '중복 수동 관측',
+      sourceKeyword: '수동 중복',
+      capturedAt: '2026-09-05T00:00:00.000Z',
+    };
+    const terminal = await controller.ingestCoupangObservations({
+      idempotencyKey: randomUUID(),
+      items: [manualItem, manualItem],
+    } as never, organizationId, user as never);
+
+    expect(terminal).toMatchObject({
+      state: 'COMPLETE',
+      acceptedCount: 1,
+    });
+    await expect(controller.getWingCatalogSnapshot('수동 중복', organizationId))
+      .resolves.toMatchObject({ items: [{ productId: 'manual-duplicate' }], rejectedCount: 0 });
+    await expect(sources.listLatestCoupangObservations({
+      organizationId,
+      cutoffAt: new Date(),
+      lookbackDays: 30,
+      limit: 50,
+    })).resolves.toMatchObject({
+      items: [{ productId: 'manual-duplicate' }],
+      rejectedCount: 0,
+    });
+    const run = await prisma.sourcingEvidenceIngestionRun.findFirstOrThrow({
+      where: { organizationId, sourceKey: 'coupang.wing_catalog' },
+    });
+    expect(run).toMatchObject({ discoveredCount: 1, acceptedCount: 1, duplicateCount: 0 });
+    expect(run.qualityReport).toMatchObject({
+      wingReceipts: [{ count: 1, acceptedCount: 1, duplicateCount: 0 }],
+    });
   });
 
   function begin(key: string, keywords = ['A Pencil']) {

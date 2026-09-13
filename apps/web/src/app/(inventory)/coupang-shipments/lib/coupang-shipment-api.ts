@@ -30,14 +30,17 @@ export type CoupangShipmentServerFilesResponse = {
 };
 
 export function loadCoupangShipmentServerFiles(): Promise<CoupangShipmentServerFilesResponse> {
-  return apiClient.get<CoupangShipmentServerFilesResponse>('/api/coupang-shipments');
+  return apiClient.get<CoupangShipmentServerFilesResponse>(
+    '/api/coupang-shipments',
+  );
 }
 
 export type CoupangShipmentDateSummaryEntry = {
   date: string;
-  count: number;
-  boxes: number;
+  count: number | null;
+  boxes: number | null;
   capturedAt: string;
+  verified: boolean;
 };
 
 export type CoupangShipmentDateSummaryResponse = {
@@ -46,10 +49,14 @@ export type CoupangShipmentDateSummaryResponse = {
 
 /** DB에 저장된 발송일별 요약(건수·박스)을 불러온다. 새로고침해도 달력이 유지되도록. */
 export function loadCoupangShipmentDateSummary(): Promise<CoupangShipmentDateSummaryResponse> {
-  return apiClient.get<CoupangShipmentDateSummaryResponse>('/api/coupang-shipments/date-summary');
+  return apiClient.get<CoupangShipmentDateSummaryResponse>(
+    '/api/coupang-shipments/date-summary',
+  );
 }
 
-export async function downloadCoupangShipmentServerFile(file: CoupangShipmentServerFile): Promise<Blob> {
+export async function downloadCoupangShipmentServerFile(
+  file: CoupangShipmentServerFile,
+): Promise<Blob> {
   const response = await apiClient.fetchRaw(file.downloadPath);
   if (!response.ok) {
     throw new Error('쿠팡 쉽먼트 파일을 내려받지 못했습니다.');

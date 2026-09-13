@@ -28,17 +28,17 @@ describe('AnalyticsOverviewCapabilityAdapter', () => {
       sales: { revenue: 120_000, orders: 8 },
       inventory: { outOfStockSkus: 3, mappingAttentionSkus: 2 },
       // The only freshness fact any owner publishes is the sales observedAt.
-      // Nothing measures a confirmation cutoff, so the agent is told null
-      // rather than a wall-clock constant dressed up as one.
       freshness: {
         lastSync: '2026-08-14T00:00:00.000Z',
-        confirmedUntil: null,
       },
     });
     // An absent period selection reads the month, and both owners are asked
     // for the same organization-scoped context.
     expect(sales.getSummary).toHaveBeenCalledWith(
-      expect.objectContaining({ effectiveRange: 'month' }),
+      expect.objectContaining({
+        effectiveRange: 'month',
+        anchor: new Date('2026-08-14T00:00:00.000Z'),
+      }),
       'org-1',
     );
     expect(inventory.getSummary).toHaveBeenCalledWith(expect.anything(), 'org-1');

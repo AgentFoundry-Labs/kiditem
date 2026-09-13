@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import type { PLData } from '@kiditem/shared/finance';
 import { PrismaService } from '../../prisma/prisma.service';
 import { kstMonthStart } from '../../common/kst';
@@ -38,27 +39,33 @@ export class ProfitLossService {
     const from = kstMonthStart(year, month);
     const to = kstMonthStart(year, month + 1);
 
-    const accountAdEvidence = await readAdEvidenceFromLedger(
-      this.prisma,
-      organizationId,
-      from,
-      to,
-    );
-
-    const [metrics, returnRows] = await Promise.all([
-      buildPerListingProfit(this.prisma, organizationId, from, to, accountAdEvidence),
-      this.prisma.orderReturnLineItem.findMany({
-        where: {
-          organizationId,
-          return: { requestedAt: { gte: from, lt: to } },
-        },
-        select: {
-          orderLineItem: {
-            select: { listingOption: { select: { listingId: true } } },
+    const [metrics, returnRows] = await this.prisma.$transaction(async (tx) => {
+      const accountAdEvidence = await readAdEvidenceFromLedger(
+        tx,
+        organizationId,
+        from,
+        to,
+      );
+      const metrics = await buildPerListingProfit(
+        tx,
+        organizationId,
+        from,
+        to,
+        accountAdEvidence,
+      );
+      const returnRows = await tx.orderReturnLineItem.findMany({
+          where: {
+            organizationId,
+            return: { requestedAt: { gte: from, lt: to } },
           },
-        },
-      }),
-    ]);
+          select: {
+            orderLineItem: {
+              select: { listingOption: { select: { listingId: true } } },
+            },
+          },
+        });
+      return [metrics, returnRows] as const;
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
 
     const returnMap = new Map<string, number>();
     for (const rli of returnRows) {

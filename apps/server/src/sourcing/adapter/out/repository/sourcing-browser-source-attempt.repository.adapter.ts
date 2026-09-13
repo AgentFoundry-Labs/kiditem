@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { sourcingWingCatalogKeywordIdentity } from '@kiditem/shared/sourcing';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { isAllowedSourcingCollectionSource } from '../../../domain/sourcing-collection-source-policy';
@@ -247,9 +248,21 @@ export class SourcingBrowserSourceAttemptRepositoryAdapter
       if (receipts.some((receipt) => receipt.sequence > input.sequence)) {
         throw new ConflictException('SOURCE_CHUNK_OUT_OF_ORDER');
       }
-      const persisted = await persistBrowserSourceAttemptFacts(tx, toPermit(attempt), input.output, now);
+      await persistBrowserSourceAttemptFacts(tx, toPermit(attempt), input.output, now);
+      const acceptedCount = await tx.sourcingWingCatalogProductFact.count({
+        where: {
+          organizationId: input.organizationId,
+          ingestionRunId: attempt.id,
+          schemaVersion: 'coupang-wing-catalog/v2',
+          sourceKeywordNormalized: sourcingWingCatalogKeywordIdentity(input.keyword),
+        },
+      });
+      if (acceptedCount > input.output.discoveredCount) {
+        throw new ConflictException('SOURCE_RECEIPTS_MISMATCH');
+      }
       const receipt = { sequence: input.sequence, keyword: input.keyword, checksum: input.checksum,
-        count: input.output.discoveredCount, duplicateCount: persisted.duplicateCount };
+        count: input.output.discoveredCount, acceptedCount,
+        duplicateCount: input.output.discoveredCount - acceptedCount };
       await tx.sourcingEvidenceIngestionRun.update({ where: { id: attempt.id }, data: {
         qualityReport: toInputJson({ ...qualityReport(attempt), wingReceipts: [...receipts, receipt] }),
       } });
@@ -337,10 +350,13 @@ export class SourcingBrowserSourceAttemptRepositoryAdapter
       input.output,
       now,
     );
-    const acceptedCount = Math.max(
-      0,
-      input.output.discoveredCount - input.output.rejectedCount - persisted.staleDiscardedCount,
-    );
+    const acceptedCount = receipts
+      ? receipts.reduce((sum, receipt) =>
+          sum + (receipt.acceptedCount ?? receipt.count - receipt.duplicateCount), 0)
+      : Math.max(
+          0,
+          input.output.discoveredCount - input.output.rejectedCount - persisted.staleDiscardedCount,
+        );
     const candidate = scrape ? await upsertSourcedCandidateIn(tx, scrape.candidate) : null;
     const scrapeUrlResult = candidate ? { candidateId: candidate.id,
       href: `/product-pipeline/collected-products/${encodeURIComponent(candidate.id)}` } : undefined;

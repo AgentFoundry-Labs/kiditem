@@ -8,9 +8,15 @@ export const ANALYTICS_CAPABILITIES = [
     resultSummary: '운영 현황을 확인했습니다.',
     inputSchema: z.object({ period: z.enum(['today', 'month']).optional() }).strict(),
     outputSchema: z.object({
-      sales: z.object({ revenue: z.number(), orders: z.number().int().nonnegative() }).strict(),
-      inventory: z.object({ outOfStockSkus: z.number().int().nonnegative(), mappingAttentionSkus: z.number().int().nonnegative() }).strict(),
-      freshness: z.object({ lastSync: z.string().datetime().nullable(), confirmedUntil: z.string().nullable() }).strict(),
+      sales: z.object({
+        revenue: z.number().nullable(),
+        orders: z.number().int().nonnegative().nullable(),
+      }).strict(),
+      inventory: z.object({
+        outOfStockSkus: z.number().int().nonnegative().nullable(),
+        mappingAttentionSkus: z.number().int().nonnegative(),
+      }).strict(),
+      freshness: z.object({ lastSync: z.string().datetime().nullable() }).strict(),
     }).strict(),
     effects: ['read'], approvalRisk: 'none', idempotency: 'recommended',
   },

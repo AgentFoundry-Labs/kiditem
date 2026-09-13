@@ -37,7 +37,8 @@ export class AdBudgetAllocatorService {
    * 기존 ad-strategy.service.ts:557-607 본문 이전.
    * 변경: legacy adSnapshot findMany 제거 (snapshots 가 input).
    *
-   * gradeMap 은 listing.masterProduct.abcGrade 기준 (`A` | `B` | `C` 만 매핑, null 제외).
+   * gradeMap 은 repository 가 Products publication reader 로 hydrate 한
+   * listing.masterProduct.abcGrade 기준 (`A` | `B` | `C` 만 매핑, null 제외).
    * orchestrator 가 grade-rules / 기타 sub-service 에 그대로 전달한다.
    */
   calcSnapshotKeyMetrics(input: KeyMetricsInput): KeyMetricsResult {

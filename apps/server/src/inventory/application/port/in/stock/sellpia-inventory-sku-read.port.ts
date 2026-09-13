@@ -8,15 +8,10 @@ export type SellpiaInventorySkuReadModel = {
   name: string;
   optionName: string | null;
   barcode: string | null;
-  currentStock: number;
   purchasePrice: number | null;
   salePrice: number | null;
   isActive: boolean;
-  lastImportRunId: string | null;
-};
-
-export type SellpiaInventorySkuSearchOptions = {
-  includeOutOfStock?: boolean;
+  masterProductId: string | null;
 };
 
 export interface SellpiaInventorySkuReadPort {
@@ -47,6 +42,5 @@ export interface SellpiaInventorySkuReadPort {
     organizationId: string,
     query: string,
     limit: number,
-    options?: SellpiaInventorySkuSearchOptions,
   ): Promise<SellpiaInventorySkuReadModel[]>;
 }

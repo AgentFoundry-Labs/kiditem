@@ -67,7 +67,7 @@ export function productAbcReadModel(
     sources: {
       sellpia: source,
       advertising: source,
-      mapping: { status: 'READY', mappingGeneration: '7' },
+      mapping: { valid: true, currentMappingGeneration: '7', evidenceMappingGeneration: '7' },
     },
     ...overrides,
   };

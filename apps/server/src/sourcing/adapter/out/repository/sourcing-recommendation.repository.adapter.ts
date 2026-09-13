@@ -8,6 +8,12 @@ import type {
   SourcingRecommendationRepositoryPort,
   SourcingRecommendationRunGraph,
 } from '../../../application/port/out/repository/sourcing-recommendation.repository.port';
+import {
+  readCurrentRecommendationRun,
+  readExactRecommendationRun,
+  readRecommendationRunByManifest,
+  recommendationGraphInclude,
+} from '../../../read/recommendation-publication.reader';
 
 @Injectable()
 export class SourcingRecommendationRepositoryAdapter
@@ -19,13 +25,7 @@ export class SourcingRecommendationRepositoryAdapter
     organizationId: string;
     id: string;
   }): Promise<SourcingRecommendationRunGraph | null> {
-    const row = await this.prisma.sourcingRecommendationRun.findFirst({
-      where: {
-        id: input.id,
-        organizationId: input.organizationId,
-      },
-      include: graphInclude,
-    });
+    const row = await readExactRecommendationRun(this.prisma, input);
     return row ? toGraph(row) : null;
   }
 
@@ -33,15 +33,7 @@ export class SourcingRecommendationRepositoryAdapter
     organizationId: string;
     now: Date;
   }): Promise<SourcingRecommendationRunGraph | null> {
-    const row = await this.prisma.sourcingRecommendationRun.findFirst({
-      where: {
-        organizationId: input.organizationId,
-        status: { in: ['complete', 'partial'] },
-        OR: [{ expiresAt: null }, { expiresAt: { gt: input.now } }],
-      },
-      orderBy: [{ completedAt: 'desc' }, { id: 'desc' }],
-      include: graphInclude,
-    });
+    const row = await readCurrentRecommendationRun(this.prisma, input);
     return row ? toGraph(row) : null;
   }
 
@@ -123,32 +115,17 @@ export class SourcingRecommendationRepositoryAdapter
   private async findByManifest(
     command: CreateSourcingRecommendationRunCommand,
   ): Promise<SourcingRecommendationRunGraph | null> {
-    const row = await this.prisma.sourcingRecommendationRun.findFirst({
-      where: {
-        organizationId: command.organizationId,
-        policyKey: command.policyKey,
-        policyVersion: command.policyVersion,
-        modelVersion: command.modelVersion,
-        calculationVersion: command.calculationVersion,
-        inputManifestHash: command.inputManifestHash,
-      },
-      include: graphInclude,
+    const row = await readRecommendationRunByManifest(this.prisma, {
+      organizationId: command.organizationId,
+      policyKey: command.policyKey,
+      policyVersion: command.policyVersion,
+      modelVersion: command.modelVersion,
+      calculationVersion: command.calculationVersion,
+      inputManifestHash: command.inputManifestHash,
     });
     return row ? toGraph(row) : null;
   }
 }
-
-const graphInclude = {
-  items: {
-    orderBy: [{ rank: 'asc' }, { itemKey: 'asc' }],
-    include: {
-      evidence: {
-        orderBy: [{ ordinal: 'asc' }, { id: 'asc' }],
-        select: { evidenceObservationId: true },
-      },
-    },
-  },
-} satisfies Prisma.SourcingRecommendationRunInclude;
 
 function graphFromCommand(
   id: string,
@@ -173,7 +150,7 @@ function graphFromCommand(
   };
 }
 
-function toGraph(row: Prisma.SourcingRecommendationRunGetPayload<{ include: typeof graphInclude }>): SourcingRecommendationRunGraph {
+function toGraph(row: Prisma.SourcingRecommendationRunGetPayload<{ include: typeof recommendationGraphInclude }>): SourcingRecommendationRunGraph {
   return {
     id: row.id,
     organizationId: row.organizationId,

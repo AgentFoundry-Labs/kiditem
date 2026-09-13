@@ -134,7 +134,7 @@ export const Sourcing1688SearchItemSchema = z
     priceCny: NullableBoundedMetricSchema,
     sourceUrl: z.string().trim().url().max(2_000),
     imageUrl: z.string().trim().url().max(2_000).nullable(),
-    score: z.number().finite().min(0).max(100),
+    score: z.number().finite().min(0).max(100).nullable(),
     monthlySales: NullableBoundedMetricSchema,
     tradeScore: NullableBoundedMetricSchema,
     repurchaseRate: NullableBoundedTextSchema,

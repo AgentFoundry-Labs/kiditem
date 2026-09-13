@@ -39,8 +39,8 @@ export type RocketCapacityPreviewRow = {
   productName: string;
   plannedDeliveryDate: string;
   orderQuantity: number;
-  recommendedQuantity: number;
-  maxQuantity: number;
+  recommendedQuantity: number | null;
+  maxQuantity: number | null;
   editedQuantity: number | null;
   reason: RocketPurchasePreviewReason | null;
   channelListingOptionId: string | null;
@@ -55,6 +55,7 @@ export function previewRocketCapacity(input: {
 }): RocketCapacityPreviewRow[] {
   const remainingStock = new Map<string, number>();
   for (const component of input.rows.flatMap(({ components }) => components)) {
+    if (component.currentStock === null) continue;
     const current = remainingStock.get(component.sellpiaInventorySkuId);
     remainingStock.set(
       component.sellpiaInventorySkuId,
@@ -98,6 +99,16 @@ function allocateRow(
       clampEditedQuantities,
     );
     return result(row, editedQuantity, 0, 0, 'configuration_required');
+  }
+  if (row.components.some(({ currentStock, isActive }) =>
+    currentStock === null || isActive === null)) {
+    return result(
+      row,
+      requestedEditedQuantity,
+      null,
+      null,
+      'inventory_unavailable',
+    );
   }
   if (
     row.recipeStatus === 'review_required'
@@ -175,8 +186,8 @@ export function assertRocketPreviewEditedQuantity(
 function result(
   row: RocketCapacityPreviewInputRow,
   editedQuantity: number | null,
-  recommendedQuantity: number,
-  maxQuantity: number,
+  recommendedQuantity: number | null,
+  maxQuantity: number | null,
   reason: RocketPurchasePreviewReason | null,
 ): RocketCapacityPreviewRow {
   return {

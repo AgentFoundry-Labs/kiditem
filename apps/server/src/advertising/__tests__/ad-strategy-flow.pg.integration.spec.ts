@@ -17,6 +17,7 @@ import {
 } from '../../test-helpers/real-prisma';
 import { kstBusinessDate, kstMonthStart } from '../../common/kst';
 import { seedAd as seedAdTargetDay, seedCompletedAdSweepRun } from '../../test-helpers/finance-seeds';
+import { seedPublishedProductAbcGrades } from '../../products/__tests__/test-helpers/published-product-abc';
 
 describe('AdStrategy flow (PG integration)', () => {
   let prisma: PrismaClient;
@@ -122,10 +123,14 @@ describe('AdStrategy flow (PG integration)', () => {
         organizationId: params.organizationId,
         code: `M-${params.suffix}`,
         name: `Master ${params.suffix}`,
-        abcGrade: params.abcGrade,
+        abcGrade: null,
         adTier: params.adTier ?? null,
         healthScore: params.healthScore ?? null,
       },
+    });
+    await seedPublishedProductAbcGrades(prisma, {
+      organizationId: params.organizationId,
+      grades: [{ masterProductId: master.id, abcGrade: params.abcGrade }],
     });
     const inventorySku = await prisma.sellpiaInventorySku.create({
       data: {
@@ -425,6 +430,31 @@ describe('AdStrategy flow (PG integration)', () => {
           },
         ],
       });
+      const trafficDate = periodBounds('14d').to;
+      await prisma.channelListingDailySnapshot.createMany({
+        data: [
+          {
+            organizationId: TEST_ORGANIZATION_ID,
+            listingId: a.listing.id,
+            channel: 'coupang',
+            externalId: a.listing.externalId,
+            businessDate: trafficDate,
+            trafficRevenue: 123_456,
+            trafficOrders: 7,
+            trafficObservedAt: new Date('2026-09-01T03:00:00.000Z'),
+          },
+          {
+            organizationId: TEST_ORGANIZATION_ID,
+            listingId: a.listing.id,
+            channel: 'coupang',
+            externalId: a.listing.externalId,
+            businessDate: new Date(trafficDate.getTime() - 86_400_000),
+            trafficRevenue: 900_000,
+            trafficOrders: 90,
+            trafficObservedAt: null,
+          },
+        ],
+      });
 
       const plan = await service.getWeeklyPlan('14d', TEST_ORGANIZATION_ID);
 
@@ -445,6 +475,57 @@ describe('AdStrategy flow (PG integration)', () => {
       expect(plan.top20.length).toBe(1);
       expect(plan.top20[0].rank).toBe(1);
       expect(plan.top20[0].listing.listingId).toBe(a.listing.id);
+      expect(plan.top20[0].traffic).toEqual({ revenue: 123_456, orders: 7 });
+    });
+
+    it('withholds traffic rows outside the owner-declared population coverage', async () => {
+      const measured = await seedGradedListing({
+        organizationId: TEST_ORGANIZATION_ID,
+        abcGrade: 'A',
+        adTier: '1차',
+        suffix: 'TRAFFIC-COVERAGE-MEASURED',
+      });
+      const missing = await seedGradedListing({
+        organizationId: TEST_ORGANIZATION_ID,
+        abcGrade: 'B',
+        adTier: '2차',
+        suffix: 'TRAFFIC-COVERAGE-MISSING',
+      });
+      for (const listing of [measured, missing]) {
+        await seedAd({
+          organizationId: TEST_ORGANIZATION_ID,
+          listingId: listing.listing.id,
+          optionId: listing.option.id,
+          spend: 10_000,
+          revenue: 20_000,
+        });
+      }
+      const trafficDate = periodBounds('14d').to;
+      await prisma.channelListingDailySnapshot.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          listingId: measured.listing.id,
+          channel: 'coupang',
+          externalId: measured.listing.externalId,
+          businessDate: trafficDate,
+          trafficRevenue: 123_456,
+          trafficOrders: 7,
+          trafficObservedAt: new Date('2026-09-01T03:00:00.000Z'),
+        },
+      });
+
+      const plan = await service.getWeeklyPlan('14d', TEST_ORGANIZATION_ID);
+      const measuredTopRow = plan.top20.find(
+        (row) => row.listing.listingId === measured.listing.id,
+      );
+      expect(measuredTopRow?.traffic).toBeNull();
+
+      const exposure = await service.getExposureAnalysis(TEST_ORGANIZATION_ID);
+      const measuredExposure = exposure.scores.find(
+        (score) => score.listing.listingId === measured.listing.id,
+      );
+      expect(measuredExposure?.factors.find((factor) => factor.factor === 'sales')?.score)
+        .toBe(0);
     });
   });
 

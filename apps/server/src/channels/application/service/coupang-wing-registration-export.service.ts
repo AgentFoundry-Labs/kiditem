@@ -83,10 +83,13 @@ export class CoupangWingRegistrationExportService {
       throw new BadRequestException('등록할 상품이 없습니다.');
     }
 
-    const normalizedProducts = products.map((product, index) => normalizeProduct(product, index));
+    const normalizedProducts = products.map((product, index) =>
+      normalizeProduct(product, index),
+    );
     const workbook = readWorkbook(templateBuffer);
     const sheet = workbook.Sheets[BASE_SHEET];
-    if (!sheet) throw new BadRequestException(`양식에 "${BASE_SHEET}" 시트가 없습니다.`);
+    if (!sheet)
+      throw new BadRequestException(`양식에 "${BASE_SHEET}" 시트가 없습니다.`);
 
     const grid = XLSX.utils.sheet_to_json<string[]>(sheet, {
       header: 1,
@@ -106,13 +109,19 @@ export class CoupangWingRegistrationExportService {
       }
     }
 
-    const buffer = Buffer.from(XLSX.write(output, { type: 'buffer', bookType: 'xlsx' }));
+    const buffer = Buffer.from(
+      XLSX.write(output, { type: 'buffer', bookType: 'xlsx' }),
+    );
     return {
       buffer,
       fileName: normalizeFileName(requestedFileName),
-      contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      contentType:
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       productCount: normalizedProducts.length,
-      rowCount: normalizedProducts.reduce((count, product) => count + product.variants.length, 0),
+      rowCount: normalizedProducts.reduce(
+        (count, product) => count + product.variants.length,
+        0,
+      ),
     };
   }
 }
@@ -131,7 +140,9 @@ function normalizeProduct(value: unknown, index: number): WingProduct {
   }
   const variants = Array.isArray(value.variants) ? value.variants : [];
   if (variants.length === 0) {
-    throw new BadRequestException(`상품 "${String(value.productName ?? '')}" 에 variant(SKU) 가 없습니다.`);
+    throw new BadRequestException(
+      `상품 "${String(value.productName ?? '')}" 에 variant(SKU) 가 없습니다.`,
+    );
   }
   return {
     categoryCell: stringValue(value.categoryCell),
@@ -144,19 +155,37 @@ function normalizeProduct(value: unknown, index: number): WingProduct {
     detailImageUrls: stringArray(value.detailImageUrls),
     noticeCategory: stringValue(value.noticeCategory),
     noticeValues: stringArray(value.noticeValues),
-    variants: variants.map((variant, variantIndex) => normalizeVariant(variant, index, variantIndex)),
+    variants: variants.map((variant, variantIndex) =>
+      normalizeVariant(variant, index, variantIndex),
+    ),
   };
 }
 
-function normalizeVariant(value: unknown, productIndex: number, variantIndex: number): WingVariant {
+function normalizeVariant(
+  value: unknown,
+  productIndex: number,
+  variantIndex: number,
+): WingVariant {
   if (!isRecord(value)) {
-    throw new BadRequestException(`상품 ${productIndex + 1}의 variant ${variantIndex + 1}이 유효하지 않습니다.`);
+    throw new BadRequestException(
+      `상품 ${productIndex + 1}의 variant ${variantIndex + 1}이 유효하지 않습니다.`,
+    );
   }
   return {
     purchaseOptions: optionsValue(value.purchaseOptions) ?? [],
-    salePrice: numberValue(value.salePrice),
-    origPrice: optionalNumber(value.origPrice),
-    stock: numberValue(value.stock),
+    salePrice: numberValue(
+      value.salePrice,
+      'salePrice',
+      productIndex,
+      variantIndex,
+    ),
+    origPrice: optionalNumber(
+      value.origPrice,
+      'origPrice',
+      productIndex,
+      variantIndex,
+    ),
+    stock: numberValue(value.stock, 'stock', productIndex, variantIndex),
     barcode: optionalString(value.barcode),
     representativeImageUrl: stringValue(value.representativeImageUrl),
     vendorItemCode: optionalString(value.vendorItemCode),
@@ -171,16 +200,21 @@ function buildProductRows(product: WingProduct): string[][] {
     row[WING_COL.name] = product.productName;
     row[WING_COL.brand] = product.brand;
     row[WING_COL.maker] = product.maker || product.brand;
-    if (product.searchKeyword) row[WING_COL.searchKeyword] = product.searchKeyword;
+    if (product.searchKeyword)
+      row[WING_COL.searchKeyword] = product.searchKeyword;
 
-    variant.purchaseOptions.slice(0, WING_COL.purchaseOptCount).forEach((option, index) => {
-      row[WING_COL.purchaseOptStart + index * 2] = option.type;
-      row[WING_COL.purchaseOptStart + index * 2 + 1] = option.value;
-    });
-    (product.searchOptions ?? []).slice(0, WING_COL.searchOptCount).forEach((option, index) => {
-      row[WING_COL.searchOptStart + index * 2] = option.type;
-      row[WING_COL.searchOptStart + index * 2 + 1] = option.value;
-    });
+    variant.purchaseOptions
+      .slice(0, WING_COL.purchaseOptCount)
+      .forEach((option, index) => {
+        row[WING_COL.purchaseOptStart + index * 2] = option.type;
+        row[WING_COL.purchaseOptStart + index * 2 + 1] = option.value;
+      });
+    (product.searchOptions ?? [])
+      .slice(0, WING_COL.searchOptCount)
+      .forEach((option, index) => {
+        row[WING_COL.searchOptStart + index * 2] = option.type;
+        row[WING_COL.searchOptStart + index * 2 + 1] = option.value;
+      });
 
     row[WING_COL.price] = String(variant.salePrice);
     row[WING_COL.origPrice] = String(variant.origPrice ?? variant.salePrice);
@@ -188,18 +222,22 @@ function buildProductRows(product: WingProduct): string[][] {
     row[WING_COL.adult] = 'N';
     row[WING_COL.tax] = 'Y';
     row[WING_COL.parallel] = 'N';
-    if (variant.vendorItemCode) row[WING_COL.vendorCode] = variant.vendorItemCode;
+    if (variant.vendorItemCode)
+      row[WING_COL.vendorCode] = variant.vendorItemCode;
     if (variant.model) row[WING_COL.model] = variant.model;
     row[WING_COL.barcode] = variant.barcode || DEFAULT_NO_BARCODE_REASON;
     row[WING_COL.noticeCat] = product.noticeCategory;
-    (product.noticeValues ?? []).slice(0, WING_COL.noticeValCount).forEach((value, index) => {
-      row[WING_COL.noticeValStart + index] = value;
-    });
+    (product.noticeValues ?? [])
+      .slice(0, WING_COL.noticeValCount)
+      .forEach((value, index) => {
+        row[WING_COL.noticeValStart + index] = value;
+      });
     row[WING_COL.imgRep] = variant.representativeImageUrl;
     if (product.additionalImageUrls?.length) {
       row[WING_COL.imgAddl] = product.additionalImageUrls.join(',');
     }
-    if (product.detailImageUrls?.length) row[WING_COL.detail] = product.detailImageUrls[0]!;
+    if (product.detailImageUrls?.length)
+      row[WING_COL.detail] = product.detailImageUrls[0]!;
     return row;
   });
 }
@@ -229,10 +267,10 @@ function normalizeFileName(requestedFileName?: string): string {
   const fallback = `${DEFAULT_FILE_PREFIX}${new Date().toISOString().slice(0, 10).replace(/-/g, '')}.xlsx`;
   if (!requestedFileName) return fallback;
   if (
-    requestedFileName.length > 180
-    || requestedFileName !== requestedFileName.trim()
-    || /[\r\n/\\]/.test(requestedFileName)
-    || !requestedFileName.toLowerCase().endsWith('.xlsx')
+    requestedFileName.length > 180 ||
+    requestedFileName !== requestedFileName.trim() ||
+    /[\r\n/\\]/.test(requestedFileName) ||
+    !requestedFileName.toLowerCase().endsWith('.xlsx')
   ) {
     throw new BadRequestException('WING 출력 파일명이 유효하지 않습니다.');
   }
@@ -263,10 +301,28 @@ function optionsValue(value: unknown): WingOption[] | undefined {
   }));
 }
 
-function numberValue(value: unknown): number {
-  return typeof value === 'number' && Number.isFinite(value) ? value : Number(value) || 0;
+function numberValue(
+  value: unknown,
+  field: string,
+  productIndex: number,
+  variantIndex: number,
+): number {
+  const parsed = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    throw new BadRequestException(
+      `상품 ${productIndex + 1}의 variant ${variantIndex + 1} ${field} 값을 읽을 수 없습니다.`,
+    );
+  }
+  return parsed;
 }
 
-function optionalNumber(value: unknown): number | undefined {
-  return value == null ? undefined : numberValue(value);
+function optionalNumber(
+  value: unknown,
+  field: string,
+  productIndex: number,
+  variantIndex: number,
+): number | undefined {
+  return value == null
+    ? undefined
+    : numberValue(value, field, productIndex, variantIndex);
 }

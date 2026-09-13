@@ -1,11 +1,11 @@
 import type {
-  ProductAbcEvaluation,
   ProductAbcFormulaPayload,
   ProductAbcGrade,
 } from '@kiditem/shared/product-abc';
 import type {
   SourceGenerationView,
 } from '../../../../../finance/application/port/in/master-product-profitability-read.port';
+import type { ProductAbcPublicationRead } from '../../../../read/product-abc-publication.reader';
 
 export const MASTER_PRODUCT_ABC_REPOSITORY_PORT = Symbol(
   'MASTER_PRODUCT_ABC_REPOSITORY_PORT',
@@ -83,21 +83,12 @@ export type MasterProductAbcPublicationResult =
     }>
   | Readonly<{ outcome: 'INPUT_CHANGED' }>;
 
-/**
- * A product's retained evaluation. Absent for a product ABC has never
- * published, or whose stored row no longer parses as a valid evaluation.
- */
-export type MasterProductAbcEvaluationRecord = Readonly<{
-  masterProductId: string;
-  evaluation: ProductAbcEvaluation | null;
-}>;
-
 export interface ProductAbcRepositoryPort {
   getFormulaState(organizationId: string): Promise<MasterProductAbcFormulaStateRecord>;
-  listCurrentAbcTargetIds(organizationId: string): Promise<readonly string[]>;
-  listEvaluations(
+  readPublication(
     organizationId: string,
     masterProductIds: readonly string[],
-  ): Promise<readonly MasterProductAbcEvaluationRecord[]>;
+  ): Promise<ProductAbcPublicationRead>;
+  listCurrentAbcTargetIds(organizationId: string): Promise<readonly string[]>;
   publish(input: ProductAbcPublicationInput): Promise<MasterProductAbcPublicationResult>;
 }

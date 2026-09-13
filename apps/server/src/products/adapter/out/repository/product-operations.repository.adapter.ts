@@ -10,13 +10,20 @@ import {
   resolveChannelListingSaleStatus,
 } from '@kiditem/shared/channel-listing';
 import {
-  dailyTrafficFactSource,
-  type DailyTrafficFactSource,
-} from '@kiditem/shared/advertising';
-import { readListingAdWindowFacts, type AdListingWindowFacts } from '../../../../common/ad-window-facts';
-import { addDays, businessDateKey, evidenceCutoffDate, kstBusinessDate } from '../../../../common/kst';
+  advertisingApplies,
+  readAdWindowFacts,
+  readListingAdWindowFacts,
+  type AdListingWindowFacts,
+} from '../../../../advertising/read/ad-target-facts';
+import { addDays, businessDateKey, kstDayStart } from '../../../../common/kst';
+import { readOrderWindowFacts, readListingOptionOrderFacts, type ListingOptionOrderFacts } from '../../../../orders/read/order-facts.reader';
+import {
+  readLatestListingSaleStatusFacts,
+  readListingTrafficWindowFacts,
+  type ListingTrafficDailyFact,
+} from '../../../../channels/read/channel-listing-daily-facts';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import { productAbcEvaluation } from '../../../mapper/product-abc-evaluation.mapper';
+import { productAbcEvidenceCutoff } from '../../../domain/product-abc-display-status';
 import { listSellingMasterProductIds } from './selling-master-product.query';
 import type {
   MasterProductOperationsListQuery,
@@ -28,9 +35,8 @@ import type {
   ProductOperationsRepositoryPort,
 } from '../../../application/port/out/repository/product-operations.repository.port';
 
-function productInclude(organizationId: string, periodStart?: Date) {
+function productInclude(organizationId: string) {
   return {
-    abcEvaluation: { include: { formulaVersion: true } },
     inventorySkus: {
       where: { organizationId },
       orderBy: { id: 'asc' as const },
@@ -55,25 +61,7 @@ function productInclude(organizationId: string, periodStart?: Date) {
         status: true,
         isActive: true,
         channelAccount: {
-          select: { id: true, channel: true, name: true },
-        },
-        channelListingDailySnapshots: {
-          where: {
-            organizationId,
-            ...(periodStart ? { businessDate: { gte: periodStart } } : {}),
-          },
-          select: {
-            businessDate: true,
-            trafficVisitors: true,
-            trafficViews: true,
-            trafficCartAdds: true,
-            trafficOrders: true,
-            trafficSalesQty: true,
-            trafficRevenue: true,
-            trafficObservedAt: true,
-            lastObservedAt: true,
-            metaJson: true,
-          },
+          select: { id: true, channel: true, name: true, status: true },
         },
         options: {
           where: { organizationId },
@@ -156,26 +144,67 @@ implements ProductOperationsRepositoryPort {
     organizationId: string,
     query: MasterProductOperationsListQuery,
   ) {
-    const periodStart = addDays(kstBusinessDate(new Date()), -(query.periodDays - 1));
-    const [sellingMasterProductIds, sellingChannelProducts] = await Promise.all([
-      listSellingMasterProductIds(this.prisma, organizationId),
-      this.listSellingChannelProducts(organizationId),
-    ]);
+    const cutoff = new Date(`${productAbcEvidenceCutoff(new Date())}T00:00:00.000Z`);
+    const periodStart = addDays(cutoff, -(query.periodDays - 1));
+    const periodEnd = addDays(cutoff, 1);
+    const { sellingMasterProductIds, sellingChannelProducts, rows, adByListing, traffic, adCoverage, orders, orderLines } =
+      await this.prisma.$transaction(async (tx) => {
+        const sellingMasterProductIds = await listSellingMasterProductIds(tx, organizationId);
+        const sellingChannelProducts = await this.listSellingChannelProducts(tx, organizationId);
+        const rows = await tx.masterProduct.findMany({
+          where: productListWhere(organizationId, query, sellingMasterProductIds),
+          include: productInclude(organizationId),
+          orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
+        });
+        const adByListing = await readListingAdWindowFacts(tx, { organizationId, from: periodStart, to: periodEnd });
+        const adWindow = await readAdWindowFacts(tx, { organizationId, from: periodStart, to: periodEnd });
+        const applies = await advertisingApplies(tx, organizationId);
+        const adCoverage = {
+          ready: !applies || adWindow.days.length === query.periodDays,
+          coverageStartDate: businessDateKey(periodStart),
+          coverageEndDate: businessDateKey(cutoff),
+          capturedAt: adWindow.observedAt,
+        };
+        const traffic = await readListingTrafficWindowFacts(tx, {
+          organizationId, from: periodStart, to: periodEnd,
+          listingIds: rows.flatMap((row) => row.channelListings.map((listing) => listing.id)),
+        });
+        const orderWindow = { organizationId, from: kstDayStart(periodStart), to: kstDayStart(periodEnd) };
+        const orders = await readOrderWindowFacts(tx, orderWindow);
+        const orderLines = await readListingOptionOrderFacts(tx, orderWindow);
+        return { sellingMasterProductIds, sellingChannelProducts, rows, adByListing, traffic, adCoverage, orders, orderLines };
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
     const sellingMasterProductIdSet = new Set(sellingMasterProductIds);
-    const [rows, adByListing] = await Promise.all([
-      this.prisma.masterProduct.findMany({
-        where: productListWhere(organizationId, query, sellingMasterProductIds),
-        include: productInclude(organizationId, periodStart),
-        orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
-      }),
-      readListingAdWindowFacts(this.prisma, { organizationId, from: periodStart }),
-    ]);
+    const trafficByListing = new Map<string, ListingTrafficDailyFact[]>();
+    for (const fact of traffic.rows) {
+      const facts = trafficByListing.get(fact.listingId) ?? [];
+      facts.push(fact);
+      trafficByListing.set(fact.listingId, facts);
+    }
     const adFactsByListing = new Map(adByListing.map((facts) => [facts.listingId, facts]));
+    const trafficCoverage = {
+      ready: traffic.coverage.includedDates.length === query.periodDays
+        && traffic.coverage.invalidDates.length === 0 && traffic.coverage.missingDates.length === 0,
+      coverageStartDate: businessDateKey(periodStart),
+      coverageEndDate: businessDateKey(cutoff),
+      capturedAt: traffic.latestObservedAt,
+    };
+    const orderCoverage = {
+      ready: orders.orderCount !== null,
+      coverageStartDate: businessDateKey(periodStart),
+      coverageEndDate: businessDateKey(cutoff),
+      capturedAt: orders.observedAt,
+    };
     return {
       items: rows.map((row) => toListItem(
         row,
         adFactsByListing,
+        trafficByListing,
         sellingMasterProductIdSet.has(row.id),
+        adCoverage,
+        trafficCoverage,
+        orderCoverage,
+        orderLines,
       )),
       page: query.page,
       limit: query.limit,
@@ -183,8 +212,11 @@ implements ProductOperationsRepositoryPort {
     };
   }
 
-  private async listSellingChannelProducts(organizationId: string) {
-    const rows = await this.prisma.channelListing.findMany({
+  private async listSellingChannelProducts(
+    tx: Prisma.TransactionClient,
+    organizationId: string,
+  ) {
+    const rows = await tx.channelListing.findMany({
       where: {
         organizationId,
         channelAccount: {
@@ -196,20 +228,12 @@ implements ProductOperationsRepositoryPort {
         },
       },
       select: {
+        id: true,
         isActive: true,
         status: true,
         rawJson: true,
         channelAccount: {
           select: { id: true, channel: true, name: true },
-        },
-        channelListingDailySnapshots: {
-          where: { organizationId },
-          orderBy: [
-            { businessDate: 'desc' },
-            { lastObservedAt: 'desc' },
-          ],
-          take: 1,
-          select: { saleStatus: true },
         },
         options: {
           where: { organizationId },
@@ -217,9 +241,17 @@ implements ProductOperationsRepositoryPort {
         },
       },
     });
+    const statusFacts = await readLatestListingSaleStatusFacts(tx, {
+      organizationId,
+      listingIds: rows.map((row) => row.id),
+    });
+    const saleStatusByListing = new Map(statusFacts.map((fact) => [
+      fact.listingId,
+      fact.saleStatus,
+    ]));
     return rows.flatMap((row) => isChannelListingOnSale(
       resolveChannelListingSaleStatus({
-        latestSnapshotStatus: row.channelListingDailySnapshots[0]?.saleStatus,
+        latestSnapshotStatus: saleStatusByListing.get(row.id) ?? null,
         rawStatus: rawSaleStatus(row.rawJson),
         optionStatuses: row.options.map((option) => option.status),
         listingStatus: row.status,
@@ -333,14 +365,6 @@ function productListWhere(
     ...(query.category ? { category: query.category } : {}),
     ...(query.activeStatus === 'active' ? { id: { in: [...sellingMasterProductIds] } } : {}),
     ...(query.activeStatus === 'inactive' ? { id: { notIn: [...sellingMasterProductIds] } } : {}),
-    ...(query.abcGrade === 'unclassified'
-      ? { abcGrade: null }
-      : query.abcGrade
-        ? { abcGrade: query.abcGrade }
-        : {}),
-    ...(query.adStatus === 'active' ? { adTier: { not: null } } : {}),
-    ...(query.adStatus === 'inactive' ? { adTier: 'inactive' } : {}),
-    ...(query.adStatus === 'unconfigured' ? { adTier: null } : {}),
   };
 }
 
@@ -367,30 +391,50 @@ function toDetail(row: ProductRow): ProductOperationsRepositoryDetail {
 function toListItem(
   row: ProductRow,
   adFactsByListing: ReadonlyMap<string, AdListingWindowFacts>,
+  trafficFactsByListing: ReadonlyMap<string, readonly ListingTrafficDailyFact[]>,
   isSelling: boolean,
+  adCoverage: ProductOperationsRepositoryListItem['metricsFreshness']['advertising'],
+  trafficCoverage: ProductOperationsRepositoryListItem['metricsFreshness']['traffic'],
+  orderCoverage: ProductOperationsRepositoryListItem['metricsFreshness']['orders'],
+  orderLines: readonly ListingOptionOrderFacts[],
 ): ProductOperationsRepositoryListItem {
   const activeListings = row.channelListings.filter((listing) => listing.isActive);
   const dailyFacts = row.channelListings.flatMap(
-    (listing) => listing.channelListingDailySnapshots,
+    (listing) => trafficFactsByListing.get(listing.id) ?? [],
   );
-  const trafficFacts = dailyFacts.filter(isAcceptedTrafficFact);
+  const trafficFacts = dailyFacts;
   const advertisingFacts = row.channelListings.flatMap((listing) => {
     const facts = adFactsByListing.get(listing.id);
     return facts ? [facts] : [];
   });
   const csvTrafficFacts = trafficFacts.filter(
-    (fact) => trafficFactSource(fact) === 'csv_upload',
+    (fact) => fact.source === 'csv_upload',
+  );
+  const trafficMeasured = trafficCoverage.ready && row.channelListings.some(
+    (listing) => listing.isActive
+      && listing.channelAccount.channel === 'coupang'
+      && listing.channelAccount.status === 'active',
   );
   // Wing listing projections carry option/page visitors, not account UV.
   // Product Hub may retain explicitly uploaded listing visitors, but never
   // presents a sum of Wing option projections as unique visitors.
-  const visitorCount = nullableTrafficMetricSum(csvTrafficFacts, (fact) => fact.trafficVisitors);
-  const viewCount = nullableTrafficMetricSum(trafficFacts, (fact) => fact.trafficViews);
-  const cartAddCount = nullableTrafficMetricSum(trafficFacts, (fact) => fact.trafficCartAdds);
-  const orderCount = nullableTrafficMetricSum(trafficFacts, (fact) => fact.trafficOrders);
-  const salesQuantity = nullableTrafficMetricSum(trafficFacts, (fact) => fact.trafficSalesQty);
-  const salesAmount = nullableTrafficMetricSum(trafficFacts, (fact) => fact.trafficRevenue);
-  const adSpend = nullableSum(advertisingFacts, (fact) => fact.spend);
+  const visitorCount = trafficMeasured
+    ? nullableTrafficMetricSum(csvTrafficFacts, (fact) => fact.visitors)
+    : null;
+  const viewCount = trafficMeasured
+    ? trafficFacts.reduce((sum, fact) => sum + fact.views, 0)
+    : null;
+  const cartAddCount = trafficMeasured
+    ? trafficFacts.reduce((sum, fact) => sum + fact.cartAdds, 0)
+    : null;
+  const optionIds = new Set(row.channelListings.flatMap((listing) => listing.options.map(({ id }) => id)));
+  const productOrders = orderLines.filter((line) => optionIds.has(line.listingOptionId));
+  const orderCount = orderCoverage.ready ? new Set(productOrders.map(({ orderId }) => orderId)).size : null;
+  const salesQuantity = orderCoverage.ready ? productOrders.reduce((sum, line) => sum + line.quantity, 0) : null;
+  const salesAmount = orderCoverage.ready ? productOrders.reduce((sum, line) => sum + line.revenue, 0) : null;
+  const adSpend = adCoverage.ready
+    ? advertisingFacts.reduce((total, fact) => total + fact.spend, 0)
+    : null;
   return {
     ...metadata(row),
     abcCreatedAt: row.createdAt,
@@ -422,74 +466,14 @@ function toListItem(
       ? (adSpend / salesAmount) * 100
       : null,
     metricsFreshness: {
-      traffic: dailyMetricFreshness(trafficFacts),
-      advertising: advertisingFreshness(advertisingFacts),
+      traffic: trafficCoverage,
+      advertising: adCoverage,
+      orders: orderCoverage,
     },
   };
-}
-
-/** Ready when the measured window reaches yesterday (KST). */
-function freshness(coverageStart: string, coverageEnd: string, capturedAt: Date) {
-  const yesterdayKst = businessDateKey(evidenceCutoffDate());
-  return {
-    ready: coverageEnd >= yesterdayKst,
-    coverageStartDate: coverageStart,
-    coverageEndDate: coverageEnd,
-    capturedAt,
-  };
-}
-
-const NO_FRESHNESS = { ready: false, coverageStartDate: null, coverageEndDate: null, capturedAt: null };
-
-function advertisingFreshness(facts: readonly AdListingWindowFacts[]) {
-  if (facts.length === 0) return NO_FRESHNESS;
-  const first = facts[0]!;
-  const start = facts.reduce((earliest, f) => (f.firstDate < earliest ? f.firstDate : earliest), first.firstDate);
-  const end = facts.reduce((latest, f) => (f.lastDate > latest ? f.lastDate : latest), first.lastDate);
-  const capturedAt = facts.reduce((latest, f) => (f.observedAt > latest ? f.observedAt : latest), first.observedAt);
-  return freshness(start, end, capturedAt);
-}
-
-function dailyMetricFreshness(
-  facts: readonly {
-    businessDate: Date;
-    lastObservedAt: Date;
-    trafficObservedAt: Date | null;
-  }[],
-) {
-  if (facts.length === 0) return NO_FRESHNESS;
-  const first = facts[0]!;
-  const coverageStart = facts.reduce(
-    (earliest, fact) => fact.businessDate < earliest ? fact.businessDate : earliest,
-    first.businessDate,
-  );
-  const coverageEnd = facts.reduce(
-    (latest, fact) => fact.businessDate > latest ? fact.businessDate : latest,
-    first.businessDate,
-  );
-  const capturedAt = facts.reduce(
-    (latest, fact) => {
-      const observedAt = fact.trafficObservedAt ?? fact.lastObservedAt;
-      return observedAt > latest ? observedAt : latest;
-    },
-    first.trafficObservedAt ?? first.lastObservedAt,
-  );
-  return freshness(calendarDate(coverageStart), calendarDate(coverageEnd), capturedAt);
-}
-
-type ProductTrafficFact = ProductRow['channelListings'][number]['channelListingDailySnapshots'][number];
-
-function trafficFactSource(fact: ProductTrafficFact): DailyTrafficFactSource | null {
-  return dailyTrafficFactSource(fact.metaJson);
-}
-
-/** A traffic row is a measurement only on a day the source reported. */
-function isAcceptedTrafficFact(fact: ProductTrafficFact): boolean {
-  return fact.trafficObservedAt !== null;
 }
 
 function metadata(row: ProductRow) {
-  const abcEvaluation = productAbcEvaluation(row.abcEvaluation);
   return {
     id: row.id,
     code: row.code,
@@ -510,8 +494,6 @@ function metadata(row: ProductRow) {
     brand: row.brand,
     tags: row.tags,
     imageUrls: row.imageUrls,
-    abcGrade: abcEvaluation?.abcGrade ?? null,
-    abcEvaluation,
     profitTag: row.profitTag,
     adTier: row.adTier,
     adBudgetLimit: row.adBudgetLimit,
@@ -521,9 +503,6 @@ function metadata(row: ProductRow) {
   };
 }
 
-function calendarDate(value: Date): string {
-  return businessDateKey(value);
-}
 
 function toRepositoryOption(
   option: ProductRow['channelListings'][number]['options'][number],

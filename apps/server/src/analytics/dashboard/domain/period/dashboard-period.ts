@@ -114,40 +114,6 @@ export function resolveDashboardPeriod(
 }
 
 /**
- * Rolling closed-day trend window for `/api/dashboard/trend`. The in-progress
- * KST day is excluded, so no partial row can shift the selected date set or
- * make a missing day look collected.
- *
- * Every trend source — orders, Wing traffic and account ads alike — reads this
- * one window, so the whole series obeys the `closed_day_clipped` rule rather
- * than the per-source rules the selection-driven windows use.
- */
-export function resolveTrendPeriod(
-  range: string,
-  anchor: Date,
-  /**
-   * An explicit window, when the caller selected one. The chart sits inside
-   * the period section and under its filter, so a selected range has to reach
-   * it; without this it always answered with a rolling window from the anchor,
-   * and a July selection drew September.
-   */
-  explicit?: { from: Date; to: Date } | null,
-): ResolvedDashboardPeriod {
-  if (explicit) {
-    return resolveExactPeriod(explicit, anchor, 'closed_day_clipped');
-  }
-  const days = trendDays(range);
-  const to = kstDayStart(anchor);
-  const from = addDays(to, -days);
-  return resolveExactPeriod({ from, to }, anchor, 'closed_day_clipped');
-}
-
-/** Day count behind a `/api/dashboard/trend` range token. */
-function trendDays(range: string): number {
-  return range === '7d' ? 7 : range === '90d' ? 90 : 30;
-}
-
-/**
  * Wing window for one month of the six-month sales trend. The anchor's own
  * month is still open, so it is clipped to closed days like every other month
  * window; every older month is already closed and stays exact.

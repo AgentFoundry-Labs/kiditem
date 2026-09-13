@@ -3,25 +3,28 @@ import { buildDashboardContext } from '../../domain/context';
 import {
   buildMockDashboardInventoryRepo,
   buildMockDashboardSalesRepo,
+  buildTodayKpiRow,
   buildMockProfitCalculationRepo,
-  buildMockWingAdSummaryRepo,
   buildMockWingTrafficAggregationRepo,
 } from '../../__tests__/test-helpers/build-mock-ports';
+import {
+  missingDatesOf,
+  periodStatusOf,
+  snapshotStatusOf,
+} from '../../../../test-helpers/dashboard-basis-assertions';
+import { DashboardSalesService } from './dashboard-sales.service';
+import { DashboardAdService } from './dashboard-ad.service';
+import { DashboardInventoryService } from './dashboard-inventory.service';
 import type { RangeProfitMetrics } from '../port/out/repository/profit-calculation.repository.port';
 import type {
   CoupangAdsMetrics,
   WingTrafficMetrics,
 } from '../port/out/repository/wing-traffic-aggregation.repository.port';
 import type { ResolvedDashboardPeriod } from '../../domain/period/dashboard-period';
-import { DashboardSalesService } from './dashboard-sales.service';
-import { DashboardAdService } from './dashboard-ad.service';
-import { DashboardInventoryService } from './dashboard-inventory.service';
-import type { AbcEvaluationAsOf } from '../port/out/repository/dashboard-inventory.repository.port';
-import {
-  missingDatesOf,
-  periodStatusOf,
-  snapshotStatusOf,
-} from '../../../../test-helpers/dashboard-basis-assertions';
+import type {
+  AbcEvaluationAsOf,
+  DashboardAbcFacts,
+} from '../port/out/repository/dashboard-inventory.repository.port';
 
 /**
  * Published calculation bases for `/api/dashboard/sales` and `/api/dashboard/ad`.
@@ -136,20 +139,32 @@ function salesService(options: {
   const profit = buildMockProfitCalculationRepo();
   profit.calculateForRange.mockImplementation(async (_org, period) => options.profitFor(period));
   profit.calculateDailyForRange.mockResolvedValue([]);
-  const wingAds = buildMockWingAdSummaryRepo();
-  wingAds.fetchCurrentMonthSummary.mockResolvedValue(null);
   const sales = buildMockDashboardSalesRepo();
-  sales.fetchTodayKpis.mockResolvedValue({ revenue: 0, orders: 0 });
+  sales.fetchTodayKpis.mockResolvedValue(buildTodayKpiRow());
   sales.fetchTopProducts.mockResolvedValue([]);
   const wing = buildMockWingTrafficAggregationRepo();
   wing.aggregateTraffic.mockResolvedValue(options.wing ?? wingTraffic());
   wing.aggregateCoupangAds.mockResolvedValue(options.ads ?? coupangAds());
+  wing.readAdRateFacts.mockImplementation(async (_org, period) => {
+    const metrics = options.profitFor(period);
+    const ads = options.ads ?? coupangAds();
+    const adDates = ads.hasData ? period.selectedDates : [];
+    const orderDates = new Set(metrics.sourceCoverage.orderDates);
+    const includedDates = adDates.filter((date) => orderDates.has(date));
+    return {
+      adSpend: includedDates.length > 0 ? ads.spend : null,
+      revenue: includedDates.length > 0 ? metrics.revenue : null,
+      revenueSource: includedDates.length > 0 ? 'orders' : 'unavailable',
+      includedDates,
+      adCoverageComplete: ads.hasData,
+    };
+  });
   wing.fetchDailyAds.mockResolvedValue([]);
   wing.fetchDailyTrend.mockResolvedValue([]);
   wing.findLatestDataDate.mockResolvedValue(null);
   return {
-    sales: new DashboardSalesService(profit, wingAds, sales, wing),
-    ad: new DashboardAdService(profit, wingAds, wing),
+    sales: new DashboardSalesService(profit, sales, wing),
+    ad: new DashboardAdService(profit, wing),
   };
 }
 
@@ -472,35 +487,47 @@ describe('dashboard ad metricBasis', () => {
  */
 describe('dashboard inventory metricBasis', () => {
   /** The counts a warning card displays, and the ABC as-of behind a grade. */
-  function inventoryService(evaluatedAsOf: Partial<AbcEvaluationAsOf> = {}) {
+  function inventoryService(
+    evaluatedAsOf: Partial<AbcEvaluationAsOf> = {},
+    abcOverrides: Partial<DashboardAbcFacts> = {},
+  ) {
     const repository = buildMockDashboardInventoryRepo();
-    repository.countActiveProductsByGrade.mockResolvedValue([{ abcGrade: 'A', count: 2 }]);
-    repository.countActiveProductsByAbcStatus.mockResolvedValue({
-      rows: [{ displayStatus: 'READY', count: 2 }],
+    repository.readProductAbcFacts.mockResolvedValue({
+      gradeRows: [{ abcGrade: 'A', count: 2 }],
+      statusRows: [{ displayStatus: 'READY', count: 2 }],
+      contributionRows: [],
+      withheldContributionProductCount: 0,
+      unclassifiedProductCount: 0,
+      formula: null,
       evaluatedAsOf: {
         targetCutoff: '2026-08-31',
         actualCutoff: '2026-08-31',
         capturedAt: '2026-09-02T00:00:00.000Z',
         ...evaluatedAsOf,
       },
+      publication: null,
+      gradeChanges: [],
+      aGradeMasterProductIds: [],
+      ...abcOverrides,
     });
-    repository.findActiveAbcContributions.mockResolvedValue([]);
-    repository.countUnclassifiedActiveProducts.mockResolvedValue(0);
-    repository.findAbcFormula.mockResolvedValue(null);
     repository.findUnreadAlerts.mockResolvedValue([]);
     repository.countActiveProducts.mockResolvedValue(5);
     repository.fetchPerListingMetrics.mockResolvedValue({
       rows: [{ revenue: 1_000, adCost: 300, netProfit: -200, profitRate: -20 }],
       withheldListings: 0,
     });
-    repository.countOutOfStockMasterProducts.mockResolvedValue(3);
-    repository.getSellingChannelMappingSummary.mockResolvedValue({
+    repository.readInventoryAvailabilityFacts.mockResolvedValue({
+      outOfStockSkus: 3,
       linkedMasterProductCount: 4,
       mappingStatusRows: [{ mappingStatus: 'unmatched', count: 2 }],
+      snapshot: {
+        collected: true,
+        generation: '1',
+        verifiedAt: '2026-09-08T00:00:00.000Z',
+      },
     });
-    repository.findGradeHistory.mockResolvedValue([]);
     repository.countLowCtrThumbnails.mockResolvedValue(0);
-    repository.findAGradeReviewCounts.mockResolvedValue([]);
+    repository.findReviewCountsForProducts.mockResolvedValue([]);
     return new DashboardInventoryService(repository);
   }
 
@@ -512,11 +539,22 @@ describe('dashboard inventory metricBasis', () => {
     'gradeCount.A',
     'gradeCount.B',
     'gradeCount.C',
+    'classifiedProductCount',
+    'unclassifiedProductCount',
     'abcStatusCount.READY',
     'abcStatusCount.INSUFFICIENT_EVIDENCE',
     'abcStatusCount.SOURCE_UNMAPPED',
     'abcStatusCount.SELLPIA_SOURCE_STALE',
     'abcStatusCount.AD_SOURCE_STALE',
+    'abcContributionProfit.amountByGrade.A',
+    'abcContributionProfit.amountByGrade.B',
+    'abcContributionProfit.amountByGrade.C',
+    'abcContributionProfit.shareByGrade.A',
+    'abcContributionProfit.shareByGrade.B',
+    'abcContributionProfit.shareByGrade.C',
+    'gradeChanges.upgraded',
+    'gradeChanges.downgraded',
+    'gradeChanges.total',
     'alerts',
     'warnings.minusProducts',
     'warnings.lowProfitProducts',
@@ -555,10 +593,10 @@ describe('dashboard inventory metricBasis', () => {
       sources: ['channel_listings', 'sellpia_inventory'],
     });
     expect(snapshotStatusOf(result.metricBasis?.['warnings.mappingAttentionSkus'])).toBe('current');
-    // The linked/unlinked split additionally resolves the active master
-    // product, so it names Products too.
+    // The linked/unlinked split is direct Products + Channels CONFIG; an
+    // inventory recipe or stock publication is not required.
     expect(result.metricBasis?.channelLinkedProducts).toMatchObject({
-      sources: ['products', 'channel_listings', 'sellpia_inventory'],
+      sources: ['products', 'channel_listings'],
     });
     for (const key of ['warnings.lowProfitProducts', 'warnings.highAdProducts'] as const) {
       expect(snapshotStatusOf(result.metricBasis?.[key]), key).toBe('current');
@@ -574,7 +612,14 @@ describe('dashboard inventory metricBasis', () => {
       Object.entries(result.metricBasis ?? {})
         .filter(([, basis]) => basis.kind === 'snapshot' && !basis.measured)
         .map(([key]) => key),
-    ).toEqual([]);
+    ).toEqual([
+      'abcContributionProfit.amountByGrade.A',
+      'abcContributionProfit.amountByGrade.B',
+      'abcContributionProfit.amountByGrade.C',
+      'abcContributionProfit.shareByGrade.A',
+      'abcContributionProfit.shareByGrade.B',
+      'abcContributionProfit.shareByGrade.C',
+    ]);
   });
 
   it('names the ABC evaluation as-of rather than the read clock for a stored grade', async () => {
@@ -591,6 +636,24 @@ describe('dashboard inventory metricBasis', () => {
     expect(snapshotStatusOf(result.metricBasis?.['gradeCount.A'])).toBe('current');
     expect(result.metricBasis?.['abcStatusCount.READY'])
       .toEqual(result.metricBasis?.['gradeCount.A']);
+  });
+
+  it('keeps the active Products unclassified count actionable without an ABC publication', async () => {
+    const result = await inventoryService({}, {
+      gradeRows: [],
+      statusRows: [],
+      contributionRows: [],
+      unclassifiedProductCount: 5,
+      publication: null,
+    }).getSummary(customContext(), ORGANIZATION_ID);
+
+    expect(result.unclassifiedProductCount).toBe(5);
+    expect(result.metricBasis?.unclassifiedProductCount).toMatchObject({
+      kind: 'snapshot',
+      measured: true,
+      sources: ['products'],
+    });
+    expect(result.metricBasis?.['gradeCount.A']).toMatchObject({ measured: false });
   });
 
   it('retains a grade whose evidence stopped short of the asked-for cutoff as stale', async () => {

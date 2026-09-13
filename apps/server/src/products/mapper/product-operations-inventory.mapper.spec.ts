@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { mapProductOperationsListItem } from './product-operations-inventory.mapper';
+import type {
+  ProductOperationsRepositoryListItem,
+} from '../application/port/out/repository/product-operations.repository.port';
 
 const SKU_ID = '11111111-1111-4111-8111-111111111111';
 
@@ -26,7 +29,7 @@ describe('product operations inventory mapper', () => {
       imageUrls: [],
       displayImageUrls: [],
       inventoryUnits: 100,
-      inventoryStatus: 'sellable',
+      inventory: { skuCount: 1, measuredSkuCount: 1, inactiveSkuCount: 0 },
       depletion: { needsReorder: true },
       activeChannels: [{
         channelAccountId: '55555555-5555-4555-8555-555555555555',
@@ -56,9 +59,28 @@ describe('product operations inventory mapper', () => {
     });
     expect(result.displayImageUrls).not.toBe(result.imageUrls);
   });
+
+  it('keeps a missing published availability fact uncollected instead of zero', () => {
+    const result = mapProductOperationsListItem(
+      rawListItem(),
+      new Map(),
+      {
+        coverage: 'no_direct_sales',
+        needsReorder: false,
+        reorderSkuCount: 0,
+        minMonthsOfAvailableStockLeft: null,
+      },
+    );
+
+    expect(result).toMatchObject({
+      inventoryUnits: null,
+      inventory: { skuCount: 1, measuredSkuCount: 0, inactiveSkuCount: 0 },
+      channelOptionSummary: { configured: 0, warning: 1 },
+    });
+  });
 });
 
-function rawListItem() {
+function rawListItem(): ProductOperationsRepositoryListItem {
   return {
     id: '22222222-2222-4222-8222-222222222222',
     code: 'MP-1',
@@ -71,12 +93,14 @@ function rawListItem() {
     imageUrls: [],
     abcGrade: null,
     abcEvaluation: null,
+    abcCreatedAt: new Date('2026-07-17T00:00:00.000Z'),
     profitTag: null,
     adTier: null,
     adBudgetLimit: null,
     healthScore: null,
     healthUpdatedAt: null,
     isActive: true,
+    isSelling: true,
     updatedAt: new Date('2026-07-17T00:00:00.000Z'),
     channelCount: 0,
     channelStatus: 'unlisted' as const,
@@ -86,9 +110,29 @@ function rawListItem() {
       channelAccountName: 'Coupang Wing',
     }],
     traffic: null,
+    visitorCount: null,
+    viewCount: null,
+    cartAddCount: null,
     orderCount: null,
+    salesQuantity: null,
     salesAmount: null,
     adSpend: null,
+    adSpendRate: null,
+    metricsFreshness: {
+      orders: { ready: false, coverageStartDate: null, coverageEndDate: null, capturedAt: null },
+      traffic: {
+        ready: false,
+        coverageStartDate: null,
+        coverageEndDate: null,
+        capturedAt: null,
+      },
+      advertising: {
+        ready: false,
+        coverageStartDate: null,
+        coverageEndDate: null,
+        capturedAt: null,
+      },
+    },
     contributionMargin: null,
     contributionProfitVelocity30: null,
     inventorySkuIds: [SKU_ID],

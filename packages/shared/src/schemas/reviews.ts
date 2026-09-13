@@ -14,7 +14,8 @@ export const ReviewListItemSchema = z.object({
   totalReviews: z.number(),
   avgRating: z.number(),
   recentReviews: z.number(),
-  orderCount: z.number(),
+  // null means the order source has not been observed for this organization.
+  orderCount: z.number().int().nonnegative().nullable(),
   lastReviewAt: z.string().nullable(),
 });
 
@@ -26,8 +27,8 @@ export const ReviewSummarySchema = z.object({
   listingCount: z.number().int().nonnegative(),
   // 회사 전체 누적 review 수
   totalReviewCount: z.number().int().nonnegative(),
-  // 회사 전체 review rating 의 가중 평균. review 가 0건이면 0.
-  weightedAvgRating: z.number().nonnegative(),
+  // 회사 전체 review rating 의 가중 평균. review 가 0건이면 미측정(null).
+  weightedAvgRating: z.number().nonnegative().nullable(),
   // totalReviews < 5 인 listing 수.
   newListingCount: z.number().int().nonnegative(),
   // avgRating < 3.5 이고 리뷰 5건 이상인 listing 수.

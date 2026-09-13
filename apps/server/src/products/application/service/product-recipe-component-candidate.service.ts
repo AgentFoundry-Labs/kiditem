@@ -5,15 +5,15 @@ import {
   type ProductRecipeComponentCandidateListResponse,
 } from '@kiditem/shared/product-operations';
 import {
-  SELLPIA_INVENTORY_SKU_READ_PORT,
-  type SellpiaInventorySkuReadPort,
-} from '../../../inventory/application/port/in/stock/sellpia-inventory-sku-read.port';
+  INVENTORY_AVAILABILITY_PORT,
+  type InventoryAvailabilityPort,
+} from '../../../inventory/application/port/in/stock/inventory-availability.port';
 
 @Injectable()
 export class ProductRecipeComponentCandidateService {
   constructor(
-    @Inject(SELLPIA_INVENTORY_SKU_READ_PORT)
-    private readonly inventory: SellpiaInventorySkuReadPort,
+    @Inject(INVENTORY_AVAILABILITY_PORT)
+    private readonly availability: InventoryAvailabilityPort,
   ) {}
 
   async search(
@@ -28,24 +28,14 @@ export class ProductRecipeComponentCandidateService {
       });
     }
 
-    const rows = await this.inventory.search(
+    const rows = await this.availability.searchCandidates({
       organizationId,
-      parsed.data.search,
-      parsed.data.limit,
-      { includeOutOfStock: parsed.data.stockStatus === 'all' },
-    );
+      query: parsed.data.search,
+      limit: parsed.data.limit,
+      stockStatus: parsed.data.stockStatus,
+    });
     return ProductRecipeComponentCandidateListResponseSchema.parse({
-      items: rows
-        .filter((row) => row.isActive)
-        .slice(0, parsed.data.limit)
-        .map((row) => ({
-          sellpiaInventorySkuId: row.sellpiaInventorySkuId,
-          code: row.code,
-          name: row.name,
-          optionName: row.optionName,
-          barcode: row.barcode,
-          currentStock: row.currentStock,
-        })),
+      items: rows,
     });
   }
 }

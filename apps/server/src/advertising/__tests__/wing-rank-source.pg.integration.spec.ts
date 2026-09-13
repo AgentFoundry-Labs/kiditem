@@ -235,7 +235,7 @@ describe('Wing rank owner incoming HTTP + PostgreSQL', () => {
         expect.objectContaining({
           vendorItemId: 'MISS',
           currentSalesRank: null,
-          status: 'out_of_range',
+          businessDate: expect.any(String),
         }),
       ]),
     );
@@ -278,7 +278,7 @@ describe('Wing rank owner incoming HTTP + PostgreSQL', () => {
         expect.objectContaining({
           vendorItemId: 'MISS',
           currentSalesRank: null,
-          status: 'out_of_range',
+          businessDate: expect.any(String),
         }),
       ]),
     );
@@ -424,7 +424,7 @@ describe('Wing rank owner incoming HTTP + PostgreSQL', () => {
         expect.objectContaining({ vendorItemId: 'OWN', salesLast28d: 240 }),
         expect.objectContaining({
           vendorItemId: 'MISS',
-          status: 'not_collected',
+          businessDate: null,
           capturedAt: null,
         }),
       ]),
@@ -691,7 +691,7 @@ describe('Wing rank owner incoming HTTP + PostgreSQL', () => {
         expect.objectContaining({
           vendorItemId: 'MISS',
           currentSalesRank: null,
-          status: 'out_of_range',
+          businessDate: expect.any(String),
         }),
       ]),
     );

@@ -122,7 +122,6 @@ function mapSnapshotRow(row: InventorySkuSnapshotRepositoryRow): InventorySkuSna
     linkedProductCount: row.linkedProductCount,
     linkedProducts: row.linkedProducts,
     linkedChannelOptions: row.linkedChannelOptions,
-    linkStatus: row.linkedChannelOptionCount > 0 ? 'linked' : 'unlinked',
   } satisfies InventorySkuSnapshotItem;
 }
 

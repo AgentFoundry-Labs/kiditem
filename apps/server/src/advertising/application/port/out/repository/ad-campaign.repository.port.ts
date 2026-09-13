@@ -72,10 +72,9 @@ export interface ProductTargetRollup {
 }
 
 /**
- * Keyword-grain rollup over the period. `currentBid` / `status` / `origin`
- * come from the most recent day observed for that keyword, while metrics are
- * summed — a bid changed mid-period should read as its current value, not a
- * meaningless average.
+ * Keyword-grain observation from the latest complete owner snapshot within the
+ * requested seven-day window. Status, bid, and metrics all come from that one
+ * observed row; these non-additive facts are never summed across days.
  */
 export interface KeywordTargetRollup {
   targetKey: string;
@@ -93,6 +92,10 @@ export interface KeywordTargetRollup {
   currentBid: number | null;
   metaJson: unknown | null;
   lastObservedAt: Date;
+  /** End date of this non-additive trailing observation window. */
+  businessDate: Date;
+  /** Source-declared width; currently the Coupang keyword table is seven days. */
+  windowDays: 7;
   spend: number;
   revenue: number;
   impressions: number;

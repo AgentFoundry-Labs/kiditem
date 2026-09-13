@@ -10,8 +10,11 @@ import {
   SELLPIA_SALES_SOURCE,
   type DashboardSourceName,
 } from '../dashboard/domain/evidence';
-import { SELLPIA_SALES_COVERAGE_SELLER_ID } from './domain/snapshot-coverage';
-import { SellpiaSalesSourceService } from './sellpia-sales-source.service';
+import { PrismaService } from '../../prisma/prisma.service';
+import {
+  readSellpiaSalesDailyFacts,
+  type SellpiaSalesDailyFact,
+} from './read/sellpia-sales-daily-facts';
 import {
   buildPeriodBasis,
   intersectBases,
@@ -40,7 +43,7 @@ import {
  * Sellpia 판매현황(sale_summary) read model.
  *
  * Collection attempts and daily snapshots are owned by SellpiaSalesSourceService.
- * This service only reads the owner's published COMPLETE rows and combines them
+ * This service reads the owner's published facts and combines them
  * with the existing Coupang advertising cost projection for the dashboard.
  */
 @Injectable()
@@ -50,7 +53,7 @@ export class SellpiaSalesService {
   constructor(
     @Inject(WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT)
     private readonly wingTrafficRepository: WingTrafficAggregationRepositoryPort,
-    private readonly publishedSource: SellpiaSalesSourceService,
+    private readonly prisma: PrismaService,
   ) {}
 
   async getClosedMonthSummary(
@@ -73,8 +76,12 @@ export class SellpiaSalesService {
     const fromInstant = toKstInstant(from);
     const toExclusive = toKstExclusiveEnd(to);
     const selectedDates = selectedDateKeys(from, to);
-    const [rows, dailyAdsRead] = await Promise.all([
-      this.publishedSource.readPublishedRows(organizationId, from, to),
+    const [sellpiaRead, dailyAdsRead] = await Promise.all([
+      this.prisma.$transaction((tx) => readSellpiaSalesDailyFacts(tx, {
+        organizationId,
+        from,
+        to,
+      })),
       // Use the existing bounded daily Ads reader to determine the exact
       // advertising dates entering profit. This is not a per-day provider loop.
       this.readDailyAds(
@@ -84,18 +91,15 @@ export class SellpiaSalesService {
       ),
     ]);
 
-    const normalizedSellpia = normalizeSellpiaRows(rows, new Set(selectedDates));
-    const coverageDates = normalizedSellpia.validDates;
-    // sentinel과 같은 트랜잭션으로 저장된 fact만 집계한다. 구버전의 sentinel 없는
-    // 부분 fact가 월 전체 데이터처럼 섞이는 것을 막고, 다음 수집 때 정상 교체한다.
-    const salesRows = normalizedSellpia.salesRows;
+    const coverageDates = new Set(sellpiaRead.coverage.includedDates);
+    const salesRows = sellpiaRead.facts;
     const normalizedAds = normalizeDailyAds(dailyAdsRead.rows, new Set(selectedDates));
     const adDates = normalizedAds.validDates;
     const sellpiaBasis = buildPeriodBasis({
       from,
       to,
       includedDates: coverageDates,
-      invalidDates: normalizedSellpia.invalidDates,
+      invalidDates: sellpiaRead.coverage.invalidDates,
       sources: [SELLPIA_SALES_SOURCE],
     });
     const rocket = buildGroup(
@@ -152,8 +156,8 @@ export class SellpiaSalesService {
       adCost,
       netProfit,
       profitRate,
-      lastCapturedAt: normalizedSellpia.lastCapturedAt
-        ? normalizedSellpia.lastCapturedAt.toISOString()
+      lastCapturedAt: sellpiaRead.latestCapturedAt
+        ? sellpiaRead.latestCapturedAt.toISOString()
         : null,
       // A non-empty valid Sellpia subset is usable data. Completeness is
       // represented by metricBasis rather than by turning the whole card off.
@@ -343,28 +347,12 @@ function toUtcDate(isoDate: string): Date {
   return parseCalendarDate(isoDate) ?? new Date(`${isoDate}T00:00:00.000Z`);
 }
 
-interface SnapshotRow {
-  businessDate: Date;
-  sellerId: string;
-  sellerName: string;
-  channelGroup: string;
-  revenueKrw: number;
-  qty: number;
-  costKrw: number;
-  capturedAt: Date;
-}
+type SnapshotRow = SellpiaSalesDailyFact;
 
 interface DailySalesTotals {
   revenue: number;
   cost: number;
   qty: number;
-}
-
-interface NormalizedSellpiaRows {
-  validDates: Set<string>;
-  invalidDates: Set<string>;
-  salesRows: SnapshotRow[];
-  lastCapturedAt: Date | null;
 }
 
 interface NormalizedDailyAds {
@@ -383,58 +371,6 @@ function selectedDateKeys(from: string, to: string): string[] {
   const toDate = parseCalendarDate(to);
   if (!fromDate || !toDate || fromDate > toDate) return [];
   return datesInclusive(fromDate, toDate).map(businessDateKey);
-}
-
-function normalizeSellpiaRows(
-  rows: readonly SnapshotRow[],
-  selectedDates: Set<string>,
-): NormalizedSellpiaRows {
-  const sentinelDates = new Set<string>();
-  const invalidDates = new Set<string>();
-  const invalidFactDates = new Set<string>();
-  const validSalesRows: SnapshotRow[] = [];
-
-  for (const row of rows) {
-    const date = dateKey(row.businessDate);
-    if (!date || !selectedDates.has(date)) continue;
-    if (!isValidSnapshotRow(row)) {
-      invalidDates.add(date);
-      // Any malformed row makes the whole date unusable. In particular, a
-      // malformed sentinel must not leave a valid duplicate sentinel able to
-      // mark the date included while invalidDates reports the same date.
-      invalidFactDates.add(date);
-      continue;
-    }
-    if (row.sellerId === SELLPIA_SALES_COVERAGE_SELLER_ID) {
-      sentinelDates.add(date);
-    } else {
-      validSalesRows.push(row);
-    }
-  }
-
-  const validDates = new Set(
-    [...sentinelDates].filter((date) => !invalidFactDates.has(date)),
-  );
-  const salesRows = validSalesRows.filter((row) => {
-    const date = dateKey(row.businessDate);
-    return date !== null && validDates.has(date);
-  });
-  for (const date of invalidFactDates) validDates.delete(date);
-
-  const lastCapturedAtByDate = new Map<string, Date>();
-  for (const row of rows) {
-    const date = dateKey(row.businessDate);
-    if (!date || !validDates.has(date) || !isValidSnapshotRow(row)) continue;
-    if (!(row.capturedAt instanceof Date) || !Number.isFinite(row.capturedAt.getTime())) continue;
-    const current = lastCapturedAtByDate.get(date);
-    if (!current || row.capturedAt > current) lastCapturedAtByDate.set(date, row.capturedAt);
-  }
-  const lastCapturedAt = [...lastCapturedAtByDate.values()].reduce<Date | null>(
-    (max, value) => (!max || value > max ? value : max),
-    null,
-  );
-
-  return { validDates, invalidDates, salesRows, lastCapturedAt };
 }
 
 function normalizeDailyAds(
@@ -526,17 +462,6 @@ function buildMetricBasis(args: {
     'others.malls': args.sellpiaBasis,
   };
   return metricBasis;
-}
-
-function isValidSnapshotRow(row: SnapshotRow): boolean {
-  const finiteNonnegativeValues = [row.revenueKrw, row.qty, row.costKrw].every(
-    (value) => Number.isFinite(value) && value >= 0,
-  );
-  if (!finiteNonnegativeValues) return false;
-  // The reserved all-seller row is evidence only; any non-zero payload is
-  // malformed and must not turn into a coverage proof for a zero total.
-  return row.sellerId !== SELLPIA_SALES_COVERAGE_SELLER_ID
-    || (row.revenueKrw === 0 && row.qty === 0 && row.costKrw === 0);
 }
 
 function dateKey(value: Date): string | null {

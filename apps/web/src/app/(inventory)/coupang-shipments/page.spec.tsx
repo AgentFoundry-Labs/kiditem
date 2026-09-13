@@ -37,8 +37,8 @@ const items = [
   },
   {
     date: "2026-06-20",
-    count: 2,
-    boxes: 2,
+    count: null,
+    boxes: null,
     capturedAt: "2026-06-20T00:00:00Z",
     verified: false,
   },
@@ -106,6 +106,8 @@ describe("shipment source reload and calendar route state at HTTP boundary", () 
       "bg-purple-50",
     );
     expect(screen.getByText(/미인증 이력 1일/)).toBeInTheDocument();
+    expect(screen.getAllByText("미측정").length).toBeGreaterThan(0);
+    expect(screen.queryByText("0건")).not.toBeInTheDocument();
     expect(calls.every((call) => !call.method || call.method === "GET")).toBe(
       true,
     );

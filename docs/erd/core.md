@@ -467,7 +467,10 @@ erDiagram
 | Organization | organization | referenced by external | Sourcing | SourcingEvidenceObservation |
 | Organization | organization | referenced by external | Sourcing | SourcingInterestTarget |
 | Organization | organization | referenced by external | Sourcing | SourcingKeywordPreference |
+| Organization | organization | referenced by external | Sourcing | SourcingKeywordSuggestionFact |
 | Organization | organization | referenced by external | Sourcing | SourcingLaunchCandidate |
+| Organization | organization | referenced by external | Sourcing | SourcingMarketShadowFact |
+| Organization | organization | referenced by external | Sourcing | SourcingNaverKeywordAnalysisFact |
 | Organization | organization | referenced by external | Sourcing | SourcingOwnerIdempotencyReceipt |
 | Organization | organization | referenced by external | Sourcing | SourcingRecommendationItem |
 | Organization | organization | referenced by external | Sourcing | SourcingRecommendationItemEvidence |
@@ -478,6 +481,7 @@ erDiagram
 | Organization | organization | referenced by external | Sourcing | SourcingValidationCheck |
 | Organization | organization | referenced by external | Sourcing | SourcingValidationCheckEvidence |
 | Organization | organization | referenced by external | Sourcing | SourcingValidationEpisode |
+| Organization | organization | referenced by external | Sourcing | SourcingWingCatalogProductFact |
 | Organization | organization | referenced by external | Sourcing | SourcingWorkspaceSnapshot |
 | Organization | organization | referenced by external | Sourcing | TiktokCreativeTrendDailySnapshot |
 | Organization | organization | referenced by external | Sourcing | TrendSeedKeyword |

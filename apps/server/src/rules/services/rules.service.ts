@@ -3,14 +3,29 @@ import { Prisma } from '@prisma/client';
 import { canonicalOwnerInputHash } from '../../common/owner-idempotency-key';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SourceFailureAlerts, type RuleViolationAlertInput } from '../../alerts/alerts.service';
-import type { RuleItem } from '@kiditem/shared/rules';
-import type { EvaluationResult } from './types';
+import {
+  readProductAbcPublication,
+  readPublishedProductAbcGrades,
+} from '../../products/read/product-abc-publication.reader';
 import {
   evaluateProductRules,
   type EvaluatedProductRules,
   type RuleEvaluationDefinition,
   type RuleFactValue,
 } from '../domain/rule-evaluator';
+import type { RuleItem } from '@kiditem/shared/rules';
+import type { ProductAbcEvaluation } from '@kiditem/shared/product-abc';
+import type { EvaluationResult } from './types';
+
+type ProductHealthSummary = Readonly<{
+  total: number;
+  healthy: number;
+  warning: number;
+  critical: number;
+  notEvaluated: number;
+  lastEvaluatedAt: Date | null;
+  topCritical: { id: string; name: string; healthScore: number | null; abcGrade: string | null }[];
+}>;
 
 @Injectable()
 export class RulesService {
@@ -68,19 +83,9 @@ export class RulesService {
             orderBy: [{ id: 'asc' }],
             select: {
               id: true,
-              abcGrade: true,
               adTier: true,
               adBudgetLimit: true,
               healthScore: true,
-              abcEvaluation: {
-                select: {
-                  weightedRevenue: true,
-                  weightedOrderTimeSupplyCost: true,
-                  weightedAdvertisingSpend: true,
-                  weightedOperatingProfit: true,
-                  operatingMargin: true,
-                },
-              },
               inventorySkus: {
                 where: { isActive: true },
                 select: { currentStock: true },
@@ -88,9 +93,23 @@ export class RulesService {
             },
           }),
         ]);
+        const publication = await readProductAbcPublication(tx, {
+          organizationId,
+          masterProductIds: products.map(({ id }) => id),
+        });
+        const evaluationByProductId = new Map(publication.products.map((product) => [
+          product.masterProductId,
+          product.evaluation,
+        ]));
         const definitions = rules as RuleEvaluationDefinition[];
         const evaluated = products.map((product) => evaluateProductRules(
-          { masterId: product.id, values: productFacts(product) },
+          {
+            masterId: product.id,
+            values: productFacts({
+              ...product,
+              abcEvaluation: evaluationByProductId.get(product.id) ?? null,
+            }),
+          },
           definitions,
         ));
         const now = new Date();
@@ -121,10 +140,13 @@ export class RulesService {
             appliedAt: true,
           },
         });
-      });
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
       return evaluationResult(receipt);
     } catch (error) {
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      if (error instanceof Prisma.PrismaClientKnownRequestError
+        && (error.code === 'P2002' || error.code === 'P2034')) {
+        // A concurrent identical request can commit while this snapshot is
+        // waiting to update a product. Return only that exact committed receipt.
         const existing = await this.prisma.rulesEvaluationApplication.findUnique({
           where: {
             organizationId_requestId: { organizationId, requestId },
@@ -146,54 +168,54 @@ export class RulesService {
     }
   }
 
-  async getSummary(organizationId: string): Promise<{
-    total: number;
-    healthy: number;
-    warning: number;
-    critical: number;
-    notEvaluated: number;
-    lastEvaluatedAt: Date | null;
-    topCritical: { id: string; name: string; healthScore: number | null; abcGrade: string | null }[];
-  }> {
-    const [healthy, warning, critical, total, lastEval] = await Promise.all([
-      this.prisma.masterProduct.count({
-        where: {
-          organizationId,
-          isActive: true,
-          healthScore: { gte: 70 },
-        },
-      }),
-      this.prisma.masterProduct.count({
-        where: {
-          organizationId,
-          isActive: true,
-          healthScore: { gte: 40, lt: 70 },
-        },
-      }),
-      this.prisma.masterProduct.count({
-        where: {
-          organizationId,
-          isActive: true,
-          healthScore: { lt: 40 },
-        },
-      }),
-      this.prisma.masterProduct.count({
-        where: { organizationId, isActive: true },
-      }),
-      this.prisma.masterProduct.findFirst({
-        where: {
-          organizationId,
-          isActive: true,
-          healthUpdatedAt: { not: null },
-        },
-        orderBy: { healthUpdatedAt: 'desc' },
-        select: { healthUpdatedAt: true },
-      }),
-    ]);
+  async getSummary(organizationId: string): Promise<ProductHealthSummary> {
+    return this.prisma.$transaction(
+      (tx) => this.getSummarySnapshot(tx, organizationId),
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
+  }
+
+  private async getSummarySnapshot(
+    tx: Prisma.TransactionClient,
+    organizationId: string,
+  ): Promise<ProductHealthSummary> {
+    const healthy = await tx.masterProduct.count({
+      where: {
+        organizationId,
+        isActive: true,
+        healthScore: { gte: 70 },
+      },
+    });
+    const warning = await tx.masterProduct.count({
+      where: {
+        organizationId,
+        isActive: true,
+        healthScore: { gte: 40, lt: 70 },
+      },
+    });
+    const critical = await tx.masterProduct.count({
+      where: {
+        organizationId,
+        isActive: true,
+        healthScore: { lt: 40 },
+      },
+    });
+    const total = await tx.masterProduct.count({
+      where: { organizationId, isActive: true },
+    });
+    const lastEval = await tx.masterProduct.findFirst({
+      where: {
+        organizationId,
+        isActive: true,
+        healthUpdatedAt: { not: null },
+      },
+      orderBy: { healthUpdatedAt: 'desc' },
+      select: { healthUpdatedAt: true },
+    });
 
     const notEvaluated = total - healthy - warning - critical;
 
-    const topCriticalRows = await this.prisma.masterProduct.findMany({
+    const topCriticalRows = await tx.masterProduct.findMany({
       where: {
         organizationId,
         isActive: true,
@@ -205,14 +227,17 @@ export class RulesService {
         id: true,
         name: true,
         healthScore: true,
-        abcGrade: true,
       },
+    });
+    const gradeByProductId = await readPublishedProductAbcGrades(tx, {
+      organizationId,
+      masterProductIds: topCriticalRows.map(({ id }) => id),
     });
     const topCritical = topCriticalRows.map((product) => ({
       id: product.id,
       name: product.name,
       healthScore: product.healthScore,
-      abcGrade: product.abcGrade,
+      abcGrade: gradeByProductId.get(product.id) ?? null,
     }));
 
     return {
@@ -282,25 +307,26 @@ export class RulesService {
 }
 
 function productFacts(product: {
-  abcGrade: string | null;
   adTier: string | null;
   adBudgetLimit: number | null;
   healthScore: number | null;
-  abcEvaluation: {
-    weightedRevenue: Prisma.Decimal | null;
-    weightedOrderTimeSupplyCost: Prisma.Decimal | null;
-    weightedAdvertisingSpend: Prisma.Decimal | null;
-    weightedOperatingProfit: Prisma.Decimal | null;
-    operatingMargin: Prisma.Decimal | null;
-  } | null;
+  abcEvaluation: Pick<
+    ProductAbcEvaluation,
+    | 'abcGrade'
+    | 'weightedRevenue'
+    | 'weightedOrderTimeSupplyCost'
+    | 'weightedAdvertisingSpend'
+    | 'weightedOperatingProfit'
+    | 'operatingMargin'
+  > | null;
   inventorySkus: Array<{ currentStock: number }>;
 }): Record<string, RuleFactValue> {
   const evaluation = product.abcEvaluation;
-  const revenue = finiteDecimal(evaluation?.weightedRevenue);
-  const cogs = finiteDecimal(evaluation?.weightedOrderTimeSupplyCost);
-  const adSpend = finiteDecimal(evaluation?.weightedAdvertisingSpend);
-  const operatingProfit = finiteDecimal(evaluation?.weightedOperatingProfit);
-  const operatingMargin = finiteDecimal(evaluation?.operatingMargin);
+  const revenue = finiteNumber(evaluation?.weightedRevenue);
+  const cogs = finiteNumber(evaluation?.weightedOrderTimeSupplyCost);
+  const adSpend = finiteNumber(evaluation?.weightedAdvertisingSpend);
+  const operatingProfit = finiteNumber(evaluation?.weightedOperatingProfit);
+  const operatingMargin = finiteNumber(evaluation?.operatingMargin);
   const currentStock = product.inventorySkus.length > 0
     ? product.inventorySkus.reduce((sum, sku) => sum + sku.currentStock, 0)
     : null;
@@ -308,7 +334,7 @@ function productFacts(product: {
     ? (adSpend / revenue) * 100
     : null;
   return {
-    abcGrade: product.abcGrade,
+    abcGrade: evaluation?.abcGrade ?? null,
     adTier: product.adTier,
     adBudgetLimit: product.adBudgetLimit,
     healthScore: product.healthScore,
@@ -326,10 +352,9 @@ function productFacts(product: {
   };
 }
 
-function finiteDecimal(value: Prisma.Decimal | null | undefined): number | null {
+function finiteNumber(value: number | null | undefined): number | null {
   if (value === null || value === undefined) return null;
-  const number = value.toNumber();
-  return Number.isFinite(number) ? number : null;
+  return Number.isFinite(value) ? value : null;
 }
 
 function evaluationCounts(products: readonly EvaluatedProductRules[]) {

@@ -118,15 +118,11 @@ describe('readProductSaleAgeEvidence', () => {
     expect(sqlText).toContain("raw_json -> 'saleStartedAt'");
     expect(sqlText).toContain('listing.organization_id = ');
     expect(sqlText).toContain('listing.is_active = TRUE');
-    expect(sqlText).toContain('EXISTS');
-    expect(sqlText).toContain('option.organization_id = ');
-    expect(sqlText).toContain('option.listing_id = listing.id');
-    expect(sqlText).toContain('option.is_active = TRUE');
+    expect(sqlText).toContain('listing.id IN');
+    expect(sqlText).not.toContain('sellpia_inventory_skus');
     expect(query.values).toEqual([
       ORGANIZATION_ID,
-      ORGANIZATION_ID,
-      ORGANIZATION_ID,
-      OLD_PRODUCT_ID,
+      OLD_LISTING_ID,
     ]);
   });
 

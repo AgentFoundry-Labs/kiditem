@@ -1,9 +1,9 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import type { ProductKeywordRankRow } from '../lib/rank-api';
 import { fetchProductKeywordRanks } from '../lib/rank-api';
 import ProductKeywordRankOverview from './ProductKeywordRankOverview';
+import type { ProductKeywordRankRow } from '../lib/rank-api';
 
 vi.mock('../lib/rank-api', () => ({
   fetchProductKeywordRanks: vi.fn(),
@@ -26,7 +26,6 @@ function rankRow(index: number): ProductKeywordRankRow {
     abcGrades: ['A'],
     currentSalesRank: index,
     previousSalesRank: index + 1,
-    rankChange: 1,
     salesLast28d: 1,
     viewsLast28d: 10,
     revenueLast28d: 1_000,
@@ -37,7 +36,6 @@ function rankRow(index: number): ProductKeywordRankRow {
     totalResults: 100,
     businessDate: '2026-07-17',
     capturedAt: '2026-07-17T00:00:00.000Z',
-    status: 'rising',
     history: [],
   };
 }
@@ -81,5 +79,57 @@ describe('ProductKeywordRankOverview pagination', () => {
     fireEvent.click(screen.getByRole('button', { name: '다음' }));
     expect(await screen.findByText('상품 51')).toBeInTheDocument();
     expect(screen.getByText('2 / 2')).toBeInTheDocument();
+  });
+
+  it('does not show a movement when the declared previous business-day rank is absent', async () => {
+    vi.mocked(fetchProductKeywordRanks).mockResolvedValue({
+      periodDays: 30,
+      summary: {
+        productCount: 1,
+        optionCount: 1,
+        duplicateOptionCount: 0,
+        representativeKeywordCount: 1,
+        rankedCount: 1,
+        top20Count: 1,
+        risingCount: 0,
+        fallingCount: 0,
+        outOfRangeCount: 0,
+        notCollectedCount: 0,
+      },
+      rows: [
+        {
+          ...rankRow(10),
+          previousSalesRank: null,
+        },
+      ],
+    });
+    renderOverview();
+
+    expect(await screen.findByText('비교 전')).toBeInTheDocument();
+    expect(screen.queryByText('+99')).not.toBeInTheDocument();
+  });
+
+  it('keeps the current rank and movement numbers for consecutive observations', async () => {
+    vi.mocked(fetchProductKeywordRanks).mockResolvedValue({
+      periodDays: 30,
+      summary: {
+        productCount: 1,
+        optionCount: 1,
+        duplicateOptionCount: 0,
+        representativeKeywordCount: 1,
+        rankedCount: 1,
+        top20Count: 1,
+        risingCount: 1,
+        fallingCount: 0,
+        outOfRangeCount: 0,
+        notCollectedCount: 0,
+      },
+      rows: [rankRow(8)],
+    });
+    renderOverview();
+
+    const row = (await screen.findByText('상품 8')).closest('tr');
+    expect(row).toHaveTextContent('8위');
+    expect(row).toHaveTextContent('+1');
   });
 });

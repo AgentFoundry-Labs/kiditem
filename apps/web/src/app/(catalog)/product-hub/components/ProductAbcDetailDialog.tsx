@@ -3,14 +3,20 @@
 import Link from 'next/link';
 import * as Dialog from '@radix-ui/react-dialog';
 import { X } from 'lucide-react';
-import { ProductAbcBadge } from '@/components/product-abc/ProductAbcBadge';
-import { formatDateTime, formatKRW } from '@/lib/utils';
-import type { MasterProductOperationsMetadata } from '@kiditem/shared/product-operations';
+import {
+  PRODUCT_ABC_DISPLAY_STATUS_LABELS,
+  PRODUCT_ABC_MAPPING_STATUS_LABELS,
+  productAbcMappingStatus,
+  type ProductAbcMappingFacts,
+} from '@kiditem/shared/product-abc';
 import {
   SOURCE_READINESS_LABELS,
   sourceReadinessStatus,
   type SourceReadiness,
 } from '@kiditem/shared/source-readiness';
+import { ProductAbcBadge } from '@/components/product-abc/ProductAbcBadge';
+import { formatDateTime, formatKRW } from '@/lib/utils';
+import type { MasterProductOperationsMetadata } from '@kiditem/shared/product-operations';
 
 type ProductAbcDetailDialogProps = {
   open: boolean;
@@ -18,14 +24,6 @@ type ProductAbcDetailDialogProps = {
   product: MasterProductOperationsMetadata | null;
   showProductLink?: boolean;
 };
-
-const STATUS_LABEL = {
-  READY: '계산 완료',
-  INSUFFICIENT_EVIDENCE: '관찰 중',
-  SOURCE_UNMAPPED: '상품 매핑 필요',
-  SELLPIA_SOURCE_STALE: 'Sellpia 원천 갱신 필요',
-  AD_SOURCE_STALE: '광고비 원천 갱신 필요',
-} as const;
 
 export function ProductAbcDetailDialog({ open, onOpenChange, product, showProductLink = true }: ProductAbcDetailDialogProps) {
   const evaluation = product?.abc.evaluation ?? null;
@@ -52,7 +50,7 @@ export function ProductAbcDetailDialog({ open, onOpenChange, product, showProduc
             <section className="rounded-xl border border-[var(--border-subtle)] p-4">
               <h3 className="text-sm font-extrabold text-[var(--text-primary)]">발행 상태</h3>
               <dl className="mt-3 grid gap-x-6 gap-y-3 sm:grid-cols-2">
-                <DetailRow label="평가 상태" value={STATUS_LABEL[product.abc.displayStatus]} />
+                <DetailRow label="평가 상태" value={PRODUCT_ABC_DISPLAY_STATUS_LABELS[product.abc.displayStatus]} />
                 <DetailRow label="공식 등급 기준일" value={product.abc.officialCutoffDate ?? '없음'} />
                 <DetailRow label="표시 데이터 기준일" value={product.abc.actualCutoffDate ?? '없음'} />
                 <DetailRow label="발행 시각" value={product.abc.publishedAt ? formatDateTime(product.abc.publishedAt) : '없음'} />
@@ -73,7 +71,7 @@ export function ProductAbcDetailDialog({ open, onOpenChange, product, showProduc
                 <DetailRow label="계산 시각" value={formatDateTime(evaluation.calculatedAt)} />
                 <DetailRow label="Sellpia 원천" value={sourceValue(product.abc.sources.sellpia)} />
                 <DetailRow label="광고비 원천" value={sourceValue(product.abc.sources.advertising)} />
-                <DetailRow label="상품 매핑" value={`${product.abc.sources.mapping.status}${product.abc.sources.mapping.mappingGeneration ? ` · 세대 ${product.abc.sources.mapping.mappingGeneration}` : ''}`} />
+                <DetailRow label="상품 매핑" value={mappingValue(product.abc.sources.mapping)} />
               </dl>
 
               <section className="rounded-xl border border-[var(--border-subtle)] p-4 text-sm">
@@ -98,4 +96,10 @@ function percent(value: number | null): string { return value === null ? '계산
 function sourceValue(source: SourceReadiness): string {
   const label = SOURCE_READINESS_LABELS[sourceReadinessStatus(source)];
   return `${label}${source.actualCutoff ? ` · ${source.actualCutoff}까지` : ''}`;
+}
+
+function mappingValue(facts: ProductAbcMappingFacts): string {
+  const label = PRODUCT_ABC_MAPPING_STATUS_LABELS[productAbcMappingStatus(facts)];
+  const evidenceGeneration = facts.evidenceMappingGeneration ?? '없음';
+  return `${label} · 현재 세대 ${facts.currentMappingGeneration} · 근거 세대 ${evidenceGeneration}`;
 }

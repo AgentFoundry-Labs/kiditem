@@ -52,6 +52,7 @@ describe('Products publishes one ABC display status (PostgreSQL)', () => {
   let dashboard: DashboardInventoryService;
   let productHub: ProductOperationsService;
   let sellpiaInventory: SellpiaProductInventoryReader;
+  let inventory: InventoryAvailabilityService;
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
@@ -70,6 +71,9 @@ describe('Products publishes one ABC display status (PostgreSQL)', () => {
     sellpia = new SellpiaProfitabilitySourceService(prismaService, alerts);
     advertising = new ProfitabilityAdImportRepositoryAdapter(prismaService, alerts);
     evidence = new MasterProductProfitabilityReadService(sellpia, advertising, prismaService);
+    inventory = new InventoryAvailabilityService(
+      new InventoryAvailabilityRepositoryAdapter(prismaService),
+    );
     productAbc = new ProductAbcReadService(
       new MasterProductAbcRepositoryAdapter(prismaService),
       evidence,
@@ -84,17 +88,13 @@ describe('Products publishes one ABC display status (PostgreSQL)', () => {
     );
     sellpiaInventory = new SellpiaProductInventoryReader(
       prismaService,
-      new InventoryAvailabilityService(
-        new InventoryAvailabilityRepositoryAdapter(prismaService),
-      ),
+      inventory,
       { findDisplayMedia: async () => new Map() },
       productAbc,
     );
     productHub = new ProductOperationsService(
       new ProductOperationsRepositoryAdapter(prismaService),
-      new InventoryAvailabilityService(
-        new InventoryAvailabilityRepositoryAdapter(prismaService),
-      ),
+      inventory,
       { findByMasterProductIds: async () => new Map() } as never,
       { findDisplayMedia: async () => new Map() } as never,
       new ProductOperationsDataStatusRepositoryAdapter(prismaService, evidence),

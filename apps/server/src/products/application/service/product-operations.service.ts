@@ -7,6 +7,8 @@ import {
   type ProductOperationsInventoryFocus,
   ReplaceChannelOptionInventoryInputSchema,
   UpdateMasterProductInputSchema,
+  deriveProductAdvertisingStatus,
+  deriveProductInventoryStatus,
   type ProductDepletionProjection,
   type ProductOperationsListSummary,
 } from '@kiditem/shared/product-operations';
@@ -110,12 +112,20 @@ export class ProductOperationsService implements ProductOperationsPort {
         contributionById.get(item.id) ?? null,
       );
     });
+    const advertisingFiltered = query.adStatus === 'all'
+      ? hydrated
+      : hydrated.filter(({ adSpend }) => deriveProductAdvertisingStatus(adSpend) === query.adStatus);
+    const gradeFiltered = query.abcGrade === 'unclassified'
+      ? advertisingFiltered.filter(({ abcGrade }) => abcGrade === null)
+      : query.abcGrade
+        ? advertisingFiltered.filter(({ abcGrade }) => abcGrade === query.abcGrade)
+        : advertisingFiltered;
     const abcFiltered = query.abcCalculationStatus
-      ? hydrated.filter(({ abc }) => abc.displayStatus === query.abcCalculationStatus)
-      : hydrated;
+      ? gradeFiltered.filter(({ abc }) => abc.displayStatus === query.abcCalculationStatus)
+      : gradeFiltered;
     const inventoryFiltered = query.inventoryStatus
-      ? abcFiltered.filter(({ inventoryStatus }) =>
-        inventoryStatus === query.inventoryStatus)
+      ? abcFiltered.filter((item) =>
+        deriveProductInventoryStatus(item) === query.inventoryStatus)
       : abcFiltered;
     const summaryMasterProductIds = inventoryFiltered.map(({ id }) => id);
     const depletionByMasterProductId = await this.depletion.findByMasterProductIds({
@@ -360,10 +370,9 @@ function summarizeProducts(
     } else {
       counts.abcGradeCounts.unclassified += 1;
     }
-    counts.abcStatusCounts[product.abc.displayStatus] += 1;
     const evaluation = product.abcEvaluation;
     if (!counts.abcFormula && evaluation?.formula) counts.abcFormula = evaluation.formula;
-    counts.inventoryStatusCounts[product.inventoryStatus] += 1;
+    counts.inventoryStatusCounts[deriveProductInventoryStatus(product)] += 1;
     if (product.contribution?.operatingProfit !== null
       && product.contribution?.operatingProfit !== undefined
       && product.contribution.operatingProfit < 0) {
@@ -376,78 +385,67 @@ function summarizeProducts(
     if (product.depletion.coverage !== 'no_direct_sales') {
       counts.depletionCoveredProductCount += 1;
     }
-    if (product.depletion.coverage === 'shared') {
-      counts.sharedDepletionProductCount += 1;
-    }
     return counts;
   }, {
     abcGradeCounts: { A: 0, B: 0, C: 0, unclassified: 0 },
-    abcStatusCounts: {
-      READY: 0,
-      INSUFFICIENT_EVIDENCE: 0,
-      SOURCE_UNMAPPED: 0,
-      SELLPIA_SOURCE_STALE: 0,
-      AD_SOURCE_STALE: 0,
-    },
     contributionOverview: contributionOverviewValue,
     abcFormula: null,
     displayDataAsOf,
     channelProductCounts,
     inventoryStatusCounts: {
       sellable: 0,
-      partial_out_of_stock: 0,
       out_of_stock: 0,
       configuration_required: 0,
       review_required: 0,
+      uncollected: 0,
     },
     negativeProfitCount: 0,
     imminentProductCount: 0,
     reorderProductCount: 0,
     depletionCoveredProductCount: 0,
-    sharedDepletionProductCount: 0,
   });
   return counts;
 }
 
-function enrichAbc<T extends {
-  id: string;
-  abcGrade: 'A' | 'B' | 'C' | null;
-  abcEvaluation: ProductAbcEvaluation | null;
-}>(
+function enrichAbc<T extends { id: string }>(
   product: T,
   status: ProductOperationsDataStatusFacts,
   contribution: ProductAbcContributionProduct | null,
 ) {
   const current = status.products.find(({ masterProductId }) =>
     masterProductId === product.id);
+  const abc = buildProductAbcReadModel({
+    evaluation: current?.evaluation ?? null,
+    mappingValid: current?.mappingValid !== false,
+    saleStartDate: current?.saleStartDate ?? null,
+    evidence: {
+      requiredCutoff: status.sellpia.requiredCutoff,
+      actualCutoff: status.actualCutoff,
+      // Evidence carries a mapping generation only while it agrees with the
+      // organization's current one; `mappingReady` is that agreement.
+      mappingGeneration: status.mappingReady
+        ? status.formulaState.mappingGeneration
+        : null,
+      sellpia: abcSourceEvidence(status.sellpia, status.sourceVector.sellpia),
+      advertising: abcSourceEvidence(
+        status.advertising,
+        status.sourceVector.advertising,
+      ),
+    },
+    formulaState: {
+      formulaRevision: current?.evaluation?.formulaRevision
+        ?? status.formulaState.formulaRevision,
+      publicationRevision: status.formulaState.publicationRevision,
+      officialCutoffDate: status.formulaState.officialCutoff,
+      publishedAt: status.formulaState.publishedAt,
+      mappingGeneration: status.formulaState.mappingGeneration,
+    },
+  });
   return {
     ...product,
-    abc: buildProductAbcReadModel({
-      evaluation: product.abcEvaluation,
-      mappingValid: current?.mappingValid !== false,
-      saleStartDate: current?.saleStartDate ?? null,
-      evidence: {
-        requiredCutoff: status.sellpia.requiredCutoff,
-        actualCutoff: status.actualCutoff,
-        // Evidence carries a mapping generation only while it agrees with the
-        // organization's current one; `mappingReady` is that agreement.
-        mappingGeneration: status.mappingReady
-          ? status.formulaState.mappingGeneration
-          : null,
-        sellpia: abcSourceEvidence(status.sellpia, status.sourceVector.sellpia),
-        advertising: abcSourceEvidence(
-          status.advertising,
-          status.sourceVector.advertising,
-        ),
-      },
-      formulaState: {
-        formulaRevision: status.formulaState.formulaRevision,
-        publicationRevision: status.formulaState.publicationRevision,
-        officialCutoffDate: status.formulaState.officialCutoff,
-        publishedAt: status.formulaState.publishedAt,
-        mappingGeneration: status.formulaState.mappingGeneration,
-      },
-    }),
+    abcGrade: abc.abcGrade,
+    abcEvaluation: abc.evaluation,
+    abc,
     contribution,
   };
 }
@@ -481,14 +479,14 @@ const IMMINENT_STOCK_MIN_MONTHS_EXCLUSIVE = 1.5;
 const IMMINENT_STOCK_MAX_MONTHS_INCLUSIVE = 3;
 
 function matchesInventoryFocus(
-  product: Pick<ReturnType<typeof mapProductOperationsListItem>, 'inventoryStatus' | 'depletion'>,
+  product: Pick<ReturnType<typeof mapProductOperationsListItem>, 'inventory' | 'inventoryUnits' | 'depletion'>,
   focus: ProductOperationsInventoryFocus,
 ): boolean {
   if (focus === 'attention') {
-    return product.inventoryStatus === 'configuration_required'
-      || product.inventoryStatus === 'review_required';
+    return deriveProductInventoryStatus(product) === 'configuration_required'
+      || deriveProductInventoryStatus(product) === 'review_required';
   }
-  if (focus === 'out_of_stock') return product.inventoryStatus === 'out_of_stock';
+  if (focus === 'out_of_stock') return deriveProductInventoryStatus(product) === 'out_of_stock';
   if (focus === 'reorder') return product.depletion.needsReorder;
   const months = product.depletion.minMonthsOfAvailableStockLeft;
   return !product.depletion.needsReorder

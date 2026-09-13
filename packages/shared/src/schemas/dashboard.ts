@@ -166,15 +166,15 @@ export const MonthlyTrendItemSchema = z.object({
 });
 
 export const ProfitBreakdownSchema = z.object({
-  revenue: z.number(),
-  costOfGoods: z.number(),
-  commission: z.number(),
-  shippingCost: z.number(),
-  adCost: z.number(),
-  otherCost: z.number(),
+  revenue: z.number().nullable(),
+  costOfGoods: z.number().nullable(),
+  commission: z.number().nullable(),
+  shippingCost: z.number().nullable(),
+  adCost: z.number().nullable(),
+  otherCost: z.number().nullable(),
   /** Null when a cost input is unavailable; never a measured zero. */
   netProfit: z.number().nullable(),
-  orderCount: z.number(),
+  orderCount: z.number().nullable(),
   metricBasis: DashboardMetricBasisMapSchema.optional(),
 });
 
@@ -215,17 +215,20 @@ export const TrafficKpiSchema = z.object({
   salesQty: z.number().nullable(),
   revenue: z.number().nullable(),
   cartAdds: z.number().nullable(),
+  /** Cart additions / views on the traffic owner's measured population. */
+  cartRate: z.number().nullable().optional(),
   date: z.string().optional(),
   periodDays: z.number().optional(),
   productCount: z.number().optional(),
   /** Our orders / views ratio; providerConversionRate is kept separately. */
   conversionRate: z.number().nullable(),
+  /** Orders / cart additions on the exact Orders × traffic population. */
+  orderCartRate: z.number().nullable().optional(),
   dailyAverageVisitors: z.number().nullable(),
   providerConversionRate: z.number().nullable(),
   coverage: TrafficCoverageSchema.nullable(),
   reconciliation: TrafficReconciliationSchema.nullable(),
   exactPeriodEvidence: z.record(z.any()).nullable(),
-  adSummary: z.record(z.any()).nullable().optional(),
   source: z.string().optional(),
   netProfit: z.number().nullable().optional(),
   profitRate: z.number().nullable().optional(),
@@ -254,7 +257,7 @@ export const WarningsSchema = z.object({
   minusProducts: z.number(),
   lowProfitProducts: z.number(),
   highAdProducts: z.number(),
-  outOfStockSkus: z.number(),
+  outOfStockSkus: z.number().nullable(),
   mappingAttentionSkus: z.number(),
   lowCtrProducts: z.number().optional(),
   lowReviewProducts: z.number().optional(),
@@ -325,14 +328,6 @@ export const AdMetricsDetailSchema = z.object({
   totalRevenue: z.number().nullable().optional(),
 });
 
-// Wing ad-summary (A8 addition — shared between sales + ad endpoints)
-export const WingAdSummarySchema = z.object({
-  adRevenue: z.number(),
-  adSpend: z.number(),
-  adRoas: z.number(),
-  rawAdSummary: z.record(z.any()).nullable().optional(),
-});
-
 /**
  * Effective period the dashboard is displaying. Equals the calendar month
  * containing "now" by default. When the calendar month has no Order, Wing,
@@ -356,8 +351,8 @@ export type DashboardEffectivePeriod = z.infer<typeof DashboardEffectivePeriodSc
 // ─── Sales endpoint: GET /api/dashboard/sales ─────────────────────────────
 export const DashboardSalesSummarySchema = z.object({
   today: z.object({
-    revenue: z.number(),
-    orders: z.number(),
+    revenue: z.number().nullable(),
+    orders: z.number().nullable(),
   }),
   monthly: z.object({
     // `null` means the period has no complete order or Wing evidence. A
@@ -437,12 +432,6 @@ export const DashboardAdSummarySchema = z.object({
   adKpi: AdMetricsDetailSchema.optional(),
   dailyAd: z.array(DailyAdItemSchema).optional(),
   industryBenchmark: IndustryBenchmarkSchema.optional(),
-  saving: z.object({
-    adSaving: z.number().nullable(),
-    prevAdCost: z.number().nullable(),
-  }).optional(),
-  // A9: ad-ops consumer needs Wing adSummary that used to live in trafficKpi.adSummary
-  wingAdData: WingAdSummarySchema.nullable().optional(),
   effectivePeriod: DashboardEffectivePeriodSchema.optional(),
   metricBasis: DashboardMetricBasisMapSchema.optional(),
 });
@@ -450,8 +439,8 @@ export const DashboardAdSummarySchema = z.object({
 // ─── Inventory endpoint: GET /api/dashboard/inventory ─────────────────────
 export const DashboardInventorySummarySchema = z.object({
   totalProducts: z.number(),
-  channelLinkedProducts: z.number().int().nonnegative(),
-  channelUnlinkedProducts: z.number().int().nonnegative(),
+  channelLinkedProducts: z.number().int().nonnegative().nullable(),
+  channelUnlinkedProducts: z.number().int().nonnegative().nullable(),
   gradeCount: z.object({
     A: z.number().int().nonnegative(),
     B: z.number().int().nonnegative(),
@@ -471,19 +460,25 @@ export const DashboardInventorySummarySchema = z.object({
       C: z.number().int(),
     }).strict(),
     shareByGrade: z.object({
-      A: z.number().finite(),
-      B: z.number().finite(),
-      C: z.number().finite(),
+      A: z.number().finite().nullable(),
+      B: z.number().finite().nullable(),
+      C: z.number().finite().nullable(),
+    }).strict(),
+    basis: z.object({
+      publicationRevision: z.number().int().positive().nullable(),
+      officialCutoffDate: DashboardCalendarDateSchema.nullable(),
+      publishedAt: zIsoDate.nullable(),
+      sellpiaSourceImportRunId: z.string().uuid().nullable(),
+      advertisingSourceImportRunId: z.string().uuid().nullable(),
+      mappingGeneration: z.string().regex(/^\d+$/).nullable(),
+      includedProductCount: z.number().int().nonnegative(),
+      withheldProductCount: z.number().int().nonnegative(),
+      denominator: z.number().int().nullable(),
     }).strict(),
   }).strict(),
   abcFormula: ProductAbcFormulaPayloadSchema.nullable(),
   classifiedProductCount: z.number().int().nonnegative(),
   unclassifiedProductCount: z.number().int().nonnegative(),
-  mappingStatusCounts: z.object({
-    matched: z.number().int().nonnegative(),
-    unmatched: z.number().int().nonnegative(),
-    needsReview: z.number().int().nonnegative(),
-  }),
   alerts: z.array(DashboardAlertItemSchema),
   warnings: WarningsSchema,
   gradeChanges: GradeChangesSchema.optional(),
@@ -846,7 +841,6 @@ export type IndustryBenchmark = z.infer<typeof IndustryBenchmarkSchema>;
 export type AdMetricsDetail = z.infer<typeof AdMetricsDetailSchema>;
 export type PlanAchievement = z.infer<typeof PlanAchievementSchema>;
 export type GradeChanges = z.infer<typeof GradeChangesSchema>;
-export type WingAdSummary = z.infer<typeof WingAdSummarySchema>;
 
 // Sellpia 판매현황(몰별 매출)
 export type SellpiaSalesIngestDay = z.infer<typeof SellpiaSalesIngestDaySchema>;

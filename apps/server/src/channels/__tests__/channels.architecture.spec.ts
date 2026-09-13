@@ -119,13 +119,21 @@ describe('channels architecture contract', () => {
     ).toEqual([]);
   });
 
-  it('reaches Inventory only through the local Sellpia recipe evidence adapter', () => {
+  it('reaches Inventory only through the declared recipe and transaction read seams', () => {
     const channels = channelsRel();
     const hits = rg(
       `--type ts --files-with-matches 'inventory/application/port/in/stock/sellpia-inventory-sku-read' ${channels} --glob '!**/__tests__/**'`,
     );
     expect(hits).toEqual([
       path.join(channels, 'adapter/out/inventory/sellpia-recipe-evidence.adapter.ts'),
+    ]);
+
+    const transactionReaderHits = rg(
+      `--type ts --files-with-matches 'inventory/read/inventory-availability' ${channels} --glob '!**/__tests__/**'`,
+    );
+    expect(transactionReaderHits.sort()).toEqual([
+      path.join(channels, 'adapter/out/repository/channel-product-matching.repository.adapter.ts'),
+      path.join(channels, 'adapter/out/repository/sellpia-manual-match.repository.adapter.ts'),
     ]);
   });
 

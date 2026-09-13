@@ -12,6 +12,7 @@ import {
   OTHER_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
 import type { PrismaClient } from '@prisma/client';
+import { seedPublishedProductAbcGrades } from '../../products/__tests__/test-helpers/published-product-abc';
 
 describe('AdAction flow (PG integration)', () => {
   let prisma: PrismaClient;
@@ -62,9 +63,15 @@ describe('AdAction flow (PG integration)', () => {
         organizationId: params.organizationId,
         code: `M-${unique}`,
         name: `Master ${unique}`,
-        abcGrade: params.abcGrade ?? null,
+        abcGrade: null,
       },
     });
+    if (params.abcGrade === 'A' || params.abcGrade === 'B' || params.abcGrade === 'C') {
+      await seedPublishedProductAbcGrades(prisma, {
+        organizationId: params.organizationId,
+        grades: [{ masterProductId: master.id, abcGrade: params.abcGrade }],
+      });
+    }
     const matched = params.sellableStock != null;
     const inventorySku = matched
       ? await prisma.sellpiaInventorySku.create({
@@ -236,6 +243,19 @@ describe('AdAction flow (PG integration)', () => {
         status: params.status ?? null,
         currentBid: params.currentBid ?? null,
         dailyBudget: params.dailyBudget ?? null,
+        metaJson: params.pageType === 'keyword'
+          ? {
+              source: 'advertising.keyword.target',
+              data: {
+                origin: 'registered',
+                windowDays: 7,
+                adId: null,
+                productName: null,
+                keywordType: null,
+                bidSource: null,
+              },
+            }
+          : undefined,
         impressions: params.impressions ?? 0,
         clicks: params.clicks ?? 0,
         conversions: params.conversions ?? 0,

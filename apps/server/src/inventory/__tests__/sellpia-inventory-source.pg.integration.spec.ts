@@ -6,6 +6,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import {
   makeTestPrisma,
+  OTHER_ORGANIZATION_ID,
   resetDb,
   seedBaseFixture,
   TEST_ORGANIZATION_ID,
@@ -25,6 +26,11 @@ import { SellpiaInventoryFreshnessService } from '../application/service/sellpia
 import { SellpiaInventoryImportService } from '../application/service/sellpia-inventory-import.service';
 import { InventorySkuSnapshotListService } from '../application/service/inventory-sku-snapshot-list.service';
 import type { PrismaClient } from '@prisma/client';
+import {
+  readActiveInventoryMatchingCandidates,
+  readInventoryAvailability,
+  readInventoryAvailabilityCandidates,
+} from '../read/inventory-availability';
 
 const base = '/api/inventory/sellpia-source';
 
@@ -287,6 +293,87 @@ describe('Sellpia inventory source owner HTTP + disposable PostgreSQL', () => {
         currentStock: 5,
         lastImportRunId: attempt.attemptId,
       }),
+    ]);
+  });
+
+  it('reads only the published run through the transaction-aware organization fence', async () => {
+    const attempt = await begin('transaction-reader');
+    await complete(attempt, snapshot(7)).expect(201);
+    const published = await prisma.sellpiaInventorySku.findUniqueOrThrow({
+      where: {
+        organizationId_code: {
+          organizationId: TEST_ORGANIZATION_ID,
+          code: 'SP-001',
+        },
+      },
+    });
+    await prisma.sellpiaInventorySku.update({
+      where: { id: published.id },
+      data: { name: 'Candidate published' },
+    });
+    const stale = await prisma.sellpiaInventorySku.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        code: 'A-STALE-ROW',
+        name: 'Candidate stale identity',
+        currentStock: 99,
+        isActive: true,
+        lastImportRunId: null,
+      },
+    });
+    const foreign = await prisma.sellpiaInventorySku.create({
+      data: {
+        organizationId: OTHER_ORGANIZATION_ID,
+        code: 'FOREIGN-ROW',
+        name: 'Foreign identity',
+        currentStock: 88,
+        isActive: true,
+      },
+    });
+
+    await expect(prisma.$transaction((tx) =>
+      readInventoryAvailability(tx, {
+        organizationId: TEST_ORGANIZATION_ID,
+        sellpiaInventorySkuIds: [published.id, stale.id],
+      }))).resolves.toMatchObject({
+      snapshot: { collected: true, generation: '1' },
+      items: [{
+        sellpiaInventorySkuId: published.id,
+        currentStock: 7,
+        availableStock: 7,
+        generation: '1',
+      }],
+    });
+
+    await expect(prisma.$transaction((tx) =>
+      readInventoryAvailability(tx, {
+        organizationId: TEST_ORGANIZATION_ID,
+        sellpiaInventorySkuIds: [published.id, foreign.id],
+      }))).rejects.toMatchObject({ status: 404 });
+
+    await expect(prisma.$transaction((tx) =>
+      readActiveInventoryMatchingCandidates(tx, TEST_ORGANIZATION_ID)))
+      .resolves.toEqual(expect.arrayContaining([
+        expect.objectContaining({ id: stale.id, currentStock: null }),
+        expect.objectContaining({ id: published.id, currentStock: 7 }),
+      ]));
+    await expect(prisma.$transaction((tx) =>
+      readInventoryAvailabilityCandidates(tx, {
+        organizationId: TEST_ORGANIZATION_ID,
+        query: 'Candidate',
+        limit: 1,
+        stockStatus: 'in_stock',
+      }))).resolves.toEqual([
+      expect.objectContaining({ sellpiaInventorySkuId: published.id, currentStock: 7 }),
+    ]);
+    await expect(prisma.$transaction((tx) =>
+      readInventoryAvailabilityCandidates(tx, {
+        organizationId: TEST_ORGANIZATION_ID,
+        query: 'Candidate',
+        limit: 1,
+        stockStatus: 'all',
+      }))).resolves.toEqual([
+      expect.objectContaining({ sellpiaInventorySkuId: stale.id, currentStock: null }),
     ]);
   });
 

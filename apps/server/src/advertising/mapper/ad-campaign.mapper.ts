@@ -1,3 +1,6 @@
+import { aggregateAdMetrics, buildAdMetrics } from '../domain/ad-metrics';
+import { normalizeAdKeywordOrigin } from '../domain/ad-keyword';
+import { scopedListingToSummary } from './ad-listing.mapper';
 import type {
   AdAccountKpi,
   AdAccountKpiDayPoint,
@@ -9,7 +12,6 @@ import type {
   AdTrendsData,
 } from '@kiditem/shared/advertising';
 import type { AdPeriod } from '../domain/ad-metrics';
-import { aggregateAdMetrics, buildAdMetrics } from '../domain/ad-metrics';
 import type { ScopedAdListingReadModel } from '../application/port/out/repository/ad-listing.repository.port';
 import type {
   CampaignCurrentState,
@@ -17,10 +19,8 @@ import type {
   KeywordTargetRollup,
   ProductTargetRollup,
 } from '../application/port/out/repository/ad-campaign.repository.port';
-import { normalizeAdKeywordOrigin } from '../domain/ad-keyword';
 import type { AdTrendDailyAggregate } from '../domain/ad-trend';
 import type { AdAccountKpiDayRow } from '../application/port/out/repository/ad-account-kpi.repository.port';
-import { scopedListingToSummary } from './ad-listing.mapper';
 
 /**
  * CampaignRollup row → AdCampaignSnapshot. Campaign-grain rollups in
@@ -132,7 +132,6 @@ export function toAdProductSnapshot(
 export function toAdKeywordSnapshot(
   rollup: KeywordTargetRollup,
   listing: ScopedAdListingReadModel | null,
-  period: AdPeriod,
   relevance: {
     verdict: AdKeywordRelevance | null;
     reason: string | null;
@@ -158,7 +157,9 @@ export function toAdKeywordSnapshot(
       listing?.masterProduct.name ??
       null,
     listing: listing ? scopedListingToSummary(listing) : null,
-    period,
+    period: '7d',
+    windowDays: rollup.windowDays,
+    businessDate: rollup.businessDate,
     metrics: buildAdMetrics({
       spend: rollup.spend,
       revenue: rollup.revenue,

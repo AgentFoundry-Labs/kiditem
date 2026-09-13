@@ -2,6 +2,14 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import {
+  readCompleteObservationProvenanceByIds,
+  readCurrentObservationHeads,
+  readCurrentSupportingObservation,
+  type CurrentObservationHead,
+} from '../../../../sourcing/read/source-evidence.reader';
+import { readExactDecisionBatchItem } from '../../../../sourcing/read/decision-publication.reader';
+import { readExactLaunchCandidatesByIds } from '../../../../sourcing/read/launch-candidate.reader';
+import {
   buildProcurementTestIntentRequestHash,
   evaluateSupplySourceEligibility,
   PROCUREMENT_TEST_INTENT_STATUS,
@@ -29,42 +37,8 @@ const OFFER_INCLUDE = {
   },
 } satisfies Prisma.SupplierOfferSkuSnapshotInclude;
 
-const SOURCE_CONTEXT_SELECT = {
-  sourceKey: true,
-  ingestionRun: {
-    select: {
-      targetKey: true,
-      status: true,
-      completedAt: true,
-      coverageNumerator: true,
-      coverageDenominator: true,
-    },
-  },
-} satisfies Prisma.SourcingEvidenceObservationSelect;
-
-const PROCUREMENT_DECISION_CONTEXT_SELECT = {
-  id: true,
-  supplierOfferSkuSnapshotId: true,
-  launchCandidateId: true,
-  decision: true,
-  executionEligible: true,
-  decisionBatch: { select: { status: true, expiresAt: true } },
-  launchCandidate: {
-    select: {
-      id: true,
-      supplierOfferSkuSnapshotId: true,
-      initialOrderQuantity: true,
-      unitsPerSellableBundle: true,
-    },
-  },
-} satisfies Prisma.SourcingDecisionBatchItemSelect;
-
 type OfferRow = Prisma.SupplierOfferSkuSnapshotGetPayload<{
   include: typeof OFFER_INCLUDE;
-}>;
-
-type EvidenceSourceContext = Prisma.SourcingEvidenceObservationGetPayload<{
-  select: typeof SOURCE_CONTEXT_SELECT;
 }>;
 
 @Injectable()
@@ -95,58 +69,47 @@ export class SupplySourcingProcurementRepositoryAdapter implements SupplySourcin
     organizationId: string,
     record: CreateSupplierOfferSnapshotRecord,
   ) {
-    const evidence = await tx.sourcingEvidenceObservation.findFirst({
-      where: { id: record.evidenceObservationId, organizationId },
-      select: {
-        sourceKey: true,
-        id: true,
-        platform: true,
-        signalRole: true,
-        sourceEntityType: true,
-        sourceEntityKey: true,
-        observationKey: true,
-        revision: true,
-        schemaVersion: true,
-        sourceUrl: true,
-        observedAt: true,
-        availableAt: true,
-        ingestedAt: true,
-        payload: true,
-        ingestionRun: {
-          select: {
-            targetKey: true,
-            status: true,
-            completedAt: true,
-            coverageNumerator: true,
-            coverageDenominator: true,
-          },
-        },
-      },
-    });
-    if (!evidence) return { kind: 'evidence_observation_not_found' as const };
-    const cutoffAt = await databaseClock(tx);
-    const sourceGate = await this.evaluateCurrentSourceGate(
-      tx,
-      organizationId,
-      evidence,
-      'retain',
-      cutoffAt,
-    );
-    if (
-      sourceGate === 'evidence_observation_not_terminal'
-    ) {
-      return { kind: sourceGate };
-    }
-    if (sourceGate) {
-      throw new Error('Retain-only source gate returned an execution result.');
-    }
-
     const duplicate = await this.findOfferByHash(
       organizationId,
       record.snapshotHash,
       tx,
     );
-    if (duplicate) return { kind: 'duplicate' as const, snapshot: duplicate };
+    if (duplicate)
+      return { kind: 'duplicate' as const, snapshot: duplicate };
+
+    const evidenceRows: CurrentObservationHead[] =
+      await readCompleteObservationProvenanceByIds(tx, {
+        organizationId,
+        observationIds: [record.evidenceObservationId],
+      });
+    const evidence = evidenceRows.find(
+      (row) => row.id === record.evidenceObservationId,
+    );
+    if (!evidence) return { kind: 'evidence_observation_not_found' as const };
+    const cutoffAt = await databaseClock(tx);
+    const [currentEvidence] = await readCurrentObservationHeads(tx, {
+      organizationId,
+      sourceKey: evidence.sourceKey,
+      targetKey: evidence.ingestionRun.targetKey,
+      observationKeys: [evidence.observationKey],
+      supportsCandidate: true,
+      signalRoles: ['demand', 'supply'],
+      cutoffAt,
+      eventAtTo: cutoffAt,
+      limit: 1,
+    });
+    if (!currentEvidence) {
+      return { kind: 'evidence_observation_not_terminal' as const };
+    }
+    if (currentEvidence.id !== evidence.id) {
+      return { kind: 'evidence_observation_not_latest' as const };
+    }
+    const sourceGate = this.evaluateCurrentSourceGate(
+      currentEvidence.ingestionRun,
+      'retain',
+      cutoffAt,
+    );
+    if (sourceGate) return { kind: sourceGate };
 
     if (record.supplierId) {
       const supplier = await tx.supplier.findFirst({
@@ -154,15 +117,6 @@ export class SupplySourcingProcurementRepositoryAdapter implements SupplySourcin
         select: { id: true },
       });
       if (!supplier) return { kind: 'supplier_not_found' as const };
-    }
-    if (
-      !['complete', 'partial'].includes(evidence.ingestionRun.status) ||
-      !evidence.ingestionRun.completedAt ||
-      evidence.ingestionRun.completedAt > cutoffAt ||
-      evidence.availableAt > cutoffAt ||
-      evidence.ingestedAt > cutoffAt
-    ) {
-      return { kind: 'evidence_observation_not_terminal' as const };
     }
     const exactIdentityMatches =
       record.identityStatus === 'exact_variant' &&
@@ -184,20 +138,6 @@ export class SupplySourcingProcurementRepositoryAdapter implements SupplySourcin
     if (!supplierOfferEvidencePayloadMatches(record, evidence.payload)) {
       return { kind: 'evidence_payload_mismatch' as const };
     }
-    const latestEvidence = await tx.sourcingEvidenceObservation.findFirst({
-      where: {
-        organizationId,
-        observationKey: evidence.observationKey,
-        availableAt: { lte: cutoffAt },
-        ingestedAt: { lte: cutoffAt },
-      },
-      orderBy: [{ revision: 'desc' }, { id: 'desc' }],
-      select: { id: true },
-    });
-    if (latestEvidence?.id !== evidence.id) {
-      return { kind: 'evidence_observation_not_latest' as const };
-    }
-
     const row = await tx.supplierOfferSkuSnapshot.create({
       data: {
         organizationId,
@@ -235,7 +175,6 @@ export class SupplySourcingProcurementRepositoryAdapter implements SupplySourcin
         snapshotHash: record.snapshotHash,
         priceTiers: {
           create: record.priceTiers.map((tier) => ({
-            organizationId,
             minQuantity: tier.minQuantity,
             maxQuantity: tier.maxQuantity,
             unitPriceCny: tier.unitPriceCny,
@@ -313,16 +252,33 @@ export class SupplySourcingProcurementRepositoryAdapter implements SupplySourcin
     decisionBatchItemId: string,
     db: Prisma.TransactionClient = this.prisma,
   ) {
-    const row = await db.sourcingDecisionBatchItem.findFirst({
-      where: { id: decisionBatchItemId, organizationId },
-      select: PROCUREMENT_DECISION_CONTEXT_SELECT,
+    const row = await readExactDecisionBatchItem(db, {
+      id: decisionBatchItemId,
+      organizationId,
     });
     if (!row) return null;
+    const launchCandidates = row.launchCandidateId
+      ? await readExactLaunchCandidatesByIds(db, {
+          organizationId,
+          ids: [row.launchCandidateId],
+        })
+      : [];
+    const launchCandidate = launchCandidates.find(
+      (candidate) => candidate.id === row.launchCandidateId,
+    );
     return {
       decisionBatchItemId: row.id,
       supplierOfferSkuSnapshotId: row.supplierOfferSkuSnapshotId,
       launchCandidateId: row.launchCandidateId,
-      launchCandidate: row.launchCandidate,
+      launchCandidate: launchCandidate
+        ? {
+            id: launchCandidate.id,
+            supplierOfferSkuSnapshotId:
+              launchCandidate.supplierOfferSkuSnapshotId,
+            initialOrderQuantity: launchCandidate.initialOrderQuantity,
+            unitsPerSellableBundle: launchCandidate.unitsPerSellableBundle,
+          }
+        : null,
       decision: row.decision,
       executionEligible: row.executionEligible,
       decisionBatchStatus: row.decisionBatch.status,
@@ -358,31 +314,6 @@ export class SupplySourcingProcurementRepositoryAdapter implements SupplySourcin
     organizationId: string,
     record: CreateProcurementTestIntentRecord,
   ) {
-    const sourceContext = await tx.sourcingEvidenceObservation.findFirst({
-      where: {
-        organizationId,
-        supplierOfferSkuSnapshots: {
-          some: {
-            id: record.supplierOfferSkuSnapshotId,
-            organizationId,
-          },
-        },
-      },
-      select: SOURCE_CONTEXT_SELECT,
-    });
-    if (!sourceContext) {
-      return { kind: 'evidence_observation_not_found' as const };
-    }
-    const now = await databaseClock(tx);
-    const sourceGate = await this.evaluateCurrentSourceGate(
-      tx,
-      organizationId,
-      sourceContext,
-      record.intentType === 'test_order' ? 'test_order' : 'retain',
-      now,
-    );
-    if (sourceGate) return { kind: sourceGate };
-
     const duplicate = await this.findIntentByKey(
       organizationId,
       record.idempotencyKey,
@@ -395,6 +326,44 @@ export class SupplySourcingProcurementRepositoryAdapter implements SupplySourcin
         record.requestedByUserId,
       );
     }
+
+    const snapshot = await this.findOfferSnapshot(
+      organizationId,
+      record.supplierOfferSkuSnapshotId,
+      tx,
+    );
+    if (!snapshot) {
+      return { kind: 'evidence_observation_not_found' as const };
+    }
+    const sourceRows: CurrentObservationHead[] =
+      await readCompleteObservationProvenanceByIds(tx, {
+        organizationId,
+        observationIds: [snapshot.evidenceObservationId],
+      });
+    const sourceContext = sourceRows.find(
+      (row) => row.id === snapshot.evidenceObservationId,
+    );
+    if (!sourceContext) {
+      return { kind: 'evidence_observation_not_found' as const };
+    }
+    const now = await databaseClock(tx);
+    const currentSourceContext = await readCurrentSupportingObservation(tx, {
+      organizationId,
+      observationId: sourceContext.id,
+      observationKey: sourceContext.observationKey,
+      sourceKey: sourceContext.sourceKey,
+      scopeKey: sourceContext.ingestionRun.targetKey,
+      cutoffAt: now,
+    });
+    if (!currentSourceContext) {
+      return { kind: 'evidence_observation_not_terminal' as const };
+    }
+    const sourceGate = this.evaluateCurrentSourceGate(
+      currentSourceContext.ingestionRun,
+      record.intentType === 'test_order' ? 'test_order' : 'retain',
+      now,
+    );
+    if (sourceGate) return { kind: sourceGate };
 
     const membership = await tx.organizationMembership.findFirst({
       where: {
@@ -456,14 +425,6 @@ export class SupplySourcingProcurementRepositoryAdapter implements SupplySourcin
       return { kind: 'decision_reference_mismatch' as const };
     }
 
-    const snapshot = await this.findOfferSnapshot(
-      organizationId,
-      record.supplierOfferSkuSnapshotId,
-      tx,
-    );
-    if (!snapshot) {
-      return { kind: 'decision_reference_mismatch' as const };
-    }
     if (
       record.intentType === 'test_order' &&
       snapshot.validUntil &&
@@ -587,19 +548,14 @@ export class SupplySourcingProcurementRepositoryAdapter implements SupplySourcin
     };
   }
 
-  private async evaluateCurrentSourceGate(
-    tx: Prisma.TransactionClient,
-    organizationId: string,
-    sourceContext: EvidenceSourceContext,
+  private evaluateCurrentSourceGate(
+    ingestionRun: SupplySourceIngestionRunPolicyRecord,
     usage: SupplySourceUsage,
     at: Date,
-  ): Promise<
-    | 'evidence_observation_not_terminal'
-    | null
-  > {
+  ): 'evidence_observation_not_terminal' | null {
     const eligibility = evaluateSupplySourceEligibility({
       usage,
-      ingestionRun: sourceContext.ingestionRun,
+      ingestionRun,
       at,
     });
     if (eligibility.allowed) return null;

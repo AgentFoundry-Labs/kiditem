@@ -26,7 +26,7 @@ type DraftComponent = {
   code: string;
   name: string;
   optionName: string | null;
-  currentStock: number;
+  currentStock: number | null;
   quantity: number | null;
 };
 
@@ -193,13 +193,13 @@ export function ProductLinkDialog({ open, onOpenChange, row, options }: Props) {
                               : (inventoryCandidates.data?.items.length ?? 0) === 0 ? <EmptyLabel message="조건에 맞는 Sellpia 재고가 없습니다." />
                                 : inventoryCandidates.data?.items.map((candidate) => {
                                   const selected = activeDraft.some(({ sellpiaInventorySkuId }) => sellpiaInventorySkuId === candidate.sellpiaInventorySkuId);
-                                  return <div key={candidate.sellpiaInventorySkuId} className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2"><div className="min-w-0"><p className="truncate text-xs font-extrabold text-slate-900">{candidate.code} · {candidate.name}</p><p className="mt-0.5 truncate text-[11px] text-slate-500">{candidate.optionName ?? '옵션 없음'} · 현재고 {formatNumber(candidate.currentStock)}</p></div><button type="button" aria-label={`${candidate.code} 재고 선택`} disabled={selected} onClick={() => addInventory(candidate)} className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-purple-100 px-3 py-2 text-xs font-bold text-purple-700 disabled:opacity-50"><Plus size={13} /> {selected ? '선택됨' : '선택'}</button></div>;
+                                  return <div key={candidate.sellpiaInventorySkuId} className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2"><div className="min-w-0"><p className="truncate text-xs font-extrabold text-slate-900">{candidate.code} · {candidate.name}</p><p className="mt-0.5 truncate text-[11px] text-slate-500">{candidate.optionName ?? '옵션 없음'} · 현재고 {stockLabel(candidate.currentStock)}</p></div><button type="button" aria-label={`${candidate.code} 재고 선택`} disabled={selected} onClick={() => addInventory(candidate)} className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-purple-100 px-3 py-2 text-xs font-bold text-purple-700 disabled:opacity-50"><Plus size={13} /> {selected ? '선택됨' : '선택'}</button></div>;
                                 })}
                       </div>
                       <div className="space-y-2">
                         {activeDraft.length === 0 ? <EmptyLabel message="이 옵션이 차감할 Sellpia 재고를 선택해 주세요." /> : activeDraft.map((component, index) => (
                           <div key={component.sellpiaInventorySkuId} className="grid gap-3 rounded-xl border border-slate-200 bg-white p-3 sm:grid-cols-[minmax(0,1fr)_120px_40px]">
-                            <div className="min-w-0"><p className="truncate text-xs font-extrabold text-slate-900">{component.code} · {component.name}</p><p className="mt-1 truncate text-[11px] text-slate-500">{component.optionName ?? '옵션 없음'} · 현재고 {formatNumber(component.currentStock)}</p></div>
+                            <div className="min-w-0"><p className="truncate text-xs font-extrabold text-slate-900">{component.code} · {component.name}</p><p className="mt-1 truncate text-[11px] text-slate-500">{component.optionName ?? '옵션 없음'} · 현재고 {stockLabel(component.currentStock)}</p></div>
                             <label className="text-xs font-bold text-slate-600">차감 수량<input aria-label={`${component.code} 차감 수량`} type="number" min={1} required value={component.quantity ?? ''} onChange={(event) => setDrafts((current) => ({ ...current, [activeOption.option.id]: (current[activeOption.option.id] ?? []).map((item, itemIndex) => itemIndex === index ? { ...item, quantity: event.target.value === '' ? null : Number(event.target.value) } : item) }))} className="mt-1 h-9 w-full rounded-lg border border-slate-300 px-2 text-sm" /></label>
                             <button type="button" aria-label={`${component.code} 재고 제거`} onClick={() => setDrafts((current) => ({ ...current, [activeOption.option.id]: (current[activeOption.option.id] ?? []).filter((_, itemIndex) => itemIndex !== index) }))} className="mt-4 flex h-9 w-9 items-center justify-center rounded-lg text-rose-600 hover:bg-rose-50"><Trash2 size={15} /></button>
                           </div>
@@ -251,6 +251,10 @@ function recipeSignature(components: Array<{ sellpiaInventorySkuId: string; quan
     .map(({ sellpiaInventorySkuId, quantity }) => `${sellpiaInventorySkuId}:${quantity ?? ''}`)
     .sort()
     .join('|');
+}
+
+function stockLabel(value: number | null): string {
+  return value === null ? '미수집' : formatNumber(value);
 }
 
 function LoadingLabel({ children }: { children: string }) {

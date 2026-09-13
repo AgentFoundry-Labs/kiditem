@@ -2,6 +2,7 @@ import type {
   SellpiaInventoryFreshnessState,
   SellpiaInventoryFreshnessStatePatch,
 } from '../../../../domain/policy/sellpia-inventory-freshness.policy';
+import type { InventoryAvailabilityBatch } from '@kiditem/shared/inventory-availability';
 
 export type SellpiaInventoryStatePatch = SellpiaInventoryFreshnessStatePatch;
 
@@ -22,13 +23,9 @@ export interface SellpiaInventoryFreshnessRepositoryTransaction {
     patch: SellpiaInventoryStatePatch;
   }): Promise<SellpiaInventoryFreshnessState>;
 
-  findInventorySkus(
+  findInventoryAvailability(
     sellpiaInventorySkuIds: string[],
-  ): Promise<Array<{
-    id: string;
-    isActive: boolean;
-    currentStock: number;
-  }>>;
+  ): Promise<InventoryAvailabilityBatch>;
 }
 
 export interface SellpiaInventoryFreshnessRepositoryPort {

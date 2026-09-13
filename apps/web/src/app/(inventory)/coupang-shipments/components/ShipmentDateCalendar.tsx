@@ -1,7 +1,14 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { CalendarDays, ChevronLeft, ChevronRight, Loader2, Search, Sparkles } from 'lucide-react';
+import {
+  CalendarDays,
+  ChevronLeft,
+  ChevronRight,
+  Loader2,
+  Search,
+  Sparkles,
+} from 'lucide-react';
 import { cn, formatNumber } from '@/lib/utils';
 import type { CoupangShipmentDateSummaryItem } from '../lib/coupang-shipment-extension';
 
@@ -77,8 +84,11 @@ export function ShipmentDateCalendar({
     }
   }, [maxMonth, minMonth, onViewMonthChange, viewMonth]);
 
-  const totalCount = summary.reduce((sum, item) => sum + item.count, 0);
-  const totalBoxes = summary.reduce((sum, item) => sum + item.boxes, 0);
+  const measured = summary.filter(
+    (item) => item.count !== null && item.boxes !== null,
+  );
+  const totalCount = measured.reduce((sum, item) => sum + item.count!, 0);
+  const totalBoxes = measured.reduce((sum, item) => sum + item.boxes!, 0);
   const selected = selectedDate ? byDate.get(selectedDate) : undefined;
   const hasSummary = summary.length > 0;
 
@@ -108,7 +118,9 @@ export function ShipmentDateCalendar({
   const canNext = Boolean(viewMonth && viewMonth < upperBound);
 
   const shiftMonth = (delta: number) => {
-    onViewMonthChange(viewMonth ? shiftMonthKey(viewMonth, delta) : currentMonthKey());
+    onViewMonthChange(
+      viewMonth ? shiftMonthKey(viewMonth, delta) : currentMonthKey(),
+    );
   };
 
   const monthLabel = viewMonth
@@ -120,11 +132,15 @@ export function ShipmentDateCalendar({
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
         <div className="flex items-center gap-2">
           <CalendarDays size={16} className="text-purple-600" />
-          <span className="text-sm font-semibold text-slate-900">발송일 조회</span>
-          {hasSummary ? (
+          <span className="text-sm font-semibold text-slate-900">
+            발송일 조회
+          </span>
+          {measured.length > 0 ? (
             <span className="text-xs text-slate-400">
-              총 {formatNumber(totalCount)}건 · {formatNumber(totalBoxes)}박스
+              확인 {formatNumber(totalCount)}건 · {formatNumber(totalBoxes)}박스
             </span>
+          ) : hasSummary ? (
+            <span className="text-xs text-slate-400">미측정 이력</span>
           ) : null}
         </div>
         <button
@@ -133,7 +149,11 @@ export function ShipmentDateCalendar({
           disabled={loading}
           className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
         >
-          {loading ? <Loader2 size={15} className="animate-spin" /> : <Search size={15} />}
+          {loading ? (
+            <Loader2 size={15} className="animate-spin" />
+          ) : (
+            <Search size={15} />
+          )}
           {loaded || hasSummary ? '다시 조회' : '발송일 조회'}
         </button>
       </div>
@@ -149,7 +169,9 @@ export function ShipmentDateCalendar({
           >
             <ChevronLeft size={16} />
           </button>
-          <div className="text-sm font-semibold tabular-nums text-slate-900">{monthLabel}</div>
+          <div className="text-sm font-semibold tabular-nums text-slate-900">
+            {monthLabel}
+          </div>
           <button
             type="button"
             onClick={() => shiftMonth(1)}
@@ -167,7 +189,11 @@ export function ShipmentDateCalendar({
               key={weekday}
               className={cn(
                 'py-1 text-center text-xs font-medium',
-                index === 0 ? 'text-rose-400' : index === 6 ? 'text-blue-400' : 'text-slate-400',
+                index === 0
+                  ? 'text-rose-400'
+                  : index === 6
+                    ? 'text-blue-400'
+                    : 'text-slate-400',
               )}
             >
               {weekday}
@@ -196,7 +222,11 @@ export function ShipmentDateCalendar({
                 <span
                   className={cn(
                     'text-sm tabular-nums',
-                    isSelected ? 'font-bold text-purple-700' : hasData ? 'font-semibold text-slate-700' : 'text-slate-400',
+                    isSelected
+                      ? 'font-bold text-purple-700'
+                      : hasData
+                        ? 'font-semibold text-slate-700'
+                        : 'text-slate-400',
                   )}
                 >
                   {cell.day}
@@ -205,10 +235,14 @@ export function ShipmentDateCalendar({
                   <span
                     className={cn(
                       'rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums',
-                      isSelected ? 'bg-purple-600 text-white' : 'bg-purple-100 text-purple-700',
+                      isSelected
+                        ? 'bg-purple-600 text-white'
+                        : 'bg-purple-100 text-purple-700',
                     )}
                   >
-                    {formatNumber(item.count)}건
+                    {item.count === null
+                      ? '미측정'
+                      : `${formatNumber(item.count)}건`}
                   </span>
                 ) : null}
               </button>
@@ -220,9 +254,15 @@ export function ShipmentDateCalendar({
           <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-slate-50 px-4 py-3">
             <div className="flex flex-wrap items-baseline gap-2">
               <span className="text-sm text-slate-600">선택 발송일</span>
-              <span className="text-sm font-semibold tabular-nums text-slate-900">{selectedDate}</span>
+              <span className="text-sm font-semibold tabular-nums text-slate-900">
+                {selectedDate}
+              </span>
               <span className="text-sm font-semibold tabular-nums text-purple-700">
-                {selected ? `· ${formatNumber(selected.count)}건 · ${formatNumber(selected.boxes)}박스` : '· 데이터 없음'}
+                {selected
+                  ? selected.count === null || selected.boxes === null
+                    ? '· 미측정'
+                    : `· ${formatNumber(selected.count)}건 · ${formatNumber(selected.boxes)}박스`
+                  : '· 데이터 없음'}
               </span>
             </div>
             <button
@@ -231,7 +271,11 @@ export function ShipmentDateCalendar({
               disabled={collecting || !selected}
               className="inline-flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-sm font-semibold text-white hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {collecting ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}
+              {collecting ? (
+                <Loader2 size={15} className="animate-spin" />
+              ) : (
+                <Sparkles size={15} />
+              )}
               수집·병합
             </button>
           </div>

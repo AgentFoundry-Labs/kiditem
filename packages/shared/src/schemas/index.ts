@@ -80,7 +80,6 @@ export {
   DailyAdItemSchema,
   GradeChangesSchema,
   WarningsSchema,
-  WingAdSummarySchema,
 } from './dashboard.js';
 export type {
   DashboardSalesSummary,
@@ -99,7 +98,6 @@ export type {
   DailyAdItem,
   GradeChanges,
   Warnings,
-  WingAdSummary,
 } from './dashboard.js';
 
 // Reviews

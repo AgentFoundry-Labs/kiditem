@@ -43,9 +43,10 @@ owns physical stock quantities.
 - Product-level inventory is the owned source SKU of the canonical
   MasterProduct. Channel options are consumers of that inventory product;
   Products never creates a second ledger.
-- Recipe candidate search enters Inventory only through the exported
-  `SELLPIA_INVENTORY_SKU_READ_PORT`, passes the session-owned `organizationId`,
-  and returns physical identities without a writer.
+- Stock-aware recipe candidate search uses `INVENTORY_AVAILABILITY_PORT` with
+  the session-owned `organizationId`; unavailable stock stays nullable, and
+  the published inventory fence applies before pagination. Identity-only
+  lookup uses `SELLPIA_INVENTORY_SKU_READ_PORT`. Neither port grants a writer.
 - Product list pagination returns summary counts over the complete filtered
   result before page slicing. Consumers do not rebuild counts from one page.
 - `MasterProduct.imageUrls` is operator-managed metadata. Read responses may
@@ -62,8 +63,9 @@ owns physical stock quantities.
   identifier/spec/option conflict, and a confirmed positive selling quantity.
   Ambiguous names, conflicting evidence, and unknown quantities require
   operator review. AI output and rank alone never confirm inventory identity.
-- `MasterProduct.abcGrade` is nullable automatic output, never operator input.
-  Products publishes ABC only through the explicit Product Hub grade-refresh
+- The current `MasterProductAbcEvaluation` is the nullable official ABC output;
+  `MasterProduct.abcGrade` is a legacy non-authoritative column pending schema
+  removal and is never operator input. Products publishes ABC only through the explicit Product Hub grade-refresh
   command. The service reads the latest compatible `COMPLETE` source snapshots,
   persists formula/evaluation provenance, and records only actual grade changes
   in history.

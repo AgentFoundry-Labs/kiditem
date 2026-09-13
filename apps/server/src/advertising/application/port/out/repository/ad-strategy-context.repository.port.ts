@@ -77,11 +77,6 @@ export interface AdStrategyContextRepositoryPort {
     config: AdsConfig,
   ): Promise<StrategyContext>;
 
-  loadChannelStateByListing(
-    organizationId: string,
-    listings: HydratedListing[],
-  ): Promise<Map<string, ChannelStateSignal>>;
-
   hydrateListings(
     organizationId: string,
     listingIds: string[],

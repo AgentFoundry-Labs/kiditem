@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   isRocketWorkbookBlockingReason,
+  ROCKET_CONFIRMATION_REQUEST_STATUSES,
   ROCKET_WORKBOOK_BLOCKING_REASONS,
   RocketPurchasePreviewComponentSchema,
   RocketWorkbookAbandonRequestSchema,
@@ -75,10 +76,12 @@ describe('Rocket purchase preview contract', () => {
       'mapping_required',
       'configuration_required',
       'review_required',
+      'inventory_unavailable',
     ]);
     expect(isRocketWorkbookBlockingReason('mapping_required')).toBe(true);
     expect(isRocketWorkbookBlockingReason('configuration_required')).toBe(true);
     expect(isRocketWorkbookBlockingReason('review_required')).toBe(true);
+    expect(isRocketWorkbookBlockingReason('inventory_unavailable')).toBe(true);
     expect(isRocketWorkbookBlockingReason('insufficient_capacity')).toBe(false);
     expect(isRocketWorkbookBlockingReason(null)).toBe(false);
   });
@@ -571,6 +574,10 @@ describe('Rocket purchase preview contract', () => {
   });
 
   it('recognizes every workflow state and requires a reason to abandon a workbook', () => {
+    expect(ROCKET_CONFIRMATION_REQUEST_STATUSES).toEqual([
+      '거래명세서확인요청',
+      '거래처확인요청',
+    ]);
     for (const status of [
       'awaiting_coupang_confirmation',
       'orders_collected',

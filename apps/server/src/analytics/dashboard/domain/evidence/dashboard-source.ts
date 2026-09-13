@@ -40,14 +40,14 @@ export const COUPANG_ADS_SOURCE = 'coupang_ads' satisfies DashboardSourceName;
 export const SELLPIA_SALES_SOURCE = 'sellpia_sales' satisfies DashboardSourceName;
 
 /**
- * Products' master catalogue rows — the active product set and the stored
- * `MasterProduct.abcGrade` Products publishes. Reading a grade is naming this
- * source; deciding how old that grade is names `product_abc` as well.
+ * Products' master catalogue rows — the active product set. Reading its
+ * official grade also names `product_abc`, the Products-owned retained
+ * evaluation publication.
  */
 export const PRODUCTS_SOURCE = 'products' satisfies DashboardSourceName;
 
 /**
- * The ABC evaluation snapshot behind a stored grade — the owner-published
+ * The ABC evaluation snapshot behind an official grade — the owner-published
  * evaluation rows and the profitability evidence cutoff they were computed
  * through. It is what gives a grade count an as-of at all.
  */

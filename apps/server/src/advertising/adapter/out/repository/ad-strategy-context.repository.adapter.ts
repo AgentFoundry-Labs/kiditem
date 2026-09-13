@@ -10,6 +10,11 @@ import { addDays, businessDateKey, kstInclusiveDaysStart, kstMonthStart } from '
 import { readListingAdWindowFacts } from '../../../../common/ad-window-facts';
 import { currentRowTieBreakSql } from '../../../../common/current-row';
 import {
+  readListingTrafficWindowFacts,
+  readLatestListingStateFacts,
+} from '../../../../channels/read/channel-listing-daily-facts';
+import { readPublishedProductAbcGrades } from '../../../../products/read/product-abc-publication.reader';
+import {
   buildPerListingMetrics,
   readAdEvidenceFromLedger,
 } from '../../../../common/per-listing-profit';
@@ -54,60 +59,74 @@ export class AdStrategyContextRepositoryAdapter
     period: AdPeriod,
     config: AdsConfig,
   ): Promise<StrategyContext> {
+    return this.prisma.$transaction(
+      (tx) => this.loadStrategyContextIn(
+        tx,
+        organizationId,
+        year,
+        month,
+        period,
+        config,
+      ),
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
+  }
+
+  private async loadStrategyContextIn(
+    tx: Prisma.TransactionClient,
+    organizationId: string,
+    year: number,
+    month: number,
+    period: AdPeriod,
+    config: AdsConfig,
+  ): Promise<StrategyContext> {
     const range = periodBounds(period);
 
-    const [adAgg, trafficAgg] = await Promise.all([
-      // The period's `to` is an inclusive business date; the reader's window
-      // is half-open, so the bound is the day after.
-      readListingAdWindowFacts(this.prisma, {
-        organizationId,
-        from: range.from,
-        to: addDays(range.to, 1),
-      }),
-      this.prisma.channelListingDailySnapshot.findMany({
-        where: {
-          organizationId,
-          businessDate: { gte: range.from, lte: range.to },
-        },
-        select: {
-          listingId: true,
-          businessDate: true,
-          trafficRevenue: true,
-          trafficOrders: true,
-          trafficObservedAt: true,
-        },
-      }),
-    ]);
+    // The period's `to` is an inclusive business date; both readers take a
+    // half-open window, so the bound is the day after.
+    const windowEnd = addDays(range.to, 1);
+    const adAgg = await readListingAdWindowFacts(tx, {
+      organizationId,
+      from: range.from,
+      to: windowEnd,
+    });
 
     const listingIds = uniqueIds([
       ...adAgg.map((a) => a.listingId),
     ]);
     const listingIdSet = new Set(listingIds);
+    const trafficAgg = await readListingTrafficWindowFacts(tx, {
+      organizationId,
+      from: range.from,
+      to: windowEnd,
+      listingIds,
+    });
     const monthWindow = {
       from: kstMonthStart(year, month),
       to: kstMonthStart(year, month + 1),
     };
-
-    const listings = await this.hydrateListings(organizationId, listingIds);
-    const [liveMetrics, channelStateByListing] = await Promise.all([
-      listingIds.length === 0
-        ? Promise.resolve([])
-        : readAdEvidenceFromLedger(
-            this.prisma,
-            organizationId,
-            monthWindow.from,
-            monthWindow.to,
-          ).then((accountAdEvidence) => buildPerListingMetrics(
-            this.prisma,
-            organizationId,
-            monthWindow.from,
-            monthWindow.to,
-            accountAdEvidence,
-          )).then((rows) =>
-            rows.filter((row) => listingIdSet.has(row.listingId)),
-          ),
-      this.loadChannelStateByListing(organizationId, listings),
-    ]);
+    const listings = await this.hydrateListingsIn(tx, organizationId, listingIds);
+    let liveMetrics = [] as Awaited<ReturnType<typeof buildPerListingMetrics>>;
+    if (listingIds.length > 0) {
+      const accountAdEvidence = await readAdEvidenceFromLedger(
+        tx,
+        organizationId,
+        monthWindow.from,
+        monthWindow.to,
+      );
+      liveMetrics = (await buildPerListingMetrics(
+        tx,
+        organizationId,
+        monthWindow.from,
+        monthWindow.to,
+        accountAdEvidence,
+      )).filter((row) => listingIdSet.has(row.listingId));
+    }
+    const channelStateByListing = await this.loadChannelStateByListingIn(
+      tx,
+      organizationId,
+      listings,
+    );
 
     // Only listings whose profit is measured enter the strategy context. A
     // listing with incomplete ad coverage is absent rather than carrying a
@@ -120,12 +139,12 @@ export class AdStrategyContextRepositoryAdapter
       string,
       { revenue: number; orders: number }
     >();
-    for (const row of trafficAgg) {
-      // A traffic row is a measurement only on a day the source reported.
-      if (!row.listingId || row.trafficObservedAt === null) continue;
+    const includedTrafficDates = new Set(trafficAgg.coverage.includedDates);
+    for (const row of trafficAgg.rows) {
+      if (!includedTrafficDates.has(row.businessDate)) continue;
       const current = trafficByListing.get(row.listingId) ?? { revenue: 0, orders: 0 };
-      current.revenue += row.trafficRevenue;
-      current.orders += row.trafficOrders;
+      current.revenue += row.revenue;
+      current.orders += row.orders;
       trafficByListing.set(row.listingId, current);
     }
 
@@ -141,7 +160,8 @@ export class AdStrategyContextRepositoryAdapter
     };
   }
 
-  async loadChannelStateByListing(
+  private async loadChannelStateByListingIn(
+    tx: Prisma.TransactionClient,
     organizationId: string,
     listings: HydratedListing[],
   ): Promise<Map<string, ChannelStateSignal>> {
@@ -159,25 +179,6 @@ export class AdStrategyContextRepositoryAdapter
       primaryListingOptionByListing.values(),
     );
 
-    type ListingDailyRow = {
-      listingId: string;
-      channel: string;
-      externalId: string;
-      businessDate: Date;
-      lastObservedAt: Date;
-      sampleCount: number;
-      productName: string | null;
-      status: string | null;
-      exposureStatus: string | null;
-      saleStatus: string | null;
-      channelPrice: number | null;
-      isOfferWinner: boolean | null;
-      myPrice: number | null;
-      winnerPrice: number | null;
-      winnerGapPrice: number | null;
-      productRank: number | null;
-      categoryRank: number | null;
-    };
     type OptionDailyRow = {
       listingId: string;
       listingOptionId: string;
@@ -194,41 +195,10 @@ export class AdStrategyContextRepositoryAdapter
       winnerGapPrice: number | null;
     };
 
-    const [listingDailies, optionDailies] = await Promise.all([
-      this.prisma.$queryRaw<ListingDailyRow[]>(Prisma.sql`
-        SELECT DISTINCT ON (listing_id)
-          listing_id          AS "listingId",
-          channel,
-          external_id         AS "externalId",
-          business_date       AS "businessDate",
-          last_observed_at    AS "lastObservedAt",
-          sample_count        AS "sampleCount",
-          product_name        AS "productName",
-          status,
-          exposure_status     AS "exposureStatus",
-          sale_status         AS "saleStatus",
-          channel_price       AS "channelPrice",
-          is_offer_winner     AS "isOfferWinner",
-          my_price            AS "myPrice",
-          winner_price        AS "winnerPrice",
-          winner_gap_price    AS "winnerGapPrice",
-          product_rank        AS "productRank",
-          category_rank       AS "categoryRank"
-        FROM channel_listing_daily_snapshots
-        WHERE organization_id = ${organizationId}::uuid
-          AND listing_id = ANY(${listingIds}::uuid[])
-        ORDER BY
-          listing_id,
-          ${currentRowTieBreakSql({
-            businessDate: Prisma.sql`business_date`,
-            observedAt: Prisma.sql`last_observed_at`,
-            updatedAt: Prisma.sql`updated_at`,
-            id: Prisma.sql`id`,
-          })}
-      `),
-      primaryListingOptionIds.length === 0
-        ? Promise.resolve([] as OptionDailyRow[])
-        : this.prisma.$queryRaw<OptionDailyRow[]>(Prisma.sql`
+    const listingDailies = await readLatestListingStateFacts(tx, { organizationId, listingIds });
+    const optionDailies = primaryListingOptionIds.length === 0
+      ? [] as OptionDailyRow[]
+      : await tx.$queryRaw<OptionDailyRow[]>(Prisma.sql`
             SELECT DISTINCT ON (listing_option_id)
               listing_id           AS "listingId",
               listing_option_id    AS "listingOptionId",
@@ -254,8 +224,7 @@ export class AdStrategyContextRepositoryAdapter
                 updatedAt: Prisma.sql`updated_at`,
                 id: Prisma.sql`id`,
               })}
-          `),
-    ]);
+          `);
 
     const optionByListing = new Map<string, OptionDailyRow>();
     for (const row of optionDailies) {
@@ -309,8 +278,19 @@ export class AdStrategyContextRepositoryAdapter
     organizationId: string,
     listingIds: string[],
   ): Promise<HydratedListing[]> {
+    return this.prisma.$transaction(
+      (tx) => this.hydrateListingsIn(tx, organizationId, listingIds),
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
+  }
+
+  private async hydrateListingsIn(
+    tx: Prisma.TransactionClient,
+    organizationId: string,
+    listingIds: string[],
+  ): Promise<HydratedListing[]> {
     if (listingIds.length === 0) return [];
-    const rows = await this.prisma.channelListing.findMany({
+    const rows = await tx.channelListing.findMany({
       where: {
         id: { in: listingIds },
         organizationId,
@@ -326,7 +306,6 @@ export class AdStrategyContextRepositoryAdapter
             id: true,
             code: true,
             name: true,
-            abcGrade: true,
             adTier: true,
             healthScore: true,
           },
@@ -348,6 +327,10 @@ export class AdStrategyContextRepositoryAdapter
         },
       },
     });
+    const gradeByProductId = await readPublishedProductAbcGrades(tx, {
+      organizationId,
+      masterProductIds: rows.flatMap((row) => row.masterProduct ? [row.masterProduct.id] : []),
+    });
     return rows
       .map((r): HydratedListing => {
         const firstClo = r.options[0] ?? null;
@@ -359,12 +342,9 @@ export class AdStrategyContextRepositoryAdapter
             id: r.masterProduct?.id ?? r.id,
             code: r.masterProduct?.code ?? r.externalId,
             name: r.masterProduct?.name ?? r.displayName ?? r.channelName ?? r.externalId,
-            abcGrade:
-              r.masterProduct?.abcGrade === 'A'
-                || r.masterProduct?.abcGrade === 'B'
-                || r.masterProduct?.abcGrade === 'C'
-                ? r.masterProduct.abcGrade
-                : null,
+            abcGrade: r.masterProduct
+              ? gradeByProductId.get(r.masterProduct.id) ?? null
+              : null,
             adTier: r.masterProduct?.adTier ?? null,
             healthScore: r.masterProduct?.healthScore ?? null,
           },
@@ -386,7 +366,17 @@ export class AdStrategyContextRepositoryAdapter
   async loadAllTimeAdAggregates(
     organizationId: string,
   ): Promise<AllTimeAdAggregateRow[]> {
-    const rows = await readListingAdWindowFacts(this.prisma, { organizationId });
+    return this.prisma.$transaction(
+      (tx) => this.loadAllTimeAdAggregatesIn(tx, organizationId),
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
+  }
+
+  private async loadAllTimeAdAggregatesIn(
+    tx: Prisma.TransactionClient,
+    organizationId: string,
+  ): Promise<AllTimeAdAggregateRow[]> {
+    const rows = await readListingAdWindowFacts(tx, { organizationId });
     return rows.map((row) => ({
       listingId: row.listingId,
       spend: row.spend,
@@ -410,45 +400,37 @@ export class AdStrategyContextRepositoryAdapter
         trafficDailyRows: [],
       };
     }
-    const [adAggAll, reviewStatsRead, trafficDailyRows] =
-      await Promise.all([
-        this.loadAllTimeAdAggregates(organizationId),
+    const [[adAggAll, trafficDailyRows], reviewStatsRead] = await Promise.all([
+      this.prisma.$transaction(
+        async (tx) => {
+          const adAggAll = await this.loadAllTimeAdAggregatesIn(tx, organizationId);
+          const trafficDailyRows = await readListingTrafficWindowFacts(tx, {
+            organizationId, listingIds, from: options.trafficSince,
+          });
+          return [adAggAll, trafficDailyRows] as const;
+        },
+        { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+      ),
         this.reviewStatsRead.loadListingReviewStats({
           organizationId,
           listingIds,
           recentSince: options.recentReviewSince,
         }),
-        this.prisma.channelListingDailySnapshot.findMany({
-          where: {
-            organizationId,
-            listingId: { in: listingIds },
-            businessDate: { gte: options.trafficSince },
-          },
-          select: {
-            listingId: true,
-            businessDate: true,
-            trafficRevenue: true,
-            trafficOrders: true,
-            trafficObservedAt: true,
-          },
-        }),
       ]);
 
     const reviewStats: ListingReviewStatRow[] = reviewStatsRead.lifetime;
     const recentReviewCounts = reviewStatsRead.recent;
-    const trafficRows: ListingTrafficDailyRow[] = trafficDailyRows.flatMap(
-      (row) =>
-        row.listingId && row.trafficObservedAt !== null
-          ? [
-              {
-                listingId: row.listingId,
-                businessDate: row.businessDate,
-                trafficRevenue: row.trafficRevenue,
-                trafficOrders: row.trafficOrders,
-              },
-            ]
-          : [],
-    );
+    const includedTrafficDates = new Set(trafficDailyRows.coverage.includedDates);
+    const trafficRows: ListingTrafficDailyRow[] = trafficDailyRows.rows
+      .filter((row) => includedTrafficDates.has(row.businessDate))
+      .map(
+      (row) => ({
+        listingId: row.listingId,
+        businessDate: new Date(`${row.businessDate}T00:00:00.000Z`),
+        trafficRevenue: row.revenue,
+        trafficOrders: row.orders,
+      }),
+      );
 
     return {
       adAggAll,

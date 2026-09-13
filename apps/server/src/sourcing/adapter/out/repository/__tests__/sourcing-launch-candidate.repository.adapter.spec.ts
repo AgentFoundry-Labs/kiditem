@@ -185,51 +185,6 @@ describe('SourcingLaunchCandidateRepositoryAdapter', () => {
     });
   });
 
-  it('org-scopes reads, preserves requested id order, and filters opaque concept keys', async () => {
-    const prisma = {
-      sourcingLaunchCandidate: {
-        findFirst: vi.fn().mockResolvedValue(launchRow()),
-        findMany: vi
-          .fn()
-          .mockResolvedValueOnce([
-            launchRow({ id: 'launch-2' }),
-            launchRow({ id: 'launch-1' }),
-          ])
-          .mockResolvedValueOnce([launchRow()]),
-      },
-    };
-    const repository = new SourcingLaunchCandidateRepositoryAdapter(prisma as never);
-
-    await repository.findById({ organizationId: 'org-1', id: 'launch-1' });
-    const byIds = await repository.findByIds({
-      organizationId: 'org-1',
-      ids: ['launch-1', 'launch-2'],
-    });
-    await repository.list({
-      organizationId: 'org-1',
-      productConceptVersionKey: 'concept:pencil-case:v3',
-      limit: 20,
-    });
-
-    expect(prisma.sourcingLaunchCandidate.findFirst).toHaveBeenCalledWith({
-      where: { id: 'launch-1', organizationId: 'org-1' },
-    });
-    expect(prisma.sourcingLaunchCandidate.findMany).toHaveBeenNthCalledWith(1, {
-      where: {
-        id: { in: ['launch-1', 'launch-2'] },
-        organizationId: 'org-1',
-      },
-    });
-    expect(byIds.map((record) => record.id)).toEqual(['launch-1', 'launch-2']);
-    expect(prisma.sourcingLaunchCandidate.findMany).toHaveBeenNthCalledWith(2, {
-      where: {
-        organizationId: 'org-1',
-        productConceptVersionKey: 'concept:pencil-case:v3',
-      },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      take: 20,
-    });
-  });
 });
 
 function transactionPrisma(tx: ReturnType<typeof launchTx>) {

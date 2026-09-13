@@ -125,7 +125,6 @@ export type MockAdStrategyContextRepo = {
 export function buildMockAdStrategyContextRepo(): MockAdStrategyContextRepo {
   return {
     loadStrategyContext: vi.fn(),
-    loadChannelStateByListing: vi.fn(),
     hydrateListings: vi.fn(),
     loadExposureAnalysisContext: vi.fn(),
     loadAllTimeAdAggregates: vi.fn(),

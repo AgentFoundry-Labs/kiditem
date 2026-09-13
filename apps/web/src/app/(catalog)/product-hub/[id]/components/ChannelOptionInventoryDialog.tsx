@@ -28,7 +28,7 @@ type DraftComponent = {
   code: string;
   name: string;
   optionName: string | null;
-  currentStock: number;
+  currentStock: number | null;
 };
 
 export type ChannelOptionInventoryEditorTarget = {
@@ -41,7 +41,7 @@ export type ChannelOptionInventoryEditorTarget = {
     code: string;
     name: string;
     optionName: string | null;
-    currentStock: number;
+    currentStock: number | null;
     quantity: number;
   }>;
 };
@@ -201,7 +201,7 @@ export function ChannelOptionInventoryDialog({
                       <div key={item.sellpiaInventorySkuId} className="flex items-center justify-between gap-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface)] px-3 py-2">
                         <div className="min-w-0">
                           <p className="truncate text-xs font-extrabold text-[var(--text-primary)]">{item.code} · {item.name}</p>
-                          <p className="mt-0.5 truncate text-[11px] text-[var(--text-tertiary)]">{item.optionName ?? '옵션 없음'} · 재고 {item.currentStock}</p>
+                          <p className="mt-0.5 truncate text-[11px] text-[var(--text-tertiary)]">{item.optionName ?? '옵션 없음'} · 재고 {stockLabel(item.currentStock)}</p>
                           <code className="mt-0.5 block select-all truncate text-[10px] text-[var(--text-muted)]">{item.sellpiaInventorySkuId}</code>
                         </div>
                         <button
@@ -226,7 +226,7 @@ export function ChannelOptionInventoryDialog({
                   <div key={component.clientId} className="grid gap-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-sunken)] p-4 sm:grid-cols-[1fr_120px_40px]">
                     <div className="min-w-0 text-xs text-[var(--text-secondary)]">
                       <p className="truncate font-extrabold text-[var(--text-primary)]">{component.code} · {component.name}</p>
-                      <p className="mt-1 truncate">{component.optionName ?? '옵션 없음'} · 현재고 {component.currentStock}</p>
+                      <p className="mt-1 truncate">{component.optionName ?? '옵션 없음'} · 현재고 {stockLabel(component.currentStock)}</p>
                       <code className="mt-1 block select-all truncate text-[10px] text-[var(--text-muted)]">{component.sellpiaInventorySkuId}</code>
                     </div>
                     <label className="text-xs font-bold text-[var(--text-secondary)]">
@@ -272,6 +272,10 @@ export function ChannelOptionInventoryDialog({
       </Dialog.Portal>
     </Dialog.Root>
   );
+}
+
+function stockLabel(value: number | null): string {
+  return value === null ? '미수집' : String(value);
 }
 
 function toDraft(option: ChannelOptionInventoryEditorTarget): DraftComponent[] {

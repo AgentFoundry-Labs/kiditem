@@ -185,6 +185,24 @@ describe('recommendation decision policy', () => {
     },
   );
 
+  it.each([
+    ['compliance', 'verify_compliance'],
+    ['ip', 'verify_ip'],
+    ['qc', 'verify_qc'],
+  ] as const)(
+    'keeps an unevaluated %s gate distinct from an inconclusive evaluation',
+    (gate, nextEvidenceAction) => {
+      const input = qualifiedInput();
+      input.gates = { ...input.gates, [gate]: 'not_evaluated' };
+      expect(decideSourcingRecommendation(input)).toMatchObject({
+        decision: 'hold',
+        executionEligible: false,
+        nextEvidenceAction,
+        reasonCodes: [`${gate}_not_evaluated`],
+      });
+    },
+  );
+
   it.each(['compliance', 'ip', 'qc'] as const)(
     'rejects when the %s gate is blocked',
     (gate) => {

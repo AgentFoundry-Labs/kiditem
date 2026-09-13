@@ -24,6 +24,10 @@ import {
   effectiveSourceImportRunState as effectiveState,
   sourceImportRunDbState as sourceDbState,
 } from './source-import-run-state';
+import {
+  MAX_MONTHLY_AD_ALLOCATION_ROWS,
+  readMonthlyAdAllocationPublication,
+} from '../../../read/monthly-ad-allocation.reader';
 import type {
   AdvertisingProfitabilityGeneration,
   AdvertisingProfitabilityPlan,
@@ -34,6 +38,7 @@ import type {
 } from '../../../application/port/in/profitability-ad-import.port';
 import type { AttemptFence } from '../../../application/port/in/profitability-ad-import.port';
 import type { ProfitabilityAdImportRepositoryPort } from '../../../application/port/out/repository/profitability-ad-import.repository.port';
+import { clampProfitabilityMonthCoverage } from '../../../domain/profitability-month-coverage';
 
 export const PROFITABILITY_SOURCE_TYPE = 'coupang_ad_profitability';
 export const PROFITABILITY_PARSER_VERSION = 'profitability-report-v1';
@@ -46,7 +51,7 @@ export const PROFITABILITY_RECIPE_POLICY_VERSION = 'WHOLE_RECIPE_QUANTITY_V1';
 export const PROFITABILITY_ALLOCATION_POLICY = 'INTEGER_KRW_LARGEST_REMAINDER';
 export const PROFITABILITY_ALLOCATION_TIE_BREAK =
   'MASTER_PRODUCT_ID_ASC_LOWERCASE';
-export const MAX_GENERATION_FACT_ROWS = 100_000;
+export const MAX_GENERATION_FACT_ROWS = MAX_MONTHLY_AD_ALLOCATION_ROWS;
 const MAX_SNAPSHOT_GENERATIONS = 12;
 const PROFITABILITY_EVALUATION_MONTH_COUNT = 12;
 const MAX_REPORT_COUNT = 100_000;
@@ -1250,7 +1255,7 @@ async function generationFromRun(
     || !run.adSourcePolicyHash) {
     throw new UnprocessableEntityException('SOURCE_GENERATION_PROVENANCE_MISSING');
   }
-  const [targets, facts] = await Promise.all([
+  const [targets, monthlyPublication] = await Promise.all([
     tx.channelAdTargetDailySnapshot.findMany({
       where: { organizationId: run.organizationId, sourceImportRunId: run.id },
       orderBy: [{ businessDate: 'asc' }, { channelAccountId: 'asc' }, { targetKey: 'asc' }],
@@ -1270,28 +1275,27 @@ async function generationFromRun(
         conversions: true,
       },
     }),
-    tx.channelAdListingProductMonthlyFact.findMany({
-      where: { organizationId: run.organizationId, sourceImportRunId: run.id },
-      orderBy: [{ month: 'asc' }, { channelAccountId: 'asc' }, { channelListingId: 'asc' }, { masterProductId: 'asc' }],
-      take: MAX_GENERATION_FACT_ROWS + 1,
-      select: {
-        channelAccountId: true,
-        channelListingId: true,
-        masterProductId: true,
-        month: true,
-        coveredStartDate: true,
-        coveredEndDate: true,
-        wholeRecipeWeight: true,
-        allocatedSpend: true,
-        observedTargetDayCount: true,
-        mappingGeneration: true,
-      },
+    readMonthlyAdAllocationPublication(tx, {
+      organizationId: run.organizationId,
+      sourceImportRunId: run.id,
     }),
   ]);
-  if (targets.length > MAX_GENERATION_FACT_ROWS || facts.length > MAX_GENERATION_FACT_ROWS) {
+  if (targets.length > MAX_GENERATION_FACT_ROWS) {
     throw new UnprocessableEntityException('SOURCE_FACTS_OVERFLOW');
   }
+  if (!monthlyPublication) {
+    throw new UnprocessableEntityException('SOURCE_GENERATION_PROVENANCE_MISSING');
+  }
+  const facts: GenerationMonthlyFact[] = monthlyPublication.allocations.map((fact) => ({
+    ...fact,
+    month: dateOnly(fact.month),
+    coveredStartDate: dateOnly(fact.coveredStartDate),
+    coveredEndDate: dateOnly(fact.coveredEndDate),
+    allocatedSpend: BigInt(fact.allocatedSpend),
+    mappingGeneration: BigInt(fact.mappingGeneration),
+  }));
   const summary = generationSummaryFromRun(run);
+  const slices = parseStoredPlan(run.plan).accounts.flatMap((account) => account.slices);
   const factsByListingMonth = indexFactsByListingMonth(facts);
   return {
     summary,
@@ -1311,18 +1315,31 @@ async function generationFromRun(
       matched: target.listingId !== null,
       allocationStatus: targetAllocationStatus(target, factsByListingMonth),
     })),
-    allocations: facts.map((fact) => ({
-      channelAccountId: fact.channelAccountId,
-      channelListingId: fact.channelListingId,
-      masterProductId: fact.masterProductId,
-      month: isoDate(fact.month).slice(0, 7),
-      coveredStartDate: isoDate(fact.coveredStartDate),
-      coveredEndDate: isoDate(fact.coveredEndDate),
-      wholeRecipeWeight: fact.wholeRecipeWeight,
-      allocatedSpend: safeKrwNumber(fact.allocatedSpend),
-      observedTargetDayCount: fact.observedTargetDayCount,
-      mappingGeneration: fact.mappingGeneration.toString(),
-    })),
+    allocations: facts.map((fact) => {
+      const month = isoDate(fact.month).slice(0, 7);
+      const slice = slices.find((candidate) =>
+        candidate.channelAccountId === fact.channelAccountId
+        && candidate.from.slice(0, 7) === month);
+      const coverage = slice ? clampProfitabilityMonthCoverage({
+        factFrom: isoDate(fact.coveredStartDate),
+        factTo: isoDate(fact.coveredEndDate),
+        sliceFrom: slice.from,
+        sliceTo: slice.to,
+      }) : null;
+      if (!coverage) throw new UnprocessableEntityException('SOURCE_COVERAGE_MALFORMED');
+      return {
+        channelAccountId: fact.channelAccountId,
+        channelListingId: fact.channelListingId,
+        masterProductId: fact.masterProductId,
+        month,
+        coveredStartDate: coverage.from,
+        coveredEndDate: coverage.to,
+        wholeRecipeWeight: fact.wholeRecipeWeight,
+        allocatedSpend: safeKrwNumber(fact.allocatedSpend),
+        observedTargetDayCount: coverage.coveredDays,
+        mappingGeneration: fact.mappingGeneration.toString(),
+      };
+    }),
   };
 }
 
@@ -1743,15 +1760,18 @@ async function allocateSlice(
   }
   const factUpdates: FactAllocationUpdate[] = [];
   for (const fact of facts) {
-    const coveredDays = businessDates(
-      isoDate(fact.coveredStartDate) > input.from ? isoDate(fact.coveredStartDate) : input.from,
-      isoDate(fact.coveredEndDate) < input.to ? isoDate(fact.coveredEndDate) : input.to,
-    ).length;
+    const coverage = clampProfitabilityMonthCoverage({
+      factFrom: isoDate(fact.coveredStartDate),
+      factTo: isoDate(fact.coveredEndDate),
+      sliceFrom: input.from,
+      sliceTo: input.to,
+    });
+    if (!coverage) throw incompleteImport();
     const result = allocated.get(fact.id) ?? { spend: 0n, days: 0 };
     factUpdates.push({
       id: fact.id,
       allocatedSpend: result.spend,
-      observedTargetDayCount: coveredDays,
+      observedTargetDayCount: coverage.coveredDays,
     });
   }
   await batchUpdateFactAllocations(tx, input, factUpdates);
@@ -1850,10 +1870,13 @@ async function assertConservation(
   for (const fact of facts) {
     const slice = slices.find((candidate) => candidate.channelAccountId === fact.channelAccountId
       && fact.month >= dateOnly(candidate.from) && fact.month <= dateOnly(candidate.to));
-    if (!slice || fact.observedTargetDayCount !== businessDates(
-      fact.coveredStartDate < dateOnly(slice.from) ? slice.from : isoDate(fact.coveredStartDate),
-      fact.coveredEndDate > dateOnly(slice.to) ? slice.to : isoDate(fact.coveredEndDate),
-    ).length) throw incompleteImport();
+    const coverage = slice ? clampProfitabilityMonthCoverage({
+      factFrom: isoDate(fact.coveredStartDate),
+      factTo: isoDate(fact.coveredEndDate),
+      sliceFrom: slice.from,
+      sliceTo: slice.to,
+    }) : null;
+    if (!coverage || fact.observedTargetDayCount !== coverage.coveredDays) throw incompleteImport();
   }
   const spendByListingDay = new Map<string, bigint>();
   const providerSpendByListingMonth = new Map<string, bigint>();

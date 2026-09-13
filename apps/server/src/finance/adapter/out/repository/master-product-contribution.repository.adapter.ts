@@ -4,10 +4,11 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { PRODUCT_ABC_ABSOLUTE_V1_AD_SOURCE_POLICY_HASH } from '@kiditem/shared/product-abc';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { businessDateKey, parseBusinessDate } from '../../../../common/kst';
-import { PRODUCT_ABC_ABSOLUTE_V1_AD_SOURCE_POLICY_HASH } from '@kiditem/shared/product-abc';
-import type { ProductAbcContributionMetricStatus } from '@kiditem/shared/product-abc';
+import { readMonthlyAdAllocationPublication } from '../../../../advertising/read/monthly-ad-allocation.reader';
+import { readExactSellpiaProductMonthlyFacts } from '../../../../analytics/sellpia-product-sales/read/sellpia-product-monthly-facts';
 import type {
   MasterProductContributionRepositoryPort,
   MasterProductContributionRepositoryReadInput,
@@ -25,15 +26,14 @@ type RawContributionRow = Readonly<{
   positiveOperatingProfitTotal: unknown;
   lossMagnitudeTotal: unknown;
   netOperatingProfitTotal: unknown;
-  salesMetricStatus: string;
+  salesSourceComplete: boolean | null;
   salesIncludedProductCount: unknown;
   salesExcludedProductCount: unknown;
   salesDenominator: unknown;
-  positiveProfitMetricStatus: string;
+  profitSourceComplete: boolean | null;
   profitIncludedProductCount: unknown;
   profitExcludedProductCount: unknown;
   positiveProfitDenominator: unknown;
-  lossMetricStatus: string;
   lossIncludedProductCount: unknown;
   lossExcludedProductCount: unknown;
   lossDenominator: unknown;
@@ -65,25 +65,60 @@ export class MasterProductContributionRepositoryAdapter
   ): Promise<MasterProductContributionAnalytics> {
     assertBasis(input.basisFromDate, input.basisCutoffDate);
     const productFilter = finalProductFilter(input.masterProductIds);
-    const rows = await this.prisma.$queryRaw<RawContributionRow[]>(Prisma.sql`
+    const rows = await this.prisma.$transaction(async (tx) => {
+      const sellpia = input.sellpiaSourceImportRunId
+        ? await readExactSellpiaProductMonthlyFacts(tx, {
+            organizationId: input.organizationId,
+            sourceImportRunId: input.sellpiaSourceImportRunId,
+            scope: { yearMonths: yearMonths(input.basisFromDate, input.basisCutoffDate) },
+          })
+        : { generation: null, facts: [] };
+      const sellpiaFactsJson = JSON.stringify(sellpia.facts.map((fact) => ({
+        master_product_id: fact.masterProductId,
+        year_month: fact.yearMonth,
+        order_amount: fact.orderAmount,
+        in_amount: fact.inAmount,
+        cost_basis: fact.costBasis,
+        vat_included: fact.vatIncluded,
+        coverage_start_date: fact.coverageStartDate?.toISOString().slice(0, 10) ?? null,
+        coverage_end_date: fact.coverageEndDate?.toISOString().slice(0, 10) ?? null,
+      })));
+      const advertisingPublication = input.advertisingSourceImportRunId
+        ? await readMonthlyAdAllocationPublication(tx, {
+          organizationId: input.organizationId,
+          sourceImportRunId: input.advertisingSourceImportRunId,
+        })
+        : null;
+      const advertisingAllocations = JSON.stringify(
+        advertisingPublication?.allocations.map((fact) => ({
+          master_product_id: fact.masterProductId,
+          month: fact.month,
+          covered_start_date: fact.coveredStartDate,
+          covered_end_date: fact.coveredEndDate,
+          mapping_generation: fact.mappingGeneration,
+          observed_target_day_count: fact.observedTargetDayCount,
+          allocated_spend: fact.allocatedSpend,
+        })) ?? [],
+      );
+      return tx.$queryRaw<RawContributionRow[]>(Prisma.sql`
       WITH params AS (
         SELECT
           ${input.organizationId}::uuid AS organization_id,
-          ${input.sellpiaSourceImportRunId}::uuid AS sellpia_source_import_run_id,
           ${input.advertisingSourceImportRunId}::uuid AS advertising_source_import_run_id,
           ${input.basisFromDate}::date AS basis_from_date,
-          ${input.basisCutoffDate}::date AS basis_cutoff_date
+          ${input.basisCutoffDate}::date AS basis_cutoff_date,
+          ${sellpia.generation?.id ?? null}::uuid AS sellpia_id,
+          ${sellpia.generation?.mappingGeneration?.toString() ?? null}::bigint
+            AS sellpia_mapping_generation,
+          ${sellpia.generation?.coverageStartDate ?? null}::date AS sellpia_coverage_start_date,
+          ${sellpia.generation?.coverageEndDate ?? null}::date AS sellpia_coverage_end_date,
+          ${sellpia.generation?.coveredMonths ?? []}::text[] AS sellpia_covered_months,
+          ${advertisingPublication !== null}::boolean AS advertising_publication_ready,
+          ${advertisingAllocations}::jsonb AS advertising_allocations
       ),
       source_candidates AS (
         SELECT
           p.*,
-          sellpia.id AS sellpia_id,
-          sellpia.status AS sellpia_attempt_status,
-          sellpia.publication_sequence AS sellpia_publication_sequence,
-          sellpia.mapping_generation AS sellpia_mapping_generation,
-          sellpia.coverage_start_date AS sellpia_coverage_start_date,
-          sellpia.coverage_end_date AS sellpia_coverage_end_date,
-          sellpia.covered_months AS sellpia_covered_months,
           advertising.id AS advertising_id,
           advertising.status AS advertising_attempt_status,
           advertising.publication_sequence AS advertising_publication_sequence,
@@ -93,10 +128,6 @@ export class MasterProductContributionRepositoryAdapter
           advertising.covered_months AS advertising_covered_months,
           advertising.ad_source_policy_hash AS advertising_source_policy_hash
         FROM params p
-        LEFT JOIN source_import_runs sellpia
-          ON sellpia.id = p.sellpia_source_import_run_id
-         AND sellpia.organization_id = p.organization_id
-         AND sellpia.source_type = 'sellpia_product_profitability'
         LEFT JOIN source_import_runs advertising
           ON advertising.id = p.advertising_source_import_run_id
          AND advertising.organization_id = p.organization_id
@@ -106,8 +137,7 @@ export class MasterProductContributionRepositoryAdapter
         SELECT
           candidates.*,
           COALESCE(
-            candidates.sellpia_attempt_status = 'completed'
-            AND candidates.sellpia_publication_sequence IS NOT NULL
+            candidates.sellpia_id IS NOT NULL
             AND candidates.sellpia_mapping_generation IS NOT NULL
             AND candidates.sellpia_coverage_start_date <= candidates.basis_from_date
             AND candidates.sellpia_coverage_end_date >= candidates.basis_cutoff_date
@@ -127,6 +157,7 @@ export class MasterProductContributionRepositoryAdapter
           ) AS sellpia_ready,
           COALESCE(
             candidates.advertising_attempt_status = 'completed'
+            AND candidates.advertising_publication_ready
             AND candidates.advertising_publication_sequence IS NOT NULL
             AND candidates.advertising_mapping_generation IS NOT NULL
             AND candidates.advertising_source_policy_hash
@@ -166,6 +197,19 @@ export class MasterProductContributionRepositoryAdapter
           END AS source_cutoff_date
         FROM validated_manifests manifests
       ),
+      sellpia_facts AS (
+        SELECT *
+        FROM jsonb_to_recordset(${sellpiaFactsJson}::jsonb) AS facts(
+          master_product_id uuid,
+          year_month text,
+          order_amount integer,
+          in_amount integer,
+          cost_basis text,
+          vat_included boolean,
+          coverage_start_date date,
+          coverage_end_date date
+        )
+      ),
       sellpia_amounts AS (
         SELECT
           facts.master_product_id,
@@ -185,13 +229,11 @@ export class MasterProductContributionRepositoryAdapter
             AND facts.in_amount >= 0
           ) AS cost_ready
         FROM source_status status
-        JOIN sellpia_product_monthly_sales facts
+        JOIN sellpia_facts facts
           ON status.sellpia_ready
-         AND facts.source_import_run_id = status.sellpia_id
-         AND facts.organization_id = status.organization_id
         JOIN master_products products
           ON products.id = facts.master_product_id
-         AND products.organization_id = facts.organization_id
+         AND products.organization_id = status.organization_id
         WHERE facts.year_month BETWEEN to_char(status.basis_from_date, 'YYYY-MM')
                                    AND to_char(status.basis_cutoff_date, 'YYYY-MM')
           AND facts.coverage_start_date <= status.basis_cutoff_date
@@ -211,13 +253,18 @@ export class MasterProductContributionRepositoryAdapter
             AND facts.covered_end_date <= status.basis_cutoff_date
           ) AS fact_ready
         FROM source_status status
-        JOIN channel_ad_listing_product_monthly_facts facts
-          ON status.advertising_ready
-         AND facts.source_import_run_id = status.advertising_id
-         AND facts.organization_id = status.organization_id
+        JOIN LATERAL jsonb_to_recordset(status.advertising_allocations) AS facts(
+          master_product_id uuid,
+          month date,
+          covered_start_date date,
+          covered_end_date date,
+          mapping_generation bigint,
+          observed_target_day_count integer,
+          allocated_spend numeric
+        ) ON status.advertising_ready
         JOIN master_products products
           ON products.id = facts.master_product_id
-         AND products.organization_id = facts.organization_id
+         AND products.organization_id = status.organization_id
         WHERE facts.month BETWEEN date_trunc('month', status.basis_from_date)::date
                               AND status.basis_cutoff_date
           AND facts.covered_start_date <= status.basis_cutoff_date
@@ -303,31 +350,13 @@ export class MasterProductContributionRepositoryAdapter
           aggregates.loss_total,
           aggregates.net_profit_total,
           CASE
-            WHEN NOT status.sellpia_ready OR aggregates.sales_excluded_count > 0
-              THEN 'SOURCE_INCOMPLETE'
-            WHEN COALESCE(aggregates.revenue_total, 0) > 0 THEN 'READY'
-            ELSE 'NO_DENOMINATOR'
-          END AS sales_metric_status,
-          CASE
             WHEN aggregates.revenue_total > 0 THEN aggregates.revenue_total
             ELSE NULL
           END AS sales_denominator,
           CASE
-            WHEN NOT status.mapping_ready OR aggregates.profit_excluded_count > 0
-              THEN 'SOURCE_INCOMPLETE'
-            WHEN COALESCE(aggregates.positive_profit_total, 0) > 0 THEN 'READY'
-            ELSE 'NO_DENOMINATOR'
-          END AS positive_profit_metric_status,
-          CASE
             WHEN aggregates.positive_profit_total > 0 THEN aggregates.positive_profit_total
             ELSE NULL
           END AS positive_profit_denominator,
-          CASE
-            WHEN NOT status.mapping_ready OR aggregates.profit_excluded_count > 0
-              THEN 'SOURCE_INCOMPLETE'
-            WHEN COALESCE(aggregates.loss_total, 0) > 0 THEN 'READY'
-            ELSE 'NO_DENOMINATOR'
-          END AS loss_metric_status,
           CASE
             WHEN aggregates.loss_total > 0 THEN aggregates.loss_total
             ELSE NULL
@@ -451,15 +480,14 @@ export class MasterProductContributionRepositoryAdapter
           WHEN summary.mapping_ready THEN COALESCE(summary.net_profit_total, 0)::text
           ELSE NULL
         END AS "netOperatingProfitTotal",
-        summary.sales_metric_status AS "salesMetricStatus",
+        summary.sellpia_ready AS "salesSourceComplete",
         summary.sales_included_count AS "salesIncludedProductCount",
         summary.sales_excluded_count AS "salesExcludedProductCount",
         summary.sales_denominator::text AS "salesDenominator",
-        summary.positive_profit_metric_status AS "positiveProfitMetricStatus",
+        summary.mapping_ready AS "profitSourceComplete",
         summary.profit_included_count AS "profitIncludedProductCount",
         summary.profit_excluded_count AS "profitExcludedProductCount",
         summary.positive_profit_denominator::text AS "positiveProfitDenominator",
-        summary.loss_metric_status AS "lossMetricStatus",
         summary.profit_included_count AS "lossIncludedProductCount",
         summary.profit_excluded_count AS "lossExcludedProductCount",
         summary.loss_denominator::text AS "lossDenominator",
@@ -481,7 +509,10 @@ export class MasterProductContributionRepositoryAdapter
       FROM metric_summary summary
       LEFT JOIN filtered_products products ON TRUE
       ORDER BY products.master_product_id ASC
-    `);
+      `);
+    }, {
+      isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead,
+    });
 
     const summary = rows[0];
     if (!summary) {
@@ -497,35 +528,35 @@ export class MasterProductContributionRepositoryAdapter
         advertisingSourceImportRunId: summary.advertisingSourceImportRunId,
       },
       totals: {
-        revenue: money(summary.revenueTotal),
-        positiveOperatingProfit: money(summary.positiveOperatingProfitTotal),
-        lossMagnitude: money(summary.lossMagnitudeTotal),
-        netOperatingProfit: money(summary.netOperatingProfitTotal),
+        revenue: contributionMoney(summary.revenueTotal),
+        positiveOperatingProfit: contributionMoney(summary.positiveOperatingProfitTotal),
+        lossMagnitude: contributionMoney(summary.lossMagnitudeTotal),
+        netOperatingProfit: contributionMoney(summary.netOperatingProfitTotal),
       },
       metrics: {
         sales: {
-          status: metricStatus(summary.salesMetricStatus),
+          sourceComplete: summary.salesSourceComplete === true,
           includedProductCount: nonNegativeInteger(summary.salesIncludedProductCount),
           excludedProductCount: nonNegativeInteger(summary.salesExcludedProductCount),
-          denominator: money(summary.salesDenominator),
+          denominator: contributionMoney(summary.salesDenominator),
         },
         positiveOperatingProfit: {
-          status: metricStatus(summary.positiveProfitMetricStatus),
+          sourceComplete: summary.profitSourceComplete === true,
           includedProductCount: nonNegativeInteger(summary.profitIncludedProductCount),
           excludedProductCount: nonNegativeInteger(summary.profitExcludedProductCount),
-          denominator: money(summary.positiveProfitDenominator),
+          denominator: contributionMoney(summary.positiveProfitDenominator),
         },
         loss: {
-          status: metricStatus(summary.lossMetricStatus),
+          sourceComplete: summary.profitSourceComplete === true,
           includedProductCount: nonNegativeInteger(summary.lossIncludedProductCount),
           excludedProductCount: nonNegativeInteger(summary.lossExcludedProductCount),
-          denominator: money(summary.lossDenominator),
+          denominator: contributionMoney(summary.lossDenominator),
         },
       },
       products: rows.flatMap((row) => row.masterProductId === null ? [] : [{
         masterProductId: row.masterProductId,
-        revenue: money(row.revenue),
-        operatingProfit: money(row.operatingProfit),
+        revenue: contributionMoney(row.revenue),
+        operatingProfit: contributionMoney(row.operatingProfit),
         salesContribution: ratio(row.salesContribution),
         positiveOperatingProfitContribution: ratio(row.positiveOperatingProfitContribution),
         lossImpact: ratio(row.lossImpact),
@@ -559,6 +590,20 @@ function assertBasis(fromDate: string, cutoffDate: string): void {
   }
 }
 
+function yearMonths(fromDate: string, cutoffDate: string): string[] {
+  const values: string[] = [];
+  const from = new Date(`${fromDate.slice(0, 7)}-01T00:00:00.000Z`);
+  const to = new Date(`${cutoffDate.slice(0, 7)}-01T00:00:00.000Z`);
+  for (let cursor = from; cursor <= to; cursor = new Date(Date.UTC(
+    cursor.getUTCFullYear(),
+    cursor.getUTCMonth() + 1,
+    1,
+  ))) {
+    values.push(cursor.toISOString().slice(0, 7));
+  }
+  return values;
+}
+
 function validCalendarDate(value: string): boolean {
   return CALENDAR_DATE.test(value) && parseBusinessDate(value) !== null;
 }
@@ -575,7 +620,7 @@ function nullableCalendarDate(value: Date | string | null): string | null {
   return value === null ? null : calendarDate(value);
 }
 
-function money(value: unknown): number | null {
+export function contributionMoney(value: unknown): number | null {
   if (value === null || value === undefined) return null;
   const parsed = typeof value === 'bigint' ? Number(value) : Number(String(value));
   if (!Number.isSafeInteger(parsed)) {
@@ -608,11 +653,4 @@ function nullablePositiveInteger(value: unknown): number | null {
     throw new UnprocessableEntityException('CONTRIBUTION_RANK_INVALID');
   }
   return parsed;
-}
-
-function metricStatus(value: string): ProductAbcContributionMetricStatus {
-  if (value === 'READY' || value === 'NO_DENOMINATOR' || value === 'SOURCE_INCOMPLETE') {
-    return value;
-  }
-  throw new UnprocessableEntityException('CONTRIBUTION_METRIC_STATUS_INVALID');
 }

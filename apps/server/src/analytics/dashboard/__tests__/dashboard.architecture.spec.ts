@@ -200,4 +200,38 @@ describe('analytics/dashboard architecture contract', () => {
       `dashboard has no legacy services/ facade; new logic belongs in application/service/:\n${hits.join('\n')}`,
     ).toEqual([]);
   });
+
+  it('composes Orders and Inventory through their canonical readers', () => {
+    const dash = dashboardRel();
+    const adapterGlob = path.join(dash, 'adapter/out/repository') + '/**';
+    const hits = rg(
+      `--type ts --files-with-matches '(prisma|tx)\\.(order|sellpiaInventorySku)|FROM orders|JOIN order_line_items|FROM sellpia_inventory_skus' --glob '${adapterGlob}' --glob '!**/__tests__/**'`,
+    );
+    expect(
+      hits,
+      `dashboard adapters must compose canonical Orders and Inventory readers:\n${hits.join('\n')}`,
+    ).toEqual([]);
+  });
+
+  it('does not retain the Wing dashboard KPI blob reader', () => {
+    const dash = dashboardRel();
+    const hits = rg(
+      `--type ts --files-with-matches 'WING_AD_SUMMARY_REPOSITORY_PORT|WingAdSummaryRepositoryAdapter|rawAdSummary|adSummary|wingAdData|mappingStatusCounts|confirmedUntil' ${dash} --glob '!**/__tests__/**' --glob '!**/*.spec.ts'`,
+    );
+    expect(
+      hits,
+      `the dashboard KPI blob has no canonical fact and must be removed:\n${hits.join('\n')}`,
+    ).toEqual([]);
+  });
+
+  it('reads collection completion through the Core provenance reader', () => {
+    const dash = dashboardRel();
+    const hits = rg(
+      `--type ts --files-with-matches 'sourceImportRun[[:space:]]*\\.|(FROM|JOIN|UPDATE|INTO)[[:space:]]+"?source_import_runs' ${dash} --glob '!**/__tests__/**' --glob '!**/*.spec.ts'`,
+    );
+    expect(
+      hits,
+      `dashboard must not choose completed import provenance directly:\n${hits.join('\n')}`,
+    ).toEqual([]);
+  });
 });

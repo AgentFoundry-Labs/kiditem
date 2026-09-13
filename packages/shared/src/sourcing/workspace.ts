@@ -52,7 +52,7 @@ const SourcingErrorSchema = z
 
 const SourcingReadEnvelopeBaseSchema = z
   .object({
-    status: z.enum(['ready', 'collecting', 'stale', 'unavailable']),
+    ready: z.boolean(),
     generatedAt: InstantSchema,
     lastSuccessfulAt: InstantSchema.nullable(),
     freshUntil: InstantSchema.nullable(),
@@ -68,21 +68,28 @@ export function sourcingReadEnvelopeSchema<TSchema extends z.ZodTypeAny>(
   return SourcingReadEnvelopeBaseSchema.extend({
     data: dataSchema.nullable(),
   }).superRefine((value, context) => {
-    if (value.status === 'unavailable' && value.data !== null) {
+    if (!value.ready && value.data !== null) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['data'],
         message: 'unavailable data must be null',
       });
     }
-    if (value.status === 'ready' && value.data === null) {
+    if (!value.ready && value.error === null) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['error'],
+        message: 'unavailable response requires an error code',
+      });
+    }
+    if (value.ready && value.data === null) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['data'],
         message: 'ready data is required',
       });
     }
-    if (value.status === 'ready' && value.error !== null) {
+    if (value.ready && value.error !== null) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['error'],

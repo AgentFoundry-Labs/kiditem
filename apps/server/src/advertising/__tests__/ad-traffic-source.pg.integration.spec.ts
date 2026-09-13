@@ -21,6 +21,8 @@ import {
   AD_TRAFFIC_SOURCE_PORT,
 } from '../application/port/in/ad-traffic-source.port';
 import { currentBusinessDate } from '../domain/business-date';
+import { readListingTrafficWindowFacts } from '../../channels/read/channel-listing-daily-facts';
+import { WingTrafficAggregationRepositoryAdapter } from '../../analytics/dashboard/adapter/out/repository/wing-traffic-aggregation.repository.adapter';
 import type { INestApplication } from '@nestjs/common';
 
 const base = '/api/ads/traffic';
@@ -426,6 +428,98 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
     expect(published.body.optionDaily.filter((value: any) => value.externalOptionId === '1001')).toHaveLength(2);
   });
 
+  it('keeps an explicit-empty date measured when another confirmed date has rows', async () => {
+    const plan = range(2);
+    const populatedDate = plan.endDate;
+    const populated = summary({
+      visitors: 6,
+      views: 12,
+      cartAdds: 2,
+      orders: 1,
+      salesQty: 2,
+      revenue: 180,
+      providerConversionRate: 5,
+    });
+    const zero = summary({
+      visitors: 0,
+      views: 0,
+      cartAdds: 0,
+      orders: 0,
+      salesQty: 0,
+      revenue: 0,
+      providerConversionRate: null,
+    });
+    const startedRecord = await begin(plan);
+
+    await upload(
+      startedRecord.attempt,
+      0,
+      dailyReceipt(startedRecord.attempt, plan, plan.startDate, 1, 1, [], zero),
+    ).expect(200);
+    await upload(
+      startedRecord.attempt,
+      100,
+      dailyReceipt(
+        startedRecord.attempt,
+        plan,
+        populatedDate,
+        1,
+        1,
+        [row('1001', populated)],
+        populated,
+      ),
+    ).expect(200);
+    await upload(
+      startedRecord.attempt,
+      200,
+      periodReceipt(startedRecord.attempt, plan, populated),
+    ).expect(200);
+    await complete(startedRecord.attempt, 201);
+
+    const facts = await readListingTrafficWindowFacts(prisma, {
+      organizationId: ORG,
+      listingIds: [listingId],
+      from: new Date(`${plan.startDate}T00:00:00.000Z`),
+      to: new Date(`${dateShift(plan.endDate, 1)}T00:00:00.000Z`),
+    });
+    expect(facts.observedDates).toEqual([populatedDate]);
+    expect(facts.coverage).toEqual({
+      includedDates: [plan.startDate, populatedDate],
+      invalidDates: [],
+      missingDates: [],
+    });
+    expect(facts.totals).toEqual({
+      visitors: 6,
+      views: 12,
+      cartAdds: 2,
+      orders: 1,
+      salesQty: 2,
+      revenue: 180,
+    });
+
+    const dashboard = new WingTrafficAggregationRepositoryAdapter(prisma as never);
+    await expect(dashboard.aggregateTraffic(ORG, {
+      sourceClass: 'closed_day_clipped',
+      selectedDates: [plan.startDate, populatedDate],
+      queryWindow: {
+        from: new Date(`${plan.startDate}T00:00:00.000Z`),
+        to: new Date(`${dateShift(plan.endDate, 1)}T00:00:00.000Z`),
+      },
+      knownThrough: populatedDate,
+    })).resolves.toMatchObject({
+      revenue: 180,
+      orders: 1,
+      visitors: 3,
+      isCollected: true,
+      hasData: true,
+      coverage: {
+        targetDays: 2,
+        completedDays: 2,
+        missingDates: [],
+      },
+    });
+  });
+
   /**
    * Coupang publishes traffic and sales at different times, so the last day of a
    * requested window is routinely not ready while every earlier day is. The
@@ -466,6 +560,16 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
         missingDates: [plan.endDate],
       });
       expect(published.body.accountDaily).toHaveLength(1);
+
+      const status = await request(httpUrl)
+        .get(`${base}/source`)
+        .set('x-test-org', ORG)
+        .query({ channelAccountId: accountId })
+        .expect(200);
+      expect(status.body).toMatchObject({
+        ready: false,
+        latestComplete: { attemptId: started.attempt.attemptId },
+      });
     });
 
     it('refuses a submission that confirms no date at all', async () => {
@@ -591,6 +695,61 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
       .expect(200);
     expect(published.body.accountDaily[0]).toMatchObject({ visitors: 0, views: 0, revenue: 0 });
     expect(published.body.optionDaily).toHaveLength(0);
+  });
+
+  it('publishes provider-backed empty coverage for the canonical reader when no listing row exists', async () => {
+    await prisma.channelListing.update({
+      where: { id: listingId },
+      data: { isActive: false },
+    });
+    const plan = range();
+    const started = await begin(plan);
+    const zero = summary({
+      visitors: 0,
+      views: 0,
+      cartAdds: 0,
+      orders: 0,
+      salesQty: 0,
+      revenue: 0,
+      providerConversionRate: null,
+    });
+    await upload(
+      started.attempt,
+      0,
+      dailyReceipt(started.attempt, plan, plan.startDate, 1, 1, [], zero),
+    ).expect(200);
+    await upload(
+      started.attempt,
+      100,
+      periodReceipt(started.attempt, plan, zero),
+    ).expect(200);
+    await complete(started.attempt, 201);
+
+    await expect(prisma.channelListingDailySnapshot.count({
+      where: { organizationId: ORG, trafficObservedAt: { not: null } },
+    })).resolves.toBe(0);
+    const facts = await readListingTrafficWindowFacts(prisma, {
+      organizationId: ORG,
+      from: new Date(`${plan.startDate}T00:00:00.000Z`),
+      to: new Date(`${dateShift(plan.startDate, 1)}T00:00:00.000Z`),
+    });
+    expect(facts).toMatchObject({
+      rows: [],
+      observedDates: [],
+      coverage: {
+        includedDates: [plan.startDate],
+        invalidDates: [],
+        missingDates: [],
+      },
+      totals: {
+        visitors: 0,
+        views: 0,
+        cartAdds: 0,
+        orders: 0,
+        salesQty: 0,
+        revenue: 0,
+      },
+    });
   });
 
   it('re-publishes a 534-option day with bounded statements and preserves shared fact namespaces', async () => {

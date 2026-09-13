@@ -50,6 +50,22 @@ function cloneIdentity(): LaunchCandidateIdentityInput {
 }
 
 describe('launch candidate identity', () => {
+  it('keeps a gate that was not evaluated distinct from an evaluated unknown result', () => {
+    const notEvaluated = normalizeLaunchCandidateIdentity({
+      ...BASE_IDENTITY,
+      complianceStatus: 'not_evaluated',
+    });
+    const unknown = normalizeLaunchCandidateIdentity({
+      ...BASE_IDENTITY,
+      complianceStatus: 'unknown',
+    });
+
+    expect(notEvaluated.complianceStatus).toBe('not_evaluated');
+    expect(unknown.complianceStatus).toBe('unknown');
+    expect(fingerprintLaunchCandidateIdentity(notEvaluated))
+      .not.toBe(fingerprintLaunchCandidateIdentity(unknown));
+  });
+
   it('produces the same canonical JSON and SHA-256 fingerprint regardless of key order', () => {
     const reordered = {
       ipSnapshot: BASE_IDENTITY.ipSnapshot,

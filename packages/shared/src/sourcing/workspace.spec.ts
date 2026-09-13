@@ -12,7 +12,7 @@ describe('sourcing workspace contracts', () => {
   it('keeps unavailable distinct from a successful empty result', () => {
     expect(() =>
       SourcingReadEnvelopeSchema.parse({
-        status: 'unavailable',
+        ready: false,
         generatedAt: '2026-08-08T00:00:00.000Z',
         lastSuccessfulAt: null,
         freshUntil: null,
@@ -29,7 +29,7 @@ describe('sourcing workspace contracts', () => {
 
     expect(
       SourcingReadEnvelopeSchema.parse({
-        status: 'ready',
+        ready: true,
         generatedAt: '2026-08-08T00:00:00.000Z',
         lastSuccessfulAt: '2026-08-08T00:00:00.000Z',
         freshUntil: '2026-08-08T01:00:00.000Z',
@@ -37,8 +37,8 @@ describe('sourcing workspace contracts', () => {
         data: [],
         warnings: [],
         error: null,
-      }).status,
-    ).toBe('ready');
+      }).ready,
+    ).toBe(true);
   });
 
   it('requires stable offer identity and a path-owned optimistic selection version', () => {

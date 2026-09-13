@@ -248,7 +248,19 @@ describe('ProfitabilityAdImportRepositoryAdapter', () => {
       plan: {
         mappingGeneration: '3',
         adSourcePolicyHash: PRODUCT_ABC_ABSOLUTE_V1_AD_SOURCE_POLICY_HASH,
-        accounts: [],
+        accounts: [{
+          channelAccountId,
+          externalAccountId: 'external-account',
+          expectedAdvertiserId: 'advertiser-1',
+          slices: [{
+            sliceId: `${channelAccountId}:2026-01-01_2026-01-31`,
+            channelAccountId,
+            from: '2026-01-01',
+            to: '2026-01-31',
+            businessDates: Array.from({ length: 31 }, (_, index) =>
+              `2026-01-${String(index + 1).padStart(2, '0')}`),
+          }],
+        }],
       },
       qualityReport: {
         contract: 'profitability-report-v1',
@@ -259,8 +271,8 @@ describe('ProfitabilityAdImportRepositoryAdapter', () => {
         mappingGeneration: '3',
         adSourcePolicyHash: PRODUCT_ABC_ABSOLUTE_V1_AD_SOURCE_POLICY_HASH,
         coveredMonths: ['2026-01'],
-        plannedAccountCount: 0,
-        plannedSliceCount: 0,
+        plannedAccountCount: 1,
+        plannedSliceCount: 1,
         receiptCount: 1,
         targetFactCount: 1,
         matchedTargetCount: 1,
@@ -309,7 +321,11 @@ describe('ProfitabilityAdImportRepositoryAdapter', () => {
     const factFindMany = vi.fn().mockResolvedValue([fact]);
     const tx = {
       sourceImportRun: { findFirst: vi.fn().mockResolvedValue(run) },
-      channelAccount: { findMany: vi.fn().mockResolvedValue([]) },
+      channelAccount: { findMany: vi.fn().mockResolvedValue([{
+        id: channelAccountId,
+        externalAccountId: 'external-account',
+        vendorId: 'advertiser-1',
+      }]) },
       channelAdTargetDailySnapshot: { findMany: targetFindMany },
       channelAdListingProductMonthlyFact: { findMany: factFindMany },
     };

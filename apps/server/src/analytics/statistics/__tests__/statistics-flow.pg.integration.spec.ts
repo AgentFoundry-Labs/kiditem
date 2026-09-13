@@ -15,10 +15,12 @@ import {
   seedAd,
   seedCompletedAdSweepRun,
   seedOrderWithLineItems,
+  seedCompletedOrderCollection,
   setupChannelListing,
   setupMaster,
   setupProductOption,
 } from '../../../test-helpers/finance-seeds';
+import { seedPublishedProductAbcGrades } from '../../../products/__tests__/test-helpers/published-product-abc';
 
 describe('Statistics flow (PG integration)', () => {
   let prisma: PrismaClient;
@@ -55,7 +57,7 @@ describe('Statistics flow (PG integration)', () => {
       code: `${prefix}-M-001`,
       name: `${prefix} Master M1`,
       category: '유아용품',
-      abcGrade: 'A',
+      abcGrade: null,
       thumbnailUrl: 'https://cdn/m1.jpg',
     });
     const { id: masterM2 } = await setupMaster(prisma, {
@@ -63,7 +65,14 @@ describe('Statistics flow (PG integration)', () => {
       code: `${prefix}-M-002`,
       name: `${prefix} Master M2`,
       category: '완구',
-      abcGrade: 'B',
+      abcGrade: null,
+    });
+    await seedPublishedProductAbcGrades(prisma, {
+      organizationId,
+      grades: [
+        { masterProductId: masterM1, abcGrade: 'A' },
+        { masterProductId: masterM2, abcGrade: 'B' },
+      ],
     });
 
     const { id: optM1a } = await setupProductOption(prisma, {
@@ -141,7 +150,7 @@ describe('Statistics flow (PG integration)', () => {
     });
     await prisma.order.update({
       where: { id: o1 },
-      data: { receiverName: 'A' },
+      data: { receiverName: 'A', totalPrice: 999_999 },
     });
 
     const o2 = await seedOrderWithLineItems(prisma, {
@@ -153,7 +162,10 @@ describe('Statistics flow (PG integration)', () => {
         { quantity: 3, totalPrice: 15_000, optionId: optM2a, listingOptionId: listingL2.listingOptionId },
       ],
     });
-    await prisma.order.update({ where: { id: o2 }, data: { receiverName: 'B' } });
+    await prisma.order.update({
+      where: { id: o2 },
+      data: { receiverName: 'B', totalPrice: 999_999 },
+    });
 
     const o3 = await seedOrderWithLineItems(prisma, {
       organizationId,
@@ -164,7 +176,10 @@ describe('Statistics flow (PG integration)', () => {
         { quantity: 1, totalPrice: 5_000, optionId: optM2a, listingOptionId: listingL2.listingOptionId },
       ],
     });
-    await prisma.order.update({ where: { id: o3 }, data: { receiverName: 'A' } });
+    await prisma.order.update({
+      where: { id: o3 },
+      data: { receiverName: 'A', totalPrice: 999_999 },
+    });
 
     const o4 = await seedOrderWithLineItems(prisma, {
       organizationId,
@@ -209,6 +224,12 @@ describe('Statistics flow (PG integration)', () => {
       date: '2026-04-15',
       spend: 1_000,
       runId,
+    });
+
+    await seedCompletedOrderCollection(prisma, {
+      organizationId,
+      startDate: '2026-04-01', endDate: '2026-04-30',
+      orderIds: [o1, o2, o3, o4, o5],
     });
 
     return {
@@ -451,6 +472,14 @@ describe('Statistics flow (PG integration)', () => {
         },
       });
     }
+
+    await seedCompletedOrderCollection(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      startDate: '2026-04-01', endDate: '2026-04-30',
+      orderIds: (await prisma.order.findMany({
+        where: { organizationId: TEST_ORGANIZATION_ID }, select: { id: true },
+      })).map((order) => order.id),
+    });
 
     const result = await service.repurchase(TEST_ORGANIZATION_ID, '2026-04');
 

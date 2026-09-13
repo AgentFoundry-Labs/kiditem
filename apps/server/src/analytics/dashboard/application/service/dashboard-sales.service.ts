@@ -10,11 +10,6 @@ import {
   type RangeProfitMetrics,
 } from '../port/out/repository/profit-calculation.repository.port';
 import {
-  WING_AD_SUMMARY_REPOSITORY_PORT,
-  type WingAdSummaryRepositoryPort,
-  type WingAdSummaryResult,
-} from '../port/out/repository/wing-ad-summary.repository.port';
-import {
   DASHBOARD_SALES_REPOSITORY_PORT,
   type DashboardSalesRepositoryPort,
 } from '../port/out/repository/dashboard-sales.repository.port';
@@ -22,6 +17,7 @@ import {
   WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT,
   type WingTrafficAggregationRepositoryPort,
   type WingTrafficMetrics,
+  type DashboardTrafficFunnelFacts,
   type TrafficAdditiveMetric,
 } from '../port/out/repository/wing-traffic-aggregation.repository.port';
 import {
@@ -87,8 +83,6 @@ export class DashboardSalesService {
   constructor(
     @Inject(PROFIT_CALCULATION_REPOSITORY_PORT)
     private readonly profitCalculation: ProfitCalculationRepositoryPort,
-    @Inject(WING_AD_SUMMARY_REPOSITORY_PORT)
-    private readonly wingAdSummary: WingAdSummaryRepositoryPort,
     @Inject(DASHBOARD_SALES_REPOSITORY_PORT)
     private readonly salesRepository: DashboardSalesRepositoryPort,
     @Inject(WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT)
@@ -101,7 +95,7 @@ export class DashboardSalesService {
   ): Promise<DashboardSalesSummary> {
     try {
       const startedAt = Date.now();
-      const { year, month, monthStart, todayStart, todayEnd } = ctx;
+      const { todayStart, todayEnd } = ctx;
       // Two closure rules, one resolver: order aggregates read the selected
       // calendar verbatim, Wing/Coupang read only closed KST days. Both take
       // the month from the anchor, so the advertising shown under a month
@@ -116,7 +110,6 @@ export class DashboardSalesService {
         rangePrev,
         todayRows,
         topProductRows,
-        wing,
         wingTrafficMonth,
         wingTrafficPrevMonth,
         wingTrafficRange,
@@ -124,6 +117,7 @@ export class DashboardSalesService {
         coupangAdsMonth,
         coupangAdsPrevMonth,
         latestWingDataDate,
+        trafficFunnel,
       ] = await Promise.all([
         this.profitCalculation.calculateForRange(organizationId, orderPeriods.month),
         this.profitCalculation.calculateForRange(organizationId, orderPeriods.previousMonth),
@@ -139,7 +133,6 @@ export class DashboardSalesService {
           orderPeriods.selected.queryWindow.from,
           orderPeriods.selected.queryWindow.to,
         ),
-        this.wingAdSummary.fetchCurrentMonthSummary(organizationId, year, month, monthStart),
         this.wingTrafficRepository.aggregateTraffic(organizationId, closedDayPeriods.month),
         this.wingTrafficRepository.aggregateTraffic(organizationId, closedDayPeriods.previousMonth),
         this.wingTrafficRepository.aggregateTraffic(organizationId, closedDayPeriods.selected),
@@ -147,18 +140,22 @@ export class DashboardSalesService {
         this.wingTrafficRepository.aggregateCoupangAds(organizationId, closedDayPeriods.month),
         this.wingTrafficRepository.aggregateCoupangAds(organizationId, closedDayPeriods.previousMonth),
         this.wingTrafficRepository.findLatestDataDate(organizationId),
+        this.wingTrafficRepository.readTrafficFunnel(
+          organizationId,
+          closedDayPeriods.selected,
+        ),
       ]);
 
       const useWingMonthly = !hasOrderEvidence(curMonth) && canUseWingRevenue(wingTrafficMonth);
       const useWingRange = !hasOrderEvidence(rangeCur) && canUseWingRevenue(wingTrafficRange);
       // The Today card is order-backed. Never substitute yesterday's closed
       // Wing source range into a widget labelled as today.
-      const today = todayRows;
+      const today = {
+        revenue: todayRows.revenue,
+        orders: todayRows.orders,
+      };
 
-      const wingLastSync = pickLatest(
-        wing?.lastSyncAt ?? null,
-        wingTrafficMonth.lastObservedAt,
-      );
+      const wingLastSync = wingTrafficMonth.lastObservedAt;
       const latestDataDate = latestWingDataDate;
       const lastSyncAt = pickLatest(wingLastSync, coupangAdsMonth.lastObservedAt);
 
@@ -169,7 +166,6 @@ export class DashboardSalesService {
         anchorShifted: ctx.anchorShifted,
         latencyMs: Date.now() - startedAt,
         topProductsCount: topProductRows.length,
-        hasWingOverride: wing !== null,
         useWingMonthly,
         useWingRange,
       });
@@ -202,26 +198,33 @@ export class DashboardSalesService {
       });
 
       const trafficKpi = this.buildTrafficKpi(
-        rangeCurProfit,
-        wingTrafficRange,
-        wing,
-        useWingRange,
+        trafficFunnel,
       );
-      const conversionRateBasis = periodEvidence({
+      const trafficOnlyBasis = (metric: 'visitors' | 'views' | 'cartAdds') => periodEvidence({
         selectedDates: closedDayPeriods.selected.selectedDates,
-        includedDates: trafficKpi.conversionRate === null
-          ? []
-          : windowCoverageDates(
-            closedDayPeriods.selected.selectedDates,
-            wingTrafficRange.coverage,
-            wingTrafficRange.isCollected,
-          ),
-        // A reconciliation mismatch is evidence that was read and refused,
-        // which is not the same as a date the owner never collected.
-        invalidDates: mismatchedTrafficMetrics(wingTrafficRange, ['views', 'orders'])
-          ? closedDayPeriods.selected.selectedDates
-          : [],
+        includedDates: trafficFunnel.metricDates[metric],
         sources: [WING_TRAFFIC_SOURCE],
+      });
+      const trafficRateBasis = (metric: 'cartRate') => periodEvidence({
+        selectedDates: closedDayPeriods.selected.selectedDates,
+        includedDates: trafficFunnel.metricDates[metric],
+        sources: [WING_TRAFFIC_SOURCE],
+      });
+      const intersectionBasis = (metric: 'orders' | 'salesQty' | 'revenue' | 'conversionRate') =>
+        periodEvidence({
+          selectedDates: closedDayPeriods.selected.selectedDates,
+          includedDates: trafficFunnel.metricDates[metric],
+          sources: [WING_TRAFFIC_SOURCE, ORDERS_SOURCE],
+        });
+      const intersectionRateBasis = (metric: 'orderCartRate') => periodEvidence({
+        selectedDates: closedDayPeriods.selected.selectedDates,
+        includedDates: trafficFunnel.metricDates[metric],
+        sources: [WING_TRAFFIC_SOURCE, ORDERS_SOURCE],
+      });
+      const todayBasis = periodEvidence({
+        selectedDates: todayRows.requestedDates,
+        includedDates: todayRows.includedDates,
+        sources: [ORDERS_SOURCE],
       });
       // Revenue is ranked from orders alone, so orders decide its basis.
       const topProductsBasis = periodEvidence({
@@ -259,12 +262,22 @@ export class DashboardSalesService {
         ),
         profitInputs: buildOrderProfitInputs(rangeCurProfit, rangeEvidence.profit),
         metricBasis: metricBasisMap({
+          'today.revenue': todayBasis,
+          'today.orders': todayBasis,
           'monthly.revenue': monthEvidence.revenue,
           'monthly.profit': monthEvidence.profit,
           'rangeKpi.revenue': rangeEvidence.revenue,
           'rangeKpi.profit': rangeEvidence.profit,
           'rangeKpi.profitRate': rangeEvidence.profitRate,
-          'trafficKpi.conversionRate': conversionRateBasis,
+          'trafficKpi.visitors': trafficOnlyBasis('visitors'),
+          'trafficKpi.views': trafficOnlyBasis('views'),
+          'trafficKpi.cartAdds': trafficOnlyBasis('cartAdds'),
+          'trafficKpi.cartRate': trafficRateBasis('cartRate'),
+          'trafficKpi.orders': intersectionBasis('orders'),
+          'trafficKpi.orderCartRate': intersectionRateBasis('orderCartRate'),
+          'trafficKpi.salesQty': intersectionBasis('salesQty'),
+          'trafficKpi.revenue': intersectionBasis('revenue'),
+          'trafficKpi.conversionRate': intersectionBasis('conversionRate'),
           'topProducts.revenue': topProductsBasis,
           // The profit column is no longer a margin assumption over the revenue
           // basis (ADR-0004): it is settled per listing, from orders *and* ad
@@ -395,135 +408,36 @@ export class DashboardSalesService {
   // shipping. The UI hides profit-rate metrics when `revenueSource ===
   // 'wing'`.
   private buildTrafficKpi(
-    cur: RangeProfitMetrics,
-    wingCur: WingTrafficMetrics,
-    wing: WingAdSummaryResult | null,
-    useWing: boolean,
+    funnel: DashboardTrafficFunnelFacts,
   ): TrafficKpi {
-    const wingValues = trafficKpiValues(wingCur);
-    if (useWing) {
-      return {
-        ...wingValues,
-        adSummary: wing?.rawAdSummary ?? null,
-        source: wing ? 'wing' : 'drive_replay',
-        // Wing GMV has no settlement/COGS evidence; null is intentional.
-        netProfit: null,
-        profitRate: null,
-        needsScrape: false,
-        trafficAvailable: wingCur.isCollected,
-        trafficObservedAt: wingCur.lastObservedAt?.toISOString() ?? null,
-      } satisfies TrafficKpi;
-    }
-    const orderDataAvailable = cur.revenue !== 0 || cur.orderCount > 0;
-    if (!orderDataAvailable) {
-      return {
-        ...wingValues,
-        adSummary: wing?.rawAdSummary ?? null,
-        source: wing ? 'wing' : 'drive_replay',
-        netProfit: null,
-        profitRate: null,
-        needsScrape: false,
-        trafficAvailable: wingCur.isCollected,
-        trafficObservedAt: wingCur.lastObservedAt?.toISOString() ?? null,
-      } satisfies TrafficKpi;
-    }
     return {
-      visitors: wingValues.visitors,
-      views: wingValues.views,
-      orders: cur.orderCount,
-      salesQty: wingValues.salesQty,
-      revenue: cur.revenue,
-      cartAdds: wingValues.cartAdds,
-      conversionRate: wingValues.conversionRate,
-      dailyAverageVisitors: wingValues.dailyAverageVisitors,
-      providerConversionRate: wingValues.providerConversionRate,
-      coverage: wingValues.coverage,
-      reconciliation: wingValues.reconciliation,
-      exactPeriodEvidence: wingValues.exactPeriodEvidence,
-      adSummary: wing?.rawAdSummary ?? null,
-      source: wing ? 'wing' : undefined,
-      netProfit: cur.netProfit,
-      // A ratio whose numerator is unavailable is itself unavailable.
-      profitRate: measuredPercent1(cur.netProfit, cur.revenue),
-      trafficAvailable: wingCur.isCollected,
-      trafficObservedAt: wingCur.lastObservedAt?.toISOString() ?? null,
+      visitors: funnel.visitors,
+      views: funnel.views,
+      orders: funnel.orders,
+      salesQty: funnel.salesQty,
+      revenue: funnel.revenue,
+      cartAdds: funnel.cartAdds,
+      cartRate: funnel.cartRate,
+      conversionRate: funnel.conversionRate,
+      orderCartRate: funnel.orderCartRate,
+      dailyAverageVisitors: funnel.dailyAverageVisitors,
+      providerConversionRate: null,
+      coverage: funnel.trafficCoverage,
+      reconciliation: null,
+      exactPeriodEvidence: {
+        listingCount: funnel.intersectionListingCount,
+        listingDateCount: funnel.intersectionListingDateCount,
+      },
+      source: 'mixed',
+      // Settlement profit is a different population from the listing/date
+      // funnel. It remains available in the profit cards with its own basis.
+      netProfit: null,
+      profitRate: null,
+      needsScrape: false,
+      trafficAvailable: Object.values(funnel.metricDates).some((dates) => dates.length > 0),
+      trafficObservedAt: funnel.trafficObservedAt?.toISOString() ?? null,
     } satisfies TrafficKpi;
   }
-}
-
-type TrafficKpiValues = Pick<
-  TrafficKpi,
-  | 'visitors'
-  | 'views'
-  | 'salesQty'
-  | 'cartAdds'
-  | 'conversionRate'
-  | 'dailyAverageVisitors'
-  | 'providerConversionRate'
-  | 'coverage'
-  | 'reconciliation'
-  | 'exactPeriodEvidence'
-> & { orders: number | null; revenue: number | null };
-
-/**
- * A window publishes what it measured once at least one day is confirmed.
- *
- * This used to require every day in the window, and that is the mirror of
- * inventing a zero: ten measured days were withheld because the eleventh was
- * one Coupang had not published yet — the ordinary case, since Wing's traffic
- * runs a day behind its sales. Nothing published here is a total for the
- * requested window and nothing claims to be: `coverage` travels on the payload
- * with the day count and the missing dates, and the dashboard reads it as
- * `부분 N/M일`. Zero confirmed days stays unavailable, because there is nothing
- * measured to show.
- *
- * Standing in for a period's revenue is a different question and keeps its own
- * gate: see `canUseWingRevenue`, which still requires the whole window.
- */
-function hasConfirmedDays(metrics: WingTrafficMetrics): boolean {
-  if (!metrics.isCollected) return false;
-  return !metrics.coverage || metrics.coverage.completedDays > 0;
-}
-
-function canUseWingMetric(
-  metrics: WingTrafficMetrics,
-  metric: TrafficAdditiveMetric,
-): boolean {
-  if (!hasConfirmedDays(metrics)) return false;
-  return metrics.reconciliation?.[metric]?.status !== 'MISMATCH';
-}
-
-function trafficKpiValues(metrics: WingTrafficMetrics): TrafficKpiValues {
-  const visitorsAvailable = hasConfirmedDays(metrics);
-  const viewsAvailable = canUseWingMetric(metrics, 'views');
-  const ordersAvailable = canUseWingMetric(metrics, 'orders');
-  const salesQtyAvailable = canUseWingMetric(metrics, 'salesQty');
-  const revenueAvailable = canUseWingMetric(metrics, 'revenue');
-  const cartAddsAvailable = canUseWingMetric(metrics, 'cartAdds');
-  const visitors = visitorsAvailable
-    ? (metrics.dailyAverageVisitors ?? metrics.visitors)
-    : null;
-  const views = viewsAvailable ? metrics.views : null;
-  const orders = ordersAvailable ? metrics.orders : null;
-
-  return {
-    visitors,
-    views,
-    orders,
-    revenue: revenueAvailable ? metrics.revenue : null,
-    salesQty: salesQtyAvailable ? metrics.salesQty : null,
-    cartAdds: cartAddsAvailable ? metrics.cartAdds : null,
-    // The ratio is unavailable when views are unavailable or zero. The
-    // adapter computes orders/views, never orders/visitors.
-    conversionRate: views !== null && views > 0 && orders !== null
-      ? (orders / views) * 100
-      : null,
-    dailyAverageVisitors: visitors,
-    providerConversionRate: metrics.providerConversionRate ?? null,
-    coverage: metrics.coverage ?? null,
-    reconciliation: metrics.reconciliation ?? null,
-    exactPeriodEvidence: metrics.exactPeriodEvidence ?? null,
-  };
 }
 
 interface ResolvedSalesPeriod {
@@ -675,7 +589,13 @@ function buildOrderProfitInputs(
   metrics: RangeProfitMetrics,
   basis: DashboardPeriodBasis | null,
 ): DashboardProfitInputs | null {
-  if (!basis || basis.includedDates.length === 0) return null;
+  if (!basis || basis.includedDates.length === 0
+    || metrics.revenue === null
+    || metrics.costOfGoods === null
+    || metrics.commission === null
+    || metrics.shippingCost === null
+    || metrics.otherCost === null
+    || metrics.adCost === null) return null;
   const cost = metrics.costOfGoods + metrics.commission + metrics.shippingCost + metrics.otherCost;
   if (!Number.isFinite(metrics.revenue) || !Number.isFinite(cost) || !Number.isFinite(metrics.adCost)) {
     return null;

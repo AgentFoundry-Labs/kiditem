@@ -16,6 +16,13 @@ import {
   ProductAbcGradeHistorySchema,
   ProductAbcReadModelSchema,
 } from './product-abc.js';
+import {
+  PRODUCT_ABC_CONTRIBUTION_STATUS_LABELS,
+  PRODUCT_ABC_DISPLAY_STATUS_LABELS,
+  PRODUCT_ABC_MAPPING_STATUS_LABELS,
+  productAbcContributionMetricStatus,
+  productAbcMappingStatus,
+} from '../product-abc.js';
 
 const UUID = '00000000-0000-4000-8000-000000000001';
 const UUID_2 = '00000000-0000-4000-8000-000000000002';
@@ -67,7 +74,11 @@ function sourceFreshness() {
       latestAttempt: { state: 'FAILED', errorCode: 'marketplace_login' },
       latestComplete: { actualCutoff: '2026-08-31' },
     },
-    mapping: { status: 'READY', mappingGeneration: '4' },
+    mapping: {
+      valid: true,
+      currentMappingGeneration: '4',
+      evidenceMappingGeneration: '4',
+    },
   };
 }
 
@@ -241,6 +252,47 @@ describe('absolute product profitability ABC contracts', () => {
     }).success).toBe(false);
   });
 
+  it('derives mapping words and labels from mapping facts without carrying a wire status', () => {
+    expect(productAbcMappingStatus({
+      valid: true,
+      currentMappingGeneration: '4',
+      evidenceMappingGeneration: '4',
+    })).toBe('READY');
+    expect(productAbcMappingStatus({
+      valid: true,
+      currentMappingGeneration: '5',
+      evidenceMappingGeneration: '4',
+    })).toBe('STALE');
+    expect(productAbcMappingStatus({
+      valid: false,
+      currentMappingGeneration: '5',
+      evidenceMappingGeneration: '5',
+    })).toBe('UNMAPPED');
+    expect(PRODUCT_ABC_MAPPING_STATUS_LABELS).toEqual({
+      READY: '매핑 최신',
+      UNMAPPED: '상품 매핑 필요',
+      STALE: '매핑 갱신 필요',
+    });
+    expect(PRODUCT_ABC_DISPLAY_STATUS_LABELS.READY).toBe('계산 완료');
+    expect(ProductAbcReadModelSchema.safeParse({
+      abcGrade: 'A',
+      evaluation: evaluation(),
+      displayStatus: 'READY',
+      formulaRevision: 2,
+      publicationRevision: 4,
+      officialCutoffDate: '2026-07-31',
+      publishedAt: ISO,
+      actualCutoffDate: '2026-07-31',
+      sources: {
+        ...sourceFreshness(),
+        mapping: {
+          ...sourceFreshness().mapping,
+          status: 'READY',
+        },
+      },
+    }).success).toBe(false);
+  });
+
   it('keeps grade history and contribution denominators independent', () => {
     const history = ProductAbcGradeHistorySchema.parse({
       oldGrade: 'B',
@@ -276,19 +328,19 @@ describe('absolute product profitability ABC contracts', () => {
       },
       metrics: {
         sales: {
-          status: 'READY',
+          sourceComplete: true,
           includedProductCount: 2,
           excludedProductCount: 0,
           denominator: 1_000,
         },
         positiveOperatingProfit: {
-          status: 'READY',
+          sourceComplete: true,
           includedProductCount: 2,
           excludedProductCount: 0,
           denominator: 100,
         },
         loss: {
-          status: 'READY',
+          sourceComplete: true,
           includedProductCount: 2,
           excludedProductCount: 0,
           denominator: 20,
@@ -342,7 +394,6 @@ describe('absolute product profitability ABC contracts', () => {
         sales: {
           ...analytics.metrics.sales,
           denominator: null,
-          status: 'NO_DENOMINATOR',
         },
       },
       products: [{
@@ -353,6 +404,27 @@ describe('absolute product profitability ABC contracts', () => {
         cumulativeSalesContribution: null,
       }],
     });
-    expect(zeroDenominator.metrics.sales.status).toBe('NO_DENOMINATOR');
+    expect(productAbcContributionMetricStatus(zeroDenominator.metrics.sales))
+      .toBe('NO_DENOMINATOR');
+    expect(productAbcContributionMetricStatus({
+      sourceComplete: false,
+      includedProductCount: 1,
+      excludedProductCount: 0,
+      denominator: 100,
+    })).toBe('SOURCE_INCOMPLETE');
+    expect(productAbcContributionMetricStatus({
+      sourceComplete: true,
+      includedProductCount: 1,
+      excludedProductCount: 1,
+      denominator: 100,
+    })).toBe('SOURCE_INCOMPLETE');
+    expect(PRODUCT_ABC_CONTRIBUTION_STATUS_LABELS.NO_DENOMINATOR).toBe('비중 미산출');
+    expect(ProductAbcContributionAnalyticsSchema.safeParse({
+      ...analytics,
+      metrics: {
+        ...analytics.metrics,
+        sales: { ...analytics.metrics.sales, status: 'READY' },
+      },
+    }).success).toBe(false);
   });
 });

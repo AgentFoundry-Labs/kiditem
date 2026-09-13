@@ -71,8 +71,8 @@ export function buildProductAbcReadModel(
     { sellpia: evidence.sellpia, advertising: evidence.advertising },
   );
   return ProductAbcReadModelSchema.parse({
-    // The grade cache follows the retained evaluation; a product with no
-    // evaluation exposes no official grade.
+    // The official grade follows the retained evaluation; a product with no
+    // retained evaluation exposes no official grade.
     abcGrade: evaluation?.abcGrade ?? null,
     evaluation,
     displayStatus,
@@ -86,22 +86,12 @@ export function buildProductAbcReadModel(
       sellpia: sourceReadiness(evidence.sellpia, evidence.requiredCutoff),
       advertising: sourceReadiness(evidence.advertising, evidence.requiredCutoff),
       mapping: {
-        status: mappingStatus(input.mappingValid, evidence.mappingGeneration),
-        mappingGeneration: formulaState.mappingGeneration,
+        valid: input.mappingValid,
+        currentMappingGeneration: formulaState.mappingGeneration,
+        evidenceMappingGeneration: evidence.mappingGeneration,
       },
     },
   });
-}
-
-function mappingStatus(
-  mappingValid: boolean,
-  evidenceMappingGeneration: string | null,
-): 'READY' | 'STALE' | 'UNMAPPED' {
-  if (!mappingValid) return 'UNMAPPED';
-  // Evidence only carries a mapping generation when it agrees with the
-  // organization's current one; no agreement means the sources trail a
-  // remapping.
-  return evidenceMappingGeneration === null ? 'STALE' : 'READY';
 }
 
 function sourceReadiness(

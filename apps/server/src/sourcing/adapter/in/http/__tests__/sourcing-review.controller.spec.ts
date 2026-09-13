@@ -10,7 +10,7 @@ describe('SourcingReviewController', () => {
   it('uses authenticated organization/user and the path item key for mutation', async () => {
     const updatedAt = new Date('2026-08-10T01:02:03.000Z');
     const createdAt = new Date('2026-08-10T01:03:04.000Z');
-    const validation = { latest: vi.fn(async () => ({ status: 'ready' })), refresh: vi.fn(async () => ({ status: 'ready' })) };
+    const validation = { latest: vi.fn(async () => ({ ready: true })), refresh: vi.fn(async () => ({ ready: true })) };
     const review = {
       listSelections: vi.fn(async () => []),
       saveSelection: vi.fn(async () => ({

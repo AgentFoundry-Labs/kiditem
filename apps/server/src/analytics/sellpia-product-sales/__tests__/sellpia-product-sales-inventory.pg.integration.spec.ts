@@ -79,6 +79,55 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
     foreignProfitabilityRunId = await publishEmpty(OTHER_ORGANIZATION_ID);
   });
 
+  it('returns the published empty generation without inventing product facts', async () => {
+    const result = await service.getSummary(TEST_ORGANIZATION_ID);
+
+    expect(result).toMatchObject({
+      products: [],
+      productCount: 0,
+      totalQty: 0,
+      hasData: false,
+    });
+  });
+
+  it('keeps partial boundary months visible but excludes them from depletion metrics', async () => {
+    const [completeMonth, partialMonth] = previousKstYearMonths(2);
+    const partialCoverage = fullCalendarMonthCoverage(partialMonth);
+    await prisma.sellpiaProductMonthlySales.createMany({
+      data: [
+        {
+          ...metricSales('PARTIAL-BOUNDARY', completeMonth!, 40, 1_000),
+          ...fullCalendarMonthCoverage(completeMonth!),
+        },
+        {
+          ...metricSales('PARTIAL-BOUNDARY', partialMonth!, 120, 1_000),
+          coverageStartDate: partialCoverage.coverageStartDate,
+          coverageEndDate: new Date(Date.UTC(
+            partialCoverage.coverageStartDate.getUTCFullYear(),
+            partialCoverage.coverageStartDate.getUTCMonth(),
+            15,
+          )),
+        },
+      ],
+    });
+
+    const result = await service.getSummary(TEST_ORGANIZATION_ID);
+
+    expect(result.months).toEqual([completeMonth, partialMonth]);
+    expect(result.completeMonths).toEqual([completeMonth]);
+    expect(result.products[0]).toMatchObject({
+      productCode: 'PARTIAL-BOUNDARY',
+      qty1m: 40,
+      qty2m: 40,
+      avg2m: 40,
+      totalQty: 160,
+      monthly: [
+        { yearMonth: completeMonth, orderQty: 40 },
+        { yearMonth: partialMonth, orderQty: 120 },
+      ],
+    });
+  });
+
   it('uses active organization-scoped inventory with code, option-code, then unique-barcode precedence', async () => {
     const verifiedAt = new Date('2026-07-17T02:03:04.000Z');
     await seedInventoryState(prisma, verifiedAt);
@@ -436,6 +485,64 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
     expect(evidence.has(foreign.masterProductId)).toBe(false);
   });
 
+  it.each([
+    { costBasis: 'UNKNOWN', vatIncluded: null },
+    { costBasis: 'UNKNOWN', vatIncluded: true },
+    { costBasis: 'ORDER_TIME_SUPPLY_COST', vatIncluded: null },
+    { costBasis: 'ORDER_TIME_SUPPLY_COST', vatIncluded: false },
+  ])('withholds the entire product month when one row lacks cost provenance: %j', async (provenance) => {
+    const sku = await prisma.sellpiaInventorySku.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        code: 'MIXED-COST',
+        name: 'Mixed cost evidence',
+        currentStock: 10,
+      },
+    });
+    const product = await seedMasterRecipe(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      skuId: sku.id,
+      code: 'MIXED-COST-MASTER',
+    });
+    const yearMonth = previousKstYearMonth();
+    const coverage = fullCalendarMonthCoverage(yearMonth);
+    const fact = {
+      ...metricSales(sku.code, yearMonth, 2, 100),
+      ...coverage,
+      sellpiaInventorySkuId: sku.id,
+      masterProductId: product.masterProductId,
+    };
+    await prisma.sellpiaProductMonthlySales.createMany({
+      data: [
+        { ...fact, optionCode: 'VALID', inAmount: 80 },
+        { ...fact, optionCode: 'UNKNOWN', ...provenance },
+      ],
+    });
+
+    const snapshot = await profitFactReader.readProfitFacts({
+      organizationId: TEST_ORGANIZATION_ID,
+      masterProductIds: [product.masterProductId],
+      range: { from: coverage.coverageStartDate, to: coverage.coverageEndDate },
+    });
+
+    expect(snapshot.evidence).toEqual([expect.objectContaining({
+      masterProductId: product.masterProductId,
+      mappingStatus: 'MAPPED',
+      monthlyFacts: [],
+    })]);
+    expect(snapshot.orphanFacts).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        productCode: sku.code,
+        optionCode: 'UNKNOWN',
+        yearMonth,
+        reason: 'COST_PROVENANCE_MISSING',
+      }),
+    ]));
+    expect(await prisma.sellpiaProductMonthlySales.count({
+      where: { organizationId: TEST_ORGANIZATION_ID, masterProductId: product.masterProductId },
+    })).toBe(2);
+  });
+
   it('uses physical available stock for depletion', async () => {
     const inventoryRunId = await seedInventoryState(
       prisma,
@@ -552,6 +659,8 @@ function metricSales(
     orderAmount: orderQty * salePrice,
     productName: `Metrics ${productCode}`,
     salePrice,
+    costBasis: 'ORDER_TIME_SUPPLY_COST',
+    vatIncluded: true,
   };
 }
 

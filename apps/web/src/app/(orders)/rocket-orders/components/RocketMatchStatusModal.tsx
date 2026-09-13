@@ -27,6 +27,7 @@ function bucketOfReason(reason: RocketPurchasePreviewReason | null): MatchBucket
     case 'mapping_required':
     case 'configuration_required':
     case 'review_required':
+    case 'inventory_unavailable':
     case 'collection_incomplete':
     case 'vendor_mismatch':
       return reason;
@@ -57,6 +58,12 @@ const BUCKET_META: Record<MatchBucket, { label: string; chip: string; order: num
     chip: 'bg-amber-50 text-amber-700',
     order: 2,
     hint: '제안된 Sellpia 구성 레시피를 운영자가 검토해야 합니다.',
+  },
+  inventory_unavailable: {
+    label: 'Sellpia 재고 미수집',
+    chip: 'bg-amber-50 text-amber-700',
+    order: 2,
+    hint: '최신 Sellpia 재고 수집을 완료한 뒤 다시 확인해야 합니다.',
   },
   collection_incomplete: {
     label: '수집 검증 필요',
@@ -96,7 +103,9 @@ function componentValues(
   row: RocketMatchStatusRow,
 ): string {
   if (row.components.length === 0) return '—';
-  return row.components.map((component) => formatNumber(component.currentStock)).join(' / ');
+  return row.components
+    .map((component) => component.currentStock === null ? '미수집' : formatNumber(component.currentStock))
+    .join(' / ');
 }
 
 /**

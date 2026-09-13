@@ -180,7 +180,6 @@ describe('ProductOperationsService', () => {
     expect(result.summary).toMatchObject({
       reorderProductCount: 1,
       depletionCoveredProductCount: 2,
-      sharedDepletionProductCount: 1,
     });
     expect(result.summary.channelProductCounts).toEqual(expect.arrayContaining([
       expect.objectContaining({ channelAccountName: 'Coupang Wing', count: 1 }),
@@ -698,6 +697,7 @@ function rawListProduct(id: string) {
     adSpend: 3_500,
     adSpendRate: 10,
     metricsFreshness: {
+      orders: { ready: false, coverageStartDate: null, coverageEndDate: null, capturedAt: null },
       traffic: {
         ready: true,
         coverageStartDate: '2026-07-01',
@@ -770,6 +770,7 @@ function abcStatusFacts() {
     displayDataAsOf: '2026-08-31',
     actualCutoff: '2026-08-31',
     traffic: sourceStatus('2026-09-03'),
+    orders: sourceStatus('2026-09-03'),
     sellpia: sourceStatus('2026-08-31'),
     advertising: sourceStatus('2026-08-31'),
     formulaState: {
@@ -782,6 +783,7 @@ function abcStatusFacts() {
     products: [{
       masterProductId: productId,
       abcGrade: 'B' as const,
+      evaluation: officialEvaluation(),
       mappingValid: true,
       saleStartDate: '2026-07-01',
     }],
@@ -832,9 +834,24 @@ function contributionAnalytics() {
       netOperatingProfit: 250_000,
     },
     metrics: {
-      sales: { status: 'READY' as const, includedProductCount: 1, excludedProductCount: 0, denominator: 1_000_000 },
-      positiveOperatingProfit: { status: 'READY' as const, includedProductCount: 1, excludedProductCount: 0, denominator: 250_000 },
-      loss: { status: 'NO_DENOMINATOR' as const, includedProductCount: 1, excludedProductCount: 0, denominator: null },
+      sales: {
+        sourceComplete: true,
+        includedProductCount: 1,
+        excludedProductCount: 0,
+        denominator: 1_000_000,
+      },
+      positiveOperatingProfit: {
+        sourceComplete: true,
+        includedProductCount: 1,
+        excludedProductCount: 0,
+        denominator: 250_000,
+      },
+      loss: {
+        sourceComplete: true,
+        includedProductCount: 1,
+        excludedProductCount: 0,
+        denominator: null,
+      },
     },
     products: [{
       masterProductId: productId,

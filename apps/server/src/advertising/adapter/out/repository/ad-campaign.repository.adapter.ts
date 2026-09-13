@@ -9,12 +9,13 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import { readListingDayAdFacts } from '../../../../common/ad-window-facts';
 import { currentRowTieBreakSql } from '../../../../common/current-row';
 import { addDays } from '../../../../common/kst';
+import { readPublishedProductAbcGrades } from '../../../../products/read/product-abc-publication.reader';
 import { periodBounds, type AdPeriod } from '../../../domain/ad-metrics';
-import { IS_CAMPAIGN_GRAIN_SQL, IS_PRODUCT_GRAIN_SQL } from './ad-target-grain.sql';
 import {
   completeAdCampaignSourceIds,
   readCompleteAdKeywordFacts,
-} from './ad-keyword-complete-read';
+} from '../../../read/ad-target-facts';
+import { IS_CAMPAIGN_GRAIN_SQL, IS_PRODUCT_GRAIN_SQL } from './ad-target-grain.sql';
 import type {
   AdCampaignRepositoryPort,
   AdTrendDailyRow,
@@ -325,11 +326,10 @@ export class AdCampaignRepositoryAdapter implements AdCampaignRepositoryPort {
       campaignIdentity: string;
     },
   ): Promise<KeywordTargetRollup[]> {
-    const bounds = periodBounds(period);
+    void period;
     return this.prisma.$transaction(
       async (tx) => {
         const { rows } = await readCompleteAdKeywordFacts(tx, organizationId, {
-          ...bounds,
           ...campaign,
         });
         return rows;
@@ -343,11 +343,14 @@ export class AdCampaignRepositoryAdapter implements AdCampaignRepositoryPort {
     dateRange: { from: Date; to: Date },
   ): Promise<AdTrendDailyRow[]> {
     // `to` is an inclusive business date; the reader's window is half-open.
-    const rows = await readListingDayAdFacts(this.prisma, {
-      organizationId,
-      from: dateRange.from,
-      to: addDays(dateRange.to, 1),
-    });
+    const rows = await this.prisma.$transaction(
+      (tx) => readListingDayAdFacts(tx, {
+        organizationId,
+        from: dateRange.from,
+        to: addDays(dateRange.to, 1),
+      }),
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
     return rows.map((row) => ({
       businessDate: row.businessDate,
       adSpend: row.spend,
@@ -373,7 +376,26 @@ export class AdCampaignRepositoryAdapter implements AdCampaignRepositoryPort {
     );
     if (listingIds.length === 0) return totals;
 
-    const listings = await this.prisma.channelListing.findMany({
+    return this.prisma.$transaction(
+      (tx) => this.findGradeBudgetTotalsSnapshot(
+        tx,
+        organizationId,
+        rows,
+        listingIds,
+        totals,
+      ),
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
+  }
+
+  private async findGradeBudgetTotalsSnapshot(
+    tx: Prisma.TransactionClient,
+    organizationId: string,
+    rows: AdTrendDailyRow[],
+    listingIds: string[],
+    totals: Record<'A' | 'B' | 'C', number>,
+  ): Promise<Record<'A' | 'B' | 'C', number>> {
+    const listings = await tx.channelListing.findMany({
       where: {
         id: { in: listingIds },
         organizationId,
@@ -381,14 +403,23 @@ export class AdCampaignRepositoryAdapter implements AdCampaignRepositoryPort {
       },
       select: {
         id: true,
-        masterProduct: { select: { abcGrade: true } },
+        masterProduct: { select: { id: true } },
       },
     });
-    const listingMap = new Map(listings.map((listing) => [listing.id, listing]));
+    const gradeByProductId = await readPublishedProductAbcGrades(tx, {
+      organizationId,
+      masterProductIds: listings.flatMap((listing) =>
+        listing.masterProduct ? [listing.masterProduct.id] : []),
+    });
+    const gradeByListingId = new Map(listings.map((listing) => [
+      listing.id,
+      listing.masterProduct
+        ? gradeByProductId.get(listing.masterProduct.id) ?? null
+        : null,
+    ]));
 
     for (const row of rows) {
-      const listing = row.listingId ? listingMap.get(row.listingId) : null;
-      const grade = listing?.masterProduct?.abcGrade;
+      const grade = row.listingId ? gradeByListingId.get(row.listingId) : null;
       if (grade === 'A' || grade === 'B' || grade === 'C') {
         totals[grade] += row.adSpend;
       }

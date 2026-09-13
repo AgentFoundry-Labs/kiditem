@@ -9,7 +9,6 @@ import { buildDashboardContext } from '../context';
 import {
   businessDatesInWindow,
   resolveDashboardPeriod,
-  resolveTrendPeriod,
   resolveWingMonthlyTrendPeriod,
   type ResolvedDashboardPeriod,
 } from './dashboard-period';
@@ -237,26 +236,6 @@ describe('resolved date sets', () => {
     const instant = new Date('2026-07-01T00:00:00.000Z');
     expect(businessDatesInWindow(instant, instant)).toEqual([]);
     expect(businessDatesInWindow(new Date('2026-07-02T00:00:00.000Z'), instant)).toEqual([]);
-  });
-});
-
-describe('resolveTrendPeriod', () => {
-  it('reads the rolling closed KST days without shifting the window', () => {
-    const anchor = new Date('2026-09-10T16:30:00.000Z'); // 2026-09-11 01:30 KST
-    const period = resolveTrendPeriod('7d', anchor);
-    expect(isoWindow(period)).toEqual([
-      '2026-09-03T15:00:00.000Z',
-      '2026-09-10T15:00:00.000Z',
-    ]);
-    expect(period.selectedDates).toEqual([
-      '2026-09-04', '2026-09-05', '2026-09-06', '2026-09-07',
-      '2026-09-08', '2026-09-09', '2026-09-10',
-    ]);
-  });
-
-  it('defaults an unknown range token to 30 days', () => {
-    expect(resolveTrendPeriod('42d', ANCHOR).selectedDates).toHaveLength(30);
-    expect(resolveTrendPeriod('90d', ANCHOR).selectedDates).toHaveLength(90);
   });
 });
 

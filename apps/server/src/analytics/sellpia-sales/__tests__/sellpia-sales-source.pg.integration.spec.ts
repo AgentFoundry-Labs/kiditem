@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { Test } from '@nestjs/testing';
 import { json } from 'express';
 import request from 'supertest';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   makeTestPrisma,
   resetDb,
@@ -20,8 +20,10 @@ import {
   SellpiaSalesSourceService,
 } from '../sellpia-sales-source.service';
 import { SELLPIA_SALES_COVERAGE_SELLER_ID } from '../domain/snapshot-coverage';
+import { readSellpiaSalesDailyFacts } from '../read/sellpia-sales-daily-facts';
 import type { INestApplication } from '@nestjs/common';
 import type { PrismaClient } from '@prisma/client';
+import type { CoupangAdsDailyRow } from '../../dashboard/application/port/out/repository/wing-traffic-aggregation.repository.port';
 
 const base = '/api/sellpia-sales';
 
@@ -30,6 +32,7 @@ describe('Sellpia sales source owner HTTP + disposable PostgreSQL', () => {
   let app: INestApplication;
   let httpUrl: string;
   let owner: SellpiaSalesSourceService;
+  let dailyAdsRead: CoupangAdsDailyRow[] | Error = [];
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
@@ -40,18 +43,12 @@ describe('Sellpia sales source owner HTTP + disposable PostgreSQL', () => {
     );
     const summary = new SellpiaSalesService(
       {
-        aggregateCoupangAds: async () => ({
-          spend: 0,
-          revenue: 0,
-          impressions: 0,
-          clicks: 0,
-          conversions: 0,
-          orders: 0,
-          hasData: false,
-          lastObservedAt: null,
-        }),
+        fetchDailyAds: async () => {
+          if (dailyAdsRead instanceof Error) throw dailyAdsRead;
+          return dailyAdsRead;
+        },
       } as never,
-      owner,
+      prisma as never,
     );
     const module = await Test.createTestingModule({
       controllers: [SellpiaSalesController],
@@ -89,6 +86,7 @@ describe('Sellpia sales source owner HTTP + disposable PostgreSQL', () => {
   beforeEach(async () => {
     await resetDb(prisma);
     await seedBaseFixture(prisma);
+    dailyAdsRead = [];
   });
 
   const begin = async (
@@ -155,6 +153,48 @@ describe('Sellpia sales source owner HTTP + disposable PostgreSQL', () => {
     };
   };
 
+  it('does not query an open current month on the first KST day', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-08-31T15:00:00.000Z'));
+    const transaction = vi.spyOn(prisma, '$transaction');
+    try {
+      const response = await request(httpUrl).get(base).expect(200);
+      expect(transaction).not.toHaveBeenCalled();
+      expect(response.body).toMatchObject({
+        knownThrough: '2026-08-31',
+        range: null,
+        hasData: false,
+        adCost: null,
+        netProfit: null,
+        profitRate: null,
+      });
+    } finally {
+      transaction.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it('reads only the first closed day on the second KST day through the canonical reader', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-09-01T15:00:00.000Z'));
+    try {
+      const range = { from: '2026-09-01', to: '2026-09-02' };
+      const attempt = await begin(range);
+      const attemptControl = await control(attempt.attemptId);
+      await complete(attempt.attemptId, attemptControl.attemptToken,
+        payload(range, '2026-09-01T15:00:00.000Z'));
+      const response = await request(httpUrl).get(base).expect(200);
+      expect(response.body).toMatchObject({
+        knownThrough: '2026-09-01',
+        range: { from: '2026-09-01', to: '2026-09-01' },
+        hasData: true,
+        totalRevenue: 1_200,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('keeps the collector default at exactly 93 inclusive KST dates', () => {
     expect(buildSellpiaSalesSourcePlan(new Date('2026-07-18T00:00:00.000Z')).range).toEqual({
       from: '2026-04-17',
@@ -211,17 +251,169 @@ describe('Sellpia sales source owner HTTP + disposable PostgreSQL', () => {
         capturedAt: new Date('2026-07-18T02:00:00.000Z'),
       },
     });
-    const published = await owner.readPublishedRows(ORG, range.from, range.to);
-    expect(published).toHaveLength(4);
-    expect(published.some((row) => row.sellerId === 'legacy-unowned')).toBe(false);
-    expect(published).toContainEqual(expect.objectContaining({
+    const published = await prisma.$transaction((tx) => readSellpiaSalesDailyFacts(tx, {
+      organizationId: ORG,
+      from: range.from,
+      to: range.to,
+    }));
+    expect(published.facts).toHaveLength(2);
+    expect(published.facts.some((row) => row.sellerId === 'legacy-unowned')).toBe(false);
+    expect(published.facts).toContainEqual(expect.objectContaining({
       sellerId: '118',
       businessDate: new Date('2026-07-16T00:00:00.000Z'),
       revenueKrw: 1_200,
       qty: 2,
       costKrw: 700,
     }));
-    expect(published.filter((row) => row.sellerId === SELLPIA_SALES_COVERAGE_SELLER_ID)).toHaveLength(2);
+    expect(published.coverage.includedDates).toEqual(['2026-07-16', '2026-07-17']);
+  });
+
+  it('returns an empty public summary before the owner publishes any coverage', async () => {
+    const response = await request(httpUrl)
+      .get(`${base}?from=2026-07-16&to=2026-07-17`)
+      .expect(200);
+
+    expect(response.body).toMatchObject({
+      totalRevenue: 0,
+      totalCost: 0,
+      adCost: null,
+      netProfit: null,
+      profitRate: null,
+      hasData: false,
+      rocket: { malls: [] },
+      others: { malls: [] },
+    });
+  });
+
+  it('keeps a partial owner range usable and exposes only confirmed daily points', async () => {
+    const range = { from: '2026-07-16', to: '2026-07-16' };
+    const attempt = await begin(range);
+    const attemptControl = await control(attempt.attemptId);
+    await complete(attempt.attemptId, attemptControl.attemptToken, payload(range));
+
+    const response = await request(httpUrl)
+      .get(`${base}?from=2026-07-16&to=2026-07-17`)
+      .expect(200);
+
+    expect(response.body).toMatchObject({
+      totalRevenue: 1_200,
+      hasData: true,
+      metricBasis: {
+        totalRevenue: {
+          includedDates: ['2026-07-16'],
+        },
+      },
+    });
+    expect(response.body.others.daily).toEqual([
+      expect.objectContaining({ date: '2026-07-16', revenue: 1_200, qty: 2 }),
+    ]);
+  });
+
+  it('rejects a malformed coverage sentinel instead of publishing its date', async () => {
+    const range = { from: '2026-07-16', to: '2026-07-16' };
+    const attempt = await begin(range);
+    const attemptControl = await control(attempt.attemptId);
+    await complete(attempt.attemptId, attemptControl.attemptToken, payload(range));
+    await prisma.sellpiaSalesDailySnapshot.updateMany({
+      where: {
+        organizationId: ORG,
+        sourceImportRunId: attempt.attemptId,
+        sellerId: SELLPIA_SALES_COVERAGE_SELLER_ID,
+      },
+      data: { revenueKrw: 1 },
+    });
+
+    const published = await prisma.$transaction((tx) => readSellpiaSalesDailyFacts(tx, {
+      organizationId: ORG,
+      from: range.from,
+      to: range.to,
+    }));
+    expect(published).toMatchObject({
+      facts: [],
+      coverage: { includedDates: [], invalidDates: ['2026-07-16'] },
+      latestCapturedAt: null,
+    });
+
+    const response = await request(httpUrl)
+      .get(`${base}?from=${range.from}&to=${range.to}`)
+      .expect(200);
+    expect(response.body).toMatchObject({ totalRevenue: 0, hasData: false });
+  });
+
+  it('uses the exact sales and Ads date intersection and preserves negative profit', async () => {
+    const range = { from: '2026-07-14', to: '2026-07-16' };
+    const attempt = await begin(range);
+    const attemptControl = await control(attempt.attemptId);
+    await complete(attempt.attemptId, attemptControl.attemptToken, {
+      range,
+      capturedAt: '2026-07-18T01:00:00.000Z',
+      sellers: [{
+        sellerId: '118',
+        sellerName: '스마트스토어',
+        days: [
+          { date: '2026-07-14', price: 100, amount: 1, buyPrice: 40 },
+          { date: '2026-07-15', price: 200, amount: 2, buyPrice: 80 },
+          { date: '2026-07-16', price: 300, amount: 3, buyPrice: 120 },
+        ],
+      }],
+    });
+    dailyAdsRead = [
+      ads('2026-07-14', 110),
+      ads('2026-07-16', 230),
+    ];
+
+    const response = await request(httpUrl)
+      .get(`${base}?from=${range.from}&to=${range.to}`)
+      .expect(200);
+
+    expect(response.body).toMatchObject({
+      totalRevenue: 600,
+      totalCost: 240,
+      adCost: 340,
+      netProfit: -100,
+      profitRate: -25,
+      profitInputs: {
+        revenue: 400,
+        cost: 160,
+        adCost: 340,
+        qty: 4,
+        basis: {
+          includedDates: ['2026-07-14', '2026-07-16'],
+        },
+      },
+    });
+  });
+
+  it('does not turn invalid or failed Ads evidence into zero cost', async () => {
+    const range = { from: '2026-07-16', to: '2026-07-16' };
+    const attempt = await begin(range);
+    const attemptControl = await control(attempt.attemptId);
+    await complete(attempt.attemptId, attemptControl.attemptToken, payload(range));
+
+    dailyAdsRead = [ads(range.from, Number.NaN)];
+    const invalid = await request(httpUrl)
+      .get(`${base}?from=${range.from}&to=${range.to}`)
+      .expect(200);
+    expect(invalid.body).toMatchObject({
+      totalRevenue: 1_200,
+      adCost: null,
+      netProfit: null,
+      profitRate: null,
+    });
+
+    dailyAdsRead = new Error('owner Ads read failed');
+    const failed = await request(httpUrl)
+      .get(`${base}?from=${range.from}&to=${range.to}`)
+      .expect(200);
+    expect(failed.body).toMatchObject({
+      totalRevenue: 1_200,
+      adCost: null,
+      netProfit: null,
+      profitRate: null,
+      metricBasis: {
+        profitInputs: { queryFailedSources: ['coupang_ads'] },
+      },
+    });
   });
 
   it('keeps prior COMPLETE dates when a later attempt fills an incremental date', async () => {
@@ -235,14 +427,19 @@ describe('Sellpia sales source owner HTTP + disposable PostgreSQL', () => {
     const secondControl = await control(second.attemptId);
     await complete(second.attemptId, secondControl.attemptToken, payload(secondRange));
 
-    const published = await owner.readPublishedRows(ORG, '2026-07-16', '2026-07-18');
-    expect(published).toHaveLength(6);
-    expect([...new Set(published.map((row) => row.businessDate.toISOString().slice(0, 10)))]).toEqual([
+    const published = await prisma.$transaction((tx) => readSellpiaSalesDailyFacts(tx, {
+      organizationId: ORG,
+      from: '2026-07-16',
+      to: '2026-07-18',
+    }));
+    expect(published.facts).toHaveLength(3);
+    expect(published.coverage.includedDates).toEqual([
       '2026-07-16',
       '2026-07-17',
       '2026-07-18',
     ]);
-    expect(published.filter((row) => row.sellerId === SELLPIA_SALES_COVERAGE_SELLER_ID)).toHaveLength(3);
+    expect(published.facts.some((row) => row.sellerId === SELLPIA_SALES_COVERAGE_SELLER_ID)).toBe(false);
+    expect(published.latestCapturedAt).toEqual(new Date('2026-07-18T01:00:00.000Z'));
   });
 
   it('keeps cancellation alert-free, alerts other failures, and resolves on the next COMPLETE', async () => {
@@ -359,3 +556,16 @@ describe('Sellpia sales source owner HTTP + disposable PostgreSQL', () => {
     ]);
   });
 });
+
+function ads(date: string, adCost: number): CoupangAdsDailyRow {
+  return {
+    date,
+    ad_cost: adCost,
+    ad_revenue: 0,
+    clicks: 0,
+    impressions: 0,
+    conversions: 0,
+    orders: 0,
+    observedAt: '2026-07-18T00:00:00.000Z',
+  };
+}

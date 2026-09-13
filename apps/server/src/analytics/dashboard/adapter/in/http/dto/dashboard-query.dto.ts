@@ -20,7 +20,8 @@ export class DashboardQueryDto {
 export class DashboardTrendQueryDto {
   @IsOptional()
   @IsString()
-  range?: string; // '30d', '7d', '90d', or 'custom' with from/to
+  @IsIn(['day', 'week', 'month', 'custom'])
+  range?: string;
 
   @IsOptional()
   @IsString()

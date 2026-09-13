@@ -10,7 +10,7 @@ describe('explicit Wing source and requested recommendation effects', () => {
     vi.clearAllMocks();
     vi.mocked(detectExtensionId).mockResolvedValue('extension');
     vi.mocked(sendToExtension).mockResolvedValue({ success: true, attemptId: 'attempt', state: 'COMPLETE' });
-    vi.mocked(apiClient.post).mockResolvedValue({ status: 'ready', data: { runId: 'recommendations' } });
+    vi.mocked(apiClient.post).mockResolvedValue({ ready: true, data: { runId: 'recommendations' } });
   });
   it.each(['catalog_search', 'tracked_metrics', 'market_analysis', 'recommendation_validation'] as const)(
     'preserves %s caller intent and performs its explicit owner effects only after source COMPLETE', async (purpose) => {

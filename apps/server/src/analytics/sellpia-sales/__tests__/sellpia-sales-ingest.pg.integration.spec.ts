@@ -10,6 +10,7 @@ import {
   TEST_ORGANIZATION_ID,
 } from '../../../test-helpers/real-prisma';
 import { SELLPIA_SALES_COVERAGE_SELLER_ID } from '../domain/snapshot-coverage';
+import { readSellpiaSalesDailyFacts } from '../read/sellpia-sales-daily-facts';
 import { SellpiaSalesSourceService } from '../sellpia-sales-source.service';
 import type { Prisma, PrismaClient } from '@prisma/client';
 import type { SellpiaSalesIngestBodyDto } from '../dto/sellpia-sales.dto';
@@ -204,19 +205,17 @@ describe('Sellpia sales source owner (PG integration)', () => {
       'Provider unavailable.',
     );
 
-    const published = await owner.readPublishedRows(
-      TEST_ORGANIZATION_ID,
-      range.from,
-      range.to,
-    );
-    expect(published).toHaveLength(2);
-    expect(published).toContainEqual(expect.objectContaining({
+    const published = await prisma.$transaction((tx) => readSellpiaSalesDailyFacts(tx, {
+      organizationId: TEST_ORGANIZATION_ID,
+      from: range.from,
+      to: range.to,
+    }));
+    expect(published.facts).toHaveLength(1);
+    expect(published.facts).toContainEqual(expect.objectContaining({
       sellerId: '118',
       revenueKrw: 2_000,
     }));
-    expect(published).toContainEqual(expect.objectContaining({
-      sellerId: SELLPIA_SALES_COVERAGE_SELLER_ID,
-    }));
+    expect(published.coverage.includedDates).toEqual([range.from]);
     await expect(
       prisma.sellpiaSalesDailySnapshot.count({ where: { sourceImportRunId: failed.attemptId } }),
     ).resolves.toBe(0);
@@ -242,12 +241,20 @@ describe('Sellpia sales source owner (PG integration)', () => {
     );
 
     const [ownRows, foreignRows] = await Promise.all([
-      owner.readPublishedRows(TEST_ORGANIZATION_ID, range.from, range.to),
-      owner.readPublishedRows(OTHER_ORGANIZATION_ID, range.from, range.to),
+      prisma.$transaction((tx) => readSellpiaSalesDailyFacts(tx, {
+        organizationId: TEST_ORGANIZATION_ID,
+        from: range.from,
+        to: range.to,
+      })),
+      prisma.$transaction((tx) => readSellpiaSalesDailyFacts(tx, {
+        organizationId: OTHER_ORGANIZATION_ID,
+        from: range.from,
+        to: range.to,
+      })),
     ]);
-    expect(ownRows).toContainEqual(expect.objectContaining({ sellerId: '118', revenueKrw: 1_000 }));
-    expect(ownRows.some((row) => row.revenueKrw === IDOR_SENTINEL)).toBe(false);
-    expect(foreignRows).toContainEqual(expect.objectContaining({ sellerId: '118', revenueKrw: IDOR_SENTINEL }));
+    expect(ownRows.facts).toContainEqual(expect.objectContaining({ sellerId: '118', revenueKrw: 1_000 }));
+    expect(ownRows.facts.some((row) => row.revenueKrw === IDOR_SENTINEL)).toBe(false);
+    expect(foreignRows.facts).toContainEqual(expect.objectContaining({ sellerId: '118', revenueKrw: IDOR_SENTINEL }));
     expect(
       await owner.readAttempt(TEST_ORGANIZATION_ID, foreign.attemptId),
     ).toBeNull();

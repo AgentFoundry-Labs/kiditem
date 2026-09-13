@@ -48,7 +48,7 @@ function componentQuantityValues(row: RocketPurchasePreviewRow): string {
   return row.components
     .map(
       (component) =>
-        `${component.optionName ?? "옵션 없음"} · 현재고 ${formatNumber(component.currentStock)} · 구성 ×${formatNumber(component.quantity)}`,
+        `${component.optionName ?? "옵션 없음"} · 현재고 ${component.currentStock === null ? "미수집" : formatNumber(component.currentStock)} · 구성 ×${formatNumber(component.quantity)}`,
     )
     .join(" / ");
 }
@@ -64,7 +64,7 @@ function componentQuantityValues(row: RocketPurchasePreviewRow): string {
 function standaloneCapacity(row: RocketPurchasePreviewRow): number {
   if (row.components.length === 0) return 0;
   const perComponent = row.components.map((component) =>
-    component.quantity > 0
+    component.quantity > 0 && component.currentStock !== null
       ? Math.floor(component.currentStock / component.quantity)
       : 0,
   );
@@ -107,7 +107,7 @@ function rowQuantity(
   if (reviewable && row.reason === "insufficient_capacity") return 0;
   const edited = editedQuantity ?? row.editedQuantity;
   if (edited !== null && edited !== undefined) return edited;
-  if (reviewable) return row.recommendedQuantity;
+  if (reviewable) return row.recommendedQuantity ?? 0;
   return rowQuantityLimit(row, reviewable) >= row.orderQuantity
     ? row.orderQuantity
     : 0;
@@ -831,7 +831,9 @@ export function RocketConfirmPanel({
                             row.components.map((component) => (
                               <div key={component.sellpiaInventorySkuId}>
                                 <span className="text-sm font-semibold">
-                                  {formatNumber(component.currentStock)}
+                                  {component.currentStock === null
+                                    ? "미수집"
+                                    : formatNumber(component.currentStock)}
                                 </span>
                                 {component.optionName ? (
                                   <span className="ml-1.5 text-[10px] text-slate-400">
@@ -862,7 +864,7 @@ export function RocketConfirmPanel({
                         <td
                           aria-label={
                             reviewable
-                              ? `${row.poNumber} 납품가능 ${row.maxQuantity}개`
+                              ? `${row.poNumber} 납품가능 ${row.maxQuantity === null ? "미수집" : `${row.maxQuantity}개`}`
                               : `${row.poNumber} 납품가능 참고 ${standaloneCapacity(row)}개`
                           }
                           title={
@@ -874,16 +876,18 @@ export function RocketConfirmPanel({
                             "px-3 py-1.5 text-right font-semibold tabular-nums",
                             !reviewable
                               ? "text-slate-400"
-                              : row.maxQuantity < row.orderQuantity
+                              : row.maxQuantity === null || row.maxQuantity < row.orderQuantity
                                 ? "text-amber-700"
                                 : "text-slate-700",
                           )}
                         >
-                          {formatNumber(
-                            reviewable
-                              ? row.maxQuantity
-                              : standaloneCapacity(row),
-                          )}
+                          {reviewable && row.maxQuantity === null
+                            ? "미수집"
+                            : formatNumber(
+                                reviewable
+                                  ? row.maxQuantity!
+                                  : standaloneCapacity(row),
+                              )}
                         </td>
                         <td className="px-3 py-1.5 text-right">
                           <input

@@ -149,6 +149,7 @@ function readyStatus() {
     actualCutoff: '2026-08-31',
     sources: {
       traffic: source(true),
+      orders: source(true),
       advertising: source(true),
       sellpia: source(true),
       mapping: { ready: true, generation: '7' },

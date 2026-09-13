@@ -15,6 +15,20 @@ import {
   TopProductSchema,
 } from './dashboard.js';
 
+function contributionBasis(denominator: number | null) {
+  return {
+    publicationRevision: 1,
+    officialCutoffDate: '2026-08-31',
+    publishedAt: '2026-09-01T00:00:00.000Z',
+    sellpiaSourceImportRunId: '00000000-0000-4000-8000-000000000001',
+    advertisingSourceImportRunId: '00000000-0000-4000-8000-000000000002',
+    mappingGeneration: '1',
+    includedProductCount: 3,
+    withheldProductCount: 0,
+    denominator,
+  };
+}
+
 describe('dashboard schemas', () => {
   const completePeriodBasis = {
     kind: 'period' as const,
@@ -98,7 +112,9 @@ describe('dashboard schemas', () => {
       salesQty: 0,
       revenue: 0,
       cartAdds: 0,
+      cartRate: 0,
       conversionRate: null,
+      orderCartRate: null,
       dailyAverageVisitors: 0,
       providerConversionRate: 2.85,
       coverage: {
@@ -121,6 +137,8 @@ describe('dashboard schemas', () => {
     expect(parsed.dailyAverageVisitors).toBe(0);
     expect(parsed.revenue).toBe(0);
     expect(parsed.views).toBe(0);
+    expect(parsed.cartRate).toBe(0);
+    expect(parsed.orderCartRate).toBeNull();
     expect(parsed.exactPeriodEvidence).toEqual({ source: 'wing-period-original' });
     expect(TrafficKpiSchema.parse({
       ...parsed,
@@ -173,6 +191,28 @@ describe('dashboard schemas', () => {
     })).toThrow();
   });
 
+  it('strips the retired dashboard blob field from the sales endpoint', () => {
+    const sales = DashboardSalesSummarySchema.parse({
+      today: { revenue: null, orders: null },
+      monthly: {
+        revenue: null,
+        profit: null,
+        adRate: null,
+        prevRevenue: null,
+        prevProfit: null,
+        revenueChange: null,
+        profitChange: null,
+        prevAdRate: null,
+        available: false,
+        previousAvailable: false,
+      },
+      topProducts: [],
+      rawAdSummary: { stale: true },
+    });
+    expect(sales).not.toHaveProperty('rawAdSummary');
+    expect(sales.today).toEqual({ revenue: null, orders: null });
+  });
+
   it('requires matched Sellpia availability to equal physical current stock', () => {
     const resolution = {
       status: 'matched' as const,
@@ -207,11 +247,11 @@ describe('dashboard schemas', () => {
       abcContributionProfit: {
         amountByGrade: { A: 200_000, B: 80_000, C: -20_000 },
         shareByGrade: { A: 0.77, B: 0.31, C: -0.08 },
+        basis: contributionBasis(260_000),
       },
       abcFormula: null,
       classifiedProductCount: 4,
       unclassifiedProductCount: 1,
-      mappingStatusCounts: { matched: 10, unmatched: 1, needsReview: 1 },
       alerts: [],
       warnings: {
         minusProducts: 0,
@@ -239,11 +279,11 @@ describe('dashboard schemas', () => {
       abcContributionProfit: {
         amountByGrade: { A: 250_000, B: 100_000, C: -20_000 },
         shareByGrade: { A: 0.76, B: 0.30, C: -0.06 },
+        basis: contributionBasis(330_000),
       },
       abcFormula: null,
       classifiedProductCount: 5,
       unclassifiedProductCount: 0,
-      mappingStatusCounts: { matched: 10, unmatched: 1, needsReview: 1 },
       alerts: [],
       warnings: {
         minusProducts: 0,
@@ -279,11 +319,11 @@ describe('dashboard schemas', () => {
       abcContributionProfit: {
         amountByGrade: { A: 250_000, B: 100_000, C: -20_000 },
         shareByGrade: { A: 0.76, B: 0.30, C: -0.06 },
+        basis: contributionBasis(330_000),
       },
       abcFormula: null,
       classifiedProductCount: 5,
       unclassifiedProductCount: 0,
-      mappingStatusCounts: { matched: 10, unmatched: 0, needsReview: 0 },
       alerts: [{
         id: 'alert-1',
         kind: 'signal',
@@ -330,12 +370,12 @@ describe('dashboard schemas', () => {
       },
       abcContributionProfit: {
         amountByGrade: { A: 0, B: 0, C: 0 },
-        shareByGrade: { A: 0, B: 0, C: 0 },
+        shareByGrade: { A: null, B: null, C: null },
+        basis: contributionBasis(null),
       },
       abcFormula: null,
       classifiedProductCount: 0,
       unclassifiedProductCount: 0,
-      mappingStatusCounts: { matched: 0, unmatched: 0, needsReview: 0 },
       alerts: [],
       warnings: {
         minusProducts: 0,

@@ -16,6 +16,7 @@ import {
   setupProductOption,
   setupChannelListing,
   seedOrderWithLineItems,
+  seedCompletedOrderCollection,
   seedAd,
   seedCompletedAdSweepRun,
 } from '../../../test-helpers/finance-seeds';
@@ -216,6 +217,13 @@ describe('Sales-plans flow (PG integration)', () => {
           listingOptionId: fixture.listing.listingOptionId,
         }],
       });
+      await prisma.order.updateMany({
+        where: {
+          organizationId: TEST_ORGANIZATION_ID,
+          externalOrderId: { in: ['SP-PAID-1', 'SP-PAID-2'] },
+        },
+        data: { totalPrice: 999_999 },
+      });
       await seedOrderWithLineItems(prisma, {
         organizationId: TEST_ORGANIZATION_ID,
         externalOrderId: 'SP-PAID-2',
@@ -283,6 +291,14 @@ describe('Sales-plans flow (PG integration)', () => {
         runId,
       });
 
+      await seedCompletedOrderCollection(prisma, {
+        organizationId: TEST_ORGANIZATION_ID,
+        startDate: '2026-04-01', endDate: '2026-04-30',
+        orderIds: (await prisma.order.findMany({
+          where: { organizationId: TEST_ORGANIZATION_ID }, select: { id: true },
+        })).map((order) => order.id),
+      });
+
       const synced = await service.syncActuals(plan.id, TEST_ORGANIZATION_ID);
 
       expect(synced.actualRevenue).toBe(30_000);
@@ -290,12 +306,37 @@ describe('Sales-plans flow (PG integration)', () => {
       expect(synced.actualProfit).toBe(11_000);
     });
 
-    it('#6 empty state — no orders, no ads → actuals default to 0', async () => {
+    it('#6 empty unobserved window preserves existing actuals', async () => {
       const plan = await prisma.salesPlan.create({
         data: {
           organizationId: TEST_ORGANIZATION_ID,
           period: '2026-04',
+          actualRevenue: 91_000,
+          actualOrders: 9,
+          actualProfit: 21_000,
         },
+      });
+
+      const synced = await service.syncActuals(plan.id, TEST_ORGANIZATION_ID);
+
+      expect(synced.actualRevenue).toBe(91_000);
+      expect(synced.actualOrders).toBe(9);
+      expect(synced.actualProfit).toBe(21_000);
+    });
+
+    it('#6b completed empty coverage publishes measured zero actuals', async () => {
+      const plan = await prisma.salesPlan.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          period: '2026-04',
+          actualRevenue: 91_000,
+          actualOrders: 9,
+          actualProfit: 21_000,
+        },
+      });
+      await seedCompletedOrderCollection(prisma, {
+        organizationId: TEST_ORGANIZATION_ID,
+        startDate: '2026-04-01', endDate: '2026-04-30', orderIds: [],
       });
 
       const synced = await service.syncActuals(plan.id, TEST_ORGANIZATION_ID);
@@ -370,6 +411,14 @@ describe('Sales-plans flow (PG integration)', () => {
           runId,
         });
       }
+
+      await seedCompletedOrderCollection(prisma, {
+        organizationId: TEST_ORGANIZATION_ID,
+        startDate: '2026-04-01', endDate: '2026-05-31',
+        orderIds: (await prisma.order.findMany({
+          where: { organizationId: TEST_ORGANIZATION_ID }, select: { id: true },
+        })).map((order) => order.id),
+      });
 
       const apriled = await service.syncActuals(aprilPlan.id, TEST_ORGANIZATION_ID);
       expect(apriled.actualRevenue).toBe(10_000);
@@ -456,6 +505,14 @@ describe('Sales-plans flow (PG integration)', () => {
         date: '2026-04-10',
         spend: 0,
         runId: ownRunId,
+      });
+
+      await seedCompletedOrderCollection(prisma, {
+        organizationId: TEST_ORGANIZATION_ID,
+        startDate: '2026-04-01', endDate: '2026-04-30',
+        orderIds: (await prisma.order.findMany({
+          where: { organizationId: TEST_ORGANIZATION_ID }, select: { id: true },
+        })).map((order) => order.id),
       });
 
       const synced = await service.syncActuals(plan.id, TEST_ORGANIZATION_ID);
