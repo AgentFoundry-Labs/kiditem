@@ -68,7 +68,8 @@ export interface KeywordJudgementSource {
   clicks: number;
   spend: number;
   revenue: number;
-  conversions: number;
+  /** `null` when the keyword table did not carry the conversion column. */
+  conversions: number | null;
 }
 
 export interface KeywordRelevanceVerdict {
@@ -117,8 +118,9 @@ export function buildKeywordProductBatches(
     if (source.keyword.trim().length === 0) continue;
     if (!source.externalOptionId) continue;
     if ((source.productName ?? '').trim().length === 0) continue;
-    // A keyword that converted has proven itself regardless of how it reads.
-    if (source.conversions > 0) continue;
+    // A keyword that converted has proven itself regardless of how it reads,
+    // and one whose conversions were not observed may have converted.
+    if (source.conversions === null || source.conversions > 0) continue;
     const bucket = byProduct.get(source.externalOptionId);
     if (bucket) bucket.push(source);
     else byProduct.set(source.externalOptionId, [source]);
@@ -264,8 +266,8 @@ export interface KeywordPauseCandidateResult {
  * Convert model verdicts into `pause_keyword` proposals.
  *
  * Rejects a verdict when the `ref` was never asked about, the echoed keyword no
- * longer matches that ref, no rationale came back, or the keyword converted
- * after the batch was built.
+ * longer matches that ref, no rationale came back, the keyword's conversions
+ * were not observed, or the keyword converted after the batch was built.
  */
 export function toKeywordPauseCandidates(
   verdicts: KeywordRelevanceVerdict[],
@@ -308,6 +310,10 @@ export function toKeywordPauseCandidates(
     const reason = typeof verdict.reason === 'string' ? verdict.reason.trim() : '';
     if (!reason) {
       rejected.push({ ref, reason: 'missing_reason' });
+      continue;
+    }
+    if (source.conversions === null) {
+      rejected.push({ ref, reason: 'conversions_unobserved' });
       continue;
     }
     if (source.conversions > 0) {

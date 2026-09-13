@@ -18,6 +18,10 @@ import {
   Trophy,
 } from "lucide-react";
 import { toast } from "sonner";
+import {
+  competitorCollectionStatus,
+  type CompetitorCollectionStatus,
+} from "@kiditem/shared/advertising";
 import { friendlyError } from "@/lib/api-error";
 import { queryKeys } from "@/lib/query-keys";
 import { formatDateTime, formatNumber } from "@/lib/utils";
@@ -295,11 +299,11 @@ export function CompetitorTrackingPage() {
         />
       </section>
 
-      {data.collection.status === "catalog_empty" ? (
+      {competitorCollectionStatus(data.collection) === "catalog_empty" ? (
         <CatalogEmptyState />
       ) : data.sellers.length === 0 ? (
         <DataEmptyState
-          status={data.collection.status}
+          status={competitorCollectionStatus(data.collection)}
           keywords={data.collection.suggestedKeywords}
           onCollect={() => startCollection({ target: "all" })}
           pending={collecting}
@@ -435,7 +439,7 @@ function DataEmptyState({
   onCollect,
   pending,
 }: {
-  status: string;
+  status: CompetitorCollectionStatus;
   keywords: string[];
   onCollect: () => void;
   pending: boolean;

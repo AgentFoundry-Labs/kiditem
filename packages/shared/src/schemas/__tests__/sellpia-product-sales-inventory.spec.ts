@@ -6,6 +6,7 @@ import {
   SellpiaProductSalesSummarySchema,
 } from '../dashboard';
 import { PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD } from '../product-abc';
+import { productAbcDisplayStatus } from '../../product-abc';
 
 const INVENTORY_SKU_ID = '11111111-1111-4111-8111-111111111111';
 const MASTER_PRODUCT_ID = '22222222-2222-4222-8222-222222222222';
@@ -46,7 +47,6 @@ const abcReadyEvaluation = {
 const abcReady = {
   abcGrade: 'A' as const,
   evaluation: abcReadyEvaluation,
-  displayStatus: 'READY' as const,
   formulaRevision: 2,
   publicationRevision: 4,
   officialCutoffDate: GRADE_BASIS_CUTOFF_DATE,
@@ -163,8 +163,11 @@ describe('Sellpia product-sales inventory contracts', () => {
 
   it('keeps a graded destination, a stale one that keeps its grade, and an unclassified one distinguishable', () => {
     // A stale source does not erase a published grade. The Evaluation and the
-    // grade stay; `displayStatus` is what says the source has moved on.
-    const stale = { ...abcReady, displayStatus: 'AD_SOURCE_STALE' as const };
+    // grade stay; the advertising readiness fact is what says the source moved on.
+    const stale = {
+      ...abcReady,
+      sources: { ...abcReady.sources, advertising: { ...abcReady.sources.advertising, ready: false } },
+    };
     // `NEW` and `INSUFFICIENT_EVIDENCE` retain no Evaluation at all. There is
     // no state that keeps an Evaluation without a grade: `ProductAbcEvaluation`
     // always carries one, so an ungraded product has nothing to retain.
@@ -173,15 +176,16 @@ describe('Sellpia product-sales inventory contracts', () => {
       abcGrade: null,
       evaluation: null,
       officialCutoffDate: null,
-      displayStatus: 'INSUFFICIENT_EVIDENCE' as const,
     };
 
-    expect(SellpiaProductDestinationSchema.parse(destination).abc)
-      .toMatchObject({ abcGrade: 'A', displayStatus: 'READY' });
-    expect(SellpiaProductDestinationSchema.parse({ ...destination, abc: stale }).abc)
-      .toMatchObject({ abcGrade: 'A', displayStatus: 'AD_SOURCE_STALE' });
-    expect(SellpiaProductDestinationSchema.parse({ ...destination, abc: unclassified }).abc)
-      .toMatchObject({ abcGrade: null, evaluation: null, displayStatus: 'INSUFFICIENT_EVIDENCE' });
+    const ready = SellpiaProductDestinationSchema.parse(destination).abc;
+    const retained = SellpiaProductDestinationSchema.parse({ ...destination, abc: stale }).abc;
+    const observing = SellpiaProductDestinationSchema.parse({ ...destination, abc: unclassified }).abc;
+    expect(ready).toMatchObject({ abcGrade: 'A' });
+    expect(retained).toMatchObject({ abcGrade: 'A' });
+    expect(observing).toMatchObject({ abcGrade: null, evaluation: null });
+    expect([ready, retained, observing].map(productAbcDisplayStatus))
+      .toEqual(['READY', 'AD_SOURCE_STALE', 'INSUFFICIENT_EVIDENCE']);
   });
 
   it('requires a read-only channel catalog display image shape when present', () => {

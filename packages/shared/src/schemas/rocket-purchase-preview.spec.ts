@@ -10,11 +10,13 @@ import {
   RocketWorkbookWorkflowStatusSchema,
   RocketPoCatalogPublicationSchema,
   RocketPurchasePreviewDecisionSchema,
+  RocketPurchasePreviewReasonSchema,
   RocketPurchasePreviewResponseSchema,
   RocketSavedPoCollectionSchema,
   RocketSavedPoListRequestSchema,
   RocketSavedPoSummarySchema,
 } from './rocket-purchase-preview';
+import { ROCKET_PURCHASE_PREVIEW_REASON_LABELS } from '../rocket-purchase-preview';
 
 const ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
 const RUN_ID = '22222222-2222-4222-8222-222222222222';
@@ -619,5 +621,21 @@ describe('Rocket purchase preview contract', () => {
       exportId: CONFIRMATION_ID,
       reason: ' ',
     })).toThrow();
+  });
+});
+
+describe('ROCKET_PURCHASE_PREVIEW_REASON_LABELS', () => {
+  it('labels every preview reason once with the Rocket review wording', () => {
+    expect(Object.keys(ROCKET_PURCHASE_PREVIEW_REASON_LABELS).sort())
+      .toEqual([...RocketPurchasePreviewReasonSchema.options].sort());
+    expect(ROCKET_PURCHASE_PREVIEW_REASON_LABELS).toEqual({
+      mapping_required: '상품 연결 필요',
+      configuration_required: '재고 구성 필요',
+      review_required: '레시피 검토 필요',
+      inventory_unavailable: 'Sellpia 재고 미수집',
+      insufficient_capacity: 'Sellpia 재고 부족',
+      collection_incomplete: '수집 검증 필요',
+      vendor_mismatch: '공급사 검증 필요',
+    });
   });
 });

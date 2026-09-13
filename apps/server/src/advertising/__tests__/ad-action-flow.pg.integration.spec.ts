@@ -147,6 +147,8 @@ describe('AdAction flow (PG integration)', () => {
      * `recomputeRoas(revenue, spend)` returns this value (matches the old
      * provider-ratio expectation in tests). */
     roas?: number;
+    /** Whether the keyword table carried conversion columns; ingest stamps it. */
+    conversionsObserved?: boolean;
   }) {
     // Today's KST business date (same `@db.Date` shape ingestion writes).
     const today = new Date();
@@ -254,6 +256,14 @@ describe('AdAction flow (PG integration)', () => {
                 productName: null,
                 keywordType: null,
                 bidSource: null,
+                observedMetrics: {
+                  spend: true,
+                  revenue: true,
+                  impressions: true,
+                  clicks: true,
+                  conversions: params.conversionsObserved ?? true,
+                  orders: params.conversionsObserved ?? true,
+                },
               },
             }
           : undefined,
@@ -401,6 +411,32 @@ describe('AdAction flow (PG integration)', () => {
       expect(action.actionType).toBe('pause_keyword');
       expect(action.targetType).toBe('keyword');
       expect(action.priority).toBe('urgent');
+    });
+
+    it('#3b Rule 2: an unobserved keyword conversion column raises no zero-conversion pause', async () => {
+      const { listing, option, listingOption } = await seedListingWithOption({
+        organizationId: TEST_ORGANIZATION_ID,
+        abcGrade: 'B',
+      });
+      await seedSnapshot({
+        organizationId: TEST_ORGANIZATION_ID,
+        listingId: listing.id,
+        listingOptionId: listingOption.id,
+        optionId: option.id,
+        pageType: 'keyword',
+        externalId: 'KW-UNOBSERVED',
+        keyword: 'unobserved keyword',
+        spend: 6000,
+        conversions: 0,
+        conversionsObserved: false,
+      });
+
+      const result = await adActionService.generateActions(TEST_ORGANIZATION_ID);
+
+      expect(result.generated).toBe(0);
+      await expect(
+        prisma.adAction.count({ where: { organizationId: TEST_ORGANIZATION_ID } }),
+      ).resolves.toBe(0);
     });
 
     it('#4 Rule 3: keyword + currentBid>0 + 100<=roas<200 → change_bid to 85% rounded', async () => {

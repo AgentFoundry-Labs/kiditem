@@ -348,7 +348,8 @@ export class DashboardInventoryService {
   }
 
   /**
-   * Compute grade change counts from the last 7 days of grade history.
+   * Compute grade change counts from the automatic grade history recorded by
+   * the current ABC publication revision.
    * Always returns an object (upgraded=0, downgraded=0, total=0 when no rows),
    * matching legacy behavior (always assigns gradeChanges, never undefined).
    */

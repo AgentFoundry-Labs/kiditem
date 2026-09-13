@@ -60,7 +60,6 @@ describe('ProductOperationsService', () => {
       abcEvaluation: { publicationRevision: 4 },
       abc: {
         abcGrade: 'B',
-        displayStatus: 'READY',
         formulaRevision: 2,
         publicationRevision: 4,
         officialCutoffDate: '2026-07-31',

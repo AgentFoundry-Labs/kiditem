@@ -4,6 +4,7 @@ import {
   Injectable,
   Logger,
 } from "@nestjs/common";
+import type { CompetitorCollectionFacts } from "@kiditem/shared/advertising";
 import {
   buildCompetitorTrackingOverview,
   deriveCompetitorKeywords,
@@ -96,24 +97,21 @@ export class CompetitorTrackingService {
       )
       .slice(0, Math.max(1, Math.trunc(sellerLimit)));
 
+    // The screen derives its collection word from these counts with the shared
+    // `competitorCollectionStatus`; the overview publishes no word of its own.
+    const collectionFacts = {
+      ownProductCount: ownProducts.length,
+      enabledTrackerCount: enabledTrackers.length,
+      serpSnapshotCount: snapshots.length,
+    } satisfies CompetitorCollectionFacts;
+
     return {
       periodDays: days,
       collection: {
-        status:
-          ownProducts.length === 0
-            ? "catalog_empty"
-            : enabledTrackers.length === 0
-              ? "not_configured"
-              : snapshots.length === 0
-                ? "not_collected"
-                : "ready",
-        ownProductCount: ownProducts.length,
+        ...collectionFacts,
         wingProductCount,
         storefrontProductCount: storefrontProducts.length,
-        storefrontStatus:
-          storefrontProducts.length > 0 ? "ready" : "unavailable",
         trackerCount: trackers.length,
-        enabledTrackerCount: enabledTrackers.length,
         trackedKeywords: enabledTrackers.map((tracker) => tracker.keyword),
         suggestedKeywords,
         watchedCompetitors,

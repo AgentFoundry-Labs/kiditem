@@ -13,6 +13,7 @@ import {
   type ProductOperationsListSummary,
 } from '@kiditem/shared/product-operations';
 import {
+  productAbcDisplayStatus,
   type ProductAbcContributionAnalytics,
   type ProductAbcContributionOverview,
   type ProductAbcContributionProduct,
@@ -121,7 +122,7 @@ export class ProductOperationsService implements ProductOperationsPort {
         ? advertisingFiltered.filter(({ abcGrade }) => abcGrade === query.abcGrade)
         : advertisingFiltered;
     const abcFiltered = query.abcCalculationStatus
-      ? gradeFiltered.filter(({ abc }) => abc.displayStatus === query.abcCalculationStatus)
+      ? gradeFiltered.filter(({ abc }) => productAbcDisplayStatus(abc) === query.abcCalculationStatus)
       : gradeFiltered;
     const inventoryFiltered = query.inventoryStatus
       ? abcFiltered.filter((item) =>

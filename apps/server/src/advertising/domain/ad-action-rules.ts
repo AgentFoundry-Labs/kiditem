@@ -94,6 +94,7 @@ export function createActionCandidate(
 
   // Rule 2 & 3: keyword pause / bid change
   if (row.targetType === 'keyword') {
+    // `null` conversions were not observed; only an observed zero is zero.
     const zeroConversionSpend = row.conversions === 0 && row.spend >= 5000;
     const poorRoas = roas > 0 && roas < 100;
 

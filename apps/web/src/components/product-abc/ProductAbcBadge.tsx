@@ -1,5 +1,5 @@
 import type { ProductAbcEvaluation, ProductAbcGrade } from '@kiditem/shared/product-abc';
-import { cn } from '@/lib/utils';
+import { ABC_GRADE_NEUTRAL_TONE_CLASS, ABC_GRADE_TONE_CLASS, cn } from '@/lib/utils';
 
 export type ProductAbcBadgeProps = {
   grade: ProductAbcGrade | null;
@@ -7,14 +7,6 @@ export type ProductAbcBadgeProps = {
   compact?: boolean;
   showConfidence?: boolean;
 };
-
-const GRADE_TONE_CLASS: Record<ProductAbcGrade, string> = {
-  A: 'bg-emerald-100 text-emerald-800 ring-emerald-300',
-  B: 'bg-amber-100 text-amber-800 ring-amber-300',
-  C: 'bg-rose-100 text-rose-800 ring-rose-300',
-};
-
-const NEUTRAL_TONE_CLASS = 'bg-slate-100 text-slate-700 ring-slate-300';
 
 export function ProductAbcBadge({
   grade,
@@ -25,7 +17,7 @@ export function ProductAbcBadge({
   const hasPublishedGrade = grade !== null;
   const primary = hasPublishedGrade ? `${grade}등급` : '미분류';
   const displayLabel = grade ?? '미분류';
-  const toneClass = grade === null ? NEUTRAL_TONE_CLASS : GRADE_TONE_CLASS[grade];
+  const toneClass = grade === null ? ABC_GRADE_NEUTRAL_TONE_CLASS : ABC_GRADE_TONE_CLASS[grade];
 
   return (
     <span className={cn('inline-flex max-w-full items-center gap-1', compact && 'gap-0.5')} aria-label={primary} title={primary}>

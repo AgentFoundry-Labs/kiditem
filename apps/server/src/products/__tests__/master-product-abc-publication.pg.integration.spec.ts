@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { PrismaClient } from '@prisma/client';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD } from '@kiditem/shared/product-abc';
+import { PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD, productAbcDisplayStatus } from '@kiditem/shared/product-abc';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import { ProfitabilityAdImportRepositoryAdapter } from '../../advertising/adapter/out/repository/profitability-ad-import.repository.adapter';
 import { SellpiaProfitabilitySourceService } from '../../analytics/sellpia-product-sales/sellpia-profitability-source.service';
@@ -79,8 +79,8 @@ describe('MasterProductAbc publication cutoff (PostgreSQL)', () => {
       abcGrade: 'A',
       officialCutoffDate: collected.cutoff,
       actualCutoffDate: collected.cutoff,
-      displayStatus: 'SELLPIA_SOURCE_STALE',
     });
+    expect(productAbcDisplayStatus(view.products[0]!.abc)).toBe('SELLPIA_SOURCE_STALE');
   });
 
   it.each(['RUNNING', 'FAILED'] as const)(
@@ -139,8 +139,8 @@ describe('MasterProductAbc publication cutoff (PostgreSQL)', () => {
     expect(view.products[0]?.abc).toMatchObject({
       abcGrade: null,
       evaluation: null,
-      displayStatus: 'INSUFFICIENT_EVIDENCE',
     });
+    expect(productAbcDisplayStatus(view.products[0]!.abc)).toBe('INSUFFICIENT_EVIDENCE');
   });
 });
 

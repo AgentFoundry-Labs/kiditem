@@ -21,7 +21,10 @@ const UuidSchema = z.string().uuid();
 export const ProductAbcGradeSchema = z.enum(['A', 'B', 'C']);
 export type ProductAbcGrade = z.infer<typeof ProductAbcGradeSchema>;
 
-/** The API derives these labels; no label is persisted on an Evaluation. */
+/**
+ * ABC display words. `productAbcDisplayStatus` derives one from a read
+ * model's facts; neither an Evaluation nor the read model carries it.
+ */
 export const ProductAbcDisplayStatusSchema = z.enum([
   'SOURCE_UNMAPPED',
   'SELLPIA_SOURCE_STALE',
@@ -428,7 +431,6 @@ export type ProductAbcEvaluation = z.infer<typeof ProductAbcEvaluationSchema>;
 export const ProductAbcReadModelSchema = z.object({
   abcGrade: ProductAbcGradeSchema.nullable(),
   evaluation: ProductAbcEvaluationSchema.nullable(),
-  displayStatus: ProductAbcDisplayStatusSchema,
   formulaRevision: z.number().int().nonnegative(),
   publicationRevision: z.number().int().nonnegative(),
   officialCutoffDate: CalendarDateSchema.nullable(),
@@ -459,24 +461,6 @@ export const ProductAbcReadModelSchema = z.object({
         message: 'grade basis cutoff must match the retained Evaluation',
       });
     }
-  }
-  if (projection.displayStatus === 'READY' && projection.evaluation === null) {
-    context.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['evaluation'],
-      message: 'READY requires an Evaluation',
-    });
-  }
-  if (projection.displayStatus === 'INSUFFICIENT_EVIDENCE' && (
-      projection.abcGrade !== null
-      || projection.evaluation !== null
-    )
-  ) {
-    context.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['evaluation'],
-      message: `${projection.displayStatus} cannot retain an official Evaluation`,
-    });
   }
 });
 export type ProductAbcReadModel = z.infer<typeof ProductAbcReadModelSchema>;

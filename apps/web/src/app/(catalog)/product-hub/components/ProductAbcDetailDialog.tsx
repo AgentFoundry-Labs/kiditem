@@ -6,6 +6,7 @@ import { X } from 'lucide-react';
 import {
   PRODUCT_ABC_DISPLAY_STATUS_LABELS,
   PRODUCT_ABC_MAPPING_STATUS_LABELS,
+  productAbcDisplayStatus,
   productAbcMappingStatus,
   type ProductAbcMappingFacts,
 } from '@kiditem/shared/product-abc';
@@ -50,7 +51,7 @@ export function ProductAbcDetailDialog({ open, onOpenChange, product, showProduc
             <section className="rounded-xl border border-[var(--border-subtle)] p-4">
               <h3 className="text-sm font-extrabold text-[var(--text-primary)]">발행 상태</h3>
               <dl className="mt-3 grid gap-x-6 gap-y-3 sm:grid-cols-2">
-                <DetailRow label="평가 상태" value={PRODUCT_ABC_DISPLAY_STATUS_LABELS[product.abc.displayStatus]} />
+                <DetailRow label="평가 상태" value={PRODUCT_ABC_DISPLAY_STATUS_LABELS[productAbcDisplayStatus(product.abc)]} />
                 <DetailRow label="공식 등급 기준일" value={product.abc.officialCutoffDate ?? '없음'} />
                 <DetailRow label="표시 데이터 기준일" value={product.abc.actualCutoffDate ?? '없음'} />
                 <DetailRow label="발행 시각" value={product.abc.publishedAt ? formatDateTime(product.abc.publishedAt) : '없음'} />

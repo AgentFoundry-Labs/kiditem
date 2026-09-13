@@ -7,3 +7,4 @@ export * from './schemas/wing-rank-source.js';
 export * from './schemas/seller-identity-source.js';
 export * from './schemas/keyword-rank.js';
 export * from './rank-change.js';
+export * from './competitor-tracking.js';

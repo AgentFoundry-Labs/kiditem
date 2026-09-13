@@ -92,22 +92,25 @@ export class WingTrafficAggregationRepositoryAdapter
       : null;
     const revenueReconciliation = reconciliation.revenue;
     const revenueUsable = complete && revenueReconciliation.status !== 'MISMATCH';
+    // Additive totals measure only the dates the owner covered. A window with
+    // no covered date has measured nothing, so it publishes no total at all.
+    const measured = coverage.completedDays > 0;
 
     return {
-      revenue: totals.revenue,
-      orders: totals.orders,
-      salesQty: totals.salesQty,
+      revenue: measured ? totals.revenue : null,
+      orders: measured ? totals.orders : null,
+      salesQty: measured ? totals.salesQty : null,
       // `visitors` is retained for compatibility, but it is an average of
       // the listing-day visitor totals over the dates with measured traffic.
       visitors: dailyAverageVisitors,
-      views: totals.views,
-      cartAdds: totals.cartAdds,
+      views: measured ? totals.views : null,
+      cartAdds: measured ? totals.cartAdds : null,
       // This is our orders/views ratio. Preserve full precision here; the
       // presentation layer owns percentage rounding. Provider's original
       // percentage remains separate in providerConversionRate.
       // Dashboard conversion is orders/views; a zero or absent denominator
       // has no measurable ratio.
-      conversionRate: totals.views > 0
+      conversionRate: measured && totals.views > 0
         ? (totals.orders / totals.views) * 100
         : null,
       dailyAverageVisitors,
@@ -151,6 +154,7 @@ export class WingTrafficAggregationRepositoryAdapter
     let clicks = 0;
     let conversions = 0;
     let orders = 0;
+    let conversionsObserved = true;
 
     for (const row of rows) {
       spend += row.spend;
@@ -159,22 +163,30 @@ export class WingTrafficAggregationRepositoryAdapter
       clicks += row.clicks;
       conversions += row.conversions;
       orders += row.orders;
+      if (!row.conversionsObserved) conversionsObserved = false;
     }
 
+    // A measured date always returns a day row, so no row means nothing was
+    // measured and no total is published. A conversion count is a measurement
+    // only when every summed day observed the conversion columns.
+    const measured = rows.length > 0;
+    const conversionCountsMeasured = measured && conversionsObserved;
     const hasData = coverage.targetDays > 0
       && coverage.completedDays === coverage.targetDays;
-    const conversionRate = clicks > 0 ? (orders / clicks) * 100 : null;
+    const conversionRate = conversionCountsMeasured && clicks > 0
+      ? (orders / clicks) * 100
+      : null;
     // The provider's own ratio lives on the account summary, which is no
     // longer this read's source. Ours is orders/clicks, published above.
     const providerConversionRate = null;
 
     return {
-      spend,
-      revenue,
-      impressions,
-      clicks,
-      conversions,
-      orders,
+      spend: measured ? spend : null,
+      revenue: measured ? revenue : null,
+      impressions: measured ? impressions : null,
+      clicks: measured ? clicks : null,
+      conversions: conversionCountsMeasured ? conversions : null,
+      orders: conversionCountsMeasured ? orders : null,
       conversionRate,
       providerConversionRate,
       coverage,
@@ -374,8 +386,9 @@ export class WingTrafficAggregationRepositoryAdapter
       ad_revenue: row.revenue,
       clicks: row.clicks,
       impressions: row.impressions,
-      conversions: row.conversions,
-      orders: row.orders,
+      // An unobserved conversion column stored 0; that is not a count.
+      conversions: row.conversionsObserved ? row.conversions : null,
+      orders: row.conversionsObserved ? row.orders : null,
       observedAt: observedAt?.toISOString() ?? null,
     } satisfies CoupangAdsDailyRow));
   }
@@ -720,12 +733,12 @@ function emptyTrafficMetrics(targetDates?: readonly string[]): WingTrafficMetric
       }
     : null;
   return {
-    revenue: 0,
-    orders: 0,
-    salesQty: 0,
+    revenue: null,
+    orders: null,
+    salesQty: null,
     visitors: null,
-    views: 0,
-    cartAdds: 0,
+    views: null,
+    cartAdds: null,
     conversionRate: null,
     dailyAverageVisitors: null,
     providerConversionRate: null,
@@ -801,12 +814,12 @@ function aggregateTrafficDays(
 
 function emptyCoupangAdsMetrics(): CoupangAdsMetrics {
   return {
-    spend: 0,
-    revenue: 0,
-    impressions: 0,
-    clicks: 0,
-    conversions: 0,
-    orders: 0,
+    spend: null,
+    revenue: null,
+    impressions: null,
+    clicks: null,
+    conversions: null,
+    orders: null,
     conversionRate: null,
     providerConversionRate: null,
     coverage: null,

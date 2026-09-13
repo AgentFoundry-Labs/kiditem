@@ -186,7 +186,8 @@ describe('RocketPurchaseWorkspace', () => {
 
     await user.click(screen.getByRole('button', { name: '미리보기 다시 계산' }));
 
-    expect(await screen.findByText('상품 매칭 필요')).toBeInTheDocument();
+    // One reason label map: the Rocket review wording, not a Supply-local variant.
+    expect(await screen.findByText('상품 연결 필요')).toBeInTheDocument();
     expect(screen.getByRole('spinbutton', { name: '1001 확정재고' })).toBeDisabled();
   });
 

@@ -139,6 +139,18 @@ describe('createActionCandidate — 5 rules', () => {
       });
     });
 
+    it('an unobserved conversion count (null) is never a zero-conversion pause', () => {
+      const row = baseRow({
+        targetType: 'keyword',
+        keyword: 'K1',
+        conversions: null,
+        spend: 8000,
+        revenue: 0,
+      });
+
+      expect(createActionCandidate(row, new Map())).toBeNull();
+    });
+
     it('keyword roas in (0,100) + grade=A → pause_keyword high', () => {
       const row = baseRow({
         targetType: 'keyword',

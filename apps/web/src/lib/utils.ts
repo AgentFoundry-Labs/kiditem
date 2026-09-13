@@ -1,5 +1,6 @@
 import { type ClassValue, clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import type { ProductAbcGrade } from '@kiditem/shared/product-abc';
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -98,13 +99,20 @@ export function formatPercent(value: number | null | undefined): string {
   return `${value.toFixed(1)}%`;
 }
 
+/** The one ABC grade palette: the product ABC badge and every grade chip use it. */
+export const ABC_GRADE_TONE_CLASS = {
+  A: 'bg-emerald-100 text-emerald-800 ring-emerald-300',
+  B: 'bg-amber-100 text-amber-800 ring-amber-300',
+  C: 'bg-rose-100 text-rose-800 ring-rose-300',
+} as const satisfies Record<ProductAbcGrade, string>;
+
+/** Tone for an unclassified or unknown grade. */
+export const ABC_GRADE_NEUTRAL_TONE_CLASS = 'bg-slate-100 text-slate-700 ring-slate-300';
+
 export function getGradeColor(grade: string): string {
-  switch (grade) {
-    case 'A': return 'bg-green-100 text-green-700';
-    case 'B': return 'bg-yellow-100 text-yellow-700';
-    case 'C': return 'bg-red-100 text-red-700';
-    default: return 'bg-gray-100 text-gray-800';
-  }
+  return grade === 'A' || grade === 'B' || grade === 'C'
+    ? ABC_GRADE_TONE_CLASS[grade]
+    : ABC_GRADE_NEUTRAL_TONE_CLASS;
 }
 
 /**

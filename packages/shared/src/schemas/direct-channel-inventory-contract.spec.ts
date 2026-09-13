@@ -16,7 +16,6 @@ const OBSERVED_AT = '2026-08-03T00:00:00.000Z';
 const UNCLASSIFIED_ABC = {
   abcGrade: null,
   evaluation: null,
-  displayStatus: 'INSUFFICIENT_EVIDENCE' as const,
   formulaRevision: 0,
   publicationRevision: 0,
   officialCutoffDate: null,

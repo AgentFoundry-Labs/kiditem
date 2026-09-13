@@ -144,7 +144,7 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
             revenue: row.revenue,
             impressions: row.impressions,
             clicks: row.clicks,
-            conversions: row.conversions,
+            conversions: row.conversionsObserved ? row.conversions : null,
             meta_json: row.metaJson,
           })),
           ...keywordRows.map((row) => ({
@@ -165,7 +165,7 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
             revenue: row.revenue,
             impressions: row.impressions,
             clicks: row.clicks,
-            conversions: row.conversions,
+            conversions: row.conversionsObserved ? row.conversions : null,
             meta_json: row.metaJson,
           })),
         ];

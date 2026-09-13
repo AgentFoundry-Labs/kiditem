@@ -36,6 +36,7 @@ import { InventoryAvailabilityService } from '../../inventory/application/servic
 import { ProductOperationsDataStatusRepositoryAdapter } from '../adapter/out/repository/product-operations-data-status.repository.adapter';
 import { ProductOperationsDataStatusService } from '../application/service/product-operations-data-status.service';
 import { productAbcEvidenceCutoff } from '../domain/product-abc-display-status';
+import { productAbcDisplayStatus } from '@kiditem/shared/product-abc';
 import { MasterProductProfitabilityReadService } from '../../finance/application/service/master-product-profitability-read.service';
 import { SellpiaProfitabilitySourceService } from '../../analytics/sellpia-product-sales/sellpia-profitability-source.service';
 import { ProfitabilityAdImportRepositoryAdapter } from '../../advertising/adapter/out/repository/profitability-ad-import.repository.adapter';
@@ -562,17 +563,20 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     expect(all.items.find((item) => item.id === observing.id)?.abc).toMatchObject({
       abcGrade: null,
       evaluation: null,
-      displayStatus: 'INSUFFICIENT_EVIDENCE',
     });
     expect(all.items.find((item) => item.id === ready.id)?.abc).toMatchObject({
       abcGrade: 'B',
-      displayStatus: 'READY',
     });
     expect(all.items.find((item) => item.id === unpublished.id)?.abc).toMatchObject({
       abcGrade: null,
       evaluation: null,
-      displayStatus: 'INSUFFICIENT_EVIDENCE',
     });
+    const displayStatusOf = (id: string) => {
+      const abc = all.items.find((item) => item.id === id)?.abc;
+      return abc ? productAbcDisplayStatus(abc) : null;
+    };
+    expect([observing.id, ready.id, unpublished.id].map(displayStatusOf))
+      .toEqual(['INSUFFICIENT_EVIDENCE', 'READY', 'INSUFFICIENT_EVIDENCE']);
     expect(all.summary).toMatchObject({
       abcGradeCounts: { A: 0, B: 1, C: 0, unclassified: 2 },
     });

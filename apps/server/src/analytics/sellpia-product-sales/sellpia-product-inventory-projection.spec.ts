@@ -196,7 +196,6 @@ function missingAbc(): import('@kiditem/shared/product-abc').ProductAbcReadModel
   return {
     abcGrade: null,
     evaluation: null,
-    displayStatus: 'SELLPIA_SOURCE_STALE',
     formulaRevision: 0,
     publicationRevision: 0,
     officialCutoffDate: null,

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  productAbcDisplayStatus,
   PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
 } from '@kiditem/shared/product-abc';
 import { CatalogDisplayMediaRepositoryAdapter } from '../../ai/adapter/out/repository/catalog-display-media.repository.adapter';
@@ -268,7 +269,6 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
       },
       abc: {
         abcGrade: 'A',
-        displayStatus: 'READY',
         publicationRevision: 1,
         officialCutoffDate: EXPECTED_CUTOFF,
         actualCutoffDate: EXPECTED_CUTOFF,
@@ -282,13 +282,14 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
       abc: {
         abcGrade: null,
         evaluation: null,
-        displayStatus: 'INSUFFICIENT_EVIDENCE',
         publicationRevision: 1,
         officialCutoffDate: EXPECTED_CUTOFF,
         actualCutoffDate: EXPECTED_CUTOFF,
       },
     });
 
+    expect([normalDetail, insufficientDetail].map((detail) => productAbcDisplayStatus(detail.abc)))
+      .toEqual(['READY', 'INSUFFICIENT_EVIDENCE']);
     expect(all).toMatchObject({
       total: 2,
       summary: {
@@ -298,7 +299,7 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
     expect(all.items.map(({ id, abcGrade, abc }) => ({
       id,
       abcGrade,
-      displayStatus: abc.displayStatus,
+      displayStatus: productAbcDisplayStatus(abc),
     }))).toEqual(expect.arrayContaining([
       { id: fixture.normal.productId, abcGrade: 'A', displayStatus: 'READY' },
       {
@@ -319,15 +320,16 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
     });
     expect(ready).toMatchObject({
       total: 1,
-      items: [{ id: fixture.normal.productId, abc: { displayStatus: 'READY' } }],
+      items: [{ id: fixture.normal.productId }],
     });
     expect(withheld).toMatchObject({
       total: 1,
-      items: [{
-        id: fixture.insufficient.productId,
-        abc: { displayStatus: 'INSUFFICIENT_EVIDENCE' },
-      }],
+      items: [{ id: fixture.insufficient.productId }],
     });
+    // The calculation-status filter and the shared word agree row by row.
+    expect(ready.items.map(({ abc }) => productAbcDisplayStatus(abc))).toEqual(['READY']);
+    expect(withheld.items.map(({ abc }) => productAbcDisplayStatus(abc)))
+      .toEqual(['INSUFFICIENT_EVIDENCE']);
   });
 
   function listProducts(filter: Record<string, unknown> = {}) {

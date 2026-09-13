@@ -64,7 +64,6 @@ function product(): MasterProductOperationsMetadata {
     abc: {
       abcGrade: 'A',
       evaluation,
-      displayStatus: 'READY',
       formulaRevision: 2,
       publicationRevision: 4,
       officialCutoffDate: '2026-07-31',

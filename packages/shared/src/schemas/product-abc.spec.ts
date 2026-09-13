@@ -21,6 +21,7 @@ import {
   PRODUCT_ABC_DISPLAY_STATUS_LABELS,
   PRODUCT_ABC_MAPPING_STATUS_LABELS,
   productAbcContributionMetricStatus,
+  productAbcDisplayStatus,
   productAbcMappingStatus,
 } from '../product-abc.js';
 
@@ -164,7 +165,6 @@ describe('absolute product profitability ABC contracts', () => {
     const stale = ProductAbcReadModelSchema.parse({
       abcGrade: 'A',
       evaluation: parsed,
-      displayStatus: 'AD_SOURCE_STALE',
       formulaRevision: 2,
       publicationRevision: 4,
       officialCutoffDate: '2026-07-31',
@@ -179,17 +179,11 @@ describe('absolute product profitability ABC contracts', () => {
       ...stale,
       recalculationPending: false,
     }).success).toBe(false);
-    expect(() => ProductAbcReadModelSchema.parse({
-      abcGrade: null,
-      evaluation: null,
-      displayStatus: 'READY',
-      formulaRevision: 2,
-      publicationRevision: 4,
-      officialCutoffDate: '2026-07-31',
-      publishedAt: ISO,
-      actualCutoffDate: '2026-07-31',
-      sources: sourceFreshness(),
-    })).toThrow();
+    // The display word is a function of these facts; the read model never carries it.
+    expect(ProductAbcReadModelSchema.safeParse({
+      ...stale,
+      displayStatus: 'AD_SOURCE_STALE',
+    }).success).toBe(false);
     expect(() => ProductAbcEvaluationSchema.parse(evaluation({
       weightedOperatingProfit: -1,
       operatingMargin: null,
@@ -204,22 +198,60 @@ describe('absolute product profitability ABC contracts', () => {
       sourceFreshness: {},
     }))).toThrow();
     expect(() => ProductAbcReadModelSchema.parse({
-      ...stale,
-      displayStatus: 'SOURCE_UNMAPPED',
+      abcGrade: null,
+      evaluation: null,
+      formulaRevision: 2,
+      publicationRevision: 4,
+      officialCutoffDate: '2026-07-31',
+      publishedAt: ISO,
+      actualCutoffDate: '2026-07-31',
+      sources: sourceFreshness(),
     })).not.toThrow();
-    for (const displayStatus of ['INSUFFICIENT_EVIDENCE'] as const) {
-      expect(() => ProductAbcReadModelSchema.parse({
-        abcGrade: null,
-        evaluation: null,
-        displayStatus,
-        formulaRevision: 2,
-        publicationRevision: 4,
-        officialCutoffDate: '2026-07-31',
-        publishedAt: ISO,
-        actualCutoffDate: '2026-07-31',
-        sources: sourceFreshness(),
-      })).not.toThrow();
-    }
+  });
+
+  it('derives one display word from mapping, source readiness and evaluation facts', () => {
+    const retained = ProductAbcEvaluationSchema.parse(evaluation());
+    const facts = (overrides: {
+      mapped?: boolean;
+      sellpia?: boolean;
+      advertising?: boolean;
+      evaluated?: boolean;
+    } = {}) => ({
+      evaluation: overrides.evaluated === false ? null : retained,
+      sources: {
+        mapping: { valid: overrides.mapped ?? true },
+        sellpia: { ready: overrides.sellpia ?? true },
+        advertising: { ready: overrides.advertising ?? true },
+      },
+    });
+
+    expect(productAbcDisplayStatus(facts())).toBe('READY');
+    expect(productAbcDisplayStatus(facts({ evaluated: false }))).toBe('INSUFFICIENT_EVIDENCE');
+    // A stale source keeps the retained grade; the word says which source moved on.
+    expect(productAbcDisplayStatus(facts({ advertising: false }))).toBe('AD_SOURCE_STALE');
+    expect(productAbcDisplayStatus(facts({ sellpia: false, advertising: false })))
+      .toBe('SELLPIA_SOURCE_STALE');
+    expect(productAbcDisplayStatus(facts({ mapped: false, sellpia: false, evaluated: false })))
+      .toBe('SOURCE_UNMAPPED');
+
+    const published = ProductAbcReadModelSchema.parse({
+      abcGrade: 'A',
+      evaluation: retained,
+      formulaRevision: 2,
+      publicationRevision: 4,
+      officialCutoffDate: '2026-07-31',
+      publishedAt: ISO,
+      actualCutoffDate: '2026-08-31',
+      sources: sourceFreshness(),
+    });
+    expect(productAbcDisplayStatus(published)).toBe('AD_SOURCE_STALE');
+    expect(PRODUCT_ABC_DISPLAY_STATUS_LABELS).toEqual({
+      READY: '계산 완료',
+      INSUFFICIENT_EVIDENCE: '관찰 중',
+      SOURCE_UNMAPPED: '상품 매핑 필요',
+      SELLPIA_SOURCE_STALE: 'Sellpia 원천 갱신 필요',
+      AD_SOURCE_STALE: '광고비 원천 갱신 필요',
+    });
   });
 
   it('rejects rolled calendar dates and out-of-range timestamps before KST normalization', () => {
@@ -277,7 +309,6 @@ describe('absolute product profitability ABC contracts', () => {
     expect(ProductAbcReadModelSchema.safeParse({
       abcGrade: 'A',
       evaluation: evaluation(),
-      displayStatus: 'READY',
       formulaRevision: 2,
       publicationRevision: 4,
       officialCutoffDate: '2026-07-31',

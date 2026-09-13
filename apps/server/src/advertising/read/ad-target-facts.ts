@@ -699,7 +699,10 @@ export type AdCurrentTargetRow = Readonly<{
   revenue: number;
   impressions: number;
   clicks: number;
+  /** Stored count; a measurement only when `conversionsObserved`. */
   conversions: number;
+  /** Whether the provider grid behind the row carried the conversion columns. */
+  conversionsObserved: boolean;
   metaJson: unknown | null;
 }>;
 
@@ -735,6 +738,7 @@ export async function readCurrentAdTargetRows(
       impressions,
       clicks,
       conversions,
+      conversions_observed AS "conversionsObserved",
       meta_json          AS "metaJson"
     FROM measured
     WHERE target_type IN ('campaign', 'product')
@@ -798,6 +802,11 @@ export type AdKeywordFact = ChannelAdTargetDailySnapshot & {
   keyword: string;
   /** Width declared by the source for this non-additive observation. */
   windowDays: 7;
+  /**
+   * Whether the keyword table carried the conversion column. Ingest stores 0
+   * in a column the table lacked, so `conversions` is a count only when true.
+   */
+  conversionsObserved: boolean;
 };
 
 function keywordManifest(attempt: SourceImportRun) {
@@ -847,6 +856,24 @@ function keywordWindowDays(metaJson: unknown): number | null {
     if (typeof value === 'number' && Number.isInteger(value)) return value;
   }
   return null;
+}
+
+/** Whether ingest stamped the keyword row's conversion column as observed. */
+function keywordConversionsObserved(metaJson: unknown): boolean {
+  if (!metaJson || typeof metaJson !== 'object' || Array.isArray(metaJson)) {
+    return false;
+  }
+  const meta = metaJson as Record<string, unknown>;
+  for (const candidate of [meta['advertising.keyword.target'], meta.data]) {
+    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
+      continue;
+    }
+    const observed = (candidate as Record<string, unknown>).observedMetrics;
+    if (observed && typeof observed === 'object' && !Array.isArray(observed)) {
+      return (observed as Record<string, unknown>).conversions === true;
+    }
+  }
+  return false;
 }
 
 /**
@@ -992,6 +1019,7 @@ export async function readCompleteAdKeywordFacts(
       targetType: 'keyword' as const,
       keyword: contribution.keyword!,
       windowDays: 7 as const,
+      conversionsObserved: keywordConversionsObserved(contribution.metaJson),
     };
     const key = JSON.stringify([target.channelAccountId, target.targetKey]);
     const previous = rows.get(key);
@@ -1027,6 +1055,8 @@ export async function readCompleteAdKeywordFacts(
         targetType: 'keyword',
         metaJson: previous.fact.metaJson,
         windowDays: 7,
+        // A merged count is a measurement only if every contribution observed it.
+        conversionsObserved: previous.fact.conversionsObserved && target.conversionsObserved,
       } as AdKeywordFact,
     });
   }

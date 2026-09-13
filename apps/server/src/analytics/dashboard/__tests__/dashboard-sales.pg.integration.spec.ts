@@ -305,6 +305,118 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
     });
   });
 
+  it('publishes provider-confirmed empty Wing days as zero trend points and leaves unconfirmed days as holes', async () => {
+    const { listingId } = await seedTestListing('EMPTY-TREND');
+    const listing = await prisma.channelListing.findUniqueOrThrow({
+      where: { id: listingId },
+      select: { channelAccountId: true },
+    });
+    // The provider confirmed 09-01 and 09-02 empty; nobody confirmed 09-03.
+    await prisma.sourceImportRun.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: listing.channelAccountId,
+        sourceType: 'coupang_wing_traffic',
+        status: 'completed',
+        freshnessGeneration: 1n,
+        providerBackedEmptyProof: true,
+        qualityReport: { confirmedDates: ['2026-09-01', '2026-09-02'] },
+        importedAt: new Date('2026-09-04T03:00:00.000Z'),
+      },
+    });
+
+    const rows = await wingTraffic.fetchDailyTrend(
+      TEST_ORGANIZATION_ID,
+      new Date('2026-08-31T15:00:00.000Z'),
+      new Date('2026-09-03T15:00:00.000Z'),
+    );
+
+    const zeroDay = { revenue: 0, orders: 0, salesQty: 0, visitors: 0, views: 0, cartAdds: 0 };
+    expect(rows.map(({ date, revenue, orders, salesQty, visitors, views, cartAdds }) => ({
+      date, revenue, orders, salesQty, visitors, views, cartAdds,
+    }))).toEqual([
+      { date: '2026-09-01', ...zeroDay },
+      { date: '2026-09-02', ...zeroDay },
+    ]);
+  });
+
+  it('publishes no additive traffic or ad value for a window nothing measured', async () => {
+    await seedTestListing('UNMEASURED');
+    const period = periodOf(
+      new Date('2026-06-09T15:00:00.000Z'),
+      new Date('2026-06-11T15:00:00.000Z'),
+      { anchor: new Date('2026-06-20T00:00:00.000Z'), sourceClass: 'closed_day_clipped' },
+    );
+
+    await expect(wingTraffic.aggregateTraffic(TEST_ORGANIZATION_ID, period)).resolves.toMatchObject({
+      revenue: null,
+      orders: null,
+      salesQty: null,
+      visitors: null,
+      views: null,
+      cartAdds: null,
+      isCollected: false,
+      hasData: false,
+    });
+    await expect(wingTraffic.aggregateCoupangAds(TEST_ORGANIZATION_ID, period)).resolves.toMatchObject({
+      spend: null,
+      revenue: null,
+      impressions: null,
+      clicks: null,
+      conversions: null,
+      orders: null,
+      conversionRate: null,
+      isCollected: false,
+      hasData: false,
+    });
+  });
+
+  it('keeps an unobserved conversion count null in the Coupang ad totals and daily rows', async () => {
+    const { listingId } = await seedTestListing('UNOBSERVED-CONVERSIONS');
+    const runId = await seedCompletedAdSweepRun(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      generation: 100,
+      window: { startDate: '2026-07-10', endDate: '2026-07-11' },
+    });
+    await seedAd(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, listingId, runId, date: '2026-07-10',
+      spend: 1_000, revenue: 5_000, clicks: 40, conversions: 2, orders: 3,
+      conversionsObserved: true,
+    });
+    // The campaign dashboard grid carries no conversion columns: stored 0, unobserved.
+    await seedAd(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, listingId, runId, date: '2026-07-11',
+      spend: 2_000, revenue: 0, clicks: 10, conversions: 0, orders: 0,
+      conversionsObserved: false,
+    });
+    const since = new Date('2026-07-09T15:00:00.000Z');
+    const until = new Date('2026-07-11T15:00:00.000Z');
+
+    const totals = await wingTraffic.aggregateCoupangAds(
+      TEST_ORGANIZATION_ID,
+      periodOf(since, until, {
+        anchor: new Date('2026-07-20T00:00:00.000Z'),
+        sourceClass: 'closed_day_clipped',
+      }),
+    );
+    expect(totals).toMatchObject({
+      spend: 3_000,
+      clicks: 50,
+      conversions: null,
+      orders: null,
+      conversionRate: null,
+      isCollected: true,
+      hasData: true,
+    });
+
+    const daily = await wingTraffic.fetchDailyAds(TEST_ORGANIZATION_ID, since, until);
+    expect(daily.map(({ date, ad_cost, conversions, orders }) => ({ date, ad_cost, conversions, orders })))
+      .toEqual([
+        { date: '2026-07-10', ad_cost: 1_000, conversions: 2, orders: 3 },
+        { date: '2026-07-11', ad_cost: 2_000, conversions: null, orders: null },
+      ]);
+  });
+
   it('composes funnel orders from the exact listing-day intersection, never Wing order fields', async () => {
     const first = await seedTestListing('FUNNEL-1');
     const second = await seedTestListing('FUNNEL-2');

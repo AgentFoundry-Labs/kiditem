@@ -3,6 +3,7 @@
 import { useRef } from 'react';
 import {
   isRocketWorkbookBlockingReason,
+  ROCKET_PURCHASE_PREVIEW_REASON_LABELS,
   ROCKET_SHORTAGE_REASONS,
 } from '@kiditem/shared/rocket-purchase-preview';
 import type { RocketOrderActivityInput } from '@/lib/rocket-order-activity';
@@ -17,16 +18,6 @@ import type {
   RocketShortageReason,
 } from '@kiditem/shared/rocket-purchase-preview';
 
-const PREVIEW_REASON_LABELS: Record<RocketPurchasePreviewReason, string> = {
-  mapping_required: '상품 매칭 필요',
-  configuration_required: '구성 필요',
-  review_required: '검토 필요',
-  inventory_unavailable: 'Sellpia 재고 미수집',
-  insufficient_capacity: 'Sellpia 재고 부족',
-  collection_incomplete: '수집 자료 불완전',
-  vendor_mismatch: '채널 계정 불일치',
-};
-
 function previewReasonLabel(
   reason: RocketPurchasePreviewReason,
   hasConfiguredVendorId: boolean,
@@ -34,7 +25,7 @@ function previewReasonLabel(
   if (reason === 'vendor_mismatch' && !hasConfiguredVendorId) {
     return '공급사 ID 설정 필요';
   }
-  return PREVIEW_REASON_LABELS[reason];
+  return ROCKET_PURCHASE_PREVIEW_REASON_LABELS[reason];
 }
 
 function normalizeReviewQuantity(value: string, maxQuantity: number): number {

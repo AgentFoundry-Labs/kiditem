@@ -4,7 +4,11 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { Package } from 'lucide-react';
 import type { SellpiaProductDestination } from '@kiditem/shared/dashboard';
-import type { ProductAbcDisplayStatus, ProductAbcReadModel } from '@kiditem/shared/product-abc';
+import {
+  PRODUCT_ABC_DISPLAY_STATUS_LABELS,
+  productAbcDisplayStatus,
+  type ProductAbcReadModel,
+} from '@kiditem/shared/product-abc';
 
 export type ProductOutflowDestinationsProps = {
   destinations: SellpiaProductDestination[];
@@ -78,11 +82,6 @@ function destinationTitle(destination: SellpiaProductDestination): string {
   return `${identity} · ${abcReadTitle(destination.abc)}`;
 }
 
-const ABC_STATUS_LABEL: Record<ProductAbcDisplayStatus, string> = {
-  INSUFFICIENT_EVIDENCE: '관찰 중', SOURCE_UNMAPPED: '상품 매핑 필요',
-  SELLPIA_SOURCE_STALE: '셀피아 원천 갱신 필요', AD_SOURCE_STALE: '광고 원천 갱신 필요', READY: '평가 완료',
-};
-
 export function abcReadTitle(abc: ProductAbcReadModel): string {
-  return `수익성 ABC ${abc.abcGrade ? `${abc.abcGrade}등급` : '미분류'} · ${ABC_STATUS_LABEL[abc.displayStatus]} · 평가 기준 ${abc.officialCutoffDate ?? '미발행'} · 데이터 기준 ${abc.actualCutoffDate ?? '없음'}`;
+  return `수익성 ABC ${abc.abcGrade ? `${abc.abcGrade}등급` : '미분류'} · ${PRODUCT_ABC_DISPLAY_STATUS_LABELS[productAbcDisplayStatus(abc)]} · 평가 기준 ${abc.officialCutoffDate ?? '미발행'} · 데이터 기준 ${abc.actualCutoffDate ?? '없음'}`;
 }

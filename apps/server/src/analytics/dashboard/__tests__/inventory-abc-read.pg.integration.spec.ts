@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD, PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH } from '@kiditem/shared/product-abc';
+import { PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD, PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH, productAbcDisplayStatus } from '@kiditem/shared/product-abc';
 import { SellpiaProductInventoryReader } from '../../sellpia-product-sales/sellpia-product-inventory-reader';
 import { InventoryAvailabilityRepositoryAdapter } from '../../../inventory/adapter/out/repository/inventory-availability.repository.adapter';
 import { InventoryAvailabilityService } from '../../../inventory/application/service/inventory-availability.service';
@@ -83,9 +83,10 @@ describe('Analytics inventory ABC reads (PostgreSQL)', () => {
       status: 'matched', currentStock: 10,
       inventoryProduct: {
         abc: { abcGrade: 'A', evaluation: { abcGrade: 'A', economicScore: 100, gradeBasisCutoffDate: cutoff },
-          displayStatus: 'READY', actualCutoffDate: cutoff, officialCutoffDate: cutoff },
+          actualCutoffDate: cutoff, officialCutoffDate: cutoff },
       },
     });
+    expect(ownAbcStatuses(result)).toMatchObject({ inventoryProduct: 'READY' });
     expect(result.projection.summary.abcStatusCounts).toEqual({
       READY: 1, INSUFFICIENT_EVIDENCE: 0, SOURCE_UNMAPPED: 0, SELLPIA_SOURCE_STALE: 0, AD_SOURCE_STALE: 0,
     });
@@ -137,7 +138,7 @@ describe('Analytics inventory ABC reads (PostgreSQL)', () => {
     }]);
     expect(result.projection.byProductKey.get('OWN')?.inventoryResolution).toMatchObject({
       inventoryProduct: { abc: { abcGrade: 'A', evaluation: { publicationRevision: 1 },
-        displayStatus: 'READY', actualCutoffDate: cutoff, officialCutoffDate: cutoff,
+        actualCutoffDate: cutoff, officialCutoffDate: cutoff,
         sources: { [source]: {
           ready: true,
           actualCutoff: cutoff,
@@ -146,11 +147,11 @@ describe('Analytics inventory ABC reads (PostgreSQL)', () => {
       } },
       destinations: [{ abc: {
         abcGrade: 'A',
-        displayStatus: 'READY',
         actualCutoffDate: cutoff,
         sources: { [source]: { ready: true, latestAttempt: { state: 'FAILED' } } },
       } }],
     });
+    expect(ownAbcStatuses(result)).toEqual({ inventoryProduct: 'READY', destinations: ['READY'] });
     const summary = await dashboard.getSummary(buildDashboardContext(), TEST_ORGANIZATION_ID);
     expect(summary.gradeCount).toEqual({ A: 1, B: 0, C: 0 });
     expect(summary.abcStatusCount.READY).toBe(1);
@@ -219,10 +220,10 @@ describe('Analytics inventory ABC reads (PostgreSQL)', () => {
       inventoryProduct: { abc: {
         abcGrade: 'A',
         evaluation: { abcGrade: 'A', formulaRevision: 1, publicationRevision: 1 },
-        displayStatus: 'SELLPIA_SOURCE_STALE',
         actualCutoffDate: null,
       } },
     });
+    expect(ownAbcStatuses(result)).toMatchObject({ inventoryProduct: 'SELLPIA_SOURCE_STALE' });
     expect(result.projection.summary.abcStatusCounts.READY).toBe(0);
     expect(result.projection.summary.abcCounts).toEqual({ A: 1, B: 0, C: 0 });
     // No actual cutoff means the retained grade's age is unknown. `unknown`
@@ -320,3 +321,15 @@ describe('Analytics inventory ABC reads (PostgreSQL)', () => {
     return attempt.plan.to;
   }
 });
+
+/** The shared display word for the OWN product and its destinations, derived from the published facts. */
+function ownAbcStatuses(result: Awaited<ReturnType<SellpiaProductInventoryReader['project']>>) {
+  const resolution = result.projection.byProductKey.get('OWN')?.inventoryResolution;
+  if (resolution?.status !== 'matched') return null;
+  return {
+    inventoryProduct: resolution.inventoryProduct
+      ? productAbcDisplayStatus(resolution.inventoryProduct.abc)
+      : null,
+    destinations: resolution.destinations.map((destination) => productAbcDisplayStatus(destination.abc)),
+  };
+}

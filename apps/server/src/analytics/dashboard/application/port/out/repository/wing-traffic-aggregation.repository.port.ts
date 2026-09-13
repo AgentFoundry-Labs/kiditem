@@ -20,12 +20,13 @@ export const WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT = Symbol(
 export type TrafficAdditiveMetric = keyof TrafficReconciliation;
 
 export interface WingTrafficMetrics {
-  revenue: number;
-  orders: number;
-  salesQty: number;
+  /** Additive totals over covered dates; `null` when no requested date was covered. */
+  revenue: number | null;
+  orders: number | null;
+  salesQty: number | null;
   visitors: number | null;
-  views: number;
-  cartAdds: number;
+  views: number | null;
+  cartAdds: number | null;
   conversionRate: number | null;
   /** Average of listing-day visitor totals over dates with measured traffic. */
   dailyAverageVisitors?: number | null;
@@ -44,12 +45,14 @@ export interface WingTrafficMetrics {
 }
 
 export interface CoupangAdsMetrics {
-  spend: number;
-  revenue: number;
-  impressions: number;
-  clicks: number;
-  conversions: number;
-  orders: number;
+  /** Additive totals over measured dates; `null` when no requested date was measured. */
+  spend: number | null;
+  revenue: number | null;
+  impressions: number | null;
+  clicks: number | null;
+  /** `null` unless every measured day observed the conversion columns. */
+  conversions: number | null;
+  orders: number | null;
   /** Our report-defined CVR: observed orders / clicks. */
   conversionRate: number | null;
   /** Provider ratio, preserved separately and never used for our CVR. */
@@ -124,8 +127,9 @@ export interface CoupangAdsDailyRow {
   ad_revenue: number;
   clicks: number;
   impressions: number;
-  conversions: number;
-  orders: number;
+  /** `null` when that day's provider grid did not carry the conversion columns. */
+  conversions: number | null;
+  orders: number | null;
   observedAt: string | null;
 }
 

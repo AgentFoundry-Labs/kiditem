@@ -26,7 +26,6 @@ const state = vi.hoisted(() => ({
       abc: {
         abcGrade: null,
         evaluation: null,
-        displayStatus: 'INSUFFICIENT_EVIDENCE' as const,
         formulaRevision: 2,
         publicationRevision: 4,
         officialCutoffDate: null,

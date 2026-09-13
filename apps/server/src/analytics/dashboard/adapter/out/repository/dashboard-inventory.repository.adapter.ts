@@ -14,6 +14,7 @@ import {
   isChannelListingOnSale,
   resolveChannelListingSaleStatus,
 } from "@kiditem/shared/channel-listing";
+import { productAbcDisplayStatus } from "@kiditem/shared/product-abc";
 import { PrismaService } from "../../../../../prisma/prisma.service";
 import { readLatestListingSaleStatusFacts } from "../../../../../channels/read/channel-listing-daily-facts";
 import {
@@ -82,7 +83,7 @@ export class DashboardInventoryRepositoryAdapter implements DashboardInventoryRe
     let classifiedProductCount = 0;
     let withheldContributionProductCount = 0;
     for (const product of snapshot.products) {
-      const displayStatus = product.abc.displayStatus;
+      const displayStatus = productAbcDisplayStatus(product.abc);
       statusCounts.set(
         displayStatus,
         (statusCounts.get(displayStatus) ?? 0) + 1,
