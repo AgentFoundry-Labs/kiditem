@@ -1,6 +1,6 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { BadRequestException, Controller, Get, Query } from '@nestjs/common';
 import { ChannelDashboardService } from '../../../application/service/channel-dashboard.service';
-import { kstDayStart } from '../../../../common/kst';
+import { addDays, kstDayStart, parseBusinessDate } from '../../../../common/kst';
 import { CoupangDateRangeQueryDto } from './dto';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 
@@ -9,12 +9,19 @@ export class ChannelDashboardController {
   constructor(private readonly service: ChannelDashboardService) {}
 
   private resolveDateRange(fromStr?: string, toStr?: string): { from: Date; to: Date } {
-    const defaultFrom = kstDayStart(new Date(Date.now() - 30 * 86400000));
-    const defaultTo = new Date(kstDayStart(new Date()).getTime() + 86400000);
-    const from = fromStr ? kstDayStart(new Date(fromStr)) : defaultFrom;
-    const to = toStr
-      ? new Date(kstDayStart(new Date(toStr)).getTime() + 86400000)
-      : defaultTo;
+    const todayStart = kstDayStart(new Date());
+    const defaultFrom = addDays(todayStart, -30);
+    const defaultTo = addDays(todayStart, 1);
+    const requestedFrom = fromStr ? parseBusinessDate(fromStr) : null;
+    const requestedTo = toStr ? parseBusinessDate(toStr) : null;
+    if ((fromStr !== undefined && !requestedFrom) || (toStr !== undefined && !requestedTo)) {
+      throw new BadRequestException('날짜는 유효한 YYYY-MM-DD 형식이어야 합니다.');
+    }
+    const from = requestedFrom ? kstDayStart(requestedFrom) : defaultFrom;
+    const to = requestedTo ? addDays(kstDayStart(requestedTo), 1) : defaultTo;
+    if (from.getTime() >= to.getTime()) {
+      throw new BadRequestException('from은 to보다 이후일 수 없습니다.');
+    }
     return { from, to };
   }
 

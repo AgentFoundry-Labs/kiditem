@@ -18,6 +18,7 @@ describe('OrderCollectionController Coupang direct convert', () => {
     };
     const collection = { convertArt09Orders: vi.fn().mockReturnValue(conversion) };
     const source = {
+      validateCompletion: vi.fn().mockResolvedValue(undefined),
       completeAttempt: vi.fn().mockResolvedValue({ artifactId: 'art09-artifact' }),
     };
     const controller = new OrderCollectionController(
@@ -55,7 +56,7 @@ describe('OrderCollectionController Coupang direct convert', () => {
 
   it('rejects unfenced mall conversion instead of leaving a standalone export path', async () => {
     const collection = { convertKidsnoteOrders: vi.fn() };
-    const source = { failAttempt: vi.fn() };
+    const source = { validateCompletion: vi.fn(), failAttempt: vi.fn() };
     const controller = new OrderCollectionController(
       collection as never,
       {} as never,
@@ -120,7 +121,10 @@ describe('OrderCollectionController Coupang direct convert', () => {
         throw conversionError;
       }),
     };
-    const source = { failAttempt: vi.fn().mockResolvedValue({ state: 'FAILED' }) };
+    const source = {
+      validateCompletion: vi.fn().mockResolvedValue(undefined),
+      failAttempt: vi.fn().mockResolvedValue({ state: 'FAILED' }),
+    };
     const controller = new OrderCollectionController(
       collection as never,
       {} as never,

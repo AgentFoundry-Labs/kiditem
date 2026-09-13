@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, BadRequestException, NotImplementedExcep
 import { PrismaService } from '../../prisma/prisma.service';
 import { OrderStatusSchema } from '@kiditem/shared/order';
 import type { OrderActionResponse, OrderListItem, OrderListResponse, OrderStatsResponse } from '@kiditem/shared/order';
+import { addDays, kstBusinessDate, kstDayStart } from '../../common/kst';
 
 @Injectable()
 export class OrdersService {
@@ -155,9 +156,9 @@ export class OrdersService {
 
   async getStats(organizationId: string): Promise<OrderStatsResponse> {
     const now = new Date();
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const dayOfWeek = now.getDay();
-    const weekStart = new Date(todayStart.getTime() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1) * 86400000);
+    const todayStart = kstDayStart(now);
+    const dayOfWeek = kstBusinessDate(now).getUTCDay();
+    const weekStart = addDays(todayStart, -(dayOfWeek === 0 ? 6 : dayOfWeek - 1));
 
     const [total, accept, instruct, departure, delivering, finalDelivery, todayAgg, weekAgg] =
       await Promise.all([

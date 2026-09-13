@@ -13,6 +13,7 @@ import {
 } from '../application/port/in/sellpia-profitability-source-read.port';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { businessDateKey } from '../../common/kst';
 import {
   ALERT_DEDUPE_KEY,
   ATTEMPT_TTL_MS,
@@ -509,8 +510,8 @@ export class SellpiaProfitabilitySourceService
         if (!row.coverageStartDate || !row.coverageEndDate) {
           throw new UnprocessableEntityException('SOURCE_COVERAGE_MALFORMED');
         }
-        const coverageStartDate = row.coverageStartDate.toISOString().slice(0, 10);
-        const coverageEndDate = row.coverageEndDate.toISOString().slice(0, 10);
+        const coverageStartDate = businessDateKey(row.coverageStartDate);
+        const coverageEndDate = businessDateKey(row.coverageEndDate);
         const base = {
           sourceImportRunId: row.sourceImportRunId ?? input.sourceImportRunId,
           productCode: row.productCode,

@@ -8,6 +8,7 @@ import {
 import { Prisma } from '@prisma/client';
 import { deriveSourceReadiness } from '@kiditem/shared/source-readiness';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
+import { businessDateKey, parseBusinessDate } from '../../../../common/kst';
 import { canonicalOwnerInputHash as hash } from '../../../../common/owner-idempotency-key';
 import { resolveCoupangVendorId } from '../../../../channels/domain/coupang-account-identity';
 import { currentBusinessDate, toBusinessDate } from '../../../domain/business-date';
@@ -51,11 +52,13 @@ function json(value: unknown): Prisma.InputJsonValue {
 }
 
 function dateText(value: Date): string {
-  return value.toISOString().slice(0, 10);
+  return businessDateKey(value);
 }
 
 function dateAtUtc(value: string): Date {
-  return new Date(`${value}T00:00:00.000Z`);
+  const parsed = parseBusinessDate(value);
+  if (!parsed) throw new Error(`Invalid business date: ${value}`);
+  return parsed;
 }
 
 function expired(row: SourceRun): boolean {

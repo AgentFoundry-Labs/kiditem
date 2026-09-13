@@ -24,7 +24,13 @@ import {
   type SellpiaProfitabilitySourceReadPort,
 } from '../../../analytics/application/port/in/sellpia-profitability-source-read.port';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { kstMonthEnd } from '../../../common/kst';
+import {
+  businessDateKey,
+  datesInclusive,
+  evidenceCutoffDate,
+  kstMonthEnd,
+  parseBusinessDate,
+} from '../../../common/kst';
 import { readProductSaleAgeEvidence } from '../../../common/product-sale-age';
 import {
   type MasterProductAbcFormulaReadyMonthlyFact,
@@ -37,7 +43,6 @@ import {
 const MAX_CALENDAR_MONTHS = 12;
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const YEAR_MONTH_PATTERN = /^\d{4}-(0[1-9]|1[0-2])$/;
-const DAY_MS = 86_400_000;
 
 type SellpiaGeneration = Readonly<{
   metadata: SellpiaProfitabilityGenerationMetadata;
@@ -312,8 +317,8 @@ function parseClosedCutoff(value: string): string {
   if (typeof value !== 'string' || !DATE_PATTERN.test(value)) {
     throw new BadRequestException('Profitability evidence cutoff must be a calendar date');
   }
-  const date = new Date(`${value}T00:00:00.000Z`);
-  if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== value
+  const date = parseBusinessDate(value);
+  if (!date
     || value > latestClosedKstDate()) {
     throw new BadRequestException(
       'Profitability evidence cutoff must be a closed KST calendar date',
@@ -323,13 +328,7 @@ function parseClosedCutoff(value: string): string {
 }
 
 function latestClosedKstDate(now = new Date()): string {
-  const kst = new Date(now.getTime() + 9 * 60 * 60 * 1_000);
-  const yesterday = new Date(Date.UTC(
-    kst.getUTCFullYear(),
-    kst.getUTCMonth(),
-    kst.getUTCDate() - 1,
-  ));
-  return yesterday.toISOString().slice(0, 10);
+  return businessDateKey(evidenceCutoffDate(now));
 }
 
 function calendarMonthRange(targetCutoff: string, count: number): string[] {
@@ -697,8 +696,7 @@ function parseDate(value: string, code: string): string {
   if (typeof value !== 'string' || !DATE_PATTERN.test(value)) {
     throw new UnprocessableEntityException(code);
   }
-  const parsed = new Date(`${value}T00:00:00.000Z`);
-  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value) {
+  if (!parseBusinessDate(value)) {
     throw new UnprocessableEntityException(code);
   }
   return value;
@@ -731,5 +729,7 @@ function addMoney(left: number, right: number): number {
 }
 
 function calendarDaysInclusive(start: string, end: string): number {
-  return Math.floor((Date.parse(`${end}T00:00:00.000Z`) - Date.parse(`${start}T00:00:00.000Z`)) / DAY_MS) + 1;
+  const startDate = parseBusinessDate(start);
+  const endDate = parseBusinessDate(end);
+  return startDate && endDate ? datesInclusive(startDate, endDate).length : 0;
 }

@@ -1,7 +1,15 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { MulterFile } from '../../common/types';
-import { kstBusinessDate, kstDayStart } from '../../common/kst';
+import {
+  addDays,
+  businessDateKey,
+  datesInclusive,
+  evidenceCutoffDate,
+  kstBusinessDate,
+  kstDayStart,
+  parseBusinessDate,
+} from '../../common/kst';
 import {
   AD_TRAFFIC_READ_PORT,
   type AdTrafficReadPort,
@@ -92,7 +100,7 @@ export class TrafficService {
   /** Period summary over owner-published account daily facts. */
   async getTrafficSummary(days: number, organizationId: string) {
     const todayStart = kstDayStart(new Date());
-    const todayEnd = new Date(todayStart.getTime() + 86400000);
+    const todayEnd = addDays(todayStart, 1);
 
     let start: Date;
     let end: Date;
@@ -100,7 +108,7 @@ export class TrafficService {
       start = todayStart;
       end = todayEnd;
     } else {
-      start = new Date(todayStart.getTime() - (days - 1) * 86400000);
+      start = addDays(todayStart, -(days - 1));
       end = todayEnd;
     }
 
@@ -147,12 +155,11 @@ export class TrafficService {
   async getMonthlyRevenue(year: number, month: number, organizationId: string) {
     const start = new Date(Date.UTC(year, month - 1, 1));
     const endExclusive = new Date(Date.UTC(year, month, 1));
-    const today = kstBusinessDate(new Date());
     // Wing's current business date is still in flight. Only yesterday is an
     // explicit monthly cutoff; today's partial collection must not make a
     // month appear complete.
-    const yesterday = new Date(today.getTime() - 86_400_000);
-    const monthEnd = new Date(endExclusive.getTime() - 86_400_000);
+    const yesterday = evidenceCutoffDate();
+    const monthEnd = addDays(endExclusive, -1);
     const effectiveEnd = monthEnd < yesterday ? monthEnd : yesterday;
     if (start > effectiveEnd) {
       const coverage = emptyCoverage(calendarDate(start), calendarDate(monthEnd));
@@ -331,16 +338,11 @@ function emptyCoverage(from: string, to: string): TrafficCoverage {
 }
 
 function enumerateDates(from: string, to: string): string[] {
-  const result: string[] = [];
-  const cursor = new Date(`${from}T00:00:00.000Z`);
-  const end = new Date(`${to}T00:00:00.000Z`);
-  while (cursor.getTime() <= end.getTime()) {
-    result.push(calendarDate(cursor));
-    cursor.setUTCDate(cursor.getUTCDate() + 1);
-  }
-  return result;
+  const start = parseBusinessDate(from);
+  const end = parseBusinessDate(to);
+  return start && end ? datesInclusive(start, end).map(businessDateKey) : [];
 }
 
 function calendarDate(value: Date): string {
-  return value.toISOString().slice(0, 10);
+  return businessDateKey(value);
 }

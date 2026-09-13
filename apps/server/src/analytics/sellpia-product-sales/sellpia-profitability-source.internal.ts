@@ -6,6 +6,13 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import {
+  addDays,
+  businessDateKey,
+  evidenceCutoffDate,
+  kstMonthEnd,
+  parseBusinessDate,
+} from '../../common/kst';
 import { createSellpiaProductInventoryResolver } from './sellpia-product-inventory-resolver';
 import type {
   SellpiaProfitabilityAttemptSummary,
@@ -93,21 +100,8 @@ export function buildSellpiaProfitabilityPlan(
   now: Date,
   normalizedSourceAvailabilityDate?: string,
 ): SellpiaProfitabilityPlan {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'Asia/Seoul',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(now);
-  const year = Number(parts.find((part) => part.type === 'year')?.value);
-  const month = Number(parts.find((part) => part.type === 'month')?.value);
-  const day = Number(parts.find((part) => part.type === 'day')?.value);
-  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) {
-    throw new BadRequestException('INVALID_SERVER_CLOCK');
-  }
-  const end = new Date(Date.UTC(year, month - 1, day - 1));
-  const earliest = new Date(end);
-  earliest.setUTCDate(earliest.getUTCDate() - SELLPIA_PROFITABILITY_WINDOW_DAYS + 1);
+  const end = evidenceCutoffDate(now);
+  const earliest = addDays(end, -(SELLPIA_PROFITABILITY_WINDOW_DAYS - 1));
   let from = earliest;
   if (normalizedSourceAvailabilityDate !== undefined) {
     const availability = parseDate(normalizedSourceAvailabilityDate.trim());
@@ -494,9 +488,8 @@ export function monthIntersection(
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(yearMonth)) {
     throw new UnprocessableEntityException('SOURCE_MONTH_INVALID');
   }
-  const [year, month] = yearMonth.split('-').map(Number);
   const monthStart = `${yearMonth}-01`;
-  const monthEnd = isoDate(new Date(Date.UTC(year!, month!, 0)));
+  const monthEnd = kstMonthEnd(yearMonth);
   const from = monthStart > plan.from ? monthStart : plan.from;
   const to = monthEnd < plan.to ? monthEnd : plan.to;
   if (from > to) throw new UnprocessableEntityException('SOURCE_MONTH_OUTSIDE_PLAN');
@@ -555,9 +548,7 @@ export function dateOnly(value: string): Date {
 }
 
 export function parseDate(value: string): Date | null {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
-  const parsed = new Date(`${value}T00:00:00.000Z`);
-  return isoDate(parsed) === value ? parsed : null;
+  return parseBusinessDate(value);
 }
 
 export function boundedCatalogLimit(value: number | undefined): number {
@@ -569,7 +560,7 @@ export function boundedCatalogLimit(value: number | undefined): number {
 }
 
 export function isoDate(value: Date): string {
-  return value.toISOString().slice(0, 10);
+  return businessDateKey(value);
 }
 
 export function generationMetadata(

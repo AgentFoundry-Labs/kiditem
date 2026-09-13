@@ -7,6 +7,7 @@ import type {
   OrphanSellpiaProductProfitFact,
 } from '../application/port/in/master-product-profit-fact-read.port';
 import { PrismaService } from '../../prisma/prisma.service';
+import { datesInclusive } from '../../common/kst';
 
 type SourceFactRow = Readonly<{
   masterProductId: string | null;
@@ -146,7 +147,7 @@ function hasMatchingCoverage(rows: readonly SourceFactRow[]): boolean {
 }
 
 function calendarDaysInclusive(start: Date, end: Date): number {
-  return Math.floor((end.getTime() - start.getTime()) / 86_400_000) + 1;
+  return datesInclusive(start, end).length;
 }
 
 function yearMonthsIntersecting(range: { from: Date; to: Date }): string[] {

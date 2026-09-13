@@ -16,6 +16,7 @@ import { SourcingAgentRagService } from './sourcing-agent-rag.service';
 import { SourcingReviewService } from './sourcing-review.service';
 import { SourcingValidationService } from './sourcing-validation.service';
 import { canonicalOwnerInputHash } from '../../../common/owner-idempotency-key';
+import { businessDateKey } from '../../../common/kst';
 
 @Injectable()
 export class SourcingAgentWorkspaceReadCapabilityService
@@ -74,7 +75,7 @@ export class SourcingAgentWorkspaceReadCapabilityService
     return {
       runId: run.id,
       status: run.status,
-      businessDate: run.businessDate.toISOString().slice(0, 10),
+      businessDate: businessDateKey(run.businessDate),
       itemCount: run.items.length,
       warningCodes: [...run.warningCodes],
       validation: {

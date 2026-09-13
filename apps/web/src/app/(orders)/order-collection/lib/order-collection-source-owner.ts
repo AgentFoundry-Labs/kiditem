@@ -27,6 +27,8 @@ export const OrderCollectionSourceAttemptSchema = z.object({
   plan: OrderCollectionSourcePlanSchema,
   expiresAt: z.string().datetime({ offset: true }).nullable(),
   artifactId: z.string().uuid().nullable(),
+  coverageStartDate: z.string().date().nullable(),
+  coverageEndDate: z.string().date().nullable(),
   errorCode: z.string().nullable(),
   errorMessage: z.string().nullable(),
 }).strict();

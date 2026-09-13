@@ -503,7 +503,7 @@ describe('AdCampaignsService', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-07-24T03:00:00.000Z'));
     try {
-      await service.getTrends('7d', undefined, 'organization-1');
+      const result = await service.getTrends('7d', undefined, 'organization-1');
 
       const completeRange = {
         from: new Date('2026-07-17T00:00:00.000Z'),
@@ -518,6 +518,7 @@ describe('AdCampaignsService', () => {
         '7d',
         completeRange,
       );
+      expect(result.knownThrough).toBe('2026-07-23');
     } finally {
       vi.useRealTimers();
     }

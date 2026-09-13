@@ -29,8 +29,15 @@ import {
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { canonicalOwnerInputHash as hash } from '../../../../common/owner-idempotency-key';
+import { compareAttemptsNewestFirst } from '../../../../common/current-row';
 import { resolveCoupangVendorId } from '../../../../channels/domain/coupang-account-identity';
-import { currentBusinessDate, toBusinessDate } from '../../../domain/business-date';
+import {
+  addDays,
+  businessDateKey,
+  datesInclusive,
+  evidenceCutoffDate,
+  toBusinessDate,
+} from '../../../../common/kst';
 import { toNumber } from '../../../domain/scrape-row-normalizers';
 import type {
   AdAccountDailyKpiReadPort,
@@ -47,7 +54,6 @@ const RECEIPT_KIND = 'account_daily_kpi';
 const SOURCE_ALERT_DEDUPE_KEY = `source:${SOURCE_TYPE}`;
 const SOURCE_ALERT_TITLE = '쿠팡 계정 일별 광고 KPI 수집 실패';
 const EXPIRES_IN_MS = 30 * 60_000;
-const DAY_MS = 86_400_000;
 // Recent 30 days is the initial recollection operating recommendation. It is
 // a refresh window, not a provider finalization/maturity guarantee.
 const DEFAULT_COVERAGE_DAYS = 30;
@@ -69,23 +75,11 @@ function json(value: unknown): Prisma.InputJsonValue {
 }
 
 function dateText(value: Date): string {
-  return value.toISOString().slice(0, 10);
+  return businessDateKey(value);
 }
 
 function dateAtUtc(value: string): Date {
   return new Date(`${value}T00:00:00.000Z`);
-}
-
-function addDays(value: Date, amount: number): Date {
-  return new Date(value.getTime() + amount * DAY_MS);
-}
-
-function datesInclusive(from: Date, to: Date): string[] {
-  const result: string[] = [];
-  for (let current = from; current.getTime() <= to.getTime(); current = addDays(current, 1)) {
-    result.push(dateText(current));
-  }
-  return result;
 }
 
 function expired(row: SourceRun): boolean {
@@ -211,7 +205,7 @@ export class AdAccountDailyKpiSourceRepository
         );
       }
 
-      const yesterday = addDays(currentBusinessDate(), -1);
+      const yesterday = evidenceCutoffDate();
       let coverageRangeStart: Date;
       let coverageRangeEnd: Date;
       let expectedDates: string[];
@@ -231,7 +225,7 @@ export class AdAccountDailyKpiSourceRepository
       } else {
         coverageRangeEnd = yesterday;
         coverageRangeStart = addDays(yesterday, -(DEFAULT_COVERAGE_DAYS - 1));
-        expectedDates = datesInclusive(coverageRangeStart, coverageRangeEnd);
+        expectedDates = datesInclusive(coverageRangeStart, coverageRangeEnd).map(businessDateKey);
         // Recollect every recent date on an explicit start. Delayed provider
         // attribution can revise an already-complete day, so a missing-only
         // plan would leave stale complete values published forever.
@@ -683,13 +677,18 @@ export class AdAccountDailyKpiSourceRepository
           .sort((left, right) => {
             const dateOrder = left.businessDate!.getTime() - right.businessDate!.getTime();
             if (dateOrder !== 0) return dateOrder;
-            const leftGeneration = left.sourceImportRun?.freshnessGeneration ?? 0n;
-            const rightGeneration = right.sourceImportRun?.freshnessGeneration ?? 0n;
-            if (leftGeneration !== rightGeneration) {
-              return leftGeneration > rightGeneration ? -1 : 1;
-            }
-            const observedOrder = right.observedAt.getTime() - left.observedAt.getTime();
-            return observedOrder !== 0 ? observedOrder : left.id.localeCompare(right.id);
+            return compareAttemptsNewestFirst(
+              {
+                observedAt: left.sourceImportRun?.freshnessGeneration ?? null,
+                importedAt: left.observedAt,
+                id: left.id,
+              },
+              {
+                observedAt: right.sourceImportRun?.freshnessGeneration ?? null,
+                importedAt: right.observedAt,
+                id: right.id,
+              },
+            );
           })
           .flatMap((row) => {
             if (!row.businessDate) {
@@ -753,9 +752,9 @@ export class AdAccountDailyKpiSourceRepository
         actualCutoffAt: null,
       });
     }
-    const yesterday = addDays(currentBusinessDate(), -1);
+    const yesterday = evidenceCutoffDate();
     const coverageStart = addDays(yesterday, -(DEFAULT_COVERAGE_DAYS - 1));
-    const expectedDates = datesInclusive(coverageStart, yesterday);
+    const expectedDates = datesInclusive(coverageStart, yesterday).map(businessDateKey);
     const rows = await this.completeSnapshotsIn(
       tx,
       organizationId,

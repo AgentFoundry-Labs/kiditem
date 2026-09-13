@@ -114,12 +114,22 @@ canonical facts, coverage manifests, current complete snapshot, and terminal
 status. Nothing else writes those rows.
 _Avoid_: collector, importer, sync service
 
+**Transport receipt**:
+The immutable record of one consumed directship transport result, including its
+original order effects and any Sellpia transmission intent. Multiple collection
+attempts may refer to the same receipt without applying its effects again.
+
+**Attempt consumption**:
+The link from a directship collection attempt and selected transport to its
+transport receipt. It records consumption separately from the collected source.
+
 ### Ledgers
 
 **Ledger**:
 The one table that holds one kind of measured fact, written only by its source
 owner's terminal transaction. A fact has exactly one ledger; a table that
 restates another ledger's rows (a rollup, a cache, a status word) is not one.
+The canonical list is the [ledger reader manifest](../../scripts/ledger-readers.json).
 _Avoid_: snapshot table, fact table, cache, projection
 
 **Reader**:

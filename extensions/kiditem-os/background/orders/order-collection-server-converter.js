@@ -28,6 +28,8 @@
   const UUID =
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   const ROW_KEY_SEPARATOR = "\u001f";
+  const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+  const COVERAGE_CAPABLE_MALLS = new Set(["haebub-mall", "domeggook"]);
 
   function bounded(value, fallback, maximum = 300) {
     if (typeof value !== "string") return fallback;
@@ -228,6 +230,33 @@
     throw error;
   }
 
+  function confirmedCoverageHeaders(mallKey, capture) {
+    const coverage = capture?.confirmedCoverage;
+    if (coverage === undefined || coverage === null) return {};
+    const startDate = coverage?.startDate;
+    const endDate = coverage?.endDate;
+    if (
+      !COVERAGE_CAPABLE_MALLS.has(mallKey) ||
+      !isDateOnly(startDate) ||
+      !isDateOnly(endDate)
+    ) {
+      const error = new Error("주문 수집 확인 범위 형식이 올바르지 않습니다.");
+      error.code = "CAPTURE_INVALID";
+      error.sourcePayload = capture;
+      throw error;
+    }
+    return {
+      "x-order-collection-coverage-start-date": startDate,
+      "x-order-collection-coverage-end-date": endDate,
+    };
+  }
+
+  function isDateOnly(value) {
+    if (typeof value !== "string" || !DATE_ONLY.test(value)) return false;
+    const parsed = new Date(`${value}T00:00:00.000Z`);
+    return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+  }
+
   function bodyFor(mallKey, capture, plan, input) {
     const json = jsonPayload(mallKey, capture, plan, input);
     if (json) {
@@ -255,6 +284,7 @@
     async function convert({ environmentId, attempt, mallKey, capture, plan = {}, input = {} }) {
       let body;
       let endpoint;
+      let coverageHeaders;
       try {
         if (!UUID.test(String(attempt?.attemptId || "")) || !UUID.test(String(attempt?.attemptToken || ""))) {
           throw new Error("Order collection owner fence is required");
@@ -268,8 +298,15 @@
           throw error;
         }
         requireCaptureShape(mallKey, capture);
+        coverageHeaders = confirmedCoverageHeaders(mallKey, capture);
+        const confirmedEmpty = capture?.success === true && capture?.confirmedCoverage != null && (
+          (mallKey === "haebub-mall" && capture.orders.length === 0) ||
+          (mallKey === "domeggook" && capture.empty === true &&
+            !capture.csvBase64 && !capture.xlsxBase64 && !capture.orders?.length)
+        );
         if (
           noNewOrders(capture) &&
+          !confirmedEmpty &&
           !(mallKey === "icecream-mall" && plan.selectionMode === "automatic")
         ) {
           const error = new Error("신규 주문이 없습니다.");
@@ -278,9 +315,20 @@
           error.sourcePayload = capture;
           throw error;
         }
-        endpoint = ENDPOINTS[mallKey];
+        endpoint = confirmedEmpty
+          ? `/api/orders/collection/attempts/${attempt.attemptId}/complete-empty`
+          : ENDPOINTS[mallKey];
         if (!endpoint) throw new Error("지원하지 않는 주문 수집 몰입니다.");
-        body = bodyFor(
+        body = confirmedEmpty ? {
+          headers: JSON_HEADERS,
+          body: JSON.stringify({
+            kind: "confirmed-empty-orders",
+            mallKey,
+            orders: [],
+            confirmedCoverage: capture.confirmedCoverage,
+          }),
+          fileName: null,
+        } : bodyFor(
           mallKey,
           capture,
           plan,
@@ -291,6 +339,7 @@
       }
       const headers = {
         ...(body.headers || {}),
+        ...coverageHeaders,
         "x-order-collection-attempt-id": attempt.attemptId,
         "x-source-attempt-token": attempt.attemptToken,
       };

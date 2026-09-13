@@ -19,6 +19,7 @@ import {
   advanceProductMappingGeneration,
   lockProductMapping,
 } from '../../../../common/product-mapping-generation';
+import { allocatePublicationSequence } from '../../../../common/publication-sequence';
 import {
   assembleCompleteSnapshot,
   assembleFullDetailsSnapshot,
@@ -333,7 +334,11 @@ export class ChannelCatalogPublicationRepositoryAdapter implements ChannelCatalo
             : {}),
         };
       }
-      const publicationSequence = await nextPublicationSequence(tx, input.organizationId, stage);
+      const publicationSequence = await allocatePublicationSequence(
+        tx,
+        input.organizationId,
+        catalogSourceForStage(stage),
+      );
       assertCatalogWritable(sourceRun);
       const completed = await tx.sourceImportRun.updateMany({
         where: {
@@ -559,29 +564,6 @@ function transactionClient(value: unknown): Prisma.TransactionClient {
     throw new ConflictException('Catalog publication requires a Prisma transaction');
   }
   return value as Prisma.TransactionClient;
-}
-
-async function nextPublicationSequence(
-  tx: Prisma.TransactionClient,
-  organizationId: string,
-  stage: PublishInput['stage'] = 'full',
-): Promise<bigint> {
-  const sourceType = catalogSourceForStage(stage ?? 'full');
-  const sequenceLockKey = `channel-catalog-sequence:${organizationId}:${sourceType}`;
-  await tx.$queryRaw`
-    SELECT pg_advisory_xact_lock(hashtextextended(${sequenceLockKey}, 0))::text AS "lock"
-  `;
-  const rows = await tx.$queryRaw<Array<{ publicationSequence: bigint }>>`
-    SELECT COALESCE(MAX(publication_sequence), 0::bigint) + 1 AS "publicationSequence"
-    FROM source_import_runs
-    WHERE organization_id = ${organizationId}::uuid
-      AND source_type = ${sourceType}
-  `;
-  const sequence = rows[0]?.publicationSequence;
-  if (sequence === undefined) {
-    throw new ConflictException('Could not allocate catalog publication sequence');
-  }
-  return sequence;
 }
 
 function jsonRecord(value: unknown): Record<string, unknown> | null {

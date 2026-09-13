@@ -235,6 +235,7 @@ export const AdAccountKpiDayPointSchema = z.object({
 export type AdAccountKpiDayPoint = z.infer<typeof AdAccountKpiDayPointSchema>;
 
 export const AdTrendsDataSchema = z.object({
+  knownThrough: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   daily: z.array(z.object({
     date: z.string(),
     metrics: AdMetricsSchema,

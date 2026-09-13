@@ -18,7 +18,7 @@ export const SCRIPT_INVENTORY = Object.freeze([
   'check-pr-release-contract.mjs',
   'check-queryraw-tenancy.sh',
   'check-raw-snapshot-read-models.sh',
-  'check-listing-day-ad-reader.sh',
+  'check-ledger-readers.mjs',
   'check-schema-artifact-sync.mjs',
   'check-sourcing-long-running-actions.mjs',
   'check-script-inventory.mjs',
@@ -50,6 +50,7 @@ const SUPPORT_FILES = new Set([
   '.shared-interface-names-baseline.txt',
   '.shared-root-imports-baseline.txt',
   '.tenant-scope-allowlist.txt',
+  'ledger-readers.json',
   'README.md',
 ]);
 
@@ -138,6 +139,9 @@ export function analyzeInventory({ actualFiles, readme, packageScripts }) {
   if (!packageScripts['check:scripts-inventory']) {
     missingPackageHooks.push('check:scripts-inventory');
   }
+  if (packageScripts['check:ledger-readers'] !== 'node scripts/check-ledger-readers.mjs') {
+    missingPackageHooks.push('check:ledger-readers');
+  }
   if (packageScripts['deploy:office:local'] !== 'node scripts/office-deploy.mjs deploy') {
     missingPackageHooks.push('deploy:office:local');
   }
@@ -167,6 +171,9 @@ export function analyzeInventory({ actualFiles, readme, packageScripts }) {
   }
   if (!packageScripts['check:conventions']?.includes('check:scripts-inventory')) {
     missingPackageHooks.push('check:conventions -> check:scripts-inventory');
+  }
+  if (!packageScripts['check:conventions']?.includes('check:ledger-readers')) {
+    missingPackageHooks.push('check:conventions -> check:ledger-readers');
   }
   if (!packageScripts['check:conventions']?.includes('check:schema-artifact-sync')) {
     missingPackageHooks.push('check:conventions -> check:schema-artifact-sync');

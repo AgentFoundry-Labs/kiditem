@@ -1,5 +1,6 @@
 import type { DashboardEffectivePeriod } from '@kiditem/shared/dashboard';
 import type { DashboardContext } from '../context';
+import { businessDateKey } from '../../../../common/kst';
 
 /**
  * Order-side aggregate for the effective period. Only revenue/orderCount
@@ -91,7 +92,7 @@ export function buildEffectivePeriod(
     label: `${ctx.year}-${String(ctx.month).padStart(2, '0')}`,
     shifted: ctx.anchorShifted,
     latestDataDate: latestDataDate
-      ? latestDataDate.toISOString().slice(0, 10)
+      ? businessDateKey(latestDataDate)
       : null,
     revenueSource,
     adSource,

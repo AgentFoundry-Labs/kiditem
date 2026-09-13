@@ -1,5 +1,11 @@
 import { enumerateDashboardDates } from '@kiditem/shared/dashboard';
-import { kstBusinessDate, kstDayStart } from '../../../../common/kst';
+import {
+  addDays,
+  businessDateKey,
+  evidenceCutoffDate,
+  kstBusinessDate,
+  kstDayStart,
+} from '../../../../common/kst';
 
 /**
  * The single place the dashboard turns a period selection into query windows.
@@ -89,8 +95,6 @@ export interface DashboardPeriodSelection {
   prevMonthDate: Date;
 }
 
-const DAY_MS = 86_400_000;
-
 export function resolveDashboardPeriod(
   selection: DashboardPeriodSelection,
   anchor: Date,
@@ -134,7 +138,7 @@ export function resolveTrendPeriod(
   }
   const days = trendDays(range);
   const to = kstDayStart(anchor);
-  const from = new Date(to.getTime() - days * DAY_MS);
+  const from = addDays(to, -days);
   return resolveExactPeriod({ from, to }, anchor, 'closed_day_clipped');
 }
 
@@ -177,9 +181,7 @@ export function businessDatesInWindow(from: Date, to: Date): string[] {
 
 /** Last KST business date an anchor treats as closed. */
 function knownThroughDate(anchor: Date): string {
-  const yesterday = kstBusinessDate(anchor);
-  yesterday.setUTCDate(yesterday.getUTCDate() - 1);
-  return yesterday.toISOString().slice(0, 10);
+  return businessDateKey(evidenceCutoffDate(anchor));
 }
 
 /**
@@ -262,7 +264,7 @@ function presetWindow(
   if (!preset) return { from, to };
   if (preset === 'day') {
     const todayStart = kstDayStart(anchor);
-    return { from: new Date(todayStart.getTime() - DAY_MS), to: todayStart };
+    return { from: addDays(todayStart, -1), to: todayStart };
   }
   return clipToClosedDays(anchor, from, to);
 }
@@ -274,9 +276,9 @@ function previousPresetWindow(
   preset: ClosedDayPreset,
 ): DashboardQueryWindow {
   if (preset !== 'day') return { from, to };
-  const yesterdayStart = new Date(kstDayStart(anchor).getTime() - DAY_MS);
+  const yesterdayStart = addDays(kstDayStart(anchor), -1);
   return {
-    from: new Date(yesterdayStart.getTime() - DAY_MS),
+    from: addDays(yesterdayStart, -1),
     to: yesterdayStart,
   };
 }
@@ -303,5 +305,5 @@ function clipToClosedDays(anchor: Date, from: Date, to: Date): DashboardQueryWin
 
 /** KST business date of an instant, `YYYY-MM-DD`. */
 export function businessDateText(value: Date): string {
-  return kstBusinessDate(value).toISOString().slice(0, 10);
+  return businessDateKey(kstBusinessDate(value));
 }

@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { DashboardCollectionsSchema } from '@kiditem/shared/dashboard';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
+import { timeAgo } from '@/lib/utils';
 
 /**
  * The `source_import_runs` key each collection writes its completed runs under.
@@ -22,18 +23,6 @@ export const COLLECTION_SOURCE_TYPE: Readonly<Record<string, string | null>> = {
   syncSellpia: 'sellpia_inventory',
 };
 
-/** How long ago, in the words someone says out loud. */
-export function relativeTime(iso: string | Date): string {
-  const minutes = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60_000));
-  if (minutes < 1) return '방금';
-  if (minutes < 60) return `${minutes}분 전`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours}시간 전`;
-  const days = Math.round(hours / 24);
-  if (days < 31) return `${days}일 전`;
-  return new Date(iso).toISOString().slice(0, 10);
-}
-
 export function useCollectionFreshness() {
   const query = useQuery({
     queryKey: queryKeys.dashboard.collections(),
@@ -50,6 +39,6 @@ export function useCollectionFreshness() {
     const sourceType = COLLECTION_SOURCE_TYPE[action];
     if (!sourceType) return null;
     const at = query.data?.lastCompleted[sourceType];
-    return { label: at ? relativeTime(at) : '미수집' };
+    return { label: at ? timeAgo(at) : '미수집' };
   };
 }

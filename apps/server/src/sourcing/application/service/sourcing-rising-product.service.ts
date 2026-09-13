@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { kstBusinessDate } from '../../../common/kst';
+import { businessDateKey, kstBusinessDate } from '../../../common/kst';
 import {
   buildSourcingRisingProductModel,
   SOURCING_RISING_PRODUCT_MODEL_VERSION,
@@ -269,5 +269,5 @@ function normalizeWindow(windowDays: number | undefined): number {
 }
 
 function dateString(value: Date): string {
-  return value.toISOString().slice(0, 10);
+  return businessDateKey(value);
 }

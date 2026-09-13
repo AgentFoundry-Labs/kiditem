@@ -12,7 +12,7 @@ import {
   type SourcingBrowserSourceAttemptRepositoryPort,
   type SourcingBrowserSourceAttempt,
 } from '../port/out/repository/sourcing-browser-source-attempt.repository.port';
-import { kstBusinessDate } from '../../../common/kst';
+import { addDays, businessDateKey, kstBusinessDate } from '../../../common/kst';
 import { matchStationeryToyTrend } from '../../domain/stationery-toy-trend';
 import {
   LINKFOX_ECHOTIK_SHADOW_PORT,
@@ -59,7 +59,6 @@ export type {
 const SHADOW_SOURCE = 'google-trends-rss';
 const LINKFOX_SOURCE = 'linkfox-echotik-new-product-rank';
 const GENERATOR_VERSION = 'market-shadow-signals.v1';
-const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
 export type MarketShadowCollectionStatus = 'collecting' | 'complete' | 'partial' | 'failed';
 
@@ -175,7 +174,7 @@ export class SourcingShadowSignalService {
     controls.signal?.throwIfAborted();
     const plan = {
       source: MARKET_SHADOW_SNAPSHOT_SCOPE,
-      businessDate: businessDate.toISOString().slice(0, 10),
+      businessDate: businessDateKey(businessDate),
       generatedAt: now.toISOString(),
       generatorVersion: GENERATOR_VERSION,
       experiment: 'paired-shadow-v1',
@@ -351,7 +350,7 @@ export class SourcingShadowSignalService {
     const linkfoxRequest =
       linkfoxPilot.status === 'armed' && this.linkfox
         ? this.linkfox.fetchNewProductRank({
-            date: businessDate.toISOString().slice(0, 10),
+            date: businessDateKey(businessDate),
             region: linkfoxPilot.region,
             pageSize: 50,
             ...(controls.signal ? { signal: controls.signal } : {}),
@@ -455,7 +454,7 @@ export class SourcingShadowSignalService {
   ): Promise<MarketShadowSnapshotRow[]> {
     const normalizedDays = Math.max(1, Math.min(30, Math.floor(days)));
     const toBusinessDate = kstBusinessDate(now);
-    const fromBusinessDate = new Date(toBusinessDate.getTime() - (normalizedDays - 1) * ONE_DAY_MS);
+    const fromBusinessDate = addDays(toBusinessDate, -(normalizedDays - 1));
     return this.snapshots.listRecent({
       organizationId,
       fromBusinessDate,
@@ -478,13 +477,13 @@ export class SourcingShadowSignalService {
   private async loadObservationDays(organizationId: string, businessDate: Date): Promise<number> {
     const rows = await this.snapshots.listRecent({
       organizationId,
-      fromBusinessDate: new Date(businessDate.getTime() - (SHADOW_WINDOW_DAYS - 1) * ONE_DAY_MS),
+      fromBusinessDate: addDays(businessDate, -(SHADOW_WINDOW_DAYS - 1)),
       toBusinessDate: businessDate,
       limit: SHADOW_WINDOW_DAYS,
     });
     return Math.max(
       1,
-      new Set(rows.map((row) => row.businessDate.toISOString().slice(0, 10))).size,
+      new Set(rows.map((row) => businessDateKey(row.businessDate))).size,
     );
   }
 }

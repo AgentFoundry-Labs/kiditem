@@ -174,12 +174,21 @@ test('uses only the admitted plan date for a file converter without normalizing 
       success: true,
       csvBase64: workbookBase64,
       fileName: 'domeggook.csv',
+      confirmedCoverage: { startDate: '2026-09-10', endDate: '2026-09-10' },
     },
     plan: { collectionDate: '2026-09-10' },
     input: { date: '1999-01-01' },
   });
 
   assert.equal(requestInput.endpoint, '/api/orders/collection/domeggook/convert');
+  assert.equal(
+    requestInput.init.headers['x-order-collection-coverage-start-date'],
+    '2026-09-10',
+  );
+  assert.equal(
+    requestInput.init.headers['x-order-collection-coverage-end-date'],
+    '2026-09-10',
+  );
   assert.ok(requestInput.init.body instanceof FormData);
   assert.equal(requestInput.init.body.get('date'), '2026-09-10');
   const file = requestInput.init.body.get('file');
@@ -189,6 +198,98 @@ test('uses only the admitted plan date for a file converter without normalizing 
     [...workbookBytes],
   );
 });
+
+test('sends only an explicit provider-confirmed coverage receipt and never copies the plan window', async () => {
+  const requests = [];
+  const converter = createConverter(async (_environmentId, endpoint, init) => {
+    requests.push({ endpoint, init });
+    return okResponse();
+  });
+
+  await converter.convert({
+    environmentId: ENVIRONMENT_ID,
+    attempt: attempt('haebub-mall'),
+    mallKey: 'haebub-mall',
+    capture: {
+      orders: [{ orderId: 'H-1' }],
+      confirmedCoverage: { startDate: '2026-09-10', endDate: '2026-09-10' },
+    },
+    plan: { collectionDate: '2026-09-10' },
+  });
+  await converter.convert({
+    environmentId: ENVIRONMENT_ID,
+    attempt: attempt('haebub-mall'),
+    mallKey: 'haebub-mall',
+    capture: { orders: [{ orderId: 'H-2' }] },
+    plan: { collectionDate: '2026-09-10' },
+  });
+
+  assert.equal(
+    requests[0].init.headers['x-order-collection-coverage-start-date'],
+    '2026-09-10',
+  );
+  assert.equal(
+    requests[0].init.headers['x-order-collection-coverage-end-date'],
+    '2026-09-10',
+  );
+  assert.equal('x-order-collection-coverage-start-date' in requests[1].init.headers, false);
+  assert.equal('x-order-collection-coverage-end-date' in requests[1].init.headers, false);
+});
+
+test('rejects a malformed provider coverage receipt before transport', async () => {
+  let requestCount = 0;
+  const converter = createConverter(async () => {
+    requestCount += 1;
+    return okResponse();
+  });
+
+  await assert.rejects(
+    converter.convert({
+      environmentId: ENVIRONMENT_ID,
+      attempt: attempt('haebub-mall'),
+      mallKey: 'haebub-mall',
+      capture: {
+        orders: [{ orderId: 'H-1' }],
+        confirmedCoverage: { startDate: '2026-09-10' },
+      },
+      plan: { collectionDate: '2026-09-10' },
+    }),
+    (error) => {
+      assert.equal(error.code, 'CAPTURE_INVALID');
+      assert.equal(error.conversionLocal, true);
+      return true;
+    },
+  );
+  assert.equal(requestCount, 0);
+});
+
+for (const mallKey of ['haebub-mall', 'domeggook']) {
+  test(`publishes an authenticated empty ${mallKey} window without producing a workbook`, async () => {
+    let requestInput;
+    const converter = createConverter(async (_environmentId, endpoint, init) => {
+      requestInput = { endpoint, init };
+      return okResponse({
+        'X-Order-Collection-Source-Rows': '0',
+        'X-Order-Collection-Product-Rows': '0',
+        'X-Order-Collection-Output-Rows': '0',
+      });
+    });
+    const coverage = { startDate: '2026-09-10', endDate: '2026-09-10' };
+    const receipt = await converter.convert({
+      environmentId: ENVIRONMENT_ID,
+      attempt: attempt(mallKey),
+      mallKey,
+      capture: { success: true, ...(mallKey === 'haebub-mall' ? { orders: [] } : { empty: true }), confirmedCoverage: coverage },
+      plan: { collectionDate: '2026-09-10' },
+    });
+    assert.equal(requestInput.endpoint, `/api/orders/collection/attempts/${ATTEMPT_ID}/complete-empty`);
+    assert.deepEqual(JSON.parse(requestInput.init.body), {
+      kind: 'confirmed-empty-orders', mallKey, orders: [], confirmedCoverage: coverage,
+    });
+    assert.equal(receipt.sourceRows, 0);
+    assert.equal(receipt.outputRows, 0);
+  });
+}
 
 test('reports explicit NO_NEW_ORDERS with retained original Icecream evidence when every row was seen', async () => {
   const converter = createConverter(async () => {

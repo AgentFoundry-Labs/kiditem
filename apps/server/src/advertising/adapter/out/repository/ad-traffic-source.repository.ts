@@ -30,8 +30,16 @@ import {
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { canonicalOwnerInputHash as hash } from '../../../../common/owner-idempotency-key';
+import { isNewerAttempt } from '../../../../common/current-row';
 import { resolveCoupangVendorId } from '../../../../channels/domain/coupang-account-identity';
-import { currentBusinessDate, toBusinessDate } from '../../../domain/business-date';
+import {
+  addDays,
+  businessDateKey,
+  datesInclusive,
+  evidenceCutoffDate,
+  inclusiveDayCount,
+  toBusinessDate,
+} from '../../../../common/kst';
 import {
   matchListingFromRow,
   matchStatusOf,
@@ -61,7 +69,6 @@ const DAILY_KPI_TYPE = 'wing_traffic_daily';
 const PERIOD_KPI_TYPE = 'wing_traffic_period';
 const WING_TRAFFIC_PATH = '/tenants/business-insight/sales-analysis';
 const EXPIRES_IN_MS = 30 * 60_000;
-const DAY_MS = 86_400_000;
 const MAX_RANGE_DAYS = 366;
 const DAILY_PUBLICATION_BATCH_SIZE = 1_000;
 
@@ -152,7 +159,7 @@ function json(value: unknown): Prisma.InputJsonValue {
 }
 
 function dateText(value: Date): string {
-  return value.toISOString().slice(0, 10);
+  return businessDateKey(value);
 }
 
 function dateAtUtc(value: string): Date {
@@ -166,10 +173,6 @@ function parseReadDate(value: string | undefined, code: string): Date | undefine
   return parsed;
 }
 
-function addDays(value: Date, amount: number): Date {
-  return new Date(value.getTime() + amount * DAY_MS);
-}
-
 function expired(row: SourceRun): boolean {
   return row.status === 'running' && (!row.expiresAt || row.expiresAt.getTime() <= Date.now());
 }
@@ -181,13 +184,13 @@ function asRecord(value: unknown): Record<string, unknown> {
 }
 
 function datesInRange(start: Date, end: Date): number {
-  return Math.floor((end.getTime() - start.getTime()) / DAY_MS) + 1;
+  return inclusiveDayCount(start, end);
 }
 
 function datesBetween(start: Date, end: Date): string[] {
   const count = datesInRange(start, end);
   if (count < 1 || count > MAX_RANGE_DAYS) return [];
-  return Array.from({ length: count }, (_, index) => dateText(addDays(start, index)));
+  return datesInclusive(start, end).map(businessDateKey);
 }
 
 function accountSummaryFromRecord(value: Record<string, unknown>) {
@@ -1186,8 +1189,7 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
     channelAccountId: string,
     expectedAdvertiserId: string,
   ) {
-    const today = currentBusinessDate();
-    const closedEnd = addDays(today, -1);
+    const closedEnd = evidenceCutoffDate();
     const defaultEnd = dateText(closedEnd);
     const defaultStart = dateText(addDays(closedEnd, -6));
     const startDate = request.startDate ?? defaultStart;
@@ -1197,13 +1199,13 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
     if (!start || dateText(start) !== startDate || !end || dateText(end) !== endDate) {
       throw new BadRequestException('INVALID_TRAFFIC_DATE_RANGE');
     }
-    if (start.getTime() > end.getTime() || datesInRange(start, end) > MAX_RANGE_DAYS) {
+    const periodDays = datesInRange(start, end);
+    if (periodDays < 1 || periodDays > MAX_RANGE_DAYS) {
       throw new BadRequestException('INVALID_TRAFFIC_DATE_RANGE');
     }
     if (end.getTime() > closedEnd.getTime()) {
       throw new BadRequestException('TRAFFIC_RANGE_IN_FUTURE');
     }
-    const periodDays = datesInRange(start, end);
     const expectedDates = Array.from({ length: periodDays }, (_, index) =>
       dateText(addDays(start, index)),
     );
@@ -1231,6 +1233,7 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
     const account = await this.primaryAccount(tx, organizationId, channelAccountId);
     if (!account) {
       return AdTrafficSourceStatusSchema.parse({
+        knownThrough: dateText(evidenceCutoffDate()),
         channelAccountId: null,
         ready: false,
         latestAttempt: null,
@@ -1259,7 +1262,7 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
     ]);
     const latestAttempt = latest ? await this.attemptView(tx, latest) : null;
     const latestComplete = complete ? await this.attemptView(tx, complete) : null;
-    const expectedEnd = dateText(addDays(currentBusinessDate(), -1));
+    const expectedEnd = dateText(evidenceCutoffDate());
     const coveredDailyDates = new Set(
       allComplete.flatMap((candidate) => {
         const plan = AdTrafficSourcePlanSchema.safeParse(candidate.plan);
@@ -1274,6 +1277,7 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
       requiredCutoff: expectedEnd,
     }).ready;
     return AdTrafficSourceStatusSchema.parse({
+      knownThrough: expectedEnd,
       channelAccountId: account.id,
       ready,
       latestAttempt,
@@ -2163,10 +2167,20 @@ async function readLegacyExactPeriodEvidence(
 }
 
 function runIsNewer(left: SourceRun, right: SourceRun): boolean {
-  if (left.freshnessGeneration != null && right.freshnessGeneration != null) {
-    return left.freshnessGeneration > right.freshnessGeneration;
-  }
-  return left.createdAt.getTime() > right.createdAt.getTime();
+  const useGeneration = left.freshnessGeneration != null
+    && right.freshnessGeneration != null;
+  return isNewerAttempt(
+    {
+      observedAt: useGeneration ? left.freshnessGeneration : left.createdAt,
+      importedAt: left.importedAt ?? left.createdAt,
+      id: left.id,
+    },
+    {
+      observedAt: useGeneration ? right.freshnessGeneration : right.createdAt,
+      importedAt: right.importedAt ?? right.createdAt,
+      id: right.id,
+    },
+  );
 }
 
 function attemptView(row: SourceRun, entries: ReceiptEntry[]): AdTrafficSourceAttempt {

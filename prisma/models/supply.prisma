@@ -353,6 +353,7 @@ model RocketPurchaseConfirmation {
   releaser        User?                                    @relation("RocketPurchaseConfirmationReleaser", fields: [releasedBy], references: [id], onDelete: Restrict)
   lines           RocketPurchaseConfirmationLine[]
   transmissions   RocketPurchaseConfirmationTransmission[]
+  coupangDirectTransportReceipts CoupangDirectTransportReceipt[]
 
   @@unique([id, organizationId], map: "rocket_purchase_confirmations_id_org_key")
   @@unique([organizationId, idempotencyKey], map: "rocket_purchase_confirmations_org_idempotency_key")

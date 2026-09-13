@@ -22,6 +22,7 @@ import {
   advanceProductMappingGeneration,
   lockProductMapping,
 } from '../../../../common/product-mapping-generation';
+import { allocatePublicationSequence } from '../../../../common/publication-sequence';
 import { upsertChannelCatalogIdentities } from './channel-catalog-identity-upsert';
 import {
   createRocketPoCatalogSnapshot,
@@ -339,7 +340,11 @@ export class RocketPoCatalogRepositoryAdapter implements RocketPoCatalogReposito
           coverageStartDate: new Date(plan.from + 'T00:00:00.000Z'),
           coverageEndDate: new Date(plan.to + 'T00:00:00.000Z'),
           qualityReport: { proof, includedCount: rows.length, excludedCount: 0, warningCount: 0 },
-          publicationSequence: await nextPublicationSequence(tx, input.organizationId),
+          publicationSequence: await allocatePublicationSequence(
+            tx,
+            input.organizationId,
+            SOURCE_TYPE,
+          ),
         },
       });
       await this.alerts.resolveSourceFailure(tx, {
@@ -462,26 +467,6 @@ async function resolveIdentities(
     }
     return { poLineId: row.poLineId, channelSkuId };
   });
-}
-
-async function nextPublicationSequence(
-  tx: Prisma.TransactionClient,
-  organizationId: string,
-): Promise<bigint> {
-  const lockKey = `channel-catalog-sequence:${organizationId}:${SOURCE_TYPE}`;
-  await tx.$queryRaw`
-    SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))::text AS "lock"
-  `;
-  const rows = await tx.$queryRaw<Array<{ publicationSequence: bigint }>>`
-    SELECT COALESCE(MAX(publication_sequence), 0::bigint) + 1 AS "publicationSequence"
-    FROM source_import_runs
-    WHERE organization_id = ${organizationId}::uuid
-      AND source_type = ${SOURCE_TYPE}
-  `;
-  if (rows[0]?.publicationSequence === undefined) {
-    throw new ConflictException('Could not allocate Rocket publication sequence');
-  }
-  return rows[0].publicationSequence;
 }
 
 function hash(value: unknown) {

@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { convertIcecreamMallOrderRows } from './order-collection-api';
+import { convertIcecreamMallOrderRows, regenerateOrderCollectionSource } from './order-collection-api';
+import { downloadBlob } from '@/lib/browser-download';
+import { read } from 'xlsx';
 
 const api = vi.hoisted(() => ({ fetchRaw: vi.fn() }));
 
@@ -46,5 +48,30 @@ describe('order collection conversion transport', () => {
         }),
       }),
     );
+  });
+
+  it('retains measured zero without parsing or downloading a workbook for a confirmed-empty source', async () => {
+    api.fetchRaw.mockResolvedValue(new Response(null, {
+      status: 204,
+      headers: {
+        'X-Order-Collection-Source-Rows': '0',
+        'X-Order-Collection-Product-Rows': '0',
+        'X-Order-Collection-Output-Rows': '0',
+        'X-Order-Collection-Skipped-Rows': '0',
+      },
+    }));
+
+    const result = await regenerateOrderCollectionSource({
+      attemptId: ATTEMPT_ID,
+      attemptToken: ATTEMPT_TOKEN,
+    });
+
+    expect(result).toMatchObject({
+      sourceRows: 0, productRows: 0, outputRows: 0, skippedRows: 0,
+      importRunId: null, previewRows: [],
+    });
+    expect(result.blob.size).toBe(0);
+    expect(read).not.toHaveBeenCalled();
+    expect(downloadBlob).not.toHaveBeenCalled();
   });
 });

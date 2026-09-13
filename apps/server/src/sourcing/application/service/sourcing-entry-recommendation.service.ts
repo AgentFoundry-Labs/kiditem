@@ -11,6 +11,13 @@ import {
   SourcingRecommendationService,
   type SourcingRecommendationPresenterItem,
 } from './sourcing-recommendation.service';
+import {
+  businessDateKey,
+  currentBusinessDate,
+  datesInclusive,
+  parseBusinessDate,
+  toBusinessDate as parseBusinessTimestamp,
+} from '../../../common/kst';
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 100;
@@ -189,14 +196,15 @@ function finiteNumber(value: unknown): number | null {
 
 function toBusinessDate(value: string | null): string | null {
   if (!value) return null;
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? null : date.toISOString().slice(0, 10);
+  const date = parseBusinessTimestamp(value);
+  return date ? businessDateKey(date) : null;
 }
 
 function ageInDays(date: string): number {
-  const then = new Date(`${date}T00:00:00.000Z`);
-  if (Number.isNaN(then.getTime())) return 0;
-  return Math.max(0, Math.floor((Date.now() - then.getTime()) / 86_400_000));
+  const then = parseBusinessDate(date);
+  if (!then) return 0;
+  const today = currentBusinessDate();
+  return then > today ? 0 : datesInclusive(then, today).length - 1;
 }
 
 function normalizeLimit(value: number | undefined): number {

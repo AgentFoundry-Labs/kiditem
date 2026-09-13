@@ -38,6 +38,14 @@
       && date.getUTCDate() === parts[2];
   }
 
+  function boundedWindow(value, start, end) {
+    if (!isDate(value?.start) || !isDate(value?.end)
+      || value.start > value.end || value.start < start || value.end > end) {
+      throw new Error("Sellpia shipment tracking range is outside the collection query.");
+    }
+    return { start: value.start, end: value.end };
+  }
+
   function parseAttempt(value, attemptId) {
     const plan = value?.plan;
     if (
@@ -50,7 +58,7 @@
       plan?.sourceAccountKey !== SOURCE_ACCOUNT_KEY ||
       !isDate(plan?.startDate) ||
       !isDate(plan?.endDate) ||
-      plan.startDate !== plan.endDate ||
+      plan.startDate > plan.endDate ||
       !Number.isFinite(Date.parse(value?.expiresAt || "")) ||
       (value?.artifactId !== null && !UUID.test(value?.artifactId || "")) ||
       (value?.contentChecksum !== null &&
@@ -451,13 +459,15 @@
       let bytes;
       let contentChecksum;
       try {
+        const range = boundedWindow(collected.range, attempt.plan.startDate, attempt.plan.endDate);
         const payload = {
           rows: collected.rows,
           total: Number.isInteger(collected.total) ? collected.total : collected.rows.length,
-          range: collected.range || {
-            start: attempt.plan.startDate,
-            end: attempt.plan.endDate,
-          },
+          range,
+          ...(collected.confirmedRange === undefined ? {} : {
+            confirmedRange: collected.confirmedRange === null
+              ? null : boundedWindow(collected.confirmedRange, range.start, range.end),
+          }),
         };
         bytes = new root.TextEncoder().encode(JSON.stringify(payload));
         if (!bytes.byteLength || bytes.byteLength > MAX_FILE_BYTES) {

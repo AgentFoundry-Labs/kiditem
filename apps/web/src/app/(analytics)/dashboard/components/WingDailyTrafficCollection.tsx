@@ -97,9 +97,13 @@ export function WingDailyTrafficCollection({
               </button>
             </div>
             <p className="mt-1 text-[13px] text-slate-500">
-              {formatWingTrafficRange(collection.range)}
-              {collection.range.source === 'selected-custom-range' ? ' · 선택한 기간' : ' · KST 기준'}
-              {collection.source.data?.channelAccountId || collection.request.channelAccountId
+              {collection.range
+                ? formatWingTrafficRange(collection.range)
+                : !statusUnknown && period === 'month'
+                  ? '이번 달에 마감된 영업일이 없습니다'
+                  : '수집 기간 확인 중'}
+              {collection.range?.source === 'selected-custom-range' ? ' · 선택한 기간' : ' · KST 기준'}
+              {collection.source.data?.channelAccountId || collection.request?.channelAccountId
                 ? ' · 연결 계정'
                 : ' · 기본 계정'}
             </p>

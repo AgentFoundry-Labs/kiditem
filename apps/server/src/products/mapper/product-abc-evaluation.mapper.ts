@@ -1,5 +1,6 @@
 import { ProductAbcEvaluationSchema, ProductAbcFormulaPayloadSchema, type ProductAbcEvaluation } from '@kiditem/shared/product-abc';
 import type { Prisma } from '@prisma/client';
+import { businessDateKey } from '../../common/kst';
 
 function productAbcGrade(value: string | null): 'A' | 'B' | 'C' | null {
   return value === 'A' || value === 'B' || value === 'C' ? value : null;
@@ -48,5 +49,5 @@ function decimalToFinite(value: Prisma.Decimal | null): number | null {
 }
 
 function calendarDate(value: Date): string {
-  return value.toISOString().slice(0, 10);
+  return businessDateKey(value);
 }

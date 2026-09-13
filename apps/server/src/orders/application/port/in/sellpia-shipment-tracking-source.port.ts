@@ -23,6 +23,8 @@ export type SellpiaShipmentTrackingAttempt = {
   sourceImportRunId: string;
   state: 'RUNNING' | 'COMPLETE' | 'FAILED';
   plan: SellpiaShipmentTrackingPlan;
+  coverageStartDate: string | null;
+  coverageEndDate: string | null;
   expiresAt: string | null;
   artifactId: string | null;
   sourceFileName: string | null;

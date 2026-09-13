@@ -12,6 +12,7 @@ import {
   type Sourcing1688HotProductSnapshotRow,
   type TrendCollectionRepositoryPort,
 } from '../port/out/repository/trend-collection.repository.port';
+import { businessDateKey } from '../../../common/kst';
 import {
   SourcingRecommendationService,
   type SourcingRecommendationPresenterItem,
@@ -598,5 +599,5 @@ function roundOne(value: number): number {
 }
 
 function dateString(value: Date): string {
-  return value.toISOString().slice(0, 10);
+  return businessDateKey(value);
 }

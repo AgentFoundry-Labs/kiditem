@@ -1,4 +1,10 @@
-import { kstBusinessDate, kstDayStart, kstMonthStart } from '../../../common/kst';
+import {
+  addDays,
+  kstBusinessDate,
+  kstDayStart,
+  kstMonthStart,
+  parseBusinessDate,
+} from '../../../common/kst';
 
 interface DateRangeContext {
   start: Date;
@@ -51,7 +57,7 @@ export function buildDashboardContext(
   const anchorShifted = effectiveAnchor !== undefined && effectiveAnchor.getTime() !== now.getTime();
 
   const todayStart = kstDayStart(anchor);
-  const todayEnd = new Date(todayStart.getTime() + 86400000);
+  const todayEnd = addDays(todayStart, 1);
 
   const anchorBusinessDate = kstBusinessDate(anchor);
   const year = anchorBusinessDate.getUTCFullYear();
@@ -63,14 +69,14 @@ export function buildDashboardContext(
   const prevMonthNum = previousKstMonthParts(year, month).month;
 
   const effectiveRange = range ?? 'month';
-  const weekStart = new Date(todayStart.getTime() - 7 * 86_400_000);
-  const prevWeekStart = new Date(todayStart.getTime() - 14 * 86_400_000);
-  const yesterdayStart = new Date(todayStart.getTime() - 86_400_000);
+  const weekStart = addDays(todayStart, -7);
+  const prevWeekStart = addDays(todayStart, -14);
+  const yesterdayStart = addDays(todayStart, -1);
 
   let dateRange: DateRangeContext;
   if (from && to) {
     const rangeStart = parseKstDate(from);
-    const rangeEnd = new Date(parseKstDate(to).getTime() + 86_400_000);
+    const rangeEnd = addDays(parseKstDate(to), 1);
     const duration = rangeEnd.getTime() - rangeStart.getTime();
     dateRange = {
       start: rangeStart,
@@ -100,8 +106,9 @@ export function buildDashboardContext(
 }
 
 function parseKstDate(value: string): Date {
-  const [year, month, day] = value.split('-').map(Number);
-  return new Date(Date.UTC(year!, month! - 1, day!) - 9 * 60 * 60 * 1000);
+  const businessDate = parseBusinessDate(value);
+  if (!businessDate) throw new Error('Expected YYYY-MM-DD');
+  return kstDayStart(businessDate);
 }
 
 function nextKstMonthStart(year: number, month: number): Date {

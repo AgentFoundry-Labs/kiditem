@@ -241,6 +241,8 @@ test('uses the server-frozen plan and only the fenced owner endpoints', async ()
     itemCount: 1,
     pageCount: 1,
     pageLimitReached: false,
+    coverageStartDate: PLAN.windows[0].start,
+    coverageEndDate: PLAN.windows[0].end,
   });
   assert.equal(attemptComplete.init.headers['X-Source-Attempt-Token'], ATTEMPT_TOKEN);
   assert.equal(f.calls.some((call) => call.path.includes('/api/reviews/ingest')), false);

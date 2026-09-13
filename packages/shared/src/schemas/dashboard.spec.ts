@@ -396,6 +396,7 @@ describe('dashboard schemas', () => {
   it('requires the Sellpia receipt profit after collected Coupang ad spend', () => {
     const emptyGroup = { revenue: 0, qty: 0, cost: 0, daily: [], malls: [] };
     const summary = SellpiaSalesSummarySchema.parse({
+      knownThrough: '2026-07-18',
       range: { from: '2026-07-01', to: '2026-07-18' },
       rocket: emptyGroup,
       others: emptyGroup,
@@ -416,6 +417,7 @@ describe('dashboard schemas', () => {
   it('accepts unavailable Sellpia advertising profit fields without relaxing sales fields', () => {
     const emptyGroup = { revenue: 0, qty: 0, cost: 0, daily: [], malls: [] };
     const summary = SellpiaSalesSummarySchema.parse({
+      knownThrough: '2026-07-18',
       range: { from: '2026-07-01', to: '2026-07-18' },
       rocket: emptyGroup,
       others: {
@@ -443,6 +445,7 @@ describe('dashboard schemas', () => {
   it('keeps an explicit zero-cost Sellpia result numeric', () => {
     const emptyGroup = { revenue: 0, qty: 0, cost: 0, daily: [], malls: [] };
     const summary = SellpiaSalesSummarySchema.parse({
+      knownThrough: '2026-07-18',
       range: { from: '2026-07-01', to: '2026-07-18' },
       rocket: emptyGroup,
       others: emptyGroup,

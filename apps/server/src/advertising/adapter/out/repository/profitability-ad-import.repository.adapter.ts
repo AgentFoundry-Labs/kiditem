@@ -13,6 +13,14 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import { resolveCoupangVendorId } from '../../../../channels/domain/coupang-account-identity';
 import { lockProductMapping } from '../../../../common/product-mapping-generation';
 import {
+  businessDateKey,
+  datesInclusive,
+  evidenceCutoffDate,
+  kstMonthEnd,
+  kstMonthRange,
+  parseBusinessDate,
+} from '../../../../common/kst';
+import {
   effectiveSourceImportRunState as effectiveState,
   sourceImportRunDbState as sourceDbState,
 } from './source-import-run-state';
@@ -555,8 +563,8 @@ export class ProfitabilityAdImportRepositoryAdapter
           || !validReceiptProof(payload, receipt.rowCount)
           || receipt.matchedCount + receipt.unmatchedCount !== receipt.rowCount
           || !sameStringList(payload.businessDates, expected.businessDates)
-          || receipt.periodStart?.toISOString().slice(0, 10) !== expected.from
-          || receipt.periodEnd?.toISOString().slice(0, 10) !== expected.to) {
+          || (receipt.periodStart && isoDate(receipt.periodStart)) !== expected.from
+          || (receipt.periodEnd && isoDate(receipt.periodEnd)) !== expected.to) {
           throw incompleteImport();
         }
       }
@@ -2075,9 +2083,7 @@ function incompleteImport(): ConflictException {
 }
 
 function parseDate(value: string): Date | null {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
-  const parsed = new Date(`${value}T00:00:00.000Z`);
-  return Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value ? null : parsed;
+  return parseBusinessDate(value);
 }
 
 function dateOnly(value: string): Date {
@@ -2087,12 +2093,11 @@ function dateOnly(value: string): Date {
 }
 
 function isoDate(value: Date): string {
-  return value.toISOString().slice(0, 10);
+  return businessDateKey(value);
 }
 
 function monthEnd(month: string): string {
-  const [year, number] = month.split('-').map(Number);
-  return isoDate(new Date(Date.UTC(year!, number!, 0)));
+  return kstMonthEnd(month);
 }
 
 function monthsBetween(from: string, to: string): string[] {
@@ -2130,36 +2135,17 @@ export function profitabilityCoverageForKstYesterday(
 }
 
 function kstYesterday(now: Date): string {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'Asia/Seoul',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(now);
-  const year = Number(parts.find((part) => part.type === 'year')?.value);
-  const month = Number(parts.find((part) => part.type === 'month')?.value);
-  const day = Number(parts.find((part) => part.type === 'day')?.value);
-  if (![year, month, day].every(Number.isSafeInteger)) {
-    throw new UnprocessableEntityException('ADVERTISING_DATE_INVALID');
-  }
-  return isoDate(new Date(Date.UTC(year, month - 1, day - 1)));
+  return businessDateKey(evidenceCutoffDate(now));
 }
 
 function calendarMonthsThrough(to: string, count: number): string[] {
-  const [year, month] = to.slice(0, 7).split('-').map(Number);
-  const endIndex = year! * 12 + month! - 1;
-  return Array.from({ length: count }, (_, index) => {
-    const cursor = endIndex - (count - 1 - index);
-    return `${Math.floor(cursor / 12)}-${String((cursor % 12) + 1).padStart(2, '0')}`;
-  });
+  return kstMonthRange(kstMonthEnd(to.slice(0, 7)), count);
 }
 
 function businessDates(from: string, to: string): string[] {
   const start = dateOnly(from);
   const end = dateOnly(to);
-  const dates: string[] = [];
-  for (let cursor = start; cursor <= end; cursor = new Date(cursor.getTime() + 86_400_000)) dates.push(isoDate(cursor));
-  return dates;
+  return datesInclusive(start, end).map(isoDate);
 }
 
 function boundedPlanText(value: unknown): string {

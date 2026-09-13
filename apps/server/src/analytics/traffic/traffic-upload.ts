@@ -2,7 +2,7 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 
 import type { MulterFile } from '../../common/types';
-import { kstDayStart } from '../../common/kst';
+import { businessDateKey, currentBusinessDate } from '../../common/kst';
 import type { PrismaService } from '../../prisma/prisma.service';
 import {
   parseTrafficUploadFile,
@@ -52,8 +52,8 @@ export async function uploadTrafficStats({
       listings.map((l) => [l.externalId, l.id]),
     );
 
-    const todayKst = kstDayStart(new Date());
-    const todayStr = todayKst.toISOString().slice(0, 10);
+    const todayKst = currentBusinessDate();
+    const todayStr = businessDateKey(todayKst);
     const parsed = parseTrafficUploadFile({
       file,
       listingMap,

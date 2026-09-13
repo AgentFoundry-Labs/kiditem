@@ -520,7 +520,10 @@ function currentReviewsCte(organizationId: string): Prisma.Sql {
         r.reviewed_at,
         ROW_NUMBER() OVER (
           PARTITION BY r.external_review_id
-          ORDER BY COALESCE(s.imported_at, s.created_at) DESC, s.id DESC, r.id DESC
+          ORDER BY s.publication_sequence DESC NULLS LAST,
+                   COALESCE(s.imported_at, s.created_at) DESC,
+                   s.id DESC,
+                   r.id DESC
         ) AS generation_rank
       FROM reviews r
       INNER JOIN source_import_runs s

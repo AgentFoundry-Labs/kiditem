@@ -6,8 +6,9 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import { kstInclusiveDaysStart, kstMonthStart } from '../../../../common/kst';
+import { addDays, businessDateKey, kstInclusiveDaysStart, kstMonthStart } from '../../../../common/kst';
 import { readListingAdWindowFacts } from '../../../../common/ad-window-facts';
+import { currentRowTieBreakSql } from '../../../../common/current-row';
 import {
   buildPerListingMetrics,
   readAdEvidenceFromLedger,
@@ -61,7 +62,7 @@ export class AdStrategyContextRepositoryAdapter
       readListingAdWindowFacts(this.prisma, {
         organizationId,
         from: range.from,
-        to: new Date(range.to.getTime() + 86_400_000),
+        to: addDays(range.to, 1),
       }),
       this.prisma.channelListingDailySnapshot.findMany({
         where: {
@@ -218,10 +219,12 @@ export class AdStrategyContextRepositoryAdapter
           AND listing_id = ANY(${listingIds}::uuid[])
         ORDER BY
           listing_id,
-          business_date DESC,
-          last_observed_at DESC NULLS LAST,
-          updated_at DESC NULLS LAST,
-          id DESC
+          ${currentRowTieBreakSql({
+            businessDate: Prisma.sql`business_date`,
+            observedAt: Prisma.sql`last_observed_at`,
+            updatedAt: Prisma.sql`updated_at`,
+            id: Prisma.sql`id`,
+          })}
       `),
       primaryListingOptionIds.length === 0
         ? Promise.resolve([] as OptionDailyRow[])
@@ -245,10 +248,12 @@ export class AdStrategyContextRepositoryAdapter
               AND listing_option_id = ANY(${primaryListingOptionIds}::uuid[])
             ORDER BY
               listing_option_id,
-              business_date DESC,
-              last_observed_at DESC NULLS LAST,
-              updated_at DESC NULLS LAST,
-              id DESC
+              ${currentRowTieBreakSql({
+                businessDate: Prisma.sql`business_date`,
+                observedAt: Prisma.sql`last_observed_at`,
+                updatedAt: Prisma.sql`updated_at`,
+                id: Prisma.sql`id`,
+              })}
           `),
     ]);
 
@@ -264,7 +269,7 @@ export class AdStrategyContextRepositoryAdapter
       const signal: ChannelStateSignal = {
         channel: ld.channel,
         externalId: ld.externalId,
-        businessDate: ld.businessDate.toISOString().slice(0, 10),
+        businessDate: businessDateKey(ld.businessDate),
         lastObservedAt: ld.lastObservedAt.toISOString(),
         sampleCount: ld.sampleCount,
         productName: ld.productName,
@@ -456,5 +461,5 @@ export class AdStrategyContextRepositoryAdapter
 }
 
 function calendarDate(value: Date): string {
-  return value.toISOString().slice(0, 10);
+  return businessDateKey(value);
 }
