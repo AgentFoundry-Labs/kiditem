@@ -38,22 +38,17 @@ second one.
   window is declared, not inferred — and only its reader-side consequence,
   "a read model publishes the days a window measured and says how many", is
   absorbed here.
-- Advertising has one ledger, `channel_ad_target_daily_snapshots`, and
-  listing-day advertising values are read through one module,
-  `apps/server/src/common/ad-window-facts.ts`, gated on the current completed
-  sweep and product grain (KID-57, 2026-09-12: the listing-day ad columns had
-  lost their only writer while every consumer read them). The scanner
-  `npm run check:ledger-readers` fails production access outside the manifest's
-  canonical reader, exact owner publications, and named legacy readers. The
-  listing table's ad columns and the coverage-status columns are dead and can
-  be dropped when a schema change is next scheduled.
+- Advertising's target-day ledger remains canonical. The concrete reader
+  location, scanner, and deletion sequencing originally specified here are
+  superseded by [ADR-0009](0009-one-ledger-one-reader.md). This ADR's measurement
+  and evidence rules remain accepted.
 - The wire carries no derived word: no `status` on a source status object, no
   `status` / `includedDays` / `missingDates` on a period basis, no `status` /
   `partial` on a snapshot basis, no evidence word on an ad publication or an
   ABC fact. A screen that wants the word calls the shared derivation.
-- The module stays in `common/` rather than the Advertising owner because the
-  ABC read module deliberately does not import `AdvertisingModule`; moving the
-  door would reopen the Products → Finance → Advertising cycle.
+- The original reader stayed in `common/` to avoid a Products → Finance →
+  Advertising NestJS import cycle. ADR-0009 replaces that placement workaround
+  with owner reader functions that do not participate in the DI graph.
 
 ## Alternatives rejected
 

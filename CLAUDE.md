@@ -51,6 +51,8 @@ processing, listing, and operations.
   owner's canonical rows directly.
 - A source owner owns its collection attempts, canonical facts, coverage
   manifests, current complete snapshot, and terminal source status.
+- Outside owner publication, read ledgers only through their registered reader;
+  verify access with `npm run check:ledger-readers` (see [ADR-0009](docs/adr/0009-one-ledger-one-reader.md)).
 - Browser extensions capture and transport source data; they never own
   canonical business state. Attempt chunks and terminal submissions are
   idempotent and fenced by the server-issued attempt identity; stale or
