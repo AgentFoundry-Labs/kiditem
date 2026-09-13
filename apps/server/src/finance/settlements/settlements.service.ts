@@ -180,8 +180,13 @@ export class SettlementsService {
   async update(id: string, organizationId: string, dto: UpdateSettlementDto): Promise<SettlementListItem> {
     // A confirmed deposit is the amount entered with the confirmation. The
     // stored column's default is not a deposit of zero, so confirming without
-    // an amount would publish one nobody entered.
-    if (dto.status === 'confirmed' && dto.actualAmount === undefined) {
+    // an amount would publish one nobody entered; and `null` is no amount for
+    // the non-null column either.
+    const actualAmount: number | null | undefined = dto.actualAmount;
+    if (actualAmount === null) {
+      throw new BadRequestException('실제 입금액은 숫자로 입력해야 합니다');
+    }
+    if (dto.status === 'confirmed' && actualAmount === undefined) {
       throw new BadRequestException('정산을 확정하려면 실제 입금액을 입력해야 합니다');
     }
     const existing = await this.prisma.settlement.findFirst({

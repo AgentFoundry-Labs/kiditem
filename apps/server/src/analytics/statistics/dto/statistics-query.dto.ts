@@ -7,7 +7,7 @@ export class StatisticsQueryDto {
   @IsIn(['overview', 'products', 'categories', 'grades', 'pareto', 'repurchase'])
   type: string;
 
-  /** `YYYY-MM`; omitted, the window spans the observed completed orders. */
+  /** `YYYY-MM`; omitted, the KST month containing the request. */
   @IsOptional()
   @IsString()
   @Matches(/^\d{4}-(0[1-9]|1[0-2])$/, {

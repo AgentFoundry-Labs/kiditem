@@ -17,7 +17,7 @@ describe('StatisticsQueryDto period', () => {
     },
   );
 
-  it('accepts a YYYY-MM period, or none for the observed orders', async () => {
+  it('accepts a YYYY-MM period, or none for the current KST month', async () => {
     await expect(transform({ type: 'overview', period: '2026-04' }))
       .resolves.toMatchObject({ type: 'overview', period: '2026-04' });
     await expect(transform({ type: 'pareto' })).resolves.toEqual({ type: 'pareto' });

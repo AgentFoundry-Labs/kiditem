@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Test } from '@nestjs/testing';
 import type { PrismaClient } from '@prisma/client';
 import { SupplierStatsService } from '../supplier-stats.service';
@@ -305,6 +305,43 @@ describe('SupplierStatsService physical Sellpia SKU projection (PG)', () => {
       totalRevenue: 1_000,
       unallocatedRevenue: 0,
     });
+  });
+
+  /** KID-85 follow-up F-1 — an all-time read must not run inside Prisma's 5 s interactive transaction. */
+  it('reads its projection without an interactive transaction', async () => {
+    const physical = await seedPhysicalProduct(TEST_ORGANIZATION_ID, 'NO-TX', 'No transaction');
+    await seedSupplierPolicy({
+      organizationId: TEST_ORGANIZATION_ID,
+      supplierName: 'No Transaction Supplier',
+      sellpiaInventorySkuId: physical.id,
+      supplyPrice: 100,
+    });
+    const listingOption = await seedListingOption(TEST_ORGANIZATION_ID, 'NO-TX', [{
+      sellpiaInventorySkuId: physical.id,
+      quantity: 2,
+    }]);
+    await seedOrderLine({
+      organizationId: TEST_ORGANIZATION_ID,
+      suffix: 'NO-TX',
+      listingOptionId: listingOption.id,
+      quantity: 3,
+      totalPrice: 4_500,
+    });
+
+    const transaction = vi.spyOn(prisma, '$transaction');
+    try {
+      const report = await service.getSalesBySupplier(TEST_ORGANIZATION_ID);
+
+      expect(report.summary).toMatchObject({
+        totalOrders: 1,
+        totalQuantity: 6,
+        totalRevenue: 4_500,
+        unallocatedRevenue: 0,
+      });
+      expect(transaction).not.toHaveBeenCalled();
+    } finally {
+      transaction.mockRestore();
+    }
   });
 
   it('scopes suppliers and order lines by organization', async () => {

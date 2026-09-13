@@ -1,13 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  readObservedOrderBounds,
-  readOrderLineWindowFacts,
-} from '../../../orders/read/order-facts.reader';
+import { readPublishedOrderLines } from '../../../orders/read/order-facts.reader';
 import { SupplierStatsService } from '../supplier-stats.service';
 
 vi.mock('../../../orders/read/order-facts.reader', () => ({
-  readObservedOrderBounds: vi.fn(),
-  readOrderLineWindowFacts: vi.fn(),
+  readPublishedOrderLines: vi.fn(),
 }));
 
 /**
@@ -17,15 +13,14 @@ vi.mock('../../../orders/read/order-facts.reader', () => ({
  * `supplier-stats-flow.pg.integration.spec.ts`.
  */
 function makePrisma() {
-  const prisma = {
+  return {
     supplier: { findMany: vi.fn() },
     channelListingOption: { findMany: vi.fn().mockResolvedValue([]) },
     purchaseOrder: { findMany: vi.fn() },
     supplierPayment: { findMany: vi.fn() },
-  };
-  return {
-    ...prisma,
-    $transaction: vi.fn(async (work: (tx: typeof prisma) => unknown) => work(prisma)),
+    $transaction: vi.fn(() => {
+      throw new Error('supplier stats reads no interactive transaction');
+    }),
   };
 }
 
@@ -60,34 +55,13 @@ type OrderLineInput = {
 
 /** The Orders reader publishes these lines, each sold under its own channel option. */
 function givenPublishedOrderLines(prisma: ReturnType<typeof makePrisma>, lines: OrderLineInput[]) {
-  const orderedAt = new Date('2026-07-01T00:00:00.000Z');
-  vi.mocked(readObservedOrderBounds).mockResolvedValue({
-    from: new Date('2026-06-30T15:00:00.000Z'),
-    to: new Date('2026-07-01T15:00:00.000Z'),
-  });
-  vi.mocked(readOrderLineWindowFacts).mockResolvedValue({
-    window: {} as never,
-    orders: [{
-      orderId: 'order-1',
-      channelAccountId: 'account-1',
-      orderedAt,
-      businessDate: '2026-07-01',
-      shippingPrice: 0,
-      lines: lines.map((line) => ({
-        orderId: 'order-1',
-        channelAccountId: 'account-1',
-        orderedAt,
-        businessDate: '2026-07-01',
-        shippingPrice: 0,
-        lineItemId: line.id,
-        listingOptionId: `option-${line.id}`,
-        sku: null,
-        productName: line.id,
-        revenue: line.totalPrice,
-        quantity: line.quantity,
-      })),
-    }],
-  });
+  vi.mocked(readPublishedOrderLines).mockResolvedValue(lines.map((line) => ({
+    orderId: 'order-1',
+    lineItemId: line.id,
+    listingOptionId: `option-${line.id}`,
+    revenue: line.totalPrice,
+    quantity: line.quantity,
+  })));
   prisma.channelListingOption.findMany.mockResolvedValue(lines.map((line) => ({
     id: `option-${line.id}`,
     inventoryComponents: line.components,
@@ -138,10 +112,10 @@ describe('SupplierStatsService', () => {
     const report = await service.getSalesBySupplier('organization-1');
 
     // Cancelled and returned orders are not supplier sales.
-    expect(readOrderLineWindowFacts).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+    expect(readPublishedOrderLines).toHaveBeenCalledWith(prisma, {
       organizationId: 'organization-1',
       excludedStatuses: ['cancelled', 'returned'],
-    }));
+    });
     expect(report).toEqual({
       summary: {
         supplierCount: 2,
@@ -248,13 +222,13 @@ describe('SupplierStatsService', () => {
     expect(report.summary.totalRevenue).toBe(101);
   });
 
-  it('reads no order lines when no order was ever published', async () => {
+  it('reads no listing options when no order line was ever published', async () => {
     prisma.supplier.findMany.mockResolvedValue([]);
-    vi.mocked(readObservedOrderBounds).mockResolvedValue(null);
+    vi.mocked(readPublishedOrderLines).mockResolvedValue([]);
 
     const report = await service.getSalesBySupplier('organization-1');
 
-    expect(readOrderLineWindowFacts).not.toHaveBeenCalled();
+    expect(prisma.channelListingOption.findMany).not.toHaveBeenCalled();
     expect(report.summary).toMatchObject({ totalRevenue: 0, unallocatedRevenue: 0 });
   });
 

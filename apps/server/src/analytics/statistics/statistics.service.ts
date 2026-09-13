@@ -13,7 +13,7 @@ import type {
   StatisticsRepurchaseResponse,
 } from '@kiditem/shared/statistics';
 import { PrismaService } from '../../prisma/prisma.service';
-import { kstMonthWindow, kstWindowDateRange } from '../../common/kst';
+import { kstBusinessDate, kstMonthWindow, kstWindowDateRange } from '../../common/kst';
 import {
   isOrderWindowComplete,
   orderWindowBasis,
@@ -29,7 +29,6 @@ import {
 } from '../../common/per-listing-profit';
 import {
   readListingOptionOrderFacts,
-  readObservedOrderBounds,
   readOrderWindowFacts,
   readRepurchaseOrderFacts,
   type OrderWindowInput,
@@ -73,31 +72,22 @@ export class StatisticsService {
   ) {}
 
   /**
-   * An explicit period is its KST month. Without one the window spans the
-   * observed completed orders; with no completed order there is no window.
-   * Either way it is clipped to the days closed at `now`.
+   * The KST month a statistics read evaluates: the explicit period, or the
+   * month containing `now` — the default every finance screen uses, so an
+   * omitted period never scans the whole order history. Clipped to the days
+   * closed at `now`.
    */
-  private async resolveWindow(
-    organizationId: string,
-    period: string | undefined,
-    now: Date,
-  ): Promise<FinanceWindow | null> {
+  private resolveWindow(period: string | undefined, now: Date): FinanceWindow {
     if (period) {
       const [year, month] = period.split('-').map(Number);
       return resolveFinanceWindow(kstMonthWindow(year, month), now);
     }
-
-    const bounds = await this.prisma.$transaction((tx) => readObservedOrderBounds(tx, organizationId));
-    return bounds ? resolveFinanceWindow(bounds, now) : null;
+    const today = kstBusinessDate(now);
+    return resolveFinanceWindow(kstMonthWindow(today.getUTCFullYear(), today.getUTCMonth() + 1), now);
   }
 
-  private async readFacts(
-    organizationId: string,
-    period: string | undefined,
-    now: Date,
-  ): Promise<ProfitWindowFacts | null> {
-    const window = await this.resolveWindow(organizationId, period, now);
-    if (!window) return null;
+  private readFacts(organizationId: string, period: string | undefined, now: Date): Promise<ProfitWindowFacts> {
+    const window = this.resolveWindow(period, now);
     return this.prisma.$transaction(
       (tx) => readProfitWindowFacts(tx, organizationId, window),
       REPEATABLE_READ,
@@ -108,9 +98,9 @@ export class StatisticsService {
     organizationId: string,
     period: string | undefined,
     now: Date,
-  ): Promise<{ facts: ProfitWindowFacts | null; rows: PerListingProfit[] }> {
+  ): Promise<{ facts: ProfitWindowFacts; rows: PerListingProfit[] }> {
     const facts = await this.readFacts(organizationId, period, now);
-    const rows = facts ? perListingProfitRows(facts).sort((a, b) => b.revenue - a.revenue) : [];
+    const rows = perListingProfitRows(facts).sort((a, b) => b.revenue - a.revenue);
     return { facts, rows };
   }
 
@@ -125,17 +115,6 @@ export class StatisticsService {
         where: { organizationId, isActive: true },
       }),
     ]);
-    if (!facts) {
-      return {
-        totalRevenue: null,
-        totalOrders: null,
-        totalProfit: null,
-        avgMargin: null,
-        totalProducts,
-        basis: null,
-      } satisfies StatisticsOverview;
-    }
-
     const totals = profitWindowTotals(facts);
     return {
       totalRevenue: totals.revenue,
@@ -171,7 +150,7 @@ export class StatisticsService {
         profitRate: ratio(metric.netProfit, metric.revenue),
         margin: ratio(metric.netProfit, metric.revenue),
       } satisfies StatisticsProductRow)),
-      basis: facts ? profitWindowBasis(facts) : null,
+      basis: profitWindowBasis(facts),
     } satisfies StatisticsProductsResponse;
   }
 
@@ -199,7 +178,7 @@ export class StatisticsService {
 
     // A group total describes the whole evaluated window, so like the overview
     // it exists only once the Orders collection covered every date of it.
-    const collected = facts !== null && isOrderWindowComplete(facts.orderWindow);
+    const collected = isOrderWindowComplete(facts.orderWindow);
     return {
       rows: Array.from(categoryMap.entries())
         .sort(([, left], [, right]) => right.revenue - left.revenue)
@@ -211,7 +190,7 @@ export class StatisticsService {
           profit: collected ? totalOrUnavailable(data.profits) : null,
           count: collected ? data.orders : null,
         } satisfies StatisticsCategoryRow)),
-      basis: facts ? profitWindowBasis(facts) : null,
+      basis: profitWindowBasis(facts),
     } satisfies StatisticsCategoriesResponse;
   }
 
@@ -241,7 +220,7 @@ export class StatisticsService {
     }
 
     // Same rule as categories: no group total over a partly collected window.
-    const collected = facts !== null && isOrderWindowComplete(facts.orderWindow);
+    const collected = isOrderWindowComplete(facts.orderWindow);
     return {
       rows: Array.from(gradeMap.entries())
         .sort(([, left], [, right]) => right.revenue - left.revenue)
@@ -253,7 +232,7 @@ export class StatisticsService {
           productCount: collected ? data.productCount : null,
           adCost: collected ? totalOrUnavailable(data.adCosts) : null,
         } satisfies StatisticsGradeRow)),
-      basis: facts ? profitWindowBasis(facts) : null,
+      basis: profitWindowBasis(facts),
     } satisfies StatisticsGradesResponse;
   }
 
@@ -266,7 +245,7 @@ export class StatisticsService {
 
     // Shares are cut from the whole evaluated window's listing revenue, so they
     // exist only once the Orders collection covered every date of it.
-    const totalRevenue = facts && isOrderWindowComplete(facts.orderWindow)
+    const totalRevenue = isOrderWindowComplete(facts.orderWindow)
       ? rows.reduce((sum, metric) => sum + metric.revenue, 0)
       : null;
 
@@ -297,7 +276,7 @@ export class StatisticsService {
       totalRevenue,
       bandDistribution,
       data,
-      basis: facts ? profitWindowBasis(facts) : null,
+      basis: profitWindowBasis(facts),
     } satisfies StatisticsParetoResponse;
   }
 
@@ -306,18 +285,7 @@ export class StatisticsService {
     period: string | undefined,
     now: Date,
   ): Promise<StatisticsRepurchaseResponse> {
-    const window = await this.resolveWindow(organizationId, period, now);
-    if (!window) {
-      return {
-        totalCustomers: null,
-        repeatCount: null,
-        repurchaseRate: null,
-        totalOrders: null,
-        repeatProducts: [],
-        repeatCustomers: [],
-        basis: null,
-      } satisfies StatisticsRepurchaseResponse;
-    }
+    const window = this.resolveWindow(period, now);
     const input: OrderWindowInput = {
       organizationId,
       ...window.effective,

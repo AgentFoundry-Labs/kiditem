@@ -15,7 +15,9 @@ import {
   readOrderStatusCounts,
   readObservedOrderBounds,
   readObservedOrderCount,
+  readOrderLineWindowFacts,
   readOrderWindowFacts,
+  readPublishedOrderLines,
 } from '../order-facts.reader';
 import type { PrismaClient } from '@prisma/client';
 
@@ -365,6 +367,79 @@ describe('Order facts reader over disposable PostgreSQL', () => {
     }));
 
     expect(counts).toEqual({ test: 2, other: 1 });
+  });
+
+  /** KID-85 follow-up F-4 — the 1st of a month or a future month evaluates nothing. */
+  it('reads no coverage runs and observes nothing for an empty evaluated window', async () => {
+    await seedOrder(TEST_ORGANIZATION_ID, ACCOUNT_ID, 'ORDER-EMPTY-WINDOW', 12_000, [
+      { totalPrice: 12_000, quantity: 1 },
+    ]);
+    await seedCoverage(TEST_ORGANIZATION_ID, ACCOUNT_ID);
+
+    const empty = { organizationId: TEST_ORGANIZATION_ID, from: FROM, to: FROM };
+    const result = await prisma.$transaction(async (tx) => ({
+      window: await readOrderWindowFacts(tx, empty),
+      lines: await readOrderLineWindowFacts(tx, empty),
+    }));
+
+    const nothing = {
+      revenue: null,
+      orderCount: null,
+      quantity: null,
+      observedAt: null,
+      observedTotals: null,
+      requestedDates: [],
+      includedDates: [],
+      missingDates: [],
+      sourceCoverage: [],
+    };
+    expect(result).toEqual({ window: nothing, lines: { window: nothing, orders: [] } });
+  });
+
+  /** KID-85 follow-up F-1 — every published line, without window coverage or an interactive transaction. */
+  it('publishes the lines of every order a completed run published, without window coverage', async () => {
+    const paid = await seedOrder(TEST_ORGANIZATION_ID, ACCOUNT_ID, 'ORDER-LINES-PAID', 30_000, [
+      { totalPrice: 10_000, quantity: 1 },
+      { totalPrice: 20_000, quantity: 2 },
+    ]);
+    await seedOrder(TEST_ORGANIZATION_ID, ACCOUNT_ID, 'ORDER-LINES-CANCELLED', 5_000, [
+      { totalPrice: 5_000, quantity: 1 },
+    ]);
+    await prisma.order.updateMany({
+      where: { organizationId: TEST_ORGANIZATION_ID, externalOrderId: 'ORDER-LINES-CANCELLED' },
+      data: { status: 'cancelled' },
+    });
+    const running = await prisma.sourceImportRun.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceType: 'coupang_direct_order_capture',
+        status: 'running',
+      },
+    });
+    await seedOrder(TEST_ORGANIZATION_ID, ACCOUNT_ID, 'ORDER-LINES-RUNNING', 7_000, [
+      { totalPrice: 7_000, quantity: 1 },
+    ]);
+    await prisma.order.updateMany({
+      where: { organizationId: TEST_ORGANIZATION_ID, externalOrderId: 'ORDER-LINES-RUNNING' },
+      data: { sourceImportRunId: running.id },
+    });
+    await seedOrder(OTHER_ORGANIZATION_ID, OTHER_ACCOUNT_ID, 'ORDER-LINES-FOREIGN', 9_000, [
+      { totalPrice: 9_000, quantity: 1 },
+    ]);
+
+    // Read on the client itself: no interactive transaction holds the scan.
+    const lines = await readPublishedOrderLines(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      excludedStatuses: ['cancelled', 'returned'],
+    });
+
+    expect(lines
+      .map(({ orderId, revenue, quantity, listingOptionId }) => ({ orderId, revenue, quantity, listingOptionId }))
+      .sort((left, right) => left.revenue - right.revenue)).toEqual([
+      { orderId: paid.id, revenue: 10_000, quantity: 1, listingOptionId: null },
+      { orderId: paid.id, revenue: 20_000, quantity: 2, listingOptionId: null },
+    ]);
+    expect(new Set(lines.map((line) => line.lineItemId)).size).toBe(2);
   });
 
   it('does not publish legacy source-null orders through owner readers', async () => {

@@ -19,9 +19,19 @@ in Supply, but the backend capability owner is finance.
 
 ## Aggregation Rules
 
-- Period input is `YYYY-MM`; default is the current month.
-- Monetary values are integer KRW.
-- Shipping is allocated by line-item revenue share.
+- Period input is `YYYY-MM` naming a real month (`2026-00`/`2026-13` answer
+  400); default is the KST month containing the request, statistics included.
+  A month is evaluated over its closed KST days.
+- Monetary values are integer KRW. Line costs stay exact; each published
+  aggregate (listing row, channel row, window total) rounds its own sum once,
+  so rows can differ from a total by a won.
+- Shipping is allocated by line-item revenue share and rounded per line.
+  `Order.shippingPrice` defaults to 0, so a collector that never fills it reads
+  as measured zero shipping; a nullable column or collector provenance belongs
+  to a schema cutover.
+- Advertising applies only to listings on the active Coupang accounts the
+  target-day sweep covers; on any other channel it is Not applied (0), never
+  unmeasured.
 - Return/orphan semantics stay aligned with channel dashboard.
 - Profit and return rates derive from raw values, not persisted rates.
 - `common/option-pricing-resolver.ts`, `common/kst`, and

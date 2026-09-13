@@ -36,7 +36,9 @@ import { readPublishedProductAbcGrades } from '../products/read/product-abc-publ
  *   profit, and a window containing one has no measured total.
  * - Advertising. A date the campaign sweep never measured is absent, never a
  *   cost of zero. Whether advertising applies at all is account-level
- *   evidence passed in as `AccountAdEvidence`.
+ *   evidence passed in as `AccountAdEvidence`, and it applies only to a
+ *   listing on an account the target-day sweep covers; on any other channel
+ *   advertising is Not applied.
  * - Dates. Revenue and every line cost share the collected order dates. The
  *   ad reader only sums a whole window, so when advertising applies a profit
  *   exists only when the orders cover that whole window too.
@@ -47,7 +49,7 @@ import { readPublishedProductAbcGrades } from '../products/read/product-abc-publ
  * a month with no closed day evaluates nothing.
  */
 
-/** Source names these bases publish — the same names dashboard evidence uses for them. */
+// Must match the dashboard source names until a shared source-key constant exists.
 const ORDERS_SOURCE = 'orders';
 const COUPANG_ADS_SOURCE = 'coupang_ads';
 
@@ -141,6 +143,12 @@ export interface ProfitListingIdentity {
   externalId: string;
   channelName: string | null;
   channel: string;
+  /**
+   * Whether the listing sells on an account the Coupang target-day ad sweep
+   * covers. Elsewhere no target-day spend can exist, so advertising is Not
+   * applied to it rather than unmeasured.
+   */
+  adSweepCovers: boolean;
   masterProductId: string | null;
   masterCode: string;
   masterName: string;
@@ -242,7 +250,7 @@ async function readProfitLines(
           displayName: true,
           category: true,
           masterProduct: { select: { id: true, code: true, name: true, category: true } },
-          channelAccount: { select: { channel: true } },
+          channelAccount: { select: { channel: true, status: true } },
           thumbnails: {
             where: { status: 'active' },
             orderBy: { updatedAt: 'desc' },
@@ -270,6 +278,7 @@ async function readProfitLines(
       externalId: listing.externalId,
       channelName: listing.channelName ?? null,
       channel: listing.channelAccount.channel,
+      adSweepCovers: adSweepCoversAccount(listing.channelAccount),
       masterProductId: listing.masterProduct?.id ?? null,
       masterCode: listing.masterProduct?.code ?? listing.externalId,
       masterName: listing.masterProduct?.name
@@ -370,6 +379,26 @@ export async function readProfitWindowFacts(
   return { ...lineFacts, window, ad, listingAdSpend, gradeByProductId };
 }
 
+/**
+ * The accounts the Coupang target-day ad sweep covers, as Advertising's
+ * `advertisingApplies` and its ledger's active-account rule decide them:
+ * active Coupang accounts.
+ */
+function adSweepCoversAccount(account: { channel: string; status: string }): boolean {
+  return account.channel === 'coupang' && account.status === 'active';
+}
+
+/**
+ * Whether advertising is an input to a listing's profit: the organization has
+ * an advertising account and the listing sells where its sweep looks.
+ */
+export function advertisingAppliesToListing(
+  ad: Pick<AccountAdEvidence, 'hasAdAccount'>,
+  listing: Pick<ProfitListingIdentity, 'adSweepCovers'>,
+): boolean {
+  return ad.hasAdAccount && listing.adSweepCovers;
+}
+
 /** Whether a completed Orders collection covered every business date of the window. */
 export function isOrderWindowComplete(orderWindow: OrderWindowFacts): boolean {
   return orderWindow.revenue !== null;
@@ -407,6 +436,8 @@ export function addOrUnavailable(total: number | null, value: number | null): nu
  *
  * - No advertising account — no collection can exist either. Advertising is a
  *   satisfied input at zero for every listing.
+ * - A listing on a channel the sweep cannot cover — no target-day row can
+ *   exist for it, so advertising is Not applied to it at zero.
  * - A window the sweep measured no date of, or only part of. A sum over 3 of
  *   30 requested days proves nothing about the other 27, so the cost is
  *   unavailable.
@@ -417,11 +448,11 @@ export function addOrUnavailable(total: number | null, value: number | null): nu
 function listingAdCost(
   ad: AccountAdEvidence,
   listingAdSpend: ReadonlyMap<string, number>,
-  listingId: string,
+  listing: ProfitListingIdentity,
 ): number | null {
-  if (!ad.hasAdAccount) return 0;
+  if (!advertisingAppliesToListing(ad, listing)) return 0;
   if (ad.publishedDates === 0 || !ad.coversWindow) return null;
-  return listingAdSpend.has(listingId) ? listingAdSpend.get(listingId)! : 0;
+  return listingAdSpend.has(listing.listingId) ? listingAdSpend.get(listing.listingId)! : 0;
 }
 
 /**
@@ -429,8 +460,8 @@ function listingAdCost(
  * the collected order dates; advertising, when it applies, is a whole-window
  * sum, so the orders must cover that whole window as well.
  */
-function profitDatesAligned(ad: AccountAdEvidence, orderWindow: OrderWindowFacts): boolean {
-  return !ad.hasAdAccount || isOrderWindowComplete(orderWindow);
+function profitDatesAligned(adApplies: boolean, orderWindow: OrderWindowFacts): boolean {
+  return !adApplies || isOrderWindowComplete(orderWindow);
 }
 
 /** Per-listing rows over the collected lines of a window. */
@@ -464,14 +495,17 @@ export function perListingProfitRows(facts: ProfitRowFacts): PerListingProfit[] 
     groups.set(line.listing.listingId, group);
   }
 
-  const datesAligned = profitDatesAligned(facts.ad, facts.orderWindow);
   return Array.from(groups.values()).map((group) => {
     const { identity } = group;
     const costOfGoods = roundOrUnavailable(group.costOfGoods);
     const commission = roundOrUnavailable(group.commission);
     const otherCost = roundOrUnavailable(group.otherCost);
-    const adCost = listingAdCost(facts.ad, facts.listingAdSpend, identity.listingId);
+    const adCost = listingAdCost(facts.ad, facts.listingAdSpend, identity);
     const costs = totalOrUnavailable([costOfGoods, commission, otherCost, adCost]);
+    const datesAligned = profitDatesAligned(
+      advertisingAppliesToListing(facts.ad, identity),
+      facts.orderWindow,
+    );
     const netProfit = !datesAligned || costs === null
       ? null
       : group.revenue - group.shippingCost - costs;

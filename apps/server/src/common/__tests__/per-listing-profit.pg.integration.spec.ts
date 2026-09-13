@@ -662,7 +662,7 @@ describe('buildPerListingMetrics (PG integration)', () => {
    */
   describe('cost evidence (KID-85)', () => {
     /** A listing with one fully priced option, sold on `orderedAt`. */
-    async function seedPricedListing(code: string) {
+    async function seedPricedListing(code: string, channel = 'naver') {
       const { id: masterId } = await setupMaster(prisma, {
         organizationId: TEST_ORGANIZATION_ID, code: `M-${code}`, name: `Master ${code}`,
       });
@@ -672,7 +672,7 @@ describe('buildPerListingMetrics (PG integration)', () => {
       });
       const listing = await setupChannelListing(prisma, {
         organizationId: TEST_ORGANIZATION_ID, masterId,
-        channel: 'naver', externalId: `EXT-${code}`,
+        channel, externalId: `EXT-${code}`,
         optionId, externalOptionId: `VI-${code}`,
       });
       return { ...listing, optionId };
@@ -807,7 +807,7 @@ describe('buildPerListingMetrics (PG integration)', () => {
     });
 
     it('withholds profit while advertising applies and the orders cover only part of the window', async () => {
-      const listing = await seedPricedListing('COST-PARTIAL-ORDERS-ADS');
+      const listing = await seedPricedListing('COST-PARTIAL-ORDERS-ADS', 'coupang');
       await seedOrderWithLineItems(prisma, {
         organizationId: TEST_ORGANIZATION_ID,
         externalOrderId: 'PERLIST-PARTIAL-ORDERS-ADS',
@@ -822,6 +822,37 @@ describe('buildPerListingMetrics (PG integration)', () => {
         revenue: 10_000,
         netProfit: null,
         profitRate: null,
+      });
+    });
+
+    /**
+     * KID-85 follow-up P3-5 — the target-day ledger only sweeps active Coupang
+     * accounts, so advertising is Not applied to a listing sold elsewhere: an
+     * incomplete Coupang sweep or a partly collected month does not withhold it.
+     */
+    it('keeps the profit of a listing on a channel the Coupang ad sweep cannot cover', async () => {
+      const naver = await seedPricedListing('ADS-CHANNEL-NAVER');
+      const coupang = await seedPricedListing('ADS-CHANNEL-COUPANG', 'coupang');
+      for (const [code, listing] of [['NAVER', naver], ['COUPANG', coupang]] as const) {
+        await seedOrderWithLineItems(prisma, {
+          organizationId: TEST_ORGANIZATION_ID,
+          externalOrderId: `PERLIST-ADS-CHANNEL-${code}`,
+          orderedAt: '2026-04-15T03:00:00Z',
+          shippingPrice: 0,
+          lineItems: [{ quantity: 1, totalPrice: 10_000, optionId: listing.optionId, listingOptionId: listing.listingOptionId }],
+        });
+      }
+      await coverOrders('2026-04-01', '2026-04-20');
+      const partlySwept = accountEvidence('OBSERVED', false);
+
+      expect(await rowFor(naver.listingId, partlySwept)).toMatchObject({
+        adCost: 0,
+        netProfit: 4_000,
+        profitRate: 40,
+      });
+      expect(await rowFor(coupang.listingId, partlySwept)).toMatchObject({
+        adCost: null,
+        netProfit: null,
       });
     });
 

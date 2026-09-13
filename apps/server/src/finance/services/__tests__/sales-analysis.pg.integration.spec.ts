@@ -232,7 +232,7 @@ describe('SalesAnalysisService.getAnalysis (PG integration)', () => {
   });
 
   /** KID-85 acceptance — unmeasured advertising is never added to a channel profit as zero. */
-  it('publishes no channel profit while the advertising sweep has not measured the month', async () => {
+  it('publishes no Coupang channel profit while its advertising sweep has not measured the month, and keeps the channels it cannot cover', async () => {
     const coup = await setupChannelFixture(TEST_ORGANIZATION_ID, 'coupang', 'ADS-UNMEASURED-C');
     const naver = await setupChannelFixture(TEST_ORGANIZATION_ID, 'naver', 'ADS-UNMEASURED-N');
     await seedOrderWithLineItems(prisma, {
@@ -247,13 +247,19 @@ describe('SalesAnalysisService.getAnalysis (PG integration)', () => {
 
     const result = await service.getAnalysis(TEST_ORGANIZATION_ID, '2026-04', AFTER_MONTHS);
 
-    for (const channel of result.channels) {
-      expect(channel, channel.channel).toMatchObject({
-        totalCost: null,
-        totalProfit: null,
-        profitRate: null,
-      });
-    }
+    expect(result.channels.find((c) => c.channel === 'coupang')).toMatchObject({
+      totalCost: null,
+      totalProfit: null,
+      profitRate: null,
+    });
+    // KID-85 follow-up P3-5: the target-day ledger only sweeps Coupang accounts,
+    // so advertising is Not applied to Naver: cost = purchase 5000 + commission
+    // 10% + order shipping 3000, with no ad cost to wait for.
+    expect(result.channels.find((c) => c.channel === 'naver')).toMatchObject({
+      totalCost: 8800,
+      totalProfit: -800,
+      profitRate: -10,
+    });
     expect(result.channels.map((c) => c.totalRevenue)).toEqual([10000, 8000]);
     expect(result.totals).toMatchObject({
       totalRevenue: 18000,
@@ -407,5 +413,29 @@ describe('SalesAnalysisService.getAnalysis (PG integration)', () => {
     expect(result.totals).toMatchObject({
       totalRevenue: 12000, totalOrders: 2, totalCost: 19200, totalProfit: -7200,
     });
+  });
+
+  /** KID-85 follow-up P3-4 — line costs stay exact; each published aggregate rounds its own sum once. */
+  it('rounds a channel cost once over its summed line costs, not per line', async () => {
+    const naver = await setupChannelFixture(TEST_ORGANIZATION_ID, 'naver', 'ROUNDING');
+    await prisma.channelListingOption.update({
+      where: { id: naver.listingOptionId },
+      data: { commissionRate: 0.15 },
+    });
+    for (const suffix of ['A', 'B']) {
+      await seedOrderWithLineItems(prisma, {
+        organizationId: TEST_ORGANIZATION_ID, externalOrderId: `ROUNDING-${suffix}`, orderedAt: '2026-04-10T00:00:00Z',
+        shippingPrice: 0,
+        lineItems: [{ quantity: 1, totalPrice: 1003, optionId: naver.optionId, listingOptionId: naver.listingOptionId }],
+      });
+    }
+    await coverOrders();
+
+    const result = await service.getAnalysis(TEST_ORGANIZATION_ID, '2026-04', AFTER_MONTHS);
+
+    // Commission 1003 × 15% ≈ 150.45 per line: 300.9 → 301 over the channel,
+    // where rounding each line first would give 150 + 150 = 300.
+    expect(result.channels[0]).toMatchObject({ totalRevenue: 2006, totalCost: 10301, totalProfit: -8295 });
+    expect(result.totals).toMatchObject({ totalCost: 10301, totalProfit: -8295 });
   });
 });

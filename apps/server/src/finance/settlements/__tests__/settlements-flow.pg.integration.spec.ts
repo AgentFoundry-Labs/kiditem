@@ -22,6 +22,7 @@ import {
   seedCompletedOrderCoverageRun,
 } from '../../../test-helpers/finance-seeds';
 import { readSettlements } from '../read/settlement-facts';
+import type { UpdateSettlementDto } from '../dto';
 
 describe('Settlements flow (PG integration)', () => {
   let prisma: PrismaClient;
@@ -499,6 +500,11 @@ describe('Settlements flow (PG integration)', () => {
       await expect(
         service.update(settlement.id, TEST_ORGANIZATION_ID, { status: 'confirmed' }),
       ).rejects.toThrow(BadRequestException);
+      // An explicit null is no amount either, and must not reach the non-null column.
+      await expect(service.update(settlement.id, TEST_ORGANIZATION_ID, {
+        status: 'confirmed',
+        actualAmount: null,
+      } as unknown as UpdateSettlementDto)).rejects.toThrow(BadRequestException);
 
       await expect(service.findAll(TEST_ORGANIZATION_ID, '2026-03')).resolves.toEqual([
         expect.objectContaining({ status: 'pending', actualAmount: null, difference: null }),

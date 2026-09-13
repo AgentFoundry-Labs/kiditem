@@ -274,6 +274,9 @@ export async function readOrderWindowFacts(
   tx: Prisma.TransactionClient,
   input: OrderWindowInput,
 ): Promise<OrderWindowFacts> {
+  // No business date is requested, so there is no coverage to look for; an
+  // unbounded coverage query would load every run and borrow their import time.
+  if (isEmptyWindow(input)) return emptyOrderWindowFacts();
   const includedStatus = includedStatusPredicateSql(input.excludedStatuses);
   const rows = await tx.$queryRaw<WindowRow[]>(Prisma.sql`
     WITH order_facts AS (
@@ -349,6 +352,7 @@ export async function readOrderLineWindowFacts(
   tx: Prisma.TransactionClient,
   input: OrderWindowInput,
 ): Promise<OrderLineWindowFacts> {
+  if (isEmptyWindow(input)) return { window: emptyOrderWindowFacts(), orders: [] };
   const [window, rows] = await Promise.all([
     readOrderWindowFacts(tx, input),
     tx.order.findMany({
@@ -543,6 +547,53 @@ export async function readObservedOrderCount(
   return Number(row?.count ?? 0n);
 }
 
+/** One line of an order a completed source run published, without window facts. */
+export interface PublishedOrderLineFact {
+  orderId: string;
+  lineItemId: string;
+  listingOptionId: string | null;
+  revenue: number;
+  quantity: number;
+}
+
+/**
+ * Every line of every order a completed source run published for the
+ * organization, whatever its date. It declares no window and reads no
+ * coverage, so an all-history consumer can issue it on the client rather than
+ * inside an interactive transaction; nothing it returns is a window total.
+ */
+export async function readPublishedOrderLines(
+  tx: Prisma.TransactionClient,
+  input: { organizationId: string; excludedStatuses?: readonly string[] },
+): Promise<PublishedOrderLineFact[]> {
+  const rows = await tx.orderLineItem.findMany({
+    where: {
+      organizationId: input.organizationId,
+      order: {
+        ...completeOrderWhere(input.organizationId),
+        ...(input.excludedStatuses?.length
+          ? { status: { notIn: [...input.excludedStatuses] } }
+          : {}),
+      },
+    },
+    orderBy: [{ orderId: 'asc' }, { id: 'asc' }],
+    select: {
+      id: true,
+      orderId: true,
+      listingOptionId: true,
+      totalPrice: true,
+      quantity: true,
+    },
+  });
+  return rows.map((row) => ({
+    orderId: row.orderId,
+    lineItemId: row.id,
+    listingOptionId: row.listingOptionId,
+    revenue: row.totalPrice,
+    quantity: row.quantity,
+  }));
+}
+
 export async function readOrderReturnWindowFacts(
   tx: Prisma.TransactionClient,
   input: OrderWindowInput,
@@ -722,6 +773,25 @@ function completeOrderFactSql(organizationId: string): Prisma.Sql {
       AND completed_source.organization_id = ${organizationId}::uuid
       AND completed_source.status = 'completed'
   )`;
+}
+
+function isEmptyWindow(input: Pick<OrderWindowInput, 'from' | 'to'>): boolean {
+  return input.to.getTime() <= input.from.getTime();
+}
+
+/** A window with no business date: nothing requested, nothing observed. */
+function emptyOrderWindowFacts(): OrderWindowFacts {
+  return {
+    revenue: null,
+    orderCount: null,
+    quantity: null,
+    observedAt: null,
+    observedTotals: null,
+    requestedDates: [],
+    includedDates: [],
+    missingDates: [],
+    sourceCoverage: [],
+  };
 }
 
 function completeOrderWhere(organizationId: string): Prisma.OrderWhereInput {

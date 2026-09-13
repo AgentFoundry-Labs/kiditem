@@ -5,6 +5,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { businessDateKey, kstBusinessDate, kstMonthWindow } from '../../common/kst';
 import {
   addOrUnavailable,
+  advertisingAppliesToListing,
   isOrderWindowComplete,
   profitRatePercent,
   profitWindowBasis,
@@ -38,18 +39,21 @@ function resolveChannelType(channel: string): 'marketplace' | 'direct' | 'other'
 }
 
 /**
- * A channel's ad cost for the window. Without an advertising account it is a
- * satisfied zero. With one it exists only when the sweep measured every date
- * of the window; then the sweep looked at every listing, so a channel whose
- * listings carry no rows spent nothing. Unmeasured advertising is never added
- * to a channel profit as zero.
+ * A channel's ad cost for the window. Where advertising does not apply — no
+ * advertising account, or a channel none of whose listings the Coupang
+ * target-day sweep covers — it is Not applied, a satisfied zero. Where it
+ * applies it exists only when the sweep measured every date of the window;
+ * then the sweep looked at every listing, so a channel whose listings carry no
+ * rows spent nothing. Unmeasured advertising is never added to a channel
+ * profit as zero.
  */
 function channelAdCost(
   ad: AccountAdEvidence,
   adSpendByChannel: ReadonlyMap<string, number>,
   channel: string,
+  adApplies: boolean,
 ): number | null {
-  if (!ad.hasAdAccount) return 0;
+  if (!adApplies) return 0;
   if (!ad.coversWindow) return null;
   return Math.round(adSpendByChannel.has(channel) ? adSpendByChannel.get(channel)! : 0);
 }
@@ -60,7 +64,8 @@ function channelAdCost(
  * The month is evaluated over its KST business days closed at `now`
  * (ADR-0001). Channel rows group the collected order lines by the channel
  * their listing sells on. A channel cost or profit is `null` when any of its
- * lines lacks a recorded cost, or when advertising applies and either the
+ * lines lacks a recorded cost, or when advertising applies to the channel
+ * (it sells listings the Coupang target-day sweep covers) and either the
  * sweep or the Orders collection did not cover the whole evaluated window.
  * Ratios over zero are `null`. `totals` are the organization's window totals.
  */
@@ -131,6 +136,8 @@ export class SalesAnalysisService {
       costOfGoods: number | null;
       commission: number | null;
       otherCost: number | null;
+      /** Whether any of the channel's listings sells where the ad sweep looks. */
+      adApplies: boolean;
     };
     const groups = new Map<string, Group>();
     for (const line of facts.lines) {
@@ -143,8 +150,10 @@ export class SalesAnalysisService {
         costOfGoods: 0,
         commission: 0,
         otherCost: 0,
+        adApplies: false,
       };
       group.orderIds.add(line.orderId);
+      group.adApplies = group.adApplies || advertisingAppliesToListing(facts.ad, line.listing);
       group.revenue += line.revenue;
       group.shipping += line.shippingCost;
       group.costOfGoods = addOrUnavailable(group.costOfGoods, line.costOfGoods);
@@ -153,16 +162,17 @@ export class SalesAnalysisService {
       groups.set(channel, group);
     }
 
-    // Advertising is a whole-window sum, so when it applies the orders must
-    // cover the same whole window before a cost that includes it exists.
-    const datesAligned = !facts.ad.hasAdAccount || isOrderWindowComplete(facts.orderWindow);
     const channels: ChannelAnalysis[] = Array.from(groups.values())
       .map((group) => {
+        // Advertising is a whole-window sum, so where it applies the orders
+        // must cover the same whole window before a cost that includes it exists.
+        const datesAligned = !group.adApplies || isOrderWindowComplete(facts.orderWindow);
+        // Line costs stay exact; the channel rounds its own sums once (finance guide).
         const costs = totalOrUnavailable([
           roundOrUnavailable(group.costOfGoods),
           roundOrUnavailable(group.commission),
           roundOrUnavailable(group.otherCost),
-          channelAdCost(facts.ad, adSpendByChannel, group.channel),
+          channelAdCost(facts.ad, adSpendByChannel, group.channel, group.adApplies),
         ]);
         const totalCost = !datesAligned || costs === null ? null : costs + group.shipping;
         const totalProfit = totalCost === null ? null : group.revenue - totalCost;

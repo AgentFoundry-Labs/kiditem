@@ -620,19 +620,6 @@ describe('Statistics flow (PG integration)', () => {
     expect(periodBasisStatus(result.basis!.orders)).toBe('complete');
   });
 
-  it('publishes no window and no totals when no period is asked and no order was ever collected', async () => {
-    const overview = await service.overview(TEST_ORGANIZATION_ID, undefined, AFTER_APRIL);
-
-    expect(overview).toEqual({
-      totalRevenue: null,
-      totalOrders: null,
-      totalProfit: null,
-      avgMargin: null,
-      totalProducts: 0,
-      basis: null,
-    });
-  });
-
   /** A moment after April has closed in KST. */
   const AFTER_APRIL = new Date('2026-06-01T00:00:00.000Z');
   /** 12:00 KST on 15 April: 1–14 April are closed. */
@@ -726,25 +713,27 @@ describe('Statistics flow (PG integration)', () => {
     expect(openGrades.basis!.revenue).toMatchObject({ from: '2026-04-01', to: '2026-04-14', targetDays: 14 });
   });
 
-  it('defaults an omitted period to the observed completed orders, clipped to the closed days', async () => {
-    await seedStatisticsFixture(TEST_ORGANIZATION_ID, '2026-05-01');
+  /** KID-85 follow-up P3-11 — an omitted period is the KST month containing now, as on every finance screen. */
+  it('defaults an omitted period to the KST month containing now, not the whole order history', async () => {
+    await seedStatisticsFixture();
 
-    // Orders run from 10 April to 1 May KST (the 30 April 15:30Z order); the
-    // cancelled order counts toward the range but not the totals, and the
-    // sweep never measured 1 May, so no profit exists.
-    const settled = await service.overview(TEST_ORGANIZATION_ID, undefined, AFTER_APRIL);
+    const [overview, repurchase] = await Promise.all([
+      service.overview(TEST_ORGANIZATION_ID, undefined, MID_APRIL),
+      service.repurchase(TEST_ORGANIZATION_ID, undefined, MID_APRIL),
+    ]);
 
-    expect(settled).toMatchObject({ totalRevenue: 61_000, totalOrders: 4, totalProfit: null });
-    expect(settled.basis!.requestedWindow).toEqual({ from: '2026-04-10', to: '2026-05-01' });
-    expect(settled.basis!.revenue).toMatchObject({ from: '2026-04-10', to: '2026-05-01', targetDays: 22 });
-    expect(periodBasisStatus(settled.basis!.revenue)).toBe('complete');
-    expect(periodBasisStatus(settled.basis!.adCost)).toBe('partial');
+    expect(overview).toMatchObject({ totalRevenue: 47_000, totalOrders: 2, totalProfit: 22_300 });
+    expect(overview.basis!.requestedWindow).toEqual({ from: '2026-04-01', to: '2026-04-30' });
+    expect(overview.basis!.revenue).toMatchObject({ from: '2026-04-01', to: '2026-04-14', targetDays: 14 });
+    expect(repurchase.basis!.requestedWindow).toEqual({ from: '2026-04-01', to: '2026-04-30' });
 
-    const today = await service.overview(TEST_ORGANIZATION_ID, undefined, MID_APRIL);
+    // On 1 June KST no June day has closed; April's orders are not June's.
+    const june = await service.overview(TEST_ORGANIZATION_ID, undefined, AFTER_APRIL);
 
-    expect(today).toMatchObject({ totalRevenue: 47_000, totalOrders: 2, totalProfit: 22_300 });
-    expect(today.basis!.requestedWindow).toEqual({ from: '2026-04-10', to: '2026-05-01' });
-    expect(today.basis!.revenue).toMatchObject({ from: '2026-04-10', to: '2026-04-14', targetDays: 5 });
-    expect(periodBasisStatus(today.basis!.profit)).toBe('complete');
+    expect(june).toMatchObject({
+      totalRevenue: null, totalOrders: null, totalProfit: null, avgMargin: null, totalProducts: 2,
+    });
+    expect(june.basis!.requestedWindow).toEqual({ from: '2026-06-01', to: '2026-06-30' });
+    expect(june.basis!.revenue).toMatchObject({ targetDays: 0, includedDates: [] });
   });
 });
