@@ -22,6 +22,14 @@ processing, listing, and operations.
 - Keep one primary business responsibility per change. Cross-domain edits are
   allowed only when required by a named interface, migration, shared guard, or
   incident fix; identify the affected owners and exclude unrelated cleanup.
+- Before creating or editing any ADR, read Matt Pocock's
+  [ADR-FORMAT.md](https://github.com/mattpocock/skills/blob/main/skills/engineering/domain-modeling/ADR-FORMAT.md)
+  in the current task and follow its eligibility, format, and numbering rules.
+  If the source cannot be read, defer the ADR edit until it is available.
+  Start with a short decision title and 1–3 sentences covering context,
+  decision, and reason; add optional sections only when they add value.
+  Before committing, check the resulting ADR against that source and report
+  format compliance in the task or Linear issue.
 - Before creating an ADR or adding a decision to one, check all three with
   concrete reasons: meaningful reversal cost, surprising without context, and
   a real trade-off between viable alternatives. Summarize the check in the
