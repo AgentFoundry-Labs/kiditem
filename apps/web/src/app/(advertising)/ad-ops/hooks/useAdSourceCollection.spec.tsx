@@ -200,3 +200,36 @@ it('campaign row displays prior COMPLETE dates beside latest failure and reads p
   view.unmount();
   client.clear();
 });
+
+it.each([
+  ['a prior COMPLETE', true],
+  ['no COMPLETE yet', false],
+] as const)(
+  'campaign sync with %s refreshes dependent screens only after a new sweep completes, never on mount',
+  async (_label, hasPrior) => {
+    const prior = attempt('campaign', 'COMPLETE');
+    let snapshot = source(hasPrior ? prior : null);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json(snapshot)),
+    );
+    const { client, wrapper } = harness();
+    const dependents = [
+      [...queryKeys.ads.all, 'visible-campaign-data'],
+      [...queryKeys.dashboard.all, 'summary'],
+      ['readiness', 'checks'],
+    ];
+    for (const key of dependents) client.setQueryData(key, { rows: [] });
+    const invalidated = () => dependents.map((key) => client.getQueryState(key)?.isInvalidated);
+    const hook = renderHook(() => useAdSync(), { wrapper });
+    await waitFor(() => expect(hook.result.current.source.isSuccess).toBe(true));
+    // Re-reading the COMPLETE the page already rendered is not a new sweep.
+    await act(() => client.invalidateQueries({ queryKey: queryKeys.ads.campaignSource() }));
+    expect(invalidated()).toEqual([false, false, false]);
+    snapshot = source({ ...prior, attemptId: '33333333-3333-4333-8333-333333333333' });
+    await act(() => client.invalidateQueries({ queryKey: queryKeys.ads.campaignSource() }));
+    await waitFor(() => expect(invalidated()).toEqual([true, true, true]));
+    hook.unmount();
+    client.clear();
+  },
+);

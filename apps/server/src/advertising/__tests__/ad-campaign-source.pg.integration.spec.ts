@@ -389,18 +389,22 @@ describe('Ad campaign source incoming HTTP + disposable PostgreSQL', () => {
       expect(await prisma.alert.count({ where: { organizationId: ORG, status: 'OPEN' } })).toBe(1);
     },
   );
-  it.each(['success', 'empty', 'failure'])(
+  it.each(['success', 'empty', 'failure', 'unparseable'])(
     'keeps optional keyword %s inside campaign attempt, without a second lifecycle',
     async (kind) => {
       const a = await full(),
         p = auxiliary(a, kind === 'failure', kind === 'empty');
+      // An unreadable observed keyword cell is optional-evidence failure, not HTTP 500.
+      if (kind === 'unparseable') (p.groupResult.rows[0] as Record<string, unknown>).clicks = 'N/A';
       const receipt = (await upload(a, 33, p).expect(200)).body;
       expect(receipt.state).toBe('RUNNING');
       await finish(a, 201);
       const run = await prisma.sourceImportRun.findFirstOrThrow({
         where: { id: a.attemptId, organizationId: ORG },
       });
-      expect((run.qualityReport as any).keywordCoverage).toHaveLength(kind === 'failure' ? 0 : 1);
+      expect((run.qualityReport as any).keywordCoverage).toHaveLength(
+        kind === 'failure' || kind === 'unparseable' ? 0 : 1,
+      );
       expect(
         await prisma.channelAdTargetDailySnapshot.count({
           where: { sourceImportRunId: a.attemptId, targetType: 'keyword', adGroupId: 'g' },

@@ -663,6 +663,26 @@ describe('Ad keyword source incoming HTTP + disposable PostgreSQL', () => {
       expect((await owner.readComplete(ORG, { channelAccountId: accountId })).rows).toEqual([]);
     },
   );
+  it('fails the attempt with AD_METRIC_UNPARSEABLE for an unreadable observed metric cell instead of HTTP 500', async () => {
+    const attempt = (await admit()).body;
+    await put(attempt, 'roster', roster()).expect(200);
+    await put(attempt, 'groups/0/plan', groupPlan()).expect(200);
+    const input = groupResult();
+    (input.rows[0] as Record<string, unknown>).clicks = 'N/A';
+    expect((await put(attempt, 'groups/0/result', input).expect(200)).body).toMatchObject({
+      state: 'FAILED',
+      errorCode: 'AD_METRIC_UNPARSEABLE',
+    });
+    expect(
+      await prisma.channelAdTargetDailySnapshot.count({
+        where: { organizationId: ORG, sourceImportRunId: attempt.attemptId },
+      }),
+    ).toBe(0);
+    expect(await alerts.list(ORG)).toMatchObject([
+      { status: 'OPEN', attemptId: attempt.attemptId },
+    ]);
+    expect((await put(attempt, 'groups/0/result', input).expect(200)).body.state).toBe('FAILED');
+  });
   it('fences organization, token, immutable group receipts and changed begin input', async () => {
     const attempt = (await admit()).body;
     await request(httpUrl)

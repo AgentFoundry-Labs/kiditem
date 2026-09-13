@@ -40,7 +40,11 @@ import {
   mergeKeywordTargets,
 } from '../../../application/service/ad-keyword-normalizer';
 import { resolveCampaignReportAuthority } from '../../../domain/campaign-report-authority';
-import { pairScrapeRows, cleanString } from '../../../domain/scrape-row-normalizers';
+import {
+  AdMetricUnparseableError,
+  pairScrapeRows,
+  cleanString,
+} from '../../../domain/scrape-row-normalizers';
 import {
   matchListingFromRow,
   matchStatusOf,
@@ -453,27 +457,40 @@ export class AdCampaignSourceRepository {
           )!.campaign!;
           const map = await this.listingMap(tx, row);
           const merged = new Map<string, UpsertAdTargetDailyInput>();
+          let unreadableMetric = false;
           for (const raw of payload.groupResult.rows) {
-            const target = normalizeAdKeywordTarget(raw, {
-              organizationId: org,
-              map,
-              businessDate: new Date(plan.endDate),
-              windowDays: 7,
-              campaignName: data.entries
-                .flatMap((e) => e.page?.campaigns ?? [])
-                .find((c) => c.key === payload.campaignKey)!.name,
-            });
+            let target: UpsertAdTargetDailyInput | null;
+            try {
+              target = normalizeAdKeywordTarget(raw, {
+                organizationId: org,
+                map,
+                businessDate: new Date(plan.endDate),
+                windowDays: 7,
+                campaignName: data.entries
+                  .flatMap((e) => e.page?.campaigns ?? [])
+                  .find((c) => c.key === payload.campaignKey)!.name,
+              });
+            } catch (error) {
+              // Optional keyword evidence with an unreadable observed cell is
+              // a warning like any other invalid keyword receipt.
+              if (!(error instanceof AdMetricUnparseableError)) throw error;
+              unreadableMetric = true;
+              break;
+            }
             if (!target) continue;
             const previous = merged.get(target.targetKey);
             merged.set(target.targetKey, previous ? mergeKeywordTargets(previous, target) : target);
           }
-          targets = [...merged.values()];
-          entry.keywordCoverage = {
-            campaignIdentity: `campaign:${campaign.campaignId}`,
-            adGroupId: payload.adGroupId,
-            capturedAt: payload.groupResult.capturedAt,
-            businessDate: plan.endDate,
-          };
+          if (unreadableMetric) entry.warning = true;
+          else {
+            targets = [...merged.values()];
+            entry.keywordCoverage = {
+              campaignIdentity: `campaign:${campaign.campaignId}`,
+              adGroupId: payload.adGroupId,
+              capturedAt: payload.groupResult.capturedAt,
+              businessDate: plan.endDate,
+            };
+          }
         }
       }
       if (targets.length)

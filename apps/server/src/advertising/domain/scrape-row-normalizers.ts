@@ -87,10 +87,21 @@ export function readProviderMetric(
 ): number {
   const parsed = parseProviderNumber(value);
   if (parsed !== null) return Math.round(parsed);
-  if (observed) {
-    throw new Error(`AD_METRIC_UNPARSEABLE: ${field}`);
-  }
+  if (observed) throw new AdMetricUnparseableError(field);
   return 0;
+}
+
+/**
+ * An observed provider metric cell that does not parse. Source owners turn it
+ * into their receipt rejection (a failed attempt or a warning), never HTTP 500.
+ */
+export class AdMetricUnparseableError extends Error {
+  readonly code = 'AD_METRIC_UNPARSEABLE' as const;
+
+  constructor(readonly field: string) {
+    super(`AD_METRIC_UNPARSEABLE: ${field}`);
+    this.name = 'AdMetricUnparseableError';
+  }
 }
 
 export function toBooleanOrNull(value: unknown): boolean | null {
