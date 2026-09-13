@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { kstBusinessDate, kstInclusiveDaysStart } from '../../../../common/kst';
+import { businessDateKey, kstBusinessDate, kstInclusiveDaysStart } from '../../../../common/kst';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
   LiveCommerceBroadcastSnapshotRow,
@@ -177,5 +177,5 @@ function planDateKey(value: unknown): string | null {
 }
 
 function dateKey(value: Date): string {
-  return value.toISOString().slice(0, 10);
+  return businessDateKey(value);
 }

@@ -4,6 +4,17 @@ import {
   productAbcSaleAgeDays,
   type ProductAbcFormulaPayload,
 } from '@kiditem/shared/product-abc';
+import {
+  addDays,
+  businessDateKey,
+  kstBusinessDate,
+  kstMonthEnd,
+  parseBusinessDate,
+  toBusinessDate,
+} from '../../common/kst';
+
+const EPOCH_BUSINESS_DATE = parseBusinessDate('1970-01-01')!;
+const DAY_MS = 86_400_000;
 
 /**
  * A source-owned, already eligible set of facts for one product.
@@ -406,33 +417,21 @@ function validateYearMonth(value: unknown): string {
 }
 
 function calendarDate(value: Date | string): string {
-  const day = kstEpochDay(value);
-  return new Date(day * 86_400_000).toISOString().slice(0, 10);
+  const date = typeof value === 'string'
+    ? toBusinessDate(value)
+    : kstBusinessDate(value);
+  if (!date) throw new Error(`invalid calendar date ${String(value)}`);
+  return businessDateKey(date);
 }
 
 function kstEpochDay(value: Date | string): number {
-  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    const [year, month, day] = value.split('-').map(Number);
-    const parsed = Date.UTC(year!, month! - 1, day);
-    const date = new Date(parsed);
-    if (
-      !Number.isFinite(parsed)
-      || date.getUTCFullYear() !== year
-      || date.getUTCMonth() !== month! - 1
-      || date.getUTCDate() !== day
-    ) throw new Error(`invalid calendar date ${value}`);
-    return Math.floor(parsed / 86_400_000);
-  }
-  const date = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(date.getTime())) throw new Error(`invalid calendar date ${String(value)}`);
-  const shifted = new Date(date.getTime() + 9 * 60 * 60 * 1000);
-  return Math.floor(Date.UTC(
-    shifted.getUTCFullYear(), shifted.getUTCMonth(), shifted.getUTCDate(),
-  ) / 86_400_000);
+  const date = parseBusinessDate(calendarDate(value));
+  if (!date) throw new Error(`invalid calendar date ${String(value)}`);
+  return Math.floor((date.getTime() - EPOCH_BUSINESS_DATE.getTime()) / DAY_MS);
 }
 
 function yearMonthForEpochDay(epochDay: number): string {
-  return new Date(epochDay * 86_400_000).toISOString().slice(0, 7);
+  return businessDateKey(addDays(EPOCH_BUSINESS_DATE, epochDay)).slice(0, 7);
 }
 
 function shiftYearMonth(yearMonth: string, amount: number): string {
@@ -442,6 +441,5 @@ function shiftYearMonth(yearMonth: string, amount: number): string {
 }
 
 function daysInMonth(yearMonth: string): number {
-  const [year, month] = yearMonth.split('-').map(Number);
-  return new Date(Date.UTC(year!, month!, 0)).getUTCDate();
+  return Number(kstMonthEnd(yearMonth).slice(-2));
 }

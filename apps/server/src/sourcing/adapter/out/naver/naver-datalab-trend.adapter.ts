@@ -7,6 +7,7 @@ import type {
   NaverDatalabTrendPort,
   NaverDatalabTrendStatus,
 } from '../../../application/port/out/provider/naver-keyword-research.port';
+import { addDays, businessDateKey, currentBusinessDate } from '../../../../common/kst';
 
 const REQUIRED_ENV = ['NAVER_API_HUB_CLIENT_ID', 'NAVER_API_HUB_CLIENT_SECRET'];
 const DEFAULT_BASE_URL = 'https://naverapihub.apigw.ntruss.com';
@@ -180,9 +181,8 @@ function resolveDateRange(startDate?: string, endDate?: string): { startDate: st
 }
 
 function defaultDateRange(now = new Date()): { startDate: string; endDate: string } {
-  const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-  const start = new Date(end);
-  start.setUTCDate(start.getUTCDate() - 30);
+  const end = currentBusinessDate(now);
+  const start = addDays(end, -30);
   return {
     startDate: formatDate(start),
     endDate: formatDate(end),
@@ -190,7 +190,7 @@ function defaultDateRange(now = new Date()): { startDate: string; endDate: strin
 }
 
 function formatDate(date: Date): string {
-  return date.toISOString().slice(0, 10);
+  return businessDateKey(date);
 }
 
 function mapTrendResult(result: NonNullable<NaverDatalabSearchTrendResponse['results']>[number]): NaverDatalabKeywordTrend {

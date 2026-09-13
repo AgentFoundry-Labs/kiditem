@@ -4,22 +4,32 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { apiClient } from '@/lib/api-client';
 import SalesOverview from '../components/SalesOverview';
 
+const state = vi.hoisted(() => ({
+  search: '',
+  knownThrough: '2026-07-25' as string | null,
+  readChannelSales: vi.fn(),
+}));
+
 vi.mock('next/navigation', () => ({
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => new URLSearchParams(state.search),
   useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
   usePathname: () => '/sales-analysis',
 }));
 
-vi.mock('@/hooks/useSellpiaChannelSales', () => ({
-  sellpiaMonthRange: () => ({ from: '2026-07-01', to: '2026-07-25' }),
-  useSellpiaChannelSales: () => ({
-    summary: undefined,
-    isLoading: false,
-    isError: false,
-    refetch: vi.fn(),
-    sync: vi.fn(),
-    syncing: false,
-  }),
+vi.mock('@/hooks/useSellpiaChannelSales', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@/hooks/useSellpiaChannelSales')>(),
+  useSellpiaKnownThrough: () => state.knownThrough,
+  useSellpiaChannelSales: (range: { from: string; to: string } | null) => {
+    state.readChannelSales(range);
+    return {
+      summary: undefined,
+      isLoading: false,
+      isError: false,
+      refetch: vi.fn(),
+      sync: vi.fn(),
+      syncing: false,
+    };
+  },
 }));
 
 function renderWithProvider() {
@@ -40,6 +50,32 @@ function mockSalesQuery(response: unknown) {
 describe('<SalesOverview> 3-state (Plan D.3)', () => {
   beforeEach(() => {
     vi.spyOn(apiClient, 'getParsed').mockReset();
+    state.search = '';
+    state.knownThrough = '2026-07-25';
+    state.readChannelSales.mockClear();
+  });
+
+  it('defaults to August on September 1 and offers the September anchor month', async () => {
+    state.knownThrough = '2026-08-31';
+    mockSalesQuery({ channels: [] });
+    renderWithProvider();
+    await waitFor(() => expect(apiClient.getParsed).toHaveBeenCalledWith(
+      '/api/sales-analysis?period=2026-08', expect.anything(),
+    ));
+    expect((screen.getByRole('combobox') as HTMLSelectElement).value).toBe('2026-08');
+    expect(screen.getByRole('option', { name: '2026년 9월' })).toBeTruthy();
+    expect(state.readChannelSales).toHaveBeenLastCalledWith({
+      from: '2026-08-01', to: '2026-08-31',
+    });
+  });
+
+  it('keeps the dashboard September link free of future Sellpia queries on September 1', () => {
+    state.knownThrough = '2026-08-31';
+    state.search = 'tab=overview&period=2026-09&channel=rocket';
+    mockSalesQuery({ channels: [] });
+    renderWithProvider();
+    expect((screen.getByRole('combobox') as HTMLSelectElement).value).toBe('2026-09');
+    expect(state.readChannelSales).toHaveBeenLastCalledWith(null);
   });
 
   it('renders loading skeleton on pending query', () => {

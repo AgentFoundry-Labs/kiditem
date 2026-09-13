@@ -7,6 +7,8 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { readListingDayAdFacts } from '../../../../common/ad-window-facts';
+import { currentRowTieBreakSql } from '../../../../common/current-row';
+import { addDays } from '../../../../common/kst';
 import { periodBounds, type AdPeriod } from '../../../domain/ad-metrics';
 import { IS_CAMPAIGN_GRAIN_SQL, IS_PRODUCT_GRAIN_SQL } from './ad-target-grain.sql';
 import {
@@ -90,9 +92,8 @@ export class AdCampaignRepositoryAdapter implements AdCampaignRepositoryPort {
       ),
       -- Same campaign, same day, several target_key values (one per identity
       -- scheme the scraper has used). They describe the SAME Coupang row, so
-      -- summing them double-counts. Keep the single best-evidenced row per day:
-      -- a re-collection that produced real numbers must beat the all-zero row
-      -- an earlier failed background sweep left behind.
+      -- summing them double-counts. Use the same current-row order as every
+      -- other reader; metrics never decide which observation is current.
       campaign_daily AS (
         SELECT DISTINCT ON (channel_account_id, campaign_identity, business_date)
           channel_account_id,
@@ -113,8 +114,12 @@ export class AdCampaignRepositoryAdapter implements AdCampaignRepositoryPort {
           channel_account_id,
           campaign_identity,
           business_date,
-          (spend + revenue + impressions + clicks + conversions + orders) DESC,
-          updated_at DESC
+          ${currentRowTieBreakSql({
+            businessDate: Prisma.sql`business_date`,
+            observedAt: Prisma.sql`last_observed_at`,
+            updatedAt: Prisma.sql`updated_at`,
+            id: Prisma.sql`id`,
+          })}
       ),
       -- A successful single-campaign detail sweep currently projects one row
       -- per advertised product, not a duplicated campaign total. Fold those
@@ -279,7 +284,12 @@ export class AdCampaignRepositoryAdapter implements AdCampaignRepositoryPort {
           on_off AS "onOff",
           meta_json AS "metaJson"
         FROM scoped
-        ORDER BY target_key, business_date DESC, updated_at DESC
+        ORDER BY target_key, ${currentRowTieBreakSql({
+          businessDate: Prisma.sql`business_date`,
+          observedAt: Prisma.sql`last_observed_at`,
+          updatedAt: Prisma.sql`updated_at`,
+          id: Prisma.sql`id`,
+        })}
       )
       SELECT
         rollups."targetKey",
@@ -336,7 +346,7 @@ export class AdCampaignRepositoryAdapter implements AdCampaignRepositoryPort {
     const rows = await readListingDayAdFacts(this.prisma, {
       organizationId,
       from: dateRange.from,
-      to: new Date(dateRange.to.getTime() + 86_400_000),
+      to: addDays(dateRange.to, 1),
     });
     return rows.map((row) => ({
       businessDate: row.businessDate,

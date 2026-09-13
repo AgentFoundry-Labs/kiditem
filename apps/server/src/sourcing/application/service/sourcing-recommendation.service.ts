@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { createHash } from 'node:crypto';
-import { kstBusinessDate } from '../../../common/kst';
+import { businessDateKey, kstBusinessDate } from '../../../common/kst';
 import {
   baselineActionForScore,
   buildCoupangRecommendations,
@@ -362,10 +362,11 @@ function toInterestKeywords(
 
 function maxBusinessDate(observations: SourcingOfferObservationSource[]): string | null {
   if (observations.length === 0) return null;
-  return observations.reduce(
+  const latest = observations.reduce(
     (latest, item) => (item.businessDate > latest ? item.businessDate : latest),
     observations[0].businessDate,
-  ).toISOString().slice(0, 10);
+  );
+  return businessDateKey(latest);
 }
 
 function buildInputManifest(input: {
@@ -378,7 +379,7 @@ function buildInputManifest(input: {
   refreshIdempotencyKey?: string;
 }): { stable: Record<string, unknown>; full: Record<string, unknown> } {
   const stable = {
-    businessDate: input.businessDate.toISOString().slice(0, 10),
+    businessDate: businessDateKey(input.businessDate),
     offerObservations: input.offers
       .map((item) => ({ id: item.id, evidenceObservationId: item.evidenceObservationId, capturedAt: item.capturedAt.toISOString() }))
       .sort(compareJson),

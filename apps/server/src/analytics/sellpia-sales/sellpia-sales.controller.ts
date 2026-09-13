@@ -24,6 +24,12 @@ import {
 import type {
   SellpiaSalesSummary,
 } from '@kiditem/shared/dashboard';
+import {
+  businessDateKey,
+  closedMonthRangeFromCutoff,
+  evidenceCutoffDate,
+  shiftBusinessDateKey,
+} from '../../common/kst';
 
 @Controller('sellpia-sales')
 export class SellpiaSalesController {
@@ -93,7 +99,7 @@ export class SellpiaSalesController {
     );
   }
 
-  // 대시보드 '몰별 매출' 섹션 read. from/to 미지정 시 이번 달(KST) 1일 ~ 오늘.
+  // 대시보드 '몰별 매출' read. 기본 범위는 현재 KST 월의 닫힌 날짜만 포함한다.
   @Get()
   async getSummary(
     @Query() query: SellpiaSalesQueryDto,
@@ -105,6 +111,9 @@ export class SellpiaSalesController {
     }
     if (query.to && !parseCalendarDate(query.to)) {
       throw new BadRequestException('to는 유효한 날짜(YYYY-MM-DD)여야 합니다.');
+    }
+    if (!query.from && !query.to) {
+      return this.service.getClosedMonthSummary(organizationId);
     }
     const { from, to } = resolveRange(query.from, query.to);
     if (from > to) {
@@ -118,12 +127,11 @@ function resolveRange(
   from: string | undefined,
   to: string | undefined,
 ): { from: string; to: string } {
-  const pad = (n: number) => String(n).padStart(2, '0');
-  const kstNow = new Date(Date.now() + 9 * 60 * 60 * 1000);
-  const y = kstNow.getUTCFullYear();
-  const m = kstNow.getUTCMonth() + 1;
-  const d = kstNow.getUTCDate();
-  const today = `${y}-${pad(m)}-${pad(d)}`;
-  const monthStart = `${y}-${pad(m)}-01`;
-  return { from: from ?? monthStart, to: to ?? today };
+  const knownThrough = businessDateKey(evidenceCutoffDate());
+  const closedMonthRange = closedMonthRangeFromCutoff(knownThrough);
+  const anchorDate = shiftBusinessDateKey(knownThrough, 1);
+  return {
+    from: from ?? closedMonthRange?.from ?? `${anchorDate.slice(0, 7)}-01`,
+    to: to ?? knownThrough,
+  };
 }

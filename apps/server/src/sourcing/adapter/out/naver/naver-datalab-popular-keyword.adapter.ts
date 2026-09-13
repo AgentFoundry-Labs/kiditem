@@ -12,6 +12,7 @@ import type {
   SearchNaverDatalabPopularKeywordsInput,
   SearchNaverDatalabPopularKeywordsResult,
 } from '../../../application/port/out/provider/naver-keyword-research.port';
+import { addDays, businessDateKey, evidenceCutoffDate } from '../../../../common/kst';
 
 const REQUIRED_ENV = ['NAVER_API_HUB_CLIENT_ID', 'NAVER_API_HUB_CLIENT_SECRET'];
 const DEFAULT_BASE_URL = 'https://naverapihub.apigw.ntruss.com';
@@ -29,7 +30,6 @@ const DEFAULT_LIMIT = 20;
 const MAX_KEYWORDS_PER_REQUEST = 5;
 const MAX_LIMIT = 100;
 const BATCH_DELAY_MS = 120;
-const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
 const CACHE_TTL_MS = 10 * 60 * 1000;
 
 interface NaverApiHubConfig {
@@ -515,14 +515,15 @@ function resolveDateRange(
 }
 
 function defaultDateRange(timeUnit: NaverDatalabTimeUnit, now = new Date()): { startDate: string; endDate: string } {
-  const kstNow = new Date(now.getTime() + KST_OFFSET_MS);
-  const end = new Date(Date.UTC(kstNow.getUTCFullYear(), kstNow.getUTCMonth(), kstNow.getUTCDate()));
-  end.setUTCDate(end.getUTCDate() - 1);
+  const end = evidenceCutoffDate(now);
   const start = new Date(end);
   if (timeUnit === 'month') {
     start.setUTCMonth(start.getUTCMonth() - 1);
   } else {
-    start.setUTCDate(start.getUTCDate() - 6);
+    return {
+      startDate: businessDateKey(addDays(start, -6)),
+      endDate: businessDateKey(end),
+    };
   }
   return {
     startDate: formatDate(start),
@@ -531,7 +532,7 @@ function defaultDateRange(timeUnit: NaverDatalabTimeUnit, now = new Date()): { s
 }
 
 function formatDate(date: Date): string {
-  return date.toISOString().slice(0, 10);
+  return businessDateKey(date);
 }
 
 function formatDisplayRange(startDate: string, endDate: string): string {

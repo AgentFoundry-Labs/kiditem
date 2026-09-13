@@ -18,6 +18,7 @@
  */
 
 import { recommendationItemKey } from './sourcing-recommendation-identity';
+import { businessDateKey, datesInclusive, parseBusinessDate } from '../../common/kst';
 
 /** 1688 신상품 스냅샷 한 건. 수집기가 주는 필드 중 판단에 쓰는 것만 좁혀서 받는다. */
 export interface EntrySupplyItem {
@@ -906,14 +907,14 @@ function parsePercent(value: string | null | undefined): number | null {
 }
 
 function toDateKey(date: Date): string {
-  return date.toISOString().slice(0, 10);
+  return businessDateKey(date);
 }
 
 function diffDays(businessDate: string, today: Date): number {
-  const from = Date.parse(`${businessDate}T00:00:00.000Z`);
-  const to = Date.parse(`${toDateKey(today)}T00:00:00.000Z`);
-  if (!Number.isFinite(from) || !Number.isFinite(to)) return 0;
-  return Math.max(0, Math.round((to - from) / 86_400_000));
+  const from = parseBusinessDate(businessDate);
+  const to = parseBusinessDate(toDateKey(today));
+  if (!from || !to || from > to) return 0;
+  return datesInclusive(from, to).length - 1;
 }
 
 function clamp(value: number): number {

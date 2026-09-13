@@ -22,6 +22,7 @@ import {
   advanceProductMappingGeneration,
   lockProductMapping,
 } from '../../../../common/product-mapping-generation';
+import { allocatePublicationSequence } from '../../../../common/publication-sequence';
 import { buildCoupangWingSnapshotCoverage } from './coupang-wing-snapshot';
 
 const SOURCE_TYPE = 'coupang_wing_catalog';
@@ -444,7 +445,11 @@ implements ChannelCatalogImportRepositoryPort {
         await advanceProductMappingGeneration(tx, input.organizationId);
       }
 
-      const publicationSequence = await nextPublicationSequence(tx, input.organizationId);
+      const publicationSequence = await allocatePublicationSequence(
+        tx,
+        input.organizationId,
+        SOURCE_TYPE,
+      );
 
       const importedAt = new Date();
       const completion = await tx.sourceImportRun.updateMany({
@@ -695,27 +700,6 @@ function canonicalParentRows(rows: ParsedWingCatalogRow[]): CanonicalParent[] {
 
 function isUniqueConstraintError(error: unknown): boolean {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
-}
-
-async function nextPublicationSequence(
-  tx: Prisma.TransactionClient,
-  organizationId: string,
-): Promise<bigint> {
-  const sequenceLockKey = `channel-catalog-sequence:${organizationId}:${SOURCE_TYPE}`;
-  await tx.$queryRaw`
-    SELECT pg_advisory_xact_lock(hashtextextended(${sequenceLockKey}, 0))::text AS "lock"
-  `;
-  const rows = await tx.$queryRaw<Array<{ publicationSequence: bigint }>>`
-    SELECT COALESCE(MAX(publication_sequence), 0::bigint) + 1 AS "publicationSequence"
-    FROM source_import_runs
-    WHERE organization_id = ${organizationId}::uuid
-      AND source_type = ${SOURCE_TYPE}
-  `;
-  const publicationSequence = rows[0]?.publicationSequence;
-  if (publicationSequence === undefined) {
-    throw new ConflictException('Could not allocate channel catalog publication sequence');
-  }
-  return publicationSequence;
 }
 
 function zeroChanges(): CoupangWingCatalogImportResponse['changes'] {

@@ -37,6 +37,7 @@ import type {
   AdProductSnapshot,
   AdTrendsData,
 } from '@kiditem/shared/advertising';
+import { businessDateKey, evidenceCutoffDate } from '../../../common/kst';
 
 @Injectable()
 export class AdCampaignsService {
@@ -301,7 +302,12 @@ export class AdCampaignsService {
       organizationId,
       rows,
     );
-    return toAdTrendsData({ dailyAggregates, gradeBudget, accountKpiRows });
+    return toAdTrendsData({
+      knownThrough: businessDateKey(evidenceCutoffDate()),
+      dailyAggregates,
+      gradeBudget,
+      accountKpiRows,
+    });
   }
 }
 

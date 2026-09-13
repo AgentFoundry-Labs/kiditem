@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { AlertKindSchema, AlertStatusSchema } from './alerts.js';
 import { zIsoDate } from './common.js';
+import { parseBusinessDate } from '../common.js';
 import {
   ProductAbcEvaluationSchema,
   ProductAbcFormulaPayloadSchema,
@@ -18,10 +19,7 @@ import {
 export const DashboardCalendarDateSchema = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected YYYY-MM-DD')
-  .refine((value) => {
-    const date = new Date(`${value}T00:00:00.000Z`);
-    return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
-  }, 'Expected a valid calendar date');
+  .refine((value) => parseBusinessDate(value) !== null, 'Expected a valid calendar date');
 
 export const DashboardPeriodBasisStatusSchema = z.enum([
   'complete',
@@ -510,10 +508,7 @@ export const DashboardTrendItemSchema = z.object({
 const SellpiaYmdSchema = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/)
-  .refine((value) => {
-    const parsed = new Date(`${value}T00:00:00.000Z`);
-    return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
-  }, '유효한 캘린더 날짜여야 합니다.');
+  .refine((value) => parseBusinessDate(value) !== null, '유효한 캘린더 날짜여야 합니다.');
 
 export const SellpiaSalesIngestDaySchema = z.object({
   date: SellpiaYmdSchema, // YYYY-MM-DD (KST 캘린더 일자)
@@ -613,7 +608,9 @@ export const SellpiaSalesGroupSchema = z.object({
   metricBasis: DashboardMetricBasisMapSchema.optional(),
 });
 export const SellpiaSalesSummarySchema = z.object({
-  range: z.object({ from: z.string(), to: z.string() }),
+  knownThrough: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  // Null means the anchor month has no closed KST day yet, so no owner read ran.
+  range: z.object({ from: z.string(), to: z.string() }).nullable(),
   rocket: SellpiaSalesGroupSchema, // 쿠팡 로켓(쿠팡-직배송) 단독
   others: SellpiaSalesGroupSchema, // 쿠팡윙 + 기타 전체몰 합산 (malls = 드릴다운)
   totalRevenue: z.number(),

@@ -4,7 +4,7 @@ import {
   NotFoundException,
   ConflictException,
 } from '@nestjs/common';
-import { kstInclusiveDaysStart } from '../../../common/kst';
+import { addDays, kstInclusiveDaysStart } from '../../../common/kst';
 import { AdConfigService } from './ad-config.service';
 import { AdGradeRulesService } from './ad-grade-rules.service';
 import { AdBudgetAllocatorService } from './ad-budget-allocator.service';
@@ -189,8 +189,7 @@ export class AdStrategyService {
 
   /** Exposure analysis — ad aggregate + review + traffic + leadTime hydrate 후 ad-exposure 위임. */
   async getExposureAnalysis(organizationId: string): Promise<ExposureAnalysisData> {
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const thirtyDaysAgo = addDays(new Date(), -30);
 
     const adAggAll =
       await this.strategyContextRepo.loadAllTimeAdAggregates(organizationId);

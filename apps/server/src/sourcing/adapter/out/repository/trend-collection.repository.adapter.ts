@@ -1,7 +1,7 @@
 import { SourcingKeywordAnalysisSnapshotSchema } from '@kiditem/shared/sourcing';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import { kstBusinessDate, kstInclusiveDaysStart } from '../../../../common/kst';
+import { businessDateKey, kstBusinessDate, kstInclusiveDaysStart, parseBusinessDate } from '../../../../common/kst';
 import type { Prisma } from '@prisma/client';
 import type {
   NaverKeywordSnapshotRow,
@@ -429,11 +429,13 @@ function planStringList(value: Prisma.JsonValue | null, key: string): string[] {
 }
 
 function dateKey(value: Date): string {
-  return value.toISOString().slice(0, 10);
+  return businessDateKey(value);
 }
 
 function dateFromKey(value: string): Date {
-  return new Date(`${value}T00:00:00.000Z`);
+  const parsed = parseBusinessDate(value);
+  if (!parsed) throw new Error(`Invalid business date: ${value}`);
+  return parsed;
 }
 
 function toSeedRow(row: {

@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { createHash } from 'node:crypto';
-import { kstBusinessDate } from '../../../common/kst';
+import { businessDateKey, kstBusinessDate } from '../../../common/kst';
 import {
   buildSourcingAgentRagAnswer,
   buildSourcingAgentRagIndex,
@@ -275,7 +275,7 @@ function toRecommendationSnapshot(run: SourcingRecommendationRunGraph): Sourcing
   return {
     id: `recommendation-run:${run.id}`,
     scope: 'recommendation_run',
-    businessDate: run.businessDate.toISOString().slice(0, 10),
+    businessDate: businessDateKey(run.businessDate),
     payload: {
       result: {
         rows: run.items.map((item) => {
@@ -314,7 +314,7 @@ function toInterestTargetSnapshot(
   return {
     id: `interest-targets:${hashStableJson(targets.map((target) => [target.id, target.version]))}`,
     scope: 'interest_targets',
-    businessDate: businessDate.toISOString().slice(0, 10),
+    businessDate: businessDateKey(businessDate),
     payload: {
       result: {
         targets: targets.map((target) => ({
@@ -348,7 +348,7 @@ function toValidationSnapshot(
   return {
     id: `validation:${run.id}:${versionHash}`,
     scope: 'validation',
-    businessDate: run.businessDate.toISOString().slice(0, 10),
+    businessDate: businessDateKey(run.businessDate),
     payload: {
       result: {
         items: items.map(({ updatedAt: _updatedAt, ...item }) => item),

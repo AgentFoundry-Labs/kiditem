@@ -65,6 +65,7 @@ function source(
 ) {
   return {
     channelAccountId: ACCOUNT_ID,
+    knownThrough: '2026-09-07',
     status: latestComplete ? 'READY' : 'MISSING',
     refreshing: latestAttempt?.state === 'RUNNING',
     latestAttempt,
@@ -103,10 +104,22 @@ afterEach(() => {
 });
 
 describe('WingDailyTrafficCollection', () => {
+  it('does not collect the previous month or open day for an empty current month', async () => {
+    expect(resolveWingTrafficCollectionRange({ period: 'month', knownThrough: '2026-08-31' })).toBeNull();
+    expect(resolveWingTrafficCollectionRange({ period: 'month', knownThrough: '2026-09-01' })).toMatchObject({
+      startDate: '2026-09-01', endDate: '2026-09-01',
+    });
+    vi.mocked(readWingTrafficSource).mockResolvedValue({ ...source(null), knownThrough: '2026-08-31' });
+    renderControl({ period: 'month' });
+    await waitFor(() => expect(screen.getByText(/이번 달에 마감된 영업일이 없습니다/)).toBeInTheDocument());
+    expect(screen.getByRole('button', { name: '일별 수집 시작' })).toBeDisabled();
+    expect(collectWingTrafficSource).not.toHaveBeenCalled();
+  });
+
   it('uses a closed KST range ending yesterday when no custom dates are selected', () => {
     expect(resolveWingTrafficCollectionRange({
       period: 'week',
-      now: new Date('2026-09-08T00:30:00.000Z'),
+      knownThrough: '2026-09-07',
     })).toMatchObject({
       startDate: '2026-09-01',
       endDate: '2026-09-07',

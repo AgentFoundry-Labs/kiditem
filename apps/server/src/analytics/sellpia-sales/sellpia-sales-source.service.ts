@@ -9,6 +9,13 @@ import {
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
+import {
+  addDays,
+  businessDateKey,
+  datesInclusive,
+  kstBusinessDate,
+  parseBusinessDate,
+} from '../../common/kst';
 import { classifySellpiaChannelGroup } from './domain/channel-group';
 import { SELLPIA_SALES_COVERAGE_SELLER_ID } from './domain/snapshot-coverage';
 import type { SellpiaSalesIngestBodyDto } from './dto/sellpia-sales.dto';
@@ -22,7 +29,6 @@ export const SELLPIA_SALES_ATTEMPT_TTL_MS = 30 * 60_000;
 export const SELLPIA_SALES_MAX_DAYS = 100;
 export const SELLPIA_SALES_DEFAULT_DAYS = 93;
 export const SELLPIA_SALES_ALERT_DEDUPE_KEY = `source:${SELLPIA_SALES_SOURCE_TYPE}`;
-const DAY_MS = 24 * 60 * 60 * 1000;
 const INT4_MAX = 2_147_483_647;
 const INSERT_CHUNK_SIZE = 1_000;
 const TRANSACTION_TIMEOUT_MS = 30_000;
@@ -85,39 +91,18 @@ function json(value: unknown): Prisma.InputJsonValue {
   return value as Prisma.InputJsonValue;
 }
 
-function isoDate(value: Date): string {
-  return value.toISOString().slice(0, 10);
-}
-
 function parseCalendarDate(value: string): Date | null {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
-  const date = new Date(`${value}T00:00:00.000Z`);
-  return Number.isNaN(date.getTime()) || isoDate(date) !== value ? null : date;
+  return parseBusinessDate(value);
 }
 
 function dateAtUtc(value: string): Date {
-  return new Date(`${value}T00:00:00.000Z`);
-}
-
-function addDays(value: Date, days: number): Date {
-  return new Date(value.getTime() + days * DAY_MS);
-}
-
-function datesInclusive(from: Date, to: Date): string[] {
-  const result: string[] = [];
-  for (let date = from; date <= to; date = addDays(date, 1)) {
-    result.push(isoDate(date));
-  }
-  return result;
+  const date = parseBusinessDate(value);
+  if (!date) throw new Error(`invalid business date ${value}`);
+  return date;
 }
 
 function todayKst(now: Date): string {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Seoul',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(now);
+  return businessDateKey(kstBusinessDate(now));
 }
 
 function boundedInt(value: number): number {
@@ -173,12 +158,12 @@ export function buildSellpiaSalesSourcePlan(
   const to = requestedTo ?? todayKst(now);
   const toDate = parseCalendarDate(to);
   if (!toDate) throw new BadRequestException('INVALID_SELLPIA_SALES_SCOPE');
-  const from = requestedFrom ?? isoDate(addDays(toDate, -(SELLPIA_SALES_DEFAULT_DAYS - 1)));
+  const from = requestedFrom ?? businessDateKey(addDays(toDate, -(SELLPIA_SALES_DEFAULT_DAYS - 1)));
   const fromDate = parseCalendarDate(from);
   if (!fromDate || fromDate > toDate) {
     throw new BadRequestException('INVALID_SELLPIA_SALES_SCOPE');
   }
-  const businessDates = datesInclusive(fromDate, toDate);
+  const businessDates = datesInclusive(fromDate, toDate).map(businessDateKey);
   if (businessDates.length > SELLPIA_SALES_MAX_DAYS) {
     throw new BadRequestException('SELLPIA_SALES_SCOPE_TOO_LARGE');
   }
@@ -604,7 +589,7 @@ export class SellpiaSalesSourceService {
     const grouped = new Map<string, SellpiaSalesPublishedRow[]>();
     for (const row of rows) {
       if (!row.sourceImportRunId || !row.businessDate) continue;
-      const date = isoDate(row.businessDate);
+      const date = businessDateKey(row.businessDate);
       const key = `${row.sourceImportRunId}\u0000${date}`;
       const values = grouped.get(key) ?? [];
       values.push({
@@ -621,7 +606,7 @@ export class SellpiaSalesSourceService {
     }
     const selected = new Set<string>();
     const result: SellpiaSalesPublishedRow[] = [];
-    const dates = [...new Set(rows.filter((row) => row.businessDate).map((row) => isoDate(row.businessDate!)))].sort();
+    const dates = [...new Set(rows.filter((row) => row.businessDate).map((row) => businessDateKey(row.businessDate!)))].sort();
     for (const date of dates) {
       const candidates = runs.filter((run) => grouped.has(`${run.id}\u0000${date}`));
       const selectedRun = candidates.find((run) =>

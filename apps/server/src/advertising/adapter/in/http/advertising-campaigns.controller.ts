@@ -9,6 +9,7 @@ import {
 import { AdCampaignsService } from '../../../application/service/ad-campaigns.service';
 import { AdStrategyService } from '../../../application/service/ad-strategy.service';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
+import { inclusiveDayCount, parseBusinessDate } from '../../../../common/kst';
 import {
   AdProductQueryDto,
   CampaignQueryDto,
@@ -62,19 +63,18 @@ export class AdvertisingCampaignsController {
     const dateRange =
       query.from && query.to
         ? {
-            from: new Date(`${query.from}T00:00:00.000Z`),
-            to: new Date(`${query.to}T00:00:00.000Z`),
+            from: parseBusinessDate(query.from),
+            to: parseBusinessDate(query.to),
           }
         : undefined;
 
     if (dateRange) {
-      const spanDays =
-        Math.floor((dateRange.to.getTime() - dateRange.from.getTime()) / 86_400_000) + 1;
+      const spanDays = dateRange.from && dateRange.to
+        ? inclusiveDayCount(dateRange.from, dateRange.to)
+        : 0;
       if (
-        !Number.isFinite(dateRange.from.getTime()) ||
-        !Number.isFinite(dateRange.to.getTime()) ||
-        dateRange.from.toISOString().slice(0, 10) !== query.from ||
-        dateRange.to.toISOString().slice(0, 10) !== query.to ||
+        !dateRange.from ||
+        !dateRange.to ||
         spanDays < 1 ||
         spanDays > 90
       ) {
@@ -86,7 +86,9 @@ export class AdvertisingCampaignsController {
       query.period ?? '14d',
       query.days,
       organizationId,
-      dateRange,
+      dateRange && dateRange.from && dateRange.to
+        ? { from: dateRange.from, to: dateRange.to }
+        : undefined,
     );
   }
 

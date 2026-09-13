@@ -1,5 +1,6 @@
 import { Prisma, type ChannelAdTargetDailySnapshot, type SourceImportRun } from '@prisma/client';
 import { mergeKeywordTargets } from '../../../application/service/ad-keyword-normalizer';
+import { compareAttemptsNewestFirst, isNewerAttempt } from '../../../../common/current-row';
 import type { UpsertAdTargetDailyInput } from '../../../application/port/out/repository/channel-target-daily.repository.port';
 
 type Coverage = {
@@ -35,17 +36,15 @@ function manifest(attempt: SourceImportRun) {
   };
 }
 
-function newer(left: PublishedGroup, right: PublishedGroup): boolean {
-  return (
-    left.observedAt > right.observedAt ||
-    (left.observedAt === right.observedAt &&
-      ((left.attempt.importedAt?.getTime() ?? 0) > (right.attempt.importedAt?.getTime() ?? 0) ||
-        (left.attempt.importedAt?.getTime() === right.attempt.importedAt?.getTime() &&
-          left.attempt.id > right.attempt.id)))
-  );
-}
-
 const groupKey = (group: Coverage) => JSON.stringify([group.campaignIdentity, group.adGroupId]);
+
+function recency(group: PublishedGroup) {
+  return {
+    observedAt: group.observedAt,
+    importedAt: group.attempt.importedAt,
+    id: group.attempt.id,
+  };
+}
 
 /** Select published scopes before facts/period filters; absence is a roster observation, not finalization. */
 export async function readCompleteAdKeywordFacts(
@@ -87,12 +86,10 @@ export async function readCompleteAdKeywordFacts(
       (snapshot) =>
         snapshot.attempt.sourceType === 'coupang_ad_keyword' && Number.isFinite(snapshot.rosterAt),
     );
-    full.sort(
-      (a, b) =>
-        b.rosterAt - a.rosterAt ||
-        (b.attempt.importedAt?.getTime() ?? 0) - (a.attempt.importedAt?.getTime() ?? 0) ||
-        b.attempt.id.localeCompare(a.attempt.id),
-    );
+    full.sort((a, b) => compareAttemptsNewestFirst(
+      { observedAt: a.rosterAt, importedAt: a.attempt.importedAt, id: a.attempt.id },
+      { observedAt: b.rosterAt, importedAt: b.attempt.importedAt, id: b.attempt.id },
+    ));
     if (full[0]) attempts.push(full[0].attempt);
     const groups = new Set(snapshots.flatMap((snapshot) => snapshot.groups.map(groupKey)));
     for (const key of groups) {
@@ -105,7 +102,7 @@ export async function readCompleteAdKeywordFacts(
           coverage,
           observedAt: coverage ? Date.parse(coverage.capturedAt) : snapshot.rosterAt,
         };
-        if (!winner || newer(candidate, winner)) winner = candidate;
+        if (!winner || isNewerAttempt(recency(candidate), recency(winner))) winner = candidate;
       }
       if (winner?.coverage) selected.push(winner);
     }

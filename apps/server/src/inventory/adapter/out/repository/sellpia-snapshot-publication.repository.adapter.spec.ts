@@ -246,12 +246,11 @@ function makePublicationSuccessTransaction() {
   const run = { ...makeCompletedRun(), status: 'running' };
   const completedRun = makeCompletedRun();
   return {
-    $queryRaw: vi.fn()
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([{ publicationSequence: 1n }]),
+    $queryRaw: vi.fn(async (query: TemplateStringsArray | { strings: readonly string[] }) =>
+      ('strings' in query ? query.strings : query).join('').includes('MAX(publication_sequence)')
+        ? [{ publicationSequence: 1n }]
+        : [],
+    ),
     $executeRaw: vi.fn().mockResolvedValue(1),
     sellpiaInventoryState: {
       findUnique: vi.fn().mockResolvedValue(state),

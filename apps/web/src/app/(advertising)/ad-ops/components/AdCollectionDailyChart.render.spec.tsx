@@ -11,6 +11,7 @@ vi.mock("@/lib/api-client", () => ({
 }));
 
 const emptyTrends = {
+  knownThrough: "2026-07-23",
   daily: [],
   accountDaily: [],
   accountSummary: null,
@@ -47,6 +48,62 @@ describe("AdCollectionDailyChart interactions", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockApiGet.mockResolvedValue(emptyTrends);
+  });
+
+  it("waits for the server cutoff before requesting or initializing a range", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const view = render(
+      <QueryClientProvider client={queryClient}>
+        <AdCollectionDailyChart
+          initialTrends={null}
+          period="month"
+          onPeriodChange={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(mockApiGet).not.toHaveBeenCalled();
+    expect(screen.queryByText(/1970-01-01/)).not.toBeInTheDocument();
+
+    view.rerender(
+      <QueryClientProvider client={queryClient}>
+        <AdCollectionDailyChart
+          initialTrends={emptyTrends}
+          period="month"
+          onPeriodChange={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(mockApiGet).toHaveBeenCalledWith(
+        "/api/ads/campaigns/trends?from=2026-07-01&to=2026-07-23",
+      );
+    });
+    fireEvent.click(screen.getByRole("button", { name: "기간" }));
+    expect(screen.getByLabelText("광고 성과 시작일")).toHaveValue("2026-07-01");
+    expect(screen.getByLabelText("광고 성과 종료일")).toHaveValue("2026-07-23");
+  });
+
+  it("keeps the first-of-month window empty until its first business day closes", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const view = render(
+      <QueryClientProvider client={queryClient}>
+        <AdCollectionDailyChart initialTrends={{ ...emptyTrends, knownThrough: "2026-08-31" }} period="month" onPeriodChange={vi.fn()} />
+      </QueryClientProvider>,
+    );
+    expect(mockApiGet).not.toHaveBeenCalled();
+    expect(screen.getByText("이번 달에 마감된 영업일이 없습니다")).toBeInTheDocument();
+    view.rerender(
+      <QueryClientProvider client={queryClient}>
+        <AdCollectionDailyChart initialTrends={{ ...emptyTrends, knownThrough: "2026-09-01" }} period="month" onPeriodChange={vi.fn()} />
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(mockApiGet).toHaveBeenCalledWith(
+      "/api/ads/campaigns/trends?from=2026-09-01&to=2026-09-01",
+    ));
   });
 
   it("applies a custom date range to both the label and API request", async () => {
@@ -120,10 +177,7 @@ describe("AdCollectionDailyChart interactions", () => {
       </QueryClientProvider>,
     );
 
-    const referenceDate = shiftDate(
-      new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10),
-      -1,
-    );
+    const referenceDate = emptyTrends.knownThrough;
     const sevenDayFrom = shiftDate(referenceDate, -6);
 
     view.rerender(

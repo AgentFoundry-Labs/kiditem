@@ -13,6 +13,7 @@ import {
 } from '@kiditem/shared/reviews';
 import { redact } from '../../../../common/redact';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
+import { businessDateKey, kstBusinessDate } from '../../../../common/kst';
 import { canonicalOwnerInputHash } from '../../../../common/owner-idempotency-key';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { ReviewIngestService } from '../../../services/review-ingest.service';
@@ -600,14 +601,8 @@ function monthWindows(months: number, now = new Date()): ReviewCollectionWindow[
 }
 
 function todayInSeoul(now: Date): { year: number; month: number; day: number } {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'Asia/Seoul',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(now);
-  const value = (type: string) => Number(parts.find((part) => part.type === type)?.value);
-  return { year: value('year'), month: value('month'), day: value('day') };
+  const [year, month, day] = businessDateKey(kstBusinessDate(now)).split('-').map(Number);
+  return { year: year!, month: month!, day: day! };
 }
 
 function pad2(value: number): string {

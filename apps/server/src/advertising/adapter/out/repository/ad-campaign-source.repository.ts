@@ -20,7 +20,15 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { canonicalOwnerInputHash as hash } from '../../../../common/owner-idempotency-key';
 import { resolveCoupangVendorId } from '../../../../channels/domain/coupang-account-identity';
-import { currentBusinessDate } from '../../../domain/business-date';
+import {
+  addDays,
+  businessDateKey,
+  datesInclusive,
+  evidenceCutoffDate,
+  inclusiveDayCount,
+  kstDayStart,
+  parseBusinessDate,
+} from '../../../../common/kst';
 import {
   normalizeAdCampaignTarget,
   hasCompleteObservedAdditiveMetrics,
@@ -101,8 +109,7 @@ export class AdCampaignSourceRepository {
       }
       const advertiserId = resolveCoupangVendorId(account);
       if (!advertiserId) throw new BadRequestException('ADVERTISER_IDENTITY_MISSING');
-      const today = currentBusinessDate();
-      const end = new Date(today.getTime() - 86_400_000);
+      const end = evidenceCutoffDate();
       const isManual = 'captureMode' in input && input.captureMode === 'manual_report';
       const plan = isManual
         ? manualPlan(input, account.id, advertiserId)
@@ -111,13 +118,11 @@ export class AdCampaignSourceRepository {
             parserVersion: PARSER,
             channelAccountId: account.id,
             expectedAdvertiserId: advertiserId,
-            startDate: new Date(end.getTime() - 30 * 86_400_000)
-              .toISOString()
-              .slice(0, 10),
-            endDate: end.toISOString().slice(0, 10),
-            businessDates: Array.from({ length: 31 }, (_, index) =>
-              new Date(end.getTime() - index * 86_400_000).toISOString().slice(0, 10),
-            ),
+            startDate: businessDateKey(addDays(end, -30)),
+            endDate: businessDateKey(end),
+            businessDates: datesInclusive(addDays(end, -30), end)
+              .map(businessDateKey)
+              .reverse(),
           });
       const start = new Date(`${plan.startDate}T00:00:00.000Z`);
       const period = plan.captureMode === 'manual_report' ? plan.period : '31d';
@@ -172,8 +177,8 @@ export class AdCampaignSourceRepository {
     if (
       !Number.isFinite(start.getTime()) ||
       !Number.isFinite(end.getTime()) ||
-      startDate !== start.toISOString().slice(0, 10) ||
-      endDate !== end.toISOString().slice(0, 10) ||
+      startDate !== businessDateKey(start) ||
+      endDate !== businessDateKey(end) ||
       start.getTime() > end.getTime()
     ) {
       throw new BadRequestException('INVALID_MANUAL_REPORT_RANGE');
@@ -263,9 +268,7 @@ export class AdCampaignSourceRepository {
             ? latestAttempt
             : await this.viewIn(tx, complete)
           : null;
-        const expectedEnd = new Date(currentBusinessDate().getTime() - 86_400_000)
-          .toISOString()
-          .slice(0, 10);
+        const expectedEnd = businessDateKey(evidenceCutoffDate());
         return {
           channelAccountId: account.id,
           ready: latestComplete !== null
@@ -1249,12 +1252,8 @@ function parseCoupangCampaignAdGroupRoute(value: string | undefined): { campaign
 }
 
 function kstMidnightEpoch(value: string): number | null {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
-  const [year, month, day] = value.split('-').map(Number);
-  const check = new Date(Date.UTC(year, month - 1, day));
-  if (check.toISOString().slice(0, 10) !== value) return null;
-  const parsed = Date.parse(`${value}T00:00:00+09:00`);
-  return Number.isFinite(parsed) ? parsed : null;
+  const parsed = parseBusinessDate(value);
+  return parsed ? kstDayStart(parsed).getTime() : null;
 }
 function validKeywords(
   p: Extract<AdCampaignSourceReceiptInput, { kind: 'auxiliary_keywords' }>,
@@ -1318,14 +1317,14 @@ function manualPlan(
 ) {
   const start = dateAtUtc(input.startDate);
   const end = dateAtUtc(input.endDate);
-  const spanDays = Math.floor((end.getTime() - start.getTime()) / 86_400_000) + 1;
+  const spanDays = inclusiveDayCount(start, end);
   const expectedSpan = input.period === '1d' ? 1 : 7;
   if (
     !isAdvertisingDashboardUrl(input.targetUrl) ||
     !Number.isFinite(start.getTime()) ||
     !Number.isFinite(end.getTime()) ||
     spanDays !== expectedSpan ||
-    end.getTime() > currentBusinessDate().getTime() - 86_400_000
+    end.getTime() > evidenceCutoffDate().getTime()
   ) {
     throw new BadRequestException('INVALID_MANUAL_REPORT_SCOPE');
   }

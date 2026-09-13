@@ -132,6 +132,7 @@ export interface ReplaceWingSalesRankSnapshotInput {
 }
 
 export interface WingSalesRankSnapshotRow {
+  id: string;
   keyword: string;
   vendorItemId: string;
   businessDate: Date;
@@ -150,6 +151,7 @@ export interface WingSalesRankSnapshotRow {
   collectedCount: number;
   totalResults: number | null;
   capturedAt: Date;
+  updatedAt: Date;
 }
 
 export interface SerpSnapshotRow {

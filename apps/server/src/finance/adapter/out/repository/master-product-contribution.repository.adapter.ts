@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { businessDateKey, parseBusinessDate } from '../../../../common/kst';
 import { PRODUCT_ABC_ABSOLUTE_V1_AD_SOURCE_POLICY_HASH } from '@kiditem/shared/product-abc';
 import type { ProductAbcContributionMetricStatus } from '@kiditem/shared/product-abc';
 import type {
@@ -559,13 +560,11 @@ function assertBasis(fromDate: string, cutoffDate: string): void {
 }
 
 function validCalendarDate(value: string): boolean {
-  if (!CALENDAR_DATE.test(value)) return false;
-  const date = new Date(`${value}T00:00:00.000Z`);
-  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+  return CALENDAR_DATE.test(value) && parseBusinessDate(value) !== null;
 }
 
 function calendarDate(value: Date | string): string {
-  const normalized = value instanceof Date ? value.toISOString().slice(0, 10) : value.slice(0, 10);
+  const normalized = value instanceof Date ? businessDateKey(value) : value.slice(0, 10);
   if (!validCalendarDate(normalized)) {
     throw new UnprocessableEntityException('CONTRIBUTION_DATE_INVALID');
   }

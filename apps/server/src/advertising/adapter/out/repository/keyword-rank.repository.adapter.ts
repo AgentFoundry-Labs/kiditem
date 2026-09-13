@@ -10,7 +10,7 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../../../prisma/prisma.service";
-import { currentBusinessDate } from "../../../domain/business-date";
+import { addDays, businessDateKey, currentBusinessDate } from '../../../../common/kst';
 import {
   adIngestRepositoryClient,
   withAdIngestRepositoryTransaction,
@@ -267,7 +267,7 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
         await this.acquireSnapshotLock(
           tx,
           row.organizationId,
-          `keyword-rank:${row.organizationId}:${row.keyword}:${row.vendorItemId}:${row.businessDate.toISOString().slice(0, 10)}`,
+          `keyword-rank:${row.organizationId}:${row.keyword}:${row.vendorItemId}:${businessDateKey(row.businessDate)}`,
         );
         const where = {
           organizationId_keyword_vendorItemId_businessDate: {
@@ -429,7 +429,12 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
           keyword: input.keyword,
           sourceImportRun: completeSerpSource(input.organizationId),
         },
-        orderBy: [{ businessDate: "desc" }, { capturedAt: "desc" }],
+        orderBy: [
+          { businessDate: "desc" },
+          { capturedAt: "desc" },
+          { updatedAt: "desc" },
+          { id: "desc" },
+        ],
         select: {
           id: true,
           keyword: true,
@@ -463,8 +468,7 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
     keyword: string,
     days: number,
   ): Promise<RankHistoryRow[]> {
-    const since = currentBusinessDate();
-    since.setUTCDate(since.getUTCDate() - (days - 1));
+    const since = addDays(currentBusinessDate(), -(days - 1));
     return this.prisma.coupangKeywordRankDailySnapshot.findMany({
       where: {
         organizationId,
@@ -496,8 +500,7 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
     organizationId: string,
     days: number,
   ): Promise<RankOverviewSnapshotRow[]> {
-    const since = currentBusinessDate();
-    since.setUTCDate(since.getUTCDate() - (days - 1));
+    const since = addDays(currentBusinessDate(), -(days - 1));
     return this.prisma.coupangKeywordRankDailySnapshot.findMany({
       where: {
         organizationId,
@@ -514,8 +517,11 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
         { vendorItemId: "asc" },
         { businessDate: "asc" },
         { capturedAt: "asc" },
+        { updatedAt: "asc" },
+        { id: "asc" },
       ],
       select: {
+        id: true,
         keyword: true,
         vendorItemId: true,
         businessDate: true,
@@ -524,6 +530,7 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
         organicRank: true,
         adRank: true,
         capturedAt: true,
+        updatedAt: true,
       },
     });
   }
@@ -538,7 +545,7 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
       await this.acquireSnapshotLock(
         tx,
         organizationId,
-        `wing-sales-rank:${organizationId}:${keyword}:${businessDate.toISOString().slice(0, 10)}`,
+        `wing-sales-rank:${organizationId}:${keyword}:${businessDateKey(businessDate)}`,
       );
       const latest = await tx.coupangWingSalesRankDailySnapshot.findFirst({
         where: {
@@ -601,8 +608,7 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
     organizationId: string,
     days: number,
   ): Promise<WingSalesRankSnapshotRow[]> {
-    const since = currentBusinessDate();
-    since.setUTCDate(since.getUTCDate() - (days - 1));
+    const since = addDays(currentBusinessDate(), -(days - 1));
     const rows = await adIngestRepositoryClient(
       this.prisma,
     ).coupangWingSalesRankDailySnapshot.findMany({
@@ -616,8 +622,11 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
         { vendorItemId: "asc" },
         { businessDate: "asc" },
         { capturedAt: "asc" },
+        { updatedAt: "asc" },
+        { id: "asc" },
       ],
       select: {
+        id: true,
         keyword: true,
         vendorItemId: true,
         businessDate: true,
@@ -636,6 +645,7 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
         collectedCount: true,
         totalResults: true,
         capturedAt: true,
+        updatedAt: true,
       },
     });
     return rows.map((row) => ({
@@ -659,7 +669,12 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
         sourceImportRun: completeSerpSource(organizationId),
         keyword,
       },
-      orderBy: [{ businessDate: "desc" }, { capturedAt: "desc" }],
+      orderBy: [
+        { businessDate: "desc" },
+        { capturedAt: "desc" },
+        { updatedAt: "desc" },
+        { id: "desc" },
+      ],
       select: {
         keyword: true,
         businessDate: true,
@@ -675,8 +690,7 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
     organizationId: string,
     days: number,
   ): Promise<SerpSnapshotRow[]> {
-    const since = currentBusinessDate();
-    since.setUTCDate(since.getUTCDate() - (days - 1));
+    const since = addDays(currentBusinessDate(), -(days - 1));
     return this.prisma.coupangKeywordSerpDailySnapshot.findMany({
       where: {
         organizationId,

@@ -15,6 +15,7 @@ import type {
   AttemptFence,
   ProfitabilityAdImportPort,
 } from '../port/in/profitability-ad-import.port';
+import { parseBusinessDate } from '../../../common/kst';
 
 const MAX_CHECKSUM_LENGTH = 128;
 const MAX_PROVIDER_ROWS = 100_000;
@@ -197,6 +198,5 @@ function requiredText(value: unknown, code: string): string {
 }
 
 function validCalendarDate(value: string): boolean {
-  const date = new Date(`${value}T00:00:00.000Z`);
-  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+  return parseBusinessDate(value) !== null;
 }

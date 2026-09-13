@@ -14,6 +14,7 @@ import type {
   SellpiaProductSalesRow,
   SellpiaProductSalesMonthPoint,
 } from '@kiditem/shared/dashboard';
+import { businessDateKey, kstBusinessDate, kstMonthEnd } from '../../common/kst';
 
 const DEFAULT_MONTHS = 13; // 1년치(완결 12개월 + 진행 월) — 시즌 분류/추세 근거
 
@@ -287,7 +288,7 @@ export class SellpiaProductSalesService implements SellpiaProductDepletionReadPo
 }
 
 function currentKstYearMonth(): string {
-  const kst = new Date(Date.now() + 9 * 60 * 60 * 1000);
+  const kst = kstBusinessDate(new Date());
   const p = (x: number) => String(x).padStart(2, '0');
   return `${kst.getUTCFullYear()}-${p(kst.getUTCMonth() + 1)}`;
 }
@@ -308,9 +309,8 @@ function isFullCalendarMonth(
   coverageEndDate: Date | null,
 ): boolean {
   if (!coverageStartDate || !coverageEndDate) return false;
-  const [year, month] = yearMonth.split('-').map(Number);
   const monthStart = `${yearMonth}-01`;
-  const monthEnd = new Date(Date.UTC(year!, month!, 0)).toISOString().slice(0, 10);
-  return coverageStartDate.toISOString().slice(0, 10) === monthStart
-    && coverageEndDate.toISOString().slice(0, 10) === monthEnd;
+  const monthEnd = kstMonthEnd(yearMonth);
+  return businessDateKey(coverageStartDate) === monthStart
+    && businessDateKey(coverageEndDate) === monthEnd;
 }

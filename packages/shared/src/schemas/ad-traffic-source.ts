@@ -1,5 +1,11 @@
 import { z } from 'zod';
 import { zIsoDate } from './common';
+import {
+  businessDateKey,
+  datesInclusive,
+  inclusiveDayCount,
+  parseBusinessDate,
+} from '../common.js';
 
 const timestamp = zIsoDate
   .transform((value) => (value instanceof Date ? value.toISOString() : value))
@@ -42,22 +48,14 @@ const dateRangeFields = {
   endDate: date,
 };
 
-function utcDay(value: string): number {
-  return Date.parse(`${value}T00:00:00.000Z`);
-}
-
 function expectedDates(startDate: string, endDate: string): string[] {
-  const result: string[] = [];
-  const start = utcDay(startDate);
-  const end = utcDay(endDate);
-  const periodDays = Math.floor((end - start) / 86_400_000) + 1;
-  if (!Number.isFinite(start) || !Number.isFinite(end) || periodDays < 1 || periodDays > 366) {
-    return result;
-  }
-  for (let day = start; day <= end; day += 86_400_000) {
-    result.push(new Date(day).toISOString().slice(0, 10));
-  }
-  return result;
+  const start = parseBusinessDate(startDate);
+  const end = parseBusinessDate(endDate);
+  if (!start || !end) return [];
+  const count = inclusiveDayCount(start, end);
+  return count >= 1 && count <= 366
+    ? datesInclusive(start, end).map(businessDateKey)
+    : [];
 }
 
 const dailyPlanSchema = z
@@ -331,6 +329,7 @@ export const AdTrafficSourceControlSchema = AdTrafficSourceAttemptSchema.extend(
 });
 
 export const AdTrafficSourceStatusSchema = z.object({
+  knownThrough: date,
   channelAccountId: z.string().uuid().nullable(),
   ready: z.boolean(),
   refreshing: z.boolean(),

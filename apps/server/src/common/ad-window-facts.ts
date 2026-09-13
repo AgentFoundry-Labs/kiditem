@@ -1,4 +1,5 @@
 import { Prisma, type PrismaClient } from '@prisma/client';
+import { addDays, businessDateKey } from './kst';
 import {
   AD_METRIC_SUMS_SQL,
   IS_CAMPAIGN_GRAIN_SQL,
@@ -59,12 +60,6 @@ export async function advertisingApplies(
   return account !== null;
 }
 
-const DAY_MS = 86_400_000;
-
-function dateText(value: Date): string {
-  return value.toISOString().slice(0, 10);
-}
-
 /**
  * The organization's active Coupang accounts. A date is an organization-level
  * measurement only when every applicable account declared it complete.
@@ -110,8 +105,8 @@ function coveredDates(from?: Date, to?: Date) {
     FROM sweeps
     CROSS JOIN LATERAL generate_series(window_start, window_end, interval '1 day') AS d
     WHERE TRUE
-      ${from ? Prisma.sql`AND d >= ${dateText(from)}::date` : Prisma.empty}
-      ${to ? Prisma.sql`AND d < ${dateText(to)}::date` : Prisma.empty}
+      ${from ? Prisma.sql`AND d >= ${businessDateKey(from)}::date` : Prisma.empty}
+      ${to ? Prisma.sql`AND d < ${businessDateKey(to)}::date` : Prisma.empty}
     GROUP BY d::date
     HAVING COUNT(DISTINCT channel_account_id) = (SELECT COUNT(*) FROM active_accounts)
   `;
@@ -137,8 +132,8 @@ function measuredTargetRows(organizationId: string, from?: Date, to?: Date) {
     FROM channel_ad_target_daily_snapshots t
     LEFT JOIN sweeps r ON r.id = t.source_import_run_id
     WHERE t.organization_id = ${organizationId}::uuid
-      ${from ? Prisma.sql`AND t.business_date >= ${dateText(from)}::date` : Prisma.empty}
-      ${to ? Prisma.sql`AND t.business_date < ${dateText(to)}::date` : Prisma.empty}
+      ${from ? Prisma.sql`AND t.business_date >= ${businessDateKey(from)}::date` : Prisma.empty}
+      ${to ? Prisma.sql`AND t.business_date < ${businessDateKey(to)}::date` : Prisma.empty}
       AND r.id IS NOT NULL
       AND r.channel_account_id = t.channel_account_id
       AND t.business_date BETWEEN r.window_start AND r.window_end
@@ -264,7 +259,7 @@ export async function readAdWindowFacts(
   const days = rows.map((row) => {
     if (row.observed_at && (!observedAt || row.observed_at > observedAt)) observedAt = row.observed_at;
     return {
-      businessDate: dateText(row.business_date),
+      businessDate: businessDateKey(row.business_date),
       spend: row.spend,
       revenue: row.revenue,
       impressions: row.impressions,
@@ -339,8 +334,8 @@ export async function readListingAdWindowFacts(
   return rows.map((row) => ({
     listingId: row.listing_id,
     days: row.days,
-    firstDate: dateText(row.first_date),
-    lastDate: dateText(row.last_date),
+    firstDate: businessDateKey(row.first_date),
+    lastDate: businessDateKey(row.last_date),
     observedAt: row.observed_at,
     spend: row.spend,
     revenue: row.revenue,
@@ -418,5 +413,5 @@ export async function readLatestAdDate(
 
 /** The exclusive end of a `[from, to)` window whose last business date is `date`. */
 export function dayAfter(date: Date): Date {
-  return new Date(date.getTime() + DAY_MS);
+  return addDays(date, 1);
 }

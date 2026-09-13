@@ -26,8 +26,15 @@ import type {
   SellpiaSalesMall,
   SellpiaSalesDailyPoint,
 } from '@kiditem/shared/dashboard';
-
-const DAY_MS = 24 * 60 * 60 * 1000;
+import {
+  addDays,
+  businessDateKey,
+  closedMonthRangeFromCutoff,
+  datesInclusive,
+  evidenceCutoffDate,
+  kstDayStart,
+  parseBusinessDate,
+} from '../../common/kst';
 
 /**
  * Sellpia 판매현황(sale_summary) read model.
@@ -46,10 +53,22 @@ export class SellpiaSalesService {
     private readonly publishedSource: SellpiaSalesSourceService,
   ) {}
 
+  async getClosedMonthSummary(
+    organizationId: string,
+  ): Promise<SellpiaSalesSummary> {
+    const knownThrough = businessDateKey(evidenceCutoffDate());
+    const range = closedMonthRangeFromCutoff(knownThrough);
+    if (range) {
+      return this.getSummary(organizationId, range.from, range.to, knownThrough);
+    }
+    return emptySellpiaSalesSummary(knownThrough);
+  }
+
   async getSummary(
     organizationId: string,
     from: string,
     to: string,
+    knownThrough = businessDateKey(evidenceCutoffDate()),
   ): Promise<SellpiaSalesSummary> {
     const fromInstant = toKstInstant(from);
     const toExclusive = toKstExclusiveEnd(to);
@@ -124,6 +143,7 @@ export class SellpiaSalesService {
       : null;
 
     const base = {
+      knownThrough,
       range: { from, to },
       rocket,
       others,
@@ -173,6 +193,30 @@ export class SellpiaSalesService {
   }
 }
 
+function emptySellpiaSalesSummary(knownThrough: string): SellpiaSalesSummary {
+  const emptyGroup: SellpiaSalesGroup = {
+    revenue: 0,
+    qty: 0,
+    cost: 0,
+    daily: [],
+    malls: [],
+  };
+  return {
+    knownThrough,
+    range: null,
+    rocket: emptyGroup,
+    others: { ...emptyGroup },
+    totalRevenue: 0,
+    totalCost: 0,
+    adCost: null,
+    netProfit: null,
+    profitRate: null,
+    lastCapturedAt: null,
+    hasData: false,
+    profitInputs: null,
+  };
+}
+
 function buildGroup(
   rows: SnapshotRow[],
   coverageDates: Iterable<string> = [],
@@ -204,7 +248,7 @@ function buildGroup(
   }
 
   for (const r of rows) {
-    const dateKey = r.businessDate.toISOString().slice(0, 10);
+    const dateKey = businessDateKey(r.businessDate);
     revenue += r.revenueKrw;
     qty += r.qty;
     cost += r.costKrw;
@@ -292,10 +336,7 @@ function toDailyPoints(
 // 엄격 캘린더 파싱: YYYY-MM-DD 가 실제 존재하는 날짜일 때만 UTC-midnight Date 반환.
 // 2026-06-31(→7/1 롤오버)·2026-13-01(→Invalid)·2026-02-30 등을 걸러 null 반환.
 export function parseCalendarDate(isoDate: string): Date | null {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(isoDate)) return null;
-  const d = new Date(`${isoDate}T00:00:00.000Z`);
-  if (Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== isoDate) return null;
-  return d;
+  return parseBusinessDate(isoDate);
 }
 
 function toUtcDate(isoDate: string): Date {
@@ -341,11 +382,7 @@ function selectedDateKeys(from: string, to: string): string[] {
   const fromDate = parseCalendarDate(from);
   const toDate = parseCalendarDate(to);
   if (!fromDate || !toDate || fromDate > toDate) return [];
-  const dates: string[] = [];
-  for (let date = fromDate; date <= toDate; date = new Date(date.getTime() + DAY_MS)) {
-    dates.push(date.toISOString().slice(0, 10));
-  }
-  return dates;
+  return datesInclusive(fromDate, toDate).map(businessDateKey);
 }
 
 function normalizeSellpiaRows(
@@ -504,20 +541,18 @@ function isValidSnapshotRow(row: SnapshotRow): boolean {
 
 function dateKey(value: Date): string | null {
   if (!(value instanceof Date) || !Number.isFinite(value.getTime())) return null;
-  return value.toISOString().slice(0, 10);
+  return businessDateKey(value);
 }
 
 function validDateText(value: string): string | null {
-  return parseCalendarDate(value)?.toISOString().slice(0, 10) ?? null;
+  const parsed = parseCalendarDate(value);
+  return parsed ? businessDateKey(parsed) : null;
 }
 
 function toKstInstant(isoDate: string): Date {
-  return new Date(`${isoDate}T00:00:00.000+09:00`);
+  return kstDayStart(toUtcDate(isoDate));
 }
 
 function toKstExclusiveEnd(isoDate: string): Date {
-  const nextDay = new Date(toUtcDate(isoDate).getTime() + DAY_MS)
-    .toISOString()
-    .slice(0, 10);
-  return toKstInstant(nextDay);
+  return kstDayStart(addDays(toUtcDate(isoDate), 1));
 }

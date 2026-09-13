@@ -14,6 +14,7 @@ import {
   type DailyTrafficFactSource,
 } from '@kiditem/shared/advertising';
 import { readListingAdWindowFacts, type AdListingWindowFacts } from '../../../../common/ad-window-facts';
+import { addDays, businessDateKey, evidenceCutoffDate, kstBusinessDate } from '../../../../common/kst';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { productAbcEvaluation } from '../../../mapper/product-abc-evaluation.mapper';
 import { listSellingMasterProductIds } from './selling-master-product.query';
@@ -155,9 +156,7 @@ implements ProductOperationsRepositoryPort {
     organizationId: string,
     query: MasterProductOperationsListQuery,
   ) {
-    const periodStart = startOfUtcDay(
-      new Date(Date.now() - (query.periodDays - 1) * 86_400_000),
-    );
+    const periodStart = addDays(kstBusinessDate(new Date()), -(query.periodDays - 1));
     const [sellingMasterProductIds, sellingChannelProducts] = await Promise.all([
       listSellingMasterProductIds(this.prisma, organizationId),
       this.listSellingChannelProducts(organizationId),
@@ -431,9 +430,7 @@ function toListItem(
 
 /** Ready when the measured window reaches yesterday (KST). */
 function freshness(coverageStart: string, coverageEnd: string, capturedAt: Date) {
-  const yesterdayKst = new Date(Date.now() + (9 * 60 * 60 * 1000) - 86_400_000)
-    .toISOString()
-    .slice(0, 10);
+  const yesterdayKst = businessDateKey(evidenceCutoffDate());
   return {
     ready: coverageEnd >= yesterdayKst,
     coverageStartDate: coverageStart,
@@ -525,7 +522,7 @@ function metadata(row: ProductRow) {
 }
 
 function calendarDate(value: Date): string {
-  return value.toISOString().slice(0, 10);
+  return businessDateKey(value);
 }
 
 function toRepositoryOption(
@@ -560,10 +557,6 @@ function nullableTrafficMetricSum<T>(
   value: (row: T) => number,
 ): number | null {
   return nullableSum(rows, value);
-}
-
-function startOfUtcDay(date: Date): Date {
-  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
 }
 
 function translateMutationError(error: unknown): unknown {

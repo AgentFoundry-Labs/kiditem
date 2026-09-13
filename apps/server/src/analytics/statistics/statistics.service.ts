@@ -4,7 +4,7 @@ import {
   buildPerListingProfit,
   readAdEvidenceFromLedger,
 } from '../../common/per-listing-profit';
-import { kstMonthStart } from '../../common/kst';
+import { kstBusinessDate, kstMonthStart } from '../../common/kst';
 import type {
   StatisticsOverview,
   StatisticsProductRow,
@@ -52,10 +52,10 @@ export class StatisticsService {
       return { from: kstMonthStart(year, month), to: kstMonthStart(year, month + 1) };
     }
 
-    const now = new Date();
+    const now = kstBusinessDate(new Date());
     return {
       from: new Date(0),
-      to: kstMonthStart(now.getFullYear(), now.getMonth() + 2),
+      to: kstMonthStart(now.getUTCFullYear(), now.getUTCMonth() + 2),
     };
   }
 

@@ -6,6 +6,12 @@ import {
 } from '../../../../finance/application/port/in/master-product-profitability-read.port';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { productAbcEvidenceCutoff } from '../../../domain/product-abc-display-status';
+import {
+  businessDateKey,
+  datesInclusive,
+  parseBusinessDate,
+  shiftBusinessDateKey,
+} from '../../../../common/kst';
 import { listSellingMasterProductIds } from './selling-master-product.query';
 import type {
   ProductOperationsDataStatusFacts,
@@ -156,14 +162,9 @@ function sourceStatus(
 }
 
 function enumerateDates(from: string, to: string): string[] {
-  const dates: string[] = [];
   const cursor = utcCalendarDate(from);
   const end = utcCalendarDate(to);
-  while (cursor <= end) {
-    dates.push(calendarDate(cursor));
-    cursor.setUTCDate(cursor.getUTCDate() + 1);
-  }
-  return dates;
+  return datesInclusive(cursor, end).map(businessDateKey);
 }
 
 function sourceManifest(source: SourceGenerationView) {
@@ -190,15 +191,15 @@ function isAbcGrade(value: string | null): value is 'A' | 'B' | 'C' {
 }
 
 function addCalendarDays(date: string, days: number): string {
-  const value = utcCalendarDate(date);
-  value.setUTCDate(value.getUTCDate() + days);
-  return calendarDate(value);
+  return shiftBusinessDateKey(date, days);
 }
 
 function utcCalendarDate(date: string): Date {
-  return new Date(`${date}T00:00:00.000Z`);
+  const parsed = parseBusinessDate(date);
+  if (!parsed) throw new Error(`invalid business date ${date}`);
+  return parsed;
 }
 
 function calendarDate(date: Date): string {
-  return date.toISOString().slice(0, 10);
+  return businessDateKey(date);
 }
