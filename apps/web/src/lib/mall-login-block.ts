@@ -1,6 +1,7 @@
 'use client';
 
 import { safeStorageGet, safeStorageSet } from './browser-storage';
+import { EXTENSION_TIMEOUT_MESSAGE } from './extension-bridge';
 
 /**
  * 자동 로그인 차단 — 한 번 실패한 몰은 다시 로그인하러 들어가지 않는다.
@@ -55,13 +56,17 @@ function hydrate(): void {
   if (!raw) return;
   try {
     const parsed = JSON.parse(raw) as BlockMap;
-    blocks = Object.fromEntries(
-      Object.entries(parsed).filter(
-        ([mallKey, value]) =>
-          typeof mallKey === 'string' && typeof value?.at === 'number' && typeof value?.reason === 'string',
-      ),
+    const valid = Object.entries(parsed).filter(
+      ([mallKey, value]) =>
+        typeof mallKey === 'string' && typeof value?.at === 'number' && typeof value?.reason === 'string',
     );
+    // 확장 응답 시간 초과로 생긴 차단은 버린다. 답을 못 들은 것은 비밀번호가 틀린 게 아니라서
+    // 지금은 새로 만들지 않지만, 그 규칙이 생기기 전에 만든 차단이 남아 멀쩡히 로그인된 몰을
+    // '직접 로그인'으로 붙들고 있었다. 한 번 걸러 저장해 두면 다시 읽히지 않는다.
+    const kept = valid.filter(([, value]) => !value.reason.includes(EXTENSION_TIMEOUT_MESSAGE));
+    blocks = Object.fromEntries(kept);
     snapshot = Object.values(blocks).sort((a, b) => b.at - a.at);
+    if (kept.length !== valid.length) persist();
   } catch {
     blocks = {};
   }

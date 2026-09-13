@@ -62,3 +62,24 @@ describe('자동 로그인 차단', () => {
     unsubscribe();
   });
 });
+
+describe('버그로 생긴 옛 차단', () => {
+  /**
+   * 확장 응답 시간 초과는 비밀번호가 틀린 게 아니다. 그 규칙이 생기기 전에 만들어진 차단이
+   * 브라우저에 남아, 로그인된 몰을 계속 '직접 로그인'으로 붙들고 있었다.
+   */
+  it('⭐ 확장 응답 시간 초과로 생긴 차단은 읽을 때 버리고, 진짜 로그인 실패 차단은 남긴다', () => {
+    window.localStorage.setItem(
+      'kiditem.mall-auto-login-block.v1',
+      JSON.stringify({
+        always: { mallKey: 'always', at: 1, reason: '익스텐션 응답 시간이 초과되었습니다.', kind: 'login' },
+        'lotte-on': { mallKey: 'lotte-on', at: 2, reason: '아이디 또는 비밀번호가 올바르지 않습니다.', kind: 'login' },
+      }),
+    );
+
+    expect(isMallAutoLoginBlocked('always')).toBe(false);
+    expect(isMallAutoLoginBlocked('lotte-on')).toBe(true);
+    // 걸러낸 결과를 저장해 두어 다음에 읽을 때 다시 걸러낼 필요가 없다.
+    expect(JSON.parse(window.localStorage.getItem('kiditem.mall-auto-login-block.v1')!)).not.toHaveProperty('always');
+  });
+});
