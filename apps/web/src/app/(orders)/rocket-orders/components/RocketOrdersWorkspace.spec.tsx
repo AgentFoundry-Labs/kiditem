@@ -189,6 +189,33 @@ describe('<RocketOrdersWorkspace /> integrated order explorer', () => {
     expect(screen.getByRole('button', { name: '2026-07-18 발주 1건' })).not.toHaveClass('bg-purple-100');
   });
 
+  it('shows an unconfirmed PO amount as unknown instead of adding it as zero', () => {
+    const withUnconfirmedAmount: RocketSavedPoSummary[] = [
+      savedOrders[0]!,
+      { ...savedOrders[1]!, orderAmount: null },
+    ];
+    queryMock.mockImplementation(({ enabled }: { enabled?: boolean }) => ({
+      data: enabled ? withUnconfirmedAmount : [],
+      isLoading: false,
+      isFetching: false,
+      isError: false,
+      error: null,
+      refetch: query.refetch,
+    }));
+    renderWorkspace();
+
+    expect(screen.getByRole('button', { name: '2026-07-18 발주 1건' })).toHaveTextContent('12,000');
+    expect(screen.getByRole('button', { name: '2026-07-19 발주 1건' })).toHaveTextContent('금액 미확정');
+    // 조회 범위에 금액을 모르는 발주가 있으면 범위 합계도 모른다.
+    expect(screen.getByText('미확정', { selector: 'b' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '2026-07-18 발주 1건' }));
+    expect(screen.getByText('12,000', { selector: 'b' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '차트' }));
+    expect(screen.getByTestId('rocket-orders-chart')).toHaveTextContent('2026-07-19:1:5:null');
+  });
+
   it('uses month as the only calendar view and keeps chart in the upper workspace', () => {
     renderWorkspace();
 

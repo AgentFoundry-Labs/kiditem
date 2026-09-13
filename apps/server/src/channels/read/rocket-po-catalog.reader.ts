@@ -13,7 +13,7 @@ import { SOURCE_IMPORT_RUN_COMPLETED_STATUS } from "@kiditem/shared/source-impor
 import { deriveSourceReadiness } from "@kiditem/shared/source-readiness";
 import {
   businessDateKey,
-  kstBusinessDate,
+  evidenceCutoffDate,
   parseBusinessDate,
 } from "../../common/kst";
 import type { RocketPoCompleteCollection } from "../application/port/in/rocket-po-catalog.port";
@@ -94,9 +94,7 @@ export async function readRocketPoSource(
   const latestAttempt = latest ? publicAttempt(latest, now) : null;
   const latestComplete = complete ? publicAttempt(complete, now) : null;
   const actualCutoff = latestComplete?.actualCutoffAt?.slice(0, 10) ?? null;
-  const requiredCutoff = new Date(kstBusinessDate(now).getTime() - 86_400_000)
-    .toISOString()
-    .slice(0, 10);
+  const requiredCutoff = businessDateKey(evidenceCutoffDate(now));
   return {
     ready: deriveSourceReadiness({
       latestAttempt,
@@ -206,14 +204,11 @@ export async function readCurrentRocketPos(
         firstProductName: first.productName,
         skuCount: lines.length,
         orderQuantity: lines.reduce((sum, line) => sum + line.orderQty, 0),
-        orderAmount: lines.reduce(
-          (sum, line) => sum + (line.totalPurchase ?? 0),
-          0,
-        ),
+        orderAmount: sumConfirmedTotals(lines),
         collectedAt: (
           snapshot.sourceImportRun.importedAt ?? snapshot.createdAt
         ).toISOString(),
-      };
+      } satisfies RocketSavedPoSummary;
     })
     .sort(
       (left, right) =>
@@ -455,4 +450,20 @@ function day(value: string): Date {
 
 function isoDay(value: Date): string {
   return businessDateKey(value);
+}
+
+/**
+ * A PO amount is the sum of provider-confirmed line totals. A line collected
+ * without its confirmation has no total, so the amount is unknown rather than
+ * the sum of the confirmed lines.
+ */
+function sumConfirmedTotals(
+  lines: ReadonlyArray<{ totalPurchase: number | null }>,
+): number | null {
+  let total = 0;
+  for (const { totalPurchase } of lines) {
+    if (totalPurchase === null) return null;
+    total += totalPurchase;
+  }
+  return total;
 }

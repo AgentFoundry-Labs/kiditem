@@ -12,6 +12,7 @@ import {
   TEST_USER_ID as USER,
 } from '../../test-helpers/real-prisma';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
+import { allocatePublicationSequence } from '../../common/publication-sequence';
 import {
   REVIEW_COLLECTION_SOURCE_PORT,
 } from '../application/port/in/review-collection-source.port';
@@ -484,6 +485,64 @@ describe('Coupang review collection source owner over disposable PostgreSQL', ()
     expect(visible.items.map((item) => item.content)).toEqual(['newer publication']);
   });
 
+  it('serializes the review publication sequence with other publishers of the organization source', async () => {
+    const attempt = await begin(1);
+    await append(attempt, [review('review-serialized', 'serialized publication')]);
+    await completeWindow(attempt, 1);
+
+    let holderReady!: () => void;
+    const holding = new Promise<void>((resolve) => { holderReady = resolve; });
+    let releaseHolder!: () => void;
+    const released = new Promise<void>((resolve) => { releaseHolder = resolve; });
+    const otherPublication = prisma.$transaction(async (tx) => {
+      const publicationSequence = await allocatePublicationSequence(tx, ORG, 'coupang_reviews');
+      await tx.sourceImportRun.create({
+        data: {
+          organizationId: ORG,
+          sourceType: 'coupang_reviews',
+          status: 'completed',
+          importedAt: new Date(),
+          publicationSequence,
+        },
+      });
+      holderReady();
+      await released;
+      return publicationSequence;
+    }, { maxWait: 10_000, timeout: 30_000 });
+    await holding;
+
+    const completion = complete(attempt);
+    try {
+      await waitForBlockedSession(prisma);
+    } finally {
+      releaseHolder();
+    }
+
+    await expect(completion).resolves.toMatchObject({ state: 'COMPLETE', collected: 1 });
+    await expect(otherPublication).resolves.toBe(1n);
+    await expect(prisma.sourceImportRun.findUniqueOrThrow({
+      where: { id: attempt.attemptId },
+      select: { publicationSequence: true },
+    })).resolves.toEqual({ publicationSequence: 2n });
+
+    // The partial unique index still rejects a reused sequence and leaves
+    // unpublished runs unconstrained.
+    await expect(prisma.sourceImportRun.create({
+      data: {
+        organizationId: ORG,
+        sourceType: 'coupang_reviews',
+        status: 'failed',
+        publicationSequence: 2n,
+      },
+    })).rejects.toMatchObject({ code: 'P2002' });
+    await expect(prisma.sourceImportRun.createMany({
+      data: [
+        { organizationId: ORG, sourceType: 'coupang_reviews', status: 'failed' },
+        { organizationId: ORG, sourceType: 'coupang_reviews', status: 'failed' },
+      ],
+    })).resolves.toEqual({ count: 2 });
+  });
+
   async function begin(months: number) {
     const response = await request(httpUrl)
       .post(`${BASE}/attempts`)
@@ -582,4 +641,22 @@ function review(externalReviewId: string, content: string) {
     isDeleted: false,
     isBlinded: false,
   };
+}
+
+async function waitForBlockedSession(prisma: PrismaClient): Promise<void> {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    const [activity] = await prisma.$queryRaw<Array<{ waiting: boolean }>>`
+      SELECT EXISTS (
+        SELECT 1
+        FROM pg_stat_activity
+        WHERE datname = current_database()
+          AND pid <> pg_backend_pid()
+          AND state = 'active'
+          AND wait_event_type = 'Lock'
+      ) AS waiting
+    `;
+    if (activity?.waiting) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error('Timed out waiting for the review publication to block.');
 }

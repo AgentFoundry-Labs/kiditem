@@ -93,6 +93,26 @@ describe('Rocket purchase preview contract', () => {
     expect(published).not.toHaveProperty('recipeAutomation');
   });
 
+  it('keeps a saved PO amount unknown when a listed line has no confirmed total', () => {
+    const summary = RocketSavedPoSummarySchema.parse({
+      sourceImportRunId: RUN_ID,
+      poNumber: '10000002',
+      orderedAt: '',
+      plannedDeliveryDate: '2026-07-20',
+      status: '',
+      vendorId: 'A00123',
+      centerName: '',
+      inboundType: '',
+      firstProductName: '키즈 식판',
+      skuCount: 2,
+      orderQuantity: 8,
+      orderAmount: null,
+      collectedAt: '2026-07-18T01:00:00.000Z',
+    });
+
+    expect(summary.orderAmount).toBeNull();
+  });
+
   it('parses account-scoped saved PO summaries and exact saved collection evidence', () => {
     const summary = RocketSavedPoSummarySchema.parse({
       sourceImportRunId: RUN_ID,

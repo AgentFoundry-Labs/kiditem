@@ -18,6 +18,7 @@ import { listSavedRocketPos } from '@/app/(supply)/purchase-orders/lib/rocket-pu
 import type { RocketOrderActivityInput } from '@/lib/rocket-order-activity';
 import { useRocketOrderActivity } from '../hooks/useRocketOrderActivity';
 import { useRocketOrdersViewState } from '../hooks/useRocketOrdersViewState';
+import { sumRocketOrderAmounts } from '../lib/rocket-order-amount';
 import { RocketAccountBootstrap } from './RocketAccountBootstrap';
 import { RocketOrderActivityPanel } from './RocketOrderActivityPanel';
 import { RocketMonthCalendar, type MonthDayData } from './RocketMonthCalendar';
@@ -44,7 +45,7 @@ interface RocketCalDay {
   date: string;
   count: number;
   qty: number;
-  amount: number;
+  amount: number | null;
 }
 
 export interface RocketOrderExplorerRenderOptions {
@@ -198,7 +199,7 @@ export function RocketOrdersWorkspace({
       date,
       count: pos.length,
       qty: pos.reduce((s, o) => s + o.orderQuantity, 0),
-      amount: pos.reduce((s, o) => s + o.orderAmount, 0),
+      amount: sumRocketOrderAmounts(pos.map((o) => o.orderAmount)),
     };
   }), [byDate, from, to]);
 
@@ -209,7 +210,7 @@ export function RocketOrdersWorkspace({
       record[date] = {
         count: pos.length,
         qty: pos.reduce((s, o) => s + o.orderQuantity, 0),
-        amount: pos.reduce((s, o) => s + o.orderAmount, 0),
+        amount: sumRocketOrderAmounts(pos.map((o) => o.orderAmount)),
       };
     }
     return record;
@@ -270,7 +271,7 @@ export function RocketOrdersWorkspace({
       : mergedRangeDays;
     const summaryCount = summaryDays.reduce((sum, day) => sum + day.count, 0);
     const summaryQty = summaryDays.reduce((sum, day) => sum + day.qty, 0);
-    const summaryAmount = summaryDays.reduce((sum, day) => sum + day.amount, 0);
+    const summaryAmount = sumRocketOrderAmounts(summaryDays.map((day) => day.amount));
     const hasRangeOrders = mergedRangeDays.some((day) => day.count > 0);
     const hasMonthOrders = Object.values(mergedMonthData).some((day) => day.count > 0);
     const chartData: RocketChartPoint[] = mergedRangeDays.map((day) => ({
@@ -362,7 +363,11 @@ export function RocketOrdersWorkspace({
               수량 <b className="tabular-nums text-slate-900">{formatNumber(summaryQty)}</b>개
             </span>
             <span className="text-slate-500">
-              금액 <b className="tabular-nums text-purple-700">{formatKRW(summaryAmount)}</b>원
+              {summaryAmount === null ? (
+                <>금액 <b className="text-slate-500" title="확정 전 발주 라인이 있어 금액을 알 수 없습니다">미확정</b></>
+              ) : (
+                <>금액 <b className="tabular-nums text-purple-700">{formatKRW(summaryAmount)}</b>원</>
+              )}
             </span>
           </div>
         </div>

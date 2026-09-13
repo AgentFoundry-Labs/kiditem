@@ -8,7 +8,7 @@ const WD = ['일', '월', '화', '수', '목', '금', '토'];
 export interface MonthDayData {
   count: number;
   qty: number;
-  amount: number;
+  amount: number | null;
 }
 
 function pad(n: number) {
@@ -131,7 +131,11 @@ export function RocketMonthCalendar({
                 <span className="mt-auto w-full">
                   <span className="block text-base font-bold tabular-nums text-slate-800">{dd.count}건</span>
                   <span className="block truncate text-xs tabular-nums text-slate-500">{formatNumber(dd.qty)}개</span>
-                  <span className="block truncate text-xs tabular-nums text-purple-600">{formatKRW(dd.amount)}</span>
+                  {dd.amount === null ? (
+                    <span className="block truncate text-xs text-slate-400">금액 미확정</span>
+                  ) : (
+                    <span className="block truncate text-xs tabular-nums text-purple-600">{formatKRW(dd.amount)}</span>
+                  )}
                 </span>
               )}
             </button>

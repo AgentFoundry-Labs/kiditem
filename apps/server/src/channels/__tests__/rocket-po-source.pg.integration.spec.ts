@@ -128,7 +128,7 @@ describe('Rocket owner public HTTP + disposable PG', () => {
       .expect(200);
   const finish = (
     attempt: { attemptId: string; attemptToken: string },
-    rows = [row('P1')],
+    rows: SubmittedRow[] = [row('P1')],
   ) =>
     request(httpUrl)
       .put(`${base}/attempts/${attempt.attemptId}`)
@@ -228,6 +228,38 @@ describe('Rocket owner public HTTP + disposable PG', () => {
         })
       )?.rows,
     ).toEqual([]);
+  });
+  it('keeps a PO amount unknown when a listed line has no confirmed total', async () => {
+    const attempt = (
+      await start(randomUUID(), { ...plan, requireConfirmation: false })
+    ).body;
+    const completed = await finish(attempt, [
+      { ...row('P1'), poNumber: '2001' },
+      { ...row('P2'), poNumber: '2001', confirmation: undefined },
+      { ...row('P3'), poNumber: '2002' },
+    ]).expect(200);
+    expect(completed.body.state).toBe('COMPLETE');
+
+    const summaries = await catalog.listSavedPos({
+      organizationId: ORG,
+      channelAccountId: ACCOUNT,
+      from: plan.from,
+      to: plan.to,
+    });
+
+    // An unconfirmed line has no provider total, so its PO amount is unknown,
+    // not the sum of the confirmed lines.
+    expect(
+      summaries.map(({ poNumber, skuCount, orderQuantity, orderAmount }) => ({
+        poNumber,
+        skuCount,
+        orderQuantity,
+        orderAmount,
+      })),
+    ).toEqual([
+      { poNumber: '2001', skuCount: 2, orderQuantity: 8, orderAmount: null },
+      { poNumber: '2002', skuCount: 1, orderQuantity: 4, orderAmount: 3960 },
+    ]);
   });
   it('serializes concurrent begins into one account attempt without losing same-key replay', async () => {
     const key = randomUUID();
@@ -900,7 +932,10 @@ function row(productNo: string) {
     },
   };
 }
-function submission(attemptId: string, rows: ReturnType<typeof row>[]) {
+type SubmittedRow = Omit<ReturnType<typeof row>, 'confirmation'> & {
+  confirmation?: ReturnType<typeof row>['confirmation'];
+};
+function submission(attemptId: string, rows: SubmittedRow[]) {
   return {
     collection: {
       collectionRunId: attemptId,

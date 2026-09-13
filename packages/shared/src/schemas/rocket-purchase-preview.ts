@@ -137,7 +137,8 @@ export const RocketSavedPoSummarySchema = z.object({
   firstProductName: requiredText(240),
   skuCount: z.number().int().nonnegative(),
   orderQuantity: z.number().int().nonnegative(),
-  orderAmount: z.number().int().nonnegative(),
+  /** Null when any listed line has no provider-confirmed total. */
+  orderAmount: z.number().int().nonnegative().nullable(),
   collectedAt: z.string().datetime(),
 }).strict();
 export type RocketSavedPoSummary = z.infer<typeof RocketSavedPoSummarySchema>;

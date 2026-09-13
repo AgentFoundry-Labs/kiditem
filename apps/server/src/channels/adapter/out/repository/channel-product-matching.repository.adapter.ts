@@ -5,13 +5,9 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import {
-  COUPANG_CATALOG_BASIC_SOURCE_TYPE,
-  COUPANG_CATALOG_DETAILS_SOURCE_TYPE,
-} from '@kiditem/shared/coupang-catalog-snapshot';
 import { resolveChannelListingSaleStatus } from '@kiditem/shared/channel-listing';
-import { SOURCE_IMPORT_RUN_COMPLETED_STATUS } from '@kiditem/shared/source-import';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { completedCatalogRunWhere } from './completed-catalog-run';
 import { readLatestListingSaleStatusFacts } from '../../../read/channel-listing-daily-facts';
 import {
   readActiveInventoryMatchingCandidates,
@@ -39,13 +35,6 @@ const READ_TRANSACTION_OPTIONS = {
   ...TRANSACTION_OPTIONS,
   isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead,
 } as const;
-const COMPLETED_CATALOG_SOURCE_TYPES = [
-  'coupang_wing_catalog',
-  'coupang_rocket_catalog_seed',
-  'coupang_rocket_po_catalog',
-  'coupang_rocket_matching_csv',
-] as const;
-const CATALOG_OWNER_PARSER_VERSION = 'coupang-catalog-owner-v1';
 const PUBLISHED_STAGED_CATALOG_IDENTITY_SOURCES = [
   'coupang_catalog_basics',
   'coupang_catalog_details',
@@ -647,33 +636,6 @@ function toInventorySkuIdentity(
 ): InventorySkuIdentity {
   const { sellpiaInventorySkuId: id, ...fields } = identity;
   return { id, ...fields };
-}
-
-function completedCatalogRunWhere(
-  organizationId: string,
-  channelAccountId?: string,
-): Prisma.SourceImportRunWhereInput {
-  return {
-    organizationId,
-    ...(channelAccountId ? { channelAccountId } : {}),
-    OR: [
-      {
-        sourceType: 'coupang_rocket_po_catalog',
-        status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
-        parserVersion: 'rocket-po-v1',
-      },
-      {
-        sourceType: { in: COMPLETED_CATALOG_SOURCE_TYPES.filter(source => source !== 'coupang_rocket_po_catalog') },
-        status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
-      },
-      {
-        sourceType: { in: [COUPANG_CATALOG_BASIC_SOURCE_TYPE, COUPANG_CATALOG_DETAILS_SOURCE_TYPE] },
-        parserVersion: CATALOG_OWNER_PARSER_VERSION,
-        status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
-        importedAt: { not: null },
-      },
-    ],
-  };
 }
 
 function matchingListingWhere(

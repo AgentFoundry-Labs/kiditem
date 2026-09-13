@@ -11,19 +11,20 @@ import {
   YAxis,
 } from 'recharts';
 import { formatKRW, formatNumber } from '@/lib/utils';
+import { sumRocketOrderAmounts } from '../lib/rocket-order-amount';
 
 export interface RocketChartPoint {
   date: string;
   label: string;
   count: number;
   qty: number;
-  amount: number;
+  amount: number | null;
 }
 
 export function RocketOrdersChart({ data }: { data: RocketChartPoint[] }) {
   const totalCount = data.reduce((s, d) => s + d.count, 0);
   const totalQty = data.reduce((s, d) => s + d.qty, 0);
-  const totalAmount = data.reduce((s, d) => s + d.amount, 0);
+  const totalAmount = sumRocketOrderAmounts(data.map((d) => d.amount));
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-4">
@@ -38,7 +39,11 @@ export function RocketOrdersChart({ data }: { data: RocketChartPoint[] }) {
         </div>
         <div>
           <div className="text-[11px] text-slate-400">총 매출 (발주금액)</div>
-          <div className="text-lg font-bold tabular-nums text-purple-700">{formatKRW(totalAmount)}원</div>
+          {totalAmount === null ? (
+            <div className="text-lg font-bold text-slate-400">미확정</div>
+          ) : (
+            <div className="text-lg font-bold tabular-nums text-purple-700">{formatKRW(totalAmount)}원</div>
+          )}
         </div>
       </div>
       <ResponsiveContainer width="100%" height={300} initialDimension={{ width: 800, height: 300 }}>
@@ -71,7 +76,7 @@ export function RocketOrdersChart({ data }: { data: RocketChartPoint[] }) {
               const metric = String(name ?? '');
               const numericValue = Number(value ?? 0);
               if (metric === 'count') return [`${formatNumber(numericValue)}건`, '발주건수'];
-              if (metric === 'amount') return [`${formatKRW(numericValue)}원`, '매출'];
+              if (metric === 'amount') return [value == null ? '미확정' : `${formatKRW(numericValue)}원`, '매출'];
               return [String(value ?? ''), metric];
             }}
           />

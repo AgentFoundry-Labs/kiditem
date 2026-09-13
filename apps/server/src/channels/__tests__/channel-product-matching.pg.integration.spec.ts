@@ -15,6 +15,7 @@ import {
   TEST_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
 import { ChannelProductMatchingRepositoryAdapter } from '../adapter/out/repository/channel-product-matching.repository.adapter';
+import { lockChannelListingRow } from '../adapter/out/repository/channel-listing-row-lock';
 import { ChannelProductMatchingService } from '../application/service/channel-product-matching.service';
 import { ProductChannelOptionRecipeMutationRepositoryAdapter } from '../../products/adapter/out/repository/product-channel-option-recipe-mutation.repository.adapter';
 import { ProductChannelOptionRecipeMutationService } from '../../products/application/service/product-channel-option-recipe-mutation.service';
@@ -945,6 +946,87 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
 
       expect(rows.map((row) => row.option.id)).toEqual([option.id]);
     });
+
+  it('admits the same completed catalog runs on the row lock as on the availability read', async () => {
+    const rocketAccount = await prisma.channelAccount.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channel: 'rocket',
+        name: 'Rocket eligibility',
+      },
+    });
+    const cases = [
+      {
+        name: 'completed Rocket matching CSV',
+        run: { sourceType: 'coupang_rocket_matching_csv', status: 'completed', parserVersion: null },
+        eligible: true,
+      },
+      {
+        name: 'completed Rocket PO catalog',
+        run: { sourceType: 'coupang_rocket_po_catalog', status: 'completed', parserVersion: 'rocket-po-v1' },
+        eligible: true,
+      },
+      {
+        name: 'running Rocket matching CSV',
+        run: { sourceType: 'coupang_rocket_matching_csv', status: 'running', parserVersion: null },
+        eligible: false,
+      },
+      {
+        name: 'uncertified legacy Rocket PO catalog',
+        run: { sourceType: 'coupang_rocket_po_catalog', status: 'completed', parserVersion: null },
+        eligible: false,
+      },
+    ];
+    const seeded: Array<{ name: string; listingId: string; optionId: string }> = [];
+    for (const [index, entry] of cases.entries()) {
+      const run = await prisma.sourceImportRun.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          channelAccountId: rocketAccount.id,
+          importedAt: new Date(),
+          ...entry.run,
+        },
+      });
+      const listing = await prisma.channelListing.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          channelAccountId: rocketAccount.id,
+          externalId: `ROCKET-ELIGIBILITY-${index}`,
+          displayName: entry.name,
+          lastImportRunId: run.id,
+          isActive: true,
+        },
+      });
+      const option = await createOption(listing.id, { sellerSku: `ROCKET-ELIGIBILITY-${index}` });
+      seeded.push({ name: entry.name, listingId: listing.id, optionId: option.id });
+    }
+
+    const available = new Set(
+      (await repository.listAvailabilityRows(TEST_ORGANIZATION_ID, {
+        channelAccountId: rocketAccount.id,
+      })).map((row) => row.option.id),
+    );
+    const observed: Array<{ name: string; rowLock: boolean; availability: boolean }> = [];
+    for (const entry of seeded) {
+      const locked = await prisma.$transaction((tx) => lockChannelListingRow(tx, {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelListingId: entry.listingId,
+        activeOnly: true,
+        catalogMatchingEligibleOnly: true,
+      }));
+      observed.push({
+        name: entry.name,
+        rowLock: locked?.id === entry.listingId,
+        availability: available.has(entry.optionId),
+      });
+    }
+
+    expect(observed).toEqual(cases.map((entry) => ({
+      name: entry.name,
+      rowLock: entry.eligible,
+      availability: entry.eligible,
+    })));
+  });
 });
 
 function deferred<T>() {
