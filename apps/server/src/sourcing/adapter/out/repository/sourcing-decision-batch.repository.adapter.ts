@@ -133,7 +133,6 @@ export class SourcingDecisionBatchRepositoryAdapter implements SourcingDecisionB
               heuristicScore: item.baselineScore,
               decisionConfidence: item.confidence,
               confidenceKind: item.confidenceKind,
-              policyProbability: item.policyProbability,
               evidenceFamilyCount: item.evidenceFamilyCount,
               evidencePlatformCount: item.evidencePlatformCount,
               hasCoupangEvidence: item.hasCoupangEvidence,
@@ -336,7 +335,6 @@ function toItemRecord(row: DecisionItemRow | DecisionItemWithEvidenceRow): Sourc
       row.id,
     ),
     confidenceKind: row.confidenceKind as RecommendationConfidenceKind,
-    policyProbability: nullableDecimalNumber(row.policyProbability),
     evidenceFamilyCount: row.evidenceFamilyCount,
     evidencePlatformCount: row.evidencePlatformCount,
     hasCoupangEvidence: row.hasCoupangEvidence,
@@ -368,10 +366,6 @@ function requiredDecimalNumber(
   id: string,
 ): number {
   return requiredValue(value, field, id).toNumber();
-}
-
-function nullableDecimalNumber(value: Prisma.Decimal | null): number | null {
-  return value?.toNumber() ?? null;
 }
 
 function jsonRecord(

@@ -297,7 +297,6 @@ function decisionItem(
     baselineScore: 78,
     confidence: 0.67,
     confidenceKind: 'coverage',
-    policyProbability: null,
     evidenceFamilyCount: 3,
     evidencePlatformCount: 2,
     hasCoupangEvidence: true,

@@ -34,12 +34,13 @@ describe('SourcingDecisionBatchRepositoryAdapter', () => {
             productName: '컬러 점토 세트',
             baselineScore: 82.25,
             confidence: 0.72,
-            policyProbability: null,
           },
         ],
       },
     });
     expect(result.kind === 'created' && result.record.items[0]).not.toHaveProperty('evidence');
+    // The row still carries the retired column; the record never publishes it.
+    expect(result.kind === 'created' && result.record.items[0]).not.toHaveProperty('policyProbability');
     expect(findFirst).toHaveBeenCalledWith(
       expect.objectContaining({
         where: {
@@ -83,7 +84,6 @@ describe('SourcingDecisionBatchRepositoryAdapter', () => {
         heuristicScore: 82.25,
         decisionConfidence: 0.72,
         confidenceKind: 'calibrated_probability',
-        policyProbability: null,
         evidenceFamilyCount: 3,
         evidencePlatformCount: 2,
         hasCoupangEvidence: true,
@@ -313,7 +313,6 @@ function createCommand(
         baselineScore: 82.25,
         confidence: 0.72,
         confidenceKind: 'calibrated_probability',
-        policyProbability: null,
         evidenceFamilyCount: 3,
         evidencePlatformCount: 2,
         hasCoupangEvidence: true,

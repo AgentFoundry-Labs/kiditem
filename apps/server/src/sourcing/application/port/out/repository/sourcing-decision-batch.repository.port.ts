@@ -30,7 +30,6 @@ export interface SourcingDecisionBatchItemRecord {
   baselineScore: number;
   confidence: number;
   confidenceKind: RecommendationConfidenceKind;
-  policyProbability: number | null;
   evidenceFamilyCount: number;
   evidencePlatformCount: number;
   hasCoupangEvidence: boolean;
@@ -81,7 +80,6 @@ export interface CreateSourcingDecisionBatchItemCommand {
   baselineScore: number;
   confidence: number;
   confidenceKind: RecommendationConfidenceKind;
-  policyProbability: number | null;
   evidenceFamilyCount: number;
   evidencePlatformCount: number;
   hasCoupangEvidence: boolean;
