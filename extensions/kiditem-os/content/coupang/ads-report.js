@@ -2367,7 +2367,6 @@
           errorCode: error?.code,
         };
       }
-      chrome.storage.local.set({ kiditem_last_sync_ads: { time: Date.now(), count: total } });
       showBadge(`✅ 광고 데이터 ${total}건 (${totalPages}p) owner 저장 완료`, "#22c55e");
       return {
         success: campaignJson?.success !== false,

@@ -1286,7 +1286,7 @@ test('basics completion hands off to one preallocated details owner after a lost
   let childStartRequests = 0;
   const h = harness({
     permit: chainBasicsPermit,
-    initial: { rootAttemptId: attemptId, currentAttemptId: attemptId, currentStage: 'basics', overallState: 'RUNNING' },
+    initial: { rootAttemptId: attemptId, currentAttemptId: attemptId, currentStage: 'basics' },
     read(path, init) {
       if (init?.method === 'POST' && path.endsWith('/attempts')) {
         childStartRequests += 1;
@@ -1305,7 +1305,6 @@ test('basics completion hands off to one preallocated details owner after a lost
   assert.equal(h.storage[stateKey].attemptId, detailsAttemptId);
   assert.equal(h.storage[stateKey].rootAttemptId, attemptId);
   assert.equal(h.storage[stateKey].currentStage, 'details');
-  assert.equal(h.storage[stateKey].overallState, 'RUNNING');
   const childRequests = h.calls.requests.filter((request) =>
     request.method === 'POST' && request.path.endsWith('/attempts'));
   assert.equal(childRequests.length, 2);
@@ -1316,13 +1315,11 @@ test('basics completion hands off to one preallocated details owner after a lost
     rootAttemptId: status.rootAttemptId,
     currentAttemptId: status.currentAttemptId,
     currentStage: status.currentStage,
-    overallState: status.overallState,
   }, {
     attemptId,
     rootAttemptId: attemptId,
     currentAttemptId: detailsAttemptId,
     currentStage: 'details',
-    overallState: 'RUNNING',
   });
   assert.equal(JSON.stringify(status).includes(detailsAttemptToken), false);
 });
@@ -1331,7 +1328,7 @@ test('a definitive details basis conflict settles the no-child chain without ret
   let admissionRequests = 0;
   const h = harness({
     permit: chainBasicsPermit,
-    initial: { rootAttemptId: attemptId, currentAttemptId: attemptId, currentStage: 'basics', overallState: 'RUNNING' },
+    initial: { rootAttemptId: attemptId, currentAttemptId: attemptId, currentStage: 'basics' },
     read(path, init) {
       if (init?.method === 'POST' && path.endsWith('/attempts')) {
         admissionRequests += 1;
@@ -1347,7 +1344,6 @@ test('a definitive details basis conflict settles the no-child chain without ret
   assert.equal(admissionRequests, 1);
   assert.equal(h.storage[stateKey].status, 'done');
   assert.equal(h.storage[stateKey].chainPhase, 'handoff_rejected');
-  assert.equal(h.storage[stateKey].overallState, 'RUNNING');
   assert.match(h.storage[stateKey].error, /completed basics basis/);
   assert.deepEqual(h.calls.closed, [attemptId]);
   assert.equal(await h.sessions.getOwned(attemptId, 'local'), null);
@@ -1363,7 +1359,7 @@ test('a network status 0 keeps the details child key durable for retry', async (
   let admissionRequests = 0;
   const h = harness({
     permit: chainBasicsPermit,
-    initial: { rootAttemptId: attemptId, currentAttemptId: attemptId, currentStage: 'basics', overallState: 'RUNNING' },
+    initial: { rootAttemptId: attemptId, currentAttemptId: attemptId, currentStage: 'basics' },
     read(path, init) {
       if (init?.method === 'POST' && path.endsWith('/attempts')) {
         admissionRequests += 1;
@@ -1391,7 +1387,7 @@ test('a restart during details admission reuses the same child key and does not 
   let firstStartRequests = 0;
   const first = harness({
     permit: chainBasicsPermit,
-    initial: { rootAttemptId: attemptId, currentAttemptId: attemptId, currentStage: 'basics', overallState: 'RUNNING' },
+    initial: { rootAttemptId: attemptId, currentAttemptId: attemptId, currentStage: 'basics' },
     read(path, init) {
       if (init?.method === 'POST' && path.endsWith('/attempts')) {
         firstStartRequests += 1;
@@ -1433,7 +1429,7 @@ test('a malformed details admission ACK keeps the child key durable for replay',
   let admissionRequests = 0;
   const h = harness({
     permit: chainBasicsPermit,
-    initial: { rootAttemptId: attemptId, currentAttemptId: attemptId, currentStage: 'basics', overallState: 'RUNNING' },
+    initial: { rootAttemptId: attemptId, currentAttemptId: attemptId, currentStage: 'basics' },
     read(path, init) {
       if (init?.method === 'POST' && path.endsWith('/attempts')) {
         admissionRequests += 1;
@@ -1465,7 +1461,6 @@ test('a malformed details admission ACK keeps the child key durable for replay',
   assert.equal(h.storage[stateKey].attemptId, detailsAttemptId);
   assert.equal(h.storage[stateKey].chainPhase, 'details');
   assert.equal(h.storage[stateKey].pendingChildAdmission, undefined);
-  assert.equal(h.storage[stateKey].overallState, 'RUNNING');
 });
 
 test('a stopped lost child admission is replayed before cleanup and then waits for child cancellation ACK', async () => {
@@ -1473,7 +1468,7 @@ test('a stopped lost child admission is replayed before cleanup and then waits f
   let childFailureRequests = 0;
   const h = harness({
     permit: chainBasicsPermit,
-    initial: { rootAttemptId: attemptId, currentAttemptId: attemptId, currentStage: 'basics', overallState: 'RUNNING' },
+    initial: { rootAttemptId: attemptId, currentAttemptId: attemptId, currentStage: 'basics' },
     fail() {
       childFailureRequests += 1;
       if (childFailureRequests <= 3) return { httpStatus: 503, message: 'temporary cancellation failure' };
@@ -1531,7 +1526,7 @@ test('a stop observed after details admission cancels the child and closes the r
   let childReturned = false;
   const h = harness({
     permit: chainBasicsPermit,
-    initial: { rootAttemptId: attemptId, currentAttemptId: attemptId, currentStage: 'basics', overallState: 'RUNNING' },
+    initial: { rootAttemptId: attemptId, currentAttemptId: attemptId, currentStage: 'basics' },
     fail: () => chainOwnerResult(chainDetailsPermit, 'FAILED'),
     read(path, init) {
       if (init?.method === 'POST' && path.endsWith('/attempts')) {
@@ -1552,7 +1547,6 @@ test('a stop observed after details admission cancels the child and closes the r
   assert.equal(childReturned, true);
   assert.equal(h.storage[stateKey].status, 'done');
   assert.equal(h.storage[stateKey].chainPhase, 'stopped');
-  assert.equal(h.storage[stateKey].overallState, 'FAILED');
   assert.deepEqual(h.calls.closed, [attemptId]);
   assert.equal(await h.sessions.getOwned(attemptId, 'local'), null);
   const childFailure = h.calls.requests.find((request) =>
@@ -1566,7 +1560,7 @@ test('a failed child cancellation ACK keeps the child permit durable until the n
   let childFailureRequests = 0;
   const h = harness({
     permit: chainBasicsPermit,
-    initial: { rootAttemptId: attemptId, currentAttemptId: attemptId, currentStage: 'basics', overallState: 'RUNNING' },
+    initial: { rootAttemptId: attemptId, currentAttemptId: attemptId, currentStage: 'basics' },
     fail() {
       childFailureRequests += 1;
       if (childFailureRequests <= 3) return { httpStatus: 503, message: 'temporary cancellation failure' };
@@ -1611,7 +1605,7 @@ test('a restarted child cancellation re-admits the exact child without persistin
   let firstFailureRequests = 0;
   first = harness({
     permit: chainBasicsPermit,
-    initial: { rootAttemptId: attemptId, currentAttemptId: attemptId, currentStage: 'basics', overallState: 'RUNNING' },
+    initial: { rootAttemptId: attemptId, currentAttemptId: attemptId, currentStage: 'basics' },
     fail() {
       firstFailureRequests += 1;
       return firstFailureRequests <= 3
@@ -1687,7 +1681,7 @@ test('a rejected pending-child replay retains the cancellation fence until the c
   let firstFailureRequests = 0;
   first = harness({
     permit: chainBasicsPermit,
-    initial: { rootAttemptId: attemptId, currentAttemptId: attemptId, currentStage: 'basics', overallState: 'RUNNING' },
+    initial: { rootAttemptId: attemptId, currentAttemptId: attemptId, currentStage: 'basics' },
     fail() {
       firstFailureRequests += 1;
       return { httpStatus: 503, message: 'temporary cancellation failure' };
@@ -1729,7 +1723,6 @@ test('a rejected pending-child replay retains the cancellation fence until the c
 
   assert.equal(resumed.storage[stateKey].status, 'running');
   assert.equal(resumed.storage[stateKey].chainPhase, 'cancelling_details');
-  assert.equal(resumed.storage[stateKey].overallState, 'RUNNING');
   assert.deepEqual(resumed.storage[stateKey].pendingChildCancellation, pending);
   assert.equal(resumed.storage[stateKey].pendingTerminal, undefined);
   assert.ok(await resumed.sessions.getOwned(attemptId, 'local'));
@@ -1742,7 +1735,7 @@ test('a child COMPLETE conflict is reconciled before the stopped root is cleaned
   let childFailureRequests = 0;
   const h = harness({
     permit: chainBasicsPermit,
-    initial: { rootAttemptId: attemptId, currentAttemptId: attemptId, currentStage: 'basics', overallState: 'RUNNING' },
+    initial: { rootAttemptId: attemptId, currentAttemptId: attemptId, currentStage: 'basics' },
     fail() {
       childFailureRequests += 1;
       return { httpStatus: 409, message: 'details owner is already complete' };
@@ -1766,7 +1759,6 @@ test('a child COMPLETE conflict is reconciled before the stopped root is cleaned
   assert.equal(childFailureRequests, 1);
   assert.equal(h.storage[stateKey].status, 'done');
   assert.equal(h.storage[stateKey].chainPhase, 'stopped');
-  assert.equal(h.storage[stateKey].overallState, 'FAILED');
   assert.equal(h.storage[stateKey].pendingChildCancellation, undefined);
   assert.deepEqual(h.calls.closed, [attemptId]);
   assert.equal(await h.sessions.getOwned(attemptId, 'local'), null);
@@ -1779,7 +1771,7 @@ test('a malformed child cancellation ACK remains durable until a valid retry', a
   let childFailureRequests = 0;
   const h = harness({
     permit: chainBasicsPermit,
-    initial: { rootAttemptId: attemptId, currentAttemptId: attemptId, currentStage: 'basics', overallState: 'RUNNING' },
+    initial: { rootAttemptId: attemptId, currentAttemptId: attemptId, currentStage: 'basics' },
     fail() {
       childFailureRequests += 1;
       if (childFailureRequests === 1) return { attemptId: detailsAttemptId, state: 'FAILED' };
@@ -1826,7 +1818,7 @@ test('a stopped chain retains its owner session when managed-window close fails'
       closeAttempts += 1;
       return closeAttempts > 1;
     },
-    initial: { rootAttemptId: attemptId, currentAttemptId: attemptId, currentStage: 'basics', overallState: 'RUNNING' },
+    initial: { rootAttemptId: attemptId, currentAttemptId: attemptId, currentStage: 'basics' },
     fail: () => chainOwnerResult(chainDetailsPermit, 'FAILED'),
     read(path, init) {
       if (init?.method === 'POST' && path.endsWith('/attempts')) {

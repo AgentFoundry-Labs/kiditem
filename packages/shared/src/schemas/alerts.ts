@@ -1,25 +1,9 @@
 import { z } from 'zod';
 import { zIsoDate } from './common.js';
 
-export const ALERT_KINDS = ['signal'] as const;
 export const ALERT_STATUSES = ['OPEN', 'RESOLVED'] as const;
 
-export const SOURCE_FAILURE_ALERT_SEVERITIES = [
-  'warning',
-  'error',
-  'critical',
-] as const;
-
-export const ALERT_SEVERITIES = [
-  'info',
-  'warning',
-  'error',
-  'critical',
-] as const;
-
-export const AlertKindSchema = z.enum(ALERT_KINDS);
 export const AlertStatusSchema = z.enum(ALERT_STATUSES);
-export const AlertSeveritySchema = z.enum(ALERT_SEVERITIES);
 
 export const SourceFailureAlertInputSchema = z.object({
   // The input is an owner-to-owner command. Its caller already holds the
@@ -59,7 +43,6 @@ export const SourceFailureAlertInputSchema = z.object({
 export const AlertItemSchema = z.object({
   id: z.string().uuid(),
   attemptId: z.string().uuid().nullable().optional(),
-  kind: AlertKindSchema,
   status: AlertStatusSchema,
   type: z.string(),
   severity: z.string(),
@@ -76,9 +59,7 @@ export const AlertItemSchema = z.object({
   updatedAt: z.string(),
 });
 
-export type AlertKind = z.infer<typeof AlertKindSchema>;
 export type AlertStatus = z.infer<typeof AlertStatusSchema>;
-export type AlertSeverity = z.infer<typeof AlertSeveritySchema>;
 export type AlertItem = z.infer<typeof AlertItemSchema>;
 export type SourceFailureAlertInput = z.infer<
   typeof SourceFailureAlertInputSchema

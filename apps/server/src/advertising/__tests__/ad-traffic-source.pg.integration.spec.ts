@@ -377,8 +377,8 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
       accountDaily: [{ businessDate: plan.startDate, visitors: 10, views: 20, revenue: 200 }],
       periodSummary: { startDate: plan.startDate, endDate: plan.endDate },
       reconciliation: {
-        views: { status: 'MATCHED', dailySum: 20, periodValue: 20 },
-        revenue: { status: 'MATCHED', dailySum: 200, periodValue: 200 },
+        views: { dailySum: 20, periodValue: 20 },
+        revenue: { dailySum: 200, periodValue: 200 },
       },
     });
     expect(published.body.optionDaily).toHaveLength(3);
@@ -663,7 +663,7 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
       startDate: oldPlan.startDate,
       endDate: oldPlan.endDate,
     });
-    expect(exact.body.reconciliation.views.status).toBe('UNVERIFIED');
+    expect(exact.body.reconciliation.views.periodValue).toBeNull();
   });
 
   it('lets a complete explicit-empty replacement reset disappeared Wing rows without touching ad facts', async () => {
@@ -1401,6 +1401,7 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
     expect(published.body.accountDaily[0].providerConversionRate).toBeNull();
     // The raw provider summary is retained with the owner's period evidence.
     expect(published.body.periodSummary.accountSummaryRaw).toMatchObject({ source: 'wing.summary.body' });
-    expect(published.body.reconciliation.views.status).toBe('MATCHED');
+    expect(published.body.reconciliation.views.periodValue).not.toBeNull();
+    expect(published.body.reconciliation.views.dailySum).toBe(published.body.reconciliation.views.periodValue);
   });
 });

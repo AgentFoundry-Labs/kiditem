@@ -23,7 +23,6 @@ describe('ReadinessService rebuild status', () => {
     await expect(service.getRebuildStatus(organizationId)).resolves.toEqual({
       state: 'snapshot_required',
       target: 'office',
-      requiredImports: ['sellpia', 'wing'],
     });
     expect(JSON.stringify(await service.getRebuildStatus(organizationId)))
       .not.toMatch(/secret-sha-binding|secret-account-fingerprint|12345/);

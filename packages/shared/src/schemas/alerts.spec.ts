@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   AlertItemSchema,
-  AlertKindSchema,
   AlertStatusSchema,
   SourceFailureAlertInputSchema,
 } from './alerts.js';
@@ -38,18 +37,16 @@ describe('Alert ledger schemas', () => {
       updatedAt: '2026-05-07T00:00:01.000Z',
     });
 
-    expect(parsed.kind).toBe('signal');
     expect(parsed.status).toBe('OPEN');
     expect(parsed.sourceType).toBe('sellpia_product_profitability');
     // The alert follows its attempt, and that does travel.
     expect(parsed.attemptId).toBe(ATTEMPT_ID);
-    for (const dropped of ['organizationId', 'dedupeKey', 'sourceId', 'actorUserId', 'metadata', 'readAt']) {
+    for (const dropped of ['kind', 'organizationId', 'dedupeKey', 'sourceId', 'actorUserId', 'metadata', 'readAt']) {
       expect(parsed).not.toHaveProperty(dropped);
     }
   });
 
   it('rejects unknown canonical ledger values', () => {
-    expect(() => AlertKindSchema.parse('task')).toThrow();
     expect(() => AlertStatusSchema.parse('queued')).toThrow();
   });
 

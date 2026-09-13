@@ -367,7 +367,6 @@ describe('Advertising profitability source owner (PostgreSQL)', () => {
       sourceImportRunId: attempt.attemptId,
     })).resolves.toMatchObject({
       summary: { qualitySummary: { plannedAccountCount: 0 } },
-      facts: [],
       allocations: [],
     });
   });
@@ -457,7 +456,7 @@ describe('Advertising profitability source owner (PostgreSQL)', () => {
       sourceImportRunId: attempt.attemptId,
     });
     expect(generation).not.toBeNull();
-    expect(Object.keys(generation!)).toEqual(['summary', 'facts', 'allocations']);
+    expect(Object.keys(generation!)).toEqual(['summary', 'allocations']);
     expect(generation).toMatchObject({
       summary: {
         sourceImportRunId: attempt.attemptId,
@@ -590,14 +589,6 @@ describe('Advertising profitability source owner (PostgreSQL)', () => {
       organizationId: TEST_ORGANIZATION_ID,
       sourceImportRunId: attempt.attemptId,
     });
-    expect(generation?.facts).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        externalOptionId: 'UNKNOWN-OPTION',
-        adSpend: 5,
-        matched: false,
-        channelListingId: null,
-      }),
-    ]));
     expect(generation?.allocations.some((allocation) => allocation.allocatedSpend === 1)).toBe(true);
     expect(generation?.allocations.some((allocation) => allocation.allocatedSpend === 5)).toBe(false);
     expect(generation?.summary.qualitySummary).toMatchObject({
@@ -629,15 +620,6 @@ describe('Advertising profitability source owner (PostgreSQL)', () => {
     });
     const incompleteRecipeAccountId = attempt.accounts.find((account) =>
       account.externalAccountId === 'account-c')!.channelAccountId;
-    expect(generation?.facts).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        externalOptionId: 'AD-OPTION-C',
-        adSpend: 1,
-        matched: true,
-        allocationStatus: 'UNALLOCATABLE',
-        channelListingId: expect.any(String),
-      }),
-    ]));
     expect(generation?.allocations.some((allocation) => allocation.channelAccountId ===
       incompleteRecipeAccountId)).toBe(false);
     expect(generation?.summary.qualitySummary).toMatchObject({

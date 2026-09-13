@@ -291,20 +291,6 @@ describe('ProfitabilityAdImportRepositoryAdapter', () => {
         unallocatableSpendKrw: 0,
       },
     };
-    const target = {
-      channelAccountId,
-      listingId: channelListingId,
-      listingOptionId,
-      businessDate: new Date('2026-01-02T00:00:00.000Z'),
-      externalId: 'external-listing',
-      externalOptionId: 'external-option',
-      adSpend: 10,
-      adRevenue: 20,
-      impressions: 30,
-      clicks: 40,
-      orders: 5,
-      conversions: 6,
-    };
     const fact = {
       channelAccountId,
       channelListingId,
@@ -317,7 +303,7 @@ describe('ProfitabilityAdImportRepositoryAdapter', () => {
       observedTargetDayCount: 31,
       mappingGeneration: 3n,
     };
-    const targetFindMany = vi.fn().mockResolvedValue([target]);
+    const targetFindMany = vi.fn();
     const factFindMany = vi.fn().mockResolvedValue([fact]);
     const tx = {
       sourceImportRun: { findFirst: vi.fn().mockResolvedValue(run) },
@@ -334,23 +320,9 @@ describe('ProfitabilityAdImportRepositoryAdapter', () => {
     };
     const adapter = new ProfitabilityAdImportRepositoryAdapter(prisma as never, {} as never);
 
-    await expect(adapter.readGeneration({ organizationId, sourceImportRunId })).resolves.toMatchObject({
-      facts: [{
-        channelAccountId,
-        channelListingId,
-        channelListingOptionId: listingOptionId,
-        businessDate: '2026-01-02',
-        externalId: 'external-listing',
-        externalOptionId: 'external-option',
-        adSpend: 10,
-        adRevenue: 20,
-        impressions: 30,
-        clicks: 40,
-        orders: 5,
-        conversions: 6,
-        matched: true,
-        allocationStatus: 'ALLOCATABLE',
-      }],
+    const generation = await adapter.readGeneration({ organizationId, sourceImportRunId });
+    expect(Object.keys(generation!)).toEqual(['summary', 'allocations']);
+    expect(generation).toMatchObject({
       allocations: [{
         channelAccountId,
         channelListingId,
@@ -364,25 +336,9 @@ describe('ProfitabilityAdImportRepositoryAdapter', () => {
         mappingGeneration: '3',
       }],
     });
-    expect(targetFindMany).toHaveBeenCalledWith({
-      where: { organizationId, sourceImportRunId },
-      orderBy: [{ businessDate: 'asc' }, { channelAccountId: 'asc' }, { targetKey: 'asc' }],
-      take: 100_001,
-      select: {
-        channelAccountId: true,
-        listingId: true,
-        listingOptionId: true,
-        businessDate: true,
-        externalId: true,
-        externalOptionId: true,
-        adSpend: true,
-        adRevenue: true,
-        impressions: true,
-        clicks: true,
-        orders: true,
-        conversions: true,
-      },
-    });
+    // The generation read publishes allocations only; it never scans the
+    // target-day ledger.
+    expect(targetFindMany).not.toHaveBeenCalled();
     expect(factFindMany).toHaveBeenCalledWith({
       where: { organizationId, sourceImportRunId },
       orderBy: [{ month: 'asc' }, { channelAccountId: 'asc' }, { channelListingId: 'asc' }, { masterProductId: 'asc' }],

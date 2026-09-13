@@ -152,7 +152,7 @@ beforeEach(() => {
   getParsedMock.mockResolvedValue(null);
   getMock.mockImplementation((path: string) => {
     if (path === '/api/agent-os/instances') return Promise.resolve([]);
-    if (path === '/api/readiness') return Promise.resolve({ allOk: true, checks: [] });
+    if (path === '/api/readiness') return Promise.resolve({ checks: [] });
     return Promise.resolve([]);
   });
 });

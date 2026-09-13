@@ -9,7 +9,6 @@ import {
   readCurrentReviewItemCount,
   readCurrentReviewItems,
   readCurrentReviewListingAggregates,
-  readCurrentReviewListingStats,
   readCurrentReviewRatingCounts,
   readCurrentReviewRecentCounts,
   type CurrentReviewListingAggregate,
@@ -21,11 +20,6 @@ import {
   readObservedOrderBounds,
   readOrderWindowFacts,
 } from '../read/order-facts.reader';
-import type {
-  OrdersReviewListingStatsReadPort,
-  ReviewListingStatsReadRequest,
-  ReviewListingStatsReadResult,
-} from '../application/port/in/review-listing-stats-read.port';
 import type {
   ReviewItem,
   ReviewItemListResponse,
@@ -49,32 +43,8 @@ const DEFAULT_LIMIT = 50;
 const DEFAULT_FILTER: ReviewFilter = 'all';
 
 @Injectable()
-export class ReviewsService implements OrdersReviewListingStatsReadPort {
+export class ReviewsService {
   constructor(private readonly prisma: PrismaService) {}
-
-  /** Listing review metrics for another owner domain. */
-  async loadListingReviewStats(
-    request: ReviewListingStatsReadRequest,
-  ): Promise<ReviewListingStatsReadResult> {
-    const listingIds = [...new Set(request.listingIds.filter(Boolean))];
-    if (listingIds.length === 0) {
-      return { lifetime: [], recent: [] };
-    }
-    return this.prisma.$transaction(async (tx) => {
-      const lifetime = await readCurrentReviewListingStats(
-        tx,
-        request.organizationId,
-        listingIds,
-      );
-      const recent = await readCurrentReviewRecentCounts(
-        tx,
-        request.organizationId,
-        listingIds,
-        request.recentSince,
-      );
-      return { lifetime, recent };
-    });
-  }
 
   /**
    * Per-listing aggregate review rows for `/reviews` UI.

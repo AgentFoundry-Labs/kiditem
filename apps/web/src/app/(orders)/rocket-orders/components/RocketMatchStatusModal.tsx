@@ -29,8 +29,6 @@ function bucketOfReason(reason: RocketPurchasePreviewReason | null): MatchBucket
     case 'configuration_required':
     case 'review_required':
     case 'inventory_unavailable':
-    case 'collection_incomplete':
-    case 'vendor_mismatch':
       return reason;
     default:
       return 'configured';
@@ -65,18 +63,6 @@ const BUCKET_META: Record<MatchBucket, { label: string; chip: string; order: num
     chip: 'bg-amber-50 text-amber-700',
     order: 2,
     hint: '최신 Sellpia 재고 수집을 완료한 뒤 다시 확인해야 합니다.',
-  },
-  collection_incomplete: {
-    label: ROCKET_PURCHASE_PREVIEW_REASON_LABELS.collection_incomplete,
-    chip: 'bg-rose-50 text-rose-700',
-    order: 0,
-    hint: '쿠팡 PO 전체 수집이 완료되지 않아 상품 매칭을 평가하지 않았습니다.',
-  },
-  vendor_mismatch: {
-    label: ROCKET_PURCHASE_PREVIEW_REASON_LABELS.vendor_mismatch,
-    chip: 'bg-rose-50 text-rose-700',
-    order: 0,
-    hint: '선택한 로켓 계정과 수집한 PO의 공급사 정보를 확인해야 합니다.',
   },
   configured: {
     label: '구성 완료',
@@ -148,8 +134,6 @@ export function RocketMatchStatusModal({
       mapping_required: 0,
       configuration_required: 0,
       review_required: 0,
-      collection_incomplete: 0,
-      vendor_mismatch: 0,
       configured: 0,
     } as Record<MatchBucket, number>,
   );
@@ -189,8 +173,6 @@ export function RocketMatchStatusModal({
 
         <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-5 py-3 text-xs">
           {([
-            'collection_incomplete',
-            'vendor_mismatch',
             'mapping_required',
             'configuration_required',
             'review_required',

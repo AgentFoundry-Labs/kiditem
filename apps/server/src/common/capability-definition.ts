@@ -1,18 +1,9 @@
 import type { z } from 'zod';
 
 export type CapabilityOwnerDomain =
-  | 'advertising'
-  | 'agent_os'
-  | 'ai'
   | 'analytics'
-  | 'automation'
   | 'channels'
-  | 'finance'
-  | 'inventory'
-  | 'orders'
-  | 'operations'
   | 'products'
-  | 'rules'
   | 'sourcing'
   | 'supply';
 
@@ -20,13 +11,12 @@ export type CapabilityEffect =
   | 'read'
   | 'browser'
   | 'external_io'
-  | 'llm'
   | 'db_write'
   | 'external_write'
   | 'job_enqueue';
 
 export type CapabilityApprovalRisk = 'none' | 'low' | 'medium' | 'high';
-export type CapabilityIdempotency = 'none' | 'recommended' | 'required';
+export type CapabilityIdempotency = 'recommended' | 'required';
 
 export const MUTATION_EFFECTS = new Set<CapabilityEffect>([
   'db_write',

@@ -59,6 +59,13 @@ describe('Sales-plans flow (PG integration)', () => {
     (await prisma.order.findMany({ where: { organizationId }, select: { id: true } }))
       .map((order) => order.id);
 
+  // The listing endpoint is the only plan view; read one plan out of it.
+  const planView = async (id: string, organizationId: string, now: Date) => {
+    const view = (await service.findAll(organizationId, now)).find((plan) => plan.id === id);
+    if (!view) throw new NotFoundException('판매 계획을 찾을 수 없습니다');
+    return view;
+  };
+
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
@@ -106,12 +113,12 @@ describe('Sales-plans flow (PG integration)', () => {
       expect(reread?.notes).toBe('original');
     });
 
-    it('#2 syncActuals: OTHER_COMPANY cannot read TEST_COMPANY plan actuals → NotFoundException', async () => {
+    it('#2 plan list: OTHER_COMPANY cannot read TEST_COMPANY plan actuals', async () => {
       const plan = await prisma.salesPlan.create({
         data: { organizationId: TEST_ORGANIZATION_ID, period: '2026-04' },
       });
 
-      await expect(service.syncActuals(plan.id, OTHER_ORGANIZATION_ID, AFTER_MONTHS)).rejects.toThrow(
+      await expect(planView(plan.id, OTHER_ORGANIZATION_ID, AFTER_MONTHS)).rejects.toThrow(
         NotFoundException,
       );
     });
@@ -265,7 +272,7 @@ describe('Sales-plans flow (PG integration)', () => {
         orderIds: await allOrderIds(),
       });
 
-      const synced = await service.syncActuals(plan.id, TEST_ORGANIZATION_ID, AFTER_MONTHS);
+      const synced = await planView(plan.id, TEST_ORGANIZATION_ID, AFTER_MONTHS);
 
       expect(SalesPlanViewSchema.safeParse(JSON.parse(JSON.stringify(synced))).success).toBe(true);
       expect(synced.actuals).toMatchObject({
@@ -295,7 +302,7 @@ describe('Sales-plans flow (PG integration)', () => {
         },
       });
 
-      const synced = await service.syncActuals(plan.id, TEST_ORGANIZATION_ID, AFTER_MONTHS);
+      const synced = await planView(plan.id, TEST_ORGANIZATION_ID, AFTER_MONTHS);
 
       expect(synced.actuals).toMatchObject({
         revenue: null,
@@ -317,7 +324,7 @@ describe('Sales-plans flow (PG integration)', () => {
         startDate: '2026-04-01', endDate: '2026-04-30', orderIds: [],
       });
 
-      const synced = await service.syncActuals(plan.id, TEST_ORGANIZATION_ID, AFTER_MONTHS);
+      const synced = await planView(plan.id, TEST_ORGANIZATION_ID, AFTER_MONTHS);
 
       expect(synced.actuals).toMatchObject({ revenue: 0, orderCount: 0, netProfit: 0 });
       expect(periodBasisStatus(synced.actuals!.basis.profit)).toBe('complete');
@@ -384,10 +391,10 @@ describe('Sales-plans flow (PG integration)', () => {
         orderIds: await allOrderIds(),
       });
 
-      const april = await service.syncActuals(aprilPlan.id, TEST_ORGANIZATION_ID, AFTER_MONTHS);
+      const april = await planView(aprilPlan.id, TEST_ORGANIZATION_ID, AFTER_MONTHS);
       expect(april.actuals).toMatchObject({ revenue: 10_000, orderCount: 1, netProfit: 5_000 });
 
-      const may = await service.syncActuals(mayPlan.id, TEST_ORGANIZATION_ID, AFTER_MONTHS);
+      const may = await planView(mayPlan.id, TEST_ORGANIZATION_ID, AFTER_MONTHS);
       expect(may.actuals).toMatchObject({ revenue: 20_000, orderCount: 1, netProfit: 15_000 });
     });
 
@@ -464,7 +471,7 @@ describe('Sales-plans flow (PG integration)', () => {
         orderIds: await allOrderIds(),
       });
 
-      const synced = await service.syncActuals(plan.id, TEST_ORGANIZATION_ID, AFTER_MONTHS);
+      const synced = await planView(plan.id, TEST_ORGANIZATION_ID, AFTER_MONTHS);
       expect(synced.actuals).toMatchObject({ revenue: 50_000, orderCount: 1, netProfit: 45_000 });
     });
 
@@ -532,7 +539,7 @@ describe('Sales-plans flow (PG integration)', () => {
         orderIds: await allOrderIds(),
       });
 
-      const synced = await service.syncActuals(plan.id, TEST_ORGANIZATION_ID, MID_APRIL);
+      const synced = await planView(plan.id, TEST_ORGANIZATION_ID, MID_APRIL);
 
       expect(synced.actuals).toMatchObject({ revenue: 20_000, orderCount: 1, netProfit: 15_000 });
       expect(synced.actuals!.basis.requestedWindow).toEqual({ from: '2026-04-01', to: '2026-04-30' });
@@ -548,7 +555,7 @@ describe('Sales-plans flow (PG integration)', () => {
         startDate: '2026-04-01', endDate: '2026-04-01', orderIds: [],
       });
 
-      const synced = await service.syncActuals(plan.id, TEST_ORGANIZATION_ID, APRIL_FIRST);
+      const synced = await planView(plan.id, TEST_ORGANIZATION_ID, APRIL_FIRST);
 
       expect(synced.actuals).toMatchObject({
         revenue: null, orderCount: null, netProfit: null, observedAt: null,

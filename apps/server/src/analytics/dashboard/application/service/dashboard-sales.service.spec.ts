@@ -271,11 +271,11 @@ describe('DashboardSalesService collected Coupang ad spend', () => {
         missingDates: [],
       },
       reconciliation: {
-        views: { status: 'UNVERIFIED', dailySum: 678, periodValue: null },
-        cartAdds: { status: 'UNVERIFIED', dailySum: 76, periodValue: null },
-        orders: { status: 'UNVERIFIED', dailySum: 31, periodValue: null },
-        salesQty: { status: 'UNVERIFIED', dailySum: 92, periodValue: null },
-        revenue: { status: 'UNVERIFIED', dailySum: 206_770, periodValue: null },
+        views: { dailySum: 678, periodValue: null },
+        cartAdds: { dailySum: 76, periodValue: null },
+        orders: { dailySum: 31, periodValue: null },
+        salesQty: { dailySum: 92, periodValue: null },
+        revenue: { dailySum: 206_770, periodValue: null },
       },
       exactPeriodEvidence: null,
     });

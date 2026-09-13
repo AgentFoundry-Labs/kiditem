@@ -57,7 +57,6 @@ export interface RocketDecisionWorkspaceContext {
   activeMonth: string;
   channelAccountId: string;
   channelAccountName: string;
-  hasConfiguredVendorId: boolean;
   from: string;
   to: string;
   selectedSourceImportRunId: string | null;
@@ -123,7 +122,6 @@ export function RocketOrdersWorkspace({
   // 로켓 채널 계정: '발주 미리보기' 카드는 제거했지만, 달력·발주목록·차트가 쓰는 계정 선택은
   // RocketAccountBootstrap 이 익스텐션에서 확보한 내부 로켓 식별자를 유지한다.
   const [selectedRocketAccountName, setSelectedRocketAccountName] = useState('');
-  const [hasConfiguredVendorId, setHasConfiguredVendorId] = useState(false);
   const rocketSource = useRocketPoSource(selectedRocketAccountId, viewStateReady);
   const selectedSourceImportRunId = rocketSource.data?.latestComplete?.attemptId ?? null;
   const { events, record: recordActivity } = useRocketOrderActivity();
@@ -142,7 +140,6 @@ export function RocketOrdersWorkspace({
           date: current.account ? '' : current.date,
         });
     setSelectedRocketAccountName(account?.name ?? '');
-    setHasConfiguredVendorId(Boolean(account?.vendorId?.trim()));
   }, [setViewState]);
 
   const handleRocketAccountSelection = useCallback((accountId: string) => {
@@ -467,7 +464,6 @@ export function RocketOrdersWorkspace({
         activeMonth: (from || todayYmd()).slice(0, 7),
         channelAccountId: selectedRocketAccountId,
         channelAccountName: selectedRocketAccountName,
-        hasConfiguredVendorId,
         from,
         to,
         selectedSourceImportRunId,

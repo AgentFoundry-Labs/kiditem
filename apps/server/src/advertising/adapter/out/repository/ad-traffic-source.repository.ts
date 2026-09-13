@@ -258,26 +258,22 @@ function positiveWingOptionId(value: string): boolean {
 function buildReconciliation(
   accountDaily: Array<Record<string, unknown>>,
   periodSummary: Record<string, unknown> | null,
-  options: { forceUnverified?: boolean } = {},
+  options: { periodSummaryApplies: boolean },
 ) {
   const metrics = ['views', 'cartAdds', 'orders', 'salesQty', 'revenue'] as const;
-  const period = periodSummary ? accountSummaryFromRecord(
-    asRecord(periodSummary.accountSummary),
-  ) : null;
+  const period = periodSummary && options.periodSummaryApplies
+    ? accountSummaryFromRecord(asRecord(periodSummary.accountSummary))
+    : null;
   return Object.fromEntries(metrics.map((metricName) => {
     // A day whose summary lacks this metric makes the sum unmeasured, not a
     // smaller measured total.
     const dailySum = accountDaily.every((row) => typeof row[metricName] === 'number')
       ? accountDaily.reduce((sum, row) => sum + (row[metricName] as number), 0)
       : null;
+    // A period summary that does not cover exactly these daily rows verifies
+    // nothing, so it publishes no period value to compare against.
     const periodValue = period?.[metricName] ?? null;
-    return [metricName, {
-      status: options.forceUnverified || periodValue === null || dailySum === null
-        ? 'UNVERIFIED'
-        : dailySum === periodValue ? 'MATCHED' : 'MISMATCH',
-      dailySum,
-      periodValue,
-    }];
+    return [metricName, { dailySum, periodValue }];
   }));
 }
 
@@ -1909,7 +1905,7 @@ async function readDailyPublished(
       missingDates: targetDates.filter((businessDate) => !completeDates.has(businessDate)),
     },
     reconciliation: buildReconciliation(accountDaily, periodSummary, {
-      forceUnverified: incompleteDailyCoverage || periodEvidenceIsStale,
+      periodSummaryApplies: !incompleteDailyCoverage && !periodEvidenceIsStale,
     }),
     legacyExactPeriodEvidence,
   });

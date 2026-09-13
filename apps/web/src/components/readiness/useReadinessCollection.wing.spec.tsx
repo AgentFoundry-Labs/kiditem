@@ -17,7 +17,7 @@ vi.mock('sonner', () => ({
   toast: { info: vi.fn(), success: vi.fn(), error: vi.fn(), warning: vi.fn() },
 }));
 
-const check = { key: 'wing_kpi', collector: 'extension' } as ReadinessCheck;
+const check = { key: 'wing_kpi' } as ReadinessCheck;
 const ids = [
   '11111111-1111-4111-8111-111111111111',
   '22222222-2222-4222-8222-222222222222',

@@ -125,11 +125,11 @@ describe('dashboard schemas', () => {
         missingDates: [],
       },
       reconciliation: {
-        views: { status: 'UNVERIFIED', dailySum: 0, periodValue: null },
-        cartAdds: { status: 'MATCHED', dailySum: 0, periodValue: 0 },
-        orders: { status: 'MATCHED', dailySum: 0, periodValue: 0 },
-        salesQty: { status: 'MATCHED', dailySum: 0, periodValue: 0 },
-        revenue: { status: 'MISMATCH', dailySum: 0, periodValue: 1 },
+        views: { dailySum: 0, periodValue: null },
+        cartAdds: { dailySum: 0, periodValue: 0 },
+        orders: { dailySum: 0, periodValue: 0 },
+        salesQty: { dailySum: 0, periodValue: 0 },
+        revenue: { dailySum: 0, periodValue: 1 },
       },
       exactPeriodEvidence: { source: 'wing-period-original' },
     });
@@ -326,7 +326,6 @@ describe('dashboard schemas', () => {
       unclassifiedProductCount: 0,
       alerts: [{
         id: 'alert-1',
-        kind: 'signal',
         status: 'RESOLVED',
         type: 'thumbnail_edit_job',
         severity: 'info',
@@ -388,7 +387,6 @@ describe('dashboard schemas', () => {
 
     expect(DashboardAlertItemSchema.safeParse({
       id: 'alert-legacy',
-      kind: 'operation',
       status: 'succeeded',
       type: 'thumbnail_edit_job',
       severity: 'info',

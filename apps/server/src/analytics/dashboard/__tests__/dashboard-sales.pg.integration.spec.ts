@@ -371,7 +371,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
     });
   });
 
-  it('keeps an unobserved conversion count null in the Coupang ad totals and daily rows', async () => {
+  it('keeps an unobserved conversion count null in the Coupang ad totals', async () => {
     const { listingId } = await seedTestListing('UNOBSERVED-CONVERSIONS');
     const runId = await seedCompletedAdSweepRun(prisma, {
       organizationId: TEST_ORGANIZATION_ID,
@@ -408,13 +408,6 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
       isCollected: true,
       hasData: true,
     });
-
-    const daily = await wingTraffic.fetchDailyAds(TEST_ORGANIZATION_ID, since, until);
-    expect(daily.map(({ date, ad_cost, conversions, orders }) => ({ date, ad_cost, conversions, orders })))
-      .toEqual([
-        { date: '2026-07-10', ad_cost: 1_000, conversions: 2, orders: 3 },
-        { date: '2026-07-11', ad_cost: 2_000, conversions: null, orders: null },
-      ]);
   });
 
   it('composes funnel orders from the exact listing-day intersection, never Wing order fields', async () => {
@@ -740,7 +733,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
       },
       reconciliation: Object.fromEntries([
         'views', 'cartAdds', 'orders', 'salesQty', 'revenue',
-      ].map((metric) => [metric, { status: 'UNVERIFIED', dailySum: null, periodValue: null }])),
+      ].map((metric) => [metric, { dailySum: null, periodValue: null }])),
       legacyExactPeriodEvidence: null,
     };
     // The old account publication remains present to prove that Dashboard

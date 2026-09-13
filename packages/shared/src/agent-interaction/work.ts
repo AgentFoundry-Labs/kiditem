@@ -37,7 +37,6 @@ export const BoundedCanonicalJsonSchema = z.unknown().superRefine((value, contex
   } catch { context.addIssue({ code: z.ZodIssueCode.custom, message: 'bounded_canonical_json_required' }); }
 });
 export const CapabilityIdempotencySchema = z.enum([
-  "none",
   "recommended",
   "required",
 ]);

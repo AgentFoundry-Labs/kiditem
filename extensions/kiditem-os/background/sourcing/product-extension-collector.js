@@ -370,11 +370,6 @@
         if (!validAttemptId(result) || result.attemptId !== run.attempt.attemptId || !isKnownState(result.state) || result.state !== "COMPLETE") {
           throw new Error(result?.errorMessage || "상품 수집 실패");
         }
-        const lastExtraction = { ...product, ...(run.description ? {
-          description_images: run.description.description_images, description_text: run.description.description_text,
-          description_image_count: run.description.description_image_count,
-        } : {}) };
-        await chrome.storage.local.set({ lastExtraction, lastExtractionEnvironmentId: run.environmentId });
         await clearCorrelation(run.key, run.idempotencyKey);
         finish(run, { ok: true });
       } catch (error) { await fail(run, "EXTRACTION_FAILED", error.message); }

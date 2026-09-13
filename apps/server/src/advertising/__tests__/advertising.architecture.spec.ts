@@ -5,10 +5,8 @@ import { describe, it, expect } from 'vitest';
 // Architecture guard tests freeze the Advertising port/adapter contract:
 //
 //   - PrismaService is imported only under
-//     `advertising/adapter/out/repository/**`. The legacy
-//     `services/channel-scrape-persistence.service.ts` is a transitional
-//     facade and now delegates to repository adapters, so it must NOT import
-//     PrismaService directly.
+//     `advertising/adapter/out/repository/**`.
+//   - The retired `services/` compatibility lane stays empty.
 //   - Shared persistence helpers stay inside outgoing repository adapters.
 //   - `application/**` does not import `@prisma/client` or expose Prisma
 //     types. Ports/services stay Prisma-free; Prisma belongs in outgoing
@@ -144,19 +142,12 @@ describe('Advertising architecture contract', () => {
     ).toEqual([]);
   });
 
-  it('services/ folder only contains the grandfathered channel-scrape-persistence facade', () => {
+  it('no services/ compatibility folder remains', () => {
     const adv = advertisingRel();
     const hits = rg(`--type ts --files --glob '${path.join(adv, 'services', '**', '*.ts')}'`);
-    // ALLOWED_LEGACY_FILES — anything new in services/ is forbidden by the
-    // backend CLAUDE.md. The facade survives only because integration tests
-    // inject it by class name.
-    const ALLOWED_LEGACY_FILES = new Set<string>([
-      path.join(adv, 'services/channel-scrape-persistence.service.ts'),
-    ]);
-    const violators = hits.filter((file) => !ALLOWED_LEGACY_FILES.has(file));
     expect(
-      violators,
-      `services/ accepts only legacy compatibility facades; new business logic belongs in application/service/:\n${violators.join('\n')}`,
+      hits,
+      `services/ is retired; business logic belongs in application/service/:\n${hits.join('\n')}`,
     ).toEqual([]);
   });
 });

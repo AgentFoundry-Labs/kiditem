@@ -16,7 +16,7 @@ const NO_ADS = { hasData: false };
 const COMPLETE_WING: WingRevenueEvidence = {
   hasData: true,
   coverage: { targetDays: 7, completedDays: 7 },
-  reconciliation: { revenue: { status: "MATCHED" } },
+  reconciliation: { revenue: { dailySum: 100, periodValue: 100 } },
 };
 
 describe("hasOrderEvidence", () => {
@@ -67,7 +67,7 @@ describe("canUseWingRevenue", () => {
     expect(
       canUseWingRevenue({
         hasData: true,
-        reconciliation: { revenue: { status: "MISMATCH" } },
+        reconciliation: { revenue: { dailySum: 100, periodValue: 90 } },
       }),
     ).toBe(false);
   });

@@ -17,6 +17,10 @@ import {
   REVIEW_COLLECTION_SOURCE_PORT,
 } from '../application/port/in/review-collection-source.port';
 import { ReviewCollectionSourceRepository } from '../adapter/out/repository/review-collection-source.repository';
+import {
+  readCurrentReviewListingStats,
+  readCurrentReviewRecentCounts,
+} from '../read/review-facts.reader';
 import { ReviewsController } from '../controllers/reviews.controller';
 import { ReviewIngestService } from '../services/review-ingest.service';
 import { ReviewsService } from '../services/reviews.service';
@@ -236,11 +240,7 @@ describe('Coupang review collection source owner over disposable PostgreSQL', ()
       },
     });
     await expect(
-      service.loadListingReviewStats({
-        organizationId: ORG,
-        listingIds: [listingId as string, foreignListing.id],
-        recentSince: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
-      }),
+      currentListingReviewStats([listingId as string, foreignListing.id]),
     ).resolves.toEqual({
       lifetime: [
         { listingId, totalReviews: 2, avgRating: 5 },
@@ -264,11 +264,7 @@ describe('Coupang review collection source owner over disposable PostgreSQL', ()
     await append(attempt, [review('review-failed', 'staged before failure')]);
 
     await expect(
-      service.loadListingReviewStats({
-        organizationId: ORG,
-        listingIds: [priorListingId as string],
-        recentSince: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
-      }),
+      currentListingReviewStats([priorListingId as string]),
     ).resolves.toEqual({
       lifetime: [{ listingId: priorListingId, totalReviews: 1, avgRating: 5 }],
       recent: [{ listingId: priorListingId, count: 1 }],
@@ -296,11 +292,7 @@ describe('Coupang review collection source owner over disposable PostgreSQL', ()
     const visible = await service.listItems(ORG, {});
     expect(visible.items.map((item) => item.content)).toEqual(['previous complete']);
     await expect(
-      service.loadListingReviewStats({
-        organizationId: ORG,
-        listingIds: [priorListingId as string],
-        recentSince: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
-      }),
+      currentListingReviewStats([priorListingId as string]),
     ).resolves.toEqual({
       lifetime: [{ listingId: priorListingId, totalReviews: 1, avgRating: 5 }],
       recent: [{ listingId: priorListingId, count: 1 }],
@@ -622,6 +614,14 @@ describe('Coupang review collection source owner over disposable PostgreSQL', ()
           pageLimitReached: boolean;
         }>;
       });
+  }
+
+  async function currentListingReviewStats(listingIds: string[]) {
+    const recentSince = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    return prisma.$transaction(async (tx) => ({
+      lifetime: await readCurrentReviewListingStats(tx, ORG, listingIds),
+      recent: await readCurrentReviewRecentCounts(tx, ORG, listingIds, recentSince),
+    }));
   }
 });
 

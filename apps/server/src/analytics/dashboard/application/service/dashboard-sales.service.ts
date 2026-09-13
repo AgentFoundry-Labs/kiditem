@@ -20,6 +20,7 @@ import {
   type DashboardTrafficFunnelFacts,
   type TrafficAdditiveMetric,
 } from '../port/out/repository/wing-traffic-aggregation.repository.port';
+import { adTrafficReconciliationStatus } from '@kiditem/shared/advertising';
 import {
   buildEffectivePeriod,
   canUseWingRevenue,
@@ -494,7 +495,10 @@ function mismatchedTrafficMetrics(
   wing: WingTrafficMetrics,
   metrics: readonly TrafficAdditiveMetric[],
 ): boolean {
-  return metrics.some((metric) => wing.reconciliation?.[metric]?.status === 'MISMATCH');
+  return metrics.some((metric) => {
+    const reconciled = wing.reconciliation?.[metric];
+    return reconciled ? adTrafficReconciliationStatus(reconciled) === 'MISMATCH' : false;
+  });
 }
 
 /**

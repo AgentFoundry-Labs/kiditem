@@ -4,8 +4,18 @@ import {
   AdTrafficSourcePeriodReceiptInputSchema,
   AdTrafficSourceReceiptInputSchema,
   AdTrafficSourceReceiptSchema,
+  adTrafficReconciliationStatus,
   dailyTrafficFactSource,
 } from './ad-traffic-source';
+
+describe('adTrafficReconciliationStatus', () => {
+  it('derives the word from the two measured totals only', () => {
+    expect(adTrafficReconciliationStatus({ dailySum: 20, periodValue: 20 })).toBe('MATCHED');
+    expect(adTrafficReconciliationStatus({ dailySum: 0, periodValue: 1 })).toBe('MISMATCH');
+    expect(adTrafficReconciliationStatus({ dailySum: 0, periodValue: null })).toBe('UNVERIFIED');
+    expect(adTrafficReconciliationStatus({ dailySum: null, periodValue: 0 })).toBe('UNVERIFIED');
+  });
+});
 
 const accountSummary = {
   visitors: 1065,

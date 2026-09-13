@@ -335,20 +335,6 @@ export const PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_JSON =
 export const PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH =
   '230d35436ffd2fd42bf4eb4ea3f0c99bd7474dcf5b7cf11f6ed235aff84cc64f';
 
-export const ProductAbcFormulaStateSchema = z.object({
-  organizationId: UuidSchema,
-  activeFormulaVersionId: UuidSchema.nullable(),
-  formulaRevision: z.number().int().nonnegative(),
-  publicationRevision: z.number().int().nonnegative(),
-  officialCutoffDate: CalendarDateSchema.nullable(),
-  publishedSellpiaSourceImportRunId: UuidSchema.nullable(),
-  publishedAdvertisingSourceImportRunId: UuidSchema.nullable(),
-  publishedMappingGeneration: GenerationSchema.nullable(),
-  mappingGeneration: GenerationSchema,
-  publishedAt: zIsoDate.nullable(),
-}).strict();
-export type ProductAbcFormulaState = z.infer<typeof ProductAbcFormulaStateSchema>;
-
 export const ProductAbcMappingFactsSchema = z.object({
   valid: z.boolean(),
   currentMappingGeneration: GenerationSchema,

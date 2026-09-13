@@ -120,22 +120,6 @@ export type AdvertisingProfitabilityGenerationSummary = Readonly<{
 
 export type AdvertisingProfitabilityGeneration = Readonly<{
   summary: AdvertisingProfitabilityGenerationSummary;
-  facts: readonly {
-    channelAccountId: string;
-    channelListingId: string | null;
-    channelListingOptionId: string | null;
-    businessDate: string;
-    externalId: string | null;
-    externalOptionId: string;
-    adSpend: number;
-    adRevenue: number;
-    impressions: number;
-    clicks: number;
-    orders: number;
-    conversions: number;
-    matched: boolean;
-    allocationStatus: 'ALLOCATABLE' | 'UNMATCHED' | 'UNALLOCATABLE';
-  }[];
   allocations: readonly {
     channelAccountId: string;
     channelListingId: string;

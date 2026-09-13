@@ -259,9 +259,6 @@ function check(key: string): ReadinessCheck {
     detail: 'missing',
     lastSyncedAt: null,
     count: null,
-    collector: 'extension',
-    collectEndpoint: null,
-    scrapeUrls: [`https://wing.coupang.com/${key}`],
     referenceDate: '2026-07-14',
     expectedDates: ['2026-07-14'],
     missingDates: ['2026-07-14'],
@@ -354,7 +351,6 @@ describe('readiness extension collection', () => {
       rootAttemptId: CATALOG_ATTEMPT_ID,
       currentAttemptId: CATALOG_ATTEMPT_ID,
       currentStage: 'basics',
-      overallState: 'RUNNING',
     });
     mocks.transferExtensionAuthTo.mockResolvedValue(undefined);
   });
@@ -577,7 +573,6 @@ describe('readiness extension collection', () => {
       phase: 'hydration',
       currentAttemptId: CATALOG_CHILD_ATTEMPT_ID,
       currentStage: 'details',
-      overallState: 'RUNNING',
       rootAttemptId: CATALOG_ATTEMPT_ID,
     });
     await act(async () => {
@@ -592,7 +587,6 @@ describe('readiness extension collection', () => {
       phase: 'finished',
       currentAttemptId: CATALOG_CHILD_ATTEMPT_ID,
       currentStage: 'details',
-      overallState: 'COMPLETE',
       rootAttemptId: CATALOG_ATTEMPT_ID,
     });
     await act(async () => {

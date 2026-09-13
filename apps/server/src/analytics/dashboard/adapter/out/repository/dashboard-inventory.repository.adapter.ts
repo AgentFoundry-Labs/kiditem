@@ -157,7 +157,6 @@ export class DashboardInventoryRepositoryAdapter implements DashboardInventoryRe
       (a) =>
         ({
           id: a.id,
-          kind: a.kind as DashboardAlertItem["kind"],
           status: a.status as DashboardAlertItem["status"],
           type: a.type,
           severity: a.severity,

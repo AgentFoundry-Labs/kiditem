@@ -23,6 +23,7 @@ import {
   type TrafficKpi,
   periodBasisStatus,
 } from '@kiditem/shared/dashboard';
+import { adTrafficReconciliationStatus } from '@kiditem/shared/advertising';
 import { z } from 'zod';
 import {
   businessDateKey,
@@ -70,8 +71,13 @@ const trafficMetricLabels: ReadonlyArray<readonly [TrafficMetric, string]> = [
   ['revenue', '매출'],
 ];
 
+function trafficReconciliation(kpi: TrafficKpi | undefined, metric: TrafficMetric) {
+  const reconciled = kpi?.reconciliation?.[metric];
+  return reconciled ? adTrafficReconciliationStatus(reconciled) : null;
+}
+
 function trafficMetricValue(kpi: TrafficKpi | undefined, metric: TrafficMetric): number | null {
-  if (!kpi || kpi.reconciliation?.[metric]?.status === 'MISMATCH') return null;
+  if (!kpi || trafficReconciliation(kpi, metric) === 'MISMATCH') return null;
   return kpi[metric] ?? null;
 }
 
@@ -512,8 +518,8 @@ export default function Dashboard() {
   const trafficSalesQty = trafficMetricValue(trafficKpi, 'salesQty');
   const trafficRevenue = trafficMetricValue(trafficKpi, 'revenue');
   const trafficDailyAverageVisitors = trafficKpi?.dailyAverageVisitors ?? null;
-  const trafficConversionRate = trafficKpi?.reconciliation?.orders?.status === 'MISMATCH'
-    || trafficKpi?.reconciliation?.views?.status === 'MISMATCH'
+  const trafficConversionRate = trafficReconciliation(trafficKpi, 'orders') === 'MISMATCH'
+    || trafficReconciliation(trafficKpi, 'views') === 'MISMATCH'
     ? null
     : trafficKpi?.conversionRate ?? null;
   const trafficProviderConversionRate = trafficKpi?.providerConversionRate ?? null;
@@ -522,10 +528,10 @@ export default function Dashboard() {
     && trafficCoverage.targetDays > 0
     && trafficCoverage.completedDays === trafficCoverage.targetDays;
   const trafficMismatchLabels = trafficMetricLabels
-    .filter(([metric]) => trafficKpi?.reconciliation?.[metric]?.status === 'MISMATCH')
+    .filter(([metric]) => trafficReconciliation(trafficKpi, metric) === 'MISMATCH')
     .map(([, label]) => label);
   const trafficUnverifiedLabels = trafficMetricLabels
-    .filter(([metric]) => trafficKpi?.reconciliation?.[metric]?.status === 'UNVERIFIED')
+    .filter(([metric]) => trafficReconciliation(trafficKpi, metric) === 'UNVERIFIED')
     .map(([, label]) => label);
   const trafficFilterScope = trafficKpi?.exactPeriodEvidence?.filterScope === 'ALL_NORMAL_RFM'
     ? 'ALL_NORMAL_RFM'

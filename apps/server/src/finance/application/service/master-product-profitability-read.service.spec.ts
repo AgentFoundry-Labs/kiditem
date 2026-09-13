@@ -123,7 +123,6 @@ describe('MasterProductProfitabilityReadService', () => {
       }),
       readGeneration: vi.fn().mockResolvedValue({
         summary: advertisingGeneration,
-        facts: [],
         allocations: [],
       }),
     };

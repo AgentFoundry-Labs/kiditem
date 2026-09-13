@@ -169,7 +169,6 @@ function advertisingGeneration(overrides: Record<string, unknown> = {}) {
   const summary = advertisingSummary();
   return {
     summary,
-    facts: [],
     allocations: MONTHS.map((month) => ({
       channelAccountId: '00000000-0000-4000-8000-000000000030',
       channelListingId: '00000000-0000-4000-8000-000000000031',

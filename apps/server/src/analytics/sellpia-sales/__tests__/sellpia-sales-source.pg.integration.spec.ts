@@ -618,8 +618,6 @@ function ads(date: string, adCost: number): CoupangAdsDailyRow {
     ad_revenue: 0,
     clicks: 0,
     impressions: 0,
-    conversions: 0,
-    orders: 0,
     observedAt: '2026-07-18T00:00:00.000Z',
   };
 }

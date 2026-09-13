@@ -42,7 +42,7 @@ vi.mock('@/lib/api-client', async () => {
       getParsed: (path: string) => getParsedMock(path),
       get: vi.fn((path: string) =>
         path === '/api/readiness'
-          ? Promise.resolve({ allOk: true, checks: [] })
+          ? Promise.resolve({ checks: [] })
           : Promise.resolve([]),
       ),
       patch: vi.fn(),
@@ -400,11 +400,11 @@ describe('Dashboard absolute ABC grade cards', () => {
           missingDates: [],
         },
         reconciliation: {
-          views: { status: 'MATCHED', dailySum: 80, periodValue: 80 },
-          cartAdds: { status: 'UNVERIFIED', dailySum: 0, periodValue: null },
-          orders: { status: 'MATCHED', dailySum: 4, periodValue: 4 },
-          salesQty: { status: 'MATCHED', dailySum: 0, periodValue: 0 },
-          revenue: { status: 'MISMATCH', dailySum: 0, periodValue: 1 },
+          views: { dailySum: 80, periodValue: 80 },
+          cartAdds: { dailySum: 0, periodValue: null },
+          orders: { dailySum: 4, periodValue: 4 },
+          salesQty: { dailySum: 0, periodValue: 0 },
+          revenue: { dailySum: 0, periodValue: 1 },
         },
         exactPeriodEvidence: { filterScope: 'ALL_NORMAL_RFM' },
         source: 'wing',
@@ -614,7 +614,7 @@ describe('Dashboard absolute ABC grade cards', () => {
         revenue: 0,
         trafficAvailable: true,
         reconciliation: {
-          revenue: { status: 'MISMATCH', dailySum: 0, periodValue: 100 },
+          revenue: { dailySum: 0, periodValue: 100 },
         },
       },
     };

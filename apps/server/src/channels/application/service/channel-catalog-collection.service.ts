@@ -260,7 +260,7 @@ function buildCollectionStatus(
   const currentAttemptId = linkedDetailsRun?.id ?? run.id;
   const currentStage = linkedDetailsRun?.stage ?? stage;
 
-  const phase = derivePhase(run.status, state, metadata, stage, plan);
+  const phase = derivePhase(run.status, state, stage, plan);
   const hasFullPayload = run.chunks.every((chunk) => chunk.payload !== undefined);
   const readySnapshotHash =
     phase === 'ready_to_finalize' && hasFullPayload
@@ -845,13 +845,10 @@ function countMedia(
 function derivePhase(
   status: string,
   state: InspectedChunks,
-  metadata: Record<string, unknown>,
   stage: CoupangCatalogStage = 'full',
   plan?: ReturnType<typeof CoupangCatalogCollectionPlanSchema.parse>,
 ): CoupangCatalogCollectionPhase {
   if (status === 'completed') return 'finished';
-  const storedPhase = metadata.phase;
-  if (storedPhase === 'publishing') return 'publishing';
   if (!state.manifest || !state.confirmation || missingDiscoverySequences(state).length > 0)
     return 'discovery';
   const products = stage === 'basics'
@@ -961,7 +958,6 @@ function phaseValue(
   return value === 'discovery' ||
     value === 'hydration' ||
     value === 'ready_to_finalize' ||
-    value === 'publishing' ||
     value === 'finished'
     ? value
     : fallback;

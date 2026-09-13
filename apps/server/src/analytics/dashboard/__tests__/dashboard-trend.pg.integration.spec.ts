@@ -352,7 +352,7 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
       },
       reconciliation: Object.fromEntries([
         'views', 'cartAdds', 'orders', 'salesQty', 'revenue',
-      ].map((metric) => [metric, { status: 'UNVERIFIED', dailySum: null, periodValue: null }])),
+      ].map((metric) => [metric, { dailySum: null, periodValue: null }])),
       legacyExactPeriodEvidence: null,
     };
     trafficRead.readPublished.mockImplementation(async (input: { from?: string; to?: string }) => {

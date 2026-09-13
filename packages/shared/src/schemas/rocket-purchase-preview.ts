@@ -353,8 +353,6 @@ export const RocketPurchasePreviewReasonSchema = z.enum([
   'review_required',
   'inventory_unavailable',
   'insufficient_capacity',
-  'collection_incomplete',
-  'vendor_mismatch',
 ]);
 export type RocketPurchasePreviewReason = z.infer<
   typeof RocketPurchasePreviewReasonSchema

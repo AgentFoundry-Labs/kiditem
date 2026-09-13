@@ -125,17 +125,12 @@ const ROW_FILTERS: { key: RowFilter; label: string }[] = [
 function isRowReviewBlocked(
   reason: RocketPurchasePreviewRow["reason"],
 ): boolean {
-  return (
-    isRocketWorkbookBlockingReason(reason) ||
-    reason === "collection_incomplete" ||
-    reason === "vendor_mismatch"
-  );
+  return isRocketWorkbookBlockingReason(reason);
 }
 
 export function RocketConfirmPanel({
   activeMonth,
   channelAccountId,
-  hasConfiguredVendorId,
   from,
   to,
   selectedSourceImportRunId,
@@ -208,7 +203,6 @@ export function RocketConfirmPanel({
     exportAndDownload,
   } = useRocketPurchaseWorkflow({
     channelAccountId,
-    hasConfiguredVendorId,
     from,
     to,
     savedSourceImportRunId: selectedSourceImportRunId,

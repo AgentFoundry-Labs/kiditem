@@ -203,7 +203,6 @@ export class MarketplaceRegistrationRepositoryAdapter implements MarketplaceRegi
         organizationId: input.organizationId,
         channelListingId: existingIdentity.id,
         activeOnly: false,
-        catalogMatchingEligibleOnly: false,
       });
       if (!locked) {
         throw new ConflictException(

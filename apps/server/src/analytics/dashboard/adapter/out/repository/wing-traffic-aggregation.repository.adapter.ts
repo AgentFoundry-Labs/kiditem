@@ -20,11 +20,11 @@ import {
   businessDatesInWindow,
   type ResolvedDashboardPeriod,
 } from '../../../domain/period/dashboard-period';
+import { adTrafficReconciliationStatus } from '@kiditem/shared/advertising';
 import type {
   TrafficCoverage,
   TrafficMetricReconciliation,
   TrafficReconciliation,
-  TrafficReconciliationStatus,
 } from '@kiditem/shared/dashboard';
 import type {
   TrafficAdditiveMetric,
@@ -81,7 +81,7 @@ export class WingTrafficAggregationRepositoryAdapter
     );
     const totals = traffic.totals;
     const coverage = buildCoverage(targetDates, traffic.coverage);
-    const reconciliation = normalizeReconciliation(undefined, totals);
+    const reconciliation = normalizeReconciliation(totals);
     const complete = coverage.targetDays > 0
       && coverage.completedDays === coverage.targetDays;
     // A daily average divides by the days it actually covers. Dividing a
@@ -91,7 +91,8 @@ export class WingTrafficAggregationRepositoryAdapter
       ? totals.visitors / coverage.completedDays
       : null;
     const revenueReconciliation = reconciliation.revenue;
-    const revenueUsable = complete && revenueReconciliation.status !== 'MISMATCH';
+    const revenueUsable = complete
+      && adTrafficReconciliationStatus(revenueReconciliation) !== 'MISMATCH';
     // Additive totals measure only the dates the owner covered. A window with
     // no covered date has measured nothing, so it publishes no total at all.
     const measured = coverage.completedDays > 0;
@@ -386,9 +387,6 @@ export class WingTrafficAggregationRepositoryAdapter
       ad_revenue: row.revenue,
       clicks: row.clicks,
       impressions: row.impressions,
-      // An unobserved conversion column stored 0; that is not a count.
-      conversions: row.conversionsObserved ? row.conversions : null,
-      orders: row.conversionsObserved ? row.orders : null,
       observedAt: observedAt?.toISOString() ?? null,
     } satisfies CoupangAdsDailyRow));
   }
@@ -641,8 +639,8 @@ function buildCoverage(
   };
 }
 
+/** Listing-day totals carry no provider period value, so nothing verifies them. */
 function normalizeReconciliation(
-  raw: Partial<TrafficReconciliation> | undefined,
   totals: {
     visitors: number;
     views: number;
@@ -653,21 +651,10 @@ function normalizeReconciliation(
   },
 ): TrafficReconciliation {
   return Object.fromEntries(
-    TRAFFIC_METRICS.map((metric) => {
-      const value = raw?.[metric];
-      if (value && isReconciliationStatus(value.status)) {
-        return [metric, {
-          status: value.status,
-          dailySum: numberOrNull(value.dailySum),
-          periodValue: numberOrNull(value.periodValue),
-        } satisfies TrafficMetricReconciliation];
-      }
-      return [metric, {
-        status: 'UNVERIFIED',
-        dailySum: totals[metric],
-        periodValue: null,
-      } satisfies TrafficMetricReconciliation];
-    }),
+    TRAFFIC_METRICS.map((metric) => [metric, {
+      dailySum: totals[metric],
+      periodValue: null,
+    } satisfies TrafficMetricReconciliation]),
   ) as TrafficReconciliation;
 }
 
@@ -712,14 +699,6 @@ function dateRangeOf(
 ): { from: string; to: string } | null {
   if (dates.length === 0) return null;
   return { from: dates[0]!, to: dates[dates.length - 1]! };
-}
-
-function isReconciliationStatus(value: unknown): value is TrafficReconciliationStatus {
-  return value === 'MATCHED' || value === 'MISMATCH' || value === 'UNVERIFIED';
-}
-
-function numberOrNull(value: unknown): number | null {
-  return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
 function emptyTrafficMetrics(targetDates?: readonly string[]): WingTrafficMetrics {

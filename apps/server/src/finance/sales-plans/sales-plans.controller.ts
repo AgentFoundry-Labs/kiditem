@@ -27,14 +27,6 @@ export class SalesPlansController {
     return this.salesPlansService.update(id, organizationId, dto, new Date());
   }
 
-  @Patch(':id/sync')
-  syncActuals(
-    @Param('id') id: string,
-    @CurrentOrganization() organizationId: string,
-  ) {
-    return this.salesPlansService.syncActuals(id, organizationId, new Date());
-  }
-
   @Delete(':id')
   delete(@Param('id') id: string, @CurrentOrganization() organizationId: string) {
     return this.salesPlansService.delete(id, organizationId);

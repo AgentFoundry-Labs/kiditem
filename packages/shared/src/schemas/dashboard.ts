@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { AlertKindSchema, AlertStatusSchema } from './alerts.js';
+import { AlertStatusSchema } from './alerts.js';
 import { zIsoDate } from './common.js';
 import { parseBusinessDate } from '../common.js';
 import {
@@ -121,7 +121,6 @@ export const DashboardProfitInputsSchema = z.object({
 // (Plan B2c.dashboard T9, BREAKING — was `productId`; DB schema has `targetType + targetId`)
 export const DashboardAlertItemSchema = z.object({
   id: z.string(),
-  kind: AlertKindSchema,
   status: AlertStatusSchema,
   type: z.string(),
   severity: z.string(),
@@ -186,14 +185,8 @@ export const TrafficCoverageSchema = z.object({
   missingDates: z.array(z.string()),
 }).strict();
 
-export const TrafficReconciliationStatusSchema = z.enum([
-  'MATCHED',
-  'MISMATCH',
-  'UNVERIFIED',
-]);
-
+/** The reconciliation word derives from these two totals (`adTrafficReconciliationStatus`). */
 export const TrafficMetricReconciliationSchema = z.object({
-  status: TrafficReconciliationStatusSchema,
   dailySum: z.number().nullable(),
   periodValue: z.number().nullable(),
 }).strict();
@@ -835,7 +828,6 @@ export type TopProduct = z.infer<typeof TopProductSchema>;
 export type Warnings = z.infer<typeof WarningsSchema>;
 export type DashboardAlertItem = z.infer<typeof DashboardAlertItemSchema>;
 export type TrafficCoverage = z.infer<typeof TrafficCoverageSchema>;
-export type TrafficReconciliationStatus = z.infer<typeof TrafficReconciliationStatusSchema>;
 export type TrafficMetricReconciliation = z.infer<typeof TrafficMetricReconciliationSchema>;
 export type TrafficReconciliation = z.infer<typeof TrafficReconciliationSchema>;
 export type TrafficKpi = z.infer<typeof TrafficKpiSchema>;

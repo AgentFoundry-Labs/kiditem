@@ -21,7 +21,6 @@ function mapAlert(row: Alert): AlertItem {
   return {
     id: row.id,
     attemptId: row.attemptId,
-    kind: row.kind as AlertItem['kind'],
     status: row.status as AlertItem['status'],
     type: row.type,
     severity: row.severity,

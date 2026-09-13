@@ -176,7 +176,6 @@ describe('Wing COMPLETE provenance through public Readiness HTTP + PostgreSQL', 
       },
       count: 0,
       lastSyncedAt: null,
-      scrapeUrls: null,
     });
     await complete();
     const after = await status();
@@ -194,7 +193,6 @@ describe('Wing COMPLETE provenance through public Readiness HTTP + PostgreSQL', 
       lastSyncedAt: '2026-09-05T03:00:00.000Z',
       referenceDate: '2026-09-05',
       detail: expect.stringContaining('2/2상품'),
-      scrapeUrls: null,
     });
     expect(after.checks.filter((check) => check.key !== 'wing_kpi')).toEqual(
       before.checks.filter((check) => check.key !== 'wing_kpi'),

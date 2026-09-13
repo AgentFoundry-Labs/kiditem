@@ -12,6 +12,4 @@ export const ROCKET_PURCHASE_PREVIEW_REASON_LABELS = {
   review_required: '레시피 검토 필요',
   inventory_unavailable: 'Sellpia 재고 미수집',
   insufficient_capacity: 'Sellpia 재고 부족',
-  collection_incomplete: '수집 검증 필요',
-  vendor_mismatch: '공급사 검증 필요',
 } as const satisfies Record<RocketPurchasePreviewReason, string>;

@@ -293,8 +293,6 @@ function catalogPhaseLabel(catalog: CatalogReadinessState): string | null {
       return stage === 'details' ? '전체 상세 수집 중' : '상품 상세 수집 중';
     case 'ready_to_finalize':
       return '전체 상품 반영 준비';
-    case 'publishing':
-      return 'DB 반영 중';
     default:
       return '상품 받기 진행 중';
   }
@@ -569,9 +567,7 @@ export function ActionCheckCard({
             <h3 className="text-sm font-semibold text-[var(--text-primary)]">{meta.title}</h3>
             <InfoDisclosure label={meta.title}>
               <p>{meta.hint}</p>
-              {check.collector === 'extension' && (
-                <p className="mt-1">브라우저 익스텐션에서 최신 데이터를 받아옵니다.</p>
-              )}
+              <p className="mt-1">브라우저 익스텐션에서 최신 데이터를 받아옵니다.</p>
             </InfoDisclosure>
             <span
               className={cn(

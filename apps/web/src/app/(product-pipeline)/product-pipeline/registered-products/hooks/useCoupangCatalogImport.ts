@@ -457,7 +457,8 @@ export function useCoupangCatalogImport(
         try {
           await channelListingsApi.failCoupangCatalogCollection(accountId, attemptId, permit.attemptToken, {
             code: 'USER_CANCELLED', message: '사용자가 수집을 중단했습니다.',
-            phase: owner.phase === 'finished' ? 'publishing' : owner.phase,
+            // A finished owner is terminal, so its permit is never RUNNING here.
+            phase: owner.phase === 'finished' ? 'ready_to_finalize' : owner.phase,
           });
         } catch (cause) { failure = cause; }
       }

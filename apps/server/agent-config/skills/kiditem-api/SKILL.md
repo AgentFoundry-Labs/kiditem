@@ -67,12 +67,6 @@ PATCH /api/channels/coupang/account                   — Wing 계정 식별자 
 GET  /api/alerts                                      — 알림 목록
 ```
 
-### 활동 이력
-```
-GET  /api/activity-events?objectType=product&objectId={id}  — 객체별 이력
-GET  /api/activity-events                              — 조직 활동 이력
-```
-
 ### 에이전트
 ```
 GET  /api/agent-os/instances                          — Agent OS 인스턴스 목록

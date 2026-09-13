@@ -12,7 +12,6 @@ import {
   ProductAbcDisplayStatusSchema,
   ProductAbcEvaluationSchema,
   ProductAbcFormulaPayloadSchema,
-  ProductAbcFormulaStateSchema,
   ProductAbcGradeHistorySchema,
   ProductAbcReadModelSchema,
 } from './product-abc.js';
@@ -262,26 +261,6 @@ describe('absolute product profitability ABC contracts', () => {
     expect(parseProductAbcDateToKstCalendarDate('2026-01-01T23:00:00+02:00')).toBe('2026-01-02');
     expect(productAbcSaleAgeDays('2026-02-31', '2026-03-31')).toBeNull();
     expect(productAbcSaleAgeDays('2026-03-01T00:00:00Z', '2026-03-31')).toBe(30);
-  });
-
-  it('keeps current and published formula/mapping revisions in one state contract', () => {
-    const state = ProductAbcFormulaStateSchema.parse({
-      organizationId: UUID,
-      activeFormulaVersionId: UUID_2,
-      formulaRevision: 2,
-      publicationRevision: 4,
-      officialCutoffDate: '2026-07-31',
-      publishedSellpiaSourceImportRunId: UUID,
-      publishedAdvertisingSourceImportRunId: UUID_2,
-      publishedMappingGeneration: '3',
-      mappingGeneration: '4',
-      publishedAt: ISO,
-    });
-    expect(state.mappingGeneration).toBe('4');
-    expect(ProductAbcFormulaStateSchema.safeParse({
-      ...state,
-      recalculationRequestedRevision: 5,
-    }).success).toBe(false);
   });
 
   it('derives mapping words and labels from mapping facts without carrying a wire status', () => {

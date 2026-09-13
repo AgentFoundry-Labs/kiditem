@@ -127,9 +127,6 @@ export interface CoupangAdsDailyRow {
   ad_revenue: number;
   clicks: number;
   impressions: number;
-  /** `null` when that day's provider grid did not carry the conversion columns. */
-  conversions: number | null;
-  orders: number | null;
   observedAt: string | null;
 }
 

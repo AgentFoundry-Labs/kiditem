@@ -285,7 +285,7 @@ describe('Rocket purchase preview contract', () => {
         recommendedQuantity: 0,
         maxQuantity: 0,
         editedQuantity: null,
-        reason: 'collection_incomplete',
+        reason: 'inventory_unavailable',
         channelListingOptionId: null,
         masterProductId: null,
         components: [],
@@ -294,7 +294,7 @@ describe('Rocket purchase preview contract', () => {
 
     expect(response.status).toBe('ready');
     if (response.status !== 'ready') throw new Error('Expected ready preview');
-    expect(response.rows[0]?.reason).toBe('collection_incomplete');
+    expect(response.rows[0]?.reason).toBe('inventory_unavailable');
     expect(response).not.toHaveProperty('confirmationFile');
     expect(response).not.toHaveProperty('submissionAttempt');
   });
@@ -384,7 +384,7 @@ describe('Rocket purchase preview contract', () => {
         recommendedQuantity: 0,
         maxQuantity: 0,
         editedQuantity: null,
-        reason: 'collection_incomplete',
+        reason: 'inventory_unavailable',
         channelListingOptionId: null,
         masterProductId: null,
         components: [],
@@ -634,8 +634,6 @@ describe('ROCKET_PURCHASE_PREVIEW_REASON_LABELS', () => {
       review_required: '레시피 검토 필요',
       inventory_unavailable: 'Sellpia 재고 미수집',
       insufficient_capacity: 'Sellpia 재고 부족',
-      collection_incomplete: '수집 검증 필요',
-      vendor_mismatch: '공급사 검증 필요',
     });
   });
 });

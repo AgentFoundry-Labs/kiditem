@@ -701,14 +701,10 @@ function handleWingFormPort(port) {
 
 chrome.runtime.onInstalled.addListener(() => {
   console.log("[KIDITEM] Extension installed");
-  cleanupStorage();
-  // 알람은 onInstalled에서만 등록 (서비스워커 재시작 시 유지됨)
-  chrome.alarms.create("storage-cleanup", { periodInMinutes: 1440 });
   adsEnvironmentContext.migrateLegacyStorage().catch(() => undefined);
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === "storage-cleanup") cleanupStorage();
   const scheduled = coupangEnvironment.parseAlarm(alarm.name);
   if (scheduled?.base === "kiditem-coupang-catalog-import-step") {
     KidItemCoupangCatalogImport.handleAlarm(
@@ -717,29 +713,6 @@ chrome.alarms.onAlarm.addListener((alarm) => {
     );
   }
 });
-
-function cleanupStorage() {
-  chrome.storage.local.get(null, (all) => {
-    const keysToRemove = [];
-    const now = Date.now();
-    const MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7일
-
-    for (const [key, val] of Object.entries(all)) {
-      // 싱크 기록 중 7일 지난 것 삭제
-      if (
-        key.startsWith("kiditem_last_sync_") &&
-        val?.time &&
-        now - val.time > MAX_AGE
-      ) {
-        keysToRemove.push(key);
-      }
-    }
-    if (keysToRemove.length > 0) {
-      chrome.storage.local.remove(keysToRemove);
-      console.log(`[KIDITEM] Storage 정리: ${keysToRemove.length}개 삭제`);
-    }
-  });
-}
 
 // 동기화 완료 후 대시보드 탭 자동 새로고침
 function notifyDashboard(environmentId) {

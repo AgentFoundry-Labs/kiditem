@@ -277,8 +277,6 @@ describe('DashboardAdService detailed ad KPI period', () => {
         ad_revenue: 120_000,
         clicks: 400,
         impressions: 4_000,
-        conversions: 0,
-        orders: 0,
         observedAt: '2026-09-06T01:00:00.000Z',
       },
       {
@@ -287,8 +285,6 @@ describe('DashboardAdService detailed ad KPI period', () => {
         ad_revenue: 0,
         clicks: 0,
         impressions: 0,
-        conversions: 0,
-        orders: 0,
         observedAt: '2026-09-07T01:00:00.000Z',
       },
     ]);

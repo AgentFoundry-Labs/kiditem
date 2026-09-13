@@ -69,7 +69,7 @@ export class ReadinessService {
     });
     const value = toRecord(setting?.value);
     if (value.state !== 'snapshot_required') {
-      return { state: 'ready', target: null, requiredImports: [] };
+      return { state: 'ready', target: null };
     }
     const target = value.target === 'local' || value.target === 'office'
       ? value.target
@@ -77,7 +77,6 @@ export class ReadinessService {
     return {
       state: 'snapshot_required',
       target,
-      requiredImports: ['sellpia', 'wing'],
     };
   }
 
@@ -252,11 +251,6 @@ export class ReadinessService {
               : `누락 ${sellpiaMissing.length}/${sellpiaExpectedDates.length}일 (${sellpiaRangeStartKstStr}~${sellpiaRangeEndKstStr})`,
         lastSyncedAt: sellpiaLastDate ? sellpiaLastDate.toISOString() : null,
         count: sellpiaPresent.size,
-        collector: 'extension',
-        collectEndpoint: null,
-        // 이 항목은 웹 훅이 누락 날짜 범위를 셀피아 확장 명령으로 직접 전달한다.
-        // legacy Wing URL을 노출하면 실제 저장 원천과 재실행 원천이 어긋난다.
-        scrapeUrls: null,
         referenceDate: yesterdayKstStr,
         expectedDates: sellpiaExpectedDates,
         missingDates: sellpiaMissing,
@@ -280,12 +274,6 @@ export class ReadinessService {
               : `누락 ${adsMissing.length}/${adsExpectedDates.length}일 (${adsRangeStartKstStr}~${yesterdayKstStr})`,
         lastSyncedAt: adsLastDate,
         count: adsPresent.size,
-        collector: 'extension',
-        collectEndpoint: null,
-        // The campaign sweep owner plans its own window at begin time. Keep
-        // provider URLs out of this check so generic session controls cannot
-        // start an unowned ads collection.
-        scrapeUrls: null,
         referenceDate: yesterdayKstStr,
         expectedDates: adsExpectedDates,
         missingDates: adsMissing,
@@ -311,11 +299,6 @@ export class ReadinessService {
             : '완료된 쿠팡 전체 상품 수집 없음 — 최초 수집 필요',
         lastSyncedAt: latestCoupangCatalogRun?.importedAt?.toISOString() ?? null,
         count: coupangProductCount,
-        collector: 'extension',
-        collectEndpoint: null,
-        // 웹 훅이 공식 전체 카탈로그 import run을 만들고 전용 확장을 시작한다.
-        // generic scrapeTargets URL을 노출하면 일반 Wing 페이지 수집으로 잘못 라우팅된다.
-        scrapeUrls: null,
         referenceDate: yesterdayKstStr,
         expectedDates: null,
         missingDates: null,
@@ -340,10 +323,6 @@ export class ReadinessService {
           : 'Wing 판매순위 수집 이력 없음',
         lastSyncedAt: wingRankCoverage.capturedAt?.toISOString() ?? null,
         count: wingRankCoverage.rowCount,
-        collector: 'extension',
-        collectEndpoint: null,
-        // 웹 훅이 기존 advertising.wing_rank background 수집을 직접 시작한다.
-        scrapeUrls: null,
         referenceDate: yesterdayKstStr,
         expectedDates: null,
         missingDates: null,

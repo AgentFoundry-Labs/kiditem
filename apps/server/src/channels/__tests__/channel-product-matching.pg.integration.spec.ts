@@ -15,7 +15,6 @@ import {
   TEST_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
 import { ChannelProductMatchingRepositoryAdapter } from '../adapter/out/repository/channel-product-matching.repository.adapter';
-import { lockChannelListingRow } from '../adapter/out/repository/channel-listing-row-lock';
 import { ChannelProductMatchingService } from '../application/service/channel-product-matching.service';
 import { ProductChannelOptionRecipeMutationRepositoryAdapter } from '../../products/adapter/out/repository/product-channel-option-recipe-mutation.repository.adapter';
 import { ProductChannelOptionRecipeMutationService } from '../../products/application/service/product-channel-option-recipe-mutation.service';
@@ -947,7 +946,7 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
       expect(rows.map((row) => row.option.id)).toEqual([option.id]);
     });
 
-  it('admits the same completed catalog runs on the row lock as on the availability read', async () => {
+  it('admits only completed catalog runs on the availability read', async () => {
     const rocketAccount = await prisma.channelAccount.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
@@ -1006,29 +1005,17 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
         channelAccountId: rocketAccount.id,
       })).map((row) => row.option.id),
     );
-    const observed: Array<{ name: string; rowLock: boolean; availability: boolean }> = [];
-    for (const entry of seeded) {
-      const locked = await prisma.$transaction((tx) => lockChannelListingRow(tx, {
-        organizationId: TEST_ORGANIZATION_ID,
-        channelListingId: entry.listingId,
-        activeOnly: true,
-        catalogMatchingEligibleOnly: true,
-      }));
-      observed.push({
-        name: entry.name,
-        rowLock: locked?.id === entry.listingId,
-        availability: available.has(entry.optionId),
-      });
-    }
 
-    expect(observed).toEqual(cases.map((entry) => ({
+    expect(seeded.map((entry) => ({
       name: entry.name,
-      rowLock: entry.eligible,
+      availability: available.has(entry.optionId),
+    }))).toEqual(cases.map((entry) => ({
+      name: entry.name,
       availability: entry.eligible,
     })));
   });
 
-  it('admits a browser-published catalog option on the availability read as on the row lock', async () => {
+  it('admits a browser-published catalog option on the availability read', async () => {
     // The listing's last run is not a completed catalog run, so only the
     // published option marker can make it catalog identity.
     const runningBasics = await prisma.sourceImportRun.create({
@@ -1074,24 +1061,12 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
         channelAccountId: ACCOUNT_ID,
       })).map((row) => row.option.id),
     );
-    const observed: Array<{ name: string; rowLock: boolean; availability: boolean }> = [];
-    for (const entry of seeded) {
-      const locked = await prisma.$transaction((tx) => lockChannelListingRow(tx, {
-        organizationId: TEST_ORGANIZATION_ID,
-        channelListingId: entry.listingId,
-        activeOnly: true,
-        catalogMatchingEligibleOnly: true,
-      }));
-      observed.push({
-        name: entry.name,
-        rowLock: locked?.id === entry.listingId,
-        availability: available.has(entry.optionId),
-      });
-    }
 
-    expect(observed).toEqual(cases.map((entry) => ({
+    expect(seeded.map((entry) => ({
       name: entry.name,
-      rowLock: entry.eligible,
+      availability: available.has(entry.optionId),
+    }))).toEqual(cases.map((entry) => ({
+      name: entry.name,
       availability: entry.eligible,
     })));
   });

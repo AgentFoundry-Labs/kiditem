@@ -232,21 +232,6 @@ export function useReadinessCollection({
     ]);
   };
 
-  const handleServerCollect = async (check: ReadinessCheck) => {
-    if (!check.collectEndpoint) return;
-    setPendingKey(check.key);
-    try {
-      await apiClient.post(check.collectEndpoint, {});
-      toast.success('수집 완료');
-      await invalidateCollectedData();
-      await refetchReadiness();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : '수집 실패');
-    } finally {
-      setPendingKey(null);
-    }
-  };
-
   useEffect(() => {
     if (wingOwner.isError) {
       toast.error('서버의 Wing 수집 결과를 확인하지 못했습니다.');
@@ -306,11 +291,6 @@ export function useReadinessCollection({
   const handleCollect = async (
     check: ReadinessCheck,
   ) => {
-    if (check.collector === 'server') {
-      await handleServerCollect(check);
-      return;
-    }
-
     // 일별 매출(wing_sales) 수집은 셀피아 판매현황 수집으로 대체한다.
     // (원래 Wing 브라우저 수집 로직은 코드에 그대로 남겨두고 여기서만 우회.)
     // 셀피아 몰별 일별 매출을 수집·적재해 비어있는 날짜를 채운다.

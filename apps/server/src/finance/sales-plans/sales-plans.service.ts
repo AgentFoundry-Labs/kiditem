@@ -108,18 +108,6 @@ export class SalesPlansService {
     return this.toView(organizationId, plan, now);
   }
 
-  /** Re-reads the plan's live actuals; nothing is stored. */
-  async syncActuals(id: string, organizationId: string, now: Date): Promise<SalesPlanView> {
-    const plan = await this.prisma.salesPlan.findFirst({
-      where: { id, organizationId },
-      select: PLAN_TARGET_SELECT,
-    });
-    if (!plan) {
-      throw new NotFoundException('판매 계획을 찾을 수 없습니다');
-    }
-    return this.toView(organizationId, plan, now);
-  }
-
   async delete(id: string, organizationId: string) {
     const existing = await this.prisma.salesPlan.findFirst({
       where: { id, organizationId },

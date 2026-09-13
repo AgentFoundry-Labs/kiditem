@@ -24,10 +24,7 @@ import {
   effectiveSourceImportRunState as effectiveState,
   sourceImportRunDbState as sourceDbState,
 } from './source-import-run-state';
-import {
-  MAX_MONTHLY_AD_ALLOCATION_ROWS,
-  readMonthlyAdAllocationPublication,
-} from '../../../read/monthly-ad-allocation.reader';
+import { readMonthlyAdAllocationPublication } from '../../../read/monthly-ad-allocation.reader';
 import type {
   AdvertisingProfitabilityGeneration,
   AdvertisingProfitabilityPlan,
@@ -51,7 +48,6 @@ export const PROFITABILITY_RECIPE_POLICY_VERSION = 'WHOLE_RECIPE_QUANTITY_V1';
 export const PROFITABILITY_ALLOCATION_POLICY = 'INTEGER_KRW_LARGEST_REMAINDER';
 export const PROFITABILITY_ALLOCATION_TIE_BREAK =
   'MASTER_PRODUCT_ID_ASC_LOWERCASE';
-export const MAX_GENERATION_FACT_ROWS = MAX_MONTHLY_AD_ALLOCATION_ROWS;
 const MAX_SNAPSHOT_GENERATIONS = 12;
 const PROFITABILITY_EVALUATION_MONTH_COUNT = 12;
 const MAX_REPORT_COUNT = 100_000;
@@ -1254,34 +1250,10 @@ async function generationFromRun(
     || !run.adSourcePolicyHash) {
     throw new UnprocessableEntityException('SOURCE_GENERATION_PROVENANCE_MISSING');
   }
-  const [targets, monthlyPublication] = await Promise.all([
-    tx.channelAdTargetDailySnapshot.findMany({
-      where: { organizationId: run.organizationId, sourceImportRunId: run.id },
-      orderBy: [{ businessDate: 'asc' }, { channelAccountId: 'asc' }, { targetKey: 'asc' }],
-      take: MAX_GENERATION_FACT_ROWS + 1,
-      select: {
-        channelAccountId: true,
-        listingId: true,
-        listingOptionId: true,
-        businessDate: true,
-        externalId: true,
-        externalOptionId: true,
-        adSpend: true,
-        adRevenue: true,
-        impressions: true,
-        clicks: true,
-        orders: true,
-        conversions: true,
-      },
-    }),
-    readMonthlyAdAllocationPublication(tx, {
-      organizationId: run.organizationId,
-      sourceImportRunId: run.id,
-    }),
-  ]);
-  if (targets.length > MAX_GENERATION_FACT_ROWS) {
-    throw new UnprocessableEntityException('SOURCE_FACTS_OVERFLOW');
-  }
+  const monthlyPublication = await readMonthlyAdAllocationPublication(tx, {
+    organizationId: run.organizationId,
+    sourceImportRunId: run.id,
+  });
   if (!monthlyPublication) {
     throw new UnprocessableEntityException('SOURCE_GENERATION_PROVENANCE_MISSING');
   }
@@ -1295,25 +1267,8 @@ async function generationFromRun(
   }));
   const summary = generationSummaryFromRun(run);
   const slices = parseStoredPlan(run.plan).accounts.flatMap((account) => account.slices);
-  const factsByListingMonth = indexFactsByListingMonth(facts);
   return {
     summary,
-    facts: targets.map((target) => ({
-      channelAccountId: target.channelAccountId,
-      channelListingId: target.listingId,
-      channelListingOptionId: target.listingOptionId,
-      businessDate: businessDateKey(target.businessDate),
-      externalId: target.externalId,
-      externalOptionId: target.externalOptionId ?? '',
-      adSpend: target.adSpend,
-      adRevenue: target.adRevenue,
-      impressions: target.impressions,
-      clicks: target.clicks,
-      orders: target.orders,
-      conversions: target.conversions,
-      matched: target.listingId !== null,
-      allocationStatus: targetAllocationStatus(target, factsByListingMonth),
-    })),
     allocations: facts.map((fact) => {
       const month = businessDateKey(fact.month).slice(0, 7);
       const slice = slices.find((candidate) =>
