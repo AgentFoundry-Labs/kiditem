@@ -15,7 +15,7 @@ Developer workflow for finding the best-fit data collection strategy from observ
 - Investigation permits scoped reads, not business mutations. A POST or GraphQL operation may be a read: establish its semantics before replaying it. Creating report jobs, changing settings, or initiating paid actions requires authorization when not already in scope.
 - Do not expose arbitrary browser JS, shell, filesystem, raw HTTP, or raw DB access as Agent OS/MCP tools.
 - Do not ingest scraped data into canonical application rows unless the user explicitly asks and the normal domain ports/sinks are used.
-- Keep minimized throwaway observations in a task-specific directory under `/tmp` with restricted access; never print or commit cookies, authorization headers, tokens, or raw sensitive dumps. Commit only redacted fixtures, extractor code, tests, and durable docs.
+- Keep minimized throwaway observations in an owner-only task directory under the OS temp directory (`$TMPDIR`, else `/tmp`) and delete it when the task ends; never print or commit cookies, authorization headers, tokens, or raw sensitive dumps. Commit only redacted fixtures, extractor code, tests, and durable docs.
 - For production exposure, add or reuse narrow owner-domain capabilities and approved sink/workflow capabilities.
 
 ## Workflow
@@ -36,7 +36,7 @@ Do not ask the user to launch CDP or supply routine startup commands when local 
 4. Reuse an authorized target tab without navigating unrelated tabs, or open a task-owned tab. Request user intervention only for authentication/MFA, required permissions, unavailable dependencies, or another genuine blocker after safe local checks. Do not silently install packages into the project.
 5. Track task-owned processes, tabs, and temporary profiles. Close only task-owned resources when finished; preserve existing sessions and report intentional leftovers. Retain sensitive observations only as long as needed.
 
-The existing `scripts/probe-cdp-page.mjs` is an optional page-model probe, not a bootstrapper or network capture tool. It requires workspace Playwright and a running CDP endpoint, navigates the first page, and may include sensitive page samples. Use it only in an isolated task-owned browser; inspect/redact output before sharing. Resolve its path from this skill directory, run from the target workspace, and pass `--endpoint` and `--out` explicitly. It cannot establish internal API coverage by itself.
+The bundled `scripts/probe-cdp-page.mjs` is an optional page-structure probe, not a bootstrapper or network capture tool. It navigates the first page of a running CDP endpoint, so use it only in an isolated task-owned browser. Resolve its path from this skill directory and run it from the target workspace with `--endpoint`; Playwright resolves from that workspace, then from this skill's checkout. It records structure only (templated URLs with query parameter names, counts, detail-link patterns, and embedded-state key paths with value types), writes it to an owner-only file in a private task directory under the OS temp directory, and prints only that path. Reuse the directory with `--out-dir`, and delete it with `--cleanup` when the task ends. It cannot establish internal API coverage by itself.
 
 ### 3. Observe internal APIs before designing a collector
 
