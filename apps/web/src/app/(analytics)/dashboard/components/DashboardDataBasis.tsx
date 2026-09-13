@@ -30,7 +30,8 @@ export type MetricBasisCarrier = { metricBasis?: DashboardMetricBasisMap } | nul
  * the panel used to print them exactly like that, so the ⓘ read as a variable
  * dump rather than an account of where a number came from. The names are the
  * server's stable vocabulary and should stay that way on the wire; this is the
- * one place they become Korean.
+ * one place they become Korean — for the ⓘ and for a panel header that names
+ * an effective period's source.
  */
 const SOURCE_LABELS: Record<string, string> = {
   orders: '주문',
@@ -41,6 +42,8 @@ const SOURCE_LABELS: Record<string, string> = {
   coupang_ads: '쿠팡 광고',
   wing: 'Wing',
   wing_traffic: 'Wing 트래픽',
+  // An effective period fed by more than one of the lanes above.
+  mixed: '혼합',
   products: '상품',
   product_abc: 'ABC 등급',
   channel_listings: '채널 리스팅',
@@ -56,8 +59,18 @@ const SOURCE_COLLECTION: Record<string, string> = {
   wing_traffic: 'Wing 일별 트래픽',
 };
 
+/**
+ * The operator's word for one source, or null when the vocabulary has none.
+ *
+ * A header must never print the server's own name, so on null it leaves its
+ * segment out; the ⓘ tables below fall back to the name rather than drop a row.
+ */
+export function dashboardSourceLabel(source: string): string | null {
+  return SOURCE_LABELS[source] ?? null;
+}
+
 function sourceLabel(source: string): string {
-  return SOURCE_LABELS[source] ?? source;
+  return dashboardSourceLabel(source) ?? source;
 }
 
 /** Read the basis published under one stable dotted path, or null. */
