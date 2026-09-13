@@ -23,19 +23,21 @@ item. Keep suspected vulnerabilities and secrets out of public issues.
 | Meaning | Status |
 | --- | --- |
 | Awaiting evaluation (`needs-triage`) | Triage |
-| Accepted, not started: waiting on a start condition, a blocker, or its turn | Backlog |
-| Accepted and picked up next (`ready-for-agent`, `ready-for-human`) | Ready |
+| Accepted work (`ready-for-agent`, `ready-for-human`) | Ready |
 | Implementation underway | In Progress |
 | Waiting for review | In Review |
 | Waiting for a human decision or information (`needs-info`) | Human Input |
 | Started work waiting for a dependency | Blocked |
 | Not proceeding (`wontfix`) | Canceled |
+| Same work as another issue | Duplicate |
 | Completed with evidence | Done |
 
-`Human Input` is a started status; use it for work actually awaiting a human.
-`Blocked` is also a started status. Create accepted tickets in Backlog, record a
-not-started issue's blockers as blocked-by relations, and move an issue to Ready
-when it is picked up next.
+Set the status when creating an issue: Triage for work found during a task or
+reported from outside, Ready for tickets published by `/to-tickets`. Triage each
+issue to Ready, Human Input, Canceled, or Duplicate, so Backlog stays empty. An
+accepted issue that waits on another issue stays in Ready with a blocked-by
+relation. `Human Input` and `Blocked` are started statuses; use them for work
+actually awaiting a human or a dependency.
 Use existing kind, area, and risk labels where useful. Status and priority use
 native fields rather than duplicate labels. `Agent:*` labels identify explicitly
 dispatched autonomous profiles; a direct Codex or Claude session does not need
