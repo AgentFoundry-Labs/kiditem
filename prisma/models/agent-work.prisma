@@ -10,10 +10,10 @@ model CapabilityInvocation {
   canonicalInput          Json      @map("canonical_input") @db.JsonB
   inputHash               String    @map("input_hash")
   status                  String    @default("pending")
-  approvalStatus          String    @default("not_required") @map("approval_status")
   approvalInputHash       String?   @map("approval_input_hash")
   approvalRequestedAt     DateTime? @map("approval_requested_at") @db.Timestamptz
   approvalExpiresAt       DateTime? @map("approval_expires_at") @db.Timestamptz
+  approvalDecision        String?   @map("approval_decision")
   approvalDecidedByUserId String?   @map("approval_decided_by_user_id") @db.Uuid
   approvalDecisionReason  String?   @map("approval_decision_reason") @db.Text
   approvalDecidedAt       DateTime? @map("approval_decided_at") @db.Timestamptz
@@ -30,7 +30,7 @@ model CapabilityInvocation {
   @@unique([id, organizationId])
   @@unique([organizationId, requestKey])
   @@index([organizationId, status, createdAt])
-  @@index([organizationId, approvalStatus, approvalExpiresAt])
+  @@index([status, approvalDecision, createdAt])
   @@index([initiatingUserId])
   @@index([approvalDecidedByUserId])
   @@map("capability_invocations")

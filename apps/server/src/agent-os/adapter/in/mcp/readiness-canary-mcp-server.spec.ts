@@ -42,6 +42,7 @@ describe('MCP v2 readiness canary', () => {
           approvalInputHash: 'a'.repeat(64),
           approvalRequestedAt: new Date('2026-08-25T00:00:00.000Z'),
           approvalExpiresAt: new Date('2026-08-26T00:00:00.000Z'),
+          approvalDecision: null,
           approvalDecidedByUserId: null,
           approvalDecisionReason: null,
           approvalDecidedAt: null,

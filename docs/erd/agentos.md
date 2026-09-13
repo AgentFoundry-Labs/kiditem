@@ -25,10 +25,10 @@ erDiagram
     Json canonicalInput
     String inputHash
     String status
-    String approvalStatus
     String approvalInputHash
     DateTime approvalRequestedAt
     DateTime approvalExpiresAt
+    String approvalDecision
     String approvalDecidedByUserId FK
     String approvalDecisionReason
     DateTime approvalDecidedAt
