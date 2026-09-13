@@ -2,7 +2,6 @@ export * from './ad-action.repository.port';
 export * from './ad-benchmark.repository.port';
 export * from './ad-campaign.repository.port';
 export * from './ad-config.repository.port';
-export * from './ad-execution.repository.port';
 export * from './ad-listing.repository.port';
 export * from './ad-strategy-context.repository.port';
 export * from './channel-listing-daily.repository.port';

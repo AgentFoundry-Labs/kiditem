@@ -43,6 +43,32 @@ describe('AdvertisingModule retained wiring', () => {
     expect(controllerNames).not.toContain('ProfitabilityAdRefreshController');
   });
 
+  it('publishes no worker lease, heartbeat, or report execution route', () => {
+    // The browser extension reports approved-action execution through
+    // POST /ads/actions; the worker-lease runtime had no caller and is retired.
+    const controllers: Function[] = Reflect.getMetadata('controllers', AdvertisingModule) ?? [];
+    const routes = controllers.flatMap((controller) => {
+      const base = String(Reflect.getMetadata('path', controller) ?? '');
+      return Object.getOwnPropertyNames(controller.prototype)
+        .filter((name) => name !== 'constructor')
+        .flatMap((name) => {
+          const handler = controller.prototype[name];
+          const path = typeof handler === 'function'
+            ? Reflect.getMetadata('path', handler)
+            : undefined;
+          return path === undefined ? [] : [`${base}/${String(path)}`];
+        });
+    });
+    expect(routes).toContain('ads/actions');
+    expect(routes.filter((route) => route.includes('execution'))).toEqual([]);
+
+    const providerNames = (Reflect.getMetadata('providers', AdvertisingModule) ?? [])
+      .map((provider: Function | { provide?: unknown }) =>
+        typeof provider === 'function' ? provider.name : String(provider.provide));
+    expect(providerNames).not.toContain('AdExecutionService');
+    expect(providerNames).not.toContain('AdExecutionRepositoryAdapter');
+  });
+
   it('requires the concrete source-failure alert seam for tracked Wing terminal writes', () => {
     const adapter = readFileSync(resolve(
       __dirname,

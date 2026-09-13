@@ -9,7 +9,6 @@ import { AdExportController } from "./adapter/in/http/ad-export.controller";
 import { AdvertisingCampaignsController } from "./adapter/in/http/advertising-campaigns.controller";
 import { AdvertisingConfigController } from "./adapter/in/http/advertising-config.controller";
 import { AdvertisingDiagnosticsController } from "./adapter/in/http/advertising-diagnostics.controller";
-import { AdvertisingExecutionController } from "./adapter/in/http/advertising-execution.controller";
 import { AdvertisingIngestController } from "./adapter/in/http/advertising-ingest.controller";
 import { AdvertisingOverviewController } from "./adapter/in/http/advertising-overview.controller";
 import { AdvertisingStrategyController } from "./adapter/in/http/advertising-strategy.controller";
@@ -41,7 +40,6 @@ import { AdBenchmarkRepositoryAdapter } from "./adapter/out/repository/ad-benchm
 import { AdListingRepositoryAdapter } from "./adapter/out/repository/ad-listing.repository.adapter";
 import { AdCampaignRepositoryAdapter } from "./adapter/out/repository/ad-campaign.repository.adapter";
 import { AdActionRepositoryAdapter } from "./adapter/out/repository/ad-action.repository.adapter";
-import { AdExecutionRepositoryAdapter } from "./adapter/out/repository/ad-execution.repository.adapter";
 import { AdStrategyContextRepositoryAdapter } from "./adapter/out/repository/ad-strategy-context.repository.adapter";
 import { ChannelScrapeRepositoryAdapter } from "./adapter/out/repository/channel-scrape.repository.adapter";
 import { ChannelListingDailyRepositoryAdapter } from "./adapter/out/repository/channel-listing-daily.repository.adapter";
@@ -70,7 +68,6 @@ import { AdRecommendService } from "./application/service/ad-recommend.service";
 import { AdBenchmarkService } from "./application/service/ad-benchmark.service";
 import { AdvertisingExtensionService } from "./application/service/advertising-extension.service";
 import { AdActionService } from "./application/service/ad-action.service";
-import { AdExecutionService } from "./application/service/ad-execution.service";
 import { AdConfigService } from "./application/service/ad-config.service";
 import { KeywordRankService } from "./application/service/keyword-rank.service";
 import { CompetitorTrackingService } from "./application/service/competitor-tracking.service";
@@ -85,7 +82,6 @@ import { AD_BENCHMARK_REPOSITORY_PORT } from "./application/port/out/repository/
 import { AD_LISTING_REPOSITORY_PORT } from "./application/port/out/repository/ad-listing.repository.port";
 import { AD_CAMPAIGN_REPOSITORY_PORT } from "./application/port/out/repository/ad-campaign.repository.port";
 import { AD_ACTION_REPOSITORY_PORT } from "./application/port/out/repository/ad-action.repository.port";
-import { AD_EXECUTION_REPOSITORY_PORT } from "./application/port/out/repository/ad-execution.repository.port";
 import { AD_STRATEGY_CONTEXT_REPOSITORY_PORT } from "./application/port/out/repository/ad-strategy-context.repository.port";
 import { CHANNEL_SCRAPE_REPOSITORY_PORT } from "./application/port/out/repository/channel-scrape.repository.port";
 import { CHANNEL_LISTING_DAILY_REPOSITORY_PORT } from "./application/port/out/repository/channel-listing-daily.repository.port";
@@ -123,10 +119,6 @@ const REPOSITORY_PORT_BINDINGS = [
   {
     provide: AD_ACTION_REPOSITORY_PORT,
     useExisting: AdActionRepositoryAdapter,
-  },
-  {
-    provide: AD_EXECUTION_REPOSITORY_PORT,
-    useExisting: AdExecutionRepositoryAdapter,
   },
   {
     provide: AD_STRATEGY_CONTEXT_REPOSITORY_PORT,
@@ -188,7 +180,6 @@ const REPOSITORY_PORT_BINDINGS = [
     AdvertisingIngestController,
     AdvertisingActionsController,
     AdExportController,
-    AdvertisingExecutionController,
     AdKeywordAgentController,
     KeywordRankController,
     KeywordSerpSourceController,
@@ -209,7 +200,6 @@ const REPOSITORY_PORT_BINDINGS = [
     AdListingRepositoryAdapter,
     AdCampaignRepositoryAdapter,
     AdActionRepositoryAdapter,
-    AdExecutionRepositoryAdapter,
     AdStrategyContextRepositoryAdapter,
     ChannelScrapeRepositoryAdapter,
     ChannelListingDailyRepositoryAdapter,
@@ -256,7 +246,6 @@ const REPOSITORY_PORT_BINDINGS = [
     AdBenchmarkService,
     AdvertisingExtensionService,
     AdActionService,
-    AdExecutionService,
     AdConfigService,
     KeywordRankService,
     CompetitorTrackingService,

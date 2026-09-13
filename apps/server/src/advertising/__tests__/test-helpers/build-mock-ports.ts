@@ -14,7 +14,6 @@ import type { AdListingRepositoryPort } from '../../application/port/out/reposit
 import type { AdConfigRepositoryPort } from '../../application/port/out/repository/ad-config.repository.port';
 import type { AdCampaignRepositoryPort } from '../../application/port/out/repository/ad-campaign.repository.port';
 import type { AdActionRepositoryPort } from '../../application/port/out/repository/ad-action.repository.port';
-import type { AdExecutionRepositoryPort } from '../../application/port/out/repository/ad-execution.repository.port';
 import type { AdStrategyContextRepositoryPort } from '../../application/port/out/repository/ad-strategy-context.repository.port';
 import type { ChannelScrapeRepositoryPort } from '../../application/port/out/repository/channel-scrape.repository.port';
 import type { ChannelListingDailyRepositoryPort } from '../../application/port/out/repository/channel-listing-daily.repository.port';
@@ -86,21 +85,6 @@ export function buildMockAdActionRepo(): MockAdActionRepo {
     updateActionOrThrow: vi.fn(),
     findOpenCreateCampaignAction: vi.fn(),
     createCampaignActionWithTask: vi.fn(),
-  };
-}
-
-export type MockAdExecutionRepo = {
-  [K in keyof AdExecutionRepositoryPort]: ReturnType<typeof vi.fn>;
-};
-
-export function buildMockAdExecutionRepo(): MockAdExecutionRepo {
-  return {
-    upsertWorkerForLease: vi.fn(),
-    leaseQueuedTasks: vi.fn(),
-    heartbeatWorkerOrThrow: vi.fn(),
-    findScopedExecutionTask: vi.fn(),
-    findTaskWorkerKey: vi.fn(),
-    reportExecutionTask: vi.fn(),
   };
 }
 
