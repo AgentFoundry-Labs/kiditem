@@ -21,7 +21,6 @@ const listingA: HydratedListing = {
     name: 'A 상품',
     abcGrade: 'A',
     adTier: '1차',
-    healthScore: 80,
   },
   primaryOption: null,
 };
@@ -37,7 +36,6 @@ const listingB: HydratedListing = {
     name: 'B 상품',
     abcGrade: 'B',
     adTier: '2차',
-    healthScore: 60,
   },
   primaryOption: null,
 };
@@ -53,7 +51,6 @@ const listingC: HydratedListing = {
     name: 'C 상품',
     abcGrade: 'C',
     adTier: '3차',
-    healthScore: 30,
   },
   primaryOption: null,
 };
@@ -278,7 +275,6 @@ describe('AdBudgetAllocatorService.calcTop20', () => {
           name: `상품${i}`,
           abcGrade: 'B',
           adTier: '2차',
-          healthScore: 50,
         },
         primaryOption: null,
       });

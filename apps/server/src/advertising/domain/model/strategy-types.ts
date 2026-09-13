@@ -51,7 +51,6 @@ export interface HydratedListing {
     name: string;
     abcGrade: 'A' | 'B' | 'C' | null;
     adTier: string | null;
-    healthScore: number | null;
   };
   /**
    * B2b rules 평가용 primary option metadata. calcActions 는 primary option 의

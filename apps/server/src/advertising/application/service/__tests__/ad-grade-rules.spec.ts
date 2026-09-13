@@ -28,7 +28,6 @@ const listingBase = (
     name: '테스트 상품',
     abcGrade: 'A',
     adTier: '1차',
-    healthScore: 80,
     ...overrides,
   },
   primaryOption: option,

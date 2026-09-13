@@ -161,7 +161,6 @@ function makeHydratedListing(
       name: `Listing ${id}`,
       abcGrade,
       adTier: null,
-      healthScore: null,
     },
     primaryOption: null,
   };

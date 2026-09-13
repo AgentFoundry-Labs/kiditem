@@ -20,7 +20,6 @@ describe('mappers/ad-listing — HydratedListing → AdListingSummary', () => {
         name: 'Test',
         abcGrade: 'A',
         adTier: '1차',
-        healthScore: 80,
       },
       primaryOption: null,
     };
@@ -46,7 +45,6 @@ describe('mappers/ad-listing — HydratedListing → AdListingSummary', () => {
         name: 'Aliased',
         abcGrade: null,
         adTier: null,
-        healthScore: null,
       },
       primaryOption: null,
     };

@@ -294,7 +294,6 @@ export class AdStrategyContextRepositoryAdapter
             code: true,
             name: true,
             adTier: true,
-            healthScore: true,
           },
         },
         options: {
@@ -334,7 +333,6 @@ export class AdStrategyContextRepositoryAdapter
               ? gradeByProductId.get(r.masterProduct.id) ?? null
               : null,
             adTier: r.masterProduct?.adTier ?? null,
-            healthScore: r.masterProduct?.healthScore ?? null,
           },
           primaryOption: firstClo
             ? {
