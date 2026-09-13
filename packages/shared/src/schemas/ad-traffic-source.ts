@@ -332,7 +332,6 @@ export const AdTrafficSourceStatusSchema = z.object({
   knownThrough: date,
   channelAccountId: z.string().uuid().nullable(),
   ready: z.boolean(),
-  refreshing: z.boolean(),
   latestAttempt: AdTrafficSourceAttemptSchema.nullable(),
   latestComplete: AdTrafficSourceAttemptSchema.nullable(),
   actualCutoffAt: timestamp.nullable(),

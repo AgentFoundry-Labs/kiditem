@@ -21,6 +21,26 @@ describe('ProductAbcDetailDialog', () => {
     expect(screen.getByText(/PRODUCT_ABC_ABSOLUTE · v2 · 반감기 90일/)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: '상품 상세 보기' })).toHaveAttribute('href', '/product-hub/11111111-1111-4111-8111-111111111111');
   });
+
+  it('labels a retained completed source with the shared stale readiness word', () => {
+    const value = product();
+    value.abc.sources.sellpia = {
+      ...value.abc.sources.sellpia,
+      ready: false,
+      actualCutoff: '2026-08-31',
+      latestComplete: { actualCutoff: '2026-08-31' },
+    };
+
+    render(
+      <ProductAbcDetailDialog
+        open
+        onOpenChange={() => undefined}
+        product={value}
+      />,
+    );
+
+    expect(screen.getByText('갱신 필요 · 2026-08-31까지')).toBeInTheDocument();
+  });
 });
 
 function product(): MasterProductOperationsMetadata {
@@ -80,13 +100,9 @@ function product(): MasterProductOperationsMetadata {
 function source() {
   return {
     ready: true,
-    sourceImportRunId: '11111111-1111-4111-8111-111111111112',
-    generation: '7',
-    coverageStartDate: '2026-01-01',
-    coverageEndDate: '2026-08-31',
-    actualCutoffDate: '2026-08-31',
-    capturedAt: '2026-09-01T00:00:00.000Z',
-    latestAttemptState: 'COMPLETE' as const,
-    errorCode: null,
+    requiredCutoff: '2026-08-31',
+    actualCutoff: '2026-08-31',
+    latestAttempt: { state: 'COMPLETE' as const },
+    latestComplete: { actualCutoff: '2026-08-31' },
   };
 }

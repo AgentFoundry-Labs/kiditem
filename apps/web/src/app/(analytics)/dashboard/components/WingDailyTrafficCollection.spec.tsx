@@ -67,7 +67,6 @@ function source(
     channelAccountId: ACCOUNT_ID,
     knownThrough: '2026-09-07',
     status: latestComplete ? 'READY' : 'MISSING',
-    refreshing: latestAttempt?.state === 'RUNNING',
     latestAttempt,
     latestComplete,
     actualCutoffAt: latestComplete?.actualCutoffAt ?? null,

@@ -62,7 +62,7 @@ describe('1688 server source owner HTTP with disposable PostgreSQL', () => {
     expect(read).toMatchObject({
       observations: [{ items: [{ offerId: '123' }] }],
       sourceStatuses: [
-        { keyword: '儿童餐盘', targetId: null, ready: false, refreshing: false,
+        { keyword: '儿童餐盘', targetId: null, ready: true,
           latestAttemptId: failed.attempts[0].attemptId, latestAttemptState: 'FAILED',
           actualCutoffAt: prior.attempts[0].completedAt?.toISOString(), errorCode: 'SOURCE_PLAN_INCOMPLETE' },
         { keyword: 'missing', ready: false, latestAttemptState: null, actualCutoffAt: null },
@@ -89,11 +89,11 @@ describe('1688 server source owner HTTP with disposable PostgreSQL', () => {
     try {
       const read = await results.latest('儿童餐盘', undefined, organizationId);
       expect(read).toMatchObject({ observations: [{ items: [{ offerId: '123' }] }],
-        sourceStatuses: [{ refreshing: true, latestAttemptState: 'RUNNING' }] });
+        sourceStatuses: [{ latestAttemptState: 'RUNNING' }] });
       await prisma.sourcingEvidenceIngestionRun.update({ where: { id: read.sourceStatuses[0].latestAttemptId! }, data: { leaseExpiresAt: new Date(0) } });
       expect(await results.latest('儿童餐盘', undefined, organizationId)).toMatchObject({
         observations: [{ items: [{ offerId: '123' }] }],
-        sourceStatuses: [{ ready: false, refreshing: false, latestAttemptState: 'FAILED', errorCode: 'ATTEMPT_EXPIRED' }],
+        sourceStatuses: [{ ready: true, latestAttemptState: 'FAILED', errorCode: 'ATTEMPT_EXPIRED' }],
       });
       expect(keywordProvider.openSession).toHaveBeenCalledTimes(2);
     } finally { finish([offer]); await work.catch(() => undefined); }

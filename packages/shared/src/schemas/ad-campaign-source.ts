@@ -207,7 +207,6 @@ export const AdCampaignSourceControlSchema = AdCampaignSourceAttemptSchema.exten
 export const AdCampaignSourceStatusSchema = z.object({
   channelAccountId: z.string().uuid().nullable(),
   ready: z.boolean(),
-  refreshing: z.boolean(),
   latestAttempt: AdCampaignSourceAttemptSchema.nullable(),
   latestComplete: AdCampaignSourceAttemptSchema.nullable(),
   actualCutoffAt: timestamp.nullable(),

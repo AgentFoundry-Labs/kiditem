@@ -21,10 +21,10 @@ import type {
   ProductOperationsDataSourceStatus,
   ProductOperationsPeriodDays,
 } from '@kiditem/shared/product-operations';
+import { deriveSourceReadiness } from '@kiditem/shared/source-readiness';
 
 type TrafficFact = {
   businessDate: Date;
-  lastObservedAt: Date;
   trafficObservedAt: Date | null;
 };
 
@@ -62,7 +62,6 @@ implements ProductOperationsDataStatusRepositoryPort {
         select: {
           businessDate: true,
           trafficObservedAt: true,
-          lastObservedAt: true,
         },
       }),
       this.prisma.masterProductAbcFormulaState.findUnique({
@@ -91,8 +90,8 @@ implements ProductOperationsDataStatusRepositoryPort {
       displayDataAsOf: minimumCutoff(trafficStatus.actualCutoff, actualCutoff),
       traffic: trafficStatus,
       actualCutoff,
-      sellpia: { ...evidence.sources.sellpia, capturedAt: evidence.sourceVector.sellpia.capturedAt },
-      advertising: { ...evidence.sources.advertising, capturedAt: evidence.sourceVector.advertising.capturedAt },
+      sellpia: profitabilitySourceStatus(evidence, 'sellpia', cutoffDate),
+      advertising: profitabilitySourceStatus(evidence, 'advertising', cutoffDate),
       sourceVector: {
         sellpia: sourceManifest(evidence.sourceVector.sellpia),
         advertising: sourceManifest(evidence.sourceVector.advertising),
@@ -131,34 +130,44 @@ function sourceStatus(
   if (validRows.length === 0) {
     return {
       ready: false,
+      requiredCutoff: cutoffDate,
       actualCutoff: null,
-      capturedAt: null,
-      latestAttemptState: null,
-      errorCode: null,
+      latestAttempt: null,
+      latestComplete: null,
     };
   }
   const latestDate = validRows.reduce(
     (latest, row) => row.businessDate > latest ? row.businessDate : latest,
     validRows[0]!.businessDate,
   );
-  const capturedAt = validRows.reduce(
-    (latest, row) => {
-      const observedAt = row.trafficObservedAt ?? row.lastObservedAt;
-      return observedAt > latest ? observedAt : latest;
-    },
-    validRows[0]!.trafficObservedAt ?? validRows[0]!.lastObservedAt,
-  );
   const actualCutoff = calendarDate(latestDate);
   const targetDates = enumerateDates(periodStart, cutoffDate);
   const validDates = new Set(validRows.map((row) => calendarDate(row.businessDate)));
   const completeCoverage = targetDates.every((date) => validDates.has(date));
+  const latestComplete = completeCoverage ? { actualCutoff } : null;
   return {
-    ready: actualCutoff >= cutoffDate && completeCoverage,
+    ...deriveSourceReadiness({
+      latestAttempt: null,
+      latestComplete,
+      requiredCutoff: cutoffDate,
+    }),
     actualCutoff,
-    capturedAt: capturedAt.toISOString(),
-    latestAttemptState: null,
-    errorCode: null,
+    latestAttempt: null,
+    latestComplete,
   };
+}
+
+function profitabilitySourceStatus(
+  evidence: Awaited<ReturnType<ProfitabilityEvidence['load']>>,
+  source: 'sellpia' | 'advertising',
+  requiredCutoff: string,
+): ProductOperationsDataSourceStatus {
+  const status = evidence.sources[source];
+  return deriveSourceReadiness({
+    latestAttempt: status.latestAttempt,
+    latestComplete: status.latestComplete,
+    requiredCutoff,
+  });
 }
 
 function enumerateDates(from: string, to: string): string[] {

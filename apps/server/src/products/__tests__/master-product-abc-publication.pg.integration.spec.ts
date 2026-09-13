@@ -99,7 +99,7 @@ describe('MasterProductAbc publication cutoff (PostgreSQL)', () => {
       // admission gate over the complete generation it sits on top of.
       expect(evidence.sources.sellpia).toMatchObject({
         ready: false,
-        latestAttemptState: outcome === 'RUNNING' ? 'RUNNING' : 'FAILED',
+        latestAttempt: { state: outcome === 'RUNNING' ? 'RUNNING' : 'FAILED' },
       });
       expect(result).toMatchObject({
         outcome: 'PUBLISHED',

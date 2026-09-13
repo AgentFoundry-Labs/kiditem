@@ -106,7 +106,6 @@ describe('Sourcing browser source owner (PostgreSQL)', () => {
     await complete(first, 'first-content');
     await expect(owner.readSourceStatus(statusInput())).resolves.toMatchObject({
       ready: true,
-      refreshing: false,
       latestAttempt: { attemptId: first.attemptId, state: 'COMPLETE' },
       latestComplete: { attemptId: first.attemptId, state: 'COMPLETE' },
     });
@@ -114,7 +113,6 @@ describe('Sourcing browser source owner (PostgreSQL)', () => {
     const refresh = await begin('refresh');
     await expect(owner.readSourceStatus(statusInput())).resolves.toMatchObject({
       ready: true,
-      refreshing: true,
       latestAttempt: { attemptId: refresh.attemptId, state: 'RUNNING' },
       latestComplete: { attemptId: first.attemptId, state: 'COMPLETE' },
     });
@@ -212,7 +210,7 @@ describe('Sourcing browser source owner (PostgreSQL)', () => {
       .resolves.toBe(0);
   });
 
-  it('does not publish a partial generation over previous COMPLETE facts and surfaces the actual failed attempt as STALE', async () => {
+  it('does not publish a partial generation over previous COMPLETE facts or invalidate that snapshot', async () => {
     const baseline = await begin('baseline');
     await complete(baseline, 'baseline-content');
     const priorFacts = await countFacts();
@@ -236,7 +234,7 @@ describe('Sourcing browser source owner (PostgreSQL)', () => {
       attemptId: incomplete.attemptId,
     });
     await expect(owner.readSourceStatus(statusInput())).resolves.toMatchObject({
-      ready: false,
+      ready: true,
       latestAttempt: {
         attemptId: incomplete.attemptId,
         state: 'FAILED',

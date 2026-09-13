@@ -87,15 +87,17 @@ function snapshot(
     sources: {
       sellpia: {
         ready: true,
+        requiredCutoff: '2026-08-31',
         actualCutoff: '2026-08-31',
-        latestAttemptState: 'COMPLETE',
-        errorCode: null,
+        latestAttempt: { state: 'COMPLETE' },
+        latestComplete: { actualCutoff: '2026-08-31' },
       },
       advertising: {
         ready: true,
+        requiredCutoff: '2026-08-31',
         actualCutoff: '2026-08-31',
-        latestAttemptState: 'COMPLETE',
-        errorCode: null,
+        latestAttempt: { state: 'COMPLETE' },
+        latestComplete: { actualCutoff: '2026-08-31' },
       },
     },
     products: products.map((product) => ({
@@ -184,9 +186,10 @@ describe('MasterProductAbcService', () => {
         ...snapshot([], {}).sources,
         advertising: {
           ready: false,
+          requiredCutoff: '2026-08-31',
           actualCutoff: null,
-          latestAttemptState: 'FAILED',
-          errorCode: 'COLLECTION_FAILED',
+          latestAttempt: { state: 'FAILED', errorCode: 'COLLECTION_FAILED' },
+          latestComplete: null,
         },
       },
     }));
@@ -195,7 +198,13 @@ describe('MasterProductAbcService', () => {
       outcome: 'SOURCE_NOT_READY',
       publicationRevision: 0,
       actualCutoff: null,
-      sources: { advertising: { ready: false, actualCutoff: null, errorCode: 'COLLECTION_FAILED' } },
+      sources: {
+        advertising: {
+          ready: false,
+          actualCutoff: null,
+          latestAttempt: { state: 'FAILED', errorCode: 'COLLECTION_FAILED' },
+        },
+      },
     });
     expect(products.publish).not.toHaveBeenCalled();
   });

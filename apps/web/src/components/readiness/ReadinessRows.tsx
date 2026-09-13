@@ -27,6 +27,12 @@ import {
 } from '@/app/(product-pipeline)/product-pipeline/registered-products/lib/coupang-catalog-progress';
 import type { LucideIcon } from 'lucide-react';
 import type { ReadinessCheck } from '@kiditem/shared/readiness';
+import { snapshotBasisPartial, snapshotBasisStatus } from '@kiditem/shared/dashboard';
+import {
+  SOURCE_READINESS_LABELS,
+  sourceReadinessStatus,
+  type SourceReadinessStatus,
+} from '@kiditem/shared/source-readiness';
 import type { CatalogReadinessState } from './useReadinessCollection';
 
 type DisplayMeta = { title: string; hint: string; icon: LucideIcon };
@@ -98,23 +104,31 @@ function catalogOverallState(catalog: CatalogReadinessState) {
   return catalog.owner?.overallState ?? catalog.owner?.state ?? null;
 }
 
-function statusMeta(status: ReadinessCheck['status']) {
-  if (status === 'ok')
+function readinessStatus(check: ReadinessCheck): SourceReadinessStatus {
+  const basisStatus = snapshotBasisStatus(check.basis);
+  return sourceReadinessStatus({
+    ready: basisStatus === 'current' && !snapshotBasisPartial(check.basis),
+    latestComplete: check.basis.measured ? { actualCutoff: check.basis.asOf } : null,
+  });
+}
+
+function statusMeta(status: SourceReadinessStatus) {
+  if (status === 'ready')
     return {
-      text: '최신',
+      text: SOURCE_READINESS_LABELS.ready,
       chipClass: 'bg-emerald-50 text-emerald-700 border-emerald-200',
       Icon: CheckCircle2,
       iconClass: 'text-emerald-500',
     };
   if (status === 'stale')
     return {
-      text: '업데이트 필요',
+      text: SOURCE_READINESS_LABELS.stale,
       chipClass: 'bg-amber-50 text-amber-700 border-amber-200',
       Icon: AlertTriangle,
       iconClass: 'text-amber-500',
     };
   return {
-    text: '아직이에요',
+    text: SOURCE_READINESS_LABELS.missing,
     chipClass: 'bg-rose-50 text-rose-700 border-rose-200',
     Icon: XCircle,
     iconClass: 'text-rose-500',
@@ -470,7 +484,8 @@ export function ActionCheckCard({
 }) {
   const meta = getDisplay(check);
   const Icon = meta.icon;
-  const status = statusMeta(check.status);
+  const readiness = readinessStatus(check);
+  const status = statusMeta(readiness);
   const missingCount = check.missingDates?.length ?? 0;
   const isCatalog = check.key === 'coupang_products';
   const catalogWholeFlowPendingState = Boolean(catalog && catalogWholeFlowPending(catalog));
@@ -487,7 +502,7 @@ export function ActionCheckCard({
     if (missingCount > 0) {
       return `최근 ${check.expectedDates?.length ?? missingCount}일 중 ${missingCount}일이 비어 있어요`;
     }
-    if (check.status === 'stale') return '어제 데이터가 아직 반영되지 않았어요';
+    if (readiness === 'stale') return '어제 데이터가 아직 반영되지 않았어요';
     return meta.hint;
   })();
 
@@ -495,7 +510,7 @@ export function ActionCheckCard({
     <div
       className={cn(
         'rounded-xl border bg-[var(--surface)] transition-all',
-        check.status === 'stale' ? 'border-amber-200' : 'border-rose-200',
+        readiness === 'stale' ? 'border-amber-200' : 'border-rose-200',
       )}
       data-readiness-item={check.key}
     >
@@ -503,7 +518,7 @@ export function ActionCheckCard({
         <div
           className={cn(
             'flex h-10 w-10 shrink-0 items-center justify-center rounded-xl',
-            check.status === 'stale'
+            readiness === 'stale'
               ? 'bg-amber-50 text-amber-600 dark:bg-amber-500/15 dark:text-amber-400'
               : 'bg-rose-50 text-rose-600 dark:bg-rose-500/15 dark:text-rose-400',
           )}
@@ -532,7 +547,7 @@ export function ActionCheckCard({
           </div>
           <p className={cn(
             'mt-1 text-xs',
-            check.status === 'stale' ? 'text-amber-700' : 'text-[var(--text-secondary)]',
+            readiness === 'stale' ? 'text-amber-700' : 'text-[var(--text-secondary)]',
           )}>
             {check.detail || subline}
           </p>

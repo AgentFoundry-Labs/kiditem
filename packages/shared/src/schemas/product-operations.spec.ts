@@ -128,24 +128,20 @@ const metadataFixture = {
 function missingAbcSource() {
   return {
     ready: false,
-    sourceImportRunId: null,
-    generation: null,
-    coverageStartDate: null,
-    coverageEndDate: null,
-    actualCutoffDate: null,
-    capturedAt: null,
-    latestAttemptState: null,
-    errorCode: null,
+    requiredCutoff: '2026-07-31',
+    actualCutoff: null,
+    latestAttempt: null,
+    latestComplete: null,
   };
 }
 
 function dataStatusSource(ready: boolean) {
   return {
     ready,
+    requiredCutoff: '2026-07-31',
     actualCutoff: ready ? '2026-07-31' : null,
-    capturedAt: ready ? '2026-08-01T00:00:00.000Z' : null,
-    latestAttemptState: ready ? 'COMPLETE' as const : null,
-    errorCode: null,
+    latestAttempt: ready ? { state: 'COMPLETE' as const } : null,
+    latestComplete: ready ? { actualCutoff: '2026-07-31' } : null,
   };
 }
 
@@ -209,9 +205,7 @@ describe('product operations contracts', () => {
         mappingRequiredProductCount: 1,
         otherPendingProductCount: 1,
       },
-    }).sources.advertising).toEqual({
-      ready: false, actualCutoff: null, capturedAt: null, latestAttemptState: null, errorCode: null,
-    });
+    }).sources.advertising).toEqual(dataStatusSource(false));
   });
 
   it('rejects the retired legacy profit projection on strict list items', () => {

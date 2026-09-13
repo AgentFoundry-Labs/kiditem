@@ -11,7 +11,7 @@ vi.mock('next/navigation', () => ({ useSearchParams: () => new URLSearchParams(n
 vi.mock('../lib/sourcing-api', () => ({ sourcingApi: { scrapeUrl: vi.fn(), scrapeUrlStatus: vi.fn() } }));
 const url = 'https://detail.1688.com/offer/123.html';
 const missing = { status: 'available', candidateId: null, href: null, platform: '1688',
-  source: { ready: false, refreshing: false, latestAttempt: null, latestComplete: null, actualCutoffAt: null, errorCode: null, errorMessage: null } };
+  source: { ready: false, latestAttempt: null, latestComplete: null, actualCutoffAt: null, errorCode: null, errorMessage: null } };
 function mount() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   return renderHook(() => useScrapeUrl(), { wrapper: ({ children }: { children: ReactNode }) =>

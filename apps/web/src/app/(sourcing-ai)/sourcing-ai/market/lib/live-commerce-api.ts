@@ -54,7 +54,6 @@ export interface TaobaoLiveAttempt {
 }
 export interface TaobaoLiveSourceStatus {
   ready: boolean;
-  refreshing: boolean;
   latestAttempt: TaobaoLiveAttempt | null;
   latestComplete: TaobaoLiveAttempt | null;
   actualCutoffAt: string | null;

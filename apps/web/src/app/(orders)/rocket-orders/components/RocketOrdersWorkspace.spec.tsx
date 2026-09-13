@@ -53,7 +53,7 @@ const queryMock = vi.hoisted(() => vi.fn());
 const owner = vi.hoisted(() => ({ id: '' }));
 vi.mock('@/hooks/use-rocket-po-source', () => ({
   useRocketPoSource: (accountId: string) => ({
-    data: { ready: accountId === '11111111-1111-4111-8111-111111111111', refreshing: false, latestAttempt: null,
+    data: { ready: accountId === '11111111-1111-4111-8111-111111111111', latestAttempt: null,
       latestComplete: accountId === '11111111-1111-4111-8111-111111111111' ? { attemptId: owner.id } : null },
     refetch: vi.fn(),
   }),

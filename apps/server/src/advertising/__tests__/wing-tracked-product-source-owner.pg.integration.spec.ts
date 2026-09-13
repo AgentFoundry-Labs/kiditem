@@ -154,7 +154,7 @@ describe('Coupang Wing tracked-products source owner (PostgreSQL)', () => {
     await expect(owner.readSourceStatus({ organizationId: TEST_ORGANIZATION_ID })).resolves.toMatchObject({
       latestAttempt: { attemptId: incomplete.attemptId, state: 'FAILED' },
       latestComplete: { sourceImportRunId: baseline.attemptId },
-      ready: false,
+      ready: true,
     });
     await expect(prisma.alert.findUniqueOrThrow({
       where: {

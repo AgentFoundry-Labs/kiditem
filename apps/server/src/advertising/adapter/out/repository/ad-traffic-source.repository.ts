@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { deriveSourceReadiness } from '@kiditem/shared/source-readiness';
 import {
   AdTrafficSourceAttemptSchema,
   AdTrafficSourcePlanSchema,
@@ -1235,7 +1236,6 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
         knownThrough: dateText(evidenceCutoffDate()),
         channelAccountId: null,
         ready: false,
-        refreshing: false,
         latestAttempt: null,
         latestComplete: null,
         actualCutoffAt: null,
@@ -1269,15 +1269,17 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
         return plan.success && isDailyPlan(plan.data) ? plan.data.expectedDates : [];
       }),
     );
-    const ready = !!latestComplete
-      && isDailyPlan(latestComplete.plan)
-      && coveredDailyDates.has(expectedEnd)
-      && latestAttempt?.state !== 'FAILED';
+    const ready = deriveSourceReadiness({
+      latestAttempt,
+      latestComplete: latestComplete && isDailyPlan(latestComplete.plan)
+        ? { actualCutoff: [...coveredDailyDates].sort().at(-1) ?? null }
+        : null,
+      requiredCutoff: expectedEnd,
+    }).ready;
     return AdTrafficSourceStatusSchema.parse({
       knownThrough: expectedEnd,
       channelAccountId: account.id,
       ready,
-      refreshing: latestAttempt?.state === 'RUNNING',
       latestAttempt,
       latestComplete,
       actualCutoffAt: latestComplete?.actualCutoffAt ?? null,

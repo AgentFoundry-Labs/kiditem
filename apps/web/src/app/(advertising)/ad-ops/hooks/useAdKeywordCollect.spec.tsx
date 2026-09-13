@@ -36,7 +36,6 @@ const attempt = {
 it('refreshes visible ad data when owner polling observes completion without browser execution', async () => {
   const snapshot = {
     ready: false,
-    refreshing: true,
     latestAttempt: attempt,
     latestComplete: null,
     channelAccountId: attempt.channelAccountId,
@@ -63,7 +62,6 @@ it('refreshes visible ad data when owner polling observes completion without bro
     client.setQueryData(queryKeys.ads.keywordSource(), {
       ...snapshot,
       ready: true,
-      refreshing: false,
       latestAttempt: { ...attempt, state: 'COMPLETE' },
       latestComplete: { ...attempt, state: 'COMPLETE' },
     });
@@ -130,7 +128,6 @@ it.each([
         if (path.endsWith('/source'))
           return Response.json({
             ready: state === 'COMPLETE',
-            refreshing: current.state === 'RUNNING',
             latestAttempt: current,
             latestComplete: current.state === 'COMPLETE' ? current : null,
             channelAccountId: attempt.channelAccountId,
@@ -224,7 +221,6 @@ it('keeps a start key after response loss and replaces it only for the next expl
       if (path.endsWith('/source'))
         return Response.json({
           ready: current?.state === 'COMPLETE',
-          refreshing: current?.state === 'RUNNING',
           latestAttempt: current,
           latestComplete: current?.state === 'COMPLETE' ? current : null,
           channelAccountId: attempt.channelAccountId,

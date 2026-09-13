@@ -37,6 +37,7 @@ export function stubProductAbcRead(
               mappingValid: grade !== null,
               saleStartDate: grade === null ? null : '2026-01-01',
               evidence: {
+                requiredCutoff: CUTOFF,
                 actualCutoff: CUTOFF,
                 mappingGeneration: '0',
                 sellpia: readySource(SELLPIA_RUN_ID),
@@ -72,6 +73,7 @@ export function stubMissingProductAbcRead(): ProductAbcReadPort {
             mappingValid: false,
             saleStartDate: null,
             evidence: {
+              requiredCutoff: CUTOFF,
               actualCutoff: null,
               mappingGeneration: null,
               sellpia: missingSource(),

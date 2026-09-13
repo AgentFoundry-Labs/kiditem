@@ -54,7 +54,6 @@ function status(
 ) {
   return {
     ready: latestAttempt?.state === 'COMPLETE',
-    refreshing: latestAttempt?.state === 'RUNNING',
     latestAttempt,
     latestComplete,
     actualCutoffAt: latestComplete?.completedAt ?? null,

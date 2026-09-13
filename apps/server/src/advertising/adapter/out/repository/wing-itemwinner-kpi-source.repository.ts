@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { deriveSourceReadiness } from '@kiditem/shared/source-readiness';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { businessDateKey, parseBusinessDate } from '../../../../common/kst';
 import { canonicalOwnerInputHash as hash } from '../../../../common/owner-idempotency-key';
@@ -570,7 +571,6 @@ export class WingItemwinnerKpiSourceRepository
       return {
         channelAccountId: null,
         ready: false,
-        refreshing: false,
         latestAttempt: null,
         latestComplete: null,
         actualCutoffAt: null,
@@ -597,17 +597,22 @@ export class WingItemwinnerKpiSourceRepository
       return {
         channelAccountId: account.id,
         ready: false,
-        refreshing: latestAttempt?.state === 'RUNNING',
         latestAttempt,
         latestComplete: null,
         actualCutoffAt: null,
       };
     }
-    const ready = latestAttempt?.state === 'COMPLETE' && latestAttempt.attemptId === latestComplete.attemptId;
     return {
       channelAccountId: account.id,
-      ready,
-      refreshing: latestAttempt?.state === 'RUNNING',
+      ready: deriveSourceReadiness({
+        latestAttempt,
+        latestComplete: {
+          actualCutoff: toBusinessDate(latestComplete.actualCutoffAt)
+            ?.toISOString()
+            .slice(0, 10) ?? null,
+        },
+        requiredCutoff: dateText(new Date(currentBusinessDate().getTime() - 86_400_000)),
+      }).ready,
       latestAttempt,
       latestComplete,
       actualCutoffAt: latestComplete.actualCutoffAt,

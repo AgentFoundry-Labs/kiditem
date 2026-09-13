@@ -15,6 +15,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { SELLPIA_SALES_COVERAGE_SELLER_ID } from '../analytics/sellpia-sales/domain/snapshot-coverage';
 import { dayAfter, readAdWindowFacts } from '../common/ad-window-facts';
+import { buildSnapshotBasis } from '@kiditem/shared/dashboard';
 import type {
   ReadinessCheck,
   ReadinessResponse,
@@ -190,7 +191,7 @@ export class ReadinessService {
               importedAt: { not: null },
             },
             orderBy: { importedAt: 'desc' },
-            select: { importedAt: true },
+            select: { importedAt: true, coverageEndDate: true },
           })
         : Promise.resolve(null),
       // 일별 매출(wing_sales) readiness 원천 — 셀피아 판매현황 몰별 일별 스냅샷.
@@ -268,12 +269,16 @@ export class ReadinessService {
       (max, r) => (!max || r.capturedAt > max ? r.capturedAt : max),
       null,
     );
+    const sellpiaSortedDates = [...sellpiaPresent].sort();
+    const sellpiaActualCutoff = sellpiaSortedDates[sellpiaSortedDates.length - 1] ?? null;
 
     // coupang_ads 일별 수집
     const adsPresent = new Set((adsDailyKpiPublished?.days ?? []).map((r) => r.businessDate));
     const adsMissing = adsExpectedDates.filter((d) => !adsPresent.has(d));
     const adsYesterdayOk = adsPresent.has(yesterdayKstStr);
     const adsLastDate = adsDailyKpiPublished?.observedAt?.toISOString() ?? null;
+    const adsSortedDates = [...adsPresent].sort();
+    const adsActualCutoff = adsSortedDates[adsSortedDates.length - 1] ?? null;
 
     const wingSalesRankBusinessDate = wingSalesRank
       ? businessDateKey(wingSalesRank.businessDate)
@@ -294,7 +299,14 @@ export class ReadinessService {
       {
         key: 'wing_sales',
         label: '일별 매출 (셀피아 판매현황)',
-        status: sellpiaMissing.length === 0 ? 'ok' : sellpiaLatestOk ? 'stale' : 'missing',
+        basis: buildSnapshotBasis({
+          asOf: sellpiaActualCutoff,
+          requiredAsOf: sellpiaRangeEndKstStr,
+          observedAt: sellpiaLastDate,
+          sources: ['sellpia_sales_daily_snapshot'],
+          measured: sellpiaPresent.size > 0,
+          withheldCount: sellpiaMissing.length,
+        }),
         detail:
           sellpiaMissing.length === 0
             ? `최근 ${sellpiaExpectedDates.length}일치 (${sellpiaRangeStartKstStr}~${sellpiaRangeEndKstStr}) 모두 수집됨`
@@ -315,7 +327,14 @@ export class ReadinessService {
       {
         key: 'coupang_ads',
         label: '쿠팡 광고 데이터 수집',
-        status: adsMissing.length === 0 ? 'ok' : adsYesterdayOk ? 'stale' : 'missing',
+        basis: buildSnapshotBasis({
+          asOf: adsActualCutoff,
+          requiredAsOf: yesterdayKstStr,
+          observedAt: adsLastDate,
+          sources: ['advertising_daily_kpi'],
+          measured: adsPresent.size > 0,
+          withheldCount: adsMissing.length,
+        }),
         detail:
           adsMissing.length === 0
             ? `최근 ${adsExpectedDates.length}일치 (${adsRangeStartKstStr}~${yesterdayKstStr}) 모두 수집됨`
@@ -337,10 +356,16 @@ export class ReadinessService {
       {
         key: 'coupang_products',
         label: '쿠팡 상품 데이터 수집',
-        status:
-          coupangProductCount > 0 && latestCoupangCatalogRun?.importedAt
-            ? 'ok'
-            : 'missing',
+        basis: buildSnapshotBasis({
+          asOf: latestCoupangCatalogRun?.coverageEndDate
+            ? businessDateKey(latestCoupangCatalogRun.coverageEndDate)
+            : null,
+          requiredAsOf: yesterdayKstStr,
+          observedAt: latestCoupangCatalogRun?.importedAt ?? null,
+          sources: ['coupang_catalog'],
+          measured: coupangProductCount > 0 && Boolean(latestCoupangCatalogRun?.importedAt),
+          withheldCount: coupangProductCount > 0 && !latestCoupangCatalogRun?.importedAt ? coupangProductCount : 0,
+        }),
         detail:
           coupangProductCount > 0 && latestCoupangCatalogRun?.importedAt
             ? `쿠팡 상품 ${coupangProductCount}건 수집됨`
@@ -361,11 +386,14 @@ export class ReadinessService {
       {
         key: 'wing_kpi',
         label: 'Wing 판매순위',
-        status: wingSalesRank
-          ? wingSalesRankFresh && wingSalesRankComplete
-            ? 'ok'
-            : 'stale'
-          : 'missing',
+        basis: buildSnapshotBasis({
+          asOf: wingSalesRankBusinessDate,
+          requiredAsOf: yesterdayKstStr,
+          observedAt: wingSalesRank?.capturedAt ?? null,
+          sources: ['coupang_wing_rank'],
+          measured: wingSalesRank !== null,
+          withheldCount: Math.max(0, activeWingVendorIds.size - collectedActiveWingVendorCount),
+        }),
         detail: wingSalesRank
           ? wingSalesRankFresh && wingSalesRankComplete
             ? `Wing 판매순위 ${wingSalesRankCount}행 · ${collectedActiveWingVendorCount}/${activeWingVendorIds.size}상품 — 최종 수집 ${formatKst(wingSalesRank.capturedAt)}`
@@ -385,10 +413,7 @@ export class ReadinessService {
       },
     ];
 
-    return {
-      checks,
-      allOk: checks.every((c) => c.status === 'ok'),
-    };
+    return { checks } satisfies ReadinessResponse;
   }
 
 }

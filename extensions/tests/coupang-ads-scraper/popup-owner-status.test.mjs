@@ -8,6 +8,10 @@ const popupSource = await readFile(
   new URL('../../kiditem-os/popup/popup.js', import.meta.url),
   'utf8',
 );
+const sourceReadinessRuntime = await readFile(
+  new URL('../../kiditem-os/shared/source-readiness.js', import.meta.url),
+  'utf8',
+);
 const popupHtml = await readFile(
   new URL('../../kiditem-os/popup/popup.html', import.meta.url),
   'utf8',
@@ -34,7 +38,6 @@ function response(body, { success = true, ok = true, status = 200 } = {}) {
 
 function ownerStatus({
   ready = true,
-  refreshing = false,
   latestAttempt = { state: 'COMPLETE' },
   latestComplete = null,
   actualCutoffAt = null,
@@ -42,7 +45,6 @@ function ownerStatus({
   return {
     channelAccountId: 'account-1',
     ready,
-    refreshing,
     latestAttempt,
     latestComplete,
     actualCutoffAt,
@@ -146,6 +148,7 @@ function createPopupHarness({ connected = ['local', 'office'], deferMonthlyAdmis
       if (handle) handle.cleared = true;
     },
   });
+  vm.runInContext(sourceReadinessRuntime, context, { filename: 'source-readiness.js' });
   vm.runInContext(popupSource, context, { filename: 'popup.js' });
 
   async function nextApiRequest(path, environmentId) {
@@ -241,7 +244,7 @@ test('owner reads render independently while the connection read is still pendin
   }
   await harness.reply(actions, response({ items: [] }));
   assert.equal(harness.document.getElementById('serverStatus').textContent, '확인중...');
-  assert.equal(harness.document.getElementById('trafficSync').textContent, '준비됨');
+  assert.equal(harness.document.getElementById('trafficSync').textContent, '최신');
   assert.match(harness.document.getElementById('trafficSyncDetail').textContent, /3행/);
 
   await harness.reply(connection, response({ status: 'ok' }));
@@ -299,22 +302,22 @@ test('renders each owner status independently and preserves failed-attempt detai
     '/api/ads/account-daily-kpis/source': response(ownerStatus({ ready: false, latestAttempt: null })),
   });
 
-  assert.equal(harness.document.getElementById('trafficSync').textContent, '자료 없음');
+  assert.equal(harness.document.getElementById('trafficSync').textContent, '미수집');
   assert.equal(harness.document.getElementById('trafficSyncDetail').textContent, '최근 완료: 없음');
   assert.doesNotMatch(harness.document.getElementById('trafficSyncDetail').textContent, /0/);
 
   const winnerValue = harness.document.getElementById('winnerSync');
   const winnerDetail = harness.document.getElementById('winnerSyncDetail');
-  assert.equal(winnerValue.textContent, '최근 실패');
+  assert.equal(winnerValue.textContent, '갱신 필요');
   assert.match(winnerDetail.textContent, /현재 실패: WING_TIMEOUT/);
   assert.match(winnerDetail.textContent, /747개/);
   assert.match(winnerDetail.textContent, /2026-09-06 17:30 KST/);
   assert.match(winnerDetail.textContent, /<img src=x onerror=alert\(1\)>/);
   assert.equal(winnerDetail.querySelector('img'), null);
 
-  assert.equal(harness.document.getElementById('adsSync').textContent, '준비됨');
+  assert.equal(harness.document.getElementById('adsSync').textContent, '최신');
   assert.match(harness.document.getElementById('adsSyncDetail').textContent, /12캠페인/);
-  assert.equal(harness.document.getElementById('accountDailySync').textContent, '자료 없음');
+  assert.equal(harness.document.getElementById('accountDailySync').textContent, '미수집');
 
   const requestedPaths = harness.requests
     .filter((request) => request.message.action === 'kiditemApiRequest')
@@ -342,10 +345,10 @@ test('a failed owner read does not make independent owner cards fail or invent a
   });
 
   assert.equal(harness.document.getElementById('trafficSync').textContent, '조회 실패');
-  assert.equal(harness.document.getElementById('winnerSync').textContent, '준비됨');
+  assert.equal(harness.document.getElementById('winnerSync').textContent, '최신');
   assert.match(harness.document.getElementById('winnerSyncDetail').textContent, /8개/);
   assert.equal(harness.document.getElementById('adsSync').textContent, '조회 실패');
-  assert.equal(harness.document.getElementById('accountDailySync').textContent, '준비됨');
+  assert.equal(harness.document.getElementById('accountDailySync').textContent, '최신');
   assert.match(harness.document.getElementById('accountDailySyncDetail').textContent, /30일/);
 });
 
@@ -463,13 +466,13 @@ test('out-of-order environment owner responses cannot overwrite the newer enviro
   }
   await harness.flush();
 
-  assert.equal(harness.document.getElementById('trafficSync').textContent, '준비됨');
+  assert.equal(harness.document.getElementById('trafficSync').textContent, '최신');
   assert.match(harness.document.getElementById('trafficSyncDetail').textContent, /2행/);
-  assert.equal(harness.document.getElementById('winnerSync').textContent, '준비됨');
+  assert.equal(harness.document.getElementById('winnerSync').textContent, '최신');
   assert.match(harness.document.getElementById('winnerSyncDetail').textContent, /5개/);
-  assert.equal(harness.document.getElementById('adsSync').textContent, '준비됨');
+  assert.equal(harness.document.getElementById('adsSync').textContent, '최신');
   assert.match(harness.document.getElementById('adsSyncDetail').textContent, /7캠페인/);
-  assert.equal(harness.document.getElementById('accountDailySync').textContent, '준비됨');
+  assert.equal(harness.document.getElementById('accountDailySync').textContent, '최신');
   assert.match(harness.document.getElementById('accountDailySyncDetail').textContent, /9일/);
   assert.equal(harness.requests.filter((request) => request.message.environmentId === 'office').length, 6);
 });
@@ -530,7 +533,7 @@ test('monthly owner polling uses the admitted attempt, preserves the prior compl
   await harness.flush();
   assert.match(harness.document.getElementById('monthlySyncProgress').textContent, /provider failed/);
   assert.equal(harness.document.getElementById('monthlySyncProgress').className, 'sync-progress error');
-  assert.equal(harness.document.getElementById('trafficSync').textContent, '최근 실패');
+  assert.equal(harness.document.getElementById('trafficSync').textContent, '갱신 필요');
   assert.match(harness.document.getElementById('trafficSyncDetail').textContent, /44행/);
 });
 
@@ -569,7 +572,7 @@ test('monthly owner polling ignores a stale environment response', async () => {
   })));
   await harness.flush();
 
-  assert.equal(harness.document.getElementById('trafficSync').textContent, '준비됨');
+  assert.equal(harness.document.getElementById('trafficSync').textContent, '최신');
   assert.match(harness.document.getElementById('trafficSyncDetail').textContent, /8행/);
   assert.doesNotMatch(harness.document.getElementById('monthlySyncProgress').textContent, /old monthly response/);
   assert.equal(

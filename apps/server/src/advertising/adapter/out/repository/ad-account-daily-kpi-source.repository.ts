@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { deriveSourceReadiness } from '@kiditem/shared/source-readiness';
 import {
   AdAccountDailyKpiLegacyNormalizedSchema,
   AdAccountDailyKpiNormalizedSchema,
@@ -723,7 +724,6 @@ export class AdAccountDailyKpiSourceRepository
       return AdAccountDailyKpiSourceStatusSchema.parse({
         channelAccountId: null,
         ready: false,
-        refreshing: false,
         latestAttempt: null,
         latestComplete: null,
         actualCutoffAt: null,
@@ -747,7 +747,6 @@ export class AdAccountDailyKpiSourceRepository
       return AdAccountDailyKpiSourceStatusSchema.parse({
         channelAccountId: account.id,
         ready: false,
-        refreshing: latestAttempt?.state === 'RUNNING',
         latestAttempt,
         latestComplete: null,
         actualCutoffAt: null,
@@ -772,11 +771,14 @@ export class AdAccountDailyKpiSourceRepository
       }),
     );
     const covered = expectedDates.every((date) => present.has(date));
-    const failed = latestAttempt?.state === 'FAILED';
+    const actualCutoff = [...present].sort().at(-1) ?? null;
     return AdAccountDailyKpiSourceStatusSchema.parse({
       channelAccountId: account.id,
-      ready: covered && !failed,
-      refreshing: latestAttempt?.state === 'RUNNING',
+      ready: deriveSourceReadiness({
+        latestAttempt,
+        latestComplete: covered ? { actualCutoff } : null,
+        requiredCutoff: dateText(yesterday),
+      }).ready,
       latestAttempt,
       latestComplete,
       actualCutoffAt: latestComplete.actualCutoffAt,

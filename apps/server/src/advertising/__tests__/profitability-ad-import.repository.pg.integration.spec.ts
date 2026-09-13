@@ -140,7 +140,7 @@ describe('Advertising profitability source owner (PostgreSQL)', () => {
     })).resolves.toMatchObject({
       latestAttempt: { attemptId: failed.attemptId, state: 'FAILED' },
       latestComplete: { sourceImportRunId: first.attemptId, coveredThrough: coverage.to },
-      ready: false,
+      ready: true,
     });
   });
 
@@ -640,7 +640,7 @@ describe('Advertising profitability source owner (PostgreSQL)', () => {
     await expect(owner.readSourceStatus({ organizationId: TEST_ORGANIZATION_ID })).resolves.toMatchObject({
       latestComplete: { sourceImportRunId: first.attemptId },
       latestAttempt: { attemptId: replacement.attemptId, state: 'RUNNING' },
-      ready: false,
+      ready: true,
     });
   });
 

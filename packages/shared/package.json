@@ -245,6 +245,11 @@
       "import": "./dist/browser-collection-session.js",
       "require": "./dist/browser-collection-session.cjs"
     },
+    "./source-readiness": {
+      "types": "./dist/source-readiness.d.ts",
+      "import": "./dist/source-readiness.js",
+      "require": "./dist/source-readiness.cjs"
+    },
     "./internal/*": null
   },
   "types": "./dist/index.d.ts",
@@ -390,6 +395,9 @@
       ],
       "browser-collection-session": [
         "dist/browser-collection-session.d.ts"
+      ],
+      "source-readiness": [
+        "dist/source-readiness.d.ts"
       ]
     }
   },

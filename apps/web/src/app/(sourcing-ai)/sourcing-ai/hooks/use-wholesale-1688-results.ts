@@ -20,7 +20,9 @@ export function useWholesale1688Results(input: Wholesale1688ResultQuery) {
     queryKey: wholesale1688ResultsQueryKey(normalized),
     queryFn: () => fetchWholesale1688Results(normalized),
     enabled: normalized.keywords.length > 0 || normalized.targetIds.length > 0,
-    refetchInterval: (query) => query.state.data?.sourceStatuses.some((source) => source.refreshing) ? 2_000 : false,
+    refetchInterval: (query) => query.state.data?.sourceStatuses.some(
+      (source) => source.latestAttemptState === 'RUNNING',
+    ) ? 2_000 : false,
   });
 }
 

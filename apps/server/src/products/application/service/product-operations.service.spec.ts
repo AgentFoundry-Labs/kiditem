@@ -769,9 +769,9 @@ function abcStatusFacts() {
     contributionBasis: { basisFromDate: '2026-02-01', basisCutoffDate: '2026-08-31' },
     displayDataAsOf: '2026-08-31',
     actualCutoff: '2026-08-31',
-    traffic: sourceStatus('2026-09-03', '2026-09-04T00:00:00.000Z'),
-    sellpia: sourceStatus('2026-08-31', '2026-09-01T00:00:00.000Z'),
-    advertising: sourceStatus('2026-08-31', '2026-09-01T00:01:00.000Z'),
+    traffic: sourceStatus('2026-09-03'),
+    sellpia: sourceStatus('2026-08-31'),
+    advertising: sourceStatus('2026-08-31'),
     formulaState: {
       formulaRevision: 2,
       publicationRevision: 4,
@@ -806,13 +806,13 @@ function abcStatusFacts() {
   };
 }
 
-function sourceStatus(actualCutoff: string, capturedAt: string) {
+function sourceStatus(actualCutoff: string) {
   return {
     ready: true,
+    requiredCutoff: actualCutoff,
     actualCutoff,
-    capturedAt,
-    latestAttemptState: 'COMPLETE' as const,
-    errorCode: null,
+    latestAttempt: { state: 'COMPLETE' as const },
+    latestComplete: { actualCutoff },
   };
 }
 

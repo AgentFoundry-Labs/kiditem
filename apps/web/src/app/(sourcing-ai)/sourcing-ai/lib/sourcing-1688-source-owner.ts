@@ -5,7 +5,6 @@ const BASE = '/api/sourcing/1688-trends';
 
 export interface Sourcing1688TrendSourceStatus {
   ready: boolean;
-  refreshing: boolean;
   latestAttempt: {
     attemptId: string;
     state: 'RUNNING' | 'COMPLETE' | 'FAILED';

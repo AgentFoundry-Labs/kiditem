@@ -42,7 +42,6 @@ describe('SourcingLiveCommerceSourceAttemptController', () => {
       readBrowser: vi.fn(),
       readBrowserStatus: vi.fn().mockResolvedValue({
         ready: false,
-        refreshing: false,
         actualCutoffAt: new Date('2026-09-04T00:00:00.000Z'),
         errorCode: 'SOURCE_COLLECTION_FAILED',
         errorMessage: 'Collection failed.',
@@ -62,7 +61,6 @@ describe('SourcingLiveCommerceSourceAttemptController', () => {
 
     await expect(controller.readBrowserStatus(PAGE_URL, ORGANIZATION_ID)).resolves.toEqual({
       ready: false,
-      refreshing: false,
       actualCutoffAt: new Date('2026-09-04T00:00:00.000Z'),
       errorCode: 'SOURCE_COLLECTION_FAILED',
       errorMessage: 'Collection failed.',

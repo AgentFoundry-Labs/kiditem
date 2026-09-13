@@ -218,13 +218,9 @@ function product(): MasterProductOperationsListItem {
 function abcSource() {
   return {
     ready: true,
-    sourceImportRunId: '11111111-1111-4111-8111-111111111112',
-    generation: '7',
-    coverageStartDate: '2026-01-01',
-    coverageEndDate: '2026-08-31',
-    actualCutoffDate: '2026-08-31',
-    capturedAt: '2026-09-01T00:00:00.000Z',
-    latestAttemptState: 'COMPLETE' as const,
-    errorCode: null,
+    requiredCutoff: '2026-08-31',
+    actualCutoff: '2026-08-31',
+    latestAttempt: { state: 'COMPLETE' as const },
+    latestComplete: { actualCutoff: '2026-08-31' },
   };
 }

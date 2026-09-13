@@ -423,14 +423,12 @@ describe('Ad keyword source incoming HTTP + disposable PostgreSQL', () => {
   it('reads source status independently of local sessions and keeps the previous COMPLETE after a failed refresh', async () => {
     expect((await get('/source').expect(200)).body).toMatchObject({
       ready: false,
-      refreshing: false,
       latestAttempt: null,
       latestComplete: null,
     });
     const first = (await admit()).body;
     expect((await get('/source').expect(200)).body).toMatchObject({
       ready: false,
-      refreshing: true,
       latestAttempt: { attemptId: first.attemptId, state: 'RUNNING' },
     });
     await put(first, 'roster', {
@@ -449,7 +447,6 @@ describe('Ad keyword source incoming HTTP + disposable PostgreSQL', () => {
     await post(first, 'complete', { manifestChecksum: manifest }).expect(201);
     expect((await get('/source').expect(200)).body).toMatchObject({
       ready: true,
-      refreshing: false,
       latestComplete: { attemptId: first.attemptId, rowCount: 0 },
     });
     const next = (await admit()).body;
@@ -465,8 +462,7 @@ describe('Ad keyword source incoming HTTP + disposable PostgreSQL', () => {
     });
     const source = (await get('/source').expect(200)).body;
     expect(source).toMatchObject({
-      ready: false,
-      refreshing: false,
+      ready: true,
       latestAttempt: { attemptId: next.attemptId, state: 'FAILED' },
       latestComplete: { attemptId: first.attemptId, state: 'COMPLETE' },
     });
@@ -843,13 +839,11 @@ describe('Ad keyword source incoming HTTP + disposable PostgreSQL', () => {
     }
     expect(await reading).toMatchObject({
       ready: false,
-      refreshing: true,
       latestAttempt: { state: 'RUNNING' },
       latestComplete: null,
     });
     expect((await get('/source')).body).toMatchObject({
       ready: true,
-      refreshing: false,
       latestComplete: { state: 'COMPLETE' },
     });
   });

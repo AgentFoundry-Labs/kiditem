@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { snapshotBasisPartial, snapshotBasisStatus } from '@kiditem/shared/dashboard';
+import type { ReadinessCheck } from '@kiditem/shared/readiness';
 import { ReadinessService } from '../readiness.service';
 
 const ORGANIZATION_ID = '00000000-0000-0000-0000-0000000c0001';
@@ -89,7 +91,7 @@ describe('ReadinessService', () => {
         findFirst: vi.fn(async () => ({ id: ACTIVE_COUPANG_ACCOUNT_ID })),
       },
       channelAccountDailyKpiSnapshot: {
-        findMany: vi.fn(async () =>
+        findMany: vi.fn(async (_args: unknown) =>
           expectedDates.filter((d) => d !== '2026-04-18').map(row),
         ),
       },
@@ -116,11 +118,12 @@ describe('ReadinessService', () => {
       sourceImportRun: {
         findFirst: vi.fn(async () => ({
           importedAt: new Date('2026-05-02T01:00:00.000Z'),
+          coverageEndDate: new Date('2026-05-01T00:00:00.000Z'),
         })),
       },
       // 일별 매출(wing_sales) readiness 는 셀피아 판매현황 기준. 전 일자 present → ok.
       sellpiaSalesDailySnapshot: {
-        findMany: vi.fn(async () =>
+        findMany: vi.fn(async (_args: unknown) =>
           expectedDates.map((businessDate) => ({
             businessDate: new Date(`${businessDate}T00:00:00.000Z`),
             capturedAt: new Date('2026-05-02T01:00:00.000Z'),
@@ -137,7 +140,9 @@ describe('ReadinessService', () => {
     const service = new ReadinessService(prisma as never);
     const status = await service.getStatus(ORGANIZATION_ID);
 
-    const sellpiaQuery = prisma.sellpiaSalesDailySnapshot.findMany.mock.calls[0][0];
+    const sellpiaQuery = prisma.sellpiaSalesDailySnapshot.findMany.mock.calls[0]?.[0] as {
+      where: { sellerId: string };
+    };
     // Half-open `[from, to)` over KST business dates, fenced to the organization.
     expect(queryRaw).toHaveBeenCalledTimes(1);
     expect(queriedOrganization(queryRaw)).toBe(ORGANIZATION_ID);
@@ -171,7 +176,7 @@ describe('ReadinessService', () => {
         importedAt: { not: null },
       },
       orderBy: { importedAt: 'desc' },
-      select: { importedAt: true },
+      select: { importedAt: true, coverageEndDate: true },
     });
 
     const wingSales = status.checks.find((check) => check.key === 'wing_sales');
@@ -180,19 +185,19 @@ describe('ReadinessService', () => {
       (check) => check.key === 'coupang_products',
     );
     const wingRank = status.checks.find((check) => check.key === 'wing_kpi');
-    expect(wingSales?.status).toBe('ok');
-    expect(coupangAds?.status).toBe('stale');
+    expect(readinessState(wingSales)).toBe('ok');
+    expect(readinessState(coupangAds)).toBe('stale');
     expect(coupangAds?.missingDates).toEqual(['2026-04-02']);
     expect(coupangProducts).toMatchObject({
-      status: 'ok',
       count: 1752,
       lastSyncedAt: '2026-05-02T01:00:00.000Z',
     });
     expect(wingRank).toMatchObject({
       label: 'Wing 판매순위',
-      status: 'ok',
       count: 4934,
     });
+    expect(readinessState(coupangProducts)).toBe('ok');
+    expect(readinessState(wingRank)).toBe('ok');
     expect(status.checks.some((check) => check.key === 'rocket_sales')).toBe(false);
   });
 
@@ -228,7 +233,7 @@ describe('ReadinessService', () => {
       sourceImportRun: { findFirst: vi.fn(async () => null) },
       sellpiaSalesDailySnapshot: {
         // The rolling window is complete through the final closed business day.
-        findMany: vi.fn(async () => priorDates.map(row)),
+        findMany: vi.fn(async (_args: unknown) => priorDates.map(row)),
       },
     };
 
@@ -236,7 +241,9 @@ describe('ReadinessService', () => {
       ORGANIZATION_ID,
     );
     const sellpiaQuery =
-      prisma.sellpiaSalesDailySnapshot.findMany.mock.calls[0][0];
+      prisma.sellpiaSalesDailySnapshot.findMany.mock.calls[0]?.[0] as {
+        where: { businessDate: { gte: Date; lte: Date } };
+      };
     const wingSales = status.checks.find((check) => check.key === 'wing_sales');
 
     expect(sellpiaQuery.where.businessDate).toEqual({
@@ -244,11 +251,11 @@ describe('ReadinessService', () => {
       lte: new Date('2026-06-30T00:00:00.000Z'),
     });
     expect(wingSales).toMatchObject({
-      status: 'ok',
       referenceDate: '2026-06-30',
       expectedDates: priorDates,
       missingDates: [],
     });
+    expect(readinessState(wingSales)).toBe('ok');
   });
 
   it('keeps a partial Wing sales-rank batch stale until every active vendor item is covered', async () => {
@@ -283,7 +290,7 @@ describe('ReadinessService', () => {
           importedAt: new Date('2026-07-18T00:30:00.000Z'),
         })),
       },
-      sellpiaSalesDailySnapshot: { findMany: vi.fn(async () => []) },
+      sellpiaSalesDailySnapshot: { findMany: vi.fn(async (_args: unknown) => []) },
     };
 
     const status = await new ReadinessService(Object.assign(prisma, { $queryRaw: adLedger() }) as never).getStatus(
@@ -292,10 +299,10 @@ describe('ReadinessService', () => {
     const wingRank = status.checks.find((check) => check.key === 'wing_kpi');
 
     expect(wingRank).toMatchObject({
-      status: 'stale',
       count: 1,
       detail: expect.stringContaining('1/2상품'),
     });
+    expect(readinessState(wingRank)).toBe('stale');
     expect(
       prisma.coupangWingSalesRankDailySnapshot.findMany,
     ).toHaveBeenCalledWith({
@@ -346,7 +353,7 @@ describe('ReadinessService', () => {
         count: vi.fn(async () => 0),
       },
       sourceImportRun: { findFirst: vi.fn(async () => null) },
-      sellpiaSalesDailySnapshot: { findMany: vi.fn(async () => []) },
+      sellpiaSalesDailySnapshot: { findMany: vi.fn(async (_args: unknown) => []) },
     };
 
     const queryRaw = adLedger();
@@ -363,21 +370,22 @@ describe('ReadinessService', () => {
     expect(
       prisma.coupangWingSalesRankDailySnapshot.findFirst,
     ).not.toHaveBeenCalled();
-    expect(status.checks.find((check) => check.key === 'coupang_ads')).toMatchObject({
-      status: 'missing',
+    const ads = status.checks.find((check) => check.key === 'coupang_ads');
+    expect(ads).toMatchObject({
       count: 0,
     });
-    expect(status.checks.find((check) => check.key === 'wing_kpi')).toMatchObject({
-      status: 'missing',
+    const wingRank = status.checks.find((check) => check.key === 'wing_kpi');
+    expect(wingRank).toMatchObject({
       count: 0,
     });
-    expect(
-      status.checks.find((check) => check.key === 'coupang_products'),
-    ).toMatchObject({
-      status: 'missing',
+    const products = status.checks.find((check) => check.key === 'coupang_products');
+    expect(products).toMatchObject({
       count: 0,
       lastSyncedAt: null,
     });
+    expect(readinessState(ads)).toBe('missing');
+    expect(readinessState(wingRank)).toBe('missing');
+    expect(readinessState(products)).toBe('missing');
   });
 
   it('keeps the ad readiness window at exactly 30 days while Sellpia stays month-aware', async () => {
@@ -408,7 +416,9 @@ describe('ReadinessService', () => {
       ORGANIZATION_ID,
     );
     const sellpiaQuery =
-      prisma.sellpiaSalesDailySnapshot.findMany.mock.calls[0][0];
+      prisma.sellpiaSalesDailySnapshot.findMany.mock.calls[0]?.[0] as {
+        where: { businessDate: { gte: Date; lte: Date } };
+      };
     const ads = status.checks.find((check) => check.key === 'coupang_ads');
     const sales = status.checks.find((check) => check.key === 'wing_sales');
 
@@ -470,10 +480,10 @@ describe('ReadinessService', () => {
     expect(queriedDates(queryRaw)).toEqual(['2026-06-18', '2026-07-18']);
     expect(prisma.channelAccountDailyKpiSnapshot.findMany).not.toHaveBeenCalled();
     expect(ads).toMatchObject({
-      status: 'ok',
       count: expectedDates.length,
       lastSyncedAt: previousCompleteObservedAt,
     });
+    expect(readinessState(ads)).toBe('ok');
   });
 
   it('does not promote a nullable staged inventory identity into a Wing vendor target', async () => {
@@ -546,17 +556,20 @@ describe('ReadinessService', () => {
       }),
     );
     expect(status.checks.find((check) => check.key === 'wing_kpi')).toMatchObject({
-      status: 'ok',
       count: 2,
     });
+    expect(readinessState(status.checks.find((check) => check.key === 'wing_kpi'))).toBe('ok');
   });
 
   it('marks the catalog ready after a completed basics publication is followed by details', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-11T01:00:00.000Z'));
     const prisma = catalogReadinessPrisma({
       productCount: 1254,
       latestCatalogRun: {
         sourceType: 'coupang_wing_catalog_details',
         importedAt: new Date('2026-09-10T00:10:00.000Z'),
+        coverageEndDate: new Date('2026-09-10T00:00:00.000Z'),
       },
     });
 
@@ -566,10 +579,10 @@ describe('ReadinessService', () => {
     const products = status.checks.find((check) => check.key === 'coupang_products');
 
     expect(products).toMatchObject({
-      status: 'ok',
       count: 1254,
       detail: '쿠팡 상품 1254건 수집됨',
     });
+    expect(readinessState(products)).toBe('ok');
     expect(prisma.channelListing.count).toHaveBeenCalledWith({
       where: expect.objectContaining({
         lastImportRun: {
@@ -597,8 +610,34 @@ describe('ReadinessService', () => {
         importedAt: { not: null },
       },
       orderBy: { importedAt: 'desc' },
-      select: { importedAt: true },
+      select: { importedAt: true, coverageEndDate: true },
     });
+  });
+
+  it('keeps legacy catalog coverage unknown instead of inferring it from import time', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-11T01:00:00.000Z'));
+    const importedAt = new Date('2026-09-10T00:10:00.000Z');
+    const prisma = catalogReadinessPrisma({
+      productCount: 1254,
+      latestCatalogRun: {
+        sourceType: 'coupang_wing_catalog_details',
+        importedAt,
+        coverageEndDate: null,
+      },
+    });
+
+    const status = await new ReadinessService(
+      Object.assign(prisma, { $queryRaw: adLedger() }) as never,
+    ).getStatus(ORGANIZATION_ID);
+    const products = status.checks.find((check) => check.key === 'coupang_products');
+
+    expect(products?.basis).toMatchObject({
+      measured: true,
+      asOf: null,
+      observedAt: importedAt.toISOString(),
+    });
+    expect(snapshotBasisStatus(products!.basis)).toBe('unknown');
   });
 
   it('keeps basic coverage visible while a details publication is partial', async () => {
@@ -613,17 +652,21 @@ describe('ReadinessService', () => {
     const products = status.checks.find((check) => check.key === 'coupang_products');
 
     expect(products).toMatchObject({
-      status: 'missing',
       count: 1254,
       detail: '쿠팡 상품 기본 목록 1254건 반영됨 — 전체 상세 수집 필요',
     });
+    expect(readinessState(products)).toBe('missing');
     expect(products?.detail).not.toContain('최초 수집 필요');
   });
 });
 
 function catalogReadinessPrisma(input: {
   productCount: number;
-  latestCatalogRun: { sourceType: string; importedAt: Date } | null;
+  latestCatalogRun: {
+    sourceType: string;
+    importedAt: Date;
+    coverageEndDate: Date | null;
+  } | null;
 }) {
   return {
     channelAccount: {
@@ -647,4 +690,11 @@ function catalogReadinessPrisma(input: {
       findMany: vi.fn(async () => []),
     },
   };
+}
+
+function readinessState(check: ReadinessCheck | undefined): 'ok' | 'stale' | 'missing' {
+  if (!check || snapshotBasisStatus(check.basis) === 'unavailable') return 'missing';
+  return snapshotBasisStatus(check.basis) === 'current' && !snapshotBasisPartial(check.basis)
+    ? 'ok'
+    : 'stale';
 }

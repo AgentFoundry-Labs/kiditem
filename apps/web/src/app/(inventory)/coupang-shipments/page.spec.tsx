@@ -55,7 +55,6 @@ describe("shipment source reload and calendar route state at HTTP boundary", () 
     calls.length = 0;
     source = {
       ready: true,
-      refreshing: false,
       latestAttempt: attempt,
       latestComplete: attempt,
       items,
@@ -151,14 +150,12 @@ describe("shipment source reload and calendar route state at HTTP boundary", () 
   it("polls an existing RUNNING attempt after reload and displays empty COMPLETE without clearing history", async () => {
     source = {
       ...source,
-      refreshing: true,
       latestAttempt: { ...attempt, state: "RUNNING", actualCutoffAt: null },
     };
     mount();
     expect(await screen.findByText(/쉽먼트 조회 진행 중/)).toBeInTheDocument();
     source = {
       ...source,
-      refreshing: false,
       latestAttempt: attempt,
       capturedItems: [],
     };

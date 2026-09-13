@@ -7,7 +7,7 @@ import type { ReadinessResponse } from '@kiditem/shared/readiness';
 
 const mockApiGet = vi.hoisted(() => vi.fn());
 const mockAdSyncRun = vi.hoisted(() => vi.fn());
-const mockAdCampaignSyncStatus = vi.hoisted(() => ({
+const mockAdCampaignSource = vi.hoisted(() => ({
   data: {
     ready: false,
     latestComplete: null as null | { plan: { startDate: string; endDate: string } },
@@ -27,7 +27,7 @@ vi.mock('@/app/(advertising)/ad-ops/hooks/useAdSync', () => ({
   useAdSync: () => ({
     loading: false,
     run: mockAdSyncRun,
-    source: mockAdCampaignSyncStatus,
+    source: mockAdCampaignSource,
     status: null,
     cancelling: false,
     cancel: vi.fn(),
@@ -101,12 +101,18 @@ function ControlledAutoOpenHarness() {
 
 function makeReadinessResponse(): ReadinessResponse {
   return {
-    allOk: false,
     checks: [
       {
         key: 'wing_sales',
         label: 'Wing 매출',
-        status: 'missing',
+        basis: {
+          asOf: null,
+          requiredAsOf: '2026-05-21',
+          observedAt: null,
+          sources: ['sellpia_orders'],
+          measured: false,
+          withheldCount: 0,
+        },
         detail: '어제 주문 데이터 없음',
         lastSyncedAt: null,
         count: null,
@@ -120,7 +126,14 @@ function makeReadinessResponse(): ReadinessResponse {
       {
         key: 'coupang_ads',
         label: '쿠팡 광고',
-        status: 'ok',
+        basis: {
+          asOf: '2026-05-21',
+          requiredAsOf: '2026-05-21',
+          observedAt: '2026-05-21T00:00:00.000Z',
+          sources: ['coupang_ads'],
+          measured: true,
+          withheldCount: 0,
+        },
         detail: '광고 데이터 최신',
         lastSyncedAt: '2026-05-21T00:00:00.000Z',
         count: 1,
@@ -150,7 +163,14 @@ function makeCatalogReadinessResponse(): ReadinessResponse {
       {
         key: 'coupang_products',
         label: '쿠팡 상품 데이터 수집',
-        status: 'missing',
+        basis: {
+          asOf: null,
+          requiredAsOf: null,
+          observedAt: null,
+          sources: ['wing_catalog'],
+          measured: false,
+          withheldCount: 0,
+        },
         detail: '쿠팡 상품 기본 목록 1,254건 반영됨 — 전체 상세 수집 필요',
         lastSyncedAt: null,
         count: 1254,
@@ -241,7 +261,7 @@ describe('ReadinessModal', () => {
     mockApiGet.mockReset();
     mockApiGet.mockResolvedValue(makeReadinessResponse());
     mockAdSyncRun.mockReset();
-    mockAdCampaignSyncStatus.data = {
+    mockAdCampaignSource.data = {
       ready: false,
       latestComplete: null,
     };
@@ -378,7 +398,14 @@ describe('ReadinessModal', () => {
         {
           key: 'coupang_products',
           label: '쿠팡 상품',
-          status: 'missing',
+          basis: {
+            asOf: null,
+            requiredAsOf: null,
+            observedAt: null,
+            sources: ['wing_catalog'],
+            measured: false,
+            withheldCount: 0,
+          },
           detail: '쿠팡 상품 데이터 없음',
           lastSyncedAt: null,
           count: null,
@@ -527,7 +554,13 @@ describe('ReadinessModal', () => {
         check.key === 'coupang_products'
           ? {
               ...check,
-              status: 'ok',
+              basis: {
+                ...check.basis,
+                asOf: '2026-09-06',
+                requiredAsOf: '2026-09-06',
+                observedAt: '2026-09-06T00:01:00.000Z',
+                measured: true,
+              },
               detail: '쿠팡 상품 1,254건 최신',
               lastSyncedAt: '2026-09-06T00:01:00.000Z',
             }
@@ -556,7 +589,10 @@ describe('ReadinessModal', () => {
     expect(screen.getByText('전체 상품 반영 완료')).toBeInTheDocument();
     fireEvent.click(refresh);
     expect(mockHandleCollect).toHaveBeenCalledWith(
-      expect.objectContaining({ key: 'coupang_products', status: 'ok' }),
+      expect.objectContaining({
+        key: 'coupang_products',
+        basis: expect.objectContaining({ measured: true }),
+      }),
     );
   });
 
@@ -568,7 +604,13 @@ describe('ReadinessModal', () => {
         check.key === 'coupang_products'
           ? {
               ...check,
-              status: 'ok',
+              basis: {
+                ...check.basis,
+                asOf: '2026-09-06',
+                requiredAsOf: '2026-09-06',
+                observedAt: '2026-09-06T00:01:00.000Z',
+                measured: true,
+              },
               detail: '쿠팡 상품 기본 목록 1,254건 반영됨 — 전체 상세 수집 필요',
             }
           : check,
@@ -686,7 +728,7 @@ describe('ReadinessModal', () => {
   });
 
   it('shows 최신 only for a server-confirmed complete daily ad sweep', async () => {
-    mockAdCampaignSyncStatus.data = {
+    mockAdCampaignSource.data = {
       ready: true,
       latestComplete: { plan: { startDate: '2026-08-06', endDate: '2026-09-05' } },
     };
@@ -698,7 +740,7 @@ describe('ReadinessModal', () => {
     expect(await screen.findByText('최신')).toBeInTheDocument();
     expect(view.container).toHaveTextContent('사용 중인 데이터: 2026-08-06 ~ 2026-09-05');
 
-    mockAdCampaignSyncStatus.data = {
+    mockAdCampaignSource.data = {
       ready: false,
       latestComplete: { plan: { startDate: '2026-08-06', endDate: '2026-09-05' } },
     };
@@ -712,7 +754,14 @@ describe('ReadinessModal', () => {
     const wingRank: ReadinessResponse['checks'][number] = {
       key: 'wing_kpi',
       label: 'Wing 판매순위',
-      status: 'missing',
+      basis: {
+        asOf: null,
+        requiredAsOf: '2026-05-21',
+        observedAt: null,
+        sources: ['wing_rank'],
+        measured: false,
+        withheldCount: 0,
+      },
       detail: 'Wing 판매순위 수집 이력 없음',
       lastSyncedAt: null,
       count: null,

@@ -5,7 +5,6 @@ const BASE = '/api/sourcing/live-commerce/browser';
 
 export interface SourcingLiveCommerceSourceStatus {
   ready: boolean;
-  refreshing: boolean;
   latestAttempt: {
     attemptId: string;
     state: 'RUNNING' | 'COMPLETE' | 'FAILED';

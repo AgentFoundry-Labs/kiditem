@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { SourceReadinessSchema } from '../source-readiness.js';
 import { zIsoDate } from './common.js';
 
 const CalendarDateSchema = z.string().regex(
@@ -345,37 +346,6 @@ export const ProductAbcFormulaStateSchema = z.object({
 }).strict();
 export type ProductAbcFormulaState = z.infer<typeof ProductAbcFormulaStateSchema>;
 
-const SourceFreshnessSchema = z.object({
-  ready: z.boolean(),
-  sourceImportRunId: UuidSchema.nullable(),
-  generation: GenerationSchema.nullable(),
-  coverageStartDate: CalendarDateSchema.nullable(),
-  coverageEndDate: CalendarDateSchema.nullable(),
-  actualCutoffDate: CalendarDateSchema.nullable(),
-  capturedAt: zIsoDate.nullable(),
-  latestAttemptState: z.enum(['RUNNING', 'COMPLETE', 'FAILED']).nullable(),
-  errorCode: z.string().trim().min(1).max(120).nullable(),
-}).strict().superRefine((source, context) => {
-  if ((source.coverageStartDate === null) !== (source.coverageEndDate === null)) {
-    context.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['coverageEndDate'],
-      message: 'coverage bounds must be present together',
-    });
-  }
-  if (
-    source.coverageStartDate !== null
-    && source.coverageEndDate !== null
-    && source.coverageStartDate > source.coverageEndDate
-  ) {
-    context.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['coverageEndDate'],
-      message: 'coverage end must not precede coverage start',
-    });
-  }
-});
-
 const MappingFreshnessSchema = z.object({
   status: ProductAbcMappingStatusSchema,
   mappingGeneration: GenerationSchema.nullable(),
@@ -383,8 +353,8 @@ const MappingFreshnessSchema = z.object({
 
 export const ProductAbcSourceFreshnessSchema = z.object({
   evaluationCutoffDate: CalendarDateSchema,
-  sellpia: SourceFreshnessSchema,
-  advertising: SourceFreshnessSchema,
+  sellpia: SourceReadinessSchema,
+  advertising: SourceReadinessSchema,
   mapping: MappingFreshnessSchema,
 }).strict();
 export type ProductAbcSourceFreshness = z.infer<typeof ProductAbcSourceFreshnessSchema>;

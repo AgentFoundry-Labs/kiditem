@@ -351,7 +351,6 @@ describe('Advertising account daily KPI source incoming HTTP + disposable Postgr
     }
     expect((await get('/source').expect(200)).body).toMatchObject({
       ready: false,
-      refreshing: true,
       latestComplete: null,
     });
     expect(
@@ -733,7 +732,6 @@ describe('Advertising account daily KPI source incoming HTTP + disposable Postgr
     ).toMatchObject({
       channelAccountId: null,
       ready: false,
-      refreshing: false,
       latestAttempt: null,
       latestComplete: null,
     });

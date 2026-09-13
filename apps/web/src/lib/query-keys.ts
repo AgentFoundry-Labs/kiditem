@@ -142,7 +142,6 @@ export const queryKeys = {
     campaigns: (period?: string) => [...queryKeys.ads.all, 'campaigns', period] as const,
     manualReports: (from: string, to: string) =>
       [...queryKeys.ads.all, 'manual-reports', from, to] as const,
-    campaignSyncStatus: () => [...queryKeys.ads.all, 'campaign-sync-status'] as const,
     keywords: (period?: string) => [...queryKeys.ads.all, 'keywords', period] as const,
     campaignProducts: (channelAccountId: string, campaignIdentity: string, period?: string) =>
       [...queryKeys.ads.all, 'campaigns', channelAccountId, campaignIdentity, period] as const,

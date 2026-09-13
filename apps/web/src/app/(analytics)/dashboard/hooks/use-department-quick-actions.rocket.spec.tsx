@@ -38,7 +38,7 @@ it.each(['COMPLETE', 'FAILED', 'RUNNING'] as const)('Dashboard uses owner %s, ne
     const path = new URL(url, 'http://localhost').pathname;
     const body = init?.body ? JSON.parse(String(init.body)) : {};
     calls.push({ path, method: init?.method ?? 'GET', body, key: new Headers(init?.headers).get('Idempotency-Key') });
-    if (path.endsWith('/source')) return Response.json({ status: state === 'COMPLETE' && started ? 'READY' : 'MISSING', refreshing: started && state === 'RUNNING',
+    if (path.endsWith('/source')) return Response.json({ status: state === 'COMPLETE' && started ? 'READY' : 'MISSING',
       latestAttempt: started ? attempt : null, latestComplete: state === 'COMPLETE' && started ? attempt : null });
     if (path === '/api/auth/extension-handoff') return Response.json({ token: 'a'.repeat(43) });
     if (path.endsWith('/attempts')) { started = true; return Response.json({ ...attempt, state: 'RUNNING' }); }

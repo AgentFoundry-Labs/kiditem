@@ -164,11 +164,12 @@ function readyStatus() {
 
 /** `collected: false` is the never-collected source: not ready and no cutoff to show. */
 function source(ready: boolean, collected = true) {
+  const actualCutoff = collected ? '2026-08-31' : null;
   return {
     ready,
-    actualCutoff: collected ? '2026-08-31' : null,
-    capturedAt: collected ? '2026-09-01T00:00:00.000Z' : null,
-    latestAttemptState: collected ? 'COMPLETE' as const : null,
-    errorCode: null,
+    requiredCutoff: '2026-08-31',
+    actualCutoff,
+    latestAttempt: collected ? { state: 'COMPLETE' as const } : null,
+    latestComplete: collected ? { actualCutoff } : null,
   };
 }

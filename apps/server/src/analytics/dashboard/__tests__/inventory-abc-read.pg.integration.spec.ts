@@ -119,18 +119,27 @@ describe('Analytics inventory ABC reads (PostgreSQL)', () => {
     const result = await inventory.project(TEST_ORGANIZATION_ID, [{
       key: 'OWN', evidence: { productCode: 'SKU-OWN', optionCode: '', barcode: null }, completeMonthly: [],
     }]);
-    const displayStatus = source === 'sellpia' ? 'SELLPIA_SOURCE_STALE' : 'AD_SOURCE_STALE';
     expect(result.projection.byProductKey.get('OWN')?.inventoryResolution).toMatchObject({
       inventoryProduct: { abc: { abcGrade: 'A', evaluation: { publicationRevision: 1 },
-        displayStatus, actualCutoffDate: cutoff, officialCutoffDate: cutoff,
-        sources: { [source]: { ready: false, latestAttemptState: 'FAILED', actualCutoffDate: cutoff } },
+        displayStatus: 'READY', actualCutoffDate: cutoff, officialCutoffDate: cutoff,
+        sources: { [source]: {
+          ready: true,
+          actualCutoff: cutoff,
+          latestAttempt: { state: 'FAILED' },
+        } },
       } },
-      destinations: [{ abc: { abcGrade: 'A', displayStatus, actualCutoffDate: cutoff } }],
+      destinations: [{ abc: {
+        abcGrade: 'A',
+        displayStatus: 'READY',
+        actualCutoffDate: cutoff,
+        sources: { [source]: { ready: true, latestAttempt: { state: 'FAILED' } } },
+      } }],
     });
     const summary = await dashboard.getSummary(buildDashboardContext(), TEST_ORGANIZATION_ID);
     expect(summary.gradeCount).toEqual({ A: 1, B: 0, C: 0 });
-    expect(summary.abcStatusCount[displayStatus]).toBe(1);
-    expect(summary.abcStatusCount.READY).toBe(0);
+    expect(summary.abcStatusCount.READY).toBe(1);
+    expect(summary.abcStatusCount.SELLPIA_SOURCE_STALE).toBe(0);
+    expect(summary.abcStatusCount.AD_SOURCE_STALE).toBe(0);
   });
 
   it('retains the grade while mapping-incompatible complete sources expose no actual cutoff or READY', async () => {

@@ -48,7 +48,6 @@ export type CoupangKeywordSuggestionSourceAttempt = z.infer<
 
 export const CoupangKeywordSuggestionSourceStatusSchema = z.object({
   ready: z.boolean(),
-  refreshing: z.boolean(),
   latestAttempt: CoupangKeywordSuggestionSourceAttemptSchema.nullable(),
   latestComplete: CoupangKeywordSuggestionSourceAttemptSchema.nullable(),
   actualCutoffAt: z.string().datetime({ offset: true }).nullable(),

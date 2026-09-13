@@ -100,7 +100,9 @@ export function SellochWholesaleKeywordSearch() {
     keywords: operationKeywords,
   });
   const command = useWholesale1688Command(snapshotQueryKey);
-  const collecting = command.isPending || (resultQuery.data?.sourceStatuses.some((source) => source.refreshing) ?? false);
+  const collecting = command.isPending || (resultQuery.data?.sourceStatuses.some(
+    (source) => source.latestAttemptState === 'RUNNING',
+  ) ?? false);
   const observationsByKeyword = useMemo(
     () => new Map(
       (resultQuery.data?.observations ?? [])

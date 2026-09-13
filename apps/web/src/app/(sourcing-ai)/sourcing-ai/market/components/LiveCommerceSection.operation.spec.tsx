@@ -85,7 +85,6 @@ describe('LiveCommerceSection direct source-owner migration', () => {
     });
     mocks.fetchBrowserStatus.mockResolvedValue({
       ready: true,
-      refreshing: false,
       latestAttempt: { state: 'COMPLETE' },
       latestComplete: { completedAt: '2026-09-04T00:00:00.000Z' },
       actualCutoffAt: '2026-09-04T00:00:00.000Z',
@@ -149,7 +148,7 @@ describe('LiveCommerceSection direct source-owner migration', () => {
       source: 'taobao', configured: true, missing: [], connection: 'official-api', requiresLogin: false,
       latestCapturedAt: null,
       sourceStatus: {
-        ready: state !== 'FAILED', refreshing: state === 'RUNNING',
+        ready: state !== 'FAILED',
         latestAttempt: state ? { attemptId: 'replayed-attempt', state } : null,
         latestComplete: null, actualCutoffAt: null, errorCode: null, errorMessage: null,
       },
@@ -182,7 +181,7 @@ describe('LiveCommerceSection direct source-owner migration', () => {
       source: 'taobao', configured: true, missing: [], connection: 'official-api', requiresLogin: false,
       latestCapturedAt: null,
       sourceStatus: {
-        ready: true, refreshing: state === 'RUNNING',
+        ready: true,
         latestAttempt: state ? { attemptId: 'room-b-attempt', state } : null,
         latestComplete: null, actualCutoffAt: null, errorCode: null, errorMessage: null,
       },
@@ -252,7 +251,6 @@ describe('LiveCommerceSection direct source-owner migration', () => {
     });
     mocks.fetchBrowserStatus.mockResolvedValue({
       ready: false,
-      refreshing: false,
       latestAttempt: { state: 'FAILED' },
       latestComplete: { completedAt: '2026-09-03T00:00:00.000Z' },
       actualCutoffAt: '2026-09-03T00:00:00.000Z',

@@ -168,7 +168,6 @@ export const Sourcing1688SearchSnapshotSchema = z
       keyword: SourcingWingCatalogKeywordSchema,
       targetId: Sourcing1688TargetIdSchema.nullable(),
       ready: z.boolean(),
-      refreshing: z.boolean(),
       latestAttemptId: z.string().uuid().nullable(),
       latestAttemptState: z.enum(['RUNNING', 'COMPLETE', 'FAILED']).nullable(),
       actualCutoffAt: InstantSchema.nullable(),

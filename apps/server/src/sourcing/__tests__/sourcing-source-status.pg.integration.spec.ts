@@ -73,13 +73,11 @@ describe('Sourcing current status HTTP seam (PostgreSQL)', () => {
 
     await expect(reading).resolves.toMatchObject({
       ready: true,
-      refreshing: true,
       latestAttempt: { attemptId: refresh.attemptId, state: 'RUNNING' },
       latestComplete: { attemptId: baseline.attemptId, state: 'COMPLETE' },
     });
     await expect(writer.read1688Status(TEST_ORGANIZATION_ID)).resolves.toMatchObject({
       ready: true,
-      refreshing: false,
       latestAttempt: { attemptId: refresh.attemptId, state: 'COMPLETE' },
       latestComplete: { attemptId: refresh.attemptId, state: 'COMPLETE' },
     });

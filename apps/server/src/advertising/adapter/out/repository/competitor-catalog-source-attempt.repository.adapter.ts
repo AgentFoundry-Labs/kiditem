@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
+import { deriveSourceReadiness } from '@kiditem/shared/source-readiness';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { businessDateKey } from '../../../../common/kst';
 import { PrismaService } from '../../../../prisma/prisma.service';
@@ -19,6 +20,10 @@ import {
   runWithAdIngestTransaction,
 } from './ad-ingest-transaction-context';
 import { lockCompetitorCatalogSource } from './competitor-catalog-source-lock';
+import {
+  effectiveSourceImportRunState as effectiveState,
+  sourceImportRunDbState as dbState,
+} from './source-import-run-state';
 import type { AdvertisingCompetitorCatalogItem } from '@kiditem/shared/sourcing';
 import type {
   CompetitorCatalogAttemptInput,
@@ -425,18 +430,6 @@ function failureAlert(input: {
   };
 }
 
-function dbState(status: string): string {
-  return status === DB_RUNNING || status === DB_COMPLETE || status === DB_FAILED
-    ? status
-    : DB_FAILED;
-}
-
-function effectiveState(attempt: SourceAttempt, now: Date): 'RUNNING' | 'COMPLETE' | 'FAILED' {
-  if (dbState(attempt.status) === DB_COMPLETE) return 'COMPLETE';
-  if (dbState(attempt.status) === DB_RUNNING && !hasExpired(attempt, now)) return 'RUNNING';
-  return 'FAILED';
-}
-
 function hasExpired(attempt: SourceAttempt, now: Date): boolean {
   return !attempt.expiresAt || attempt.expiresAt.getTime() <= now.getTime();
 }
@@ -547,9 +540,14 @@ function sourceView(
     }
     : null;
   const latestState = latest ? effectiveState(latest, now) : null;
-  const ready = latestComplete !== null
-    && latestComplete.coveredThrough >= isoDate(currentBusinessDate(now))
-    && (latestState === 'COMPLETE' || latestState === 'RUNNING');
+  const requiredCutoff = isoDate(new Date(currentBusinessDate(now).getTime() - 86_400_000));
+  const ready = deriveSourceReadiness({
+    latestAttempt: latest ? { state: latestState! } : null,
+    latestComplete: latestComplete
+      ? { actualCutoff: latestComplete.coveredThrough }
+      : null,
+    requiredCutoff,
+  }).ready;
   return {
     ready,
     latestAttempt: latest ? {

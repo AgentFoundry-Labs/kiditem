@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
+import { deriveSourceReadiness } from "@kiditem/shared/source-readiness";
 import {
   KeywordSerpSourcePlanSchema,
   KeywordSerpSourceBeginSchema,
@@ -316,9 +317,9 @@ export class KeywordSerpSourceRepository {
           orderBy: [{ importedAt: "desc" }, { freshnessGeneration: "desc" }],
         });
         const latestAttempt = latest ? view(latest) : null;
-        const fresh =
-          complete?.coverageEndDate &&
-          complete.coverageEndDate >= currentBusinessDate();
+        const requiredCutoff = new Date(currentBusinessDate().getTime() - 86_400_000)
+          .toISOString()
+          .slice(0, 10);
         const targetsMatch =
           complete &&
           (await runWithAdIngestTransaction(tx, async () => {
@@ -339,8 +340,13 @@ export class KeywordSerpSourceRepository {
             );
           }));
         return {
-          ready: !!complete && !!fresh && !!targetsMatch && latestAttempt?.state !== "FAILED",
-          refreshing: latestAttempt?.state === "RUNNING",
+          ready: deriveSourceReadiness({
+            latestAttempt,
+            latestComplete: complete && targetsMatch
+              ? { actualCutoff: complete.coverageEndDate?.toISOString().slice(0, 10) ?? null }
+              : null,
+            requiredCutoff,
+          }).ready,
           latestAttempt,
           latestComplete: complete ? view(complete) : null,
         } satisfies KeywordSerpSource;

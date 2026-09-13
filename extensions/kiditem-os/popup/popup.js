@@ -42,13 +42,6 @@ const OWNER_STATUS_SOURCES = Object.freeze([
   },
 ]);
 
-/** Ready, or collected once but behind, or never collected. */
-function sourceReadinessLabel(source) {
-  if (!source || typeof source.ready !== 'boolean') return '상태 확인 필요';
-  if (source.ready) return '준비됨';
-  return source.latestComplete ? '오래됨' : '자료 없음';
-}
-
 let monthlyPollTimer = null;
 let monthlyPollRequest = null;
 let monthlyPollInFlightRequest = null;
@@ -172,7 +165,7 @@ function setCardValue(id, text, hasDot = false, dotColor = 'dot-gray') {
     element.append(dot);
   }
   element.append(document.createTextNode(String(text)));
-  element.className = text === '-' || text === '아직 없음' || text === '자료 없음' ? 'value none' : 'value';
+  element.className = text === '-' || text === '아직 없음' || text === '미수집' ? 'value none' : 'value';
 }
 
 function setCardDetail(id, lines) {
@@ -253,24 +246,25 @@ function renderOwnerStatus(definition, source) {
   const attempt = source?.latestAttempt;
   const state = attempt?.state;
   const failed = state === 'FAILED';
-  const running = !failed && (state === 'RUNNING' || source?.refreshing === true);
+  const running = !failed && state === 'RUNNING';
   const unexpectedTerminal = Boolean(
     state && !['RUNNING', 'COMPLETE', 'FAILED'].includes(state),
   );
-  const statusLabel = unexpectedTerminal
-    ? '최근 상태 확인 필요'
-    : failed
-    ? '최근 실패'
-    : running
-      ? '수집 중'
-      : sourceReadinessLabel(source);
-  const dotColor = failed
-    ? 'dot-red'
-    : running || (source?.ready === false && source?.latestComplete)
+  const completedCutoff = source?.latestComplete?.actualCutoff
+    ?? source?.latestComplete?.actualCutoffAt?.slice(0, 10)
+    ?? null;
+  const readiness = KidItemSourceReadiness.sourceReadinessStatus({
+    ready: source?.ready === true,
+    latestComplete: source?.latestComplete
+      ? { actualCutoff: completedCutoff }
+      : null,
+  });
+  const statusLabel = KidItemSourceReadiness.SOURCE_READINESS_LABELS[readiness];
+  const dotColor = readiness === 'ready'
+    ? 'dot-green'
+    : readiness === 'stale'
       ? 'dot-orange'
-      : source?.ready === true
-        ? 'dot-green'
-        : 'dot-gray';
+      : 'dot-gray';
   setCardValue(definition.valueId, statusLabel, true, dotColor);
 
   const details = [];

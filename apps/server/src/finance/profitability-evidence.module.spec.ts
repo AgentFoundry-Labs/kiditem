@@ -473,7 +473,8 @@ describe('ProfitabilityEvidence', () => {
     expect(result.sourceVector.sellpia.coverageEndDate).toBe('2026-09-03');
     expect(result.sources.sellpia).toMatchObject({
       ready: true,
-      actualCutoff: '2026-08-31',
+      requiredCutoff: '2026-08-31',
+      actualCutoff: '2026-09-03',
     });
     expect(result.products[0].formulaReadyFacts?.monthlyFacts.at(-1)).toMatchObject({
       yearMonth: '2026-08',
@@ -533,9 +534,8 @@ describe('ProfitabilityEvidence', () => {
     });
 
     expect(result.sources.advertising).toMatchObject({
-      ready: false,
-      latestAttemptState: 'FAILED',
-      errorCode: 'PROVIDER_FAILED',
+      ready: true,
+      latestAttempt: { state: 'FAILED', errorCode: 'PROVIDER_FAILED' },
       actualCutoff: '2026-08-31',
     });
     expect(result.sourceVector.advertising.sourceImportRunId).toBe(ADVERTISING_RUN_ID);
@@ -649,7 +649,7 @@ describe('ProfitabilityEvidence', () => {
       sourceImportRunId: adSummary.sourceImportRunId,
       mappingGeneration: '3',
     });
-    expect(result.sources.sellpia).toMatchObject({ ready: false, actualCutoff: '2026-08-31' });
+    expect(result.sources.sellpia).toMatchObject({ ready: true, actualCutoff: '2026-08-31' });
   });
 
   it('does not mark a source pair ready when it is behind FormulaState mapping generation', async () => {
@@ -839,9 +839,8 @@ describe('ProfitabilityEvidence', () => {
     });
 
     expect(result.sources.sellpia).toMatchObject({
-      ready: false,
-      latestAttemptState: 'FAILED',
-      errorCode: 'SELLPIA_PROVIDER_FAILED',
+      ready: true,
+      latestAttempt: { state: 'FAILED', errorCode: 'SELLPIA_PROVIDER_FAILED' },
     });
   });
 

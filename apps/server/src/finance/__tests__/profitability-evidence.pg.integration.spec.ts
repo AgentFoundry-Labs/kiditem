@@ -102,8 +102,8 @@ describe('ProfitabilityEvidence (PostgreSQL)', () => {
         basisCutoffDate: targetCutoff,
       },
       sources: {
-        sellpia: { ready: true, latestAttemptState: 'COMPLETE' },
-        advertising: { ready: true, latestAttemptState: 'COMPLETE' },
+        sellpia: { ready: true, latestAttempt: { state: 'COMPLETE' } },
+        advertising: { ready: true, latestAttempt: { state: 'COMPLETE' } },
       },
     });
     expect(inclusiveDateCount(ownSellpia.plan.from, ownSellpia.plan.to)).toBe(401);

@@ -126,7 +126,6 @@ export interface MarketShadowCollectionResult {
 }
 export interface MarketShadowSourceStatus {
   ready: boolean;
-  refreshing: boolean;
   latestAttempt: Omit<MarketShadowCollectionResult, 'snapshot'> | null;
   latestComplete: MarketShadowSnapshotRow | null;
   actualCutoffAt: Date | null;
@@ -332,9 +331,7 @@ export class SourcingShadowSignalService {
     const latestComplete = latest.latestComplete;
     return {
       ready: !!latestComplete
-        && latestComplete.businessDate.getTime() === kstBusinessDate(now).getTime()
-        && latestAttempt?.state !== 'FAILED',
-      refreshing: latestAttempt?.state === 'RUNNING',
+        && latestComplete.businessDate.getTime() === kstBusinessDate(now).getTime(),
       latestAttempt,
       latestComplete,
       actualCutoffAt: latest.actualCutoffAt,

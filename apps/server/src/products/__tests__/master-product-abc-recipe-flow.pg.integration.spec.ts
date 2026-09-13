@@ -183,8 +183,8 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
         officialCutoff: null,
         actualCutoff: null,
         sources: {
-          sellpia: { ready: false, latestAttemptState: 'COMPLETE' },
-          advertising: { ready: false, latestAttemptState: 'COMPLETE' },
+          sellpia: { ready: false, latestAttempt: { state: 'COMPLETE' } },
+          advertising: { ready: false, latestAttempt: { state: 'COMPLETE' } },
         },
       });
 

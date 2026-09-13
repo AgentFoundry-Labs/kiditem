@@ -1,3 +1,5 @@
+import type { SourceReadiness } from '@kiditem/shared/source-readiness';
+
 export const MASTER_PRODUCT_PROFITABILITY_READ_PORT = Symbol(
   'MASTER_PRODUCT_PROFITABILITY_READ_PORT',
 );
@@ -9,13 +11,6 @@ export type SourceGenerationView = Readonly<{
   coverageStartDate: string | null;
   coverageEndDate: string | null;
   capturedAt: string | null;
-}>;
-
-export type SourceReadiness = Readonly<{
-  ready: boolean;
-  actualCutoff: string | null;
-  latestAttemptState: 'RUNNING' | 'COMPLETE' | 'FAILED' | null;
-  errorCode: string | null;
 }>;
 
 /**

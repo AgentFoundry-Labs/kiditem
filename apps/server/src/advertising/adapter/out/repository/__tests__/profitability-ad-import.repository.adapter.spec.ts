@@ -392,7 +392,7 @@ describe('ProfitabilityAdImportRepositoryAdapter', () => {
     );
   });
 
-  it('treats exact KST-yesterday coverage as fresh, then preserves it as STALE after failure', async () => {
+  it('keeps exact KST-yesterday coverage ready while surfacing a newer failure', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-09-07T03:00:00.000Z'));
     const complete = {
@@ -491,7 +491,7 @@ describe('ProfitabilityAdImportRepositoryAdapter', () => {
     await expect(adapter.readSourceStatus({ organizationId: failed.organizationId })).resolves.toMatchObject({
       latestAttempt: { state: 'FAILED', errorCode: 'PROVIDER_FAILED' },
       latestComplete: { sourceImportRunId: complete.id, coveredThrough: '2026-09-06' },
-      ready: false,
+      ready: true,
     });
     vi.useRealTimers();
   });
