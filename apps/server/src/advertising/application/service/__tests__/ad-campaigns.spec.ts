@@ -7,8 +7,12 @@ import {
   type MockAdCampaignRepo,
   type MockAdListingRepo,
 } from '../../../__tests__/test-helpers/build-mock-ports';
-import type { AdCampaignRepositoryPort } from '../../port/out/repository/ad-campaign.repository.port';
+import type {
+  AdCampaignRepositoryPort,
+  KeywordTargetRollup,
+} from '../../port/out/repository/ad-campaign.repository.port';
 import type { AdListingRepositoryPort } from '../../port/out/repository/ad-listing.repository.port';
+import type { AdActionRepositoryPort } from '../../port/out/repository/ad-action.repository.port';
 
 describe('AdCampaignsService', () => {
   const channelAccountId = '11111111-1111-4111-8111-111111111111';
@@ -365,5 +369,73 @@ describe('AdCampaignsService', () => {
     expect(campaigns).toEqual([]);
     expect(trends.daily.every((day) => day.metrics === null && day.orders === null)).toBe(true);
     expect(trends.summary).toMatchObject({ source: 'unavailable', periodDayCount: 0, metrics: null });
+  });
+});
+
+describe('AdCampaignsService.getKeywords conversion availability', () => {
+  function keywordRollup(
+    keyword: string,
+    overrides: Partial<KeywordTargetRollup> = {},
+  ): KeywordTargetRollup {
+    return {
+      targetKey: `account:11111111-1111-4111-8111-111111111111:keyword:campaign:1::${keyword}`,
+      channelAccountId: '11111111-1111-4111-8111-111111111111',
+      campaignIdentity: 'campaign:1',
+      campaignId: '1',
+      campaignName: '쿠팡윙 집중광고',
+      adGroup: 'group-1',
+      keyword,
+      listingId: null,
+      listingOptionId: null,
+      externalOptionId: '95514044205',
+      status: null,
+      onOff: null,
+      currentBid: null,
+      metaJson: { 'advertising.keyword.target': { origin: 'smart_targeting' } },
+      lastObservedAt: new Date('2026-09-12T03:00:00.000Z'),
+      businessDate: new Date('2026-09-12T00:00:00.000Z'),
+      windowDays: 7,
+      spend: 1_000,
+      revenue: 0,
+      impressions: 100,
+      clicks: 20,
+      conversions: 0,
+      orders: 0,
+      conversionsObserved: true,
+      ...overrides,
+    };
+  }
+
+  it('rolls an unobserved keyword conversion column up as unavailable, never as zero', async () => {
+    const campaignRepo = buildMockAdCampaignRepo();
+    const listingRepo = buildMockAdListingRepo();
+    listingRepo.findScopedAdListings.mockResolvedValue(new Map());
+    campaignRepo.findKeywordTargetRollups.mockResolvedValue([
+      keywordRollup('비눗방울', { conversions: 1, orders: 1 }),
+      // The keyword table carried no conversion column: stored 0, unobserved.
+      keywordRollup('문어발', { conversionsObserved: false }),
+    ]);
+    const service = new AdCampaignsService(
+      campaignRepo as unknown as AdCampaignRepositoryPort,
+      listingRepo as unknown as AdListingRepositoryPort,
+      // The mock resolves no open keyword relevance proposal.
+      buildMockAdActionRepo() as unknown as AdActionRepositoryPort,
+      { getConfig: vi.fn() } as never,
+    );
+
+    const result = await service.getKeywords('7d', 'organization-1');
+
+    expect(result.keywords.map(({ keyword, conversionsAvailable, metrics }) => ({
+      keyword, conversionsAvailable, cvr: metrics.cvr,
+    }))).toEqual([
+      { keyword: '비눗방울', conversionsAvailable: true, cvr: 5 },
+      { keyword: '문어발', conversionsAvailable: false, cvr: null },
+    ]);
+    expect(result.products).toHaveLength(1);
+    expect(result.products[0]).toMatchObject({
+      keywordCount: 2,
+      conversionsAvailable: false,
+      metrics: { clicks: 40, cvr: null },
+    });
   });
 });

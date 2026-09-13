@@ -2,12 +2,12 @@ import { Inject, Injectable } from '@nestjs/common';
 import {
   toAdCampaignSnapshot,
   toMetadataOnlyAdCampaignSnapshot,
+  keywordMetrics,
   toAdKeywordSnapshot,
   toAdProductSnapshot,
   toAdTrendsData,
 } from '../../mapper/ad-campaign.mapper';
 import {
-  buildAdMetrics,
   periodBounds,
   type AdPeriod,
 } from '../../domain/ad-metrics';
@@ -331,6 +331,8 @@ function rollUpKeywordsByProduct(
       }),
       { spend: 0, revenue: 0, impressions: 0, clicks: 0, conversions: 0 },
     );
+    // A summed conversion count is a count only when every keyword observed it.
+    const conversionsAvailable = rows.every((row) => row.conversionsAvailable);
     return {
       externalOptionId,
       productName: rows.find((row) => row.productName)?.productName ?? null,
@@ -346,7 +348,8 @@ function rollUpKeywordsByProduct(
       irrelevantCount: rows.filter((row) => row.relevance === 'irrelevant')
         .length,
       unjudgedCount: rows.filter((row) => row.relevance === null).length,
-      metrics: buildAdMetrics(totals),
+      conversionsAvailable,
+      metrics: keywordMetrics(totals, conversionsAvailable),
     } satisfies AdKeywordProductSummary;
   });
 

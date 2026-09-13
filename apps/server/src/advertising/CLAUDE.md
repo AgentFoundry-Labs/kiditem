@@ -49,9 +49,10 @@ modal (`cmg-api/tableMetric` with `tableType='keyword'`), not the report grid.
   fixed prompt/schema/model, no autonomous tool use or planning, and output
   only becomes human-reviewed `AdAction` proposals.
 - The model only proposes. `toKeywordPauseCandidates` rejects unknown refs,
-  drifted keywords, missing rationale, and keywords that converted; survivors
-  become `pause_keyword` AdActions in `pending_review` and still require human
-  approval before the extension executes them.
+  drifted keywords, missing rationale, keywords whose conversions were not
+  observed, and keywords that converted; survivors become `pause_keyword`
+  AdActions in `pending_review` and still require human approval before the
+  extension executes them.
 
 ## Cross-Domain Boundaries
 

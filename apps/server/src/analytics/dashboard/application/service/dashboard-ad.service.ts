@@ -135,11 +135,25 @@ export class DashboardAdService {
       // or Wing revenue use the exact intersection of both sources' dates.
       const monthAdBasis = adEvidence(closedDayPeriods.month, monthlyMetrics, coupangAdsCurMonth);
       const rangeAdBasis = adEvidence(closedDayPeriods.selected, rangeMetrics, coupangAdsCurRange);
+      // The conversion count and CVR read the owner's order count, which a
+      // covered window can still withhold when its grid had no conversion
+      // columns. Those values then carry their own refused basis.
+      const monthConversionBasis = conversionEvidence(
+        closedDayPeriods.month,
+        monthlyMetrics,
+        monthAdBasis,
+      );
+      const rangeConversionBasis = conversionEvidence(
+        closedDayPeriods.selected,
+        rangeMetrics,
+        rangeAdBasis,
+      );
       const adRateBasis = adRateEvidence(closedDayPeriods.selected, adRateCur);
       const benchmarkBases = benchmarkEvidence(
         orderPeriods.month,
         curMonthProfit,
         monthAdBasis,
+        monthConversionBasis,
       );
 
       return {
@@ -183,8 +197,8 @@ export class DashboardAdService {
           'adKpi.convRevenue': rangeAdBasis,
           'adKpi.ctr': rangeAdBasis,
           'adKpi.roas': rangeAdBasis,
-          'adKpi.conversions': rangeAdBasis,
-          'adKpi.cvr': rangeAdBasis,
+          'adKpi.conversions': rangeConversionBasis,
+          'adKpi.cvr': rangeConversionBasis,
         }),
       } satisfies DashboardAdSummary;
     } catch (error) {
@@ -354,7 +368,7 @@ export class DashboardAdService {
         myAdRate: bases.adRate,
         myRoas: bases.accountAds,
         myCtr: bases.accountAds,
-        myCvr: bases.accountAds,
+        myCvr: bases.accountConversions,
       }),
     } satisfies IndustryBenchmark;
   }
@@ -483,6 +497,25 @@ function adEvidence(
 }
 
 /**
+ * Basis for a value read from the owner's conversion count: the count itself
+ * and CVR. An available window whose provider grid lacked the conversion
+ * columns publishes no count, so every date it covered was read and refused
+ * for those values while the window's other account KPIs stay measured.
+ */
+function conversionEvidence(
+  period: ResolvedDashboardPeriod,
+  metrics: ResolvedAdMetrics,
+  adBasis: DashboardPeriodBasis | null,
+): DashboardPeriodBasis | null {
+  if (!metrics.available || metrics.orders !== null) return adBasis;
+  return periodEvidence({
+    selectedDates: period.selectedDates,
+    invalidDates: windowCoverageDates(period.selectedDates, metrics.coverage, true),
+    sources: [COUPANG_ADS_SOURCE],
+  });
+}
+
+/**
  * Basis for the revenue denominator behind `adRate`, following the same
  * order-first, Wing-fallback decision `buildRangeKpi` makes for the value.
  */
@@ -507,16 +540,23 @@ interface BenchmarkEvidence {
   adRate: DashboardPeriodBasis | null;
   /** Basis of the ratios computed purely from account ad rows. */
   accountAds: DashboardPeriodBasis | null;
+  /** Basis of our CVR, which also needs the account's observed order count. */
+  accountConversions: DashboardPeriodBasis | null;
 }
 
 function benchmarkEvidence(
   orderMonth: ResolvedDashboardPeriod,
   curMonthProfit: RangeProfitMetrics,
   monthAdBasis: DashboardPeriodBasis | null,
+  monthConversionBasis: DashboardPeriodBasis | null,
 ): BenchmarkEvidence {
   if (!hasOrderEvidence(curMonthProfit)) {
     // Both inputs then come from the account ad month.
-    return { adRate: monthAdBasis, accountAds: monthAdBasis };
+    return {
+      adRate: monthAdBasis,
+      accountAds: monthAdBasis,
+      accountConversions: monthConversionBasis,
+    };
   }
   const coverage = curMonthProfit.sourceCoverage;
   const queryFailedSources: DashboardSourceName[] = curMonthProfit.adEvidenceError
@@ -531,7 +571,11 @@ function benchmarkEvidence(
   // name: the ad rate is settlement ad cost over settlement revenue, and the
   // basis says orders alone rather than claiming Coupang ads covered it.
   if (!adEvidenceApplies(coverage)) {
-    return { adRate: orderBasis, accountAds: monthAdBasis };
+    return {
+      adRate: orderBasis,
+      accountAds: monthAdBasis,
+      accountConversions: monthConversionBasis,
+    };
   }
   const settlementAdBasis = periodEvidence({
     selectedDates: orderMonth.selectedDates,
@@ -542,5 +586,6 @@ function benchmarkEvidence(
   return {
     adRate: intersectEvidence(orderBasis, settlementAdBasis),
     accountAds: monthAdBasis,
+    accountConversions: monthConversionBasis,
   };
 }

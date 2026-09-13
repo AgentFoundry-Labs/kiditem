@@ -24,20 +24,13 @@ describe('buildProductAbcReadModel', () => {
     expect(productAbcDisplayStatus(abc)).toBe('INSUFFICIENT_EVIDENCE');
   });
 
-  it('publishes the owner readiness of a complete source that no compatible pair selected', () => {
-    // Finance reports the current-mapping Sellpia generation complete through
-    // the cutoff, but with no advertising generation to pair it with the
-    // selected manifest is empty. The published readiness is still the
-    // owner's: Sellpia is ready and advertising is the source to refresh.
+  it("publishes each source's owner readiness from its own cutoff, not the other source's", () => {
+    // Finance reports the Sellpia generation complete through the cutoff while
+    // advertising has no complete generation, so no pair exists. Sellpia is
+    // still ready and advertising is the source to refresh.
     const abc = buildProductAbcReadModel(input({
-      sellpia: { ...sourceEvidence(), ...noManifest() },
-      advertising: {
-        ...sourceEvidence(),
-        ...noManifest(),
-        ready: false,
-        actualCutoff: null,
-        latestAttemptState: null,
-      },
+      sellpia: sourceEvidence(),
+      advertising: { actualCutoff: null, latestAttemptState: null },
     }));
 
     expect(abc.sources.sellpia).toEqual({
@@ -57,7 +50,7 @@ describe('buildProductAbcReadModel', () => {
 
   it('keeps a complete source that lags the cutoff visible as stale, not missing', () => {
     const abc = buildProductAbcReadModel(input({
-      sellpia: { ...sourceEvidence(), ready: false, actualCutoff: '2026-08-30' },
+      sellpia: { ...sourceEvidence(), actualCutoff: '2026-08-30' },
     }));
 
     expect(abc.sources.sellpia).toMatchObject({
@@ -96,23 +89,7 @@ function input(sources: Partial<{
 
 function sourceEvidence(): ProductAbcSourceEvidence {
   return {
-    ready: true,
     actualCutoff: '2026-08-31',
     latestAttemptState: 'COMPLETE',
-    errorCode: null,
-    sourceImportRunId: '00000000-0000-4000-8000-000000000001',
-    generation: '1',
-    coverageStartDate: '2026-08-01',
-    coverageEndDate: '2026-08-31',
-    capturedAt: '2026-09-01T00:00:00.000Z',
-  };
-}
-
-function noManifest() {
-  return {
-    sourceImportRunId: null,
-    generation: null,
-    coverageStartDate: null,
-    coverageEndDate: null,
   };
 }

@@ -3,6 +3,8 @@ import {
   AdCampaignReportScopeSchema,
   AdCampaignSnapshotSchema,
   AdExtensionReplayIdempotencyKeySchema,
+  AdKeywordProductSummarySchema,
+  AdKeywordSnapshotSchema,
   AdProductSnapshotSchema,
 } from './ads';
 
@@ -122,5 +124,66 @@ describe('AdExtensionReplayIdempotencyKeySchema', () => {
       .toThrow();
     expect(() => AdExtensionReplayIdempotencyKeySchema.parse(`authoritative-rebuild:1:${'x'.repeat(200)}`))
       .toThrow();
+  });
+});
+
+describe('keyword conversion availability', () => {
+  const metrics = {
+    spend: 3_000,
+    impressions: 400,
+    clicks: 20,
+    conversions: 0,
+    revenue: 0,
+    ctr: 5,
+    roas: 0,
+    cvr: null,
+  };
+  const keyword = {
+    channelAccountId: '00000000-0000-4000-8000-000000000001',
+    campaignIdentity: 'campaign:1',
+    campaignId: '1',
+    campaignName: '캠페인',
+    adGroup: 'group-1',
+    keyword: '비눗방울',
+    origin: 'smart_targeting',
+    status: null,
+    onOff: null,
+    currentBid: null,
+    externalOptionId: '95514044205',
+    productName: '비눗방울 세트',
+    listing: null,
+    period: '7d',
+    windowDays: 7,
+    businessDate: '2026-09-12',
+    metrics,
+    relevance: null,
+    relevanceReason: null,
+  };
+
+  it('requires keyword snapshots to say whether the conversion count was collected', () => {
+    // A stored 0 from a table without the conversion column is not a count.
+    expect(AdKeywordSnapshotSchema.safeParse(keyword).success).toBe(false);
+    expect(AdKeywordSnapshotSchema.parse({ ...keyword, conversionsAvailable: false }))
+      .toMatchObject({ conversionsAvailable: false, metrics: { cvr: null } });
+  });
+
+  it('requires the keyword product summary to carry the same availability', () => {
+    const summary = {
+      externalOptionId: '95514044205',
+      productName: '비눗방울 세트',
+      campaignId: '1',
+      campaignName: '캠페인',
+      listing: null,
+      keywordCount: 1,
+      registeredCount: 0,
+      smartTargetingCount: 1,
+      servingCount: 1,
+      irrelevantCount: 0,
+      unjudgedCount: 1,
+      metrics,
+    };
+    expect(AdKeywordProductSummarySchema.safeParse(summary).success).toBe(false);
+    expect(AdKeywordProductSummarySchema.parse({ ...summary, conversionsAvailable: true }))
+      .toMatchObject({ conversionsAvailable: true });
   });
 });

@@ -86,10 +86,11 @@ boundary with HTTP and persistence adapters around Prisma-free orchestration.
   metrics such as out-of-stock only, never whether a configured link exists.
 - Inventory ABC counts, calculation statuses, contribution-profit totals,
   formula context, and Top Products read Products' retained official evaluation
-  through its publication reader. Display statuses
-  come from Products through `PRODUCT_ABC_READ_PORT`; this read model names the
-  product population and counts the published answer, and never chooses an ABC
-  evidence cutoff. A/B/C ratios use
+  through its publication reader. Calculation statuses are counted from
+  Products' published per-product view (`PRODUCT_ABC_READ_PORT`) with the
+  shared `productAbcDisplayStatus`; this read model names the product
+  population and counts that derived word, never publishes or re-derives a
+  status of its own, and never chooses an ABC evidence cutoff. A/B/C ratios use
   classified products only; observation, source-stale, mapping, recalculation,
   and calculation-error states do not become C or unclassified. Dashboard never
   recalculates contribution profit or owns ABC policy mutations.

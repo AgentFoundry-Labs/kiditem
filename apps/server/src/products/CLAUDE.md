@@ -109,8 +109,12 @@ owns physical stock quantities.
   ran while the host clock was behind produces an older actual cutoff over a
   settled grade.
 - Products owns the ABC evidence cutoff — the latest closed KST day — and
-  derives display status once. Consumers read the published per-product view
-  through `PRODUCT_ABC_READ_PORT`; no reader picks a cutoff of its own
-  ([ADR 0002](../../../../docs/adr/0002-products-owns-abc-display-status.md)).
+  publishes one per-product view of the facts that decide the display word
+  (retained evaluation, `sources.sellpia.ready`, `sources.advertising.ready`,
+  `sources.mapping.valid`) through `PRODUCT_ABC_READ_PORT`; no reader picks a
+  cutoff of its own. The view carries no display word: every consumer derives
+  it with `productAbcDisplayStatus` from `@kiditem/shared/product-abc`
+  ([ADR 0006](../../../../docs/adr/0006-a-displayed-number-is-a-measurement-or-nothing.md),
+  [ADR 0009](../../../../docs/adr/0009-one-ledger-one-reader.md)).
 - Thumbnail analysis quality grades remain AI registration evidence and are
   independent from automatic product ABC.

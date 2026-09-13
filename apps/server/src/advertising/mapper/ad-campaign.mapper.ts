@@ -160,18 +160,33 @@ export function toAdKeywordSnapshot(
     period: '7d',
     windowDays: rollup.windowDays,
     businessDate: rollup.businessDate,
-    metrics: buildAdMetrics({
-      spend: rollup.spend,
-      revenue: rollup.revenue,
-      impressions: rollup.impressions,
-      clicks: rollup.clicks,
-      // Keyword rows carry a real order count from the provider keyword table,
-      // so the campaign-grain revenue-as-conversions guard does not apply.
-      conversions: rollup.conversions,
-    }),
+    // The keyword table can lack the conversion column; its stored 0 is then
+    // no count, so the flag says so and CVR is unavailable.
+    conversionsAvailable: rollup.conversionsObserved,
+    metrics: keywordMetrics(rollup, rollup.conversionsObserved),
     relevance: relevance.verdict,
     relevanceReason: relevance.reason,
   } satisfies AdKeywordSnapshot;
+}
+
+/**
+ * Keyword metrics keep the shared `AdMetrics` shape. Keyword rows carry a real
+ * order count from the provider keyword table, so the campaign-grain
+ * revenue-as-conversions guard does not apply; an unobserved count publishes
+ * no CVR.
+ */
+export function keywordMetrics(
+  sums: { spend: number; revenue: number; impressions: number; clicks: number; conversions: number },
+  conversionsObserved: boolean,
+): AdKeywordSnapshot['metrics'] {
+  const metrics = buildAdMetrics({
+    spend: sums.spend,
+    revenue: sums.revenue,
+    impressions: sums.impressions,
+    clicks: sums.clicks,
+    conversions: sums.conversions,
+  });
+  return conversionsObserved ? metrics : { ...metrics, cvr: null };
 }
 
 function readTargetMetaString(metaJson: unknown, key: string): string | null {

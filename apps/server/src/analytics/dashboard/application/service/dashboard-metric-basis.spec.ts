@@ -463,6 +463,54 @@ describe('dashboard ad metricBasis', () => {
     });
   });
 
+  it('refuses the conversion dates of a covered window whose grid carried no conversion columns', async () => {
+    const { ad } = salesService({
+      profitFor: selectedOnly({}),
+      ads: coupangAds({
+        spend: 10_000,
+        revenue: 40_000,
+        impressions: 1_000,
+        clicks: 50,
+        // Every date was swept, but one day's grid had no conversion columns.
+        conversions: null,
+        orders: null,
+        isCollected: true,
+        hasData: true,
+        coverage: {
+          from: '2026-09-01',
+          to: '2026-09-05',
+          knownThrough: '2026-09-05',
+          targetDays: 5,
+          completedDays: 5,
+          missingDates: [],
+        },
+        lastObservedAt: new Date('2026-09-06T01:00:00.000Z'),
+      }),
+    });
+
+    const result = await ad.getSummary(customContext(), ORGANIZATION_ID);
+
+    expect(result.adKpi?.conversions).toBeNull();
+    expect(result.adKpi?.cvr).toBeNull();
+    expect(result.industryBenchmark?.myCvr).toBeNull();
+    for (const key of ['adKpi.conversions', 'adKpi.cvr'] as const) {
+      expect(result.metricBasis?.[key]).toMatchObject({
+        sources: ['coupang_ads'],
+        includedDates: [],
+        invalidDates: SELECTED,
+      });
+      expect(periodStatusOf(result.metricBasis?.[key])).toBe('empty');
+    }
+    const myCvrBasis = result.industryBenchmark?.metricBasis?.myCvr;
+    expect(myCvrBasis).toMatchObject({ sources: ['coupang_ads'], includedDates: [] });
+    expect(myCvrBasis?.kind === 'period' ? myCvrBasis.invalidDates.length : 0).toBeGreaterThan(0);
+    expect(periodStatusOf(myCvrBasis)).toBe('empty');
+    // The rest of the account KPIs were measured and keep their complete basis.
+    expect(result.adKpi?.clicks).toBe(50);
+    expect(periodStatusOf(result.metricBasis?.['adKpi.clicks'])).toBe('complete');
+    expect(periodStatusOf(result.industryBenchmark?.metricBasis?.myCtr)).toBe('complete');
+  });
+
   it('leaves our CVR unavailable rather than zero when clicks are unmeasured', async () => {
     const { ad } = salesService({ profitFor: selectedOnly({}) });
 

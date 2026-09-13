@@ -9,20 +9,14 @@ import {
 } from '@kiditem/shared/source-readiness';
 
 /**
- * One source's readiness at the owned evidence cutoff, together with the
- * manifest of the complete generation behind it. Structural on purpose: the
- * domain states what it needs, not where Finance keeps it.
+ * One source's owner readiness facts at the owned evidence cutoff. Structural
+ * on purpose: the domain states what it needs, not where Finance keeps it.
+ * Readiness itself is derived from `actualCutoff` against the required cutoff.
  */
 export type ProductAbcSourceEvidence = Readonly<{
-  ready: boolean;
+  /** Cutoff the owner's latest complete generation reached; `null` when none. */
   actualCutoff: string | null;
   latestAttemptState: 'RUNNING' | 'COMPLETE' | 'FAILED' | null;
-  errorCode: string | null;
-  sourceImportRunId: string | null;
-  generation: string | null;
-  coverageStartDate: string | null;
-  coverageEndDate: string | null;
-  capturedAt: string | null;
 }>;
 
 export type ProductAbcEvidenceView = Readonly<{

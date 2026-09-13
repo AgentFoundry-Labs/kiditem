@@ -100,8 +100,11 @@ export interface KeywordTargetRollup {
   revenue: number;
   impressions: number;
   clicks: number;
+  /** Stored count; a measurement only when `conversionsObserved`. */
   conversions: number;
   orders: number;
+  /** Whether the keyword table carried the conversion column. */
+  conversionsObserved: boolean;
 }
 
 /** One business date the campaign sweep measured, with the account totals. */

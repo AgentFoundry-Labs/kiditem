@@ -184,6 +184,12 @@ export const AdKeywordSnapshotSchema = z.object({
   period: z.literal('7d'),
   windowDays: z.literal(7),
   businessDate: zIsoDate,
+  /**
+   * Whether `metrics.conversions` is a collected count. The keyword table can
+   * lack the conversion column; ingest then stores 0, so render unknown (`-`)
+   * and treat `metrics.cvr` as unavailable when this is false.
+   */
+  conversionsAvailable: z.boolean(),
   metrics: AdMetricsSchema,
   relevance: AdKeywordRelevanceSchema.nullable(),
   relevanceReason: z.string().nullable(),
@@ -204,6 +210,8 @@ export const AdKeywordProductSummarySchema = z.object({
   servingCount: z.number().int(),
   irrelevantCount: z.number().int(),
   unjudgedCount: z.number().int(),
+  /** True only when every rolled-up keyword's conversion count was collected. */
+  conversionsAvailable: z.boolean(),
   metrics: AdMetricsSchema,
 });
 export type AdKeywordProductSummary = z.infer<

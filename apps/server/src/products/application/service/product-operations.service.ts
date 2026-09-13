@@ -43,7 +43,6 @@ import {
   PRODUCT_OPERATIONS_DATA_STATUS_REPOSITORY_PORT,
   type ProductOperationsDataStatusRepositoryPort,
   type ProductOperationsDataStatusFacts,
-  type ProductOperationsAbcSourceManifest,
 } from '../port/out/repository/product-operations-data-status.repository.port';
 import {
   MASTER_PRODUCT_CONTRIBUTION_READ_PORT,
@@ -427,11 +426,8 @@ function enrichAbc<T extends { id: string }>(
       mappingGeneration: status.mappingReady
         ? status.formulaState.mappingGeneration
         : null,
-      sellpia: abcSourceEvidence(status.sellpia, status.sourceVector.sellpia),
-      advertising: abcSourceEvidence(
-        status.advertising,
-        status.sourceVector.advertising,
-      ),
+      sellpia: abcSourceEvidence(status.sellpia),
+      advertising: abcSourceEvidence(status.advertising),
     },
     formulaState: {
       formulaRevision: current?.evaluation?.formulaRevision
@@ -453,18 +449,10 @@ function enrichAbc<T extends { id: string }>(
 
 function abcSourceEvidence(
   status: ProductOperationsDataStatusFacts['sellpia'],
-  manifest: ProductOperationsAbcSourceManifest | null,
 ): ProductAbcSourceEvidence {
   return {
-    ready: status.ready,
     actualCutoff: status.actualCutoff,
     latestAttemptState: status.latestAttempt?.state ?? null,
-    errorCode: null,
-    sourceImportRunId: manifest?.sourceImportRunId ?? null,
-    generation: manifest?.generation ?? null,
-    coverageStartDate: manifest?.coverageStartDate ?? null,
-    coverageEndDate: manifest?.coverageEndDate ?? null,
-    capturedAt: manifest?.capturedAt ?? null,
   };
 }
 

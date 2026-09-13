@@ -101,19 +101,9 @@ function sourceEvidence(
   source: 'sellpia' | 'advertising',
 ): ProductAbcSourceEvidence {
   const readiness = snapshot.sources[source];
-  const manifest = snapshot.sourceVector[source];
   return {
-    ready: readiness.ready,
     actualCutoff: readiness.actualCutoff,
     latestAttemptState: readiness.latestAttempt?.state ?? null,
-    errorCode: typeof readiness.latestAttempt?.errorCode === 'string'
-      ? readiness.latestAttempt.errorCode
-      : null,
-    sourceImportRunId: manifest.sourceImportRunId,
-    generation: manifest.publicationSequence,
-    coverageStartDate: manifest.coverageStartDate,
-    coverageEndDate: manifest.coverageEndDate,
-    capturedAt: manifest.capturedAt,
   };
 }
 
