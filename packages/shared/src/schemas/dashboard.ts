@@ -571,6 +571,9 @@ export const SellpiaSalesDailyPointSchema = z.object({
   date: z.string(), // YYYY-MM-DD
   revenue: z.number(),
   qty: z.number(),
+  // Whole percent of the containing group's or mall's revenue; null when that
+  // revenue is not positive. Every share is the server's; screens compute none.
+  revenueShare: z.number().int().nullable(),
   // Usually inherited from the containing group `metricBasis` because the
   // group's date basis already exposes internal holes. Set this only when
   // this point has evidence that differs from the parent daily basis.
@@ -582,6 +585,8 @@ export const SellpiaSalesMallSchema = z.object({
   revenue: z.number(),
   qty: z.number(),
   cost: z.number(),
+  // Whole percent of the group's revenue; null when that revenue is not positive.
+  revenueShare: z.number().int().nullable(),
   daily: z.array(SellpiaSalesDailyPointSchema),
   // Mall scalar fields inherit the containing group's descendant basis
   // (`metricBasis['rocket.malls']` or `metricBasis['others.malls']` at the
@@ -594,6 +599,8 @@ export const SellpiaSalesGroupSchema = z.object({
   revenue: z.number(),
   qty: z.number(),
   cost: z.number(),
+  // Whole percent of `totalRevenue`; null when the total is not positive.
+  revenueShare: z.number().int().nullable(),
   daily: z.array(SellpiaSalesDailyPointSchema),
   malls: z.array(SellpiaSalesMallSchema), // rocket 은 보통 1개, others 는 다수
   // A compact group basis can cover all group scalars when their required

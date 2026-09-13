@@ -22,7 +22,7 @@ const windowBasis = {
   revenue: ordersBasis,
   adCost: ordersBasis,
   profit: ordersBasis,
-  costInputs: { purchaseCost: costInput, commission: costInput, otherCost: costInput, advertising: costInput },
+  costInputs: { unmappedLines: 0, purchaseCost: costInput, commission: costInput, otherCost: costInput, advertising: costInput },
 };
 
 describe('StatisticsParetoResponseSchema', () => {

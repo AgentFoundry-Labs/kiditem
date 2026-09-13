@@ -434,7 +434,7 @@ describe('dashboard schemas', () => {
   });
 
   it('requires the Sellpia receipt profit after collected Coupang ad spend', () => {
-    const emptyGroup = { revenue: 0, qty: 0, cost: 0, daily: [], malls: [] };
+    const emptyGroup = { revenue: 0, qty: 0, cost: 0, revenueShare: null, daily: [], malls: [] };
     const summary = SellpiaSalesSummarySchema.parse({
       knownThrough: '2026-07-18',
       range: { from: '2026-07-01', to: '2026-07-18' },
@@ -455,7 +455,7 @@ describe('dashboard schemas', () => {
   });
 
   it('accepts unavailable Sellpia advertising profit fields without relaxing sales fields', () => {
-    const emptyGroup = { revenue: 0, qty: 0, cost: 0, daily: [], malls: [] };
+    const emptyGroup = { revenue: 0, qty: 0, cost: 0, revenueShare: null, daily: [], malls: [] };
     const summary = SellpiaSalesSummarySchema.parse({
       knownThrough: '2026-07-18',
       range: { from: '2026-07-01', to: '2026-07-18' },
@@ -465,6 +465,7 @@ describe('dashboard schemas', () => {
         revenue: 100_000,
         qty: 4,
         cost: 60_000,
+        revenueShare: 100,
       },
       totalRevenue: 100_000,
       totalCost: 60_000,
@@ -483,7 +484,7 @@ describe('dashboard schemas', () => {
   });
 
   it('keeps an explicit zero-cost Sellpia result numeric', () => {
-    const emptyGroup = { revenue: 0, qty: 0, cost: 0, daily: [], malls: [] };
+    const emptyGroup = { revenue: 0, qty: 0, cost: 0, revenueShare: null, daily: [], malls: [] };
     const summary = SellpiaSalesSummarySchema.parse({
       knownThrough: '2026-07-18',
       range: { from: '2026-07-01', to: '2026-07-18' },
@@ -501,6 +502,47 @@ describe('dashboard schemas', () => {
     expect(summary.adCost).toBe(0);
     expect(summary.netProfit).toBe(0);
     expect(summary.profitRate).toBe(0);
+  });
+
+  it('carries the revenue shares the server calculated, null over a zero denominator', () => {
+    const day = (date: string, revenue: number, revenueShare: number | null) =>
+      ({ date, revenue, qty: 1, revenueShare });
+    const summary = SellpiaSalesSummarySchema.parse({
+      knownThrough: '2026-07-18',
+      range: { from: '2026-07-01', to: '2026-07-02' },
+      rocket: { revenue: 0, qty: 0, cost: 0, revenueShare: 0, daily: [day('2026-07-01', 0, null)], malls: [] },
+      others: {
+        revenue: 3_000,
+        qty: 2,
+        cost: 1_000,
+        revenueShare: 100,
+        daily: [day('2026-07-01', 1_000, 33), day('2026-07-02', 2_000, 67)],
+        malls: [{
+          sellerId: '118',
+          sellerName: '스마트스토어',
+          revenue: 3_000,
+          qty: 2,
+          cost: 1_000,
+          revenueShare: 100,
+          daily: [day('2026-07-01', 1_000, 33)],
+        }],
+      },
+      totalRevenue: 3_000,
+      totalCost: 1_000,
+      adCost: null,
+      netProfit: null,
+      profitRate: null,
+      lastCapturedAt: null,
+      hasData: true,
+    });
+
+    expect(summary.others.revenueShare).toBe(100);
+    expect(summary.others.malls[0]?.revenueShare).toBe(100);
+    expect(summary.rocket.daily[0]?.revenueShare).toBeNull();
+    expect(SellpiaSalesSummarySchema.safeParse({
+      ...summary,
+      rocket: { ...summary.rocket, revenueShare: undefined },
+    }).success).toBe(false);
   });
 
   it('rejects malformed or oversized Sellpia collection ranges before ingest', () => {

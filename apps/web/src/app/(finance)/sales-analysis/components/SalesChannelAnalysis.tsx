@@ -30,6 +30,11 @@ const SalesChannelTrendChart = dynamic(
 
 export type SalesChannelSelection = 'all' | 'rocket' | 'others';
 
+/** A revenue share the server published; `-` where its denominator was zero. */
+function shareText(share: number | null): string {
+  return share === null ? '-' : `${share}%`;
+}
+
 export function buildSalesChannelChartData(
   summary: SellpiaSalesSummary,
 ): SalesChannelChartPoint[] {
@@ -155,13 +160,6 @@ function SalesChannelAnalysisBody({
   selectedChannel: SalesChannelSelection;
   onChannelChange: (channel: SalesChannelSelection) => void;
 }) {
-  const total = summary.totalRevenue;
-  const rocketShare = total > 0
-    ? Math.round((summary.rocket.revenue / total) * 100)
-    : 0;
-  const othersShare = total > 0
-    ? Math.round((summary.others.revenue / total) * 100)
-    : 0;
   const chartData = buildSalesChannelChartData(summary);
 
   return (
@@ -175,7 +173,7 @@ function SalesChannelAnalysisBody({
           subtitle="쿠팡-직배송"
           revenue={summary.rocket.revenue}
           quantity={summary.rocket.qty}
-          share={rocketShare}
+          share={summary.rocket.revenueShare}
           icon={Rocket}
         />
         <ChannelSummaryButton
@@ -186,7 +184,7 @@ function SalesChannelAnalysisBody({
           subtitle={`${summary.others.malls.length}개 몰 합산`}
           revenue={summary.others.revenue}
           quantity={summary.others.qty}
-          share={othersShare}
+          share={summary.others.revenueShare}
           icon={Package}
         />
       </div>
@@ -226,7 +224,7 @@ function ChannelSummaryButton({
   subtitle: string;
   revenue: number;
   quantity: number;
-  share: number;
+  share: number | null;
   icon: LucideIcon;
 }) {
   const rocket = tone === 'rocket';
@@ -260,7 +258,7 @@ function ChannelSummaryButton({
           'ml-auto flex items-center gap-1 text-xs font-semibold',
           rocket ? 'text-violet-600' : 'text-sky-600',
         )}>
-          {share}%
+          {shareText(share)}
           <ChevronRight className={cn('h-4 w-4 transition-transform', selected && 'rotate-90')} />
         </span>
       </div>
@@ -292,9 +290,6 @@ function MallBreakdown({ summary }: { summary: SellpiaSalesSummary }) {
           </thead>
           <tbody>
             {summary.others.malls.map((mall) => {
-              const share = summary.others.revenue > 0
-                ? Math.round((mall.revenue / summary.others.revenue) * 100)
-                : 0;
               return (
                 <tr key={mall.sellerId} className="border-t border-slate-50">
                   <td className="px-3 py-2 text-slate-800">{mall.sellerName}</td>
@@ -304,7 +299,7 @@ function MallBreakdown({ summary }: { summary: SellpiaSalesSummary }) {
                   <td className="px-3 py-2 text-right tabular-nums text-slate-500">
                     {formatNumber(mall.qty)}개
                   </td>
-                  <td className="px-3 py-2 text-right tabular-nums text-slate-400">{share}%</td>
+                  <td className="px-3 py-2 text-right tabular-nums text-slate-400">{shareText(mall.revenueShare)}</td>
                 </tr>
               );
             })}
@@ -333,9 +328,6 @@ function RocketDailyBreakdown({ summary }: { summary: SellpiaSalesSummary }) {
           </thead>
           <tbody>
             {summary.rocket.daily.map((day) => {
-              const share = summary.rocket.revenue > 0
-                ? Math.round((day.revenue / summary.rocket.revenue) * 100)
-                : 0;
               return (
                 <tr key={day.date} className="border-t border-slate-50">
                   <td className="px-3 py-2 text-slate-700">{day.date}</td>
@@ -345,7 +337,7 @@ function RocketDailyBreakdown({ summary }: { summary: SellpiaSalesSummary }) {
                   <td className="px-3 py-2 text-right tabular-nums text-slate-500">
                     {formatNumber(day.qty)}개
                   </td>
-                  <td className="px-3 py-2 text-right tabular-nums text-slate-400">{share}%</td>
+                  <td className="px-3 py-2 text-right tabular-nums text-slate-400">{shareText(day.revenueShare)}</td>
                 </tr>
               );
             })}

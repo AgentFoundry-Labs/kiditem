@@ -1,6 +1,10 @@
 import { Info } from 'lucide-react';
 import { periodBasisStatus, type DashboardPeriodBasis } from '@kiditem/shared/dashboard';
-import type { FinanceCostInputBasis, FinanceCostInputsBasis } from '@kiditem/shared/finance';
+import {
+  financeCostInputState,
+  type FinanceCostInputBasis,
+  type FinanceCostInputsBasis,
+} from '@kiditem/shared/finance';
 
 /** The evidence behind a finance window, as the server published it. */
 export type FinanceBasisNoticeBasis = {
@@ -16,31 +20,51 @@ export type FinanceBasisNoticeBasis = {
 const WITHHELD = '그 상품의 순이익과 합계 순이익은 계산하지 않았습니다.';
 
 /**
- * What one cost component's line counts say beside the values. A component
- * that does not apply is 0 by rule; one that applies without a source leaves
- * its listing's profit and the window total unavailable, while every other
+ * A component that does not apply is 0 by rule. The shared evidence state
+ * decides the wording: Not applied to every line of the window, or to some.
+ */
+function notAppliedMessage(subject: string, zero: string, input: FinanceCostInputBasis): string | null {
+  switch (financeCostInputState(input)) {
+    case 'empty':
+      return null;
+    case 'not_applied':
+      return `${subject} 적용되지 않아 주문 라인 ${input.lines}건 모두 ${zero}으로 계산했습니다.`;
+    default:
+      return input.notAppliedLines > 0
+        ? `${subject} 적용되지 않는 주문 라인 ${input.notAppliedLines}건은 ${zero}으로 계산했습니다.`
+        : null;
+  }
+}
+
+/**
+ * A component Not measured on some or all of the lines it applies to leaves
+ * those listings' profit and the window total unavailable, while every other
  * listing keeps its measured profit.
  */
-function costInputMessages(costInputs: FinanceCostInputsBasis): string[] {
-  const messages: string[] = [];
-  const notApplied = (subject: string, input: FinanceCostInputBasis, zero: string) => {
-    if (input.notAppliedLines > 0) {
-      messages.push(`${subject} 적용되지 않는 주문 라인 ${input.notAppliedLines}건은 ${zero}으로 계산했습니다.`);
-    }
-  };
-  notApplied('판매수수료가', costInputs.commission, '0원');
-  notApplied('기타비용이', costInputs.otherCost, '0원');
-  notApplied('광고가', costInputs.advertising, '광고비 0원');
+function unmeasuredMessage(label: string, input: FinanceCostInputBasis): string | null {
+  switch (financeCostInputState(input)) {
+    case 'not_measured':
+    case 'partial':
+      return `${label} 주문 라인 ${input.unmeasuredLines}건 — ${WITHHELD}`;
+    default:
+      return null;
+  }
+}
 
-  const unmeasured = (label: string, input: FinanceCostInputBasis) => {
-    if (input.unmeasuredLines > 0) {
-      messages.push(`${label} 주문 라인 ${input.unmeasuredLines}건 — ${WITHHELD}`);
-    }
-  };
-  unmeasured('판매수수료 원천이 없는', costInputs.commission);
-  unmeasured('기타비용 원천이 없는', costInputs.otherCost);
-  unmeasured('매입가가 없는', costInputs.purchaseCost);
-  return messages;
+/** What the cost components' line counts say beside the values. */
+function costInputMessages(costInputs: FinanceCostInputsBasis): string[] {
+  return [
+    notAppliedMessage('판매수수료가', '0원', costInputs.commission),
+    notAppliedMessage('기타비용이', '0원', costInputs.otherCost),
+    notAppliedMessage('광고가', '광고비 0원', costInputs.advertising),
+    unmeasuredMessage('판매수수료 원천이 없는', costInputs.commission),
+    unmeasuredMessage('기타비용 원천이 없는', costInputs.otherCost),
+    unmeasuredMessage('매입가가 없는', costInputs.purchaseCost),
+    // Lines sold under no listing option have no product row to withhold.
+    costInputs.unmappedLines > 0
+      ? `상품 옵션에 연결되지 않은 주문 라인 ${costInputs.unmappedLines}건 — 상품 행이 없어 매출 합계에만 포함했고, 합계 순이익은 계산하지 않았습니다.`
+      : null,
+  ].filter((message): message is string => message !== null);
 }
 
 /**

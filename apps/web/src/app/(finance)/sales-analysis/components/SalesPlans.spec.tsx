@@ -33,7 +33,7 @@ describe('SalesPlans achievement', () => {
           revenue: april,
           adCost: april,
           profit: april,
-          costInputs: { purchaseCost: measured, commission: measured, otherCost: measured, advertising: measured },
+          costInputs: { unmappedLines: 0, purchaseCost: measured, commission: measured, otherCost: measured, advertising: measured },
         },
       },
       achievement: { revenue: 77, orders: 33, profit: null },

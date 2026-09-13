@@ -820,7 +820,7 @@ describe('Dashboard absolute ABC grade cards', () => {
   });
 
   it('does not invent Sellpia profit or a profit-rate goal when account ads are missing', async () => {
-    const emptyGroup = { revenue: 0, qty: 0, cost: 0, daily: [], malls: [] };
+    const emptyGroup = { revenue: 0, qty: 0, cost: 0, revenueShare: null, daily: [], malls: [] };
     sellpiaState.summary = {
       range: { from: '2026-09-01', to: '2026-09-06' },
       rocket: emptyGroup,
@@ -868,7 +868,7 @@ describe('Dashboard absolute ABC grade cards', () => {
         qty: 12,
       },
     };
-    const emptyGroup = { revenue: 0, qty: 0, cost: 0, daily: [], malls: [] };
+    const emptyGroup = { revenue: 0, qty: 0, cost: 0, revenueShare: null, daily: [], malls: [] };
     sellpiaState.summary = {
       range: { from: '2026-09-01', to: '2026-09-06' },
       rocket: emptyGroup,
@@ -899,7 +899,7 @@ describe('Dashboard absolute ABC grade cards', () => {
   });
 
   it('renders Sellpia server profitability values without recomputing them from inputs', async () => {
-    const emptyGroup = { revenue: 0, qty: 0, cost: 0, daily: [], malls: [] };
+    const emptyGroup = { revenue: 0, qty: 0, cost: 0, revenueShare: null, daily: [], malls: [] };
     sellpiaState.summary = {
       range: { from: '2026-09-01', to: '2026-09-06' },
       rocket: emptyGroup,
@@ -934,7 +934,7 @@ describe('Dashboard absolute ABC grade cards', () => {
   });
 
   it('keeps a complete explicit zero-cost Sellpia result numeric', async () => {
-    const emptyGroup = { revenue: 0, qty: 0, cost: 0, daily: [], malls: [] };
+    const emptyGroup = { revenue: 0, qty: 0, cost: 0, revenueShare: null, daily: [], malls: [] };
     sellpiaState.summary = {
       range: { from: '2026-09-01', to: '2026-09-06' },
       rocket: emptyGroup,

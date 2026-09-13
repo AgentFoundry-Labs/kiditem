@@ -508,6 +508,60 @@ describe('Sellpia sales source owner HTTP + disposable PostgreSQL', () => {
     });
   });
 
+  /** KID-85 follow-up 3c — the screen shows these shares; it computes none. */
+  it('publishes revenue shares, null over a zero denominator', async () => {
+    const range = { from: '2026-07-16', to: '2026-07-17' };
+    const attempt = await begin(range);
+    const attemptControl = await control(attempt.attemptId);
+    await complete(attempt.attemptId, attemptControl.attemptToken, payload(range));
+
+    const response = await request(httpUrl)
+      .get(`${base}?from=${range.from}&to=${range.to}`)
+      .expect(200);
+
+    expect(response.body).toMatchObject({
+      totalRevenue: 3_600,
+      // Rocket sold nothing: its share of the total is a measured 0, while a
+      // share of its own zero revenue does not exist.
+      rocket: {
+        revenue: 0,
+        revenueShare: 0,
+        daily: [
+          { date: '2026-07-16', revenue: 0, revenueShare: null },
+          { date: '2026-07-17', revenue: 0, revenueShare: null },
+        ],
+      },
+      others: {
+        revenue: 3_600,
+        revenueShare: 100,
+        daily: [
+          { date: '2026-07-16', revenue: 1_200, revenueShare: 33 },
+          { date: '2026-07-17', revenue: 2_400, revenueShare: 67 },
+        ],
+        malls: [{
+          sellerId: '118',
+          revenueShare: 100,
+          daily: [
+            { date: '2026-07-16', revenueShare: 33 },
+            { date: '2026-07-17', revenueShare: 67 },
+          ],
+        }],
+      },
+    });
+  });
+
+  it('publishes no share over the zero total of a summary without coverage', async () => {
+    const response = await request(httpUrl)
+      .get(`${base}?from=2026-07-16&to=2026-07-17`)
+      .expect(200);
+
+    expect(response.body).toMatchObject({
+      totalRevenue: 0,
+      rocket: { revenueShare: null },
+      others: { revenueShare: null },
+    });
+  });
+
   it('public summary hides RUNNING/FAILED attempts and retains the prior COMPLETE publication', async () => {
     const range = { from: '2026-07-16', to: '2026-07-17' };
     const first = await begin(range);

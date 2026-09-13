@@ -18,16 +18,28 @@ function won(amount: number | null): string {
   return amount === null ? '-' : `${formatKRW(amount)}원`;
 }
 
+/** A difference that can go either way keeps its sign. */
+function signedWon(amount: number): string {
+  return `${amount > 0 ? '+' : ''}${formatKRW(amount)}원`;
+}
+
 /**
- * Why the month total differs from the sum of the product rows: advertising
- * spent on listings that sold nothing, and shipping of orders with no revenue
- * to weigh it by.
+ * What the month total carries beyond its product rows, each part by its
+ * cause: spend on listings that sold nothing, the difference between the
+ * campaign-grain account spend and the listing-grain rows, and shipping no
+ * line revenue can weigh. The server takes each part from exact values, so a
+ * part of 0 or `null` is not listed and rounding never appears as one; the note
+ * names the rounding every row applies instead.
  */
 function unallocatedNote(totals: FinanceWindowTotals): string | null {
-  const hasAd = totals.unallocatedAdCost !== null && totals.unallocatedAdCost !== 0;
-  const hasShipping = totals.unallocatedShipping !== null && totals.unallocatedShipping !== 0;
-  if (!hasAd && !hasShipping) return null;
-  return `상품 행에 배분되지 않은 광고비 ${won(totals.unallocatedAdCost)} · 배송비 ${won(totals.unallocatedShipping)}`;
+  const parts: string[] = [];
+  if (totals.unallocatedAdCost) parts.push(`판매 없는 상품의 광고비 ${won(totals.unallocatedAdCost)}`);
+  if (totals.adCostGrainDifference) {
+    parts.push(`캠페인 합계와 상품별 광고비 차이 ${signedWon(totals.adCostGrainDifference)}`);
+  }
+  if (totals.unallocatedShipping) parts.push(`매출로 배분할 수 없는 배송비 ${won(totals.unallocatedShipping)}`);
+  if (parts.length === 0) return null;
+  return `상품 행에 없는 금액 — ${parts.join(' · ')}. 상품 행은 각각 반올림해 합계와 몇 원 다를 수 있습니다.`;
 }
 
 export default function ProfitLossSummaryCards({ totals }: Props) {

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { Test } from '@nestjs/testing';
 import type { PrismaClient } from '@prisma/client';
@@ -14,6 +15,7 @@ import {
   setupMaster,
   setupProductOption,
 } from '../../../test-helpers/finance-seeds';
+import { seedActiveSellpiaInventorySku } from '../../../test-helpers/inventory-seeds';
 import {
   makeTestPrisma,
   resetDb,
@@ -682,6 +684,7 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
       profitRate: 70,
       adCostRate: 10,
       unallocatedAdCost: 0,
+      adCostGrainDifference: 0,
       unallocatedShipping: 0,
     });
     expect(result.basis.revenue).toMatchObject({
@@ -779,7 +782,7 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
       expect(result.rows).toEqual([]);
       expect(result.totals).toEqual({
         revenue: null, orderCount: null, cost: null, adCost: null, netProfit: null, profitRate: null,
-        adCostRate: null, unallocatedAdCost: null, unallocatedShipping: null,
+        adCostRate: null, unallocatedAdCost: null, adCostGrainDifference: null, unallocatedShipping: null,
       });
       expect(result.basis.requestedWindow).toEqual({ from: '2026-04-01', to: '2026-04-30' });
       // The effective window ends the day before it starts: zero closed days.
@@ -856,7 +859,87 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
       profitRate: 57.5,
       adCostRate: 15,
       unallocatedAdCost: 1_000,
+      adCostGrainDifference: 0,
       unallocatedShipping: 500,
+    });
+  });
+
+  /**
+   * KID-85 follow-up 3c — each part no row carries is taken from exact values.
+   * The won that per-line shipping rounding leaves between the rows and the
+   * total is rounding, never unallocated shipping.
+   */
+  it('publishes no unallocated shipping for the won per-line rounding leaves', async () => {
+    const left = await setupListing(prisma, TEST_ORGANIZATION_ID, 'ROUND-LEFT');
+    const right = await setupListing(prisma, TEST_ORGANIZATION_ID, 'ROUND-RIGHT');
+    await createOrder(prisma, TEST_ORGANIZATION_ID, {
+      orderedAt: new Date('2026-04-15T00:00:00.000Z'),
+      externalOrderId: 'ROUND-SPLIT',
+      shippingPrice: 1_001,
+      lineItems: [
+        { listingOptionId: left.listingOption.id, optionId: left.option.id, totalPrice: 10_000 },
+        { listingOptionId: right.listingOption.id, optionId: right.option.id, totalPrice: 10_000 },
+      ],
+    });
+    await coverAprilAds();
+    await coverOrders();
+
+    const result = await service.findAll(TEST_ORGANIZATION_ID, 2026, 4, AFTER_MONTHS);
+
+    // 1,001 split 50/50 rounds each row to 501, so the rows carry 1,002.
+    expect(result.rows.map((row) => row.shippingCost)).toEqual([501, 501]);
+    expect(result.totals).toMatchObject({
+      unallocatedShipping: 0,
+      unallocatedAdCost: 0,
+      adCostGrainDifference: 0,
+    });
+  });
+
+  it('separates spend on a listing that sold nothing from the campaign and listing grain difference', async () => {
+    const sold = await setupListing(prisma, TEST_ORGANIZATION_ID, 'GRAIN-SOLD');
+    const unsold = await setupListing(prisma, TEST_ORGANIZATION_ID, 'GRAIN-UNSOLD');
+    await createOrder(prisma, TEST_ORGANIZATION_ID, {
+      orderedAt: new Date('2026-04-15T00:00:00.000Z'),
+      externalOrderId: 'GRAIN-PAID',
+      lineItems: [{ listingOptionId: sold.listingOption.id, optionId: sold.option.id, totalPrice: 20_000 }],
+    });
+    const runId = await coverAprilAds();
+    await seedAd(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, listingId: sold.listing.id, date: '2026-04-15', spend: 2_000, runId,
+    });
+    await seedAd(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, listingId: unsold.listing.id, date: '2026-04-15', spend: 400, runId,
+    });
+    // The campaign report of the same account-day is the account total: 2,600,
+    // 200 more than the product rows under it.
+    await prisma.channelAdTargetDailySnapshot.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: sold.listing.channelAccountId,
+        channel: 'coupang',
+        businessDate: new Date('2026-04-15T00:00:00.000Z'),
+        targetType: 'product',
+        targetKey: 'campaign:grain',
+        campaignIdentity: 'campaign:grain',
+        sourceImportRunId: runId,
+        spend: 2_600,
+        adSpend: 2_600,
+        metaJson: { data: { granularity: 'campaign' } },
+      },
+    });
+    await coverOrders();
+
+    const result = await service.findAll(TEST_ORGANIZATION_ID, 2026, 4, AFTER_MONTHS);
+
+    expect(result.rows).toEqual([
+      expect.objectContaining({ listingId: sold.listing.id, adCost: 2_000 }),
+    ]);
+    expect(result.totals).toMatchObject({
+      adCost: 2_600,
+      // Listing-grain spend of the listing that sold nothing.
+      unallocatedAdCost: 400,
+      // Campaign-grain total minus listing-grain spend over every listing.
+      adCostGrainDifference: 200,
     });
   });
 
@@ -907,10 +990,61 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
       });
       expect(result.totals).toMatchObject({ revenue: 18_000, cost: null, netProfit: null });
       expect(result.basis.costInputs).toEqual({
+        unmappedLines: 0,
         purchaseCost: { lines: 2, notAppliedLines: 0, unmeasuredLines: 0 },
         commission: { lines: 2, notAppliedLines: 1, unmeasuredLines: 1 },
         otherCost: { lines: 2, notAppliedLines: 1, unmeasuredLines: 1 },
         // No Coupang advertising account: advertising applies to no line.
+        advertising: { lines: 2, notAppliedLines: 2, unmeasuredLines: 0 },
+      });
+    });
+
+    it('counts lines sold under no listing option apart from lines whose purchase price is missing', async () => {
+      const priced = await pricedListing('UNMAPPED-PRICED', 'naver');
+      const { id: masterId } = await setupMaster(prisma, {
+        organizationId: TEST_ORGANIZATION_ID, code: 'M-UNMAPPED-UNPRICED', name: 'Master UNMAPPED-UNPRICED',
+      });
+      const skuId = randomUUID();
+      await seedActiveSellpiaInventorySku(prisma, {
+        id: skuId,
+        organizationId: TEST_ORGANIZATION_ID,
+        code: 'SKU-UNMAPPED-UNPRICED',
+        name: 'Unpriced component',
+      });
+      const unpriced = await setupChannelListing(prisma, {
+        organizationId: TEST_ORGANIZATION_ID, masterId, channel: 'naver',
+        externalId: 'EXT-UNMAPPED-UNPRICED', optionId: skuId, externalOptionId: 'VI-UNMAPPED-UNPRICED',
+      });
+      await sell('UNMAPPED-PRICED', priced, 10_000, 'rocket');
+      await sell('UNMAPPED-UNPRICED', { optionId: skuId, listingOptionId: unpriced.listingOptionId }, 8_000, 'rocket');
+      // A collected line sold under no listing option of any listing.
+      const order = await prisma.order.findFirstOrThrow({
+        where: { organizationId: TEST_ORGANIZATION_ID, externalOrderId: 'PL-UNMAPPED-PRICED' },
+        select: { id: true },
+      });
+      await prisma.orderLineItem.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          orderId: order.id,
+          listingOptionId: null,
+          productName: 'Unlinked line',
+          quantity: 1,
+          unitPrice: 2_000,
+          totalPrice: 2_000,
+          externalLineId: 'LI-UNMAPPED',
+        },
+      });
+      await coverOrders();
+
+      const result = await service.findAll(TEST_ORGANIZATION_ID, 2026, 4, AFTER_MONTHS);
+
+      expect(result.totals).toMatchObject({ revenue: 20_000, cost: null, netProfit: null });
+      expect(result.basis.costInputs).toEqual({
+        // No product row and no recipe: counted apart, not as a missing purchase price.
+        unmappedLines: 1,
+        purchaseCost: { lines: 2, notAppliedLines: 0, unmeasuredLines: 1 },
+        commission: { lines: 2, notAppliedLines: 2, unmeasuredLines: 0 },
+        otherCost: { lines: 2, notAppliedLines: 2, unmeasuredLines: 0 },
         advertising: { lines: 2, notAppliedLines: 2, unmeasuredLines: 0 },
       });
     });

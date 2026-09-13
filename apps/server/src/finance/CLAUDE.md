@@ -26,7 +26,12 @@ in Supply, but the backend capability owner is finance.
 - Monetary values are integer KRW. Line costs stay exact; each published
   aggregate (listing row, channel row, window total) rounds its own sum once,
   so rows can differ from a total by a won.
-- Shipping is allocated by line-item revenue share and rounded per line.
+- Shipping is allocated by line-item revenue share and rounded per line, so
+  the rows can miss an order's shipping by up to a won.
+- Window totals publish what no product row carries by cause, each rounded
+  once from exact values: listing-grain spend on listings that sold nothing,
+  the campaign-grain account spend minus listing-grain spend, and shipping no
+  mapped line's revenue weighs. Rounding residue is never published as a part.
   `Order.shippingPrice` defaults to 0, so a collector that never fills it reads
   as measured zero shipping; a nullable column or collector provenance belongs
   to a schema cutover.

@@ -102,13 +102,16 @@ export class SellpiaSalesService {
       invalidDates: sellpiaRead.coverage.invalidDates,
       sources: [SELLPIA_SALES_SOURCE],
     });
+    const totalRevenue = salesRows.reduce((sum, row) => sum + row.revenueKrw, 0);
     const rocket = buildGroup(
       salesRows.filter((r) => r.channelGroup === 'rocket'),
+      totalRevenue,
       coverageDates,
       sellpiaBasis,
     );
     const others = buildGroup(
       salesRows.filter((r) => r.channelGroup !== 'rocket'),
+      totalRevenue,
       coverageDates,
       sellpiaBasis,
     );
@@ -136,7 +139,6 @@ export class SellpiaSalesService {
       normalizedAds.byDate,
       profitBasis,
     );
-    const totalRevenue = rocket.revenue + others.revenue;
     const totalCost = rocket.cost + others.cost;
     const adCost = profitInputs?.adCost ?? null;
     const netProfit = profitInputs
@@ -202,6 +204,7 @@ function emptySellpiaSalesSummary(knownThrough: string): SellpiaSalesSummary {
     revenue: 0,
     qty: 0,
     cost: 0,
+    revenueShare: null,
     daily: [],
     malls: [],
   };
@@ -221,8 +224,18 @@ function emptySellpiaSalesSummary(knownThrough: string): SellpiaSalesSummary {
   };
 }
 
+/**
+ * A revenue share as a whole percent, published so no screen divides; `null`
+ * when the denominator is not a positive finite number.
+ */
+function revenueSharePercent(revenue: number, denominator: number): number | null {
+  if (!Number.isFinite(revenue) || !Number.isFinite(denominator) || denominator <= 0) return null;
+  return Math.round((revenue / denominator) * 100);
+}
+
 function buildGroup(
   rows: SnapshotRow[],
+  totalRevenue: number,
   coverageDates: Iterable<string> = [],
   basis?: DashboardPeriodBasis,
 ): SellpiaSalesGroup {
@@ -291,7 +304,8 @@ function buildGroup(
       revenue: m.revenue,
       qty: m.qty,
       cost: m.cost,
-      daily: toDailyPoints(m.daily, basis),
+      revenueShare: revenueSharePercent(m.revenue, revenue),
+      daily: toDailyPoints(m.daily, m.revenue, basis),
     }))
     .sort((a, b) => b.revenue - a.revenue);
 
@@ -299,7 +313,8 @@ function buildGroup(
     revenue,
     qty,
     cost,
-    daily: toDailyPoints(dailyMap, basis),
+    revenueShare: revenueSharePercent(revenue, totalRevenue),
+    daily: toDailyPoints(dailyMap, revenue, basis),
     malls,
   } satisfies SellpiaSalesGroup;
 }
@@ -316,8 +331,10 @@ function accumulate(
   map.set(dateKey, entry);
 }
 
+/** Daily points of one series, each with its share of `seriesRevenue`. */
 function toDailyPoints(
   map: Map<string, { revenue: number; qty: number }>,
+  seriesRevenue: number,
   basis?: DashboardPeriodBasis,
 ): SellpiaSalesDailyPoint[] {
   return [...map.entries()]
@@ -326,6 +343,7 @@ function toDailyPoints(
       date,
       revenue: v.revenue,
       qty: v.qty,
+      revenueShare: revenueSharePercent(v.revenue, seriesRevenue),
       ...(basis
         ? {
             metricBasis: {

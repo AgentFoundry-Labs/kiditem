@@ -62,8 +62,14 @@ export type FinanceCostInputBasis = z.infer<typeof FinanceCostInputBasisSchema>;
  * Sellpia purchase price), the sales commission and other per-sale cost
  * (decided by the order's channel account), and advertising (decided by
  * whether the Coupang target-day sweep covers the listing's account).
+ *
+ * Each component counts the collected lines sold under a listing option: the
+ * lines a product row carries. `unmappedLines` counts the lines sold under
+ * none; they have no product row and no recipe, enter revenue only, and leave
+ * the window's cost and profit unavailable.
  */
 export const FinanceCostInputsBasisSchema = z.object({
+  unmappedLines: z.number().int().nonnegative(),
   purchaseCost: FinanceCostInputBasisSchema,
   commission: FinanceCostInputBasisSchema,
   otherCost: FinanceCostInputBasisSchema,
@@ -103,10 +109,22 @@ export type FinanceWindowBasis = z.infer<typeof FinanceWindowBasisSchema>;
  * every closed business date of the window was collected and every input it
  * depends on was measured; otherwise, and when no date has closed, it is `null`.
  *
- * The totals are not the sum of the product rows: advertising spent on a
- * listing that sold nothing and the shipping of an order with no revenue to
- * weigh it by belong to no row. They are published as `unallocatedAdCost` and
- * `unallocatedShipping`, so a screen shows them rather than subtracting.
+ * The totals are not the sum of the product rows. Each part no row carries is
+ * published by its cause, so a screen shows it rather than subtracting:
+ *
+ * - `unallocatedAdCost`: listing-grain spend on listings that sold nothing in
+ *   the window, so no row exists for it.
+ * - `adCostGrainDifference`: `adCost` is each account's campaign-grain spend
+ *   (product-grain where no campaign row exists) while rows carry listing-grain
+ *   spend; the difference between the grains belongs to no row and may be
+ *   negative.
+ * - `unallocatedShipping`: the shipping of orders with no revenue to weigh it
+ *   by, and the revenue share of lines sold under no listing option.
+ *
+ * Each part is rounded once from exact values. Whatever else separates the
+ * rows from the total is rounding — every row rounds its own sums, and
+ * shipping is rounded per line, up to a won per order — and is never published
+ * as a part.
  */
 export const FinanceWindowTotalsSchema = z.object({
   revenue: z.number().int().nullable(),
@@ -119,9 +137,11 @@ export const FinanceWindowTotalsSchema = z.object({
   profitRate: z.number().nullable(),
   /** Ad cost as a percent of revenue with one decimal; `null` over zero revenue or an unavailable ad cost. */
   adCostRate: z.number().nullable(),
-  /** Ad cost the product rows do not carry; `null` when either side is unavailable. */
+  /** Listing-grain spend on listings with no product row; `null` when `adCost` is unavailable. */
   unallocatedAdCost: z.number().int().nullable(),
-  /** Order shipping the product rows do not carry; `null` when the totals are unavailable. */
+  /** Campaign-grain `adCost` minus listing-grain spend over every listing; `null` when `adCost` is unavailable. */
+  adCostGrainDifference: z.number().int().nullable(),
+  /** Shipping no line revenue can weigh onto a row; `null` when revenue is unavailable. */
   unallocatedShipping: z.number().int().nullable(),
 }).strict();
 export type FinanceWindowTotals = z.infer<typeof FinanceWindowTotalsSchema>;

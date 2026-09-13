@@ -161,13 +161,6 @@ export interface ProfitLineFact {
   otherCost: number | null;
 }
 
-/** A collected line sold under no listing option: no recipe, but its order's account is known. */
-export interface UnmappedLineFact {
-  orderId: string;
-  commissionApplies: boolean;
-  otherCostApplies: boolean;
-}
-
 export interface ProfitListingIdentity {
   listingId: string;
   externalId: string;
@@ -196,7 +189,12 @@ export interface ProfitWindowFacts {
   lines: readonly ProfitLineFact[];
   /** Collected lines sold under no listing option, so no recorded cost exists. */
   unmappedLineCount: number;
-  unmappedLines: readonly UnmappedLineFact[];
+  /**
+   * Shipping, exact and unrounded, that no product row's line revenue weighs:
+   * the whole shipping of an order with no revenue, and the revenue share of
+   * lines sold under no listing option.
+   */
+  unallocatedShipping: number;
   ad: AdWindowEvidence;
   listingAdSpend: ReadonlyMap<string, number>;
   gradeByProductId: ReadonlyMap<string, string>;
@@ -255,7 +253,7 @@ async function readProfitLines(
   to: Date,
 ): Promise<Pick<
   ProfitWindowFacts,
-  'orderWindow' | 'orderShipping' | 'lines' | 'unmappedLineCount' | 'unmappedLines'
+  'orderWindow' | 'orderShipping' | 'lines' | 'unmappedLineCount' | 'unallocatedShipping'
 >> {
   const facts = await readOrderLineWindowFacts(tx, {
     organizationId,
@@ -342,29 +340,31 @@ async function readProfitLines(
   }));
 
   const lines: ProfitLineFact[] = [];
-  const unmappedLines: UnmappedLineFact[] = [];
+  let unmappedLineCount = 0;
   let orderShipping = 0;
+  let unallocatedShipping = 0;
   for (const order of facts.orders) {
     orderShipping += order.shippingPrice;
     const salesCosts = salesCostsByAccountId.get(order.channelAccountId)
       ?? resolveOrderLineSalesCosts(null);
     const orderRevenue = order.lines.reduce((sum, line) => sum + line.revenue, 0);
+    // A zero-revenue order has nothing to weigh its shipping by.
+    const weighsShipping = orderRevenue > 0 && order.shippingPrice > 0;
+    if (!weighsShipping) unallocatedShipping += order.shippingPrice;
     for (const line of order.lines) {
       const option = line.listingOptionId ? optionById.get(line.listingOptionId) : undefined;
       if (!option) {
-        unmappedLines.push({
-          orderId: order.orderId,
-          commissionApplies: salesCosts.commissionApplies,
-          otherCostApplies: salesCosts.otherCostApplies,
-        });
+        unmappedLineCount += 1;
+        // No row carries a line sold under no listing option, nor its exact share.
+        if (weighsShipping) unallocatedShipping += order.shippingPrice * (line.revenue / orderRevenue);
         continue;
       }
       lines.push({
         orderId: order.orderId,
         listing: option.identity,
         revenue: line.revenue,
-        // Revenue-weighted shipping; a zero-revenue order has nothing to weigh by.
-        shippingCost: orderRevenue > 0 && order.shippingPrice > 0
+        // Revenue-weighted shipping, rounded per line.
+        shippingCost: weighsShipping
           ? Math.round(order.shippingPrice * (line.revenue / orderRevenue))
           : 0,
         costOfGoods: option.unitCost === null ? null : option.unitCost * line.quantity,
@@ -379,8 +379,8 @@ async function readProfitLines(
     orderWindow: facts.window,
     orderShipping,
     lines,
-    unmappedLineCount: unmappedLines.length,
-    unmappedLines,
+    unmappedLineCount,
+    unallocatedShipping,
   };
 }
 
@@ -612,10 +612,7 @@ export function profitWindowTotals(facts: ProfitWindowFacts): FinanceWindowTotal
     ? null
     : lineCosts + facts.orderShipping + adCost;
   const netProfit = revenue === null || cost === null ? null : revenue - cost;
-  // What no product row carries: spend on listings that sold nothing, and the
-  // shipping of orders with no revenue to weigh it by (or no listing option).
-  const rowAdCost = totalOrUnavailable(perListingProfitRows(facts).map((row) => row.adCost));
-  const rowShipping = facts.lines.reduce((sum, line) => sum + line.shippingCost, 0);
+  const adParts = adCostParts(facts);
   return {
     revenue,
     orderCount: facts.orderWindow.orderCount,
@@ -626,9 +623,30 @@ export function profitWindowTotals(facts: ProfitWindowFacts): FinanceWindowTotal
     adCostRate: revenue === null || adCost === null || revenue <= 0
       ? null
       : Math.round((adCost / revenue) * 1000) / 10,
-    unallocatedAdCost: adCost === null || rowAdCost === null ? null : Math.round(adCost - rowAdCost),
-    unallocatedShipping: revenue === null ? null : facts.orderShipping - rowShipping,
+    unallocatedAdCost: adCost === null ? null : Math.round(adParts.unsoldListingSpend),
+    adCostGrainDifference: adCost === null ? null : Math.round(adParts.grainDifference),
+    unallocatedShipping: revenue === null ? null : Math.round(facts.unallocatedShipping),
   } satisfies FinanceWindowTotals;
+}
+
+/**
+ * The parts of the window's ad cost no product row carries, from exact spend:
+ * listing-grain spend on listings with no collected line, and the account
+ * total (campaign grain where a campaign row exists) minus listing-grain spend
+ * over every listing. Rows carry the rest; rounding is never a part.
+ */
+function adCostParts(
+  facts: Pick<ProfitWindowFacts, 'ad' | 'lines' | 'listingAdSpend'>,
+): { unsoldListingSpend: number; grainDifference: number } {
+  const soldListingIds = new Set(facts.lines.map((line) => line.listing.listingId));
+  let listingSpend = 0;
+  let unsoldListingSpend = 0;
+  for (const [listingId, spend] of facts.listingAdSpend) {
+    listingSpend += spend;
+    if (!soldListingIds.has(listingId)) unsoldListingSpend += spend;
+  }
+  const accountSpend = facts.ad.hasAdAccount ? facts.ad.accountSpend : 0;
+  return { unsoldListingSpend, grainDifference: accountSpend - listingSpend };
 }
 
 /** The basis of values counted from collected order lines alone, over the evaluated window. */
@@ -641,15 +659,14 @@ export function orderWindowBasis(orderWindow: OrderWindowFacts, window: FinanceW
 }
 
 /**
- * Per cost component, the collected lines of the window it does not apply to
- * (Not applied) and the lines it applies to but nobody measured. A line sold
- * under no listing option has no recipe, so its purchase cost is unmeasured,
- * and names no listing, so only the organization's advertising answer decides
- * its advertising.
+ * Per cost component, over the collected lines sold under a listing option
+ * (the lines a product row carries), the lines it does not apply to (Not
+ * applied) and the lines it applies to but nobody measured. Lines sold under
+ * no listing option have no product row and no recipe; they are counted apart,
+ * never as a missing purchase price.
  */
 function costInputsBasis(facts: ProfitWindowFacts): FinanceCostInputsBasis {
-  const lines = facts.lines.length + facts.unmappedLines.length;
-  const salesLines = [...facts.lines, ...facts.unmappedLines];
+  const lines = facts.lines.length;
   const advertisingMeasured = facts.ad.publishedDates > 0 && facts.ad.coversWindow;
   let advertisingNotApplied = 0;
   let advertisingUnmeasured = 0;
@@ -660,28 +677,22 @@ function costInputsBasis(facts: ProfitWindowFacts): FinanceCostInputsBasis {
       advertisingUnmeasured += 1;
     }
   }
-  for (let index = 0; index < facts.unmappedLines.length; index += 1) {
-    if (!facts.ad.hasAdAccount) advertisingNotApplied += 1;
-    else if (!advertisingMeasured) advertisingUnmeasured += 1;
-  }
   return {
+    unmappedLines: facts.unmappedLineCount,
     purchaseCost: {
       lines,
       notAppliedLines: 0,
-      unmeasuredLines: facts.lines.filter((line) => line.costOfGoods === null).length
-        + facts.unmappedLines.length,
+      unmeasuredLines: facts.lines.filter((line) => line.costOfGoods === null).length,
     },
     commission: {
       lines,
-      notAppliedLines: salesLines.filter((line) => !line.commissionApplies).length,
-      unmeasuredLines: facts.lines.filter((line) => line.commission === null).length
-        + facts.unmappedLines.filter((line) => line.commissionApplies).length,
+      notAppliedLines: facts.lines.filter((line) => !line.commissionApplies).length,
+      unmeasuredLines: facts.lines.filter((line) => line.commission === null).length,
     },
     otherCost: {
       lines,
-      notAppliedLines: salesLines.filter((line) => !line.otherCostApplies).length,
-      unmeasuredLines: facts.lines.filter((line) => line.otherCost === null).length
-        + facts.unmappedLines.filter((line) => line.otherCostApplies).length,
+      notAppliedLines: facts.lines.filter((line) => !line.otherCostApplies).length,
+      unmeasuredLines: facts.lines.filter((line) => line.otherCost === null).length,
     },
     advertising: {
       lines,
