@@ -49,7 +49,6 @@ function trends(daily: AdTrendsData['daily']): AdTrendsData {
     to: '2026-07-19',
     daily,
     summary: {
-      source: 'coupang_ads',
       periodDayCount: 2,
       latestBusinessDate: '2026-07-19',
       observedAt: '2026-07-20T00:00:00.000Z',

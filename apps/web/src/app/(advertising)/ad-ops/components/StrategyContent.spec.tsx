@@ -177,7 +177,6 @@ describe('StrategyContent account totals', () => {
       to: '2026-07-12',
       daily: [],
       summary: {
-        source: 'coupang_ads',
         periodDayCount: 14,
         latestBusinessDate: '2026-07-12',
         observedAt: '2026-07-13T00:00:00.000Z',

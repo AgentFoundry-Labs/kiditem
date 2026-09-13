@@ -123,8 +123,13 @@ export interface RepurchaseOrderFact {
 
 export interface OrderReturnWindowFacts {
   orderCount: number;
-  returnCount: number;
-  orphanReturnCount: number;
+  /**
+   * Returns of the window's orders, and returns with no order. `null` while
+   * returns have no owner publication: nothing collects them or declares a
+   * window of them observed, so the table's rows are not a count.
+   */
+  returnCount: number | null;
+  orphanReturnCount: number | null;
 }
 
 type WindowRow = {
@@ -594,106 +599,29 @@ export async function readPublishedOrderLines(
   }));
 }
 
+/**
+ * The collected orders placed inside `[from, to)`, and the window's returns.
+ * Returns have no owner publication (ADR-0009): no source attempt collects
+ * them and no coverage declares a window of them observed, so neither an empty
+ * nor a populated return table is a count. Both return counts stay `null`
+ * until a return source publishes coverage (ADR-0006).
+ */
 export async function readOrderReturnWindowFacts(
   tx: Prisma.TransactionClient,
   input: OrderWindowInput,
 ): Promise<OrderReturnWindowFacts> {
-  const [row] = await tx.$queryRaw<Array<{
-    orderCount: bigint;
-    returnCount: bigint;
-    orphanReturnCount: bigint;
-  }>>(Prisma.sql`
-    SELECT
-      (SELECT COUNT(*) FROM orders o
-       WHERE o.organization_id = ${input.organizationId}::uuid
-         ${completeOrderFactSql(input.organizationId)}
-         AND o.ordered_at >= ${input.from} AND o.ordered_at < ${input.to})::bigint AS "orderCount",
-      (SELECT COUNT(*) FROM order_returns r
-       INNER JOIN orders o
-         ON o.id = r.order_id
-        AND o.organization_id = ${input.organizationId}::uuid
-       WHERE r.organization_id = ${input.organizationId}::uuid
-         ${completeOrderFactSql(input.organizationId)}
-         AND o.ordered_at >= ${input.from} AND o.ordered_at < ${input.to})::bigint AS "returnCount",
-      (SELECT COUNT(*) FROM order_returns r
-       WHERE r.organization_id = ${input.organizationId}::uuid
-         AND r.order_id IS NULL
-         AND r.requested_at >= ${input.from} AND r.requested_at < ${input.to})::bigint
-         AS "orphanReturnCount"
+  const [row] = await tx.$queryRaw<Array<{ orderCount: bigint }>>(Prisma.sql`
+    SELECT COUNT(*)::bigint AS "orderCount"
+    FROM orders o
+    WHERE o.organization_id = ${input.organizationId}::uuid
+      ${completeOrderFactSql(input.organizationId)}
+      AND o.ordered_at >= ${input.from} AND o.ordered_at < ${input.to}
   `);
   return {
-    orderCount: Number(row?.orderCount ?? 0n),
-    returnCount: Number(row?.returnCount ?? 0n),
-    orphanReturnCount: Number(row?.orphanReturnCount ?? 0n),
+    orderCount: Number(row.orderCount),
+    returnCount: null,
+    orphanReturnCount: null,
   };
-}
-
-/** One returned order line and the listing its order line was sold under. */
-export interface OrderReturnLineFact {
-  returnId: string;
-  orderId: string;
-  listingId: string | null;
-}
-
-/**
- * Returned order lines whose return was requested inside `[from, to)`, on
- * orders a completed Orders collection published.
- */
-export async function readReturnLinesRequestedInWindow(
-  tx: Prisma.TransactionClient,
-  input: Pick<OrderWindowInput, 'organizationId' | 'from' | 'to'>,
-): Promise<OrderReturnLineFact[]> {
-  return tx.$queryRaw<OrderReturnLineFact[]>(Prisma.sql`
-    SELECT r.id AS "returnId", o.id AS "orderId", clo.listing_id AS "listingId"
-    FROM order_return_line_items rli
-    INNER JOIN order_returns r
-      ON r.id = rli.return_id
-     AND r.organization_id = ${input.organizationId}::uuid
-    INNER JOIN order_line_items oli
-      ON oli.id = rli.order_line_item_id
-     AND oli.organization_id = ${input.organizationId}::uuid
-    INNER JOIN orders o
-      ON o.id = oli.order_id
-     AND o.organization_id = ${input.organizationId}::uuid
-    LEFT JOIN channel_listing_options clo
-      ON clo.id = oli.listing_option_id
-     AND clo.organization_id = ${input.organizationId}::uuid
-    WHERE rli.organization_id = ${input.organizationId}::uuid
-      AND r.requested_at >= ${input.from}
-      AND r.requested_at < ${input.to}
-      ${completeOrderFactSql(input.organizationId)}
-  `);
-}
-
-/**
- * Returned order lines of orders placed inside `[from, to)` that a completed
- * Orders collection published, whatever the return date.
- */
-export async function readReturnLinesOfOrderWindow(
-  tx: Prisma.TransactionClient,
-  input: OrderWindowInput,
-): Promise<OrderReturnLineFact[]> {
-  return tx.$queryRaw<OrderReturnLineFact[]>(Prisma.sql`
-    SELECT r.id AS "returnId", o.id AS "orderId", clo.listing_id AS "listingId"
-    FROM order_return_line_items rli
-    INNER JOIN order_returns r
-      ON r.id = rli.return_id
-     AND r.organization_id = ${input.organizationId}::uuid
-    INNER JOIN order_line_items oli
-      ON oli.id = rli.order_line_item_id
-     AND oli.organization_id = ${input.organizationId}::uuid
-    INNER JOIN orders o
-      ON o.id = oli.order_id
-     AND o.organization_id = ${input.organizationId}::uuid
-    LEFT JOIN channel_listing_options clo
-      ON clo.id = oli.listing_option_id
-     AND clo.organization_id = ${input.organizationId}::uuid
-    WHERE rli.organization_id = ${input.organizationId}::uuid
-      AND o.ordered_at >= ${input.from}
-      AND o.ordered_at < ${input.to}
-      ${completeOrderFactSql(input.organizationId)}
-      ${excludedStatusesSql(input.excludedStatuses)}
-  `);
 }
 
 export async function readOrderReturnReasonFacts(

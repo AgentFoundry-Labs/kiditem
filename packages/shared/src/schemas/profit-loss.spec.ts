@@ -107,6 +107,34 @@ describe('finance window contract', () => {
     }).success).toBe(true);
   });
 
+  it('lets returns publish no count, rate or orphan count while nothing collects them', () => {
+    expect(PLDataSchema.parse({ ...row, returnCount: null }).returnCount).toBeNull();
+    expect(SalesAnalysisDataSchema.safeParse({
+      period: '2026-04',
+      channels: [{
+        channel: 'coupang',
+        channelType: 'marketplace',
+        totalOrders: 1,
+        totalRevenue: 10_000,
+        totalCost: null,
+        totalProfit: null,
+        profitRate: null,
+        returnCount: null,
+        returnRate: null,
+        avgOrderValue: 10_000,
+      }],
+      totals: {
+        totalRevenue: 10_000,
+        totalProfit: null,
+        totalOrders: 1,
+        totalCost: null,
+        profitRate: null,
+        orphanReturnCount: null,
+      },
+      basis: windowBasis,
+    }).success).toBe(true);
+  });
+
   it('publishes plan actuals with an observation time instead of stored defaults', () => {
     const plan = {
       id: '33333333-3333-4333-8333-333333333333',

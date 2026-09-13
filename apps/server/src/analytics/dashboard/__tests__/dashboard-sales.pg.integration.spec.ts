@@ -1391,7 +1391,10 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
     const TO = kstMonthStart(2026, 4);
     const AFTER = new Date('2026-07-01T00:00:00.000Z');
 
-    async function sellOnce(code: string, opts: { orderChannel?: string; purchasePrice: number | null }) {
+    async function sellOnce(
+      code: string,
+      opts: { orderChannel?: string; listingChannel?: string; purchasePrice: number | null },
+    ) {
       const { id: masterId } = await setupMaster(prisma, {
         organizationId: TEST_ORGANIZATION_ID, code: `M-AGREE-${code}`, name: `Master AGREE-${code}`,
       });
@@ -1407,7 +1410,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
         })).id;
       }
       const listing = await setupChannelListing(prisma, {
-        organizationId: TEST_ORGANIZATION_ID, masterId, channel: 'naver',
+        organizationId: TEST_ORGANIZATION_ID, masterId, channel: opts.listingChannel ?? 'naver',
         externalId: `EXT-AGREE-${code}`, optionId: skuId, externalOptionId: `VI-AGREE-${code}`,
       });
       await seedOrderWithLineItems(prisma, {
@@ -1421,6 +1424,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
       await seedCompletedOrderCoverageRun(prisma, {
         organizationId: TEST_ORGANIZATION_ID, startDate: '2026-03-01', endDate: '2026-03-31',
       });
+      return { listingId: listing.listingId };
     }
 
     async function profitEverywhere() {
@@ -1460,6 +1464,57 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
     it('publishes no net profit anywhere for a Rocket line without a purchase cost', async () => {
       await sellOnce('UNPRICED', { orderChannel: 'rocket', purchasePrice: null });
 
+      await expect(profitEverywhere()).resolves.toEqual({
+        card: null, topProducts: [null], profitLossTotal: null, profitLossRows: [null],
+      });
+    });
+
+    /**
+     * Where advertising applies: the organization's active Coupang account
+     * runs ads and the Rocket line sells on its Coupang listing. The sweep's
+     * declared March decides the option's ad cost on all three screens, so a
+     * March day it never declared leaves that cost, and every profit built on
+     * it, unmeasured everywhere at once (ADR-0006).
+     */
+    async function advertiseMarch(listingId: string, opts: { declaresMarch15: boolean }) {
+      const windows = opts.declaresMarch15
+        ? [{ startDate: '2026-03-01', endDate: '2026-03-31' }]
+        : [
+          { startDate: '2026-03-01', endDate: '2026-03-14' },
+          { startDate: '2026-03-16', endDate: '2026-03-31' },
+        ];
+      const runIds: string[] = [];
+      for (const [index, window] of windows.entries()) {
+        runIds.push(await seedCompletedAdSweepRun(prisma, {
+          organizationId: TEST_ORGANIZATION_ID, generation: index + 1, window,
+        }));
+      }
+      // The option's own measured spend, on a day the first sweep declared.
+      await seedAd(prisma, {
+        organizationId: TEST_ORGANIZATION_ID, listingId, date: '2026-03-10', spend: 500, runId: runIds[0],
+      });
+    }
+
+    it('publishes one net profit for an advertised Rocket line the sweep measured all month', async () => {
+      const { listingId } = await sellOnce('ADS-COVERED', {
+        orderChannel: 'rocket', listingChannel: 'coupang', purchasePrice: 5_000,
+      });
+      await advertiseMarch(listingId, { declaresMarch15: true });
+
+      // 10,000 revenue − 5,000 purchase cost − 1,000 order shipping − 500 measured ad spend.
+      await expect(profitEverywhere()).resolves.toEqual({
+        card: 3_500, topProducts: [3_500], profitLossTotal: 3_500, profitLossRows: [3_500],
+      });
+    });
+
+    it('publishes no net profit anywhere for an advertised Rocket line when a sweep day is missing', async () => {
+      const { listingId } = await sellOnce('ADS-MISSING-DAY', {
+        orderChannel: 'rocket', listingChannel: 'coupang', purchasePrice: 5_000,
+      });
+      await advertiseMarch(listingId, { declaresMarch15: false });
+
+      // The account's 15 March spend was never measured: neither the option's
+      // ad cost nor a profit built on it exists on any screen.
       await expect(profitEverywhere()).resolves.toEqual({
         card: null, topProducts: [null], profitLossTotal: null, profitLossRows: [null],
       });

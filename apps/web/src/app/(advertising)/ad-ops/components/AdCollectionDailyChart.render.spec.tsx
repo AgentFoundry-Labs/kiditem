@@ -16,7 +16,6 @@ const emptyTrends: AdTrendsData = {
   to: "2026-07-23",
   daily: [],
   summary: {
-    source: "unavailable",
     periodDayCount: 0,
     latestBusinessDate: null,
     observedAt: null,

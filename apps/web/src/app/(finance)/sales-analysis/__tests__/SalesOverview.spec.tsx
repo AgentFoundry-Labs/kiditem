@@ -220,4 +220,39 @@ describe('<SalesOverview> 3-state (Plan D.3)', () => {
     expect(cardValue('총비용')).toBe('-');
     expect(screen.getByText(/쿠팡 광고 수집 0\/30일/)).toBeTruthy();
   });
+
+  it("renders a fully collected month's return count and rate as '-' with no orphan badge", async () => {
+    mockSalesQuery({
+      period: '2026-04',
+      channels: [{
+        channel: 'coupang',
+        channelType: 'marketplace',
+        totalOrders: 10,
+        totalRevenue: 100000,
+        totalCost: 50000,
+        totalProfit: 50000,
+        profitRate: 50,
+        returnCount: null,
+        returnRate: null,
+        avgOrderValue: 10000,
+      }],
+      totals: {
+        totalRevenue: 100000,
+        totalProfit: 50000,
+        totalOrders: 10,
+        totalCost: 50000,
+        profitRate: 50,
+        orphanReturnCount: null,
+      },
+      basis: completeBasis,
+    });
+    renderWithProvider();
+
+    const row = await screen.findByRole('row', { name: /coupang/ });
+    // Returns have no source: only the return count and return rate are unknown.
+    expect(within(row).getAllByText('-')).toHaveLength(2);
+    expect(within(row).queryByText('0')).toBeNull();
+    expect(within(row).queryByText('0.0%')).toBeNull();
+    expect(screen.queryByText(/주문 연결 없는 반품/)).toBeNull();
+  });
 });

@@ -239,14 +239,6 @@ export const AdMeasuredMetricsSchema = AdMetricsSchema.extend({
 });
 export type AdMeasuredMetrics = z.infer<typeof AdMeasuredMetricsSchema>;
 
-/**
- * Where an ad-ops KPI value came from: the campaign sweep's declared window
- * (`coupang_ads`) or nothing measured (`unavailable`). The words are the
- * dashboard's existing ad source vocabulary.
- */
-export const AdTrendsSourceSchema = z.enum(['coupang_ads', 'unavailable']);
-export type AdTrendsSource = z.infer<typeof AdTrendsSourceSchema>;
-
 /** One requested business date; `metrics: null` when the sweep never measured it. */
 export const AdTrendsDaySchema = z.object({
   date: AdBusinessDateSchema,
@@ -258,10 +250,10 @@ export type AdTrendsDay = z.infer<typeof AdTrendsDaySchema>;
 /**
  * Account totals over the measured days of the requested window. Ratios
  * recompute from the summed raw values; `periodDayCount` is the number of
- * measured days behind every value.
+ * measured days behind every value, and 0 when the sweep measured none. No
+ * source word travels here (ADR-0006); a screen names the source from the count.
  */
 export const AdTrendsSummarySchema = z.object({
-  source: AdTrendsSourceSchema,
   periodDayCount: z.number().int().nonnegative(),
   latestBusinessDate: AdBusinessDateSchema.nullable(),
   observedAt: z.string().nullable(),

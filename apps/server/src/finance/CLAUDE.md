@@ -10,8 +10,7 @@ in Supply, but the backend capability owner is finance.
 
 ## Data Boundaries
 
-- Live P&L reads aggregate orders, line items, returns, listing/options, and ad
-  spend.
+- Live P&L reads aggregate orders, line items, listing/options, and ad spend.
 - Sales plans, settlements, and supplier payments back finance-owned
   operational views.
 - Keep P&L, manual-ledger, and processing-cost reporting as live aggregation;
@@ -46,7 +45,9 @@ in Supply, but the backend capability owner is finance.
   measured spend for a listing or channel always applies; otherwise it applies
   to a listing sold on an account the Coupang target-day sweep covers.
   Elsewhere it is Not applied (0), never unmeasured.
-- Return/orphan semantics stay aligned with channel dashboard.
+- Returns have no owner publication, so return counts, rates, and orphan
+  counts publish `null` here and on the channel dashboard until a return source
+  declares coverage.
 - Profit and return rates derive from raw values, not persisted rates.
 - `common/option-pricing-resolver.ts`, `common/kst`, and
   `common/per-listing-profit` are shared finance helpers.

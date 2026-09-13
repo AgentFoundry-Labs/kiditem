@@ -15,7 +15,7 @@
 //     (outer loop), with no per-option fallback.
 //
 // Ad metrics come from the advertising target-day ledger through the one
-// listing-day ad reader (`common/ad-window-facts`). A business date the
+// listing-day ad reader (`advertising/read/ad-target-facts`). A business date the
 // campaign sweep reported is a measured day; a date it never reported is
 // absent evidence.
 //
@@ -42,7 +42,7 @@ import {
   dayAfter,
   readAdWindowFacts,
   type AdWindowDay,
-} from '../../../../../common/ad-window-facts';
+} from '../../../../../advertising/read/ad-target-facts';
 import {
   resolveOrderLineSalesCosts,
   resolveUnitCost,

@@ -16,12 +16,7 @@ import {
   totalOrUnavailable,
   type AccountAdEvidence,
 } from '../../common/per-listing-profit';
-import { advertisingAppliesToSale } from '../../common/ad-window-facts';
-import {
-  ORDER_FACT_EXCLUDED_STATUSES,
-  readOrderReturnWindowFacts,
-  readReturnLinesOfOrderWindow,
-} from '../../orders/read/order-facts.reader';
+import { advertisingAppliesToSale } from '../../advertising/read/ad-target-facts';
 
 /**
  * Map ChannelAccount.channel (platform) → ChannelAnalysis.channelType.
@@ -70,6 +65,8 @@ function channelAdCost(
  * (it sells listings the Coupang target-day sweep covers) and either the
  * sweep or the Orders collection did not cover the whole evaluated window.
  * Ratios over zero are `null`. `totals` are the organization's window totals.
+ * Returns have no owner publication, so return counts, return rates and the
+ * orphan return count are `null`, never zero (ADR-0006).
  */
 @Injectable()
 export class SalesAnalysisService {
@@ -87,17 +84,8 @@ export class SalesAnalysisService {
     const { year, month } = this.parsePeriod(resolvedPeriod);
     const window = resolveFinanceWindow(kstMonthWindow(year, month), now);
 
-    const { facts, returnedLines, orphanReturnCount, unsoldAdListings } = await this.prisma.$transaction(async (tx) => {
+    const { facts, unsoldAdListings } = await this.prisma.$transaction(async (tx) => {
       const facts = await readProfitWindowFacts(tx, organizationId, window);
-      const returnedLines = await readReturnLinesOfOrderWindow(tx, {
-        organizationId,
-        ...window.effective,
-        excludedStatuses: ORDER_FACT_EXCLUDED_STATUSES,
-      });
-      const { orphanReturnCount } = await readOrderReturnWindowFacts(tx, {
-        organizationId,
-        ...window.effective,
-      });
       const soldListingIds = new Set(facts.lines.map((line) => line.listing.listingId));
       const unsoldAdListingIds = [...facts.listingAdSpend.keys()]
         .filter((listingId) => !soldListingIds.has(listingId));
@@ -107,7 +95,7 @@ export class SalesAnalysisService {
           where: { id: { in: unsoldAdListingIds }, organizationId },
           select: { id: true, channelAccount: { select: { channel: true } } },
         });
-      return { facts, returnedLines, orphanReturnCount, unsoldAdListings };
+      return { facts, unsoldAdListings };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
 
     const channelByListing = new Map<string, string>();
@@ -119,15 +107,6 @@ export class SalesAnalysisService {
       const channel = channelByListing.get(listingId);
       if (!channel) continue;
       adSpendByChannel.set(channel, (adSpendByChannel.get(channel) ?? 0) + spend);
-    }
-
-    const returnedOrdersByChannel = new Map<string, Set<string>>();
-    for (const line of returnedLines) {
-      const channel = line.listingId ? channelByListing.get(line.listingId) : undefined;
-      if (!channel) continue;
-      const orders = returnedOrdersByChannel.get(channel) ?? new Set<string>();
-      orders.add(line.orderId);
-      returnedOrdersByChannel.set(channel, orders);
     }
 
     type Group = {
@@ -187,7 +166,6 @@ export class SalesAnalysisService {
         const totalCost = !datesAligned || costs === null ? null : costs + group.shipping;
         const totalProfit = totalCost === null ? null : group.revenue - totalCost;
         const totalOrders = group.orderIds.size;
-        const returnCount = returnedOrdersByChannel.get(group.channel)?.size ?? 0;
         return {
           channel: group.channel,
           channelType: resolveChannelType(group.channel),
@@ -196,8 +174,9 @@ export class SalesAnalysisService {
           totalCost,
           totalProfit,
           profitRate: profitRatePercent(totalProfit, group.revenue),
-          returnCount,
-          returnRate: totalOrders === 0 ? null : Math.min(1, returnCount / totalOrders),
+          // Returns have no owner publication: not collected, never zero.
+          returnCount: null,
+          returnRate: null,
           avgOrderValue: totalOrders === 0 ? null : group.revenue / totalOrders,
         } satisfies ChannelAnalysis;
       })
@@ -213,7 +192,7 @@ export class SalesAnalysisService {
         totalOrders: windowTotals.orderCount,
         totalCost: windowTotals.cost,
         profitRate: windowTotals.profitRate,
-        orphanReturnCount,
+        orphanReturnCount: null,
       },
       basis: profitWindowBasis(facts),
     } satisfies SalesAnalysisData;
@@ -225,7 +204,6 @@ export class SalesAnalysisService {
       channelCount: channels.length,
       totalOrders: result.totals.totalOrders,
       totalRevenue: result.totals.totalRevenue,
-      orphanReturnCount,
       latencyMs: Date.now() - startedAt,
     });
 

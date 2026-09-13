@@ -190,7 +190,7 @@ export default function SalesOverview() {
               </div>
             </div>
 
-            {data.totals.orphanReturnCount > 0 && (
+            {data.totals.orphanReturnCount !== null && data.totals.orphanReturnCount > 0 && (
               <div className="inline-flex items-center gap-1.5 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs text-amber-900">
                 주문 연결 없는 반품: <strong className="tabular-nums">{formatNumber(data.totals.orphanReturnCount)}</strong>건{' '}
                 <span className="ml-1 text-amber-700">(반품률 계산 제외)</span>

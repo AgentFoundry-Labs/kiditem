@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../../prisma/prisma.service';
-import { readAdWindowFacts, readLatestAdDate } from '../../../../../common/ad-window-facts';
+import { readAdWindowFacts, readLatestAdDate } from '../../../../../advertising/read/ad-target-facts';
 import { addDays, parseBusinessDate } from '../../../../../common/kst';
 import {
   readListingTrafficWindowFacts,

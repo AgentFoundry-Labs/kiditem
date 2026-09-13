@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { toAdKeywordSnapshot } from '../ad-campaign.mapper';
+import { toAdKeywordSnapshot, toAdTrendsData } from '../ad-campaign.mapper';
 import type { KeywordTargetRollup } from '../../application/port/out/repository/ad-campaign.repository.port';
 
 function keywordRollup(overrides: Partial<KeywordTargetRollup> = {}): KeywordTargetRollup {
@@ -56,5 +56,54 @@ describe('toAdKeywordSnapshot', () => {
     expect(snapshot.metrics.cvr).toBeNull();
     // Measured additive metrics stay published.
     expect(snapshot.metrics).toMatchObject({ spend: 3_000, impressions: 400, clicks: 20 });
+  });
+});
+
+describe('toAdTrendsData', () => {
+  const window = {
+    knownThrough: '2026-09-12',
+    from: new Date('2026-09-10T00:00:00.000Z'),
+    to: new Date('2026-09-12T00:00:00.000Z'),
+  };
+  const day = (businessDate: string, spend: number) => ({
+    businessDate,
+    spend,
+    revenue: spend * 3,
+    impressions: 100,
+    clicks: 10,
+    conversions: 1,
+    orders: 1,
+    conversionsObserved: true,
+  });
+
+  // ADR-0006: the summary carries facts only. A reader that wants to name
+  // "nothing measured" reads `periodDayCount === 0`.
+  it('publishes a window the sweep never measured as zero measured days and no source word', () => {
+    const trends = toAdTrendsData({ ...window, days: [], observedAt: null });
+
+    expect(trends.summary).toEqual({
+      periodDayCount: 0,
+      latestBusinessDate: null,
+      observedAt: null,
+      metrics: null,
+      orders: null,
+    });
+  });
+
+  it('publishes measured days with their count and no source word', () => {
+    const trends = toAdTrendsData({
+      ...window,
+      days: [day('2026-09-10', 1_000), day('2026-09-12', 500)],
+      observedAt: new Date('2026-09-13T00:00:00.000Z'),
+    });
+
+    expect(trends.summary).not.toHaveProperty('source');
+    expect(trends.summary).toMatchObject({
+      periodDayCount: 2,
+      latestBusinessDate: '2026-09-12',
+      observedAt: '2026-09-13T00:00:00.000Z',
+      metrics: { spend: 1_500, revenue: 4_500 },
+      orders: 2,
+    });
   });
 });

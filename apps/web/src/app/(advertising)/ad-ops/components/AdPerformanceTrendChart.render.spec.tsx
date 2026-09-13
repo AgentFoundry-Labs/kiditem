@@ -42,7 +42,6 @@ function buildTrends(daily: AdTrendsDay[]): AdTrendsData {
     daily,
     summary: measured.length > 0
       ? {
-          source: 'coupang_ads',
           periodDayCount: measured.length,
           latestBusinessDate: measured.at(-1)!.date,
           observedAt: '2026-07-19T00:00:00.000Z',
@@ -50,7 +49,6 @@ function buildTrends(daily: AdTrendsDay[]): AdTrendsData {
           orders: null,
         }
       : {
-          source: 'unavailable',
           periodDayCount: 0,
           latestBusinessDate: null,
           observedAt: null,
@@ -100,7 +98,7 @@ describe('AdPerformanceTrendChart', () => {
     expect(screen.getByRole('button', { name: '열기' })).toBeTruthy();
   });
 
-  it('labels the series from the server summary source', () => {
+  it('labels the series from the measured summary', () => {
     render(<AdPerformanceTrendChart period="7d" trends={buildTrends([measuredDay])} />);
 
     expect(screen.getByText('쿠팡 광고 캠페인 합산 · 2026-07-17까지')).toBeTruthy();

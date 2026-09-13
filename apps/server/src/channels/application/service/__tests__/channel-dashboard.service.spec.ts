@@ -10,6 +10,7 @@ import {
   readOrderWindowFacts,
 } from '../../../../orders/read/order-facts.reader';
 import type { PrismaService } from '../../../../prisma/prisma.service';
+import { ReturnSummarySchema } from '@kiditem/shared/return-summary';
 
 vi.mock('../../../../orders/read/order-facts.reader', () => ({
   readDailyOrderFacts: vi.fn(),
@@ -120,11 +121,11 @@ describe('ChannelDashboardRepositoryAdapter', () => {
     }]);
   });
 
-  it('computes return rate without dividing by zero', async () => {
+  it('publishes no return count or rate while returns have no source', async () => {
     vi.mocked(readOrderReturnWindowFacts).mockResolvedValue({
-      orderCount: 0,
-      returnCount: 0,
-      orphanReturnCount: 2,
+      orderCount: 3,
+      returnCount: null,
+      orphanReturnCount: null,
     });
     vi.mocked(readOrderReturnFaultFacts).mockResolvedValue([
       { faultBy: 'CUSTOMER', count: 4 },
@@ -132,12 +133,14 @@ describe('ChannelDashboardRepositoryAdapter', () => {
     ]);
 
     const window = [new Date('2026-04-01'), new Date('2026-05-01')] as const;
-    await expect(service.getReturnSummary(ORGANIZATION_ID, ...window)).resolves.toEqual({
-      orderCount: 0,
-      returnCount: 0,
-      returnRate: 0,
-      orphanReturnCount: 2,
+    const summary = await service.getReturnSummary(ORGANIZATION_ID, ...window);
+    expect(summary).toEqual({
+      orderCount: 3,
+      returnCount: null,
+      returnRate: null,
+      orphanReturnCount: null,
     });
+    expect(ReturnSummarySchema.parse(summary)).toEqual(summary);
     await expect(service.getReturnFaultSplit(ORGANIZATION_ID, ...window)).resolves.toEqual({
       customer: 4,
       vendor: 0,

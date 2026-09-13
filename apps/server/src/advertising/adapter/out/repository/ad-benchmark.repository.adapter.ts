@@ -1,5 +1,5 @@
 // 30-day organization-wide ad benchmark read. Source: the listing-day ad
-// ledger through its one reader (`common/ad-window-facts`), over the inclusive
+// ledger through its one reader (`advertising/read/ad-target-facts`), over the inclusive
 // 30-day KST window. Returns additive sums; ratios recompute in
 // `domain/ad-metrics`.
 
@@ -10,7 +10,7 @@ import { kstInclusiveDaysStart } from '../../../../common/kst';
 import {
   readAdWindowFacts,
   readListingAdWindowFacts,
-} from '../../../../common/ad-window-facts';
+} from '../../../read/ad-target-facts';
 import type {
   AdBenchmarkRepositoryPort,
   BenchmarkAggregates,

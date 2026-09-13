@@ -10,8 +10,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { formatKRW, formatNumber } from '@/lib/utils';
-import { sumRocketOrderAmounts } from '../lib/rocket-order-amount';
+import { formatKRW, formatNumber, sumOrUnavailable } from '@/lib/utils';
 
 export interface RocketChartPoint {
   date: string;
@@ -24,7 +23,7 @@ export interface RocketChartPoint {
 export function RocketOrdersChart({ data }: { data: RocketChartPoint[] }) {
   const totalCount = data.reduce((s, d) => s + d.count, 0);
   const totalQty = data.reduce((s, d) => s + d.qty, 0);
-  const totalAmount = sumRocketOrderAmounts(data.map((d) => d.amount));
+  const totalAmount = sumOrUnavailable(data.map((d) => d.amount));
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-4">

@@ -41,6 +41,10 @@ function createFakeChrome({ storageState = {}, storageAdapter = null } = {}) {
   const externalMessageListeners = [];
   const connectExternalListeners = [];
   const installedListeners = [];
+  // Every worker shares one global scope, so the script that registered a
+  // listener is the only way a test can tell which domain owns it.
+  const installedListenerScripts = [];
+  let loadingScript = null;
   const createdAlarms = [];
   const internalMessageListeners = [];
   const noopEvent = () => ({ addListener() {}, removeListener() {} });
@@ -73,6 +77,8 @@ function createFakeChrome({ storageState = {}, storageAdapter = null } = {}) {
     externalMessageListeners,
     connectExternalListeners,
     installedListeners,
+    installedListenerScripts,
+    setLoadingScript: (script) => { loadingScript = script; },
     createdAlarms,
     internalMessageListeners,
     chrome: {
@@ -80,7 +86,12 @@ function createFakeChrome({ storageState = {}, storageAdapter = null } = {}) {
         id: 'kiditem-os-test',
         lastError: null,
         getManifest: () => manifest,
-        onInstalled: { addListener: (listener) => installedListeners.push(listener) },
+        onInstalled: {
+          addListener: (listener) => {
+            installedListeners.push(listener);
+            installedListenerScripts.push({ script: loadingScript, listener });
+          },
+        },
         onStartup: noopEvent(),
         onConnect: noopEvent(),
         onMessage: { addListener: listener => internalMessageListeners.push(listener) },
@@ -187,8 +198,14 @@ function bootServiceWorker({ fetch: fetchFn, storage, storageAdapter } = {}) {
     // 실제 서비스워커의 importScripts 와 같은 기준(서비스워커 위치)으로 푼다.
     importScripts(...files) {
       for (const file of files) {
-        const filename = path.join(backgroundRoot, file.split('?')[0]);
-        vm.runInContext(readFileSync(filename, 'utf8'), context, { filename });
+        const script = file.split('?')[0];
+        const filename = path.join(backgroundRoot, script);
+        fake.setLoadingScript(script);
+        try {
+          vm.runInContext(readFileSync(filename, 'utf8'), context, { filename });
+        } finally {
+          fake.setLoadingScript(null);
+        }
       }
     },
   };
@@ -1350,6 +1367,40 @@ test('an update removes the retired write-only local copies and keeps every othe
 
   for (const key of retired) assert.equal(key in fake.storage, false, key);
   assert.deepEqual(fake.storage.kiditem_unrelated_domain_state, { kept: true });
+});
+
+test('each domain worker removes only its own retired local copies on update', async (t) => {
+  // Storage names are domain-unique, so the domain that wrote a key is the one
+  // that retires it: Coupang its Wing/Ads sync stamps, Sourcing its extraction mirror.
+  const retiredByWorker = {
+    'coupang/worker.js': [
+      'kiditem_last_sync_traffic',
+      'kiditem_last_sync_itemwinner',
+      'kiditem_last_sync_ads',
+    ],
+    'sourcing/worker.js': ['lastExtraction', 'lastExtractionEnvironmentId'],
+  };
+  const everyRetired = Object.values(retiredByWorker).flat();
+
+  for (const [script, own] of Object.entries(retiredByWorker)) {
+    const storage = {
+      ...Object.fromEntries(everyRetired.map((key) => [key, { time: 1, count: 1 }])),
+      kiditem_unrelated_domain_state: { kept: true },
+    };
+    const { fake, close } = bootServiceWorker({ storage });
+    t.after(close);
+    const listeners = fake.installedListenerScripts.filter((entry) => entry.script === script);
+    assert.ok(listeners.length > 0, `${script} registers an install listener`);
+
+    for (const { listener } of listeners) await listener({ reason: 'update' });
+    await new Promise(setImmediate);
+
+    for (const key of own) assert.equal(key in fake.storage, false, `${script} removes ${key}`);
+    for (const key of everyRetired.filter((name) => !own.includes(name))) {
+      assert.equal(key in fake.storage, true, `${script} keeps ${key}`);
+    }
+    assert.deepEqual(fake.storage.kiditem_unrelated_domain_state, { kept: true });
+  }
 });
 
 test('Wing tab timeout keeps bounded target diagnostics and ignores unrelated tabs', async (t) => {

@@ -15,7 +15,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { countPublishedCatalogListings } from '../channels/read/completed-catalog-run';
 import { readSellpiaSalesDailyFacts } from '../analytics/sellpia-sales/read/sellpia-sales-daily-facts';
-import { dayAfter, readAdWindowFacts } from '../common/ad-window-facts';
+import { dayAfter, readAdWindowFacts } from '../advertising/read/ad-target-facts';
 import { buildSnapshotBasis } from '@kiditem/shared/dashboard';
 import { readWingRankCoverage } from '../advertising/read/keyword-rank-facts';
 import type {

@@ -368,7 +368,8 @@ describe('AdCampaignsService', () => {
 
     expect(campaigns).toEqual([]);
     expect(trends.daily.every((day) => day.metrics === null && day.orders === null)).toBe(true);
-    expect(trends.summary).toMatchObject({ source: 'unavailable', periodDayCount: 0, metrics: null });
+    expect(trends.summary).toMatchObject({ periodDayCount: 0, metrics: null });
+    expect(trends.summary).not.toHaveProperty('source');
   });
 });
 

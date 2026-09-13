@@ -25,7 +25,7 @@ import {
   advertisingAppliesToSale,
   readAdWindowFacts,
   readListingAdWindowFacts,
-} from './ad-window-facts';
+} from '../advertising/read/ad-target-facts';
 import { resolveOrderLineSalesCosts, resolveUnitCost } from './option-pricing-resolver';
 import { readInventorySkuIdentities } from '../inventory/read/inventory-availability';
 import {

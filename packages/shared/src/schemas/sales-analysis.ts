@@ -11,10 +11,10 @@ import { FinancePeriodSchema, FinanceWindowBasisSchema } from './profit-loss.js'
  * - totalCost / totalProfit / profitRate: `null` when any line of the channel
  *   lacks a recorded cost, or when advertising applies and the sweep did not
  *   measure the whole window. Unmeasured advertising is never added as 0.
- * - returnRate: distinct orders returned / orders in period, bounded [0, 1];
- *   `null` over zero orders.
- * - orphanReturnCount: returns without an order cannot be mapped to a channel,
- *   so they appear only in `totals`.
+ * - returnCount / returnRate / totals.orphanReturnCount: `null` while returns
+ *   have no owner publication; nothing collects them, so no return table is a
+ *   count (ADR-0006). A measured rate is distinct returned orders / orders in
+ *   period, bounded [0, 1]; returns without an order belong only to `totals`.
  */
 export const ChannelAnalysisSchema = z.object({
   channel: z.string(),
@@ -25,7 +25,7 @@ export const ChannelAnalysisSchema = z.object({
   totalProfit: z.number().int().nullable(),
   /** Percent with one decimal. */
   profitRate: z.number().nullable(),
-  returnCount: z.number().int().nonnegative(),
+  returnCount: z.number().int().nonnegative().nullable(),
   returnRate: z.number().min(0).max(1).nullable(),
   avgOrderValue: z.number().nonnegative().nullable(),
 });
@@ -45,7 +45,7 @@ export const SalesAnalysisDataSchema = z.object({
     totalOrders: z.number().int().nonnegative().nullable(),
     totalCost: z.number().int().nonnegative().nullable(),
     profitRate: z.number().nullable(),
-    orphanReturnCount: z.number().int().nonnegative(),
+    orphanReturnCount: z.number().int().nonnegative().nullable(),
   }),
   basis: FinanceWindowBasisSchema,
 });

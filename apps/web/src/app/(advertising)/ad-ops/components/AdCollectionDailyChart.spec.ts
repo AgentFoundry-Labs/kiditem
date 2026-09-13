@@ -28,7 +28,6 @@ function trends(overrides: Partial<AdTrendsData> = {}): AdTrendsData {
     to: "2026-07-18",
     daily: [],
     summary: {
-      source: "coupang_ads",
       periodDayCount: 1,
       latestBusinessDate: "2026-07-16",
       observedAt: "2026-07-17T00:00:00.000Z",
@@ -59,7 +58,7 @@ describe("AdCollectionDailyChart data model", () => {
     ]);
   });
 
-  it("labels the chart source only from the server summary", () => {
+  it("labels the chart source from the measured day count", () => {
     expect(buildCollectionChartPoints(trends(), []).sourceLabel).toBe(
       "쿠팡 광고 캠페인 합산 · 2026-07-16까지",
     );
@@ -67,7 +66,6 @@ describe("AdCollectionDailyChart data model", () => {
       buildCollectionChartPoints(
         trends({
           summary: {
-            source: "unavailable",
             periodDayCount: 0,
             latestBusinessDate: null,
             observedAt: null,

@@ -480,7 +480,7 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
 
     expect(result.rows).toHaveLength(1);
     expect(result.rows[0]).toMatchObject({
-      returnCount: 0,
+      returnCount: null,
       adCost: null,
       netProfit: null,
       profitRate: null,
@@ -491,7 +491,7 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
     expect(periodBasisStatus(result.basis.revenue)).toBe('complete');
   });
 
-  it('A confirmed-zero advertising window → returnCount: 0, adCost: 0', async () => {
+  it('A confirmed-zero advertising window → adCost: 0', async () => {
     const list = await setupListing(prisma, TEST_ORGANIZATION_ID, 'ZERO-A');
 
     await createOrder(prisma, TEST_ORGANIZATION_ID, {
@@ -509,12 +509,17 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
     const result = await rowsFor(TEST_ORGANIZATION_ID, 2026, 4);
 
     expect(result).toHaveLength(1);
-    expect(result[0].returnCount).toBe(0);
+    expect(result[0].returnCount).toBeNull();
     expect(result[0].adCost).toBe(0);
     expect(result[0].netProfit).not.toBeNull();
   });
 
-  it('ReturnLineItem with null orderLineItem.listingOption → skipped; properly wired → returnCount: 1', async () => {
+  /**
+   * Returns have no owner publication, so a return row naming a collected
+   * line is not a measured return: the row publishes no return count, not 1
+   * and not 0 (ADR-0006, ADR-0009).
+   */
+  it('publishes no return count for a row even when a return names its collected line', async () => {
     const list = await setupListing(prisma, TEST_ORGANIZATION_ID, 'NULL-LO');
     const orderedAt = new Date('2026-04-15T00:00:00.000Z');
 
@@ -575,7 +580,7 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
 
     const row = result.find((r) => r.externalId === 'EXT-NULL-LO');
     expect(row, 'L1 row for EXT-NULL-LO should exist').toBeDefined();
-    expect(row!.returnCount).toBe(1);
+    expect(row!.returnCount).toBeNull();
   });
 
   /**

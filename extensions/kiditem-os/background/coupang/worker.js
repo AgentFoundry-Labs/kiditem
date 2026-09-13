@@ -699,20 +699,18 @@ function handleWingFormPort(port) {
   });
 }
 
-// Write-only local copies no build reads any more: the Wing/Ads sync stamps and
-// the sourcing extraction mirror. Remove them once from installed profiles.
-const RETIRED_LOCAL_COPY_KEYS = [
+// Write-only Wing/Ads sync stamps no build reads any more. Remove them once from
+// installed profiles.
+const COUPANG_RETIRED_LOCAL_COPY_KEYS = [
   "kiditem_last_sync_traffic",
   "kiditem_last_sync_itemwinner",
   "kiditem_last_sync_ads",
-  "lastExtraction",
-  "lastExtractionEnvironmentId",
 ];
 
 chrome.runtime.onInstalled.addListener(() => {
   console.log("[KIDITEM] Extension installed");
   adsEnvironmentContext.migrateLegacyStorage().catch(() => undefined);
-  Promise.resolve(chrome.storage.local.remove(RETIRED_LOCAL_COPY_KEYS)).catch(() => undefined);
+  Promise.resolve(chrome.storage.local.remove(COUPANG_RETIRED_LOCAL_COPY_KEYS)).catch(() => undefined);
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {

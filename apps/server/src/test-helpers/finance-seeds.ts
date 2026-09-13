@@ -505,7 +505,7 @@ export async function seedReturn(
 /**
  * Seed one measured listing-day ad fact in the advertising target-day ledger
  * (`ChannelAdTargetDailySnapshot`, product grain). Every reader of listing-day
- * ad values goes through `common/ad-window-facts`, so a spec that seeds here
+ * ad values goes through `advertising/read/ad-target-facts`, so a spec that seeds here
  * observes `getTrend(...).adCost` / `salesAnalysis.totalCost` and friends.
  *
  * A measured day needs both a row and a completed sweep declaration. By

@@ -25,7 +25,6 @@ const unavailableTrends = {
   to: "2026-07-23",
   daily: [],
   summary: {
-    source: "unavailable",
     periodDayCount: 0,
     latestBusinessDate: null,
     observedAt: null,
@@ -517,7 +516,6 @@ describe("CampaignContent", () => {
         return Promise.resolve({
           ...unavailableTrends,
           summary: {
-            source: "coupang_ads",
             periodDayCount: 7,
             latestBusinessDate: "2026-07-23",
             observedAt: "2026-07-24T00:00:00.000Z",

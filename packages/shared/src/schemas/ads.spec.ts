@@ -6,7 +6,9 @@ import {
   AdKeywordProductSummarySchema,
   AdKeywordSnapshotSchema,
   AdProductSnapshotSchema,
+  AdTrendsSummarySchema,
 } from './ads';
+import * as adsContract from './ads';
 
 describe('AdCampaignReportScopeSchema', () => {
   it('accepts exactly the three producer authority scopes', () => {
@@ -185,5 +187,20 @@ describe('keyword conversion availability', () => {
     expect(AdKeywordProductSummarySchema.safeParse(summary).success).toBe(false);
     expect(AdKeywordProductSummarySchema.parse({ ...summary, conversionsAvailable: true }))
       .toMatchObject({ conversionsAvailable: true });
+  });
+});
+
+describe('ad-ops trends summary', () => {
+  // ADR-0006: the wire carries no derived word. "Nothing measured" is
+  // `periodDayCount === 0`, which the summary already carries.
+  it('carries the measured facts and no source word', () => {
+    expect(Object.keys(AdTrendsSummarySchema.shape)).toEqual([
+      'periodDayCount',
+      'latestBusinessDate',
+      'observedAt',
+      'metrics',
+      'orders',
+    ]);
+    expect('AdTrendsSourceSchema' in adsContract).toBe(false);
   });
 });

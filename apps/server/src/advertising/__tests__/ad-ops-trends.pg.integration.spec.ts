@@ -150,7 +150,6 @@ describe('Ad-ops trends over the campaign sweep ledger (PG integration)', () => 
       orders: 2,
     });
     expect(trends.summary).toMatchObject({
-      source: 'coupang_ads',
       periodDayCount: 3,
       latestBusinessDate: d1,
       metrics: {
@@ -184,7 +183,6 @@ describe('Ad-ops trends over the campaign sweep ledger (PG integration)', () => 
     expect(trends.daily).toHaveLength(7);
     expect(trends.daily.every((day) => day.metrics === null && day.orders === null)).toBe(true);
     expect(trends.summary).toEqual({
-      source: 'unavailable',
       periodDayCount: 0,
       latestBusinessDate: null,
       observedAt: null,
@@ -219,7 +217,6 @@ describe('Ad-ops trends over the campaign sweep ledger (PG integration)', () => 
 
     expect(trends.daily.map((day) => day.date)).toEqual([d3, d2]);
     expect(trends.summary).toMatchObject({
-      source: 'coupang_ads',
       periodDayCount: 2,
       metrics: { spend: 300, revenue: 900, conversions: 1 },
       orders: 1,

@@ -10,7 +10,7 @@ import {
   RefreshCw,
   Rocket,
 } from 'lucide-react';
-import { cn, formatKRW, formatNumber } from '@/lib/utils';
+import { cn, formatKRW, formatNumber, sumOrUnavailable } from '@/lib/utils';
 import { queryKeys } from '@/lib/query-keys';
 import { useRocketPoSource } from '@/hooks/use-rocket-po-source';
 import PageSkeleton from '@/components/ui/PageSkeleton';
@@ -18,7 +18,6 @@ import { listSavedRocketPos } from '@/app/(supply)/purchase-orders/lib/rocket-pu
 import type { RocketOrderActivityInput } from '@/lib/rocket-order-activity';
 import { useRocketOrderActivity } from '../hooks/useRocketOrderActivity';
 import { useRocketOrdersViewState } from '../hooks/useRocketOrdersViewState';
-import { sumRocketOrderAmounts } from '../lib/rocket-order-amount';
 import { RocketAccountBootstrap } from './RocketAccountBootstrap';
 import { RocketOrderActivityPanel } from './RocketOrderActivityPanel';
 import { RocketMonthCalendar, type MonthDayData } from './RocketMonthCalendar';
@@ -196,7 +195,7 @@ export function RocketOrdersWorkspace({
       date,
       count: pos.length,
       qty: pos.reduce((s, o) => s + o.orderQuantity, 0),
-      amount: sumRocketOrderAmounts(pos.map((o) => o.orderAmount)),
+      amount: sumOrUnavailable(pos.map((o) => o.orderAmount)),
     };
   }), [byDate, from, to]);
 
@@ -207,7 +206,7 @@ export function RocketOrdersWorkspace({
       record[date] = {
         count: pos.length,
         qty: pos.reduce((s, o) => s + o.orderQuantity, 0),
-        amount: sumRocketOrderAmounts(pos.map((o) => o.orderAmount)),
+        amount: sumOrUnavailable(pos.map((o) => o.orderAmount)),
       };
     }
     return record;
@@ -268,7 +267,7 @@ export function RocketOrdersWorkspace({
       : mergedRangeDays;
     const summaryCount = summaryDays.reduce((sum, day) => sum + day.count, 0);
     const summaryQty = summaryDays.reduce((sum, day) => sum + day.qty, 0);
-    const summaryAmount = sumRocketOrderAmounts(summaryDays.map((day) => day.amount));
+    const summaryAmount = sumOrUnavailable(summaryDays.map((day) => day.amount));
     const hasRangeOrders = mergedRangeDays.some((day) => day.count > 0);
     const hasMonthOrders = Object.values(mergedMonthData).some((day) => day.count > 0);
     const chartData: RocketChartPoint[] = mergedRangeDays.map((day) => ({

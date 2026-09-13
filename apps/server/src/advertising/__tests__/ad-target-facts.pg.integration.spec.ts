@@ -4,7 +4,7 @@ import {
   readAdWindowFacts,
   readLatestAdDate,
   readListingAdWindowFacts,
-} from '../ad-window-facts';
+} from '../read/ad-target-facts';
 import {
   makeTestPrisma,
   resetDb,
@@ -29,7 +29,7 @@ import {
  * unavailable; and a superseded generation loses to the newer one instead of
  * being summed with it.
  */
-describe('ad-window-facts (PG)', () => {
+describe('ad-target-facts (PG)', () => {
   let prisma: PrismaClient;
   const day = (d: string) => new Date(`${d}T00:00:00.000Z`);
 

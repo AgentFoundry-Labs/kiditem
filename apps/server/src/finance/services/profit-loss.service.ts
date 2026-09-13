@@ -10,7 +10,6 @@ import {
   readProfitWindowFacts,
   resolveFinanceWindow,
 } from '../../common/per-listing-profit';
-import { readReturnLinesRequestedInWindow } from '../../orders/read/order-facts.reader';
 
 /**
  * Live profit and loss for one KST month.
@@ -21,7 +20,8 @@ import { readReturnLinesRequestedInWindow } from '../../orders/read/order-facts.
  * Rows, totals and the basis behind them come from one Repeatable Read
  * snapshot of the owner readers composed in `common/per-listing-profit`. A
  * row or total whose inputs were not all measured publishes `null`
- * (ADR-0006); returns are counted by the date they were requested.
+ * (ADR-0006). Returns have no owner publication, so a row's return count is
+ * `null`, never zero.
  */
 @Injectable()
 export class ProfitLossService {
@@ -40,20 +40,10 @@ export class ProfitLossService {
     const startedAt = Date.now();
     const window = resolveFinanceWindow(kstMonthWindow(year, month), now);
 
-    const { facts, returnLines } = await this.prisma.$transaction(async (tx) => {
-      const facts = await readProfitWindowFacts(tx, organizationId, window);
-      const returnLines = await readReturnLinesRequestedInWindow(tx, {
-        organizationId,
-        ...window.effective,
-      });
-      return { facts, returnLines };
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
-
-    const returnCountByListing = new Map<string, number>();
-    for (const line of returnLines) {
-      if (!line.listingId) continue;
-      returnCountByListing.set(line.listingId, (returnCountByListing.get(line.listingId) ?? 0) + 1);
-    }
+    const facts = await this.prisma.$transaction(
+      (tx) => readProfitWindowFacts(tx, organizationId, window),
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
 
     const rows = perListingProfitRows(facts).map((m) => ({
       listingId: m.listingId,
@@ -74,7 +64,7 @@ export class ProfitLossService {
       netProfit: m.netProfit,
       profitRate: m.profitRate,
       orderCount: m.orderCount,
-      returnCount: returnCountByListing.get(m.listingId) ?? 0,
+      returnCount: null,
     } satisfies PLData)).sort((a, b) => b.revenue - a.revenue);
 
     const totals = profitWindowTotals(facts);

@@ -31,7 +31,8 @@ export const PLDataSchema = z.object({
   /** Percent with one decimal; `null` over zero revenue or an unavailable profit. */
   profitRate: z.number().nullable(),
   orderCount: z.number().int(),
-  returnCount: z.number().int(),
+  /** `null` while returns have no owner publication: not collected, never zero. */
+  returnCount: z.number().int().nullable(),
 });
 
 export type PLData = z.infer<typeof PLDataSchema>;

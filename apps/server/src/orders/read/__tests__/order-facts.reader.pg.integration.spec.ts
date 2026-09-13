@@ -11,6 +11,7 @@ import {
   readOrderListFacts,
   readOrderReturnByIdFact,
   readOrderReturns,
+  readOrderReturnWindowFacts,
   readOrderReturnStatusCounts,
   readOrderStatusCounts,
   readObservedOrderBounds,
@@ -586,6 +587,37 @@ describe('Order facts reader over disposable PostgreSQL', () => {
     });
     expect(result.one?.id).toBe(own.id);
     expect(result.statuses).toEqual({ total: 1, byStatus: { UC: 1 } });
+  });
+
+  it('counts the collected orders of a window but publishes no return count, returns having no source', async () => {
+    const order = await seedOrder(TEST_ORGANIZATION_ID, ACCOUNT_ID, 'RETURNED-ORDER', 10_000, [
+      { totalPrice: 10_000, quantity: 1 },
+    ]);
+    for (const [externalReturnId, orderId] of [['RETURN-LINKED', order.id], ['RETURN-ORPHAN', null]] as const) {
+      await prisma.orderReturn.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          channelAccountId: ACCOUNT_ID,
+          orderId,
+          externalReturnId,
+          type: 'RETURN',
+          status: 'UC',
+          reason: 'damaged',
+          requestedAt: new Date('2026-05-01T04:00:00.000Z'),
+        },
+      });
+    }
+
+    const facts = await prisma.$transaction((tx) => readOrderReturnWindowFacts(tx, {
+      organizationId: TEST_ORGANIZATION_ID,
+      from: FROM,
+      to: TO,
+    }));
+
+    // Nothing collects returns or declares a window of them observed, so the
+    // rows the table holds are not a count: these are not 1, and an empty
+    // table would not be 0.
+    expect(facts).toEqual({ orderCount: 1, returnCount: null, orphanReturnCount: null });
   });
 
   async function seedOrder(

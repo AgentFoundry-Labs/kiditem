@@ -5,7 +5,6 @@ import KpiDashboard from './KpiDashboard';
 
 function measuredSummary(overrides: Partial<AdTrendsSummary> = {}): AdTrendsSummary {
   return {
-    source: 'coupang_ads',
     periodDayCount: 23,
     latestBusinessDate: '2026-07-23',
     observedAt: '2026-07-24T00:10:00.000Z',
@@ -58,7 +57,6 @@ describe('KpiDashboard', () => {
       <KpiDashboard
         period="14d"
         summary={{
-          source: 'unavailable',
           periodDayCount: 0,
           latestBusinessDate: null,
           observedAt: null,

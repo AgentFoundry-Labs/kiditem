@@ -40,10 +40,9 @@ import type { ChannelDashboardRepositoryPort } from '../../../application/port/o
  * - `_count: true` in Prisma returns a flat `number` (no wrapper object).
  * - `OrderReturn.faultBy` is `VarChar(20)` and is currently `CUSTOMER` /
  *   `VENDOR` only; unknown values must be dropped before persistence.
- * - `getReturnSummary` enforces a 2-hop INNER JOIN on `Order.orderedAt`
- *   (`OrderReturn.organizationId` must match `Order.organizationId`) per Plan D.2 /
- *   returnRate contract. Past-period orders' returns therefore stay outside the current
- *   period numerator.
+ * - `getReturnSummary` counts the window's collected orders. Returns have no
+ *   owner publication, so the Orders reader publishes no return count and the
+ *   rate is `null`, never zero (ADR-0006).
  *
  * Canonical order SQL lives in the Orders reader. This adapter owns each
  * transaction and resolves Channels display metadata inside that transaction.
@@ -172,7 +171,8 @@ export class ChannelDashboardRepositoryAdapter implements ChannelDashboardReposi
       (tx) => readOrderReturnWindowFacts(tx, { organizationId, from, to }),
     );
 
-    const returnRate = orderCount === 0 ? 0 : returnCount / orderCount;
+    // A rate needs a measured return count over at least one order.
+    const returnRate = returnCount === null || orderCount === 0 ? null : returnCount / orderCount;
 
     const result = {
       orderCount,

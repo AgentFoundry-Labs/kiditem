@@ -7,7 +7,7 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { addDays, businessDateKey, kstInclusiveDaysStart, kstMonthStart } from '../../../../common/kst';
-import { readListingAdWindowFacts } from '../../../../common/ad-window-facts';
+import { readListingAdWindowFacts } from '../../../read/ad-target-facts';
 import { currentRowTieBreakSql } from '../../../../common/current-row';
 import {
   readListingTrafficWindowFacts,

@@ -6,7 +6,7 @@ import { readInventorySkuIdentities } from "../../../inventory/read/inventory-av
 import {
   advertisingApplies,
   readAdWindowFacts,
-} from "../../../common/ad-window-facts";
+} from "../../../advertising/read/ad-target-facts";
 import { businessDateKey, kstBusinessDate } from "../../../common/kst";
 import { businessDatesInWindow } from "../domain/period/dashboard-period";
 import { periodOf } from "./test-helpers/period";
@@ -26,8 +26,8 @@ vi.mock(
     readInventorySkuIdentities: vi.fn(),
   }),
 );
-vi.mock("../../../common/ad-window-facts", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../../../common/ad-window-facts")>()),
+vi.mock("../../../advertising/read/ad-target-facts", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../../advertising/read/ad-target-facts")>()),
   advertisingApplies: vi.fn(),
   readAdWindowFacts: vi.fn(),
 }));
@@ -39,7 +39,7 @@ const mockedReadAdWindowFacts = vi.mocked(readAdWindowFacts);
 
 /**
  * Ad days come from the advertising target-day ledger through
- * `common/ad-window-facts`, which the adapter reaches as `$queryRaw`. Tests
+ * `advertising/read/ad-target-facts`, which the adapter reaches as `$queryRaw`. Tests
  * keep the order/lineItem path focused while providing explicit measured days
  * where ad evidence is part of the assertion.
  */

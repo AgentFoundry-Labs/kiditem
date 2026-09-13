@@ -267,7 +267,6 @@ function summarize(
 ): AdTrendsSummary {
   if (measured.length === 0) {
     return {
-      source: 'unavailable',
       periodDayCount: 0,
       latestBusinessDate: null,
       observedAt: null,
@@ -288,7 +287,6 @@ function summarize(
   );
   const conversionsObserved = measured.every((day) => day.conversionsObserved);
   return {
-    source: 'coupang_ads',
     periodDayCount: measured.length,
     latestBusinessDate: measured[measured.length - 1].businessDate,
     observedAt: observedAt?.toISOString() ?? null,

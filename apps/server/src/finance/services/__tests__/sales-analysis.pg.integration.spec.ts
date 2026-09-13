@@ -87,56 +87,39 @@ describe('SalesAnalysisService.getAnalysis (PG integration)', () => {
     expect(o.totals.totalRevenue).toBe(20000);
   });
 
-  it('returnRate counts distinct returned orders of the period only', async () => {
-    const coup = await setupChannelFixture(TEST_ORGANIZATION_ID, 'coupang', 'return-rate');
-    const marchOrderId = await seedOrderWithLineItems(prisma, {
+  /**
+   * Returns have no owner publication: nothing collects them and no coverage
+   * declares a window of them observed, so an empty or populated return table
+   * is not a count. A fully collected order month still publishes no return
+   * count, return rate or orphan return count (ADR-0006, ADR-0009).
+   */
+  it('publishes no return count, return rate or orphan return count for a fully collected order month', async () => {
+    const coup = await setupChannelFixture(TEST_ORGANIZATION_ID, 'coupang', 'RETURNS');
+    const orderId = await seedOrderWithLineItems(prisma, {
       orderChannel: 'rocket',
-      organizationId: TEST_ORGANIZATION_ID, externalOrderId: 'MAR-1', orderedAt: '2026-03-15T00:00:00Z',
-      lineItems: [{ quantity: 1, totalPrice: 5000, optionId: coup.optionId, listingOptionId: coup.listingOptionId }],
-    });
-    const aprOrderId = await seedOrderWithLineItems(prisma, {
-      orderChannel: 'rocket',
-      organizationId: TEST_ORGANIZATION_ID, externalOrderId: 'APR-1', orderedAt: '2026-04-10T00:00:00Z',
+      organizationId: TEST_ORGANIZATION_ID, externalOrderId: 'RETURNS-1', orderedAt: '2026-04-10T00:00:00Z',
       lineItems: [{ quantity: 1, totalPrice: 10000, optionId: coup.optionId, listingOptionId: coup.listingOptionId }],
     });
-    const marchLineItem = await prisma.orderLineItem.findFirst({
-      where: { orderId: marchOrderId }, select: { id: true },
-    });
-    const aprLineItem = await prisma.orderLineItem.findFirst({
-      where: { orderId: aprOrderId }, select: { id: true },
-    });
+    const lineItem = await prisma.orderLineItem.findFirstOrThrow({ where: { orderId }, select: { id: true } });
     await seedReturn(prisma, {
-      organizationId: TEST_ORGANIZATION_ID, orderId: marchOrderId, requestedAt: '2026-04-07T00:00:00Z',
-      lineItems: [{ orderLineItemId: marchLineItem!.id }],
+      organizationId: TEST_ORGANIZATION_ID, orderId, requestedAt: '2026-04-15T00:00:00Z',
+      lineItems: [{ orderLineItemId: lineItem.id }],
     });
-    // Two returned lines of one order are one returned order, not two.
-    await seedReturn(prisma, {
-      organizationId: TEST_ORGANIZATION_ID, orderId: aprOrderId, requestedAt: '2026-04-25T00:00:00Z',
-      lineItems: [{ orderLineItemId: aprLineItem!.id }, { orderLineItemId: aprLineItem!.id }],
-    });
-    await coverOrders(TEST_ORGANIZATION_ID, '2026-03-01', '2026-04-30');
-
-    const result = await service.getAnalysis(TEST_ORGANIZATION_ID, '2026-04', AFTER_MONTHS);
-    const c = result.channels.find((x) => x.channel === 'coupang')!;
-    expect(c.totalOrders).toBe(1);
-    expect(c.returnCount).toBe(1);
-    expect(c.returnRate).toBeCloseTo(1, 6);
-  });
-
-  it('orphanReturnCount — orderId NULL returns go to totals.orphanReturnCount', async () => {
-    const coup = await setupChannelFixture(TEST_ORGANIZATION_ID, 'coupang', 'ORPHAN');
-    await seedOrderWithLineItems(prisma, {
-      orderChannel: 'rocket',
-      organizationId: TEST_ORGANIZATION_ID, externalOrderId: 'ORPHAN-1', orderedAt: '2026-04-10T00:00:00Z',
-      lineItems: [{ quantity: 1, totalPrice: 10000, optionId: coup.optionId, listingOptionId: coup.listingOptionId }],
-    });
-    await seedReturn(prisma, { organizationId: TEST_ORGANIZATION_ID, orderId: null, requestedAt: '2026-04-15T00:00:00Z' });
+    await seedReturn(prisma, { organizationId: TEST_ORGANIZATION_ID, orderId: null, requestedAt: '2026-04-16T00:00:00Z' });
     await coverOrders();
 
     const result = await service.getAnalysis(TEST_ORGANIZATION_ID, '2026-04', AFTER_MONTHS);
-    expect(result.channels[0].returnCount).toBe(0);
-    expect(result.channels[0].returnRate).toBe(0);
-    expect(result.totals.orphanReturnCount).toBe(1);
+
+    expect(periodBasisStatus(result.basis.revenue)).toBe('complete');
+    expect(result.totals.totalRevenue).toBe(10000);
+    expect(result.channels).toHaveLength(1);
+    expect(result.channels[0]).toMatchObject({
+      channel: 'coupang',
+      totalOrders: 1,
+      returnCount: null,
+      returnRate: null,
+    });
+    expect(result.totals.orphanReturnCount).toBeNull();
   });
 
   it('SalesAnalysisDataSchema.parse succeeds on response', async () => {
@@ -344,7 +327,9 @@ describe('SalesAnalysisService.getAnalysis (PG integration)', () => {
       totalProfit: -5000,
       profitRate: null,
       avgOrderValue: 0,
-      returnRate: 0,
+      // Returns have no source, so a rate over the channel's one order is not 0.
+      returnCount: null,
+      returnRate: null,
     });
     expect(result.totals).toMatchObject({ totalRevenue: 0, totalProfit: -5000, profitRate: null });
   });

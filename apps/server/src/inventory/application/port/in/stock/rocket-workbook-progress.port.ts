@@ -6,7 +6,6 @@ export type RocketWorkbookWorkflowStatus =
   | 'awaiting_coupang_confirmation'
   | 'orders_collected'
   | 'sellpia_transmitting'
-  | 'awaiting_inventory_sync'
   | 'completed'
   | 'failed';
 
