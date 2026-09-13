@@ -45,7 +45,6 @@ export interface ThumbnailTrackingSnapshotRow {
   revenueKrw: number | null;
   reviewCount: number | null;
   ratingAvg: number | null;
-  scrapeStatus: string;
   errorMessage: string | null;
 }
 
@@ -73,7 +72,6 @@ export interface UpsertThumbnailTrackingDailySnapshotInput {
   reviewCount: number | null;
   ratingAvg: number | null;
   rawCellTexts: string[];
-  scrapeStatus: string;
   errorMessage: string | null;
   setSalesBefore: boolean;
 }

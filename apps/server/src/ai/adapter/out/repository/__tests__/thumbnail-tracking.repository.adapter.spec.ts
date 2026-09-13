@@ -80,7 +80,6 @@ describe('ThumbnailTrackingRepositoryAdapter', () => {
       revenueKrw: 123000,
       reviewCount: 18,
       ratingAvg: 4.7,
-      scrapeStatus: 'ok',
       errorMessage: null,
     };
     const prisma = {
@@ -104,7 +103,6 @@ describe('ThumbnailTrackingRepositoryAdapter', () => {
         reviewCount: 18,
         ratingAvg: 4.7,
         rawCellTexts: ['쿠팡 상품명', '42'],
-        scrapeStatus: 'ok',
         errorMessage: null,
         setSalesBefore: true,
       }),

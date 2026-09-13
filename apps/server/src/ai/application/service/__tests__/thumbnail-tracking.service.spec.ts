@@ -65,7 +65,6 @@ function makeRepository(): ThumbnailTrackingRepositoryPort {
       revenueKrw: 123000,
       reviewCount: 18,
       ratingAvg: 4.7,
-      scrapeStatus: 'ok',
       errorMessage: null,
     }),
     listSnapshots: vi.fn().mockResolvedValue([]),
@@ -181,7 +180,6 @@ describe('ThumbnailTrackingService', () => {
       revenueKrw: 123000,
       reviewCount: 18,
       ratingAvg: 4.7,
-      scrapeStatus: 'ok',
       errorMessage: null,
     });
 
@@ -209,5 +207,57 @@ describe('ThumbnailTrackingService', () => {
         capturedDate: new Date('2026-05-19T00:00:00.000Z'),
       }),
     );
+  });
+
+  it('counts collected snapshots from their error facts and sets the baseline only from matched units', async () => {
+    const repository = makeRepository();
+    vi.mocked(repository.findActiveTrackings).mockResolvedValueOnce([
+      { id: 'tracking-matched' },
+      { id: 'tracking-units-unparsed' },
+      { id: 'tracking-not-found' },
+      { id: 'tracking-scrape-failed' },
+    ]);
+    vi.mocked(repository.upsertDailySnapshot).mockImplementation(async (input) => ({
+      id: `snapshot-${input.trackingId}`,
+      trackingId: input.trackingId,
+      capturedAt: new Date('2026-05-19T12:00:00.000Z'),
+      capturedDate: input.capturedDate,
+      unitsSold30d: input.unitsSold30d,
+      unitsSold7d: input.unitsSold7d,
+      revenueKrw: input.revenueKrw,
+      reviewCount: input.reviewCount,
+      ratingAvg: input.ratingAvg,
+      errorMessage: input.errorMessage,
+    }));
+    const matchedRow = {
+      inventoryId: 'inventory-1',
+      matchedName: '쿠팡 상품명',
+      unitsSold30d: 42,
+      unitsSold7d: 11,
+      revenueKrw: 123000,
+      reviewCount: 18,
+      ratingAvg: 4.7,
+      rawCellTexts: ['쿠팡 상품명', '42'],
+    };
+    const salesScraper = makeSalesScraper();
+    vi.mocked(salesScraper.scrapeByProductName)
+      .mockResolvedValueOnce({ found: true, row: matchedRow })
+      .mockResolvedValueOnce({ found: true, row: { ...matchedRow, unitsSold30d: null } })
+      .mockResolvedValueOnce({ found: false, row: null })
+      .mockResolvedValueOnce({ found: false, row: null, error: '쿠팡 Wing 로그인 필요' });
+    const { service } = makeService(repository, salesScraper);
+
+    await expect(service.collectAllActiveSnapshots(ORGANIZATION_ID)).resolves.toEqual({ collected: 2, failed: 2 });
+
+    expect(vi.mocked(repository.upsertDailySnapshot).mock.calls.map(([input]) => ({
+      trackingId: input.trackingId,
+      errorMessage: input.errorMessage,
+      setSalesBefore: input.setSalesBefore,
+    }))).toEqual([
+      { trackingId: 'tracking-matched', errorMessage: null, setSalesBefore: true },
+      { trackingId: 'tracking-units-unparsed', errorMessage: null, setSalesBefore: false },
+      { trackingId: 'tracking-not-found', errorMessage: '상품을 Wing 에서 찾지 못함: "쿠팡 상품명"', setSalesBefore: false },
+      { trackingId: 'tracking-scrape-failed', errorMessage: '쿠팡 Wing 로그인 필요', setSalesBefore: false },
+    ]);
   });
 });

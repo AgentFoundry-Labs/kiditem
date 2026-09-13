@@ -186,7 +186,6 @@ export class ThumbnailTrackingRepositoryAdapter implements ThumbnailTrackingRepo
         reviewCount: input.reviewCount,
         ratingAvg: input.ratingAvg,
         rawCellTexts: input.rawCellTexts as Prisma.InputJsonValue,
-        scrapeStatus: input.scrapeStatus,
         errorMessage: input.errorMessage,
       },
       update: {
@@ -196,7 +195,6 @@ export class ThumbnailTrackingRepositoryAdapter implements ThumbnailTrackingRepo
         reviewCount: input.reviewCount,
         ratingAvg: input.ratingAvg,
         rawCellTexts: input.rawCellTexts as Prisma.InputJsonValue,
-        scrapeStatus: input.scrapeStatus,
         errorMessage: input.errorMessage,
         capturedAt: new Date(),
       },

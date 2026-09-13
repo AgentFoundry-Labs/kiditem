@@ -74,7 +74,6 @@ describe('thumbnail tracking KST business date (PG integration)', () => {
         trackingId: tracking.id,
         capturedDate: new Date('2026-05-18T00:00:00.000Z'),
         unitsSold30d: 10,
-        scrapeStatus: 'ok',
       },
     });
     const scraper: CoupangProductSalesScrapePort = {
