@@ -22,6 +22,7 @@ import { backfillCoupangDirectTransportReceiptsMigration } from "./v0.1.31/006_b
 import { normalizeSourceImportRunCompletedStatusMigration } from "./v0.1.31/007_normalize_source_import_run_completed_status";
 import { backfillAlertReadAtFromIsReadMigration } from "./v0.1.31/008_backfill_alert_read_at_from_is_read";
 import { backfillCapabilityApprovalDecisionMigration } from "./v0.1.31/009_backfill_capability_approval_decision";
+import { backfillThumbnailTrackingInconclusiveMarkMigration } from "./v0.1.31/010_backfill_thumbnail_tracking_inconclusive_mark";
 import retiredDataMigrationCatalog from "./retired.json";
 import type { DataMigration, RetiredDataMigration } from "./types";
 
@@ -57,6 +58,7 @@ export const dataMigrations: readonly DataMigration[] = [
   normalizeSourceImportRunCompletedStatusMigration,
   backfillAlertReadAtFromIsReadMigration,
   backfillCapabilityApprovalDecisionMigration,
+  backfillThumbnailTrackingInconclusiveMarkMigration,
   initializeAbsoluteProductAbcFormula,
   backfillCoupangDirectTransportReceiptsMigration,
 ];

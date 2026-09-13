@@ -280,7 +280,8 @@ model ThumbnailTracking {
   salesBefore   Int?   @map("sales_before")
   salesAfter    Int?   @map("sales_after")
 
-  status String @default("tracking") // tracking|measured|inconclusive
+  // 운영자가 "결론 없음"으로 판단한 시각. tracking|measured|inconclusive 는 이 시각과 CTR 전후 값에서 파생한다.
+  markedInconclusiveAt DateTime? @map("marked_inconclusive_at") @db.Timestamptz
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
@@ -294,7 +295,6 @@ model ThumbnailTracking {
   @@index([organizationId])
   @@index([listingId])
   @@index([generationId])
-  @@index([status])
   @@map("thumbnail_trackings")
 }
 

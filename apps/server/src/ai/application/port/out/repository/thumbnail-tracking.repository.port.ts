@@ -10,13 +10,13 @@ export interface ThumbnailTrackingRow {
   originalGrade: string;
   originalScore: number;
   appliedAt: Date;
-  status: string;
   ctrBefore: number | null;
   ctrAfter: number | null;
   reviewsBefore: number | null;
   reviewsAfter: number | null;
   salesBefore: number | null;
   salesAfter: number | null;
+  markedInconclusiveAt: Date | null;
   listing: {
     id: string;
     displayName: string | null;

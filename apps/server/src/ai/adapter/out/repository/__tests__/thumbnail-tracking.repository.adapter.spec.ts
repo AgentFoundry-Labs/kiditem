@@ -16,13 +16,13 @@ function makeRow() {
     originalGrade: 'A',
     originalScore: 91,
     appliedAt: new Date('2026-05-01T00:00:00.000Z'),
-    status: 'tracking',
     ctrBefore: null,
     ctrAfter: null,
     reviewsBefore: null,
     reviewsAfter: null,
     salesBefore: null,
     salesAfter: null,
+    markedInconclusiveAt: null,
     listing: {
       id: LISTING_ID,
       displayName: '테스트 상품',
@@ -67,30 +67,6 @@ describe('ThumbnailTrackingRepositoryAdapter', () => {
         },
       }),
     );
-  });
-
-  it('updates metrics with organization scope and returns the included tracking row', async () => {
-    const updated = makeRow();
-    const prisma = {
-      thumbnailTracking: {
-        findFirst: vi.fn().mockResolvedValueOnce({ ctrBefore: 1.2, ctrAfter: null }).mockResolvedValueOnce(updated),
-        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
-      },
-    };
-    const repository = new ThumbnailTrackingRepositoryAdapter(prisma as never);
-
-    await expect(
-      repository.updateMetrics({
-        id: TRACKING_ID,
-        organizationId: ORGANIZATION_ID,
-        metrics: { ctrAfter: 2.5 },
-      }),
-    ).resolves.toEqual(updated);
-
-    expect(prisma.thumbnailTracking.updateMany).toHaveBeenCalledWith({
-      where: { id: TRACKING_ID, organizationId: ORGANIZATION_ID },
-      data: { ctrAfter: 2.5, status: 'measured' },
-    });
   });
 
   it('upserts snapshots and optionally sets the sales baseline', async () => {

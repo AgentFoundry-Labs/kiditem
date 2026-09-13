@@ -1,10 +1,9 @@
 import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import {
-  THUMBNAIL_TRACKING_STATUSES,
-  type ThumbnailTrackingListResponse,
-  type ThumbnailTrackingRecord,
-  type ThumbnailTrackingStatus,
-  type UpdateThumbnailTrackingMetrics,
+import type {
+  ThumbnailTrackingListResponse,
+  ThumbnailTrackingRecord,
+  ThumbnailTrackingStatus,
+  UpdateThumbnailTrackingMetrics,
 } from '@kiditem/shared/ai';
 import {
   COUPANG_PRODUCT_SALES_SCRAPE_PORT,
@@ -17,11 +16,10 @@ import {
   type ThumbnailTrackingSnapshotRow,
 } from '../port/out/repository/thumbnail-tracking.repository.port';
 import { businessDateKey, kstBusinessDate } from '../../../common/kst';
+import { deriveThumbnailTrackingStatus } from '../../domain/thumbnail-tracking-status';
 
 function toRecord(row: ThumbnailTrackingRow, nowMs: number = Date.now()): ThumbnailTrackingRecord {
-  const status = (THUMBNAIL_TRACKING_STATUSES as readonly string[]).includes(row.status)
-    ? (row.status as ThumbnailTrackingStatus)
-    : 'tracking';
+  const status = deriveThumbnailTrackingStatus(row);
   const ctrChange =
     row.ctrBefore != null && row.ctrAfter != null ? Math.round((row.ctrAfter - row.ctrBefore) * 10) / 10 : null;
   return {

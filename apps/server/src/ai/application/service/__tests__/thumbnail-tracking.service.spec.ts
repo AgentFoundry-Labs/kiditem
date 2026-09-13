@@ -22,13 +22,13 @@ function makeTrackingRow(overrides: Partial<ThumbnailTrackingRow> = {}) {
     originalGrade: 'A',
     originalScore: 92,
     appliedAt: new Date('2026-05-01T00:00:00.000Z'),
-    status: 'tracking',
     ctrBefore: 1.2,
     ctrAfter: null,
     reviewsBefore: 10,
     reviewsAfter: null,
     salesBefore: null,
     salesAfter: null,
+    markedInconclusiveAt: null,
     listing: {
       id: LISTING_ID,
       displayName: '테스트 상품',
@@ -45,7 +45,7 @@ function makeRepository(): ThumbnailTrackingRepositoryPort {
     countTrackings: vi.fn().mockResolvedValue(0),
     findChannelListingForWorkspace: vi.fn().mockResolvedValue({ id: LISTING_ID }),
     createTracking: vi.fn().mockResolvedValue({ created: true, row: makeTrackingRow() }),
-    updateMetrics: vi.fn().mockResolvedValue(makeTrackingRow({ status: 'measured', ctrAfter: 2.4 })),
+    updateMetrics: vi.fn().mockResolvedValue(makeTrackingRow({ ctrAfter: 2.4 })),
     findTrackingForSnapshot: vi.fn().mockResolvedValue({
       id: TRACKING_ID,
       salesBefore: null,

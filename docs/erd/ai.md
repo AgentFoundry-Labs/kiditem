@@ -410,7 +410,7 @@ erDiagram
     Int reviewsAfter
     Int salesBefore
     Int salesAfter
-    String status
+    DateTime markedInconclusiveAt
     DateTime createdAt
     DateTime updatedAt
   }
