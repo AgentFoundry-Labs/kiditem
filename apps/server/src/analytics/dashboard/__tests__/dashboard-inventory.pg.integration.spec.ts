@@ -191,9 +191,9 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
     });
     await prisma.alert.create({
       data: {
-        organizationId: TEST_ORGANIZATION_ID, type: 'source_failure', severity: 'medium',
+        organizationId: TEST_ORGANIZATION_ID, type: 'source_failure',
         title: 'Test alert', message: 'test',
-        targetType: 'master', targetId: masterT1.id, isRead: false,
+        targetType: 'master', targetId: masterT1.id,
       },
     });
 
@@ -208,9 +208,9 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
     for (let i = 1; i <= 3; i++) {
       await prisma.alert.create({
         data: {
-          organizationId: OTHER_ORGANIZATION_ID, type: 'source_failure', severity: 'high',
+          organizationId: OTHER_ORGANIZATION_ID, type: 'source_failure',
           title: `OTHER alert ${i}`, message: 'other',
-          targetType: 'master', targetId: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee', isRead: false,
+          targetType: 'master', targetId: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
         },
       });
     }
@@ -236,6 +236,7 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
     expect(result.unclassifiedProductCount).toBe(0);
     expect(result.alerts.length).toBe(1);
     expect(result.alerts[0].title).toBe('Test alert');
+    expect(result.alerts[0]).not.toHaveProperty('severity');
   });
 
   it('separates active products from channel-linked products', async () => {
@@ -731,7 +732,7 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
     });
     await prisma.alert.updateMany({
       where: { organizationId, sourceType: { not: null } },
-      data: { isRead: true, readAt: new Date() },
+      data: { readAt: new Date() },
     });
     await prisma.$transaction(async (tx) => {
       await tx.masterProductAbcFormulaState.upsert({

@@ -37,6 +37,33 @@ export const removeRetiredOperationAlerts: DataMigration = {
   name: 'Remove retired operation alerts before the strict alert schema',
   phase: 'pre-schema',
   async run(tx: Prisma.TransactionClient): Promise<MigrationResult> {
+    const [kindColumn] = await tx.$queryRaw<Array<{ present: boolean }>>`
+      SELECT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = 'alerts'
+          AND column_name = 'kind'
+      ) AS present
+    `;
+    if (kindColumn?.present !== true) {
+      // The KID-90 schema step drops `kind`. A database past it can hold no
+      // retired kind, so every alert it has is current-contract data.
+      const [all] = await tx.$queryRaw<Array<{ surviving_rows: bigint | number | string }>>`
+        SELECT COUNT(*)::bigint AS surviving_rows
+        FROM alerts
+      `;
+      return {
+        affectedRows: 0,
+        details: {
+          retiredAlertRows: 0,
+          removedAlertRows: 0,
+          survivingRows: toCount(all?.surviving_rows),
+          kindColumnPresent: false,
+        },
+      };
+    }
+
     const [before] = await tx.$queryRaw<CountRow[]>`
       SELECT COUNT(*)::bigint AS retired_alert_rows
       FROM alerts
@@ -53,7 +80,7 @@ export const removeRetiredOperationAlerts: DataMigration = {
     if (retiredAlertRows === 0) {
       return {
         affectedRows: 0,
-        details: { retiredAlertRows: 0, removedAlertRows: 0, survivingRows },
+        details: { retiredAlertRows: 0, removedAlertRows: 0, survivingRows, kindColumnPresent: true },
       };
     }
 
@@ -75,6 +102,7 @@ export const removeRetiredOperationAlerts: DataMigration = {
         // Recorded so the ledger shows what the schema step will face: a
         // surviving row still needs a dedupe key from somewhere.
         survivingRows,
+        kindColumnPresent: true,
       },
     };
   },
