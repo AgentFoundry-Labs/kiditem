@@ -583,7 +583,7 @@ implements CoupangDirectOrderCollectionTransactionPort {
       sourceImportRunId: ownerRunId,
       exportId: reconciled.exportId,
       transmissionIntentKey: reconciled.transmissionIntentKey,
-      matchedLineCount: reconciled.matchedLineCount,
+      matchedLineCount: reconciled.reconciledRows,
       reconciledRows: reconciled.reconciledRows,
       collectedLines,
       matchedLines: collectedLines.filter(({ poNumber, productNo }) =>
@@ -635,7 +635,6 @@ implements CoupangDirectOrderCollectionTransactionPort {
       select: {
         confirmationId: true,
         intentKey: true,
-        matchedLineCount: true,
       },
     });
     const orders = await tx.order.findMany({
@@ -655,7 +654,9 @@ implements CoupangDirectOrderCollectionTransactionPort {
         });
       }
     }
-    const matchedLineIds = transmission
+    // The workbook lines this run actually linked: positive lines of the
+    // transmission's workbook whose collected order line belongs to the run.
+    const linkedLines = transmission
       ? await tx.rocketPurchaseConfirmationLine.findMany({
         where: {
           organizationId,
@@ -667,7 +668,7 @@ implements CoupangDirectOrderCollectionTransactionPort {
       })
       : [];
     const matched = new Set(
-      matchedLineIds
+      linkedLines
         .map(({ collectedOrderLineItemId }) => collectedOrderLineItemId)
         .filter((value): value is string => Boolean(value)),
     );
@@ -677,7 +678,6 @@ implements CoupangDirectOrderCollectionTransactionPort {
         .filter((ref): ref is CoupangDirectCollectionLineRef => Boolean(ref)),
     );
     const matchedKeys = new Set(matchedLines.map(({ poNumber, productNo }) => lineKey(poNumber, productNo)));
-    const fallbackMatchedCount = transmission?.matchedLineCount ?? matchedLines.length;
     return {
       transport,
       payloadChecksum,
@@ -687,8 +687,8 @@ implements CoupangDirectOrderCollectionTransactionPort {
         ?? (collectedLines.length > 0
           ? `rocket-final-order:${sourceImportRunId}:${transport.toLowerCase()}`
           : null),
-      matchedLineCount: fallbackMatchedCount,
-      reconciledRows: fallbackMatchedCount,
+      matchedLineCount: linkedLines.length,
+      reconciledRows: linkedLines.length,
       collectedLines,
       matchedLines,
       unmatchedLines: collectedLines.filter(({ poNumber, productNo }) =>

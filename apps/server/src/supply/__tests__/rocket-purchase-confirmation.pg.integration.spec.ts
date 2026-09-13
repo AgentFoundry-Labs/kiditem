@@ -352,7 +352,6 @@ describe('Rocket workbook export transaction (PG integration)', () => {
         confirmationId: created.exportId,
         sourceImportRunId: SOURCE_IMPORT_RUN_ID,
         transport,
-        matchedLineCount: 0,
         observedAt: confirmation.confirmedAt,
       })),
     });
@@ -390,7 +389,6 @@ describe('Rocket workbook export transaction (PG integration)', () => {
         sourceImportRunId: SOURCE_IMPORT_RUN_ID,
         transport: 'SHIPMENT',
         intentKey,
-        matchedLineCount: 1,
       },
     });
     await prisma.sellpiaOrderTransmissionIntent.create({
@@ -414,6 +412,59 @@ describe('Rocket workbook export transaction (PG integration)', () => {
         where: { id: created.exportId },
       }),
     ).toMatchObject({ completedAt: expect.any(Date) });
+  });
+
+  it('refuses abandonment while a workbook line is linked to a collected order, even after fresh probes', async () => {
+    const created = await adapter.exportWorkbook(
+      confirmationInput('21000000-0000-4000-8000-000000000041', 2),
+    );
+    const confirmation =
+      await prisma.rocketPurchaseConfirmation.findUniqueOrThrow({
+        where: { id: created.exportId },
+        select: { confirmedAt: true },
+      });
+    // A second positive line that no order collected keeps the workbook
+    // awaiting Coupang confirmation, the only state abandonment considers.
+    await prisma.rocketPurchaseConfirmationLine.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        confirmationId: created.exportId,
+        poLineId: '1001:P-2:8801234567891:1',
+        poNumber: '1001',
+        productNo: 'P-2',
+        barcode: '8801234567891',
+        productName: 'Rocket item 2',
+        orderQuantity: 1,
+        confirmedQuantity: 1,
+      },
+    });
+    await prisma.rocketPurchaseConfirmationLine.updateMany({
+      where: { confirmationId: created.exportId, poLineId: PO_LINE_ID },
+      data: {
+        collectedAt: new Date(),
+        collectedOrderLineItemId: '21000000-0000-4000-8000-000000000042',
+      },
+    });
+    await prisma.rocketPurchaseConfirmationTransmission.createMany({
+      data: ['SHIPMENT', 'MILKRUN'].map((transport) => ({
+        organizationId: TEST_ORGANIZATION_ID,
+        confirmationId: created.exportId,
+        sourceImportRunId: SOURCE_IMPORT_RUN_ID,
+        transport,
+        observedAt: confirmation.confirmedAt,
+      })),
+    });
+
+    await expect(adapter.abandonWorkbook({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      exportId: created.exportId,
+      reason: '쿠팡에 제출하지 않음',
+    })).rejects.toThrow(/Fresh SHIPMENT and MILKRUN collection probes/);
+    await expect(prisma.rocketPurchaseConfirmation.findUniqueOrThrow({
+      where: { id: created.exportId },
+      select: { releasedAt: true },
+    })).resolves.toEqual({ releasedAt: null });
   });
 });
 

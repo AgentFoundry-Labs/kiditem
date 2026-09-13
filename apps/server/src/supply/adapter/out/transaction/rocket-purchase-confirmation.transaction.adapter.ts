@@ -661,6 +661,10 @@ function canAbandon(
   status: RocketWorkbookWorkflowStatus,
 ): boolean {
   if (status !== 'awaiting_coupang_confirmation') return false;
+  // A probe links workbook lines only by collecting their Coupang order lines,
+  // so the lines any probe linked are the positive lines collected so far.
+  // Abandonment needs that linked count to be zero and both transports probed
+  // after the export.
   if (
     record.lines.some(
       (line) => line.confirmedQuantity > 0 && line.collectedAt !== null,
@@ -672,11 +676,7 @@ function canAbandon(
   );
   return ['SHIPMENT', 'MILKRUN'].every((transport) => {
     const probe = probes.get(transport);
-    return Boolean(
-      probe &&
-      probe.matchedLineCount === 0 &&
-      probe.observedAt >= record.confirmedAt,
-    );
+    return Boolean(probe && probe.observedAt >= record.confirmedAt);
   });
 }
 

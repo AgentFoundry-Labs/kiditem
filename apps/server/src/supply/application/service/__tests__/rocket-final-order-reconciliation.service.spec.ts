@@ -7,7 +7,6 @@ describe('RocketFinalOrderReconciliationService', () => {
       reconcile: vi.fn().mockResolvedValue({
         exportId: '55555555-5555-4555-8555-555555555555',
         transmissionIntentKey: 'rocket-final-order:66666666-6666-4666-8666-666666666666:shipment',
-        matchedLineCount: 1,
         reconciledRows: 1,
         unmatchedLines: [],
       }),
@@ -32,7 +31,6 @@ describe('RocketFinalOrderReconciliationService', () => {
     await expect(service.reconcile(input)).resolves.toEqual({
       exportId: '55555555-5555-4555-8555-555555555555',
       transmissionIntentKey: 'rocket-final-order:66666666-6666-4666-8666-666666666666:shipment',
-      matchedLineCount: 1,
       reconciledRows: 1,
       unmatchedLines: [],
     });

@@ -127,12 +127,14 @@ export class RocketFinalOrderReconciliationTransactionAdapter implements RocketF
       return {
         exportId: null,
         transmissionIntentKey,
-        matchedLineCount: 0,
         reconciledRows: 0,
         unmatchedLines,
       };
     }
 
+    // The probe records which run and transport observed the export. How many
+    // workbook lines it linked lives on the lines themselves
+    // (`collectedOrderLineItemId`), so readers count those.
     await tx.rocketPurchaseConfirmationTransmission.upsert({
       where: {
         confirmationId_transport: {
@@ -146,7 +148,6 @@ export class RocketFinalOrderReconciliationTransactionAdapter implements RocketF
         sourceImportRunId: input.sourceImportRunId,
         transport: input.transport,
         intentKey: transmissionIntentKey,
-        matchedLineCount: reconciledRows,
       },
       update:
         transmissionIntentKey === null
@@ -157,7 +158,6 @@ export class RocketFinalOrderReconciliationTransactionAdapter implements RocketF
           : {
               sourceImportRunId: input.sourceImportRunId,
               intentKey: transmissionIntentKey,
-              matchedLineCount: reconciledRows,
               observedAt: new Date(),
             },
     });
@@ -189,7 +189,6 @@ export class RocketFinalOrderReconciliationTransactionAdapter implements RocketF
     return {
       exportId,
       transmissionIntentKey,
-      matchedLineCount: reconciledRows,
       reconciledRows,
       unmatchedLines,
     };

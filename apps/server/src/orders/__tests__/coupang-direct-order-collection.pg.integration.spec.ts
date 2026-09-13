@@ -245,6 +245,50 @@ describe('Coupang direct final-order collection (PG integration)', () => {
     expect(await prisma.coupangDirectTransportConsumption.count()).toBe(1);
   });
 
+  it('counts the matched lines of a legacy receipt from the workbook lines linked to the legacy run', async () => {
+    const exportId = await seedRequest('PO-1', 'P-1', '8801234567890', 4);
+    const input = collectionRequest('PO-1', 'P-1', '8801234567890', 3);
+    const legacy = await seedLegacyReceipt(input, exportId);
+    await linkLegacyOrderLine(legacy.importRunId, exportId, 'PO-1', 'P-1');
+    const attempt = await service.beginAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      channelAccountId: CHANNEL_ACCOUNT_ID,
+      idempotencyKey: randomUUID(),
+    });
+    await service.completeAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      attemptId: attempt.attemptId,
+      attemptToken: attempt.attemptToken,
+      capture: input as never,
+    });
+    await service.consumeAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      attemptId: attempt.attemptId,
+      attemptToken: attempt.attemptToken,
+      capture: input as never,
+      transport: 'SHIPMENT',
+    });
+
+    const { receipt } = await service.readProjection({
+      organizationId: TEST_ORGANIZATION_ID,
+      attemptId: attempt.attemptId,
+      transport: 'SHIPMENT',
+    });
+
+    expect(receipt).toMatchObject({
+      sourceImportRunId: legacy.importRunId,
+      exportId,
+      matchedLineCount: 1,
+      reconciledRows: 1,
+      matchedLines: [{ poNumber: 'PO-1', productNo: 'P-1' }],
+      unmatchedLines: [],
+      duplicate: true,
+    });
+  });
+
   it('deduplicates a transport receipt across unrelated centers while hashing its used center', async () => {
     const firstCapture = mixedCollectionRequest();
     const first = await consumeShipment(firstCapture);
@@ -460,7 +504,6 @@ describe('Coupang direct final-order collection (PG integration)', () => {
         sourceImportRunId: effectSource.id,
         transport: 'SHIPMENT',
         intentKey: transmissionIntentKey,
-        matchedLineCount: 0,
       },
     });
     const receipt = {
@@ -809,10 +852,42 @@ describe('Coupang direct final-order collection (PG integration)', () => {
         sourceImportRunId: sourceRun.id,
         transport: 'SHIPMENT',
         intentKey: `rocket-final-order:${sourceRun.id}:shipment`,
-        matchedLineCount: 1,
       },
     });
     return { importRunId: sourceRun.id, exportId };
+  }
+
+  async function linkLegacyOrderLine(
+    importRunId: string,
+    exportId: string,
+    poNumber: string,
+    productNo: string,
+  ) {
+    const order = await prisma.order.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: CHANNEL_ACCOUNT_ID,
+        sourceImportRunId: importRunId,
+        externalOrderId: poNumber,
+      },
+    });
+    const line = await prisma.orderLineItem.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        orderId: order.id,
+        sku: productNo,
+        externalLineId: `${poNumber}-1`,
+      },
+    });
+    await prisma.rocketPurchaseConfirmationLine.updateMany({
+      where: {
+        organizationId: TEST_ORGANIZATION_ID,
+        confirmationId: exportId,
+        poNumber,
+        productNo,
+      },
+      data: { collectedOrderLineItemId: line.id, collectedAt: new Date() },
+    });
   }
 
   async function seedBackfillCandidate(options: {
@@ -878,7 +953,6 @@ describe('Coupang direct final-order collection (PG integration)', () => {
           intentKey: options.transmission === 'wrong_intent'
             ? `${intentKey}:wrong`
             : intentKey,
-          matchedLineCount: 0,
         },
       });
     }
