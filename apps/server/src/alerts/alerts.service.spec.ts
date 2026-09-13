@@ -225,6 +225,8 @@ describe('SourceFailureAlerts', () => {
     expect(getRow()!.isRead).toBe(false);
 
     await alerts.dismiss(ALERT_ID, ORGANIZATION_ID);
-    expect(getRow()).toMatchObject({ isRead: true });
+    // `readAt` is what readers derive read state from; `isRead` is still written
+    // for a runtime that predates the derivation until the column is dropped.
+    expect(getRow()).toMatchObject({ isRead: true, readAt: expect.any(Date) });
   });
 });

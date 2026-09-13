@@ -13,8 +13,6 @@ agent-config/
 └── prompts/
     └── agents/       — Claude CLI 에이전트 프롬프트
         ├── ad-strategy.md
-        ├── rules-evaluation.md
-        ├── rules-suggest.md
         ├── manager.md
         └── chat.md
 ```
@@ -31,8 +29,6 @@ definition registry 가 프롬프트 파일 경로를 참조한다.
 | 파일 | 에이전트 타입 | 설명 |
 |------|-------------|------|
 | prompts/agents/ad-strategy.md | ad_strategy | 광고 전략 |
-| prompts/agents/rules-evaluation.md | rules_evaluation | 건강도 평가 |
-| prompts/agents/rules-suggest.md | rules_suggest | 규칙 임계값 추천 |
 | prompts/agents/manager.md | manager | 매니저 (오케스트레이터) |
 | prompts/agents/chat.md | chat | 챗봇 (읽기 전용) |
 

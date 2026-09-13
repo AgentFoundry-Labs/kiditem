@@ -292,7 +292,6 @@ implements ProductOperationsRepositoryPort {
           profitTag: null,
           adTier: null,
           adBudgetLimit: null,
-          healthScore: null,
           isActive: true,
           ...input.product,
         },
@@ -312,10 +311,7 @@ implements ProductOperationsRepositoryPort {
     try {
       const result = await this.prisma.masterProduct.updateMany({
         where: { id: masterProductId, organizationId },
-        data: {
-          ...input,
-          ...('healthScore' in input ? { healthUpdatedAt: new Date() } : {}),
-        },
+        data: input,
       });
       if (result.count === 0) throw new NotFoundException('MasterProduct was not found');
       return this.getProduct(organizationId, masterProductId);
@@ -497,8 +493,6 @@ function metadata(row: ProductRow) {
     profitTag: row.profitTag,
     adTier: row.adTier,
     adBudgetLimit: row.adBudgetLimit,
-    healthScore: row.healthScore,
-    healthUpdatedAt: row.healthUpdatedAt,
     isActive: row.isActive,
   };
 }

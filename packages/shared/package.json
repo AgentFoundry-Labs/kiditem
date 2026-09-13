@@ -80,11 +80,6 @@
       "import": "./dist/finance.js",
       "require": "./dist/finance.cjs"
     },
-    "./rules": {
-      "types": "./dist/rules.d.ts",
-      "import": "./dist/rules.js",
-      "require": "./dist/rules.cjs"
-    },
     "./supplier-stats": {
       "types": "./dist/supplier-stats.d.ts",
       "import": "./dist/supplier-stats.js",
@@ -296,9 +291,6 @@
       ],
       "finance": [
         "dist/finance.d.ts"
-      ],
-      "rules": [
-        "dist/rules.d.ts"
       ],
       "supplier-stats": [
         "dist/supplier-stats.d.ts"

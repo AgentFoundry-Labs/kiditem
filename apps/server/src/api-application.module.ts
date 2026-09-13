@@ -25,7 +25,6 @@ import { PrismaModule } from './prisma/prisma.module';
 import { ProductsModule } from './products/products.module';
 import { ReadinessModule } from './readiness/readiness.module';
 import { RebuildReadinessGuard } from './readiness/rebuild-readiness.guard';
-import { RulesModule } from './rules/rules.module';
 import { SourcingModule } from './sourcing/sourcing.module';
 import { SupplyModule } from './supply/supply.module';
 import { UploadsModule } from './uploads/uploads.module';
@@ -51,7 +50,6 @@ import { UploadsModule } from './uploads/uploads.module';
     ChannelsModule,
     AiModule,
     FinanceModule,
-    RulesModule,
     AgentOsInteractionHttpModule,
     AgentOsRuntimeHttpModule,
     AdvertisingModule,

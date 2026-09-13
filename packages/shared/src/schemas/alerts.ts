@@ -65,8 +65,8 @@ export const AlertItemSchema = z.object({
   severity: z.string(),
   title: z.string(),
   message: z.string().nullable(),
-  // Rules names the product a violation is about; the dashboard's projection
-  // carries them through.
+  // No current writer names a target: a source failure is about a source, not
+  // a product, so both stay null.
   targetType: z.string().nullable(),
   targetId: z.string().uuid().nullable(),
   sourceType: z.string().nullable(),

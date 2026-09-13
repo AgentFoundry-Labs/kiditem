@@ -50,7 +50,6 @@ export class AdListingRepositoryAdapter implements AdListingRepositoryPort {
             code: true,
             name: true,
             adTier: true,
-            healthScore: true,
           },
         },
       },
@@ -75,7 +74,6 @@ export class AdListingRepositoryAdapter implements AdListingRepositoryPort {
           name: listing.displayName ?? listing.channelName ?? listing.externalId,
           abcGrade: null,
           adTier: null,
-          healthScore: null,
         },
       });
     }

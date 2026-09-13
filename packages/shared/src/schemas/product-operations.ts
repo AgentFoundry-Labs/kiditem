@@ -162,8 +162,6 @@ export const MasterProductOperationsMetadataSchema = z.object({
   profitTag: z.string().nullable(),
   adTier: z.string().nullable(),
   adBudgetLimit: z.number().int().nonnegative().nullable(),
-  healthScore: z.number().int().min(0).max(100).nullable(),
-  healthUpdatedAt: zIsoDate.nullable(),
   isActive: z.boolean(),
 }).strict();
 export type MasterProductOperationsMetadata = z.infer<
@@ -416,7 +414,6 @@ const MasterProductMutationFieldsSchema = z.object({
   profitTag: z.string().trim().min(1).max(50).nullable(),
   adTier: z.string().trim().min(1).max(50).nullable(),
   adBudgetLimit: z.number().int().nonnegative().nullable(),
-  healthScore: z.number().int().min(0).max(100).nullable(),
   isActive: z.boolean(),
 }).strict();
 
@@ -431,7 +428,6 @@ export const CreateMasterProductInputSchema = z.object({
   profitTag: z.string().trim().min(1).max(50).nullable().optional(),
   adTier: z.string().trim().min(1).max(50).nullable().optional(),
   adBudgetLimit: z.number().int().nonnegative().nullable().optional(),
-  healthScore: z.number().int().min(0).max(100).nullable().optional(),
   isActive: z.boolean().optional(),
 }).strict();
 export type CreateMasterProductInput = z.infer<

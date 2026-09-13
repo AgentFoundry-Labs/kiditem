@@ -62,10 +62,9 @@ and the as-of the reader needed.
 
 **Alert**:
 A durable notification addressed to the operator, which stays until they
-dismiss it. Two kinds: a **source failure**, one per source, replaced rather
-than repeated when the same source fails again; and a **rule violation**, one
-per product and rule, replaced rather than repeated when a later evaluation
-finds the same breach. An operator's own cancellation is not one.
+dismiss it. One kind: a **source failure**, one per source, replaced rather
+than repeated when the same source fails again. An operator's own cancellation
+is not one.
 _Avoid_: notification, signal, error
 
 **Warning**:

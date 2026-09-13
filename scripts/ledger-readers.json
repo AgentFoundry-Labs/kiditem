@@ -226,13 +226,7 @@
           "reason": "Stages, validates, and publishes Sellpia inventory rows inside Inventory’s terminal source-owner transaction."
         }
       ],
-      "legacyReaders": [
-        {
-          "path": "apps/server/src/rules/services/rules.service.ts",
-          "removeWith": "KID-88",
-          "reason": "The retiring Rules evaluation still aggregates current stock through a Prisma relation; KID-88 removes this derived rule path instead of preserving a second inventory calculation."
-        }
-      ]
+      "legacyReaders": []
     },
     {
       "name": "Sourcing evidence ingestion run",

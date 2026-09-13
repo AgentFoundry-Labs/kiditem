@@ -36,8 +36,6 @@ function product(): MasterProductOperationsDetail {
     profitTag: null,
     adTier: null,
     adBudgetLimit: null,
-    healthScore: null,
-    healthUpdatedAt: null,
     isActive: true,
     createdAt: '2026-08-01T00:00:00.000Z',
     updatedAt: '2026-08-01T00:00:00.000Z',

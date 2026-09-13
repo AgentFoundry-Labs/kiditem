@@ -69,7 +69,6 @@ describe('AdCampaignsService', () => {
               name: '상품1',
               abcGrade: 'A',
               adTier: null,
-              healthScore: null,
             },
           },
         ],

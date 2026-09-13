@@ -190,7 +190,7 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
     });
     await prisma.alert.create({
       data: {
-        organizationId: TEST_ORGANIZATION_ID, type: 'inventory', severity: 'medium',
+        organizationId: TEST_ORGANIZATION_ID, type: 'source_failure', severity: 'medium',
         title: 'Test alert', message: 'test',
         targetType: 'master', targetId: masterT1.id, isRead: false,
       },
@@ -207,7 +207,7 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
     for (let i = 1; i <= 3; i++) {
       await prisma.alert.create({
         data: {
-          organizationId: OTHER_ORGANIZATION_ID, type: 'inventory', severity: 'high',
+          organizationId: OTHER_ORGANIZATION_ID, type: 'source_failure', severity: 'high',
           title: `OTHER alert ${i}`, message: 'other',
           targetType: 'master', targetId: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee', isRead: false,
         },
@@ -730,7 +730,7 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
     });
     await prisma.alert.updateMany({
       where: { organizationId, sourceType: { not: null } },
-      data: { isRead: true },
+      data: { isRead: true, readAt: new Date() },
     });
     await prisma.$transaction(async (tx) => {
       await tx.masterProductAbcFormulaState.upsert({

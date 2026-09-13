@@ -66,8 +66,6 @@ describe('<ProductEditorDialog>', () => {
         profitTag: null,
         adTier: null,
         adBudgetLimit: null,
-        healthScore: null,
-        healthUpdatedAt: null,
         isActive: true,
       },
     });
@@ -139,8 +137,6 @@ function sellpiaInternalProduct(): MasterProductOperationsMetadata {
     profitTag: null,
     adTier: null,
     adBudgetLimit: null,
-    healthScore: null,
-    healthUpdatedAt: null,
     isActive: true,
   };
 }

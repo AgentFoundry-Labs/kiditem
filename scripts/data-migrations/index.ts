@@ -20,6 +20,7 @@ import { removeRetiredCapabilityOperationRefs } from "./v0.1.31/004_remove_retir
 import { removeRetiredOperationAlerts } from "./v0.1.31/005_remove_retired_operation_alerts";
 import { backfillCoupangDirectTransportReceiptsMigration } from "./v0.1.31/006_backfill_coupang_direct_transport_receipts";
 import { normalizeSourceImportRunCompletedStatusMigration } from "./v0.1.31/007_normalize_source_import_run_completed_status";
+import { backfillAlertReadAtFromIsReadMigration } from "./v0.1.31/008_backfill_alert_read_at_from_is_read";
 import retiredDataMigrationCatalog from "./retired.json";
 import type { DataMigration, RetiredDataMigration } from "./types";
 
@@ -53,6 +54,7 @@ export const dataMigrations: readonly DataMigration[] = [
   removeRetiredCapabilityOperationRefs,
   removeRetiredOperationAlerts,
   normalizeSourceImportRunCompletedStatusMigration,
+  backfillAlertReadAtFromIsReadMigration,
   initializeAbsoluteProductAbcFormula,
   backfillCoupangDirectTransportReceiptsMigration,
 ];

@@ -5,17 +5,14 @@ import {
 } from '@kiditem/shared/product-abc';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { findAutoBatchCandidates } from '../../ai/adapter/out/repository/thumbnail-generation-ledger.query';
-import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import { buildPerListingProfit } from '../../common/per-listing-profit';
 import { ReviewsService } from '../../orders/services/reviews.service';
-import { RulesService } from '../../rules/services/rules.service';
 import { seedCompletedOrderCoverageRun, seedOrderWithLineItems } from '../../test-helpers/finance-seeds';
 import {
   makeTestPrisma,
   resetDb,
   seedBaseFixture,
   TEST_ORGANIZATION_ID as ORG,
-  TEST_USER_ID,
 } from '../../test-helpers/real-prisma';
 
 describe('published ABC dependent consumers (PostgreSQL)', () => {
@@ -35,65 +32,7 @@ describe('published ABC dependent consumers (PostgreSQL)', () => {
     await seedBaseFixture(prisma);
   });
 
-  it('evaluates Rules against one publication while ABC is replaced between its reads', async () => {
-    const product = await prisma.masterProduct.create({ data: {
-      organizationId: ORG,
-      code: 'RULES-PUBLICATION-RACE',
-      name: 'Rules publication race',
-    } });
-    await seedOfficialEvaluation(prisma, product.id);
-    await prisma.businessRule.create({ data: {
-      organizationId: ORG,
-      name: 'official-a-race',
-      displayName: 'Review official A',
-      category: 'advertising',
-      severity: 'critical',
-      field: 'abcGrade',
-      operator: 'eq',
-      threshold: { value: 'A' },
-      messageTemplate: 'Grade {{value}}',
-      actionType: 'review_grade',
-    } });
-
-    let replaced = false;
-    const concurrentPrisma = prisma.$extends({ query: {
-      masterProductAbcFormulaState: {
-        async findUnique({ args, query }) {
-          const state = await query(args);
-          if (!replaced) {
-            replaced = true;
-            await prisma.$transaction(async (tx) => {
-              await tx.masterProductAbcFormulaState.update({
-                where: { organizationId: ORG },
-                data: { publicationRevision: 2 },
-              });
-              await tx.masterProductAbcEvaluation.updateMany({
-                where: { organizationId: ORG, masterProductId: product.id },
-                data: { abcGrade: 'C', publicationRevision: 2 },
-              });
-            });
-          }
-          return state;
-        },
-      },
-    } });
-    const rules = new RulesService(
-      concurrentPrisma as never,
-      new SourceFailureAlerts(prisma as never),
-    );
-    const request = {
-      organizationId: ORG,
-      requestedByUserId: TEST_USER_ID,
-      idempotencyKey: 'rules-publication-race',
-    };
-    const result = await rules.evaluateAll(request);
-
-    expect(replaced).toBe(true);
-    expect(result).toMatchObject({ productCount: 1, violationCount: 1, criticalCount: 1 });
-    await expect(rules.evaluateAll(request)).resolves.toEqual(result);
-  });
-
-  it('keeps candidate filters, review labels, Rules inputs, and profit metadata on the official grade', async () => {
+  it('keeps candidate filters, review labels, and profit metadata on the official grade', async () => {
     const account = await prisma.channelAccount.create({ data: {
       organizationId: ORG,
       channel: 'coupang',
@@ -193,31 +132,11 @@ describe('published ABC dependent consumers (PostgreSQL)', () => {
       startDate: '2026-08-01',
       endDate: '2026-08-31',
     });
-    await prisma.businessRule.create({ data: {
-      organizationId: ORG,
-      name: 'official-a-rule',
-      displayName: 'Official A rule',
-      category: 'advertising',
-      severity: 'warning',
-      field: 'abcGrade',
-      operator: 'eq',
-      threshold: { value: 'A' },
-      messageTemplate: 'Grade {{value}}',
-      actionType: 'review_grade',
-    } });
 
     await expect(findAutoBatchCandidates(prisma as never, ORG, 10))
       .resolves.toEqual([{ id: workspace.id }]);
     await expect(new ReviewsService(prisma as never).list(ORG, {}))
       .resolves.toMatchObject({ items: [{ listingId: listing.id, grade: 'A' }] });
-    await expect(new RulesService(
-      prisma as never,
-      new SourceFailureAlerts(prisma as never),
-    ).evaluateAll({
-      organizationId: ORG,
-      requestedByUserId: TEST_USER_ID,
-      idempotencyKey: 'published-grade-rule',
-    })).resolves.toMatchObject({ productCount: 2, violationCount: 1 });
     await expect(buildPerListingProfit(
       prisma as never,
       ORG,

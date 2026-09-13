@@ -666,8 +666,6 @@ function rawProduct() {
     profitTag: null,
     adTier: null,
     adBudgetLimit: null,
-    healthScore: null,
-    healthUpdatedAt: null,
     isActive: true,
     createdAt: new Date('2026-07-17T00:00:00.000Z'),
     updatedAt: new Date('2026-07-17T00:00:00.000Z'),

@@ -98,8 +98,6 @@ function product(): MasterProductOperationsMetadata {
     profitTag: null,
     adTier: null,
     adBudgetLimit: null,
-    healthScore: null,
-    healthUpdatedAt: null,
     isActive: true,
   };
 }

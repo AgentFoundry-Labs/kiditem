@@ -62,8 +62,6 @@ const product = {
   profitTag: null,
   adTier: null,
   adBudgetLimit: null,
-  healthScore: 90,
-  healthUpdatedAt: null,
   isActive: true,
   createdAt: '2026-07-16T00:00:00.000Z',
   updatedAt: '2026-07-16T00:00:00.000Z',

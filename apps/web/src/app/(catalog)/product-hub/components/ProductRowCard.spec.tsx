@@ -179,8 +179,6 @@ function product(): MasterProductOperationsListItem {
     profitTag: null,
     adTier: null,
     adBudgetLimit: null,
-    healthScore: null,
-    healthUpdatedAt: null,
     isActive: true,
     isSelling: true,
     updatedAt: '2026-07-24T00:00:00.000Z',

@@ -80,7 +80,6 @@ describe('AdStrategy flow (PG integration)', () => {
     organizationId: string;
     abcGrade: 'A' | 'B' | 'C';
     adTier?: string | null;
-    healthScore?: number | null;
     sellableStock?: number | null;
     costPrice?: number | null;
     sellPrice?: number | null;
@@ -123,7 +122,6 @@ describe('AdStrategy flow (PG integration)', () => {
         name: `Master ${params.suffix}`,
         abcGrade: null,
         adTier: params.adTier ?? null,
-        healthScore: params.healthScore ?? null,
       },
     });
     await seedPublishedProductAbcGrades(prisma, {
@@ -283,7 +281,6 @@ describe('AdStrategy flow (PG integration)', () => {
         organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'A',
         adTier: '1차',
-        healthScore: 80,
         costPrice: 10_000,
         suffix: 'A-EXPAND',
       });
