@@ -22,7 +22,10 @@ import {
 import { SOURCE_IMPORT_RUN_COMPLETED_STATUS } from '@kiditem/shared/source-import';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import { completedCatalogRunWhere } from '../../../read/completed-catalog-run';
+import {
+  completedCatalogRunWhere,
+  publishedCatalogOptionWhere,
+} from '../../../read/completed-catalog-run';
 import { readInventorySkuIdentities } from '../../../../inventory/read/inventory-availability';
 import { normalizeSellpiaManualMatchAlias } from '../../../domain/sellpia-manual-match-alias';
 import type {
@@ -38,12 +41,6 @@ const DB_COMPLETE = SOURCE_IMPORT_RUN_COMPLETED_STATUS;
 const DB_FAILED = 'failed';
 const ALERT_DEDUPE_KEY = 'source:sellpia-manual-match';
 const ALERT_HREF = '/product-hub/matching';
-const PUBLISHED_BROWSER_CATALOG_SOURCE = 'coupang_catalog_browser';
-const PUBLISHED_CATALOG_IDENTITY_SOURCES = [
-  PUBLISHED_BROWSER_CATALOG_SOURCE,
-  'coupang_catalog_basics',
-  'coupang_catalog_details',
-] as const;
 const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;
 
 type Transaction = Prisma.TransactionClient;
@@ -422,13 +419,7 @@ async function listCurrentChannelAliasCandidates(
         { lastImportRun: { is: completedCatalogRunWhere(organizationId) } },
         {
           options: {
-            some: {
-              organizationId,
-              isActive: true,
-              OR: PUBLISHED_CATALOG_IDENTITY_SOURCES.map((source) => ({
-                rawJson: { path: ['source'], equals: source },
-              })),
-            },
+            some: publishedCatalogOptionWhere(organizationId),
           },
         },
       ],

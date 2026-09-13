@@ -7,7 +7,10 @@ import {
 import { Prisma } from '@prisma/client';
 import { resolveChannelListingSaleStatus } from '@kiditem/shared/channel-listing';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import { completedCatalogRunWhere } from '../../../read/completed-catalog-run';
+import {
+  completedCatalogRunWhere,
+  publishedCatalogOptionWhere,
+} from '../../../read/completed-catalog-run';
 import { readLatestListingSaleStatusFacts } from '../../../read/channel-listing-daily-facts';
 import {
   readActiveInventoryMatchingCandidates,
@@ -35,10 +38,6 @@ const READ_TRANSACTION_OPTIONS = {
   ...TRANSACTION_OPTIONS,
   isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead,
 } as const;
-const PUBLISHED_STAGED_CATALOG_IDENTITY_SOURCES = [
-  'coupang_catalog_basics',
-  'coupang_catalog_details',
-] as const;
 
 function listingSelect(organizationId: string) {
   return {
@@ -656,13 +655,7 @@ function availabilityListingWhere(
       { lastImportRun: { is: completedCatalogRunWhere(organizationId, channelAccountId) } },
       {
         options: {
-          some: {
-            organizationId,
-            isActive: true,
-            OR: PUBLISHED_STAGED_CATALOG_IDENTITY_SOURCES.map((source) => ({
-              rawJson: { path: ['source'], equals: source },
-            })),
-          },
+          some: publishedCatalogOptionWhere(organizationId),
         },
       },
     ],

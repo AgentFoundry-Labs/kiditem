@@ -142,10 +142,6 @@ function json(value: unknown): Prisma.InputJsonValue {
   return value as Prisma.InputJsonValue;
 }
 
-function dateText(value: Date): string {
-  return businessDateKey(value);
-}
-
 function dateAtUtc(value: string): Date {
   return new Date(`${value}T00:00:00.000Z`);
 }
@@ -153,7 +149,7 @@ function dateAtUtc(value: string): Date {
 function parseReadDate(value: string | undefined, code: string): Date | undefined {
   if (value === undefined) return undefined;
   const parsed = toBusinessDate(value);
-  if (!parsed || dateText(parsed) !== value) throw new BadRequestException(code);
+  if (!parsed || businessDateKey(parsed) !== value) throw new BadRequestException(code);
   return parsed;
 }
 
@@ -173,7 +169,7 @@ function declaredConfirmedDates(value: Prisma.JsonValue | null): string[] {
   return dates.filter((candidate): candidate is string => {
     if (typeof candidate !== 'string') return false;
     const parsed = toBusinessDate(candidate);
-    return parsed !== null && dateText(parsed) === candidate;
+    return parsed !== null && businessDateKey(parsed) === candidate;
   });
 }
 
@@ -1100,13 +1096,13 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
     expectedAdvertiserId: string,
   ) {
     const closedEnd = evidenceCutoffDate();
-    const defaultEnd = dateText(closedEnd);
-    const defaultStart = dateText(addDays(closedEnd, -6));
+    const defaultEnd = businessDateKey(closedEnd);
+    const defaultStart = businessDateKey(addDays(closedEnd, -6));
     const startDate = request.startDate ?? defaultStart;
     const endDate = request.endDate ?? defaultEnd;
     const start = toBusinessDate(startDate);
     const end = toBusinessDate(endDate);
-    if (!start || dateText(start) !== startDate || !end || dateText(end) !== endDate) {
+    if (!start || businessDateKey(start) !== startDate || !end || businessDateKey(end) !== endDate) {
       throw new BadRequestException('INVALID_TRAFFIC_DATE_RANGE');
     }
     const periodDays = datesInRange(start, end);
@@ -1117,7 +1113,7 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
       throw new BadRequestException('TRAFFIC_RANGE_IN_FUTURE');
     }
     const expectedDates = Array.from({ length: periodDays }, (_, index) =>
-      dateText(addDays(start, index)),
+      businessDateKey(addDays(start, index)),
     );
     return {
       sourceType: SOURCE_TYPE as 'coupang_wing_traffic',
@@ -1143,7 +1139,7 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
     const account = await this.primaryAccount(tx, organizationId, channelAccountId);
     if (!account) {
       return AdTrafficSourceStatusSchema.parse({
-        knownThrough: dateText(evidenceCutoffDate()),
+        knownThrough: businessDateKey(evidenceCutoffDate()),
         channelAccountId: null,
         ready: false,
         latestAttempt: null,
@@ -1172,7 +1168,7 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
     ]);
     const latestAttempt = latest ? await this.attemptView(tx, latest) : null;
     const latestComplete = complete ? await this.attemptView(tx, complete) : null;
-    const expectedEnd = dateText(evidenceCutoffDate());
+    const expectedEnd = businessDateKey(evidenceCutoffDate());
     const coveredDailyDates = new Set(
       allComplete.flatMap((candidate) => {
         const plan = AdTrafficSourcePlanSchema.safeParse(candidate.plan);
@@ -1369,7 +1365,7 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
     );
     const finalFacts = new Map<string, DailyFactPublication>();
     for (const candidate of resetCandidates) {
-      const businessDate = dateText(candidate.businessDate);
+      const businessDate = businessDateKey(candidate.businessDate);
       const pageOne = pageOneByDate.get(businessDate);
       if (!pageOne) continue;
       const meta = asRecord(candidate.metaJson);
@@ -1434,7 +1430,7 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
       const raw = asRecord(snapshot.normalizedJson ?? snapshot.rawJson);
       const metrics = trafficMetrics(raw);
       const businessDate = snapshot.businessDate;
-      const key = `${snapshot.listingId}:${dateText(businessDate)}`;
+      const key = `${snapshot.listingId}:${businessDateKey(businessDate)}`;
       const existing = aggregates.get(key);
       if (existing) {
         existing.metrics.visitors += metrics.visitors;
@@ -1468,7 +1464,7 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
           grain: 'listing_option_sum',
           scope: 'matched_listings',
           periodDays: 1,
-          businessDate: dateText(aggregate.businessDate),
+          businessDate: businessDateKey(aggregate.businessDate),
           sourceAttemptId: row.id,
           providerVendorId: plan.providerVendorId,
           filterScope: plan.filterScope,
@@ -1477,13 +1473,13 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
         },
         'traffic.currentSource': 'wing.traffic',
       } as const;
-      const key = `${aggregate.listingId}:${dateText(aggregate.businessDate)}`;
+      const key = `${aggregate.listingId}:${businessDateKey(aggregate.businessDate)}`;
       const existing = finalFacts.get(key);
       finalFacts.set(key, {
         id: existing?.id ?? randomUUID(),
         listingId: aggregate.listingId,
         externalId: aggregate.externalId,
-        businessDate: dateText(aggregate.businessDate),
+        businessDate: businessDateKey(aggregate.businessDate),
         observedAt: aggregate.observedAt,
         rawSnapshotId: aggregate.rawSnapshotId,
         metaJson,
@@ -1666,8 +1662,8 @@ async function readLegacyPublished(
     (!from && !to)
     || (from !== undefined
       && to !== undefined
-      && dateText(from) === plan.startDate
-      && dateText(to) === plan.endDate);
+      && businessDateKey(from) === plan.startDate
+      && businessDateKey(to) === plan.endDate);
   if (!exactPeriodRequested) {
     return AdTrafficSourcePublishedSchema.parse({
       channelAccountId,
@@ -1692,7 +1688,7 @@ async function readLegacyPublished(
     snapshots
       .filter((snapshot): snapshot is typeof snapshot & { listingId: string; businessDate: Date } =>
         !!snapshot.listingId && !!snapshot.businessDate)
-      .map((snapshot) => `${snapshot.listingId}:${dateText(snapshot.businessDate)}`),
+      .map((snapshot) => `${snapshot.listingId}:${businessDateKey(snapshot.businessDate)}`),
   );
   const listingIds = [...new Set(snapshots.flatMap((snapshot) => snapshot.listingId ? [snapshot.listingId] : []))];
   const dailyRows = listingIds.length
@@ -1721,11 +1717,11 @@ async function readLegacyPublished(
   const rows = dailyRows
     .filter((daily): daily is typeof daily & { trafficObservedAt: Date } =>
       daily.trafficObservedAt !== null
-      && keys.has(`${daily.listingId}:${dateText(daily.businessDate)}`))
+      && keys.has(`${daily.listingId}:${businessDateKey(daily.businessDate)}`))
     .map((daily) => ({
       listingId: daily.listingId,
       externalId: daily.externalId,
-      businessDate: dateText(daily.businessDate),
+      businessDate: businessDateKey(daily.businessDate),
       observedAt: daily.trafficObservedAt.toISOString(),
       traffic: {
         visitors: daily.trafficVisitors,
@@ -1772,8 +1768,8 @@ async function readDailyPublished(
     throw new BadRequestException('INVALID_TRAFFIC_DATE_RANGE');
   }
   const targetDates = datesBetween(rangeFrom, rangeTo);
-  const rangeStartText = dateText(rangeFrom);
-  const rangeEndText = dateText(rangeTo);
+  const rangeStartText = businessDateKey(rangeFrom);
+  const rangeEndText = businessDateKey(rangeTo);
   const selected = new Map<string, { run: SourceRun; plan: AdTrafficSourceDailyPlan }>();
   for (const candidate of dailyRuns) {
     for (const businessDate of candidate.plan.expectedDates) {
@@ -1841,14 +1837,14 @@ async function readDailyPublished(
   }
   const optionDaily = snapshots
     .filter((snapshot) => {
-      const date = snapshot.businessDate ? dateText(snapshot.businessDate) : '';
+      const date = snapshot.businessDate ? businessDateKey(snapshot.businessDate) : '';
       return !!snapshot.sourceImportRunId && selected.get(date)?.run.id === snapshot.sourceImportRunId;
     })
     .map((snapshot) => {
       const raw = asRecord(snapshot.normalizedJson ?? snapshot.rawJson);
       const traffic = trafficMetrics(raw);
       return {
-        businessDate: dateText(snapshot.businessDate!),
+        businessDate: businessDateKey(snapshot.businessDate!),
         observedAt: snapshot.observedAt.toISOString(),
         sourceAttemptId: snapshot.sourceImportRunId!,
         listingId: snapshot.listingId,

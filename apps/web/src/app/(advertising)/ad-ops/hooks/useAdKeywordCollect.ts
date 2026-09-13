@@ -45,12 +45,20 @@ export function useAdKeywordCollect({ onComplete }: { onComplete?: () => void } 
       query.state.data?.latestAttempt?.state === 'RUNNING' ? 2_000 : false,
     meta: { suppressGlobalErrorToast: true },
   });
-  const completeId = source.data?.latestComplete?.attemptId;
+  const sourceLoaded = source.data !== undefined;
+  const completeId = source.data?.latestComplete?.attemptId ?? null;
+  // The first owner read is the COMPLETE this mount already renders. Only a
+  // COMPLETE observed after it (a collection finished during this session)
+  // refreshes the screens that read keyword facts.
+  const baselineCompleteId = useRef<string | null | undefined>(undefined);
   useEffect(() => {
-    if (!completeId) return;
+    if (!sourceLoaded) return;
+    const previous = baselineCompleteId.current;
+    baselineCompleteId.current = completeId;
+    if (previous === undefined || completeId === null || completeId === previous) return;
     void client.invalidateQueries({ queryKey: queryKeys.ads.all });
     void client.invalidateQueries({ queryKey: ['readiness'] });
-  }, [completeId, client]);
+  }, [sourceLoaded, completeId, client]);
 
   const run = async () => {
     if (loading) return;

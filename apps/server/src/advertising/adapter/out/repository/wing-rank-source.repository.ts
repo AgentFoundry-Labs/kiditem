@@ -21,7 +21,7 @@ import {
 import { SourceFailureAlerts } from "../../../../alerts/alerts.service";
 import { PrismaService } from "../../../../prisma/prisma.service";
 import { canonicalOwnerInputHash as hash } from "../../../../common/owner-idempotency-key";
-import { currentBusinessDate } from "../../../domain/business-date";
+import { businessDateKey, evidenceCutoffDate } from "../../../../common/kst";
 import {
   KEYWORD_RANK_REPOSITORY_PORT,
   type KeywordRankRepositoryPort,
@@ -314,9 +314,7 @@ export class WingRankSourceRepository {
           orderBy: [{ importedAt: "desc" }, { freshnessGeneration: "desc" }],
         });
         const latestAttempt = latest ? view(latest) : null;
-        const requiredCutoff = new Date(currentBusinessDate().getTime() - 86_400_000)
-          .toISOString()
-          .slice(0, 10);
+        const requiredCutoff = businessDateKey(evidenceCutoffDate());
         const targetsMatch =
           complete &&
           (await runWithAdIngestTransaction(tx, async () => {
@@ -331,7 +329,7 @@ export class WingRankSourceRepository {
           ready: deriveSourceReadiness({
             latestAttempt,
             latestComplete: complete && targetsMatch
-              ? { actualCutoff: complete.coverageEndDate?.toISOString().slice(0, 10) ?? null }
+              ? { actualCutoff: complete.coverageEndDate ? businessDateKey(complete.coverageEndDate) : null }
               : null,
             requiredCutoff,
           }).ready,

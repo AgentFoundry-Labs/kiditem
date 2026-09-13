@@ -538,8 +538,8 @@ export class ReviewCollectionSourceRepository implements ReviewCollectionSourceP
           coverageEndDate: receipt.coverageEndDate,
         }];
       }),
-      coverageStartDate: row.coverageStartDate ? isoDate(row.coverageStartDate) : null,
-      coverageEndDate: row.coverageEndDate ? isoDate(row.coverageEndDate) : null,
+      coverageStartDate: row.coverageStartDate ? businessDateKey(row.coverageStartDate) : null,
+      coverageEndDate: row.coverageEndDate ? businessDateKey(row.coverageEndDate) : null,
       collected: publication?.collected ?? completedItemCount(progress),
       created: publication?.created ?? 0,
       updated: publication?.updated ?? 0,
@@ -807,14 +807,10 @@ function dateOnly(value: string): Date {
   return new Date(`${value}T00:00:00.000Z`);
 }
 
-function isoDate(value: Date): string {
-  return value.toISOString().slice(0, 10);
-}
-
 function isoDateValue(value: unknown): string | null {
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
   const parsed = dateOnly(value);
-  return Number.isNaN(parsed.getTime()) || isoDate(parsed) !== value ? null : value;
+  return Number.isNaN(parsed.getTime()) || businessDateKey(parsed) !== value ? null : value;
 }
 
 function isSafeInteger(value: unknown): value is number {

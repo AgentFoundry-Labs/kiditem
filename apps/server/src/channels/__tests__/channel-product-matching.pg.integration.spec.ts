@@ -1027,6 +1027,74 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
       availability: entry.eligible,
     })));
   });
+
+  it('admits a browser-published catalog option on the availability read as on the row lock', async () => {
+    // The listing's last run is not a completed catalog run, so only the
+    // published option marker can make it catalog identity.
+    const runningBasics = await prisma.sourceImportRun.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: ACCOUNT_ID,
+        sourceType: 'coupang_wing_catalog_basics',
+        parserVersion: 'coupang-catalog-owner-v1',
+        status: 'running',
+      },
+    });
+    const cases = [
+      { name: 'browser catalog publication', source: 'coupang_catalog_browser', eligible: true },
+      { name: 'catalog basics publication', source: 'coupang_catalog_basics', eligible: true },
+      { name: 'unpublished browser staging', source: 'coupang_wing_catalog_browser', eligible: false },
+    ];
+    const seeded: Array<{ name: string; listingId: string; optionId: string }> = [];
+    for (const [index, entry] of cases.entries()) {
+      const listing = await prisma.channelListing.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          channelAccountId: ACCOUNT_ID,
+          externalId: `OPTION-SOURCE-${index}`,
+          displayName: entry.name,
+          lastImportRunId: runningBasics.id,
+          isActive: true,
+        },
+      });
+      const option = await prisma.channelListingOption.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          listingId: listing.id,
+          externalOptionId: `OPTION-SOURCE-${index}-O`,
+          rawJson: { source: entry.source },
+          isActive: true,
+        },
+      });
+      seeded.push({ name: entry.name, listingId: listing.id, optionId: option.id });
+    }
+
+    const available = new Set(
+      (await repository.listAvailabilityRows(TEST_ORGANIZATION_ID, {
+        channelAccountId: ACCOUNT_ID,
+      })).map((row) => row.option.id),
+    );
+    const observed: Array<{ name: string; rowLock: boolean; availability: boolean }> = [];
+    for (const entry of seeded) {
+      const locked = await prisma.$transaction((tx) => lockChannelListingRow(tx, {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelListingId: entry.listingId,
+        activeOnly: true,
+        catalogMatchingEligibleOnly: true,
+      }));
+      observed.push({
+        name: entry.name,
+        rowLock: locked?.id === entry.listingId,
+        availability: available.has(entry.optionId),
+      });
+    }
+
+    expect(observed).toEqual(cases.map((entry) => ({
+      name: entry.name,
+      rowLock: entry.eligible,
+      availability: entry.eligible,
+    })));
+  });
 });
 
 function deferred<T>() {

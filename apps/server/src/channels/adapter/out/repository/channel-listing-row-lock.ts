@@ -1,11 +1,8 @@
 import type { Prisma } from '@prisma/client';
-import { completedCatalogRunWhere } from '../../../read/completed-catalog-run';
-
-const PUBLISHED_CATALOG_IDENTITY_SOURCES = [
-  'coupang_catalog_browser',
-  'coupang_catalog_basics',
-  'coupang_catalog_details',
-] as const;
+import {
+  completedCatalogRunWhere,
+  publishedCatalogOptionWhere,
+} from '../../../read/completed-catalog-run';
 
 export type LockedChannelListingRow = Readonly<{
   id: string;
@@ -65,13 +62,7 @@ async function isCatalogIdentity(
         },
         {
           options: {
-            some: {
-              organizationId,
-              isActive: true,
-              OR: PUBLISHED_CATALOG_IDENTITY_SOURCES.map((source) => ({
-                rawJson: { path: ['source'], equals: source },
-              })),
-            },
+            some: publishedCatalogOptionWhere(organizationId),
           },
         },
       ],

@@ -9,6 +9,7 @@ export const SCRIPT_INVENTORY = Object.freeze([
   'check-agent-os-contraction.mjs',
   'check-agent-os-hexagonal.mjs',
   'check-agents-hygiene.mjs',
+  'check-business-date-arithmetic.mjs',
   'check-copilotkit-train.mjs',
   'check-directory-architecture.mjs',
   'check-frontend-db-boundary.sh',

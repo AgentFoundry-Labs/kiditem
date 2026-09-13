@@ -8,7 +8,7 @@ import {
 import { Prisma } from '@prisma/client';
 import { deriveSourceReadiness } from '@kiditem/shared/source-readiness';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
-import { businessDateKey, parseBusinessDate } from '../../../../common/kst';
+import { businessDateKey, evidenceCutoffDate, parseBusinessDate } from '../../../../common/kst';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { currentBusinessDate } from '../../../domain/business-date';
 import { upsertWingTrackedProductSnapshots } from './wing-tracked-product-snapshot.persistence';
@@ -106,7 +106,7 @@ export class WingTrackedProductSourceAttemptRepositoryAdapter
       }
       assertTrackerKeywordsCovered(trackers, keywords);
       const plan: StoredAttemptPlan = {
-        businessDate: isoDate(currentBusinessDate()),
+        businessDate: businessDateKey(currentBusinessDate()),
         sourceKeywordFallback: 'any_requested_keyword_for_unassigned_product',
         keywords,
         products: trackers.map((tracker) => ({
@@ -557,7 +557,7 @@ function sourceView(
       && sameTrackerTargetSet(completePlan.products, currentTargets)
       ? { actualCutoff: latestComplete.businessDate }
       : null,
-    requiredCutoff: isoDate(new Date(currentBusinessDate(now).getTime() - 86_400_000)),
+    requiredCutoff: businessDateKey(evidenceCutoffDate(now)),
   }).ready;
   return {
     latestAttempt,
@@ -629,10 +629,6 @@ function snapshotTransactionOptions() {
     maxWait: 10_000,
     isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead,
   } as const;
-}
-
-function isoDate(value: Date): string {
-  return businessDateKey(value);
 }
 
 function dateOnly(value: string): Date {

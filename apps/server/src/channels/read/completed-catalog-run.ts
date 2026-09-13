@@ -12,6 +12,17 @@ import {
   ROCKET_PO_CATALOG_SOURCE_TYPE,
 } from './rocket-po-catalog.reader';
 
+/**
+ * Raw source markers only a catalog owner publication writes on an option: a
+ * browser full-catalog or basics publication at completion, or a details
+ * chunk of the child of a completed basics run.
+ */
+const PUBLISHED_CATALOG_OPTION_SOURCES = [
+  'coupang_catalog_browser',
+  'coupang_catalog_basics',
+  'coupang_catalog_details',
+] as const;
+
 /** Catalog file imports whose completed status alone certifies their listings. */
 const COMPLETED_FILE_CATALOG_SOURCE_TYPES = [
   CATALOG_SOURCE,
@@ -46,6 +57,24 @@ export function completedCatalogRunWhere(
         importedAt: { not: null },
       },
     ],
+  };
+}
+
+/**
+ * An active option carrying a catalog owner publication marker. It admits a
+ * listing as catalog identity for matching availability, Sellpia alias
+ * candidates, and the matching row lock even when the listing's last import
+ * run is not a completed catalog run.
+ */
+export function publishedCatalogOptionWhere(
+  organizationId: string,
+): Prisma.ChannelListingOptionWhereInput {
+  return {
+    organizationId,
+    isActive: true,
+    OR: PUBLISHED_CATALOG_OPTION_SOURCES.map((source) => ({
+      rawJson: { path: ['source'], equals: source },
+    })),
   };
 }
 

@@ -568,8 +568,8 @@ export class ProfitabilityAdImportRepositoryAdapter
           || !validReceiptProof(payload, receipt.rowCount)
           || receipt.matchedCount + receipt.unmatchedCount !== receipt.rowCount
           || !sameStringList(payload.businessDates, expected.businessDates)
-          || (receipt.periodStart && isoDate(receipt.periodStart)) !== expected.from
-          || (receipt.periodEnd && isoDate(receipt.periodEnd)) !== expected.to) {
+          || (receipt.periodStart && businessDateKey(receipt.periodStart)) !== expected.from
+          || (receipt.periodEnd && businessDateKey(receipt.periodEnd)) !== expected.to) {
           throw incompleteImport();
         }
       }
@@ -1018,13 +1018,12 @@ function sourceView(
       sourceImportRunId: latestComplete.id,
       publicationSequence: latestComplete.publicationSequence.toString(),
       mappingGeneration: latestComplete.mappingGeneration.toString(),
-      coveredThrough: isoDate(latestComplete.coverageEndDate),
+      coveredThrough: businessDateKey(latestComplete.coverageEndDate),
       capturedAt: (latestComplete.importedAt ?? latestComplete.updatedAt).toISOString(),
       qualitySummary: latestCompleteQuality,
     }
     : null;
   const coveredThrough = latestComplete?.coverageEndDate ?? null;
-  const expectedCutoff = dateOnly(kstYesterday(now));
   const latestAttemptView = latestAttempt ? {
     attemptId: latestAttempt.id,
     state: effectiveState(latestAttempt, now),
@@ -1042,7 +1041,7 @@ function sourceView(
     latestComplete: latestCompleteView
       ? { actualCutoff: latestCompleteView.coveredThrough }
       : null,
-    requiredCutoff: isoDate(expectedCutoff),
+    requiredCutoff: businessDateKey(evidenceCutoffDate(now)),
   }).ready;
   return {
     latestAttempt: latestAttemptView,
@@ -1067,8 +1066,8 @@ function attemptSummary(attempt: SourceAttempt) {
     errorMessage: boundedErrorMessage(attempt.errorMessage),
     mappingGeneration: attempt.mappingGeneration?.toString() ?? stored.mappingGeneration,
     adSourcePolicyHash: attempt.adSourcePolicyHash ?? stored.adSourcePolicyHash,
-    coverageStartDate: attempt.coverageStartDate ? isoDate(attempt.coverageStartDate) : null,
-    coverageEndDate: attempt.coverageEndDate ? isoDate(attempt.coverageEndDate) : null,
+    coverageStartDate: attempt.coverageStartDate ? businessDateKey(attempt.coverageStartDate) : null,
+    coverageEndDate: attempt.coverageEndDate ? businessDateKey(attempt.coverageEndDate) : null,
   };
 }
 
@@ -1118,8 +1117,8 @@ function generationSummaryFromRun(
     sourceType: PROFITABILITY_SOURCE_TYPE,
     organizationId: run.organizationId,
     publicationSequence: run.publicationSequence.toString(),
-    coverageStartDate: isoDate(run.coverageStartDate),
-    coveredThrough: isoDate(run.coverageEndDate),
+    coverageStartDate: businessDateKey(run.coverageStartDate),
+    coveredThrough: businessDateKey(run.coverageEndDate),
     capturedAt: run.importedAt.toISOString(),
     mappingGeneration: run.mappingGeneration.toString(),
     adSourcePolicyHash: run.adSourcePolicyHash,
@@ -1303,7 +1302,7 @@ async function generationFromRun(
       channelAccountId: target.channelAccountId,
       channelListingId: target.listingId,
       channelListingOptionId: target.listingOptionId,
-      businessDate: isoDate(target.businessDate),
+      businessDate: businessDateKey(target.businessDate),
       externalId: target.externalId,
       externalOptionId: target.externalOptionId ?? '',
       adSpend: target.adSpend,
@@ -1316,13 +1315,13 @@ async function generationFromRun(
       allocationStatus: targetAllocationStatus(target, factsByListingMonth),
     })),
     allocations: facts.map((fact) => {
-      const month = isoDate(fact.month).slice(0, 7);
+      const month = businessDateKey(fact.month).slice(0, 7);
       const slice = slices.find((candidate) =>
         candidate.channelAccountId === fact.channelAccountId
         && candidate.from.slice(0, 7) === month);
       const coverage = slice ? clampProfitabilityMonthCoverage({
-        factFrom: isoDate(fact.coveredStartDate),
-        factTo: isoDate(fact.coveredEndDate),
+        factFrom: businessDateKey(fact.coveredStartDate),
+        factTo: businessDateKey(fact.coveredEndDate),
         sliceFrom: slice.from,
         sliceTo: slice.to,
       }) : null;
@@ -1719,7 +1718,7 @@ async function allocateSlice(
   ]);
   const byListingMonth = new Map<string, MonthlyFact[]>();
   for (const fact of facts) {
-    const key = `${fact.channelListingId}\u0000${isoDate(fact.month).slice(0, 7)}`;
+    const key = `${fact.channelListingId}\u0000${businessDateKey(fact.month).slice(0, 7)}`;
     const group = byListingMonth.get(key) ?? [];
     group.push(fact);
     byListingMonth.set(key, group);
@@ -1730,7 +1729,7 @@ async function allocateSlice(
     if (!Number.isSafeInteger(target.adSpend) || target.adSpend < 0) {
       throw new UnprocessableEntityException('ADVERTISING_SPEND_INVALID');
     }
-    const key = `${target.listingId}\u0000${isoDate(target.businessDate)}`;
+    const key = `${target.listingId}\u0000${businessDateKey(target.businessDate)}`;
     const previous = spendByListingDay.get(key) ?? 0n;
     const sum = previous + BigInt(target.adSpend);
     if (sum > MAX_SAFE_KRW_BIGINT) throw new UnprocessableEntityException('ADVERTISING_SPEND_OVERFLOW');
@@ -1741,8 +1740,8 @@ async function allocateSlice(
     const [listingId, businessDate] = listingDay.split('\u0000');
     const peers = byListingMonth.get(`${listingId}\u0000${businessDate!.slice(0, 7)}`) ?? [];
     if (peers.length === 0) continue;
-    if (peers.some((fact) => businessDate! < isoDate(fact.coveredStartDate)
-      || businessDate! > isoDate(fact.coveredEndDate))) continue;
+    if (peers.some((fact) => businessDate! < businessDateKey(fact.coveredStartDate)
+      || businessDate! > businessDateKey(fact.coveredEndDate))) continue;
     const shares = allocateIntegerKrw(safeKrwNumber(spend), peers.map((fact) => ({
       masterProductId: fact.masterProductId,
       weight: fact.wholeRecipeWeight,
@@ -1761,8 +1760,8 @@ async function allocateSlice(
   const factUpdates: FactAllocationUpdate[] = [];
   for (const fact of facts) {
     const coverage = clampProfitabilityMonthCoverage({
-      factFrom: isoDate(fact.coveredStartDate),
-      factTo: isoDate(fact.coveredEndDate),
+      factFrom: businessDateKey(fact.coveredStartDate),
+      factTo: businessDateKey(fact.coveredEndDate),
       sliceFrom: input.from,
       sliceTo: input.to,
     });
@@ -1831,7 +1830,7 @@ function indexFactsByListingMonth(
 ): Map<string, GenerationMonthlyFact[]> {
   const factsByListingMonth = new Map<string, GenerationMonthlyFact[]>();
   for (const fact of facts) {
-    const key = `${fact.channelAccountId}\u0000${fact.channelListingId}\u0000${isoDate(fact.month).slice(0, 7)}`;
+    const key = `${fact.channelAccountId}\u0000${fact.channelListingId}\u0000${businessDateKey(fact.month).slice(0, 7)}`;
     const group = factsByListingMonth.get(key) ?? [];
     group.push(fact);
     factsByListingMonth.set(key, group);
@@ -1844,11 +1843,11 @@ function targetAllocationStatus(
   factsByListingMonth: ReadonlyMap<string, readonly GenerationMonthlyFact[]>,
 ): TargetAllocationStatus {
   if (!target.listingId) return 'UNMATCHED';
-  const key = `${target.channelAccountId}\u0000${target.listingId}\u0000${isoDate(target.businessDate).slice(0, 7)}`;
+  const key = `${target.channelAccountId}\u0000${target.listingId}\u0000${businessDateKey(target.businessDate).slice(0, 7)}`;
   const peers = factsByListingMonth.get(key) ?? [];
   if (peers.length === 0 || peers.some((fact) =>
-    isoDate(target.businessDate) < isoDate(fact.coveredStartDate)
-    || isoDate(target.businessDate) > isoDate(fact.coveredEndDate))) {
+    businessDateKey(target.businessDate) < businessDateKey(fact.coveredStartDate)
+    || businessDateKey(target.businessDate) > businessDateKey(fact.coveredEndDate))) {
     return 'UNALLOCATABLE';
   }
   return 'ALLOCATABLE';
@@ -1871,8 +1870,8 @@ async function assertConservation(
     const slice = slices.find((candidate) => candidate.channelAccountId === fact.channelAccountId
       && fact.month >= dateOnly(candidate.from) && fact.month <= dateOnly(candidate.to));
     const coverage = slice ? clampProfitabilityMonthCoverage({
-      factFrom: isoDate(fact.coveredStartDate),
-      factTo: isoDate(fact.coveredEndDate),
+      factFrom: businessDateKey(fact.coveredStartDate),
+      factTo: businessDateKey(fact.coveredEndDate),
       sliceFrom: slice.from,
       sliceTo: slice.to,
     }) : null;
@@ -1899,10 +1898,10 @@ async function assertConservation(
       continue;
     }
     allocatableTargetCount += 1;
-    const key = `${target.channelAccountId}\u0000${target.listingId}\u0000${isoDate(target.businessDate)}`;
+    const key = `${target.channelAccountId}\u0000${target.listingId}\u0000${businessDateKey(target.businessDate)}`;
     const daySpend = (spendByListingDay.get(key) ?? 0n) + adSpend;
     spendByListingDay.set(key, daySpend);
-    const monthKey = `${target.channelAccountId}\u0000${target.listingId}\u0000${isoDate(target.businessDate).slice(0, 7)}`;
+    const monthKey = `${target.channelAccountId}\u0000${target.listingId}\u0000${businessDateKey(target.businessDate).slice(0, 7)}`;
     const monthSpend = (providerSpendByListingMonth.get(monthKey) ?? 0n) + adSpend;
     providerSpendByListingMonth.set(monthKey, monthSpend);
   }
@@ -1911,14 +1910,14 @@ async function assertConservation(
     if (typeof fact.allocatedSpend !== 'bigint' || fact.allocatedSpend < 0n) {
       throw incompleteImport();
     }
-    const key = `${fact.channelAccountId}\u0000${fact.channelListingId}\u0000${isoDate(fact.month).slice(0, 7)}`;
+    const key = `${fact.channelAccountId}\u0000${fact.channelListingId}\u0000${businessDateKey(fact.month).slice(0, 7)}`;
     const total = (allocatedSpendByListingMonth.get(key) ?? 0n) + fact.allocatedSpend;
     allocatedSpendByListingMonth.set(key, total);
   }
   for (const [key, spend] of spendByListingDay) {
     const [accountId, listingId, date] = key.split('\u0000');
     const peers = factsByListingMonth.get(`${accountId}\u0000${listingId}\u0000${date!.slice(0, 7)}`) ?? [];
-    if (peers.length === 0 || peers.some((fact) => date! < isoDate(fact.coveredStartDate) || date! > isoDate(fact.coveredEndDate))) {
+    if (peers.length === 0 || peers.some((fact) => date! < businessDateKey(fact.coveredStartDate) || date! > businessDateKey(fact.coveredEndDate))) {
       throw incompleteImport();
     }
     const expected = allocateIntegerKrw(safeKrwNumber(spend), peers.map((fact) => ({
@@ -2115,10 +2114,6 @@ function dateOnly(value: string): Date {
   return parsed;
 }
 
-function isoDate(value: Date): string {
-  return businessDateKey(value);
-}
-
 function monthEnd(month: string): string {
   return kstMonthEnd(month);
 }
@@ -2138,7 +2133,7 @@ function monthsBetween(from: string, to: string): string[] {
 export function profitabilityCoverageForKstYesterday(
   now: Date,
 ): ProfitabilityCoverage {
-  const to = kstYesterday(now);
+  const to = businessDateKey(evidenceCutoffDate(now));
   const months = calendarMonthsThrough(to, PROFITABILITY_EVALUATION_MONTH_COUNT);
   const periods = months.map((month) => ({
     month,
@@ -2157,10 +2152,6 @@ export function profitabilityCoverageForKstYesterday(
   };
 }
 
-function kstYesterday(now: Date): string {
-  return businessDateKey(evidenceCutoffDate(now));
-}
-
 function calendarMonthsThrough(to: string, count: number): string[] {
   return kstMonthRange(kstMonthEnd(to.slice(0, 7)), count);
 }
@@ -2168,7 +2159,7 @@ function calendarMonthsThrough(to: string, count: number): string[] {
 function businessDates(from: string, to: string): string[] {
   const start = dateOnly(from);
   const end = dateOnly(to);
-  return datesInclusive(start, end).map(isoDate);
+  return datesInclusive(start, end).map(businessDateKey);
 }
 
 function boundedPlanText(value: unknown): string {

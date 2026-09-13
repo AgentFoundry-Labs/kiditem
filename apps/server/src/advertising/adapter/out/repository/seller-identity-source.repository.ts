@@ -21,7 +21,8 @@ import { CompetitorTrackingService } from '../../../application/service/competit
 import { KeywordRankIngestHandler } from '../../../application/service/keyword-rank-ingest.handler';
 import { runWithAdIngestTransaction } from './ad-ingest-transaction-context';
 import { lockCompetitorCatalogSource } from './competitor-catalog-source-lock';
-import { currentBusinessDate, toBusinessDate } from '../../../domain/business-date';
+import { toBusinessDate } from '../../../domain/business-date';
+import { businessDateKey, evidenceCutoffDate } from '../../../../common/kst';
 
 const SOURCE = 'coupang_competitor_seller_identity';
 const PARSER = 'seller-identity-v1';
@@ -127,12 +128,9 @@ export class SellerIdentitySourceRepository {
         });
         const latestAttempt = latest ? view(latest) : null;
         const latestComplete = complete ? view(complete) : null;
-        const requiredCutoff = new Date(currentBusinessDate().getTime() - 86_400_000)
-          .toISOString()
-          .slice(0, 10);
-        const actualCutoff = toBusinessDate(latestComplete?.actualCutoffAt)
-          ?.toISOString()
-          .slice(0, 10) ?? null;
+        const requiredCutoff = businessDateKey(evidenceCutoffDate());
+        const actualCutoffDate = toBusinessDate(latestComplete?.actualCutoffAt);
+        const actualCutoff = actualCutoffDate ? businessDateKey(actualCutoffDate) : null;
         return {
           ready: deriveSourceReadiness({
             latestAttempt,

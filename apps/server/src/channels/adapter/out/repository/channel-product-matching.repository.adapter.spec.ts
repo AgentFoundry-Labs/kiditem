@@ -638,7 +638,7 @@ describe('ChannelProductMatchingRepositoryAdapter matching counts', () => {
     });
   });
 
-  it('keeps basics and partially published detail identities in availability targets', async () => {
+  it('keeps browser, basics and partially published detail identities in availability targets', async () => {
     const findMany = vi.fn().mockResolvedValue([]);
     const repository = new ChannelProductMatchingRepositoryAdapter({
       channelListing: { findMany },
@@ -654,6 +654,7 @@ describe('ChannelProductMatchingRepositoryAdapter matching counts', () => {
             organizationId,
             isActive: true,
             OR: [
+              { rawJson: { path: ['source'], equals: 'coupang_catalog_browser' } },
               { rawJson: { path: ['source'], equals: 'coupang_catalog_basics' } },
               { rawJson: { path: ['source'], equals: 'coupang_catalog_details' } },
             ],
