@@ -1,8 +1,7 @@
 // Outgoing port for the `AdAction` aggregate. Combines query (review list,
-// latest target rows) with writes (generate, approve, reject,
-// reset). Transaction-spanning writes (approve / reject / reset) are
-// adapter-internal so `application/service/**` never imports
-// `Prisma.TransactionClient`.
+// latest target rows) with writes (generate, approve, reject, execution
+// reports). Transaction-spanning writes are adapter-internal so
+// `application/service/**` never imports `Prisma.TransactionClient`.
 
 import type { AdAction } from '@prisma/client';
 import type { ActionCandidate } from '../../../../domain/ad-action-rules';
@@ -63,7 +62,24 @@ export interface AdActionReviewSummary {
   latestSnapshotPageType: string | null;
 }
 
-export interface HydratedAdAction extends AdAction {
+/**
+ * The execution words an action reads from its latest ExecutionTask
+ * (`read/ad-action-execution.ts`). AdAction stores no copy; the wire keeps
+ * these field names.
+ */
+export interface AdActionExecution {
+  executeStatus: string;
+  beforeJson: unknown;
+  afterJson: unknown;
+  errorMessage: string | null;
+  executedAt: Date | null;
+}
+
+/** An AdAction row with the execution words of its latest ExecutionTask. */
+export type AdActionRecord = Omit<AdAction, keyof AdActionExecution> &
+  AdActionExecution;
+
+export interface HydratedAdAction extends AdActionRecord {
   listing: {
     id: string;
     externalId: string;
@@ -109,13 +125,15 @@ export interface OpenKeywordRelevanceActionRow {
   reason: string;
 }
 
-export interface AdActionUpdatePatch {
-  executeStatus?: string;
-  executedAt?: Date;
-  beforeJson?: Record<string, unknown>;
-  afterJson?: Record<string, unknown>;
-  errorMessage?: string | null;
-}
+/** A browser execution report for an approved action's latest ExecutionTask. */
+export type AdActionExecutionReport =
+  | { status: 'running'; beforeJson?: Record<string, unknown> }
+  | { status: 'done'; afterJson?: Record<string, unknown> }
+  | {
+      status: 'failed';
+      errorMessage: string;
+      afterJson?: Record<string, unknown>;
+    };
 
 export interface AdActionRepositoryPort {
   // Reads
@@ -145,28 +163,33 @@ export interface AdActionRepositoryPort {
   createAdActionsFromCandidates(
     organizationId: string,
     candidates: ActionCandidate[],
-  ): Promise<AdAction[]>;
+  ): Promise<AdActionRecord[]>;
 
-  /** Approve + idempotent enqueue inside a single $transaction (adapter-owned). */
+  /**
+   * Approve and, in the same $transaction, queue a new ExecutionTask for each
+   * action whose latest task is not open (queued or running).
+   */
   approveAdActions(ids: string[], organizationId: string): Promise<void>;
 
-  /** Reject + cancel open execution tasks inside a single $transaction. */
+  /** Reject + cancel not-yet-started execution tasks inside a single $transaction. */
   rejectAdActions(ids: string[], organizationId: string): Promise<void>;
 
-  /** Re-queue every approved+failed action inside a single $transaction. */
-  resetFailedAdActions(organizationId: string): Promise<void>;
-
-  /** Single-row tenant-scoped state transition; throws when no match. */
-  updateActionOrThrow(
+  /**
+   * Move the action's latest ExecutionTask for a browser execution report.
+   * Throws NotFoundException for an action outside the organization and
+   * ConflictException when that task cannot take the report; repeating the
+   * recorded status changes nothing.
+   */
+  reportActionExecution(
     id: string,
     organizationId: string,
-    data: AdActionUpdatePatch,
+    report: AdActionExecutionReport,
   ): Promise<void>;
 
   /**
    * Look up an open `actionType='create_campaign'` AdAction by campaign label.
-   * Returns the row when one is queued/running/done so the caller can throw
-   * a deterministic 409 Conflict.
+   * Returns the row when its latest task reads queued/running/done so the
+   * caller can throw a deterministic 409 Conflict.
    */
   findOpenCreateCampaignAction(
     organizationId: string,

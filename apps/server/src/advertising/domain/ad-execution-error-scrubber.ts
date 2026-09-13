@@ -1,9 +1,9 @@
 /**
  * Redacts known secret patterns out of execution error messages before they
- * are persisted to `ExecutionTask.errorMessage` / `AdAction.errorMessage`
- * (and therefore returned to clients). The scrubber runs against the raw
- * worker-reported error string and must remain a pure function so it can be
- * unit-tested and reused outside `AdExecutionService`.
+ * are persisted to `ExecutionTask.errorMessage` (and therefore returned to
+ * clients as the action's derived `errorMessage`). The scrubber runs against
+ * the raw browser-reported error string and must remain a pure function so it
+ * can be unit-tested and reused outside the repository adapter.
  *
  * Patterns are intentionally conservative — they target high-confidence
  * secret shapes only (API keys, bearer tokens, JWTs, PEM blocks, Wing

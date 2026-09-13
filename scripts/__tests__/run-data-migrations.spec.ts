@@ -52,6 +52,7 @@ describe("data migration registry", () => {
       "v0.1.31:008_backfill_alert_read_at_from_is_read",
       "v0.1.31:009_backfill_capability_approval_decision",
       "v0.1.31:010_backfill_thumbnail_tracking_inconclusive_mark",
+      "v0.1.31:011_backfill_ad_action_execution_tasks",
       "v0.1.31:002_initialize_absolute_product_abc_formula",
       "v0.1.31:006_backfill_coupang_direct_transport_receipts",
     ]);
@@ -64,6 +65,7 @@ describe("data migration registry", () => {
       "v0.1.31:008_backfill_alert_read_at_from_is_read",
       "v0.1.31:009_backfill_capability_approval_decision",
       "v0.1.31:010_backfill_thumbnail_tracking_inconclusive_mark",
+      "v0.1.31:011_backfill_ad_action_execution_tasks",
       "v0.1.31:006_backfill_coupang_direct_transport_receipts",
     ]);
   });
@@ -198,6 +200,7 @@ describe("data migration registry", () => {
       "v0.1.31:008_backfill_alert_read_at_from_is_read",
       "v0.1.31:009_backfill_capability_approval_decision",
       "v0.1.31:010_backfill_thumbnail_tracking_inconclusive_mark",
+      "v0.1.31:011_backfill_ad_action_execution_tasks",
     ]);
     expect(selectDataMigrationsForPhase(dataMigrations, "post-schema")).toEqual(
       dataMigrations.filter((migration) => migration.phase !== "pre-schema"),
@@ -236,6 +239,7 @@ describe("data migration registry", () => {
       "v0.1.31:008_backfill_alert_read_at_from_is_read",
       "v0.1.31:009_backfill_capability_approval_decision",
       "v0.1.31:010_backfill_thumbnail_tracking_inconclusive_mark",
+      "v0.1.31:011_backfill_ad_action_execution_tasks",
     ]);
 
     const absolutePostSchema = selectDataMigrationsForRelease(

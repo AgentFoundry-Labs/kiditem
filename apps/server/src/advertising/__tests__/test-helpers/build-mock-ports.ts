@@ -81,8 +81,7 @@ export function buildMockAdActionRepo(): MockAdActionRepo {
     createAdActionsFromCandidates: vi.fn(),
     approveAdActions: vi.fn(),
     rejectAdActions: vi.fn(),
-    resetFailedAdActions: vi.fn(),
-    updateActionOrThrow: vi.fn(),
+    reportActionExecution: vi.fn(),
     findOpenCreateCampaignAction: vi.fn(),
     createCampaignActionWithTask: vi.fn(),
   };

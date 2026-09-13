@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import { Test } from '@nestjs/testing';
+import { ConflictException } from '@nestjs/common';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { AdvertisingModule } from '../advertising.module';
 import { AdActionService } from '../application/service/ad-action.service';
@@ -278,6 +279,51 @@ describe('AdAction flow (PG integration)', () => {
     });
   }
 
+  async function seedPendingAction(targetLabel: string, organizationId = TEST_ORGANIZATION_ID) {
+    return prisma.adAction.create({
+      data: {
+        organizationId,
+        actionType: 'change_daily_budget',
+        targetType: 'campaign',
+        targetLabel,
+        reason: targetLabel + ' 예산 조정',
+        priority: 'high',
+        currentValue: 5000,
+        proposedValue: 3000,
+      },
+      select: { id: true },
+    });
+  }
+
+  async function approvedAction(targetLabel: string) {
+    const action = await seedPendingAction(targetLabel);
+    await adActionService.approveActions([action.id], TEST_ORGANIZATION_ID);
+    return action;
+  }
+
+  async function reviewItem(actionId: string) {
+    const { items } = await adActionService.getActions({ limit: 200 }, TEST_ORGANIZATION_ID);
+    const item = items.find((candidate) => candidate.id === actionId);
+    if (!item) throw new Error('action missing from the review list: ' + actionId);
+    return item;
+  }
+
+  /** The browser extension's queue: GET /api/ads/actions?approvalStatus=approved&executeStatus=queued. */
+  async function extensionQueueIds() {
+    const { items } = await adActionService.getActions(
+      { approvalStatus: 'approved', executeStatus: 'queued', limit: 50 },
+      TEST_ORGANIZATION_ID,
+    );
+    return items.map((item) => item.id);
+  }
+
+  function tasksOf(actionId: string) {
+    return prisma.executionTask.findMany({
+      where: { actionId },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    });
+  }
+
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
@@ -530,143 +576,145 @@ describe('AdAction flow (PG integration)', () => {
   });
 
   describe('lifecycle + ExecutionTask', () => {
-    it('#7 approve → ExecutionTask created (idempotent)', async () => {
-      const { listing, option, listingOption } = await seedListingWithOption({
-        organizationId: TEST_ORGANIZATION_ID,
-        abcGrade: 'B',
-        sellableStock: 0,
+    it('#7 approve queues one ExecutionTask, and approving again adds none while it is open', async () => {
+      const action = await approvedAction('CAMP-APPROVE');
+
+      expect(await reviewItem(action.id)).toMatchObject({
+        approvalStatus: 'approved',
+        executeStatus: 'queued',
+        errorMessage: null,
+        executedAt: null,
       });
-      await seedSnapshot({
-        organizationId: TEST_ORGANIZATION_ID,
-        listingId: listing.id,
-        listingOptionId: listingOption.id,
-        optionId: option.id,
-        pageType: 'campaign',
-        externalId: 'CAMP-APPROVE',
-        campaignName: 'approve',
-        dailyBudget: 5000,
-      });
-      await adActionService.generateActions(TEST_ORGANIZATION_ID);
-      const action = await prisma.adAction.findFirstOrThrow({
-        where: { organizationId: TEST_ORGANIZATION_ID },
-      });
+      expect(await extensionQueueIds()).toEqual([action.id]);
+      expect((await tasksOf(action.id)).map((task) => task.status)).toEqual(['queued']);
 
       await adActionService.approveActions([action.id], TEST_ORGANIZATION_ID);
-
-      const updated = await prisma.adAction.findUniqueOrThrow({ where: { id: action.id } });
-      expect(updated.approvalStatus).toBe('approved');
-      expect(updated.executeStatus).toBe('queued');
-      const tasks = await prisma.executionTask.findMany({ where: { actionId: action.id } });
-      expect(tasks).toHaveLength(1);
-      expect(tasks[0].status).toBe('queued');
-
-      await adActionService.approveActions([action.id], TEST_ORGANIZATION_ID);
-      const tasksAgain = await prisma.executionTask.findMany({ where: { actionId: action.id } });
-      expect(tasksAgain).toHaveLength(1);
+      expect((await tasksOf(action.id)).map((task) => task.status)).toEqual(['queued']);
     });
 
-    it('#8 markRunning → markFailed → resetFailed → re-queued + new ExecutionTask', async () => {
-      const { listing, option, listingOption } = await seedListingWithOption({
-        organizationId: TEST_ORGANIZATION_ID,
-        abcGrade: 'B',
-        sellableStock: 0,
-      });
-      await seedSnapshot({
-        organizationId: TEST_ORGANIZATION_ID,
-        listingId: listing.id,
-        listingOptionId: listingOption.id,
-        optionId: option.id,
-        pageType: 'campaign',
-        externalId: 'CAMP-RETRY',
-        campaignName: 'retry',
-        dailyBudget: 5000,
-      });
-      await adActionService.generateActions(TEST_ORGANIZATION_ID);
-      const action = await prisma.adAction.findFirstOrThrow({
-        where: { organizationId: TEST_ORGANIZATION_ID },
-      });
-      await adActionService.approveActions([action.id], TEST_ORGANIZATION_ID);
+    it('#8 markRunning → markDone records the outcome on the task; a repeated report is harmless', async () => {
+      const action = await approvedAction('CAMP-DONE');
 
-      await adActionService.markRunning(action.id, { snapshot: 'before' }, TEST_ORGANIZATION_ID);
-      let current = await prisma.adAction.findUniqueOrThrow({ where: { id: action.id } });
-      expect(current.executeStatus).toBe('running');
-
-      await adActionService.markFailed(action.id, 'timeout', { err: 'boom' }, TEST_ORGANIZATION_ID);
-      current = await prisma.adAction.findUniqueOrThrow({ where: { id: action.id } });
-      expect(current.executeStatus).toBe('failed');
-      expect(current.errorMessage).toBe('timeout');
-
-      await adActionService.resetFailed(TEST_ORGANIZATION_ID);
-      current = await prisma.adAction.findUniqueOrThrow({ where: { id: action.id } });
-      expect(current.executeStatus).toBe('queued');
-      expect(current.errorMessage).toBeNull();
-
-      const tasks = await prisma.executionTask.findMany({
-        where: { actionId: action.id },
-        orderBy: { createdAt: 'asc' },
+      await adActionService.markRunning(action.id, { rowText: 'before' }, TEST_ORGANIZATION_ID);
+      expect(await reviewItem(action.id)).toMatchObject({
+        executeStatus: 'running',
+        beforeJson: { rowText: 'before' },
       });
-      expect(tasks).toHaveLength(2);
-      expect(tasks[1].status).toBe('queued');
+      expect(await extensionQueueIds()).toEqual([]);
+
+      await adActionService.markDone(action.id, { status: 'submitted' }, TEST_ORGANIZATION_ID);
+
+      const [task] = await tasksOf(action.id);
+      expect(task).toMatchObject({
+        status: 'done',
+        beforeJson: { rowText: 'before' },
+        afterJson: { status: 'submitted' },
+        errorMessage: null,
+      });
+      expect(task.startedAt).toBeInstanceOf(Date);
+      expect(task.finishedAt).toBeInstanceOf(Date);
+      expect(await reviewItem(action.id)).toMatchObject({
+        executeStatus: 'done',
+        beforeJson: { rowText: 'before' },
+        afterJson: { status: 'submitted' },
+        errorMessage: null,
+        executedAt: task.finishedAt,
+      });
+
+      // The extension repeats a report whose response it lost.
+      await adActionService.markDone(action.id, { status: 'submitted' }, TEST_ORGANIZATION_ID);
+      await expect(
+        adActionService.markFailed(action.id, 'late failure', undefined, TEST_ORGANIZATION_ID),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect((await tasksOf(action.id)).map((t) => t.status)).toEqual(['done']);
+      const { summary } = await adActionService.getActions({}, TEST_ORGANIZATION_ID);
+      expect(summary).toMatchObject({ approvedQueued: 0, running: 0, done: 1, failed: 0 });
     });
 
-    it('#9 markDone → executeStatus=done + executedAt set', async () => {
-      const { listing, option, listingOption } = await seedListingWithOption({
-        organizationId: TEST_ORGANIZATION_ID,
-        abcGrade: 'B',
-        sellableStock: 0,
-      });
-      await seedSnapshot({
-        organizationId: TEST_ORGANIZATION_ID,
-        listingId: listing.id,
-        listingOptionId: listingOption.id,
-        optionId: option.id,
-        pageType: 'campaign',
-        externalId: 'CAMP-DONE',
-        campaignName: 'done',
-        dailyBudget: 5000,
-      });
-      await adActionService.generateActions(TEST_ORGANIZATION_ID);
-      const action = await prisma.adAction.findFirstOrThrow({
-        where: { organizationId: TEST_ORGANIZATION_ID },
-      });
-      await adActionService.approveActions([action.id], TEST_ORGANIZATION_ID);
+    it('#9 markFailed stores the scrubbed message on the task and the action reads failed', async () => {
+      const action = await approvedAction('CAMP-FAIL');
+
       await adActionService.markRunning(action.id, undefined, TEST_ORGANIZATION_ID);
+      await adActionService.markFailed(
+        action.id,
+        'timeout Bearer abc.def',
+        { url: 'x' },
+        TEST_ORGANIZATION_ID,
+      );
 
-      await adActionService.markDone(action.id, { after: 'ok' }, TEST_ORGANIZATION_ID);
-
-      const current = await prisma.adAction.findUniqueOrThrow({ where: { id: action.id } });
-      expect(current.executeStatus).toBe('done');
-      expect(current.executedAt).not.toBeNull();
+      expect(await reviewItem(action.id)).toMatchObject({
+        executeStatus: 'failed',
+        errorMessage: 'timeout [REDACTED]',
+        afterJson: { url: 'x' },
+        executedAt: null,
+      });
+      const { summary } = await adActionService.getActions({}, TEST_ORGANIZATION_ID);
+      expect(summary).toMatchObject({ approvedQueued: 0, running: 0, done: 0, failed: 1 });
     });
 
-    it('#10 reject → approvalStatus=rejected + open tasks cancelled', async () => {
-      const { listing, option, listingOption } = await seedListingWithOption({
-        organizationId: TEST_ORGANIZATION_ID,
-        abcGrade: 'B',
-        sellableStock: 0,
+    it('#9b a failure reported before the extension starts fails the queued attempt', async () => {
+      const action = await approvedAction('CAMP-ROW-MISSING');
+
+      await adActionService.markFailed(action.id, undefined, undefined, TEST_ORGANIZATION_ID);
+
+      expect(await reviewItem(action.id)).toMatchObject({
+        executeStatus: 'failed',
+        errorMessage: '실행 실패',
       });
-      await seedSnapshot({
-        organizationId: TEST_ORGANIZATION_ID,
-        listingId: listing.id,
-        listingOptionId: listingOption.id,
-        optionId: option.id,
-        pageType: 'campaign',
-        externalId: 'CAMP-REJECT',
-        campaignName: 'reject',
-        dailyBudget: 5000,
-      });
-      await adActionService.generateActions(TEST_ORGANIZATION_ID);
-      const action = await prisma.adAction.findFirstOrThrow({
-        where: { organizationId: TEST_ORGANIZATION_ID },
-      });
+    });
+
+    it('#10 approving a failed action queues a new attempt that the extension picks up again', async () => {
+      const action = await approvedAction('CAMP-RETRY');
+      await adActionService.markRunning(action.id, undefined, TEST_ORGANIZATION_ID);
+      await adActionService.markFailed(action.id, 'timeout', undefined, TEST_ORGANIZATION_ID);
+      expect(await extensionQueueIds()).toEqual([]);
+
       await adActionService.approveActions([action.id], TEST_ORGANIZATION_ID);
+
+      expect((await tasksOf(action.id)).map((task) => task.status)).toEqual(['failed', 'queued']);
+      expect(await reviewItem(action.id)).toMatchObject({
+        executeStatus: 'queued',
+        errorMessage: null,
+      });
+      expect(await extensionQueueIds()).toEqual([action.id]);
+      const { summary } = await adActionService.getActions({}, TEST_ORGANIZATION_ID);
+      expect(summary).toMatchObject({ approvedQueued: 1, failed: 0 });
+
+      await adActionService.markRunning(action.id, undefined, TEST_ORGANIZATION_ID);
+      await adActionService.markDone(action.id, undefined, TEST_ORGANIZATION_ID);
+      expect((await tasksOf(action.id)).map((task) => task.status)).toEqual(['failed', 'done']);
+      expect(await reviewItem(action.id)).toMatchObject({ executeStatus: 'done' });
+    });
+
+    it('#11 reject cancels the queued attempt and refuses a late extension report', async () => {
+      const action = await approvedAction('CAMP-REJECT');
 
       await adActionService.rejectActions([action.id], TEST_ORGANIZATION_ID);
 
-      const current = await prisma.adAction.findUniqueOrThrow({ where: { id: action.id } });
-      expect(current.approvalStatus).toBe('rejected');
-      const tasks = await prisma.executionTask.findMany({ where: { actionId: action.id } });
-      expect(tasks.every((t) => t.status === 'cancelled')).toBe(true);
+      expect((await tasksOf(action.id)).map((task) => task.status)).toEqual(['cancelled']);
+      expect(await reviewItem(action.id)).toMatchObject({
+        approvalStatus: 'rejected',
+        executeStatus: 'queued',
+        errorMessage: null,
+      });
+      expect(await extensionQueueIds()).toEqual([]);
+      await expect(
+        adActionService.markRunning(action.id, undefined, TEST_ORGANIZATION_ID),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect((await tasksOf(action.id)).map((task) => task.status)).toEqual(['cancelled']);
+    });
+
+    it('#12 an action awaiting review has no attempt to report against', async () => {
+      const action = await seedPendingAction('CAMP-PENDING');
+
+      expect(await reviewItem(action.id)).toMatchObject({
+        approvalStatus: 'pending_review',
+        executeStatus: 'queued',
+      });
+      await expect(
+        adActionService.markRunning(action.id, undefined, TEST_ORGANIZATION_ID),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(await tasksOf(action.id)).toEqual([]);
     });
   });
 
@@ -759,13 +807,20 @@ describe('AdAction flow (PG integration)', () => {
       const foreignAction = await prisma.adAction.findFirstOrThrow({
         where: { organizationId: OTHER_ORGANIZATION_ID },
       });
+      await adActionService.approveActions([foreignAction.id], OTHER_ORGANIZATION_ID);
 
       await expect(
         adActionService.markRunning(foreignAction.id, undefined, TEST_ORGANIZATION_ID),
       ).rejects.toThrow(/not found/i);
+      await adActionService.approveActions([foreignAction.id], TEST_ORGANIZATION_ID);
 
-      const foreignAfter = await prisma.adAction.findUniqueOrThrow({ where: { id: foreignAction.id } });
-      expect(foreignAfter.executeStatus).toBe('queued');
+      expect((await tasksOf(foreignAction.id)).map((task) => task.status)).toEqual(['queued']);
+      const own = await adActionService.getActions({}, TEST_ORGANIZATION_ID);
+      expect(own.items).toEqual([]);
+      expect(own.summary).toMatchObject({ pendingReview: 0, approvedQueued: 0, running: 0 });
+      const foreign = await adActionService.getActions({}, OTHER_ORGANIZATION_ID);
+      expect(foreign.items.map((item) => [item.id, item.approvalStatus, item.executeStatus]))
+        .toEqual([[foreignAction.id, 'approved', 'queued']]);
     });
   });
 });

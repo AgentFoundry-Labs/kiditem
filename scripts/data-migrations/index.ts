@@ -23,6 +23,7 @@ import { normalizeSourceImportRunCompletedStatusMigration } from "./v0.1.31/007_
 import { backfillAlertReadAtFromIsReadMigration } from "./v0.1.31/008_backfill_alert_read_at_from_is_read";
 import { backfillCapabilityApprovalDecisionMigration } from "./v0.1.31/009_backfill_capability_approval_decision";
 import { backfillThumbnailTrackingInconclusiveMarkMigration } from "./v0.1.31/010_backfill_thumbnail_tracking_inconclusive_mark";
+import { backfillAdActionExecutionTasksMigration } from "./v0.1.31/011_backfill_ad_action_execution_tasks";
 import retiredDataMigrationCatalog from "./retired.json";
 import type { DataMigration, RetiredDataMigration } from "./types";
 
@@ -59,6 +60,7 @@ export const dataMigrations: readonly DataMigration[] = [
   backfillAlertReadAtFromIsReadMigration,
   backfillCapabilityApprovalDecisionMigration,
   backfillThumbnailTrackingInconclusiveMarkMigration,
+  backfillAdActionExecutionTasksMigration,
   initializeAbsoluteProductAbcFormula,
   backfillCoupangDirectTransportReceiptsMigration,
 ];

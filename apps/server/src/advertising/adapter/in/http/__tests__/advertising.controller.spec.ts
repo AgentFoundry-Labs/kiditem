@@ -48,7 +48,6 @@ function makeServices() {
       markRunning: vi.fn(),
       markDone: vi.fn(),
       markFailed: vi.fn(),
-      resetFailed: vi.fn(),
     },
     config: { getConfig: vi.fn(), updateConfig: vi.fn() },
   };
@@ -269,9 +268,11 @@ describe('AdvertisingController — POST /actions sub-action dispatch', () => {
     ).toThrow(BadRequestException);
   });
 
-  it('action=resetFailed → action.resetFailed(organizationId)', () => {
-    ctrl.handleActionCommand({ action: 'resetFailed' } as any, COMPANY);
-    expect(svcs.action.resetFailed).toHaveBeenCalledWith(COMPANY);
+  it('action=resetFailed is retired → BadRequestException', () => {
+    // Approving a failed action queues a new attempt instead.
+    expect(() =>
+      ctrl.handleActionCommand({ action: 'resetFailed' } as any, COMPANY),
+    ).toThrow(BadRequestException);
   });
 
   it('unknown action → BadRequestException', () => {
