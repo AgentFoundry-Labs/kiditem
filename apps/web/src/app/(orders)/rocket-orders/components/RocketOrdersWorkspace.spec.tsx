@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { listSavedRocketPos } from '@/app/(supply)/purchase-orders/lib/rocket-purchase-preview-api';
 import {
@@ -50,13 +50,16 @@ const query = vi.hoisted(() => ({
   isLoading: false,
 }));
 const queryMock = vi.hoisted(() => vi.fn());
-const owner = vi.hoisted(() => ({ id: '' }));
+// `complete: false` is an account whose Rocket collection never completed.
+const owner = vi.hoisted(() => ({ id: '', complete: true }));
 vi.mock('@/hooks/use-rocket-po-source', () => ({
-  useRocketPoSource: (accountId: string) => ({
-    data: { ready: accountId === '11111111-1111-4111-8111-111111111111', latestAttempt: null,
-      latestComplete: accountId === '11111111-1111-4111-8111-111111111111' ? { attemptId: owner.id } : null },
-    refetch: vi.fn(),
-  }),
+  useRocketPoSource: (accountId: string) => {
+    const complete = owner.complete && accountId === '11111111-1111-4111-8111-111111111111';
+    return {
+      data: { ready: complete, latestAttempt: null, latestComplete: complete ? { attemptId: owner.id } : null },
+      refetch: vi.fn(),
+    };
+  },
 }));
 const replaceMock = vi.hoisted(() => vi.fn());
 const navigation = vi.hoisted(() => ({
@@ -146,6 +149,7 @@ function renderWorkspace(options?: {
 describe('<RocketOrdersWorkspace /> integrated order explorer', () => {
   beforeEach(() => {
     owner.id = sourceImportRunId;
+    owner.complete = true;
     vi.useFakeTimers();
     vi.setSystemTime(new Date(2026, 6, 18, 9, 0, 0));
     sessionStorage.clear();
@@ -214,6 +218,60 @@ describe('<RocketOrdersWorkspace /> integrated order explorer', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '차트' }));
     expect(screen.getByTestId('rocket-orders-chart')).toHaveTextContent('2026-07-19:1:5:null');
+  });
+
+  /**
+   * With no COMPLETE Rocket source nothing was counted, and the status line
+   * says 완료된 로켓 수집본 없음. The summary beside it used to read
+   * 발주 0건 · 수량 0개 · 금액 0원: zeros no collection measured (ADR-0006).
+   */
+  it('shows the summary as unknown, not zero, while no collection has completed', () => {
+    owner.complete = false;
+    renderWorkspace();
+
+    const summary = screen.getByTestId('rocket-order-summary');
+    expect(within(summary).getAllByText('—')).toHaveLength(3);
+    expect(within(summary).queryByText('0')).not.toBeInTheDocument();
+    // No day is announced as having zero orders, and the month is not called empty.
+    expect(screen.getByRole('button', { name: '2026-07-18' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: /발주 0건/ })).not.toBeInTheDocument();
+    expect(screen.queryByText(/이 달엔 해당 발주가 없습니다/)).not.toBeInTheDocument();
+  });
+
+  it('keeps a measured zero when the completed collection has no orders in the month', () => {
+    queryMock.mockImplementation(({ enabled }: { enabled?: boolean }) => ({
+      data: enabled ? [] : undefined,
+      isLoading: false,
+      isFetching: false,
+      isError: false,
+      error: null,
+      refetch: query.refetch,
+    }));
+    renderWorkspace();
+
+    const summary = screen.getByTestId('rocket-order-summary');
+    expect(within(summary).getAllByText('0')).toHaveLength(3);
+    expect(within(summary).queryByText('—')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '2026-07-18 발주 0건' })).toBeDisabled();
+    expect(screen.getByText(/이 달엔 해당 발주가 없습니다/)).toBeInTheDocument();
+  });
+
+  it('does not count a saved list that failed to load as zero orders', () => {
+    queryMock.mockImplementation(({ enabled }: { enabled?: boolean }) => ({
+      data: undefined,
+      isLoading: false,
+      isFetching: false,
+      isError: Boolean(enabled),
+      error: enabled ? new Error('목록 조회 실패') : null,
+      refetch: query.refetch,
+    }));
+    renderWorkspace();
+
+    expect(screen.getByText('저장된 발주 목록을 불러오지 못했습니다')).toBeInTheDocument();
+    const summary = screen.getByTestId('rocket-order-summary');
+    expect(within(summary).getAllByText('—')).toHaveLength(3);
+    expect(within(summary).queryByText('0')).not.toBeInTheDocument();
+    expect(screen.queryByText(/이 달엔 해당 발주가 없습니다/)).not.toBeInTheDocument();
   });
 
   it('uses month as the only calendar view and keeps chart in the upper workspace', () => {
@@ -289,6 +347,7 @@ describe('<RocketOrdersWorkspace /> integrated order explorer', () => {
 describe('<RocketOrdersWorkspace /> saved purchase preview wiring', () => {
   beforeEach(() => {
     owner.id = sourceImportRunId;
+    owner.complete = true;
     vi.useFakeTimers();
     vi.setSystemTime(new Date(2026, 6, 18, 12, 0, 0));
     sessionStorage.clear();

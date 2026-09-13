@@ -1,6 +1,6 @@
 'use client';
 
-import { DashboardBasisDisclosure } from './DashboardDataBasis';
+import { DashboardBasisDisclosure, dashboardSourceLabel } from './DashboardDataBasis';
 import type { DashboardMetricBasis } from '@kiditem/shared/dashboard';
 
 /**
@@ -36,7 +36,16 @@ export function DashboardAdPerformance({
   knownThrough: string | null;
   effectiveAdSource: string | null;
 }) {
-  const sourceLabel = source === 'coupang_ads' ? '쿠팡 광고' : '미수집';
+  const sourceLabel = (source === 'coupang_ads' && dashboardSourceLabel(source)) || '미수집';
+  // The line used to end in the wire enum — `기준 none` beside 미수집. `none` is
+  // what 미수집 already says, and a source the line already names is not a
+  // second fact; anything else is, and it reads in the operator's words.
+  const effectiveSourceLabel = effectiveAdSource && effectiveAdSource !== 'none'
+    ? dashboardSourceLabel(effectiveAdSource)
+    : null;
+  const effectiveSourceText = effectiveSourceLabel && effectiveSourceLabel !== sourceLabel
+    ? ` · 기준 ${effectiveSourceLabel}`
+    : '';
   return (
     <section
       className="rounded-xl border border-slate-200 bg-white overflow-hidden"
@@ -51,7 +60,7 @@ export function DashboardAdPerformance({
           <span className="text-xs text-slate-500" data-testid="ad-performance-source">
             {sourceLabel}
             {knownThrough ? ` · ${knownThrough}까지` : ''}
-            {effectiveAdSource ? ` · 기준 ${effectiveAdSource}` : ''}
+            {effectiveSourceText}
           </span>
           <DashboardBasisDisclosure
             label="광고 성과 근거"

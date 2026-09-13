@@ -169,6 +169,10 @@ export function RocketOrdersWorkspace({
 
   const orders = data ?? EMPTY_ROCKET_POS;
   const latestSourceImportRunId = selectedSourceImportRunId;
+  // 건수는 완료(COMPLETE) 수집본 하나의 발주 행을 실제로 읽었을 때만 측정값이다.
+  // 그런 수집본이 없거나 행을 아직 읽지 못했으면 아무것도 세지 않았으므로,
+  // 요약과 달력은 0을 찍지 않고 알 수 없음으로 둔다(ADR-0006).
+  const ordersMeasured = latestSourceImportRunId !== null && data !== undefined;
 
   // 과거 원본이 정리되기 전에도 운영 화면은 최신 정상 수집본 하나만 사용한다.
   const latestOrders = useMemo(
@@ -258,18 +262,33 @@ export function RocketOrdersWorkspace({
   }: RocketOrderExplorerRenderOptions) {
     const selectDate = (date: string | null) => selectOrderDay(date, onSelectDate);
     // 달력/차트는 계정 범위 catalog snapshot 요약을 기준으로 렌더한다.
-    const mergedMonthData: Record<string, MonthDayData> = dayDataRecord;
+    // 완료 수집본의 발주를 읽지 못했으면 달력은 날짜별 건수를 말하지 않는다(null).
+    const mergedMonthData: Record<string, MonthDayData> | null = ordersMeasured ? dayDataRecord : null;
     const mergedRangeDays = calDays;
     // 상단 요약(발주 건수·수량·금액)은 달력과 같은 catalog snapshot 소스로 계산한다.
-    // 날짜를 고르면 그날만, 아니면 조회 범위 전체를 합산한다.
+    // 날짜를 고르면 그날만, 아니면 조회 범위 전체를 합산한다. 읽은 발주가 없으면 0이 아니라 알 수 없음(null)이다.
     const summaryDays = selectedDay
       ? mergedRangeDays.filter((day) => day.date === selectedDay)
       : mergedRangeDays;
-    const summaryCount = summaryDays.reduce((sum, day) => sum + day.count, 0);
-    const summaryQty = summaryDays.reduce((sum, day) => sum + day.qty, 0);
-    const summaryAmount = sumOrUnavailable(summaryDays.map((day) => day.amount));
+    const summary = ordersMeasured
+      ? {
+          count: summaryDays.reduce((sum, day) => sum + day.count, 0),
+          qty: summaryDays.reduce((sum, day) => sum + day.qty, 0),
+          amount: sumOrUnavailable(summaryDays.map((day) => day.amount)),
+        }
+      : null;
     const hasRangeOrders = mergedRangeDays.some((day) => day.count > 0);
-    const hasMonthOrders = Object.values(mergedMonthData).some((day) => day.count > 0);
+    const hasMonthOrders = mergedMonthData !== null
+      && Object.values(mergedMonthData).some((day) => day.count > 0);
+    // 미확정 금액과 같은 표기로, 세지 않은 값은 단위 없이 '—'로 두고 이유는 title로 남긴다.
+    const unmeasuredValue = (
+      <b
+        className="text-slate-500"
+        title={latestSourceImportRunId === null
+          ? '완료된 로켓 수집본이 없어 알 수 없습니다'
+          : '저장된 발주 목록을 아직 읽지 못해 알 수 없습니다'}
+      >—</b>
+    );
     const chartData: RocketChartPoint[] = mergedRangeDays.map((day) => ({
       date: day.date,
       label: day.date.slice(5).replace('-', '/'),
@@ -346,23 +365,29 @@ export function RocketOrdersWorkspace({
               {label}
             </button>
           ))}
-          <div className="ml-auto flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+          <div className="ml-auto flex flex-wrap items-center gap-x-3 gap-y-1 text-sm" data-testid="rocket-order-summary">
             {selectedDay ? (
               <span className="rounded bg-purple-50 px-1.5 py-0.5 text-xs font-medium text-purple-600">
                 {selectedDay.slice(5).replace('-', '/')} 선택
               </span>
             ) : null}
             <span className="text-slate-500">
-              발주 <b className="tabular-nums text-slate-900">{formatNumber(summaryCount)}</b>건
+              발주 {summary ? (
+                <><b className="tabular-nums text-slate-900">{formatNumber(summary.count)}</b>건</>
+              ) : unmeasuredValue}
             </span>
             <span className="text-slate-500">
-              수량 <b className="tabular-nums text-slate-900">{formatNumber(summaryQty)}</b>개
+              수량 {summary ? (
+                <><b className="tabular-nums text-slate-900">{formatNumber(summary.qty)}</b>개</>
+              ) : unmeasuredValue}
             </span>
             <span className="text-slate-500">
-              {summaryAmount === null ? (
+              {summary === null ? (
+                <>금액 {unmeasuredValue}</>
+              ) : summary.amount === null ? (
                 <>금액 <b className="text-slate-500" title="확정 전 발주 라인이 있어 금액을 알 수 없습니다">미확정</b></>
               ) : (
-                <>금액 <b className="tabular-nums text-purple-700">{formatKRW(summaryAmount)}</b>원</>
+                <>금액 <b className="tabular-nums text-purple-700">{formatKRW(summary.amount)}</b>원</>
               )}
             </span>
           </div>
@@ -396,7 +421,7 @@ export function RocketOrdersWorkspace({
                   onSelect={selectDate}
                   onShiftMonth={(delta) => onShiftMonth(delta, onSelectDate)}
                 />
-                {!hasMonthOrders ? (
+                {mergedMonthData !== null && !hasMonthOrders ? (
                   <p className="px-1 text-xs text-slate-400">
                     이 달엔 해당 발주가 없습니다 · 달력의 이전/다음 버튼으로 다른 달을 확인해보세요.
                   </p>

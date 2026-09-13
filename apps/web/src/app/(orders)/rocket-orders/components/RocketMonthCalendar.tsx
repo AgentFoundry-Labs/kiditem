@@ -23,7 +23,11 @@ export function RocketMonthCalendar({
   onShiftMonth,
 }: {
   monthAnchor: string;
-  data: Record<string, MonthDayData>;
+  /**
+   * Counts per day, or null when no complete collection's rows were read —
+   * then no day is announced as having zero orders.
+   */
+  data: Record<string, MonthDayData> | null;
   selected: string | null;
   onSelect: (d: string | null) => void;
   onShiftMonth: (delta: number) => void;
@@ -78,7 +82,7 @@ export function RocketMonthCalendar({
         ))}
         {cells.map((date, i) => {
           if (!date) return <div key={`b${i}`} />;
-          const dd = data[date];
+          const dd = data?.[date];
           const has = !!dd && dd.count > 0;
           const active = selected === date;
           const future = date > today;
@@ -90,7 +94,7 @@ export function RocketMonthCalendar({
               type="button"
               onClick={() => has && onSelect(active ? null : date)}
               disabled={!has}
-              aria-label={`${date} 발주 ${dd?.count ?? 0}건`}
+              aria-label={data ? `${date} 발주 ${dd?.count ?? 0}건` : date}
               className={cn(
                 'flex min-h-[104px] flex-col items-start rounded-lg border p-2.5 text-left transition',
                 future
