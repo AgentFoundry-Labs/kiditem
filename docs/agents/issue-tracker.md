@@ -14,8 +14,9 @@ item. Keep suspected vulnerabilities and secrets out of public issues.
   link PRs and verification evidence rather than duplicating review threads.
 - Mark work Done only with completion evidence; for merged implementation,
   record the PR and merge commit. Read back updates to confirm shared state.
-- Settled decisions belong in `docs/adr/`; link them from the spec. The root
-  `CLAUDE.md` defines document authority and the frozen archive policy.
+- Apply the root `CLAUDE.md` ADR eligibility check before recording a settled
+  decision in `docs/adr/`; link qualifying ADRs from the spec. Other decisions
+  stay on the issue or in the relevant implementation documentation.
 
 ## Status And Labels
 

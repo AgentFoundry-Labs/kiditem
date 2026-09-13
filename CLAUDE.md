@@ -22,7 +22,13 @@ processing, listing, and operations.
 - Keep one primary business responsibility per change. Cross-domain edits are
   allowed only when required by a named interface, migration, shared guard, or
   incident fix; identify the affected owners and exclude unrelated cleanup.
-- Record a settled decision as an ADR in `docs/adr/`; keep in-flight design in
+- Before creating an ADR or adding a decision to one, check all three with
+  concrete reasons: meaningful reversal cost, surprising without context, and
+  a real trade-off between viable alternatives. Summarize the check in the
+  task or Linear issue before writing; if any condition is missing or unproven,
+  keep the material in the spec, implementation docs, or tests. Passing this
+  check does not require a separate user approval or settle an unresolved choice.
+- Record qualifying settled decisions in `docs/adr/`; keep in-flight design in
   its Linear spec issue and generated agent output out of git. An ADR wins
   over a spec on conflict. `docs/superpowers/` is a frozen archive: read it,
   never add to it. Research existing OSS before introducing architecture.
