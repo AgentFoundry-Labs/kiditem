@@ -33,7 +33,6 @@ export type SellpiaInventoryFreshnessState = {
   verifiedGeneration: bigint;
   failedGeneration: bigint | null;
   lastAttemptAt: Date | null;
-  lastAttemptStatus: 'completed' | 'failed' | null;
   lastAttemptSyncScope: SellpiaSyncScope | null;
   lastErrorCode: SellpiaInventoryCollectionFailureCode | null;
   lastErrorMessage: string | null;
@@ -69,7 +68,6 @@ export function createInitialFreshnessState(input: {
     verifiedGeneration: 0n,
     failedGeneration: null,
     lastAttemptAt: null,
-    lastAttemptStatus: null,
     lastAttemptSyncScope: null,
     lastErrorCode: null,
     lastErrorMessage: null,
@@ -90,6 +88,29 @@ export function deriveFreshnessStatus(
     failedGeneration: state.failedGeneration,
     activeSyncLeaseExpiresAt: state.activeSyncLeaseExpiresAt,
   });
+}
+
+/**
+ * Outcome of the last attempt that ended, derived from the state's own facts.
+ *
+ * Completing an attempt verifies the snapshot at the attempt's own time, so
+ * its attempt time never passes the verification time. A failure records its
+ * generation and advances only the attempt time. Beginning the next attempt
+ * clears the failed generation and error code but leaves both times, so the
+ * earlier failure still reads as the last attempt until one completes.
+ */
+export function deriveLastAttemptStatus(
+  state: Pick<
+    SellpiaInventoryFreshnessState,
+    'lastAttemptAt' | 'lastVerifiedAt' | 'failedGeneration'
+  >,
+): 'completed' | 'failed' | null {
+  if (state.lastAttemptAt === null) return null;
+  if (state.failedGeneration !== null) return 'failed';
+  return state.lastVerifiedAt !== null
+    && state.lastAttemptAt.getTime() <= state.lastVerifiedAt.getTime()
+    ? 'completed'
+    : 'failed';
 }
 
 export function toFreshnessView(
@@ -113,6 +134,7 @@ export function toFreshnessView(
       canControl: userId !== null && state.activeSyncOwnerUserId === userId,
     }
     : null;
+  const lastAttemptOutcome = deriveLastAttemptStatus(state);
   const lastAttempt = expiredCurrentAttempt && state.activeSyncStartedAt
     ? {
       attemptedAt: state.activeSyncStartedAt.toISOString(),
@@ -122,10 +144,10 @@ export function toFreshnessView(
       errorCode: null,
       errorMessage: 'Sellpia inventory collection attempt expired.',
     }
-    : state.lastAttemptAt && state.lastAttemptStatus
+    : state.lastAttemptAt && lastAttemptOutcome
       ? {
         attemptedAt: state.lastAttemptAt.toISOString(),
-        status: state.lastAttemptStatus,
+        status: lastAttemptOutcome,
         trigger: state.refreshReason,
         scope: state.lastAttemptSyncScope ?? 'inventory',
         errorCode: state.lastErrorCode,

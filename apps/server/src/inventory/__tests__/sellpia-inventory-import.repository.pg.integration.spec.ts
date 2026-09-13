@@ -146,8 +146,10 @@ describe('Sellpia manual inventory import (PG integration)', () => {
       activeGeneration: null,
       activeSyncToken: null,
       lastCompletedImportRunId: result.run.id,
-      lastAttemptStatus: 'completed',
+      failedGeneration: null,
     });
+    // The attempt reads as completed because it ended at its own verification.
+    expect(state.lastAttemptAt).toEqual(state.lastVerifiedAt);
   });
 
   it('advances mapping generation once when a source SKU gains a confirmed listing mapping', async () => {

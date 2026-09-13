@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   deriveFreshnessStatus,
+  deriveLastAttemptStatus,
   planRefreshRequest,
   toFreshnessView,
   type SellpiaInventoryFreshnessState,
@@ -40,7 +41,6 @@ describe('Sellpia inventory freshness policy', () => {
       activeSyncStartedAt: new Date('2026-07-14T23:55:00.000Z'),
       activeSyncLeaseExpiresAt: new Date('2026-07-14T23:59:00.000Z'),
       lastAttemptAt: new Date('2026-07-14T23:50:00.000Z'),
-      lastAttemptStatus: 'completed',
     });
 
     expect(deriveFreshnessStatus(state, NOW)).toBe('failed');
@@ -123,6 +123,71 @@ describe('Sellpia inventory freshness policy', () => {
     });
   });
 
+  describe('last attempt outcome', () => {
+    const VERIFIED_AT = new Date('2026-07-14T23:40:00.000Z');
+    const FAILED_AT = new Date('2026-07-14T23:50:00.000Z');
+
+    it('has no outcome before an attempt ended', () => {
+      const state = makeState({ lastAttemptAt: null });
+      expect(deriveLastAttemptStatus(state)).toBeNull();
+      expect(toFreshnessView(state, NOW, null).lastAttempt).toBeNull();
+    });
+
+    it('is completed when the attempt ended at its own verification', () => {
+      const state = makeState({ lastVerifiedAt: VERIFIED_AT, lastAttemptAt: VERIFIED_AT });
+      expect(deriveLastAttemptStatus(state)).toBe('completed');
+      expect(toFreshnessView(state, NOW, null).lastAttempt).toMatchObject({
+        attemptedAt: VERIFIED_AT.toISOString(),
+        status: 'completed',
+      });
+    });
+
+    it('is failed when the attempt ended after the last verification, or nothing was verified', () => {
+      expect(deriveLastAttemptStatus(makeState({
+        lastVerifiedAt: VERIFIED_AT,
+        lastAttemptAt: FAILED_AT,
+      }))).toBe('failed');
+      expect(deriveLastAttemptStatus(makeState({
+        lastVerifiedAt: null,
+        verifiedGeneration: 0n,
+        lastAttemptAt: FAILED_AT,
+      }))).toBe('failed');
+    });
+
+    it('keeps a failure as the last attempt after the next begin clears the failed generation and error code', () => {
+      const state = makeState({
+        lastVerifiedAt: VERIFIED_AT,
+        lastAttemptAt: FAILED_AT,
+        failedGeneration: null,
+        lastErrorCode: null,
+        lastErrorMessage: null,
+        requestedGeneration: 3n,
+        activeGeneration: 3n,
+        activeSyncToken: '00000000-0000-4000-8000-000000000050',
+        activeSyncOwnerUserId: '00000000-0000-4000-8000-000000000051',
+        activeSyncStartedAt: NOW,
+        activeSyncLeaseExpiresAt: new Date('2026-07-15T00:01:30.000Z'),
+      });
+
+      expect(deriveLastAttemptStatus(state)).toBe('failed');
+      expect(toFreshnessView(state, NOW, null)).toMatchObject({
+        status: 'syncing',
+        lastAttempt: {
+          attemptedAt: FAILED_AT.toISOString(),
+          status: 'failed',
+          errorCode: null,
+        },
+      });
+    });
+
+    it('reads a recorded failed generation as failed even when the attempt time does not pass the verification', () => {
+      expect(deriveLastAttemptStatus(makeState({
+        lastVerifiedAt: VERIFIED_AT,
+        lastAttemptAt: new Date('2026-07-14T23:30:00.000Z'),
+        failedGeneration: 2n,
+      }))).toBe('failed');
+    });
+  });
 });
 
 function makeState(
@@ -148,7 +213,6 @@ function makeState(
     verifiedGeneration: 1n,
     failedGeneration: null,
     lastAttemptAt: null,
-    lastAttemptStatus: null,
     lastAttemptSyncScope: null,
     lastErrorCode: null,
     lastErrorMessage: null,
