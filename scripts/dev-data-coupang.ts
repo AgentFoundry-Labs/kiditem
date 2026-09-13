@@ -163,7 +163,6 @@ async function verifyBundle(bundleDir: string, manifest: BundleManifest): Promis
 function sourceForPayload(payload: BundlePayload, body: Record<string, unknown>): string {
   if (payload.type === 'ad_campaign') return 'advertising';
   if (payload.type === 'traffic') return 'wing';
-  if (payload.type === 'coupang_ads_daily') return 'coupang_ads';
   if (payload.type === 'raw_scrape') {
     return String(payload.source ?? body.source ?? 'unknown');
   }
@@ -260,14 +259,6 @@ function parseBusinessDate(input: string | undefined, label: string): Date {
 }
 
 async function cleanupLegacySeedRows(prisma: PrismaClient, organizationId: string) {
-  const account = await prisma.$executeRaw`
-    DELETE FROM channel_account_daily_kpi_snapshots
-    WHERE organization_id = ${organizationId}::uuid
-      AND (
-        normalized_json->>'seededBy' = ${LEGACY_MARKET_DATA_SEED}
-        OR raw_json->>'seededBy' = ${LEGACY_MARKET_DATA_SEED}
-      )
-  `;
   const targets = await prisma.$executeRaw`
     DELETE FROM channel_ad_target_daily_snapshots
     WHERE organization_id = ${organizationId}::uuid
@@ -288,7 +279,7 @@ async function cleanupLegacySeedRows(prisma: PrismaClient, organizationId: strin
     WHERE organization_id = ${organizationId}::uuid
       AND meta_json->>'seededBy' = ${LEGACY_MARKET_DATA_SEED}
   `;
-  return { account, targets, listing, snapshots, runs };
+  return { targets, listing, snapshots, runs };
 }
 
 async function scopedReplace(
@@ -308,9 +299,6 @@ async function scopedReplace(
     where: { organizationId, channel, businessDate: { gte: from, lte: to } },
   });
   const listingDaily = await prisma.channelListingDailySnapshot.deleteMany({
-    where: { organizationId, channel, businessDate: { gte: from, lte: to } },
-  });
-  const accountKpi = await prisma.channelAccountDailyKpiSnapshot.deleteMany({
     where: { organizationId, channel, businessDate: { gte: from, lte: to } },
   });
   const snapshots = await prisma.channelScrapeSnapshot.deleteMany({
@@ -334,7 +322,6 @@ async function scopedReplace(
     adTargets: adTargets.count,
     optionDaily: optionDaily.count,
     listingDaily: listingDaily.count,
-    accountKpi: accountKpi.count,
     snapshots: snapshots.count,
     runs: runs.count,
   };

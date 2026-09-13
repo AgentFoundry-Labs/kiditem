@@ -9,12 +9,10 @@
   const AD_SYNC_PRODUCER = "advertising.ad_sync";
   const AD_PROFITABILITY_PRODUCER = "advertising.profitability_import";
   const AD_KEYWORD_PRODUCER = "advertising.ad_keyword";
-  const AD_ACCOUNT_DAILY_KPI_PRODUCER = "advertising.ad_account_daily_kpi";
   const AD_PROGRESS_PRODUCERS = new Set([
     AD_SYNC_PRODUCER,
     AD_PROFITABILITY_PRODUCER,
     AD_KEYWORD_PRODUCER,
-    AD_ACCOUNT_DAILY_KPI_PRODUCER,
   ]);
   const MAX_BUSY_ATTEMPTS = 20;
   const LOGIN_HANDOFF_TIMEOUT_MS = 60 * 1000;
@@ -78,19 +76,6 @@
     } catch {
       return null;
     }
-  }
-
-  function advertisingDailyTargetDate(value) {
-    const url = safeHttpsUrl(value);
-    if (
-      !url ||
-      url.hostname.toLowerCase() !== "advertising.coupang.com" ||
-      (url.pathname.replace(/\/+$/, "") || "/").toLowerCase() !== SALES_URL.slice("https://advertising.coupang.com".length)
-    ) {
-      return null;
-    }
-    const match = /(?:^|#|&)targetDate=(\d{4}-\d{2}-\d{2})(?:&|$)/i.exec(url.hash || "");
-    return DATE.test(match?.[1] || "") ? match[1] : null;
   }
 
   function officialProfitabilityReportUrl(value) {
@@ -371,15 +356,6 @@
       return session;
     }
 
-    async function isCancelled(attemptId, environmentId, producer) {
-      try {
-        await activeRun(attemptId, environmentId, producer, { clearPrior: false });
-        return false;
-      } catch (error) {
-        return error?.code === "USER_CANCELLED" || error?.code === "SOURCE_OWNER_UNAVAILABLE";
-      }
-    }
-
     async function reportProgress({ environmentId, attemptId, tabId, progress } = {}) {
       const candidate = await sessions.get(attemptId).catch(() => null);
       if (!AD_PROGRESS_PRODUCERS.has(candidate?.producer)) {
@@ -551,7 +527,7 @@
       throw new Error("Collection tab navigation timed out");
     }
 
-    function targetMessage(runId, attempt, environmentId, resumeUrl, mode, control, extra = {}) {
+    function targetMessage(runId, attempt, environmentId, mode, control, extra = {}) {
       const message = {
         action: "manualSync",
         collectionRunId: runId,
@@ -562,10 +538,6 @@
       };
       if (mode === "campaign_sweep" || mode === "campaign_manual_report") message.campaignControl = control;
       if (mode === "keyword_sweep") message.keywordControl = control;
-      if (mode === "account_daily_kpi") {
-        message.targetDate = advertisingDailyTargetDate(resumeUrl);
-        message.accountDailyKpiControl = control;
-      }
       if (mode === "profitability_report") {
         message.profitabilitySlice = normalizedProfitabilitySlice(control.slice);
         if (control.account) message.profitabilityAccount = normalizedProfitabilityAccount(control.account);
@@ -574,7 +546,7 @@
     }
 
     async function sendManualSync(tabId, runId, targetUrl, environmentId, mode, control, producer, extra = {}) {
-      const message = targetMessage(runId, 1, environmentId, targetUrl, mode, control, extra);
+      const message = targetMessage(runId, 1, environmentId, mode, control, extra);
       for (let busyAttempt = 1; busyAttempt <= MAX_BUSY_ATTEMPTS; busyAttempt += 1) {
         await activeRun(runId, environmentId, producer);
         try {
@@ -841,54 +813,6 @@
       });
     }
 
-    async function collectAccountDailyKpis({ environmentId, attemptId, control }) {
-      return windowResource.runExclusive(async () => {
-        const dates = Array.isArray(control?.plan?.businessDates) ? control.plan.businessDates : [];
-        const firstUrl = `${SALES_URL}#targetDate=${dates[0] || ""}`;
-        let owned;
-        const responses = [];
-        let completed = 0;
-        let failed = 0;
-        try {
-          await activeRun(attemptId, environmentId, AD_ACCOUNT_DAILY_KPI_PRODUCER);
-          owned = await getResource(attemptId, firstUrl, AD_ACCOUNT_DAILY_KPI_PRODUCER, environmentId);
-          await writeStatus({ runId: attemptId, status: "running", total: dates.length, current: 0, currentTabId: owned.tabId, startedAt: Date.now() });
-        } catch (error) {
-          if (error?.code === "USER_CANCELLED") {
-            await writeStatus({ runId: attemptId, status: "cancelled", cancelled: true, endedAt: Date.now() });
-            notify();
-            return cancelledResult(attemptId);
-          }
-          if (error?.code === "SOURCE_OWNER_UNAVAILABLE" && owned) {
-            await windowResource.close(attemptId).catch(() => undefined);
-          }
-          throw error;
-        }
-        for (let index = 0; index < dates.length; index += 1) {
-          if (await isCancelled(attemptId, environmentId, AD_ACCOUNT_DAILY_KPI_PRODUCER)) break;
-          const date = dates[index];
-          const target = { id: `account-daily-kpi-${date}`, label: `광고 KPI ${date}`, url: `${SALES_URL}#targetDate=${date}` };
-          let result;
-          try {
-            result = await collectTarget(attemptId, target, environmentId, "account_daily_kpi", control, AD_ACCOUNT_DAILY_KPI_PRODUCER);
-          } catch (error) {
-            result = { success: false, error: errorMessage(error) };
-          }
-          responses.push({ target, response: result.response || null, success: result.success, error: result.error, errorCode: result.errorCode, attentionRequired: result.attentionRequired === true, reason: result.reason || null });
-          if (result.success) completed += 1;
-          else failed += 1;
-          await writeStatus({ runId: attemptId, status: result.attentionRequired ? "attention_required" : "running", total: dates.length, current: index + 1, completed, failed, currentTabId: owned.tabId, error: result.success ? null : result.error });
-          if (result.progress) await publishProgress(attemptId, result.progress);
-          if (result.attentionRequired) break;
-        }
-        const cancelled = await isCancelled(attemptId, environmentId, AD_ACCOUNT_DAILY_KPI_PRODUCER);
-        const result = { success: !cancelled && failed === 0 && completed === dates.length, completed, failed, total: dates.length, cancelled, attentionRequired: responses.some((entry) => entry.attentionRequired), responses, runId: attemptId, error: responses.find((entry) => entry.error)?.error || null };
-        await writeStatus({ runId: attemptId, status: cancelled ? "cancelled" : result.attentionRequired ? "attention_required" : result.success ? "running" : "error", total: dates.length, current: completed + failed, completed, failed, currentTabId: result.attentionRequired ? owned.tabId : null, error: result.error });
-        notify();
-        return result;
-      });
-    }
-
     async function collectProfitabilitySlice({ environmentId, attemptId, account, slice }) {
       const control = { account, slice };
       const result = await collectSingle({
@@ -919,7 +843,6 @@
 
     return Object.freeze({
       cancelRun,
-      collectAccountDailyKpis,
       collectCampaigns,
       collectKeywords,
       collectProfitabilitySlice,

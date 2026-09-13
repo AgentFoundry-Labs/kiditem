@@ -5,8 +5,11 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, type AdAction } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import { currentRowTieBreakSql } from '../../../../common/current-row';
-import { completeAdCampaignSourceIds, readCompleteAdKeywordFacts } from '../../../read/ad-target-facts';
+import {
+  readAdTargetRowEvidence,
+  readCompleteAdKeywordFacts,
+  readCurrentAdTargetRows,
+} from '../../../read/ad-target-facts';
 import { AdListingRepositoryAdapter } from './ad-listing.repository.adapter';
 import { readPublishedProductAbcGrades } from '../../../../products/read/product-abc-publication.reader';
 import type { ActionCandidate } from '../../../domain/ad-action-rules';
@@ -117,70 +120,75 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
   async findLatestTargetRows(organizationId: string): Promise<LatestTargetRow[]> {
     return this.prisma.$transaction(
       async (tx) => {
-        const { rows } = await readCompleteAdKeywordFacts(tx, organizationId);
-        const keywordRows = rows.map((row) => ({
-          id: row.id,
-          target_type: row.targetType,
-          target_key: row.targetKey,
-          listing_id: row.listingId,
-          listing_option_id: row.listingOptionId,
-          external_id: row.externalId,
-          external_option_id: row.externalOptionId,
-          campaign_id: row.campaignId,
-          campaign_name: row.campaignName,
-          keyword: row.keyword,
-          status: row.status,
-          current_bid: row.currentBid,
-          daily_budget: row.dailyBudget,
-          spend: row.spend,
-          revenue: row.revenue,
-          impressions: row.impressions,
-          clicks: row.clicks,
-          conversions: row.conversions,
-          meta_json: row.metaJson,
-        }));
+        // Both target sets come from the advertising ledger's reader: the
+        // current campaign/product targets of each account's newest completed
+        // sweep, and the current COMPLETE keyword observations.
+        const currentRows = await readCurrentAdTargetRows(tx, organizationId);
+        const { rows: keywordRows } = await readCompleteAdKeywordFacts(tx, organizationId);
+        const candidates = [
+          ...currentRows.map((row) => ({
+            id: row.id,
+            target_type: row.targetType,
+            target_key: row.targetKey,
+            listing_id: row.listingId,
+            listing_option_id: row.listingOptionId,
+            external_id: row.externalId,
+            external_option_id: row.externalOptionId,
+            campaign_id: row.campaignId,
+            campaign_name: row.campaignName,
+            keyword: row.keyword,
+            status: row.status,
+            current_bid: row.currentBid,
+            daily_budget: row.dailyBudget,
+            spend: row.spend,
+            revenue: row.revenue,
+            impressions: row.impressions,
+            clicks: row.clicks,
+            conversions: row.conversions,
+            meta_json: row.metaJson,
+          })),
+          ...keywordRows.map((row) => ({
+            id: row.id,
+            target_type: row.targetType,
+            target_key: row.targetKey,
+            listing_id: row.listingId,
+            listing_option_id: row.listingOptionId,
+            external_id: row.externalId,
+            external_option_id: row.externalOptionId,
+            campaign_id: row.campaignId,
+            campaign_name: row.campaignName,
+            keyword: row.keyword,
+            status: row.status,
+            current_bid: row.currentBid,
+            daily_budget: row.dailyBudget,
+            spend: row.spend,
+            revenue: row.revenue,
+            impressions: row.impressions,
+            clicks: row.clicks,
+            conversions: row.conversions,
+            meta_json: row.metaJson,
+          })),
+        ];
+        if (candidates.length === 0) return [];
         const targets = await tx.$queryRaw<Array<Omit<LatestTargetRow, 'abcGrade'> & {
           masterProductId: string | null;
         }>>(
           Prisma.sql`
-        WITH non_keyword AS (
-          SELECT DISTINCT ON (cad.target_key)
-            cad.id,
-            cad.target_type,
-            cad.target_key,
-            cad.listing_id,
-            cad.listing_option_id,
-            cad.external_id,
-            cad.external_option_id,
-            cad.campaign_id,
-            cad.campaign_name,
-            cad.keyword,
-            cad.status,
-            cad.current_bid,
-            cad.daily_budget,
-            cad.spend,
-            cad.revenue,
-            cad.impressions,
-            cad.clicks,
-            cad.conversions,
-            cad.meta_json
-          FROM channel_ad_target_daily_snapshots cad
-          WHERE cad.organization_id = ${organizationId}::uuid
-            AND cad.channel = 'coupang'
-            AND cad.target_type IN ('campaign', 'product')
-            AND cad.source_import_run_id IN (${completeAdCampaignSourceIds(organizationId)})
-          ORDER BY
-            cad.target_key,
-            ${currentRowTieBreakSql({
-              businessDate: Prisma.sql`cad.business_date`,
-              observedAt: Prisma.sql`cad.last_observed_at`,
-              updatedAt: Prisma.sql`cad.updated_at`,
-              id: Prisma.sql`cad.id`,
-            })}
-        ), latest AS (
-          SELECT * FROM non_keyword
-          UNION ALL
-          SELECT * FROM jsonb_to_recordset(${JSON.stringify(keywordRows)}::jsonb) AS keyword (
+        WITH scoped_listings AS (
+          -- Active listings of the organization's active Coupang accounts.
+          SELECT cl.id, cl.channel_account_id, cl.master_product_id, cl.display_name,
+            cl.channel_name, cl.external_id, account.channel AS account_channel
+          FROM channel_listings cl
+          JOIN channel_accounts account
+            ON account.id = cl.channel_account_id
+            AND account.organization_id = cl.organization_id
+          WHERE cl.organization_id = ${organizationId}::uuid
+            AND cl.is_active = true
+            AND account.channel = 'coupang'
+            AND account.status = 'active'
+        ),
+        latest AS (
+          SELECT * FROM jsonb_to_recordset(${JSON.stringify(candidates)}::jsonb) AS candidate (
             id uuid, target_type text, target_key text, listing_id uuid, listing_option_id uuid,
             external_id text, external_option_id text, campaign_id text, campaign_name text,
             keyword text, status text, current_bid integer, daily_budget integer,
@@ -208,7 +216,7 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
           latest.clicks,
           latest.conversions,
           mp.id                        AS "masterProductId",
-          clo.commission_rate          AS "optionCommissionRate",
+          cl.account_channel           AS "listingChannel",
           -- Keyword rows frequently have no listing match (7,432 of 9,266 in
           -- the live account), but the advertised item name is always stamped
           -- by ingest. Relevance cannot be judged without a product name, so
@@ -223,18 +231,8 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
             latest.meta_json -> 'data' ->> 'productName'
           )                            AS "productName"
         FROM latest
-        LEFT JOIN channel_listings cl
+        LEFT JOIN scoped_listings cl
               ON cl.id = latest.listing_id
-              AND cl.organization_id = ${organizationId}::uuid
-              AND cl.is_active = true
-              AND EXISTS (
-                SELECT 1
-                FROM channel_accounts account
-                WHERE account.id = cl.channel_account_id
-                  AND account.organization_id = cl.organization_id
-                  AND account.channel = 'coupang'
-                  AND account.status = 'active'
-              )
         LEFT JOIN channel_listing_options clo
               ON clo.id = latest.listing_option_id
               AND clo.organization_id = ${organizationId}::uuid
@@ -555,20 +553,10 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
           .filter((id): id is string => id != null),
       ),
     );
-    const dailies =
-      dailyIds.length > 0
-        ? await this.prisma.channelAdTargetDailySnapshot.findMany({
-            where: { id: { in: dailyIds }, organizationId },
-            select: {
-              id: true,
-              targetType: true,
-              campaignName: true,
-              keyword: true,
-              businessDate: true,
-              lastObservedAt: true,
-            },
-          })
-        : [];
+    const dailies = await readAdTargetRowEvidence(this.prisma, {
+      organizationId,
+      ids: dailyIds,
+    });
     const dailyMap = new Map(dailies.map((daily) => [daily.id, daily]));
 
     return actions.map((action) => {

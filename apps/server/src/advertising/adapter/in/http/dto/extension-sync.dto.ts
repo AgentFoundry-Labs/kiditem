@@ -85,7 +85,6 @@ export class ExtensionSyncDto {
     'ad_campaign',
     'raw_scrape',
     'traffic',
-    'coupang_ads_daily',
   ])
   type: string;
 

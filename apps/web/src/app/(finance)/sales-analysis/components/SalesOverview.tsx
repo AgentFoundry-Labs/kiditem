@@ -20,7 +20,7 @@ import PageSkeleton from '@/components/ui/PageSkeleton';
 import { ErrorState } from '@/components/ui/EmptyState';
 import { cn, formatKRW, formatNumber } from '@/lib/utils';
 import { FinanceBasisNotice } from '../../_shared/components/FinanceBasisNotice';
-import { compareNullableLast } from '../../_shared/lib/nullable-sort';
+import { compareNullableLast } from '@/lib/nullable-sort';
 import ChannelTable from './ChannelTable';
 import {
   SalesChannelAnalysis,

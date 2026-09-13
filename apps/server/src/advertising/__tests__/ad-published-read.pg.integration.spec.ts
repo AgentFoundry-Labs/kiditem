@@ -79,6 +79,13 @@ describe('published Advertising snapshots through campaign and action readers', 
         status: options.status ?? 'completed',
         importedAt: new Date(options.completedAt ?? at(20)),
         freshnessGeneration: BigInt(options.generation ?? ++generation),
+        // A completed campaign sweep declares the window it swept.
+        ...(!options.full && (options.status ?? 'completed') === 'completed'
+          ? {
+              coverageStartDate: new Date(`${businessDates[30]}T00:00:00.000Z`),
+              coverageEndDate: new Date(`${day}T00:00:00.000Z`),
+            }
+          : {}),
         plan: {
           ...(options.full ? {} : { captureMode: 'campaign_sweep' }),
           businessDates,
@@ -354,9 +361,11 @@ describe('published Advertising snapshots through campaign and action readers', 
         async $queryRaw({ args, query }) {
           const result = await query(args);
           const sql = (args as { strings?: readonly string[] }).strings?.join(' ') ?? '';
-          if (sql.includes('WITH scoped AS')) {
+          if (sql.includes('channel_ad_target_daily_snapshots')) {
             await db.sourceImportRun.update({ where: { id: newer.id }, data: {
               status: 'completed',
+              coverageStartDate: new Date(new Date(day).getTime() - 30 * 86_400_000),
+              coverageEndDate: new Date(day),
               qualityReport: { keywordCoverage: [], campaignDescriptors: [{
                 campaignId: '1', campaignIdentity: 'campaign:1', campaignName: 'New campaign name',
                 status: '중지', onOff: 'OFF', mode: 'daily',
@@ -369,7 +378,7 @@ describe('published Advertising snapshots through campaign and action readers', 
     });
     const service = new AdCampaignsService(
       new AdCampaignRepositoryAdapter(observing as never),
-      new AdListingRepositoryAdapter(db as never), {} as never, actions, {} as never,
+      new AdListingRepositoryAdapter(db as never), actions, {} as never,
     );
     expect(await service.getCampaigns('7d', ORG)).toMatchObject([{
       campaignName: 'Campaign', onOff: 'ON', metrics: { spend: 10 },

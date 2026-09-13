@@ -90,6 +90,79 @@ describe("toCampaignsResponse", () => {
       cvr: 20,
     });
   });
+
+  it("publishes no campaign totals when no campaign measured performance", () => {
+    const response = toCampaignsResponse([
+      campaign({
+        campaignIdentity: "campaign:off",
+        metricsAvailable: false,
+        conversionsAvailable: false,
+        status: "OFF",
+        onOff: "OFF",
+      }),
+    ]);
+
+    expect(response.totalKpi).toBeNull();
+  });
+
+  it("keeps conversions and CVR unknown unless every counted campaign collected conversions", () => {
+    const response = toCampaignsResponse([
+      campaign({}),
+      campaign({
+        campaignIdentity: "campaign:grid-only",
+        conversionsAvailable: false,
+        metrics: {
+          spend: 100,
+          revenue: 300,
+          impressions: 1000,
+          clicks: 10,
+          conversions: 0,
+          roas: 300,
+          ctr: 1,
+          cvr: null,
+        },
+      }),
+    ]);
+
+    expect(response.totalKpi).toEqual({
+      adSpend: 200,
+      adRevenue: 800,
+      impressions: 2000,
+      clicks: 20,
+      conversions: null,
+      roas: 400,
+      ctr: 1,
+      cvr: null,
+    });
+  });
+
+  it("leaves ratio totals null on zero denominators while keeping measured zero sums", () => {
+    const response = toCampaignsResponse([
+      campaign({
+        metrics: {
+          spend: 0,
+          revenue: 0,
+          impressions: 0,
+          clicks: 0,
+          conversions: 0,
+          roas: null,
+          ctr: null,
+          cvr: null,
+        },
+      }),
+    ]);
+
+    expect(response.totalKpi).toEqual({
+      adSpend: 0,
+      adRevenue: 0,
+      impressions: 0,
+      clicks: 0,
+      conversions: 0,
+      roas: null,
+      ctr: null,
+      cvr: null,
+    });
+  });
 });
 
 describe("useAdOpsData request scope", () => {
@@ -120,6 +193,18 @@ describe("useAdOpsData request scope", () => {
     expect(mockApiGet).not.toHaveBeenCalledWith("/api/ads/strategy/recommend");
     expect(mockApiGet).not.toHaveBeenCalledWith("/api/ads/benchmark?days=14");
     expect(mockApiGet).not.toHaveBeenCalledWith("/api/traffic/summary?days=14");
+  });
+
+  it("never requests the retired exposure analysis", async () => {
+    const { result } = renderHook(() => useAdOpsData("14d", "exposure"), {
+      wrapper: wrapper(),
+    });
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    expect(mockApiGet).not.toHaveBeenCalledWith("/api/ads/exposure-analysis");
   });
 
   it("defers status-only requests after navigating away from the analysis tab", async () => {

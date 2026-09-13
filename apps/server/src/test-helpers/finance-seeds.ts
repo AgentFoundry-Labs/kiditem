@@ -524,6 +524,12 @@ export async function seedAd(
     runId?: string | null;
     /** Distinguishes several product rows of one listing on one day (options). */
     targetKey?: string;
+    /**
+     * Whether the provider grid carried a conversion-count column. The owner
+     * stamps this on every published target row; `false` stores the column's
+     * 0 as unobserved.
+     */
+    conversionsObserved?: boolean;
   },
 ): Promise<string | null> {
   const listing = await prisma.channelListing.findFirstOrThrow({
@@ -631,7 +637,12 @@ export async function seedAd(
       targetType: 'product',
       targetKey,
       sourceImportRunId: runId,
-      metaJson: { data: { granularity: 'product' } },
+      metaJson: {
+        data: {
+          granularity: 'product',
+          conversionsObserved: opts.conversionsObserved ?? true,
+        },
+      },
       firstObservedAt: businessDate,
       ...metrics,
     },
@@ -722,97 +733,4 @@ export async function seedCompletedAdSweepRun(
     });
   }
   return run.id;
-}
-
-export async function seedPublishedAdAccountDay(
-  prisma: PrismaClient,
-  opts: { organizationId: string; date: string; adSpend?: number },
-): Promise<void> {
-  const account = await prisma.channelAccount.findFirstOrThrow({
-    where: {
-      organizationId: opts.organizationId,
-      channel: 'coupang',
-      status: 'active',
-    },
-    select: { id: true },
-  });
-  const businessDate = new Date(`${opts.date}T00:00:00.000Z`);
-  const parserVersion = 'ad-account-daily-kpi-v2';
-  // One completed attempt publishes every day of its window, exactly as a real
-  // collection does — and `(organization, sourceType, account, generation)` is
-  // unique, so repeated days reuse it rather than inventing a second attempt.
-  const sourceImportRun = await prisma.sourceImportRun.findFirst({
-    where: {
-      organizationId: opts.organizationId,
-      sourceType: 'coupang_ads_daily',
-      channelAccountId: account.id,
-      status: 'completed',
-    },
-    select: { id: true },
-  }) ?? await prisma.sourceImportRun.create({
-    data: {
-      organizationId: opts.organizationId,
-      sourceType: 'coupang_ads_daily',
-      channelAccountId: account.id,
-      status: 'completed',
-      rowCount: 1,
-      freshnessGeneration: 1n,
-      parserVersion,
-      coverageStartDate: businessDate,
-      coverageEndDate: businessDate,
-      importedAt: new Date(`${opts.date}T12:00:00.000Z`),
-    },
-    select: { id: true },
-  });
-  const scrapeRun = await prisma.channelScrapeRun.create({
-    data: {
-      organizationId: opts.organizationId,
-      channelAccountId: account.id,
-      sourceImportRunId: sourceImportRun.id,
-      channel: 'coupang',
-      source: 'coupang_ads',
-      pageType: 'dashboard_daily',
-      businessDate,
-      periodStart: businessDate,
-      periodEnd: businessDate,
-      status: 'completed',
-      period: '1d',
-      parserVersion,
-    },
-    select: { id: true },
-  });
-  const adSpend = opts.adSpend ?? 0;
-  await prisma.channelScrapeSnapshot.create({
-    data: {
-      organizationId: opts.organizationId,
-      sourceImportRunId: sourceImportRun.id,
-      scrapeRunId: scrapeRun.id,
-      channel: 'coupang',
-      source: 'coupang_ads',
-      pageType: 'dashboard_daily',
-      businessDate,
-      observedAt: new Date(`${opts.date}T12:00:00.000Z`),
-      matchStatus: 'unmatched',
-      rawJson: { date: opts.date },
-      normalizedJson: {
-        adSpend,
-        adRevenue: 0,
-        impressions: 0,
-        clicks: 0,
-        conversions: 0,
-        orders: 0,
-        providerRoas: null,
-        providerCtr: null,
-        providerConversionRate: null,
-        observedMetrics: {
-          adSpend: true,
-          adRevenue: true,
-          impressions: true,
-          clicks: true,
-          conversions: true,
-          orders: true,
-        },
-      },
-    },
-  });
 }

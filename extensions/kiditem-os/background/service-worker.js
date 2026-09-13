@@ -35,7 +35,6 @@ importScripts(
   "coupang/profitability-source-owner.js",
   "coupang/ad-keyword-source-owner.js",
   "coupang/ad-campaign-source-owner.js",
-  "coupang/ad-account-daily-kpi-source-owner.js",
   "coupang/wing-traffic-source-owner.js",
   "coupang/wing-itemwinner-source-owner.js",
   "coupang/tracked-wing-products-source-owner.js",

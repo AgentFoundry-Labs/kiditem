@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { AdCampaignSnapshot } from "@kiditem/shared/advertising";
-import { CampaignSummary } from "./StatusContent";
+import { CampaignSummary, wingKpiCount } from "./StatusContent";
 
 const mockApiGet = vi.hoisted(() => vi.fn());
 
@@ -47,6 +47,19 @@ function campaign(overrides: Partial<AdCampaignSnapshot>): AdCampaignSnapshot {
     ...overrides,
   };
 }
+
+describe("wingKpiCount", () => {
+  it("reads a parsed Wing KPI count and leaves an unparseable cell unknown", () => {
+    expect(wingKpiCount("12")).toBe(12);
+    expect(wingKpiCount("1,234개")).toBe(1234);
+    expect(wingKpiCount("0")).toBe(0);
+    expect(wingKpiCount("-")).toBeNull();
+    expect(wingKpiCount("")).toBeNull();
+    expect(wingKpiCount({ value: "3건", numValue: 3 })).toBe(3);
+    expect(wingKpiCount({ value: "5건" })).toBe(5);
+    expect(wingKpiCount({ value: "-" })).toBeNull();
+  });
+});
 
 describe("CampaignSummary", () => {
   it("does not surface metadata-only campaigns as zero-performance summary rows", () => {

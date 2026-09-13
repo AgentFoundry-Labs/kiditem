@@ -25,7 +25,6 @@ describe('AdAction flow (PG integration)', () => {
     sellableStock?: number | null;
     costPrice?: number | null;
     sellPrice?: number | null;
-    commissionRate?: number | null;
     externalIdSuffix?: string;
   }) {
     const unique = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -100,8 +99,6 @@ describe('AdAction flow (PG integration)', () => {
         listingId: listing.id,
         externalOptionId: `VID-${unique}`,
         salePrice: params.sellPrice ?? null,
-        costPriceOverride: params.costPrice ?? null,
-        commissionRate: params.commissionRate ?? null,
         lastImportRunId: importRun.id,
         isActive: true,
       },
@@ -192,6 +189,10 @@ describe('AdAction flow (PG integration)', () => {
           params.pageType === 'keyword' ? 'ad-keyword-v1' : 'ad-campaign-v1',
         status: 'completed',
         importedAt: new Date(),
+        // A completed campaign sweep declares the day it swept.
+        ...(params.pageType === 'keyword'
+          ? {}
+          : { coverageStartDate: today, coverageEndDate: today }),
         plan:
           params.pageType === 'keyword'
             ? { captureMode: 'keyword' }

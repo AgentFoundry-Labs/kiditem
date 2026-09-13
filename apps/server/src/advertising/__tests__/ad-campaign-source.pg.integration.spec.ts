@@ -661,6 +661,8 @@ describe('Ad campaign source incoming HTTP + disposable PostgreSQL', () => {
         status: 'completed',
         importedAt: new Date('2026-09-06T00:00:00.000Z'),
         freshnessGeneration: 1n,
+        coverageStartDate: new Date('2026-08-06T00:00:00.000Z'),
+        coverageEndDate: new Date('2026-09-05T00:00:00.000Z'),
         plan: {
           sourceType: 'coupang_ad_campaign',
           parserVersion: 'ad-campaign-v1',

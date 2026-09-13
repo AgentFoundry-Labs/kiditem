@@ -4,7 +4,6 @@ import {
   readAdWindowFacts,
   readLatestAdDate,
   readListingAdWindowFacts,
-  readListingDayAdFacts,
 } from '../ad-window-facts';
 import {
   makeTestPrisma,
@@ -104,15 +103,6 @@ describe('ad-window-facts (PG)', () => {
     expect(byListing.get(a.listingId)).toMatchObject({ days: 2, spend: 300, firstDate: '2026-04-10', lastDate: '2026-04-11' });
     expect(byListing.get(b.listingId)).toMatchObject({ days: 2, spend: 20 });
 
-    const perDay = await readListingDayAdFacts(prisma, {
-      organizationId: TEST_ORGANIZATION_ID,
-      from: day('2026-04-10'),
-      to: day('2026-04-12'),
-    });
-    const named = perDay.map((row) => [row.listingId === a.listingId ? 'A' : 'B', row.businessDate.toISOString().slice(0, 10), row.spend] as const);
-    expect(named[0]).toEqual(['A', '2026-04-10', 250]);
-    expect(named.slice(1)).toEqual(expect.arrayContaining([['A', '2026-04-11', 50], ['B', '2026-04-11', 20]]));
-    expect(named).toHaveLength(3);
   });
 
   it('a newer completed sweep generation supersedes an older one for the same target-day; a running one is not evidence', async () => {
@@ -330,15 +320,6 @@ describe('ad-window-facts (PG)', () => {
       lastDate: '2026-04-10',
     });
 
-    const perDay = await readListingDayAdFacts(prisma, {
-      organizationId: TEST_ORGANIZATION_ID,
-      from: day('2026-04-01'),
-      to: day('2026-04-11'),
-    });
-    expect(perDay.map(({ businessDate, spend }) => [
-      businessDate.toISOString().slice(0, 10),
-      spend,
-    ])).toEqual([['2026-04-06', 20]]);
   });
 
   it('selects campaign or product grain per account-day without crossing account fences', async () => {

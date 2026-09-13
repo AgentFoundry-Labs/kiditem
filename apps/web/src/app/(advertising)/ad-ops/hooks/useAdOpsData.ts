@@ -11,7 +11,6 @@ import type {
   AdRulesData,
   AdWeeklyPlan,
   AdTrendsData,
-  ExposureAnalysisData,
 } from '@kiditem/shared/advertising';
 
 export type CampaignProductData = {
@@ -30,9 +29,26 @@ export type CampaignProductData = {
   roas: number | null;
 };
 
+/**
+ * Totals over the campaigns whose performance the sweep measured. Ratios
+ * recompute from the summed raw values and are null on a zero denominator.
+ */
+export type CampaignTotals = {
+  adSpend: number;
+  adRevenue: number;
+  impressions: number;
+  clicks: number;
+  /** Null unless every counted campaign carried a collected conversion count. */
+  conversions: number | null;
+  roas: number | null;
+  ctr: number | null;
+  cvr: number | null;
+};
+
 type CampaignsResponse = {
   campaigns: AdCampaignSnapshot[];
-  totalKpi: Record<string, number>;
+  /** Null when no campaign in the period measured performance. */
+  totalKpi: CampaignTotals | null;
 };
 
 export type RoasThresholds = {
@@ -79,24 +95,35 @@ export type RegisterCampaignPayload = {
   products: { productId: string; productName: string }[];
 };
 
-function campaignTotals(campaigns: AdCampaignSnapshot[]): Record<string, number> {
-  const total = campaigns
-    .filter((campaign) => campaign.metricsAvailable !== false)
-    .reduce(
-      (acc, c) => ({
-        adSpend: acc.adSpend + c.metrics.spend,
-        adRevenue: acc.adRevenue + c.metrics.revenue,
-        impressions: acc.impressions + c.metrics.impressions,
-        clicks: acc.clicks + c.metrics.clicks,
-        conversions: acc.conversions + c.metrics.conversions,
-      }),
-      { adSpend: 0, adRevenue: 0, impressions: 0, clicks: 0, conversions: 0 },
-    );
+function percentOf(part: number | null, whole: number): number | null {
+  return part !== null && whole > 0 ? Math.round((part / whole) * 10000) / 100 : null;
+}
+
+function campaignTotals(campaigns: AdCampaignSnapshot[]): CampaignTotals | null {
+  const measured = campaigns.filter((campaign) => campaign.metricsAvailable !== false);
+  if (measured.length === 0) return null;
+  // Every counted campaign carries measured spend, revenue, impressions and
+  // clicks, so these sums start from a true zero.
+  const sum = (pick: (metrics: AdCampaignSnapshot['metrics']) => number) =>
+    measured.reduce((total, campaign) => total + pick(campaign.metrics), 0);
+  const adSpend = sum((metrics) => metrics.spend);
+  const adRevenue = sum((metrics) => metrics.revenue);
+  const impressions = sum((metrics) => metrics.impressions);
+  const clicks = sum((metrics) => metrics.clicks);
+  // Coupang's campaign grid has no conversion column: one uncollected
+  // campaign makes the conversion sum unknown, not smaller.
+  const conversions = measured.every((campaign) => campaign.conversionsAvailable)
+    ? sum((metrics) => metrics.conversions)
+    : null;
   return {
-    ...total,
-    roas: total.adSpend > 0 ? Math.round((total.adRevenue / total.adSpend) * 10000) / 100 : 0,
-    ctr: total.impressions > 0 ? Math.round((total.clicks / total.impressions) * 10000) / 100 : 0,
-    cvr: total.clicks > 0 ? Math.round((total.conversions / total.clicks) * 10000) / 100 : 0,
+    adSpend,
+    adRevenue,
+    impressions,
+    clicks,
+    conversions,
+    roas: percentOf(adRevenue, adSpend),
+    ctr: percentOf(clicks, impressions),
+    cvr: percentOf(conversions, clicks),
   };
 }
 
@@ -162,14 +189,6 @@ export function useAdOpsData(period: string, tab: string) {
     staleTime: AD_OPS_METRIC_STALE_TIME,
   });
 
-  const exposure = useQuery({
-    queryKey: [...queryKeys.ads.all, 'exposure-analysis'] as const,
-    queryFn: () =>
-      apiClient.get<ExposureAnalysisData>(`/api/ads/exposure-analysis`),
-    enabled: tab === 'exposure',
-    staleTime: AD_OPS_METRIC_STALE_TIME,
-  });
-
   const isLoading =
     campaigns.isLoading ||
     rules.isLoading ||
@@ -181,8 +200,7 @@ export function useAdOpsData(period: string, tab: string) {
       rules.isFetching ||
       wingStatus.isFetching ||
       strategy.isFetching ||
-      trends.isFetching ||
-      exposure.isFetching
+      trends.isFetching
     );
 
   return {
@@ -191,7 +209,6 @@ export function useAdOpsData(period: string, tab: string) {
     wingStatus,
     strategy,
     trends,
-    exposure,
     isLoading,
     isRefreshing,
   };

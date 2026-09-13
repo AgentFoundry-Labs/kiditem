@@ -7,7 +7,7 @@ drilldown, strategy/planning, scrape targets, exports, and ad sync triggers.
 
 ## Owned Surfaces
 
-- Ad status, campaign, exposure, strategy, and product drilldown tabs
+- Ad status, campaign, strategy, and product drilldown tabs
 - Scrape target CRUD and ad sync controls
 - Ad table/chart helpers and XLSX exports
 

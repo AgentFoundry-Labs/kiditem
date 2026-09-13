@@ -4,7 +4,6 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { Test } from '@nestjs/testing';
 import { snapshotPartialOf } from '../../../test-helpers/dashboard-basis-assertions';
 import { ProfitabilityAdImportRepositoryAdapter } from '../../../advertising/adapter/out/repository/profitability-ad-import.repository.adapter';
-import { AdAccountDailyKpiSourceRepository } from '../../../advertising/adapter/out/repository/ad-account-daily-kpi-source.repository';
 import { MasterProductProfitabilityReadService } from '../../../finance/application/service/master-product-profitability-read.service';
 import { SellpiaProfitabilitySourceService } from '../../sellpia-product-sales/sellpia-profitability-source.service';
 import { MASTER_PRODUCT_PROFITABILITY_READ_PORT } from '../../../finance/application/port/in/master-product-profitability-read.port';

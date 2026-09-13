@@ -16,13 +16,12 @@ const listingBase = (
     sellableStock: 100,
     purchaseCost: 5000,
     salePrice: 20000,
-    commissionRate: 0.1,
-    shippingCost: 2500,
   },
 ): HydratedListing => ({
   id: 'L1',
   externalId: 'EXT-1',
   channelName: '쿠팡 등록명',
+  channel: 'coupang',
   masterProduct: {
     id: 'M1',
     code: 'M-00000001',
@@ -142,8 +141,6 @@ describe('AdGradeRulesService.calcActions', () => {
         sellableStock: null,
         purchaseCost: 5000,
         salePrice: 20000,
-        commissionRate: 0.1,
-        shippingCost: 2500,
       } as unknown as HydratedListing['primaryOption'];
       const result = service.calcActions(buildInput(
         [adGroup({ spend: 10000, revenue: 50000 })],
@@ -164,8 +161,6 @@ describe('AdGradeRulesService.calcActions', () => {
             sellableStock: 0,
             purchaseCost: 5000,
             salePrice: 20000,
-            commissionRate: 0.1,
-            shippingCost: 2500,
           }),
         ],
         'A',
@@ -184,14 +179,70 @@ describe('AdGradeRulesService.calcActions', () => {
             sellableStock: 0,
             purchaseCost: 5000,
             salePrice: 20000,
-            commissionRate: 0.1,
-            shippingCost: 2500,
           }),
         ],
         'A',
       );
       const result = service.calcActions(input);
       expect(result[0].priority).toBe('high'); // A-1
+    });
+  });
+
+  describe('전환 컬럼 관측 근거', () => {
+    it('전환 컬럼 미관측이면 C-5 안 냄', () => {
+      // The campaign dashboard grid has no conversion-count column; the ledger
+      // stores 0 there with an unobserved marker, which the reader publishes
+      // as `conversions: null`.
+      const input = buildInput(
+        [adGroup({ spend: 8000, revenue: 20000, clicks: 80, conversions: null })],
+        [listingBase()],
+        'B',
+      );
+      const reasons = service.calcActions(input).map((action) => action.reason);
+      expect(reasons.join(' ')).not.toContain('전환 0');
+      expect(service.calcActions(input).some((action) => action.priority === 'urgent')).toBe(false);
+    });
+
+    it('관측된 전환 0 은 C-5 조기손절을 낸다', () => {
+      const input = buildInput(
+        [adGroup({ spend: 8000, revenue: 20000, clicks: 80, conversions: 0 })],
+        [listingBase()],
+        'B',
+      );
+      const [action] = service.calcActions(input);
+      expect(action).toMatchObject({ priority: 'urgent', actionType: 'decrease' });
+      expect(action.reason).toContain('전환 0');
+    });
+  });
+
+  describe('순이익 한도 — KID-114 비용 규칙', () => {
+    // ROAS 200 with spend far above 14 days of the 35% margin budget.
+    const heavySpend = () => adGroup({ spend: 300_000, revenue: 600_000, clicks: 400, conversions: 20 });
+    const option = (purchaseCost: number | null) => ({
+      listingOptionId: 'LO1',
+      sellableStock: 100,
+      purchaseCost,
+      salePrice: 20_000,
+    });
+
+    it('fires for a Rocket direct-purchase listing with a known recipe cost', () => {
+      const listing = { ...listingBase({}, option(5_000)), channel: 'rocket' };
+      const [action] = service.calcActions(buildInput([heavySpend()], [listing], 'A'));
+      expect(action?.reason).toContain('순이익 한도');
+    });
+
+    it('does not fire when the account sales commission has no measured source', () => {
+      const listing = { ...listingBase({}, option(5_000)), channel: 'coupang' };
+      const reasons = service.calcActions(buildInput([heavySpend()], [listing], 'A'))
+        .map((action) => action.reason);
+      expect(reasons.join(' ')).not.toContain('순이익 한도');
+    });
+
+    it('does not fire when the recipe purchase cost is unknown', () => {
+      const listing = { ...listingBase({}, option(null)), channel: 'rocket' };
+      const reasons = service.calcActions(buildInput([heavySpend()], [listing], 'A'))
+        .map((action) => action.reason);
+      expect(reasons.join(' ')).not.toContain('순이익 한도');
     });
   });
 
@@ -371,24 +422,18 @@ describe('AdGradeRulesService.calcActions', () => {
           sellableStock: 0,
           purchaseCost: 5000,
           salePrice: 20000,
-          commissionRate: 0.1,
-          shippingCost: 2500,
         }),
         { ...listingBase({}, {
           listingOptionId: 'LOb',
           sellableStock: 100,
           purchaseCost: 5000,
           salePrice: 20000,
-          commissionRate: 0.1,
-          shippingCost: 2500,
         }), id: 'L2' },
         { ...listingBase({}, {
           listingOptionId: 'LOc',
           sellableStock: 100,
           purchaseCost: 5000,
           salePrice: 20000,
-          commissionRate: 0.1,
-          shippingCost: 2500,
         }), id: 'L3' },
       ];
       const input: GradeRulesInput = {
@@ -432,6 +477,17 @@ describe('AdGradeRulesService.calcAdIssues', () => {
     expect(result.zeroConversion).toHaveLength(1);
     expect(result.zeroConversion[0].actionType).toBe('stop');
     expect(result.zeroConversion[0].priority).toBe('urgent');
+  });
+
+  it('zeroConversion: an unobserved conversion column is not a zero-conversion issue', () => {
+    const input: AdIssuesInput = {
+      adGroups: [
+        { listingId: 'L1', spend: 5000, impressions: 1000, clicks: 50, conversions: null, revenue: 9000 },
+      ],
+      listings: [listingBase()],
+      gradeMap: new Map([['L1', 'A']]),
+    };
+    expect(service.calcAdIssues(input).zeroConversion).toHaveLength(0);
   });
 
   it('lowRoas: spend>0 + revenue>0 + roas<100 → high / decrease', () => {

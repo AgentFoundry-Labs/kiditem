@@ -186,6 +186,7 @@ function makeAdapter(
         clicks: Number(raw.clicks ?? 0),
         conversions: Number(raw.conversions ?? 0),
         orders: Number(raw.orders ?? 0),
+        conversionsObserved: true,
       };
     }),
     observedAt: null,

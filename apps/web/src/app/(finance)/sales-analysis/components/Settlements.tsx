@@ -22,7 +22,7 @@ import { queryKeys } from '@/lib/query-keys';
 import { cn, formatKRW } from '@/lib/utils';
 import { usePeriodSelector } from '@/hooks/usePeriodSelector';
 import PeriodSelector from '@/components/ui/PeriodSelector';
-import { compareNullableLast } from '../../_shared/lib/nullable-sort';
+import { compareNullableLast } from '@/lib/nullable-sort';
 
 type Settlement = SettlementListItem;
 

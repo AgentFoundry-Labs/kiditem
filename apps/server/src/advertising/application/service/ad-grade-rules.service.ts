@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import type { AdStrategyAction, AdIssues, ChannelStateSignal } from '@kiditem/shared/advertising';
 import type { GradeRulesInput, AdIssuesInput, HydratedListing } from '../../domain/model/strategy-types';
 import { hydratedListingToSummary } from '../../mapper/ad-listing.mapper';
+import { channelAccountSalesCosts } from '../../../channels/domain/channel-account-sales-costs';
 
 type Priority = 'urgent' | 'high' | 'medium' | 'low';
 
@@ -54,15 +55,18 @@ export class AdGradeRulesService {
       const revenue = ad?.revenue ?? 0;
       const clicks = ad?.clicks ?? 0;
       const impressions = ad?.impressions ?? 0;
-      const conversions = ad?.conversions ?? 0;
+      // `null` = the conversion column was never observed; no conversion rule
+      // may read it as zero.
+      const conversions = ad ? ad.conversions : null;
       const roas = spend > 0 ? Math.round((revenue / spend) * 100) : 0;
       const ctr = impressions > 0 ? Math.round((clicks / impressions) * 10000) / 100 : 0;
       if (spend === 0) continue;
 
       const grade = gradeMap.get(listing.id) ?? normalizeGrade(listing.masterProduct.abcGrade);
       const primary = listing.primaryOption;
-      const margin = calcOptionMargin(primary);
-      const adBudgetLimit = margin > 0 ? margin * 0.35 : 0;
+      // `null` when the margin is not measurable; the margin rule stays silent.
+      const margin = calcOptionMargin(listing);
+      const adBudgetLimit = margin !== null && margin > 0 ? margin * 0.35 : null;
       const sellableStock = primary?.sellableStock ?? null;
       // Absent when the listing's profit is unavailable (ADR-0003) or it had no
       // orders in the window. Either way it is not a profit rate of zero — no
@@ -82,7 +86,7 @@ export class AdGradeRulesService {
         });
       }
 
-      if (clicks >= 50 && conversions === 0 && spend > 0) {
+      if (clicks >= 50 && conversions !== null && conversions === 0 && spend > 0) {
         recs.push({
           rule: 'C-5 전환0 조기손절',
           reason: `클릭 ${clicks}회, 전환 0 — 키워드 OFF 또는 캠페인 중단 (광고비 ${Math.round(spend).toLocaleString()}원 낭비)`,
@@ -98,7 +102,7 @@ export class AdGradeRulesService {
         });
       }
 
-      if (adBudgetLimit > 0 && spend > adBudgetLimit * 14 && roas < 300) {
+      if (adBudgetLimit !== null && spend > adBudgetLimit * 14 && roas < 300) {
         recs.push({
           rule: '순이익 한도 초과',
           reason: `광고비 ${Math.round(spend).toLocaleString()}원 > 순이익 한도 ${Math.round(adBudgetLimit * 14).toLocaleString()}원 — 예산 축소 또는 ROAS 목표 상향`,
@@ -226,7 +230,7 @@ export class AdGradeRulesService {
    * 기존 ad-strategy.service.ts:955-1026 의 calcAdIssues 본문 이전.
    * adGroups 는 orchestrator 가 legacy ad groupBy(['listingId']) (최근 14d) 으로 사전 fetch.
    * Threshold 복원 (B2b 원본):
-   *  - zeroConversion: spend > 0 && conversions === 0
+   *  - zeroConversion: spend > 0 && conversions === 0 (관측된 전환 컬럼만)
    *  - lowRoas:        spend > 0 && revenue > 0 && roas < 100
    *  - highSpend:      spend >= 10000
    */
@@ -249,7 +253,7 @@ export class AdGradeRulesService {
       const grade = gradeMap.get(listing.id) ?? normalizeGrade(listing.masterProduct.abcGrade);
       const summary = hydratedListingToSummary(listing);
 
-      if (spend > 0 && conversions === 0) {
+      if (spend > 0 && conversions !== null && conversions === 0) {
         zeroConversion.push({
           listing: summary,
           grade,
@@ -321,15 +325,21 @@ function normalizeGrade(raw: 'A' | 'B' | 'C' | null | undefined): 'A' | 'B' | 'C
 }
 
 /**
- * option 단위 margin = sellPrice - costPrice (costPrice/sellPrice 누락 시 0).
- * B2b 원본 ad-strategy.service.ts:90-98 본문 복원.
+ * Primary-option unit margin, or `null` when it is not measurable (KID-114).
+ * Purchase cost is the confirmed recipe priced at the Sellpia purchase price;
+ * an unknown cost or sale price is not counted as 0. A sales commission or
+ * other per-sale cost that applies to the listing's channel account has no
+ * measured source, so such a listing has no measurable margin either.
  */
-function calcOptionMargin(option: HydratedListing['primaryOption']): number {
-  if (!option) return 0;
-  const cost = option.purchaseCost ?? 0;
-  const sell = option.salePrice ?? 0;
-  if (sell <= 0 || cost <= 0) return 0;
-  return sell - cost;
+function calcOptionMargin(listing: HydratedListing): number | null {
+  const option = listing.primaryOption;
+  if (!option || listing.channel === null) return null;
+  const costs = channelAccountSalesCosts({ channel: listing.channel });
+  if (costs.salesCommissionApplies || costs.otherCostApplies) return null;
+  if (option.purchaseCost === null || option.salePrice === null || option.salePrice <= 0) {
+    return null;
+  }
+  return option.salePrice - option.purchaseCost;
 }
 
 /**

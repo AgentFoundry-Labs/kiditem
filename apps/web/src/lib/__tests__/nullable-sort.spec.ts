@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compareNullableLast } from './nullable-sort';
+import { compareNullableLast } from '../nullable-sort';
 
 describe('compareNullableLast', () => {
   it('orders measured values by direction and keeps unavailable values last either way', () => {

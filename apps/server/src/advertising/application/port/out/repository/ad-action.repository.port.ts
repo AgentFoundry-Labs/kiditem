@@ -40,7 +40,12 @@ export interface LatestTargetRow {
   clicks: number;
   conversions: number;
   abcGrade: string | null;
-  optionCommissionRate: number | null;
+  /**
+   * The listing's channel account channel, which decides whether a sales
+   * commission and other per-sale cost apply (`channelAccountSalesCosts`).
+   * `null` when the target is not attributable to an active listing.
+   */
+  listingChannel: string | null;
   productName: string | null;
 }
 

@@ -442,7 +442,6 @@ const legacyPublishedSchema = z
     attemptId: z.string().uuid(),
     plan: legacyPlanSchema,
     rows: z.array(AdTrafficSourcePublishedRowSchema),
-    dashboard: payload.nullable(),
   })
   .strict();
 

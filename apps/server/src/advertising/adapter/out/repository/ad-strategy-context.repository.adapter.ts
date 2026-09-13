@@ -3,7 +3,7 @@
 // `AdsConfig` — the application service passes it in as a parameter so
 // this lane has zero application-layer back-references.
 
-import { Inject, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { addDays, businessDateKey, kstInclusiveDaysStart, kstMonthStart } from '../../../../common/kst';
@@ -24,20 +24,12 @@ import {
   toAdAggregateRows,
   uniqueIds,
 } from '../../../domain/strategy-context';
-import {
-  ADVERTISING_REVIEW_LISTING_STATS_PORT,
-  type AdvertisingReviewListingStatsPort,
-} from '../../../application/port/out/cross-domain/review-listing-stats.port';
 import type {
   AdsConfig,
   HydratedListing,
 } from '../../../domain/model/strategy-types';
 import type {
   AdStrategyContextRepositoryPort,
-  AllTimeAdAggregateRow,
-  ExposureAnalysisContext,
-  ListingReviewStatRow,
-  ListingTrafficDailyRow,
   StrategyContext,
 } from '../../../application/port/out/repository/ad-strategy-context.repository.port';
 import type { ChannelStateSignal } from '@kiditem/shared/advertising';
@@ -46,11 +38,7 @@ import type { ChannelStateSignal } from '@kiditem/shared/advertising';
 export class AdStrategyContextRepositoryAdapter
   implements AdStrategyContextRepositoryPort
 {
-  constructor(
-    private readonly prisma: PrismaService,
-    @Inject(ADVERTISING_REVIEW_LISTING_STATS_PORT)
-    private readonly reviewStatsRead: AdvertisingReviewListingStatsPort,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   async loadStrategyContext(
     organizationId: string,
@@ -274,16 +262,6 @@ export class AdStrategyContextRepositoryAdapter
     return map;
   }
 
-  async hydrateListings(
-    organizationId: string,
-    listingIds: string[],
-  ): Promise<HydratedListing[]> {
-    return this.prisma.$transaction(
-      (tx) => this.hydrateListingsIn(tx, organizationId, listingIds),
-      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
-    );
-  }
-
   private async hydrateListingsIn(
     tx: Prisma.TransactionClient,
     organizationId: string,
@@ -301,6 +279,7 @@ export class AdStrategyContextRepositoryAdapter
         externalId: true,
         channelName: true,
         displayName: true,
+        channelAccount: { select: { channel: true } },
         masterProduct: {
           select: {
             id: true,
@@ -317,12 +296,12 @@ export class AdStrategyContextRepositoryAdapter
             { externalOptionId: 'asc' },
             { id: 'asc' },
           ],
+          // Purchase cost is the confirmed recipe priced at the Sellpia
+          // purchase price, applied from Channels availability; option cost
+          // columns are not a cost source (KID-114).
           select: {
             id: true,
             salePrice: true,
-            costPriceOverride: true,
-            commissionRate: true,
-            shippingCost: true,
           },
         },
       },
@@ -338,6 +317,7 @@ export class AdStrategyContextRepositoryAdapter
           id: r.id,
           externalId: r.externalId,
           channelName: r.channelName,
+          channel: r.channelAccount?.channel ?? null,
           masterProduct: {
             id: r.masterProduct?.id ?? r.id,
             code: r.masterProduct?.code ?? r.externalId,
@@ -352,96 +332,12 @@ export class AdStrategyContextRepositoryAdapter
             ? {
                 listingOptionId: firstClo.id,
                 sellableStock: null,
-                purchaseCost: firstClo.costPriceOverride,
+                purchaseCost: null,
                 salePrice: firstClo.salePrice,
-                commissionRate: firstClo.commissionRate,
-                shippingCost: firstClo.shippingCost,
               }
             : null,
         };
       })
       ;
   }
-
-  async loadAllTimeAdAggregates(
-    organizationId: string,
-  ): Promise<AllTimeAdAggregateRow[]> {
-    return this.prisma.$transaction(
-      (tx) => this.loadAllTimeAdAggregatesIn(tx, organizationId),
-      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
-    );
-  }
-
-  private async loadAllTimeAdAggregatesIn(
-    tx: Prisma.TransactionClient,
-    organizationId: string,
-  ): Promise<AllTimeAdAggregateRow[]> {
-    const rows = await readListingAdWindowFacts(tx, { organizationId });
-    return rows.map((row) => ({
-      listingId: row.listingId,
-      spend: row.spend,
-      revenue: row.revenue,
-      clicks: row.clicks,
-      impressions: row.impressions,
-      conversions: row.conversions,
-    }));
-  }
-
-  async loadExposureAnalysisContext(
-    organizationId: string,
-    listingIds: string[],
-    options: { recentReviewSince: Date; trafficSince: Date },
-  ): Promise<ExposureAnalysisContext> {
-    if (listingIds.length === 0) {
-      return {
-        adAggAll: [],
-        reviewStats: [],
-        recentReviewCounts: [],
-        trafficDailyRows: [],
-      };
-    }
-    const [[adAggAll, trafficDailyRows], reviewStatsRead] = await Promise.all([
-      this.prisma.$transaction(
-        async (tx) => {
-          const adAggAll = await this.loadAllTimeAdAggregatesIn(tx, organizationId);
-          const trafficDailyRows = await readListingTrafficWindowFacts(tx, {
-            organizationId, listingIds, from: options.trafficSince,
-          });
-          return [adAggAll, trafficDailyRows] as const;
-        },
-        { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
-      ),
-        this.reviewStatsRead.loadListingReviewStats({
-          organizationId,
-          listingIds,
-          recentSince: options.recentReviewSince,
-        }),
-      ]);
-
-    const reviewStats: ListingReviewStatRow[] = reviewStatsRead.lifetime;
-    const recentReviewCounts = reviewStatsRead.recent;
-    const includedTrafficDates = new Set(trafficDailyRows.coverage.includedDates);
-    const trafficRows: ListingTrafficDailyRow[] = trafficDailyRows.rows
-      .filter((row) => includedTrafficDates.has(row.businessDate))
-      .map(
-      (row) => ({
-        listingId: row.listingId,
-        businessDate: new Date(`${row.businessDate}T00:00:00.000Z`),
-        trafficRevenue: row.revenue,
-        trafficOrders: row.orders,
-      }),
-      );
-
-    return {
-      adAggAll,
-      reviewStats,
-      recentReviewCounts,
-      trafficDailyRows: trafficRows,
-    };
-  }
-
-}
-
-function calendarDate(value: Date): string {
-  return businessDateKey(value);
 }

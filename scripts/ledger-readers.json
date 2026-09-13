@@ -42,18 +42,7 @@
           "reason": "Validates newly inserted target rows and publishes the matching profitability generation in the same owner workflow."
         }
       ],
-      "legacyReaders": [
-        {
-          "path": "apps/server/src/advertising/adapter/out/repository/ad-action.repository.adapter.ts",
-          "removeWith": "KID-83",
-          "reason": "Ad action hydration and current target selection move to the canonical advertising reader during the ad-ops rewrite."
-        },
-        {
-          "path": "apps/server/src/advertising/adapter/out/repository/ad-campaign.repository.adapter.ts",
-          "removeWith": "KID-83",
-          "reason": "Campaign and product rollups move to the canonical advertising reader during the ad-ops rewrite."
-        }
-      ]
+      "legacyReaders": []
     },
     {
       "name": "Channel listing daily facts",

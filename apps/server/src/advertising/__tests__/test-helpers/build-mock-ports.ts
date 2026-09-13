@@ -12,7 +12,6 @@ import { vi } from 'vitest';
 import type { AdBenchmarkRepositoryPort } from '../../application/port/out/repository/ad-benchmark.repository.port';
 import type { AdListingRepositoryPort } from '../../application/port/out/repository/ad-listing.repository.port';
 import type { AdConfigRepositoryPort } from '../../application/port/out/repository/ad-config.repository.port';
-import type { AdAccountKpiRepositoryPort } from '../../application/port/out/repository/ad-account-kpi.repository.port';
 import type { AdCampaignRepositoryPort } from '../../application/port/out/repository/ad-campaign.repository.port';
 import type { AdActionRepositoryPort } from '../../application/port/out/repository/ad-action.repository.port';
 import type { AdExecutionRepositoryPort } from '../../application/port/out/repository/ad-execution.repository.port';
@@ -58,17 +57,6 @@ export function buildMockAdConfigRepo(): MockAdConfigRepo {
   };
 }
 
-export type MockAdAccountKpiRepo = {
-  [K in keyof AdAccountKpiRepositoryPort]: ReturnType<typeof vi.fn>;
-};
-
-export function buildMockAdAccountKpiRepo(): MockAdAccountKpiRepo {
-  return {
-    findCoupangAdsDaily: vi.fn(),
-    upsertAccountKpi: vi.fn(),
-  };
-}
-
 export type MockAdCampaignRepo = {
   [K in keyof AdCampaignRepositoryPort]: ReturnType<typeof vi.fn>;
 };
@@ -78,8 +66,7 @@ export function buildMockAdCampaignRepo(): MockAdCampaignRepo {
     findCampaignSnapshot: vi.fn(),
     findProductTargetRollups: vi.fn(),
     findKeywordTargetRollups: vi.fn(),
-    findAdTrendDailyRows: vi.fn(),
-    findGradeBudgetTotals: vi.fn(),
+    findAdWindowDays: vi.fn(),
   };
 }
 
@@ -125,9 +112,6 @@ export type MockAdStrategyContextRepo = {
 export function buildMockAdStrategyContextRepo(): MockAdStrategyContextRepo {
   return {
     loadStrategyContext: vi.fn(),
-    hydrateListings: vi.fn(),
-    loadExposureAnalysisContext: vi.fn(),
-    loadAllTimeAdAggregates: vi.fn(),
   };
 }
 

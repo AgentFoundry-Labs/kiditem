@@ -85,6 +85,17 @@ function setup(
   const messages: Array<Record<string, unknown>> = [];
   const requests: Array<{ url: string; init: RequestInit }> = [];
   vi.stubGlobal('fetch', async (url: string, init: RequestInit = {}) => {
+    // Readiness also observes the campaign sweep owner. That read is not Wing
+    // IO, so it answers idle and stays out of the recorded Wing requests.
+    if (String(url).endsWith('/api/ads/ad-campaigns/source')) {
+      return Response.json({
+        channelAccountId: null,
+        ready: false,
+        latestAttempt: null,
+        latestComplete: null,
+        actualCutoffAt: null,
+      });
+    }
     requests.push({ url: String(url), init });
     events.push(`${init.method ?? 'GET'} ${url}`);
     if (String(url).endsWith('/extension-handoff'))

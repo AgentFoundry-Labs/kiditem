@@ -22,7 +22,7 @@ import PageSkeleton from "@/components/ui/PageSkeleton";
 import { ErrorState } from "@/components/ui/EmptyState";
 import { Pagination } from "@/components/ui/Pagination";
 import { FinanceBasisNotice } from "../_shared/components/FinanceBasisNotice";
-import { compareNullableLast } from "../_shared/lib/nullable-sort";
+import { compareNullableLast } from "@/lib/nullable-sort";
 import ProfitLossSummaryCards from "./components/ProfitLossSummaryCards";
 import ProfitLossTable from "./components/ProfitLossTable";
 import type { SortField } from "./components/ProfitLossTable";

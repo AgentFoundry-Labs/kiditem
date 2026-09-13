@@ -1,12 +1,9 @@
 import { Injectable } from '@nestjs/common';
-import type { AdMetrics, AdTierAnalysis, AdTop20Item } from '@kiditem/shared/advertising';
+import type { AdMeasuredMetrics, AdTierAnalysis, AdTop20Item } from '@kiditem/shared/advertising';
 import type {
-  KeyMetricsInput,
-  KeyMetricsResult,
   BudgetAllocatorInput,
   TierAnalysisInput,
   Top20Input,
-  ListingMetricsRow,
   GradeBudgetAllocation,
 } from '../../domain/model/strategy-types';
 import { hydratedListingToSummary } from '../../mapper/ad-listing.mapper';
@@ -17,7 +14,6 @@ import { hydratedListingToSummary } from '../../mapper/ad-listing.mapper';
  * Prisma 의존 없음. orchestrator 가 사전 fetch 한 데이터를 input 으로 받아 계산.
  *
  * 기존 ad-strategy.service.ts 의 4 메서드 본문 이전:
- *  - calcSnapshotKeyMetrics  (557-607)
  *  - calcBudgetAllocation    (609-651)
  *  - calcTierAnalysis        (1028-1065, per-tier legacy ad aggregate N+1 제거)
  *  - calcTop20               (1067-1144)
@@ -31,69 +27,6 @@ import { hydratedListingToSummary } from '../../mapper/ad-listing.mapper';
  */
 @Injectable()
 export class AdBudgetAllocatorService {
-  /**
-   * snapshot-level metrics 집계 + perListing 분배 + gradeMap 산출.
-   *
-   * 기존 ad-strategy.service.ts:557-607 본문 이전.
-   * 변경: legacy adSnapshot findMany 제거 (snapshots 가 input).
-   *
-   * gradeMap 은 repository 가 Products publication reader 로 hydrate 한
-   * listing.masterProduct.abcGrade 기준 (`A` | `B` | `C` 만 매핑, null 제외).
-   * orchestrator 가 grade-rules / 기타 sub-service 에 그대로 전달한다.
-   */
-  calcSnapshotKeyMetrics(input: KeyMetricsInput): KeyMetricsResult {
-    const { snapshots, listings } = input;
-    const totals = { spend: 0, revenue: 0, clicks: 0, impressions: 0, conversions: 0 };
-    const perListing = new Map<string, ListingMetricsRow>();
-
-    for (const s of snapshots) {
-      if (!s.listingId) continue;
-      totals.spend += s.spend;
-      totals.revenue += s.revenue;
-      totals.clicks += s.clicks;
-      totals.impressions += s.impressions;
-      totals.conversions += s.conversions;
-
-      const cur =
-        perListing.get(s.listingId) ??
-        ({
-          listingId: s.listingId,
-          metrics: {
-            spend: 0,
-            revenue: 0,
-            clicks: 0,
-            impressions: 0,
-            conversions: 0,
-            ctr: null,
-            roas: null,
-            cvr: null,
-          } satisfies AdMetrics,
-        } satisfies ListingMetricsRow);
-      cur.metrics.spend += s.spend;
-      cur.metrics.revenue += s.revenue;
-      cur.metrics.clicks += s.clicks;
-      cur.metrics.impressions += s.impressions;
-      cur.metrics.conversions += s.conversions;
-      perListing.set(s.listingId, cur);
-    }
-
-    // 비율 계산 (ratio): ctr/cvr 은 0..1, roas 는 % (×100)
-    for (const [, row] of perListing) {
-      const m = row.metrics;
-      m.ctr = m.impressions > 0 ? m.clicks / m.impressions : null;
-      m.roas = m.spend > 0 ? (m.revenue / m.spend) * 100 : null;
-      m.cvr = m.clicks > 0 ? m.conversions / m.clicks : null;
-    }
-
-    const gradeMap = new Map<string, 'A' | 'B' | 'C'>();
-    for (const l of listings) {
-      const g = l.masterProduct.abcGrade;
-      if (g === 'A' || g === 'B' || g === 'C') gradeMap.set(l.id, g);
-    }
-
-    return { totals, perListing, gradeMap } satisfies KeyMetricsResult;
-  }
-
   /**
    * 등급별 예산 할당 계산 (A/B/C 3 등급 항상 반환).
    *
@@ -185,7 +118,9 @@ export class AdBudgetAllocatorService {
         const revenue = ag?.revenue ?? 0;
         const impressions = ag?.impressions ?? 0;
         const clicks = ag?.clicks ?? 0;
-        const conversions = ag?.conversions ?? 0;
+        // `null` when the listing's rows never observed a conversion column;
+        // a listing without ad rows on measured dates converted nothing.
+        const conversions = ag ? ag.conversions : 0;
         // Listing has no signal at all — drop it.
         if (
           spend === 0 &&
@@ -197,7 +132,9 @@ export class AdBudgetAllocatorService {
         }
         const ctr = impressions > 0 ? Math.round((clicks / impressions) * 10000) / 100 : null;
         const roas = spend > 0 ? Math.round((revenue / spend) * 10000) / 100 : null;
-        const cvr = clicks > 0 ? Math.round((conversions / clicks) * 10000) / 100 : null;
+        const cvr = conversions !== null && clicks > 0
+          ? Math.round((conversions / clicks) * 10000) / 100
+          : null;
         return {
           listing: hydratedListingToSummary(l),
           grade: l.masterProduct.abcGrade,
@@ -215,7 +152,7 @@ export class AdBudgetAllocatorService {
             ctr,
             roas,
             cvr,
-          } satisfies AdMetrics,
+          } satisfies AdMeasuredMetrics,
         };
       })
       .filter((x): x is NonNullable<typeof x> => x !== null);

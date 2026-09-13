@@ -1,5 +1,4 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { aggregateDailyAdRows } from '../../domain/ad-trend';
 import {
   toAdCampaignSnapshot,
   toMetadataOnlyAdCampaignSnapshot,
@@ -20,10 +19,6 @@ import {
   AD_LISTING_REPOSITORY_PORT,
   type AdListingRepositoryPort,
 } from '../port/out/repository/ad-listing.repository.port';
-import {
-  AD_ACCOUNT_KPI_REPOSITORY_PORT,
-  type AdAccountKpiRepositoryPort,
-} from '../port/out/repository/ad-account-kpi.repository.port';
 import {
   AD_ACTION_REPOSITORY_PORT,
   type AdActionRepositoryPort,
@@ -46,8 +41,6 @@ export class AdCampaignsService {
     private readonly campaignRepo: AdCampaignRepositoryPort,
     @Inject(AD_LISTING_REPOSITORY_PORT)
     private readonly listingRepo: AdListingRepositoryPort,
-    @Inject(AD_ACCOUNT_KPI_REPOSITORY_PORT)
-    private readonly accountKpiRepo: AdAccountKpiRepositoryPort,
     @Inject(AD_ACTION_REPOSITORY_PORT)
     private readonly actionRepo: AdActionRepositoryPort,
     private readonly adConfigService: AdConfigService,
@@ -274,15 +267,10 @@ export class AdCampaignsService {
   }
 
   /**
-   * Daily ad trend from `ChannelListingDailySnapshot` aggregated by
-   * `businessDate` over the requested window. ABC grade budget is computed
-   * by joining each daily row to its listing's master grade.
-   *
-   * Account-level `coupang_ads_daily` rows are also fetched so the response
-   * carries the real Coupang ad dashboard surface alongside the per-listing
-   * series. The mapper substitutes the account series into the primary
-   * `daily` chart when per-listing ad metrics are empty (the Drive replay
-   * shape — campaign source is not listing-attributed).
+   * The ad-ops trend chart and KPI cards: account totals per business date
+   * over the campaign sweep's declared windows, for the requested inclusive
+   * range. Every requested date is published; one the sweep never measured is
+   * a hole, and the summary names its source and measured-day count.
    */
   async getTrends(
     period: AdPeriod,
@@ -291,28 +279,14 @@ export class AdCampaignsService {
     dateRange?: { from: Date; to: Date },
   ): Promise<AdTrendsData> {
     void days; // backwards-compatible query field; period/dateRange own the window
-    const resolvedDateRange = dateRange ?? periodBounds(period);
-    const [rows, accountKpiRows] = await Promise.all([
-      this.campaignRepo.findAdTrendDailyRows(
-        organizationId,
-        resolvedDateRange,
-      ),
-      this.accountKpiRepo.findCoupangAdsDaily(
-        organizationId,
-        period,
-        resolvedDateRange,
-      ),
-    ]);
-    const dailyAggregates = aggregateDailyAdRows(rows);
-    const gradeBudget = await this.campaignRepo.findGradeBudgetTotals(
-      organizationId,
-      rows,
-    );
+    const range = dateRange ?? periodBounds(period);
+    const window = await this.campaignRepo.findAdWindowDays(organizationId, range);
     return toAdTrendsData({
       knownThrough: businessDateKey(evidenceCutoffDate()),
-      dailyAggregates,
-      gradeBudget,
-      accountKpiRows,
+      from: range.from,
+      to: range.to,
+      days: window.days,
+      observedAt: window.observedAt,
     });
   }
 }

@@ -2,8 +2,6 @@ import { describe, it, expect } from 'vitest';
 import * as strategyContext from '../strategy-context';
 import {
   buildGradeMap,
-  computeListingProfitRate,
-  emptyMetrics,
   getCurrentPeriod,
   getWeekRange,
   toAdAggregateRows,
@@ -90,8 +88,6 @@ describe('domain/strategy-context — pure transforms', () => {
       sellableStock: null,
       purchaseCost: null,
       salePrice: null,
-      commissionRate: 0.1,
-      shippingCost: 2500,
     };
 
     expect(apply).toBeTypeOf('function');
@@ -138,108 +134,16 @@ describe('domain/strategy-context — pure transforms', () => {
     expect(strict.has('L2')).toBe(false);
   });
 
-  it('toAdAggregateRows maps per-listing measured facts to the generic shape', () => {
+  it('toAdAggregateRows maps per-listing measured facts and publishes an unobserved conversion column as null', () => {
     expect(toAdAggregateRows([
-      { listingId: 'L1', spend: 100, revenue: 500, clicks: 10, impressions: 1000, conversions: 1 },
+      { listingId: 'L1', spend: 100, revenue: 500, clicks: 10, impressions: 1000, conversions: 1, conversionsObserved: true },
+      { listingId: 'L2', spend: 100, revenue: 500, clicks: 10, impressions: 1000, conversions: 0, conversionsObserved: false },
     ])).toEqual([
       { listingId: 'L1', spend: 100, revenue: 500, clicks: 10, impressions: 1000, conversions: 1 },
+      { listingId: 'L2', spend: 100, revenue: 500, clicks: 10, impressions: 1000, conversions: null },
     ]);
   });
 
-  it('computeListingProfitRate returns % scale, 0 when sell <= 0', () => {
-    expect(
-      computeListingProfitRate({
-        listingOptionId: 'opt-1',
-        sellableStock: 10,
-        purchaseCost: 5_000,
-        salePrice: 20_000,
-        commissionRate: 0.1,
-        shippingCost: null,
-      }),
-    ).toBe(65);
-
-    expect(
-      computeListingProfitRate({
-        listingOptionId: 'opt-2',
-        sellableStock: 0,
-        purchaseCost: 5_000,
-        salePrice: 0,
-        commissionRate: 0.1,
-        shippingCost: null,
-      }),
-    ).toBe(0);
-
-    expect(computeListingProfitRate(null)).toBe(0);
-  });
-
-  it('computeListingProfitRate returns negative when cost exceeds sell minus commission', () => {
-    // sell 10_000, cost 12_000, 10% commission → (10_000 - 12_000 - 1_000)/10_000 = -30%.
-    // ad-strategy downstream rules (e.g. C-1 minus profit warning) rely on the negative
-    // value being preserved; treating "loss" as 0 would silently mask C-grade actions.
-    expect(
-      computeListingProfitRate({
-        listingOptionId: 'opt-loss',
-        sellableStock: 5,
-        purchaseCost: 12_000,
-        salePrice: 10_000,
-        commissionRate: 0.1,
-        shippingCost: null,
-      }),
-    ).toBe(-30);
-  });
-
-  it('computeListingProfitRate treats null commissionRate as 0', () => {
-    // Channel data sometimes lands without commission; we must not throw or return NaN.
-    expect(
-      computeListingProfitRate({
-        listingOptionId: 'opt-no-commission',
-        sellableStock: 5,
-        purchaseCost: 4_000,
-        salePrice: 10_000,
-        commissionRate: null,
-        shippingCost: null,
-      }),
-    ).toBe(60);
-  });
-
-  it('computeListingProfitRate treats null costPrice as neutral', () => {
-    // Missing cost is unknown, not free inventory. Exposure scoring treats
-    // profitRate > 10 as a strong positive signal, so keep missing cost neutral.
-    expect(
-      computeListingProfitRate({
-        listingOptionId: 'opt-no-cost',
-        sellableStock: 5,
-        purchaseCost: null,
-        salePrice: 10_000,
-        commissionRate: 0,
-        shippingCost: null,
-      }),
-    ).toBe(0);
-  });
-
-  it('computeListingProfitRate handles 100% commission cleanly (zero margin)', () => {
-    // Edge case: commission consumes all revenue. With cost 0 + commission 1.0 the
-    // margin should be exactly 0%, not -0% or NaN.
-    expect(
-      computeListingProfitRate({
-        listingOptionId: 'opt-full-commission',
-        sellableStock: 5,
-        purchaseCost: 0,
-        salePrice: 10_000,
-        commissionRate: 1,
-        shippingCost: null,
-      }),
-    ).toBe(0);
-  });
-
-  it('emptyMetrics returns zero-metric row with null ratios', () => {
-    const row = emptyMetrics('L1');
-    expect(row.listingId).toBe('L1');
-    expect(row.metrics.spend).toBe(0);
-    expect(row.metrics.ctr).toBeNull();
-    expect(row.metrics.roas).toBeNull();
-    expect(row.metrics.cvr).toBeNull();
-  });
 });
 
 function makeHydratedListing(
@@ -250,6 +154,7 @@ function makeHydratedListing(
     id,
     externalId: `EXT-${id}`,
     channelName: 'coupang',
+    channel: 'coupang',
     masterProduct: {
       id: `M-${id}`,
       code: `M-${id}`,

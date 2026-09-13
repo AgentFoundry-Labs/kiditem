@@ -69,9 +69,6 @@ describe('Advertising published product ABC consumers (PostgreSQL)', () => {
         externalOptionId: 'VENDOR-ITEM-1',
         itemName: '1개',
         salePrice: 12_000,
-        costPriceOverride: 4_000,
-        commissionRate: 0.1,
-        shippingCost: 3_000,
         status: '판매중',
       },
     });
@@ -152,6 +149,8 @@ describe('Advertising published product ABC consumers (PostgreSQL)', () => {
         status: 'completed',
         freshnessGeneration: 1n,
         plan: { captureMode: 'campaign_sweep' },
+        coverageStartDate: new Date('2026-08-31T00:00:00.000Z'),
+        coverageEndDate: new Date('2026-08-31T00:00:00.000Z'),
       },
     });
     await prisma.channelAdTargetDailySnapshot.create({
@@ -176,25 +175,11 @@ describe('Advertising published product ABC consumers (PostgreSQL)', () => {
 
     const listingReader = new AdListingRepositoryAdapter(prisma as never);
     const campaignReader = new AdCampaignRepositoryAdapter(prisma as never);
-    const strategyReader = new AdStrategyContextRepositoryAdapter(prisma as never, {
-      loadListingReviewStats: async () => ({ lifetime: [], recent: [] }),
-    });
     const keywordReader = new KeywordRankRepositoryAdapter(prisma as never);
     const actionReader = new AdActionRepositoryAdapter(prisma as never, listingReader);
 
     expect((await listingReader.findScopedAdListings(ORG, [listing.id]))
       .get(listing.id)?.masterProduct.abcGrade).toBe('A');
-    expect((await strategyReader.hydrateListings(ORG, [listing.id]))[0]
-      ?.masterProduct.abcGrade).toBe('A');
-    expect(await campaignReader.findGradeBudgetTotals(ORG, [{
-      businessDate: cutoff,
-      adSpend: 1_000,
-      adRevenue: 0,
-      adClicks: 0,
-      adImpressions: 0,
-      adConversions: 0,
-      listingId: listing.id,
-    }])).toEqual({ A: 1_000, B: 0, C: 0 });
     expect((await keywordReader.listOwnVendorItems(ORG))[0]).toMatchObject({
       vendorItemId: option.externalOptionId,
       productName: 'Wing product',

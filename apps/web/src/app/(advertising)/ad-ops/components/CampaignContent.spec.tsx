@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import CampaignContent from "./CampaignContent";
 
@@ -19,6 +19,21 @@ function wrapper() {
   );
 }
 
+const unavailableTrends = {
+  knownThrough: "2026-07-23",
+  from: "2026-07-10",
+  to: "2026-07-23",
+  daily: [],
+  summary: {
+    source: "unavailable",
+    periodDayCount: 0,
+    latestBusinessDate: null,
+    observedAt: null,
+    metrics: null,
+    orders: null,
+  },
+};
+
 function successfulResponse(url: string) {
   if (url === "/api/ads/config") {
     return Promise.resolve({
@@ -26,7 +41,7 @@ function successfulResponse(url: string) {
     });
   }
   if (url.startsWith("/api/ads/campaigns/trends")) {
-    return Promise.resolve({ knownThrough: "2026-07-23", accountSummary: null });
+    return Promise.resolve(unavailableTrends);
   }
   if (url.startsWith("/api/ads/ad-campaigns/reports?")) {
     return Promise.resolve({
@@ -324,7 +339,7 @@ describe("CampaignContent", () => {
         });
       }
       if (url.startsWith("/api/ads/campaigns/trends")) {
-        return Promise.resolve({ knownThrough: "2026-07-23", accountSummary: null });
+        return Promise.resolve(unavailableTrends);
       }
       if (url.startsWith("/api/ads/ad-campaigns/reports?")) {
         return Promise.resolve({
@@ -416,7 +431,7 @@ describe("CampaignContent", () => {
         });
       }
       if (url.startsWith("/api/ads/campaigns/trends")) {
-        return Promise.resolve({ knownThrough: "2026-07-23", accountSummary: null });
+        return Promise.resolve(unavailableTrends);
       }
       if (url === "/api/ads/campaigns?period=14d") {
         return Promise.resolve([campaignSnapshot]);
@@ -494,5 +509,84 @@ describe("CampaignContent", () => {
     expect(screen.getByText("OFF")).toBeInTheDocument();
     expect(screen.getByText("성과 미수집")).toBeInTheDocument();
     expect(screen.queryByText(/캠페인 합산 \(성과 수집/)).not.toBeInTheDocument();
+  });
+
+  it("shows campaign-sweep account totals from the trends summary with unmeasured ratios as -", async () => {
+    mockApiGet.mockImplementation((url: string) => {
+      if (url.startsWith("/api/ads/campaigns/trends")) {
+        return Promise.resolve({
+          ...unavailableTrends,
+          summary: {
+            source: "coupang_ads",
+            periodDayCount: 7,
+            latestBusinessDate: "2026-07-23",
+            observedAt: "2026-07-24T00:00:00.000Z",
+            metrics: {
+              spend: 2000,
+              revenue: 0,
+              impressions: 0,
+              clicks: 0,
+              conversions: null,
+              roas: null,
+              ctr: null,
+              cvr: null,
+            },
+            orders: null,
+          },
+        });
+      }
+      return successfulResponse(url);
+    });
+
+    render(<CampaignContent initialCampaign={null} period="14d" />, {
+      wrapper: wrapper(),
+    });
+
+    const card = await screen.findByTestId("account-totals");
+    expect(card).toHaveTextContent("측정 7일 · 쿠팡 광고 캠페인 합산 · 2026-07-23까지");
+    expect(within(card).getByText("2,000원")).toBeInTheDocument();
+    expect(within(card).getByText("0원")).toBeInTheDocument();
+    expect(within(card).getAllByText("-")).toHaveLength(2);
+    expect(card.querySelector("[class*='text-red']")).toBeNull();
+  });
+
+  it("keeps unmeasured campaign total ratios unknown instead of a red 0% ROAS", async () => {
+    const idleCampaign = {
+      listing: null,
+      channelAccountId: "11111111-1111-4111-8111-111111111111",
+      campaignIdentity: "campaign:idle",
+      campaignId: "idle",
+      campaignName: "무노출 캠페인",
+      period: "14d",
+      metricsAvailable: true,
+      conversionsAvailable: false,
+      status: "ON",
+      onOff: "ON",
+      metrics: {
+        spend: 0,
+        revenue: 0,
+        impressions: 0,
+        clicks: 0,
+        conversions: 0,
+        roas: null,
+        ctr: null,
+        cvr: null,
+      },
+    };
+    mockApiGet.mockImplementation((url: string) =>
+      url.startsWith("/api/ads/campaigns?")
+        ? Promise.resolve([idleCampaign])
+        : successfulResponse(url),
+    );
+
+    render(<CampaignContent initialCampaign={null} period="14d" />, {
+      wrapper: wrapper(),
+    });
+
+    const totals = await screen.findByTestId("campaign-totals");
+    expect(totals).toHaveTextContent("캠페인 합산 (성과 수집 1개)");
+    expect(within(totals).getAllByText("0원")).toHaveLength(2);
+    expect(within(totals).getAllByText("-")).toHaveLength(2);
+    expect(totals.querySelector("[class*='text-red']")).toBeNull();
   });
 });

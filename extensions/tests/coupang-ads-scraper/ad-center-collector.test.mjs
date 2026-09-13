@@ -76,26 +76,6 @@ test('keyword collection sends the named owner control and never resumes a close
   assert.equal(fake.calls.created[0].url, 'https://advertising.coupang.com/marketing/dashboard/sales#kiditemAdKeyword=1');
 });
 
-test('account daily collection constructs one target-date hash per owner date', async () => {
-  const api = load();
-  const fake = harness([
-    { success: true, type: 'coupang_ads_daily' },
-    { success: true, type: 'coupang_ads_daily' },
-  ], { producer: 'advertising.ad_account_daily_kpi' });
-  const collector = api.create({ window: fake.resource, chrome: fake.chrome, sessions: fake.sessions, statusKey: 'ad-status', cancelKey: 'ad-cancel', delay: async () => {} });
-  const control = { attemptId: 'attempt', plan: { businessDates: ['2026-09-05', '2026-09-06'] } };
-  const result = await collector.collectAccountDailyKpis({ environmentId: 'local', attemptId: 'attempt', control });
-  assert.equal(result.success, true);
-  assert.deepEqual(fake.calls.messages.map(({ message }) => ({ mode: message.syncMode, targetDate: message.targetDate })), [
-    { mode: 'account_daily_kpi', targetDate: '2026-09-05' },
-    { mode: 'account_daily_kpi', targetDate: '2026-09-06' },
-  ]);
-  assert.deepEqual(fake.calls.navigations.map(({ url }) => url), [
-    'https://advertising.coupang.com/marketing/dashboard/sales#targetDate=2026-09-05',
-    'https://advertising.coupang.com/marketing/dashboard/sales#targetDate=2026-09-06',
-  ]);
-});
-
 test('profitability uses the exact report surface and returns only the owner receipt', async () => {
   const api = load();
   const receipt = { reportId: 'report-1', rows: [], expectedRowCount: 0, collectedRowCount: 0 };
@@ -452,6 +432,6 @@ test('source interface does not expose the old universal target loop', () => {
   assert.equal(typeof collector.collectTargets, 'undefined');
   assert.equal(typeof collector.collectCampaigns, 'function');
   assert.equal(typeof collector.collectKeywords, 'function');
-  assert.equal(typeof collector.collectAccountDailyKpis, 'function');
+  assert.equal(typeof collector.collectAccountDailyKpis, 'undefined');
   assert.equal(typeof collector.collectProfitabilitySlice, 'function');
 });

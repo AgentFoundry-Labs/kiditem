@@ -321,8 +321,7 @@ async function beginSourceOwnerAttempt(environmentId, sourcePath, request = {}, 
       (scope.url && attempt.plan?.targetUrl && attempt.plan.targetUrl !== scope.url) ||
       (scope.targetUrl && attempt.plan?.targetUrl !== scope.targetUrl) ||
       (scope.captureMode && attempt.plan?.captureMode !== scope.captureMode) ||
-      (scope.period && attempt.plan?.period !== scope.period) ||
-      (scope.targetDate && attempt.plan?.coverageRangeStartDate !== scope.targetDate)
+      (scope.period && attempt.plan?.period !== scope.period)
     )) {
       throw new Error("다른 displayed 범위의 source owner 수집이 진행 중입니다.");
     }
@@ -540,17 +539,6 @@ const adCampaignSourceOwner = KidItemAdCampaignSourceOwner.create({
   closeAttempt: (environmentId, attemptId) => collectionWindowFor(environmentId).close(attemptId),
 });
 chrome.runtime.onMessage.addListener(adCampaignSourceOwner.handleMessage);
-const adAccountDailyKpiSourceOwner = KidItemAdAccountDailyKpiSourceOwner.create({
-  chrome,
-  sessions: collectionSessions,
-  request: (environmentId, path, init) => authedFetch(environmentId, path, init),
-  environmentForTab: tabId => coupangEnvironment.environmentForTab(tabId),
-  ownedTab: async (environmentId, attemptId) => (await collectionWindowFor(environmentId).reattach(attemptId))?.tabId,
-  collect: ({ environmentId, attemptId, control }) =>
-    adCenterCollectorFor(environmentId).collectAccountDailyKpis({ environmentId, attemptId, control }),
-  closeAttempt: (environmentId, attemptId) => collectionWindowFor(environmentId).close(attemptId),
-});
-chrome.runtime.onMessage.addListener(adAccountDailyKpiSourceOwner.handleMessage);
 const wingTrafficSourceOwner = KidItemWingTrafficSourceOwner.create({
   chrome,
   sessions: collectionSessions,
@@ -924,32 +912,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           scope,
           scope,
         );
-        const campaign = await KidItemWorkerKeepAlive.during(
+        return KidItemWorkerKeepAlive.during(
           adCampaignSourceOwner.run({
             environmentId: request.environmentId,
             attemptId: attempt.attemptId,
           }),
         );
-        if (scope.period !== "1d" || campaign?.terminalState !== "COMPLETE") return campaign;
-        const daily = await beginSourceOwnerAttempt(
-          request.environmentId,
-          "/api/ads/account-daily-kpis",
-          { targetDate: scope.startDate },
-          { targetDate: scope.startDate },
-        );
-        const accountDailyKpi = await KidItemWorkerKeepAlive.during(
-          adAccountDailyKpiSourceOwner.run({
-            environmentId: request.environmentId,
-            attemptId: daily.attemptId,
-          }),
-        );
-        return {
-          ...campaign,
-          accountDailyKpi,
-          success: campaign.success === true && accountDailyKpi.success === true,
-          error: accountDailyKpi.success === true ? campaign.error : accountDailyKpi.error,
-          errorCode: accountDailyKpi.success === true ? campaign.errorCode : accountDailyKpi.errorCode,
-        };
       })
       .then(sendResponse)
       .catch((error) => sendResponse({ success: false, error: error?.message || "광고 캠페인 owner 수집 실패" }));
@@ -2293,10 +2261,6 @@ async function cancelCollectionSession(runId, environmentId) {
     await adCenterCollectorFor(environmentId).cancelRun({ attemptId: runId });
     return adKeywordSourceOwner.cancel({ environmentId, attemptId: runId });
   }
-  if (session?.producer === "advertising.ad_account_daily_kpi") {
-    await adCenterCollectorFor(environmentId).cancelRun({ attemptId: runId });
-    return adAccountDailyKpiSourceOwner.cancel({ environmentId, attemptId: runId });
-  }
   if (session?.producer === WING_TRAFFIC_PRODUCER) {
     // The router preserves the legacy v1 owner cancellation path
     // (wingTrafficSourceOwner.cancel) while selecting the daily v2 owner.
@@ -2378,8 +2342,6 @@ for (const environmentId of adsEnvironmentContext.environmentIds) {
     .catch(error => console.error("[KIDITEM] 광고 캠페인 owner 복구 실패:", error?.message || error));
   KidItemWorkerKeepAlive.during(adKeywordSourceOwner.recover(environmentId))
     .catch((error) => console.error("[KIDITEM] 광고 키워드 owner 복구 실패:", error?.message || error));
-  KidItemWorkerKeepAlive.during(adAccountDailyKpiSourceOwner.recover(environmentId))
-    .catch((error) => console.error("[KIDITEM] 광고 계정 일별 KPI owner 복구 실패:", error?.message || error));
   KidItemWorkerKeepAlive.during(wingTrafficSourceOwner.recover(environmentId))
     .catch((error) => console.error("[KIDITEM] Wing 트래픽 owner 복구 실패:", error?.message || error));
   KidItemWorkerKeepAlive.during(wingTrafficSourceOwnerV2.recover(environmentId))
@@ -2514,19 +2476,6 @@ KidItemDomains.register({
           .then(() => adKeywordSourceOwner.cancel({ environmentId, attemptId })),
       ),
     },
-    collectAdvertisingAccountDailyKpis: {
-      validate: message => KidItemAdAccountDailyKpiSourceOwner.parseAction(message, "collectAdvertisingAccountDailyKpis"),
-      handle: ({ attemptId }, environmentId) => KidItemWorkerKeepAlive.during(
-        adAccountDailyKpiSourceOwner.run({ environmentId, attemptId }),
-      ),
-    },
-    cancelAdvertisingAccountDailyKpis: {
-      validate: message => KidItemAdAccountDailyKpiSourceOwner.parseAction(message, "cancelAdvertisingAccountDailyKpis"),
-      handle: ({ attemptId }, environmentId) => KidItemWorkerKeepAlive.during(
-        adCenterCollectorFor(environmentId).cancelRun({ attemptId })
-          .then(() => adAccountDailyKpiSourceOwner.cancel({ environmentId, attemptId })),
-      ),
-    },
     collectAdvertisingWingTraffic: {
       validate: message => KidItemWingTrafficSourceOwner.parseAction(message, "collectAdvertisingWingTraffic"),
       handle: ({ attemptId }, environmentId) => KidItemWorkerKeepAlive.during(
@@ -2608,7 +2557,6 @@ KidItemDomains.register({
     browserCollectionSessions: true,
     advertisingKeywordSourceOwnerV1: true,
     advertisingCampaignSourceOwnerV1: true,
-    advertisingAccountDailyKpiSourceOwnerV1: true,
     wingTrafficSourceOwnerV1: true,
     wingTrafficSourceOwnerV2: true,
     wingItemwinnerSourceOwnerV1: true,

@@ -8,7 +8,7 @@ facts, and the advertising target-day ledger through the Orders, Channels,
 Advertising, Inventory, and Products canonical readers. Cross-owner values are
 composed inside one dashboard adapter-owned Repeatable Read transaction. It
 falls back to Wing/Drive replay revenue when complete Order revenue is absent. Advertising has one
-ledger; the account-daily KPI publication is not a second ad source here. Keep this as a read-only reporting
+ledger, the campaign sweep's target-day rows. Keep this as a read-only reporting
 boundary with HTTP and persistence adapters around Prisma-free orchestration.
 
 ## Period Resolution

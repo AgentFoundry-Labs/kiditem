@@ -121,7 +121,6 @@ test('retires the generic scrape ingress before producer actions', () => {
   assert.doesNotMatch(collectionRunsSource, /abortOperationSession/);
   assert.match(worker, /session\?\.producer === "advertising\.ad_sync"[\s\S]*adCampaignSourceOwner\.cancel/);
   assert.match(worker, /session\?\.producer === "advertising\.ad_keyword"[\s\S]*adKeywordSourceOwner\.cancel/);
-  assert.match(worker, /session\?\.producer === "advertising\.ad_account_daily_kpi"[\s\S]*adAccountDailyKpiSourceOwner\.cancel/);
   assert.match(worker, /session\?\.producer === WING_TRAFFIC_PRODUCER[\s\S]*wingTrafficSourceOwner\.cancel/);
   assert.match(worker, /session\?\.producer === WING_ITEMWINNER_PRODUCER[\s\S]*wingItemwinnerSourceOwner\.cancel/);
   assert.match(worker, /Collection producer source owner does not support cancellation/);
@@ -136,15 +135,35 @@ test('retains direct source-owner entrypoints for explicit manual capture', () =
   assert.match(worker, /collectAdvertisingWingTraffic:/);
   assert.match(worker, /collectAdvertisingWingItemwinner:/);
   assert.match(worker, /collectAdvertisingCampaigns:/);
-  assert.match(worker, /collectAdvertisingAccountDailyKpis:/);
   assert.match(worker, /collectAdvertisingKeywords:/);
+});
+
+test('retires the advertising account-day KPI owner from every extension surface', () => {
+  const retired = /ad-account-daily-kpi|ad_account_daily_kpi|accountDailyKpi|account_daily_kpi|account-daily-kpis|coupang_ads_daily|dashboard\.coupang_ads|accountDailySync|계정 일별/i;
+  const read = (file) => fs.readFileSync(path.join(extensionRoot, file), 'utf8');
+  const surfaces = {
+    'background/service-worker.js': read('background/service-worker.js'),
+    'background/source-owner-manifest.js': sourceOwnerManifest,
+    'background/coupang/worker.js': worker,
+    'background/coupang/ad-center-collector.js': read('background/coupang/ad-center-collector.js'),
+    'content/coupang/ads-report.js': read('content/coupang/ads-report.js'),
+    'popup/popup.js': read('popup/popup.js'),
+    'popup/popup.html': read('popup/popup.html'),
+    'manifest.json': JSON.stringify(manifest),
+  };
+  for (const [name, text] of Object.entries(surfaces)) {
+    assert.doesNotMatch(text, retired, name);
+  }
+  assert.equal(
+    fs.existsSync(path.join(extensionRoot, 'background/coupang/ad-account-daily-kpi-source-owner.js')),
+    false,
+  );
 });
 
 test('persists only allowlisted Coupang producers and advertises the capability', () => {
   const producerSources = `${sourceOwnerManifest}\n${worker}\n${collectionRunsSource}\n${profitabilitySourceOwner}`;
   for (const producer of [
     'dashboard.wing_sales',
-    'dashboard.coupang_ads',
     'dashboard.coupang_products',
     'dashboard.wing_kpi',
     'advertising.ad_sync',
@@ -189,7 +208,7 @@ test('source capture policies share the environment-owned resource without a uni
   // through the production resource and named collector interfaces.
   assert.match(worker, /KidItemAdCenterCollector\.create\(\{\s*window: collectionWindows\[environmentId\]/);
   assert.match(worker, /KidItemWingReportCollector\.create\(\{\s*window: collectionWindows\[environmentId\]/);
-  for (const method of ['collectCampaigns', 'collectKeywords', 'collectAccountDailyKpis', 'collectProfitabilitySlice', 'collectTraffic', 'collectItemwinner']) {
+  for (const method of ['collectCampaigns', 'collectKeywords', 'collectProfitabilitySlice', 'collectTraffic', 'collectItemwinner']) {
     assert.match(worker, new RegExp(`\\.${method}\\(`));
   }
   assert.doesNotMatch(worker, /\.collectTargets\(/);

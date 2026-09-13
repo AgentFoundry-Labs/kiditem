@@ -129,11 +129,6 @@ describe('ReadinessService', () => {
       channelAccount: {
         findFirst: vi.fn(async () => ({ id: ACTIVE_COUPANG_ACCOUNT_ID })),
       },
-      channelAccountDailyKpiSnapshot: {
-        findMany: vi.fn(async (_args: unknown) =>
-          expectedDates.filter((d) => d !== '2026-04-18').map(row),
-        ),
-      },
       coupangWingSalesRankDailySnapshot: {
         findFirst: vi.fn(async () => ({
           businessDate: new Date('2026-05-01T00:00:00.000Z'),
@@ -230,6 +225,9 @@ describe('ReadinessService', () => {
     expect(readinessState(wingSales)).toBe('ok');
     expect(readinessState(coupangAds)).toBe('stale');
     expect(coupangAds?.missingDates).toEqual(['2026-04-02']);
+    // The row measures the campaign sweep's declared window, not a separate
+    // account-day KPI publication.
+    expect(coupangAds?.basis.sources).toEqual(['coupang_ads']);
     expect(coupangProducts).toMatchObject({
       count: 1752,
       lastSyncedAt: '2026-05-02T01:00:00.000Z',
@@ -259,9 +257,6 @@ describe('ReadinessService', () => {
     const prisma = {
       channelAccount: {
         findFirst: vi.fn(async () => ({ id: ACTIVE_COUPANG_ACCOUNT_ID })),
-      },
-      channelAccountDailyKpiSnapshot: {
-        findMany: vi.fn(async () => []),
       },
       coupangWingSalesRankDailySnapshot: {
         findFirst: vi.fn(async () => null),
@@ -311,7 +306,6 @@ describe('ReadinessService', () => {
       channelAccount: {
         findFirst: vi.fn(async () => ({ id: ACTIVE_COUPANG_ACCOUNT_ID })),
       },
-      channelAccountDailyKpiSnapshot: { findMany: vi.fn(async () => []) },
       coupangWingSalesRankDailySnapshot: {
         findFirst: vi.fn(async () => ({
           businessDate: latestBusinessDate,
@@ -374,16 +368,6 @@ describe('ReadinessService', () => {
 
     const prisma = {
       channelAccount: { findFirst: vi.fn(async () => null) },
-      // These mocks represent stale rows that still exist in the database.
-      // They must not be queried when there is no active account.
-      channelAccountDailyKpiSnapshot: {
-        findMany: vi.fn(async () => [
-          {
-            businessDate: new Date('2026-07-17T00:00:00.000Z'),
-            lastObservedAt: new Date('2026-07-18T00:00:00.000Z'),
-          },
-        ]),
-      },
       channelListingOption: {
         findMany: vi.fn(async () => [{ externalOptionId: 'inactive-vendor' }]),
       },
@@ -408,7 +392,6 @@ describe('ReadinessService', () => {
       ORGANIZATION_ID,
     );
 
-    expect(prisma.channelAccountDailyKpiSnapshot.findMany).not.toHaveBeenCalled();
     expect(queryRaw).not.toHaveBeenCalled();
     expect(prisma.channelListingOption.findMany).not.toHaveBeenCalled();
     expect(prisma.channelListing.count).not.toHaveBeenCalled();
@@ -442,7 +425,6 @@ describe('ReadinessService', () => {
       channelAccount: {
         findFirst: vi.fn(async () => ({ id: ACTIVE_COUPANG_ACCOUNT_ID })),
       },
-      channelAccountDailyKpiSnapshot: { findMany: vi.fn(async () => []) },
       coupangWingSalesRankDailySnapshot: {
         findFirst: vi.fn(async () => null),
         findMany: vi.fn(async () => []),
@@ -493,13 +475,6 @@ describe('ReadinessService', () => {
       channelAccount: {
         findFirst: vi.fn(async () => ({ id: ACTIVE_COUPANG_ACCOUNT_ID })),
       },
-      // A failed new attempt and legacy rows must not become a second read path.
-      channelAccountDailyKpiSnapshot: {
-        findMany: vi.fn(async () => expectedDates.map((businessDate) => ({
-          businessDate: new Date(`${businessDate}T00:00:00.000Z`),
-          lastObservedAt: new Date('2026-07-18T00:00:00.000Z'),
-        }))),
-      },
       coupangWingSalesRankDailySnapshot: {
         findFirst: vi.fn(async () => null),
         findMany: vi.fn(async () => []),
@@ -524,7 +499,6 @@ describe('ReadinessService', () => {
 
     // Half-open `[from, to)` over KST business dates.
     expect(queriedDates(queryRaw)).toEqual(['2026-06-18', '2026-07-18']);
-    expect(prisma.channelAccountDailyKpiSnapshot.findMany).not.toHaveBeenCalled();
     expect(ads).toMatchObject({
       count: expectedDates.length,
       lastSyncedAt: previousCompleteObservedAt,
@@ -541,7 +515,6 @@ describe('ReadinessService', () => {
       channelAccount: {
         findFirst: vi.fn(async () => ({ id: ACTIVE_COUPANG_ACCOUNT_ID })),
       },
-      channelAccountDailyKpiSnapshot: { findMany: vi.fn(async () => []) },
       channelListingOption: {
         findMany: vi.fn(async () => [
           {

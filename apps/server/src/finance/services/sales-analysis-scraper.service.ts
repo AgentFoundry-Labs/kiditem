@@ -1,10 +1,6 @@
 import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
-  AD_ACCOUNT_DAILY_KPI_READ_PORT,
-  type AdAccountDailyKpiReadPort,
-} from '../../advertising/application/port/in/ad-account-daily-kpi-source.port';
-import {
   AD_TRAFFIC_READ_PORT,
   type AdTrafficReadPort,
 } from '../../advertising/application/port/in/ad-traffic-source.port';
@@ -19,6 +15,7 @@ import {
   readObservedOrderBounds,
   readObservedOrderCount,
 } from '../../orders/read/order-facts.reader';
+import { readAdWindowFacts } from '../../advertising/read/ad-target-facts';
 import type {
   AdTrafficSourceAccountDaily,
   AdTrafficSourceCoverage,
@@ -31,10 +28,11 @@ import type { SalesAnalysisDataSources } from '@kiditem/shared/finance';
  * Scraper-driven data freshness summary.
  *
  * `/sales-analysis` 화면은 현재 Drive replay 데이터에서 동작하는데,
- * 그 데이터의 본질은 (1) Wing 매출분석 일자 트래픽 + (2) 쿠팡 광고센터
- * 일자 KPI 라서 이 service 는 source coverage 만 반환한다. Wing traffic은
- * Advertising source-owner read를 통해서만 읽는다. Order 기반 손익은 0
- * 건이라 기존 sales-analysis.service 로 충분.
+ * 그 데이터의 본질은 (1) Wing 매출분석 일자 트래픽 + (2) 쿠팡 광고 캠페인
+ * sweep 이 측정한 영업일이라 이 service 는 source coverage 만 반환한다.
+ * Wing traffic 은 Advertising source-owner read 로, 광고 날짜는 광고
+ * target-일 원장 리더로만 읽는다. Order 기반 손익은 0 건이라 기존
+ * sales-analysis.service 로 충분.
  *
  * Date columns (`businessDate`) 는 모두 `@db.Date` 다 → KST instant 로
  * 비교하면 1일씩 어긋난다 (PR #183 의 traffic.service 버그 패턴 참고).
@@ -45,8 +43,6 @@ export class SalesAnalysisScraperService {
 
   constructor(
     private readonly prisma: PrismaService,
-    @Inject(AD_ACCOUNT_DAILY_KPI_READ_PORT)
-    private readonly adAccountDailyKpiRead: AdAccountDailyKpiReadPort,
     @Inject(AD_TRAFFIC_READ_PORT)
     private readonly adTrafficRead: AdTrafficReadPort,
   ) {}
@@ -56,15 +52,14 @@ export class SalesAnalysisScraperService {
   ): Promise<SalesAnalysisDataSources> {
     const startedAt = Date.now();
 
-    const [wingPublished, adsPublished, orders] = await Promise.all([
+    const [wingPublished, adsMeasured, orders] = await Promise.all([
       this.readTrafficPublished(organizationId),
-      this.readAdsPublished(organizationId),
+      this.readMeasuredAdDates(organizationId),
       this.readPublishedOrders(organizationId),
     ]);
 
     const wingRows = accountDailyRows(wingPublished);
-    const adsRows = adsPublished?.rows ?? [];
-    const adsDateSet = new Set(adsRows.map((row) => row.businessDate));
+    const adsDateSet = new Set(adsMeasured.days.map((day) => day.businessDate));
     const sortedAdsDates = [...adsDateSet].sort();
 
     const wingDateSet = new Set(wingRows.map((row) => row.businessDate));
@@ -82,7 +77,7 @@ export class SalesAnalysisScraperService {
         firstDate: sortedAdsDates[0] ?? null,
         lastDate: sortedAdsDates[sortedAdsDates.length - 1] ?? null,
         dateCount: sortedAdsDates.length,
-        lastSyncedAt: latestObservedAt(adsRows),
+        lastSyncedAt: adsMeasured.observedAt?.toISOString() ?? null,
         missingDates: computeMissingAdsDates(wingDateSet, adsDateSet),
       },
       orders,
@@ -121,20 +116,16 @@ export class SalesAnalysisScraperService {
     };
   }
 
-  private async readAdsPublished(
-    organizationId: string,
-  ): Promise<Awaited<ReturnType<AdAccountDailyKpiReadPort['readPublished']>> | null> {
-    try {
-      return await this.adAccountDailyKpiRead.readPublished({ organizationId });
-    } catch (error) {
-      if (
-        error instanceof NotFoundException &&
-        error.message === 'COUPANG_ACCOUNT_NOT_FOUND'
-      ) {
-        return null;
-      }
-      throw error;
-    }
+  /**
+   * Business dates the Coupang campaign sweep measured, through the
+   * advertising target-day reader. With no active Coupang account nothing is
+   * measured and the list is empty.
+   */
+  private readMeasuredAdDates(organizationId: string) {
+    return this.prisma.$transaction(
+      (tx) => readAdWindowFacts(tx, { organizationId }),
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
   }
 
   private async readTrafficPublished(

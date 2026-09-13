@@ -1,26 +1,26 @@
-import { aggregateAdMetrics, buildAdMetrics } from '../domain/ad-metrics';
+import { buildAdMetrics } from '../domain/ad-metrics';
 import { normalizeAdKeywordOrigin } from '../domain/ad-keyword';
 import { scopedListingToSummary } from './ad-listing.mapper';
+import { businessDateKey, datesInclusive } from '../../common/kst';
 import type {
-  AdAccountKpi,
-  AdAccountKpiDayPoint,
   AdCampaignSnapshot,
   AdKeywordRelevance,
   AdKeywordSnapshot,
-  AdMetrics,
+  AdMeasuredMetrics,
   AdProductSnapshot,
   AdTrendsData,
+  AdTrendsDay,
+  AdTrendsSummary,
 } from '@kiditem/shared/advertising';
 import type { AdPeriod } from '../domain/ad-metrics';
 import type { ScopedAdListingReadModel } from '../application/port/out/repository/ad-listing.repository.port';
 import type {
+  AdTrendWindowDay,
   CampaignCurrentState,
   CampaignRollup,
   KeywordTargetRollup,
   ProductTargetRollup,
 } from '../application/port/out/repository/ad-campaign.repository.port';
-import type { AdTrendDailyAggregate } from '../domain/ad-trend';
-import type { AdAccountKpiDayRow } from '../application/port/out/repository/ad-account-kpi.repository.port';
 
 /**
  * CampaignRollup row → AdCampaignSnapshot. Campaign-grain rollups in
@@ -207,91 +207,87 @@ function campaignConversionCount(
 }
 
 /**
- * Account-level daily KPI rows (`coupang_ads_daily`) → period summary +
- * sorted daily series. `latestBusinessDate` is the max date with data.
- * The summary `AdMetrics.roas` recomputes from window totals.
- */
-export function toAdAccountKpi(rows: AdAccountKpiDayRow[]): {
-  summary: AdAccountKpi | null;
-  daily: AdAccountKpiDayPoint[];
-} {
-  if (rows.length === 0) return { summary: null, daily: [] };
-  const sorted = [...rows].sort((a, b) =>
-    a.businessDate.localeCompare(b.businessDate),
-  );
-  const totalsSums = sorted.reduce(
-    (acc, row) => ({
-      spend: acc.spend + row.sums.spend,
-      revenue: acc.revenue + row.sums.revenue,
-      clicks: acc.clicks + row.sums.clicks,
-      impressions: acc.impressions + row.sums.impressions,
-      conversions: acc.conversions + row.sums.conversions,
-    }),
-    { spend: 0, revenue: 0, clicks: 0, impressions: 0, conversions: 0 },
-  );
-  const totalOrders = sorted.reduce((acc, row) => acc + row.orders, 0);
-  const summary = {
-    metrics: buildAdMetrics(totalsSums),
-    orders: totalOrders,
-    periodDayCount: sorted.length,
-    latestBusinessDate: sorted[sorted.length - 1].businessDate,
-    source: 'coupang_ads_daily',
-  } satisfies AdAccountKpi;
-  const daily = sorted.map(
-    (row) =>
-      ({
-        date: row.businessDate,
-        metrics: buildAdMetrics(row.sums),
-        orders: row.orders,
-      }) satisfies AdAccountKpiDayPoint,
-  );
-  return { summary, daily };
-}
-
-export type GradeBudgetTotals = Record<'A' | 'B' | 'C', number>;
-
-export type AdTrendsMapperInput = {
-  knownThrough: string;
-  dailyAggregates: AdTrendDailyAggregate[];
-  gradeBudget: GradeBudgetTotals;
-  accountKpiRows: AdAccountKpiDayRow[];
-};
-
-/**
- * Daily-aggregate rows + grade budget totals → AdTrendsData.
+ * Measured account days → the ad-ops trend and KPI summary.
  *
- * `daily` always carries per-listing ad metrics from
- * `ChannelListingDailySnapshot` (truthful per-listing series — zero is
- * zero, never substituted). Account-level `coupang_ads_daily` series and
- * summary land in `accountDaily`/`accountSummary` so the UI can render
- * both surfaces side-by-side without one masking the other.
+ * Every requested business date is present. A date the campaign sweep never
+ * measured is `metrics: null` (a hole, not zero); a measured date without
+ * advertising is all zeros with unavailable ratios. Conversion counts are
+ * `null` when a summed row's provider grid carried no conversion column, and
+ * the summary's counts are `null` unless every measured day observed them.
+ * Ratios recompute from the summed raw values.
  */
-export function toAdTrendsData(input: AdTrendsMapperInput): AdTrendsData {
-  const sortedDaily = [...input.dailyAggregates].sort((a, b) =>
-    a.date.localeCompare(b.date),
-  );
-  const daily = sortedDaily.map((row) => ({
-    date: row.date,
-    metrics: buildAdMetrics(row.sums),
-  }));
-
-  const account = toAdAccountKpi(input.accountKpiRows);
-
-  const mid = Math.floor(daily.length / 2);
-  const firstHalf = aggregate(daily.slice(0, mid));
-  const secondHalf = aggregate(daily.slice(mid));
+export function toAdTrendsData(input: {
+  knownThrough: string;
+  from: Date;
+  to: Date;
+  days: readonly AdTrendWindowDay[];
+  observedAt: Date | null;
+}): AdTrendsData {
+  const byDate = new Map(input.days.map((day) => [day.businessDate, day]));
+  const requested = datesInclusive(input.from, input.to).map(businessDateKey);
+  const measured: AdTrendWindowDay[] = [];
+  const daily = requested.map((date): AdTrendsDay => {
+    const day = byDate.get(date);
+    if (!day) return { date, metrics: null, orders: null };
+    measured.push(day);
+    return {
+      date,
+      metrics: measuredMetrics(day, day.conversionsObserved),
+      orders: day.conversionsObserved ? day.orders : null,
+    };
+  });
 
   return {
     knownThrough: input.knownThrough,
+    from: businessDateKey(input.from),
+    to: businessDateKey(input.to),
     daily,
-    firstHalf,
-    secondHalf,
-    gradeBudget: input.gradeBudget,
-    accountDaily: account.daily,
-    accountSummary: account.summary,
+    summary: summarize(measured, input.observedAt),
   } satisfies AdTrendsData;
 }
 
-function aggregate(entries: { metrics: AdMetrics }[]): AdMetrics {
-  return aggregateAdMetrics(entries);
+function summarize(
+  measured: readonly AdTrendWindowDay[],
+  observedAt: Date | null,
+): AdTrendsSummary {
+  if (measured.length === 0) {
+    return {
+      source: 'unavailable',
+      periodDayCount: 0,
+      latestBusinessDate: null,
+      observedAt: null,
+      metrics: null,
+      orders: null,
+    } satisfies AdTrendsSummary;
+  }
+  const totals = measured.reduce(
+    (acc, day) => ({
+      spend: acc.spend + day.spend,
+      revenue: acc.revenue + day.revenue,
+      impressions: acc.impressions + day.impressions,
+      clicks: acc.clicks + day.clicks,
+      conversions: acc.conversions + day.conversions,
+      orders: acc.orders + day.orders,
+    }),
+    { spend: 0, revenue: 0, impressions: 0, clicks: 0, conversions: 0, orders: 0 },
+  );
+  const conversionsObserved = measured.every((day) => day.conversionsObserved);
+  return {
+    source: 'coupang_ads',
+    periodDayCount: measured.length,
+    latestBusinessDate: measured[measured.length - 1].businessDate,
+    observedAt: observedAt?.toISOString() ?? null,
+    metrics: measuredMetrics(totals, conversionsObserved),
+    orders: conversionsObserved ? totals.orders : null,
+  } satisfies AdTrendsSummary;
+}
+
+function measuredMetrics(
+  sums: { spend: number; revenue: number; impressions: number; clicks: number; conversions: number },
+  conversionsObserved: boolean,
+): AdMeasuredMetrics {
+  const metrics = buildAdMetrics(sums);
+  return conversionsObserved
+    ? metrics
+    : { ...metrics, conversions: null, cvr: null };
 }

@@ -28,7 +28,7 @@ test('allows named owners but rejects direct consumer and lookalike-owner reads'
     }
     copyFileSync(scannerPath, path.join(fixture, 'scripts/check-raw-snapshot-read-models.sh'));
     const scan = () => spawnSync('bash', ['scripts/check-raw-snapshot-read-models.sh'], { cwd: fixture, encoding: 'utf8' });
-    const owner = 'apps/server/src/advertising/adapter/out/repository/ad-account-daily-kpi-source.repository.ts';
+    const owner = 'apps/server/src/advertising/adapter/out/repository/wing-itemwinner-kpi-source.repository.ts';
     writeFileSync(path.join(fixture, owner), 'tx.channelScrapeSnapshot.findMany({});');
     assert.equal(scan().status, 0);
     for (const file of ['apps/web/src/screen.ts', 'apps/server/src/advertising/adapter/out/repository/lookalike-source.repository.ts']) {
@@ -43,6 +43,10 @@ test('allows named owners but rejects direct consumer and lookalike-owner reads'
   } finally {
     rmSync(fixture, { recursive: true, force: true });
   }
+});
+
+test('does not retain the retired account-day KPI owner exception', () => {
+  assert.ok(!readFileSync(scannerPath, 'utf8').includes('ad-account-daily-kpi-source'));
 });
 
 test('does not retain the deleted campaign sweep raw-snapshot exception', () => {

@@ -21,7 +21,6 @@ const OWNER_PATHS = [
   '/api/ads/traffic/source',
   '/api/ads/wing-itemwinner/source',
   '/api/ads/ad-campaigns/source',
-  '/api/ads/account-daily-kpis/source',
 ];
 const ACTIONS_PATH = '/api/ads/actions?approvalStatus=approved&executeStatus=queued&limit=50';
 
@@ -239,7 +238,7 @@ test('owner reads render independently while the connection read is still pendin
 
   for (const request of ownerRequests) {
     await harness.reply(request, response(ownerStatus({
-      latestComplete: { state: 'COMPLETE', rowCount: 3, itemCount: 3, campaignCount: 3, receiptCount: 3 },
+      latestComplete: { state: 'COMPLETE', rowCount: 3, itemCount: 3, campaignCount: 3 },
     })));
   }
   await harness.reply(actions, response({ items: [] }));
@@ -268,7 +267,7 @@ test('a newer same-environment refresh fences callbacks from the older refresh',
   await harness.reply(newConnection, response({ status: 'ok' }));
   for (const request of newOwnerRequests) {
     await harness.reply(request, response(ownerStatus({
-      latestComplete: { state: 'COMPLETE', rowCount: 22, itemCount: 22, campaignCount: 22, receiptCount: 22 },
+      latestComplete: { state: 'COMPLETE', rowCount: 22, itemCount: 22, campaignCount: 22 },
     })));
   }
   await harness.reply(newActions, response({ items: [] }));
@@ -277,7 +276,7 @@ test('a newer same-environment refresh fences callbacks from the older refresh',
   for (const request of oldOwnerRequests) {
     await harness.reply(request, response(ownerStatus({
       latestAttempt: { state: 'FAILED', errorCode: 'OLD_REFRESH', errorMessage: 'stale result' },
-      latestComplete: { state: 'COMPLETE', rowCount: 1, itemCount: 1, campaignCount: 1, receiptCount: 1 },
+      latestComplete: { state: 'COMPLETE', rowCount: 1, itemCount: 1, campaignCount: 1 },
     })));
   }
   await harness.reply(oldActions, response({ items: [{ id: 'old' }] }));
@@ -299,7 +298,6 @@ test('renders each owner status independently and preserves failed-attempt detai
     '/api/ads/ad-campaigns/source': response(ownerStatus({
       latestComplete: { state: 'COMPLETE', campaignCount: 12, actualCutoffAt: '2026-09-06T09:00:00.000Z' },
     })),
-    '/api/ads/account-daily-kpis/source': response(ownerStatus({ ready: false, latestAttempt: null })),
   });
 
   assert.equal(harness.document.getElementById('trafficSync').textContent, '미수집');
@@ -317,13 +315,14 @@ test('renders each owner status independently and preserves failed-attempt detai
 
   assert.equal(harness.document.getElementById('adsSync').textContent, '최신');
   assert.match(harness.document.getElementById('adsSyncDetail').textContent, /12캠페인/);
-  assert.equal(harness.document.getElementById('accountDailySync').textContent, '미수집');
 
   const requestedPaths = harness.requests
     .filter((request) => request.message.action === 'kiditemApiRequest')
     .map((request) => request.message.path);
   for (const path of OWNER_PATHS) assert.ok(requestedPaths.includes(path), `missing ${path}`);
   assert.ok(requestedPaths.every((path) => !path.includes('attemptToken')));
+  assert.ok(requestedPaths.every((path) => !path.includes('account-daily-kpis')));
+  assert.equal(harness.document.getElementById('accountDailySync'), null);
 });
 
 test('a failed owner read does not make independent owner cards fail or invent a zero count', async () => {
@@ -334,69 +333,12 @@ test('a failed owner read does not make independent owner cards fail or invent a
       latestComplete: { state: 'COMPLETE', itemCount: 8, actualCutoffAt: '2026-09-07T01:00:00.000Z' },
     })),
     '/api/ads/ad-campaigns/source': { success: false, error: 'campaign read failed' },
-    '/api/ads/account-daily-kpis/source': response(ownerStatus({
-      latestComplete: {
-        state: 'COMPLETE',
-        receiptCount: 30,
-        rowCount: 300,
-        actualCutoffAt: '2026-09-07T02:00:00.000Z',
-      },
-    })),
   });
 
   assert.equal(harness.document.getElementById('trafficSync').textContent, '조회 실패');
   assert.equal(harness.document.getElementById('winnerSync').textContent, '최신');
   assert.match(harness.document.getElementById('winnerSyncDetail').textContent, /8개/);
   assert.equal(harness.document.getElementById('adsSync').textContent, '조회 실패');
-  assert.equal(harness.document.getElementById('accountDailySync').textContent, '최신');
-  assert.match(harness.document.getElementById('accountDailySyncDetail').textContent, /30일/);
-});
-
-test('account daily owner status counts receipts as days and preserves zero versus missing receipt counts', async (t) => {
-  const cases = [
-    {
-      name: 'legacy 14 receipts and 140 metric rows',
-      latestComplete: { state: 'COMPLETE', receiptCount: 14, rowCount: 140 },
-      expected: '14일',
-      unexpected: '140일',
-    },
-    {
-      name: 'v2 30 receipts and 300 metric rows',
-      latestComplete: { state: 'COMPLETE', receiptCount: 30, rowCount: 300 },
-      expected: '30일',
-      unexpected: '300일',
-    },
-    {
-      name: 'explicit zero receipts',
-      latestComplete: { state: 'COMPLETE', receiptCount: 0, rowCount: 0 },
-      expected: '0일',
-      unexpected: '건수 확인 중',
-    },
-    {
-      name: 'missing receipt count',
-      latestComplete: { state: 'COMPLETE', rowCount: 140 },
-      expected: '건수 확인 중',
-      unexpected: '140일',
-    },
-  ];
-
-  for (const scenario of cases) {
-    await t.test(scenario.name, async () => {
-      const harness = createPopupHarness({ connected: ['local'] });
-      await completeStatusLoad(harness, 'local', {
-        '/api/ads/traffic/source': response(ownerStatus()),
-        '/api/ads/wing-itemwinner/source': response(ownerStatus()),
-        '/api/ads/ad-campaigns/source': response(ownerStatus()),
-        '/api/ads/account-daily-kpis/source': response(ownerStatus({
-          latestComplete: scenario.latestComplete,
-        })),
-      });
-
-      const detail = harness.document.getElementById('accountDailySyncDetail').textContent;
-      assert.match(detail, new RegExp(scenario.expected));
-      assert.doesNotMatch(detail, new RegExp(scenario.unexpected));
-    });
-  }
 });
 
 test('clearing the selector fences older owner callbacks and clears the cards', async () => {
@@ -418,7 +360,7 @@ test('clearing the selector fences older owner callbacks and clears the cards', 
 
   for (const request of localRequests) {
     await harness.reply(request, response(ownerStatus({
-      latestComplete: { state: 'COMPLETE', itemCount: 999, rowCount: 999, campaignCount: 999, receiptCount: 999 },
+      latestComplete: { state: 'COMPLETE', itemCount: 999, rowCount: 999, campaignCount: 999 },
     })));
   }
   await harness.flush();
@@ -448,20 +390,12 @@ test('out-of-order environment owner responses cannot overwrite the newer enviro
     '/api/ads/ad-campaigns/source': response(ownerStatus({
       latestComplete: { state: 'COMPLETE', campaignCount: 7, actualCutoffAt: '2026-09-08T01:00:00.000Z' },
     })),
-    '/api/ads/account-daily-kpis/source': response(ownerStatus({
-      latestComplete: {
-        state: 'COMPLETE',
-        receiptCount: 9,
-        rowCount: 90,
-        actualCutoffAt: '2026-09-08T01:00:00.000Z',
-      },
-    })),
   });
 
   for (const request of localRequests) {
     await harness.reply(request, response(ownerStatus({
       latestAttempt: { state: 'FAILED', errorCode: 'OLD_ENVIRONMENT', errorMessage: 'old callback' },
-      latestComplete: { state: 'COMPLETE', itemCount: 999, rowCount: 999, campaignCount: 999, receiptCount: 999 },
+      latestComplete: { state: 'COMPLETE', itemCount: 999, rowCount: 999, campaignCount: 999 },
     })));
   }
   await harness.flush();
@@ -472,9 +406,7 @@ test('out-of-order environment owner responses cannot overwrite the newer enviro
   assert.match(harness.document.getElementById('winnerSyncDetail').textContent, /5개/);
   assert.equal(harness.document.getElementById('adsSync').textContent, '최신');
   assert.match(harness.document.getElementById('adsSyncDetail').textContent, /7캠페인/);
-  assert.equal(harness.document.getElementById('accountDailySync').textContent, '최신');
-  assert.match(harness.document.getElementById('accountDailySyncDetail').textContent, /9일/);
-  assert.equal(harness.requests.filter((request) => request.message.environmentId === 'office').length, 6);
+  assert.equal(harness.requests.filter((request) => request.message.environmentId === 'office').length, 5);
 });
 
 function dailyAttempt(state, overrides = {}) {
@@ -496,7 +428,6 @@ test('monthly owner polling uses the admitted attempt, preserves the prior compl
     })),
     '/api/ads/wing-itemwinner/source': response(ownerStatus()),
     '/api/ads/ad-campaigns/source': response(ownerStatus()),
-    '/api/ads/account-daily-kpis/source': response(ownerStatus()),
   });
   const monthButton = harness.document.getElementById('btnMonthlySync');
   monthButton.click();
@@ -528,7 +459,6 @@ test('monthly owner polling uses the admitted attempt, preserves the prior compl
     })),
     '/api/ads/wing-itemwinner/source': response(ownerStatus()),
     '/api/ads/ad-campaigns/source': response(ownerStatus()),
-    '/api/ads/account-daily-kpis/source': response(ownerStatus()),
   });
   await harness.flush();
   assert.match(harness.document.getElementById('monthlySyncProgress').textContent, /provider failed/);
@@ -548,7 +478,7 @@ test('monthly owner polling ignores a stale environment response', async () => {
   ]);
   for (const request of localStatusRequests) {
     await harness.reply(request, response(ownerStatus({
-      latestComplete: { state: 'COMPLETE', rowCount: 4, itemCount: 4, campaignCount: 4, receiptCount: 4 },
+      latestComplete: { state: 'COMPLETE', rowCount: 4, itemCount: 4, campaignCount: 4 },
     })));
   }
   await harness.flush();
@@ -564,7 +494,6 @@ test('monthly owner polling ignores a stale environment response', async () => {
     })),
     '/api/ads/wing-itemwinner/source': response(ownerStatus()),
     '/api/ads/ad-campaigns/source': response(ownerStatus()),
-    '/api/ads/account-daily-kpis/source': response(ownerStatus()),
   });
   await harness.reply(localAttempt, response(dailyAttempt('FAILED', {
     errorCode: 'OLD_ENVIRONMENT',
@@ -588,7 +517,6 @@ test('monthly polling rejects an exact-attempt response with a different attempt
     '/api/ads/traffic/source': response(ownerStatus()),
     '/api/ads/wing-itemwinner/source': response(ownerStatus()),
     '/api/ads/ad-campaigns/source': response(ownerStatus()),
-    '/api/ads/account-daily-kpis/source': response(ownerStatus()),
   });
   harness.document.getElementById('btnMonthlySync').click();
   await harness.flush();
@@ -605,7 +533,6 @@ test('monthly admission is single-flight so a second same-environment click cann
     '/api/ads/traffic/source': response(ownerStatus()),
     '/api/ads/wing-itemwinner/source': response(ownerStatus()),
     '/api/ads/ad-campaigns/source': response(ownerStatus()),
-    '/api/ads/account-daily-kpis/source': response(ownerStatus()),
   });
   const button = harness.document.getElementById('btnMonthlySync');
   button.click();

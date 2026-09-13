@@ -18,7 +18,6 @@ import CampaignContent from "./components/CampaignContent";
 import AdProductsContent from "./components/AdProductsContent";
 import AdKeywordsContent from "./components/AdKeywordsContent";
 import RegisterCampaignModal from "./components/RegisterCampaignModal";
-import ExposureAnalysis from "./components/ExposureAnalysis";
 import type { TabKey } from "./lib/types";
 import type { RegisterCampaignPayload } from "./hooks/useAdOpsData";
 import type { CampaignSelection } from "./components/CampaignTable";
@@ -44,7 +43,6 @@ export default function AdOpsPage() {
     wingStatus: wingStatusQuery,
     strategy: strategyQuery,
     trends: trendsQuery,
-    exposure: exposureQuery,
     isLoading,
     isRefreshing,
   } = useAdOpsData(period, tab);
@@ -52,26 +50,12 @@ export default function AdOpsPage() {
   const registerMutation = useRegisterCampaign();
 
   const campaigns = campaignsQuery.data?.campaigns ?? [];
-  const totalKpi = campaignsQuery.data?.totalKpi ?? {};
   const rules = rulesQuery.data?.recommendations ?? [];
   const wingKpis = wingStatusQuery.data?.wing?.kpis ?? {};
   const strategy = strategyQuery.data ?? null;
   const trends = trendsQuery.data ?? null;
-  const exposureData = exposureQuery.data ?? null;
-  const accountSummary = trends?.accountSummary ?? strategy?.accountSummary ?? null;
 
-  const roas = totalKpi.roas || 0;
   const urgentCount = rules.filter((r) => r.priority === "urgent").length;
-  const trendsDaily = trends?.daily.map((d) => ({
-    spend: d.metrics.spend,
-    revenue: d.metrics.revenue,
-    clicks: d.metrics.clicks,
-    impressions: d.metrics.impressions,
-    conversions: d.metrics.conversions,
-    roas: d.metrics.roas ?? 0,
-    ctr: d.metrics.ctr ?? 0,
-    cvr: d.metrics.cvr ?? 0,
-  })) ?? null;
 
   const handleRefresh = () => {
     queryClient.invalidateQueries({ queryKey: queryKeys.ads.all });
@@ -150,13 +134,7 @@ export default function AdOpsPage() {
         )}
 
         <div aria-busy={isRefreshing}>
-        <KpiDashboard
-          totalKpi={totalKpi}
-          period={period}
-          roas={roas}
-          trendsDaily={trendsDaily}
-          accountSummary={accountSummary}
-        />
+        <KpiDashboard summary={trends?.summary ?? null} period={period} />
         </div>
 
         <div className="rounded-2xl px-3 py-3 flex items-center gap-1.5" style={{ background: "var(--primary)" }}>
@@ -225,10 +203,6 @@ export default function AdOpsPage() {
 
           {tab === "keywords" && (
             <AdKeywordsContent period={period} />
-          )}
-
-          {tab === "exposure" && (
-            <ExposureAnalysis data={exposureData} />
           )}
         </div>
       </div>

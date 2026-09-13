@@ -2791,6 +2791,38 @@ test('수익성 광고비 수집은 공용 dispatch의 직접 source-owner actio
   assert.equal(context.KidItemDomains.forExternalAction('advertising.refresh_profitability_spend'), null);
 });
 
+test('retired advertising account-day KPI actions, content step and capability are not registered', () => {
+  const { fake, context } = bootServiceWorker();
+  for (const action of ['collectAdvertisingAccountDailyKpis', 'cancelAdvertisingAccountDailyKpis']) {
+    assert.equal(context.KidItemDomains.forExternalAction(action), null, action);
+  }
+  const capabilities = context.KidItemDomains.capabilities();
+  assert.equal(capabilities.advertisingAccountDailyKpiSourceOwnerV1, undefined);
+  assert.equal(capabilities.advertisingCampaignSourceOwnerV1, true);
+  assert.equal(typeof context.KidItemDomains.forExternalAction('collectAdvertisingCampaigns')?.handle, 'function');
+
+  // The sourcing worker's catch-all listener keeps every channel open, so the
+  // retired content step must be treated exactly like an action nobody owns:
+  // the same listeners stay open and none answers it.
+  const dispatch = (action) => {
+    let keptAlive = 0;
+    const responses = [];
+    for (const listener of fake.internalMessageListeners) {
+      const result = listener(
+        { action, attemptId: '11111111-1111-4111-8111-111111111111', step: 'resume' },
+        { tab: { id: 41 }, url: 'https://advertising.coupang.com/marketing/dashboard/sales', frameId: 0 },
+        (value) => responses.push(value),
+      );
+      if (result === true) keptAlive += 1;
+    }
+    return { keptAlive, responses };
+  };
+  const retired = dispatch('advertisingAccountDailyKpiSourceStep');
+  const unknown = dispatch('kiditemActionNobodyOwnsForTest');
+  assert.equal(retired.keptAlive, unknown.keptAlive, 'the retired step must not gain an owner listener');
+  assert.deepEqual(retired.responses, unknown.responses);
+});
+
 test('외부 장기 실행 포트를 공용 dispatch 하나가 소유 도메인으로 전달한다', () => {
   const { fake } = bootServiceWorker();
   assert.equal(fake.connectExternalListeners.length, 1);

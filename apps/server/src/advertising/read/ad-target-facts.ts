@@ -5,8 +5,10 @@ import {
   type ChannelAdTargetDailySnapshot,
   type SourceImportRun,
 } from '@prisma/client';
+import { currentRowTieBreakSql } from '../../common/current-row';
 import {
   AD_METRIC_SUMS_SQL,
+  CONVERSIONS_OBSERVED_SQL,
   IS_CAMPAIGN_GRAIN_SQL,
   IS_PRODUCT_GRAIN_SQL,
 } from '../adapter/out/repository/ad-target-grain.sql';
@@ -120,21 +122,42 @@ function coveredDates(from?: Date, to?: Date) {
 
 /**
  * The measured target rows of `[from, to)` — one per (account, target, day),
- * from the newest completed campaign sweep whose declaration covers it.
+ * from the newest completed campaign sweep whose declaration covers it. With
+ * `currentGenerationOnly`, only rows of each account's newest completed sweep
+ * are kept: the current target set, not every target the account ever ran.
  */
-function measuredTargetRows(organizationId: string, from?: Date, to?: Date) {
+function measuredTargetRows(
+  organizationId: string,
+  from?: Date,
+  to?: Date,
+  options: { currentGenerationOnly?: boolean } = {},
+) {
   return Prisma.sql`
     SELECT DISTINCT ON (
       t.channel_account_id, t.business_date, t.target_type, t.target_key, COALESCE(t.ad_group_id, '')
     )
+      t.id,
       t.channel_account_id,
       t.business_date,
       t.listing_id,
+      t.listing_option_id,
+      t.external_id,
+      t.external_option_id,
       t.campaign_identity,
+      t.campaign_id,
+      t.campaign_name,
       t.target_type,
+      t.target_key,
+      t.keyword,
+      t.status,
+      t.on_off,
+      t.current_bid,
+      t.daily_budget,
       t.spend, t.revenue, t.impressions, t.clicks, t.conversions, t.orders,
+      ${CONVERSIONS_OBSERVED_SQL} AS conversions_observed,
       t.last_observed_at,
-      t.external_option_id, t.listing_option_id, t.meta_json
+      t.updated_at,
+      t.meta_json
     FROM channel_ad_target_daily_snapshots t
     LEFT JOIN sweeps r ON r.id = t.source_import_run_id
     WHERE t.organization_id = ${organizationId}::uuid
@@ -152,11 +175,53 @@ function measuredTargetRows(organizationId: string, from?: Date, to?: Date) {
           AND newer.window_start <= t.business_date AND newer.window_end >= t.business_date
           AND newer.freshness_generation > COALESCE(r.freshness_generation, -1)
       )
+      ${options.currentGenerationOnly
+        ? Prisma.sql`AND r.id = (
+            SELECT latest.id FROM sweeps latest
+            WHERE latest.channel_account_id = t.channel_account_id
+            ORDER BY latest.freshness_generation DESC NULLS LAST, latest.id DESC
+            LIMIT 1
+          )`
+        : Prisma.empty}
     ORDER BY
       t.channel_account_id, t.business_date, t.target_type, t.target_key, COALESCE(t.ad_group_id, ''),
       r.freshness_generation DESC NULLS LAST, t.last_observed_at DESC, t.id DESC
   `;
 }
+
+/**
+ * One campaign's row per account-day: the provider's campaign rollup when the
+ * sweep published one (several identity schemes may describe the same row, so
+ * the best-evidenced one is kept), else the sum of the campaign's product rows.
+ * Both are never added together. Selects from the `measured` CTE.
+ */
+const CAMPAIGN_DAILY_CTES = Prisma.sql`
+    campaign_daily AS (
+      SELECT DISTINCT ON (channel_account_id, campaign_identity, business_date) *
+      FROM measured
+      WHERE target_type <> 'keyword' AND campaign_identity IS NOT NULL AND ${IS_CAMPAIGN_GRAIN_SQL}
+      ORDER BY channel_account_id, campaign_identity, business_date,
+        (spend + revenue + impressions + clicks + conversions + orders) DESC, last_observed_at DESC
+    ),
+    product_campaign_daily AS (
+      SELECT
+        channel_account_id,
+        campaign_identity,
+        business_date,
+        MAX(campaign_id) AS campaign_id,
+        MAX(campaign_name) AS campaign_name,
+        SUM(spend) AS spend,
+        SUM(revenue) AS revenue,
+        SUM(impressions) AS impressions,
+        SUM(clicks) AS clicks,
+        SUM(conversions) AS conversions,
+        SUM(orders) AS orders,
+        bool_and(conversions_observed) AS conversions_observed
+      FROM measured
+      WHERE target_type <> 'keyword' AND campaign_identity IS NOT NULL AND ${IS_PRODUCT_GRAIN_SQL}
+      GROUP BY channel_account_id, campaign_identity, business_date
+    )
+`;
 
 /** One business date the ad source reported, with that day's totals. */
 export type AdWindowDay = Readonly<{
@@ -165,8 +230,18 @@ export type AdWindowDay = Readonly<{
   revenue: number;
   impressions: number;
   clicks: number;
+  /**
+   * Stored count; a measurement only when `conversionsObserved`. The campaign
+   * dashboard grid carries no conversion columns, and the ledger keeps 0 there.
+   */
   conversions: number;
   orders: number;
+  /**
+   * Whether every row summed into this day came from a provider grid that
+   * carried the conversion-count columns (`conversions` and `orders`). A day
+   * measured with no rows observed nothing to count and is `true`.
+   */
+  conversionsObserved: boolean;
 }>;
 
 export type AdWindowFacts = Readonly<{
@@ -188,6 +263,7 @@ type DayRow = {
   clicks: number;
   conversions: number;
   orders: number;
+  conversions_observed: boolean;
   observed_at: Date | null;
 };
 
@@ -223,12 +299,14 @@ export async function readAdWindowFacts(
     campaign_days AS (
       SELECT channel_account_id, business_date,
         ${AD_METRIC_SUMS_SQL},
+        bool_and(conversions_observed) AS conversions_observed,
         MAX(last_observed_at) AS observed_at
       FROM campaign_daily GROUP BY channel_account_id, business_date
     ),
     product_days AS (
       SELECT channel_account_id, business_date,
         ${AD_METRIC_SUMS_SQL},
+        bool_and(conversions_observed) AS conversions_observed,
         MAX(last_observed_at) AS observed_at
       FROM measured
       WHERE target_type <> 'keyword' AND ${IS_PRODUCT_GRAIN_SQL}
@@ -244,6 +322,13 @@ export async function readAdWindowFacts(
         COALESCE(c.clicks, p.clicks, 0) AS clicks,
         COALESCE(c.conversions, p.conversions, 0) AS conversions,
         COALESCE(c.orders, p.orders, 0) AS orders,
+        -- The same grain the sums came from decides whether its conversion
+        -- columns were observed; a measured day without rows counted nothing.
+        CASE
+          WHEN c.channel_account_id IS NOT NULL THEN c.conversions_observed
+          WHEN p.channel_account_id IS NOT NULL THEN p.conversions_observed
+          ELSE TRUE
+        END AS conversions_observed,
         GREATEST(c.observed_at, p.observed_at) AS observed_at
       FROM covered d
       CROSS JOIN active_accounts a
@@ -255,6 +340,7 @@ export async function readAdWindowFacts(
     SELECT
       business_date,
       ${AD_METRIC_SUMS_SQL},
+      bool_and(conversions_observed) AS conversions_observed,
       MAX(observed_at) AS observed_at
     FROM account_days
     GROUP BY business_date
@@ -272,6 +358,7 @@ export async function readAdWindowFacts(
       clicks: row.clicks,
       conversions: row.conversions,
       orders: row.orders,
+      conversionsObserved: row.conversions_observed,
     } satisfies AdWindowDay;
   });
   return { days, observedAt };
@@ -292,6 +379,8 @@ export type AdListingWindowFacts = Readonly<{
   clicks: number;
   conversions: number;
   orders: number;
+  /** Whether every summed product row observed the conversion-count columns. */
+  conversionsObserved: boolean;
 }>;
 
 type ListingRow = {
@@ -306,6 +395,7 @@ type ListingRow = {
   clicks: number;
   conversions: number;
   orders: number;
+  conversions_observed: boolean;
 };
 
 /**
@@ -331,7 +421,8 @@ export async function readListingAdWindowFacts(
       (SELECT MIN(business_date) FROM covered) AS first_date,
       (SELECT MAX(business_date) FROM covered) AS last_date,
       MAX(last_observed_at) AS observed_at,
-      ${AD_METRIC_SUMS_SQL}
+      ${AD_METRIC_SUMS_SQL},
+      bool_and(conversions_observed) AS conversions_observed
     FROM measured
     INNER JOIN covered USING (business_date)
     WHERE listing_id IS NOT NULL AND target_type <> 'keyword' AND ${IS_PRODUCT_GRAIN_SQL}
@@ -349,57 +440,7 @@ export async function readListingAdWindowFacts(
     clicks: row.clicks,
     conversions: row.conversions,
     orders: row.orders,
-  }));
-}
-
-/** One listing on one business date the ad source reported. */
-export type AdListingDayFacts = Readonly<{
-  listingId: string;
-  businessDate: Date;
-  spend: number;
-  revenue: number;
-  impressions: number;
-  clicks: number;
-  conversions: number;
-}>;
-
-type ListingDayRow = {
-  listing_id: string;
-  business_date: Date;
-  spend: number;
-  revenue: number;
-  impressions: number;
-  clicks: number;
-  conversions: number;
-};
-
-/** Measured listing-day ad rows for `[from, to)`, ascending by date. */
-export async function readListingDayAdFacts(
-  tx: Prisma.TransactionClient,
-  input: { organizationId: string; from: Date; to: Date },
-): Promise<readonly AdListingDayFacts[]> {
-  const rows = await tx.$queryRaw<ListingDayRow[]>(Prisma.sql`
-    WITH active_accounts AS (${ACTIVE_AD_ACCOUNTS_CTE(input.organizationId)}), -- organization_id bound above
-    sweeps AS (${SWEEPS_CTE(input.organizationId)}), -- organization_id bound above
-    measured AS (${measuredTargetRows(input.organizationId, input.from, input.to)}),
-    covered AS (${coveredDates(input.from, input.to)})
-    SELECT
-      listing_id, business_date,
-      ${AD_METRIC_SUMS_SQL}
-    FROM measured
-    INNER JOIN covered USING (business_date)
-    WHERE listing_id IS NOT NULL AND target_type <> 'keyword' AND ${IS_PRODUCT_GRAIN_SQL}
-    GROUP BY listing_id, business_date
-    ORDER BY business_date ASC, listing_id ASC
-  `);
-  return rows.map((row) => ({
-    listingId: row.listing_id,
-    businessDate: row.business_date,
-    spend: row.spend,
-    revenue: row.revenue,
-    impressions: row.impressions,
-    clicks: row.clicks,
-    conversions: row.conversions,
+    conversionsObserved: row.conversions_observed,
   }));
 }
 
@@ -420,6 +461,289 @@ export async function readLatestAdDate(
 /** The exclusive end of a `[from, to)` window whose last business date is `date`. */
 export function dayAfter(date: Date): Date {
   return addDays(date, 1);
+}
+
+/** One campaign's measured totals over a window. */
+export type AdCampaignWindowRollup = Readonly<{
+  targetKey: string;
+  channelAccountId: string;
+  campaignIdentity: string;
+  campaignId: string | null;
+  campaignName: string | null;
+  listingId: string | null;
+  spend: number;
+  revenue: number;
+  impressions: number;
+  clicks: number;
+  conversions: number;
+  orders: number;
+  /** Whether every summed campaign-day observed the conversion-count columns. */
+  conversionsObserved: boolean;
+}>;
+
+/**
+ * Per-campaign totals for `[from, to)` over the measured target rows. A
+ * campaign-day is the provider campaign rollup when one was published, else
+ * the sum of that campaign's product rows; the two are never added together.
+ */
+export async function readCampaignWindowRollups(
+  tx: Prisma.TransactionClient,
+  input: { organizationId: string; from: Date; to: Date },
+): Promise<AdCampaignWindowRollup[]> {
+  return tx.$queryRaw<AdCampaignWindowRollup[]>(Prisma.sql`
+    WITH active_accounts AS (${ACTIVE_AD_ACCOUNTS_CTE(input.organizationId)}), -- organization_id bound above
+    sweeps AS (${SWEEPS_CTE(input.organizationId)}), -- organization_id bound above
+    measured AS (${measuredTargetRows(input.organizationId, input.from, input.to)}),
+    ${CAMPAIGN_DAILY_CTES},
+    daily AS (
+      SELECT channel_account_id, campaign_identity, business_date, campaign_id, campaign_name,
+        listing_id, spend::bigint AS spend, revenue::bigint AS revenue,
+        impressions::bigint AS impressions, clicks::bigint AS clicks,
+        conversions::bigint AS conversions, orders::bigint AS orders, conversions_observed
+      FROM campaign_daily
+      UNION ALL
+      SELECT p.channel_account_id, p.campaign_identity, p.business_date, p.campaign_id, p.campaign_name,
+        NULL::uuid AS listing_id, p.spend, p.revenue, p.impressions, p.clicks,
+        p.conversions, p.orders, p.conversions_observed
+      FROM product_campaign_daily p
+      WHERE NOT EXISTS (
+        SELECT 1 FROM campaign_daily c
+        WHERE c.channel_account_id = p.channel_account_id
+          AND c.campaign_identity = p.campaign_identity
+          AND c.business_date = p.business_date
+      )
+    )
+    SELECT
+      channel_account_id::text || ':' || campaign_identity AS "targetKey",
+      channel_account_id          AS "channelAccountId",
+      campaign_identity           AS "campaignIdentity",
+      MAX(campaign_id)            AS "campaignId",
+      MAX(campaign_name)          AS "campaignName",
+      MAX(listing_id::text)::uuid AS "listingId",
+      SUM(spend)::int             AS spend,
+      SUM(revenue)::int           AS revenue,
+      SUM(impressions)::int       AS impressions,
+      SUM(clicks)::int            AS clicks,
+      SUM(conversions)::int       AS conversions,
+      SUM(orders)::int            AS orders,
+      bool_and(conversions_observed) AS "conversionsObserved"
+    FROM daily
+    GROUP BY channel_account_id, campaign_identity
+  `);
+}
+
+/** One advertised product target's measured totals over a window. */
+export type AdProductWindowRollup = Readonly<{
+  targetKey: string;
+  channelAccountId: string;
+  campaignIdentity: string | null;
+  campaignId: string | null;
+  campaignName: string | null;
+  listingId: string | null;
+  listingOptionId: string | null;
+  externalId: string | null;
+  externalOptionId: string | null;
+  keyword: string | null;
+  status: string | null;
+  onOff: string | null;
+  metaJson: unknown | null;
+  spend: number;
+  revenue: number;
+  impressions: number;
+  clicks: number;
+  conversions: number;
+  orders: number;
+}>;
+
+/**
+ * Product-grain target totals for `[from, to)`; descriptors come from each
+ * target's current row. Campaign rollup rows never appear here, so a campaign
+ * cannot list itself as one of its products.
+ */
+export async function readProductWindowRollups(
+  tx: Prisma.TransactionClient,
+  input: {
+    organizationId: string;
+    from: Date;
+    to: Date;
+    campaign?: { channelAccountId: string; campaignIdentity: string };
+  },
+): Promise<AdProductWindowRollup[]> {
+  return tx.$queryRaw<AdProductWindowRollup[]>(Prisma.sql`
+    WITH active_accounts AS (${ACTIVE_AD_ACCOUNTS_CTE(input.organizationId)}), -- organization_id bound above
+    sweeps AS (${SWEEPS_CTE(input.organizationId)}), -- organization_id bound above
+    measured AS (${measuredTargetRows(input.organizationId, input.from, input.to)}),
+    scoped AS (
+      SELECT *
+      FROM measured
+      WHERE target_type = 'product'
+        AND ${IS_PRODUCT_GRAIN_SQL}
+        ${input.campaign
+          ? Prisma.sql`
+              AND channel_account_id = ${input.campaign.channelAccountId}::uuid
+              AND campaign_identity = ${input.campaign.campaignIdentity}
+            `
+          : Prisma.empty}
+    ),
+    rollups AS (
+      SELECT
+        target_key AS "targetKey",
+        SUM(spend)::int AS spend,
+        SUM(revenue)::int AS revenue,
+        SUM(impressions)::int AS impressions,
+        SUM(clicks)::int AS clicks,
+        SUM(conversions)::int AS conversions,
+        SUM(orders)::int AS orders
+      FROM scoped
+      GROUP BY target_key
+    ),
+    latest AS (
+      SELECT DISTINCT ON (target_key)
+        target_key AS "targetKey",
+        channel_account_id AS "channelAccountId",
+        campaign_identity AS "campaignIdentity",
+        campaign_id AS "campaignId",
+        campaign_name AS "campaignName",
+        listing_id AS "listingId",
+        listing_option_id AS "listingOptionId",
+        external_id AS "externalId",
+        external_option_id AS "externalOptionId",
+        keyword,
+        status,
+        on_off AS "onOff",
+        meta_json AS "metaJson"
+      FROM scoped
+      ORDER BY target_key, ${currentRowTieBreakSql({
+        businessDate: Prisma.sql`business_date`,
+        observedAt: Prisma.sql`last_observed_at`,
+        updatedAt: Prisma.sql`updated_at`,
+        id: Prisma.sql`id`,
+      })}
+    )
+    SELECT
+      rollups."targetKey",
+      latest."channelAccountId",
+      latest."campaignIdentity",
+      latest."campaignId",
+      latest."campaignName",
+      latest."listingId",
+      latest."listingOptionId",
+      latest."externalId",
+      latest."externalOptionId",
+      latest.keyword,
+      latest.status,
+      latest."onOff",
+      latest."metaJson",
+      rollups.spend,
+      rollups.revenue,
+      rollups.impressions,
+      rollups.clicks,
+      rollups.conversions,
+      rollups.orders
+    FROM rollups
+    JOIN latest USING ("targetKey")
+    ORDER BY rollups.revenue DESC, rollups.spend DESC, rollups."targetKey" ASC
+  `);
+}
+
+/** A campaign or product target as its account's newest completed sweep last reported it. */
+export type AdCurrentTargetRow = Readonly<{
+  id: string;
+  targetType: string;
+  targetKey: string;
+  listingId: string | null;
+  listingOptionId: string | null;
+  externalId: string | null;
+  externalOptionId: string | null;
+  campaignId: string | null;
+  campaignName: string | null;
+  keyword: string | null;
+  status: string | null;
+  currentBid: number | null;
+  dailyBudget: number | null;
+  spend: number;
+  revenue: number;
+  impressions: number;
+  clicks: number;
+  conversions: number;
+  metaJson: unknown | null;
+}>;
+
+/**
+ * The current campaign and product targets: each target's latest measured row
+ * inside its account's newest completed sweep. A target that sweep no longer
+ * reports has stopped and is absent.
+ */
+export async function readCurrentAdTargetRows(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+): Promise<AdCurrentTargetRow[]> {
+  return tx.$queryRaw<AdCurrentTargetRow[]>(Prisma.sql`
+    WITH active_accounts AS (${ACTIVE_AD_ACCOUNTS_CTE(organizationId)}), -- organization_id bound above
+    sweeps AS (${SWEEPS_CTE(organizationId)}), -- organization_id bound above
+    measured AS (${measuredTargetRows(organizationId, undefined, undefined, { currentGenerationOnly: true })})
+    SELECT DISTINCT ON (target_key)
+      id,
+      target_type        AS "targetType",
+      target_key         AS "targetKey",
+      listing_id         AS "listingId",
+      listing_option_id  AS "listingOptionId",
+      external_id        AS "externalId",
+      external_option_id AS "externalOptionId",
+      campaign_id        AS "campaignId",
+      campaign_name      AS "campaignName",
+      keyword,
+      status,
+      current_bid        AS "currentBid",
+      daily_budget       AS "dailyBudget",
+      spend,
+      revenue,
+      impressions,
+      clicks,
+      conversions,
+      meta_json          AS "metaJson"
+    FROM measured
+    WHERE target_type IN ('campaign', 'product')
+    ORDER BY target_key, ${currentRowTieBreakSql({
+      businessDate: Prisma.sql`business_date`,
+      observedAt: Prisma.sql`last_observed_at`,
+      updatedAt: Prisma.sql`updated_at`,
+      id: Prisma.sql`id`,
+    })}
+  `);
+}
+
+/** The ledger row an `AdAction` was proposed from, as its provenance. */
+export type AdTargetRowEvidence = Readonly<{
+  id: string;
+  targetType: string;
+  campaignName: string | null;
+  keyword: string | null;
+  businessDate: Date;
+  lastObservedAt: Date;
+}>;
+
+/**
+ * Provenance lookup for proposed actions: the exact rows they cite, fenced to
+ * the organization. This identifies evidence already acted on; it is not a
+ * measurement read and applies no sweep gate.
+ */
+export async function readAdTargetRowEvidence(
+  tx: Prisma.TransactionClient,
+  input: { organizationId: string; ids: readonly string[] },
+): Promise<AdTargetRowEvidence[]> {
+  if (input.ids.length === 0) return [];
+  return tx.channelAdTargetDailySnapshot.findMany({
+    where: { id: { in: [...input.ids] }, organizationId: input.organizationId },
+    select: {
+      id: true,
+      targetType: true,
+      campaignName: true,
+      keyword: true,
+      businessDate: true,
+      lastObservedAt: true,
+    },
+  });
 }
 
 type KeywordCoverage = {

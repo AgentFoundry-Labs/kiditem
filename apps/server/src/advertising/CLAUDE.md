@@ -67,17 +67,17 @@ modal (`cmg-api/tableMetric` with `tableType='keyword'`), not the report grid.
   unclassified product stays `null`; consume the stored grade without deriving
   a product grade or coercing a missing/stale source to C.
 - `ChannelAdTargetDailySnapshot`, what the campaign sweep publishes, is the
-  one advertising ledger. Outside this owner it is read only through
-  `common/ad-window-facts`, whose gate is the current completed sweep, product
+  one advertising ledger. Outside its owner publication it is read only through
+  `read/ad-target-facts`, whose gate is the current completed sweep, product
   grain, no keyword rows; `npm run check:ledger-readers` fails any undeclared
   production read and inventories the remaining exact owner and legacy paths.
   A day the sweep never reported is absent, never a
   cost of zero. `ChannelListingDailySnapshot`'s ad columns are a dead rollup
   of this ledger awaiting a schema cutover; nothing writes or reads them.
-- The account-daily publication carries the account (`null` when the
-  organization has none) and the rows it published, nothing more. It is a
-  reconciliation of the sweep, not a second ad ledger; the dashboard, profit
-  and readiness read the sweep.
+- Account totals are sums of the campaign sweep's target rows; there is no
+  separate account-day KPI collection. A provider grid without conversion
+  columns stores 0 with an unobserved stamp, and readers publish that count as
+  `null`, so no conversion rule fires on it.
 - Revenue, operating-profit contribution, rank, and cumulative share are
   reporting metrics only; none changes the absolute ABC grade.
 - Reach Channels through its exported port rather than concrete services.
@@ -91,3 +91,6 @@ modal (`cmg-api/tableMetric` with `tableType='keyword'`), not the report grid.
   `externalId` to a Coupang `ChannelListing`; preserve unmatched raw evidence.
 - Build target keys only with `buildAdTargetKey()` and return an error when no
   stable identifier exists.
+- A margin is measurable only from recipe × Sellpia purchase price and the
+  Channels `channelAccountSalesCosts` rule; option cost columns are not inputs,
+  and an unknown cost leaves the margin `null`.

@@ -84,8 +84,6 @@ describe('AdStrategy flow (PG integration)', () => {
     sellableStock?: number | null;
     costPrice?: number | null;
     sellPrice?: number | null;
-    commissionRate?: number | null;
-    shippingCost?: number | null;
     suffix: string;
   }) {
     const channelAccount =
@@ -158,9 +156,6 @@ describe('AdStrategy flow (PG integration)', () => {
         listingId: listing.id,
         externalOptionId: `VI-${params.suffix}`,
         salePrice: params.sellPrice ?? 20000,
-        costPriceOverride: params.costPrice ?? 5000,
-        commissionRate: params.commissionRate ?? 0.1,
-        shippingCost: params.shippingCost ?? 2500,
         lastImportRunId: importRun.id,
         isActive: true,
       },
@@ -189,6 +184,7 @@ describe('AdStrategy flow (PG integration)', () => {
     clicks?: number;
     impressions?: number;
     conversions?: number;
+    conversionsObserved?: boolean;
   }) {
     const date = new Date();
     date.setDate(date.getDate() - (params.daysAgo ?? 0));
@@ -202,6 +198,7 @@ describe('AdStrategy flow (PG integration)', () => {
       clicks: params.clicks ?? 0,
       impressions: params.impressions ?? 0,
       conversions: params.conversions ?? 0,
+      conversionsObserved: params.conversionsObserved,
     });
   }
 
@@ -322,7 +319,10 @@ describe('AdStrategy flow (PG integration)', () => {
       const aAction = rules.recommendations.find((row) => row.listing.listingId === a.listing.id);
       expect(aAction?.grade).toBe('A');
       expect(aAction?.priority).toBe('high');
-      expect(aAction?.proposedValue).toBe(20);
+      // The listing is on a Coupang Wing account, whose sales commission has no
+      // measured source (KID-114): its profit rate is unknown, so no rate is
+      // proposed.
+      expect(aAction?.proposedValue).toBeNull();
       expect(rules.summary.totalActions).toBe(rules.recommendations.length);
       expect(rules.summary.urgentCount).toBe(
         rules.recommendations.filter((r) => r.priority === 'urgent').length,
@@ -478,6 +478,51 @@ describe('AdStrategy flow (PG integration)', () => {
       expect(plan.top20[0].traffic).toEqual({ revenue: 123_456, orders: 7 });
     });
 
+    it('전환 컬럼 미관측이면 C-5 안 냄 — an unobserved conversion column raises no zero-conversion action or issue', async () => {
+      const unobserved = await seedGradedListing({
+        organizationId: TEST_ORGANIZATION_ID,
+        abcGrade: 'B',
+        suffix: 'C5-UNOBSERVED',
+      });
+      const observed = await seedGradedListing({
+        organizationId: TEST_ORGANIZATION_ID,
+        abcGrade: 'B',
+        suffix: 'C5-OBSERVED',
+      });
+      await seedAd({
+        organizationId: TEST_ORGANIZATION_ID,
+        listingId: unobserved.listing.id,
+        spend: 8_000,
+        revenue: 20_000,
+        clicks: 80,
+        impressions: 8_000,
+        conversions: 0,
+        conversionsObserved: false,
+      });
+      await seedAd({
+        organizationId: TEST_ORGANIZATION_ID,
+        listingId: observed.listing.id,
+        spend: 8_000,
+        revenue: 20_000,
+        clicks: 80,
+        impressions: 8_000,
+        conversions: 0,
+      });
+
+      const plan = await service.getWeeklyPlan('14d', TEST_ORGANIZATION_ID);
+
+      const actionFor = (listingId: string) =>
+        plan.actions.find((action) => action.listing.listingId === listingId);
+      expect(actionFor(unobserved.listing.id)?.reason ?? '').not.toContain('전환 0');
+      expect(actionFor(observed.listing.id)).toMatchObject({ priority: 'urgent' });
+      expect(actionFor(observed.listing.id)?.reason).toContain('전환 0');
+      expect(plan.issues.zeroConversion.map((issue) => issue.listing.listingId)).toEqual([
+        observed.listing.id,
+      ]);
+      const top = plan.top20.find((item) => item.listing.listingId === unobserved.listing.id);
+      expect(top?.metrics).toMatchObject({ conversions: null, cvr: null });
+    });
+
     it('withholds traffic rows outside the owner-declared population coverage', async () => {
       const measured = await seedGradedListing({
         organizationId: TEST_ORGANIZATION_ID,
@@ -519,13 +564,6 @@ describe('AdStrategy flow (PG integration)', () => {
         (row) => row.listing.listingId === measured.listing.id,
       );
       expect(measuredTopRow?.traffic).toBeNull();
-
-      const exposure = await service.getExposureAnalysis(TEST_ORGANIZATION_ID);
-      const measuredExposure = exposure.scores.find(
-        (score) => score.listing.listingId === measured.listing.id,
-      );
-      expect(measuredExposure?.factors.find((factor) => factor.factor === 'sales')?.score)
-        .toBe(0);
     });
   });
 
@@ -598,113 +636,6 @@ describe('AdStrategy flow (PG integration)', () => {
       expect(recs[0]).toHaveProperty('listing');
       expect(recs[0]).toHaveProperty('title');
       expect(recs[0]).toHaveProperty('body');
-    });
-  });
-
-  describe('getExposureAnalysis', () => {
-    it('#5 점수 집계 + factor shape', async () => {
-      const listing = await seedGradedListing({
-        organizationId: TEST_ORGANIZATION_ID,
-        abcGrade: 'A',
-        adTier: '1차',
-        healthScore: 80,
-        costPrice: 5000,
-        sellPrice: 20000,
-        commissionRate: 0.1,
-        shippingCost: 2500,
-        suffix: 'EXP-A',
-      });
-
-      await seedAd({
-        organizationId: TEST_ORGANIZATION_ID,
-        listingId: listing.listing.id,
-        optionId: listing.option.id,
-        spend: 10000,
-        revenue: 60000,
-        clicks: 100,
-        impressions: 10000,
-        conversions: 10,
-      });
-
-      // Review seed (listingId 필수)
-      await prisma.review.createMany({
-        data: Array.from({ length: 25 }, (_, i) => ({
-          organizationId: TEST_ORGANIZATION_ID,
-          listingId: listing.listing.id,
-          platform: 'coupang',
-          rating: 5,
-          reviewedAt: new Date(Date.now() - i * 24 * 3600 * 1000),
-        })),
-      });
-
-      // Traffic is its own ledger row on `ChannelListingDailySnapshot`; the ad
-      // facts seeded above live in the target-day ledger.
-      const todayUpdate = new Date();
-      todayUpdate.setHours(0, 0, 0, 0);
-      await prisma.channelListingDailySnapshot.create({
-        data: {
-          organizationId: TEST_ORGANIZATION_ID,
-          listingId: listing.listing.id,
-          channel: 'coupang',
-          externalId: listing.listing.externalId,
-          businessDate: todayUpdate,
-          trafficRevenue: 500000,
-          trafficOrders: 30,
-          trafficVisitors: 1000,
-          trafficViews: 3000,
-        },
-      });
-
-      const result = await service.getExposureAnalysis(TEST_ORGANIZATION_ID);
-
-      expect(result.scores.length).toBe(1);
-      const score = result.scores[0];
-      expect(score.listing.listingId).toBe(listing.listing.id);
-      expect(score.grade).toBe('A');
-      expect(score.factors).toHaveLength(5);
-      // factor keys
-      const factorKeys = score.factors.map((f) => f.factor).sort();
-      expect(factorKeys).toEqual(['ad', 'fulfillment', 'info', 'review', 'sales']);
-      // weight 합 1.0
-      const weightSum = score.factors.reduce((s, f) => s + f.weight, 0);
-      expect(weightSum).toBeCloseTo(1.0, 2);
-      expect(score.totalScore).toBeGreaterThan(0);
-      expect(score.totalScore).toBeLessThanOrEqual(100);
-    });
-
-    it('#6 urgentActions: factor score <30 listing 만 추출', async () => {
-      // 점수 낮은 listing: 리뷰 0, 광고 있으나 ROAS 낮음
-      const weak = await seedGradedListing({
-        organizationId: TEST_ORGANIZATION_ID,
-        abcGrade: 'C',
-        healthScore: 10,
-        sellableStock: 0,
-        costPrice: 10000,
-        sellPrice: 12000,
-        commissionRate: 0.1,
-        shippingCost: 3000,
-        suffix: 'EXP-WEAK',
-      });
-
-      await seedAd({
-        organizationId: TEST_ORGANIZATION_ID,
-        listingId: weak.listing.id,
-        optionId: weak.option.id,
-        spend: 100000,
-        revenue: 10000,
-        clicks: 500,
-        impressions: 100000,
-        conversions: 2,
-      });
-
-      const result = await service.getExposureAnalysis(TEST_ORGANIZATION_ID);
-
-      expect(result.urgentActions.length).toBeGreaterThanOrEqual(1);
-      const urgent = result.urgentActions.find(
-        (u) => u.listing.listingId === weak.listing.id,
-      );
-      expect(urgent).toBeDefined();
-      expect(urgent?.suggestedAction).toBeTruthy();
     });
   });
 
@@ -881,10 +812,6 @@ describe('AdStrategy flow (PG integration)', () => {
 
       expect(plan.actions).toHaveLength(1);
       expect(plan.actions[0].listing.listingId).toBe(own.listing.id);
-
-      const exposure = await service.getExposureAnalysis(TEST_ORGANIZATION_ID);
-      expect(exposure.scores).toHaveLength(1);
-      expect(exposure.scores[0].listing.listingId).toBe(own.listing.id);
     });
   });
 
@@ -1044,9 +971,6 @@ describe('AdStrategy flow (PG integration)', () => {
           listingId: a.listing.id,
           externalOptionId: 'VI-C4-MULTI-EARLY',
           salePrice: 20000,
-          costPriceOverride: 5000,
-          commissionRate: 0.1,
-          shippingCost: 2500,
           lastImportRunId: a.listing.lastImportRunId,
           isActive: true,
           createdAt: new Date('2026-04-01T00:00:00.000Z'),

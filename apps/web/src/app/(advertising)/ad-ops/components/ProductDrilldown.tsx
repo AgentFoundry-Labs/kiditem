@@ -195,11 +195,11 @@ export function ProductDrilldown({ campaign, period }: Props) {
                     <td className="text-right">{formatKRW(p.metrics.revenue)}원</td>
                     <td className="text-right">{formatNumber(p.metrics.impressions)}회</td>
                     <td className="text-right">{formatNumber(p.metrics.clicks)}회</td>
-                    <td className="text-right">{(p.metrics.ctr ?? 0).toFixed(2)}%</td>
+                    <td className="text-right">{p.metrics.ctr !== null ? `${p.metrics.ctr.toFixed(2)}%` : '-'}</td>
                     <td className="text-right">{formatNumber(p.metrics.conversions)}회</td>
-                    <td className="text-right">{(p.metrics.cvr ?? 0).toFixed(2)}%</td>
-                    <td className={cn('text-right font-semibold', roasColor(p.metrics.roas ?? 0, roasT))}>
-                      {p.metrics.roas ?? 0}%
+                    <td className="text-right">{p.metrics.cvr !== null ? `${p.metrics.cvr.toFixed(2)}%` : '-'}</td>
+                    <td className={cn('text-right font-semibold', p.metrics.roas !== null && roasColor(p.metrics.roas, roasT))}>
+                      {p.metrics.roas !== null ? `${p.metrics.roas}%` : '-'}
                     </td>
                   </tr>
                 ))}

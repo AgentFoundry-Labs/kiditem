@@ -1,7 +1,6 @@
 import type {
   AdAggregateRow,
   HydratedListing,
-  ListingMetricsRow,
 } from './model/strategy-types';
 import { periodBounds } from './ad-metrics';
 import { businessDateKey, kstBusinessDate } from '../../common/kst';
@@ -62,7 +61,10 @@ export function toGradeMapStrict(
   return out;
 }
 
-/** Per-listing measured ad facts → AdAggregateRow[]. */
+/**
+ * Per-listing measured ad facts → AdAggregateRow[]. A conversion count the
+ * provider grid never carried is `null`, not the ledger's stored 0.
+ */
 export function toAdAggregateRows(
   rows: ReadonlyArray<{
     listingId: string;
@@ -71,6 +73,7 @@ export function toAdAggregateRows(
     clicks: number;
     impressions: number;
     conversions: number;
+    conversionsObserved: boolean;
   }>,
 ): AdAggregateRow[] {
   return rows.map((r) => ({
@@ -79,19 +82,7 @@ export function toAdAggregateRows(
     revenue: r.revenue,
     clicks: r.clicks,
     impressions: r.impressions,
-    conversions: r.conversions,
-  }));
-}
-
-/** AdAggregateRow → calcSnapshotKeyMetrics expects a flat snapshot shape. */
-export function adAggregatesToMetricSnapshots(adGroups: AdAggregateRow[]) {
-  return adGroups.map((g) => ({
-    listingId: g.listingId,
-    spend: g.spend,
-    revenue: g.revenue,
-    clicks: g.clicks,
-    impressions: g.impressions,
-    conversions: g.conversions,
+    conversions: r.conversionsObserved ? r.conversions : null,
   }));
 }
 
@@ -128,38 +119,4 @@ export function applyChannelSkuAvailability(
       },
     };
   });
-}
-
-/**
- * primary option profitRate (% scale). Mirrors the calcOptionProfitRate logic
- * from the original ad-strategy.service. Note this is `× 100` for display,
- * unlike ad-grade-rules which uses a 0..1 ratio internally.
- */
-export function computeListingProfitRate(option: HydratedListing['primaryOption']): number {
-  if (!option) return 0;
-  const sell = option.salePrice ?? 0;
-  if (sell <= 0) return 0;
-  // Unknown cost is neutral for exposure scoring; treating it as free stock
-  // would incorrectly boost the product as highly profitable.
-  if (option.purchaseCost == null) return 0;
-  const cost = option.purchaseCost;
-  const commission = option.commissionRate != null ? Number(option.commissionRate) : 0;
-  return Math.round(((sell - cost - sell * commission) / sell) * 100);
-}
-
-/** Zero-metrics row for listings without ad snapshots. */
-export function emptyMetrics(listingId: string): ListingMetricsRow {
-  return {
-    listingId,
-    metrics: {
-      spend: 0,
-      revenue: 0,
-      clicks: 0,
-      impressions: 0,
-      conversions: 0,
-      ctr: null,
-      roas: null,
-      cvr: null,
-    },
-  } satisfies ListingMetricsRow;
 }

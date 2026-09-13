@@ -10,33 +10,20 @@ vi.mock("@/lib/api-client", () => ({
   apiClient: { get: mockApiGet },
 }));
 
-const emptyTrends = {
+const emptyTrends: AdTrendsData = {
   knownThrough: "2026-07-23",
+  from: "2026-07-10",
+  to: "2026-07-23",
   daily: [],
-  accountDaily: [],
-  accountSummary: null,
-  firstHalf: {
-    spend: 0,
-    revenue: 0,
-    impressions: 0,
-    clicks: 0,
-    conversions: 0,
-    roas: 0,
-    ctr: 0,
-    cvr: 0,
+  summary: {
+    source: "unavailable",
+    periodDayCount: 0,
+    latestBusinessDate: null,
+    observedAt: null,
+    metrics: null,
+    orders: null,
   },
-  secondHalf: {
-    spend: 0,
-    revenue: 0,
-    impressions: 0,
-    clicks: 0,
-    conversions: 0,
-    roas: 0,
-    ctr: 0,
-    cvr: 0,
-  },
-  gradeBudget: { A: 0, B: 0, C: 0 },
-} as AdTrendsData;
+};
 
 function shiftDate(dateKey: string, days: number): string {
   const date = new Date(`${dateKey}T00:00:00.000Z`);

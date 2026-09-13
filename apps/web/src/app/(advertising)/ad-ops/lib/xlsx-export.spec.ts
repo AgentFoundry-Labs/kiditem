@@ -71,7 +71,32 @@ describe('Advertising server XLSX export bridge', () => {
     expect(downloadBlob).toHaveBeenCalledWith(expect.anything(), 'trend.xlsx');
   });
 
-  it('surfaces a server conversion failure without downloading a partial file', async () => {
+  it('sends an unmeasured trend value as null so the workbook cell stays empty', async () => {
+    vi.mocked(apiClient.fetchRaw).mockResolvedValue(
+      new Response(new Uint8Array([120, 108, 115, 120]), { status: 200 }),
+    );
+
+    await exportTrendXlsx({
+      period: '7d',
+      leftMetric: 'spend',
+      rightMetric: 'roas',
+      leftLabel: '집행 광고비',
+      rightLabel: '광고 수익률(ROAS)',
+      points: [{
+        businessDate: '2026-07-31',
+        axisLabel: '07/31(금)',
+        leftValue: null,
+        rightValue: 0,
+      }],
+    });
+
+    const body = JSON.parse(
+      String(vi.mocked(apiClient.fetchRaw).mock.calls[0]![1]!.body),
+    ) as { points: Array<{ leftValue: number | null; rightValue: number | null }> };
+    expect(body.points[0]).toMatchObject({ leftValue: null, rightValue: 0 });
+  });
+
+    it('surfaces a server conversion failure without downloading a partial file', async () => {
     vi.mocked(apiClient.fetchRaw).mockResolvedValue(
       new Response(JSON.stringify({ message: '광고 데이터가 유효하지 않습니다.' }), {
         status: 400,

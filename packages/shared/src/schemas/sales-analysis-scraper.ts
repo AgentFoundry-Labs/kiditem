@@ -24,8 +24,8 @@ const RangeSchema = z.object({
  *
  * - `wing`: `ChannelListingDailySnapshot.traffic*` 가 들어 있는 KST businessDate
  *   범위 + 마지막 관측 시각.
- * - `ads`: `ChannelAccountDailyKpiSnapshot(kpiType='coupang_ads_daily')` 일자
- *   범위 + 그 범위 안에서 비어 있는 KST businessDate 목록.
+ * - `ads`: 쿠팡 광고 캠페인 sweep 이 선언한 창에서 측정된 KST businessDate
+ *   범위 + Wing 범위 안에서 측정되지 않은 KST businessDate 목록.
  * - `orders`: `Order.orderedAt` 범위. Drive replay 데이터에는 0 건일 수 있어서
  *   화면이 비어 있을 때 사용자가 이유를 알 수 있도록 명시한다.
  */

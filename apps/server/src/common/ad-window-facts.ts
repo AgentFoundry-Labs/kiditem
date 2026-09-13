@@ -8,10 +8,8 @@ export {
   readAdWindowFacts,
   readLatestAdDate,
   readListingAdWindowFacts,
-  readListingDayAdFacts,
 } from '../advertising/read/ad-target-facts';
 export type {
-  AdListingDayFacts,
   AdListingWindowFacts,
   AdWindowDay,
   AdWindowFacts,

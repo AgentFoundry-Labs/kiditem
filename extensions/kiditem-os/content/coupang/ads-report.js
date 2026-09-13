@@ -1237,82 +1237,6 @@
     };
   }
 
-  function accountDailyKpiAttempt(control) {
-    return control || null;
-  }
-
-  function accountDailyKpiSourceStep(control, body) {
-    const attempt = accountDailyKpiAttempt(control);
-    if (!attempt?.attemptId || attempt.state !== "RUNNING" ||
-      Date.now() >= Date.parse(attempt.expiresAt)) {
-      return Promise.reject(Object.assign(new Error("유효한 광고 계정 일별 KPI 수집 허가가 필요합니다."), {
-        code: "SOURCE_ATTEMPT_UNAVAILABLE",
-      }));
-    }
-    return new Promise((resolve, reject) => {
-      chrome.runtime.sendMessage({
-        action: "advertisingAccountDailyKpiSourceStep",
-        attemptId: attempt.attemptId,
-        step: "receipt",
-        body,
-      }, (response) => {
-        if (chrome.runtime.lastError || !response?.success) {
-          reject(Object.assign(new Error(
-            response?.error || chrome.runtime.lastError?.message || "광고 계정 일별 KPI owner 전송 실패",
-          ), { code: response?.errorCode || "SOURCE_OWNER_UNAVAILABLE" }));
-          return;
-        }
-        resolve(response);
-      });
-    });
-  }
-
-  async function syncTargetDateDaily(
-    targetDate,
-    normalizedRows,
-    kpis,
-    accountDailyKpiControl = null,
-    explicitEmpty = false,
-  ) {
-    const dailyRow = buildCoupangAdsDailyRow(targetDate, normalizedRows, kpis, {
-      explicitEmpty,
-    });
-    if (!accountDailyKpiControl) {
-      return {
-        response: {
-          success: false,
-          errorCode: "SOURCE_ATTEMPT_UNAVAILABLE",
-          error: "광고 계정 일별 KPI owner 수집 허가가 필요합니다.",
-        },
-        dailyRow,
-      };
-    }
-    const providerAdvertiserId = observedKeywordAdvertiser(accountDailyKpiControl);
-    const observedAt = new Date().toISOString();
-    const rawJson = {
-      type: "coupang_ads_daily",
-      source: "coupang_ads",
-      period: "1d",
-      startDate: targetDate,
-      endDate: targetDate,
-      dateFrom: targetDate,
-      dateTo: targetDate,
-      data: [dailyRow],
-      kpis,
-      url: window.location.href,
-      title: document.title,
-      timestamp: observedAt,
-    };
-    const response = await accountDailyKpiSourceStep(accountDailyKpiControl, {
-      businessDate: targetDate,
-      observedAt,
-      providerAdvertiserId,
-      rawJson,
-      normalized: dailyRow,
-    });
-    return { response, dailyRow };
-  }
-
   // ════════════════════════════════════════════════════════════════════
   // 상품별 광고 키워드 수집 ("키워드 보기" 모달)
   //
@@ -2265,40 +2189,7 @@
     return confirmed;
   }
 
-  function validateAccountDailyTargetDate(explicitTargetDate, control) {
-    if (explicitTargetDate === null || explicitTargetDate === undefined ||
-      (typeof explicitTargetDate === "string" && explicitTargetDate.trim() === "")) {
-      throw Object.assign(
-        new Error("광고 계정 일별 KPI owner가 동결한 targetDate가 필요합니다."),
-        { code: "SOURCE_TARGET_DATE_REQUIRED" },
-      );
-    }
-    const targetDate = typeof explicitTargetDate === "string"
-      ? explicitTargetDate.trim()
-      : "";
-    if (!parseBusinessYmd(targetDate)) {
-      throw Object.assign(
-        new Error("광고 계정 일별 KPI targetDate 형식이 유효하지 않습니다."),
-        { code: "SOURCE_TARGET_DATE_INVALID" },
-      );
-    }
-    const planDates = Array.isArray(control?.plan?.businessDates)
-      ? control.plan.businessDates
-      : [];
-    if (!planDates.includes(targetDate)) {
-      throw Object.assign(
-        new Error("광고 계정 일별 KPI targetDate가 source owner 계획과 다릅니다."),
-        { code: "SOURCE_TARGET_DATE_OUT_OF_PLAN" },
-      );
-    }
-    return targetDate;
-  }
-
-  async function doSync(
-    accountDailyKpiControl = null,
-    campaignControl = null,
-    explicitTargetDate = null,
-  ) {
+  async function doSync(campaignControl = null) {
     const manualCampaignControl = campaignControl?.plan?.captureMode === "manual_report"
       ? campaignControl
       : null;
@@ -2306,7 +2197,7 @@
       activeCampaignControl = manualCampaignControl;
       await campaignSourceStep("resume");
     }
-    if (!manualCampaignControl && !accountDailyKpiControl) {
+    if (!manualCampaignControl) {
       return {
         success: false,
         complete: false,
@@ -2317,18 +2208,10 @@
     // 로그인 화면에 떨어졌으면 날짜 피커를 만지기 전에 자동 로그인/재개로 넘긴다.
     const loginHandoff = advertisingLoginHandoffResponse();
     if (loginHandoff) return loginHandoff;
-    // Account-daily KPI collection is owner-controlled one day at a time. The
-    // dashboard can drop the URL hash while hydrating its SPA, so this path
-    // must use the date carried by the owner message and never fall back to
-    // the default seven-day report.
-    const accountDailyTargetDate = accountDailyKpiControl && !manualCampaignControl
-      ? validateAccountDailyTargetDate(explicitTargetDate, accountDailyKpiControl)
-      : null;
-    // A manual report keeps its existing plan/hash behavior. Other explicit
-    // target-date pages retain the legacy hash behavior for non-owner callers.
+    // A manual report keeps its existing plan/hash behavior.
     const targetDate = manualCampaignControl?.plan?.period === "1d"
       ? manualCampaignControl.plan.startDate
-      : accountDailyTargetDate || getTargetDateFromHash();
+      : getTargetDateFromHash();
     if (targetDate) {
       showBadge(`📅 ${targetDate} 날짜 설정 중...`, "#6366f1");
       const ok = await setDateRange(targetDate);
@@ -2411,7 +2294,7 @@
 
     if (targetDate && collection.explicitEmpty) {
       // 명시적 empty-state와 비영(非零) additive KPI가 동시에 보이면 widget이
-      // 이전 기간 값을 유지한 모순 상태다. 이 경우 ad_campaign/daily 모두 저장하지 않는다.
+      // 이전 기간 값을 유지한 모순 상태다. 이 경우 ad_campaign을 저장하지 않는다.
       const emptyKpiEvidence = evaluateExplicitEmptyDailyKpis(kpis);
       if (!emptyKpiEvidence.consistent) {
         const error = `explicit_empty_kpi_contradiction:${emptyKpiEvidence.nonZeroMetrics.join(",")}`;
@@ -2429,38 +2312,6 @@
     }
 
     const kpiCount = Object.keys(kpis).length;
-    if (targetDate && accountDailyKpiControl && !manualCampaignControl) {
-      const { response: dailyJson } = await syncTargetDateDaily(
-        targetDate,
-        aggregatedNormalized,
-        kpis,
-        accountDailyKpiControl,
-        collection.explicitEmpty,
-      );
-      if (dailyJson?.success) {
-        chrome.storage.local.set({ kiditem_last_sync_ads: { time: Date.now(), count: kpiCount + aggregatedRaw.length } });
-        showBadge(`✅ 광고 데이터 ${kpiCount + aggregatedRaw.length}건 (${totalPages}p) 동기화 완료`, "#22c55e");
-        return {
-          success: true,
-          type: "ads",
-          count: kpiCount + aggregatedRaw.length,
-          pages: totalPages,
-          expectedPages: totalPages,
-          visitedPages: collection.visitedPages,
-          complete: true,
-          error: null,
-        };
-      }
-      return {
-        success: false,
-        complete: true,
-        expectedPages: collection.expectedPages,
-        visitedPages: collection.visitedPages,
-        error: dailyJson?.error || "광고 계정 일별 KPI 저장 실패",
-        errorCode: dailyJson?.errorCode,
-      };
-    }
-
     const total = kpiCount + aggregatedRaw.length;
 
     if (manualCampaignControl) {
@@ -2515,26 +2366,6 @@
           error: error?.message || "광고 manual report owner 저장 실패",
           errorCode: error?.code,
         };
-      }
-      if (targetDate && accountDailyKpiControl) {
-        const { response: dailyJson } = await syncTargetDateDaily(
-          targetDate,
-          aggregatedNormalized,
-          kpis,
-          accountDailyKpiControl,
-          collection.explicitEmpty,
-        );
-        if (!dailyJson?.success) {
-          return {
-            success: false,
-            complete: true,
-            campaignReceipt: { complete: true },
-            expectedPages: collection.expectedPages,
-            visitedPages: collection.visitedPages,
-            error: dailyJson?.error || "광고 계정 일별 KPI 저장 실패",
-            errorCode: dailyJson?.errorCode,
-          };
-        }
       }
       chrome.storage.local.set({ kiditem_last_sync_ads: { time: Date.now(), count: total } });
       showBadge(`✅ 광고 데이터 ${total}건 (${totalPages}p) owner 저장 완료`, "#22c55e");
@@ -3464,8 +3295,7 @@
   // 상세로 들어가면 인식된 그리드에 상품 행이 0이라 31일 하루씩 돌아도 진척이
   // 없고, 라이브 실증 결과 sweep 이 이 캠페인(대시보드 2번째)에서 "진행 31/279
   // 같은 위치에서 반복되어 중단"으로 계속 막혔다. 이름으로 감지해 상세 진입/resume
-  // 없이 대시보드에서 roster 만 저장하고 넘어간다. 집행비는 일별 집계
-  // (coupang_ads_daily=광고 성과)에 따로 잡히므로 매출 데이터 손실은 없다.
+  // 없이 대시보드에서 roster 만 저장하고 넘어간다.
   function isAutomatedNoDetailCampaign(campaign) {
     const name = normalizeText(campaign?.name || "");
     return /AI\s*스마트\s*광고|\(\s*HUB\s*\)/i.test(name);
@@ -5683,10 +5513,6 @@
     return syncMode === "profitability_report";
   }
 
-  function shouldRunAccountDailyKpi(syncMode = null) {
-    return syncMode === "account_daily_kpi";
-  }
-
   function shouldRunManualCampaignReport(syncMode = null) {
     return syncMode === "campaign_manual_report";
   }
@@ -5711,21 +5537,13 @@
           })
         : shouldRunKeywordSweep(syncMode)
         ? runKeywordSweep(profitabilityInput?.keywordControl)
-        : shouldRunAccountDailyKpi(syncMode)
-          ? profitabilityInput?.accountDailyKpiControl
-            ? doSync(
-              profitabilityInput.accountDailyKpiControl,
-              null,
-              profitabilityInput.targetDate,
-            )
-            : Promise.resolve({ success: false, error: "account_daily_kpi_control_missing" })
         : shouldRunManualCampaignReport(syncMode)
           ? profitabilityInput?.campaignControl
-            ? doSync(profitabilityInput?.accountDailyKpiControl || null, profitabilityInput.campaignControl)
+            ? doSync(profitabilityInput.campaignControl)
             : Promise.resolve({ success: false, error: "campaign_control_missing" })
         : shouldRunDashboardSweep(syncMode)
           ? runDashboardSweep(profitabilityInput?.campaignControl)
-          : doSync(profitabilityInput?.accountDailyKpiControl || null, profitabilityInput?.campaignControl || null);
+          : doSync(profitabilityInput?.campaignControl || null);
       currentSync = job.finally(() => {
         currentSync = null;
       });
@@ -5838,9 +5656,7 @@
     savePendingCampaignNavigation,
     sleep,
     shouldRunDashboardSweep,
-    shouldRunAccountDailyKpi,
     shouldRunProfitabilityReport,
-    validateAccountDailyTargetDate,
     unresolvedCampaignWorkKeys,
     withCollectionRunId,
   });
@@ -5905,8 +5721,6 @@
           profitabilityAccount: msg.profitabilityAccount,
           keywordControl: msg.keywordControl,
           campaignControl: msg.campaignControl,
-          accountDailyKpiControl: msg.accountDailyKpiControl,
-          targetDate: msg.targetDate,
         })
           .then((result) => sendResponse(result))
           .catch((error) =>
@@ -5946,8 +5760,6 @@
         profitabilityAccount: msg.profitabilityAccount,
         keywordControl: msg.keywordControl,
         campaignControl: msg.campaignControl,
-        accountDailyKpiControl: msg.accountDailyKpiControl,
-        targetDate: msg.targetDate,
       })
         .then((result) => sendResponse(result))
         .catch((error) =>

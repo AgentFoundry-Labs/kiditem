@@ -44,7 +44,7 @@ const READINESS_CATALOG_COMPLETE_SOURCE_TYPES = [
  *
  * Schema mapping (main 의 ChannelScrape* 계층):
  *  - 일별 매출 → SellpiaSalesDailySnapshot (셀피아 판매현황 수집 결과)
- *  - 쿠팡 광고 일별 → Advertising source owner's published daily KPI rows
+ *  - 쿠팡 광고 일별 → 캠페인 sweep이 선언한 창 (광고 target-일 원장 리더)
  *  - Wing 판매순위 → CoupangWingSalesRankDailySnapshot
  *  - 상품 마스터 → MasterProduct
  *
@@ -225,7 +225,7 @@ export class ReadinessService {
     const sellpiaSortedDates = [...sellpiaPresent].sort();
     const sellpiaActualCutoff = sellpiaSortedDates[sellpiaSortedDates.length - 1] ?? null;
 
-    // coupang_ads 일별 수집
+    // coupang_ads — 캠페인 sweep 선언 창의 영업일
     const adsPresent = new Set((adsDailyKpiPublished?.days ?? []).map((r) => r.businessDate));
     const adsMissing = adsExpectedDates.filter((d) => !adsPresent.has(d));
     const adsYesterdayOk = adsPresent.has(yesterdayKstStr);
@@ -283,7 +283,7 @@ export class ReadinessService {
           asOf: adsActualCutoff,
           requiredAsOf: yesterdayKstStr,
           observedAt: adsLastDate,
-          sources: ['advertising_daily_kpi'],
+          sources: ['coupang_ads'],
           measured: adsPresent.size > 0,
           withheldCount: adsMissing.length,
         }),
@@ -297,7 +297,7 @@ export class ReadinessService {
         count: adsPresent.size,
         collector: 'extension',
         collectEndpoint: null,
-        // The source owner computes its missing-day plan at begin time. Keep
+        // The campaign sweep owner plans its own window at begin time. Keep
         // provider URLs out of this check so generic session controls cannot
         // start an unowned ads collection.
         scrapeUrls: null,

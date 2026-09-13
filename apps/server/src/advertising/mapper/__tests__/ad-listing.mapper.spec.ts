@@ -13,6 +13,7 @@ describe('mappers/ad-listing — HydratedListing → AdListingSummary', () => {
       id: 'L1',
       externalId: 'EXT-1',
       channelName: '쿠팡상품',
+      channel: 'coupang',
       masterProduct: {
         id: 'M1',
         code: 'M-00001',
@@ -38,6 +39,7 @@ describe('mappers/ad-listing — HydratedListing → AdListingSummary', () => {
       id: 'L2',
       externalId: 'EXT-2',
       channelName: null,
+      channel: 'coupang',
       masterProduct: {
         id: 'M2',
         code: 'M-00002',

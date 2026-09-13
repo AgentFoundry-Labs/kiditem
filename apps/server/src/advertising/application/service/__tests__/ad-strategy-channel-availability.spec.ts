@@ -9,6 +9,7 @@ describe('AdStrategyService ChannelSku availability', () => {
       id: '11111111-1111-4111-8111-111111111111',
       externalId: 'EXT-1',
       channelName: '쿠팡 상품',
+      channel: 'coupang',
       masterProduct: {
         id: '22222222-2222-4222-8222-222222222222',
         code: 'M-1',
@@ -22,8 +23,6 @@ describe('AdStrategyService ChannelSku availability', () => {
         sellableStock: null,
         purchaseCost: null,
         salePrice: null,
-        commissionRate: 0.1,
-        shippingCost: 2500,
       },
     } as const;
     const strategyContextRepo = {
@@ -56,10 +55,8 @@ describe('AdStrategyService ChannelSku availability', () => {
       strategyContextRepo,
       {},
       {},
-      {},
       { getConfig: vi.fn().mockResolvedValue({}) },
       adGradeRules,
-      {},
       {},
       {},
       availabilityPort,

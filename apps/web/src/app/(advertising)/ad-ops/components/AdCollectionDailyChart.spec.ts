@@ -1,88 +1,84 @@
 import { describe, expect, it } from "vitest";
-import type { AdTrendsData } from "@kiditem/shared/advertising";
+import type { AdMeasuredMetrics, AdTrendsData } from "@kiditem/shared/advertising";
 import {
   buildCollectionChartPoints,
   enumerateDateKeys,
   isCustomRangeInvalid,
   presetDateRange,
   selectableRangeEndDate,
-  selectCollectionRows,
 } from "./AdCollectionDailyChart";
 
-function metrics(spend: number, revenue: number) {
+function metrics(spend: number, revenue: number): AdMeasuredMetrics {
   return {
     spend,
     revenue,
     impressions: 0,
     clicks: 0,
-    conversions: 0,
-    roas: spend > 0 ? (revenue / spend) * 100 : 0,
-    ctr: 0,
-    cvr: 0,
+    conversions: null,
+    roas: spend > 0 ? (revenue / spend) * 100 : null,
+    ctr: null,
+    cvr: null,
   };
 }
 
-function trends(overrides: Partial<AdTrendsData>): AdTrendsData {
+function trends(overrides: Partial<AdTrendsData> = {}): AdTrendsData {
   return {
     knownThrough: "2026-07-23",
+    from: "2026-07-16",
+    to: "2026-07-18",
     daily: [],
-    accountDaily: [],
-    accountSummary: null,
-    firstHalf: metrics(0, 0),
-    secondHalf: metrics(0, 0),
-    gradeBudget: { A: 0, B: 0, C: 0 },
+    summary: {
+      source: "coupang_ads",
+      periodDayCount: 1,
+      latestBusinessDate: "2026-07-16",
+      observedAt: "2026-07-17T00:00:00.000Z",
+      metrics: metrics(0, 0),
+      orders: null,
+    },
     ...overrides,
-  } as AdTrendsData;
+  };
 }
 
 describe("AdCollectionDailyChart data model", () => {
-  it("uses account daily facts even when listing facts contain a positive row", () => {
-    const data = trends({
-      daily: [{ date: "2026-07-17", metrics: metrics(10, 20) }],
-      accountDaily: [
-        { date: "2026-07-16", metrics: metrics(100, 500), orders: 1 },
-        { date: "2026-07-17", metrics: metrics(200, 900), orders: 2 },
-      ],
-    });
-
-    const selected = selectCollectionRows(data);
-    expect(selected.sourceLabel).toBe("쿠팡 광고센터 계정 일별");
-    expect(selected.rows).toHaveLength(2);
-  });
-
-  it("does not treat listing facts as completed account-level collection", () => {
-    const data = trends({
-      daily: [{ date: "2026-07-17", metrics: metrics(10, 20) }],
-      accountDaily: [],
-    });
-
-    const selected = selectCollectionRows(data);
-    expect(selected.sourceLabel).toBe("광고 성과 수집 필요");
-    expect(selected.rows).toEqual([]);
-  });
-
-  it("counts a zero-metric fact as collected and leaves a missing day as a gap", () => {
-    const data = trends({
-      accountDaily: [
-        { date: "2026-07-16", metrics: metrics(0, 0), orders: 0 },
-      ],
-    });
-    const chart = buildCollectionChartPoints(data, [
-      "2026-07-16",
-      "2026-07-17",
-    ]);
+  it("counts a measured zero day as collected and keeps an unmeasured day as a hole", () => {
+    const chart = buildCollectionChartPoints(
+      trends({
+        daily: [
+          { date: "2026-07-16", metrics: metrics(0, 0), orders: 0 },
+          { date: "2026-07-17", metrics: null, orders: null },
+        ],
+      }),
+      ["2026-07-16", "2026-07-17", "2026-07-18"],
+    );
 
     expect(chart.collectedCount).toBe(1);
-    expect(chart.points[0]).toMatchObject({
-      collected: true,
-      spend: 0,
-      revenue: 0,
-    });
-    expect(chart.points[1]).toMatchObject({
-      collected: false,
-      spend: null,
-      revenue: null,
-    });
+    expect(chart.points).toEqual([
+      { date: "2026-07-16", label: "07-16", spend: 0, revenue: 0, roas: null, collected: true },
+      { date: "2026-07-17", label: "07-17", spend: null, revenue: null, roas: null, collected: false },
+      { date: "2026-07-18", label: "07-18", spend: null, revenue: null, roas: null, collected: false },
+    ]);
+  });
+
+  it("labels the chart source only from the server summary", () => {
+    expect(buildCollectionChartPoints(trends(), []).sourceLabel).toBe(
+      "쿠팡 광고 캠페인 합산 · 2026-07-16까지",
+    );
+    expect(
+      buildCollectionChartPoints(
+        trends({
+          summary: {
+            source: "unavailable",
+            periodDayCount: 0,
+            latestBusinessDate: null,
+            observedAt: null,
+            metrics: null,
+            orders: null,
+          },
+        }),
+        [],
+      ).sourceLabel,
+    ).toBe("미수집");
+    expect(buildCollectionChartPoints(null, []).sourceLabel).toBe("-");
   });
 
   it("builds inclusive preset and custom date ranges", () => {
