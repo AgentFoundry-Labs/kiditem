@@ -50,7 +50,6 @@ export interface HydratedListing {
     code: string;
     name: string;
     abcGrade: 'A' | 'B' | 'C' | null;
-    adTier: string | null;
   };
   /**
    * B2b rules 평가용 primary option metadata. calcActions 는 primary option 의
@@ -114,11 +113,6 @@ export interface BudgetAllocatorInput {
   adGroups: AdAggregateRow[];
   listings: HydratedListing[];
   gradeMap: Map<string, 'A' | 'B' | 'C'>;
-}
-
-export interface TierAnalysisInput {
-  listings: HydratedListing[];
-  adGroups: AdAggregateRow[];
 }
 
 export interface Top20Input {

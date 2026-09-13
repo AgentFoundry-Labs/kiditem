@@ -64,7 +64,6 @@ describe('<ProductEditorDialog>', () => {
         displayImageUrls: ['https://cdn.example.com/channel.jpg'],
         abcGrade: null,
         profitTag: null,
-        adTier: null,
         adBudgetLimit: null,
         isActive: true,
       },
@@ -135,7 +134,6 @@ function sellpiaInternalProduct(): MasterProductOperationsMetadata {
     abcGrade: null,
     abcEvaluation: null,
     profitTag: null,
-    adTier: null,
     adBudgetLimit: null,
     isActive: true,
   };

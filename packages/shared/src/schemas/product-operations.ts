@@ -160,7 +160,6 @@ export const MasterProductOperationsMetadataSchema = z.object({
   abc: ProductAbcReadModelSchema,
   contribution: ProductAbcContributionProductSchema.nullable(),
   profitTag: z.string().nullable(),
-  adTier: z.string().nullable(),
   adBudgetLimit: z.number().int().nonnegative().nullable(),
   isActive: z.boolean(),
 }).strict();
@@ -412,7 +411,6 @@ const MasterProductMutationFieldsSchema = z.object({
   tags: z.array(z.string().trim().min(1).max(100)).max(50),
   imageUrls: z.array(z.string().trim().min(1).max(2_000)).max(50),
   profitTag: z.string().trim().min(1).max(50).nullable(),
-  adTier: z.string().trim().min(1).max(50).nullable(),
   adBudgetLimit: z.number().int().nonnegative().nullable(),
   isActive: z.boolean(),
 }).strict();
@@ -426,7 +424,6 @@ export const CreateMasterProductInputSchema = z.object({
   tags: z.array(z.string().trim().min(1).max(100)).max(50).optional(),
   imageUrls: z.array(z.string().trim().min(1).max(2_000)).max(50).optional(),
   profitTag: z.string().trim().min(1).max(50).nullable().optional(),
-  adTier: z.string().trim().min(1).max(50).nullable().optional(),
   adBudgetLimit: z.number().int().nonnegative().nullable().optional(),
   isActive: z.boolean().optional(),
 }).strict();

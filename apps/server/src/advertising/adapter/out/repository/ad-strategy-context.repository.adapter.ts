@@ -293,7 +293,6 @@ export class AdStrategyContextRepositoryAdapter
             id: true,
             code: true,
             name: true,
-            adTier: true,
           },
         },
         options: {
@@ -332,7 +331,6 @@ export class AdStrategyContextRepositoryAdapter
             abcGrade: r.masterProduct
               ? gradeByProductId.get(r.masterProduct.id) ?? null
               : null,
-            adTier: r.masterProduct?.adTier ?? null,
           },
           primaryOption: firstClo
             ? {

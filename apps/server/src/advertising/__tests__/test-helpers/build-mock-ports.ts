@@ -40,7 +40,6 @@ export type MockAdListingRepo = {
 export function buildMockAdListingRepo(): MockAdListingRepo {
   return {
     findScopedAdListings: vi.fn(),
-    changeAdTier: vi.fn(),
     verifyListingOwnership: vi.fn(),
   };
 }

@@ -575,7 +575,6 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
                 code: listing.masterProduct.code,
                 name: listing.masterProduct.name,
                 abcGrade: listing.masterProduct.abcGrade,
-                adTier: listing.masterProduct.adTier,
               },
             }
           : null,

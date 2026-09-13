@@ -997,7 +997,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     });
   });
 
-  it('filters advertising by measured spend instead of editable ad-tier text', async () => {
+  it('filters advertising by measured spend', async () => {
     const spent = await service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, {
       code: 'ADS-SPENT',
       name: 'Measured advertising',
@@ -1005,7 +1005,6 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     const zero = await service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, {
       code: 'ADS-ZERO',
       name: 'Measured no advertising',
-      adTier: 'active',
     });
     const account = await prisma.channelAccount.create({
       data: {

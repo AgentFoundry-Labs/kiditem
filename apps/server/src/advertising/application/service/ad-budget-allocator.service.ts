@@ -1,27 +1,24 @@
 import { Injectable } from '@nestjs/common';
-import type { AdMeasuredMetrics, AdTierAnalysis, AdTop20Item } from '@kiditem/shared/advertising';
+import type { AdMeasuredMetrics, AdTop20Item } from '@kiditem/shared/advertising';
 import type {
   BudgetAllocatorInput,
-  TierAnalysisInput,
   Top20Input,
   GradeBudgetAllocation,
 } from '../../domain/model/strategy-types';
 import { hydratedListingToSummary } from '../../mapper/ad-listing.mapper';
 
 /**
- * Pure calculator — Ad spend / budget / tier / Top 20 집계.
+ * Pure calculator — Ad spend / budget / Top 20 집계.
  *
  * Prisma 의존 없음. orchestrator 가 사전 fetch 한 데이터를 input 으로 받아 계산.
  *
- * 기존 ad-strategy.service.ts 의 4 메서드 본문 이전:
+ * 기존 ad-strategy.service.ts 의 메서드 본문 이전:
  *  - calcBudgetAllocation    (609-651)
- *  - calcTierAnalysis        (1028-1065, per-tier legacy ad aggregate N+1 제거)
  *  - calcTop20               (1067-1144)
  *
  * 변경:
  *  - 모든 prisma.* / adConfigService.getConfig 호출 제거 (orchestrator 가 input 으로 hydrate).
  *  - productId → listingId.
- *  - calcTierAnalysis: 단일 legacy ad groupBy(['listingId']) 결과 + listing.masterProduct.adTier 로 in-memory roll-up.
  *  - calcTop20: 정렬은 ad spend desc → revenue desc tie-break (Plan v2 amendment).
  *  - hydratedListingToSummary 는 mapper/ad-listing.mapper import (DRY).
  */
@@ -55,45 +52,6 @@ export class AdBudgetAllocatorService {
         delta: suggested - cur,
       } satisfies GradeBudgetAllocation;
     });
-  }
-
-  /**
-   * tier (masterProduct.adTier) 별 분석 (count + spend + revenue + roas).
-   *
-   * 기존 ad-strategy.service.ts:1028-1065 본문 이전.
-   * 변경:
-   *  - prisma.masterProduct.findMany + per-tier legacy ad aggregate (N+1) 제거.
-   *  - orchestrator 가 단일 legacy ad groupBy(['listingId']) 결과 + listing.masterProduct.adTier 로 in-memory roll-up.
-   *
-   * adTier 가 null 인 listing 은 '미분류' tier 로 묶는다 (기존 코드는 null adTier 를 필터링했으나 in-memory roll-up 후엔 명시적 bucket 이 더 안전).
-   */
-  calcTierAnalysis(input: TierAnalysisInput): AdTierAnalysis[] {
-    const { listings, adGroups } = input;
-    const adGroupMap = new Map(adGroups.map((g) => [g.listingId, g]));
-    const tierMap = new Map<string, { count: number; spend: number; revenue: number }>();
-
-    for (const l of listings) {
-      const tier = l.masterProduct.adTier ?? '미분류';
-      const ag = adGroupMap.get(l.id);
-      const cur = tierMap.get(tier) ?? { count: 0, spend: 0, revenue: 0 };
-      cur.count += 1;
-      if (ag) {
-        cur.spend += ag.spend;
-        cur.revenue += ag.revenue;
-      }
-      tierMap.set(tier, cur);
-    }
-
-    return Array.from(tierMap.entries()).map(
-      ([tier, v]) =>
-        ({
-          tier,
-          count: v.count,
-          spend: v.spend,
-          revenue: v.revenue,
-          roas: v.spend > 0 ? Math.round((v.revenue / v.spend) * 10000) / 100 : null,
-        }) satisfies AdTierAnalysis,
-    );
   }
 
   /**

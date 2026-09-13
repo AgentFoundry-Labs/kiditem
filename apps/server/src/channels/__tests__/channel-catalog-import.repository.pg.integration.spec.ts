@@ -666,7 +666,6 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
         name: 'Preserved product link',
         abcGrade: 'A',
         profitTag: 'operator-authored',
-        adTier: 'scale',
         adBudgetLimit: 55_000,
       },
     });
@@ -839,7 +838,6 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
     expect(linkedProductAfter).toMatchObject({
       abcGrade: 'A',
       profitTag: 'operator-authored',
-      adTier: 'scale',
       adBudgetLimit: 55_000,
     });
   });

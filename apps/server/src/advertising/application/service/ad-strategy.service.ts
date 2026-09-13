@@ -134,10 +134,6 @@ export class AdStrategyService {
         listings,
         gradeMap: ctx.gradeMap,
       }),
-      tierAnalysis: this.adBudgetAllocator.calcTierAnalysis({
-        listings,
-        adGroups: ctx.adGroups,
-      }),
       top20,
       week: getWeekRange(period),
       profitWithheldListings: ctx.profitWithheldListings,

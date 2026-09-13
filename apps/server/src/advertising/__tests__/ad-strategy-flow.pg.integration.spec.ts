@@ -83,7 +83,6 @@ describe('AdStrategy flow (PG integration)', () => {
   async function seedGradedListing(params: {
     organizationId: string;
     abcGrade: 'A' | 'B' | 'C';
-    adTier?: string | null;
     sellableStock?: number | null;
     costPrice?: number | null;
     sellPrice?: number | null;
@@ -125,7 +124,6 @@ describe('AdStrategy flow (PG integration)', () => {
         code: `M-${params.suffix}`,
         name: `Master ${params.suffix}`,
         abcGrade: null,
-        adTier: params.adTier ?? null,
       },
     });
     await seedPublishedProductAbcGrades(prisma, {
@@ -284,7 +282,6 @@ describe('AdStrategy flow (PG integration)', () => {
       const a = await seedGradedListing({
         organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'A',
-        adTier: '1차',
         costPrice: 10_000,
         suffix: 'A-EXPAND',
       });
@@ -339,7 +336,6 @@ describe('AdStrategy flow (PG integration)', () => {
       const a = await seedGradedListing({
         organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'A',
-        adTier: '1차',
         costPrice: 10_000,
         suffix: 'WITHHELD',
       });
@@ -386,7 +382,6 @@ describe('AdStrategy flow (PG integration)', () => {
       const a = await seedGradedListing({
         organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'A',
-        adTier: '1차',
         suffix: 'A-GOOD',
       });
       const b = await seedGradedListing({
@@ -398,7 +393,6 @@ describe('AdStrategy flow (PG integration)', () => {
         organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'C',
         sellableStock: 0,
-        adTier: '2차',
         suffix: 'C-URGENT',
       });
 
@@ -424,7 +418,7 @@ describe('AdStrategy flow (PG integration)', () => {
         impressions: 10000,
         conversions: 10,
       });
-      // C: 재고 0 + 광고 ON → 긴급
+      // C: 재고 0 + 측정 광고비 발생 → 긴급
       await seedAd({
         organizationId: TEST_ORGANIZATION_ID,
         listingId: c.listing.id,
@@ -446,11 +440,10 @@ describe('AdStrategy flow (PG integration)', () => {
       expect(plan.week.end).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     });
 
-    it('#3 getWeeklyPlan 의 issues + tierAnalysis + top20 shape', async () => {
+    it('#3 getWeeklyPlan 의 issues + top20 shape', async () => {
       const a = await seedGradedListing({
         organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'A',
-        adTier: '1차',
         costPrice: 10_000,
         suffix: 'A-TOP',
       });
@@ -519,11 +512,6 @@ describe('AdStrategy flow (PG integration)', () => {
       expect(plan.issues.highSpend.length).toBeGreaterThanOrEqual(1);
       expect(plan.issues.highSpend[0].listing.listingId).toBe(a.listing.id);
 
-      // tierAnalysis: '1차' 등장
-      const tierRow = plan.tierAnalysis.find((t) => t.tier === '1차');
-      expect(tierRow).toBeDefined();
-      expect(tierRow?.count).toBe(1);
-
       // top20: listing 포함 + rank=1
       expect(plan.top20.length).toBe(1);
       expect(plan.top20[0].rank).toBe(1);
@@ -580,13 +568,11 @@ describe('AdStrategy flow (PG integration)', () => {
       const measured = await seedGradedListing({
         organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'A',
-        adTier: '1차',
         suffix: 'TRAFFIC-COVERAGE-MEASURED',
       });
       const missing = await seedGradedListing({
         organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'B',
-        adTier: '2차',
         suffix: 'TRAFFIC-COVERAGE-MISSING',
       });
       for (const listing of [measured, missing]) {
@@ -627,7 +613,6 @@ describe('AdStrategy flow (PG integration)', () => {
         organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'C',
         sellableStock: 0,
-        adTier: '3차',
         suffix: 'C-URGENT',
       });
       const a = await seedGradedListing({
@@ -830,13 +815,11 @@ describe('AdStrategy flow (PG integration)', () => {
       const own = await seedGradedListing({
         organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'A',
-        adTier: '1차',
         suffix: 'OWN',
       });
       const foreign = await seedGradedListing({
         organizationId: OTHER_ORGANIZATION_ID,
         abcGrade: 'A',
-        adTier: '1차',
         suffix: 'FOREIGN',
       });
 
@@ -937,7 +920,6 @@ describe('AdStrategy flow (PG integration)', () => {
       const a = await seedGradedListing({
         organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'A',
-        adTier: '1차',
         suffix: 'C4-EV',
       });
       // H3 — the strategy aggregate now reads ad-metric columns from the
@@ -1006,7 +988,6 @@ describe('AdStrategy flow (PG integration)', () => {
       const a = await seedGradedListing({
         organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'A',
-        adTier: '1차',
         suffix: 'C4-MULTI',
       });
       const earlierSku = await prisma.sellpiaInventorySku.create({
@@ -1097,7 +1078,6 @@ describe('AdStrategy flow (PG integration)', () => {
       const a = await seedGradedListing({
         organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'A',
-        adTier: '1차',
         suffix: 'C4-NOSNAP',
       });
       await seedAd({
@@ -1137,13 +1117,11 @@ describe('AdStrategy flow (PG integration)', () => {
       const ours = await seedGradedListing({
         organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'A',
-        adTier: '1차',
         suffix: 'C4-OURS',
       });
       const theirs = await seedGradedListing({
         organizationId: OTHER_ORGANIZATION_ID,
         abcGrade: 'A',
-        adTier: '1차',
         suffix: 'C4-THEIRS',
       });
       await seedAd({

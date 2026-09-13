@@ -663,7 +663,6 @@ function rawProduct() {
     abcGrade: null,
     abcEvaluation: null,
     profitTag: null,
-    adTier: null,
     adBudgetLimit: null,
     isActive: true,
     createdAt: new Date('2026-07-17T00:00:00.000Z'),

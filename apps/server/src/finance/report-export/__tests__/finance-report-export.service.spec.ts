@@ -115,15 +115,12 @@ function buildService() {
         cvr: 20,
       },
       grade: 'A',
-      tier: '1차',
-      adTier: '1차',
     }],
     summary: {
       totalSpend: 10,
       totalRevenue: 100,
       totalRoas: 1000,
       gradeSpend: { A: 10, B: 0, C: 0 },
-      tierSpend: { '1차': 10 },
       gradeSpendPercent: { A: 100, B: 0, C: 0 },
     },
   };
@@ -167,6 +164,7 @@ describe('FinanceReportExportService', () => {
     expect(headerRow(workbook, '손익표')).toContain('셀피아상품코드');
     expect(headerRow(workbook, '재고현황')).toContain('재고자산가치');
     expect(headerRow(workbook, '광고현황')).toContain('전환율(%)');
+    expect(headerRow(workbook, '광고현황')).not.toContain('광고등급');
     expect(result.fileName).toMatch(/^통합리포트_2026-08_\d{4}-\d{2}-\d{2}\.xlsx$/);
     expect(listings.list).toHaveBeenCalledWith(ORG, expect.objectContaining({ tab: 'registered' }));
     expect(inventory.listSnapshot).toHaveBeenCalledWith(ORG, expect.objectContaining({ activeStatus: 'active' }));

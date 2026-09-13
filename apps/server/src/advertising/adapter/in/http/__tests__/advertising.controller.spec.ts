@@ -25,7 +25,6 @@ function makeServices() {
     advertising: {
       getHubData: vi.fn(),
       findAll: vi.fn(),
-      changeTier: vi.fn(),
     },
     campaigns: {
       getCampaigns: vi.fn(),
@@ -126,13 +125,14 @@ function makeStrategyController(svcs = makeServices()) {
 
 const COMPANY = 'organization-1';
 
-describe('AdvertisingController — defaults + body transformations', () => {
-  it('PATCH /:id/tier extracts adTier from body before delegating', () => {
-    const { ctrl, svcs } = makeOverviewController();
-    ctrl.changeTier('ad-1', { adTier: 'A' } as any, COMPANY);
-    expect(svcs.advertising.changeTier).toHaveBeenCalledWith('ad-1', 'A', COMPANY);
+describe('AdvertisingController — overview surface', () => {
+  it('exposes no operator ad-tier write', () => {
+    const { ctrl } = makeOverviewController();
+    expect('changeTier' in Object.getPrototypeOf(ctrl)).toBe(false);
   });
+});
 
+describe('AdvertisingController — defaults + body transformations', () => {
   it('GET /campaigns falls back to period 7d when query omitted', () => {
     const { ctrl, svcs } = makeCampaignsController();
     ctrl.getCampaigns({} as any, COMPANY);

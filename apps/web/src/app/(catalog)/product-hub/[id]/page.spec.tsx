@@ -60,7 +60,6 @@ const product = {
   abcGrade: 'A',
   abc: productAbcReadModel(),
   profitTag: null,
-  adTier: null,
   adBudgetLimit: null,
   isActive: true,
   createdAt: '2026-07-16T00:00:00.000Z',

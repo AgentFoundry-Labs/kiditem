@@ -51,7 +51,6 @@ const state = vi.hoisted(() => ({
       },
       contribution: null,
       profitTag: null,
-      adTier: null,
       adBudgetLimit: null,
       isActive: true,
       updatedAt: '2026-07-16T01:00:00.000Z',

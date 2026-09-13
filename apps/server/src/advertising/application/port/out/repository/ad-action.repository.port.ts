@@ -73,7 +73,6 @@ export interface HydratedAdAction extends AdAction {
       code: string;
       name: string;
       abcGrade: string | null;
-      adTier: string | null;
     };
   } | null;
   adTargetDaily: {
