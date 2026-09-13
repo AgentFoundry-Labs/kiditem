@@ -14,7 +14,6 @@ import {
 import { ReviewIngestItemSchema } from '@kiditem/shared/reviews';
 import { CurrentOrganization } from '../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
-import type { AuthUser } from '../../auth/auth.types';
 import {
   REVIEW_COLLECTION_SOURCE_PORT,
   type ReviewCollectionSourcePort,
@@ -23,6 +22,9 @@ import {
 import { ListReviewItemsQueryDto } from '../dto/list-review-items.dto';
 import { ListReviewsQueryDto } from '../dto/list-reviews.dto';
 import { ReviewsService } from '../services/reviews.service';
+import type { AuthUser } from '../../auth/auth.types';
+
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 
 // NOTE: no `@UseGuards`/`@UsePipes` — global APP_GUARD (OrganizationScopeGuard)
 // + global ValidationPipe handle the read DTOs. Owner write bodies are parsed
@@ -211,10 +213,14 @@ function parseWindowCompletion(
   const body = value as Record<string, unknown>;
   const itemCount = body.itemCount;
   const pageCount = body.pageCount;
+  const coverageStartDate = text(body.coverageStartDate);
+  const coverageEndDate = text(body.coverageEndDate);
   if (
     typeof itemCount !== 'number' || !Number.isSafeInteger(itemCount) ||
     typeof pageCount !== 'number' || !Number.isSafeInteger(pageCount) ||
-    typeof body.pageLimitReached !== 'boolean'
+    typeof body.pageLimitReached !== 'boolean' ||
+    !coverageStartDate || !DATE_ONLY.test(coverageStartDate) ||
+    !coverageEndDate || !DATE_ONLY.test(coverageEndDate)
   ) {
     throw new BadRequestException('INVALID_REVIEW_COLLECTION_WINDOW');
   }
@@ -223,6 +229,8 @@ function parseWindowCompletion(
     itemCount,
     pageCount,
     pageLimitReached: body.pageLimitReached,
+    coverageStartDate,
+    coverageEndDate,
   };
 }
 

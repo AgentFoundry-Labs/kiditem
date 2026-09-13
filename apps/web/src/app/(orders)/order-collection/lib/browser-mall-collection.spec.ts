@@ -232,6 +232,26 @@ describe('createBrowserMallCollector', () => {
     });
   });
 
+  it.each([false, true])('shows a confirmed empty collection without adding a generated file (lost response: %s)', async (lostResponse) => {
+    mocks.ensureLogin.mockResolvedValue({ success: true });
+    if (lostResponse) mocks.sendToExtension.mockRejectedValue(new Error('response lost'));
+    else mocks.sendToExtension.mockResolvedValue({ success: true, terminalState: 'COMPLETE' });
+    mocks.regenerateSource.mockResolvedValue({
+      fileName: '', blob: new Blob([]), previewRows: [],
+      sourceRows: 0, productRows: 0, outputRows: 0, skippedRows: 0,
+    });
+    const addGeneratedFile = vi.fn();
+    const account = { ...ACCOUNT, key: 'haebub-mall' as const, name: '해법몰' };
+    const collector = createBrowserMallCollector({
+      mallAccounts: [account], rocketChannelAccountId: null,
+      addGeneratedFile, setPreviewId: vi.fn(),
+    });
+    await expect(collector(account, { ...RUN, date: '2026-09-10', serverOwned: true }))
+      .resolves.toMatchObject({ rowCount: 0 });
+    expect(addGeneratedFile).not.toHaveBeenCalled();
+    expect(mocks.toast).toHaveBeenCalledWith('해법몰 신규 주문이 없습니다.', undefined);
+  });
+
   it('reconciles a lost extension response from the retained source without recollecting', async () => {
     mocks.ensureLogin.mockResolvedValue({ success: true });
     mocks.sendToExtension.mockRejectedValue(new Error('extension response lost'));

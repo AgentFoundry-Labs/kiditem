@@ -2603,6 +2603,7 @@ KidItemDomains.register({
     coupangCatalogSourceAttempts: true,
     coupangCatalogSnapshotSource: "wing-inventory-v1",
     coupangReviewCollection: true,
+    coupangReviewCollectionWindowReceiptsV1: true,
     coupangReviewCollectionSource: "wing-cs-product-review",
     browserCollectionSessions: true,
     advertisingKeywordSourceOwnerV1: true,

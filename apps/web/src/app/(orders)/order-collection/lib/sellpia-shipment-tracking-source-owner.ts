@@ -25,13 +25,15 @@ const SellpiaShipmentTrackingSourcePlanSchema = z.object({
   sourceAccountKey: z.literal('kiditem'),
   startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-}).refine((plan) => plan.startDate === plan.endDate, 'date range must be one day');
+}).refine((plan) => plan.startDate <= plan.endDate, 'date range must be ordered');
 
 export const SellpiaShipmentTrackingSourceAttemptSchema = z.object({
   attemptId: z.string().uuid(),
   sourceImportRunId: z.string().uuid(),
   state: z.enum(['RUNNING', 'COMPLETE', 'FAILED']),
   plan: SellpiaShipmentTrackingSourcePlanSchema,
+  coverageStartDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().default(null),
+  coverageEndDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().default(null),
   expiresAt: z.string().datetime({ offset: true }).nullable(),
   artifactId: z.string().uuid().nullable(),
   sourceFileName: z.string().nullable(),
@@ -63,6 +65,10 @@ const SellpiaShipmentTrackingSourcePayloadSchema = z.object({
     start: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     end: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   }).strict(),
+  confirmedRange: z.object({
+    start: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    end: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  }).strict().nullable().default(null),
 }).strict();
 
 export type SellpiaShipmentTrackingSourceAttempt = z.infer<

@@ -18,6 +18,7 @@ import type {
   OrderCollectionArtifact,
   OrderCollectionAttempt,
   OrderCollectionAttemptControl,
+  OrderCollectionConfirmedCoverage,
   OrderCollectionMode,
   OrderCollectionPlan,
   OrderCollectionSourcePort,
@@ -29,6 +30,7 @@ const SOURCE_TYPE = 'order_collection_mall' as const;
 const PARSER_VERSION = 'order-collection-v1';
 const SOURCE_ALERT_TITLE = '몰 주문 수집 실패';
 const ATTEMPT_EXPIRES_IN_MS = 30 * 60_000;
+const COVERAGE_CAPABLE_MALLS = new Set(['haebub-mall', 'domeggook']);
 const ARTIFACT_SELECT = {
   id: true,
   organizationId: true,
@@ -188,12 +190,49 @@ export class OrderCollectionSourceRepository implements OrderCollectionSourcePor
     }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
   }
 
+  async validateCompletion(input: {
+    organizationId: string;
+    attemptId: string;
+    attemptToken: string;
+    mallKey: string;
+    source: OrderCollectionSourceSubmission;
+    confirmedCoverage: OrderCollectionConfirmedCoverage | null;
+  }): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      const row = await this.findRun(tx, input.organizationId, input.attemptId);
+      if (row.attemptToken !== input.attemptToken) {
+        throw new ConflictException('ATTEMPT_FENCE_LOST');
+      }
+      const plan = readPlan(row.plan);
+      if (plan.mallKey !== input.mallKey) {
+        throw new ConflictException('ORDER_COLLECTION_MALL_MISMATCH');
+      }
+      assertConfirmedCoverage(plan, input.confirmedCoverage);
+      const checksum = submissionHash(input.source.bytes);
+      if (row.status === 'completed') {
+        if (
+          row.contentChecksum !== checksum ||
+          !sameConfirmedCoverage(row, input.confirmedCoverage) ||
+          !(await this.findArtifact(tx, input.organizationId, row.id))
+        ) {
+          throw new ConflictException('SOURCE_TERMINAL_REPLAY_CONFLICT');
+        }
+        return;
+      }
+      if (row.status !== 'running') {
+        throw new ConflictException('SOURCE_TERMINAL_REPLAY_CONFLICT');
+      }
+      if (expired(row)) throw new ConflictException('ATTEMPT_EXPIRED');
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
+  }
+
   async completeAttempt(input: {
     organizationId: string;
     attemptId: string;
     attemptToken: string;
     mallKey: string;
     source: OrderCollectionSourceSubmission;
+    confirmedCoverage: OrderCollectionConfirmedCoverage | null;
   }): Promise<OrderCollectionArtifact> {
     return this.prisma.$transaction(async (tx) => {
       await this.lock(tx, input.organizationId);
@@ -203,9 +242,14 @@ export class OrderCollectionSourceRepository implements OrderCollectionSourcePor
       if (plan.mallKey !== input.mallKey) {
         throw new ConflictException('ORDER_COLLECTION_MALL_MISMATCH');
       }
+      assertConfirmedCoverage(plan, input.confirmedCoverage);
       const submissionChecksum = submissionHash(input.source.bytes);
       if (row.status !== 'running') {
-        if (row.status === 'completed' && row.contentChecksum === submissionChecksum) {
+        if (
+          row.status === 'completed' &&
+          row.contentChecksum === submissionChecksum &&
+          sameConfirmedCoverage(row, input.confirmedCoverage)
+        ) {
           const replay = await this.findArtifact(tx, input.organizationId, row.id);
           if (replay) return toArtifact(replay);
         }
@@ -233,6 +277,12 @@ export class OrderCollectionSourceRepository implements OrderCollectionSourcePor
           lastVerifiedAt: completedAt,
           verificationCount: { increment: 1 },
           contentChecksum: submissionChecksum,
+          coverageStartDate: input.confirmedCoverage
+            ? dateOnly(input.confirmedCoverage.startDate)
+            : null,
+          coverageEndDate: input.confirmedCoverage
+            ? dateOnly(input.confirmedCoverage.endDate)
+            : null,
           errorCode: null,
           errorMessage: null,
         },
@@ -330,6 +380,8 @@ export class OrderCollectionSourceRepository implements OrderCollectionSourcePor
       plan,
       expiresAt: row.expiresAt?.toISOString() ?? null,
       artifactId: artifact?.id ?? null,
+      coverageStartDate: row.coverageStartDate ? isoDate(row.coverageStartDate) : null,
+      coverageEndDate: row.coverageEndDate ? isoDate(row.coverageEndDate) : null,
       errorCode: isExpired ? 'ATTEMPT_EXPIRED' : row.errorCode,
       errorMessage: isExpired ? 'Order collection expired.' : row.errorMessage,
     };
@@ -412,6 +464,50 @@ function readPlan(value: Prisma.JsonValue | null): OrderCollectionPlan {
     throw new Error('ORDER_COLLECTION_PLAN_INVALID');
   }
   return plan as OrderCollectionPlan;
+}
+
+function assertConfirmedCoverage(
+  plan: OrderCollectionPlan,
+  coverage: OrderCollectionConfirmedCoverage | null,
+): void {
+  if (!coverage) return;
+  if (!isDateOnly(coverage.startDate) || !isDateOnly(coverage.endDate)) {
+    throw new BadRequestException('INVALID_ORDER_COLLECTION_CONFIRMED_COVERAGE');
+  }
+  if (
+    !COVERAGE_CAPABLE_MALLS.has(plan.mallKey) ||
+    !plan.collectionDate ||
+    coverage.startDate !== plan.collectionDate ||
+    coverage.endDate !== plan.collectionDate
+  ) {
+    throw new ConflictException('ORDER_COLLECTION_COVERAGE_MISMATCH');
+  }
+}
+
+function sameConfirmedCoverage(
+  row: SourceRun,
+  coverage: OrderCollectionConfirmedCoverage | null,
+): boolean {
+  return (
+    (row.coverageStartDate ? isoDate(row.coverageStartDate) : null) ===
+      (coverage?.startDate ?? null) &&
+    (row.coverageEndDate ? isoDate(row.coverageEndDate) : null) ===
+      (coverage?.endDate ?? null)
+  );
+}
+
+function isDateOnly(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = dateOnly(value);
+  return !Number.isNaN(parsed.getTime()) && isoDate(parsed) === value;
+}
+
+function dateOnly(value: string): Date {
+  return new Date(`${value}T00:00:00.000Z`);
+}
+
+function isoDate(value: Date): string {
+  return value.toISOString().slice(0, 10);
 }
 
 function expired(row: Pick<SourceRun, 'status' | 'expiresAt'>): boolean {

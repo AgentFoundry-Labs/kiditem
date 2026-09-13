@@ -29,6 +29,7 @@ describe('OrderCollectionSourceRepository', () => {
       attemptToken: 'token-1',
       mallKey: 'kidsnote',
       source,
+      confirmedCoverage: null,
     });
     await repository.completeAttempt({
       organizationId: ORGANIZATION_ID,
@@ -36,6 +37,7 @@ describe('OrderCollectionSourceRepository', () => {
       attemptToken: 'token-2',
       mallKey: 'kidsnote',
       source,
+      confirmedCoverage: null,
     });
 
     expect(artifacts).toHaveLength(2);
@@ -68,6 +70,7 @@ describe('OrderCollectionSourceRepository', () => {
         contentType: 'application/json',
         isFile: false,
       },
+      confirmedCoverage: null,
     })).rejects.toThrow('ATTEMPT_EXPIRED');
 
     expect(artifacts).toHaveLength(0);
@@ -94,6 +97,8 @@ function sourceRun(id: string, attemptToken: string, expiresAt = new Date(Date.n
     },
     expiresAt,
     contentChecksum: null,
+    coverageStartDate: null,
+    coverageEndDate: null,
     errorCode: null,
     errorMessage: null,
   };

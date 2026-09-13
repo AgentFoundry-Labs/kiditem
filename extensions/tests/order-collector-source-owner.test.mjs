@@ -65,6 +65,8 @@ function control(overrides = {}) {
     },
     expiresAt: '2099-01-01T00:00:00.000Z',
     artifactId: null,
+    coverageStartDate: null,
+    coverageEndDate: null,
     errorCode: null,
     errorMessage: null,
     ...overrides,
@@ -432,7 +434,11 @@ test('holds reconciliation when pending storage cannot be read after a worker re
 });
 
 test('does not dispatch conversion until pending storage write succeeds and replays the same-worker capture', async () => {
-  const captured = { success: true, orders: [{ orderNo: 'K-1' }] };
+  const captured = {
+    success: true,
+    orders: [{ orderNo: 'K-1' }],
+    confirmedCoverage: { startDate: '2026-09-06', endDate: '2026-09-06' },
+  };
   const harness = createHarness({ collectResult: captured });
   let collectCalls = 0;
   let submitCalls = 0;
@@ -473,6 +479,7 @@ test('does not dispatch conversion until pending storage write succeeds and repl
   assert.equal(submitCalls, 1);
   assert.equal(submittedCaptures[0].attemptId, ATTEMPT_ID);
   assert.deepEqual(submittedCaptures[0].orders, captured.orders);
+  assert.deepEqual(submittedCaptures[0].confirmedCoverage, captured.confirmedCoverage);
   assert.equal(harness.failBodies.length, 0);
 });
 

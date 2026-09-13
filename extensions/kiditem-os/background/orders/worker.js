@@ -2503,7 +2503,14 @@ async function scrapeHaebeopOrders(options) {
         }
       }
     }
-    if (!listRows.length) return { success: true, orders: [], count: 0 }; // 결제완료 신규 없음(정상)
+    if (!listRows.length) {
+      return {
+        success: true,
+        orders: [],
+        count: 0,
+        confirmedCoverage: { startDate: from, endDate: to },
+      };
+    } // 결제완료 신규 없음(정상)
 
     // 2) 주문 상세 파서 — 한 orderid 안에 여러 상품(basket)이 올 수 있다.
     const parseDetail = (html) => {
@@ -2623,7 +2630,13 @@ async function scrapeHaebeopOrders(options) {
         });
       });
     }
-    return { success: true, orders, count: orders.length, detailCount: detailByOrder.size };
+    return {
+      success: true,
+      orders,
+      count: orders.length,
+      detailCount: detailByOrder.size,
+      confirmedCoverage: { startDate: from, endDate: to },
+    };
   } catch (e) {
     return { success: false, error: String((e && e.message) || e) };
   }
@@ -4563,7 +4576,13 @@ async function collectDomeggookOrders(date, collection) {
       "도매꾹 생성 요청 시간이 초과되었습니다.",
     );
     const tr = trig[0]?.result;
-    if (tr?.empty) return { success: true, empty: true }; // 주문 없음 — 오류 아님
+    if (tr?.empty) {
+      return {
+        success: true,
+        empty: true,
+        ...(date ? { confirmedCoverage: { startDate: date, endDate: date } } : {}),
+      };
+    } // 주문 없음 — 오류 아님
     if (!tr?.success) return { success: false, error: tr?.error || "도매꾹 엑셀 생성 요청 실패" };
     // 2) 생성 완료 폴링 (최대 ~4분): SUCCESS + beforeReq 이후 파일. 도매꾹 생성이 느려 넉넉히.
     let url = null;
@@ -4590,6 +4609,7 @@ async function collectDomeggookOrders(date, collection) {
       csvBase64: btoa(bin), // EUC-KR 원본 bytes 그대로 (백엔드가 디코딩)
       fileName: url.split("/").pop() || "domeggook.csv",
       size: buf.length,
+      ...(date ? { confirmedCoverage: { startDate: date, endDate: date } } : {}),
     };
   } catch (e) {
     if (e?.code === "COLLECTION_CANCELLED") return orderCollectionCancelledResult(e);
@@ -7096,6 +7116,7 @@ KidItemDomains.register({
     sellpiaManualMatchSourceOwnerV1: true,
     browserCollectionSessions: true,
     orderCollectionFailureEvidenceV1: true,
+    orderCollectionConfirmedCoverageV1: true,
     orderCollectionSourceOwnerV1: true,
     kiditemEnvironmentProfilesV1: true,
     sellpiaOrderFileUploadEvidenceV1: true,

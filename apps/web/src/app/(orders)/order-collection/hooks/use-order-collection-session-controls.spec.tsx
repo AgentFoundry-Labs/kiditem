@@ -79,6 +79,8 @@ function attempt(state: 'RUNNING' | 'COMPLETE' | 'FAILED' = 'RUNNING') {
     plan,
     expiresAt: '2026-09-07T12:00:00.000Z',
     artifactId: state === 'COMPLETE' ? '55555555-5555-4555-8555-555555555555' : null,
+    coverageStartDate: null,
+    coverageEndDate: null,
     errorCode: state === 'FAILED' ? 'COLLECTION_FAILED' : null,
     errorMessage: state === 'FAILED' ? '이전 수집 실패' : null,
   };

@@ -643,7 +643,7 @@
           await throwIfStopped(record, stateKey);
           const result = await postReviews(
             capture.rows,
-            window.index,
+            window,
             capture.pageCount,
             capture.pageLimitReached,
             control,
@@ -918,13 +918,14 @@
 
   async function postReviews(
     rows,
-    windowIndex,
+    window,
     pageCount,
     pageLimitReached,
     control,
     dependencies,
     isCancelled,
   ) {
+    const windowIndex = window.index;
     let terminal = null;
     let sequence = 0;
     for (let offset = 0; offset < rows.length; offset += INGEST_CHUNK) {
@@ -962,6 +963,8 @@
           itemCount: rows.length,
           pageCount,
           pageLimitReached,
+          coverageStartDate: window.start,
+          coverageEndDate: window.end,
         }),
       },
     );

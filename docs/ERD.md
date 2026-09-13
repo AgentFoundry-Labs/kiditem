@@ -31,7 +31,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | [Core](erd/core.md) | 16 |
 | [Finance](erd/finance.md) | 1 |
 | [Inventory](erd/inventory.md) | 6 |
-| [Orders](erd/orders.md) | 11 |
+| [Orders](erd/orders.md) | 13 |
 | [Sourcing](erd/sourcing.md) | 31 |
 | [Supply](erd/supply.md) | 13 |
 | [System](erd/system.md) | 8 |
@@ -115,6 +115,8 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | StockTransfer | Inventory | `stock_transfers` | Warehouse-to-warehouse movement record. It never mutates SellpiaInventorySku.currentStock. |
 | Warehouse | Inventory | `warehouses` | - |
 | CoupangDirectPoSnapshot | Orders | `coupang_direct_po_snapshots` | 쿠팡직배송 발주확정 스냅샷. 입고예정일 달력이 매번 쿠팡을 다시 긁지 않도록 |
+| CoupangDirectTransportConsumption | Orders | `coupang_direct_transport_consumptions` | Immutable alias from one completed source attempt and transport selection to its canonical downstream effect receipt. |
+| CoupangDirectTransportReceipt | Orders | `coupang_direct_transport_receipts` | Immutable transport effect receipt for one normalized Coupang direct-order payload. It owns downstream publication identity, not source collection state. |
 | Order | Orders | `orders` | 채널-agnostic 주문 aggregate. Coupang 등 채널별 raw payload 는 metadata Json. 라인 아이템은 OrderLineItem. |
 | OrderCollectionArtifact | Orders | `order_collection_artifacts` | Retained collection input evidence; converted downloads are not persisted and lifecycle belongs to SourceImportRun. |
 | OrderLineItem | Orders | `order_line_items` | 주문 라인 아이템 — 1 SKU 단위. listingOption → option 으로 SKU 해상도. order FK 는 organizationId 를 함께 참조해 cross-organization mismatch 를 DB 가 차단한다. |
@@ -817,6 +819,31 @@ erDiagram
     DateTime collectedAt
     DateTime createdAt
     DateTime updatedAt
+  }
+  CoupangDirectTransportConsumption {
+    String id PK
+    String organizationId FK
+    String sourceImportRunId FK
+    String receiptId FK
+    String transport FK
+    StringArray selectedPurchaseOrderKeys
+    DateTime createdAt
+  }
+  CoupangDirectTransportReceipt {
+    String id PK
+    String organizationId FK
+    String channelAccountId FK
+    String effectSourceImportRunId FK
+    String rocketPurchaseConfirmationId FK
+    String transport
+    String payloadChecksum
+    String transmissionIntentKey
+    Int matchedLineCount
+    Int reconciledRows
+    Json collectedLines
+    Json matchedLines
+    Json unmatchedLines
+    DateTime createdAt
   }
   CoupangKeywordRankDailySnapshot {
     String id PK
@@ -2654,6 +2681,7 @@ erDiagram
   ChannelAccount ||--o{ ChannelListing : "channelAccount"
   ChannelAccount ||--o{ ChannelListingDeletionOperation : "channelAccount"
   ChannelAccount ||--o{ ChannelScrapeRun : "channelAccount"
+  ChannelAccount ||--o{ CoupangDirectTransportReceipt : "channelAccount"
   ChannelAccount ||--o{ Order : "channelAccount"
   ChannelAccount ||--o{ OrderReturn : "channelAccount"
   ChannelAccount ||--o{ ProductPreparation : "channelAccount"
@@ -2713,6 +2741,7 @@ erDiagram
   ContentWorkspace ||--o{ ThumbnailAnalysis : "contentWorkspace"
   ContentWorkspace ||--o{ ThumbnailGeneration : "contentWorkspace"
   ContentWorkspaceThumbnailSelection o|--o| ContentWorkspace : "currentThumbnailSelection"
+  CoupangDirectTransportReceipt ||--o{ CoupangDirectTransportConsumption : "receipt"
   CoupangWingTrackedProduct ||--o{ CoupangWingTrackedProductDailySnapshot : "trackedProduct"
   DetailPageArtifact o|--o{ ContentGeneration : "detailPageArtifact"
   DetailPageArtifact o|--o{ ContentWorkspace : "currentDetailPageArtifact"
@@ -2772,6 +2801,8 @@ erDiagram
   Organization ||--o{ ContentWorkspace : "organization"
   Organization ||--o{ ContentWorkspaceThumbnailSelection : "organization"
   Organization ||--o{ CoupangDirectPoSnapshot : "organization"
+  Organization ||--o{ CoupangDirectTransportConsumption : "organization"
+  Organization ||--o{ CoupangDirectTransportReceipt : "organization"
   Organization ||--o{ CoupangKeywordRankDailySnapshot : "organization"
   Organization ||--o{ CoupangKeywordSerpDailySnapshot : "organization"
   Organization ||--o{ CoupangKeywordTracker : "organization"
@@ -2876,6 +2907,7 @@ erDiagram
   PurchaseOrder ||--o{ PurchaseOrderSubmissionAttempt : "purchaseOrder"
   PurchaseOrder o|--o{ SupplierPayment : "purchaseOrder"
   RocketPoCatalogSnapshot ||--o{ RocketPoCatalogLine : "snapshot"
+  RocketPurchaseConfirmation o|--o{ CoupangDirectTransportReceipt : "rocketPurchaseConfirmation"
   RocketPurchaseConfirmation ||--o{ RocketPurchaseConfirmationLine : "confirmation"
   RocketPurchaseConfirmation ||--o{ RocketPurchaseConfirmationTransmission : "confirmation"
   RocketPurchaseConfirmationLine ||--o{ RocketPurchaseConfirmationAllocation : "confirmationLine"
@@ -2895,6 +2927,8 @@ erDiagram
   SourceImportRun o|--o{ ChannelListingOption : "lastImportRun"
   SourceImportRun o|--o{ ChannelScrapeRun : "sourceImportRun"
   SourceImportRun o|--o| ChannelScrapeSnapshot : "sourceImportRun"
+  SourceImportRun ||--o{ CoupangDirectTransportConsumption : "sourceImportRun"
+  SourceImportRun ||--o{ CoupangDirectTransportReceipt : "effectSourceImportRun"
   SourceImportRun o|--o{ CoupangKeywordRankDailySnapshot : "sourceImportRun"
   SourceImportRun o|--o{ CoupangKeywordSerpDailySnapshot : "sourceImportRun"
   SourceImportRun o|--o{ CoupangShipmentDateSummary : "sourceImportRun"

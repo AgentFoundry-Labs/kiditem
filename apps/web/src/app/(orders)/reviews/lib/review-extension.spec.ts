@@ -1,4 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  cancelCoupangReviewCollection,
+  detectReviewExtensionGate,
+  getCoupangReviewCollectionExtensionStatus,
+  getCoupangReviewCollectionStatus,
+  recoverCoupangReviewCollection,
+  runCoupangReviewCollection,
+} from './review-extension';
 
 const bridge = vi.hoisted(() => ({
   detectExtensionId: vi.fn(),
@@ -12,14 +20,6 @@ const api = vi.hoisted(() => ({
 
 vi.mock('@/lib/extension-bridge', () => bridge);
 vi.mock('@/lib/api-client', () => ({ apiClient: api }));
-
-import {
-  cancelCoupangReviewCollection,
-  getCoupangReviewCollectionExtensionStatus,
-  getCoupangReviewCollectionStatus,
-  recoverCoupangReviewCollection,
-  runCoupangReviewCollection,
-} from './review-extension';
 
 const ATTEMPT_ID = 'a1111111-1111-4111-8111-111111111111';
 const ATTEMPT_TOKEN = 'b1111111-1111-4111-8111-111111111111';
@@ -44,6 +44,9 @@ function attempt(overrides: Record<string, unknown> = {}) {
     plan: PLAN,
     expiresAt: '2026-09-07T12:00:00.000Z',
     completedWindows: [],
+    windowReceipts: [],
+    coverageStartDate: null,
+    coverageEndDate: null,
     collected: 0,
     created: 0,
     updated: 0,
@@ -58,6 +61,27 @@ function attempt(overrides: Record<string, unknown> = {}) {
 describe('Coupang review source-owner web bridge', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it('requires the confirmed-window receipt capability before starting a review attempt', async () => {
+    bridge.isChromeExtensionRuntimeAvailable.mockReturnValue(true);
+    bridge.detectExtensionId.mockResolvedValue('review-extension');
+    bridge.sendToExtension.mockResolvedValue({
+      success: true,
+      version: '999.0.0',
+      capabilities: { coupangReviewCollection: true },
+    });
+    await expect(detectReviewExtensionGate()).resolves.toMatchObject({ status: 'outdated' });
+
+    bridge.sendToExtension.mockResolvedValue({
+      success: true,
+      version: '999.0.0',
+      capabilities: {
+        coupangReviewCollection: true,
+        coupangReviewCollectionWindowReceiptsV1: true,
+      },
+    });
+    await expect(detectReviewExtensionGate()).resolves.toMatchObject({ status: 'ready' });
   });
 
   it('begins the server attempt before dispatching its frozen control to the extension', async () => {

@@ -7,7 +7,7 @@ const ATTEMPT = '33333333-3333-4333-8333-333333333333';
 const TOKEN = '44444444-4444-4444-8444-444444444444';
 
 describe('SellpiaShipmentTrackingSourceController', () => {
-  it('begins the fixed single-day source plan with the idempotency key', async () => {
+  it('begins the requested source plan with the idempotency key', async () => {
     const source = { beginAttempt: vi.fn().mockResolvedValue({ attemptId: ATTEMPT }) };
     const controller = new SellpiaShipmentTrackingSourceController(source as never);
 
@@ -27,7 +27,7 @@ describe('SellpiaShipmentTrackingSourceController', () => {
     });
   });
 
-  it('rejects a caller-owned multi-day range before the owner port', async () => {
+  it('rejects an inverted date range before the owner port', async () => {
     const source = { beginAttempt: vi.fn() };
     const controller = new SellpiaShipmentTrackingSourceController(source as never);
 
@@ -35,7 +35,7 @@ describe('SellpiaShipmentTrackingSourceController', () => {
       ORG,
       USER as never,
       'tracking-key',
-      { startDate: '2026-09-06', endDate: '2026-09-07' },
+      { startDate: '2026-09-07', endDate: '2026-09-06' },
     ))).rejects.toThrow('INVALID_SELLPIA_SHIPMENT_TRACKING_DATE_RANGE');
     expect(source.beginAttempt).not.toHaveBeenCalled();
   });

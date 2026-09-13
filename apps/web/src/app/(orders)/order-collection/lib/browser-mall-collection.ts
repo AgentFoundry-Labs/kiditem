@@ -253,6 +253,10 @@ export function createBrowserMallCollector({
     if (collectedRows === null || collectedRows === undefined) {
       throw new Error('ORDER_COLLECTION_SOURCE_ROWS_UNAVAILABLE');
     }
+    if (collectedRows === 0 && result.outputRows === 0) {
+      toastNoNewOrders(account.name);
+      return { rowCount: 0, masked: false, date: collectionDateOf(run) };
+    }
     if (continuation) {
       saveIcecreamDeliveryIndex(continuation.headers, continuation.originalRows);
     }
