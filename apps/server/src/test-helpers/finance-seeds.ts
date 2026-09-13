@@ -51,6 +51,10 @@ export async function setupMaster(
 /**
  * Create one physical SellpiaInventorySku and return its ID. The channel
  * listing helper attaches it directly to the sellable channel option.
+ *
+ * `costPrice` is the Sellpia purchase price, the only cost input a listing
+ * option has (KID-114). A sales commission or other per-sale cost is decided
+ * by the order's channel account, so no fixture writes one.
  */
 export async function setupProductOption(
   prisma: PrismaClient,
@@ -59,8 +63,6 @@ export async function setupProductOption(
     masterId: string;
     sku: string;
     costPrice?: number;
-    commissionRate?: number;
-    otherCost?: number;
   },
 ): Promise<{ id: string }> {
   const master = await prisma.masterProduct.findFirstOrThrow({
@@ -75,12 +77,6 @@ export async function setupProductOption(
       optionName: opts.sku,
       currentStock: 100,
       purchasePrice: opts.costPrice ?? 5000,
-      rawJson: {
-        testPricing: {
-          commissionRate: opts.commissionRate ?? 0.1,
-          otherCost: opts.otherCost ?? 0,
-        },
-      },
     },
     select: { id: true },
   });
@@ -145,24 +141,13 @@ export async function setupChannelListing(
       imageUrls: true,
     },
   });
-  const inventorySku = await prisma.sellpiaInventorySku.findFirstOrThrow({
+  await prisma.sellpiaInventorySku.findFirstOrThrow({
     where: {
       id: opts.optionId,
       organizationId: opts.organizationId,
     },
-    select: { rawJson: true },
+    select: { id: true },
   });
-  const rawPricing = inventorySku.rawJson;
-  const pricing =
-    rawPricing &&
-    typeof rawPricing === 'object' &&
-    !Array.isArray(rawPricing) &&
-    'testPricing' in rawPricing &&
-    rawPricing.testPricing &&
-    typeof rawPricing.testPricing === 'object' &&
-    !Array.isArray(rawPricing.testPricing)
-      ? rawPricing.testPricing
-      : {};
   const listing = await prisma.channelListing.create({
     data: {
       organizationId: opts.organizationId,
@@ -192,12 +177,6 @@ export async function setupChannelListing(
       listingId: listing.id,
       externalOptionId: opts.externalOptionId,
       sellerSku: opts.externalOptionId,
-      commissionRate:
-        'commissionRate' in pricing
-          ? Number(pricing.commissionRate)
-          : 0.1,
-      otherCost:
-        'otherCost' in pricing ? Number(pricing.otherCost) : 0,
     },
     select: { id: true },
   });
@@ -230,6 +209,12 @@ export async function seedOrderWithLineItems(
     orderedAt: string;         // ISO date string
     shippingPrice?: number;
     status?: string;
+    /**
+     * Channel of the account the order was collected from. Defaults to the
+     * first line's listing account; `'rocket'` models a Rocket
+     * direct-purchase order, whose sales carry no commission or other cost.
+     */
+    orderChannel?: string;
     lineItems: Array<{
       quantity: number;
       totalPrice: number;
@@ -249,10 +234,31 @@ export async function seedOrderWithLineItems(
     select: { listing: { select: { channelAccountId: true } } },
   });
 
+  const orderChannelAccountId = opts.orderChannel
+    ? (await prisma.channelAccount.upsert({
+        where: {
+          organizationId_channel_externalAccountId: {
+            organizationId: opts.organizationId,
+            channel: opts.orderChannel,
+            externalAccountId: `test-${opts.orderChannel}`,
+          },
+        },
+        create: {
+          organizationId: opts.organizationId,
+          channel: opts.orderChannel,
+          name: `${opts.orderChannel} test account`,
+          externalAccountId: `test-${opts.orderChannel}`,
+          isPrimary: true,
+        },
+        update: {},
+        select: { id: true },
+      })).id
+    : firstListingOption.listing.channelAccountId;
+
   const order = await prisma.order.create({
     data: {
       organizationId: opts.organizationId,
-      channelAccountId: firstListingOption.listing.channelAccountId,
+      channelAccountId: orderChannelAccountId,
       externalOrderId: opts.externalOrderId,
       orderedAt: new Date(opts.orderedAt),
       status,
@@ -418,9 +424,12 @@ export async function seedCompletedOrderCollection(
         coverageEndDate: new Date(`${opts.endDate}T00:00:00.000Z`),
       },
     });
+    // The run owns the orders it published; each order keeps the channel
+    // account it was sold through, which decides whether a sales commission
+    // and other per-sale cost apply to its lines (KID-114).
     await tx.order.updateMany({
       where: { organizationId: opts.organizationId, id: { in: [...opts.orderIds] } },
-      data: { channelAccountId: account.id, sourceImportRunId: run.id },
+      data: { sourceImportRunId: run.id },
     });
     return run.id;
   });

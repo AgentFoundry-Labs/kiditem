@@ -46,14 +46,28 @@ const mockedReadAdWindowFacts = vi.mocked(readAdWindowFacts);
 type PrismaMock = {
   $transaction: ReturnType<typeof vi.fn>;
   channelListingOption: { findMany: ReturnType<typeof vi.fn> };
+  channelAccount: { findMany: ReturnType<typeof vi.fn> };
 };
+
+/**
+ * A listing option whose one-component recipe is priced at `purchasePrice`
+ * (KID-114: the only cost input an option has).
+ */
+const pricedOption = (purchasePrice: number | null) => ({
+  inventoryComponents: [{ quantity: 1, sellpiaInventorySku: { purchasePrice } }],
+});
 
 /** Inside every `calculateForRange` window used below. */
 const DEFAULT_ORDERED_AT = new Date("2026-04-15T03:00:00.000Z");
 
+/**
+ * `accountChannel` is the channel of the orders' channel account, which decides
+ * whether a commission and other per-sale cost apply; Rocket direct purchase
+ * applies neither.
+ */
 function makePrisma(
   orders: unknown[],
-  options: { coveredDates?: string[] } = {},
+  options: { coveredDates?: string[]; accountChannel?: string } = {},
 ): PrismaMock {
   const optionRows: Array<Record<string, unknown>> = [];
   const identityRows: Array<Record<string, unknown>> = [];
@@ -89,14 +103,7 @@ function makePrisma(
           });
           return { quantity: component.quantity, sellpiaInventorySkuId: skuId };
         });
-        optionRows.push({
-          id: optionId,
-          costPriceOverride: option.costPriceOverride ?? null,
-          commissionRate: option.commissionRate ?? null,
-          shippingCost: option.shippingCost ?? null,
-          otherCost: option.otherCost ?? null,
-          inventoryComponents: components,
-        });
+        optionRows.push({ id: optionId, inventoryComponents: components });
       }
       return {
         orderId,
@@ -157,6 +164,11 @@ function makePrisma(
   const prisma = {
     $transaction: vi.fn(),
     channelListingOption: { findMany: vi.fn().mockResolvedValue(optionRows) },
+    channelAccount: {
+      findMany: vi.fn().mockResolvedValue([
+        { id: ACCOUNT_ID, channel: options.accountChannel ?? "rocket" },
+      ]),
+    },
   };
   prisma.$transaction.mockImplementation(async (callback) => callback(prisma));
   return prisma;
@@ -227,35 +239,17 @@ describe("ProfitCalculationRepositoryAdapter.calculateForRange — R-1 shipping 
           {
             quantity: 1,
             totalPrice: 10000,
-            listingOption: {
-              costPriceOverride: 5000,
-              commissionRate: 0.1,
-              shippingCost: 999,
-              otherCost: 0,
-              inventoryComponents: [],
-            },
+            listingOption: pricedOption(5000),
           },
           {
             quantity: 2,
             totalPrice: 20000,
-            listingOption: {
-              costPriceOverride: 5000,
-              commissionRate: 0.1,
-              shippingCost: 999,
-              otherCost: 0,
-              inventoryComponents: [],
-            },
+            listingOption: pricedOption(5000),
           },
           {
             quantity: 1,
             totalPrice: 5000,
-            listingOption: {
-              costPriceOverride: 5000,
-              commissionRate: 0.1,
-              shippingCost: 999,
-              otherCost: 0,
-              inventoryComponents: [],
-            },
+            listingOption: pricedOption(5000),
           },
         ],
       },
@@ -277,13 +271,7 @@ describe("ProfitCalculationRepositoryAdapter.calculateForRange — R-1 shipping 
           {
             quantity: 1,
             totalPrice: 10000,
-            listingOption: {
-              costPriceOverride: 5000,
-              commissionRate: 0.1,
-              shippingCost: 999,
-              otherCost: 0,
-              inventoryComponents: [],
-            },
+            listingOption: pricedOption(5000),
           },
         ],
       },
@@ -293,13 +281,7 @@ describe("ProfitCalculationRepositoryAdapter.calculateForRange — R-1 shipping 
           {
             quantity: 1,
             totalPrice: 8000,
-            listingOption: {
-              costPriceOverride: 4000,
-              commissionRate: 0.1,
-              shippingCost: 999,
-              otherCost: 0,
-              inventoryComponents: [],
-            },
+            listingOption: pricedOption(4000),
           },
         ],
       },
@@ -325,24 +307,11 @@ describe("ProfitCalculationRepositoryAdapter.calculateForRange — R-1 shipping 
     expect(result.revenue).toBe(0);
   });
 
-  it("falls back to listing-option shipping only when imported order shipping is absent", async () => {
+  it("takes shipping from the order's shipping price with no per-option fallback", async () => {
     const prisma = makePrisma([
       {
-        // Channel order ingestion stores a missing provider shipping value as 0.
         shippingPrice: 0,
-        lineItems: [
-          {
-            quantity: 2,
-            totalPrice: 20000,
-            listingOption: {
-              costPriceOverride: 5000,
-              commissionRate: 0.1,
-              shippingCost: 3000,
-              otherCost: 0,
-              inventoryComponents: [],
-            },
-          },
-        ],
+        lineItems: [{ quantity: 2, totalPrice: 20000, listingOption: pricedOption(5000) }],
       },
     ]);
 
@@ -354,7 +323,9 @@ describe("ProfitCalculationRepositoryAdapter.calculateForRange — R-1 shipping 
       ),
     );
 
-    expect(result.shippingCost).toBe(6000);
+    // KID-114: option `shippingCost` is not an input; the order's 0 stands.
+    expect(result.shippingCost).toBe(0);
+    expect(result.costOfGoods).toBe(10000);
   });
 
   it("asks the canonical reader to exclude cancelled/returned/refunded orders", async () => {
@@ -477,13 +448,7 @@ describe("ProfitCalculationRepositoryAdapter.calculateForRange — business-date
 describe("ProfitCalculationRepositoryAdapter.calculateDailyForRange", () => {
   const from = new Date("2026-09-01T15:00:00.000Z");
   const to = new Date("2026-09-03T15:00:00.000Z");
-  const completeOption = {
-    costPriceOverride: 20,
-    commissionRate: 0.1,
-    shippingCost: 0,
-    otherCost: 0,
-    inventoryComponents: [],
-  };
+  const completeOption = pricedOption(20);
   const order = (listingOption: unknown = completeOption) => ({
     orderedAt: new Date("2026-09-01T16:00:00.000Z"),
     shippingPrice: 0,
@@ -500,11 +465,13 @@ describe("ProfitCalculationRepositoryAdapter.calculateDailyForRange", () => {
       revenue: 100,
       qty: 2,
       costOfGoods: 40,
-      commission: 10,
-      cost: 50,
+      // A Rocket direct-purchase order carries no commission or other cost.
+      commission: 0,
+      otherCost: 0,
+      cost: 40,
       adCost: 0,
-      netProfit: 50,
-      profitRate: 50,
+      netProfit: 60,
+      profitRate: 60,
       hasOrderEvidence: true,
       hasAdEvidence: true,
       costComplete: true,
@@ -512,27 +479,18 @@ describe("ProfitCalculationRepositoryAdapter.calculateDailyForRange", () => {
   });
 
   it.each([
-    [null, "MISSING_LISTING_OPTION"],
-    [{ ...completeOption, costPriceOverride: null }, "MISSING_COST_PRICE"],
-    [{ ...completeOption, commissionRate: null }, "MISSING_COMMISSION_RATE"],
-    [{ ...completeOption, shippingCost: null }, "MISSING_SHIPPING_COST"],
-    [{ ...completeOption, otherCost: null }, "MISSING_OTHER_COST"],
-    [
-      {
-        ...completeOption,
-        costPriceOverride: null,
-        inventoryComponents: [
-          { quantity: 1, sellpiaInventorySku: { purchasePrice: null } },
-        ],
-      },
-      "MISSING_PURCHASE_PRICE",
-    ],
-  ])(
-    "retains revenue but withholds profit for missing cost evidence: %s",
-    async (option, reason) => {
-      const rows = await makeAdapter(makePrisma([order(option)]), [
-        ownerRow("2026-09-02"),
-      ]).calculateDailyForRange("organization-1", periodOf(from, to));
+    ["no listing option", null, "rocket", "MISSING_LISTING_OPTION"],
+    ["no recipe", { inventoryComponents: [] }, "rocket", "MISSING_COST_PRICE"],
+    ["an unpriced component", pricedOption(null), "rocket", "MISSING_PURCHASE_PRICE"],
+    ["a commission without a source", completeOption, "naver", "MISSING_COMMISSION"],
+    ["an other cost without a source", completeOption, "naver", "MISSING_OTHER_COST"],
+  ] as const)(
+    "retains revenue but withholds profit for %s",
+    async (_label, option, accountChannel, reason) => {
+      const rows = await makeAdapter(
+        makePrisma([order(option)], { accountChannel }),
+        [ownerRow("2026-09-02")],
+      ).calculateDailyForRange("organization-1", periodOf(from, to));
       const measured = rows.find((row) => row.date === "2026-09-02");
       expect(measured).toMatchObject({
         revenue: 100,
@@ -543,6 +501,31 @@ describe("ProfitCalculationRepositoryAdapter.calculateDailyForRange", () => {
       expect(measured?.costIncompleteReasons).toContain(reason);
     },
   );
+
+  it("never sums a component nobody measured as 0", async () => {
+    const rows = await makeAdapter(
+      makePrisma([order(pricedOption(null))], { accountChannel: "naver" }),
+      [ownerRow("2026-09-02")],
+    ).calculateDailyForRange("organization-1", periodOf(from, to));
+    expect(rows.find((row) => row.date === "2026-09-02")).toMatchObject({
+      costOfGoods: null,
+      commission: null,
+      otherCost: null,
+      cost: null,
+      netProfit: null,
+    });
+
+    const range = await makeAdapter(
+      makePrisma([order(pricedOption(null))], { accountChannel: "naver" }),
+      [ownerRow("2026-09-02"), ownerRow("2026-09-03")],
+    ).calculateForRange("organization-1", periodOf(from, to));
+    expect(range).toMatchObject({
+      costOfGoods: null,
+      commission: null,
+      otherCost: null,
+      netProfit: null,
+    });
+  });
 
   it("computes a daily profit when the organization does not advertise", async () => {
     const rows = await makeAdapter(
@@ -562,7 +545,7 @@ describe("ProfitCalculationRepositoryAdapter.calculateDailyForRange", () => {
       adRevenue: 0,
       hasAdEvidence: false,
       hasAdAccount: false,
-      netProfit: 50,
+      netProfit: 60,
     });
   });
 
@@ -627,5 +610,41 @@ describe("ProfitCalculationRepositoryAdapter.calculateDailyForRange", () => {
     expect(
       rows.every((row) => row.adEvidenceError === "AD_EVIDENCE_READ_FAILED"),
     ).toBe(true);
+  });
+});
+
+describe("ProfitCalculationRepositoryAdapter — conversion counts a provider grid did not carry", () => {
+  it("publishes no conversion count for a window or day whose grid carried no conversion columns", async () => {
+    const from = new Date("2026-03-31T15:00:00.000Z");
+    const to = new Date("2026-04-02T15:00:00.000Z");
+    const dates = businessDatesInWindow(from, to);
+    const adapter = makeAdapter(makePrisma([]), dates.map((date) => ownerRow(date)));
+    mockedReadAdWindowFacts.mockResolvedValue({
+      days: dates.map((businessDate, index) => ({
+        businessDate,
+        spend: 100,
+        revenue: 0,
+        impressions: 10,
+        clicks: 1,
+        conversions: 0,
+        orders: 0,
+        // The first day came from the campaign dashboard grid, which has no
+        // conversion columns: its stored 0 counted nothing.
+        conversionsObserved: index !== 0,
+      })),
+      observedAt: null,
+    });
+
+    const range = await adapter.calculateForRange("organization-1", periodOf(from, to));
+    expect(range).toMatchObject({
+      adCost: 100 * dates.length,
+      adClicks: dates.length,
+      adConversions: null,
+    });
+
+    const daily = await adapter.calculateDailyForRange("organization-1", periodOf(from, to));
+    expect(daily.map((row) => [row.date, row.adConversions])).toEqual(
+      dates.map((date, index) => [date, index === 0 ? null : 0]),
+    );
   });
 });

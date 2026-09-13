@@ -9,6 +9,10 @@ import {
   seedAd,
   seedCompletedAdSweepRun,
   seedCompletedOrderCoverageRun,
+  seedOrderWithLineItems,
+  setupChannelListing,
+  setupMaster,
+  setupProductOption,
 } from '../../../test-helpers/finance-seeds';
 import {
   makeTestPrisma,
@@ -90,9 +94,6 @@ async function setupListing(
       externalOptionId: `VI-${suffix}`,
       itemName: `OPT-${suffix}`,
       sellerSku: `SKU-${suffix}`,
-      costPriceOverride: 1000,
-      commissionRate: 0.1,
-      otherCost: 50,
     },
   });
   await prisma.channelListingOptionInventoryComponent.create({
@@ -118,17 +119,28 @@ async function createOrder(
     externalOrderId?: string;
   },
 ) {
-  const listingOption = await prisma.channelListingOption.findFirstOrThrow({
+  // A Rocket direct-purchase order: its sales carry no commission or other
+  // cost, so the listing's purchase cost is its only cost input (KID-114).
+  const rocketAccount = await prisma.channelAccount.upsert({
     where: {
-      id: opts.lineItems[0]?.listingOptionId,
-      organizationId,
+      organizationId_channel_externalAccountId: {
+        organizationId,
+        channel: 'rocket',
+        externalAccountId: 'profit-loss-rocket',
+      },
     },
-    select: { listing: { select: { channelAccountId: true } } },
+    create: {
+      organizationId,
+      channel: 'rocket',
+      name: 'Profit loss Rocket account',
+      externalAccountId: 'profit-loss-rocket',
+    },
+    update: {},
   });
   const order = await prisma.order.create({
     data: {
       organizationId,
-      channelAccountId: listingOption.listing.channelAccountId,
+      channelAccountId: rocketAccount.id,
       externalOrderId: opts.externalOrderId ?? `ORD-${Date.now()}-${Math.random()}`,
       orderedAt: opts.orderedAt,
       status: opts.status ?? 'paid',
@@ -576,16 +588,17 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
         organizationId: TEST_ORGANIZATION_ID,
         listingId: unknown.listing.id,
         externalOptionId: 'VI-COST-UNKNOWN-PRICED',
-        costPriceOverride: 1000,
-        commissionRate: 0.1,
-        otherCost: 50,
       },
     });
-    // The second option of the same product has neither a cost override nor
-    // a purchase price on its mapped Sellpia component.
-    await prisma.channelListingOption.update({
-      where: { id: unknown.listingOption.id },
-      data: { costPriceOverride: null },
+    // One option of the product is priced through a Sellpia component; the
+    // other option's mapped Sellpia component has no purchase price.
+    await prisma.channelListingOptionInventoryComponent.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelListingOptionId: pricedOption.id,
+        sellpiaInventorySkuId: known.option.id,
+        quantity: 1,
+      },
     });
     await prisma.sellpiaInventorySku.update({
       where: { id: unknown.option.id },
@@ -614,11 +627,11 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
     expect(result.rows.find((row) => row.listingId === known.listing.id)).toMatchObject({
       revenue: 10_000,
       cogs: 1_000,
-      commission: 1_000,
-      otherCost: 50,
+      commission: 0,
+      otherCost: 0,
       adCost: 0,
-      netProfit: 7_950,
-      profitRate: 79.5,
+      netProfit: 9_000,
+      profitRate: 90,
     });
     expect(result.rows.find((row) => row.listingId === unknown.listing.id)).toMatchObject({
       revenue: 20_000,
@@ -657,16 +670,19 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
 
     expect(result.period).toBe('2026-04');
     expect(result.rows[0]).toMatchObject({
-      cogs: 1_000, commission: 2_000, otherCost: 50, shippingCost: 3_000,
-      adCost: 2_000, netProfit: 11_950, profitRate: 59.8,
+      cogs: 1_000, commission: 0, otherCost: 0, shippingCost: 3_000,
+      adCost: 2_000, netProfit: 14_000, profitRate: 70,
     });
     expect(result.totals).toEqual({
       revenue: 20_000,
       orderCount: 1,
-      cost: 8_050,
+      cost: 6_000,
       adCost: 2_000,
-      netProfit: 11_950,
-      profitRate: 59.8,
+      netProfit: 14_000,
+      profitRate: 70,
+      adCostRate: 10,
+      unallocatedAdCost: 0,
+      unallocatedShipping: 0,
     });
     expect(result.basis.revenue).toMatchObject({
       from: '2026-04-01', to: '2026-04-30', targetDays: 30, sources: ['orders'],
@@ -739,9 +755,9 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
       const result = await service.findAll(TEST_ORGANIZATION_ID, 2026, 4, MID_APRIL);
 
       expect(result.rows).toEqual([
-        expect.objectContaining({ revenue: 10_000, orderCount: 1, netProfit: 7_950 }),
+        expect.objectContaining({ revenue: 10_000, orderCount: 1, netProfit: 9_000 }),
       ]);
-      expect(result.totals).toMatchObject({ revenue: 10_000, orderCount: 1, adCost: 0, netProfit: 7_950 });
+      expect(result.totals).toMatchObject({ revenue: 10_000, orderCount: 1, adCost: 0, netProfit: 9_000 });
       expect(result.basis.requestedWindow).toEqual({ from: '2026-04-01', to: '2026-04-30' });
       expect(result.basis.revenue).toMatchObject({ from: '2026-04-01', to: '2026-04-14', targetDays: 14 });
       for (const basis of [result.basis.revenue, result.basis.adCost, result.basis.profit]) {
@@ -763,6 +779,7 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
       expect(result.rows).toEqual([]);
       expect(result.totals).toEqual({
         revenue: null, orderCount: null, cost: null, adCost: null, netProfit: null, profitRate: null,
+        adCostRate: null, unallocatedAdCost: null, unallocatedShipping: null,
       });
       expect(result.basis.requestedWindow).toEqual({ from: '2026-04-01', to: '2026-04-30' });
       // The effective window ends the day before it starts: zero closed days.
@@ -784,10 +801,138 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
 
       const result = await service.findAll(TEST_ORGANIZATION_ID, 2026, 4, MID_MAY);
 
-      expect(result.totals).toMatchObject({ revenue: 10_000, orderCount: 1, netProfit: 7_950 });
+      expect(result.totals).toMatchObject({ revenue: 10_000, orderCount: 1, netProfit: 9_000 });
       expect(result.basis.requestedWindow).toEqual({ from: '2026-04-01', to: '2026-04-30' });
       expect(result.basis.revenue).toMatchObject({ from: '2026-04-01', to: '2026-04-30', targetDays: 30 });
       expect(periodBasisStatus(result.basis.profit)).toBe('complete');
+    });
+  });
+
+  /**
+   * KID-85 follow-up P3-2 and P3-13 — the totals publish what no product row
+   * carries (spend on a listing that sold nothing, shipping of a zero-revenue
+   * order) and the ad cost share, so the screen does no arithmetic.
+   */
+  it('publishes the totals no product row carries and the ad cost share', async () => {
+    const sold = await setupListing(prisma, TEST_ORGANIZATION_ID, 'ALLOC-SOLD');
+    const unsold = await setupListing(prisma, TEST_ORGANIZATION_ID, 'ALLOC-UNSOLD');
+    const orderedAt = new Date('2026-04-15T00:00:00.000Z');
+    await createOrder(prisma, TEST_ORGANIZATION_ID, {
+      orderedAt,
+      externalOrderId: 'ALLOC-PAID',
+      shippingPrice: 3_000,
+      lineItems: [{ listingOptionId: sold.listingOption.id, optionId: sold.option.id, totalPrice: 20_000 }],
+    });
+    await createOrder(prisma, TEST_ORGANIZATION_ID, {
+      orderedAt,
+      externalOrderId: 'ALLOC-ZERO-REVENUE',
+      shippingPrice: 500,
+      lineItems: [{ listingOptionId: sold.listingOption.id, optionId: sold.option.id, totalPrice: 0 }],
+    });
+    const runId = await coverAprilAds();
+    await seedAd(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, listingId: sold.listing.id, date: '2026-04-15', spend: 2_000, runId,
+    });
+    await seedAd(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, listingId: unsold.listing.id, date: '2026-04-15', spend: 1_000, runId,
+    });
+    await coverOrders();
+
+    const result = await service.findAll(TEST_ORGANIZATION_ID, 2026, 4, AFTER_MONTHS);
+
+    // The zero-revenue order has no revenue to weigh its shipping by, so its
+    // 500 stays out of the row; the unsold listing's 1,000 spend has no row.
+    expect(result.rows).toEqual([
+      expect.objectContaining({
+        listingId: sold.listing.id, cogs: 2_000, shippingCost: 3_000, adCost: 2_000, netProfit: 13_000,
+      }),
+    ]);
+    expect(result.totals).toEqual({
+      revenue: 20_000,
+      orderCount: 2,
+      cost: 8_500,
+      adCost: 3_000,
+      netProfit: 11_500,
+      profitRate: 57.5,
+      adCostRate: 15,
+      unallocatedAdCost: 1_000,
+      unallocatedShipping: 500,
+    });
+  });
+
+  describe('cost inputs that do not apply (KID-114)', () => {
+    /** A listing on `channel` with a 5,000 KRW purchase-priced recipe. */
+    async function pricedListing(code: string, channel: string) {
+      const { id: masterId } = await setupMaster(prisma, {
+        organizationId: TEST_ORGANIZATION_ID, code: `M-${code}`, name: `Master ${code}`,
+      });
+      const { id: optionId } = await setupProductOption(prisma, {
+        organizationId: TEST_ORGANIZATION_ID, masterId, sku: `SKU-${code}`, costPrice: 5_000,
+      });
+      const listing = await setupChannelListing(prisma, {
+        organizationId: TEST_ORGANIZATION_ID, masterId, channel,
+        externalId: `EXT-${code}`, optionId, externalOptionId: `VI-${code}`,
+      });
+      return { ...listing, optionId };
+    }
+
+    const sell = (
+      code: string,
+      listing: { optionId: string; listingOptionId: string },
+      revenue: number,
+      orderChannel?: string,
+    ) => seedOrderWithLineItems(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      externalOrderId: `PL-${code}`,
+      orderedAt: '2026-04-10T03:00:00Z',
+      shippingPrice: 0,
+      ...(orderChannel ? { orderChannel } : {}),
+      lineItems: [{ quantity: 1, totalPrice: revenue, optionId: listing.optionId, listingOptionId: listing.listingOptionId }],
+    });
+
+    it('counts the lines a commission or other cost does not apply to apart from the lines it has no source for', async () => {
+      const rocket = await pricedListing('RULE-ROCKET', 'naver');
+      const naver = await pricedListing('RULE-NAVER', 'naver');
+      await sell('RULE-ROCKET', rocket, 10_000, 'rocket');
+      await sell('RULE-NAVER', naver, 8_000);
+      await coverOrders();
+
+      const result = await service.findAll(TEST_ORGANIZATION_ID, 2026, 4, AFTER_MONTHS);
+
+      expect(result.rows.find((row) => row.listingId === rocket.listingId)).toMatchObject({
+        commission: 0, otherCost: 0, netProfit: 5_000,
+      });
+      expect(result.rows.find((row) => row.listingId === naver.listingId)).toMatchObject({
+        commission: null, otherCost: null, netProfit: null,
+      });
+      expect(result.totals).toMatchObject({ revenue: 18_000, cost: null, netProfit: null });
+      expect(result.basis.costInputs).toEqual({
+        purchaseCost: { lines: 2, notAppliedLines: 0, unmeasuredLines: 0 },
+        commission: { lines: 2, notAppliedLines: 1, unmeasuredLines: 1 },
+        otherCost: { lines: 2, notAppliedLines: 1, unmeasuredLines: 1 },
+        // No Coupang advertising account: advertising applies to no line.
+        advertising: { lines: 2, notAppliedLines: 2, unmeasuredLines: 0 },
+      });
+    });
+
+    it('says advertising is Not applied on a channel the Coupang sweep cannot cover', async () => {
+      const coupang = await pricedListing('ADS-COUPANG', 'coupang');
+      const naver = await pricedListing('ADS-NAVER', 'naver');
+      await sell('ADS-COUPANG', coupang, 10_000, 'rocket');
+      await sell('ADS-NAVER', naver, 10_000, 'rocket');
+      await coverOrders();
+
+      const result = await service.findAll(TEST_ORGANIZATION_ID, 2026, 4, AFTER_MONTHS);
+
+      // No sweep measured April, so the Coupang listing's advertising is Not
+      // measured; the Naver listing's advertising is Not applied.
+      expect(result.rows.find((row) => row.listingId === coupang.listingId)).toMatchObject({
+        adCost: null, netProfit: null,
+      });
+      expect(result.rows.find((row) => row.listingId === naver.listingId)).toMatchObject({
+        adCost: 0, netProfit: 5_000,
+      });
+      expect(result.basis.costInputs.advertising).toEqual({ lines: 2, notAppliedLines: 1, unmeasuredLines: 1 });
     });
   });
 

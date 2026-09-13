@@ -31,8 +31,6 @@ describe('Sales-plans flow (PG integration)', () => {
     organizationId: string;
     suffix: string;
     costPrice?: number;
-    commissionRate?: number;
-    otherCost?: number;
   }) {
     const master = await setupMaster(prisma, {
       organizationId: opts.organizationId,
@@ -44,8 +42,6 @@ describe('Sales-plans flow (PG integration)', () => {
       masterId: master.id,
       sku: `SP-${opts.suffix}-SKU`,
       costPrice: opts.costPrice,
-      commissionRate: opts.commissionRate,
-      otherCost: opts.otherCost,
     });
     const listing = await setupChannelListing(prisma, {
       organizationId: opts.organizationId,
@@ -198,11 +194,10 @@ describe('Sales-plans flow (PG integration)', () => {
         organizationId: TEST_ORGANIZATION_ID,
         suffix: 'LIVE',
         costPrice: 5_000,
-        commissionRate: 0.1,
-        otherCost: 500,
       });
 
       await seedOrderWithLineItems(prisma, {
+        orderChannel: 'rocket',
         organizationId: TEST_ORGANIZATION_ID,
         externalOrderId: 'SP-PAID-1',
         orderedAt: '2026-04-10T03:00:00.000Z',
@@ -216,6 +211,7 @@ describe('Sales-plans flow (PG integration)', () => {
         }],
       });
       await seedOrderWithLineItems(prisma, {
+        orderChannel: 'rocket',
         organizationId: TEST_ORGANIZATION_ID,
         externalOrderId: 'SP-PAID-2',
         orderedAt: '2026-04-10T03:30:00.000Z',
@@ -237,6 +233,7 @@ describe('Sales-plans flow (PG integration)', () => {
       });
       for (const status of ['refunded', 'cancelled', 'returned']) {
         await seedOrderWithLineItems(prisma, {
+          orderChannel: 'rocket',
           organizationId: TEST_ORGANIZATION_ID,
           externalOrderId: `SP-${status.toUpperCase()}`,
           orderedAt: '2026-04-10T04:00:00.000Z',
@@ -274,9 +271,12 @@ describe('Sales-plans flow (PG integration)', () => {
       expect(synced.actuals).toMatchObject({
         revenue: 30_000,
         orderCount: 2,
-        netProfit: 11_000,
+        netProfit: 15_000,
       });
       expect(synced.actuals?.observedAt).toBeInstanceOf(Date);
+      // KID-85 follow-up P3-13: the server publishes achievement against each
+      // target; a zero target has no rate.
+      expect(synced.achievement).toEqual({ revenue: 6, orders: null, profit: null });
       for (const basis of [synced.actuals!.basis.revenue, synced.actuals!.basis.profit]) {
         expect(periodBasisStatus(basis)).toBe('complete');
       }
@@ -334,11 +334,10 @@ describe('Sales-plans flow (PG integration)', () => {
         organizationId: TEST_ORGANIZATION_ID,
         suffix: 'BOUNDARY',
         costPrice: 5_000,
-        commissionRate: 0.1,
-        otherCost: 0,
       });
 
       await seedOrderWithLineItems(prisma, {
+        orderChannel: 'rocket',
         organizationId: TEST_ORGANIZATION_ID,
         externalOrderId: 'SP-KST-APRIL',
         orderedAt: '2026-04-30T14:30:00.000Z',
@@ -352,6 +351,7 @@ describe('Sales-plans flow (PG integration)', () => {
         }],
       });
       await seedOrderWithLineItems(prisma, {
+        orderChannel: 'rocket',
         organizationId: TEST_ORGANIZATION_ID,
         externalOrderId: 'SP-KST-MAY',
         orderedAt: '2026-04-30T15:30:00.000Z',
@@ -385,10 +385,10 @@ describe('Sales-plans flow (PG integration)', () => {
       });
 
       const april = await service.syncActuals(aprilPlan.id, TEST_ORGANIZATION_ID, AFTER_MONTHS);
-      expect(april.actuals).toMatchObject({ revenue: 10_000, orderCount: 1, netProfit: 4_000 });
+      expect(april.actuals).toMatchObject({ revenue: 10_000, orderCount: 1, netProfit: 5_000 });
 
       const may = await service.syncActuals(mayPlan.id, TEST_ORGANIZATION_ID, AFTER_MONTHS);
-      expect(may.actuals).toMatchObject({ revenue: 20_000, orderCount: 1, netProfit: 13_000 });
+      expect(may.actuals).toMatchObject({ revenue: 20_000, orderCount: 1, netProfit: 15_000 });
     });
 
     it('#8 cross-tenant — OTHER_COMPANY orders/ads do not contribute to TEST_COMPANY actuals', async () => {
@@ -399,18 +399,15 @@ describe('Sales-plans flow (PG integration)', () => {
         organizationId: TEST_ORGANIZATION_ID,
         suffix: 'OWN',
         costPrice: 5_000,
-        commissionRate: 0.1,
-        otherCost: 0,
       });
       const foreignFixture = await seedListingFixture({
         organizationId: OTHER_ORGANIZATION_ID,
         suffix: 'FOREIGN',
         costPrice: 5_000,
-        commissionRate: 0.1,
-        otherCost: 0,
       });
 
       await seedOrderWithLineItems(prisma, {
+        orderChannel: 'rocket',
         organizationId: TEST_ORGANIZATION_ID,
         externalOrderId: 'SP-OWN',
         orderedAt: '2026-04-10T03:00:00.000Z',
@@ -424,6 +421,7 @@ describe('Sales-plans flow (PG integration)', () => {
         }],
       });
       await seedOrderWithLineItems(prisma, {
+        orderChannel: 'rocket',
         organizationId: OTHER_ORGANIZATION_ID,
         externalOrderId: 'SP-FOREIGN',
         orderedAt: '2026-04-10T03:00:00.000Z',
@@ -467,7 +465,7 @@ describe('Sales-plans flow (PG integration)', () => {
       });
 
       const synced = await service.syncActuals(plan.id, TEST_ORGANIZATION_ID, AFTER_MONTHS);
-      expect(synced.actuals).toMatchObject({ revenue: 50_000, orderCount: 1, netProfit: 40_000 });
+      expect(synced.actuals).toMatchObject({ revenue: 50_000, orderCount: 1, netProfit: 45_000 });
     });
 
     it('#9 lists every plan newest first with its own live actuals', async () => {
@@ -503,14 +501,13 @@ describe('Sales-plans flow (PG integration)', () => {
         organizationId: TEST_ORGANIZATION_ID,
         suffix: 'MID',
         costPrice: 5_000,
-        commissionRate: 0.1,
-        otherCost: 0,
       });
       for (const [externalOrderId, orderedAt, totalPrice] of [
         ['SP-MID-CLOSED', '2026-04-10T03:00:00.000Z', 20_000],
         ['SP-MID-TODAY', '2026-04-15T01:00:00.000Z', 30_000],
       ] as const) {
         await seedOrderWithLineItems(prisma, {
+          orderChannel: 'rocket',
           organizationId: TEST_ORGANIZATION_ID,
           externalOrderId,
           orderedAt,
@@ -537,7 +534,7 @@ describe('Sales-plans flow (PG integration)', () => {
 
       const synced = await service.syncActuals(plan.id, TEST_ORGANIZATION_ID, MID_APRIL);
 
-      expect(synced.actuals).toMatchObject({ revenue: 20_000, orderCount: 1, netProfit: 13_000 });
+      expect(synced.actuals).toMatchObject({ revenue: 20_000, orderCount: 1, netProfit: 15_000 });
       expect(synced.actuals!.basis.requestedWindow).toEqual({ from: '2026-04-01', to: '2026-04-30' });
       expect(synced.actuals!.basis.revenue).toMatchObject({ from: '2026-04-01', to: '2026-04-14', targetDays: 14 });
     });

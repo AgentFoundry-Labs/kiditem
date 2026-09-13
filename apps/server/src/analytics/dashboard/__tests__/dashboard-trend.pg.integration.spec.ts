@@ -100,24 +100,38 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
     });
     const { id: optionId } = await setupProductOption(prisma, {
       organizationId: TEST_ORGANIZATION_ID, masterId,
-      sku: `SKU-T-${opts.suffix}`, costPrice: opts.costPrice ?? 0, commissionRate: 0,
+      sku: `SKU-T-${opts.suffix}`, costPrice: opts.costPrice ?? 0,
     });
     const { listingId, listingOptionId } = await setupChannelListing(prisma, {
       organizationId: TEST_ORGANIZATION_ID, masterId,
       channel: 'coupang', externalId: `EXT-T-${opts.suffix}`,
       optionId, externalOptionId: `VI-T-${opts.suffix}`,
     });
-    const listing = await prisma.channelListing.findUniqueOrThrow({
-      where: { id: listingId },
-      select: { channelAccountId: true },
-    });
 
     if (opts.orderTotalPriceOverride !== undefined) {
       // Bypass helper to set Order.totalPrice independently of lineItem totals.
+      // A Rocket direct-purchase order: no commission or other cost applies.
+      const rocketAccount = await prisma.channelAccount.upsert({
+        where: {
+          organizationId_channel_externalAccountId: {
+            organizationId: TEST_ORGANIZATION_ID,
+            channel: 'rocket',
+            externalAccountId: 'test-rocket',
+          },
+        },
+        create: {
+          organizationId: TEST_ORGANIZATION_ID,
+          channel: 'rocket',
+          name: 'rocket test account',
+          externalAccountId: 'test-rocket',
+        },
+        update: {},
+        select: { id: true },
+      });
       const order = await prisma.order.create({
         data: {
           organizationId: TEST_ORGANIZATION_ID,
-          channelAccountId: listing.channelAccountId,
+          channelAccountId: rocketAccount.id,
           externalOrderId: `TREND-T-${opts.suffix}`,
           orderedAt: yesterday,
           status: 'paid',
@@ -138,6 +152,7 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
       });
     } else {
       await seedOrderWithLineItems(prisma, {
+        orderChannel: 'rocket',
         organizationId: TEST_ORGANIZATION_ID,
         externalOrderId: `TREND-T-${opts.suffix}`,
         orderedAt: yesterday.toISOString(),
@@ -165,6 +180,7 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
       channel: 'coupang', externalId: 'EXT-O-1', optionId: oO.id, externalOptionId: 'VI-O-1',
     });
     await seedOrderWithLineItems(prisma, {
+      orderChannel: 'rocket',
       organizationId: OTHER_ORGANIZATION_ID,
       externalOrderId: 'TREND-O-1',
       orderedAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
@@ -195,6 +211,7 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
       channel: 'coupang', externalId: 'EXT-O-2', optionId: oO.id, externalOptionId: 'VI-O-2',
     });
     await seedOrderWithLineItems(prisma, {
+      orderChannel: 'rocket',
       organizationId: OTHER_ORGANIZATION_ID,
       externalOrderId: 'TREND-O-2',
       orderedAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
@@ -220,16 +237,13 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
     // Sentinel: Order.totalPrice = 999_999_999 vs lineItem.totalPrice = 100_000.
     // Pre-fix would aggregate Order.totalPrice → revenue = 999M.
     // Post-fix aggregates lineItem.totalPrice → revenue = 100k.
-    // Every non-ad cost must be explicit, including confirmed zero shipping.
-    const { listingId, listingOptionId } = await seedTestListingWithYesterdayOrder({
+    // Shipping is the order's own shipping price (0 here); a Rocket order
+    // carries no commission or other cost.
+    const { listingId } = await seedTestListingWithYesterdayOrder({
       suffix: '4',
       lineItemTotalPrice: 100_000,
       orderTotalPriceOverride: 999_999_999,
       costPrice: 70_000,
-    });
-    await prisma.channelListingOption.update({
-      where: { id: listingOptionId, organizationId: TEST_ORGANIZATION_ID },
-      data: { shippingCost: 0 },
     });
     // The sweep visited yesterday and found no advertising: a measured zero.
     const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);

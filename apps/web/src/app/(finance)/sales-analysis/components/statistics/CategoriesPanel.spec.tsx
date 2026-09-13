@@ -3,12 +3,12 @@ import { describe, expect, it, vi } from 'vitest';
 import { CategoriesPanel } from './CategoriesPanel';
 
 describe('CategoriesPanel', () => {
-  it('shows measured category totals and renders unavailable ones as -', () => {
+  it('shows measured category totals, counting products rather than orders, and renders unavailable ones as -', () => {
     render(
       <CategoriesPanel
         categories={[
-          { category: '유아용품', name: '유아용품', revenue: 32_000, orders: 1, profit: 11_800, count: 1 },
-          { category: '완구', name: '완구', revenue: null, orders: null, profit: null, count: null },
+          { category: '유아용품', name: '유아용품', revenue: 32_000, orders: 3, profit: 11_800, productCount: 1 },
+          { category: '완구', name: '완구', revenue: null, orders: null, profit: null, productCount: null },
         ]}
         page={1}
         onPageChange={vi.fn()}

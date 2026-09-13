@@ -27,6 +27,7 @@ describe("dashboard business-date boundaries", () => {
       channelListingOption: { findMany: vi.fn().mockResolvedValue([]) },
       channelAccount: {
         findFirst: vi.fn().mockResolvedValue({ id: "account" }),
+        findMany: vi.fn().mockResolvedValue([]),
       },
       $queryRaw: queryRaw,
     };

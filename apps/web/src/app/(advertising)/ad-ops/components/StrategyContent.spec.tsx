@@ -52,6 +52,7 @@ const strategy: AdWeeklyPlan = {
   issues: { zeroConversion: [], lowRoas: [], highSpend: [] },
   tierAnalysis: [],
   top20: [],
+  profitWithheldListings: 0,
 };
 
 function availabilityResponse(sellableStock: number | null) {

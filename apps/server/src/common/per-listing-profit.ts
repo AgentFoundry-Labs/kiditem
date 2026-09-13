@@ -1,6 +1,15 @@
 import type { Prisma } from '@prisma/client';
-import { buildPeriodBasis, type DashboardPeriodBasis } from '@kiditem/shared/dashboard';
-import type { FinanceWindowBasis, FinanceWindowTotals } from '@kiditem/shared/finance';
+import {
+  buildPeriodBasis,
+  COUPANG_ADS_SOURCE,
+  ORDERS_SOURCE,
+  type DashboardPeriodBasis,
+} from '@kiditem/shared/dashboard';
+import type {
+  FinanceCostInputsBasis,
+  FinanceWindowBasis,
+  FinanceWindowTotals,
+} from '@kiditem/shared/finance';
 import {
   addDays,
   businessDateKey,
@@ -10,8 +19,14 @@ import {
   kstWindowDateRange,
   type KstQueryWindow,
 } from './kst';
-import { advertisingApplies, readAdWindowFacts, readListingAdWindowFacts } from './ad-window-facts';
-import { resolvePricing } from './option-pricing-resolver';
+import {
+  adSweepCoversChannelAccount,
+  advertisingApplies,
+  advertisingAppliesToSale,
+  readAdWindowFacts,
+  readListingAdWindowFacts,
+} from './ad-window-facts';
+import { resolveOrderLineSalesCosts, resolveUnitCost } from './option-pricing-resolver';
 import { readInventorySkuIdentities } from '../inventory/read/inventory-availability';
 import {
   ORDER_FACT_EXCLUDED_STATUSES,
@@ -31,14 +46,20 @@ import { readPublishedProductAbcGrades } from '../products/read/product-abc-publ
  * reads run in the caller's transaction; this module owns no state.
  *
  * ADR-0006 on both sides of a profit:
- * - Cost. A purchase price, commission rate or other cost nobody recorded is
- *   unavailable, not zero. A listing with any such line has no measured
- *   profit, and a window containing one has no measured total.
+ * - Cost (KID-114). Purchase cost is the option recipe priced at Sellpia
+ *   purchase prices; an unpriced recipe is unavailable, not zero. Whether a
+ *   sales commission and other per-sale cost apply is the order's channel
+ *   account rule (`channelAccountSalesCosts`): Rocket direct purchase applies
+ *   neither (Not applied, 0), and an account that applies them has no measured
+ *   source yet, so they are unavailable. Option cost columns are not inputs. A
+ *   listing with any unavailable line cost has no measured profit, and a
+ *   window containing one has no measured total.
  * - Advertising. A date the campaign sweep never measured is absent, never a
  *   cost of zero. Whether advertising applies at all is account-level
- *   evidence passed in as `AccountAdEvidence`, and it applies only to a
- *   listing on an account the target-day sweep covers; on any other channel
- *   advertising is Not applied.
+ *   evidence passed in as `AccountAdEvidence`; for a listing it is
+ *   Advertising's rule (`advertisingAppliesToSale`): measured spend always
+ *   applies, and otherwise it applies to a listing on an account the sweep
+ *   covers. Elsewhere advertising is Not applied.
  * - Dates. Revenue and every line cost share the collected order dates. The
  *   ad reader only sums a whole window, so when advertising applies a profit
  *   exists only when the orders cover that whole window too.
@@ -48,10 +69,6 @@ import { readPublishedProductAbcGrades } from '../products/read/product-abc-publ
  * every day, the month containing today keeps the days through yesterday, and
  * a month with no closed day evaluates nothing.
  */
-
-// Must match the dashboard source names until a shared source-key constant exists.
-const ORDERS_SOURCE = 'orders';
-const COUPANG_ADS_SOURCE = 'coupang_ads';
 
 /** One listing's order lines over a window. `null` is unavailable, never zero. */
 export interface PerListingProfit {
@@ -126,7 +143,7 @@ export function resolveFinanceWindow(requested: KstQueryWindow, now: Date): Fina
   return { requested, effective: clipToClosedKstDays(now, requested) };
 }
 
-/** One collected order line, priced with what its listing option recorded. */
+/** One collected order line, priced by its recipe and its order's channel account. */
 export interface ProfitLineFact {
   orderId: string;
   listing: ProfitListingIdentity;
@@ -134,8 +151,21 @@ export interface ProfitLineFact {
   /** The line's revenue-weighted share of its order's shipping price. */
   shippingCost: number;
   costOfGoods: number | null;
+  /** Whether the order's channel account carries a sales commission. */
+  commissionApplies: boolean;
+  /** Whether the order's channel account carries an other per-sale cost. */
+  otherCostApplies: boolean;
+  /** 0 when the commission does not apply; `null` when it applies without a source. */
   commission: number | null;
+  /** 0 when the other cost does not apply; `null` when it applies without a source. */
   otherCost: number | null;
+}
+
+/** A collected line sold under no listing option: no recipe, but its order's account is known. */
+export interface UnmappedLineFact {
+  orderId: string;
+  commissionApplies: boolean;
+  otherCostApplies: boolean;
 }
 
 export interface ProfitListingIdentity {
@@ -166,6 +196,7 @@ export interface ProfitWindowFacts {
   lines: readonly ProfitLineFact[];
   /** Collected lines sold under no listing option, so no recorded cost exists. */
   unmappedLineCount: number;
+  unmappedLines: readonly UnmappedLineFact[];
   ad: AdWindowEvidence;
   listingAdSpend: ReadonlyMap<string, number>;
   gradeByProductId: ReadonlyMap<string, string>;
@@ -222,7 +253,10 @@ async function readProfitLines(
   organizationId: string,
   from: Date,
   to: Date,
-): Promise<Pick<ProfitWindowFacts, 'orderWindow' | 'orderShipping' | 'lines' | 'unmappedLineCount'>> {
+): Promise<Pick<
+  ProfitWindowFacts,
+  'orderWindow' | 'orderShipping' | 'lines' | 'unmappedLineCount' | 'unmappedLines'
+>> {
   const facts = await readOrderLineWindowFacts(tx, {
     organizationId,
     from,
@@ -235,9 +269,6 @@ async function readProfitLines(
     where: { organizationId, id: { in: optionIds } },
     select: {
       id: true,
-      costPriceOverride: true,
-      commissionRate: true,
-      otherCost: true,
       inventoryComponents: {
         where: { organizationId },
         select: { quantity: true, sellpiaInventorySkuId: true },
@@ -261,6 +292,17 @@ async function readProfitLines(
       },
     },
   });
+  // The order's channel account decides whether a commission and other
+  // per-sale cost apply to its lines (KID-114).
+  const accountIds = [...new Set(facts.orders.map((order) => order.channelAccountId))];
+  const orderAccounts = accountIds.length === 0 ? [] : await tx.channelAccount.findMany({
+    where: { organizationId, id: { in: accountIds } },
+    select: { id: true, channel: true },
+  });
+  const salesCostsByAccountId = new Map(orderAccounts.map((account) => [
+    account.id,
+    resolveOrderLineSalesCosts(account),
+  ]));
   const inventorySkuIds = [...new Set(options.flatMap((option) =>
     option.inventoryComponents.map((component) => component.sellpiaInventorySkuId)))];
   const inventorySkus = await readInventorySkuIdentities(tx, {
@@ -278,7 +320,7 @@ async function readProfitLines(
       externalId: listing.externalId,
       channelName: listing.channelName ?? null,
       channel: listing.channelAccount.channel,
-      adSweepCovers: adSweepCoversAccount(listing.channelAccount),
+      adSweepCovers: adSweepCoversChannelAccount(listing.channelAccount),
       masterProductId: listing.masterProduct?.id ?? null,
       masterCode: listing.masterProduct?.code ?? listing.externalId,
       masterName: listing.masterProduct?.name
@@ -288,35 +330,35 @@ async function readProfitLines(
       category: listing.masterProduct?.category ?? listing.category,
       thumbnailUrl: listing.thumbnails[0]?.imageUrl ?? null,
     };
-    const pricing = resolvePricing({
-      option: {
-        costPriceOverride: option.costPriceOverride,
-        commissionRate: option.commissionRate,
-        otherCost: option.otherCost,
-        inventoryComponents: option.inventoryComponents.map((component) => ({
-          quantity: component.quantity,
-          // A component whose Sellpia SKU the Inventory reader does not return
-          // has no recorded purchase price.
-          purchasePrice: purchasePriceBySkuId.get(component.sellpiaInventorySkuId) ?? null,
-        })),
-      },
+    const unitCost = resolveUnitCost({
+      inventoryComponents: option.inventoryComponents.map((component) => ({
+        quantity: component.quantity,
+        // A component whose Sellpia SKU the Inventory reader does not return
+        // has no recorded purchase price.
+        purchasePrice: purchasePriceBySkuId.get(component.sellpiaInventorySkuId) ?? null,
+      })),
     });
-    return [option.id, { identity, pricing }] as const;
+    return [option.id, { identity, unitCost }] as const;
   }));
 
   const lines: ProfitLineFact[] = [];
-  let unmappedLineCount = 0;
+  const unmappedLines: UnmappedLineFact[] = [];
   let orderShipping = 0;
   for (const order of facts.orders) {
     orderShipping += order.shippingPrice;
+    const salesCosts = salesCostsByAccountId.get(order.channelAccountId)
+      ?? resolveOrderLineSalesCosts(null);
     const orderRevenue = order.lines.reduce((sum, line) => sum + line.revenue, 0);
     for (const line of order.lines) {
       const option = line.listingOptionId ? optionById.get(line.listingOptionId) : undefined;
       if (!option) {
-        unmappedLineCount += 1;
+        unmappedLines.push({
+          orderId: order.orderId,
+          commissionApplies: salesCosts.commissionApplies,
+          otherCostApplies: salesCosts.otherCostApplies,
+        });
         continue;
       }
-      const { unitCost, commissionRate, otherCost } = option.pricing;
       lines.push({
         orderId: order.orderId,
         listing: option.identity,
@@ -325,13 +367,21 @@ async function readProfitLines(
         shippingCost: orderRevenue > 0 && order.shippingPrice > 0
           ? Math.round(order.shippingPrice * (line.revenue / orderRevenue))
           : 0,
-        costOfGoods: unitCost === null ? null : unitCost * line.quantity,
-        commission: commissionRate === null ? null : line.revenue * commissionRate,
-        otherCost: otherCost === null ? null : otherCost * line.quantity,
+        costOfGoods: option.unitCost === null ? null : option.unitCost * line.quantity,
+        commissionApplies: salesCosts.commissionApplies,
+        otherCostApplies: salesCosts.otherCostApplies,
+        commission: salesCosts.commission,
+        otherCost: salesCosts.otherCost,
       });
     }
   }
-  return { orderWindow: facts.window, orderShipping, lines, unmappedLineCount };
+  return {
+    orderWindow: facts.window,
+    orderShipping,
+    lines,
+    unmappedLineCount: unmappedLines.length,
+    unmappedLines,
+  };
 }
 
 async function readListingAdSpend(
@@ -380,23 +430,21 @@ export async function readProfitWindowFacts(
 }
 
 /**
- * The accounts the Coupang target-day ad sweep covers, as Advertising's
- * `advertisingApplies` and its ledger's active-account rule decide them:
- * active Coupang accounts.
- */
-function adSweepCoversAccount(account: { channel: string; status: string }): boolean {
-  return account.channel === 'coupang' && account.status === 'active';
-}
-
-/**
- * Whether advertising is an input to a listing's profit: the organization has
- * an advertising account and the listing sells where its sweep looks.
+ * Whether advertising is an input to a listing's profit, by Advertising's rule
+ * (`advertisingAppliesToSale`): measured spend for the listing always applies;
+ * otherwise the organization must advertise and the listing must sell on an
+ * account the sweep covers.
  */
 export function advertisingAppliesToListing(
   ad: Pick<AccountAdEvidence, 'hasAdAccount'>,
-  listing: Pick<ProfitListingIdentity, 'adSweepCovers'>,
+  listing: Pick<ProfitListingIdentity, 'adSweepCovers' | 'listingId'>,
+  listingAdSpend: ReadonlyMap<string, number>,
 ): boolean {
-  return ad.hasAdAccount && listing.adSweepCovers;
+  return advertisingAppliesToSale({
+    organizationAdvertises: ad.hasAdAccount,
+    sweepCoversAccount: listing.adSweepCovers,
+    hasMeasuredSpend: listingAdSpend.has(listing.listingId),
+  });
 }
 
 /** Whether a completed Orders collection covered every business date of the window. */
@@ -434,10 +482,9 @@ export function addOrUnavailable(total: number | null, value: number | null): nu
  * account separates an organization that runs no ads from one whose ad
  * collection failed:
  *
- * - No advertising account — no collection can exist either. Advertising is a
- *   satisfied input at zero for every listing.
- * - A listing on a channel the sweep cannot cover — no target-day row can
- *   exist for it, so advertising is Not applied to it at zero.
+ * - Advertising does not apply to the listing — no advertising account, or a
+ *   listing on an account the sweep cannot cover and with no measured spend.
+ *   It is Not applied, a satisfied input at zero.
  * - A window the sweep measured no date of, or only part of. A sum over 3 of
  *   30 requested days proves nothing about the other 27, so the cost is
  *   unavailable.
@@ -450,7 +497,7 @@ function listingAdCost(
   listingAdSpend: ReadonlyMap<string, number>,
   listing: ProfitListingIdentity,
 ): number | null {
-  if (!advertisingAppliesToListing(ad, listing)) return 0;
+  if (!advertisingAppliesToListing(ad, listing, listingAdSpend)) return 0;
   if (ad.publishedDates === 0 || !ad.coversWindow) return null;
   return listingAdSpend.has(listing.listingId) ? listingAdSpend.get(listing.listingId)! : 0;
 }
@@ -503,7 +550,7 @@ export function perListingProfitRows(facts: ProfitRowFacts): PerListingProfit[] 
     const adCost = listingAdCost(facts.ad, facts.listingAdSpend, identity);
     const costs = totalOrUnavailable([costOfGoods, commission, otherCost, adCost]);
     const datesAligned = profitDatesAligned(
-      advertisingAppliesToListing(facts.ad, identity),
+      advertisingAppliesToListing(facts.ad, identity, facts.listingAdSpend),
       facts.orderWindow,
     );
     const netProfit = !datesAligned || costs === null
@@ -565,6 +612,10 @@ export function profitWindowTotals(facts: ProfitWindowFacts): FinanceWindowTotal
     ? null
     : lineCosts + facts.orderShipping + adCost;
   const netProfit = revenue === null || cost === null ? null : revenue - cost;
+  // What no product row carries: spend on listings that sold nothing, and the
+  // shipping of orders with no revenue to weigh it by (or no listing option).
+  const rowAdCost = totalOrUnavailable(perListingProfitRows(facts).map((row) => row.adCost));
+  const rowShipping = facts.lines.reduce((sum, line) => sum + line.shippingCost, 0);
   return {
     revenue,
     orderCount: facts.orderWindow.orderCount,
@@ -572,6 +623,11 @@ export function profitWindowTotals(facts: ProfitWindowFacts): FinanceWindowTotal
     adCost,
     netProfit,
     profitRate: profitRatePercent(netProfit, revenue),
+    adCostRate: revenue === null || adCost === null || revenue <= 0
+      ? null
+      : Math.round((adCost / revenue) * 1000) / 10,
+    unallocatedAdCost: adCost === null || rowAdCost === null ? null : Math.round(adCost - rowAdCost),
+    unallocatedShipping: revenue === null ? null : facts.orderShipping - rowShipping,
   } satisfies FinanceWindowTotals;
 }
 
@@ -585,10 +641,62 @@ export function orderWindowBasis(orderWindow: OrderWindowFacts, window: FinanceW
 }
 
 /**
+ * Per cost component, the collected lines of the window it does not apply to
+ * (Not applied) and the lines it applies to but nobody measured. A line sold
+ * under no listing option has no recipe, so its purchase cost is unmeasured,
+ * and names no listing, so only the organization's advertising answer decides
+ * its advertising.
+ */
+function costInputsBasis(facts: ProfitWindowFacts): FinanceCostInputsBasis {
+  const lines = facts.lines.length + facts.unmappedLines.length;
+  const salesLines = [...facts.lines, ...facts.unmappedLines];
+  const advertisingMeasured = facts.ad.publishedDates > 0 && facts.ad.coversWindow;
+  let advertisingNotApplied = 0;
+  let advertisingUnmeasured = 0;
+  for (const line of facts.lines) {
+    if (!advertisingAppliesToListing(facts.ad, line.listing, facts.listingAdSpend)) {
+      advertisingNotApplied += 1;
+    } else if (!advertisingMeasured) {
+      advertisingUnmeasured += 1;
+    }
+  }
+  for (let index = 0; index < facts.unmappedLines.length; index += 1) {
+    if (!facts.ad.hasAdAccount) advertisingNotApplied += 1;
+    else if (!advertisingMeasured) advertisingUnmeasured += 1;
+  }
+  return {
+    purchaseCost: {
+      lines,
+      notAppliedLines: 0,
+      unmeasuredLines: facts.lines.filter((line) => line.costOfGoods === null).length
+        + facts.unmappedLines.length,
+    },
+    commission: {
+      lines,
+      notAppliedLines: salesLines.filter((line) => !line.commissionApplies).length,
+      unmeasuredLines: facts.lines.filter((line) => line.commission === null).length
+        + facts.unmappedLines.filter((line) => line.commissionApplies).length,
+    },
+    otherCost: {
+      lines,
+      notAppliedLines: salesLines.filter((line) => !line.otherCostApplies).length,
+      unmeasuredLines: facts.lines.filter((line) => line.otherCost === null).length
+        + facts.unmappedLines.filter((line) => line.otherCostApplies).length,
+    },
+    advertising: {
+      lines,
+      notAppliedLines: advertisingNotApplied,
+      unmeasuredLines: advertisingUnmeasured,
+    },
+  };
+}
+
+/**
  * The evidence behind a finance window, as measured facts: the requested
- * window, and over the evaluated window the dates orders and advertising
- * covered. Profit is measured on the dates both covered; a window with a line
- * lacking a recorded cost refuses every date for profit.
+ * window, over the evaluated window the dates orders and advertising covered,
+ * and per cost component the lines it does not apply to and the lines nobody
+ * measured. Profit is measured on the dates both covered; a window with a line
+ * lacking a cost refuses every date for profit.
  */
 export function profitWindowBasis(facts: ProfitWindowFacts): FinanceWindowBasis {
   const range = kstWindowDateRange(facts.window.effective);
@@ -604,6 +712,7 @@ export function profitWindowBasis(facts: ProfitWindowFacts): FinanceWindowBasis 
       invalidDates: lineCostsComplete(facts) ? [] : facts.orderWindow.requestedDates,
       sources: facts.ad.hasAdAccount ? [ORDERS_SOURCE, COUPANG_ADS_SOURCE] : [ORDERS_SOURCE],
     }),
+    costInputs: costInputsBasis(facts),
   } satisfies FinanceWindowBasis;
 }
 
@@ -671,8 +780,11 @@ export async function buildPerListingMetricsCoverage(
   from: Date,
   to: Date,
   accountAdEvidence: AccountAdEvidence,
+  /** Limit the population to these listings; every sold listing when omitted. */
+  listingIds?: ReadonlySet<string>,
 ): Promise<PerListingMetricsCoverage> {
-  const rows = await buildPerListingProfit(tx, organizationId, from, to, accountAdEvidence);
+  const rows = (await buildPerListingProfit(tx, organizationId, from, to, accountAdEvidence))
+    .filter((row) => listingIds === undefined || listingIds.has(row.listingId));
   const metrics = rows.filter(hasMeasuredProfit);
   return { metrics, withheldListings: rows.length - metrics.length };
 }

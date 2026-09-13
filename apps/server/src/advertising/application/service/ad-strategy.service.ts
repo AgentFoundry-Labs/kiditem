@@ -140,6 +140,7 @@ export class AdStrategyService {
       }),
       top20,
       week: getWeekRange(period),
+      profitWithheldListings: ctx.profitWithheldListings,
     } satisfies AdWeeklyPlan;
   }
 

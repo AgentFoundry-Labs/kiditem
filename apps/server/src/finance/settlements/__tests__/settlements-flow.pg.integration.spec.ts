@@ -100,7 +100,7 @@ describe('Settlements flow (PG integration)', () => {
         actualAmount: null,
       } as unknown as UpdateSettlementDto)).rejects.toThrow(BadRequestException);
 
-      await expect(service.findAll(TEST_ORGANIZATION_ID, '2026-03')).resolves.toEqual([
+      await expect(service.findAll(TEST_ORGANIZATION_ID, '2026-03').then((list) => list.items)).resolves.toEqual([
         expect.objectContaining({ status: 'pending', actualAmount: null, difference: null }),
       ]);
       await expect(service.update(settlement.id, TEST_ORGANIZATION_ID, {
@@ -139,10 +139,34 @@ describe('Settlements flow (PG integration)', () => {
       expect.objectContaining({ period: '2026-04', expectedAmount: 2_000 }),
       expect.objectContaining({ period: '2026-03', expectedAmount: 1_000 }),
     ]);
-    await expect(service.findAll(TEST_ORGANIZATION_ID, '2026-03')).resolves.toEqual([
+    await expect(service.findAll(TEST_ORGANIZATION_ID, '2026-03').then((list) => list.items)).resolves.toEqual([
       expect.objectContaining({ period: '2026-03', expectedAmount: 1_000 }),
     ]);
-    await expect(service.findAll(TEST_ORGANIZATION_ID, '')).resolves.toHaveLength(2);
+    await expect(service.findAll(TEST_ORGANIZATION_ID, '').then((list) => list.items)).resolves.toHaveLength(2);
+  });
+
+  /** KID-85 follow-up P3-13 — the settlement cards read server totals, not browser sums. */
+  it('sums the listed settlements on the server: expected over every row, deposits over confirmed rows only', async () => {
+    await service.create(TEST_ORGANIZATION_ID, {
+      period: '2026-03', expectedAmount: 1_000, commission: 0, shippingFee: 0, orderCount: 0, returnCount: 0,
+    });
+    const confirmed = await service.create(TEST_ORGANIZATION_ID, {
+      period: '2026-04', expectedAmount: 2_000, commission: 0, shippingFee: 0, orderCount: 0, returnCount: 0,
+    });
+    await service.update(confirmed.id, TEST_ORGANIZATION_ID, { status: 'confirmed', actualAmount: 1_500 });
+
+    await expect(service.findAll(TEST_ORGANIZATION_ID, '')).resolves.toEqual({
+      items: [
+        expect.objectContaining({ period: '2026-04', actualAmount: 1_500, difference: -500 }),
+        expect.objectContaining({ period: '2026-03', actualAmount: null, difference: null }),
+      ],
+      summary: {
+        totalExpected: 3_000,
+        totalConfirmedActual: 1_500,
+        totalConfirmedDifference: -500,
+        pendingCount: 1,
+      },
+    });
   });
 
   it('publishes no actual amount or difference for a settlement nobody confirmed', async () => {
@@ -154,7 +178,7 @@ describe('Settlements flow (PG integration)', () => {
     // The stored actual column defaults to 0; an unconfirmed deposit is not
     // a deposit of zero.
     expect(created).toMatchObject({ status: 'pending', actualAmount: null, difference: null });
-    await expect(service.findAll(TEST_ORGANIZATION_ID, '2026-03')).resolves.toEqual([
+    await expect(service.findAll(TEST_ORGANIZATION_ID, '2026-03').then((list) => list.items)).resolves.toEqual([
       expect.objectContaining({ actualAmount: null, difference: null }),
     ]);
   });

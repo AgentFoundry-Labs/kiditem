@@ -72,9 +72,6 @@ describe('published ABC dependent consumers (PostgreSQL)', () => {
       listingId: listing.id,
       externalOptionId: 'OFFICIAL-A-OPTION',
       salePrice: 12_000,
-      costPriceOverride: 4_000,
-      commissionRate: 0.1,
-      otherCost: 0,
       status: '판매중',
     } });
     await prisma.thumbnail.createMany({ data: [

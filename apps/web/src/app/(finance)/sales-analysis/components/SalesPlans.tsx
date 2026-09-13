@@ -20,12 +20,6 @@ import { FinanceBasisNotice } from '../../_shared/components/FinanceBasisNotice'
 
 const SalesPlanViewsSchema = z.array(SalesPlanViewSchema);
 
-/** Achievement against a target; no actual or a zero target is no rate. */
-function achievementRate(actual: number | null, target: number): number | null {
-  if (actual === null || target === 0) return null;
-  return Math.round((actual / target) * 100);
-}
-
 function progressColor(rate: number | null): string {
   if (rate === null) return 'bg-slate-200';
   if (rate >= 100) return 'bg-green-500';
@@ -140,9 +134,10 @@ export default function SalesPlans() {
             const actualRevenue = actuals ? actuals.revenue : null;
             const actualOrders = actuals ? actuals.orderCount : null;
             const actualProfit = actuals ? actuals.netProfit : null;
-            const revenueRate = achievementRate(actualRevenue, plan.targetRevenue);
-            const ordersRate = achievementRate(actualOrders, plan.targetOrders);
-            const profitRate = achievementRate(actualProfit, plan.targetProfit);
+            // Achievement is the server's rate; a zero target or a missing actual has none.
+            const revenueRate = plan.achievement.revenue;
+            const ordersRate = plan.achievement.orders;
+            const profitRate = plan.achievement.profit;
 
             return (
               <div key={plan.id} className="card p-5">

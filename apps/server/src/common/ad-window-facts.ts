@@ -3,7 +3,9 @@
  * owned by Advertising under `advertising/read/ad-target-facts`.
  */
 export {
+  adSweepCoversChannelAccount,
   advertisingApplies,
+  advertisingAppliesToSale,
   dayAfter,
   readAdWindowFacts,
   readLatestAdDate,

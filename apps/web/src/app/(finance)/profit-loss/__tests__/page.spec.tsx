@@ -158,7 +158,8 @@ describe('<ProfitLossPage> 3-state', () => {
     await waitFor(() => {
       expect(screen.getByText(/2026-04-01 ~ 2026-04-14 마감일 기준/)).toBeTruthy();
     });
-    expect(screen.queryByText(/주문 수집/)).toBeNull();
+    // No per-day coverage count: every closed day was collected.
+    expect(screen.queryByText(/주문 수집 \d+\/\d+일/)).toBeNull();
   });
 
   it('says no day has closed yet on the 1st instead of counting an empty window', async () => {
@@ -181,6 +182,66 @@ describe('<ProfitLossPage> 3-state', () => {
     });
     expect(screen.queryByText(/주문 수집 0\/0일/)).toBeNull();
     expect(cardValue('총 매출')).toBe('-');
+  });
+
+  /** KID-85 follow-up F-6 — the count is completed collections only, not the database. */
+  it('says no completed order collection published orders instead of blaming an empty database', async () => {
+    mockProfitLossQuery({ period: '2026-04', rows: [], totals: unavailableTotals, basis: completeBasis });
+    renderWithProvider();
+
+    await waitFor(() => {
+      expect(screen.getByText('완료된 주문 수집이 발행한 주문이 없어 손익표가 비어 있습니다.')).toBeTruthy();
+    });
+    expect(screen.queryByText(/현재 DB/)).toBeNull();
+    expect(screen.queryByText(/Drive replay/)).toBeNull();
+  });
+
+  /** KID-85 follow-up P3-2 and P3-13 — the cards render server totals, not browser arithmetic. */
+  it("renders the server's ad cost share and the totals no product row carries", async () => {
+    mockProfitLossQuery({
+      period: '2026-04',
+      rows: [{
+        listingId: '11111111-1111-4111-8111-111111111111',
+        externalId: 'EXT-1',
+        channelName: '쿠팡',
+        masterId: '22222222-2222-4222-8222-222222222222',
+        masterCode: 'M-1',
+        masterName: '측정된 상품',
+        category: null,
+        grade: 'A',
+        thumbnailUrl: null,
+        revenue: 20_000,
+        cogs: 5_000,
+        commission: 0,
+        shippingCost: 3_000,
+        adCost: 2_000,
+        otherCost: 0,
+        netProfit: 10_000,
+        profitRate: 50,
+        orderCount: 1,
+        returnCount: 0,
+      }],
+      totals: {
+        revenue: 20_000,
+        orderCount: 1,
+        cost: 11_500,
+        adCost: 3_000,
+        netProfit: 8_500,
+        profitRate: 42.5,
+        adCostRate: 12.3,
+        unallocatedAdCost: 1_000,
+        unallocatedShipping: 500,
+      },
+      basis: completeBasis,
+    });
+    renderWithProvider();
+
+    await waitFor(() => {
+      expect(screen.getByText('12.3% of 매출')).toBeTruthy();
+    });
+    // 3,000 / 20,000 would be 15.0%: the card shows the server's share.
+    expect(screen.queryByText('15.0% of 매출')).toBeNull();
+    expect(screen.getByText('상품 행에 배분되지 않은 광고비 1,000원 · 배송비 500원')).toBeTruthy();
   });
 
   it('renders error state on rejected promise', async () => {

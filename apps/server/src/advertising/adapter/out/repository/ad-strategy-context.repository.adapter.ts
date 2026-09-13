@@ -15,8 +15,9 @@ import {
 } from '../../../../channels/read/channel-listing-daily-facts';
 import { readPublishedProductAbcGrades } from '../../../../products/read/product-abc-publication.reader';
 import {
-  buildPerListingMetrics,
+  buildPerListingMetricsCoverage,
   readAdEvidenceFromLedger,
+  type PerListingMetrics,
 } from '../../../../common/per-listing-profit';
 import { periodBounds, type AdPeriod } from '../../../domain/ad-metrics';
 import {
@@ -94,7 +95,8 @@ export class AdStrategyContextRepositoryAdapter
       to: kstMonthStart(year, month + 1),
     };
     const listings = await this.hydrateListingsIn(tx, organizationId, listingIds);
-    let liveMetrics = [] as Awaited<ReturnType<typeof buildPerListingMetrics>>;
+    let liveMetrics: PerListingMetrics[] = [];
+    let profitWithheldListings = 0;
     if (listingIds.length > 0) {
       const accountAdEvidence = await readAdEvidenceFromLedger(
         tx,
@@ -102,13 +104,18 @@ export class AdStrategyContextRepositoryAdapter
         monthWindow.from,
         monthWindow.to,
       );
-      liveMetrics = (await buildPerListingMetrics(
+      // The coverage variant says how many context listings were withheld, so
+      // the plan does not reason over a silent subset.
+      const coverage = await buildPerListingMetricsCoverage(
         tx,
         organizationId,
         monthWindow.from,
         monthWindow.to,
         accountAdEvidence,
-      )).filter((row) => listingIdSet.has(row.listingId));
+        listingIdSet,
+      );
+      liveMetrics = coverage.metrics;
+      profitWithheldListings = coverage.withheldListings;
     }
     const channelStateByListing = await this.loadChannelStateByListingIn(
       tx,
@@ -141,6 +148,7 @@ export class AdStrategyContextRepositoryAdapter
       adIssuesAdGroups: toAdAggregateRows(adAgg),
       listings,
       profitRateByListing,
+      profitWithheldListings,
       channelStateByListing,
       gradeMap: buildGradeMap(listings),
       trafficByListing,

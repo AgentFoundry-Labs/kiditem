@@ -16,7 +16,7 @@ import {
   RefreshCw,
   Receipt,
 } from 'lucide-react';
-import type { SettlementListItem } from '@kiditem/shared/settlements';
+import { SettlementListResponseSchema, type SettlementListItem } from '@kiditem/shared/settlements';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatKRW } from '@/lib/utils';
@@ -27,11 +27,6 @@ import { compareNullableLast } from '@/lib/nullable-sort';
 type Settlement = SettlementListItem;
 
 type SortField = 'expectedAmount' | 'actualAmount' | 'difference';
-
-/** Sum of the values a population actually carries; unconfirmed rows are outside it. */
-function sumPublished(values: readonly (number | null)[]): number {
-  return values.reduce<number>((sum, value) => (value === null ? sum : sum + value), 0);
-}
 
 export default function Settlements() {
   const queryClient = useQueryClient();
@@ -53,15 +48,18 @@ export default function Settlements() {
   const [editId, setEditId] = useState<string | null>(null);
   const [actualAmount, setActualAmount] = useState(0);
 
-  const { data: settlements = [], isFetching } = useQuery({
+  const { data, isFetching } = useQuery({
     queryKey: queryKeys.settlements.list(period),
     queryFn: () => {
       const params = new URLSearchParams();
       if (period) params.set('period', period);
-      return apiClient.get<Settlement[]>(`/api/settlements?${params}`);
+      return apiClient.getParsed(`/api/settlements?${params}`, SettlementListResponseSchema);
     },
     placeholderData: previousData => previousData,
   });
+  const settlements: Settlement[] = data?.items ?? [];
+  // Card totals are the server's sums; the browser adds nothing up.
+  const summary = data?.summary ?? null;
   const isRefreshing = isFetching && settlements.length > 0;
 
   const confirmMutation = useMutation({
@@ -96,9 +94,7 @@ export default function Settlements() {
     confirmMutation.mutate({ id: s.id, actualAmount });
   };
 
-  const totalExpected = sumPublished(settlements.map((s) => s.expectedAmount));
-  const totalActual = sumPublished(settlements.map((s) => s.actualAmount));
-  const totalDiff = sumPublished(settlements.map((s) => s.difference));
+  const totalDiff = summary?.totalConfirmedDifference ?? null;
 
   const renderSortIcon = (field: SortField) => {
     if (sortField !== field || !sortDirection) {
@@ -143,10 +139,10 @@ export default function Settlements() {
 
       {/* 요약 카드 */}
       <div className="grid grid-cols-4 gap-4">
-        <div className="card"><div className="card-label">총 예상 정산액</div><div className="card-value">{formatKRW(totalExpected)}</div></div>
-        <div className="card"><div className="card-label">확인된 입금액</div><div className="card-value text-green-600">{formatKRW(totalActual)}</div></div>
-        <div className="card"><div className="card-label">확인된 차이 합계</div><div className={cn('card-value', totalDiff >= 0 ? 'text-green-600' : 'text-red-600')}>{totalDiff >= 0 ? '+' : ''}{formatKRW(totalDiff)}</div></div>
-        <div className="card"><div className="card-label">미확인 월</div><div className="card-value text-orange-600">{settlements.filter(s => s.status === 'pending').length}건</div></div>
+        <div className="card"><div className="card-label">총 예상 정산액</div><div className="card-value">{formatKRW(summary?.totalExpected)}</div></div>
+        <div className="card"><div className="card-label">확인된 입금액</div><div className="card-value text-green-600">{formatKRW(summary?.totalConfirmedActual)}</div></div>
+        <div className="card"><div className="card-label">확인된 차이 합계</div><div className={cn('card-value', totalDiff === null || totalDiff >= 0 ? 'text-green-600' : 'text-red-600')}>{totalDiff === null ? '-' : `${totalDiff >= 0 ? '+' : ''}${formatKRW(totalDiff)}`}</div></div>
+        <div className="card"><div className="card-label">미확인 월</div><div className="card-value text-orange-600">{summary === null ? '-' : `${summary.pendingCount}건`}</div></div>
       </div>
 
       {/* 정산 테이블 */}

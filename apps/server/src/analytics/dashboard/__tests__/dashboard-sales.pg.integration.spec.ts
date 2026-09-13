@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import { Test } from '@nestjs/testing';
 import {
@@ -31,7 +32,9 @@ import {
   seedCompletedAdSweepRun,
   seedCompletedOrderCoverageRun,
 } from '../../../test-helpers/finance-seeds';
-import { kstMonthEnd } from '../../../common/kst';
+import { kstMonthEnd, kstMonthStart } from '../../../common/kst';
+import { ProfitLossService } from '../../../finance/services/profit-loss.service';
+import { seedActiveSellpiaInventorySku } from '../../../test-helpers/inventory-seeds';
 import { periodOf } from './test-helpers/period';
 import type { PrismaClient } from '@prisma/client';
 
@@ -103,7 +106,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
     });
     const { id: optionId } = await setupProductOption(prisma, {
       organizationId: TEST_ORGANIZATION_ID, masterId,
-      sku: `SKU-T-${suffix}`, costPrice: 50_000, commissionRate: 0.1, otherCost: 0,
+      sku: `SKU-T-${suffix}`, costPrice: 50_000,
     });
     const { listingId, listingOptionId } = await setupChannelListing(prisma, {
       organizationId: TEST_ORGANIZATION_ID, masterId,
@@ -135,6 +138,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
   it('T1: baseline monthly — single order, math verified', async () => {
     const { optionId, listingOptionId } = await seedTestListing('1');
     await seedOrderWithLineItems(prisma, {
+      orderChannel: 'rocket',
       organizationId: TEST_ORGANIZATION_ID,
       externalOrderId: 'SALES-T-1',
       orderedAt: midMonth().toISOString(),
@@ -146,12 +150,12 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
     const result = await readMeasuredSummary(ctx);
 
     expect(result.monthly.revenue).toBe(100_000);
-    expect(result.monthly.profit).toBe(30_000);             // 100k - 50k - 10k - 10k - 0 - 0
+    expect(result.monthly.profit).toBe(40_000);             // 100k - 50k - 10k shipping; a Rocket order carries no commission
     // No advertising on any day of the period: the collector published an
     // explicit zero for each one, which is evidence, so profit is computable.
     expect(result.monthly.adRate).toBe(0);
-    expect(result.profitDetail?.netProfit).toBe(30_000);
-    expect(result.profitDetail?.commission).toBe(10_000);
+    expect(result.profitDetail?.netProfit).toBe(40_000);
+    expect(result.profitDetail?.commission).toBe(0);
     expect(result.profitDetail?.shippingCost).toBe(10_000);
     expect(result.planAchievement).toBeNull();
   });
@@ -159,6 +163,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
   it('T2: IDOR isolation — OTHER sentinel never leaks into TEST', async () => {
     const t = await seedTestListing('2');
     await seedOrderWithLineItems(prisma, {
+      orderChannel: 'rocket',
       organizationId: TEST_ORGANIZATION_ID,
       externalOrderId: 'SALES-T-2',
       orderedAt: midMonth().toISOString(),
@@ -169,7 +174,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
     // OTHER sentinel
     const oMaster = await setupMaster(prisma, { organizationId: OTHER_ORGANIZATION_ID, code: 'M-O-2', name: 'Other M2' });
     const oOption = await setupProductOption(prisma, {
-      organizationId: OTHER_ORGANIZATION_ID, masterId: oMaster.id, sku: 'SKU-O-2', costPrice: 0, commissionRate: 0,
+      organizationId: OTHER_ORGANIZATION_ID, masterId: oMaster.id, sku: 'SKU-O-2', costPrice: 0,
     });
     const oListing = await setupChannelListing(prisma, {
       organizationId: OTHER_ORGANIZATION_ID, masterId: oMaster.id,
@@ -177,6 +182,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
       optionId: oOption.id, externalOptionId: 'VI-O-2',
     });
     await seedOrderWithLineItems(prisma, {
+      orderChannel: 'rocket',
       organizationId: OTHER_ORGANIZATION_ID,
       externalOrderId: 'SALES-O-2',
       orderedAt: midMonth().toISOString(),
@@ -201,6 +207,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
     const recent = new Date();
     recent.setDate(recent.getDate() - 3);
     await seedOrderWithLineItems(prisma, {
+      orderChannel: 'rocket',
       organizationId: TEST_ORGANIZATION_ID,
       externalOrderId: 'SALES-T-3',
       orderedAt: recent.toISOString(),
@@ -344,6 +351,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
       })),
     });
     await seedOrderWithLineItems(prisma, {
+      orderChannel: 'rocket',
       organizationId: TEST_ORGANIZATION_ID,
       externalOrderId: 'FUNNEL-ORDER-1',
       orderedAt: '2026-09-01T03:00:00+09:00',
@@ -405,6 +413,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
       },
     });
     await seedOrderWithLineItems(prisma, {
+      orderChannel: 'rocket',
       organizationId: TEST_ORGANIZATION_ID,
       externalOrderId: 'AD-RATE-D1',
       orderedAt: '2026-09-01T03:00:00+09:00',
@@ -417,6 +426,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
       }],
     });
     await seedOrderWithLineItems(prisma, {
+      orderChannel: 'rocket',
       organizationId: TEST_ORGANIZATION_ID,
       externalOrderId: 'AD-RATE-D2-UNPROVEN',
       orderedAt: '2026-09-02T03:00:00+09:00',
@@ -655,7 +665,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
         organizationId: TEST_ORGANIZATION_ID, code: `M-T-TOP-${i}`, name: `Top ${i}`, abcGrade: i <= 4 ? 'A' : i <= 8 ? 'B' : 'C',
       });
       const { id: optionId } = await setupProductOption(prisma, {
-        organizationId: TEST_ORGANIZATION_ID, masterId, sku: `SKU-T-TOP-${i}`, costPrice: 0, commissionRate: 0,
+        organizationId: TEST_ORGANIZATION_ID, masterId, sku: `SKU-T-TOP-${i}`, costPrice: 0,
       });
       const { listingOptionId } = await setupChannelListing(prisma, {
         organizationId: TEST_ORGANIZATION_ID, masterId,
@@ -663,6 +673,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
         optionId, externalOptionId: `VI-T-TOP-${i}`,
       });
       await seedOrderWithLineItems(prisma, {
+        orderChannel: 'rocket',
         organizationId: TEST_ORGANIZATION_ID,
         externalOrderId: `SALES-T-TOP-${i}`,
         orderedAt: midMonth().toISOString(),
@@ -757,7 +768,6 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
       masterId: master.id,
       sku: 'SKU-T-TOP-UNCLASSIFIED',
       costPrice: 0,
-      commissionRate: 0,
     });
     const listing = await setupChannelListing(prisma, {
       organizationId: TEST_ORGANIZATION_ID,
@@ -768,6 +778,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
       externalOptionId: 'VI-T-TOP-UNCLASSIFIED',
     });
     await seedOrderWithLineItems(prisma, {
+      orderChannel: 'rocket',
       organizationId: TEST_ORGANIZATION_ID,
       externalOrderId: 'SALES-T-TOP-UNCLASSIFIED',
       orderedAt: midMonth().toISOString(),
@@ -791,6 +802,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
   it('retains the published absolute grade and provenance after a newer source failure', async () => {
     const { masterId, optionId, listingOptionId } = await seedTestListing('ABC');
     await seedOrderWithLineItems(prisma, {
+      orderChannel: 'rocket',
       organizationId: TEST_ORGANIZATION_ID,
       externalOrderId: 'SALES-T-ABC',
       orderedAt: midMonth().toISOString(),
@@ -920,14 +932,12 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
       masterId: secondary.id,
       sku: 'SKU-T-BUNDLE-SECONDARY',
       costPrice: 0,
-      commissionRate: 0,
     });
     const option = await setupProductOption(prisma, {
       organizationId: TEST_ORGANIZATION_ID,
       masterId: primary.id,
       sku: 'SKU-T-BUNDLE',
       costPrice: 0,
-      commissionRate: 0,
     });
     const listing = await setupChannelListing(prisma, {
       organizationId: TEST_ORGANIZATION_ID,
@@ -947,6 +957,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
       },
     });
     await seedOrderWithLineItems(prisma, {
+      orderChannel: 'rocket',
       organizationId: TEST_ORGANIZATION_ID,
       externalOrderId: 'SALES-T-BUNDLE',
       orderedAt: midMonth().toISOString(),
@@ -1022,12 +1033,13 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
      * One order on each requested date, with every settlement input present so
      * `costComplete` is true and the only thing that can withhold `netProfit`
      * is the advertising evidence under test. Per day:
-     * 10,000 revenue − 5,000 COGS − 1,000 commission − 1,000 shipping = 3,000.
+     * 10,000 revenue − 5,000 COGS − 1,000 shipping = 4,000; a Rocket order
+     * carries no commission.
      * The order carries its own positive `shippingPrice`, because the option's
      * nullable `shippingCost` would otherwise be a missing cost input.
      */
     const DAILY_REVENUE = 10_000;
-    const DAILY_PROFIT = 3_000;
+    const DAILY_PROFIT = 4_000;
 
     async function seedFullyCoveredOrders(suffix: string): Promise<void> {
       const { id: masterId } = await setupMaster(prisma, {
@@ -1040,8 +1052,6 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
         masterId,
         sku: `SKU-T-${suffix}`,
         costPrice: 5_000,
-        commissionRate: 0.1,
-        otherCost: 0,
       });
       const { listingOptionId } = await setupChannelListing(prisma, {
         organizationId: TEST_ORGANIZATION_ID,
@@ -1053,6 +1063,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
       });
       for (const businessDate of REQUESTED) {
         await seedOrderWithLineItems(prisma, {
+          orderChannel: 'rocket',
           organizationId: TEST_ORGANIZATION_ID,
           externalOrderId: `SALES-${suffix}-${businessDate}`,
           orderedAt: `${businessDate}T05:00:00.000Z`,
@@ -1076,6 +1087,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
       const { optionId, listingOptionId } = await seedTestListing('COV-HOLE');
       for (const orderedAt of ['2026-03-01T05:00:00.000Z', '2026-03-03T05:00:00.000Z']) {
         await seedOrderWithLineItems(prisma, {
+          orderChannel: 'rocket',
           organizationId: TEST_ORGANIZATION_ID,
           externalOrderId: `SALES-COV-${orderedAt}`,
           orderedAt,
@@ -1110,6 +1122,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
     it('keeps a collected zero as a partial fact without promoting the whole range', async () => {
       const { optionId, listingOptionId } = await seedTestListing('COV-ZERO');
       await seedOrderWithLineItems(prisma, {
+        orderChannel: 'rocket',
         organizationId: TEST_ORGANIZATION_ID,
         externalOrderId: 'SALES-COV-ZERO',
         orderedAt: '2026-03-02T05:00:00.000Z',
@@ -1259,6 +1272,92 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
       expect(result.sourceCoverage.adDates).toEqual(REQUESTED);
       expect(result.sourceCoverage.orderDates).toEqual([]);
       expect(result.adEvidenceComplete).toBe(true);
+    });
+  });
+
+  /**
+   * KID-114 — the dashboard profit card, the Top-N ranking and the P&L screen
+   * apply one cost rule: recipe × Sellpia purchase price, commission and other
+   * cost decided by the order's channel account, order shipping price. For the
+   * same options and window they publish the same value, or no value, together.
+   */
+  describe('one cost rule across the profit card, Top-N and P&L', () => {
+    const FROM = kstMonthStart(2026, 3);
+    const TO = kstMonthStart(2026, 4);
+    const AFTER = new Date('2026-07-01T00:00:00.000Z');
+
+    async function sellOnce(code: string, opts: { orderChannel?: string; purchasePrice: number | null }) {
+      const { id: masterId } = await setupMaster(prisma, {
+        organizationId: TEST_ORGANIZATION_ID, code: `M-AGREE-${code}`, name: `Master AGREE-${code}`,
+      });
+      let skuId: string;
+      if (opts.purchasePrice === null) {
+        skuId = randomUUID();
+        await seedActiveSellpiaInventorySku(prisma, {
+          id: skuId, organizationId: TEST_ORGANIZATION_ID, code: `SKU-AGREE-${code}`, name: `Unpriced ${code}`,
+        });
+      } else {
+        skuId = (await setupProductOption(prisma, {
+          organizationId: TEST_ORGANIZATION_ID, masterId, sku: `SKU-AGREE-${code}`, costPrice: opts.purchasePrice,
+        })).id;
+      }
+      const listing = await setupChannelListing(prisma, {
+        organizationId: TEST_ORGANIZATION_ID, masterId, channel: 'naver',
+        externalId: `EXT-AGREE-${code}`, optionId: skuId, externalOptionId: `VI-AGREE-${code}`,
+      });
+      await seedOrderWithLineItems(prisma, {
+        organizationId: TEST_ORGANIZATION_ID,
+        externalOrderId: `AGREE-${code}`,
+        orderedAt: '2026-03-10T03:00:00.000Z',
+        shippingPrice: 1_000,
+        ...(opts.orderChannel ? { orderChannel: opts.orderChannel } : {}),
+        lineItems: [{ quantity: 1, totalPrice: 10_000, optionId: skuId, listingOptionId: listing.listingOptionId }],
+      });
+      await seedCompletedOrderCoverageRun(prisma, {
+        organizationId: TEST_ORGANIZATION_ID, startDate: '2026-03-01', endDate: '2026-03-31',
+      });
+    }
+
+    async function profitEverywhere() {
+      const client = prisma as unknown as PrismaService;
+      const card = await new ProfitCalculationRepositoryAdapter(client)
+        .calculateForRange(TEST_ORGANIZATION_ID, periodOf(FROM, TO, { anchor: AFTER }));
+      const topProducts = await new DashboardSalesRepositoryAdapter(client)
+        .fetchTopProducts(TEST_ORGANIZATION_ID, FROM, TO);
+      const profitLoss = await new ProfitLossService(client)
+        .findAll(TEST_ORGANIZATION_ID, 2026, 3, AFTER);
+      return {
+        card: card.netProfit,
+        topProducts: topProducts.map((row) => row.netProfit),
+        profitLossTotal: profitLoss.totals.netProfit,
+        profitLossRows: profitLoss.rows.map((row) => row.netProfit),
+      };
+    }
+
+    it('publishes one net profit for a Rocket line with a purchase cost', async () => {
+      await sellOnce('ROCKET', { orderChannel: 'rocket', purchasePrice: 5_000 });
+
+      // 10,000 revenue − 5,000 purchase cost − 1,000 order shipping; commission
+      // and other cost are Not applied to a Rocket direct-purchase order.
+      await expect(profitEverywhere()).resolves.toEqual({
+        card: 4_000, topProducts: [4_000], profitLossTotal: 4_000, profitLossRows: [4_000],
+      });
+    });
+
+    it('publishes no net profit anywhere for a line whose commission has no source', async () => {
+      await sellOnce('NAVER', { purchasePrice: 5_000 });
+
+      await expect(profitEverywhere()).resolves.toEqual({
+        card: null, topProducts: [null], profitLossTotal: null, profitLossRows: [null],
+      });
+    });
+
+    it('publishes no net profit anywhere for a Rocket line without a purchase cost', async () => {
+      await sellOnce('UNPRICED', { orderChannel: 'rocket', purchasePrice: null });
+
+      await expect(profitEverywhere()).resolves.toEqual({
+        card: null, topProducts: [null], profitLossTotal: null, profitLossRows: [null],
+      });
     });
   });
 });

@@ -17,6 +17,18 @@ export const SalesPlanActualsSchema = z.object({
 }).strict();
 export type SalesPlanActuals = z.infer<typeof SalesPlanActualsSchema>;
 
+/**
+ * Percent of each target the actuals reached, rounded to an integer. `null`
+ * over a zero target or an actual that is unavailable; the screen renders the
+ * rate as published.
+ */
+export const SalesPlanAchievementSchema = z.object({
+  revenue: z.number().int().nullable(),
+  orders: z.number().int().nullable(),
+  profit: z.number().int().nullable(),
+}).strict();
+export type SalesPlanAchievement = z.infer<typeof SalesPlanAchievementSchema>;
+
 export const SalesPlanViewSchema = z.object({
   id: z.string().uuid(),
   period: z.string(),
@@ -26,5 +38,6 @@ export const SalesPlanViewSchema = z.object({
   notes: z.string().nullable(),
   /** `null` when the stored period is not a `YYYY-MM` month. */
   actuals: SalesPlanActualsSchema.nullable(),
+  achievement: SalesPlanAchievementSchema,
 }).strict();
 export type SalesPlanView = z.infer<typeof SalesPlanViewSchema>;

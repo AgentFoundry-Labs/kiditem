@@ -171,14 +171,11 @@ function ProfitLossContent() {
           <Info size={18} className="mt-0.5 shrink-0 text-amber-600" />
           <div className="space-y-1.5 flex-1">
             <div className="font-semibold">
-              현재 DB 에 주문 데이터가 0건이라 손익표가 비어 있습니다.
+              완료된 주문 수집이 발행한 주문이 없어 손익표가 비어 있습니다.
             </div>
             <div className="text-amber-800 text-xs">
-              이 화면은 <code className="px-1 bg-white/70 rounded">Order</code> +
-              <code className="px-1 bg-white/70 rounded">OrderLineItem</code> +
-              <code className="px-1 bg-white/70 rounded">ChannelAdTargetDailySnapshot</code>
-              집계입니다. Drive replay 데이터에는 주문이 포함되지 않으므로 정상
-              상태입니다.
+              손익표는 완료된 주문 수집이 발행한 주문으로만 집계합니다. 주문 수집을
+              완료하면 해당 달의 손익이 표시됩니다.
               {dataSources && (
                 <>
                   {' '}

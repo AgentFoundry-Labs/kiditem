@@ -1,4 +1,5 @@
 export * from './schemas/profit-loss.js';
+export * from './schemas/finance-basis.js';
 export * from './schemas/sales-analysis.js';
 export * from './schemas/sales-analysis-scraper.js';
 export * from './schemas/sales-plan.js';

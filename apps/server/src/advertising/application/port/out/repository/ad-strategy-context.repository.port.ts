@@ -25,6 +25,11 @@ export interface StrategyContext {
   adIssuesAdGroups: AdAggregateRow[];
   listings: HydratedListing[];
   profitRateByListing: Map<string, number>;
+  /**
+   * Context listings whose profit was withheld for an unmeasured cost input,
+   * and so are absent from `profitRateByListing`.
+   */
+  profitWithheldListings: number;
   channelStateByListing: Map<string, ChannelStateSignal>;
   gradeMap: Map<string, 'A' | 'B' | 'C' | null>;
   trafficByListing: Map<string, { revenue: number; orders: number }>;

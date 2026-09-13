@@ -10,13 +10,16 @@ export const PROFIT_CALCULATION_REPOSITORY_PORT = Symbol(
   'ProfitCalculationRepositoryPort',
 );
 
-/** Why a per-order cost cannot be treated as a measured zero. */
+/**
+ * Why a per-order cost cannot be treated as a measured zero (KID-114). A
+ * commission or other cost that applies to the order's channel account has no
+ * measured source yet; one that does not apply is Not applied, not missing.
+ */
 export type ProfitCostIncompleteReason =
   | 'MISSING_LISTING_OPTION'
   | 'MISSING_COST_PRICE'
   | 'MISSING_PURCHASE_PRICE'
-  | 'MISSING_COMMISSION_RATE'
-  | 'MISSING_SHIPPING_COST'
+  | 'MISSING_COMMISSION'
   | 'MISSING_OTHER_COST';
 
 export type ProfitEvidenceError = 'AD_EVIDENCE_READ_FAILED';
@@ -92,15 +95,20 @@ export interface DailyProfitMetrics {
   date: string;
   revenue: number;
   qty: number;
-  costOfGoods: number;
-  commission: number;
+  /** `null` when any line of the day has no purchase cost; never summed as 0. */
+  costOfGoods: number | null;
+  /** `null` when any line of the day carries a commission without a source. */
+  commission: number | null;
   shippingCost: number;
-  otherCost: number;
-  cost: number;
+  /** `null` when any line of the day carries an other cost without a source. */
+  otherCost: number | null;
+  /** `null` when any cost component is unavailable. */
+  cost: number | null;
   adCost: number | null;
   adRevenue: number | null;
   adImpressions: number | null;
   adClicks: number | null;
+  /** `null` also when a measured day's provider grid carried no conversion columns. */
   adConversions: number | null;
   netProfit: number | null;
   profitRate: number | null;

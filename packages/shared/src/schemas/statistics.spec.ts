@@ -16,7 +16,14 @@ const ordersBasis = buildPeriodBasis({
   sources: ['orders'],
 });
 const requestedWindow = { from: '2026-04-01', to: '2026-04-30' };
-const windowBasis = { requestedWindow, revenue: ordersBasis, adCost: ordersBasis, profit: ordersBasis };
+const costInput = { lines: 1, notAppliedLines: 0, unmeasuredLines: 0 };
+const windowBasis = {
+  requestedWindow,
+  revenue: ordersBasis,
+  adCost: ordersBasis,
+  profit: ordersBasis,
+  costInputs: { purchaseCost: costInput, commission: costInput, otherCost: costInput, advertising: costInput },
+};
 
 describe('StatisticsParetoResponseSchema', () => {
   it('models revenue bands without a second product ABC comparison', () => {
@@ -148,9 +155,9 @@ describe('StatisticsRepurchaseResponseSchema', () => {
 describe('StatisticsCategoriesResponseSchema and StatisticsGradesResponseSchema', () => {
   it('carry the group totals of a partly collected window as null, never as a partial sum', () => {
     expect(StatisticsCategoriesResponseSchema.parse({
-      rows: [{ category: '완구', name: '완구', revenue: null, orders: null, profit: null, count: null }],
+      rows: [{ category: '완구', name: '완구', revenue: null, orders: null, profit: null, productCount: null }],
       basis: windowBasis,
-    }).rows[0]).toMatchObject({ revenue: null, orders: null, count: null });
+    }).rows[0]).toMatchObject({ revenue: null, orders: null, productCount: null });
     expect(StatisticsGradesResponseSchema.parse({
       rows: [{ grade: 'A', revenue: null, profit: null, count: null, productCount: null, adCost: null }],
       basis: windowBasis,

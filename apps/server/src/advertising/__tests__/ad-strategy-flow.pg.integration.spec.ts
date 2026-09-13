@@ -16,7 +16,11 @@ import {
   OTHER_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
 import { kstBusinessDate, kstMonthStart } from '../../common/kst';
-import { seedAd as seedAdTargetDay, seedCompletedAdSweepRun } from '../../test-helpers/finance-seeds';
+import {
+  seedAd as seedAdTargetDay,
+  seedCompletedAdSweepRun,
+  seedCompletedOrderCoverageRun,
+} from '../../test-helpers/finance-seeds';
 import { seedPublishedProductAbcGrades } from '../../products/__tests__/test-helpers/published-product-abc';
 
 describe('AdStrategy flow (PG integration)', () => {
@@ -324,6 +328,58 @@ describe('AdStrategy flow (PG integration)', () => {
       expect(rules.summary.urgentCount).toBe(
         rules.recommendations.filter((r) => r.priority === 'urgent').length,
       );
+    });
+
+    /**
+     * KID-85 follow-up P3-14 — a listing whose profit is withheld for an
+     * unmeasured cost is absent from the profit rates, so the plan says how
+     * many of its listings that is instead of reasoning over a silent subset.
+     */
+    it('reports how many of its listings had their profit withheld for an unmeasured cost', async () => {
+      const a = await seedGradedListing({
+        organizationId: TEST_ORGANIZATION_ID,
+        abcGrade: 'A',
+        adTier: '1차',
+        costPrice: 10_000,
+        suffix: 'WITHHELD',
+      });
+      await seedOrderWithLineItems(prisma, {
+        organizationId: TEST_ORGANIZATION_ID,
+        externalOrderId: 'ORD-WITHHELD',
+        orderedAt: new Date().toISOString(),
+        shippingPrice: 0,
+        lineItems: [{
+          quantity: 1,
+          totalPrice: 20_000,
+          optionId: a.option.id,
+          listingOptionId: a.listingOption.id,
+        }],
+      });
+      await seedAd({
+        organizationId: TEST_ORGANIZATION_ID,
+        listingId: a.listing.id,
+        optionId: a.option.id,
+        spend: 1_000,
+        revenue: 5_000,
+        clicks: 10,
+        impressions: 1_000,
+        conversions: 1,
+      });
+      await measureCurrentMonth(TEST_ORGANIZATION_ID);
+      const today = kstBusinessDate(new Date());
+      const monthStart = kstBusinessDate(kstMonthStart(today.getUTCFullYear(), today.getUTCMonth() + 1));
+      const nextMonth = kstBusinessDate(kstMonthStart(today.getUTCFullYear(), today.getUTCMonth() + 2));
+      await seedCompletedOrderCoverageRun(prisma, {
+        organizationId: TEST_ORGANIZATION_ID,
+        startDate: monthStart.toISOString().slice(0, 10),
+        endDate: new Date(nextMonth.getTime() - 86_400_000).toISOString().slice(0, 10),
+      });
+
+      const plan = await service.getWeeklyPlan('14d', TEST_ORGANIZATION_ID);
+
+      // The order came through a Coupang account, whose sales commission has
+      // no measured source: the listing's profit is withheld.
+      expect(plan.profitWithheldListings).toBe(1);
     });
 
     it('#2 3-grade listing 동시 평가 + priority 정렬', async () => {

@@ -19,9 +19,10 @@ in Supply, but the backend capability owner is finance.
 
 ## Aggregation Rules
 
-- Period input is `YYYY-MM` naming a real month (`2026-00`/`2026-13` answer
-  400); default is the KST month containing the request, statistics included.
-  A month is evaluated over its closed KST days.
+- Period queries and stored plan/settlement periods are `YYYY-MM` naming a
+  real month (`2026-00`/`2026-13` answer 400); the settlement list filter also
+  accepts a year prefix. The default is the KST month containing the request,
+  statistics included. A month is evaluated over its closed KST days.
 - Monetary values are integer KRW. Line costs stay exact; each published
   aggregate (listing row, channel row, window total) rounds its own sum once,
   so rows can differ from a total by a won.
@@ -29,9 +30,17 @@ in Supply, but the backend capability owner is finance.
   `Order.shippingPrice` defaults to 0, so a collector that never fills it reads
   as measured zero shipping; a nullable column or collector provenance belongs
   to a schema cutover.
-- Advertising applies only to listings on the active Coupang accounts the
-  target-day sweep covers; on any other channel it is Not applied (0), never
-  unmeasured.
+- Profit cost inputs (KID-114): purchase cost is the option recipe × mapped
+  `SellpiaInventorySku.purchasePrice`. A sales commission and other per-sale
+  cost apply by the order's channel account through `channelAccountSalesCosts`:
+  Rocket direct purchase applies neither (Not applied, 0); any other account
+  applies both, and without a source their value stays unknown, never 0. The
+  finance basis publishes, per component, the lines each does not apply to and
+  the lines nobody measured.
+- Advertising applies by Advertising's rule (`advertisingAppliesToSale`):
+  measured spend for a listing or channel always applies; otherwise it applies
+  to a listing sold on an account the Coupang target-day sweep covers.
+  Elsewhere it is Not applied (0), never unmeasured.
 - Return/orphan semantics stay aligned with channel dashboard.
 - Profit and return rates derive from raw values, not persisted rates.
 - `common/option-pricing-resolver.ts`, `common/kst`, and
@@ -56,8 +65,9 @@ in Supply, but the backend capability owner is finance.
 ## Boundary Rules
 
 - Keep `/api/profit-loss` as live aggregation; do not add persisted P&L writes.
-- Live channel-SKU pricing comes from `ChannelListingOption` and the shared
-  pricing resolver. Component purchase cost comes from the mapped physical
+- Never read option `costPriceOverride`, `commissionRate`, `otherCost` or
+  `shippingCost` in finance, the dashboard or `common`; shipping is the order's
+  `shippingPrice`. Component purchase cost comes from the mapped physical
   `SellpiaInventorySku.purchasePrice`; do not restore removed `ProductOption`
   reads.
 - Add date-range support only as one coordinated DTO, service, test, and

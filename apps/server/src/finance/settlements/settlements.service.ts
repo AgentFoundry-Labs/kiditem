@@ -1,5 +1,5 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
-import type { SettlementListItem } from '@kiditem/shared/settlements';
+import type { SettlementListItem, SettlementListResponse } from '@kiditem/shared/settlements';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateSettlementDto, UpdateSettlementDto } from './dto';
 import { readSettlements, type SettlementFact } from './read/settlement-facts';
@@ -36,12 +36,27 @@ export class SettlementsService {
     private readonly prisma: PrismaService,
   ) {}
 
-  async findAll(organizationId: string, period?: string): Promise<SettlementListItem[]> {
+  /**
+   * The listed settlements and the card totals over them. Deposits and
+   * differences are summed over confirmed rows only; an unconfirmed deposit is
+   * not a deposit of zero.
+   */
+  async findAll(organizationId: string, period?: string): Promise<SettlementListResponse> {
     const rows = await this.prisma.$transaction((tx) => readSettlements(tx, {
       organizationId,
       period,
     }));
-    return rows.map(toListItem);
+    const items = rows.map(toListItem);
+    const confirmed = items.filter((item) => item.actualAmount !== null);
+    return {
+      items,
+      summary: {
+        totalExpected: items.reduce((sum, item) => sum + item.expectedAmount, 0),
+        totalConfirmedActual: confirmed.reduce((sum, item) => sum + item.actualAmount!, 0),
+        totalConfirmedDifference: confirmed.reduce((sum, item) => sum + item.difference!, 0),
+        pendingCount: items.filter((item) => item.status === 'pending').length,
+      },
+    } satisfies SettlementListResponse;
   }
 
   async create(organizationId: string, dto: CreateSettlementDto): Promise<SettlementListItem> {

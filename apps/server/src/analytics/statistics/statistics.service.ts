@@ -165,14 +165,16 @@ export class StatisticsService {
       revenue: number;
       orders: number;
       profits: (number | null)[];
+      listingIds: Set<string>;
     }>();
 
     for (const metric of rows) {
       const cat = metric.category ?? '미분류';
-      const entry = categoryMap.get(cat) ?? { revenue: 0, orders: 0, profits: [] };
+      const entry = categoryMap.get(cat) ?? { revenue: 0, orders: 0, profits: [], listingIds: new Set<string>() };
       entry.revenue += metric.revenue;
       entry.orders += metric.orderCount;
       entry.profits.push(metric.netProfit);
+      entry.listingIds.add(metric.listingId);
       categoryMap.set(cat, entry);
     }
 
@@ -188,7 +190,7 @@ export class StatisticsService {
           revenue: collected ? data.revenue : null,
           orders: collected ? data.orders : null,
           profit: collected ? totalOrUnavailable(data.profits) : null,
-          count: collected ? data.orders : null,
+          productCount: collected ? data.listingIds.size : null,
         } satisfies StatisticsCategoryRow)),
       basis: profitWindowBasis(facts),
     } satisfies StatisticsCategoriesResponse;

@@ -31,6 +31,7 @@ describe('AdStrategyService ChannelSku availability', () => {
         adIssuesAdGroups: [],
         listings: [listing],
         profitRateByListing: new Map(),
+        profitWithheldListings: 0,
         channelStateByListing: new Map(),
         gradeMap: new Map([[listing.id, 'A']]),
         trafficByListing: new Map(),

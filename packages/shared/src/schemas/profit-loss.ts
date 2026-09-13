@@ -44,6 +44,34 @@ export const FinanceDateRangeSchema = z.object({
 export type FinanceDateRange = z.infer<typeof FinanceDateRangeSchema>;
 
 /**
+ * How one cost component stands on the collected order lines of the evaluated
+ * window, as counts: `notAppliedLines` do not carry the component, so it is 0
+ * by rule (Not applied); `unmeasuredLines` carry it but nobody measured it
+ * (Not measured); every other line was measured. The word is derived with
+ * `financeCostInputState`; none travels here.
+ */
+export const FinanceCostInputBasisSchema = z.object({
+  lines: z.number().int().nonnegative(),
+  notAppliedLines: z.number().int().nonnegative(),
+  unmeasuredLines: z.number().int().nonnegative(),
+}).strict();
+export type FinanceCostInputBasis = z.infer<typeof FinanceCostInputBasisSchema>;
+
+/**
+ * The cost components of a finance profit (KID-114): purchase cost (recipe ×
+ * Sellpia purchase price), the sales commission and other per-sale cost
+ * (decided by the order's channel account), and advertising (decided by
+ * whether the Coupang target-day sweep covers the listing's account).
+ */
+export const FinanceCostInputsBasisSchema = z.object({
+  purchaseCost: FinanceCostInputBasisSchema,
+  commission: FinanceCostInputBasisSchema,
+  otherCost: FinanceCostInputBasisSchema,
+  advertising: FinanceCostInputBasisSchema,
+}).strict();
+export type FinanceCostInputsBasis = z.infer<typeof FinanceCostInputsBasisSchema>;
+
+/**
  * The evidence behind one finance window, as measured facts only.
  *
  * `requestedWindow` is the range asked for. Each value basis's `from`/`to` is
@@ -56,14 +84,17 @@ export type FinanceDateRange = z.infer<typeof FinanceDateRangeSchema>;
  * Within that window: which dates the Orders collection covered (`revenue`),
  * which the advertising sweep covered (`adCost`), and the dates on which every
  * profit input was measured (`profit`, whose `invalidDates` are the dates
- * refused because a cost input was never recorded). Status words are derived
- * with `periodBasisStatus` from `@kiditem/shared/dashboard`; none travels here.
+ * refused because a cost input was never recorded), and per cost component the
+ * lines it does not apply to and the lines nobody measured (`costInputs`).
+ * Status words are derived with `periodBasisStatus` from
+ * `@kiditem/shared/dashboard` and `financeCostInputState`; none travels here.
  */
 export const FinanceWindowBasisSchema = z.object({
   requestedWindow: FinanceDateRangeSchema,
   revenue: DashboardPeriodBasisSchema,
   adCost: DashboardPeriodBasisSchema,
   profit: DashboardPeriodBasisSchema,
+  costInputs: FinanceCostInputsBasisSchema,
 }).strict();
 export type FinanceWindowBasis = z.infer<typeof FinanceWindowBasisSchema>;
 
@@ -71,6 +102,11 @@ export type FinanceWindowBasis = z.infer<typeof FinanceWindowBasisSchema>;
  * Organization totals over the evaluated window. A total is published only when
  * every closed business date of the window was collected and every input it
  * depends on was measured; otherwise, and when no date has closed, it is `null`.
+ *
+ * The totals are not the sum of the product rows: advertising spent on a
+ * listing that sold nothing and the shipping of an order with no revenue to
+ * weigh it by belong to no row. They are published as `unallocatedAdCost` and
+ * `unallocatedShipping`, so a screen shows them rather than subtracting.
  */
 export const FinanceWindowTotalsSchema = z.object({
   revenue: z.number().int().nullable(),
@@ -81,6 +117,12 @@ export const FinanceWindowTotalsSchema = z.object({
   netProfit: z.number().int().nullable(),
   /** Percent with one decimal; `null` over zero revenue or an unavailable profit. */
   profitRate: z.number().nullable(),
+  /** Ad cost as a percent of revenue with one decimal; `null` over zero revenue or an unavailable ad cost. */
+  adCostRate: z.number().nullable(),
+  /** Ad cost the product rows do not carry; `null` when either side is unavailable. */
+  unallocatedAdCost: z.number().int().nullable(),
+  /** Order shipping the product rows do not carry; `null` when the totals are unavailable. */
+  unallocatedShipping: z.number().int().nullable(),
 }).strict();
 export type FinanceWindowTotals = z.infer<typeof FinanceWindowTotalsSchema>;
 

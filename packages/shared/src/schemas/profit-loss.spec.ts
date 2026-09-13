@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { buildPeriodBasis } from './dashboard-basis.js';
 import {
+  FinanceWindowBasisSchema,
+  FinanceWindowTotalsSchema,
   PLDataSchema,
   ProfitLossResponseSchema,
   SalesPlanViewSchema,
@@ -14,7 +16,14 @@ const basis = buildPeriodBasis({
   sources: ['orders'],
 });
 const requestedWindow = { from: '2026-04-01', to: '2026-04-30' };
-const windowBasis = { requestedWindow, revenue: basis, adCost: basis, profit: basis };
+const costInput = { lines: 1, notAppliedLines: 0, unmeasuredLines: 0 };
+const windowBasis = {
+  requestedWindow,
+  revenue: basis,
+  adCost: basis,
+  profit: basis,
+  costInputs: { purchaseCost: costInput, commission: costInput, otherCost: costInput, advertising: costInput },
+};
 const unavailableTotals = {
   revenue: null,
   orderCount: null,
@@ -22,6 +31,9 @@ const unavailableTotals = {
   adCost: null,
   netProfit: null,
   profitRate: null,
+  adCostRate: null,
+  unallocatedAdCost: null,
+  unallocatedShipping: null,
 };
 
 const row = {
@@ -102,6 +114,7 @@ describe('finance window contract', () => {
       targetOrders: 1,
       targetProfit: 1,
       notes: null,
+      achievement: { revenue: null, orders: null, profit: null },
     };
 
     expect(SalesPlanViewSchema.safeParse({
@@ -114,5 +127,65 @@ describe('finance window contract', () => {
       actualOrders: 0,
       actualProfit: 0,
     }).success).toBe(false);
+  });
+});
+
+describe('FinanceWindowBasisSchema cost inputs (KID-114)', () => {
+  const component = (lines: number, notAppliedLines: number, unmeasuredLines: number) =>
+    ({ lines, notAppliedLines, unmeasuredLines });
+
+  it('carries, per cost component, the lines it does not apply to and the lines nobody measured', () => {
+    const basis = FinanceWindowBasisSchema.parse({
+      ...windowBasis,
+      costInputs: {
+        purchaseCost: component(3, 0, 1),
+        commission: component(3, 2, 1),
+        otherCost: component(3, 2, 1),
+        advertising: component(3, 3, 0),
+      },
+    });
+    expect(basis.costInputs.commission).toEqual({ lines: 3, notAppliedLines: 2, unmeasuredLines: 1 });
+  });
+
+  it('rejects a negative line count', () => {
+    expect(FinanceWindowBasisSchema.safeParse({
+      ...windowBasis,
+      costInputs: {
+        purchaseCost: component(1, 0, -1),
+        commission: component(1, 0, 0),
+        otherCost: component(1, 0, 0),
+        advertising: component(1, 0, 0),
+      },
+    }).success).toBe(false);
+  });
+});
+
+describe('values the server publishes so the browser does no finance arithmetic (P3-2, P3-13)', () => {
+  it('carries the ad cost share and the totals no product row carries', () => {
+    expect(FinanceWindowTotalsSchema.parse({
+      revenue: 20_000,
+      orderCount: 1,
+      cost: 11_500,
+      adCost: 3_000,
+      netProfit: 8_500,
+      profitRate: 42.5,
+      adCostRate: 15,
+      unallocatedAdCost: 1_000,
+      unallocatedShipping: 500,
+    })).toMatchObject({ adCostRate: 15, unallocatedAdCost: 1_000, unallocatedShipping: 500 });
+  });
+
+  it('carries each plan target achievement as a published rate', () => {
+    const parsed = SalesPlanViewSchema.parse({
+      id: '11111111-1111-4111-8111-111111111111',
+      period: '2026-04',
+      targetRevenue: 100_000,
+      targetOrders: 0,
+      targetProfit: 10_000,
+      notes: null,
+      actuals: null,
+      achievement: { revenue: null, orders: null, profit: null },
+    });
+    expect(parsed.achievement).toEqual({ revenue: null, orders: null, profit: null });
   });
 });

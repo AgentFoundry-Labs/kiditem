@@ -16,6 +16,7 @@ import {
   totalOrUnavailable,
   type AccountAdEvidence,
 } from '../../common/per-listing-profit';
+import { advertisingAppliesToSale } from '../../common/ad-window-facts';
 import {
   ORDER_FACT_EXCLUDED_STATUSES,
   readOrderReturnWindowFacts,
@@ -40,12 +41,13 @@ function resolveChannelType(channel: string): 'marketplace' | 'direct' | 'other'
 
 /**
  * A channel's ad cost for the window. Where advertising does not apply — no
- * advertising account, or a channel none of whose listings the Coupang
- * target-day sweep covers — it is Not applied, a satisfied zero. Where it
- * applies it exists only when the sweep measured every date of the window;
- * then the sweep looked at every listing, so a channel whose listings carry no
- * rows spent nothing. Unmeasured advertising is never added to a channel
- * profit as zero.
+ * advertising account, or a channel none of whose sold listings the Coupang
+ * target-day sweep covers and for which it published no spend — it is Not
+ * applied, a satisfied zero. Where it applies it exists only when the sweep
+ * measured every date of the window; then the sweep looked at every listing,
+ * so a channel whose listings carry no rows spent nothing. Unmeasured
+ * advertising is never added to a channel profit as zero, and measured spend
+ * is never dropped as Not applied.
  */
 function channelAdCost(
   ad: AccountAdEvidence,
@@ -136,7 +138,7 @@ export class SalesAnalysisService {
       costOfGoods: number | null;
       commission: number | null;
       otherCost: number | null;
-      /** Whether any of the channel's listings sells where the ad sweep looks. */
+      /** Whether advertising applies to any of the channel's sold listings. */
       adApplies: boolean;
     };
     const groups = new Map<string, Group>();
@@ -153,7 +155,8 @@ export class SalesAnalysisService {
         adApplies: false,
       };
       group.orderIds.add(line.orderId);
-      group.adApplies = group.adApplies || advertisingAppliesToListing(facts.ad, line.listing);
+      group.adApplies = group.adApplies
+        || advertisingAppliesToListing(facts.ad, line.listing, facts.listingAdSpend);
       group.revenue += line.revenue;
       group.shipping += line.shippingCost;
       group.costOfGoods = addOrUnavailable(group.costOfGoods, line.costOfGoods);
@@ -164,15 +167,22 @@ export class SalesAnalysisService {
 
     const channels: ChannelAnalysis[] = Array.from(groups.values())
       .map((group) => {
+        // Measured spend for the channel applies whatever account its sold
+        // lines sit on (advertising's rule).
+        const adApplies = advertisingAppliesToSale({
+          organizationAdvertises: facts.ad.hasAdAccount,
+          sweepCoversAccount: group.adApplies,
+          hasMeasuredSpend: adSpendByChannel.has(group.channel),
+        });
         // Advertising is a whole-window sum, so where it applies the orders
         // must cover the same whole window before a cost that includes it exists.
-        const datesAligned = !group.adApplies || isOrderWindowComplete(facts.orderWindow);
+        const datesAligned = !adApplies || isOrderWindowComplete(facts.orderWindow);
         // Line costs stay exact; the channel rounds its own sums once (finance guide).
         const costs = totalOrUnavailable([
           roundOrUnavailable(group.costOfGoods),
           roundOrUnavailable(group.commission),
           roundOrUnavailable(group.otherCost),
-          channelAdCost(facts.ad, adSpendByChannel, group.channel, group.adApplies),
+          channelAdCost(facts.ad, adSpendByChannel, group.channel, adApplies),
         ]);
         const totalCost = !datesAligned || costs === null ? null : costs + group.shipping;
         const totalProfit = totalCost === null ? null : group.revenue - totalCost;

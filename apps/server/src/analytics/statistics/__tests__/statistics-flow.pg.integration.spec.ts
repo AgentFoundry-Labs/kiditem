@@ -89,21 +89,18 @@ describe('Statistics flow (PG integration)', () => {
       masterId: masterM1,
       sku: `${prefix}-SKU-M1A`,
       costPrice: 5_000,
-      commissionRate: 0.1,
     });
     const { id: optM1b } = await setupProductOption(prisma, {
       organizationId,
       masterId: masterM1,
       sku: `${prefix}-SKU-M1B`,
       costPrice: 4_000,
-      commissionRate: 0.1,
     });
     const { id: optM2a } = await setupProductOption(prisma, {
       organizationId,
       masterId: masterM2,
       sku: `${prefix}-SKU-M2A`,
       costPrice: 2_000,
-      commissionRate: 0.1,
     });
 
     const listingL1 = await setupChannelListing(prisma, {
@@ -120,9 +117,6 @@ describe('Statistics flow (PG integration)', () => {
         organizationId,
         listingId: listingL1.listingId,
         externalOptionId: `${prefix}-VI-L1B`,
-        costPriceOverride: 4_000,
-        commissionRate: 0.1,
-        otherCost: 0,
       },
       select: { id: true },
     });
@@ -133,10 +127,6 @@ describe('Statistics flow (PG integration)', () => {
         sellpiaInventorySkuId: optM1b,
         quantity: 1,
       },
-    });
-    await prisma.channelListingOption.update({
-      where: { id: listingL1.listingOptionId },
-      data: { costPriceOverride: 5_000 },
     });
     const listingL2 = await setupChannelListing(prisma, {
       organizationId,
@@ -149,6 +139,7 @@ describe('Statistics flow (PG integration)', () => {
     });
 
     const o1 = await seedOrderWithLineItems(prisma, {
+      orderChannel: 'rocket',
       organizationId,
       externalOrderId: `${prefix}-ORD-1`,
       orderedAt: '2026-04-10T03:00:00Z',
@@ -164,6 +155,7 @@ describe('Statistics flow (PG integration)', () => {
     });
 
     const o2 = await seedOrderWithLineItems(prisma, {
+      orderChannel: 'rocket',
       organizationId,
       externalOrderId: `${prefix}-ORD-2`,
       orderedAt: '2026-04-12T03:00:00Z',
@@ -178,6 +170,7 @@ describe('Statistics flow (PG integration)', () => {
     });
 
     const o3 = await seedOrderWithLineItems(prisma, {
+      orderChannel: 'rocket',
       organizationId,
       externalOrderId: `${prefix}-ORD-3`,
       orderedAt: '2026-04-15T03:00:00Z',
@@ -192,6 +185,7 @@ describe('Statistics flow (PG integration)', () => {
     });
 
     const o4 = await seedOrderWithLineItems(prisma, {
+      orderChannel: 'rocket',
       organizationId,
       externalOrderId: `${prefix}-ORD-4`,
       orderedAt: '2026-04-18T03:00:00Z',
@@ -204,6 +198,7 @@ describe('Statistics flow (PG integration)', () => {
     await prisma.order.update({ where: { id: o4 }, data: { receiverName: 'C' } });
 
     const o5 = await seedOrderWithLineItems(prisma, {
+      orderChannel: 'rocket',
       organizationId,
       externalOrderId: `${prefix}-ORD-5`,
       orderedAt: '2026-04-30T15:30:00Z',
@@ -256,8 +251,8 @@ describe('Statistics flow (PG integration)', () => {
     expect(result).toMatchObject({
       totalRevenue: 52_000,
       totalOrders: 3,
-      totalProfit: 20_800,
-      avgMargin: 0.4,
+      totalProfit: 26_000,
+      avgMargin: 0.5,
       totalProducts: 2,
     });
     expect(result.basis).not.toBeNull();
@@ -283,10 +278,10 @@ describe('Statistics flow (PG integration)', () => {
         grade: 'A',
         thumbnailUrl: 'https://cdn/m1.jpg',
         totalRevenue: 32_000,
-        netProfit: 11_800,
+        netProfit: 15_000,
         orderCount: 1,
-        profitRate: 0.3688,
-        margin: 0.3688,
+        profitRate: 0.4688,
+        margin: 0.4688,
       },
       {
         listingId: listingL2,
@@ -299,10 +294,10 @@ describe('Statistics flow (PG integration)', () => {
         grade: 'B',
         thumbnailUrl: null,
         totalRevenue: 20_000,
-        netProfit: 9_000,
+        netProfit: 11_000,
         orderCount: 2,
-        profitRate: 0.45,
-        margin: 0.45,
+        profitRate: 0.55,
+        margin: 0.55,
       },
     ]);
     expect(periodBasisStatus(result.basis!.profit)).toBe('complete');
@@ -317,12 +312,12 @@ describe('Statistics flow (PG integration)', () => {
     ]);
 
     expect(categories.rows).toEqual([
-      { category: '유아용품', name: '유아용품', revenue: 32_000, orders: 1, profit: 11_800, count: 1 },
-      { category: '완구', name: '완구', revenue: 20_000, orders: 2, profit: 9_000, count: 2 },
+      { category: '유아용품', name: '유아용품', revenue: 32_000, orders: 1, profit: 15_000, productCount: 1 },
+      { category: '완구', name: '완구', revenue: 20_000, orders: 2, profit: 11_000, productCount: 1 },
     ]);
     expect(grades.rows).toEqual([
-      { grade: 'A', revenue: 32_000, profit: 11_800, count: 1, productCount: 1, adCost: 3_000 },
-      { grade: 'B', revenue: 20_000, profit: 9_000, count: 1, productCount: 1, adCost: 1_000 },
+      { grade: 'A', revenue: 32_000, profit: 15_000, count: 1, productCount: 1, adCost: 3_000 },
+      { grade: 'B', revenue: 20_000, profit: 11_000, count: 1, productCount: 1, adCost: 1_000 },
     ]);
     expect(periodBasisStatus(categories.basis!.revenue)).toBe('complete');
     expect(periodBasisStatus(grades.basis!.adCost)).toBe('complete');
@@ -495,6 +490,7 @@ describe('Statistics flow (PG integration)', () => {
       select: { id: true },
     }).then((row) => row.id);
     await seedOrderWithLineItems(prisma, {
+      orderChannel: 'rocket',
       organizationId: OTHER_ORGANIZATION_ID,
       externalOrderId: 'OTHER-SENTINEL',
       orderedAt: '2026-04-16T03:00:00Z',
@@ -564,13 +560,14 @@ describe('Statistics flow (PG integration)', () => {
       organizationId: TEST_ORGANIZATION_ID, code: 'ZERO-M', name: 'Zero revenue product',
     });
     const { id: optionId } = await setupProductOption(prisma, {
-      organizationId: TEST_ORGANIZATION_ID, masterId, sku: 'ZERO-SKU', costPrice: 5_000, commissionRate: 0.1,
+      organizationId: TEST_ORGANIZATION_ID, masterId, sku: 'ZERO-SKU', costPrice: 5_000,
     });
     const listing = await setupChannelListing(prisma, {
       organizationId: TEST_ORGANIZATION_ID, masterId, channel: 'naver',
       externalId: 'ZERO-EXT', optionId, externalOptionId: 'ZERO-VI',
     });
     const orderId = await seedOrderWithLineItems(prisma, {
+      orderChannel: 'rocket',
       organizationId: TEST_ORGANIZATION_ID,
       externalOrderId: 'ZERO-ORD',
       orderedAt: '2026-04-10T03:00:00Z',
@@ -639,8 +636,8 @@ describe('Statistics flow (PG integration)', () => {
     expect(overview).toMatchObject({
       totalRevenue: 47_000,
       totalOrders: 2,
-      totalProfit: 22_300,
-      avgMargin: 0.4745,
+      totalProfit: 27_000,
+      avgMargin: 0.5745,
     });
     expect(overview.basis!.requestedWindow).toEqual({ from: '2026-04-01', to: '2026-04-30' });
     expect(overview.basis!.revenue).toMatchObject({ from: '2026-04-01', to: '2026-04-14', targetDays: 14 });
@@ -685,8 +682,8 @@ describe('Statistics flow (PG integration)', () => {
     ]);
 
     expect(categories.rows).toEqual([
-      { category: '유아용품', name: '유아용품', revenue: null, orders: null, profit: null, count: null },
-      { category: '완구', name: '완구', revenue: null, orders: null, profit: null, count: null },
+      { category: '유아용품', name: '유아용품', revenue: null, orders: null, profit: null, productCount: null },
+      { category: '완구', name: '완구', revenue: null, orders: null, profit: null, productCount: null },
     ]);
     expect(grades.rows).toEqual([
       { grade: 'A', revenue: null, profit: null, count: null, productCount: null, adCost: null },
@@ -702,12 +699,12 @@ describe('Statistics flow (PG integration)', () => {
     ]);
 
     expect(openCategories.rows).toEqual([
-      { category: '유아용품', name: '유아용품', revenue: 32_000, orders: 1, profit: 14_800, count: 1 },
-      { category: '완구', name: '완구', revenue: 15_000, orders: 1, profit: 7_500, count: 1 },
+      { category: '유아용품', name: '유아용품', revenue: 32_000, orders: 1, profit: 18_000, productCount: 1 },
+      { category: '완구', name: '완구', revenue: 15_000, orders: 1, profit: 9_000, productCount: 1 },
     ]);
     expect(openGrades.rows).toEqual([
-      { grade: 'A', revenue: 32_000, profit: 14_800, count: 1, productCount: 1, adCost: 0 },
-      { grade: 'B', revenue: 15_000, profit: 7_500, count: 1, productCount: 1, adCost: 0 },
+      { grade: 'A', revenue: 32_000, profit: 18_000, count: 1, productCount: 1, adCost: 0 },
+      { grade: 'B', revenue: 15_000, profit: 9_000, count: 1, productCount: 1, adCost: 0 },
     ]);
     expect(periodBasisStatus(openCategories.basis!.revenue)).toBe('complete');
     expect(openGrades.basis!.revenue).toMatchObject({ from: '2026-04-01', to: '2026-04-14', targetDays: 14 });
@@ -722,7 +719,7 @@ describe('Statistics flow (PG integration)', () => {
       service.repurchase(TEST_ORGANIZATION_ID, undefined, MID_APRIL),
     ]);
 
-    expect(overview).toMatchObject({ totalRevenue: 47_000, totalOrders: 2, totalProfit: 22_300 });
+    expect(overview).toMatchObject({ totalRevenue: 47_000, totalOrders: 2, totalProfit: 27_000 });
     expect(overview.basis!.requestedWindow).toEqual({ from: '2026-04-01', to: '2026-04-30' });
     expect(overview.basis!.revenue).toMatchObject({ from: '2026-04-01', to: '2026-04-14', targetDays: 14 });
     expect(repurchase.basis!.requestedWindow).toEqual({ from: '2026-04-01', to: '2026-04-30' });

@@ -24,6 +24,12 @@ type PlanTargets = Prisma.SalesPlanGetPayload<{ select: typeof PLAN_TARGET_SELEC
 
 const MONTH_PERIOD = /^(\d{4})-(0[1-9]|1[0-2])$/;
 
+/** Percent of a target reached; a zero target or an unavailable actual has no rate. */
+function achievementRate(actual: number | null | undefined, target: number): number | null {
+  if (actual === null || actual === undefined || target === 0) return null;
+  return Math.round((actual / target) * 100);
+}
+
 /**
  * Sales plans are operator targets; their actuals are the month's collected
  * order lines over its KST business days closed at `now` (ADR-0001), read live
@@ -128,6 +134,7 @@ export class SalesPlansService {
   }
 
   private async toView(organizationId: string, plan: PlanTargets, now: Date): Promise<SalesPlanView> {
+    const actuals = await this.readActuals(organizationId, plan.period, now);
     return {
       id: plan.id,
       period: plan.period,
@@ -135,7 +142,12 @@ export class SalesPlansService {
       targetOrders: plan.targetOrders,
       targetProfit: plan.targetProfit,
       notes: plan.notes,
-      actuals: await this.readActuals(organizationId, plan.period, now),
+      actuals,
+      achievement: {
+        revenue: achievementRate(actuals?.revenue, plan.targetRevenue),
+        orders: achievementRate(actuals?.orderCount, plan.targetOrders),
+        profit: achievementRate(actuals?.netProfit, plan.targetProfit),
+      },
     } satisfies SalesPlanView;
   }
 

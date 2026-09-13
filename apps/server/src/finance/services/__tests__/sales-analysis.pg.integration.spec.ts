@@ -49,6 +49,7 @@ describe('SalesAnalysisService.getAnalysis (PG integration)', () => {
     const other = await setupChannelFixture(TEST_ORGANIZATION_ID, 'unknown-ch', 'GROUP-OTHER');
     for (const [index, fixture] of [coup, wing, other].entries()) {
       await seedOrderWithLineItems(prisma, {
+        orderChannel: 'rocket',
         organizationId: TEST_ORGANIZATION_ID, externalOrderId: `GROUP-${index}`, orderedAt: '2026-04-10T00:00:00Z',
         lineItems: [{ quantity: 1, totalPrice: 10000 - index, optionId: fixture.optionId, listingOptionId: fixture.listingOptionId }],
       });
@@ -68,10 +69,12 @@ describe('SalesAnalysisService.getAnalysis (PG integration)', () => {
     const tcoup = await setupChannelFixture(TEST_ORGANIZATION_ID, 'coupang', 'IDOR-T-COUP');
     const ocoup = await setupChannelFixture(OTHER_ORGANIZATION_ID, 'coupang', 'IDOR-O-COUP');
     await seedOrderWithLineItems(prisma, {
+      orderChannel: 'rocket',
       organizationId: TEST_ORGANIZATION_ID, externalOrderId: 'IDOR-T1', orderedAt: '2026-04-10T00:00:00Z',
       lineItems: [{ quantity: 1, totalPrice: 10000, optionId: tcoup.optionId, listingOptionId: tcoup.listingOptionId }],
     });
     await seedOrderWithLineItems(prisma, {
+      orderChannel: 'rocket',
       organizationId: OTHER_ORGANIZATION_ID, externalOrderId: 'IDOR-O1', orderedAt: '2026-04-10T00:00:00Z',
       lineItems: [{ quantity: 1, totalPrice: 20000, optionId: ocoup.optionId, listingOptionId: ocoup.listingOptionId }],
     });
@@ -87,10 +90,12 @@ describe('SalesAnalysisService.getAnalysis (PG integration)', () => {
   it('returnRate counts distinct returned orders of the period only', async () => {
     const coup = await setupChannelFixture(TEST_ORGANIZATION_ID, 'coupang', 'return-rate');
     const marchOrderId = await seedOrderWithLineItems(prisma, {
+      orderChannel: 'rocket',
       organizationId: TEST_ORGANIZATION_ID, externalOrderId: 'MAR-1', orderedAt: '2026-03-15T00:00:00Z',
       lineItems: [{ quantity: 1, totalPrice: 5000, optionId: coup.optionId, listingOptionId: coup.listingOptionId }],
     });
     const aprOrderId = await seedOrderWithLineItems(prisma, {
+      orderChannel: 'rocket',
       organizationId: TEST_ORGANIZATION_ID, externalOrderId: 'APR-1', orderedAt: '2026-04-10T00:00:00Z',
       lineItems: [{ quantity: 1, totalPrice: 10000, optionId: coup.optionId, listingOptionId: coup.listingOptionId }],
     });
@@ -121,6 +126,7 @@ describe('SalesAnalysisService.getAnalysis (PG integration)', () => {
   it('orphanReturnCount — orderId NULL returns go to totals.orphanReturnCount', async () => {
     const coup = await setupChannelFixture(TEST_ORGANIZATION_ID, 'coupang', 'ORPHAN');
     await seedOrderWithLineItems(prisma, {
+      orderChannel: 'rocket',
       organizationId: TEST_ORGANIZATION_ID, externalOrderId: 'ORPHAN-1', orderedAt: '2026-04-10T00:00:00Z',
       lineItems: [{ quantity: 1, totalPrice: 10000, optionId: coup.optionId, listingOptionId: coup.listingOptionId }],
     });
@@ -136,6 +142,7 @@ describe('SalesAnalysisService.getAnalysis (PG integration)', () => {
   it('SalesAnalysisDataSchema.parse succeeds on response', async () => {
     const coup = await setupChannelFixture(TEST_ORGANIZATION_ID, 'coupang', 'VALIDATE');
     await seedOrderWithLineItems(prisma, {
+      orderChannel: 'rocket',
       organizationId: TEST_ORGANIZATION_ID, externalOrderId: 'VAL-1', orderedAt: '2026-04-10T00:00:00Z',
       lineItems: [{ quantity: 1, totalPrice: 10000, optionId: coup.optionId, listingOptionId: coup.listingOptionId }],
     });
@@ -148,10 +155,12 @@ describe('SalesAnalysisService.getAnalysis (PG integration)', () => {
   it('KST boundary — 2026-04-30T14:59:59.999Z IN April, 15:00:00Z IN May', async () => {
     const coup = await setupChannelFixture(TEST_ORGANIZATION_ID, 'coupang', 'KST');
     await seedOrderWithLineItems(prisma, {
+      orderChannel: 'rocket',
       organizationId: TEST_ORGANIZATION_ID, externalOrderId: 'APR-LAST', orderedAt: '2026-04-30T14:59:59.999Z',
       lineItems: [{ quantity: 1, totalPrice: 7777, optionId: coup.optionId, listingOptionId: coup.listingOptionId }],
     });
     await seedOrderWithLineItems(prisma, {
+      orderChannel: 'rocket',
       organizationId: TEST_ORGANIZATION_ID, externalOrderId: 'MAY-FIRST', orderedAt: '2026-04-30T15:00:00Z',
       lineItems: [{ quantity: 1, totalPrice: 8888, optionId: coup.optionId, listingOptionId: coup.listingOptionId }],
     });
@@ -221,6 +230,7 @@ describe('SalesAnalysisService.getAnalysis (PG integration)', () => {
     const coup = await setupChannelFixture(TEST_ORGANIZATION_ID, 'coupang', 'EMPTY-C');
     const naver = await setupChannelFixture(TEST_ORGANIZATION_ID, 'naver', 'EMPTY-N');
     await seedOrderWithLineItems(prisma, {
+      orderChannel: 'rocket',
       organizationId: TEST_ORGANIZATION_ID, externalOrderId: 'EMPTY-1', orderedAt: '2026-04-10T00:00:00Z',
       lineItems: [{ quantity: 1, totalPrice: 10000, optionId: coup.optionId, listingOptionId: coup.listingOptionId }],
     });
@@ -236,10 +246,12 @@ describe('SalesAnalysisService.getAnalysis (PG integration)', () => {
     const coup = await setupChannelFixture(TEST_ORGANIZATION_ID, 'coupang', 'ADS-UNMEASURED-C');
     const naver = await setupChannelFixture(TEST_ORGANIZATION_ID, 'naver', 'ADS-UNMEASURED-N');
     await seedOrderWithLineItems(prisma, {
+      orderChannel: 'rocket',
       organizationId: TEST_ORGANIZATION_ID, externalOrderId: 'ADS-UNMEASURED-1', orderedAt: '2026-04-10T00:00:00Z',
       lineItems: [{ quantity: 1, totalPrice: 10000, optionId: coup.optionId, listingOptionId: coup.listingOptionId }],
     });
     await seedOrderWithLineItems(prisma, {
+      orderChannel: 'rocket',
       organizationId: TEST_ORGANIZATION_ID, externalOrderId: 'ADS-UNMEASURED-2', orderedAt: '2026-04-11T00:00:00Z',
       lineItems: [{ quantity: 1, totalPrice: 8000, optionId: naver.optionId, listingOptionId: naver.listingOptionId }],
     });
@@ -253,12 +265,13 @@ describe('SalesAnalysisService.getAnalysis (PG integration)', () => {
       profitRate: null,
     });
     // KID-85 follow-up P3-5: the target-day ledger only sweeps Coupang accounts,
-    // so advertising is Not applied to Naver: cost = purchase 5000 + commission
-    // 10% + order shipping 3000, with no ad cost to wait for.
+    // so advertising is Not applied to Naver: cost = purchase 5000 + order
+    // shipping 3000 (a Rocket order carries no commission), with no ad cost to
+    // wait for.
     expect(result.channels.find((c) => c.channel === 'naver')).toMatchObject({
-      totalCost: 8800,
-      totalProfit: -800,
-      profitRate: -10,
+      totalCost: 8000,
+      totalProfit: 0,
+      profitRate: 0,
     });
     expect(result.channels.map((c) => c.totalRevenue)).toEqual([10000, 8000]);
     expect(result.totals).toMatchObject({
@@ -276,10 +289,12 @@ describe('SalesAnalysisService.getAnalysis (PG integration)', () => {
     const coup = await setupChannelFixture(TEST_ORGANIZATION_ID, 'coupang', 'ADS-MEASURED-C');
     const naver = await setupChannelFixture(TEST_ORGANIZATION_ID, 'naver', 'ADS-MEASURED-N');
     await seedOrderWithLineItems(prisma, {
+      orderChannel: 'rocket',
       organizationId: TEST_ORGANIZATION_ID, externalOrderId: 'ADS-MEASURED-1', orderedAt: '2026-04-10T00:00:00Z',
       lineItems: [{ quantity: 1, totalPrice: 10000, optionId: coup.optionId, listingOptionId: coup.listingOptionId }],
     });
     await seedOrderWithLineItems(prisma, {
+      orderChannel: 'rocket',
       organizationId: TEST_ORGANIZATION_ID, externalOrderId: 'ADS-MEASURED-2', orderedAt: '2026-04-11T00:00:00Z',
       lineItems: [{ quantity: 1, totalPrice: 8000, optionId: naver.optionId, listingOptionId: naver.listingOptionId }],
     });
@@ -295,15 +310,16 @@ describe('SalesAnalysisService.getAnalysis (PG integration)', () => {
 
     const result = await service.getAnalysis(TEST_ORGANIZATION_ID, '2026-04', AFTER_MONTHS);
 
-    // cost = purchase 5000 + commission 10% + order shipping 3000 + ad spend.
+    // cost = purchase 5000 + order shipping 3000 + ad spend; a Rocket order
+    // carries no commission.
     expect(result.channels.find((c) => c.channel === 'coupang')).toMatchObject({
-      totalCost: 11000, totalProfit: -1000, profitRate: -10,
+      totalCost: 10000, totalProfit: 0, profitRate: 0,
     });
     expect(result.channels.find((c) => c.channel === 'naver')).toMatchObject({
-      totalCost: 8800, totalProfit: -800, profitRate: -10,
+      totalCost: 8000, totalProfit: 0, profitRate: 0,
     });
     expect(result.totals).toMatchObject({
-      totalRevenue: 18000, totalCost: 19800, totalProfit: -1800, profitRate: -10,
+      totalRevenue: 18000, totalCost: 18000, totalProfit: 0, profitRate: 0,
     });
     for (const basis of [result.basis.revenue, result.basis.adCost, result.basis.profit]) {
       expect(periodBasisStatus(basis)).toBe('complete');
@@ -313,6 +329,7 @@ describe('SalesAnalysisService.getAnalysis (PG integration)', () => {
   it('publishes no ratio over a zero denominator', async () => {
     const naver = await setupChannelFixture(TEST_ORGANIZATION_ID, 'naver', 'ZERO-REVENUE');
     await seedOrderWithLineItems(prisma, {
+      orderChannel: 'rocket',
       organizationId: TEST_ORGANIZATION_ID, externalOrderId: 'ZERO-REVENUE-1', orderedAt: '2026-04-10T00:00:00Z',
       shippingPrice: 0,
       lineItems: [{ quantity: 1, totalPrice: 0, optionId: naver.optionId, listingOptionId: naver.listingOptionId }],
@@ -335,6 +352,7 @@ describe('SalesAnalysisService.getAnalysis (PG integration)', () => {
   it('a month the Orders collection covered only in part publishes no window totals', async () => {
     const naver = await setupChannelFixture(TEST_ORGANIZATION_ID, 'naver', 'PARTIAL');
     await seedOrderWithLineItems(prisma, {
+      orderChannel: 'rocket',
       organizationId: TEST_ORGANIZATION_ID, externalOrderId: 'PARTIAL-1', orderedAt: '2026-04-10T00:00:00Z',
       lineItems: [{ quantity: 1, totalPrice: 10000, optionId: naver.optionId, listingOptionId: naver.listingOptionId }],
     });
@@ -358,10 +376,12 @@ describe('SalesAnalysisService.getAnalysis (PG integration)', () => {
   it('defaults to the month containing today and evaluates it over its closed days', async () => {
     const naver = await setupChannelFixture(TEST_ORGANIZATION_ID, 'naver', 'MID-MONTH');
     await seedOrderWithLineItems(prisma, {
+      orderChannel: 'rocket',
       organizationId: TEST_ORGANIZATION_ID, externalOrderId: 'MID-MONTH-CLOSED', orderedAt: '2026-04-10T00:00:00Z',
       lineItems: [{ quantity: 1, totalPrice: 10000, optionId: naver.optionId, listingOptionId: naver.listingOptionId }],
     });
     await seedOrderWithLineItems(prisma, {
+      orderChannel: 'rocket',
       organizationId: TEST_ORGANIZATION_ID, externalOrderId: 'MID-MONTH-TODAY', orderedAt: '2026-04-15T01:00:00Z',
       lineItems: [{ quantity: 1, totalPrice: 8000, optionId: naver.optionId, listingOptionId: naver.listingOptionId }],
     });
@@ -384,6 +404,7 @@ describe('SalesAnalysisService.getAnalysis (PG integration)', () => {
     const naver = await setupChannelFixture(TEST_ORGANIZATION_ID, 'naver', 'SPLIT-NAVER');
     const wing = await setupChannelFixture(TEST_ORGANIZATION_ID, 'wing', 'SPLIT-WING');
     await seedOrderWithLineItems(prisma, {
+      orderChannel: 'rocket',
       organizationId: TEST_ORGANIZATION_ID, externalOrderId: 'SPLIT-BOTH', orderedAt: '2026-04-10T00:00:00Z',
       shippingPrice: 3000,
       lineItems: [
@@ -392,6 +413,7 @@ describe('SalesAnalysisService.getAnalysis (PG integration)', () => {
       ],
     });
     await seedOrderWithLineItems(prisma, {
+      orderChannel: 'rocket',
       organizationId: TEST_ORGANIZATION_ID, externalOrderId: 'SPLIT-NAVER-ONLY', orderedAt: '2026-04-11T00:00:00Z',
       shippingPrice: 0,
       lineItems: [{ quantity: 1, totalPrice: 2000, optionId: naver.optionId, listingOptionId: naver.listingOptionId }],
@@ -400,42 +422,98 @@ describe('SalesAnalysisService.getAnalysis (PG integration)', () => {
 
     const result = await service.getAnalysis(TEST_ORGANIZATION_ID, '2026-04', AFTER_MONTHS);
 
-    // cost = purchase 5000 per unit + commission 10% + the line's share of its
-    // order's 3000 shipping: 6000/10000 → 1800 to naver, 4000/10000 → 1200 to wing.
+    // cost = purchase 5000 per unit + the line's share of its order's 3000
+    // shipping: 6000/10000 → 1800 to naver, 4000/10000 → 1200 to wing.
     expect(result.channels).toEqual([
       expect.objectContaining({
-        channel: 'naver', totalOrders: 2, totalRevenue: 8000, totalCost: 12600, totalProfit: -4600, avgOrderValue: 4000,
+        channel: 'naver', totalOrders: 2, totalRevenue: 8000, totalCost: 11800, totalProfit: -3800, avgOrderValue: 4000,
       }),
       expect.objectContaining({
-        channel: 'wing', totalOrders: 1, totalRevenue: 4000, totalCost: 6600, totalProfit: -2600, avgOrderValue: 4000,
+        channel: 'wing', totalOrders: 1, totalRevenue: 4000, totalCost: 6200, totalProfit: -2200, avgOrderValue: 4000,
       }),
     ]);
     expect(result.totals).toMatchObject({
-      totalRevenue: 12000, totalOrders: 2, totalCost: 19200, totalProfit: -7200,
+      totalRevenue: 12000, totalOrders: 2, totalCost: 18000, totalProfit: -6000,
     });
   });
 
-  /** KID-85 follow-up P3-4 — line costs stay exact; each published aggregate rounds its own sum once. */
-  it('rounds a channel cost once over its summed line costs, not per line', async () => {
+  /**
+   * KID-85 follow-up P3-4 — line costs stay exact and each aggregate rounds its
+   * own sum; a line's shipping share is rounded once, so a channel can carry a
+   * won less of an order's shipping than the window total does.
+   */
+  it("rounds each line's shipping share once, and the totals carry the order's whole shipping", async () => {
     const naver = await setupChannelFixture(TEST_ORGANIZATION_ID, 'naver', 'ROUNDING');
-    await prisma.channelListingOption.update({
-      where: { id: naver.listingOptionId },
-      data: { commissionRate: 0.15 },
+    await seedOrderWithLineItems(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, externalOrderId: 'ROUNDING-1', orderedAt: '2026-04-10T00:00:00Z',
+      orderChannel: 'rocket',
+      shippingPrice: 1000,
+      lineItems: [1, 2, 3].map(() => ({
+        quantity: 1, totalPrice: 1000, optionId: naver.optionId, listingOptionId: naver.listingOptionId,
+      })),
     });
-    for (const suffix of ['A', 'B']) {
-      await seedOrderWithLineItems(prisma, {
-        organizationId: TEST_ORGANIZATION_ID, externalOrderId: `ROUNDING-${suffix}`, orderedAt: '2026-04-10T00:00:00Z',
-        shippingPrice: 0,
-        lineItems: [{ quantity: 1, totalPrice: 1003, optionId: naver.optionId, listingOptionId: naver.listingOptionId }],
-      });
-    }
     await coverOrders();
 
     const result = await service.getAnalysis(TEST_ORGANIZATION_ID, '2026-04', AFTER_MONTHS);
 
-    // Commission 1003 × 15% ≈ 150.45 per line: 300.9 → 301 over the channel,
-    // where rounding each line first would give 150 + 150 = 300.
-    expect(result.channels[0]).toMatchObject({ totalRevenue: 2006, totalCost: 10301, totalProfit: -8295 });
-    expect(result.totals).toMatchObject({ totalCost: 10301, totalProfit: -8295 });
+    // Three equal lines each take Math.round(1000 / 3) = 333 of the order's
+    // shipping: the channel sums 999 beside 15000 purchase cost, while the
+    // window total carries the order's whole 1000.
+    expect(result.channels[0]).toMatchObject({ totalRevenue: 3000, totalCost: 15999, totalProfit: -12999 });
+    expect(result.totals).toMatchObject({ totalCost: 16000, totalProfit: -13000 });
+  });
+
+  /**
+   * Advertising's own rule decides applicability, and measured spend is never
+   * dropped: a channel whose sold lines sit on an inactive Coupang account
+   * still carries the spend its active account's unsold listings published.
+   */
+  it('does not report a zero ad cost for a channel key that has measured spend', async () => {
+    const activeUnsold = await setupChannelFixture(TEST_ORGANIZATION_ID, 'coupang', 'ACTIVE-UNSOLD');
+    const inactive = await prisma.channelAccount.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channel: 'coupang',
+        name: 'Inactive Coupang account',
+        externalAccountId: 'inactive-coupang',
+        status: 'inactive',
+        isPrimary: false,
+      },
+      select: { id: true },
+    });
+    const master = await setupMaster(prisma, { organizationId: TEST_ORGANIZATION_ID, code: 'M-INACTIVE-SOLD', name: 'Inactive sold' });
+    const option = await setupProductOption(prisma, { organizationId: TEST_ORGANIZATION_ID, masterId: master.id, sku: 'SKU-INACTIVE-SOLD' });
+    const sold = await setupChannelListing(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      masterId: master.id,
+      channel: 'coupang',
+      channelAccountId: inactive.id,
+      externalId: 'EXT-INACTIVE-SOLD',
+      optionId: option.id,
+      externalOptionId: 'VI-INACTIVE-SOLD',
+    });
+    await seedOrderWithLineItems(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, externalOrderId: 'INACTIVE-SOLD-1', orderedAt: '2026-04-10T00:00:00Z',
+      shippingPrice: 0,
+      orderChannel: 'rocket',
+      lineItems: [{ quantity: 1, totalPrice: 10000, optionId: option.id, listingOptionId: sold.listingOptionId }],
+    });
+    const runId = await seedCompletedAdSweepRun(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      generation: 1,
+      window: { startDate: '2026-04-01', endDate: '2026-04-30' },
+    });
+    await seedAd(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, listingId: activeUnsold.listingId, date: '2026-04-15', spend: 2000, runId,
+    });
+    await coverOrders();
+
+    const result = await service.getAnalysis(TEST_ORGANIZATION_ID, '2026-04', AFTER_MONTHS);
+
+    // Rocket order: purchase 5000, no commission or other cost, no shipping,
+    // plus the 2000 the coupang channel's active listing spent.
+    expect(result.channels).toEqual([
+      expect.objectContaining({ channel: 'coupang', totalRevenue: 10000, totalCost: 7000, totalProfit: 3000 }),
+    ]);
   });
 });

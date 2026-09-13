@@ -387,6 +387,12 @@ export type AdStrategyPlan = z.infer<typeof AdStrategyPlanSchema>;
 
 export const AdWeeklyPlanSchema = AdStrategyPlanSchema.extend({
   week: z.object({ start: z.string(), end: z.string() }),
+  /**
+   * Listings of the plan whose monthly profit was withheld because a cost
+   * input was not measured (KID-85 P3-14). They carry no profit rate, so the
+   * actions reason over the rest; this count says how large that gap is.
+   */
+  profitWithheldListings: z.number().int().nonnegative(),
 });
 export type AdWeeklyPlan = z.infer<typeof AdWeeklyPlanSchema>;
 

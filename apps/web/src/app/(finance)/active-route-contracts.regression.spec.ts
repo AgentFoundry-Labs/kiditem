@@ -28,7 +28,7 @@ describe('active finance route contracts', () => {
     expect(tabs).toContain('<SettlementsPage />');
     expect(settlements).toContain("queryKeys.settlements.list(period)");
     expect(settlements).toContain(
-      'apiClient.get<Settlement[]>(`/api/settlements?${params}`)',
+      'apiClient.getParsed(`/api/settlements?${params}`, SettlementListResponseSchema)',
     );
   });
 });

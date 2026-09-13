@@ -35,7 +35,7 @@ export function CategoriesPanel({
                   {category.name}
                 </td>
                 <td className="text-right tabular-nums">
-                  {category.count === null ? '-' : `${category.count}개`}
+                  {category.productCount === null ? '-' : `${category.productCount}개`}
                 </td>
                 <td className="text-right tabular-nums">
                   {category.revenue === null ? '-' : `${formatKRW(category.revenue)}원`}

@@ -25,3 +25,23 @@ export const SettlementListItemSchema = z.object({
   updatedAt: zIsoDate,
 });
 export type SettlementListItem = z.infer<typeof SettlementListItemSchema>;
+
+/**
+ * The settlement card totals, summed on the server over the listed rows: the
+ * expected amount of every row, and the deposit and difference of the
+ * confirmed rows only — an unconfirmed deposit is not a deposit of zero.
+ */
+export const SettlementListSummarySchema = z.object({
+  totalExpected: z.number().int(),
+  totalConfirmedActual: z.number().int(),
+  totalConfirmedDifference: z.number().int(),
+  pendingCount: z.number().int().nonnegative(),
+}).strict();
+export type SettlementListSummary = z.infer<typeof SettlementListSummarySchema>;
+
+/** `GET /api/settlements`: the rows and the totals the cards show. */
+export const SettlementListResponseSchema = z.object({
+  items: z.array(SettlementListItemSchema),
+  summary: SettlementListSummarySchema,
+}).strict();
+export type SettlementListResponse = z.infer<typeof SettlementListResponseSchema>;

@@ -8,11 +8,10 @@ import { FinanceDateRangeSchema, FinanceWindowBasisSchema } from './profit-loss.
  *
  * Backend `StatisticsService` return literals close with `satisfies <Xxx>`.
  * Every response carries the basis its values rest on: the requested window
- * and, per value, the closed KST days actually evaluated. `basis` is `null`
- * only when no period was asked and no order was ever collected, so no window
- * exists to describe. A window total or ratio — including a category or grade
- * group total — is `null` unless the whole evaluated window was collected and
- * its denominator is non-zero (ADR-0006).
+ * (the explicit period, or the KST month containing the request) and, per
+ * value, the closed KST days actually evaluated. A window total or ratio —
+ * including a category or grade group total — is `null` unless the whole
+ * evaluated window was collected and its denominator is non-zero (ADR-0006).
  */
 
 const StatisticsBasisSchema = FinanceWindowBasisSchema.nullable();
@@ -66,7 +65,8 @@ export const StatisticsCategoryRowSchema = z.object({
   revenue: z.number().int().nullable(),
   orders: z.number().int().nullable(),
   profit: z.number().int().nullable(),
-  count: z.number().int().nullable(),
+  /** Distinct listings of the category sold in the window. */
+  productCount: z.number().int().nullable(),
 });
 export type StatisticsCategoryRow = z.infer<typeof StatisticsCategoryRowSchema>;
 

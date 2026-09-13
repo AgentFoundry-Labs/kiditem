@@ -6,6 +6,8 @@ import {
   ReportExportQueryDto,
 } from '../dto';
 import { SalesAnalysisQueryDto } from '../dto/sales-analysis-query.dto';
+import { CreateSalesPlanDto, UpdateSalesPlanDto } from '../sales-plans/dto';
+import { CreateSettlementDto } from '../settlements/dto';
 
 /** The global pipe: whitelist and transform. */
 const pipe = new ValidationPipe({ whitelist: true, transform: true });
@@ -43,6 +45,26 @@ describe.each([
 
   it('accepts a real YYYY-MM month', async () => {
     await expect(transform(metatype, 'query', { ...base, period: '2026-12' }))
+      .resolves.toMatchObject({ period: '2026-12' });
+  });
+});
+
+/**
+ * A stored plan or settlement for `2026-13` names no month, so its live actuals
+ * could never be read: the body DTOs accept a real month only.
+ */
+describe.each([
+  ['sales plan create', CreateSalesPlanDto, {}],
+  ['sales plan update', UpdateSalesPlanDto, {}],
+  ['settlement create', CreateSettlementDto, { expectedAmount: 1_000 }],
+] as const)('%s period', (_name, metatype, base) => {
+  it.each(MALFORMED_PERIODS)('rejects %s with 400', async (period) => {
+    await expect(transform(metatype, 'body', { ...base, period }))
+      .rejects.toMatchObject({ status: 400 });
+  });
+
+  it('accepts a real YYYY-MM month', async () => {
+    await expect(transform(metatype, 'body', { ...base, period: '2026-12' }))
       .resolves.toMatchObject({ period: '2026-12' });
   });
 });

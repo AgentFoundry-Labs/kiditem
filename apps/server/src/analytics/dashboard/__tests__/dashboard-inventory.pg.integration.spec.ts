@@ -142,7 +142,7 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
     });
     const { id: optionId } = await setupProductOption(prisma, {
       organizationId: TEST_ORGANIZATION_ID, masterId,
-      sku: `SKU-T-${tag}`, costPrice: 80_000, commissionRate: 0.1, otherCost: 0,
+      sku: `SKU-T-${tag}`, costPrice: 80_000,
     });
     const { listingId, listingOptionId } = await setupChannelListing(prisma, {
       organizationId: TEST_ORGANIZATION_ID, masterId,
@@ -150,6 +150,7 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
       optionId, externalOptionId: `VI-T-${tag}`,
     });
     await seedOrderWithLineItems(prisma, {
+      orderChannel: 'rocket',
       organizationId: TEST_ORGANIZATION_ID,
       externalOrderId: `INV-T-${tag}-1`,
       orderedAt: midMonth().toISOString(),
@@ -789,14 +790,14 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
   }
 
   it('T4: minusProduct — seeded loss order surfaces in warnings.minusProducts', async () => {
-    // Loss order: revenue 50_000, costPrice 80_000, commission 10%, shipping 5_000
-    // netProfit = 50_000 - 80_000 - 5_000 - 5_000 - 0 - 0 = -40_000  → minus
+    // Loss order: revenue 50_000, costPrice 80_000, shipping 5_000; a Rocket
+    // order carries no commission. netProfit = 50_000 - 80_000 - 5_000 = -35_000 → minus
     const { id: masterId } = await setupMaster(prisma, {
       organizationId: TEST_ORGANIZATION_ID, code: 'M-T-LOSS', name: 'Loss Master', abcGrade: 'A',
     });
     const { id: optionId } = await setupProductOption(prisma, {
       organizationId: TEST_ORGANIZATION_ID, masterId,
-      sku: 'SKU-T-LOSS', costPrice: 80_000, commissionRate: 0.1, otherCost: 0,
+      sku: 'SKU-T-LOSS', costPrice: 80_000,
     });
     const { listingId, listingOptionId } = await setupChannelListing(prisma, {
       organizationId: TEST_ORGANIZATION_ID, masterId,
@@ -804,6 +805,7 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
       optionId, externalOptionId: 'VI-T-LOSS',
     });
     await seedOrderWithLineItems(prisma, {
+      orderChannel: 'rocket',
       organizationId: TEST_ORGANIZATION_ID,
       externalOrderId: 'INV-T-LOSS-1',
       orderedAt: midMonth().toISOString(),
@@ -830,21 +832,21 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
   it('T5: 3 warnings — minus + lowProfit + highAd seeded on 3 listings', async () => {
     // Listing A: minus (cost > revenue)
     const a = await setupMaster(prisma, { organizationId: TEST_ORGANIZATION_ID, code: 'M-T-A', name: 'A', abcGrade: 'A' });
-    const aOpt = await setupProductOption(prisma, { organizationId: TEST_ORGANIZATION_ID, masterId: a.id, sku: 'SKU-T-A', costPrice: 80_000, commissionRate: 0.1 });
+    const aOpt = await setupProductOption(prisma, { organizationId: TEST_ORGANIZATION_ID, masterId: a.id, sku: 'SKU-T-A', costPrice: 80_000});
     const aList = await setupChannelListing(prisma, { organizationId: TEST_ORGANIZATION_ID, masterId: a.id, channel: 'coupang', externalId: 'EXT-T-A', optionId: aOpt.id, externalOptionId: 'VI-T-A' });
     await seedOrderWithLineItems(prisma, {
+      orderChannel: 'rocket',
       organizationId: TEST_ORGANIZATION_ID, externalOrderId: 'INV-T-A-1', orderedAt: midMonth().toISOString(),
       shippingPrice: 0, lineItems: [{ quantity: 1, totalPrice: 50_000, optionId: aOpt.id, listingOptionId: aList.listingOptionId }],
     });
 
-    // Listing B: lowProfit (profitRate ≈ 2%)
-    // Aim: revenue=100_000, costPrice=85_000, commission 0.10×100_000=10_000, shipping 0, ad 0, other 0
-    //   netProfit = 100_000 - 85_000 - 10_000 - 0 - 0 - 0 = 5_000 → 5.0% (NOT lowProfit; rate must be <=3)
-    // Adjust: costPrice=88_000 → netProfit = 100_000 - 88_000 - 10_000 = 2_000 → 2.0% (lowProfit ✓)
+    // Listing B: lowProfit (profitRate 2%). A Rocket order carries no commission:
+    //   netProfit = 100_000 - 98_000 - 0 shipping - 0 ad = 2_000 → 2.0% (lowProfit ✓, rate <= 3)
     const b = await setupMaster(prisma, { organizationId: TEST_ORGANIZATION_ID, code: 'M-T-B', name: 'B', abcGrade: 'A' });
-    const bOpt = await setupProductOption(prisma, { organizationId: TEST_ORGANIZATION_ID, masterId: b.id, sku: 'SKU-T-B', costPrice: 88_000, commissionRate: 0.1 });
+    const bOpt = await setupProductOption(prisma, { organizationId: TEST_ORGANIZATION_ID, masterId: b.id, sku: 'SKU-T-B', costPrice: 98_000});
     const bList = await setupChannelListing(prisma, { organizationId: TEST_ORGANIZATION_ID, masterId: b.id, channel: 'coupang', externalId: 'EXT-T-B', optionId: bOpt.id, externalOptionId: 'VI-T-B' });
     await seedOrderWithLineItems(prisma, {
+      orderChannel: 'rocket',
       organizationId: TEST_ORGANIZATION_ID, externalOrderId: 'INV-T-B-1', orderedAt: midMonth().toISOString(),
       shippingPrice: 0, lineItems: [{ quantity: 1, totalPrice: 100_000, optionId: bOpt.id, listingOptionId: bList.listingOptionId }],
     });
@@ -852,9 +854,10 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
     // Listing C: highAd (revenue>0, adCost > 15% of revenue)
     // revenue=100_000, adCost=20_000 → adRate=20% (>15)
     const c = await setupMaster(prisma, { organizationId: TEST_ORGANIZATION_ID, code: 'M-T-C', name: 'C', abcGrade: 'A' });
-    const cOpt = await setupProductOption(prisma, { organizationId: TEST_ORGANIZATION_ID, masterId: c.id, sku: 'SKU-T-C', costPrice: 0, commissionRate: 0 });
+    const cOpt = await setupProductOption(prisma, { organizationId: TEST_ORGANIZATION_ID, masterId: c.id, sku: 'SKU-T-C', costPrice: 0});
     const cList = await setupChannelListing(prisma, { organizationId: TEST_ORGANIZATION_ID, masterId: c.id, channel: 'coupang', externalId: 'EXT-T-C', optionId: cOpt.id, externalOptionId: 'VI-T-C' });
     await seedOrderWithLineItems(prisma, {
+      orderChannel: 'rocket',
       organizationId: TEST_ORGANIZATION_ID, externalOrderId: 'INV-T-C-1', orderedAt: midMonth().toISOString(),
       shippingPrice: 0, lineItems: [{ quantity: 1, totalPrice: 100_000, optionId: cOpt.id, listingOptionId: cList.listingOptionId }],
     });

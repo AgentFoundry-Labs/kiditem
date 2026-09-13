@@ -129,6 +129,7 @@ export class DashboardTrendService {
         const profit = hasDailyOrderRow
           && dailyProfit
           && dailyProfit.costComplete
+          && dailyProfit.cost !== null
           && adCost !== null
           && !profitError
           ? Math.round(dailyProfit.revenue - dailyProfit.cost - adCost)
