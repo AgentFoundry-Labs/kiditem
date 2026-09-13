@@ -1171,7 +1171,6 @@ function Wait-ForRuntime {
       'kiditem-postgres' = Get-ContainerState 'kiditem-postgres'
       'kiditem-minio' = Get-ContainerState 'kiditem-minio'
       'kiditem-api' = Get-ContainerState 'kiditem-api'
-      'kiditem-worker' = Get-ContainerState 'kiditem-worker'
       'kiditem-web' = Get-ContainerState 'kiditem-web'
       'kiditem-nginx' = Get-ContainerState 'kiditem-nginx'
     }
@@ -1179,7 +1178,6 @@ function Wait-ForRuntime {
       $states['kiditem-postgres'] -eq 'healthy' -and
       $states['kiditem-minio'] -eq 'healthy' -and
       $states['kiditem-api'] -eq 'healthy' -and
-      $states['kiditem-worker'] -eq 'running' -and
       $states['kiditem-web'] -eq 'healthy' -and
       $states['kiditem-nginx'] -eq 'healthy'
     ) {
@@ -1256,7 +1254,7 @@ function Assert-RenderedManifestDeployment {
   # cannot turn a destructive maintenance action into a mixed-SHA restart.
   $renderedJson = Get-CheckedOutput docker @script:ComposeArgs config --format json
   $rendered = $renderedJson | ConvertFrom-Json
-  foreach ($name in @('api', 'worker')) {
+  foreach ($name in @('api')) {
     $service = $rendered.services.$name
     if ($null -eq $service) { throw "Rendered Compose is missing required $name service." }
     if ($service.image -ne $Manifest.apiImage) {
@@ -1855,11 +1853,11 @@ function Stop-OfficeRuntimeFailClosed {
   catch { $failures.Add('gateway') }
   try {
     Set-ComposeArguments
-    Invoke-Checked docker @script:ComposeArgs stop api worker web nginx
+    Invoke-Checked docker @script:ComposeArgs stop api web nginx
   }
   catch {
     $failures.Add('compose')
-    foreach ($container in @('kiditem-api', 'kiditem-worker', 'kiditem-web', 'kiditem-nginx')) {
+    foreach ($container in @('kiditem-api', 'kiditem-web', 'kiditem-nginx')) {
       try {
         & docker stop $container *> $null
         if ($LASTEXITCODE -ne 0) { $failures.Add($container) }
@@ -1935,12 +1933,12 @@ function Rotate-GatewayToken {
   try {
     Set-ComposeArguments
     Stop-GatewayScheduledTask
-    Invoke-Checked docker @script:ComposeArgs stop api worker
+    Invoke-Checked docker @script:ComposeArgs stop api
     $rehydratedGatewayRelease = New-GatewayRelease -ArtifactPath $archivedGatewayArtifact -Manifest $manifest
     Switch-GatewayCurrentRelease $rehydratedGatewayRelease $manifest
     Install-GatewayLauncher
     Replace-GatewayInstallationToken
-    Invoke-Checked docker @script:ComposeArgs up --detach --no-build --force-recreate api worker web nginx
+    Invoke-Checked docker @script:ComposeArgs up --detach --no-build --force-recreate api web nginx
     Wait-ForRuntime
     Start-GatewayScheduledTask
     Assert-CurrentOfficeReleaseIdentity
@@ -1957,7 +1955,7 @@ function Rotate-GatewayToken {
       Switch-GatewayCurrentRelease $recoveredGatewayRelease $manifest
       Install-GatewayLauncher
       Set-ComposeArguments
-      Invoke-Checked docker @script:ComposeArgs up --detach --no-build --force-recreate api worker web nginx
+      Invoke-Checked docker @script:ComposeArgs up --detach --no-build --force-recreate api web nginx
       Wait-ForRuntime
       Start-GatewayScheduledTask
       Assert-CurrentOfficeReleaseIdentity
@@ -2063,7 +2061,7 @@ function Write-PreDeployRuntimeSnapshot {
   param([Parameter(Mandatory = $true)][string]$BackupRoot)
 
   $containers = [ordered]@{}
-  foreach ($name in @('kiditem-api', 'kiditem-worker', 'kiditem-web', 'kiditem-nginx')) {
+  foreach ($name in @('kiditem-api', 'kiditem-web', 'kiditem-nginx')) {
     $imageId = & docker inspect --format '{{.Image}}' $name 2>$null
     if ($LASTEXITCODE -eq 0) { $containers[$name] = ($imageId | Out-String).Trim() }
   }
@@ -2132,7 +2130,7 @@ function Restore-Transaction {
     Install-GatewayLauncher
   }
   Set-ComposeArguments
-  Invoke-Checked docker @script:ComposeArgs up --detach --no-build --force-recreate api worker web nginx
+  Invoke-Checked docker @script:ComposeArgs up --detach --no-build --force-recreate api web nginx
   Wait-ForRuntime
   if ($isLocalRuntime) {
     Start-GatewayScheduledTask
@@ -2240,8 +2238,10 @@ function Install-Deployment {
       }
       Write-Warning 'Stopping application writers for the explicitly approved schema/data cutover. Runtime rollback cannot undo database changes.'
       Stop-GatewayScheduledTask
-      Invoke-Checked docker @script:ComposeArgs stop api worker web nginx
-      Invoke-Checked docker @script:ComposeArgs up --detach --no-build postgres
+      Invoke-Checked docker @script:ComposeArgs stop api web nginx
+      # Containers of services retired from Compose are orphans that the stop
+      # above cannot reach; remove them before any database work.
+      Invoke-Checked docker @script:ComposeArgs up --detach --no-build --remove-orphans postgres
       Wait-ForContainerHealthy 'kiditem-postgres'
       $cutoverDatabaseDumpPath = New-CutoverDatabaseDump -GitSha $manifest.gitSha
       $cutoverDatabaseWorkStarted = $true
@@ -2249,7 +2249,7 @@ function Install-Deployment {
       Invoke-Checked docker @script:ComposeArgs run --rm --no-deps api sh -lc 'cd /app && npx prisma db push --accept-data-loss'
       Invoke-ExactShaDataMigrations -WorktreePath $SourceWorktree -Phase post-schema -ReleaseVersion $manifest.appVersion
     }
-    Invoke-Checked docker @script:ComposeArgs up --detach --no-build --force-recreate api worker web nginx
+    Invoke-Checked docker @script:ComposeArgs up --detach --no-build --force-recreate api web nginx
     Wait-ForRuntime
     Switch-GatewayCurrentRelease $gatewayReleaseRoot $manifest
     Start-GatewayScheduledTask
@@ -2327,7 +2327,7 @@ function Show-OfficeStatus {
   Write-Host "Office root disk free: $(Get-FreeSpaceGb $script:OfficeRoot) GB"
   $dockerDataGuardPath = Get-DockerDataGuardPath
   Write-Host "Docker data disk free: $(Get-FreeSpaceGb $dockerDataGuardPath) GB ($dockerDataGuardPath)"
-  foreach ($name in @('kiditem-postgres', 'kiditem-minio', 'kiditem-api', 'kiditem-worker', 'kiditem-web', 'kiditem-nginx')) {
+  foreach ($name in @('kiditem-postgres', 'kiditem-minio', 'kiditem-api', 'kiditem-web', 'kiditem-nginx')) {
     Write-Host "${name}: $(Get-ContainerState $name)"
   }
   if (Test-Path -LiteralPath $script:CurrentManifestPath -PathType Leaf) {

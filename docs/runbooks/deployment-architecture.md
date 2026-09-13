@@ -69,8 +69,8 @@ The protected `C:\ProgramData\Kiditem\.env.office`, server env file, and the
 external PostgreSQL, MinIO, and CopilotKit volumes remain in place. Before
 application recreation, the deployer records the active container image IDs,
 copies the current runtime manifest to transaction storage, and retains the old
-local images. API, worker, web, and nginx are then recreated with `--no-build`
-and `--force-recreate`; data services and volumes are preserved.
+local images. API, web, and nginx are then recreated with `--no-build` and
+`--force-recreate`; data services and volumes are preserved.
 
 An application-only failure automatically restores the previous Compose,
 deploy env, image references, Gateway pointer, and runtime manifest. A

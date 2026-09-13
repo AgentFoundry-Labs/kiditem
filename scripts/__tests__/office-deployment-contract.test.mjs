@@ -214,7 +214,8 @@ test('schema/data cutover dumps the database after writers stop and before any d
   let previous = -1;
   for (const step of [
     'Stop-GatewayScheduledTask',
-    'Invoke-Checked docker @script:ComposeArgs stop api worker web nginx',
+    'Invoke-Checked docker @script:ComposeArgs stop api web nginx',
+    'Invoke-Checked docker @script:ComposeArgs up --detach --no-build --remove-orphans postgres',
     "Wait-ForContainerHealthy 'kiditem-postgres'",
     '$cutoverDatabaseDumpPath = New-CutoverDatabaseDump -GitSha $manifest.gitSha',
     '$cutoverDatabaseWorkStarted = $true',
@@ -277,7 +278,7 @@ test('controlled recreate preserves runtime evidence and automatically restores 
   assert.match(script, /runtime-before\.json/);
   assert.match(script, /CurrentManifestPath/);
   assert.match(script, /PreviousManifestPath/);
-  assert.match(script, /--detach --no-build --force-recreate api worker web nginx/);
+  assert.match(script, /--detach --no-build --force-recreate api web nginx/);
   assert.match(script, /Restore-Transaction \$backupRoot/);
   assert.match(script, /Automatic runtime restore also failed/);
   assert.match(script, /function Invoke-GatewayTransientFileOperation/);
@@ -316,6 +317,46 @@ test('Office compose keeps env and external volumes while accepting only prebuil
   assert.match(compose, /local runtime manifest/);
 });
 
+test('Office deployer stops, starts, and waits only for services and containers that compose.office.yml defines', () => {
+  const script = read('deploy/office/apply-deployment.ps1');
+  const compose = read('deploy/office/compose.office.yml');
+  const servicesBlock = /^services:\n([\s\S]*?)^\S/m.exec(compose)?.[1] ?? '';
+  const services = [...servicesBlock.matchAll(/^ {2}([a-z][a-z0-9_-]*):$/gm)].map((match) => match[1]);
+  const containers = [...servicesBlock.matchAll(/^ {4}container_name: (\S+)$/gm)].map((match) => match[1]);
+  const projectName = /^name: (\S+)$/m.exec(compose)?.[1];
+  assert.ok(services.includes('api') && containers.includes('kiditem-api') && projectName, 'compose.office.yml services must parse');
+
+  const composeOperands = [...script.matchAll(/docker @script:ComposeArgs (stop|up|run) ([^\n]*)/g)].flatMap(([, verb, rest]) => {
+    const operands = rest.replace(/'[^']*'/g, '').split(/\s+/).filter((token) => token && !token.startsWith('-'));
+    return verb === 'run' ? operands.slice(0, 1) : operands;
+  });
+  const renderedStart = script.indexOf('function Assert-RenderedManifestDeployment {');
+  const rendered = script.slice(renderedStart, script.indexOf('\nfunction ', renderedStart));
+  const renderedServices = [
+    ...[...rendered.matchAll(/in @\(([^)]*)\)/g)].flatMap((match) => [...match[1].matchAll(/'([^']+)'/g)].map((name) => name[1])),
+    ...[...rendered.matchAll(/\$rendered\.services\.([a-z]+)/g)].map((match) => match[1]),
+  ];
+  const containerNames = [
+    ...[...script.matchAll(/'(kiditem-[a-z]+)'/g)].map((match) => match[1]).filter((name) => name !== projectName),
+    ...[...script.matchAll(/docker (?:exec|cp) "?(kiditem-[a-z]+)\b/g)].map((match) => match[1]),
+  ];
+  assert.ok(composeOperands.length > 0 && renderedServices.length > 0 && containerNames.length > 0, 'deployer service references must parse');
+  for (const service of new Set([...composeOperands, ...renderedServices])) {
+    assert.ok(services.includes(service), `deployer names Compose service "${service}", which compose.office.yml does not define`);
+  }
+  for (const container of new Set(containerNames)) {
+    assert.ok(containers.includes(container), `deployer names container "${container}", which compose.office.yml does not define`);
+  }
+  for (const path of [
+    'deploy/office/apply-deployment.ps1',
+    'deploy/office/compose.office.yml',
+    'deploy/office/office.env.example',
+    'scripts/__tests__/office-windows-native-runtime.fixture.ps1',
+  ]) {
+    assert.doesNotMatch(read(path), /\bworker\b/i, `${path} still names the retired worker service`);
+  }
+});
+
 test('PowerShell deployment operator parses on Windows', { skip: process.platform !== 'win32' }, () => {
   const command = String.raw`foreach($file in @('deploy/office/apply-deployment.ps1','deploy/office/gateway-build.ps1')){$tokens=$null;$errors=$null;[System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file),[ref]$tokens,[ref]$errors)|Out-Null;if($errors.Count){exit 1}}`;
   const result = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', command], {
@@ -332,7 +373,7 @@ test('status and rollback retain schema-3 archived-runtime admission', () => {
   assert.match(script, /'Rollback'\s*\{[\s\S]*Install-Deployment -TargetManifestPath \$script:PreviousManifestPath/);
   assert.match(script, /Install-Deployment -TargetManifestPath \$script:PreviousManifestPath -DeploymentMode Rollback/);
   assert.match(script, /Get-ArchivedGatewayArtifact \$previousManifest/);
-  assert.match(script, /--detach --no-build --force-recreate api worker web nginx/);
+  assert.match(script, /--detach --no-build --force-recreate api web nginx/);
 });
 
 test('runbooks describe the local exact-SHA contract and no GitHub Office bundle fallback', () => {

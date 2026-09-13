@@ -69,10 +69,11 @@ normal command stops before build. After explicit cutover review, run:
 npm run deploy:office:local -- --ref origin/release/office --cutover --confirm APPLY_SCHEMA_DATA
 ```
 
-That operation stops writers for pre-schema migration, Prisma push, and
-post-schema migration. A failure after database work begins leaves API, worker,
-web, nginx, and Gateway stopped. Runtime-only rollback is intentionally blocked
-for an immediate schema/data cutover.
+That operation stops writers, writes a custom-format `pg_dump` to
+`C:\ProgramData\KidItem\deployments\database-dumps`, and runs pre-schema
+migration, Prisma push, and post-schema migration. A failure after database
+work begins leaves API, web, nginx, and Gateway stopped. Runtime-only rollback
+is intentionally blocked for an immediate schema/data cutover.
 
 Schema/data cutovers are never performed from a provisional hotfix ref. Promote
 and review them through `release/office` first.
