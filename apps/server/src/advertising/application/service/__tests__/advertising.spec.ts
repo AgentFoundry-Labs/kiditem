@@ -21,7 +21,6 @@ describe('AdvertisingService', () => {
     budget: { allocation: {} },
     roasTargetByGrade: {},
     adRateTargetByGrade: {},
-    tier: { dailyBudget: {} },
     benchmark: {
       roas: { avg: 300, good: 500, excellent: 700, poor: 200 },
       ctr: { avg: 1, good: 2, excellent: 3, poor: 0.5 },

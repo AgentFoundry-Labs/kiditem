@@ -11,7 +11,6 @@ export interface AdsConfig {
   budget: { allocation: Record<string, number> };
   roasTargetByGrade: Record<string, number>;
   adRateTargetByGrade: Record<string, number>;
-  tier: { dailyBudget: Record<string, number> };
   benchmark: {
     roas: { avg: number; good: number; excellent: number; poor: number };
     ctr: { avg: number; good: number; excellent: number; poor: number };

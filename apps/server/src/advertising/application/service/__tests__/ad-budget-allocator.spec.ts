@@ -58,7 +58,6 @@ const emptyConfig: AdsConfig = {
   budget: { allocation: { A: 0.5, B: 0.3, C: 0.2 } },
   roasTargetByGrade: {},
   adRateTargetByGrade: {},
-  tier: { dailyBudget: {} },
   benchmark: {
     roas: { avg: 0, good: 0, excellent: 0, poor: 0 },
     ctr: { avg: 0, good: 0, excellent: 0, poor: 0 },
