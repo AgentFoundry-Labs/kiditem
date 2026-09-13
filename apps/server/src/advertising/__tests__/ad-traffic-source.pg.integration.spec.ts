@@ -401,7 +401,6 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
       trafficVisitors: 10,
       trafficViews: 20,
       trafficRevenue: 200,
-      trafficCoverageStatus: 'OBSERVED',
     });
     const run = await prisma.sourceImportRun.findUniqueOrThrow({ where: { id: started.attempt.attemptId } });
     expect(run.qualityReport).toMatchObject({ rowCount: 3, matchedCount: 2, unmatchedCount: 1 });
@@ -710,7 +709,6 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
       trafficRevenue: 0,
       adSpend: 77,
       adRevenue: 88,
-      trafficCoverageStatus: 'OBSERVED',
       metaJson: { 'traffic.currentSource': 'wing.traffic' },
     });
     const published = await request(httpUrl)
@@ -826,7 +824,6 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
         trafficOrders: 6,
         trafficSalesQty: 5,
         trafficRevenue: 4,
-        trafficCoverageStatus: 'OBSERVED',
         trafficObservedAt: oldObservedAt,
         lastObservedAt: oldObservedAt,
         metaJson: priorMeta,
@@ -844,7 +841,6 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
       trafficOrders: 6,
       trafficSalesQty: 5,
       trafficRevenue: 4,
-      trafficCoverageStatus: 'OBSERVED',
       trafficObservedAt: oldObservedAt,
       lastObservedAt: oldObservedAt,
       metaJson: index === 0
@@ -1269,8 +1265,6 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
         targetUrl: WING_URL,
         period: '1',
         status: 'complete',
-        rowCount: 1,
-        matchedCount: 1,
         finishedAt: observedAt,
       },
     });
@@ -1335,7 +1329,6 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
         trafficOrders: 1,
         trafficSalesQty: 2,
         trafficRevenue: 70,
-        trafficCoverageStatus: 'OBSERVED',
         trafficObservedAt: observedAt,
       },
     });

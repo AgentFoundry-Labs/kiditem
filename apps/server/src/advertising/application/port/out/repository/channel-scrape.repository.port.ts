@@ -49,19 +49,12 @@ export interface ScrapeRunFinalize {
   scrapeRunId: string;
   organizationId: string;
   status: 'complete' | 'error' | 'partial';
-  rowCount?: number;
-  matchedCount?: number;
-  unmatchedCount?: number;
-  errorCount?: number;
   errorJson?: Record<string, unknown> | null;
 }
 
 export interface ScrapeRunErrorFinalize {
   scrapeRunId: string;
   organizationId: string;
-  rowCount: number;
-  matchedCount: number;
-  unmatchedCount: number;
   err: unknown;
 }
 

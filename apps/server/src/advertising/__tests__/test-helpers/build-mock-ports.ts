@@ -16,7 +16,6 @@ import type { AdCampaignRepositoryPort } from '../../application/port/out/reposi
 import type { AdActionRepositoryPort } from '../../application/port/out/repository/ad-action.repository.port';
 import type { AdStrategyContextRepositoryPort } from '../../application/port/out/repository/ad-strategy-context.repository.port';
 import type { ChannelScrapeRepositoryPort } from '../../application/port/out/repository/channel-scrape.repository.port';
-import type { ChannelListingDailyRepositoryPort } from '../../application/port/out/repository/channel-listing-daily.repository.port';
 import type { ChannelOptionDailyRepositoryPort } from '../../application/port/out/repository/channel-option-daily.repository.port';
 import type { ChannelTargetDailyRepositoryPort } from '../../application/port/out/repository/channel-target-daily.repository.port';
 import type { KeywordRankRepositoryPort } from '../../application/port/out/repository/keyword-rank.repository.port';
@@ -109,16 +108,6 @@ export function buildMockChannelScrapeRepo(): MockChannelScrapeRepo {
     finalizeRun: vi.fn(),
     finalizeRunOnError: vi.fn(),
     findExtensionStatusSnapshot: vi.fn(),
-  };
-}
-
-export type MockChannelListingDailyRepo = {
-  [K in keyof ChannelListingDailyRepositoryPort]: ReturnType<typeof vi.fn>;
-};
-
-export function buildMockChannelListingDailyRepo(): MockChannelListingDailyRepo {
-  return {
-    upsert: vi.fn(),
   };
 }
 

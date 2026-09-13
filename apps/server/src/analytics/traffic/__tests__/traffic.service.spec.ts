@@ -150,11 +150,7 @@ describe('TrafficService — scrape-run tenant-scoped writes', () => {
 
     expect(prisma.channelScrapeRun.updateMany).toHaveBeenCalledWith({
       where: { id: 'run-1', organizationId: ORGANIZATION_ID },
-      data: expect.objectContaining({
-        status: 'complete',
-        matchedCount: 1,
-        unmatchedCount: 0,
-      }),
+      data: expect.objectContaining({ status: 'complete' }),
     });
   });
 
@@ -171,9 +167,7 @@ describe('TrafficService — scrape-run tenant-scoped writes', () => {
       where: { id: 'run-1', organizationId: ORGANIZATION_ID },
       data: expect.objectContaining({
         status: 'error',
-        matchedCount: 1,
-        unmatchedCount: 0,
-        errorCount: 1,
+        errorJson: expect.objectContaining({ message: 'daily upsert failed' }),
       }),
     });
   });

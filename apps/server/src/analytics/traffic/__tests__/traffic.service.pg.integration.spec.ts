@@ -431,9 +431,6 @@ describe('TrafficService (PG integration) — daily facts', () => {
       orderBy: { startedAt: 'desc' },
     });
     expect(run).toBeDefined();
-    expect(run?.rowCount).toBe(2);
-    expect(run?.matchedCount).toBe(2);
-    expect(run?.unmatchedCount).toBe(0);
     expect(run?.status).toBe('complete');
 
     const snapshots = await prisma.channelScrapeSnapshot.findMany({
@@ -515,7 +512,6 @@ describe('TrafficService (PG integration) — daily facts', () => {
       orderBy: { startedAt: 'desc' },
     });
     expect(run?.status).toBe('error');
-    expect(run?.matchedCount).toBe(1);
     expect(run?.errorJson).toMatchObject({
       message: expect.stringContaining('boom daily upsert'),
     });

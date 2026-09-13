@@ -77,7 +77,6 @@ export async function uploadTrafficStats({
           pageType: 'traffic',
           businessDate: todayKst,
           status: 'running',
-          rowCount: parsed.rowCount,
           metaJson: {
             detectedColumns: parsed.detectedColumns,
             fileName: file.originalname,
@@ -86,8 +85,6 @@ export async function uploadTrafficStats({
         select: { id: true },
       });
 
-      let matchedRows = 0;
-      const unmatchedRows = parsed.skipped;
       const aggregated = new Map<string, AggregatedRow>();
 
       for (const row of parsed.rows) {
@@ -128,7 +125,6 @@ export async function uploadTrafficStats({
         ) {
           continue;
         }
-        matchedRows += 1;
         addAggregatedRow(aggregated, row, snapshot.id);
       }
 
@@ -163,7 +159,6 @@ export async function uploadTrafficStats({
                 trafficOrders: d.orders,
                 trafficSalesQty: d.salesQty,
                 trafficRevenue: d.revenue,
-                trafficCoverageStatus: 'OBSERVED',
                 trafficObservedAt: observedAt,
                 metaJson: {
                   'traffic.currentSource': 'traffic.csv_upload',
@@ -186,7 +181,6 @@ export async function uploadTrafficStats({
                 trafficOrders: d.orders,
                 trafficSalesQty: d.salesQty,
                 trafficRevenue: d.revenue,
-                trafficCoverageStatus: 'OBSERVED',
                 trafficObservedAt: observedAt,
               },
               select: { id: true },
@@ -203,9 +197,6 @@ export async function uploadTrafficStats({
       } catch (err) {
         await updateScrapeRunOrThrow(prisma, run.id, organizationId, {
           status: 'error',
-          matchedCount: matchedRows,
-          unmatchedCount: unmatchedRows,
-          errorCount: 1,
           errorJson: {
             message: err instanceof Error ? err.message : String(err),
             name: err instanceof Error ? err.name : 'Error',
@@ -218,8 +209,6 @@ export async function uploadTrafficStats({
       upserted = dataArr.length;
       await updateScrapeRunOrThrow(prisma, run.id, organizationId, {
         status: 'complete',
-        matchedCount: matchedRows,
-        unmatchedCount: unmatchedRows,
         finishedAt: new Date(),
       });
     }

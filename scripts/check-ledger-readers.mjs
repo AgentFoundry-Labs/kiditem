@@ -23,7 +23,6 @@ const PRISMA_READ_METHOD_NAMES = [
   'findUniqueOrThrow',
   'groupBy',
 ];
-const PRISMA_READ_METHOD_SET = new Set(PRISMA_READ_METHOD_NAMES);
 const PRISMA_MUTATION_METHOD_NAMES = [
   'create',
   'createMany',
@@ -63,20 +62,6 @@ const LEDGER_MUTATION_ACCESS_KINDS = new Set([
   'Prisma relation mutation',
   'raw SQL mutation',
 ]);
-const RETIRED_LISTING_AD_FIELDS = new Set([
-  'adClicks',
-  'adConversions',
-  'adImpressions',
-  'adOrders',
-  'adRevenue',
-  'adSpend',
-]);
-const RETIRED_LISTING_AD_WRITERS = new Set([
-  'apps/server/src/advertising/adapter/out/repository/channel-listing-daily.repository.adapter.ts',
-  'apps/server/src/advertising/adapter/out/repository/ad-traffic-source.repository.ts',
-  'apps/server/src/analytics/traffic/traffic-upload.ts',
-]);
-const RETIRED_LISTING_AD_READER = 'apps/server/src/advertising/read/ad-target-facts.ts';
 
 function slash(relativePath) {
   return relativePath.split(path.sep).join('/');
@@ -818,43 +803,6 @@ function detectPrismaDelegateAccess(source, prismaModel) {
   return access;
 }
 
-function hasRetiredListingPrismaRead(source) {
-  if (
-    !source.includes('channelListingDailySnapshot') ||
-    ![...RETIRED_LISTING_AD_FIELDS].some((field) => source.includes(field))
-  ) {
-    return false;
-  }
-  const { checker, sourceFile } = createSourceAnalysis(source);
-  let found = false;
-  const visit = (node) => {
-    if (found) return;
-    if (ts.isCallExpression(node)) {
-      const methodName = memberAccessName(node.expression, checker);
-      if (
-        methodName &&
-        PRISMA_READ_METHOD_SET.has(methodName) &&
-        resolveDelegateName(node.expression.expression, checker) ===
-          'channelListingDailySnapshot' &&
-        node.arguments.some((argument) =>
-          hasReachableRelationProperty(
-            argument,
-            RETIRED_LISTING_AD_FIELDS,
-            checker,
-            new Set(),
-          ),
-        )
-      ) {
-        found = true;
-        return;
-      }
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(sourceFile);
-  return found;
-}
-
 function isPrismaMember(node, memberName, checker) {
   const expression = unwrapExpression(node);
   if (
@@ -995,27 +943,6 @@ function detectLedgerAccess(source, ledger, file) {
   return reads;
 }
 
-// These negative rules came from check-listing-day-ad-reader.sh. The listing
-// table is a dead advertising rollup rather than a ledger, so it does not
-// belong in the ledger inventory, but its reads stay forbidden until cutover.
-function detectRetiredListingAdReads(source) {
-  const reads = [];
-  if (/\b(?:adCoverageStatus|trafficCoverageStatus)\b/.test(source)) {
-    reads.push('retired coverage-status read');
-  }
-  if (hasRetiredListingPrismaRead(source)) {
-    reads.push('retired Prisma read');
-  }
-  if (
-    /(?:\b(?:from|join)\s+"?channel_listing_daily_snapshots"?\b[^;]*?\bad_(?:spend|revenue|impressions|clicks|conversions|orders)\b|\bad_(?:spend|revenue|impressions|clicks|conversions|orders)\b[^;]*?\b(?:from|join)\s+"?channel_listing_daily_snapshots"?\b)/ims.test(
-      source,
-    )
-  ) {
-    reads.push('retired raw SQL read');
-  }
-  return reads;
-}
-
 export function inspectLedgerReaders({
   root,
   manifest,
@@ -1055,19 +982,6 @@ export function inspectLedgerReaders({
       for (const legacy of ledger.legacyReaders) {
         legacyViolations.push({ ...legacy, ledger: ledger.name });
       }
-    }
-  }
-
-  for (const file of files) {
-    if (RETIRED_LISTING_AD_WRITERS.has(file)) continue;
-    const source = readFileSync(path.join(root, file), 'utf8');
-    for (const kind of detectRetiredListingAdReads(source)) {
-      violations.push({
-        file,
-        kind,
-        ledger: 'retired listing-day advertising fields',
-        reader: RETIRED_LISTING_AD_READER,
-      });
     }
   }
 

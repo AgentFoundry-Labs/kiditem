@@ -104,10 +104,6 @@ export class ChannelScrapeRepositoryAdapter
       where: { id: input.scrapeRunId, organizationId: input.organizationId },
       data: {
         status: input.status,
-        rowCount: input.rowCount ?? 0,
-        matchedCount: input.matchedCount ?? 0,
-        unmatchedCount: input.unmatchedCount ?? 0,
-        errorCount: input.errorCount ?? 0,
         finishedAt: new Date(),
         errorJson:
           input.errorJson === undefined || input.errorJson === null
@@ -128,10 +124,6 @@ export class ChannelScrapeRepositoryAdapter
         scrapeRunId: input.scrapeRunId,
         organizationId: input.organizationId,
         status: 'error',
-        rowCount: input.rowCount,
-        matchedCount: input.matchedCount,
-        unmatchedCount: input.unmatchedCount,
-        errorCount: 1,
         errorJson: serializeScrapeRunError(input.err),
       });
     } catch (finalizeError) {

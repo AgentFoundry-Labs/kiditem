@@ -428,9 +428,6 @@ export class WingItemwinnerKpiSourceRepository
           data: {
             status: 'complete',
             targetUrl: input.capture.url,
-            rowCount: input.capture.data.length,
-            matchedCount,
-            unmatchedCount: input.capture.data.length - matchedCount,
             finishedAt: new Date(),
             metaJson: json({
               kpis: input.capture.kpis,
@@ -689,7 +686,6 @@ export class WingItemwinnerKpiSourceRepository
       data: {
         status: 'error',
         finishedAt: new Date(),
-        errorCount: 1,
         errorJson: json({ code, message }),
       },
     });

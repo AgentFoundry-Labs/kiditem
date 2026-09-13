@@ -329,7 +329,6 @@ async function upsertDailyFactPublication(
       traffic_orders: row.metrics.orders,
       traffic_sales_qty: row.metrics.salesQty,
       traffic_revenue: row.metrics.revenue,
-      traffic_coverage_status: 'OBSERVED',
       traffic_observed_at: row.observedAt.toISOString(),
       published_at: publishedAt.toISOString(),
     })));
@@ -352,7 +351,6 @@ async function upsertDailyFactPublication(
         traffic_orders,
         traffic_sales_qty,
         traffic_revenue,
-        traffic_coverage_status,
         traffic_observed_at,
         created_at,
         updated_at
@@ -375,7 +373,6 @@ async function upsertDailyFactPublication(
         incoming.traffic_orders,
         incoming.traffic_sales_qty,
         incoming.traffic_revenue,
-        incoming.traffic_coverage_status,
         incoming.traffic_observed_at,
         incoming.published_at,
         incoming.published_at
@@ -393,7 +390,6 @@ async function upsertDailyFactPublication(
         traffic_orders integer,
         traffic_sales_qty integer,
         traffic_revenue integer,
-        traffic_coverage_status text,
         traffic_observed_at timestamptz,
         published_at timestamptz
       )
@@ -408,7 +404,6 @@ async function upsertDailyFactPublication(
         traffic_orders = EXCLUDED.traffic_orders,
         traffic_sales_qty = EXCLUDED.traffic_sales_qty,
         traffic_revenue = EXCLUDED.traffic_revenue,
-        traffic_coverage_status = EXCLUDED.traffic_coverage_status,
         traffic_observed_at = EXCLUDED.traffic_observed_at,
         meta_json = COALESCE(daily.meta_json, '{}'::jsonb) || EXCLUDED.meta_json,
         updated_at = EXCLUDED.updated_at
@@ -1004,9 +999,6 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
         },
         data: {
           status: 'complete',
-          rowCount: snapshots.length,
-          matchedCount: publication.matchedCount,
-          unmatchedCount: publication.unmatchedCount,
           finishedAt: completedAt,
         },
       });
@@ -1263,7 +1255,6 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
               sampleCount: { increment: 1 },
               lastObservedAt: observedAt,
               ...traffic,
-              trafficCoverageStatus: 'OBSERVED',
               trafficObservedAt: observedAt,
             },
             select: { id: true },
@@ -1281,7 +1272,6 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
               rawSnapshotId: snapshot.id,
               metaJson: buildNamespacedMetaForCreate(metaJson),
               ...traffic,
-              trafficCoverageStatus: 'OBSERVED',
               trafficObservedAt: observedAt,
             },
             select: { id: true },

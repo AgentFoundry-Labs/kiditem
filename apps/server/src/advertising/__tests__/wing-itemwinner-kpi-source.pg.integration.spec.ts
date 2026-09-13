@@ -468,7 +468,10 @@ describe('Wing itemwinner KPI source owner HTTP + disposable PostgreSQL', () => 
       await prisma.channelScrapeRun.findFirstOrThrow({
         where: { sourceImportRunId: second.attemptId },
       }),
-    ).toMatchObject({ status: 'error', errorCount: 1 });
+    ).toMatchObject({
+      status: 'error',
+      errorJson: expect.objectContaining({ code: 'VENDOR_IDENTITY_MISMATCH' }),
+    });
 
     const third = (await begin()).body as WingItemwinnerSourceControl;
     await complete(

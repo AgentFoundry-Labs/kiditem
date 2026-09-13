@@ -42,7 +42,6 @@ import { AdCampaignRepositoryAdapter } from "./adapter/out/repository/ad-campaig
 import { AdActionRepositoryAdapter } from "./adapter/out/repository/ad-action.repository.adapter";
 import { AdStrategyContextRepositoryAdapter } from "./adapter/out/repository/ad-strategy-context.repository.adapter";
 import { ChannelScrapeRepositoryAdapter } from "./adapter/out/repository/channel-scrape.repository.adapter";
-import { ChannelListingDailyRepositoryAdapter } from "./adapter/out/repository/channel-listing-daily.repository.adapter";
 import { ChannelOptionDailyRepositoryAdapter } from "./adapter/out/repository/channel-option-daily.repository.adapter";
 import { ChannelTargetDailyRepositoryAdapter } from "./adapter/out/repository/channel-target-daily.repository.adapter";
 import { KeywordRankRepositoryAdapter } from "./adapter/out/repository/keyword-rank.repository.adapter";
@@ -84,7 +83,6 @@ import { AD_CAMPAIGN_REPOSITORY_PORT } from "./application/port/out/repository/a
 import { AD_ACTION_REPOSITORY_PORT } from "./application/port/out/repository/ad-action.repository.port";
 import { AD_STRATEGY_CONTEXT_REPOSITORY_PORT } from "./application/port/out/repository/ad-strategy-context.repository.port";
 import { CHANNEL_SCRAPE_REPOSITORY_PORT } from "./application/port/out/repository/channel-scrape.repository.port";
-import { CHANNEL_LISTING_DAILY_REPOSITORY_PORT } from "./application/port/out/repository/channel-listing-daily.repository.port";
 import { CHANNEL_OPTION_DAILY_REPOSITORY_PORT } from "./application/port/out/repository/channel-option-daily.repository.port";
 import { CHANNEL_TARGET_DAILY_REPOSITORY_PORT } from "./application/port/out/repository/channel-target-daily.repository.port";
 import { KEYWORD_RANK_REPOSITORY_PORT } from "./application/port/out/repository/keyword-rank.repository.port";
@@ -127,10 +125,6 @@ const REPOSITORY_PORT_BINDINGS = [
   {
     provide: CHANNEL_SCRAPE_REPOSITORY_PORT,
     useExisting: ChannelScrapeRepositoryAdapter,
-  },
-  {
-    provide: CHANNEL_LISTING_DAILY_REPOSITORY_PORT,
-    useExisting: ChannelListingDailyRepositoryAdapter,
   },
   {
     provide: CHANNEL_OPTION_DAILY_REPOSITORY_PORT,
@@ -202,7 +196,6 @@ const REPOSITORY_PORT_BINDINGS = [
     AdActionRepositoryAdapter,
     AdStrategyContextRepositoryAdapter,
     ChannelScrapeRepositoryAdapter,
-    ChannelListingDailyRepositoryAdapter,
     ChannelOptionDailyRepositoryAdapter,
     ChannelTargetDailyRepositoryAdapter,
     KeywordRankRepositoryAdapter,
