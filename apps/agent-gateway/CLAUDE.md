@@ -1,3 +1,5 @@
+Before working in this directory, always read this document first rather than relying on memory.
+
 # Native Agent Runner
 
 This package owns the host-native Codex/Claude process boundary for KID-25.

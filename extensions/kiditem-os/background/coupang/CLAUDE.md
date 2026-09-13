@@ -1,3 +1,5 @@
+Before working in this directory, always read this document first rather than relying on memory.
+
 # coupang — Coupang Wing + Ad-Center Domain
 
 `extensions/kiditem-os/background/coupang/` collects Coupang Wing catalog and ad-center

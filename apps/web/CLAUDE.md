@@ -1,3 +1,5 @@
+Before working in this directory, always read this document first rather than relying on memory.
+
 # apps/web — Next.js Frontend
 
 `apps/web/` owns UI routes, browser integrations, client UI state, and React

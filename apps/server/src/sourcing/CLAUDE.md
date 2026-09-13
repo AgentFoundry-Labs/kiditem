@@ -1,3 +1,5 @@
+Before working in this directory, always read this document first rather than relying on memory.
+
 # sourcing
 
 `src/sourcing/` owns Chinese-product discovery, `SourcingCandidate`, source and

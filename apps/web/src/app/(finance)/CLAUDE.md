@@ -1,3 +1,5 @@
+Before working in this directory, always read this document first rather than relying on memory.
+
 # web/finance - P&L, Sales Analysis, and Reports
 
 `app/(finance)/` owns the active `/profit-loss`, `/reports`, and

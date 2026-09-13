@@ -1,3 +1,5 @@
+Before working in this directory, always read this document first rather than relying on memory.
+
 # agents — Python Sourcing Agent Server
 
 `agents/` owns optional FastAPI Python workers/tools for sourcing helper work

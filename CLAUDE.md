@@ -1,3 +1,5 @@
+Before working in this directory, always read this document first rather than relying on memory.
+
 # KidItem
 
 KidItem automates kids-product e-commerce operations from sourcing through AI

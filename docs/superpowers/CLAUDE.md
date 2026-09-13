@@ -1,3 +1,5 @@
+Before working in this directory, always read this document first rather than relying on memory.
+
 # Superpowers Document Archive
 
 **Deprecated 2026-09-12.** This directory is frozen. In-flight design is a

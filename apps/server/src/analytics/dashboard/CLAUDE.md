@@ -1,3 +1,5 @@
+Before working in this directory, always read this document first rather than relying on memory.
+
 # analytics/dashboard — Reporting Read Model
 
 `src/analytics/dashboard/` owns `/api/dashboard/*` read endpoints for the

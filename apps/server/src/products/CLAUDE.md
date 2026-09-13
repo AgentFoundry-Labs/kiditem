@@ -1,3 +1,5 @@
+Before working in this directory, always read this document first rather than relying on memory.
+
 # products — Product Operations + Categories Compatibility
 
 `src/products/` owns canonical inventory-product (`MasterProduct`) operations,

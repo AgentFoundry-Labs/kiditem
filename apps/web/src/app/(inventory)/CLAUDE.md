@@ -1,3 +1,5 @@
+Before working in this directory, always read this document first rather than relying on memory.
+
 # web/inventory — Snapshot And Inventory Operations
 
 `app/(inventory)/` owns inventory-hub operations, the independent inventory

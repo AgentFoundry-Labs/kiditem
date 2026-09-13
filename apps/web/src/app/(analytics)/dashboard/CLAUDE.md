@@ -1,3 +1,5 @@
+Before working in this directory, always read this document first rather than relying on memory.
+
 # web/dashboard - Operational Read Models
 
 `dashboard/` owns the landing dashboard for aggregated operational read models:

@@ -1,3 +1,5 @@
+Before working in this directory, always read this document first rather than relying on memory.
+
 # advertising — Ad Operations
 
 `src/advertising/` owns Coupang ad operations, keyword/SERP tracking,

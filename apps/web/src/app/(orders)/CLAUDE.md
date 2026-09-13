@@ -1,3 +1,5 @@
+Before working in this directory, always read this document first rather than relying on memory.
+
 # web/orders — Collection, Processing, Rocket, And Reviews
 
 `app/(orders)/` owns the active order collection, order processing, Rocket PO

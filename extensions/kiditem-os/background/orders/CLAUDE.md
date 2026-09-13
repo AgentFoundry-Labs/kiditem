@@ -1,3 +1,5 @@
+Before working in this directory, always read this document first rather than relying on memory.
+
 # extension/orders — Marketplace Order Collection
 
 `background/orders/` collects approved marketplace order/export evidence from

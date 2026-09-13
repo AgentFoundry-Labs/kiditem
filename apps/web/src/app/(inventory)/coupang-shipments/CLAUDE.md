@@ -1,3 +1,5 @@
+Before working in this directory, always read this document first rather than relying on memory.
+
 # web/coupang-shipments — Shipment Files
 
 This route owns Coupang shipment file helpers, the extension bridge, local file

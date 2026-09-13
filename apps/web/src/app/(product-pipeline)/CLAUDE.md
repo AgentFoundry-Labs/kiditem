@@ -1,3 +1,5 @@
+Before working in this directory, always read this document first rather than relying on memory.
+
 # web/product-pipeline - Sourcing Content Pipeline
 
 `app/(product-pipeline)/` owns the product content pipeline UI: collected

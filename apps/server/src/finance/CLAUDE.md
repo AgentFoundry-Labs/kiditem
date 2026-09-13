@@ -1,3 +1,5 @@
+Before working in this directory, always read this document first rather than relying on memory.
+
 # finance — P&L, Payments, Plans, Settlements
 
 `src/finance/` owns live financial aggregation, supplier payments, sales plans,

@@ -1,3 +1,5 @@
+Before working in this directory, always read this document first rather than relying on memory.
+
 # web/advertising - Ad Operations
 
 `app/(advertising)/` owns the ad operations UI for Coupang ads, campaign

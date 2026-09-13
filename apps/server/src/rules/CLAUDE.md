@@ -1,3 +1,5 @@
+Before working in this directory, always read this document first rather than relying on memory.
+
 # rules — Business Policy Rules
 
 `src/rules/` owns business rule definitions, thresholds, deterministic

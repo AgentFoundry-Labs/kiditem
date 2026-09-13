@@ -1,3 +1,5 @@
+Before working in this directory, always read this document first rather than relying on memory.
+
 # prisma — Shared Schema
 
 `prisma/` is the database schema source of truth. KidItem uses Prisma v7

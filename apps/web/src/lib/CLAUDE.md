@@ -1,3 +1,5 @@
+Before working in this directory, always read this document first rather than relying on memory.
+
 # web/lib - Shared Frontend Utilities
 
 `src/lib/` owns shared frontend utilities: `apiClient`, API base resolution,
