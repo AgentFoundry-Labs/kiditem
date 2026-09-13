@@ -117,7 +117,7 @@ class Direct1688KeywordSearchSession implements Search1688KeywordSession {
         if (dom.kind === 'explicit_zero') return [];
         // This is deliberately finite and never waits for network idle. It
         // gives current 1688 shadow rendering a realistic bounded window while
-        // preserving the OperationRun's AbortSignal deadline. The same
+        // preserving the source-attempt AbortSignal deadline. The same
         // monotonic deadline caps every frame probe and poll, so serial work
         // cannot extend the six-second readiness phase.
         const remainingReadinessMs = readinessDeadline.remaining();

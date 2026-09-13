@@ -1,5 +1,6 @@
 import { BadRequestException, Logger } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
+import { PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD } from '@kiditem/shared/product-abc';
 import { ProductOperationsService } from './product-operations.service';
 import type { ProductOperationsRepositoryPort } from '../port/out/repository/product-operations.repository.port';
 
@@ -10,6 +11,68 @@ const channelListingOptionId = '00000000-0000-4000-8000-000000000004';
 const skuId = '00000000-0000-4000-8000-000000000005';
 
 describe('ProductOperationsService', () => {
+  it('reads actual contribution for the basis selected by Finance evidence', async () => {
+    const repository = makeRepository();
+    const product = rawListProduct(productId);
+    product.abcGrade = 'B';
+    product.abcEvaluation = officialEvaluation();
+    repository.listProducts.mockResolvedValue({
+      items: [product],
+      page: 1,
+      limit: 50,
+      sellingChannelProducts: [],
+    });
+    const contribution = {
+      readContribution: vi.fn().mockResolvedValue(contributionAnalytics()),
+    };
+    const service = new ProductOperationsService(
+      repository as never,
+      {
+        findBySkuIds: vi.fn().mockResolvedValue({ snapshot: {}, items: [] }),
+      } as never,
+      {
+        findByMasterProductIds: vi.fn().mockResolvedValue(new Map()),
+      } as never,
+      makeCatalogDisplayMedia() as never,
+      makeDataStatusRepository(abcStatusFacts()) as never,
+      contribution as never,
+      makeRecipeMutations() as never,
+    );
+
+    const result = await service.listProducts(organizationId, {
+      page: 1,
+      limit: 50,
+      periodDays: 7,
+      activeStatus: 'all',
+      adStatus: 'all',
+    });
+
+    expect(contribution.readContribution).toHaveBeenCalledWith({
+      organizationId,
+      basisFromDate: '2026-02-01',
+      basisCutoffDate: '2026-08-31',
+      sellpiaSourceImportRunId: '00000000-0000-4000-8000-000000000011',
+      advertisingSourceImportRunId: '00000000-0000-4000-8000-000000000012',
+      masterProductIds: [productId],
+    });
+    expect(result.items[0]).toMatchObject({
+      abcGrade: 'B',
+      abcEvaluation: { publicationRevision: 4 },
+      abc: {
+        abcGrade: 'B',
+        displayStatus: 'READY',
+        formulaRevision: 2,
+        publicationRevision: 4,
+        officialCutoffDate: '2026-07-31',
+        actualCutoffDate: '2026-08-31',
+      },
+      contribution: { operatingProfit: 250_000 },
+    });
+    expect(result.summary.contributionOverview).toEqual(
+      expect.objectContaining({ totals: expect.objectContaining({ netOperatingProfit: 250_000 }) }),
+    );
+  });
+
   it('hydrates availability once and keeps depletion summary counts independent of pagination', async () => {
     const repository = makeRepository();
     const first = rawListProduct(productId);
@@ -78,6 +141,8 @@ describe('ProductOperationsService', () => {
       depletion as never,
       makeCatalogDisplayMedia() as never,
       makeDataStatusRepository() as never,
+      makeContributionRead() as never,
+      makeRecipeMutations() as never,
     );
 
     const result = await service.listProducts(organizationId, {
@@ -126,44 +191,27 @@ describe('ProductOperationsService', () => {
   it('counts only negative ABC contribution profit across the full pre-pagination result', async () => {
     const repository = makeRepository();
     const positive = rawListProduct(productId);
-    positive.abcEvaluation = {
-      abcGrade: 'A',
-      calculationStatus: 'READY',
-      weightedContributionProfit: 12_000,
-      formula: null,
-      sourceFreshness: { evaluationCutoffDate: '2026-07-31' },
-    } as never;
     const zero = rawListProduct('00000000-0000-4000-8000-000000000097');
-    zero.abcEvaluation = {
-      abcGrade: 'C',
-      calculationStatus: 'READY',
-      weightedContributionProfit: 0,
-      formula: null,
-      sourceFreshness: { evaluationCutoffDate: '2026-07-31' },
-    } as never;
     const missing = rawListProduct('00000000-0000-4000-8000-000000000098');
-    missing.abcEvaluation = {
-      abcGrade: null,
-      calculationStatus: 'INSUFFICIENT_EVIDENCE',
-      weightedContributionProfit: null,
-      formula: null,
-      sourceFreshness: { evaluationCutoffDate: '2026-07-31' },
-    } as never;
     const negative = rawListProduct('00000000-0000-4000-8000-000000000099');
-    negative.abcEvaluation = {
-      abcGrade: 'C',
-      calculationStatus: 'READY',
-      weightedContributionProfit: -12_000,
-      formula: null,
-      sourceFreshness: { evaluationCutoffDate: '2026-07-31' },
-    } as never;
     repository.listProducts.mockResolvedValue({
       items: [positive, zero, missing, negative],
       page: 1,
       limit: 1,
       sellingChannelProducts: [],
     });
-    const service = makeService(repository);
+    const analytics = contributionAnalytics();
+    analytics.products = [
+      contributionProduct(positive.id, 12_000),
+      contributionProduct(zero.id, 0),
+      contributionProduct(missing.id, null),
+      contributionProduct(negative.id, -12_000),
+    ];
+    const service = makeService(
+      repository,
+      makeCatalogDisplayMedia(),
+      { readContribution: vi.fn().mockResolvedValue(analytics) },
+    );
 
     const result = await service.listProducts(organizationId, {
       page: 1,
@@ -227,6 +275,8 @@ describe('ProductOperationsService', () => {
       } as never,
       makeCatalogDisplayMedia() as never,
       makeDataStatusRepository() as never,
+      makeContributionRead() as never,
+      makeRecipeMutations() as never,
     );
     const baseQuery = {
       page: 1,
@@ -470,7 +520,13 @@ describe('ProductOperationsService', () => {
 
   it('rejects duplicate and non-positive option inventory components before persistence', async () => {
     const repository = makeRepository();
-    const service = makeService(repository);
+    const recipeMutations = makeRecipeMutations();
+    const service = makeService(
+      repository,
+      makeCatalogDisplayMedia(),
+      makeContributionRead(),
+      recipeMutations,
+    );
 
     await expect(service.replaceChannelOptionInventory(
       organizationId,
@@ -487,12 +543,13 @@ describe('ProductOperationsService', () => {
       channelListingOptionId,
       { components: [{ sellpiaInventorySkuId: skuId, quantity: 0 }] },
     )).rejects.toBeInstanceOf(BadRequestException);
-    expect(repository.replaceChannelOptionInventory).not.toHaveBeenCalled();
+    expect(recipeMutations.replaceRecipe).not.toHaveBeenCalled();
   });
 
   it('passes every detail and mutation through an organization fence', async () => {
     const repository = makeRepository();
-    const service = makeService(repository);
+    const recipeMutations = makeRecipeMutations();
+    const service = makeService(repository, makeCatalogDisplayMedia(), makeContributionRead(), recipeMutations);
 
     await service.getProduct(organizationId, productId);
     await service.updateProduct(organizationId, productId, { name: 'Renamed' });
@@ -506,7 +563,7 @@ describe('ProductOperationsService', () => {
       productId,
       { name: 'Renamed' },
     );
-    expect(repository.replaceChannelOptionInventory).toHaveBeenCalledWith({
+    expect(recipeMutations.replaceRecipe).toHaveBeenCalledWith({
       organizationId,
       channelListingOptionId,
       components: [{ sellpiaInventorySkuId: skuId, quantity: 3 }],
@@ -526,7 +583,6 @@ function makeRepository() {
     getProduct: vi.fn().mockResolvedValue(product),
     createProduct: vi.fn().mockResolvedValue(product),
     updateProduct: vi.fn().mockResolvedValue(product),
-    replaceChannelOptionInventory: vi.fn().mockResolvedValue({ masterProductId: product.id }),
   } as unknown as {
     [K in keyof ProductOperationsRepositoryPort]: ReturnType<typeof vi.fn>;
   };
@@ -536,15 +592,27 @@ function makeCatalogDisplayMedia() {
   return { findDisplayMedia: vi.fn().mockResolvedValue(new Map()) };
 }
 
-function makeDataStatusRepository() {
+function makeDataStatusRepository(status = abcStatusFacts()) {
   return {
-    read: vi.fn().mockResolvedValue({ displayDataAsOf: '2026-07-31' }),
+    read: vi.fn().mockResolvedValue(status),
+  };
+}
+
+function makeContributionRead() {
+  return { readContribution: vi.fn().mockResolvedValue(contributionAnalytics()) };
+}
+
+function makeRecipeMutations() {
+  return {
+    replaceRecipe: vi.fn().mockResolvedValue({ masterProductId: productId }),
   };
 }
 
 function makeService(
   repository: ReturnType<typeof makeRepository>,
   media = makeCatalogDisplayMedia(),
+  contribution = makeContributionRead(),
+  recipeMutations = makeRecipeMutations(),
 ) {
   return new ProductOperationsService(
     repository as never,
@@ -559,6 +627,8 @@ function makeService(
     } as never,
     media as never,
     makeDataStatusRepository() as never,
+    contribution as never,
+    recipeMutations as never,
   );
 }
 
@@ -613,6 +683,7 @@ function rawListProduct(id: string) {
   return {
     ...product,
     id,
+    abcCreatedAt: new Date('2026-07-17T00:00:00.000Z'),
     updatedAt: new Date('2026-07-17T00:00:00.000Z'),
     channelCount: 0,
     channelStatus: 'unlisted' as const,
@@ -628,13 +699,13 @@ function rawListProduct(id: string) {
     adSpendRate: 10,
     metricsFreshness: {
       traffic: {
-        status: 'READY' as const,
+        ready: true,
         coverageStartDate: '2026-07-01',
         coverageEndDate: '2026-07-31',
         capturedAt: new Date('2026-08-01T00:00:00.000Z'),
       },
       advertising: {
-        status: 'READY' as const,
+        ready: true,
         coverageStartDate: '2026-07-01',
         coverageEndDate: '2026-07-31',
         capturedAt: new Date('2026-08-01T00:00:00.000Z'),
@@ -660,5 +731,147 @@ function rawListProduct(id: string) {
         confirmedAt: new Date('2026-07-17T00:00:00.000Z'),
       }],
     }],
+  };
+}
+
+function officialEvaluation() {
+  return {
+    abcGrade: 'B' as const,
+    weightedRevenue: 1_000_000,
+    weightedOrderTimeSupplyCost: 600_000,
+    weightedAdvertisingSpend: 150_000,
+    weightedOperatingProfit: 250_000,
+    operatingProfitVelocity30: 100_000,
+    operatingMargin: 0.25,
+    lossPersistence: 0,
+    profitScore: 20,
+    marginScore: 90,
+    consistencyScore: 100,
+    economicScore: 57,
+    validObservationDays: 180,
+    formula: PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
+    formulaRevision: 2,
+    publicationRevision: 4,
+    gradeBasisCutoffDate: '2026-07-31',
+    saleStartDate: '2026-06-01',
+    sellpiaSourceImportRunId: '00000000-0000-4000-8000-000000000011',
+    advertisingSourceImportRunId: '00000000-0000-4000-8000-000000000012',
+    sellpiaGeneration: '4',
+    advertisingGeneration: '5',
+    mappingGeneration: '8',
+    calculatedAt: '2026-08-01T01:00:00.000Z',
+  };
+}
+
+function abcStatusFacts() {
+  return {
+    mappingReady: true,
+    contributionBasis: { basisFromDate: '2026-02-01', basisCutoffDate: '2026-08-31' },
+    displayDataAsOf: '2026-08-31',
+    actualCutoff: '2026-08-31',
+    traffic: sourceStatus('2026-09-03'),
+    sellpia: sourceStatus('2026-08-31'),
+    advertising: sourceStatus('2026-08-31'),
+    formulaState: {
+      formulaRevision: 2,
+      publicationRevision: 4,
+      officialCutoff: '2026-07-31',
+      publishedAt: '2026-08-01T01:00:00.000Z',
+      mappingGeneration: '8',
+    },
+    products: [{
+      masterProductId: productId,
+      abcGrade: 'B' as const,
+      mappingValid: true,
+      saleStartDate: '2026-07-01',
+    }],
+    sourceVector: {
+      sellpia: {
+        sourceImportRunId: '00000000-0000-4000-8000-000000000011',
+        generation: '4',
+        mappingGeneration: '8',
+        coverageStartDate: '2026-01-15',
+        coverageEndDate: '2026-08-31',
+        capturedAt: '2026-09-01T00:00:00.000Z',
+      },
+      advertising: {
+        sourceImportRunId: '00000000-0000-4000-8000-000000000012',
+        generation: '5',
+        mappingGeneration: '8',
+        coverageStartDate: '2026-02-01',
+        coverageEndDate: '2026-08-31',
+        capturedAt: '2026-09-01T00:01:00.000Z',
+      },
+    },
+  };
+}
+
+function sourceStatus(actualCutoff: string) {
+  return {
+    ready: true,
+    requiredCutoff: actualCutoff,
+    actualCutoff,
+    latestAttempt: { state: 'COMPLETE' as const },
+    latestComplete: { actualCutoff },
+  };
+}
+
+function contributionAnalytics() {
+  return {
+    basis: {
+      fromDate: '2026-02-01',
+      cutoffDate: '2026-08-31',
+      sourceCutoffDate: '2026-08-31',
+      sellpiaSourceImportRunId: '00000000-0000-4000-8000-000000000011',
+      advertisingSourceImportRunId: '00000000-0000-4000-8000-000000000012',
+    },
+    totals: {
+      revenue: 1_000_000,
+      positiveOperatingProfit: 250_000,
+      lossMagnitude: 0,
+      netOperatingProfit: 250_000,
+    },
+    metrics: {
+      sales: { status: 'READY' as const, includedProductCount: 1, excludedProductCount: 0, denominator: 1_000_000 },
+      positiveOperatingProfit: { status: 'READY' as const, includedProductCount: 1, excludedProductCount: 0, denominator: 250_000 },
+      loss: { status: 'NO_DENOMINATOR' as const, includedProductCount: 1, excludedProductCount: 0, denominator: null },
+    },
+    products: [{
+      masterProductId: productId,
+      revenue: 1_000_000,
+      operatingProfit: 250_000,
+      salesContribution: 1,
+      positiveOperatingProfitContribution: 1,
+      lossImpact: null,
+      salesRank: 1,
+      positiveOperatingProfitRank: 1,
+      lossRank: null,
+      cumulativeSalesContribution: 1,
+      cumulativePositiveOperatingProfitContribution: 1,
+      cumulativeLossImpact: null,
+      metricCompleteness: { sales: true, operatingProfit: true },
+    }],
+  };
+}
+
+function contributionProduct(masterProductId: string, operatingProfit: number | null) {
+  const complete = operatingProfit !== null;
+  return {
+    masterProductId,
+    revenue: complete ? 1_000 : null,
+    operatingProfit,
+    salesContribution: complete ? 0.25 : null,
+    positiveOperatingProfitContribution: operatingProfit !== null && operatingProfit > 0
+      ? 1
+      : null,
+    lossImpact: operatingProfit !== null && operatingProfit < 0 ? 1 : null,
+    salesRank: complete ? 1 : null,
+    positiveOperatingProfitRank: operatingProfit !== null && operatingProfit > 0 ? 1 : null,
+    lossRank: operatingProfit !== null && operatingProfit < 0 ? 1 : null,
+    cumulativeSalesContribution: complete ? 0.25 : null,
+    cumulativePositiveOperatingProfitContribution:
+      operatingProfit !== null && operatingProfit > 0 ? 1 : null,
+    cumulativeLossImpact: operatingProfit !== null && operatingProfit < 0 ? 1 : null,
+    metricCompleteness: { sales: complete, operatingProfit: complete },
   };
 }

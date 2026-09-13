@@ -229,7 +229,7 @@ test('rejects legacy direct collection POST endpoints while allowing typed snaps
   );
 });
 
-test('rejects a direct shadow provider-and-snapshot collection facade outside its exact operation handler', () => {
+test('allows Shadow entrypoints to invoke the source owner directly', () => {
   const result = analyzeSourcingLongRunningActions({
     webSources: [],
     sourcingServerSources: [{
@@ -240,8 +240,21 @@ test('rejects a direct shadow provider-and-snapshot collection facade outside it
 
   assert.deepEqual(
     result.findings.map((finding) => finding.rule),
-    ['direct_shadow_signal_collection_from_entrypoint'],
+    [],
   );
+});
+
+test('rejects retired Shadow Operation admission from HTTP and Agent entrypoints', () => {
+  for (const entry of ['http/shadow.controller.ts', 'agent/shadow.adapter.ts']) {
+    const result = analyzeSourcingLongRunningActions({
+      webSources: [],
+      sourcingServerSources: [{
+        path: `apps/server/src/sourcing/adapter/in/${entry}`,
+        source: 'return this.operations.startShadowCollection(input);',
+      }],
+    });
+    assert.deepEqual(result.findings.map((finding) => finding.rule), ['retired_shadow_operation_entrypoint']);
+  }
 });
 
 test('rejects an approved-origin Coupang external source-collection bridge', () => {
@@ -337,7 +350,7 @@ test('rejects an indirect keywords-to-recommendations Naver provider helper brid
   );
 });
 
-test('rejects the direct recommendation refresh HTTP facade', () => {
+test('does not require an Operation handler for explicit owner recommendation refresh', () => {
   const result = analyzeSourcingLongRunningActions({
     webSources: [],
     sourcingServerSources: [{
@@ -346,8 +359,19 @@ test('rejects the direct recommendation refresh HTTP facade', () => {
     }],
   });
 
-  assert.deepEqual(
-    result.findings.map((finding) => finding.rule),
-    ['direct_recommendation_refresh_from_http_controller'],
-  );
+  assert.deepEqual(result.findings, []);
+});
+
+test('allows the Taobao helper that starts a server source-owner attempt', () => {
+  const result = analyzeSourcingLongRunningActions({
+    webSources: [{
+      path: 'apps/web/src/app/(sourcing-ai)/sourcing-ai/market/lib/live-commerce-api.ts',
+      source: `export function collectTaobaoLive(input, idempotencyKey) {
+        return apiClient.post('/api/sourcing/live-commerce/taobao/attempts', input,
+          { headers: { 'Idempotency-Key': idempotencyKey } });
+      }`,
+    }],
+    sourcingServerSources: [],
+  });
+  assert.deepEqual(result.findings, []);
 });

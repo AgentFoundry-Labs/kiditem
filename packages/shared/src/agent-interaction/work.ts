@@ -2,9 +2,6 @@ import { z } from "zod";
 import { CanonicalResourceRefSchema } from "./resource-ref";
 
 export const ResourceRefSchema = CanonicalResourceRefSchema;
-export const OperationRefSchema = z
-  .object({ kind: z.string().min(1).max(64), id: z.string().min(1).max(128) })
-  .strict();
 export const CapabilityInvocationStatusSchema = z.enum([
   "pending",
   "succeeded",
@@ -52,7 +49,6 @@ export const CapabilityResultReceiptSchema = z
   .object({
     summary: z.string().min(1).max(1_000),
     resourceRefs: z.array(ResourceRefSchema).max(50),
-    operationRefs: z.array(OperationRefSchema).max(50),
   })
   .strict();
 
@@ -68,7 +64,6 @@ export const CapabilityInvocationErrorSchema = z
   .strict();
 
 export type ResourceRef = z.infer<typeof ResourceRefSchema>;
-export type OperationRef = z.infer<typeof OperationRefSchema>;
 export type CapabilityResultEnvelope = z.infer<
   typeof CapabilityResultEnvelopeSchema
 >;

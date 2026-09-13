@@ -31,6 +31,8 @@ const channel = (mallKey: string, imported: boolean): MallChannelSummary => ({
   canPublish: true,
   hasCredentials: true,
   imported,
+  collectsOrders: false,
+  uploadsTracking: false,
   listingCount: 0,
   orderCount: 0,
   productCount: 0,

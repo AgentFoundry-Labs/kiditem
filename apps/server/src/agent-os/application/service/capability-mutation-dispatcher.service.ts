@@ -1,4 +1,4 @@
-import { Injectable, type OnApplicationBootstrap } from '@nestjs/common';
+import { Injectable, Logger, type OnApplicationBootstrap } from '@nestjs/common';
 import {
   CapabilityResultEnvelopeSchema,
   CapabilityResultReceiptSchema,
@@ -14,7 +14,6 @@ import { AGENT_DEFINITIONS } from '../../domain/agent-definition.registry';
 import { AgentOsError } from '../../domain/agent-os.errors';
 import {
   hasCapabilityApprovalPolicyDrift,
-  isOwnerKnownFailureCode,
   ownerInvocationKey,
 } from '../../domain/capability/capability-invocation.policy';
 import type { AgentCapabilityRegistry } from './agent-capability-registry.service';
@@ -54,11 +53,18 @@ export class OwnerResultAmbiguousError extends AgentOsError {
 export class CapabilityMutationDispatcher
   implements CapabilityMutationDispatcherPort, OnApplicationBootstrap
 {
+  private readonly logger = new Logger(CapabilityMutationDispatcher.name);
   private readonly inFlightByInvocationId = new Map<
     string,
     Promise<CapabilityInvocationRecord>
   >();
-  private bootstrapSweepStarted = false;
+  /**
+   * Latched on the single attempt, not on success. Nest calls the bootstrap
+   * hook once per process, so re-arming this after a failure would only add a
+   * retry path no caller reaches. A lost sweep is recovered by the next API
+   * start, which is what the error log below points at.
+   */
+  private bootstrapSweepAttempted = false;
 
   constructor(
     private readonly repository: CapabilityInvocationRepositoryPort,
@@ -84,15 +90,34 @@ export class CapabilityMutationDispatcher
     return flight;
   }
 
+  /**
+   * Best-effort recovery of receipts that were admitted but never executed.
+   * Nest awaits this hook during bootstrap, so it must never reject: losing
+   * the sweep strands approved work, but it must not stop the API from
+   * serving every unrelated route.
+   */
   async onApplicationBootstrap(): Promise<void> {
-    if (this.bootstrapSweepStarted) return;
-    this.bootstrapSweepStarted = true;
-    const approvedPending = await this.repository.listApprovedPending({
-      limit: CAPABILITY_APPROVED_PENDING_BOOTSTRAP_LIMIT,
-    });
-    await Promise.allSettled(
-      approvedPending.map((invocation) => this.dispatch(invocation)),
-    );
+    if (this.bootstrapSweepAttempted) return;
+    this.bootstrapSweepAttempted = true;
+    try {
+      const approvedPending = await this.repository.listApprovedPending({
+        limit: CAPABILITY_APPROVED_PENDING_BOOTSTRAP_LIMIT,
+      });
+      await Promise.allSettled(
+        approvedPending.map((invocation) => this.dispatch(invocation)),
+      );
+    } catch (error) {
+      this.logger.error(
+        'Bootstrap capability recovery sweep failed; up to '
+        + `${CAPABILITY_APPROVED_PENDING_BOOTSTRAP_LIMIT} approved capability `
+        + 'invocations stay pending until the next API start: '
+        + boundedMessage(
+          error instanceof Error ? error.message : String(error),
+          'unknown error',
+        ),
+        error instanceof Error ? error.stack : undefined,
+      );
+    }
   }
 
   private clearFlight(
@@ -187,7 +212,7 @@ export class CapabilityMutationDispatcher
           organizationId: invocation.organizationId,
           invocationId: invocation.id,
           error: {
-            code: knownFailureCode(error),
+            code: 'OWNER_KNOWN_FAILURE',
             message: boundedMessage(
               error.message,
               'Owner reported a known failure before commit.',
@@ -246,20 +271,10 @@ function isKnownNoCommitOwnerFailure(
   );
 }
 
-function knownFailureCode(
-  error: Error & { readonly knownNoCommit: true },
-) {
-  const code = (error as { readonly code?: unknown }).code;
-  return isOwnerKnownFailureCode(code)
-    ? code
-    : 'OWNER_KNOWN_FAILURE';
-}
-
 function ownerResultReceipt(result: CapabilityResultEnvelope): CapabilityResultReceipt {
   return CapabilityResultReceiptSchema.parse({
     summary: result.summary,
     resourceRefs: result.resourceRefs,
-    operationRefs: result.operationRefs,
   });
 }
 

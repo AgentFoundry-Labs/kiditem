@@ -4,11 +4,11 @@ import { productAbcEvaluation } from '@/test/fixtures/product-abc';
 import { ProductAbcBadge } from './ProductAbcBadge';
 
 describe('ProductAbcBadge', () => {
-  it('renders the published automatic grade and its reliability', () => {
+  it('renders the published automatic grade and its economic score', () => {
     render(<ProductAbcBadge grade="A" evaluation={productAbcEvaluation()} showConfidence />);
 
     expect(screen.getByText('A')).toBeInTheDocument();
-    expect(screen.getByText('신뢰도 80%')).toBeInTheDocument();
+    expect(screen.getByText('경제점수 82')).toBeInTheDocument();
     expect(screen.getByLabelText('A등급')).toBeInTheDocument();
   });
 
@@ -16,22 +16,12 @@ describe('ProductAbcBadge', () => {
     const { rerender } = render(
       <ProductAbcBadge
         grade={null}
-        evaluation={productAbcEvaluation({
-          abcGrade: null,
-          calculationStatus: 'INSUFFICIENT_EVIDENCE',
-          formula: null,
-          rawScore: null,
-          adjustedScore: null,
-          reliability: null,
-          weightedContributionProfit: null,
-        })}
+        evaluation={null}
       />,
     );
     expect(screen.getByText('미분류')).toBeInTheDocument();
 
-    rerender(<ProductAbcBadge grade="B" evaluation={productAbcEvaluation({
-      abcGrade: 'B', calculationStatus: 'SELLPIA_SOURCE_STALE',
-    })} />);
+    rerender(<ProductAbcBadge grade="B" evaluation={productAbcEvaluation({ abcGrade: 'B' })} />);
     expect(screen.getByText('B')).toBeInTheDocument();
     expect(screen.queryByText('셀피아 갱신 필요')).not.toBeInTheDocument();
   });

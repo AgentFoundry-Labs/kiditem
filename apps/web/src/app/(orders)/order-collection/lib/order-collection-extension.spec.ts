@@ -14,11 +14,11 @@ import {
   detectOrderCollectionSessionExtension,
   detectOrderCollectionSessionExtensionStatus,
   ensureMallLoggedInViaExtension,
-  finalizeOrderCollectionSession,
   sendOrderFileToSellpiaViaExtension,
 } from './order-collection-extension';
 
-const RUN_ID = '11111111-1111-4111-8111-111111111111';
+const ATTEMPT_ID = '11111111-1111-4111-8111-111111111111';
+const ATTEMPT_TOKEN = '22222222-2222-4222-8222-222222222222';
 
 describe('order collection extension session bridge', () => {
   beforeEach(() => {
@@ -39,7 +39,11 @@ describe('order collection extension session bridge', () => {
     );
     expect(bridge.detectOrderCollectionExtensionRuntime).toHaveBeenCalledWith(
       1200,
-      ['browserCollectionSessions', 'orderCollectionFailureEvidenceV1'],
+      [
+        'browserCollectionSessions',
+        'orderCollectionFailureEvidenceV1',
+        'orderCollectionConfirmedCoverageV1',
+      ],
     );
   });
 
@@ -66,7 +70,7 @@ describe('order collection extension session bridge', () => {
     expect(bridge.sendToExtension).not.toHaveBeenCalled();
   });
 
-  it('passes the page-owned runId into the automatic collection message', async () => {
+  it('passes the owner attemptId into the automatic collection message', async () => {
     bridge.sendToExtension.mockResolvedValue({
       success: true,
       mall: '아이스크림몰',
@@ -76,20 +80,21 @@ describe('order collection extension session bridge', () => {
       rowCount: 1,
       masked: false,
       source: 'test',
-      runId: RUN_ID,
+      attemptId: ATTEMPT_ID,
     });
 
     await collectIcecreamMallRowsFromExtension(
       '2026-07-15',
       { loginId: 'operator', password: 'secret' },
-      { runId: RUN_ID, extensionId: 'order-extension' },
+      { attemptId: ATTEMPT_ID, attemptToken: ATTEMPT_TOKEN, extensionId: 'order-extension' },
     );
 
     expect(bridge.sendToExtension).toHaveBeenCalledWith(
       'order-extension',
       expect.objectContaining({
         action: 'collectIcecreamMallOrders',
-        runId: RUN_ID,
+        attemptId: ATTEMPT_ID,
+        deferTerminal: true,
       }),
       90000,
     );
@@ -105,7 +110,12 @@ describe('order collection extension session bridge', () => {
     const result = await ensureMallLoggedInViaExtension(
       'kidsnote',
       { loginId: 'operator', password: 'secret' },
-      { runId: RUN_ID, extensionId: 'order-extension', date: '2026-07-28' },
+      {
+        attemptId: ATTEMPT_ID,
+        attemptToken: ATTEMPT_TOKEN,
+        extensionId: 'order-extension',
+        date: '2026-07-28',
+      },
     );
 
     expect(result).toEqual({
@@ -117,7 +127,8 @@ describe('order collection extension session bridge', () => {
       'order-extension',
       expect.objectContaining({
         action: 'ensureMallLoggedIn',
-        runId: RUN_ID,
+        attemptId: ATTEMPT_ID,
+        deferTerminal: true,
         date: '2026-07-28',
       }),
       45000,
@@ -130,7 +141,7 @@ describe('order collection extension session bridge', () => {
     await expect(ensureMallLoggedInViaExtension(
       'kidsnote',
       { loginId: 'operator', password: 'secret' },
-      { runId: RUN_ID, date: '2026-07-28' },
+      { attemptId: ATTEMPT_ID, attemptToken: ATTEMPT_TOKEN, date: '2026-07-28' },
     )).resolves.toMatchObject({
       success: false,
       pendingLogin: false,
@@ -161,30 +172,6 @@ describe('order collection extension session bridge', () => {
       errorCode: 'login_required',
       failure: expect.objectContaining({ code: 'login_required' }),
     });
-  });
-
-  it('finalizes the page-owned session after backend conversion', async () => {
-    bridge.sendToExtension.mockResolvedValue({
-      runId: RUN_ID,
-      producer: 'orders.mall',
-      status: 'failed',
-    });
-
-    await finalizeOrderCollectionSession(
-      { runId: RUN_ID, extensionId: 'order-extension' },
-      'failed',
-      '쿠팡직배송 엑셀 생성 실패',
-    );
-
-    expect(bridge.sendToExtension).toHaveBeenCalledWith(
-      'order-extension',
-      {
-        action: 'finalizeCollectionSession',
-        runId: RUN_ID,
-        status: 'failed',
-        message: '쿠팡직배송 엑셀 생성 실패',
-      },
-    );
   });
 
   it('classifies a missing extension as definitely not submitted', async () => {

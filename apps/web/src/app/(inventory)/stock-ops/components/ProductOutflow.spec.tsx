@@ -1,11 +1,12 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { productAbcReadModel } from '@/test/fixtures/product-abc';
+import ProductOutflow from './ProductOutflow';
 import type { SellpiaProductSalesSummary } from '@kiditem/shared/dashboard';
-import { productAbcEvaluation } from '@/test/fixtures/product-abc';
 
 const productSalesApi = vi.hoisted(() => ({ fetch: vi.fn() }));
-const requestRefresh = vi.hoisted(() => vi.fn());
+const sourceOwner = vi.hoisted(() => ({ start: vi.fn(), state: null as Record<string, unknown> | null, isStarting: false }));
 const freshness = vi.hoisted(() => ({
   state: {
     status: 'refresh_required',
@@ -17,11 +18,9 @@ const freshness = vi.hoisted(() => ({
 vi.mock('@/lib/sellpia-product-sales-api', () => ({
   fetchSellpiaProductSales: productSalesApi.fetch,
 }));
-vi.mock('@/hooks/useSellpiaInventoryFreshness', () => ({
-  useSellpiaInventoryFreshness: () => ({ requestRefresh, state: freshness.state }),
+vi.mock('../../_shared/sellpia-inventory-source-owner', () => ({
+  useSellpiaInventorySourceOwner: () => sourceOwner,
 }));
-
-import ProductOutflow from './ProductOutflow';
 
 function renderProductOutflow() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -36,12 +35,13 @@ describe('ProductOutflow', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     productSalesApi.fetch.mockResolvedValue(summary(false));
-    requestRefresh.mockResolvedValue({ id: 'operation-run-1' });
+    sourceOwner.start.mockResolvedValue({ state: 'RUNNING' });
     freshness.state = {
       status: 'refresh_required',
       lastVerifiedAt: '2026-08-01T00:30:00.000Z',
       syncNotBefore: null,
     };
+    sourceOwner.state = freshness.state;
   });
 
   it('requests the inventory-only operation from product outflow', async () => {
@@ -49,7 +49,7 @@ describe('ProductOutflow', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '셀피아 재고 동기화' }));
 
-    await waitFor(() => expect(requestRefresh).toHaveBeenCalledWith('inventory'));
+    await waitFor(() => expect(sourceOwner.start).toHaveBeenCalledTimes(1));
     expect(screen.getByRole('button', { name: '셀피아 재고 동기화' })).toHaveAttribute(
       'title',
       expect.stringContaining('현재고만 동기화'),
@@ -62,11 +62,12 @@ describe('ProductOutflow', () => {
       lastVerifiedAt: '2026-08-01T00:30:00.000Z',
       syncNotBefore: null,
     };
+    sourceOwner.state = freshness.state;
     renderProductOutflow();
 
     fireEvent.click(screen.getByRole('button', { name: '셀피아 재고 동기화' }));
 
-    await waitFor(() => expect(requestRefresh).toHaveBeenCalledWith('inventory'));
+    await waitFor(() => expect(sourceOwner.start).toHaveBeenCalledTimes(1));
   });
 
   it('keeps ABC evidence in rows but removes ABC-specific filters from outflow', async () => {
@@ -81,7 +82,7 @@ describe('ProductOutflow', () => {
     expect(screen.queryByRole('button', { name: /셀피아 갱신 필요/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /광고비 갱신 필요/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /계산 확인/ })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /미분류\s*0/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /미분류\s*1/ })).toBeInTheDocument();
   });
 
   it('does not show the retired formula-calibration status as a stock filter', async () => {
@@ -102,21 +103,34 @@ describe('ProductOutflow', () => {
     const cells = within(row).getAllByRole('cell');
     expect(within(cells[0]!).getByLabelText('A등급')).toBeInTheDocument();
     expect(within(cells[4]!).queryByLabelText('A등급')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /A등급\s*1/ }));
+    expect(screen.queryByText('매핑 필요 상품')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /미분류\s*1/ }));
+    expect(screen.getByText('매핑 필요 상품')).toBeInTheDocument();
+    expect(screen.queryByText('계산 완료 상품')).not.toBeInTheDocument();
   });
+  it('keeps the A grade visible beside source attention without losing its complete cutoff', async () => {
+    const data = summary(true);
+    const product = data.products[0]!.inventoryResolution;
+    if (product.status !== 'matched' || !product.inventoryProduct) throw new Error('Expected matched product');
+    const abc = product.inventoryProduct.abc;
+    product.inventoryProduct.abc = {
+      ...abc, displayStatus: 'SELLPIA_SOURCE_STALE',
+      sources: { ...abc.sources, sellpia: { ...abc.sources.sellpia, ready: false, latestAttemptState: 'FAILED' } },
+    };
+    productSalesApi.fetch.mockResolvedValueOnce(data);
+    renderProductOutflow();
+    const row = await screen.findByRole('row', { name: /계산 완료 상품/ });
+    expect(within(row).getByLabelText('A등급')).toBeInTheDocument();
+    expect(within(row).getByText('원천 확인')).toHaveAttribute('title', expect.stringContaining('데이터 기준 2026-07-31'));
+  });
+
 });
 
 function summary(hasData: boolean): SellpiaProductSalesSummary {
   const rows = hasData ? [
-    row('ready', '계산 완료 상품', 'A', productAbcEvaluation()),
-    row('unmapped', '매핑 필요 상품', null, productAbcEvaluation({
-      abcGrade: null,
-      calculationStatus: 'SOURCE_UNMAPPED',
-      formula: null,
-      rawScore: null,
-      adjustedScore: null,
-      reliability: null,
-      weightedContributionProfit: null,
-    })),
+    row('ready', '계산 완료 상품', productAbcReadModel()),
+    row('unmapped', '매핑 필요 상품', productAbcReadModel({ evaluation: null, displayStatus: 'SOURCE_UNMAPPED' })),
   ] : [];
   return {
     range: { from: '2026-07', to: '2026-07' },
@@ -144,16 +158,12 @@ function summary(hasData: boolean): SellpiaProductSalesSummary {
       READY: hasData ? 1 : 0,
       INSUFFICIENT_EVIDENCE: 0,
       SOURCE_UNMAPPED: hasData ? 1 : 0,
-      CALIBRATION_PENDING: 0,
-      RECALCULATING: 0,
       SELLPIA_SOURCE_STALE: 0,
       AD_SOURCE_STALE: 0,
-      ORDERS_SOURCE_STALE: 0,
-      CALCULATION_ERROR: 0,
     },
     abcContributionProfitByGrade: { A: hasData ? 120_000 : 0, B: 0, C: 0 },
     classifiedProductCount: hasData ? 1 : 0,
-    unclassifiedProductCount: 0,
+    unclassifiedProductCount: hasData ? 1 : 0,
     leadTimeMonths: 1,
   };
 }
@@ -161,8 +171,7 @@ function summary(hasData: boolean): SellpiaProductSalesSummary {
 function row(
   suffix: string,
   productName: string,
-  abcGrade: 'A' | 'B' | 'C' | null,
-  abcEvaluation: ReturnType<typeof productAbcEvaluation>,
+  abc: ReturnType<typeof productAbcReadModel>,
 ): SellpiaProductSalesSummary['products'][number] {
   return {
     productCode: `SKU-${suffix}`,
@@ -194,8 +203,7 @@ function row(
         masterProductId: `21111111-1111-4111-8111-${suffix.padEnd(12, '0').slice(0, 12)}`,
         masterProductCode: `MP-${suffix}`,
         masterProductName: productName,
-        abcGrade,
-        abcEvaluation,
+        abc,
       },
       destinations: [{
         masterProductId: `21111111-1111-4111-8111-${suffix.padEnd(12, '0').slice(0, 12)}`,
@@ -207,8 +215,7 @@ function row(
         externalOptionId: `OPTION-${suffix}`,
         optionName: '기본 옵션',
         unitsPerSale: 1,
-        abcGrade,
-        abcEvaluation,
+        abc,
         displayImage: null,
       }],
     },

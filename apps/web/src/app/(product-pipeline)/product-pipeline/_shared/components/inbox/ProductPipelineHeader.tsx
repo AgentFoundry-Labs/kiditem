@@ -6,12 +6,16 @@ interface ProductPipelineHeaderProps {
   title?: string;
   subtitle?: string;
   searchPlaceholder?: string;
+  searchValue?: string;
+  onSearchChange?: (value: string) => void;
 }
 
 export function ProductPipelineHeader({
   title = '수집 상품',
   subtitle = '1688/상품 등록 후보 · 콘텐츠 관리',
   searchPlaceholder = '상품명 · 상품코드 · 메모 검색',
+  searchValue,
+  onSearchChange,
 }: ProductPipelineHeaderProps) {
   return (
     <header className="px-5 h-14 flex items-center justify-between gap-4 border-b border-slate-200">
@@ -31,6 +35,10 @@ export function ProductPipelineHeader({
         <input
           type="text"
           placeholder={searchPlaceholder}
+          value={searchValue}
+          onChange={onSearchChange
+            ? (event) => onSearchChange(event.currentTarget.value)
+            : undefined}
           className="w-full pl-8 pr-3 h-8 text-xs border border-slate-200 rounded-md focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 bg-white placeholder:text-slate-400"
         />
       </div>

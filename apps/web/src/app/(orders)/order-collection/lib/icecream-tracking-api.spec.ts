@@ -1,9 +1,15 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import * as XLSX from 'xlsx';
 import {
   buildIcecreamSendFinishFile,
-  buildIcecreamSendFinishPreviewRows,
   type SellpiaTrackingRow,
 } from './icecream-tracking-api';
+
+const api = vi.hoisted(() => ({ fetchRaw: vi.fn() }));
+const downloadBlob = vi.hoisted(() => vi.fn());
+
+vi.mock('@/lib/api-client', () => ({ apiClient: api }));
+vi.mock('@/lib/browser-download', () => ({ downloadBlob }));
 
 const headers = ['주문번호', '배송번호', '배송순번', '상품번호'];
 const sourceRows = [
@@ -35,49 +41,62 @@ const tracking: SellpiaTrackingRow[] = [
   },
 ];
 
-describe('icecream send-finish file', () => {
-  it('matches provider order numbers and emits one row per delivery', () => {
-    const result = buildIcecreamSendFinishPreviewRows(
-      headers,
-      sourceRows,
-      tracking,
+describe('icecream send-finish file transport', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(
+      workbook,
+      XLSX.utils.aoa_to_sheet([
+        ['배송번호', '배송순번', '택배사', '송장번호'],
+        ['116569790', '1', '10', '576997610340'],
+        ['116565901', '1', '10', '576997610336'],
+      ]),
+      'Sheet1',
     );
-
-    expect(result.previewRows).toEqual([
-      ['배송번호', '배송순번', '택배사', '송장번호'],
-      ['116569790', '1', '10', '576997610340'],
-      ['116565901', '1', '10', '576997610336'],
-    ]);
-    expect(result.matchedRows).toBe(2);
-    expect(result.unmappedCouriers).toEqual([]);
+    const workbookBytes = XLSX.write(workbook, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer;
+    api.fetchRaw.mockResolvedValue(new Response(
+      new Uint8Array(workbookBytes),
+      {
+        status: 200,
+        headers: {
+          'Content-Disposition': 'attachment; filename="icecream-send-finish.xlsx"',
+          'X-Order-Collection-Source-Rows': '3',
+          'X-Order-Collection-Output-Rows': '2',
+        },
+      },
+    ));
   });
 
-  it('writes the exact four-column xlsx upload format', async () => {
+  it('sends the source rows and tracking to the server converter', async () => {
     const result = await buildIcecreamSendFinishFile(
       headers,
       sourceRows,
       tracking,
       { download: false, fileName: '아이스크림몰_출고완료_20260729.xlsx' },
     );
-    const XLSX = await import('xlsx');
-    const workbook = XLSX.read(await result.blob.arrayBuffer(), { type: 'array' });
-    const sheet = workbook.Sheets[workbook.SheetNames[0] ?? ''];
-    const rows = XLSX.utils.sheet_to_json<string[]>(sheet, {
-      header: 1,
-      raw: false,
-      defval: '',
-    });
 
-    expect(rows).toEqual(result.previewRows);
-    expect(result.fileName).toBe('아이스크림몰_출고완료_20260729.xlsx');
-  });
-
-  it('fails closed when one provider order has conflicting invoice numbers', () => {
-    expect(() =>
-      buildIcecreamSendFinishPreviewRows(headers, sourceRows, [
-        tracking[0],
-        { ...tracking[0], invNo: 'DIFFERENT' },
-      ]),
-    ).toThrow('서로 다른 송장');
+    expect(api.fetchRaw).toHaveBeenCalledWith(
+      '/api/orders/collection/icecream-mall/send-finish/convert',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          headers,
+          rows: sourceRows,
+          tracking,
+          fileName: '아이스크림몰_출고완료_20260729.xlsx',
+        }),
+      },
+    );
+    expect(result.previewRows).toEqual([
+      ['배송번호', '배송순번', '택배사', '송장번호'],
+      ['116569790', '1', '10', '576997610340'],
+      ['116565901', '1', '10', '576997610336'],
+    ]);
+    expect(result.fileName).toBe('icecream-send-finish.xlsx');
+    expect(result.sourceRows).toBe(3);
+    expect(result.matchedRows).toBe(2);
+    expect(downloadBlob).not.toHaveBeenCalled();
   });
 });

@@ -33,8 +33,10 @@ export interface ProductsListingGenerationInput {
 
 export interface ProductsListingGenerationResult {
   candidateId: string;
-  operationRunId: string;
-  status: string;
+  detailGenerationId: string | null;
+  thumbnailGenerationId: string | null;
+  contentWorkspaceId: string | null;
+  href: string;
 }
 
 export interface ProductsListingGenerationCapabilityPort {

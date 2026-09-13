@@ -8,7 +8,6 @@ const useAuthMock = vi.hoisted(() => vi.fn());
 const replaceMock = vi.hoisted(() => vi.fn());
 const pushMock = vi.hoisted(() => vi.fn());
 const usePathnameMock = vi.hoisted(() => vi.fn());
-const usePanelStreamMock = vi.hoisted(() => vi.fn());
 const readinessMock = vi.hoisted(() => vi.fn(() => null));
 const generationWatcherMock = vi.hoisted(() => vi.fn(() => null));
 const openConversationMock = vi.hoisted(() => vi.fn());
@@ -82,14 +81,6 @@ vi.mock('../Sidebar', () => ({
 
 vi.mock('@/components/ui/PageSkeleton', () => ({
   default: () => <div data-testid="page-skeleton" />,
-}));
-
-vi.mock('@/components/panel/hooks/usePanelStream', () => ({
-  usePanelStream: () => usePanelStreamMock(),
-}));
-
-vi.mock('@/components/panel/PanelErrorBoundary', () => ({
-  PanelErrorBoundary: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 
 vi.mock('@/components/ReadinessModal', () => ({
@@ -197,7 +188,6 @@ describe('AppLayout auth gate', () => {
     replaceMock.mockReset();
     pushMock.mockReset();
     usePathnameMock.mockReset();
-    usePanelStreamMock.mockReset();
     readinessMock.mockClear();
     generationWatcherMock.mockClear();
     openConversationMock.mockReset();
@@ -231,7 +221,6 @@ describe('AppLayout auth gate', () => {
     expect(screen.queryByTestId('sidebar')).not.toBeInTheDocument();
     expect(screen.queryByTestId('conversation-provider')).not.toBeInTheDocument();
     expect(screen.queryByTestId('conversation-runtime-host')).not.toBeInTheDocument();
-    expect(usePanelStreamMock).not.toHaveBeenCalled();
     expect(readinessMock).not.toHaveBeenCalled();
     expect(generationWatcherMock).not.toHaveBeenCalled();
     expect(screen.getByTestId('page-skeleton')).toBeInTheDocument();
@@ -301,7 +290,6 @@ describe('AppLayout auth gate', () => {
     expect(screen.queryByTestId('protected-child')).not.toBeInTheDocument();
     expect(screen.queryByTestId('conversation-provider')).not.toBeInTheDocument();
     expect(screen.queryByTestId('conversation-runtime-host')).not.toBeInTheDocument();
-    expect(usePanelStreamMock).not.toHaveBeenCalled();
     expect(readinessMock).not.toHaveBeenCalled();
     expect(generationWatcherMock).not.toHaveBeenCalled();
   });
@@ -507,8 +495,7 @@ describe('AppLayout auth gate', () => {
     expect(screen.getByTestId('conversation-provider')).toBeInTheDocument();
     expect(screen.getByTestId('conversation-runtime-host')).toBeInTheDocument();
     expect(screen.getByTestId('sidebar')).toBeInTheDocument();
-    expect(usePanelStreamMock).toHaveBeenCalledTimes(1);
-    expect(readinessMock).toHaveBeenCalledTimes(1);
+    expect(readinessMock).not.toHaveBeenCalled();
     expect(generationWatcherMock).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole('button', { name: 'AI 챗 열기' }));
     expect(openConversationMock).toHaveBeenCalledWith({ fixedAgentKey: null });
@@ -724,7 +711,6 @@ describe('AppLayout auth gate', () => {
     expect(screen.getByTestId('protected-child')).toBeInTheDocument();
     expect(screen.getByTestId('conversation-provider')).toBeInTheDocument();
     expect(screen.getByTestId('conversation-runtime-host')).toBeInTheDocument();
-    expect(usePanelStreamMock).toHaveBeenCalledTimes(1);
   });
 
   it('keeps one provider and runtime-host subscription while normal and Agent workspace presentations swap', () => {
@@ -785,7 +771,6 @@ describe('AppLayout auth gate', () => {
     expect(screen.queryByTestId('protected-child')).not.toBeInTheDocument();
     expect(screen.queryByTestId('conversation-provider')).not.toBeInTheDocument();
     expect(screen.queryByTestId('conversation-runtime-host')).not.toBeInTheDocument();
-    expect(usePanelStreamMock).not.toHaveBeenCalled();
     expect(readinessMock).not.toHaveBeenCalled();
     expect(generationWatcherMock).not.toHaveBeenCalled();
 

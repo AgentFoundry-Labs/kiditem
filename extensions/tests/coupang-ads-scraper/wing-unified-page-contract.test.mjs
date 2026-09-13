@@ -14,6 +14,12 @@ const source = fs.readFileSync(
   "utf8",
 );
 
+test("Wing pages do not auto-collect or self-close legacy batch tabs", () => {
+  assert.doesNotMatch(source, /waitAndSync|syncSalesAnalysisWithRetry|kiditemBatch/);
+  assert.doesNotMatch(source, /action:\s*["']reportBatchScrapeDone["']/);
+  assert.doesNotMatch(source, /setTimeout\(\(\)\s*=>\s*\{\s*(?:batchSyncWithRetry|waitAndSync)/);
+});
+
 test("generic Wing dashboard cards cannot be saved as item-winner evidence", async () => {
   let listener = null;
   let syncMessages = 0;

@@ -29,7 +29,7 @@
 
 ---
 
-**Companion Specification:** [`docs/superpowers/specs/2026-08-08-sourcing-backend-data-stabilization-design.md`](../specs/2026-08-08-sourcing-backend-data-stabilization-design.md)
+**Companion Specification:** [`docs/superpowers/specs/archive/2026-08-08-sourcing-backend-data-stabilization-design.md`](../specs/archive/2026-08-08-sourcing-backend-data-stabilization-design.md)
 
 ## Official Implementation References
 

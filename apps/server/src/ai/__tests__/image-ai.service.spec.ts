@@ -19,7 +19,6 @@ function makeJobs() {
     cancel: vi.fn().mockResolvedValue({
       status: 'cancelled',
       jobId: 'image-job-1',
-      operationKey: 'image-edit:image-job-1',
       preserved: false,
     }),
   } as unknown as ImageEditDirectGenerationJobService & {
@@ -169,7 +168,6 @@ describe('ImageAiService', () => {
     expect(result).toEqual({
       status: 'cancelled',
       jobId: 'image-job-1',
-      operationKey: 'image-edit:image-job-1',
       preserved: false,
     });
   });

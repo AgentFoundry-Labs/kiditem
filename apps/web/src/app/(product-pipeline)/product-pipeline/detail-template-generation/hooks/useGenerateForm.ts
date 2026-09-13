@@ -73,7 +73,6 @@ export interface GenerationDialogState {
   startedAt: string;
   productName: string;
   templateId: GenerateTemplateId;
-  operationKey?: string | null;
   generationId?: string;
   detailGenerationId?: string | null;
   thumbnailGenerationId?: string | null;
@@ -127,7 +126,6 @@ interface UseGenerateFormOptions {
 export interface OpenGenerationDialogInput {
   productName: string;
   templateId: GenerateTemplateId;
-  operationKey?: string | null;
   detailGenerationId: string | null;
   thumbnailGenerationId: string | null;
   editorUrl: string;
@@ -276,7 +274,6 @@ export function useGenerateForm(options: UseGenerateFormOptions = {}) {
       if (!prev?.open) return prev;
       const nextPhase = resolveProductGenerationDialogPhase({
         currentPhase: prev.phase,
-        operationKey: prev.operationKey ?? null,
         detailGenerationId: prev.detailGenerationId ?? prev.generationId ?? null,
         detail: generationStatusQuery.data,
         thumbnailGenerationId: prev.thumbnailGenerationId ?? null,
@@ -593,7 +590,6 @@ export function useGenerateForm(options: UseGenerateFormOptions = {}) {
       startedAt,
       productName: input.productName,
       templateId: input.templateId,
-      operationKey: input.operationKey ?? null,
       detailGenerationId: input.detailGenerationId,
       thumbnailGenerationId: input.thumbnailGenerationId,
       generationId: input.detailGenerationId ?? undefined,
@@ -685,7 +681,6 @@ function thumbnailStatusToDialogPhase(
 
 export function resolveProductGenerationDialogPhase(input: {
   currentPhase: GenerationDialogPhase;
-  operationKey?: string | null;
   detailGenerationId: string | null;
   detail?: KidsPlayfulGenerationItem;
   thumbnailGenerationId: string | null;
@@ -693,24 +688,17 @@ export function resolveProductGenerationDialogPhase(input: {
 }): GenerationDialogPhase | null {
   if (input.currentPhase === 'cancelled') return null;
 
-  const awaitsParentStatus = input.operationKey?.startsWith('product-generation:') === true;
-
   const detailPhase = input.detailGenerationId
     ? generationStatusToDialogPhase(input.detail?.imageProcessingStatus)
-    : awaitsParentStatus
-      ? null
-      : 'completed';
+    : 'completed';
   const thumbnailPhase = input.thumbnailGenerationId
     ? thumbnailStatusToDialogPhase(input.thumbnail?.status)
-    : awaitsParentStatus
-      ? null
-      : 'completed';
+    : 'completed';
 
   if (detailPhase === 'failed' || thumbnailPhase === 'failed') return 'failed';
   if (detailPhase === 'cancelled' || thumbnailPhase === 'cancelled') return 'cancelled';
   if (detailPhase === 'completed' && thumbnailPhase === 'completed') return 'completed';
   if (detailPhase === 'started' || thumbnailPhase === 'started') return 'started';
-  if (awaitsParentStatus && (detailPhase === null || thumbnailPhase === null)) return 'started';
   return null;
 }
 

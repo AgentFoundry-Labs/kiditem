@@ -1,6 +1,5 @@
-import { BadRequestException, Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { ThumbnailGenerationItem, ThumbnailGenerationListResponse } from '@kiditem/shared/ai';
-import { AI_OPERATION_ALERT_PORT, type OperationAlertPort } from '../port/out/cross-domain/operation-alert.port';
 import { resolveWorkspaceThumbnailSource } from '../../domain/thumbnail-workspace-source';
 import { ThumbnailTrackingService } from './thumbnail-tracking.service';
 import {
@@ -19,9 +18,6 @@ import {
   ThumbnailGenerationJobService,
   type ThumbnailEditorGenerationEnqueueInput,
 } from './thumbnail-generation-job.service';
-import { operationCancellationAudit } from '../../../common/operation-cancellation-audit';
-import { ProductGenerationAlertService } from './product-generation-alert.service';
-import { readProductGenerationAlertLink } from './product-generation-alert-link';
 import type { ThumbnailGenerationListScope } from '../../domain/thumbnail-generation-subject';
 import { ThumbnailGenerationLifecycleService } from './thumbnail-generation-lifecycle.service';
 
@@ -33,21 +29,9 @@ export class ThumbnailGenerationService {
     @Inject(THUMBNAIL_GENERATION_LEDGER_REPOSITORY_PORT)
     private readonly ledger: ThumbnailGenerationLedgerRepositoryPort,
     private readonly trackingService: ThumbnailTrackingService,
-    @Inject(AI_OPERATION_ALERT_PORT)
-    private readonly operationAlerts: OperationAlertPort,
     private readonly generationJobs: ThumbnailGenerationJobService,
     private readonly lifecycle: ThumbnailGenerationLifecycleService,
-    @Optional()
-    private readonly productGenerationAlerts: ProductGenerationAlertService | null = null,
   ) {}
-
-  private editJobOperationKey(generationId: string): string {
-    return `thumbnail-edit:${generationId}`;
-  }
-
-  private thumbnailGenerationHref(generationId: string): string {
-    return `/product-pipeline/thumbnail-generation?generationId=${encodeURIComponent(generationId)}`;
-  }
 
   async findWorkspaceForThumbnailEditor(contentWorkspaceId: string, organizationId: string) {
     return this.ledger.findWorkspaceForThumbnailEditor(contentWorkspaceId, organizationId);
@@ -201,113 +185,38 @@ export class ThumbnailGenerationService {
     organizationId: string,
     triggeredByUserId: string | null = null,
   ): Promise<ThumbnailGenerationItem> {
-    await this.generationJobs.cancelAgentRequestForGeneration({
+    const cancellation = await this.ledger.cancelDirectGeneration({
       organizationId,
       generationId: id,
       reason: 'Thumbnail generation cancelled by user.',
       actorUserId: triggeredByUserId,
+      payload: { reason: 'Thumbnail generation cancelled by user.' },
     });
-    const change = await this.lifecycle.markCancelled({
-      generationId: id,
-      organizationId,
-      actorUserId: triggeredByUserId,
-    });
-    if (!change) throw new NotFoundException(`ThumbnailGeneration ${id} not found`);
-    // No-op when the generation never opened an alert (e.g. auto-batch).
-    await this.operationAlerts.cancel(organizationId, this.editJobOperationKey(id));
+    if (cancellation.status === 'not_found') {
+      throw new NotFoundException(`ThumbnailGeneration ${id} not found`);
+    }
     return this.findOne(id, organizationId);
   }
 
-  async cancelForOperation(input: {
+  async cancelGeneration(input: {
     organizationId: string;
     generationId: string;
     actorUserId: string | null;
     reason: string;
-    notifyProductGenerationParent?: boolean;
   }): Promise<{
     status: 'cancelled' | 'already_terminal' | 'not_found';
     generationId: string;
-    operationKey: string | null;
     preserved: boolean;
   }> {
-    const row = await this.ledger.findGenerationProjectionStatus({
+    return this.ledger.cancelDirectGeneration({
+      organizationId: input.organizationId,
       generationId: input.generationId,
-      organizationId: input.organizationId,
-    });
-    if (!row) {
-      return {
-        status: 'not_found',
-        generationId: input.generationId,
-        operationKey: null,
-        preserved: false,
-      };
-    }
-    if (!['pending', 'running'].includes(row.status)) {
-      return {
-        status: 'already_terminal',
-        generationId: row.id,
-        operationKey: this.editJobOperationKey(row.id),
-        preserved: row.status === 'succeeded' || row.phase === 'applied',
-      };
-    }
-
-    await this.generationJobs.cancelAgentRequestForGeneration({
-      organizationId: input.organizationId,
-      generationId: row.id,
       reason: input.reason,
-      actorUserId: input.actorUserId,
-    });
-    const change = await this.lifecycle.markCancelled({
-      organizationId: input.organizationId,
-      generationId: row.id,
       actorUserId: input.actorUserId,
       payload: {
         reason: input.reason,
-        operationCancellation: operationCancellationAudit({
-          requestedByUserId: input.actorUserId,
-          reason: input.reason,
-          target: { targetType: 'thumbnail_generation', generationId: row.id },
-          affected: { thumbnailGenerationIds: [row.id] },
-          result: 'cancelled',
-        }),
       },
     });
-    if (!change) {
-      return {
-        status: 'already_terminal',
-        generationId: row.id,
-        operationKey: this.editJobOperationKey(row.id),
-        preserved: false,
-      };
-    }
-    await this.operationAlerts.cancel(input.organizationId, this.editJobOperationKey(row.id), {
-      message: input.reason,
-      metadata: {
-        errorCode: 'user_cancelled',
-        cancel: {
-          requestedByUserId: input.actorUserId,
-          requestedAt: new Date().toISOString(),
-          reason: input.reason,
-        },
-      },
-    });
-    const parentLink = readProductGenerationAlertLink(row.inputMeta);
-    if (parentLink && input.notifyProductGenerationParent !== false && this.productGenerationAlerts) {
-      await this.productGenerationAlerts.markChildFinished({
-        organizationId: input.organizationId,
-        parentOperationKey: parentLink.parentOperationKey,
-        childKind: parentLink.childKind,
-        status: 'failed',
-        childId: row.id,
-        errorMessage: input.reason,
-      });
-    }
-    return {
-      status: 'cancelled',
-      generationId: row.id,
-      operationKey: this.editJobOperationKey(row.id),
-      preserved: false,
-    };
   }
 
   async deleteGeneration(id: string, organizationId: string): Promise<{ ok: true }> {
@@ -397,25 +306,6 @@ export class ThumbnailGenerationService {
         },
       });
 
-      // Per-generation alert for every method, including auto-batch. The
-      // earlier "method === 'auto'" gate was dropped because the cohort alert
-      // it relied on was being marked succeeded before background jobs
-      // finished — see review feedback on PR #209. Per-generation alerts are
-      // the source of truth for actual edit-job completion.
-      await this.operationAlerts.start({
-        organizationId,
-        operationKey: this.editJobOperationKey(generation.id),
-        type: 'thumbnail_edit_job',
-        title: `${method === 'auto' ? '썸네일 자동 재편집' : '썸네일 편집'}: ${workspace.name}`,
-        sourceType: 'thumbnail_generation',
-        sourceId: generation.id,
-        actorUserId: triggeredByUserId,
-        targetType: 'content_workspace',
-        targetId: workspace.id,
-        href: this.thumbnailGenerationHref(generation.id),
-        metadata: { method, purpose, variantKey: variantKey ?? 'auto' },
-      });
-
       await this.scheduleEditJob(generation.id, organizationId, purpose, variantKey);
       items.push(toThumbnailGenerationItem(generation as GenerationRow, workspace));
     }
@@ -434,8 +324,6 @@ export class ThumbnailGenerationService {
       organizationId,
     });
     if (!existing) throw new NotFoundException(`ThumbnailGeneration ${id} not found`);
-    const row = await this.ledger.findGenerationOrThrow(id, organizationId);
-
     const change = await this.ledger.resetGenerationForReEdit({
       id,
       organizationId,
@@ -452,28 +340,6 @@ export class ThumbnailGenerationService {
       toPhase: null,
       actorUserId: triggeredByUserId,
       payload: { purpose, variantKey: variantKey ?? 'auto' },
-    });
-
-    // Re-open the operation alert. `start()` is idempotent on the
-    // (organizationId, operationKey) tuple — a previous failed/succeeded
-    // alert flips back to running, fresh runs create a new row.
-    await this.operationAlerts.start({
-      organizationId,
-      operationKey: this.editJobOperationKey(id),
-      type: 'thumbnail_edit_job',
-      title: '썸네일 재편집',
-      sourceType: 'thumbnail_generation',
-      sourceId: id,
-      actorUserId: triggeredByUserId,
-      targetType: 'content_workspace',
-      targetId: row.contentWorkspaceId,
-      href: this.thumbnailGenerationHref(id),
-      metadata: {
-        method: row.method,
-        purpose,
-        variantKey: variantKey ?? 'auto',
-        retry: true,
-      },
     });
 
     await this.scheduleEditJob(id, organizationId, purpose, variantKey);

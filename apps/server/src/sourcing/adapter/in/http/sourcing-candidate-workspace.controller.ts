@@ -1,7 +1,7 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Headers, Param, Patch, Post } from '@nestjs/common';
+import { parseRequiredIdempotencyKey } from '../../../../common/http/required-idempotency-key';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
-import type { AuthUser } from '../../../../auth/auth.types';
 import { SourcingPromotionService } from '../../../application/service/sourcing-promotion.service';
 import { SourcingService } from '../../../application/service/sourcing.service';
 import { SourcingWorkspaceArchiveService } from '../../../application/service/sourcing-workspace-archive.service';
@@ -17,6 +17,7 @@ import {
   PrepareExternalWingRegistrationDto,
   PreviewExternalWingRegistrationMatchDto,
 } from './dto';
+import type { AuthUser } from '../../../../auth/auth.types';
 
 @Controller('sourcing')
 export class SourcingCandidateWorkspaceController {
@@ -200,8 +201,15 @@ export class SourcingCandidateWorkspaceController {
     @Body() body: QuickProcessCandidateDto | undefined,
     @CurrentOrganization() organizationId: string,
     @CurrentUser() user: AuthUser,
+    @Headers('idempotency-key') idempotencyKey: string | undefined,
   ) {
-    return this.sourcingService.quickProcessCandidate(id, organizationId, user.id ?? null, body?.task ?? 'all');
+    return this.sourcingService.quickProcessCandidate(
+      id,
+      organizationId,
+      user.id ?? null,
+      body?.task ?? 'all',
+      parseRequiredIdempotencyKey(idempotencyKey),
+    );
   }
 
   @Delete('candidates/:id')

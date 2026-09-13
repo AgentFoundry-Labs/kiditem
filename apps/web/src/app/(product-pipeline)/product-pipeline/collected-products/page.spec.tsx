@@ -5,10 +5,14 @@ import SourcingPage from './page';
 
 const {
   deleteCandidateMock,
+  quickProcessMock,
+  createRequestId,
   invalidateQueriesMock,
   toastErrorMock,
 } = vi.hoisted(() => ({
   deleteCandidateMock: vi.fn(),
+  quickProcessMock: vi.fn(),
+  createRequestId: vi.fn(),
   invalidateQueriesMock: vi.fn(),
   toastErrorMock: vi.fn(),
 }));
@@ -58,10 +62,14 @@ vi.mock('sonner', () => ({
 }));
 
 vi.mock('./lib/sourcing-api', () => ({
-  candidatesApi: { delete: deleteCandidateMock },
+  candidatesApi: { delete: deleteCandidateMock, quickProcess: quickProcessMock },
   productsApi: { list: vi.fn() },
   searchSellpiaInventorySkus: vi.fn(),
   isInProgress: () => false,
+}));
+
+vi.mock('@/lib/secure-random-uuid', () => ({
+  createSecureRandomUuid: createRequestId,
 }));
 
 vi.mock('./hooks/useProcessingIds', () => ({
@@ -100,14 +108,24 @@ vi.mock('./components/list/ScrapeUrlInput', () => ({ default: () => null }));
 vi.mock('./components/list/SourcingToolbar', () => ({ default: () => null }));
 vi.mock('./components/wing/WingRegistrationConfirmDialog', () => ({ default: () => null }));
 vi.mock('./components/list/ProductList', () => ({
-  default: ({ onDelete }: { onDelete: (id: string) => void }) => (
-    <button type="button" onClick={() => onDelete('candidate-1')}>삭제 실행</button>
+  default: ({
+    onDelete,
+    onOpenQuickProcess,
+  }: {
+    onDelete: (id: string) => void;
+    onOpenQuickProcess: (id: string) => void;
+  }) => (
+    <>
+      <button type="button" onClick={() => onDelete('candidate-1')}>삭제 실행</button>
+      <button type="button" onClick={() => onOpenQuickProcess('candidate-1')}>AI 작업 선택</button>
+    </>
   ),
 }));
 
 describe('SourcingPage candidate deletion', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    createRequestId.mockReturnValue('batch-quick-process-key');
   });
 
   it('shows the server reason when a candidate deletion is blocked', async () => {
@@ -125,5 +143,36 @@ describe('SourcingPage candidate deletion', () => {
         '쿠팡 등록이 시작된 상품은 삭제할 수 없습니다.',
       );
     });
+  });
+
+  it('reuses a failed batch quick-process key when the user retries the same candidate', async () => {
+    quickProcessMock
+      .mockRejectedValueOnce(new Error('network response lost'))
+      .mockResolvedValueOnce({ ok: true });
+
+    render(<SourcingPage />);
+    fireEvent.click(screen.getByRole('button', { name: 'AI 작업 선택' }));
+    fireEvent.click(screen.getByRole('button', { name: /둘 다 실행/ }));
+
+    await waitFor(() => {
+      expect(quickProcessMock).toHaveBeenCalledWith(
+        'candidate-1',
+        'all',
+        'batch-quick-process-key',
+      );
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'AI 작업 선택' }));
+    fireEvent.click(screen.getByRole('button', { name: /둘 다 실행/ }));
+
+    await waitFor(() => {
+      expect(quickProcessMock).toHaveBeenCalledTimes(2);
+    });
+    expect(quickProcessMock).toHaveBeenLastCalledWith(
+      'candidate-1',
+      'all',
+      'batch-quick-process-key',
+    );
+    expect(createRequestId).toHaveBeenCalledTimes(1);
   });
 });

@@ -20,5 +20,13 @@ export class DashboardQueryDto {
 export class DashboardTrendQueryDto {
   @IsOptional()
   @IsString()
-  range?: string; // '30d', '7d', '90d' — legacy already accepts arbitrary; no strict Matches
+  range?: string; // '30d', '7d', '90d', or 'custom' with from/to
+
+  @IsOptional()
+  @IsString()
+  from?: string;
+
+  @IsOptional()
+  @IsString()
+  to?: string;
 }

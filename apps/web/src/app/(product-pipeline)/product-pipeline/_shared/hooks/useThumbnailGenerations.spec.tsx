@@ -3,22 +3,17 @@ import { renderHook, act, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { useCancelGeneration, useGenerationList } from './useThumbnailGenerations';
-import { cancelOperation } from '@/lib/operation-cancellation';
 import { apiClient } from '@/lib/api-client';
 
-const mockCancelOperation = vi.hoisted(() => vi.fn());
+const mockApiPost = vi.hoisted(() => vi.fn());
 
 vi.mock('@/lib/api-client', () => ({
   apiClient: {
     get: vi.fn(),
     put: vi.fn(),
-    post: vi.fn(),
+    post: mockApiPost,
     delete: vi.fn(),
   },
-}));
-
-vi.mock('@/lib/operation-cancellation', () => ({
-  cancelOperation: mockCancelOperation,
 }));
 
 function wrapper({ children }: { children: ReactNode }) {
@@ -30,40 +25,25 @@ function wrapper({ children }: { children: ReactNode }) {
 
 describe('useCancelGeneration', () => {
   beforeEach(() => {
-    mockCancelOperation.mockReset();
-    mockCancelOperation.mockResolvedValue({
-      ok: true,
+    mockApiPost.mockReset();
+    mockApiPost.mockResolvedValue({
       status: 'cancelled',
-      message: '중단 요청이 반영되었습니다.',
-      operationKey: null,
-      affected: {
-        workflowRunIds: [],
-        agentRunRequestIds: [],
-        agentRunIds: [],
-        contentGenerationIds: [],
-        thumbnailGenerationIds: ['thumbnail-generation-1'],
-        directAiJobIds: [],
-      },
-      preserved: {
-        contentGenerationIds: [],
-        thumbnailGenerationIds: [],
-      },
-      warnings: [],
+      generationId: 'thumbnail-generation-1',
+      preserved: false,
     });
   });
 
-  it('routes thumbnail generation cancellation through the platform endpoint', async () => {
+  it('cancels the thumbnail generation through its durable owner endpoint', async () => {
     const { result } = renderHook(() => useCancelGeneration(), { wrapper });
 
     await act(async () => {
       await result.current.mutateAsync('thumbnail-generation-1');
     });
 
-    expect(cancelOperation).toHaveBeenCalledWith({
-      targetType: 'thumbnail_generation',
-      generationId: 'thumbnail-generation-1',
-      reason: '사용자 요청',
-    });
+    expect(apiClient.post).toHaveBeenCalledWith(
+      '/api/thumbnail-analysis/generations/thumbnail-generation-1/cancel',
+      { reason: '사용자 요청' },
+    );
   });
 });
 

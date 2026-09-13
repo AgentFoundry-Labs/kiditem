@@ -1,15 +1,10 @@
+import type { AlertItem } from '@kiditem/shared/alerts';
 import type { MallOperationOutcomeSummaryRow } from '@kiditem/shared/mall-operation-outcomes';
-import type { OperationRun } from '@kiditem/shared/operations';
-import type { PanelAlertItem, PanelItem, PanelRunItem } from '@kiditem/shared/panel';
 import type { SellpiaInventoryFreshnessView } from '@kiditem/shared/sellpia-inventory-freshness';
-import { isExpiredBrowserCollectionAlert } from '@/lib/browser-collection-session';
 import {
   PIPE_STAGES,
-  STAGE_BY_ALERT_TYPE,
+  STAGE_BY_ALERT_SOURCE_TYPE,
   STAGE_BY_MALL_OPERATION,
-  STAGE_BY_OPERATION_KEY,
-  STAGE_BY_PANEL_RUN_SOURCE,
-  STAGE_BY_PRODUCER,
   type PipeStageDef,
   type PipeStageId,
 } from './pipe-stages';
@@ -18,15 +13,16 @@ import { pipeStateRank, worstPipeState, type PipeState } from './pipe-states';
 /**
  * Agent Org 판정 — 지금 있는 기록만으로 단계마다 "어떤 상태인가"를 정한다.
  *
- * 읽는 것은 넷이다: 서버 실행 기록(OperationRun), 알림 스트림(브라우저 수집 · 콘텐츠 생성),
- * 몰 작업 기억(MallOperationOutcome), 셀피아 재고 신선도. 새 숫자를 지어내지 않는다 —
- * 셀 곳이 없는 단계는 `noSourceReason` 을 그대로 들고 '모름'으로 선다.
+ * 읽는 것: 원천 실패 알림(`/api/alerts` — 원천 소유자가 끝내 실패한 수집에 열고 다음 성공이
+ * 닫는다), 몰 작업 기억(MallOperationOutcome), 셀피아 재고 신선도, 사장님 컨펌, 자동 로그인
+ * 멈춤. 새 숫자를 지어내지 않는다 — 셀 곳이 없는 단계는 `noSourceReason` 을 그대로 들고
+ * '모름'으로 선다.
  *
  * 세 가지 원칙을 코드로 지킨다.
  * 1. **같은 대상은 최신 것만 상태가 된다.** 어제 실패한 수집이 오늘 성공했으면 빨강이 아니다.
  *    지난 실패는 예외 레인의 숫자로만 남는다.
- * 2. **원인이 같으면 한 장이다.** GS샵 로그인 만료가 수집 알림 · 몰 기억 · 자동 멈춤에 따로
- *    남아도 인박스에는 `login:gs-shop` 한 장으로 선다.
+ * 2. **원인이 같으면 한 장이다.** GS샵 로그인 만료가 몰 기억 · 자동 멈춤에 따로 남아도
+ *    인박스에는 `login:gs-shop` 한 장으로 선다.
  * 3. **답을 못 들은 것은 고장이 아니다.** 확장 응답 시간 초과는 재시도 중이지 실패가 아니다.
  */
 
@@ -63,16 +59,16 @@ export interface PipeConfirmCounts {
 
 export interface PipeInputs {
   now: number;
-  runs: PipeSource<readonly OperationRun[]>;
+  /** 원천 실패 알림 — 열린 것은 지금 실패, 닫힌 것은 다시 성공했다는 뜻. */
+  alerts: PipeSource<readonly AlertItem[]>;
   outcomes: PipeSource<readonly MallOperationOutcomeSummaryRow[]>;
   malls: PipeSource<readonly PipeMallAccount[]>;
   freshness: PipeSource<SellpiaInventoryFreshnessView>;
   confirm: PipeSource<PipeConfirmCounts>;
-  panelItems: readonly PanelItem[];
   loginBlocks: readonly PipeLoginBlock[];
 }
 
-type SignalSource = 'run' | 'alert' | 'outcome' | 'freshness' | 'confirm' | 'block' | 'derived';
+type SignalSource = 'alert' | 'outcome' | 'freshness' | 'confirm' | 'block' | 'derived';
 
 export interface PipeSignal {
   id: string;
@@ -150,9 +146,11 @@ export interface PipeConnectors {
 
 /** 이번 판정에 쓴 기록의 양. 기억 박스가 보여 준다. 못 받았으면 `null`. */
 export interface PipeSourceCounts {
-  runs: number | null;
+  /** 받은 알림 수(열림 · 닫힘). */
+  alerts: number | null;
+  /** 그중 아직 열린 알림 수. */
+  openAlerts: number | null;
   outcomes: number | null;
-  alerts: number;
 }
 
 export interface PipeFeedEntry {
@@ -173,36 +171,11 @@ export interface PipeSnapshot {
   feed: PipeFeedEntry[];
 }
 
-const BROWSER_COLLECTION_SOURCE = 'browser_collection_session';
-
-/**
- * 확장이 옛 버전이라 그 작업을 처리할 코드가 없는 것. 실패가 아니라 '볼 수 없음'이다 —
- * 확장을 다시 불러오면 풀린다. 확장 런타임이 `attentionReason` 으로 올려 보낸다.
- */
-const EXTENSION_ERROR_CODES = new Set(['browser_operation_handler_missing', 'extension_missing', 'extension_outdated']);
-
-/** 서버가 사람 말 대신 코드만 준 경우. 코드를 그대로 이유 칸에 쓰면 읽을 수 없다. */
-function readableReason(message: string | null | undefined): string | null {
-  if (!message) return null;
-  return /^[a-z][a-z0-9_]*$/.test(message) ? `확인이 필요한 상태입니다. (${message})` : message;
-}
-
-/** 사람이 몰에 직접 들어가야 풀리는 실행 오류. */
-const LOGIN_ERROR_CODES = new Set([
-  'marketplace_login',
-  'marketplace_login_required',
-  'security_challenge',
-  'sellpia_login_required',
-]);
-
-/** 브라우저 수집이 멈춘 이유 중 로그인 · 보안 확인. */
-const LOGIN_ATTENTION_REASONS = new Set(['marketplace_login', 'captcha', 'kiditem_auth', 'permission']);
-/** 확장이 없거나 옛 버전이라 아예 볼 수 없는 것. */
-const EXTENSION_ATTENTION_REASONS = new Set(['extension_missing', 'extension_outdated']);
-/** 잠깐 막힌 것. 다시 물으면 대개 풀린다. */
-const TRANSIENT_ATTENTION_REASONS = new Set(['background_timeout', 'rate_limited']);
 /** 우리가 답을 못 들은 것 — 몰 실패가 아니다. */
 const NO_ANSWER_REASON_CODES = new Set(['extension_timeout', 'extension_unavailable']);
+
+/** 원천 실패 알림 글이 로그인 · 인증 때문에 멈췄다고 말하는가. */
+const LOGIN_MESSAGE = /로그인|인증|login|captcha|otp/i;
 
 const MALL_OPERATION_LABEL: Readonly<Record<string, string>> = {
   order_collection: '주문수집',
@@ -219,7 +192,6 @@ const LABEL_PRIORITY: Readonly<Record<SignalSource, number>> = {
   confirm: 3,
   derived: 2,
   alert: 1,
-  run: 1,
 };
 
 /** 신호 단계가 이만큼 늦으면 오래됨이다. 기준 간격의 1.5배. */
@@ -231,239 +203,48 @@ function time(value: string | Date | null | undefined, fallback = 0): number {
   return Number.isNaN(parsed) ? fallback : parsed;
 }
 
-function record(value: unknown): Record<string, unknown> | null {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
-}
-
-function stringField(value: Record<string, unknown> | null, key: string): string | null {
-  const field = value?.[key];
-  return typeof field === 'string' && field.length > 0 ? field : null;
-}
-
-/** 실행 결과의 `summary.accepted` — 이번에 받아들인 건수. 모르면 `null`. */
-function acceptedCount(result: unknown): number | null {
-  const accepted = record(record(result)?.summary)?.accepted;
-  return typeof accepted === 'number' && Number.isFinite(accepted) ? accepted : null;
-}
-
 /* ── 기록 → 신호 ─────────────────────────────────────────────────────────── */
 
-export function runSignal(run: OperationRun): PipeSignal | null {
-  const stageId = STAGE_BY_OPERATION_KEY.get(run.operationKey);
+/**
+ * 원천 실패 알림. 원천 소유자가 끝내 실패한 수집마다 원천 하나에 알림 하나를 열고, 그 원천이
+ * 다시 성공하면 닫는다. 그래서 같은 원천은 최신 알림 하나만 상태가 된다 — 열려 있으면 실패
+ * (글이 로그인을 말하면 외부 막힘), 닫혔으면 다시 돈다. 사람이 읽은 알림은 사실로는 남기되
+ * 다시 조르지 않는다.
+ */
+export function sourceAlertSignal(alert: AlertItem): PipeSignal | null {
+  const stageId = alert.sourceType ? STAGE_BY_ALERT_SOURCE_TYPE.get(alert.sourceType) : undefined;
   if (!stageId) return null;
-  const base = {
-    id: `run:${run.id}`,
-    stageId,
-    entityKey: `run:${run.operationKey}`,
-    source: 'run' as const,
-    at: time(run.finishedAt ?? run.updatedAt, time(run.createdAt)),
-    title: run.title,
-    count: acceptedCount(run.result),
-  };
-  switch (run.status) {
-    case 'queued':
-    case 'waiting_runtime':
-    case 'waiting_dependency':
-      return { ...base, state: 'queued', reason: null, cause: null, actionable: false, lane: null };
-    case 'running':
-      return { ...base, state: 'running', reason: null, cause: null, actionable: false, lane: null };
-    case 'attention_required': {
-      const code = run.error?.code ?? '';
-      const message = run.error?.message ?? '';
-      if (EXTENSION_ERROR_CODES.has(code) || EXTENSION_ERROR_CODES.has(message)) {
-        return {
-          ...base,
-          state: 'unknown',
-          reason: '확장에 이 작업이 없습니다. 확장을 최신으로 다시 불러오세요.',
-          cause: { key: 'extension', label: '확장 연결 확인 필요' },
-          actionable: true,
-          lane: null,
-        };
-      }
-      if (LOGIN_ERROR_CODES.has(code)) {
-        return {
-          ...base,
-          state: 'blocked_external',
-          reason: readableReason(run.error?.message),
-          cause: { key: `login:${run.operationKey}`, label: `${run.title} · 로그인 필요` },
-          actionable: true,
-          lane: { dir: 'rejoin', label: '로그인하면 이어짐' },
-        };
-      }
-      return {
-        ...base,
-        state: 'waiting_human',
-        reason: readableReason(run.error?.message),
-        cause: { key: `human:${run.operationKey}`, label: `${run.title} · 확인 필요` },
-        actionable: true,
-        lane: { dir: 'rejoin', label: '사람이 풀면 이어짐' },
-      };
-    }
-    case 'succeeded': {
-      const outcome = stringField(record(run.result), 'outcome');
-      return {
-        ...base,
-        state: outcome === 'partial' ? 'partial' : 'done',
-        reason: null,
-        cause: null,
-        actionable: false,
-        lane: null,
-      };
-    }
-    case 'failed':
-      return {
-        ...base,
-        state: 'failed',
-        reason: readableReason(run.error?.message),
-        cause: { key: `fail:${run.operationKey}:${run.error?.code ?? 'unknown'}`, label: `${run.title} · 실패` },
-        actionable: true,
-        lane: { dir: 'exit', label: '실패' },
-      };
-    case 'cancelled':
-      return { ...base, state: null, reason: null, cause: null, actionable: false, lane: { dir: 'exit', label: '취소' } };
-    case 'skipped':
-      return { ...base, state: 'skipped', reason: null, cause: null, actionable: false, lane: null };
-    default:
-      return null;
-  }
-}
-
-function alertStage(alert: PanelAlertItem): PipeStageId | null {
-  if (alert.sourceType === BROWSER_COLLECTION_SOURCE) {
-    return (alert.sourceId && STAGE_BY_PRODUCER.get(alert.sourceId)) || null;
-  }
-  return (
-    STAGE_BY_ALERT_TYPE.get(alert.type) ??
-    (alert.operationKey ? STAGE_BY_OPERATION_KEY.get(alert.operationKey) : undefined) ??
-    null
-  );
-}
-
-export function alertSignal(
-  alert: PanelAlertItem,
-  now: number,
-  mallName: (mallKey: string) => string,
-): PipeSignal | null {
-  const stageId = alertStage(alert);
-  if (!stageId) return null;
-  // 확장이 이미 지운 7일 넘은 수집, 정리하며 닫은 수집은 다시 세우지 않는다.
-  if (isExpiredBrowserCollectionAlert(alert, now)) return null;
-  if (alert.status === 'cancelled' && alert.metadata.staleReconciled === true) return null;
-
-  const browser = alert.sourceType === BROWSER_COLLECTION_SOURCE;
-  const mallKey = stringField(alert.metadata, 'mallKey');
-  const attention = stringField(alert.metadata, 'attentionReason');
-  const who = mallKey ? mallName(mallKey) : alert.title;
   const base = {
     id: `alert:${alert.id}`,
     stageId,
-    entityKey: browser ? `alert:${alert.sourceId}:${mallKey ?? ''}` : `alert:${alert.type}:${alert.targetId ?? alert.id}`,
+    entityKey: `source:${alert.sourceType}`,
     source: 'alert' as const,
-    at: time(alert.finishedAt ?? alert.startedAt, time(alert.createdAt)),
+    at: time(alert.updatedAt, time(alert.createdAt)),
     title: alert.title,
-    reason: alert.message,
     count: null,
   };
-  // 사람이 이미 읽고 넘긴 알림은 사실로는 남기되 다시 조르지 않는다.
+  if (alert.status === 'RESOLVED') {
+    return { ...base, state: 'done', reason: null, cause: null, actionable: false, lane: null };
+  }
   const unread = !alert.isRead;
-
-  switch (alert.status) {
-    case 'running':
-      return { ...base, state: 'running', cause: null, actionable: false, lane: null };
-    case 'pending': {
-      if (!browser) return { ...base, state: 'queued', cause: null, actionable: false, lane: null };
-      if (attention && LOGIN_ATTENTION_REASONS.has(attention)) {
-        const label = attention === 'captcha' ? '보안 확인 필요' : '로그인 필요';
-        return {
-          ...base,
-          state: 'blocked_external',
-          cause: { key: `login:${mallKey ?? alert.sourceId}`, label: `${who} · ${label}` },
-          actionable: unread,
-          lane: { dir: 'rejoin', label: '로그인하면 이어짐' },
-        };
-      }
-      if (attention && EXTENSION_ATTENTION_REASONS.has(attention)) {
-        return {
-          ...base,
-          state: 'unknown',
-          reason: attention === 'extension_outdated' ? '확장이 옛 버전입니다.' : '확장을 찾지 못했습니다.',
-          cause: { key: 'extension', label: '확장 연결 확인 필요' },
-          actionable: unread,
-          lane: null,
-        };
-      }
-      if (attention && TRANSIENT_ATTENTION_REASONS.has(attention)) {
-        return { ...base, state: 'retrying', cause: null, actionable: false, lane: { dir: 'rejoin', label: '다시 확인' } };
-      }
-      return {
-        ...base,
-        state: 'waiting_human',
-        cause: { key: `human:${alert.sourceId}:${mallKey ?? ''}`, label: `${who} · 확인 필요` },
-        actionable: unread,
-        lane: { dir: 'rejoin', label: '사람이 풀면 이어짐' },
-      };
-    }
-    case 'open':
-      return {
-        ...base,
-        state: 'waiting_human',
-        cause: { key: `human:${alert.type}:${alert.targetId ?? alert.id}`, label: alert.title },
-        actionable: unread,
-        lane: null,
-      };
-    case 'failed':
-      return {
-        ...base,
-        state: 'failed',
-        cause: { key: `fail:${alert.sourceId ?? alert.type}:${mallKey ?? ''}`, label: `${who} · 실패` },
-        actionable: unread,
-        lane: { dir: 'exit', label: '실패' },
-      };
-    case 'succeeded':
-    case 'resolved':
-      return { ...base, state: 'done', cause: null, actionable: false, lane: null };
-    case 'cancelled':
-      return { ...base, state: null, cause: null, actionable: false, lane: { dir: 'exit', label: '취소' } };
-    default:
-      return null;
+  if (alert.message && LOGIN_MESSAGE.test(alert.message)) {
+    return {
+      ...base,
+      state: 'blocked_external',
+      reason: alert.message,
+      cause: { key: `login:${alert.sourceType}`, label: `${alert.title} · 로그인 필요` },
+      actionable: unread,
+      lane: { dir: 'rejoin', label: '로그인하면 이어짐' },
+    };
   }
-}
-
-export function panelRunSignal(run: PanelRunItem): PipeSignal | null {
-  const stageId = STAGE_BY_PANEL_RUN_SOURCE.get(run.source);
-  if (!stageId) return null;
-  const base = {
-    id: `panel-run:${run.id}`,
-    stageId,
-    entityKey: `panel-run:${run.source}:${run.sourceId}`,
-    source: 'alert' as const,
-    at: time(run.updatedAt, time(run.createdAt)),
-    title: run.title,
-    reason: run.errorMessage ?? null,
-    count: null,
+  return {
+    ...base,
+    state: 'failed',
+    reason: alert.message,
+    cause: { key: `fail:${alert.sourceType}`, label: alert.title },
+    actionable: unread,
+    lane: { dir: 'exit', label: '실패' },
   };
-  switch (run.status) {
-    case 'pending':
-      return { ...base, state: 'queued', cause: null, actionable: false, lane: null };
-    case 'running':
-      return { ...base, state: 'running', cause: null, actionable: false, lane: null };
-    case 'succeeded':
-      return { ...base, state: 'done', cause: null, actionable: false, lane: null };
-    case 'failed':
-      return {
-        ...base,
-        state: 'failed',
-        cause: { key: `fail:panel-run:${run.source}`, label: `${run.title} · 실패` },
-        actionable: true,
-        lane: { dir: 'exit', label: '실패' },
-      };
-    case 'cancelled':
-      return { ...base, state: null, cause: null, actionable: false, lane: { dir: 'exit', label: '취소' } };
-    default:
-      return null;
-  }
 }
 
 export function outcomeSignal(
@@ -711,7 +492,7 @@ function staleSignal(def: PipeStageDef, current: readonly PipeSignal[], now: num
 
 function stageSourceFailed(def: PipeStageDef, inputs: PipeInputs): boolean {
   return (
-    (def.operationKeys.length > 0 && inputs.runs.failed) ||
+    (def.alertSourceTypes.length > 0 && inputs.alerts.failed) ||
     (def.mallOperations.length > 0 && inputs.outcomes.failed) ||
     (def.id === 'inventory' && inputs.freshness.failed) ||
     (def.id === 'gate' && inputs.confirm.failed)
@@ -753,8 +534,8 @@ function buildStageView(
   if (head === null) {
     reason = stageSourceFailed(def, inputs)
       ? '기록을 불러오지 못했습니다.'
-      : def.operationKeys.length > 0
-        ? '최근 실행 기록에 없습니다.'
+      : def.alertSourceTypes.length > 0
+        ? '실패 알림이 없습니다. 성공 기록은 이 화면에 오지 않습니다.'
         : '최근 기록이 없습니다.';
   } else {
     reason = stateful.filter((signal) => signal.state === head).sort((a, b) => b.at - a.at)[0]?.reason ?? null;
@@ -868,12 +649,8 @@ export function buildPipeSnapshot(inputs: PipeInputs): PipeSnapshot {
   const mallName = (mallKey: string) => names.get(mallKey) ?? mallKey;
 
   const signals: PipeSignal[] = [];
-  for (const run of inputs.runs.data ?? []) {
-    const signal = runSignal(run);
-    if (signal) signals.push(signal);
-  }
-  for (const item of inputs.panelItems) {
-    const signal = item.kind === 'alert' ? alertSignal(item, inputs.now, mallName) : panelRunSignal(item);
+  for (const alert of inputs.alerts.data ?? []) {
+    const signal = sourceAlertSignal(alert);
     if (signal) signals.push(signal);
   }
   for (const row of inputs.outcomes.data ?? []) {
@@ -899,9 +676,9 @@ export function buildPipeSnapshot(inputs: PipeInputs): PipeSnapshot {
     inbox,
     connectors: buildConnectors(inputs, mallName),
     sources: {
-      runs: inputs.runs.data?.length ?? null,
+      alerts: inputs.alerts.data?.length ?? null,
+      openAlerts: inputs.alerts.data ? inputs.alerts.data.filter((alert) => alert.status === 'OPEN').length : null,
       outcomes: inputs.outcomes.data?.length ?? null,
-      alerts: inputs.panelItems.filter((item) => item.kind === 'alert').length,
     },
     header: {
       running: counted('running'),

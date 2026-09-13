@@ -145,7 +145,7 @@ extensions/           universal KidItem Chrome extension
 ```
 
 상위 소유권은 [Architecture](docs/ARCHITECTURE.md), 코드 변경 규칙은
-[AGENTS.md](AGENTS.md), 테스트 선택은 [Testing](docs/TESTING.md)을 기준으로
+[CLAUDE.md](CLAUDE.md), 테스트 선택은 [Testing](docs/TESTING.md)을 기준으로
 합니다.
 
 ## Chrome 익스텐션

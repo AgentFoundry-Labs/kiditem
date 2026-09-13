@@ -64,7 +64,10 @@ export class AdGradeRulesService {
       const margin = calcOptionMargin(primary);
       const adBudgetLimit = margin > 0 ? margin * 0.35 : 0;
       const sellableStock = primary?.sellableStock ?? null;
-      const profitRate = profitRateByListing.get(listing.id) ?? 0;
+      // Absent when the listing's profit is unavailable (ADR-0003) or it had no
+      // orders in the window. Either way it is not a profit rate of zero — no
+      // rule below branches on it, and it only reaches `proposedValue`.
+      const profitRate = profitRateByListing.get(listing.id) ?? null;
       const summary = hydratedListingToSummary(listing);
       const name = listing.masterProduct.name;
 
@@ -185,7 +188,9 @@ export class AdGradeRulesService {
 
       const actionType = this.ruleToActionType(main.rule);
       const currentValue = roas;
-      const proposedValue = profitRate > 0 ? Math.round(profitRate) : null;
+      const proposedValue = profitRate !== null && profitRate > 0
+        ? Math.round(profitRate)
+        : null;
 
       // Attach channel-state evidence (latest daily snapshot) when
       // available. Reason text is enriched only when the snapshot reveals a

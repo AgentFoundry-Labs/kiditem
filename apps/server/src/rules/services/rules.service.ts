@@ -1,28 +1,9 @@
-import { randomUUID } from 'node:crypto';
-import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { EventEmitter2 } from '@nestjs/event-emitter';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { canonicalOwnerInputHash } from '../../common/owner-idempotency-key';
 import { PrismaService } from '../../prisma/prisma.service';
-import {
-  OPERATION_RUNNER_PORT,
-  type OperationRunnerPort,
-} from '../../operations/application/port/in/operation-runner.port';
-import { PANEL_EVENTS } from '../../automation/adapter/out/panel-event/panel-events';
-import { alertPanelMapper } from '../../automation/mapper/panel-event/alert.mapper';
-import {
-  RULES_OPERATION_ALERT_PORT,
-  type OperationAlertPort,
-} from '../application/port/out/cross-domain/operation-alert.port';
-import {
-  RULES_EVALUATION_OPERATION_KEY,
-} from '../domain/operation/rules.operations';
-import type { ApplyRulesEvaluationPort } from '../application/port/in/apply-rules-evaluation.port';
+import { SourceFailureAlerts, type RuleViolationAlertInput } from '../../alerts/alerts.service';
 import type { RuleItem } from '@kiditem/shared/rules';
-import {
-  formatOperationRunName,
-  OperationRunIdSchema,
-  OrganizationIdSchema,
-} from '@kiditem/shared/identifiers';
 import type { EvaluationResult } from './types';
 import {
   evaluateProductRules,
@@ -31,86 +12,47 @@ import {
   type RuleFactValue,
 } from '../domain/rule-evaluator';
 
-
 @Injectable()
-export class RulesService implements ApplyRulesEvaluationPort {
+export class RulesService {
   private readonly logger = new Logger(RulesService.name);
-
-  private static readonly PANEL_EMIT_BATCH_CAP = 50;
 
   constructor(
     private readonly prisma: PrismaService,
-    @Inject(OPERATION_RUNNER_PORT)
-    private readonly operations: OperationRunnerPort,
-    private readonly eventEmitter: EventEmitter2,
-    @Inject(RULES_OPERATION_ALERT_PORT)
-    private readonly operationAlerts: OperationAlertPort,
+    private readonly alerts: SourceFailureAlerts,
   ) {}
 
   async evaluateAll(
-    organizationId: string,
-    triggeredByUserId: string | null,
-    idempotencyKey: string,
+    input: {
+      organizationId: string;
+      requestedByUserId: string | null;
+      idempotencyKey: string;
+    },
   ): Promise<EvaluationResult> {
-    if (!triggeredByUserId) {
+    const { organizationId, requestedByUserId, idempotencyKey } = input;
+    if (!requestedByUserId) {
       throw new Error('RULES_EVALUATION_ACTOR_REQUIRED');
     }
-
-    const operation = await this.operations.start({
-      organizationId,
-      operationKey: RULES_EVALUATION_OPERATION_KEY,
-      triggerSource: 'dashboard',
-      input: {},
-      requestedByUserId: triggeredByUserId,
-      idempotencyKey: `rules.evaluation.manual:${triggeredByUserId}:${idempotencyKey}`,
-    });
-    await this.operationAlerts.start({
-      organizationId,
-      operationKey: `rules.evaluation:${operation.id}`,
-      type: 'rules_evaluation',
-      title: '룰 평가 진행 중',
-      sourceType: 'operation_run',
-      sourceId: formatOperationRunName(
-        OrganizationIdSchema.parse(organizationId),
-        OperationRunIdSchema.parse(operation.id),
-      ),
-      actorUserId: triggeredByUserId,
-      href: '/dashboard',
-      metadata: { operationKey: RULES_EVALUATION_OPERATION_KEY },
-    });
-
-    this.logger.log(`Rules evaluation queued: operationId=${operation.id}`);
-    return { operationId: operation.id, status: operation.status };
-  }
-
-  async evaluateAndApply(
-    input: Parameters<ApplyRulesEvaluationPort['evaluateAndApply']>[0],
-  ) {
-    const { organizationId, operationId } = input;
-    const operation = await this.operations.get(organizationId, operationId);
-    if (operation.operationKey !== RULES_EVALUATION_OPERATION_KEY) {
-      throw new NotFoundException('Rules evaluation operation not found');
+    if (!idempotencyKey.trim()) {
+      throw new Error('RULES_EVALUATION_IDEMPOTENCY_KEY_REQUIRED');
     }
+    const requestId = rulesRequestId(organizationId, requestedByUserId, idempotencyKey);
 
     try {
-      const applied = await this.prisma.$transaction(async (tx) => {
+      const receipt = await this.prisma.$transaction(async (tx) => {
         const existing = await tx.rulesEvaluationApplication.findUnique({
           where: {
-            operationRunId_organizationId: { operationRunId: operationId, organizationId },
+            organizationId_requestId: { organizationId, requestId },
           },
-          select: { productCount: true, violationCount: true, criticalCount: true },
+          select: {
+            requestId: true,
+            productCount: true,
+            violationCount: true,
+            criticalCount: true,
+            appliedAt: true,
+          },
         });
-        if (existing) return { result: existing, insertedAlerts: [] };
+        if (existing) return existing;
 
-        const exactOperation = await tx.operationRun.findFirst({
-          where: {
-            id: operationId,
-            organizationId,
-            operationKey: RULES_EVALUATION_OPERATION_KEY,
-          },
-          select: { id: true },
-        });
-        if (!exactOperation) throw new NotFoundException('Rules evaluation operation not found');
         const [rules, products] = await Promise.all([
           tx.businessRule.findMany({
             where: { organizationId, active: true },
@@ -133,12 +75,10 @@ export class RulesService implements ApplyRulesEvaluationPort {
               abcEvaluation: {
                 select: {
                   weightedRevenue: true,
-                  weightedOrderTimeCogs: true,
-                  weightedAdSpend: true,
-                  weightedContributionProfit: true,
-                  weightedContributionMargin: true,
-                  paidOrderCount: true,
-                  observationDays: true,
+                  weightedOrderTimeSupplyCost: true,
+                  weightedAdvertisingSpend: true,
+                  weightedOperatingProfit: true,
+                  operatingMargin: true,
                 },
               },
               inventorySkus: {
@@ -161,81 +101,49 @@ export class RulesService implements ApplyRulesEvaluationPort {
           });
           if (updated.count !== 1) throw new Error('RULES_EVALUATION_PRODUCT_DRIFT');
         }
-        const events = evaluationEvents(organizationId, operationId, evaluated);
+        const events = evaluationEvents(organizationId, requestId, evaluated);
         if (events.length > 0) await tx.activityEvent.createMany({ data: events });
-        const alerts = evaluationAlerts(organizationId, operationId, evaluated);
-        const insertedAlerts = alerts.length > 0
-          ? await tx.alert.createManyAndReturn({ data: alerts })
-          : [];
+        // The Alert row shape is the alerts module's, not this one's.
+        await this.alerts.openRuleViolations(tx, evaluationViolations(
+          organizationId,
+          requestId,
+          requestedByUserId,
+          evaluated,
+        ));
         const result = evaluationCounts(evaluated);
-        await tx.rulesEvaluationApplication.create({
-          data: { organizationId, operationRunId: operationId, ...result },
+        return tx.rulesEvaluationApplication.create({
+          data: { organizationId, requestId, ...result },
+          select: {
+            requestId: true,
+            productCount: true,
+            violationCount: true,
+            criticalCount: true,
+            appliedAt: true,
+          },
         });
-        return { result, insertedAlerts };
       });
-      this.emitEvaluationAlerts(organizationId, applied.insertedAlerts);
-      await this.operationAlerts.succeed(
-        organizationId,
-        `rules.evaluation:${operationId}`,
-        { metadata: applied.result },
-      );
-      return applied.result;
+      return evaluationResult(receipt);
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
         const existing = await this.prisma.rulesEvaluationApplication.findUnique({
           where: {
-            operationRunId_organizationId: { operationRunId: operationId, organizationId },
+            organizationId_requestId: { organizationId, requestId },
           },
-          select: { productCount: true, violationCount: true, criticalCount: true },
+          select: {
+            requestId: true,
+            productCount: true,
+            violationCount: true,
+            criticalCount: true,
+            appliedAt: true,
+          },
         });
-        if (existing) return existing;
+        if (existing) return evaluationResult(existing);
       }
       this.logger.error(
-        `Rules deterministic evaluation failed for operation ${operationId}: ${error}`,
+        `Rules deterministic evaluation failed for request ${requestId}: ${error}`,
       );
       throw error;
     }
-  }
-
-  private emitEvaluationAlerts(
-    organizationId: string,
-    inserted: ReadonlyArray<Parameters<typeof alertPanelMapper.mapToItem>[0]>,
-  ): void {
-    try {
-      if (inserted.length > RulesService.PANEL_EMIT_BATCH_CAP) {
-        this.eventEmitter.emit(PANEL_EVENTS.UPSERT, {
-          item: alertPanelMapper.mapToItem({
-            id: randomUUID(), organizationId, targetType: null, targetId: null,
-            kind: 'signal', status: 'open', type: 'batch_summary', severity: 'info',
-            title: `${inserted.length}건의 새 알림`, message: null, operationKey: null,
-            sourceType: null, sourceId: null, actorUserId: null, href: '/product-hub',
-            progress: null, metadata: {}, isRead: false, readAt: null,
-            actionTaskId: null, startedAt: null, finishedAt: null,
-            createdAt: new Date(), updatedAt: new Date(),
-          }),
-          organizationId,
-        });
-        return;
-      }
-      for (const alert of inserted) {
-        this.eventEmitter.emit(PANEL_EVENTS.UPSERT, {
-          item: alertPanelMapper.mapToItem(alert),
-          organizationId,
-        });
-      }
-    } catch (error) {
-      this.logger.warn(
-        `Panel emit failed after Rules evaluation alerts (count=${inserted.length}): ${error}`,
-      );
-    }
-  }
-
-  async getEvaluationStatus(organizationId: string, operationId: string) {
-    const operation = await this.operations.get(organizationId, operationId);
-    if (operation.operationKey !== RULES_EVALUATION_OPERATION_KEY) {
-      throw new NotFoundException('Rules evaluation operation not found');
-    }
-    return operation;
   }
 
   async getSummary(organizationId: string): Promise<{
@@ -354,7 +262,7 @@ export class RulesService implements ApplyRulesEvaluationPort {
     data: { threshold?: unknown; active?: boolean; autoExecute?: boolean },
   ) {
     // Tenant-scoped read first — IDOR prevention. Mirrors AlertsService.markAsRead
-    // and the kiditem standard pattern in apps/server/AGENTS.md
+    // and the kiditem standard pattern in apps/server/CLAUDE.md
     // (멀티테넌트 격리 — 회사 스코프).
     const existing = await this.prisma.businessRule.findFirst({
       where: { id, organizationId },
@@ -380,28 +288,21 @@ function productFacts(product: {
   healthScore: number | null;
   abcEvaluation: {
     weightedRevenue: Prisma.Decimal | null;
-    weightedOrderTimeCogs: Prisma.Decimal | null;
-    weightedAdSpend: Prisma.Decimal | null;
-    weightedContributionProfit: Prisma.Decimal | null;
-    weightedContributionMargin: Prisma.Decimal | null;
-    paidOrderCount: number;
-    observationDays: number;
+    weightedOrderTimeSupplyCost: Prisma.Decimal | null;
+    weightedAdvertisingSpend: Prisma.Decimal | null;
+    weightedOperatingProfit: Prisma.Decimal | null;
+    operatingMargin: Prisma.Decimal | null;
   } | null;
   inventorySkus: Array<{ currentStock: number }>;
 }): Record<string, RuleFactValue> {
   const evaluation = product.abcEvaluation;
   const revenue = finiteDecimal(evaluation?.weightedRevenue);
-  const cogs = finiteDecimal(evaluation?.weightedOrderTimeCogs);
-  const adSpend = finiteDecimal(evaluation?.weightedAdSpend);
-  const contributionProfit = finiteDecimal(evaluation?.weightedContributionProfit);
-  const contributionMargin = finiteDecimal(evaluation?.weightedContributionMargin);
+  const cogs = finiteDecimal(evaluation?.weightedOrderTimeSupplyCost);
+  const adSpend = finiteDecimal(evaluation?.weightedAdvertisingSpend);
+  const operatingProfit = finiteDecimal(evaluation?.weightedOperatingProfit);
+  const operatingMargin = finiteDecimal(evaluation?.operatingMargin);
   const currentStock = product.inventorySkus.length > 0
     ? product.inventorySkus.reduce((sum, sku) => sum + sku.currentStock, 0)
-    : null;
-  const orderCount = evaluation?.paidOrderCount ?? null;
-  const observationDays = evaluation?.observationDays ?? null;
-  const avgDailySales = orderCount !== null && observationDays && observationDays > 0
-    ? orderCount / observationDays
     : null;
   const adRate = revenue !== null && revenue !== 0 && adSpend !== null
     ? (adSpend / revenue) * 100
@@ -412,20 +313,16 @@ function productFacts(product: {
     adBudgetLimit: product.adBudgetLimit,
     healthScore: product.healthScore,
     revenue,
-    netProfit: contributionProfit,
-    profitRate: revenue !== null && revenue !== 0 && contributionProfit !== null
-      ? (contributionProfit / revenue) * 100
-      : null,
-    margin: contributionMargin === null ? null : contributionMargin * 100,
+    netProfit: operatingProfit,
+    profitRate: operatingMargin === null ? null : operatingMargin * 100,
+    margin: operatingMargin === null ? null : operatingMargin * 100,
     costRate: revenue !== null && revenue !== 0 && cogs !== null ? (cogs / revenue) * 100 : null,
     adRate,
     adCostRate: adRate,
     currentStock,
-    avgDailySales,
-    daysOfStock: currentStock !== null && avgDailySales !== null && avgDailySales > 0
-      ? currentStock / avgDailySales
-      : null,
-    orderCount,
+    avgDailySales: null,
+    daysOfStock: null,
+    orderCount: null,
   };
 }
 
@@ -446,9 +343,40 @@ function evaluationCounts(products: readonly EvaluatedProductRules[]) {
   };
 }
 
+type EvaluationReceipt = {
+  requestId: string;
+  productCount: number;
+  violationCount: number;
+  criticalCount: number;
+  appliedAt: Date;
+};
+
+function rulesRequestId(
+  organizationId: string,
+  requestedByUserId: string,
+  idempotencyKey: string,
+): string {
+  return canonicalOwnerInputHash({
+    organizationId,
+    requestedByUserId,
+    idempotencyKey: idempotencyKey.trim(),
+  });
+}
+
+function evaluationResult(receipt: EvaluationReceipt): EvaluationResult {
+  return {
+    requestId: receipt.requestId,
+    status: 'completed',
+    productCount: receipt.productCount,
+    violationCount: receipt.violationCount,
+    criticalCount: receipt.criticalCount,
+    evaluatedAt: receipt.appliedAt,
+  };
+}
+
 function evaluationEvents(
   organizationId: string,
-  operationId: string,
+  requestId: string,
   products: readonly EvaluatedProductRules[],
 ) {
   return products.flatMap((product) => product.violations.map((violation) => ({
@@ -458,29 +386,27 @@ function evaluationEvents(
     eventType: 'rule_violation',
     source: 'rules.evaluate',
     title: violation.message,
-    data: { ...violation, operationId },
+    data: { ...violation, requestId },
   })));
 }
 
-function evaluationAlerts(
+/** What was violated, in Rules' own words. The row shape belongs to alerts. */
+function evaluationViolations(
   organizationId: string,
-  operationId: string,
+  requestId: string,
+  requestedByUserId: string,
   products: readonly EvaluatedProductRules[],
-) {
+): RuleViolationAlertInput[] {
   return products.flatMap((product) => product.violations
     .filter((violation) => violation.severity === 'critical')
     .map((violation) => ({
       organizationId,
-      targetType: 'product',
-      targetId: product.masterId,
-      type: 'rule_violation',
-      severity: 'critical',
+      masterProductId: product.masterId,
+      ruleName: violation.ruleName,
       title: violation.message,
       message: violation.actionType ?? '',
-      operationKey: `rules.evaluation.violation:${operationId}:${product.masterId}:${violation.ruleName}`,
-      sourceType: 'operation_run',
-      sourceId: operationId,
-      href: '/product-hub',
-      metadata: { ruleName: violation.ruleName, field: violation.field },
+      evaluationId: requestId,
+      actorUserId: requestedByUserId,
+      metadata: { requestId, ruleName: violation.ruleName, field: violation.field },
     })));
 }

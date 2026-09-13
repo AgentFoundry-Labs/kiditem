@@ -1,10 +1,4 @@
 import { z } from 'zod';
-import { SellpiaInventoryCollectionFailureCodeSchema } from '@kiditem/shared/sellpia-inventory-freshness';
-import {
-  SellpiaManualMatchCollectionFailureCodeSchema,
-  SellpiaManualMatchSnapshotSchema,
-} from '@kiditem/shared/sellpia-manual-match';
-import { SellpiaInventoryBrowserSnapshotSchema } from '@kiditem/shared/source-import';
 import { safeStorageGet, safeStorageSet } from './browser-storage';
 
 export const KIDITEM_EXTENSION_ID_KEY = 'kiditem-ext-id';
@@ -463,54 +457,21 @@ export async function detectOrderCollectionExtensionRuntime(
   return incompatible ?? storedStatus ?? { status: 'not_found' };
 }
 
-const SellpiaInventoryExtensionReplySchema = z.discriminatedUnion('success', [
-  z.object({
-    success: z.literal(true),
-    runId: z.string().uuid(),
-    snapshot: SellpiaInventoryBrowserSnapshotSchema,
-    sourceOrigin: z.literal('https://kiditem.sellpia.com'),
-    sourceAccountKey: z.literal('kiditem'),
-  }).passthrough(),
-  z.object({
-    success: z.literal(false),
-    runId: z.string().uuid(),
-    errorCode: SellpiaInventoryCollectionFailureCodeSchema,
-    error: z.string().min(1).max(300),
-  }).passthrough(),
-]);
-
-export type SellpiaInventoryExtensionReply = z.infer<
-  typeof SellpiaInventoryExtensionReplySchema
->;
-
-export async function collectSellpiaInventory(
-  extensionId: string,
-  runId: string,
-): Promise<SellpiaInventoryExtensionReply> {
-  const response = await sendToExtension<unknown>(extensionId, {
-    action: 'collectSellpiaInventory',
-    runId,
-  }, 90_000);
-  const parsed = SellpiaInventoryExtensionReplySchema.parse(response);
-  if (parsed.runId !== runId) {
-    throw new Error('Sellpia inventory extension returned a mismatched run ID');
-  }
-  return parsed;
-}
-
 const SellpiaManualMatchExtensionReplySchema = z.discriminatedUnion('success', [
   z.object({
     success: z.literal(true),
-    runId: z.string().uuid(),
-    snapshot: SellpiaManualMatchSnapshotSchema,
-    sourceOrigin: z.literal('https://kiditem.sellpia.com'),
-  }).passthrough(),
+    attemptId: z.string().uuid(),
+    terminalState: z.enum(['RUNNING', 'COMPLETE', 'FAILED']),
+    continuationRequired: z.boolean(),
+  }).strict(),
   z.object({
     success: z.literal(false),
-    runId: z.string().uuid(),
-    errorCode: SellpiaManualMatchCollectionFailureCodeSchema,
+    attemptId: z.string().uuid(),
+    terminalState: z.enum(['RUNNING', 'COMPLETE', 'FAILED']),
+    continuationRequired: z.boolean(),
+    errorCode: z.string().min(1).max(100).optional(),
     error: z.string().min(1).max(300),
-  }).passthrough(),
+  }).strict(),
 ]);
 
 export type SellpiaManualMatchExtensionReply = z.infer<
@@ -519,28 +480,26 @@ export type SellpiaManualMatchExtensionReply = z.infer<
 
 export async function collectSellpiaManualMatch(
   extensionId: string,
-  runId: string,
-  targetCodes: string[],
+  attemptId: string,
 ): Promise<SellpiaManualMatchExtensionReply> {
   const response = await sendToExtensionViaPort<unknown>(
     extensionId,
     KIDITEM_SELLPIA_MANUAL_MATCH_PORT_NAME,
     {
       action: 'collectSellpiaManualMatch',
-      runId,
-      targetCodes,
+      attemptId,
     },
     {
       timeoutMs: null,
       keepAlive: {
         intervalMs: 15_000,
-        message: { action: 'keepAlive', runId },
+        message: { action: 'keepAlive' },
       },
     },
   );
   const parsed = SellpiaManualMatchExtensionReplySchema.parse(response);
-  if (parsed.runId !== runId) {
-    throw new Error('Sellpia manual-match extension returned a mismatched run ID');
+  if (parsed.attemptId !== attemptId) {
+    throw new Error('Sellpia manual-match extension returned a mismatched attempt ID');
   }
   return parsed;
 }
@@ -552,20 +511,4 @@ export async function detectBrowserCollectionExtensionIds(): Promise<string[]> {
     detectOrderCollectionExtensionId(),
   ]);
   return [...new Set(ids.filter((id): id is string => id !== null))];
-}
-
-type BrowserOperationWakeResponse = {
-  success?: boolean;
-  accepted?: boolean;
-};
-
-export async function wakeBrowserOperationRuntime(): Promise<boolean> {
-  const extensionId = await detectExtensionId();
-  if (!extensionId) return false;
-  const response = await sendToExtension<BrowserOperationWakeResponse>(
-    extensionId,
-    { action: 'wakeOperationRuntime' },
-    3_000,
-  );
-  return response?.success === true && response.accepted === true;
 }

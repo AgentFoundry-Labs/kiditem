@@ -13,13 +13,11 @@ function writeText(rootDir, relativePath, source) {
 
 function createFixture() {
   const rootDir = mkdtempSync(path.join(tmpdir(), 'kiditem-identifier-contracts-'));
-  writeText(rootDir, 'packages/shared/src/identifiers/index.ts', [
-    'export const OperationRunNameSchema = z.string();',
-  ].join('\n'));
+  writeText(rootDir, 'packages/shared/src/identifiers/index.ts', 'export const ResourceNameSchema = z.string();\n');
   writeText(rootDir, 'packages/shared/src/agent-interaction/index.ts', 'export const Ready = true;\n');
   writeText(rootDir, 'apps/server/src/agent-os/domain/operation/operation.ts', [
     'export const Input = z.object({',
-    '  operation: OperationRunNameSchema,',
+    '  resource: ResourceNameSchema,',
     '});',
   ].join('\n'));
   writeText(rootDir, 'apps/server/src/operations/handler.ts', 'export const handler = true;\n');
@@ -62,11 +60,6 @@ test('rejects raw execution bindings and request-key conflation in public contra
     /generic exported Id alias/i,
   );
   expectViolation(
-    'packages/shared/src/agent-interaction/index.ts',
-    'const operation = unsafeValue as OperationRunName;',
-    /unchecked resource-name cast/i,
-  );
-  expectViolation(
     'apps/server/src/agent-os/domain/operation/operation.ts',
     'const command = { requestKey: input.requestId };',
     /request ID reused as idempotency/i,
@@ -94,7 +87,7 @@ test('allows owner-private bindings, protocol IDs, and canonical public names', 
       'export const Wire = z.object({',
       '  copilotThreadId: z.string(),',
       '  aguiRunId: z.string(),',
-      '  operation: OperationRunNameSchema,',
+      '  resource: ResourceNameSchema,',
       '  requestKey: z.string(),',
       '});',
     ].join('\n'));

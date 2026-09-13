@@ -3,10 +3,17 @@ import {
   SellpiaProductSalesSummarySchema,
   type SellpiaProductSalesSummary,
 } from '@kiditem/shared/dashboard';
+import {
+  SellpiaProfitabilityAttemptSchema,
+  SellpiaProfitabilityAttemptSummarySchema,
+  type SellpiaProfitabilityAttempt,
+  type SellpiaProfitabilityAttemptSummary,
+} from '@kiditem/shared/source-import';
 
 // Sellpia 상품별 소진(재고관리) 백엔드 read 래퍼.
 
 const FETCH_TIMEOUT_MS = 15_000;
+export const SELLPIA_PROFITABILITY_SOURCE_PATH = '/api/sellpia-product-sales';
 
 export async function fetchSellpiaProductSales(params?: {
   months?: number;
@@ -27,4 +34,35 @@ export async function fetchSellpiaProductSales(params?: {
   } finally {
     clearTimeout(timeout);
   }
+}
+
+export function beginSellpiaProductProfitabilitySourceAttempt(input: {
+  idempotencyKey: string;
+  normalizedSourceAvailabilityDate?: string;
+}): Promise<SellpiaProfitabilityAttempt> {
+  return apiClient
+    .post<unknown>(
+      `${SELLPIA_PROFITABILITY_SOURCE_PATH}/attempts`,
+      input.normalizedSourceAvailabilityDate
+        ? { normalizedSourceAvailabilityDate: input.normalizedSourceAvailabilityDate }
+        : {},
+      { headers: { 'Idempotency-Key': input.idempotencyKey } },
+    )
+    .then((response) => SellpiaProfitabilityAttemptSchema.parse(response));
+}
+
+export function readSellpiaProductProfitabilitySourceAttempt(
+  attemptId: string,
+): Promise<SellpiaProfitabilityAttemptSummary> {
+  return apiClient
+    .getParsed(
+      `${SELLPIA_PROFITABILITY_SOURCE_PATH}/attempts/${encodeURIComponent(attemptId)}/status`,
+      SellpiaProfitabilityAttemptSummarySchema,
+    )
+    .then((attempt) => {
+      if (attempt.attemptId !== attemptId) {
+        throw new Error('셀피아 수익성 수집 시도 응답이 일치하지 않습니다.');
+      }
+      return attempt;
+    });
 }

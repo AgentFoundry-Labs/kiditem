@@ -136,7 +136,16 @@ export class AiDirectJobRepositoryAdapter
         scheduledFor: new Date(),
       },
     });
-    return updated.count === 1;
+    if (updated.count === 1) return true;
+
+    const current = await this.prisma.aiDirectJob.findFirst({
+      where: { id: input.jobId, organizationId: input.organizationId },
+      select: { status: true },
+    });
+    return current?.status === 'pending'
+      || current?.status === 'running'
+      || current?.status === 'projecting'
+      || current?.status === 'succeeded';
   }
 
   async claimNext(input: {
@@ -314,30 +323,6 @@ export class AiDirectJobRepositoryAdapter
       });
       return mapRecord(updated);
     });
-  }
-
-  async cancelBySource(input: {
-    organizationId: string;
-    sourceResourceId: string;
-    jobTypes: AiDirectJobRecord['jobType'][];
-    reason: string;
-  }): Promise<number> {
-    const updated = await this.prisma.aiDirectJob.updateMany({
-      where: {
-        organizationId: input.organizationId,
-        sourceResourceId: input.sourceResourceId,
-        jobType: { in: input.jobTypes },
-        status: { in: ['held', 'pending', 'running'] },
-      },
-      data: {
-        status: 'cancelled',
-        finishedAt: new Date(),
-        leaseExpiresAt: null,
-        lastErrorCode: 'user_cancelled',
-        lastErrorMessage: input.reason,
-      },
-    });
-    return updated.count;
   }
 
   async findById(input: {

@@ -102,20 +102,9 @@ const CoupangSellerIdSchema = z.string()
   .max(80)
   .regex(/^[A-Za-z0-9_-]+$/u);
 
-export const AdvertisingCompetitorCatalogInputSchema = z.discriminatedUnion(
-  'target',
-  [
-    z.object({ target: z.literal('configured_watchlist') }).strict(),
-    z.object({
-      target: z.literal('seller_id'),
-      sellerId: CoupangSellerIdSchema,
-    }).strict(),
-  ],
-);
-
 const AdvertisingCompetitorCatalogProductSchema = z
   .object({
-    sourceRank: z.number().int().min(1).max(100),
+    sourceRank: z.number().int().min(1).max(500),
     productId: z.string().trim().min(1).max(200).nullable(),
     itemId: z.string().trim().min(1).max(200).nullable(),
     vendorItemId: z.string().trim().min(1).max(200).nullable(),
@@ -156,11 +145,11 @@ export const AdvertisingCompetitorCatalogItemSchema = z
     sellerName: z.string().trim().min(1).max(300),
     sellerStoreUrl: CoupangSellerStoreUrlSchema,
     totalProductCount: BoundedCountSchema.nullable(),
-    collectedProductCount: z.number().int().min(1).max(100),
+    collectedProductCount: z.number().int().min(1).max(500),
     isTruncated: z.boolean(),
     sort: z.literal('newest'),
     capturedAt: InstantSchema,
-    products: z.array(AdvertisingCompetitorCatalogProductSchema).min(1).max(100),
+    products: z.array(AdvertisingCompetitorCatalogProductSchema).min(1).max(500),
   })
   .strict()
   .superRefine((value, context) => {
@@ -309,9 +298,6 @@ export type SourcingKeywordSuggestionObservationBatch = z.infer<
 >;
 export type SourcingKeywordSuggestionSnapshot = z.infer<
   typeof SourcingKeywordSuggestionSnapshotSchema
->;
-export type AdvertisingCompetitorCatalogInput = z.infer<
-  typeof AdvertisingCompetitorCatalogInputSchema
 >;
 export type AdvertisingCompetitorCatalogItem = z.infer<
   typeof AdvertisingCompetitorCatalogItemSchema

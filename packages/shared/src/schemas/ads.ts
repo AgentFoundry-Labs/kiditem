@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { zIsoDate } from './common.js';
 
 export const AdExtensionReplayIdempotencyKeySchema = z.string()
   .max(160)
@@ -123,22 +122,6 @@ export const AdCampaignSnapshotSchema = z.object({
 });
 export type AdCampaignSnapshot = z.infer<typeof AdCampaignSnapshotSchema>;
 
-/**
- * Durable browser campaign/product sweep freshness.
- *
- * Only the persisted identity-complete terminal sweep marker may produce
- * `fresh` or `stale`. A browser success callback by itself is not evidence
- * that every campaign identity and its product rows were collected.
- */
-export const AdCampaignSyncStatusSchema = z.object({
-  status: z.enum(['fresh', 'stale', 'incomplete', 'missing']),
-  lastCompletedAt: zIsoDate.nullable(),
-  campaignCount: z.number().int().nonnegative(),
-});
-export type AdCampaignSyncStatus = z.infer<
-  typeof AdCampaignSyncStatusSchema
->;
-
 export const AdProductSnapshotSchema = z.object({
   listing: AdListingSummarySchema.nullable(),
   channelAccountId: z.string().uuid(),
@@ -252,6 +235,7 @@ export const AdAccountKpiDayPointSchema = z.object({
 export type AdAccountKpiDayPoint = z.infer<typeof AdAccountKpiDayPointSchema>;
 
 export const AdTrendsDataSchema = z.object({
+  knownThrough: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   daily: z.array(z.object({
     date: z.string(),
     metrics: AdMetricsSchema,

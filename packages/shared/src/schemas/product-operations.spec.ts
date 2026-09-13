@@ -21,6 +21,21 @@ import {
 const productId = '00000000-0000-4000-8000-000000000001';
 const optionId = '00000000-0000-4000-8000-000000000002';
 const skuId = '00000000-0000-4000-8000-000000000003';
+const abcFixture = {
+  abcGrade: null,
+  evaluation: null,
+  displayStatus: 'INSUFFICIENT_EVIDENCE' as const,
+  formulaRevision: 0,
+  publicationRevision: 0,
+  officialCutoffDate: null,
+  publishedAt: null,
+  actualCutoffDate: null,
+  sources: {
+    sellpia: missingAbcSource(),
+    advertising: missingAbcSource(),
+    mapping: { status: 'UNMAPPED' as const, mappingGeneration: null },
+  },
+};
 
 const createProductDetailFixture = (availableStock = 80) => ({
   id: productId,
@@ -39,6 +54,8 @@ const createProductDetailFixture = (availableStock = 80) => ({
   displayImageUrls: [],
   abcGrade: null,
   abcEvaluation: null,
+  abc: abcFixture,
+  contribution: null,
   profitTag: null,
   adTier: null,
   adBudgetLimit: null,
@@ -98,6 +115,8 @@ const metadataFixture = {
   tags: ['식판'],
   abcGrade: null,
   abcEvaluation: null,
+  abc: abcFixture,
+  contribution: null,
   profitTag: null,
   adTier: null,
   adBudgetLimit: null,
@@ -105,6 +124,26 @@ const metadataFixture = {
   healthUpdatedAt: null,
   isActive: true,
 };
+
+function missingAbcSource() {
+  return {
+    ready: false,
+    requiredCutoff: '2026-07-31',
+    actualCutoff: null,
+    latestAttempt: null,
+    latestComplete: null,
+  };
+}
+
+function dataStatusSource(ready: boolean) {
+  return {
+    ready,
+    requiredCutoff: '2026-07-31',
+    actualCutoff: ready ? '2026-07-31' : null,
+    latestAttempt: ready ? { state: 'COMPLETE' as const } : null,
+    latestComplete: ready ? { actualCutoff: '2026-07-31' } : null,
+  };
+}
 
 describe('product operations contracts', () => {
   it('uses calculation status instead of lifecycle/risk filters and exposes profitability summary', () => {
@@ -121,15 +160,10 @@ describe('product operations contracts', () => {
         READY: 6,
         INSUFFICIENT_EVIDENCE: 2,
         SOURCE_UNMAPPED: 1,
-        CALIBRATION_PENDING: 1,
-        RECALCULATING: 0,
         SELLPIA_SOURCE_STALE: 0,
         AD_SOURCE_STALE: 0,
-        ORDERS_SOURCE_STALE: 0,
-        CALCULATION_ERROR: 0,
       },
-      abcContributionProfitByGrade: { A: 400_000, B: 150_000, C: -30_000 },
-      abcContributionProfitShareByGrade: { A: 0.77, B: 0.29, C: -0.06 },
+      contributionOverview: null,
       abcFormula: null,
       displayDataAsOf: '2026-07-31',
       channelProductCounts: [{
@@ -154,24 +188,24 @@ describe('product operations contracts', () => {
 
     expect(ProductOperationsDataStatusSchema.parse({
       displayDataAsOf: '2026-07-31',
-      lastCompletedRefreshAt: '2026-08-01T00:00:00.000Z',
-      activeRun: null,
+      formulaRevision: 2,
+      publicationRevision: 4,
+      officialCutoff: '2026-07-31',
+      publishedAt: '2026-08-01T00:00:00.000Z',
+      actualCutoff: '2026-07-31',
       sources: {
-        traffic: { status: 'OUTDATED', coverageEndDate: '2026-07-31', capturedAt: '2026-08-01T00:00:00.000Z', lastErrorAt: null },
-        advertising: { status: 'NOT_COLLECTED', coverageEndDate: null, capturedAt: null, lastErrorAt: null },
-        sellpiaProfit: { status: 'CURRENT', coverageEndDate: '2026-07-31', capturedAt: '2026-08-01T00:00:00.000Z', lastErrorAt: null },
-        abc: { status: 'CURRENT', coverageEndDate: '2026-07-31', capturedAt: '2026-08-01T00:00:00.000Z', lastErrorAt: null },
+        traffic: dataStatusSource(true),
+        advertising: dataStatusSource(false),
+        sellpia: dataStatusSource(true),
+        mapping: { ready: true, generation: '7' },
       },
       abcSummary: {
         classifiedProductCount: 6,
         unclassifiedProductCount: 4,
         mappingRequiredProductCount: 1,
-        orderEvidenceRequiredProductCount: 2,
         otherPendingProductCount: 1,
       },
-    }).sources.advertising).toEqual({
-      status: 'NOT_COLLECTED', coverageEndDate: null, capturedAt: null, lastErrorAt: null,
-    });
+    }).sources.advertising).toEqual(dataStatusSource(false));
   });
 
   it('rejects the retired legacy profit projection on strict list items', () => {
@@ -204,11 +238,9 @@ describe('product operations contracts', () => {
         adSpend: null,
         adSpendRate: null,
         metricsFreshness: {
-          traffic: { status: 'MISSING', coverageStartDate: null, coverageEndDate: null, capturedAt: null },
-          advertising: { status: 'MISSING', coverageStartDate: null, coverageEndDate: null, capturedAt: null },
+          traffic: { ready: false, coverageStartDate: null, coverageEndDate: null, capturedAt: null },
+          advertising: { ready: false, coverageStartDate: null, coverageEndDate: null, capturedAt: null },
         },
-        contributionProfitVelocity30: null,
-        contributionMargin: null,
       }),
       profit: 12_000,
     };
@@ -343,8 +375,10 @@ describe('product operations contracts', () => {
       tags: ['식판'],
       imageUrls: [],
       displayImageUrls: [],
-      abcGrade: 'A',
+      abcGrade: null,
       abcEvaluation: null,
+      abc: abcFixture,
+      contribution: null,
       profitTag: null,
       adTier: null,
       adBudgetLimit: null,
@@ -379,11 +413,9 @@ describe('product operations contracts', () => {
       adSpend: null,
       adSpendRate: null,
       metricsFreshness: {
-        traffic: { status: 'MISSING', coverageStartDate: null, coverageEndDate: null, capturedAt: null },
-        advertising: { status: 'MISSING', coverageStartDate: null, coverageEndDate: null, capturedAt: null },
+        traffic: { ready: false, coverageStartDate: null, coverageEndDate: null, capturedAt: null },
+        advertising: { ready: false, coverageStartDate: null, coverageEndDate: null, capturedAt: null },
       },
-      contributionProfitVelocity30: null,
-      contributionMargin: null,
     });
     expect(parsed.inventoryUnits).toBe(80);
     expect(parsed.traffic).toBeNull();
@@ -398,15 +430,10 @@ describe('product operations contracts', () => {
           READY: 70,
           INSUFFICIENT_EVIDENCE: 4,
           SOURCE_UNMAPPED: 2,
-          CALIBRATION_PENDING: 1,
-          RECALCULATING: 1,
           SELLPIA_SOURCE_STALE: 1,
           AD_SOURCE_STALE: 1,
-          ORDERS_SOURCE_STALE: 0,
-          CALCULATION_ERROR: 0,
         },
-        abcContributionProfitByGrade: { A: 4_000_000, B: 1_000_000, C: -200_000 },
-        abcContributionProfitShareByGrade: { A: 0.83, B: 0.21, C: -0.04 },
+        contributionOverview: null,
         abcFormula: null,
         displayDataAsOf: '2026-07-31',
         channelProductCounts: [{
@@ -435,7 +462,7 @@ describe('product operations contracts', () => {
     expect(response.summary.inventoryStatusCounts.out_of_stock).toBe(7);
     expect(response.summary.negativeProfitCount).toBe(6);
     expect(response.summary.displayDataAsOf).toBe('2026-07-31');
-    expect(response.items[0]?.abcGrade).toBe('A');
+    expect(response.items[0]?.abcGrade).toBeNull();
     expect(response.items[0]?.viewCount).toBeNull();
     expect(response.items[0]?.activeChannels).toEqual([{
       channelAccountId: '00000000-0000-4000-8000-000000000004',
@@ -486,6 +513,8 @@ describe('product operations contracts', () => {
       displayImageUrls: [],
       abcGrade: null,
       abcEvaluation: null,
+      abc: abcFixture,
+      contribution: null,
       profitTag: null,
       adTier: null,
       adBudgetLimit: null,

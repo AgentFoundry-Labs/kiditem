@@ -4,6 +4,7 @@ import type { PrismaClient } from '@prisma/client';
 import { PLDataSchema } from '@kiditem/shared/finance';
 import { ProfitLossService } from '../profit-loss.service';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { seedAd, seedCompletedAdSweepRun } from '../../../test-helpers/finance-seeds';
 import {
   makeTestPrisma,
   resetDb,
@@ -24,7 +25,8 @@ import {
  *   2. Shipping revenue-weighted split: 2 listings in 9000:3000 ratio, shipping 3000 → 2250 + 750.
  *   3. PLDataSchema.parse(row) — no shape drift vs shared schema.
  *   4. KST boundary: orderedAt UTC that falls in May KST is excluded from April query, included in May.
- *   5. Empty returns + empty ads → returnCount: 0, adCost: 0 (Map fallback).
+ *   5. No ad rows at all: an account that published nothing leaves adCost
+ *      unavailable, while a confirmed-zero window measures it as 0 (KID-45).
  *   6. Null listingOption on ReturnLineItem → skipped, no count increment.
  *   7. CEO-C3 latency baseline: 1000 orders × 3 lineItems under 2s.
  */
@@ -493,9 +495,9 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
   });
 
   // ---------------------------------------------------------------------------
-  // Test 5: Empty returns + empty ads → returnCount: 0, adCost: 0
+  // Test 5: no ad rows at all — the advertising account decides (KID-45)
   // ---------------------------------------------------------------------------
-  it('Empty returns + empty ad rows → returnCount: 0, adCost: 0 (Map fallback)', async () => {
+  it('Empty returns + an advertising account that published nothing → adCost unavailable', async () => {
     const list = await setupListing(prisma, TEST_ORGANIZATION_ID, 'EMPTY-A');
 
     await createOrder(prisma, TEST_ORGANIZATION_ID, {
@@ -504,14 +506,46 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
       lineItems: [{ listingOptionId: list.listingOption.id, optionId: list.option.id, totalPrice: 20_000 }],
     });
 
-    // No OrderReturnLineItem seeded, no Ad seeded
+    // No OrderReturnLineItem and no ad row of any kind. The organization has
+    // an active Coupang account that published nothing for April, which is
+    // absent evidence — not an advertising cost of zero.
     const result = await service.findAll(TEST_ORGANIZATION_ID, 2026, 4);
 
     expect(result).toHaveLength(1);
     const row = result[0];
 
     expect(row.returnCount).toBe(0);
-    expect(row.adCost).toBe(0);
+    expect(row.adCost).toBeNull();
+    expect(row.netProfit).toBeNull();
+    expect(row.profitRate).toBeNull();
+  });
+
+  it('A confirmed-zero advertising window → returnCount: 0, adCost: 0', async () => {
+    const list = await setupListing(prisma, TEST_ORGANIZATION_ID, 'ZERO-A');
+
+    await createOrder(prisma, TEST_ORGANIZATION_ID, {
+      orderedAt: new Date('2026-04-15T00:00:00.000Z'),
+      externalOrderId: 'ZERO-ORD-1',
+      lineItems: [{ listingOptionId: list.listingOption.id, optionId: list.option.id, totalPrice: 20_000 }],
+    });
+    // The campaign sweep measured every April date and the listing carries a
+    // confirmed-zero row, so this zero is a measurement, not absent evidence.
+    const runId = await seedCompletedAdSweepRun(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      generation: 1,
+      window: { startDate: '2026-04-01', endDate: '2026-04-30' },
+    });
+    await seedAd(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, listingId: list.listing.id,
+      date: '2026-04-15', spend: 0, runId,
+    });
+
+    const result = await service.findAll(TEST_ORGANIZATION_ID, 2026, 4);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].returnCount).toBe(0);
+    expect(result[0].adCost).toBe(0);
+    expect(result[0].netProfit).not.toBeNull();
   });
 
   // ---------------------------------------------------------------------------

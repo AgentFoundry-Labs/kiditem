@@ -256,8 +256,8 @@ async function fetchRaw(
 }
 
 export const apiClient = {
-  get: <T>(path: string, options?: ApiRequestOptions) =>
-    request<T>(path, undefined, {
+  get: <T>(path: string, options?: ApiRequestOptions & { headers?: HeadersInit }) =>
+    request<T>(path, options?.headers ? { headers: options.headers } : undefined, {
       ...options,
       timeoutMs: options?.timeoutMs === undefined
         ? DEFAULT_READ_TIMEOUT_MS

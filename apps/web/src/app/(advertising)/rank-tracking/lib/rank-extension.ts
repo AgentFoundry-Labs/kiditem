@@ -1,15 +1,12 @@
-// coupang-ads-scraper 확장의 쿠팡 검색순위 액션 3종 래퍼.
-// checkCoupangKeywordRank(단건) / runCoupangKeywordRankCheck(일괄 시작) /
-// getCoupangRankCheckStatus(진행률 폴링). 순위 매칭/저장은 서버가 담당하고
-// 확장은 공개 검색 페이지 SERP 캡처 + /api/ads/extension/sync 전송만 수행한다.
+// Wing 판매순위 일괄 수집 시작과 진행률 조회를 위한 확장 래퍼.
 
+import { BrowserCollectionSessionViewSchema } from "@kiditem/shared/browser-collection-session";
 import {
   detectExtensionId,
   isChromeExtensionRuntimeAvailable,
   sendToExtension,
 } from "@/lib/extension-bridge";
-import type { SerpItem } from "./rank-api";
-import { KIDITEM_EXTENSION_MIN_VERSION } from '@/lib/extension-version';
+import { KIDITEM_EXTENSION_MIN_VERSION } from "@/lib/extension-version";
 
 // 통합 확장(kiditem-os)은 세 확장을 합치며 버전을 1.0.0 으로 리셋했다. 개별
 // 기능 판정은 아래 ping capability 가 하고, 버전은 병합 이전 설치만 걸러낸다.
@@ -21,9 +18,6 @@ export const RANK_EXTENSION_REQUIRED =
   "KIDITEM 쿠팡 확장프로그램을 설치/새로고침한 뒤 다시 실행하세요.";
 export const RANK_EXTENSION_RELOAD_REQUIRED = `KIDITEM 쿠팡 확장프로그램이 예전 버전입니다. chrome://extensions 에서 확장프로그램을 새로고침한 뒤 다시 실행하세요. (필요 버전 ${RANK_EXTENSION_MIN_VERSION}+)`;
 
-/** 페이지 이동 딜레이 포함 최대 3페이지 캡처를 감안한 단건 체크 타임아웃. */
-export const RANK_CHECK_TIMEOUT_MS = 120_000;
-
 export type RankExtensionGate =
   | { status: "ready"; extensionId: string; version: string | null }
   | { status: "chrome_required" }
@@ -34,60 +28,9 @@ interface KidItemExtensionPingResponse {
   success?: boolean;
   version?: string;
   capabilities?: {
-    coupangKeywordRank?: boolean;
-    wingCatalogSalesRank?: boolean;
-    wingCatalogSalesRankCancel?: boolean;
+    wingRankSourceOwnerV1?: boolean;
     browserCollectionSessions?: boolean;
   };
-}
-
-export interface CheckKeywordRankResponse {
-  success?: boolean;
-  cancelled?: boolean;
-  attentionRequired?: boolean;
-  runId?: string | null;
-  error?: string;
-  keyword?: string;
-  pagesScanned?: number;
-  items?: SerpItem[];
-  total?: number;
-  /** true = 서버(/api/ads/extension/sync) 전송까지 완료. */
-  posted?: boolean;
-  wall?: string | null;
-}
-
-export interface RunRankCheckResponse {
-  success?: boolean;
-  started?: boolean;
-  total?: number;
-  productTotal?: number;
-  pendingProductTotal?: number;
-  resumed?: boolean;
-  runId?: string | null;
-  error?: string;
-}
-
-export interface RankCheckStatus {
-  status: "idle" | "starting" | "running" | "done" | "error" | string;
-  runId?: string | null;
-  total?: number;
-  productTotal?: number;
-  pendingProductTotal?: number;
-  resumed?: boolean;
-  completed?: number;
-  failed?: number;
-  rankedProducts?: number;
-  current?: string | null;
-  currentProducts?: number;
-  currentIndex?: number;
-  failures?: Array<{ keyword: string; error: string }>;
-  error?: string;
-  startedAt?: number;
-  endedAt?: number;
-  heartbeatAt?: number;
-  staleRunId?: string;
-  cancelRequested?: boolean;
-  cancelled?: boolean;
 }
 
 export function isRankExtensionVersionAtLeast(
@@ -111,7 +54,7 @@ export function isRankExtensionVersionAtLeast(
   return true;
 }
 
-/** 확장 설치/버전/coupangKeywordRank capability 게이트 판정. */
+/** 확장 설치/버전/직접 Wing source-owner transport 판정. */
 export async function detectRankExtensionGate(): Promise<RankExtensionGate> {
   if (!isChromeExtensionRuntimeAvailable())
     return { status: "chrome_required" };
@@ -129,8 +72,7 @@ export async function detectRankExtensionGate(): Promise<RankExtensionGate> {
 
   const version = typeof ping.version === "string" ? ping.version : null;
   if (
-    !ping.capabilities?.wingCatalogSalesRank ||
-    !ping.capabilities?.wingCatalogSalesRankCancel ||
+    !ping.capabilities?.wingRankSourceOwnerV1 ||
     !ping.capabilities?.browserCollectionSessions ||
     !isRankExtensionVersionAtLeast(version, RANK_EXTENSION_MIN_VERSION)
   ) {
@@ -148,69 +90,61 @@ export function rankExtensionGateMessage(
   return null;
 }
 
-/** 단일 키워드 SERP 캡처(+기본 서버 전송). 확장이 www.coupang.com 검색 탭을 연다. */
-export async function checkCoupangKeywordRank(
-  extensionId: string,
-  input: { keyword: string; maxPages?: number; runId?: string },
-): Promise<CheckKeywordRankResponse> {
-  const keyword = input.keyword.trim();
-  if (!keyword) throw new Error("검색 키워드를 입력하세요.");
-
-  const response = await sendToExtension<CheckKeywordRankResponse>(
-    extensionId,
-    {
-      action: "checkCoupangKeywordRank",
-      keyword,
-      maxPages: input.maxPages ?? 2,
-      ...(input.runId ? { runId: input.runId } : {}),
-    },
-    RANK_CHECK_TIMEOUT_MS,
-  );
-  if (
-    !response?.success &&
-    response?.cancelled &&
-    typeof response.runId === "string"
-  ) {
-    return { ...response, items: [] };
-  }
-  if (
-    !response?.success &&
-    response?.attentionRequired &&
-    typeof response.runId === "string"
-  ) {
-    return { ...response, items: [] };
-  }
-  if (!response?.success) {
-    throw new Error(response?.error ?? "쿠팡 키워드 순위 수집 실패");
-  }
-  return {
-    ...response,
-    items: Array.isArray(response.items) ? response.items : [],
-  };
-}
-
-/** 활성 트래커 전체 일괄 확인 시작 — 즉시 runId 반환, 진행률은 status 폴링. */
+/** Dispatch only: the page reads persisted per-keyword results from the owner. */
 export async function runWingSalesRankCheck(
   extensionId: string,
-  runId?: string,
-): Promise<RunRankCheckResponse> {
-  const response = await sendToExtension<RunRankCheckResponse>(extensionId, {
-    action: "runWingSalesRankCheck",
-    ...(runId ? { runId } : {}),
+  idempotencyKey: string,
+): Promise<{ success: true; started: boolean }> {
+  const response = await sendToExtension<{
+    success?: boolean;
+    started?: boolean;
+    error?: string;
+  }>(extensionId, {
+    action: "collectAdvertisingWingRankBatch",
+    idempotencyKey,
   });
-  if (!response?.success) {
-    throw new Error(response?.error ?? "Wing 판매순위 일괄 확인 시작 실패");
-  }
-  return response;
+  if (!response?.success)
+    throw new Error(response?.error ?? "Wing 판매순위 요청 전달 실패");
+  return { success: true, started: response.started === true };
 }
 
-export async function getWingSalesRankCheckStatus(
+export async function cancelWingRankBatch(
   extensionId: string,
-  runId?: string | null,
-): Promise<RankCheckStatus> {
-  const response = await sendToExtension<RankCheckStatus>(extensionId, {
-    action: "getWingSalesRankCheckStatus",
-    ...(runId ? { runId } : {}),
+  idempotencyKey: string,
+): Promise<void> {
+  const response = await sendToExtension<{ success?: boolean; error?: string }>(
+    extensionId,
+    {
+      action: "cancelAdvertisingWingRankBatch",
+      idempotencyKey,
+    },
+  );
+  if (!response?.success)
+    throw new Error(response?.error ?? "중단 결과를 확인하지 못했습니다.");
+}
+
+export async function listWingRankSessions(extensionId: string) {
+  const response = await sendToExtension<unknown>(extensionId, {
+    action: "listCollectionSessions",
   });
-  return response ?? { status: "idle" };
+  if (!Array.isArray(response))
+    throw new Error("확장 진행 정보를 확인하지 못했습니다.");
+  return response
+    .filter((item) => item?.producer === "advertising.wing_rank")
+    .map((item) => BrowserCollectionSessionViewSchema.parse(item));
+}
+
+export async function openWingRankAttention(
+  extensionId: string,
+  attemptId: string,
+): Promise<void> {
+  const response = await sendToExtension<{ success?: boolean; error?: string }>(
+    extensionId,
+    {
+      action: "openCollectionAttentionTab",
+      attemptId,
+    },
+  );
+  if (response?.success === false)
+    throw new Error(response.error ?? "확인 탭을 열지 못했습니다.");
 }

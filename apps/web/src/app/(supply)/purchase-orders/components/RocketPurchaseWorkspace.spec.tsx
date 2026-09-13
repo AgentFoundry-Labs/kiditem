@@ -2,7 +2,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { collectRocketPoRowsForConfirmationFromExtension } from '@/lib/rocket-sales-collection';
+import { collectRocketPoRowsForConfirmationFromExtension, loadRocketPoSource } from '@/lib/rocket-sales-collection';
+import { sellpiaInventoryFreshnessApi } from '@/lib/sellpia-inventory-freshness-api';
 import {
   loadSavedRocketCollection,
   previewRocketPurchases,
@@ -14,15 +15,18 @@ import type {
   RocketPurchasePreviewReason,
   RocketPurchasePreviewReadyResponse,
 } from '@kiditem/shared/rocket-purchase-preview';
-import { sellpiaInventoryFreshnessApi } from '@/lib/sellpia-inventory-freshness-api';
 
-vi.mock('@/lib/rocket-sales-collection', () => ({
+vi.mock('@/lib/rocket-sales-collection', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@/lib/rocket-sales-collection')>(),
   collectRocketPoRowsForConfirmationFromExtension: vi.fn(),
-  finalizeRocketPoCollectionSession: vi.fn(async () => undefined),
+  loadRocketPoSource: vi.fn(),
 }));
-vi.mock('../lib/rocket-purchase-preview-api', () => ({
-  loadSavedRocketCollection: vi.fn(),
+vi.mock('@/lib/rocket-purchase-preview-api', () => ({
   previewRocketPurchases: vi.fn(),
+}));
+vi.mock('../lib/rocket-purchase-preview-api', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../lib/rocket-purchase-preview-api')>(),
+  loadSavedRocketCollection: vi.fn(),
   rocketPreviewErrorMessage: (_cause: unknown, fallback: string) => fallback,
 }));
 vi.mock('./RocketDeterministicMatchingPanel', () => ({
@@ -33,10 +37,17 @@ vi.mock('../lib/rocket-confirmation-workbook', () => ({
   fillRocketConfirmationWorkbook: vi.fn(),
 }));
 vi.mock('@/lib/browser-download', () => ({ downloadBlob: vi.fn() }));
+const sourceOwner = vi.hoisted(() => ({ start: vi.fn() }));
+vi.mock('@/app/(inventory)/_shared/sellpia-inventory-source-owner', () => ({
+  useSellpiaInventorySourceOwner: () => ({
+    start: sourceOwner.start,
+    state: null,
+    isStarting: false,
+  }),
+}));
 vi.mock('@/lib/sellpia-inventory-freshness-api', () => ({
   sellpiaInventoryFreshnessApi: {
     getState: vi.fn(),
-    requestRefresh: vi.fn(),
   },
 }));
 
@@ -48,7 +59,9 @@ const TO = '2026-07-16';
 describe('RocketPurchaseWorkspace', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(loadRocketPoSource).mockResolvedValue({ ready: false, latestAttempt: null, latestComplete: null });
     vi.mocked(collectRocketPoRowsForConfirmationFromExtension).mockResolvedValue({
+      channelAccountId: ACCOUNT_ID, sourceImportRunId: SOURCE_RUN_ID, exportedPoLineIds: [],
       collection: collectionEvidence(),
       rows: [],
       poCount: 0,
@@ -57,15 +70,14 @@ describe('RocketPurchaseWorkspace', () => {
     vi.mocked(sellpiaInventoryFreshnessApi.getState).mockResolvedValue(
       freshnessState({ status: 'fresh', verifiedGeneration: '12' }),
     );
-    vi.mocked(sellpiaInventoryFreshnessApi.requestRefresh).mockResolvedValue(
-      freshnessState({ status: 'refresh_required', requestedGeneration: '13' }),
-    );
+    sourceOwner.start.mockResolvedValue({ generation: '13', state: 'RUNNING' });
   });
 
   it('shows collected rows while fresh inventory comparison is still running', async () => {
     const row = sourceRow();
     const inventoryState = deferred<ReturnType<typeof freshnessState>>();
     vi.mocked(collectRocketPoRowsForConfirmationFromExtension).mockResolvedValue({
+      channelAccountId: ACCOUNT_ID, sourceImportRunId: SOURCE_RUN_ID, exportedPoLineIds: [],
       collection: collectionEvidence(),
       rows: [row],
       poCount: 1,
@@ -107,6 +119,7 @@ describe('RocketPurchaseWorkspace', () => {
   it('collects source evidence and renders current stock with editable Excel quantity', async () => {
     const row = sourceRow();
     vi.mocked(collectRocketPoRowsForConfirmationFromExtension).mockResolvedValue({
+      channelAccountId: ACCOUNT_ID, sourceImportRunId: SOURCE_RUN_ID, exportedPoLineIds: [],
       collection: collectionEvidence(),
       rows: [row],
       poCount: 1,
@@ -120,8 +133,11 @@ describe('RocketPurchaseWorkspace', () => {
     await user.click(screen.getByRole('button', { name: '미리보기 다시 계산' }));
 
     expect(collectRocketPoRowsForConfirmationFromExtension).toHaveBeenCalledWith({
+      channelAccountId: ACCOUNT_ID,
       from: FROM,
       to: TO,
+      idempotencyKey: expect.any(String),
+      onAttempt: expect.any(Function),
     });
     expect(screen.getByRole('columnheader', { name: '현재고' })).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: '확정재고' })).toBeInTheDocument();
@@ -157,6 +173,7 @@ describe('RocketPurchaseWorkspace', () => {
   it('shows actionable mapping blockers and keeps their quantity locked', async () => {
     const row = sourceRow();
     vi.mocked(collectRocketPoRowsForConfirmationFromExtension).mockResolvedValue({
+      channelAccountId: ACCOUNT_ID, sourceImportRunId: SOURCE_RUN_ID, exportedPoLineIds: [],
       collection: collectionEvidence(),
       rows: [row],
       poCount: 1,
@@ -177,6 +194,7 @@ describe('RocketPurchaseWorkspace', () => {
     const row = sourceRow();
     const baseline = preview([row], [previewRow(null, 3)]);
     vi.mocked(collectRocketPoRowsForConfirmationFromExtension).mockResolvedValue({
+      channelAccountId: ACCOUNT_ID, sourceImportRunId: SOURCE_RUN_ID, exportedPoLineIds: [],
       collection: collectionEvidence(),
       rows: [row],
       poCount: 1,
@@ -212,6 +230,7 @@ describe('RocketPurchaseWorkspace', () => {
   ] as const)('aggregates %s into one operator warning', async (reason, warning) => {
     const row = sourceRow();
     vi.mocked(collectRocketPoRowsForConfirmationFromExtension).mockResolvedValue({
+      channelAccountId: ACCOUNT_ID, sourceImportRunId: SOURCE_RUN_ID, exportedPoLineIds: [],
       collection: collectionEvidence(),
       rows: [row],
       poCount: 1,

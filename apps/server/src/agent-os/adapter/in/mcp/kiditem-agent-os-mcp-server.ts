@@ -9,7 +9,6 @@ import {
   type CapabilityResultEnvelope,
   type CapabilityResultReceipt,
 } from '@kiditem/shared/agent-interaction';
-import type { OperationRun } from '@kiditem/shared/operations';
 import { MUTATION_EFFECTS } from '../../../../common/capability-definition';
 import {
   CAPABILITY_INVOCATION_PORT,
@@ -22,8 +21,6 @@ import {
 import { CapabilityInvocationRecordSchema } from '../../../application/port/out/capability-invocation.repository.port';
 import { AgentCapabilityRegistry } from '../../../application/service/agent-capability-registry.service';
 import { AgentOsError } from '../../../domain/agent-os.errors';
-import type { OperationRunnerPort } from '../../../../operations/application/port/in/operation-runner.port';
-import { OPERATION_RUNNER_PORT } from '../../../../operations/application/port/in/operation-runner.port';
 import {
   GatewayMcpActiveTurnInactiveError,
   type ResolvedGatewayMcpActiveTurn,
@@ -41,7 +38,6 @@ import { McpRuntimeReadinessService } from './readiness-canary-mcp-server';
 export interface CapabilityMcpDependencies {
   invocations: CapabilityInvocationPort;
   capabilities: Pick<AgentCapabilityRegistry, 'listDefinitions' | 'resolveDefinition'>;
-  operations: Pick<OperationRunnerPort, 'get'>;
   readiness: Pick<McpRuntimeReadinessService, 'probe'>;
   approvalEvents: Pick<CapabilityApprovalEventPort, 'publish'>;
 }
@@ -98,20 +94,6 @@ export function createKidItemAgentOsMcpServer(
     }
   });
 
-  server.registerTool('operation_status', {
-    description: 'Read the current durable OperationRun without waiting or polling.',
-    inputSchema: CapabilityMcpWireInputSchemas.operation_status,
-    outputSchema: CapabilityMcpWireOutputSchemas.operation_status,
-  }, async ({ operationId }) => {
-    try {
-      const active = resolveActiveTurn();
-      const operation = await dependencies.operations.get(active.organizationId, operationId);
-      return structuredResult({ operation: operationStatus(operation) });
-    } catch (error) {
-      return structuredError(error, 'OPERATION_NOT_FOUND');
-    }
-  });
-
   server.registerTool('readiness_probe', {
     description: 'Verify the exact stateless MCP v2 capability runtime contract.',
     inputSchema: CapabilityMcpWireInputSchemas.readiness_probe,
@@ -135,8 +117,6 @@ export class KidItemAgentOsMcpServer {
     @Inject(CAPABILITY_INVOCATION_PORT)
     private readonly invocations: CapabilityInvocationPort,
     private readonly capabilities: AgentCapabilityRegistry,
-    @Inject(OPERATION_RUNNER_PORT)
-    private readonly operations: OperationRunnerPort,
     private readonly readiness: McpRuntimeReadinessService,
     @Inject(CAPABILITY_APPROVAL_EVENT_PORT)
     private readonly approvalEvents: CapabilityApprovalEventPort,
@@ -146,7 +126,6 @@ export class KidItemAgentOsMcpServer {
     const dependencies: CapabilityMcpDependencies = {
       invocations: this.invocations,
       capabilities: this.capabilities,
-      operations: this.operations,
       readiness: this.readiness,
       approvalEvents: this.approvalEvents,
     };
@@ -307,24 +286,7 @@ function ownerResultReceipt(result: CapabilityResultEnvelope): CapabilityResultR
   return CapabilityResultReceiptSchema.parse({
     summary: result.summary,
     resourceRefs: result.resourceRefs,
-    operationRefs: result.operationRefs,
   });
-}
-
-function operationStatus(operation: OperationRun) {
-  return {
-    id: operation.id,
-    operationKey: operation.operationKey,
-    status: operation.status,
-    stage: operation.stage,
-    progress: operation.progress,
-    error: operation.error
-      ? {
-        code: boundedCode(operation.error.code, 'OPERATION_ERROR'),
-        message: boundedMessage(operation.error.message, 'Operation failed.'),
-      }
-      : null,
-  };
 }
 
 function structuredResult<T>(structuredContent: T) {
@@ -360,9 +322,7 @@ function stableError(error: unknown, fallbackCode: string): { code: string; mess
   }
   return {
     code: fallbackCode,
-    message: fallbackCode === 'OPERATION_NOT_FOUND'
-      ? 'Operation was not found.'
-      : fallbackCode === 'INVOCATION_NOT_FOUND'
+    message: fallbackCode === 'INVOCATION_NOT_FOUND'
         ? 'Capability invocation was not found.'
         : 'Capability runtime request could not be completed.',
   };

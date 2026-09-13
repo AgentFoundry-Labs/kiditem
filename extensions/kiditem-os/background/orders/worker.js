@@ -15,9 +15,7 @@ const SELLPIA_MANUAL_MATCH_PORT_NAME = "kiditem-sellpia-manual-match-v1";
 const orderCollectionLifecycle = KidItemOrderCollectionLifecycle.create({
   sessions: collectionSessions,
   producer: "orders.mall",
-  classification: "background_preferred",
-  restartStrategy: "web",
-  requireRunId: true,
+  requireAttemptId: true,
   normalizeFailure(provider, value) {
     return KidItemOrderCollectionFailure.createEvidence(provider, value);
   },
@@ -32,77 +30,68 @@ const orderCollectionLifecycle = KidItemOrderCollectionLifecycle.create({
       : null;
   },
 });
-const coupangShipmentSummaryLifecycle = KidItemOrderCollectionLifecycle.create({
+const orderCollectionSourceOwner = KidItemOrderCollectionSourceOwner.create({
+  chrome,
   sessions: collectionSessions,
-  producer: "orders.coupang_shipment_summary",
-  classification: "background_preferred",
-  restartStrategy: "web",
-  requireRunId: true,
-  forceDeferredTerminal: true,
-  deferredLabel: "쿠팡 쉽먼트 조회 완료 · 서버 저장 중",
-  failedLabel: "쿠팡 쉽먼트 조회 실패",
-  succeededLabel: "쿠팡 쉽먼트 조회 완료",
-  classifyFailure(value) {
-    return value?.pendingLogin === true
-      || value?.errorCode === "coupang_shipment_session_required"
-      ? "marketplace_login"
-      : null;
-  },
+  lifecycle: orderCollectionLifecycle,
+  request: (environmentId, path, init) =>
+    sourceOwnerEnvironmentContext.authedFetch(environmentId, path, init),
 });
-const coupangRocketPoLifecycle = KidItemOrderCollectionLifecycle.create({
-  sessions: collectionSessions,
-  producer: "orders.coupang_rocket_po",
-  classification: "background_preferred",
-  restartStrategy: "web",
-  requireRunId: true,
-  deferredLabel: "쿠팡 로켓 PO 수집 완료 · 서버 저장 중",
-  failedLabel: "쿠팡 로켓 PO 수집 실패",
-  succeededLabel: "쿠팡 로켓 PO 수집 완료",
-  classifyFailure(value) {
-    const error = value?.error || value;
-    return value?.pendingLogin === true
-      || value?.errorCode === "coupang_po_session_required"
-      || isMallAccessError(error)
-      ? "marketplace_login"
-      : null;
-  },
+const orderCollectionServerConverter = KidItemOrderCollectionServerConverter.create({
+  request: (environmentId, path, init) =>
+    sourceOwnerEnvironmentContext.authedFetch(environmentId, path, init),
 });
-const sellpiaInventoryLifecycle = KidItemOrderCollectionLifecycle.create({
-  sessions: collectionSessions,
-  producer: "inventory.sellpia",
-  classification: "background_preferred",
-  restartStrategy: "extension",
-  requireRunId: true,
-  forceDeferredTerminal: true,
-  deferredLabel: "Sellpia snapshot collected · import in progress",
-  failedLabel: "Sellpia inventory import failed",
-  succeededLabel: "Sellpia inventory import completed",
-  classifyFailure(value) {
-    if (value?.errorCode === "sellpia_login_required") return "marketplace_login";
-    if (value?.errorCode === "sellpia_background_timeout") return "background_timeout";
-    return null;
-  },
+const coupangShipmentSummarySourceOwner = KidItemCoupangShipmentSummarySourceOwner.create({
+  chrome, sessions: collectionSessions,
+  request: (environmentId, path, init) => sourceOwnerEnvironmentContext.authedFetch(environmentId, path, init),
+  collect: (options) => collectCoupangShipmentDateSummary(options),
 });
-const sellpiaInventory = KidItemSellpiaInventory.create({ chrome });
-const sellpiaManualMatchLifecycle = KidItemOrderCollectionLifecycle.create({
-  sessions: collectionSessions,
-  producer: "orders.sellpia_manual_match",
-  classification: "background_preferred",
-  restartStrategy: "extension",
-  requireRunId: true,
-  forceDeferredTerminal: true,
-  deferredLabel: "Sellpia manual-match evidence collected · import in progress",
-  failedLabel: "Sellpia manual-match evidence import failed",
-  succeededLabel: "Sellpia manual-match evidence import completed",
-  classifyFailure(value) {
-    if (value?.errorCode === "sellpia_manual_match_login_required") {
-      return "marketplace_login";
-    }
-    if (value?.errorCode === "sellpia_manual_match_timeout") return "background_timeout";
-    return null;
-  },
-});
+
+function runOwnedOrderCollection(message, mallKey, collect) {
+  return orderCollectionSourceOwner.run({
+    environmentId: message.environmentId,
+    message,
+    mallKey,
+    collect,
+    ...(message.serverOwned === true ? {
+      submit: (capture, plan, attempt) => orderCollectionServerConverter.convert({
+        environmentId: message.environmentId,
+        attempt,
+        mallKey,
+        capture,
+        plan,
+        input: message,
+      }),
+    } : {}),
+  });
+}
+
+// Legacy worker calls may still carry a page date, but a server-owned
+// attempt must use only the date admitted in its owner plan. This keeps an
+// old `plan.legacy` marker from widening the server-owned boundary.
+function providerCollectionDate(message, plan) {
+  return plan?.legacy && message.serverOwned !== true
+    ? message.date
+    : plan?.collectionDate;
+}
+
+function parseShipmentSummaryStart(message) {
+  if (message?.action !== 'collectCoupangShipmentDateSummary' ||
+    typeof message.attemptId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(message.attemptId) ||
+    Object.keys(message).some((key) => key !== 'action' && key !== 'attemptId')) {
+    throw new Error('Invalid shipment summary attempt');
+  }
+  return { attemptId: message.attemptId };
+}
 const sellpiaManualMatch = KidItemSellpiaManualMatch.create({ chrome });
+const sellpiaManualMatchSourceOwner = KidItemSellpiaManualMatchSourceOwner.create({
+  chrome,
+  sessions: collectionSessions,
+  request: (environmentId, path, init) =>
+    sourceOwnerEnvironmentContext.authedFetch(environmentId, path, init),
+  collect: ({ plan, ...collection }) =>
+    sellpiaManualMatch.collect(collection, plan.targetCodes),
+});
 const sellpiaPostProcessing = KidItemSellpiaPostProcessing;
 const sellpiaInvoiceTargets = sellpiaPostProcessing.createTargetStore({
   chrome,
@@ -119,824 +108,85 @@ const rocketPoCollection = KidItemRocketPoCollection.create({
   coupangPoSession,
   withTimeout,
 });
+const rocketPoSourceOwner = KidItemRocketPoSourceOwner.create({
+  chrome, sessions: collectionSessions,
+  request: (environmentId, path, init) => sourceOwnerEnvironmentContext.authedFetch(environmentId, path, init),
+  collect: rocketPoCollection.collect,
+});
+const coupangDirectshipSourceOwner = KidItemCoupangDirectshipSourceOwner.create({
+  chrome,
+  sessions: collectionSessions,
+  request: (environmentId, path, init) => sourceOwnerEnvironmentContext.authedFetch(environmentId, path, init),
+  collect: (_plan, collection) => collectCoupangDirectOrders(collection),
+});
+const sellpiaInventoryCollector = KidItemSellpiaInventory.create({ chrome });
+const sellpiaInventorySourceOwner = KidItemSellpiaInventorySourceOwner.create({
+  chrome,
+  sessions: collectionSessions,
+  request: (environmentId, path, init) => sourceOwnerEnvironmentContext.authedFetch(environmentId, path, init),
+  collect: (collection) => sellpiaInventoryCollector.collect(collection),
+});
+const sellpiaShipmentTrackingCollector = KidItemSellpiaShipmentTrackingCollector.create({
+  chrome,
+  waitForTabReady,
+  withTimeout,
+  isMallAccessError,
+  mallAccessErrorResult,
+  mallGenericErrorResult,
+});
+const sellpiaShipmentTrackingSourceOwner = KidItemSellpiaShipmentTrackingSourceOwner.create({
+  chrome,
+  sessions: collectionSessions,
+  request: (environmentId, path, init) => sourceOwnerEnvironmentContext.authedFetch(environmentId, path, init),
+  collect: ({ plan, ...collection }) => sellpiaShipmentTrackingCollector.collect({
+    startDate: plan.startDate,
+    endDate: plan.endDate,
+    collection,
+  }),
+});
+const sellpiaSalesCollector = KidItemSellpiaSalesCollector.create({
+  chrome,
+  waitForTabReady,
+  withTimeout,
+  isMallAccessError,
+  mallAccessErrorResult,
+  mallGenericErrorResult,
+});
+const sellpiaSalesSourceOwner = KidItemSellpiaSalesSourceOwner.create({
+  chrome,
+  sessions: collectionSessions,
+  request: (environmentId, path, init) => sourceOwnerEnvironmentContext.authedFetch(environmentId, path, init),
+  collect: ({ plan, ...collection }) => sellpiaSalesCollector.collect({
+    startDate: plan.range.from,
+    endDate: plan.range.to,
+    collection,
+    keepTabOnLoginError: true,
+  }),
+});
+const sellpiaProductProfitCollector = KidItemSellpiaProductProfitCollector.create({
+  chrome,
+  waitForTabReady,
+  withTimeout,
+  isMallAccessError,
+  mallAccessErrorResult,
+  mallGenericErrorResult,
+});
+const sellpiaProductProfitabilitySourceOwner = KidItemSellpiaProductProfitabilitySourceOwner.create({
+  chrome,
+  sessions: collectionSessions,
+  request: (environmentId, path, init) => sourceOwnerEnvironmentContext.authedFetch(environmentId, path, init),
+  collect: ({ plan, ...collection }) => sellpiaProductProfitCollector.collect({
+    startDate: plan.from,
+    endDate: plan.to,
+    collection,
+  }),
+});
 
 function runSellpiaManualMatchCollection(message) {
-  return sellpiaManualMatchLifecycle.run(
-    message,
-    {
-      sourceOrigin: "https://kiditem.sellpia.com",
-      sourcePath: "/product_manual_match.html",
-      targetCount: Array.isArray(message.targetCodes) ? message.targetCodes.length : -1,
-    },
-    (collection) => sellpiaManualMatch.collect(collection, message.targetCodes),
-  );
-}
-
-function sellpiaInventoryOperationAlertContext(operation) {
-  return {
-    operationKey: `browser-collection:${operation.runId}`,
-    attempt: Number.isInteger(operation.attempt) && operation.attempt > 0
-      ? operation.attempt
-      : 1,
-    updatedAt: Date.now(),
-  };
-}
-
-function sellpiaInventoryOperationAlertMetadata(operation, alertContext, patch = {}) {
-  alertContext.updatedAt = Math.max(Date.now(), alertContext.updatedAt + 1);
-  return {
-    browserCollection: true,
-    runId: operation.runId,
-    producer: "inventory.sellpia",
-    collectionAttempt: alertContext.attempt,
-    collectionUpdatedAt: alertContext.updatedAt,
-    attentionReason: patch.attentionReason || null,
-  };
-}
-
-async function startSellpiaInventoryOperationAlert(operation) {
-  const alertContext = sellpiaInventoryOperationAlertContext(operation);
-  const fullScope = operation?.input?.scope === "full";
-  await browserOperationRuntimeEnvironmentContext.authedFetch(
-    operation.environmentId,
-    "/api/operation-alerts/start",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        operationKey: alertContext.operationKey,
-        type: "browser_collection",
-        title: fullScope ? "Sellpia 수익성 데이터 갱신" : "Sellpia 재고 갱신",
-        message: fullScope
-          ? "Sellpia 현재고와 상품별 이익현황을 수집하고 있습니다."
-          : "Sellpia 현재고 동기화를 실행하고 있습니다.",
-        sourceType: "browser_collection_session",
-        sourceId: "inventory.sellpia",
-        href: "/inventory-hub",
-        severity: "info",
-        progress: 0,
-        metadata: sellpiaInventoryOperationAlertMetadata(
-          operation,
-          alertContext,
-        ),
-      }),
-    },
-  ).catch(() => undefined);
-  return alertContext;
-}
-
-async function updateSellpiaInventoryOperationAlert(
-  operation,
-  alertContext,
-  patch,
-) {
-  const operationKey = alertContext.operationKey;
-  await browserOperationRuntimeEnvironmentContext.authedFetch(
-    operation.environmentId,
-    `/api/operation-alerts/${encodeURIComponent(operationKey)}`,
-    {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        status: patch.status,
-        message: patch.message,
-        progress: patch.progress,
-        severity: patch.severity,
-        metadata: sellpiaInventoryOperationAlertMetadata(
-          operation,
-          alertContext,
-          patch,
-        ),
-      }),
-    },
-  ).catch(() => undefined);
-}
-
-function startSellpiaFreshnessHeartbeat(operation, claimToken) {
-  let stopped = false;
-  const heartbeat = async () => {
-    if (stopped) return;
-    await browserOperationRuntimeEnvironmentContext.authedFetch(
-      operation.environmentId,
-      `/api/inventory/sellpia-freshness/claims/${encodeURIComponent(claimToken)}/heartbeat`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: "{}",
-      },
-    ).catch(() => undefined);
-  };
-  const intervalId = setInterval(() => { void heartbeat(); }, 20_000);
-  return () => {
-    stopped = true;
-    clearInterval(intervalId);
-  };
-}
-
-async function failSellpiaFreshnessClaim(operation, claimToken, errorCode, errorMessage) {
-  await browserOperationRuntimeEnvironmentContext.authedFetch(
-    operation.environmentId,
-    `/api/inventory/sellpia-freshness/claims/${encodeURIComponent(claimToken)}/fail`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ errorCode, errorMessage }),
-    },
-  ).catch(() => undefined);
-}
-
-async function claimSellpiaFreshnessLease(operation) {
-  const requestClaim = () => browserOperationRuntimeEnvironmentContext.authedFetch(
-    operation.environmentId,
-    "/api/inventory/sellpia-freshness/claims",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: "{}",
-    },
-  );
-  let response = await requestClaim();
-  let claim = response.ok ? await response.json().catch(() => null) : null;
-
-  // The first claim may only reconcile an expired prior generation. When a
-  // newer generation is already pending, claim that exact work once instead
-  // of surfacing a false operator-attention state.
-  if (
-    response.ok
-    && claim?.claimed === false
-    && claim?.state?.status === "refresh_required"
-    && claim?.state?.activeSync == null
-  ) {
-    response = await requestClaim();
-    claim = response.ok ? await response.json().catch(() => null) : null;
-  }
-
-  return { response, claim };
-}
-
-async function runSellpiaInventoryOperation(operation) {
-  const alertContext = await startSellpiaInventoryOperationAlert(operation);
-  const { response: claimResponse, claim: freshnessClaim } =
-    await claimSellpiaFreshnessLease(operation);
-  if (!claimResponse.ok) {
-    await updateSellpiaInventoryOperationAlert(operation, alertContext, {
-      status: "failed",
-      message: "Sellpia 현재고 동기화를 시작하지 못했습니다.",
-      progress: 0,
-      severity: "error",
-    });
-    return {
-      status: "failed",
-      errorCode: "sellpia_freshness_claim_failed",
-      errorMessage: "Sellpia freshness lease could not be claimed.",
-    };
-  }
-  if (!freshnessClaim?.claimed) {
-    await updateSellpiaInventoryOperationAlert(operation, alertContext, {
-      status: "pending",
-      message: "Sellpia 현재고 갱신 상태를 확인해주세요.",
-      progress: 0,
-      severity: "warning",
-      attentionReason: "sellpia_refresh_not_claimable",
-    });
-    return {
-      status: "attention_required",
-      attentionReason: "sellpia_refresh_not_claimable",
-    };
-  }
-  const stopFreshnessHeartbeat = startSellpiaFreshnessHeartbeat(
-    operation,
-    freshnessClaim.claimToken,
-  );
-  try {
-    const collected = await sellpiaInventoryLifecycle.run(
-      {
-        runId: operation.runId,
-        environmentId: operation.environmentId,
-        deferTerminal: true,
-      },
-      {
-        sourceOrigin: "https://kiditem.sellpia.com",
-        sourceAccountKey: "kiditem",
-      },
-      (collection) => sellpiaInventory.collect(collection),
-    );
-    if (collected?.success !== true || !collected.snapshot) {
-      const loginRequired = collected?.pendingLogin
-        || collected?.collectionSession?.status === "attention_required";
-      await failSellpiaFreshnessClaim(
-        operation,
-        freshnessClaim.claimToken,
-        loginRequired ? "sellpia_login_required" : "sellpia_network_failed",
-        loginRequired
-          ? "Sellpia login is required."
-          : "Sellpia inventory collection failed.",
-      );
-      if (loginRequired) {
-        await updateSellpiaInventoryOperationAlert(operation, alertContext, {
-          status: "pending",
-          message: "Sellpia 로그인이 필요합니다. 알림에서 확인 탭을 열어 로그인해주세요.",
-          progress: 0,
-          severity: "warning",
-          attentionReason: "sellpia_login_required",
-        });
-        return {
-          status: "attention_required",
-          attentionReason: "sellpia_login_required",
-        };
-      }
-      await updateSellpiaInventoryOperationAlert(operation, alertContext, {
-        status: "failed",
-        message: "Sellpia 현재고 동기화에 실패했습니다.",
-        progress: 0,
-        severity: "error",
-      });
-      return {
-        status: "failed",
-        errorCode: typeof collected?.errorCode === "string"
-          ? collected.errorCode.slice(0, 120)
-          : "sellpia_collection_failed",
-        errorMessage: "Sellpia inventory collection failed.",
-      };
-    }
-
-    const scope = freshnessClaim?.state?.activeSync?.scope === "full"
-      || operation?.input?.scope === "full"
-      ? "full"
-      : "inventory";
-    let productProfitCount = 0;
-    if (scope === "full") {
-      await updateSellpiaInventoryOperationAlert(operation, alertContext, {
-        status: "running",
-        message: "Sellpia 상품별 이익현황을 수집하고 있습니다.",
-        progress: 0.45,
-        severity: "info",
-      });
-      const productProfit = await collectSellpiaProductProfit();
-      if (productProfit?.success !== true || !productProfit.payload) {
-        const loginRequired = productProfit?.pendingLogin === true;
-        await failSellpiaFreshnessClaim(
-          operation,
-          freshnessClaim.claimToken,
-          loginRequired ? "sellpia_login_required" : "sellpia_download_contract_drift",
-          loginRequired
-            ? "Sellpia login is required."
-            : "Sellpia product-profit evidence collection failed.",
-        );
-        await sellpiaInventoryLifecycle.finalize(
-          operation.runId,
-          "failed",
-          "Sellpia product-profit evidence collection failed.",
-        ).catch(() => undefined);
-        await updateSellpiaInventoryOperationAlert(operation, alertContext, {
-          status: loginRequired ? "pending" : "failed",
-          message: loginRequired
-            ? "Sellpia 로그인이 필요합니다. 로그인 후 다시 시도해주세요."
-            : "Sellpia 상품별 이익현황 수집에 실패했습니다.",
-          progress: 0.45,
-          severity: loginRequired ? "warning" : "error",
-          attentionReason: loginRequired ? "sellpia_login_required" : null,
-        });
-        return loginRequired
-          ? { status: "attention_required", attentionReason: "sellpia_login_required" }
-          : {
-              status: "failed",
-              errorCode: "sellpia_product_profit_collection_failed",
-              errorMessage: "Sellpia product-profit evidence collection failed.",
-            };
-      }
-
-      const productProfitIngest = await browserOperationRuntimeEnvironmentContext.authedFetch(
-        operation.environmentId,
-        "/api/sellpia-product-sales/ingest",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(productProfit.payload),
-        },
-      );
-      if (!productProfitIngest.ok) {
-        await failSellpiaFreshnessClaim(
-          operation,
-          freshnessClaim.claimToken,
-          "sellpia_download_contract_drift",
-          "Sellpia product-profit evidence ingest failed.",
-        );
-        await sellpiaInventoryLifecycle.finalize(
-          operation.runId,
-          "failed",
-          "Sellpia product-profit evidence ingest failed.",
-        ).catch(() => undefined);
-        await updateSellpiaInventoryOperationAlert(operation, alertContext, {
-          status: "failed",
-          message: "Sellpia 상품별 이익현황을 저장하지 못했습니다.",
-          progress: 0.6,
-          severity: "error",
-        });
-        return {
-          status: "failed",
-          errorCode: "sellpia_product_profit_ingest_failed",
-          errorMessage: "Sellpia product-profit evidence ingest failed.",
-        };
-      }
-      productProfitCount = Number.isInteger(productProfit.productCount)
-        ? productProfit.productCount
-        : 0;
-    }
-
-    const trigger = typeof freshnessClaim?.state?.refreshReason === "string"
-      ? freshnessClaim.state.refreshReason
-      : "manual_request";
-    const formData = new FormData();
-    formData.append(
-      "file",
-      new Blob([JSON.stringify(collected.snapshot)], { type: "application/json" }),
-      "sellpia-inventory-snapshot-v1.json",
-    );
-    formData.append("kind", "browser");
-    formData.append("claimToken", freshnessClaim.claimToken);
-    formData.append("activeGeneration", freshnessClaim.activeGeneration);
-    formData.append("trigger", trigger);
-    formData.append("sourceOrigin", "https://kiditem.sellpia.com");
-    formData.append("sourceAccountKey", "kiditem");
-
-    const importResponse = await browserOperationRuntimeEnvironmentContext.authedFetch(
-      operation.environmentId,
-      "/api/inventory/sellpia-sync/import",
-      { method: "POST", body: formData },
-    );
-    if (!importResponse.ok) {
-      await failSellpiaFreshnessClaim(
-        operation,
-        freshnessClaim.claimToken,
-        "sellpia_invalid_workbook",
-        "Sellpia snapshot import failed.",
-      );
-      await sellpiaInventoryLifecycle.finalize(
-        operation.runId,
-        "failed",
-        "Sellpia snapshot import failed.",
-      ).catch(() => undefined);
-      await updateSellpiaInventoryOperationAlert(operation, alertContext, {
-        status: "failed",
-        message: "Sellpia 현재고 동기화 결과를 저장하지 못했습니다.",
-        progress: scope === "full" ? 0.75 : 0.5,
-        severity: "error",
-      });
-      return {
-        status: "failed",
-        errorCode: "sellpia_import_failed",
-        errorMessage: "Sellpia snapshot import failed.",
-      };
-    }
-    const imported = await importResponse.json().catch(() => ({}));
-    await sellpiaInventoryLifecycle.finalize(
-      operation.runId,
-      "succeeded",
-      "Sellpia inventory import completed.",
-    ).catch(() => undefined);
-    await updateSellpiaInventoryOperationAlert(operation, alertContext, {
-      status: "succeeded",
-      message: scope === "full"
-        ? "Sellpia 수익성 데이터 갱신이 완료되었습니다. ABC 등급을 자동 계산합니다."
-        : "Sellpia 현재고 동기화가 완료되었습니다.",
-      progress: 1,
-      severity: "info",
-    });
-    return {
-      status: "succeeded",
-      result: {
-        scope,
-        rowCount: Number.isInteger(collected.snapshot.rowCount)
-          ? collected.snapshot.rowCount
-          : 0,
-        productProfitCount,
-        importRunId: typeof imported?.run?.id === "string" ? imported.run.id : null,
-      },
-    };
-  } finally {
-    stopFreshnessHeartbeat();
-  }
-}
-
-async function ordersOperationRequestJson(operation, path, options = {}) {
-  const response = await browserOperationRuntimeEnvironmentContext.authedFetch(
-    operation.environmentId,
-    path,
-    options,
-  );
-  const text = await response.text();
-  if (!response.ok) {
-    throw new Error(`operation_owner_api_${response.status}`);
-  }
-  if (!text) return null;
-  try {
-    return JSON.parse(text);
-  } catch {
-    throw new Error("operation_owner_api_invalid_response");
-  }
-}
-
-async function ordersOperationHeartbeat(operation, progress) {
-  if (typeof operation?.heartbeat !== "function") return;
-  await operation.heartbeat(progress).catch(() => undefined);
-}
-
-function ordersOperationKstDate() {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Seoul",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(new Date());
-  const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
-  return `${values.year}-${values.month}-${values.day}`;
-}
-
-function ordersOperationKstMonthBounds() {
-  const current = ordersOperationKstDate();
-  const [year, month] = current.split("-").map(Number);
-  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
-  return {
-    from: `${year}-${String(month).padStart(2, "0")}-01`,
-    to: `${year}-${String(month).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`,
-  };
-}
-
-function ordersOperationMessage(value, fallback) {
-  const message = typeof value?.error === "string" ? value.error.trim() : "";
-  return (message || fallback).slice(0, 300);
-}
-
-function ordersOperationNeedsAttention(value) {
-  return value?.pendingLogin === true
-    || value?.errorCode === "login_required"
-    || value?.errorCode === "operator_action_required"
-    || value?.errorCode === "coupang_po_session_required"
-    || value?.errorCode === "coupang_shipment_session_required";
-}
-
-function ordersOperationCount(value) {
-  const candidates = [
-    value?.rowCount,
-    value?.count,
-    value?.poCount,
-    Array.isArray(value?.rows) ? value.rows.length : null,
-    Array.isArray(value?.orders) ? value.orders.length : null,
-  ];
-  return candidates.find((count) => Number.isInteger(count) && count >= 0) ?? 0;
-}
-
-function isOperationCollectableMall(account) {
-  if (!account || account.enabled !== true || typeof account.key !== "string") {
-    return false;
-  }
-  return [
-    "icecream-mall",
-    "kidsnote",
-    "kkomangse",
-    "onch",
-    "kakao",
-    "domeggook",
-    "kidkids",
-    "lotte-on",
-    "gs-shop",
-    "always",
-    "boribori",
-    "teacher-mall",
-    "art09",
-    "haebub-mall",
-  ].includes(account.key);
-}
-
-async function collectMarketplaceOrdersForOperation(account, collectionDate, collection) {
-  switch (account.key) {
-    case "icecream-mall":
-      return collectIcecreamMallOrders(collectionDate, null, collection);
-    case "kidsnote":
-      return collectKidsnoteOrders({
-        from: collectionDate,
-        to: collectionDate,
-        status: "",
-        withDetail: true,
-      }, collection);
-    case "kkomangse":
-      return collectKkomangseOrders(collection);
-    case "onch":
-      return collectOnchannelOrders(collectionDate, collection);
-    case "kakao":
-      return collectKakaoOrders(null, collection);
-    case "domeggook":
-      return collectDomeggookOrders(collectionDate, collection);
-    case "kidkids":
-      return collectKidkidsOrders(null, null, collection);
-    case "lotte-on":
-      return collectLotteonOrders(collection);
-    case "gs-shop":
-      return collectGsshopOrders(collection);
-    case "always":
-      return collectAlwayzOrders(collection);
-    case "boribori":
-      return collectBoriboriOrders({}, collection);
-    case "teacher-mall":
-      return collectTeachervilleOrders(collection);
-    case "art09":
-      return collectArt09Orders(collectionDate, collection);
-    case "haebub-mall":
-      return collectHaebeopOrders({ date: collectionDate }, collection);
-    case "11st":
-      return collect11stOrders(collectionDate, collection);
-    default:
-      return {
-        success: false,
-        errorCode: "unsupported_marketplace",
-        error: "This marketplace is not supported by the browser operation.",
-      };
-  }
-}
-
-async function runMarketplaceOrderCollectionOperation(operation) {
-  let accounts;
-  try {
-    accounts = await ordersOperationRequestJson(
-      operation,
-      "/api/orders/collection/malls",
-    );
-  } catch {
-    return {
-      status: "failed",
-      errorCode: "marketplace_account_list_failed",
-      errorMessage: "Marketplace accounts could not be loaded.",
-    };
-  }
-  const targets = Array.isArray(accounts)
-    ? accounts.filter(isOperationCollectableMall)
-    : [];
-  if (targets.length === 0) {
-    return {
-      status: "attention_required",
-      attentionReason: "marketplace_collection_account_required",
-    };
-  }
-
-  const requestedDate = typeof operation.input?.collectionDate === "string"
-    ? operation.input.collectionDate
-    : ordersOperationKstDate();
-  const collected = await orderCollectionLifecycle.run(
-    { runId: operation.runId, environmentId: operation.environmentId },
-    KidItemOrderCollectionLifecycle.createIdentity("all-marketplaces", requestedDate),
-    async (collection) => {
-      const results = [];
-      for (let index = 0; index < targets.length; index += 1) {
-        const account = targets[index];
-        await ordersOperationHeartbeat(operation, index / targets.length);
-        try {
-          const result = await collectMarketplaceOrdersForOperation(
-            account,
-            requestedDate,
-            collection,
-          );
-          if (result?.success === true) {
-            const count = ordersOperationCount(result);
-            results.push({
-              mallKey: account.key,
-              mallName: typeof account.name === "string" ? account.name.slice(0, 120) : account.key,
-              status: count === 0 || result.empty === true ? "empty" : "succeeded",
-              rowCount: count,
-            });
-          } else {
-            results.push({
-              mallKey: account.key,
-              mallName: typeof account.name === "string" ? account.name.slice(0, 120) : account.key,
-              status: ordersOperationNeedsAttention(result) ? "attention_required" : "failed",
-              rowCount: 0,
-              errorCode: typeof result?.errorCode === "string"
-                ? result.errorCode.slice(0, 120)
-                : "marketplace_collection_failed",
-              message: ordersOperationMessage(result, "Marketplace collection failed."),
-            });
-          }
-        } catch (error) {
-          results.push({
-            mallKey: account.key,
-            mallName: typeof account.name === "string" ? account.name.slice(0, 120) : account.key,
-            status: "failed",
-            rowCount: 0,
-            errorCode: "marketplace_collection_failed",
-            message: ordersOperationMessage(error, "Marketplace collection failed."),
-          });
-        }
-      }
-      const succeededCount = results.filter(({ status }) => status === "succeeded").length;
-      const emptyCount = results.filter(({ status }) => status === "empty").length;
-      const attentionCount = results.filter(({ status }) => status === "attention_required").length;
-      const failedCount = results.filter(({ status }) => status === "failed").length;
-      return {
-        success: succeededCount + emptyCount > 0,
-        pendingLogin: succeededCount + emptyCount === 0 && attentionCount > 0,
-        results,
-        succeededCount,
-        emptyCount,
-        attentionCount,
-        failedCount,
-      };
-    },
-  );
-  await ordersOperationHeartbeat(operation, 1);
-  if (collected?.pendingLogin === true) {
-    return {
-      status: "attention_required",
-      attentionReason: "marketplace_login_required",
-    };
-  }
-  const results = Array.isArray(collected?.results) ? collected.results : [];
-  const succeededCount = Number.isInteger(collected?.succeededCount) ? collected.succeededCount : 0;
-  const emptyCount = Number.isInteger(collected?.emptyCount) ? collected.emptyCount : 0;
-  const attentionCount = Number.isInteger(collected?.attentionCount) ? collected.attentionCount : 0;
-  const failedCount = Number.isInteger(collected?.failedCount) ? collected.failedCount : 0;
-  if (succeededCount + emptyCount === 0 && attentionCount > 0) {
-    return {
-      status: "attention_required",
-      attentionReason: "marketplace_login_required",
-    };
-  }
-  if (succeededCount + emptyCount === 0 && failedCount > 0) {
-    return {
-      status: "failed",
-      errorCode: "marketplace_collection_failed",
-      errorMessage: "Marketplace order collection failed.",
-    };
-  }
-  return {
-    status: "succeeded",
-    result: {
-      collectionDate: requestedDate,
-      targetCount: targets.length,
-      succeededCount,
-      emptyCount,
-      attentionCount,
-      failedCount,
-      rowCount: results.reduce((total, item) => total + item.rowCount, 0),
-      results,
-    },
-  };
-}
-
-async function runCoupangShipmentSummaryOperation(operation) {
-  const maxPages = Number.isInteger(operation.input?.maxPages)
-    ? operation.input.maxPages
-    : 40;
-  await ordersOperationHeartbeat(operation, 0.1);
-  const collected = await collectCoupangShipmentDateSummary({ maxPages });
-  if (collected?.success !== true || !Array.isArray(collected.dates)) {
-    if (ordersOperationNeedsAttention(collected)) {
-      return {
-        status: "attention_required",
-        attentionReason: "coupang_shipment_session_required",
-      };
-    }
-    return {
-      status: "failed",
-      errorCode: typeof collected?.errorCode === "string"
-        ? collected.errorCode.slice(0, 120)
-        : "coupang_shipment_summary_failed",
-      errorMessage: ordersOperationMessage(collected, "Coupang shipment query failed."),
-    };
-  }
-  await ordersOperationHeartbeat(operation, 0.7);
-  try {
-    await ordersOperationRequestJson(operation, "/api/coupang-shipments/date-summary", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ items: collected.dates }),
-    });
-  } catch {
-    return {
-      status: "failed",
-      errorCode: "coupang_shipment_summary_save_failed",
-      errorMessage: "Coupang shipment query results could not be saved.",
-    };
-  }
-  await ordersOperationHeartbeat(operation, 1);
-  return {
-    status: "succeeded",
-    result: {
-      scannedPages: Number.isInteger(collected.scannedPages) ? collected.scannedPages : 0,
-      totalRows: Number.isInteger(collected.totalRows) ? collected.totalRows : 0,
-      dateCount: collected.dates.length,
-    },
-  };
-}
-
-async function resolveRocketAccountForOperation(operation) {
-  const requestedAccountId = typeof operation.input?.channelAccountId === "string"
-    ? operation.input.channelAccountId
-    : null;
-  let accounts = await ordersOperationRequestJson(operation, "/api/channels/accounts");
-  let rocketAccounts = Array.isArray(accounts)
-    ? accounts.filter((account) => account?.channel === "rocket")
-    : [];
-  if (rocketAccounts.length === 0) {
-    const bootstrapped = await ordersOperationRequestJson(
-      operation,
-      "/api/channels/accounts/rocket/bootstrap",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: "{}",
-      },
-    );
-    rocketAccounts = bootstrapped?.id ? [bootstrapped] : [];
-  }
-  if (requestedAccountId) {
-    return rocketAccounts.find(({ id }) => id === requestedAccountId) ?? null;
-  }
-  return rocketAccounts.length === 1 ? rocketAccounts[0] : null;
-}
-
-async function runCoupangRocketPurchaseOrderOperation(operation) {
-  let account;
-  try {
-    account = await resolveRocketAccountForOperation(operation);
-  } catch {
-    return {
-      status: "failed",
-      errorCode: "rocket_channel_account_lookup_failed",
-      errorMessage: "Rocket channel account could not be loaded.",
-    };
-  }
-  if (!account?.id) {
-    return {
-      status: "attention_required",
-      attentionReason: "rocket_channel_account_selection_required",
-    };
-  }
-  const defaultBounds = ordersOperationKstMonthBounds();
-  const from = typeof operation.input?.from === "string" ? operation.input.from : defaultBounds.from;
-  const to = typeof operation.input?.to === "string" ? operation.input.to : defaultBounds.to;
-  await ordersOperationHeartbeat(operation, 0.1);
-  const collected = await orderCollectionLifecycle.run(
-    { runId: operation.runId, environmentId: operation.environmentId },
-    KidItemOrderCollectionLifecycle.createIdentity("coupang-rocket", to),
-    (collection) => collectRocketPoRows({
-      from,
-      to,
-      status: "",
-      dateType: "WAREHOUSING_PLAN_DATE",
-    }, collection),
-  );
-  if (collected?.success !== true || !Array.isArray(collected.rows) || !collected.evidence) {
-    if (ordersOperationNeedsAttention(collected)) {
-      return {
-        status: "attention_required",
-        attentionReason: "coupang_rocket_session_required",
-      };
-    }
-    return {
-      status: "failed",
-      errorCode: typeof collected?.errorCode === "string"
-        ? collected.errorCode.slice(0, 120)
-        : "coupang_rocket_collection_failed",
-      errorMessage: ordersOperationMessage(collected, "Coupang Rocket PO collection failed."),
-    };
-  }
-  await ordersOperationHeartbeat(operation, 0.75);
-  let preview;
-  try {
-    preview = await ordersOperationRequestJson(operation, "/api/purchase-orders", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        action: "previewRocket",
-        channelAccountId: account.id,
-        collection: collected.evidence,
-        rows: collected.rows,
-        editedQuantities: {},
-        clampEditedQuantities: true,
-        previewScope: "confirmation_requested",
-      }),
-    });
-  } catch {
-    return {
-      status: "failed",
-      errorCode: "coupang_rocket_catalog_save_failed",
-      errorMessage: "Coupang Rocket PO collection could not be saved.",
-    };
-  }
-  await ordersOperationHeartbeat(operation, 1);
-  return {
-    status: "succeeded",
-    result: {
-      channelAccountId: account.id,
-      from,
-      to,
-      poCount: Number.isInteger(collected.poCount) ? collected.poCount : 0,
-      rowCount: collected.rows.length,
-      sourceImportRunId: typeof preview?.catalog?.run?.id === "string"
-        ? preview.catalog.run.id
-        : null,
-    },
-  };
+  return sellpiaManualMatchSourceOwner.run({
+    environmentId: message.environmentId,
+    attemptId: message.attemptId,
+  });
 }
 
 function handleSellpiaManualMatchPort(port, senderEnvironment) {
@@ -958,52 +208,113 @@ function handleSellpiaManualMatchPort(port, senderEnvironment) {
     if (started) return;
     started = true;
     if (message?.action !== "collectSellpiaManualMatch") {
-      finish({
-        success: false,
-        runId: typeof message?.runId === "string" ? message.runId : "",
-        errorCode: "sellpia_manual_match_network_failed",
-        error: "Unsupported Sellpia manual-match request.",
-      });
+      finish({ success: false, error: "Unsupported Sellpia manual-match request." });
       return;
     }
     const environmentId = senderEnvironment.environmentId;
-    const scopedMessage = { ...message, environmentId };
+    let parsed;
+    try {
+      parsed = KidItemSellpiaManualMatchSourceOwner.parseAction(message);
+    } catch (error) {
+      finish({ success: false, error: error?.message || "Invalid Sellpia manual-match request." });
+      return;
+    }
+    const scopedMessage = { ...parsed, environmentId };
     ordersEnvironmentContext.connect(environmentId).catch(() => undefined);
     Promise.resolve(runSellpiaManualMatchCollection(scopedMessage))
       .then(finish)
       .catch((error) => finish({
         success: false,
-        runId: scopedMessage.runId,
-        errorCode: "sellpia_manual_match_network_failed",
+        attemptId: scopedMessage.attemptId,
+        terminalState: "FAILED",
+        errorCode: "SOURCE_OWNER_UNAVAILABLE",
         error: error?.message || "Sellpia manual-match collection failed.",
       }));
   });
 }
 
-async function lifecycleForRun(runId, environmentId) {
-  const session = await collectionSessions.getOwned(runId, environmentId);
-  if (session?.producer === "inventory.sellpia") return sellpiaInventoryLifecycle;
+async function lifecycleForAttempt(attemptId, environmentId) {
+  const session = await collectionSessions.getOwned(attemptId, environmentId);
   if (session?.producer === "orders.coupang_shipment_summary") {
-    return coupangShipmentSummaryLifecycle;
+    return null;
   }
   if (session?.producer === "orders.coupang_rocket_po") {
-    return coupangRocketPoLifecycle;
-  }
-  if (session?.producer === "orders.sellpia_manual_match") {
-    return sellpiaManualMatchLifecycle;
+    return null;
   }
   if (session?.producer === "orders.mall") return orderCollectionLifecycle;
   return null;
 }
 
-async function cancelOrdersCollectionSession(runId, environmentId) {
-  const lifecycle = await lifecycleForRun(runId, environmentId);
-  return lifecycle ? lifecycle.cancel(runId) : null;
+async function cancelOrdersCollectionSession(attemptId, environmentId) {
+  // Fence local work and close only owned managed tabs before any owner HTTP.
+  // The owner remains canonical for terminal truth; its cancel path below
+  // still performs the existing ACK/reconciliation contract.
+  let fencedSession = null;
+  if (typeof collectionSessions.requestCancellation === "function") {
+    fencedSession = await collectionSessions.requestCancellation(attemptId, environmentId);
+  }
+  const session = fencedSession?.producer
+    ? fencedSession
+    : fencedSession?.session?.producer
+      ? fencedSession.session
+      : await collectionSessions.getOwned(attemptId, environmentId);
+  if (session?.producer === 'orders.coupang_rocket_po') {
+    return rocketPoSourceOwner.cancel({ attemptId, environmentId });
+  }
+  if (session?.producer === 'orders.coupang_shipment_summary') {
+    return coupangShipmentSummarySourceOwner.cancel({ attemptId, environmentId });
+  }
+  if (session?.producer === 'orders.coupang_directship') {
+    return coupangDirectshipSourceOwner.cancel({ attemptId, environmentId });
+  }
+  if (session?.producer === "inventory.sellpia") {
+    return sellpiaInventorySourceOwner.cancel({ attemptId, environmentId });
+  }
+  if (session?.producer === "orders.sellpia_shipment_tracking") {
+    return sellpiaShipmentTrackingSourceOwner.cancel({ attemptId, environmentId });
+  }
+  if (session?.producer === "orders.sellpia_sales") {
+    return sellpiaSalesSourceOwner.cancel({ attemptId, environmentId });
+  }
+  if (session?.producer === "orders.sellpia_product_profitability") {
+    return sellpiaProductProfitabilitySourceOwner.cancel({ attemptId, environmentId });
+  }
+  if (session?.producer === "orders.sellpia_manual_match") {
+    return sellpiaManualMatchSourceOwner.cancel({ attemptId, environmentId });
+  }
+  if (session?.producer === "orders.mall") {
+    return orderCollectionSourceOwner.cancel({ attemptId, environmentId });
+  }
+  const lifecycle = await lifecycleForAttempt(attemptId, environmentId);
+  return lifecycle ? lifecycle.cancel(attemptId) : null;
 }
 
-async function finalizeOrdersCollectionSession(runId, status, message, environmentId) {
-  const lifecycle = await lifecycleForRun(runId, environmentId);
-  return lifecycle ? lifecycle.finalize(runId, status, message) : null;
+// The common service-worker boot path invokes this hook after it has restored
+// shared environment state. Each Sellpia owner reconciles only its own
+// producer and environment, so the recoveries can run concurrently without
+// touching other Orders or Inventory sessions.
+async function recoverOrdersCollections(environmentId) {
+  const owners = [
+    sellpiaInventorySourceOwner,
+    sellpiaShipmentTrackingSourceOwner,
+    sellpiaSalesSourceOwner,
+    sellpiaProductProfitabilitySourceOwner,
+    sellpiaManualMatchSourceOwner,
+  ];
+  const results = await Promise.allSettled(
+    owners
+      .filter((owner) => typeof owner?.recover === "function")
+      .map((owner) => owner.recover(environmentId)),
+  );
+  for (const result of results) {
+    if (result.status === "rejected") {
+      console.error(
+        "[KIDITEM] Orders collection owner recovery failed:",
+        result.reason?.message || result.reason,
+      );
+    }
+  }
+  return results;
 }
 
 const ICECREAM_MALL_URL = "https://po.i-screammall.co.kr/main.do";
@@ -1014,24 +325,365 @@ const ICECREAM_MALL_TAB_MATCHES = [
 ];
 const SELLPIA_ORDER_UPLOAD_URL = "https://kiditem.sellpia.com/order_collect.html?ctype=OM_FILE";
 const SELLPIA_TAB_MATCHES = ["https://*.sellpia.com/*"];
-// 송장 재출력 = 송장 업로드용 송장번호 소스(송장 채번된 주문).
-const SELLPIA_REPRINT_URL = "https://kiditem.sellpia.com/order_delivery_reprint.html";
 // 셀피아 전송 이후 후처리: 재고매칭 화면(조회/자동합포/자동재고매칭) + 송장채번 화면.
 const SELLPIA_STOCKMATCH_URL = "https://kiditem.sellpia.com/order_stockmatch.html";
 const SELLPIA_INVOICE_URL = "https://kiditem.sellpia.com/order_delivery_link.html";
-// 판매현황(몰별·일별 매출) — 대시보드 '몰별 매출' 섹션 소스. order_search.ajax.html(mode=selldate) 스크랩.
-const SELLPIA_SALE_SUMMARY_URL = "https://kiditem.sellpia.com/sale_summary.html?mode=main_link";
-// 상품별 이익현황 — 재고 분석 '상품별 소진' 소스. stat_action.ajax.html(mode=stat_prd_profit) 스크랩.
-const SELLPIA_PRODUCT_PROFIT_URL = "https://kiditem.sellpia.com/stat_prd_profit.html#none";
-// 매일 자동수집 알람 + 캐시 키(웹앱이 열릴 때 백엔드로 flush).
-const SELLPIA_SALES_CACHE_KEY = "sellpiaSaleSummaryCache";
-const SELLPIA_SALES_ORGANIZATION_KEY = "sellpiaSaleSummaryOrganizationId";
-const SELLPIA_SALES_ALARM = "sellpiaSaleSummaryDaily";
-function sellpiaSalesKey(base, environmentId) {
-  return ordersEnvironmentContext.storageKey(base, environmentId);
-}
 const COUPANG_SHIPMENT_URL = "https://supplier.coupang.com/ibs/asn/active";
 const COUPANG_SUPPLIER_TAB_MATCHES = ["https://supplier.coupang.com/*"];
+
+// Read-only one-shot actions do not have server attempts. Keep their local
+// lifetime explicit instead of inventing a second canonical session: each
+// invocation owns only the fresh background tab it created, and cancellation
+// closes those tabs without touching operator-owned marketplace tabs.
+const ordersAdditionalCollections = new Map();
+const ORDERS_ADDITIONAL_RESOURCES_KEY =
+  "kiditem_orders_additional_collection_resources_v1";
+let ordersAdditionalResourcesQueue = Promise.resolve();
+
+function requireOrdersCollectionEnvironment(environmentId) {
+  if (environmentId !== "local" && environmentId !== "office") {
+    throw new Error("Collection environment is required");
+  }
+  return environmentId;
+}
+
+function hasOrdersSessionStorage() {
+  return Boolean(
+    chrome.storage?.session &&
+    typeof chrome.storage.session.get === "function" &&
+    typeof chrome.storage.session.set === "function",
+  );
+}
+
+function normalizeOrdersAdditionalResources(value) {
+  const normalized = {};
+  for (const environmentId of ["local", "office"]) {
+    const tabIds = Array.isArray(value?.[environmentId])
+      ? value[environmentId].filter((tabId) => Number.isInteger(tabId) && tabId >= 0)
+      : [];
+    const unique = [...new Set(tabIds)];
+    if (unique.length > 0) normalized[environmentId] = unique;
+  }
+  return normalized;
+}
+
+function mutateOrdersAdditionalResources(operation) {
+  const next = ordersAdditionalResourcesQueue
+    .catch(() => undefined)
+    .then(async () => {
+      if (!hasOrdersSessionStorage()) return operation({});
+      const stored = await chrome.storage.session.get(ORDERS_ADDITIONAL_RESOURCES_KEY);
+      const current = normalizeOrdersAdditionalResources(
+        stored?.[ORDERS_ADDITIONAL_RESOURCES_KEY],
+      );
+      const updated = normalizeOrdersAdditionalResources(await operation(current));
+      await chrome.storage.session.set({
+        [ORDERS_ADDITIONAL_RESOURCES_KEY]: updated,
+      });
+      return updated;
+    });
+  ordersAdditionalResourcesQueue = next.then(() => undefined, () => undefined);
+  return next;
+}
+
+function rememberOrdersAdditionalTab(environmentId, tabId) {
+  return mutateOrdersAdditionalResources((resources) => ({
+    ...resources,
+    [environmentId]: [...(resources[environmentId] || []), tabId],
+  }));
+}
+
+function forgetOrdersAdditionalTab(environmentId, tabId) {
+  return mutateOrdersAdditionalResources((resources) => {
+    const remaining = (resources[environmentId] || []).filter((id) => id !== tabId);
+    const next = { ...resources };
+    if (remaining.length > 0) next[environmentId] = remaining;
+    else delete next[environmentId];
+    return next;
+  });
+}
+
+async function readOrdersAdditionalTabs(environmentId) {
+  requireOrdersCollectionEnvironment(environmentId);
+  if (!hasOrdersSessionStorage()) return [];
+  const stored = await chrome.storage.session.get(ORDERS_ADDITIONAL_RESOURCES_KEY);
+  return normalizeOrdersAdditionalResources(
+    stored?.[ORDERS_ADDITIONAL_RESOURCES_KEY],
+  )[environmentId] || [];
+}
+
+async function closeOrdersAdditionalTab(tabId) {
+  if (!Number.isInteger(tabId)) return false;
+  try {
+    await chrome.tabs.remove(tabId);
+    return true;
+  } catch {
+    try {
+      const tabs = await chrome.tabs.query({});
+      return !tabs.some((tab) => tab.id === tabId);
+    } catch {
+      return false;
+    }
+  }
+}
+
+function createOrdersAdditionalCollectionContext(environmentId, name) {
+  requireOrdersCollectionEnvironment(environmentId);
+  const context = {
+    environmentId,
+    name,
+    cancelled: false,
+    finished: false,
+    ownedTabIds: new Set(),
+    closingTabPromises: new Map(),
+    isActive() {
+      return !this.cancelled;
+    },
+    closeTab(tab) {
+      const tabId = tab?.id;
+      if (!Number.isInteger(tabId)) return Promise.resolve(false);
+      const existing = this.closingTabPromises.get(tabId);
+      if (existing) return existing;
+      const closing = (async () => {
+        const closed = await closeOrdersAdditionalTab(tabId);
+        if (!closed) return false;
+        // Keep the per-tab correlation until both Chrome acknowledges the
+        // close and the durable ledger acknowledges its removal. If the
+        // worker is suspended or storage rejects this write, the in-memory
+        // owner and restart ledger must retain the ID for a later retry.
+        await forgetOrdersAdditionalTab(environmentId, tabId);
+        this.ownedTabIds.delete(tabId);
+        return true;
+      })().finally(() => {
+        if (this.closingTabPromises.get(tabId) === closing) {
+          this.closingTabPromises.delete(tabId);
+        }
+      });
+      this.closingTabPromises.set(tabId, closing);
+      return closing;
+    },
+    async ownTab(tab) {
+      if (!Number.isInteger(tab?.id)) return false;
+      const tabId = tab.id;
+      this.ownedTabIds.add(tabId);
+      try {
+        await rememberOrdersAdditionalTab(environmentId, tabId);
+      } catch {
+        // A storage failure must not orphan the exact tab just created. Keep
+        // ownership until close/ledger reconciliation has had a chance to
+        // complete, but stop the caller from entering page-world extraction.
+        try {
+          await this.closeTab({ id: tabId });
+        } catch {
+          // finish() retains the ID for a later best-effort retry.
+        }
+        return false;
+      }
+      // Cancellation can race the persistence write. Re-check after the
+      // write so a tab admitted after the fence is closed and not left in the
+      // restart recovery ledger.
+      if (this.cancelled) {
+        await this.closeTab(tab);
+        return false;
+      }
+      return true;
+    },
+    async retainTab(tab) {
+      if (!Number.isInteger(tab?.id)) return false;
+      if (this.cancelled) {
+        await this.closeTab(tab);
+        return false;
+      }
+      try {
+        await forgetOrdersAdditionalTab(environmentId, tab.id);
+        if (this.cancelled) {
+          // Cancellation may have fenced this context while ledger removal
+          // was awaiting storage. Never hand a stopped tab to page-world
+          // work; close it while retaining ownership for reconciliation.
+          try {
+            await rememberOrdersAdditionalTab(environmentId, tab.id);
+          } catch {
+            // The in-memory ownership remains until a later retry can close
+            // the exact tab even if durable re-correlation is unavailable.
+          }
+          await this.closeTab(tab);
+          return false;
+        }
+        this.ownedTabIds.delete(tab.id);
+        return true;
+      } catch {
+        // Keep the in-memory ownership until correlation removal succeeds;
+        // finish() will close and reconcile it if the ledger cannot be edited.
+        return false;
+      }
+    },
+    async cancel() {
+      this.cancelled = true;
+      const tabIds = [...this.ownedTabIds];
+      await Promise.all(tabIds.map((tabId) => this.closeTab({ id: tabId })));
+    },
+    async finish() {
+      const tabIds = [...this.ownedTabIds];
+      await Promise.all(tabIds.map(async (tabId) => {
+        try {
+          await this.closeTab({ id: tabId });
+        } catch {
+          // A failed close/ledger write remains correlated for retry, but
+          // cleanup must not replace the collection result itself.
+        }
+      }));
+    },
+  };
+  const contexts = ordersAdditionalCollections.get(environmentId) || new Set();
+  contexts.add(context);
+  ordersAdditionalCollections.set(environmentId, contexts);
+  return context;
+}
+
+async function runOrdersAdditionalCollection(environmentId, name, operation) {
+  requireOrdersCollectionEnvironment(environmentId);
+  const context = createOrdersAdditionalCollectionContext(environmentId, name);
+  try {
+    return await operation(context);
+  } finally {
+    context.finished = true;
+    await context.finish();
+    const contexts = ordersAdditionalCollections.get(environmentId);
+    if (context.ownedTabIds.size === 0) contexts?.delete(context);
+    if (contexts?.size === 0) ordersAdditionalCollections.delete(environmentId);
+  }
+}
+
+async function cancelAdditionalCollections(environmentId) {
+  requireOrdersCollectionEnvironment(environmentId);
+  const contexts = ordersAdditionalCollections.get(environmentId);
+  const current = contexts ? [...contexts] : [];
+  // Set every in-memory fence synchronously, before touching the session
+  // ledger. A delayed read must not leave page-world extraction running.
+  for (const context of current) context.cancelled = true;
+
+  let persistedTabIds = [];
+  let settled = true;
+  try {
+    persistedTabIds = await readOrdersAdditionalTabs(environmentId);
+  } catch (error) {
+    // Current contexts can still be stopped and cleaned up. Keep the durable
+    // ledger untouched when it cannot be read; startup/retry will reconcile it.
+    console.warn(
+      "[KIDITEM] additional collection ledger read failed:",
+      error?.message || error,
+    );
+    settled = false;
+  }
+
+  const allTabIds = new Set();
+  for (const context of current) {
+    for (const tabId of context.ownedTabIds) allTabIds.add(tabId);
+  }
+  for (const tabId of persistedTabIds) allTabIds.add(tabId);
+  if (allTabIds.size === 0) {
+    if (!settled) return false;
+    return current.length > 0 ? { cancelled: current.length } : null;
+  }
+
+  const contextByTabId = new Map();
+  for (const context of current) {
+    for (const tabId of context.ownedTabIds) {
+      if (!contextByTabId.has(tabId)) contextByTabId.set(tabId, context);
+    }
+  }
+  await Promise.all([...allTabIds].map(async (tabId) => {
+    const context = contextByTabId.get(tabId);
+    if (context) {
+      try {
+        if (!(await context.closeTab({ id: tabId }))) settled = false;
+      } catch {
+        settled = false;
+      }
+      return;
+    }
+    const closed = await closeOrdersAdditionalTab(tabId);
+    if (!closed) {
+      settled = false;
+      return;
+    }
+    try {
+      await forgetOrdersAdditionalTab(environmentId, tabId);
+    } catch {
+      settled = false;
+    }
+  }));
+  if (!settled) return false;
+  return {
+    cancelled: current.length || (persistedTabIds.length > 0 ? 1 : 0),
+  };
+}
+
+// Retry only durable outstanding tab IDs left by an interrupted read or
+// service-worker restart. This hook is deliberately independent from
+// cancelAdditionalCollections: app reopen/retry must never mark a newly
+// started additional read as cancelled.
+async function retryAdditionalCollections(environmentId) {
+  requireOrdersCollectionEnvironment(environmentId);
+  let persistedTabIds;
+  try {
+    persistedTabIds = await readOrdersAdditionalTabs(environmentId);
+  } catch (error) {
+    console.warn(
+      "[KIDITEM] additional collection ledger retry read failed:",
+      error?.message || error,
+    );
+    return false;
+  }
+  const contexts = ordersAdditionalCollections.get(environmentId);
+  const contextByTabId = new Map();
+  for (const context of contexts || []) {
+    // Healthy active contexts remain exempt. A canceled or completed context
+    // with unresolved ownership is safe to reconcile after a restart/retry.
+    if (!context.cancelled && !context.finished) continue;
+    for (const tabId of context.ownedTabIds) {
+      if (!contextByTabId.has(tabId)) contextByTabId.set(tabId, context);
+    }
+  }
+  const allTabIds = new Set(persistedTabIds);
+  for (const tabId of contextByTabId.keys()) allTabIds.add(tabId);
+  let remaining = false;
+  for (const tabId of allTabIds) {
+    // A new run may have started after the retry began. Never close a tab that
+    // is currently owned by a live, non-cancelled context.
+    const context = contextByTabId.get(tabId);
+    if (!context && [...(contexts || [])].some((candidate) =>
+      !candidate.cancelled && !candidate.finished && candidate.ownedTabIds.has(tabId),
+    )) continue;
+    const closed = context
+      ? await context.closeTab({ id: tabId }).catch(() => false)
+      : await closeOrdersAdditionalTab(tabId);
+    if (closed) {
+      if (!context) {
+        try {
+          await forgetOrdersAdditionalTab(environmentId, tabId);
+        } catch {
+          remaining = true;
+        }
+      }
+    } else {
+      remaining = true;
+    }
+  }
+  for (const context of contexts || []) {
+    if (context.finished && context.ownedTabIds.size === 0) contexts.delete(context);
+  }
+  if (contexts?.size === 0) ordersAdditionalCollections.delete(environmentId);
+  return !remaining;
+}
+
+function additionalCollectionCancelled(context, message) {
+  return {
+    success: false,
+    errorCode: "COLLECTION_CANCELLED",
+    error: message || `${context?.name || "Read-only collection"} was cancelled.`,
+  };
+}
 const KIDSNOTE_ORDER_URL = "https://shop.kidsnote.com/_manage/?body=3010";
 const KIDSNOTE_TAB_MATCHES = ["https://shop.kidsnote.com/*"];
 // 꼬망세(EduPre) 입점관리자 전체주문 (listmaxcount 크게 = 검색결과 전부)
@@ -1055,7 +707,6 @@ const GSSHOP_TAB_MATCHES = ["https://partners.gsshop.com/*"];
 const ALWAYZ_ORDER_URL = "https://alwayzseller.ilevit.com/shippings";
 const ALWAYZ_TAB_MATCHES = ["https://alwayzseller.ilevit.com/*"];
 const ELEVENST_ORDER_URL = "https://msoffice.11st.co.kr/cx/delivery";
-const ELEVENST_TAB_MATCHES = ["https://msoffice.11st.co.kr/*", "https://soffice.11st.co.kr/*"];
 const KAKAO_ORDER_URL = "https://shopping-seller.kakao.com/order/seller/store-order/integrate/list";
 const KAKAO_TAB_MATCHES = ["https://shopping-seller.kakao.com/*"];
 // 보리보리/하프클럽 협력사(TRICYCLE seller-club) 주문/배송관리
@@ -1180,6 +831,7 @@ function mallSessionProbe() {
 }
 
 chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
+  const rawMessage = msg;
   const senderEnvironment = ordersEnvironmentContext.resolveSender(sender);
   if (!senderEnvironment) {
     sendResponse({ success: false, error: "Untrusted KidItem web origin" });
@@ -1202,9 +854,9 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
     return true;
   };
 
-  // 수집 세션 공통 액션(list/get/cancel/restart/finalize/openAttentionTab)과
-  // ping 은 통합 서비스워커가 처리한다. 도메인 워커가 각자 응답하면 세 리스너가
-  // 같은 메시지에 경쟁 응답하게 된다. 이 도메인의 cancel/finalize 구현과
+  // 수집 세션 공통 액션(list/get/cancel/openAttentionTab)과 ping 은 통합
+  // 서비스워커가 처리한다. 도메인 워커가 각자 응답하면 세 리스너가 같은
+  // 메시지에 경쟁 응답하게 된다. 이 도메인의 cancellation 구현과
   // capabilities 는 파일 끝의 KidItemDomains.register 로 넘긴다.
 
   // 키즈노트 상품등록 폼 자동 채움. 제출하지 않으므로 몰에 부작용이 없다.
@@ -1222,118 +874,30 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
     return respond(mallFormRegister().listCategories(msg));
   }
 
-  if (msg?.action === "collectSellpiaInventory") {
-    return respond(sellpiaInventoryLifecycle.run(
-      msg,
-      {
-        sourceOrigin: "https://kiditem.sellpia.com",
-        sourceAccountKey: "kiditem",
-      },
-      (collection) => sellpiaInventory.collect(collection),
-    ));
-  }
-
   if (msg?.action === "collectSellpiaManualMatch") {
-    return respond(runSellpiaManualMatchCollection(msg));
-  }
-
-  if (msg?.action === "collectSellpiaDeliTracking") {
-    return respond(orderCollectionLifecycle.run(
-      msg,
-      KidItemOrderCollectionLifecycle.createIdentity(
-        "sellpia",
-        typeof msg.endDate === "string" ? msg.endDate : msg.startDate,
-      ),
-      (collection) => collectSellpiaDeliTracking({
-        startDate: typeof msg.startDate === "string" ? msg.startDate : null,
-        endDate: typeof msg.endDate === "string" ? msg.endDate : null,
-      }, collection),
-    ));
-  }
-
-  // 판매현황(몰별 매출) 수집 — 읽기 전용(비파괴). 대시보드 '몰별 매출' 섹션 적재용.
-  if (msg?.action === "collectSellpiaSaleSummary") {
-    const organizationId = normalizeSellpiaSalesOrganizationId(msg.organizationId);
-    if (!organizationId) {
-      sendResponse({ success: false, error: "판매현황 수집 조직 정보가 없습니다." });
-      return false;
-    }
-    const organizationKey = sellpiaSalesKey(
-      SELLPIA_SALES_ORGANIZATION_KEY,
-      environmentId,
-    );
-    chrome.storage.local
-      .set({ [organizationKey]: organizationId })
-      .then(() => collectSellpiaSaleSummary({
-        startDate: typeof msg.startDate === "string" ? msg.startDate : null,
-        endDate: typeof msg.endDate === "string" ? msg.endDate : null,
-        keepTabOnLoginError: true, // 대화형: 로그인 유도 위해 탭 유지 (무인 알람은 미지정=닫음)
-      }))
-      .then((result) => sendResponse(result))
-      .catch((error) => {
-        sendResponse({ success: false, error: error?.message || "셀피아 판매현황 수집 실패" });
+    try {
+      const parsed = KidItemSellpiaManualMatchSourceOwner.parseAction(rawMessage);
+      return respond(runSellpiaManualMatchCollection({
+        ...parsed,
+        environmentId,
+      }));
+    } catch (error) {
+      sendResponse({
+        success: false,
+        error: error?.message || "Invalid Sellpia manual-match request.",
       });
-    return true;
-  }
-
-  // 상품별 이익현황(월별 소진) 수집 — 읽기 전용. 재고 분석 '상품별 소진' 적재용.
-  if (msg?.action === "collectSellpiaProductProfit") {
-    // 이 capability는 임의 기간 조회가 아니라, 수익성 평가에 필요한 연속 증거
-    // 창을 한 번 읽는 전용 계약이다. 기간은 페이지 컨텍스트가 KST 기준으로 정한다.
-    collectSellpiaProductProfit()
-      .then((result) => sendResponse(result))
-      .catch((error) => {
-        sendResponse({ success: false, error: error?.message || "셀피아 상품별 소진 수집 실패" });
-      });
-    return true;
-  }
-
-  // 매일 자동수집 알람이 캐시해둔 판매현황 payload 조회(웹앱이 백엔드로 flush).
-  if (msg?.action === "getSellpiaSalesCache") {
-    const organizationId = normalizeSellpiaSalesOrganizationId(msg.organizationId);
-    if (!organizationId) {
-      sendResponse({ success: false, error: "판매현황 캐시 조직 정보가 없습니다." });
       return false;
     }
-    const cacheKey = sellpiaSalesKey(SELLPIA_SALES_CACHE_KEY, environmentId);
-    chrome.storage.local
-      .get(cacheKey)
-      .then((o) => {
-        const cache = o?.[cacheKey] ?? null;
-        sendResponse({
-          success: true,
-          cache: cache?.organizationId === organizationId ? cache : null,
-        });
-      })
-      .catch((error) => sendResponse({ success: false, error: error?.message || String(error) }));
-    return true;
-  }
-
-  if (msg?.action === "clearSellpiaSalesCache") {
-    const organizationId = normalizeSellpiaSalesOrganizationId(msg.organizationId);
-    if (!organizationId) {
-      sendResponse({ success: false, error: "판매현황 캐시 조직 정보가 없습니다." });
-      return false;
-    }
-    const cacheKey = sellpiaSalesKey(SELLPIA_SALES_CACHE_KEY, environmentId);
-    chrome.storage.local
-      .get(cacheKey)
-      .then((o) => {
-        const cache = o?.[cacheKey] ?? null;
-        if (cache?.organizationId !== organizationId) return;
-        return chrome.storage.local.remove(cacheKey);
-      })
-      .then(() => sendResponse({ success: true }))
-      .catch((error) => sendResponse({ success: false, error: error?.message || String(error) }));
-    return true;
   }
 
   if (msg?.action === "collectIcecreamMallOrders") {
-    return respond(orderCollectionLifecycle.run(
+    return respond(runOwnedOrderCollection(
       msg,
-      KidItemOrderCollectionLifecycle.createIdentity("icecream-mall", msg.date),
-      (collection) => collectIcecreamMallOrders(
-        typeof msg.date === "string" ? msg.date : null,
+      "icecream-mall",
+      (collection, plan) => collectIcecreamMallOrders(
+        plan.legacy && msg.serverOwned !== true
+          ? (typeof msg.date === "string" ? msg.date : null)
+          : providerCollectionDate(msg, plan),
         normalizeIcecreamMallCredentials(msg.credentials),
         collection,
       ),
@@ -1363,7 +927,7 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
 
   // 셀피아에 현재 올라와 있는 주문(판매처+주문번호+수취인) 스냅샷. 조회만 하는 비파괴 액션.
   if (msg?.action === "collectSellpiaOrderSnapshot") {
-    collectSellpiaOrderSnapshot()
+    collectSellpiaOrderSnapshot(environmentId)
       .then((result) => sendResponse(result))
       .catch((error) => {
         sendResponse({
@@ -1430,28 +994,13 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
 
   // ── 원클릭 자동 수집: 발송일 기준 쉽먼트 목록(센터순) + Label/내역서 PDF 직접 fetch ──
   if (msg?.action === "collectCoupangShipmentDateSummary") {
-    if (KidItemOrderCollectionLifecycle.validRunId(msg.runId)) {
-      return respond(coupangShipmentSummaryLifecycle.run(
-        msg,
-        { source: "coupang-shipment-summary" },
-        () => collectCoupangShipmentDateSummary({ maxPages: msg.maxPages }),
-      ));
-    }
-    collectCoupangShipmentDateSummary({ maxPages: msg.maxPages })
-      .then((result) => sendResponse(result))
-      .catch((error) => {
-        sendResponse({
-          success: false,
-          error: error?.message || "쿠팡 쉽먼트 발송일 조회 실패",
-        });
-      });
-    return true;
+    return false; // The validated externalActions registry is the sole responder.
   }
 
   if (msg?.action === "collectCoupangShipmentList") {
     collectCoupangShipmentList({
       date: typeof msg.date === "string" ? msg.date : "",
-    })
+    }, environmentId)
       .then((result) => sendResponse(result))
       .catch((error) => {
         sendResponse({
@@ -1465,7 +1014,7 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   if (msg?.action === "fetchCoupangShipmentPdfBatch") {
     fetchCoupangShipmentPdfBatch({
       items: Array.isArray(msg.items) ? msg.items : [],
-    })
+    }, environmentId)
       .then((result) => sendResponse(result))
       .catch((error) => {
         sendResponse({
@@ -1488,69 +1037,45 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
-  if (msg?.action === "collectRocketPoRows") {
-    return respond(coupangRocketPoLifecycle.run(
-      msg,
-      KidItemOrderCollectionLifecycle.createIdentity(
-        "coupang-rocket",
-        typeof msg.to === "string" ? msg.to : msg.from,
-      ),
-      (collection) => collectRocketPoRows({
-        from: typeof msg.from === "string" ? msg.from : null,
-        to: typeof msg.to === "string" ? msg.to : null,
-        status: ["RP", "PA", "RI", "CI", ""].includes(msg.status) ? msg.status : "RP",
-        dateType:
-          msg.dateType === "PURCHASE_ORDER_DATE"
-            ? "PURCHASE_ORDER_DATE"
-            : "WAREHOUSING_PLAN_DATE",
-      }, collection),
-    ));
-  }
-
-  if (msg?.action === "listRocketPos") {
-    return respond(coupangRocketPoLifecycle.run(
-      msg,
-      KidItemOrderCollectionLifecycle.createIdentity(
-        "coupang-rocket",
-        typeof msg.to === "string" ? msg.to : msg.from,
-      ),
-      (collection) => listRocketPos({
-        from: typeof msg.from === "string" ? msg.from : null,
-        to: typeof msg.to === "string" ? msg.to : null,
-        status: typeof msg.status === "string" ? msg.status : "",
-      }, collection),
-    ));
-  }
-
   if (msg?.action === "collectKidsnoteOrders") {
-    return respond(orderCollectionLifecycle.run(
+    return respond(runOwnedOrderCollection(
       msg,
-      KidItemOrderCollectionLifecycle.createIdentity(
-        "kidsnote",
-        typeof msg.to === "string" ? msg.to : msg.from,
+      "kidsnote",
+      (collection, plan) => collectKidsnoteOrders(
+        plan.legacy
+          ? {
+            from: typeof msg.from === "string" ? msg.from : null,
+            to: typeof msg.to === "string" ? msg.to : null,
+            status: typeof msg.status === "string" ? msg.status : "",
+            withDetail: msg.withDetail === true,
+          }
+          : {
+            from: plan.collectionDate,
+            to: plan.collectionDate,
+            status: typeof msg.status === "string" ? msg.status : "",
+            withDetail: msg.withDetail === true,
+          },
+        collection,
       ),
-      (collection) => collectKidsnoteOrders({
-        from: typeof msg.from === "string" ? msg.from : null,
-        to: typeof msg.to === "string" ? msg.to : null,
-        status: typeof msg.status === "string" ? msg.status : "",
-        withDetail: msg.withDetail === true,
-      }, collection),
     ));
   }
 
   if (msg?.action === "collectKkomangseOrders") {
-    return respond(orderCollectionLifecycle.run(
+    return respond(runOwnedOrderCollection(
       msg,
-      KidItemOrderCollectionLifecycle.createIdentity("kkomangse", msg.date),
+      "kkomangse",
       (collection) => collectKkomangseOrders(collection),
     ));
   }
 
   if (msg?.action === "collectOnchannelOrders") {
-    return respond(orderCollectionLifecycle.run(
+    return respond(runOwnedOrderCollection(
       msg,
-      KidItemOrderCollectionLifecycle.createIdentity("onch", msg.date),
-      (collection) => collectOnchannelOrders(msg.date, collection),
+      "onch",
+      (collection, plan) => collectOnchannelOrders(
+        providerCollectionDate(msg, plan),
+        collection,
+      ),
     ));
   }
 
@@ -1573,10 +1098,13 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg?.action === "collectDomeggookOrders") {
-    return respond(orderCollectionLifecycle.run(
+    return respond(runOwnedOrderCollection(
       msg,
-      KidItemOrderCollectionLifecycle.createIdentity("domeggook", msg.date),
-      (collection) => collectDomeggookOrders(msg.date, collection),
+      "domeggook",
+      (collection, plan) => collectDomeggookOrders(
+        providerCollectionDate(msg, plan),
+        collection,
+      ),
     ));
   }
 
@@ -1603,68 +1131,85 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg?.action === "collectKidkidsOrders") {
-    return respond(orderCollectionLifecycle.run(
+    return respond(runOwnedOrderCollection(
       msg,
-      KidItemOrderCollectionLifecycle.createIdentity("kidkids", msg.date),
-      (collection) => collectKidkidsOrders(msg.date, msg.planDate, collection),
+      "kidkids",
+      (collection, plan) => collectKidkidsOrders(
+        providerCollectionDate(msg, plan),
+        plan.legacy ? msg.planDate : null,
+        collection,
+      ),
     ));
   }
 
   if (msg?.action === "collectHaebeopOrders") {
-    return respond(orderCollectionLifecycle.run(
+    return respond(runOwnedOrderCollection(
       msg,
-      KidItemOrderCollectionLifecycle.createIdentity("haebub-mall", msg.date),
-      (collection) => collectHaebeopOrders(
-        { date: msg.date, fromDate: msg.fromDate, toDate: msg.toDate, vendor: msg.vendor },
+      "haebub-mall",
+      (collection, plan) => collectHaebeopOrders(
+        plan.legacy && msg.serverOwned !== true
+          ? { date: msg.date, fromDate: msg.fromDate, toDate: msg.toDate, vendor: msg.vendor }
+          : {
+            date: providerCollectionDate(msg, plan),
+            fromDate: null,
+            toDate: null,
+            vendor: HAEBEOP_DEFAULT_VENDOR,
+          },
         collection,
       ),
     ));
   }
 
   if (msg?.action === "collectLotteonOrders") {
-    return respond(orderCollectionLifecycle.run(
+    return respond(runOwnedOrderCollection(
       msg,
-      KidItemOrderCollectionLifecycle.createIdentity("lotte-on", msg.date),
+      "lotte-on",
       (collection) => collectLotteonOrders(collection),
     ));
   }
 
   if (msg?.action === "collectGsshopOrders") {
-    return respond(orderCollectionLifecycle.run(
+    return respond(runOwnedOrderCollection(
       msg,
-      KidItemOrderCollectionLifecycle.createIdentity("gs-shop", msg.date),
+      "gs-shop",
       (collection) => collectGsshopOrders(collection),
     ));
   }
 
   if (msg?.action === "collectAlwayzOrders") {
-    return respond(orderCollectionLifecycle.run(
+    return respond(runOwnedOrderCollection(
       msg,
-      KidItemOrderCollectionLifecycle.createIdentity("always", msg.date),
+      "always",
       (collection) => collectAlwayzOrders(collection),
     ));
   }
 
   if (msg?.action === "collect11stOrders") {
-    return respond(orderCollectionLifecycle.run(
+    return respond(runOwnedOrderCollection(
       msg,
-      KidItemOrderCollectionLifecycle.createIdentity("11st", msg.date),
-      (collection) => collect11stOrders(msg.date, collection),
+      "11st",
+      (collection, plan) => collect11stOrders(
+        providerCollectionDate(msg, plan),
+        collection,
+      ),
     ));
   }
 
   if (msg?.action === "collectKakaoOrders") {
-    return respond(orderCollectionLifecycle.run(
+    return respond(runOwnedOrderCollection(
       msg,
-      KidItemOrderCollectionLifecycle.createIdentity("kakao", msg.date),
-      (collection) => collectKakaoOrders(msg.date, collection),
+      "kakao",
+      (collection, plan) => collectKakaoOrders(
+        providerCollectionDate(msg, plan),
+        collection,
+      ),
     ));
   }
 
   if (msg?.action === "collectBoriboriOrders") {
-    return respond(orderCollectionLifecycle.run(
+    return respond(runOwnedOrderCollection(
       msg,
-      KidItemOrderCollectionLifecycle.createIdentity("boribori", msg.date),
+      "boribori",
       (collection) => collectBoriboriOrders({
         password: typeof msg.password === "string" ? msg.password : "",
       }, collection),
@@ -1672,27 +1217,29 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg?.action === "collectTeachervilleOrders") {
-    return respond(orderCollectionLifecycle.run(
+    return respond(runOwnedOrderCollection(
       msg,
-      KidItemOrderCollectionLifecycle.createIdentity("teacher-mall", msg.date),
+      "teacher-mall",
       (collection) => collectTeachervilleOrders(collection),
     ));
   }
 
   if (msg?.action === "collectArt09Orders") {
-    return respond(orderCollectionLifecycle.run(
+    return respond(runOwnedOrderCollection(
       msg,
-      KidItemOrderCollectionLifecycle.createIdentity("art09", msg.date),
-      (collection) => collectArt09Orders(msg.date, collection),
+      "art09",
+      (collection, plan) => collectArt09Orders(
+        providerCollectionDate(msg, plan),
+        collection,
+      ),
     ));
   }
 
   if (msg?.action === "collectCoupangDirectOrders") {
-    return respond(orderCollectionLifecycle.run(
-      msg,
-      KidItemOrderCollectionLifecycle.createIdentity("coupang-direct", msg.date),
-      (collection) => collectCoupangDirectOrders(collection),
-    ));
+    // The validated external-actions registry owns this action. Keeping the
+    // old listener branch out of the path prevents a second generic mall
+    // lifecycle from wrapping the Directship owner attempt.
+    return false;
   }
 
   return false;
@@ -1731,9 +1278,59 @@ function isMallAccessError(err) {
   );
 }
 
+async function assertOrderCollectionActive(collection) {
+  if (typeof collection?.assertActive !== "function") return true;
+  const active = await collection.assertActive();
+  if (active === false || active === null) {
+    const error = new Error("Order collection is no longer active.");
+    error.code = "COLLECTION_CANCELLED";
+    throw error;
+  }
+  return true;
+}
+
 async function attachOrderCollectionTab(collection, tab, owned) {
-  if (!collection) return;
-  await collection.attachTab(tab, { owned });
+  if (!collection?.attachTab) return true;
+  try {
+    return await collection.attachTab(tab, { owned });
+  } catch (error) {
+    // The tab is always fresh for named read collectors. If attachment itself
+    // fails before the session can record ownership, release only that tab.
+    if (owned && Number.isInteger(tab?.id)) {
+      try {
+        await chrome.tabs.remove(tab.id);
+      } catch {
+        // Cancellation may already have removed it through CollectionSession.
+      }
+    }
+    throw error;
+  }
+}
+
+async function createFreshOrderCollectionTab(collection, url) {
+  // A provider page already open in the operator's profile is not evidence
+  // that this owner controls it. Every named read collector gets a fresh,
+  // inactive page after the local environment/producer fence has held.
+  await assertOrderCollectionActive(collection);
+  const tab = await chrome.tabs.create({ url, active: false });
+  return { tab, created: true };
+}
+
+async function closeFreshOrderCollectionTab(tab) {
+  if (!Number.isInteger(tab?.id)) return;
+  if (typeof chrome.tabs.get === "function") {
+    try {
+      await chrome.tabs.get(tab.id);
+    } catch {
+      // CollectionSession may already have closed a refused tab.
+      return;
+    }
+  }
+  try {
+    await chrome.tabs.remove(tab.id);
+  } catch {
+    // The tab may have been closed by cancellation at the same time.
+  }
 }
 
 // 페이지 접근불가(=대체로 미로그인) 안내 결과. pendingLogin=true 로 프론트가 "로그인 필요"로 표시.
@@ -1752,74 +1349,101 @@ function mallGenericErrorResult(mallName, err) {
   return { success: false, error: `${mallName} 수집 오류: ${String((err && err.message) || err)}` };
 }
 
+function orderCollectionCancelledResult(error) {
+  return {
+    success: false,
+    errorCode: "COLLECTION_CANCELLED",
+    error: String(error?.message || "Order collection is no longer active."),
+  };
+}
+
+function orderCollectionNeedsAttention(result) {
+  return Boolean(
+    result?.pendingLogin === true ||
+    result?.pendingAuth === true ||
+    result?.loginRequired === true ||
+    result?.attentionRequired === true,
+  );
+}
+
 /**
  * 셀피아에 지금 올라와 있는 주문을 판매처(수취인 괄호 이름)+주문번호로 읽어온다.
  * 업로드 직후 주문은 order_collect 대기목록에, 등록된 주문은 재고매칭에 있으므로 둘을 합친다.
  * 웹앱은 이걸 수집 기록과 대조해 "아직 셀피아에 안 올라간 주문"을 계산한다. 조회만 하는 비파괴 액션.
  */
-async function collectSellpiaOrderSnapshot() {
-  // 포커스를 뺏지 않도록 백그라운드 탭을 따로 열어 조회하고, 끝나면 닫는다.
-  // 사용자가 보고 있는 탭/기존 셀피아 탭은 건드리지 않는다.
-  const tab = await chrome.tabs.create({ url: SELLPIA_ORDER_UPLOAD_URL, active: false });
-  if (!tab?.id) return { success: false, error: "셀피아 탭을 열 수 없습니다." };
-  let keepOpen = false;
-  try {
-  await waitForTabReady(tab.id);
-
-  const byOrderNo = new Map();
-  const pages = [
-    { url: SELLPIA_ORDER_UPLOAD_URL, source: "pending" },
-    { url: SELLPIA_STOCKMATCH_URL, source: "stockmatch" },
-  ];
-  let lastError = null;
-  let visited = 0;
-  for (const { url, source } of pages) {
-    try {
-      const current = await chrome.tabs.get(tab.id).catch(() => null);
-      const path = String(url).split("?")[0];
-      if (!current || !String(current.url || "").startsWith(path)) {
-        await chrome.tabs.update(tab.id, { url });
-        await waitForTabReady(tab.id);
-      }
-      const result = await runSellpiaStepInTab(tab.id, "orderSnapshot", 120000);
-      if (!result?.success) {
-        lastError = result?.error || null;
-        continue;
-      }
-      visited += 1;
-      for (const row of result.rows || []) {
-        if (!byOrderNo.has(row.orderNo)) byOrderNo.set(row.orderNo, { ...row, source });
-      }
-    } catch (error) {
-      lastError = error?.message || String(error);
-    }
-  }
-  if (visited === 0) {
-    // 한 화면도 못 읽었으면 대체로 셀피아 미로그인이다. 로그인할 수 있게 탭을 남긴다.
-    keepOpen = true;
-    return {
-      success: false,
-      pendingLogin: true,
-      error: lastError || "셀피아 주문 목록을 읽지 못했습니다. 셀피아 로그인 상태를 확인하세요.",
-    };
-  }
-  return {
-    success: true,
-    orderCount: byOrderNo.size,
-    rows: [...byOrderNo.values()],
-    partial: visited < pages.length,
-    error: visited < pages.length ? lastError : undefined,
-  };
-  } finally {
-    // 조회가 끝났으면 우리가 연 백그라운드 탭을 닫는다.
-    if (!keepOpen && tab.id) {
+async function collectSellpiaOrderSnapshot(environmentId) {
+  requireOrdersCollectionEnvironment(environmentId);
+  return runOrdersAdditionalCollection(
+    environmentId,
+    "Sellpia order snapshot",
+    async (context) => {
+      // 포커스를 뺏지 않도록 백그라운드 탭을 따로 열어 조회하고, 끝나면 닫는다.
+      // 사용자가 보고 있는 탭/기존 셀피아 탭은 건드리지 않는다.
+      const tab = await chrome.tabs.create({ url: SELLPIA_ORDER_UPLOAD_URL, active: false });
+      if (!tab?.id) return { success: false, error: "셀피아 탭을 열 수 없습니다." };
+      if (!(await context.ownTab(tab))) return additionalCollectionCancelled(context);
+      let keepOpen = false;
       try {
-        await chrome.tabs.remove(tab.id);
-      } catch {
-        /* 이미 닫힘 — 무시 */
+        if (!context.isActive()) return additionalCollectionCancelled(context);
+        await waitForTabReady(tab.id);
+
+        const byOrderNo = new Map();
+        const pages = [
+          { url: SELLPIA_ORDER_UPLOAD_URL, source: "pending" },
+          { url: SELLPIA_STOCKMATCH_URL, source: "stockmatch" },
+        ];
+        let lastError = null;
+        let visited = 0;
+        for (const { url, source } of pages) {
+          if (!context.isActive()) return additionalCollectionCancelled(context);
+          try {
+            const current = await chrome.tabs.get(tab.id).catch(() => null);
+            const path = String(url).split("?")[0];
+            if (!current || !String(current.url || "").startsWith(path)) {
+              await chrome.tabs.update(tab.id, { url });
+              await waitForTabReady(tab.id);
+            }
+            if (!context.isActive()) return additionalCollectionCancelled(context);
+            const result = await runSellpiaStepInTab(tab.id, "orderSnapshot", 120000);
+            if (!context.isActive()) return additionalCollectionCancelled(context);
+            if (!result?.success) {
+              lastError = result?.error || null;
+              continue;
+            }
+            visited += 1;
+            for (const row of result.rows || []) {
+              if (!byOrderNo.has(row.orderNo)) byOrderNo.set(row.orderNo, { ...row, source });
+            }
+          } catch (error) {
+            lastError = error?.message || String(error);
+          }
+        }
+        if (!context.isActive()) return additionalCollectionCancelled(context);
+        if (visited === 0) {
+          // 한 화면도 못 읽었으면 대체로 셀피아 미로그인이다. 로그인할 수 있게 탭을 남긴다.
+          keepOpen = true;
+          await context.retainTab(tab);
+          return {
+            success: false,
+            pendingLogin: true,
+            error: lastError || "셀피아 주문 목록을 읽지 못했습니다. 셀피아 로그인 상태를 확인하세요.",
+          };
+        }
+        return {
+          success: true,
+          orderCount: byOrderNo.size,
+          rows: [...byOrderNo.values()],
+          partial: visited < pages.length,
+          error: visited < pages.length ? lastError : undefined,
+        };
+      } finally {
+        // 조회가 끝났으면 우리가 연 백그라운드 탭을 닫는다.
+        if (!keepOpen && tab.id) {
+          await context.closeTab(tab);
+        }
       }
-    }
-  }
+    },
+  );
 }
 
 /**
@@ -2061,17 +1685,41 @@ async function clickCoupangShipmentDownloads(options) {
 // 백그라운드 쿠팡 supplier 탭: 기존 supplier 탭이 있으면 그대로 재사용(포커스를 뺏지 않음),
 // 없을 때만 active:false 로 새 탭을 만든다. 목록/라벨/내역서는 same-origin fetch 라
 // supplier.coupang.com 의 어떤 경로(로켓 발주 화면 등)에서도 동작한다 → 사용자 화면 그대로 유지.
-async function findOrCreateBackgroundCoupangSupplierTab() {
-  const tabs = await chrome.tabs.query({ url: COUPANG_SUPPLIER_TAB_MATCHES });
-  if (tabs[0]?.id) return tabs[0];
-  return chrome.tabs.create({ url: COUPANG_SHIPMENT_URL, active: false });
+async function findOrCreateBackgroundCoupangSupplierTab(attemptId, additionalContext) {
+  if (additionalContext) {
+    if (!additionalContext.isActive()) return null;
+    const owned = await chrome.tabs.create({ url: COUPANG_SHIPMENT_URL, active: false });
+    if (!(await additionalContext.ownTab(owned))) return null;
+    return owned;
+  }
+  // Attempt-owned supplier reads use a fresh inactive tab. Reusing an
+  // operator tab would leave a multipage in-page fetch loop outside the
+  // managed-tab fence after app close, so preserve the operator tab and close
+  // only this owned task tab.
+  const tab = await chrome.tabs.create({ url: COUPANG_SHIPMENT_URL, active: false });
+  if (attemptId && tab?.id) {
+    const attached = await collectionSessions.attachTab(attemptId, {
+      tabId: tab.id, windowId: tab.windowId, closeOnCancel: true,
+    });
+    if (attached === null || attached === false) {
+      try { await chrome.tabs.remove(tab.id); } catch { /* already closed */ }
+      return null;
+    }
+  }
+  return tab;
 }
 
 // ── 발송일 조회(달력용): 최근 쉽먼트를 발송일별로 집계 (몇 건 / 박스수) ──
 async function collectCoupangShipmentDateSummary(options) {
-  const tab = await findOrCreateBackgroundCoupangSupplierTab();
-  if (!tab?.id) return { success: false, error: "쿠팡 supplier 탭을 열 수 없습니다." };
+  if (typeof options?.isActive === "function" && !(await options.isActive())) {
+    return additionalCollectionCancelled(options, "쿠팡 쉽먼트 조회가 취소되었습니다.");
+  }
+  const tab = await findOrCreateBackgroundCoupangSupplierTab(options?.attemptId);
+  if (!tab?.id) return additionalCollectionCancelled(options, "쿠팡 쉽먼트 조회가 취소되었습니다.");
   await waitForTabReady(tab.id);
+  if (typeof options?.isActive === "function" && !(await options.isActive())) {
+    return additionalCollectionCancelled(options, "쿠팡 쉽먼트 조회가 취소되었습니다.");
+  }
 
   const injected = await withTimeout(
     chrome.scripting.executeScript({
@@ -2082,6 +1730,9 @@ async function collectCoupangShipmentDateSummary(options) {
     90000,
     "쿠팡 쉽먼트 발송일 조회 시간이 초과되었습니다.",
   );
+  if (typeof options?.isActive === "function" && !(await options.isActive())) {
+    return additionalCollectionCancelled(options, "쿠팡 쉽먼트 조회가 취소되었습니다.");
+  }
   return (
     injected[0]?.result ?? {
       success: false,
@@ -2148,6 +1799,9 @@ async function scrapeCoupangShipmentDateSummary(maxPages) {
     let scannedPages = 0;
     let totalRows = 0;
     let reachedLastPage = false;
+    let stopReason = 'max_pages';
+    let lastPageRowCount = 0;
+    const pageRowCounts = [];
     for (
       let batchStart = 1;
       batchStart <= maxPages && !reachedLastPage;
@@ -2170,7 +1824,10 @@ async function scrapeCoupangShipmentDateSummary(maxPages) {
 
       for (const { page, rows } of batchRows) {
         scannedPages = page;
+        lastPageRowCount = rows.length;
+        pageRowCounts.push(rows.length);
         if (rows.length === 0) {
+          stopReason = 'empty_page';
           reachedLastPage = true;
           break;
         }
@@ -2186,6 +1843,7 @@ async function scrapeCoupangShipmentDateSummary(maxPages) {
           byDate.set(date, current);
         }
         if (rows.length < 10) {
+          stopReason = 'short_page';
           reachedLastPage = true;
           break;
         }
@@ -2194,7 +1852,10 @@ async function scrapeCoupangShipmentDateSummary(maxPages) {
     const dates = [...byDate.entries()]
       .map(([date, v]) => ({ date, count: v.count, boxes: v.boxes }))
       .sort((a, b) => b.date.localeCompare(a.date));
-    return { success: true, scannedPages, totalRows, dates };
+    return {
+      success: true, scannedPages, totalRows, dates,
+      proof: { maxPages, validatedTable: true, stopReason, lastPageRowCount, pageRowCounts },
+    };
   } catch (e) {
     const msg = String((e && e.message) || e);
     // 쿠팡 접속이 많아 쿠키가 커지면 supplier.coupang.com(Tomcat)이 400/413/431 로 요청을 거부한다.
@@ -2227,52 +1888,78 @@ async function scrapeCoupangShipmentDateSummary(maxPages) {
 // ── 원클릭 자동 수집: 발송일 기준 쉽먼트 목록 (직접 목록 API HTML 파싱) ──
 // clickCoupangShipmentDownloads 는 화면 버튼을 눌러 파일명 없는 PDF 를 Downloads 로 흘리지만,
 // 이쪽은 목록/라벨/내역서 엔드포인트를 세션 fetch 로 직접 받아 발송일·센터를 정확히 붙인다.
-async function collectCoupangShipmentList(options) {
-  const tab = await findOrCreateBackgroundCoupangSupplierTab();
-  if (!tab?.id) return { success: false, error: "쿠팡 supplier 탭을 열 수 없습니다." };
-  await waitForTabReady(tab.id);
+async function collectCoupangShipmentList(options, environmentId) {
+  requireOrdersCollectionEnvironment(environmentId);
+  return runOrdersAdditionalCollection(
+    environmentId,
+    "Coupang shipment list",
+    async (context) => {
+      if (!context.isActive()) return additionalCollectionCancelled(context);
+      const tab = await findOrCreateBackgroundCoupangSupplierTab(null, context);
+      if (!tab?.id) return additionalCollectionCancelled(context);
+      await waitForTabReady(tab.id);
+      if (!context.isActive()) return additionalCollectionCancelled(context);
 
-  const injected = await withTimeout(
-    chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      func: scrapeCoupangShipmentList,
-      args: [options?.date || ""],
-    }),
-    90000,
-    "쿠팡 쉽먼트 목록 수집 시간이 초과되었습니다.",
-  );
-  return (
-    injected[0]?.result ?? {
-      success: false,
-      error: "쿠팡 쉽먼트 화면에 접근하지 못했습니다.",
-    }
+      try {
+        const injected = await withTimeout(
+          chrome.scripting.executeScript({
+            target: { tabId: tab.id },
+            func: scrapeCoupangShipmentList,
+            args: [options?.date || ""],
+          }),
+          90000,
+          "쿠팡 쉽먼트 목록 수집 시간이 초과되었습니다.",
+        );
+        if (!context.isActive()) return additionalCollectionCancelled(context);
+        return injected[0]?.result ?? {
+          success: false,
+          error: "쿠팡 쉽먼트 화면에 접근하지 못했습니다.",
+        };
+      } catch (error) {
+        if (!context.isActive()) return additionalCollectionCancelled(context);
+        throw error;
+      }
+    },
   );
 }
 
-async function fetchCoupangShipmentPdfBatch(options) {
+async function fetchCoupangShipmentPdfBatch(options, environmentId) {
+  requireOrdersCollectionEnvironment(environmentId);
   const items = (options?.items || [])
     .filter((it) => it && it.seq && (it.kind === "label" || it.kind === "manifest"))
     .map((it) => ({ seq: String(it.seq), kind: it.kind }));
   if (items.length === 0) return { success: false, error: "요청한 PDF 항목이 없습니다." };
 
-  const tab = await findOrCreateBackgroundCoupangSupplierTab();
-  if (!tab?.id) return { success: false, error: "쿠팡 supplier 탭을 열 수 없습니다." };
-  await waitForTabReady(tab.id);
+  return runOrdersAdditionalCollection(
+    environmentId,
+    "Coupang shipment PDFs",
+    async (context) => {
+      if (!context.isActive()) return additionalCollectionCancelled(context);
+      const tab = await findOrCreateBackgroundCoupangSupplierTab(null, context);
+      if (!tab?.id) return additionalCollectionCancelled(context);
+      await waitForTabReady(tab.id);
+      if (!context.isActive()) return additionalCollectionCancelled(context);
 
-  const injected = await withTimeout(
-    chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      func: fetchCoupangShipmentPdfsInPage,
-      args: [items],
-    }),
-    120000,
-    "쿠팡 쉽먼트 PDF 수집 시간이 초과되었습니다.",
-  );
-  return (
-    injected[0]?.result ?? {
-      success: false,
-      error: "쿠팡 쉽먼트 PDF 화면에 접근하지 못했습니다.",
-    }
+      try {
+        const injected = await withTimeout(
+          chrome.scripting.executeScript({
+            target: { tabId: tab.id },
+            func: fetchCoupangShipmentPdfsInPage,
+            args: [items],
+          }),
+          120000,
+          "쿠팡 쉽먼트 PDF 수집 시간이 초과되었습니다.",
+        );
+        if (!context.isActive()) return additionalCollectionCancelled(context);
+        return injected[0]?.result ?? {
+          success: false,
+          error: "쿠팡 쉽먼트 PDF 화면에 접근하지 못했습니다.",
+        };
+      } catch (error) {
+        if (!context.isActive()) return additionalCollectionCancelled(context);
+        throw error;
+      }
+    },
   );
 }
 
@@ -2439,16 +2126,6 @@ async function fetchCoupangShipmentPdfsInPage(items) {
   return { success: true, files };
 }
 
-// ── 로켓 발주확정: 발주리스트(거래처확인요청) + 상세를 풀컬럼 스크래핑 ──
-async function collectRocketPoRows({ from, to, status = "RP", dateType = "WAREHOUSING_PLAN_DATE" }, collection) {
-  return rocketPoCollection.collect({ from, to, status, dateType }, collection);
-}
-
-// ── 로켓 발주 목록(PO 단위, SKU 상세 없이) — 화면 리스트용 빠른 조회 ──
-async function listRocketPos({ from, to, status }, collection) {
-  return rocketPoCollection.list({ from, to, status }, collection);
-}
-
 async function findOrCreateInteractiveCoupangSupplierTab(reason) {
   const tabs = await chrome.tabs.query({ url: COUPANG_SUPPLIER_TAB_MATCHES });
   const shipmentTab = tabs.find((tab) => (tab.url || "").includes("/ibs/asn/active"));
@@ -2461,35 +2138,36 @@ async function findOrCreateInteractiveCoupangSupplierTab(reason) {
 }
 
 // ── 꼬망세(EduPre) 주문 수집: 입점관리자 "선택엑셀다운"(get_search_excel) xlsx export 를 fetch ──
-async function findOrCreateKkomangseTab() {
-  const tabs = await chrome.tabs.query({ url: KKOMANGSE_TAB_MATCHES });
-  const listTab = tabs.find((tab) => (tab.url || "").includes("_order_product.list"));
-  if (listTab?.id) {
-    await chrome.tabs.update(listTab.id, { url: KKOMANGSE_ORDER_URL }); // 검색 파라미터 보장 (백그라운드)
-    return { tab: await chrome.tabs.get(listTab.id), created: false };
-  }
-  if (tabs[0]?.id) {
-    await chrome.tabs.update(tabs[0].id, { url: KKOMANGSE_ORDER_URL });
-    return { tab: await chrome.tabs.get(tabs[0].id), created: false };
-  }
-  const tab = await chrome.tabs.create({ url: KKOMANGSE_ORDER_URL, active: false }); // 백그라운드 새 탭
-  return { tab, created: true };
+async function findOrCreateKkomangseTab(collection) {
+  return createFreshOrderCollectionTab(collection, KKOMANGSE_ORDER_URL);
 }
 
 async function collectKkomangseOrders(collection) {
-  const { tab, created } = await findOrCreateKkomangseTab();
+  const { tab, created } = await findOrCreateKkomangseTab(collection);
   if (!tab?.id) return { success: false, error: "꼬망세(nstore.edupre.co.kr) 탭을 열 수 없습니다." };
-  await attachOrderCollectionTab(collection, tab, created);
+  const attached = await attachOrderCollectionTab(collection, tab, created);
+  if (attached === null || attached === false) {
+    await closeFreshOrderCollectionTab(tab);
+    return {
+      success: false,
+      errorCode: "COLLECTION_CANCELLED",
+      error: "Order collection is no longer active.",
+    };
+  }
   let keepOpen = false;
   try {
     await waitForTabReady(tab.id);
+    await assertOrderCollectionActive(collection);
     const injected = await withTimeout(
       chrome.scripting.executeScript({ target: { tabId: tab.id }, func: scrapeKkomangseExport }),
       90000,
       "꼬망세 주문 수집 시간이 초과되었습니다.",
     );
-    return injected[0]?.result ?? { success: false, error: "꼬망세 화면에 접근하지 못했습니다." };
+    const result = injected[0]?.result ?? { success: false, error: "꼬망세 화면에 접근하지 못했습니다." };
+    if (orderCollectionNeedsAttention(result)) keepOpen = true;
+    return result;
   } catch (e) {
+    if (e?.code === "COLLECTION_CANCELLED") return orderCollectionCancelledResult(e);
     if (isMallAccessError(e)) { keepOpen = created; return mallAccessErrorResult("꼬망세"); }
     return mallGenericErrorResult("꼬망세", e);
   } finally {
@@ -2535,28 +2213,36 @@ async function scrapeKkomangseExport() {
 }
 
 // ── 온채널(onch3) 주문 수집: orders.php 리스트(주문코드+일자) + 주문별 상세모달 fetch ──
-async function findOrCreateOnchannelTab() {
-  const tabs = await chrome.tabs.query({ url: ONCHANNEL_TAB_MATCHES });
-  const orderTab = tabs.find((tab) => (tab.url || "").includes("/supplier/orders"));
-  if (orderTab?.id) {
-    return { tab: orderTab, created: false }; // 기존 주문 탭 재사용 (포커스 안 뺏음)
+async function findOrCreateOnchannelTab(collection) {
+  if (!collection) {
+    const tabs = await chrome.tabs.query({ url: ONCHANNEL_TAB_MATCHES });
+    const orderTab = tabs.find((tab) => (tab.url || "").includes("/supplier/orders"));
+    if (orderTab?.id) return { tab: orderTab, created: false };
+    if (tabs[0]?.id) {
+      await chrome.tabs.update(tabs[0].id, { url: ONCHANNEL_ORDER_URL });
+      return { tab: await chrome.tabs.get(tabs[0].id), created: false };
+    }
   }
-  if (tabs[0]?.id) {
-    await chrome.tabs.update(tabs[0].id, { url: ONCHANNEL_ORDER_URL }); // active 미지정 = 백그라운드
-    return { tab: await chrome.tabs.get(tabs[0].id), created: false };
-  }
-  const tab = await chrome.tabs.create({ url: ONCHANNEL_ORDER_URL, active: false }); // 백그라운드 새 탭
-  return { tab, created: true };
+  return createFreshOrderCollectionTab(collection, ONCHANNEL_ORDER_URL);
 }
 
 async function collectOnchannelOrders(dateFilter, collection) {
-  const { tab, created } = await findOrCreateOnchannelTab();
+  const { tab, created } = await findOrCreateOnchannelTab(collection);
   if (!tab?.id) return { success: false, error: "온채널(onch3.co.kr) 탭을 열 수 없습니다." };
-  await attachOrderCollectionTab(collection, tab, created);
+  const attached = await attachOrderCollectionTab(collection, tab, created);
+  if (attached === null || attached === false) {
+    await closeFreshOrderCollectionTab(tab);
+    return {
+      success: false,
+      errorCode: "COLLECTION_CANCELLED",
+      error: "Order collection is no longer active.",
+    };
+  }
   // 모달 fetch 가 수십 번 → 작업이 길다. MV3 서비스워커 유휴 종료(=message port closed) 방지 keepalive.
   let keepOpen = false;
   try {
     await waitForTabReady(tab.id);
+    await assertOrderCollectionActive(collection);
     const injected = await withTimeout(
       chrome.scripting.executeScript({
         target: { tabId: tab.id },
@@ -2566,8 +2252,11 @@ async function collectOnchannelOrders(dateFilter, collection) {
       120000,
       "온채널 주문 수집 시간이 초과되었습니다.",
     );
-    return injected[0]?.result ?? { success: false, error: "온채널 화면에 접근하지 못했습니다." };
+    const result = injected[0]?.result ?? { success: false, error: "온채널 화면에 접근하지 못했습니다." };
+    if (orderCollectionNeedsAttention(result)) keepOpen = true;
+    return result;
   } catch (e) {
+    if (e?.code === "COLLECTION_CANCELLED") return orderCollectionCancelledResult(e);
     if (isMallAccessError(e)) { keepOpen = created; return mallAccessErrorResult("온채널"); }
     return mallGenericErrorResult("온채널", e);
   } finally {
@@ -2700,26 +2389,36 @@ async function scrapeOnchannelOrders(dateFilter) {
 // ── 키드키즈(kidkids) 주문 수집: 출고관리 목록(logis_index) → (planDate 시)출고예정등록 → 발주서02(logis_down4) ──
 // 목록을 헤더 기준으로 읽어 od(CheckBox2)를 앵커 없이 모으고, planDate 가 오면 출고예정 미지정 주문에
 // 출고예정일을 지정(mode=ain)한 뒤 발주서02(logis_down4)를 배치 조회해 주소·우편번호·공급단가까지 확보한다.
-async function findOrCreateKidkidsTab() {
-  const tabs = await chrome.tabs.query({ url: KIDKIDS_TAB_MATCHES });
-  const mgmtTab = tabs.find((tab) => (tab.url || "").includes("/logis/management.htm"));
-  if (mgmtTab?.id) return { tab: mgmtTab, created: false }; // 기존 출고관리 탭 재사용
-  if (tabs[0]?.id) {
-    await chrome.tabs.update(tabs[0].id, { url: KIDKIDS_ORDER_URL }); // 백그라운드
-    return { tab: await chrome.tabs.get(tabs[0].id), created: false };
+async function findOrCreateKidkidsTab(collection) {
+  if (!collection) {
+    const tabs = await chrome.tabs.query({ url: KIDKIDS_TAB_MATCHES });
+    const mgmtTab = tabs.find((tab) => (tab.url || "").includes("/logis/management.htm"));
+    if (mgmtTab?.id) return { tab: mgmtTab, created: false };
+    if (tabs[0]?.id) {
+      await chrome.tabs.update(tabs[0].id, { url: KIDKIDS_ORDER_URL });
+      return { tab: await chrome.tabs.get(tabs[0].id), created: false };
+    }
   }
-  const tab = await chrome.tabs.create({ url: KIDKIDS_ORDER_URL, active: false });
-  return { tab, created: true };
+  return createFreshOrderCollectionTab(collection, KIDKIDS_ORDER_URL);
 }
 
 async function collectKidkidsOrders(dateFilter, planDate, collection) {
-  const { tab, created } = await findOrCreateKidkidsTab();
+  const { tab, created } = await findOrCreateKidkidsTab(collection);
   if (!tab?.id) return { success: false, error: "키드키즈(partner.kidkids.net) 탭을 열 수 없습니다." };
-  await attachOrderCollectionTab(collection, tab, created);
+  const attached = await attachOrderCollectionTab(collection, tab, created);
+  if (attached === null || attached === false) {
+    await closeFreshOrderCollectionTab(tab);
+    return {
+      success: false,
+      errorCode: "COLLECTION_CANCELLED",
+      error: "Order collection is no longer active.",
+    };
+  }
   // 주문서 fetch 가 주문 수만큼 → 길다. MV3 서비스워커 유휴 종료(=port closed) 방지 keepalive.
   let keepOpen = false;
   try {
     await waitForTabReady(tab.id);
+    await assertOrderCollectionActive(collection);
     const injected = await withTimeout(
       chrome.scripting.executeScript({
         target: { tabId: tab.id },
@@ -2736,6 +2435,7 @@ async function collectKidkidsOrders(dateFilter, planDate, collection) {
     if (result && result.loginRequired) { keepOpen = created; return mallAccessErrorResult("키드키즈"); }
     return result;
   } catch (e) {
+    if (e?.code === "COLLECTION_CANCELLED") return orderCollectionCancelledResult(e);
     if (isMallAccessError(e)) { keepOpen = created; return mallAccessErrorResult("키드키즈"); }
     return mallGenericErrorResult("키드키즈", e);
   } finally {
@@ -2755,27 +2455,27 @@ async function collectKidkidsOrders(dateFilter, planDate, collection) {
 // 검색 조건: search_ord_status=OY(결제완료), search_mall_name=협력사(우리 공급사명).
 // ⚠️search_shop_name 은 "고객사"라 협력사명을 넣으면 0건이 된다.
 // 상세에 없는 값(공급단가·제조사)은 빈칸으로 남고, 백엔드 변환기가 고정값 컬럼을 채운다.
-async function findOrCreateHaebeopTab() {
-  const tabs = await chrome.tabs.query({ url: HAEBEOP_TAB_MATCHES });
-  if (tabs[0]?.id) {
-    if (!(tabs[0].url || "").includes("/mall/order/")) {
-      await chrome.tabs.update(tabs[0].id, { url: HAEBEOP_ORDER_URL }); // 백그라운드
-      return { tab: await chrome.tabs.get(tabs[0].id), created: false };
-    }
-    return { tab: tabs[0], created: false }; // 기존 주문 화면 재사용
-  }
-  const tab = await chrome.tabs.create({ url: HAEBEOP_ORDER_URL, active: false });
-  return { tab, created: true };
+async function findOrCreateHaebeopTab(collection) {
+  return createFreshOrderCollectionTab(collection, HAEBEOP_ORDER_URL);
 }
 
 async function collectHaebeopOrders(options, collection) {
-  const { tab, created } = await findOrCreateHaebeopTab();
+  const { tab, created } = await findOrCreateHaebeopTab(collection);
   if (!tab?.id) return { success: false, error: "해법몰(mallseller.genimarket.co.kr) 탭을 열 수 없습니다." };
-  await attachOrderCollectionTab(collection, tab, created);
+  const attached = await attachOrderCollectionTab(collection, tab, created);
+  if (attached === null || attached === false) {
+    await closeFreshOrderCollectionTab(tab);
+    return {
+      success: false,
+      errorCode: "COLLECTION_CANCELLED",
+      error: "Order collection is no longer active.",
+    };
+  }
   // 주문마다 상세를 받으므로 길어질 수 있다. MV3 유휴 종료(=port closed) 방지 keepalive.
   let keepOpen = false;
   try {
     await waitForTabReady(tab.id);
+    await assertOrderCollectionActive(collection);
     const injected = await withTimeout(
       chrome.scripting.executeScript({
         target: { tabId: tab.id },
@@ -2794,6 +2494,7 @@ async function collectHaebeopOrders(options, collection) {
     if (result && result.loginRequired) { keepOpen = created; return mallAccessErrorResult("해법몰"); }
     return result;
   } catch (e) {
+    if (e?.code === "COLLECTION_CANCELLED") return orderCollectionCancelledResult(e);
     if (isMallAccessError(e)) { keepOpen = created; return mallAccessErrorResult("해법몰"); }
     return mallGenericErrorResult("해법몰", e);
   } finally {
@@ -2883,7 +2584,14 @@ async function scrapeHaebeopOrders(options) {
         }
       }
     }
-    if (!listRows.length) return { success: true, orders: [], count: 0 }; // 결제완료 신규 없음(정상)
+    if (!listRows.length) {
+      return {
+        success: true,
+        orders: [],
+        count: 0,
+        confirmedCoverage: { startDate: from, endDate: to },
+      };
+    } // 결제완료 신규 없음(정상)
 
     // 2) 주문 상세 파서 — 한 orderid 안에 여러 상품(basket)이 올 수 있다.
     const parseDetail = (html) => {
@@ -3003,7 +2711,13 @@ async function scrapeHaebeopOrders(options) {
         });
       });
     }
-    return { success: true, orders, count: orders.length, detailCount: detailByOrder.size };
+    return {
+      success: true,
+      orders,
+      count: orders.length,
+      detailCount: detailByOrder.size,
+      confirmedCoverage: { startDate: from, endDate: to },
+    };
   } catch (e) {
     return { success: false, error: String((e && e.message) || e) };
   }
@@ -3013,23 +2727,29 @@ async function scrapeHaebeopOrders(options) {
 // 롯데ON 판매자센터는 soapi.lotteon.com REST(Authorization: Bearer, 토큰은 sessionStorage.AuthToken).
 // 개인정보 다운로드 사유(saveDownloadReason)를 먼저 등록해 encryptKey 를 받고, 그걸 _dnldKey 쿼리로
 // downloadDeliveryExcel 에 넘겨 fileId 발급 → fileManage CDN 다운로드. 반환은 xlsx(OpenXML) base64.
-async function findOrCreateLotteonTab() {
-  const tabs = await chrome.tabs.query({ url: LOTTEON_TAB_MATCHES });
-  if (tabs[0]?.id) return { tab: tabs[0], created: false }; // 로그인된 기존 탭 재사용
-  const tab = await chrome.tabs.create({ url: LOTTEON_ORDER_URL, active: false }); // 백그라운드
-  return { tab, created: true };
+async function findOrCreateLotteonTab(collection) {
+  return createFreshOrderCollectionTab(collection, LOTTEON_ORDER_URL);
 }
 
 async function collectLotteonOrders(collection) {
-  const { tab, created } = await findOrCreateLotteonTab();
+  const { tab, created } = await findOrCreateLotteonTab(collection);
   if (!tab?.id) return { success: false, error: "롯데ON(store.lotteon.com) 탭을 열 수 없습니다." };
-  await attachOrderCollectionTab(collection, tab, created);
+  const attached = await attachOrderCollectionTab(collection, tab, created);
+  if (attached === null || attached === false) {
+    await closeFreshOrderCollectionTab(tab);
+    return {
+      success: false,
+      errorCode: "COLLECTION_CANCELLED",
+      error: "Order collection is no longer active.",
+    };
+  }
   // 수집 자체는 sessionStorage.AuthToken 을 쓰지만, 로그인 화면은 평범한 ID/비번 폼이라
   // ensureMallLoggedIn 이 먼저 자동 로그인을 시도한다. 그래도 미로그인이면 여기서 로그인 탭을
   // 앞으로 띄워 사용자가 직접 로그인하도록 안내한다.
   let loginNeeded = false;
   try {
     await waitForTabReady(tab.id);
+    await assertOrderCollectionActive(collection);
     const injected = await withTimeout(
       chrome.scripting.executeScript({
         target: { tabId: tab.id },
@@ -3148,20 +2868,26 @@ async function scrapeLotteonOrders() {
 // 셀피아 보리보리 양식 = 출고대기 언마스킹 다운로드와 동일(35컬럼 passthrough). 서버가 사유+비번으로
 // 개인정보 언마스킹 → POST /order/rest/deli/downloadPkgOrdDeliList/excel-xlsx (검색조건+reason+password).
 // 세션 쿠키만 있으면 seller-club 아무 페이지에서나 same-origin fetch 가능. 비번=seller-club 로그인 비밀번호.
-async function findOrCreateBoriboriTab() {
-  const orderTabs = await chrome.tabs.query({ url: BORIBORI_ORDER_TAB_MATCHES });
-  if (orderTabs[0]?.id) return { tab: orderTabs[0], created: false }; // 주문/배송관리 탭 우선 재사용
-  const tab = await chrome.tabs.create({ url: BORIBORI_ORDER_URL, active: false }); // 백그라운드
-  return { tab, created: true };
+async function findOrCreateBoriboriTab(collection) {
+  return createFreshOrderCollectionTab(collection, BORIBORI_ORDER_URL);
 }
 
 async function collectBoriboriOrders(options = {}, collection) {
-  const { tab, created } = await findOrCreateBoriboriTab();
+  const { tab, created } = await findOrCreateBoriboriTab(collection);
   if (!tab?.id) return { success: false, error: "보리보리(seller-club.co.kr) 탭을 열 수 없습니다." };
-  await attachOrderCollectionTab(collection, tab, created);
+  const attached = await attachOrderCollectionTab(collection, tab, created);
+  if (attached === null || attached === false) {
+    await closeFreshOrderCollectionTab(tab);
+    return {
+      success: false,
+      errorCode: "COLLECTION_CANCELLED",
+      error: "Order collection is no longer active.",
+    };
+  }
   let keepOpen = false;
   try {
     await waitForTabReady(tab.id);
+    await assertOrderCollectionActive(collection);
     const injected = await withTimeout(
       chrome.scripting.executeScript({
         target: { tabId: tab.id },
@@ -3172,8 +2898,11 @@ async function collectBoriboriOrders(options = {}, collection) {
       120000,
       "보리보리 주문 수집 시간이 초과되었습니다.",
     );
-    return injected[0]?.result ?? { success: false, error: "보리보리 화면에 접근하지 못했습니다." };
+    const result = injected[0]?.result ?? { success: false, error: "보리보리 화면에 접근하지 못했습니다." };
+    if (orderCollectionNeedsAttention(result)) keepOpen = true;
+    return result;
   } catch (e) {
+    if (e?.code === "COLLECTION_CANCELLED") return orderCollectionCancelledResult(e);
     if (isMallAccessError(e)) { keepOpen = created; return mallAccessErrorResult("보리보리"); }
     return mallGenericErrorResult("보리보리", e);
   } finally {
@@ -3190,25 +2919,32 @@ async function collectBoriboriOrders(options = {}, collection) {
 // ── 티쳐몰(퍼스트몰 selleradmin) 출고 전 주문 수집 ──
 // 리스트 order/catalog 의 excel_down 이 셀피아 양식(엑셀템플릿 117 "티쳐몰 주문서") SpreadsheetML(36컬럼)을 반환.
 // 실제 사이트 JS excel_down(step): order_seq='search' + seq=<양식id> + params(search-form 직렬화) POST.
-async function findOrCreateTeachervilleTab() {
-  const tabs = await chrome.tabs.query({ url: TEACHERVILLE_TAB_MATCHES });
-  if (tabs[0]?.id) return { tab: tabs[0], created: false }; // 로그인된 기존 탭 재사용
-  const tab = await chrome.tabs.create({ url: TEACHERVILLE_ORDER_URL, active: false }); // 백그라운드
-  return { tab, created: true };
+async function findOrCreateTeachervilleTab(collection) {
+  return createFreshOrderCollectionTab(collection, TEACHERVILLE_ORDER_URL);
 }
 
 async function collectTeachervilleOrders(collection) {
-  const { tab, created } = await findOrCreateTeachervilleTab();
+  const { tab, created } = await findOrCreateTeachervilleTab(collection);
   if (!tab?.id) return { success: false, error: "티쳐몰(shop.teacherville.co.kr) 탭을 열 수 없습니다." };
-  await attachOrderCollectionTab(collection, tab, created);
+  const attached = await attachOrderCollectionTab(collection, tab, created);
+  if (attached === null || attached === false) {
+    await closeFreshOrderCollectionTab(tab);
+    return {
+      success: false,
+      errorCode: "COLLECTION_CANCELLED",
+      error: "Order collection is no longer active.",
+    };
+  }
   let keepOpen = false;
   try {
     await waitForTabReady(tab.id);
+    await assertOrderCollectionActive(collection);
     // search-form 은 order/catalog 에만 있으므로 다른 페이지면 이동.
     const cur = await chrome.tabs.get(tab.id);
     if (!(cur.url || "").includes("/selleradmin/order/catalog")) {
       await chrome.tabs.update(tab.id, { url: TEACHERVILLE_ORDER_URL });
       await waitForTabReady(tab.id);
+      await assertOrderCollectionActive(collection);
     }
     const injected = await withTimeout(
       chrome.scripting.executeScript({
@@ -3219,8 +2955,11 @@ async function collectTeachervilleOrders(collection) {
       120000,
       "티쳐몰 주문 수집 시간이 초과되었습니다.",
     );
-    return injected[0]?.result ?? { success: false, error: "티쳐몰 화면에 접근하지 못했습니다." };
+    const result = injected[0]?.result ?? { success: false, error: "티쳐몰 화면에 접근하지 못했습니다." };
+    if (orderCollectionNeedsAttention(result)) keepOpen = true;
+    return result;
   } catch (e) {
+    if (e?.code === "COLLECTION_CANCELLED") return orderCollectionCancelledResult(e);
     if (isMallAccessError(e)) { keepOpen = created; return mallAccessErrorResult("티쳐몰"); }
     return mallGenericErrorResult("티쳐몰", e);
   } finally {
@@ -3353,29 +3092,31 @@ async function scrapeTeachervilleOrders() {
 }
 
 // ── 아트공구(Cafe24) 주문 수집: 주문목록의 주문번호 → 배송정보 상세 fetch → Cafe24 CSV 행 ──
-async function findOrCreateArt09Tab() {
-  const tabs = await chrome.tabs.query({ url: ART09_TAB_MATCHES });
-  const listTab = tabs.find((tab) => (tab.url || "").includes("/order_list.php"));
-  if (listTab?.id) return { tab: listTab, created: false };
-  if (tabs[0]?.id) {
-    await chrome.tabs.update(tabs[0].id, { url: ART09_ORDER_URL });
-    return { tab: await chrome.tabs.get(tabs[0].id), created: false };
-  }
-  const tab = await chrome.tabs.create({ url: ART09_ORDER_URL, active: false });
-  return { tab, created: true };
+async function findOrCreateArt09Tab(collection) {
+  return createFreshOrderCollectionTab(collection, ART09_ORDER_URL);
 }
 
 async function collectArt09Orders(date, collection) {
-  const { tab, created } = await findOrCreateArt09Tab();
+  const { tab, created } = await findOrCreateArt09Tab(collection);
   if (!tab?.id) return { success: false, error: "아트공구(zzogzzog1.cafe24.com) 탭을 열 수 없습니다." };
-  await attachOrderCollectionTab(collection, tab, created);
+  const attached = await attachOrderCollectionTab(collection, tab, created);
+  if (attached === null || attached === false) {
+    await closeFreshOrderCollectionTab(tab);
+    return {
+      success: false,
+      errorCode: "COLLECTION_CANCELLED",
+      error: "Order collection is no longer active.",
+    };
+  }
   let keepOpen = false;
   try {
     await waitForTabReady(tab.id);
+    await assertOrderCollectionActive(collection);
     const current = await chrome.tabs.get(tab.id).catch(() => tab);
     if (!(current.url || "").includes("/order_list.php")) {
       await chrome.tabs.update(tab.id, { url: ART09_ORDER_URL });
       await waitForTabReady(tab.id);
+      await assertOrderCollectionActive(collection);
     }
     const injected = await withTimeout(
       chrome.scripting.executeScript({
@@ -3392,6 +3133,7 @@ async function collectArt09Orders(date, collection) {
     }
     return result;
   } catch (e) {
+    if (e?.code === "COLLECTION_CANCELLED") return orderCollectionCancelledResult(e);
     if (isMallAccessError(e)) { keepOpen = created; return mallAccessErrorResult("아트공구"); }
     return mallGenericErrorResult("아트공구", e);
   } finally {
@@ -4170,26 +3912,27 @@ async function scrapeCoupangDirectData(pos) {
 // ── GS샵(partners.gsshop.com) 주문 수집: 협력사 배송관리 화면 UI 구동 + 클라이언트 조립 엑셀 blob 캡처 ──
 // GS 는 서버 엑셀 엔드포인트가 없고 다운로드 클릭 시 브라우저가 xlsx 를 조립해 URL.createObjectURL 로 내려준다.
 // → MAIN world 에서 createObjectURL 후킹 후 1주일 조회 → 다운로드 → 모달(도로명/전체주소 기본) 확인 → blob 캡처.
-async function findOrCreateGsshopTab() {
-  const tabs = await chrome.tabs.query({ url: GSSHOP_TAB_MATCHES });
-  const mng = tabs.find((t) => (t.url || "").includes("partner-logistics-mng"));
-  if (mng?.id) return { tab: mng, created: false }; // 기존 배송관리 탭 재사용
-  if (tabs[0]?.id) {
-    await chrome.tabs.update(tabs[0].id, { url: GSSHOP_ORDER_URL }); // 백그라운드
-    return { tab: await chrome.tabs.get(tabs[0].id), created: false };
-  }
-  const tab = await chrome.tabs.create({ url: GSSHOP_ORDER_URL, active: false }); // 백그라운드 새 탭
-  return { tab, created: true };
+async function findOrCreateGsshopTab(collection) {
+  return createFreshOrderCollectionTab(collection, GSSHOP_ORDER_URL);
 }
 
 async function collectGsshopOrders(collection) {
-  const { tab, created } = await findOrCreateGsshopTab();
+  const { tab, created } = await findOrCreateGsshopTab(collection);
   if (!tab?.id) return { success: false, error: "GS샵(partners.gsshop.com) 탭을 열 수 없습니다." };
-  await attachOrderCollectionTab(collection, tab, created);
+  const attached = await attachOrderCollectionTab(collection, tab, created);
+  if (attached === null || attached === false) {
+    await closeFreshOrderCollectionTab(tab);
+    return {
+      success: false,
+      errorCode: "COLLECTION_CANCELLED",
+      error: "Order collection is no longer active.",
+    };
+  }
   // 조회+상세 fetch 후 클라이언트 엑셀 조립까지 길다. MV3 서비스워커 유휴 종료(=port closed) 방지 keepalive.
   let keepOpen = false;
   try {
     await waitForTabReady(tab.id);
+    await assertOrderCollectionActive(collection);
     const injected = await withTimeout(
       chrome.scripting.executeScript({
         target: { tabId: tab.id },
@@ -4199,8 +3942,11 @@ async function collectGsshopOrders(collection) {
       140000,
       "GS샵 주문 수집 시간이 초과되었습니다.",
     );
-    return injected[0]?.result ?? { success: false, error: "GS샵 화면에 접근하지 못했습니다." };
+    const result = injected[0]?.result ?? { success: false, error: "GS샵 화면에 접근하지 못했습니다." };
+    if (orderCollectionNeedsAttention(result)) keepOpen = true;
+    return result;
   } catch (e) {
+    if (e?.code === "COLLECTION_CANCELLED") return orderCollectionCancelledResult(e);
     if (isMallAccessError(e)) { keepOpen = created; return mallAccessErrorResult("GS샵"); }
     return mallGenericErrorResult("GS샵", e);
   } finally {
@@ -4396,25 +4142,26 @@ async function scrapeGsshopOrders() {
 // ── 올웨이즈(alwayzseller.ilevit.com) 주문 수집: "팀모집완료(엑셀추출 이전)" → 엑셀추출하기 blob 캡처 ──
 // SPA 가 pre-excel(x-access-token) 데이터를 클라이언트서 xlsx 로 조립해 URL.createObjectURL 로 내려준다.
 // → MAIN world 에서 createObjectURL 후킹 + pre-excel 로 건수 확인 + 엑셀추출하기 클릭 → blob 캡처.
-async function findOrCreateAlwayzTab() {
-  const tabs = await chrome.tabs.query({ url: ALWAYZ_TAB_MATCHES });
-  const shipTab = tabs.find((t) => (t.url || "").includes("/shippings"));
-  if (shipTab?.id) return { tab: shipTab, created: false };
-  if (tabs[0]?.id) {
-    await chrome.tabs.update(tabs[0].id, { url: ALWAYZ_ORDER_URL }); // 백그라운드
-    return { tab: await chrome.tabs.get(tabs[0].id), created: false };
-  }
-  const tab = await chrome.tabs.create({ url: ALWAYZ_ORDER_URL, active: false }); // 백그라운드 새 탭
-  return { tab, created: true };
+async function findOrCreateAlwayzTab(collection) {
+  return createFreshOrderCollectionTab(collection, ALWAYZ_ORDER_URL);
 }
 
 async function collectAlwayzOrders(collection) {
-  const { tab, created } = await findOrCreateAlwayzTab();
+  const { tab, created } = await findOrCreateAlwayzTab(collection);
   if (!tab?.id) return { success: false, error: "올웨이즈(alwayzseller.ilevit.com) 탭을 열 수 없습니다." };
-  await attachOrderCollectionTab(collection, tab, created);
+  const attached = await attachOrderCollectionTab(collection, tab, created);
+  if (attached === null || attached === false) {
+    await closeFreshOrderCollectionTab(tab);
+    return {
+      success: false,
+      errorCode: "COLLECTION_CANCELLED",
+      error: "Order collection is no longer active.",
+    };
+  }
   let keepOpen = false;
   try {
     await waitForTabReady(tab.id);
+    await assertOrderCollectionActive(collection);
     const injected = await withTimeout(
       chrome.scripting.executeScript({
         target: { tabId: tab.id },
@@ -4424,8 +4171,11 @@ async function collectAlwayzOrders(collection) {
       120000,
       "올웨이즈 주문 수집 시간이 초과되었습니다.",
     );
-    return injected[0]?.result ?? { success: false, error: "올웨이즈 화면에 접근하지 못했습니다." };
+    const result = injected[0]?.result ?? { success: false, error: "올웨이즈 화면에 접근하지 못했습니다." };
+    if (orderCollectionNeedsAttention(result)) keepOpen = true;
+    return result;
   } catch (e) {
+    if (e?.code === "COLLECTION_CANCELLED") return orderCollectionCancelledResult(e);
     if (isMallAccessError(e)) { keepOpen = created; return mallAccessErrorResult("올웨이즈"); }
     return mallGenericErrorResult("올웨이즈", e);
   } finally {
@@ -4856,15 +4606,16 @@ function pickDomeggookUrl(data, afterReq) {
   return null;
 }
 
-async function findOrCreateDomeggookTab(navUrl) {
-  const tabs = await chrome.tabs.query({ url: "https://domeggook.com/*" });
-  const listTab = tabs.find((t) => (t.url || "").includes("/sc/order/lstAll"));
-  if (listTab?.id) {
-    await chrome.tabs.update(listTab.id, { url: navUrl }); // 기간 설정 URL 로 이동 (백그라운드)
-    return { tab: await chrome.tabs.get(listTab.id), created: false };
+async function findOrCreateDomeggookTab(navUrl, collection) {
+  if (!collection) {
+    const tabs = await chrome.tabs.query({ url: "https://domeggook.com/*" });
+    const listTab = tabs.find((t) => (t.url || "").includes("/sc/order/lstAll"));
+    if (listTab?.id) {
+      await chrome.tabs.update(listTab.id, { url: navUrl });
+      return { tab: await chrome.tabs.get(listTab.id), created: false };
+    }
   }
-  const tab = await chrome.tabs.create({ url: navUrl, active: false }); // 백그라운드 새 탭
-  return { tab, created: true };
+  return createFreshOrderCollectionTab(collection, navUrl);
 }
 
 async function collectDomeggookOrders(date, collection) {
@@ -4879,13 +4630,23 @@ async function collectDomeggookOrders(date, collection) {
     ? DOMEGGOOK_LIST_URL + "?dtbase=ord&dt1=" + dateDot + "&dt2=" + dateDot
     : DOMEGGOOK_LIST_URL;
 
-  const { tab, created } = await findOrCreateDomeggookTab(navUrl);
+  const { tab, created } = await findOrCreateDomeggookTab(navUrl, collection);
   if (!tab?.id) return { success: false, error: "도매꾹(domeggook.com) 탭을 열 수 없습니다." };
-  await attachOrderCollectionTab(collection, tab, created);
+  const attached = await attachOrderCollectionTab(collection, tab, created);
+  if (attached === null || attached === false) {
+    await closeFreshOrderCollectionTab(tab);
+    return {
+      success: false,
+      errorCode: "COLLECTION_CANCELLED",
+      error: "Order collection is no longer active.",
+    };
+  }
   let keepOpen = false;
   try {
     await waitForTabReady(tab.id);
+    await assertOrderCollectionActive(collection);
     await delay(1500); // 기간 필터 목록 렌더 대기
+    await assertOrderCollectionActive(collection);
     // 1) 엑셀다운로드 → 생성요청 모달 submit (설정한 기간으로 export 생성 요청)
     const trig = await withTimeout(
       chrome.scripting.executeScript({
@@ -4897,12 +4658,19 @@ async function collectDomeggookOrders(date, collection) {
       "도매꾹 생성 요청 시간이 초과되었습니다.",
     );
     const tr = trig[0]?.result;
-    if (tr?.empty) return { success: true, empty: true }; // 주문 없음 — 오류 아님
+    if (tr?.empty) {
+      return {
+        success: true,
+        empty: true,
+        ...(date ? { confirmedCoverage: { startDate: date, endDate: date } } : {}),
+      };
+    } // 주문 없음 — 오류 아님
     if (!tr?.success) return { success: false, error: tr?.error || "도매꾹 엑셀 생성 요청 실패" };
     // 2) 생성 완료 폴링 (최대 ~4분): SUCCESS + beforeReq 이후 파일. 도매꾹 생성이 느려 넉넉히.
     let url = null;
     for (let i = 0; i < 48; i++) {
       await delay(5000);
+      await assertOrderCollectionActive(collection);
       url = pickDomeggookUrl(await domeggookOrderList(), beforeReq);
       if (url) break;
     }
@@ -4923,8 +4691,10 @@ async function collectDomeggookOrders(date, collection) {
       csvBase64: btoa(bin), // EUC-KR 원본 bytes 그대로 (백엔드가 디코딩)
       fileName: url.split("/").pop() || "domeggook.csv",
       size: buf.length,
+      ...(date ? { confirmedCoverage: { startDate: date, endDate: date } } : {}),
     };
   } catch (e) {
+    if (e?.code === "COLLECTION_CANCELLED") return orderCollectionCancelledResult(e);
     if (isMallAccessError(e)) { keepOpen = created; return mallAccessErrorResult("도매꾹"); }
     return mallGenericErrorResult("도매꾹", e);
   } finally {
@@ -5014,27 +4784,26 @@ async function triggerDomeggookExcelGen() {
 // ── 키즈노트(WISA) 주문 수집: _manage?body=3010 전체주문조회 테이블 스크래핑 ──
 // 백그라운드 수집: 포커스를 뺏지 않고(active 미지정/false) 탭을 연다.
 // created=true 면 우리가 새로 연 탭 → 수집 후 자동으로 닫는다(기존 사용자 탭은 건드리지 않음).
-async function findOrCreateKidsnoteTab() {
-  const tabs = await chrome.tabs.query({ url: KIDSNOTE_TAB_MATCHES });
-  const manageTab = tabs.find((tab) => (tab.url || "").includes("/_manage/"));
-  if (manageTab?.id) {
-    return { tab: manageTab, created: false }; // 기존 _manage 탭 재사용 (포커스 안 뺏음)
-  }
-  if (tabs[0]?.id) {
-    await chrome.tabs.update(tabs[0].id, { url: KIDSNOTE_ORDER_URL }); // active 미지정 = 백그라운드
-    return { tab: await chrome.tabs.get(tabs[0].id), created: false };
-  }
-  const tab = await chrome.tabs.create({ url: KIDSNOTE_ORDER_URL, active: false }); // 백그라운드 새 탭
-  return { tab, created: true };
+async function findOrCreateKidsnoteTab(collection) {
+  return createFreshOrderCollectionTab(collection, KIDSNOTE_ORDER_URL);
 }
 
 async function collectKidsnoteOrders({ from, to, status, withDetail }, collection) {
-  const { tab, created } = await findOrCreateKidsnoteTab();
+  const { tab, created } = await findOrCreateKidsnoteTab(collection);
   if (!tab?.id) return { success: false, error: "키즈노트(shop.kidsnote.com) 탭을 열 수 없습니다." };
-  await attachOrderCollectionTab(collection, tab, created);
+  const attached = await attachOrderCollectionTab(collection, tab, created);
+  if (attached === null || attached === false) {
+    await closeFreshOrderCollectionTab(tab);
+    return {
+      success: false,
+      errorCode: "COLLECTION_CANCELLED",
+      error: "Order collection is no longer active.",
+    };
+  }
   let keepOpen = false;
   try {
     await waitForTabReady(tab.id);
+    await assertOrderCollectionActive(collection);
     const injected = await withTimeout(
       chrome.scripting.executeScript({
         target: { tabId: tab.id },
@@ -5051,6 +4820,7 @@ async function collectKidsnoteOrders({ from, to, status, withDetail }, collectio
       }
     );
   } catch (e) {
+    if (e?.code === "COLLECTION_CANCELLED") return orderCollectionCancelledResult(e);
     if (isMallAccessError(e)) { keepOpen = created; return mallAccessErrorResult("키즈노트"); }
     return mallGenericErrorResult("키즈노트", e);
   } finally {
@@ -5817,92 +5587,105 @@ async function runSellpiaAutoInvoice(environmentId) {
 
 // 페이지 컨텍스트(MAIN world)에서 실행. 자체완결(외부 참조 금지). step: register|stockmatch|invoice.
 async function collectIcecreamMallOrders(date, credentials, collection) {
-  const { tab, created } = await findOrCreateIcecreamMallTab();
+  const { tab, created } = await findOrCreateIcecreamMallTab(collection);
   if (!tab.id) {
     return { success: false, error: "아이스크림몰 탭을 열 수 없습니다." };
   }
-  await attachOrderCollectionTab(collection, tab, created);
-
-  // 우리가 연 탭은 우리가 닫는다. 사람이 로그인해야 할 때만 열어 둔다 — 다른 몰 수집기와
-  // 같은 규칙이다. 이게 없어 바퀴마다 아이스크림몰 탭이 하나씩 남았고, 그 탭들이 쌓여
-  // 서비스워커를 눌러 멀쩡한 몰까지 '응답 없음'으로 끌어내렸다.
+  const attached = await attachOrderCollectionTab(collection, tab, created);
+  if (attached === null || attached === false) {
+    await closeFreshOrderCollectionTab(tab);
+    return {
+      success: false,
+      errorCode: "COLLECTION_CANCELLED",
+      error: "Order collection is no longer active.",
+    };
+  }
   let keepOpen = false;
   try {
-    await waitForTabReady(tab.id);
-    const login = await withTimeout(
-      ensureIcecreamMallLogin(tab.id, credentials),
-      35000,
-      "아이스크림몰 로그인 자동 입력 시간이 초과되었습니다.",
-    );
-    if (!login.success) {
-      const currentTab = await chrome.tabs.get(tab.id).catch(() => tab);
-      keepOpen = created; // 사장님이 이 탭에서 직접 로그인하셔야 한다.
-      return {
-        success: false,
-        pendingLogin: login.pendingLogin ?? true,
-        url: currentTab.url || tab.url || ICECREAM_MALL_URL,
-        error: login.error || "아이스크림몰 로그인 자동 입력에 실패했습니다.",
-      };
-    }
-
-    const deliveryInquiry = await withTimeout(
-      openIcecreamMallDeliveryInquiry(tab.id),
-      15000,
-      "아이스크림몰 배송조회 화면 이동 시간이 초과되었습니다.",
-    );
-    if (!deliveryInquiry.success) {
-      const currentTab = await chrome.tabs.get(tab.id).catch(() => tab);
-      keepOpen = created && Boolean(deliveryInquiry.pendingLogin);
-      return {
-        success: false,
-        pendingLogin: deliveryInquiry.pendingLogin,
-        url: currentTab.url || tab.url || ICECREAM_MALL_URL,
-        error: deliveryInquiry.error,
-      };
-    }
-
-    const deliveryFrameId = await findIcecreamMallDeliveryFrameId(tab.id);
-    const target =
-      deliveryFrameId == null ? { tabId: tab.id, allFrames: true } : { tabId: tab.id, frameIds: [deliveryFrameId] };
-    const injected = await withTimeout(
-      chrome.scripting.executeScript({
-        target,
-        world: "MAIN", // ⭐페이지 컨텍스트로 실행: 조회(#btn_list) 클릭이 몰 프레임워크(WebSquare) 핸들러를
-        // 확실히 발동시켜 그리드가 로딩됨. ISOLATED 월드 클릭은 핸들러를 못 깨워 "총 0건"에서 멈춘다.
-        func: scrapeIcecreamMallDeliveryGrid,
-        args: [date, ICECREAM_DELIVERY_HEADERS, ICECREAM_EXCLUDED_DELIVERY_STATUSES],
-      }),
-      35000,
-      "아이스크림몰 배송목록 수집 시간이 초과되었습니다.",
-    );
-
-    const results = injected.map((item) => item.result).filter(Boolean);
-    const candidates = results.filter((item) => item?.success && Array.isArray(item.rows));
-    candidates.sort((a, b) => b.rows.length - a.rows.length);
-    const best = candidates[0];
-
-    if (!best) {
-      const failure = summarizeScrapeFailures(results);
-      return {
-        success: false,
-        pendingLogin: false,
-        url: tab.url || ICECREAM_MALL_URL,
-        error: failure || "아이스크림몰 배송조회 화면은 열었지만 배송목록 표를 찾지 못했습니다.",
-      };
-    }
-
+  await waitForTabReady(tab.id);
+  await assertOrderCollectionActive(collection);
+  const login = await withTimeout(
+    ensureIcecreamMallLogin(tab.id, credentials),
+    35000,
+    "아이스크림몰 로그인 자동 입력 시간이 초과되었습니다.",
+  );
+  if (!login.success) {
+    keepOpen = true;
+    const currentTab = await chrome.tabs.get(tab.id).catch(() => tab);
     return {
-      success: true,
-      tabId: tab.id,
-      url: tab.url || ICECREAM_MALL_URL,
-      ...best,
+      success: false,
+      pendingLogin: login.pendingLogin ?? true,
+      url: currentTab.url || tab.url || ICECREAM_MALL_URL,
+      error: login.error || "아이스크림몰 로그인 자동 입력에 실패했습니다.",
     };
+  }
+
+  const deliveryInquiry = await withTimeout(
+    openIcecreamMallDeliveryInquiry(tab.id),
+    15000,
+    "아이스크림몰 배송조회 화면 이동 시간이 초과되었습니다.",
+  );
+  if (!deliveryInquiry.success) {
+    keepOpen = Boolean(deliveryInquiry.pendingLogin);
+    const currentTab = await chrome.tabs.get(tab.id).catch(() => tab);
+    return {
+      success: false,
+      pendingLogin: deliveryInquiry.pendingLogin,
+      url: currentTab.url || tab.url || ICECREAM_MALL_URL,
+      error: deliveryInquiry.error,
+    };
+  }
+
+  await assertOrderCollectionActive(collection);
+  const deliveryFrameId = await findIcecreamMallDeliveryFrameId(tab.id);
+  const target =
+    deliveryFrameId == null ? { tabId: tab.id, allFrames: true } : { tabId: tab.id, frameIds: [deliveryFrameId] };
+  const injected = await withTimeout(
+    chrome.scripting.executeScript({
+      target,
+      world: "MAIN", // ⭐페이지 컨텍스트로 실행: 조회(#btn_list) 클릭이 몰 프레임워크(WebSquare) 핸들러를
+      // 확실히 발동시켜 그리드가 로딩됨. ISOLATED 월드 클릭은 핸들러를 못 깨워 "총 0건"에서 멈춘다.
+      func: scrapeIcecreamMallDeliveryGrid,
+      args: [date, ICECREAM_DELIVERY_HEADERS, ICECREAM_EXCLUDED_DELIVERY_STATUSES],
+    }),
+    35000,
+    "아이스크림몰 배송목록 수집 시간이 초과되었습니다.",
+  );
+
+  const results = injected.map((item) => item.result).filter(Boolean);
+  const candidates = results.filter((item) => item?.success && Array.isArray(item.rows));
+  candidates.sort((a, b) => b.rows.length - a.rows.length);
+  const best = candidates[0];
+
+  if (!best) {
+    const failure = summarizeScrapeFailures(results);
+    return {
+      success: false,
+      pendingLogin: false,
+      url: tab.url || ICECREAM_MALL_URL,
+      error: failure || "아이스크림몰 배송조회 화면은 열었지만 배송목록 표를 찾지 못했습니다.",
+    };
+  }
+
+  return {
+    success: true,
+    tabId: tab.id,
+    url: tab.url || ICECREAM_MALL_URL,
+    ...best,
+  };
+  } catch (error) {
+    if (error?.code === "COLLECTION_CANCELLED") return orderCollectionCancelledResult(error);
+    if (isMallAccessError(error)) {
+      keepOpen = true;
+      return mallAccessErrorResult("아이스크림몰");
+    }
+    return mallGenericErrorResult("아이스크림몰", error);
   } finally {
     if (created && tab.id && !keepOpen) {
       try {
-        await chrome.tabs.remove(tab.id); // 우리가 연 백그라운드 탭 정리
+        await chrome.tabs.remove(tab.id);
       } catch {
-        /* 이미 닫힘 */
+        /* 탭이 이미 닫혔거나 취소 과정에서 정리됨 */
       }
     }
   }
@@ -5962,13 +5745,8 @@ function summarizeScrapeFailures(results) {
   return "";
 }
 
-async function findOrCreateIcecreamMallTab() {
-  const tabs = await chrome.tabs.query({ url: ICECREAM_MALL_TAB_MATCHES });
-  const active = tabs.find((tab) => tab.active) || tabs[0];
-  if (active) return { tab: active, created: false };
-
-  const tab = await chrome.tabs.create({ url: ICECREAM_MALL_URL, active: false });
-  return { tab, created: true };
+async function findOrCreateIcecreamMallTab(collection) {
+  return createFreshOrderCollectionTab(collection, ICECREAM_MALL_URL);
 }
 
 function withTimeout(promise, timeoutMs, message) {
@@ -6202,14 +5980,30 @@ async function ensureMallLogin(tabId, credentials, mallKey = null) {
 // 수집 전 자동 로그인 보장: 몰 주문/홈 URL 을 백그라운드로 열어(미로그인 시 로그인 페이지로 리다이렉트)
 // 저장된 계정으로 로그인 후 닫는다. 이후 수집 탭은 같은 세션 쿠키라 로그인 상태. credentials 없으면 스킵.
 function ensureMallLoginWithLifecycle(message) {
-  return orderCollectionLifecycle.run(
+  // Keep the extracted login helper usable in the focused collector tests;
+  // the service worker always provides the owner adapter above.
+  if (typeof runOwnedOrderCollection !== "function") {
+    return orderCollectionLifecycle.run(
+      message,
+      KidItemOrderCollectionLifecycle.createIdentity(
+        message.mallKey,
+        message.date,
+      ),
+      (collection) => ensureMallLoggedIn(
+        message.mallKey,
+        message.credentials,
+        collection,
+      ),
+    );
+  }
+  return runOwnedOrderCollection(
     message,
-    KidItemOrderCollectionLifecycle.createIdentity(
+    message.mallKey,
+    (collection) => ensureMallLoggedIn(
       message.mallKey,
-      message.date,
+      message.credentials,
+      collection,
     ),
-    (collection) =>
-      ensureMallLoggedIn(message.mallKey, message.credentials, collection),
   );
 }
 
@@ -6239,34 +6033,38 @@ async function ensureMallLoggedIn(mallKey, credentials, collection = null) {
   // 폼 자동 로그인이 불가능한 몰. 시도하지 않았다는 사실을 호출부가 알아야
   // "확인됨" 으로 잘못 표시하지 않는다.
   if (!url) return { success: true, submitted: false, reason: "unsupported_mall" };
+  // Managed collection login owns a fresh tab. Fence the owner before opening
+  // it so a cancelled attempt cannot create an orphan login page.
+  if (collection) await assertOrderCollectionActive(collection);
   const tab = await chrome.tabs.create({ url, active: false }); // 백그라운드
   if (!tab?.id) return { success: false, error: "자동 로그인 탭을 열 수 없습니다." };
   if (collection) {
-    try {
-      await collection.attachTab(tab, { owned: true });
-    } catch (error) {
-      try {
-        await chrome.tabs.remove(tab.id);
-      } catch {
-        /* 이미 닫힘 — 무시 */
-      }
-      throw error;
+    const attached = await attachOrderCollectionTab(collection, tab, true);
+    if (attached === null || attached === false) {
+      await closeFreshOrderCollectionTab(tab);
+      return orderCollectionCancelledResult();
     }
   }
   let keepOpen = false;
   try {
     await waitForTabReady(tab.id);
     await delay(1000);
+    // The login page may take a while to settle or the attempt may have been
+    // cancelled while it loaded. Check the owner immediately before scripting.
+    await assertOrderCollectionActive(collection);
     const result = await withTimeout(
       ensureMallLogin(tab.id, credentials, mallKey),
       35000,
       "자동 로그인 시간이 초과되었습니다.",
     );
-    if (!result.success || result.pendingLogin) {
+    if (!result.success || orderCollectionNeedsAttention(result)) {
       keepOpen = true;
     }
     return result;
   } catch (error) {
+    if (error?.code === "COLLECTION_CANCELLED") {
+      return orderCollectionCancelledResult(error);
+    }
     keepOpen = true;
     return {
       success: false,
@@ -6998,572 +6796,26 @@ async function scrapeIcecreamMallDeliveryGrid(date, expectedHeaders, excludedSta
   };
 }
 
-async function findOrCreateSellpiaReprintTab() {
-  const tabs = await chrome.tabs.query({ url: SELLPIA_TAB_MATCHES });
-  const onReprint = tabs.find((t) => (t.url || "").includes("order_delivery_reprint"));
-  if (onReprint?.id) return { tab: onReprint, created: false };
-  const tab = await chrome.tabs.create({ url: SELLPIA_REPRINT_URL, active: false });
-  return { tab, created: true };
-}
-
-async function collectSellpiaDeliTracking(options = {}, collection) {
-  const { tab, created } = await findOrCreateSellpiaReprintTab();
-  if (!tab?.id) return { success: false, error: "셀피아(kiditem.sellpia.com) 탭을 열 수 없습니다." };
-  await attachOrderCollectionTab(collection, tab, created);
-  let keepOpen = false;
-  try {
-    await waitForTabReady(tab.id);
-    const injected = await withTimeout(
-      chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        world: "MAIN", // 페이지 컨텍스트 fetch (로그인 세션 쿠키). ISOLATED 는 SameSite 쿠키 미전송 위험.
-        func: scrapeSellpiaDeliTracking,
-        args: [options.startDate || null, options.endDate || null],
-      }),
-      60000,
-      "셀피아 송장 조회 시간이 초과되었습니다.",
-    );
-    return injected[0]?.result ?? { success: false, error: "셀피아 화면에 접근하지 못했습니다." };
-  } catch (e) {
-    if (isMallAccessError(e)) { keepOpen = created; return mallAccessErrorResult("셀피아"); }
-    return mallGenericErrorResult("셀피아", e);
-  } finally {
-    if (created && tab.id && !keepOpen) {
-      try { await chrome.tabs.remove(tab.id); } catch { /* 이미 닫힘 */ }
-    }
-  }
-}
-
-async function scrapeSellpiaDeliTracking(startDate, endDate) {
-  try {
-    const p = (n) => String(n).padStart(2, "0");
-    const d = new Date();
-    const end = endDate || `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-    const s0 = new Date(d.getTime() - 30 * 24 * 60 * 60 * 1000); // 기본 최근 30일
-    const start = startDate || `${s0.getFullYear()}-${p(s0.getMonth() + 1)}-${p(s0.getDate())}`;
-    // 송장번호채번일자 기준으로 조회 — 채번 직후(출력 전) 주문도 잡힌다(기본값 print_datetime은 출력 전 누락).
-    const dateType = "delinum_date";
-    const body = new URLSearchParams({
-      domode: "GET_ORDER_DELIVERY_REPRINT_LIST",
-      date_type: dateType, // delinum_date=송장번호채번일자 / print_datetime=송장출력일자 / pack_datetime=피킹일자
-      s_date: start,
-      e_date: end,
-      delinum: "",
-      receiver: "",
-      onlydeli_sellpia_code: "",
-      pick_num: "",
-    });
-    const res = await fetch("delivery_link.action.html", {
-      method: "POST",
-      credentials: "include",
-      headers: { "content-type": "application/x-www-form-urlencoded; charset=UTF-8" },
-      body: body.toString(),
-    });
-    if (!res.ok) {
-      return { success: false, error: "셀피아 송장 조회 실패 (HTTP " + res.status + "). 셀피아 로그인을 확인하세요." };
-    }
-    const text = await res.text();
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch {
-      return { success: false, error: "셀피아 송장 응답을 해석하지 못했습니다. 셀피아 로그인을 확인하세요." };
-    }
-    const list = Array.isArray(data && data.list) ? data.list : [];
-    const s2 = (v) => String(v == null ? "" : v).trim();
-    // ⭐전 몰 반환(판매처 필터는 프론트가 몰별로). 각 몰 송장 업로드가 이 소스를 공유한다.
-    const rows = list
-      .map((o) => {
-        const si = o.ship_info || {};
-        const ordNo = s2(si.ord_no || String(o.group_no || "").split("_").pop() || "");
-        return {
-          ordNo,
-          itemNo: "",
-          invNo: s2(o.delinum),
-          courier: s2(o.delicom), // 셀피아 택배사코드(예 1136=CJ)
-          provider: s2(si.provider_name || o.receiver), // 판매처명 (몰 매핑용)
-          receiver: s2(o.receiver).replace(/\([^)]*\)\s*$/, "").trim(), // 수취인 (몰명 괄호 제거)
-          post: s2(o.receiver_post),
-          addr: [s2(o.receiver_addr1), s2(o.receiver_addr2)].filter(Boolean).join(" "),
-        };
-      })
-      .filter((r) => r.ordNo && r.invNo);
-    return { success: true, rows, total: list.length, range: { start, end } };
-  } catch (e) {
-    return { success: false, error: String((e && e.message) || e) };
-  }
-}
-
-async function findOrCreateSellpiaSaleSummaryTab() {
-  const tabs = await chrome.tabs.query({ url: SELLPIA_TAB_MATCHES });
-  const onSummary = tabs.find((t) => (t.url || "").includes("sale_summary"));
-  if (onSummary?.id) return { tab: onSummary, created: false };
-  const tab = await chrome.tabs.create({ url: SELLPIA_SALE_SUMMARY_URL, active: false });
-  return { tab, created: true };
-}
-
-// 셀피아 판매현황(sale_summary) 몰별·일별 매출 수집. 읽기 전용(비파괴).
-async function collectSellpiaSaleSummary(options = {}) {
-  const { tab, created } = await findOrCreateSellpiaSaleSummaryTab();
-  if (!tab?.id) return { success: false, error: "셀피아(kiditem.sellpia.com) 탭을 열 수 없습니다." };
-  let keepOpen = false;
-  try {
-    await waitForTabReady(tab.id);
-    const injected = await withTimeout(
-      chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        world: "MAIN", // 페이지 컨텍스트 fetch(로그인 세션 쿠키) + provider_list 전역 접근.
-        func: scrapeSellpiaSaleSummary,
-        args: [options.startDate || null, options.endDate || null],
-      }),
-      60000,
-      "셀피아 판매현황 조회 시간이 초과되었습니다.",
-    );
-    return injected[0]?.result ?? { success: false, error: "셀피아 화면에 접근하지 못했습니다." };
-  } catch (e) {
-    // 로그인 에러 시 대화형(웹 버튼) 호출만 탭을 열어둬 사용자가 로그인하도록 유도한다.
-    // 무인 알람(keepTabOnLoginError 미지정)은 탭을 남기면 6시간마다 누적되므로 항상 닫는다.
-    if (isMallAccessError(e)) { keepOpen = created && options.keepTabOnLoginError === true; return mallAccessErrorResult("셀피아"); }
-    return mallGenericErrorResult("셀피아", e);
-  } finally {
-    if (created && tab.id && !keepOpen) {
-      try { await chrome.tabs.remove(tab.id); } catch { /* 이미 닫힘 */ }
-    }
-  }
-}
-
-// sale_summary.html 페이지 컨텍스트에서 실행. order_search.ajax.html(mode=selldate,
-// 주문일자 s_type=1) 로 판매처(seller)별 일별 매출 JSON 을 받아 seller id→명 매핑 후 반환.
-async function scrapeSellpiaSaleSummary(startDate, endDate) {
-  try {
-    const p = (n) => String(n).padStart(2, "0");
-    const toYmdUtc = (date) => `${date.getUTCFullYear()}-${p(date.getUTCMonth() + 1)}-${p(date.getUTCDate())}`;
-    const parseYmd = (value) => {
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ""))) return null;
-      const parsed = new Date(`${value}T00:00:00.000Z`);
-      return Number.isNaN(parsed.getTime()) || toYmdUtc(parsed) !== value ? null : parsed;
-    };
-    const todayKst = toYmdUtc(new Date(Date.now() + 9 * 60 * 60 * 1000));
-    const end = endDate || todayKst;
-    const endAnchor = parseYmd(end);
-    if (!endAnchor) return { success: false, error: "셀피아 판매현황 종료일이 올바르지 않습니다." };
-    const defaultStart = toYmdUtc(new Date(endAnchor.getTime() - 92 * 24 * 60 * 60 * 1000));
-    const start = startDate || defaultStart; // 기본 최근 93일(양 끝 포함) — 일/주/월 집계용 이력 누적
-    const startAnchor = parseYmd(start);
-    if (!startAnchor || startAnchor > endAnchor) {
-      return { success: false, error: "셀피아 판매현황 수집 기간이 올바르지 않습니다." };
-    }
-    const body = new URLSearchParams({
-      mode: "selldate", // 판매일자별 집계
-      s_date: start,
-      e_date: end,
-      seller: "all",
-      o_type: "",
-      r_type: "",
-      p_str: "",
-      s_type: "1", // 주문일자 기준
-      fs_type: "",
-      nick_type: "",
-      nick_str: "",
-    });
-    const res = await fetch("order_search.ajax.html", {
-      method: "POST",
-      credentials: "include",
-      headers: { "content-type": "application/x-www-form-urlencoded; charset=UTF-8" },
-      body: body.toString(),
-    });
-    if (!res.ok) {
-      return { success: false, error: "셀피아 판매현황 조회 실패 (HTTP " + res.status + "). 셀피아 로그인을 확인하세요." };
-    }
-    const text = await res.text();
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch {
-      return { success: false, error: "셀피아 판매현황 응답을 해석하지 못했습니다. 셀피아 로그인을 확인하세요." };
-    }
-
-    // 이 API의 정상 seller=all 응답은 `{ sellerId: { YYYY-MM-DD: metrics } }`
-    // 형태다. 배열/null/error envelope를 빈 매출로 오인하면 백엔드의 권위 범위
-    // 교체가 기존 데이터를 지우므로, plain object 이외에는 한 행도 수락하지 않는다.
-    const isPlainObject = (value) => {
-      if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-      const proto = Object.getPrototypeOf(value);
-      return proto === Object.prototype || proto === null;
-    };
-    if (!isPlainObject(data)) {
-      return { success: false, error: "셀피아 판매현황 응답 형식이 예상과 다릅니다." };
-    }
-    const sellerIds = Object.keys(data);
-    if (sellerIds.length === 0) {
-      return {
-        success: true,
-        payload: {
-          range: { from: start, to: end },
-          sellers: [],
-          provenance: {
-            source: "sellpia_sale_summary",
-            mode: "selldate",
-            sellerScope: "all",
-            responseShape: "empty_object",
-            explicitEmpty: true,
-          },
-        },
-        sellerCount: 0,
-        range: { start, end },
-      };
-    }
-
-    // seller id→판매처명 매핑 소스(provider_list.js.html?mode=more)가 대용량이라 로딩 대기.
-    for (let i = 0; i < 30 && typeof provider_list_all === "undefined"; i++) {
-      await new Promise((r) => setTimeout(r, 100));
-    }
-    const nameOf = (id) => {
-      try {
-        if (
-          typeof provider_list_all !== "undefined" &&
-          Object.prototype.hasOwnProperty.call(provider_list_all, id) &&
-          provider_list_all[id]
-        ) return String(provider_list_all[id]);
-        if (
-          typeof provider_list_s !== "undefined" &&
-          Object.prototype.hasOwnProperty.call(provider_list_s, id) &&
-          provider_list_s[id]
-        ) return String(provider_list_s[id]);
-      } catch { /* 전역 미로딩 */ }
-      return "";
-    };
-    const parseMetric = (value) => {
-      if (typeof value === "number") return Number.isFinite(value) ? value : null;
-      if (typeof value !== "string") return null;
-      const normalized = value.trim();
-      if (!/^-?(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d+)?$/.test(normalized)) return null;
-      const parsed = Number(normalized.replace(/,/g, ""));
-      return Number.isFinite(parsed) ? parsed : null;
-    };
-    const sellers = [];
-    for (const sellerId of sellerIds) {
-      const sellerName = nameOf(sellerId).trim();
-      const dayMap = data[sellerId];
-      if (!sellerId.trim() || sellerId.length > 64 || !sellerName || !isPlainObject(dayMap)) {
-        return { success: false, error: "셀피아 판매현황에 알 수 없는 판매처 응답이 포함되어 있습니다." };
-      }
-      const dateKeys = Object.keys(dayMap);
-      if (dateKeys.length === 0) {
-        return { success: false, error: "셀피아 판매현황에 일자 데이터가 없는 판매처가 포함되어 있습니다." };
-      }
-      const days = [];
-      for (const date of dateKeys) {
-        const parsedDate = parseYmd(date);
-        const v = dayMap[date];
-        if (!parsedDate || parsedDate < startAnchor || parsedDate > endAnchor || !isPlainObject(v)) {
-          return { success: false, error: "셀피아 판매현황에 유효하지 않은 일자 응답이 포함되어 있습니다." };
-        }
-        if (!("price" in v) || !("amount" in v) || !("buy_price" in v)) {
-          return { success: false, error: "셀피아 판매현황 일자 응답에 필수 매출 항목이 없습니다." };
-        }
-        const price = parseMetric(v.price);
-        const amount = parseMetric(v.amount);
-        const buyPrice = parseMetric(v.buy_price);
-        if (price === null || amount === null || buyPrice === null) {
-          return { success: false, error: "셀피아 판매현황 일자 응답의 매출 값이 올바르지 않습니다." };
-        }
-        days.push({
-          date,
-          price,
-          amount,
-          buyPrice,
-        });
-      }
-      sellers.push({
-        sellerId: String(sellerId),
-        sellerName,
-        days,
-      });
-    }
-    return {
-      success: true,
-      payload: { range: { from: start, to: end }, sellers },
-      sellerCount: sellers.length,
-      range: { start, end },
-    };
-  } catch (e) {
-    return { success: false, error: String((e && e.message) || e) };
-  }
-}
-
-async function findOrCreateSellpiaProductProfitTab() {
-  const tabs = await chrome.tabs.query({ url: SELLPIA_TAB_MATCHES });
-  const onPage = tabs.find((t) => (t.url || "").includes("stat_prd_profit"));
-  if (onPage?.id) return { tab: onPage, created: false };
-  const tab = await chrome.tabs.create({ url: SELLPIA_PRODUCT_PROFIT_URL, active: false });
-  return { tab, created: true };
-}
-
-// 셀피아 상품별 이익현황(stat_prd_profit) 월별 소진 수집. 읽기 전용(비파괴).
-async function collectSellpiaProductProfit() {
-  const { tab, created } = await findOrCreateSellpiaProductProfitTab();
-  if (!tab?.id) return { success: false, error: "셀피아(kiditem.sellpia.com) 탭을 열 수 없습니다." };
-  let keepOpen = false;
-  try {
-    await waitForTabReady(tab.id);
-    const injected = await withTimeout(
-      chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        world: "MAIN", // 페이지 컨텍스트 fetch(로그인 세션 쿠키).
-        func: scrapeSellpiaProductProfit,
-        args: [null, null],
-      }),
-      90000,
-      "셀피아 상품별 이익현황 조회 시간이 초과되었습니다.",
-    );
-    return injected[0]?.result ?? { success: false, error: "셀피아 화면에 접근하지 못했습니다." };
-  } catch (e) {
-    if (isMallAccessError(e)) { keepOpen = created; return mallAccessErrorResult("셀피아"); }
-    return mallGenericErrorResult("셀피아", e);
-  } finally {
-    if (created && tab.id && !keepOpen) {
-      try { await chrome.tabs.remove(tab.id); } catch { /* 이미 닫힘 */ }
-    }
-  }
-}
-
-// stat_prd_profit.html 페이지 컨텍스트에서 실행. stat_action.ajax.html(mode=stat_prd_profit)로
-// 상품별 이익현황을 받아 graph(월별 매입액,판매액,판매수량)를 상품×월별로 파싱해 반환.
-async function scrapeSellpiaProductProfit(startDate, endDate) {
-  try {
-    const p = (n) => String(n).padStart(2, "0");
-    const toYmd = (date) => `${date.getUTCFullYear()}-${p(date.getUTCMonth() + 1)}-${p(date.getUTCDate())}`;
-    // 브라우저/운영체제 시간대와 무관하게 KST 달력을 기준으로 어제까지의 연속
-    // 400일 증거창을 만든다. 끝점에서 400일을 빼므로 양 끝 포함 401일이다.
-    const nowKst = new Date(Date.now() + 9 * 60 * 60 * 1000);
-    const defaultEnd = new Date(Date.UTC(
-      nowKst.getUTCFullYear(), nowKst.getUTCMonth(), nowKst.getUTCDate() - 1,
-    ));
-    const defaultStart = new Date(Date.UTC(
-      defaultEnd.getUTCFullYear(), defaultEnd.getUTCMonth(), defaultEnd.getUTCDate() - 400,
-    ));
-    const end = endDate || toYmd(defaultEnd);
-    const start = startDate || toYmd(defaultStart);
-    const dateKey = /^\d{4}-\d{2}-\d{2}$/;
-    const toValidDate = (value) => {
-      if (typeof value !== "string" || !dateKey.test(value)) return null;
-      const timestamp = Date.parse(`${value}T00:00:00.000Z`);
-      if (!Number.isFinite(timestamp)) return null;
-      const parsed = new Date(timestamp);
-      return parsed.toISOString().slice(0, 10) === value ? parsed : null;
-    };
-    const startValue = toValidDate(start);
-    const endValue = toValidDate(end);
-    if (!startValue || !endValue || startValue > endValue) {
-      return { success: false, error: "셀피아 상품별 이익현황 조회 기간이 올바르지 않습니다." };
-    }
-    const rangeMonths = new Set();
-    for (
-      let monthIndex = startValue.getUTCFullYear() * 12 + startValue.getUTCMonth();
-      monthIndex <= endValue.getUTCFullYear() * 12 + endValue.getUTCMonth();
-      monthIndex += 1
-    ) {
-      const year = Math.floor(monthIndex / 12);
-      rangeMonths.add(`${year}-${String(monthIndex % 12 + 1).padStart(2, "0")}`);
-    }
-    const body = new URLSearchParams({
-      mode: "stat_prd_profit",
-      s_date: start,
-      e_date: end,
-      in_s_date: start,
-      in_e_date: end,
-      buy_point: "R",
-      provider: "",
-      vat_tp: "1",
-      p_str: "",
-      period_free: "false",
-      prd_cate: "",
-      prd_type: "",
-    });
-    const res = await fetch("stat_action.ajax.html", {
-      method: "POST",
-      credentials: "include",
-      headers: { "content-type": "application/x-www-form-urlencoded; charset=UTF-8" },
-      body: body.toString(),
-    });
-    if (!res.ok) {
-      return { success: false, error: "셀피아 상품별 이익현황 조회 실패 (HTTP " + res.status + "). 셀피아 로그인을 확인하세요." };
-    }
-    const text = await res.text();
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch {
-      return { success: false, error: "셀피아 상품별 이익현황 응답을 해석하지 못했습니다. 셀피아 로그인을 확인하세요." };
-    }
-    if (!Array.isArray(data)) {
-      return { success: false, error: "셀피아 상품별 이익현황 응답 형식이 예상과 다릅니다." };
-    }
-    if (data.length > 20000) {
-      return { success: false, error: "셀피아 상품별 이익현황 응답 형식이 예상과 다릅니다." };
-    }
-    const normYm = (k) => {
-      const m = String(k).match(/^(\d{4})-(\d{1,2})$/);
-      if (!m) return null;
-      const month = Number(m[2]);
-      if (month < 1 || month > 12) return null;
-      return m[1] + "-" + String(month).padStart(2, "0");
-    };
-    const int = (value) => {
-      if (typeof value === "string" && !/^\d+$/.test(value)) return null;
-      const parsed = Number(value);
-      return Number.isSafeInteger(parsed) && parsed >= 0 && parsed <= 2147483647
-        ? parsed
-        : null;
-    };
-    const signedInt = (value) => {
-      if (typeof value === "string" && !/^-?\d+$/.test(value)) return null;
-      const parsed = Number(value);
-      return Number.isSafeInteger(parsed)
-        && parsed >= -2147483648
-        && parsed <= 2147483647
-        ? parsed
-        : null;
-    };
-    const boundedString = (value, max, allowEmpty = false) => {
-      if (typeof value !== "string" && typeof value !== "number") return null;
-      const normalized = String(value).trim();
-      if ((!allowEmpty && !normalized) || normalized.length > max) return null;
-      return normalized;
-    };
-    const products = [];
-    const identities = new Set();
-    let skippedAdjustmentCount = 0;
-    for (const p2 of data) {
-      if (!p2 || typeof p2 !== "object" || Array.isArray(p2)) {
-        return { success: false, error: "셀피아 상품별 이익현황 응답 형식이 예상과 다릅니다." };
-      }
-      const productCode = boundedString(p2.product_code, 64);
-      const optionCode = boundedString(p2.option_code ?? "", 64, true);
-      const productName = boundedString(p2.product_name, 400);
-      const salePrice = p2.sale_price == null || p2.sale_price === "" ? 0 : int(p2.sale_price);
-      const buyPrice = p2.buy_price == null || p2.buy_price === "" ? 0 : int(p2.buy_price);
-      const barcode = p2.dp_code == null || p2.dp_code === "" ? undefined : boundedString(p2.dp_code, 64);
-      if (!productCode || optionCode === null || !productName || salePrice === null || buyPrice === null || barcode === null) {
-        return { success: false, error: "셀피아 상품별 이익현황 응답 형식이 예상과 다릅니다." };
-      }
-      const identity = `${productCode}\u0000${optionCode}`;
-      if (identities.has(identity)) {
-        return { success: false, error: "셀피아 상품별 이익현황 응답 형식이 예상과 다릅니다." };
-      }
-      identities.add(identity);
-      const graph = p2.graph;
-      if (!graph || typeof graph !== "object" || Array.isArray(graph)) {
-        return { success: false, error: "셀피아 상품별 이익현황 응답 형식이 예상과 다릅니다." };
-      }
-      const rawMonthValues = [];
-      for (const key of Object.keys(graph)) {
-        const ym = normYm(key);
-        if (!ym || !rangeMonths.has(ym) || typeof graph[key] !== "string") {
-          return { success: false, error: "셀피아 상품별 이익현황 응답 형식이 예상과 다릅니다." };
-        }
-        const parts = graph[key].split(",");
-        if (parts.length !== 3) {
-          return { success: false, error: "셀피아 상품별 이익현황 응답 형식이 예상과 다릅니다." };
-        }
-        const inAmount = signedInt(parts[0]);
-        const orderAmount = signedInt(parts[1]);
-        const orderQty = signedInt(parts[2]);
-        if (inAmount === null || orderAmount === null || orderQty === null) {
-          return { success: false, error: "셀피아 상품별 이익현황 응답 형식이 예상과 다릅니다." };
-        }
-        rawMonthValues.push({ yearMonth: ym, inAmount, orderAmount, orderQty });
-      }
-      // Sellpia includes financial-only rows such as `할인` in the product
-      // report. They have no unit price, barcode, or inbound value and carry
-      // negative revenue only. They are not inventory products and cannot be
-      // mapped to a MasterProduct, so exclude only this narrow adjustment
-      // shape. Negative revenue on an inventory-bearing product remains a
-      // contract failure instead of being silently erased.
-      const pureFinancialAdjustment = salePrice === 0
-        && buyPrice === 0
-        && barcode === undefined
-        && rawMonthValues.some((month) => month.orderAmount < 0)
-        && rawMonthValues.every((month) =>
-          month.inAmount === 0
-          && month.orderAmount <= 0
-          && month.orderQty >= 0,
-        );
-      if (pureFinancialAdjustment) {
-        skippedAdjustmentCount += 1;
-        continue;
-      }
-      const monthValues = new Map();
-      for (const month of rawMonthValues) {
-        const inAmount = int(month.inAmount);
-        const orderAmount = int(month.orderAmount);
-        const orderQty = int(month.orderQty);
-        if (
-          inAmount === null
-          || orderAmount === null
-          || orderQty === null
-          || monthValues.has(month.yearMonth)
-        ) {
-          return { success: false, error: "셀피아 상품별 이익현황 응답 형식이 예상과 다릅니다." };
-        }
-        monthValues.set(month.yearMonth, { inAmount, orderAmount, orderQty });
-      }
-      // 응답에 없는 월을 0으로 꾸며 내지 않는다. 서버는 이 실제 월 버킷과
-      // payload-level request range의 교집합을 저장해, 누락을 정상 0으로 오인하지 않는다.
-      const months = [...monthValues.entries()]
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([yearMonth, values]) => ({
-          yearMonth,
-          ...values,
-          inQty: 0, // graph 에는 매입수량이 없어 0 (총계는 total_in_qty)
-        }));
-      products.push({
-        productCode,
-        optionCode,
-        productName,
-        optionName: p2.option_name ? String(p2.option_name) : undefined,
-        providerName: p2.provider_name ? String(p2.provider_name) : undefined,
-        salePrice,
-        buyPrice,
-        barcode,
-        months,
-      });
-    }
-    return {
-      success: true,
-      payload: {
-        range: { from: start, to: end },
-        provenance: {
-          source: "sellpia_stat_prd_profit",
-          costBasis: "ORDER_TIME_SUPPLY_COST",
-          vatIncluded: true,
-        },
-        products,
-      },
-      productCount: products.length,
-      skippedAdjustmentCount,
-      range: { start, end },
-    };
-  } catch (e) {
-    return { success: false, error: String((e && e.message) || e) };
-  }
-}
-
-async function findOrCreateKakaoTab() {
-  const tabs = await chrome.tabs.query({ url: KAKAO_TAB_MATCHES });
-  if (tabs[0]?.id) return { tab: tabs[0], created: false }; // 기존 카카오 탭 재사용 (포커스 안 뺏음)
-  const tab = await chrome.tabs.create({ url: KAKAO_ORDER_URL, active: false }); // 백그라운드 새 탭
-  return { tab, created: true };
+async function findOrCreateKakaoTab(collection) {
+  return createFreshOrderCollectionTab(collection, KAKAO_ORDER_URL);
 }
 
 async function collectKakaoOrders(dateFilter, collection) {
-  const { tab, created } = await findOrCreateKakaoTab();
+  const { tab, created } = await findOrCreateKakaoTab(collection);
   if (!tab?.id) return { success: false, error: "카카오쇼핑 판매자센터(shopping-seller.kakao.com) 탭을 열 수 없습니다." };
-  await attachOrderCollectionTab(collection, tab, created);
+  const attached = await attachOrderCollectionTab(collection, tab, created);
+  if (attached === null || attached === false) {
+    await closeFreshOrderCollectionTab(tab);
+    return {
+      success: false,
+      errorCode: "COLLECTION_CANCELLED",
+      error: "Order collection is no longer active.",
+    };
+  }
   let keepOpen = false;
   try {
     await waitForTabReady(tab.id);
+    await assertOrderCollectionActive(collection);
     const injected = await withTimeout(
       chrome.scripting.executeScript({
         target: { tabId: tab.id },
@@ -7573,8 +6825,11 @@ async function collectKakaoOrders(dateFilter, collection) {
       120000,
       "카카오 주문 수집 시간이 초과되었습니다.",
     );
-    return injected[0]?.result ?? { success: false, error: "카카오 화면에 접근하지 못했습니다." };
+    const result = injected[0]?.result ?? { success: false, error: "카카오 화면에 접근하지 못했습니다." };
+    if (orderCollectionNeedsAttention(result)) keepOpen = true;
+    return result;
   } catch (e) {
+    if (e?.code === "COLLECTION_CANCELLED") return orderCollectionCancelledResult(e);
     if (isMallAccessError(e)) { keepOpen = created; return mallAccessErrorResult("카카오"); }
     return mallGenericErrorResult("카카오", e);
   } finally {
@@ -7950,109 +7205,86 @@ async function scrapeDomeggookShipUpload(fileBase64, fileName, tar) {
   }
 }
 
-// ── 판매현황(몰별 매출) 매일 자동수집 ─────────────────────────────────────────
-// chrome.alarms 로 주기적으로(브라우저가 켜져 있을 때) 셀피아 판매현황을 스크랩해
-// chrome.storage.local 에 캐시한다. 확장은 백엔드로 직접 POST 하지 않으므로(웹앱이
-// 인증/전송 소유), 캐시는 KidItem 웹앱이 열릴 때 getSellpiaSalesCache 로 flush 된다.
-function ensureSellpiaSalesAlarm() {
-  try {
-    for (const environmentId of ordersEnvironmentContext.environmentIds) {
-      chrome.alarms.create(
-        ordersEnvironmentContext.alarmName(SELLPIA_SALES_ALARM, environmentId),
-        { delayInMinutes: 1, periodInMinutes: 360 },
-      );
-    }
-  } catch { /* alarms 권한/생성 실패 무시 */ }
-}
-chrome.runtime.onInstalled.addListener(ensureSellpiaSalesAlarm);
-chrome.runtime.onStartup.addListener(ensureSellpiaSalesAlarm);
-
-chrome.alarms.onAlarm.addListener(async (alarm) => {
-  const environmentId = ordersEnvironmentContext.parseAlarmName(
-    SELLPIA_SALES_ALARM,
-    alarm?.name,
-  );
-  if (!environmentId) return;
-  try {
-    const organizationKey = sellpiaSalesKey(
-      SELLPIA_SALES_ORGANIZATION_KEY,
-      environmentId,
-    );
-    const cacheKey = sellpiaSalesKey(SELLPIA_SALES_CACHE_KEY, environmentId);
-    const binding = await chrome.storage.local.get(organizationKey);
-    const organizationId = normalizeSellpiaSalesOrganizationId(
-      binding?.[organizationKey],
-    );
-    if (!organizationId) return;
-    // 알람 경로는 `respond` 를 지나지 않으므로 여기서 직접 붙든다.
-    const releaseKeepAlive = KidItemWorkerKeepAlive.acquire();
-    const result = await collectSellpiaSaleSummary({}).finally(releaseKeepAlive);
-    const sellers = result?.payload?.sellers;
-    const explicitEmpty =
-      Array.isArray(sellers) &&
-      sellers.length === 0 &&
-      result.payload?.provenance?.source === "sellpia_sale_summary" &&
-      result.payload?.provenance?.mode === "selldate" &&
-      result.payload?.provenance?.sellerScope === "all" &&
-      result.payload?.provenance?.responseShape === "empty_object" &&
-      result.payload?.provenance?.explicitEmpty === true;
-    if (result?.success && Array.isArray(sellers) && (sellers.length > 0 || explicitEmpty)) {
-      await chrome.storage.local.set({
-        [cacheKey]: {
-          organizationId,
-          payload: result.payload,
-          capturedAt: Date.now(),
-        },
-      });
-    }
-  } catch { /* 셀피아 미로그인 등 실패 시 캐시 미갱신 */ }
-});
-
-function normalizeSellpiaSalesOrganizationId(value) {
-  if (typeof value !== "string") return null;
-  const normalized = value.trim();
-  return normalized && normalized.length <= 128 ? normalized : null;
-}
-
 // ── 통합 서비스워커 등록 ──
 // producer 접두사로 이 도메인이 만든 수집 세션을 식별한다.
 KidItemDomains.register({
   producerPrefixes: ["orders", "inventory"],
+  externalActions: {
+    collectSellpiaDeliTracking: {
+      validate: KidItemSellpiaShipmentTrackingSourceOwner.parseAction,
+      handle: ({ attemptId }, environmentId) => KidItemWorkerKeepAlive.during(
+        sellpiaShipmentTrackingSourceOwner.run({ attemptId, environmentId }),
+      ),
+    },
+    collectSellpiaInventory: {
+      validate: KidItemSellpiaInventorySourceOwner.parseAction,
+      handle: ({ attemptId }, environmentId) => KidItemWorkerKeepAlive.during(
+        sellpiaInventorySourceOwner.run({ attemptId, environmentId }),
+      ),
+    },
+    collectSellpiaSaleSummary: {
+      validate: KidItemSellpiaSalesSourceOwner.parseAction,
+      handle: ({ attemptId }, environmentId) => KidItemWorkerKeepAlive.during(
+        sellpiaSalesSourceOwner.run({ attemptId, environmentId }),
+      ),
+    },
+    collectSellpiaProductProfit: {
+      validate: KidItemSellpiaProductProfitabilitySourceOwner.parseAction,
+      handle: ({ attemptId }, environmentId) => KidItemWorkerKeepAlive.during(
+        sellpiaProductProfitabilitySourceOwner.run({ attemptId, environmentId }),
+      ),
+    },
+    collectRocketPoRows: {
+      validate: KidItemRocketPoSourceOwner.parseStart,
+      handle: ({ attemptId }, environmentId) => KidItemWorkerKeepAlive.during(
+        rocketPoSourceOwner.run({ attemptId, environmentId }),
+      ),
+    },
+    collectCoupangDirectOrders: {
+      validate: KidItemCoupangDirectshipSourceOwner.parseStart,
+      handle: ({ attemptId }, environmentId) => KidItemWorkerKeepAlive.during(
+        coupangDirectshipSourceOwner.run({ attemptId, environmentId }),
+      ),
+    },
+    collectCoupangShipmentDateSummary: {
+      validate: parseShipmentSummaryStart,
+      handle: ({ attemptId }, environmentId) => KidItemWorkerKeepAlive.during(
+        coupangShipmentSummarySourceOwner.run({ attemptId, environmentId }),
+      ),
+    },
+  },
   externalPorts: {
     [SELLPIA_MANUAL_MATCH_PORT_NAME]: (port, senderEnvironment) =>
       handleSellpiaManualMatchPort(port, senderEnvironment),
-  },
-  operations: {
-    "inventory.refresh_sellpia_snapshot": runSellpiaInventoryOperation,
-    "inventory.collect_coupang_shipment_summary": runCoupangShipmentSummaryOperation,
-    "orders.collect_all_marketplace_orders": runMarketplaceOrderCollectionOperation,
-    "channels.collect_coupang_rocket_purchase_orders": runCoupangRocketPurchaseOrderOperation,
   },
   capabilities: {
     orderCollectionIcecreamMall: true,
     coupangShipmentDownloads: true,
     collectCoupangShipmentFiles: true,
     collectCoupangShipmentDateSummaryValidatedV1: true,
-    coupangShipmentSummaryCollectionSessionV1: true,
+    coupangShipmentSummarySourceOwnerV1: true,
     clearCoupangCookies: true,
     art09Orders: true,
     boriboriOrders: true,
-    collectRocketPoRows: true,
-    collectRocketPoRowsEvidenceV1: true,
-    collectRocketPoRowsConfirmationV1: true,
-    coupangRocketPoCollectionSessionV1: true,
-    listRocketPos: true,
+    coupangRocketPoSourceOwnerV1: true,
+    coupangDirectshipSourceOwnerV1: true,
     collectKakaoOrders: true,
     collectSellpiaDeliTracking: true,
     collectSellpiaSaleSummary: true,
     collectSellpiaSaleSummaryAuthoritativeV1: true,
     collectSellpiaProductProfit: true,
-    collectSellpiaProductProfitEvidenceV1: true,
+    collectSellpiaProductProfitEvidenceV2: true,
+    sellpiaProductProfitabilitySourceOwnerV1: true,
     collectSellpiaInventoryJsonV1: true,
+    sellpiaInventorySourceOwnerV1: true,
+    sellpiaShipmentTrackingSourceOwnerV1: true,
     collectSellpiaManualMatchV1: true,
     collectSellpiaManualMatchPortV1: true,
+    sellpiaManualMatchSourceOwnerV1: true,
     browserCollectionSessions: true,
     orderCollectionFailureEvidenceV1: true,
+    orderCollectionConfirmedCoverageV1: true,
+    orderCollectionSourceOwnerV1: true,
     kiditemEnvironmentProfilesV1: true,
     sellpiaOrderFileUploadEvidenceV1: true,
     sellpiaScopedAutoInvoiceV1: true,
@@ -8075,16 +7307,12 @@ KidItemDomains.register({
     sellpiaPostTransfer: true,
     sellpiaAutoInvoice: true,
   },
-  cancelCollectionSession: (runId, environmentId) =>
-    cancelOrdersCollectionSession(runId, environmentId),
-  // 주문수집은 확장이 재시작을 대행하지 않는다. 세션을 그대로 돌려주면 웹앱이
-  // 기존과 동일하게 수동 재시도 안내를 띄운다.
-  restartCollectionSession: (runId, environmentId) =>
-    collectionSessions.getOwned(runId, environmentId),
-  finalizeCollectionSession: (runId, status, message, environmentId) =>
-    finalizeOrdersCollectionSession(runId, status, message, environmentId),
+  cancelCollectionSession: (attemptId, environmentId) =>
+    cancelOrdersCollectionSession(attemptId, environmentId),
+  recoverCollections: (environmentId) => recoverOrdersCollections(environmentId),
+  cancelAdditionalCollections: (environmentId) => cancelAdditionalCollections(environmentId),
+  retryAdditionalCollections: (environmentId) => retryAdditionalCollections(environmentId),
 });
-
 // ── 11번가(11st) 주문 수집 ─────────────────────────────────────────────────────
 // 데스크톱 셀러오피스(soffice)는 React 껍데기 + ExtJS 레거시 iframe 하이브리드라 스크랩이
 // 지저분하다. 대신 모바일 셀러오피스(msoffice)가 같은 세션 쿠키로 도는 **순수 JSON API** 라
@@ -8092,20 +7320,27 @@ KidItemDomains.register({
 //
 // 목록(shippingManager2)에는 주소·연락처가 없어 주문마다 상세(getOrderDetail2)를 한 번 더
 // 부른다(N+1). 11번가 호출 상한이 비공개라 상세 호출 사이에 간격을 둔다.
-async function findOrCreate11stTab() {
-  const tabs = await chrome.tabs.query({ url: ELEVENST_TAB_MATCHES });
-  if (tabs[0]?.id) return { tab: tabs[0], created: false }; // 로그인된 기존 탭 재사용
-  const tab = await chrome.tabs.create({ url: ELEVENST_ORDER_URL, active: false }); // 백그라운드
-  return { tab, created: true };
+async function findOrCreate11stTab(collection) {
+  // 이미 열린 11번가 탭은 이 수집이 가진 탭이 아니다 — 다른 수집기처럼 새 비활성 탭을 연다.
+  return createFreshOrderCollectionTab(collection, ELEVENST_ORDER_URL);
 }
 
 async function collect11stOrders(dateFilter, collection) {
-  const { tab, created } = await findOrCreate11stTab();
+  const { tab, created } = await findOrCreate11stTab(collection);
   if (!tab?.id) return { success: false, error: "11번가 셀러오피스(msoffice.11st.co.kr) 탭을 열 수 없습니다." };
-  await attachOrderCollectionTab(collection, tab, created);
+  const attached = await attachOrderCollectionTab(collection, tab, created);
+  if (attached === null || attached === false) {
+    await closeFreshOrderCollectionTab(tab);
+    return {
+      success: false,
+      errorCode: "COLLECTION_CANCELLED",
+      error: "Order collection is no longer active.",
+    };
+  }
   let keepOpen = false;
   try {
     await waitForTabReady(tab.id);
+    await assertOrderCollectionActive(collection);
     const injected = await withTimeout(
       chrome.scripting.executeScript({
         target: { tabId: tab.id },
@@ -8116,9 +7351,10 @@ async function collect11stOrders(dateFilter, collection) {
       "11번가 주문 수집 시간이 초과되었습니다.",
     );
     const result = injected[0]?.result ?? { success: false, error: "11번가 화면에 접근하지 못했습니다." };
-    if (!result.success && result.pendingLogin) keepOpen = true;
+    if (orderCollectionNeedsAttention(result)) keepOpen = true;
     return result;
   } catch (e) {
+    if (e?.code === "COLLECTION_CANCELLED") return orderCollectionCancelledResult(e);
     if (isMallAccessError(e)) { keepOpen = created; return mallAccessErrorResult("11번가"); }
     return mallGenericErrorResult("11번가", e);
   } finally {

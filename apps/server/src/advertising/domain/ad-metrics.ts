@@ -1,4 +1,4 @@
-import { kstBusinessDate } from '../../common/kst';
+import { addDays, evidenceCutoffDate, kstBusinessDate } from '../../common/kst';
 import {
   recomputeRoas,
   recomputeCtr,
@@ -62,7 +62,7 @@ export function periodBounds(
   now: Date = new Date(),
 ): AdPeriodBounds {
   const today = kstBusinessDate(now);
-  const yesterday = shiftUtcDate(today, -1);
+  const yesterday = evidenceCutoffDate(now);
 
   if (period === 'month') {
     return {
@@ -73,7 +73,7 @@ export function periodBounds(
 
   const days = period === '7d' ? 7 : 14;
   return {
-    from: shiftUtcDate(yesterday, -(days - 1)),
+    from: addDays(yesterday, -(days - 1)),
     to: yesterday,
   };
 }
@@ -91,8 +91,4 @@ export function aggregateAdMetrics(entries: { metrics: AdMetrics }[]): AdMetrics
     { spend: 0, impressions: 0, clicks: 0, conversions: 0, revenue: 0 },
   );
   return buildAdMetrics(sums);
-}
-
-function shiftUtcDate(date: Date, days: number): Date {
-  return new Date(date.getTime() + days * 86_400_000);
 }

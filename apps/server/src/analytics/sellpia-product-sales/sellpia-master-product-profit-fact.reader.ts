@@ -7,9 +7,10 @@ import type {
   OrphanSellpiaProductProfitFact,
 } from '../application/port/in/master-product-profit-fact-read.port';
 import { PrismaService } from '../../prisma/prisma.service';
-import { createSellpiaProductInventoryResolver } from './sellpia-product-inventory-resolver';
+import { datesInclusive } from '../../common/kst';
 
 type SourceFactRow = Readonly<{
+  masterProductId: string | null;
   productCode: string;
   optionCode: string;
   barcode: string | null;
@@ -33,25 +34,28 @@ export class SellpiaMasterProductProfitFactReader
     range: { from: Date; to: Date };
   }): Promise<MasterProductProfitFactSnapshot> {
     const masterProductIds = [...new Set(input.masterProductIds)];
+    const requestedMasterProductIds = new Set(masterProductIds);
     if (masterProductIds.length === 0) return { evidence: [], orphanFacts: [] };
     const months = yearMonthsIntersecting(input.range);
-    const [candidates, facts] = await Promise.all([
-      this.prisma.sellpiaInventorySku.findMany({
-        where: { organizationId: input.organizationId },
-        select: {
-          id: true,
-          code: true,
-          barcode: true,
-          isActive: true,
-          masterProductId: true,
-        },
-      }),
-      this.prisma.sellpiaProductMonthlySales.findMany({
+    const generation = await this.prisma.sourceImportRun.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        sourceType: 'sellpia_product_profitability',
+        status: 'completed',
+        publicationSequence: { not: null },
+      },
+      orderBy: { publicationSequence: 'desc' },
+      select: { id: true, mappingGeneration: true, importedAt: true },
+    });
+    const facts = generation
+      ? await this.prisma.sellpiaProductMonthlySales.findMany({
         where: {
           organizationId: input.organizationId,
+          sourceImportRunId: generation.id,
           yearMonth: { in: months },
         },
         select: {
+          masterProductId: true,
           productCode: true,
           optionCode: true,
           barcode: true,
@@ -62,37 +66,22 @@ export class SellpiaMasterProductProfitFactReader
           coverageEndDate: true,
           capturedAt: true,
         },
-      }),
-    ]);
+      })
+      : [];
 
-    const candidateById = new Map(candidates.map((candidate) => [candidate.id, candidate]));
-    const mappedSkuIdsByMaster = new Map(masterProductIds.map((id) => [id, new Set<string>()]));
-    for (const candidate of candidates) {
-      if (!candidate.isActive || !candidate.masterProductId) continue;
-      mappedSkuIdsByMaster.get(candidate.masterProductId)?.add(candidate.id);
-    }
-
-    const resolver = createSellpiaProductInventoryResolver(candidates);
     const mappedRows = new Map<string, SourceFactRow[]>();
     const orphanFacts: OrphanSellpiaProductProfitFact[] = [];
     for (const sourceFact of facts as SourceFactRow[]) {
-      const resolution = resolver(sourceFact);
-      if (resolution.status !== 'matched') {
+      if (!sourceFact.masterProductId) {
         orphanFacts.push(toOrphan(sourceFact, 'SOURCE_UNMAPPED'));
         continue;
       }
-      const ownerId = candidateById.get(
-        resolution.sellpiaInventorySkuId,
-      )?.masterProductId;
-      if (!ownerId || !mappedSkuIdsByMaster.has(ownerId)) {
-        orphanFacts.push(toOrphan(sourceFact, 'SOURCE_UNMAPPED'));
-        continue;
-      }
+      if (!requestedMasterProductIds.has(sourceFact.masterProductId)) continue;
       if (!sourceFact.coverageStartDate || !sourceFact.coverageEndDate) {
         orphanFacts.push(toOrphan(sourceFact, 'LEGACY_COVERAGE_MISSING'));
         continue;
       }
-      const masterProductId = ownerId;
+      const masterProductId = sourceFact.masterProductId;
       const key = `${masterProductId}\u0000${sourceFact.yearMonth}`;
       const rows = mappedRows.get(key) ?? [];
       rows.push(sourceFact);
@@ -124,11 +113,11 @@ export class SellpiaMasterProductProfitFactReader
 
     const evidence: MasterProductProfitFactEvidence[] = masterProductIds.map((masterProductId) => ({
       masterProductId,
-      mappingStatus: (mappedSkuIdsByMaster.get(masterProductId)?.size ?? 0) > 0
+      mappingStatus: (facts as SourceFactRow[]).some((fact) => fact.masterProductId === masterProductId)
         ? 'MAPPED'
         : 'UNMAPPED',
-      mappingInventoryGeneration: null,
-      mappingVerifiedAt: null,
+      mappingInventoryGeneration: generation?.mappingGeneration?.toString() ?? null,
+      mappingVerifiedAt: generation?.importedAt ?? null,
       monthlyFacts: (factsByMaster.get(masterProductId) ?? []).sort((left, right) =>
         left.yearMonth.localeCompare(right.yearMonth)),
     }));
@@ -158,7 +147,7 @@ function hasMatchingCoverage(rows: readonly SourceFactRow[]): boolean {
 }
 
 function calendarDaysInclusive(start: Date, end: Date): number {
-  return Math.floor((end.getTime() - start.getTime()) / 86_400_000) + 1;
+  return datesInclusive(start, end).length;
 }
 
 function yearMonthsIntersecting(range: { from: Date; to: Date }): string[] {

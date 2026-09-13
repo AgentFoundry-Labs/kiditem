@@ -155,16 +155,6 @@ function pickStoredGenerationMode(rawInput: unknown): 'draft' | 'image' | 'full'
   return 'full';
 }
 
-/**
- * Convention used everywhere the detail-page operation alert is touched:
- * `detail-page:<ContentGeneration.id>`. `DetailPageAiService.generate`
- * starts an alert with this key and the sink calls `succeed()` / `fail()`
- * on the same key. Keeping the format in one place avoids drift.
- */
-export function detailPageOperationKey(contentGenerationId: string): string {
-  return `detail-page:${contentGenerationId}`;
-}
-
 export function detailPageResultHref(input: {
   productId: string | null;
   sourceCandidateId?: string | null;

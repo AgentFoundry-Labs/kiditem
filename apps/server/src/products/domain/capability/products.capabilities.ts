@@ -2,12 +2,11 @@ import { z } from 'zod';
 import type { CapabilityDefinition } from '../../../common/capability-definition';
 
 const Uuid = z.string().uuid();
-const OperationStatus = z.enum(['queued', 'waiting_runtime', 'waiting_dependency', 'running', 'attention_required', 'succeeded', 'failed', 'cancelled', 'skipped']);
 
 export const PRODUCTS_CAPABILITIES = [
   {
     key: 'products.create_listing_generation_package', ownerDomain: 'products', ownerInputPort: 'products.createListingGenerationPackage',
-    description: 'Enqueue deterministic listing generation for an existing sourcing candidate.',
+    description: 'Start deterministic listing generation for an existing sourcing candidate.',
     resultSummary: '상품 등록용 생성 작업을 시작했습니다.',
     inputSchema: z.object({
       candidateId: Uuid,
@@ -22,7 +21,13 @@ export const PRODUCTS_CAPABILITIES = [
       boxSetStatus: z.string().trim().max(80).nullable().optional(), boxSetQuantity: z.string().trim().max(200).nullable().optional(),
       task: z.enum(['all', 'detail', 'thumbnail']).optional(),
     }).strict(),
-    outputSchema: z.object({ candidateId: Uuid, operationRunId: Uuid, status: OperationStatus }).strict(),
+    outputSchema: z.object({
+      candidateId: Uuid,
+      detailGenerationId: Uuid.nullable(),
+      thumbnailGenerationId: Uuid.nullable(),
+      contentWorkspaceId: Uuid.nullable(),
+      href: z.string().min(1),
+    }).strict(),
     effects: ['db_write', 'job_enqueue'], approvalRisk: 'medium', idempotency: 'required',
   },
 ] as const satisfies readonly CapabilityDefinition[];

@@ -63,7 +63,7 @@ export default function MallHomePage() {
         sessions: sessionCounts,
         soldOutTotal: home.soldOutTotal,
         coupangPendingAccept: home.coupangPendingAccept,
-        expiredCount: home.alertsReady ? home.expired.length : null,
+        openAlertCount: home.openAlertCount,
         totals: home.overview ? home.totals : null,
         outcomes: outcomeStats,
       }),
@@ -77,7 +77,7 @@ export default function MallHomePage() {
       sessionCounts,
       home.soldOutTotal,
       home.coupangPendingAccept,
-      home.expired.length,
+      home.openAlertCount,
       home.overview,
       home.totals,
     ],
@@ -125,7 +125,7 @@ export default function MallHomePage() {
         <div className="min-w-0 space-y-4 xl:col-span-3">
           <MallHomeStats
             attention={home.counts.attention}
-            running={home.counts.running}
+            openAlerts={home.openAlertCount}
             loginNeeded={home.loginNeeded}
             soldOut={home.soldOutTotal}
             onFilter={filterAlerts}
@@ -141,9 +141,6 @@ export default function MallHomePage() {
         <MallAlertPanel
           alerts={home.alerts}
           derived={home.derived}
-          expired={home.expired}
-          onCloseExpired={home.closeExpired}
-          closingExpired={home.closingExpired}
           ready={home.alertsReady}
           filter={filter}
           onFilterChange={setFilter}

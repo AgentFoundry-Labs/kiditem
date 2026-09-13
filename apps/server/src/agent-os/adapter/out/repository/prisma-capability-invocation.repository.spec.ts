@@ -386,6 +386,5 @@ function completedReceipt() {
         version: null,
       },
     ],
-    operationRefs: [],
   };
 }

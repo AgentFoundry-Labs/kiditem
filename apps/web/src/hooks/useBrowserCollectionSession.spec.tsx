@@ -4,7 +4,7 @@ import { renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { queryKeys } from '@/lib/query-keys';
 
-const RUN_ID = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+const ATTEMPT_ID = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
 const mockFindSession = vi.hoisted(() => vi.fn());
 
 vi.mock('@/lib/browser-collection-session', async (importOriginal) => ({
@@ -20,12 +20,8 @@ function session(
   overrides: Partial<BrowserCollectionSessionView> = {},
 ): BrowserCollectionSessionView {
   return {
-    runId: RUN_ID,
+    attemptId: ATTEMPT_ID,
     producer: 'dashboard.wing_sales',
-    classification: 'background_preferred',
-    status: 'running',
-    attempt: 1,
-    restartStrategy: 'web',
     progress: {
       current: 1,
       total: 3,
@@ -33,11 +29,7 @@ function session(
       failed: 0,
       label: 'Wing 매출 수집',
     },
-    inputIdentity: { trigger: 'dashboard_traffic' },
     attention: null,
-    startedAt: 1_700_000_000_000,
-    updatedAt: 1_700_000_001_000,
-    finishedAt: null,
     ...overrides,
   };
 }
@@ -56,7 +48,7 @@ describe('useBrowserCollectionSession', () => {
     mockFindSession.mockResolvedValue(session());
   });
 
-  it('does not query extensions without a run ID', async () => {
+  it('does not query extensions without an owner attempt ID', async () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
@@ -69,12 +61,12 @@ describe('useBrowserCollectionSession', () => {
     expect(mockFindSession).not.toHaveBeenCalled();
   });
 
-  it('does not start a second observer when the caller temporarily disables polling', async () => {
+  it('does not start a second observer when the caller disables polling', async () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
 
-    renderHook(() => useBrowserCollectionSession(RUN_ID, { enabled: false }), {
+    renderHook(() => useBrowserCollectionSession(ATTEMPT_ID, { enabled: false }), {
       wrapper: wrapper(queryClient),
     });
     await Promise.resolve();
@@ -82,35 +74,35 @@ describe('useBrowserCollectionSession', () => {
     expect(mockFindSession).not.toHaveBeenCalled();
   });
 
-  it('loads the run through the shared browser collection query key', async () => {
+  it('loads the owner attempt through the shared browser collection query key', async () => {
     const current = session();
     mockFindSession.mockResolvedValue(current);
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
 
-    const { result } = renderHook(() => useBrowserCollectionSession(RUN_ID), {
+    const { result } = renderHook(() => useBrowserCollectionSession(ATTEMPT_ID), {
       wrapper: wrapper(queryClient),
     });
 
     await waitFor(() => expect(result.current.data).toEqual(current));
-    expect(mockFindSession).toHaveBeenCalledWith(RUN_ID);
+    expect(mockFindSession).toHaveBeenCalledWith(ATTEMPT_ID);
     expect(
-      queryClient.getQueryData(queryKeys.browserCollection.session(RUN_ID)),
+      queryClient.getQueryData(queryKeys.browserCollection.session(ATTEMPT_ID)),
     ).toEqual(current);
   });
 
-  it('polls every two seconds only while the latest session is running', async () => {
+  it('polls while local progress is active and stops after local progress completes', async () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
-    const { result } = renderHook(() => useBrowserCollectionSession(RUN_ID), {
+    const { result } = renderHook(() => useBrowserCollectionSession(ATTEMPT_ID), {
       wrapper: wrapper(queryClient),
     });
-    await waitFor(() => expect(result.current.data?.status).toBe('running'));
+    await waitFor(() => expect(result.current.data?.progress.current).toBe(1));
 
     const query = queryClient.getQueryCache().find({
-      queryKey: queryKeys.browserCollection.session(RUN_ID),
+      queryKey: queryKeys.browserCollection.session(ATTEMPT_ID),
     });
     const interval = query?.options.refetchInterval;
     expect(typeof interval).toBe('function');
@@ -119,13 +111,14 @@ describe('useBrowserCollectionSession', () => {
     ).toBe(2_000);
 
     queryClient.setQueryData(
-      queryKeys.browserCollection.session(RUN_ID),
+      queryKeys.browserCollection.session(ATTEMPT_ID),
       session({
-        status: 'attention_required',
-        attention: {
-          reason: 'marketplace_login',
-          message: '로그인이 필요합니다.',
-          canOpenTab: true,
+        progress: {
+          current: 3,
+          total: 3,
+          completed: 3,
+          failed: 0,
+          label: 'Wing 매출 수집 완료',
         },
       }),
     );
@@ -134,14 +127,11 @@ describe('useBrowserCollectionSession', () => {
     ).toBe(false);
   });
 
-  it('does not let an older attempt from polling overwrite newer cached session data', async () => {
+  it('accepts a same-progress attention update because transport has no revision field', async () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
-    const newer = session({
-      status: 'attention_required',
-      attempt: 2,
-      updatedAt: 1_700_000_002_000,
+    const attention = session({
       attention: {
         reason: 'marketplace_login',
         message: '로그인이 필요합니다.',
@@ -149,36 +139,33 @@ describe('useBrowserCollectionSession', () => {
       },
     });
     queryClient.setQueryData(
-      queryKeys.browserCollection.session(RUN_ID),
-      newer,
+      queryKeys.browserCollection.session(ATTEMPT_ID),
+      session(),
     );
-    mockFindSession.mockResolvedValueOnce(
-      session({ attempt: 1, updatedAt: 1_700_000_009_000 }),
-    );
+    mockFindSession.mockResolvedValue(attention);
 
-    const { result } = renderHook(() => useBrowserCollectionSession(RUN_ID), {
+    const { result } = renderHook(() => useBrowserCollectionSession(ATTEMPT_ID), {
       wrapper: wrapper(queryClient),
     });
 
-    await waitFor(() => expect(mockFindSession).toHaveBeenCalledWith(RUN_ID));
-    expect(result.current.data).toEqual(newer);
+    await waitFor(() => expect(result.current.data).toEqual(attention));
     expect(
-      queryClient.getQueryData(queryKeys.browserCollection.session(RUN_ID)),
-    ).toEqual(newer);
+      queryClient.getQueryData(queryKeys.browserCollection.session(ATTEMPT_ID)),
+    ).toEqual(attention);
   });
 
-  it('ignores malformed cached data before comparing session ordering', async () => {
+  it('ignores malformed cached data before returning the strict owner session', async () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
     queryClient.setQueryData(
-      queryKeys.browserCollection.session(RUN_ID),
-      { runId: RUN_ID, attempt: 'corrupt', updatedAt: Number.MAX_SAFE_INTEGER },
+      queryKeys.browserCollection.session(ATTEMPT_ID),
+      { runId: ATTEMPT_ID, status: 'running', updatedAt: Number.MAX_SAFE_INTEGER },
     );
     const current = session();
     mockFindSession.mockResolvedValueOnce(current);
 
-    const { result } = renderHook(() => useBrowserCollectionSession(RUN_ID), {
+    const { result } = renderHook(() => useBrowserCollectionSession(ATTEMPT_ID), {
       wrapper: wrapper(queryClient),
     });
 

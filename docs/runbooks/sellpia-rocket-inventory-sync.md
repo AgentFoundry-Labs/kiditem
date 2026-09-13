@@ -21,9 +21,10 @@ authenticated Sellpia full option-product export
   -> SellpiaInventorySku.currentStock
 
 authenticated Rocket PO collection
-  -> Channels validates active organization Rocket account + vendor identity
-  -> non-destructive ChannelListing / ChannelListingOption identity upsert
-  -> collected rows appear immediately
+  -> Channels issues account-scoped attempt + frozen plan/token/expiry
+  -> extension captures the provider and uploads directly to the owner
+  -> Channels atomically stores COMPLETE snapshot + identities + Alert resolution
+  -> UI reads the COMPLETE source independently of row count
   -> Inventory refreshes Sellpia when needed
   -> Supply recalculates a deterministic preview from the fresh generation
   -> operator reviews every quantity and shortage reason
@@ -50,29 +51,44 @@ state.
    exactly `rocket`. Never infer Rocket from its display name.
 2. In the existing decision area on `/rocket-orders`, choose the account and
    collect the intended ETA range through the order-collector extension.
-3. The extension returns a caller UUID `collectionRunId`, the non-display
-   `vendorId`, page/detail counts, truncation, failed PO numbers, and stable PO
-   line identities. `vendorName` is never accepted as identity.
-4. Collection is incomplete when non-empty results have missing/mixed vendor
-   IDs, any requested PO detail failed, or the 20-list-page/40-detail-page
-   safety limits truncate the result. A complete zero-PO result legitimately
-   has no collected vendor ID; after validating the selected active account,
-   the server returns an empty result without publishing a catalog artifact.
-5. Channels validates organization, account, active status, channel, and vendor
-   identity, canonicalizes the artifact, and calculates its SHA-256 on the
-   server. A duplicate completed artifact is reused.
+3. Begin `/api/channels/rocket-po/attempts` with a stable idempotency key and
+   explicit account/date/status/date-type/confirmation mode. Send only the
+   issued `attemptId` to the extension. It reads the frozen plan and retains
+   the same URLs, all-page traversal, detail concurrency5, normalization and
+   one fresh-tab session retry. No Operation claim or heartbeat is involved.
+4. The extension uploads normalized rows, non-display vendor identity,
+   page/detail counts and observed list validation directly to Channels. A
+   missing list array is not proof of empty. Missing/mixed vendor identity on
+   non-empty data, failed details or incomplete pagination cannot publish.
+   A verified zero-PO result publishes an empty COMPLETE snapshot without
+   claiming a blank vendor identity. `vendorName` is not identity.
+5. Channels rechecks account/vendor and the attempt fence in the terminal
+   transaction. Snapshot, identity upserts, terminal state and Alert changes
+   commit together. Fixed expiry is 600 seconds. A same-attempt terminal replay
+   is a no-op; a new explicit collection receives a new generation even when
+   content matches. Existing 4,000-row acceptance uses one bounded upload.
 6. Publication upserts observed Rocket identities without inactivating older
    Rocket identities that are absent from a later PO collection. Existing
    confirmed option-component rules are preserved.
 7. Confirmation-capable collection additionally requires the allowlisted
    official-workbook fields for every line. Missing fields block confirmation;
    they are never synthesized from names or copied from another PO.
+8. The account source read reports latest attempt, latest COMPLETE, stale state
+   and actual cutoff independently of rows. Failure keeps the prior COMPLETE;
+   a newer empty COMPLETE clears older current rows. Previous snapshots remain
+   available by exact source reference. A lost upload ACK is recovered by
+   reading the exact attempt, not by marking an uncertain upload failed.
 
 Incomplete or vendor-mismatched collection cannot produce a usable preview.
 Correct the account/session or narrow the date range and recollect; never fill
 missing evidence manually.
 
 ## Preview Calculation
+
+Preview and server workbook requests reference `sourceImportRunId`; Supply
+loads canonical COMPLETE rows through Channels. They never publish browser
+rows or change the source terminal state. Preview failure leaves COMPLETE
+intact. Reopening an existing snapshot performs no new provider collection.
 
 Before final stockout allocation, Supply requires a fresh Inventory read
 containing one verified generation, active state, and `currentStock` for every
@@ -175,6 +191,7 @@ real-world stock change.
 | Rocket account missing/inactive | Select or configure an active organization-owned `channel='rocket'` account. |
 | Vendor mismatch | Sign in to the intended Coupang supplier account or select the matching Rocket ChannelAccount. Recollect; do not override the ID. |
 | Missing/truncated details | Narrow the date range, restore the provider page/session, and recollect until completeness evidence is clean. |
+| Source result unconfirmed | Read the exact attempt/source. Retry transport with its existing identity while RUNNING; use a new explicit attempt after FAILED/expiry. |
 | SKU is unmapped | Open `/product-hub/matching` and confirm the entire option-component rule; do not infer quantity from a title. |
 | Component inactive | Review and replace/confirm the option-component rule. Persisted mapping remains diagnosable and appears in `needs_review`. |
 | Freshness pending | Keep the collected rows visible as advisory, wait for automatic Sellpia refresh, and recompute from the requested generation before export. |
@@ -191,7 +208,7 @@ real-world stock change.
 ```bash
 rtk npm exec --workspace=packages/shared vitest -- run src/schemas/rocket-purchase-preview.spec.ts
 rtk npm exec --workspace=apps/server vitest -- run src/inventory src/channels src/supply
-rtk npm run test:integration --workspace=apps/server -- src/channels/__tests__/rocket-po-catalog.repository.pg.integration.spec.ts src/channels/__tests__/channel-sku-mapping.pg.integration.spec.ts src/supply/__tests__/rocket-purchase-confirmation.pg.integration.spec.ts src/supply/__tests__/rocket-final-order-reconciliation.pg.integration.spec.ts src/orders/__tests__/coupang-direct-order-collection.pg.integration.spec.ts
+rtk npm run test:integration --workspace=apps/server -- src/channels/__tests__/rocket-po-source.pg.integration.spec.ts src/channels/__tests__/channel-sku-mapping.pg.integration.spec.ts src/supply/__tests__/rocket-purchase-confirmation.pg.integration.spec.ts src/supply/__tests__/rocket-final-order-reconciliation.pg.integration.spec.ts src/orders/__tests__/coupang-direct-order-collection.pg.integration.spec.ts
 rtk npm exec --workspace=apps/web vitest -- run src/app/\(supply\)/purchase-orders src/app/\(orders\)/rocket-orders src/app/\(orders\)/order-collection src/app/\(inventory\)/stock-ops
 rtk node --test extensions/tests/order-collector-rocket-sales-contract.test.mjs extensions/tests/order-collector-action-coverage.test.mjs
 rtk npm run build --workspace=packages/shared
@@ -217,7 +234,7 @@ any marketplace provider/physical-stock side effect is reachable.
 Release: <root VERSION>
 Rocket account/vendor: <sanitized account id>; matched <yes/no>
 Collection: complete <yes/no>; list pages <n>; details <n>; failed <count>; truncated <yes/no>
-Catalog publication: <new|duplicate>; rows <count>
+Catalog publication: attempt <id>; generation <n>; cutoff <timestamp>; state <COMPLETE|FAILED|RUNNING>; rows <count>
 Sellpia freshness generation: <decimal string>
 Preview: rows <count>; blocked <count>; edited bounds verified <yes/no>
 Confirmation: <not executed|active id>; idempotent <yes/no>; shortage reasons <verified/not applicable>

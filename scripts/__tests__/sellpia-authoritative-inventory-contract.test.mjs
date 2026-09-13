@@ -59,26 +59,39 @@ const CURRENT_STOCK_WRITE_ALLOWLIST = new Set([
   "apps/server/src/inventory/adapter/out/repository/sellpia-snapshot-publication.repository.adapter.ts",
   "apps/server/src/advertising/__tests__/ad-action-flow.pg.integration.spec.ts",
   "apps/server/src/advertising/__tests__/ad-strategy-flow.pg.integration.spec.ts",
+  "apps/server/src/advertising/__tests__/profitability-ad-import.repository.pg.integration.spec.ts",
   "apps/server/src/analytics/dashboard/__tests__/dashboard-inventory.pg.integration.spec.ts",
+  "apps/server/src/analytics/dashboard/__tests__/inventory-abc-read.pg.integration.spec.ts",
   "apps/server/src/analytics/sellpia-product-sales/__tests__/sellpia-product-sales-inventory.pg.integration.spec.ts",
+  "apps/server/src/analytics/sellpia-product-sales/__tests__/sellpia-profitability-source.pg.integration.spec.ts",
   "apps/server/src/analytics/supplier-stats/__tests__/supplier-stats-flow.pg.integration.spec.ts",
   "apps/server/src/automation/application/service/__tests__/action-board-get-tasks.pg.integration.spec.ts",
   "apps/server/src/channels/__tests__/channel-catalog-import.repository.pg.integration.spec.ts",
   "apps/server/src/channels/__tests__/channel-catalog-publication.repository.pg.integration.spec.ts",
   "apps/server/src/channels/__tests__/channel-product-matching.pg.integration.spec.ts",
   "apps/server/src/channels/__tests__/channel-recipe-suggestion.pg.integration.spec.ts",
+  "apps/server/src/channels/__tests__/marketplace-registration.pg.integration.spec.ts",
   "apps/server/src/channels/__tests__/product-sync.pg.integration.spec.ts",
   "apps/server/src/channels/__tests__/rocket-po-catalog.repository.pg.integration.spec.ts",
+  "apps/server/src/channels/__tests__/rocket-po-source.pg.integration.spec.ts",
   "apps/server/src/finance/services/__tests__/profit-loss.pg.integration.spec.ts",
+  "apps/server/src/finance/__tests__/profitability-evidence.pg.integration.spec.ts",
   "apps/server/src/inventory/__tests__/inventory-commitment.pg.integration.spec.ts",
   "apps/server/src/inventory/__tests__/inventory-sku-snapshot-detail.repository.pg.integration.spec.ts",
   "apps/server/src/inventory/__tests__/inventory-sku-snapshot-list.repository.pg.integration.spec.ts",
   "apps/server/src/inventory/__tests__/sellpia-inventory-freshness.repository.pg.integration.spec.ts",
   "apps/server/src/inventory/__tests__/sellpia-inventory-import.repository.pg.integration.spec.ts",
+  "apps/server/src/inventory/__tests__/inventory-sku-export.pg.integration.spec.ts",
+  "apps/server/src/inventory/__tests__/sellpia-inventory-source.pg.integration.spec.ts",
   "apps/server/src/inventory/__tests__/stock-transfers-tenant-boundary.pg.integration.spec.ts",
+  "apps/server/src/products/__tests__/master-product-abc-publication.pg.integration.spec.ts",
+  "apps/server/src/products/__tests__/master-product-abc-recipe-flow.pg.integration.spec.ts",
   "apps/server/src/products/__tests__/master-product-abc.repository.pg.integration.spec.ts",
+  "apps/server/src/products/__tests__/product-abc-display-status.pg.integration.spec.ts",
+  "apps/server/src/products/__tests__/product-channel-option-recipe-mutation.pg.integration.spec.ts",
   "apps/server/src/products/__tests__/product-operations.repository.pg.integration.spec.ts",
   "apps/server/src/orders/__tests__/coupang-direct-order-collection.pg.integration.spec.ts",
+  "apps/server/src/channels/__tests__/sellpia-manual-match-source-owner.pg.integration.spec.ts",
   "apps/server/src/test-helpers/finance-seeds.ts",
   "apps/server/src/test-helpers/inventory-seeds.ts",
   "apps/server/src/supply/__tests__/purchase-order-submission.pg.integration.spec.ts",
@@ -405,7 +418,18 @@ describe("Sellpia authoritative final-schema contract", () => {
     );
     assert.doesNotMatch(dashboardSalesRepository, /channel_sku_components/);
     assert.doesNotMatch(dashboardSalesRepository, /LEFT JOIN LATERAL/);
-    assert.match(dashboardSalesRepository, /mp\.abc_grade AS grade/);
-    assert.match(dashboardSalesRepository, /GROUP BY cl\.id/);
+    assert.match(dashboardSalesRepository, /LEFT JOIN master_product_abc_evaluations abce/);
+    assert.match(dashboardSalesRepository, /grade: abcEvaluation\?\.abcGrade \?\? null/);
+    assert.doesNotMatch(dashboardSalesRepository, /mp\.abc_grade AS grade/);
+    // One group per listing: a bundle line counts once however many Sellpia
+    // components its option consumes. A line that settles against no listing —
+    // a Coupang Rocket purchase order, which carries no listing option at all —
+    // groups on its own SKU so its revenue is ranked rather than dropped
+    // (ADR-0004). The listing still closes the group.
+    assert.match(
+      dashboardSalesRepository,
+      /GROUP BY COALESCE\(cl\.id::text, 'line-sku:' \|\| oli\.sku\)/,
+    );
+    assert.match(dashboardSalesRepository, /^\s+cl\.id,/m);
   });
 });

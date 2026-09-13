@@ -17,13 +17,14 @@ vi.mock('@tanstack/react-query', () => ({
   useQuery: vi.fn(),
 }));
 
-vi.mock('@/hooks/useSellpiaInventoryFreshness', () => ({
-  useSellpiaInventoryFreshness: () => ({
-    requestRefresh: vi.fn(),
+vi.mock('../../_shared/sellpia-inventory-source-owner', () => ({
+  useSellpiaInventorySourceOwner: () => ({
+    start: vi.fn(),
+    isStarting: false,
     state: {
       status: 'fresh',
       lastVerifiedAt: '2026-08-13T01:00:00.000Z',
-      unresolvedOrderTransmissionIntents: [],
+      errorMessage: null,
     },
   }),
 }));
@@ -91,5 +92,12 @@ describe('<InventoryWorkspace>', () => {
     expect(pushMock).toHaveBeenCalledWith(
       '/inventory-hub?campaign=summer&search=SP-1001&stockStatus=all&activeStatus=inactive&linkStatus=linked&page=1',
     );
+  });
+
+  it('marks the summary unavailable when no completed snapshot exists', () => {
+    render(<InventoryWorkspace />);
+
+    expect(screen.getAllByText('미수집')).toHaveLength(3);
+    expect(screen.queryByText('8개')).not.toBeInTheDocument();
   });
 });

@@ -1,17 +1,11 @@
 import { Module } from '@nestjs/common';
-import { AutomationModule } from '../../automation/automation.module';
+import { AdvertisingModule } from '../../advertising/advertising.module';
 import { TrafficController } from './traffic.controller';
 import { TrafficService } from './traffic.service';
-import { TrafficOperationAlertAdapter } from './adapter/out/automation/operation-alert.adapter';
-import { TRAFFIC_OPERATION_ALERT_PORT } from './application/port/out/cross-domain/operation-alert.port';
 
 @Module({
-  imports: [AutomationModule],
+  imports: [AdvertisingModule],
   controllers: [TrafficController],
-  providers: [
-    TrafficService,
-    TrafficOperationAlertAdapter,
-    { provide: TRAFFIC_OPERATION_ALERT_PORT, useExisting: TrafficOperationAlertAdapter },
-  ],
+  providers: [TrafficService],
 })
 export class TrafficModule {}

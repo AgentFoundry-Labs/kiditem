@@ -1,20 +1,17 @@
 'use client';
 
+import Link from 'next/link';
 import {
   BarChart3,
-  CheckCircle2,
-  Circle,
+  BellRing,
+  CircleAlert,
   DollarSign,
-  Loader2,
   Megaphone,
-  Radio,
   TrendingUp,
-  X,
-  XCircle,
   type LucideIcon,
 } from 'lucide-react';
+import type { AlertItem } from '@kiditem/shared/alerts';
 import type { DashboardAdSummary, DashboardSalesSummary } from '@kiditem/shared/dashboard';
-import type { PanelRunItem } from '@kiditem/shared/panel';
 import { cn, formatKRW, formatNumber, timeAgo } from '@/lib/utils';
 import { countAgentHealth, type PipeAgentHealth, type PipeAgentSummary } from '../lib/pipe-agents';
 
@@ -25,8 +22,9 @@ export interface PipeBusiness {
   adFailed: boolean;
 }
 
-/** 억 · 만 단위로 줄인 원화. */
-export function compactKrw(value: number): string {
+/** 억 · 만 단위로 줄인 원화. 모르면 '—'. */
+export function compactKrw(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return '—';
   const abs = Math.abs(value);
   if (abs >= 100_000_000) return `${(value / 100_000_000).toFixed(1)}억`;
   if (abs >= 10_000) return `${formatNumber(Math.round(value / 10_000))}만`;
@@ -40,30 +38,15 @@ const HEALTH_ORDER: readonly { key: PipeAgentHealth; label: string; dot: string;
   { key: 'unknown', label: '모름', dot: 'bg-slate-600', text: 'text-slate-400' },
 ];
 
-const RUN_COLOR: Readonly<Record<PanelRunItem['status'], string>> = {
-  running: '#34d399',
-  pending: '#fbbf24',
-  succeeded: '#22d3ee',
-  failed: '#f87171',
-  cancelled: '#64748b',
-};
-const RUN_ICON: Readonly<Record<PanelRunItem['status'], LucideIcon>> = {
-  running: Loader2,
-  pending: Circle,
-  succeeded: CheckCircle2,
-  failed: XCircle,
-  cancelled: X,
-};
-const RUN_LABEL: Readonly<Record<PanelRunItem['status'], string>> = {
-  running: '진행 중',
-  pending: '대기',
-  succeeded: '완료',
-  failed: '실패',
-  cancelled: '취소',
+const SEVERITY_TONE: Readonly<Record<string, string>> = {
+  critical: '#f87171',
+  error: '#f87171',
+  warning: '#fbbf24',
+  info: '#22d3ee',
 };
 
-function ChangeBadge({ value, suffix = '%' }: { value: number | null; suffix?: string }) {
-  if (value === null || !Number.isFinite(value)) return null;
+function ChangeBadge({ value, suffix = '%' }: { value: number | null | undefined; suffix?: string }) {
+  if (value == null || !Number.isFinite(value)) return null;
   return (
     <span
       className={cn(
@@ -113,7 +96,7 @@ function MetricTile({
 }
 
 /**
- * 하단 대시보드 — 에이전트 상태 막대, 이번 달 매출 · 영업이익 · ROAS · CTR, 실시간 작업.
+ * 하단 대시보드 — 에이전트 상태 막대, 이번 달 매출 · 영업이익 · ROAS · CTR, 열린 알림.
  *
  * 매출 · 광고 숫자는 대시보드 화면과 같은 API 를 같은 캐시로 읽는다. 못 불러오면 0 이 아니라
  * '—' 로 둔다.
@@ -123,14 +106,15 @@ export function PipeBottomDashboard({
   stageCount,
   connection,
   business,
-  runs,
+  openAlerts,
   now,
 }: {
   agents: readonly PipeAgentSummary[];
   stageCount: number;
   connection: string;
   business: PipeBusiness | undefined;
-  runs: readonly PanelRunItem[];
+  /** 아직 열린 원천 실패 알림. */
+  openAlerts: readonly AlertItem[];
   now: number;
 }) {
   const counts = countAgentHealth(agents);
@@ -198,66 +182,60 @@ export function PipeBottomDashboard({
         tone="text-emerald-400"
         label="영업이익"
         value={sales ? compactKrw(sales.profit) : missing(business?.salesFailed)}
-        note={sales ? `지난달 ${compactKrw(sales.prevProfit)}` : null}
+        note={sales && sales.prevProfit != null ? `지난달 ${compactKrw(sales.prevProfit)}` : null}
         change={sales ? sales.profitChange : null}
         className="col-span-2 max-md:col-span-1"
       />
 
       <section className="col-span-5 row-span-2 flex flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#0d1321] p-4 max-md:col-span-2 max-md:row-span-1 max-md:min-h-[180px]">
         <div className="mb-3 flex shrink-0 items-center gap-2">
-          <h2 className="text-[13px] font-bold text-slate-300">실시간 작업</h2>
+          <h2 className="text-[13px] font-bold text-slate-300">열린 알림</h2>
           <span
             className={cn(
               'rounded-md px-2 py-0.5 text-[9px] font-semibold',
               connection === 'connected' ? 'bg-emerald-500/15 text-emerald-400' : 'bg-slate-500/15 text-slate-500',
             )}
           >
-            {connection === 'connected' ? 'Live' : 'Offline'}
+            {connection === 'connected' ? '10초마다 확인' : '확인 안 됨'}
           </span>
-          <span className="ml-auto text-[10px] text-slate-600">{formatNumber(runs.length)}건</span>
+          <span className="ml-auto text-[10px] text-slate-600">{formatNumber(openAlerts.length)}건</span>
         </div>
         <ul className="flex-1 space-y-1.5 overflow-y-auto pr-1">
-          {runs.length > 0 ? (
-            runs.map((run) => {
-              const color = RUN_COLOR[run.status];
-              const Icon = RUN_ICON[run.status];
-              const active = run.status === 'running' || run.status === 'pending';
-              return (
-                <li
-                  key={run.id}
-                  className={cn('rounded-lg border p-2.5', active ? 'border-emerald-500/15 bg-emerald-500/[0.03]' : 'border-white/5 bg-white/[0.01]')}
-                >
-                  <div className="flex items-start gap-2.5">
-                    <Icon
-                      size={14}
-                      className={cn('mt-0.5 shrink-0', run.status === 'running' && 'motion-safe:animate-spin')}
-                      style={{ color }}
-                      aria-hidden
-                    />
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-[12px] font-medium text-slate-300">{run.title}</div>
-                      {run.subtitle ? <div className="mt-0.5 truncate text-[10px] text-slate-600">{run.subtitle}</div> : null}
-                      <div className="mt-1.5 flex items-center gap-2">
-                        <span className="rounded-sm px-1.5 py-0.5 text-[9px] font-semibold" style={{ background: `${color}1f`, color }}>
-                          {RUN_LABEL[run.status]}
-                        </span>
-                        <span className="text-[9px] text-slate-600">{timeAgo(new Date(run.updatedAt), new Date(now))}</span>
-                        {run.status === 'running' && run.progress != null ? (
-                          <div className="h-1 flex-1 overflow-hidden rounded-full bg-white/5">
-                            <div className="h-full rounded-full bg-emerald-400" style={{ width: `${run.progress * 100}%` }} />
-                          </div>
-                        ) : null}
-                      </div>
+          {openAlerts.length > 0 ? (
+            openAlerts.map((alert) => {
+              const color = SEVERITY_TONE[alert.severity] ?? '#94a3b8';
+              const body = (
+                <div className="flex items-start gap-2.5">
+                  <CircleAlert size={14} className="mt-0.5 shrink-0" style={{ color }} aria-hidden />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-[12px] font-medium text-slate-300">{alert.title}</div>
+                    {alert.message ? <div className="mt-0.5 truncate text-[10px] text-slate-500">{alert.message}</div> : null}
+                    <div className="mt-1.5 flex items-center gap-2">
+                      <span className="rounded-sm px-1.5 py-0.5 text-[9px] font-semibold" style={{ background: `${color}1f`, color }}>
+                        {alert.isRead ? '읽음' : '새 알림'}
+                      </span>
+                      <span className="text-[9px] text-slate-600">{timeAgo(new Date(alert.updatedAt), new Date(now))}</span>
                     </div>
                   </div>
+                </div>
+              );
+              return (
+                <li key={alert.id} className="rounded-lg border border-white/5 bg-white/[0.01] p-2.5">
+                  {alert.href ? (
+                    <Link href={alert.href} className="block focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-400">
+                      {body}
+                    </Link>
+                  ) : (
+                    body
+                  )}
                 </li>
               );
             })
           ) : (
             <li className="flex h-full flex-col items-center justify-center gap-2 py-6 text-slate-600">
-              <Radio size={22} className="opacity-40" aria-hidden />
-              <p className="text-[11px]">실시간 작업 대기 중</p>
-              <p className="text-[10px] text-slate-700">수집 · 전송 · 등록이 시작되면 여기에 보입니다</p>
+              <BellRing size={22} className="opacity-40" aria-hidden />
+              <p className="text-[11px]">열린 알림이 없습니다</p>
+              <p className="text-[10px] text-slate-700">수집이 끝내 실패하면 여기에 올라오고, 다시 성공하면 닫힙니다</p>
             </li>
           )}
         </ul>
@@ -267,16 +245,16 @@ export function PipeBottomDashboard({
         icon={TrendingUp}
         tone="text-amber-400"
         label="ROAS"
-        value={ad ? `${ad.roas.toFixed(0)}%` : missing(business?.adFailed)}
-        note={ad ? `광고비 ${compactKrw(ad.totalAdSpend)}` : null}
+        value={ad && ad.roas != null ? `${ad.roas.toFixed(0)}%` : missing(business?.adFailed)}
+        note={ad && ad.totalAdSpend != null ? `광고비 ${compactKrw(ad.totalAdSpend)}` : null}
         className="col-span-2 col-start-4 max-md:col-span-1 max-md:col-start-auto"
       />
       <MetricTile
         icon={Megaphone}
         tone="text-violet-400"
         label="CTR"
-        value={ad ? `${ad.ctr.toFixed(2)}%` : missing(business?.adFailed)}
-        note={sales ? `광고 비중 ${sales.adRate.toFixed(1)}%` : null}
+        value={ad && ad.ctr != null ? `${ad.ctr.toFixed(2)}%` : missing(business?.adFailed)}
+        note={sales && sales.adRate != null ? `광고 비중 ${sales.adRate.toFixed(1)}%` : null}
         className="col-span-2 max-md:col-span-1"
       />
     </section>

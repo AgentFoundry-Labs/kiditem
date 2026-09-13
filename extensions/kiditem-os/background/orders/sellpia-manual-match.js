@@ -346,6 +346,24 @@
     return { ...ERRORS.network };
   }
 
+  async function assertCollectionActive(collection) {
+    if (typeof collection?.assertActive !== "function") return;
+    const active = await collection.assertActive();
+    if (active === false) {
+      const error = new Error("Sellpia manual-match collection is no longer active.");
+      error.code = "COLLECTION_CANCELLED";
+      throw error;
+    }
+  }
+
+  function cancellationResult(error) {
+    return {
+      success: false,
+      errorCode: "COLLECTION_CANCELLED",
+      error: String(error?.message || "Sellpia manual-match collection was cancelled."),
+    };
+  }
+
   function create(options) {
     const chromeApi = options.chrome;
     const tabReadyTimeoutMs = safeLimit(
@@ -365,7 +383,15 @@
     );
     const maxRows = safeLimit(options.maxRows, DEFAULT_MAX_ROWS, DEFAULT_MAX_ROWS);
 
-    async function findOrCreateTab() {
+    async function findOrCreateTab(collection) {
+      // A fenced managed run owns a fresh inactive tab. This avoids closing a
+      // user's inactive Sellpia tab when the run is cancelled.
+      if (typeof collection?.isActive === "function") {
+        return {
+          tab: await chromeApi.tabs.create({ url: PAGE_URL, active: false }),
+          created: true,
+        };
+      }
       const tabs = await chromeApi.tabs.query({ url: PAGE_MATCHES });
       const existing = tabs.find((tab) => Number.isInteger(tab?.id) && tab.active === false);
       if (existing) return { tab: existing, created: false };
@@ -380,14 +406,18 @@
       let keepOpen = false;
       try {
         if (!Array.isArray(targetCodes)) return publicFailure("sellpia_manual_match_invalid_snapshot");
-        const located = await findOrCreateTab();
+        await assertCollectionActive(collection);
+        const located = await findOrCreateTab(collection);
         tab = located.tab;
         created = located.created;
         if (!Number.isInteger(tab?.id) || !Number.isInteger(tab?.windowId)) {
           return publicFailure("sellpia_manual_match_network_failed");
         }
         if (created) {
-          await collection.attachTab(tab, { owned: true });
+          const attachment = await collection.attachTab(tab, { owned: true });
+          if (attachment === null || attachment === false) {
+            return cancellationResult(new Error("Sellpia manual-match collection was cancelled before tab attachment."));
+          }
           attached = true;
         }
         await collection.progress({
@@ -398,11 +428,13 @@
           label: "Sellpia 수동상품매칭 근거를 수집하고 있습니다.",
         });
         await waitForTabReady(chromeApi, tab.id, tabReadyTimeoutMs);
+        await assertCollectionActive(collection);
         const injected = await chromeApi.scripting.executeScript({
           target: { tabId: tab.id },
           func: requestSellpiaManualMatchSnapshot,
           args: [targetCodes, maxTargets, maxRows, requestTimeoutMs],
         });
+        await assertCollectionActive(collection);
         const result = injected?.[0]?.result;
         if (!result || result.success !== true) {
           const failure = publicFailure(result?.errorCode, result?.stage);
@@ -418,6 +450,7 @@
           sourceOrigin: SOURCE_ORIGIN,
         };
       } catch (error) {
+        if (error?.code === "COLLECTION_CANCELLED") return cancellationResult(error);
         return error?.message === "SELLPIA_MANUAL_MATCH_TIMEOUT"
           ? publicFailure("sellpia_manual_match_timeout")
           : publicFailure("sellpia_manual_match_network_failed");

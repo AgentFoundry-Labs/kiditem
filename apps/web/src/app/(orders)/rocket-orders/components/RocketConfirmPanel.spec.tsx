@@ -183,7 +183,14 @@ describe("<RocketConfirmPanel />", () => {
   it("runs the shared Rocket collection workflow used by the dashboard", async () => {
     renderPanel();
 
-    fireEvent.click(screen.getByRole("button", { name: "이 달 쿠팡 PO 수집·보관" }));
+    const collectButton = screen.getByRole("button", {
+      name: "이 달 쿠팡 PO 수집·보관",
+    });
+    expect(collectButton).toHaveAttribute(
+      "title",
+      "2026-07 입고예정 발주를 선택한 로켓 계정에서 모든 상태로 수집합니다.",
+    );
+    fireEvent.click(collectButton);
 
     await waitFor(() => {
       expect(baseWorkflow.recalculate).toHaveBeenCalledTimes(1);

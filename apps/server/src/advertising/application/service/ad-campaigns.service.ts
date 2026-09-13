@@ -1,15 +1,4 @@
 import { Inject, Injectable } from '@nestjs/common';
-import type {
-  AdCampaignSyncStatus,
-  AdCampaignSnapshot,
-  AdKeywordProductSummary,
-  AdKeywordSnapshot,
-  AdKeywordsData,
-  AdProductSnapshot,
-  AdTrendsData,
-} from '@kiditem/shared/advertising';
-import { kstBusinessDate } from '../../../common/kst';
-import { AdConfigService } from './ad-config.service';
 import { aggregateDailyAdRows } from '../../domain/ad-trend';
 import {
   toAdCampaignSnapshot,
@@ -39,6 +28,16 @@ import {
   AD_ACTION_REPOSITORY_PORT,
   type AdActionRepositoryPort,
 } from '../port/out/repository/ad-action.repository.port';
+import { AdConfigService } from './ad-config.service';
+import type {
+  AdCampaignSnapshot,
+  AdKeywordProductSummary,
+  AdKeywordSnapshot,
+  AdKeywordsData,
+  AdProductSnapshot,
+  AdTrendsData,
+} from '@kiditem/shared/advertising';
+import { businessDateKey, evidenceCutoffDate } from '../../../common/kst';
 
 @Injectable()
 export class AdCampaignsService {
@@ -57,74 +56,6 @@ export class AdCampaignsService {
   }
 
   /**
-   * Durable completion/freshness for the browser campaign + product sweep.
-   *
-   * A local browser session saying "succeeded" is deliberately insufficient:
-   * the repository validates the latest persisted terminal marker against the
-   * exact stable campaign identities observed in the same run + attempt.
-   */
-  async getCampaignSyncStatus(
-    organizationId: string,
-  ): Promise<AdCampaignSyncStatus> {
-    const latest =
-      await this.campaignRepo.findAccountlessSyncCampaignSweep(organizationId);
-    if (!latest) {
-      return {
-        status: 'missing',
-        lastCompletedAt: null,
-        campaignCount: 0,
-      } satisfies AdCampaignSyncStatus;
-    }
-
-    if (!latest.rosterComplete) {
-      return {
-        status: 'incomplete',
-        lastCompletedAt: null,
-        campaignCount: 0,
-      } satisfies AdCampaignSyncStatus;
-    }
-
-    const latestCompleteBusinessDate = new Date(
-      kstBusinessDate(new Date()).getTime() - 86_400_000,
-    );
-    const expectedDailyTo = latestCompleteBusinessDate
-      .toISOString()
-      .slice(0, 10);
-    const expectedDailyFrom = new Date(
-      latestCompleteBusinessDate.getTime() - 30 * 86_400_000,
-    )
-      .toISOString()
-      .slice(0, 10);
-    const hasCompleteDailyWindowContract =
-      latest.campaignDailyCollectionComplete &&
-      latest.campaignDailyWindowDays === 31 &&
-      isExactThirtyOneDayWindow(
-        latest.campaignDailyFrom,
-        latest.campaignDailyTo,
-      );
-    if (hasCompleteDailyWindowContract && !latest.dailyFactsComplete) {
-      return {
-        status: 'incomplete',
-        lastCompletedAt: null,
-        campaignCount: latest.campaigns.length,
-      } satisfies AdCampaignSyncStatus;
-    }
-    const hasLatestCompleteDailyWindow =
-      hasCompleteDailyWindowContract &&
-      latest.dailyFactsComplete &&
-      latest.campaignDailyFrom === expectedDailyFrom &&
-      latest.campaignDailyTo === expectedDailyTo;
-    return {
-      status: hasLatestCompleteDailyWindow ? 'fresh' : 'stale',
-      lastCompletedAt:
-        hasCompleteDailyWindowContract && latest.dailyFactsComplete
-          ? latest.completedAt
-          : null,
-      campaignCount: latest.campaigns.length,
-    } satisfies AdCampaignSyncStatus;
-  }
-
-  /**
    * Campaign-grain rollup from `ChannelAdTargetDailySnapshot.targetType='campaign'`
    * over the requested period. Rollups without a `listingId` (campaigns that
    * span many products — the typical Coupang case) surface with `listing: null`
@@ -136,10 +67,8 @@ export class AdCampaignsService {
     period: AdPeriod,
     organizationId: string,
   ): Promise<AdCampaignSnapshot[]> {
-    const [rollups, currentSweeps] = await Promise.all([
-      this.campaignRepo.findCampaignRollups(organizationId, period),
-      this.campaignRepo.findLatestCompleteCampaignSweeps(organizationId),
-    ]);
+    const { rollups, currentSweeps } =
+      await this.campaignRepo.findCampaignSnapshot(organizationId, period);
     const completeSweeps = new Map(
       currentSweeps
         .filter((sweep) => sweep.rosterComplete)
@@ -373,7 +302,12 @@ export class AdCampaignsService {
       organizationId,
       rows,
     );
-    return toAdTrendsData({ dailyAggregates, gradeBudget, accountKpiRows });
+    return toAdTrendsData({
+      knownThrough: businessDateKey(evidenceCutoffDate()),
+      dailyAggregates,
+      gradeBudget,
+      accountKpiRows,
+    });
   }
 }
 
@@ -384,31 +318,15 @@ function campaignProjectionKey(
   return `${channelAccountId}\u001f${campaignIdentity}`;
 }
 
-function isExactThirtyOneDayWindow(
-  from: string | null,
-  to: string | null,
-): boolean {
-  if (!from || !to) return false;
-  const fromDate = new Date(`${from}T00:00:00.000Z`);
-  const toDate = new Date(`${to}T00:00:00.000Z`);
-  return (
-    Number.isFinite(fromDate.getTime()) &&
-    Number.isFinite(toDate.getTime()) &&
-    fromDate.toISOString().slice(0, 10) === from &&
-    toDate.toISOString().slice(0, 10) === to &&
-    (toDate.getTime() - fromDate.getTime()) / 86_400_000 + 1 === 31
-  );
-}
-
 /**
  * Group keyword rows into the per-product footprint the keyword view shows:
  * how many keywords a product is running, how many of those Coupang matched on
  * its own, how many actually served, and how many the agent flagged.
  *
  * Only keywords that belong to exactly one advertised option are counted. A
- * keyword shared across options arrives with no option link (see
- * `AdKeywordIngestHandler`) and is deliberately excluded rather than being
- * attributed to an arbitrary product.
+ * keyword shared across options arrives with no option link (the standalone
+ * keyword source preserves that ambiguity) and is deliberately excluded
+ * rather than being attributed to an arbitrary product.
  */
 function rollUpKeywordsByProduct(
   keywords: AdKeywordSnapshot[],

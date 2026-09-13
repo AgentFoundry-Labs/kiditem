@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- The approved authority is `docs/superpowers/specs/2026-07-12-sellpia-authoritative-inventory-cutover-design.md` as amended on 2026-07-13.
+- The approved authority is `docs/superpowers/specs/archive/2026-07-12-sellpia-authoritative-inventory-cutover-design.md` as amended on 2026-07-13.
 - `develop` is the 0.1.7 base and the complete reconstruction ships as root `VERSION` 0.1.8.
 - Legacy `InventorySku`, `ProductOption`, mapping, and family-Master data is intentionally discarded; do not implement identity maps, in-place row backfills, dual writes, or rollback compatibility.
 - Preserve existing Coupang provider metadata and scrape facts by selective export/replay into final owners; never carry encrypted account config, tokens, order/review personal data, or legacy inventory/mapping identities.

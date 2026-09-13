@@ -70,6 +70,7 @@ describe('StockAssets', () => {
     expect(screen.getByText('평가 재고자산')).toBeInTheDocument();
     expect(screen.getByText('가격 미등록 SKU')).toBeInTheDocument();
     expect(screen.getByText('가격 미등록')).toBeInTheDocument();
+    expect(screen.getAllByText('미수집')).toHaveLength(3);
   });
 
   it('requests and renders the selected server page with the full result total', async () => {

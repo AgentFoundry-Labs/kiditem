@@ -2,27 +2,17 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 
 import type { MulterFile } from '../../common/types';
-import { kstDayStart } from '../../common/kst';
+import { businessDateKey, currentBusinessDate } from '../../common/kst';
 import type { PrismaService } from '../../prisma/prisma.service';
-import type { OperationAlertPort } from './application/port/out/cross-domain/operation-alert.port';
 import {
   parseTrafficUploadFile,
   type ParsedUploadRow,
 } from './traffic-upload.parser';
 
-type TrafficUploadSource = 'settings' | 'products';
-
-export interface TrafficUploadOptions {
-  actorUserId?: string | null;
-  source?: string | null;
-}
-
 interface UploadTrafficStatsParams {
   file: MulterFile;
   organizationId: string;
-  options: TrafficUploadOptions;
   prisma: PrismaService;
-  operationAlerts?: OperationAlertPort;
 }
 
 interface AggregatedRow {
@@ -38,43 +28,14 @@ interface AggregatedRow {
   date: string;
 }
 
-const TRAFFIC_UPLOAD_SURFACES: Record<TrafficUploadSource, { href: string }> = {
-  settings: { href: '/settings' },
-  products: { href: '/product-hub' },
-};
-
 export async function uploadTrafficStats({
   file,
   organizationId,
-  options,
   prisma,
-  operationAlerts,
 }: UploadTrafficStatsParams) {
-  const source = normalizeTrafficUploadSource(options.source);
-  const operationKey = `traffic-upload:${source}`;
-  const href = TRAFFIC_UPLOAD_SURFACES[source].href;
-  await operationAlerts?.start({
-    organizationId,
-    operationKey,
-    type: 'traffic_upload',
-    title: '트래픽 데이터 업로드',
-    sourceType: 'traffic_upload',
-    sourceId: source,
-    actorUserId: options.actorUserId ?? null,
-    href,
-    message: 'Wing 트래픽 엑셀 데이터를 업로드하고 있습니다.',
-    progress: 0,
-    metadata: {
-      source,
-      fileName: file.originalname,
-      fileSize: file.size,
-    },
-  });
-
-  try {
-    if (file.size > 10 * 1024 * 1024) {
-      throw new BadRequestException('파일 크기 10MB 초과');
-    }
+  if (file.size > 10 * 1024 * 1024) {
+    throw new BadRequestException('파일 크기 10MB 초과');
+  }
 
     // Coupang 의 '등록상품ID' 는 ChannelListing.externalId 에 해당.
     // CSV upload 는 Coupang 전용이므로 channel='coupang' 로 제한.
@@ -91,8 +52,8 @@ export async function uploadTrafficStats({
       listings.map((l) => [l.externalId, l.id]),
     );
 
-    const todayKst = kstDayStart(new Date());
-    const todayStr = todayKst.toISOString().slice(0, 10);
+    const todayKst = currentBusinessDate();
+    const todayStr = businessDateKey(todayKst);
     const parsed = parseTrafficUploadFile({
       file,
       listingMap,
@@ -205,6 +166,7 @@ export async function uploadTrafficStats({
                 trafficCoverageStatus: 'OBSERVED',
                 trafficObservedAt: observedAt,
                 metaJson: {
+                  'traffic.currentSource': 'traffic.csv_upload',
                   'traffic.csv_upload': {
                     source: 'traffic_csv_upload',
                     data: {
@@ -226,6 +188,14 @@ export async function uploadTrafficStats({
                 trafficRevenue: d.revenue,
                 trafficCoverageStatus: 'OBSERVED',
                 trafficObservedAt: observedAt,
+              },
+              select: { id: true },
+            });
+            await mergeCsvUploadMeta(tx, d.listingId, businessDate, organizationId, {
+              source: 'traffic_csv_upload',
+              data: {
+                fileName: file.originalname,
+                uploadedAt: observedAt.toISOString(),
               },
             });
           }
@@ -254,46 +224,31 @@ export async function uploadTrafficStats({
       });
     }
 
-    const response = {
-      success: true,
-      upserted,
-      skipped: parsed.skipped,
-      detectedColumns: parsed.detectedColumns,
-    };
-    await operationAlerts?.succeed(organizationId, operationKey, {
-      href,
-      message: `트래픽 데이터 업로드 완료: ${upserted}건 반영, ${parsed.skipped}건 스킵`,
-      severity: parsed.skipped > 0 ? 'warning' : 'info',
-      metadata: {
-        source,
-        fileName: file.originalname,
-        upserted,
-        skipped: parsed.skipped,
-      },
-    });
-    return response;
-  } catch (err) {
-    await operationAlerts?.fail(organizationId, operationKey, {
-      href,
-      message: `트래픽 데이터 업로드 실패: ${errorMessage(err)}`,
-      metadata: {
-        source,
-        fileName: file.originalname,
-        error: errorMessage(err),
-      },
-    });
-    throw err;
-  }
+  return {
+    success: true,
+    upserted,
+    skipped: parsed.skipped,
+    detectedColumns: parsed.detectedColumns,
+  };
 }
 
-function normalizeTrafficUploadSource(
-  source: string | null | undefined,
-): TrafficUploadSource {
-  return source === 'products' ? 'products' : 'settings';
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+async function mergeCsvUploadMeta(
+  tx: Prisma.TransactionClient,
+  listingId: string,
+  businessDate: Date,
+  organizationId: string,
+  data: { source: string; data: Record<string, string> },
+) {
+  await tx.$executeRaw(Prisma.sql`
+    UPDATE channel_listing_daily_snapshots
+    SET meta_json = COALESCE(meta_json, '{}'::jsonb) || ${JSON.stringify({
+      'traffic.currentSource': 'traffic.csv_upload',
+      'traffic.csv_upload': data,
+    })}::jsonb
+    WHERE organization_id = ${organizationId}::uuid
+      AND listing_id = ${listingId}::uuid
+      AND business_date = ${businessDate}
+  `);
 }
 
 function addAggregatedRow(

@@ -76,6 +76,21 @@ export function scoreChannelRecipeNameCandidate(
   };
 }
 
+/**
+ * Score barcode/name evidence only when both sides provide a comparable name.
+ * A missing name is unknown evidence, not a measured mismatch.
+ */
+export function scoreChannelRecipeNameCandidateIfComparable(
+  options: readonly ChannelRecipeNameOption[],
+  sku: ChannelRecipeNameSku,
+): number | null {
+  if (!sku.name?.trim() || !options.some((option) =>
+    Boolean(option.listingName?.trim() || option.itemName?.trim()))) {
+    return null;
+  }
+  return scoreChannelRecipeNameCandidate([...options], sku).score;
+}
+
 export function createChannelRecipeNameIndex(
   skus: ChannelRecipeNameSku[],
 ): ChannelRecipeNameIndex {

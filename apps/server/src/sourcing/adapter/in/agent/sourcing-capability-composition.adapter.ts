@@ -11,7 +11,7 @@ import {
 } from '../../../application/port/in/capability/sourcing-final-capability.port';
 import type { SourcingCapabilityCompositionPort } from '../../../application/port/in/capability/sourcing-capability-composition.port';
 
-/** Sourcing owns all ten definition-to-owner-port Adapters. */
+/** Sourcing owns direct definition-to-owner-port adapters. */
 @Injectable()
 export class SourcingCapabilityCompositionAdapter
   implements SourcingCapabilityCompositionPort
@@ -23,7 +23,7 @@ export class SourcingCapabilityCompositionAdapter
     private readonly sourcing: SourcingFinalCapabilityPort,
   ) {
     this.compositions = [
-      defineCapabilityComposition(SOURCING_CAPABILITIES[0], this.sourcing, {
+      defineCapabilityComposition(sourcingCapability('sourcing.duplicateCheck'), this.sourcing, {
         capabilityKey: 'sourcing.duplicateCheck',
         ownerInputPort: 'sourcing.duplicateCheck',
         invoke: ({ context, input }) =>
@@ -36,7 +36,7 @@ export class SourcingCapabilityCompositionAdapter
             ? { kind: 'sourcing_candidate', id: output.candidateId }
             : null,
       }),
-      defineCapabilityComposition(SOURCING_CAPABILITIES[1], this.sourcing, {
+      defineCapabilityComposition(sourcingCapability('sourcing.scrapeProductUrl'), this.sourcing, {
         capabilityKey: 'sourcing.scrapeProductUrl',
         ownerInputPort: 'sourcing.scrapeProductUrl',
         invoke: ({ context, input }) =>
@@ -49,7 +49,7 @@ export class SourcingCapabilityCompositionAdapter
             input,
           }),
       }),
-      defineCapabilityComposition(SOURCING_CAPABILITIES[2], this.sourcing, {
+      defineCapabilityComposition(sourcingCapability('sourcing.ingestCandidate'), this.sourcing, {
         capabilityKey: 'sourcing.ingestCandidate',
         ownerInputPort: 'sourcing.ingestCandidate',
         invoke: ({ context, input }) =>
@@ -62,22 +62,7 @@ export class SourcingCapabilityCompositionAdapter
           id: output.candidateId,
         }),
       }),
-      defineCapabilityComposition(SOURCING_CAPABILITIES[3], this.sourcing, {
-        capabilityKey: 'sourcing.scrapeUrlWorkflow',
-        ownerInputPort: 'sourcing.scrapeUrlWorkflow',
-        invoke: ({ context, input }) =>
-          this.sourcing.scrapeUrlWorkflow({
-            context: sourcingMutationContext(context),
-            input,
-          }),
-        resourceRef: (output) =>
-          output.kind === 'existing'
-            ? { kind: 'sourcing_candidate', id: output.candidateId }
-            : null,
-        operationRef: (output) =>
-          output.kind === 'enqueued' ? output.operationRunId : null,
-      }),
-      defineCapabilityComposition(SOURCING_CAPABILITIES[4], this.sourcing, {
+      defineCapabilityComposition(sourcingCapability('sourcing.retrieveWorkspaceEvidence'), this.sourcing, {
         capabilityKey: 'sourcing.retrieveWorkspaceEvidence',
         ownerInputPort: 'sourcing.retrieveWorkspaceEvidence',
         invoke: ({ context, input }) =>
@@ -90,7 +75,7 @@ export class SourcingCapabilityCompositionAdapter
           id: output.inputHash,
         }),
       }),
-      defineCapabilityComposition(SOURCING_CAPABILITIES[5], this.sourcing, {
+      defineCapabilityComposition(sourcingCapability('sourcing.inspectRecommendationRun'), this.sourcing, {
         capabilityKey: 'sourcing.inspectRecommendationRun',
         ownerInputPort: 'sourcing.inspectRecommendationRun',
         invoke: ({ context, input }) =>
@@ -103,17 +88,7 @@ export class SourcingCapabilityCompositionAdapter
           id: output.runId,
         }),
       }),
-      defineCapabilityComposition(SOURCING_CAPABILITIES[6], this.sourcing, {
-        capabilityKey: 'sourcing.refreshCollection',
-        ownerInputPort: 'sourcing.refreshCollection',
-        invoke: ({ context, input }) =>
-          this.sourcing.refreshCollection({
-            context: sourcingMutationContext(context),
-            input,
-          }),
-        operationRef: (output) => output.operationRunId,
-      }),
-      defineCapabilityComposition(SOURCING_CAPABILITIES[7], this.sourcing, {
+      defineCapabilityComposition(sourcingCapability('sourcing.refreshValidation'), this.sourcing, {
         capabilityKey: 'sourcing.refreshValidation',
         ownerInputPort: 'sourcing.refreshValidation',
         invoke: ({ context, input }) =>
@@ -122,7 +97,7 @@ export class SourcingCapabilityCompositionAdapter
             input,
           }),
       }),
-      defineCapabilityComposition(SOURCING_CAPABILITIES[8], this.sourcing, {
+      defineCapabilityComposition(sourcingCapability('sourcing.createReviewBatch'), this.sourcing, {
         capabilityKey: 'sourcing.createReviewBatch',
         ownerInputPort: 'sourcing.createReviewBatch',
         invoke: ({ context, input }) =>
@@ -135,18 +110,21 @@ export class SourcingCapabilityCompositionAdapter
           id: output.reviewBatchId,
         }),
       }),
-      defineCapabilityComposition(SOURCING_CAPABILITIES[9], this.sourcing, {
-        capabilityKey: 'sourcing.collect_shadow_signals',
-        ownerInputPort: 'sourcing.collectShadowSignals',
-        invoke: ({ context, input }) =>
-          this.sourcing.collectShadowSignals({
-            context: sourcingMutationContext(context),
-            input,
-          }),
-        operationRef: (output) => output.operationRunId,
-      }),
     ];
   }
+}
+
+type SourcingCapability = (typeof SOURCING_CAPABILITIES)[number];
+
+function sourcingCapability<K extends SourcingCapability['key']>(
+  key: K,
+): Extract<SourcingCapability, { key: K }> {
+  const definition = SOURCING_CAPABILITIES.find(
+    (candidate): candidate is Extract<SourcingCapability, { key: K }> =>
+      candidate.key === key,
+  );
+  if (!definition) throw new Error(`sourcing_capability_definition_missing:${key}`);
+  return definition;
 }
 
 function sourcingMutationContext(

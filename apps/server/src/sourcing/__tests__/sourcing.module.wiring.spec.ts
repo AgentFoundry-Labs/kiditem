@@ -10,6 +10,7 @@ import { SourcingFinalCapabilityAdapter } from "../adapter/in/agent/sourcing-fin
 import { SourcingCapabilityCompositionAdapter } from "../adapter/in/agent/sourcing-capability-composition.adapter";
 import { SourcingFinalDiscoveryCapabilityAdapter } from "../adapter/in/agent/sourcing-final-discovery-capability.adapter";
 import { SourcingScrapeSnapshotAdmissionGuard } from "../adapter/in/agent/sourcing-scrape-snapshot-admission.guard";
+import { SourcingScrapeUrlService } from "../application/service/sourcing-scrape-url.service";
 import { SOURCING_FINAL_CAPABILITY_PORT } from "../application/port/in/capability/sourcing-final-capability.port";
 import { SOURCING_CAPABILITY_COMPOSITION_PORT } from "../application/port/in/capability/sourcing-capability-composition.port";
 import { SOURCING_FINAL_DISCOVERY_CAPABILITY_PORT } from "../application/port/in/capability/sourcing-final-discovery-capability.port";
@@ -35,6 +36,9 @@ function binding(
 }
 
 describe("Sourcing final capability wiring", () => {
+  it("registers direct URL collection in its source owner", () => {
+    expect(providers(SourcingModule)).toContain(SourcingScrapeUrlService);
+  });
   it("binds the final Sourcing capability port to Sourcing-owned incoming adapters", () => {
     const entries = providers(SourcingModule);
 

@@ -1,113 +1,15 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { DetailPageGenerateDirectOutputSchema } from '../../../../domain/direct-generation';
 import { DetailPageContentGenerationSinkAdapter } from '../detail-page-content-generation-sink.adapter';
-import type { OperationAlertPort } from '../../../../application/port/out/cross-domain/operation-alert.port';
-import type { DetailPageGeneratedImagesService } from '../../../../application/service/detail-page-generated-images.service';
-import type { ContentAssetService } from '../../../../application/service/content-asset.service';
-import type { ProductGenerationAlertService } from '../../../../application/service/product-generation-alert.service';
 
 const ORG = '11111111-1111-1111-1111-111111111111';
-const OTHER_ORG = '22222222-2222-2222-2222-222222222222';
-const REQUEST = '33333333-3333-3333-3333-333333333333';
-const RUN = '44444444-4444-4444-4444-444444444444';
-const CG_ID = '55555555-5555-5555-5555-555555555555';
-const GROUP_ID = '66666666-6666-4666-8666-666666666666';
-const CANDIDATE_ID = '77777777-7777-4777-8777-777777777777';
-const ARTIFACT_ID = '88888888-8888-4888-8888-888888888888';
-const REGISTRATION_WORKSPACE_ID = '99999999-9999-4999-8999-999999999999';
+const REQUEST = '22222222-2222-2222-2222-222222222222';
+const RUN = '33333333-3333-3333-3333-333333333333';
+const CG_ID = '44444444-4444-4444-4444-444444444444';
+const ARTIFACT_ID = '55555555-5555-5555-8555-555555555555';
 
-const STORED_RAW_INPUT = {
-  rawTitle: '키즈 텀블러',
-  rawCategory: '유아용품',
-  rawDescription: '아이가 사용하기 좋은 텀블러',
-  rawOptions: '핑크/블루',
-  imageUrls: ['https://example.com/p1.jpg'],
-  heroImageMode: 'first' as const,
-  templateId: 'bold-vertical' as const,
-  ageGroup: 'age-14-plus' as const,
-  detailImageCount: '1' as const,
-};
-
-function makeRow(overrides: Record<string, unknown> = {}) {
-  return {
-    id: CG_ID,
-    organizationId: ORG,
-    generationGroupId: GROUP_ID,
-    contentType: 'detail_page',
-    templateId: 'bold-vertical',
-    generationInput: STORED_RAW_INPUT,
-    generationResult: {
-      templateId: 'bold-vertical',
-      result: {},
-      imageUrls: ['https://example.com/p1.jpg'],
-      processedImages: {},
-    },
-    generatedTitle: '키즈 텀블러',
-    sourceCandidateId: CANDIDATE_ID,
-    contentWorkspaceId: REGISTRATION_WORKSPACE_ID,
-    detailPageArtifactId: null,
-    triggeredByUserId: 'user-1',
-    status: 'PROCESSING',
-    errorMessage: null,
-    createdAt: new Date('2026-05-08T00:00:00.000Z'),
-    generationGroup: {
-      targetMasterId: null,
-    },
-    ...overrides,
-  };
-}
-
-function makePrismaStub(row: ReturnType<typeof makeRow> | null) {
-  const scope = {
-    contentGeneration: {
-      findFirst: vi.fn().mockResolvedValue(row),
-      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
-    },
-    detailPageArtifact: {
-      create: vi.fn().mockResolvedValue({ id: ARTIFACT_ID }),
-      findFirstOrThrow: vi.fn().mockResolvedValue({ id: ARTIFACT_ID }),
-    },
-    contentWorkspace: {
-      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
-    },
-  };
-  return {
-    ...scope,
-    $transaction: vi.fn(async (callback: (tx: typeof scope) => unknown) =>
-      callback(scope),
-    ),
-  };
-}
-
-function makeAlertsStub(): OperationAlertPort {
-  return {
-    succeed: vi.fn().mockResolvedValue(null),
-    fail: vi.fn().mockResolvedValue(null),
-  } as unknown as OperationAlertPort;
-}
-
-function makeImagesStub(): DetailPageGeneratedImagesService {
-  return {
-    generateBestEffort: vi.fn().mockResolvedValue({
-      __heroBanner: 'https://cdn.example.com/hero.png',
-    }),
-  } as unknown as DetailPageGeneratedImagesService;
-}
-
-function makeContentAssetsStub(): ContentAssetService {
-  return {
-    recordDetailPageGeneratedAssets: vi.fn().mockResolvedValue(undefined),
-    recordDetailPageGeneratedAssetsTx: vi.fn().mockResolvedValue(undefined),
-  } as unknown as ContentAssetService;
-}
-
-function makeProductGenerationAlertsStub(): ProductGenerationAlertService {
-  return {
-    markChildFinished: vi.fn().mockResolvedValue({}),
-  } as unknown as ProductGenerationAlertService;
-}
-
-const VALID_OUTPUT = {
-  templateId: 'bold-vertical' as const,
+const VALID_OUTPUT = DetailPageGenerateDirectOutputSchema.parse({
+  templateId: 'bold-vertical',
   result: {
     hook: {
       subtext: '이달의 추천',
@@ -117,435 +19,316 @@ const VALID_OUTPUT = {
       imageIndex: 0,
       bannerImageIndex: null,
     },
-    section: { name: '키즈 텀블러', title: '안심 음수', subtitle: '안심 음수' },
+    section: {
+      name: '키즈 텀블러',
+      title: '안심 음수',
+      subtitle: '안심 음수',
+    },
     keyPoints: [
-      { title: '가벼움', description: '들고 다녀도 부담 없음', imageIndex: 0 },
-      { title: '논슬립', description: '미끄러짐 방지 그립', imageIndex: 0 },
-      { title: '안심 재질', description: 'KC 인증 안심 재질', imageIndex: 0 },
+      { title: '가벼움', description: '들고 다녀도 부담이 없어요', imageIndex: 0 },
+      { title: '논슬립', description: '미끄러짐 방지 그립이에요', imageIndex: 0 },
+      { title: '안심 재질', description: '안전하게 사용하는 재질이에요', imageIndex: 0 },
     ],
     size: { subtitle: '500ml 표준', imageIndices: [] },
-    color: { subtitle: '핑크/블루 2색', imageIndices: [] },
-    usage: { subtitle: '뚜껑을 돌려 음수', imageIndices: [] },
+    color: { subtitle: '핑크와 블루', imageIndices: [] },
+    usage: { subtitle: '뚜껑을 돌려 음수해요', imageIndices: [] },
     detailImageIndices: [0],
     productInfo: [
       { key: '제품명', value: '키즈 텀블러' },
       { key: '재질', value: '트라이탄' },
-      { key: '색상', value: '핑크/블루' },
+      { key: '색상', value: '핑크와 블루' },
     ],
   },
   imageUrls: ['https://example.com/p1.jpg'],
-  processedImages: {
-    __heroBanner: 'https://cdn.example.com/hero.png',
-  },
-};
+  processedImages: { __heroBanner: 'https://cdn.example.com/hero.png' },
+});
+
+function makeRow(status = 'PROCESSING') {
+  return {
+    id: CG_ID,
+    organizationId: ORG,
+    status,
+    contentWorkspaceId: '66666666-6666-4666-8666-666666666666',
+    detailPageArtifactId: null as string | null,
+    generationGroupId: null,
+    generatedTitle: null,
+    triggeredByUserId: '77777777-7777-4777-8777-777777777777',
+    generationInput: { rawTitle: '자석 다트게임' },
+    generationResult: null,
+  };
+}
+
+function makePrisma(row = makeRow()) {
+  const tx = {
+    contentGeneration: {
+      updateMany: vi.fn()
+        .mockResolvedValueOnce({ count: 1 })
+        .mockResolvedValueOnce({ count: 1 }),
+    },
+    detailPageArtifact: {
+      create: vi.fn().mockResolvedValue({ id: ARTIFACT_ID }),
+      findFirstOrThrow: vi.fn().mockResolvedValue({ id: ARTIFACT_ID }),
+    },
+    contentWorkspace: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+  };
+  const prisma = {
+    contentGeneration: {
+      findFirst: vi.fn().mockResolvedValue(row),
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+    },
+    $transaction: vi.fn(async (callback: (transaction: typeof tx) => Promise<unknown>) => callback(tx)),
+  };
+  return { prisma, tx };
+}
+
+function makeSink(prisma: unknown, contentAssets = { recordDetailPageGeneratedAssetsTx: vi.fn() }) {
+  return new DetailPageContentGenerationSinkAdapter(
+    prisma as never,
+    {} as never,
+    contentAssets as never,
+  );
+}
 
 describe('DetailPageContentGenerationSinkAdapter', () => {
-  let prisma: ReturnType<typeof makePrismaStub>;
-  let alerts: OperationAlertPort;
-  let images: DetailPageGeneratedImagesService;
-  let contentAssets: ContentAssetService;
-  let productGenerationAlerts: ProductGenerationAlertService;
-  let sink: DetailPageContentGenerationSinkAdapter;
+  it('does not create artifacts or assets when the apply claim loses cancellation', async () => {
+    const { prisma, tx } = makePrisma();
+    tx.contentGeneration.updateMany.mockReset().mockResolvedValue({ count: 0 });
+    const contentAssets = { recordDetailPageGeneratedAssetsTx: vi.fn() };
+    const sink = makeSink(prisma, contentAssets);
 
-  beforeEach(() => {
-    prisma = makePrismaStub(makeRow());
-    alerts = makeAlertsStub();
-    images = makeImagesStub();
-    contentAssets = makeContentAssetsStub();
-    productGenerationAlerts = makeProductGenerationAlertsStub();
-    sink = new DetailPageContentGenerationSinkAdapter(
-      prisma as never,
-      alerts,
-      images,
-      contentAssets,
-      productGenerationAlerts,
+    await sink.applySuccess({
+      organizationId: ORG,
+      requestId: REQUEST,
+      runId: RUN,
+      sourceResourceId: CG_ID,
+      output: VALID_OUTPUT,
+    });
+
+    expect(tx.detailPageArtifact.create).not.toHaveBeenCalled();
+    expect(tx.contentWorkspace.updateMany).not.toHaveBeenCalled();
+    expect(contentAssets.recordDetailPageGeneratedAssetsTx).not.toHaveBeenCalled();
+  });
+
+  it('projects provider output into the ContentGeneration owner transaction', async () => {
+    const { prisma, tx } = makePrisma();
+    const contentAssets = { recordDetailPageGeneratedAssetsTx: vi.fn() };
+    const sink = makeSink(prisma, contentAssets);
+
+    await sink.applySuccess({
+      organizationId: ORG,
+      requestId: REQUEST,
+      runId: RUN,
+      sourceResourceId: CG_ID,
+      output: VALID_OUTPUT,
+    });
+
+    expect(tx.contentGeneration.updateMany).toHaveBeenNthCalledWith(1, {
+      where: { id: CG_ID, organizationId: ORG, status: 'PROCESSING' },
+      data: { status: 'APPLYING' },
+    });
+    expect(tx.detailPageArtifact.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        organizationId: ORG,
+        sourceContentGenerationId: CG_ID,
+      }),
+    }));
+    expect(tx.contentGeneration.updateMany).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      where: { id: CG_ID, organizationId: ORG, status: 'APPLYING' },
+      data: expect.objectContaining({ status: 'READY', detailPageArtifactId: ARTIFACT_ID }),
+    }));
+    expect(contentAssets.recordDetailPageGeneratedAssetsTx).toHaveBeenCalledWith(
+      tx,
+      {
+        organizationId: ORG,
+        contentGenerationId: CG_ID,
+        generationGroupId: null,
+        processedImages: VALID_OUTPUT.processedImages,
+      },
     );
   });
 
-  describe('applySuccess', () => {
-    it('does not create artifacts when the generation claim loses to cancellation', async () => {
-      prisma.contentGeneration.updateMany.mockResolvedValueOnce({ count: 0 });
+  it('records provider failure on the ContentGeneration owner row', async () => {
+    const row = makeRow();
+    const { prisma } = makePrisma(row);
+    prisma.contentGeneration.findFirst.mockResolvedValueOnce({
+      id: row.id,
+      status: row.status,
+      generationInput: row.generationInput,
+    });
+    const sink = makeSink(prisma);
 
-      await sink.applySuccess({
-        organizationId: ORG,
-        requestId: REQUEST,
-        runId: RUN,
-        sourceResourceId: CG_ID,
-        output: VALID_OUTPUT,
-      });
-
-      expect(prisma.detailPageArtifact.create).not.toHaveBeenCalled();
-      expect(prisma.contentWorkspace.updateMany).not.toHaveBeenCalled();
-      expect(alerts.succeed).not.toHaveBeenCalled();
+    await sink.applyFailure({
+      organizationId: ORG,
+      requestId: REQUEST,
+      runId: undefined,
+      sourceResourceId: CG_ID,
+      errorCode: 'runtime_not_configured',
+      errorMessage: 'no provider',
     });
 
-    it('updates the row to READY with generationResult media and closes the alert', async () => {
-      await sink.applySuccess({
+    expect(prisma.contentGeneration.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: CG_ID,
         organizationId: ORG,
-        requestId: REQUEST,
-        runId: RUN,
-        sourceResourceId: CG_ID,
-        output: VALID_OUTPUT,
-      });
-
-      expect(images.generateBestEffort).not.toHaveBeenCalled();
-      expect(prisma.contentGeneration.updateMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({ id: CG_ID, organizationId: ORG }),
-          data: expect.objectContaining({
-            detailPageArtifactId: ARTIFACT_ID,
-            status: 'READY',
-            errorMessage: null,
-          }),
-        }),
-      );
-      expect(prisma.detailPageArtifact.create).toHaveBeenCalledWith({
-        data: {
-          organizationId: ORG,
-          contentWorkspaceId: REGISTRATION_WORKSPACE_ID,
-          sourceContentGenerationId: CG_ID,
-          title: '키즈 텀블러 안심 음수',
-          status: 'generated',
-          createdByUserId: 'user-1',
-          metadata: {
-            source: 'detail_page_generation_success',
-            executionMode: 'agent_os',
-            aiJobId: REQUEST,
-            agentRunId: RUN,
-          },
-        },
-        select: { id: true },
-      });
-      expect(prisma.contentWorkspace.updateMany).toHaveBeenCalledWith({
-        where: {
-          id: REGISTRATION_WORKSPACE_ID,
-          organizationId: ORG,
-          isDeleted: false,
-        },
-        data: {
-          currentDetailPageArtifactId: ARTIFACT_ID,
-          status: 'active',
-        },
-      });
-      const updateCall = prisma.contentGeneration.updateMany.mock.calls.find(
-        ([args]) => args.data?.status === 'READY',
-      )?.[0] as {
-        data: { generationResult: { processedImages: Record<string, string>; result: { hook?: { text?: string } }; templateId: string } };
-      };
-      expect(updateCall.data.generationResult.processedImages).toMatchObject({
-        __heroBanner: 'https://cdn.example.com/hero.png',
-      });
-      expect(contentAssets.recordDetailPageGeneratedAssetsTx).toHaveBeenCalledWith(
-        expect.anything(),
-        {
-        organizationId: ORG,
-        contentGenerationId: CG_ID,
-        generationGroupId: GROUP_ID,
-        processedImages: {
-          __heroBanner: 'https://cdn.example.com/hero.png',
-        },
-        },
-      );
-      expect(updateCall.data.generationResult.templateId).toBe('bold-vertical');
-      expect(updateCall.data.generationResult.result.hook?.text).toBe('키즈 텀블러');
-      expect(alerts.succeed).toHaveBeenCalledWith(
-        ORG,
-        `detail-page:${CG_ID}`,
-        expect.objectContaining({
-          metadata: expect.objectContaining({ aiJobId: REQUEST }),
-        }),
-      );
-    });
-
-    it('updates the product generation parent alert on detail success', async () => {
-      prisma = makePrismaStub(makeRow({
-        generationInput: {
-          ...STORED_RAW_INPUT,
-          productGeneration: {
-            mode: 'parent',
-            productGenerationBatchId: 'batch-1',
-            parentOperationKey: 'product-generation:batch-1',
-            childKind: 'detail_page',
-          },
-        },
-      }));
-      sink = new DetailPageContentGenerationSinkAdapter(
-        prisma as never,
-        alerts,
-        images,
-        contentAssets,
-        productGenerationAlerts,
-      );
-
-      await sink.applySuccess({
-        organizationId: ORG,
-        requestId: REQUEST,
-        runId: RUN,
-        sourceResourceId: CG_ID,
-        output: VALID_OUTPUT,
-      });
-
-      expect(productGenerationAlerts.markChildFinished).toHaveBeenCalledWith({
-        organizationId: ORG,
-        parentOperationKey: 'product-generation:batch-1',
-        childKind: 'detail_page',
-        status: 'succeeded',
-        childId: CG_ID,
-      });
-      expect(alerts.succeed).not.toHaveBeenCalledWith(
-        ORG,
-        `detail-page:${CG_ID}`,
-        expect.anything(),
-      );
-    });
-
-    it('does not apply detail-page success when parent product operation is cancelled', async () => {
-      prisma = makePrismaStub(makeRow({
-        generationInput: {
-          ...STORED_RAW_INPUT,
-          productGeneration: {
-            mode: 'parent',
-            productGenerationBatchId: 'batch-1',
-            parentOperationKey: 'product-generation:batch-1',
-            childKind: 'detail_page',
-          },
-        },
-      }));
-      alerts = {
-        ...makeAlertsStub(),
-        findByOperationKey: vi.fn().mockResolvedValue({ status: 'cancelled' }),
-      } as unknown as OperationAlertPort;
-      sink = new DetailPageContentGenerationSinkAdapter(
-        prisma as never,
-        alerts,
-        images,
-        contentAssets,
-        productGenerationAlerts,
-      );
-
-      await sink.applySuccess({
-        organizationId: ORG,
-        requestId: REQUEST,
-        runId: RUN,
-        sourceResourceId: CG_ID,
-        output: VALID_OUTPUT,
-      });
-
-      expect(prisma.contentGeneration.updateMany).not.toHaveBeenCalled();
-      expect(productGenerationAlerts.markChildFinished).not.toHaveBeenCalled();
-      expect(alerts.succeed).not.toHaveBeenCalled();
-    });
-
-    it('reuses an existing detail page artifact on replay-compatible success', async () => {
-      prisma = makePrismaStub(makeRow({ detailPageArtifactId: ARTIFACT_ID }));
-      sink = new DetailPageContentGenerationSinkAdapter(
-        prisma as never,
-        alerts,
-        images,
-        contentAssets,
-        productGenerationAlerts,
-      );
-
-      await sink.applySuccess({
-        organizationId: ORG,
-        requestId: REQUEST,
-        runId: RUN,
-        sourceResourceId: CG_ID,
-        output: VALID_OUTPUT,
-      });
-
-      expect(prisma.detailPageArtifact.create).not.toHaveBeenCalled();
-      expect(prisma.contentGeneration.updateMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            detailPageArtifactId: ARTIFACT_ID,
-            status: 'READY',
-          }),
-        }),
-      );
-    });
-
-    it('trusts runtime output for draft-only detail-page runs', async () => {
-      prisma = makePrismaStub(makeRow({
-        generationInput: {
-          ...STORED_RAW_INPUT,
-          generationMode: 'draft',
-        },
-      }));
-      sink = new DetailPageContentGenerationSinkAdapter(
-        prisma as never,
-        alerts,
-        images,
-        contentAssets,
-        productGenerationAlerts,
-      );
-
-      await sink.applySuccess({
-        organizationId: ORG,
-        requestId: REQUEST,
-          runId: RUN,
-          sourceResourceId: CG_ID,
-          output: {
-            ...VALID_OUTPUT,
-            processedImages: {},
-          },
-        });
-
-      expect(images.generateBestEffort).not.toHaveBeenCalled();
-      expect(contentAssets.recordDetailPageGeneratedAssets).not.toHaveBeenCalled();
-      expect(contentAssets.recordDetailPageGeneratedAssetsTx).not.toHaveBeenCalled();
-      const updateCall = prisma.contentGeneration.updateMany.mock.calls.find(
-        ([args]) => args.data?.status === 'READY',
-      )?.[0] as {
-        data: { generationResult: { processedImages: Record<string, string> } };
-      };
-      expect(updateCall.data.generationResult.processedImages).toEqual({});
-    });
-
-    it('scopes the lookup by organizationId (cross-tenant attempt is a no-op)', async () => {
-      await sink.applySuccess({
-        organizationId: OTHER_ORG,
-        requestId: REQUEST,
-        runId: RUN,
-        sourceResourceId: CG_ID,
-        output: VALID_OUTPUT,
-      });
-      // Stub returns the row regardless because it ignores the where clause,
-      // but we assert the where clause itself passed the right scope so the
-      // real Prisma path enforces IDOR.
-      expect(prisma.contentGeneration.findFirst).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({ organizationId: OTHER_ORG }),
-        }),
-      );
-    });
-
-    it('does not double-apply when the row is already READY (idempotent)', async () => {
-      prisma = makePrismaStub(makeRow({ status: 'READY' }));
-      sink = new DetailPageContentGenerationSinkAdapter(
-        prisma as never,
-        alerts,
-        images,
-        contentAssets,
-        productGenerationAlerts,
-      );
-      await sink.applySuccess({
-        organizationId: ORG,
-        requestId: REQUEST,
-        runId: RUN,
-        sourceResourceId: CG_ID,
-        output: VALID_OUTPUT,
-      });
-      expect(images.generateBestEffort).not.toHaveBeenCalled();
-      expect(prisma.contentGeneration.updateMany).not.toHaveBeenCalled();
-      expect(alerts.succeed).not.toHaveBeenCalled();
-    });
-
-    it('does not apply success after the user cancelled the row', async () => {
-      prisma = makePrismaStub(makeRow({ status: 'CANCELLED' }));
-      sink = new DetailPageContentGenerationSinkAdapter(
-        prisma as never,
-        alerts,
-        images,
-        contentAssets,
-        productGenerationAlerts,
-      );
-      await sink.applySuccess({
-        organizationId: ORG,
-        requestId: REQUEST,
-        runId: RUN,
-        sourceResourceId: CG_ID,
-        output: VALID_OUTPUT,
-      });
-      expect(images.generateBestEffort).not.toHaveBeenCalled();
-      expect(prisma.contentGeneration.updateMany).not.toHaveBeenCalled();
-      expect(alerts.succeed).not.toHaveBeenCalled();
-    });
-
-    it('no-ops when sourceResourceId is missing (defensive)', async () => {
-      await sink.applySuccess({
-        organizationId: ORG,
-        requestId: REQUEST,
-        runId: RUN,
-        sourceResourceId: null,
-        output: VALID_OUTPUT,
-      });
-      expect(prisma.contentGeneration.findFirst).not.toHaveBeenCalled();
+        status: { notIn: ['READY', 'FAILED', 'CANCELLED', 'completed', 'failed', 'cancelled'] },
+      },
+      data: { status: 'FAILED', errorMessage: 'no provider' },
     });
   });
 
-  describe('applyFailure', () => {
-    it('updates the row to FAILED with errorMessage and fires alert.fail', async () => {
+  it('does not project a terminal ContentGeneration on success or failure replay', async () => {
+    for (const status of ['READY', 'FAILED']) {
+      const { prisma } = makePrisma(makeRow(status));
+      const sink = makeSink(prisma);
+
+      await sink.applySuccess({
+        organizationId: ORG,
+        requestId: REQUEST,
+        runId: undefined,
+        sourceResourceId: CG_ID,
+        output: VALID_OUTPUT,
+      });
       await sink.applyFailure({
         organizationId: ORG,
         requestId: REQUEST,
-        runId: RUN,
+        runId: undefined,
         sourceResourceId: CG_ID,
-        errorCode: 'runtime_not_configured',
-        errorMessage: 'no provider',
+        errorCode: 'runtime_failed',
+        errorMessage: 'terminal replay',
       });
-      expect(prisma.contentGeneration.updateMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({ id: CG_ID, organizationId: ORG }),
-          data: expect.objectContaining({
-            status: 'FAILED',
-            errorMessage: 'no provider',
-          }),
-        }),
-      );
-      expect(alerts.fail).toHaveBeenCalledWith(
-        ORG,
-        `detail-page:${CG_ID}`,
-        expect.objectContaining({
-          message: 'no provider',
-          metadata: expect.objectContaining({
-            errorCode: 'runtime_not_configured',
-            aiJobId: REQUEST,
-          }),
-        }),
-      );
+
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+      expect(prisma.contentGeneration.updateMany).not.toHaveBeenCalled();
+    }
+  });
+
+  it('reuses the existing artifact when a replay-compatible row is projected', async () => {
+    const row = { ...makeRow(), detailPageArtifactId: ARTIFACT_ID };
+    const { prisma, tx } = makePrisma(row);
+    const sink = makeSink(prisma);
+
+    await sink.applySuccess({
+      organizationId: ORG,
+      requestId: REQUEST,
+      runId: RUN,
+      sourceResourceId: CG_ID,
+      output: VALID_OUTPUT,
     });
 
-    it('skips when row already FAILED (idempotent retry safe)', async () => {
-      prisma = makePrismaStub(makeRow({ status: 'FAILED' }));
-      sink = new DetailPageContentGenerationSinkAdapter(
-        prisma as never,
-        alerts,
-        images,
-        contentAssets,
-        productGenerationAlerts,
-      );
-      await sink.applyFailure({
-        organizationId: ORG,
-        requestId: REQUEST,
-        runId: RUN,
-        sourceResourceId: CG_ID,
-        errorCode: 'direct_ai_execution_failed',
-        errorMessage: 'second attempt',
-      });
-      expect(prisma.contentGeneration.updateMany).not.toHaveBeenCalled();
-      expect(alerts.fail).not.toHaveBeenCalled();
+    expect(tx.detailPageArtifact.create).not.toHaveBeenCalled();
+    expect(tx.detailPageArtifact.findFirstOrThrow).toHaveBeenCalledWith({
+      where: { id: ARTIFACT_ID, organizationId: ORG },
+      select: { id: true },
+    });
+    expect(tx.contentGeneration.updateMany).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          detailPageArtifactId: ARTIFACT_ID,
+          status: 'READY',
+        }),
+      }),
+    );
+  });
+
+  it('persists the direct runtime output unchanged for a draft-only generation', async () => {
+    const row = {
+      ...makeRow(),
+      generationInput: { rawTitle: '자석 다트게임', generationMode: 'draft' },
+    };
+    const { prisma, tx } = makePrisma(row);
+    const contentAssets = { recordDetailPageGeneratedAssetsTx: vi.fn() };
+    const sink = makeSink(prisma, contentAssets);
+
+    await sink.applySuccess({
+      organizationId: ORG,
+      requestId: REQUEST,
+      runId: RUN,
+      sourceResourceId: CG_ID,
+      output: { ...VALID_OUTPUT, processedImages: {} },
     });
 
-    it('skips failure after the user cancelled the row', async () => {
-      prisma = makePrismaStub(makeRow({ status: 'CANCELLED' }));
-      sink = new DetailPageContentGenerationSinkAdapter(
-        prisma as never,
-        alerts,
-        images,
-        contentAssets,
-        productGenerationAlerts,
-      );
-      await sink.applyFailure({
-        organizationId: ORG,
-        requestId: REQUEST,
-        runId: RUN,
-        sourceResourceId: CG_ID,
-        errorCode: 'direct_ai_execution_failed',
-        errorMessage: 'late failure',
-      });
-      expect(prisma.contentGeneration.updateMany).not.toHaveBeenCalled();
-      expect(alerts.fail).not.toHaveBeenCalled();
+    expect(contentAssets.recordDetailPageGeneratedAssetsTx).not.toHaveBeenCalled();
+    expect(tx.contentGeneration.updateMany).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          generationResult: {
+            templateId: VALID_OUTPUT.templateId,
+            result: VALID_OUTPUT.result,
+            imageUrls: VALID_OUTPUT.imageUrls,
+            processedImages: {},
+          },
+        }),
+      }),
+    );
+  });
+
+  it('fences a cross-organization projection before any owner write', async () => {
+    const { prisma } = makePrisma();
+    prisma.contentGeneration.findFirst.mockResolvedValueOnce(null);
+    const sink = makeSink(prisma);
+
+    await sink.applySuccess({
+      organizationId: '99999999-9999-4999-8999-999999999999',
+      requestId: REQUEST,
+      runId: RUN,
+      sourceResourceId: CG_ID,
+      output: VALID_OUTPUT,
     });
+
+    expect(prisma.contentGeneration.findFirst).toHaveBeenCalledWith({
+      where: {
+        id: CG_ID,
+        organizationId: '99999999-9999-4999-8999-999999999999',
+      },
+    });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('does not apply late success or failure after cancellation', async () => {
+    const { prisma } = makePrisma(makeRow('CANCELLED'));
+    const sink = makeSink(prisma);
+
+    await sink.applySuccess({
+      organizationId: ORG,
+      requestId: REQUEST,
+      runId: RUN,
+      sourceResourceId: CG_ID,
+      output: VALID_OUTPUT,
+    });
+    await sink.applyFailure({
+      organizationId: ORG,
+      requestId: REQUEST,
+      runId: RUN,
+      sourceResourceId: CG_ID,
+      errorCode: 'runtime_failed',
+      errorMessage: 'late provider failure',
+    });
+
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('does not query or mutate without a source ContentGeneration id', async () => {
+    const { prisma } = makePrisma();
+    const sink = makeSink(prisma);
+
+    await sink.applySuccess({
+      organizationId: ORG,
+      requestId: REQUEST,
+      runId: undefined,
+      sourceResourceId: null,
+      output: VALID_OUTPUT,
+    });
+    await sink.applyFailure({
+      organizationId: ORG,
+      requestId: REQUEST,
+      runId: undefined,
+      sourceResourceId: null,
+      errorCode: 'runtime_failed',
+      errorMessage: 'missing source row',
+    });
+
+    expect(prisma.contentGeneration.findFirst).not.toHaveBeenCalled();
+    expect(prisma.contentGeneration.updateMany).not.toHaveBeenCalled();
+    expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 });

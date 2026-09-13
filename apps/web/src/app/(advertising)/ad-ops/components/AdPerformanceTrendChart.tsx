@@ -23,8 +23,9 @@ import {
   YAxis,
 } from "recharts";
 import { ChevronDown, ChevronUp, Download } from "lucide-react";
-import type { AdTrendsData } from "@kiditem/shared/advertising";
 import { formatKRW, formatNumber, formatPercent } from "@/lib/utils";
+import { exportTrendXlsx } from "../lib/xlsx-export";
+import type { AdTrendsData } from "@kiditem/shared/advertising";
 
 type MetricKey =
   | "spend"
@@ -177,17 +178,20 @@ export default function AdPerformanceTrendChart({
 
   const handleDownload = () => {
     if (points.length === 0) return;
-    void import("xlsx").then((XLSX) => {
-      const rows = points.map((point) => ({
-        일자: point.businessDate,
-        요일: point.label.slice(-3, -1),
-        [left.label]: point[left.key],
-        [right.label]: point[right.key],
-      }));
-      const sheet = XLSX.utils.json_to_sheet(rows);
-      const book = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(book, sheet, "성과 그래프");
-      XLSX.writeFile(book, `광고-성과그래프-${period}.xlsx`);
+    void exportTrendXlsx({
+      period,
+      leftMetric: left.key,
+      rightMetric: right.key,
+      leftLabel: left.label,
+      rightLabel: right.label,
+      points: points.map((point) => ({
+        businessDate: point.businessDate,
+        axisLabel: point.label,
+        leftValue: point[left.key],
+        rightValue: point[right.key],
+      })),
+    }).catch((error: unknown) => {
+      console.error("[ad-export] performance trend download failed", error);
     });
   };
 

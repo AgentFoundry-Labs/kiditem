@@ -15,28 +15,10 @@ export const CAPABILITY_INVOCATION_ERROR_CODES = [
   'APPROVAL_EXPIRED',
   'OWNER_RESULT_AMBIGUOUS',
   'OWNER_KNOWN_FAILURE',
-  'MARKETPLACE_REGISTRATION_REJECTED',
 ] as const;
 
 export type CapabilityInvocationErrorCode =
   (typeof CAPABILITY_INVOCATION_ERROR_CODES)[number];
-
-/** Owner-thrown failures may select only a code explicitly approved for that boundary. */
-export const OWNER_KNOWN_FAILURE_CODES = [
-  'MARKETPLACE_REGISTRATION_REJECTED',
-] as const;
-
-export type OwnerKnownFailureCode =
-  (typeof OWNER_KNOWN_FAILURE_CODES)[number];
-
-export function isOwnerKnownFailureCode(
-  value: unknown,
-): value is OwnerKnownFailureCode {
-  return (
-    typeof value === 'string'
-    && (OWNER_KNOWN_FAILURE_CODES as readonly string[]).includes(value)
-  );
-}
 
 export function requiresUserApproval(
   approvalRisk: CapabilityApprovalRisk,

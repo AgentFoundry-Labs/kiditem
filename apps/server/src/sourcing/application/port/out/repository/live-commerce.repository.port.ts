@@ -5,6 +5,7 @@ export type LiveCommerceSource = (typeof LIVE_COMMERCE_SOURCES)[number];
 
 export interface LiveCommerceBroadcastSnapshotUpsert {
   organizationId: string;
+  ingestionRunId: string;
   businessDate: Date;
   source: LiveCommerceSource;
   broadcastId: string;
@@ -23,6 +24,7 @@ export interface LiveCommerceBroadcastSnapshotUpsert {
 
 export interface LiveCommerceProductSnapshotUpsert {
   organizationId: string;
+  ingestionRunId: string;
   businessDate: Date;
   source: LiveCommerceSource;
   broadcastId: string;

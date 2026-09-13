@@ -34,9 +34,14 @@ const survivingConsumers = [
 const liveLinkConsumers = [
   'apps/web/src/app/(inventory)/stock-ops/page.tsx',
   'apps/web/src/components/RebuildReadinessBanner.tsx',
-  'apps/web/src/app/(analytics)/dashboard/page.tsx',
-  'apps/web/src/app/(analytics)/dashboard/components/DashboardSidePanel.tsx',
-  'apps/server/src/automation/domain/policy/action-seeds.ts',
+  // The dashboard's inventory link moved out of the page and into the warning
+  // table that renders the 셀피아 재고 0 row. The rule is unchanged — only the
+  // canonical workspace is linked — so the guard follows the link.
+  'apps/web/src/app/(analytics)/dashboard/components/DashboardWarningTable.tsx',
+  // DashboardSidePanel left this list: it linked to the inventory workspace only
+  // through a fallback keyed on `type: 'stock_low'`, an alert type nothing
+  // writes. The source owner names the destination now, so the panel links
+  // nowhere of its own.
 ];
 
 describe('retired inventory checks workspace', () => {

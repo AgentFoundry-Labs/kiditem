@@ -16,7 +16,9 @@ export const SettlementReconcileDetailSchema = z.object({
   masterName: z.string(),
   plRevenue: z.number().int(),
   plCommission: z.number().int(),
-  plNetProfit: z.number().int(),
+  // Unavailable when the listing's ad coverage is incomplete (ADR-0003).
+  // Reconciliation matches on revenue, which is unaffected.
+  plNetProfit: z.number().int().nullable(),
   plOrderCount: z.number().int(),
   orderTotal: z.number().int(),
   orderCount: z.number().int(),

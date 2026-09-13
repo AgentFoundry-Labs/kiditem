@@ -2,7 +2,7 @@
 
 > Superseded for KID-25 (2026-08-23). Do not resume unchecked tasks. Code,
 > automation, canary, and recovery work will be replanned from the
-> [KID-25 Agent OS Clean Contraction Design](../specs/2026-08-23-kid-25-agent-os-clean-contraction-design.md);
+> [KID-25 Agent OS Clean Contraction Design](../specs/archive/2026-08-23-kid-25-agent-os-clean-contraction-design.md);
 > actual Office rollout remains separate release-operations work.
 
 Last amended: 2026-08-22 — replaced the unreleased retention/legal-hold Task 1
@@ -116,7 +116,7 @@ verification; repeat only to close concrete findings or a stop condition.
 ## Task 1: Implement Complete AgentSession Deletion
 
 **Execution authority:**
-- Design: `docs/superpowers/specs/2026-08-21-agent-session-deletion-design.md`
+- Design: `docs/superpowers/specs/archive/2026-08-21-agent-session-deletion-design.md`
 - TDD implementation: `docs/superpowers/plans/2026-08-22-agent-session-complete-deletion.md`
 
 **Interfaces:**

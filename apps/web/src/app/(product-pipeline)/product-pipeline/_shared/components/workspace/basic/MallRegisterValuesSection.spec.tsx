@@ -119,13 +119,14 @@ describe('MallRegisterValuesSection', () => {
   });
 
   it('공통 값은 따로 담아 저장한다', async () => {
-    const props = renderSection();
+    const onCommit = vi.fn().mockResolvedValue(undefined);
+    renderSection({ onCommit });
     const field = SHARED_MALL_FIELDS[0]!;
     fireEvent.change(screen.getByLabelText(field.label), { target: { value: 'CB065R1579-2008' } });
     fireEvent.click(screen.getByRole('button', { name: '몰 등록 정보 저장' }));
 
-    await waitFor(() => expect(props.onCommit).toHaveBeenCalled());
-    expect(props.onCommit.mock.calls[0]![0].mallRegisterShared)
+    await waitFor(() => expect(onCommit).toHaveBeenCalled());
+    expect(onCommit.mock.calls[0]![0].mallRegisterShared)
       .toEqual({ [field.key]: 'CB065R1579-2008' });
   });
 

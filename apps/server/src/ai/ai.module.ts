@@ -2,7 +2,6 @@ import { Module } from '@nestjs/common';
 import { StorageService } from '../common/storage/storage.service';
 import { StorageModule } from '../common/storage/storage.module';
 import { AgentOsCapabilityModule } from '../agent-os/agent-os-capability.module';
-import { OperationAlertRuntimeModule } from '../automation/operation-alert-runtime.module';
 import { PrismaModule } from '../prisma/prisma.module';
 // adapter/in/http
 import { CATALOG_MEDIA_PUBLICATION_PORT } from '../channels/application/port/out/cross-domain/catalog-media-publication.port';
@@ -29,7 +28,6 @@ import { AiWingRegistrationCapabilityAdapter } from './adapter/in/agent/ai-wing-
 // adapter/out
 import { DetailPageContentGenerationSinkAdapter } from './adapter/out/direct-output/detail-page-content-generation-sink.adapter';
 import { ThumbnailGenerationSinkAdapter } from './adapter/out/direct-output/thumbnail-generation-sink.adapter';
-import { AiOperationAlertAdapter } from './adapter/out/automation/operation-alert.adapter';
 import { AiCatalogMediaPublicationRepositoryAdapter } from './adapter/out/repository/ai-catalog-media-publication.repository.adapter';
 import { CatalogDisplayMediaRepositoryAdapter } from './adapter/out/repository/catalog-display-media.repository.adapter';
 import { AiDirectJobRepositoryAdapter } from './adapter/out/repository/ai-direct-job.repository.adapter';
@@ -55,7 +53,6 @@ import { DetailPageGenerationRepositoryAdapter } from './adapter/out/repository/
 import { DetailPageQueryRepositoryAdapter } from './adapter/out/repository/detail-page-query.repository.adapter';
 import { DetailPageImageRepositoryAdapter } from './adapter/out/repository/detail-page-image.repository.adapter';
 import { ProductGenerationContextRepositoryAdapter } from './adapter/out/repository/product-generation-context.repository.adapter';
-import { ProductGenerationChildLedgerRepositoryAdapter } from './adapter/out/repository/product-generation-child-ledger.repository.adapter';
 import { SourcingWorkspaceArchiveRepositoryAdapter } from './adapter/out/repository/sourcing-workspace-archive.repository.adapter';
 import { ThumbnailAnalysisRepositoryAdapter } from './adapter/out/repository/thumbnail-analysis.repository.adapter';
 import { ThumbnailGenerationLedgerRepositoryAdapter } from './adapter/out/repository/thumbnail-generation-ledger.repository.adapter';
@@ -86,9 +83,6 @@ import { DetailPageQueryService } from './application/service/detail-page-query.
 import { DetailPageResultRefinerService } from './application/service/detail-page-result-refiner.service';
 import { ImageAssetOperationService } from './application/service/image-asset-operation.service';
 import { ProductGenerationAiService } from './application/service/product-generation-ai.service';
-import { PrismaProductGenerationIdempotencyAdapter } from './adapter/out/transaction/prisma-product-generation-idempotency.adapter';
-import { PRODUCT_GENERATION_IDEMPOTENCY_PORT } from './application/port/out/transaction/product-generation-idempotency.port';
-import { ProductGenerationAlertService } from './application/service/product-generation-alert.service';
 import { BoldVerticalRefinerService } from './application/service/bold-vertical-refiner.service';
 import { KidsPlayfulRefinerService } from './application/service/kids-playful-refiner.service';
 import { ThumbnailComplianceVerifierService } from './application/service/thumbnail-compliance-verifier.service';
@@ -132,7 +126,6 @@ import {
   REGISTRATION_CONTENT_WORKSPACE_PORT,
 } from './application/port/in/workspace';
 // application/port — out
-import { AI_OPERATION_ALERT_PORT } from './application/port/out/cross-domain';
 import { THUMBNAIL_GENERATION_EVENT_PORT } from './application/port/out/event';
 import {
   COUPANG_PRODUCT_SALES_SCRAPE_PORT,
@@ -155,7 +148,6 @@ import {
   DETAIL_PAGE_GENERATION_REPOSITORY_PORT,
   DETAIL_PAGE_IMAGE_REPOSITORY_PORT,
   DETAIL_PAGE_QUERY_REPOSITORY_PORT,
-  PRODUCT_GENERATION_CHILD_LEDGER_REPOSITORY_PORT,
   PRODUCT_GENERATION_CONTEXT_REPOSITORY_PORT,
   REGISTRATION_CONTENT_WORKSPACE_REPOSITORY_PORT,
   SOURCING_WORKSPACE_ARCHIVE_REPOSITORY_PORT,
@@ -179,7 +171,6 @@ import { AiProductGenerationRuntimeModule } from './ai-product-generation-runtim
 @Module({
   imports: [
     PrismaModule,
-    OperationAlertRuntimeModule,
     AgentOsCapabilityModule,
     StorageModule,
     AiProductGenerationRuntimeModule,

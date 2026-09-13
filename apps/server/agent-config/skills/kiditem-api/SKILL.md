@@ -61,9 +61,13 @@ GET  /api/dashboard/trend                             — 추이
 ### 쿠팡
 ```
 GET  /api/coupang-dashboard                           — 쿠팡 대시보드
-POST /api/coupang-sync/products                       — 상품 동기화
-POST /api/coupang-sync/orders                         — 주문 동기화
+GET  /api/channels/coupang/account                    — Wing 계정 식별자
+PATCH /api/channels/coupang/account                   — Wing 계정 식별자 저장
 ```
+
+상품·주문 수집과 등록은 쿠팡 Open API가 아니라 승인된 Wing 브라우저 또는
+내부 source-owner 경로를 사용한다. `/api/coupang-sync/*`는 지원하지 않으며
+호출하지 않는다.
 
 ### 알림
 ```

@@ -19,7 +19,7 @@ Related concept and operations doc:
 - Confirm the `KidItem Dev Data` folder is shared with that Google account.
 - Grant Editor access to anyone who will publish scraper bundles or update
   project reference files.
-- Viewer access is enough for pull/replay-only consumers, as long as Drive
+- Viewer access is enough for pull-only consumers, as long as Drive
   Desktop exposes the folder locally.
 - If the folder appears only in "Shared with me", open Google Drive web and add
   a shortcut for `KidItem Dev Data` to the user's `My Drive`.
@@ -43,7 +43,8 @@ KidItem Dev Data/
 `latest.json` and `latest.txt` may be absent until the first scraper bundle is
 published.
 
-Bundles replay advertising, traffic, and item-winner scraper payloads. Wing
+Bundles carry advertising, traffic, and item-winner scraper payloads for
+inspection. The former generic replay adapter is retired; Wing
 registered-product catalog and provider media are reconstructed through the
 authenticated browser catalog-collection flow, not a Drive image payload.
 
@@ -120,7 +121,7 @@ authenticated browser catalog-collection flow, not a Drive image payload.
      "profileId": "workspace",
      "description": "Default local workspace data from real Coupang scraper payloads",
      "steps": [
-       { "domain": "coupang", "dataset": "latest", "mode": "scoped-replace" }
+     { "domain": "coupang", "dataset": "latest", "mode": "pull-only", "replay": false }
      ]
    }
    ```
@@ -132,9 +133,9 @@ authenticated browser catalog-collection flow, not a Drive image payload.
    {
      "schemaVersion": "kiditem.dev-data.profile.v1",
      "profileId": "coupang",
-     "description": "Real Coupang scraper payload replay profile",
+     "description": "Coupang scraper payload pull profile",
      "steps": [
-       { "domain": "coupang", "dataset": "latest", "mode": "scoped-replace" }
+       { "domain": "coupang", "dataset": "latest", "mode": "pull-only", "replay": false }
      ]
    }
    ```

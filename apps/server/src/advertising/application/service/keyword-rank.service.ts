@@ -1,6 +1,6 @@
 // Application service for `/api/ads/keyword-rank/*` — 키워드 트래커 CRUD 와
 // 순위 추이/최신 SERP 읽기. ingest 는 `KeywordRankIngestHandler` 가
-// `AdSyncService.sync` dispatch 를 통해 처리한다.
+// the keyword source-owner repository and handler.
 
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import {
@@ -10,6 +10,8 @@ import {
   type RepresentativeKeywordSource,
 } from "../../domain/representative-keyword";
 import { currentBusinessDate } from "../../domain/business-date";
+import { businessDateKey } from '../../../common/kst';
+import { isNewerAttempt } from '../../../common/current-row';
 import {
   KEYWORD_RANK_REPOSITORY_PORT,
   type KeywordRankRepositoryPort,
@@ -240,12 +242,12 @@ export class KeywordRankService {
         collectedCount: latest?.collectedCount ?? null,
         totalResults: latest?.totalResults ?? null,
         businessDate: latest
-          ? latest.businessDate.toISOString().slice(0, 10)
+          ? businessDateKey(latest.businessDate)
           : null,
         capturedAt: latest?.capturedAt ?? null,
         status,
         history: historyRows.map((row) => ({
-          businessDate: row.businessDate.toISOString().slice(0, 10),
+          businessDate: businessDateKey(row.businessDate),
           salesRank: row.salesRank,
           salesLast28d: row.salesLast28d,
         })),
@@ -294,6 +296,10 @@ export class KeywordRankService {
 
   /** 확장이 한 번의 Wing 조회로 같은 대표 키워드 상품을 함께 처리하도록 그룹화. */
   async getWingSalesRankTargets(organizationId: string) {
+    return (await this.resolveWingSalesRankSelection(organizationId)).selection;
+  }
+
+  async resolveWingSalesRankSelection(organizationId: string) {
     const [overrides, ownItems, snapshots] = await Promise.all([
       this.keywordRankRepo.listRepresentativeKeywordOverrides(organizationId),
       this.keywordRankRepo.listOwnVendorItems(organizationId),
@@ -308,12 +314,12 @@ export class KeywordRankService {
         overrides.map((override) => [override.vendorItemId, override.keyword]),
       ),
     );
-    const todayKey = currentBusinessDate().toISOString().slice(0, 10);
+    const todayKey = businessDateKey(currentBusinessDate());
     const collectedToday = new Set(
       snapshots
         .filter(
           (snapshot) =>
-            snapshot.businessDate.toISOString().slice(0, 10) === todayKey,
+            businessDateKey(snapshot.businessDate) === todayKey,
         )
         .map((snapshot) => targetKey(snapshot.keyword, snapshot.vendorItemId)),
     );
@@ -367,8 +373,11 @@ export class KeywordRankService {
         primaryProductCount: target.primaryVendorItemIds.size,
         pendingProductCount: target.pendingVendorItemIds.size,
         pendingPrimaryProductCount: target.pendingPrimaryVendorItemIds.size,
-        phase: target.primaryVendorItemIds.size > 0 ? "primary" : "comparison",
-        maxPages: 5,
+        phase:
+          target.primaryVendorItemIds.size > 0
+            ? ("primary" as const)
+            : ("comparison" as const),
+        maxPages: 5 as const,
       }))
       .sort(
         (a, b) =>
@@ -387,7 +396,7 @@ export class KeywordRankService {
     // 같은 날 중단된 실행은 이미 저장한 키워드를 건너뛰고 이어서 수집한다.
     // 오늘 대상이 모두 수집된 뒤 다시 누르면 전체를 새로 갱신한다.
     const targets = pendingTargets.length > 0 ? pendingTargets : allTargets;
-    return {
+    const selection = {
       productCount: deduped.length,
       candidateCount: assignments.length,
       keywordCount: allTargets.length,
@@ -397,6 +406,7 @@ export class KeywordRankService {
       pendingProductCount: pendingVendorItemIds.size,
       targets,
     };
+    return { selection, assignments };
   }
 
   /**
@@ -428,7 +438,7 @@ export class KeywordRankService {
       // 행이 businessDate asc 정렬이므로 마지막 non-null 이름이 최신.
       if (row.productName) series.productName = row.productName;
       series.points.push({
-        businessDate: row.businessDate.toISOString().slice(0, 10),
+        businessDate: businessDateKey(row.businessDate),
         overallRank: row.overallRank,
         organicRank: row.organicRank,
         adRank: row.adRank,
@@ -458,7 +468,7 @@ export class KeywordRankService {
       await this.keywordRankRepo.listOwnVendorItems(organizationId);
     return {
       keyword,
-      businessDate: snapshot.businessDate.toISOString().slice(0, 10),
+      businessDate: businessDateKey(snapshot.businessDate),
       capturedAt: snapshot.capturedAt,
       pagesScanned: snapshot.pagesScanned,
       itemCount: snapshot.itemCount,
@@ -473,19 +483,31 @@ function applyObservedCategories<
 >(
   products: T[],
   snapshots: Array<{
+    id: string;
     vendorItemId: string;
     categoryHierarchy: string | null;
     capturedAt: Date;
+    updatedAt: Date;
   }>,
 ): T[] {
-  const latest = new Map<string, { category: string; capturedAt: Date }>();
+  const latest = new Map<string, {
+    id: string;
+    category: string;
+    capturedAt: Date;
+    updatedAt: Date;
+  }>();
   for (const snapshot of snapshots) {
     if (!snapshot.categoryHierarchy) continue;
     const previous = latest.get(snapshot.vendorItemId);
-    if (!previous || snapshot.capturedAt > previous.capturedAt) {
+    if (!previous || isNewerAttempt(
+      { observedAt: snapshot.capturedAt, importedAt: snapshot.updatedAt, id: snapshot.id },
+      { observedAt: previous.capturedAt, importedAt: previous.updatedAt, id: previous.id },
+    )) {
       latest.set(snapshot.vendorItemId, {
+        id: snapshot.id,
         category: snapshot.categoryHierarchy,
         capturedAt: snapshot.capturedAt,
+        updatedAt: snapshot.updatedAt,
       });
     }
   }

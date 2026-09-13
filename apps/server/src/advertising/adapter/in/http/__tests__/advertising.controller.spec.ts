@@ -1,10 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { BadRequestException } from '@nestjs/common';
-
-vi.mock('../../../../application/service/ad-strategy.service', () => ({
-  AdStrategyService: class AdStrategyService {},
-}));
-
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AdvertisingActionsController } from '../advertising-actions.controller';
 import { AdvertisingCampaignsController } from '../advertising-campaigns.controller';
 import { AdvertisingConfigController } from '../advertising-config.controller';
@@ -13,6 +8,10 @@ import { AdvertisingExecutionController } from '../advertising-execution.control
 import { AdvertisingIngestController } from '../advertising-ingest.controller';
 import { AdvertisingOverviewController } from '../advertising-overview.controller';
 import { AdvertisingStrategyController } from '../advertising-strategy.controller';
+
+vi.mock('../../../../application/service/ad-strategy.service', () => ({
+  AdStrategyService: class AdStrategyService {},
+}));
 
 // Controller wiring: this spec keeps the cases where the controller does
 // real work — defaults, body→service transformations, command/sub-action
@@ -30,7 +29,6 @@ function makeServices() {
     },
     campaigns: {
       getCampaigns: vi.fn(),
-      getCampaignSyncStatus: vi.fn(),
       getTrends: vi.fn(),
     },
     strategy: {
@@ -42,17 +40,8 @@ function makeServices() {
       registerCampaign: vi.fn(),
     },
     benchmark: { getDiagnosis: vi.fn() },
-    collect: { startCollection: vi.fn(), getStatus: vi.fn() },
-    sync: {
-      sync: vi.fn(),
+    extension: {
       getExtensionStatus: vi.fn(),
-      getScrapeTargets: vi.fn(),
-      createScrapeTarget: vi.fn(),
-      markScraped: vi.fn(),
-      deleteScrapeTarget: vi.fn(),
-    },
-    competitorCatalogOperation: {
-      ingest: vi.fn(),
     },
     action: {
       getActions: vi.fn(),
@@ -82,9 +71,7 @@ function makeControllers(svcs = makeServices()) {
   const strategyCtrl = new AdvertisingStrategyController(svcs.strategy as any);
   const diagnosticsCtrl = new AdvertisingDiagnosticsController(svcs.benchmark as any);
   const ingestCtrl = new AdvertisingIngestController(
-    svcs.collect as any,
-    svcs.sync as any,
-    svcs.competitorCatalogOperation as any,
+    svcs.extension as any,
   );
   const actionCtrl = new AdvertisingActionsController(svcs.action as any);
   const executionCtrl = new AdvertisingExecutionController(svcs.execution as any);
@@ -151,14 +138,6 @@ describe('AdvertisingController — defaults + body transformations', () => {
     const { ctrl, svcs } = makeCampaignsController();
     ctrl.getCampaigns({} as any, COMPANY);
     expect(svcs.campaigns.getCampaigns).toHaveBeenCalledWith('7d', COMPANY);
-  });
-
-  it('GET /campaigns/sync-status uses the authenticated organization scope', () => {
-    const { ctrl, svcs } = makeCampaignsController();
-
-    ctrl.getCampaignSyncStatus(COMPANY);
-
-    expect(svcs.campaigns.getCampaignSyncStatus).toHaveBeenCalledWith(COMPANY);
   });
 
   it('GET /campaigns/trends passes an inclusive custom date range', () => {
@@ -241,82 +220,17 @@ describe('AdvertisingController — defaults + body transformations', () => {
   });
 });
 
-describe('AdvertisingController — POST /scrape-targets dispatch', () => {
-  it('action=markScraped → sync.markScraped(id, organizationId)', () => {
+describe('AdvertisingController — extension status', () => {
+  it('retains the status read while exposing no generic extension write method', () => {
     const { ctrl, svcs } = makeIngestController();
-    ctrl.handleScrapeTarget({ action: 'markScraped', id: 'target-1' } as any, COMPANY);
-    expect(svcs.sync.markScraped).toHaveBeenCalledWith('target-1', COMPANY);
-  });
 
-  it('create body → sync.createScrapeTarget(url, label, category, organizationId)', () => {
-    const { ctrl, svcs } = makeIngestController();
-    ctrl.handleScrapeTarget(
-      { url: 'https://example.com', label: 'L', category: 'C' } as any,
-      COMPANY,
-    );
-    expect(svcs.sync.createScrapeTarget).toHaveBeenCalledWith(
-      'https://example.com',
-      'L',
-      'C',
-      COMPANY,
-    );
-  });
-});
+    ctrl.extensionStatus(COMPANY);
 
-describe('AdvertisingController — competitor catalog operation sink', () => {
-  it('passes only the authenticated organization and exact attempt token', async () => {
-    const { ctrl, svcs } = makeIngestController();
-    const runId = '00000000-0000-4000-8000-000000000010';
-    const attemptToken = '00000000-0000-4000-8000-000000000011';
-    const body = {
-      catalogs: [{
-        keyword: '노루잡화점 크런치 슬랑이',
-        sellerId: 'A00219251',
-        sellerName: '도그블랑',
-        sellerStoreUrl: 'https://shop.coupang.com/A00219251',
-        totalProductCount: 1,
-        collectedProductCount: 1,
-        isTruncated: false,
-        sort: 'newest',
-        capturedAt: '2026-08-14T00:00:30.000Z',
-        products: [{
-          sourceRank: 1,
-          productId: '123',
-          itemId: null,
-          vendorItemId: '456',
-          name: '슬랑이',
-          priceKrw: 12_000,
-          reviewCount: 4,
-          imageUrl: null,
-          link: 'https://www.coupang.com/vp/products/123',
-        }],
-      }],
-    };
-
-    await ctrl.ingestCompetitorCatalogOperation(
-      runId,
-      attemptToken,
-      body,
-      COMPANY,
-    );
-    expect(svcs.competitorCatalogOperation.ingest).toHaveBeenCalledWith({
-      organizationId: COMPANY,
-      operationRunId: runId,
-      attemptToken,
-      batch: body,
-    });
-    expect(() => ctrl.ingestCompetitorCatalogOperation(
-      runId,
-      attemptToken,
-      { ...body, organizationId: 'forged' },
-      COMPANY,
-    )).toThrow('invalid_competitor_catalog_batch');
-    expect(() => ctrl.ingestCompetitorCatalogOperation(
-      runId,
-      undefined,
-      body,
-      COMPANY,
-    )).toThrow('invalid_operation_attempt_token');
+    expect(svcs.extension.getExtensionStatus).toHaveBeenCalledWith(COMPANY);
+    expect('extensionSync' in Object.getPrototypeOf(ctrl)).toBe(false);
+    expect('getScrapeTargets' in Object.getPrototypeOf(ctrl)).toBe(false);
+    expect('handleScrapeTarget' in Object.getPrototypeOf(ctrl)).toBe(false);
+    expect('deleteScrapeTarget' in Object.getPrototypeOf(ctrl)).toBe(false);
   });
 });
 

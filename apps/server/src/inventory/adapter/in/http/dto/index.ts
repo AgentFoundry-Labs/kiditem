@@ -6,6 +6,7 @@
 // Sellpia-owned inventory snapshot
 export * from './sellpia-inventory-freshness.dto';
 export * from './sellpia-inventory-import.dto';
+export * from './sellpia-inventory-source.dto';
 export * from './list-inventory-skus-query.dto';
 export * from './list-sellpia-import-runs-query.dto';
 

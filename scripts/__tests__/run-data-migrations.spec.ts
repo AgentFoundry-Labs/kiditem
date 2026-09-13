@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -8,12 +9,14 @@ import {
   isProductContentRouteHrefRewriteNeeded,
   rewriteLegacyDetailEditorHref,
   rewriteProductContentRouteHref,
+  retiredDataMigrations,
 } from "../data-migrations/index";
 import {
   APPLY_DATA_MIGRATIONS_CONFIRMATION,
   assertApplyDataMigrationsConfirmation,
   assertMutatingTarget,
   dataMigrationTransactionTimeoutMs,
+  dataMigrationRegistryStatus,
   DEFAULT_DATA_MIGRATION_TRANSACTION_TIMEOUT_MS,
   isDefinitelyProductionDatabaseUrl,
   normalizeReleaseVersion,
@@ -37,23 +40,27 @@ describe("data migration registry", () => {
       "v0.1.25:003_repair_ad_campaign_target_conversions",
       "v0.1.25:004_rekey_ad_campaign_product_targets",
       "v0.1.25:005_remove_ambiguous_ad_campaign_account_kpis",
-      "v0.1.26:001_initialize_master_product_abc_policy",
-      "v0.1.30:001_reset_legacy_product_abc_grades",
-      "v0.1.30:002_backfill_profitability_source_freshness",
       "v0.1.30:003_move_variant_recipes_to_channel_options",
       "v0.1.30:004_canonical_master_inventory_identity",
       "v0.1.30:005_reset_sourcing_display_state",
+      "v0.1.30:006_delete_legacy_channel_derived_master_products",
+      "v0.1.31:001_reset_absolute_product_abc",
+      "v0.1.31:003_prepare_operation_automation_cutover",
+      "v0.1.31:004_remove_retired_capability_operation_refs",
+      "v0.1.31:005_remove_retired_operation_alerts",
+      "v0.1.31:002_initialize_absolute_product_abc_formula",
+      "v0.1.31:006_backfill_coupang_direct_transport_receipts",
     ]);
     expect(
       DATA_MIGRATION_IDS.filter((id) =>
         /backfill|normalize|rewrite|repoint|verify/.test(id),
       ),
     ).toEqual([
-      "v0.1.30:002_backfill_profitability_source_freshness",
+      "v0.1.31:006_backfill_coupang_direct_transport_receipts",
     ]);
   });
 
-  it("registers the current ad campaign and ABC migrations without the retired inventory commitment backfill", () => {
+  it("registers the current ad campaign and absolute ABC migrations without retired ABC backfills", () => {
     const migrationIds = dataMigrations.map((migration) => migration.id);
 
     expect(migrationIds).toContain(
@@ -62,19 +69,67 @@ describe("data migration registry", () => {
     expect(migrationIds).toContain(
       "v0.1.25:005_remove_ambiguous_ad_campaign_account_kpis",
     );
+    expect(migrationIds).toContain("v0.1.31:001_reset_absolute_product_abc");
     expect(migrationIds).toContain(
+      "v0.1.31:002_initialize_absolute_product_abc_formula",
+    );
+    expect(migrationIds).toContain(
+      "v0.1.31:003_prepare_operation_automation_cutover",
+    );
+    expect(migrationIds).not.toContain(
       "v0.1.26:001_initialize_master_product_abc_policy",
     );
-    expect(migrationIds).toContain(
+    expect(migrationIds).not.toContain(
       "v0.1.30:001_reset_legacy_product_abc_grades",
     );
-    expect(migrationIds).toContain(
+    expect(migrationIds).not.toContain(
       "v0.1.30:002_backfill_profitability_source_freshness",
     );
     expect(migrationIds).toContain(
       "v0.1.30:004_canonical_master_inventory_identity",
     );
     expect(migrationIds).toContain("v0.1.30:005_reset_sourcing_display_state");
+    expect(migrationIds).toContain(
+      "v0.1.30:006_delete_legacy_channel_derived_master_products",
+    );
+  });
+
+  it("reports immutable lineage for the inactive legacy ABC migration without executing it", () => {
+    const sourcePath =
+      "scripts/data-migrations/v0.1.26/001_initialize_master_product_abc_policy.ts";
+    const retired = retiredDataMigrations.find(
+      ({ id }) => id === "v0.1.26:001_initialize_master_product_abc_policy",
+    );
+
+    expect(retired).toEqual({
+      id: "v0.1.26:001_initialize_master_product_abc_policy",
+      releaseVersion: "0.1.26",
+      name: "Initialize automatic MasterProduct ABC policies",
+      sourcePath,
+      sourceSha256:
+        "72683894592b789de0b996b67e3e8de9ac197865dc8739c75e435de24db2b921",
+      baselineCommit: "9415a6e01f02db28531fc00b32f933ac16776211",
+      replacementMigrations: [
+        {
+          id: "v0.1.31:001_reset_absolute_product_abc",
+          path: "scripts/data-migrations/v0.1.31/001_reset_absolute_product_abc.ts",
+        },
+        {
+          id: "v0.1.31:002_initialize_absolute_product_abc_formula",
+          path: "scripts/data-migrations/v0.1.31/002_initialize_absolute_product_abc_formula.ts",
+        },
+      ],
+    });
+    expect(
+      createHash("sha256")
+        .update(readFileSync(join(repoRoot, sourcePath)))
+        .digest("hex"),
+    ).toBe(retired?.sourceSha256);
+    expect(dataMigrations.map(({ id }) => id)).not.toContain(retired?.id);
+    expect(dataMigrationRegistryStatus().retiredMigrations).toContainEqual({
+      ...retired,
+      execution: "inactive",
+    });
   });
 
   it("keeps historical release 0.1.22 migration-free and never registers ahead of the root VERSION", () => {
@@ -126,8 +181,11 @@ describe("data migration registry", () => {
       ),
     ).toEqual([
       "v0.1.24:001_dedupe_detail_page_artifacts",
-      "v0.1.30:001_reset_legacy_product_abc_grades",
       "v0.1.30:003_move_variant_recipes_to_channel_options",
+      "v0.1.31:001_reset_absolute_product_abc",
+      "v0.1.31:003_prepare_operation_automation_cutover",
+      "v0.1.31:004_remove_retired_capability_operation_refs",
+      "v0.1.31:005_remove_retired_operation_alerts",
     ]);
     expect(selectDataMigrationsForPhase(dataMigrations, "post-schema")).toEqual(
       dataMigrations.filter((migration) => migration.phase !== "pre-schema"),
@@ -140,7 +198,6 @@ describe("data migration registry", () => {
       "0.1.30",
     ).map(({ id }) => id);
     expect(preSchema).toEqual([
-      "v0.1.30:001_reset_legacy_product_abc_grades",
       "v0.1.30:003_move_variant_recipes_to_channel_options",
     ]);
 
@@ -149,9 +206,29 @@ describe("data migration registry", () => {
       "0.1.30",
     ).map(({ id }) => id);
     expect(postSchema).toEqual([
-      "v0.1.30:002_backfill_profitability_source_freshness",
       "v0.1.30:004_canonical_master_inventory_identity",
       "v0.1.30:005_reset_sourcing_display_state",
+      "v0.1.30:006_delete_legacy_channel_derived_master_products",
+    ]);
+
+    const absolutePreSchema = selectDataMigrationsForRelease(
+      selectDataMigrationsForPhase(dataMigrations, "pre-schema"),
+      "0.1.31",
+    ).map(({ id }) => id);
+    expect(absolutePreSchema).toEqual([
+      "v0.1.31:001_reset_absolute_product_abc",
+      "v0.1.31:003_prepare_operation_automation_cutover",
+      "v0.1.31:004_remove_retired_capability_operation_refs",
+      "v0.1.31:005_remove_retired_operation_alerts",
+    ]);
+
+    const absolutePostSchema = selectDataMigrationsForRelease(
+      selectDataMigrationsForPhase(dataMigrations, "post-schema"),
+      "0.1.31",
+    ).map(({ id }) => id);
+    expect(absolutePostSchema).toEqual([
+      "v0.1.31:002_initialize_absolute_product_abc_formula",
+      "v0.1.31:006_backfill_coupang_direct_transport_receipts",
     ]);
   });
 

@@ -37,9 +37,13 @@ test('pins the service worker import cache key to the collector contract revisio
   const importRevision = entrySource.match(
     /coupang-catalog-collector\.js\?revision=(\d+)/,
   )?.[1];
+  const workerRevision = serviceWorker.match(
+    /const COUPANG_CATALOG_CONTRACT_REVISION = (\d+);/,
+  )?.[1];
 
   assert.equal(typeof collector.contractRevision, 'number');
   assert.equal(importRevision, String(collector.contractRevision));
+  assert.equal(workerRevision, String(collector.contractRevision));
   assert.match(
     serviceWorker,
     /KidItemCoupangCatalog\.contractRevision\s*!==\s*COUPANG_CATALOG_CONTRACT_REVISION/,

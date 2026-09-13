@@ -5,15 +5,14 @@ const ORGANIZATION_ID = '00000000-0000-4000-8000-000000000001';
 const ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
 
 function buildAdapter() {
-  const queryRaw = vi.fn().mockResolvedValue([]);
-  const channelAccount = {
-    findFirst: vi.fn().mockResolvedValue({ id: ACCOUNT_ID }),
-  };
+  const readPublished = vi.fn().mockResolvedValue({
+    channelAccountId: ACCOUNT_ID,
+    rows: [],
+  });
   const adapter = new AdAccountKpiRepositoryAdapter({
-    $queryRaw: queryRaw,
-    channelAccount,
-  } as never);
-  return { adapter, queryRaw };
+    $queryRaw: vi.fn(),
+  } as never, { readPublished });
+  return { adapter, readPublished };
 }
 
 describe('AdAccountKpiRepositoryAdapter complete-day range', () => {
@@ -21,28 +20,21 @@ describe('AdAccountKpiRepositoryAdapter complete-day range', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-07-24T03:00:00.000Z'));
     try {
-      const { adapter, queryRaw } = buildAdapter();
+      const { adapter, readPublished } = buildAdapter();
       await adapter.findCoupangAdsDaily(ORGANIZATION_ID, '7d');
 
-      const query = queryRaw.mock.calls[0][0] as {
-        strings: readonly string[];
-        values: readonly unknown[];
-      };
-      expect(query.strings.join(' ')).toContain('business_date >=');
-      expect(query.strings.join(' ')).toContain('business_date <=');
-      expect(query.values).toEqual(
-        expect.arrayContaining([
-          new Date('2026-07-17T00:00:00.000Z'),
-          new Date('2026-07-23T00:00:00.000Z'),
-        ]),
-      );
+      expect(readPublished).toHaveBeenCalledWith({
+        organizationId: ORGANIZATION_ID,
+        from: '2026-07-17',
+        to: '2026-07-23',
+      });
     } finally {
       vi.useRealTimers();
     }
   });
 
   it('uses an explicit custom date range unchanged', async () => {
-    const { adapter, queryRaw } = buildAdapter();
+    const { adapter, readPublished } = buildAdapter();
     const dateRange = {
       from: new Date('2026-06-01T00:00:00.000Z'),
       to: new Date('2026-06-30T00:00:00.000Z'),
@@ -54,11 +46,50 @@ describe('AdAccountKpiRepositoryAdapter complete-day range', () => {
       dateRange,
     );
 
-    const query = queryRaw.mock.calls[0][0] as {
-      values: readonly unknown[];
-    };
-    expect(query.values).toEqual(
-      expect.arrayContaining([dateRange.from, dateRange.to]),
-    );
+    expect(readPublished).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      from: '2026-06-01',
+      to: '2026-06-30',
+    });
+  });
+
+  it('maps the published order count to legacy conversions and orders', async () => {
+    const { adapter, readPublished } = buildAdapter();
+    readPublished.mockResolvedValue({
+      channelAccountId: ACCOUNT_ID,
+      rows: [
+        {
+          businessDate: '2026-07-23',
+          observedAt: '2026-07-24T00:00:00.000Z',
+          normalized: {
+            adSpend: 100,
+            adRevenue: 900,
+            impressions: 2000,
+            clicks: 50,
+            conversions: 700,
+            orders: 7,
+            providerRoas: 9,
+            providerCtr: 2.5,
+            providerConversionRate: 14,
+          },
+        },
+      ],
+    });
+
+    await expect(
+      adapter.findCoupangAdsDaily(ORGANIZATION_ID, '7d'),
+    ).resolves.toEqual([
+      {
+        businessDate: '2026-07-23',
+        sums: {
+          spend: 100,
+          revenue: 900,
+          clicks: 50,
+          impressions: 2000,
+          conversions: 7,
+        },
+        orders: 7,
+      },
+    ]);
   });
 });

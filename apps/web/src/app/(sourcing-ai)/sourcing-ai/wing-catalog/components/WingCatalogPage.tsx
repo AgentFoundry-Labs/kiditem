@@ -1,7 +1,7 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import {
@@ -45,15 +45,17 @@ import {
   type KeywordFrequency,
 } from '../lib/wing-catalog-keyword-insights';
 import { buildCoupangProductUrl } from '../lib/wing-catalog-delivery';
-import { WingReviewAnalysisModal } from './WingReviewAnalysisModal';
 import {
   fetchKeywordAnalysisSnapshot,
   keywordAnalysisInput,
   keywordAnalysisSnapshotQueryKey,
   type NaverRelatedKeyword,
 } from '../../lib/keyword-analysis-snapshot-api';
-import { useSourcingOperationAction } from '../../hooks/use-sourcing-operation-action';
-import { SourcingOperationRunPanel } from '../../components/SourcingOperationRunPanel';
+import { useWingCatalogSource } from '../../hooks/use-wing-catalog-source';
+import { WingCatalogSourceStatus } from '../../components/WingCatalogSourceStatus';
+import { useNaverAnalysisSource } from '../../hooks/use-naver-analysis-source';
+import { SourceCollectionStatus } from '../../components/SourceCollectionStatus';
+import { WingReviewAnalysisModal } from './WingReviewAnalysisModal';
 
 const sortOptions: Array<{ value: WingCatalogSortKey; label: string }> = [
   { value: 'sales', label: '판매량순' },
@@ -93,11 +95,10 @@ export function WingCatalogPage() {
     }),
     [maxPages, operationKeyword],
   );
-  const operation = useSourcingOperationAction({
-    operationKey: 'sourcing.collect_wing_catalog_batch',
+  const wingSource = useWingCatalogSource({
     input: operationInput,
     snapshotQueryKey,
-    initialRunId: initialRouteState.operationRunId,
+    initialAttemptId: initialRouteState.attemptId,
   });
   const snapshotQuery = useQuery({
     queryKey: wingCatalogSnapshotQueryKey(snapshotKeyword),
@@ -125,11 +126,8 @@ export function WingCatalogPage() {
     () => keywordAnalysisSnapshotQueryKey(relatedKeywordInput),
     [relatedKeywordInput],
   );
-  const relatedKeywordOperation = useSourcingOperationAction({
-    operationKey: 'sourcing.collect_keyword_analysis',
+  const relatedKeywordSource = useNaverAnalysisSource({
     input: relatedKeywordInput,
-    snapshotQueryKey: relatedKeywordSnapshotKey,
-    reconnectInput: relatedKeywordInput,
   });
   const relatedKeywordSnapshotQuery = useQuery({
     queryKey: relatedKeywordSnapshotKey,
@@ -239,10 +237,10 @@ export function WingCatalogPage() {
     setError(null);
     try {
       setSnapshotKeyword(normalizedKeyword);
-      const run = await operation.start();
+      const run = await wingSource.start();
       const params = new URLSearchParams(window.location.search);
       params.set('keyword', normalizedKeyword);
-      params.set('operationRun', run.id);
+      if (run) params.set('sourceAttempt', run.attemptId);
       window.history.replaceState(
         {},
         '',
@@ -258,17 +256,9 @@ export function WingCatalogPage() {
     await runCatalogSearch();
   };
 
-  const handleCancel = async () => {
-    await operation.cancel();
-  };
-
-  const handleRetryAttention = async () => {
-    await operation.retryAttention();
-  };
-
   const handleLoadRelatedKeywords = async () => {
     if (!relatedKeywordSeed) return;
-    await relatedKeywordOperation.start();
+    await relatedKeywordSource.collect();
   };
 
   const handleDownload = () => {
@@ -321,10 +311,10 @@ export function WingCatalogPage() {
             </select>
             <button
               type="submit"
-              disabled={operation.isStarting}
+              disabled={wingSource.isStarting}
               className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-[#ff5a1f] px-4 text-sm font-black text-white transition hover:bg-[#ef4f18] disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {operation.isStarting ? <Loader2 size={17} className="animate-spin" /> : <PackageSearch size={17} />}
+              {wingSource.isStarting ? <Loader2 size={17} className="animate-spin" /> : <PackageSearch size={17} />}
               분석
             </button>
           </form>
@@ -374,20 +364,8 @@ export function WingCatalogPage() {
           </div>
         )}
 
-        <SourcingOperationRunPanel
-          run={operation.run}
-          onCancel={handleCancel}
-          onRetryAttention={handleRetryAttention}
-          isCancelling={operation.isCancelling}
-          isRetrying={operation.isRetrying}
-        />
-        <SourcingOperationRunPanel
-          run={relatedKeywordOperation.run}
-          onCancel={() => void relatedKeywordOperation.cancel()}
-          onRetryAttention={() => void relatedKeywordOperation.retryAttention()}
-          isCancelling={relatedKeywordOperation.isCancelling}
-          isRetrying={relatedKeywordOperation.isRetrying}
-        />
+        <WingCatalogSourceStatus source={wingSource} />
+        <SourceCollectionStatus source={relatedKeywordSource} />
 
         <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_320px] 2xl:grid-cols-[minmax(0,1fr)_340px]">
           <HeroAnalysisCard product={topProduct} rows={rows} summary={summary} keyword={result?.keyword ?? keyword} />
@@ -1051,20 +1029,20 @@ function toWingCatalogProduct(
 
 function readWingCatalogRouteState(): {
   keyword: string;
-  operationRunId: string | null;
+  attemptId: string | null;
 } {
   if (typeof window === 'undefined') {
-    return { keyword: '슬라임', operationRunId: null };
+    return { keyword: '슬라임', attemptId: null };
   }
   const params = new URLSearchParams(window.location.search);
   const keyword = params.get('keyword')?.normalize('NFKC').trim() || '슬라임';
-  const runId = params.get('operationRun');
+  const runId = params.get('sourceAttempt');
   return {
     keyword: keyword.slice(0, 100),
-    operationRunId:
-      runId !== null && OPERATION_RUN_ID_PATTERN.test(runId) ? runId : null,
+    attemptId:
+      runId !== null && SOURCE_ATTEMPT_ID_PATTERN.test(runId) ? runId : null,
   };
 }
 
-const OPERATION_RUN_ID_PATTERN =
+const SOURCE_ATTEMPT_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;

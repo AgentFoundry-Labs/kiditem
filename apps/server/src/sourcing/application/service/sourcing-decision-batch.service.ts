@@ -775,7 +775,7 @@ function evidenceIsFresh(
 function evidenceRunIsTerminal(
   status: SourcingEvidenceObservationRecord['ingestionRunStatus'],
 ) {
-  return status === 'complete' || status === 'partial';
+  return status === 'COMPLETE';
 }
 
 function evidenceRunSupportsDecision(
@@ -785,7 +785,7 @@ function evidenceRunSupportsDecision(
   >,
   at: Date,
 ): boolean {
-  return observation.ingestionRunStatus === 'complete' &&
+  return observation.ingestionRunStatus === 'COMPLETE' &&
     observation.ingestionRunCompletedAt !== null &&
     observation.ingestionRunCompletedAt.getTime() <= at.getTime();
 }

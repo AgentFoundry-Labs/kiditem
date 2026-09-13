@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { webcrypto } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
@@ -14,10 +15,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../
 const backgroundRoot = path.join(repoRoot, 'extensions/kiditem-os/background/orders');
 const workerPath = path.join(backgroundRoot, 'worker.js');
 const AUTOMATIC_ACTIONS = [
-  ['collectSellpiaDeliTracking', 'collectSellpiaDeliTracking', 'sellpia', { startDate: '2026-07-14', endDate: '2026-07-15' }],
   ['collectIcecreamMallOrders', 'collectIcecreamMallOrders', 'icecream-mall', { date: '2026-07-15' }],
-  ['collectRocketPoRows', 'collectRocketPoRows', 'coupang-rocket', { from: '2026-07-14', to: '2026-07-15' }],
-  ['listRocketPos', 'listRocketPos', 'coupang-rocket', { from: '2026-07-14', to: '2026-07-15' }],
   ['collectKidsnoteOrders', 'collectKidsnoteOrders', 'kidsnote', { from: '2026-07-14', to: '2026-07-15' }],
   ['collectKkomangseOrders', 'collectKkomangseOrders', 'kkomangse', { date: '2026-07-15' }],
   ['collectOnchannelOrders', 'collectOnchannelOrders', 'onch', { date: '2026-07-15' }],
@@ -33,6 +31,7 @@ const AUTOMATIC_ACTIONS = [
   ['collectHaebeopOrders', 'collectHaebeopOrders', 'haebub-mall', { date: '2026-07-15' }],
   ['collectCoupangDirectOrders', 'collectCoupangDirectOrders', 'coupang-direct', { date: '2026-07-15' }],
 ];
+const SELLPIA_TRACKING_ATTEMPT_ID = '00000000-0000-4000-8000-000000000900';
 
 function uuid(index) {
   return `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`;
@@ -48,6 +47,7 @@ function createFakeChrome() {
   };
   let nextTabId = 100;
   const externalMessageListeners = [];
+  const storageChangeListeners = [];
   const chrome = {
     runtime: {
       lastError: null,
@@ -73,11 +73,25 @@ function createFakeChrome() {
           Object.assign(storage, structuredClone(values));
         },
       },
+      onChanged: {
+        addListener(listener) {
+          storageChangeListeners.push(listener);
+        },
+        removeListener(listener) {
+          const index = storageChangeListeners.indexOf(listener);
+          if (index >= 0) storageChangeListeners.splice(index, 1);
+        },
+      },
     },
     tabs: {
       async create(properties) {
         calls.tabsCreate.push(structuredClone(properties));
-        return { id: nextTabId++, windowId: 7, ...properties };
+        return { id: nextTabId++, windowId: 7, status: 'complete', ...properties };
+      },
+      get(tabId, callback) {
+        const tab = { id: tabId, windowId: 7, status: 'complete' };
+        if (typeof callback === 'function') callback(tab);
+        return Promise.resolve(tab);
       },
       async query() {
         return [];
@@ -88,6 +102,10 @@ function createFakeChrome() {
       async update(tabId, properties) {
         calls.tabsUpdate.push({ tabId, properties: structuredClone(properties) });
         return { id: tabId, windowId: 7, ...properties };
+      },
+      onUpdated: {
+        addListener() {},
+        removeListener() {},
       },
     },
     windows: {
@@ -109,11 +127,201 @@ function createFakeChrome() {
 
 function loadWorker(globals = {}) {
   const fake = createFakeChrome();
+  const sourceAttempts = new Map();
+  const trackingAttempts = new Map();
+  const trackingUploads = [];
+  const trackingProgressSnapshots = [];
+  const sourceMallByAttempt = new Map([
+    [uuid(777), 'kidsnote'],
+    [uuid(778), 'kidsnote'],
+    [uuid(782), 'kkomangse'],
+    [uuid(783), 'coupang-direct'],
+  ]);
+  fake.storage.kiditem_environment_profiles_v1 = {
+    local: { accessToken: 'web-token', updatedAt: Date.now() },
+  };
+  function sourceControl(attemptId) {
+    const current = sourceAttempts.get(attemptId) || {
+      state: 'RUNNING',
+      errorCode: null,
+      errorMessage: null,
+    };
+    return {
+      attemptId,
+      sourceImportRunId: uuid(990),
+      attemptToken: uuid(991),
+      state: current.state,
+      plan: {
+        sourceType: 'order_collection_mall',
+        parserVersion: 'order-collection-v1',
+        mallKey: sourceMallByAttempt.get(attemptId) || 'kidsnote',
+        mallName: '테스트 몰',
+        channelAccountId: uuid(992),
+        collectionDate: null,
+        collectionMode: 'browser',
+      },
+      expiresAt: '2099-01-01T00:00:00.000Z',
+      artifactId: null,
+      coverageStartDate: null,
+      coverageEndDate: null,
+      errorCode: current.errorCode,
+      errorMessage: current.errorMessage,
+    };
+  }
+  function directSourceControl(attemptId) {
+    const current = sourceAttempts.get(attemptId) || {
+      state: 'RUNNING',
+      errorCode: null,
+      errorMessage: null,
+    };
+    return {
+      attemptId,
+      sourceImportRunId: uuid(991),
+      attemptToken: uuid(992),
+      state: current.state,
+      plan: {
+        sourceType: 'coupang_direct_order_capture',
+        parserVersion: 'coupang-direct-order-v1',
+        channelAccountId: uuid(993),
+        captureMode: 'browser',
+        transportScope: 'ALL',
+      },
+      expiresAt: '2099-01-01T00:00:00.000Z',
+      artifactId: null,
+      contentChecksum: null,
+      errorCode: current.errorCode,
+      errorMessage: current.errorMessage,
+    };
+  }
+  function trackingControl(attemptId) {
+    const current = trackingAttempts.get(attemptId) || {
+      state: 'RUNNING',
+      errorCode: null,
+      errorMessage: null,
+      sourceByteCount: null,
+    };
+    return {
+      attemptId,
+      attemptToken: uuid(994),
+      sourceImportRunId: uuid(995),
+      state: current.state,
+      plan: {
+        sourceType: 'sellpia_shipment_tracking',
+        parserVersion: 'sellpia-shipment-tracking-v1',
+        sourceOrigin: 'https://kiditem.sellpia.com',
+        sourceAccountKey: 'kiditem',
+        startDate: '2026-07-15',
+        endDate: '2026-07-15',
+      },
+      expiresAt: '2099-01-01T00:00:00.000Z',
+      artifactId: current.state === 'COMPLETE' ? uuid(996) : null,
+      sourceFileName: current.state === 'COMPLETE' ? 'sellpia-shipment-tracking-v1.json' : null,
+      sourceContentType: current.state === 'COMPLETE' ? 'application/json' : null,
+      contentChecksum: null,
+      sourceByteCount: current.sourceByteCount,
+      errorCode: current.errorCode,
+      errorMessage: current.errorMessage,
+    };
+  }
+  async function sourceFetch(url, init = {}) {
+    const parsed = new URL(url);
+    const trackingMatch = parsed.pathname.match(
+      /\/api\/orders\/sellpia-shipment-tracking\/attempts\/([^/]+)\/(control|complete|fail)$/,
+    );
+    if (trackingMatch) {
+      const attemptId = decodeURIComponent(trackingMatch[1]);
+      const operation = trackingMatch[2];
+      if (operation === 'complete') {
+        trackingProgressSnapshots.push(
+          structuredClone(fake.storage.kiditem_collection_sessions?.[attemptId] || null),
+        );
+        const file = init.body?.get?.('file');
+        const bytes = file ? new Uint8Array(await file.arrayBuffer()) : new Uint8Array();
+        trackingUploads.push(bytes);
+        trackingAttempts.set(attemptId, {
+          state: 'COMPLETE',
+          errorCode: null,
+          errorMessage: null,
+          sourceByteCount: bytes.byteLength,
+        });
+      } else if (operation === 'fail') {
+        const body = JSON.parse(String(init.body || '{}'));
+        trackingAttempts.set(attemptId, {
+          state: 'FAILED',
+          errorCode: body.errorCode,
+          errorMessage: body.errorMessage,
+          sourceByteCount: null,
+        });
+      }
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return trackingControl(attemptId);
+        },
+      };
+    }
+    const directMatch = parsed.pathname.match(
+      /\/api\/orders\/collection\/coupang-directship\/attempts\/([^/]+)(?:\/(?:control|complete|fail))?$/,
+    );
+    if (directMatch) {
+      const attemptId = decodeURIComponent(directMatch[1]);
+      if (parsed.pathname.endsWith('/fail')) {
+        const body = JSON.parse(String(init.body || '{}'));
+        sourceAttempts.set(attemptId, {
+          state: 'FAILED',
+          errorCode: body.code,
+          errorMessage: body.message,
+        });
+      } else if (parsed.pathname.endsWith('/complete')) {
+        const body = JSON.parse(String(init.body || '{}'));
+        assert.ok(Array.isArray(body.pos));
+        assert.ok(body.centers && typeof body.centers === 'object');
+        sourceAttempts.set(attemptId, {
+          state: 'COMPLETE',
+          errorCode: null,
+          errorMessage: null,
+        });
+      }
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return directSourceControl(attemptId);
+        },
+      };
+    }
+    const match = parsed.pathname.match(
+      /\/api\/orders\/collection\/attempts\/([^/]+)(?:\/control|\/fail)?$/,
+    );
+    if (!match) throw new Error('Unexpected fetch in order collection session test');
+    const attemptId = decodeURIComponent(match[1]);
+    if (parsed.pathname.endsWith('/fail')) {
+      const body = JSON.parse(String(init.body || '{}'));
+      sourceAttempts.set(attemptId, {
+        state: 'FAILED',
+        errorCode: body.code,
+        errorMessage: body.message,
+      });
+    }
+    return {
+      ok: true,
+      status: 200,
+      async json() {
+        return sourceControl(attemptId);
+      },
+    };
+  }
   let context;
   const sandbox = {
     URL,
     URLSearchParams,
+    Headers,
+    AbortController,
+    DataView,
     TextDecoder,
+    TextEncoder,
+    Uint8Array,
     Blob,
     FormData,
     atob,
@@ -121,10 +329,9 @@ function loadWorker(globals = {}) {
     console,
     crypto: {
       randomUUID: () => uuid(999),
+      subtle: webcrypto.subtle,
     },
-    fetch: async () => {
-      throw new Error('Unexpected fetch in order collection session test');
-    },
+    fetch: sourceFetch,
     setTimeout,
     clearTimeout,
     setInterval,
@@ -145,7 +352,17 @@ function loadWorker(globals = {}) {
   context.importScripts(...ORDERS_WORKER_MODULES);
   vm.runInContext(readFileSync(workerPath, 'utf8'), context, { filename: workerPath });
   installExternalDispatch(context, fake.chrome);
-  return { ...fake, context, externalMessageListeners: fake.getExternalMessageListeners() };
+  return {
+    ...fake,
+    context,
+    trackingAttempts,
+    trackingUploads,
+    trackingProgressSnapshots,
+    setSourceMallForAttempt(attemptId, mallKey) {
+      sourceMallByAttempt.set(attemptId, mallKey);
+    },
+    externalMessageListeners: fake.getExternalMessageListeners(),
+  };
 }
 
 function textResponse(text, { ok = true, status = 200, url = 'https://mallseller.genimarket.co.kr/mall/order/basket_list.php' } = {}) {
@@ -241,6 +458,14 @@ function dispatch(listeners, message) {
 }
 
 function installCollectorResult(runtime, functionName, resultFactory) {
+  // Sellpia tracking now runs through the production collector factory, so
+  // provide its executeScript page result while retaining the shared tab API
+  // surface. Other legacy collector test seams continue to stub the worker
+  // function directly below.
+  if (functionName === 'collectSellpiaDeliTracking') {
+    runtime.chrome.scripting.executeScript = async () => [{ result: resultFactory() }];
+    return;
+  }
   runtime.context[functionName] = async (...args) => {
     const collection = args.at(-1);
     const tab = await runtime.chrome.tabs.create({
@@ -260,6 +485,7 @@ test('Haebeop collects every marketplace list page before expanding order detail
     ['detail:1002', haebeopDetailDocument('1002')],
   ]);
   const listPages = [];
+  const postedWindows = [];
   const runtime = loadWorker({
     DOMParser: createHaebeopDomParser(documents),
     document: { querySelector: () => null },
@@ -267,7 +493,9 @@ test('Haebeop collects every marketplace list page before expanding order detail
     async fetch(url, init = {}) {
       if (url === '/mall/order/basket_list.php') {
         const page = new URLSearchParams(init.body).get('page') || '1';
+        const body = new URLSearchParams(init.body);
         listPages.push(page);
+        postedWindows.push([body.get('str_date'), body.get('end_date')]);
         return textResponse(`list:${page}`);
       }
       const orderId = new URL(url, 'https://mallseller.genimarket.co.kr').searchParams.get('orderid');
@@ -286,6 +514,14 @@ test('Haebeop collects every marketplace list page before expanding order detail
     ['1001', '1002'],
   );
   assert.deepEqual(listPages, ['1', '2']);
+  assert.deepEqual(postedWindows, [
+    ['2026-07-31', '2026-07-31'],
+    ['2026-07-31', '2026-07-31'],
+  ]);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(result.confirmedCoverage)),
+    { startDate: '2026-07-31', endDate: '2026-07-31' },
+  );
 });
 
 test('Haebeop fails collection instead of producing a zero-value order when detail loading fails', async () => {
@@ -315,46 +551,103 @@ test('Haebeop fails collection instead of producing a zero-value order when deta
   );
 });
 
+test('Haebeop confirms the queried day when every discovered page is valid and empty', async () => {
+  const runtime = loadWorker({
+    DOMParser: createHaebeopDomParser(new Map([
+      ['list:1', haebeopListDocument([])],
+    ])),
+    document: { querySelector: () => null },
+    location: { href: 'https://mallseller.genimarket.co.kr/mall/order/basket_list.php' },
+    async fetch() {
+      return textResponse('list:1');
+    },
+  });
+
+  const result = await runtime.context.scrapeHaebeopOrders({ date: '2026-07-31' });
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), {
+    success: true,
+    orders: [],
+    count: 0,
+    confirmedCoverage: { startDate: '2026-07-31', endDate: '2026-07-31' },
+  });
+});
+
+test('Haebeop does not confirm coverage when discovered pagination exceeds its safe bound', async () => {
+  const pages = Array.from({ length: 101 }, (_, index) => index + 1);
+  const documents = new Map([
+    ['list:1', haebeopListDocument([], pages)],
+    ...pages.slice(1, 100).map((page) => [`list:${page}`, haebeopListDocument([])]),
+  ]);
+  const runtime = loadWorker({
+    DOMParser: createHaebeopDomParser(documents),
+    document: { querySelector: () => null },
+    location: { href: 'https://mallseller.genimarket.co.kr/mall/order/basket_list.php' },
+    async fetch(_url, init = {}) {
+      return textResponse(`list:${new URLSearchParams(init.body).get('page') || '1'}`);
+    },
+  });
+
+  const result = await runtime.context.scrapeHaebeopOrders({ date: '2026-07-31' });
+
+  assert.equal(result.success, false);
+  assert.match(result.error, /100페이지를 초과/);
+  assert.equal(result.confirmedCoverage, undefined);
+});
+
 test('automatic order actions publish safe domain-specific sessions from inactive tabs', async () => {
   const runtime = loadWorker();
   for (const [, functionName] of AUTOMATIC_ACTIONS) {
-    installCollectorResult(runtime, functionName, () => ({
-      success: true,
-      rows: [{ address: '서울', phone: '010-0000-0000', orderPayload: 'private' }],
-      xlsxBase64: 'private-xlsx',
-      csvBase64: 'private-csv',
-      fileBase64: 'private-file',
-    }));
+    installCollectorResult(runtime, functionName, () => functionName === 'collectCoupangDirectOrders'
+      ? {
+        success: true,
+        pos: [{ seq: 'PO-1', status: 'PA', center: 'C', transport: 'SHIPMENT', edd: '', reg: 'R', items: [] }],
+        centers: {},
+      }
+      : {
+        success: true,
+        rows: [{ address: '서울', phone: '010-0000-0000', orderPayload: 'private' }],
+        xlsxBase64: 'private-xlsx',
+        csvBase64: 'private-csv',
+        fileBase64: 'private-file',
+      });
   }
 
   for (const [index, [action, , mallKey, input]] of AUTOMATIC_ACTIONS.entries()) {
     const runId = uuid(index + 1);
-    const response = await dispatch(runtime.externalMessageListeners, {
+    const correlation = action === 'collectCoupangDirectOrders'
+      ? { attemptId: runId }
+      : { runId };
+    const message = {
       action,
       ...input,
-      runId,
-      credentials: { loginId: 'operator@example.test', password: 'top-secret' },
-      password: 'top-secret',
-      rows: [{ address: '서울', phone: '010-0000-0000' }],
-      xlsxBase64: 'private-xlsx',
-      csvBase64: 'private-csv',
-      fileBase64: 'private-file',
-    });
+      ...correlation,
+      ...(action === 'collectCoupangDirectOrders'
+        ? {}
+        : {
+          credentials: { loginId: 'operator@example.test', password: 'top-secret' },
+          password: 'top-secret',
+          rows: [{ address: '서울', phone: '010-0000-0000' }],
+          xlsxBase64: 'private-xlsx',
+          csvBase64: 'private-csv',
+          fileBase64: 'private-file',
+        }),
+    };
+    runtime.setSourceMallForAttempt(runId, mallKey);
+    const response = await dispatch(runtime.externalMessageListeners, message);
 
-    assert.equal(response.runId, runId, action);
-    assert.equal(response.collectionSession.status, 'succeeded', action);
-    assert.equal(
-      response.collectionSession.producer,
-      action === 'collectRocketPoRows' || action === 'listRocketPos'
-        ? 'orders.coupang_rocket_po'
-        : 'orders.mall',
-      action,
-    );
-    assert.deepEqual(
-      JSON.parse(JSON.stringify(response.collectionSession.inputIdentity)),
-      { mallKey, date: input.date ?? input.to ?? input.endDate ?? null },
-      action,
-    );
+    assert.equal(response.attemptId, runId, action);
+    if (action === 'collectCoupangDirectOrders') {
+      assert.equal(response.terminalState, 'COMPLETE', action);
+      assert.equal(response.collectionSession, undefined, action);
+    } else {
+      assert.equal(response.collectionSession.progress.completed, 1, action);
+      assert.equal(response.collectionSession.producer, 'orders.mall', action);
+      assert.equal('status' in response.collectionSession, false, action);
+    }
+    if (response.collectionSession) {
+      assert.equal('inputIdentity' in response.collectionSession, false, action);
+    }
   }
 
   assert.equal(runtime.calls.tabsCreate.length, AUTOMATIC_ACTIONS.length);
@@ -378,32 +671,58 @@ test('automatic order actions publish safe domain-specific sessions from inactiv
   }
 });
 
-test('shipment summary publishes one deferred shipment-specific session', async () => {
+test('Sellpia tracking uses its named owner terminal and preserves collection progress until upload', async () => {
   const runtime = loadWorker();
-  runtime.context.collectCoupangShipmentDateSummary = async () => ({
+  installCollectorResult(runtime, 'collectSellpiaDeliTracking', () => ({
     success: true,
-    scannedPages: 1,
-    totalRows: 0,
-    dates: [],
-  });
+    rows: [{ ordNo: 'ORDER-1', invNo: 'INV-1' }],
+    total: 1,
+    range: { start: '2026-07-15', end: '2026-07-15' },
+  }));
 
-  const runId = uuid(90);
   const response = await dispatch(runtime.externalMessageListeners, {
-    action: 'collectCoupangShipmentDateSummary',
-    runId,
-    deferTerminal: true,
+    action: 'collectSellpiaDeliTracking',
+    attemptId: SELLPIA_TRACKING_ATTEMPT_ID,
   });
 
-  assert.equal(response.runId, runId);
-  assert.equal(response.collectionSession.status, 'running');
+  assert.equal(response.success, true, JSON.stringify(response));
+  assert.equal(response.attemptId, SELLPIA_TRACKING_ATTEMPT_ID);
+  assert.equal(response.terminalState, 'COMPLETE');
+  assert.equal(response.rows, undefined);
+  assert.equal(runtime.trackingUploads.length, 1);
+  assert.equal(runtime.trackingProgressSnapshots.length, 1);
   assert.equal(
-    response.collectionSession.producer,
-    'orders.coupang_shipment_summary',
+    runtime.trackingProgressSnapshots[0].progress.completed,
+    1,
   );
-  assert.deepEqual(
-    JSON.parse(JSON.stringify(response.collectionSession.inputIdentity)),
-    { source: 'coupang-shipment-summary' },
+  assert.equal(runtime.trackingProgressSnapshots[0].progress.total, 2);
+  assert.equal(
+    runtime.storage.kiditem_collection_sessions?.[SELLPIA_TRACKING_ATTEMPT_ID],
+    undefined,
   );
+});
+
+test('Sellpia tracking owner keeps login attention while the server attempt fails', async () => {
+  const runtime = loadWorker();
+  installCollectorResult(runtime, 'collectSellpiaDeliTracking', () => ({
+    success: false,
+    pendingLogin: true,
+    errorCode: 'sellpia_login_required',
+    error: 'Sellpia login is required.',
+  }));
+
+  const response = await dispatch(runtime.externalMessageListeners, {
+    action: 'collectSellpiaDeliTracking',
+    attemptId: `${SELLPIA_TRACKING_ATTEMPT_ID.slice(0, -1)}1`,
+  });
+
+  assert.equal(response.success, false);
+  assert.equal(response.attemptId, `${SELLPIA_TRACKING_ATTEMPT_ID.slice(0, -1)}1`);
+  assert.equal(response.terminalState, 'FAILED');
+  assert.equal(response.errorCode, 'sellpia_login_required');
+  const session = runtime.storage.kiditem_collection_sessions?.[response.attemptId];
+  assert.equal(session.attention.reason, 'marketplace_login');
+  assert.equal(session.progress.completed, 0);
 });
 
 test('every automatic mall access failure requires personal attention without focusing', async () => {
@@ -415,13 +734,16 @@ test('every automatic mall access failure requires personal attention without fo
   }
 
   for (const [index, [action, , , input]] of AUTOMATIC_ACTIONS.entries()) {
+    if (action === 'collectCoupangDirectOrders') continue;
+    const attemptId = uuid(index + 100);
+    runtime.setSourceMallForAttempt(attemptId, AUTOMATIC_ACTIONS[index][2]);
     const response = await dispatch(runtime.externalMessageListeners, {
       action,
       ...input,
-      runId: uuid(index + 100),
+      runId: attemptId,
     });
-    assert.equal(response.collectionSession.status, 'attention_required', action);
     assert.equal(response.collectionSession.attention.reason, 'marketplace_login', action);
+    assert.equal('status' in response.collectionSession, false, action);
     assert.equal(response.collectionSession.attention.canOpenTab, true, action);
   }
 
@@ -438,75 +760,50 @@ test('structured operator authentication remains attention instead of a failed r
     error: 'GS샵 SMS 인증이 필요합니다.',
   }));
 
+  const attemptId = uuid(200);
+  runtime.setSourceMallForAttempt(attemptId, 'gs-shop');
   const response = await dispatch(runtime.externalMessageListeners, {
     action: 'collectGsshopOrders',
     date: '2026-07-15',
-    runId: uuid(200),
+    runId: attemptId,
   });
 
-  assert.equal(response.collectionSession.status, 'attention_required');
+  assert.equal(response.collectionSession.attention.reason, 'marketplace_login');
   assert.equal(response.collectionSession.attention.reason, 'marketplace_login');
   assert.equal(response.failure.code, 'operator_action_required');
   assert.equal(response.failure.operatorAction, 'complete_sms_auth');
 });
 
-test('web restart keeps the run, closes the old attention tab, and increments its attempt', async () => {
+test('rerunning a collection resumes the owner attempt without a second lifecycle', async () => {
   const runtime = loadWorker();
-  let attempt = 0;
+  let collectionCount = 0;
   installCollectorResult(runtime, 'collectKidsnoteOrders', () => {
-    attempt += 1;
-    return attempt === 1
+    collectionCount += 1;
+    return collectionCount === 1
       ? { success: false, pendingLogin: true, error: '로그인이 필요합니다.' }
       : { success: true, orders: [] };
   });
-  const runId = uuid(777);
+  const attemptId = uuid(777);
   const message = {
     action: 'collectKidsnoteOrders',
     from: '2026-07-15',
     to: '2026-07-15',
-    runId,
+    attemptId,
   };
 
   const attention = await dispatch(runtime.externalMessageListeners, message);
-  const restarted = await dispatch(runtime.externalMessageListeners, message);
+  const resumed = await dispatch(runtime.externalMessageListeners, message);
 
-  assert.equal(attention.runId, runId);
-  assert.equal(attention.collectionSession.status, 'attention_required');
-  assert.equal(restarted.runId, runId);
-  assert.equal(restarted.collectionSession.status, 'succeeded');
-  assert.equal(restarted.collectionSession.attempt, 2);
-  assert.deepEqual(runtime.calls.tabsRemove, [100]);
+  assert.equal(attention.attemptId, attemptId);
+  assert.equal(attention.collectionSession.attention.reason, 'marketplace_login');
+  assert.equal(resumed.attemptId, attemptId);
+  assert.equal(resumed.collectionSession.progress.completed, 1);
+  assert.equal('status' in resumed.collectionSession, false);
+  assert.deepEqual(runtime.calls.tabsRemove, []);
   assert.equal(Object.keys(runtime.storage.kiditem_collection_sessions).length, 1);
 });
 
-test('web restart preserves an existing user marketplace tab while replacing its attachment', async () => {
-  const runtime = loadWorker();
-  let attempt = 0;
-  runtime.context.collectKidsnoteOrders = async (...args) => {
-    const collection = args.at(-1);
-    const tab = { id: 55 + attempt, windowId: 7 };
-    await collection.attachTab(tab, { owned: false });
-    attempt += 1;
-    return attempt === 1
-      ? { success: false, pendingLogin: true, error: '로그인이 필요합니다.' }
-      : { success: true, orders: [] };
-  };
-  const runId = uuid(779);
-  const message = {
-    action: 'collectKidsnoteOrders',
-    from: '2026-07-15',
-    to: '2026-07-15',
-    runId,
-  };
-
-  await dispatch(runtime.externalMessageListeners, message);
-  const restarted = await dispatch(runtime.externalMessageListeners, message);
-
-  assert.equal(restarted.collectionSession.attempt, 2);
-  assert.deepEqual(runtime.calls.tabsRemove, []);
-});
-
-test('cancelling a deferred order run closes its tab and fences late completion', async () => {
+test('cancelling an active collection removes local control state and fences late completion', async () => {
   const runtime = loadWorker();
   let releaseOperation;
   const operationGate = new Promise((resolve) => {
@@ -527,190 +824,385 @@ test('cancelling a deferred order run closes its tab and fences late completion'
     await operationGate;
     return { success: true, orders: [{ orderNo: 'must-not-reach-web' }] };
   };
-  const runId = uuid(778);
+  const attemptId = uuid(778);
   const pending = dispatch(runtime.externalMessageListeners, {
     action: 'collectKidsnoteOrders',
     from: '2026-07-15',
     to: '2026-07-15',
-    runId,
+    attemptId,
   });
   await attached;
 
-  const cancelled = await dispatch(runtime.externalMessageListeners, {
-    action: 'cancelCollectionSession',
-    runId,
-  });
-  releaseOperation();
-  const completed = await pending;
-
-  assert.equal(cancelled.status, 'cancelled');
-  assert.deepEqual(runtime.calls.tabsRemove, [100]);
-  assert.equal(completed.success, false);
-  assert.equal(completed.cancelled, true);
-  assert.equal(completed.orders, undefined);
-  assert.equal(completed.collectionSession.status, 'cancelled');
-  assert.equal(runtime.storage.kiditem_collection_sessions[runId].status, 'cancelled');
-});
-
-test('cancelling a run on a user-owned tab preserves the tab but discards late data', async () => {
-  const runtime = loadWorker();
-  let releaseOperation;
-  const operationGate = new Promise((resolve) => {
-    releaseOperation = resolve;
-  });
-  let signalAttached;
-  const attached = new Promise((resolve) => {
-    signalAttached = resolve;
-  });
-  runtime.context.collectKidsnoteOrders = async (...args) => {
-    const collection = args.at(-1);
-    await collection.attachTab({ id: 55, windowId: 7 }, { owned: false });
-    signalAttached();
-    await operationGate;
-    return { success: true, orders: [{ orderNo: 'must-not-reach-web' }] };
-  };
-  const runId = uuid(780);
-  const pending = dispatch(runtime.externalMessageListeners, {
-    action: 'collectKidsnoteOrders',
-    from: '2026-07-15',
-    to: '2026-07-15',
-    runId,
-  });
-  await attached;
-
-  await dispatch(runtime.externalMessageListeners, {
-    action: 'cancelCollectionSession',
-    runId,
-  });
-  releaseOperation();
-  const completed = await pending;
-
-  assert.deepEqual(runtime.calls.tabsRemove, []);
-  assert.equal(completed.success, false);
-  assert.equal(completed.cancelled, true);
-  assert.equal(completed.orders, undefined);
-  assert.equal(completed.collectionSession.status, 'cancelled');
-});
-
-test('cancelling before an owned tab attaches closes the late orphan tab', async () => {
-  const runtime = loadWorker();
-  let releaseOperation;
-  const operationGate = new Promise((resolve) => {
-    releaseOperation = resolve;
-  });
-  let signalStarted;
-  const started = new Promise((resolve) => {
-    signalStarted = resolve;
-  });
-  runtime.context.collectKidsnoteOrders = async (...args) => {
-    const collection = args.at(-1);
-    signalStarted();
-    await operationGate;
-    const tab = await runtime.chrome.tabs.create({
-      url: 'https://shop.kidsnote.com/_manage/',
-      active: false,
+  let cancelled;
+  let completed;
+  try {
+    cancelled = await dispatch(runtime.externalMessageListeners, {
+      action: 'cancelCollectionSession',
+      attemptId,
     });
-    await collection.attachTab(tab, { owned: true });
-    return { success: true, orders: [{ orderNo: 'must-not-reach-web' }] };
-  };
-  const runId = uuid(781);
-  const pending = dispatch(runtime.externalMessageListeners, {
-    action: 'collectKidsnoteOrders',
-    from: '2026-07-15',
-    to: '2026-07-15',
-    runId,
-  });
-  await started;
+  } finally {
+    releaseOperation();
+    completed = await pending;
+  }
 
-  await dispatch(runtime.externalMessageListeners, {
-    action: 'cancelCollectionSession',
-    runId,
-  });
-  releaseOperation();
-  const completed = await pending;
-
+  assert.equal(cancelled.attemptId, attemptId);
   assert.deepEqual(runtime.calls.tabsRemove, [100]);
   assert.equal(completed.success, false);
   assert.equal(completed.cancelled, true);
   assert.equal(completed.orders, undefined);
+  assert.equal(completed.collectionSession, null);
+  assert.equal(runtime.storage.kiditem_collection_sessions[attemptId], undefined);
 });
 
-test('hostile date-shaped input cannot enter persisted order identity', async () => {
+test('invalid source identity never enters the owner-correlated session', async () => {
   const runtime = loadWorker();
   installCollectorResult(runtime, 'collectKkomangseOrders', () => ({
     success: true,
     xlsxBase64: 'private-xlsx',
   }));
-  const runId = uuid(782);
+  const attemptId = uuid(782);
 
   const response = await dispatch(runtime.externalMessageListeners, {
     action: 'collectKkomangseOrders',
     date: '010-password-secret',
-    runId,
+    attemptId,
   });
 
-  assert.deepEqual(
-    JSON.parse(JSON.stringify(response.collectionSession.inputIdentity)),
-    { mallKey: 'kkomangse', date: null },
-  );
+  assert.equal(response.attemptId, attemptId);
+  assert.equal('inputIdentity' in response.collectionSession, false);
   assert.equal(
     JSON.stringify(runtime.storage.kiditem_collection_sessions).includes('010-password-secret'),
     false,
   );
 });
 
-test('web-finalized order runs stay active through conversion and then succeed', async () => {
+test('named mall reads create a fresh inactive tab even when a provider tab exists', async () => {
+  const runtime = loadWorker();
+  const existing = {
+    id: 41,
+    windowId: 7,
+    active: true,
+    status: 'complete',
+    url: 'https://provider.example.test/already-open',
+  };
+  const queried = [];
+  const created = [];
+  runtime.chrome.tabs.query = async (query) => {
+    queried.push(query);
+    return [existing];
+  };
+  runtime.chrome.tabs.create = async (properties) => {
+    const tab = {
+      id: 100 + created.length,
+      windowId: 7,
+      status: 'complete',
+      ...properties,
+    };
+    created.push(tab);
+    return tab;
+  };
+  const collection = { assertActive: async () => true };
+  const cases = [
+    ['findOrCreateIcecreamMallTab', 'https://po.i-screammall.co.kr/main.do'],
+    ['findOrCreateKidsnoteTab', 'https://shop.kidsnote.com/_manage/?body=3010'],
+    ['findOrCreateKkomangseTab', 'https://nstore.edupre.co.kr/subAdmin/_order_product.list.php?mode=search&pass_input_type=all&st=o_rdate&so=desc&listmaxcount=1000'],
+    ['findOrCreateOnchannelTab', 'https://www.onch3.co.kr/supplier/orders.php?state=all'],
+    ['findOrCreateDomeggookTab', 'https://domeggook.com/sc/order/lstAll'],
+    ['findOrCreateKidkidsTab', 'https://partner.kidkids.net/new/pages/logis/management.htm'],
+    ['findOrCreateLotteonTab', 'https://store.lotteon.com/cm/main/index_SO.wsp'],
+    ['findOrCreateGsshopTab', 'https://partners.gsshop.com/logistics/partner-logistics-mng'],
+    ['findOrCreateAlwayzTab', 'https://alwayzseller.ilevit.com/shippings'],
+    ['findOrCreateKakaoTab', 'https://shopping-seller.kakao.com/order/seller/store-order/integrate/list'],
+    ['findOrCreateBoriboriTab', 'https://seller-club.co.kr/order/orderDeliList'],
+    ['findOrCreateTeachervilleTab', 'https://shop.teacherville.co.kr/selleradmin/order/catalog'],
+    ['findOrCreateArt09Tab', 'https://zzogzzog1.cafe24.com/admin/php/shop1/s_new/order_list.php?1&shop_no=1'],
+    ['findOrCreateHaebeopTab', 'https://mallseller.genimarket.co.kr/mall/order/basket_list.php'],
+  ];
+
+  for (const [functionName, url] of cases) {
+    const located = functionName === 'findOrCreateDomeggookTab'
+      ? await runtime.context[functionName](url, collection)
+      : await runtime.context[functionName](collection);
+    assert.equal(located.created, true, functionName);
+    assert.equal(located.tab.active, false, functionName);
+    assert.equal(located.tab.url, url, functionName);
+  }
+
+  assert.equal(queried.length, 0);
+  assert.equal(created.length, cases.length);
+});
+
+test('every named mall collector uses the production attach-before-readiness path', async () => {
+  const runtime = loadWorker();
+  const events = [];
+  let nextTabId = 450;
+  runtime.chrome.tabs.query = async () => {
+    throw new Error('managed mall reads must not query for an existing provider tab');
+  };
+  runtime.chrome.tabs.create = async (properties) => {
+    const tab = {
+      id: nextTabId++,
+      windowId: 7,
+      status: 'complete',
+      ...properties,
+    };
+    events.push(['create', tab.id, properties.active]);
+    return tab;
+  };
+  runtime.chrome.tabs.remove = async (tabId) => events.push(['remove', tabId]);
+  runtime.chrome.tabs.update = async (tabId, properties) => {
+    events.push(['update', tabId, properties]);
+    return { id: tabId, windowId: 7, status: 'complete', ...properties };
+  };
+  runtime.context.waitForTabReady = async (tabId) => events.push(['ready', tabId]);
+  runtime.context.delay = async () => {};
+  runtime.context.ensureIcecreamMallLogin = async () => ({ success: true });
+  runtime.context.openIcecreamMallDeliveryInquiry = async () => ({ success: true });
+  runtime.context.findIcecreamMallDeliveryFrameId = async () => null;
+  runtime.context.domeggookOrderList = async () => ({ dat: [] });
+  runtime.chrome.scripting.executeScript = async (options) => {
+    events.push(['execute', options.target?.tabId, options.func?.name]);
+    if (options.func?.name === 'scrapeIcecreamMallDeliveryGrid') {
+      return [{ result: { success: true, rows: [] } }];
+    }
+    if (options.func?.name === 'triggerDomeggookExcelGen') {
+      return [{ result: { success: true, empty: true } }];
+    }
+    return [{ result: { success: true } }];
+  };
+
+  const cases = [
+    ['collectIcecreamMallOrders', [null, null]],
+    ['collectKidsnoteOrders', [{ from: '2026-07-15', to: '2026-07-15' }]],
+    ['collectKkomangseOrders', []],
+    ['collectOnchannelOrders', ['2026-07-15']],
+    ['collectDomeggookOrders', ['2026-07-15']],
+    ['collectKidkidsOrders', ['2026-07-15', null]],
+    ['collectLotteonOrders', []],
+    ['collectGsshopOrders', []],
+    ['collectAlwayzOrders', []],
+    ['collectKakaoOrders', ['2026-07-15']],
+    ['collectBoriboriOrders', [{}]],
+    ['collectTeachervilleOrders', []],
+    ['collectArt09Orders', ['2026-07-15']],
+    ['collectHaebeopOrders', [{}]],
+  ];
+
+  for (const [functionName, args] of cases) {
+    const caseEvents = [];
+    const start = events.length;
+    const collection = {
+      assertActive: async () => {
+        events.push(['assert', functionName]);
+        caseEvents.push('assert');
+        return true;
+      },
+      attachTab: async (tab) => {
+        events.push(['attach', functionName, tab.id]);
+        caseEvents.push('attach');
+        return { attemptId: uuid(450) };
+      },
+      detachTab: async () => {
+        events.push(['detach', functionName]);
+        caseEvents.push('detach');
+      },
+    };
+    const result = await runtime.context[functionName](...args, collection);
+    const trace = events.slice(start);
+    const attachIndex = trace.findIndex((event) => event[0] === 'attach');
+    const firstReadyIndex = trace.findIndex((event) => event[0] === 'ready');
+    const createEvent = trace.find((event) => event[0] === 'create');
+    const executeIndex = trace.findIndex((event) => event[0] === 'execute');
+
+    assert.equal(result.success, true, functionName);
+    if (functionName === 'collectDomeggookOrders') {
+      assert.deepEqual(
+        JSON.parse(JSON.stringify(result.confirmedCoverage)),
+        { startDate: '2026-07-15', endDate: '2026-07-15' },
+      );
+    }
+    assert.ok(createEvent, functionName);
+    assert.equal(createEvent[2], false, functionName);
+    assert.ok(attachIndex >= 0, functionName);
+    assert.ok(firstReadyIndex > attachIndex, functionName);
+    assert.ok(executeIndex > firstReadyIndex, functionName);
+    const removeIndex = trace.findIndex((event) => event[0] === 'remove');
+    assert.ok(removeIndex > executeIndex, functionName);
+  }
+});
+
+test('managed order capture acknowledges attachment before readiness and fences execution', async () => {
+  const runtime = loadWorker();
+  const events = [];
+  runtime.chrome.tabs.create = async (properties) => {
+    events.push(['create', properties.active]);
+    return { id: 401, windowId: 7, status: 'complete', ...properties };
+  };
+  runtime.chrome.tabs.remove = async (tabId) => events.push(['remove', tabId]);
+  runtime.context.waitForTabReady = async () => events.push('ready');
+  runtime.chrome.scripting.executeScript = async () => {
+    events.push('execute');
+    return [{ result: { success: true, xlsxBase64: 'safe' } }];
+  };
+  let checks = 0;
+  const collection = {
+    assertActive: async () => {
+      checks += 1;
+      events.push('assert');
+      return checks < 2;
+    },
+    attachTab: async () => {
+      events.push('attach');
+      return { attemptId: '00000000-0000-4000-8000-000000000401' };
+    },
+  };
+
+  const result = await runtime.context.collectKkomangseOrders(collection);
+
+  assert.equal(result.success, false);
+  assert.equal(result.errorCode, 'COLLECTION_CANCELLED');
+  assert.deepEqual(events, [
+    'assert',
+    ['create', false],
+    'attach',
+    'ready',
+    'assert',
+    ['remove', 401],
+  ]);
+});
+
+test('a refused managed attachment closes the fresh tab and never executes capture', async () => {
+  const runtime = loadWorker();
+  const events = [];
+  runtime.chrome.tabs.create = async (properties) => {
+    events.push('create');
+    return { id: 402, windowId: 7, status: 'complete', ...properties };
+  };
+  runtime.chrome.tabs.remove = async (tabId) => events.push(['remove', tabId]);
+  runtime.chrome.scripting.executeScript = async () => {
+    events.push('execute');
+    return [{ result: { success: true } }];
+  };
+  const result = await runtime.context.collectKkomangseOrders({
+    assertActive: async () => true,
+    attachTab: async () => null,
+  });
+
+  assert.equal(result.errorCode, 'COLLECTION_CANCELLED');
+  assert.deepEqual(events, ['create', ['remove', 402]]);
+});
+
+test('managed login attaches before readiness and fences scripting after the login delay', async () => {
+  const runtime = loadWorker();
+  const events = [];
+  runtime.chrome.tabs.create = async (properties) => {
+    events.push(['create', properties.active]);
+    return { id: 403, windowId: 7, status: 'complete', ...properties };
+  };
+  runtime.chrome.tabs.remove = async (tabId) => events.push(['remove', tabId]);
+  runtime.context.waitForTabReady = async () => events.push('ready');
+  runtime.context.delay = async (milliseconds) => events.push(['delay', milliseconds]);
+  runtime.context.ensureMallLogin = async () => {
+    events.push('login');
+    return { success: true, submitted: true };
+  };
+  const collection = {
+    assertActive: async () => {
+      events.push('assert');
+      return true;
+    },
+    attachTab: async () => {
+      events.push('attach');
+      return { attemptId: uuid(403) };
+    },
+    detachTab: async () => events.push('detach'),
+  };
+
+  const result = await runtime.context.ensureMallLoggedIn(
+    'kidsnote',
+    { loginId: 'operator@example.test', password: 'top-secret' },
+    collection,
+  );
+
+  assert.deepEqual(result, { success: true, submitted: true });
+  assert.deepEqual(events, [
+    'assert',
+    ['create', false],
+    'attach',
+    'ready',
+    ['delay', 1000],
+    'assert',
+    'login',
+    'detach',
+    ['remove', 403],
+  ]);
+});
+
+test('managed login closes only a fresh tab when attachment is refused', async () => {
+  const runtime = loadWorker();
+  const events = [];
+  runtime.chrome.tabs.create = async (properties) => {
+    events.push(['create', properties.active]);
+    return { id: 404, windowId: 7, status: 'complete', ...properties };
+  };
+  runtime.chrome.tabs.remove = async (tabId) => events.push(['remove', tabId]);
+  runtime.context.ensureMallLogin = async () => {
+    events.push('login');
+    return { success: true };
+  };
+
+  const result = await runtime.context.ensureMallLoggedIn(
+    'kidsnote',
+    { loginId: 'operator@example.test', password: 'top-secret' },
+    {
+      assertActive: async () => true,
+      attachTab: async () => null,
+    },
+  );
+
+  assert.equal(result.errorCode, 'COLLECTION_CANCELLED');
+  assert.deepEqual(events, [['create', false], ['remove', 404]]);
+});
+
+test('Directship uploads raw capture and becomes terminal before the page can close', async () => {
   const runtime = loadWorker();
   installCollectorResult(runtime, 'collectCoupangDirectOrders', () => ({
     success: true,
     pos: [{ seq: 'PO-1', transport: 'SHIPMENT' }],
     centers: {},
   }));
-  const runId = uuid(783);
+  const attemptId = uuid(783);
 
   const collected = await dispatch(runtime.externalMessageListeners, {
     action: 'collectCoupangDirectOrders',
     date: '2026-07-15',
-    runId,
-    deferTerminal: true,
+    attemptId,
   });
 
-  assert.equal(collected.collectionSession.status, 'running');
-  assert.equal(collected.collectionSession.progress.label, '브라우저 수집 완료 · 파일 생성 중');
+  assert.equal(collected.success, true);
+  assert.equal(collected.terminalState, 'COMPLETE');
+  assert.equal(collected.pos, undefined);
+  assert.equal(collected.collectionSession, undefined);
 
-  const finalized = await dispatch(runtime.externalMessageListeners, {
-    action: 'finalizeCollectionSession',
-    runId,
-    status: 'succeeded',
-    message: '쿠팡직배송 파일 생성 완료',
+  const completed = await dispatch(runtime.externalMessageListeners, {
+    action: 'collectCoupangDirectOrders',
+    date: '2026-07-15',
+    attemptId,
   });
 
-  assert.equal(finalized.status, 'succeeded');
-  assert.equal(finalized.progress.label, '쿠팡직배송 파일 생성 완료');
+  assert.equal(completed.success, true);
+  assert.equal(completed.terminalState, 'COMPLETE');
+  assert.equal(completed.collectionSession, undefined);
 });
 
-test('web-finalized order failures remain personal session failures', async () => {
+test('Sellpia inventory accepts only a server-issued attempt ID and never begins a legacy owner flow', async () => {
   const runtime = loadWorker();
-  installCollectorResult(runtime, 'collectCoupangDirectOrders', () => ({
-    success: true,
-    pos: [{ seq: 'PO-1', transport: 'SHIPMENT' }],
-    centers: {},
-  }));
-  const runId = uuid(784);
-  await dispatch(runtime.externalMessageListeners, {
-    action: 'collectCoupangDirectOrders',
-    runId,
-    deferTerminal: true,
+  const response = await dispatch(runtime.externalMessageListeners, {
+    action: 'collectSellpiaInventory',
+    idempotencyKey: 'legacy-owner-key',
   });
 
-  const finalized = await dispatch(runtime.externalMessageListeners, {
-    action: 'finalizeCollectionSession',
-    runId,
-    status: 'failed',
-    message: '쿠팡직배송 엑셀 생성 실패',
-  });
-
-  assert.equal(finalized.status, 'failed');
-  assert.equal(finalized.progress.failed, 1);
-  assert.equal(finalized.progress.label, '쿠팡직배송 엑셀 생성 실패');
+  assert.equal(response.success, false);
+  assert.match(response.error, /Invalid Sellpia inventory source request/);
+  assert.deepEqual(runtime.storage.kiditem_collection_sessions || {}, {});
 });

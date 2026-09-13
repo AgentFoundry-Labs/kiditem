@@ -27,7 +27,7 @@ import {
   type WingCategoryKey,
 } from './wing-category-presets';
 import {
-  buildWingRegistrationWorkbook,
+  requestWingRegistrationWorkbook,
   WING_PRODUCT_DRAFT_DEFAULTS,
   type WingProductDraftDefaults,
   type WingProduct,
@@ -397,7 +397,7 @@ export async function resolveWingCategorySelections(
 export async function generateWingExcelForCandidates(
   candidateIds: string[],
   defaults: WingProductDraftDefaults = WING_PRODUCT_DRAFT_DEFAULTS,
-): Promise<{ bytes: Uint8Array; productCount: number }> {
+): Promise<{ bytes: Uint8Array; fileName: string; productCount: number }> {
   if (candidateIds.length === 0) throw new Error('선택한 상품이 없습니다.');
 
   const details = await Promise.all(candidateIds.map((id) => productsApi.getDetail(id)));
@@ -416,8 +416,13 @@ export async function generateWingExcelForCandidates(
     const definition = getWingCategoryDefinition(categoryKeys[index]);
     return candidateToWingProduct(detail, defaults, definition?.categoryCell ?? '');
   });
-  const bytes = buildWingRegistrationWorkbook(templateBytes, products);
-  return { bytes, productCount: products.length };
+  const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  const generated = await requestWingRegistrationWorkbook(
+    templateBytes,
+    products,
+    `쿠팡WING_일괄등록_${stamp}.xlsx`,
+  );
+  return { ...generated, productCount: products.length };
 }
 
 /**

@@ -27,7 +27,6 @@ describe('image edit task client helpers', () => {
     apiPost.mockResolvedValueOnce({
       status: 'cancelled',
       jobId: 'image-job-1',
-      operationKey: 'image-edit:image-job-1',
       preserved: false,
     });
 
@@ -43,7 +42,6 @@ describe('image edit task client helpers', () => {
     apiPost.mockResolvedValueOnce({
       status: 'already_terminal',
       jobId: 'image-job-1',
-      operationKey: 'image-edit:image-job-1',
       preserved: true,
     });
     apiGet.mockResolvedValueOnce({
@@ -64,7 +62,6 @@ describe('image edit task client helpers', () => {
     apiPost.mockResolvedValueOnce({
       status: 'cancelled',
       jobId: 'image-job-1',
-      operationKey: 'image-edit:image-job-1',
       preserved: false,
     });
 

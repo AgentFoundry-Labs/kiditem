@@ -1,6 +1,11 @@
 import { z } from 'zod';
 import { zIsoDate } from './common.js';
 
+export const SELLPIA_MANUAL_MATCH_SOURCE_TYPE = 'sellpia_product_manual_match' as const;
+export const SELLPIA_MANUAL_MATCH_PARSER_VERSION = 'sellpia-manual-match-v1' as const;
+export const SELLPIA_MANUAL_MATCH_SOURCE_ORIGIN = 'https://kiditem.sellpia.com' as const;
+export const SELLPIA_MANUAL_MATCH_SOURCE_PATH = '/product_manual_match.html' as const;
+
 export const MAX_SELLPIA_MANUAL_MATCH_TARGETS = 20_000;
 export const MAX_SELLPIA_MANUAL_MATCH_ROWS = 100_000;
 const POSTGRES_INTEGER_MAX = 2_147_483_647;
@@ -101,9 +106,72 @@ export type SellpiaManualMatchSnapshotStatus = z.infer<
   typeof SellpiaManualMatchSnapshotStatusSchema
 >;
 
+export const SellpiaManualMatchPlanSchema = z.object({
+  sourceType: z.literal(SELLPIA_MANUAL_MATCH_SOURCE_TYPE),
+  parserVersion: z.literal(SELLPIA_MANUAL_MATCH_PARSER_VERSION),
+  sourceOrigin: z.literal(SELLPIA_MANUAL_MATCH_SOURCE_ORIGIN),
+  sourcePath: z.literal(SELLPIA_MANUAL_MATCH_SOURCE_PATH),
+  targetCount: z.number().int().min(0).max(MAX_SELLPIA_MANUAL_MATCH_TARGETS),
+  targetCodes: z.array(SellpiaManualMatchCodeSchema)
+    .max(MAX_SELLPIA_MANUAL_MATCH_TARGETS),
+}).strict().superRefine((plan, ctx) => {
+  if (plan.targetCount !== plan.targetCodes.length) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['targetCount'],
+      message: 'targetCount must equal targetCodes length',
+    });
+  }
+  plan.targetCodes.forEach((code, index) => {
+    const previous = plan.targetCodes[index - 1];
+    if (previous !== undefined && code <= previous) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['targetCodes', index],
+        message: code === previous
+          ? 'targetCodes must be unique'
+          : 'targetCodes must be sorted',
+      });
+    }
+  });
+});
+export type SellpiaManualMatchPlan = z.infer<typeof SellpiaManualMatchPlanSchema>;
+
+export const SellpiaManualMatchAttemptStateSchema = z.enum([
+  'RUNNING',
+  'COMPLETE',
+  'FAILED',
+]);
+export type SellpiaManualMatchAttemptState = z.infer<
+  typeof SellpiaManualMatchAttemptStateSchema
+>;
+
+const SellpiaManualMatchChecksumSchema = z.string().regex(/^[a-f0-9]{64}$/).nullable();
+
+export const SellpiaManualMatchAttemptSchema = z.object({
+  attemptId: z.string().uuid(),
+  attemptToken: z.string().uuid(),
+  state: SellpiaManualMatchAttemptStateSchema,
+  expiresAt: zIsoDate,
+  plan: SellpiaManualMatchPlanSchema,
+  contentChecksum: SellpiaManualMatchChecksumSchema,
+  capturedAt: zIsoDate.nullable(),
+  errorCode: z.string().trim().max(100).nullable(),
+  errorMessage: z.string().trim().max(300).nullable(),
+}).strict();
+export type SellpiaManualMatchAttempt = z.infer<typeof SellpiaManualMatchAttemptSchema>;
+
+export const SellpiaManualMatchSourceStatusSchema = z.object({
+  latestAttempt: SellpiaManualMatchAttemptSchema.nullable(),
+  currentSnapshot: SellpiaManualMatchSnapshotStatusSchema.nullable(),
+}).strict();
+export type SellpiaManualMatchSourceStatus = z.infer<
+  typeof SellpiaManualMatchSourceStatusSchema
+>;
+
 export const SellpiaManualMatchTargetsResponseSchema = z.object({
-  sourceOrigin: z.literal('https://kiditem.sellpia.com'),
-  sourcePath: z.literal('/product_manual_match.html'),
+  sourceOrigin: z.literal(SELLPIA_MANUAL_MATCH_SOURCE_ORIGIN),
+  sourcePath: z.literal(SELLPIA_MANUAL_MATCH_SOURCE_PATH),
   version: z.literal(1),
   targetCount: z.number().int().min(0).max(MAX_SELLPIA_MANUAL_MATCH_TARGETS),
   targetCodes: z.array(SellpiaManualMatchCodeSchema)
@@ -120,13 +188,6 @@ export const SellpiaManualMatchTargetsResponseSchema = z.object({
 });
 export type SellpiaManualMatchTargetsResponse = z.infer<
   typeof SellpiaManualMatchTargetsResponseSchema
->;
-
-export const SellpiaManualMatchImportResponseSchema = z.object({
-  status: SellpiaManualMatchSnapshotStatusSchema,
-}).strict();
-export type SellpiaManualMatchImportResponse = z.infer<
-  typeof SellpiaManualMatchImportResponseSchema
 >;
 
 export const SellpiaManualMatchCollectionFailureCodeSchema = z.enum([

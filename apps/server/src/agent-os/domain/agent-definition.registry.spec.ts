@@ -60,16 +60,13 @@ describe("AGENT_DEFINITIONS", () => {
 
     expect(capabilityKeysByAgent).toEqual({
       sourcing: [
-        "sourcing.collect_shadow_signals",
         "sourcing.createReviewBatch",
         "sourcing.duplicateCheck",
         "sourcing.ingestCandidate",
         "sourcing.inspectRecommendationRun",
-        "sourcing.refreshCollection",
         "sourcing.refreshValidation",
         "sourcing.retrieveWorkspaceEvidence",
         "sourcing.scrapeProductUrl",
-        "sourcing.scrapeUrlWorkflow",
       ],
       merchandising: ["products.create_listing_generation_package"],
       supply: [
@@ -78,7 +75,6 @@ describe("AGENT_DEFINITIONS", () => {
       ],
       channel_operations: [
         "channels.register_confirmed_listing",
-        "channels.submit_coupang_listing",
         "channels.submit_wing_thumbnail",
       ],
       advertising: [],

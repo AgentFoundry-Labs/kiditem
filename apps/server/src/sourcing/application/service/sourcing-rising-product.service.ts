@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { kstBusinessDate } from '../../../common/kst';
+import { businessDateKey, kstBusinessDate } from '../../../common/kst';
 import {
   buildSourcingRisingProductModel,
   SOURCING_RISING_PRODUCT_MODEL_VERSION,
@@ -44,15 +44,6 @@ export interface SourcingRisingProductDetectionResult {
   model: SourcingRisingProductModelResult;
 }
 
-export interface SourcingRisingProductDetectionControls {
-  signal?: AbortSignal;
-  checkpoint?: (update?: {
-    stage?: string;
-    progressCurrent?: number;
-    progressTotal?: number;
-  }) => Promise<void>;
-}
-
 /**
  * Deterministic replay-scorer: reads persisted Coupang SERP + Wing sales facts
  * (advertising) and Naver trend snapshots (sourcing), scores rising products,
@@ -73,19 +64,11 @@ export class SourcingRisingProductService {
 
   async detect(
     input: SourcingRisingProductDetectionInput,
-    controls: SourcingRisingProductDetectionControls = {},
   ): Promise<SourcingRisingProductDetectionResult> {
-    controls.signal?.throwIfAborted();
     const windowDays = normalizeWindow(input.windowDays);
     const businessDateValue = kstBusinessDate(new Date());
     const todayBusinessDate = dateString(businessDateValue);
 
-    await controls.checkpoint?.({
-      stage: 'reading_snapshots',
-      progressCurrent: 0,
-      progressTotal: 3,
-    });
-    controls.signal?.throwIfAborted();
     const [serp, wing, naver] = await Promise.all([
       this.momentum.readSerpMomentum(input.organizationId, windowDays),
       this.momentum.readWingSalesMomentum(input.organizationId, windowDays),
@@ -94,13 +77,6 @@ export class SourcingRisingProductService {
         days: windowDays,
       }),
     ]);
-    controls.signal?.throwIfAborted();
-    await controls.checkpoint?.({
-      stage: 'building_snapshot',
-      progressCurrent: 3,
-      progressTotal: 3,
-    });
-    controls.signal?.throwIfAborted();
 
     const model = buildSourcingRisingProductModel({
       serpSnapshots: serp.map(toSerpInput),
@@ -119,12 +95,6 @@ export class SourcingRisingProductService {
     };
 
     if (input.persist !== false) {
-      await controls.checkpoint?.({
-        stage: 'persisting',
-        progressCurrent: 0,
-        progressTotal: 1,
-      });
-      controls.signal?.throwIfAborted();
       await this.snapshots.upsert({
         organizationId: input.organizationId,
         scope: RISING_SCOPE,
@@ -141,13 +111,6 @@ export class SourcingRisingProductService {
           },
         },
       });
-      controls.signal?.throwIfAborted();
-      await controls.checkpoint?.({
-        stage: 'persisting',
-        progressCurrent: 1,
-        progressTotal: 1,
-      });
-      controls.signal?.throwIfAborted();
     }
 
     return {
@@ -306,5 +269,5 @@ function normalizeWindow(windowDays: number | undefined): number {
 }
 
 function dateString(value: Date): string {
-  return value.toISOString().slice(0, 10);
+  return businessDateKey(value);
 }

@@ -1,5 +1,5 @@
-import { Body, Controller, Get, Param, Post, Put, Query } from '@nestjs/common';
-import type { AuthUser } from '../../../../auth/auth.types';
+import { BadRequestException, Body, Controller, Get, Param, Post, Put, Query } from '@nestjs/common';
+import { z } from 'zod';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
 import { SourcingReviewService } from '../../../application/service/sourcing-review.service';
@@ -12,6 +12,7 @@ import {
   SourcingReviewSelectionListQueryDto,
   SourcingValidationQueryDto,
 } from './dto';
+import type { AuthUser } from '../../../../auth/auth.types';
 
 @Controller('sourcing/workspace')
 export class SourcingReviewController {
@@ -33,7 +34,12 @@ export class SourcingReviewController {
   }
 
   @Post('validation/refresh')
-  refreshValidation(@CurrentOrganization() organizationId: string) {
+  refreshValidation(@CurrentOrganization() organizationId: string, @Body() body?: unknown) {
+    if (body && Object.keys(body).length > 0) {
+      const parsed = z.object({ recommendationRunId: z.string().uuid() }).strict().safeParse(body);
+      if (!parsed.success) throw new BadRequestException('INVALID_RECOMMENDATION_RUN');
+      return this.validation.refreshForRun({ organizationId, recommendationRunId: parsed.data.recommendationRunId, limit: 50 });
+    }
     return this.validation.refresh({ organizationId, limit: 50 });
   }
 

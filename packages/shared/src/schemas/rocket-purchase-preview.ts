@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { CompletedSourceArtifactRunSchema } from './source-import.js';
 
 export const ROCKET_PO_ROW_LIMIT = 4_000;
 const ROCKET_PO_LIST_PAGE_EVIDENCE_LIMIT = 100_000;
@@ -7,6 +6,44 @@ const ROCKET_PO_LIST_PAGE_EVIDENCE_LIMIT = 100_000;
 const boundedText = (max: number) => z.string().trim().max(max);
 const requiredText = (max: number) => boundedText(max).min(1);
 const isoDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+
+export const RocketPoSourceBeginSchema = z.object({
+  channelAccountId: z.string().uuid(),
+  from: isoDay, to: isoDay,
+  status: z.enum(['RP', 'PA', 'RI', 'CI', '']),
+  dateType: z.enum(['WAREHOUSING_PLAN_DATE', 'PURCHASE_ORDER_DATE']),
+  requireConfirmation: z.boolean(),
+}).strict().refine((value) => value.from <= value.to, 'Invalid date range');
+export type RocketPoSourceBegin = z.infer<typeof RocketPoSourceBeginSchema>;
+
+export const RocketPoSourcePlanSchema = RocketPoSourceBeginSchema.innerType().extend({
+  sourceType: z.literal('coupang_rocket_po_catalog'),
+  parserVersion: z.literal('rocket-po-v1'),
+  vendorExpectations: z.object({
+    rocketVendorId: boundedText(120).nullable(),
+    sharedCoupangVendorId: boundedText(120).nullable(),
+  }).strict(),
+}).strict();
+export type RocketPoSourcePlan = z.infer<typeof RocketPoSourcePlanSchema>;
+
+export const RocketPoSourceAttemptSchema = z.object({
+  attemptId: z.string().uuid(), channelAccountId: z.string().uuid(),
+  state: z.enum(['RUNNING', 'COMPLETE', 'FAILED']),
+  generation: z.string().regex(/^\d+$/), plan: RocketPoSourcePlanSchema,
+  expiresAt: z.string().datetime(), actualCutoffAt: z.string().datetime().nullable(),
+  errorCode: boundedText(100).nullable(), errorMessage: boundedText(300).nullable(),
+}).strict();
+export type RocketPoSourceAttempt = z.infer<typeof RocketPoSourceAttemptSchema>;
+export const RocketPoSourceControlSchema = RocketPoSourceAttemptSchema.extend({
+  attemptToken: z.string().uuid(),
+}).strict();
+export type RocketPoSourceControl = z.infer<typeof RocketPoSourceControlSchema>;
+export const RocketPoSourceSchema = z.object({
+  ready: z.boolean(),
+  latestAttempt: RocketPoSourceAttemptSchema.nullable(),
+  latestComplete: RocketPoSourceAttemptSchema.nullable(),
+}).strict();
+export type RocketPoSource = z.infer<typeof RocketPoSourceSchema>;
 
 export const RocketPoCollectionEvidenceSchema = z.object({
   collectionRunId: z.string().uuid(),
@@ -56,6 +93,14 @@ export const RocketPoCatalogRowSchema = z.object({
   }).strict().optional(),
 }).strict();
 export type RocketPoCatalogRow = z.infer<typeof RocketPoCatalogRowSchema>;
+
+export const RocketPoSourceSubmissionSchema = z.object({
+  collection: RocketPoCollectionEvidenceSchema,
+  rows: z.array(RocketPoCatalogRowSchema).max(ROCKET_PO_ROW_LIMIT),
+  proof: RocketPoSourcePlanSchema.pick({ from: true, to: true, status: true, dateType: true })
+    .extend({ validatedList: z.literal(true) }).strict(),
+}).strict();
+export type RocketPoSourceSubmission = z.infer<typeof RocketPoSourceSubmissionSchema>;
 
 export const RocketSavedPoListRequestSchema = z.object({
   channelAccountId: z.string().uuid(),
@@ -158,15 +203,23 @@ export type RocketPurchasePreviewScope = z.infer<
   typeof RocketPurchasePreviewScopeSchema
 >;
 
-export const RocketPurchasePreviewRequestSchema = RocketPurchaseRequestBaseSchema
-  .extend({
+export const RocketPurchasePreviewRequestSchema = z.object({
+    channelAccountId: z.string().uuid(),
+    sourceImportRunId: z.string().uuid(),
+    editedQuantities: RocketPurchaseRequestBaseSchema.shape.editedQuantities,
+    clampEditedQuantities: z.boolean().optional(),
     previewScope: RocketPurchasePreviewScopeSchema.optional(),
   })
-  .strict()
-  .superRefine(validateRocketPurchaseLines);
+  .strict();
 export type RocketPurchasePreviewRequest = z.infer<
   typeof RocketPurchasePreviewRequestSchema
 >;
+
+// Internal decision input: canonical rows are loaded by Channels, never accepted
+// by the public preview endpoint.
+export const RocketPurchasePreviewDecisionSchema = RocketPurchaseRequestBaseSchema
+  .extend({ previewScope: RocketPurchasePreviewScopeSchema.optional() })
+  .strict().superRefine(validateRocketPurchaseLines);
 
 export const ROCKET_SHORTAGE_REASONS = [
   '협력사 재고부족 - 수요예측 오류',
@@ -194,7 +247,7 @@ export const ROCKET_SHORTAGE_REASONS = [
 export const RocketShortageReasonSchema = z.enum(ROCKET_SHORTAGE_REASONS);
 export type RocketShortageReason = z.infer<typeof RocketShortageReasonSchema>;
 
-export const RocketWorkbookExportRequestSchema = RocketPurchaseRequestBaseSchema
+export const RocketWorkbookDecisionRequestSchema = RocketPurchaseRequestBaseSchema
   .omit({ clampEditedQuantities: true })
   .extend({
     idempotencyKey: z.string().uuid(),
@@ -281,9 +334,12 @@ export const RocketWorkbookExportRequestSchema = RocketPurchaseRequestBaseSchema
       }
     }
   });
-export type RocketWorkbookExportRequest = z.infer<
-  typeof RocketWorkbookExportRequestSchema
->;
+export type RocketWorkbookDecisionRequest = z.infer<typeof RocketWorkbookDecisionRequestSchema>;
+
+export const RocketWorkbookExportRequestSchema = RocketWorkbookDecisionRequestSchema.innerType()
+  .omit({ collection: true, rows: true })
+  .extend({ sourceImportRunId: z.string().uuid() }).strict();
+export type RocketWorkbookExportRequest = z.infer<typeof RocketWorkbookExportRequestSchema>;
 
 export const RocketPurchasePreviewReasonSchema = z.enum([
   'mapping_required',
@@ -311,29 +367,9 @@ export function isRocketWorkbookBlockingReason(
 }
 
 export const RocketPoCatalogPublicationSchema = z.object({
-  run: CompletedSourceArtifactRunSchema.superRefine((run, ctx) => {
-    if (run.sourceType !== 'coupang_rocket_po_catalog') {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['sourceType'],
-        message: 'Rocket catalog uses coupang_rocket_po_catalog',
-      });
-    }
-    if (run.channelAccountId === null) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['channelAccountId'],
-        message: 'Rocket catalog requires a channel account',
-      });
-    }
-  }),
-  duplicate: z.boolean(),
-  changes: z.object({
-    createdProductCount: z.number().int().nonnegative(),
-    updatedProductCount: z.number().int().nonnegative(),
-    createdSkuCount: z.number().int().nonnegative(),
-    updatedSkuCount: z.number().int().nonnegative(),
-  }).strict(),
+  sourceImportRunId: z.string().uuid(), channelAccountId: z.string().uuid(),
+  generation: z.string().regex(/^\d+$/), actualCutoffAt: z.string().datetime(),
+  rowCount: z.number().int().nonnegative().max(ROCKET_PO_ROW_LIMIT),
 }).strict();
 export type RocketPoCatalogPublication = z.infer<
   typeof RocketPoCatalogPublicationSchema

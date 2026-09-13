@@ -63,7 +63,10 @@ export type SellpiaInventoryBrowserSnapshot = z.infer<
 
 export const SourceImportTypeSchema = z.enum([
   'sellpia_inventory',
+  'sellpia_product_profitability',
   'coupang_wing_catalog',
+  'coupang_wing_catalog_basics',
+  'coupang_wing_catalog_details',
   'coupang_rocket_catalog_seed',
   'coupang_rocket_po_catalog',
   'coupang_rocket_matching_csv',
@@ -72,6 +75,67 @@ export type SourceImportType = z.infer<typeof SourceImportTypeSchema>;
 
 export const SourceImportStatusSchema = z.enum(['running', 'completed', 'failed']);
 export type SourceImportStatus = z.infer<typeof SourceImportStatusSchema>;
+
+const PositiveGenerationSchema = z.string().regex(/^[1-9]\d*$/);
+const DateOnlySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+
+export const SellpiaProfitabilityPlanSchema = z.object({
+  from: DateOnlySchema,
+  to: DateOnlySchema,
+  coveredMonths: z.array(z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/)).min(1).max(15),
+}).strict();
+export type SellpiaProfitabilityPlan = z.infer<typeof SellpiaProfitabilityPlanSchema>;
+
+export const SellpiaProfitabilityAttemptSchema = z.object({
+  attemptId: z.string().uuid(),
+  attemptToken: z.string().uuid(),
+  state: z.enum(['RUNNING', 'COMPLETE', 'FAILED']),
+  expiresAt: zIsoDate,
+  capturedAt: zIsoDate,
+  generation: PositiveGenerationSchema.nullable(),
+  errorCode: z.string().trim().min(1).max(100).nullable(),
+  errorMessage: z.string().trim().min(1).max(300).nullable(),
+  plan: SellpiaProfitabilityPlanSchema,
+}).strict();
+export type SellpiaProfitabilityAttempt = z.infer<typeof SellpiaProfitabilityAttemptSchema>;
+
+export const SellpiaProfitabilityAttemptSummarySchema =
+  SellpiaProfitabilityAttemptSchema.omit({ attemptToken: true });
+export type SellpiaProfitabilityAttemptSummary = z.infer<
+  typeof SellpiaProfitabilityAttemptSummarySchema
+>;
+
+export const SellpiaProfitabilityAttemptControlSchema =
+  SellpiaProfitabilityAttemptSchema.pick({
+    attemptId: true,
+    attemptToken: true,
+    state: true,
+    expiresAt: true,
+    plan: true,
+  }).extend({ state: z.literal('RUNNING') }).strict();
+export type SellpiaProfitabilityAttemptControl = z.infer<
+  typeof SellpiaProfitabilityAttemptControlSchema
+>;
+
+export const SellpiaProfitabilityCompleteGenerationSchema = z.object({
+  sourceImportRunId: z.string().uuid(),
+  generation: PositiveGenerationSchema,
+  coveredThrough: DateOnlySchema,
+  capturedAt: zIsoDate,
+  mappingGeneration: z.string().regex(/^\d+$/),
+}).strict();
+export type SellpiaProfitabilityCompleteGeneration = z.infer<
+  typeof SellpiaProfitabilityCompleteGenerationSchema
+>;
+
+export const SellpiaProfitabilitySourceStatusSchema = z.object({
+  latestAttempt: SellpiaProfitabilityAttemptSummarySchema.nullable(),
+  latestComplete: SellpiaProfitabilityCompleteGenerationSchema.nullable(),
+  ready: z.boolean(),
+}).strict();
+export type SellpiaProfitabilitySourceStatus = z.infer<
+  typeof SellpiaProfitabilitySourceStatusSchema
+>;
 
 const SourceImportRunObjectSchema = z.object({
   id: z.string().uuid(),

@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  AdvertisingCompetitorCatalogInputSchema,
   AdvertisingCompetitorCatalogBatchSchema,
   AdvertisingTrackedWingProductsInputSchema,
   SourcingKeywordSuggestionInputSchema,
@@ -248,29 +247,6 @@ describe('keyword and competitor browser-operation contracts', () => {
     }).success).toBe(false);
   });
 
-  it('allows only a configured watchlist or one validated seller ID', () => {
-    expect(AdvertisingCompetitorCatalogInputSchema.parse({
-      target: 'configured_watchlist',
-    })).toEqual({ target: 'configured_watchlist' });
-    expect(AdvertisingCompetitorCatalogInputSchema.parse({
-      target: 'seller_id',
-      sellerId: ' A00219251 ',
-    })).toEqual({ target: 'seller_id', sellerId: 'A00219251' });
-
-    for (const invalid of [
-      {},
-      { target: 'seller_id' },
-      { target: 'seller_id', sellerId: 'https://shop.coupang.com/A00219251' },
-      { target: 'seller_id', sellerId: 'seller id' },
-      { target: 'configured_watchlist', sellerId: 'A00219251' },
-      { target: 'url', url: 'https://shop.coupang.com/A00219251' },
-      { target: 'configured_watchlist', action: 'collect' },
-    ]) {
-      expect(AdvertisingCompetitorCatalogInputSchema.safeParse(invalid).success)
-        .toBe(false);
-    }
-  });
-
   it('bounds exact competitor catalog owner rows without permitting generic payloads', () => {
     const catalog = {
       keyword: '노루잡화점 크런치 슬랑이',
@@ -296,6 +272,8 @@ describe('keyword and competitor browser-operation contracts', () => {
     };
     expect(AdvertisingCompetitorCatalogBatchSchema.parse({ catalogs: [catalog] }))
       .toEqual({ catalogs: [catalog] });
+    const rankCatalog = { ...catalog, collectedProductCount: 500, products: Array.from({ length: 500 }, (_, index) => ({ ...catalog.products[0], sourceRank: index + 1 })) };
+    expect(AdvertisingCompetitorCatalogBatchSchema.parse({ catalogs: [rankCatalog] }).catalogs[0].products).toHaveLength(500);
     for (const invalid of [
       { catalogs: [] },
       { catalogs: [{ ...catalog, sellerId: 'seller id' }] },
@@ -303,7 +281,8 @@ describe('keyword and competitor browser-operation contracts', () => {
       { catalogs: [{ ...catalog, products: [] }] },
       { catalogs: [{ ...catalog, url: 'https://example.com' }] },
       { catalogs: Array.from({ length: 21 }, () => catalog) },
-      { catalogs: [{ ...catalog, products: Array.from({ length: 101 }, () => catalog.products[0]) }] },
+      { catalogs: [{ ...catalog, collectedProductCount: 501, products: Array.from({ length: 501 }, () => catalog.products[0]) }] },
+      { catalogs: [{ ...catalog, products: [{ ...catalog.products[0], sourceRank: 501 }] }] },
     ]) {
       expect(AdvertisingCompetitorCatalogBatchSchema.safeParse(invalid).success)
         .toBe(false);

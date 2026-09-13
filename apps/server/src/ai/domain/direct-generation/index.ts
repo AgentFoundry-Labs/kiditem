@@ -27,7 +27,7 @@ export {
 } from './image-edit.schema';
 
 /**
- * Source-type strings written to operation-alert / panel rows. Keep these
+ * Source-type strings written to durable alert rows. Keep these
  * stable for historical filtering even though fixed AI jobs no longer create
  * Agent OS requests.
  */

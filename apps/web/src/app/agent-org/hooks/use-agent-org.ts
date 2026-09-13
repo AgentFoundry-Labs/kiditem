@@ -2,10 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import type { AlertItem } from '@kiditem/shared/alerts';
 import { DashboardAdSummarySchema, DashboardSalesSummarySchema } from '@kiditem/shared/dashboard';
-import type { PanelRunItem } from '@kiditem/shared/panel';
 import { orderMallAccountApi } from '@/app/(orders)/order-collection/lib/order-mall-account-api';
-import { usePanelStore } from '@/components/panel/lib/panel-store';
+import { useAlertsQuery } from '@/lib/alerts-api';
 import { apiClient } from '@/lib/api-client';
 import {
   getMallLoginBlocks,
@@ -13,7 +13,6 @@ import {
   subscribeMallLoginBlocks,
 } from '@/lib/mall-login-block';
 import { mallOperationOutcomesApi } from '@/lib/mall-operation-outcomes-api';
-import { operationsApi } from '@/lib/operations-api';
 import { queryKeys } from '@/lib/query-keys';
 import { sellpiaInventoryFreshnessApi } from '@/lib/sellpia-inventory-freshness-api';
 import type { PipeBusiness } from '../components/PipeBottomDashboard';
@@ -24,16 +23,16 @@ import { useConfirmReport, type PipeConfirmChannel } from './use-confirm-report'
 const OUTCOME_DAYS = 1;
 /** 상대 시간("12분 전")을 다시 그리는 간격. */
 const CLOCK_MS = 30_000;
-/** 하단 실시간 작업에 올리는 수. */
-const RUN_LIMIT = 15;
+/** 하단 열린 알림에 올리는 수. */
+const OPEN_ALERT_LIMIT = 15;
+const EMPTY_ALERTS: AlertItem[] = [];
 
 /**
- * Agent Org 가 읽는 기록 넷을 모은다.
+ * Agent Org 가 읽는 기록을 모은다.
  *
- * 사장님 컨펌만 새 읽기(컨펌 보고 상태)를 쓰고, 그 밖에는 새 API 도 새 실시간 스트림도 만들지 않는다. 실행 기록 · 몰 작업 기억 · 셀피아 신선도는
- * 다른 화면과 같은 쿼리 키를 써서 캐시를 나눠 쓰고, 알림은 앱 레이아웃이 이미 열어 둔 알림
- * 스트림 저장소를 읽는다 — 여기서 스트림을 또 열면 브라우저 연결 자리를 먹어 다른 요청이
- * 시간 초과로 끊긴다.
+ * 새 실시간 스트림을 만들지 않는다. 알림은 앱 전역과 같은 알림 쿼리(10초 폴링)를, 몰 작업
+ * 기억 · 셀피아 신선도 · 매출 · 광고는 다른 화면과 같은 쿼리 키를 써서 캐시를 나눠 쓴다.
+ * 새로 읽는 것은 사장님 컨펌 보고 상태 하나다.
  */
 export function useAgentOrg(): {
   snapshot: PipeSnapshot;
@@ -41,7 +40,7 @@ export function useAgentOrg(): {
   now: number;
   confirm: PipeConfirmChannel;
   business: PipeBusiness;
-  runs: PanelRunItem[];
+  openAlerts: AlertItem[];
   refresh: () => void;
 } {
   const queryClient = useQueryClient();
@@ -51,12 +50,7 @@ export function useAgentOrg(): {
     return () => window.clearInterval(timer);
   }, []);
 
-  const runs = useQuery({
-    queryKey: queryKeys.operations.runs(),
-    queryFn: operationsApi.listRuns,
-    refetchInterval: 30_000,
-    meta: { suppressGlobalErrorToast: true },
-  });
+  const alerts = useAlertsQuery();
   const outcomes = useQuery({
     queryKey: queryKeys.mallOperationOutcomes.summary(OUTCOME_DAYS),
     queryFn: () => mallOperationOutcomesApi.summary(OUTCOME_DAYS),
@@ -92,19 +86,21 @@ export function useAgentOrg(): {
 
   const confirm = useConfirmReport();
 
-  const byId = usePanelStore((state) => state.byId);
-  const connection = usePanelStore((state) => state.connectionStatus);
   const loginBlocks = useSyncExternalStore(
     subscribeMallLoginBlocks,
     getMallLoginBlocks,
     getMallLoginBlocksServerSnapshot,
   );
 
+  // 스트림이 아니라 폴링이다. 마지막으로 받아 왔으면 살아 있고, 못 받았으면 끊겼다.
+  const connection = alerts.isError ? 'disconnected' : alerts.isSuccess ? 'connected' : 'connecting';
+  const alertRows = alerts.data ?? EMPTY_ALERTS;
+
   const snapshot = useMemo(
     () =>
       buildPipeSnapshot({
         now,
-        runs: { data: runs.data?.items ?? null, failed: runs.isError },
+        alerts: { data: alerts.data ?? null, failed: alerts.isError },
         outcomes: { data: outcomes.data?.rows ?? null, failed: outcomes.isError },
         malls: { data: Array.isArray(malls.data) ? malls.data : null, failed: malls.isError },
         freshness: { data: freshness.data ?? null, failed: freshness.isError },
@@ -114,10 +110,9 @@ export function useAgentOrg(): {
             : null,
           failed: confirm.failed,
         },
-        panelItems: Object.values(byId),
         loginBlocks,
       }),
-    [now, runs.data, runs.isError, outcomes.data, outcomes.isError, malls.data, malls.isError, freshness.data, freshness.isError, confirm.status, confirm.failed, byId, loginBlocks],
+    [now, alerts.data, alerts.isError, outcomes.data, outcomes.isError, malls.data, malls.isError, freshness.data, freshness.isError, confirm.status, confirm.failed, loginBlocks],
   );
 
   const business = useMemo<PipeBusiness>(
@@ -125,19 +120,19 @@ export function useAgentOrg(): {
     [sales.data, sales.isError, ad.data, ad.isError],
   );
 
-  const panelRuns = useMemo(
+  const openAlerts = useMemo(
     () =>
-      Object.values(byId)
-        .filter((item): item is PanelRunItem => item.kind === 'run')
+      alertRows
+        .filter((alert) => alert.status === 'OPEN')
         .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
-        .slice(0, RUN_LIMIT),
-    [byId],
+        .slice(0, OPEN_ALERT_LIMIT),
+    [alertRows],
   );
 
   const refresh = useCallback(() => {
     setNow(Date.now());
     void Promise.all([
-      queryClient.invalidateQueries({ queryKey: queryKeys.operations.runs() }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.alerts.all }),
       queryClient.invalidateQueries({ queryKey: queryKeys.mallOperationOutcomes.all }),
       queryClient.invalidateQueries({ queryKey: queryKeys.inventory.freshness() }),
       queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.salesBaseline() }),
@@ -145,5 +140,5 @@ export function useAgentOrg(): {
     ]);
   }, [queryClient]);
 
-  return { snapshot, connection, now, confirm, business, runs: panelRuns, refresh };
+  return { snapshot, connection, now, confirm, business, openAlerts, refresh };
 }

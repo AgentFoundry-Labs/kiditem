@@ -117,9 +117,11 @@ export function ToyCategorySourcingPage() {
 
   const collectMutation = useMutation({
     mutationFn: collectNaverTrend,
-    onSuccess: async () => {
+    onSuccess: async (result) => {
       await queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.trend() });
-      toast.success('네이버 트렌드 수집을 시작했습니다. 완료되면 저장된 스냅샷이 갱신됩니다.');
+      const failed = result.results.find((row) => !row.ok);
+      if (failed) toast.error(failed.error ?? '네이버 수집 실패. 수집 버튼으로 재시도하세요.');
+      else toast.success('네이버 트렌드 수집을 완료했습니다.');
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : '네이버 수집을 시작하지 못했습니다.'),
   });

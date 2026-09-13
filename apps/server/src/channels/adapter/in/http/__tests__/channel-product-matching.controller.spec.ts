@@ -15,7 +15,11 @@ describe('ChannelProductMatchingController', () => {
       ['list', '/', RequestMethod.GET],
       ['autoMatch', 'auto-match', RequestMethod.POST],
       ['sellpiaManualMatchTargets', 'sellpia-manual-match/targets', RequestMethod.GET],
-      ['importSellpiaManualMatches', 'sellpia-manual-match/import', RequestMethod.POST],
+      ['beginSellpiaManualMatch', 'sellpia-manual-match/attempts', RequestMethod.POST],
+      ['sellpiaManualMatchCurrent', 'sellpia-manual-match/attempts/current', RequestMethod.GET],
+      ['sellpiaManualMatchAttempt', 'sellpia-manual-match/attempts/:attemptId', RequestMethod.GET],
+      ['completeSellpiaManualMatch', 'sellpia-manual-match/attempts/:attemptId/complete', RequestMethod.POST],
+      ['failSellpiaManualMatch', 'sellpia-manual-match/attempts/:attemptId/fail', RequestMethod.POST],
       ['productCandidates', ':channelListingId/candidates', RequestMethod.GET],
       ['linkProduct', ':channelListingId/master-product', RequestMethod.PUT],
     ] as const;
@@ -35,7 +39,14 @@ describe('ChannelProductMatchingController', () => {
       productCandidates: vi.fn(),
       linkProduct: vi.fn(),
     };
-    const manualMatches = { targets: vi.fn(), import: vi.fn() };
+    const manualMatches = {
+      targets: vi.fn(),
+      beginAttempt: vi.fn(),
+      readCurrent: vi.fn(),
+      readAttempt: vi.fn(),
+      completeAttempt: vi.fn(),
+      failAttempt: vi.fn(),
+    };
     const controller = new ChannelProductMatchingController(
       matching as never,
       manualMatches as never,
@@ -46,7 +57,21 @@ describe('ChannelProductMatchingController', () => {
     await controller.productCandidates(listingId, organizationId, {});
     await controller.linkProduct(listingId, organizationId, { masterProductId: null });
     await controller.sellpiaManualMatchTargets(organizationId);
-    await controller.importSellpiaManualMatches(organizationId, { source: 'snapshot' });
+    await controller.beginSellpiaManualMatch(organizationId, 'retry-key');
+    await controller.sellpiaManualMatchCurrent(organizationId);
+    await controller.sellpiaManualMatchAttempt(organizationId, listingId);
+    await controller.completeSellpiaManualMatch(
+      organizationId,
+      listingId,
+      '00000000-0000-4000-8000-000000000003',
+      { source: 'snapshot' },
+    );
+    await controller.failSellpiaManualMatch(
+      organizationId,
+      listingId,
+      '00000000-0000-4000-8000-000000000003',
+      { errorCode: 'FAILED', errorMessage: 'failure' },
+    );
 
     expect(matching.list).toHaveBeenCalledWith(organizationId, {});
     expect(matching.autoMatch).toHaveBeenCalledWith(
@@ -60,9 +85,27 @@ describe('ChannelProductMatchingController', () => {
       { masterProductId: null },
     );
     expect(manualMatches.targets).toHaveBeenCalledWith(organizationId);
-    expect(manualMatches.import).toHaveBeenCalledWith(
+    expect(manualMatches.beginAttempt).toHaveBeenCalledWith({
       organizationId,
-      { source: 'snapshot' },
-    );
+      idempotencyKey: 'retry-key',
+    });
+    expect(manualMatches.readCurrent).toHaveBeenCalledWith(organizationId);
+    expect(manualMatches.readAttempt).toHaveBeenCalledWith({
+      organizationId,
+      attemptId: listingId,
+    });
+    expect(manualMatches.completeAttempt).toHaveBeenCalledWith({
+      organizationId,
+      attemptId: listingId,
+      attemptToken: '00000000-0000-4000-8000-000000000003',
+      snapshot: { source: 'snapshot' },
+    });
+    expect(manualMatches.failAttempt).toHaveBeenCalledWith({
+      organizationId,
+      attemptId: listingId,
+      attemptToken: '00000000-0000-4000-8000-000000000003',
+      errorCode: 'FAILED',
+      errorMessage: 'failure',
+    });
   });
 });

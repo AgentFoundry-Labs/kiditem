@@ -1,227 +1,365 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  getWingSalesRankCheckStatus,
-  runWingSalesRankCheck,
-} from "../lib/rank-extension";
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import BatchRankCheck from "./BatchRankCheck";
+import type { WingRankBatch } from "@kiditem/shared/advertising";
 
-const RUN_ID_1 = "11111111-1111-4111-8111-111111111111";
-const RUN_ID_2 = "22222222-2222-4222-8222-222222222222";
-const mockCollectionSession = vi.hoisted(() => vi.fn());
-const mockSendCollectionControl = vi.hoisted(() => vi.fn());
+const ID1 = "11111111-1111-4111-8111-111111111111";
+const ID2 = "22222222-2222-4222-8222-222222222222";
+const KEY = "33333333-3333-4333-8333-333333333333";
+function batch(
+  states: Array<"RUNNING" | "COMPLETE" | "FAILED">,
+): WingRankBatch {
+  return {
+    attempts: states.map((state, index) => ({
+      attemptId: [ID1, ID2][index],
+      keyword: ["연필", "색연필"][index],
+      generation: "1",
+      state,
+      expiresAt: "2026-09-10T00:00:00.000Z",
+      actualCutoffAt: state === "COMPLETE" ? "2026-09-06T00:00:00.000Z" : null,
+      itemCount: state === "COMPLETE" ? 20 : 0,
+      errorCode: state === "FAILED" ? "WING_RANK_PROVIDER_WALL" : null,
+      errorMessage: state === "FAILED" ? "Wing 로그인이 필요합니다." : null,
+      plan: {
+        sourceType: "coupang_wing_rank",
+        parserVersion: "wing-rank-v1",
+        keyword: ["연필", "색연필"][index],
+        maxPages: 5,
+        targets: [
+          {
+            vendorItemId: `V${index}`,
+            productName: "연필",
+            category: null,
+            keyword: ["연필", "색연필"][index],
+            candidateIndex: 0,
+          },
+        ],
+      },
+    })),
+    selection: {
+      productCount: 2,
+      candidateCount: 2,
+      keywordCount: 2,
+      targetKeywordCount: 2,
+      resumed: true,
+      pendingProductCount: 1,
+      targets: ["연필", "색연필"].map((keyword, index) => ({
+        keyword,
+        vendorItemIds: [`V${index}`],
+        productCount: 1,
+        primaryProductCount: 1,
+        pendingProductCount: 1,
+        pendingPrimaryProductCount: 1,
+        phase: "primary",
+        maxPages: 5,
+      })),
+    },
+  };
+}
 
-vi.mock("../lib/rank-extension", () => ({
-  getWingSalesRankCheckStatus: vi.fn(),
-  runWingSalesRankCheck: vi.fn(),
-}));
-
-vi.mock("@/hooks/useBrowserCollectionSession", () => ({
-  useBrowserCollectionSession: mockCollectionSession,
-}));
-
-vi.mock("@/lib/browser-collection-session", async (importOriginal) => ({
-  ...(await importOriginal<
-    typeof import("@/lib/browser-collection-session")
-  >()),
-  sendBrowserCollectionControl: mockSendCollectionControl,
-}));
-
-vi.mock("sonner", () => ({
-  toast: {
-    error: vi.fn(),
-    info: vi.fn(),
-    success: vi.fn(),
-    warning: vi.fn(),
-  },
-}));
-
-function renderBatchRankCheck() {
-  const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: { retry: false },
+function setup(initial: WingRankBatch) {
+  let current = initial;
+  let sessions: unknown[] = [];
+  let dispatchReply: unknown = { success: true, started: true };
+  let cancelReply: unknown = { success: true };
+  const messages: Array<Record<string, unknown>> = [];
+  const requests: Array<{ url: string; init: RequestInit }> = [];
+  vi.stubGlobal("fetch", async (url: string, init: RequestInit = {}) => {
+    requests.push({ url: String(url), init });
+    if (
+      !String(url).endsWith("/extension-handoff") &&
+      !String(url).endsWith("/wing/batch-attempts")
+    ) {
+      throw new Error(`Unexpected owner route ${url}`);
+    }
+    const body = String(url).endsWith("/extension-handoff")
+      ? { token: "a".repeat(43) }
+      : current;
+    return new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  });
+  vi.stubGlobal("chrome", {
+    runtime: {
+      sendMessage: (
+        _id: string,
+        message: Record<string, unknown>,
+        callback: (reply: unknown) => void,
+      ) => {
+        messages.push(message);
+        callback(
+          message.action === "listCollectionSessions"
+            ? sessions
+              : message.action === "collectAdvertisingWingRankBatch"
+                ? dispatchReply
+                : message.action === "cancelAdvertisingWingRankBatch"
+                  ? cancelReply
+              : { success: true },
+        );
+      },
     },
   });
-  return render(
-    <QueryClientProvider client={queryClient}>
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  const completed = vi.fn();
+  const view = render(
+    <QueryClientProvider client={client}>
       <BatchRankCheck
         extensionId="coupang-extension"
         disabledReason={null}
-        onCompleted={vi.fn()}
+        onCompleted={completed}
       />
     </QueryClientProvider>,
   );
+  return {
+    ...view,
+    client,
+    completed,
+    messages,
+    requests,
+    setResult: (value: WingRankBatch) => {
+      current = value;
+    },
+    setSessions: (value: unknown[]) => {
+      sessions = value;
+    },
+    setDispatchReply: (value: unknown) => {
+      dispatchReply = value;
+    },
+    setCancelReply: (value: unknown) => {
+      cancelReply = value;
+    },
+  };
 }
 
-describe("BatchRankCheck", () => {
-  beforeEach(() => {
-    window.history.replaceState(null, "", "/rank-tracking");
-    vi.mocked(getWingSalesRankCheckStatus).mockReset();
-    vi.mocked(runWingSalesRankCheck).mockReset();
-    mockCollectionSession.mockReset();
-    mockCollectionSession.mockReturnValue({ data: null });
-    mockSendCollectionControl.mockReset();
+describe("Wing rank owner UI", () => {
+  beforeEach(() => window.history.replaceState(null, "", "/rank-tracking"));
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
   });
 
-  it("does not reattach a terminal collection linked from a personal alert", async () => {
-    window.history.replaceState(
-      null,
-      "",
-      `/rank-tracking?collectionRun=${RUN_ID_1}`,
+  it("shows persisted per-keyword progress after dispatch ACK and refreshes when owner results change", async () => {
+    const h = setup(batch(["COMPLETE", "RUNNING"]));
+    fireEvent.click(
+      screen.getByRole("button", { name: "전체 상품 순위 수집" }),
     );
-    mockCollectionSession.mockReturnValue({
-      data: {
-        runId: RUN_ID_1,
-        producer: "advertising.wing_rank",
-        classification: "background_preferred",
-        status: "cancelled",
-        attempt: 1,
-        restartStrategy: "web",
-        progress: {
-          current: 2,
-          total: 946,
-          completed: 2,
-          failed: 0,
-          label: "비누방울",
-        },
-        inputIdentity: { scheduled: false },
-        attention: null,
-        startedAt: 1_700_000_000_000,
-        updatedAt: 1_700_000_001_000,
-        finishedAt: 1_700_000_001_000,
-      },
+    expect(await screen.findByText("처리 1 / 전체 2")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Wing 수집 중…" }),
+    ).toBeDisabled();
+    const start = h.requests.find(
+      ({ init, url }) =>
+        init.method === "POST" && url.endsWith("/wing/batch-attempts"),
+    )!;
+    expect(JSON.parse(String(start.init.body))).toEqual({});
+    const key = new Headers(start.init.headers).get("Idempotency-Key");
+    expect(new URLSearchParams(window.location.search).get("rankBatch")).toBe(
+      key,
+    );
+    expect(h.messages).toContainEqual({
+      action: "collectAdvertisingWingRankBatch",
+      idempotencyKey: key,
     });
-    vi.mocked(getWingSalesRankCheckStatus).mockResolvedValue({
-      status: "cancelled",
-      runId: RUN_ID_1,
-      total: 946,
-      completed: 2,
-      failed: 0,
-      current: null,
-    });
-
-    renderBatchRankCheck();
-
-    await waitFor(() => {
-      expect(mockCollectionSession).toHaveBeenCalledWith(RUN_ID_1);
-    });
-    await waitFor(() => {
-      expect(getWingSalesRankCheckStatus).not.toHaveBeenCalledWith(
-        "coupang-extension",
-        RUN_ID_1,
-      );
-    });
+    expect(h.completed).toHaveBeenCalledTimes(1);
+    h.setResult(batch(["COMPLETE", "FAILED"]));
+    await h.client.invalidateQueries();
+    expect(
+      await screen.findByText("실패 1건 · 이전 정상 데이터는 유지됩니다."),
+    ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "전체 상품 순위 수집" }),
     ).toBeEnabled();
-  });
-
-  it("restores an active extension run after the page reloads", async () => {
-    vi.mocked(getWingSalesRankCheckStatus).mockResolvedValue({
-      status: "running",
-      runId: RUN_ID_1,
-      total: 12,
-      completed: 3,
-      failed: 1,
-      current: "문구세트",
-    });
-
-    renderBatchRankCheck();
-
-    await waitFor(() => {
-      expect(
-        screen.getByRole("button", { name: "Wing 수집 중…" }),
-      ).toBeDisabled();
-    });
-    await waitFor(() => {
-      expect(screen.getByText("처리 4 / 전체 12")).toBeInTheDocument();
-    });
-    expect(screen.getByText("문구세트")).toBeInTheDocument();
-    expect(getWingSalesRankCheckStatus).toHaveBeenCalledWith(
-      "coupang-extension",
-      null,
-    );
-    expect(getWingSalesRankCheckStatus).toHaveBeenCalledWith(
-      "coupang-extension",
-      RUN_ID_1,
-    );
-  });
-
-  it("renders generic attention, restart, and cancel controls for the active run", async () => {
-    vi.mocked(runWingSalesRankCheck).mockResolvedValue({
-      success: true,
-      started: true,
-      runId: RUN_ID_2,
-    });
-    vi.mocked(getWingSalesRankCheckStatus)
-      .mockResolvedValueOnce({
-        status: "running",
-        runId: RUN_ID_2,
-        total: 947,
-        completed: 67,
-        failed: 0,
-        current: "문구세트",
-      })
-      .mockResolvedValue({
-        status: "attention_required",
-        runId: RUN_ID_2,
-        total: 947,
-        completed: 67,
-        failed: 0,
-        current: "문구세트",
-      });
-    mockCollectionSession.mockImplementation((runId: string | null) => ({
-      data:
-        runId === RUN_ID_2
-          ? {
-              runId: RUN_ID_2,
-              producer: "advertising.wing_rank",
-              classification: "background_preferred",
-              status: "attention_required",
-              attempt: 1,
-              restartStrategy: "web",
-              progress: {
-                current: 67,
-                total: 947,
-                completed: 67,
-                failed: 0,
-                label: "문구세트",
-              },
-              inputIdentity: { scheduled: false },
-              attention: {
-                reason: "marketplace_login",
-                message: "Wing 로그인이 필요합니다.",
-                canOpenTab: true,
-              },
-              startedAt: 1_700_000_000_000,
-              updatedAt: 1_700_000_001_000,
-              finishedAt: null,
-            }
-          : null,
-    }));
-
-    renderBatchRankCheck();
-
-    await waitFor(() => {
-      expect(mockCollectionSession).toHaveBeenCalledWith(RUN_ID_2);
-    });
-    expect(screen.getByText("Wing 로그인이 필요합니다.")).toBeInTheDocument();
-    const attentionAction = screen.getByRole("button", { name: "확인 탭 열기" });
-    expect(attentionAction).toBeInTheDocument();
-    expect(attentionAction.closest('.fixed')).toHaveClass('bottom-4', 'right-4');
-    expect(screen.getByRole("button", { name: "처음부터 재실행" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "중단" })).toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: "수집 중단" }),
-    ).not.toBeInTheDocument();
+      screen.getByText("색연필: Wing 로그인이 필요합니다."),
+    ).toBeInTheDocument();
+    await waitFor(() => expect(h.completed).toHaveBeenCalledTimes(2));
+  });
 
-    fireEvent.click(screen.getByRole("button", { name: "처음부터 재실행" }));
-    await waitFor(() => {
-      expect(runWingSalesRankCheck).toHaveBeenCalledWith(
-        "coupang-extension",
-        RUN_ID_2,
-      );
+  it("reloads owner results without re-dispatching and opens the exact failed attempt attention tab", async () => {
+    window.history.replaceState(null, "", `/rank-tracking?rankBatch=${KEY}`);
+    const h = setup(batch(["COMPLETE", "FAILED"]));
+    h.setSessions([
+      {
+        attemptId: ID2,
+        producer: "advertising.wing_rank",
+        progress: {
+          current: 0,
+          total: 1,
+          completed: 0,
+          failed: 0,
+          label: "색연필",
+        },
+        attention: {
+          reason: "marketplace_login",
+          message: "Wing 로그인이 필요합니다.",
+          canOpenTab: true,
+        },
+      },
+    ]);
+    expect(await screen.findByText("처리 2 / 전체 2")).toBeInTheDocument();
+    fireEvent.click(
+      await screen.findByRole("button", { name: "색연필 확인 탭 열기" }),
+    );
+    await waitFor(() =>
+      expect(h.messages).toContainEqual({
+        action: "openCollectionAttentionTab",
+        attemptId: ID2,
+      }),
+    );
+    expect(h.requests.every(({ init }) => init.method !== "POST")).toBe(true);
+    expect(
+      h.messages.some(
+        ({ action }) => action === "collectAdvertisingWingRankBatch",
+      ),
+    ).toBe(false);
+  });
+
+  it("cancels by receipt key but keeps running until the owner confirms terminal results", async () => {
+    window.history.replaceState(null, "", `/rank-tracking?rankBatch=${KEY}`);
+    const h = setup(batch(["RUNNING", "RUNNING"]));
+    fireEvent.click(await screen.findByRole("button", { name: "수집 중단" }));
+    await waitFor(() =>
+      expect(h.messages).toContainEqual({
+        action: "cancelAdvertisingWingRankBatch",
+        idempotencyKey: KEY,
+      }),
+    );
+    expect(
+      screen.getByRole("button", { name: "Wing 수집 중…" }),
+    ).toBeDisabled();
+    h.setResult(batch(["FAILED", "FAILED"]));
+    await h.client.invalidateQueries();
+    expect(await screen.findByText("처리 2 / 전체 2")).toBeInTheDocument();
+  });
+
+  it("keeps cancellation transport errors retryable and clears them after an accepted retry", async () => {
+    window.history.replaceState(null, "", `/rank-tracking?rankBatch=${KEY}`);
+    const h = setup(batch(["RUNNING", "RUNNING"]));
+    h.setCancelReply({ success: false, error: "확장 응답이 유실되었습니다." });
+
+    fireEvent.click(await screen.findByRole("button", { name: "수집 중단" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "확장 응답이 유실되었습니다.",
+    );
+
+    h.setCancelReply({ success: true });
+    fireEvent.click(screen.getByRole("button", { name: "수집 중단" }));
+    await waitFor(() =>
+      expect(screen.queryByText("확장 응답이 유실되었습니다.")).not.toBeInTheDocument(),
+    );
+  });
+
+  it("clears a cancellation error after owner confirmation without hiding a dispatch error", async () => {
+    const h = setup(batch(["RUNNING", "RUNNING"]));
+    h.setDispatchReply({ success: false, error: "dispatch failed" });
+
+    fireEvent.click(screen.getByRole("button", { name: "전체 상품 순위 수집" }));
+    expect(await screen.findByText("dispatch failed")).toBeInTheDocument();
+
+    h.setCancelReply({ success: false, error: "cancel failed" });
+    fireEvent.click(await screen.findByRole("button", { name: "수집 중단" }));
+    expect(await screen.findByText("cancel failed")).toBeInTheDocument();
+
+    h.setResult(batch(["FAILED", "FAILED"]));
+    const cancelAlert = screen
+      .getAllByRole("alert")
+      .find((alert) => alert.textContent?.includes("cancel failed"));
+    expect(cancelAlert).toBeDefined();
+    fireEvent.click(
+      within(cancelAlert!).getByRole("button", { name: "결과 다시 확인" }),
+    );
+
+    await waitFor(() =>
+      expect(screen.queryByText("cancel failed")).not.toBeInTheDocument(),
+    );
+    expect(screen.getByText("dispatch failed")).toBeInTheDocument();
+  });
+
+  it("keeps every failure row inside a bounded native details viewport", async () => {
+    window.history.replaceState(null, "", `/rank-tracking?rankBatch=${KEY}`);
+    const h = setup(batch(["FAILED", "FAILED"]));
+
+    expect(await screen.findByText("실패 2건 · 이전 정상 데이터는 유지됩니다.")).toBeInTheDocument();
+    expect(screen.getByText("연필: Wing 로그인이 필요합니다.")).toBeInTheDocument();
+    expect(screen.getByText("색연필: Wing 로그인이 필요합니다.")).toBeInTheDocument();
+    expect(screen.getByRole("list")).toHaveClass("max-h-48", "overflow-y-auto");
+    expect(h.completed).toHaveBeenCalledTimes(1);
+  });
+
+  it("treats empty admission as a no-op without retaining or polling a nonexistent receipt", async () => {
+    const h = setup({
+      attempts: [],
+      selection: {
+        productCount: 0,
+        candidateCount: 0,
+        keywordCount: 0,
+        targetKeywordCount: 0,
+        pendingProductCount: 0,
+        resumed: false,
+        targets: [],
+      },
     });
+    fireEvent.click(
+      screen.getByRole("button", { name: "전체 상품 순위 수집" }),
+    );
+    await waitFor(() =>
+      expect(h.requests.some(({ init }) => init.method === "POST")).toBe(true),
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "전체 상품 순위 수집" }),
+      ).toBeEnabled(),
+    );
+    expect(new URLSearchParams(window.location.search).has("rankBatch")).toBe(
+      false,
+    );
+    expect(
+      h.messages.some(
+        ({ action }) => action === "collectAdvertisingWingRankBatch",
+      ),
+    ).toBe(false);
+    expect(
+      h.requests.filter(
+        ({ init, url }) =>
+          url.endsWith("/batch-attempts") && init.method !== "POST",
+      ),
+    ).toEqual([]);
+  });
+
+  it("keeps an unconfirmed dispatch visible without publishing or discarding the owner attempts", async () => {
+    const h = setup(batch(["RUNNING", "RUNNING"]));
+    h.setDispatchReply({
+      success: false,
+      error: "확장 응답이 유실되었습니다.",
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "전체 상품 순위 수집" }),
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "확장 응답이 유실되었습니다.",
+    );
+    expect(await screen.findByText("처리 0 / 전체 2")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "수집 중단" })).toBeEnabled();
+    expect(h.completed).not.toHaveBeenCalled();
+    expect(
+      new URLSearchParams(window.location.search).get("rankBatch"),
+    ).not.toBeNull();
+    expect(
+      h.requests.filter(
+        ({ init, url }) =>
+          init.method === "POST" && !url.endsWith("/extension-handoff"),
+      ),
+    ).toHaveLength(1);
   });
 });

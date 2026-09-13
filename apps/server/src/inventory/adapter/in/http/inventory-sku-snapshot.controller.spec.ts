@@ -3,7 +3,11 @@ import { RequestMethod } from '@nestjs/common';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { describe, expect, it, vi } from 'vitest';
-import type { InventorySkuSnapshotListPort } from '../../../application/port/in/stock/inventory-sku-snapshot-list.port';
+import type {
+  InventorySkuSnapshotExportReader,
+  InventorySkuSnapshotListPort,
+} from '../../../application/port/in/stock/inventory-sku-snapshot-list.port';
+import type { InventorySkuExportPort } from '../../../application/port/in/stock/inventory-sku-export.port';
 import { ListInventorySkusQueryDto } from './dto/list-inventory-skus-query.dto';
 import { ListSellpiaImportRunsQueryDto } from './dto/list-sellpia-import-runs-query.dto';
 import { InventorySkuSnapshotController } from './inventory-sku-snapshot.controller';
@@ -14,6 +18,11 @@ describe('InventorySkuSnapshotController', () => {
   it('exposes static snapshot and import-history GET routes', () => {
     expect(Reflect.getMetadata('path', InventorySkuSnapshotController)).toBe('inventory');
     expect(route('listSnapshot')).toEqual(['sellpia-skus', RequestMethod.GET]);
+    expect(route('exportSnapshot')).toEqual(['sellpia-skus/export', RequestMethod.GET]);
+    expect(route('exportSnapshotRead')).toEqual([
+      'sellpia-skus/export-snapshot',
+      RequestMethod.GET,
+    ]);
     expect(route('getSnapshot')).toEqual([
       'sellpia-skus/:sellpiaInventorySkuId',
       RequestMethod.GET,
@@ -51,21 +60,45 @@ describe('InventorySkuSnapshotController', () => {
 
   it('passes only the current organization and validated query to the port', async () => {
     const port = makePort();
-    const controller = new InventorySkuSnapshotController(port);
+    const controller = new InventorySkuSnapshotController(port, port);
     const snapshotQuery = { page: 1, limit: 50, stockStatus: 'all' as const };
     const historyQuery = { page: 2, limit: 25 };
 
     await controller.listSnapshot(organizationId, snapshotQuery);
+    await controller.exportSnapshotRead(organizationId, snapshotQuery);
     await controller.getSnapshot(organizationId, 'sku-1');
     await controller.listImportRuns(organizationId, historyQuery);
 
     expect(port.listSnapshot).toHaveBeenCalledWith(organizationId, snapshotQuery);
+    expect(port.listSnapshotForExport).toHaveBeenCalledWith(organizationId, snapshotQuery);
     expect(port.getSnapshot).toHaveBeenCalledWith(organizationId, 'sku-1');
     expect(port.listImportRuns).toHaveBeenCalledWith(organizationId, historyQuery);
   });
+
+  it('returns the transient server workbook under the current organization', async () => {
+    const port = makePort();
+    const controller = new InventorySkuSnapshotController(port, port);
+    const response = { setHeader: vi.fn() };
+    const query = { activeStatus: 'inactive' as const };
+
+    const file = await controller.exportSnapshot(
+      organizationId,
+      query,
+      response as never,
+    );
+
+    expect(port.export).toHaveBeenCalledWith(organizationId, query);
+    expect(response.setHeader).toHaveBeenCalledWith(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    expect(file).toBeDefined();
+  });
 });
 
-function route(method: 'listSnapshot' | 'getSnapshot' | 'listImportRuns') {
+function route(
+  method: 'listSnapshot' | 'exportSnapshot' | 'exportSnapshotRead' | 'getSnapshot' | 'listImportRuns',
+) {
   const target = InventorySkuSnapshotController.prototype[method];
   return [Reflect.getMetadata('path', target), Reflect.getMetadata('method', target)];
 }
@@ -75,11 +108,22 @@ function makePort() {
     listSnapshot: vi
       .fn<InventorySkuSnapshotListPort['listSnapshot']>()
       .mockResolvedValue({} as never),
+    listSnapshotForExport: vi
+      .fn<InventorySkuSnapshotExportReader['listSnapshotForExport']>()
+      .mockResolvedValue({} as never),
     getSnapshot: vi
       .fn<InventorySkuSnapshotListPort['getSnapshot']>()
       .mockResolvedValue({} as never),
     listImportRuns: vi
       .fn<InventorySkuSnapshotListPort['listImportRuns']>()
       .mockResolvedValue({} as never),
+    export: vi
+      .fn<InventorySkuExportPort['export']>()
+      .mockResolvedValue({
+        buffer: Buffer.from('xlsx'),
+        fileName: 'Sellpia_현재재고_2026-07-31.xlsx',
+        contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        rowCount: 0,
+      }),
   };
 }

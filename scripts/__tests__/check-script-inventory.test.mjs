@@ -14,6 +14,11 @@ test('registers the local development orchestrator', () => {
   assert.ok(SCRIPT_INVENTORY.includes('run-local-development.mjs'));
 });
 
+test('registers the ledger reader scanner', () => {
+  assert.ok(SCRIPT_INVENTORY.includes('check-ledger-readers.mjs'));
+  assert.ok(!SCRIPT_INVENTORY.includes('check-listing-day-ad-reader.sh'));
+});
+
 test('accepts complete script inventory metadata', () => {
   const result = analyzeInventory({
     actualFiles: SCRIPT_INVENTORY,
@@ -22,6 +27,7 @@ test('accepts complete script inventory metadata', () => {
       'check:copilotkit-train': 'node scripts/check-copilotkit-train.mjs',
       'check:agent-os-hexagonal': 'node scripts/check-agent-os-hexagonal.mjs',
       'check:agent-os-contraction': 'node scripts/check-agent-os-contraction.mjs',
+      'check:operation-automation-cutover': 'node scripts/check-operation-automation-cutover.mjs',
       'qa:agent-os:clean-cutover': 'node scripts/qa-agent-os-clean-cutover.mjs',
       'setup:macos': 'node scripts/setup-macos-development.mjs',
       'dev:gateway': 'npm run build --workspace=apps/agent-gateway && node scripts/local-agent-gateway.mjs start',
@@ -31,13 +37,17 @@ test('accepts complete script inventory metadata', () => {
       'dev:bootstrap-user': 'bash bin/bootstrap-local-auth-user.sh',
       'seed:agent-os:browser-qa': 'tsx scripts/seed-agent-os-browser-qa.ts',
       'check:scripts-inventory': 'node scripts/check-script-inventory.mjs',
+      'check:ledger-readers': 'node scripts/check-ledger-readers.mjs',
+      'deploy:office:local': 'node scripts/office-deploy.mjs deploy',
+      'deploy:office:status': 'node scripts/office-deploy.mjs status',
+      'deploy:office:rollback': 'node scripts/office-deploy.mjs rollback',
       'check:schema-artifact-sync': 'node scripts/check-schema-artifact-sync.mjs',
       'check:pr-release-contract': 'node scripts/check-pr-release-contract.mjs',
       'check:directory-architecture': 'node scripts/check-directory-architecture.mjs',
       'check:identifier-contracts': 'node scripts/check-identifier-contracts.mjs',
       'check:shared-interface-names': 'node scripts/check-shared-interface-names.mjs',
       'test:scripts': 'vitest run --config scripts/vitest.config.ts && node --test scripts/__tests__/*.test.mjs',
-      'check:conventions': 'npm run check:scripts-inventory && npm run check:schema-artifact-sync && npm run check:directory-architecture && npm run check:shared-interface-names && npm run check:identifier-contracts',
+      'check:conventions': 'npm run check:scripts-inventory && npm run check:ledger-readers && npm run check:schema-artifact-sync && npm run check:directory-architecture && npm run check:shared-interface-names && npm run check:identifier-contracts',
     },
   });
 
@@ -55,6 +65,7 @@ test('requires the built-in browser-QA seed package entrypoint', () => {
       'check:copilotkit-train': 'node scripts/check-copilotkit-train.mjs',
       'check:agent-os-hexagonal': 'node scripts/check-agent-os-hexagonal.mjs',
       'check:agent-os-contraction': 'node scripts/check-agent-os-contraction.mjs',
+      'check:operation-automation-cutover': 'node scripts/check-operation-automation-cutover.mjs',
       'qa:agent-os:clean-cutover': 'node scripts/qa-agent-os-clean-cutover.mjs',
       'setup:macos': 'node scripts/setup-macos-development.mjs',
       'dev:gateway': 'npm run build --workspace=apps/agent-gateway && node scripts/local-agent-gateway.mjs start',
@@ -62,13 +73,17 @@ test('requires the built-in browser-QA seed package entrypoint', () => {
       'gateway:login:codex': 'node scripts/local-agent-gateway.mjs login codex',
       'dev:bootstrap-user': 'bash bin/bootstrap-local-auth-user.sh',
       'check:scripts-inventory': 'node scripts/check-script-inventory.mjs',
+      'check:ledger-readers': 'node scripts/check-ledger-readers.mjs',
+      'deploy:office:local': 'node scripts/office-deploy.mjs deploy',
+      'deploy:office:status': 'node scripts/office-deploy.mjs status',
+      'deploy:office:rollback': 'node scripts/office-deploy.mjs rollback',
       'check:schema-artifact-sync': 'node scripts/check-schema-artifact-sync.mjs',
       'check:pr-release-contract': 'node scripts/check-pr-release-contract.mjs',
       'check:directory-architecture': 'node scripts/check-directory-architecture.mjs',
       'check:identifier-contracts': 'node scripts/check-identifier-contracts.mjs',
       'check:shared-interface-names': 'node scripts/check-shared-interface-names.mjs',
       'test:scripts': 'vitest run --config scripts/vitest.config.ts && node --test scripts/__tests__/*.test.mjs',
-      'check:conventions': 'npm run check:scripts-inventory && npm run check:schema-artifact-sync && npm run check:directory-architecture && npm run check:shared-interface-names && npm run check:identifier-contracts',
+      'check:conventions': 'npm run check:scripts-inventory && npm run check:ledger-readers && npm run check:schema-artifact-sync && npm run check:directory-architecture && npm run check:shared-interface-names && npm run check:identifier-contracts',
     },
   });
 
@@ -92,6 +107,7 @@ test('reports unregistered scripts and missing hooks', () => {
     'check:copilotkit-train',
     'check:agent-os-hexagonal',
     'check:agent-os-contraction',
+    'check:operation-automation-cutover',
     'qa:agent-os:clean-cutover',
     'setup:macos',
     'dev:gateway',
@@ -101,6 +117,10 @@ test('reports unregistered scripts and missing hooks', () => {
     'dev:bootstrap-user',
     'seed:agent-os:browser-qa',
     'check:scripts-inventory',
+    'check:ledger-readers',
+    'deploy:office:local',
+    'deploy:office:status',
+    'deploy:office:rollback',
     'check:schema-artifact-sync',
     'check:pr-release-contract',
     'check:directory-architecture',
@@ -108,6 +128,7 @@ test('reports unregistered scripts and missing hooks', () => {
     'check:identifier-contracts',
     'test:scripts',
     'check:conventions -> check:scripts-inventory',
+    'check:conventions -> check:ledger-readers',
     'check:conventions -> check:schema-artifact-sync',
     'check:conventions -> check:directory-architecture',
     'check:conventions -> check:shared-interface-names',

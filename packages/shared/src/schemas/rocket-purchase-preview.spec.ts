@@ -4,11 +4,11 @@ import {
   ROCKET_WORKBOOK_BLOCKING_REASONS,
   RocketPurchasePreviewComponentSchema,
   RocketWorkbookAbandonRequestSchema,
-  RocketWorkbookExportRequestSchema,
+  RocketWorkbookDecisionRequestSchema,
   RocketWorkbookExportResponseSchema,
   RocketWorkbookWorkflowStatusSchema,
   RocketPoCatalogPublicationSchema,
-  RocketPurchasePreviewRequestSchema,
+  RocketPurchasePreviewDecisionSchema,
   RocketPurchasePreviewResponseSchema,
   RocketSavedPoCollectionSchema,
   RocketSavedPoListRequestSchema,
@@ -64,34 +64,8 @@ function request() {
 
 function publication() {
   return RocketPoCatalogPublicationSchema.parse({
-    run: {
-      id: RUN_ID,
-      sourceType: 'coupang_rocket_po_catalog',
-      channelAccountId: ACCOUNT_ID,
-      fileName: 'rocket-po-catalog.json',
-      fileHash: 'a'.repeat(64),
-      status: 'completed',
-      rowCount: 1,
-      importedAt: '2026-07-19T00:00:00.000Z',
-      lastVerifiedAt: null,
-      verificationCount: 0,
-      lastTrigger: null,
-      freshnessGeneration: null,
-      manualFreshExportConfirmedAt: null,
-      manualFreshExportConfirmedBy: null,
-      qualityReport: null,
-      errorCode: null,
-      errorMessage: null,
-      createdAt: '2026-07-19T00:00:00.000Z',
-      updatedAt: '2026-07-19T00:00:00.000Z',
-    },
-    duplicate: false,
-    changes: {
-      createdProductCount: 1,
-      updatedProductCount: 0,
-      createdSkuCount: 1,
-      updatedSkuCount: 0,
-    },
+    sourceImportRunId: RUN_ID, channelAccountId: ACCOUNT_ID, generation: '1',
+    actualCutoffAt: '2026-07-19T00:00:00.000Z', rowCount: 1,
   });
 }
 
@@ -109,10 +83,10 @@ describe('Rocket purchase preview contract', () => {
     expect(isRocketWorkbookBlockingReason(null)).toBe(false);
   });
 
-  it('publishes the scoped Rocket catalog changes without a recipe automation payload', () => {
+  it('returns a compact COMPLETE source reference without a recipe automation payload', () => {
     const published = publication();
 
-    expect(published.changes).toMatchObject({ createdProductCount: 1, createdSkuCount: 1 });
+    expect(published).toMatchObject({ sourceImportRunId: RUN_ID, rowCount: 1 });
     expect(published).not.toHaveProperty('recipeAutomation');
   });
 
@@ -166,19 +140,19 @@ describe('Rocket purchase preview contract', () => {
   });
 
   it('accepts bounded completeness evidence and a strict client request', () => {
-    expect(RocketPurchasePreviewRequestSchema.parse(request())).toEqual(request());
-    expect(() => RocketPurchasePreviewRequestSchema.parse({
+    expect(RocketPurchasePreviewDecisionSchema.parse(request())).toEqual(request());
+    expect(() => RocketPurchasePreviewDecisionSchema.parse({
       ...request(),
       organizationId: ACCOUNT_ID,
     })).toThrow();
-    expect(() => RocketPurchasePreviewRequestSchema.parse({
+    expect(() => RocketPurchasePreviewDecisionSchema.parse({
       ...request(),
       userId: ACCOUNT_ID,
     })).toThrow();
   });
 
   it('accepts only the bounded source fields required to render the Coupang confirmation workbook', () => {
-    const row = RocketPurchasePreviewRequestSchema.parse({
+    const row = RocketPurchasePreviewDecisionSchema.parse({
       ...request(),
       rows: [{
         ...request().rows[0],
@@ -200,7 +174,7 @@ describe('Rocket purchase preview contract', () => {
     }).rows[0];
 
     expect(row?.confirmation).toMatchObject({ center: '덕평1센터', purchasePrice: 1_000 });
-    expect(() => RocketPurchasePreviewRequestSchema.parse({
+    expect(() => RocketPurchasePreviewDecisionSchema.parse({
       ...request(),
       rows: [{
         ...request().rows[0],
@@ -210,15 +184,15 @@ describe('Rocket purchase preview contract', () => {
   });
 
   it('enforces only the defensive evidence and payload bounds', () => {
-    expect(() => RocketPurchasePreviewRequestSchema.parse({
+    expect(() => RocketPurchasePreviewDecisionSchema.parse({
       ...request(),
       collection: { ...request().collection, listPagesRead: 100_001 },
     })).toThrow();
-    expect(() => RocketPurchasePreviewRequestSchema.parse({
+    expect(() => RocketPurchasePreviewDecisionSchema.parse({
       ...request(),
       collection: { ...request().collection, detailPoCount: 4_001 },
     })).toThrow();
-    expect(() => RocketPurchasePreviewRequestSchema.parse({
+    expect(() => RocketPurchasePreviewDecisionSchema.parse({
       ...request(),
       collection: {
         ...request().collection,
@@ -228,7 +202,7 @@ describe('Rocket purchase preview contract', () => {
   });
 
   it('accepts complete collection evidence beyond the former page and detail bounds', () => {
-    expect(() => RocketPurchasePreviewRequestSchema.parse({
+    expect(() => RocketPurchasePreviewDecisionSchema.parse({
       ...request(),
       collection: {
         ...request().collection,
@@ -242,29 +216,29 @@ describe('Rocket purchase preview contract', () => {
   it('requires stable unique PO line IDs and edited quantities for known lines only', () => {
     const duplicate = request();
     duplicate.rows.push({ ...duplicate.rows[0]! });
-    expect(() => RocketPurchasePreviewRequestSchema.parse(duplicate)).toThrow();
+    expect(() => RocketPurchasePreviewDecisionSchema.parse(duplicate)).toThrow();
 
-    expect(() => RocketPurchasePreviewRequestSchema.parse({
+    expect(() => RocketPurchasePreviewDecisionSchema.parse({
       ...request(),
       editedQuantities: { missing: 1 },
     })).toThrow();
   });
 
   it('accepts an explicit joint clamp request while keeping strict mode as the default', () => {
-    expect(RocketPurchasePreviewRequestSchema.parse(request()))
+    expect(RocketPurchasePreviewDecisionSchema.parse(request()))
       .not.toHaveProperty('clampEditedQuantities');
-    expect(RocketPurchasePreviewRequestSchema.parse({
+    expect(RocketPurchasePreviewDecisionSchema.parse({
       ...request(),
       clampEditedQuantities: true,
     })).toMatchObject({ clampEditedQuantities: true });
   });
 
   it('accepts only the explicit confirmation-requested preview scope', () => {
-    expect(RocketPurchasePreviewRequestSchema.parse({
+    expect(RocketPurchasePreviewDecisionSchema.parse({
       ...request(),
       previewScope: 'confirmation_requested',
     })).toMatchObject({ previewScope: 'confirmation_requested' });
-    expect(() => RocketPurchasePreviewRequestSchema.parse({
+    expect(() => RocketPurchasePreviewDecisionSchema.parse({
       ...request(),
       previewScope: 'historical_only',
     })).toThrow();
@@ -485,7 +459,7 @@ describe('Rocket purchase preview contract', () => {
 
   it('requires an explicit reviewed quantity, shortage reason, and artifact metadata for every workbook line', () => {
     const poLineId = request().rows[0]!.poLineId;
-    expect(RocketWorkbookExportRequestSchema.parse({
+    expect(RocketWorkbookDecisionRequestSchema.parse({
       ...request(),
       idempotencyKey: CONFIRMATION_ID,
       editedQuantities: { [poLineId]: 2 },
@@ -497,7 +471,7 @@ describe('Rocket purchase preview contract', () => {
       editedQuantities: { [poLineId]: 2 },
     });
 
-    expect(() => RocketWorkbookExportRequestSchema.parse({
+    expect(() => RocketWorkbookDecisionRequestSchema.parse({
       ...request(),
       idempotencyKey: CONFIRMATION_ID,
       editedQuantities: {},
@@ -506,7 +480,7 @@ describe('Rocket purchase preview contract', () => {
       artifactContentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     })).toThrow(/reviewed quantity/i);
 
-    expect(() => RocketWorkbookExportRequestSchema.parse({
+    expect(() => RocketWorkbookDecisionRequestSchema.parse({
       ...request(),
       idempotencyKey: CONFIRMATION_ID,
       editedQuantities: { [poLineId]: 2 },
@@ -515,7 +489,7 @@ describe('Rocket purchase preview contract', () => {
       artifactContentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     })).toThrow(/shortage reason/i);
 
-    expect(() => RocketWorkbookExportRequestSchema.parse({
+    expect(() => RocketWorkbookDecisionRequestSchema.parse({
       ...request(),
       idempotencyKey: CONFIRMATION_ID,
       editedQuantities: { [poLineId]: 5 },
@@ -524,7 +498,7 @@ describe('Rocket purchase preview contract', () => {
       artifactContentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     })).toThrow(/order quantity/i);
 
-    expect(() => RocketWorkbookExportRequestSchema.parse({
+    expect(() => RocketWorkbookDecisionRequestSchema.parse({
       ...request(),
       rows: [{ ...request().rows[0], confirmation: undefined }],
       idempotencyKey: CONFIRMATION_ID,
@@ -546,7 +520,7 @@ describe('Rocket purchase preview contract', () => {
       plannedDeliveryDate: '2026-07-21',
     };
 
-    expect(RocketWorkbookExportRequestSchema.parse({
+    expect(RocketWorkbookDecisionRequestSchema.parse({
       ...request(),
       collection: { ...request().collection, detailPoCount: 2 },
       rows: [selectedRow, unselectedRow],

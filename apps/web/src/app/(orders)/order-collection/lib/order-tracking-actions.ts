@@ -12,7 +12,6 @@ import {
   buildIcecreamSendFinishFile,
   buildMallTrackingCsvBlob,
   buildMallTrackingPreviewRows,
-  collectSellpiaDeliTrackingFromExtension,
   filterTrackingByMall,
   isTrackingSupportedMall,
   type SellpiaTrackingRow,
@@ -46,6 +45,7 @@ interface UploadTrackingOptions {
   history: ConversionHistoryItem[];
   logError: (title: string, message: string) => void;
   onGeneratedFile?: (artifact: GeneratedTrackingArtifact) => void;
+  collectTracking: () => Promise<SellpiaTrackingRow[]>;
 }
 
 interface SellpiaPostProcessOptions {
@@ -203,6 +203,7 @@ export async function uploadTrackingForMall({
   history,
   logError,
   onGeneratedFile,
+  collectTracking,
 }: UploadTrackingOptions): Promise<void> {
   if (!isTrackingSupportedMall(account.key)) {
     toast(`${account.name} 송장 업로드는 아직 준비 중입니다.`);
@@ -215,10 +216,7 @@ export async function uploadTrackingForMall({
     // ⭐오늘 채번(송장번호채번일자=오늘)된 송장만 업로드 대상으로 조회한다.
     // (날짜를 안 넘기면 확장이 최근 30일치를 반환 → 예전에 채번된 송장까지 섞여 올라감)
     const today = todayYmd();
-    const allTracking = await collectSellpiaDeliTrackingFromExtension({
-      startDate: today,
-      endDate: today,
-    });
+    const allTracking = await collectTracking();
     const tracking = filterTrackingByMall(allTracking, account.key);
     if (tracking.length === 0) {
       toast.info(`${account.name}에 전송할 채번된 송장이 없습니다. 셀피아 송장 자동채번을 먼저 진행하세요.`, {

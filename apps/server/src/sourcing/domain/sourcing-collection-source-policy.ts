@@ -7,9 +7,12 @@
  */
 export const ALLOWED_SOURCING_COLLECTION_SOURCES = [
   '1688.hot_product',
+  '1688.live_commerce',
   '1688.image_search',
   '1688.product_extension',
   'alibaba.product_extension',
+  '1688.scrape_url',
+  'alibaba.scrape_url',
   'coupang.wing_catalog',
   'coupang.keyword_suggestion',
   'naver.autocomplete',
@@ -17,8 +20,11 @@ export const ALLOWED_SOURCING_COLLECTION_SOURCES = [
   'naver.datalab_trend',
   'naver.searchad_keyword',
   'naver.trend',
+  'naver.keyword_analysis',
   'shortstrend.trend',
+  'market_shadow_signals',
   'tiktok.creative',
+  'douyin.live_commerce',
   'taobao.live',
   'taobao.live_commerce',
 ] as const;

@@ -1,4 +1,10 @@
-import { kstDayStart } from '../../../common/kst';
+import {
+  addDays,
+  kstBusinessDate,
+  kstDayStart,
+  kstMonthStart,
+  parseBusinessDate,
+} from '../../../common/kst';
 
 interface DateRangeContext {
   start: Date;
@@ -9,7 +15,7 @@ interface DateRangeContext {
 
 export interface DashboardContext {
   now: Date;
-  /** Effective anchor — equals `now` unless we shifted onto Drive replay data. */
+  /** Effective anchor — equals `now` for production query context. */
   anchor: Date;
   todayStart: Date;
   todayEnd: Date;
@@ -22,7 +28,7 @@ export interface DashboardContext {
   prevMonthNum: number;
   dateRange: DateRangeContext;
   effectiveRange: string; // 'day' | 'week' | 'month' | 'custom' | original string
-  /** Set when the anchor was shifted away from `now` because the calendar period had no data. */
+  /** Set only for explicit historical anchors supplied by deterministic callers. */
   anchorShifted: boolean;
 }
 
@@ -31,15 +37,14 @@ export interface DashboardContext {
  *
  * `range`/`from`/`to` mirror the query-string contract:
  * - no args (or range='month')         → current calendar month vs previous month
- * - range='week'                        → last 7 days vs 7-14 days ago
+ * - range='week'                        → the latest 7 closed KST days vs the preceding 7
  * - range='day'                         → today vs yesterday
  * - range='custom' + from + to (ISO)    → [from, to+1d) vs the preceding same-length window
  *
- * `effectiveAnchor` overrides the "today" the month/week/day windows are
- * computed against. We use this to fall back onto the latest Drive replay
- * date when the calendar month has no Order or Wing/Drive data, so the
- * dashboard surfaces the latest available month instead of an empty current
- * month.
+ * `effectiveAnchor` is retained for deterministic callers/tests that need to
+ * evaluate a historical calendar. Production query context does not derive
+ * it from source freshness: an absent selection always means the current KST
+ * calendar, even when the current period has no rows.
  */
 export function buildDashboardContext(
   range?: string,
@@ -52,37 +57,37 @@ export function buildDashboardContext(
   const anchorShifted = effectiveAnchor !== undefined && effectiveAnchor.getTime() !== now.getTime();
 
   const todayStart = kstDayStart(anchor);
-  const todayEnd = new Date(todayStart.getTime() + 86400000);
+  const todayEnd = addDays(todayStart, 1);
 
-  const year = anchor.getFullYear();
-  const month = anchor.getMonth() + 1;
-  const monthStart = new Date(year, month - 1, 1);
-  const monthEnd = new Date(year, month, 1);
-  const prevMonthDate = new Date(year, month - 2, 1);
-  const prevYear = prevMonthDate.getFullYear();
-  const prevMonthNum = prevMonthDate.getMonth() + 1;
+  const anchorBusinessDate = kstBusinessDate(anchor);
+  const year = anchorBusinessDate.getUTCFullYear();
+  const month = anchorBusinessDate.getUTCMonth() + 1;
+  const monthStart = kstMonthStart(year, month);
+  const monthEnd = nextKstMonthStart(year, month);
+  const prevMonthDate = previousKstMonthStart(year, month);
+  const prevYear = previousKstMonthParts(year, month).year;
+  const prevMonthNum = previousKstMonthParts(year, month).month;
 
   const effectiveRange = range ?? 'month';
-  const weekStart = new Date(todayStart);
-  weekStart.setDate(weekStart.getDate() - 7);
-  const prevWeekStart = new Date(weekStart);
-  prevWeekStart.setDate(prevWeekStart.getDate() - 7);
-  const yesterdayStart = new Date(todayStart);
-  yesterdayStart.setDate(yesterdayStart.getDate() - 1);
+  const weekStart = addDays(todayStart, -7);
+  const prevWeekStart = addDays(todayStart, -14);
+  const yesterdayStart = addDays(todayStart, -1);
 
   let dateRange: DateRangeContext;
   if (from && to) {
-    const rangeEnd = new Date(to);
-    rangeEnd.setDate(rangeEnd.getDate() + 1);
-    const duration = rangeEnd.getTime() - new Date(from).getTime();
+    const rangeStart = parseKstDate(from);
+    const rangeEnd = addDays(parseKstDate(to), 1);
+    const duration = rangeEnd.getTime() - rangeStart.getTime();
     dateRange = {
-      start: new Date(from),
+      start: rangeStart,
       end: rangeEnd,
-      prevStart: new Date(new Date(from).getTime() - duration),
-      prevEnd: new Date(from),
+      prevStart: new Date(rangeStart.getTime() - duration),
+      prevEnd: rangeStart,
     };
   } else if (effectiveRange === 'week') {
-    dateRange = { start: weekStart, end: anchor, prevStart: prevWeekStart, prevEnd: weekStart };
+    // Keep the period half-open and aligned with the approved Wing/UI
+    // collection contract: [today-7d, today), never the partial current day.
+    dateRange = { start: weekStart, end: todayStart, prevStart: prevWeekStart, prevEnd: weekStart };
   } else if (effectiveRange === 'day') {
     dateRange = { start: todayStart, end: todayEnd, prevStart: yesterdayStart, prevEnd: todayStart };
   } else {
@@ -98,4 +103,25 @@ export function buildDashboardContext(
     dateRange, effectiveRange,
     anchorShifted,
   } satisfies DashboardContext;
+}
+
+function parseKstDate(value: string): Date {
+  const businessDate = parseBusinessDate(value);
+  if (!businessDate) throw new Error('Expected YYYY-MM-DD');
+  return kstDayStart(businessDate);
+}
+
+function nextKstMonthStart(year: number, month: number): Date {
+  return month === 12
+    ? kstMonthStart(year + 1, 1)
+    : kstMonthStart(year, month + 1);
+}
+
+function previousKstMonthParts(year: number, month: number): { year: number; month: number } {
+  return month === 1 ? { year: year - 1, month: 12 } : { year, month: month - 1 };
+}
+
+function previousKstMonthStart(year: number, month: number): Date {
+  const previous = previousKstMonthParts(year, month);
+  return kstMonthStart(previous.year, previous.month);
 }

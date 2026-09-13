@@ -1,5 +1,19 @@
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { queryKeys } from './query-keys';
+
+describe('retired Automation declarations', () => {
+  it('has no retired Workflow/Operation UI declarations while retaining the Sellpia source owner', () => {
+    expect(existsSync(resolve(process.cwd(), 'src/types/index.ts'))).toBe(false);
+    expect(existsSync(resolve(process.cwd(), 'src/hooks/useOperationRun.ts'))).toBe(false);
+    expect(existsSync(resolve(process.cwd(), 'src/components/agent-interaction/OperationReferenceCard.tsx'))).toBe(false);
+    expect(existsSync(resolve(process.cwd(), 'src/app/(inventory)/_shared/sellpia-inventory-source-owner.ts'))).toBe(true);
+    for (const family of ['workflows', 'marketplace', 'actionTasks', 'operations']) {
+      expect(queryKeys).not.toHaveProperty(family);
+    }
+  });
+});
 
 describe('conversation query keys', () => {
   it('keeps each authenticated identity isolated across summaries, readiness, preferences, and invocations without a provider-history cache', () => {
@@ -129,22 +143,17 @@ describe('channel product matching query keys', () => {
 });
 
 describe('advertising query keys', () => {
-  it('keeps campaign freshness separate from period campaign responses', () => {
-    expect(queryKeys.ads.campaignSyncStatus()).toEqual([
-      'ads',
-      'campaign-sync-status',
-    ]);
-    expect(queryKeys.ads.campaignSyncStatus()).not.toEqual(
-      queryKeys.ads.campaigns('sync-status'),
-    );
-  });
-
   it('keys Wing tracked-product history by its bounded day window', () => {
     expect(queryKeys.sourcing.wingTrackedHistories(30)).toEqual([
       'sourcing',
       'wing-tracked-products',
       'history',
       30,
+    ]);
+    expect(queryKeys.sourcing.wingTrackedSourceStatus()).toEqual([
+      'sourcing',
+      'wing-tracked-products',
+      'source-status',
     ]);
   });
 });
@@ -190,6 +199,7 @@ describe('Sellpia authoritative inventory query keys', () => {
   });
 
   it('keeps snapshots, assets, history, and availability in independently invalidatable families', () => {
+    expect(queryKeys.inventory.coupangShipmentSummary()).toEqual(['inventory', 'coupang-shipment-summary']);
     expect(queryKeys.inventory.snapshots()).toEqual(['inventory', 'sellpia-skus']);
     expect(queryKeys.inventory.snapshot({ page: '2', query: 'SP-1' })).toEqual([
       'inventory',

@@ -3,7 +3,7 @@
 // per-day revenue series. Tenant predicate is `${organizationId}::uuid`
 // on every tenant-owned table (orders, listings, products).
 
-import type { TopProduct, DailyRevenueItem } from '@kiditem/shared/dashboard';
+import type { TopProduct } from '@kiditem/shared/dashboard';
 
 export const DASHBOARD_SALES_REPOSITORY_PORT = Symbol(
   'DashboardSalesRepositoryPort',
@@ -27,9 +27,4 @@ export interface DashboardSalesRepositoryPort {
     monthEnd: Date,
   ): Promise<TopProduct[]>;
 
-  fetchDailyRevenue(
-    organizationId: string,
-    monthStart: Date,
-    monthEnd: Date,
-  ): Promise<DailyRevenueItem[]>;
 }

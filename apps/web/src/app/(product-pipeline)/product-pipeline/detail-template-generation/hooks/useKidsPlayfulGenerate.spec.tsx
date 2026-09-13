@@ -8,11 +8,9 @@ import {
   useKidsPlayfulGenerationList,
 } from './useKidsPlayfulGenerate';
 import { apiClient } from '@/lib/api-client';
-import { cancelOperation } from '@/lib/operation-cancellation';
 
 const mockApiPost = vi.hoisted(() => vi.fn());
 const mockApiGet = vi.hoisted(() => vi.fn());
-const mockCancelOperation = vi.hoisted(() => vi.fn());
 
 vi.mock('@/lib/api-client', () => ({
   apiClient: {
@@ -20,10 +18,6 @@ vi.mock('@/lib/api-client', () => ({
     get: mockApiGet,
     delete: vi.fn(),
   },
-}));
-
-vi.mock('@/lib/operation-cancellation', () => ({
-  cancelOperation: mockCancelOperation,
 }));
 
 function wrapper({ children }: { children: ReactNode }) {
@@ -39,41 +33,19 @@ describe('useKidsPlayfulGenerationCancel', () => {
     mockApiPost.mockResolvedValue({ id: 'generation-1' });
     mockApiGet.mockReset();
     mockApiGet.mockResolvedValue([]);
-    mockCancelOperation.mockReset();
-    mockCancelOperation.mockResolvedValue({
-      ok: true,
-      status: 'cancelled',
-      message: '중단 요청이 반영되었습니다.',
-      operationKey: null,
-      affected: {
-        workflowRunIds: [],
-        agentRunRequestIds: [],
-        agentRunIds: [],
-        contentGenerationIds: ['generation-1'],
-        thumbnailGenerationIds: [],
-        directAiJobIds: [],
-      },
-      preserved: {
-        contentGenerationIds: [],
-        thumbnailGenerationIds: [],
-      },
-      warnings: [],
-    });
   });
 
-  it('routes detail-page generation cancellation through the platform endpoint', async () => {
+  it('cancels the detail-page generation through its durable owner endpoint', async () => {
     const { result } = renderHook(() => useKidsPlayfulGenerationCancel(), { wrapper });
 
     await act(async () => {
       await result.current.mutateAsync('generation-1');
     });
 
-    expect(cancelOperation).toHaveBeenCalledWith({
-      targetType: 'content_generation',
-      generationId: 'generation-1',
-      reason: '사용자 요청',
-    });
-    expect(apiClient.post).not.toHaveBeenCalledWith('/api/ai/detail-page/generation-1/cancel');
+    expect(apiClient.post).toHaveBeenCalledWith(
+      '/api/ai/detail-page/generation-1/cancel',
+      { reason: '사용자 요청' },
+    );
   });
 });
 

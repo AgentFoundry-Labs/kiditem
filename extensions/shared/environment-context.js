@@ -83,6 +83,7 @@
     const authResyncTimeoutMs =
       options.authResyncTimeoutMs || DEFAULT_AUTH_RESYNC_TIMEOUT_MS;
     const resyncs = new Map();
+    const pendingHintTabs = new Set();
     let profileMutationQueue = Promise.resolve();
 
     function requireEnvironment(environmentId) {
@@ -200,29 +201,63 @@
       return chromeApi.tabs.query({ url: environment.webUrlPattern });
     }
 
-    async function publish(environmentId, eventName, detail) {
-      if (typeof eventName !== 'string' || !eventName) {
-        throw new Error('Event name is required');
+    function skipHintDelivery(tab) {
+      return tab?.discarded === true || tab?.frozen === true;
+    }
+
+    async function sendHint(tab, func, args) {
+      const tabId = tab?.id;
+      if (!Number.isInteger(tabId) || skipHintDelivery(tab) || pendingHintTabs.has(tabId)) {
+        return;
       }
+      pendingHintTabs.add(tabId);
+      try {
+        await chromeApi.scripting.executeScript({
+          target: { tabId },
+          func,
+          args,
+        });
+      } catch {
+        // UI hints are best effort and never gate source collection.
+      } finally {
+        pendingHintTabs.delete(tabId);
+      }
+    }
+
+    async function deliverHint(tab, func, args) {
+      try {
+        await sendHint(tab, func, args);
+      } catch {
+        // Keep unexpected hint-delivery failures detached from callers.
+      }
+    }
+
+    async function publishHints(environmentId, eventName, eventDetail, expectedWebOrigin) {
       let tabs;
       try {
         tabs = await queryWebTabs(environmentId);
       } catch {
         return;
       }
-      await Promise.allSettled(
-        tabs
-          .filter((tab) => Number.isInteger(tab?.id))
-          .map((tab) =>
-            chromeApi.scripting.executeScript({
-              target: { tabId: tab.id },
-              func: function publishKidItemExtensionEvent(name, eventDetail) {
-                window.dispatchEvent(new CustomEvent(name, { detail: eventDetail }));
-              },
-              args: [eventName, detail],
-            }),
-          ),
-      );
+      for (const tab of Array.isArray(tabs) ? tabs : []) {
+        void deliverHint(
+          tab,
+          function publishKidItemExtensionEvent(name, detail, origin) {
+            if (window.location.origin !== origin) return;
+            window.dispatchEvent(new CustomEvent(name, { detail }));
+          },
+          [eventName, eventDetail, expectedWebOrigin],
+        );
+      }
+    }
+
+    async function publish(environmentId, eventName, detail) {
+      if (typeof eventName !== 'string' || !eventName) {
+        throw new Error('Event name is required');
+      }
+      const eventDetail = detail === undefined ? null : detail;
+      const expectedWebOrigin = requireEnvironment(environmentId).webOrigin;
+      void publishHints(environmentId, eventName, eventDetail, expectedWebOrigin);
     }
 
     function waitForAccessTokenChange(environmentId, previousToken) {
@@ -257,20 +292,23 @@
     }
 
     async function notifyAuthRequired(environmentId) {
-      const tabs = await queryWebTabs(environmentId);
-      await Promise.allSettled(
-        tabs
-          .filter((tab) => Number.isInteger(tab?.id))
-          .map((tab) =>
-            chromeApi.scripting.executeScript({
-              target: { tabId: tab.id },
-              func: function requestKidItemExtensionAuth(eventName) {
-                window.dispatchEvent(new CustomEvent(eventName));
-              },
-              args: [AUTH_REQUIRED_EVENT],
-            }),
-          ),
-      );
+      const expectedWebOrigin = requireEnvironment(environmentId).webOrigin;
+      let tabs;
+      try {
+        tabs = await queryWebTabs(environmentId);
+      } catch {
+        return;
+      }
+      for (const tab of Array.isArray(tabs) ? tabs : []) {
+        void deliverHint(
+          tab,
+          function requestKidItemExtensionAuth(eventName, origin) {
+            if (window.location.origin !== origin) return;
+            window.dispatchEvent(new CustomEvent(eventName));
+          },
+          [AUTH_REQUIRED_EVENT, expectedWebOrigin],
+        );
+      }
     }
 
     function requestResyncedAccessToken(environmentId, previousToken) {
@@ -281,7 +319,7 @@
           environmentId,
           previousToken,
         );
-        await notifyAuthRequired(environmentId).catch(() => undefined);
+        void notifyAuthRequired(environmentId);
         return changedToken;
       })().finally(() => {
         if (resyncs.get(environmentId) === resync) {

@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { Prisma, type SourceImportRun } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import {
   CompletedSourceArtifactRunSchema,
   type CoupangWingCatalogImportResponse,
@@ -17,6 +18,11 @@ import type {
 } from '../../../application/port/out/repository/channel-catalog-import.repository.port';
 import type { ParsedWingCatalogRow } from '../../../application/service/coupang-wing-workbook.parser';
 import { resolveCoupangVendorId } from '../../../domain/coupang-account-identity';
+import {
+  advanceProductMappingGeneration,
+  lockProductMapping,
+} from '../../../../common/product-mapping-generation';
+import { allocatePublicationSequence } from '../../../../common/publication-sequence';
 import { buildCoupangWingSnapshotCoverage } from './coupang-wing-snapshot';
 
 const SOURCE_TYPE = 'coupang_wing_catalog';
@@ -56,7 +62,10 @@ type CanonicalParent = Pick<
 @Injectable()
 export class ChannelCatalogImportRepositoryAdapter
 implements ChannelCatalogImportRepositoryPort {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly alerts: SourceFailureAlerts,
+  ) {}
 
   async claimCoupangWingImport(
     input: ClaimInput,
@@ -112,6 +121,7 @@ implements ChannelCatalogImportRepositoryPort {
       );
     }
     return this.prisma.$transaction(async (tx) => {
+      await lockProductMapping(tx, input.organizationId);
       const lockKey =
         `channel-catalog-import:${input.organizationId}:${SOURCE_TYPE}:${input.channelAccountId}`;
       await tx.$queryRaw`
@@ -199,7 +209,7 @@ implements ChannelCatalogImportRepositoryPort {
             channelAccountId: input.channelAccountId,
             externalId: { in: externalProductIds },
           },
-          select: { id: true, externalId: true },
+          select: { id: true, externalId: true, isActive: true },
         }),
         tx.channelListingOption.findMany({
           where: {
@@ -207,7 +217,7 @@ implements ChannelCatalogImportRepositoryPort {
             listing: { channelAccountId: input.channelAccountId },
             externalOptionId: { in: externalSkuIds },
           },
-          select: { id: true, listingId: true, externalOptionId: true },
+          select: { id: true, listingId: true, externalOptionId: true, isActive: true },
         }),
       ]);
       const existingProductIds = new Set(
@@ -216,6 +226,21 @@ implements ChannelCatalogImportRepositoryPort {
       const existingSkuIds = new Set(
         existingSkus.map((row) => row.externalOptionId),
       );
+      const existingProductByExternalId = new Map(
+        existingProducts.map((row) => [row.externalId, row]),
+      );
+      const existingSkuByExternalId = new Map(
+        existingSkus.map((row) => [row.externalOptionId, row]),
+      );
+      const mappingIdentityChanged =
+        canonicalParents.some((row) => {
+          const existing = existingProductByExternalId.get(row.externalProductId);
+          return !existing || !existing.isActive;
+        })
+        || input.rows.some((row) => {
+          const existing = existingSkuByExternalId.get(row.externalSkuId);
+          return !existing || !existing.isActive;
+        });
       const createdProductCount = canonicalParents.filter(
         (row) => !existingProductIds.has(row.externalProductId),
       ).length;
@@ -383,34 +408,48 @@ implements ChannelCatalogImportRepositoryPort {
         `;
       }
 
+      let deactivatedSkuCount = 0;
       if (snapshotCoverage.canDeactivateUnseenSkus) {
-        await tx.channelListingOption.updateMany({
+        const deactivatedSkus = await tx.channelListingOption.updateMany({
           where: {
             organizationId: input.organizationId,
             listing: { channelAccountId: input.channelAccountId },
             externalOptionId: { notIn: snapshotCoverage.externalSkuIds },
+            isActive: true,
           },
           data: {
             isActive: false,
             lastImportRunId: input.runId,
           },
         });
+        deactivatedSkuCount = deactivatedSkus.count;
       }
+      let deactivatedProductCount = 0;
       if (snapshotCoverage.canDeactivateUnseenProducts) {
-        await tx.channelListing.updateMany({
+        const deactivatedProducts = await tx.channelListing.updateMany({
           where: {
             organizationId: input.organizationId,
             channelAccountId: input.channelAccountId,
             externalId: { notIn: snapshotCoverage.externalProductIds },
+            isActive: true,
           },
           data: {
             isActive: false,
             lastImportRunId: input.runId,
           },
         });
+        deactivatedProductCount = deactivatedProducts.count;
       }
 
-      const publicationSequence = await nextPublicationSequence(tx, input.organizationId);
+      if (mappingIdentityChanged || deactivatedSkuCount > 0 || deactivatedProductCount > 0) {
+        await advanceProductMappingGeneration(tx, input.organizationId);
+      }
+
+      const publicationSequence = await allocatePublicationSequence(
+        tx,
+        input.organizationId,
+        SOURCE_TYPE,
+      );
 
       const importedAt = new Date();
       const completion = await tx.sourceImportRun.updateMany({
@@ -434,6 +473,11 @@ implements ChannelCatalogImportRepositoryPort {
           'Coupang Wing catalog import attempt lost its fence',
         );
       }
+      await this.alerts.resolveSourceFailure(tx, {
+        organizationId: input.organizationId,
+        dedupeKey: catalogImportAlertKey(input.channelAccountId),
+        attemptId: input.attemptToken,
+      });
 
       const completed = await tx.sourceImportRun.findFirstOrThrow({
         where: {
@@ -461,17 +505,36 @@ implements ChannelCatalogImportRepositoryPort {
     runId: string,
     attemptToken: string,
   ): Promise<void> {
-    await this.prisma.sourceImportRun.updateMany({
-      where: {
-        id: runId,
+    await this.prisma.$transaction(async (tx) => {
+      const lockKey = `channel-catalog-import:${organizationId}:${SOURCE_TYPE}:${channelAccountId}`;
+      await tx.$queryRaw`
+        -- queryraw-tenancy-exempt: organization-scoped advisory lock
+        SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))::text AS "lock"
+      `;
+      const failed = await tx.sourceImportRun.updateMany({
+        where: {
+          id: runId,
+          organizationId,
+          sourceType: SOURCE_TYPE,
+          channelAccountId,
+          status: 'running',
+          attemptToken,
+        },
+        data: { status: 'failed' },
+      });
+      if (failed.count === 0) return;
+      await this.alerts.recordTerminalOutcome(tx, {
         organizationId,
+        dedupeKey: catalogImportAlertKey(channelAccountId),
         sourceType: SOURCE_TYPE,
-        channelAccountId,
-        status: 'running',
-        attemptToken,
-      },
-      data: { status: 'failed' },
-    });
+        // File retries reuse the run, but every claim rotates its attempt token.
+        attemptId: attemptToken,
+        code: 'CATALOG_IMPORT_FAILED',
+        title: '쿠팡 상품 파일 가져오기 실패',
+        message: '상품 파일을 가져오지 못했습니다. 파일을 확인한 뒤 다시 시도해주세요.',
+        href: `/product-pipeline/registered-products?channelAccountId=${channelAccountId}`,
+      });
+    }, TRANSACTION_OPTIONS);
   }
 
   private async assertActiveWingAccount(
@@ -593,6 +656,10 @@ implements ChannelCatalogImportRepositoryPort {
   }
 }
 
+function catalogImportAlertKey(channelAccountId: string): string {
+  return `channels:${SOURCE_TYPE}:import:${channelAccountId}`;
+}
+
 function assertCanonicalCoupangAccountIdentity(account: {
   externalAccountId: string | null;
   vendorId: string | null;
@@ -633,27 +700,6 @@ function canonicalParentRows(rows: ParsedWingCatalogRow[]): CanonicalParent[] {
 
 function isUniqueConstraintError(error: unknown): boolean {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
-}
-
-async function nextPublicationSequence(
-  tx: Prisma.TransactionClient,
-  organizationId: string,
-): Promise<bigint> {
-  const sequenceLockKey = `channel-catalog-sequence:${organizationId}:${SOURCE_TYPE}`;
-  await tx.$queryRaw`
-    SELECT pg_advisory_xact_lock(hashtextextended(${sequenceLockKey}, 0))::text AS "lock"
-  `;
-  const rows = await tx.$queryRaw<Array<{ publicationSequence: bigint }>>`
-    SELECT COALESCE(MAX(publication_sequence), 0::bigint) + 1 AS "publicationSequence"
-    FROM source_import_runs
-    WHERE organization_id = ${organizationId}::uuid
-      AND source_type = ${SOURCE_TYPE}
-  `;
-  const publicationSequence = rows[0]?.publicationSequence;
-  if (publicationSequence === undefined) {
-    throw new ConflictException('Could not allocate channel catalog publication sequence');
-  }
-  return publicationSequence;
 }
 
 function zeroChanges(): CoupangWingCatalogImportResponse['changes'] {

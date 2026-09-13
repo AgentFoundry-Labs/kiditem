@@ -4,8 +4,8 @@ import {
   sendToExtension,
   type ExtensionRuntimeStatus,
 } from '@/lib/extension-bridge';
-import { issueBrowserCollectionRunId } from '@/lib/browser-collection-session';
 import { extractSellpiaOrderNumbers } from './sellpia-order-targets';
+import type { OrderCollectionAttemptContext } from './order-collection-source-owner';
 
 export interface IcecreamMallExtensionRows {
   mall: '아이스크림몰';
@@ -87,11 +87,30 @@ export function createOrderCollectionExtensionError(
 interface IcecreamMallExtensionResponse
   extends Partial<IcecreamMallExtensionRows>, OrderCollectionFailureResponse {}
 
-export interface OrderCollectionExtensionRun {
-  runId: string;
+export interface OrderCollectionExtensionRun extends OrderCollectionAttemptContext {
   extensionId?: string;
   date?: string | null;
   signal?: AbortSignal;
+  /** The extension keeps provider capture + server conversion inside one owner run. */
+  serverOwned?: boolean;
+  /** Frozen before an automatic attempt starts; never re-read while it runs. */
+  selectionMode?: 'manual' | 'automatic';
+  seenRowKeys?: string[];
+  sourceOwner?: 'order_collection_mall' | 'coupang_directship';
+}
+
+/** Fields shared by every named marketplace action sent to the extension. */
+export function orderCollectionExtensionRunFields(
+  run: OrderCollectionExtensionRun | undefined,
+): Record<string, unknown> {
+  if (!run) return {};
+  return {
+    attemptId: run.attemptId,
+    deferTerminal: true,
+    ...(run.serverOwned ? { serverOwned: true } : {}),
+    ...(run.selectionMode ? { selectionMode: run.selectionMode } : {}),
+    ...(run.seenRowKeys ? { seenRowKeys: [...run.seenRowKeys] } : {}),
+  };
 }
 
 export interface MallLoginEnsureResult extends OrderCollectionFailureResponse {
@@ -104,21 +123,6 @@ export interface MallLoginEnsureResult extends OrderCollectionFailureResponse {
   method?: string | null;
 }
 
-export async function finalizeOrderCollectionSession(
-  run: OrderCollectionExtensionRun,
-  status: 'succeeded' | 'failed',
-  message: string,
-) {
-  const extensionId = run.extensionId ?? await detectOrderCollectionSessionExtension();
-  if (!extensionId) return null;
-  return sendToExtension(extensionId, {
-    action: 'finalizeCollectionSession',
-    runId: run.runId,
-    status,
-    message: message.slice(0, 300),
-  });
-}
-
 export async function detectOrderCollectionSessionExtension(): Promise<string | null> {
   const status = await detectOrderCollectionSessionExtensionStatus();
   return status.status === 'ready' ? status.extensionId : null;
@@ -128,6 +132,7 @@ export async function detectOrderCollectionSessionExtensionStatus(): Promise<Ext
   return detectOrderCollectionExtensionRuntime(1200, [
     'browserCollectionSessions',
     'orderCollectionFailureEvidenceV1',
+    'orderCollectionConfirmedCoverageV1',
   ]);
 }
 
@@ -153,14 +158,11 @@ export async function collectIcecreamMallRowsFromExtension(
   run?: OrderCollectionExtensionRun,
 ): Promise<IcecreamMallExtensionRows> {
   const extensionId = run?.extensionId ?? await requireOrderCollectionSessionExtension();
-  const runId = await issueBrowserCollectionRunId(run?.runId);
-
   const response = await sendToExtension<IcecreamMallExtensionResponse>(extensionId, {
     action: 'collectIcecreamMallOrders',
     date,
     credentials,
-    runId,
-    deferTerminal: Boolean(run?.runId),
+    ...orderCollectionExtensionRunFields(run),
   }, 90000);
 
   if (!response?.success || !response.headers || !response.rows) {
@@ -215,16 +217,14 @@ export async function ensureMallLoggedInViaExtension(
     };
   }
   try {
-    const runId = await issueBrowserCollectionRunId(run?.runId);
     const response = await sendToExtension<MallLoginEnsureResult>(
       extensionId,
       {
         action: 'ensureMallLoggedIn',
         mallKey,
         credentials,
-        runId,
+        ...(run ? { attemptId: run.attemptId, deferTerminal: true } : {}),
         date: run?.date ?? null,
-        deferTerminal: Boolean(run?.runId),
       },
       45000,
     );

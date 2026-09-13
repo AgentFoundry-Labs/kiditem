@@ -487,9 +487,9 @@ function OversightNode({ node, snapshot }: { node: DiagramPanelNode; snapshot: P
 function MemoryNode({ node, snapshot, connection }: { node: DiagramPanelNode; snapshot: PipeSnapshot; connection: string }) {
   const { sources } = snapshot;
   const rows = [
-    { label: '실행 기록', value: sources.runs },
+    { label: '열린 알림', value: sources.openAlerts },
     { label: '몰 작업 기억', value: sources.outcomes },
-    { label: '실시간 알림', value: sources.alerts },
+    { label: '알림 기록', value: sources.alerts },
   ];
   return (
     <ExternalFrame node={node} label="기억 · 기록 열기">
@@ -508,7 +508,7 @@ function MemoryNode({ node, snapshot, connection }: { node: DiagramPanelNode; sn
         ))}
       </ul>
       <span className={cn('mt-auto text-[11px]', connection === 'connected' ? 'text-emerald-400' : 'text-slate-500')}>
-        {connection === 'connected' ? '● 알림 스트림 연결됨' : '알림 스트림 연결 안 됨'}
+        {connection === 'connected' ? '● 알림 10초마다 확인' : '알림을 확인하지 못함'}
       </span>
     </ExternalFrame>
   );

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { BadRequestException } from '@nestjs/common';
 import { SourcingCandidateWorkspaceController } from '../sourcing-candidate-workspace.controller';
 import type { AuthUser } from '../../../../../auth/auth.types';
 
@@ -12,7 +13,7 @@ const authUser: AuthUser = {
 };
 
 describe('SourcingCandidateWorkspaceController', () => {
-  it('keeps quick-process backward compatible when the request body is empty', async () => {
+  it('passes the caller-stable idempotency key to the direct quick-process owner', async () => {
     const sourcingService = {
       quickProcessCandidate: vi.fn().mockResolvedValue({ ok: true }),
     };
@@ -23,14 +24,27 @@ describe('SourcingCandidateWorkspaceController', () => {
       {} as never,
     );
 
-    await controller.quickProcess('candidate-1', undefined, 'org-1', authUser);
+    await controller.quickProcess('candidate-1', undefined, 'org-1', authUser, 'quick-process-key');
 
     expect(sourcingService.quickProcessCandidate).toHaveBeenCalledWith(
       'candidate-1',
       'org-1',
       'user-1',
       'all',
+      'quick-process-key',
     );
+  });
+
+  it('rejects quick processing without a caller-generated Idempotency-Key', async () => {
+    const controller = new SourcingCandidateWorkspaceController(
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+
+    await expect(controller.quickProcess('candidate-1', undefined, 'org-1', authUser, undefined))
+      .rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('uses the preparation state machine for canonical draft creation', async () => {

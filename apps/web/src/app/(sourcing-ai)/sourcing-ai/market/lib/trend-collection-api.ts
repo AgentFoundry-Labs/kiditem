@@ -2,8 +2,6 @@
 // 트렌드 수집 트리거, 네이버/1688/쇼츠 일별 스냅샷 조회. 네이버·쇼츠는 서버가
 // 직접 수집하고, 1688은 로그인된 Chrome 확장 배치를 우선 사용한 뒤 서버에 저장한다.
 
-import type { OperationRun } from '@kiditem/shared/operations';
-import { startTrendCollectionAction } from '@/lib/manual-operation-actions';
 import { apiClient } from '@/lib/api-client';
 
 // 서버가 POST /collect 로 직접 수집하는 소스.
@@ -140,13 +138,6 @@ export interface TiktokCcRegionView {
   items: TiktokCcTrendItemView[];
 }
 
-export function collectTrend(sources?: TrendSource[]): Promise<OperationRun> {
-  return startTrendCollectionAction({
-    sourceSurface: 'domain_screen',
-    sources,
-  });
-}
-
 export function fetchTiktokCcTrends(
   days: number,
 ): Promise<{ days: number; businessDate: string | null; capturedAt: string | null; regions: TiktokCcRegionView[] }> {
@@ -227,7 +218,7 @@ export const TREND_SOURCE_META: Record<TrendSeedSource, { label: string; classNa
 };
 
 /** 서버 사이드 수집(collect) 버튼에 노출하는 소스 순서. tiktok-cc 제외. */
-export const TREND_SOURCE_ORDER: TrendSource[] = ['naver', '1688', 'shorts'];
+export const TREND_SOURCE_ORDER: TrendSource[] = ['naver', 'shorts'];
 
 /** 시드 태깅에 노출하는 소스 순서(확장 스크랩 전용 tiktok-cc 포함). */
 export const TREND_SEED_SOURCE_ORDER: TrendSeedSource[] = ['naver', '1688', 'shorts', 'tiktok-cc'];

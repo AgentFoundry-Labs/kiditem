@@ -70,11 +70,6 @@
       "import": "./dist/security/index.js",
       "require": "./dist/security/index.cjs"
     },
-    "./panel": {
-      "types": "./dist/panel/index.d.ts",
-      "import": "./dist/panel/index.js",
-      "require": "./dist/panel/index.cjs"
-    },
     "./dashboard": {
       "types": "./dist/dashboard.d.ts",
       "import": "./dist/dashboard.js",
@@ -85,20 +80,10 @@
       "import": "./dist/finance.js",
       "require": "./dist/finance.cjs"
     },
-    "./marketplace": {
-      "types": "./dist/marketplace.d.ts",
-      "import": "./dist/marketplace.js",
-      "require": "./dist/marketplace.cjs"
-    },
     "./rules": {
       "types": "./dist/rules.d.ts",
       "import": "./dist/rules.js",
       "require": "./dist/rules.cjs"
-    },
-    "./action-task": {
-      "types": "./dist/action-task.d.ts",
-      "import": "./dist/action-task.js",
-      "require": "./dist/action-task.cjs"
     },
     "./supplier-stats": {
       "types": "./dist/supplier-stats.d.ts",
@@ -215,11 +200,6 @@
       "import": "./dist/agent-runtime/index.js",
       "require": "./dist/agent-runtime/index.cjs"
     },
-    "./workflow": {
-      "types": "./dist/workflow.d.ts",
-      "import": "./dist/workflow.js",
-      "require": "./dist/workflow.cjs"
-    },
     "./common": {
       "types": "./dist/common.d.ts",
       "import": "./dist/common.js",
@@ -270,20 +250,15 @@
       "import": "./dist/auth.js",
       "require": "./dist/auth.cjs"
     },
-    "./operation-cancellation": {
-      "types": "./dist/operation-cancellation.d.ts",
-      "import": "./dist/operation-cancellation.js",
-      "require": "./dist/operation-cancellation.cjs"
-    },
-    "./operations": {
-      "types": "./dist/operations.d.ts",
-      "import": "./dist/operations.js",
-      "require": "./dist/operations.cjs"
-    },
     "./browser-collection-session": {
       "types": "./dist/browser-collection-session.d.ts",
       "import": "./dist/browser-collection-session.js",
       "require": "./dist/browser-collection-session.cjs"
+    },
+    "./source-readiness": {
+      "types": "./dist/source-readiness.d.ts",
+      "import": "./dist/source-readiness.js",
+      "require": "./dist/source-readiness.cjs"
     },
     "./internal/*": null
   },
@@ -326,23 +301,14 @@
       "security": [
         "dist/security/index.d.ts"
       ],
-      "panel": [
-        "dist/panel/index.d.ts"
-      ],
       "dashboard": [
         "dist/dashboard.d.ts"
       ],
       "finance": [
         "dist/finance.d.ts"
       ],
-      "marketplace": [
-        "dist/marketplace.d.ts"
-      ],
       "rules": [
         "dist/rules.d.ts"
-      ],
-      "action-task": [
-        "dist/action-task.d.ts"
       ],
       "supplier-stats": [
         "dist/supplier-stats.d.ts"
@@ -413,9 +379,6 @@
       "agent-runtime": [
         "dist/agent-runtime/index.d.ts"
       ],
-      "workflow": [
-        "dist/workflow.d.ts"
-      ],
       "common": [
         "dist/common.d.ts"
       ],
@@ -446,14 +409,11 @@
       "auth": [
         "dist/auth.d.ts"
       ],
-      "operation-cancellation": [
-        "dist/operation-cancellation.d.ts"
-      ],
-      "operations": [
-        "dist/operations.d.ts"
-      ],
       "browser-collection-session": [
         "dist/browser-collection-session.d.ts"
+      ],
+      "source-readiness": [
+        "dist/source-readiness.d.ts"
       ]
     }
   },

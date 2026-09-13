@@ -1,8 +1,7 @@
-import { Controller, Get, Post, Body, Param, Query, ServiceUnavailableException } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Query } from '@nestjs/common';
 import { ReturnsService } from '../services/returns.service';
 import { ListReturnsQueryDto, ReturnActionBodyDto } from '../dto';
 import { CurrentOrganization } from '../../auth/decorators/current-organization.decorator';
-import { isCoupangCredentialResolutionError } from '../../channels/application/service/channel-account.service';
 
 @Controller('returns')
 export class ReturnsController {
@@ -28,11 +27,6 @@ export class ReturnsController {
     @Body() body: ReturnActionBodyDto,
     @CurrentOrganization() organizationId: string,
   ) {
-    try {
-      return await this.returnsService.approve(body.receiptId, organizationId);
-    } catch (err) {
-      if (isCoupangCredentialResolutionError(err)) throw err;
-      throw new ServiceUnavailableException('쿠팡 API가 연결되지 않았습니다.');
-    }
+    return this.returnsService.approve(body.receiptId, organizationId);
   }
 }

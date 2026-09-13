@@ -1,14 +1,28 @@
 import type {
-  SellpiaInventoryRefreshReason,
-} from '@kiditem/shared/sellpia-inventory-freshness';
-import type {
   SellpiaImportExecution,
+  SellpiaInventorySourceAttempt,
 } from '../../in/stock/sellpia-inventory-import.port';
+import type {
+  SellpiaInventoryRefreshReason,
+  SellpiaSyncScope,
+} from '@kiditem/shared/sellpia-inventory-freshness';
 
-export type ClaimedSellpiaImportExecution = {
+export type ClaimedSellpiaManualExecution = {
   claimToken: string;
   activeGeneration: string;
   trigger: SellpiaInventoryRefreshReason;
+  ownerAttempt?: true;
+};
+
+export type SellpiaOwnerBrowserExecution = {
+  kind: 'browser';
+  claimToken: string;
+  activeGeneration: string;
+  trigger: SellpiaInventoryRefreshReason;
+  sourceOrigin: 'https://kiditem.sellpia.com';
+  sourceAccountKey: 'kiditem';
+  /** A source-owner attempt is fenced by its token, not the begin actor. */
+  ownerAttempt: true;
 };
 
 export type SellpiaFileRunClaim =
@@ -16,16 +30,40 @@ export type SellpiaFileRunClaim =
   | {
       kind: 'completed';
       runId: string;
-      claimedExecution?: ClaimedSellpiaImportExecution;
+      claimedExecution?: ClaimedSellpiaManualExecution;
     }
   | {
       kind: 'started';
       runId: string;
       attemptToken: string;
-      claimedExecution?: ClaimedSellpiaImportExecution;
+      claimedExecution?: ClaimedSellpiaManualExecution;
     };
 
 export interface SellpiaImportRunRepositoryPort {
+  beginAttempt(input: {
+    organizationId: string;
+    userId: string;
+    idempotencyKey: string;
+    scope: SellpiaSyncScope;
+    trigger?: SellpiaInventoryRefreshReason;
+  }): Promise<SellpiaInventorySourceAttempt>;
+
+  readAttempt(input: {
+    organizationId: string;
+    attemptId: string;
+  }): Promise<SellpiaInventorySourceAttempt>;
+
+  failAttempt(input: {
+    organizationId: string;
+    userId: string;
+    attemptId: string;
+    attemptToken: string;
+    errorCode: string;
+    errorMessage: string;
+    fileName?: string;
+    contentChecksum?: string;
+  }): Promise<SellpiaInventorySourceAttempt>;
+
   claimFileRun(input: {
     organizationId: string;
     userId: string;
@@ -46,9 +84,8 @@ export interface SellpiaImportRunRepositoryPort {
 }
 
 export type SellpiaPublicationExecution =
-  | Extract<SellpiaImportExecution, { kind: 'browser' }>
-  | (Extract<SellpiaImportExecution, { kind: 'manual' }>
-    & ClaimedSellpiaImportExecution);
+  | SellpiaOwnerBrowserExecution
+  | (SellpiaImportExecution & ClaimedSellpiaManualExecution);
 
 export const SELLPIA_IMPORT_RUN_REPOSITORY_PORT = Symbol(
   'SELLPIA_IMPORT_RUN_REPOSITORY_PORT',

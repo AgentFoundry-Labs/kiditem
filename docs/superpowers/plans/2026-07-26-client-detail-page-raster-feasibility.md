@@ -12,7 +12,7 @@
 
 ## File map
 
-- Read: `docs/superpowers/specs/2026-07-26-client-detail-page-raster-design.md`
+- Read: `docs/superpowers/specs/archive/2026-07-26-client-detail-page-raster-design.md`
 - Create during the experiment: one temporary local JPEG outside the repository, deleted after validation unless retained as explicit test evidence.
 - No product source files are changed by this feasibility test.
 

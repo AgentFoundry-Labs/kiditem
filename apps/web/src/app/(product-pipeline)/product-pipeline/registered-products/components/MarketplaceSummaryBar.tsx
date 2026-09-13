@@ -15,7 +15,7 @@ import type { RegisteredMarketCount } from '../lib/channel-listings-api';
  * 몰을 늘리면 이 대시보드에도 저절로 나타나야 한다.
  *
  * ⭐ **모르는 자리에 0 을 찍지 않는다.** 리스팅을 한 번도 가져오지 않은 몰의 0 은
- * "그 몰에 없다"가 아니라 "우리가 모른다"다(`(channels)/AGENTS.md`). 가져온 적이 있으면
+ * "그 몰에 없다"가 아니라 "우리가 모른다"다(`(channels)/CLAUDE.md`). 가져온 적이 있으면
  * `0` 을, 없으면 `-` 와 `미확인` 을 보여 준다.
  */
 

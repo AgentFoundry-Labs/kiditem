@@ -293,6 +293,7 @@ erDiagram
 | RocketPurchaseConfirmation | confirmer | references external | Core | User |
 | RocketPurchaseConfirmation | organization | references external | Core | Organization |
 | RocketPurchaseConfirmation | releaser | references external | Core | User |
+| RocketPurchaseConfirmation | rocketPurchaseConfirmation | referenced by external | Orders | CoupangDirectTransportReceipt |
 | RocketPurchaseConfirmation | sourceImportRun | references external | Core | SourceImportRun |
 | RocketPurchaseConfirmationAllocation | organization | references external | Core | Organization |
 | RocketPurchaseConfirmationAllocation | sellpiaInventorySku | references external | Inventory | SellpiaInventorySku |

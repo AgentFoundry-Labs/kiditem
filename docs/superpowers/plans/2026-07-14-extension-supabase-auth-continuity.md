@@ -390,7 +390,7 @@ git commit -m "refactor: unify extension authentication"
 ### Task 5: Full verification and browser acceptance
 
 **Files:**
-- Modify if required by implementation drift: `docs/superpowers/specs/2026-07-14-extension-supabase-auth-continuity-design.md`
+- Modify if required by implementation drift: `docs/superpowers/specs/archive/2026-07-14-extension-supabase-auth-continuity-design.md`
 - Modify if required by implementation drift: `docs/superpowers/plans/2026-07-14-extension-supabase-auth-continuity.md`
 
 **Interfaces:**

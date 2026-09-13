@@ -2,10 +2,9 @@ import { describe, expect, it } from "vitest";
 import { CHANNELS_CAPABILITIES } from "../domain/capability/channels.capabilities";
 
 describe("Channels final capability definitions", () => {
-  it("owns all three marketplace mutations with real strict schemas", () => {
+  it("owns only browser-confirmed marketplace mutations with real strict schemas", () => {
     expect(CHANNELS_CAPABILITIES.map((capability) => capability.key)).toEqual([
       "channels.register_confirmed_listing",
-      "channels.submit_coupang_listing",
       "channels.submit_wing_thumbnail",
     ]);
     for (const capability of CHANNELS_CAPABILITIES) {
@@ -19,9 +18,6 @@ describe("Channels final capability definitions", () => {
   });
 
   it("accepts only the minimal registration reference and user confirmation evidence", () => {
-    const submission = CHANNELS_CAPABILITIES.find(
-      (item) => item.key === "channels.submit_coupang_listing",
-    )!;
     const confirmation = CHANNELS_CAPABILITIES.find(
       (item) => item.key === "channels.register_confirmed_listing",
     )!;
@@ -30,19 +26,6 @@ describe("Channels final capability definitions", () => {
       preparationId: "00000000-0000-4000-8000-000000000012",
     };
 
-    expect(
-      submission.inputSchema.safeParse({
-        masterId: "master-1",
-        channelAccountId: "account-1",
-      }).success,
-    ).toBe(false);
-    expect(submission.inputSchema.safeParse(reference).success).toBe(true);
-    expect(
-      submission.inputSchema.safeParse({
-        ...reference,
-        executionId: "00000000-0000-4000-8000-000000000013",
-      }).success,
-    ).toBe(false);
     expect(
       confirmation.inputSchema.safeParse({
         ...reference,

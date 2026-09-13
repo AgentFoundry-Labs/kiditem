@@ -1,17 +1,15 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { ConflictException, Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
   SaveEditorResultInput,
   ThumbnailGenerationLedgerRepositoryPort,
   ThumbnailGenerationLedgerRow,
-  ThumbnailGenerationParentAlertLink,
 } from '../../../application/port/out/repository/thumbnail-generation-ledger.repository.port';
 import {
   AI_DIRECT_JOB_REPOSITORY_PORT,
   type AiDirectJobRepositoryPort,
 } from '../../../application/port/out/repository/ai-direct-job.repository.port';
-import { readProductGenerationAlertLink } from '../../../application/service/product-generation-alert-link';
 import {
   findActiveJobForWorkspace,
   findAutoBatchCandidates,
@@ -30,13 +28,13 @@ import {
 import {
   applyDirectSuccessResult,
   applyGenerationToWorkspace,
+  cancelDirectGeneration,
   clearReadySelections,
   createPendingCandidateJob,
   createPendingEditJob,
   createPendingStandaloneJob,
   deleteGeneration,
   lockGenerationForProcessing,
-  markGenerationCancelled,
   markGenerationFailed,
   persistPendingInputImages,
   removeCandidate,
@@ -146,44 +144,106 @@ export class ThumbnailGenerationLedgerRepositoryAdapter implements ThumbnailGene
   async openPendingDirectGeneration(
     input: Parameters<ThumbnailGenerationLedgerRepositoryPort['openPendingDirectGeneration']>[0],
   ) {
-    return this.prisma.$transaction(async (tx) => {
-      const common = {
-        organizationId: input.organizationId,
-        originalUrl: input.originalUrl,
-        method: input.method,
-        inputMeta: input.inputMeta as Prisma.InputJsonValue,
-        triggeredByUserId: input.triggeredByUserId,
-      };
-      const generation =
-        input.subject === 'editor'
-          ? await createPendingEditJob(tx, {
-              ...common,
-              contentWorkspaceId: input.contentWorkspaceId,
-              editAnalysis: input.editAnalysis,
-            })
-          : input.subject === 'candidate'
-            ? await createPendingCandidateJob(tx, {
-                ...common,
-                sourceCandidateId: input.sourceCandidateId,
-                contentWorkspaceId: input.contentWorkspaceId,
-              })
-            : await createPendingStandaloneJob(tx, {
-                ...common,
-                contentWorkspaceId: input.contentWorkspaceId,
-              });
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const existing = await this.findExistingProductGenerationLedger(tx, input);
+        if (existing) return existing;
 
-      await persistPendingInputImages(tx, {
-        generationId: generation.id,
-        organizationId: input.organizationId,
-        inputImages: input.inputImages,
+        const common = {
+          id: input.productGenerationIdentity?.generationId,
+          organizationId: input.organizationId,
+          originalUrl: input.originalUrl,
+          method: input.method,
+          inputMeta: input.inputMeta as Prisma.InputJsonValue,
+          triggeredByUserId: input.triggeredByUserId,
+        };
+        const generation =
+          input.subject === 'editor'
+            ? await createPendingEditJob(tx, {
+                ...common,
+                contentWorkspaceId: input.contentWorkspaceId,
+                editAnalysis: input.editAnalysis,
+              })
+            : input.subject === 'candidate'
+              ? await createPendingCandidateJob(tx, {
+                  ...common,
+                  sourceCandidateId: input.sourceCandidateId,
+                  contentWorkspaceId: input.contentWorkspaceId,
+                })
+              : await createPendingStandaloneJob(tx, {
+                  ...common,
+                  contentWorkspaceId: input.contentWorkspaceId,
+                });
+
+        await persistPendingInputImages(tx, {
+          generationId: generation.id,
+          organizationId: input.organizationId,
+          inputImages: input.inputImages,
+        });
+        const directJob = await this.directJobs.createInScope(tx, {
+          ...input.directJob,
+          organizationId: input.organizationId,
+          sourceResourceId: generation.id,
+        });
+        return {
+          status: 'created' as const,
+          generationId: generation.id,
+          directJobId: directJob.id,
+          releaseRequired: true,
+        };
       });
-      const directJob = await this.directJobs.createInScope(tx, {
-        ...input.directJob,
+    } catch (error) {
+      if (!input.productGenerationIdentity || !isUniqueConstraint(error)) throw error;
+      // P2002 aborts the failed transaction. Re-read the winner through a
+      // fresh Prisma scope so only the durable child identity becomes replay.
+      const winner = await this.findExistingProductGenerationLedger(this.prisma, input);
+      if (winner) return winner;
+      throw error;
+    }
+  }
+
+  private async findExistingProductGenerationLedger(
+    scope: Prisma.TransactionClient | PrismaService,
+    input: Parameters<ThumbnailGenerationLedgerRepositoryPort['openPendingDirectGeneration']>[0],
+  ): Promise<{
+    status: 'created' | 'existing';
+    generationId: string;
+    directJobId: string;
+    releaseRequired: boolean;
+  } | null> {
+    if (!input.productGenerationIdentity) return null;
+    const existing = await scope.thumbnailGeneration.findFirst({
+      where: {
+        id: input.productGenerationIdentity.generationId,
         organizationId: input.organizationId,
-        sourceResourceId: generation.id,
-      });
-      return { generationId: generation.id, directJobId: directJob.id };
+      },
+      select: { id: true, isDeleted: true, inputMeta: true },
     });
+    if (!existing) return null;
+    if (
+      existing.isDeleted ||
+      readProductGenerationRequestHash(existing.inputMeta) !==
+        input.productGenerationIdentity.requestHash
+    ) {
+      throw new ConflictException('product_generation_idempotency_conflict');
+    }
+    const directJob = await scope.aiDirectJob.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        jobType: 'thumbnail_generate',
+        sourceResourceId: existing.id,
+      },
+      select: { id: true, status: true },
+    });
+    if (!directJob) {
+      throw new Error(`Missing thumbnail AI direct job for ${existing.id}.`);
+    }
+    return {
+      status: 'existing',
+      generationId: existing.id,
+      directJobId: directJob.id,
+      releaseRequired: directJob.status === 'held',
+    };
   }
 
   async openPendingEditorJob(input: Parameters<ThumbnailGenerationLedgerRepositoryPort['openPendingEditorJob']>[0]) {
@@ -227,8 +287,10 @@ export class ThumbnailGenerationLedgerRepositoryAdapter implements ThumbnailGene
     return applyGenerationToWorkspace(this.prisma, input);
   }
 
-  markGenerationCancelled(id: string, organizationId: string) {
-    return markGenerationCancelled(this.prisma, id, organizationId);
+  cancelDirectGeneration(
+    input: Parameters<ThumbnailGenerationLedgerRepositoryPort['cancelDirectGeneration']>[0],
+  ) {
+    return cancelDirectGeneration(this.prisma, input);
   }
 
   deleteGeneration(id: string, organizationId: string) {
@@ -320,19 +382,20 @@ export class ThumbnailGenerationLedgerRepositoryAdapter implements ThumbnailGene
     });
   }
 
-  async readParentAlertLink(
-    input: Parameters<ThumbnailGenerationLedgerRepositoryPort['readParentAlertLink']>[0],
-  ): Promise<ThumbnailGenerationParentAlertLink | null> {
-    const row = await this.prisma.thumbnailGeneration.findFirst({
-      where: {
-        id: input.generationId,
-        organizationId: input.organizationId,
-        isDeleted: false,
-      },
-      select: { inputMeta: true },
-    });
-    return readProductGenerationAlertLink(row?.inputMeta);
-  }
+}
+
+function readProductGenerationRequestHash(value: unknown): string | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const requestHash = (value as Record<string, unknown>).productGenerationRequestHash;
+  return typeof requestHash === 'string' ? requestHash : null;
+}
+
+function isUniqueConstraint(error: unknown): boolean {
+  return Boolean(
+    error &&
+    typeof error === 'object' &&
+    (error as { code?: unknown }).code === 'P2002',
+  );
 }
 
 type _LedgerRow = ThumbnailGenerationLedgerRow;

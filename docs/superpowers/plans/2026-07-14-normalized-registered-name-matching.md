@@ -615,7 +615,7 @@ rtk git commit -m "feat: flag normalized name matches for confirmation"
 - Modify: `apps/web/src/app/(catalog)/product-hub/matching/components/__tests__/ChannelSkuComponentDialog.spec.tsx`
 - Modify: `apps/web/src/app/(catalog)/product-hub/matching/components/ChannelSkuComponentDialog.tsx`
 - Modify: `docs/runbooks/channel-sellpia-matching.md`
-- Modify: `docs/superpowers/specs/2026-07-14-normalized-registered-name-matching-design.md`
+- Modify: `docs/superpowers/specs/archive/2026-07-14-normalized-registered-name-matching-design.md`
 
 **Interfaces:**
 - Consumes: shared `exact_normalized_name` candidate reason.
@@ -686,7 +686,7 @@ Run:
 
 ```bash
 rtk npm test --workspace=apps/web -- --run 'src/app/(catalog)/product-hub/matching/components/__tests__/ChannelSkuComponentDialog.spec.tsx'
-rtk rg -n "검토 필요|확인 필요|등록상품명 일치" docs/superpowers/specs/2026-07-14-normalized-registered-name-matching-design.md docs/runbooks/channel-sellpia-matching.md apps/web/src/app/'(catalog)'/product-hub/matching
+rtk rg -n "검토 필요|확인 필요|등록상품명 일치" docs/superpowers/specs/archive/2026-07-14-normalized-registered-name-matching-design.md docs/runbooks/channel-sellpia-matching.md apps/web/src/app/'(catalog)'/product-hub/matching
 ```
 
 Expected: the UI spec passes; `검토 필요` has no match; `확인 필요` and `등록상품명 일치` appear in the expected UI and docs.
@@ -694,7 +694,7 @@ Expected: the UI spec passes; `검토 필요` has no match; `확인 필요` and 
 - [ ] **Step 5: Commit UI and documentation**
 
 ```bash
-rtk git add apps/web/src/app/'(catalog)'/product-hub/matching/components/ChannelSkuComponentDialog.tsx apps/web/src/app/'(catalog)'/product-hub/matching/components/__tests__/ChannelSkuComponentDialog.spec.tsx docs/runbooks/channel-sellpia-matching.md docs/superpowers/specs/2026-07-14-normalized-registered-name-matching-design.md
+rtk git add apps/web/src/app/'(catalog)'/product-hub/matching/components/ChannelSkuComponentDialog.tsx apps/web/src/app/'(catalog)'/product-hub/matching/components/__tests__/ChannelSkuComponentDialog.spec.tsx docs/runbooks/channel-sellpia-matching.md docs/superpowers/specs/archive/2026-07-14-normalized-registered-name-matching-design.md
 rtk git commit -m "feat: label registered-name match candidates"
 ```
 

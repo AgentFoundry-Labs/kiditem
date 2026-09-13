@@ -125,7 +125,7 @@ function trendRepository(input: { empty?: boolean } = {}): TrendCollectionReposi
       trendDelta: 12,
       capturedAt: CAPTURED_AT,
     }]),
-    findPopularKeywordHistory: vi.fn(async () => empty ? [] : [{
+    findPopularKeywordHistory: vi.fn(async () => ({ rows: empty ? [] : [{
       boardKey: 'kids-tableware',
       boardLabel: '유아식기',
       cid: '50000001',
@@ -133,7 +133,9 @@ function trendRepository(input: { empty?: boolean } = {}): TrendCollectionReposi
       rank: 4,
       keyword: '실리콘 식판',
       linkId: 'keyword-1',
-    }]),
+    }], coverage: [] })),
+    findKeywordAnalysisSnapshot: vi.fn(async () => null),
+    findLatestCompleteTrendScope: vi.fn(async () => null),
     find1688HotHistory: vi.fn(async () => empty ? [] : [{
       businessDate: BUSINESS_DATE,
       capturedAt: CAPTURED_AT,

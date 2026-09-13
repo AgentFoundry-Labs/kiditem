@@ -12,6 +12,7 @@ import {
   TEST_ORGANIZATION_ID,
   OTHER_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
+import { seedAd as seedAdTargetDay } from '../../test-helpers/finance-seeds';
 
 describe('AdBenchmark flow (PG integration)', () => {
   let prisma: PrismaClient;
@@ -46,12 +47,7 @@ describe('AdBenchmark flow (PG integration)', () => {
     return { listing };
   }
 
-  /**
-   * H3 — seeds `ChannelListingDailySnapshot` (the new ad-metric source-of-
-   * truth) instead of legacy `Ad`. The benchmark service reads `adSpend`,
-   * `adRevenue`, `adImpressions`, `adClicks`, `adConversions` from this
-   * table aggregated over the last 30 businessDates.
-   */
+  /** A measured listing-day ad fact in the advertising target-day ledger. */
   async function seedAd(params: {
     organizationId: string;
     listingId: string;
@@ -66,19 +62,15 @@ describe('AdBenchmark flow (PG integration)', () => {
     const date = new Date();
     date.setDate(date.getDate() - (params.daysAgo ?? 0));
     date.setHours(0, 0, 0, 0);
-    return prisma.channelListingDailySnapshot.create({
-      data: {
-        organizationId: params.organizationId,
-        listingId: params.listingId,
-        channel: 'coupang',
-        externalId: params.externalId ?? `EXT-${params.listingId.slice(0, 8)}`,
-        businessDate: date,
-        adSpend: params.spend,
-        adRevenue: params.revenue,
-        adImpressions: params.impressions ?? 0,
-        adClicks: params.clicks ?? 0,
-        adConversions: params.conversions ?? 0,
-      },
+    await seedAdTargetDay(prisma, {
+      organizationId: params.organizationId,
+      listingId: params.listingId,
+      date: date.toISOString().slice(0, 10),
+      spend: params.spend,
+      revenue: params.revenue,
+      impressions: params.impressions ?? 0,
+      clicks: params.clicks ?? 0,
+      conversions: params.conversions ?? 0,
     });
   }
 

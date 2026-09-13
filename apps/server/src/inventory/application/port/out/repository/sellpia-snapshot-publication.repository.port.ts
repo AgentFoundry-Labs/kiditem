@@ -12,6 +12,9 @@ type PublicationScope = {
   userId: string;
   runId: string;
   fileHash: string;
+  fileName?: string;
+  contentChecksum?: string;
+  contentByteCount?: number;
   execution: SellpiaPublicationExecution;
 };
 

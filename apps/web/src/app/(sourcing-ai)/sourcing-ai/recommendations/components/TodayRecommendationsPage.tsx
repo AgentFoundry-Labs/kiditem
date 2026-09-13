@@ -34,8 +34,8 @@ import {
 } from '../../hooks/use-sourcing-workspace';
 import { toTodayRecommendationRows } from '../../lib/sourcing-recommendation-presenter';
 import { SourcingReadState } from '../../components/SourcingReadState';
-import { SourcingOperationRunPanel } from '../../components/SourcingOperationRunPanel';
-import { useSourcingOperationAction } from '../../hooks/use-sourcing-operation-action';
+import { WingCatalogSourceStatus } from '../../components/WingCatalogSourceStatus';
+import { useWingCatalogSource } from '../../hooks/use-wing-catalog-source';
 import { normalizeWingOperationKeywords } from '../../lib/wing-operation-input';
 
 const keywordLimitOptions = [10, 20, 50];
@@ -77,12 +77,11 @@ export function TodayRecommendationsPage() {
     maxPages,
     purpose: 'recommendation_validation' as const,
   }), [keywords, maxPages]);
-  const operation = useSourcingOperationAction({
-    operationKey: 'sourcing.collect_wing_catalog_batch',
+  const wingSource = useWingCatalogSource({
     input: operationInput,
     snapshotQueryKey: queryKeys.sourcing.all,
   });
-  const isRunning = operation.isStarting || isActiveOperation(operation.run?.status);
+  const isRunning = wingSource.isRunning;
 
   const applyKeywordAnalysisPool = useCallback(() => {
     if (popularKeywordsQuery.isLoading) {
@@ -115,7 +114,7 @@ export function TodayRecommendationsPage() {
     }
 
     setErrors([]);
-    void operation.start();
+    void wingSource.start();
   };
 
   const trackProductInterest = async (row: TodayRecommendationRow) => {
@@ -255,7 +254,7 @@ export function TodayRecommendationsPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => void operation.cancel()}
+                  onClick={() => void wingSource.cancel()}
                   disabled={!isRunning}
                   className="h-11 rounded-lg border border-[var(--border)] bg-[var(--surface)] text-sm font-black text-[var(--text-secondary)] disabled:cursor-not-allowed disabled:opacity-50"
                 >
@@ -266,13 +265,7 @@ export function TodayRecommendationsPage() {
           </div>
         </section>
 
-        <SourcingOperationRunPanel
-          run={operation.run}
-          onCancel={() => { void operation.cancel(); }}
-          onRetryAttention={() => { void operation.retryAttention(); }}
-          isCancelling={operation.isCancelling}
-          isRetrying={operation.isRetrying}
-        />
+        <WingCatalogSourceStatus source={wingSource} />
 
         <section className="space-y-4">
             <section className="grid gap-3 md:grid-cols-3">
@@ -558,12 +551,4 @@ function rowKey(row: Pick<TodayRecommendationRow, 'productId' | 'itemId' | 'vend
 
 function resolveSalesLast3d(row: TodayRecommendationRow): number | null {
   return row.salesLast3d;
-}
-
-function isActiveOperation(status: string | undefined): boolean {
-  return status === 'queued'
-    || status === 'waiting_runtime'
-    || status === 'waiting_dependency'
-    || status === 'running'
-    || status === 'attention_required';
 }

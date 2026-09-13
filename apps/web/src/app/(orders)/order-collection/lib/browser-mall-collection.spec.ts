@@ -7,8 +7,14 @@ const mocks = vi.hoisted(() => ({
   ensureLogin: vi.fn(),
   collectKidsnote: vi.fn(),
   collectArt09: vi.fn(),
+  convertArt09: vi.fn(),
   collectCoupang: vi.fn(),
   convertCoupang: vi.fn(),
+  sendToExtension: vi.fn(),
+  regenerateSource: vi.fn(),
+  readContinuation: vi.fn(),
+  saveIcecreamIndex: vi.fn(),
+  addSeenOrderKeys: vi.fn(),
   password: vi.fn(),
   toast: Object.assign(vi.fn(), {
     error: vi.fn(),
@@ -18,6 +24,11 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('sonner', () => ({ toast: mocks.toast }));
+// 자동 로그인 차단은 확장 응답 시간 초과 문구(`EXTENSION_TIMEOUT_MESSAGE`)를 실제 값으로 비교한다.
+vi.mock('@/lib/extension-bridge', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/extension-bridge')>()),
+  sendToExtension: mocks.sendToExtension,
+}));
 vi.mock('./order-collection-extension', () => ({
   collectIcecreamMallRowsFromExtension: vi.fn(),
   createOrderCollectionExtensionError: (
@@ -26,13 +37,33 @@ vi.mock('./order-collection-extension', () => ({
   ) => Object.assign(new Error(response.error ?? fallback), response),
   detectOrderCollectionSessionExtension: mocks.detectExtension,
   ensureMallLoggedInViaExtension: mocks.ensureLogin,
+  orderCollectionExtensionRunFields: (run: Record<string, unknown> | undefined) => ({
+    attemptId: run?.attemptId,
+    deferTerminal: true,
+    ...(run?.serverOwned ? { serverOwned: true } : {}),
+    ...(run?.selectionMode ? { selectionMode: run.selectionMode } : {}),
+    ...(run?.seenRowKeys ? { seenRowKeys: [...run.seenRowKeys] } : {}),
+  }),
+}));
+vi.mock('./order-collection-api', () => ({
+  regenerateOrderCollectionSource: mocks.regenerateSource,
+  readOrderCollectionContinuation: mocks.readContinuation,
+}));
+vi.mock('./icecream-delivery-index', () => ({
+  saveIcecreamDeliveryIndex: mocks.saveIcecreamIndex,
+}));
+vi.mock('./order-detect', () => ({
+  addSeenOrderKeys: mocks.addSeenOrderKeys,
+  distinctOrderNumbers: vi.fn(() => []),
+  rowKeysOf: vi.fn((rows: string[][]) => rows.map((row) => row.join('\u001f'))),
 }));
 vi.mock('./kidsnote-orders-api', () => ({
   collectKidsnoteOrdersFromExtension: mocks.collectKidsnote,
   convertKidsnoteToSellpiaFile: vi.fn(),
 }));
 vi.mock('./art09-orders-api', () => ({
-  collectArt09CsvFromExtension: mocks.collectArt09,
+  collectArt09OrdersFromExtension: mocks.collectArt09,
+  convertArt09ToSellpiaFile: mocks.convertArt09,
 }));
 vi.mock('./order-mall-account-api', () => ({
   orderMallAccountApi: { password: mocks.password },
@@ -47,9 +78,11 @@ import { EXTENSION_TIMEOUT_MESSAGE } from '@/lib/extension-bridge';
 import { isMallAutoLoginBlocked, resetMallLoginBlocksForTest } from '@/lib/mall-login-block';
 import { createBrowserMallCollector } from './browser-mall-collection';
 import type { OrderCollectionMallAccount } from './order-mall-account-api';
+import type { CoupangDirectData } from './coupang-directship-api';
 
 const RUN = {
-  runId: '11111111-1111-4111-8111-111111111111',
+  attemptId: '11111111-1111-4111-8111-111111111111',
+  attemptToken: '22222222-2222-4222-8222-222222222222',
   extensionId: 'order-extension',
 };
 
@@ -75,11 +108,13 @@ describe('createBrowserMallCollector', () => {
     mocks.detectExtension.mockResolvedValue(RUN.extensionId);
     mocks.password.mockResolvedValue({ password: 'secret' });
     mocks.collectKidsnote.mockResolvedValue({ orders: [], count: 0 });
-    mocks.collectArt09.mockResolvedValue({
-      outputRows: 0,
-      orderNumbers: [],
-      sourceRows: 0,
-    });
+    mocks.collectArt09.mockResolvedValue([]);
+    mocks.convertArt09.mockResolvedValue({ outputRows: 0, sourceRows: 0 });
+    mocks.sendToExtension.mockReset();
+    mocks.regenerateSource.mockReset();
+    mocks.readContinuation.mockReset();
+    mocks.saveIcecreamIndex.mockReset();
+    mocks.addSeenOrderKeys.mockReset();
   });
 
   it('stops collection when login preflight needs attention', async () => {
@@ -144,6 +179,181 @@ describe('createBrowserMallCollector', () => {
     );
   });
 
+  it('keeps server-owned capture and conversion inside the extension and regenerates after a delayed ACK', async () => {
+    mocks.ensureLogin.mockResolvedValue({ success: true });
+    mocks.sendToExtension.mockResolvedValue({
+      success: true,
+      terminalState: 'COMPLETE',
+      // The converter response may be lost after the source owner commits.
+    });
+    mocks.regenerateSource.mockResolvedValue({
+      fileName: 'kidsnote.xls',
+      blob: new Blob(['converted']),
+      previewRows: [['converted']],
+      sourceRows: 2,
+      productRows: 2,
+      outputRows: 2,
+      skippedRows: 0,
+    });
+    const addGeneratedFile = vi.fn();
+    const setPreviewId = vi.fn();
+    const collector = createBrowserMallCollector({
+      mallAccounts: [ACCOUNT],
+      rocketChannelAccountId: null,
+      addGeneratedFile,
+      setPreviewId,
+    });
+
+    const result = await collector(ACCOUNT, {
+      ...RUN,
+      date: '2026-09-10',
+      serverOwned: true,
+      selectionMode: 'manual',
+    });
+
+    expect(mocks.sendToExtension).toHaveBeenCalledWith(
+      RUN.extensionId,
+      expect.objectContaining({
+        action: 'collectKidsnoteOrders',
+        attemptId: RUN.attemptId,
+        serverOwned: true,
+        deferTerminal: true,
+        date: '2026-09-10',
+      }),
+      200000,
+    );
+    expect(mocks.regenerateSource).toHaveBeenCalledWith(
+      expect.objectContaining({ attemptId: RUN.attemptId }),
+      { download: false },
+    );
+    expect(addGeneratedFile).toHaveBeenCalledWith(expect.objectContaining({
+      mallKey: 'kidsnote',
+      collectedRows: 2,
+      fileName: 'kidsnote.xls',
+    }));
+    expect(setPreviewId).toHaveBeenCalled();
+    expect(result).toEqual({
+      rowCount: 2,
+      masked: false,
+      date: '2026-09-10',
+    });
+  });
+
+  it.each([false, true])('shows a confirmed empty collection without adding a generated file (lost response: %s)', async (lostResponse) => {
+    mocks.ensureLogin.mockResolvedValue({ success: true });
+    if (lostResponse) mocks.sendToExtension.mockRejectedValue(new Error('response lost'));
+    else mocks.sendToExtension.mockResolvedValue({ success: true, terminalState: 'COMPLETE' });
+    mocks.regenerateSource.mockResolvedValue({
+      fileName: '', blob: new Blob([]), previewRows: [],
+      sourceRows: 0, productRows: 0, outputRows: 0, skippedRows: 0,
+    });
+    const addGeneratedFile = vi.fn();
+    const account = { ...ACCOUNT, key: 'haebub-mall' as const, name: '해법몰' };
+    const collector = createBrowserMallCollector({
+      mallAccounts: [account], rocketChannelAccountId: null,
+      addGeneratedFile, setPreviewId: vi.fn(),
+    });
+    await expect(collector(account, { ...RUN, date: '2026-09-10', serverOwned: true }))
+      .resolves.toMatchObject({ rowCount: 0 });
+    expect(addGeneratedFile).not.toHaveBeenCalled();
+    expect(mocks.toast).toHaveBeenCalledWith('해법몰 신규 주문이 없습니다.', undefined);
+  });
+
+  it('reconciles a lost extension response from the retained source without recollecting', async () => {
+    mocks.ensureLogin.mockResolvedValue({ success: true });
+    mocks.sendToExtension.mockRejectedValue(new Error('extension response lost'));
+    mocks.regenerateSource.mockResolvedValue({
+      fileName: 'kidsnote.xls',
+      blob: new Blob(['converted']),
+      previewRows: [['converted']],
+      sourceRows: 3,
+      productRows: 3,
+      outputRows: 3,
+      skippedRows: 0,
+    });
+    const collector = createBrowserMallCollector({
+      mallAccounts: [ACCOUNT],
+      rocketChannelAccountId: null,
+      addGeneratedFile: vi.fn(),
+      setPreviewId: vi.fn(),
+    });
+
+    await expect(collector(ACCOUNT, {
+      ...RUN,
+      date: '2026-09-10',
+      serverOwned: true,
+    })).resolves.toMatchObject({ rowCount: 3 });
+
+    expect(mocks.sendToExtension).toHaveBeenCalledTimes(1);
+    expect(mocks.regenerateSource).toHaveBeenCalledTimes(1);
+  });
+
+  it('replays Icecream consumers from owner-retained rows after server-owned conversion', async () => {
+    mocks.ensureLogin.mockResolvedValue({ success: true });
+    mocks.sendToExtension.mockResolvedValue({
+      success: true,
+      terminalState: 'COMPLETE',
+      conversion: { sourceRows: 1, outputRows: 1 },
+    });
+    mocks.regenerateSource.mockResolvedValue({
+      fileName: 'icecream.xls',
+      blob: new Blob(['converted']),
+      previewRows: [['converted']],
+      sourceRows: 1,
+      productRows: 1,
+      outputRows: 1,
+      skippedRows: 0,
+    });
+    mocks.readContinuation.mockResolvedValue({
+      mallKey: 'icecream-mall',
+      headers: ['주문번호', '배송번호', '배송순번'],
+      originalRows: [['order-1', 'delivery-1', '1'], ['order-2', 'delivery-2', '1']],
+      selectedRows: [['order-2', 'delivery-2', '1']],
+      selectedRowKeys: ['order-2\u001fdelivery-2\u001f1'],
+      selectionMode: 'automatic',
+      sourceRows: 2,
+    });
+    const icecream = {
+      ...ACCOUNT,
+      key: 'icecream-mall' as const,
+      name: '아이스크림몰',
+      configured: true,
+      enabled: true,
+    };
+    const addGeneratedFile = vi.fn();
+    const collector = createBrowserMallCollector({
+      mallAccounts: [icecream],
+      rocketChannelAccountId: null,
+      addGeneratedFile,
+      setPreviewId: vi.fn(),
+    });
+
+    await expect(collector(icecream, {
+      ...RUN,
+      date: '2026-09-10',
+      serverOwned: true,
+      selectionMode: 'automatic',
+      seenRowKeys: ['order-1\u001fdelivery-1\u001f1'],
+    })).resolves.toEqual({
+      rowCount: 1,
+      masked: false,
+      date: '2026-09-10',
+    });
+
+    expect(mocks.saveIcecreamIndex).toHaveBeenCalledWith(
+      ['주문번호', '배송번호', '배송순번'],
+      [['order-1', 'delivery-1', '1'], ['order-2', 'delivery-2', '1']],
+    );
+    expect(mocks.addSeenOrderKeys).toHaveBeenCalledWith(
+      'icecream-mall',
+      ['order-2\u001fdelivery-2\u001f1'],
+    );
+    expect(addGeneratedFile).toHaveBeenCalledWith(expect.objectContaining({
+      mallKey: 'icecream-mall',
+      collectedRows: 1,
+    }));
+  });
+
   it('passes both IDs from the single art09 account to the login preflight', async () => {
     mocks.ensureLogin.mockResolvedValue({ success: true });
     const art09Account: OrderCollectionMallAccount = {
@@ -197,7 +407,7 @@ describe('createBrowserMallCollector', () => {
       'utf8',
     );
 
-    expect(source.match(/todayYmd\(\)/g)).toHaveLength(1);
+    expect(source.match(/todayYmd\(\)/g)).toHaveLength(2);
     expect(source).toContain('function collectionDateOf(');
   });
 
@@ -222,7 +432,13 @@ describe('createBrowserMallCollector', () => {
 
     for (const apiFile of apiFiles) {
       const source = readFileSync(path.resolve(import.meta.dirname, apiFile), 'utf8');
-      expect(source, apiFile).toMatch(/deferTerminal:\s*Boolean\([^)]*run\?\.runId\)/);
+      expect(source, apiFile).not.toContain('runId');
+      expect(source, apiFile).toContain('attemptId');
+      if (apiFile === 'coupang-directship-api.ts') {
+        expect(source, apiFile).not.toContain('deferTerminal: true');
+      } else {
+        expect(source, apiFile).toContain('deferTerminal: true');
+      }
     }
   });
 
@@ -403,7 +619,10 @@ describe('createBrowserMallCollector', () => {
       name: '쿠팡직배송',
     }, { ...RUN, date: '2026-07-23' }, { directship: { eddDates: ['2026-07-30'] } });
     await coupangStarted;
-    const kidsnote = collector(ACCOUNT, { ...RUN, runId: '22222222-2222-4222-8222-222222222222' });
+    const kidsnote = collector(ACCOUNT, {
+      ...RUN,
+      attemptId: '22222222-2222-4222-8222-222222222222',
+    });
     releaseCoupang();
 
     await Promise.all([directship, kidsnote]);
@@ -412,6 +631,57 @@ describe('createBrowserMallCollector', () => {
     for (const [data] of mocks.convertCoupang.mock.calls) {
       expect(data.pos.map((po: { seq: string }) => po.seq)).toEqual(['PO-SELECTED']);
     }
+  });
+
+  it('reuses the calendar capture instead of collecting Directship a second time', async () => {
+    const captured: CoupangDirectData = {
+      pos: [
+        {
+          seq: 'PO-SELECTED',
+          status: 'PA',
+          center: 'C',
+          transport: 'SHIPMENT',
+          edd: '2026-07-30',
+          reg: '2026-07-01',
+          items: [],
+        },
+        {
+          seq: 'PO-OTHER',
+          status: 'PA',
+          center: 'C',
+          transport: 'MILKRUN',
+          edd: '2026-07-31',
+          reg: '2026-07-01',
+          items: [],
+        },
+      ],
+      centers: {},
+    };
+    mocks.convertCoupang.mockResolvedValue({
+      file: null,
+      outputRows: 0,
+      workbookMatchedRows: 0,
+      workbookUnmatchedRows: 0,
+      importRunId: '66666666-6666-4666-8666-666666666666',
+      rocketWorkbookExportId: null,
+      transmissionIntentKey: null,
+    });
+    const collector = createBrowserMallCollector({
+      mallAccounts: [],
+      rocketChannelAccountId: '44444444-4444-4444-8444-444444444444',
+      addGeneratedFile: vi.fn(),
+      setPreviewId: vi.fn(),
+    });
+
+    await collector({ ...ACCOUNT, key: 'coupang-direct', name: '쿠팡직배송' }, RUN, {
+      directship: { eddDates: ['2026-07-30'], data: captured },
+    });
+
+    expect(mocks.collectCoupang).not.toHaveBeenCalled();
+    expect(mocks.convertCoupang.mock.calls.map(([data]) => data.pos.map((po: { seq: string }) => po.seq))).toEqual([
+      ['PO-SELECTED'],
+      ['PO-SELECTED'],
+    ]);
   });
 });
 

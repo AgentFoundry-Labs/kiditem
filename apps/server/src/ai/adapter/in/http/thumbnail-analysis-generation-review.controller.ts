@@ -1,8 +1,22 @@
-import { BadRequestException, Body, Controller, Delete, Get, Param, Put, Query } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Post,
+  Put,
+  Query,
+} from '@nestjs/common';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
 import type { AuthUser } from '../../../../auth/auth.types';
-import { DeleteCandidateDto, SelectCandidateDto } from './dto/thumbnail-edit.dto';
+import {
+  CancelThumbnailGenerationDto,
+  DeleteCandidateDto,
+  SelectCandidateDto,
+} from './dto/thumbnail-edit.dto';
 import { ThumbnailGenerationService } from '../../../application/service/thumbnail-generation.service';
 import {
   ThumbnailGenerationSubjectError,
@@ -50,6 +64,21 @@ export class ThumbnailAnalysisGenerationReviewController {
   @Get('generations/:id')
   getGeneration(@Param('id') id: string, @CurrentOrganization() organizationId: string) {
     return this.generationService.findOne(id, organizationId);
+  }
+
+  @Post('generations/:id/cancel')
+  cancelGeneration(
+    @Param('id') id: string,
+    @Body() body: CancelThumbnailGenerationDto,
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.generationService.cancelGeneration({
+      organizationId,
+      generationId: id,
+      actorUserId: user.id,
+      reason: body.reason?.trim() || '사용자 요청으로 중단되었습니다.',
+    });
   }
 
   @Put('generations/:id/select')

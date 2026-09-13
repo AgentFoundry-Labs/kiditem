@@ -1,12 +1,14 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { CurrentOrganization } from '../../../../../auth/decorators/current-organization.decorator';
-import { DashboardContextService } from '../../../application/service/dashboard-context.service';
+import { buildDashboardContext } from '../../../domain/context';
 import { DashboardSalesService } from '../../../application/service/dashboard-sales.service';
 import { DashboardAdService } from '../../../application/service/dashboard-ad.service';
 import { DashboardInventoryService } from '../../../application/service/dashboard-inventory.service';
 import { DashboardTrendService } from '../../../application/service/dashboard-trend.service';
+import { DashboardCollectionsService } from '../../../application/service/dashboard-collections.service';
 import { DashboardQueryDto, DashboardTrendQueryDto } from './dto/dashboard-query.dto';
 import type {
+  DashboardCollections,
   DashboardSalesSummary,
   DashboardAdSummary,
   DashboardInventorySummary,
@@ -16,24 +18,27 @@ import type {
 @Controller('dashboard')
 export class DashboardController {
   constructor(
-    private readonly contextService: DashboardContextService,
     private readonly salesService: DashboardSalesService,
     private readonly adService: DashboardAdService,
     private readonly inventoryService: DashboardInventoryService,
     private readonly trendService: DashboardTrendService,
+    private readonly collectionsService: DashboardCollectionsService,
   ) {}
+
+  /** When each collection last completed. Not a period read: no window applies. */
+  @Get('collections')
+  async getCollections(
+    @CurrentOrganization() organizationId: string,
+  ): Promise<DashboardCollections> {
+    return this.collectionsService.getCollections(organizationId);
+  }
 
   @Get('sales')
   async getSales(
     @Query() query: DashboardQueryDto,
     @CurrentOrganization() organizationId: string,
   ): Promise<DashboardSalesSummary> {
-    const ctx = await this.contextService.buildForQuery(
-      organizationId,
-      query.range,
-      query.from,
-      query.to,
-    );
+    const ctx = buildDashboardContext(query.range, query.from, query.to);
     return this.salesService.getSummary(ctx, organizationId);
   }
 
@@ -42,12 +47,7 @@ export class DashboardController {
     @Query() query: DashboardQueryDto,
     @CurrentOrganization() organizationId: string,
   ): Promise<DashboardAdSummary> {
-    const ctx = await this.contextService.buildForQuery(
-      organizationId,
-      query.range,
-      query.from,
-      query.to,
-    );
+    const ctx = buildDashboardContext(query.range, query.from, query.to);
     return this.adService.getSummary(ctx, organizationId);
   }
 
@@ -56,7 +56,7 @@ export class DashboardController {
     @CurrentOrganization() organizationId: string,
   ): Promise<DashboardInventorySummary> {
     // range-agnostic — snapshot only
-    const ctx = this.contextService.buildSnapshot();
+    const ctx = buildDashboardContext();
     return this.inventoryService.getSummary(ctx, organizationId);
   }
 
@@ -65,6 +65,12 @@ export class DashboardController {
     @Query() query: DashboardTrendQueryDto,
     @CurrentOrganization() organizationId: string,
   ): Promise<DashboardTrendItem[]> {
-    return this.trendService.getTrend(organizationId, query.range ?? '30d');
+    const ctx = buildDashboardContext();
+    // The chart sits under the period filter, so a selected range reaches it.
+    // Without from/to it keeps the rolling window it has always used.
+    const explicitWindow = query.range === 'custom' && query.from && query.to
+      ? { from: new Date(`${query.from}T00:00:00+09:00`), to: new Date(`${query.to}T00:00:00+09:00`) }
+      : null;
+    return this.trendService.getTrend(ctx, organizationId, query.range ?? '30d', explicitWindow);
   }
 }

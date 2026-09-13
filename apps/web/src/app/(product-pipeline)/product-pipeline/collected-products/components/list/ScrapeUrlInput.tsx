@@ -12,6 +12,7 @@ interface Props {
   isPending: boolean;
   isCheckingDuplicate?: boolean;
   duplicate: Extract<ScrapeUrlStatusResponse, { status: 'collected' }> | null;
+  ownerStatus?: ScrapeUrlStatusResponse['source'] | null;
   error: string | null;
   success: string | null;
   inputRef: React.RefObject<HTMLInputElement | null>;
@@ -26,6 +27,7 @@ export default function ScrapeUrlInput({
   isPending,
   isCheckingDuplicate = false,
   duplicate,
+  ownerStatus,
   error,
   success,
   inputRef,
@@ -71,6 +73,12 @@ export default function ScrapeUrlInput({
       {error && (
         <div className="mt-2 text-xs text-red-600 bg-red-50 px-3 py-1.5 rounded-md">
           {error}
+        </div>
+      )}
+      {ownerStatus && (
+        <div className="mt-2 text-xs text-slate-600" role="status">
+          {ownerStatus.latestAttempt?.state === 'RUNNING' ? 'URL 수집 중' : ownerStatus.ready ? '수집 완료' : ownerStatus.latestComplete ? '이전 완료 데이터 유지' : '완료된 수집 데이터 없음'}
+          {ownerStatus.actualCutoffAt && <> · 마지막 완료 기준일: <time dateTime={ownerStatus.actualCutoffAt}>{new Date(ownerStatus.actualCutoffAt).toLocaleString('ko-KR')}</time></>}
         </div>
       )}
       {isDuplicate && (

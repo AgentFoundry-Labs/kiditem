@@ -1,7 +1,6 @@
 'use client';
 
 import { useCallback, useMemo } from 'react';
-import type { Sourcing1688SearchObservation } from '@kiditem/shared/sourcing';
 import {
   ExternalLink,
   ImageIcon,
@@ -22,11 +21,11 @@ import {
   type CoupangImageSearchRow,
   type ImageSearchOffer,
 } from '../lib/coupang-1688-matching';
-import { useSourcingOperationAction } from '../hooks/use-sourcing-operation-action';
-import { useWholesale1688Results } from '../hooks/use-wholesale-1688-results';
+import { useWholesale1688Command, useWholesale1688Results } from '../hooks/use-wholesale-1688-results';
 import { wholesale1688ResultsQueryKey } from '../lib/wholesale-1688-results-api';
-import { SourcingOperationRunPanel } from './SourcingOperationRunPanel';
+import { Wholesale1688SourceStatus } from './Wholesale1688SourceStatus';
 import { SellochWholesaleOfferGrid } from './SellochWholesaleOfferGrid';
+import type { Sourcing1688SearchObservation } from '@kiditem/shared/sourcing';
 
 const IMAGE_SEARCH_BATCH_LIMIT = 24;
 
@@ -50,14 +49,10 @@ export function SellochWholesaleCoupangMatches() {
   );
   const resultQuery = useWholesale1688Results({ targetIds });
   const snapshotQueryKey = wholesale1688ResultsQueryKey({ targetIds });
-  const operationInput = useMemo(() => ({ targetIds }), [targetIds]);
-  const operation = useSourcingOperationAction({
-    operationKey: 'sourcing.match_wholesale_images',
-    input: operationInput,
-    snapshotQueryKey,
-    wakeBrowserRuntime: false,
-  });
-  const collecting = operation.isStarting || isActiveOperation(operation.run?.status);
+  const command = useWholesale1688Command(snapshotQueryKey);
+  const collecting = command.isPending || (resultQuery.data?.sourceStatuses.some(
+    (source) => source.latestAttemptState === 'RUNNING',
+  ) ?? false);
   const observationsByTargetId = useMemo(
     () => new Map(
       (resultQuery.data?.observations ?? [])
@@ -68,13 +63,13 @@ export function SellochWholesaleCoupangMatches() {
   );
 
   const runImageSearch = useCallback((match: CoupangImageSearchRow) => {
-    void operation.start({ targetIds: [match.id] }, [snapshotQueryKey]);
-  }, [operation, snapshotQueryKey]);
+    command.start({ kind: 'image-matches', input: { targetIds: [match.id] } });
+  }, [command]);
 
   const rerunAllSearches = useCallback(() => {
     if (targetIds.length === 0) return;
-    void operation.start();
-  }, [operation, targetIds.length]);
+    command.start({ kind: 'image-matches', input: { targetIds } });
+  }, [command, targetIds]);
 
   return (
     <section className="overflow-hidden rounded-[18px] border border-[#eef1f5] bg-white shadow-[0_12px_30px_rgba(15,23,42,0.06)]">
@@ -101,14 +96,7 @@ export function SellochWholesaleCoupangMatches() {
           </button>
         </div>
 
-        <SourcingOperationRunPanel
-          run={operation.run}
-          onCancel={() => { void operation.cancel(); }}
-          onRetryAttention={() => { void operation.retryAttention(); }}
-          isCancelling={operation.isCancelling}
-          isRetrying={operation.isRetrying}
-          className="mt-5"
-        />
+        <Wholesale1688SourceStatus sources={resultQuery.data?.sourceStatuses ?? []} attempts={command.attempts} error={command.error ?? resultQuery.error} />
       </div>
 
       {matches.length === 0 ? (
@@ -263,7 +251,7 @@ function ImageSearchPanel({
         <StatePanel
           icon={ImageIcon}
           title="저장된 매칭 결과 없음"
-          body="전체 수집 또는 이 상품의 매칭 다시 버튼으로 새 Operation을 시작할 수 있습니다."
+          body="전체 수집 또는 이 상품의 매칭 다시 버튼으로 새 수집을 시작할 수 있습니다."
           tone="muted"
         />
       )}
@@ -420,8 +408,4 @@ function MiniMetric({ label, value, strong = false }: { label: string; value: st
       <p className={cn('mt-1 truncate text-sm font-black text-[#111827]', strong && 'text-[#d94112]')}>{value}</p>
     </div>
   );
-}
-
-function isActiveOperation(status: string | undefined): boolean {
-  return status === 'queued' || status === 'running' || status === 'attention_required';
 }

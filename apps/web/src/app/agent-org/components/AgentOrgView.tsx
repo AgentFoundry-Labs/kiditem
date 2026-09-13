@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useSyncExternalStore } from 'react';
 import { ChevronLeft, PanelLeft, PanelRight, Radio } from 'lucide-react';
-import type { PanelRunItem } from '@kiditem/shared/panel';
+import type { AlertItem } from '@kiditem/shared/alerts';
 import { cn, formatNumber } from '@/lib/utils';
 import type { PipeConfirmChannel } from '../hooks/use-confirm-report';
 import type { CanvasInsets } from '../hooks/use-canvas-view';
@@ -24,8 +24,7 @@ import { PipeStateChip } from './PipeStateChip';
 const CONNECTION: Readonly<Record<string, { label: string; tone: string; dot: string }>> = {
   connected: { label: 'LIVE', tone: 'text-emerald-400', dot: 'bg-emerald-400 motion-safe:animate-pulse' },
   connecting: { label: '연결 중', tone: 'text-slate-400', dot: 'bg-slate-500' },
-  polling_fallback: { label: '5초마다 확인', tone: 'text-amber-400', dot: 'bg-amber-400' },
-  disconnected: { label: '실시간 끊김', tone: 'text-red-400', dot: 'bg-red-400' },
+  disconnected: { label: '알림 확인 끊김', tone: 'text-red-400', dot: 'bg-red-400' },
 };
 
 const STAGE_BOX_COUNT = DIAGRAM_NODES.filter((node) => node.kind === 'stage').length;
@@ -61,7 +60,7 @@ export function AgentOrgView({
   now,
   confirm,
   business,
-  runs = [],
+  openAlerts = [],
 }: {
   snapshot: PipeSnapshot;
   connection: string;
@@ -70,8 +69,8 @@ export function AgentOrgView({
   confirm?: PipeConfirmChannel;
   /** 이번 달 매출 · 광고. 없으면 '—'. */
   business?: PipeBusiness;
-  /** 알림 스트림의 실시간 작업. */
-  runs?: readonly PanelRunItem[];
+  /** 아직 열린 원천 실패 알림. */
+  openAlerts?: readonly AlertItem[];
 }) {
   const [selectedAgent, setSelectedAgent] = useState<DiagramAgentId | null>(null);
   const [agentsMinimized, setAgentsMinimized] = useState(false);
@@ -164,7 +163,7 @@ export function AgentOrgView({
           >
             <PanelRight size={15} aria-hidden />
           </button>
-          <span className={cn(TOOL_BUTTON, 'cursor-default hover:bg-[#111827]')} title={`알림 스트림 · ${live.label}`}>
+          <span className={cn(TOOL_BUTTON, 'cursor-default hover:bg-[#111827]')} title={`알림 확인 · ${live.label}`}>
             <Radio size={15} className={cn(connection === 'connected' && 'text-emerald-400')} aria-hidden />
           </span>
         </div>
@@ -201,7 +200,7 @@ export function AgentOrgView({
         stageCount={STAGE_BOX_COUNT}
         connection={connection}
         business={business}
-        runs={runs}
+        openAlerts={openAlerts}
         now={now}
       />
     </div>

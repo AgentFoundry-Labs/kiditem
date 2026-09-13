@@ -68,7 +68,6 @@ export class AgentCapabilityRegistry {
           definition.resultSummary,
           output,
           implementation.resourceRef?.(output) ?? null,
-          implementation.operationRef?.(output) ?? null,
         );
       },
     });
@@ -129,12 +128,10 @@ function envelope(
   summary: string,
   output: Record<string, unknown>,
   resource: { kind: string; id: string } | null,
-  operation: string | null,
 ): CapabilityResultEnvelope {
   return {
     summary,
     resourceRefs: resource ? [{ ...resource, version: null }] : [],
-    operationRefs: operation ? [{ kind: "operation_run", id: operation }] : [],
     output,
   };
 }

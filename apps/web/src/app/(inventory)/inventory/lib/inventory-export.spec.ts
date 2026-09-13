@@ -1,15 +1,30 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fetchAllSellpiaInventorySkus } from '../../_shared/inventory-api';
-import { fetchAllInventoryForExport, toInventoryExportRows } from './inventory-export';
+import { apiClient } from '@/lib/api-client';
+import { downloadBlob } from '@/lib/browser-download';
+import {
+  downloadSellpiaInventoryExport,
+  fetchAllInventoryForExport,
+} from './inventory-export';
 
 vi.mock('../../_shared/inventory-api', () => ({
   fetchAllSellpiaInventorySkus: vi.fn(),
+}));
+
+vi.mock('@/lib/api-client', () => ({
+  apiClient: { fetchRaw: vi.fn() },
+}));
+
+vi.mock('@/lib/browser-download', () => ({
+  downloadBlob: vi.fn(),
 }));
 
 describe('Sellpia inventory export', () => {
   beforeEach(() => {
     vi.mocked(fetchAllSellpiaInventorySkus).mockReset();
     vi.mocked(fetchAllSellpiaInventorySkus).mockResolvedValue([]);
+    vi.mocked(apiClient.fetchRaw).mockReset();
+    vi.mocked(downloadBlob).mockReset();
   });
 
   it('uses the visible search, stock, active, and link filters for every exported page', async () => {
@@ -28,30 +43,25 @@ describe('Sellpia inventory export', () => {
     });
   });
 
-  it('exports only authoritative snapshot fields and preserves unpriced rows', () => {
-    expect(toInventoryExportRows([{
-      masterProductId: '00000000-0000-4000-8000-000000000001',
-      code: 'SP-1',
-      name: '말랑이',
-      optionName: null,
-      barcode: null,
-      currentStock: 8,
-      purchasePrice: null,
-      salePrice: 3000,
-      isActive: true,
-      stockValue: null,
-      lastImportRunId: null,
-      lastImportedAt: null,
-    }])).toEqual([{
-      셀피아상품코드: 'SP-1',
-      상품명: '말랑이',
-      옵션: '',
-      바코드: '',
-      현재고: 8,
-      매입가: '',
-      판매가: 3000,
-      재고자산: '',
-      최종가져오기: '',
-    }]);
+  it('downloads the server workbook with the visible filters and server filename', async () => {
+    vi.mocked(apiClient.fetchRaw).mockResolvedValue(new Response('xlsx', {
+      status: 200,
+      headers: {
+        'Content-Disposition': "attachment; filename*=UTF-8''Sellpia_%ED%98%84%EC%9E%AC%EC%9E%AC%EA%B3%A0.xlsx",
+      },
+    }));
+
+    await downloadSellpiaInventoryExport({
+      query: 'SP-1001',
+      stockStatus: 'out_of_stock',
+      activeStatus: 'active',
+      linkStatus: 'unlinked',
+    });
+
+    expect(apiClient.fetchRaw).toHaveBeenCalledWith(
+      '/api/inventory/sellpia-skus/export?query=SP-1001&stockStatus=out_of_stock&activeStatus=active&linkStatus=unlinked',
+    );
+    expect(downloadBlob).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(downloadBlob).mock.calls[0]?.[1]).toBe('Sellpia_현재재고.xlsx');
   });
 });

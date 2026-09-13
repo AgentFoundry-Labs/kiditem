@@ -1,9 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { ConflictException, NotFoundException } from '@nestjs/common';
-import type { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import { ChannelCatalogCollectionRepositoryAdapter } from '../adapter/out/repository/channel-catalog-collection.repository.adapter';
-import type { PrismaService } from '../../prisma/prisma.service';
 import {
   makeTestPrisma,
   OTHER_ORGANIZATION_ID,
@@ -12,6 +11,8 @@ import {
   TEST_ORGANIZATION_ID,
   TEST_USER_ID,
 } from '../../test-helpers/real-prisma';
+import type { PrismaClient } from '@prisma/client';
+import type { PrismaService } from '../../prisma/prisma.service';
 
 const WING_ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
 const SECOND_WING_ACCOUNT_ID = '22222222-2222-4222-8222-222222222222';
@@ -20,12 +21,20 @@ const OTHER_ORG_WING_ACCOUNT_ID = '33333333-3333-4333-8333-333333333333';
 describe('ChannelCatalogCollectionRepositoryAdapter (PG integration)', () => {
   let prisma: PrismaClient;
   let repository: ChannelCatalogCollectionRepositoryAdapter;
+  let alerts: SourceFailureAlerts;
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
+    alerts = new SourceFailureAlerts(prisma as never);
     repository = new ChannelCatalogCollectionRepositoryAdapter(
       prisma as unknown as PrismaService,
+      alerts,
+      {
+        publishDetailChunk: async () => {
+          throw new Error('full-details publication is not part of this legacy repository fixture');
+        },
+      } as never,
     );
   });
 
@@ -40,26 +49,26 @@ describe('ChannelCatalogCollectionRepositoryAdapter (PG integration)', () => {
   });
 
   it('resumes the same client run only inside the owning organization and account', async () => {
-    const clientRunKey = randomUUID();
+    const idempotencyKey = randomUUID();
     const first = await repository.startOrResume({
       organizationId: TEST_ORGANIZATION_ID,
       userId: TEST_USER_ID,
       channelAccountId: WING_ACCOUNT_ID,
-      clientRunKey,
+      idempotencyKey,
       collectorVersion: '1.0.0',
     });
     const resumed = await repository.startOrResume({
       organizationId: TEST_ORGANIZATION_ID,
       userId: TEST_USER_ID,
       channelAccountId: WING_ACCOUNT_ID,
-      clientRunKey,
+      idempotencyKey,
       collectorVersion: '1.0.0',
     });
     const secondAccount = await repository.startOrResume({
       organizationId: TEST_ORGANIZATION_ID,
       userId: TEST_USER_ID,
       channelAccountId: SECOND_WING_ACCOUNT_ID,
-      clientRunKey,
+      idempotencyKey: randomUUID(),
       collectorVersion: '1.0.0',
     });
 
@@ -74,6 +83,158 @@ describe('ChannelCatalogCollectionRepositoryAdapter (PG integration)', () => {
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 
+  it('keeps a rate-limit pause RUNNING, fences chunks, and resumes after notBefore', async () => {
+    const input = {
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      channelAccountId: WING_ACCOUNT_ID,
+      idempotencyKey: randomUUID(),
+      collectorVersion: '1.0.0',
+    };
+    const run = await repository.startOrResume(input);
+    const pause = {
+      code: 'WING_PROVIDER_RATE_LIMITED' as const,
+      message: 'Wing rate limit',
+      phase: 'hydration' as const,
+      recoverable: true as const,
+      notBefore: new Date(Date.now() - 1_000).toISOString(),
+    };
+
+    await repository.markPaused({
+      organizationId: input.organizationId,
+      channelAccountId: input.channelAccountId,
+      runId: run.id,
+      attemptToken: run.attemptToken,
+      error: pause,
+    });
+    const paused = await repository.getOwnedRunWithChunks({
+      organizationId: input.organizationId,
+      channelAccountId: input.channelAccountId,
+      runId: run.id,
+      attemptToken: run.attemptToken,
+      includePayload: false,
+    });
+    expect(paused.status).toBe('running');
+    expect(paused.errorJson).toMatchObject(pause);
+
+    await expect(repository.putChunk({
+      organizationId: input.organizationId,
+      channelAccountId: input.channelAccountId,
+      runId: run.id,
+      attemptToken: run.attemptToken,
+      kind: 'discovery_page',
+      sequence: 1,
+      checksum: 'a'.repeat(64),
+      itemCount: 1,
+      payload: {},
+    })).rejects.toBeInstanceOf(ConflictException);
+
+    const resumed = await repository.startOrResume(input);
+    expect(resumed.id).toBe(run.id);
+    const cleared = await repository.getOwnedRunWithChunks({
+      organizationId: input.organizationId,
+      channelAccountId: input.channelAccountId,
+      runId: run.id,
+      attemptToken: run.attemptToken,
+      includePayload: false,
+    });
+    expect(cleared.status).toBe('running');
+    expect(cleared.errorJson).toBeNull();
+  });
+
+  it('does not resume a paused run before its notBefore timestamp', async () => {
+    const input = {
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      channelAccountId: WING_ACCOUNT_ID,
+      idempotencyKey: randomUUID(),
+      collectorVersion: '1.0.0',
+    };
+    const run = await repository.startOrResume(input);
+    await repository.markPaused({
+      organizationId: input.organizationId,
+      channelAccountId: input.channelAccountId,
+      runId: run.id,
+      attemptToken: run.attemptToken,
+      error: {
+        code: 'WING_PROVIDER_RATE_LIMITED',
+        message: 'Wing rate limit',
+        phase: 'hydration',
+        recoverable: true,
+        notBefore: new Date(Date.now() + 60_000).toISOString(),
+      },
+    });
+
+    await expect(repository.startOrResume(input)).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('keeps an expired paused run immutable on same-key replay and retires it only for a new key', async () => {
+    const input = {
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      channelAccountId: WING_ACCOUNT_ID,
+      idempotencyKey: randomUUID(),
+      collectorVersion: '1.0.0',
+    };
+    const run = await repository.startOrResume(input);
+    const pause = {
+      code: 'WING_PROVIDER_RATE_LIMITED' as const,
+      message: 'Wing rate limit',
+      phase: 'hydration' as const,
+      recoverable: true as const,
+      notBefore: new Date(Date.now() + 60_000).toISOString(),
+    };
+    await repository.markPaused({
+      organizationId: input.organizationId,
+      channelAccountId: input.channelAccountId,
+      runId: run.id,
+      attemptToken: run.attemptToken,
+      error: pause,
+    });
+    await prisma.sourceImportRun.update({
+      where: { id: run.id },
+      data: { expiresAt: new Date(Date.now() - 1) },
+    });
+    const before = await prisma.sourceImportRun.findUniqueOrThrow({
+      where: { id: run.id },
+      select: {
+        status: true,
+        expiresAt: true,
+        attemptToken: true,
+        errorCode: true,
+        errorMessage: true,
+        qualityReport: true,
+      },
+    });
+
+    await expect(repository.startOrResume(input)).resolves.toMatchObject({
+      id: run.id,
+      status: 'running',
+    });
+    const afterReplay = await prisma.sourceImportRun.findUniqueOrThrow({
+      where: { id: run.id },
+      select: {
+        status: true,
+        expiresAt: true,
+        attemptToken: true,
+        errorCode: true,
+        errorMessage: true,
+        qualityReport: true,
+      },
+    });
+    expect(afterReplay).toEqual(before);
+    expect(await alerts.list(TEST_ORGANIZATION_ID)).toEqual([]);
+
+    const next = await repository.startOrResume({
+      ...input,
+      idempotencyKey: randomUUID(),
+    });
+    expect(next.id).not.toBe(run.id);
+    expect(await alerts.list(TEST_ORGANIZATION_ID)).toMatchObject([
+      { attemptId: run.id, status: 'OPEN' },
+    ]);
+  });
+
   it('starts scraper collection when vendorId differs from a legacy external alias', async () => {
     await prisma.channelAccount.update({
       where: { id: WING_ACCOUNT_ID },
@@ -83,13 +244,15 @@ describe('ChannelCatalogCollectionRepositoryAdapter (PG integration)', () => {
       },
     });
 
-    await expect(repository.startOrResume({
-      organizationId: TEST_ORGANIZATION_ID,
-      userId: TEST_USER_ID,
-      channelAccountId: WING_ACCOUNT_ID,
-      clientRunKey: randomUUID(),
-      collectorVersion: '1.0.0',
-    })).resolves.toMatchObject({ status: 'running' });
+    await expect(
+      repository.startOrResume({
+        organizationId: TEST_ORGANIZATION_ID,
+        userId: TEST_USER_ID,
+        channelAccountId: WING_ACCOUNT_ID,
+        idempotencyKey: randomUUID(),
+        collectorVersion: '1.0.0',
+      }),
+    ).resolves.toMatchObject({ status: 'running' });
   });
 
   it('stores raw chunks in JSONB and makes same-checksum retries idempotent', async () => {
@@ -98,6 +261,7 @@ describe('ChannelCatalogCollectionRepositoryAdapter (PG integration)', () => {
       organizationId: TEST_ORGANIZATION_ID,
       channelAccountId: WING_ACCOUNT_ID,
       runId: run.id,
+      attemptToken: run.attemptToken,
       kind: 'discovery_page' as const,
       sequence: 1,
       checksum: 'a'.repeat(64),
@@ -107,13 +271,18 @@ describe('ChannelCatalogCollectionRepositoryAdapter (PG integration)', () => {
       },
     };
 
-    await expect(repository.putChunk(input)).resolves.toMatchObject({ stored: true });
-    await expect(repository.putChunk(input)).resolves.toMatchObject({ stored: false });
+    await expect(repository.putChunk(input)).resolves.toMatchObject({
+      stored: true,
+    });
+    await expect(repository.putChunk(input)).resolves.toMatchObject({
+      stored: false,
+    });
 
     const stored = await repository.getOwnedRunWithChunks({
       organizationId: TEST_ORGANIZATION_ID,
       channelAccountId: WING_ACCOUNT_ID,
       runId: run.id,
+      attemptToken: run.attemptToken,
     });
     expect(stored.chunks).toHaveLength(1);
     expect(stored.chunks[0]).toMatchObject({
@@ -130,6 +299,7 @@ describe('ChannelCatalogCollectionRepositoryAdapter (PG integration)', () => {
       organizationId: TEST_ORGANIZATION_ID,
       channelAccountId: WING_ACCOUNT_ID,
       runId: run.id,
+      attemptToken: run.attemptToken,
       kind: 'product_details' as const,
       sequence: 3,
       itemCount: 1,
@@ -137,16 +307,16 @@ describe('ChannelCatalogCollectionRepositoryAdapter (PG integration)', () => {
     };
 
     await repository.putChunk({ ...base, checksum: 'a'.repeat(64) });
-    await expect(
-      repository.putChunk({ ...base, checksum: 'b'.repeat(64) }),
-    ).rejects.toBeInstanceOf(ConflictException);
+    await expect(repository.putChunk({ ...base, checksum: 'b'.repeat(64) })).rejects.toBeInstanceOf(
+      ConflictException,
+    );
   });
 
   it.each(['completed', 'failed'])('rejects writes after a run is %s', async (status) => {
     const run = await startRun(repository);
-    await prisma.channelScrapeRun.update({
+    await prisma.sourceImportRun.update({
       where: { id: run.id },
-      data: { status, finishedAt: new Date() },
+      data: { status, importedAt: new Date() },
     });
 
     await expect(
@@ -154,6 +324,7 @@ describe('ChannelCatalogCollectionRepositoryAdapter (PG integration)', () => {
         organizationId: TEST_ORGANIZATION_ID,
         channelAccountId: WING_ACCOUNT_ID,
         runId: run.id,
+        attemptToken: run.attemptToken,
         kind: 'manifest_confirmation',
         sequence: 1,
         checksum: 'c'.repeat(64),
@@ -162,6 +333,42 @@ describe('ChannelCatalogCollectionRepositoryAdapter (PG integration)', () => {
       }),
     ).rejects.toBeInstanceOf(ConflictException);
   });
+
+  it.each([
+    { stage: 'full' as const, kind: 'listing_basics' as const },
+    { stage: 'basics' as const, kind: 'product_details' as const },
+  ])('rejects a %s receipt kind before inserting the chunk', async ({ stage, kind }) => {
+    const run = await repository.startOrResume({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      channelAccountId: WING_ACCOUNT_ID,
+      idempotencyKey: randomUUID(),
+      collectorVersion: '1.0.0',
+      stage,
+    });
+
+    await expect(repository.putChunk({
+      organizationId: TEST_ORGANIZATION_ID,
+      channelAccountId: WING_ACCOUNT_ID,
+      runId: run.id,
+      attemptToken: run.attemptToken,
+      kind,
+      sequence: 1,
+      checksum: 'a'.repeat(64),
+      itemCount: 1,
+      payload: {},
+    })).rejects.toBeInstanceOf(ConflictException);
+
+    const stored = await repository.getOwnedRunWithChunks({
+      organizationId: TEST_ORGANIZATION_ID,
+      channelAccountId: WING_ACCOUNT_ID,
+      runId: run.id,
+      attemptToken: run.attemptToken,
+      stage,
+      includePayload: false,
+    });
+    expect(stored.chunks).toHaveLength(0);
+  });
 });
 
 async function startRun(repository: ChannelCatalogCollectionRepositoryAdapter) {
@@ -169,7 +376,7 @@ async function startRun(repository: ChannelCatalogCollectionRepositoryAdapter) {
     organizationId: TEST_ORGANIZATION_ID,
     userId: TEST_USER_ID,
     channelAccountId: WING_ACCOUNT_ID,
-    clientRunKey: randomUUID(),
+    idempotencyKey: randomUUID(),
     collectorVersion: '1.0.0',
   });
 }

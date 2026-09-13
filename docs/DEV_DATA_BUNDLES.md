@@ -1,6 +1,6 @@
 # Dev Data Profiles and Bundles
 
-KidItem 개발 데이터 공유의 표준 경로는 **Google Drive profile sync + Coupang scraper bundle replay**다. DB 볼륨, `init.sql.gz`, one-off seed 파일로 팀원 간 화면 상태를 맞추지 않는다.
+KidItem 개발 데이터 공유의 표준 경로는 **Google Drive profile sync + Coupang scraper bundle pull**다. DB 볼륨, `init.sql.gz`, one-off seed 파일로 팀원 간 화면 상태를 맞추지 않는다. 예전의 generic replay adapter는 retired 되었고, bundle은 원본 확인·비교용으로만 내려받는다.
 
 Canonical Google Drive folder:
 
@@ -9,7 +9,7 @@ Canonical Google Drive folder:
 ## 목적
 
 - Google Drive 에는 쿠팡 스크래퍼 payload bundle, profile JSON, 프로젝트 reference Excel 만 올린다.
-- 각 개발자는 profile 을 sync 해서 bundle 을 내려받고 로컬 DB 에 replay 한다.
+- 각 개발자는 profile 을 sync 해서 bundle 을 내려받고 원본·reference를 확인한다. DB 반영이 필요한 경우 해당 source owner runtime을 사용한다.
 - 앱은 계속 로컬 PostgreSQL + MinIO/S3 를 기준으로 동작한다.
 - Google Drive 는 런타임 저장소나 DB 전체 백업이 아니라 개발 데이터 입력 artifact 저장소다.
 
@@ -38,7 +38,7 @@ Profile sync 로컬 사본은 `.data/dev/<domain>/<datasetId>/` 로 압축이 �
 
 `references/` 는 KidItem 프로젝트 전체의 기준 파일을 관리하는 위치다. 특정 도메인의 하위 폴더가 아니다.
 
-zip 내부에는 replay payload 와 프로젝트 reference 파일의 snapshot 을 함께 넣는다. 그래야 나중에 `latest` 가 바뀌어도 특정 dataset 을 pull 한 사람은 그 dataset 이 만들어질 때의 기준 파일을 그대로 볼 수 있다.
+zip 내부에는 source payload 와 프로젝트 reference 파일의 snapshot 을 함께 넣는다. 그래야 나중에 `latest` 가 바뀌어도 특정 dataset 을 pull 한 사람은 그 dataset 이 만들어질 때의 기준 파일을 그대로 볼 수 있다. 이 bundle은 generic DB replay 입력이 아니다.
 
 ```text
 manifest.json
@@ -55,12 +55,12 @@ references/
 
 AI 가 새 머신에서 Google Drive dev data 를 세팅해야 하면
 [Google Drive Dev Data Runbook](runbooks/google-drive-dev-data.md) 만 읽고
-따른다. 이 문서는 데이터 포맷, 운영 규칙, publish/replay/검증 절차의
+따른다. 이 문서는 데이터 포맷, 운영 규칙, publish/pull/검증 절차의
 source of truth 로 남긴다.
 
 ## Profile
 
-Profile 은 어떤 bundle 을 어떤 mode 로 replay 할지 정의하는 recipe 다. `workspace` 와 `coupang` 은 현재 같은 쿠팡 bundle 을 가리킨다.
+Profile 은 어떤 bundle 을 pull 할지 정의하는 recipe 다. `workspace` 와 `coupang` 은 현재 같은 쿠팡 bundle 을 가리킨다. Legacy generic replay는 지원하지 않는다.
 
 ```json
 {
@@ -68,21 +68,21 @@ Profile 은 어떤 bundle 을 어떤 mode 로 replay 할지 정의하는 recipe 
   "profileId": "workspace",
   "description": "Default local workspace data from real Coupang scraper payloads",
   "steps": [
-    { "domain": "coupang", "dataset": "latest", "mode": "scoped-replace" }
+    { "domain": "coupang", "dataset": "latest", "mode": "pull-only", "replay": false }
   ]
 }
 ```
 
-현재 replay adapter 는 `coupang` 만 연결되어 있다. `core`, `sourcing`, `listing`, `e2e` 디렉터리는 만들지 않는다.
+현재 bundle adapter는 pull/publish만 제공한다. `core`, `sourcing`, `listing`, `e2e` 디렉터리는 만들지 않는다.
 
 ## 팀 운영 룰
 
-이 Drive 는 "스크래퍼를 실행할 수 있는 사람"이 실제 쿠팡 payload 를 공유하고, "스크래퍼를 실행할 수 없는 사람"이 같은 payload 를 로컬에서 replay 한 뒤 기능을 검증하기 위한 협업 표면이다.
+이 Drive 는 "스크래퍼를 실행할 수 있는 사람"이 실제 쿠팡 payload 를 공유하고, "스크래퍼를 실행할 수 없는 사람"이 같은 payload와 reference를 내려받아 확인하기 위한 협업 표면이다. Generic DB replay는 제공하지 않는다.
 
 역할은 두 가지다.
 
 - **Scraper runner / publisher**: 쿠팡 Wing/광고센터에 접근 가능한 사람이 익스텐션으로 payload 를 수집하고 Drive 에 publish 한다.
-- **Consumer / verifier**: Drive bundle 을 sync/replay 하고 DB 저장, UI 표시, 재고 불일치, 주요 기능 회귀를 확인한다.
+- **Consumer / verifier**: Drive bundle 을 sync/pull 하고 payload·reference를 확인한다. DB 저장과 UI 검증은 각 source owner 경로로 수행한다.
 
 기준 규칙:
 
@@ -98,14 +98,14 @@ Profile 은 어떤 bundle 을 어떤 mode 로 replay 할지 정의하는 recipe 
 - `kiditem_list.xlsx`: 과거 KidItem 상품/옵션/재고 비교 snapshot.
 - `wing-inventory-matched.xlsx`: 과거 Coupang Wing 매칭 결과 비교 snapshot.
 
-이 두 파일은 `data:dev:replay` 또는 DB import 대상이 아니다. 오늘의
+이 두 파일은 retired `data:dev:replay` 또는 DB import 대상이 아니다. 오늘의
 재고 권한은 Sellpia 스냅샷으로 가져온 `SellpiaInventorySku.currentStock`이고,
 Wing 상품/옵션은 계정 범위 catalog import로 재구성한다. Reference Excel은
 과거 결과를 비교하는 증거일 뿐 재고나 매칭을 자동 수정하지 않는다.
 
 ## `0.1.19` Sellpia 최신성과 발주 시도 데이터
 
-표준 Drive profile은 계속 쿠팡 scraper payload만 replay한다. 인증된 Sellpia
+표준 Drive profile은 계속 쿠팡 scraper payload bundle만 pull한다. 인증된 Sellpia
 세션을 package하거나 fresh claim을 재현하지 않는다. 아래 persisted row는
 source payload가 아니라 runtime/검증 상태다.
 
@@ -136,7 +136,7 @@ Sellpia/Coupang password, cookie, browser storage, access/refresh token,
 workbook data가 든 extension message, raw provider response, claim token, 실제
 workbook 내용은 `.data/`, Drive bundle, Git, PR, issue, screenshot, log에 넣지
 않는다. 인증된 Chrome session은 운영자 로컬에만 남긴다. 공유하는 것은
-sanitize된 count/status와 provider에 replay할 수 없는 deterministic test
+sanitize된 count/status와 provider에 재전송할 수 없는 deterministic test
 fixture로 제한한다.
 
 ## 공유/검증 한 사이클
@@ -148,8 +148,8 @@ fixture로 제한한다.
 3. Publisher 가 Drive 루트 `references/` 의 `kiditem_list.xlsx`, `wing-inventory-matched.xlsx` 를 같은 bundle 에 snapshot 으로 포함한다.
 4. Publisher 가 `data:dev:publish` 로 Drive 의 `coupang/latest.json` 과 zip 을 갱신한다.
 5. Publisher 가 dataset id, 날짜 범위, payload 종류, row count, reference 파일명을 팀에 공유한다.
-6. Consumer 가 `data:dev:sync -- --profile workspace --yes` 로 Drive bundle 을 내려받고 로컬 DB 에 replay 한다.
-7. Consumer 가 Drive 에 저장된 reference 파일로 DB 저장, UI 표시, 재고 불일치, 핵심 기능을 확인한다.
+6. Consumer 가 `data:dev:sync -- --profile workspace --dry-run` 로 Drive bundle 을 내려받고 pull 결과를 확인한다.
+7. Consumer 가 Drive 에 저장된 reference 파일과 source owner의 실제 수집 결과로 DB 저장, UI 표시, 재고 불일치, 핵심 기능을 확인한다.
 8. 문제가 있으면 payload 문제, ingest 문제, 스키마 문제, UI 문제 중 어디인지 분류해서 보고한다.
 
 공유 메시지 템플릿:
@@ -191,19 +191,17 @@ npm run data:dev:pull -- --domain coupang
 이 상태에서 할 수 있는 일:
 
 - `manifest.json` 으로 dataset id, 날짜 범위, payload 종류, reference 파일을 확인한다.
-- `payloads/*.json` 으로 실제 replay 대상 원본 payload 를 확인한다.
-- `references/kiditem_list.xlsx` 와 `references/wing-inventory-matched.xlsx` 로 KidItem 기준 재고, 쿠팡 표시 재고, 로컬 DB 재고를 비교한다.
-- 서버를 띄운 뒤 `npm run data:dev:replay -- --domain coupang --mode scoped-replace --yes` 로 같은 payload 를 로컬 DB 에 넣는다.
-- replay 후 DB/API/UI 검증을 수행한다.
+- `payloads/*.json` 으로 source owner가 만든 원본 payload 를 확인한다.
+- `references/kiditem_list.xlsx` 와 `wing-inventory-matched.xlsx` 로 KidItem 기준 재고와 쿠팡 표시 재고를 비교한다.
+- bundle pull은 DB에 쓰지 않는다. DB/API/UI 검증이 필요하면 해당 source owner의 인증된 수집·업로드 경로를 사용한다.
 
-한 번에 replay 까지 하려면 다음을 실행한다.
+bundle pull과 검증 계획만 확인하려면 다음을 실행한다.
 
 ```bash
-npm run dev:server
-npm run data:dev:sync -- --profile workspace --yes
+npm run data:dev:sync -- --profile workspace --dry-run
 ```
 
-이 플로우의 목표는 "팀원이 스크래퍼를 실행했다"가 아니라 "Drive 에 저장된 동일 dataset 으로 나도 같은 DB/UI 상태를 재현하고 검증할 수 있다"다.
+이 플로우의 목표는 "팀원이 스크래퍼를 실행했다"가 아니라 "Drive 에 저장된 동일 dataset 으로 나도 같은 source/reference 상태를 확인하고, DB/UI는 source owner 경로로 검증할 수 있다"는 것이다.
 
 ## 파일명 규칙
 
@@ -223,7 +221,7 @@ kiditem-coupang-2026-05-01-v1.zip
 
 ## Manifest
 
-zip 내부의 `manifest.json` 은 replay scope 를 반드시 포함한다. `scoped-replace` 가 이 범위만 지우고 다시 주입한다.
+zip 내부의 `manifest.json` 은 source 날짜·범위 metadata를 포함한다. Generic replay는 지원하지 않으므로 이 scope는 DB cleanup/import 권한을 부여하지 않는다.
 
 ```json
 {
@@ -266,11 +264,14 @@ zip 내부의 `manifest.json` 은 replay scope 를 반드시 포함한다. `scop
 }
 ```
 
+`defaultImportMode` 는 기존 bundle 호환을 위한 metadata일 뿐이다. 현재
+profile은 `pull-only`를 명시하며 generic replay adapter는 실행되지 않는다.
+
 `lane` 은 기존 bundle manifest 호환을 위한 메타데이터다. Drive 디렉터리 구조를 나누는 데 사용하지 않는다.
 
-Payload 파일은 기존 `POST /api/ads/extension/sync` body 와 같은 JSON object 를 권장한다. JSON array 만 있으면 manifest 의 `type`/`source` 로 `{ type, source, data }` 형태를 만들어 replay 한다.
+Payload 파일은 source owner가 만든 JSON object를 보존한다. JSON array와 legacy `POST /api/ads/extension/sync` replay shape를 새 ingest 계약으로 해석하지 않는다.
 
-Wing 등록상품 이미지는 이 bundle로 replay하지 않는다. 인증된 브라우저
+Wing 등록상품 이미지는 이 bundle로 DB에 넣지 않는다. 인증된 브라우저
 catalog collection이 provider URL을 listing `ContentWorkspace`의 `ContentAsset`로
 게시하며, 원본 바이트는 필요한 콘텐츠 작업에서만 가져온다.
 
@@ -308,7 +309,7 @@ Publisher 체크리스트:
 1. `npm run dev:server` 가 떠 있고 익스텐션 팝업에서 서버 연결이 `연결됨` 인지 확인한다.
 2. Wing/광고센터에서 필요한 페이지를 열고 익스텐션의 동기화 버튼을 실행한다.
 3. 월별/일별 수집을 했다면 완료 메시지의 완료 일수와 row count 를 기록한다.
-4. Drive 루트 `references/kiditem_list.xlsx`, `references/wing-inventory-matched.xlsx` 의 row count 를 기록한다. 이 파일들은 scraper replay나 DB import 대상이 아니다.
+4. Drive 루트 `references/kiditem_list.xlsx`, `references/wing-inventory-matched.xlsx` 의 row count 를 기록한다. 이 파일들은 source-owner 수집이나 DB import 대상이 아니다.
 5. scraper output JSON 을 준비한 뒤 아래 `export`/`publish` 를 실행한다. `KIDITEM_DEV_DATA_DRIVE_DIR` 이 설정되어 있으면 export 가 Drive 루트 `references/` 의 두 엑셀을 자동으로 bundle snapshot 에 포함한다.
 6. publish 후 `coupang/latest.json` 이 새 dataset 을 가리키는지 확인한다.
 
@@ -338,7 +339,7 @@ coupang/bundles/kiditem-coupang-2026-05-01-v1.zip.sha256
 
 `zip`/`unzip` CLI 가 로컬에 필요하다. macOS 기본 환경에는 포함되어 있다.
 
-Drive 루트 reference 와 다른 파일을 명시해야 하는 예외 상황에서는 `--kiditem-list`, `--wing-inventory-matched` 로 직접 지정할 수 있다. 추가 비교 파일을 한 번에 넣으려면 `--reference-dir ./somewhere/references` 를 사용한다. reference 파일은 scraper replay 에서 직접 저장되지 않지만 zip checksum 검증 대상이며, consumer 의 `.data/dev/coupang/<datasetId>/references/` 에 풀린다.
+Drive 루트 reference 와 다른 파일을 명시해야 하는 예외 상황에서는 `--kiditem-list`, `--wing-inventory-matched` 로 직접 지정할 수 있다. 추가 비교 파일을 한 번에 넣으려면 `--reference-dir ./somewhere/references` 를 사용한다. reference 파일은 source-owner 수집에서 직접 저장되지 않지만 zip checksum 검증 대상이며, consumer 의 `.data/dev/coupang/<datasetId>/references/` 에 풀린다.
 
 Wing catalog 등록상품과 provider 미디어는 Drive bundle이 아닌
 [Coupang Wing Catalog Collection](runbooks/coupang-wing-catalog-collection.md)으로
@@ -348,41 +349,24 @@ Wing catalog 등록상품과 provider 미디어는 Drive bundle이 아닌
 
 위 Drive folder 를 Google Drive for Desktop 으로 로컬에 동기화하고, 각자 머신의 동기화 경로를 env 로 지정한다. CLI 는 Drive URL 을 직접 다운로드하지 않고 로컬 동기화 폴더의 profile, `latest.json`, zip archive 를 읽는다.
 
-Consumer 는 스크래퍼를 직접 실행하지 않아도 된다. Drive 의 최신 bundle 을 replay 해서 publisher 가 본 쿠팡 payload 와 같은 ingest 결과를 로컬 DB 에 재현한다.
+Consumer 는 스크래퍼를 직접 실행하지 않아도 된다. Drive 의 최신 bundle 을 pull 해서 publisher가 공유한 쿠팡 payload와 reference를 확인한다. 이 bundle만으로 ingest 결과를 로컬 DB에 재현하지 않는다.
 
 ```bash
 export KIDITEM_DEV_DATA_DRIVE_DIR="$HOME/Library/CloudStorage/GoogleDrive-.../My Drive/KidItem Dev Data"
-export DEV_DEFAULT_USER_ID="<local dev user uuid>"
-
 npm run data:dev:status
-npm run data:dev:sync -- --profile workspace --yes
+npm run data:dev:sync -- --profile workspace --dry-run
 ```
 
-서버는 별도로 떠 있어야 한다.
-
-```bash
-npm run dev:server
-```
-
-`scoped-replace` 는 manifest 의 `scope.businessDateFrom`/`businessDateTo` 범위에 있는 쿠팡 daily fact 와 raw scrape row 를 지운 뒤 같은 payload 를 `/api/ads/extension/sync` 로 다시 넣는다. 따라서 UI 에 보이는 데이터는 실제 서버 ingest 경로와 동일하다.
-
-특정 도메인만 직접 확인할 수도 있다.
-
-```bash
-npm run data:dev:pull -- --domain coupang
-npm run data:dev:replay -- --domain coupang --mode scoped-replace --yes
-```
-
-Replay 성공 기준:
+Pull 성공 기준:
 
 - `sync-report-workspace.json` 이 `.data/dev/` 아래 생성된다.
-- `steps[0].domain` 이 `coupang` 이고 `replay.results[*].ok` 가 모두 `true` 다.
-- `channel_scrape_runs` 에 새 run 이 생기고 `error_count = 0` 이다.
-- raw row 는 `channel_scrape_snapshots`, 정규화 daily fact 는 payload 종류에 따라 `channel_listing_daily_snapshots`, `channel_listing_option_daily_snapshots`, `channel_ad_target_daily_snapshots`, `channel_account_daily_kpi_snapshots` 에 저장된다.
+- `steps[0].domain` 이 `coupang` 이고 `replay.skipped` 가 `true` 다.
+- bundle manifest, payload, reference 파일이 `.data/dev/coupang/<datasetId>/` 아래 존재한다.
+- DB/API/UI 검증은 해당 source owner의 별도 인증 수집·업로드 경로로 수행한다.
 
 ## 검증 매뉴얼
 
-Consumer 는 replay 직후 다음을 확인한다. 이 검증은 "데이터가 Drive 에 있다"가 아니라 "현재 DB 스키마와 앱 기능이 실제 쿠팡 payload 를 받아도 살아 있다"를 증명하기 위한 것이다.
+Consumer 는 pull 직후 다음 reference와 source-owner 검증을 확인한다. 이 검증은 "데이터가 Drive 에 있다"와 "현재 DB 스키마와 앱 기능이 실제 쿠팡 payload를 받아도 살아 있다"를 구분한다.
 
 ### 1. DB 저장 확인
 
@@ -418,7 +402,7 @@ select 'account_kpi', count(*) from channel_account_daily_kpi_snapshots where ch
 확인 기준:
 
 - `row_count` 가 publisher 가 공유한 payload row count 와 크게 다르면 payload 누락 또는 export 범위를 의심한다.
-- `error_count > 0` 이면 ingest 오류다. replay report 와 서버 로그를 같이 본다.
+- `error_count > 0` 이면 source-owner ingest 오류다. owner report 와 서버 로그를 같이 본다.
 - `unmatched_count` 가 높으면 스키마 오류라기보다 `ChannelListing` / `ChannelListingOption` 매칭 데이터가 부족하거나 쿠팡 payload 식별자가 기존 DB 와 안 맞는 상태일 수 있다.
 
 ### 2. 재고 불일치 확인
@@ -479,9 +463,8 @@ limit 100;
 - `mapping_status = matched`인데 component가 없거나, 확정된 component
   수량이 의도와 다르면 운영자가 `/product-hub/matching`에서 전체
   레시피를 다시 확인한다. 상품명에서 수량을 자동 추론하지 않는다.
-- 재고 차이는 scraper replay 실패와 구분한다. replay는
-  광고/트래픽/아이템위너 daily fact를 저장하는 경로이고, reference
-  Excel은 자동 수정 근거가 아니다.
+- 재고 차이는 source-owner 수집 실패와 구분한다. reference Excel은 자동
+  수정 근거가 아니다.
 
 보고 형식:
 
@@ -519,7 +502,7 @@ rtk npm run dev
 확인 기준:
 
 - 화면이 빈 상태여도 API 에러, React error overlay, 무한 로딩이 없어야 한다.
-- 스키마 변경 직후라면 숫자가 맞는지보다 "실제 payload replay 후 화면과 API가 깨지지 않는지"를 먼저 본다.
+- 스키마 변경 직후라면 숫자가 맞는지보다 "source-owner ingest 후 화면과 API가 깨지지 않는지"를 먼저 본다.
 - 광고/아이템위너/트래픽 수치가 publisher row count 와 완전히 같지 않을 수 있다. 매칭 실패 row 는 raw snapshot 에 저장되고 daily fact 로는 올라가지 않을 수 있기 때문이다.
 
 ### 4. 기능 회귀 확인
@@ -548,9 +531,9 @@ rtk npm exec --workspace=apps/server -- vitest run src/advertising src/channels 
 Consumer 는 검증 후 아래 형식으로 공유한다.
 
 ```text
-Coupang replay verification
+Coupang bundle/source-owner verification
 - dataset: 2026-05-01-v1
-- replay: pass/fail
+- bundle pull: pass/fail
 - DB: runs N, raw N, listing_daily N, option_daily N, ad_target_daily N, account_kpi N
 - unmatched: N
 - inventory mismatch: N checked, N missing matches, N stock mismatches
@@ -564,14 +547,12 @@ Coupang replay verification
 
 | 모드 | 의미 | 기본 사용처 |
 |---|---|---|
-| `upsert` | 기존 데이터를 지우지 않고 같은 key 는 갱신 | 빠른 smoke |
-| `scoped-replace` | 회사/organization + channel + date range 범위만 교체 | 표준 개발 데이터 세팅 |
-| `pull-only` | bundle 을 내려받지만 replay adapter 를 호출하지 않음 | adapter 추가 전 도메인/objects 준비 |
-| `full-reset` | Docker volume 을 직접 초기화한 뒤 replay | 온보딩/E2E 전용, CLI 자동화 없음 |
+| `pull-only` | bundle 을 내려받지만 replay adapter 를 호출하지 않음 | 현재 지원되는 profile sync |
+| `upsert` / `scoped-replace` / `full-reset` | 과거 replay metadata와 호환되지만 retired adapter에서는 실행하지 않음 | 사용하지 않음 |
 
 ## 기존 방식과의 차이
 
-- `scripts/seed-channel-market-data.ts` 는 제거됐다. synthetic daily fact seed 는 실제 scrape replay 를 가려서 표준 경로로 쓰지 않는다.
+- `scripts/seed-channel-market-data.ts` 는 제거됐다. synthetic daily fact seed 는 source-owner ingest를 가려서 표준 경로로 쓰지 않는다.
 - `data:coupang:*` npm script 와 직접 실행용 `scripts/coupang-dev-data.ts` 는 제거됐다. 쿠팡도 `data:dev:* --domain coupang` 만 사용한다.
 - `prisma/init.sql.gz` 는 개발 데이터 공유 수단이 아니다. Fresh Docker volume snapshot 이 꼭 필요할 때만 예외적으로 쓴다.
 - One-off backfill / migration / seed scripts are not retained in git after rollout. Durable schema objects must live in Prisma schema; reusable screen data uses `data:dev:*`.

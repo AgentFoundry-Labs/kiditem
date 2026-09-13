@@ -15,13 +15,33 @@ interface DayRevenue {
   orders: number;
   salesQty: number;
   visitors: number;
+  views: number;
+  cartAdds: number;
 }
 
 interface MonthlyData {
   year: number;
   month: number;
   days: DayRevenue[];
-  total: { revenue: number; orders: number; salesQty: number; visitors: number };
+  total: {
+    revenue: number | null;
+    orders: number | null;
+    salesQty: number | null;
+    visitors: number | null;
+    views: number | null;
+    cartAdds: number | null;
+  };
+  averageDailyVisitors: number | null;
+  coverage: {
+    targetDays: number;
+    completedDays: number;
+    missingDates: string[];
+  };
+  reconciliation: Record<string, {
+    status: 'MATCHED' | 'MISMATCH' | 'UNVERIFIED';
+    dailySum: number | null;
+    periodValue: number | null;
+  }> | null;
 }
 
 const YEAR_OPTIONS = [2024, 2025, 2026];
@@ -58,6 +78,8 @@ export default function WingDailySales() {
 
   const showLoading = isLoading && !data;
   const maxRevenue = Math.max(1, ...(data?.days.map((d) => d.revenue) ?? []));
+  const incompleteCoverage = !!data
+    && data.coverage.completedDays < data.coverage.targetDays;
 
   return (
     <div className="space-y-6">
@@ -138,16 +160,27 @@ export default function WingDailySales() {
             <div className="card">
               <div className="card-label">일평균 매출</div>
               <div className="card-value">
-                {data.days.length > 0
+                {data.total.revenue !== null && data.days.length > 0
                   ? `${formatKRW(Math.round(data.total.revenue / data.days.length))}원`
                   : '—'}
               </div>
             </div>
             <div className="card">
-              <div className="card-label">월 방문자</div>
-              <div className="card-value">{formatNumber(data.total.visitors)}명</div>
+              <div className="card-label">일평균 방문자</div>
+              <div className="card-value">
+                {data.averageDailyVisitors === null
+                  ? '—'
+                  : `${formatNumber(Math.round(data.averageDailyVisitors))}명`}
+              </div>
             </div>
           </div>
+
+          {incompleteCoverage && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+              전체 {data.coverage.targetDays}일 중 {data.coverage.completedDays}일만 수집되어 기간 합계를 표시하지 않습니다.
+              누락 날짜를 수집하면 합계가 표시됩니다. 현재 표시되는 일별 행은 수집된 날짜의 원자료입니다.
+            </div>
+          )}
 
           {/* 바 차트 */}
           {data.days.length === 0 ? (

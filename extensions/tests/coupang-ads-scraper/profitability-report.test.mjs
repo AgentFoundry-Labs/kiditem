@@ -32,6 +32,7 @@ function loadContract(overrides = {}) {
     },
     MouseEvent: TestMouseEvent,
     fetch: overrides.fetch,
+    Date: overrides.Date || Date,
     setTimeout,
     TextEncoder,
     URL,
@@ -141,6 +142,127 @@ test("finds the direct campaign-picker button used by the current report form", 
   assert.equal(contract.campaignPickerButton(), picker);
 });
 
+test("waits for the old campaign selection to reset before opening the picker", async () => {
+  let pickerPolls = 0;
+  let pickerClicks = 0;
+  let pickerLabelAtClick = null;
+  let confirmClicks = 0;
+  let checkboxReads = 0;
+  const picker = {
+    innerText: "모든 캠페인",
+    isConnected: true,
+    disabled: false,
+    matches(selector) { return selector === "button"; },
+    click() {
+      pickerClicks += 1;
+      pickerLabelAtClick = picker.innerText;
+    },
+  };
+  const heading = {
+    innerText: "캠페인 선택",
+    isConnected: true,
+    nextElementSibling: picker,
+  };
+  const createButton = {
+    innerText: "보고서 만들기",
+    isConnected: true,
+    disabled: false,
+  };
+  const allCheckbox = {
+    checked: false,
+    isConnected: true,
+    disabled: false,
+    closest() { return { innerText: "전체선택" }; },
+    click() { allCheckbox.checked = true; },
+  };
+  const campaignCheckbox = {
+    checked: false,
+    isConnected: true,
+    disabled: false,
+    closest() { return { innerText: "캠페인 A" }; },
+  };
+  const confirm = {
+    innerText: "확인",
+    isConnected: true,
+    click() { confirmClicks += 1; },
+  };
+  const contract = loadContract({
+    document: {
+      querySelector() { return null; },
+      querySelectorAll(selector) {
+        if (selector === "h1,h2,h3,h4,h5,h6") {
+          pickerPolls += 1;
+          if (pickerPolls === 3) {
+            picker.innerText = "캠페인을 선택하세요";
+            picker.disabled = true;
+            createButton.disabled = true;
+          } else if (pickerPolls >= 5) {
+            picker.disabled = false;
+          }
+          return [heading];
+        }
+        if (selector === "button") return [picker, createButton, confirm];
+        if (selector === 'input[type="checkbox"]') {
+          checkboxReads += 1;
+          return pickerClicks > 0 ? [allCheckbox, campaignCheckbox] : [];
+        }
+        return [];
+      },
+    },
+  });
+
+  assert.equal(await contract.selectAllCampaigns(), 1);
+  assert.ok(pickerPolls >= 5);
+  assert.equal(pickerLabelAtClick, "캠페인을 선택하세요");
+  assert.equal(confirmClicks, 1);
+  assert.ok(checkboxReads > 0);
+});
+
+test("fails campaign selection readiness without opening an unreset picker", async () => {
+  let now = 0;
+  let pickerClicks = 0;
+  let checkboxReads = 0;
+  const picker = {
+    innerText: "모든 캠페인",
+    isConnected: true,
+    disabled: false,
+    matches(selector) { return selector === "button"; },
+    click() { pickerClicks += 1; },
+  };
+  const heading = {
+    innerText: "캠페인 선택",
+    isConnected: true,
+    nextElementSibling: picker,
+  };
+  const createButton = {
+    innerText: "보고서 만들기",
+    isConnected: true,
+    disabled: false,
+  };
+  const contract = loadContract({
+    Date: { now() { now += 1_000; return now; } },
+    document: {
+      querySelector() { return null; },
+      querySelectorAll(selector) {
+        if (selector === "h1,h2,h3,h4,h5,h6") return [heading];
+        if (selector === "button") return [picker, createButton];
+        if (selector === 'input[type="checkbox"]') {
+          checkboxReads += 1;
+          return [];
+        }
+        return [];
+      },
+    },
+  });
+
+  await assert.rejects(
+    contract.selectAllCampaigns(),
+    /profitability_report_campaign_selection_not_ready/,
+  );
+  assert.equal(pickerClicks, 0);
+  assert.equal(checkboxReads, 0);
+});
+
 test("waits for the requested-report list before deciding a matching report is absent", async () => {
   const slice = {
     startDate: "2025-06-28",
@@ -248,6 +370,94 @@ test("creates a report only when no matching completed or pending report exists"
   assert.equal(createClicks, 1);
 });
 
+test("waits for the report Create control to enable after campaign selection settles", async () => {
+  const slice = {
+    startDate: "2025-09-01",
+    endDate: "2025-09-30",
+  };
+  const rows = [];
+  let createClicks = 0;
+  let buttonReads = 0;
+  const createButton = {
+    innerText: "보고서 만들기",
+    isConnected: true,
+    disabled: true,
+    click() {
+      createClicks += 1;
+      rows.push({
+        innerText: "2025-09-01 ~ 2025-09-30 [일별] 캠페인 > 광고그룹 > 상품 생성 완료",
+        isConnected: true,
+        closest() { return null; },
+      });
+    },
+  };
+  const refreshButton = {
+    innerText: "목록 새로 고침",
+    isConnected: true,
+    click() { throw new Error("refresh must not run before Create"); },
+  };
+  let now = 0;
+  const contract = loadContract({
+    Date: { now() { now += 1_000; return now; } },
+    document: {
+      querySelector() { return null; },
+      querySelectorAll(selector) {
+        if (selector === '[role="row"]') return rows;
+        if (selector === "button") {
+          buttonReads += 1;
+          if (buttonReads >= 3) createButton.disabled = false;
+          return [createButton, refreshButton];
+        }
+        return [];
+      },
+    },
+  });
+
+  assert.equal(await contract.waitForReport(slice, true), rows[0]);
+  assert.equal(createClicks, 1);
+  assert.ok(buttonReads >= 3);
+});
+
+test("fails boundedly without clicking disabled Create or polling generation", async () => {
+  const slice = {
+    startDate: "2025-09-01",
+    endDate: "2025-09-30",
+  };
+  let createClicks = 0;
+  let refreshClicks = 0;
+  const createButton = {
+    innerText: "보고서 만들기",
+    isConnected: true,
+    disabled: true,
+    click() { createClicks += 1; },
+  };
+  const refreshButton = {
+    innerText: "목록 새로 고침",
+    isConnected: true,
+    disabled: true,
+    click() { refreshClicks += 1; },
+  };
+  let now = 0;
+  const contract = loadContract({
+    Date: { now() { now += 1_000; return now; } },
+    document: {
+      querySelector() { return null; },
+      querySelectorAll(selector) {
+        if (selector === '[role="row"]') return [];
+        if (selector === "button") return [createButton, refreshButton];
+        return [];
+      },
+    },
+  });
+
+  await assert.rejects(
+    contract.waitForReport(slice, true),
+    /profitability_report_create_button_not_ready/,
+  );
+  assert.equal(createClicks, 0);
+  assert.equal(refreshClicks, 0);
+});
+
 test("reads the generated report id and parses the chart API NDJSON body", () => {
   const contract = loadContract();
   const row = {
@@ -313,7 +523,6 @@ test("downloads the generated report body directly instead of reading the chart 
     },
   }]);
   assert.equal(result.reportId, "14606979");
-  assert.equal(result.expectedRowCount, 2);
   assert.equal(result.rows.length, 2);
   assert.equal(result.responseBytes, new TextEncoder().encode(body).length);
 });
@@ -445,4 +654,52 @@ test("reports identifier and date population without exposing report values", ()
     "date=dt:3/3,reportday:0/0,reportDay:0/0",
     "identifier=advertised_vendor_item_id:1,advertisedVendorItemId:0,vendor_item_id:1,vendoritemid:0,vendorItemId:0,externaloptionid:0,externalOptionId:0,adviid:0",
   ].join(";"));
+});
+
+test("switches to the server-planned account and proves the visible advertiser before collection", async () => {
+  let visibleAdvertiserId = "wrong-advertiser";
+  let clicks = 0;
+  const switchControl = {
+    isConnected: true,
+    getAttribute(name) {
+      return name === "data-advertiser-id" ? "advertiser-a" : null;
+    },
+    click() {
+      clicks += 1;
+      visibleAdvertiserId = "advertiser-a";
+    },
+  };
+  const accountCode = {
+    textContent: "업체코드",
+    nextElementSibling: {
+      get textContent() { return visibleAdvertiserId; },
+    },
+  };
+  const contract = loadContract({
+    document: {
+      querySelector() { return null; },
+      querySelectorAll(selector) {
+        if (selector === "dt") return [accountCode];
+        if (selector.includes("data-advertiser-id")) return [switchControl];
+        return [];
+      },
+    },
+  });
+
+  const visible = await contract.switchProfitabilityAccount({
+    externalAccountId: "coupang-account-a",
+    expectedAdvertiserId: "advertiser-a",
+  });
+
+  assert.equal(visible, "advertiser-a");
+  assert.equal(clicks, 1);
+  assert.doesNotMatch(source, /syncProfitabilityReportToServer/);
+});
+
+test("direct receipt proof counts only canonical product rows", () => {
+  assert.match(
+    source,
+    /expectedRowCount: rows\.length,\s*collectedRowCount: rows\.length,/,
+  );
+  assert.doesNotMatch(source, /expectedRowCount: detail\.expectedRowCount/);
 });

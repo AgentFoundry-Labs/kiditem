@@ -1,10 +1,18 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import vm from "node:vm";
 
 const source = await readFile(
   new URL(
     "../../kiditem-os/background/coupang/worker.js",
+    import.meta.url,
+  ),
+  "utf8",
+);
+const keywordCollectorSource = await readFile(
+  new URL(
+    "../../kiditem-os/background/coupang/coupang-keyword-suggestion-collector.js",
     import.meta.url,
   ),
   "utf8",
@@ -18,94 +26,60 @@ function functionSource(name, nextName) {
   return source.slice(start, end);
 }
 
-test("Wing sales-rank collection supports cooperative cancellation", () => {
-  assert.match(source, /wingCatalogSalesRankCancel:\s*true/);
-  assert.match(source, /msg\.action === "cancelWingSalesRankCheck"/);
-  assert.match(
-    source,
-    /const requestedRunId = typeof msg\.runId === "string" \? msg\.runId : null;/,
-  );
-  assert.match(source, /collectionRuns\.cancel\(requestedRunId, environmentId\)/);
-  assert.match(
-    source,
-    /collectionSessions\.cancel\(runId, \{ closeManagedTab: true \}\)/,
-  );
-  assert.match(source, /\[statusKey, cancelKey\]/);
-  assert.match(source, /isWingSalesRankCancelled\(runId\)/);
-  assert.match(
-    source,
-    /existingIsActive[\s\S]*?isWingSalesRankCancelled\(existing\.runId, environmentId\)/,
-  );
-  assert.match(source, /status:\s*cancelled[\s\S]*?"cancelled"/);
-  assert.match(source, /storage\.local\.remove\(rankCancelKey\)/);
+test("Wing rank keeps caller-level whole-search retry around the Wing collector seam", () => {
+  assert.match(source, /search = await wingSearchCollector\.collect\(/);
+  assert.match(source, /for \(let attempt = 1; attempt <= 2; attempt\+\+\)/);
+  assert.match(source, /if \(search\?\.attentionRequired \|\| search\?\.cancelled\) return search/);
+  assert.match(source, /if \(!search\?\.success\) throw new Error/);
 });
 
-test("Wing rank pauses the whole session on login or bounded upstream exhaustion", () => {
-  const wingRank = functionSource(
-    'startWingSalesRankCheck',
-    'runWingSalesRankBatch',
-  );
-  const wingCatalogSearch = functionSource(
-    'searchWingCatalogProducts',
-    'searchCoupangKeywordSuggestions',
-  );
-
-  assert.match(wingRank, /options\.forceRestart/);
-  assert.match(wingRank, /producer:\s*"advertising\.wing_rank"/);
-  assert.match(wingRank, /runWingSalesRankBatch\(targets, productTotal, runId, startedAt, environmentId\)/);
-  assert.match(wingCatalogSearch, /executeWingCatalogSearchWithRetry/);
-  assert.match(wingCatalogSearch, /response\?\.status === 429/);
-  assert.match(wingCatalogSearch, /response\?\.status >= 500/);
-  assert.match(wingCatalogSearch, /collectionRuns\.requireAttention/);
-  assert.match(wingCatalogSearch, /"marketplace_login"/);
-  assert.match(wingCatalogSearch, /"rate_limited"/);
-  assert.match(wingCatalogSearch, /break;/);
-});
-
-test("Wing catalog rate limiting uses paced searches and bounded asymmetric retries", () => {
-  const wingPageDelay = source.match(
-    /const WING_CATALOG_PAGE_DELAY_MS = (\d+);/,
-  );
-  const keywordSearchDelay = source.match(
-    /const COUPANG_KEYWORD_SEARCH_DELAY_MS = (\d+);/,
-  );
-  const wingCatalogSearch = functionSource(
-    'searchWingCatalogProducts',
-    'searchCoupangKeywordSuggestions',
-  );
-  const keywordSearch = functionSource(
-    'searchCoupangKeywordSuggestions',
-    'getOrCreateCoupangSearchTab',
-  );
-  const retry = functionSource(
-    'executeWingCatalogSearchWithRetry',
-    'executeWingCatalogSearch',
-  );
-
-  assert.equal(wingPageDelay?.[1], '2200');
-  assert.equal(keywordSearchDelay?.[1], '1500');
-  assert.match(
-    wingCatalogSearch,
-    /response = await raceWingCatalogOperationAbort\([\s\S]*?executeWingCatalogSearchWithRetry\(tabId, payload\),[\s\S]*?operationSignal,[\s\S]*?\);/,
-  );
-  assert.match(
-    wingCatalogSearch,
-    /searchPage = body\.nextSearchPage;[\s\S]*?if \(index < maxPages - 1\) \{[\s\S]*?sleep\(WING_CATALOG_PAGE_DELAY_MS\),[\s\S]*?operationSignal,[\s\S]*?\}/,
-  );
-  assert.match(
-    keywordSearch,
-    /await sleep\(COUPANG_KEYWORD_SEARCH_DELAY_MS\);[\s\S]*?response = await executeCoupangKeywordSuggestionSearch\(/,
-  );
-  assert.match(
-    retry,
-    /const retryable =\s*response\?\.status === 429 \|\| response\?\.status >= 500;/,
-  );
-  assert.match(
-    retry,
-    /const MAX_ATTEMPTS = 4;[\s\S]*?for \(let attempt = 1; attempt <= MAX_ATTEMPTS; attempt\+\+\) \{[\s\S]*?response = await executeWingCatalogSearch\(tabId, payload\);[\s\S]*?if \(!retryable \|\| attempt === MAX_ATTEMPTS\) return response;/,
-  );
-  assert.match(
-    retry,
-    /const baseMs = response\?\.status === 429 \? 4000 : 1000;[\s\S]*?await sleep\(baseMs \* 2 \*\* \(attempt - 1\)\);/,
-  );
+test("keyword suggestions retain the initial page-render delay", async () => {
+  const context = vm.createContext({
+    console,
+    Date,
+    Error,
+    Map,
+    Number,
+    Object,
+    Promise,
+    Set,
+    String,
+    URL,
+    URLSearchParams,
+  });
+  vm.runInContext(keywordCollectorSource, context, {
+    filename: "coupang-keyword-suggestion-collector.js",
+  });
+  const delays = [];
+  const collector = context.KidItemCoupangKeywordSuggestionCollector.create({
+    chrome: {
+      tabs: { remove: async () => undefined },
+      scripting: {
+        async executeScript() {
+          return [{ result: { success: true, items: [], productNameTokens: [], warnings: [] } }];
+        },
+      },
+    },
+    sessions: {
+      async getOwned() {
+        return { producer: "sourcing.keyword_suggestion" };
+      },
+      async attachTab() {
+        return { attemptId: "attempt" };
+      },
+    },
+    createTab: async () => ({ id: 7, windowId: 8 }),
+    bindTab: async () => undefined,
+    waitForTabComplete: async (_tabId, options) => ({ url: options.expectedUrl, status: "complete" }),
+    attention: async () => ({ success: false, attentionRequired: true }),
+    delay: async (milliseconds) => delays.push(milliseconds),
+  });
+  const result = await collector.collect({
+    keyword: "pencil",
+    maxResults: 2,
+    runId: "attempt",
+    environmentId: "office",
+  });
+  assert.equal(result.success, true);
+  assert.deepEqual(delays, [1500]);
 });

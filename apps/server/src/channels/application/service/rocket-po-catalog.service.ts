@@ -1,20 +1,13 @@
-import { createHash } from 'node:crypto';
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import {
-  RocketPurchasePreviewRequestSchema,
-  type RocketPoCatalogRow,
-  type RocketPurchasePreviewRequest,
+  RocketPoSourceBeginSchema,
+  RocketPoSourceSubmissionSchema,
 } from '@kiditem/shared/rocket-purchase-preview';
-import {
-  type RocketPoCatalogPort,
-  type RocketPoCatalogResolution,
-} from '../port/in/rocket-po-catalog.port';
+import type { RocketPoCatalogPort } from '../port/in/rocket-po-catalog.port';
 import {
   ROCKET_PO_CATALOG_REPOSITORY_PORT,
   type RocketPoCatalogRepositoryPort,
 } from '../port/out/repository/rocket-po-catalog.repository.port';
-
-const ARTIFACT_FILE_NAME = 'rocket-po-catalog.json' as const;
 
 @Injectable()
 export class RocketPoCatalogService implements RocketPoCatalogPort {
@@ -22,104 +15,32 @@ export class RocketPoCatalogService implements RocketPoCatalogPort {
     @Inject(ROCKET_PO_CATALOG_REPOSITORY_PORT)
     private readonly repository: RocketPoCatalogRepositoryPort,
   ) {}
-
-  async publishAndResolve(input: {
-    organizationId: string;
-    userId: string;
-    request: RocketPurchasePreviewRequest;
-  }): Promise<RocketPoCatalogResolution> {
-    const request = RocketPurchasePreviewRequestSchema.parse(input.request);
-    if (!isCompleteCollection(request)) {
-      return { blockingReason: 'collection_incomplete', catalog: null, identities: [] };
-    }
-
-    const account = await this.repository.findActiveRocketAccount({
-      organizationId: input.organizationId,
-      channelAccountId: request.channelAccountId,
-    });
-    if (!account) throw new NotFoundException('Active Rocket channel account not found');
-    if (request.rows.length === 0) {
-      return { blockingReason: null, catalog: null, identities: [] };
-    }
-    const accountVendorId = account.vendorId?.trim() ?? '';
-    const sharedCoupangVendorId = account.sharedCoupangVendorId?.trim() ?? '';
-    const evidenceVendorId = request.collection.vendorId.trim();
-    const configuredVendorIds = [accountVendorId, sharedCoupangVendorId]
-      .filter((vendorId) => vendorId.length > 0);
-    if (evidenceVendorId.length > 0
-      && configuredVendorIds.some((vendorId) => vendorId !== evidenceVendorId)) {
-      return { blockingReason: 'vendor_mismatch', catalog: null, identities: [] };
-    }
-    const vendorId = evidenceVendorId || configuredVendorIds[0]!;
-
-    const rows = [...request.rows].sort((left, right) =>
-      left.poLineId.localeCompare(right.poLineId));
-    const artifactHash = canonicalArtifactHash(request, vendorId, rows);
-    const published = await this.repository.publish({
-      organizationId: input.organizationId,
-      userId: input.userId,
-      channelAccountId: request.channelAccountId,
-      vendorId,
-      fileName: ARTIFACT_FILE_NAME,
-      artifactHash,
-      collection: request.collection,
-      rows,
-    });
-    const { identities, ...catalog } = published;
-    return {
-      blockingReason: null,
-      catalog,
-      identities,
-    };
+  begin(input: Parameters<RocketPoCatalogPort['begin']>[0]) {
+    const parsed = RocketPoSourceBeginSchema.safeParse(input.request);
+    if (!parsed.success) throw new BadRequestException('ROCKET_PO_PLAN_INVALID');
+    return this.repository.begin({ ...input, request: parsed.data });
   }
-
-  listSavedPos(input: {
-    organizationId: string;
-    channelAccountId: string;
-    from: string;
-    to: string;
-    status?: string;
-  }) {
+  readAttempt(input: Parameters<RocketPoCatalogPort['readAttempt']>[0]) {
+    return this.repository.readAttempt(input);
+  }
+  readSource(input: Parameters<RocketPoCatalogPort['readSource']>[0]) {
+    return this.repository.readSource(input);
+  }
+  complete(input: Parameters<RocketPoCatalogPort['complete']>[0]) {
+    const parsed = RocketPoSourceSubmissionSchema.safeParse(input.submission);
+    if (!parsed.success) throw new BadRequestException('ROCKET_PO_EVIDENCE_INVALID');
+    return this.repository.complete({ ...input, submission: parsed.data });
+  }
+  fail(input: Parameters<RocketPoCatalogPort['fail']>[0]) {
+    return this.repository.fail(input);
+  }
+  readComplete(input: Parameters<RocketPoCatalogPort['readComplete']>[0]) {
+    return this.repository.readComplete(input);
+  }
+  listSavedPos(input: Parameters<RocketPoCatalogPort['listSavedPos']>[0]) {
     return this.repository.listSavedPos(input);
   }
-
-  loadSavedCollection(input: {
-    organizationId: string;
-    channelAccountId: string;
-    sourceImportRunId: string;
-  }) {
+  loadSavedCollection(input: Parameters<RocketPoCatalogPort['loadSavedCollection']>[0]) {
     return this.repository.loadSavedCollection(input);
   }
-}
-
-function isCompleteCollection(request: RocketPurchasePreviewRequest): boolean {
-  const evidence = request.collection;
-  const rowPoNumbers = new Set(request.rows.map(({ poNumber }) => poNumber));
-  const requiresVendorEvidence = request.rows.length > 0;
-  return (!requiresVendorEvidence || evidence.vendorId.length > 0)
-    && !evidence.truncated
-    && evidence.failedPoNumbers.length === 0
-    && evidence.totalListPages === evidence.listPagesRead
-    && evidence.detailPoCount === rowPoNumbers.size
-    && (!requiresVendorEvidence
-      || request.rows.every(({ vendorId }) => vendorId === evidence.vendorId));
-}
-
-function canonicalArtifactHash(
-  request: RocketPurchasePreviewRequest,
-  vendorId: string,
-  rows: RocketPoCatalogRow[],
-): string {
-  const canonical = JSON.stringify({
-    collection: {
-      vendorId,
-      listPagesRead: request.collection.listPagesRead,
-      totalListPages: request.collection.totalListPages,
-      truncated: request.collection.truncated,
-      detailPoCount: request.collection.detailPoCount,
-      failedPoNumbers: [...request.collection.failedPoNumbers].sort(),
-    },
-    rows,
-  });
-  return createHash('sha256').update(canonical).digest('hex');
 }

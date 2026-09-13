@@ -158,6 +158,34 @@ test("a login tab stays open without stealing focus when automatic login needs a
           remove: async (...args) => calls.removed.push(args),
         },
       },
+      assertOrderCollectionActive: async (collection) => {
+        if (typeof collection?.assertActive !== "function") return true;
+        const active = await collection.assertActive();
+        if (active === false || active === null) {
+          const error = new Error("Order collection is no longer active.");
+          error.code = "COLLECTION_CANCELLED";
+          throw error;
+        }
+        return true;
+      },
+      attachOrderCollectionTab: async (collection, tab, owned) => {
+        if (!collection?.attachTab) return true;
+        return collection.attachTab(tab, { owned });
+      },
+      closeFreshOrderCollectionTab: async (tab) => {
+        if (Number.isInteger(tab?.id)) await chrome.tabs.remove(tab.id);
+      },
+      orderCollectionCancelledResult: (error) => ({
+        success: false,
+        errorCode: "COLLECTION_CANCELLED",
+        error: String(error?.message || "Order collection is no longer active."),
+      }),
+      orderCollectionNeedsAttention: (result) => Boolean(
+        result?.pendingLogin === true ||
+        result?.pendingAuth === true ||
+        result?.loginRequired === true ||
+        result?.attentionRequired === true,
+      ),
       delay: async () => undefined,
       ensureMallLogin: async () => ({
         success: false,
@@ -173,6 +201,10 @@ test("a login tab stays open without stealing focus when automatic login needs a
   );
 
   const collection = {
+    async assertActive() {
+      calls.active = (calls.active || 0) + 1;
+      return true;
+    },
     async attachTab(tab, attachment) {
       calls.attached.push([tab, attachment]);
     },
@@ -195,6 +227,7 @@ test("a login tab stays open without stealing focus when automatic login needs a
   assert.equal(calls.attached[0][0].id, 17);
   assert.equal(calls.attached[0][0].windowId, 5);
   assert.equal(calls.attached[0][1].owned, true);
+  assert.equal(calls.active, 2);
   assert.deepEqual(calls.detached, []);
   assert.equal(calls.removed.length, 0);
 });

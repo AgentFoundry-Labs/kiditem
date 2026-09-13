@@ -17,7 +17,7 @@ const input = (overrides: Partial<AgentPipelineInput> = {}): AgentPipelineInput 
   sessions: { signedIn: 6, signedOut: 2, unknown: 21 },
   soldOutTotal: 387,
   coupangPendingAccept: 0,
-  expiredCount: 0,
+  openAlertCount: 0,
   totals,
   outcomes: { total: 12, malls: 3, loginRecords: 2 },
   ...overrides,
@@ -92,11 +92,11 @@ describe('buildAgentPipeline', () => {
       sessions: null,
       soldOutTotal: null,
       coupangPendingAccept: null,
-      expiredCount: null,
+      openAlertCount: null,
       totals: null,
       outcomes: null,
     };
-    for (const id of ['sense-work', 'sense-login', 'sense-session', 'sense-soldout', 'sense-coupang', 'sense-expired']) {
+    for (const id of ['sense-work', 'sense-login', 'sense-session', 'sense-soldout', 'sense-coupang', 'sense-open-alerts']) {
       expect(itemOf('sense', id, unknown).detail).toBe(PIPELINE_UNKNOWN);
     }
     expect(itemOf('act', 'act-orders', unknown).detail).toBe(PIPELINE_UNKNOWN);

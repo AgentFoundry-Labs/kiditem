@@ -14,14 +14,14 @@ describe('Sourcing1688SearchResultService', () => {
         }],
       })),
     };
-    const service = new Sourcing1688SearchResultService(repository as never);
+    const service = new Sourcing1688SearchResultService(repository as never, {} as never);
 
     await expect(service.latest({
       organizationId: 'org-1',
-      keywords: [' 儿童雨伞 '],
       targetIds: [],
     })).resolves.toEqual({
       generatedAt: '2026-08-14T00:01:00.000Z',
+      sourceStatuses: [],
       observations: [{
         keyword: '儿童雨伞',
         targetId: null,
@@ -31,8 +31,9 @@ describe('Sourcing1688SearchResultService', () => {
     });
     expect(repository.findLatest).toHaveBeenCalledWith({
       organizationId: 'org-1',
-      keywords: ['儿童雨伞'],
+      keywords: undefined,
       targetIds: undefined,
+      completeAttemptIds: undefined,
     });
   });
 });

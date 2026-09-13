@@ -10,15 +10,14 @@ import {
 } from '../../inventory/application/port/in/stock/inventory-availability.port';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
+  PRODUCT_ABC_READ_PORT,
+  type ProductAbcReadPort,
+} from '../../products/application/port/in/product-abc-read.port';
+import {
   projectSellpiaProductInventory,
   resolveSellpiaProductInventoryRows,
   type SellpiaProductInventoryProjectionInput,
 } from './sellpia-product-inventory-projection';
-import {
-  ProductAbcEvaluationSchema,
-  ProductAbcFormulaSummarySchema,
-  type ProductAbcEvaluation,
-} from '@kiditem/shared/product-abc';
 
 @Injectable()
 export class SellpiaProductInventoryReader {
@@ -30,6 +29,8 @@ export class SellpiaProductInventoryReader {
     private readonly inventory: InventoryAvailabilityPort,
     @Inject(CATALOG_DISPLAY_MEDIA_PORT)
     private readonly catalogDisplayMedia: CatalogDisplayMediaPort,
+    @Inject(PRODUCT_ABC_READ_PORT)
+    private readonly productAbc: ProductAbcReadPort,
   ) {}
 
   async project(
@@ -48,24 +49,33 @@ export class SellpiaProductInventoryReader {
             id: true,
             code: true,
             name: true,
-            abcGrade: true,
-            abcEvaluation: { include: { formulaVersion: true } },
+            createdAt: true,
           },
         },
       },
     });
+    // ABC belongs to Products: this read names the inventory products it
+    // resolved and displays the status Products published for them, rather
+    // than deriving one against a cutoff of its own (ADR 0002).
+    const abcSnapshot = await this.productAbc.readAbc({
+      organizationId,
+      masterProductIds: [...new Set(candidates.flatMap((candidate) =>
+        candidate.masterProduct ? [candidate.masterProduct.id] : []))],
+    });
+    const abcByProductId = new Map(abcSnapshot.products.map((product) =>
+      [product.masterProductId, product.abc] as const));
     const resolved = resolveSellpiaProductInventoryRows(products, candidates);
     const canonicalProductBySkuId = new Map(candidates.flatMap((candidate) => {
       const product = candidate.masterProduct;
       if (!product) return [];
-      const abcGrade = productAbcGrade(product.abcGrade);
+      const abc = abcByProductId.get(product.id);
+      if (!abc) return [];
       return [[candidate.id, {
         sellpiaInventorySkuId: candidate.id,
         masterProductId: product.id,
         masterProductCode: product.code,
         masterProductName: product.name,
-        abcGrade,
-        abcEvaluation: toAbcEvaluation(product.abcEvaluation, product.abcGrade),
+        abc,
       }] as const];
     }));
     const availability = await this.inventory.findBySkuIds({
@@ -143,136 +153,13 @@ export class SellpiaProductInventoryReader {
         channel: row.channelListingOption.listing.channelAccount.channel,
         externalOptionId: row.channelListingOption.externalOptionId,
         optionName: row.channelListingOption.itemName,
-        abcGrade: product.abcGrade,
-        abcEvaluation: product.abcEvaluation,
+        abc: product.abc,
         displayImage: mediaByOptionId.get(row.channelListingOption.id) ?? null,
       }];
       }),
     });
     return { availability, projection };
   }
-}
-
-function toAbcEvaluation(
-  row: {
-    calculationStatus: string;
-    rawScore: { toNumber(): number } | null;
-    adjustedScore: { toNumber(): number } | null;
-    reliability: { toNumber(): number } | null;
-    weightedRevenue: { toNumber(): number } | null;
-    weightedOrderTimeCogs: { toNumber(): number } | null;
-    weightedAdSpend: { toNumber(): number } | null;
-    weightedContributionProfit: { toNumber(): number } | null;
-    profitVelocity30: { toNumber(): number } | null;
-    weightedContributionMargin: { toNumber(): number } | null;
-    lossRecurrence: { toNumber(): number } | null;
-    paidOrderCount: number;
-    observationDays: number;
-    firstValidPaidSaleAt: Date | null;
-    sourceCoverageStartDate: Date | null;
-    sourceCoverageEndDate: Date | null;
-    sellpiaCoverageStartDate: Date | null;
-    sellpiaCoverageEndDate: Date | null;
-    sellpiaSourceStatus: string;
-    sellpiaSourceCapturedAt: Date | null;
-    advertisingCoverageStartDate: Date | null;
-    advertisingCoverageEndDate: Date | null;
-    advertisingSourceStatus: string;
-    advertisingSourceCapturedAt: Date | null;
-    ordersSourceStatus: string;
-    ordersCoverageStartDate: Date | null;
-    ordersCoverageEndDate: Date | null;
-    ordersSourceCapturedAt: Date | null;
-    mappingSourceStatus: string;
-    mappingInventoryGeneration: bigint | null;
-    mappingVerifiedAt: Date | null;
-    costComponentsJson: unknown;
-    statusDetail: string | null;
-    calculatedAt: Date | null;
-    formulaVersion: { formulaJson: unknown } | null;
-  } | null,
-  abcGrade: string | null,
-): ProductAbcEvaluation | null {
-  if (!row || !row.costComponentsJson) return null;
-  const cutoff = row.sourceCoverageEndDate ?? row.calculatedAt;
-  if (!cutoff) return null;
-  const formula = row.formulaVersion
-    ? ProductAbcFormulaSummarySchema.safeParse(row.formulaVersion.formulaJson)
-    : null;
-  const parsed = ProductAbcEvaluationSchema.safeParse({
-    abcGrade: productAbcGrade(abcGrade),
-    calculationStatus: row.calculationStatus,
-    rawScore: decimalToFinite(row.rawScore),
-    adjustedScore: decimalToFinite(row.adjustedScore),
-    reliability: decimalToFinite(row.reliability),
-    weightedRevenue: decimalToFinite(row.weightedRevenue),
-    weightedOrderTimeCogs: decimalToFinite(row.weightedOrderTimeCogs),
-    weightedAdSpend: decimalToFinite(row.weightedAdSpend),
-    weightedContributionProfit: decimalToFinite(row.weightedContributionProfit),
-    profitVelocity30: decimalToFinite(row.profitVelocity30),
-    weightedContributionMargin: decimalToFinite(row.weightedContributionMargin),
-    lossRecurrence: decimalToFinite(row.lossRecurrence),
-    paidOrderCount: row.paidOrderCount,
-    observationDays: row.observationDays,
-    firstValidPaidSaleAt: row.firstValidPaidSaleAt,
-    formula: formula?.success ? formula.data : null,
-    sourceFreshness: {
-      evaluationCutoffDate: calendarDate(cutoff),
-      sellpia: {
-        status: row.sellpiaSourceStatus,
-        coverageStartDate: row.sellpiaCoverageStartDate ?? row.sourceCoverageStartDate
-          ? calendarDate((row.sellpiaCoverageStartDate ?? row.sourceCoverageStartDate)!)
-          : null,
-        coverageEndDate: row.sellpiaCoverageEndDate ?? row.sourceCoverageEndDate
-          ? calendarDate((row.sellpiaCoverageEndDate ?? row.sourceCoverageEndDate)!)
-          : null,
-        capturedAt: row.sellpiaSourceCapturedAt,
-      },
-      advertising: {
-        status: row.advertisingSourceStatus,
-        coverageStartDate: row.advertisingCoverageStartDate
-          ? calendarDate(row.advertisingCoverageStartDate)
-          : null,
-        coverageEndDate: row.advertisingCoverageEndDate
-          ? calendarDate(row.advertisingCoverageEndDate)
-          : null,
-        capturedAt: row.advertisingSourceCapturedAt,
-      },
-      orders: {
-        status: row.ordersSourceStatus,
-        coverageStartDate: row.ordersCoverageStartDate
-          ? calendarDate(row.ordersCoverageStartDate)
-          : null,
-        coverageEndDate: row.ordersCoverageEndDate
-          ? calendarDate(row.ordersCoverageEndDate)
-          : null,
-        capturedAt: row.ordersSourceCapturedAt,
-      },
-      mapping: {
-        status: row.mappingSourceStatus,
-        inventoryGeneration: row.mappingInventoryGeneration?.toString() ?? null,
-        verifiedAt: row.mappingVerifiedAt,
-      },
-    },
-    costBreakdown: row.costComponentsJson,
-    statusDetail: row.statusDetail,
-    calculatedAt: row.calculatedAt,
-  });
-  return parsed.success ? parsed.data : null;
-}
-
-function productAbcGrade(value: string | null): 'A' | 'B' | 'C' | null {
-  return value === 'A' || value === 'B' || value === 'C' ? value : null;
-}
-
-function decimalToFinite(value: { toNumber(): number } | null): number | null {
-  if (value === null) return null;
-  const number = value.toNumber();
-  return Number.isFinite(number) ? number : null;
-}
-
-function calendarDate(value: Date): string {
-  return value.toISOString().slice(0, 10);
 }
 
 type DestinationOptionTarget = CatalogDisplayMediaTarget & {

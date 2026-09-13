@@ -19,6 +19,7 @@ import { ChannelCatalogImportService } from '../application/service/channel-cata
 import type { PrismaClient } from '@prisma/client';
 import type { PrismaService } from '../../prisma/prisma.service';
 import type { ParsedWingCatalogRow } from '../application/service/coupang-wing-workbook.parser';
+import { SourceFailureAlerts } from '../../alerts/alerts.service';
 
 const WING_ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
 const SECOND_WING_ACCOUNT_ID = '22222222-2222-4222-8222-222222222222';
@@ -30,11 +31,13 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
   let prisma: PrismaClient;
   let repository: ChannelCatalogImportRepositoryAdapter;
   let service: ChannelCatalogImportService;
+  let alerts: SourceFailureAlerts;
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    repository = new ChannelCatalogImportRepositoryAdapter(prisma as unknown as PrismaService);
+    alerts = new SourceFailureAlerts(prisma as unknown as PrismaService);
+    repository = new ChannelCatalogImportRepositoryAdapter(prisma as unknown as PrismaService, alerts);
     service = new ChannelCatalogImportService(repository);
   });
 
@@ -46,6 +49,102 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
     await resetDb(prisma);
     await seedBaseFixture(prisma);
     await seedAccounts();
+  });
+
+  it('notifies the organization when its catalog file import fails and preserves dismissal on replay', async () => {
+    const attempt = await claim(fileHash('failure-alert'));
+    if (attempt.kind !== 'started') throw new Error('expected import admission');
+
+    await repository.markImportFailed(
+      TEST_ORGANIZATION_ID, WING_ACCOUNT_ID, attempt.runId, attempt.attemptToken,
+    );
+    const opened = await alerts.list(TEST_ORGANIZATION_ID);
+    expect(opened).toMatchObject([{
+      type: 'source_failure',
+      sourceType: 'coupang_wing_catalog',
+      attemptId: attempt.attemptToken,
+      status: 'OPEN',
+      isRead: false,
+    }]);
+    expect(await alerts.list(OTHER_ORGANIZATION_ID)).toEqual([]);
+
+    await alerts.dismiss(opened[0].id, TEST_ORGANIZATION_ID);
+    const dismissed = await alerts.list(TEST_ORGANIZATION_ID);
+    await repository.markImportFailed(
+      TEST_ORGANIZATION_ID, WING_ACCOUNT_ID, attempt.runId, attempt.attemptToken,
+    );
+    expect(await alerts.list(TEST_ORGANIZATION_ID)).toEqual(dismissed);
+  });
+
+  it('reopens one alert for a retried file and resolves it only when that import publishes', async () => {
+    const hash = fileHash('retry-alert');
+    const first = await claim(hash);
+    if (first.kind !== 'started') throw new Error('expected import admission');
+    await repository.markImportFailed(
+      TEST_ORGANIZATION_ID, WING_ACCOUNT_ID, first.runId, first.attemptToken,
+    );
+    const [opened] = await alerts.list(TEST_ORGANIZATION_ID);
+    await alerts.dismiss(opened.id, TEST_ORGANIZATION_ID);
+
+    const retry = await claim(hash);
+    if (retry.kind !== 'started') throw new Error('expected retry admission');
+    expect(retry.runId).toBe(first.runId);
+    await repository.markImportFailed(
+      TEST_ORGANIZATION_ID, WING_ACCOUNT_ID, retry.runId, retry.attemptToken,
+    );
+    expect(await alerts.list(TEST_ORGANIZATION_ID)).toMatchObject([{
+      id: opened.id, attemptId: retry.attemptToken, status: 'OPEN', isRead: false,
+    }]);
+
+    await importCatalog([makeRow(0)], hash);
+    expect(await alerts.list(TEST_ORGANIZATION_ID)).toMatchObject([{
+      id: opened.id, status: 'RESOLVED',
+    }]);
+  });
+
+  it('rolls back failure and completion when their catalog import alert cannot be saved', async () => {
+    const hash = fileHash('atomic-alert');
+    const first = await claim(hash);
+    if (first.kind !== 'started') throw new Error('expected import admission');
+    await prisma.$executeRaw`ALTER TABLE alerts ADD CONSTRAINT test_catalog_import_alert_failure CHECK (source_type <> 'coupang_wing_catalog')`;
+    try {
+      await expect(repository.markImportFailed(
+        TEST_ORGANIZATION_ID, WING_ACCOUNT_ID, first.runId, first.attemptToken,
+      )).rejects.toThrow();
+      expect(await claim(hash)).toEqual({ kind: 'running' });
+      expect(await alerts.list(TEST_ORGANIZATION_ID)).toEqual([]);
+    } finally {
+      await prisma.$executeRaw`ALTER TABLE alerts DROP CONSTRAINT test_catalog_import_alert_failure`;
+    }
+
+    await repository.markImportFailed(
+      TEST_ORGANIZATION_ID, WING_ACCOUNT_ID, first.runId, first.attemptToken,
+    );
+    const retry = await claim(hash);
+    if (retry.kind !== 'started') throw new Error('expected retry admission');
+    const publish = () => repository.upsertCoupangWingCatalog({
+      organizationId: TEST_ORGANIZATION_ID,
+      channelAccountId: WING_ACCOUNT_ID,
+      runId: retry.runId,
+      attemptToken: retry.attemptToken,
+      rows: [makeRow(0)],
+      skippedRows: [],
+    });
+    await prisma.$executeRaw`ALTER TABLE alerts ADD CONSTRAINT test_catalog_import_alert_resolution CHECK (source_type <> 'coupang_wing_catalog' OR status <> 'RESOLVED')`;
+    try {
+      await expect(publish()).rejects.toThrow();
+      expect(await claim(hash)).toEqual({ kind: 'running' });
+      expect(await alerts.list(TEST_ORGANIZATION_ID)).toMatchObject([{
+        attemptId: first.attemptToken, status: 'OPEN',
+      }]);
+    } finally {
+      await prisma.$executeRaw`ALTER TABLE alerts DROP CONSTRAINT test_catalog_import_alert_resolution`;
+    }
+    expect(await publish()).toMatchObject({
+      duplicate: false,
+      changes: { createdProductCount: 1, createdSkuCount: 1 },
+    });
+    expect(await alerts.list(TEST_ORGANIZATION_ID)).toMatchObject([{ status: 'RESOLVED' }]);
   });
 
   it('imports the representative 1,225-parent/2,241-SKU shape with three skips and no stock mutation', async () => {
@@ -824,6 +923,37 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
     expect(await prisma.sourceImportRun.count()).toBe(1);
   });
 
+  it('advances mapping generation for active identity changes but not metadata-only or rejected import', async () => {
+    await importCatalog([makeRow(0, {
+      externalProductId: 'P-1',
+      externalSkuId: 'S-1',
+    })], fileHash('mapping-first'));
+    await expect(mappingGeneration()).resolves.toBe(1n);
+
+    await importCatalog([makeRow(0, {
+      externalProductId: 'P-1',
+      externalSkuId: 'S-1',
+      displayName: '메타데이터만 변경',
+    })], fileHash('mapping-metadata'));
+    await expect(mappingGeneration()).resolves.toBe(1n);
+
+    await importCatalog([makeRow(0, {
+      externalProductId: 'P-2',
+      externalSkuId: 'S-2',
+    })], fileHash('mapping-deactivate'));
+    await expect(mappingGeneration()).resolves.toBe(2n);
+
+    await expect(importCatalog([makeRow(0, {
+      externalProductId: 'P-3',
+      externalSkuId: 'S-2',
+    })], fileHash('mapping-rejected'))).rejects.toThrow('different parent');
+    await expect(mappingGeneration()).resolves.toBe(2n);
+    await expect(prisma.masterProductAbcFormulaState.findUnique({
+      where: { organizationId: OTHER_ORGANIZATION_ID },
+      select: { mappingGeneration: true },
+    })).resolves.toBeNull();
+  });
+
   it('keeps fresh runs running, reclaims stale/failed runs by CAS, and rotates tokens', async () => {
     const hash = fileHash('stale-running');
     const oldToken = randomUUID();
@@ -910,6 +1040,10 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
       { status: 'running', attemptToken: workerB.attemptToken },
     );
     expect(await prisma.channelListing.count()).toBe(0);
+    expect(await prisma.alert.count({ where: {
+      organizationId: TEST_ORGANIZATION_ID,
+      sourceType: 'coupang_wing_catalog',
+    } })).toBe(0);
 
     const completed = await repository.upsertCoupangWingCatalog({
       organizationId: TEST_ORGANIZATION_ID,
@@ -1105,6 +1239,14 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
     return Object.fromEntries(
       rows.map((row) => [row.externalOptionId, row.isActive]),
     );
+  }
+
+  async function mappingGeneration(): Promise<bigint> {
+    const state = await prisma.masterProductAbcFormulaState.findUnique({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+      select: { mappingGeneration: true },
+    });
+    return state?.mappingGeneration ?? 0n;
   }
 });
 

@@ -88,6 +88,7 @@ function to1688Observation(
     observationKey: hashCollectionRequest({
       sourceKey: permit.sourceKey,
       sourceEntityType: 'supplier_offer',
+      ingestionRunId: permit.runId,
       externalOfferId: row.offerId,
       variantKey: '',
       sourceKeyword: normalizeCollectionTarget(row.sourceKeyword),
@@ -127,7 +128,7 @@ function mapTrendRecordObservation(
 ): AppendSourcingEvidenceObservationCommand {
   const row = record.row;
   const identity = trendRecordIdentity(record);
-  const rawPayload = { kind: record.kind, ...row };
+  const rawPayload = trendRawPayload(record);
   const isNaver = record.kind === 'naver_keyword' || record.kind === 'naver_popular_keyword';
   return {
     organizationId: permit.organizationId,
@@ -144,6 +145,7 @@ function mapTrendRecordObservation(
     observationKey: hashCollectionRequest({
       sourceKey: permit.sourceKey,
       recordKind: record.kind,
+      ...(isNaver || record.kind === 'shorts' ? { ingestionRunId: permit.runId } : {}),
       identity,
       capturedAt: row.capturedAt,
     }),
@@ -158,6 +160,18 @@ function mapTrendRecordObservation(
     payloadHash: hashCollectionRequest(rawPayload),
     ingestedAt: row.capturedAt,
   };
+}
+
+function trendRawPayload(record: TrendTypedCollectionRecord): Record<string, unknown> {
+  if (
+    record.kind === 'tiktok_creative'
+    || record.kind === 'live_commerce_broadcast'
+    || record.kind === 'live_commerce_product'
+  ) {
+    const { ingestionRunId: _ingestionRunId, ...row } = record.row;
+    return { kind: record.kind, ...row };
+  }
+  return { kind: record.kind, ...record.row };
 }
 
 function trendRecordIdentity(record: TrendTypedCollectionRecord): string {
@@ -219,10 +233,11 @@ function dedupe1688Rows(
   const byIdentity = new Map<string, Sourcing1688OfferKeywordObservationInput>();
   for (const row of rows) {
     const offerId = row.offerId.trim();
-    const sourceKeyword = normalizeCollectionTarget(row.sourceKeyword);
+    const sourceKeyword = row.sourceKeyword.trim();
+    const sourceKeywordIdentity = normalizeCollectionTarget(sourceKeyword);
     if (!offerId) continue;
     const normalized = { ...row, offerId, sourceKeyword };
-    const key = `${sourceKeyword}\u0000${offerId}`;
+    const key = `${sourceKeywordIdentity}\u0000${offerId}`;
     const existing = byIdentity.get(key);
     if (!existing || existing.capturedAt < normalized.capturedAt) {
       byIdentity.set(key, normalized);

@@ -4,32 +4,20 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { isMallAutoLoginBlocked } from '@/lib/mall-login-block';
 import { formatNumber } from '@/lib/utils';
-import { saveIcecreamDeliveryIndex } from '../lib/icecream-delivery-index';
 import {
-  collectIcecreamMallRowsFromExtension,
+  type OrderCollectionExtensionRun,
 } from '../lib/order-collection-extension';
 import {
-  convertIcecreamMallOrderRows,
-} from '../lib/order-collection-api';
-import {
-  addSeenOrderKeys,
-  diffNewOrderRows,
-  distinctOrderNumbers,
   loadSeenOrderKeys,
 } from '../lib/order-detect';
 import {
-  ICECREAM_MALL_KEY,
   classifyOrderCollectionFailure,
   isAutoDetectableMall,
-  todayYmd,
-  type ConversionHistoryItem,
 } from '../lib/order-collection-page-model';
-import type { OrderActivityEvent } from '../components/OrderActivityFeed';
-import {
-  orderMallAccountApi,
-  type OrderCollectionMallAccount,
-} from '../lib/order-mall-account-api';
+import type { OrderCollectionMallAccount } from '../lib/order-mall-account-api';
+import type { ExtensionRuntimeStatus } from '@/lib/extension-bridge';
 import type { BrowserMallCollectionResult } from '../lib/browser-mall-collection';
+import type { OrderActivityEvent } from '../components/OrderActivityFeed';
 
 const DEFAULT_AUTO_INTERVAL_MIN = 30;
 const AUTO_BUSINESS_START_HOUR = 9;
@@ -41,18 +29,32 @@ export const AUTO_INTERVAL_OPTIONS_MIN = [5, 10, 15, 30, 60] as const;
 
 interface UseOrderAutoDetectOptions {
   mallAccounts: OrderCollectionMallAccount[];
-  addGeneratedFile: (item: ConversionHistoryItem) => void;
   collectAccount: (
     account: OrderCollectionMallAccount,
+    run?: OrderCollectionExtensionRun,
   ) => Promise<BrowserMallCollectionResult>;
+  prepareRun: (
+    account: OrderCollectionMallAccount,
+    existingAttemptId?: string,
+    knownExtensionStatus?: ExtensionRuntimeStatus,
+    options?: { selectionMode?: 'manual' | 'automatic'; seenRowKeys?: string[] },
+  ) => Promise<OrderCollectionExtensionRun>;
+  failRun: (
+    run: OrderCollectionExtensionRun,
+    code: string,
+    message: string,
+  ) => Promise<unknown>;
+  releaseRun: (mallKey: string, expectedAttemptId?: string) => void;
   markCollecting: (mallKey: string, collecting: boolean) => void;
   logActivity: (kind: OrderActivityEvent['kind'], mallName: string, message?: string) => void;
 }
 
 export function useOrderAutoDetect({
   mallAccounts,
-  addGeneratedFile,
   collectAccount,
+  prepareRun,
+  failRun,
+  releaseRun,
   markCollecting,
   logActivity,
 }: UseOrderAutoDetectOptions) {
@@ -80,44 +82,22 @@ export function useOrderAutoDetect({
     try {
       for (const account of targets) {
         markCollecting(account.key, true);
+        let activeRun: OrderCollectionExtensionRun | null = null;
         try {
-          if (account.key === ICECREAM_MALL_KEY) {
-            const credentials = await loadMallCredentials(account);
-            const collected = await collectIcecreamMallRowsFromExtension(todayYmd(), credentials);
-            saveIcecreamDeliveryIndex(collected.headers, collected.rows);
-            const diff = diffNewOrderRows(
-              collected.headers,
-              collected.rows,
-              loadSeenOrderKeys(account.key),
-            );
-            if (diff.newRows.length === 0) {
-              logActivity('empty', account.name);
-              continue;
-            }
-
-            const result = await convertIcecreamMallOrderRows(
-              {
-                headers: collected.headers,
-                rows: diff.newRows,
-                fileName: `${account.name}_${collected.date ?? todayYmd()}_자동감지`,
-              },
-              { download: false },
-            );
-            const convertedAt = Date.now();
-            addGeneratedFile({
-              ...result,
-              id: `${convertedAt}-${account.key}-auto`,
-              sourceName: `${account.name} 자동감지 신규 ${formatNumber(diff.newOrderCount)}건`,
-              convertedAt,
-              collectionDate: collected.date ?? todayYmd(),
-              collectionMode: 'browser',
-              collectedRows: diff.newRows.length,
-              mallKey: account.key,
-              mallName: account.name,
-              orderNumbers: distinctOrderNumbers(collected.headers, diff.newRows),
+          if (isAutoDetectableMall(account)) {
+            activeRun = await prepareRun(account, undefined, undefined, {
+              selectionMode: 'automatic',
+              // Freeze the exact trimmed-cell/row-separator criterion before
+              // provider capture. The extension/server owner retains this
+              // alongside the full original capture.
+              seenRowKeys: [...loadSeenOrderKeys(account.key)],
             });
-            addSeenOrderKeys(account.key, diff.newRowKeys);
-            toast.success(`${account.name} 새 주문 ${formatNumber(diff.newOrderCount)}건 감지`);
+            const collected = await collectAccount(account, activeRun);
+            if (collected.rowCount === 0) {
+              logActivity('empty', account.name);
+            } else {
+              toast.success(`${account.name} 새 주문 ${formatNumber(collected.rowCount)}건 감지`);
+            }
           } else {
             const collected = await collectAccount(account);
             if (collected.rowCount === 0) logActivity('empty', account.name);
@@ -125,9 +105,20 @@ export function useOrderAutoDetect({
         } catch (err) {
           const message = err instanceof Error ? err.message : '자동 감지 실패';
           const kind: OrderActivityEvent['kind'] = classifyOrderCollectionFailure(err, message);
+          const ownerReconciliationRequired = err instanceof Error &&
+            'ownerReconciliationRequired' in err &&
+            (err as Error & { ownerReconciliationRequired?: unknown }).ownerReconciliationRequired === true;
+          if (activeRun && !ownerReconciliationRequired) {
+            await failRun(
+              activeRun,
+              'COLLECTION_FAILED',
+              `${account.name} 자동 감지 실패: ${message}`,
+            ).catch(() => undefined);
+          }
           logActivity(kind, account.name, kind === 'empty' ? undefined : message);
           console.warn('[order-auto-detect]', account.key, err);
         } finally {
+          if (activeRun) releaseRun(account.key, activeRun.attemptId);
           markCollecting(account.key, false);
         }
       }
@@ -136,7 +127,15 @@ export function useOrderAutoDetect({
       busyRef.current = false;
       setRunning(false);
     }
-  }, [addGeneratedFile, collectAccount, logActivity, mallAccounts, markCollecting]);
+  }, [
+    collectAccount,
+    failRun,
+    logActivity,
+    mallAccounts,
+    markCollecting,
+    prepareRun,
+    releaseRun,
+  ]);
 
   useEffect(() => {
     const savedInterval = Number(window.localStorage.getItem(AUTO_INTERVAL_KEY));
@@ -197,15 +196,6 @@ export function useOrderAutoDetect({
     changeInterval,
     run,
   };
-}
-
-async function loadMallCredentials(account: OrderCollectionMallAccount) {
-  if (!account.loginId || !account.hasPassword) {
-    throw new Error(`${account.name} 계정 ID와 비밀번호를 먼저 저장해주세요.`);
-  }
-  const result = await orderMallAccountApi.password(account.key);
-  if (!result.password) throw new Error(`${account.name} 저장된 비밀번호를 불러오지 못했습니다.`);
-  return { loginId: account.loginId, password: result.password };
 }
 
 function isWithinBusinessHours(timestamp: number): boolean {

@@ -55,28 +55,30 @@ test('runtime uploads all three durable chunk kinds and finalizes through the AP
   assert.match(runtime, /discovery_page/);
   assert.match(runtime, /product_details/);
   assert.match(runtime, /manifest_confirmation/);
-  assert.match(runtime, /\/finalize/);
   assert.match(runtime, /chrome\.alarms\.create/);
 });
 
-test('catalog login pauses its browser session and clears the alarm', () => {
+test('catalog steps use the shared finite keepalive through environment dependencies', () => {
+  const runtime = fs.readFileSync(runtimePath, 'utf8');
+  const worker = fs.readFileSync(workerPath, 'utf8');
+  const factoryStart = worker.indexOf('function coupangCatalogImportDependencies');
+  const factoryEnd = worker.indexOf('function coupangReviewCollectorDependencies', factoryStart);
+  assert.ok(factoryStart >= 0);
+  assert.ok(factoryEnd > factoryStart);
+  const dependenciesFactory = worker.slice(factoryStart, factoryEnd);
+
+  assert.match(runtime, /dependencies\.keepAlive/);
+  assert.match(dependenciesFactory, /keepAlive:\s*\(operation\)\s*=>\s*KidItemWorkerKeepAlive\.during\(operation\)/);
+});
+
+test('catalog login retains explicit attention without a legacy session terminal API', () => {
   const runtime = fs.readFileSync(runtimePath, 'utf8');
 
   assert.match(runtime, /collectionSessions\.attachTab/);
   assert.match(runtime, /collectionSessions\.requireAttention/);
-  assert.match(runtime, /status:\s*["']attention_required["']/);
   assert.match(runtime, /await clearAlarm\(dependencies\)/);
-  assert.match(runtime, /async function restart\(/);
+  assert.doesNotMatch(runtime, /collectionSessions\.(succeed|fail|restart)\(/);
   assert.doesNotMatch(runtime, /\bactivateTab\s*\(/);
   assert.doesNotMatch(runtime, /active:\s*true/);
   assert.doesNotMatch(runtime, /focused:\s*true/);
-});
-
-test('an already-completed catalog run closes its collection session immediately', () => {
-  const runtime = fs.readFileSync(runtimePath, 'utf8');
-
-  assert.match(runtime, /if \(state\.status === ["']done["']\) \{/);
-  assert.match(runtime, /collectionSessions\.succeed\(runId\)/);
-  assert.match(runtime, /if \(restarted\.status === ["']done["']\) \{/);
-  assert.match(runtime, /collectionSessions\.succeed\(restarted\.runId\)/);
 });

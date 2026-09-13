@@ -1,13 +1,13 @@
 import { useState } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { apiClient } from '@/lib/api-client';
+import StrategyContent from './StrategyContent';
 import type {
   AdStrategyAction,
   AdWeeklyPlan,
 } from '@kiditem/shared/advertising';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { apiClient } from '@/lib/api-client';
-import StrategyContent from './StrategyContent';
 
 vi.mock('@/lib/api-client', () => ({
   apiClient: {
@@ -17,7 +17,7 @@ vi.mock('@/lib/api-client', () => ({
 }));
 
 vi.mock('../lib/xlsx-export', () => ({
-  exportCampaignXlsx: vi.fn(),
+  exportCampaignXlsx: vi.fn().mockResolvedValue(undefined),
 }));
 
 const LISTING_ID = '11111111-1111-4111-8111-111111111111';

@@ -50,14 +50,12 @@ describe('order response schemas', () => {
     expect(OrderListItemSchema.parse(baseOrderListItem).totalQuantity).toBe(2);
   });
 
-  it('parses list response with delivery organizations', () => {
+  it('parses list response without provider-specific delivery actions', () => {
     const parsed = OrderListResponseSchema.parse({
       items: [baseOrderListItem],
       total: 1,
-      deliveryCompanies: [{ code: 'CJGLS', name: 'CJ대한통운' }],
     });
     expect(parsed.items[0]?.displayOrderNumber).toBe('CO-100');
-    expect(parsed.deliveryCompanies[0]?.code).toBe('CJGLS');
   });
 
   it('rejects invalid canonical status enum values', () => {

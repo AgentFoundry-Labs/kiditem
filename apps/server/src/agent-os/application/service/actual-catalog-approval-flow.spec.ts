@@ -18,7 +18,6 @@ import type {
 const ORGANIZATION_ID = '00000000-0000-4000-8000-000000000001';
 const USER_ID = '00000000-0000-4000-8000-000000000002';
 const CANDIDATE_ID = '00000000-0000-4000-8000-000000000003';
-const OPERATION_ID = '00000000-0000-4000-8000-000000000004';
 const NOW = new Date('2026-08-28T00:00:00.000Z');
 
 const scenarios: readonly ApprovalScenario[] = [
@@ -48,8 +47,10 @@ const scenarios: readonly ApprovalScenario[] = [
     input: { candidateId: CANDIDATE_ID },
     output: {
       candidateId: CANDIDATE_ID,
-      operationRunId: OPERATION_ID,
-      status: 'queued',
+      detailGenerationId: CANDIDATE_ID,
+      thumbnailGenerationId: CANDIDATE_ID,
+      contentWorkspaceId: CANDIDATE_ID,
+      href: `/product-pipeline/collected-products/${CANDIDATE_ID}`,
     },
   },
 ];
@@ -135,7 +136,6 @@ function approvalRuntime(scenario: ApprovalScenario) {
     invoke: vi.fn(async () => ({
       summary: scenario.definition.resultSummary,
       resourceRefs: [],
-      operationRefs: [],
       output: scenario.output,
     })),
   };

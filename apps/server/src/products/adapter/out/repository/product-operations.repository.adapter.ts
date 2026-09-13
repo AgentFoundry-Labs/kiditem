@@ -5,28 +5,28 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { PrismaService } from '../../../../prisma/prisma.service';
-import type {
-  MasterProductOperationsListQuery,
-} from '@kiditem/shared/product-operations';
-import {
-  ProductAbcEvaluationSchema,
-  ProductAbcFormulaSummarySchema,
-  type ProductAbcEvaluation,
-} from '@kiditem/shared/product-abc';
 import {
   isChannelListingOnSale,
   resolveChannelListingSaleStatus,
 } from '@kiditem/shared/channel-listing';
+import {
+  dailyTrafficFactSource,
+  type DailyTrafficFactSource,
+} from '@kiditem/shared/advertising';
+import { readListingAdWindowFacts, type AdListingWindowFacts } from '../../../../common/ad-window-facts';
+import { addDays, businessDateKey, evidenceCutoffDate, kstBusinessDate } from '../../../../common/kst';
+import { PrismaService } from '../../../../prisma/prisma.service';
+import { productAbcEvaluation } from '../../../mapper/product-abc-evaluation.mapper';
+import { listSellingMasterProductIds } from './selling-master-product.query';
+import type {
+  MasterProductOperationsListQuery,
+} from '@kiditem/shared/product-operations';
 import type {
   ProductOperationsRepositoryDetail,
   ProductOperationsDisplayMediaTarget,
   ProductOperationsRepositoryListItem,
   ProductOperationsRepositoryPort,
 } from '../../../application/port/out/repository/product-operations.repository.port';
-import { listSellingMasterProductIds } from './selling-master-product.query';
-
-const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;
 
 function productInclude(organizationId: string, periodStart?: Date) {
   return {
@@ -47,7 +47,13 @@ function productInclude(organizationId: string, periodStart?: Date) {
     channelListings: {
       where: { organizationId },
       orderBy: { createdAt: 'asc' as const },
-      include: {
+      select: {
+        id: true,
+        channelAccountId: true,
+        externalId: true,
+        displayName: true,
+        status: true,
+        isActive: true,
         channelAccount: {
           select: { id: true, channel: true, name: true },
         },
@@ -64,22 +70,29 @@ function productInclude(organizationId: string, periodStart?: Date) {
             trafficOrders: true,
             trafficSalesQty: true,
             trafficRevenue: true,
-            adSpend: true,
-            adCoverageStatus: true,
-            adObservedAt: true,
-            trafficCoverageStatus: true,
             trafficObservedAt: true,
             lastObservedAt: true,
+            metaJson: true,
           },
         },
         options: {
           where: { organizationId },
           orderBy: [{ createdAt: 'asc' as const }, { id: 'asc' as const }],
-          include: {
+          select: {
+            id: true,
+            externalOptionId: true,
+            itemName: true,
+            sellerSku: true,
+            barcode: true,
+            status: true,
+            isActive: true,
             inventoryComponents: {
               where: { organizationId },
               orderBy: { createdAt: 'asc' as const },
-              include: {
+              select: {
+                id: true,
+                sellpiaInventorySkuId: true,
+                quantity: true,
                 sellpiaInventorySku: {
                   select: {
                     id: true,
@@ -143,23 +156,25 @@ implements ProductOperationsRepositoryPort {
     organizationId: string,
     query: MasterProductOperationsListQuery,
   ) {
-    const periodStart = startOfUtcDay(
-      new Date(Date.now() - (query.periodDays - 1) * 86_400_000),
-    );
+    const periodStart = addDays(kstBusinessDate(new Date()), -(query.periodDays - 1));
     const [sellingMasterProductIds, sellingChannelProducts] = await Promise.all([
       listSellingMasterProductIds(this.prisma, organizationId),
       this.listSellingChannelProducts(organizationId),
     ]);
     const sellingMasterProductIdSet = new Set(sellingMasterProductIds);
-    const rows = await this.prisma.masterProduct.findMany({
-      where: productListWhere(organizationId, query, sellingMasterProductIds),
-      include: productInclude(organizationId, periodStart),
-      orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
-    });
+    const [rows, adByListing] = await Promise.all([
+      this.prisma.masterProduct.findMany({
+        where: productListWhere(organizationId, query, sellingMasterProductIds),
+        include: productInclude(organizationId, periodStart),
+        orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
+      }),
+      readListingAdWindowFacts(this.prisma, { organizationId, from: periodStart }),
+    ]);
+    const adFactsByListing = new Map(adByListing.map((facts) => [facts.listingId, facts]));
     return {
       items: rows.map((row) => toListItem(
         row,
-        periodStart,
+        adFactsByListing,
         sellingMasterProductIdSet.has(row.id),
       )),
       page: query.page,
@@ -277,52 +292,6 @@ implements ProductOperationsRepositoryPort {
     }
   }
 
-  async replaceChannelOptionInventory(
-    input: Parameters<ProductOperationsRepositoryPort['replaceChannelOptionInventory']>[0],
-  ) {
-    try {
-      return await this.prisma.$transaction(async (tx) => {
-        const option = await tx.channelListingOption.findFirst({
-          where: { id: input.channelListingOptionId, organizationId: input.organizationId },
-          select: {
-            id: true,
-            listingId: true,
-          },
-        });
-        if (!option) throw new NotFoundException('Channel listing option was not found');
-        await validateRecipeSkus(tx, input.organizationId, input.components);
-        await tx.channelListingOptionInventoryComponent.deleteMany({
-          where: {
-            organizationId: input.organizationId,
-            channelListingOptionId: input.channelListingOptionId,
-          },
-        });
-        if (input.components.length > 0) {
-          await tx.channelListingOptionInventoryComponent.createMany({
-            data: input.components.map((component) => ({
-              organizationId: input.organizationId,
-              channelListingOptionId: input.channelListingOptionId,
-              sellpiaInventorySkuId: component.sellpiaInventorySkuId,
-              quantity: component.quantity,
-            })),
-          });
-        }
-        const masterProductId = await resolveListingMasterProductId(
-          tx,
-          input.organizationId,
-          option.listingId,
-        );
-        const updated = await tx.channelListing.updateMany({
-          where: { id: option.listingId, organizationId: input.organizationId },
-          data: { masterProductId },
-        });
-        if (updated.count !== 1) throw new NotFoundException('Channel listing was not found');
-        return { masterProductId };
-      }, TRANSACTION_OPTIONS);
-    } catch (error) {
-      throw translateMutationError(error);
-    }
-  }
 }
 
 function compareDisplayMediaTargets(
@@ -369,88 +338,10 @@ function productListWhere(
       : query.abcGrade
         ? { abcGrade: query.abcGrade }
         : {}),
-    ...(query.abcCalculationStatus ? {
-      abcEvaluation: { is: { calculationStatus: query.abcCalculationStatus } },
-    } : {}),
     ...(query.adStatus === 'active' ? { adTier: { not: null } } : {}),
     ...(query.adStatus === 'inactive' ? { adTier: 'inactive' } : {}),
     ...(query.adStatus === 'unconfigured' ? { adTier: null } : {}),
   };
-}
-
-async function validateRecipeSkus(
-  tx: Prisma.TransactionClient,
-  organizationId: string,
-  components: readonly { sellpiaInventorySkuId: string; quantity: number }[],
-): Promise<void> {
-  if (components.some((component) => component.quantity <= 0)) {
-    throw new BadRequestException('Channel option inventory quantities must be positive');
-  }
-  const ids = [...new Set(components.map((component) => component.sellpiaInventorySkuId))];
-  if (ids.length !== components.length) {
-    throw new BadRequestException('Channel option inventory SKUs must be unique');
-  }
-  await validateActiveRecipeSkuIds(tx, organizationId, ids);
-}
-
-async function validateActiveRecipeSkuIds(
-  tx: Prisma.TransactionClient,
-  organizationId: string,
-  ids: string[],
-): Promise<void> {
-  if (ids.length === 0) return;
-  const rows = await tx.sellpiaInventorySku.findMany({
-    where: { organizationId, id: { in: ids } },
-    select: { id: true, isActive: true, masterProductId: true },
-  });
-  const byId = new Map(rows.map((row) => [row.id, row]));
-  if (ids.some((id) => !byId.has(id))) {
-    throw new BadRequestException(
-      'One or more SellpiaInventorySku components do not belong to this organization',
-    );
-  }
-  if (ids.some((id) => byId.get(id)?.isActive !== true)) {
-    throw new BadRequestException('Inactive SellpiaInventorySku components require review');
-  }
-  if (ids.some((id) => !byId.get(id)?.masterProductId)) {
-    throw new BadRequestException(
-      'SellpiaInventorySku canonical MasterProduct must be synchronized before matching',
-    );
-  }
-}
-
-async function resolveListingMasterProductId(
-  tx: Prisma.TransactionClient,
-  organizationId: string,
-  channelListingId: string,
-): Promise<string | null> {
-  const listing = await tx.channelListing.findFirst({
-    where: { id: channelListingId, organizationId },
-    select: {
-      options: {
-        where: { organizationId },
-        select: {
-          inventoryComponents: {
-            where: { organizationId },
-            select: {
-              sellpiaInventorySku: { select: { masterProductId: true } },
-            },
-          },
-        },
-      },
-    },
-  });
-  if (!listing || listing.options.length === 0) return null;
-  const ownerIds = new Set<string>();
-  for (const option of listing.options) {
-    if (option.inventoryComponents.length === 0) return null;
-    for (const component of option.inventoryComponents) {
-      const ownerId = component.sellpiaInventorySku.masterProductId;
-      if (!ownerId) return null;
-      ownerIds.add(ownerId);
-    }
-  }
-  return ownerIds.size === 1 ? [...ownerIds][0]! : null;
 }
 
 function toDetail(row: ProductRow): ProductOperationsRepositoryDetail {
@@ -475,24 +366,34 @@ function toDetail(row: ProductRow): ProductOperationsRepositoryDetail {
 
 function toListItem(
   row: ProductRow,
-  periodStart: Date,
+  adFactsByListing: ReadonlyMap<string, AdListingWindowFacts>,
   isSelling: boolean,
 ): ProductOperationsRepositoryListItem {
   const activeListings = row.channelListings.filter((listing) => listing.isActive);
   const dailyFacts = row.channelListings.flatMap(
     (listing) => listing.channelListingDailySnapshots,
   );
-  const trafficFacts = dailyFacts.filter(hasTrafficEvidence);
-  const advertisingFacts = dailyFacts.filter(hasAdvertisingEvidence);
-  const visitorCount = nullableTrafficMetricSum(trafficFacts, (fact) => fact.trafficVisitors);
+  const trafficFacts = dailyFacts.filter(isAcceptedTrafficFact);
+  const advertisingFacts = row.channelListings.flatMap((listing) => {
+    const facts = adFactsByListing.get(listing.id);
+    return facts ? [facts] : [];
+  });
+  const csvTrafficFacts = trafficFacts.filter(
+    (fact) => trafficFactSource(fact) === 'csv_upload',
+  );
+  // Wing listing projections carry option/page visitors, not account UV.
+  // Product Hub may retain explicitly uploaded listing visitors, but never
+  // presents a sum of Wing option projections as unique visitors.
+  const visitorCount = nullableTrafficMetricSum(csvTrafficFacts, (fact) => fact.trafficVisitors);
   const viewCount = nullableTrafficMetricSum(trafficFacts, (fact) => fact.trafficViews);
   const cartAddCount = nullableTrafficMetricSum(trafficFacts, (fact) => fact.trafficCartAdds);
   const orderCount = nullableTrafficMetricSum(trafficFacts, (fact) => fact.trafficOrders);
   const salesQuantity = nullableTrafficMetricSum(trafficFacts, (fact) => fact.trafficSalesQty);
   const salesAmount = nullableTrafficMetricSum(trafficFacts, (fact) => fact.trafficRevenue);
-  const adSpend = nullableSum(advertisingFacts, (fact) => fact.adSpend);
+  const adSpend = nullableSum(advertisingFacts, (fact) => fact.spend);
   return {
     ...metadata(row),
+    abcCreatedAt: row.createdAt,
     isSelling,
     updatedAt: row.updatedAt,
     inventorySkuIds: row.inventorySkus.map(({ id }) => id),
@@ -521,31 +422,42 @@ function toListItem(
       ? (adSpend / salesAmount) * 100
       : null,
     metricsFreshness: {
-      traffic: dailyMetricFreshness(trafficFacts, 'traffic'),
-      advertising: dailyMetricFreshness(advertisingFacts, 'advertising'),
+      traffic: dailyMetricFreshness(trafficFacts),
+      advertising: advertisingFreshness(advertisingFacts),
     },
-    contributionProfitVelocity30: decimalToFinite(row.abcEvaluation?.profitVelocity30 ?? null),
-    contributionMargin: decimalToFinite(row.abcEvaluation?.weightedContributionMargin ?? null),
   };
+}
+
+/** Ready when the measured window reaches yesterday (KST). */
+function freshness(coverageStart: string, coverageEnd: string, capturedAt: Date) {
+  const yesterdayKst = businessDateKey(evidenceCutoffDate());
+  return {
+    ready: coverageEnd >= yesterdayKst,
+    coverageStartDate: coverageStart,
+    coverageEndDate: coverageEnd,
+    capturedAt,
+  };
+}
+
+const NO_FRESHNESS = { ready: false, coverageStartDate: null, coverageEndDate: null, capturedAt: null };
+
+function advertisingFreshness(facts: readonly AdListingWindowFacts[]) {
+  if (facts.length === 0) return NO_FRESHNESS;
+  const first = facts[0]!;
+  const start = facts.reduce((earliest, f) => (f.firstDate < earliest ? f.firstDate : earliest), first.firstDate);
+  const end = facts.reduce((latest, f) => (f.lastDate > latest ? f.lastDate : latest), first.lastDate);
+  const capturedAt = facts.reduce((latest, f) => (f.observedAt > latest ? f.observedAt : latest), first.observedAt);
+  return freshness(start, end, capturedAt);
 }
 
 function dailyMetricFreshness(
   facts: readonly {
     businessDate: Date;
     lastObservedAt: Date;
-    adObservedAt: Date | null;
     trafficObservedAt: Date | null;
   }[],
-  source: 'traffic' | 'advertising',
 ) {
-  if (facts.length === 0) {
-    return {
-      status: 'MISSING' as const,
-      coverageStartDate: null,
-      coverageEndDate: null,
-      capturedAt: null,
-    };
-  }
+  if (facts.length === 0) return NO_FRESHNESS;
   const first = facts[0]!;
   const coverageStart = facts.reduce(
     (earliest, fact) => fact.businessDate < earliest ? fact.businessDate : earliest,
@@ -557,45 +469,27 @@ function dailyMetricFreshness(
   );
   const capturedAt = facts.reduce(
     (latest, fact) => {
-      const observedAt = source === 'traffic'
-        ? fact.trafficObservedAt ?? fact.lastObservedAt
-        : fact.adObservedAt ?? fact.lastObservedAt;
+      const observedAt = fact.trafficObservedAt ?? fact.lastObservedAt;
       return observedAt > latest ? observedAt : latest;
     },
-    source === 'traffic'
-      ? first.trafficObservedAt ?? first.lastObservedAt
-      : first.adObservedAt ?? first.lastObservedAt,
+    first.trafficObservedAt ?? first.lastObservedAt,
   );
-  const yesterdayKst = new Date(Date.now() + (9 * 60 * 60 * 1000) - 86_400_000)
-    .toISOString()
-    .slice(0, 10);
-  return {
-    status: calendarDate(coverageEnd) >= yesterdayKst ? 'READY' as const : 'STALE' as const,
-    coverageStartDate: calendarDate(coverageStart),
-    coverageEndDate: calendarDate(coverageEnd),
-    capturedAt,
-  };
+  return freshness(calendarDate(coverageStart), calendarDate(coverageEnd), capturedAt);
 }
 
-function hasTrafficEvidence(
-  fact: ProductRow['channelListings'][number]['channelListingDailySnapshots'][number],
-): boolean {
-  return fact.trafficCoverageStatus !== null
-    || fact.trafficVisitors !== 0
-    || fact.trafficViews !== 0
-    || fact.trafficCartAdds !== 0
-    || fact.trafficOrders !== 0
-    || fact.trafficSalesQty !== 0
-    || fact.trafficRevenue !== 0;
+type ProductTrafficFact = ProductRow['channelListings'][number]['channelListingDailySnapshots'][number];
+
+function trafficFactSource(fact: ProductTrafficFact): DailyTrafficFactSource | null {
+  return dailyTrafficFactSource(fact.metaJson);
 }
 
-function hasAdvertisingEvidence(
-  fact: ProductRow['channelListings'][number]['channelListingDailySnapshots'][number],
-): boolean {
-  return fact.adCoverageStatus !== null || fact.adSpend !== 0;
+/** A traffic row is a measurement only on a day the source reported. */
+function isAcceptedTrafficFact(fact: ProductTrafficFact): boolean {
+  return fact.trafficObservedAt !== null;
 }
 
 function metadata(row: ProductRow) {
+  const abcEvaluation = productAbcEvaluation(row.abcEvaluation);
   return {
     id: row.id,
     code: row.code,
@@ -616,8 +510,8 @@ function metadata(row: ProductRow) {
     brand: row.brand,
     tags: row.tags,
     imageUrls: row.imageUrls,
-    abcGrade: productAbcGrade(row.abcGrade),
-    abcEvaluation: productAbcEvaluation(row.abcEvaluation, row.abcGrade),
+    abcGrade: abcEvaluation?.abcGrade ?? null,
+    abcEvaluation,
     profitTag: row.profitTag,
     adTier: row.adTier,
     adBudgetLimit: row.adBudgetLimit,
@@ -627,90 +521,8 @@ function metadata(row: ProductRow) {
   };
 }
 
-function productAbcGrade(value: string | null): 'A' | 'B' | 'C' | null {
-  return value === 'A' || value === 'B' || value === 'C' ? value : null;
-}
-
-function productAbcEvaluation(
-  row: ProductRow['abcEvaluation'],
-  abcGrade: string | null,
-) : ProductAbcEvaluation | null {
-  if (!row) return null;
-  const cutoff = row.evaluationCutoffDate ?? row.sourceCoverageEndDate ?? row.calculatedAt;
-  if (!cutoff || !row.costComponentsJson) return null;
-  const formula = row.formulaVersion
-    ? ProductAbcFormulaSummarySchema.safeParse(row.formulaVersion.formulaJson)
-    : null;
-  const parsed = ProductAbcEvaluationSchema.safeParse({
-    abcGrade: productAbcGrade(abcGrade),
-    calculationStatus: row.calculationStatus,
-    rawScore: decimalToFinite(row.rawScore),
-    adjustedScore: decimalToFinite(row.adjustedScore),
-    reliability: decimalToFinite(row.reliability),
-    weightedRevenue: decimalToFinite(row.weightedRevenue),
-    weightedOrderTimeCogs: decimalToFinite(row.weightedOrderTimeCogs),
-    weightedAdSpend: decimalToFinite(row.weightedAdSpend),
-    weightedContributionProfit: decimalToFinite(row.weightedContributionProfit),
-    profitVelocity30: decimalToFinite(row.profitVelocity30),
-    weightedContributionMargin: decimalToFinite(row.weightedContributionMargin),
-    lossRecurrence: decimalToFinite(row.lossRecurrence),
-    paidOrderCount: row.paidOrderCount,
-    observationDays: row.observationDays,
-    firstValidPaidSaleAt: row.firstValidPaidSaleAt,
-    formula: formula?.success ? formula.data : null,
-    sourceFreshness: {
-      evaluationCutoffDate: calendarDate(cutoff),
-      sellpia: {
-        status: row.sellpiaSourceStatus,
-        coverageStartDate: row.sellpiaCoverageStartDate ?? row.sourceCoverageStartDate
-          ? calendarDate((row.sellpiaCoverageStartDate ?? row.sourceCoverageStartDate)!)
-          : null,
-        coverageEndDate: row.sellpiaCoverageEndDate ?? row.sourceCoverageEndDate
-          ? calendarDate((row.sellpiaCoverageEndDate ?? row.sourceCoverageEndDate)!)
-          : null,
-        capturedAt: row.sellpiaSourceCapturedAt,
-      },
-      advertising: {
-        status: row.advertisingSourceStatus,
-        coverageStartDate: row.advertisingCoverageStartDate
-          ? calendarDate(row.advertisingCoverageStartDate)
-          : null,
-        coverageEndDate: row.advertisingCoverageEndDate
-          ? calendarDate(row.advertisingCoverageEndDate)
-          : null,
-        capturedAt: row.advertisingSourceCapturedAt,
-      },
-      orders: {
-        status: row.ordersSourceStatus,
-        coverageStartDate: row.ordersCoverageStartDate
-          ? calendarDate(row.ordersCoverageStartDate)
-          : null,
-        coverageEndDate: row.ordersCoverageEndDate
-          ? calendarDate(row.ordersCoverageEndDate)
-          : null,
-        capturedAt: row.ordersSourceCapturedAt,
-      },
-      mapping: {
-        status: row.mappingSourceStatus,
-        inventoryGeneration: row.mappingInventoryGeneration?.toString() ?? null,
-        verifiedAt: row.mappingVerifiedAt,
-      },
-    },
-    costBreakdown: row.costComponentsJson,
-    statusDetail: row.statusDetail,
-    calculatedAt: row.calculatedAt,
-  });
-  return parsed.success ? parsed.data : null;
-}
-
-function decimalToFinite(value: Prisma.Decimal | null): number | null {
-  if (value === null) return null;
-  const number = value.toNumber();
-  return Number.isFinite(number) ? number : null;
-}
-
 function calendarDate(value: Date): string {
-  return value.toISOString().slice(0, 10);
+  return businessDateKey(value);
 }
 
 function toRepositoryOption(
@@ -740,17 +552,11 @@ function nullableSum<T>(rows: readonly T[], value: (row: T) => number): number |
   return rows.length === 0 ? null : rows.reduce((sum, row) => sum + value(row), 0);
 }
 
-function nullableTrafficMetricSum<T extends { trafficCoverageStatus: string | null }>(
+function nullableTrafficMetricSum<T>(
   rows: readonly T[],
   value: (row: T) => number,
 ): number | null {
-  const evidencedRows = rows.filter((row) =>
-    row.trafficCoverageStatus !== null || value(row) !== 0);
-  return nullableSum(evidencedRows, value);
-}
-
-function startOfUtcDay(date: Date): Date {
-  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  return nullableSum(rows, value);
 }
 
 function translateMutationError(error: unknown): unknown {

@@ -1,27 +1,30 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { BrowserCollectionRunIdSchema } from "@kiditem/shared/browser-collection-session";
-import { useQuery } from "@tanstack/react-query";
+import { BrowserCollectionAttemptIdSchema } from "@kiditem/shared/browser-collection-session";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Radar } from "lucide-react";
 import { toast } from "sonner";
-import { BrowserCollectionRunControls } from "@/components/browser-collection/BrowserCollectionRunControls";
-import { useBrowserCollectionSession } from "@/hooks/useBrowserCollectionSession";
+import { transferExtensionAuthTo } from "@/lib/extension-auth";
+import { queryKeys } from "@/lib/query-keys";
 import { cn } from "@/lib/utils";
+import { beginWingRankBatch, fetchWingRankBatch } from "../lib/rank-api";
 import {
-  getWingSalesRankCheckStatus,
+  cancelWingRankBatch,
+  listWingRankSessions,
+  openWingRankAttention,
   runWingSalesRankCheck,
-  type RankCheckStatus,
 } from "../lib/rank-extension";
 
-function isRunning(status: string | undefined): boolean {
-  return status === "starting" || status === "running";
+function readBatchKey(): string | null {
+  if (typeof window === "undefined") return null;
+  const parsed = BrowserCollectionAttemptIdSchema.safeParse(
+    new URLSearchParams(window.location.search).get("rankBatch"),
+  );
+  return parsed.success ? parsed.data : null;
 }
 
-/**
- * '지금 순위 체크' — 확장에 일괄 확인을 시작시키고 2초 간격으로 진행률
- * (완료/전체 + 현재 키워드)을 폴링한다. 완료 시 onCompleted 로 데이터 refetch.
- */
+/** The URL retains only the receipt key. Results always come from the owner. */
 export default function BatchRankCheck({
   extensionId,
   disabledReason,
@@ -31,173 +34,156 @@ export default function BatchRankCheck({
   disabledReason: string | null;
   onCompleted: () => void;
 }) {
-  const [runId, setRunId] = useState<string | null>(null);
-  const [linkedRunId] = useState(readCollectionRunId);
+  const client = useQueryClient();
+  const [batchKey, setBatchKey] = useState(readBatchKey);
   const [starting, setStarting] = useState(false);
-  const settledRunIdRef = useRef<string | null>(null);
-  const collectionSessionQuery = useBrowserCollectionSession(
-    runId ?? linkedRunId,
-  );
-  const collectionSession =
-    collectionSessionQuery.data?.producer === "advertising.wing_rank"
-      ? collectionSessionQuery.data
-      : null;
-  const linkedSessionActive =
-    collectionSession?.status === "running" ||
-    collectionSession?.status === "attention_required";
-  const linkedSessionPending =
-    !!linkedRunId && collectionSessionQuery.isPending;
-
-  const discoveryQuery = useQuery({
-    queryKey: ["rank-tracking", "check-status", "discovery", extensionId],
-    queryFn: () => getWingSalesRankCheckStatus(extensionId!, null),
-    enabled:
-      !!extensionId && !runId && !linkedSessionPending && !linkedSessionActive,
-    refetchInterval: (query) => {
-      const data = query.state.data as RankCheckStatus | undefined;
-      return data && isRunning(data.status) ? false : 5000;
-    },
-    gcTime: 0,
+  const [cancelling, setCancelling] = useState(false);
+  const [dispatchError, setDispatchError] = useState<string | null>(null);
+  const [cancelError, setCancelError] = useState<string | null>(null);
+  const observed = useRef("");
+  const queryKey = [...queryKeys.ads.keywordRank(), "batch", batchKey];
+  const owner = useQuery({
+    queryKey,
+    queryFn: () => fetchWingRankBatch(batchKey!),
+    enabled: !!batchKey && !starting,
+    refetchInterval: (query) =>
+      query.state.data?.attempts.some((attempt) => attempt.state === "RUNNING")
+        ? 2000
+        : false,
   });
-
-  useEffect(() => {
-    const discovered = discoveryQuery.data;
-    if (!discovered || !isRunning(discovered.status) || !discovered.runId)
-      return;
-    settledRunIdRef.current = null;
-    setRunId(discovered.runId);
-  }, [discoveryQuery.data]);
-
-  useEffect(() => {
-    if (!collectionSession || !linkedSessionActive || runId) return;
-    settledRunIdRef.current = null;
-    setRunId(collectionSession.runId);
-  }, [collectionSession, linkedSessionActive, runId]);
-
-  const statusQuery = useQuery({
-    queryKey: ["rank-tracking", "check-status", extensionId, runId],
-    queryFn: () => getWingSalesRankCheckStatus(extensionId!, runId),
-    enabled: !!extensionId && !!runId,
-    refetchInterval: (query) => {
-      const data = query.state.data as RankCheckStatus | undefined;
-      if (data && !isRunning(data.status)) return false;
-      // 확장이 응답하지 않으면(리로드 등) 폴링을 무한정 계속하지 않는다.
-      if (!data && query.state.fetchFailureCount >= 15) return false;
-      return 2000;
-    },
-    gcTime: 0,
-  });
-
-  const status = statusQuery.data;
-  const pollFailed = !status && !!runId && statusQuery.failureCount >= 15;
+  const attempts = owner.data?.attempts ?? [];
+  const complete = attempts.filter(
+    (attempt) => attempt.state === "COMPLETE",
+  ).length;
+  const failures = attempts.filter((attempt) => attempt.state === "FAILED");
   const running =
-    starting ||
-    (!!runId && !pollFailed && (!status || isRunning(status.status)));
+    starting || attempts.some((attempt) => attempt.state === "RUNNING");
+  const signature = attempts
+    .filter((attempt) => attempt.state !== "RUNNING")
+    .map((attempt) => `${attempt.attemptId}:${attempt.state}`)
+    .join(",");
+  const sessions = useQuery({
+    queryKey: [...queryKey, "extension-progress", extensionId],
+    queryFn: () => listWingRankSessions(extensionId!),
+    enabled: !!extensionId && attempts.length > 0,
+    refetchInterval: running ? 2000 : false,
+  });
+  const attention =
+    sessions.data?.filter(
+      (session) =>
+        session.attention?.canOpenTab &&
+        attempts.some((attempt) => attempt.attemptId === session.attemptId),
+    ) ?? [];
 
   useEffect(() => {
-    if (!pollFailed) return;
-    toast.error(
-      "Wing 판매순위 진행 상태를 확인하지 못했습니다 — 확장프로그램 응답 없음",
-    );
-    setRunId(null);
-  }, [pollFailed]);
+    if (signature && signature !== observed.current) {
+      observed.current = signature;
+      onCompleted();
+    }
+  }, [signature, onCompleted]);
 
   useEffect(() => {
-    if (!runId || !status) return;
-    if (isRunning(status.status)) return;
-    if (status.status === "attention_required") return;
-    if (settledRunIdRef.current === runId) return;
-    settledRunIdRef.current = runId;
-
-    if (status.status === "done") {
-      const completed = status.completed ?? 0;
-      const total = status.total ?? 0;
-      const failed = status.failed ?? 0;
-      if (failed > 0) {
-        toast.warning(
-          `Wing 판매순위 완료 — 성공 ${completed}/${total}, 실패 ${failed}건`,
-        );
-      } else {
-        toast.success(
-          `Wing 판매순위 완료 — ${completed}/${total}개 검색 키워드 수집`,
-        );
-      }
-      onCompleted();
-    } else if (status.status === "cancelled") {
-      toast.info(
-        `Wing 판매순위 수집 중단 — ${completed}/${total}개 키워드 처리`,
-      );
-      onCompleted();
-    } else if (status.status === "error") {
-      toast.error(status.error ?? "키워드 순위 일괄 확인 실패");
+    if (
+      cancelError &&
+      attempts.length > 0 &&
+      !attempts.some((attempt) => attempt.state === "RUNNING")
+    ) {
+      setCancelError(null);
     }
-    setRunId(null);
-  }, [runId, status, onCompleted]);
+  }, [attempts, cancelError]);
 
-  const start = async (requestedRunId?: string) => {
-    if (!extensionId) {
-      if (disabledReason) toast.error(disabledReason);
-      return;
-    }
+  const start = async () => {
+    if (!extensionId || starting) return;
     setStarting(true);
+    setDispatchError(null);
     try {
-      const result = await runWingSalesRankCheck(extensionId, requestedRunId);
-      if (!result.started) {
+      await transferExtensionAuthTo(extensionId);
+      const key = crypto.randomUUID();
+      const url = new URL(window.location.href);
+      url.searchParams.set("rankBatch", key);
+      window.history.replaceState(null, "", url);
+      setBatchKey(key);
+      const batch = await beginWingRankBatch(key);
+      client.setQueryData(
+        [...queryKeys.ads.keywordRank(), "batch", key],
+        batch,
+      );
+      if (!batch.attempts.length) {
+        url.searchParams.delete("rankBatch");
+        window.history.replaceState(null, "", url);
+        setBatchKey(null);
         toast.info("순위를 확인할 자사 상품이 없습니다.");
         return;
       }
-      settledRunIdRef.current = null;
-      setRunId(result.runId ?? null);
-      toast.info(
-        `자사 상품 ${result.productTotal ?? 0}개의 Wing 판매순위를 처음부터 다시 수집합니다.`,
-      );
-    } catch (err) {
-      toast.error(
-        err instanceof Error
-          ? err.message
-          : "Wing 판매순위 일괄 확인 시작 실패",
+      await runWingSalesRankCheck(extensionId, key);
+    } catch (error) {
+      setDispatchError(
+        error instanceof Error
+          ? error.message
+          : "수집 요청을 전달하지 못했습니다.",
       );
     } finally {
       setStarting(false);
     }
   };
 
-  const total = status?.total ?? 0;
-  const completed = (status?.completed ?? 0) + (status?.failed ?? 0);
-  const progressPct = total > 0 ? Math.round((completed / total) * 100) : 0;
+  const cancel = async () => {
+    if (!extensionId || !batchKey || cancelling) return;
+    setCancelling(true);
+    setCancelError(null);
+    try {
+      await cancelWingRankBatch(extensionId, batchKey);
+      await owner.refetch();
+    } catch (error) {
+      setCancelError(
+        error instanceof Error
+          ? error.message
+          : "중단 결과를 확인하지 못했습니다.",
+      );
+    } finally {
+      setCancelling(false);
+    }
+  };
 
   return (
     <div className="flex flex-wrap items-center gap-3">
-      {running && status && isRunning(status.status) && (
-        <div className="hidden items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600 sm:flex">
-          <span className="tabular-nums font-semibold text-purple-700">
-            처리 {completed} / 전체 {total}
+      {attempts.length > 0 && (
+        <div
+          className="text-xs text-[var(--text-secondary)]"
+          aria-live="polite"
+        >
+          <span>
+            처리 {complete + failures.length} / 전체 {attempts.length}
           </span>
-          <div className="h-1.5 w-24 overflow-hidden rounded-full bg-slate-100">
-            <div
-              className="h-full rounded-full bg-purple-600 transition-all"
-              style={{ width: `${progressPct}%` }}
-            />
-          </div>
-          {status.current && (
-            <span className="max-w-[140px] truncate text-slate-400">
-              {status.current}
+          {running && (
+            <span className="ml-2">
+              {attempts.find((attempt) => attempt.state === "RUNNING")?.keyword}
             </span>
+          )}
+          {failures.length > 0 && (
+            <details open className="mt-1 min-w-0 max-w-full">
+              <summary className="cursor-pointer">
+                실패 {failures.length}건 · 이전 정상 데이터는 유지됩니다.
+              </summary>
+              <ul className="mt-1 max-h-48 max-w-full list-disc space-y-0.5 overflow-y-auto overflow-x-hidden pl-4 pr-2">
+                {failures.map((attempt) => (
+                  <li key={attempt.attemptId} className="break-words">
+                    {attempt.keyword}: {" "}
+                    {attempt.errorMessage ?? attempt.errorCode ?? "수집 실패"}
+                  </li>
+                ))}
+              </ul>
+            </details>
           )}
         </div>
       )}
       <button
         type="button"
         onClick={() => void start()}
-        disabled={
-          running ||
-          collectionSession?.status === "running" ||
-          collectionSession?.status === "attention_required" ||
-          !extensionId
-        }
+        disabled={running || (!!batchKey && owner.isPending) || !extensionId}
         title={!extensionId ? (disabledReason ?? undefined) : undefined}
         className={cn(
-          "flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-sm font-bold text-white transition-colors hover:bg-purple-700",
+          "flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-sm font-bold text-white hover:bg-purple-700",
           "disabled:cursor-not-allowed disabled:opacity-40",
         )}
       >
@@ -211,21 +197,64 @@ export default function BatchRankCheck({
           </>
         )}
       </button>
-      {collectionSession && (
-        <BrowserCollectionRunControls
-          session={collectionSession}
-          onWebRestart={(session) => start(session.runId)}
-          className="fixed bottom-4 right-4 z-40 w-[min(92vw,26rem)] shadow-xl"
-        />
+      {running && extensionId && batchKey && (
+        <button
+          type="button"
+          onClick={() => void cancel()}
+          disabled={cancelling}
+          className="text-sm underline"
+        >
+          수집 중단
+        </button>
+      )}
+      {attention.map((session) => (
+        <button
+          key={session.attemptId}
+          type="button"
+          className="text-sm underline"
+          onClick={() =>
+            void openWingRankAttention(extensionId!, session.attemptId).catch(
+              (error: unknown) => {
+                setDispatchError(
+                  error instanceof Error
+                    ? error.message
+                    : "확인 탭을 열지 못했습니다.",
+                );
+              },
+            )
+          }
+        >
+          {
+            attempts.find((attempt) => attempt.attemptId === session.attemptId)
+              ?.keyword
+          }{" "}
+          확인 탭 열기
+        </button>
+      ))}
+      {(dispatchError || owner.isError) && (
+        <p role="alert" className="text-sm text-amber-700">
+          {dispatchError || "서버의 수집 결과를 확인하지 못했습니다."}
+          <button
+            type="button"
+            onClick={() => void owner.refetch()}
+            className="ml-2 underline"
+          >
+            결과 다시 확인
+          </button>
+        </p>
+      )}
+      {cancelError && (
+        <p role="alert" className="text-sm text-amber-700">
+          {cancelError}
+          <button
+            type="button"
+            onClick={() => void owner.refetch()}
+            className="ml-2 underline"
+          >
+            결과 다시 확인
+          </button>
+        </p>
       )}
     </div>
   );
-}
-
-function readCollectionRunId(): string | null {
-  if (typeof window === "undefined") return null;
-  const parsed = BrowserCollectionRunIdSchema.safeParse(
-    new URLSearchParams(window.location.search).get("collectionRun"),
-  );
-  return parsed.success ? parsed.data : null;
 }

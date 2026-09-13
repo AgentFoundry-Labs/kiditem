@@ -30,7 +30,6 @@ export interface CapabilityCompositionImplementation {
     input: Record<string, unknown>;
   }): Promise<Record<string, unknown>>;
   resourceRef?(output: Record<string, unknown>): CapabilityCompositionResourceRef | null;
-  operationRef?(output: Record<string, unknown>): string | null;
 }
 
 /** A definition and its owner-port adapter are inseparable at the aggregation seam. */
@@ -62,7 +61,6 @@ interface TypedCapabilityCompositionImplementation<
   resourceRef?(
     output: z.output<D["outputSchema"]>,
   ): CapabilityCompositionResourceRef | null;
-  operationRef?(output: z.output<D["outputSchema"]>): string | null;
 }
 
 /**
@@ -103,9 +101,6 @@ export function defineCapabilityComposition<
         ? (output) =>
             implementation.resourceRef?.(definition.outputSchema.parse(output)) ??
             null
-        : undefined,
-      operationRef: implementation.operationRef
-        ? (output) => implementation.operationRef?.(definition.outputSchema.parse(output)) ?? null
         : undefined,
     },
   };

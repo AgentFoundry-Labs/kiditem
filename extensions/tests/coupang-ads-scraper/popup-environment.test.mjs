@@ -24,3 +24,20 @@ test('requires an environment selector and proxies API calls through the worker'
 test('does not persist a global environment fallback', () => {
   assert.doesNotMatch(popup, /storage\.local\.set\([\s\S]{0,200}environment/i);
 });
+
+test('manual popup collection enters an explicit source owner for each supported page', () => {
+  assert.match(popup, /collectAdvertisingWingTrafficFromPopup/);
+  assert.match(popup, /collectAdvertisingWingItemwinnerFromPopup/);
+  assert.match(popup, /collectAdvertisingCampaignsFromPopup/);
+  assert.doesNotMatch(popup, /action:\s*['"]manualSync['"]/);
+});
+
+test('popup itemwinner admission uses the current Wing route only', () => {
+  assert.match(popup, /WING_ITEMWINNER_PATH\s*=\s*['"]\/tenants\/seller-price-management['"]/);
+  assert.doesNotMatch(popup, /item\[-_\]\?winner\|price/);
+});
+
+test('popup status uses the retained read endpoint, never the retired generic writer', () => {
+  assert.match(popup, /popupFetch\(['"]\/api\/ads\/extension\/status['"],\s*\{\},\s*request\)/);
+  assert.doesNotMatch(popup, /popupFetch\(['"]\/api\/ads\/extension\/sync['"]\)/);
+});

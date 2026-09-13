@@ -1,207 +1,214 @@
-import { Injectable } from '@nestjs/common';
-import type {
-  ProductOperationsDataSourceStatus,
-  ProductOperationsPeriodDays,
-} from '@kiditem/shared/product-operations';
+import { Inject, Injectable } from '@nestjs/common';
+import {
+  MASTER_PRODUCT_PROFITABILITY_READ_PORT,
+  type ProfitabilityEvidence,
+  type SourceGenerationView,
+} from '../../../../finance/application/port/in/master-product-profitability-read.port';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { productAbcEvidenceCutoff } from '../../../domain/product-abc-display-status';
+import {
+  businessDateKey,
+  datesInclusive,
+  parseBusinessDate,
+  shiftBusinessDateKey,
+} from '../../../../common/kst';
+import { listSellingMasterProductIds } from './selling-master-product.query';
 import type {
   ProductOperationsDataStatusFacts,
   ProductOperationsDataStatusRepositoryPort,
 } from '../../../application/port/out/repository/product-operations-data-status.repository.port';
+import type {
+  ProductOperationsDataSourceStatus,
+  ProductOperationsPeriodDays,
+} from '@kiditem/shared/product-operations';
+import { deriveSourceReadiness } from '@kiditem/shared/source-readiness';
 
-type SourceAggregate = {
-  _min: { businessDate: Date | null };
-  _max: {
-    businessDate: Date | null;
-    lastObservedAt: Date | null;
-    trafficObservedAt?: Date | null;
-    adObservedAt?: Date | null;
-  };
+type TrafficFact = {
+  businessDate: Date;
+  trafficObservedAt: Date | null;
 };
 
 @Injectable()
 export class ProductOperationsDataStatusRepositoryAdapter
 implements ProductOperationsDataStatusRepositoryPort {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(MASTER_PRODUCT_PROFITABILITY_READ_PORT)
+    private readonly evidence: ProfitabilityEvidence,
+  ) {}
 
   async read(
     organizationId: string,
     periodDays: ProductOperationsPeriodDays,
   ): Promise<ProductOperationsDataStatusFacts> {
-    const cutoffDate = yesterdayKst();
+    const cutoffDate = productAbcEvidenceCutoff(new Date());
     const periodStart = utcCalendarDate(addCalendarDays(cutoffDate, -(periodDays - 1)));
-    const listingScope = {
-      organizationId,
-      businessDate: { gte: periodStart },
-      listing: { is: { organizationId, masterProductId: { not: null } } },
-    } as const;
-
-    const [traffic, advertising, sellpia, products] = await Promise.all([
-      this.prisma.channelListingDailySnapshot.aggregate({
+    // Read the cheap status inputs first, then open the profitability snapshot.
+    // The latter fans out to repeatable-read source transactions; keeping it
+    // out of this batch prevents one list request from occupying every pool
+    // connection with independent read snapshots.
+    const [traffic, formulaState, sellingMasterProductIds] = await Promise.all([
+      this.prisma.channelListingDailySnapshot.findMany({
         where: {
-          ...listingScope,
-          OR: [
-            { trafficCoverageStatus: { not: null } },
-            { trafficVisitors: { not: 0 } },
-            { trafficViews: { not: 0 } },
-            { trafficCartAdds: { not: 0 } },
-            { trafficOrders: { not: 0 } },
-            { trafficSalesQty: { not: 0 } },
-            { trafficRevenue: { not: 0 } },
-          ],
-        },
-        _min: { businessDate: true },
-        _max: { businessDate: true, trafficObservedAt: true, lastObservedAt: true },
-      }),
-      this.prisma.channelListingDailySnapshot.aggregate({
-        where: {
-          ...listingScope,
-          OR: [
-            { adCoverageStatus: { not: null } },
-            { adSpend: { not: 0 } },
-          ],
-        },
-        _min: { businessDate: true },
-        _max: { businessDate: true, adObservedAt: true, lastObservedAt: true },
-      }),
-      this.prisma.sellpiaProductMonthlySales.aggregate({
-        where: { organizationId },
-        _max: { coverageEndDate: true, capturedAt: true },
-      }),
-      this.prisma.masterProduct.findMany({
-        where: { organizationId, isActive: true },
-        select: {
-          abcGrade: true,
-          abcEvaluation: {
-            select: {
-              calculationStatus: true,
-              evaluationCutoffDate: true,
-              sourceCoverageEndDate: true,
-              calculatedAt: true,
-            },
+          organizationId,
+          businessDate: {
+            gte: periodStart,
+            lte: utcCalendarDate(cutoffDate),
           },
+          listing: { is: { organizationId, masterProductId: { not: null } } },
+          // A traffic row is a measurement only on a day the source reported.
+          trafficObservedAt: { not: null },
+        },
+        select: {
+          businessDate: true,
+          trafficObservedAt: true,
         },
       }),
+      this.prisma.masterProductAbcFormulaState.findUnique({
+        where: { organizationId },
+        select: {
+          formulaRevision: true,
+          publicationRevision: true,
+          officialCutoffDate: true,
+          publishedAt: true,
+          mappingGeneration: true,
+        },
+      }),
+      listSellingMasterProductIds(this.prisma, organizationId),
     ]);
-
-    const trafficSource = dailySource(traffic as SourceAggregate, 'traffic', cutoffDate);
-    const advertisingSource = dailySource(
-      advertising as SourceAggregate,
-      'advertising',
-      cutoffDate,
-    );
-    const sellpiaSource = sourceStatus({
-      coverageEndDate: sellpia._max.coverageEndDate,
-      capturedAt: sellpia._max.capturedAt,
-      cutoffDate,
+    const evidence = await this.evidence.load({ organizationId, targetCutoff: cutoffDate });
+    const trafficStatus = sourceStatus(traffic, calendarDate(periodStart), cutoffDate);
+    const mappingGeneration = formulaState?.mappingGeneration ?? 0n;
+    const products = await this.prisma.masterProduct.findMany({
+      where: { organizationId, id: { in: sellingMasterProductIds } },
+      orderBy: { id: 'asc' },
+      select: { id: true, abcGrade: true },
     });
-    const abcCoverage = products.reduce<Date | null>((earliest, product) => {
-      const date = product.abcEvaluation?.evaluationCutoffDate
-        ?? product.abcEvaluation?.sourceCoverageEndDate
-        ?? null;
-      return date && (!earliest || date < earliest) ? date : earliest;
-    }, null);
-    const abcCaptured = products.reduce<Date | null>((latest, product) => {
-      const date = product.abcEvaluation?.calculatedAt ?? null;
-      return date && (!latest || date > latest) ? date : latest;
-    }, null);
-    const abcSource = sourceStatus({
-      coverageEndDate: abcCoverage,
-      capturedAt: abcCaptured,
-      cutoffDate,
-    });
-    const classifiedProductCount = products.filter(({ abcGrade }) =>
-      abcGrade === 'A' || abcGrade === 'B' || abcGrade === 'C').length;
-    const unclassifiedProductCount = products.length - classifiedProductCount;
-    const mappingRequiredProductCount = products.filter(({ abcGrade, abcEvaluation }) =>
-      abcGrade === null && abcEvaluation?.calculationStatus === 'SOURCE_UNMAPPED').length;
-    // Kept in the public response only for compatibility with clients built
-    // against the previous contract. Orders no longer block ABC calculation.
-    const orderEvidenceRequiredProductCount = 0;
-    const displayDates = [
-      trafficSource.coverageEndDate,
-      advertisingSource.coverageEndDate,
-      sellpiaSource.coverageEndDate,
-      abcSource.coverageEndDate,
-    ].filter((date): date is string => date !== null);
-
+    const productEvidence = new Map(evidence.products.map((product) => [product.masterProductId, product]));
+    const actualCutoff = evidence.actualCutoff;
     return {
-      displayDataAsOf: displayDates.length > 0
-        ? displayDates.reduce((earliest, date) => date < earliest ? date : earliest)
-        : null,
-      sources: {
-        traffic: trafficSource,
-        advertising: advertisingSource,
-        sellpiaProfit: sellpiaSource,
-        abc: abcSource,
+      displayDataAsOf: minimumCutoff(trafficStatus.actualCutoff, actualCutoff),
+      traffic: trafficStatus,
+      actualCutoff,
+      sellpia: profitabilitySourceStatus(evidence, 'sellpia', cutoffDate),
+      advertising: profitabilitySourceStatus(evidence, 'advertising', cutoffDate),
+      sourceVector: {
+        sellpia: sourceManifest(evidence.sourceVector.sellpia),
+        advertising: sourceManifest(evidence.sourceVector.advertising),
       },
-      abcSummary: {
-        classifiedProductCount,
-        unclassifiedProductCount,
-        mappingRequiredProductCount,
-        orderEvidenceRequiredProductCount,
-        otherPendingProductCount: Math.max(
-          0,
-          unclassifiedProductCount
-            - mappingRequiredProductCount
-            - orderEvidenceRequiredProductCount,
-        ),
+      mappingReady: evidence.mappingGeneration === mappingGeneration.toString(),
+      contributionBasis: evidence.contributionBasis,
+      formulaState: {
+        formulaRevision: formulaState?.formulaRevision ?? 0,
+        publicationRevision: formulaState?.publicationRevision ?? 0,
+        officialCutoff: formulaState?.officialCutoffDate
+          ? calendarDate(formulaState.officialCutoffDate)
+          : null,
+        publishedAt: formulaState?.publishedAt?.toISOString() ?? null,
+        mappingGeneration: mappingGeneration.toString(),
       },
+      products: products.map((product) => ({
+        masterProductId: product.id,
+        abcGrade: isAbcGrade(product.abcGrade) ? product.abcGrade : null,
+        mappingValid: productEvidence.get(product.id)?.mappingValid ?? false,
+        saleStartDate: productEvidence.get(product.id)?.saleStartDate ?? null,
+      })),
     };
   }
 }
 
-function dailySource(
-  aggregate: SourceAggregate,
-  source: 'traffic' | 'advertising',
+function sourceStatus(
+  rows: readonly TrafficFact[],
+  periodStart: string,
   cutoffDate: string,
 ): ProductOperationsDataSourceStatus {
-  return sourceStatus({
-    coverageEndDate: aggregate._max.businessDate,
-    capturedAt: source === 'traffic'
-      ? aggregate._max.trafficObservedAt ?? aggregate._max.lastObservedAt
-      : aggregate._max.adObservedAt ?? aggregate._max.lastObservedAt,
-    cutoffDate,
-  });
-}
-
-function sourceStatus(input: {
-  coverageEndDate: Date | null;
-  capturedAt: Date | null;
-  cutoffDate: string;
-}): ProductOperationsDataSourceStatus {
-  if (!input.coverageEndDate || !input.capturedAt) {
+  const validRows = rows.filter((row) =>
+    calendarDate(row.businessDate) >= periodStart
+      && calendarDate(row.businessDate) <= cutoffDate
+      && row.trafficObservedAt !== null,
+  );
+  if (validRows.length === 0) {
     return {
-      status: 'NOT_COLLECTED',
-      coverageEndDate: null,
-      capturedAt: null,
-      lastErrorAt: null,
+      ready: false,
+      requiredCutoff: cutoffDate,
+      actualCutoff: null,
+      latestAttempt: null,
+      latestComplete: null,
     };
   }
-  const coverageEndDate = calendarDate(input.coverageEndDate);
+  const latestDate = validRows.reduce(
+    (latest, row) => row.businessDate > latest ? row.businessDate : latest,
+    validRows[0]!.businessDate,
+  );
+  const actualCutoff = calendarDate(latestDate);
+  const targetDates = enumerateDates(periodStart, cutoffDate);
+  const validDates = new Set(validRows.map((row) => calendarDate(row.businessDate)));
+  const completeCoverage = targetDates.every((date) => validDates.has(date));
+  const latestComplete = completeCoverage ? { actualCutoff } : null;
   return {
-    status: coverageEndDate >= input.cutoffDate ? 'CURRENT' : 'OUTDATED',
-    coverageEndDate,
-    capturedAt: input.capturedAt.toISOString(),
-    lastErrorAt: null,
+    ...deriveSourceReadiness({
+      latestAttempt: null,
+      latestComplete,
+      requiredCutoff: cutoffDate,
+    }),
+    actualCutoff,
+    latestAttempt: null,
+    latestComplete,
   };
 }
 
-function yesterdayKst(now = new Date()): string {
-  const shifted = new Date(now.getTime() + (9 * 60 * 60 * 1000) - 86_400_000);
-  return shifted.toISOString().slice(0, 10);
+function profitabilitySourceStatus(
+  evidence: Awaited<ReturnType<ProfitabilityEvidence['load']>>,
+  source: 'sellpia' | 'advertising',
+  requiredCutoff: string,
+): ProductOperationsDataSourceStatus {
+  const status = evidence.sources[source];
+  return deriveSourceReadiness({
+    latestAttempt: status.latestAttempt,
+    latestComplete: status.latestComplete,
+    requiredCutoff,
+  });
+}
+
+function enumerateDates(from: string, to: string): string[] {
+  const cursor = utcCalendarDate(from);
+  const end = utcCalendarDate(to);
+  return datesInclusive(cursor, end).map(businessDateKey);
+}
+
+function sourceManifest(source: SourceGenerationView) {
+  if (!source.sourceImportRunId || source.publicationSequence === null
+    || source.mappingGeneration === null || !source.coverageStartDate
+    || !source.coverageEndDate || !source.capturedAt) return null;
+  return {
+    sourceImportRunId: source.sourceImportRunId,
+    generation: source.publicationSequence,
+    mappingGeneration: source.mappingGeneration,
+    coverageStartDate: source.coverageStartDate,
+    coverageEndDate: source.coverageEndDate,
+    capturedAt: source.capturedAt,
+  };
+}
+
+function minimumCutoff(left: string | null, right: string | null): string | null {
+  if (!left || !right) return null;
+  return left < right ? left : right;
+}
+
+function isAbcGrade(value: string | null): value is 'A' | 'B' | 'C' {
+  return value === 'A' || value === 'B' || value === 'C';
 }
 
 function addCalendarDays(date: string, days: number): string {
-  const value = utcCalendarDate(date);
-  value.setUTCDate(value.getUTCDate() + days);
-  return calendarDate(value);
+  return shiftBusinessDateKey(date, days);
 }
 
 function utcCalendarDate(date: string): Date {
-  return new Date(`${date}T00:00:00.000Z`);
+  const parsed = parseBusinessDate(date);
+  if (!parsed) throw new Error(`invalid business date ${date}`);
+  return parsed;
 }
 
 function calendarDate(date: Date): string {
-  return date.toISOString().slice(0, 10);
+  return businessDateKey(date);
 }

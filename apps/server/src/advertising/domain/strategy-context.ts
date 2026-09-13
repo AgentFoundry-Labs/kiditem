@@ -4,6 +4,7 @@ import type {
   ListingMetricsRow,
 } from './model/strategy-types';
 import { periodBounds } from './ad-metrics';
+import { businessDateKey, kstBusinessDate } from '../../common/kst';
 import type { ChannelSkuAvailabilityItem } from '@kiditem/shared/channel-sku-availability';
 
 /**
@@ -14,8 +15,8 @@ import type { ChannelSkuAvailabilityItem } from '@kiditem/shared/channel-sku-ava
  */
 
 export function getCurrentPeriod(now: Date = new Date()): { year: number; month: number } {
-  const kst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
-  return { year: kst.getUTCFullYear(), month: kst.getUTCMonth() + 1 };
+  const businessDate = kstBusinessDate(now);
+  return { year: businessDate.getUTCFullYear(), month: businessDate.getUTCMonth() + 1 };
 }
 
 /**
@@ -29,8 +30,8 @@ export function getWeekRange(
 ): { start: string; end: string } {
   const bounds = periodBounds(period, now);
   return {
-    start: bounds.from.toISOString().slice(0, 10),
-    end: bounds.to.toISOString().slice(0, 10),
+    start: businessDateKey(bounds.from),
+    end: businessDateKey(bounds.to),
   };
 }
 
@@ -61,36 +62,25 @@ export function toGradeMapStrict(
   return out;
 }
 
-/**
- * `ChannelListingDailySnapshot.groupBy` result → AdAggregateRow[].
- * listingId null is dropped; ad metric columns are mapped to the generic
- * `spend / revenue / clicks / impressions / conversions` shape.
- */
+/** Per-listing measured ad facts → AdAggregateRow[]. */
 export function toAdAggregateRows(
-  rows: Array<{
-    listingId: string | null;
-    _sum: {
-      adSpend: number | null;
-      adRevenue: number | null;
-      adClicks: number | null;
-      adImpressions: number | null;
-      adConversions: number | null;
-    };
+  rows: ReadonlyArray<{
+    listingId: string;
+    spend: number;
+    revenue: number;
+    clicks: number;
+    impressions: number;
+    conversions: number;
   }>,
 ): AdAggregateRow[] {
-  const out: AdAggregateRow[] = [];
-  for (const r of rows) {
-    if (!r.listingId) continue;
-    out.push({
-      listingId: r.listingId,
-      spend: r._sum.adSpend ?? 0,
-      revenue: r._sum.adRevenue ?? 0,
-      clicks: r._sum.adClicks ?? 0,
-      impressions: r._sum.adImpressions ?? 0,
-      conversions: r._sum.adConversions ?? 0,
-    });
-  }
-  return out;
+  return rows.map((r) => ({
+    listingId: r.listingId,
+    spend: r.spend,
+    revenue: r.revenue,
+    clicks: r.clicks,
+    impressions: r.impressions,
+    conversions: r.conversions,
+  }));
 }
 
 /** AdAggregateRow → calcSnapshotKeyMetrics expects a flat snapshot shape. */

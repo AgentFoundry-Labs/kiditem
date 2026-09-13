@@ -1,10 +1,8 @@
-import * as XLSX from 'xlsx';
-import { issueBrowserCollectionRunId } from '@/lib/browser-collection-session';
 import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extension-bridge';
-import { apiClient } from '@/lib/api-client';
-import { downloadBlob } from '@/lib/browser-download';
-import type { OrderCollectionConversionResult } from './order-collection-api';
-import type { OrderCollectionExtensionRun } from './order-collection-extension';
+import {
+  orderCollectionExtensionRunFields,
+  type OrderCollectionExtensionRun,
+} from './order-collection-extension';
 
 /** 카카오(톡스토어) OMS `_search` 응답 한 건 (배송준비중 statusCode 301). 확장이 raw 그대로 넘긴다. */
 export interface KakaoOrder {
@@ -46,8 +44,8 @@ export async function collectKakaoOrdersFromExtension(date?: string, run?: Order
     {
       action: 'collectKakaoOrders',
       date: date ?? run?.date,
-      runId: await issueBrowserCollectionRunId(run?.runId),
-      deferTerminal: Boolean(run?.runId),
+      // attemptId/deferTerminal: true are included by shared fenced run fields.
+      ...orderCollectionExtensionRunFields(run),
     }, // "YYYY-MM-DD" 면 그날 결제분만
     130000,
   );
@@ -59,53 +57,15 @@ export async function collectKakaoOrdersFromExtension(date?: string, run?: Order
   return res.orders;
 }
 
-/** 수집한 카카오 주문(배송준비중)을 셀피아 카카오 업로드 양식(.xls 45컬럼)으로 변환. */
-export async function convertKakaoToSellpiaFile(
-  orders: KakaoOrder[],
-  options?: { download?: boolean },
-): Promise<OrderCollectionConversionResult> {
-  const res = await apiClient.fetchRaw('/api/orders/collection/kakao/convert', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ orders }),
+/**
+ * Kakao has no validated Sellpia field mapping. Keep the raw provider rows on
+ * the fenced owner failure for later inspection; never invent a conversion.
+ */
+export function throwKakaoConversionUnsupported(orders: KakaoOrder[]): never {
+  const error = new Error('카카오는 셀피아 변환 규격이 검증되지 않아 지원하지 않습니다.');
+  Object.assign(error, {
+    code: 'UNSUPPORTED_CONVERSION',
+    sourcePayload: orders,
   });
-  if (!res.ok) {
-    throw new Error((await res.text().catch(() => '')) || '카카오 변환에 실패했습니다.');
-  }
-  const blob = await res.blob();
-  const cd = res.headers.get('Content-Disposition') ?? '';
-  const m = /filename\*=UTF-8''([^;]+)/.exec(cd);
-  const fileName = m ? decodeURIComponent(m[1]) : '카카오_셀피아변환.xls';
-  if (options?.download !== false) {
-    downloadBlob(blob, fileName);
-  }
-  return {
-    fileName,
-    blob,
-    previewRows: await readKakaoPreviewRows(blob),
-    sourceRows: kakaoNumHeader(res, 'X-Order-Collection-Source-Rows'),
-    productRows: kakaoNumHeader(res, 'X-Order-Collection-Product-Rows'),
-    outputRows: kakaoNumHeader(res, 'X-Order-Collection-Output-Rows'),
-    skippedRows: kakaoNumHeader(res, 'X-Order-Collection-Skipped-Rows'),
-  };
-}
-
-function kakaoNumHeader(res: Response, name: string): number | null {
-  const v = res.headers.get(name);
-  if (!v) return null;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
-}
-
-/** 생성된 .xls(카카오 45컬럼)에서 미리보기 행 추출. */
-async function readKakaoPreviewRows(blob: Blob): Promise<string[][]> {
-  const wb = XLSX.read(await blob.arrayBuffer(), { type: 'array' });
-  const sheet = wb.Sheets[wb.SheetNames[0] ?? ''];
-  if (!sheet) return [];
-  const rows = XLSX.utils.sheet_to_json<Array<string | number | null | undefined>>(sheet, {
-    header: 1,
-    raw: false,
-    defval: '',
-  });
-  return rows.slice(0, 24).map((row) => row.slice(0, 45).map((cell) => String(cell ?? '')));
+  throw error;
 }

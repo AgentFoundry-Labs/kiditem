@@ -23,6 +23,7 @@ erDiagram
   CoupangShipmentDateSummary {
     String id PK
     String organizationId FK
+    String sourceImportRunId FK
     String shipmentDate
     Int count
     Int boxes
@@ -132,7 +133,9 @@ erDiagram
 | Local model | Relation | Direction | External domain | External model |
 |---|---|---|---|---|
 | CoupangShipmentDateSummary | organization | references external | Core | Organization |
+| CoupangShipmentDateSummary | sourceImportRun | references external | Core | SourceImportRun |
 | ReturnTransfer | organization | references external | Core | Organization |
+| SellpiaInventorySku | frozenSellpiaInventorySku | referenced by external | Channels | SellpiaProductMonthlySales |
 | SellpiaInventorySku | lastImportRun | references external | Core | SourceImportRun |
 | SellpiaInventorySku | masterProduct | references external | Core | MasterProduct |
 | SellpiaInventorySku | organization | references external | Core | Organization |

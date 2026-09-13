@@ -1,12 +1,21 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { buildPerListingMetrics } from '../../../common/per-listing-profit';
+import { buildPerListingProfit, readAdEvidenceFromLedger } from '../../../common/per-listing-profit';
 import { StatisticsService } from '../statistics.service';
 
-vi.mock('../../../common/per-listing-profit', () => ({
-  buildPerListingMetrics: vi.fn(),
+// The per-listing aggregation and the ledger's account-level ad evidence are
+// faked together: both are handed the same `[from, to)` window, and these cases
+// check that the window this service derives is the one both reads receive.
+vi.mock('../../../common/per-listing-profit', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../common/per-listing-profit')>()),
+  buildPerListingProfit: vi.fn(),
+  readAdEvidenceFromLedger: vi.fn(),
 }));
 
-const mockedBuildPerListingMetrics = vi.mocked(buildPerListingMetrics);
+const mockedBuildPerListingProfit = vi.mocked(buildPerListingProfit);
+const mockedReadAdEvidenceFromLedger = vi.mocked(readAdEvidenceFromLedger);
+
+/** An organization with no advertising account: ad cost is a genuine zero. */
+const NOT_APPLIED_AD_EVIDENCE = { hasAdAccount: false, publishedDates: 0, accountSpend: 0, coversWindow: false };
 
 function makePrisma() {
   return {
@@ -52,8 +61,10 @@ describe('StatisticsService', () => {
   beforeEach(() => {
     prisma = makePrisma();
     service = new StatisticsService(prisma as any);
-    mockedBuildPerListingMetrics.mockReset();
-    mockedBuildPerListingMetrics.mockResolvedValue([]);
+    mockedReadAdEvidenceFromLedger.mockReset();
+    mockedReadAdEvidenceFromLedger.mockResolvedValue(NOT_APPLIED_AD_EVIDENCE);
+    mockedBuildPerListingProfit.mockReset();
+    mockedBuildPerListingProfit.mockResolvedValue([]);
   });
 
   afterEach(() => {
@@ -62,7 +73,7 @@ describe('StatisticsService', () => {
 
   describe('overview', () => {
     it('uses distinct order.count instead of summing per-listing orderCount', async () => {
-      mockedBuildPerListingMetrics.mockResolvedValue([
+      mockedBuildPerListingProfit.mockResolvedValue([
         { ...baseMetric, listingId: 'listing-1', revenue: 100_000, netProfit: 20_000, orderCount: 1 },
         { ...baseMetric, listingId: 'listing-2', masterId: 'master-2', masterCode: 'M0002', masterName: 'Master Product B', revenue: 50_000, netProfit: 10_000, orderCount: 1 },
       ]);
@@ -71,7 +82,15 @@ describe('StatisticsService', () => {
 
       const result = await service.overview('organization-1', '2026-04');
 
-      expect(mockedBuildPerListingMetrics).toHaveBeenCalledWith(
+      expect(mockedBuildPerListingProfit).toHaveBeenCalledWith(
+        prisma as any,
+        'organization-1',
+        new Date('2026-03-31T15:00:00.000Z'),
+        new Date('2026-04-30T15:00:00.000Z'),
+        NOT_APPLIED_AD_EVIDENCE,
+      );
+      // The ledger is asked about the same `[from, to)` window.
+      expect(mockedReadAdEvidenceFromLedger).toHaveBeenCalledWith(
         prisma as any,
         'organization-1',
         new Date('2026-03-31T15:00:00.000Z'),
@@ -107,7 +126,14 @@ describe('StatisticsService', () => {
 
       await service.overview('organization-1');
 
-      expect(mockedBuildPerListingMetrics).toHaveBeenCalledWith(
+      expect(mockedBuildPerListingProfit).toHaveBeenCalledWith(
+        prisma as any,
+        'organization-1',
+        new Date(0),
+        new Date('2026-04-30T15:00:00.000Z'),
+        NOT_APPLIED_AD_EVIDENCE,
+      );
+      expect(mockedReadAdEvidenceFromLedger).toHaveBeenCalledWith(
         prisma as any,
         'organization-1',
         new Date(0),
@@ -128,7 +154,7 @@ describe('StatisticsService', () => {
 
   describe('products', () => {
     it('maps live metrics to listing-primary rows and keeps ratio semantics', async () => {
-      mockedBuildPerListingMetrics.mockResolvedValue([
+      mockedBuildPerListingProfit.mockResolvedValue([
         { ...baseMetric, listingId: 'listing-1', revenue: 500_000, netProfit: 100_000 },
         {
           ...baseMetric,
@@ -188,7 +214,7 @@ describe('StatisticsService', () => {
 
   describe('categories', () => {
     it('groups live metrics by category and sorts by revenue desc', async () => {
-      mockedBuildPerListingMetrics.mockResolvedValue([
+      mockedBuildPerListingProfit.mockResolvedValue([
         { ...baseMetric, listingId: 'listing-1', category: '유아용품', revenue: 300_000, netProfit: 60_000, orderCount: 10 },
         { ...baseMetric, listingId: 'listing-2', category: '완구', revenue: 500_000, netProfit: 100_000, orderCount: 15 },
         { ...baseMetric, listingId: 'listing-3', category: '유아용품', revenue: 200_000, netProfit: 50_000, orderCount: 8 },
@@ -228,7 +254,7 @@ describe('StatisticsService', () => {
 
   describe('grades', () => {
     it('groups live metrics by grade with adCost sum and productCount', async () => {
-      mockedBuildPerListingMetrics.mockResolvedValue([
+      mockedBuildPerListingProfit.mockResolvedValue([
         { ...baseMetric, listingId: 'listing-1', grade: 'A', revenue: 1_000_000, netProfit: 200_000, adCost: 50_000 },
         { ...baseMetric, listingId: 'listing-2', grade: 'A', revenue: 500_000, netProfit: 80_000, adCost: 30_000 },
         { ...baseMetric, listingId: 'listing-3', grade: 'B', revenue: 200_000, netProfit: 20_000, adCost: 10_000 },
@@ -268,7 +294,7 @@ describe('StatisticsService', () => {
 
   describe('pareto', () => {
     it('computes neutral revenue Pareto bands without comparing stored product grades', async () => {
-      mockedBuildPerListingMetrics.mockResolvedValue([
+      mockedBuildPerListingProfit.mockResolvedValue([
         { ...baseMetric, listingId: 'listing-1', masterName: 'Product A', grade: 'A', revenue: 700 },
         { ...baseMetric, listingId: 'listing-2', masterName: 'Product B', grade: 'C', revenue: 200 },
         { ...baseMetric, listingId: 'listing-3', masterName: 'Product C', grade: null, revenue: 100 },

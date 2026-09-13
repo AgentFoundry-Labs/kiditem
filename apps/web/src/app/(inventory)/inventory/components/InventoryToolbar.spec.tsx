@@ -1,18 +1,18 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
+import { InventoryToolbar } from './InventoryToolbar';
 
-vi.mock('@/hooks/useSellpiaInventoryFreshness', () => ({
-  useSellpiaInventoryFreshness: () => ({
-    requestRefresh: vi.fn(),
+vi.mock('../../_shared/sellpia-inventory-source-owner', () => ({
+  useSellpiaInventorySourceOwner: () => ({
+    start: vi.fn(),
+    isStarting: false,
     state: {
       status: 'fresh',
       lastVerifiedAt: '2026-07-30T06:03:27.000Z',
-      unresolvedOrderTransmissionIntents: [],
+      errorMessage: null,
     },
   }),
 }));
-
-import { InventoryToolbar } from './InventoryToolbar';
 
 describe('InventoryToolbar', () => {
   it('owns inventory actions and guidance without duplicating list filters', () => {
@@ -26,6 +26,7 @@ describe('InventoryToolbar', () => {
     );
 
     expect(screen.getByRole('heading', { name: '재고 관리' })).toBeInTheDocument();
+    expect(screen.getByText('최신')).toBeInTheDocument();
     expect(screen.queryByText('재고/발주 관리')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '셀피아 재고 동기화' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '바코드 출력' })).toBeInTheDocument();

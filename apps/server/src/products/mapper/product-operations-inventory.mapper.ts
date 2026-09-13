@@ -39,7 +39,7 @@ function hydrateOption(
 export function mapProductOperationsDetail(
   product: ProductOperationsRepositoryDetail,
   inventoryBySkuId: AvailabilityBySkuId,
-): MasterProductOperationsDetail {
+): Omit<MasterProductOperationsDetail, 'abc' | 'contribution'> {
   const channelListings = product.channelListings.map((listing) => ({
     ...listing,
     options: listing.options.map((option) => hydrateOption(option, inventoryBySkuId)),
@@ -59,9 +59,10 @@ export function mapProductOperationsListItem(
   product: ProductOperationsRepositoryListItem,
   inventoryBySkuId: AvailabilityBySkuId,
   depletion: ProductDepletionProjection,
-): MasterProductOperationsListItem {
+): Omit<MasterProductOperationsListItem, 'abc' | 'contribution'> {
   const {
     activeChannelProducts,
+    abcCreatedAt: _abcCreatedAt,
     inventorySkuIds,
     inventoryOptions: rawOptions,
     ...metadata

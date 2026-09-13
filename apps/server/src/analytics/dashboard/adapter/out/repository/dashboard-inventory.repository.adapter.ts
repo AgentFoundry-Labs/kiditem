@@ -8,20 +8,29 @@
 // 2-hop joins (A-grade review fetch) bind organization on both
 // MasterProduct and ChannelListing both bind organizationId.
 
-import { Injectable } from '@nestjs/common';
-import { PrismaService } from '../../../../../prisma/prisma.service';
-import { buildPerListingMetrics } from '../../../../../common/per-listing-profit';
-import type { DashboardAlertItem } from '@kiditem/shared/dashboard';
-import { ProductAbcFormulaSummarySchema } from '@kiditem/shared/product-abc';
+import { Inject, Injectable } from '@nestjs/common';
+import { ProductAbcFormulaPayloadSchema } from '@kiditem/shared/product-abc';
 import {
   isChannelListingOnSale,
   resolveChannelListingSaleStatus,
 } from '@kiditem/shared/channel-listing';
+import { PrismaService } from '../../../../../prisma/prisma.service';
+import {
+  buildPerListingMetricsCoverage,
+  readAdEvidenceFromLedger,
+} from '../../../../../common/per-listing-profit';
+import {
+  PRODUCT_ABC_READ_PORT,
+  type ProductAbcReadPort,
+} from '../../../../../products/application/port/in/product-abc-read.port';
+import { SourceFailureAlerts } from '../../../../../alerts/alerts.service';
+import type { DashboardAlertItem } from '@kiditem/shared/dashboard';
 import type {
   DashboardInventoryRepositoryPort,
   AbcContributionRow,
   AbcStatusCountRow,
-  DashboardPerListingMetrics,
+  AbcStatusCounts,
+  DashboardPerListingMetricsResult,
   GradeCountRow,
   GradeChangeRow,
   AGradeReviewRow,
@@ -31,7 +40,12 @@ import type {
 export class DashboardInventoryRepositoryAdapter
   implements DashboardInventoryRepositoryPort
 {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(PRODUCT_ABC_READ_PORT)
+    private readonly productAbc: ProductAbcReadPort,
+    private readonly alerts: SourceFailureAlerts,
+  ) {}
 
   async countActiveProductsByGrade(
     organizationId: string,
@@ -53,19 +67,34 @@ export class DashboardInventoryRepositoryAdapter
 
   async countActiveProductsByAbcStatus(
     organizationId: string,
-  ): Promise<AbcStatusCountRow[]> {
-    const rows = await this.prisma.masterProductAbcEvaluation.groupBy({
-      by: ['calculationStatus'],
-      _count: { id: true },
-      where: {
-        organizationId,
-        masterProduct: { is: { organizationId, isActive: true } },
-      },
+  ): Promise<AbcStatusCounts> {
+    // Which products are active is this read model's question; what ABC status
+    // each of them carries is Products'. The dashboard names the population and
+    // counts the published answer — it does not choose an evidence cutoff of
+    // its own (ADR 0002).
+    const active = await this.prisma.masterProduct.findMany({
+      where: { organizationId, isActive: true },
+      select: { id: true },
     });
-    return rows.map((row) => ({
-      calculationStatus: row.calculationStatus,
-      count: row._count.id,
-    } satisfies AbcStatusCountRow));
+    const snapshot = await this.productAbc.readAbc({
+      organizationId,
+      masterProductIds: active.map((row) => row.id),
+    });
+    const counts = new Map<AbcStatusCountRow['displayStatus'], number>();
+    for (const product of snapshot.products) {
+      const displayStatus = product.abc.displayStatus;
+      counts.set(displayStatus, (counts.get(displayStatus) ?? 0) + 1);
+    }
+    return {
+      rows: [...counts].map(([displayStatus, count]) => ({ displayStatus, count })),
+      // The evaluation's own as-of, published beside the counts so the read
+      // model never has to guess how old a stored grade is.
+      evaluatedAsOf: {
+        targetCutoff: snapshot.targetCutoff,
+        actualCutoff: snapshot.actualCutoff,
+        capturedAt: snapshot.capturedAt,
+      },
+    } satisfies AbcStatusCounts;
   }
 
   async findActiveAbcContributions(
@@ -74,13 +103,13 @@ export class DashboardInventoryRepositoryAdapter
     const rows = await this.prisma.masterProductAbcEvaluation.findMany({
       where: { organizationId, masterProduct: { is: { organizationId, isActive: true } } },
       select: {
-        weightedContributionProfit: true,
+        weightedOperatingProfit: true,
         masterProduct: { select: { abcGrade: true } },
       },
     });
     return rows.map((row) => ({
       abcGrade: row.masterProduct.abcGrade,
-      weightedContributionProfit: row.weightedContributionProfit?.toNumber() ?? null,
+      weightedOperatingProfit: row.weightedOperatingProfit.toNumber(),
     } satisfies AbcContributionRow));
   }
 
@@ -102,7 +131,7 @@ export class DashboardInventoryRepositoryAdapter
       include: { activeFormulaVersion: { select: { formulaJson: true } }, },
     });
     const formula = state?.activeFormulaVersion
-      ? ProductAbcFormulaSummarySchema.safeParse(state.activeFormulaVersion.formulaJson)
+      ? ProductAbcFormulaPayloadSchema.safeParse(state.activeFormulaVersion.formulaJson)
       : null;
     return formula?.success ? formula.data : null;
   }
@@ -111,10 +140,13 @@ export class DashboardInventoryRepositoryAdapter
     organizationId: string,
     limit: number,
   ): Promise<DashboardAlertItem[]> {
-    const rows = await this.prisma.alert.findMany({
-      where: { organizationId, isRead: false },
-      orderBy: { createdAt: 'desc' },
-      take: limit,
+    // The Alert table is the alerts module's to read. This adapter asks it for
+    // the rows this panel shows and projects them; it does not hold a second
+    // opinion about filter, order, or limit.
+    const rows = await this.alerts.list(organizationId, {
+      isRead: false,
+      status: 'OPEN',
+      limit,
     });
     return rows.map((a) => ({
       id: a.id,
@@ -124,15 +156,13 @@ export class DashboardInventoryRepositoryAdapter
       severity: a.severity,
       title: a.title,
       message: a.message,
-      operationKey: a.operationKey,
       sourceType: a.sourceType,
       href: a.href,
-      progress: a.progress,
       targetType: a.targetType,
       targetId: a.targetId,
       isRead: a.isRead,
-      createdAt: a.createdAt,
-      updatedAt: a.updatedAt,
+      createdAt: new Date(a.createdAt),
+      updatedAt: a.updatedAt ? new Date(a.updatedAt) : undefined,
     } satisfies DashboardAlertItem));
   }
 
@@ -142,12 +172,30 @@ export class DashboardInventoryRepositoryAdapter
     });
   }
 
-  fetchPerListingMetrics(
+  async fetchPerListingMetrics(
     organizationId: string,
     monthStart: Date,
     monthEnd: Date,
-  ): Promise<DashboardPerListingMetrics[]> {
-    return buildPerListingMetrics(this.prisma, organizationId, monthStart, monthEnd);
+  ): Promise<DashboardPerListingMetricsResult> {
+    // Which listings the ad source actually covered is the helper's rule
+    // (ADR-0006); this adapter only carries its answer, including how many
+    // listings it withheld, across the port. Whether advertising applies to
+    // the organization at all, and which dates the sweep measured, is read
+    // from the advertising ledger for the same window.
+    const accountAdEvidence = await readAdEvidenceFromLedger(
+      this.prisma,
+      organizationId,
+      monthStart,
+      monthEnd,
+    );
+    const { metrics, withheldListings } = await buildPerListingMetricsCoverage(
+      this.prisma,
+      organizationId,
+      monthStart,
+      monthEnd,
+      accountAdEvidence,
+    );
+    return { rows: metrics, withheldListings };
   }
 
   countOutOfStockMasterProducts(organizationId: string): Promise<number> {

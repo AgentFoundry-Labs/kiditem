@@ -1,167 +1,272 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  clearSellpiaSalesCacheFromExtension,
-  collectSellpiaSaleSummaryFromExtension,
-  readSellpiaSalesCacheFromExtension,
-} from './sellpia-sales-collection';
+import { collectSellpiaSaleSummaryFromExtension } from './sellpia-sales-collection';
 
 const mocks = vi.hoisted(() => ({
   detectOrderCollectionExtensionId: vi.fn(),
   sendToExtension: vi.fn(),
+  transferExtensionAuthTo: vi.fn(),
+  createSecureRandomUuid: vi.fn(),
+  beginSellpiaSalesSourceAttempt: vi.fn(),
+  readSellpiaSalesSourceAttempt: vi.fn(),
 }));
 
-vi.mock('@/lib/extension-bridge', () => mocks);
+vi.mock('@/lib/extension-bridge', () => ({
+  detectOrderCollectionExtensionId: mocks.detectOrderCollectionExtensionId,
+  sendToExtension: mocks.sendToExtension,
+}));
+vi.mock('@/lib/extension-auth', () => ({
+  transferExtensionAuthTo: mocks.transferExtensionAuthTo,
+}));
+vi.mock('@/lib/secure-random-uuid', () => ({
+  createSecureRandomUuid: mocks.createSecureRandomUuid,
+}));
+vi.mock('@/lib/sellpia-sales-api', () => ({
+  beginSellpiaSalesSourceAttempt: mocks.beginSellpiaSalesSourceAttempt,
+  readSellpiaSalesSourceAttempt: mocks.readSellpiaSalesSourceAttempt,
+}));
 
-describe('Sellpia sales extension cache', () => {
-  const provenance = {
-    source: 'sellpia_sale_summary',
-    mode: 'selldate',
-    sellerScope: 'all',
-    responseShape: 'empty_object',
-    explicitEmpty: true,
-  } as const;
+const attemptId = '11111111-1111-4111-8111-111111111111';
+const plan = {
+  sourceType: 'sellpia_sales_daily' as const,
+  parserVersion: 'sellpia-sales-v1' as const,
+  sourceOrigin: 'https://kiditem.sellpia.com' as const,
+  sourcePath: '/sale_summary.html?mode=main_link' as const,
+  sourceAccountKey: 'kiditem' as const,
+  range: { from: '2026-07-17', to: '2026-07-18' },
+  businessDates: ['2026-07-17', '2026-07-18'],
+};
 
+function attempt(state: 'RUNNING' | 'COMPLETE' | 'FAILED' = 'RUNNING') {
+  return {
+    attemptId,
+    sourceType: 'sellpia_sales_daily' as const,
+    state,
+    expiresAt: '2099-01-01T00:00:00.000Z',
+    plan,
+    actualCutoffAt: state === 'COMPLETE' ? '2026-07-18T00:00:00.000Z' : null,
+    completedAt: state === 'COMPLETE' ? '2026-07-18T10:00:00.000Z' : null,
+    contentChecksum: state === 'COMPLETE' ? 'a'.repeat(64) : null,
+    contentByteCount: state === 'COMPLETE' ? 100 : null,
+    rowCount: state === 'COMPLETE' ? 2 : 0,
+    sellerCount: state === 'COMPLETE' ? 1 : 0,
+    businessDates: plan.businessDates,
+    errorCode: state === 'FAILED' ? 'SELLPIA_LOGIN_REQUIRED' : null,
+    errorMessage: state === 'FAILED' ? '로그인이 필요합니다.' : null,
+  };
+}
+
+describe('Sellpia sales source-owner bridge', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.createSecureRandomUuid.mockReturnValue('99999999-9999-4999-8999-999999999999');
     mocks.detectOrderCollectionExtensionId.mockResolvedValue('order-collector');
-  });
-
-  it('rejects an old extension empty response without authoritative provenance', async () => {
+    mocks.transferExtensionAuthTo.mockResolvedValue(undefined);
+    mocks.beginSellpiaSalesSourceAttempt.mockResolvedValue(attempt());
+    mocks.readSellpiaSalesSourceAttempt.mockResolvedValue(attempt('COMPLETE'));
     mocks.sendToExtension.mockResolvedValue({
       success: true,
-      payload: { range: { from: '2026-07-18', to: '2026-07-18' }, sellers: [] },
+      attemptId,
+      terminalState: 'COMPLETE',
+      continuationRequired: false,
     });
-
-    await expect(collectSellpiaSaleSummaryFromExtension({
-      organizationId: 'org-1',
-    })).rejects.toThrow('응답 형식이 올바르지 않습니다');
   });
 
-  it('stamps a proven explicit-empty response with the live collection time', async () => {
-    mocks.sendToExtension.mockResolvedValue({
-      success: true,
-      payload: {
-        range: { from: '2026-07-18', to: '2026-07-18' },
-        sellers: [],
-        provenance,
-      },
+  it('freezes the server attempt before dispatching the attempt ID only', async () => {
+    await collectSellpiaSaleSummaryFromExtension({ startDate: plan.range.from, endDate: plan.range.to });
+
+    expect(mocks.beginSellpiaSalesSourceAttempt).toHaveBeenCalledWith({
+      idempotencyKey: '99999999-9999-4999-8999-999999999999',
+      from: plan.range.from,
+      to: plan.range.to,
     });
-
-    const result = await collectSellpiaSaleSummaryFromExtension({ organizationId: 'org-1' });
-
+    expect(mocks.transferExtensionAuthTo).toHaveBeenCalledWith('order-collector');
     expect(mocks.sendToExtension).toHaveBeenCalledWith(
       'order-collector',
-      expect.objectContaining({
-        action: 'collectSellpiaSaleSummary',
-        organizationId: 'org-1',
-      }),
-      90000,
+      { action: 'collectSellpiaSaleSummary', attemptId },
+      190_000,
     );
-    expect(mocks.detectOrderCollectionExtensionId).toHaveBeenCalledTimes(1);
     expect(mocks.detectOrderCollectionExtensionId).toHaveBeenCalledWith(
       1200,
       'collectSellpiaSaleSummaryAuthoritativeV1',
     );
-    expect(result.provenance).toEqual(provenance);
-    expect(result.capturedAt).toEqual(expect.any(String));
-    expect(Number.isNaN(Date.parse(result.capturedAt))).toBe(false);
   });
 
-  it('validates a cached payload before returning it to the ingest path', async () => {
-    mocks.sendToExtension.mockResolvedValue({
+  it('reconciles a lost extension response from persisted COMPLETE state', async () => {
+    mocks.sendToExtension.mockRejectedValueOnce(new Error('extension response lost'));
+
+    await expect(collectSellpiaSaleSummaryFromExtension()).resolves.toMatchObject({
       success: true,
-      cache: {
-        organizationId: 'org-1',
-        capturedAt: 1_752_837_600_000,
-        payload: { range: { from: '2026-06-31', to: '2026-07-18' }, sellers: [] },
-      },
+      attemptId,
+      terminalState: 'COMPLETE',
     });
-
-    await expect(readSellpiaSalesCacheFromExtension('org-1')).rejects.toThrow(
-      '캐시 형식이 올바르지 않습니다',
-    );
+    expect(mocks.readSellpiaSalesSourceAttempt).toHaveBeenCalledWith(attemptId);
   });
 
-  it('rejects a finite timestamp outside the JavaScript date range', async () => {
-    mocks.sendToExtension.mockResolvedValue({
-      success: true,
-      cache: {
-        organizationId: 'org-1',
-        capturedAt: Number.MAX_VALUE,
-        payload: { range: { from: '2026-07-18', to: '2026-07-18' }, sellers: [] },
-      },
-    });
-
-    await expect(readSellpiaSalesCacheFromExtension('org-1')).rejects.toThrow(
-      '캐시 형식이 올바르지 않습니다',
-    );
-  });
-
-  it('returns a valid zero-sales cache as an authoritative collection result', async () => {
-    const payload = {
-      range: { from: '2026-07-18', to: '2026-07-18' },
-      sellers: [],
-      provenance,
-    };
-    mocks.sendToExtension.mockResolvedValue({
-      success: true,
-      cache: {
-        organizationId: 'org-1',
-        capturedAt: 1_752_837_600_000,
-        payload,
-      },
-    });
-
-    await expect(readSellpiaSalesCacheFromExtension('org-1')).resolves.toEqual({
-      capturedAt: 1_752_837_600_000,
-      payload: {
-        ...payload,
-        capturedAt: new Date(1_752_837_600_000).toISOString(),
-      },
-    });
-  });
-
-  it('rejects an ambiguous zero-sales cache before the ingest path', async () => {
-    mocks.sendToExtension.mockResolvedValue({
-      success: true,
-      cache: {
-        organizationId: 'org-1',
-        capturedAt: 1_752_837_600_000,
-        payload: { range: { from: '2026-07-18', to: '2026-07-18' }, sellers: [] },
-      },
-    });
-
-    await expect(readSellpiaSalesCacheFromExtension('org-1')).rejects.toThrow(
-      '캐시 형식이 올바르지 않습니다',
-    );
-  });
-
-  it('rejects a cache envelope bound to another organization', async () => {
-    mocks.sendToExtension.mockResolvedValue({
-      success: true,
-      cache: {
-        organizationId: 'org-2',
-        capturedAt: 1_752_837_600_000,
-        payload: {
-          range: { from: '2026-07-18', to: '2026-07-18' },
-          sellers: [],
-        },
-      },
-    });
-
-    await expect(readSellpiaSalesCacheFromExtension('org-1')).rejects.toThrow(
-      '다른 조직',
-    );
-  });
-
-  it('surfaces an extension-side cache cleanup failure', async () => {
+  it('does not claim success while the owner remains RUNNING', async () => {
+    mocks.readSellpiaSalesSourceAttempt.mockResolvedValue(attempt());
     mocks.sendToExtension.mockResolvedValue({
       success: false,
-      error: 'storage unavailable',
+      attemptId,
+      terminalState: 'RUNNING',
+      continuationRequired: true,
     });
 
-    await expect(clearSellpiaSalesCacheFromExtension('org-1')).rejects.toThrow(
-      'storage unavailable',
+    await expect(collectSellpiaSaleSummaryFromExtension()).rejects.toThrow(
+      '아직 완료되지 않았습니다',
     );
+  });
+
+  it('rejects a production response that omits continuationRequired', async () => {
+    mocks.readSellpiaSalesSourceAttempt.mockResolvedValue(attempt());
+    mocks.sendToExtension.mockResolvedValue({
+      success: false,
+      attemptId,
+      terminalState: 'RUNNING',
+    });
+
+    await expect(collectSellpiaSaleSummaryFromExtension()).rejects.toThrow(
+      'continuationRequired',
+    );
+  });
+
+  it('rejects a production response with a non-boolean continuationRequired', async () => {
+    mocks.readSellpiaSalesSourceAttempt.mockResolvedValue(attempt());
+    mocks.sendToExtension.mockResolvedValue({
+      success: false,
+      attemptId,
+      terminalState: 'RUNNING',
+      continuationRequired: 'true',
+    });
+
+    await expect(collectSellpiaSaleSummaryFromExtension()).rejects.toThrow(
+      'continuationRequired',
+    );
+  });
+
+  it('rejects an extension response with an unknown key', async () => {
+    mocks.readSellpiaSalesSourceAttempt.mockResolvedValue(attempt());
+    mocks.sendToExtension.mockResolvedValue({
+      success: false,
+      attemptId,
+      terminalState: 'RUNNING',
+      continuationRequired: true,
+      unexpected: 'ignored',
+    });
+
+    await expect(collectSellpiaSaleSummaryFromExtension()).rejects.toThrow(
+      'unrecognized_keys',
+    );
+  });
+
+  it('does not certify a running owner from a response for another attempt', async () => {
+    mocks.readSellpiaSalesSourceAttempt.mockResolvedValue(attempt());
+    mocks.sendToExtension.mockResolvedValue({
+      success: true,
+      attemptId: '22222222-2222-4222-8222-222222222222',
+      terminalState: 'COMPLETE',
+      continuationRequired: false,
+    });
+
+    await expect(collectSellpiaSaleSummaryFromExtension()).rejects.toThrow(
+      '응답이 일치하지 않습니다',
+    );
+  });
+
+  it('returns an already-terminal owner result without provider dispatch', async () => {
+    mocks.beginSellpiaSalesSourceAttempt.mockResolvedValue(attempt('FAILED'));
+
+    await expect(collectSellpiaSaleSummaryFromExtension()).resolves.toMatchObject({
+      success: false,
+      terminalState: 'FAILED',
+      errorCode: 'SELLPIA_LOGIN_REQUIRED',
+    });
+    expect(mocks.detectOrderCollectionExtensionId).not.toHaveBeenCalled();
+    expect(mocks.sendToExtension).not.toHaveBeenCalled();
+  });
+
+  it('accepts the production-shaped COMPLETE outcome and keeps the owner result authoritative', async () => {
+    mocks.sendToExtension.mockResolvedValue({
+      success: true,
+      attemptId,
+      terminalState: 'COMPLETE',
+      continuationRequired: false,
+    });
+
+    await expect(collectSellpiaSaleSummaryFromExtension()).resolves.toMatchObject({
+      success: true,
+      terminalState: 'COMPLETE',
+    });
+  });
+
+  it('accepts the production-shaped FAILED outcome from the terminal owner', async () => {
+    mocks.sendToExtension.mockResolvedValue({
+      success: false,
+      attemptId,
+      terminalState: 'FAILED',
+      continuationRequired: false,
+      errorCode: 'SELLPIA_LOGIN_REQUIRED',
+      error: '로그인이 필요합니다.',
+    });
+    mocks.readSellpiaSalesSourceAttempt.mockResolvedValue(attempt('FAILED'));
+
+    await expect(collectSellpiaSaleSummaryFromExtension()).resolves.toMatchObject({
+      success: false,
+      terminalState: 'FAILED',
+      errorCode: 'SELLPIA_LOGIN_REQUIRED',
+    });
+  });
+
+  it('surfaces a bounded extension failure while the exact owner remains RUNNING', async () => {
+    mocks.sendToExtension.mockResolvedValue({
+      success: false,
+      attemptId,
+      terminalState: 'RUNNING',
+      continuationRequired: false,
+      errorCode: 'SOURCE_OWNER_UNAVAILABLE',
+      error: 'Sellpia sales source owner is unavailable.',
+    });
+    mocks.readSellpiaSalesSourceAttempt.mockResolvedValue(attempt());
+
+    await expect(collectSellpiaSaleSummaryFromExtension()).rejects.toThrow(
+      'SOURCE_OWNER_UNAVAILABLE: Sellpia sales source owner is unavailable.',
+    );
+  });
+
+  it('truncates a returned extension failure message to the boundary', async () => {
+    mocks.sendToExtension.mockResolvedValue({
+      success: false,
+      attemptId,
+      terminalState: 'RUNNING',
+      continuationRequired: false,
+      errorCode: 'SOURCE_OWNER_UNAVAILABLE',
+      error: 'x'.repeat(400),
+    });
+    mocks.readSellpiaSalesSourceAttempt.mockResolvedValue(attempt());
+
+    let thrown: unknown;
+    try {
+      await collectSellpiaSaleSummaryFromExtension();
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(Error);
+    expect((thrown as Error).message).toHaveLength(300);
+  });
+
+  it('prefers a terminal owner result over an extension failure response', async () => {
+    mocks.sendToExtension.mockResolvedValue({
+      success: false,
+      attemptId,
+      terminalState: 'RUNNING',
+      continuationRequired: false,
+      errorCode: 'SOURCE_OWNER_UNAVAILABLE',
+      error: 'Sellpia sales source owner is unavailable.',
+    });
+
+    await expect(collectSellpiaSaleSummaryFromExtension()).resolves.toMatchObject({
+      success: true,
+      terminalState: 'COMPLETE',
+    });
   });
 });

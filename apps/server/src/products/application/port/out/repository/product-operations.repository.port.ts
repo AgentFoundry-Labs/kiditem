@@ -4,7 +4,6 @@ import type {
   MasterProductOperationsListItem,
   MasterProductOperationsListQuery,
   ProductOperationsChannelProductCount,
-  ReplaceChannelOptionInventoryInput,
   UpdateMasterProductInput,
 } from '@kiditem/shared/product-operations';
 
@@ -33,7 +32,12 @@ export type ProductOperationsRepositoryListing = Omit<
 
 export type ProductOperationsRepositoryDetail = Omit<
   MasterProductOperationsDetail,
-  'displayImageUrls' | 'inventoryStatus' | 'inventoryUnits' | 'channelListings'
+  | 'abc'
+  | 'contribution'
+  | 'displayImageUrls'
+  | 'inventoryStatus'
+  | 'inventoryUnits'
+  | 'channelListings'
 > & {
   inventorySkuIds: string[];
   channelListings: ProductOperationsRepositoryListing[];
@@ -41,6 +45,8 @@ export type ProductOperationsRepositoryDetail = Omit<
 
 export type ProductOperationsRepositoryListItem = Omit<
   MasterProductOperationsListItem,
+  | 'abc'
+  | 'contribution'
   | 'depletion'
   | 'displayImageUrls'
   | 'channelOptionSummary'
@@ -48,6 +54,7 @@ export type ProductOperationsRepositoryListItem = Omit<
   | 'inventoryStatus'
   | 'activeChannels'
 > & {
+  abcCreatedAt: Date;
   activeChannelProducts: Array<Omit<ProductOperationsChannelProductCount, 'count'>>;
   inventorySkuIds: string[];
   inventoryOptions: ProductOperationsRepositoryOption[];
@@ -66,10 +73,6 @@ export type ProductOperationsDisplayMediaTarget = Readonly<{
   isOrigin: boolean;
   isPrimaryAccount: boolean;
   listingExternalId: string;
-}>;
-
-export type ChannelOptionInventoryReplacementResult = Readonly<{
-  masterProductId: string | null;
 }>;
 
 export const PRODUCT_OPERATIONS_REPOSITORY_PORT = Symbol(
@@ -98,9 +101,4 @@ export interface ProductOperationsRepositoryPort {
     masterProductId: string,
     input: UpdateMasterProductInput,
   ): Promise<ProductOperationsRepositoryDetail>;
-  replaceChannelOptionInventory(input: {
-    organizationId: string;
-    channelListingOptionId: string;
-    components: ReplaceChannelOptionInventoryInput['components'];
-  }): Promise<ChannelOptionInventoryReplacementResult>;
 }

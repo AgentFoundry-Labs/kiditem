@@ -1,0 +1,6 @@
+interface:
+  display_name: "Magic Scraper"
+  short_description: "Compare and verify data collection strategies from observed page evidence"
+  default_prompt: "Use $magic-scraper to investigate an authorized website or app screen, compare collection strategies against the contract, and recommend the best-fit approach with evidence."
+policy:
+  allow_implicit_invocation: true

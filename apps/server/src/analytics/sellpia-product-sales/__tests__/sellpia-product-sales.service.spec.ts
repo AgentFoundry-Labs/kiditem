@@ -1,32 +1,15 @@
+import { Prisma } from '@prisma/client';
+import { PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD } from '@kiditem/shared/product-abc';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
 import { SellpiaProductSalesService } from '../sellpia-product-sales.service';
-import type { SellpiaProductSalesIngestBodyDto } from '../dto/sellpia-product-sales.dto';
 import { SellpiaProductInventoryReader } from '../sellpia-product-inventory-reader';
-import { SELLPIA_PRODUCT_SALES_EVENTS } from '../sellpia-product-sales.events';
+import { stubProductAbcRead } from '../../../products/__tests__/test-helpers/product-abc-read.stub';
 
 const ORGANIZATION_ID = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d';
-const PRODUCT_PROFIT_PROVENANCE = {
-  source: 'sellpia_stat_prd_profit',
-  costBasis: 'ORDER_TIME_SUPPLY_COST',
-  vatIncluded: true,
-} as const;
 
-function makePrisma() {
-  const callOrder: string[] = [];
-  const upsert = vi.fn(async () => ({}));
-  const createMany = vi.fn((args: unknown) => {
-    callOrder.push('create');
-    return Promise.resolve({ count: (args as { data: unknown[] }).data.length });
-  });
-  const deleteMany = vi.fn(() => {
-    callOrder.push('delete');
-    return Promise.resolve({ count: 0 });
-  });
-  const queryRaw = vi.fn(async () => {
-    callOrder.push('lock');
-    return [{ locked: 1 }];
-  });
+function makePrisma(
+  publishedGrades: Readonly<Record<string, 'A' | 'B' | 'C' | null>> = {},
+) {
   const findMany = vi.fn(async () => [] as unknown[]);
   const inventoryFindMany = vi.fn(async () => [] as unknown[]);
   const destinationFindMany = vi.fn(async () => [] as unknown[]);
@@ -34,50 +17,33 @@ function makePrisma() {
     snapshot: { collected: false, generation: null, verifiedAt: null },
     items: [],
   }));
-  const tx = {
-    sellpiaProductMonthlySales: { createMany, deleteMany },
-    $queryRaw: queryRaw,
-  };
   const prisma = {
-    sellpiaProductMonthlySales: { upsert, createMany, deleteMany, findMany },
+    masterProductAbcFormulaState: { findUnique: vi.fn(async () => null) },
+    sourceImportRun: {
+      findFirst: vi.fn().mockResolvedValue({ id: 'complete-generation' }),
+    },
+    sellpiaProductMonthlySales: { findMany },
     sellpiaInventorySku: { findMany: inventoryFindMany },
     channelListingOptionInventoryComponent: { findMany: destinationFindMany },
-    $transaction: vi.fn(async (callback: (client: typeof tx) => Promise<unknown>) => {
-      const result = await callback(tx);
-      callOrder.push('commit');
-      return result;
-    }),
   };
   const inventoryReader = new SellpiaProductInventoryReader(
     prisma as never,
     { findBySkuIds: inventoryAvailability } as never,
     { findDisplayMedia: vi.fn(async () => new Map()) } as never,
+    stubProductAbcRead(publishedGrades),
   );
-  const eventEmitter = {
-    emitAsync: vi.fn(async () => {
-      callOrder.push('emit');
-      return [];
-    }),
-  };
   const Service = SellpiaProductSalesService as unknown as new (
     prisma: unknown,
     inventoryReader: unknown,
-    eventEmitter: unknown,
   ) => SellpiaProductSalesService;
-  const service = new Service(prisma, inventoryReader, eventEmitter);
+  const service = new Service(prisma, inventoryReader);
   return {
     prisma,
     service,
-    upsert,
-    createMany,
-    deleteMany,
     findMany,
     inventoryFindMany,
     destinationFindMany,
     inventoryAvailability,
-    queryRaw,
-    eventEmitter,
-    callOrder,
   };
 }
 
@@ -89,7 +55,10 @@ function row(o: {
   productName?: string;
   providerName?: string;
   capturedAt?: string;
+  coverageStartDate?: string;
+  coverageEndDate?: string;
 }) {
+  const [year, month] = o.yearMonth.split('-').map(Number);
   return {
     productCode: o.productCode,
     optionCode: o.optionCode ?? '1',
@@ -102,169 +71,11 @@ function row(o: {
     salePrice: 1100,
     buyPrice: 580,
     barcode: '880',
+    coverageStartDate: new Date(o.coverageStartDate ?? `${o.yearMonth}-01T00:00:00.000Z`),
+    coverageEndDate: new Date(o.coverageEndDate ?? Date.UTC(year!, month!, 0)),
     capturedAt: new Date(o.capturedAt ?? '2026-07-16T01:00:00.000Z'),
   };
 }
-
-describe('SellpiaProductSalesService.ingest', () => {
-  beforeEach(() => vi.clearAllMocks());
-
-  it('조직 범위 전체를 원자적으로 교체(deleteMany + 벌크 createMany)한다', async () => {
-    const { prisma, service, deleteMany, createMany, queryRaw, eventEmitter, callOrder } = makePrisma();
-    const body: SellpiaProductSalesIngestBodyDto = {
-      range: { from: '2026-05-16', to: '2026-07-15' },
-      provenance: PRODUCT_PROFIT_PROVENANCE,
-      products: [
-        {
-          productCode: '9882',
-          optionCode: '1',
-          productName: '2000바풍투톤슬라임',
-          salePrice: 1100,
-          buyPrice: 580,
-          barcode: '8806384802382',
-          months: [
-            { yearMonth: '2026-06', orderQty: 13030, orderAmount: 11909813, inQty: 0, inAmount: 0 },
-            { yearMonth: '2026-07', orderQty: 8903, orderAmount: 8114828, inQty: 0, inAmount: 0 },
-          ],
-        },
-      ],
-    };
-    const result = await service.ingest(ORGANIZATION_ID, body);
-    expect(result).toEqual({ upserted: 2, productCount: 1, months: ['2026-05', '2026-06', '2026-07'] });
-    // 요청 range의 모든 연월을 권위 교체해 원천에서 사라진 행도 제거한다.
-    expect(deleteMany).toHaveBeenCalledWith({
-      where: { organizationId: ORGANIZATION_ID, yearMonth: { in: ['2026-05', '2026-06', '2026-07'] } },
-    });
-    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
-    expect(prisma.$transaction).toHaveBeenCalledWith(
-      expect.any(Function),
-      { timeout: 30_000 },
-    );
-    expect(queryRaw).toHaveBeenCalledOnce();
-    const lockStatement = queryRaw.mock.calls[0]?.[0] as { values?: unknown[] };
-    expect(lockStatement.values).toContain(`kiditem.sellpia-product-sales:${ORGANIZATION_ID}`);
-    const inserted = createMany.mock.calls.flatMap((c) => (c[0] as { data: unknown[] }).data);
-    expect(inserted).toHaveLength(2);
-    expect(inserted).toContainEqual(
-      expect.objectContaining({
-        organizationId: ORGANIZATION_ID,
-        productCode: '9882',
-        optionCode: '1',
-        yearMonth: '2026-06',
-        orderQty: 13030,
-        costBasis: 'ORDER_TIME_SUPPLY_COST',
-        vatIncluded: true,
-        coverageStartDate: new Date('2026-06-01T00:00:00.000Z'),
-        coverageEndDate: new Date('2026-06-30T00:00:00.000Z'),
-        productName: '2000바풍투톤슬라임',
-      }),
-    );
-    expect(eventEmitter.emitAsync).toHaveBeenCalledWith(
-      SELLPIA_PRODUCT_SALES_EVENTS.INGESTED,
-      { organizationId: ORGANIZATION_ID },
-    );
-    expect(callOrder).toEqual(['lock', 'delete', 'create', 'commit', 'emit']);
-  });
-
-  it('빈 권위 payload도 요청 range의 월을 삭제하고 재계산 이벤트를 발행한다', async () => {
-    const { service, deleteMany, createMany, eventEmitter } = makePrisma();
-
-    const result = await service.ingest(ORGANIZATION_ID, {
-      range: { from: '2026-04-15', to: '2026-06-02' },
-      provenance: PRODUCT_PROFIT_PROVENANCE,
-      products: [],
-    });
-
-    expect(deleteMany).toHaveBeenCalledWith({
-      where: {
-        organizationId: ORGANIZATION_ID,
-        yearMonth: { in: ['2026-04', '2026-05', '2026-06'] },
-      },
-    });
-    expect(createMany).not.toHaveBeenCalled();
-    expect(result.months).toEqual(['2026-04', '2026-05', '2026-06']);
-    expect(eventEmitter.emitAsync).toHaveBeenCalledOnce();
-  });
-
-  it('fact replacement transaction 실패 시 ingest 이벤트를 발행하지 않는다', async () => {
-    const { prisma, service, eventEmitter } = makePrisma();
-    prisma.$transaction.mockRejectedValueOnce(new Error('write failed'));
-
-    await expect(service.ingest(ORGANIZATION_ID, {
-      range: { from: '2026-06-01', to: '2026-06-30' },
-      provenance: PRODUCT_PROFIT_PROVENANCE,
-      products: [],
-    })).rejects.toThrow('write failed');
-    expect(eventEmitter.emitAsync).not.toHaveBeenCalled();
-  });
-
-  it.each([
-    { from: '2026-02-30', to: '2026-03-01' },
-    { from: '2026-06-02', to: '2026-06-01' },
-    { from: '2024-01-01', to: '2026-01-01' },
-  ])('실제 캘린더 날짜와 최대 24개월 범위를 검증한다: $from~$to', async (range) => {
-    const { prisma, service, eventEmitter } = makePrisma();
-
-    await expect(service.ingest(ORGANIZATION_ID, {
-      range,
-      provenance: PRODUCT_PROFIT_PROVENANCE,
-      products: [],
-    })).rejects.toThrow('Invalid Sellpia product-sales range');
-    expect(prisma.$transaction).not.toHaveBeenCalled();
-    expect(eventEmitter.emitAsync).not.toHaveBeenCalled();
-  });
-
-  it('페이로드 내 (상품·옵션·연월) 중복은 마지막 값으로 병합한다', async () => {
-    const { prisma, service, createMany } = makePrisma();
-    await service.ingest(ORGANIZATION_ID, {
-      range: { from: '2026-06-01', to: '2026-06-30' },
-      provenance: PRODUCT_PROFIT_PROVENANCE,
-      products: [
-        { productCode: '1', optionCode: '', productName: 'A', salePrice: 0, buyPrice: 0, months: [{ yearMonth: '2026-06', orderQty: 5, orderAmount: 0, inQty: 0, inAmount: 0 }] },
-        { productCode: '1', optionCode: '', productName: 'A', salePrice: 0, buyPrice: 0, months: [{ yearMonth: '2026-06', orderQty: 9, orderAmount: 0, inQty: 0, inAmount: 0 }] },
-      ],
-    });
-    const inserted = prisma.$transaction.mock.calls.length ? createMany.mock.calls.flatMap((c) => (c[0] as { data: { orderQty: number }[] }).data) : [];
-    expect(inserted).toHaveLength(1); // 중복 병합
-    expect(inserted[0].orderQty).toBe(9); // 마지막 값
-  });
-
-  it('payload-level request range와 월의 실제 교집합을 서버에서 저장한다', async () => {
-    const { service, createMany } = makePrisma();
-    await service.ingest(ORGANIZATION_ID, {
-      range: { from: '2026-05-16', to: '2026-07-15' },
-      provenance: PRODUCT_PROFIT_PROVENANCE,
-      products: [{
-        productCode: 'SKU-1', optionCode: '', productName: '상품', salePrice: 1, buyPrice: 1,
-        months: [
-          { yearMonth: '2026-05', orderQty: 1, orderAmount: 100, inQty: 0, inAmount: 50 },
-          { yearMonth: '2026-06', orderQty: 2, orderAmount: 200, inQty: 0, inAmount: 100 },
-          { yearMonth: '2026-07', orderQty: 3, orderAmount: 300, inQty: 0, inAmount: 150 },
-        ],
-      }],
-    });
-    const inserted = createMany.mock.calls.flatMap((call) =>
-      (call[0] as { data: Array<{ yearMonth: string; coverageStartDate: Date; coverageEndDate: Date }> }).data);
-    expect(inserted).toEqual(expect.arrayContaining([
-      expect.objectContaining({ yearMonth: '2026-05', coverageStartDate: new Date('2026-05-16T00:00:00.000Z'), coverageEndDate: new Date('2026-05-31T00:00:00.000Z') }),
-      expect.objectContaining({ yearMonth: '2026-06', coverageStartDate: new Date('2026-06-01T00:00:00.000Z'), coverageEndDate: new Date('2026-06-30T00:00:00.000Z') }),
-      expect.objectContaining({ yearMonth: '2026-07', coverageStartDate: new Date('2026-07-01T00:00:00.000Z'), coverageEndDate: new Date('2026-07-15T00:00:00.000Z') }),
-    ]));
-  });
-
-  it('요청 범위 밖의 월을 조용히 무시하지 않는다', async () => {
-    const { service, prisma } = makePrisma();
-    await expect(service.ingest(ORGANIZATION_ID, {
-      range: { from: '2026-06-01', to: '2026-06-30' },
-      provenance: PRODUCT_PROFIT_PROVENANCE,
-      products: [{
-        productCode: 'SKU-1', optionCode: '', productName: '상품', salePrice: 1, buyPrice: 1,
-        months: [{ yearMonth: '2026-05', orderQty: 1, orderAmount: 100, inQty: 0, inAmount: 50 }],
-      }],
-    })).rejects.toThrow('outside request range');
-    expect(prisma.$transaction).not.toHaveBeenCalled();
-  });
-});
 
 describe('SellpiaProductSalesService.getSummary', () => {
   beforeEach(() => {
@@ -309,6 +120,38 @@ describe('SellpiaProductSalesService.getSummary', () => {
     expect(p2.avg2m).toBe(Math.round((500 + 453) / 2));
     // 3189 는 2026-07 데이터 없음 → monthly 에 0 채움
     expect(p2.monthly[2]).toEqual({ yearMonth: '2026-07', orderQty: 0 });
+  });
+
+  it('keeps partial boundary months in raw history but excludes them from complete-month metrics', async () => {
+    const { service, findMany } = makePrisma();
+    findMany.mockResolvedValueOnce([
+      row({
+        productCode: '9882',
+        yearMonth: '2025-07',
+        orderQty: 3,
+        coverageStartDate: '2025-07-29T00:00:00.000Z',
+        coverageEndDate: '2025-07-31T00:00:00.000Z',
+      }),
+      row({ productCode: '9882', yearMonth: '2026-05', orderQty: 133 }),
+      row({ productCode: '9882', yearMonth: '2026-06', orderQty: 13030 }),
+      row({
+        productCode: '9882',
+        yearMonth: '2026-07',
+        orderQty: 8,
+        coverageStartDate: '2026-07-01T00:00:00.000Z',
+        coverageEndDate: '2026-07-16T00:00:00.000Z',
+      }),
+    ]);
+
+    const out = await service.getSummary(ORGANIZATION_ID);
+
+    expect(out.months).toEqual(['2025-07', '2026-05', '2026-06', '2026-07']);
+    expect(out.completeMonths).toEqual(['2026-05', '2026-06']);
+    expect(out.products[0]).toMatchObject({
+      qty1m: 13030,
+      qty2m: 133 + 13030,
+      totalQty: 3 + 133 + 13030 + 8,
+    });
   });
 
   it('동적 행 등급 없이 현재고 미수집 상태와 운영상품 등급 요약을 채운다', async () => {
@@ -381,8 +224,7 @@ describe('SellpiaProductSalesService.getSummary', () => {
             id: true,
             code: true,
             name: true,
-            abcGrade: true,
-            abcEvaluation: { include: { formulaVersion: true } },
+            createdAt: true,
           },
         },
       },
@@ -416,7 +258,7 @@ describe('SellpiaProductSalesService.getSummary', () => {
       inventoryFindMany,
       inventoryAvailability,
       destinationFindMany,
-    } = makePrisma();
+    } = makePrisma({ 'master-a': 'A', 'master-c': 'C' });
     findMany.mockResolvedValueOnce([
       row({ productCode: 'SKU-1', yearMonth: '2026-06', orderQty: 10 }),
       row({ productCode: 'SKU-2', yearMonth: '2026-06', orderQty: 20 }),
@@ -450,8 +292,8 @@ describe('SellpiaProductSalesService.getSummary', () => {
       product.inventoryResolution.status === 'matched'
         ? product.inventoryResolution.destinations
         : [])).toEqual(expect.arrayContaining([
-      expect.objectContaining({ masterProductId: 'master-a', abcGrade: 'A' }),
-      expect.objectContaining({ masterProductId: 'master-c', abcGrade: 'C' }),
+      expect.objectContaining({ masterProductId: 'master-a', abc: expect.objectContaining({ abcGrade: 'A' }) }),
+      expect.objectContaining({ masterProductId: 'master-c', abc: expect.objectContaining({ abcGrade: 'C' }) }),
     ]));
   });
 
@@ -603,7 +445,8 @@ function inventoryMasterProduct(
     code: id,
     name: id,
     abcGrade,
-    abcEvaluation: null,
+    createdAt: new Date('2026-01-01'),
+    abcEvaluation: abcGrade ? storedEvaluation(abcGrade) : null,
   };
 }
 
@@ -623,5 +466,22 @@ function collectedInventory(
       isActive: row.isActive,
       generation: '12',
     })),
+  };
+}
+
+
+
+function storedEvaluation(abcGrade: 'A' | 'B' | 'C') {
+  const decimal = (value: number) => new Prisma.Decimal(value);
+  return {
+    abcGrade, weightedRevenue: decimal(100), weightedOrderTimeSupplyCost: decimal(10),
+    weightedAdvertisingSpend: decimal(0), weightedOperatingProfit: decimal(90),
+    operatingProfitVelocity30: decimal(90), operatingMargin: decimal(0.9), lossPersistence: decimal(0),
+    profitScore: decimal(80), marginScore: decimal(100), consistencyScore: decimal(100), economicScore: decimal(90),
+    validObservationDays: 30, formulaVersion: { formulaJson: PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD },
+    formulaRevision: 1, publicationRevision: 1, gradeBasisCutoffDate: new Date('2026-06-30'),
+    sellpiaSourceImportRunId: '11111111-1111-4111-8111-111111111112',
+    advertisingSourceImportRunId: '11111111-1111-4111-8111-111111111113',
+    sellpiaGeneration: 1n, advertisingGeneration: 1n, mappingGeneration: 1n, calculatedAt: new Date('2026-07-01'),
   };
 }

@@ -20,7 +20,6 @@ function makeController() {
     cancelEditTask: vi.fn().mockResolvedValue({
       status: 'cancelled',
       jobId: 'image-job-1',
-      operationKey: 'image-edit:image-job-1',
       preserved: false,
     }),
   };

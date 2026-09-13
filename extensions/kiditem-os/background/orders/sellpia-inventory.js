@@ -290,13 +290,40 @@
     return { ...ERRORS.network };
   }
 
+  async function assertCollectionActive(collection) {
+    if (typeof collection?.assertActive !== "function") return;
+    const active = await collection.assertActive();
+    if (active === false) {
+      const error = new Error("Sellpia inventory collection is no longer active.");
+      error.code = "COLLECTION_CANCELLED";
+      throw error;
+    }
+  }
+
+  function cancellationResult(error) {
+    return {
+      success: false,
+      errorCode: "COLLECTION_CANCELLED",
+      error: String(error?.message || "Sellpia inventory collection was cancelled."),
+    };
+  }
+
   function create(options) {
     const chromeApi = options.chrome;
     const timeoutMs = safeLimit(options.timeoutMs, DEFAULT_TIMEOUT_MS, DEFAULT_TIMEOUT_MS);
     const maxBytes = safeLimit(options.maxBytes, DEFAULT_MAX_BYTES, DEFAULT_MAX_BYTES);
     const maxRows = safeLimit(options.maxRows, DEFAULT_MAX_ROWS, DEFAULT_MAX_ROWS);
 
-    async function findOrCreateTab() {
+    async function findOrCreateTab(collection) {
+      // Once a managed collection exposes the local fence, use a fresh
+      // inactive tab so cancellation can safely close only this invocation's
+      // resource. Legacy callers retain the old inactive-tab reuse behavior.
+      if (typeof collection?.isActive === "function") {
+        return {
+          tab: await chromeApi.tabs.create({ url: INVENTORY_PAGE_URL, active: false }),
+          created: true,
+        };
+      }
       const tabs = await chromeApi.tabs.query({ url: INVENTORY_PAGE_MATCHES });
       const existing = tabs.find((tab) => Number.isInteger(tab?.id) && tab.active === false);
       if (existing) return { tab: existing, created: false };
@@ -310,17 +337,22 @@
       let attached = false;
       let keepOpen = false;
       try {
-        const located = await findOrCreateTab();
+        await assertCollectionActive(collection);
+        const located = await findOrCreateTab(collection);
         tab = located.tab;
         created = located.created;
         if (!Number.isInteger(tab?.id) || !Number.isInteger(tab?.windowId)) {
           return publicFailure("sellpia_network_failed");
         }
         if (created) {
-          await collection.attachTab(tab, { owned: true });
+          const attachment = await collection.attachTab(tab, { owned: true });
+          if (attachment === null || attachment === false) {
+            return cancellationResult(new Error("Sellpia inventory collection was cancelled before tab attachment."));
+          }
           attached = true;
         }
         await waitForTabReady(chromeApi, tab.id, timeoutMs);
+        await assertCollectionActive(collection);
         const injected = await withTimeout(
           chromeApi.scripting.executeScript({
             target: { tabId: tab.id },
@@ -329,6 +361,7 @@
           }),
           timeoutMs + 1_000,
         );
+        await assertCollectionActive(collection);
         const result = injected?.[0]?.result;
         if (!result || result.success !== true) {
           const failure = publicFailure(result?.errorCode);
@@ -345,6 +378,7 @@
           sourceAccountKey: SOURCE_ACCOUNT_KEY,
         };
       } catch (error) {
+        if (error?.code === "COLLECTION_CANCELLED") return cancellationResult(error);
         return error?.message === "SELLPIA_BACKGROUND_TIMEOUT"
           ? publicFailure("sellpia_background_timeout")
           : publicFailure("sellpia_network_failed");

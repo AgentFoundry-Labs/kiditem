@@ -1,13 +1,8 @@
 import { AppException } from '@kiditem/shared/server-errors';
-import { ConflictException } from '@nestjs/common';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  SELLPIA_EXPIRED_LEASE_ERROR_MESSAGE,
-  type SellpiaInventoryFreshnessState,
-} from '../../domain/policy/sellpia-inventory-freshness.policy';
 import { SellpiaInventoryFreshnessService } from './sellpia-inventory-freshness.service';
+import type { SellpiaInventoryFreshnessState } from '../../domain/policy/sellpia-inventory-freshness.policy';
 import type {
-  FailedSellpiaInventoryAttempt,
   SellpiaInventoryFreshnessRepositoryPort,
   SellpiaInventoryFreshnessRepositoryTransaction,
   SellpiaInventoryStateExpectation,
@@ -23,15 +18,13 @@ const FOREIGN_SKU_ID = '00000000-0000-4000-8000-000000000006';
 
 describe('SellpiaInventoryFreshnessService', () => {
   let repository: MemoryFreshnessRepository;
-  let operationAlerts: { fail: ReturnType<typeof vi.fn> };
   let service: SellpiaInventoryFreshnessService;
 
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-07-15T00:00:00.000Z'));
     repository = new MemoryFreshnessRepository();
-    operationAlerts = { fail: vi.fn().mockResolvedValue(null) };
-    service = new SellpiaInventoryFreshnessService(repository, operationAlerts as never);
+    service = new SellpiaInventoryFreshnessService(repository);
   });
 
   afterEach(() => {
@@ -93,379 +86,6 @@ describe('SellpiaInventoryFreshnessService', () => {
 
     expect(state.requestedGeneration).toBe('9007199254740993');
     expect(state.verifiedGeneration).toBe('9007199254740992');
-  });
-
-  it('atomically creates only one ttl_expired generation for concurrent claimers', async () => {
-    repository.seedState({
-      sourceAccountKey: 'kiditem',
-      requestedGeneration: 7n,
-      verifiedGeneration: 7n,
-      lastVerifiedAt: new Date('2026-07-14T23:50:00.000Z'),
-    });
-
-    const claims = await Promise.all([
-      service.claimDue({ organizationId: ORG_ID, userId: USER_ID }),
-      service.claimDue({ organizationId: ORG_ID, userId: OTHER_USER_ID }),
-    ]);
-
-    expect(claims.filter((claim) => claim.claimed)).toHaveLength(1);
-    expect(claims.filter((claim) => !claim.claimed)).toHaveLength(1);
-    expect(repository.state(ORG_ID)).toMatchObject({
-      requestedGeneration: 8n,
-      activeGeneration: 8n,
-      refreshReason: 'ttl_expired',
-    });
-  });
-
-  it('joins one pending follow-up request during an active generation', async () => {
-    repository.seedState({
-      requestedGeneration: 2n,
-      verifiedGeneration: 1n,
-      activeGeneration: 2n,
-      activeSyncToken: '00000000-0000-4000-8000-000000000100',
-      activeSyncOwnerUserId: USER_ID,
-      activeSyncStartedAt: new Date(),
-      activeSyncLeaseExpiresAt: new Date('2026-07-15T00:01:30.000Z'),
-    });
-
-    const first = await service.requestRefresh({
-      organizationId: ORG_ID,
-      userId: OTHER_USER_ID,
-      reason: 'manual_request',
-    });
-    const joined = await service.requestRefresh({
-      organizationId: ORG_ID,
-      userId: OTHER_USER_ID,
-      reason: 'manual_request',
-    });
-
-    expect(first.requestedGeneration).toBe('3');
-    expect(joined.requestedGeneration).toBe('3');
-    expect(joined.activeSync?.canControl).toBe(false);
-  });
-
-  it('moves a failed request to a new retry generation', async () => {
-    repository.seedState({
-      requestedGeneration: 2n,
-      verifiedGeneration: 1n,
-      failedGeneration: 2n,
-      lastAttemptAt: new Date('2026-07-14T23:59:00.000Z'),
-      lastAttemptStatus: 'failed',
-      lastErrorCode: 'sellpia_network_failed',
-      lastErrorMessage: 'network failed',
-    });
-
-    const view = await service.requestRefresh({
-      organizationId: ORG_ID,
-      userId: USER_ID,
-      reason: 'retry',
-    });
-
-    expect(view).toMatchObject({
-      status: 'refresh_required',
-      requestedGeneration: '3',
-      verifiedGeneration: '1',
-      refreshReason: 'retry',
-    });
-  });
-
-  it('claims only when due and blocks claims until source binding is confirmed', async () => {
-    repository.seedState({
-      sourceAccountKey: null,
-      requestedGeneration: 2n,
-      verifiedGeneration: 1n,
-      syncNotBefore: new Date('2026-07-15T00:01:00.000Z'),
-    });
-
-    expect(await service.claimDue({ organizationId: ORG_ID, userId: USER_ID }))
-      .toMatchObject({ claimed: false });
-    await service.confirmSourceBinding({
-      organizationId: ORG_ID,
-      userId: USER_ID,
-      sourceOrigin: 'https://kiditem.sellpia.com',
-      sourceAccountKey: 'kiditem',
-      confirmed: true,
-    });
-    expect(await service.claimDue({ organizationId: ORG_ID, userId: USER_ID }))
-      .toMatchObject({ claimed: false });
-
-    vi.setSystemTime(new Date('2026-07-15T00:01:00.000Z'));
-    expect(await service.claimDue({ organizationId: ORG_ID, userId: USER_ID }))
-      .toMatchObject({
-        claimed: true,
-        activeGeneration: '2',
-        leaseExpiresAt: '2026-07-15T00:02:30.000Z',
-      });
-  });
-
-  it('allows only the live lease owner to heartbeat, fail, or cancel', async () => {
-    repository.seedPendingState();
-    const claim = await service.claimDue({ organizationId: ORG_ID, userId: USER_ID });
-    if (!claim.claimed) throw new Error('expected winning claim');
-
-    await expect(service.heartbeat({
-      organizationId: ORG_ID,
-      userId: OTHER_USER_ID,
-      claimToken: claim.claimToken,
-    })).rejects.toBeInstanceOf(ConflictException);
-    await expect(service.fail({
-      organizationId: ORG_ID,
-      userId: OTHER_USER_ID,
-      claimToken: claim.claimToken,
-      errorCode: 'sellpia_network_failed',
-      errorMessage: 'other user',
-    })).rejects.toBeInstanceOf(ConflictException);
-    await expect(service.cancel({
-      organizationId: ORG_ID,
-      userId: OTHER_USER_ID,
-      claimToken: claim.claimToken,
-    })).rejects.toBeInstanceOf(ConflictException);
-
-    vi.setSystemTime(new Date('2026-07-15T00:00:20.000Z'));
-    const heartbeat = await service.heartbeat({
-      organizationId: ORG_ID,
-      userId: USER_ID,
-      claimToken: claim.claimToken,
-    });
-    expect(heartbeat.activeSync?.leaseExpiresAt).toBe(
-      '2026-07-15T00:01:50.000Z',
-    );
-    const cancelled = await service.cancel({
-      organizationId: ORG_ID,
-      userId: USER_ID,
-      claimToken: claim.claimToken,
-    });
-    expect(cancelled).toMatchObject({
-      status: 'refresh_required',
-      activeSync: null,
-      requestedGeneration: '2',
-      verifiedGeneration: '1',
-    });
-  });
-
-  it('records a bounded failed run once and makes repeated fail idempotent', async () => {
-    repository.seedPendingState();
-    const claim = await service.claimDue({ organizationId: ORG_ID, userId: USER_ID });
-    if (!claim.claimed) throw new Error('expected winning claim');
-    const message = `  ${'failure '.repeat(60)}  `;
-
-    const first = await service.fail({
-      organizationId: ORG_ID,
-      userId: USER_ID,
-      claimToken: claim.claimToken,
-      errorCode: 'sellpia_network_failed',
-      errorMessage: message,
-    });
-    const repeated = await service.fail({
-      organizationId: ORG_ID,
-      userId: USER_ID,
-      claimToken: claim.claimToken,
-      errorCode: 'sellpia_network_failed',
-      errorMessage: message,
-    });
-
-    expect(first.status).toBe('failed');
-    expect(repeated).toEqual(first);
-    expect(repository.failedAttempts).toHaveLength(1);
-    expect(repository.failedAttempts[0]).toMatchObject({
-      organizationId: ORG_ID,
-      generation: 2n,
-      claimToken: claim.claimToken,
-      createdBy: USER_ID,
-    });
-    expect(repository.failedAttempts[0]?.errorMessage).toHaveLength(300);
-  });
-
-  it('fails an expired lease instead of automatically reclaiming it', async () => {
-    repository.seedPendingState();
-    const first = await service.claimDue({ organizationId: ORG_ID, userId: USER_ID });
-    if (!first.claimed) throw new Error('expected winning claim');
-
-    vi.setSystemTime(new Date('2026-07-15T00:01:30.000Z'));
-    const expired = await service.claimDue({
-      organizationId: ORG_ID,
-      userId: OTHER_USER_ID,
-    });
-
-    expect(expired).toMatchObject({
-      claimed: false,
-      state: {
-        status: 'failed',
-        activeSync: null,
-        lastAttempt: {
-          status: 'failed',
-          errorCode: 'sellpia_background_timeout',
-        },
-      },
-    });
-    expect(repository.state(ORG_ID)).toMatchObject({
-      activeSyncToken: null,
-      activeSyncOwnerUserId: null,
-      activeGeneration: null,
-      failedGeneration: 2n,
-    });
-    expect(repository.failedAttempts).toContainEqual(expect.objectContaining({
-      organizationId: ORG_ID,
-      generation: 2n,
-      claimToken: first.claimToken,
-      createdBy: USER_ID,
-      errorCode: 'sellpia_background_timeout',
-    }));
-    expect(operationAlerts.fail).toHaveBeenCalledWith(
-      ORG_ID,
-      `browser-collection:${first.claimToken}`,
-      {
-        message: SELLPIA_EXPIRED_LEASE_ERROR_MESSAGE,
-        severity: 'error',
-        metadata: {
-          staleReconciled: true,
-          staleReconciledReason: 'sellpia_lease_expired',
-        },
-      },
-    );
-
-    await expect(service.claimDue({ organizationId: ORG_ID, userId: OTHER_USER_ID }))
-      .resolves.toMatchObject({ claimed: false, state: { status: 'failed' } });
-  });
-
-  it('keeps an expired lease failed when alert cleanup fails', async () => {
-    repository.seedPendingState();
-    const first = await service.claimDue({ organizationId: ORG_ID, userId: USER_ID });
-    if (!first.claimed) throw new Error('expected winning claim');
-    operationAlerts.fail.mockRejectedValueOnce(new Error('alerts unavailable'));
-
-    vi.setSystemTime(new Date('2026-07-15T00:01:30.000Z'));
-    await expect(service.claimDue({ organizationId: ORG_ID, userId: OTHER_USER_ID }))
-      .resolves.toMatchObject({ claimed: false, state: { status: 'failed' } });
-    expect(operationAlerts.fail).toHaveBeenCalledOnce();
-  });
-
-  it('requires an explicit retry before claiming after lease expiry', async () => {
-    repository.seedState({
-      requestedGeneration: 2n,
-      verifiedGeneration: 1n,
-      activeGeneration: 2n,
-      activeSyncToken: '00000000-0000-4000-8000-000000000101',
-      activeSyncOwnerUserId: null,
-      activeSyncStartedAt: new Date('2026-07-15T00:00:00.000Z'),
-      activeSyncLeaseExpiresAt: new Date('2026-07-15T00:01:30.000Z'),
-    });
-
-    await expect(service.claimDue({ organizationId: ORG_ID, userId: USER_ID }))
-      .resolves.toMatchObject({ claimed: false });
-
-    vi.setSystemTime(new Date('2026-07-15T00:01:30.000Z'));
-    await expect(service.claimDue({ organizationId: ORG_ID, userId: USER_ID }))
-      .resolves.toMatchObject({
-        claimed: false,
-        state: { status: 'failed' },
-      });
-
-    await expect(service.requestRefresh({
-      organizationId: ORG_ID,
-      userId: USER_ID,
-      reason: 'retry',
-    })).resolves.toMatchObject({
-      requestedGeneration: '3',
-      status: 'refresh_required',
-    });
-    await expect(service.claimDue({ organizationId: ORG_ID, userId: USER_ID }))
-      .resolves.toMatchObject({
-        claimed: true,
-        activeGeneration: '3',
-        state: { activeSync: { canControl: true } },
-      });
-  });
-
-  it('starts a claim lease from the time the lock is acquired', async () => {
-    repository.seedPendingState();
-    repository.onLockAcquired = () => {
-      vi.setSystemTime(new Date('2026-07-15T00:00:45.000Z'));
-    };
-
-    await expect(service.claimDue({ organizationId: ORG_ID, userId: USER_ID }))
-      .resolves.toMatchObject({
-        claimed: true,
-        leaseExpiresAt: '2026-07-15T00:02:15.000Z',
-      });
-  });
-
-  it('starts a heartbeat lease extension from the time the lock is acquired', async () => {
-    const claimToken = '00000000-0000-4000-8000-000000000102';
-    repository.seedState({
-      requestedGeneration: 2n,
-      verifiedGeneration: 1n,
-      activeGeneration: 2n,
-      activeSyncToken: claimToken,
-      activeSyncOwnerUserId: USER_ID,
-      activeSyncStartedAt: new Date('2026-07-15T00:00:00.000Z'),
-      activeSyncLeaseExpiresAt: new Date('2026-07-15T00:01:30.000Z'),
-    });
-    repository.onLockAcquired = () => {
-      vi.setSystemTime(new Date('2026-07-15T00:00:20.000Z'));
-    };
-
-    const view = await service.heartbeat({
-      organizationId: ORG_ID,
-      userId: USER_ID,
-      claimToken,
-    });
-
-    expect(view.activeSync?.leaseExpiresAt).toBe('2026-07-15T00:01:50.000Z');
-  });
-
-  it('does not revive a lease that expires while waiting for the lock', async () => {
-    const claimToken = '00000000-0000-4000-8000-000000000103';
-    vi.setSystemTime(new Date('2026-07-15T00:01:29.999Z'));
-    repository.seedState({
-      requestedGeneration: 2n,
-      verifiedGeneration: 1n,
-      activeGeneration: 2n,
-      activeSyncToken: claimToken,
-      activeSyncOwnerUserId: USER_ID,
-      activeSyncStartedAt: new Date('2026-07-15T00:00:00.000Z'),
-      activeSyncLeaseExpiresAt: new Date('2026-07-15T00:01:30.000Z'),
-    });
-    repository.onLockAcquired = () => {
-      vi.setSystemTime(new Date('2026-07-15T00:01:30.000Z'));
-    };
-
-    await expect(service.heartbeat({
-      organizationId: ORG_ID,
-      userId: USER_ID,
-      claimToken,
-    })).rejects.toBeInstanceOf(ConflictException);
-  });
-
-  it('does not fail or cancel a lease that expires while waiting for the lock', async () => {
-    const claimToken = '00000000-0000-4000-8000-000000000104';
-    vi.setSystemTime(new Date('2026-07-15T00:01:29.999Z'));
-    repository.seedState({
-      requestedGeneration: 2n,
-      verifiedGeneration: 1n,
-      activeGeneration: 2n,
-      activeSyncToken: claimToken,
-      activeSyncOwnerUserId: USER_ID,
-      activeSyncStartedAt: new Date('2026-07-15T00:00:00.000Z'),
-      activeSyncLeaseExpiresAt: new Date('2026-07-15T00:01:30.000Z'),
-    });
-    repository.onLockAcquired = () => {
-      vi.setSystemTime(new Date('2026-07-15T00:01:30.000Z'));
-    };
-
-    await expect(service.fail({
-      organizationId: ORG_ID,
-      userId: USER_ID,
-      claimToken,
-      errorCode: 'sellpia_network_failed',
-      errorMessage: 'expired while waiting',
-    })).rejects.toBeInstanceOf(ConflictException);
-    await expect(service.cancel({
-      organizationId: ORG_ID,
-      userId: USER_ID,
-      claimToken,
-    })).rejects.toBeInstanceOf(ConflictException);
-    expect(repository.failedAttempts).toHaveLength(0);
   });
 
   it('rejects a snapshot crossing the exact ttl while waiting for the lock', async () => {
@@ -776,7 +396,6 @@ implements SellpiaInventoryFreshnessRepositoryPort {
   readCount = 0;
   lockCount = 0;
   onLockAcquired: (() => void) | null = null;
-  failedAttempts: FailedSellpiaInventoryAttempt[] = [];
   lastInventorySkuIds: string[] = [];
 
   async readState(
@@ -858,31 +477,11 @@ implements SellpiaInventoryFreshnessRepositoryPort {
       const equal = current instanceof Date && value instanceof Date
         ? current.getTime() === value.getTime()
         : current === value;
-      if (!equal) throw new ConflictException('freshness compare-and-swap lost');
+    if (!equal) throw new Error('freshness compare-and-swap lost');
     }
     const updated = { ...state, ...patch };
     this.states.set(organizationId, updated);
     return updated;
-  }
-
-  hasFailedAttempt(
-    organizationId: string,
-    claimToken: string,
-    createdBy: string,
-  ): boolean {
-    return this.failedAttempts.some(
-      (attempt) => attempt.organizationId === organizationId
-        && attempt.claimToken === claimToken
-        && attempt.createdBy === createdBy,
-    );
-  }
-
-  upsertFailedAttempt(attempt: FailedSellpiaInventoryAttempt) {
-    if (this.failedAttempts.some(
-      (existing) => existing.organizationId === attempt.organizationId
-        && existing.generation === attempt.generation,
-    )) return;
-    this.failedAttempts.push(attempt);
   }
 
   findInventorySkus(organizationId: string, ids: string[]) {
@@ -915,21 +514,6 @@ implements SellpiaInventoryFreshnessRepositoryTransaction {
       input.expected,
       input.patch,
     );
-  }
-
-  async hasFailedAttempt(input: {
-    claimToken: string;
-    createdBy: string;
-  }): Promise<boolean> {
-    return this.repository.hasFailedAttempt(
-      this.organizationId,
-      input.claimToken,
-      input.createdBy,
-    );
-  }
-
-  async upsertFailedAttempt(input: FailedSellpiaInventoryAttempt): Promise<void> {
-    this.repository.upsertFailedAttempt(input);
   }
 
   async findInventorySkus(

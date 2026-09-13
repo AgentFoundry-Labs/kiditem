@@ -1,171 +1,107 @@
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
-import {
-  canonicalizeSourcingWingCatalogKeyword,
-  type Sourcing1688BatchUnitResult,
-} from '@kiditem/shared/sourcing';
+import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { Sourcing1688KeywordBatchInputSchema, type Sourcing1688BatchUnitResult } from '@kiditem/shared/sourcing';
 import { kstBusinessDate } from '../../../common/kst';
-import type { Search1688KeywordSession } from '../port/out/provider/1688-keyword-search.port';
-import {
-  SOURCING_1688_SEARCH_RESULT_REPOSITORY_PORT,
-  SOURCING_1688_ALL_RESULTS_REJECTED,
-  SOURCING_1688_KEYWORD_COLLECTOR_KEY,
+import { SOURCING_1688_KEYWORD_SEARCH_PORT, Sourcing1688KeywordAttentionError,
+  Sourcing1688KeywordProviderError, type Search1688KeywordSession,
+  type Sourcing1688KeywordSearchPort } from '../port/out/provider/1688-keyword-search.port';
+import { SOURCING_BROWSER_SOURCE_ATTEMPT_REPOSITORY_PORT, type SourcingBrowserSourceAttempt,
+  type SourcingBrowserSourceAttemptRepositoryPort } from '../port/out/repository/sourcing-browser-source-attempt.repository.port';
+import { SOURCING_1688_SEARCH_RESULT_REPOSITORY_PORT, SOURCING_1688_KEYWORD_COLLECTOR_KEY,
   SOURCING_1688_SEARCH_RESULT_SCHEMA_VERSION,
-  type Sourcing1688CompletedKeywordRunInput,
-  type Sourcing1688SearchResultRepositoryPort,
-} from '../port/out/repository/sourcing-1688-search-result.repository.port';
-import {
-  hashCollectionRequest,
-  map1688HotProductsToAuthorizedOutput,
-  normalizeCollectionTarget,
-} from './sourcing-collection-mappers';
-import {
-  SourcingCollectionCoordinator,
-  type ActiveOperationAttemptCommitFence,
-} from './sourcing-collection-coordinator.service';
+  type Sourcing1688SearchResultRepositoryPort } from '../port/out/repository/sourcing-1688-search-result.repository.port';
+import { hashCollectionRequest, map1688HotProductsToAuthorizedOutput, normalizeCollectionTarget } from './sourcing-collection-mappers';
+import { requireIdempotencyKey, toPermit } from './sourcing-source-attempt-primitives';
+import { batchResult, failedUnit, searchUnit, sourceAlert, stopsKeywordBatch } from './sourcing-1688-search-result';
 
-const OPERATION_KEYWORD_RESULT_LIMIT = 6;
+const SOURCE = '1688.hot_product';
+const RESULT_LIMIT = 6;
 
-/**
- * Persists one operation-owned 1688 keyword result. Browser ownership stays
- * with the caller's batch session; this service only claims and commits the
- * typed, fenced canonical observation.
- */
 @Injectable()
 export class Sourcing1688KeywordSearchService {
   constructor(
-    private readonly collectionCoordinator: SourcingCollectionCoordinator,
-    @Inject(SOURCING_1688_SEARCH_RESULT_REPOSITORY_PORT)
-    private readonly searchResults: Sourcing1688SearchResultRepositoryPort,
+    @Inject(SOURCING_1688_KEYWORD_SEARCH_PORT) private readonly provider: Sourcing1688KeywordSearchPort,
+    @Inject(SOURCING_BROWSER_SOURCE_ATTEMPT_REPOSITORY_PORT) private readonly attempts: SourcingBrowserSourceAttemptRepositoryPort,
+    @Inject(SOURCING_1688_SEARCH_RESULT_REPOSITORY_PORT) private readonly searchResults: Sourcing1688SearchResultRepositoryPort,
   ) {}
 
-  async searchForOperation(input: {
-    organizationId: string;
-    operationRunId: string;
-    actorUserId: string | null;
-    keyword: string;
-    session: Search1688KeywordSession;
-    signal: AbortSignal;
-    operationCheckpoint: () => Promise<void>;
-    commitWithinActiveOperationAttempt: ActiveOperationAttemptCommitFence;
-  }): Promise<Sourcing1688BatchUnitResult> {
-    const keyword = canonicalizeSourcingWingCatalogKeyword(input.keyword);
-    const targetKey = normalizeCollectionTarget(keyword);
-    const idempotencyKey = `1688-keyword-operation:${input.operationRunId}:${hashCollectionRequest(
-      targetKey,
-    )}`;
-    const requestHash = hashCollectionRequest({
-      operationRunId: input.operationRunId,
-      keyword,
-      maxResults: OPERATION_KEYWORD_RESULT_LIMIT,
-    });
-    let discovered = 0;
-    let rejected = 0;
-    const execution = await this.collectionCoordinator.execute(
-      {
-        organizationId: input.organizationId,
-        sourceKey: '1688.hot_product',
-        scopeKey: 'default',
-        targetKey,
-        idempotencyKey,
-        requestHash,
-        collectorKey: SOURCING_1688_KEYWORD_COLLECTOR_KEY,
-        collectorVersion: SOURCING_1688_SEARCH_RESULT_SCHEMA_VERSION,
-        triggerKind: 'manual',
-        triggeredByUserId: input.actorUserId,
-        leaseDurationMs: 15 * 60_000,
-        signal: input.signal,
-        operationCheckpoint: input.operationCheckpoint,
-        commitWithinActiveOperationAttempt: input.commitWithinActiveOperationAttempt,
-      },
-      async ({ permit, checkpoint }) => {
-        await checkpoint();
-        await input.operationCheckpoint();
-        input.signal.throwIfAborted();
-        const items = (await input.session.searchKeyword({ keyword, signal: input.signal }))
-          .slice(0, OPERATION_KEYWORD_RESULT_LIMIT);
-        discovered = items.length;
-        const acceptedItems = items.filter((item) => item.offerId);
-        rejected = items.length - acceptedItems.length;
-        input.signal.throwIfAborted();
-        await input.operationCheckpoint();
-        await checkpoint();
-        const capturedAt = new Date();
-        return map1688HotProductsToAuthorizedOutput({
-          permit,
-          rows: acceptedItems.map((item, index) => ({
-            organizationId: input.organizationId,
-            businessDate: kstBusinessDate(capturedAt),
-            offerId: item.offerId as string,
-            sourceKeyword: keyword,
-            rank: index + 1,
-            title: item.title,
-            priceCny: item.priceCny,
-            monthlySales: item.monthlySales,
-            repurchaseRate: item.repurchaseRate,
-            tradeScore: item.tradeScore == null ? null : String(item.tradeScore),
-            supplierName: item.supplierName,
-            imageUrl: item.imageUrl,
-            sourceUrl: item.sourceUrl,
-            capturedAt,
-            searchMetadata: { score: item.score },
-          })),
-          discoveredCount: discovered,
-          rejectedCount: rejected,
-          qualityReport: {
-            resultSchemaVersion: SOURCING_1688_SEARCH_RESULT_SCHEMA_VERSION,
-            keyword,
-            targetId: null,
-            operationRunId: input.operationRunId,
-          },
-        });
-      },
-    );
-    if (execution.kind === 'existing') {
-      return this.replayExisting({
-        organizationId: input.organizationId,
-        runId: execution.runId,
-        operationRunId: input.operationRunId,
-        keyword,
-        targetKey,
-        idempotencyKey,
-        requestHash,
-        maxResults: OPERATION_KEYWORD_RESULT_LIMIT,
-      });
+  async read(input: { organizationId: string; attemptId: string }) {
+    const attempt = await this.attempts.readAttempt(input);
+    if (!attempt || attempt.sourceKey !== SOURCE || attempt.scopeKey !== 'default'
+      || typeof attempt.plan.keyword !== 'string' || attempt.plan.maxResults !== RESULT_LIMIT) {
+      throw new NotFoundException('SOURCE_ATTEMPT_NOT_FOUND');
     }
-
-    const persisted = execution.acceptedCount + execution.duplicateCount;
-    const allRejected = discovered > 0 && persisted === 0 && rejected > 0;
-    return {
-      keyword,
-      targetId: null,
-      outcome: allRejected ? 'failed' : discovered > 0 ? 'complete' : 'no_change',
-      discovered,
-      accepted: execution.acceptedCount,
-      duplicate: execution.duplicateCount,
-      failed: rejected,
-      ...(allRejected ? { errorCode: SOURCING_1688_ALL_RESULTS_REJECTED } : {}),
-    };
+    const unit = attempt.state === 'RUNNING' ? null
+      : await this.searchResults.findUnitResult({ ...input, sourceKey: SOURCE });
+    return { attempt, unit };
   }
 
-  private async replayExisting(
-    input: Sourcing1688CompletedKeywordRunInput,
-  ): Promise<Sourcing1688BatchUnitResult> {
-    const run = await this.searchResults.findCompletedKeywordRun(input);
-    if (!run) {
-      throw new BadRequestException('Completed keyword search result is unavailable.');
+  async search(input: { organizationId: string; requestedByUserId: string | null; idempotencyKey: string; input: unknown; signal?: AbortSignal }) {
+    const parsed = Sourcing1688KeywordBatchInputSchema.safeParse(input.input);
+    if (!parsed.success) throw new BadRequestException('INVALID_1688_KEYWORD_REQUEST');
+    const key = requireIdempotencyKey(input.idempotencyKey);
+    const signal = input.signal ?? AbortSignal.timeout(15 * 60_000);
+    const attempts: SourcingBrowserSourceAttempt[] = [];
+    const units: Sourcing1688BatchUnitResult[] = [];
+    let session: Search1688KeywordSession | null = null;
+    try {
+      for (const keyword of parsed.data.keywords) {
+        signal.throwIfAborted();
+        const targetKey = normalizeCollectionTarget(keyword);
+        const plan = { source: SOURCE, keyword, maxResults: RESULT_LIMIT };
+        const { attempt, created } = await this.attempts.beginAttempt({
+          organizationId: input.organizationId, sourceKey: SOURCE, scopeKey: 'default', targetKey,
+          idempotencyKey: hashCollectionRequest({ key, targetKey }),
+          requestFingerprint: hashCollectionRequest({ keyword: targetKey, maxResults: RESULT_LIMIT }),
+          plan, planChecksum: hashCollectionRequest(plan), requestedByUserId: input.requestedByUserId,
+          collectorKey: SOURCING_1688_KEYWORD_COLLECTOR_KEY, collectorVersion: SOURCING_1688_SEARCH_RESULT_SCHEMA_VERSION,
+          triggerKind: 'manual', expiresInMs: 15 * 60_000, failureAlert: sourceAlert(SOURCE, targetKey),
+        });
+        if (!created) {
+          attempts.push(attempt);
+          if (attempt.state === 'RUNNING') return { attempts, result: null };
+          const unit = await this.searchResults.findUnitResult({ organizationId: input.organizationId, attemptId: attempt.attemptId, sourceKey: SOURCE });
+          if (!unit) throw new BadRequestException('1688 search result is not yet available.');
+          units.push(unit);
+          if (stopsKeywordBatch(unit)) break;
+          continue;
+        }
+        let unit: Sourcing1688BatchUnitResult;
+        let output;
+        let unexpected: unknown;
+        try {
+          session ??= await this.provider.openSession({ signal });
+          const items = (await session.searchKeyword({ keyword, signal })).slice(0, RESULT_LIMIT);
+          signal.throwIfAborted();
+          const accepted = items.filter((item) => item.offerId);
+          const capturedAt = new Date();
+          unit = searchUnit(keyword, null, items.length, items.length - accepted.length);
+          output = map1688HotProductsToAuthorizedOutput({ permit: toPermit(attempt, input.organizationId),
+            rows: accepted.map((item, index) => ({ organizationId: input.organizationId,
+              businessDate: kstBusinessDate(capturedAt), offerId: item.offerId as string, sourceKeyword: keyword,
+              rank: index + 1, title: item.title, priceCny: item.priceCny, monthlySales: item.monthlySales,
+              repurchaseRate: item.repurchaseRate, tradeScore: item.tradeScore == null ? null : String(item.tradeScore),
+              supplierName: item.supplierName, imageUrl: item.imageUrl, sourceUrl: item.sourceUrl,
+              capturedAt, searchMetadata: { score: item.score } })),
+            discoveredCount: items.length, rejectedCount: unit.failed,
+          });
+        } catch (error) {
+          unit = failedUnit(keyword, null, error);
+          output = { observations: [], typedRecords: [], discoveredCount: 0, rejectedCount: 1, qualityReport: {} };
+          if (!(error instanceof Sourcing1688KeywordAttentionError) && !(error instanceof Sourcing1688KeywordProviderError)) unexpected = error;
+        }
+        output.qualityReport = { resultSchemaVersion: SOURCING_1688_SEARCH_RESULT_SCHEMA_VERSION,
+          keyword, targetId: null, unitResult: unit };
+        const terminal = await this.attempts.completeAttempt({ organizationId: input.organizationId,
+          attemptId: attempt.attemptId, attemptToken: attempt.attemptToken, planChecksum: attempt.planChecksum,
+          contentChecksum: hashCollectionRequest(output), output });
+        attempts.push(terminal);
+        units.push(unit);
+        if (unexpected) throw unexpected;
+        if (stopsKeywordBatch(unit)) break;
+      }
+    } finally {
+      await session?.close();
     }
-    const allRejected = run.discoveredCount > 0
-      && run.acceptedCount + run.duplicateCount === 0
-      && run.rejectedCount > 0;
-    return {
-      keyword: input.keyword,
-      targetId: null,
-      outcome: allRejected ? 'failed' : run.discoveredCount > 0 ? 'complete' : 'no_change',
-      discovered: run.discoveredCount,
-      accepted: run.acceptedCount,
-      duplicate: run.duplicateCount,
-      failed: run.rejectedCount,
-      ...(allRejected && run.errorCode ? { errorCode: run.errorCode } : {}),
-    };
+    return { attempts, result: batchResult(units, '1688_keyword_search', attempts) };
   }
 }

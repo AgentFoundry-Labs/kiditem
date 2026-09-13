@@ -1,229 +1,169 @@
-import { createHash, randomUUID } from 'node:crypto';
-import { ConflictException } from '@nestjs/common';
 import type { PrismaClient } from '@prisma/client';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import type { PrismaService } from '../../prisma/prisma.service';
-import {
-  makeTestPrisma,
-  resetDb,
-  seedBaseFixture,
-  TEST_ORGANIZATION_ID,
-  TEST_USER_ID,
-} from '../../test-helpers/real-prisma';
-import { OperationRepositoryAdapter } from '../../operations/adapter/out/repository/operation.repository.adapter';
-import { OperationAttemptVerifierService } from '../../operations/application/service/operation-attempt-verifier.service';
-import { OperationLifecycleGateService } from '../../operations/application/service/operation-lifecycle-gate.service';
-import { SourcingCollectionRepositoryAdapter } from '../adapter/out/repository/sourcing-collection.repository.adapter';
-import { mapTrendTypedRecordsToAuthorizedOutput } from '../application/service/sourcing-collection-mappers';
-import type { SourcingCollectionPermit } from '../application/port/out/repository/sourcing-collection.repository.port';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { SourceFailureAlerts } from '../../alerts/alerts.service';
+import { makeTestPrisma, resetDb, seedBaseFixture, TEST_ORGANIZATION_ID } from '../../test-helpers/real-prisma';
+import { LiveCommerceController } from '../adapter/in/http/live-commerce.controller';
+import { LiveCommerceRepositoryAdapter } from '../adapter/out/repository/live-commerce.repository.adapter';
+import { SourcingBrowserSourceAttemptRepositoryAdapter } from '../adapter/out/repository/sourcing-browser-source-attempt.repository.adapter';
+import { LiveCommerceService } from '../application/service/live-commerce.service';
+import type { TaobaoLiveCollection, TaobaoLivePort } from '../application/port/out/provider/taobao-live.port';
 
-const OPERATION_KEY = 'sourcing.collect_taobao_live';
+const fixture: TaobaoLiveCollection = {
+  rooms: [{ broadcastId: 'live-1', title: 'Kids live', broadcasterId: 'seller-1', broadcasterName: 'Kids seller', status: 'live', viewerCount: 100, likeCount: 10, startedAt: null, endedAt: null, coverImageUrl: null, sourceUrl: 'https://taobao.example/live-1' }],
+  products: [{ broadcastId: 'live-1', productId: 'product-1', rank: 1, title: '儿童玩具', priceCny: 12.5, salesCount: null, imageUrl: null, sourceUrl: 'https://taobao.example/product-1' }],
+  warnings: ['지정 방송방: provider warning'],
+};
 
-function deferred() {
-  let resolve!: () => void;
-  const promise = new Promise<void>((resolvePromise) => {
-    resolve = resolvePromise;
+describe('Taobao direct source owner (PG integration)', () => {
+  let prisma: PrismaClient;
+  let provider: TaobaoLivePort;
+  let service: LiveCommerceService;
+  let http: LiveCommerceController;
+  let abcBefore: unknown;
+  beforeAll(async () => { prisma = makeTestPrisma(); await prisma.$connect(); });
+  afterAll(async () => { await prisma.$disconnect(); });
+  afterEach(async () => {
+    expect((await prisma.$queryRaw<Array<{ absent: boolean }>>`
+      SELECT to_regclass('public.operation_runs') IS NULL AS absent
+    `)[0]?.absent).toBe(true);
+    expect(await prisma.masterProductAbcFormulaState.findMany()).toEqual(abcBefore);
+    expect(await prisma.masterProductAbcEvaluation.count()).toBe(0);
+    expect(await prisma.masterProductAbcGradeHistory.count()).toBe(0);
+    vi.useRealTimers();
   });
-  return { promise, resolve };
-}
-
-describe('Taobao domain Operation publication fence (PG integration)', () => {
-  let primary: PrismaClient;
-  let contender: PrismaClient;
-  let verifier: OperationAttemptVerifierService;
-  let collections: SourcingCollectionRepositoryAdapter;
-
-  beforeAll(async () => {
-    primary = makeTestPrisma();
-    contender = makeTestPrisma();
-    await Promise.all([primary.$connect(), contender.$connect()]);
-    const operations = new OperationRepositoryAdapter(
-      primary as unknown as PrismaService,
-    );
-    const gate = new OperationLifecycleGateService();
-    gate.open();
-    verifier = new OperationAttemptVerifierService(operations, gate);
-    collections = new SourcingCollectionRepositoryAdapter(
-      primary as unknown as PrismaService,
-    );
-  });
-
-  afterAll(async () => Promise.all([
-    primary.$disconnect(),
-    contender.$disconnect(),
-  ]));
-
   beforeEach(async () => {
-    await resetDb(primary);
-    await seedBaseFixture(primary);
+    await resetDb(prisma);
+    await seedBaseFixture(prisma);
+    await prisma.masterProductAbcFormulaState.create({ data: {
+      organizationId: TEST_ORGANIZATION_ID, formulaRevision: 9, publicationRevision: 17,
+    } });
+    abcBefore = await prisma.masterProductAbcFormulaState.findMany();
+    provider = {
+      readiness: () => ({ configured: true, mode: 'official-api', missing: [] }),
+      collect: vi.fn(async () => structuredClone(fixture)),
+    };
+    service = new LiveCommerceService(provider, new LiveCommerceRepositoryAdapter(prisma as never),
+      new SourcingBrowserSourceAttemptRepositoryAdapter(prisma as never, new SourceFailureAlerts(prisma as never)));
+    http = new LiveCommerceController(service);
   });
 
-  it.each([
-    {
-      name: 'cancellation',
-      loseFence: (tx: PrismaClient, runId: string) => tx.operationRun.update({
-        where: { id: runId },
-        data: {
-          status: 'cancelled',
-          attemptToken: null,
-          leaseExpiresAt: null,
-          finishedAt: new Date(),
-        },
-      }),
-    },
-    {
-      name: 'deadline expiry',
-      loseFence: (tx: PrismaClient, runId: string) => tx.operationRun.update({
-        where: { id: runId },
-        data: { deadlineAt: new Date(Date.now() - 1_000) },
-      }),
-    },
-  ])('does not publish canonical snapshots when $name wins after provider completion', async ({ loseFence }) => {
-    const attempt = await createActiveDomainAttempt(primary);
-    const permit = await claimTaobaoCollection(collections, attempt.runId);
-    const operationRowLocked = deferred();
-    const release = deferred();
-    const fenceLoss = contender.$transaction(async (transaction) => {
-      await transaction.$queryRaw`
-        SELECT id FROM operation_runs
-        WHERE id = ${attempt.runId}::uuid
-          AND organization_id = ${TEST_ORGANIZATION_ID}::uuid
-        FOR UPDATE
-      `;
-      await loseFence(transaction, attempt.runId);
-      operationRowLocked.resolve();
-      await release.promise;
+  it('retains COMPLETE facts after failure, replays failure, and resolves the same Alert with a new successful attempt', async () => {
+    const baseline = await http.collectTaobao({}, 'baseline', TEST_ORGANIZATION_ID);
+    const previous = await http.list({ days: 7 }, TEST_ORGANIZATION_ID);
+    provider.collect = vi.fn(async () => { throw new Error('provider unavailable'); });
+    const failed = await http.collectTaobao({}, 'failed', TEST_ORGANIZATION_ID);
+    expect(failed).toMatchObject({ state: 'FAILED', errorCode: 'SOURCE_COLLECTION_FAILED' });
+    expect(await http.collectTaobao({}, 'failed', TEST_ORGANIZATION_ID)).toEqual(failed);
+    expect(provider.collect).toHaveBeenCalledTimes(1);
+    const status = await http.status(TEST_ORGANIZATION_ID);
+    expect(status.sources[0]).toMatchObject({ sourceStatus: {
+      ready: true,
+      latestAttempt: { attemptId: failed.attemptId, state: 'FAILED' },
+      latestComplete: { attemptId: baseline.attemptId },
+      actualCutoffAt: new Date(previous.broadcasts[0].capturedAt),
+    } });
+    expect(await http.list({ days: 7 }, TEST_ORGANIZATION_ID)).toEqual(previous);
+    const alert = await prisma.alert.findFirstOrThrow();
+    expect(alert).toMatchObject({ status: 'OPEN', attemptId: failed.attemptId, sourceType: 'sourcing.taobao-live' });
+    provider.collect = vi.fn(async () => structuredClone(fixture));
+    const retry = await http.collectTaobao({}, 'retry', TEST_ORGANIZATION_ID);
+    expect(retry.attemptId).not.toBe(failed.attemptId);
+    expect(retry.state).toBe('COMPLETE');
+    expect(await prisma.alert.findFirstOrThrow()).toMatchObject({ id: alert.id, status: 'RESOLVED' });
+    expect(await prisma.alert.count()).toBe(1);
+  });
+
+  it('returns the original RUNNING attempt on transport replay and conflicts on distinct or drifted starts without holding provider IO locks', async () => {
+    let release!: (value: TaobaoLiveCollection) => void;
+    let started!: () => void;
+    const entered = new Promise<void>((resolve) => { started = resolve; });
+    provider.collect = vi.fn(() => { started(); return new Promise((resolve) => { release = resolve; }); });
+    const pending = http.collectTaobao({ liveIds: ['live-1'] }, 'concurrent', TEST_ORGANIZATION_ID);
+    await entered;
+    try {
+      const replay = await http.collectTaobao({ liveIds: ['live-1'] }, 'concurrent', TEST_ORGANIZATION_ID);
+      expect(replay.state).toBe('RUNNING');
+      await expect(http.collectTaobao({ liveIds: ['other'] }, 'concurrent', TEST_ORGANIZATION_ID)).rejects.toThrow('SOURCE_IDEMPOTENCY_KEY_REUSED');
+      await expect(http.collectTaobao({ queryDate: '20260101' }, 'different', TEST_ORGANIZATION_ID)).rejects.toThrow();
+      expect(provider.collect).toHaveBeenCalledTimes(1);
+      expect((await http.list({ days: 7 }, TEST_ORGANIZATION_ID)).products).toEqual([]);
+    } finally { release(structuredClone(fixture)); }
+    expect((await pending).state).toBe('COMPLETE');
+  });
+
+  it('rejects a provider result after fixed expiry and derives failure until a new explicit start records expiry and publishes', async () => {
+    let release!: (value: TaobaoLiveCollection) => void;
+    let started!: () => void;
+    const entered = new Promise<void>((resolve) => { started = resolve; });
+    provider.collect = vi.fn(() => { started(); return new Promise((resolve) => { release = resolve; }); });
+    const pending = http.collectTaobao({}, 'expires', TEST_ORGANIZATION_ID);
+    await entered;
+    const running = (await http.status(TEST_ORGANIZATION_ID)).sources[0].sourceStatus!.latestAttempt!;
+    await prisma.sourcingEvidenceIngestionRun.update({
+      where: { id: running.attemptId }, data: { leaseExpiresAt: new Date(Date.now() - 1_000) },
     });
-    await operationRowLocked.promise;
+    release(structuredClone(fixture));
+    await expect(pending).rejects.toThrow('SOURCE_ATTEMPT_EXPIRED');
+    expect((await http.status(TEST_ORGANIZATION_ID)).sources[0]).toMatchObject({
+      sourceStatus: { ready: false, latestAttempt: { state: 'FAILED', errorCode: 'ATTEMPT_EXPIRED' }, latestComplete: null, actualCutoffAt: null },
+    });
+    expect((await http.list({ days: 7 }, TEST_ORGANIZATION_ID)).products).toEqual([]);
+    expect(await prisma.alert.count()).toBe(0);
+    provider.collect = vi.fn(async () => structuredClone(fixture));
+    expect((await http.collectTaobao({}, 'after-expiry', TEST_ORGANIZATION_ID)).state).toBe('COMPLETE');
+    expect(await prisma.sourcingEvidenceIngestionRun.findUniqueOrThrow({ where: { id: running.attemptId } })).toMatchObject({ status: 'FAILED', errorCode: 'ATTEMPT_EXPIRED' });
+    expect(await prisma.alert.findFirstOrThrow()).toMatchObject({ status: 'RESOLVED' });
+  });
 
-    let commitCallbackCalls = 0;
-    const publication = verifier.withActiveDomainAttemptFence(
-      fenceInput(attempt),
-      async (_active, transaction) => {
-        commitCallbackCalls += 1;
-        return collections.commitInAttempt(transaction, {
-          permit,
-          output: taobaoOutput(permit),
-        });
-      },
-    );
-    release.resolve();
-    await fenceLoss;
+  it('preserves AbortSignal behavior and never publishes when aborted after provider resolution', async () => {
+    const abort = new AbortController();
+    provider.collect = vi.fn(async () => { abort.abort(new Error('cancelled')); return structuredClone(fixture); });
+    await expect(service.collectTaobao(TEST_ORGANIZATION_ID, {}, 'aborted', { signal: abort.signal })).rejects.toThrow('cancelled');
+    expect(provider.collect).toHaveBeenCalledWith(expect.objectContaining({ signal: abort.signal }));
+    expect((await http.list({ days: 7 }, TEST_ORGANIZATION_ID)).products).toEqual([]);
+    expect((await http.status(TEST_ORGANIZATION_ID)).sources[0]).toMatchObject({ sourceStatus: { latestAttempt: { state: 'FAILED' } } });
+  });
 
-    await expect(publication).rejects.toBeInstanceOf(ConflictException);
-    expect(commitCallbackCalls).toBe(0);
-    await expect(primary.liveCommerceBroadcastDailySnapshot.count()).resolves.toBe(0);
-    await expect(primary.liveCommerceProductDailySnapshot.count()).resolves.toBe(0);
+  it('freezes the China calendar default across midnight replays and preserves both explicit date forms', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-09-04T15:30:00.000Z'));
+    const first = await http.collectTaobao({}, 'midnight', TEST_ORGANIZATION_ID);
+    expect(first.plan).toMatchObject({ queryDate: '20260904', liveIds: [], pageSize: 100 });
+    expect(provider.collect).toHaveBeenCalledWith({ queryDate: '20260904', liveIds: [], pageSize: 100, signal: undefined });
+    vi.setSystemTime(new Date('2026-09-04T16:30:00.000Z'));
+    expect(await http.collectTaobao({}, 'midnight', TEST_ORGANIZATION_ID)).toEqual(first);
+    expect(provider.collect).toHaveBeenCalledTimes(1);
+    expect((await http.status(TEST_ORGANIZATION_ID)).sources[0]).toMatchObject({ sourceStatus: { ready: false, latestComplete: { attemptId: first.attemptId } } });
+    const explicit = await http.collectTaobao({ queryDate: ' 2026-09-03 ' }, 'explicit', TEST_ORGANIZATION_ID);
+    expect(explicit.plan.queryDate).toBe('20260903');
+    expect(await http.collectTaobao({ queryDate: '20260903' }, 'explicit', TEST_ORGANIZATION_ID)).toEqual(explicit);
+  });
+
+  it('freezes the existing trimmed, deduplicated 30-room provider selection and replays its normalized request', async () => {
+    const liveIds = [' room-0 ', 'room-0', '', ...Array.from({ length: 31 }, (_, index) => `room-${index}`)];
+    const result = await http.collectTaobao({ liveIds }, 'normalized-rooms', TEST_ORGANIZATION_ID);
+    const selected = Array.from({ length: 30 }, (_, index) => `room-${index}`);
+    expect(result.plan.liveIds).toEqual(selected);
+    expect(provider.collect).toHaveBeenCalledWith(expect.objectContaining({ liveIds: selected }));
+    expect(await http.collectTaobao({ liveIds: selected }, 'normalized-rooms', TEST_ORGANIZATION_ID)).toEqual(result);
+    expect(provider.collect).toHaveBeenCalledTimes(1);
+  });
+
+  it('publishes the provider fixture through HTTP, returns actual provenance and replays without another execution', async () => {
+    const input = { queryDate: '2026-09-04', liveIds: ['live-1'], pageSize: 75 };
+    const result = await http.collectTaobao(input, 'fixture', TEST_ORGANIZATION_ID);
+    expect(result).toMatchObject({ state: 'COMPLETE', plan: { queryDate: '20260904', liveIds: ['live-1'], pageSize: 75 } });
+    expect(result).not.toHaveProperty('attemptToken');
+    expect(result.warnings).toEqual(fixture.warnings);
+    expect(provider.collect).toHaveBeenCalledWith({ queryDate: '20260904', liveIds: ['live-1'], pageSize: 75, signal: undefined });
+    const snapshots = await http.list({ days: 7 }, TEST_ORGANIZATION_ID);
+    expect(snapshots.broadcasts).toEqual([expect.objectContaining({ ...fixture.rooms[0], ingestionRunId: result.attemptId })]);
+    expect(snapshots.products).toEqual([expect.objectContaining({ ...fixture.products[0], ingestionRunId: result.attemptId })]);
+    expect(await http.collectTaobao(input, 'fixture', TEST_ORGANIZATION_ID)).toEqual(result);
+    expect(provider.collect).toHaveBeenCalledTimes(1);
+    expect((await prisma.$queryRaw<Array<{ absent: boolean }>>`
+      SELECT to_regclass('public.operation_runs') IS NULL AS absent
+    `)[0]?.absent).toBe(true);
+    expect(await prisma.alert.count()).toBe(0);
   });
 });
-
-async function createActiveDomainAttempt(prisma: PrismaClient) {
-  const runId = randomUUID();
-  const attemptToken = randomUUID();
-  await prisma.operationRun.create({
-    data: {
-      id: runId,
-      organizationId: TEST_ORGANIZATION_ID,
-      operationKey: OPERATION_KEY,
-      definitionVersion: 1,
-      ownerDomain: 'sourcing',
-      title: 'Taobao live collection',
-      engineType: 'domain',
-      resourceClass: 'snapshot_compute',
-      executionTimeoutMs: 15 * 60_000,
-      status: 'running',
-      triggerSource: 'dashboard',
-      requestedByUserId: TEST_USER_ID,
-      input: { queryDate: '20260814', liveIds: ['live-1'] },
-      attempts: 1,
-      maxAttempts: 3,
-      claimedBy: 'kiditem-api-test',
-      attemptToken,
-      claimedAt: new Date(),
-      leaseExpiresAt: new Date(Date.now() + 60_000),
-      deadlineAt: new Date(Date.now() + 15 * 60_000),
-      startedAt: new Date(),
-    },
-  });
-  return { organizationId: TEST_ORGANIZATION_ID, runId, attemptToken };
-}
-
-function fenceInput(attempt: Awaited<ReturnType<typeof createActiveDomainAttempt>>) {
-  return { ...attempt, expectedOperationKey: OPERATION_KEY };
-}
-
-async function claimTaobaoCollection(
-  collections: SourcingCollectionRepositoryAdapter,
-  operationRunId: string,
-): Promise<SourcingCollectionPermit> {
-  const idempotencyKey = `taobao-operation:${operationRunId}`;
-  const claim = await collections.claimAuthorizedRun({
-    organizationId: TEST_ORGANIZATION_ID,
-    sourceKey: 'taobao.live_commerce',
-    scopeKey: 'default',
-    targetKey: `operation:${operationRunId}`,
-    idempotencyKey,
-    requestHash: sha256(idempotencyKey),
-    collectorKey: 'taobao-live-operation',
-    collectorVersion: 'test',
-    triggerKind: 'manual',
-    triggeredByUserId: TEST_USER_ID,
-    leaseDurationMs: 60_000,
-  });
-  if (claim.kind !== 'claimed') {
-    throw new Error(`Expected Taobao collection claim, received ${claim.kind}`);
-  }
-  return claim.permit;
-}
-
-function taobaoOutput(permit: SourcingCollectionPermit) {
-  const capturedAt = new Date('2026-08-14T08:00:00.000Z');
-  const businessDate = new Date('2026-08-14T00:00:00.000Z');
-  return mapTrendTypedRecordsToAuthorizedOutput({
-    permit,
-    typedRecords: [
-      {
-        kind: 'live_commerce_broadcast',
-        row: {
-          organizationId: TEST_ORGANIZATION_ID,
-          businessDate,
-          source: 'taobao',
-          broadcastId: 'live-1',
-          title: 'Kids live',
-          broadcasterId: 'seller-1',
-          broadcasterName: 'Kids seller',
-          status: 'live',
-          viewerCount: 100,
-          likeCount: 10,
-          startedAt: null,
-          endedAt: null,
-          coverImageUrl: null,
-          sourceUrl: 'https://taobao.example/live-1',
-          capturedAt,
-        },
-      },
-      {
-        kind: 'live_commerce_product',
-        row: {
-          organizationId: TEST_ORGANIZATION_ID,
-          businessDate,
-          source: 'taobao',
-          broadcastId: 'live-1',
-          productId: 'product-1',
-          rank: 1,
-          title: 'Kids product',
-          priceCny: 12.5,
-          salesCount: 10,
-          imageUrl: null,
-          sourceUrl: 'https://taobao.example/product-1',
-          capturedAt,
-        },
-      },
-    ],
-    qualityReport: { fixture: 'taobao-domain-fence' },
-  });
-}
-
-function sha256(value: string): string {
-  return createHash('sha256').update(value).digest('hex');
-}

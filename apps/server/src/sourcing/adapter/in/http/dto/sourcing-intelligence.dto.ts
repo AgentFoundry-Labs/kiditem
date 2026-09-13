@@ -3,7 +3,6 @@ import {
   ArrayMaxSize,
   IsArray,
   IsBoolean,
-  IsDateString,
   IsIn,
   IsInt,
   IsObject,
@@ -16,11 +15,6 @@ import {
   ValidateNested,
 } from 'class-validator';
 import {
-  SOURCING_EVIDENCE_GRANULARITIES,
-  SOURCING_EVIDENCE_RUN_STATUSES,
-  SOURCING_EVIDENCE_SIGNAL_ROLES,
-} from '../../../../application/port/out/repository/sourcing-evidence-ledger.repository.port';
-import {
   SOURCING_ECONOMICS_STATUSES,
   SOURCING_GATE_STATUSES,
 } from '../../../../application/port/out/repository/sourcing-launch-candidate.repository.port';
@@ -30,147 +24,6 @@ const POSTGRES_INT_MAX = 2_147_483_647;
 export class SetSourcingCollectionSourceEnabledDto {
   @IsBoolean()
   enabled!: boolean;
-}
-
-export class StartEvidenceRunDto {
-  @IsString()
-  @MaxLength(80)
-  sourceKey!: string;
-
-  @IsString()
-  @MaxLength(300)
-  runKey!: string;
-
-  @IsString()
-  @MaxLength(300)
-  scopeKey!: string;
-
-  @IsString()
-  @MaxLength(120)
-  collectorVersion!: string;
-
-  @IsOptional()
-  @IsDateString()
-  windowStartAt?: string | null;
-
-  @IsOptional()
-  @IsDateString()
-  windowEndAt?: string | null;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(0)
-  @Max(POSTGRES_INT_MAX)
-  expectedCount?: number | null;
-}
-
-export class EvidenceObservationDto {
-  @IsString()
-  @MaxLength(80)
-  platform!: string;
-
-  @IsString()
-  @MaxLength(100)
-  evidenceFamily!: string;
-
-  @IsIn(SOURCING_EVIDENCE_SIGNAL_ROLES)
-  signalRole!: (typeof SOURCING_EVIDENCE_SIGNAL_ROLES)[number];
-
-  @IsIn(SOURCING_EVIDENCE_GRANULARITIES)
-  granularity!: (typeof SOURCING_EVIDENCE_GRANULARITIES)[number];
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(200)
-  conceptKey?: string | null;
-
-  @IsString()
-  @MaxLength(80)
-  sourceEntityType!: string;
-
-  @IsString()
-  @MaxLength(300)
-  sourceEntityId!: string;
-
-  @IsString()
-  @MaxLength(80)
-  schemaVersion!: string;
-
-  @IsString()
-  @MaxLength(64)
-  observationKey!: string;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(POSTGRES_INT_MAX)
-  revision?: number;
-
-  @IsOptional()
-  @IsBoolean()
-  supportsCandidate?: boolean;
-
-  @IsOptional()
-  @IsString()
-  sourceUrl?: string | null;
-
-  @IsDateString()
-  eventAt!: string;
-
-  @IsDateString()
-  observedAt!: string;
-
-  @IsDateString()
-  availableAt!: string;
-
-  @IsOptional()
-  @IsDateString()
-  revisionAt?: string | null;
-
-  @IsObject()
-  rawPayload!: Record<string, unknown>;
-}
-
-export class AppendEvidenceObservationsDto {
-  @IsArray()
-  @ArrayMaxSize(500)
-  @ValidateNested({ each: true })
-  @Type(() => EvidenceObservationDto)
-  observations!: EvidenceObservationDto[];
-}
-
-export class FinalizeEvidenceRunDto {
-  @IsIn(
-    SOURCING_EVIDENCE_RUN_STATUSES.filter(
-      (status) => status !== 'collecting' && status !== 'cancel_requested',
-    ),
-  )
-  status!: Exclude<
-    (typeof SOURCING_EVIDENCE_RUN_STATUSES)[number],
-    'collecting' | 'cancel_requested'
-  >;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(0)
-  @Max(10_000)
-  coverageBps?: number | null;
-
-  @IsOptional()
-  @IsDateString()
-  watermarkEventAt?: string | null;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(100)
-  errorCode?: string | null;
-
-  @IsOptional()
-  @IsString()
-  errorMessage?: string | null;
 }
 
 export class CreateLaunchCandidateDto {

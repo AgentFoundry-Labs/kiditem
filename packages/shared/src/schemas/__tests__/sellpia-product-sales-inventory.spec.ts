@@ -5,67 +5,76 @@ import {
   SellpiaProductSalesRowSchema,
   SellpiaProductSalesSummarySchema,
 } from '../dashboard';
+import { PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD } from '../product-abc';
 
 const INVENTORY_SKU_ID = '11111111-1111-4111-8111-111111111111';
 const MASTER_PRODUCT_ID = '22222222-2222-4222-8222-222222222222';
 const CHANNEL_LISTING_OPTION_ID = '33333333-3333-4333-8333-333333333333';
 const CHANNEL_LISTING_ID = '44444444-4444-4444-8444-444444444444';
+const SELLPIA_SOURCE_IMPORT_RUN_ID = '55555555-5555-4555-8555-555555555555';
+const ADVERTISING_SOURCE_IMPORT_RUN_ID = '66666666-6666-4666-8666-666666666666';
+const GRADE_BASIS_CUTOFF_DATE = '2026-07-17';
 
-const abcEvaluation = {
+/** A published grade-A product: the shape the ABC producer emits for READY. */
+const abcReadyEvaluation = {
   abcGrade: 'A' as const,
-  calculationStatus: 'READY' as const,
-  rawScore: 80,
-  adjustedScore: 75,
-  reliability: 0.8,
   weightedRevenue: 200,
-  weightedOrderTimeCogs: 100,
-  weightedAdSpend: 0,
-  weightedContributionProfit: 100,
-  profitVelocity30: 50,
-  weightedContributionMargin: 0.5,
-  lossRecurrence: 0,
-  paidOrderCount: 40,
-  observationDays: 60,
-  firstValidPaidSaleAt: '2026-06-01T00:00:00.000Z',
-  formula: {
-    formulaKey: 'ABC_V1' as const,
-    version: 1,
-    calculationCodeChecksum: 'a'.repeat(64),
-    formulaChecksum: 'a'.repeat(64),
-    activatedAt: '2026-07-18T00:00:00.000Z',
-    halfLifeDays: 90,
-    weights: { profit: 0.5, margin: 0.3, persistence: 0.2 },
-    dayShrinkK: 30,
-    cutoffs: { cToB: 45, bToA: 70 },
-    normalizationKnots: {
-      profitVelocity: [{ value: 0, score: 0 }],
-      contributionMargin: [{ value: 0, score: 0 }],
-      lossRecurrence: [{ value: 0, score: 100 }],
-    },
-    trainingRange: { from: '2025-07-01', to: '2026-07-17' },
-    sampleCount: 100,
-    foldCount: 3,
-    calibrationMetrics: { meanSpearmanRankCorrelation: 0.7, meanExplainedVariance: 0.6, gradeChurnRate: 0.1 },
-  },
-  sourceFreshness: {
-    evaluationCutoffDate: '2026-07-17',
-    sellpia: { status: 'READY' as const, coverageStartDate: '2025-06-12', coverageEndDate: '2026-07-17', capturedAt: '2026-07-18T00:00:00.000Z' },
-    advertising: { status: 'CONFIRMED_ZERO' as const, coverageStartDate: '2025-06-12', coverageEndDate: '2026-07-17', capturedAt: '2026-07-18T00:00:00.000Z' },
-    orders: { status: 'NOT_APPLIED' as const, coverageStartDate: null, coverageEndDate: null, capturedAt: null },
-    mapping: { status: 'READY' as const, inventoryGeneration: '4', verifiedAt: '2026-07-18T00:00:00.000Z' },
-  },
-  costBreakdown: {
-    recognizedRevenue: { amount: 200, status: 'OBSERVED' as const },
-    orderTimeCogs: { amount: 100, status: 'OBSERVED' as const },
-    advertisingSpend: { amount: 0, status: 'CONFIRMED_ZERO' as const },
-    marketplaceCommission: { amount: 0, status: 'NOT_APPLIED' as const },
-    outboundFulfillment: { amount: 0, status: 'NOT_APPLIED' as const },
-    returnLoss: { amount: 0, status: 'NOT_APPLIED' as const },
-    otherVariableCost: { amount: 0, status: 'NOT_APPLIED' as const },
-  },
-  statusDetail: null,
+  weightedOrderTimeSupplyCost: 100,
+  weightedAdvertisingSpend: 0,
+  weightedOperatingProfit: 100,
+  operatingProfitVelocity30: 50,
+  operatingMargin: 0.5,
+  lossPersistence: 0,
+  profitScore: 80,
+  marginScore: 80,
+  consistencyScore: 90,
+  economicScore: 82,
+  validObservationDays: 60,
+  formula: PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
+  formulaRevision: 2,
+  publicationRevision: 4,
+  gradeBasisCutoffDate: GRADE_BASIS_CUTOFF_DATE,
+  saleStartDate: '2026-06-01',
+  sellpiaSourceImportRunId: SELLPIA_SOURCE_IMPORT_RUN_ID,
+  advertisingSourceImportRunId: ADVERTISING_SOURCE_IMPORT_RUN_ID,
+  sellpiaGeneration: '7',
+  advertisingGeneration: '7',
+  mappingGeneration: '4',
   calculatedAt: '2026-07-18T00:00:00.000Z',
 };
+
+const abcReady = {
+  abcGrade: 'A' as const,
+  evaluation: abcReadyEvaluation,
+  displayStatus: 'READY' as const,
+  formulaRevision: 2,
+  publicationRevision: 4,
+  officialCutoffDate: GRADE_BASIS_CUTOFF_DATE,
+  publishedAt: '2026-07-18T00:00:00.000Z',
+  actualCutoffDate: GRADE_BASIS_CUTOFF_DATE,
+  sources: {
+    sellpia: {
+      ready: true,
+      requiredCutoff: GRADE_BASIS_CUTOFF_DATE,
+      actualCutoff: GRADE_BASIS_CUTOFF_DATE,
+      latestAttempt: { state: 'COMPLETE' as const },
+      latestComplete: { actualCutoff: GRADE_BASIS_CUTOFF_DATE },
+    },
+    advertising: {
+      ready: true,
+      requiredCutoff: GRADE_BASIS_CUTOFF_DATE,
+      actualCutoff: GRADE_BASIS_CUTOFF_DATE,
+      latestAttempt: { state: 'COMPLETE' as const },
+      latestComplete: { actualCutoff: GRADE_BASIS_CUTOFF_DATE },
+    },
+    mapping: { status: 'READY' as const, mappingGeneration: '4' },
+  },
+};
+
+// Retired pre-read-model Evaluation shape. It survives only because the
+// pending "published, observing, and unclassified" test below still describes
+// the three-way distinction the read model no longer expresses; that test is
+// blocked on a product decision, so neither it nor this literal is rewritten.
 
 const destination = {
   masterProductId: MASTER_PRODUCT_ID,
@@ -77,8 +86,7 @@ const destination = {
   externalOptionId: 'option-1',
   optionName: '기본 옵션',
   unitsPerSale: 1,
-  abcGrade: 'A',
-  abcEvaluation,
+  abc: abcReady,
   displayImage: {
     url: 'https://image.coupangcdn.com/catalog.jpg',
     source: 'channel_catalog',
@@ -119,8 +127,7 @@ function salesRow() {
         masterProductId: MASTER_PRODUCT_ID,
         masterProductCode: 'MP-1',
         masterProductName: '재고 상품',
-        abcGrade: 'A',
-        abcEvaluation,
+        abc: abcReady,
       },
       destinations: [destination],
     },
@@ -154,22 +161,27 @@ describe('Sellpia product-sales inventory contracts', () => {
     expect(SellpiaProductInventoryResolutionSchema.parse(matched)).toEqual(matched);
   });
 
-  it('keeps published, observing, and unclassified destinations distinguishable', () => {
-    const observingEvaluation = {
-      ...abcEvaluation,
+  it('keeps a graded destination, a stale one that keeps its grade, and an unclassified one distinguishable', () => {
+    // A stale source does not erase a published grade. The Evaluation and the
+    // grade stay; `displayStatus` is what says the source has moved on.
+    const stale = { ...abcReady, displayStatus: 'AD_SOURCE_STALE' as const };
+    // `NEW` and `INSUFFICIENT_EVIDENCE` retain no Evaluation at all. There is
+    // no state that keeps an Evaluation without a grade: `ProductAbcEvaluation`
+    // always carries one, so an ungraded product has nothing to retain.
+    const unclassified = {
+      ...abcReady,
       abcGrade: null,
-      calculationStatus: 'INSUFFICIENT_EVIDENCE' as const,
-      rawScore: null,
-      adjustedScore: null,
-      reliability: null,
-      weightedContributionProfit: null,
-      formula: null,
+      evaluation: null,
+      officialCutoffDate: null,
+      displayStatus: 'INSUFFICIENT_EVIDENCE' as const,
     };
-    expect(SellpiaProductDestinationSchema.parse(destination)).toMatchObject({ abcGrade: 'A' });
-    expect(SellpiaProductDestinationSchema.parse({ ...destination, abcGrade: null, abcEvaluation: observingEvaluation }))
-      .toMatchObject({ abcEvaluation: { calculationStatus: 'INSUFFICIENT_EVIDENCE' } });
-    expect(SellpiaProductDestinationSchema.parse({ ...destination, abcGrade: null, abcEvaluation: null }))
-      .toMatchObject({ abcEvaluation: null });
+
+    expect(SellpiaProductDestinationSchema.parse(destination).abc)
+      .toMatchObject({ abcGrade: 'A', displayStatus: 'READY' });
+    expect(SellpiaProductDestinationSchema.parse({ ...destination, abc: stale }).abc)
+      .toMatchObject({ abcGrade: 'A', displayStatus: 'AD_SOURCE_STALE' });
+    expect(SellpiaProductDestinationSchema.parse({ ...destination, abc: unclassified }).abc)
+      .toMatchObject({ abcGrade: null, evaluation: null, displayStatus: 'INSUFFICIENT_EVIDENCE' });
   });
 
   it('requires a read-only channel catalog display image shape when present', () => {
@@ -228,12 +240,8 @@ describe('Sellpia product-sales inventory contracts', () => {
         READY: 1,
         INSUFFICIENT_EVIDENCE: 0,
         SOURCE_UNMAPPED: 0,
-        CALIBRATION_PENDING: 0,
-        RECALCULATING: 0,
         SELLPIA_SOURCE_STALE: 0,
         AD_SOURCE_STALE: 0,
-        ORDERS_SOURCE_STALE: 0,
-        CALCULATION_ERROR: 0,
       },
       abcContributionProfitByGrade: { A: 100, B: 0, C: 0 },
       classifiedProductCount: 1,

@@ -1,15 +1,51 @@
-import { Inject, Injectable, Optional } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { MulterFile } from '../../common/types';
-import { kstDayStart } from '../../common/kst';
+import {
+  addDays,
+  businessDateKey,
+  datesInclusive,
+  evidenceCutoffDate,
+  kstBusinessDate,
+  kstDayStart,
+  parseBusinessDate,
+} from '../../common/kst';
+import {
+  AD_TRAFFIC_READ_PORT,
+  type AdTrafficReadPort,
+} from '../../advertising/application/port/in/ad-traffic-source.port';
+import type {
+  AdTrafficSourceAccountDaily,
+  AdTrafficSourceDailyPublished,
+  AdTrafficSourceReconciliation,
+  AdTrafficSourcePublished,
+} from '@kiditem/shared/advertising';
 import {
   uploadTrafficStats as uploadTrafficStatsIngest,
-  type TrafficUploadOptions,
 } from './traffic-upload';
-import {
-  TRAFFIC_OPERATION_ALERT_PORT,
-  type OperationAlertPort,
-} from './application/port/out/cross-domain/operation-alert.port';
+
+interface DateRange {
+  from: string;
+  to: string;
+}
+
+export interface TrafficCoverage {
+  from: string;
+  to: string;
+  targetDays: number;
+  completedDays: number;
+  missingDates: string[];
+}
+
+type TrafficAdditiveMetric = keyof AdTrafficSourceReconciliation;
+
+interface AccountDailyRead {
+  rows: AccountDailyRow[];
+  coverage: TrafficCoverage;
+  reconciliation: AdTrafficSourceReconciliation | null;
+}
+
+type AccountDailyRow = AdTrafficSourceAccountDaily;
 
 interface DayRevenue {
   date: string;
@@ -17,54 +53,23 @@ interface DayRevenue {
   orders: number;
   salesQty: number;
   visitors: number;
-  netProfit?: number;
-  profitRate?: number;
+  views: number;
+  cartAdds: number;
 }
 
 /**
- * Pricing 원천 — ChannelListingOption의 Sellpia 재고 구성표.
- * Listing 의 첫 활성 SKU를 대표값으로 사용.
- * 멀티 option listing 은 listing 단위 일별 트래픽이 listing 단위 집계라
- * 첫 option 기준으로 충분.
- * option 이 0 개이면 pricing 없음 → row skip (아래 profit 루프에서 처리).
- */
-const LISTING_PRICING_SELECT = {
-  id: true,
-  options: {
-    where: { isActive: true },
-    select: {
-      costPriceOverride: true,
-      commissionRate: true,
-      shippingCost: true,
-      otherCost: true,
-      inventoryComponents: {
-        select: {
-          quantity: true,
-          sellpiaInventorySku: { select: { purchasePrice: true } },
-        },
-      },
-    },
-    orderBy: { createdAt: 'asc' },
-    take: 1,
-  },
-} as const;
-
-/**
- * `TrafficService` reads + writes daily facts only.
- *
- * Read paths (`getTrafficSummary`, `getMonthlyRevenue`) aggregate
- * `ChannelListingDailySnapshot.trafficVisitors / trafficViews / trafficCartAdds
- * / trafficOrders / trafficSalesQty / trafficRevenue` over the requested
- * KST-anchored window.
+ * `TrafficService` reads the Advertising owner's published `accountDaily`
+ * projection and writes operator-uploaded CSV/XLSX evidence. Legacy listing
+ * rows and period-as-day values are never a read fallback for Wing metrics.
  *
  * Ingest path (`uploadTrafficStats`) — CSV/XLSX upload from the operator
  * console. Writes `ChannelListingDailySnapshot` directly with the same
  * overwrite-on-replay semantics the extension-sync ingest uses. Raw audit
  * lands in `ChannelScrapeSnapshot` via a single `ChannelScrapeRun`. The
  * traffic domain owns its own ingest entrypoint (controller route `POST
- * /api/traffic/upload`) — not unified into `/api/ads/extension/sync` because
+ * /api/traffic/upload`) — kept separate from advertising source-owner APIs because
  * the upload flow is operator-driven (not extension-pushed) and the
- * cross-domain service injection is forbidden by `apps/server/AGENTS.md`.
+ * cross-domain service injection is forbidden by `apps/server/CLAUDE.md`.
  * Inline use of the same low-level Prisma primitives keeps the domain
  * boundary clean.
  *
@@ -77,35 +82,25 @@ const LISTING_PRICING_SELECT = {
 export class TrafficService {
   constructor(
     private readonly prisma: PrismaService,
-    @Optional()
-    @Inject(TRAFFIC_OPERATION_ALERT_PORT)
-    private readonly operationAlerts?: OperationAlertPort,
+    @Inject(AD_TRAFFIC_READ_PORT)
+    private readonly trafficRead: AdTrafficReadPort,
   ) {}
 
   async uploadTrafficStats(
     file: MulterFile,
     organizationId: string,
-    options: TrafficUploadOptions = {},
   ) {
     return uploadTrafficStatsIngest({
       file,
       organizationId,
-      options,
       prisma: this.prisma,
-      operationAlerts: this.operationAlerts,
     });
   }
 
-  /**
-   * Period traffic summary — KST-anchored half-open window over
-   * `ChannelListingDailySnapshot.traffic*` columns.
-   *
-   * `organizationId` is required by the multi-tenant rule. The controller passes
-   * the request organization.
-   */
+  /** Period summary over owner-published account daily facts. */
   async getTrafficSummary(days: number, organizationId: string) {
     const todayStart = kstDayStart(new Date());
-    const todayEnd = new Date(todayStart.getTime() + 86400000);
+    const todayEnd = addDays(todayStart, 1);
 
     let start: Date;
     let end: Date;
@@ -113,246 +108,241 @@ export class TrafficService {
       start = todayStart;
       end = todayEnd;
     } else {
-      start = new Date(todayStart.getTime() - (days - 1) * 86400000);
+      start = addDays(todayStart, -(days - 1));
       end = todayEnd;
     }
 
     const duration = end.getTime() - start.getTime();
     const prevStart = new Date(start.getTime() - duration);
     const prevEnd = start;
-
-    const [cur, prev, listingRows] = await Promise.all([
-      this.prisma.channelListingDailySnapshot.aggregate({
-        _sum: {
-          trafficRevenue: true,
-          trafficOrders: true,
-          trafficSalesQty: true,
-          trafficVisitors: true,
-          trafficViews: true,
-          trafficCartAdds: true,
-        },
-        where: { organizationId, businessDate: { gte: start, lt: end } },
-      }),
-      this.prisma.channelListingDailySnapshot.aggregate({
-        _sum: {
-          trafficRevenue: true,
-          trafficOrders: true,
-          trafficSalesQty: true,
-          trafficVisitors: true,
-        },
-        where: {
-          organizationId,
-          businessDate: { gte: prevStart, lt: prevEnd },
-        },
-      }),
-      this.prisma.channelListingDailySnapshot.groupBy({
-        by: ['listingId'],
-        _sum: {
-          trafficRevenue: true,
-          trafficSalesQty: true,
-          trafficOrders: true,
-        },
-        where: { organizationId, businessDate: { gte: start, lt: end } },
-      }),
+    const [current, previous] = await Promise.all([
+      this.readAccountDaily(organizationId, dateRange(start, end)),
+      this.readAccountDaily(organizationId, dateRange(prevStart, prevEnd)),
     ]);
-
-    const revenue = cur._sum.trafficRevenue ?? 0;
-    const prevRevenue = prev._sum.trafficRevenue ?? 0;
-    const orders = cur._sum.trafficOrders ?? 0;
-    const prevOrders = prev._sum.trafficOrders ?? 0;
-
-    let netProfit: number | undefined;
-    let profitRate: number | undefined;
-    let costCoverage: number | undefined;
-
-    if (listingRows.length > 0) {
-      const listingIds = listingRows.map((r) => r.listingId);
-      const listings = await this.prisma.channelListing.findMany({
-        where: { id: { in: listingIds }, organizationId, isActive: true },
-        select: LISTING_PRICING_SELECT,
-      });
-      const listingMap = new Map(listings.map((l) => [l.id, l]));
-
-      let totalNetProfit = 0;
-      let revenueWithCost = 0;
-
-      for (const row of listingRows) {
-        const salesQty = row._sum.trafficSalesQty ?? 0;
-        const rowRevenue = row._sum.trafficRevenue ?? 0;
-        if (salesQty === 0) continue;
-
-        const listing = listingMap.get(row.listingId);
-        if (!listing) continue;
-        const option = listing.options[0];
-        if (!option) continue;
-
-        const resolved = resolveListingOptionPricing(option);
-        const commRate = resolved.commissionRate || 0.108;
-        const ordersCount = row._sum.trafficOrders ?? salesQty;
-        const rowNetProfit =
-          rowRevenue -
-          resolved.costPrice * salesQty -
-          rowRevenue * commRate -
-          resolved.shippingCost * ordersCount -
-          resolved.otherCost * salesQty;
-
-        totalNetProfit += rowNetProfit;
-        if (!resolved.isCostMissing) {
-          revenueWithCost += rowRevenue;
-        }
-      }
-
-      netProfit = Math.round(totalNetProfit);
-      profitRate =
-        revenue > 0 ? Math.round((totalNetProfit / revenue) * 1000) / 10 : 0;
-      costCoverage =
-        revenue > 0 ? Math.round((revenueWithCost / revenue) * 100) / 100 : 0;
-    }
+    const currentTotals = sumAccountDaily(
+      current.rows,
+      current.coverage,
+      current.reconciliation,
+    );
+    const previousTotals = sumAccountDaily(
+      previous.rows,
+      previous.coverage,
+      previous.reconciliation,
+    );
 
     return {
       days,
-      revenue,
-      orders,
-      salesQty: cur._sum.trafficSalesQty ?? 0,
-      visitors: cur._sum.trafficVisitors ?? 0,
-      views: cur._sum.trafficViews ?? 0,
-      cartAdds: cur._sum.trafficCartAdds ?? 0,
-      prevRevenue,
-      prevOrders,
+      revenue: currentTotals.revenue,
+      orders: currentTotals.orders,
+      salesQty: currentTotals.salesQty,
+      // Account UV is an average over complete account daily coverage, never
+      // a sum of listing/option visitor values.
+      visitors: currentTotals.averageDailyVisitors,
+      averageDailyVisitors: currentTotals.averageDailyVisitors,
+      views: currentTotals.views,
+      cartAdds: currentTotals.cartAdds,
+      prevRevenue: previousTotals.revenue,
+      prevOrders: previousTotals.orders,
       revenueChange:
-        prevRevenue > 0
-          ? Math.round(((revenue - prevRevenue) / prevRevenue) * 1000) / 10
-          : 0,
+        percentageChange(currentTotals.revenue, previousTotals.revenue),
       ordersChange:
-        prevOrders > 0
-          ? Math.round(((orders - prevOrders) / prevOrders) * 1000) / 10
-          : 0,
-      netProfit,
-      profitRate,
-      costCoverage,
+        percentageChange(currentTotals.orders, previousTotals.orders),
+      coverage: current.coverage,
+      reconciliation: current.reconciliation,
     };
   }
 
   async getMonthlyRevenue(year: number, month: number, organizationId: string) {
-    // `businessDate` is a Postgres date column. Prisma compares it as a
-    // calendar date, so use DB date midnights instead of KST instants; otherwise
-    // the month window shifts one date backward at both boundaries.
     const start = new Date(Date.UTC(year, month - 1, 1));
     const endExclusive = new Date(Date.UTC(year, month, 1));
-
-    const [rows, listingRows] = await Promise.all([
-      this.prisma.channelListingDailySnapshot.groupBy({
-        by: ['businessDate'],
-        where: {
-          organizationId,
-          businessDate: { gte: start, lt: endExclusive },
-        },
-        _sum: {
-          trafficRevenue: true,
-          trafficOrders: true,
-          trafficSalesQty: true,
-          trafficVisitors: true,
-        },
-        orderBy: { businessDate: 'asc' },
-      }),
-      this.prisma.channelListingDailySnapshot.groupBy({
-        by: ['listingId', 'businessDate'],
-        where: {
-          organizationId,
-          businessDate: { gte: start, lt: endExclusive },
-        },
-        _sum: {
-          trafficRevenue: true,
-          trafficSalesQty: true,
-          trafficOrders: true,
-        },
-      }),
-    ]);
-
-    const listingIds = [...new Set(listingRows.map((r) => r.listingId))];
-    const listings =
-      listingIds.length > 0
-        ? await this.prisma.channelListing.findMany({
-            where: { id: { in: listingIds }, organizationId, isActive: true },
-            select: LISTING_PRICING_SELECT,
-          })
-        : [];
-    const listingMap = new Map(listings.map((l) => [l.id, l]));
-
-    const dailyProfitMap = new Map<string, number>();
-    for (const row of listingRows) {
-      const salesQty = row._sum.trafficSalesQty ?? 0;
-      const rowRevenue = row._sum.trafficRevenue ?? 0;
-      if (salesQty === 0) continue;
-      const listing = listingMap.get(row.listingId);
-      if (!listing) continue;
-      const option = listing.options[0];
-      if (!option) continue;
-      const resolved = resolveListingOptionPricing(option);
-      const commRate = resolved.commissionRate || 0.108;
-      const ordersCount = row._sum.trafficOrders ?? salesQty;
-      const rowNetProfit =
-        rowRevenue -
-        resolved.costPrice * salesQty -
-        rowRevenue * commRate -
-        resolved.shippingCost * ordersCount -
-        resolved.otherCost * salesQty;
-      const dateKey = row.businessDate.toISOString().slice(0, 10);
-      dailyProfitMap.set(
-        dateKey,
-        (dailyProfitMap.get(dateKey) ?? 0) + rowNetProfit,
-      );
+    // Wing's current business date is still in flight. Only yesterday is an
+    // explicit monthly cutoff; today's partial collection must not make a
+    // month appear complete.
+    const yesterday = evidenceCutoffDate();
+    const monthEnd = addDays(endExclusive, -1);
+    const effectiveEnd = monthEnd < yesterday ? monthEnd : yesterday;
+    if (start > effectiveEnd) {
+      const coverage = emptyCoverage(calendarDate(start), calendarDate(monthEnd));
+      return {
+        year,
+        month,
+        days: [],
+        total: { revenue: null, orders: null, salesQty: null, visitors: null, views: null, cartAdds: null },
+        averageDailyVisitors: null,
+        coverage,
+        reconciliation: null,
+      };
     }
 
-    const days: DayRevenue[] = rows.map((r) => {
-      const dateKey = r.businessDate.toISOString().slice(0, 10);
-      const rev = r._sum.trafficRevenue ?? 0;
-      const np = Math.round(dailyProfitMap.get(dateKey) ?? 0);
-      return {
-        date: dateKey,
-        revenue: rev,
-        orders: r._sum.trafficOrders ?? 0,
-        salesQty: r._sum.trafficSalesQty ?? 0,
-        visitors: r._sum.trafficVisitors ?? 0,
-        netProfit: np,
-        profitRate: rev > 0 ? Math.round((np / rev) * 1000) / 10 : 0,
-      };
-    });
+    const result = await this.readAccountDaily(
+      organizationId,
+      { from: calendarDate(start), to: calendarDate(effectiveEnd) },
+    );
+    const totals = sumAccountDaily(
+      result.rows,
+      result.coverage,
+      result.reconciliation,
+    );
+    const days: DayRevenue[] = result.rows.map((row) => ({
+      date: row.businessDate,
+      revenue: row.revenue,
+      orders: row.orders,
+      salesQty: row.salesQty,
+      visitors: row.visitors,
+      views: row.views,
+      cartAdds: row.cartAdds,
+    }));
 
-    const total = {
-      revenue: days.reduce((s, d) => s + d.revenue, 0),
-      orders: days.reduce((s, d) => s + d.orders, 0),
-      salesQty: days.reduce((s, d) => s + d.salesQty, 0),
-      visitors: days.reduce((s, d) => s + d.visitors, 0),
-      netProfit: days.reduce((s, d) => s + (d.netProfit ?? 0), 0),
+    return {
+      year,
+      month,
+      days,
+      total: {
+        revenue: totals.revenue,
+        orders: totals.orders,
+        salesQty: totals.salesQty,
+        // This is intentionally nullable: it is not a period UV sum.
+        visitors: totals.averageDailyVisitors,
+        views: totals.views,
+        cartAdds: totals.cartAdds,
+      },
+      averageDailyVisitors: totals.averageDailyVisitors,
+      coverage: result.coverage,
+      reconciliation: result.reconciliation,
     };
+  }
 
-    return { year, month, days, total };
+  private async readAccountDaily(
+    organizationId: string,
+    range: DateRange,
+  ): Promise<AccountDailyRead> {
+    const coverage = buildCoverage(range, []);
+
+    let published: AdTrafficSourcePublished;
+    try {
+      published = await this.trafficRead.readPublished({
+        organizationId,
+        from: range.from,
+        to: range.to,
+      });
+    } catch (error) {
+      if (
+        error instanceof NotFoundException
+        && ['COUPANG_ACCOUNT_NOT_FOUND', 'AD_TRAFFIC_SOURCE_MISSING'].includes(error.message)
+      ) {
+        return { rows: [], coverage, reconciliation: null };
+      }
+      throw error;
+    }
+
+    const daily = dailyPublication(published);
+    if (!daily) return { rows: [], coverage, reconciliation: null };
+    const rows = selectAccountDailyRows(daily.accountDaily, range);
+    return {
+      rows,
+      coverage: buildCoverage(range, rows),
+      reconciliation: daily.reconciliation,
+    };
   }
 }
 
-function resolveListingOptionPricing(option: {
-  costPriceOverride: number | null;
-  commissionRate: { toString(): string } | number | null;
-  shippingCost: number | null;
-  otherCost: number | null;
-  inventoryComponents: Array<{
-    quantity: number;
-    sellpiaInventorySku: { purchasePrice: number | null };
-  }>;
-}) {
-  const componentCost = option.inventoryComponents.reduce(
-    (sum, component) =>
-      sum +
-      (component.sellpiaInventorySku.purchasePrice ?? 0) * component.quantity,
-    0,
-  );
-  const costPrice = option.costPriceOverride ?? componentCost;
+function dailyPublication(
+  published: AdTrafficSourcePublished,
+): AdTrafficSourceDailyPublished | null {
+  // The shared publication type is a compatibility union. Legacy `rows`
+  // contain listing/period evidence and must never feed account daily reads.
+  return 'accountDaily' in published ? published : null;
+}
+
+function dateRange(start: Date, endExclusive: Date): DateRange {
   return {
-    costPrice,
-    commissionRate: Number(option.commissionRate ?? 0),
-    shippingCost: option.shippingCost ?? 0,
-    otherCost: option.otherCost ?? 0,
-    isCostMissing: option.costPriceOverride === null && componentCost === 0,
+    from: calendarDate(kstBusinessDate(start)),
+    to: calendarDate(kstBusinessDate(new Date(endExclusive.getTime() - 1))),
   };
+}
+
+function selectAccountDailyRows(
+  rows: ReadonlyArray<AccountDailyRow>,
+  range: DateRange,
+): AccountDailyRow[] {
+  const byDate = new Map<string, AccountDailyRow>();
+  for (const row of rows) {
+    if (row.businessDate < range.from || row.businessDate > range.to) continue;
+    const current = byDate.get(row.businessDate);
+    if (!current || Date.parse(row.observedAt) >= Date.parse(current.observedAt)) {
+      byDate.set(row.businessDate, row);
+    }
+  }
+  return [...byDate.values()].sort((left, right) =>
+    left.businessDate.localeCompare(right.businessDate));
+}
+
+function sumAccountDaily(
+  rows: ReadonlyArray<AccountDailyRow>,
+  coverage: TrafficCoverage,
+  reconciliation: AdTrafficSourceReconciliation | null = null,
+) {
+  const rawTotals = rows.reduce(
+    (sum, row) => ({
+      visitors: sum.visitors + row.visitors,
+      views: sum.views + row.views,
+      cartAdds: sum.cartAdds + row.cartAdds,
+      orders: sum.orders + row.orders,
+      salesQty: sum.salesQty + row.salesQty,
+      revenue: sum.revenue + row.revenue,
+    }),
+    { visitors: 0, views: 0, cartAdds: 0, orders: 0, salesQty: 0, revenue: 0 },
+  );
+  const complete = coverage.targetDays > 0
+    && coverage.completedDays === coverage.targetDays;
+  const metricValue = (metric: TrafficAdditiveMetric): number | null => {
+    if (!complete || reconciliation?.[metric]?.status === 'MISMATCH') return null;
+    return rawTotals[metric];
+  };
+  const averageDailyVisitors = complete
+    ? rawTotals.visitors / coverage.targetDays
+    : null;
+  return {
+    visitors: rawTotals.visitors,
+    views: metricValue('views'),
+    cartAdds: metricValue('cartAdds'),
+    orders: metricValue('orders'),
+    salesQty: metricValue('salesQty'),
+    revenue: metricValue('revenue'),
+    averageDailyVisitors,
+  };
+}
+
+function percentageChange(current: number | null, previous: number | null): number | null {
+  if (current === null || previous === null || previous === 0) return null;
+  return Math.round(((current - previous) / previous) * 1000) / 10;
+}
+
+function buildCoverage(
+  range: DateRange,
+  rows: ReadonlyArray<AccountDailyRow>,
+): TrafficCoverage {
+  const targetDates = enumerateDates(range.from, range.to);
+  const completedDates = new Set(rows.map((row) => row.businessDate));
+  return {
+    from: range.from,
+    to: range.to,
+    targetDays: targetDates.length,
+    completedDays: targetDates.filter((date) => completedDates.has(date)).length,
+    missingDates: targetDates.filter((date) => !completedDates.has(date)),
+  };
+}
+
+function emptyCoverage(from: string, to: string): TrafficCoverage {
+  return buildCoverage({ from, to }, []);
+}
+
+function enumerateDates(from: string, to: string): string[] {
+  const start = parseBusinessDate(from);
+  const end = parseBusinessDate(to);
+  return start && end ? datesInclusive(start, end).map(businessDateKey) : [];
+}
+
+function calendarDate(value: Date): string {
+  return businessDateKey(value);
 }

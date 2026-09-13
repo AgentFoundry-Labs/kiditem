@@ -34,7 +34,6 @@ export class ProductsCapabilityCompositionAdapter
           kind: 'sourcing_candidate',
           id: output.candidateId,
         }),
-        operationRef: (output) => output.operationRunId,
       }),
     ];
   }

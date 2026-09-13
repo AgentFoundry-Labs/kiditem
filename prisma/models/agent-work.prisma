@@ -1,31 +1,31 @@
 /// @namespace AgentOS
 /// @describe Exact request-driven mutation admission and replay receipt.
 model CapabilityInvocation {
-  id                       String    @id @default(uuid()) @db.Uuid
-  organizationId           String    @map("organization_id") @db.Uuid
-  initiatingUserId         String    @map("initiating_user_id") @db.Uuid
-  capabilityKey            String    @map("capability_key")
-  actingAgentKey           String    @map("acting_agent_key")
-  requestKey               String    @map("request_key")
-  canonicalInput           Json      @map("canonical_input") @db.JsonB
-  inputHash                String    @map("input_hash")
-  status                   String    @default("pending")
-  approvalStatus           String    @default("not_required") @map("approval_status")
-  approvalInputHash        String?   @map("approval_input_hash")
-  approvalRequestedAt      DateTime? @map("approval_requested_at") @db.Timestamptz
-  approvalExpiresAt        DateTime? @map("approval_expires_at") @db.Timestamptz
-  approvalDecidedByUserId  String?   @map("approval_decided_by_user_id") @db.Uuid
-  approvalDecisionReason   String?   @map("approval_decision_reason") @db.Text
-  approvalDecidedAt        DateTime? @map("approval_decided_at") @db.Timestamptz
-  result                   Json?     @db.JsonB
-  error                    Json?     @db.JsonB
-  createdAt                DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt                DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-  finishedAt               DateTime? @map("finished_at") @db.Timestamptz
+  id                      String    @id @default(uuid()) @db.Uuid
+  organizationId          String    @map("organization_id") @db.Uuid
+  initiatingUserId        String    @map("initiating_user_id") @db.Uuid
+  capabilityKey           String    @map("capability_key")
+  actingAgentKey          String    @map("acting_agent_key")
+  requestKey              String    @map("request_key")
+  canonicalInput          Json      @map("canonical_input") @db.JsonB
+  inputHash               String    @map("input_hash")
+  status                  String    @default("pending")
+  approvalStatus          String    @default("not_required") @map("approval_status")
+  approvalInputHash       String?   @map("approval_input_hash")
+  approvalRequestedAt     DateTime? @map("approval_requested_at") @db.Timestamptz
+  approvalExpiresAt       DateTime? @map("approval_expires_at") @db.Timestamptz
+  approvalDecidedByUserId String?   @map("approval_decided_by_user_id") @db.Uuid
+  approvalDecisionReason  String?   @map("approval_decision_reason") @db.Text
+  approvalDecidedAt       DateTime? @map("approval_decided_at") @db.Timestamptz
+  result                  Json?     @db.JsonB
+  error                   Json?     @db.JsonB
+  createdAt               DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt               DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  finishedAt              DateTime? @map("finished_at") @db.Timestamptz
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  initiatingUser User @relation("CapabilityInvocationInitiator", fields: [initiatingUserId], references: [id], onDelete: Restrict)
-  approvalDecidedByUser User? @relation("CapabilityInvocationApprover", fields: [approvalDecidedByUserId], references: [id], onDelete: SetNull)
+  organization          Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  initiatingUser        User         @relation("CapabilityInvocationInitiator", fields: [initiatingUserId], references: [id], onDelete: Restrict)
+  approvalDecidedByUser User?        @relation("CapabilityInvocationApprover", fields: [approvalDecidedByUserId], references: [id], onDelete: SetNull)
 
   @@unique([id, organizationId])
   @@unique([organizationId, requestKey])

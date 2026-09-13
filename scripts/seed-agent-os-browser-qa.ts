@@ -1137,8 +1137,9 @@ async function seedBrowserQaRecommendationWorkspace({
 
   const evidenceIngestionRun = await transaction.sourcingEvidenceIngestionRun.upsert({
     where: {
-      organizationId_idempotencyKey: {
+      organizationId_sourceKey_idempotencyKey: {
         organizationId,
+        sourceKey: plan.evidenceIngestionRun.sourceKey,
         idempotencyKey: plan.evidenceIngestionRun.idempotencyKey,
       },
     },

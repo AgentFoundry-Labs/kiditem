@@ -21,3 +21,16 @@ export type DataMigration = {
     context?: DataMigrationContext,
   ): Promise<MigrationResult>;
 };
+
+export type RetiredDataMigration = {
+  id: string;
+  releaseVersion: string;
+  name: string;
+  sourcePath: string;
+  sourceSha256: string;
+  baselineCommit: string;
+  replacementMigrations: ReadonlyArray<{
+    id: string;
+    path: string;
+  }>;
+};

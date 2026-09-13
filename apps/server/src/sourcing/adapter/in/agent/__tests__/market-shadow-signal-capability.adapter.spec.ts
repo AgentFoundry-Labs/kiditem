@@ -2,34 +2,19 @@ import { describe, expect, it, vi } from 'vitest';
 import { MarketShadowSignalCapabilityAdapter } from '../market-shadow-signal-capability.adapter';
 
 describe('MarketShadowSignalCapabilityAdapter', () => {
-  it('starts a durable shadow collection Operation through the Sourcing owner port', async () => {
-    const operations = {
-      startShadowCollection: vi.fn(async () => ({
-        operationRunId: 'run-1',
-        status: 'queued',
-      })),
-    };
-    const adapter = new MarketShadowSignalCapabilityAdapter(
-      operations as never,
-    );
-    const result = await adapter.collectShadowSignals({ organizationId: '00000000-0000-4000-8000-000000000001', idempotencyKey: 'owner-key' });
-
-    expect(operations.startShadowCollection).toHaveBeenCalledWith({
-      organizationId: '00000000-0000-4000-8000-000000000001',
-      requestedByUserId: null,
-      triggerSource: 'agent',
-      idempotencyKey: 'owner-key',
-    });
-    expect(result).toEqual({
-      operationRunId: 'run-1',
-      status: 'queued',
-    });
+  it('returns the same owner receipt without an Operation envelope', async () => {
+    const receipt = { attemptId: 'attempt-1', state: 'FAILED', snapshot: null, errorCode: 'SOURCE_FAILED' };
+    const service = { collect: vi.fn(async () => receipt) };
+    const adapter = new MarketShadowSignalCapabilityAdapter(service as never);
+    const input = { organizationId: 'org-1', requestedByUserId: 'user-1', idempotencyKey: 'owner-key' };
+    expect(await adapter.collectShadowSignals(input)).toEqual(receipt);
+    expect(service.collect).toHaveBeenCalledExactlyOnceWith(input);
   });
 
-  it('rejects a missing owner idempotency key before enqueueing', async () => {
-    const operations = { startShadowCollection: vi.fn() };
-    const adapter = new MarketShadowSignalCapabilityAdapter(operations as never);
-    await expect(adapter.collectShadowSignals({ organizationId: '00000000-0000-4000-8000-000000000001' } as never)).rejects.toThrow('owner_idempotency_key_required');
-    expect(operations.startShadowCollection).not.toHaveBeenCalled();
+  it('rejects a missing owner key before source admission', async () => {
+    const service = { collect: vi.fn() };
+    const adapter = new MarketShadowSignalCapabilityAdapter(service as never);
+    await expect(adapter.collectShadowSignals({ organizationId: 'org-1' } as never)).rejects.toThrow('owner_idempotency_key_required');
+    expect(service.collect).not.toHaveBeenCalled();
   });
 });

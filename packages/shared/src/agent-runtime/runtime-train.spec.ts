@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   GATEWAY_RUNTIME_TRAIN,
   GatewayPlatformSchema,
@@ -45,7 +46,10 @@ describe('native Agent runtime train', () => {
   });
 
   it('matches the Gateway package pins and Gateway staging vocabulary exactly', () => {
-    const packageRoot = resolve(process.cwd(), '../../apps/agent-gateway');
+    // Anchor on this spec's own location so the suite reads the same Gateway
+    // package from any working directory (package dir, repo root, `--root`).
+    const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
+    const packageRoot = resolve(repositoryRoot, 'apps/agent-gateway');
     const manifest = JSON.parse(readFileSync(resolve(packageRoot, 'package.json'), 'utf8')) as {
       name: string;
       dependencies: Record<string, string>;

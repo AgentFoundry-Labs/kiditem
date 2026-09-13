@@ -17,6 +17,7 @@ import {
   setupChannelListing,
   seedOrderWithLineItems,
   seedAd,
+  seedCompletedAdSweepRun,
 } from '../../../test-helpers/finance-seeds';
 
 describe('Settlements flow (PG integration)', () => {
@@ -100,11 +101,19 @@ describe('Settlements flow (PG integration)', () => {
           listingOptionId: fixture.listing.listingOptionId,
         }],
       });
+      // The campaign sweep measured every March date, so the listing's own
+      // rows are its whole March ad cost and its profit is a measurement.
+      const runId = await seedCompletedAdSweepRun(prisma, {
+        organizationId: TEST_ORGANIZATION_ID,
+        generation: 1,
+        window: { startDate: '2026-03-01', endDate: '2026-03-31' },
+      });
       await seedAd(prisma, {
         organizationId: TEST_ORGANIZATION_ID,
         listingId: fixture.listing.listingId,
-        date: '2026-03-15T00:00:00.000Z',
+        date: '2026-03-15',
         spend: 2_000,
+        runId,
       });
 
       const result = await service.reconcile(TEST_ORGANIZATION_ID, '2026-03');

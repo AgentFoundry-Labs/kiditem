@@ -43,6 +43,10 @@ describe('AiModule thumbnail-analysis route-family wiring', () => {
       method: RequestMethod.GET,
       path: 'generations/:id',
     });
+    expect(routeFor(ThumbnailAnalysisGenerationReviewController.prototype, 'cancelGeneration')).toEqual({
+      method: RequestMethod.POST,
+      path: 'generations/:id/cancel',
+    });
     expect(routeFor(ThumbnailAnalysisGenerationReviewController.prototype, 'selectCandidate')).toEqual({
       method: RequestMethod.PUT,
       path: 'generations/:id/select',

@@ -48,6 +48,7 @@ export interface BuildThumbnailGenerationInputMeta {
   pieceCount?: number | null;
   colorCount?: number | null;
   productName?: string | null;
+  productGenerationRequestHash?: string;
   inputs: ThumbnailEditorInputImage[];
 }
 
@@ -118,6 +119,7 @@ export function buildThumbnailGenerationInputMeta(
     pieceCount: input.pieceCount ?? null,
     colorCount: input.colorCount ?? null,
     productName: input.productName?.trim() || null,
+    productGenerationRequestHash: input.productGenerationRequestHash,
     inputCount: input.inputs.length,
     inputRoles: input.inputs.map((image) => image.role),
     inputLabels: input.inputs.map((image) => image.label),

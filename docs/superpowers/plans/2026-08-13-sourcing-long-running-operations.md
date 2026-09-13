@@ -1,9 +1,13 @@
 # Sourcing Long-Running Operations Implementation Plan
 
+> **Further superseded (2026-09-03):** The remaining deterministic Operations
+> execution contracts are replaced by the
+> [Operation And Automation Hard Cutover Design](../specs/2026-09-03-operation-automation-hard-cutover-design.md).
+
 > Superseded as an executable KID-25 plan (2026-08-23). Do not resume tasks from
 > this plan. Completed deterministic Operations contracts are reference-only;
 > use the
-> [KID-25 Agent OS Clean Contraction Design](../specs/2026-08-23-kid-25-agent-os-clean-contraction-design.md).
+> [KID-25 Agent OS Clean Contraction Design](../specs/archive/2026-08-23-kid-25-agent-os-clean-contraction-design.md).
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -19,7 +23,7 @@
 
 - Root issue: KID-24
 - Design authority:
-  `docs/superpowers/specs/2026-08-13-sourcing-long-running-operations-design.md`
+  `docs/superpowers/specs/archive/2026-08-13-sourcing-long-running-operations-design.md`
 - PR base: `develop`
 - Integration branch: `codex/kid-24-sourcing-operation-run`
 - Source baseline: `origin/develop@0c6485b7` after KID-23 PR #478, merged

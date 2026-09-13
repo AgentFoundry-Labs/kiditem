@@ -62,7 +62,7 @@ describe("sourcing display-state reset migration", () => {
     );
 
     expect(schema).toContain(
-      `where: raw("((status)::text = ANY (ARRAY['collecting'::text, 'cancel_requested'::text]))")`,
+      `where: raw("((status)::text = 'RUNNING'::text)")`,
     );
   });
 });

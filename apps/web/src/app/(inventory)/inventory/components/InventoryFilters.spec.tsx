@@ -22,6 +22,8 @@ describe('InventoryFilters', () => {
     expect(screen.getByRole('group', { name: '재고 상태' })).toBeInTheDocument();
     expect(screen.getByRole('group', { name: '활성 상태' })).toBeInTheDocument();
     expect(screen.getByRole('group', { name: '연결 상태' })).toBeInTheDocument();
+    expect(screen.getByText('Sellpia 마지막 정상 수집 기준')).toBeInTheDocument();
+    expect(screen.queryByText('Sellpia 최신 전체 스냅샷 기준')).not.toBeInTheDocument();
     expect(screen.queryByRole('checkbox', { name: '품절상품 포함' })).not.toBeInTheDocument();
   });
 

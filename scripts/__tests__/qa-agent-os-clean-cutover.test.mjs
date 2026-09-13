@@ -95,7 +95,7 @@ function createRunDependencies(helper, options = {}) {
     startBrowserQaStack: async ({ databaseUrl }) => {
       events.push('browser-qa:start');
       assert.equal(databaseUrl, target.databaseUrl);
-      return [{ name: 'api' }, { name: 'worker' }, { name: 'web' }];
+      return [{ name: 'api' }, { name: 'web' }];
     },
     stopBrowserQaStack: async (children) => {
       events.push(`browser-qa:stop:${children.length}`);
@@ -423,7 +423,7 @@ test('serve-browser-qa keeps the verified container alive only until shutdown an
     'browser-qa:start',
     'browser-qa:urls:http://127.0.0.1:3000,http://127.0.0.1:4000',
     'browser-qa:wait',
-    'browser-qa:stop:3',
+    'browser-qa:stop:2',
     'container:stop',
   ]);
   assert.doesNotMatch(events.join('\n'), /fixture_password|postgresql:/i);
@@ -455,7 +455,7 @@ test('builds the server after the guard and before starting the browser-QA child
   assert.ok(events.indexOf('command:server-build') < events.indexOf('browser-qa:start'));
 });
 
-test('uses built API and worker commands with only safe local public origins for browser QA', async () => {
+test('uses built API and web commands with only safe local public origins for browser QA', async () => {
   const helper = await loadHelper();
   assert.equal(typeof helper.createBrowserQaChildSpecs, 'function');
   if (typeof helper.createBrowserQaChildSpecs !== 'function') return;
@@ -481,18 +481,13 @@ test('uses built API and worker commands with only safe local public origins for
         args: ['run', 'start:prod', '--workspace=apps/server'],
       },
       {
-        name: 'Operations worker',
-        command: 'npm',
-        args: ['run', 'start:worker:prod', '--workspace=apps/server'],
-      },
-      {
         name: 'Web',
         command: 'npm',
         args: ['run', 'dev', '--workspace=apps/web'],
       },
     ],
   );
-  const [api, worker, web] = children;
+  const [api, web] = children;
   assert.equal(api?.env.DATABASE_URL, target.databaseUrl);
   assert.equal(api?.env.PORT, '4000');
   assert.equal(api?.env.WEB_ORIGIN, 'http://127.0.0.1:3000');
@@ -500,12 +495,6 @@ test('uses built API and worker commands with only safe local public origins for
   assert.equal(api?.env.MCP_SDK_GENERATION, 'v2');
   assert.equal(api?.env.MCP_PROTOCOL_NEGOTIATION, 'auto');
   assert.equal(api?.env.NEXT_PUBLIC_API_URL, undefined);
-  assert.equal(worker?.env.DATABASE_URL, target.databaseUrl);
-  assert.equal(worker?.env.OPERATION_RUNTIME_WORKER_ENABLED, '1');
-  assert.equal(worker?.env.PORT, undefined);
-  assert.equal(worker?.env.WEB_ORIGIN, undefined);
-  assert.equal(worker?.env.MCP_SDK_GENERATION, undefined);
-  assert.equal(worker?.env.MCP_PROTOCOL_NEGOTIATION, undefined);
   assert.equal(web?.env.DATABASE_URL, target.databaseUrl);
   assert.equal(web?.env.PORT, '3000');
   assert.equal(web?.env.NEXT_PUBLIC_API_URL, 'http://127.0.0.1:4000');

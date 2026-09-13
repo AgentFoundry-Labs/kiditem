@@ -6,7 +6,7 @@ describe('CatalogDisplayMediaService', () => {
     const findCandidates = vi.fn(async () => [
       candidate({ id: 'primary-first', channel: 'coupang', channelListingId: 'listing-1', role: 'primary', url: 'https://cdn.example/primary-1.jpg' }),
       candidate({ id: 'wrong-option', channel: 'coupang', channelListingId: 'listing-1', role: 'option', externalOptionId: 'other', url: 'https://cdn.example/other.jpg' }),
-      candidate({ id: 'exact-second', channel: 'naver', channelListingId: 'listing-2', role: 'option', externalOptionId: 'option-2', url: 'https://cdn.example/exact-2.jpg' }),
+      candidate({ id: 'exact-second', channel: 'naver', channelListingId: 'listing-2', role: 'option', externalOptionId: null, externalOptionIds: ['option-1', 'option-2'], url: 'https://cdn.example/exact-2.jpg' }),
       candidate({ id: 'primary-second', channel: 'naver', channelListingId: 'listing-2', role: 'primary', url: 'https://cdn.example/primary-2.jpg' }),
     ]);
     const service = new CatalogDisplayMediaService({ findCandidates } as never);
@@ -92,10 +92,12 @@ function candidate(input: {
   role: 'primary' | 'option';
   sortOrder?: number;
   externalOptionId?: string | null;
+  externalOptionIds?: string[];
 }) {
   return {
     ...input,
     sortOrder: input.sortOrder ?? 0,
     externalOptionId: input.externalOptionId ?? null,
+    ...(input.externalOptionIds ? { externalOptionIds: input.externalOptionIds } : {}),
   };
 }

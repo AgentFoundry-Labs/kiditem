@@ -5,6 +5,7 @@ import * as risingProductsApi from './rising-products-api';
 vi.mock('@/lib/api-client', () => ({
   apiClient: {
     getNullable: vi.fn(),
+    post: vi.fn(),
   },
 }));
 
@@ -33,8 +34,9 @@ describe('fetchLatestRisingProducts', () => {
     await expect(fetchLatestRisingProducts()).resolves.toBe(result);
   });
 
-  it('does not expose the retired synchronous detect request helper', () => {
-    expect((risingProductsApi as unknown as { detectRisingProducts?: unknown })
-      .detectRisingProducts).toBeUndefined();
+  it('calculates through the direct owner command with only its bounded input', async () => {
+    vi.mocked(apiClient.post).mockResolvedValue({ model: { candidates: [] } });
+    await risingProductsApi.calculateRisingProducts({ windowDays: 14 });
+    expect(apiClient.post).toHaveBeenCalledWith('/api/sourcing/rising-products', { windowDays: 14 });
   });
 });

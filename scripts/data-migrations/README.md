@@ -13,6 +13,13 @@ before promotion uses the open train version in its directory, `id`, and
 immutable. Fixes use a new idempotent migration in the next train. Follow
 [`docs/runbooks/release-train-versioning.md`](../../docs/runbooks/release-train-versioning.md).
 
+An approved hard cutover may make a promoted migration incompatible with the
+current Prisma client. Keep its source file unchanged and move its executable
+registration to `retired.json`. The entry records the exact source SHA-256,
+the promoted baseline commit, and every active replacement migration. Retired
+entries appear separately in `data:migrate -- status`; `data:migrate -- up`
+never selects them and never fabricates an application ledger row for them.
+
 ## Layout
 
 ```text
@@ -21,6 +28,7 @@ scripts/data-migrations/
     001_<name>.ts
     002_<name>.ts
   index.ts
+  retired.json
   types.ts
 ```
 

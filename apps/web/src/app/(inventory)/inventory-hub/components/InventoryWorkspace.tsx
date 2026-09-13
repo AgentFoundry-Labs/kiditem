@@ -11,8 +11,8 @@ import { InventoryTable } from '../../inventory/components/InventoryTable';
 import { InventoryToolbar } from '../../inventory/components/InventoryToolbar';
 import { printBarcodeWindow } from '../../inventory/lib/barcode-print';
 import {
+  downloadSellpiaInventoryExport,
   fetchAllInventoryForExport,
-  toInventoryExportRows,
 } from '../../inventory/lib/inventory-export';
 import type {
   InventorySkuSnapshotSummary,
@@ -56,11 +56,12 @@ export function InventoryWorkspace({ headingLevel = 1 }: { headingLevel?: 1 | 2 
   const handleExcel = async () => {
     setExporting(true);
     try {
-      const XLSX = await import('xlsx');
-      const workbook = XLSX.utils.book_new();
-      const sheet = XLSX.utils.json_to_sheet(toInventoryExportRows(await exportItems()));
-      XLSX.utils.book_append_sheet(workbook, sheet, 'Sellpia 현재재고');
-      XLSX.writeFile(workbook, `Sellpia_현재재고_${new Date().toISOString().slice(0, 10)}.xlsx`);
+      await downloadSellpiaInventoryExport({
+        query: state.requestParams.query,
+        stockStatus: state.stockStatus,
+        activeStatus: state.activeStatus,
+        linkStatus: state.linkStatus === 'all' ? undefined : state.linkStatus,
+      });
     } catch (cause) {
       toast.error(isApiError(cause) ? cause.detail : '재고 엑셀 내보내기에 실패했습니다.');
     } finally {
@@ -89,7 +90,10 @@ export function InventoryWorkspace({ headingLevel = 1 }: { headingLevel?: 1 | 2 
           <RefreshCw className="h-4 w-4 animate-spin" aria-hidden="true" /> 최신 스냅샷 조회 중
         </div>
       ) : null}
-      <InventorySummaryCards summary={state.data?.summary ?? EMPTY_SUMMARY} />
+      <InventorySummaryCards
+        summary={state.data?.summary ?? EMPTY_SUMMARY}
+        hasPublishedSnapshot={Boolean(state.data?.latestImport)}
+      />
       <InventoryFilters
         activeStatus={state.activeStatus}
         linkStatus={state.linkStatus}

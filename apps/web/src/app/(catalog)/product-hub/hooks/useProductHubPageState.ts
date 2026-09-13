@@ -129,6 +129,13 @@ export function useProductHubPageState() {
     () => Object.fromEntries(overviewParams.entries()),
     [overviewParams],
   );
+  const canReuseListSummary = activeStatus === 'active'
+    && adStatus === 'all'
+    && inventoryStatus === 'all'
+    && inventoryFocus === 'all'
+    && !urlSearch.trim()
+    && !category.trim()
+    && !abcGrade.trim();
 
   const listQuery = useQuery({
     queryKey: queryKeys.products.operations.list(queryKeyParams),
@@ -140,6 +147,7 @@ export function useProductHubPageState() {
     refetchInterval: 30_000,
     refetchIntervalInBackground: false,
   });
+  const shouldReuseListSummary = canReuseListSummary && !listQuery.isPlaceholderData;
   const overviewQuery = useQuery({
     queryKey: queryKeys.products.operations.list(overviewQueryKeyParams),
     queryFn: () => apiClient.getParsed(
@@ -147,9 +155,16 @@ export function useProductHubPageState() {
       MasterProductOperationsListResponseSchema,
     ),
     placeholderData: (previousData) => previousData,
+    enabled: !shouldReuseListSummary,
     refetchInterval: 30_000,
     refetchIntervalInBackground: false,
   });
+  const refetch = useCallback(
+    () => shouldReuseListSummary
+      ? Promise.all([listQuery.refetch()])
+      : Promise.all([listQuery.refetch(), overviewQuery.refetch()]),
+    [overviewQuery.refetch, shouldReuseListSummary, listQuery.refetch],
+  );
 
   const handleSearch = (event: FormEvent) => {
     event.preventDefault();
@@ -178,13 +193,15 @@ export function useProductHubPageState() {
     isPlaceholderData: listQuery.isPlaceholderData,
     inventoryStatus,
     inventoryFocus,
-    overviewData: overviewQuery.data,
-    overviewErrorMessage: overviewQuery.error
+    overviewData: shouldReuseListSummary ? listQuery.data : overviewQuery.data,
+    overviewErrorMessage: shouldReuseListSummary
+      ? null
+      : overviewQuery.error
       ? (isApiError(overviewQuery.error) ? overviewQuery.error.detail : '전체 상품 운영 현황을 불러오지 못했습니다.')
       : null,
     page,
     periodDays,
-    refetch: listQuery.refetch,
+    refetch,
     search,
     setAbcGrade: (value: string) => {
       updateListParams({

@@ -4,6 +4,12 @@ KidItem is an ecommerce operations automation monorepo for kids' products:
 sourcing, catalog, channel listings, media AI, inventory, orders, finance,
 advertising, analytics, and Agent OS automation.
 
+The source-attempt boundaries below follow the
+[ACTIVE hard-cutover specification](superpowers/specs/2026-09-03-operation-automation-hard-cutover-design.md).
+Implementation, schema cutover and QA evidence are tracked in its
+[delivery plan](superpowers/plans/2026-09-03-operation-automation-legacy-removal.md);
+this ownership map is not evidence that an Office deployment has occurred.
+
 ## Runtime Topology
 
 ```
@@ -13,8 +19,8 @@ Browser
   -> PostgreSQL 17 (Prisma v7)
 
 apps/server
-  -> operations control plane (catalog, schedule, run ledger, dispatch)
-  -> Coupang Wing / channel providers
+  -> domain-owned source attempts, publication and Alerts
+  -> existing authenticated Wing browser adapters (not Coupang OpenAPI)
   -> Gemini / image providers
   -> Chromium detail-page image rendering
   -> Agent OS CapabilityInvocation admission + CopilotKit + private MCP v2
@@ -30,12 +36,17 @@ Company Chrome extension
   -> authenticated Coupang Wing form automation
 ```
 
-The Nest backend has static process roots; an environment flag never decides
-whether a process owns Operations:
+KidItem does not use Coupang OpenAPI. The hard-cutover contract removes direct
+server product/order sync and remote mutation/verification calls, their API-key
+settings and automatic UI/Agent triggers. ChannelAccount remains the store
+identity for authenticated Wing/ad-center collection and internal owner HTTP.
+Existing validated browser paths remain; capabilities without a replacement
+are explicitly unsupported, not temporarily disconnected or falsely confirmed.
+
+The supported application process roots are:
 
 ```text
-main.ts            -> ApiApplicationModule         -> HTTP + owner domains + Operations
-worker.ts          -> AgentWorkerApplicationModule -> Operations worker only
+main.ts            -> ApiApplicationModule         -> HTTP + owner domains + Alerts
 apps/agent-gateway -> native host process           -> provider conversations/CLI only
 ```
 
@@ -50,8 +61,8 @@ transport, while an actual business tool call lazily resolves its static
 `conversationId` locator against Nest's current active-turn record. The token
 and locator grant no business authority. The adapter exposes exactly five
 tools: `capability_catalog_search`, `capability_invoke`, `invocation_status`,
-`operation_status`, and `readiness_probe`. Those tools expose the 17 code-owned
-CapabilityDefinitions, including all ten Sourcing capabilities.
+`operation_status`, and `readiness_probe`. Those tools expose the code-owned
+CapabilityDefinitions in the public capability catalog.
 
 A cross-domain read may be invoked directly; a mutation is owned by the
 explicitly selected domain Agent profile and retains the caller request key at
@@ -64,13 +75,13 @@ On API bootstrap it performs one bounded sweep of at most 100
 `pending`/`approved` receipts. An ambiguous owner outcome remains `pending` and
 is reachable only through explicit same-request replay or the next
 API-bootstrap sweep. There is no Invocation worker queue, lease, timer, or
-retry loop. The MCP adapter never writes owner rows or creates Operations
-except through the selected owner capability.
+retry loop. The MCP adapter invokes the selected owner capability rather than
+writing canonical owner rows directly.
 
 Production supports exactly one API instance. API replicas, rolling overlap,
 and overlapping lifecycle ownership are unsupported. One native Gateway owns
-provider conversations and host CLI process trees; the worker owns durable
-Operations and never spawns a provider CLI. Gateway or API restart ends live
+provider conversations and host CLI process trees. Source owners retain their
+own durable attempts without an Operations worker. Gateway or API restart ends live
 turns and clears in-memory commands, process registration, and active-turn
 records without prompt replay, automatic Continue, or durable provider-session
 recovery. A later protected Gateway poll re-registers the current process
@@ -79,74 +90,80 @@ transport; the user sends a normal new message to start reasoning again.
 Frontend code never talks to the database directly. All app data flows through
 NestJS APIs and shared Zod contracts from `@kiditem/shared`.
 
-### Operation Control Plane And Manual Action Parity
+### Source Ownership And Manual Action Parity
 
-`apps/server/src/operations` is the platform control plane for operational
-work that needs a durable server-side run envelope: schedules, requests
-originating from Agent capabilities, and Operation-backed manual actions.
-Operations owns the code-owned catalog,
-organization-scoped schedules, top-level `OperationRun` ledger, engine
-dispatch, and browser-runtime leases; it does not write canonical business
-rows and does not own or execute Agent capabilities.
+Each source owner admits an idempotent attempt and freezes its collection
+inputs. The extension sends captured data directly to that owner. Validated
+facts, COMPLETE publication and the matching Alert change commit together;
+failure retains the prior COMPLETE snapshot and its actual cutoff. There is
+no generic Operation ledger, scheduler, browser lease or workflow dependency.
 
 Manual browser work has a stricter UI parity rule. The dashboard Agent OS
 button and its individual domain-screen button call the same shared frontend
 action. The trigger surface may differ, but extension command, account/date
 defaults, empty-vs-login classification, persistence, generated artifacts, and
-browser-session alerts do not. A dashboard button must not replace an existing
-screen action with a count-only Operation handler.
+source-failure alerts do not. Both entrypoints use the same owner interface.
 
-The KID-25 target dependency direction is:
+The dependency direction is:
 
 ```text
 dashboard button ─┐
-                  ├─> shared manual action -> extension + owner API/sink
+                  ├─> source owner begin -> extension -> source owner publication
 domain button ────┘
 
-schedule / Operation-backed capability -> operations
-                                       -> owner operation adapter
-                                       -> owner input port
-                                          | automation workflow port
-                                          | owner capability port
-                                          | ai direct-job port
+approved capability mutation -> CapabilityMutationDispatcher -> owner input port
 
-approved non-Operation mutation -> CapabilityMutationDispatcher
-                                -> owner input port
-
-automation -X-> provider conversation
-operations -X-> agent capability registry
+ABC screen explicit refresh -> Products -> COMPLETE source evidence -> publication
 ```
 
-Trend collection and Sellpia refresh are Operation-backed shared manual
-actions because their durable result already lives behind owner APIs. Order
-collection, Coupang shipment-summary lookup, and Rocket PO collection keep
-their existing browser action contracts so dashboard execution preserves the
-same generated files, saved summaries/catalogs, and operator-facing results as
-their screens. Scheduled variants may use Operations, but they do not redefine
-manual-button behavior or browser-local artifact ownership.
+Trend collection uses `src/hooks/use-trend-source-collection.ts` across Sourcing
+and Dashboard: explicit owner collection, correlated retry keys, source status,
+and snapshot invalidation share one React Query hook. Sellpia stock and profit
+are independent owner collections; full refresh is a convenience that invokes
+both. Profit collection keeps the 401-day interval through yesterday. Collection
+does not refresh ABC. Order and Rocket PO collectors preserve their targets,
+pagination and field mapping. Excel conversion runs on the server and returns
+transient downloads; converted files do not acquire a database lifecycle.
 
-Business owners register handlers and retain their own result sinks.
-`OperationAlert` remains a personal notification projection, not the source of
-truth for an operation run. Browser runtime attempts are fenced by an
+Coupang shipment-summary lookup now begins an Inventory-owned SourceImportRun.
+The extension reads its frozen plan and uploads directly; immutable date facts,
+COMPLETE metadata, and Alert resolution commit together. The page reads the
+latest capture separately from calendar history, which retains the last
+COMPLETE observation per date. Untagged existing dates remain unverified, not
+successful capture evidence. CollectionSession holds only progress and tab
+attention; shipment PDF/file collection remains a separate existing action.
+
+Business owners retain their own facts and source status. An Alert is a human
+notification, not execution state. Owner attempts are fenced by an
 `attemptToken` so stale extension reports cannot change a newer attempt.
-The global notification sheet is one chronological list: Alert rows and run
-projections share the same compact row presentation, with no separate Agent OS
-or `내 작업` card section. Manual shipment and Rocket actions publish distinct
-browser collection producers so their titles and return links remain stable.
+The global notification view reads durable Alerts only, with ten-second
+foreground polling, focus refetch, and dismissal invalidation. It does not
+merge run progress or replay an SSE stream. Source screens own their progress
+and current-source reads; shipment-summary failures use Inventory's source Alert.
 
-Sourcing has one exact ownership flow:
+Sourcing collection uses its source owners directly:
 
 ```text
-sourcing screen -> Operations start/read -> owner operation handler
-browser handler -> KidItem OS claim -> fenced owner ingest
-owner snapshot -> sourcing screen
-Operations never owns sourcing or Ads canonical rows
+screen / Agent -> Sourcing owner attempt + frozen plan
+browser source -> KidItem OS collector -> fenced owner terminal + Alert
+server source -> provider -> owner terminal + Alert
+COMPLETE observations + latest attempt status -> source screen / Agent
 ```
 
-Operations provides the run envelope, resource-class dispatch, lifecycle gate,
-and browser lease only. The Sourcing or Advertising owner handler writes its
-own canonical observations and exposes its own read model; no raw
-`OperationRun.result` becomes a canonical row.
+Shadow uses this same Sourcing attempt ledger for paired Google/optional LinkFox
+collection. It admits once per organization/KST day, including failure/expiry;
+the original request key replays without provider IO. Successful full evaluation
+payloads are immutable observations. Failure retains the previous COMPLETE
+snapshot with stale status and actual cutoff. It has no Operation Worker or
+mutable WorkspaceSnapshot claim. This does not change provider/evaluation rules.
+
+The hard-cutover boundary has an executable guard at
+`scripts/check-operation-automation-cutover.mjs`. It reads the checked-in
+extension producer declarations and source-owner manifest, then reports
+unowned producers, source-owner calls into Product ABC recalculation, and
+explicit legacy Operation/Automation runtime or ActionTask references. The
+guard is a regression contract for the staged removal plan; its presence does
+not claim that the legacy runtime has already been removed.
 
 ## Monorepo Shape
 
@@ -217,12 +234,10 @@ arbitrary UUID strings:
 - Application/domain/repository code uses Zod-branded owner IDs from the
   focused `@kiditem/shared/identifiers` contract. There is no generic `Id`
   alias and adapters parse before use.
-- HTTP, AG-UI, event, and cross-domain references use typed hierarchical
-  resource names such as
-  `organizations/{organization}/agentSessions/{session}/tasks/{task}` and
-  `organizations/{organization}/operations/{operation}`. Resource names have
-  no `/api` prefix/version and are computed rather than persisted redundantly.
-- `copilotThreadId`, `aguiRunId`, provider IDs, browser collection run IDs,
+- HTTP and cross-domain owner references use their focused validated identity
+  contracts. Source attempts expose the owner-issued `attemptId`; they do not
+  mint a generic execution resource name.
+- `copilotThreadId`, `aguiRunId`, provider IDs,
   runtime handles, and tool-call IDs are opaque external-protocol identities.
   A UUID-shaped external value is not a KidItem database ID.
 - UUIDv4 request IDs correlate transport requests only. Scoped idempotency
@@ -234,7 +249,7 @@ arbitrary UUID strings:
   services recheck the complete resource graph.
 
 AgentOS resource patterns and the Operation relationship are normative in the
-[Interaction OS design](docs/superpowers/specs/2026-08-13-ai-chat-interactive-response-design.md#71-identifier-and-resource-name-system).
+[Interaction OS design](docs/superpowers/specs/archive/2026-08-13-ai-chat-interactive-response-design.md#71-identifier-and-resource-name-system).
 The scheme follows Google AIP-122/123/133/151/155 resource and request
 separation while retaining this repository's native Prisma UUID convention.
 
@@ -290,19 +305,18 @@ their implementation structures are listed in the Backend Implementation Map.
 | `apps/server/src/agent-os/adapter/out/history/sqlite` | Platform | Outbound SQLite Adapter for the completed-event history Interface, with its Implementation and OSS characterization specs. |
 | `apps/server/src/ai` | Owner Domain | Image/text/detail-page/thumbnail AI providers, durable direct-job execution, content-workspace ownership/branching, and Agent OS output boundaries. |
 | `apps/server/src/analytics` | Owner Read Model | Dashboard, statistics, traffic, and supplier-stats reporting. |
+| `apps/server/src/alerts` | Owner Capability | Organization-scoped source-failure notification storage; source owners call its terminal-transaction API and consumers poll open/resolved alerts. |
 | `apps/server/src/auth` | Platform Capability | Local password verification, durable hashed sessions, login/logout/me, guards, decorators, middleware, and auth operator CLI. |
-| `apps/server/src/automation` | Platform | Workflows, alerts, action board, marketplace install, and panel projection. |
+| `apps/server/src/alerts` | Platform Capability | Human notifications and transaction-scoped source failure upsert/resolution; no execution or freshness state. |
 | `apps/server/src/channels` | Owner Domain | Marketplace account, account-scoped listing/registration capability, durable listing-deletion operations, order, return, Wing/Rocket catalog identity, typed exact-evidence extraction, option-to-inventory matching, derived listing-product summaries, direct option-component diagnostics, sellable-capacity projections, and the append-only mall operation outcome log (`/api/channels/mall-operation-outcomes`). |
 | `apps/server/src/common` | Platform Support | Shared backend DTOs, filters, KST/date helpers, security, storage, and pricing helpers. |
 | `apps/server/src/feature-gate` | Platform Capability | Feature flag endpoint and config behavior. |
-| `apps/server/src/finance` | Owner Domain | Live P&L, sales analysis, supplier payments, sales plans, settlements, and the read-only contribution-profit evidence port consumed by Products' automatic ABC evaluation. |
+| `apps/server/src/finance` | Owner Domain | Live P&L, sales analysis, supplier payments, sales plans, settlements, and read-only profitability evidence consumed by Products' explicit ABC evaluation. |
 | `apps/server/src/inventory` | Owner Domain | Sellpia-authoritative imports, freshness state, browser claim lease, full-snapshot validation/publication, physical SellpiaInventorySku availability, warehouse/transfer/return records, and matching/purchase-preview read boundaries. |
 | `apps/server/src/orders` | Owner Domain | Orders, returns, reviews, return-transfer operations, Coupang directship collection conversion, and durable Sellpia workbook submission idempotency/audit. |
-| `apps/server/src/operations` | Platform | Code-owned operation catalog, schedules, top-level run ledger, engine dispatch, and browser-runtime leases. |
 | `apps/server/src/organizations` | Platform Capability | Organization listing surface. |
-| `apps/server/src/operation-cancellation` | Platform | Cross-owner durable cancellation endpoint and orchestration. |
 | `apps/server/src/prisma` | Platform Support | `PrismaModule` and `PrismaService` only. |
-| `apps/server/src/products` | Owner Domain | Canonical KidItem inventory-product (`MasterProduct`) operations and ABC ownership, direct ChannelListingOption-to-SellpiaInventorySku component replacement/capacity, automatic profitability ABC formula/evaluation/publication, and `/api/categories` compatibility CRUD. |
+| `apps/server/src/products` | Owner Domain | Canonical KidItem inventory-product (`MasterProduct`) operations and ABC ownership, direct ChannelListingOption-to-SellpiaInventorySku component replacement/capacity, explicitly refreshed absolute ABC formula/evaluation/publication, and `/api/categories` compatibility CRUD. |
 | `apps/server/src/readiness` | Platform Capability | Readiness checks and health-style operational surface. |
 | `apps/server/src/rules` | Owner Domain | Business rules HTTP orchestration and Agent OS delegation. |
 | `apps/server/src/sourcing` | Owner Domain | Chinese new-product discovery, allowlisted collection controls, append-only evidence ingestion, exact LaunchCandidate identity, immutable recommendation decisions, reviewed ProductPreparation input, and authoritative ProductRegistrationExecution lifecycle. |
@@ -328,16 +342,14 @@ folders are intentionally absent from this map.
 | `apps/server/src/analytics/traffic` | Flat | read service plus operator upload mutation lane. |
 | `apps/server/src/analytics/supplier-stats` | Flat | supplier report service. |
 | `apps/server/src/auth` | Hexagonal | Auth service and repository port own password/session policy; Prisma and CLI/HTTP adapters own persistence and entrypoints. Guards and decorators remain infrastructure. |
-| `apps/server/src/automation` | Hexagonal | port/adapter lanes complete; 6 outgoing repository ports + `OPERATION_ALERT_PORT` owner-side incoming port published from `application/port/in/` for cross-domain producers; architecture + module wiring specs freeze invariants; `WorkflowRunnerService` PrismaService carve-out documented for the executor framework. |
-| `apps/server/src/operations` | Hexagonal | code-owned operation definitions, run/schedule repository ports, native-runtime ports, dispatcher, server queue worker, and browser lease APIs; canonical business writes remain in owner incoming capabilities. |
+| `apps/server/src/alerts` | Flat | controller/service/repository; source owners pass their transaction to the concrete failure upsert/resolution API. |
 | `apps/server/src/channels` | Hexagonal | Provider APIs use `application/port/out` plus `adapter/out/coupang`; catalog import and matching use repository ports plus an Inventory-owned read-port bridge. |
 | `apps/server/src/channels/adapters` | Flat | compatibility shims only; new provider work uses `adapter/out/coupang/`. |
 | `apps/server/src/feature-gate` | Flat | endpoint/config capability. |
 | `apps/server/src/finance` | Flat | controllers/services/DTO plus folded finance capabilities. |
-| `apps/server/src/inventory` | Hexagonal | Sellpia freshness/publication single-writer, browser lease, snapshot-aware physical availability, narrow matching/purchase gates, and retained warehouse/transfer/return capabilities behind ports/adapters. |
+| `apps/server/src/inventory` | Hexagonal | Sellpia source attempt and publication single-writer, snapshot-aware physical availability, narrow matching/purchase gates, and retained warehouse/transfer/return capabilities behind ports/adapters. |
 | `apps/server/src/orders` | Flat | controllers/services/DTO plus folded order capabilities; Sellpia transmission fencing is a scoped `application/port` + `adapter/out/repository` sub-capability. |
 | `apps/server/src/organizations` | Flat | controller/service capability. |
-| `apps/server/src/operation-cancellation` | Hexagonal | HTTP endpoint plus application service; consumes Automation, Agent OS, and AI owner-side ports only. |
 | `apps/server/src/products/categories` | Flat | `/api/categories` compatibility capability under products ownership. |
 | `apps/server/src/readiness` | Flat | readiness controller/service. |
 | `apps/server/src/rules` | Flat | HTTP orchestration delegates execution to Agent OS ports. |
@@ -508,7 +520,6 @@ Kinds:
 |---|---|---|
 | `apps/web/src/app/(advertising)` | Route Group | `ad-ops`, `rank-tracking` |
 | `apps/web/src/app/(analytics)` | Route Group | `dashboard` |
-| `apps/web/src/app/(automation)` | Route Group | `_shared`, `action-board`, `agents`, `marketplace`, `workflows` |
 | `apps/web/src/app/(channels)` | Route Group | 몰별 상품등록·품절 송신(사이드바 '쇼핑몰 에이전트'). `/mall-home`(쇼핑몰 에이전트 홈 — 대시보드 3 : 쇼핑몰 알림판 1(몰별 상태 높이까지), 몰별 로그인 상태(확장이 조용히 확인), 그 아래 에이전트 파이프라인과 단계별 일 · 미션), `/mall-channels`(연결된 몰 현황 허브), `/mall-listings`(등록 현황 매트릭스 + 상품 N × 몰 M 새 등록), `/mall-availability`(일괄 품절·해제 dry-run), `/mall-tasks`(등록·품절 실행 기록). 몰 계정 편집 `/mall-settings` 는 주문수집 자격증명을 편집하므로 `(orders)` 에 남는다. |
 | `apps/web/src/app/(catalog)` | Route Group | Canonical inventory-product operations center at `/product-hub`; direct channel-option inventory configuration on product detail; option-to-Sellpia matching with automatic MasterProduct derivation at `/product-hub/matching`. |
 | `apps/web/src/app/(finance)` | Route Group | Active `/profit-loss`, `/reports`, and `/sales-analysis` surfaces; settlement remains a tab inside sales analysis. |
@@ -517,7 +528,7 @@ Kinds:
 | `apps/web/src/app/(sourcing-ai)` | Route Group | `sourcing-ai`, `sourcing-ai/category-sourcing`, `sourcing-ai/competitor-analysis`, `sourcing-ai/decision-center` (초기 진입 추천 표: 1688 신상품·키워드 트렌드·쿠팡 경쟁상품·쿠팡 급상승을 합쳐 상품을 직접 추천하고, 관심 키워드로 분류하며, 자사 데이터 RAG 어시스턴트를 곁들인다), `sourcing-ai/final-selection`, `sourcing-ai/keywords`, `sourcing-ai/market`, `sourcing-ai/recommendations`, `sourcing-ai/settings`, `sourcing-ai/validation`, `sourcing-ai/wholesale-search`, `sourcing-ai/wing-catalog` |
 | `apps/web/src/app/(product-pipeline)` | Route Group | `detail-page-client-render` (fullscreen extension capture surface), `product-pipeline/collected-products`, `product-pipeline/collected-products/[id]`, `product-pipeline/collected-products/[id]/editor`, `product-pipeline/collected-products/[id]/templates`, `product-pipeline/detail-pages/[generationId]/editor`, `product-pipeline/detail-template-generation`, `product-pipeline/productgenerate`, `product-pipeline/registered-products`, `product-pipeline/registered-products/[workspaceId]`, `product-pipeline/thumbnail-ai`, `product-pipeline/thumbnail-generation`, `product-pipeline/thumbnail-generation/edit` |
 | `apps/web/src/app/(supply)` | Route Group | `/purchase-orders` is the general purchasing surface only; Supply owns the Rocket preview and confirmation contracts consumed by `/rocket-orders`. |
-| `apps/web/src/app/agent-org` | App Internal | Fullscreen dark `/agent-org` (Agent Org, linked from the workspace hub) in the former Agent OS frame: the pipeline canvas in the center with a floating agents list on the left (selecting an agent focuses its group), live activity (attention inbox + feed) on the right, and a bottom summary of agent health, monthly sales/profit/ROAS/CTR (same dashboard sales/ad queries), and live panel runs. The canvas draws the sourcing-to-CS pipeline as one top-down architecture diagram whose stages are framed and colored by the owning agent (analysis, sourcing, owner confirm, product, mall, order, inventory, CS), with external-service brand marks (`lib/brand-marks.ts`, Simple Icons paths), the marketplace box on the center axis, routed connectors, Sellpia/Telegram system boxes, oversight and memory panels, and canvas zoom and pan; coordinates in `lib/pipe-diagram-layout.ts` plus a root-cause attention inbox and a live feed. Reads operation runs, the panel stream, mall operation outcomes, Sellpia freshness, dashboard sales/ad summaries, and the sourcing confirm-report status; `lib/pipe-stages.ts` maps them to stages and a stage with no source says why instead of showing a number. Its only write is the person-pressed "지금 보고 보내기" Telegram confirm report. |
+| `apps/web/src/app/agent-org` | App Internal | Fullscreen dark `/agent-org` (Agent Org, linked from the workspace hub) in the former Agent OS frame: the pipeline canvas in the center with a floating agents list on the left (selecting an agent focuses its group), live activity (attention inbox + feed) on the right, and a bottom summary of agent health, monthly sales/profit/ROAS/CTR (same dashboard sales/ad queries), and open alerts. The canvas draws the sourcing-to-CS pipeline as one top-down architecture diagram whose stages are framed and colored by the owning agent (analysis, sourcing, owner confirm, product, mall, order, inventory, CS, and marketing with planned ads, reels, and blog stages), with external-service brand marks (`lib/brand-marks.ts`, Simple Icons paths), the marketplace box on the center axis, routed connectors, Sellpia/Telegram system boxes, oversight and memory panels, and canvas zoom and pan; coordinates in `lib/pipe-diagram-layout.ts` plus a root-cause attention inbox and a live feed. Reads the shared alert query (`/api/alerts`, polled every ten seconds), mall operation outcomes, Sellpia freshness, dashboard sales/ad summaries, and the sourcing confirm-report status; `lib/pipe-stages.ts` maps them to stages and a stage with no source says why instead of showing a number. Its only write is the person-pressed "지금 보고 보내기" Telegram confirm report. |
 | `apps/web/src/app/agent-os` | App Internal | Fullscreen visualization surfaces `/agent-os` and `/agent-os/network`, separate from `/agents`. |
 | `apps/web/src/app/fonts` | App Internal | Next font assets. |
 | `apps/web/src/app/login` | Route Leaf | Login route. |
@@ -609,11 +620,11 @@ apps/web/src/app/(group)/{route}/
   hooks/          route-local query/mutation/state orchestration
   lib/            route-local pure helpers and payload builders
   __tests__/      route-local tests for complex flows
-  AGENTS.md       required for high-risk or complex route contracts
+  CLAUDE.md       required for high-risk or complex route contracts
 ```
 
 Required: `page.tsx`. Optional: route-local `components/`, `hooks/`, `lib/`, and
-`__tests__/` when the route needs them. Add route-local `AGENTS.md` for complex
+`__tests__/` when the route needs them. Add route-local `CLAUDE.md` for complex
 or high-risk route contracts.
 
 Route-local folders may group components, hooks, and helpers by workflow stage
@@ -638,7 +649,7 @@ Agent OS presents the same conversation history and workspace, suppressing
 only the duplicate chat body while preserving the live runtime.
 
 `RightAuxiliaryPanel` is the only right-side surface. Its mutually exclusive
-`notifications | ai_chat | null` state renders `NotificationPanelContent` or
+`notifications | ai_chat | null` state renders `AlertsPopover` or
 `ConversationPanel`; there is no `PanelSheet` shell or panel-open store. At
 1536 pixels and above (`2xl`) it is a 352-pixel push dock that reduces the
 work-surface width; from 768 through 1535 pixels it is the same 352-pixel
@@ -990,13 +1001,15 @@ zero stock. Products reuses this projection for operating-product summary
 badges while `/stock-ops?tab=product-outflow` preserves every linked product/
 variant destination. Analytics persists raw Sellpia product-profit coverage;
 Finance assembles source-freshness and time-decayed contribution-profit
-evidence; Products owns the automatic ABC formula calibration, evaluation,
-publication, and changed-grade history. The formula persists its checksum,
-normalization knots, and version. Product Hub's Products-owned composite runs
-the `full` Sellpia evidence child, the Advertising exact-day backfill child,
-and one Products calculation child in order. The separate `inventory` action
-collects only physical stock and never recalculates ABC. Orders and mapping are
-read-only readiness inputs; the composite never repairs either. Product Hub,
+evidence; Products owns the absolute ABC formula, explicit evaluation,
+publication and actual grade-transition history. Fixed anchors and thresholds
+are versioned; other products' performance never affects a grade. Collection
+and evaluation are independent: the ABC screen explicitly reads coherent
+COMPLETE source evidence and publishes grade/evaluation/history atomically with
+source, formula and publication fencing. Orders is not an ABC dependency.
+Monthly evaluation remains in use until aligned product-level daily revenue,
+order-time cost and advertising evidence can support a separately versioned
+daily formula. No missing data is allocated or treated as zero. Product Hub,
 product-outflow,
 Dashboard, and Advertising consume the stored grade/evaluation snapshot;
 missing evidence remains unclassified instead of C and stale source states
@@ -1048,13 +1061,13 @@ in the [Sourcing Intelligence Phase 0–1 runbook](runbooks/sourcing-intelligenc
 ## Agent OS
 
 Agent OS is the single-node backend execution boundary under
-`apps/server/src/agent-os/`; its schema ownership is in `prisma/AGENTS.md`.
+`apps/server/src/agent-os/`; its schema ownership is in `prisma/CLAUDE.md`.
 Its only persistence model is `CapabilityInvocation`, which stores exact
 request-driven mutation admission, approval fields, and the idempotent
 result/error. Agent definitions and capability manifests are code-owned.
 Provider-native conversation/session continuity is host-local, completed UI
-event history is API-local SQLite, and long work remains an Operations-owned
-`OperationRun`.
+event history is API-local SQLite. Deterministic source work uses its domain
+owner attempt; fixed AI generation uses `AiDirectJob`.
 
 Completed canonical AG-UI event history has one outbound SQLite Adapter at
 `apps/server/src/agent-os/adapter/out/history/sqlite/`, behind the unchanged
@@ -1071,8 +1084,8 @@ The browser reaches the Nest CopilotKit incoming adapter at same-origin
 conversation commands to the native Agent Gateway. The Gateway is the only
 process that starts Codex/Claude and owns provider-native sessions plus bounded
 conversation descriptors. Each live turn reaches the Nest MCP adapter through
-private Streamable HTTP. The worker executes durable Operations but never
-receives a CLI login profile or imports the HTTP adapter. A restart ends the
+private Streamable HTTP. Source owners do not receive a CLI login profile.
+A restart ends the
 live turn without replay; a later normal user message starts new reasoning
 against the provider-native session continuity.
 

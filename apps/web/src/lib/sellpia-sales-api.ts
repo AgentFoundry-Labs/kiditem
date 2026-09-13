@@ -1,11 +1,9 @@
 import {
   SellpiaSalesSummarySchema,
-  SellpiaSalesIngestResultSchema,
   type SellpiaSalesSummary,
-  type SellpiaSalesIngestPayload,
-  type SellpiaSalesIngestResult,
 } from '@kiditem/shared/dashboard';
 import { apiClient } from '@/lib/api-client';
+import { z } from 'zod';
 
 // Sellpia 판매현황(몰별 매출) 백엔드 read/ingest 래퍼.
 
@@ -47,9 +45,61 @@ export async function fetchSellpiaSalesSummary(params?: {
   }
 }
 
-export async function ingestSellpiaSales(
-  payload: SellpiaSalesIngestPayload,
-): Promise<SellpiaSalesIngestResult> {
-  const raw = await apiClient.post<unknown>('/api/sellpia-sales/ingest', payload);
-  return SellpiaSalesIngestResultSchema.parse(raw);
+const SellpiaSalesYmdSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+const SellpiaSalesSourcePlanSchema = z.object({
+  sourceType: z.literal('sellpia_sales_daily'),
+  parserVersion: z.literal('sellpia-sales-v1'),
+  sourceOrigin: z.literal('https://kiditem.sellpia.com'),
+  sourcePath: z.literal('/sale_summary.html?mode=main_link'),
+  sourceAccountKey: z.literal('kiditem'),
+  range: z.object({ from: SellpiaSalesYmdSchema, to: SellpiaSalesYmdSchema }).strict(),
+  businessDates: z.array(SellpiaSalesYmdSchema),
+}).strict();
+
+export const SellpiaSalesSourceAttemptSchema = z.object({
+  attemptId: z.string().uuid(),
+  sourceType: z.literal('sellpia_sales_daily'),
+  state: z.enum(['RUNNING', 'COMPLETE', 'FAILED']),
+  expiresAt: z.string().datetime({ offset: true }),
+  plan: SellpiaSalesSourcePlanSchema,
+  actualCutoffAt: z.string().datetime({ offset: true }).nullable(),
+  completedAt: z.string().datetime({ offset: true }).nullable(),
+  contentChecksum: z.string().regex(/^[0-9a-f]{64}$/i).nullable(),
+  contentByteCount: z.number().int().nonnegative().nullable(),
+  rowCount: z.number().int().nonnegative(),
+  sellerCount: z.number().int().nonnegative(),
+  businessDates: z.array(SellpiaSalesYmdSchema),
+  errorCode: z.string().nullable(),
+  errorMessage: z.string().nullable(),
+}).strict();
+
+export type SellpiaSalesSourceAttempt = z.infer<typeof SellpiaSalesSourceAttemptSchema>;
+
+export const SellpiaSalesSourceOutcomeSchema = SellpiaSalesSourceAttemptSchema.extend({
+  success: z.boolean(),
+  terminalState: z.enum(['RUNNING', 'COMPLETE', 'FAILED']),
+}).strict();
+
+export type SellpiaSalesSourceOutcome = z.infer<typeof SellpiaSalesSourceOutcomeSchema>;
+
+export function beginSellpiaSalesSourceAttempt(input: {
+  idempotencyKey: string;
+  from?: string;
+  to?: string;
+}): Promise<SellpiaSalesSourceAttempt> {
+  const range = input.from || input.to ? { range: { from: input.from, to: input.to } } : {};
+  return apiClient
+    .post<unknown>('/api/sellpia-sales/attempts', range, {
+      headers: { 'Idempotency-Key': input.idempotencyKey },
+    })
+    .then((raw) => SellpiaSalesSourceAttemptSchema.parse(raw));
+}
+
+export function readSellpiaSalesSourceAttempt(
+  attemptId: string,
+): Promise<SellpiaSalesSourceAttempt> {
+  return apiClient.getParsed(
+    `/api/sellpia-sales/attempts/${encodeURIComponent(attemptId)}`,
+    SellpiaSalesSourceAttemptSchema,
+  );
 }

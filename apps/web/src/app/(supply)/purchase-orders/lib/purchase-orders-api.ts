@@ -1,8 +1,8 @@
-import type { SellpiaInventoryFreshnessView } from '@kiditem/shared/sellpia-inventory-freshness';
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
 import { sellpiaInventoryFreshnessApi } from '@/lib/sellpia-inventory-freshness-api';
 import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
+import type { SellpiaInventoryFreshnessView } from '@kiditem/shared/sellpia-inventory-freshness';
 
 export type PurchaseOrderItem = {
   id: string;
@@ -161,31 +161,31 @@ type FreshnessRecoveryDependencies = {
 };
 
 export type FreshnessRecoveryOptions = {
-  dependencies?: FreshnessRecoveryDependencies;
+  dependencies?: Partial<FreshnessRecoveryDependencies>;
   onRefreshRequested?: () => void | Promise<void>;
-};
-
-const defaultRecoveryDependencies: FreshnessRecoveryDependencies = {
-  submit: purchaseOrdersApi.submit,
-  requestRefresh: (reason) => sellpiaInventoryFreshnessApi.requestRefresh(reason),
-  waitForFreshGeneration: (generation) => waitForCompletedFreshGeneration(generation),
 };
 
 export async function submitPurchaseOrderWithFreshnessRecovery(
   input: SubmitPurchaseOrderRequest,
   options: FreshnessRecoveryOptions = {},
 ): Promise<SubmitPurchaseOrderResponse> {
-  const dependencies = options.dependencies ?? defaultRecoveryDependencies;
+  const submit = options.dependencies?.submit ?? purchaseOrdersApi.submit;
+  const requestRefresh = options.dependencies?.requestRefresh;
+  const waitForFreshGeneration = options.dependencies?.waitForFreshGeneration
+    ?? ((generation: string) => waitForCompletedFreshGeneration(generation));
   try {
-    return await dependencies.submit(input);
+    return await submit(input);
   } catch (error) {
     if (!isApiError(error) || error.code !== 'SELLPIA_SYNC_REQUIRED') throw error;
   }
 
-  const requested = await dependencies.requestRefresh('manual_request');
+  if (!requestRefresh) {
+    throw new Error('셀피아 source-owner 새로고침 경로가 연결되지 않았습니다.');
+  }
+  const requested = await requestRefresh('manual_request');
   await options.onRefreshRequested?.();
-  await dependencies.waitForFreshGeneration(requested.requestedGeneration);
-  return dependencies.submit(input);
+  await waitForFreshGeneration(requested.requestedGeneration);
+  return submit(input);
 }
 
 export const SELLPIA_GENERATION_POLL_MS = 2_000;

@@ -42,20 +42,7 @@ export class ChannelsCapabilityCompositionAdapter
             ? { kind: 'channel_listing', id: output.listingId }
             : null,
       }),
-      defineCapabilityComposition(CHANNELS_CAPABILITIES[1], this.finalListings, {
-        capabilityKey: 'channels.submit_coupang_listing',
-        ownerInputPort: 'channels.submitCoupangListing',
-        invoke: ({ context, input }) =>
-          this.finalListings.submitCoupangListing({
-            context: channelsMutationContext(context),
-            input,
-          }),
-        resourceRef: (output) =>
-          output.listingId
-            ? { kind: 'channel_listing', id: output.listingId }
-            : null,
-      }),
-      defineCapabilityComposition(CHANNELS_CAPABILITIES[2], this.wingThumbnails, {
+      defineCapabilityComposition(CHANNELS_CAPABILITIES[1], this.wingThumbnails, {
         capabilityKey: 'channels.submit_wing_thumbnail',
         ownerInputPort: 'channels.submitWingThumbnail',
         invoke: ({ context, input }) =>

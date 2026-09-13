@@ -11,21 +11,10 @@ const mocks = vi.hoisted(() => ({
   fetchNaver: vi.fn(),
 }));
 
-vi.mock('../../hooks/use-sourcing-operation-action', () => ({
-  useSourcingOperationAction: mocks.useAction,
+vi.mock('@/hooks/use-trend-source-collection', () => ({
+  useTrendSourceCollection: mocks.useAction,
 }));
 
-vi.mock('../../components/SourcingOperationRunPanel', () => ({
-  SourcingOperationRunPanel: ({ onCancel, onRetryAttention }: {
-    onCancel: () => void;
-    onRetryAttention: () => void;
-  }) => (
-    <div>
-      <button type="button" onClick={onCancel}>naver-operation-cancel</button>
-      <button type="button" onClick={onRetryAttention}>naver-operation-retry</button>
-    </div>
-  ),
-}));
 
 vi.mock('../lib/live-naver-market', () => ({
   fetchPersistedNaverMarket: mocks.fetchNaver,
@@ -47,7 +36,7 @@ function renderOverview() {
   );
 }
 
-describe('GlobalSourcingOverview Naver operation boundary', () => {
+describe('GlobalSourcingOverview Naver source boundary', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.fetchNaver.mockResolvedValue({
@@ -58,34 +47,28 @@ describe('GlobalSourcingOverview Naver operation boundary', () => {
     });
     mocks.start.mockResolvedValue({ id: 'naver-run' });
     mocks.useAction.mockReturnValue({
-      run: null,
-      start: mocks.start,
+      error: null, actualCutoffAt: null, result: null,
+      collect: mocks.start,
       cancel: mocks.cancel,
       retryAttention: mocks.retryAttention,
-      isStarting: false,
+      isCollecting: false,
       isCancelling: false,
       isRetrying: false,
     });
   });
 
-  it('mounts only the persisted Naver snapshot and starts one exact operation from its CTA', async () => {
+  it('mounts only the persisted Naver snapshot and starts one exact source request from its CTA', async () => {
     const view = renderOverview();
 
     await waitFor(() => expect(mocks.fetchNaver).toHaveBeenCalledOnce());
     expect(mocks.start).not.toHaveBeenCalled();
     expect(mocks.useAction).toHaveBeenCalledWith({
-      operationKey: 'sourcing.collect_daily_trends',
       input: { sources: ['naver'] },
       snapshotQueryKey: ['sourcing', 'trend', 'naver-keywords', 30],
-      wakeBrowserRuntime: false,
     });
 
     fireEvent.click(screen.getByRole('button', { name: '네이버 스냅샷 수집' }));
     await waitFor(() => expect(mocks.start).toHaveBeenCalledWith({ sources: ['naver'] }));
-    fireEvent.click(screen.getByRole('button', { name: 'naver-operation-cancel' }));
-    fireEvent.click(screen.getByRole('button', { name: 'naver-operation-retry' }));
-    expect(mocks.cancel).toHaveBeenCalledOnce();
-    expect(mocks.retryAttention).toHaveBeenCalledOnce();
 
     view.unmount();
     renderOverview();

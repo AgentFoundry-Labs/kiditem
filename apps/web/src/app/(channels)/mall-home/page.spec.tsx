@@ -1,14 +1,20 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { PanelAlertItem } from '@kiditem/shared/panel';
-import { usePanelStore } from '@/components/panel/lib/panel-store';
+import type { AlertItem } from '@kiditem/shared/alerts';
 import MallHomePage from './page';
 
-const mockUpdateOperationAlert = vi.hoisted(() => vi.fn());
+/** 전역 알림 쿼리(`/api/alerts`) — 쇼핑몰 홈은 여기서 몰 일만 골라 읽는다. */
+const alertsQuery = vi.hoisted(() => ({
+  data: [] as AlertItem[] | undefined,
+  isSuccess: true,
+  isError: false,
+}));
+const mockDismissAlert = vi.hoisted(() => vi.fn());
 
-vi.mock('@/lib/operation-alerts', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/lib/operation-alerts')>()),
-  updateOperationAlert: mockUpdateOperationAlert,
+vi.mock('@/lib/alerts-api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/alerts-api')>()),
+  useAlertsQuery: () => alertsQuery,
+  useDismissAlert: () => ({ mutate: mockDismissAlert, isPending: false }),
 }));
 
 const mockApiPost = vi.hoisted(() => vi.fn());
@@ -91,51 +97,43 @@ const channel = (mallKey: string, mallName: string, overrides: Record<string, un
   ...overrides,
 });
 
-const alertItem = (id: string, overrides: Partial<PanelAlertItem> = {}): PanelAlertItem => ({
-  kind: 'alert',
+const alertItem = (id: string, overrides: Partial<AlertItem> = {}): AlertItem => ({
   id,
-  alertKind: 'operation',
-  status: 'succeeded',
-  severity: 'info',
-  type: 'browser_collection',
-  title: '주문 데이터 수집',
+  attemptId: null,
+  kind: 'signal',
+  status: 'OPEN',
+  type: 'source_failure',
+  severity: 'error',
+  title: '몰 주문수집 실패',
   message: null,
   targetType: null,
   targetId: null,
-  operationKey: null,
-  sourceType: 'browser_collection_session',
-  sourceId: 'orders.mall',
-  isRead: false,
-  actionTaskId: null,
-  actorUserId: null,
+  sourceType: 'order_collection_mall',
   href: '/order-collection',
-  progress: null,
-  metadata: {},
-  readAt: null,
-  startedAt: null,
-  finishedAt: null,
+  isRead: false,
   createdAt: '2026-09-11T01:00:00.000Z',
+  updatedAt: '2026-09-11T01:00:00.000Z',
   ...overrides,
 });
 
-const onchFailed = alertItem('a1', {
-  status: 'failed',
-  severity: 'error',
+/** 몰 주문수집 원천 — 몰마다 달라서 알림이 몰을 말하지 않는다. */
+const orderCollectionFailed = alertItem('11111111-1111-4111-8111-111111111111', {
   message: '온채널 파일 생성 실패',
-  metadata: { mallKey: 'onch' },
 });
-const rocketRunning = alertItem('a3', {
-  sourceId: 'orders.coupang_rocket_po',
-  title: '쿠팡 로켓 PO 수집',
-  status: 'running',
-  message: 'PO 수집 중',
+/** 쿠팡 로켓 원천 — 원천 자체가 로켓 몰 것이다. 다시 성공해서 닫혔다. */
+const rocketResolved = alertItem('33333333-3333-4333-8333-333333333333', {
+  sourceType: 'coupang_rocket_po_catalog',
+  title: '로켓 PO 수집',
+  status: 'RESOLVED',
+  severity: 'warning',
+  message: 'PO 목록을 다시 받았습니다',
+  isRead: true,
+  href: '/rocket-orders',
+  updatedAt: '2026-09-11T02:00:00.000Z',
 });
 
-function seedAlerts(...items: PanelAlertItem[]) {
-  usePanelStore.setState({
-    byId: Object.fromEntries(items.map((item) => [item.id, item])),
-    hasHydrated: true,
-  });
+function seedAlerts(...items: AlertItem[]) {
+  alertsQuery.data = items;
 }
 
 beforeEach(() => {
@@ -153,7 +151,10 @@ beforeEach(() => {
   availability = { candidates: [], total: 0, loaded: 0, sendableCount: 0, blockedCount: 0 };
   coupangSummary = { todayOrders: { count: 0, revenue: 0 }, pendingAccept: 0, pendingReturns: 0, lastModifiedAt: null };
   outcomes = undefined;
-  usePanelStore.setState({ byId: {}, hasHydrated: true });
+  alertsQuery.data = [];
+  alertsQuery.isSuccess = true;
+  alertsQuery.isError = false;
+  mockDismissAlert.mockReset();
   // 기본은 확장 없음 — 로그인 상태 확인은 테스트마다 따로 켠다.
   mockDetectProbe.mockReset();
   mockDetectProbe.mockResolvedValue({ status: 'not_found' });
@@ -188,12 +189,24 @@ describe('쇼핑몰 홈 — 대시보드와 알림판', () => {
 
   it('⭐ 알림판은 몰 알림만 모은다 — 광고 알림은 빠진다', () => {
     seedAlerts(
-      onchFailed,
-      alertItem('a2', { sourceId: 'advertising.ad_sync', title: '광고 동기화', status: 'running', message: '광고 데이터 수집 중' }),
+      orderCollectionFailed,
+      alertItem('22222222-2222-4222-8222-222222222222', {
+        sourceType: 'coupang_ad_campaign',
+        title: '광고 캠페인 수집 실패',
+        message: '광고 데이터를 받지 못했습니다',
+      }),
     );
     render(<MallHomePage />);
     expect(within(panel()).getByText('온채널 파일 생성 실패')).toBeInTheDocument();
-    expect(within(panel()).queryByText('광고 데이터 수집 중')).not.toBeInTheDocument();
+    expect(within(panel()).queryByText('광고 데이터를 받지 못했습니다')).not.toBeInTheDocument();
+  });
+
+  it('알림을 아직 못 받았으면 열린 몰 알림 칸은 0 이 아니라 — 다', () => {
+    alertsQuery.data = undefined;
+    alertsQuery.isSuccess = false;
+    render(<MallHomePage />);
+    expect(screen.getByRole('button', { name: /^열린 몰 알림/ })).toHaveTextContent('—');
+    expect(within(panel()).getByText('몰 작업 알림을 불러오는 중')).toBeInTheDocument();
   });
 
   it('지금 상태 알림 — 로그인 정보 · 쿠팡 발주확인 · 품절 후보가 알림판에 선다', () => {
@@ -223,65 +236,45 @@ describe('쇼핑몰 홈 — 대시보드와 알림판', () => {
   });
 
   it('확인 필요 칸을 누르면 알림판이 확인 필요만 보여 준다', () => {
-    seedAlerts(onchFailed, rocketRunning);
+    seedAlerts(orderCollectionFailed, rocketResolved);
     render(<MallHomePage />);
-    expect(within(panel()).getByText('PO 수집 중')).toBeInTheDocument();
+    expect(within(panel()).getByText('PO 목록을 다시 받았습니다')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /^확인 필요.*알림판에서 보기$/ }));
 
     expect(within(panel()).getByRole('button', { name: /^확인 필요/ })).toHaveAttribute('aria-pressed', 'true');
-    expect(within(panel()).queryByText('PO 수집 중')).not.toBeInTheDocument();
+    expect(within(panel()).queryByText('PO 목록을 다시 받았습니다')).not.toBeInTheDocument();
     expect(within(panel()).getByText('온채널 파일 생성 실패')).toBeInTheDocument();
   });
 
+  /** 몰은 알림이 스스로 말할 때만 — 쿠팡 로켓 원천은 로켓 몰 것이고, 몰 주문수집 원천은 몰을 말하지 않는다. */
   it('⭐ 몰 타일을 누르면 그 몰 알림만 본다', () => {
-    seedAlerts(onchFailed, rocketRunning);
+    const rocketFailed = alertItem('44444444-4444-4444-8444-444444444444', {
+      sourceType: 'coupang_rocket_po_catalog',
+      title: '로켓 PO 수집',
+      message: 'PO 목록을 받지 못했습니다',
+    });
+    seedAlerts(orderCollectionFailed, rocketFailed);
     render(<MallHomePage />);
 
-    fireEvent.click(screen.getByRole('button', { name: '온채널 주문 데이터 수집 실패' }));
-    expect(within(panel()).getByText('온채널 파일 생성 실패')).toBeInTheDocument();
-    expect(within(panel()).queryByText('PO 수집 중')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '쿠팡 로켓 로켓 PO 수집 실패' }));
+    expect(within(panel()).getByText('PO 목록을 받지 못했습니다')).toBeInTheDocument();
+    expect(within(panel()).queryByText('온채널 파일 생성 실패')).not.toBeInTheDocument();
 
-    fireEvent.click(within(panel()).getByRole('button', { name: /온채널 알림만 보는 중/ }));
-    expect(within(panel()).getByText('PO 수집 중')).toBeInTheDocument();
+    fireEvent.click(within(panel()).getByRole('button', { name: /쿠팡 로켓 알림만 보는 중/ }));
+    expect(within(panel()).getByText('온채널 파일 생성 실패')).toBeInTheDocument();
   });
 
-  /** 확장은 세션을 7일만 둔다. 그보다 오래 멈춘 수집은 '작업 중단'도 안 되니 따로 모아 정리한다. */
-  it('⭐ 7일 넘게 멈춘 수집은 확인 필요에서 빠지고, 정리를 누르면 취소로 닫힌다', async () => {
-    const expiredKey = 'browser-collection:eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
-    seedAlerts(alertItem('old', {
-      status: 'pending',
-      severity: 'warning',
-      message: '카카오 로그인이 필요합니다.',
-      operationKey: expiredKey,
-      metadata: {
-        browserCollection: true,
-        collectionAttempt: 1,
-        collectionUpdatedAt: Date.now() - 9 * 24 * 60 * 60 * 1000,
-      },
-    }));
-    mockUpdateOperationAlert.mockResolvedValue({ id: 'old' });
-    mockApiPost.mockResolvedValue({ ok: true });
+  /** 닫기는 전역 알림판과 같은 규칙이다 — 열린 알림만 닫고, 닫힌(다시 성공한) 알림에는 버튼이 없다. */
+  it('⭐ 열린 몰 알림은 알림판에서 닫는다 — 해결된 알림은 닫을 것이 없다', () => {
+    seedAlerts(orderCollectionFailed, rocketResolved);
     render(<MallHomePage />);
 
-    expect(screen.getByRole('button', { name: /^확인 필요.*알림판에서 보기$/ })).toHaveTextContent('0건');
-    expect(within(panel()).getByText('7일 넘게 멈춘 수집 1건')).toBeInTheDocument();
-    expect(within(panel()).queryByText('카카오 로그인이 필요합니다.')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^열린 몰 알림/ })).toHaveTextContent('1건');
+    expect(within(panel()).queryByRole('button', { name: '로켓 PO 수집 알림 닫기' })).not.toBeInTheDocument();
 
-    fireEvent.click(within(panel()).getByRole('button', { name: '정리' }));
-    fireEvent.click(await screen.findByRole('button', { name: '정리하기' }));
-
-    await waitFor(() =>
-      expect(mockUpdateOperationAlert).toHaveBeenCalledWith(
-        expiredKey,
-        expect.objectContaining({ status: 'cancelled' }),
-      ),
-    );
-    // 정리한 것은 읽음으로 — 전역 알림판 배지에서도 빠진다.
-    await waitFor(() => expect(mockApiPost).toHaveBeenCalledWith('/api/alerts/old/dismiss'));
-    await waitFor(() =>
-      expect(within(panel()).queryByText('7일 넘게 멈춘 수집 1건')).not.toBeInTheDocument(),
-    );
+    fireEvent.click(within(panel()).getByRole('button', { name: '몰 주문수집 실패 알림 닫기' }));
+    expect(mockDismissAlert).toHaveBeenCalledWith(orderCollectionFailed.id, expect.anything());
   });
 });
 
@@ -388,7 +381,7 @@ describe('쇼핑몰 홈 — 에이전트 파이프라인', () => {
   });
 
   it('감지 칸은 알림판과 같은 숫자를 쓴다', () => {
-    seedAlerts(onchFailed, rocketRunning);
+    seedAlerts(orderCollectionFailed, rocketResolved);
     render(<MallHomePage />);
     const sense = pipelineColumns()[1]!;
     expect(within(sense).getByText('알림 2건 · 확인 필요 1건')).toBeInTheDocument();

@@ -1,16 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AdCampaignsService } from '../ad-campaigns.service';
-import type { AdCampaignRepositoryPort } from '../../port/out/repository/ad-campaign.repository.port';
-import type { AdListingRepositoryPort } from '../../port/out/repository/ad-listing.repository.port';
-import type { AdAccountKpiRepositoryPort } from '../../port/out/repository/ad-account-kpi.repository.port';
 import {
   buildMockAdCampaignRepo,
+  buildMockAdActionRepo,
   buildMockAdListingRepo,
   buildMockAdAccountKpiRepo,
   type MockAdCampaignRepo,
   type MockAdListingRepo,
   type MockAdAccountKpiRepo,
 } from '../../../__tests__/test-helpers/build-mock-ports';
+import type { AdCampaignRepositoryPort } from '../../port/out/repository/ad-campaign.repository.port';
+import type { AdListingRepositoryPort } from '../../port/out/repository/ad-listing.repository.port';
+import type { AdAccountKpiRepositoryPort } from '../../port/out/repository/ad-account-kpi.repository.port';
 
 describe('AdCampaignsService', () => {
   const channelAccountId = '11111111-1111-4111-8111-111111111111';
@@ -19,15 +20,17 @@ describe('AdCampaignsService', () => {
   let listingRepo: MockAdListingRepo;
   let accountKpiRepo: MockAdAccountKpiRepo;
   let adConfig: any;
+  let rollups: Awaited<ReturnType<AdCampaignRepositoryPort['findCampaignSnapshot']>>['rollups'];
+  let currentSweeps: Awaited<ReturnType<AdCampaignRepositoryPort['findCampaignSnapshot']>>['currentSweeps'];
 
   beforeEach(() => {
     campaignRepo = buildMockAdCampaignRepo();
     listingRepo = buildMockAdListingRepo();
     accountKpiRepo = buildMockAdAccountKpiRepo();
     // Sensible defaults — empty rollups + empty account KPI rows.
-    campaignRepo.findCampaignRollups.mockResolvedValue([]);
-    campaignRepo.findLatestCompleteCampaignSweeps.mockResolvedValue([]);
-    campaignRepo.findAccountlessSyncCampaignSweep.mockResolvedValue(null);
+    rollups = [];
+    currentSweeps = [];
+    campaignRepo.findCampaignSnapshot.mockImplementation(async () => ({ rollups, currentSweeps }));
     campaignRepo.findProductTargetRollups.mockResolvedValue([]);
     campaignRepo.findAdTrendDailyRows.mockResolvedValue([]);
     campaignRepo.findGradeBudgetTotals.mockResolvedValue({ A: 0, B: 0, C: 0 });
@@ -38,153 +41,13 @@ describe('AdCampaignsService', () => {
       campaignRepo as unknown as AdCampaignRepositoryPort,
       listingRepo as unknown as AdListingRepositoryPort,
       accountKpiRepo as unknown as AdAccountKpiRepositoryPort,
+      buildMockAdActionRepo(),
       adConfig,
     );
   });
 
-  it('marks only an exact identity-complete 31-day window through yesterday KST as fresh', async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-07-25T03:00:00.000Z'));
-    campaignRepo.findAccountlessSyncCampaignSweep.mockResolvedValue({
-      channelAccountId,
-      collectionRunId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
-      collectionAttempt: 1,
-      completedAt: new Date('2026-07-25T02:00:00.000Z'),
-      campaignDailyCollectionComplete: true,
-      campaignDailyWindowDays: 31,
-      campaignDailyFrom: '2026-06-24',
-      campaignDailyTo: '2026-07-24',
-      rosterComplete: true,
-      dailyFactsComplete: true,
-      campaigns: [
-        {
-          channelAccountId,
-          campaignIdentity: 'campaign:active',
-          campaignId: 'active',
-          campaignName: '운영 캠페인',
-          status: '운영중',
-          onOff: 'ON',
-        },
-      ],
-    });
-
-    try {
-      await expect(
-        service.getCampaignSyncStatus('organization-1'),
-      ).resolves.toEqual({
-        status: 'fresh',
-        lastCompletedAt: new Date('2026-07-25T02:00:00.000Z'),
-        campaignCount: 1,
-      });
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it('does not trust a complete marker when its 31-day facts were not persisted by that run', async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-07-25T03:00:00.000Z'));
-    campaignRepo.findAccountlessSyncCampaignSweep.mockResolvedValue({
-      channelAccountId,
-      collectionRunId: 'abababab-abab-4bab-8bab-abababababab',
-      collectionAttempt: 2,
-      completedAt: new Date('2026-07-25T02:00:00.000Z'),
-      campaignDailyCollectionComplete: true,
-      campaignDailyWindowDays: 31,
-      campaignDailyFrom: '2026-06-24',
-      campaignDailyTo: '2026-07-24',
-      rosterComplete: true,
-      dailyFactsComplete: false,
-      campaigns: [
-        {
-          channelAccountId,
-          campaignIdentity: 'campaign:detail-backed',
-          campaignId: 'detail-backed',
-          campaignName: '상세 수집 캠페인',
-          status: '운영중',
-          onOff: 'ON',
-        },
-      ],
-    });
-
-    try {
-      await expect(
-        service.getCampaignSyncStatus('organization-1'),
-      ).resolves.toEqual({
-        status: 'incomplete',
-        lastCompletedAt: null,
-        campaignCount: 1,
-      });
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it('keeps legacy one-day markers and old 31-day windows out of the latest state', async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-07-25T03:00:00.000Z'));
-    const marker = {
-      channelAccountId,
-      collectionRunId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
-      collectionAttempt: 1,
-      completedAt: new Date('2026-07-25T02:00:00.000Z'),
-      campaignDailyCollectionComplete: false,
-      campaignDailyWindowDays: null,
-      campaignDailyFrom: null,
-      campaignDailyTo: null,
-      rosterComplete: true,
-      dailyFactsComplete: false,
-      campaigns: [],
-    };
-    campaignRepo.findAccountlessSyncCampaignSweep.mockResolvedValue(marker);
-
-    try {
-      await expect(
-        service.getCampaignSyncStatus('organization-1'),
-      ).resolves.toMatchObject({ status: 'stale' });
-
-      campaignRepo.findAccountlessSyncCampaignSweep.mockResolvedValue({
-        ...marker,
-        campaignDailyCollectionComplete: true,
-        campaignDailyWindowDays: 31,
-        campaignDailyFrom: '2026-06-23',
-        campaignDailyTo: '2026-07-23',
-        dailyFactsComplete: true,
-      });
-      await expect(
-        service.getCampaignSyncStatus('organization-1'),
-      ).resolves.toMatchObject({ status: 'stale' });
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it('does not report a partial identity sweep as complete', async () => {
-    campaignRepo.findAccountlessSyncCampaignSweep.mockResolvedValue({
-      channelAccountId,
-      collectionRunId: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
-      collectionAttempt: 1,
-      completedAt: new Date('2026-07-25T02:00:00.000Z'),
-      campaignDailyCollectionComplete: true,
-      campaignDailyWindowDays: 31,
-      campaignDailyFrom: '2026-06-24',
-      campaignDailyTo: '2026-07-24',
-      rosterComplete: false,
-      dailyFactsComplete: false,
-      campaigns: [],
-    });
-
-    await expect(
-      service.getCampaignSyncStatus('organization-1'),
-    ).resolves.toEqual({
-      status: 'incomplete',
-      lastCompletedAt: null,
-      campaignCount: 0,
-    });
-  });
-
   it('getCampaigns aggregates target-daily rows by targetKey + period (H3)', async () => {
-    campaignRepo.findCampaignRollups.mockResolvedValue([
+    rollups = [
       {
         targetKey: 'campaign:CMP-1',
         channelAccountId,
@@ -199,7 +62,7 @@ describe('AdCampaignsService', () => {
         conversions: 5,
         orders: 5,
       },
-    ]);
+    ];
     listingRepo.findScopedAdListings.mockResolvedValue(
       new Map([
         [
@@ -338,7 +201,7 @@ describe('AdCampaignsService', () => {
   });
 
   it('getCampaigns surfaces listing-less rollups (Drive replay shape — campaign source has no productId)', async () => {
-    campaignRepo.findCampaignRollups.mockResolvedValue([
+    rollups = [
       {
         targetKey: 'campaign:매출 TOP 제품',
         channelAccountId,
@@ -353,7 +216,7 @@ describe('AdCampaignsService', () => {
         conversions: 5,
         orders: 5,
       },
-    ]);
+    ];
 
     const result = await service.getCampaigns('14d', 'organization-1');
 
@@ -365,7 +228,7 @@ describe('AdCampaignsService', () => {
   });
 
   it('getCampaigns treats legacy conversions=revenue campaign rows as unknown conversion count', async () => {
-    campaignRepo.findCampaignRollups.mockResolvedValue([
+    rollups = [
       {
         targetKey: 'campaign:매출 TOP 제품',
         channelAccountId,
@@ -380,7 +243,7 @@ describe('AdCampaignsService', () => {
         conversions: 232990,
         orders: 0,
       },
-    ]);
+    ];
 
     const result = await service.getCampaigns('7d', 'organization-1');
 
@@ -391,7 +254,7 @@ describe('AdCampaignsService', () => {
   });
 
   it('merges an identity-complete current roster without fabricating OFF campaign metrics', async () => {
-    campaignRepo.findCampaignRollups.mockResolvedValue([
+    rollups = [
       {
         targetKey: `${channelAccountId}:campaign:active`,
         channelAccountId,
@@ -407,17 +270,10 @@ describe('AdCampaignsService', () => {
         orders: 1,
         conversionsObserved: true,
       },
-    ]);
-    campaignRepo.findLatestCompleteCampaignSweeps.mockResolvedValue([
+    ];
+    currentSweeps = [
       {
         channelAccountId,
-        collectionRunId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
-        collectionAttempt: 2,
-        completedAt: new Date('2026-07-24T03:00:00.000Z'),
-        campaignDailyCollectionComplete: false,
-        campaignDailyWindowDays: null,
-        campaignDailyFrom: null,
-        campaignDailyTo: null,
         rosterComplete: true,
         campaigns: [
           {
@@ -438,7 +294,7 @@ describe('AdCampaignsService', () => {
           },
         ],
       },
-    ]);
+    ];
 
     const result = await service.getCampaigns('14d', 'organization-1');
 
@@ -468,7 +324,7 @@ describe('AdCampaignsService', () => {
   });
 
   it('uses a complete empty roster to remove stale period facts', async () => {
-    campaignRepo.findCampaignRollups.mockResolvedValue([
+    rollups = [
       {
         targetKey: `${channelAccountId}:campaign:deleted`,
         channelAccountId,
@@ -484,21 +340,14 @@ describe('AdCampaignsService', () => {
         orders: 0,
         conversionsObserved: true,
       },
-    ]);
-    campaignRepo.findLatestCompleteCampaignSweeps.mockResolvedValue([
+    ];
+    currentSweeps = [
       {
         channelAccountId,
-        collectionRunId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
-        collectionAttempt: 1,
-        completedAt: new Date('2026-07-24T03:00:00.000Z'),
-        campaignDailyCollectionComplete: false,
-        campaignDailyWindowDays: null,
-        campaignDailyFrom: null,
-        campaignDailyTo: null,
         rosterComplete: true,
         campaigns: [],
       },
-    ]);
+    ];
 
     await expect(
       service.getCampaigns('7d', 'organization-1'),
@@ -506,7 +355,7 @@ describe('AdCampaignsService', () => {
   });
 
   it('ignores an incomplete marker and preserves the legacy fact projection', async () => {
-    campaignRepo.findCampaignRollups.mockResolvedValue([
+    rollups = [
       {
         targetKey: `${channelAccountId}:campaign:legacy`,
         channelAccountId,
@@ -522,21 +371,14 @@ describe('AdCampaignsService', () => {
         orders: 0,
         conversionsObserved: false,
       },
-    ]);
-    campaignRepo.findLatestCompleteCampaignSweeps.mockResolvedValue([
+    ];
+    currentSweeps = [
       {
         channelAccountId,
-        collectionRunId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
-        collectionAttempt: 1,
-        completedAt: new Date('2026-07-24T03:00:00.000Z'),
-        campaignDailyCollectionComplete: false,
-        campaignDailyWindowDays: null,
-        campaignDailyFrom: null,
-        campaignDailyTo: null,
         rosterComplete: false,
         campaigns: [],
       },
-    ]);
+    ];
 
     const result = await service.getCampaigns('7d', 'organization-1');
 
@@ -661,7 +503,7 @@ describe('AdCampaignsService', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-07-24T03:00:00.000Z'));
     try {
-      await service.getTrends('7d', undefined, 'organization-1');
+      const result = await service.getTrends('7d', undefined, 'organization-1');
 
       const completeRange = {
         from: new Date('2026-07-17T00:00:00.000Z'),
@@ -676,6 +518,7 @@ describe('AdCampaignsService', () => {
         '7d',
         completeRange,
       );
+      expect(result.knownThrough).toBe('2026-07-23');
     } finally {
       vi.useRealTimers();
     }

@@ -1,4 +1,5 @@
-import { ConflictException, Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { z } from 'zod';
 import {
   SourcingKeywordSuggestionInputSchema,
   SourcingKeywordSuggestionObservationBatchSchema,
@@ -11,121 +12,127 @@ import {
   type SourcingKeywordSuggestionSnapshot,
 } from '@kiditem/shared/sourcing';
 import {
-  OPERATION_ATTEMPT_VERIFIER_PORT,
-  type OperationAttemptVerifierPort,
-} from '../../../operations/application/port/in/operation-attempt-verifier.port';
+  SOURCING_BROWSER_SOURCE_ATTEMPT_REPOSITORY_PORT,
+  type SourcingBrowserSourceAttemptRepositoryPort,
+} from '../port/out/repository/sourcing-browser-source-attempt.repository.port';
 import {
-  SOURCING_COLLECTION_REPOSITORY_PORT,
   type AuthorizedCollectionOutput,
-  type ClaimAuthorizedRunResult,
   type SourcingCollectionPermit,
-  type SourcingCollectionRepositoryPort,
 } from '../port/out/repository/sourcing-collection.repository.port';
 import {
   SOURCING_KEYWORD_SUGGESTION_REPOSITORY_PORT,
   type SourcingKeywordSuggestionRepositoryPort,
 } from '../port/out/repository/sourcing-keyword-suggestion.repository.port';
 import { hashCollectionRequest } from './sourcing-collection-mappers';
+import { assertToken, boundedText, requireIdempotencyKey, toPermit } from './sourcing-source-attempt-primitives';
 
-const OPERATION_KEY = 'sourcing.collect_keyword_suggestions';
-const COLLECTOR_KEY = 'coupang-keyword-suggestion-operation';
+const SOURCE = SOURCING_KEYWORD_SUGGESTION_SOURCE_KEY;
+const BatchSchema = SourcingKeywordSuggestionObservationBatchSchema.extend({
+  warnings: z.array(z.string()).optional(),
+});
+const PlanSchema = SourcingKeywordSuggestionInputSchema.extend({ source: z.literal(SOURCE) });
+
+function scope(keyword: string) {
+  return { sourceKey: SOURCE, scopeKey: 'default',
+    targetKey: `keyword:${sourcingWingCatalogKeywordIdentity(keyword)}` };
+}
+
+function failureAlert(targetKey: string) {
+  return { sourceType: SOURCE, dedupeKey: `source:coupang-keyword-suggestion:${targetKey}`,
+    title: '쿠팡 키워드 제안 수집 실패', href: '/sourcing-ai/market' };
+}
 
 @Injectable()
 export class SourcingKeywordSuggestionService {
   constructor(
-    @Inject(OPERATION_ATTEMPT_VERIFIER_PORT)
-    private readonly attemptVerifier: OperationAttemptVerifierPort,
-    @Inject(SOURCING_COLLECTION_REPOSITORY_PORT)
-    private readonly collectionRepository: SourcingCollectionRepositoryPort,
+    @Inject(SOURCING_BROWSER_SOURCE_ATTEMPT_REPOSITORY_PORT)
+    private readonly attempts: SourcingBrowserSourceAttemptRepositoryPort,
     @Inject(SOURCING_KEYWORD_SUGGESTION_REPOSITORY_PORT)
     private readonly snapshots: SourcingKeywordSuggestionRepositoryPort,
   ) {}
 
-  async ingestBrowserBatch(input: {
-    organizationId: string;
-    operationRunId: string;
-    attemptToken: string;
-    batch: SourcingKeywordSuggestionObservationBatch;
-  }): Promise<{ published: true; acceptedCount: number; duplicate: boolean }> {
-    const batch = SourcingKeywordSuggestionObservationBatchSchema.parse(
-      input.batch,
-    );
-    return this.attemptVerifier.withActiveBrowserAttemptFence(
-      {
-        organizationId: input.organizationId,
-        runId: input.operationRunId,
-        expectedOperationKey: OPERATION_KEY,
-        attemptToken: input.attemptToken,
-      },
-      async (attempt, transaction) => {
-        const operationInput = SourcingKeywordSuggestionInputSchema.safeParse(
-          attempt.input,
-        );
-        const normalizedKeyword = sourcingWingCatalogKeywordIdentity(
-          batch.keyword,
-        );
-        if (
-          !operationInput.success ||
-          sourcingWingCatalogKeywordIdentity(operationInput.data.keyword) !==
-            normalizedKeyword ||
-          batch.items.length > operationInput.data.maxResults ||
-          batch.productNameTokens.length > operationInput.data.maxResults ||
-          batch.items.some((item) => item.rank > operationInput.data.maxResults)
-        ) {
-          throw new ConflictException(
-            'keyword_suggestion_operation_input_mismatch',
-          );
-        }
-        const claim = await this.collectionRepository.claimAuthorizedRunInAttempt(
-          transaction,
-          {
-            organizationId: input.organizationId,
-            sourceKey: SOURCING_KEYWORD_SUGGESTION_SOURCE_KEY,
-            scopeKey: 'default',
-            targetKey: `keyword:${normalizedKeyword}`,
-            idempotencyKey: `keyword-suggestion-operation:${input.operationRunId}`,
-            requestHash: hashCollectionRequest({
-              operationRunId: input.operationRunId,
-              normalizedKeyword,
-              maxResults: operationInput.data.maxResults,
-            }),
-            collectorKey: COLLECTOR_KEY,
-            collectorVersion: SOURCING_KEYWORD_SUGGESTION_SCHEMA_VERSION,
-            triggerKind: 'extension',
-            triggeredByUserId: attempt.requestedByUserId,
-            leaseDurationMs: 120_000,
-          },
-        );
-        if (claim.kind === 'existing') {
-          return { published: true, acceptedCount: 0, duplicate: true };
-        }
-        if (claim.kind !== 'claimed') throw claimConflict(claim);
-        const committed = await this.collectionRepository.commitInAttempt(
-          transaction,
-          {
-            permit: claim.permit,
-            output: buildOutput({
-              organizationId: input.organizationId,
-              permit: claim.permit,
-              normalizedKeyword,
-              batch,
-            }),
-          },
-        );
-        if (committed.kind !== 'committed') {
-          throw new ConflictException(
-            committed.kind === 'source_denied'
-              ? committed.reasonCode
-              : `keyword_suggestion_ingest_${committed.kind}`,
-          );
-        }
-        return {
-          published: true,
-          acceptedCount: committed.acceptedCount,
-          duplicate: committed.duplicateCount > 0,
-        };
-      },
-    );
+  async begin(input: {
+    organizationId: string; requestedByUserId: string | null;
+    idempotencyKey: string; input: unknown;
+  }) {
+    const parsed = SourcingKeywordSuggestionInputSchema.safeParse(input.input);
+    if (!parsed.success) throw new BadRequestException('INVALID_KEYWORD_SUGGESTION_REQUEST');
+    const plan = { source: SOURCE, ...parsed.data };
+    const sourceScope = scope(plan.keyword);
+    const { attempt } = await this.attempts.beginAttempt({
+      organizationId: input.organizationId, ...sourceScope,
+      idempotencyKey: requireIdempotencyKey(input.idempotencyKey),
+      requestFingerprint: hashCollectionRequest({ ...plan,
+        keyword: sourcingWingCatalogKeywordIdentity(plan.keyword) }),
+      plan,
+      // Coverage identifies the keyword; maxResults is a per-request collection bound.
+      planChecksum: hashCollectionRequest(sourceScope),
+      requestedByUserId: input.requestedByUserId,
+      collectorKey: 'extension-coupang-keyword-suggestion',
+      collectorVersion: SOURCING_KEYWORD_SUGGESTION_SCHEMA_VERSION,
+      expiresInMs: 15 * 60_000,
+      failureAlert: failureAlert(sourceScope.targetKey),
+    });
+    return attempt;
+  }
+
+  async read(input: { organizationId: string; attemptId: string }) {
+    const attempt = await this.attempts.readAttempt(input);
+    if (!attempt || attempt.sourceKey !== SOURCE || attempt.scopeKey !== 'default') {
+      throw new NotFoundException('SOURCE_ATTEMPT_NOT_FOUND');
+    }
+    const parsed = PlanSchema.safeParse(attempt.plan);
+    if (!parsed.success || attempt.targetKey !== scope(parsed.data.keyword).targetKey) {
+      throw new NotFoundException('SOURCE_ATTEMPT_NOT_FOUND');
+    }
+    return attempt;
+  }
+
+  async status(input: { organizationId: string; keyword: string }) {
+    const keyword = SourcingWingCatalogKeywordSchema.parse(input.keyword);
+    const sourceScope = scope(keyword);
+    return this.attempts.readSourceStatus({ organizationId: input.organizationId,
+      ...sourceScope, currentPlanChecksum: hashCollectionRequest(sourceScope) });
+  }
+
+  async complete(input: {
+    organizationId: string; attemptId: string; attemptToken: string; batch: unknown;
+  }) {
+    const attempt = await this.read(input);
+    assertToken(attempt, input.attemptToken);
+    const plan = PlanSchema.parse(attempt.plan);
+    const parsed = BatchSchema.safeParse(input.batch);
+    if (!parsed.success) return this.fail({ ...input, code: 'SOURCE_BATCH_INVALID',
+      message: 'The submitted keyword suggestion evidence is malformed.' });
+    const { warnings = [], ...batch } = parsed.data;
+    const normalizedKeyword = sourcingWingCatalogKeywordIdentity(batch.keyword);
+    if (normalizedKeyword !== sourcingWingCatalogKeywordIdentity(plan.keyword)
+      || batch.items.length > plan.maxResults || batch.productNameTokens.length > plan.maxResults
+      || batch.items.some((item) => item.rank > plan.maxResults)) {
+      return this.fail({ ...input, code: 'SOURCE_PLAN_INCOMPLETE',
+        message: 'The submitted keyword suggestions do not match the frozen source plan.' });
+    }
+    const output = buildOutput({ organizationId: input.organizationId,
+      permit: toPermit(attempt, input.organizationId), normalizedKeyword, batch });
+    output.qualityReport = { ...output.qualityReport, warnings, completeSnapshot: true };
+    return this.attempts.completeAttempt({
+      organizationId: input.organizationId, attemptId: input.attemptId,
+      attemptToken: input.attemptToken, planChecksum: attempt.planChecksum,
+      contentChecksum: hashCollectionRequest({ batch: { ...batch, keyword: normalizedKeyword }, warnings }),
+      output, sourceWindowStartAt: null, sourceWindowEndAt: new Date(batch.capturedAt),
+    });
+  }
+
+  async fail(input: {
+    organizationId: string; attemptId: string; attemptToken: string; code: string; message: string;
+  }) {
+    const attempt = await this.read(input);
+    assertToken(attempt, input.attemptToken);
+    return this.attempts.failAttempt({
+      organizationId: input.organizationId, attemptId: input.attemptId, attemptToken: input.attemptToken,
+      code: boundedText(input.code, 100) || 'keyword_suggestion_collection_failed',
+      message: boundedText(input.message, 1_000) || 'Keyword suggestion collection failed.',
+    });
   }
 
   async snapshot(input: {
@@ -197,14 +204,4 @@ function buildOutput(input: {
       productNameTokenCount: input.batch.productNameTokens.length,
     },
   };
-}
-
-function claimConflict(
-  claim: Exclude<ClaimAuthorizedRunResult, { kind: 'claimed' | 'existing' }>,
-): ConflictException {
-  return new ConflictException(
-    claim.kind === 'denied'
-      ? claim.reasonCode
-      : 'keyword_suggestion_ingest_idempotency_conflict',
-  );
 }

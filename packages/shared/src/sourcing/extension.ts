@@ -18,9 +18,8 @@ const SourceUrlSchema = z.string().url().max(2_000);
 const CommercialRecordSchema = z.record(z.unknown());
 
 /**
- * Deployed KidItem OS extraction wire shape. This stays snake_case until all
- * installed extensions have moved to v2; callers must translate it explicitly
- * instead of relying on an untyped `extra` payload.
+ * KidItem OS extraction wire shape. Preserve these commercial snake_case
+ * fields when changing collection transport or source-attempt lifecycle.
  */
 export const SourcingExtensionV1ProductSchema = z.object({
   page_type: z.enum(['detail', 'description', 'search']).optional(),
@@ -55,29 +54,4 @@ export const SourcingExtensionV1ProductSchema = z.object({
   total_found: z.number().int().nonnegative().optional(),
 }).passthrough();
 
-export const SourcingExtensionV2ProductSchema = z.object({
-  schemaVersion: z.literal('2'),
-  collectionSessionId: z.string().uuid(),
-  sourcePlatform: z.enum(['1688', 'alibaba']),
-  sourceUrl: SourceUrlSchema,
-  externalOfferId: z.string().min(1).max(200),
-  variantKey: z.string().max(300),
-  title: z.string().min(1).max(500),
-  capturedAt: z.string().datetime({ offset: true }),
-  extractorVersion: z.string().min(1).max(120),
-  priceMin: z.number().nonnegative().nullable(),
-  priceMax: z.number().nonnegative().nullable(),
-  minOrderQuantity: z.number().int().nonnegative().nullable(),
-  supplierName: z.string().max(300).nullable(),
-  skuAttributes: z.array(z.unknown()).max(500),
-  skuItems: z.array(z.unknown()).max(2_000),
-  priceTiers: z.array(z.object({
-    minQuantity: z.number().int().positive(),
-    maxQuantity: z.number().int().positive().nullable(),
-    unitPriceCny: z.number().nonnegative(),
-  }).strict()).max(500),
-  rawPayloadHash: z.string().regex(/^[a-f0-9]{64}$/),
-}).strict();
-
 export type SourcingExtensionV1Product = z.infer<typeof SourcingExtensionV1ProductSchema>;
-export type SourcingExtensionV2Product = z.infer<typeof SourcingExtensionV2ProductSchema>;

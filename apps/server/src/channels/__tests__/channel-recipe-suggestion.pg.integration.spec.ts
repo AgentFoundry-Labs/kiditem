@@ -45,7 +45,7 @@ describe('ChannelRecipeSuggestionService (PG integration)', () => {
     ] });
   });
 
-  it('scopes lookup to the organization and proposes exact code evidence without writing a recipe', async () => {
+  it('scopes lookup to the organization and holds exact code evidence until quantity is known', async () => {
     const option = await createOption({ sellerSku: 'SP-UNIQUE', displayName: 'Unique stock' });
     const foreign = await createOption({
       organizationId: OTHER_ORGANIZATION_ID,
@@ -56,9 +56,9 @@ describe('ChannelRecipeSuggestionService (PG integration)', () => {
     const beforeComponents = await prisma.channelListingOptionInventoryComponent.count();
 
     await expect(service.suggest(TEST_ORGANIZATION_ID, option.id)).resolves.toMatchObject({
-      status: 'unique_code',
-      automationDecision: 'auto_apply',
-      proposals: [{ sellpiaInventorySkuId: sku.id, requiresQuantityConfirmation: false }],
+      status: 'quantity_review',
+      automationDecision: 'quantity_review',
+      proposals: [{ sellpiaInventorySkuId: sku.id, requiresQuantityConfirmation: true }],
     });
     await expect(service.suggest(TEST_ORGANIZATION_ID, foreign.id))
       .rejects.toBeInstanceOf(NotFoundException);
@@ -112,7 +112,7 @@ describe('ChannelRecipeSuggestionService (PG integration)', () => {
     });
   });
 
-  it('uses typed barcodes only and keeps duplicate active barcodes ambiguous', async () => {
+  it('uses typed barcodes only and keeps duplicate active barcodes in operator review', async () => {
     const rawOnly = await createOption({
       externalId: 'RAW-BARCODE',
       rawJson: { barcode: '001234567890' },
@@ -125,27 +125,71 @@ describe('ChannelRecipeSuggestionService (PG integration)', () => {
 
     const typed = await createOption({
       externalId: 'TYPED-BARCODE',
+      displayName: 'Typed barcode product',
+      itemName: 'Typed barcode product',
       barcode: '001-2345-6789-0',
     });
-    await createSku('SP-DUP', 'Another name', 2, '001234567890');
+    await createSku('SP-DUP', 'Typed barcode product', 2, '001234567890');
+    await createSku('SP-DUP-2', 'Typed barcode product', 2, '001234567890');
     await expect(service.suggest(TEST_ORGANIZATION_ID, typed.id)).resolves.toMatchObject({
-      status: 'ambiguous',
-      automationDecision: 'blocked',
+      status: 'identifier_name_mismatch',
+      automationDecision: 'operator_review',
     });
+  });
+
+  it('rejects an incompatible typed barcode while retaining the legitimate name candidate', async () => {
+    const option = await createOption({
+      externalId: 'SLIME-WATERGUN-BARCODE',
+      displayName: '퓨어 클리어 슬라임 투명 9개 x 150g',
+      barcode: '8806384804294',
+    });
+    const watergun = await createSku(
+      '10054-1',
+      '어린이 물총 워터건',
+      27,
+      '8806384804294',
+    );
+    const slime = await createSku(
+      '10429-1',
+      '2000퓨어클리어슬라임(쿠팡용)',
+      31,
+      '8806384804966',
+    );
+    const beforeComponents = await prisma.channelListingOptionInventoryComponent.count();
+    const beforeStock = await prisma.sellpiaInventorySku.findMany({
+      where: { id: { in: [watergun.id, slime.id] } },
+      select: { id: true, currentStock: true },
+      orderBy: { id: 'asc' },
+    });
+
+    const result = await service.suggest(TEST_ORGANIZATION_ID, option.id);
+
+    expect(result).toMatchObject({
+      status: 'identifier_name_mismatch',
+      automationDecision: 'operator_review',
+    });
+    expect(result.proposals.map(({ sellpiaInventorySkuId }) => sellpiaInventorySkuId))
+      .toEqual([watergun.id, slime.id]);
+    expect(await prisma.channelListingOptionInventoryComponent.count()).toBe(beforeComponents);
+    await expect(prisma.sellpiaInventorySku.findMany({
+      where: { id: { in: [watergun.id, slime.id] } },
+      select: { id: true, currentStock: true },
+      orderBy: { id: 'asc' },
+    })).resolves.toEqual(beforeStock);
   });
 
   it('proposes an exact listing-and-option name without creating a component', async () => {
     const option = await createOption({
       externalId: 'NAMED',
       displayName: '키즈 식판',
-      itemName: '블루',
+      itemName: '블루 단품',
     });
     const sku = await prisma.sellpiaInventorySku.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         code: 'SP-NAMED',
         name: '키즈 식판',
-        optionName: '블루',
+        optionName: '블루 단품',
         currentStock: 3,
       },
     });

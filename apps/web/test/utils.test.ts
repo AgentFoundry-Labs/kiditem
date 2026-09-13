@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { formatDurationMinutes, timeAgo } from '@/lib/utils'
 
-// AGENTS.md 규칙: "Test infrastructure core only (api-client, api-error).
+// CLAUDE.md 규칙: "Test infrastructure core only (api-client, api-error).
 // No implementation detail tests."
 //
 // 순수 format 함수 (formatNumber, formatKRW, formatPercent) 및 매핑 함수

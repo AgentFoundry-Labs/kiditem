@@ -27,8 +27,6 @@ export class ChannelAccountController {
   ): Promise<CoupangAccountSettings> {
     const parsed = UpdateCoupangAccountSettingsSchema.safeParse({
       vendorId: body.vendorId,
-      accessKey: body.accessKey?.trim() ? body.accessKey : undefined,
-      secretKey: body.secretKey?.trim() ? body.secretKey : undefined,
     });
     if (!parsed.success) {
       throw new BadRequestException('쿠팡 계정 설정 입력값을 확인하세요.');

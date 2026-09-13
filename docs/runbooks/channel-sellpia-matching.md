@@ -44,8 +44,8 @@ Inventory freshness and publication are owned by
   resolves to one MasterProduct. Candidate evidence is never confirmed truth.
 - One option component row stores an active Sellpia SKU and the positive integer
   quantity consumed by one sale. A sale may consume multiple SKUs.
-- Component reads and writes are organization-fenced. A complete replacement
-  uses the expected current components, so concurrent or stale edits conflict.
+- Component reads and writes are organization-fenced. Products owns the atomic
+  complete-replacement transaction and the derived listing summary.
 - Catalog recollection preserves option component rules. It does not create a
   channel-origin MasterProduct; it derives the listing summary from recipes.
 
@@ -89,14 +89,15 @@ the listing consumes multiple MasterProducts, the summary remains null. The
 option recipes remain valid in both cases.
 
 The deterministic matching command may fill an empty component list only when
-organization-fenced evidence uniquely selects one active Sellpia SKU and the
-pack ratio is a verified positive integer. It applies one common title quantity
-rule to every channel: for example, `10개입` becomes 10 and `2개입 x 3세트`
-becomes 6. It also corrects the quantity of an existing one-component recipe
-from that rule, but never changes its selected Sellpia SKU or automatically
-alters a multi-component BOM. Conflicting identifiers or title quantities, an
-uncertain pack/BOM, generic barcode, raw alias, similarity, rank, or AI
-requires operator review.
+organization-fenced evidence selects one active Sellpia SKU and the selling
+quantity is a verified positive integer. A typed identifier or one clearly
+separated high-confidence name candidate may supply the identity when product,
+option, color, size, and quantity evidence do not conflict. The common title
+quantity rule applies to every channel: for example, `10개입` becomes 10 and
+`2개입 x 3세트` becomes 6. Automatic matching preserves every existing recipe.
+Ambiguous candidates, conflicting identifiers/specifications/title quantities,
+an uncertain pack/BOM, an unconfirmed barcode, a raw alias, unknown quantity,
+or AI evidence requires operator review.
 
 Use `/inventory-hub` to inspect the complete read-only Sellpia collection and
 confirmed channel-option destinations. That workspace cannot edit stock,

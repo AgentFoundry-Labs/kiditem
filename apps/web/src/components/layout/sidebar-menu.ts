@@ -55,7 +55,6 @@ export const menuSections: MenuSection[] = [
     collapsible: false,
     items: [
       { href: '/dashboard', label: '대시보드', icon: LayoutDashboard },
-      { href: '/action-board', label: '액션 보드', icon: ClipboardList },
     ],
   },
   {

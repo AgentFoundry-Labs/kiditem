@@ -4,6 +4,7 @@
   const REPORT_PATH = "/marketing-reporting/billboard/reports/pa";
   const REPORT_STRUCTURE = "캠페인 > 광고그룹 > 상품";
   const REPORT_POLL_TIMEOUT_MS = 10 * 60 * 1000;
+  const REPORT_FORM_READINESS_TIMEOUT_MS = 10_000;
 
   function sleep(milliseconds) {
     const bounded = Math.min(5_000, Math.max(0, Math.round(Number(milliseconds) || 0)));
@@ -210,6 +211,14 @@
     }) || null;
   }
 
+  function isEnabledControl(element) {
+    return Boolean(
+      element &&
+      element.disabled !== true &&
+      element.getAttribute?.("aria-disabled") !== "true",
+    );
+  }
+
   async function pollUntil(factory, options = {}) {
     const timeoutMs = options.timeoutMs || 30_000;
     const intervalMs = options.intervalMs || 250;
@@ -360,14 +369,48 @@
     return button || null;
   }
 
+  async function waitForCampaignSelectionReady() {
+    const ready = await pollUntil(() => {
+      const picker = campaignPickerButton();
+      const createButton = findVisibleByText("button", "보고서 만들기");
+      const pickerLabel = normalizedText(picker?.innerText || picker?.textContent);
+      // The date range change asynchronously clears the old campaign choice.
+      // Do not open the picker while that reset is still in flight: the stale
+      // selection can be overwritten after confirmation and leave Create
+      // disabled even though the click appeared to succeed.
+      return picker &&
+        isEnabledControl(picker) &&
+        pickerLabel === "캠페인을 선택하세요" &&
+        createButton &&
+        !isEnabledControl(createButton)
+        ? picker
+        : null;
+    }, { timeoutMs: REPORT_FORM_READINESS_TIMEOUT_MS, intervalMs: 100 });
+    if (!ready) {
+      throw new Error("profitability_report_campaign_selection_not_ready");
+    }
+    return ready;
+  }
+
+  async function waitForEnabledCreateButton() {
+    const visibleButton = findVisibleByText("button", "보고서 만들기");
+    if (!visibleButton) throw new Error("profitability_report_create_button_missing");
+    const ready = await pollUntil(() => {
+      const button = findVisibleByText("button", "보고서 만들기");
+      return isEnabledControl(button) ? button : null;
+    }, { timeoutMs: REPORT_FORM_READINESS_TIMEOUT_MS, intervalMs: 100 });
+    if (!ready) throw new Error("profitability_report_create_button_not_ready");
+    return ready;
+  }
+
   async function selectAllCampaigns() {
-    const button = campaignPickerButton();
-    if (!button) throw new Error("profitability_report_campaign_picker_missing");
+    const button = await waitForCampaignSelectionReady();
     button.click();
     const allCheckbox = await pollUntil(() =>
       [...document.querySelectorAll('input[type="checkbox"]')].find((candidate) => {
         const owner = candidate.closest("label") || candidate.parentElement;
         return isVisible(candidate) &&
+          isEnabledControl(candidate) &&
           normalizedText(owner?.innerText || owner?.textContent).startsWith("전체선택");
       }) || null,
     );
@@ -432,8 +475,7 @@
     const existing = completedReportRow(slice);
     if (existing) return existing;
     if (!pendingReportRow(slice) && createIfMissing) {
-      const createButton = findVisibleByText("button", "보고서 만들기");
-      if (!createButton) throw new Error("profitability_report_create_button_missing");
+      const createButton = await waitForEnabledCreateButton();
       createButton.click();
       created = true;
       await sleep(1_000);
@@ -498,7 +540,6 @@
     const rows = parseChartReportText(text);
     return {
       reportId,
-      expectedRowCount: rows.length,
       responseBytes: new TextEncoder().encode(text).length,
       rows,
     };
@@ -513,24 +554,57 @@
     return value;
   }
 
-  function sendReportToServer(payload, environmentId) {
-    return new Promise((resolve, reject) => {
-      chrome.runtime.sendMessage({
-        action: "syncProfitabilityReportToServer",
-        environmentId,
-        payload,
-      }, (response) => {
-        if (chrome.runtime.lastError) {
-          reject(new Error(chrome.runtime.lastError.message));
-          return;
-        }
-        if (!response?.success) {
-          reject(new Error(response?.error || "profitability_report_upload_failed"));
-          return;
-        }
-        resolve(response.body || response);
-      });
-    });
+  function profitabilityAccount(value) {
+    const externalAccountId = normalizedText(value?.externalAccountId);
+    const expectedAdvertiserId = normalizedText(value?.expectedAdvertiserId);
+    if (!externalAccountId || !expectedAdvertiserId) {
+      throw new Error("profitability_report_account_missing");
+    }
+    return { externalAccountId, expectedAdvertiserId };
+  }
+
+  function accountSwitchControl(account, root = document) {
+    const values = new Set([
+      account.externalAccountId,
+      account.expectedAdvertiserId,
+    ]);
+    const candidates = root.querySelectorAll(
+      '[data-advertiser-id], [data-advertiserid], [data-account-id], [data-accountid], button, [role="button"], a',
+    );
+    return [...candidates].find((candidate) => {
+      if (!isVisible(candidate)) return false;
+      const declared = [
+        candidate.getAttribute?.("data-advertiser-id"),
+        candidate.getAttribute?.("data-advertiserid"),
+        candidate.getAttribute?.("data-account-id"),
+        candidate.getAttribute?.("data-accountid"),
+      ].map(normalizedText);
+      return declared.some((value) => values.has(value)) ||
+        values.has(normalizedText(candidate.innerText || candidate.textContent));
+    }) || null;
+  }
+
+  async function switchProfitabilityAccount(value) {
+    const account = profitabilityAccount(value);
+    if (advertiserId() === account.expectedAdvertiserId) {
+      return account.expectedAdvertiserId;
+    }
+    const control = accountSwitchControl(account);
+    if (!control) throw new Error("profitability_report_account_switch_unavailable");
+    control.click();
+    const verified = await pollUntil(() => {
+      try {
+        return advertiserId() === account.expectedAdvertiserId
+          ? account.expectedAdvertiserId
+          : null;
+      } catch {
+        return null;
+      }
+    }, { timeoutMs: 10_000, intervalMs: 100 });
+    if (!verified) {
+      throw new Error(`profitability_report_advertiser_mismatch:${account.expectedAdvertiserId}`);
+    }
+    return verified;
   }
 
   async function run(input) {
@@ -544,6 +618,9 @@
     if (!reportReady) {
       throw new Error("profitability_report_wrong_page");
     }
+    const providerAdvertiserId = await switchProfitabilityAccount(
+      input?.profitabilityAccount,
+    );
     const slice = input?.profitabilitySlice;
     if (!slice?.startDate || !slice?.endDate || !Array.isArray(slice.businessDates)) {
       throw new Error("profitability_report_slice_missing");
@@ -573,21 +650,21 @@
     if (rows.some((row) => !allowedDates.has(row.businessDate))) {
       throw new Error("profitability_report_row_out_of_range");
     }
-    await sendReportToServer({
-      collectionRunId: input.collectionRunId,
-      advertiserId: advertiserId(),
-      campaignCount,
-      expectedRowCount: detail.expectedRowCount,
-      collectedRowCount: detail.rows.length,
-      businessDates: slice.businessDates,
-      rows,
-    }, input.environmentId);
     return {
       success: true,
       type: "profitability_report",
       completed: 1,
       totalRows: detail.rows.length,
       aggregatedRows: rows.length,
+      profitabilityReceipt: {
+        providerAdvertiserId,
+        reportId: detail.reportId,
+        campaignCount,
+        expectedRowCount: rows.length,
+        collectedRowCount: rows.length,
+        responseBytes: detail.responseBytes,
+        rows,
+      },
     };
   }
 
@@ -615,7 +692,11 @@
     reportIdFromRow,
     reportRowState,
     reportRowMatches,
+    accountSwitchControl,
+    profitabilityAccount,
     run,
+    selectAllCampaigns,
+    switchProfitabilityAccount,
     waitForExistingReport,
     waitForReport,
   });

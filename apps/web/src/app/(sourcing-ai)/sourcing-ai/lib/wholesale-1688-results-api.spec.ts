@@ -17,6 +17,7 @@ describe('wholesale 1688 persisted result API', () => {
       schema.parse({
         generatedAt: '2026-08-14T00:00:00.000Z',
         observations: [],
+        sourceStatuses: [],
       }),
     );
 
@@ -27,6 +28,7 @@ describe('wholesale 1688 persisted result API', () => {
     await expect(fetchWholesale1688Results(input)).resolves.toEqual({
       generatedAt: '2026-08-14T00:00:00.000Z',
       observations: [],
+      sourceStatuses: [],
     });
 
     expect(apiClient.getParsed).toHaveBeenCalledWith(

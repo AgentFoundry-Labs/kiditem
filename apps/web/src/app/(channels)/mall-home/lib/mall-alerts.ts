@@ -1,11 +1,10 @@
+import type { AlertItem } from '@kiditem/shared/alerts';
 import type {
   MallOperationKind,
   MallOperationOutcomeItem,
   MallOperationOutcomeSummaryRow,
 } from '@kiditem/shared/mall-operation-outcomes';
 import type { MallChannelSummary } from '@kiditem/shared/mall-publishing';
-import type { PanelAlertItem, PanelItem } from '@kiditem/shared/panel';
-import { isExpiredBrowserCollectionAlert } from '@/lib/browser-collection-session';
 import { formatNumber } from '@/lib/utils';
 
 /**
@@ -13,145 +12,81 @@ import { formatNumber } from '@/lib/utils';
  *
  * 알림은 두 곳에서 온다.
  *
- *  1. **서버 알림**(`Alert`) — 몰에서 일한 기록(몰 주문수집, 쿠팡 수집·동기화). 전역 알림판과
- *     같은 스트림에서 몰 일만 골라 읽는다. 새 저장소를 만들지 않는다.
+ *  1. **원천 실패 알림**(`/api/alerts`) — 몰에서 일하는 원천(몰 주문수집, 쿠팡 로켓 · 직배송
+ *     수집, 쿠팡 윙 지표)이 끝내 실패하면 원천 하나에 알림 하나가 열리고, 그 원천이 다시
+ *     성공하면 닫힌다. 전역 알림과 같은 쿼리에서 몰 일만 골라 읽는다.
  *  2. **지금 상태 알림** — 로그인 정보가 비어 있는 몰, 품절 후보, 쿠팡 발주확인 대기.
  *     저장하지 않는다. 화면을 열 때마다 API 에서 다시 센다. 모르면(못 받았으면) 세우지 않는다.
  *
- * 어느 몰 알림인지는 알림이 스스로 말할 때만 적는다. 몰 주문수집은 `metadata.mallKey`
- * (2026-09-11 부터 실린다), 쿠팡 수집기는 수집기 자체가 한 몰 것이다. 메시지 글자에서 몰
- * 이름을 짐작하지 않는다 — 그 전에 생긴 주문수집 알림은 몰 없이 둔다.
+ * 어느 몰 알림인지는 알림이 스스로 말할 때만 적는다. 쿠팡 원천은 원천 자체가 한 몰 것이고,
+ * 몰 주문수집 원천은 알림이 몰을 말하지 않는다 — 제목 글자에서 몰 이름을 짐작하지 않는다.
+ * 몰별 사정은 몰 작업 기억(MallOperationOutcome)이 말한다.
  */
-
-const BROWSER_COLLECTION_SOURCE = 'browser_collection_session';
 
 /**
- * 몰에서 일하는 브라우저 수집기 → 그 수집기가 일하는 몰. `null` 은 몰마다 달라서 알림의
- * `metadata.mallKey` 를 봐야 한다는 뜻이다.
+ * 몰에서 일하는 원천 → 그 원천이 일하는 몰. `null` 은 몰마다 달라서 알림이 몰을 말하지 않는다는 뜻.
  *
- * 광고(`advertising.*`, `dashboard.coupang_ads`)는 마케팅 에이전트, 소싱(`sourcing.*`)은
- * 소싱 에이전트 일이고, Sellpia 는 몰이 아니라 재고·주문 허브라 여기 넣지 않는다.
+ * 광고(`coupang_ad_*`)는 마케팅 에이전트, 소싱은 소싱 에이전트 일이고, Sellpia 는 몰이 아니라
+ * 재고 · 주문 허브라 여기 넣지 않는다.
  */
-const MALL_COLLECTION_PRODUCERS = new Map<string, string | null>([
-  ['orders.mall', null],
-  ['orders.coupang_shipment_summary', 'rocket'],
-  ['orders.coupang_rocket_po', 'rocket'],
-  ['channels.coupang_catalog', 'coupang'],
-  ['dashboard.wing_sales', 'coupang'],
-  ['dashboard.coupang_products', 'coupang'],
-  ['dashboard.wing_kpi', 'coupang'],
+const MALL_SOURCE_TYPES = new Map<string, string | null>([
+  ['order_collection_mall', null],
+  ['coupang_shipment_summary', 'rocket'],
+  ['coupang_rocket_po_catalog', 'rocket'],
+  ['coupang_rocket_final_order', 'coupang-direct'],
+  ['coupang_direct_order_capture', 'coupang-direct'],
+  ['coupang_wing_traffic', 'coupang'],
+  ['coupang_wing_itemwinner', 'coupang'],
 ]);
 
-/** 서버가 직접 여는 몰 작업 알림 — 쿠팡 API 상품·주문 동기화. */
-const MALL_SOURCE_TYPES = new Map<string, string>([['coupang_sync', 'coupang']]);
-
-export type MallAlertState = 'attention' | 'running' | 'done';
-export type MallAlertFilter = 'all' | 'attention' | 'running';
+export type MallAlertState = 'attention' | 'done';
+export type MallAlertFilter = 'all' | 'attention';
 export type MallTileTone = 'failed' | 'attention' | 'running' | 'ok' | 'idle';
 
 type ChannelFacts = Pick<MallChannelSummary, 'mallKey' | 'mallName' | 'hasCredentials'>;
 
-export function isMallAlert(item: PanelAlertItem): boolean {
-  if (item.sourceType === BROWSER_COLLECTION_SOURCE) {
-    return item.sourceId !== null && MALL_COLLECTION_PRODUCERS.has(item.sourceId);
-  }
+export function isMallAlert(item: AlertItem): boolean {
   return item.sourceType !== null && MALL_SOURCE_TYPES.has(item.sourceType);
 }
 
 /** 알림이 말하는 몰. 알림이 몰을 말하지 않으면 `null` — 짐작하지 않는다. */
-export function mallKeyOfAlert(item: PanelAlertItem): string | null {
-  if (item.sourceType === BROWSER_COLLECTION_SOURCE) {
-    if (item.sourceId === null || !MALL_COLLECTION_PRODUCERS.has(item.sourceId)) return null;
-    const fixed = MALL_COLLECTION_PRODUCERS.get(item.sourceId);
-    if (fixed) return fixed;
-    const mallKey = item.metadata.mallKey;
-    return typeof mallKey === 'string' && mallKey.length > 0 ? mallKey : null;
-  }
-  return (item.sourceType !== null && MALL_SOURCE_TYPES.get(item.sourceType)) || null;
+export function mallKeyOfAlert(item: AlertItem): string | null {
+  if (item.sourceType === null || !MALL_SOURCE_TYPES.has(item.sourceType)) return null;
+  return MALL_SOURCE_TYPES.get(item.sourceType) ?? null;
 }
 
-export function mallAlertState(item: PanelAlertItem): MallAlertState {
-  switch (item.status) {
-    case 'failed':
-    case 'open':
-      return 'attention';
-    case 'pending':
-      // 브라우저 수집의 pending 은 사람이 풀어야 하는 멈춤(로그인·캡차)이다. 그 밖은 대기.
-      return item.sourceType === BROWSER_COLLECTION_SOURCE ? 'attention' : 'running';
-    case 'running':
-      return 'running';
-    default:
-      return 'done';
-  }
+/** 열린 알림은 사람이 볼 실패, 닫힌 알림은 다시 성공한 일이다. */
+export function mallAlertState(item: AlertItem): MallAlertState {
+  return item.status === 'OPEN' ? 'attention' : 'done';
 }
 
-/** 사람이 아직 안 본 멈춤·실패. 정리(읽음)한 알림은 다시 조르지 않는다. */
-export function needsAttention(item: PanelAlertItem): boolean {
+/** 사람이 아직 안 본 실패. 읽음으로 둔 알림은 다시 조르지 않는다. */
+export function needsAttention(item: AlertItem): boolean {
   return mallAlertState(item) === 'attention' && !item.isRead;
 }
 
-export function alertTime(item: PanelAlertItem): string {
-  return item.finishedAt ?? item.startedAt ?? item.createdAt;
+export function alertTime(item: AlertItem): string {
+  return item.updatedAt || item.createdAt;
 }
 
-export function statusWord(item: PanelAlertItem): string {
-  switch (item.status) {
-    case 'running':
-      return '진행 중';
-    case 'pending':
-      return item.sourceType === BROWSER_COLLECTION_SOURCE ? '확인 필요' : '대기 중';
-    case 'failed':
-      return '실패';
-    case 'succeeded':
-      return '완료';
-    case 'cancelled':
-      return '취소';
-    case 'resolved':
-      return '해결';
-    default:
-      return '확인 필요';
-  }
+export function statusWord(item: AlertItem): string {
+  return item.status === 'OPEN' ? '실패' : '해결';
 }
 
-function listRank(item: PanelAlertItem): number {
+function listRank(item: AlertItem): number {
   if (needsAttention(item)) return 0;
-  return mallAlertState(item) === 'running' ? 1 : 2;
+  return mallAlertState(item) === 'attention' ? 1 : 2;
 }
 
-/** 멈춘 수집을 정리하며 닫은 알림. 한 번 정리한 것은 다시 세우지 않는다. */
-function isReconciledLeftover(item: PanelAlertItem): boolean {
-  return item.status === 'cancelled' && item.metadata.staleReconciled === true;
-}
-
-/** 알림 스트림에서 몰 알림만 — 확인 필요 먼저, 그다음 진행 중, 나머지는 최신순. */
-export function mallAlertsFrom(byId: Readonly<Record<string, PanelItem>>): PanelAlertItem[] {
-  return Object.values(byId)
-    .filter(
-      (item): item is PanelAlertItem =>
-        item.kind === 'alert' && isMallAlert(item) && !isReconciledLeftover(item),
-    )
+/** 알림 목록에서 몰 알림만 — 안 본 실패 먼저, 그다음 열린 것, 나머지는 최신순. */
+export function mallAlertsFrom(alerts: readonly AlertItem[]): AlertItem[] {
+  return alerts
+    .filter(isMallAlert)
     .sort((a, b) => listRank(a) - listRank(b) || alertTime(b).localeCompare(alertTime(a)));
 }
 
-/**
- * 멈춘 채 7일이 지난 수집 알림을 따로 뺀다. 확장이 세션을 지워 다시 움직일 수 없는 것들이라
- * '확인 필요'로 조르지 않고, 알림판 아래에 모아 한 번에 정리하게 한다.
- */
-export function splitExpiredAlerts(
-  alerts: readonly PanelAlertItem[],
-  now: number,
-): { live: PanelAlertItem[]; expired: PanelAlertItem[] } {
-  const live: PanelAlertItem[] = [];
-  const expired: PanelAlertItem[] = [];
-  for (const alert of alerts) {
-    (isExpiredBrowserCollectionAlert(alert, now) ? expired : live).push(alert);
-  }
-  return { live, expired };
-}
-
-export function matchesAlertFilter(item: PanelAlertItem, filter: MallAlertFilter): boolean {
+export function matchesAlertFilter(item: AlertItem, filter: MallAlertFilter): boolean {
   if (filter === 'attention') return needsAttention(item);
-  if (filter === 'running') return mallAlertState(item) === 'running';
   return true;
 }
 
@@ -301,12 +236,8 @@ export interface MallStatusTile {
 
 const TONE_RANK: Record<MallTileTone, number> = { failed: 0, attention: 1, running: 2, ok: 3, idle: 4 };
 
-function toneOf(item: PanelAlertItem): MallTileTone {
-  if (item.status === 'failed') return 'failed';
-  const state = mallAlertState(item);
-  if (state === 'attention') return 'attention';
-  if (state === 'running') return 'running';
-  return item.status === 'succeeded' ? 'ok' : 'idle';
+function toneOf(item: AlertItem): MallTileTone {
+  return item.status === 'OPEN' ? 'failed' : 'ok';
 }
 
 const OPERATION_LABEL: Record<MallOperationKind, string> = {
@@ -392,12 +323,12 @@ function asTile({ actionable: _actionable, ...rest }: TileState): Omit<TileState
  */
 export function mallStatusTiles(
   channels: readonly ChannelFacts[],
-  alerts: readonly PanelAlertItem[],
+  alerts: readonly AlertItem[],
   derived: readonly DerivedMallAlert[],
   outcomes: readonly MallOperationOutcomeSummaryRow[] = [],
   sessions: Readonly<Record<string, TileLoginState>> = {},
 ): MallStatusTile[] {
-  const byMall = new Map<string, PanelAlertItem[]>();
+  const byMall = new Map<string, AlertItem[]>();
   for (const alert of alerts) {
     const mallKey = mallKeyOfAlert(alert);
     if (!mallKey) continue;
@@ -481,15 +412,13 @@ export function mallStatusTiles(
 
 export interface MallAlertCounts {
   attention: number;
-  running: number;
 }
 
 export function mallAlertCounts(
-  alerts: readonly PanelAlertItem[],
+  alerts: readonly AlertItem[],
   derived: readonly DerivedMallAlert[],
 ): MallAlertCounts {
   return {
     attention: alerts.filter(needsAttention).length + derived.length,
-    running: alerts.filter((alert) => mallAlertState(alert) === 'running').length,
   };
 }

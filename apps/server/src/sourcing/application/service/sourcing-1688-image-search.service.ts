@@ -1,299 +1,113 @@
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
-import { randomUUID } from 'node:crypto';
-import type { Sourcing1688BatchUnitResult } from '@kiditem/shared/sourcing';
+import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { Sourcing1688ImageMatchInputSchema, type Sourcing1688BatchUnitResult } from '@kiditem/shared/sourcing';
 import { kstBusinessDate } from '../../../common/kst';
-import {
-  extractSupplierOfferId,
-  parseAllowedSupplierUrl,
-} from '../../domain/supplier-source-url-policy';
-import {
-  SOURCING_1688_IMAGE_SEARCH_PORT,
-  type Search1688ImageInput,
-  type Search1688ImageResult,
-  type Search1688ImageStatus,
-  type Sourcing1688ImageSearchPort,
-} from '../port/out/provider/1688-image-search.port';
-import {
-  hashCollectionRequest,
-  map1688HotProductsToAuthorizedOutput,
-  normalizeCollectionTarget,
-} from './sourcing-collection-mappers';
-import { SourcingCollectionCoordinator } from './sourcing-collection-coordinator.service';
-import { SourcingRecommendationService } from './sourcing-recommendation.service';
-import {
-  SOURCING_1688_IMAGE_COLLECTOR_KEY,
-  SOURCING_1688_SEARCH_RESULT_REPOSITORY_PORT,
-  SOURCING_1688_ALL_RESULTS_REJECTED,
-  SOURCING_1688_SEARCH_RESULT_SCHEMA_VERSION,
-  type Sourcing1688SearchResultRepositoryPort,
-} from '../port/out/repository/sourcing-1688-search-result.repository.port';
+import { extractSupplierOfferId, parseAllowedSupplierUrl } from '../../domain/supplier-source-url-policy';
+import { SOURCING_1688_IMAGE_SEARCH_PORT, type Sourcing1688ImageSearchPort } from '../port/out/provider/1688-image-search.port';
+import { SOURCING_BROWSER_SOURCE_ATTEMPT_REPOSITORY_PORT, type SourcingBrowserSourceAttempt,
+  type SourcingBrowserSourceAttemptRepositoryPort } from '../port/out/repository/sourcing-browser-source-attempt.repository.port';
+import { SOURCING_1688_IMAGE_COLLECTOR_KEY, SOURCING_1688_SEARCH_RESULT_REPOSITORY_PORT,
+  SOURCING_1688_SEARCH_RESULT_SCHEMA_VERSION, type Sourcing1688SearchResultRepositoryPort } from '../port/out/repository/sourcing-1688-search-result.repository.port';
+import { hashCollectionRequest, map1688HotProductsToAuthorizedOutput } from './sourcing-collection-mappers';
+import { requireIdempotencyKey, toPermit } from './sourcing-source-attempt-primitives';
+import { batchResult, failedUnit, searchUnit, sourceAlert } from './sourcing-1688-search-result';
 
-const OPERATION_IMAGE_RESULT_LIMIT = 18;
+const SOURCE = '1688.image_search';
+const RESULT_LIMIT = 18;
 
 @Injectable()
 export class Sourcing1688ImageSearchService {
   constructor(
-    @Inject(SOURCING_1688_IMAGE_SEARCH_PORT)
-    private readonly imageSearch: Sourcing1688ImageSearchPort,
-    private readonly collectionCoordinator: SourcingCollectionCoordinator,
-    private readonly recommendations: SourcingRecommendationService,
-    @Inject(SOURCING_1688_SEARCH_RESULT_REPOSITORY_PORT)
-    private readonly searchResults: Sourcing1688SearchResultRepositoryPort,
+    @Inject(SOURCING_1688_IMAGE_SEARCH_PORT) private readonly imageSearch: Sourcing1688ImageSearchPort,
+    @Inject(SOURCING_BROWSER_SOURCE_ATTEMPT_REPOSITORY_PORT) private readonly attempts: SourcingBrowserSourceAttemptRepositoryPort,
+    @Inject(SOURCING_1688_SEARCH_RESULT_REPOSITORY_PORT) private readonly searchResults: Sourcing1688SearchResultRepositoryPort,
   ) {}
 
-  getStatus(): Search1688ImageStatus {
-    return this.imageSearch.getStatus();
+  async read(input: { organizationId: string; attemptId: string }) {
+    const attempt = await this.attempts.readAttempt(input);
+    if (!attempt || attempt.sourceKey !== SOURCE || attempt.scopeKey !== 'default'
+      || typeof attempt.plan.targetId !== 'string' || attempt.plan.maxResults !== RESULT_LIMIT) {
+      throw new NotFoundException('SOURCE_ATTEMPT_NOT_FOUND');
+    }
+    const unit = attempt.state === 'RUNNING' ? null
+      : await this.searchResults.findUnitResult({ ...input, sourceKey: SOURCE });
+    return { attempt, unit };
   }
 
-  resolveTargets(input: {
-    organizationId: string;
-    targetIds: string[];
-  }) {
-    return this.searchResults.resolveImageTargets(input);
-  }
-
-  async searchForOperation(input: {
-    organizationId: string;
-    operationRunId: string;
-    actorUserId: string | null;
-    targetId: string;
-    imageUrl: string;
-    keyword: string;
-    signal: AbortSignal;
-    checkpoint: () => Promise<void>;
-  }): Promise<Sourcing1688BatchUnitResult> {
-    const keyword = input.keyword.trim();
-    if (!keyword) throw new BadRequestException('1688 image search requires a keyword');
-    input.signal.throwIfAborted();
-    const targetKey = `image-target:${hashCollectionRequest(input.targetId)}`;
-    const idempotencyKey = `1688-image-operation:${input.operationRunId}:${hashCollectionRequest(
-      input.targetId,
-    )}`;
-    const requestHash = hashCollectionRequest({
-      operationRunId: input.operationRunId,
-      targetId: input.targetId,
-      imageUrl: input.imageUrl,
-      keyword,
-      maxResults: OPERATION_IMAGE_RESULT_LIMIT,
-    });
-    let discovered = 0;
-    let rejected = 0;
-    const execution = await this.collectionCoordinator.execute(
-      {
-        organizationId: input.organizationId,
-        sourceKey: '1688.image_search',
-        scopeKey: 'default',
-        targetKey,
-        idempotencyKey,
-        requestHash,
-        collectorKey: SOURCING_1688_IMAGE_COLLECTOR_KEY,
-        collectorVersion: SOURCING_1688_SEARCH_RESULT_SCHEMA_VERSION,
-        triggerKind: 'manual',
-        triggeredByUserId: input.actorUserId,
-        leaseDurationMs: 15 * 60_000,
-      },
-      async ({ permit, checkpoint }) => {
-        await checkpoint();
-        await input.checkpoint();
-        input.signal.throwIfAborted();
-        const result = await this.imageSearch.searchByImage({
-          imageUrl: input.imageUrl,
-          keyword,
-          maxResults: OPERATION_IMAGE_RESULT_LIMIT,
-          signal: input.signal,
-        });
-        discovered = result.items.length;
-        input.signal.throwIfAborted();
-        await input.checkpoint();
-        await checkpoint();
-        const capturedAt = new Date();
-        let rejectedCount = 0;
-        const rows = result.items.flatMap((item, index) => {
-          try {
-            const supplier = parseAllowedSupplierUrl(item.sourceUrl);
-            const offerId = extractSupplierOfferId(supplier);
-            if (!offerId) {
-              rejectedCount += 1;
-              return [];
-            }
-            return [{
-              organizationId: input.organizationId,
-              businessDate: kstBusinessDate(capturedAt),
-              offerId,
-              sourceKeyword: keyword,
-              rank: index + 1,
-              title: item.title,
-              priceCny: item.priceCny,
-              monthlySales: item.salesNum ?? null,
-              repurchaseRate: item.repurchaseRate ?? null,
-              tradeScore: item.serviceScore == null ? null : String(item.serviceScore),
-              supplierName: item.supplierName ?? null,
-              imageUrl: item.imageUrl,
-              sourceUrl: supplier.normalizedUrl,
-              capturedAt,
-              searchMetadata: {
-                score: item.score,
-                salesText: item.salesText ?? null,
-                supplierFactoryUrl: item.supplierFactoryUrl ?? null,
-                supplierTags: item.supplierTags ?? [],
-                purchaseTags: item.purchaseTags ?? [],
-                minOrderQuantity: item.minOrderQuantity ?? null,
-                shippingFulfillmentRate: item.shippingFulfillmentRate ?? null,
-                shippingPickupRate: item.shippingPickupRate ?? null,
-                shipFrom: item.shipFrom ?? null,
-                serviceScore: item.serviceScore ?? null,
-              },
-            }];
-          } catch {
-            rejectedCount += 1;
-            return [];
-          }
-        });
-        rejected = rejectedCount;
-        return map1688HotProductsToAuthorizedOutput({
-          permit,
-          rows,
-          discoveredCount: discovered,
-          rejectedCount,
-          qualityReport: {
-            resultSchemaVersion: SOURCING_1688_SEARCH_RESULT_SCHEMA_VERSION,
-            keyword,
-            targetId: input.targetId,
-            operationRunId: input.operationRunId,
-          },
-        });
-      },
-    );
-    if (execution.kind === 'existing') {
-      const observation = await this.searchResults.findCompletedImageRun({
-        organizationId: input.organizationId,
-        runId: execution.runId,
-        operationRunId: input.operationRunId,
-        targetId: input.targetId,
-        keyword,
-        targetKey,
-        idempotencyKey,
-        requestHash,
-        maxResults: OPERATION_IMAGE_RESULT_LIMIT,
+  async search(input: { organizationId: string; requestedByUserId: string | null; idempotencyKey: string; input: unknown; signal?: AbortSignal }) {
+    const parsed = Sourcing1688ImageMatchInputSchema.safeParse(input.input);
+    if (!parsed.success) throw new BadRequestException('INVALID_1688_IMAGE_REQUEST');
+    const key = requireIdempotencyKey(input.idempotencyKey);
+    const signal = input.signal ?? AbortSignal.timeout(15 * 60_000);
+    const resolved = await this.searchResults.resolveImageTargets({ organizationId: input.organizationId, targetIds: parsed.data.targetIds });
+    const targets = new Map(resolved.targets.map((target) => [target.targetId, target]));
+    const attempts: SourcingBrowserSourceAttempt[] = [];
+    const units: Sourcing1688BatchUnitResult[] = [];
+    for (const targetId of parsed.data.targetIds) {
+      signal.throwIfAborted();
+      const target = targets.get(targetId);
+      const keyword = target?.searchQuery.trim() || 'unauthorized-target';
+      const targetKey = `image-target:${hashCollectionRequest(targetId)}`;
+      const plan = { source: SOURCE, targetId, imageUrl: target?.imageUrl ?? null, keyword, maxResults: RESULT_LIMIT };
+      const { attempt, created } = await this.attempts.beginAttempt({
+        organizationId: input.organizationId, sourceKey: SOURCE, scopeKey: 'default', targetKey,
+        idempotencyKey: hashCollectionRequest({ key, targetId }),
+        requestFingerprint: hashCollectionRequest({ targetId, maxResults: RESULT_LIMIT }),
+        plan, planChecksum: hashCollectionRequest(plan), requestedByUserId: input.requestedByUserId,
+        collectorKey: SOURCING_1688_IMAGE_COLLECTOR_KEY, collectorVersion: SOURCING_1688_SEARCH_RESULT_SCHEMA_VERSION,
+        triggerKind: 'manual', expiresInMs: 15 * 60_000, failureAlert: sourceAlert(SOURCE, targetKey),
       });
-      if (!observation) {
-        throw new BadRequestException('Completed image search result is unavailable.');
+      if (!created) {
+        attempts.push(attempt);
+        if (attempt.state === 'RUNNING') return { attempts, result: null };
+        const unit = await this.searchResults.findUnitResult({ organizationId: input.organizationId, attemptId: attempt.attemptId, sourceKey: SOURCE });
+        if (!unit) throw new BadRequestException('1688 search result is not yet available.');
+        units.push(unit);
+        continue;
       }
-      const allRejected = observation.discoveredCount > 0
-        && observation.acceptedCount + observation.duplicateCount === 0
-        && observation.rejectedCount > 0;
-      return {
-        keyword: observation.keyword,
-        targetId: input.targetId,
-        outcome: allRejected ? 'failed' : observation.discoveredCount > 0 ? 'complete' : 'no_change',
-        discovered: observation.discoveredCount,
-        accepted: observation.acceptedCount,
-        duplicate: observation.duplicateCount,
-        failed: observation.rejectedCount,
-        ...(allRejected && observation.errorCode ? { errorCode: observation.errorCode } : {}),
-      };
+      let unit: Sourcing1688BatchUnitResult;
+      let output;
+      if (!target || resolved.missingTargetIds.includes(targetId)) {
+        unit = { keyword, targetId, outcome: 'failed', discovered: 0, accepted: 0, duplicate: 0, failed: 1, errorCode: 'target_not_authorized' };
+        output = { observations: [], typedRecords: [], discoveredCount: 0, rejectedCount: 1, qualityReport: {} };
+      } else {
+        try {
+          const result = await this.imageSearch.searchByImage({ imageUrl: target.imageUrl, keyword, maxResults: RESULT_LIMIT, signal });
+          signal.throwIfAborted();
+          const capturedAt = new Date();
+          let rejectedCount = 0;
+          const rows = result.items.flatMap((item, index) => {
+            try {
+              const supplier = parseAllowedSupplierUrl(item.sourceUrl);
+              const offerId = extractSupplierOfferId(supplier);
+              if (!offerId) { rejectedCount += 1; return []; }
+              return [{ organizationId: input.organizationId, businessDate: kstBusinessDate(capturedAt), offerId,
+                sourceKeyword: keyword, rank: index + 1, title: item.title, priceCny: item.priceCny,
+                monthlySales: item.salesNum ?? null, repurchaseRate: item.repurchaseRate ?? null,
+                tradeScore: item.serviceScore == null ? null : String(item.serviceScore), supplierName: item.supplierName ?? null,
+                imageUrl: item.imageUrl, sourceUrl: supplier.normalizedUrl, capturedAt,
+                searchMetadata: { score: item.score, salesText: item.salesText ?? null,
+                  supplierFactoryUrl: item.supplierFactoryUrl ?? null, supplierTags: item.supplierTags ?? [],
+                  purchaseTags: item.purchaseTags ?? [], minOrderQuantity: item.minOrderQuantity ?? null,
+                  shippingFulfillmentRate: item.shippingFulfillmentRate ?? null, shippingPickupRate: item.shippingPickupRate ?? null,
+                  shipFrom: item.shipFrom ?? null, serviceScore: item.serviceScore ?? null } }];
+            } catch { rejectedCount += 1; return []; }
+          });
+          unit = searchUnit(keyword, targetId, result.items.length, rejectedCount);
+          output = map1688HotProductsToAuthorizedOutput({ permit: toPermit(attempt, input.organizationId), rows,
+            discoveredCount: result.items.length, rejectedCount });
+        } catch (error) {
+          signal.throwIfAborted();
+          unit = failedUnit(keyword, targetId, error);
+          output = { observations: [], typedRecords: [], discoveredCount: 0, rejectedCount: 1, qualityReport: {} };
+        }
+      }
+      output.qualityReport = { resultSchemaVersion: SOURCING_1688_SEARCH_RESULT_SCHEMA_VERSION, keyword, targetId, unitResult: unit };
+      const terminal = await this.attempts.completeAttempt({ organizationId: input.organizationId,
+        attemptId: attempt.attemptId, attemptToken: attempt.attemptToken, planChecksum: attempt.planChecksum,
+        contentChecksum: hashCollectionRequest(output), output });
+      attempts.push(terminal);
+      units.push(unit);
     }
-    const persisted = execution.acceptedCount + execution.duplicateCount;
-    const allRejected = discovered > 0 && persisted === 0 && rejected > 0;
-    return {
-      keyword,
-      targetId: input.targetId,
-      outcome: allRejected ? 'failed' : discovered > 0 ? 'complete' : 'no_change',
-      discovered,
-      accepted: execution.acceptedCount,
-      duplicate: execution.duplicateCount,
-      failed: rejected,
-      ...(allRejected ? { errorCode: SOURCING_1688_ALL_RESULTS_REJECTED } : {}),
-    };
-  }
-
-  refreshRecommendations(organizationId: string): Promise<unknown> {
-    return this.recommendations.refresh({ organizationId, limit: 50 });
-  }
-
-  async searchByImage(
-    organizationId: string,
-    input: Search1688ImageInput,
-    idempotencyKey?: string,
-  ): Promise<Search1688ImageResult> {
-    const imageUrl = input.imageUrl.trim();
-    if (!imageUrl) throw new BadRequestException('1688 image search requires an image URL');
-    const keyword = input.keyword?.trim() || undefined;
-    const capturedAt = new Date();
-    let result: Search1688ImageResult | null = null;
-    const execution = await this.collectionCoordinator.execute(
-      {
-        organizationId,
-        sourceKey: '1688.image_search',
-        scopeKey: 'default',
-        targetKey: normalizeCollectionTarget(keyword || imageUrl),
-        idempotencyKey: idempotencyKey?.trim() || `image-search:${randomUUID()}`,
-        requestHash: hashCollectionRequest({ imageUrl, keyword, maxResults: input.maxResults ?? null }),
-        collectorKey: 'direct-1688-image-search',
-        collectorVersion: '2026-08-08',
-        triggerKind: 'manual',
-        triggeredByUserId: null,
-        leaseDurationMs: 120_000,
-      },
-      async ({ permit, checkpoint }) => {
-        await checkpoint();
-        const providerResult = await this.imageSearch.searchByImage({
-          imageUrl,
-          keyword,
-          maxResults: input.maxResults,
-        });
-        result = providerResult;
-        await checkpoint();
-        let rejectedCount = 0;
-        const sourceKeyword = keyword ?? `image:${hashCollectionRequest(imageUrl).slice(0, 16)}`;
-        const rows = providerResult.items.flatMap((item, index) => {
-          try {
-            const supplier = parseAllowedSupplierUrl(item.sourceUrl);
-            const offerId = extractSupplierOfferId(supplier);
-            if (!offerId) {
-              rejectedCount += 1;
-              return [];
-            }
-            return [
-              {
-                organizationId,
-                businessDate: kstBusinessDate(capturedAt),
-                offerId,
-                sourceKeyword,
-                rank: index + 1,
-                title: item.title,
-                priceCny: item.priceCny,
-                monthlySales: item.salesNum ?? null,
-                repurchaseRate: item.repurchaseRate ?? null,
-                tradeScore: item.serviceScore == null ? null : String(item.serviceScore),
-                supplierName: item.supplierName ?? null,
-                imageUrl: item.imageUrl,
-                sourceUrl: supplier.normalizedUrl,
-                capturedAt,
-              },
-            ];
-          } catch {
-            rejectedCount += 1;
-            return [];
-          }
-        });
-        return map1688HotProductsToAuthorizedOutput({
-          permit,
-          rows,
-          rejectedCount,
-          qualityReport: {
-            source: 'direct-image-search',
-            resultCount: providerResult.items.length,
-          },
-        });
-      },
-    );
-    if (execution.kind === 'committed') {
-      await this.recommendations.refresh({ organizationId, limit: 50 });
-    }
-    if (!result) {
-      throw new BadRequestException('An idempotent image search is already in progress.');
-    }
-    return result;
+    return { attempts, result: batchResult(units, '1688_image_match', attempts) };
   }
 }

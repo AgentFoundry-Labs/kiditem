@@ -1,113 +1,140 @@
 'use client';
 
-import { useState } from 'react';
-import type { ReadinessCheck } from '@kiditem/shared/readiness';
-import { useQueryClient } from '@tanstack/react-query';
-import { toast } from 'sonner';
-import { runReadinessExtensionCollection } from '@/components/readiness/readiness-extension-collection';
-import { useBrowserCollectionSession } from '@/hooks/useBrowserCollectionSession';
+import { useEffect, useRef, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  issueBrowserCollectionRunId,
-  recordMissingBrowserCollection,
-} from '@/lib/browser-collection-session';
-import { detectExtensionId } from '@/lib/extension-bridge';
+  AdCampaignSourceAttemptSchema,
+  AdCampaignSourceStatusSchema,
+} from '@kiditem/shared/advertising';
+import { toast } from 'sonner';
+import { apiClient } from '@/lib/api-client';
+import { detectExtensionId, sendToExtension } from '@/lib/extension-bridge';
+import { transferExtensionAuthTo } from '@/lib/extension-auth';
 import { queryKeys } from '@/lib/query-keys';
+import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
 
-const AD_SYNC_CHECK: ReadinessCheck = {
-  key: 'ad_sync',
-  label: '광고 동기화 (캠페인별 상품)',
-  status: 'missing',
-  detail: '운영중 캠페인 자동 순회',
-  lastSyncedAt: null,
-  count: null,
-  collector: 'extension',
-  collectEndpoint: null,
-  scrapeUrls: [
-    'https://advertising.coupang.com/marketing/dashboard/sales#kiditemAdSync=1',
-  ],
-  referenceDate: null,
-  expectedDates: null,
-  missingDates: null,
-};
+const SOURCE_PATH = '/api/ads/ad-campaigns';
+const readSource = async () =>
+  AdCampaignSourceStatusSchema.parse(await apiClient.get(SOURCE_PATH + '/source'));
 
-interface UseAdSyncOptions {
-  onComplete?: () => void;
+export function adSyncSucceededNotice(progressLabel: string | null | undefined): {
+  tone: 'success' | 'warning';
+  message: string;
+} {
+  return progressLabel?.includes('원본만 보존')
+    ? { tone: 'warning', message: progressLabel }
+    : { tone: 'success', message: '광고 동기화가 완료되었습니다.' };
 }
 
-export function adSyncSucceededNotice(
-  progressLabel: string | null | undefined,
-): { tone: 'success' | 'warning'; message: string } {
-  if (progressLabel?.includes('원본만 보존')) {
-    return { tone: 'warning', message: progressLabel };
-  }
-  return { tone: 'success', message: '광고 동기화가 완료되었습니다.' };
+async function campaignExtension() {
+  const extensionId = await detectExtensionId();
+  if (!extensionId) throw new Error('브라우저 수집 익스텐션을 찾을 수 없습니다.');
+  const ping = await sendToExtension<{
+    success?: boolean;
+    capabilities?: { advertisingCampaignSourceOwnerV1?: boolean };
+  }>(extensionId, { action: 'ping' });
+  if (!ping?.success || !ping.capabilities?.advertisingCampaignSourceOwnerV1)
+    throw new Error('광고 동기화를 지원하는 익스텐션으로 새로고침해 주세요.');
+  await transferExtensionAuthTo(extensionId);
+  return extensionId;
 }
 
-export function useAdSync({ onComplete }: UseAdSyncOptions = {}) {
+/** Owner reads survive page reload; only the explicit action starts browser work. */
+export function useAdSync({ onComplete }: { onComplete?: () => void } = {}) {
   const [loading, setLoading] = useState(false);
-  const [runId, setRunId] = useState<string | null>(null);
-  const queryClient = useQueryClient();
-  const collectionSession = useBrowserCollectionSession(runId);
+  const [cancelling, setCancelling] = useState(false);
+  const request = useRef<{ key: string; attemptId?: string } | null>(null);
+  const client = useQueryClient();
+  const source = useQuery({
+    queryKey: queryKeys.ads.campaignSource(),
+    queryFn: readSource,
+    retry: false,
+    refetchInterval: (query) =>
+      query.state.data?.latestAttempt?.state === 'RUNNING' ? 2_000 : false,
+    meta: { suppressGlobalErrorToast: true },
+  });
+  const completeId = source.data?.latestComplete?.attemptId;
+  useEffect(() => {
+    if (!completeId) return;
+    void client.invalidateQueries({ queryKey: queryKeys.ads.all });
+    void client.invalidateQueries({ queryKey: queryKeys.dashboard.all });
+    void client.invalidateQueries({ queryKey: ['readiness'] });
+  }, [completeId, client]);
 
-  const run = async (requestedRunId?: string) => {
+  const run = async () => {
     if (loading) return;
     setLoading(true);
     try {
-      const extensionId = await detectExtensionId();
-      if (!extensionId) {
-        const missing = await recordMissingBrowserCollection(
-          'advertising.ad_sync',
-          { trigger: 'ad_sync' },
-          requestedRunId,
+      const extensionId = await campaignExtension();
+      let attempt = (await readSource()).latestAttempt;
+      if (attempt?.state !== 'RUNNING') {
+        if (attempt && request.current?.attemptId === attempt.attemptId) request.current = null;
+        request.current ??= { key: createSecureRandomUuid() };
+        attempt = AdCampaignSourceAttemptSchema.parse(
+          await apiClient.post(
+            SOURCE_PATH + '/attempts',
+            {},
+            { headers: { 'Idempotency-Key': request.current.key } },
+          ),
         );
-        setRunId(missing.runId);
-        toast.warning('브라우저 수집 익스텐션을 찾을 수 없습니다.');
-        return;
       }
-
-      const nextRunId = await issueBrowserCollectionRunId(requestedRunId);
-      setRunId(nextRunId);
-      const session = await runReadinessExtensionCollection({
-        check: AD_SYNC_CHECK,
-        producer: 'advertising.ad_sync',
-        extensionId,
-        runId: nextRunId,
-        onStarted: () => {
-          toast.info('광고 동기화를 백그라운드에서 시작합니다.');
-        },
-      });
-
-      if (session.status === 'succeeded') {
-        const notice = adSyncSucceededNotice(session.progress.label);
-        if (notice.tone === 'warning') toast.warning(notice.message);
-        else toast.success(notice.message);
-      } else if (session.status === 'attention_required') {
-        toast.warning(session.attention?.message ?? '광고센터 확인이 필요합니다.');
-      } else if (session.status === 'cancelled') {
-        toast.info('광고 동기화가 중단되었습니다.');
-      } else if (session.status === 'failed') {
-        toast.error(session.progress.label ?? '광고 동기화에 실패했습니다.');
+      if (request.current) request.current.attemptId = attempt.attemptId;
+      try {
+        await sendToExtension(
+          extensionId,
+          { action: 'collectAdvertisingCampaigns', attemptId: attempt.attemptId },
+          35 * 60_000,
+        );
+      } catch {
+        /* A lost browser ACK is not an owner failure. */
       }
-
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: queryKeys.ads.all }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all }),
-        queryClient.invalidateQueries({ queryKey: ['traffic'] }),
-        queryClient.invalidateQueries({ queryKey: ['readiness'] }),
-      ]);
-      onComplete?.();
+      const observed = AdCampaignSourceAttemptSchema.parse(
+        await apiClient.get(SOURCE_PATH + '/attempts/' + attempt.attemptId),
+      );
+      if (observed.state !== 'RUNNING' && request.current?.attemptId === observed.attemptId)
+        request.current = null;
+      if (observed.state === 'COMPLETE') {
+        const notice = adSyncSucceededNotice(
+          observed.rawOnlyCampaignCount
+            ? '광고 동기화 완료 · ' + observed.rawOnlyCampaignCount + '개는 식별자 없어 원본만 보존'
+            : null,
+        );
+        toast[notice.tone](notice.message);
+        onComplete?.();
+      } else if (observed.state === 'FAILED') {
+        if (observed.errorCode === 'USER_CANCELLED') toast.info('광고 동기화가 중단되었습니다.');
+        else toast.error(observed.errorMessage ?? '광고 동기화에 실패했습니다.');
+      } else toast.info('광고 동기화가 아직 진행 중입니다. 서버 완료 상태를 확인해 주세요.');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : '광고 동기화 실패');
     } finally {
+      await source.refetch();
       setLoading(false);
     }
   };
 
-  return {
-    loading,
-    run,
-    runId,
-    status: collectionSession.data ?? null,
-    collectionSession,
+  const cancel = async () => {
+    if (cancelling) return;
+    setCancelling(true);
+    try {
+      const current = (await readSource()).latestAttempt;
+      if (current?.state !== 'RUNNING') return;
+      const extensionId = await campaignExtension();
+      try {
+        await sendToExtension(extensionId, {
+          action: 'cancelAdvertisingCampaigns',
+          attemptId: current.attemptId,
+        });
+      } catch {
+        /* Only the owner read confirms cancellation. */
+      }
+      if ((await source.refetch()).data?.latestAttempt?.state === 'RUNNING')
+        toast.warning('중단 결과를 확인하지 못했습니다. 잠시 후 다시 확인해 주세요.');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '광고 동기화 중단 실패');
+    } finally {
+      setCancelling(false);
+    }
   };
+  return { loading, cancelling, run, cancel, source, status: source.data?.latestAttempt ?? null };
 }

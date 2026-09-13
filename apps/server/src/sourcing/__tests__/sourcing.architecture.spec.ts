@@ -37,6 +37,12 @@ function sourcingRel(): string {
 }
 
 describe('sourcing architecture contract', () => {
+  it('composes one source attempt authority without the retired collection coordinator', () => {
+    const source = readFileSync(path.join(SOURCING_ROOT, 'sourcing.module.ts'), 'utf8');
+    expect(source).not.toMatch(/SourcingCollectionCoordinator|SourcingCollectionRepositoryAdapter|SOURCING_COLLECTION_REPOSITORY_PORT/);
+    expect(existsSync(path.join(SOURCING_ROOT, 'sourcing-operation-worker.module.ts'))).toBe(false);
+  });
+
   it('PrismaService is imported only under sourcing/adapter/out/repository/**', () => {
     const sourcing = sourcingRel();
     const allowedPrefix = path.join(sourcing, 'adapter/out/repository') + path.sep;

@@ -1,7 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import type { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import type { PrismaService } from '../../prisma/prisma.service';
 import {
   makeTestPrisma,
   OTHER_ORGANIZATION_ID,
@@ -16,6 +14,8 @@ import { SourcingRecommendationSourceRepositoryAdapter } from '../adapter/out/re
 import { SourcingReviewRepositoryAdapter } from '../adapter/out/repository/sourcing-review.repository.adapter';
 import { SourcingValidationRepositoryAdapter } from '../adapter/out/repository/sourcing-validation.repository.adapter';
 import { SourcingReviewService } from '../application/service/sourcing-review.service';
+import type { PrismaService } from '../../prisma/prisma.service';
+import type { PrismaClient } from '@prisma/client';
 
 const BUSINESS_DATE = new Date('2026-08-10T00:00:00.000Z');
 const CUTOFF_AT = new Date('2026-08-10T12:00:00.000Z');
@@ -90,27 +90,27 @@ describe('Sourcing workspace normalized read model (PG integration)', () => {
     });
   });
 
-  it('excludes quarantined and malformed observations without failing the organization read', async () => {
+  it('excludes failed and malformed observations without failing the organization read', async () => {
     const accepted = await seedOfferObservation(prisma, {
       organizationId: TEST_ORGANIZATION_ID,
       externalOfferId: '607635921546',
       sourceKeyword: '유아 우산',
       rawOffer: { minOrderQuantity: 2 },
-      status: 'complete',
+      status: 'COMPLETE',
     });
     await seedOfferObservation(prisma, {
       organizationId: TEST_ORGANIZATION_ID,
       externalOfferId: '607635921547',
       sourceKeyword: '유아 우산',
       rawOffer: [],
-      status: 'complete',
+      status: 'COMPLETE',
     });
     await seedOfferObservation(prisma, {
       organizationId: TEST_ORGANIZATION_ID,
       externalOfferId: '607635921548',
       sourceKeyword: '유아 우산',
       rawOffer: { minOrderQuantity: 3 },
-      status: 'quarantined',
+      status: 'FAILED',
     });
 
     await expect(sources.listLatestOfferObservations({
@@ -171,7 +171,7 @@ describe('Sourcing workspace normalized read model (PG integration)', () => {
       externalOfferId: '607635921546',
       sourceKeyword: '유아 우산',
       rawOffer: { minOrderQuantity: 2 },
-      status: 'complete',
+      status: 'COMPLETE',
     });
     const run = await seedRun(prisma, {
       id: '00000000-0000-4000-8000-000000000030',
@@ -338,7 +338,7 @@ async function seedOfferObservation(
     externalOfferId: string;
     sourceKeyword: string;
     rawOffer: object | unknown[];
-    status: string;
+    status: 'COMPLETE' | 'FAILED';
   },
 ) {
   const idempotencyKey = randomUUID();
@@ -359,6 +359,7 @@ async function seedOfferObservation(
       triggerKind: 'manual',
       triggeredByUserId: actorUserId,
       status: input.status,
+      isCurrentComplete: input.status === 'COMPLETE',
       completedAt: CUTOFF_AT,
     },
   });

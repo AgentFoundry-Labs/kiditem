@@ -2,16 +2,16 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { SellochMarketAnalysisPage } from './SellochMarketAnalysisPage';
-import { useSourcingOperationAction } from '../hooks/use-sourcing-operation-action';
+import { useWingCatalogSource } from '../hooks/use-wing-catalog-source';
 
 const start = vi.fn(async () => ({ id: '10000000-0000-4000-8000-000000000001' }));
 let capturedOptions: Record<string, unknown> | null = null;
 
-vi.mock('../hooks/use-sourcing-operation-action', () => ({
-  useSourcingOperationAction: vi.fn((options: Record<string, unknown>) => {
+vi.mock('../hooks/use-wing-catalog-source', () => ({
+  useWingCatalogSource: vi.fn((options: Record<string, unknown>) => {
     capturedOptions = options;
     return {
-      run: null,
+      attempt: null, isRunning: false, error: null,
       start,
       cancel: vi.fn(),
       retryAttention: vi.fn(),
@@ -67,9 +67,8 @@ describe('SellochMarketAnalysisPage Wing operation', () => {
     fireEvent.click(await screen.findByRole('button', { name: '시장분석 시작' }));
 
     await waitFor(() => expect(start).toHaveBeenCalledTimes(1));
-    expect(useSourcingOperationAction).toHaveBeenLastCalledWith(expect.objectContaining({
-      operationKey: 'sourcing.collect_wing_catalog_batch',
-      input: {
+    expect(useWingCatalogSource).toHaveBeenLastCalledWith(expect.objectContaining({
+            input: {
         keywords: ['A Pencil', ...Array.from({ length: 11 }, (_, index) => `키워드 ${index + 2}`)],
         maxPages: 1,
         purpose: 'market_analysis',

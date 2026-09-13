@@ -48,7 +48,8 @@ export interface AgentPipelineInput {
   sessions: { signedIn: number; signedOut: number; unknown: number } | null;
   soldOutTotal: number | null;
   coupangPendingAccept: number | null;
-  expiredCount: number | null;
+  /** 아직 열린 몰 원천 실패 알림 수. 못 받았으면 `null`. */
+  openAlertCount: number | null;
   totals: CapabilityTotals | null;
   /** 기억(몰 작업 결과) 요약 — 최근 7일 건수 · 몰 수 · 로그인 기록 수. 못 받았으면 `null`. */
   outcomes: { total: number; malls: number; loginRecords: number } | null;
@@ -178,10 +179,10 @@ export function buildAgentPipeline(input: AgentPipelineInput): PipelineStage[] {
         href: { path: '/orders', label: '주문 처리' },
       },
       {
-        id: 'sense-expired',
-        title: '7일 넘게 멈춘 수집',
+        id: 'sense-open-alerts',
+        title: '열린 몰 알림',
         status: 'done',
-        detail: amount(input.expiredCount, '건'),
+        detail: amount(input.openAlertCount, '건'),
         href: { path: '#mall-alerts', label: '알림판' },
       },
       {
@@ -283,9 +284,9 @@ export function buildAgentPipeline(input: AgentPipelineInput): PipelineStage[] {
       },
       {
         id: 'act-tidy',
-        title: '멈춘 수집 정리',
+        title: '알림 닫기',
         status: 'done',
-        detail: '7일 넘게 멈춘 수집 알림을 한 번에 닫는다.',
+        detail: '실패 알림은 원천이 다시 성공하면 저절로 닫힌다. 본 알림은 알림판에서 닫는다.',
         href: { path: '#mall-alerts', label: '알림판' },
       },
     ]),

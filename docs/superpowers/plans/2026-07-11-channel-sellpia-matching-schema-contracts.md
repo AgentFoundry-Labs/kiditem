@@ -1,7 +1,7 @@
 # Channel and Sellpia Matching Schema Contracts Implementation Plan
 
 > **SUPERSEDED:** Do not execute this plan. The authoritative design is
-> `docs/superpowers/specs/2026-07-12-sellpia-authoritative-inventory-cutover-design.md`.
+> `docs/superpowers/specs/archive/2026-07-12-sellpia-authoritative-inventory-cutover-design.md`.
 > A replacement implementation plan has not yet been approved.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

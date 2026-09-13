@@ -8,12 +8,11 @@ const NOW = Date.parse('2026-09-13T06:00:00.000Z');
 function inputs(overrides: Partial<PipeInputs> = {}): PipeInputs {
   return {
     now: NOW,
-    runs: { data: [], failed: false },
+    alerts: { data: [], failed: false },
     outcomes: { data: [], failed: false },
     malls: { data: [{ key: 'gs-shop', name: 'GS샵', enabled: true }], failed: false },
     freshness: { data: null, failed: false },
     confirm: { data: null, failed: false },
-    panelItems: [],
     loginBlocks: [],
     ...overrides,
   };

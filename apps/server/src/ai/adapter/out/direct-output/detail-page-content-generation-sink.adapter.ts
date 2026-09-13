@@ -1,21 +1,14 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type { DetailPageDirectOutputSinkPort } from '../../../application/port/out/sink/detail-page-direct-output-sink.port';
-import {
-  AI_OPERATION_ALERT_PORT,
-  type OperationAlertPort,
-} from '../../../application/port/out/cross-domain/operation-alert.port';
 import type { DetailPageGenerateDirectOutput } from '../../../domain/direct-generation';
 import { DetailPageGeneratedImagesService } from '../../../application/service/detail-page-generated-images.service';
 import {
   type DetailPageStoredJson,
-  detailPageOperationKey,
   toDetailPageStoredJson,
 } from '../../../application/service/detail-page-stored.helpers';
 import { ContentAssetService } from '../../../application/service/content-asset.service';
-import { ProductGenerationAlertService } from '../../../application/service/product-generation-alert.service';
-import { readProductGenerationAlertLink } from '../../../application/service/product-generation-alert-link';
 
 const TERMINAL_CONTENT_GENERATION_STATUSES = new Set([
   'READY',
@@ -55,11 +48,8 @@ export class DetailPageContentGenerationSinkAdapter
 
   constructor(
     private readonly prisma: PrismaService,
-    @Inject(AI_OPERATION_ALERT_PORT)
-    private readonly operationAlerts: OperationAlertPort,
     private readonly _generatedImages: DetailPageGeneratedImagesService,
     private readonly contentAssets: ContentAssetService,
-    private readonly productGenerationAlerts: ProductGenerationAlertService,
   ) {}
 
   async applySuccess(input: {
@@ -89,20 +79,6 @@ export class DetailPageContentGenerationSinkAdapter
       // Idempotent: a retried direct job or cancellation already made the row terminal.
       this.logger.debug(
         `detail_page_generate success: ContentGeneration ${row.id} already terminal (${row.status}); no-op.`,
-      );
-      return;
-    }
-
-    const parentLink = readProductGenerationAlertLink(row.generationInput);
-    if (
-      parentLink &&
-      await this.isParentOperationCancelled({
-        organizationId: input.organizationId,
-        parentOperationKey: parentLink.parentOperationKey,
-      })
-    ) {
-      this.logger.debug(
-        `detail_page_generate ${row.id}: parent operation ${parentLink.parentOperationKey} cancelled; no-op.`,
       );
       return;
     }
@@ -209,28 +185,6 @@ export class DetailPageContentGenerationSinkAdapter
       return;
     }
 
-    if (parentLink) {
-      await this.productGenerationAlerts.markChildFinished({
-        organizationId: input.organizationId,
-        parentOperationKey: parentLink.parentOperationKey,
-        childKind: 'detail_page',
-        status: 'succeeded',
-        childId: row.id,
-      });
-    } else {
-      await this.operationAlerts.succeed(
-        input.organizationId,
-        detailPageOperationKey(row.id),
-        {
-          metadata: {
-            generatedTitle: productName,
-            heroImageCount: Object.keys(processedImages).length,
-            ...projectionMetadata(input.requestId, input.runId),
-          },
-        },
-      );
-    }
-
     this.logger.log(
       `detail_page_generate applied success → ContentGeneration ${row.id} READY (request=${input.requestId}).`,
     );
@@ -268,20 +222,6 @@ export class DetailPageContentGenerationSinkAdapter
       return;
     }
 
-    const parentLink = readProductGenerationAlertLink(row.generationInput);
-    if (
-      parentLink &&
-      await this.isParentOperationCancelled({
-        organizationId: input.organizationId,
-        parentOperationKey: parentLink.parentOperationKey,
-      })
-    ) {
-      this.logger.debug(
-        `detail_page_generate ${row.id}: parent operation ${parentLink.parentOperationKey} cancelled; no-op.`,
-      );
-      return;
-    }
-
     const updated = await this.prisma.contentGeneration.updateMany({
       where: {
         id: row.id,
@@ -300,46 +240,9 @@ export class DetailPageContentGenerationSinkAdapter
       return;
     }
 
-    if (parentLink) {
-      await this.productGenerationAlerts.markChildFinished({
-        organizationId: input.organizationId,
-        parentOperationKey: parentLink.parentOperationKey,
-        childKind: 'detail_page',
-        status: 'failed',
-        childId: row.id,
-        errorMessage: input.errorMessage,
-      });
-    } else {
-      await this.operationAlerts.fail(
-        input.organizationId,
-        detailPageOperationKey(row.id),
-        {
-          message: input.errorMessage,
-          metadata: {
-            errorCode: input.errorCode,
-            ...projectionMetadata(input.requestId, input.runId),
-          },
-        },
-      );
-    }
-
     this.logger.log(
       `detail_page_generate applied failure → ContentGeneration ${row.id} FAILED (code=${input.errorCode} request=${input.requestId}).`,
     );
-  }
-
-  private async isParentOperationCancelled(input: {
-    organizationId: string;
-    parentOperationKey: string;
-  }): Promise<boolean> {
-    if (typeof this.operationAlerts.findByOperationKey !== 'function') {
-      return false;
-    }
-    const alert = await this.operationAlerts.findByOperationKey(
-      input.organizationId,
-      input.parentOperationKey,
-    );
-    return alert?.status === 'cancelled';
   }
 
 }

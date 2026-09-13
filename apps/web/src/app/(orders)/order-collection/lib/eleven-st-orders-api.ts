@@ -1,6 +1,8 @@
-import { issueBrowserCollectionRunId } from '@/lib/browser-collection-session';
 import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extension-bridge';
-import type { OrderCollectionExtensionRun } from './order-collection-extension';
+import {
+  orderCollectionExtensionRunFields,
+  type OrderCollectionExtensionRun,
+} from './order-collection-extension';
 
 /**
  * 11번가 모바일 셀러오피스(msoffice) 주문 한 건.
@@ -64,8 +66,8 @@ export async function collectElevenStOrdersFromExtension(
     {
       action: 'collect11stOrders',
       date: date ?? run?.date,
-      runId: await issueBrowserCollectionRunId(run?.runId),
-      deferTerminal: Boolean(run?.runId),
+      // attemptId/deferTerminal 은 공통 원천 소유자 수집 필드가 싣는다.
+      ...orderCollectionExtensionRunFields(run),
     },
     190000,
   );

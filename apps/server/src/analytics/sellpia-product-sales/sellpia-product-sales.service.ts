@@ -1,16 +1,5 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
-import { EventEmitter2 } from '@nestjs/event-emitter';
-import { Prisma } from '@prisma/client';
+import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import type {
-  SellpiaProductSalesSummary,
-  SellpiaProductSalesRow,
-  SellpiaProductSalesMonthPoint,
-  SellpiaProductSalesIngestResult,
-} from '@kiditem/shared/dashboard';
-import type {
-  SellpiaProductSalesIngestBodyDto,
-} from './dto/sellpia-product-sales.dto';
 import {
   LEAD_TIME_MONTHS,
   computeSeasonTag,
@@ -18,25 +7,22 @@ import {
   detectAnomaly,
 } from './sellpia-product-sales.metrics';
 import { SellpiaProductInventoryReader } from './sellpia-product-inventory-reader';
-import type { SellpiaProductDepletionReadPort } from './sellpia-product-depletion-read.port';
 import { buildProductDepletionProjections } from './sellpia-product-depletion-projection';
-import {
-  SELLPIA_PRODUCT_SALES_EVENTS,
-  type SellpiaProductSalesIngestedEvent,
-} from './sellpia-product-sales.events';
+import type { SellpiaProductDepletionReadPort } from './sellpia-product-depletion-read.port';
+import type {
+  SellpiaProductSalesSummary,
+  SellpiaProductSalesRow,
+  SellpiaProductSalesMonthPoint,
+} from '@kiditem/shared/dashboard';
+import { businessDateKey, kstBusinessDate, kstMonthEnd } from '../../common/kst';
 
-const INT4_MAX = 2_147_483_647;
-// createMany 벌크 청크. 14열 × 2000행 = 28k 바인드 < PG 65535 파라미터 한도.
-const INSERT_CHUNK = 2000;
-// 실제 13개월 payload는 Prisma interactive transaction 기본 5초를 넘을 수 있다.
-const INGEST_TRANSACTION_TIMEOUT_MS = 30_000;
 const DEFAULT_MONTHS = 13; // 1년치(완결 12개월 + 진행 월) — 시즌 분류/추세 근거
 
 /**
- * Sellpia 상품별 이익현황(stat_prd_profit) 월별 소진(판매수량) ingest + read.
+ * Sellpia 상품별 이익현황(stat_prd_profit) 월별 소진 read.
  *
- * 확장이 stat_action.ajax.html(mode=stat_prd_profit)의 graph(월별 매입/판매/수량)에서
- * 상품×옵션×연월로 스크랩한 결과를 `sellpia_product_monthly_sales` 에 upsert(멱등)한다.
+ * Source writes belong to SellpiaProfitabilitySourceService. This service reads
+ * only the newest COMPLETE generation for depletion reporting.
  * 재고 분석(/stock-ops)은 상품별 1개월/2개월 평균 소진량 + 월별 추이를 읽는다.
  * 평균은 현재 월(진행 중)을 제외한 완결 월에서 산정한다. 메이크샵 주문 기준.
  */
@@ -45,100 +31,7 @@ export class SellpiaProductSalesService implements SellpiaProductDepletionReadPo
   constructor(
     private readonly prisma: PrismaService,
     private readonly inventoryReader: SellpiaProductInventoryReader,
-    private readonly eventEmitter: EventEmitter2,
   ) {}
-
-  async ingest(
-    organizationId: string,
-    body: SellpiaProductSalesIngestBodyDto,
-  ): Promise<SellpiaProductSalesIngestResult> {
-    const capturedAt = new Date();
-    const authoritativeMonths = yearMonthsInRange(body.range);
-    const authoritativeMonthSet = new Set(authoritativeMonths);
-    // (productCode, optionCode, yearMonth) 유니크 키로 중복 제거(마지막 값 우선) —
-    // createMany 유니크 위반 방지 + 페이로드 내 중복 방어.
-    const byKey = new Map<string, {
-      organizationId: string; productCode: string; optionCode: string; yearMonth: string;
-      orderQty: number; orderAmount: number; inQty: number; inAmount: number;
-      costBasis: 'ORDER_TIME_SUPPLY_COST'; vatIncluded: true;
-      coverageStartDate: Date; coverageEndDate: Date;
-      productName: string; optionName: string | null; providerName: string | null;
-      salePrice: number; buyPrice: number; barcode: string | null; capturedAt: Date;
-    }>();
-    for (const p of body.products) {
-      for (const m of p.months) {
-        if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(m.yearMonth)) {
-          throw new BadRequestException('Invalid Sellpia product-sales month');
-        }
-        if (!authoritativeMonthSet.has(m.yearMonth)) {
-          throw new BadRequestException('Sellpia product-sales month is outside request range');
-        }
-        const coverage = monthCoverageIntersection(body.range, m.yearMonth);
-        byKey.set(`${p.productCode} ${p.optionCode} ${m.yearMonth}`, {
-          organizationId,
-          productCode: p.productCode,
-          optionCode: p.optionCode,
-          yearMonth: m.yearMonth,
-          orderQty: clampInt(m.orderQty),
-          orderAmount: clampInt(m.orderAmount),
-          inQty: clampInt(m.inQty),
-          inAmount: clampInt(m.inAmount),
-          costBasis: body.provenance.costBasis,
-          vatIncluded: body.provenance.vatIncluded,
-          coverageStartDate: coverage.start,
-          coverageEndDate: coverage.end,
-          productName: p.productName,
-          optionName: p.optionName ?? null,
-          providerName: p.providerName ?? null,
-          salePrice: clampInt(p.salePrice),
-          buyPrice: clampInt(p.buyPrice),
-          barcode: p.barcode ?? null,
-          capturedAt,
-        });
-      }
-    }
-    const rows = [...byKey.values()];
-    // 원자적 요청 범위 교체. 청크 upsert(느려서 동시 read 를 굶김) 대신
-    // deleteMany(요청 range 의 연월) + 벌크 createMany 를 한 트랜잭션으로.
-    // - 조회는 커밋 전까지 이전 데이터를 보므로 빈 창이 없다.
-    // - 삭제를 크롤 창(연월)으로 한정하므로 더 짧은 창의 수집이 그 밖의 과거 월을
-    //   지우지 않는다(1년 히스토리 보존). 같은 창의 재수집은 그 월들만 새로 채운다.
-    await this.prisma.$transaction(
-      async (tx) => {
-        await tx.$queryRaw(
-          Prisma.sql`
-            -- queryraw-tenancy-exempt: organization-scoped advisory lock; reads no tenant data.
-            SELECT pg_advisory_xact_lock(
-              hashtextextended(${`kiditem.sellpia-product-sales:${organizationId}`}, 0)
-            )::text AS "lock"
-          `,
-        );
-        await tx.sellpiaProductMonthlySales.deleteMany({
-          where: {
-            organizationId,
-            yearMonth: { in: authoritativeMonths },
-          },
-        });
-        for (let i = 0; i < rows.length; i += INSERT_CHUNK) {
-          await tx.sellpiaProductMonthlySales.createMany({
-            data: rows.slice(i, i + INSERT_CHUNK),
-          });
-        }
-      },
-      { timeout: INGEST_TRANSACTION_TIMEOUT_MS },
-    );
-
-    await this.eventEmitter.emitAsync(
-      SELLPIA_PRODUCT_SALES_EVENTS.INGESTED,
-      { organizationId } satisfies SellpiaProductSalesIngestedEvent,
-    );
-
-    return {
-      upserted: rows.length,
-      productCount: body.products.length,
-      months: authoritativeMonths,
-    } satisfies SellpiaProductSalesIngestResult;
-  }
 
   async getSummary(
     organizationId: string,
@@ -147,8 +40,23 @@ export class SellpiaProductSalesService implements SellpiaProductDepletionReadPo
     const currentYm = currentKstYearMonth();
     const cutoffYm = addMonths(currentYm, -(monthsWindow - 1));
 
-    const rows = await this.prisma.sellpiaProductMonthlySales.findMany({
-      where: { organizationId, yearMonth: { gte: cutoffYm } },
+    const latestComplete = await this.prisma.sourceImportRun.findFirst({
+      where: {
+        organizationId,
+        sourceType: 'sellpia_product_profitability',
+        status: 'completed',
+        publicationSequence: { not: null },
+      },
+      orderBy: { publicationSequence: 'desc' },
+      select: { id: true },
+    });
+    const rows = latestComplete
+      ? await this.prisma.sellpiaProductMonthlySales.findMany({
+      where: {
+        organizationId,
+        sourceImportRunId: latestComplete.id,
+        yearMonth: { gte: cutoffYm },
+      },
       select: {
         productCode: true,
         optionCode: true,
@@ -161,11 +69,29 @@ export class SellpiaProductSalesService implements SellpiaProductDepletionReadPo
         buyPrice: true,
         barcode: true,
         capturedAt: true,
+        coverageStartDate: true,
+        coverageEndDate: true,
       },
-    });
+      })
+      : [];
 
     const months = [...new Set(rows.map((r) => r.yearMonth))].sort();
-    const completeMonths = months.filter((m) => m < currentYm);
+    const fullMonthCoverage = new Map<string, boolean>();
+    for (const row of rows) {
+      const isFullMonth = isFullCalendarMonth(
+        row.yearMonth,
+        row.coverageStartDate,
+        row.coverageEndDate,
+      );
+      fullMonthCoverage.set(
+        row.yearMonth,
+        (fullMonthCoverage.get(row.yearMonth) ?? true) && isFullMonth,
+      );
+    }
+    // Keep raw boundary months visible, but do not use a partial source month
+    // as a complete month for averages, trends, or stock projections.
+    const completeMonths = months.filter((m) =>
+      m < currentYm && fullMonthCoverage.get(m) === true);
     const last1 = new Set(completeMonths.slice(-1));
     const last2 = new Set(completeMonths.slice(-2));
 
@@ -361,74 +287,8 @@ export class SellpiaProductSalesService implements SellpiaProductDepletionReadPo
 
 }
 
-function yearMonthsInRange(range: { from: string; to: string }): string[] {
-  const fromDate = parseCalendarDate(range.from);
-  const toDate = parseCalendarDate(range.to);
-  if (
-    fromDate === null
-    || toDate === null
-    || fromDate.timestamp > toDate.timestamp
-    || toDate.yearMonthIndex - fromDate.yearMonthIndex + 1 > 24
-  ) {
-    throw new BadRequestException('Invalid Sellpia product-sales range');
-  }
-  const months: string[] = [];
-  for (
-    let index = fromDate.yearMonthIndex;
-    index <= toDate.yearMonthIndex;
-    index += 1
-  ) {
-    const year = Math.floor(index / 12);
-    const month = index % 12 + 1;
-    months.push(`${year}-${String(month).padStart(2, '0')}`);
-  }
-  return months;
-}
-
-function parseCalendarDate(value: string): {
-  timestamp: number;
-  yearMonthIndex: number;
-} | null {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
-  const timestamp = Date.parse(`${value}T00:00:00.000Z`);
-  if (!Number.isFinite(timestamp)) return null;
-  const date = new Date(timestamp);
-  if (date.toISOString().slice(0, 10) !== value) return null;
-  return {
-    timestamp,
-    yearMonthIndex: date.getUTCFullYear() * 12 + date.getUTCMonth(),
-  };
-}
-
-function clampInt(n: number): number {
-  if (!Number.isFinite(n)) return 0;
-  const v = Math.round(n);
-  if (v <= 0) return 0;
-  return v > INT4_MAX ? INT4_MAX : v;
-}
-
-function monthCoverageIntersection(
-  range: { from: string; to: string },
-  yearMonth: string,
-): { start: Date; end: Date } {
-  const start = parseCalendarDate(range.from);
-  const end = parseCalendarDate(range.to);
-  if (!start || !end) {
-    throw new BadRequestException('Invalid Sellpia product-sales range');
-  }
-  const [year, month] = yearMonth.split('-').map(Number);
-  const monthStart = Date.UTC(year, month - 1, 1);
-  const monthEnd = Date.UTC(year, month, 0);
-  const coverageStart = Math.max(start.timestamp, monthStart);
-  const coverageEnd = Math.min(end.timestamp, monthEnd);
-  if (coverageStart > coverageEnd) {
-    throw new BadRequestException('Sellpia product-sales month does not intersect request range');
-  }
-  return { start: new Date(coverageStart), end: new Date(coverageEnd) };
-}
-
 function currentKstYearMonth(): string {
-  const kst = new Date(Date.now() + 9 * 60 * 60 * 1000);
+  const kst = kstBusinessDate(new Date());
   const p = (x: number) => String(x).padStart(2, '0');
   return `${kst.getUTCFullYear()}-${p(kst.getUTCMonth() + 1)}`;
 }
@@ -441,4 +301,16 @@ function addMonths(ym: string, delta: number): string {
   const nm = (idx % 12 + 12) % 12;
   const p = (x: number) => String(x).padStart(2, '0');
   return `${ny}-${p(nm + 1)}`;
+}
+
+function isFullCalendarMonth(
+  yearMonth: string,
+  coverageStartDate: Date | null,
+  coverageEndDate: Date | null,
+): boolean {
+  if (!coverageStartDate || !coverageEndDate) return false;
+  const monthStart = `${yearMonth}-01`;
+  const monthEnd = kstMonthEnd(yearMonth);
+  return businessDateKey(coverageStartDate) === monthStart
+    && businessDateKey(coverageEndDate) === monthEnd;
 }

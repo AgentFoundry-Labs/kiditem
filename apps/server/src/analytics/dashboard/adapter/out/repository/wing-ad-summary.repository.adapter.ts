@@ -18,7 +18,8 @@
 
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../../../prisma/prisma.service';
-import { pct2 } from '../../../domain/util/percent';
+import { measuredPercent2 } from '../../../domain/util/percent';
+import { kstBusinessDate } from '../../../../../common/kst';
 import type {
   WingAdSummaryRepositoryPort,
   WingAdSummaryResult,
@@ -34,7 +35,7 @@ export class WingAdSummaryRepositoryAdapter
     organizationId: string,
     year: number,
     month: number,
-    _monthStart: Date,
+    monthStart: Date,
   ): Promise<WingAdSummaryResult | null> {
     const monthStartStr = `${year}-${String(month).padStart(2, '0')}-01`;
 
@@ -45,8 +46,12 @@ export class WingAdSummaryRepositoryAdapter
     // payload field, not on businessDate, to match legacy semantics. Bound
     // the scan to the last 60 days; older wing dashboard kpi rows do not
     // represent the current month.
-    const sinceCutoff = new Date(year, month - 1, 1);
-    sinceCutoff.setMonth(sinceCutoff.getMonth() - 1);
+    const normalizedMonthStart = kstBusinessDate(monthStart);
+    const sinceCutoff = new Date(Date.UTC(
+      normalizedMonthStart.getUTCFullYear(),
+      normalizedMonthStart.getUTCMonth() - 1,
+      1,
+    ));
 
     const candidateRows =
       await this.prisma.channelAccountDailyKpiSnapshot.findMany({
@@ -98,7 +103,10 @@ export class WingAdSummaryRepositoryAdapter
     const summary = chosen.normalized.adSummary as Record<string, unknown>;
     const adRevenue = Math.round(Number(summary.adGmv) || 0);
     const adSpend = Math.round(Number(summary.adSpend) || 0);
-    const adRoas = pct2(adRevenue, adSpend);
+    // The shared `WingAdSummary` contract types adRoas as a plain number, so
+    // a spend-less summary still reports 0 here. Widening that contract is a
+    // separate change.
+    const adRoas = measuredPercent2(adRevenue, adSpend) ?? 0;
 
     return {
       adRevenue,

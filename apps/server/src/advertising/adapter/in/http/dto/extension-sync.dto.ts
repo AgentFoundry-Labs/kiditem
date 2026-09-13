@@ -2,6 +2,7 @@ import {
   IsArray,
   IsBoolean,
   IsInt,
+  IsIn,
   IsNumber,
   IsObject,
   IsOptional,
@@ -80,6 +81,12 @@ export class ExtensionSyncDto {
   campaignDailyTo?: string;
 
   @IsString()
+  @IsIn([
+    'ad_campaign',
+    'raw_scrape',
+    'traffic',
+    'coupang_ads_daily',
+  ])
   type: string;
 
   @IsOptional()
@@ -146,9 +153,8 @@ export class ExtensionSyncDto {
   @IsString()
   endDate?: string;
 
-  // extension 이 보내는 date-range 필드. 전역 `ValidationPipe({whitelist:true})`
-  // 가 미선언 필드를 strip 하므로 명시적으로 받아두고, AdSyncService 가
-  // ChannelScrapeRun.periodStart / periodEnd 로 매핑한다.
+  // Shared internal capture fields retained for source-owner normalization.
+  // They are not accepted by a generic HTTP extension-sync route.
   @IsOptional()
   @IsString()
   dateFrom?: string;

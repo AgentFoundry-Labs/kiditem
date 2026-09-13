@@ -44,6 +44,23 @@ function countFocusTokens(source) {
   );
 }
 
+const readinessExplicitRankNavigation =
+  /action:\s*\{\s*label:\s*['"]진행 보기['"],\s*onClick:\s*\(\)\s*=>\s*\{\s*window\.open\([^;]+;\s*\},\s*\},/s;
+
+function automaticFocusSource(relativePath, source) {
+  if (relativePath !== 'apps/web/src/components/readiness/useReadinessCollection.ts') {
+    return source;
+  }
+
+  const matches = source.match(readinessExplicitRankNavigation) ?? [];
+  assert.equal(
+    matches.length,
+    1,
+    `${relativePath} must keep exactly one explicit rank-navigation action`,
+  );
+  return source.replace(matches[0], '');
+}
+
 test('focus policy names the approved focus-preserving helper owners', () => {
   const policy = JSON.parse(fs.readFileSync(policyPath, 'utf8'));
   assert.deepEqual(policy.focusOwnerFiles, expectedOwnerFiles);
@@ -55,7 +72,7 @@ test('legacy automatic collector focus counts never increase', () => {
 
   for (const relativePath of expectedLegacyFiles) {
     const source = fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
-    const actual = countFocusTokens(source);
+    const actual = countFocusTokens(automaticFocusSource(relativePath, source));
     const limit = policy.legacyFocusCounts[relativePath];
     assert.ok(
       actual <= limit,

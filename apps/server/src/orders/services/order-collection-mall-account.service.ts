@@ -12,7 +12,7 @@ import {
 const ORDER_COLLECTION_CHANNEL = 'order_collection';
 const ORDER_COLLECTION_CONFIG_KEY = 'orderCollection';
 
-const ORDER_COLLECTION_MALLS = [
+export const ORDER_COLLECTION_MALLS = [
   { key: 'one-polaris', name: '원폴라리스' },
   { key: 'icecream-mall', name: '아이스크림몰' },
   { key: 'kidkids', name: '키드키즈' },
@@ -42,7 +42,7 @@ const ORDER_COLLECTION_MALLS = [
   { key: 'yoons', name: '윤선생' },
 ] as const;
 
-type OrderCollectionMallKey = (typeof ORDER_COLLECTION_MALLS)[number]['key'];
+export type OrderCollectionMallKey = (typeof ORDER_COLLECTION_MALLS)[number]['key'];
 
 export interface OrderCollectionMallAccount {
   key: OrderCollectionMallKey;

@@ -43,7 +43,6 @@ export interface ProductGenerationAiRequest {
 
 export interface ProductGenerationAiResult {
   candidateId: string;
-  parentOperationKey: string;
   detailGenerationId: string | null;
   thumbnailGenerationId: string | null;
   contentWorkspaceId: string | null;

@@ -1,10 +1,3 @@
-import type {
-  SellpiaProductDestination,
-  SellpiaProductInventoryResolution,
-} from '@kiditem/shared/dashboard';
-import type {
-  InventoryAvailabilityBatch,
-} from '@kiditem/shared/inventory-availability';
 import { computeDeadStock, computeReorder } from './sellpia-product-sales.metrics';
 import {
   createSellpiaProductInventoryResolver,
@@ -12,6 +5,13 @@ import {
   type SellpiaProductInventoryCandidateResolution,
   type SellpiaProductInventoryEvidence,
 } from './sellpia-product-inventory-resolver';
+import type {
+  SellpiaProductDestination,
+  SellpiaProductInventoryResolution,
+} from '@kiditem/shared/dashboard';
+import type {
+  InventoryAvailabilityBatch,
+} from '@kiditem/shared/inventory-availability';
 
 export type SellpiaProductInventoryProjectionInput = Readonly<{
   key: string;
@@ -28,8 +28,7 @@ export type SellpiaInventoryProductRow = Readonly<{
   masterProductId: string;
   masterProductCode: string;
   masterProductName: string;
-  abcGrade: 'A' | 'B' | 'C' | null;
-  abcEvaluation: SellpiaProductDestination['abcEvaluation'];
+  abc: SellpiaProductDestination['abc'];
 }>;
 
 export type SellpiaProductInventoryMetrics = Readonly<{
@@ -80,12 +79,8 @@ export function projectSellpiaProductInventory(input: {
       READY: number;
       INSUFFICIENT_EVIDENCE: number;
       SOURCE_UNMAPPED: number;
-      CALIBRATION_PENDING: number;
-      RECALCULATING: number;
       SELLPIA_SOURCE_STALE: number;
       AD_SOURCE_STALE: number;
-      ORDERS_SOURCE_STALE: number;
-      CALCULATION_ERROR: number;
     };
     abcContributionProfitByGrade: { A: number; B: number; C: number };
     classifiedProductCount: number;
@@ -181,8 +176,7 @@ export function projectSellpiaProductInventory(input: {
               masterProductId: inventoryProduct.masterProductId,
               masterProductCode: inventoryProduct.masterProductCode,
               masterProductName: inventoryProduct.masterProductName,
-              abcGrade: inventoryProduct.abcGrade,
-              abcEvaluation: inventoryProduct.abcEvaluation,
+              abc: inventoryProduct.abc,
             }
           : null,
         destinations,
@@ -260,8 +254,7 @@ function groupDestinations(
       externalOptionId: row.externalOptionId,
       optionName: row.optionName,
       unitsPerSale: row.unitsPerSale,
-      abcGrade: row.abcGrade,
-      abcEvaluation: row.abcEvaluation,
+      abc: row.abc,
       displayImage: row.displayImage,
     });
     grouped.set(row.sellpiaInventorySkuId, byOption);
@@ -284,12 +277,8 @@ function summarizeInventoryProductAbc(
     READY: number;
     INSUFFICIENT_EVIDENCE: number;
     SOURCE_UNMAPPED: number;
-    CALIBRATION_PENDING: number;
-    RECALCULATING: number;
     SELLPIA_SOURCE_STALE: number;
     AD_SOURCE_STALE: number;
-    ORDERS_SOURCE_STALE: number;
-    CALCULATION_ERROR: number;
   };
   abcContributionProfitByGrade: { A: number; B: number; C: number };
   classifiedProductCount: number;
@@ -307,33 +296,25 @@ function summarizeInventoryProductAbc(
       READY: 0,
       INSUFFICIENT_EVIDENCE: 0,
       SOURCE_UNMAPPED: 0,
-      CALIBRATION_PENDING: 0,
-      RECALCULATING: 0,
       SELLPIA_SOURCE_STALE: 0,
       AD_SOURCE_STALE: 0,
-      ORDERS_SOURCE_STALE: 0,
-      CALCULATION_ERROR: 0,
     },
     abcContributionProfitByGrade: { A: 0, B: 0, C: 0 },
     classifiedProductCount: 0,
     unclassifiedProductCount: 0,
   };
   for (const product of byMasterProduct.values()) {
-    if (product.abcGrade) {
-      summary.abcCounts[product.abcGrade] += 1;
+    if (product.abc.abcGrade) {
+      summary.abcCounts[product.abc.abcGrade] += 1;
       summary.classifiedProductCount += 1;
-    } else if (product.abcEvaluation === null) {
+    } else {
       summary.unclassifiedProductCount += 1;
     }
-    const evaluation = product.abcEvaluation;
-    if (!evaluation) continue;
-    const calculationStatus = evaluation.calculationStatus === 'CALIBRATION_PENDING'
-      ? 'INSUFFICIENT_EVIDENCE'
-      : evaluation.calculationStatus;
-    summary.abcStatusCounts[calculationStatus] += 1;
-    if (product.abcGrade && evaluation.weightedContributionProfit !== null) {
-      summary.abcContributionProfitByGrade[product.abcGrade] += Math.round(
-        evaluation.weightedContributionProfit,
+    const evaluation = product.abc.evaluation;
+    summary.abcStatusCounts[product.abc.displayStatus] += 1;
+    if (product.abc.abcGrade && evaluation) {
+      summary.abcContributionProfitByGrade[product.abc.abcGrade] += Math.round(
+        evaluation.weightedOperatingProfit,
       );
     }
   }

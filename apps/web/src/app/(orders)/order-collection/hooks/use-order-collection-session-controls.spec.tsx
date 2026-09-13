@@ -1,45 +1,52 @@
-import type { BrowserCollectionSessionView } from '@kiditem/shared/browser-collection-session';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, renderHook } from '@testing-library/react';
 import type { ReactNode } from 'react';
+import { act, renderHook } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { ApiError } from '@/lib/api-error';
 
 const mocks = vi.hoisted(() => ({
+  begin: vi.fn(),
   detectExtensionStatus: vi.fn(),
-  finalizeSession: vi.fn(),
-  findSession: vi.fn(),
-  issueRunId: vi.fn(),
-  recordMissing: vi.fn(),
-  sendControl: vi.fn(),
-  syncAlert: vi.fn(),
-  updateCache: vi.fn(),
-  useSession: vi.fn(),
+  fail: vi.fn(),
+  readActive: vi.fn(),
+  readAttempt: vi.fn(),
+  readControl: vi.fn(),
+  sendToExtension: vi.fn(),
+  remember: vi.fn(),
 }));
 
-vi.mock('@/hooks/useBrowserCollectionSession', () => ({
-  useBrowserCollectionSession: mocks.useSession,
+vi.mock('@/hooks/useAuth', () => ({
+  useAuth: () => ({ user: { organizationId: 'org-1' } }),
 }));
-vi.mock('@/lib/browser-collection-session', () => ({
-  findBrowserCollectionSession: mocks.findSession,
-  issueBrowserCollectionRunId: mocks.issueRunId,
-  recordMissingBrowserCollection: mocks.recordMissing,
-  sendBrowserCollectionControl: mocks.sendControl,
-  syncBrowserCollectionAlert: mocks.syncAlert,
-  updateBrowserCollectionSessionCache: mocks.updateCache,
+vi.mock('@/lib/extension-bridge', () => ({
+  sendToExtension: mocks.sendToExtension,
 }));
+vi.mock('../lib/order-collection-source-owner', async () => {
+  const actual = await vi.importActual('../lib/order-collection-source-owner');
+  return {
+    ...actual,
+    beginOrderCollectionSourceAttempt: mocks.begin,
+    failOrderCollectionSourceAttempt: mocks.fail,
+    readActiveOrderCollectionAttempt: mocks.readActive,
+    readOrderCollectionSourceAttempt: mocks.readAttempt,
+    readOrderCollectionSourceAttemptControl: mocks.readControl,
+    rememberActiveOrderCollectionAttempt: mocks.remember,
+  };
+});
 vi.mock('../lib/order-collection-extension', () => ({
   detectOrderCollectionSessionExtensionStatus: mocks.detectExtensionStatus,
-  orderCollectionExtensionUnavailableMessage: (status: { status: string; version?: string }) =>
+  orderCollectionExtensionUnavailableMessage: (status: { status: string }) =>
     status.status === 'incompatible'
-      ? `주문수집 확장프로그램 ${status.version}이 호환되지 않습니다.`
-      : '주문수집 확장프로그램을 찾지 못했습니다.',
-  finalizeOrderCollectionSession: mocks.finalizeSession,
+      ? '설치된 주문 수집 확장이 호환되지 않습니다.'
+      : '주문 수집 확장 프로그램을 찾지 못했습니다.',
 }));
 
 import { useOrderCollectionSessionControls } from './use-order-collection-session-controls';
 import type { OrderCollectionMallAccount } from '../lib/order-mall-account-api';
 
-const RUN_ID = '22222222-2222-4222-8222-222222222222';
+const ATTEMPT_ID = '22222222-2222-4222-8222-222222222222';
+const TOKEN = '33333333-3333-4333-8333-333333333333';
+const IDEMPOTENCY_KEY = '44444444-4444-4444-8444-444444444444';
 const account: OrderCollectionMallAccount = {
   key: 'kidsnote',
   name: '키즈노트',
@@ -53,6 +60,36 @@ const account: OrderCollectionMallAccount = {
   updatedAt: null,
 };
 
+const plan = {
+  sourceType: 'order_collection_mall' as const,
+  parserVersion: 'order-collection-v1',
+  mallKey: 'kidsnote',
+  mallName: '키즈노트',
+  channelAccountId: 'channel-1',
+  collectionDate: '2026-09-10',
+  collectionMode: 'browser' as const,
+  selectionMode: 'manual' as const,
+};
+
+function attempt(state: 'RUNNING' | 'COMPLETE' | 'FAILED' = 'RUNNING') {
+  return {
+    attemptId: ATTEMPT_ID,
+    sourceImportRunId: ATTEMPT_ID,
+    state,
+    plan,
+    expiresAt: '2026-09-07T12:00:00.000Z',
+    artifactId: state === 'COMPLETE' ? '55555555-5555-4555-8555-555555555555' : null,
+    coverageStartDate: null,
+    coverageEndDate: null,
+    errorCode: state === 'FAILED' ? 'COLLECTION_FAILED' : null,
+    errorMessage: state === 'FAILED' ? '이전 수집 실패' : null,
+  };
+}
+
+function control() {
+  return { ...attempt(), attemptToken: TOKEN };
+}
+
 function wrapper({ children }: { children: ReactNode }) {
   return (
     <QueryClientProvider client={new QueryClient()}>
@@ -61,44 +98,22 @@ function wrapper({ children }: { children: ReactNode }) {
   );
 }
 
-function attentionSession(
-  mallKey: string,
-  date: string | null = null,
-): BrowserCollectionSessionView {
-  return {
-    runId: RUN_ID,
-    producer: 'orders.mall',
-    classification: 'background_preferred',
-    status: 'attention_required',
-    attempt: 1,
-    restartStrategy: 'web',
-    progress: { current: 0, total: 0, completed: 0, failed: 0, label: null },
-    inputIdentity: { mallKey, date },
-    attention: {
-      reason: 'marketplace_login',
-      message: '로그인이 필요합니다.',
-      canOpenTab: true,
-    },
-    startedAt: 1,
-    updatedAt: 2,
-    finishedAt: null,
-  };
-}
-
 describe('useOrderCollectionSessionControls', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     window.history.replaceState({}, '', '/order-collection');
-    mocks.useSession.mockReturnValue({ data: null });
-    mocks.issueRunId.mockImplementation(async (existingRunId) => existingRunId ?? RUN_ID);
-    mocks.recordMissing.mockImplementation(async (_producer, _identity, runId) => ({ runId }));
-    mocks.findSession.mockResolvedValue(null);
-    mocks.syncAlert.mockResolvedValue(undefined);
-    mocks.updateCache.mockReturnValue(true);
+    mocks.readActive.mockReturnValue({ attemptId: null, idempotencyKey: null });
+    mocks.begin.mockResolvedValue(control());
+    mocks.readAttempt.mockResolvedValue(attempt());
+    mocks.readControl.mockResolvedValue(control());
+    mocks.detectExtensionStatus.mockResolvedValue({
+      status: 'ready', extensionId: 'order-extension', version: '0.1.90',
+    });
+    mocks.fail.mockResolvedValue({ ...attempt(), state: 'FAILED' });
+    mocks.sendToExtension.mockResolvedValue({ ok: true });
   });
 
-  it('keeps the page run id when the extension is missing', async () => {
-    mocks.detectExtensionStatus.mockResolvedValue({ status: 'not_found' });
+  it('persists idempotency before begin and forwards the owner permit to extension', async () => {
     const { result } = renderHook(
       () => useOrderCollectionSessionControls([account]),
       { wrapper },
@@ -106,21 +121,35 @@ describe('useOrderCollectionSessionControls', () => {
 
     let run;
     await act(async () => {
-      run = await result.current.prepareRun(account, RUN_ID);
+      run = await result.current.prepareRun(account);
     });
 
-    expect(run).toBeNull();
-    expect(mocks.recordMissing).toHaveBeenCalledWith(
-      'orders.mall',
-      { mallKey: 'kidsnote' },
-      RUN_ID,
+    expect(mocks.remember).toHaveBeenCalledWith(
+      'org-1',
+      expect.objectContaining({ attemptId: null, idempotencyKey: expect.any(String) }),
+      expect.any(String),
     );
-    expect(mocks.useSession).toHaveBeenLastCalledWith(RUN_ID);
+    expect(mocks.begin).toHaveBeenCalledWith(
+      expect.any(String),
+      {
+        mallKey: 'kidsnote',
+        collectionDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+        collectionMode: 'browser',
+        selectionMode: 'manual',
+      },
+    );
+    expect(run).toMatchObject({
+      attemptId: ATTEMPT_ID,
+      attemptToken: TOKEN,
+      extensionId: 'order-extension',
+    });
   });
 
-  it('미리 해결한 확장 상태를 받으면 다시 감지하지 않는다', async () => {
-    // 전체 수집은 배치 시작 때 한 번만 감지한다. 몰마다 재감지하면 수집 중 바빠진
-    // 서비스워커의 ping 이 감지 타임아웃을 넘겨 살아 있는 확장을 놓친다.
+  it('starts manual-upload owner attempts without extension admission', async () => {
+    mocks.begin.mockResolvedValue({
+      ...control(),
+      plan: { ...plan, collectionDate: null, collectionMode: 'manual-upload', selectionMode: undefined },
+    });
     const { result } = renderHook(
       () => useOrderCollectionSessionControls([account]),
       { wrapper },
@@ -128,218 +157,134 @@ describe('useOrderCollectionSessionControls', () => {
 
     let run;
     await act(async () => {
-      run = await result.current.prepareRun(account, RUN_ID, {
-        status: 'ready', extensionId: 'shared-extension', version: '1.0.6',
+      run = await result.current.prepareManualUploadRun(account);
+    });
+
+    expect(mocks.begin).toHaveBeenCalledWith(
+      expect.any(String),
+      { mallKey: 'kidsnote', collectionDate: null, collectionMode: 'manual-upload' },
+    );
+    expect(mocks.detectExtensionStatus).not.toHaveBeenCalled();
+    expect(run).toMatchObject({ attemptId: ATTEMPT_ID, attemptToken: TOKEN });
+    expect(run).not.toHaveProperty('extensionId');
+  });
+
+  it('replays a persisted idempotency key after a lost begin response', async () => {
+    const admitted = {
+      collectionDate: '2026-09-09',
+      selectionMode: 'automatic' as const,
+      seenRowKeys: ['frozen-row'],
+    };
+    mocks.readActive
+      .mockReturnValueOnce({ attemptId: null, idempotencyKey: IDEMPOTENCY_KEY })
+      .mockReturnValue({ attemptId: null, idempotencyKey: IDEMPOTENCY_KEY, ...admitted });
+    mocks.begin
+      .mockRejectedValueOnce(new ApiError(0, 'network_error', 'network lost'))
+      .mockResolvedValueOnce(control());
+    const { result } = renderHook(
+      () => useOrderCollectionSessionControls([account]),
+      { wrapper },
+    );
+
+    await expect(act(async () => result.current.prepareRun(account, undefined, undefined, {
+      collectionDate: '2026-09-10',
+      selectionMode: 'automatic',
+      seenRowKeys: ['new-row'],
+    }))).rejects.toThrow('network lost');
+    await act(async () => {
+      await result.current.prepareRun(account, undefined, undefined, {
+        collectionDate: '2026-09-10',
+        selectionMode: 'automatic',
+        seenRowKeys: ['new-row'],
       });
     });
 
+    expect(mocks.begin.mock.calls[0][0]).toBe(IDEMPOTENCY_KEY);
+    expect(mocks.begin.mock.calls[1][0]).toBe(IDEMPOTENCY_KEY);
+    expect(mocks.begin.mock.calls[1][1]).toMatchObject({
+      collectionDate: admitted.collectionDate,
+      selectionMode: admitted.selectionMode,
+      seenRowKeys: admitted.seenRowKeys,
+    });
+  });
+
+  it('reads public owner state on reload and only gets the permit on explicit resume', async () => {
+    mocks.readActive.mockReturnValue({ attemptId: ATTEMPT_ID, idempotencyKey: IDEMPOTENCY_KEY });
+    const { result } = renderHook(
+      () => useOrderCollectionSessionControls([account]),
+      { wrapper },
+    );
+
+    // Mount/reload performs only the public owner read; no extension/provider IO.
     expect(mocks.detectExtensionStatus).not.toHaveBeenCalled();
-    expect(run).toMatchObject({ runId: RUN_ID, extensionId: 'shared-extension' });
-  });
-
-  it('returns a session-capable extension bound to the requested run', async () => {
-    mocks.detectExtensionStatus.mockResolvedValue({
-      status: 'ready', extensionId: 'order-extension', version: '0.1.86',
-    });
-    const { result } = renderHook(
-      () => useOrderCollectionSessionControls([account]),
-      { wrapper },
-    );
-
-    let run;
     await act(async () => {
-      run = await result.current.prepareRun(account, RUN_ID);
+      await result.current.prepareRun(account);
     });
 
-    expect(run).toEqual({
-      runId: RUN_ID,
-      extensionId: 'order-extension',
-      signal: expect.any(AbortSignal),
-    });
-    expect(mocks.recordMissing).not.toHaveBeenCalled();
+    expect(mocks.readAttempt).toHaveBeenCalledWith(ATTEMPT_ID);
+    expect(mocks.readControl).toHaveBeenCalledWith(ATTEMPT_ID);
+    expect(mocks.begin).not.toHaveBeenCalled();
+    expect(mocks.detectExtensionStatus).toHaveBeenCalledTimes(1);
   });
 
-  it('rejects an installed stale extension without recording it as missing', async () => {
-    mocks.detectExtensionStatus.mockResolvedValue({
-      status: 'incompatible',
-      extensionId: 'order-extension',
-      version: '0.1.85',
-      missingCapabilities: ['orderCollectionFailureEvidenceV1'],
-    });
-    const { result } = renderHook(
-      () => useOrderCollectionSessionControls([account]),
-      { wrapper },
-    );
-
-    await expect(act(async () => {
-      await result.current.prepareRun(account, RUN_ID);
-    })).rejects.toThrow('0.1.85');
-    expect(mocks.recordMissing).not.toHaveBeenCalled();
-  });
-
-  it('preserves the original collection date on a same-run restart', async () => {
-    mocks.detectExtensionStatus.mockResolvedValue({
-      status: 'ready', extensionId: 'order-extension', version: '0.1.86',
-    });
-    mocks.useSession.mockReturnValue({
-      data: attentionSession('kidsnote', '2026-07-14'),
-    });
-    const { result } = renderHook(
-      () => useOrderCollectionSessionControls([account]),
-      { wrapper },
-    );
-
-    let run;
+  it('clears a stale foreign attempt only on explicit start and creates a new owner attempt', async () => {
+    mocks.readActive.mockReturnValue({ attemptId: ATTEMPT_ID, idempotencyKey: IDEMPOTENCY_KEY });
+    mocks.readAttempt.mockRejectedValue(new ApiError(404, 'NOT_FOUND', 'missing'));
     await act(async () => {
-      run = await result.current.prepareRun(account, RUN_ID);
+      renderHook(() => useOrderCollectionSessionControls([account]), { wrapper });
     });
+    expect(mocks.begin).not.toHaveBeenCalled();
 
-    expect(run).toEqual({
-      runId: RUN_ID,
-      extensionId: 'order-extension',
-      date: '2026-07-14',
-      signal: expect.any(AbortSignal),
-    });
-  });
-
-  it('aborts backend work and cancels the matching extension session', async () => {
-    const cancelled = {
-      ...attentionSession('kidsnote'),
-      status: 'cancelled' as const,
-      attention: null,
-      finishedAt: 3,
-    };
-    mocks.detectExtensionStatus.mockResolvedValue({
-      status: 'ready', extensionId: 'order-extension', version: '0.1.86',
-    });
-    mocks.sendControl.mockResolvedValue(cancelled);
     const { result } = renderHook(
       () => useOrderCollectionSessionControls([account]),
       { wrapper },
     );
-
-    let run: Awaited<ReturnType<typeof result.current.prepareRun>> | undefined;
     await act(async () => {
-      run = await result.current.prepareRun(account, RUN_ID);
+      await result.current.prepareRun(account);
     });
-    expect(run?.signal?.aborted).toBe(false);
+    expect(mocks.begin).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ mallKey: 'kidsnote' }),
+    );
+    expect(mocks.remember).toHaveBeenCalledWith(
+      'org-1',
+      { attemptId: null, idempotencyKey: null },
+      expect.any(String),
+    );
+  });
 
+  it('starts a fresh attempt after a failed previous owner state', async () => {
+    mocks.readActive.mockReturnValue({ attemptId: ATTEMPT_ID, idempotencyKey: IDEMPOTENCY_KEY });
+    mocks.readAttempt.mockResolvedValue(attempt('FAILED'));
+    const { result } = renderHook(
+      () => useOrderCollectionSessionControls([account]),
+      { wrapper },
+    );
+    await act(async () => {
+      await result.current.prepareRun(account);
+    });
+    expect(mocks.begin).toHaveBeenCalledTimes(1);
+    expect(mocks.begin.mock.calls[0][0]).not.toBe(IDEMPOTENCY_KEY);
+  });
+
+  it('cancels extension progress and fences the owner failure with attemptId/token', async () => {
+    const { result } = renderHook(
+      () => useOrderCollectionSessionControls([account]),
+      { wrapper },
+    );
+    await act(async () => {
+      await result.current.prepareRun(account);
+    });
     await act(async () => {
       await result.current.cancelRun(account);
     });
-
-    expect(run?.signal?.aborted).toBe(true);
-    expect(mocks.sendControl).toHaveBeenCalledWith(RUN_ID, 'cancelCollectionSession');
-    expect(mocks.updateCache).toHaveBeenCalledWith(expect.anything(), cancelled);
-    expect(mocks.syncAlert).toHaveBeenCalledWith(cancelled);
-    expect(result.current.cancellingKeys).toContain(account.key);
-
-    act(() => result.current.releaseRun(account.key, RUN_ID));
-    expect(result.current.cancellingKeys).not.toContain(account.key);
-  });
-
-  it('finalizes conversion failure and syncs the personal alert', async () => {
-    const failed = {
-      ...attentionSession('kidsnote'),
-      status: 'failed' as const,
-      attention: null,
-      progress: {
-        current: 2,
-        total: 2,
-        completed: 1,
-        failed: 1,
-        label: '파일 생성 실패',
-      },
-      finishedAt: 3,
-    };
-    mocks.detectExtensionStatus.mockResolvedValue({
-      status: 'ready', extensionId: 'order-extension', version: '0.1.86',
-    });
-    mocks.finalizeSession.mockResolvedValue(failed);
-    const { result } = renderHook(
-      () => useOrderCollectionSessionControls([account]),
-      { wrapper },
+    expect(mocks.sendToExtension).toHaveBeenCalledWith(
+      'order-extension',
+      { action: 'cancelCollectionSession', attemptId: ATTEMPT_ID },
     );
-
-    let run: Awaited<ReturnType<typeof result.current.prepareRun>> | undefined;
-    await act(async () => {
-      run = await result.current.prepareRun(account, RUN_ID);
-    });
-    await act(async () => {
-      await result.current.finalizeRun(
-        run!,
-        'failed',
-        '파일 생성 실패',
-      );
-    });
-
-    expect(mocks.finalizeSession).toHaveBeenCalledWith(
-      run,
-      'failed',
-      '파일 생성 실패',
+    expect(mocks.fail).toHaveBeenCalledWith(
+      expect.objectContaining({ attemptId: ATTEMPT_ID, attemptToken: TOKEN }),
+      expect.objectContaining({ code: 'USER_CANCELLED' }),
     );
-    expect(mocks.updateCache).toHaveBeenCalledWith(expect.anything(), failed);
-    expect(mocks.syncAlert).toHaveBeenCalledWith(failed);
-  });
-
-  it('synchronizes an extension attention session on demand', async () => {
-    const attention = attentionSession('kidsnote');
-    mocks.findSession.mockResolvedValue(attention);
-    const { result } = renderHook(
-      () => useOrderCollectionSessionControls([account]),
-      { wrapper },
-    );
-
-    await act(async () => {
-      await result.current.syncRun(RUN_ID);
-    });
-
-    expect(mocks.findSession).toHaveBeenCalledWith(RUN_ID);
-    expect(mocks.updateCache).toHaveBeenCalledWith(expect.anything(), attention);
-    expect(mocks.syncAlert).toHaveBeenCalledWith(attention);
-  });
-
-  it('keeps cancellation successful when personal-alert syncing is temporarily unavailable', async () => {
-    const cancelled = {
-      ...attentionSession('kidsnote'),
-      status: 'cancelled' as const,
-      attention: null,
-      finishedAt: 3,
-    };
-    mocks.detectExtensionStatus.mockResolvedValue({
-      status: 'ready', extensionId: 'order-extension', version: '0.1.86',
-    });
-    mocks.sendControl.mockResolvedValue(cancelled);
-    mocks.syncAlert.mockRejectedValue(new Error('alerts unavailable'));
-    const { result } = renderHook(
-      () => useOrderCollectionSessionControls([account]),
-      { wrapper },
-    );
-
-    await act(async () => {
-      await result.current.prepareRun(account, RUN_ID);
-    });
-
-    await expect(act(async () => {
-      await result.current.cancelRun(account);
-    })).resolves.toBeUndefined();
-
-    expect(result.current.cancellingKeys).toContain(account.key);
-  });
-
-  it('maps only configured route accounts to same-run restart', () => {
-    mocks.useSession.mockReturnValue({ data: attentionSession('coupang-rocket') });
-    const { result, rerender } = renderHook(
-      () => useOrderCollectionSessionControls([account]),
-      { wrapper },
-    );
-
-    expect(result.current.restartAccount).toBeNull();
-    expect(result.current.webRestartUnavailableMessage).toMatch(/원래 실행 화면/);
-
-    mocks.useSession.mockReturnValue({ data: attentionSession('kidsnote') });
-    rerender();
-    expect(result.current.restartAccount).toEqual(account);
-    expect(result.current.webRestartUnavailableMessage).toBeUndefined();
   });
 });

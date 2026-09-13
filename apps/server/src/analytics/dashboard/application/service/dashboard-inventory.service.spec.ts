@@ -1,20 +1,36 @@
 import { describe, expect, it, vi } from 'vitest';
 import { buildDashboardContext } from '../../domain/context';
-import type { DashboardInventoryRepositoryPort } from '../port/out/repository/dashboard-inventory.repository.port';
 import { DashboardInventoryService } from './dashboard-inventory.service';
+import type {
+  AbcStatusCounts,
+  DashboardInventoryRepositoryPort,
+} from '../port/out/repository/dashboard-inventory.repository.port';
+
+/** The ABC counts plus the evaluation as-of they were classified against. */
+function abcStatusCounts(overrides: Partial<AbcStatusCounts> = {}): AbcStatusCounts {
+  return {
+    rows: [],
+    evaluatedAsOf: {
+      targetCutoff: '2026-08-31',
+      actualCutoff: '2026-08-31',
+      capturedAt: '2026-09-01T00:00:00.000Z',
+    },
+    ...overrides,
+  };
+}
 
 function repository(
   overrides: Partial<DashboardInventoryRepositoryPort> = {},
 ): DashboardInventoryRepositoryPort {
   return {
     countActiveProductsByGrade: vi.fn().mockResolvedValue([]),
-    countActiveProductsByAbcStatus: vi.fn().mockResolvedValue([]),
+    countActiveProductsByAbcStatus: vi.fn().mockResolvedValue(abcStatusCounts()),
     findActiveAbcContributions: vi.fn().mockResolvedValue([]),
     countUnclassifiedActiveProducts: vi.fn().mockResolvedValue(0),
     findAbcFormula: vi.fn().mockResolvedValue(null),
     findUnreadAlerts: vi.fn().mockResolvedValue([]),
     countActiveProducts: vi.fn().mockResolvedValue(0),
-    fetchPerListingMetrics: vi.fn().mockResolvedValue([]),
+    fetchPerListingMetrics: vi.fn().mockResolvedValue({ rows: [], withheldListings: 0 }),
     countOutOfStockMasterProducts: vi.fn().mockResolvedValue(0),
     getSellingChannelMappingSummary: vi.fn().mockResolvedValue({
       linkedMasterProductCount: 0,
@@ -34,14 +50,16 @@ describe('DashboardInventoryService', () => {
       countActiveProductsByGrade: vi.fn().mockResolvedValue([
         { abcGrade: 'A', count: 2 }, { abcGrade: 'B', count: 1 },
       ]),
-      countActiveProductsByAbcStatus: vi.fn().mockResolvedValue([
-        { calculationStatus: 'READY', count: 3 },
-        { calculationStatus: 'INSUFFICIENT_EVIDENCE', count: 2 },
-        { calculationStatus: 'SELLPIA_SOURCE_STALE', count: 1 },
-      ]),
+      countActiveProductsByAbcStatus: vi.fn().mockResolvedValue(abcStatusCounts({
+        rows: [
+          { displayStatus: 'READY', count: 3 },
+          { displayStatus: 'INSUFFICIENT_EVIDENCE', count: 2 },
+          { displayStatus: 'SELLPIA_SOURCE_STALE', count: 1 },
+        ],
+      })),
       findActiveAbcContributions: vi.fn().mockResolvedValue([
-        { abcGrade: 'A', weightedContributionProfit: 800 },
-        { abcGrade: 'B', weightedContributionProfit: 200 },
+        { abcGrade: 'A', weightedOperatingProfit: 800 },
+        { abcGrade: 'B', weightedOperatingProfit: 200 },
       ]),
       countUnclassifiedActiveProducts: vi.fn().mockResolvedValue(5),
       getSellingChannelMappingSummary: vi.fn().mockResolvedValue({

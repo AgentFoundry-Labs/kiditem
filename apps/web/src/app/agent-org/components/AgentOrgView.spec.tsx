@@ -2,7 +2,6 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import type { MallOperationOutcomeSummaryRow } from '@kiditem/shared/mall-operation-outcomes';
-import type { OperationRun } from '@kiditem/shared/operations';
 import type { PipeConfirmChannel } from '../hooks/use-confirm-report';
 import type { ConfirmReportStatus } from '../lib/confirm-report-api';
 import { buildPipeSnapshot, type PipeInputs } from '../lib/pipe-model';
@@ -41,19 +40,25 @@ function outcome(
 function snapshot(overrides: Partial<PipeInputs> = {}) {
   return buildPipeSnapshot({
     now: NOW,
-    runs: {
+    alerts: {
       data: [
         {
           id: '11111111-1111-4111-8111-111111111111',
-          operationKey: 'sourcing.collect_daily_trends',
-          title: '일별 트렌드 수집',
-          status: 'succeeded',
-          result: { outcome: 'complete', summary: { accepted: 1240 } },
-          error: null,
-          finishedAt: ago(12),
+          attemptId: null,
+          kind: 'signal',
+          status: 'RESOLVED',
+          type: 'source_failure',
+          severity: 'error',
+          title: '쿠팡 키워드 순위 수집 실패',
+          message: null,
+          targetType: null,
+          targetId: null,
+          sourceType: 'coupang_keyword_serp',
+          href: '/rank-tracking',
+          isRead: true,
+          createdAt: ago(40),
           updatedAt: ago(12),
-          createdAt: ago(14),
-        } as unknown as OperationRun,
+        },
       ],
       failed: false,
     },
@@ -73,7 +78,6 @@ function snapshot(overrides: Partial<PipeInputs> = {}) {
     },
     freshness: { data: null, failed: false },
     confirm: { data: null, failed: false },
-    panelItems: [],
     loginBlocks: [{ mallKey: 'gs-shop', kind: 'login', reason: '비밀번호 거부', at: NOW - 60_000 }],
     ...overrides,
   });
@@ -148,7 +152,10 @@ describe('AgentOrgView', () => {
     render(<AgentOrgView snapshot={snapshot()} connection="connected" now={NOW} />);
     const keyword = screen.getByRole('link', { name: '1단계 실시간 키워드 열기' });
     expect(keyword).toHaveAttribute('href', '/sourcing-ai/market');
-    expect(within(keyword).getByText('최근 1,240건')).toBeInTheDocument();
+    // 건수는 몰 작업 기억이 알려 준다 — 아이스크림몰 주문 4건.
+    const orders = screen.getByRole('link', { name: '주문 → 출고 → 송장 열기' });
+    expect(orders).toHaveAttribute('href', '/order-collection');
+    expect(within(orders).getByText('최근 4건')).toBeInTheDocument();
   });
 
   it('⭐ 같은 몰 로그인 막힘은 확인 필요에 한 장이고, 몰 연결 줄에도 같은 사실이 선다', () => {

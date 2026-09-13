@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useMemo, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { friendlyError } from '@/lib/api-error';
@@ -14,7 +14,6 @@ import {
 } from '@/app/(orders)/order-collection/lib/order-generated-file-store';
 import { runWithConcurrency } from '@/app/(orders)/order-collection/lib/order-collection-concurrency';
 import {
-  detectOrderCollectionSessionExtensionStatus,
   type OrderCollectionExtensionRun,
 } from '@/app/(orders)/order-collection/lib/order-collection-extension';
 import { EXTENSION_TIMEOUT_MESSAGE, type ExtensionRuntimeStatus } from '@/lib/extension-bridge';
@@ -34,6 +33,7 @@ import {
   reconcileCollectedOrdersWithSellpia,
 } from '@/app/(orders)/order-collection/lib/sellpia-order-reconcile';
 import { useOrderCollectionSessionControls } from '@/app/(orders)/order-collection/hooks/use-order-collection-session-controls';
+import type { CoupangDirectData } from '@/app/(orders)/order-collection/lib/coupang-directship-api';
 import {
   collectedOutcome,
   failedCollectionOutcome,
@@ -102,9 +102,12 @@ export function useAllMarketplaceOrderCollection({
 }: UseAllMarketplaceOrderCollectionOptions) {
   // 수집 결과(기억)를 남긴 직후 화면이 다시 읽도록 무효화한다.
   const queryClient = useQueryClient();
-  const sessionControls = useOrderCollectionSessionControls(mallAccounts);
+  const sessionControls = useOrderCollectionSessionControls(
+    mallAccounts,
+    rocketChannelAccountId,
+  );
   const {
-    finalizeRun,
+    failRun,
     prepareRun,
     releaseRun,
     syncRun,
@@ -123,7 +126,7 @@ export function useAllMarketplaceOrderCollection({
     async (
       account: OrderCollectionMallAccount,
       run?: OrderCollectionExtensionRun,
-      directship?: { eddDates: string[] },
+      directship?: { eddDates: string[]; data?: CoupangDirectData },
       knownExtensionStatus?: ExtensionRuntimeStatus,
     ) => {
       markCollecting(account.key, true);
@@ -138,13 +141,25 @@ export function useAllMarketplaceOrderCollection({
           throw new Error('주문수집 확장프로그램을 찾을 수 없습니다.');
         }
         const collected = await collectBrowserMall(account, activeRun, { directship });
-        await finalizeRun(
-          activeRun,
-          'succeeded',
-          collected.rowCount === 0
-            ? `${account.name} 배송준비전 주문 없음`
-            : `${account.name} 수집 및 파일 생성 완료 (${formatNumber(collected.rowCount)}행)`,
-        );
+        if (collected.rowCount === 0) {
+          // Empty provider results have no converter response to fence. Keep
+          // the generic owner terminal instead of leaving a RUNNING attempt
+          // forever. Directship is already COMPLETE before this downstream
+          // probe, so it must remain a successful no-op rather than issuing
+          // a terminal failure against the completed source owner.
+          if (activeRun.sourceOwner !== 'coupang_directship') {
+            await failRun(
+              activeRun,
+              'NO_NEW_ORDERS',
+              `${account.name} 배송준비전 주문이 없습니다.`,
+            );
+          }
+        } else {
+          // Server conversion endpoints complete the source owner after the
+          // transient download is produced. Read the owner projection back;
+          // generated output bytes never become a web/server artifact.
+          await syncRun(activeRun.attemptId);
+        }
         outcome = collectedOutcome(account.key, collected.rowCount);
         clearMallErrorActivity(account.name);
         if (collected.rowCount === 0) logActivity('empty', account.name);
@@ -167,24 +182,31 @@ export function useAllMarketplaceOrderCollection({
           aborted: Boolean(activeRun?.signal?.aborted),
           hasRun: Boolean(activeRun),
         });
+        const ownerReconciliationRequired = error instanceof Error &&
+          'ownerReconciliationRequired' in error &&
+          (error as Error & { ownerReconciliationRequired?: unknown }).ownerReconciliationRequired === true;
         if (activeRun && attentionKind) {
-          await syncRun(activeRun.runId).catch((syncError) => {
+          await syncRun(activeRun.attemptId).catch((syncError) => {
             console.warn(
-              '[order-collection] failed to sync attention session',
+              '[order-collection] failed to sync source attempt',
               syncError,
             );
           });
         }
-        if (activeRun && !attentionKind) {
-          await finalizeRun(
+        if (activeRun && !attentionKind && !ownerReconciliationRequired) {
+          const unsupported = error instanceof Error && 'sourcePayload' in error
+            ? (error as Error & { sourcePayload?: unknown }).sourcePayload
+            : undefined;
+          await failRun(
             activeRun,
-            noNewOrders ? 'succeeded' : 'failed',
+            noNewOrders ? 'NO_NEW_ORDERS' : 'COLLECTION_FAILED',
             noNewOrders
               ? `${account.name} 신규 주문 없음`
               : `${account.name} 파일 생성 실패: ${message}`,
+            unsupported,
           ).catch((finalizeError) => {
             console.warn(
-              '[order-collection] failed to finalize collection session',
+              '[order-collection] failed to fail source attempt',
               finalizeError,
             );
           });
@@ -199,7 +221,7 @@ export function useAllMarketplaceOrderCollection({
         }
         throw error;
       } finally {
-        if (activeRun) releaseRun(account.key, activeRun.runId);
+        if (activeRun) releaseRun(account.key, activeRun.attemptId);
         markCollecting(account.key, false);
         if (outcome) {
           // 한 번의 수집에 정확히 한 줄. 기록 실패는 수집을 막지 않는다.
@@ -207,7 +229,7 @@ export function useAllMarketplaceOrderCollection({
             mallKey: account.key,
             operation: 'order_collection',
             ...outcome,
-            runId: activeRun?.runId ?? null,
+            runId: activeRun?.attemptId ?? null,
           }).finally(() => {
             // 기록이 남는 즉시 화면이 다시 읽게 한다. 이게 없으면 몰 카드와 몰별 상태가 최대
             // 1분 늦게 따라와, 방금 성공한 수집이 직전 실패로 보인다.
@@ -221,7 +243,7 @@ export function useAllMarketplaceOrderCollection({
     [
       clearMallErrorActivity,
       collectBrowserMall,
-      finalizeRun,
+      failRun,
       logActivity,
       queryClient,
       markCollecting,
@@ -241,12 +263,12 @@ export function useAllMarketplaceOrderCollection({
     let successCount = 0;
     let failedCount = 0;
     const noAnswerMallKeys: string[] = [];
-    // 확장 감지는 배치 시작 때 한 번만 한다. 수집이 돌기 시작하면 서비스워커가 바빠져
-    // `ping` 이 감지 타임아웃을 넘기고, 살아 있는 확장을 "찾을 수 없음" 으로 오판한다.
-    const extensionStatus = await detectOrderCollectionSessionExtensionStatus();
     await runWithConcurrency(accounts, COLLECT_ALL_CONCURRENCY, async (account) => {
       try {
-        await collectAccount(account, undefined, undefined, extensionStatus);
+        // Each account is admitted by the source owner before extension
+        // detection/provider I/O. The owner idempotency key, not a generic
+        // browser run, is the batch's execution authority.
+        await collectAccount(account);
         successCount += 1;
       } catch (error) {
         failedCount += 1;
@@ -284,7 +306,6 @@ export function usePersistedAllMarketplaceOrderCollection({
   rocketChannelAccountId: string | null;
 }) {
   const generatedFileWriteQueueRef = useRef<Promise<void>>(Promise.resolve());
-  const notifiedAttentionRef = useRef<string | null>(null);
   const mallAccountsQuery = useQuery({
     queryKey: queryKeys.orders.collectionMalls(),
     queryFn: orderMallAccountApi.list,
@@ -316,27 +337,11 @@ export function usePersistedAllMarketplaceOrderCollection({
   }, []);
   const {
     collectAll,
-    sessionControls,
   } = useAllMarketplaceOrderCollection({
     mallAccounts,
     rocketChannelAccountId,
     addGeneratedFile,
   });
-
-  useEffect(() => {
-    const session = sessionControls.session;
-    const attentionMessage = session?.status === 'attention_required'
-      ? session.attention?.message ?? null
-      : null;
-    if (!attentionMessage) {
-      notifiedAttentionRef.current = null;
-      return;
-    }
-    const signature = `${session?.runId ?? ''}:${attentionMessage}`;
-    if (notifiedAttentionRef.current === signature) return;
-    notifiedAttentionRef.current = signature;
-    toast.warning(attentionMessage);
-  }, [sessionControls.session]);
 
   /**
    * 전체 수집. `skipMallKeys` 는 사람이 직접 로그인·인증해야 하는 몰이다 — 자동 운전 고리가

@@ -14,7 +14,7 @@ import { useAgentOrg } from './hooks/use-agent-org';
  * `lib/pipe-model.ts`, 단계와 기록의 연결은 `lib/pipe-stages.ts` 가 가진다.
  */
 export default function AgentOrgPage() {
-  const { snapshot, connection, now, confirm, business, runs, refresh } = useAgentOrg();
+  const { snapshot, connection, now, confirm, business, openAlerts, refresh } = useAgentOrg();
   return (
     <div className="fixed inset-0 flex flex-col overflow-hidden bg-[#0a0f1a] text-white max-md:overflow-y-auto">
       <AgentOsHeader ceoName="KidItem 운영" onRefresh={refresh} />
@@ -25,7 +25,7 @@ export default function AgentOrgPage() {
           now={now}
           confirm={confirm}
           business={business}
-          runs={runs}
+          openAlerts={openAlerts}
         />
       </main>
     </div>

@@ -20,4 +20,36 @@ describe('ThumbnailAnalysisGenerationReviewController identity contract', () => 
     ).toThrow(BadRequestException);
     expect(generationService.findAll).not.toHaveBeenCalled();
   });
+
+  it('cancels one thumbnail generation through its organization-scoped owner', async () => {
+    const generationService = {
+      cancelGeneration: vi.fn().mockResolvedValue({
+        status: 'cancelled',
+        generationId: 'generation-1',
+        preserved: false,
+      }),
+    };
+    const controller = new ThumbnailAnalysisGenerationReviewController(
+      generationService as never,
+    );
+
+    await expect(
+      controller.cancelGeneration(
+        'generation-1',
+        { reason: '사용자 요청' },
+        'organization-1',
+        { id: 'user-1' } as never,
+      ),
+    ).resolves.toEqual({
+      status: 'cancelled',
+      generationId: 'generation-1',
+      preserved: false,
+    });
+    expect(generationService.cancelGeneration).toHaveBeenCalledWith({
+      organizationId: 'organization-1',
+      generationId: 'generation-1',
+      actorUserId: 'user-1',
+      reason: '사용자 요청',
+    });
+  });
 });

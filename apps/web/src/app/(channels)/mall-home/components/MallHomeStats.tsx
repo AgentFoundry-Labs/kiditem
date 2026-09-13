@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { AlertTriangle, KeyRound, Loader2, PackageX } from 'lucide-react';
+import { AlertTriangle, BellRing, KeyRound, PackageX } from 'lucide-react';
 import { cn, formatNumber } from '@/lib/utils';
 import type { MallAlertFilter } from '../lib/mall-alerts';
 import type { LoginNeededCount } from '../lib/mall-session';
@@ -11,7 +11,7 @@ const TILE = 'card block w-full rounded-2xl p-4 text-left transition hover:borde
 /**
  * 쇼핑몰 홈 맨 위 네 칸 — 지금 사람이 볼 것.
  *
- * 앞의 두 칸(확인 필요 · 진행 중)은 누르면 오른쪽 알림판을 그 칸으로 거른다. 뒤의 두 칸은
+ * 앞의 두 칸(확인 필요 · 열린 몰 알림)은 누르면 오른쪽 알림판을 그 칸으로 거른다. 뒤의 두 칸은
  * 해결하러 갈 화면으로 보낸다. 로그인 필요는 세션이 풀린 몰과 계정 정보가 없는 몰을 합친
  * 것이다(둘 다인 몰은 한 번). 못 받은 숫자는 0 이 아니라 `—` 다.
  *
@@ -20,13 +20,14 @@ const TILE = 'card block w-full rounded-2xl p-4 text-left transition hover:borde
  */
 export function MallHomeStats({
   attention,
-  running,
+  openAlerts,
   loginNeeded,
   soldOut,
   onFilter,
 }: {
   attention: number;
-  running: number;
+  /** 아직 열린 몰 원천 실패 알림 수. 못 받았으면 `null`. */
+  openAlerts: number | null;
   loginNeeded: LoginNeededCount | null;
   soldOut: number | null;
   onFilter: (filter: MallAlertFilter) => void;
@@ -46,15 +47,14 @@ export function MallHomeStats({
           caption="알림판에서 보기"
         />
       </button>
-      <button type="button" className={TILE} onClick={() => onFilter('running')}>
+      <button type="button" className={TILE} onClick={() => onFilter('all')}>
         <TileBody
-          label="진행 중"
-          value={running}
+          label="열린 몰 알림"
+          value={openAlerts}
           unit="건"
-          icon={Loader2}
-          tone="bg-sky-50 text-sky-600"
-          iconClassName={running > 0 ? 'animate-spin' : undefined}
-          caption="지금 도는 몰 작업"
+          icon={BellRing}
+          tone={openAlerts ? 'bg-sky-50 text-sky-600' : 'bg-slate-100 text-slate-400'}
+          caption="다시 성공하면 닫힙니다"
         />
       </button>
       <Link href="/mall-settings" className={TILE}>

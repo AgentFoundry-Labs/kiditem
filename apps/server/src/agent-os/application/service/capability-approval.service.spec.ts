@@ -16,7 +16,6 @@ describe('CapabilityApprovalService', () => {
       result: {
         summary: 'Listing submitted.',
         resourceRefs: [],
-        operationRefs: [],
       },
       finishedAt: new Date('2026-08-25T00:01:01.000Z'),
     };
@@ -114,7 +113,7 @@ function receipt(input: { approvalStatus: 'approved' | 'rejected' | 'expired' })
     id: INVOCATION_ID,
     organizationId: ORGANIZATION_ID,
     initiatingUserId: USER_ID,
-    capabilityKey: 'channels.submit_coupang_listing',
+    capabilityKey: 'channels.register_confirmed_listing',
     actingAgentKey: 'channel_operations',
     requestKey: 'request-1',
     canonicalInput: { preparationId: '00000000-0000-4000-8000-000000000004' },

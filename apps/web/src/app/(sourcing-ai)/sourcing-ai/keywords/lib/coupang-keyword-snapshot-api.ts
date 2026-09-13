@@ -7,19 +7,19 @@ import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 
 export function keywordSuggestionSnapshotQueryKey(keyword: string) {
-  return queryKeys.sourcing.keywordSuggestions(normalizeKeyword(keyword));
+  return queryKeys.sourcing.keywordSuggestions(normalizeCoupangKeyword(keyword));
 }
 
 export function fetchCoupangKeywordSuggestionSnapshot(
   keyword: string,
 ): Promise<SourcingKeywordSuggestionSnapshot> {
-  const normalized = normalizeKeyword(keyword);
+  const normalized = normalizeCoupangKeyword(keyword);
   return apiClient.getParsed(
     `/api/sourcing/workspace/keyword-suggestions?keyword=${encodeURIComponent(normalized)}`,
     SourcingKeywordSuggestionSnapshotSchema,
   );
 }
 
-function normalizeKeyword(keyword: string): string {
+export function normalizeCoupangKeyword(keyword: string): string {
   return SourcingWingCatalogKeywordSchema.parse(keyword);
 }

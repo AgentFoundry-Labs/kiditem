@@ -10,6 +10,35 @@ const SKU_ID = '00000000-0000-4000-8000-000000000005';
 const COMPONENT_ID = '00000000-0000-4000-8000-000000000006';
 const OBSERVED_AT = '2026-08-03T00:00:00.000Z';
 
+// This product is deliberately unclassified: the recipe assertions below are
+// about option inventory, not ABC. `abc` is the read model that carries that
+// unclassified state now that the grade no longer travels as a loose field.
+const UNCLASSIFIED_ABC = {
+  abcGrade: null,
+  evaluation: null,
+  displayStatus: 'INSUFFICIENT_EVIDENCE' as const,
+  formulaRevision: 0,
+  publicationRevision: 0,
+  officialCutoffDate: null,
+  publishedAt: null,
+  actualCutoffDate: null,
+  sources: {
+    sellpia: missingAbcSource(),
+    advertising: missingAbcSource(),
+    mapping: { status: 'UNMAPPED' as const, mappingGeneration: null },
+  },
+};
+
+function missingAbcSource() {
+  return {
+    ready: false,
+    requiredCutoff: '2026-07-31',
+    actualCutoff: null,
+    latestAttempt: null,
+    latestComplete: null,
+  };
+}
+
 describe('direct channel inventory contracts', () => {
   it('models an option recipe directly without an operating ProductVariant', () => {
     const parsed = ChannelOptionMatchingQueueRowSchema.parse({
@@ -61,6 +90,8 @@ describe('direct channel inventory contracts', () => {
       displayImageUrls: [],
       abcGrade: null,
       abcEvaluation: null,
+      abc: UNCLASSIFIED_ABC,
+      contribution: null,
       profitTag: null,
       adTier: null,
       adBudgetLimit: null,

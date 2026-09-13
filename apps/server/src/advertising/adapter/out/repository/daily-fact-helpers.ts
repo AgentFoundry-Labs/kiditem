@@ -12,7 +12,9 @@
 //   On create the helper writes `{ [source]: data }`. On update the
 //   helper applies an atomic Postgres jsonb merge so independent source
 //   keys do not clobber each other even when sync and upload jobs touch
-//   the same daily-fact row concurrently.
+//   the same daily-fact row concurrently. Wing traffic additionally writes
+//   a `traffic.currentSource` marker so a shared row identifies the latest
+//   traffic writer without discarding either namespace.
 
 import { Prisma } from '@prisma/client';
 import type {
@@ -72,7 +74,12 @@ export function spreadMetricsForUpdate<K extends string>(
 }
 
 function buildNamespacedMetaPatchJson(input: NamespacedMetaJson): string {
-  return JSON.stringify({ [input.source]: input.data });
+  return JSON.stringify({
+    [input.source]: input.data,
+    ...(input.source === 'wing.traffic'
+      ? { 'traffic.currentSource': 'wing.traffic' }
+      : {}),
+  });
 }
 
 function isNamespacedMetaJson(
@@ -92,6 +99,9 @@ export function buildNamespacedMetaForCreate(
   if (input === undefined || input === null) return Prisma.DbNull;
   return {
     [input.source]: input.data,
+    ...(input.source === 'wing.traffic'
+      ? { 'traffic.currentSource': 'wing.traffic' }
+      : {}),
   } as unknown as Prisma.InputJsonValue;
 }
 

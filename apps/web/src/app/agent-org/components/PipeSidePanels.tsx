@@ -118,7 +118,6 @@ export function PipeAgentsPanel({
 
 const CONNECTION_CHIP: Readonly<Record<string, { label: string; tone: string }>> = {
   connected: { label: 'LIVE', tone: 'bg-emerald-500/15 text-emerald-400' },
-  polling_fallback: { label: '5초 확인', tone: 'bg-amber-500/15 text-amber-400' },
   connecting: { label: '연결 중', tone: 'bg-slate-500/15 text-slate-400' },
   disconnected: { label: 'OFFLINE', tone: 'bg-red-500/15 text-red-400' },
 };

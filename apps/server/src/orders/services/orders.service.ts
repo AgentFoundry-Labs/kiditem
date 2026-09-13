@@ -1,18 +1,12 @@
-import { Inject, Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, NotImplementedException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import {
-  COUPANG_PROVIDER_PORT,
-  type CoupangProviderPort,
-} from '../../channels/application/port/out/provider/coupang-provider.port';
 import { OrderStatusSchema } from '@kiditem/shared/order';
 import type { OrderActionResponse, OrderListItem, OrderListResponse, OrderStatsResponse } from '@kiditem/shared/order';
+import { addDays, kstBusinessDate, kstDayStart } from '../../common/kst';
 
 @Injectable()
 export class OrdersService {
-  constructor(
-    private readonly prisma: PrismaService,
-    @Inject(COUPANG_PROVIDER_PORT) private readonly coupang: CoupangProviderPort,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   private toListItem(order: {
     id: string;
@@ -143,7 +137,6 @@ export class OrdersService {
     return {
       items: orders.map((order) => this.toListItem(order)),
       total: orders.length,
-      deliveryCompanies: [...this.coupang.getDeliveryCompanies()],
     } satisfies OrderListResponse;
   }
 
@@ -163,9 +156,9 @@ export class OrdersService {
 
   async getStats(organizationId: string): Promise<OrderStatsResponse> {
     const now = new Date();
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const dayOfWeek = now.getDay();
-    const weekStart = new Date(todayStart.getTime() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1) * 86400000);
+    const todayStart = kstDayStart(now);
+    const dayOfWeek = kstBusinessDate(now).getUTCDay();
+    const weekStart = addDays(todayStart, -(dayOfWeek === 0 ? 6 : dayOfWeek - 1));
 
     const [total, accept, instruct, departure, delivering, finalDelivery, todayAgg, weekAgg] =
       await Promise.all([
@@ -200,80 +193,19 @@ export class OrdersService {
     } satisfies OrderStatsResponse;
   }
 
-  /**
-   * shipmentBoxId 소유권 + safe-integer 검증 — 주어진 ID 들이 모두
-   *   1) Number.MAX_SAFE_INTEGER 안전 범위 안 (정수 양수)
-   *   2) organizationId 의 계정 귀속 주문 (organizationId + channelAccountId + externalOrderId)
-   * 위 두 조건을 만족해야 외부 API 호출. DTO ValidationPipe 가 1차 방어이지만
-   * 내부 caller (workflow 등) 가 DTO 우회 가능하므로 service 에서도 defensive.
-   */
-  private async assertOwnedShipmentBoxIds(
-    shipmentBoxIds: number[],
-    organizationId: string,
-  ): Promise<string> {
-    const unsafe = shipmentBoxIds.filter(
-      (id) => !Number.isSafeInteger(id) || id <= 0,
-    );
-    if (unsafe.length > 0) {
-      throw new BadRequestException(
-        `shipmentBoxId(s) out of safe-integer range: ${unsafe.join(', ')}`,
-      );
-    }
-    const externalOrderIds = shipmentBoxIds.map((id) => String(id));
-    const owned = await this.prisma.order.findMany({
-      where: {
-        organizationId,
-        externalOrderId: { in: externalOrderIds },
-        channelAccount: { channel: 'coupang', status: 'active' },
-      },
-      select: { externalOrderId: true, channelAccountId: true },
-    });
-    if (owned.length !== shipmentBoxIds.length) {
-      const ownedSet = new Set(owned.map((o) => o.externalOrderId));
-      const missing = externalOrderIds.filter((id) => !ownedSet.has(id));
-      throw new NotFoundException(
-        `Order(s) not found for organization: ${missing.join(', ')}`,
-      );
-    }
-    const channelAccountIds = new Set(owned.map((order) => order.channelAccountId));
-    if (channelAccountIds.size !== 1) {
-      throw new BadRequestException('All order actions must target one ChannelAccount');
-    }
-    const channelAccountId = owned[0]?.channelAccountId;
-    if (!channelAccountId) throw new NotFoundException('Order ChannelAccount not found');
-    return channelAccountId;
-  }
-
   async confirm(
-    shipmentBoxIds: number[],
-    organizationId: string,
+    _shipmentBoxIds: number[],
+    _organizationId: string,
   ): Promise<OrderActionResponse> {
-    const channelAccountId = await this.assertOwnedShipmentBoxIds(shipmentBoxIds, organizationId);
-    const result = await this.coupang.confirmOrderSheets(
-      organizationId,
-      channelAccountId,
-      shipmentBoxIds,
-    );
-    return {
-      message: `${shipmentBoxIds.length}건 승인 완료`,
-      data: result,
-    } satisfies OrderActionResponse;
+    throw new NotImplementedException('쿠팡 주문 확인은 지원하지 않습니다. 쿠팡 Wing에서 처리해 주세요.');
   }
 
   async uploadInvoice(
-    shipmentBoxId: number,
-    deliveryCompanyCode: string,
-    invoiceNumber: string,
-    organizationId: string,
+    _shipmentBoxId: number,
+    _deliveryCompanyCode: string,
+    _invoiceNumber: string,
+    _organizationId: string,
   ): Promise<OrderActionResponse> {
-    const channelAccountId = await this.assertOwnedShipmentBoxIds(
-      [shipmentBoxId],
-      organizationId,
-    );
-    const result = await this.coupang.uploadInvoice(organizationId, channelAccountId, shipmentBoxId, {
-      deliveryCompanyCode,
-      invoiceNumber,
-    });
-    return { message: '송장 전송 완료', data: result } satisfies OrderActionResponse;
+    throw new NotImplementedException('쿠팡 송장 전송은 지원하지 않습니다. 쿠팡 Wing에서 처리해 주세요.');
   }
 }

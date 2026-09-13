@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
+import { Logger } from '@nestjs/common';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { canonicalOwnerInputHash } from '../../../common/owner-idempotency-key';
 import { AgentOsError } from '../../domain/agent-os.errors';
@@ -31,6 +32,10 @@ const definition = {
 };
 
 describe('CapabilityMutationDispatcher', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it('dispatches only persisted approved input with the stable invocation owner key', async () => {
     const approved = invocation();
     const completed = { ...approved, status: 'succeeded' as const, result: receipt() };
@@ -130,6 +135,61 @@ describe('CapabilityMutationDispatcher', () => {
     expect(owner.invoke).toHaveBeenCalledWith(expect.objectContaining({
       context: expect.objectContaining({ executionId: INVOCATION_ID }),
     }));
+  });
+
+  it('completes API bootstrap and records the failure when the sweep read rejects', async () => {
+    const approved = invocation();
+    const repository = repositoryFor(approved, approved);
+    repository.listApprovedPending.mockRejectedValue(
+      new Error('The table `public.capability_invocations` does not exist'),
+    );
+    const owner = { capabilityKey: definition.key, invoke: vi.fn() };
+    const dispatcher = new CapabilityMutationDispatcher(
+      repository as never,
+      registry(owner) as never,
+    );
+    const loggedError = vi
+      .spyOn(Logger.prototype, 'error')
+      .mockImplementation(() => undefined);
+
+    await expect(dispatcher.onApplicationBootstrap()).resolves.toBeUndefined();
+    await expect(dispatcher.onApplicationBootstrap()).resolves.toBeUndefined();
+
+    expect(owner.invoke).not.toHaveBeenCalled();
+    // The sweep is attempted once per process; a failed attempt is not re-armed.
+    expect(repository.listApprovedPending).toHaveBeenCalledTimes(1);
+    expect(loggedError).toHaveBeenCalledTimes(1);
+    expect(loggedError).toHaveBeenCalledWith(
+      expect.stringContaining('public.capability_invocations'),
+      expect.any(String),
+    );
+  });
+
+  it('still dispatches every approved receipt a successful sweep finds', async () => {
+    const first = invocation();
+    const second = invocation({ id: '00000000-0000-4000-8000-000000000006' });
+    const completed = { ...first, status: 'succeeded' as const, result: receipt() };
+    const repository = repositoryFor(first, completed, new Map([[second.id, second]]));
+    repository.listApprovedPending.mockResolvedValue([first, second]);
+    const owner = {
+      capabilityKey: definition.key,
+      invoke: vi.fn().mockResolvedValue(ownerResult()),
+    };
+    const dispatcher = new CapabilityMutationDispatcher(
+      repository as never,
+      registry(owner) as never,
+    );
+
+    await expect(dispatcher.onApplicationBootstrap()).resolves.toBeUndefined();
+
+    expect(owner.invoke).toHaveBeenCalledTimes(2);
+    expect(repository.recordSucceeded).toHaveBeenCalledTimes(2);
+    expect(repository.recordSucceeded).toHaveBeenCalledWith(
+      expect.objectContaining({ invocationId: first.id }),
+    );
+    expect(repository.recordSucceeded).toHaveBeenCalledWith(
+      expect.objectContaining({ invocationId: second.id }),
+    );
   });
 
   it('blocks schema, canonical-hash, and approval-hash drift before the owner call', async () => {
@@ -280,7 +340,6 @@ function ownerResult() {
   return {
     summary: 'Candidate created.',
     resourceRefs: [{ kind: 'sourcing_candidate', id: '00000000-0000-4000-8000-000000000004', version: null }],
-    operationRefs: [],
     output: { candidateId: '00000000-0000-4000-8000-000000000004' },
   };
 }
@@ -290,7 +349,6 @@ function receipt() {
   return {
     summary: result.summary,
     resourceRefs: result.resourceRefs,
-    operationRefs: result.operationRefs,
   };
 }
 

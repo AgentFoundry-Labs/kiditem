@@ -9,7 +9,7 @@ import {
 } from '@nestjs/common';
 import { Prisma, type RocketPurchaseConfirmationLine } from '@prisma/client';
 import {
-  RocketWorkbookExportRequestSchema,
+  RocketWorkbookDecisionRequestSchema,
   type RocketWorkbookExportResponse,
   type RocketWorkbookWorkflowStatus,
   type RocketPurchasePreviewRow,
@@ -56,7 +56,7 @@ implements RocketWorkbookExportTransactionPort {
   async exportWorkbook(
     input: Parameters<RocketWorkbookExportTransactionPort['exportWorkbook']>[0],
   ): Promise<RocketWorkbookExportResponse> {
-    const request = RocketWorkbookExportRequestSchema.parse(input.request);
+    const request = RocketWorkbookDecisionRequestSchema.parse(input.request);
     const requestHash = workbookRequestHash({ ...input, request });
     return this.prisma.$transaction(async (tx) => {
       await lockWorkflow(tx, input.organizationId);
@@ -384,7 +384,8 @@ async function assertSourceArtifact(
       organizationId: input.organizationId,
       channelAccountId: input.channelAccountId,
       sourceType: 'coupang_rocket_po_catalog',
-      status: 'completed',
+      status: 'complete',
+      parserVersion: 'rocket-po-v1',
     },
     select: { id: true },
   });
@@ -411,7 +412,7 @@ async function assertInventoryGeneration(
 }
 
 function buildDecisions(
-  request: ReturnType<typeof RocketWorkbookExportRequestSchema.parse>,
+  request: ReturnType<typeof RocketWorkbookDecisionRequestSchema.parse>,
   previewRows: RocketPurchasePreviewRow[],
 ): WorkbookDecision[] {
   const previewByLineId = new Map(previewRows.map((row) => [row.poLineId, row]));

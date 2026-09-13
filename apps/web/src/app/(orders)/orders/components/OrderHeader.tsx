@@ -6,8 +6,6 @@ interface OrderHeaderProps {
   totalOrders: number;
   error: string | null;
   lastUpdated: string;
-  syncStatus: 'idle' | 'pending' | 'success' | 'error';
-  syncError: boolean;
   showCompleted: boolean;
   completedCount: number;
   loading: boolean;
@@ -16,7 +14,7 @@ interface OrderHeaderProps {
 }
 
 export default function OrderHeader({
-  totalOrders, error, lastUpdated, syncStatus, syncError, showCompleted,
+  totalOrders, error, lastUpdated, showCompleted,
   completedCount, loading, onToggleCompleted, onRefresh,
 }: OrderHeaderProps) {
   return (
@@ -32,21 +30,12 @@ export default function OrderHeader({
                 ERROR
               </span>
             )}
-            {syncError && (
-              <span className="text-[10px] text-red-600 bg-red-50 px-1.5 py-0.5 rounded font-mono">
-                SYNC ERR
-              </span>
-            )}
             <span className="text-[10px] text-slate-400 font-mono">{lastUpdated}</span>
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
           </div>
         </div>
       </div>
       <div className="flex items-center gap-2">
-        {syncStatus === 'pending' && (
-          <span className="text-[10px] text-purple-600 font-mono animate-pulse">쿠팡 동기화 중...</span>
-        )}
-        <span className="text-[10px] text-slate-400 font-mono">자동 동기화: 9/12/15/18시</span>
         <button
           onClick={onToggleCompleted}
           className={cn(

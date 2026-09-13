@@ -69,6 +69,56 @@ describe('Sourcing final owner idempotency receipt (PG integration)', () => {
     })).resolves.toBe(1);
   });
 
+  it('serializes concurrent quick-process request-hash drift on one existing receipt row', async () => {
+    const candidate = await prisma.sourcingCandidate.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceUrl: 'https://detail.1688.com/offer/quick-process.html',
+        sourcePlatform: 'ALIBABA_1688',
+        name: 'Quick process receipt candidate',
+      },
+      select: { id: true },
+    });
+    const otherPrisma = makeTestPrisma();
+    await otherPrisma.$connect();
+    const otherCandidates = new SourcingCandidateRepositoryAdapter(
+      otherPrisma as unknown as PrismaService,
+    );
+    const input = {
+      organizationId: TEST_ORGANIZATION_ID,
+      candidateId: candidate.id,
+      idempotencyKey: 'owner:attempt:quick-process',
+    };
+
+    try {
+      const outcomes = await Promise.allSettled([
+        candidates.claimQuickProcessCandidate({ ...input, requestHash: 'a'.repeat(64) }),
+        otherCandidates.claimQuickProcessCandidate({ ...input, requestHash: 'b'.repeat(64) }),
+      ]);
+
+      expect(outcomes.filter((outcome) => outcome.status === 'fulfilled')).toHaveLength(1);
+      expect(outcomes.filter((outcome) => outcome.status === 'rejected')).toHaveLength(1);
+      const rejected = outcomes.find(
+        (outcome): outcome is PromiseRejectedResult => outcome.status === 'rejected',
+      );
+      expect(rejected?.reason).toMatchObject({
+        message: 'owner_idempotency_input_conflict',
+      });
+      await expect(prisma.sourcingOwnerIdempotencyReceipt.findMany({
+        where: {
+          organizationId: TEST_ORGANIZATION_ID,
+          capabilityKey: 'sourcing.quick_process',
+          idempotencyKey: input.idempotencyKey,
+        },
+        select: { requestHash: true, result: true },
+      })).resolves.toEqual([
+        expect.objectContaining({ result: { candidateId: candidate.id } }),
+      ]);
+    } finally {
+      await otherPrisma.$disconnect();
+    }
+  });
+
   it('recovers one concurrent source identity conflict with a bounded retry and records both owner receipts', async () => {
     const [first, second] = await Promise.all([
       candidates.upsertSourcedWithIdempotencyReceipt({

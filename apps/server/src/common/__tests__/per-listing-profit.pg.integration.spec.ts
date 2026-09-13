@@ -1,6 +1,12 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
-import { buildPerListingMetrics } from '../per-listing-profit';
+import {
+  buildPerListingMetrics,
+  buildPerListingMetricsCoverage,
+  buildPerListingProfit,
+  readAdEvidenceFromLedger,
+} from '../per-listing-profit';
+import type { AccountAdEvidence } from '../per-listing-profit';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   makeTestPrisma,
@@ -16,6 +22,7 @@ import {
   setupChannelListing,
   seedOrderWithLineItems,
   seedAd,
+  seedCompletedAdSweepRun,
 } from '../../test-helpers/finance-seeds';
 
 /**
@@ -25,6 +32,22 @@ import {
  * OrderLineItem + ChannelListing + ChannelListingOption + component mappings + daily ad facts,
  * with organizationId scoping and revenue-weighted shipping (R-1).
  */
+/**
+ * The account-level answer as `readAdEvidenceFromLedger` returns it. Coverage
+ * is account-level: whether the sweep measured every date of the window is
+ * what decides every listing's ad cost, so the cases default to a fully
+ * measured window and say so explicitly when they mean a partial one.
+ */
+const accountEvidence = (
+  answer: 'NOT_APPLIED' | 'MISSING' | 'CONFIRMED_ZERO' | 'OBSERVED',
+  coversWindow = true,
+): AccountAdEvidence => ({
+  hasAdAccount: answer !== 'NOT_APPLIED',
+  publishedDates: answer === 'NOT_APPLIED' || answer === 'MISSING' ? 0 : 1,
+  accountSpend: answer === 'OBSERVED' ? 1 : 0,
+  coversWindow,
+});
+
 describe('buildPerListingMetrics (PG integration)', () => {
   let prisma: PrismaClient;
 
@@ -68,7 +91,7 @@ describe('buildPerListingMetrics (PG integration)', () => {
       lineItems: [{ quantity: 1, totalPrice: 100_000, optionId, listingOptionId }],
     });
 
-    const result = await buildPerListingMetrics(prisma as unknown as PrismaService, TEST_ORGANIZATION_ID, FROM, TO);
+    const result = await buildPerListingMetrics(prisma as unknown as PrismaService, TEST_ORGANIZATION_ID, FROM, TO, accountEvidence('NOT_APPLIED'));
 
     expect(result).toHaveLength(1);
     const m = result[0];
@@ -118,7 +141,7 @@ describe('buildPerListingMetrics (PG integration)', () => {
       lineItems: [{ quantity: 1, totalPrice: 1_000, optionId, listingOptionId }],
     });
 
-    const result = await buildPerListingMetrics(prisma as unknown as PrismaService, TEST_ORGANIZATION_ID, FROM, TO);
+    const result = await buildPerListingMetrics(prisma as unknown as PrismaService, TEST_ORGANIZATION_ID, FROM, TO, accountEvidence('NOT_APPLIED'));
 
     expect(result).toHaveLength(1);
     expect(result[0].revenue).toBe(10_000);             // 9000 + 1000
@@ -150,7 +173,7 @@ describe('buildPerListingMetrics (PG integration)', () => {
     await seedAd(prisma, { organizationId: TEST_ORGANIZATION_ID, listingId, date: '2026-04-12', spend: 8_000 });
     await seedAd(prisma, { organizationId: TEST_ORGANIZATION_ID, listingId, date: '2026-04-22', spend: 12_000 });
 
-    const result = await buildPerListingMetrics(prisma as unknown as PrismaService, TEST_ORGANIZATION_ID, FROM, TO);
+    const result = await buildPerListingMetrics(prisma as unknown as PrismaService, TEST_ORGANIZATION_ID, FROM, TO, accountEvidence('OBSERVED'));
 
     expect(result).toHaveLength(1);
     expect(result[0].adCost).toBe(20_000);
@@ -199,6 +222,7 @@ describe('buildPerListingMetrics (PG integration)', () => {
       TEST_ORGANIZATION_ID,
       new Date('2026-06-30T15:00:00.000Z'),
       new Date('2026-07-31T15:00:00.000Z'),
+      accountEvidence('OBSERVED'),
     );
 
     expect(result).toEqual([
@@ -237,7 +261,7 @@ describe('buildPerListingMetrics (PG integration)', () => {
       });
     }
 
-    const result = await buildPerListingMetrics(prisma as unknown as PrismaService, TEST_ORGANIZATION_ID, FROM, TO);
+    const result = await buildPerListingMetrics(prisma as unknown as PrismaService, TEST_ORGANIZATION_ID, FROM, TO, accountEvidence('NOT_APPLIED'));
     expect(result).toHaveLength(1);
     expect(result[0].revenue).toBe(1_000);                    // only the paid order
     expect(result[0].revenue).not.toBe(IDOR_SENTINEL);        // excluded statuses' totalPrice never appears
@@ -318,6 +342,7 @@ describe('buildPerListingMetrics (PG integration)', () => {
       TEST_ORGANIZATION_ID,
       FROM,
       TO,
+      accountEvidence('NOT_APPLIED'),
     );
 
     expect(result).toEqual([
@@ -331,6 +356,271 @@ describe('buildPerListingMetrics (PG integration)', () => {
         costOfGoods: 0,
       }),
     ]);
+  });
+
+  /**
+   * ADR-0003 — ad coverage decides whether a per-listing profit exists.
+   *
+   * These live against PostgreSQL on purpose: `adSpend` is `Int @default(0)`,
+   * so only a real row can hold the difference between a spend the ad source
+   * measured as zero and a spend it never reported. A mocked aggregate cannot
+   * express that difference at all.
+   */
+  describe('ad coverage (ADR-0006)', () => {
+    /** One listing, one order, no costs: netProfit is revenue minus adCost. */
+    async function seedListingWithOrder(
+      code: string,
+      orderedAt = '2026-04-15T03:00:00Z',
+      channelAccountId?: string,
+    ) {
+      const { id: masterId } = await setupMaster(prisma, {
+        organizationId: TEST_ORGANIZATION_ID, code: `M-${code}`, name: `Master ${code}`,
+      });
+      const { id: optionId } = await setupProductOption(prisma, {
+        organizationId: TEST_ORGANIZATION_ID, masterId,
+        sku: `SKU-${code}`, costPrice: 0, commissionRate: 0, otherCost: 0,
+      });
+      const { listingId, listingOptionId } = await setupChannelListing(prisma, {
+        organizationId: TEST_ORGANIZATION_ID, masterId,
+        channel: 'coupang', externalId: `EXT-${code}`,
+        optionId, externalOptionId: `VI-${code}`,
+        channelAccountId,
+      });
+      await seedOrderWithLineItems(prisma, {
+        organizationId: TEST_ORGANIZATION_ID,
+        externalOrderId: `PERLIST-${code}`,
+        orderedAt,
+        shippingPrice: 0,
+        lineItems: [{ quantity: 1, totalPrice: 100_000, optionId, listingOptionId }],
+      });
+      return listingId;
+    }
+
+    const profitFor = async (
+      listingId: string,
+      accountAdEvidence: AccountAdEvidence = accountEvidence('OBSERVED'),
+    ) => {
+      const rows = await buildPerListingProfit(
+        prisma as unknown as PrismaService, TEST_ORGANIZATION_ID, FROM, TO,
+        accountAdEvidence,
+      );
+      return rows.find((row) => row.listingId === listingId);
+    };
+
+    it('keeps a computed profit when every measured day is a confirmed zero', async () => {
+      const listingId = await seedListingWithOrder('COV-ZERO');
+      // The ad source reported this listing on two measured days and reported
+      // zero. A confirmed zero is a measurement, not an absence.
+      await seedAd(prisma, { organizationId: TEST_ORGANIZATION_ID, listingId, date: '2026-04-12', spend: 0 });
+      await seedAd(prisma, { organizationId: TEST_ORGANIZATION_ID, listingId, date: '2026-04-13', spend: 0 });
+
+      const row = await profitFor(listingId);
+
+      expect(row).toMatchObject({ adCost: 0, netProfit: 100_000, profitRate: 100 });
+    });
+
+    it('reads a listing without a row on a measured day as zero spend that day', async () => {
+      const covered = await seedListingWithOrder('COV-FULL');
+      const sparse = await seedListingWithOrder('COV-SPARSE');
+      // The sweep measured both days for the whole account; `sparse` simply
+      // was not advertised on 04-13.
+      await seedAd(prisma, { organizationId: TEST_ORGANIZATION_ID, listingId: covered, date: '2026-04-12', spend: 5_000 });
+      await seedAd(prisma, { organizationId: TEST_ORGANIZATION_ID, listingId: covered, date: '2026-04-13', spend: 5_000 });
+      await seedAd(prisma, { organizationId: TEST_ORGANIZATION_ID, listingId: sparse, date: '2026-04-12', spend: 5_000 });
+
+      expect(await profitFor(covered)).toMatchObject({ adCost: 10_000, netProfit: 90_000 });
+      expect(await profitFor(sparse)).toMatchObject({ adCost: 5_000, netProfit: 95_000 });
+    });
+
+    it('withholds every listing while the window is only partly measured', async () => {
+      const listingId = await seedListingWithOrder('COV-PARTIAL');
+      await seedAd(prisma, { organizationId: TEST_ORGANIZATION_ID, listingId, date: '2026-04-12', spend: 5_000 });
+
+      // A sum over the measured part of the window proves nothing about the
+      // rest, so it is not a cost: the partial sum this ADR exists to prevent.
+      expect(await profitFor(listingId, accountEvidence('OBSERVED', false))).toMatchObject({
+        adCost: null,
+        netProfit: null,
+        profitRate: null,
+      });
+    });
+
+    it('treats a listing the ad source never reported as not applied', async () => {
+      const advertised = await seedListingWithOrder('COV-APPLIED');
+      const unadvertised = await seedListingWithOrder('COV-NOT-APPLIED');
+      await seedAd(prisma, { organizationId: TEST_ORGANIZATION_ID, listingId: advertised, date: '2026-04-12', spend: 5_000 });
+
+      // The sweep measured the window and never reported this listing, so zero
+      // is a satisfied input rather than a missing one — see
+      // `apps/server/CONTEXT.md`, "Not applied".
+      expect(await profitFor(unadvertised)).toMatchObject({
+        adCost: 0,
+        netProfit: 100_000,
+      });
+    });
+
+    it('withholds the whole population from the measured projection while the window is partly measured', async () => {
+      const first = await seedListingWithOrder('COV-KEEP');
+      const second = await seedListingWithOrder('COV-DROP');
+      await seedAd(prisma, { organizationId: TEST_ORGANIZATION_ID, listingId: first, date: '2026-04-12', spend: 5_000 });
+      await seedAd(prisma, { organizationId: TEST_ORGANIZATION_ID, listingId: second, date: '2026-04-12', spend: 5_000 });
+
+      // Counts and stored rollups cannot express "unavailable", so they withhold
+      // instead — the same rule ABC applies to a product whose advertising
+      // evidence is not ready. Coverage is account-level, so it withholds all.
+      const partial = await buildPerListingMetricsCoverage(
+        prisma as unknown as PrismaService, TEST_ORGANIZATION_ID, FROM, TO, accountEvidence('OBSERVED', false),
+      );
+      expect(partial).toEqual({ metrics: [], withheldListings: 2 });
+
+      const measured = await buildPerListingMetrics(
+        prisma as unknown as PrismaService, TEST_ORGANIZATION_ID, FROM, TO, accountEvidence('OBSERVED'),
+      );
+      expect(measured.map((row) => row.listingId).sort()).toEqual([first, second].sort());
+    });
+
+    /**
+     * KID-45 — the listing-level calendar alone cannot separate "this
+     * organization runs no ads" from "ad collection failed for the whole
+     * window": both leave it empty. Only the account-level word Advertising
+     * publishes tells them apart, so it decides before the calendar does.
+     */
+    describe('account-level evidence', () => {
+      it('withholds profit when only an unproven legacy row exists for the account day', async () => {
+        const advertised = await seedListingWithOrder('ACC-LEGACY-A', '2026-04-10T03:00:00Z');
+        const absent = await seedListingWithOrder('ACC-LEGACY-B', '2026-04-10T03:00:00Z');
+        await seedAd(prisma, {
+          organizationId: TEST_ORGANIZATION_ID,
+          listingId: advertised,
+          date: '2026-04-10',
+          spend: 5_000,
+          runId: null,
+        });
+        const from = new Date('2026-04-09T15:00:00Z');
+        const to = new Date('2026-04-10T15:00:00Z');
+        const evidence = await readAdEvidenceFromLedger(prisma, TEST_ORGANIZATION_ID, from, to);
+
+        const rows = await buildPerListingProfit(
+          prisma as unknown as PrismaService,
+          TEST_ORGANIZATION_ID,
+          from,
+          to,
+          evidence,
+        );
+
+        expect(evidence).toMatchObject({ publishedDates: 0, coversWindow: false });
+        for (const listingId of [advertised, absent]) {
+          expect(rows.find((row) => row.listingId === listingId)).toMatchObject({
+            adCost: null,
+            netProfit: null,
+            profitRate: null,
+          });
+        }
+      });
+
+      it('does not publish zero profit evidence for an active account that was not swept', async () => {
+        const measured = await seedListingWithOrder('ACC-MEASURED', '2026-04-10T03:00:00Z');
+        const measuredAccount = await prisma.channelListing.findUniqueOrThrow({
+          where: { id: measured },
+          select: { channelAccountId: true },
+        });
+        const unmeasuredAccount = await prisma.channelAccount.create({
+          data: {
+            organizationId: TEST_ORGANIZATION_ID,
+            channel: 'coupang',
+            externalAccountId: 'ACC-UNMEASURED',
+            name: 'Unmeasured account',
+            status: 'active',
+          },
+          select: { id: true },
+        });
+        const unmeasured = await seedListingWithOrder(
+          'ACC-UNMEASURED',
+          '2026-04-10T03:00:00Z',
+          unmeasuredAccount.id,
+        );
+        const run = await seedCompletedAdSweepRun(prisma, {
+          organizationId: TEST_ORGANIZATION_ID,
+          channelAccountId: measuredAccount.channelAccountId,
+          generation: 1,
+          window: { startDate: '2026-04-10', endDate: '2026-04-10' },
+        });
+        await seedAd(prisma, {
+          organizationId: TEST_ORGANIZATION_ID,
+          listingId: measured,
+          date: '2026-04-10',
+          spend: 5_000,
+          runId: run,
+        });
+        const from = new Date('2026-04-09T15:00:00Z');
+        const to = new Date('2026-04-10T15:00:00Z');
+        const evidence = await readAdEvidenceFromLedger(prisma, TEST_ORGANIZATION_ID, from, to);
+
+        const rows = await buildPerListingProfit(
+          prisma as unknown as PrismaService,
+          TEST_ORGANIZATION_ID,
+          from,
+          to,
+          evidence,
+        );
+
+        expect(evidence).toMatchObject({ publishedDates: 0, coversWindow: false });
+        for (const listingId of [measured, unmeasured]) {
+          expect(rows.find((row) => row.listingId === listingId)).toMatchObject({
+            adCost: null,
+            netProfit: null,
+            profitRate: null,
+          });
+        }
+      });
+
+      it('withholds every listing when the account published nothing for the window', async () => {
+        const listingId = await seedListingWithOrder('ACC-MISSING');
+        // Listing rows exist and carry ad provenance, so the per-listing
+        // calendar looks complete. The account still published no complete
+        // row for the window, which is absent evidence, not a cost of zero.
+        await seedAd(prisma, {
+          organizationId: TEST_ORGANIZATION_ID, listingId, date: '2026-04-12', spend: 5_000,
+        });
+
+        expect(await profitFor(listingId, accountEvidence('MISSING'))).toMatchObject({
+          adCost: null,
+          netProfit: null,
+          profitRate: null,
+        });
+        // The withheld count is what a snapshot basis publishes, so an
+        // account-wide miss must show up there rather than as a counted zero.
+        await expect(buildPerListingMetricsCoverage(
+          prisma as unknown as PrismaService, TEST_ORGANIZATION_ID, FROM, TO, accountEvidence('MISSING'),
+        )).resolves.toEqual({ metrics: [], withheldListings: 1 });
+      });
+
+      it('does not read an empty listing calendar as a measured zero once the source published', async () => {
+        const listingId = await seedListingWithOrder('ACC-EMPTY-CALENDAR');
+        // No listing-level ad row exists at all. Neither answer licenses a
+        // zero here while the window is only partly measured: the dates the
+        // sweep never reached stay unproven.
+        for (const evidence of [accountEvidence('OBSERVED', false), accountEvidence('CONFIRMED_ZERO', false)] as const) {
+          expect(await profitFor(listingId, evidence)).toMatchObject({
+            adCost: null,
+            netProfit: null,
+            profitRate: null,
+          });
+        }
+      });
+
+      it('keeps a measured zero when advertising does not apply to the organization', async () => {
+        const listingId = await seedListingWithOrder('ACC-NOT-APPLIED');
+
+        // No advertising account exists, so no collection can exist either:
+        // zero is a satisfied input and the profit is publishable.
+        expect(await profitFor(listingId, accountEvidence('NOT_APPLIED'))).toMatchObject({
+          adCost: 0,
+          netProfit: 100_000,
+          profitRate: 100,
+        });
+      });
+    });
   });
 
   it('T4: cross-organization isolation — OTHER sentinel never leaks into TEST', async () => {
@@ -371,7 +661,7 @@ describe('buildPerListingMetrics (PG integration)', () => {
     });
     await seedAd(prisma, { organizationId: OTHER_ORGANIZATION_ID, listingId: oListing.listingId, date: '2026-04-15', spend: IDOR_SENTINEL });
 
-    const testResult = await buildPerListingMetrics(prisma as unknown as PrismaService, TEST_ORGANIZATION_ID, FROM, TO);
+    const testResult = await buildPerListingMetrics(prisma as unknown as PrismaService, TEST_ORGANIZATION_ID, FROM, TO, accountEvidence('NOT_APPLIED'));
     expect(testResult).toHaveLength(1);
     expect(testResult[0].revenue).toBe(1_000);
     expect(testResult[0].adCost).toBe(0);
@@ -380,7 +670,7 @@ describe('buildPerListingMetrics (PG integration)', () => {
       expect(m.adCost).not.toBe(IDOR_SENTINEL);
     }
 
-    const otherResult = await buildPerListingMetrics(prisma as unknown as PrismaService, OTHER_ORGANIZATION_ID, FROM, TO);
+    const otherResult = await buildPerListingMetrics(prisma as unknown as PrismaService, OTHER_ORGANIZATION_ID, FROM, TO, accountEvidence('OBSERVED'));
     expect(otherResult).toHaveLength(1);
     expect(otherResult[0].revenue).toBe(IDOR_SENTINEL);
     expect(otherResult[0].adCost).toBe(IDOR_SENTINEL);

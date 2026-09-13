@@ -18,11 +18,11 @@ import {
   type CoupangWingCatalogImportResponse,
 } from '@kiditem/shared/source-import';
 import {
-  SellpiaManualMatchImportResponseSchema,
-  SellpiaManualMatchSnapshotSchema,
+  SellpiaManualMatchAttemptSchema,
+  SellpiaManualMatchSourceStatusSchema,
   SellpiaManualMatchTargetsResponseSchema,
-  type SellpiaManualMatchImportResponse,
-  type SellpiaManualMatchSnapshot,
+  type SellpiaManualMatchAttempt,
+  type SellpiaManualMatchSourceStatus,
   type SellpiaManualMatchTargetsResponse,
 } from '@kiditem/shared/sellpia-manual-match';
 import { apiClient } from '@/lib/api-client';
@@ -53,14 +53,34 @@ export function getSellpiaManualMatchTargets(): Promise<SellpiaManualMatchTarget
   );
 }
 
-export async function importSellpiaManualMatchSnapshot(
-  snapshot: SellpiaManualMatchSnapshot,
-): Promise<SellpiaManualMatchImportResponse> {
-  const response = await apiClient.post<unknown>(
-    '/api/channels/product-mappings/sellpia-manual-match/import',
-    SellpiaManualMatchSnapshotSchema.parse(snapshot),
+export type SellpiaManualMatchSourceAttempt = SellpiaManualMatchAttempt;
+
+export function beginSellpiaManualMatchSourceAttempt(input: {
+  idempotencyKey: string;
+}): Promise<SellpiaManualMatchSourceAttempt> {
+  return apiClient
+    .post<unknown>(
+      '/api/channels/product-mappings/sellpia-manual-match/attempts',
+      {},
+      { headers: { 'Idempotency-Key': input.idempotencyKey } },
+    )
+    .then((raw) => SellpiaManualMatchAttemptSchema.parse(raw));
+}
+
+export function readSellpiaManualMatchSourceAttempt(
+  attemptId: string,
+): Promise<SellpiaManualMatchSourceAttempt> {
+  return apiClient.getParsed(
+    `/api/channels/product-mappings/sellpia-manual-match/attempts/${encodeURIComponent(attemptId)}`,
+    SellpiaManualMatchAttemptSchema,
   );
-  return SellpiaManualMatchImportResponseSchema.parse(response);
+}
+
+export function readSellpiaManualMatchSourceCurrent(): Promise<SellpiaManualMatchSourceStatus> {
+  return apiClient.getParsed(
+    '/api/channels/product-mappings/sellpia-manual-match/attempts/current',
+    SellpiaManualMatchSourceStatusSchema,
+  );
 }
 
 export async function autoMatchChannelProducts(

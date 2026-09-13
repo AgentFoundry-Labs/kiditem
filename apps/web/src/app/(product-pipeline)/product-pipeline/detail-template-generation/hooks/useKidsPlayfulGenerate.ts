@@ -2,7 +2,6 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
-import { cancelOperation } from '@/lib/operation-cancellation';
 import { API_BASE } from '@/lib/api';
 import { queryKeys } from '@/lib/query-keys';
 import { adaptToKidsPlayful } from '../lib/kids-playful-types';
@@ -294,9 +293,7 @@ export function useKidsPlayfulGenerationCancel() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) =>
-      cancelOperation({
-        targetType: 'content_generation',
-        generationId: id,
+      apiClient.post(`/api/ai/detail-page/${encodeURIComponent(id)}/cancel`, {
         reason: '사용자 요청',
       }),
     onMutate: async (id) => {

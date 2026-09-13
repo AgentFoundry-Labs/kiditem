@@ -3,6 +3,7 @@ import type { ThumbnailEditorCandidate, ThumbnailEditorInputImage } from '../../
 import type { ThumbnailGenerationListScope } from '../../../../domain/thumbnail-generation-subject';
 import type { ThumbnailAnalysisContext } from '../../../../domain/thumbnail-generation-inputs';
 import type { CreateAiDirectJobInput } from './ai-direct-job.repository.port';
+import type { ProductGenerationChildIdentity } from '../../../service/product-generation-child-identity';
 
 export const THUMBNAIL_GENERATION_LEDGER_REPOSITORY_PORT = Symbol('THUMBNAIL_GENERATION_LEDGER_REPOSITORY_PORT');
 
@@ -127,12 +128,10 @@ export interface ThumbnailGenerationStatusChange {
   fromPhase: string | null;
 }
 
-export interface ThumbnailGenerationParentAlertLink {
-  mode?: 'parent';
-  batchId?: string;
-  productGenerationBatchId?: string;
-  parentOperationKey: string;
-  childKind: 'detail_page' | 'thumbnail';
+export interface ThumbnailGenerationDirectCancellation {
+  status: 'cancelled' | 'already_terminal' | 'not_found';
+  generationId: string;
+  preserved: boolean;
 }
 
 export interface SaveEditorResultInput {
@@ -154,6 +153,7 @@ export type OpenPendingThumbnailDirectGenerationInput = {
   inputMeta: unknown;
   triggeredByUserId?: string | null;
   inputImages: ThumbnailEditorInputImage[];
+  productGenerationIdentity?: ProductGenerationChildIdentity;
   directJob: Omit<CreateAiDirectJobInput, 'organizationId' | 'sourceResourceId'>;
 } & (
   | {
@@ -239,8 +239,10 @@ export interface ThumbnailGenerationLedgerRepositoryPort {
 
   saveEditorResult(input: SaveEditorResultInput): Promise<string>;
   openPendingDirectGeneration(input: OpenPendingThumbnailDirectGenerationInput): Promise<{
+    status: 'created' | 'existing';
     generationId: string;
     directJobId: string;
+    releaseRequired: boolean;
   }>;
   openPendingEditorJob(input: {
     organizationId: string;
@@ -288,7 +290,13 @@ export interface ThumbnailGenerationLedgerRepositoryPort {
       fileSize?: number | null;
     } | null;
   }): Promise<void>;
-  markGenerationCancelled(id: string, organizationId: string): Promise<ThumbnailGenerationStatusChange | null>;
+  cancelDirectGeneration(input: {
+    organizationId: string;
+    generationId: string;
+    reason: string;
+    actorUserId?: string | null;
+    payload?: unknown | null;
+  }): Promise<ThumbnailGenerationDirectCancellation>;
   deleteGeneration(id: string, organizationId: string): Promise<void>;
   removeCandidate(input: {
     id: string;
@@ -344,8 +352,4 @@ export interface ThumbnailGenerationLedgerRepositoryPort {
     staleBefore: Date;
     limit: number;
   }): Promise<Array<{ id: string }>>;
-  readParentAlertLink(input: {
-    organizationId: string;
-    generationId: string;
-  }): Promise<ThumbnailGenerationParentAlertLink | null>;
 }

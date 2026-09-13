@@ -2,7 +2,7 @@
 //
 // Tracker mutations use `updateMany`/`deleteMany` with `(id, organizationId)`
 // predicate + tenant-scoped re-read so a cross-tenant id never leaks into the
-// response (scrape-target adapter pattern). Rank facts are idempotent on
+// response (repository adapter pattern). Rank facts are idempotent on
 // `(organizationId, keyword, vendorItemId, businessDate)`; the SERP capture is
 // idempotent on `(organizationId, keyword, businessDate)` with
 // latest-capture-wins overwrite semantics.
@@ -10,8 +10,11 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../../../prisma/prisma.service";
-import { currentBusinessDate } from "../../../domain/business-date";
-import { withAdIngestRepositoryTransaction } from "./ad-ingest-transaction-context";
+import { addDays, businessDateKey, currentBusinessDate } from '../../../../common/kst';
+import {
+  adIngestRepositoryClient,
+  withAdIngestRepositoryTransaction,
+} from "./ad-ingest-transaction-context";
 import type {
   KeywordRankRepositoryPort,
   KeywordTrackerRow,
@@ -28,22 +31,32 @@ import type {
   WingSalesRankSnapshotRow,
 } from "../../../application/port/out/repository/keyword-rank.repository.port";
 
+const sourceProvenanceSelect = {
+  organizationId: true,
+  rankKeyword: true,
+  sourceType: true,
+  parserVersion: true,
+  status: true,
+} as const;
+
 @Injectable()
 export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
   constructor(private readonly prisma: PrismaService) {}
 
   listTrackers(organizationId: string): Promise<KeywordTrackerRow[]> {
-    return this.prisma.coupangKeywordTracker.findMany({
-      where: { organizationId },
-      orderBy: { createdAt: "desc" },
-    });
+    return adIngestRepositoryClient(this.prisma).coupangKeywordTracker.findMany(
+      {
+        where: { organizationId },
+        orderBy: { createdAt: "desc" },
+      },
+    );
   }
 
   upsertTrackerByKeyword(
     input: UpsertKeywordTrackerInput,
     organizationId: string,
   ): Promise<KeywordTrackerRow> {
-    return this.prisma.coupangKeywordTracker.upsert({
+    return adIngestRepositoryClient(this.prisma).coupangKeywordTracker.upsert({
       where: {
         organizationId_keyword: { organizationId, keyword: input.keyword },
       },
@@ -100,7 +113,9 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
     keyword: string,
     organizationId: string,
   ): Promise<KeywordTrackerRow | null> {
-    return this.prisma.coupangKeywordTracker.findUnique({
+    return adIngestRepositoryClient(
+      this.prisma,
+    ).coupangKeywordTracker.findUnique({
       where: { organizationId_keyword: { organizationId, keyword } },
     });
   }
@@ -110,21 +125,22 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
     organizationId: string,
     capturedAt: Date,
   ): Promise<void> {
-    await this.prisma.coupangKeywordTracker.updateMany({
+    await adIngestRepositoryClient(
+      this.prisma,
+    ).coupangKeywordTracker.updateMany({
       where: {
         id,
         organizationId,
-        OR: [
-          { lastCapturedAt: null },
-          { lastCapturedAt: { lte: capturedAt } },
-        ],
+        OR: [{ lastCapturedAt: null }, { lastCapturedAt: { lte: capturedAt } }],
       },
       data: { lastCapturedAt: capturedAt },
     });
   }
 
   async listOwnVendorItems(organizationId: string): Promise<OwnVendorItem[]> {
-    const rows = await this.prisma.channelListingOption.findMany({
+    const rows = await adIngestRepositoryClient(
+      this.prisma,
+    ).channelListingOption.findMany({
       where: {
         organizationId,
         isActive: true,
@@ -174,7 +190,9 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
   }
 
   listRepresentativeKeywordOverrides(organizationId: string) {
-    return this.prisma.coupangRepresentativeKeywordOverride.findMany({
+    return adIngestRepositoryClient(
+      this.prisma,
+    ).coupangRepresentativeKeywordOverride.findMany({
       where: { organizationId },
       orderBy: { updatedAt: "desc" },
     });
@@ -233,23 +251,23 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
         a.vendorItemId,
         a.businessDate.toISOString(),
       ]
-        .join(':')
+        .join(":")
         .localeCompare(
           [
             b.organizationId,
             b.keyword,
             b.vendorItemId,
             b.businessDate.toISOString(),
-          ].join(':'),
+          ].join(":"),
         ),
     );
-    return this.prisma.$transaction(async (tx) => {
+    return withAdIngestRepositoryTransaction(this.prisma, async (tx) => {
       let count = 0;
       for (const row of orderedRows) {
         await this.acquireSnapshotLock(
           tx,
           row.organizationId,
-          `keyword-rank:${row.organizationId}:${row.keyword}:${row.vendorItemId}:${row.businessDate.toISOString().slice(0, 10)}`,
+          `keyword-rank:${row.organizationId}:${row.keyword}:${row.vendorItemId}:${businessDateKey(row.businessDate)}`,
         );
         const where = {
           organizationId_keyword_vendorItemId_businessDate: {
@@ -261,11 +279,25 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
         };
         const existing = await tx.coupangKeywordRankDailySnapshot.findUnique({
           where,
-          select: { id: true, capturedAt: true },
+          select: {
+            id: true,
+            capturedAt: true,
+            sourceImportRun: { select: sourceProvenanceSelect },
+          },
         });
-        if (existing && existing.capturedAt > row.capturedAt) continue;
+        if (
+          existing &&
+          matchingCompleteSource(
+            existing.sourceImportRun,
+            row.organizationId,
+            row.keyword,
+          ) &&
+          existing.capturedAt > row.capturedAt
+        )
+          continue;
 
         const data = {
+          sourceImportRunId: row.sourceImportRunId,
           productId: row.productId,
           itemId: row.itemId,
           productName: row.productName,
@@ -306,7 +338,7 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
     input: UpsertSerpSnapshotInput,
     mergeItems?: (existing: SerpSnapshotRow | null) => unknown,
   ): Promise<{ id: string }> {
-    return this.prisma.$transaction(async (tx) => {
+    return withAdIngestRepositoryTransaction(this.prisma, async (tx) => {
       await this.acquireSnapshotLock(
         tx,
         input.organizationId,
@@ -329,13 +361,21 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
           pagesScanned: true,
           itemCount: true,
           items: true,
+          sourceImportRun: { select: sourceProvenanceSelect },
         },
       });
-      if (existing && existing.capturedAt > input.capturedAt) {
+      const certified =
+        existing &&
+        matchingCompleteSource(
+          existing.sourceImportRun,
+          input.organizationId,
+          input.keyword,
+        );
+      if (certified && existing.capturedAt > input.capturedAt) {
         return { id: existing.id };
       }
 
-      const existingSnapshot = existing
+      const existingSnapshot = certified
         ? {
             keyword: existing.keyword,
             businessDate: existing.businessDate,
@@ -345,10 +385,11 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
             items: existing.items,
           }
         : null;
-      const items = (mergeItems
-        ? mergeItems(existingSnapshot)
-        : input.items) as Prisma.InputJsonValue;
+      const items = (
+        mergeItems ? mergeItems(existingSnapshot) : input.items
+      ) as Prisma.InputJsonValue;
       const data = {
+        sourceImportRunId: input.sourceImportRunId,
         items,
         itemCount: input.itemCount,
         pagesScanned: input.pagesScanned,
@@ -383,8 +424,17 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
         `keyword-serp:${input.organizationId}:${input.keyword}`,
       );
       const snapshot = await tx.coupangKeywordSerpDailySnapshot.findFirst({
-        where: { organizationId: input.organizationId, keyword: input.keyword },
-        orderBy: [{ businessDate: "desc" }, { capturedAt: "desc" }],
+        where: {
+          organizationId: input.organizationId,
+          keyword: input.keyword,
+          sourceImportRun: completeSerpSource(input.organizationId),
+        },
+        orderBy: [
+          { businessDate: "desc" },
+          { capturedAt: "desc" },
+          { updatedAt: "desc" },
+          { id: "desc" },
+        ],
         select: {
           id: true,
           keyword: true,
@@ -418,10 +468,21 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
     keyword: string,
     days: number,
   ): Promise<RankHistoryRow[]> {
-    const since = currentBusinessDate();
-    since.setUTCDate(since.getUTCDate() - (days - 1));
+    const since = addDays(currentBusinessDate(), -(days - 1));
     return this.prisma.coupangKeywordRankDailySnapshot.findMany({
-      where: { organizationId, keyword, businessDate: { gte: since } },
+      where: {
+        organizationId,
+        sourceImportRun: {
+          ...completeSerpSource(organizationId),
+          rankKeyword: keyword,
+          // One attempt captures one keyword/day; the daily SERP row is its current pointer.
+          keywordSerpDailyProjections: {
+            some: { organizationId, keyword, businessDate: { gte: since } },
+          },
+        },
+        keyword,
+        businessDate: { gte: since },
+      },
       orderBy: [{ vendorItemId: "asc" }, { businessDate: "asc" }],
       select: {
         vendorItemId: true,
@@ -439,17 +500,28 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
     organizationId: string,
     days: number,
   ): Promise<RankOverviewSnapshotRow[]> {
-    const since = currentBusinessDate();
-    since.setUTCDate(since.getUTCDate() - (days - 1));
+    const since = addDays(currentBusinessDate(), -(days - 1));
     return this.prisma.coupangKeywordRankDailySnapshot.findMany({
-      where: { organizationId, businessDate: { gte: since } },
+      where: {
+        organizationId,
+        sourceImportRun: {
+          ...completeSerpSource(organizationId),
+          keywordSerpDailyProjections: {
+            some: { organizationId, businessDate: { gte: since } },
+          },
+        },
+        businessDate: { gte: since },
+      },
       orderBy: [
         { keyword: "asc" },
         { vendorItemId: "asc" },
         { businessDate: "asc" },
         { capturedAt: "asc" },
+        { updatedAt: "asc" },
+        { id: "asc" },
       ],
       select: {
+        id: true,
         keyword: true,
         vendorItemId: true,
         businessDate: true,
@@ -458,6 +530,7 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
         organicRank: true,
         adRank: true,
         capturedAt: true,
+        updatedAt: true,
       },
     });
   }
@@ -468,14 +541,22 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
     if (rows.length === 0) return 0;
     const { organizationId, keyword, businessDate } = rows[0];
 
-    return this.prisma.$transaction(async (tx) => {
+    return withAdIngestRepositoryTransaction(this.prisma, async (tx) => {
       await this.acquireSnapshotLock(
         tx,
         organizationId,
-        `wing-sales-rank:${organizationId}:${keyword}:${businessDate.toISOString().slice(0, 10)}`,
+        `wing-sales-rank:${organizationId}:${keyword}:${businessDateKey(businessDate)}`,
       );
       const latest = await tx.coupangWingSalesRankDailySnapshot.findFirst({
-        where: { organizationId, keyword, businessDate },
+        where: {
+          organizationId,
+          keyword,
+          businessDate,
+          sourceImportRun: {
+            ...completeWingRankSource(organizationId),
+            rankKeyword: keyword,
+          },
+        },
         orderBy: { capturedAt: "desc" },
         select: { capturedAt: true },
       });
@@ -495,6 +576,7 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
       const created = await tx.coupangWingSalesRankDailySnapshot.createMany({
         data: rows.map((row) => ({
           organizationId: row.organizationId,
+          sourceImportRunId: row.sourceImportRunId,
           keyword: row.keyword,
           vendorItemId: row.vendorItemId,
           businessDate: row.businessDate,
@@ -526,17 +608,25 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
     organizationId: string,
     days: number,
   ): Promise<WingSalesRankSnapshotRow[]> {
-    const since = currentBusinessDate();
-    since.setUTCDate(since.getUTCDate() - (days - 1));
-    const rows = await this.prisma.coupangWingSalesRankDailySnapshot.findMany({
-      where: { organizationId, businessDate: { gte: since } },
+    const since = addDays(currentBusinessDate(), -(days - 1));
+    const rows = await adIngestRepositoryClient(
+      this.prisma,
+    ).coupangWingSalesRankDailySnapshot.findMany({
+      where: {
+        organizationId,
+        businessDate: { gte: since },
+        sourceImportRun: completeWingRankSource(organizationId),
+      },
       orderBy: [
         { keyword: "asc" },
         { vendorItemId: "asc" },
         { businessDate: "asc" },
         { capturedAt: "asc" },
+        { updatedAt: "asc" },
+        { id: "asc" },
       ],
       select: {
+        id: true,
         keyword: true,
         vendorItemId: true,
         businessDate: true,
@@ -555,6 +645,7 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
         collectedCount: true,
         totalResults: true,
         capturedAt: true,
+        updatedAt: true,
       },
     });
     return rows.map((row) => ({
@@ -573,8 +664,17 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
     keyword: string,
   ): Promise<SerpSnapshotRow | null> {
     return this.prisma.coupangKeywordSerpDailySnapshot.findFirst({
-      where: { organizationId, keyword },
-      orderBy: [{ businessDate: "desc" }, { capturedAt: "desc" }],
+      where: {
+        organizationId,
+        sourceImportRun: completeSerpSource(organizationId),
+        keyword,
+      },
+      orderBy: [
+        { businessDate: "desc" },
+        { capturedAt: "desc" },
+        { updatedAt: "desc" },
+        { id: "desc" },
+      ],
       select: {
         keyword: true,
         businessDate: true,
@@ -590,10 +690,13 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
     organizationId: string,
     days: number,
   ): Promise<SerpSnapshotRow[]> {
-    const since = currentBusinessDate();
-    since.setUTCDate(since.getUTCDate() - (days - 1));
+    const since = addDays(currentBusinessDate(), -(days - 1));
     return this.prisma.coupangKeywordSerpDailySnapshot.findMany({
-      where: { organizationId, businessDate: { gte: since } },
+      where: {
+        organizationId,
+        sourceImportRun: completeSerpSource(organizationId),
+        businessDate: { gte: since },
+      },
       orderBy: [
         { keyword: "asc" },
         { businessDate: "asc" },
@@ -634,6 +737,40 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
   }
 }
 
-function toAbcGrade(value: string | null): 'A' | 'B' | 'C' | null {
-  return value === 'A' || value === 'B' || value === 'C' ? value : null;
+function toAbcGrade(value: string | null): "A" | "B" | "C" | null {
+  return value === "A" || value === "B" || value === "C" ? value : null;
+}
+
+function completeSerpSource(organizationId: string) {
+  return {
+    organizationId,
+    sourceType: "coupang_keyword_serp",
+    parserVersion: "keyword-serp-v1",
+    status: "completed",
+  };
+}
+
+function matchingCompleteSource(
+  source: Prisma.SourceImportRunGetPayload<{
+    select: typeof sourceProvenanceSelect;
+  }> | null,
+  organizationId: string,
+  keyword: string,
+) {
+  return (
+    source?.organizationId === organizationId &&
+    source.rankKeyword === keyword &&
+    source.sourceType === "coupang_keyword_serp" &&
+    source.parserVersion === "keyword-serp-v1" &&
+    source.status === "completed"
+  );
+}
+
+function completeWingRankSource(organizationId: string) {
+  return {
+    organizationId,
+    sourceType: "coupang_wing_rank",
+    parserVersion: "wing-rank-v1",
+    status: "completed",
+  };
 }

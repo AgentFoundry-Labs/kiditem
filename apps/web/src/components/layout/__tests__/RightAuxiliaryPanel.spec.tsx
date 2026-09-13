@@ -11,8 +11,8 @@ import {
   useDesktopAiChatWidth,
 } from '../useDesktopAiChatWidth';
 
-vi.mock('@/components/panel/NotificationPanelContent', () => ({
-  NotificationPanelContent: () => (
+vi.mock('@/components/alerts/AlertsPopover', () => ({
+  AlertsPopover: () => (
     <h2 data-right-auxiliary-heading tabIndex={-1}>알림</h2>
   ),
 }));

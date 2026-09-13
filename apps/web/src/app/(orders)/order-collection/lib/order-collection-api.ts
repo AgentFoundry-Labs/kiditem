@@ -1,6 +1,8 @@
 import * as XLSX from 'xlsx';
 import { apiClient } from '@/lib/api-client';
 import { downloadBlob } from '@/lib/browser-download';
+import type { OrderCollectionExtensionRun } from './order-collection-extension';
+import { fileNameFromContentDisposition } from './order-collection-conversion-response';
 
 export interface OrderCollectionConversionResult {
   fileName: string;
@@ -22,10 +24,82 @@ export interface BrowserOrderRowsPayload {
   fileName?: string;
 }
 
+export interface IcecreamOrderCollectionContinuation {
+  mallKey: 'icecream-mall';
+  headers: string[];
+  originalRows: string[][];
+  selectedRows: string[][];
+  selectedRowKeys: string[];
+  selectionMode: 'manual' | 'automatic';
+  sourceRows: number;
+}
+
+/**
+ * Regenerates a transient workbook from a completed source owner artifact.
+ * Converted bytes are deliberately not part of the owner response; this
+ * scoped read is the explicit UI download/reopen path.
+ */
+export async function regenerateOrderCollectionSource(
+  run: OrderCollectionExtensionRun,
+  options?: { download?: boolean },
+): Promise<OrderCollectionConversionResult> {
+  const response = await apiClient.fetchRaw(
+    `/api/orders/collection/attempts/${encodeURIComponent(run.attemptId)}/convert`,
+    {
+      method: 'POST',
+      headers: {
+        'x-source-attempt-token': run.attemptToken,
+      },
+    },
+  );
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response));
+  }
+  const blob = await response.blob();
+  const fileName =
+    fileNameFromContentDisposition(response.headers.get('Content-Disposition')) ??
+    '주문수집_셀피아변환.xls';
+  if (response.status !== 204 && options?.download !== false) downloadBlob(blob, fileName);
+  return {
+    fileName,
+    blob,
+    previewRows: response.status === 204 ? [] : await readPreviewRows(blob),
+    sourceRows: numericHeader(response, 'X-Order-Collection-Source-Rows'),
+    productRows: numericHeader(response, 'X-Order-Collection-Product-Rows'),
+    outputRows: numericHeader(response, 'X-Order-Collection-Output-Rows'),
+    skippedRows: numericHeader(response, 'X-Order-Collection-Skipped-Rows'),
+    importRunId: response.headers.get('X-Order-Collection-Import-Run-Id'),
+  };
+}
+
+/**
+ * Reads the owner-retained Icecream capture metadata needed by the web-only
+ * delivery-index and automatic-seen consumers. This is intentionally a
+ * separate scoped read: the extension page response never carries provider
+ * rows or raw source evidence.
+ */
+export async function readOrderCollectionContinuation(
+  run: OrderCollectionExtensionRun,
+): Promise<IcecreamOrderCollectionContinuation> {
+  const response = await apiClient.fetchRaw(
+    `/api/orders/collection/attempts/${encodeURIComponent(run.attemptId)}/continuation`,
+    {
+      method: 'GET',
+      headers: {
+        'x-source-attempt-token': run.attemptToken,
+      },
+    },
+  );
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response));
+  }
+  return (await response.json()) as IcecreamOrderCollectionContinuation;
+}
+
 /** 도매꾹 주문 CSV(EUC-KR) 업로드 → 셀피아 .xls 변환. date 주면 그날 주문만. */
 export async function convertDomeggookOrderFile(
   file: File,
-  options?: { date?: string; download?: boolean },
+  options?: { date?: string; download?: boolean; run?: OrderCollectionExtensionRun },
 ): Promise<OrderCollectionConversionResult> {
   const formData = new FormData();
   formData.append('file', file);
@@ -34,6 +108,10 @@ export async function convertDomeggookOrderFile(
   const response = await apiClient.fetchRaw('/api/orders/collection/domeggook/convert', {
     method: 'POST',
     body: formData,
+    headers: options?.run ? {
+      'x-order-collection-attempt-id': options.run.attemptId,
+      'x-source-attempt-token': options.run.attemptToken,
+    } : undefined,
   });
   if (!response.ok) {
     throw new Error(await readErrorMessage(response));
@@ -59,7 +137,7 @@ export async function convertDomeggookOrderFile(
 /** 롯데ON/GS샵처럼 몰에서 받은 xlsx 를 그대로 업로드 → 셀피아 .xls 변환 (컬럼 재배치 없음, 포맷만 변환). */
 export async function convertGsshopOrderFile(
   file: File,
-  options?: { download?: boolean },
+  options?: { download?: boolean; run?: OrderCollectionExtensionRun },
 ): Promise<OrderCollectionConversionResult> {
   const formData = new FormData();
   formData.append('file', file);
@@ -67,6 +145,10 @@ export async function convertGsshopOrderFile(
   const response = await apiClient.fetchRaw('/api/orders/collection/gsshop/convert', {
     method: 'POST',
     body: formData,
+    headers: options?.run ? {
+      'x-order-collection-attempt-id': options.run.attemptId,
+      'x-source-attempt-token': options.run.attemptToken,
+    } : undefined,
   });
   if (!response.ok) {
     throw new Error(await readErrorMessage(response));
@@ -93,6 +175,7 @@ const OUTPUT_FILE_SUFFIX = '_아이스크림몰_변환';
 export async function convertIcecreamMallOrderFile(
   file: File,
   password?: string,
+  run?: OrderCollectionExtensionRun,
 ): Promise<OrderCollectionConversionResult> {
   const formData = new FormData();
   formData.append('file', file);
@@ -101,6 +184,10 @@ export async function convertIcecreamMallOrderFile(
   const response = await apiClient.fetchRaw('/api/orders/collection/icecream-mall/convert', {
     method: 'POST',
     body: formData,
+    headers: run ? {
+      'x-order-collection-attempt-id': run.attemptId,
+      'x-source-attempt-token': run.attemptToken,
+    } : undefined,
   });
 
   if (!response.ok) {
@@ -126,11 +213,17 @@ export async function convertIcecreamMallOrderFile(
 
 export async function convertIcecreamMallOrderRows(
   payload: BrowserOrderRowsPayload,
-  options?: { download?: boolean },
+  options?: { download?: boolean; run?: OrderCollectionExtensionRun },
 ): Promise<OrderCollectionConversionResult> {
   const response = await apiClient.fetchRaw('/api/orders/collection/icecream-mall/convert-rows', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(options?.run ? {
+        'x-order-collection-attempt-id': options.run.attemptId,
+        'x-source-attempt-token': options.run.attemptToken,
+      } : {}),
+    },
     body: JSON.stringify(payload),
   });
 
@@ -175,18 +268,6 @@ function numericHeader(response: Response, name: string): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function fileNameFromContentDisposition(value: string | null): string | null {
-  if (!value) return null;
-  const encoded = /filename\*=UTF-8''([^;]+)/i.exec(value)?.[1];
-  if (encoded) {
-    try {
-      return decodeURIComponent(encoded);
-    } catch {
-      return encoded;
-    }
-  }
-  return /filename="([^"]+)"/i.exec(value)?.[1] ?? null;
-}
 
 function fallbackFileName(inputName: string): string {
   const baseName = inputName.replace(/\.[^.]+$/, '').replace(/[\\/:*?"<>|]+/g, '_');

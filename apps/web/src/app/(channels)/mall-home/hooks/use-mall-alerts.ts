@@ -1,18 +1,14 @@
 'use client';
 
-import { useCallback, useMemo, useState, useSyncExternalStore } from 'react';
+import { useMemo, useSyncExternalStore } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { toast } from 'sonner';
-import type { PanelAlertItem } from '@kiditem/shared/panel';
-import { usePanelStore } from '@/components/panel/lib/panel-store';
-import { closeExpiredBrowserCollectionAlerts } from '@/lib/browser-collection-session';
+import { useAlertsQuery } from '@/lib/alerts-api';
 import {
   getMallLoginBlocks,
   getMallLoginBlocksServerSnapshot,
   subscribeMallLoginBlocks,
 } from '@/lib/mall-login-block';
 import { queryKeys } from '@/lib/query-keys';
-import { formatNumber } from '@/lib/utils';
 import { mallPublishingApi } from '../../_shared/mall-publishing-api';
 import { useMallCapabilityRows } from '../../_shared/use-mall-capability-rows';
 import {
@@ -20,7 +16,6 @@ import {
   mallAlertCounts,
   mallAlertsFrom,
   mallStatusTiles,
-  splitExpiredAlerts,
 } from '../lib/mall-alerts';
 import {
   countMallSessions,
@@ -36,20 +31,17 @@ const AVAILABILITY_PREVIEW_LIMIT = 100;
 const OUTCOME_DAYS = 7;
 
 /**
- * 쇼핑몰 홈이 읽는 모든 것 — 몰 판정(쇼핑몰 현황과 같은 곳), 몰 알림(전역 알림 스트림),
+ * 쇼핑몰 홈이 읽는 모든 것 — 몰 판정(쇼핑몰 현황과 같은 곳), 몰 알림(전역 알림 쿼리),
  * 지금 상태(품절 후보, 쿠팡 발주확인 대기, 몰 로그인 상태, 자동 로그인이 멈춘 몰),
  * 기억(몰 작업 결과 요약).
  *
  * 하나를 못 받아도 나머지는 선다. 못 받은 숫자는 `null` 로 두고 알림을 지어내지 않는다.
- * 7일 넘게 멈춘 수집 알림은 확인 필요에서 빼 `expired` 로 따로 준다. 로그인 상태는 확장이
- * 확인한 몰만 말한다 — 확인하지 못한 몰을 로그인 필요로 세지 않는다.
+ * 로그인 상태는 확장이 확인한 몰만 말한다 — 확인하지 못한 몰을 로그인 필요로 세지 않는다.
  */
 export function useMallAlerts() {
   const { overviewQuery, overview, totals } = useMallCapabilityRows();
-  const byId = usePanelStore((state) => state.byId);
-  const alertsReady = usePanelStore((state) => state.hasHydrated);
-  const upsertItem = usePanelStore((state) => state.upsertItem);
-  const [closingExpired, setClosingExpired] = useState(false);
+  const alertsQuery = useAlertsQuery();
+  const alertsReady = alertsQuery.isSuccess || alertsQuery.isError;
 
   const availabilityQuery = useQuery({
     queryKey: queryKeys.mallPublishing.availabilityPreview({ limit: String(AVAILABILITY_PREVIEW_LIMIT) }),
@@ -101,10 +93,9 @@ export function useMallAlerts() {
     [channels, loginBlocks, sessionStates],
   );
 
-  const { live: alerts, expired } = useMemo(
-    () => splitExpiredAlerts(mallAlertsFrom(byId), Date.now()),
-    [byId],
-  );
+  const alerts = useMemo(() => mallAlertsFrom(alertsQuery.data ?? []), [alertsQuery.data]);
+  // 열린 몰 알림 — 사람이 읽었어도 원천이 다시 성공할 때까지 열려 있다.
+  const openAlertCount = alertsReady ? alerts.filter((alert) => alert.status === 'OPEN').length : null;
   const derived = useMemo(
     () => derivedMallAlerts({ channels, signedOut, manualLogin, soldOutTotal, coupangPendingAccept }),
     [channels, signedOut, manualLogin, soldOutTotal, coupangPendingAccept],
@@ -135,50 +126,13 @@ export function useMallAlerts() {
     [probe.status, probe.checkedAt, probe.extensionVersion, probe.recheck, sessionStates],
   );
 
-  /** 7일 넘게 멈춘 수집 알림을 취소로 닫는다. 닫힌 것은 스트림을 기다리지 않고 바로 뺀다. */
-  const closeExpired = useCallback(
-    async (targets: readonly PanelAlertItem[]) => {
-      const now = Date.now();
-      setClosingExpired(true);
-      try {
-        const result = await closeExpiredBrowserCollectionAlerts(targets, now);
-        const closed = new Set(result.closed);
-        const finishedAt = new Date(now).toISOString();
-        for (const item of targets) {
-          if (item.operationKey && closed.has(item.operationKey)) {
-            upsertItem({
-              ...item,
-              status: 'cancelled',
-              finishedAt,
-              metadata: { ...item.metadata, staleReconciled: true },
-            });
-          }
-        }
-        if (result.closed.length > 0) {
-          toast.success(`멈춘 수집 알림 ${formatNumber(result.closed.length)}건을 정리했습니다.`);
-        }
-        if (result.skipped > 0) {
-          toast.info(`${formatNumber(result.skipped)}건은 다른 사람이 연 알림이라 건너뛰었습니다.`);
-        }
-        if (result.failed > 0) {
-          toast.error(`${formatNumber(result.failed)}건은 정리하지 못했습니다. 잠시 뒤 다시 눌러 주세요.`);
-        }
-      } finally {
-        setClosingExpired(false);
-      }
-    },
-    [upsertItem],
-  );
-
   return {
     overviewQuery,
     overview,
     totals,
     alerts,
     alertsReady,
-    expired,
-    closeExpired,
-    closingExpired,
+    openAlertCount,
     derived,
     tiles,
     counts,

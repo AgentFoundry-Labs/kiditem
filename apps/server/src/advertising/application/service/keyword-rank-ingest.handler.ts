@@ -79,165 +79,139 @@ export class KeywordRankIngestHandler {
     private readonly keywordRankRepo: KeywordRankRepositoryPort,
   ) {}
 
-  async execute(payload: ExtensionSyncDto, organizationId: string) {
-    const entries = payload.data ?? [];
-    const ownItems =
-      await this.keywordRankRepo.listOwnVendorItems(organizationId);
+  /** Pure normalization shared with the original fold; targets belong to the frozen attempt. */
+  normalizeCapture(
+    row: {
+      keyword: string;
+      capturedAt: string;
+      items: unknown;
+      pagesScanned: number;
+    },
+    plan: {
+      explicitVendorItemIds: string[];
+      ownItems: Array<{ vendorItemId: string; productName: string }>;
+    },
+    organizationId: string,
+  ) {
+    const keyword = row.keyword;
+    const capturedAt = new Date(row.capturedAt);
+    const businessDate = resolveBusinessDate(row.capturedAt, row.capturedAt);
     const ownNameByVendorItemId = new Map(
-      ownItems.map((item) => [item.vendorItemId, item.productName]),
+      plan.ownItems.map((item) => [item.vendorItemId, item.productName]),
+    );
+    const items = this.parseItems(row.items, keyword);
+    const explicitTargets = new Set(plan.explicitVendorItemIds);
+    const folds = this.foldOccurrences(
+      items,
+      (vendorItemId) =>
+        explicitTargets.has(vendorItemId) ||
+        ownNameByVendorItemId.has(vendorItemId),
     );
 
-    const results: Array<{
-      keyword: string;
-      businessDate: string;
-      matchedCount: number;
-      targetMissCount: number;
-      serpSaved: true;
-    }> = [];
-
-    for (const entry of entries) {
-      const keyword =
-        entry && typeof entry === "object"
-          ? cleanString((entry as Record<string, unknown>).keyword)
-          : null;
-      if (!keyword) {
-        this.logger.warn(
-          "keyword_rank ingest skipped entry without keyword (malformed capture)",
-        );
-        continue;
-      }
-      const row = entry as Record<string, unknown>;
-
-      const capturedAtRaw =
-        cleanString(row.capturedAt) ?? payload.timestamp ?? null;
-      const capturedAtParsed = capturedAtRaw ? new Date(capturedAtRaw) : null;
-      const capturedAt =
-        capturedAtParsed && Number.isFinite(capturedAtParsed.getTime())
-          ? capturedAtParsed
-          : new Date();
-      const businessDate = resolveBusinessDate(
-        cleanString(row.capturedAt),
-        payload.timestamp,
-      );
-
-      const items = this.parseItems(row.items, keyword);
-      const incomingSellerCatalogs = this.parseSellerCatalogs(
-        row.sellerCatalogs,
-      );
-
-      let tracker = await this.keywordRankRepo.getTrackerByKeyword(
-        keyword,
-        organizationId,
-      );
-      if (!tracker) {
-        // 미등록 키워드 캡처 — 트래커 즉석 생성(자사 자동매칭만).
-        tracker = await this.keywordRankRepo.upsertTrackerByKeyword(
-          { keyword, vendorItemIds: [] },
-          organizationId,
-        );
-      }
-
-      const explicitTargets = new Set(tracker.vendorItemIds);
-      const folds = this.foldOccurrences(
-        items,
-        (vendorItemId) =>
-          explicitTargets.has(vendorItemId) ||
-          ownNameByVendorItemId.has(vendorItemId),
-      );
-
-      const rankRows: UpsertRankSnapshotInput[] = [];
-      for (const [vendorItemId, fold] of folds) {
-        const best = fold.bestItem;
-        rankRows.push({
-          organizationId,
-          keyword,
-          vendorItemId,
-          businessDate,
-          productId: best.productId,
-          itemId: best.itemId,
-          productName:
-            best.name ?? ownNameByVendorItemId.get(vendorItemId) ?? null,
-          overallRank: fold.overallRank,
-          organicRank: fold.organicRank,
-          adRank: fold.adRank,
-          page: best.page,
-          positionInPage: best.positionInPage,
-          priceKrw: best.priceKrw,
-          reviewCount: best.reviewCount,
-          capturedAt,
-        });
-      }
-
-      // 명시 타깃 미노출(miss) 행 — 순위권 밖 기록. 자동매칭 전용 상품은
-      // 노출됐을 때만 행을 만들므로 여기서 제외된다.
-      let targetMissCount = 0;
-      for (const vendorItemId of explicitTargets) {
-        if (folds.has(vendorItemId)) continue;
-        targetMissCount += 1;
-        rankRows.push({
-          organizationId,
-          keyword,
-          vendorItemId,
-          businessDate,
-          productId: null,
-          itemId: null,
-          productName: ownNameByVendorItemId.get(vendorItemId) ?? null,
-          overallRank: null,
-          organicRank: null,
-          adRank: null,
-          page: null,
-          positionInPage: null,
-          priceKrw: null,
-          reviewCount: null,
-          capturedAt,
-        });
-      }
-
-      await this.keywordRankRepo.upsertRankSnapshots(rankRows);
-      const serpItems = items.map((item) => ({ ...item }));
-      const snapshotInput = {
+    const rankRows: Omit<UpsertRankSnapshotInput, "sourceImportRunId">[] = [];
+    for (const [vendorItemId, fold] of folds) {
+      const best = fold.bestItem;
+      rankRows.push({
         organizationId,
         keyword,
+        vendorItemId,
         businessDate,
-        items: { serpItems, sellerCatalogs: incomingSellerCatalogs },
-        itemCount: items.length,
-        pagesScanned:
-          toNumberOrNull(row.pagesScanned) ??
-          items.reduce((max, item) => Math.max(max, item.page ?? 0), 0),
+        productId: best.productId,
+        itemId: best.itemId,
+        productName:
+          best.name ?? ownNameByVendorItemId.get(vendorItemId) ?? null,
+        overallRank: fold.overallRank,
+        organicRank: fold.organicRank,
+        adRank: fold.adRank,
+        page: best.page,
+        positionInPage: best.positionInPage,
+        priceKrw: best.priceKrw,
+        reviewCount: best.reviewCount,
         capturedAt,
-      };
-      await this.keywordRankRepo.upsertSerpSnapshot(
-        snapshotInput,
-        (existingSnapshot) => {
-          const existingEnvelope = this.readSnapshotEnvelope(
-            existingSnapshot?.items,
-          );
-          const sellerCatalogs = this.mergeSellerCatalogs(
-            existingSnapshot &&
-              existingSnapshot.businessDate.getTime() === businessDate.getTime()
-              ? existingEnvelope.sellerCatalogs
-              : [],
-            incomingSellerCatalogs,
-          );
-          return { serpItems, sellerCatalogs };
-        },
-      );
-      await this.keywordRankRepo.touchTrackerCaptured(
-        tracker.id,
-        organizationId,
-        capturedAt,
-      );
-
-      results.push({
-        keyword,
-        businessDate: businessDate.toISOString().slice(0, 10),
-        matchedCount: folds.size,
-        targetMissCount,
-        serpSaved: true,
       });
     }
 
-    return { success: true, results };
+    // 명시 타깃 미노출(miss) 행 — 순위권 밖 기록. 자동매칭 전용 상품은
+    // 노출됐을 때만 행을 만들므로 여기서 제외된다.
+    let targetMissCount = 0;
+    for (const vendorItemId of explicitTargets) {
+      if (folds.has(vendorItemId)) continue;
+      targetMissCount += 1;
+      rankRows.push({
+        organizationId,
+        keyword,
+        vendorItemId,
+        businessDate,
+        productId: null,
+        itemId: null,
+        productName: ownNameByVendorItemId.get(vendorItemId) ?? null,
+        overallRank: null,
+        organicRank: null,
+        adRank: null,
+        page: null,
+        positionInPage: null,
+        priceKrw: null,
+        reviewCount: null,
+        capturedAt,
+      });
+    }
+
+    return {
+      rankRows,
+      items,
+      businessDate,
+      capturedAt,
+      matchedCount: folds.size,
+      targetMissCount,
+    };
+  }
+
+  async publishCapture(
+    normalized: ReturnType<KeywordRankIngestHandler["normalizeCapture"]>,
+    sourceImportRunId: string,
+    organizationId: string,
+    keyword: string,
+    pagesScanned: number,
+  ) {
+    const { rankRows, items, businessDate, capturedAt } = normalized;
+    let tracker = await this.keywordRankRepo.getTrackerByKeyword(
+      keyword,
+      organizationId,
+    );
+    if (!tracker) {
+      tracker = await this.keywordRankRepo.upsertTrackerByKeyword(
+        { keyword, vendorItemIds: [] },
+        organizationId,
+      );
+    }
+    await this.keywordRankRepo.upsertRankSnapshots(
+      rankRows.map((row) => ({ ...row, sourceImportRunId })),
+    );
+    const serpItems = items.map((item) => ({ ...item }));
+    await this.keywordRankRepo.upsertSerpSnapshot(
+      {
+        organizationId,
+        sourceImportRunId,
+        keyword,
+        businessDate,
+        items: { serpItems, sellerCatalogs: [] },
+        itemCount: items.length,
+        pagesScanned,
+        capturedAt,
+      },
+      (existing) => ({
+        serpItems,
+        sellerCatalogs:
+          existing && existing.businessDate.getTime() === businessDate.getTime()
+            ? this.readSnapshotEnvelope(existing.items).sellerCatalogs
+            : [],
+      }),
+    );
+    await this.keywordRankRepo.touchTrackerCaptured(
+      tracker.id,
+      organizationId,
+      capturedAt,
+    );
   }
 
   async executeSellerCatalogs(
@@ -290,7 +264,11 @@ export class KeywordRankIngestHandler {
         },
       });
       if (!saved) {
-        ignored.push({ keyword, sellerId: catalog.sellerId, reason: ignoredReason });
+        ignored.push({
+          keyword,
+          sellerId: catalog.sellerId,
+          reason: ignoredReason,
+        });
         this.logger.warn(
           `competitor_seller_catalog ignored (${ignoredReason}, keyword=${keyword})`,
         );
@@ -309,6 +287,7 @@ export class KeywordRankIngestHandler {
   async executeSellerIdentities(
     payload: ExtensionSyncDto,
     organizationId: string,
+    sourceImportRunId: string,
   ) {
     const byKeyword = new Map<string, Array<Record<string, unknown>>>();
     for (const entry of payload.data ?? []) {
@@ -383,6 +362,7 @@ export class KeywordRankIngestHandler {
               sellerId: cleanString(identity.sellerId),
               sellerStoreUrl: cleanString(identity.sellerStoreUrl),
               sellerIdentityCapturedAt: capturedAt.toISOString(),
+              sellerIdentitySourceImportRunId: sourceImportRunId,
             };
           });
           if (resolvedProductCount === 0) return null;

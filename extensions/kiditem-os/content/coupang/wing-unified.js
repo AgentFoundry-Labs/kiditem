@@ -350,6 +350,28 @@
     return m ? parseInt(m[1]) : 1;
   }
 
+  function observedWingVendorId(expectedVendorId) {
+    const identity = globalThis.KidItemWingAccountIdentity;
+    if (!identity || typeof identity.verifyExpectedVendorId !== "function") {
+      return { ok: false, error: "Wing 계정 식별 기능을 사용할 수 없습니다." };
+    }
+    return identity.verifyExpectedVendorId(expectedVendorId);
+  }
+
+  function sendOwnerStep(action, attemptId, step, body) {
+    return new Promise((resolve) => {
+      const message = { action, attemptId, step };
+      if (body !== undefined) message.body = body;
+      chrome.runtime.sendMessage(message, (response) => {
+        if (chrome.runtime.lastError) {
+          resolve({ success: false, errorCode: "SOURCE_OWNER_UNAVAILABLE", error: chrome.runtime.lastError.message });
+          return;
+        }
+        resolve(response || { success: false, errorCode: "SOURCE_OWNER_UNAVAILABLE", error: "no response" });
+      });
+    });
+  }
+
   // 특정 페이지 번호로 이동 (링크가 없으면 next 버튼 사용)
   function clickPage(n) {
     // data-wuic-attrs="page:N" 로 직접 클릭
@@ -440,21 +462,33 @@
     return false;
   }
 
+  function terminalPageObserved() {
+    const next = document.querySelector('[data-wuic-partial="next"]');
+    if (!next) return true;
+    const control = next.querySelector("a") || next;
+    return control.hasAttribute?.("disabled") ||
+      control.getAttribute?.("aria-disabled") === "true" ||
+      control.classList?.contains("disabled") ||
+      next.classList?.contains("disabled");
+  }
+
   // 전체 페이지 순회하며 상품 수집
-  async function parseAllProductsWithPagination() {
+  async function parseAllProductsWithPagination({ includeProof = false } = {}) {
     // (1) 페이지 진입 직후 row table 이 lazy load 중일 수 있음 → wait.
     //     row 안 채워진 상태에서 parseProductGrid 호출하면 0건 또는 부분만 잡힘.
-    await waitForGridData(15000, 1);
+    const initialGridReady = await waitForGridData(15000, 1);
 
     await setMaxPageSize();
 
     // (2) setMaxPageSize 가 pageSize 버튼 click → 데이터 다시 fetch + render.
     //     setMaxPageSize 내부 setTimeout 2000ms 만으로는 부족한 경우 많음.
     //     row 안정 wait 까지 한 번 더.
-    await waitForGridData(15000, 1);
+    const refreshedGridReady = await waitForGridData(15000, 1);
 
     const allProducts = parseProductGrid();
     const totalPages = getTotalPages();
+    const pages = [{ pageIndex: 1, data: allProducts.slice(), url: location.href }];
+    let complete = initialGridReady && refreshedGridReady;
     console.log("[KIDITEM] 총 페이지:", totalPages, "/ 1페이지 상품:", allProducts.length);
 
     for (let page = 2; page <= totalPages; page++) {
@@ -469,11 +503,24 @@
       await waitForGridData(10000, 1);
       const pageProducts = parseProductGrid();
       console.log("[KIDITEM] 페이지", page, "상품:", pageProducts.length);
+      pages.push({ pageIndex: page, data: pageProducts.slice(), url: location.href });
       for (const p of pageProducts) allProducts.push(p);
+      complete = true;
     }
 
+    const terminal = pages.length === totalPages && terminalPageObserved();
+    complete = complete && terminal;
+
     console.log("[KIDITEM] 전체 상품 수집 완료:", allProducts.length);
-    return allProducts;
+    if (!includeProof) return allProducts;
+    return {
+      products: allProducts,
+      pages,
+      expectedPages: totalPages,
+      terminalPageObserved: terminal,
+      complete,
+      gridReady: initialGridReady && refreshedGridReady,
+    };
   }
 
   // ===== 아이템위너 테이블 파싱 (기존) =====
@@ -544,30 +591,8 @@
     return cards;
   }
 
-  // ===== 서버 전송 (service worker 경유 — CORS 우회) =====
-  function sendViaServiceWorker(payload) {
-    return new Promise((resolve) => {
-      chrome.runtime.sendMessage({ action: "syncToServer", payload }, (response) => {
-        if (chrome.runtime.lastError) {
-          resolve({ success: false, error: chrome.runtime.lastError.message });
-          return;
-        }
-        resolve(response || { success: false, error: "no response" });
-      });
-    });
-  }
-
-  function syncTrafficToServer(products, kpis, adSummary) {
-    const { startDate, endDate } = getDateRangeFromUrl();
-
-    let periodDays = 7;
-    if (startDate && endDate) {
-      const diff = Math.round((new Date(endDate).getTime() - new Date(startDate).getTime()) / 86400000) + 1;
-      if (diff > 0) periodDays = diff;
-    }
-
-    // KPI 카드에서 전체 합계 추출
-    const summary = {
+  function trafficSummary(kpis) {
+    return {
       visitors: kpis.visitor?.numValue || 0,
       views: kpis.pageView?.numValue || 0,
       cartAdds: kpis.addToCart?.numValue || 0,
@@ -576,90 +601,310 @@
       salesQty: kpis.unitSold?.numValue || 0,
       revenue: kpis.sales?.numValue || 0,
     };
-
-    return sendViaServiceWorker({
-      type: "traffic",
-      data: products.map(p => ({
-        // vendorItemId 가 자연 key — 서버 handleTraffic 가 이게 없으면 skip 함.
-        // parseProductGrid 에서 vendorItemId 추출 못한 경우 optionId 또는 inventoryId 폴백.
-        vendorItemId: p.vendorItemId || p.optionId || p.inventoryId,
-        productId: p.inventoryId || p.vendorItemId,
-        productName: p.productName,
-        visitors: p.visitors,
-        views: p.views,
-        cartAdds: p.cartAdds,
-        orders: p.orders,
-        salesQty: p.salesQty,
-        revenue: p.revenue,
-        conversionRate: p.conversionRate,
-        adStatus: p.adStatus || null,
-      })),
-      summary,
-      period: periodDays,
-      startDate: startDate || undefined,
-      endDate: endDate || undefined,
-      kpis,
-      adSummary,
-      timestamp: new Date().toISOString(),
-      url: location.href,
-    });
   }
 
-  function syncItemWinnerToServer(tableData, cards) {
-    return sendViaServiceWorker({
-      type: "raw_scrape",
-      source: "wing",
+  function dailyOptionEvidence(row) {
+    if (!row || typeof row !== "object") return row;
+    return {
+      ...row,
+      // Listing matching is server-owned. Keep the provider option identity
+      // and explicit null listing scope as source evidence; never guess a
+      // listing from the Wing inventory id in the browser.
+      listingId: row.listingId ?? null,
+      listingOptionId: row.listingOptionId ?? null,
+      externalOptionId: row.externalOptionId ?? row.vendorItemId ?? null,
+    };
+  }
+
+  async function syncTrafficDailyToSourceOwner(control, capture) {
+    if (!capture?.gridReady || !Array.isArray(capture.dailyPages) ||
+      !Array.isArray(capture.expectedDates) || !Array.isArray(capture.confirmedDates) ||
+      (!capture.periodSummary && capture.periodSummaryAccepted !== true)) {
+      return { success: false, errorCode: "INCOMPLETE_TRAFFIC_COVERAGE", error: "Wing 트래픽 일별 범위를 확인하지 못했습니다." };
+    }
+    const identity = observedWingVendorId(control.plan.expectedAdvertiserId);
+    if (!identity.ok) return { success: false, errorCode: "VENDOR_IDENTITY_UNAVAILABLE", error: identity.error };
+    if (control.plan.providerVendorId !== identity.vendorId) {
+      return { success: false, errorCode: "ADVERTISER_IDENTITY_MISMATCH", error: "Wing owner 계정 식별자가 계획과 다릅니다." };
+    }
+    const range = getDateRangeFromUrl();
+    if (range.startDate !== control.plan.startDate || range.endDate !== control.plan.endDate) {
+      return { success: false, errorCode: "TRAFFIC_DATE_RANGE_MISMATCH", error: "Wing 트래픽 URL 날짜가 owner 계획과 다릅니다." };
+    }
+    if (control.plan.filterScope !== "ALL_NORMAL_RFM" ||
+      capture.expectedDates.length !== control.plan.expectedDates?.length ||
+      capture.expectedDates.some((date, index) => date !== control.plan.expectedDates[index])) {
+      return { success: false, errorCode: "TRAFFIC_DATE_RANGE_MISMATCH", error: "Wing 트래픽 owner 날짜 목록이 일치하지 않습니다." };
+    }
+    const dailyDates = new Set();
+    for (const day of capture.dailyPages) {
+      if (!day || typeof day.businessDate !== "string" || dailyDates.has(day.businessDate) ||
+        !capture.expectedDates.includes(day.businessDate) || !Array.isArray(day.pages) ||
+        !Number.isSafeInteger(day.expectedPages) || day.expectedPages < 1) {
+        return { success: false, errorCode: "TRAFFIC_DATE_RANGE_MISMATCH", error: "Wing 트래픽 일별 receipt 날짜가 owner 계획과 일치하지 않습니다." };
+      }
+      dailyDates.add(day.businessDate);
+    }
+    // How many days this hand-off must carry is the window the capture
+    // confirmed, not the window that was requested. They differ whenever the
+    // provider has not published a later day yet — the ordinary case, since
+    // Wing's traffic runs a day behind its sales. Counting against the request
+    // would discard every measured day in the window for the sake of one the
+    // provider never claimed. The plan's date vector stays un-narrowed above,
+    // because receipt sequences are numbered off it.
+    if (capture.confirmedDates.length !== dailyDates.size ||
+      capture.confirmedDates.some((date) => !dailyDates.has(date))) {
+      return { success: false, errorCode: "INCOMPLETE_TRAFFIC_COVERAGE", error: "Wing 트래픽 일별 날짜가 일부 누락되었습니다." };
+    }
+    // A resumed capture gets a fresh observation timestamp. Accepted receipts
+    // are never re-sent, so an old timestamp cannot be fabricated onto newly
+    // observed provider pages.
+    const priorCapturedAt = Array.isArray(control.receipts)
+      ? control.receipts.map((receipt) => receipt?.capturedAt).filter((value) => typeof value === "string").sort().at(-1)
+      : null;
+    let capturedAt = new Date().toISOString();
+    // Date.now() can share a millisecond with a same-turn retry. Keep the
+    // observation fresh without ever reusing the accepted receipt timestamp.
+    if (priorCapturedAt && Date.parse(capturedAt) <= Date.parse(priorCapturedAt)) {
+      capturedAt = new Date(Date.parse(priorCapturedAt) + 1).toISOString();
+    }
+    let lastReceipt = null;
+    let count = 0;
+    for (const day of capture.dailyPages) {
+      if (!day || !capture.expectedDates.includes(day.businessDate) || !Array.isArray(day.pages)) {
+        return { success: false, errorCode: "INCOMPLETE_TRAFFIC_COVERAGE", error: "Wing 트래픽 일별 페이지 증거가 유효하지 않습니다." };
+      }
+      for (const page of day.pages) {
+        const finalPage = page.pageIndex === day.expectedPages;
+        if (finalPage && !day.complete) break;
+        const isFirstPage = page.pageIndex === 1;
+        const body = {
+          key: `${control.attemptId}:daily:${day.businessDate}:page:${page.pageIndex}`,
+          capturedAt,
+          kind: "daily_page",
+          providerVendorId: identity.vendorId,
+          filterScope: "ALL_NORMAL_RFM",
+          url: page.url || location.href,
+          businessDate: day.businessDate,
+          startDate: day.businessDate,
+          endDate: day.businessDate,
+          period: 1,
+          pageIndex: page.pageIndex,
+          proof: {
+            expectedPages: day.expectedPages,
+            visitedPages: Array.from({ length: page.pageIndex }, (_, index) => index + 1),
+            terminalPageObserved: finalPage && day.terminalPageObserved === true,
+            verified: true,
+            complete: finalPage && day.complete === true,
+            ...(page.explicitEmpty === true ? { explicitEmpty: true } : {}),
+          },
+          data: (page.data || []).map(dailyOptionEvidence),
+          ...(isFirstPage && day.accountSummary ? {
+            accountSummary: day.accountSummary,
+            accountSummaryRaw: day.accountSummaryRaw,
+          } : {}),
+        };
+        const response = await sendOwnerStep("wingTrafficSourceStepV2", control.attemptId, "receipt", body);
+        if (!response?.success) return response || { success: false, errorCode: "SOURCE_OWNER_UNAVAILABLE", error: "Wing 트래픽 일별 receipt 전송 실패" };
+        lastReceipt = response.trafficReceipt || lastReceipt;
+        count += body.data.length;
+      }
+      if (!day.complete || !day.terminalPageObserved ||
+        day.pages.length + Number(day.acceptedPageCount || 0) !== day.expectedPages) {
+        return { success: false, errorCode: "INCOMPLETE_TRAFFIC_COVERAGE", error: "Wing 트래픽 일별 페이지네이션이 완료되지 않았습니다.", trafficReceipt: lastReceipt };
+      }
+    }
+    const period = capture.periodSummary;
+    if (period) {
+      // The summary carries the window the capture confirmed, and the owner
+      // reads it as this run's coverage. Re-stating the plan's window here
+      // would claim coverage for a day the provider never published — the
+      // mirror of refusing the whole window for that same day.
+      const periodBody = {
+        key: `${control.attemptId}:period-summary:${period.startDate}:${period.endDate}`,
+        capturedAt,
+        kind: "period_summary",
+        providerVendorId: identity.vendorId,
+        filterScope: "ALL_NORMAL_RFM",
+        url: period.url || location.href,
+        startDate: period.startDate,
+        endDate: period.endDate,
+        period: period.period,
+        accountSummary: period.accountSummary,
+        accountSummaryRaw: period.accountSummaryRaw,
+      };
+      const periodResponse = await sendOwnerStep("wingTrafficSourceStepV2", control.attemptId, "receipt", periodBody);
+      if (!periodResponse?.success) return periodResponse || { success: false, errorCode: "SOURCE_OWNER_UNAVAILABLE", error: "Wing 트래픽 기간 summary 전송 실패" };
+      lastReceipt = periodResponse.trafficReceipt || lastReceipt;
+    }
+    return { success: true, type: "traffic", count, trafficReceipt: lastReceipt };
+  }
+
+  async function syncTrafficToSourceOwner(control, pagination, kpis, adSummary, summaryOverride) {
+    if (control?.plan?.parserVersion === "wing-traffic-daily-v2") {
+      return syncTrafficDailyToSourceOwner(control, pagination);
+    }
+    if (!control?.attemptId || !control.plan || !pagination?.gridReady) {
+      return { success: false, errorCode: "INCOMPLETE_TRAFFIC_COVERAGE", error: "Wing 트래픽 그리드를 확인하지 못했습니다." };
+    }
+    const identity = observedWingVendorId(control.plan.expectedAdvertiserId);
+    if (!identity.ok) {
+      return { success: false, errorCode: "VENDOR_IDENTITY_UNAVAILABLE", error: identity.error };
+    }
+    const range = getDateRangeFromUrl();
+    if (range.startDate !== control.plan.startDate || range.endDate !== control.plan.endDate) {
+      return { success: false, errorCode: "TRAFFIC_DATE_RANGE_MISMATCH", error: "Wing 트래픽 URL 날짜가 owner 계획과 다릅니다." };
+    }
+    const period = Math.round((new Date(range.endDate).getTime() - new Date(range.startDate).getTime()) / 86400000) + 1;
+    if (period !== control.plan.periodDays) {
+      return { success: false, errorCode: "TRAFFIC_PERIOD_MISMATCH", error: "Wing 트래픽 기간이 owner 계획과 다릅니다." };
+    }
+    // A resumed owner attempt may already have accepted earlier pages.  Reuse
+    // the first accepted receipt's timestamp when available so the repeated
+    // dashboard payload remains one stable observation across the attempt.
+    const priorReceipt = Array.isArray(control.receipts) ? control.receipts[0] : null;
+    const capturedAt = priorReceipt?.capturedAt || new Date().toISOString();
+    const summary = summaryOverride && typeof summaryOverride === "object"
+      ? summaryOverride
+      : trafficSummary(kpis);
+    let lastReceipt = null;
+    for (const page of pagination.pages || []) {
+      const finalPage = page.pageIndex === pagination.expectedPages;
+      if (finalPage && !pagination.complete) break;
+      const body = {
+        key: `${control.attemptId}:page:${page.pageIndex}`,
+        capturedAt,
+        url: page.url || location.href,
+        startDate: range.startDate,
+        endDate: range.endDate,
+        period,
+        pageIndex: page.pageIndex,
+        proof: {
+          expectedPages: pagination.expectedPages,
+          visitedPages: Array.from({ length: page.pageIndex }, (_, index) => index + 1),
+          terminalPageObserved: finalPage && pagination.terminalPageObserved === true,
+          verified: true,
+          complete: finalPage && pagination.complete === true,
+          ...(page.data.length === 0 && pagination.expectedPages === 1 ? { explicitEmpty: true } : {}),
+        },
+        data: page.data,
+        kpis,
+        summary,
+        adSummary,
+      };
+      const response = await sendOwnerStep("wingTrafficSourceStep", control.attemptId, "receipt", body);
+      if (!response?.success) return response || { success: false, errorCode: "SOURCE_OWNER_UNAVAILABLE", error: "Wing 트래픽 receipt 전송 실패" };
+      lastReceipt = response.trafficReceipt || lastReceipt;
+    }
+    if (!pagination.complete || !pagination.terminalPageObserved || (pagination.pages || []).length !== pagination.expectedPages) {
+      return { success: false, errorCode: "INCOMPLETE_TRAFFIC_COVERAGE", error: "Wing 트래픽 페이지네이션이 완료되지 않았습니다.", trafficReceipt: lastReceipt };
+    }
+    return { success: true, type: "traffic", count: pagination.products.length, trafficReceipt: lastReceipt };
+  }
+
+  async function syncItemWinnerToSourceOwner(control, tableData, cards, observedIdentity) {
+    if (!control?.attemptId || !control.plan) {
+      return { success: false, errorCode: "SOURCE_OWNER_UNAVAILABLE", error: "Wing 아이템위너 owner 허가가 없습니다." };
+    }
+    const identity = observedIdentity || observedWingVendorId(control.plan.expectedVendorId);
+    if (!identity.ok) return { success: false, errorCode: "VENDOR_IDENTITY_UNAVAILABLE", error: identity.error };
+    if (tableData.length === 0 && Object.keys(cards).length === 0) {
+      return { success: false, errorCode: "WING_ITEMWINNER_DATA_EMPTY", error: "Wing 아이템위너 현재 페이지에 데이터가 없습니다." };
+    }
+    const observedAt = new Date().toISOString();
+    const body = {
+      providerVendorId: identity.vendorId,
+      observedAt,
       data: tableData,
       kpis: cards,
       url: window.location.href,
       title: document.title,
-      timestamp: new Date().toISOString(),
-    });
+      timestamp: observedAt,
+    };
+    const response = await sendOwnerStep("wingItemwinnerSourceStep", control.attemptId, "capture", body);
+    if (!response?.success) return response || { success: false, errorCode: "SOURCE_OWNER_UNAVAILABLE", error: "Wing 아이템위너 capture 전송 실패" };
+    return { success: true, type: "wing", count: tableData.length, itemwinnerReceipt: response.itemwinnerReceipt || { complete: true } };
   }
 
   // showBadge is loaded from utils/dom.js via manifest
 
   // ===== 메인 동기화 =====
   // paginate: true면 전체 페이지 순회, false면 현재 페이지만 (sales-analysis)
-  async function doSync({ paginate = false } = {}) {
+  async function doSync({ paginate = false, ownerControl = null } = {}) {
     const pageType = detectPageType();
     console.log("[KIDITEM] 페이지 타입:", pageType, "URL:", location.href, "paginate:", paginate);
 
     if (pageType === "sales-analysis") {
-      // KPI + 광고 요약은 1페이지에서 한 번만 파싱
-      const kpis = parseKpiCards();
-      const adSummary = parseAdSummary();
+      let kpis;
+      let adSummary;
+      let summaryOverride = null;
+      let pagination;
+      let products;
+      if (ownerControl) {
+        const reader = globalThis.KidItemWingReadApi;
+        if (!reader || typeof reader.collectTraffic !== "function") {
+          const error = "Wing 트래픽 API 모듈을 사용할 수 없습니다.";
+          showBadge(`❌ ${error}`, "#ef4444");
+          return { success: false, errorCode: "WING_READ_API_UNAVAILABLE", error };
+        }
+        const capture = await reader.collectTraffic({ control: ownerControl });
+        if (!capture?.success) {
+          showBadge(`❌ ${capture?.error || "Wing 트래픽 API 수집 실패"}`, "#ef4444");
+          return {
+            success: false,
+            errorCode: capture?.errorCode || "WING_TRAFFIC_COLLECTION_FAILED",
+            error: capture?.error || "Wing 트래픽 API 수집 실패",
+            ...(capture?.attentionRequired ? { attentionRequired: true } : {}),
+          };
+        }
+        // JSON endpoints do not expose the legacy adSummary shape. Keep the
+        // optional DOM parser for that one field while all traffic rows/KPIs
+        // come from the verified API response.
+        kpis = capture.kpis || {};
+        summaryOverride = capture.summary || null;
+        adSummary = parseAdSummary();
+        pagination = capture;
+        products = capture.products || [];
+      } else {
+        // Automatic/no-owner mode intentionally retains the old DOM-only
+        // signal path and never calls the provider API.
+        kpis = parseKpiCards();
+        adSummary = parseAdSummary();
+        products = paginate
+          ? await parseAllProductsWithPagination()
+          : parseProductGrid();
+      }
       console.log("[KIDITEM] 광고 요약:", JSON.stringify(adSummary));
-
-      // 팝업에서 수동 트리거 시만 전체 페이지 순회, 자동은 현재 페이지만
-      const products = paginate
-        ? await parseAllProductsWithPagination()
-        : parseProductGrid();
 
       console.log("[KIDITEM] 파싱 결과:", products.length, "상품, KPI:", Object.keys(kpis).length);
 
       const hasSummarySignal = Object.keys(kpis).length > 0 || adSummary !== null;
 
-      if (products.length > 0 || hasSummarySignal) {
-        const { startDate, endDate } = getDateRangeFromUrl();
-        const periodInfo = startDate && endDate ? `${startDate} ~ ${endDate}` : "";
-        showBadge(`📊 매출분석 ${products.length}개 상품 + 요약 감지 — 동기화 중... ${periodInfo}`, "#60a5fa");
-
-        const json = await syncTrafficToServer(products, kpis, adSummary);
-        if (json?.success) {
+      if (ownerControl) {
+        const result = await syncTrafficToSourceOwner(ownerControl, pagination, kpis, adSummary, summaryOverride);
+        if (result?.success) {
+          const { startDate, endDate } = getDateRangeFromUrl();
           chrome.storage.local.set({
             kiditem_last_sync_traffic: {
               time: Date.now(),
               count: products.length,
-              period: periodInfo,
+              period: startDate && endDate ? `${startDate} ~ ${endDate}` : "",
             },
           });
-          showBadge(`✅ 매출분석 ${json.upserted || products.length}개 동기화 완료 (${periodInfo})`, "#22c55e");
-          return { success: true, type: "traffic", count: products.length };
-        } else {
-          showBadge(`❌ ${json?.error || "동기화 실패"}`, "#ef4444");
-          return { success: false, error: json?.error || "동기화 실패" };
+          showBadge(`✅ 매출분석 ${products.length}개 owner 수집 완료`, "#22c55e");
+          return { success: true, type: "traffic", count: products.length, trafficReceipt: result.trafficReceipt };
         }
+        showBadge(`❌ ${result?.error || "Wing 트래픽 수집 실패"}`, "#ef4444");
+        return { success: false, errorCode: result?.errorCode, error: result?.error || "Wing 트래픽 수집 실패", trafficReceipt: result?.trafficReceipt };
+      }
+
+      if (products.length > 0 || hasSummarySignal) {
+        showBadge("❌ Wing 트래픽 source owner 허가가 없습니다.", "#ef4444");
+        return {
+          success: false,
+          errorCode: "SOURCE_OWNER_REQUIRED",
+          error: "Wing 트래픽 수집은 source owner에서 시작해야 합니다.",
+        };
       }
 
       console.log("[KIDITEM] 그리드 데이터 없음 — 렌더링 대기 중");
@@ -675,113 +920,81 @@
       };
     }
 
-    // 아이템위너 전용 페이지
+    if (ownerControl) {
+      const reader = globalThis.KidItemWingReadApi;
+      if (!reader || typeof reader.collectItemwinner !== "function") {
+        const error = "Wing 아이템위너 API 모듈을 사용할 수 없습니다.";
+        showBadge(`❌ ${error}`, "#ef4444");
+        return { success: false, errorCode: "WING_READ_API_UNAVAILABLE", error };
+      }
+      // Identity is a page-local guard. Re-check it after the provider read so
+      // a tab/account switch cannot publish the response under the old account.
+      const identityBefore = observedWingVendorId(ownerControl.plan.expectedVendorId);
+      if (!identityBefore.ok) {
+        showBadge(`❌ ${identityBefore.error}`, "#ef4444");
+        return { success: false, errorCode: "VENDOR_IDENTITY_UNAVAILABLE", error: identityBefore.error };
+      }
+      const capture = await reader.collectItemwinner({ control: ownerControl });
+      if (!capture?.success) {
+        showBadge(`❌ ${capture?.error || "Wing 아이템위너 API 수집 실패"}`, "#ef4444");
+        return {
+          success: false,
+          errorCode: capture?.errorCode || "WING_ITEMWINNER_COLLECTION_FAILED",
+          error: capture?.error || "Wing 아이템위너 API 수집 실패",
+          ...(capture?.attentionRequired ? { attentionRequired: true } : {}),
+        };
+      }
+      const identityAfter = observedWingVendorId(ownerControl.plan.expectedVendorId);
+      if (!identityAfter.ok || identityAfter.vendorId !== identityBefore.vendorId) {
+        const error = identityAfter.error || "Wing 계정 식별자가 수집 중 변경되었습니다.";
+        showBadge(`❌ ${error}`, "#ef4444");
+        return { success: false, errorCode: "VENDOR_IDENTITY_CHANGED", error };
+      }
+      const result = await syncItemWinnerToSourceOwner(
+        ownerControl,
+        capture.products || [],
+        capture.kpis || {},
+        identityAfter,
+      );
+      if (result?.success) {
+        chrome.storage.local.set({ kiditem_last_sync_itemwinner: { time: Date.now(), count: result.count } });
+        showBadge(`✅ Wing 아이템위너 owner 수집 완료`, "#22c55e");
+        return { success: true, type: "wing", count: result.count, itemwinnerReceipt: result.itemwinnerReceipt };
+      }
+      showBadge(`❌ ${result?.error || "Wing 아이템위너 수집 실패"}`, "#ef4444");
+      return { success: false, errorCode: result?.errorCode, error: result?.error || "Wing 아이템위너 수집 실패" };
+    }
+
+    // Automatic/no-owner mode intentionally retains the legacy DOM-only signal
+    // path. It cannot publish anything without the source-owner permit above.
     const tableData = parseWingTable();
     const cards = parseDashboardCards();
     const total = tableData.length + Object.keys(cards).length;
 
     if (total > 0) {
-      showBadge(`📊 Wing ${tableData.length}행 + ${Object.keys(cards).length}카드 감지 — 동기화 중...`, "#60a5fa");
-      const json = await syncItemWinnerToServer(tableData, cards);
-      if (json?.success) {
-        chrome.storage.local.set({ kiditem_last_sync_itemwinner: { time: Date.now(), count: tableData.length } });
-        showBadge(`✅ ${json.upserted || tableData.length}개 동기화 완료`, "#22c55e");
-        return { success: true, type: "wing", count: total };
-      } else {
-        showBadge(`❌ ${json?.error || "실패"}`, "#ef4444");
-        return { success: false, error: json?.error || "실패" };
-      }
+      showBadge("❌ Wing 아이템위너 source owner 허가가 없습니다.", "#ef4444");
+      return {
+        success: false,
+        errorCode: "SOURCE_OWNER_REQUIRED",
+        error: "Wing 아이템위너 수집은 source owner에서 시작해야 합니다.",
+      };
     }
     return { success: false, error: "데이터 없음" };
   }
 
-  // 렌더링 대기 후 자동 실행 (Vue SPA 렌더링 3~5초)
-  async function waitAndSync(attempt) {
-    attempt = attempt || 1;
-    const result = await doSync();
-
-    if (!result.success && detectPageType() === "sales-analysis" && attempt < 3) {
-      console.log(`[KIDITEM] 재시도 ${attempt}/3 (3초 후)...`);
-      setTimeout(() => waitAndSync(attempt + 1), 3000);
-    }
-  }
-
-  // URL 해시에 #kiditemBatch=1 이 있으면 batch 모드 — paginate:true + 완료 후 탭 자가 종료.
-  // ReadinessModal "지금 받기" 가 누락 일자별 URL 에 이 마커 부여.
-  const isBatchMode = /#kiditemBatch=1/.test(window.location.hash || "");
-
-  async function syncSalesAnalysisWithRetry(options) {
-    const syncOptions = options || { paginate: true };
-    let result = null;
-    // Vue SPA lazy load + pageSize 변경 reload 대응: 시도 간 간격을 길게 (3s → 6s).
-    // doSync 내부 waitForGridData 가 이미 polling 하지만, 첫 시도가 빈 페이지 case 였다면
-    // 다음 시도 전 추가 시간을 줘서 페이지가 "어제 데이터 공개 12:30" 같은 상태가 풀릴 때까지 대기.
-    const RETRY_DELAY_MS = 6000;
-    const MAX_ATTEMPTS = 3;
-    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-      result = await doSync(syncOptions);
-      if (result?.success) break;
-      if (detectPageType() !== "sales-analysis") break;
-      if (attempt < MAX_ATTEMPTS) {
-        console.log(
-          `[KIDITEM] 매출분석 재시도 ${attempt}/${MAX_ATTEMPTS} (${RETRY_DELAY_MS / 1000}초 후)...`,
-        );
-        await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
-      }
-    }
-    return result;
-  }
-
-  async function batchSyncWithRetry() {
-    const result = await syncSalesAnalysisWithRetry({ paginate: true });
-    try {
-      chrome.runtime.sendMessage({
-        action: "reportBatchScrapeDone",
-        success: !!result?.success,
-        url: window.location.href,
-      });
-    } catch {}
-  }
-
-  setTimeout(() => {
-    if (isBatchMode) {
-      batchSyncWithRetry();
-    } else {
-      waitAndSync(1);
-    }
-  }, 4000);
-
   // 수동 동기화 — 서버 응답까지 대기 후 결과 반환 (sales-analysis는 전체 페이지 순회)
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.action === "manualSync") {
-      syncSalesAnalysisWithRetry({ paginate: true }).then((result) => sendResponse(result));
+      const ownerControl = msg.syncMode === "wing_traffic"
+        ? msg.wingTrafficControl
+        : msg.syncMode === "wing_itemwinner"
+          ? msg.wingItemwinnerControl
+          : null;
+      doSync({ paginate: true, ownerControl })
+        .then((result) => sendResponse(result))
+        .catch((error) => sendResponse({ success: false, errorCode: "WING_COLLECTION_FAILED", error: error?.message || String(error) }));
       return true;
     }
   });
 
-  // SPA URL 변경 감지 — debounce + childList only (subtree 제거로 메모리 절약)
-  let lastUrl = location.href;
-  let urlDebounceTimer = null;
-  const observer = new MutationObserver(() => {
-    if (location.href !== lastUrl) {
-      lastUrl = location.href;
-      if (urlDebounceTimer) clearTimeout(urlDebounceTimer);
-      urlDebounceTimer = setTimeout(() => {
-        console.log("[KIDITEM] URL 변경 감지:", location.href);
-        waitAndSync(1);
-      }, 4000);
-    }
-  });
-  observer.observe(document.body, { childList: true, subtree: false });
-
-  // 탭 비활성/종료 시 observer 정리
-  document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "hidden") {
-      observer.disconnect();
-      if (urlDebounceTimer) clearTimeout(urlDebounceTimer);
-    } else {
-      lastUrl = location.href;
-      observer.observe(document.body, { childList: true, subtree: false });
-    }
-  });
 })();

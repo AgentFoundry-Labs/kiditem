@@ -1,4 +1,5 @@
 import type { ReadinessCheck, ReadinessResponse } from '@kiditem/shared/readiness';
+import { snapshotBasisPartial, snapshotBasisStatus } from '@kiditem/shared/dashboard';
 
 export type AutoOpenWhen = 'anyIssue' | 'collectionIssue';
 
@@ -25,7 +26,8 @@ function visibleChecks(checks: ReadinessCheck[]): ReadinessCheck[] {
 }
 
 function isReady(check: ReadinessCheck): boolean {
-  return check.status === 'ok' && (check.missingDates?.length ?? 0) === 0;
+  return snapshotBasisStatus(check.basis) === 'current'
+    && !snapshotBasisPartial(check.basis);
 }
 
 export function getLocalDateKey(date = new Date()): string {
@@ -42,7 +44,7 @@ export function shouldAutoOpen(data: ReadinessResponse, mode: AutoOpenWhen): boo
 
   return checks.some((check) => {
     const missingDateCount = check.missingDates?.length ?? 0;
-    return check.collector === 'extension' && (check.status !== 'ok' || missingDateCount > 0);
+    return check.collector === 'extension' && (!isReady(check) || missingDateCount > 0);
   });
 }
 
@@ -71,13 +73,9 @@ export function buildReadinessModalViewModel(data: ReadinessResponse | undefined
     progressRatio,
     actionChecks,
     okChecks,
-    headline: allOk
-      ? 'AI 가 직접 운영합니다'
-      : pendingCount === 1
-        ? '거의 다 됐어요, 하나만 더'
-        : `${pendingCount}개만 업데이트하면 돼요`,
+    headline: allOk ? 'AI 가 직접 운영합니다' : '데이터 상태를 확인해 보세요',
     subhead: allOk
-      ? '모든 데이터가 어제까지 잘 들어왔어요.'
-      : '어제까지의 숫자를 채워두면 오늘 대시보드가 정확해져요.',
+      ? '모든 필수 데이터가 최신이에요.'
+      : '누락된 데이터는 아래에서 확인할 수 있어요. 지금도 대시보드를 볼 수 있어요.',
   };
 }

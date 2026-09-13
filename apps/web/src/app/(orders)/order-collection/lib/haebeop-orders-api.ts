@@ -1,10 +1,11 @@
-import * as XLSX from 'xlsx';
-import { issueBrowserCollectionRunId } from '@/lib/browser-collection-session';
 import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extension-bridge';
 import { apiClient } from '@/lib/api-client';
-import { downloadBlob } from '@/lib/browser-download';
 import type { OrderCollectionConversionResult } from './order-collection-api';
-import type { OrderCollectionExtensionRun } from './order-collection-extension';
+import { conversionResultFrom } from './order-collection-conversion-response';
+import {
+  orderCollectionExtensionRunFields,
+  type OrderCollectionExtensionRun,
+} from './order-collection-extension';
 
 /** 해법몰 주문 1건 = 상품 1행(등록번호 = 장바구니 idx). */
 export interface HaebeopOrder {
@@ -73,8 +74,8 @@ export async function collectHaebeopOrdersFromExtension(
       fromDate: options.fromDate,
       toDate: options.toDate,
       vendor: options.vendor,
-      runId: await issueBrowserCollectionRunId(run?.runId),
-      deferTerminal: Boolean(run?.runId),
+      // attemptId/deferTerminal: true are included by shared fenced run fields.
+      ...orderCollectionExtensionRunFields(run),
     },
     190000,
   );
@@ -89,50 +90,25 @@ export async function collectHaebeopOrdersFromExtension(
 /** 수집한 해법몰 주문을 셀피아 업로드 양식(.xls 50컬럼)으로 변환. */
 export async function convertHaebeopToSellpiaFile(
   orders: HaebeopOrder[],
-  options?: { download?: boolean },
+  options?: { download?: boolean; run?: OrderCollectionExtensionRun },
 ): Promise<OrderCollectionConversionResult> {
   const res = await apiClient.fetchRaw('/api/orders/collection/haebeop/convert', {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: {
+      'content-type': 'application/json',
+      ...(options?.run ? {
+        'x-order-collection-attempt-id': options.run.attemptId,
+        'x-source-attempt-token': options.run.attemptToken,
+      } : {}),
+    },
     body: JSON.stringify({ orders }),
   });
   if (!res.ok) {
     throw new Error((await res.text().catch(() => '')) || '해법몰 변환에 실패했습니다.');
   }
-  const blob = await res.blob();
-  const cd = res.headers.get('Content-Disposition') ?? '';
-  const m = /filename\*=UTF-8''([^;]+)/.exec(cd);
-  const fileName = m ? decodeURIComponent(m[1]) : '해법몰_셀피아변환.xls';
-  if (options?.download !== false) {
-    downloadBlob(blob, fileName);
-  }
-  return {
-    fileName,
-    blob,
-    previewRows: await readHaebeopPreviewRows(blob),
-    sourceRows: haebeopNumHeader(res, 'X-Order-Collection-Source-Rows'),
-    productRows: haebeopNumHeader(res, 'X-Order-Collection-Product-Rows'),
-    outputRows: haebeopNumHeader(res, 'X-Order-Collection-Output-Rows'),
-    skippedRows: haebeopNumHeader(res, 'X-Order-Collection-Skipped-Rows'),
-  };
-}
-
-function haebeopNumHeader(res: Response, name: string): number | null {
-  const v = res.headers.get(name);
-  if (!v) return null;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
-}
-
-/** 생성된 .xls(해법몰 50컬럼)에서 미리보기 행 추출. */
-async function readHaebeopPreviewRows(blob: Blob): Promise<string[][]> {
-  const wb = XLSX.read(await blob.arrayBuffer(), { type: 'array' });
-  const sheet = wb.Sheets[wb.SheetNames[0] ?? ''];
-  if (!sheet) return [];
-  const rows = XLSX.utils.sheet_to_json<Array<string | number | null | undefined>>(sheet, {
-    header: 1,
-    raw: false,
-    defval: '',
+  return conversionResultFrom(res, {
+    defaultFileName: '해법몰_셀피아변환.xls',
+    preview: { xlsxColumns: 50 },
+    download: options?.download,
   });
-  return rows.slice(0, 24).map((row) => row.slice(0, 50).map((cell) => String(cell ?? '')));
 }

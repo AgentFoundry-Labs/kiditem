@@ -39,7 +39,7 @@ export function ProductOperationsCommandCenter({
     C: cGradeCount,
     unclassified: unclassifiedGradeCount,
   } = data.summary.abcGradeCounts;
-  const contribution = data.summary.abcContributionProfitByGrade;
+  const contribution = data.summary.contributionOverview?.totals ?? null;
 
   return (
     <div>
@@ -68,9 +68,9 @@ export function ProductOperationsCommandCenter({
 
       <OperationsCard title="손익점검" value={lowProfitCount} valueTone="text-amber-600">
         <Breakdown label="점검 대상" value={lowProfitCount} tone="text-amber-600" />
-        <Breakdown label="A등급 이익" value={`${formatNumber(contribution.A)}원`} tone="text-emerald-700" onClick={() => onShowAbcGrade('A')} />
-        <Breakdown label="B등급 이익" value={`${formatNumber(contribution.B)}원`} tone="text-amber-600" onClick={() => onShowAbcGrade('B')} />
-        <Breakdown label="C등급 이익" value={`${formatNumber(contribution.C)}원`} tone="text-rose-600" onClick={() => onShowAbcGrade('C')} />
+        <Breakdown label="기간 매출" value={money(contribution?.revenue ?? null)} />
+        <Breakdown label="순영업이익" value={money(contribution?.netOperatingProfit ?? null)} tone="text-emerald-700" />
+        <Breakdown label="손실 규모" value={money(contribution?.lossMagnitude ?? null)} tone="text-rose-600" />
       </OperationsCard>
 
       <article className="flex min-h-[270px] flex-col rounded-xl border border-[var(--border-subtle)] bg-[var(--card-bg)] px-5 pb-2.5 pt-5 shadow-sm">
@@ -93,6 +93,10 @@ export function ProductOperationsCommandCenter({
       </section>
     </div>
   );
+}
+
+function money(value: number | null): string {
+  return value === null ? '—' : `${formatNumber(value)}원`;
 }
 
 function OperationsCard({

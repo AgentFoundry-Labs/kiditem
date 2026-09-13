@@ -8,6 +8,7 @@ import { queryKeys } from "@/lib/query-keys";
 import { roasColor } from "../lib/status-colors";
 import AdSidePanel from "./AdSidePanel";
 import AdCollectionDailyChart from "./AdCollectionDailyChart";
+import AdvertisingProfitabilityRefresh from "./AdvertisingProfitabilityRefresh";
 import type { AdCollectionPeriod } from "./AdCollectionDailyChart";
 import type { AdWeeklyPlan, AdTrendsData, AdCampaignSnapshot, AdExtensionStatus, AdStrategyAction } from "@kiditem/shared/advertising";
 import type { CampaignSelection } from "./CampaignTable";
@@ -78,8 +79,11 @@ export function CampaignSummary({ campaigns, onSelect }: { campaigns: AdCampaign
                 <div className="text-[13px] font-semibold tabular-nums" style={{ color: "var(--text-primary)" }}>
                   {formatKRW(c.metrics.revenue)}원
                 </div>
-                <div className={cn("text-[11px] font-semibold tabular-nums", roasColor(c.metrics.roas ?? 0, roasT))}>
-                  ROAS {c.metrics.roas ?? 0}%
+                <div className={cn(
+                  "text-[11px] font-semibold tabular-nums",
+                  c.metrics.roas != null && roasColor(c.metrics.roas, roasT),
+                )}>
+                  ROAS {c.metrics.roas != null ? `${c.metrics.roas}%` : "-"}
                 </div>
               </div>
             </button>
@@ -133,6 +137,8 @@ export default function StatusContent({
         {/* 오른쪽 1칸: 할일 + 알림 */}
         <AdSidePanel rules={rules} strategy={strategy} />
       </div>
+
+      <AdvertisingProfitabilityRefresh />
 
       {/* 아이템위너 · 노출 현황 (현재 상태) */}
       {Object.keys(wingKpis).length > 0 && (

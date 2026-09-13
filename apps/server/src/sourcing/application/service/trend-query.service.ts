@@ -8,6 +8,7 @@ import {
   type TiktokCcSnapshotRow,
   type TrendCollectionRepositoryPort,
 } from '../port/out/repository/trend-collection.repository.port';
+import { businessDateKey } from '../../../common/kst';
 import {
   DEFAULT_STATIONERY_TOY_TREND_SEEDS,
   isStationeryToyTrend,
@@ -162,12 +163,13 @@ export class TrendQueryService {
     organizationId: string,
     days: number,
   ): Promise<{ days: number; boards: PopularKeywordBoardView[] }> {
-    const rows = await this.repository.findPopularKeywordHistory({ organizationId, days });
+    const { rows, coverage } = await this.repository.findPopularKeywordHistory({ organizationId, days });
     const byBoard = groupBy(rows, (row) => row.boardKey);
 
     const boards: PopularKeywordBoardView[] = [];
-    for (const [boardKey, boardRows] of byBoard) {
-      const latestDate = maxBusinessDateMs(boardRows);
+    for (const boardKey of new Set(coverage.map((row) => row.boardKey))) {
+      const boardRows = byBoard.get(boardKey) ?? [];
+      const latestDate = maxBusinessDateMs(coverage.filter((row) => row.boardKey === boardKey));
       const oldestDate = minBusinessDateMs(boardRows);
 
       const latestRows = boardRows
@@ -465,9 +467,9 @@ function riserOrder(a: PopularKeywordRiser, b: PopularKeywordRiser): number {
 }
 
 function toDateString(date: Date): string {
-  return date.toISOString().slice(0, 10);
+  return businessDateKey(date);
 }
 
 function toDateStringFromMs(ms: number): string {
-  return new Date(ms).toISOString().slice(0, 10);
+  return businessDateKey(new Date(ms));
 }

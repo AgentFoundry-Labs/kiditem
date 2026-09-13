@@ -1,7 +1,7 @@
 # Scripts
 
 This is the human map for repo automation. The team uses Codex and Claude
-together, so agent-facing rules live in [`AGENTS.md`](AGENTS.md), while this
+together, so agent-facing rules live in [`CLAUDE.md`](../CLAUDE.md), while this
 file answers the practical question: "what is this script for, and how do I run
 or verify it?"
 
@@ -24,18 +24,23 @@ npm run test:scripts
 | `scripts/bootstrap-local-auth-user.ts` | explicit loopback-DB-only bootstrap for one local User, Organization, active admin membership, and stdin password; reruns revoke that user's sessions and never mint a login session | `npm run dev:bootstrap-user`, `docs/runbooks/local-development.md`, `docs/runbooks/auth-office-local.md` |
 | `scripts/check-agent-os-contraction.mjs` | Enforced Agent OS clean-contraction guard for legacy runtime, transcript, and retired model surfaces | `npm run check:agent-os-contraction -- --enforce` |
 | `scripts/check-agent-os-hexagonal.mjs` | AgentOS lane-first/capability-second dependency, input-port placement, and official module-size contract scanner; intentionally standalone until the KID-25 migration removes its live baseline violations | `npm run check:agent-os-hexagonal` |
-| `scripts/check-agents-hygiene.mjs` | AGENTS/CLAUDE instruction hygiene gate | `npm run check:agents-hygiene` |
+| `scripts/check-agents-hygiene.mjs` | CLAUDE instruction hygiene gate and legacy AGENTS detector | `npm run check:agents-hygiene` |
 | `scripts/check-copilotkit-train.mjs` | exact CopilotKit v2 and AG-UI platform-train guard | `npm run check:copilotkit-train` |
 | `scripts/check-directory-architecture.mjs` | docs/ARCHITECTURE directory map drift gate | `npm run check:directory-architecture` |
 | `scripts/check-frontend-db-boundary.sh` | frontend must not import DB/Prisma clients | `npm run check:web-db-boundary` |
 | `scripts/check-identifier-contracts.mjs` | canonical resource-name and identifier-class boundary gate | `npm run check:identifier-contracts` |
+| `scripts/check-operation-automation-cutover.mjs` | production producer ownership, source-to-ABC, and Operation/Automation legacy-reference guard | `npm run check:operation-automation-cutover` |
+| `scripts/operation-automation-cutover-preflight.mjs` | read-only Office database inventory for the Operation/Automation hard cutover; emits bounded counts and catalog identities only | `npm run preflight:operation-automation-cutover`, `docs/runbooks/operation-automation-cutover.md` |
 | `scripts/check-pr-reconstruction-contract.mjs` | high-risk reconstruction PR body gate | `npm run check:pr-reconstruction` |
 | `scripts/check-pr-release-contract.mjs` | persisted schema/data/release PR body and migration-version gate | `npm run check:pr-release-contract` |
 | `scripts/check-queryraw-tenancy.sh` | raw SQL organization-scope scanner | `npm run check:idor` |
 | `scripts/check-raw-snapshot-read-models.sh` | raw snapshot read-model boundary scanner | `npm run check:raw-snapshot-read-models` |
+| `scripts/check-ledger-readers.mjs` | enforces the exact reader, owner-publication, and time-bounded legacy-reader files declared for each ledger; `--require-no-legacy` proves the final reader-zero cutover gate | `npm run check:ledger-readers` |
 | `scripts/check-schema-artifact-sync.mjs` | Prisma schema changes must include full and domain ERD updates | `npm run check:schema-artifact-sync` |
 | `scripts/check-sourcing-long-running-actions.mjs` | sourcing collection must start through Operations, with persisted reads and no retired browser/HTTP collection helpers | `npm run check:sourcing-long-running-actions`, `docs/runbooks/sourcing-collection-operations.md` |
+| `scripts/check-cutover-data-blockers.mjs` | read-only survey of what a schema cutover would hit in a database that has data: unique indexes over existing duplicates, and NOT NULL columns added with no database default. Run it at the point `db push` would run — after the pre-schema migrations — or it reports work those migrations already do | `npm run check:cutover-data-blockers` |
 | `scripts/check-script-inventory.mjs` | this inventory drift gate | `npm run check:scripts-inventory` |
+| `scripts/check-server-type-baseline.mjs` | apps/server type-error ceiling for the TEST-INCLUSIVE `tsconfig.json`; the build config and vitest both skip spec type-checking, so this is the only gate that catches a spec left broken by a signature change (~17s) | `npm run check:server-type-baseline` |
 | `scripts/check-shared-interface-names.mjs` | shared public Zod contract naming ratchet | `npm run check:shared-interface-names` |
 | `scripts/check-shared-root-imports.sh` | shared root-barrel ratchet | `npm run check:shared-root-imports` |
 | `scripts/check-tenant-scope.sh` | mutating service organization-scope scanner | `npm run check:tenant-scope` |
@@ -58,9 +63,11 @@ npm run test:scripts
 
 | path | purpose |
 |---|---|
+| `scripts/.server-type-baseline.txt` | per-file type-error ceiling for `check-server-type-baseline.mjs`; regenerate with `node scripts/check-server-type-baseline.mjs --regenerate` |
 | `scripts/.shared-interface-names-baseline.txt` | existing exported Zod contracts not yet renamed to `FooSchema` |
 | `scripts/.shared-root-imports-baseline.txt` | baseline for `check-shared-root-imports.sh` |
 | `scripts/.tenant-scope-allowlist.txt` | narrow false-positive allowlist for `check-tenant-scope.sh` |
+| `scripts/ledger-readers.json` | canonical ledger inventory: physical table, Prisma delegate/type, schema-checked reverse relation names, reader, exact owner-publication files, and legacy readers with removal issues |
 | `scripts/vitest.config.ts` | isolated Vitest config for script helper tests |
 | `scripts/__tests__/` | tests for script helpers and runbook automation |
 

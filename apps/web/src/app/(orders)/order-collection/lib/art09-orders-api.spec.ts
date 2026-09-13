@@ -1,50 +1,25 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  collectArt09OrdersFromExtension,
+  convertArt09ToSellpiaFile,
+} from './art09-orders-api';
 
 const bridge = vi.hoisted(() => ({
   detectOrderCollectionExtensionId: vi.fn(),
   sendToExtension: vi.fn(),
 }));
+const api = vi.hoisted(() => ({ fetchRaw: vi.fn() }));
 
 vi.mock('@/lib/extension-bridge', () => bridge);
-vi.mock('@/lib/browser-collection-session', () => ({
-  issueBrowserCollectionRunId: vi.fn().mockImplementation(
-    async (runId?: string) => runId ?? '00000000-0000-4000-8000-000000000009',
-  ),
-}));
+vi.mock('@/lib/api-client', () => ({ apiClient: api }));
 
-import {
-  collectArt09CsvFromExtension,
-  collectArt09OrdersFromExtension,
-} from './art09-orders-api';
+const ATTEMPT_ID = '00000000-0000-4000-8000-000000000009';
+const ATTEMPT_TOKEN = '00000000-0000-4000-8000-000000000010';
 
-describe('collectArt09OrdersFromExtension', () => {
+describe('Art09 server-owned conversion', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // run 없이 호출하는 경로는 확장 ID 를 직접 탐지한다. 탐지 결과가 없으면 수집 이전에 던지므로
-    // CSV 변환을 검증하는 테스트가 확장 탐지에서 막힌다.
     bridge.detectOrderCollectionExtensionId.mockResolvedValue('order-extension');
-    bridge.sendToExtension.mockResolvedValue({ success: true, rows: [] });
-  });
-
-  it('keeps the extension lifecycle open until web file generation finalizes it', async () => {
-    await collectArt09OrdersFromExtension({
-      extensionId: 'order-extension',
-      runId: '00000000-0000-4000-8000-000000000009',
-      date: '2026-07-27',
-    });
-
-    expect(bridge.sendToExtension).toHaveBeenCalledWith(
-      'order-extension',
-      expect.objectContaining({
-        action: 'collectArt09Orders',
-        date: '2026-07-27',
-        deferTerminal: true,
-      }),
-      190000,
-    );
-  });
-
-  it('writes only real Cafe24 order identifiers and never synthesizes an item number', async () => {
     bridge.sendToExtension.mockResolvedValue({
       success: true,
       rows: [{
@@ -55,13 +30,65 @@ describe('collectArt09OrdersFromExtension', () => {
         qty: 1,
       }],
     });
+  });
 
-    const result = await collectArt09CsvFromExtension({ download: false });
-    const csv = await result.blob.text();
+  it('correlates extension collection with owner attemptId and defers terminal progress', async () => {
+    await collectArt09OrdersFromExtension({
+      attemptId: ATTEMPT_ID,
+      attemptToken: ATTEMPT_TOKEN,
+      extensionId: 'order-extension',
+      date: '2026-07-27',
+    });
 
-    expect(csv).toContain('한국어 쇼핑몰,1,20260727-1234567,,');
-    expect(csv).not.toContain('20260727-1234567-01');
-    expect(csv).not.toContain('판매처 주문번호 or 상품주문번호');
-    expect(result.orderNumbers).toEqual(['20260727-1234567']);
+    expect(bridge.sendToExtension).toHaveBeenCalledWith(
+      'order-extension',
+      expect.objectContaining({
+        action: 'collectArt09Orders',
+        date: '2026-07-27',
+        attemptId: ATTEMPT_ID,
+        deferTerminal: true,
+      }),
+      190000,
+    );
+  });
+
+  it('sends raw rows with the exact owner fence and keeps converted bytes transient', async () => {
+    api.fetchRaw.mockResolvedValue(new Response('\uFEFFheader,"value,with comma"\r\nvalue,"quoted ""cell"""\r\n', {
+      status: 200,
+      headers: {
+        'Content-Disposition': "attachment; filename*=UTF-8''art09.csv",
+        'Content-Type': 'text/csv;charset=utf-8',
+        'X-Order-Collection-Source-Rows': '1',
+        'X-Order-Collection-Product-Rows': '1',
+        'X-Order-Collection-Output-Rows': '1',
+        'X-Order-Collection-Skipped-Rows': '0',
+      },
+    }));
+
+    const rows = await collectArt09OrdersFromExtension({
+      attemptId: ATTEMPT_ID,
+      attemptToken: ATTEMPT_TOKEN,
+      extensionId: 'order-extension',
+    });
+    const result = await convertArt09ToSellpiaFile(rows, {
+      download: false,
+      run: { attemptId: ATTEMPT_ID, attemptToken: ATTEMPT_TOKEN },
+    });
+
+    expect(result.fileName).toBe('art09.csv');
+    expect(result.previewRows).toEqual([
+      ['header', 'value,with comma'],
+      ['value', 'quoted "cell"'],
+    ]);
+    expect(api.fetchRaw).toHaveBeenCalledWith(
+      '/api/orders/collection/art09/convert',
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          'x-order-collection-attempt-id': ATTEMPT_ID,
+          'x-source-attempt-token': ATTEMPT_TOKEN,
+        }),
+      }),
+    );
+    expect(JSON.parse(api.fetchRaw.mock.calls[0]?.[1]?.body as string)).toEqual({ rows });
   });
 });

@@ -141,6 +141,8 @@ const setup = createPostgresGlobalSetup({
       'postgres',
       '-c',
       'shared_preload_libraries=pg_stat_statements',
+      '-c',
+      'checkpoint_timeout=30s',
     ])
     .start(),
   pushSchema: (databaseUrl) => {

@@ -27,7 +27,7 @@ export function InventoryToolbar({
       <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
         {showHeading ? <Heading className="page-title">재고 관리</Heading> : null}
         <div className="flex flex-wrap gap-2">
-          <SellpiaSyncAction />
+          <SellpiaSyncAction showStatus />
           <button
             type="button"
             disabled={busy}

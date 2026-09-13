@@ -60,6 +60,9 @@ export default function TrafficUpload() {
 
       <div className="bg-cyan-50 border border-cyan-200 rounded-lg p-4">
         <div className="text-sm font-medium text-cyan-800 mb-2">Wing 트래픽 엑셀 업로드 방법</div>
+        <p className="text-xs text-cyan-700 mb-2">
+          업로드는 상품별 트래픽 자료에 반영됩니다. 계정 전체 Wing 매출·방문자 지표는 대시보드에서 별도로 수집해 주세요.
+        </p>
         <ol className="text-xs text-cyan-700 space-y-1 list-decimal list-inside">
           <li>쿠팡 Wing 로그인 → 상품관리 → 상품별 통계</li>
           <li>&quot;기간별 엑셀 다운로드&quot; 또는 &quot;상품별 엑셀 다운로드&quot; 클릭</li>

@@ -4,22 +4,14 @@ import { act, render, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { queryKeys } from '@/lib/query-keys';
 
-const RUN_ID = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+const ATTEMPT_ID = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
 const mockListSessions = vi.hoisted(() => vi.fn());
-const mockSyncAlert = vi.hoisted(() => vi.fn());
-const mockDismissExtensionMissing = vi.hoisted(() => vi.fn());
 
 vi.mock('@/lib/browser-collection-session', async (importOriginal) => ({
   ...(await importOriginal<
     typeof import('@/lib/browser-collection-session')
   >()),
   listBrowserCollectionSessions: mockListSessions,
-  syncBrowserCollectionAlert: mockSyncAlert,
-}));
-
-vi.mock('@/lib/operation-alerts', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/lib/operation-alerts')>()),
-  dismissExtensionMissingBrowserCollectionAlerts: mockDismissExtensionMissing,
 }));
 
 import {
@@ -31,12 +23,8 @@ function session(
   overrides: Partial<BrowserCollectionSessionView> = {},
 ): BrowserCollectionSessionView {
   return {
-    runId: RUN_ID,
+    attemptId: ATTEMPT_ID,
     producer: 'dashboard.wing_sales',
-    classification: 'background_preferred',
-    status: 'running',
-    attempt: 1,
-    restartStrategy: 'web',
     progress: {
       current: 1,
       total: 3,
@@ -44,11 +32,7 @@ function session(
       failed: 0,
       label: 'Wing 매출 수집',
     },
-    inputIdentity: { trigger: 'dashboard_traffic' },
     attention: null,
-    startedAt: 1_700_000_000_000,
-    updatedAt: 1_700_000_001_000,
-    finishedAt: null,
     ...overrides,
   };
 }
@@ -78,8 +62,6 @@ describe('BrowserCollectionProvider', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockListSessions.mockResolvedValue([]);
-    mockSyncAlert.mockResolvedValue(undefined);
-    mockDismissExtensionMissing.mockResolvedValue({ dismissed: 0 });
     localStorage.clear();
     Object.defineProperty(document, 'visibilityState', {
       configurable: true,
@@ -87,22 +69,30 @@ describe('BrowserCollectionProvider', () => {
     });
   });
 
-  it('reconciles extension sessions on the initial authenticated mount', async () => {
+  it('reconciles strict extension sessions on the initial authenticated mount', async () => {
     const current = session();
     mockListSessions.mockResolvedValue([current]);
 
-    renderProvider();
+    const { queryClient } = renderProvider();
 
     await waitFor(() => expect(mockListSessions).toHaveBeenCalledTimes(1));
-    expect(mockDismissExtensionMissing).toHaveBeenCalledTimes(1);
-    expect(mockSyncAlert).toHaveBeenCalledWith(current);
+    await waitFor(() => expect(
+      queryClient.getQueryData(queryKeys.browserCollection.session(ATTEMPT_ID)),
+    ).toEqual(current));
   });
 
-  it('synchronizes a schema-valid custom session event', async () => {
-    const current = session({ status: 'succeeded', finishedAt: 1_700_000_002_000 });
+  it('synchronizes a strict custom session event', async () => {
+    const current = session({
+      progress: {
+        current: 3,
+        total: 3,
+        completed: 3,
+        failed: 0,
+        label: 'Wing 매출 수집 완료',
+      },
+    });
     const { queryClient } = renderProvider();
     await waitFor(() => expect(mockListSessions).toHaveBeenCalledTimes(1));
-    mockSyncAlert.mockClear();
 
     act(() => {
       window.dispatchEvent(
@@ -110,55 +100,86 @@ describe('BrowserCollectionProvider', () => {
       );
     });
 
-    await waitFor(() => expect(mockSyncAlert).toHaveBeenCalledWith(current));
-    expect(
+    await waitFor(() => expect(
       queryClient.getQueryData(
-        queryKeys.browserCollection.session(current.runId),
+        queryKeys.browserCollection.session(current.attemptId),
       ),
-    ).toEqual(current);
+    ).toEqual(current));
   });
 
-  it('projects inventory.sellpia through the same browser collection alert lifecycle', async () => {
+  it('leaves inventory-owned sessions to the inventory owner', async () => {
     const sellpia = session({ producer: 'inventory.sellpia' });
     mockListSessions.mockResolvedValue([sellpia]);
     const { queryClient } = renderProvider();
 
     await waitFor(() => expect(mockListSessions).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(mockSyncAlert).toHaveBeenCalledWith(sellpia));
     expect(
-      queryClient.getQueryData(queryKeys.browserCollection.session(RUN_ID)),
-    ).toEqual(sellpia);
-
-    mockSyncAlert.mockClear();
-    const newerSellpia = session({
-      producer: 'inventory.sellpia',
-      status: 'succeeded',
-      updatedAt: sellpia.updatedAt + 1,
-      finishedAt: sellpia.updatedAt + 1,
-    });
+      queryClient.getQueryData(queryKeys.browserCollection.session(ATTEMPT_ID)),
+    ).toBeUndefined();
 
     act(() => {
       window.dispatchEvent(
-        new CustomEvent(BROWSER_COLLECTION_SESSION_EVENT, { detail: newerSellpia }),
+        new CustomEvent(BROWSER_COLLECTION_SESSION_EVENT, { detail: sellpia }),
       );
     });
-    await waitFor(() => expect(mockSyncAlert).toHaveBeenCalledWith(newerSellpia));
+    await Promise.resolve();
+    expect(
+      queryClient.getQueryData(queryKeys.browserCollection.session(ATTEMPT_ID)),
+    ).toBeUndefined();
   });
 
-  it('rejects malformed custom session events before alert synchronization', async () => {
-    renderProvider();
+  it('rejects malformed custom session events before caching', async () => {
+    const { queryClient } = renderProvider();
     await waitFor(() => expect(mockListSessions).toHaveBeenCalledTimes(1));
-    mockSyncAlert.mockClear();
 
     act(() => {
       window.dispatchEvent(
         new CustomEvent(BROWSER_COLLECTION_SESSION_EVENT, {
-          detail: { runId: RUN_ID, status: 'running', tabId: 42 },
+          detail: { runId: ATTEMPT_ID, status: 'running', tabId: 42 },
         }),
       );
     });
 
-    expect(mockSyncAlert).not.toHaveBeenCalled();
+    expect(queryClient.getQueryData(queryKeys.browserCollection.session(ATTEMPT_ID))).toBeUndefined();
+  });
+
+  it('accepts same-count attention, disappearance, and reappearance events in delivery order', async () => {
+    const { queryClient } = renderProvider();
+    await waitFor(() => expect(mockListSessions).toHaveBeenCalledTimes(1));
+    const attention = session({
+      attention: {
+        reason: 'marketplace_login',
+        message: '로그인이 필요합니다.',
+        canOpenTab: true,
+      },
+    });
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(BROWSER_COLLECTION_SESSION_EVENT, { detail: attention }),
+      );
+    });
+    await waitFor(() => expect(
+      queryClient.getQueryData(queryKeys.browserCollection.session(ATTEMPT_ID)),
+    ).toEqual(attention));
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(BROWSER_COLLECTION_SESSION_EVENT, { detail: session() }),
+      );
+    });
+    await waitFor(() => expect(
+      queryClient.getQueryData(queryKeys.browserCollection.session(ATTEMPT_ID)),
+    ).toEqual(session()));
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(BROWSER_COLLECTION_SESSION_EVENT, { detail: attention }),
+      );
+    });
+    await waitFor(() => expect(
+      queryClient.getQueryData(queryKeys.browserCollection.session(ATTEMPT_ID)),
+    ).toEqual(attention));
   });
 
   it.each(['online', 'focus'] as const)(
@@ -169,12 +190,10 @@ describe('BrowserCollectionProvider', () => {
       await waitFor(() => expect(mockListSessions).toHaveBeenCalledTimes(1));
       mockListSessions.mockClear();
       mockListSessions.mockResolvedValue([current]);
-      mockSyncAlert.mockClear();
 
       act(() => window.dispatchEvent(new Event(eventName)));
 
       await waitFor(() => expect(mockListSessions).toHaveBeenCalledTimes(1));
-      expect(mockSyncAlert).toHaveBeenCalledWith(current);
     },
   );
 
@@ -184,7 +203,6 @@ describe('BrowserCollectionProvider', () => {
     await waitFor(() => expect(mockListSessions).toHaveBeenCalledTimes(1));
     mockListSessions.mockClear();
     mockListSessions.mockResolvedValue([current]);
-    mockSyncAlert.mockClear();
 
     Object.defineProperty(document, 'visibilityState', {
       configurable: true,
@@ -200,99 +218,6 @@ describe('BrowserCollectionProvider', () => {
     act(() => document.dispatchEvent(new Event('visibilitychange')));
 
     await waitFor(() => expect(mockListSessions).toHaveBeenCalledTimes(1));
-    expect(mockSyncAlert).toHaveBeenCalledWith(current);
-  });
-
-  it('keeps duplicate session events idempotent through the same run identity', async () => {
-    const current = session();
-    renderProvider();
-    await waitFor(() => expect(mockListSessions).toHaveBeenCalledTimes(1));
-    mockSyncAlert.mockClear();
-
-    act(() => {
-      window.dispatchEvent(
-        new CustomEvent(BROWSER_COLLECTION_SESSION_EVENT, { detail: current }),
-      );
-      window.dispatchEvent(
-        new CustomEvent(BROWSER_COLLECTION_SESSION_EVENT, { detail: current }),
-      );
-    });
-
-    await waitFor(() => expect(mockSyncAlert).toHaveBeenCalledTimes(1));
-    expect(mockSyncAlert).toHaveBeenCalledWith(current);
-  });
-
-  it('retries alert synchronization for the same cached event after an API failure', async () => {
-    const current = session();
-    mockSyncAlert
-      .mockRejectedValueOnce(new Error('operation alert API unavailable'))
-      .mockResolvedValueOnce(undefined);
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    const { queryClient } = renderProvider();
-    await waitFor(() => expect(mockListSessions).toHaveBeenCalledTimes(1));
-
-    act(() => {
-      window.dispatchEvent(
-        new CustomEvent(BROWSER_COLLECTION_SESSION_EVENT, { detail: current }),
-      );
-    });
-    await waitFor(() => expect(mockSyncAlert).toHaveBeenCalledTimes(1));
-    expect(
-      queryClient.getQueryData(queryKeys.browserCollection.session(RUN_ID)),
-    ).toEqual(current);
-
-    act(() => {
-      window.dispatchEvent(
-        new CustomEvent(BROWSER_COLLECTION_SESSION_EVENT, { detail: current }),
-      );
-    });
-
-    await waitFor(() => expect(mockSyncAlert).toHaveBeenCalledTimes(2));
-    expect(mockSyncAlert).toHaveBeenLastCalledWith(current);
-    warn.mockRestore();
-  });
-
-  it('serializes duplicate providers and ignores an older attempt with a later timestamp', async () => {
-    const firstClient = new QueryClient();
-    const secondClient = new QueryClient();
-    renderProvider({ queryClient: firstClient });
-    renderProvider({ queryClient: secondClient });
-    await waitFor(() => expect(mockListSessions).toHaveBeenCalledTimes(2));
-    mockSyncAlert.mockClear();
-
-    const newerAttempt = session({
-      status: 'attention_required',
-      attempt: 2,
-      updatedAt: 1_700_000_002_000,
-      attention: {
-        reason: 'marketplace_login',
-        message: '로그인이 필요합니다.',
-        canOpenTab: true,
-      },
-    });
-    const staleAttempt = session({
-      attempt: 1,
-      updatedAt: 1_700_000_009_000,
-    });
-
-    act(() => {
-      window.dispatchEvent(
-        new CustomEvent(BROWSER_COLLECTION_SESSION_EVENT, {
-          detail: newerAttempt,
-        }),
-      );
-      window.dispatchEvent(
-        new CustomEvent(BROWSER_COLLECTION_SESSION_EVENT, {
-          detail: staleAttempt,
-        }),
-      );
-    });
-
-    await waitFor(() => expect(mockSyncAlert).toHaveBeenCalledTimes(1));
-    expect(mockSyncAlert).toHaveBeenCalledWith(newerAttempt);
-    expect(
-      firstClient.getQueryData(queryKeys.browserCollection.session(RUN_ID)),
-    ).toEqual(newerAttempt);
   });
 
   it('does not listen or reconcile while signed out', async () => {
@@ -307,7 +232,5 @@ describe('BrowserCollectionProvider', () => {
     await Promise.resolve();
 
     expect(mockListSessions).not.toHaveBeenCalled();
-    expect(mockSyncAlert).not.toHaveBeenCalled();
-    expect(mockDismissExtensionMissing).not.toHaveBeenCalled();
   });
 });

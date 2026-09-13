@@ -119,8 +119,11 @@ test('declares the read-only manual-match capability and fixed source page', () 
   const entry = readFileSync(entryPath, 'utf8');
   const dispatch = readFileSync(dispatchPath, 'utf8');
   assert.match(entry, /["']orders\/sellpia-manual-match\.js["']/);
+  assert.match(entry, /["']orders\/sellpia-manual-match-source-owner\.js["']/);
   assert.match(worker, /collectSellpiaManualMatchV1:\s*true/);
+  assert.match(worker, /sellpiaManualMatchSourceOwnerV1:\s*true/);
   assert.match(worker, /msg\?\.action === ["']collectSellpiaManualMatch["']/);
+  assert.doesNotMatch(worker, /message\.runId/);
   assert.match(source, /product_manual_match\.html/);
   assert.match(source, /get_product_search_matched/);
   assert.match(source, /get_match_data/);

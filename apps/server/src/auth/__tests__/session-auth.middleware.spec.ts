@@ -1,6 +1,18 @@
+import {
+  Controller,
+  Get,
+  Module,
+  ServiceUnavailableException,
+  type INestApplication,
+  type MiddlewareConsumer,
+  type NestModule,
+} from '@nestjs/common';
+import { Test } from '@nestjs/testing';
+import cookieParser from 'cookie-parser';
+import request from 'supertest';
 import { describe, expect, it, vi } from 'vitest';
-import type { AuthService } from '../application/auth.service';
-import { AUTH_SESSION_COOKIE } from '../application/auth.service';
+import { AuthService, AUTH_SESSION_COOKIE } from '../application/auth.service';
+import { GlobalExceptionFilter } from '../../common/filters/global-exception.filter';
 import { SessionAuthMiddleware } from '../middleware/session-auth.middleware';
 
 const AUTHENTICATED = {
@@ -14,6 +26,33 @@ const AUTHENTICATED = {
     membershipId: '33333333-3333-4333-8333-333333333333',
   },
 };
+
+@Controller('session-auth-http-probe')
+class SessionAuthHttpProbeController {
+  readonly handler = vi.fn(() => ({ ok: true }));
+
+  @Get()
+  get(): { ok: boolean } {
+    return this.handler();
+  }
+}
+
+function createSessionAuthHttpProbeModule(authService: AuthService) {
+  @Module({
+    controllers: [SessionAuthHttpProbeController],
+    providers: [
+      SessionAuthMiddleware,
+      { provide: AuthService, useValue: authService },
+    ],
+  })
+  class SessionAuthHttpProbeModule implements NestModule {
+    configure(consumer: MiddlewareConsumer): void {
+      consumer.apply(SessionAuthMiddleware).forRoutes(SessionAuthHttpProbeController);
+    }
+  }
+
+  return SessionAuthHttpProbeModule;
+}
 
 function makeService(authenticateToken: ReturnType<typeof vi.fn>): AuthService {
   return { authenticateToken } as unknown as AuthService;
@@ -113,5 +152,72 @@ describe('SessionAuthMiddleware', () => {
     );
     expect(req.authUser).toBeUndefined();
     expect(next).toHaveBeenCalledOnce();
+  });
+
+  it('fails closed with 503 and retains the session cookie when lookup is unavailable', async () => {
+    const token = 'x'.repeat(43);
+    const lookupError = new Error(`database outage for token ${token}`);
+    const authenticateToken = vi.fn().mockRejectedValue(lookupError);
+    const middleware = new SessionAuthMiddleware(makeService(authenticateToken));
+    const clearCookie = vi.fn();
+    const req = { headers: {}, cookies: { [AUTH_SESSION_COOKIE]: token } } as any;
+    const next = vi.fn();
+
+    const rejection = await middleware
+      .use(req, { clearCookie } as any, next)
+      .catch((error: unknown) => error);
+
+    expect(rejection).toBeInstanceOf(ServiceUnavailableException);
+    const serviceUnavailable = rejection as ServiceUnavailableException;
+    expect(serviceUnavailable.getStatus()).toBe(503);
+    expect(serviceUnavailable.getResponse()).toEqual({
+      statusCode: 503,
+      message: 'Authentication service unavailable',
+      error: 'Service Unavailable',
+    });
+    expect(JSON.stringify(serviceUnavailable.getResponse())).not.toContain(token);
+    expect(JSON.stringify(serviceUnavailable.getResponse())).not.toContain('database outage');
+    expect(authenticateToken).toHaveBeenCalledWith(token);
+    expect(req.authUser).toBeUndefined();
+    expect(next).not.toHaveBeenCalled();
+    expect(clearCookie).not.toHaveBeenCalled();
+  });
+
+  it('serializes lookup failures as a safe HTTP 503 without deleting the cookie or invoking the handler', async () => {
+    const token = 'x'.repeat(43);
+    const lookupError = new Error(`database outage for token ${token}`);
+    const authenticateToken = vi.fn().mockRejectedValue(lookupError);
+    const moduleRef = await Test.createTestingModule({
+      imports: [createSessionAuthHttpProbeModule(makeService(authenticateToken))],
+    }).compile();
+    const app: INestApplication = moduleRef.createNestApplication({ logger: false });
+    app.use(cookieParser());
+    app.useGlobalFilters(new GlobalExceptionFilter());
+
+    try {
+      await app.init();
+      const controller = app.get(SessionAuthHttpProbeController);
+      const response = await request(app.getHttpServer())
+        .get('/session-auth-http-probe')
+        .set('Cookie', `${AUTH_SESSION_COOKIE}=${token}`)
+        .expect(503);
+
+      expect(response.body).toEqual({
+        statusCode: 503,
+        error: 'Service Unavailable',
+        message: 'Authentication service unavailable',
+        timestamp: expect.any(String),
+        path: '/session-auth-http-probe',
+      });
+      expect(JSON.stringify(response.body)).not.toContain(token);
+      expect(JSON.stringify(response.body)).not.toContain('database outage');
+      expect(response.headers['set-cookie'] ?? []).not.toContainEqual(
+        expect.stringContaining(`${AUTH_SESSION_COOKIE}=`),
+      );
+      expect(authenticateToken).toHaveBeenCalledWith(token);
+      expect(controller.handler).not.toHaveBeenCalled();
+    } finally {
+      await app.close();
+    }
   });
 });

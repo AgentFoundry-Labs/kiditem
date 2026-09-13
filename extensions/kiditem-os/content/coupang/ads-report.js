@@ -81,6 +81,24 @@
     return normalizeText(value).toLowerCase();
   }
 
+  // Provider identities are positive, canonical decimal IDs.  This helper is
+  // intentionally strict at the API boundary: String({}) and String(true)
+  // must never become target IDs that can be joined to a different product.
+  function normalizeProviderId(value) {
+    if (typeof value === "number") {
+      return Number.isSafeInteger(value) && value > 0 ? String(value) : "";
+    }
+    if (typeof value !== "string" || !/^[1-9]\d*$/.test(value)) return "";
+    const parsed = Number(value);
+    return Number.isSafeInteger(parsed) && String(parsed) === value ? value : "";
+  }
+
+  function normalizeProviderCount(value) {
+    return typeof value === "number" && Number.isSafeInteger(value) && value >= 0
+      ? value
+      : null;
+  }
+
   // 키워드 칸에 들어오지만 키워드가 아닌 UI 컨트롤 라벨. 서버도
   // `advertising/domain/ad-keyword.ts`에서 같은 값을 거부한다.
   const AD_KEYWORD_CONTROL_LABELS = new Set([
@@ -122,6 +140,55 @@
           ? 1_000
           : 1;
     return parsed * multiplier;
+  }
+
+  /**
+   * Parse a report cell while retaining whether the provider actually
+   * displayed a numeric value. `parseNumber` intentionally returns 0 for an
+   * empty/unparseable cell because it is also used for optional UI text; that
+   * fallback is unsafe for additive KPI evidence. A header is not evidence by
+   * itself — blank, placeholder, and malformed cells remain unobserved.
+   */
+  function parseMetricCell(value) {
+    if (typeof value === "number") {
+      return Number.isFinite(value)
+        ? { value, observed: true }
+        : { value: 0, observed: false };
+    }
+    const raw = String(value ?? "").trim();
+    // `parseNumber` is deliberately permissive (it extracts numbers embedded
+    // in labels for optional UI text). Evidence parsing must be stricter so a
+    // malformed cell such as "error 123" cannot become an observed 123. Keep
+    // only the provider's numeric decorations and Korean scale/count units.
+    const numericText = raw.replace(/[,₩$€¥%\s]/g, "");
+    if (
+      !numericText ||
+      !/^[+-]?\d+(?:\.\d+)?(?:[천만억](?:원|건|회|개)?|원|건|회|개|KRW)?$/i.test(numericText)
+    ) {
+      return { value: 0, observed: false };
+    }
+    const parsed = parseNumber(raw);
+    return Number.isFinite(parsed)
+      ? { value: parsed, observed: true }
+      : { value: 0, observed: false };
+  }
+
+  /**
+   * Resolve a numeric report field by header priority, skipping matching
+   * headers whose cells are blank or malformed. This matters for Coupang
+   * grids that expose both `집행 광고비` and a fallback `비용` column: a blank
+   * first column must not mask a valid value in the fallback column.
+   */
+  function extractMetricByHeader(headers, cells, matchers) {
+    for (const matcher of matchers) {
+      for (let i = 0; i < headers.length; i++) {
+        const key = normalizeKey(headers[i]);
+        if (!key.includes(matcher)) continue;
+        const parsed = parseMetricCell(getCellText(cells[i]));
+        if (parsed.observed) return parsed;
+      }
+    }
+    return { value: 0, observed: false };
   }
 
   const CONVERSION_COUNT_HEADERS = [
@@ -204,8 +271,27 @@
     return 0;
   }
 
-  function buildCoupangAdsDailyRow(date, normalizedRows, kpis) {
+  function getKpiEvidence(kpis, matchers) {
+    for (const [label, entry] of Object.entries(kpis || {})) {
+      const key = normalizeKey(label);
+      if (!matchers.some((matcher) => key.includes(matcher))) continue;
+      const raw = kpiRawValue(entry);
+      // A widget with a displayed 0 is evidence. A label whose value is still
+      // blank/placeholder is not evidence and must not become a synthesized 0.
+      const parsed = parseMetricCell(raw);
+      if (parsed.observed) return parsed;
+    }
+    return { observed: false, value: 0 };
+  }
+
+  function getKpiNullable(kpis, matchers) {
+    const evidence = getKpiEvidence(kpis, matchers);
+    return evidence.observed ? evidence.value : null;
+  }
+
+  function buildCoupangAdsDailyRow(date, normalizedRows, kpis, options = {}) {
     const rows = Array.isArray(normalizedRows) ? normalizedRows : [];
+    const explicitEmpty = options?.explicitEmpty === true;
     const observed = {
       adSpend: false,
       adRevenue: false,
@@ -213,6 +299,14 @@
       clicks: false,
       conversions: false,
       orders: false,
+    };
+    const allRowsObserved = {
+      adSpend: rows.length > 0,
+      adRevenue: rows.length > 0,
+      impressions: rows.length > 0,
+      clicks: rows.length > 0,
+      conversions: rows.length > 0,
+      orders: rows.length > 0,
     };
     const observationFields = {
       adSpend: ["runningAdSpend", "spend"],
@@ -230,20 +324,16 @@
             parserEvidence &&
             Object.prototype.hasOwnProperty.call(parserEvidence, metric);
           const rowObserved = hasParserEvidence
-            ? parserEvidence[metric] === true
-            : fields.some((field) =>
-                Object.prototype.hasOwnProperty.call(row || {}, field) &&
-                row[field] !== null &&
-                row[field] !== undefined &&
-                row[field] !== "");
-          if (rowObserved) observed[metric] = true;
+            ? parserEvidence[metric] === true && rowMetricValue(row, metric, fields).observed
+            : rowMetricValue(row, metric, fields).observed;
+          if (!rowObserved) allRowsObserved[metric] = false;
         }
-        acc.adSpend += parseNumber(row.runningAdSpend || row.spend);
-        acc.adRevenue += parseNumber(row.revenue);
-        acc.impressions += parseNumber(row.impressions);
-        acc.clicks += parseNumber(row.clicks);
-        acc.conversions += parseNumber(row.conversions);
-        acc.orders += parseNumber(row.orders);
+        acc.adSpend += rowMetricValue(row, "adSpend", observationFields.adSpend).value;
+        acc.adRevenue += rowMetricValue(row, "adRevenue", observationFields.adRevenue).value;
+        acc.impressions += rowMetricValue(row, "impressions", observationFields.impressions).value;
+        acc.clicks += rowMetricValue(row, "clicks", observationFields.clicks).value;
+        acc.conversions += rowMetricValue(row, "conversions", observationFields.conversions).value;
+        acc.orders += rowMetricValue(row, "orders", observationFields.orders).value;
         return acc;
       },
       {
@@ -256,44 +346,72 @@
       },
     );
 
-    const adSpend = observed.adSpend
-      ? totals.adSpend
-      : getKpiNumber(kpis, ["집행 광고비", "광고비", "ad spend"]);
-    const adRevenue = observed.adRevenue
-      ? totals.adRevenue
-      : getKpiNumber(kpis, ["광고 전환 매출", "광고 매출", "ad gmv", "매출"]);
-    const impressions = observed.impressions
-      ? totals.impressions
-      : getKpiNumber(kpis, ["노출", "impression"]);
-    const clicks = observed.clicks
-      ? totals.clicks
-      : getKpiNumber(kpis, ["클릭수", "clicks", "click count"]);
-    const conversions = observed.conversions
-      ? totals.conversions
-      : getKpiNumber(kpis, ["전환 판매수", "전환수", "conversions", "conversion sales"]);
-    const orders = observed.orders
-      ? totals.orders
-      : getKpiNumber(kpis, ["전환 주문수", "주문수", "order"]);
-    const roas = getKpiNumber(kpis, ["광고 수익률", "광고수익률", "roas"]) ||
-      (adSpend > 0 ? Math.round((adRevenue / adSpend) * 10000) / 100 : 0);
-    const ctr = getKpiNumber(kpis, ["클릭률", "ctr"]) ||
-      (impressions > 0 ? Math.round((clicks / impressions) * 10000) / 100 : 0);
-    const conversionRate = getKpiNumber(kpis, ["전환율", "conversion rate"]) ||
-      (clicks > 0 ? Math.round((orders / clicks) * 10000) / 100 : 0);
+    for (const metric of Object.keys(observed)) {
+      observed[metric] = allRowsObserved[metric];
+    }
+
+    const metricMatchers = {
+      adSpend: ["집행 광고비", "광고비", "ad spend"],
+      adRevenue: ["광고 전환 매출", "광고 매출", "ad gmv", "매출"],
+      impressions: ["노출", "impression"],
+      clicks: ["클릭수", "clicks", "click count"],
+      conversions: ["전환 판매수", "전환수", "conversions", "conversion sales"],
+      orders: ["전환 주문수", "주문수", "order"],
+    };
+    const values = {};
+    for (const metric of Object.keys(metricMatchers)) {
+      if (observed[metric]) {
+        values[metric] = totals[metric];
+        continue;
+      }
+      const evidence = getKpiEvidence(kpis, metricMatchers[metric]);
+      if (evidence.observed) observed[metric] = true;
+      values[metric] = evidence.value;
+    }
+    if (explicitEmpty) {
+      for (const metric of Object.keys(observed)) observed[metric] = true;
+      for (const metric of Object.keys(values)) values[metric] = 0;
+    }
+
+    const roas = explicitEmpty
+      ? null
+      : getKpiNullable(kpis, ["광고 수익률", "광고수익률", "roas"]);
+    const ctr = explicitEmpty
+      ? null
+      : getKpiNullable(kpis, ["클릭률", "ctr"]);
+    const conversionRate = explicitEmpty
+      ? null
+      : getKpiNullable(kpis, ["전환율", "conversion rate"]);
 
     return {
       date,
-      adSpend,
-      adRevenue,
-      impressions,
-      clicks,
-      conversions,
-      orders,
+      adSpend: values.adSpend,
+      adRevenue: values.adRevenue,
+      impressions: values.impressions,
+      clicks: values.clicks,
+      conversions: values.conversions,
+      orders: values.orders,
       roas,
       ctr,
       conversionRate,
+      observedMetrics: observed,
       rowCount: rows.length,
     };
+  }
+
+  function rowMetricValue(row, metric, fields) {
+    const candidates = metric === "adSpend"
+      // `runningAdSpend` is the preferred alias, but it may be null when the
+      // provider only rendered a generic `spend` column. Never let a numeric
+      // placeholder on the preferred property mask a valid fallback.
+      ? ["runningAdSpend", "spend"]
+      : fields;
+    for (const field of candidates) {
+      if (!Object.prototype.hasOwnProperty.call(row || {}, field)) continue;
+      const parsed = parseMetricCell(row[field]);
+      if (parsed.observed) return parsed;
+    }
+    return { value: 0, observed: false };
   }
 
   function evaluateExplicitEmptyDailyKpis(kpis) {
@@ -491,16 +609,16 @@
     const weeklyBudgetScore = extractValueByHeader(headers, cells, ["주간 예산 점수"]);
     const dailyBudget = extractValueByHeader(headers, cells, ["일예산", "예산"]);
     const todaySpend = extractValueByHeader(headers, cells, ["오늘 누적광고비"]);
-    const runningAdSpend = extractValueByHeader(headers, cells, ["집행 광고비"]);
     const currentBid = extractValueByHeader(headers, cells, ["입찰가"]);
-    const impressions = extractValueByHeader(headers, cells, ["노출"]);
-    const clicks = extractValueByHeader(headers, cells, ["클릭수", "clicks", "click count"]);
     // `전환` 단독 매처는 `광고 전환 매출`까지 잡아 매출액을 판매수로 저장한다.
     // 판매수/전환수임이 명시된 헤더만 허용한다.
-    const conversions = extractValueByHeader(headers, cells, CONVERSION_COUNT_HEADERS);
-    const orders = extractValueByHeader(headers, cells, ["광고 전환 주문수", "전환 주문수", "주문수"]);
-    const spend = extractValueByHeader(headers, cells, ["집행 광고비", "광고비", "비용"]);
-    const revenue = extractValueByHeader(headers, cells, ["광고 전환 매출", "총요 결과 광고 전환 매출", "매출", "전환매출"]);
+    const adSpendMetric = extractMetricByHeader(headers, cells, ["집행 광고비", "광고비", "비용"]);
+    const runningAdSpendMetric = extractMetricByHeader(headers, cells, ["집행 광고비"]);
+    const impressionsMetric = extractMetricByHeader(headers, cells, ["노출", "impression"]);
+    const clicksMetric = extractMetricByHeader(headers, cells, ["클릭수", "clicks", "click count"]);
+    const conversionsMetric = extractMetricByHeader(headers, cells, CONVERSION_COUNT_HEADERS);
+    const ordersMetric = extractMetricByHeader(headers, cells, ["광고 전환 주문수", "전환 주문수", "주문수", "order"]);
+    const revenueMetric = extractMetricByHeader(headers, cells, ["광고 전환 매출", "총요 결과 광고 전환 매출", "매출", "전환매출"]);
     const roas = extractValueByHeader(headers, cells, ["광고 수익률", "광고수익률", "roas"]);
     const ctr = extractValueByHeader(headers, cells, ["클릭률", "ctr"]);
     const conversionRate = extractValueByHeader(headers, cells, ["전환율"]);
@@ -513,13 +631,17 @@
     );
 
     const pageType = guessPageType(headers);
+    // Header presence alone is not evidence. A mounted grid can render a
+    // column whose cell is blank, a placeholder, or malformed text while it
+    // is still hydrating. Only a finite parsed cell value proves that metric
+    // for this row; the daily reducer later requires proof from every row.
     const observedMetrics = {
-      adSpend: findHeaderIndex(headers, ["집행 광고비", "광고비", "비용"]) >= 0,
-      adRevenue: findHeaderIndex(headers, ["광고 전환 매출", "광고 매출", "전환매출", "매출"]) >= 0,
-      impressions: findHeaderIndex(headers, ["노출", "impression"]) >= 0,
-      clicks: findHeaderIndex(headers, ["클릭수", "clicks", "click count"]) >= 0,
-      conversions: findConversionCountHeaderIndex(headers) >= 0,
-      orders: findHeaderIndex(headers, ["광고 전환 주문수", "전환 주문수", "주문수", "order"]) >= 0,
+      adSpend: adSpendMetric.observed,
+      adRevenue: revenueMetric.observed,
+      impressions: impressionsMetric.observed,
+      clicks: clicksMetric.observed,
+      conversions: conversionsMetric.observed,
+      orders: ordersMetric.observed,
     };
     const externalId = [
       pageType,
@@ -551,15 +673,18 @@
         weeklyBudgetScore,
         dailyBudget: parseNumber(dailyBudget),
         todaySpend: parseNumber(todaySpend),
-        runningAdSpend: parseNumber(runningAdSpend),
+        // Keep an absent/invalid primary spend source nullable so the daily
+        // reducer can fall back to a valid `spend` column instead of letting
+        // a synthesized numeric zero mask it.
+        runningAdSpend: runningAdSpendMetric.observed ? runningAdSpendMetric.value : null,
         budgetNote,
         currentBid: parseNumber(currentBid),
-        impressions: parseNumber(impressions),
-        clicks: parseNumber(clicks),
-        conversions: parseNumber(conversions),
-        orders: parseNumber(orders),
-        spend: parseNumber(spend),
-        revenue: parseNumber(revenue),
+        impressions: impressionsMetric.value,
+        clicks: clicksMetric.value,
+        conversions: conversionsMetric.value,
+        orders: ordersMetric.value,
+        spend: adSpendMetric.value,
+        revenue: revenueMetric.value,
         roas: parseNumber(roas),
         ctr: parseNumber(ctr),
         conversionRate: parseNumber(conversionRate),
@@ -1112,60 +1237,59 @@
     };
   }
 
-  function buildCampaignSweepMarkerPayload({
-    campaignCount,
-    rawOnlyCampaignCount,
-    campaignBusinessDates,
-  }) {
-    const rawOnlyCount = Math.max(0, Number(rawOnlyCampaignCount) || 0);
-    const dates = Array.isArray(campaignBusinessDates)
-      ? campaignBusinessDates
-      : [];
-    const dailyCoverage = campaignDailyCoverage(
-      dates,
-      dates.length > 0 ? dates.length : CAMPAIGN_DAILY_WINDOW_DAYS,
-    );
-    return {
-      type: "ad_campaign",
-      source: "advertising",
-      campaignName: "_SWEEP_COMPLETE",
-      campaignReportScope: "multi_campaign_raw",
-      campaignSweepComplete: true,
-      campaignIdentityComplete: rawOnlyCount === 0,
-      campaignCount: Math.max(0, Number(campaignCount) || 0),
-      rawOnlyCampaignCount: rawOnlyCount,
-      ...dailyCoverage,
-      data: [],
-      normalizedRows: [],
-      url: window.location.href,
-      title: document.title,
-      timestamp: new Date().toISOString(),
-    };
+  function accountDailyKpiAttempt(control) {
+    return control || null;
   }
 
-  function syncToServer(payload) {
-    const requestPayload = withCollectionRunId(
-      payload,
-      activeCollectionRunId,
-      activeCollectionAttempt,
-    );
-    return new Promise((resolve) => {
-      chrome.runtime.sendMessage(
-        { action: "syncToServer", payload: requestPayload },
-        (response) => {
-          if (chrome.runtime.lastError) {
-            resolve({ success: false, error: chrome.runtime.lastError.message });
-            return;
-          }
-          resolve(response || { success: false, error: "no response" });
-        },
-      );
+  function accountDailyKpiSourceStep(control, body) {
+    const attempt = accountDailyKpiAttempt(control);
+    if (!attempt?.attemptId || attempt.state !== "RUNNING" ||
+      Date.now() >= Date.parse(attempt.expiresAt)) {
+      return Promise.reject(Object.assign(new Error("유효한 광고 계정 일별 KPI 수집 허가가 필요합니다."), {
+        code: "SOURCE_ATTEMPT_UNAVAILABLE",
+      }));
+    }
+    return new Promise((resolve, reject) => {
+      chrome.runtime.sendMessage({
+        action: "advertisingAccountDailyKpiSourceStep",
+        attemptId: attempt.attemptId,
+        step: "receipt",
+        body,
+      }, (response) => {
+        if (chrome.runtime.lastError || !response?.success) {
+          reject(Object.assign(new Error(
+            response?.error || chrome.runtime.lastError?.message || "광고 계정 일별 KPI owner 전송 실패",
+          ), { code: response?.errorCode || "SOURCE_OWNER_UNAVAILABLE" }));
+          return;
+        }
+        resolve(response);
+      });
     });
   }
 
-  async function syncTargetDateDaily(targetDate, normalizedRows, kpis) {
-    const dailyRow = buildCoupangAdsDailyRow(targetDate, normalizedRows, kpis);
-    const response = await syncToServer({
+  async function syncTargetDateDaily(
+    targetDate,
+    normalizedRows,
+    kpis,
+    accountDailyKpiControl = null,
+    explicitEmpty = false,
+  ) {
+    const dailyRow = buildCoupangAdsDailyRow(targetDate, normalizedRows, kpis, {
+      explicitEmpty,
+    });
+    if (!accountDailyKpiControl) {
+      return {
+        response: {
+          success: false,
+          errorCode: "SOURCE_ATTEMPT_UNAVAILABLE",
+          error: "광고 계정 일별 KPI owner 수집 허가가 필요합니다.",
+        },
+        dailyRow,
+      };
+    }
+    const providerAdvertiserId = observedKeywordAdvertiser(accountDailyKpiControl);
+    const observedAt = new Date().toISOString();
+    const rawJson = {
       type: "coupang_ads_daily",
       source: "coupang_ads",
       period: "1d",
@@ -1177,7 +1301,14 @@
       kpis,
       url: window.location.href,
       title: document.title,
-      timestamp: new Date().toISOString(),
+      timestamp: observedAt,
+    };
+    const response = await accountDailyKpiSourceStep(accountDailyKpiControl, {
+      businessDate: targetDate,
+      observedAt,
+      providerAdvertiserId,
+      rawJson,
+      normalized: dailyRow,
     });
     return { response, dailyRow };
   }
@@ -1288,21 +1419,57 @@
   }
 
   async function fetchAdGroupAds(campaignId, adGroupId) {
+    const normalizedCampaignId = normalizeProviderId(campaignId);
+    const normalizedAdGroupId = normalizeProviderId(adGroupId);
+    if (!normalizedCampaignId || !normalizedAdGroupId) {
+      return {
+        ok: false,
+        adsArrayObserved: false,
+        enumeratedAdCount: 0,
+        ads: [],
+        rawAds: [],
+        invalidAdCount: 0,
+        adGroupId: normalizedAdGroupId || null,
+        adGroupName: null,
+        adSelectionType: null,
+        error: "invalid_provider_id",
+      };
+    }
     const result = await adCenterJson(
-      `/marketing/tetris-api/campaign/${encodeURIComponent(campaignId)}/ad-group/${encodeURIComponent(adGroupId)}`,
+      `/marketing/tetris-api/campaign/${encodeURIComponent(normalizedCampaignId)}/ad-group/${encodeURIComponent(normalizedAdGroupId)}`,
     );
-    if (!result.ok || !result.data) return { ok: false, ads: [], adGroupName: null };
-    const adGroup = result.data.adGroup || {};
-    const ads = Array.isArray(adGroup.ads) ? adGroup.ads : [];
+    if (!result.ok || !Array.isArray(result.data?.adGroup?.ads)) {
+      return {
+        ok: false,
+        adsArrayObserved: false,
+        enumeratedAdCount: 0,
+        ads: [],
+        rawAds: [],
+        invalidAdCount: 0,
+        adGroupId: normalizedAdGroupId,
+        adGroupName: null,
+        adSelectionType: null,
+      };
+    }
+    const adGroup = result.data.adGroup;
+    const ads = adGroup.ads;
+    const rawAds = ads.map((ad) => ({
+      adId: normalizeProviderId(ad?.id),
+      vendorItemId: normalizeProviderId(ad?.vendorItemId),
+      itemName: normalizeText(String(ad?.itemName || "")),
+      isActive: ad?.isActive === true,
+    }));
+    const validAds = rawAds.filter((ad) => ad.adId && ad.vendorItemId);
     return {
       ok: true,
+      adGroupId: normalizedAdGroupId,
+      adsArrayObserved: true,
+      enumeratedAdCount: ads.length,
       adGroupName: normalizeText(adGroup.name || "") || null,
-      ads: ads.map((ad) => ({
-        adId: String(ad?.id ?? ""),
-        vendorItemId: ad?.vendorItemId != null ? String(ad.vendorItemId) : "",
-        itemName: normalizeText(String(ad?.itemName || "")),
-        isActive: ad?.isActive === true,
-      })).filter((ad) => ad.adId && ad.vendorItemId),
+      adSelectionType: normalizeText(adGroup.adSelectionType || "").toUpperCase() || null,
+      rawAds,
+      invalidAdCount: rawAds.length - validAds.length,
+      ads: validAds,
     };
   }
 
@@ -1356,7 +1523,7 @@
     const result = await adCenterJson(
       `/marketing/tetris-api/ad/keywords/${encodeURIComponent(adId)}`,
     );
-    if (!result.ok || !Array.isArray(result.data)) return new Map();
+    if (!result.ok || !Array.isArray(result.data)) return null;
     const registered = new Map();
     for (const entry of result.data) {
       if (!entry || typeof entry !== "object") continue;
@@ -1385,25 +1552,16 @@
    * Returns a result descriptor instead of throwing: keyword collection is
    * supplementary to the campaign daily sweep and must never fail it.
    */
-  async function collectCampaignKeywords(campaign, businessDate, routeOverride) {
-    // The campaign sweep is already parked on a campaign detail URL, so it
-    // reads the ids from the location. The standalone sweep never navigates —
-    // it enumerates every campaign from the roster API and passes ids in.
-    const route = routeOverride ?? parseCampaignAdGroupRoute(window.location.href);
-    if (!route) return { ok: false, reason: "no_ad_group_route" };
+  async function captureKeywordGroup(campaign, businessDate, route, group, checkpoint = async () => {}) {
     const keywordWindow = adKeywordWindow(businessDate);
-    if (!keywordWindow) return { ok: false, reason: "invalid_business_date" };
-
-    const group = await fetchAdGroupAds(route.campaignId, route.adGroupId);
-    if (!group.ok) return { ok: false, reason: "ad_group_fetch_failed" };
-    if (group.ads.length === 0) return { ok: true, adCount: 0, keywordCount: 0, rows: 0 };
-
     const ads = group.ads.slice(0, AD_KEYWORD_MAX_ADS_PER_CAMPAIGN);
     const truncated = group.ads.length - ads.length;
     const rows = [];
     let failedAds = 0;
+    const proof = [];
 
     for (let index = 0; index < ads.length; index += 1) {
+      await checkpoint();
       const ad = ads[index];
       showBadge(
         `🔑 [${campaign.name}] 키워드 ${index + 1}/${ads.length} 수집 중...`,
@@ -1413,7 +1571,9 @@
         fetchAdKeywordMetrics(route.campaignId, ad.adId, businessDate),
         fetchRegisteredAdKeywords(ad.adId),
       ]);
-      if (!metrics.ok) {
+      await checkpoint();
+      proof.push({ adId: ad.adId, metricsOk: metrics.ok, registeredOk: registered !== null });
+      if (!metrics.ok || !registered) {
         failedAds += 1;
         continue;
       }
@@ -1453,32 +1613,36 @@
       if (index < ads.length - 1) await sleep(AD_KEYWORD_REQUEST_DELAY_MS);
     }
 
-    if (rows.length === 0) {
-      return { ok: true, adCount: ads.length, keywordCount: 0, rows: 0, failedAds };
-    }
-
-    const response = await syncToServer({
-      type: "ad_keyword",
-      source: "advertising",
-      campaignName: campaign?.name || detectCampaignName(),
-      period: `${keywordWindow.days}d`,
-      startDate: keywordWindow.startDate,
-      endDate: keywordWindow.endDate,
-      dateFrom: keywordWindow.startDate,
-      dateTo: keywordWindow.endDate,
-      data: rows,
-      url: window.location.href,
-      title: document.title,
-      timestamp: new Date().toISOString(),
-    });
     return {
-      ok: !!response?.success,
-      reason: response?.success ? null : response?.error || "sync_failed",
-      adCount: ads.length,
-      keywordCount: rows.length,
-      rows: rows.length,
-      failedAds,
-      truncatedAds: truncated,
+      ok: failedAds === 0 && truncated === 0,
+      reason: truncated > 0 ? "ad_group_truncated" : failedAds > 0 ? "keyword_requests_failed" : null,
+      adCount: ads.length, keywordCount: rows.length, rows: rows.length, failedAds, truncatedAds: truncated,
+      receipt: { capturedAt: new Date().toISOString(), ads: proof, rows },
+    };
+  }
+
+  async function collectCampaignKeywords(campaign, businessDate, routeOverride) {
+    // The campaign sweep is already parked on a campaign detail URL, so it
+    // reads the ids from the location. The standalone sweep never navigates —
+    // it enumerates every campaign from the roster API and passes ids in.
+    const route = routeOverride ?? parseCampaignAdGroupRoute(window.location.href);
+    if (!route) return { ok: false, reason: "no_ad_group_route" };
+    const keywordWindow = adKeywordWindow(businessDate);
+    if (!keywordWindow) return { ok: false, reason: "invalid_business_date" };
+
+    const group = await fetchAdGroupAds(route.campaignId, route.adGroupId);
+    if (!group.ok) return { ok: false, reason: "ad_group_fetch_failed" };
+
+
+    const captured = await captureKeywordGroup(campaign, businessDate, route, group);
+    const { receipt, ...result } = captured;
+    if (!result.ok) return result;
+    return {
+      ...result,
+      adGroupId: route.adGroupId,
+      groupPlan: { adsArrayObserved: group.adsArrayObserved, enumeratedAdCount: group.enumeratedAdCount,
+        adGroupName: group.adGroupName, ads: group.ads.slice(0, AD_KEYWORD_MAX_ADS_PER_CAMPAIGN) },
+      groupResult: receipt,
     };
   }
 
@@ -1491,12 +1655,11 @@
   // `groupList[]` 가 광고그룹 id 를 준다. 대시보드에 머문 채 API 만 호출한다.
   //
   // 한 번에 다 못 돌 수 있으므로(계정 전체 1,500 광고 이상) 광고 단위로 예산을
-  // 두고 진행 상태를 sessionStorage 에 남긴다. 다시 실행하면 남은 지점부터
-  // 이어서 돈다. 운영중 캠페인 → 운영중 광고 순으로 정렬해서, 예산이 끊겨도
+  // 두고 owner의 접수 영수증을 다음 명시적 실행에서 재사용한다.
+  // 운영중 캠페인 순서로 수집해서, 예산이 끊겨도
   // 실제로 돈이 나가는 쪽이 먼저 수집된다.
   // ════════════════════════════════════════════════════════════════════
 
-  const AD_KEYWORD_SWEEP_PROGRESS_KEY = "kiditem_ad_keyword_sweep_v1";
   // 한 번 실행에서 조회할 광고 수. 광고 1개당 요청 2회라 상한 없이 돌면
   // 광고센터에 과부하가 된다. 남은 광고는 다음 실행이 이어받는다.
   const AD_KEYWORD_SWEEP_MAX_ADS_PER_RUN = 300;
@@ -1507,6 +1670,7 @@
   /** Every campaign with its ad groups, straight from the roster API. */
   async function fetchAdCampaignRoster() {
     const campaigns = [];
+    const pages = [];
     for (let page = 0; page < AD_KEYWORD_ROSTER_MAX_PAGES; page += 1) {
       const result = await adCenterJson("/marketing/tetris-api/campaigns", {
         method: "POST",
@@ -1524,196 +1688,110 @@
           ],
         }),
       });
-      if (!result.ok || !result.data) {
-        return { ok: false, campaigns };
+      const campaignsArrayObserved = Array.isArray(result.data?.campaigns);
+      const hasNextPage = typeof result.data?.pageInfo?.hasNextPage === "boolean"
+        ? result.data.pageInfo.hasNextPage : null;
+      pages.push({ page, campaignsArrayObserved, hasNextPage,
+        campaignCount: campaignsArrayObserved ? result.data.campaigns.length : 0 });
+      if (!result.ok || !campaignsArrayObserved || hasNextPage === null) {
+        return { ok: false, campaigns, pages };
       }
-      const pageCampaigns = Array.isArray(result.data.campaigns)
-        ? result.data.campaigns
-        : [];
+      const pageCampaigns = result.data.campaigns;
       for (const campaign of pageCampaigns) {
-        const campaignId = campaign?.id != null ? String(campaign.id) : "";
+        const campaignId = normalizeProviderId(campaign?.id);
         if (!campaignId) continue;
         const groups = Array.isArray(campaign.groupList) ? campaign.groupList : [];
         campaigns.push({
           campaignId,
           name: normalizeText(String(campaign.name || "")) || campaignId,
           isActive: campaign.isActive === true,
-          totalAdCount: Number(campaign.totalAdCount) || 0,
+          totalAdCount: normalizeProviderCount(campaign.totalAdCount),
+          groupsArrayObserved: Array.isArray(campaign.groupList),
           groups: groups
             .map((group) => ({
-              adGroupId: group?.id != null ? String(group.id) : "",
+              adGroupId: normalizeProviderId(group?.id),
               adGroupName: normalizeText(String(group?.name || "")) || null,
             }))
             .filter((group) => group.adGroupId),
         });
+        if (campaigns[campaigns.length - 1].groups.length !== groups.length) return { ok: false, campaigns, pages };
       }
-      if (result.data.pageInfo?.hasNextPage !== true) break;
+      if (hasNextPage === false) return { ok: true, campaigns, pages };
     }
-    return { ok: true, campaigns };
+    return { ok: false, campaigns, pages };
   }
 
-  /** Flatten the roster to ad-group work units, running campaigns first. */
-  function buildKeywordSweepQueue(campaigns) {
-    const queue = [];
-    for (const campaign of campaigns) {
-      for (const group of campaign.groups) {
-        queue.push({
-          key: `${campaign.campaignId}:${group.adGroupId}`,
-          campaignId: campaign.campaignId,
-          campaignName: campaign.name,
-          campaignIdentity: `campaign:${campaign.campaignId}`,
-          adGroupId: group.adGroupId,
-          adGroupName: group.adGroupName,
-          isActive: campaign.isActive,
-          totalAdCount: campaign.totalAdCount,
-        });
-      }
+  function observedKeywordAdvertiser(control) {
+    const term = [...document.querySelectorAll("dt")].find(candidate =>
+      normalizeText(candidate.textContent) === "업체코드");
+    const observed = normalizeText(term?.nextElementSibling?.textContent);
+    if (!observed || observed !== control?.plan?.expectedAdvertiserId) {
+      throw Object.assign(new Error("광고센터 업체코드가 수집 계정과 일치하지 않습니다."),
+        { code: "ADVERTISER_IDENTITY_MISMATCH" });
     }
-    return queue.sort(
-      (a, b) =>
-        Number(b.isActive) - Number(a.isActive) ||
-        a.totalAdCount - b.totalAdCount ||
-        a.key.localeCompare(b.key),
-    );
+    return observed;
   }
 
-  function readKeywordSweepProgress(runId) {
-    try {
-      const raw = sessionStorage.getItem(AD_KEYWORD_SWEEP_PROGRESS_KEY);
-      if (!raw) return { runId, done: [] };
-      const parsed = JSON.parse(raw);
-      // A different run starts clean; the same run resumes where it stopped.
-      if (parsed?.runId !== runId) return { runId, done: [] };
-      return { runId, done: Array.isArray(parsed.done) ? parsed.done : [] };
-    } catch {
-      return { runId, done: [] };
+  function keywordSourceStep(control, step, body, sequence) {
+    if (!control?.attemptId || control.attemptId !== activeCollectionRunId ||
+      control.state !== "RUNNING" || Date.now() >= Date.parse(control.expiresAt)) {
+      throw Object.assign(new Error("유효한 광고 키워드 수집 허가가 필요합니다."), { code: "SOURCE_ATTEMPT_UNAVAILABLE" });
     }
+    const advertiserId = observedKeywordAdvertiser(control);
+    return new Promise((resolve, reject) => {
+      chrome.runtime.sendMessage({ action: "advertisingKeywordSourceStep", attemptId: control.attemptId, step,
+        ...(sequence !== undefined ? { sequence } : {}),
+        ...(body ? { body: { ...body, advertiserId } } : {}) }, response => {
+        if (chrome.runtime.lastError || !response?.success) {
+          reject(Object.assign(new Error(response?.error || chrome.runtime.lastError?.message || "광고 키워드 전송 실패"),
+            { code: response?.errorCode || "SOURCE_OWNER_UNAVAILABLE" }));
+        } else resolve(step === "checkpoint" ? control : response.control);
+      });
+    });
   }
 
-  function saveKeywordSweepProgress(state) {
-    try {
-      sessionStorage.setItem(
-        AD_KEYWORD_SWEEP_PROGRESS_KEY,
-        JSON.stringify(state),
-      );
-    } catch {
-      // sessionStorage full/blocked — the sweep still runs, it just cannot
-      // resume. Never fail the collection over telemetry.
-    }
-  }
-
-  function clearKeywordSweepProgress() {
-    try {
-      sessionStorage.removeItem(AD_KEYWORD_SWEEP_PROGRESS_KEY);
-    } catch {
-      // ignore
-    }
-  }
-
-  async function runKeywordSweep() {
+  async function runKeywordSweep(initialControl) {
     const loginHandoff = advertisingLoginHandoffResponse();
     if (loginHandoff) return loginHandoff;
-
-    const businessDate = getYesterdayYmd();
-    showBadge("🔑 광고 캠페인 명부 조회 중...", "#6366f1");
-    const roster = await fetchAdCampaignRoster();
-    if (!roster.ok && roster.campaigns.length === 0) {
-      showBadge("❌ 광고 캠페인 명부를 읽지 못했습니다.", "#ef4444");
-      return {
-        success: false,
-        complete: false,
-        error: "campaign_roster_fetch_failed",
-      };
+    let control = await keywordSourceStep(initialControl, "checkpoint");
+    if (!control.roster) {
+      showBadge("🔑 광고 캠페인 명부 조회 중...", "#6366f1");
+      const roster = await fetchAdCampaignRoster();
+      if (!roster.ok) throw Object.assign(new Error("광고 캠페인 명부를 읽지 못했습니다."), { code: "CAMPAIGN_ROSTER_INCOMPLETE" });
+      control = await keywordSourceStep(control, "roster", { campaigns: roster.campaigns, pages: roster.pages });
     }
-
-    const queue = buildKeywordSweepQueue(roster.campaigns);
-    const progress = readKeywordSweepProgress(activeCollectionRunId ?? "manual");
-    const doneKeys = new Set(progress.done);
-    const pending = queue.filter((unit) => !doneKeys.has(unit.key));
-
-    await reportSweepProgress({
-      current: queue.length - pending.length,
-      total: queue.length,
-      label: `광고그룹 ${queue.length - pending.length}/${queue.length}`,
-    });
-
     const startedAt = Date.now();
-    let adBudget = AD_KEYWORD_SWEEP_MAX_ADS_PER_RUN;
-    let keywordCount = 0;
-    let adCount = 0;
-    let failedGroups = 0;
-    let exhausted = false;
-
-    for (const unit of pending) {
-      if (adBudget <= 0 || Date.now() - startedAt >= AD_KEYWORD_SWEEP_MAX_WALL_MS) {
-        exhausted = true;
-        break;
+    let adBudget = AD_KEYWORD_SWEEP_MAX_ADS_PER_RUN, keywordCount = 0, adCount = 0;
+    for (const queued of control.queue) {
+      if (queued.resultComplete) continue;
+      if (adBudget <= 0 || Date.now() - startedAt >= AD_KEYWORD_SWEEP_MAX_WALL_MS) break;
+      control = await keywordSourceStep(control, "checkpoint");
+      let unit = control.queue.find(item => item.sequence === queued.sequence);
+      if (unit.resultComplete) continue;
+      if (!unit.plan) {
+        const group = await fetchAdGroupAds(unit.campaignId, unit.adGroupId);
+        control = await keywordSourceStep(control, "group_plan", {
+          adsArrayObserved: group.adsArrayObserved, enumeratedAdCount: group.enumeratedAdCount,
+          adGroupName: group.adGroupName, ads: group.ads.slice(0, AD_KEYWORD_MAX_ADS_PER_CAMPAIGN),
+        }, unit.sequence);
+        unit = control.queue.find(item => item.sequence === queued.sequence);
       }
-      showBadge(
-        `🔑 [${unit.campaignName}] 키워드 수집 중... (${doneKeys.size + 1}/${queue.length})`,
-        "#6366f1",
+      const captured = await captureKeywordGroup(
+        { name: unit.campaignName, identity: unit.campaignIdentity }, control.plan.endDate,
+        { campaignId: unit.campaignId, adGroupId: unit.adGroupId }, unit.plan,
+        async () => { control = await keywordSourceStep(control, "checkpoint"); },
       );
-      const result = await collectCampaignKeywords(
-        { name: unit.campaignName, identity: unit.campaignIdentity },
-        businessDate,
-        { campaignId: unit.campaignId, adGroupId: unit.adGroupId },
-      ).catch((error) => ({
-        ok: false,
-        reason: error?.message || String(error),
-      }));
-
-      if (result?.ok) {
-        keywordCount += result.keywordCount || 0;
-        adCount += result.adCount || 0;
-        adBudget -= Math.max(1, result.adCount || 0);
-        doneKeys.add(unit.key);
-        saveKeywordSweepProgress({
-          runId: progress.runId,
-          done: [...doneKeys],
-        });
-      } else {
-        failedGroups += 1;
-        console.warn("[KIDITEM keyword sweep] group failed", unit.key, result);
-      }
-      await reportSweepProgress({
-        current: doneKeys.size,
-        total: queue.length,
-        label: `${unit.campaignName} · 키워드 ${keywordCount}개`,
-      });
+      control = await keywordSourceStep(control, "group_result", captured.receipt, unit.sequence);
+      keywordCount += captured.keywordCount;
+      adCount += captured.adCount;
+      adBudget -= Math.max(1, captured.adCount);
     }
-
-    const remaining = queue.length - doneKeys.size;
-    const complete = remaining === 0;
-    if (complete) clearKeywordSweepProgress();
-
-    if (failedGroups > 0 && keywordCount === 0) {
-      showBadge(`❌ 키워드 수집 실패 (${failedGroups}개 광고그룹)`, "#ef4444");
-      return {
-        success: false,
-        complete: false,
-        error: "keyword_collection_failed",
-        failedGroups,
-      };
-    }
-
-    showBadge(
-      complete
-        ? `✅ 키워드 ${keywordCount}개 · 광고 ${adCount}개 수집 완료`
-        : `⏸️ 키워드 ${keywordCount}개 수집 — 광고그룹 ${remaining}개 남음 (다시 실행하면 이어서)`,
-      complete ? "#22c55e" : "#f59e0b",
-    );
-    return {
-      success: true,
-      type: "ad_keyword",
-      complete,
-      exhausted,
-      keywordCount,
-      adCount,
-      groupCount: queue.length,
-      remainingGroups: remaining,
-      failedGroups,
-      error: null,
-    };
+    const completed = control.queue.filter(unit => unit.resultComplete).length;
+    const complete = completed === control.queue.length;
+    return { success: true, type: "ad_keyword", keywordCount, adCount,
+      keywordReceipt: { complete, continuationRequired: !complete },
+      progress: { current: completed, total: control.queue.length, completed, failed: 0,
+        label: complete ? "광고 키워드 owner 반영 확인 중" : "광고 키워드 수집 일시정지 — 계속하려면 다시 실행해주세요." } };
   }
 
   // 현재 캠페인명 감지 — span.page-name 또는 "모든 캠페인" 텍스트
@@ -2187,12 +2265,70 @@
     return confirmed;
   }
 
-  async function doSync() {
+  function validateAccountDailyTargetDate(explicitTargetDate, control) {
+    if (explicitTargetDate === null || explicitTargetDate === undefined ||
+      (typeof explicitTargetDate === "string" && explicitTargetDate.trim() === "")) {
+      throw Object.assign(
+        new Error("광고 계정 일별 KPI owner가 동결한 targetDate가 필요합니다."),
+        { code: "SOURCE_TARGET_DATE_REQUIRED" },
+      );
+    }
+    const targetDate = typeof explicitTargetDate === "string"
+      ? explicitTargetDate.trim()
+      : "";
+    if (!parseBusinessYmd(targetDate)) {
+      throw Object.assign(
+        new Error("광고 계정 일별 KPI targetDate 형식이 유효하지 않습니다."),
+        { code: "SOURCE_TARGET_DATE_INVALID" },
+      );
+    }
+    const planDates = Array.isArray(control?.plan?.businessDates)
+      ? control.plan.businessDates
+      : [];
+    if (!planDates.includes(targetDate)) {
+      throw Object.assign(
+        new Error("광고 계정 일별 KPI targetDate가 source owner 계획과 다릅니다."),
+        { code: "SOURCE_TARGET_DATE_OUT_OF_PLAN" },
+      );
+    }
+    return targetDate;
+  }
+
+  async function doSync(
+    accountDailyKpiControl = null,
+    campaignControl = null,
+    explicitTargetDate = null,
+  ) {
+    const manualCampaignControl = campaignControl?.plan?.captureMode === "manual_report"
+      ? campaignControl
+      : null;
+    if (manualCampaignControl) {
+      activeCampaignControl = manualCampaignControl;
+      await campaignSourceStep("resume");
+    }
+    if (!manualCampaignControl && !accountDailyKpiControl) {
+      return {
+        success: false,
+        complete: false,
+        errorCode: "SOURCE_ATTEMPT_UNAVAILABLE",
+        error: "광고 source owner 수집 허가가 필요합니다.",
+      };
+    }
     // 로그인 화면에 떨어졌으면 날짜 피커를 만지기 전에 자동 로그인/재개로 넘긴다.
     const loginHandoff = advertisingLoginHandoffResponse();
     if (loginHandoff) return loginHandoff;
-    // hash에 targetDate가 있으면 먼저 날짜 피커 설정
-    const targetDate = getTargetDateFromHash();
+    // Account-daily KPI collection is owner-controlled one day at a time. The
+    // dashboard can drop the URL hash while hydrating its SPA, so this path
+    // must use the date carried by the owner message and never fall back to
+    // the default seven-day report.
+    const accountDailyTargetDate = accountDailyKpiControl && !manualCampaignControl
+      ? validateAccountDailyTargetDate(explicitTargetDate, accountDailyKpiControl)
+      : null;
+    // A manual report keeps its existing plan/hash behavior. Other explicit
+    // target-date pages retain the legacy hash behavior for non-owner callers.
+    const targetDate = manualCampaignControl?.plan?.period === "1d"
+      ? manualCampaignControl.plan.startDate
+      : accountDailyTargetDate || getTargetDateFromHash();
     if (targetDate) {
       showBadge(`📅 ${targetDate} 날짜 설정 중...`, "#6366f1");
       const ok = await setDateRange(targetDate);
@@ -2225,6 +2361,24 @@
       period = '1d';
       dateFrom = targetDate;
       dateTo = targetDate;
+    }
+    if (manualCampaignControl && period === manualCampaignControl.plan.period && !dateFrom && !dateTo) {
+      dateFrom = manualCampaignControl.plan.startDate;
+      dateTo = manualCampaignControl.plan.endDate;
+    }
+
+    if (manualCampaignControl) {
+      if (period !== manualCampaignControl.plan.period ||
+        dateFrom !== manualCampaignControl.plan.startDate ||
+        dateTo !== manualCampaignControl.plan.endDate ||
+        window.location.href !== manualCampaignControl.plan.targetUrl) {
+        return {
+          success: false,
+          complete: false,
+          errorCode: "MANUAL_REPORT_SCOPE_MISMATCH",
+          error: "광고 화면의 URL 또는 표시 기간이 동결된 source owner 계획과 다릅니다.",
+        };
+      }
     }
 
     const collection = await collectPaginatedReport({
@@ -2272,20 +2426,27 @@
           nonZeroMetrics: emptyKpiEvidence.nonZeroMetrics,
         };
       }
+    }
 
-      // rows가 없고 additive KPI도 모두 0/없음인 clean empty만 일별 0 fact로 저장한다.
-      const { response: dailyJson } = await syncTargetDateDaily(targetDate, [], {});
+    const kpiCount = Object.keys(kpis).length;
+    if (targetDate && accountDailyKpiControl && !manualCampaignControl) {
+      const { response: dailyJson } = await syncTargetDateDaily(
+        targetDate,
+        aggregatedNormalized,
+        kpis,
+        accountDailyKpiControl,
+        collection.explicitEmpty,
+      );
       if (dailyJson?.success) {
-        chrome.storage.local.set({ kiditem_last_sync_ads: { time: Date.now(), count: 0 } });
-        showBadge(`✅ ${targetDate} 광고 실적 없음(0건) 저장 완료`, "#22c55e");
+        chrome.storage.local.set({ kiditem_last_sync_ads: { time: Date.now(), count: kpiCount + aggregatedRaw.length } });
+        showBadge(`✅ 광고 데이터 ${kpiCount + aggregatedRaw.length}건 (${totalPages}p) 동기화 완료`, "#22c55e");
         return {
           success: true,
           type: "ads",
-          count: 0,
-          pages: collection.expectedPages,
-          expectedPages: collection.expectedPages,
+          count: kpiCount + aggregatedRaw.length,
+          pages: totalPages,
+          expectedPages: totalPages,
           visitedPages: collection.visitedPages,
-          empty: true,
           complete: true,
           error: null,
         };
@@ -2295,36 +2456,34 @@
         complete: true,
         expectedPages: collection.expectedPages,
         visitedPages: collection.visitedPages,
-        error: dailyJson?.error || `${targetDate} 광고 0건 저장 실패`,
+        error: dailyJson?.error || "광고 계정 일별 KPI 저장 실패",
+        errorCode: dailyJson?.errorCode,
       };
     }
 
-    const kpiCount = Object.keys(kpis).length;
     const total = kpiCount + aggregatedRaw.length;
 
-    if (kpiCount > 0 || aggregatedRaw.length > 0) {
-      const periodDisplay = periodLabel || period;
-      showBadge(
-        `📊 [${campaignName}] ${periodDisplay} — KPI ${kpiCount}개 + ${aggregatedRaw.length}행 (${totalPages}p) 동기화 중...`,
-        "#f59e0b",
-      );
-      const json = await syncToServer({
-        type: "ad_campaign",
-        source: "advertising",
-        // A target-date dashboard contains rows from multiple campaigns. The
-        // server preserves these rows as dated raw evidence only; the exact
-        // account/day aggregate is sent by syncTargetDateDaily below.
+    if (manualCampaignControl) {
+      if (total === 0 && !collection.explicitEmpty) {
+        return {
+          success: false,
+          complete: true,
+          expectedPages: collection.expectedPages,
+          visitedPages: collection.visitedPages,
+          error: "광고 데이터 0건을 확인할 명시적 빈 상태가 없습니다.",
+        };
+      }
+      const plan = manualCampaignControl.plan;
+      const reportPayload = {
         campaignReportScope: targetDate ? "multi_campaign_raw" : undefined,
         campaignName,
         period,
         periodLabel,
-        // 서버 DTO 가 startDate/endDate 를 기대 (whitelist 로 dateFrom/dateTo 는 drop).
-        // 일별 적재의 핵심 필드 — 누락 시 모든 데이터가 today 로 저장되어 readiness 일별 카운트가 깨진다.
         startDate: dateFrom,
         endDate: dateTo,
-        dateFrom, // 구버전 서버/로깅 호환
+        dateFrom,
         dateTo,
-        data: aggregatedRaw.length > 0 ? aggregatedRaw : [{ _kpiOnly: true }],
+        data: aggregatedRaw,
         normalizedRows: aggregatedNormalized,
         headers,
         pageType,
@@ -2332,47 +2491,76 @@
         url: window.location.href,
         title: document.title,
         timestamp: new Date().toISOString(),
-      });
-      if (json?.success) {
-        if (targetDate) {
-          const { response: dailyJson } = await syncTargetDateDaily(
-            targetDate,
-            aggregatedNormalized,
-            kpis,
-          );
-          if (!dailyJson?.success) {
-            showBadge(`❌ 일별 광고 KPI 저장 실패: ${dailyJson?.error || "실패"}`, "#ef4444");
-            return {
-              success: false,
-              complete: true,
-              expectedPages: collection.expectedPages,
-              visitedPages: collection.visitedPages,
-              error: dailyJson?.error || "일별 광고 KPI 저장 실패",
-            };
-          }
-        }
-        chrome.storage.local.set({ kiditem_last_sync_ads: { time: Date.now(), count: total } });
-        showBadge(`✅ 광고 데이터 ${total}건 (${totalPages}p) 동기화 완료`, "#22c55e");
-        return {
-          success: true,
-          type: "ads",
-          count: total,
-          pages: totalPages,
-          expectedPages: collection.expectedPages,
-          visitedPages: collection.visitedPages,
-          complete: true,
-          error: null,
-        };
-      } else {
-        showBadge(`❌ ${json?.error || "실패"}`, "#ef4444");
+      };
+      showBadge(
+        `📊 [${campaignName}] ${periodLabel || period} — KPI ${kpiCount}개 + ${aggregatedRaw.length}행 (${totalPages}p) owner 저장 중...`,
+        "#f59e0b",
+      );
+      let campaignJson;
+      try {
+        campaignJson = await campaignSourceStep("receipt", {
+          kind: "manual_report",
+          key: `manual_report:${plan.period}:${plan.startDate}:${plan.endDate}`,
+          period: plan.period,
+          startDate: plan.startDate,
+          endDate: plan.endDate,
+          payload: reportPayload,
+        });
+      } catch (error) {
         return {
           success: false,
           complete: true,
           expectedPages: collection.expectedPages,
           visitedPages: collection.visitedPages,
-          error: json?.error || "실패",
+          error: error?.message || "광고 manual report owner 저장 실패",
+          errorCode: error?.code,
         };
       }
+      if (targetDate && accountDailyKpiControl) {
+        const { response: dailyJson } = await syncTargetDateDaily(
+          targetDate,
+          aggregatedNormalized,
+          kpis,
+          accountDailyKpiControl,
+          collection.explicitEmpty,
+        );
+        if (!dailyJson?.success) {
+          return {
+            success: false,
+            complete: true,
+            campaignReceipt: { complete: true },
+            expectedPages: collection.expectedPages,
+            visitedPages: collection.visitedPages,
+            error: dailyJson?.error || "광고 계정 일별 KPI 저장 실패",
+            errorCode: dailyJson?.errorCode,
+          };
+        }
+      }
+      chrome.storage.local.set({ kiditem_last_sync_ads: { time: Date.now(), count: total } });
+      showBadge(`✅ 광고 데이터 ${total}건 (${totalPages}p) owner 저장 완료`, "#22c55e");
+      return {
+        success: campaignJson?.success !== false,
+        type: "ads",
+        campaignReceipt: { complete: campaignJson?.success !== false },
+        count: total,
+        pages: totalPages,
+        expectedPages: collection.expectedPages,
+        visitedPages: collection.visitedPages,
+        empty: collection.explicitEmpty,
+        complete: true,
+        error: campaignJson?.success === false ? campaignJson.error : null,
+      };
+    }
+
+    if (kpiCount > 0 || aggregatedRaw.length > 0) {
+      return {
+        success: false,
+        complete: true,
+        expectedPages: collection.expectedPages,
+        visitedPages: collection.visitedPages,
+        errorCode: "SOURCE_ATTEMPT_UNAVAILABLE",
+        error: "광고 campaign source owner 수집 허가가 필요합니다.",
+      };
     }
     return {
       success: false,
@@ -3590,6 +3778,165 @@
     return collectPaginatedReport({ maxPages: 8 });
   }
 
+  // The product_sales endpoint does not return display metadata such as the
+  // product link, thumbnail, status, or display name. Observe those fields
+  // once from the already-loaded detail grid, then let the API own every
+  // additive metric for each exact day. In particular, never carry the
+  // detail page's default 7-day metric cells into an exact-day receipt.
+  function stripManualProductMetricColumns(columns) {
+    // Do not attempt to maintain a metric-label allowlist here.  The API
+    // receipt is the sole source of additive values and this grid may render
+    // new provider columns without warning.  Display metadata is copied
+    // explicitly by captureManualProductMetadata instead.
+    void columns;
+    return {};
+  }
+
+  async function captureManualProductMetadata(campaign, group) {
+    const ads = Array.isArray(group?.ads) ? group.ads : [];
+    let parsed = null;
+    try {
+      // The product grid is a real React-Table report: the first page can be
+      // settled while later metadata rows remain behind its paginator. The
+      // API roster gives us a safe upper bound on pages (one non-empty page
+      // cannot contain more rows than the known ad roster), while the strict
+      // collector still requires every provider-declared page to be visited.
+      const collected = await collectPaginatedReport({
+        maxPages: Math.max(1, ads.length),
+        readPage: () => readSettledReportPage(30000),
+        advancePage: (previous) => advanceReportPage(previous),
+      });
+      if (collected?.complete) {
+        parsed = collected;
+      } else {
+        console.warn(
+          "[KIDITEM manual product] metadata pagination incomplete",
+          collected?.error || "unknown_error",
+        );
+      }
+    } catch (error) {
+      console.warn("[KIDITEM manual product] metadata observation unavailable", error?.message || error);
+    }
+    const observedRows = Array.isArray(parsed?.normalizedRows) ? parsed.normalizedRows : [];
+    const byVendorItemId = new Map();
+    const byProductName = new Map();
+    let invalidObservedId = false;
+    const metadataRows = observedRows.map((row) => {
+      const metadata = {
+        itemId: normalizeProviderId(row.itemId) || null,
+        vendorItemId: normalizeProviderId(row.itemId) || null,
+        productName: normalizeText(row.productName || "") || null,
+        imageUrl: normalizeText(row.imageUrl || "") || null,
+        productUrl: normalizeText(row.productUrl || "") || null,
+        status: row.status == null ? null : normalizeText(row.status) || null,
+        onOff: row.onOff == null ? null : normalizeText(row.onOff) || null,
+        // Product-sales owns all additive metrics.  Keep this observation
+        // metadata-only; arbitrary grid headers are period-sensitive and may
+        // leak stale or unknown metrics into the owner payload.
+        rawColumns: {},
+      };
+      const rawItemId = normalizeText(row.itemId || "");
+      if (rawItemId && !metadata.itemId) invalidObservedId = true;
+      if (metadata.vendorItemId) {
+        const rowsForId = byVendorItemId.get(metadata.vendorItemId) || [];
+        rowsForId.push(metadata);
+        byVendorItemId.set(metadata.vendorItemId, rowsForId);
+      }
+      if (metadata.productName) {
+        const rowsForName = byProductName.get(normalizeKey(metadata.productName)) || [];
+        rowsForName.push(metadata);
+        byProductName.set(normalizeKey(metadata.productName), rowsForName);
+      }
+      return metadata;
+    });
+
+    const metadataByAdId = new Map();
+    const metadataByVendorItemId = new Map();
+    const failure = (reason) => ({
+      ok: false,
+      reason,
+      campaignId: campaign?.campaignId || null,
+      campaignIdentity: campaign?.identity || null,
+      campaignName: campaign?.name || "",
+      adGroupId: group?.adGroupId || null,
+      adGroupName: group?.adGroupName || null,
+      adSelectionType: group?.adSelectionType || null,
+      ads,
+      metadataByAdId,
+      metadataByVendorItemId,
+      observedRowCount: observedRows.length,
+      metadataAdCount: metadataByVendorItemId.size,
+    });
+
+    if (invalidObservedId) return failure("metadata_conflicting_or_invalid_item_id");
+
+    const rowsWithIds = metadataRows.filter((metadata) => metadata.vendorItemId);
+    const domHasVerifiedIds = rowsWithIds.length > 0;
+    if (metadataRows.length !== ads.length) return failure("metadata_observed_count_mismatch");
+    // A partially identified grid is not safe to join: falling back to names
+    // could silently map an ad to a different vendor item.
+    if (domHasVerifiedIds && rowsWithIds.length !== metadataRows.length) {
+      return failure("metadata_identity_incomplete");
+    }
+
+    if (domHasVerifiedIds) {
+      for (const ad of ads) {
+        const adId = normalizeProviderId(ad?.adId);
+        const vendorItemId = normalizeProviderId(ad?.vendorItemId);
+        const matches = byVendorItemId.get(vendorItemId) || [];
+        if (!adId || !vendorItemId || matches.length !== 1) {
+          return failure(matches.length > 1
+            ? "metadata_duplicate_vendor_item_id"
+            : "metadata_vendor_item_id_unmatched");
+        }
+        const metadata = matches[0];
+        metadataByAdId.set(adId, metadata);
+        metadataByVendorItemId.set(vendorItemId, metadata);
+      }
+    } else {
+      // Name matching is only an emergency compatibility path for a grid that
+      // genuinely exposes no item IDs. It must be one-to-one, with no blank or
+      // colliding names and exactly one DOM row per advertised ad.
+      if (metadataRows.length !== ads.length || ads.length === 0) {
+        return failure("metadata_observed_count_mismatch");
+      }
+      for (const ad of ads) {
+        const adId = normalizeProviderId(ad?.adId);
+        const vendorItemId = normalizeProviderId(ad?.vendorItemId);
+        const name = normalizeKey(ad?.itemName || "");
+        const matches = name ? (byProductName.get(name) || []) : [];
+        if (!adId || !vendorItemId || !name || matches.length !== 1) {
+          return failure(matches.length > 1
+            ? "metadata_ambiguous_product_name"
+            : "metadata_product_name_unmatched");
+        }
+        const metadata = matches[0];
+        metadataByAdId.set(adId, metadata);
+        metadataByVendorItemId.set(vendorItemId, metadata);
+      }
+    }
+
+    if (metadataByVendorItemId.size !== ads.length || metadataByAdId.size !== ads.length) {
+      return failure("metadata_one_to_one_join_failed");
+    }
+
+    return {
+      ok: true,
+      reason: null,
+      campaignId: campaign?.campaignId || null,
+      campaignIdentity: campaign?.identity || null,
+      campaignName: campaign?.name || "",
+      adGroupId: group?.adGroupId || null,
+      adGroupName: group?.adGroupName || null,
+      adSelectionType: group?.adSelectionType || null,
+      ads,
+      metadataByAdId,
+      metadataByVendorItemId,
+      observedRowCount: observedRows.length,
+      metadataAdCount: metadataByVendorItemId.size,
+    };
+  }
+
   // 대시보드 그리드 렌더 대기 (rows + .dashboard-title 둘 다 채워질 때까지)
   // 이전: rows.length > 0 만 보고 바로 통과 → row 가 mount 됐지만 .dashboard-title
   // 이 아직 비어있는 짧은 시점에 listAllCampaignsFromDashboard 가 빈 배열 반환 → 외부
@@ -3802,7 +4149,6 @@
   const PROGRESS_KEY = "kiditem_ad_sweep_progress_v2";
   const LEGACY_RUN_KEY = "kiditem_ad_sweep_run_v1";
   const RUN_KEY = "kiditem_ad_sweep_run_v2";
-  const PROFITABILITY_SLICE_KEY = "kiditem_ad_profitability_slice_v1";
   const SWEEP_CONTRACT_VERSION = "daily-window-v2";
   // A complete roster can contain dozens of campaigns. Holding one
   // content-script response open for every campaign × 31 days exceeds the
@@ -3957,7 +4303,6 @@
       sessionStorage.removeItem(PROGRESS_KEY);
       sessionStorage.removeItem(LEGACY_RUN_KEY);
       sessionStorage.removeItem(RUN_KEY);
-      sessionStorage.removeItem(PROFITABILITY_SLICE_KEY);
       // The managed collection tab is reused across browser-collection runs.
       // Keep the lockout guard within one run, but do not let a completed or
       // abandoned run consume the next run's account-selector click budget.
@@ -4026,26 +4371,6 @@
     };
   }
 
-  function saveProfitabilitySlice(value) {
-    const slice = normalizeProfitabilitySlice(value);
-    if (!slice) return false;
-    try {
-      sessionStorage.setItem(PROFITABILITY_SLICE_KEY, JSON.stringify(slice));
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  function loadProfitabilitySlice() {
-    try {
-      return normalizeProfitabilitySlice(
-        JSON.parse(sessionStorage.getItem(PROFITABILITY_SLICE_KEY) || "null"),
-      );
-    } catch {
-      return null;
-    }
-  }
   function loadProgress() {
     try {
       const raw = sessionStorage.getItem(PROGRESS_KEY);
@@ -4078,6 +4403,7 @@
 
   let activeCollectionRunId = null;
   let activeCollectionAttempt = 1;
+  let activeCampaignControl = null;
   let lastReportedSweepProgress = { current: 0, total: 0 };
 
   function readDashboardCampaignTotal() {
@@ -4275,9 +4601,40 @@
     };
   }
 
-  async function runDashboardSweep() {
+  async function campaignSourceStep(step, body) {
+    const control = activeCampaignControl;
+    if (!control || control.attemptId !== activeCollectionRunId || control.state !== "RUNNING" ||
+      Date.now() >= Date.parse(control.expiresAt)) throw new Error("유효한 광고 캠페인 수집 허가가 필요합니다.");
+    const advertiserId = observedKeywordAdvertiser(control);
+    if (body && control.receipts.some(receipt => receipt.key === body.key)) return;
+    const payload = body ? { ...body, advertiserId, capturedAt: new Date().toISOString() } : null;
+    const response = await new Promise((resolve, reject) => {
+      chrome.runtime.sendMessage({ action: "advertisingCampaignSourceStep", attemptId: control.attemptId, step,
+        ...(payload ? { body: payload } : {}) }, result => {
+        if (chrome.runtime.lastError || !result?.success) {
+          reject(Object.assign(new Error(result?.error || chrome.runtime.lastError?.message || "광고 캠페인 owner 전송 실패"),
+            { code: result?.errorCode || "SOURCE_OWNER_UNAVAILABLE" }));
+        } else resolve(result);
+      });
+    });
+    if (step === "resume") activeCampaignControl = response.control;
+    if (step === "receipt") {
+      control.receipts.push(response.receipt);
+      control.manifestChecksum = response.manifestChecksum;
+      if (payload.kind === "dashboard_page") control.pages.push(payload);
+      if (payload.kind === "campaign") {
+        const { payload: _rows, ...campaign } = payload;
+        control.campaigns.push(campaign);
+      }
+    }
+    return response;
+  }
+
+  async function runDashboardSweep(initialControl) {
     const loginHandoff = advertisingLoginHandoffResponse();
     if (loginHandoff) return loginHandoff;
+    activeCampaignControl = initialControl;
+    await campaignSourceStep("resume");
     const startedOnDashboard = isDashboardListPage();
     const navigationHandoff = campaignNavigationHandoff(window.location.href);
     let detailResumeCampaign =
@@ -4313,11 +4670,8 @@
       };
     }
 
-    const profitabilitySlice = loadProfitabilitySlice();
-    const yesterday = profitabilitySlice?.endDate || getYesterdayYmd();
-    const campaignBusinessDates = profitabilitySlice
-      ? [...profitabilitySlice.businessDates].reverse()
-      : buildRollingCampaignBusinessDates(yesterday);
+    const yesterday = activeCampaignControl.plan.endDate;
+    const campaignBusinessDates = activeCampaignControl.plan.businessDates;
     const dailyWindowDays = campaignBusinessDates.length;
     const dailyCoverage = campaignDailyCoverage(
       campaignBusinessDates,
@@ -4330,7 +4684,15 @@
         coverage: dailyCoverage,
       };
     }
-    const resumeSeen = loadSeen();
+    const acceptedCampaignByKey = new Map(activeCampaignControl.campaigns.map(campaign => [campaign.campaignKey, campaign]));
+    const acceptedDays = new Set(activeCampaignControl.receipts.filter(receipt => receipt.kind === "campaign_day")
+      .flatMap(receipt => {
+        const campaign = acceptedCampaignByKey.get(receipt.campaignKey);
+        return campaign?.campaignId ? [`campaign:${campaign.campaignId}\u001f${receipt.businessDate}`] : [];
+      }));
+    const acceptedCampaigns = activeCampaignControl.campaigns.filter(campaign => campaign.mode !== "raw_only" &&
+      (campaign.mode === "metadata" || campaignBusinessDates.every(date => acceptedDays.has(`campaign:${campaign.campaignId}\u001f${date}`))));
+    const resumeSeen = new Set(acceptedCampaigns.map(campaign => `campaign:${campaign.campaignId}`));
     const completedNavigationKeys = loadCompletedNavigationKeys();
     const resumeProgress = loadProgress();
     if (detailResumeCampaign) {
@@ -4359,26 +4721,14 @@
     //    돌려놓을지 보장 못 함 (Coupang dashboard SPA 가 페이지 state 를 항상 보존하지
     //    않음). page-by-page 처리 + seen 셋으로 dedupe → 어떤 페이지로 떨어져도 중복
     //    수집 없이 진행.
-    let synced = resumeProgress.synced || 0;
+    let synced = resumeSeen.size;
     let totalRows = resumeProgress.totalRows || 0;
     let errors = normalizeSweepErrors(resumeProgress.errors);
     let failed = errors.length;
-    const seen = resumeSeen; // 서버 저장까지 완료된 campaign identity (sessionStorage 영속)
+    const seen = resumeSeen; // Owner-accepted coverage only; local storage is navigation/progress.
     const attemptedThisRun = new Set(); // 실패는 같은 실행에서만 건너뛰고 reload/restart 시 재시도
-    const completedCampaignDateKeys = new Set(
-      (Array.isArray(resumeProgress.completedCampaignDateKeys)
-        ? resumeProgress.completedCampaignDateKeys
-        : [])
-        .filter((value) => typeof value === "string" && value.length > 0)
-        .slice(0, 20000),
-    );
-    const savedRawOnlyKeys = new Set(
-      (Array.isArray(resumeProgress.savedRawOnlyKeys)
-        ? resumeProgress.savedRawOnlyKeys
-        : [])
-        .filter((value) => typeof value === "string" && value.length > 0)
-        .slice(0, 500),
-    );
+    const completedCampaignDateKeys = acceptedDays;
+    const savedRawOnlyKeys = new Set(activeCampaignControl.campaigns.filter(campaign => campaign.mode === "raw_only").map(campaign => campaign.campaignKey));
     let rawOnlyCampaigns = Math.max(
       Math.max(0, Number(resumeProgress.rawOnlyCampaigns) || 0),
       savedRawOnlyKeys.size,
@@ -4493,6 +4843,7 @@
 
     let pageGuard = 0;
     while (pageGuard++ < 100) {
+      await campaignSourceStep("checkpoint");
       // 현재 페이지 캠페인 중 아직 처리 안 한 것
       // 첫 진입 후 history.back 으로 돌아왔을 때 행은 mount 됐지만 .dashboard-title
       // 이 비어있는 짧은 race 가 있어 retry 로 보강.
@@ -4543,6 +4894,33 @@
         sweepError = identityCoverage.error;
         break;
       }
+      if (!resumingDetailDocument) {
+        const pageKey = `dashboard:${pag.currentPage}`;
+        await campaignSourceStep("receipt", {
+          kind: "dashboard_page", key: pageKey, pageIndex: pag.currentPage, totalPages: pag.totalPages,
+          verified: pag.verified === true, explicitEmpty: readReportSurfaceState(parseCampaignTable()).kind === "empty",
+          campaigns: [...inspection.campaigns, ...inspection.rawOnlyCampaigns].map(campaign => ({
+            key: inspection.rawOnlyCampaigns.includes(campaign) ? dashboardRawOnlyKey(campaign, pag.currentPage) : campaign.navigationKey,
+            name: campaign.name, campaignId: campaign.campaignId || null, identity: campaign.identity || null,
+            href: campaign.href || null, hasDetailHref: campaign.hasDetailHref ?? null,
+            onOff: campaign.onOff || null, status: campaign.status || null, rowIndex: campaign.rowIndex,
+          })),
+        });
+        const frozenPage = activeCampaignControl.pages.find(page => page.key === pageKey);
+        inspection = {
+          ...inspection,
+          campaigns: frozenPage.campaigns.filter(campaign => !campaign.key.startsWith("dashboard-raw\u001f"))
+            .map(campaign => ({ ...campaign, navigationKey: campaign.key, pageNumber: frozenPage.pageIndex,
+              requiresIdentityProbe: !campaign.identity, href: campaign.href || "" })),
+          rawOnlyCampaigns: frozenPage.campaigns.filter(campaign => campaign.key.startsWith("dashboard-raw\u001f"))
+            .map(campaign => {
+              const observed = inspection.rawOnlyCampaigns.find(row => dashboardRawOnlyKey(row, pag.currentPage) === campaign.key);
+              if (!observed && !savedRawOnlyKeys.has(campaign.key)) throw new Error("동결된 캠페인 원본 행을 확인할 수 없습니다.");
+              return observed || { ...campaign, cells: campaign.key.split("\u001f").slice(4) };
+            }),
+        };
+        pag = { currentPage: frozenPage.pageIndex, totalPages: frozenPage.totalPages, verified: frozenPage.verified };
+      }
       for (const campaign of inspection.rawOnlyCampaigns) {
         confirmedRawOnlyKeys.add(
           dashboardRawOnlyKey(campaign, pag.currentPage),
@@ -4553,10 +4931,10 @@
           !savedRawOnlyKeys.has(dashboardRawOnlyKey(campaign, pag.currentPage)),
       );
       if (pendingRawOnlyCampaigns.length > 0) {
-        const rawOnlyRows = buildDashboardRawOnlyRows(
-          pendingRawOnlyCampaigns,
-        );
-        const rawOnlyResult = await syncToServer({
+        for (const campaign of pendingRawOnlyCampaigns) {
+        const rawOnlyRows = buildDashboardRawOnlyRows([campaign]);
+        await campaignSourceStep("receipt", { kind: "campaign", key: `campaign:${dashboardRawOnlyKey(campaign, pag.currentPage)}`,
+          campaignKey: dashboardRawOnlyKey(campaign, pag.currentPage), campaignId: null, mode: "raw_only", payload: {
           type: "ad_campaign",
           source: "advertising",
           campaignName: "_전체",
@@ -4566,13 +4944,7 @@
           url: window.location.href,
           title: document.title,
           timestamp: new Date().toISOString(),
-        });
-        if (!rawOnlyResult?.success) {
-          sweepError = "campaign_metadata_raw_sync_failed";
-          sweepErrorDetail = rawOnlyResult?.error || null;
-          break;
-        }
-        for (const campaign of pendingRawOnlyCampaigns) {
+        } });
           savedRawOnlyKeys.add(
             dashboardRawOnlyKey(campaign, pag.currentPage),
           );
@@ -4713,6 +5085,24 @@
 
       const usesDetailReport = campaignUsesDetailReport(camp);
       const isMetadataOnlyCampaign = !usesDetailReport;
+      // Read compatibility: a previously accepted legacy DOM receipt needs no
+      // new product-grain proof.  Any date still being collected, however,
+      // must pass the current API contract below before the DOM collector can
+      // be considered.
+      const pendingBusinessDates = isMetadataOnlyCampaign
+        ? [null]
+        : filterPendingCampaignBusinessDates(
+          camp,
+          campaignBusinessDates,
+          completedCampaignDateKeys,
+        );
+      const previouslyCompletedDateCount = isMetadataOnlyCampaign
+        ? 0
+        : campaignBusinessDates.length - pendingBusinessDates.length;
+      if (usesDetailReport) await campaignSourceStep("receipt", {
+        kind: "campaign", key: `campaign:${camp.navigationKey}`, campaignKey: camp.navigationKey,
+        campaignId: camp.campaignId, mode: "daily",
+      });
       showBadge(
         isMetadataOnlyCampaign
           ? `📋 [${i}] ${camp.name} — 상세 없는 상태 저장 중...`
@@ -4745,20 +5135,126 @@
         }
       }
 
+      // A verified MANUAL_SELECTION group has a stable ad roster and a
+      // provider product_sales endpoint. Capture display-only metadata once,
+      // then use the API for every exact business date below. Product-detail
+      // collection is fail-closed: an absent module, route, group, or
+      // selection enum cannot silently fall back to a different DOM period.
+      // Previously accepted DOM receipts remain readable through the pending
+      // date check above.
+      let manualProductContext = null;
+      let manualProductCollector = null;
+      let manualProductUnavailable = null;
+      if (usesDetailReport && pendingBusinessDates.length > 0) {
+        const module = globalThis.KidItemAdProductMetrics;
+        const route = parseCampaignAdGroupRoute(window.location.href);
+        if (!module?.create) {
+          manualProductUnavailable = {
+            error: "PRODUCT_DETAIL_API_MODULE_UNAVAILABLE",
+            details: { campaignId: camp.campaignId, route: window.location.href },
+          };
+        } else if (!route) {
+          manualProductUnavailable = {
+            error: "PRODUCT_DETAIL_ROUTE_UNAVAILABLE",
+            details: { campaignId: camp.campaignId, route: window.location.href },
+          };
+        } else if (route.campaignId !== normalizeProviderId(camp.campaignId)) {
+          manualProductUnavailable = {
+            error: "PRODUCT_DETAIL_ROUTE_IDENTITY_MISMATCH",
+            details: { campaignId: camp.campaignId, routeCampaignId: route.campaignId },
+          };
+        } else {
+          const group = await fetchAdGroupAds(route.campaignId, route.adGroupId);
+          if (!group.ok) {
+            manualProductUnavailable = {
+              error: "PRODUCT_DETAIL_GROUP_UNAVAILABLE",
+              details: { campaignId: route.campaignId, adGroupId: route.adGroupId, groupError: group.error || null },
+            };
+          } else if (group.adSelectionType === "AUTO_SELECTION") {
+            // AUTO is not a confirmed product-grain empty result. Keep it
+            // explicitly unavailable until an equivalent provider proof exists.
+            manualProductUnavailable = {
+              error: "AUTO_PRODUCT_DETAIL_UNAVAILABLE",
+              details: {
+                campaignId: route.campaignId,
+                adGroupId: route.adGroupId,
+                enumeratedAdCount: group.enumeratedAdCount,
+              },
+            };
+          } else if (group.adSelectionType !== "MANUAL_SELECTION") {
+            manualProductUnavailable = {
+              error: "PRODUCT_DETAIL_SELECTION_UNAVAILABLE",
+              details: {
+                campaignId: route.campaignId,
+                adGroupId: route.adGroupId,
+                adSelectionType: group.adSelectionType,
+                enumeratedAdCount: group.enumeratedAdCount,
+              },
+            };
+          } else {
+            // A detail URL is one group route, not proof that the campaign has
+            // only one group. Re-read the complete current campaign roster and
+            // accept this migration path only when it proves exactly one
+            // matching group and an exact ad count/metadata join.
+            const roster = await fetchAdCampaignRoster();
+            const rosterCampaign = roster.ok
+              ? roster.campaigns.find((entry) => entry.campaignId === camp.campaignId)
+              : null;
+            const metadata = await captureManualProductMetadata(camp, group);
+            const groups = rosterCampaign?.groups || [];
+            const totalAdCount = rosterCampaign?.totalAdCount;
+            const safeSingleGroup = Boolean(
+              roster.ok &&
+              rosterCampaign &&
+              rosterCampaign.groupsArrayObserved === true &&
+              groups.length === 1 &&
+              groups[0].adGroupId === route.adGroupId &&
+              Number.isInteger(totalAdCount) &&
+              totalAdCount === group.enumeratedAdCount &&
+              group.invalidAdCount === 0 &&
+              group.ads.length === group.enumeratedAdCount &&
+              metadata.ok === true &&
+              metadata.observedRowCount === group.enumeratedAdCount &&
+              metadata.metadataAdCount === group.enumeratedAdCount,
+            );
+            if (!safeSingleGroup) {
+              manualProductUnavailable = {
+                error: "MANUAL_PRODUCT_GROUP_ROSTER_UNAVAILABLE",
+                details: {
+                  rosterComplete: roster.ok === true,
+                  expectedGroupIds: groups.map((entry) => entry.adGroupId),
+                  routeAdGroupId: route.adGroupId,
+                  totalAdCount: totalAdCount ?? null,
+                  enumeratedAdCount: group.enumeratedAdCount,
+                  metadataAdCount: metadata.metadataAdCount,
+                  observedRowCount: metadata.observedRowCount,
+                  metadataReason: metadata.reason || null,
+                },
+              };
+            } else {
+              manualProductContext = {
+                ...metadata,
+                campaignId: route.campaignId,
+                adGroupId: route.adGroupId,
+                adGroupName: group.adGroupName,
+                adSelectionType: group.adSelectionType,
+                ads: group.ads,
+                invalidAdCount: group.invalidAdCount,
+                expectedGroupIds: [route.adGroupId],
+                totalAdCount,
+              };
+              manualProductCollector = module.create({
+                requestJson: adCenterJson,
+              });
+            }
+          }
+        }
+      }
+
       // 상세 리포트 캠페인은 페이지를 한 번만 연 뒤 어제부터 과거 31일까지 하루씩
       // 수집한다. 각 날짜는 exact-day authoritative payload라 서버가 7일/14일/
       // 이번달을 중복 없이 합산할 수 있다. 상세 URL 자체가 없는 캠페인만 roster
       // metadata를 한 번 저장하며 과거 31일의 0원 실적을 발명하지 않는다.
-      const pendingBusinessDates = isMetadataOnlyCampaign
-        ? [null]
-        : filterPendingCampaignBusinessDates(
-            camp,
-            campaignBusinessDates,
-            completedCampaignDateKeys,
-          );
-      const previouslyCompletedDateCount = isMetadataOnlyCampaign
-        ? 0
-        : campaignBusinessDates.length - pendingBusinessDates.length;
       let campaignRows = 0;
       let campaignFailure = null;
 
@@ -4768,38 +5264,87 @@
         dateIndex += 1
       ) {
         const businessDate = pendingBusinessDates[dateIndex];
+        await campaignSourceStep("checkpoint");
         const dailyOrdinal = previouslyCompletedDateCount + dateIndex + 1;
         let parsed;
         let kpis = {};
+        let apiProof = null;
 
         if (!isMetadataOnlyCampaign) {
           const dailyLabel =
             `${camp.name} · ${businessDate} (${dailyOrdinal}/${campaignBusinessDates.length}일)`;
-          showBadge(`📅 [${i}] ${dailyLabel} 적용 중...`, "#6366f1");
+          showBadge(
+            manualProductContext
+              ? `📊 [${i}] ${dailyLabel} API 수집 중...`
+              : `📅 [${i}] ${dailyLabel} 적용 중...`,
+            "#6366f1",
+          );
           await reportCurrentSweepProgress({ label: dailyLabel });
-          const dateOk = await setDateRange(businessDate);
-          if (!dateOk) {
+          if (manualProductUnavailable) {
             campaignFailure = {
-              error: "date_picker_failed",
-              details: { businessDate },
+              error: manualProductUnavailable.error,
+              details: { businessDate, ...manualProductUnavailable.details },
             };
             break;
-          }
-
-          showBadge(`📊 [${i}] ${dailyLabel} 수집 중...`, "#f59e0b");
-          parsed = await parseAcrossProductPages();
-          if (!parsed.complete) {
-            campaignFailure = {
-              error: parsed.error || "campaign_pagination_incomplete",
-              details: {
+          } else if (manualProductContext && manualProductCollector) {
+            try {
+              if (manualProductContext.invalidAdCount > 0 || manualProductContext.ads.length === 0) {
+                throw Object.assign(
+                  new Error("manual ad roster contains invalid or missing ad identities"),
+                  { code: "AD_PRODUCT_METRICS_INVALID_AD" },
+                );
+              }
+              const collected = await manualProductCollector.collectDay({
+                campaignId: manualProductContext.campaignId,
+                adGroupId: manualProductContext.adGroupId,
                 businessDate,
-                expectedPages: parsed.expectedPages,
-                visitedPages: parsed.visitedPages,
-              },
-            };
-            break;
+                metadata: manualProductContext,
+              });
+              parsed = {
+                rawRows: collected.rawRows,
+                normalizedRows: collected.rows,
+                headers: [],
+                pageType: "product",
+                expectedPages: 1,
+                visitedPages: [1],
+                explicitEmpty: false,
+                complete: true,
+                error: null,
+              };
+              apiProof = collected.proof;
+              kpis = {};
+            } catch (error) {
+              campaignFailure = {
+                error: error?.code || "product_sales_api_failed",
+                details: { businessDate, message: error?.message || String(error) },
+              };
+              break;
+            }
+          } else {
+            const dateOk = await setDateRange(businessDate);
+            if (!dateOk) {
+              campaignFailure = {
+                error: "date_picker_failed",
+                details: { businessDate },
+              };
+              break;
+            }
+
+            showBadge(`📊 [${i}] ${dailyLabel} 수집 중...`, "#f59e0b");
+            parsed = await parseAcrossProductPages();
+            if (!parsed.complete) {
+              campaignFailure = {
+                error: parsed.error || "campaign_pagination_incomplete",
+                details: {
+                  businessDate,
+                  expectedPages: parsed.expectedPages,
+                  visitedPages: parsed.visitedPages,
+                },
+              };
+              break;
+            }
+            kpis = parseAdKpis();
           }
-          kpis = parseAdKpis();
         } else {
           const campaignOnly = buildCampaignOnlyRows(camp);
           parsed = {
@@ -4849,7 +5394,16 @@
         // 명시적인 empty day도 campaign-only descriptor로 보내 서버가 그 날의
         // 0 실적을 authoritative하게 교체한다. 상세 URL이 없는 descriptor만
         // metadata-only scope라 일별 fact로 승격되지 않는다.
-        const json = await syncToServer({
+        await campaignSourceStep("receipt", {
+          kind: isMetadataOnlyCampaign ? "campaign" : "campaign_day",
+          key: isMetadataOnlyCampaign ? `campaign:${camp.navigationKey}` : `day:${camp.navigationKey}:${businessDate}`,
+          campaignKey: camp.navigationKey,
+          ...(isMetadataOnlyCampaign ? { campaignId: camp.campaignId, mode: "metadata" } : {
+            businessDate,
+            proof: apiProof || { dateApplied: true, complete: parsed.complete, explicitEmpty: parsed.explicitEmpty,
+              expectedPages: parsed.expectedPages, visitedPages: parsed.visitedPages },
+          }),
+          payload: {
           type: "ad_campaign",
           source: "advertising",
           campaignName: camp.name,
@@ -4866,14 +5420,7 @@
           url: window.location.href,
           title: document.title,
           timestamp: new Date().toISOString(),
-        });
-        if (!json?.success) {
-          campaignFailure = {
-            error: json?.error || "sync 실패",
-            details: businessDate ? { businessDate } : {},
-          };
-          break;
-        }
+        } });
 
         campaignRows += rowCount;
         totalRows += rowCount;
@@ -4923,6 +5470,17 @@
               ok: false,
               reason: error?.message || String(error),
             }));
+          if (keywordResult?.ok && keywordResult.groupResult) {
+            const advertiserId = observedKeywordAdvertiser(activeCampaignControl);
+            await campaignSourceStep("receipt", {
+              kind: "auxiliary_keywords", key: `keywords:${camp.navigationKey}:${keywordResult.adGroupId}`,
+              campaignKey: camp.navigationKey, adGroupId: keywordResult.adGroupId,
+              groupPlan: { ...keywordResult.groupPlan, advertiserId }, groupResult: { ...keywordResult.groupResult, advertiserId },
+            }).catch(error => {
+              if (error?.code === "SOURCE_OWNER_UNAVAILABLE") throw error;
+              console.warn("[KIDITEM sweep] optional keyword receipt", error?.message);
+            });
+          }
           console.log("[KIDITEM sweep] campaign keywords", camp.identity, keywordResult);
           if (keywordResult?.ok && keywordResult.keywordCount > 0) {
             showBadge(
@@ -5056,24 +5614,6 @@
     }
 
     if (totalDiscovered === 0 && rawOnlyCampaigns === 0) {
-      const markerResult = await syncToServer(
-        buildCampaignSweepMarkerPayload({
-          campaignCount: 0,
-          rawOnlyCampaignCount: 0,
-          campaignBusinessDates,
-        }),
-      );
-      if (!markerResult?.success) {
-        showBadge("❌ 캠페인 목록 완료 상태 저장 실패", "#ef4444");
-        return {
-          success: false,
-          type: "ad_sync",
-          campaigns: 0,
-          totalRows: 0,
-          error: "campaign_sweep_finalize_failed",
-          detail: markerResult?.error || null,
-        };
-      }
       clearSweepState();
       showBadge("ℹ️ 캠페인 없음 — 동기화 종료", "#94a3b8");
       const emptyProgressSnapshot = await reportCurrentSweepProgress({
@@ -5086,6 +5626,7 @@
         success: true,
         type: "ad_sync",
         campaigns: 0,
+        campaignReceipt: { complete: true },
         totalRows: 0,
         progress: emptyProgressSnapshot,
       };
@@ -5096,38 +5637,6 @@
     // 캠페인별 미해결 오류만 남기고 sessionStorage를 비운다.
     errors = clearResolvedDashboardSweepErrors(errors);
     failed = errors.length;
-    if (failed === 0) {
-      const markerResult = await syncToServer(
-        buildCampaignSweepMarkerPayload({
-          campaignCount: synced,
-          rawOnlyCampaignCount: rawOnlyCampaigns,
-          campaignBusinessDates,
-        }),
-      );
-      if (!markerResult?.success) {
-        saveSweepProgress({
-          failed: 1,
-          errors: [
-            {
-              name: "_dashboard",
-              error: "campaign_sweep_finalize_failed",
-              detail: markerResult?.error || null,
-            },
-          ],
-        });
-        showBadge("❌ 캠페인 목록 완료 상태 저장 실패", "#ef4444");
-        return {
-          success: false,
-          type: "ad_sync",
-          campaigns: synced,
-          rawOnlyCampaigns,
-          failed: 1,
-          totalRows,
-          error: "campaign_sweep_finalize_failed",
-          detail: markerResult?.error || null,
-        };
-      }
-    }
     clearSweepState();
 
     const rawOnlySummary = rawOnlyCampaigns > 0
@@ -5143,6 +5652,7 @@
     return {
       success: failed === 0,
       type: "ad_sync",
+      campaignReceipt: { complete: failed === 0 },
       campaigns: synced,
       rawOnlyCampaigns,
       failed,
@@ -5173,7 +5683,19 @@
     return syncMode === "profitability_report";
   }
 
-  function runSyncOnce(syncMode = null, environmentId = null) {
+  function shouldRunAccountDailyKpi(syncMode = null) {
+    return syncMode === "account_daily_kpi";
+  }
+
+  function shouldRunManualCampaignReport(syncMode = null) {
+    return syncMode === "campaign_manual_report";
+  }
+
+  function runSyncOnce(
+    syncMode = null,
+    environmentId = null,
+    profitabilityInput = null,
+  ) {
     if (!currentSync) {
       // 대시보드 hash뿐 아니라 href 없는 캠페인 클릭이 연 상세 document의
       // pending handoff도 같은 sweep이다. 후자는 상세 URL에 hash가 없으므로
@@ -5182,15 +5704,28 @@
       // campaign-detail handoff must not hijack an explicit keyword request.
       const job = shouldRunProfitabilityReport(syncMode)
         ? globalThis.KidItemProfitabilityReport.run({
-            profitabilitySlice: loadProfitabilitySlice(),
+            profitabilitySlice: profitabilityInput?.profitabilitySlice || null,
+            profitabilityAccount: profitabilityInput?.profitabilityAccount || null,
             collectionRunId: activeCollectionRunId,
             environmentId,
           })
         : shouldRunKeywordSweep(syncMode)
-        ? runKeywordSweep()
+        ? runKeywordSweep(profitabilityInput?.keywordControl)
+        : shouldRunAccountDailyKpi(syncMode)
+          ? profitabilityInput?.accountDailyKpiControl
+            ? doSync(
+              profitabilityInput.accountDailyKpiControl,
+              null,
+              profitabilityInput.targetDate,
+            )
+            : Promise.resolve({ success: false, error: "account_daily_kpi_control_missing" })
+        : shouldRunManualCampaignReport(syncMode)
+          ? profitabilityInput?.campaignControl
+            ? doSync(profitabilityInput?.accountDailyKpiControl || null, profitabilityInput.campaignControl)
+            : Promise.resolve({ success: false, error: "campaign_control_missing" })
         : shouldRunDashboardSweep(syncMode)
-          ? runDashboardSweep()
-          : doSync();
+          ? runDashboardSweep(profitabilityInput?.campaignControl)
+          : doSync(profitabilityInput?.accountDailyKpiControl || null, profitabilityInput?.campaignControl || null);
       currentSync = job.finally(() => {
         currentSync = null;
       });
@@ -5222,9 +5757,9 @@
     adKeywordControlLabel,
     attachCampaignIdentityToRows,
     buildCoupangAdsDailyRow,
+    buildCampaignRow,
     buildCampaignOnlyRows,
-    buildCampaignSweepMarkerPayload,
-    buildKeywordSweepQueue,
+    captureManualProductMetadata,
     collectCampaignKeywords,
     fetchAdCampaignRoster,
     fetchAdGroupAds,
@@ -5303,23 +5838,19 @@
     savePendingCampaignNavigation,
     sleep,
     shouldRunDashboardSweep,
+    shouldRunAccountDailyKpi,
     shouldRunProfitabilityReport,
+    validateAccountDailyTargetDate,
     unresolvedCampaignWorkKeys,
     withCollectionRunId,
   });
 
   // URL flag 기반 자동 모드.
-  // 주의: 플래그가 없으면 자동 수집을 돌리지 않는다. 광고 등록 OAuth/login redirect 중
-  // hash 가 사라진 뒤 dashboard 로 돌아왔을 때 공지사항/대시보드 수집이 잘못 시작되는 문제 방지.
-  // - #targetDate=YYYY-MM-DD : 단일 페이지 단일 날짜 수집 (legacy)
-  // - #kiditemAdSync=1       : collection-window가 manualSync로 시작하는 dashboard sweep
+  // targetDate와 dashboard hash는 collection-window의 owner manualSync가 처리한다.
+  // content script가 source owner 없이 광고 데이터를 자동 수집하지 않도록 하고,
+  // 승인된 광고 액션 실행만 명시적인 플래그에서 자동 시작한다.
   // - kiditemExecuteActions=1: 승인된 광고 액션 자동 실행
   const hrefForMode = `${window.location.search || ""}${window.location.hash || ""}`;
-  // collection-window는 페이지 이동 뒤 collectionRunId를 담은 manualSync를 보낸다.
-  // hash만 보고 3초 먼저 자동 실행하면 이전 탭의 sessionStorage를 새 run으로
-  // 오인하는 race가 생기므로 targetDate legacy 경로만 자동 시작한다.
-  const isLegacyBatchMode =
-    /targetDate=\d{4}-\d{2}-\d{2}/.test(hrefForMode);
   const isActionMode = /kiditemExecuteActions=1/.test(hrefForMode) ||
     sessionStorage.getItem("kiditemExecuteActions") === "1";
   if (isActionMode) {
@@ -5339,33 +5870,13 @@
     }, 400);
   }
 
-  const legacyBatchAutoStartDelayMs = isLegacyBatchMode ? 6000 : 3000;
-  setTimeout(() => {
-    if (!isActionMode && !isLegacyBatchMode) {
-      return;
-    }
-    // The managed collection-window path sends manualSync with an owned run
-    // id. Do not race it with the legacy hash auto-run or close its tab after
-    // the first date.
-    if (isLegacyBatchMode && activeCollectionRunId !== null) {
-      return;
-    }
-    const runner = isActionMode ? runApprovedActionsOnce() : runSyncOnce();
-    runner.then((result) => {
-      if (isActionMode) {
+  if (isActionMode) {
+    setTimeout(() => {
+      runApprovedActionsOnce().then(() => {
         sessionStorage.removeItem("kiditemExecuteActions");
-      }
-      if (isLegacyBatchMode) {
-        try {
-          chrome.runtime.sendMessage({
-            action: "reportBatchScrapeDone",
-            success: !!result?.success,
-            url: window.location.href,
-          });
-        } catch {}
-      }
-    });
-  }, legacyBatchAutoStartDelayMs);
+      });
+    }, 3000);
+  }
 
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.action === "manualSync") {
@@ -5378,9 +5889,9 @@
       });
       if (!admission.accepted) {
         // prepareSweepRun clears sessionStorage and changes the globals used by
-        // syncToServer. Never call it for a new run/attempt while the previous
-        // Promise still owns this content script; otherwise old payloads and
-        // its terminal marker can be re-stamped as the new run.
+        // the active collection. Never call it for a new run/attempt while the
+        // previous Promise still owns this content script; otherwise old
+        // payloads and its terminal marker can be re-stamped as the new run.
         sendResponse({
           success: false,
           retryable: true,
@@ -5389,10 +5900,17 @@
         return false;
       }
       if (admission.shareCurrent) {
-        runSyncOnce(msg.syncMode, msg.environmentId)
+        runSyncOnce(msg.syncMode, msg.environmentId, {
+          profitabilitySlice: msg.profitabilitySlice,
+          profitabilityAccount: msg.profitabilityAccount,
+          keywordControl: msg.keywordControl,
+          campaignControl: msg.campaignControl,
+          accountDailyKpiControl: msg.accountDailyKpiControl,
+          targetDate: msg.targetDate,
+        })
           .then((result) => sendResponse(result))
           .catch((error) =>
-            sendResponse({ success: false, error: error?.message || String(error) }),
+            sendResponse({ success: false, error: error?.message || String(error), errorCode: error?.code }),
           );
         return true;
       }
@@ -5401,7 +5919,10 @@
         admission.runId,
         admission.attempt,
       );
-      if (msg.profitabilitySlice && !saveProfitabilitySlice(msg.profitabilitySlice)) {
+      if (
+        msg.syncMode === "profitability_report" &&
+        !normalizeProfitabilitySlice(msg.profitabilitySlice)
+      ) {
         sendResponse({
           success: false,
           error: "profitability_ad_slice_invalid",
@@ -5420,10 +5941,17 @@
       if (executionChanged) {
         lastReportedSweepProgress = { current: 0, total: 0 };
       }
-      runSyncOnce(msg.syncMode, msg.environmentId)
+      runSyncOnce(msg.syncMode, msg.environmentId, {
+        profitabilitySlice: msg.profitabilitySlice,
+        profitabilityAccount: msg.profitabilityAccount,
+        keywordControl: msg.keywordControl,
+        campaignControl: msg.campaignControl,
+        accountDailyKpiControl: msg.accountDailyKpiControl,
+        targetDate: msg.targetDate,
+      })
         .then((result) => sendResponse(result))
         .catch((error) =>
-          sendResponse({ success: false, error: error?.message || String(error) }),
+          sendResponse({ success: false, error: error?.message || String(error), errorCode: error?.code }),
         );
       return true;
     }

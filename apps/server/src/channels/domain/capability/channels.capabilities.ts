@@ -17,7 +17,7 @@ const ListingOutput = z
   })
   .strict();
 
-/** Channels owns provider submission and ChannelListing mutation. */
+/** Channels owns browser-confirmed ChannelListing mutation. */
 export const CHANNELS_CAPABILITIES = [
   {
     key: "channels.register_confirmed_listing",
@@ -44,19 +44,6 @@ export const CHANNELS_CAPABILITIES = [
     outputSchema: ListingOutput,
     effects: ["db_write"],
     approvalRisk: "medium",
-    idempotency: "required",
-  },
-  {
-    key: "channels.submit_coupang_listing",
-    ownerDomain: "channels",
-    ownerInputPort: "channels.submitCoupangListing",
-    description:
-      "Submit a frozen Coupang payload through Channels and resolve its local ChannelListing.",
-    resultSummary: "쿠팡 판매 상품 등록을 요청했습니다.",
-    inputSchema: RegistrationReferenceInput,
-    outputSchema: ListingOutput,
-    effects: ["external_write", "db_write"],
-    approvalRisk: "high",
     idempotency: "required",
   },
   {

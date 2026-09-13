@@ -1,6 +1,103 @@
 // orders.prisma — Orders domain
 
 /// @namespace Orders
+/// @describe Retained collection input evidence; converted downloads are not persisted and lifecycle belongs to SourceImportRun.
+model OrderCollectionArtifact {
+  id                String   @id @default(uuid()) @db.Uuid
+  organizationId    String   @map("organization_id") @db.Uuid
+  sourceImportRunId String   @map("source_import_run_id") @db.Uuid
+  sourceFileName    String?  @map("source_file_name") @db.VarChar(240)
+  sourceContentType String   @map("source_content_type") @db.VarChar(120)
+  sourceBytes       Bytes    @map("source_bytes")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  organization    Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  sourceImportRun SourceImportRun @relation(fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@unique([sourceImportRunId, organizationId])
+  @@unique([id, organizationId])
+  @@index([organizationId])
+  @@map("order_collection_artifacts")
+}
+
+/// @namespace Orders
+/// @describe Immutable transport effect receipt for one normalized Coupang direct-order payload. It owns downstream publication identity, not source collection state.
+model CoupangDirectTransportReceipt {
+  id                           String   @id @default(uuid()) @db.Uuid
+  organizationId               String   @map("organization_id") @db.Uuid
+  channelAccountId             String   @map("channel_account_id") @db.Uuid
+  effectSourceImportRunId      String   @map("effect_source_import_run_id") @db.Uuid
+  rocketPurchaseConfirmationId String?  @map("rocket_purchase_confirmation_id") @db.Uuid
+  transport                    String   @db.VarChar(20)
+  payloadChecksum              String   @map("payload_checksum") @db.VarChar(64)
+  transmissionIntentKey        String?  @map("transmission_intent_key") @db.VarChar(500)
+  matchedLineCount             Int      @default(0) @map("matched_line_count")
+  reconciledRows               Int      @default(0) @map("reconciled_rows")
+  collectedLines               Json     @map("collected_lines") @db.JsonB
+  matchedLines                 Json     @map("matched_lines") @db.JsonB
+  unmatchedLines               Json     @map("unmatched_lines") @db.JsonB
+  createdAt                    DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  organization               Organization                       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  channelAccount             ChannelAccount                     @relation(fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  effectSourceImportRun      SourceImportRun                    @relation("CoupangDirectTransportReceiptEffectSource", fields: [effectSourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  rocketPurchaseConfirmation RocketPurchaseConfirmation?        @relation(fields: [rocketPurchaseConfirmationId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  consumptions               CoupangDirectTransportConsumption[]
+
+  @@unique([id, organizationId, transport], map: "coupang_direct_transport_receipts_id_org_transport_key")
+  @@unique([organizationId, channelAccountId, transport, payloadChecksum], map: "coupang_direct_transport_receipts_dedupe_key")
+  @@unique([organizationId, transmissionIntentKey], map: "coupang_direct_transport_receipts_org_intent_key", where: raw("transmission_intent_key IS NOT NULL"))
+  @@index([channelAccountId, organizationId])
+  @@index([effectSourceImportRunId, organizationId])
+  @@index([rocketPurchaseConfirmationId, organizationId])
+  @@map("coupang_direct_transport_receipts")
+}
+
+/// @namespace Orders
+/// @describe Immutable alias from one completed source attempt and transport selection to its canonical downstream effect receipt.
+model CoupangDirectTransportConsumption {
+  id                        String   @id @default(uuid()) @db.Uuid
+  organizationId            String   @map("organization_id") @db.Uuid
+  sourceImportRunId         String   @map("source_import_run_id") @db.Uuid
+  receiptId                 String   @map("receipt_id") @db.Uuid
+  transport                 String   @db.VarChar(20)
+  selectedPurchaseOrderKeys String[] @default([]) @map("selected_purchase_order_keys")
+  createdAt                 DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  organization    Organization                  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  sourceImportRun SourceImportRun               @relation("CoupangDirectTransportConsumptionSource", fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  receipt         CoupangDirectTransportReceipt @relation(fields: [receiptId, organizationId, transport], references: [id, organizationId, transport], onDelete: Restrict)
+
+  @@unique([organizationId, sourceImportRunId, transport], map: "coupang_direct_transport_consumptions_source_transport_key")
+  @@index([sourceImportRunId, organizationId])
+  @@index([receiptId, organizationId, transport])
+  @@map("coupang_direct_transport_consumptions")
+}
+
+/// @namespace Orders
+/// @describe Fenced, organization-scoped review collection chunks. Chunks are staging evidence only and are deleted in the terminal publication transaction.
+model ReviewCollectionChunk {
+  id                String   @id @default(uuid()) @db.Uuid
+  organizationId    String   @map("organization_id") @db.Uuid
+  sourceImportRunId String   @map("source_import_run_id") @db.Uuid
+  windowIndex       Int      @map("window_index")
+  sequence          Int
+  checksum          String   @db.VarChar(64)
+  itemCount         Int      @map("item_count")
+  payload           Json     @db.JsonB
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization    Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  sourceImportRun SourceImportRun @relation(fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Cascade)
+
+  @@unique([sourceImportRunId, windowIndex, sequence], map: "review_collection_chunks_run_window_sequence_key")
+  @@unique([id, organizationId], map: "review_collection_chunks_id_org_key")
+  @@index([organizationId, sourceImportRunId])
+  @@map("review_collection_chunks")
+}
+
+/// @namespace Orders
 /// @describe Organization-scoped idempotency fence for browser Sellpia order transmission. It does not represent or mutate inventory freshness.
 model SellpiaOrderTransmissionIntent {
   id                  String    @id @default(uuid()) @db.Uuid
@@ -247,6 +344,7 @@ model Settlement {
 model Review {
   id             String  @id @default(uuid()) @db.Uuid
   organizationId String  @map("organization_id") @db.Uuid
+  sourceImportRunId String? @map("source_import_run_id") @db.Uuid
   listingId      String? @map("listing_id") @db.Uuid
 
   platform     String  @default("coupang")
@@ -276,10 +374,13 @@ model Review {
   updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  sourceImportRun SourceImportRun? @relation("ReviewCollectionFacts", fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Cascade)
   listing      ChannelListing? @relation(fields: [listingId], references: [id], onDelete: SetNull)
 
-  @@unique([organizationId, platform, externalReviewId], map: "reviews_org_platform_external_key")
+  @@unique([organizationId, platform, externalReviewId], map: "reviews_org_platform_external_legacy_key", where: raw("source_import_run_id IS NULL"))
+  @@unique([organizationId, sourceImportRunId, platform, externalReviewId], map: "reviews_org_source_run_external_key", where: raw("source_import_run_id IS NOT NULL"))
   @@index([organizationId])
+  @@index([organizationId, sourceImportRunId])
   @@index([listingId])
   @@index([organizationId, reviewedAt])
   @@index([organizationId, externalOptionId])

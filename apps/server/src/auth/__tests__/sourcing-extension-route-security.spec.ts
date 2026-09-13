@@ -1,11 +1,12 @@
-import { RequestMethod } from '@nestjs/common';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { RequestMethod } from '@nestjs/common';
 import { METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants';
 import { describe, expect, it, vi } from 'vitest';
 import { ApiApplicationModule } from '../../api-application.module';
-import { SourcingBrowserTrendOperationController } from '../../sourcing/adapter/in/http/sourcing-browser-trend-operation.controller';
-import { SourcingBrowserLiveCommerceOperationController } from '../../sourcing/adapter/in/http/sourcing-browser-live-commerce-operation.controller';
+import { SourcingBrowserSourceAttemptController } from '../../sourcing/adapter/in/http/sourcing-browser-source-attempt.controller';
+import { SourcingLiveCommerceSourceAttemptController } from '../../sourcing/adapter/in/http/sourcing-live-commerce-source-attempt.controller';
+import { SourcingTiktokSourceAttemptController } from '../../sourcing/adapter/in/http/sourcing-tiktok-source-attempt.controller';
 import { SessionAuthMiddleware } from '../middleware/session-auth.middleware';
 
 describe('sourcing extension route security wiring', () => {
@@ -33,27 +34,42 @@ describe('sourcing extension route security wiring', () => {
   });
 
   it.each([
-    [SourcingBrowserTrendOperationController, 'ingest1688Results', '1688-trends/:runId/results'],
-    [SourcingBrowserTrendOperationController, 'ingestTiktokCcResults', 'tiktok-cc-trends/:runId/results'],
-    [SourcingBrowserLiveCommerceOperationController, 'ingestResults', 'live-commerce/:runId/results'],
+    [SourcingLiveCommerceSourceAttemptController, 'sourcing/live-commerce', SourcingLiveCommerceSourceAttemptController.prototype.completeBrowser, 'browser/attempts/:attemptId'],
+    [SourcingTiktokSourceAttemptController, 'sourcing/tiktok-creative', SourcingTiktokSourceAttemptController.prototype.completeTiktok, 'attempts/:attemptId'],
   ])(
-    'keeps %s.%s on the globally authenticated sourcing operation route',
-    (controller, handlerName, handlerPath) => {
-      expect(Reflect.getMetadata(PATH_METADATA, controller)).toBe(
-        'sourcing/operations',
-      );
+    'keeps %s terminal ingress on its globally authenticated source-owner route',
+    (controller, controllerPath, handler, handlerPath) => {
+      expect(Reflect.getMetadata(PATH_METADATA, controller)).toBe(controllerPath);
+      expect(Reflect.getMetadata(PATH_METADATA, handler)).toBe(handlerPath);
+      expect(Reflect.getMetadata(METHOD_METADATA, handler)).toBe(RequestMethod.PUT);
+    },
+  );
+
+  it.each([
+    [SourcingBrowserSourceAttemptController, 'sourcing', 'begin1688', '1688-trends/attempts'],
+    [SourcingBrowserSourceAttemptController, 'sourcing', 'complete1688', '1688-trends/attempts/:attemptId'],
+    [SourcingBrowserSourceAttemptController, 'sourcing', 'fail1688', '1688-trends/attempts/:attemptId/fail'],
+  ] as const)(
+    'keeps direct source-owner %s.%s on the globally authenticated sourcing route',
+    (controller, controllerPath, handlerName, handlerPath) => {
+      expect(Reflect.getMetadata(PATH_METADATA, controller)).toBe(controllerPath);
       expect(
         Reflect.getMetadata(
           PATH_METADATA,
-          controller.prototype[handlerName as keyof typeof controller.prototype],
+          controller.prototype[handlerName],
         ),
       ).toBe(handlerPath);
-      expect(
-        Reflect.getMetadata(
-          METHOD_METADATA,
-          controller.prototype[handlerName as keyof typeof controller.prototype],
-        ),
-      ).toBe(RequestMethod.POST);
     },
   );
+
+  it('registers retained collectors through source owners without a second Live Operation route', () => {
+    const sourcingModule = readFileSync(
+      resolve(__dirname, '../../sourcing/sourcing.module.ts'),
+      'utf8',
+    );
+    expect(sourcingModule).toContain('SourcingBrowserSourceAttemptController');
+    expect(sourcingModule).toContain('SourcingTiktokSourceAttemptController');
+    expect(sourcingModule).toContain('SourcingLiveCommerceSourceAttemptController');
+    expect(sourcingModule).not.toContain('SourcingBrowserLiveCommerceOperation');
+  });
 });

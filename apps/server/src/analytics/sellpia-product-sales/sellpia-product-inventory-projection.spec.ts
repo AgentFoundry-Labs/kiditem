@@ -28,7 +28,7 @@ describe('Sellpia product inventory projection', () => {
           generation: '12',
         }],
       },
-      inventoryProducts: [inventoryProduct('A')],
+      inventoryProducts: [inventoryProduct()],
       destinations: [{
         sellpiaInventorySkuId: SKU_ID,
         unitsPerSale: 1,
@@ -40,8 +40,7 @@ describe('Sellpia product inventory projection', () => {
         channel: 'coupang',
         externalOptionId: 'option-1',
         optionName: 'Variant',
-        abcGrade: 'A',
-        abcEvaluation: null,
+    abc: missingAbc(),
         displayImage: null,
       }],
     });
@@ -56,8 +55,7 @@ describe('Sellpia product inventory projection', () => {
       masterProductId: '22222222-2222-4222-8222-222222222222',
       masterProductCode: 'MP-1',
       masterProductName: 'Product',
-      abcGrade: 'A',
-      abcEvaluation: null,
+    abc: missingAbc(),
     });
     expect(result.byProductKey.get('row-1')).toMatchObject({
       inventoryResolution: {
@@ -65,7 +63,7 @@ describe('Sellpia product inventory projection', () => {
         currentStock: 100,
         availableStock: 100,
         salesRowCount: 2,
-        inventoryProduct: { masterProductId: '22222222-2222-4222-8222-222222222222', abcGrade: 'A' },
+        inventoryProduct: { masterProductId: '22222222-2222-4222-8222-222222222222' },
       },
       monthsOfAvailableStockLeft: 2,
       reorderPoint: 75,
@@ -79,7 +77,7 @@ describe('Sellpia product inventory projection', () => {
       matchedSalesRows: 2,
       matchedSkus: 1,
       unlinkedSkus: 0,
-      abcStatusCounts: { CALIBRATION_PENDING: 0 },
+      abcStatusCounts: { SELLPIA_SOURCE_STALE: 1 },
     });
   });
 
@@ -126,7 +124,7 @@ describe('Sellpia product inventory projection', () => {
           generation: '12',
         }],
       },
-      inventoryProducts: [inventoryProduct(null)],
+      inventoryProducts: [inventoryProduct()],
       destinations: [
         destination('variant-1', 'https://cdn.example/one.jpg'),
         destination('variant-2', 'https://cdn.example/two.jpg'),
@@ -136,8 +134,8 @@ describe('Sellpia product inventory projection', () => {
     expect(result.byProductKey.get('row-1')?.inventoryResolution).toMatchObject({
       status: 'matched',
       destinations: [
-        { channelListingOptionId: 'variant-1', abcGrade: null, displayImage: { url: 'https://cdn.example/one.jpg' } },
-        { channelListingOptionId: 'variant-2', abcGrade: null, displayImage: { url: 'https://cdn.example/two.jpg' } },
+        { channelListingOptionId: 'variant-1', displayImage: { url: 'https://cdn.example/one.jpg' } },
+        { channelListingOptionId: 'variant-2', displayImage: { url: 'https://cdn.example/two.jpg' } },
       ],
     });
   });
@@ -154,14 +152,13 @@ function product(key: string, code: string, quantities: number[]) {
   };
 }
 
-function inventoryProduct(abcGrade: 'A' | 'B' | 'C' | null) {
+function inventoryProduct() {
   return {
     sellpiaInventorySkuId: SKU_ID,
     masterProductId: '22222222-2222-4222-8222-222222222222',
     masterProductCode: 'MP-1',
     masterProductName: 'Product',
-    abcGrade,
-    abcEvaluation: null,
+    abc: missingAbc(),
   };
 }
 
@@ -177,8 +174,7 @@ function destination(channelListingOptionId: string, url: string) {
     channel: 'coupang',
     externalOptionId: channelListingOptionId,
     optionName: channelListingOptionId,
-    abcGrade: null,
-    abcEvaluation: null,
+    abc: missingAbc(),
     displayImage: {
       url,
       source: 'channel_catalog' as const,
@@ -187,4 +183,12 @@ function destination(channelListingOptionId: string, url: string) {
       externalOptionId: 'option-1',
     },
   };
+}
+
+function missingAbc(): import('@kiditem/shared/product-abc').ProductAbcReadModel {
+  const source = { ready: false, requiredCutoff: '2026-09-12', actualCutoff: null,
+    latestAttempt: null, latestComplete: null };
+  return { abcGrade: null, evaluation: null, displayStatus: 'SELLPIA_SOURCE_STALE',
+    formulaRevision: 0, publicationRevision: 0, officialCutoffDate: null, publishedAt: null, actualCutoffDate: null,
+    sources: { sellpia: source, advertising: source, mapping: { status: 'READY', mappingGeneration: '0' } } };
 }

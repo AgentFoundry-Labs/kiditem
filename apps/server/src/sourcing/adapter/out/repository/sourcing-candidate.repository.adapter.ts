@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import { sourcingCandidateIdentityLockKey } from '../../../domain/sourcing-candidate-identity';
+import { upsertSourcedCandidateIn, ensureSourcedCandidateImages } from './sourcing-candidate-upsert.transaction';
 import type {
   CandidateImageRow,
   CandidateRow,
@@ -78,8 +78,7 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
           }
 
           await advisoryLock(tx, `sourcing-candidate:${input.organizationId}:${input.idempotencyKey}`);
-          await sourceIdentityLock(tx, input);
-          const candidate = await this.upsertSourcedIn(tx, input);
+          const candidate = await upsertSourcedCandidateIn(tx, input);
           const result = { candidateId: candidate.id };
           await tx.sourcingOwnerIdempotencyReceipt.create({
             data: {
@@ -97,6 +96,47 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
       }
     }
     throw new Error('sourcing_owner_idempotency_receipt_retry_exhausted');
+  }
+
+  async claimQuickProcessCandidate(input: {
+    organizationId: string;
+    candidateId: string;
+    idempotencyKey: string;
+    requestHash: string;
+  }): Promise<{ candidateId: string }> {
+    const capabilityKey = 'sourcing.quick_process';
+    return this.prisma.$transaction(async (tx) => {
+      await advisoryLock(
+        tx,
+        `sourcing-owner-receipt:${input.organizationId}:${capabilityKey}:${input.idempotencyKey}`,
+      );
+      const receipt = await tx.sourcingOwnerIdempotencyReceipt.findFirst({
+        where: {
+          organizationId: input.organizationId,
+          capabilityKey,
+          idempotencyKey: input.idempotencyKey,
+        },
+        select: { requestHash: true, result: true },
+      });
+      if (receipt) {
+        if (receipt.requestHash !== input.requestHash) {
+          throw new Error('owner_idempotency_input_conflict');
+        }
+        return receiptCandidateResult(receipt.result);
+      }
+
+      const result = { candidateId: input.candidateId };
+      await tx.sourcingOwnerIdempotencyReceipt.create({
+        data: {
+          organizationId: input.organizationId,
+          capabilityKey,
+          idempotencyKey: input.idempotencyKey,
+          requestHash: input.requestHash,
+          result,
+        },
+      });
+      return result;
+    });
   }
 
   async mergeDescription(input: {
@@ -127,7 +167,7 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
           imageUrl: existing.imageUrl ?? input.imageUrl,
         },
       });
-      await this.ensureImages(tx, updated.id, input.organizationId, input.images);
+      await ensureSourcedCandidateImages(tx, updated.id, input.organizationId, input.images);
       return toRow(updated);
     });
   }
@@ -330,82 +370,10 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
       if (input.idempotencyKey?.trim()) {
         await advisoryLock(tx, `sourcing-candidate:${input.organizationId}:${input.idempotencyKey}`);
       }
-      await sourceIdentityLock(tx, input);
-      return this.upsertSourcedIn(tx, input);
+      return toRow(await upsertSourcedCandidateIn(tx, input));
     });
   }
 
-  private async upsertSourcedIn(
-    tx: Prisma.TransactionClient,
-    input: UpsertCandidateInput,
-  ): Promise<CandidateRow> {
-    const existing = await tx.sourcingCandidate.findFirst({
-        where: {
-          organizationId: input.organizationId,
-          ...(input.sourceIdentityHash
-            ? {
-                sourcePlatform: input.sourcePlatform,
-                sourceIdentityHash: input.sourceIdentityHash,
-              }
-            : { sourceUrl: input.sourceUrl }),
-          isDeleted: false,
-          status: 'sourced',
-        },
-        select: { id: true, rawData: true },
-      });
-    const data = {
-        sourcePlatform: input.sourcePlatform,
-        externalOfferId: input.externalOfferId ?? null,
-        variantKeyNormalized: input.variantKeyNormalized ?? '',
-        sourceIdentityHash: input.sourceIdentityHash ?? null,
-        rawData: mergeJson(existing?.rawData, input.rawData) as Prisma.InputJsonValue,
-        name: input.name,
-        description: input.description,
-        category: input.category,
-        tags: input.tags,
-        thumbnailUrl: input.thumbnailUrl,
-        imageUrl: input.imageUrl,
-        costCny: input.costCny ?? undefined,
-      };
-    const candidate = existing
-      ? await tx.sourcingCandidate.update({ where: { id: existing.id }, data })
-      : await tx.sourcingCandidate.create({
-          data: {
-            organizationId: input.organizationId,
-            sourceUrl: input.sourceUrl,
-            triggeredByUserId: input.triggeredByUserId,
-            status: 'sourced',
-            ...data,
-          },
-        });
-    await this.ensureImages(tx, candidate.id, input.organizationId, input.images);
-    return toRow(candidate);
-  }
-
-  private async ensureImages(
-    tx: Prisma.TransactionClient,
-    candidateId: string,
-    organizationId: string,
-    images: UpsertCandidateInput['images'],
-  ) {
-    if (images.length === 0) return;
-    const existing = await tx.candidateImage.count({
-      where: { candidateId, organizationId, isDeleted: false },
-    });
-    if (existing > 0) return;
-    await tx.candidateImage.createMany({
-      data: images.map((image) => ({
-        organizationId,
-        candidateId,
-        url: image.url,
-        role: image.role,
-        label: image.label,
-        sortOrder: image.sortOrder,
-        source: image.source,
-        isPrimary: image.isPrimary,
-      })),
-    });
-  }
 }
 
 async function advisoryLock(tx: Prisma.TransactionClient, key: string): Promise<void> {
@@ -413,13 +381,6 @@ async function advisoryLock(tx: Prisma.TransactionClient, key: string): Promise<
     // queryraw-tenancy-exempt: exact owner key contains the organization boundary; reads no tenant data.
     Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))::text AS "lock"`,
   );
-}
-
-async function sourceIdentityLock(
-  tx: Prisma.TransactionClient,
-  input: Pick<UpsertCandidateInput, 'organizationId' | 'sourcePlatform' | 'sourceIdentityHash' | 'sourceUrl'>,
-): Promise<void> {
-  await advisoryLock(tx, sourcingCandidateIdentityLockKey(input));
 }
 
 function receiptCandidateResult(value: Prisma.JsonValue): { candidateId: string } {

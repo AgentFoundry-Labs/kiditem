@@ -1,13 +1,7 @@
-import type {
-  ActiveOperationAttemptTransaction,
-} from '../../../../../operations/application/port/active-browser-attempt-transaction';
+import type { SourcingBrowserSourceAttempt } from './sourcing-browser-source-attempt.repository.port';
 
-export const MARKET_SHADOW_SNAPSHOT_REPOSITORY_PORT = Symbol(
-  'MarketShadowSnapshotRepositoryPort',
-);
-
+export const MARKET_SHADOW_SNAPSHOT_REPOSITORY_PORT = Symbol('MarketShadowSnapshotRepositoryPort');
 export const MARKET_SHADOW_SNAPSHOT_SCOPE = 'market_shadow_signals' as const;
-
 export interface MarketShadowSnapshotRow {
   id: string;
   organizationId: string;
@@ -16,53 +10,14 @@ export interface MarketShadowSnapshotRow {
   createdAt: Date;
   updatedAt: Date;
 }
-
-export interface MarketShadowSnapshotClaimResult {
-  claimed: boolean;
-  row: MarketShadowSnapshotRow;
-}
-
 export interface MarketShadowSnapshotRepositoryPort {
-  claimDailyInAttempt(
-    transaction: ActiveOperationAttemptTransaction,
-    input: {
-      organizationId: string;
-      businessDate: Date;
-      payload: Record<string, unknown>;
-    },
-  ): Promise<MarketShadowSnapshotClaimResult>;
-
-  claimDaily(input: {
-    organizationId: string;
-    businessDate: Date;
-    payload: Record<string, unknown>;
-  }): Promise<MarketShadowSnapshotClaimResult>;
-
-  /**
-   * Releases only the exact collecting marker claimed by a fenced operation
-   * that lost its attempt before it could publish a terminal snapshot.
-   */
-  abandonDailyClaim(input: {
-    organizationId: string;
-    businessDate: Date;
-    snapshotId: string;
-  }): Promise<0 | 1>;
-
-  finalizeDailyInAttempt(
-    transaction: ActiveOperationAttemptTransaction,
-    input: {
-      organizationId: string;
-      businessDate: Date;
-      payload: Record<string, unknown>;
-    },
-  ): Promise<MarketShadowSnapshotRow>;
-
-  finalizeDaily(input: {
-    organizationId: string;
-    businessDate: Date;
-    payload: Record<string, unknown>;
-  }): Promise<MarketShadowSnapshotRow>;
-
+  findAttemptIdByKey(organizationId: string, idempotencyKey: string): Promise<string | null>;
+  findByAttempt(organizationId: string, attemptId: string): Promise<MarketShadowSnapshotRow | null>;
+  readLatest(organizationId: string): Promise<{
+    latestAttempt: SourcingBrowserSourceAttempt | null;
+    latestComplete: MarketShadowSnapshotRow | null;
+    actualCutoffAt: Date | null;
+  }>;
   listRecent(input: {
     organizationId: string;
     fromBusinessDate: Date;

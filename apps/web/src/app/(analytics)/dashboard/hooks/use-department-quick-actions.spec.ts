@@ -21,31 +21,37 @@ describe('useDepartmentQuickActions execution boundaries', () => {
       'src/app/(supply)/purchase-orders/hooks/useRocketPurchaseWorkflow.ts',
     );
     const trendScreen = source(
-      'src/app/(sourcing-ai)/sourcing-ai/market/lib/trend-collection-api.ts',
+      'src/app/(sourcing-ai)/sourcing-ai/market/components/TrendCollectionSection.tsx',
     );
-    const sellpiaScreen = source('src/hooks/useSellpiaInventoryFreshness.ts');
+    const sellpiaScreen = source(
+      'src/app/(inventory)/_shared/sellpia-inventory-source-owner.ts',
+    );
     const sharedOrderAction = source('src/hooks/useAllMarketplaceOrderCollection.ts');
 
     expect(dashboard).toContain('usePersistedAllMarketplaceOrderCollection');
-    expect(dashboard).toContain('useSellpiaInventoryFreshness');
-    expect(dashboard).toContain("sourceSurface: 'dashboard'");
+    expect(dashboard).toContain('useSellpiaInventorySourceOwner');
+    expect(dashboard).toContain('startSellpiaInventoryRefresh');
     expect(sharedOrderAction).toContain('useAllMarketplaceOrderCollection');
     expect(sharedOrderAction).toContain('await refetchMallAccounts()');
     // 다시 불러온 계정을 같은 collectAll 로 넘긴다 — 대시보드 버튼이 제 수집기를 따로 만들지
     // 않는다는 뜻이다. 사람이 직접 로그인해야 하는 몰만 빼고 넘기므로 이름은 targetAccounts 다.
     expect(sharedOrderAction).toContain('collectAll(targetAccounts)');
     expect(sharedOrderAction).toMatch(/targetAccounts\s*=[\s\S]{0,200}latestAccounts/);
-    expect(sharedOrderAction).toContain('await syncRun(activeRun.runId)');
+    expect(sharedOrderAction).toContain('await syncRun(activeRun.attemptId)');
     expect(orderScreen).toContain('useAllMarketplaceOrderCollection');
 
     for (const [sharedAction, domainSource] of [
       ['collectAndPersistCoupangShipmentSummary', shipmentScreen],
-      ['collectAndPersistRocketPurchaseOrders', rocketWorkflow],
-      ['startTrendCollectionAction', trendScreen],
+      ['useRocketPoSource', rocketWorkflow],
+      ['useTrendSourceCollection', trendScreen],
     ] as const) {
       expect(dashboard).toContain(sharedAction);
       expect(domainSource).toContain(sharedAction);
     }
-    expect(sellpiaScreen).toContain('startSellpiaInventoryRefreshAction');
+    expect(dashboard).toContain("@/hooks/use-trend-source-collection");
+    expect(trendScreen).toContain("@/hooks/use-trend-source-collection");
+    expect(dashboard).not.toContain('startTrendCollectionAction');
+    expect(sellpiaScreen).toContain('collectSellpiaInventory');
+    expect(dashboard).not.toContain('manual-operation-actions');
   });
 });

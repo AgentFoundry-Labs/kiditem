@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common';
-import { ChannelsModule } from '../channels/channels.module';
-import { OperationsModule } from '../operations/operations.module';
+import { AlertsModule } from '../alerts/alerts.module';
 import { PrismaModule } from '../prisma/prisma.module';
 import { SupplyModule } from '../supply/supply.module';
 import { OrdersController } from './controllers/orders.controller';
@@ -27,13 +26,23 @@ import { SellpiaOrderTransmissionService } from './application/service/sellpia-o
 import { SellpiaOrderTransmissionRepositoryAdapter } from './adapter/out/repository/sellpia-order-transmission.repository.adapter';
 import { SELLPIA_ORDER_TRANSMISSION_PORT } from './application/port/in/sellpia-order-transmission.port';
 import { SELLPIA_ORDER_TRANSMISSION_REPOSITORY_PORT } from './application/port/out/repository/sellpia-order-transmission.repository.port';
-import { MarketplaceOrderCollectionOperationHandler } from './adapter/in/operation/marketplace-order-collection.operation-handler';
+import { ORDER_COLLECTION_SOURCE_PORT } from './application/port/in/order-collection-source.port';
+import { OrderCollectionSourceController } from './controllers/order-collection-source.controller';
+import { OrderCollectionSourceRepository } from './adapter/out/repository/order-collection-source.repository';
+import { SellpiaShipmentTrackingSourceController } from './controllers/sellpia-shipment-tracking-source.controller';
+import { SellpiaShipmentTrackingSourceRepository } from './adapter/out/repository/sellpia-shipment-tracking-source.repository';
+import { SELLPIA_SHIPMENT_TRACKING_SOURCE_PORT } from './application/port/in/sellpia-shipment-tracking-source.port';
+import { REVIEW_COLLECTION_SOURCE_PORT } from './application/port/in/review-collection-source.port';
+import { ReviewCollectionSourceRepository } from './adapter/out/repository/review-collection-source.repository';
+import { ORDERS_REVIEW_LISTING_STATS_READ_PORT } from './application/port/in/review-listing-stats-read.port';
 
 @Module({
-  imports: [ChannelsModule, OperationsModule, PrismaModule, SupplyModule],
+  imports: [AlertsModule, PrismaModule, SupplyModule],
   controllers: [
     OrdersController,
     OrderCollectionController,
+    OrderCollectionSourceController,
+    SellpiaShipmentTrackingSourceController,
     OrderCollectionMallAccountController,
     ReturnsController,
     ReviewsController,
@@ -54,7 +63,9 @@ import { MarketplaceOrderCollectionOperationHandler } from './adapter/in/operati
     CoupangDirectOrderCollectionTransactionAdapter,
     SellpiaOrderTransmissionService,
     SellpiaOrderTransmissionRepositoryAdapter,
-    MarketplaceOrderCollectionOperationHandler,
+    OrderCollectionSourceRepository,
+    SellpiaShipmentTrackingSourceRepository,
+    ReviewCollectionSourceRepository,
     {
       provide: COUPANG_DIRECT_ORDER_COLLECTION_PORT,
       useExisting: CoupangDirectOrderCollectionService,
@@ -71,6 +82,23 @@ import { MarketplaceOrderCollectionOperationHandler } from './adapter/in/operati
       provide: SELLPIA_ORDER_TRANSMISSION_REPOSITORY_PORT,
       useExisting: SellpiaOrderTransmissionRepositoryAdapter,
     },
+    {
+      provide: ORDER_COLLECTION_SOURCE_PORT,
+      useExisting: OrderCollectionSourceRepository,
+    },
+    {
+      provide: SELLPIA_SHIPMENT_TRACKING_SOURCE_PORT,
+      useExisting: SellpiaShipmentTrackingSourceRepository,
+    },
+    {
+      provide: REVIEW_COLLECTION_SOURCE_PORT,
+      useExisting: ReviewCollectionSourceRepository,
+    },
+    {
+      provide: ORDERS_REVIEW_LISTING_STATS_READ_PORT,
+      useExisting: ReviewsService,
+    },
   ],
+  exports: [ORDERS_REVIEW_LISTING_STATS_READ_PORT],
 })
 export class OrdersModule {}

@@ -70,6 +70,36 @@ describe('CatalogDisplayMediaRepositoryAdapter', () => {
     }));
     expect(Object.keys(prisma.contentWorkspace)).toEqual(['findMany']);
   });
+
+  it('reads every normalized option association from a shared asset', async () => {
+    const optionIds = Array.from({ length: 73 }, (_, index) => `option-${index + 1}`);
+    const findMany = vi.fn(async () => [{
+      channelListingId: 'listing-1',
+      channelListing: { channelAccount: { channel: 'coupang' } },
+      contentGenerationGroups: [{
+        originatingAssets: [asset('shared', 'https://cdn.example/shared.jpg', 'option', {
+          sourceType: 'channel_catalog',
+          channel: 'coupang',
+          externalOptionIds: [...optionIds].reverse(),
+          active: true,
+        })],
+      }],
+    }]);
+    const adapter = new CatalogDisplayMediaRepositoryAdapter({
+      contentWorkspace: { findMany },
+    } as never);
+
+    const result = await adapter.findCandidates({
+      organizationId: 'org-1',
+      channelListingIds: ['listing-1'],
+    });
+
+    expect(result).toEqual([expect.objectContaining({
+      id: 'shared',
+      externalOptionId: null,
+      externalOptionIds: [...optionIds].sort((left, right) => left.localeCompare(right)),
+    })]);
+  });
 });
 
 function asset(

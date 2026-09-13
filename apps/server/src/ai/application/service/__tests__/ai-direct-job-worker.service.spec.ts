@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { AiDirectJobRecord } from '../../port/out/repository/ai-direct-job.repository.port';
 import { AiDirectJobWorkerService } from '../ai-direct-job-worker.service';
+import type { AiDirectJobRecord } from '../../port/out/repository/ai-direct-job.repository.port';
 
 const NOW = new Date('2026-07-19T00:00:00.000Z');
 
@@ -123,6 +123,53 @@ describe('AiDirectJobWorkerService', () => {
     );
   });
 
+  it('projects a managed-http thumbnail checkpoint without calling the provider again', async () => {
+    const checkpoint = {
+      candidates: [
+        {
+          url: 'http://kiditem-office:9000/kiditem/thumbnail-generations/output.png',
+          storageKey: 'thumbnail-generations/output.png',
+        },
+      ],
+    };
+    const { worker, repository, processor } = makeWorker(
+      job({
+        jobType: 'thumbnail_generate',
+        status: 'projecting',
+        result: checkpoint,
+        payload: {
+          jobType: 'thumbnail_generate',
+          models: { image: 'image-model' },
+          input: {
+            mode: 'creative',
+            inputs: [
+              {
+                mimeType: 'image/png',
+                label: 'Product',
+                url: 'https://storage.example.com/input.png',
+                storageKey: 'thumbnail-inputs/input.png',
+                role: 'product',
+                sortOrder: 0,
+                source: 'upload',
+                fileSize: 3,
+              },
+            ],
+          },
+        },
+      }),
+    );
+
+    await worker.tick(NOW);
+
+    expect(processor.execute).not.toHaveBeenCalled();
+    expect(repository.checkpointResult).not.toHaveBeenCalled();
+    expect(processor.project).toHaveBeenCalledWith(
+      expect.objectContaining({ jobType: 'thumbnail_generate' }),
+      checkpoint,
+    );
+    expect(repository.markSucceeded).toHaveBeenCalled();
+  });
+
   it('requeues retryable provider failures with the first backoff', async () => {
     const { worker, repository, processor } = makeWorker();
     processor.execute.mockRejectedValueOnce(new Error('provider unavailable'));
@@ -137,6 +184,40 @@ describe('AiDirectJobWorkerService', () => {
       }),
     );
     expect(processor.projectFailure).not.toHaveBeenCalled();
+  });
+
+  it('rejects invalid provider output before checkpointing without retrying', async () => {
+    const { worker, repository, processor } = makeWorker();
+    processor.execute.mockResolvedValueOnce({});
+
+    await worker.tick(NOW);
+
+    expect(repository.checkpointResult).not.toHaveBeenCalled();
+    expect(repository.failOrReschedule).toHaveBeenCalledWith(
+      expect.objectContaining({
+        errorCode: 'direct_ai_output_invalid',
+        retryable: false,
+      }),
+    );
+    expect(processor.projectFailure).toHaveBeenCalled();
+  });
+
+  it('terminates an invalid stored checkpoint without rerunning the provider', async () => {
+    const { worker, repository, processor } = makeWorker(
+      job({ status: 'projecting', result: {} }),
+    );
+
+    await worker.tick(NOW);
+
+    expect(processor.execute).not.toHaveBeenCalled();
+    expect(repository.checkpointResult).not.toHaveBeenCalled();
+    expect(repository.failOrReschedule).toHaveBeenCalledWith(
+      expect.objectContaining({
+        errorCode: 'direct_ai_output_invalid',
+        retryable: false,
+      }),
+    );
+    expect(processor.projectFailure).toHaveBeenCalled();
   });
 
   it('fails model errors without another attempt', async () => {

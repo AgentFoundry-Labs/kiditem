@@ -1,4 +1,9 @@
-import { Injectable, Logger, type NestMiddleware } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  ServiceUnavailableException,
+  type NestMiddleware,
+} from '@nestjs/common';
 import type { NextFunction, Request, Response } from 'express';
 import { AuthService, AUTH_SESSION_COOKIE } from '../application/auth.service';
 import { clearAuthSessionCookie } from './auth-session-cookie';
@@ -37,6 +42,7 @@ export class SessionAuthMiddleware implements NestMiddleware {
       }
     } catch (error) {
       this.logger.error('session lookup failed', error as Error);
+      throw new ServiceUnavailableException('Authentication service unavailable');
     }
     next();
   }

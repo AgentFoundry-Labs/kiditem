@@ -1,9 +1,5 @@
 import { IsString, IsOptional, IsNumber, IsUUID, IsInt, IsPositive, IsIn, IsArray, ArrayMinSize, ArrayMaxSize, ValidateIf, ValidateNested, MinLength, MaxLength, IsUrl, IsObject, IsBoolean, Matches } from 'class-validator';
 import { Type } from 'class-transformer';
-import type {
-  RocketPoCatalogRow,
-  RocketPoCollectionEvidence,
-} from '@kiditem/shared/rocket-purchase-preview';
 
 class PurchaseOrderItemDto {
   @IsString() @MinLength(1) productName: string;
@@ -17,7 +13,7 @@ class PurchaseOrderItemDto {
  * organizationId 는 `req.authUser.organizationId` 에서 주입 — DTO 에는 포함하지 않는다.
  */
 export class PurchaseOrderActionBodyDto {
-  @IsIn(['create', 'updateStatus', 'delete', 'submit', 'reconcileSubmission', 'previewRocket', 'exportRocketWorkbook', 'getActiveRocketWorkbook', 'downloadRocketWorkbook', 'abandonRocketWorkbook', 'listSavedRocketPos', 'loadSavedRocketCollection'])
+  @IsIn(['create', 'updateStatus', 'delete', 'submit', 'reconcileSubmission', 'previewRocket', 'convertRocketConfirmationWorkbook', 'exportRocketWorkbook', 'getActiveRocketWorkbook', 'downloadRocketWorkbook', 'abandonRocketWorkbook', 'listSavedRocketPos', 'loadSavedRocketCollection'])
   action: string;
 
   @ValidateIf(o => o.action === 'create')
@@ -83,17 +79,9 @@ export class PurchaseOrderActionBodyDto {
   @IsString() @MaxLength(80)
   rocketStatus?: string;
 
-  @ValidateIf(o => o.action === 'loadSavedRocketCollection')
+  @ValidateIf(o => ['loadSavedRocketCollection', 'previewRocket'].includes(o.action))
   @IsUUID()
   sourceImportRunId?: string;
-
-  @ValidateIf(o => o.action === 'previewRocket')
-  @IsObject()
-  collection?: RocketPoCollectionEvidence;
-
-  @ValidateIf(o => o.action === 'previewRocket')
-  @IsArray() @ArrayMaxSize(4_000)
-  rows?: RocketPoCatalogRow[];
 
   @ValidateIf(o => o.action === 'previewRocket')
   @IsObject() @IsOptional()
@@ -111,7 +99,7 @@ export class PurchaseOrderActionBodyDto {
   @IsIn(['advisory', 'fresh'])
   inventoryRequirement?: 'advisory' | 'fresh';
 
-  @ValidateIf(o => o.action === 'exportRocketWorkbook')
+  @ValidateIf(o => ['convertRocketConfirmationWorkbook', 'exportRocketWorkbook'].includes(o.action))
   @IsString() @MinLength(2)
   requestJson?: string;
 

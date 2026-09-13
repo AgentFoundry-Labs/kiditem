@@ -11,4 +11,6 @@ with the target Agent profile; that subagent invokes with its explicit
 
 Never invent an Agent, grant, Task, child Task, or specialist record. Provider
 subagent IDs and transcripts are provider-owned. Return business results with
-`resourceRefs and operationRefs`, never a UI href.
+the returned `resourceRefs`; use bounded read output for reads and the durable
+invocation receipt/status for mutations, never a UI href. Use
+`invocation_status` to read the current mutation receipt when needed.

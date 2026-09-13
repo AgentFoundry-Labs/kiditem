@@ -83,6 +83,7 @@ export default function ProductsPageContent({ headingLevel = 2 }: { headingLevel
           <ProductOperationsDataStatusAction
             open={state.dataStatusOpen}
             onOpenChange={state.setDataStatusOpen}
+            onProductsRefetch={state.refetch}
             periodDays={state.periodDays}
           />
         </div>

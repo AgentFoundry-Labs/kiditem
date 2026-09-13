@@ -1,11 +1,8 @@
-import { Body, Controller, Delete, Get, Headers, HttpCode, HttpStatus, Inject, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Headers, HttpCode, HttpStatus, Param, Patch, Post, Query } from '@nestjs/common';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
 import type { AuthUser } from '../../../../auth/auth.types';
-import {
-  OPERATION_RUNNER_PORT,
-  type OperationRunnerPort,
-} from '../../../../operations/application/port/in/operation-runner.port';
+import { toPublicStatus } from './sourcing-source-attempt-http';
 import { TrendCollectService } from '../../../application/service/trend-collect.service';
 import { TrendQueryService } from '../../../application/service/trend-query.service';
 import {
@@ -23,26 +20,25 @@ export class TrendCollectionController {
   constructor(
     private readonly collectService: TrendCollectService,
     private readonly queryService: TrendQueryService,
-    @Inject(OPERATION_RUNNER_PORT)
-    private readonly operationRunner: OperationRunnerPort,
   ) {}
 
   @Post('collect')
-  @HttpCode(HttpStatus.ACCEPTED)
+  @HttpCode(HttpStatus.OK)
   collect(
     @Body() body: CollectTrendDto,
     @CurrentOrganization() organizationId: string,
     @CurrentUser() user: AuthUser,
     @Headers('idempotency-key') idempotencyKey?: string,
   ) {
-    return this.operationRunner.start({
-      organizationId,
-      operationKey: 'sourcing.collect_daily_trends',
-      triggerSource: 'domain_screen',
-      input: body.sources ? { sources: body.sources } : {},
-      requestedByUserId: user.id,
-      idempotencyKey: idempotencyKey?.trim() || null,
-    });
+    return this.collectService.collect(organizationId, body.sources ?? ['naver', 'shorts'], user.id, idempotencyKey);
+  }
+
+  @Get('status')
+  async status(@CurrentOrganization() organizationId: string) {
+    const [naver, shorts] = await Promise.all([
+      this.collectService.status(organizationId, 'naver'), this.collectService.status(organizationId, 'shorts'),
+    ]);
+    return { naver: toPublicStatus(naver), shorts: toPublicStatus(shorts) };
   }
 
   @Get('seeds')
@@ -137,11 +133,6 @@ export class TrendCollectionController {
     return this.queryService.getTiktokCc(organizationId, query.days ?? DEFAULT_TREND_HISTORY_DAYS);
   }
 
-  @Get('tiktok-cc-targets')
-  async getTiktokCcTargets(@CurrentOrganization() organizationId: string) {
-    const targets = await this.collectService.listTiktokCcTargets(organizationId);
-    return { targets };
-  }
 }
 
 function toSeedResponse(seed: {

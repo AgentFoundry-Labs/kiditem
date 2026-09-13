@@ -82,41 +82,42 @@ describe('Sellpia inventory reads', () => {
     );
   });
 
-  it('batches every snapshot page for export and barcode printing', async () => {
-    const first = Array.from({ length: 200 }, (_, index) => makeSku(index + 1));
-    const second = [makeSku(201)];
+  it('reads every barcode/export row from one coherent snapshot response', async () => {
+    const items = Array.from({ length: 201 }, (_, index) => makeSku(index + 1));
     const getParsed = vi.spyOn(apiClient, 'getParsed')
-      .mockResolvedValueOnce(snapshot(first, 201, 1) as never)
-      .mockResolvedValueOnce(snapshot(second, 201, 2) as never);
+      .mockResolvedValueOnce(snapshot(items, 201, 1, 201) as never);
 
     const result = await fetchAllSellpiaInventorySkus({ stockStatus: 'in_stock' });
 
     expect(result).toHaveLength(201);
-    expect(getParsed).toHaveBeenCalledTimes(2);
-    expect(getParsed.mock.calls[0]?.[0]).toContain('page=1&limit=200');
-    expect(getParsed.mock.calls[1]?.[0]).toContain('page=2&limit=200');
-    for (const call of getParsed.mock.calls) {
-      expect(call[0]).toContain('stockStatus=in_stock');
-    }
+    expect(getParsed).toHaveBeenCalledTimes(1);
+    expect(getParsed.mock.calls[0]?.[0]).toBe(
+      '/api/inventory/sellpia-skus/export-snapshot?stockStatus=in_stock',
+    );
   });
 
-  it('loads the 1,964-row baseline in ten bounded page requests', async () => {
+  it('loads a large barcode/export baseline in one request', async () => {
     const total = 1_964;
-    const getParsed = vi.spyOn(apiClient, 'getParsed').mockImplementation(async (path) => {
-      const url = new URL(String(path), 'http://kiditem.local');
-      const page = Number(url.searchParams.get('page'));
-      const start = (page - 1) * 200 + 1;
-      const count = Math.max(0, Math.min(200, total - start + 1));
-      const items = Array.from({ length: count }, (_, index) => makeSku(start + index));
-      return snapshot(items, total, page, 200) as never;
-    });
+    const items = Array.from({ length: total }, (_, index) => makeSku(index + 1));
+    const getParsed = vi.spyOn(apiClient, 'getParsed')
+      .mockResolvedValueOnce(snapshot(items, total, 1, total) as never);
 
     const result = await fetchAllSellpiaInventorySkus();
 
     expect(result).toHaveLength(total);
     expect(result[0]?.code).toBe('SP-1');
     expect(result.at(-1)?.code).toBe('SP-1964');
-    expect(getParsed).toHaveBeenCalledTimes(10);
+    expect(getParsed).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects a whole-read response that silently omits rows', async () => {
+    vi.spyOn(apiClient, 'getParsed').mockResolvedValueOnce(
+      snapshot([makeSku(1)], 2, 1, 2) as never,
+    );
+
+    await expect(fetchAllSellpiaInventorySkus()).rejects.toThrow(
+      'Sellpia 재고 출력 스냅샷의 행 수가 일치하지 않습니다.',
+    );
   });
 
   it('loads import history and channel availability from owner endpoints', async () => {
