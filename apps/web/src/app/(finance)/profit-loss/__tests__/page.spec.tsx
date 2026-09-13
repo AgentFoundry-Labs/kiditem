@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { buildPeriodBasis } from '@kiditem/shared/dashboard';
 import ProfitLossPage from '../page';
 import { apiClient } from '@/lib/api-client';
 
@@ -46,11 +47,32 @@ const dataSources = {
   },
 };
 
+const aprilDates = (count: number) =>
+  Array.from({ length: count }, (_, index) => `2026-04-${String(index + 1).padStart(2, '0')}`);
+const basisOver = (days: number, sources: string[] = ['orders']) => buildPeriodBasis({
+  from: '2026-04-01',
+  to: '2026-04-30',
+  includedDates: aprilDates(days),
+  sources,
+});
+const completeBasis = {
+  revenue: basisOver(30),
+  adCost: basisOver(30, ['coupang_ads']),
+  profit: basisOver(30, ['orders', 'coupang_ads']),
+};
+const unavailableTotals = {
+  revenue: null, orderCount: null, cost: null, adCost: null, netProfit: null, profitRate: null,
+};
+
 function mockProfitLossQuery(response: unknown) {
   vi.spyOn(apiClient, 'getParsed').mockImplementation(async (url: string) => {
     if (url === '/api/sales-analysis/data-sources') return dataSources as any;
     return response as any;
   });
+}
+
+function cardValue(label: string): string | null | undefined {
+  return screen.getByText(label).nextElementSibling?.textContent;
 }
 
 describe('<ProfitLossPage> 3-state', () => {
@@ -63,18 +85,59 @@ describe('<ProfitLossPage> 3-state', () => {
   it('renders skeleton on loading', async () => {
     vi.spyOn(apiClient, 'getParsed').mockImplementation(() => new Promise(() => {})); // never resolves
     renderWithProvider();
-    // PageSkeleton renders outer div with animate-pulse class
     const skeletonMarker = document.querySelector('.animate-pulse');
     expect(skeletonMarker).toBeTruthy();
   });
 
-  it('renders empty state on [] response', async () => {
-    mockProfitLossQuery([]);
+  it('renders empty state when the month has no rows', async () => {
+    mockProfitLossQuery({
+      period: '2026-04',
+      rows: [],
+      totals: { ...unavailableTotals, revenue: 0, orderCount: 0, cost: 0, adCost: 0, netProfit: 0 },
+      basis: completeBasis,
+    });
     renderWithProvider();
-    // ProfitLossTable empty-state cell: "해당 기간 데이터가 없습니다."
     await waitFor(() => {
       expect(screen.getByText(/해당 기간 데이터가 없습니다/)).toBeTruthy();
     });
+  });
+
+  it("shows the server's month totals and '-' for every value that is not a measurement", async () => {
+    mockProfitLossQuery({
+      period: '2026-04',
+      rows: [{
+        listingId: '11111111-1111-4111-8111-111111111111',
+        externalId: 'EXT-1',
+        channelName: '쿠팡',
+        masterId: '22222222-2222-4222-8222-222222222222',
+        masterCode: 'M-1',
+        masterName: '원가 미상 상품',
+        category: null,
+        grade: 'A',
+        thumbnailUrl: null,
+        revenue: 20_000,
+        cogs: null,
+        commission: 2_000,
+        shippingCost: 0,
+        adCost: 0,
+        otherCost: 0,
+        netProfit: null,
+        profitRate: null,
+        orderCount: 1,
+        returnCount: 0,
+      }],
+      totals: { ...unavailableTotals, adCost: 0 },
+      basis: { ...completeBasis, revenue: basisOver(20) },
+    });
+    renderWithProvider();
+
+    await waitFor(() => {
+      expect(screen.getByText('원가 미상 상품')).toBeTruthy();
+    });
+    expect(cardValue('총 매출')).toBe('-');
+    expect(cardValue('총 순이익')).toBe('-');
+    expect(cardValue('평균 이익률')).toBe('-');
+    expect(screen.getByText(/주문 수집 20\/30일/)).toBeTruthy();
   });
 
   it('renders error state on rejected promise', async () => {
@@ -89,15 +152,13 @@ describe('<ProfitLossPage> 3-state', () => {
   });
 
   it('renders Zod schema drift as user-friendly message', async () => {
-    // Import ZodError from the same zod as the app
     const { ZodError } = await import('zod');
-    // Create a real ZodError so the page's branch picks up "응답 형식 오류"
     const zodErr = new ZodError([
       {
         code: 'invalid_type',
         expected: 'string',
         received: 'number',
-        path: ['0', 'listingId'],
+        path: ['rows', '0', 'listingId'],
         message: 'expected string',
       } as Parameters<typeof ZodError.create>[0][0],
     ]);

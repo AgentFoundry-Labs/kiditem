@@ -1,18 +1,52 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type {
+  SettlementListItem,
   SettlementReconcileDetail,
   SettlementReconcileResponse,
 } from '@kiditem/shared/settlements';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
-  buildPerListingProfit,
-  readAdEvidenceFromLedger,
+  isOrderWindowComplete,
+  perListingProfitRows,
+  profitWindowBasis,
+  readProfitWindowFacts,
+  totalOrUnavailable,
 } from '../../common/per-listing-profit';
 import { kstMonthStart } from '../../common/kst';
+import {
+  ORDER_FACT_EXCLUDED_STATUSES,
+  readListingOptionOrderFacts,
+} from '../../orders/read/order-facts.reader';
 import { CreateSettlementDto, UpdateSettlementDto } from './dto';
-import { readSettlements } from './read/settlement-facts';
+import { readSettlements, type SettlementFact } from './read/settlement-facts';
 import { classifySettlementDifference } from './settlement-reconciliation';
+
+/**
+ * A settlement's actual amount exists once someone confirmed the deposit.
+ * Until then the stored column holds its schema default, which is not a
+ * deposit of zero, so neither it nor a difference from it is published.
+ */
+function toListItem(row: SettlementFact): SettlementListItem {
+  const confirmed = row.status === 'confirmed';
+  return {
+    id: row.id,
+    period: row.period,
+    expectedAmount: row.expectedAmount,
+    actualAmount: confirmed ? row.actualAmount : null,
+    commission: row.commission,
+    shippingFee: row.shippingFee,
+    adjustments: row.adjustments,
+    difference: confirmed ? row.actualAmount - row.expectedAmount : null,
+    orderCount: row.orderCount,
+    returnCount: row.returnCount,
+    status: row.status,
+    settledAt: row.settledAt,
+    notes: row.notes,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  } satisfies SettlementListItem;
+}
 
 @Injectable()
 export class SettlementsService {
@@ -23,22 +57,21 @@ export class SettlementsService {
   private resolveWindow(period: string) {
     const [year, month] = period.split('-').map(Number);
     return {
-      year,
-      month,
       from: kstMonthStart(year, month),
       to: kstMonthStart(year, month + 1),
     };
   }
 
-  async findAll(organizationId: string, period?: string) {
-    return this.prisma.$transaction((tx) => readSettlements(tx, {
+  async findAll(organizationId: string, period?: string): Promise<SettlementListItem[]> {
+    const rows = await this.prisma.$transaction((tx) => readSettlements(tx, {
       organizationId,
       period,
     }));
+    return rows.map(toListItem);
   }
 
-  async create(organizationId: string, dto: CreateSettlementDto) {
-    return this.prisma.settlement.create({
+  async create(organizationId: string, dto: CreateSettlementDto): Promise<SettlementListItem> {
+    const row = await this.prisma.settlement.create({
       data: {
         organizationId,
         period: dto.period,
@@ -49,69 +82,55 @@ export class SettlementsService {
         returnCount: dto.returnCount,
       },
     });
+    return toListItem(row);
   }
 
-  async reconcile(organizationId: string, period: string) {
+  /**
+   * Compares the month's per-listing profit revenue with the same month's
+   * order-line totals, both read from the Orders collection. Month totals are
+   * published only when that collection covered every date of the month.
+   */
+  async reconcile(organizationId: string, period: string): Promise<SettlementReconcileResponse> {
     const { from, to } = this.resolveWindow(period);
 
-    // 1. Build live metrics and compare them to the order aggregate side.
-    //    SUM(total_price)::bigint — 단일 월 매출이 int32 (~21억 KRW) 초과 가능성 (대형 셀러).
-    //    bigint → Number() 로 안전 변환 (2^53 이하 보장).
-    const [metrics, rows] = await this.prisma.$transaction(async (tx) => {
-      const accountAdEvidence = await readAdEvidenceFromLedger(
-        tx,
+    const { facts, orderLines, optionListings } = await this.prisma.$transaction(async (tx) => {
+      const facts = await readProfitWindowFacts(tx, organizationId, from, to);
+      const orderLines = await readListingOptionOrderFacts(tx, {
         organizationId,
         from,
         to,
-      );
-      // Reconciliation compares revenue, which never depends on ad coverage, so
-      // every listing stays in the detail list. Only `plNetProfit` can be
-      // unavailable (ADR-0006); dropping the row would hide a revenue mismatch.
-      const metrics = await buildPerListingProfit(
-        tx,
-        organizationId,
-        from,
-        to,
-        accountAdEvidence,
-      );
-      const rows = await tx.$queryRaw<
-        Array<{
-          listing_id: string;
-          total_price: bigint;
-          order_count: bigint;
-        }>
-      >`
-        SELECT clo.listing_id AS listing_id,
-               SUM(oli.total_price)::bigint AS total_price,
-               COUNT(DISTINCT o.id)::bigint  AS order_count
-          FROM order_line_items oli
-          JOIN channel_listing_options clo ON oli.listing_option_id = clo.id
-          JOIN orders o ON oli.order_id = o.id
-         WHERE o.organization_id = ${organizationId}::uuid
-           AND o.ordered_at >= ${from}
-           AND o.ordered_at <  ${to}
-           AND o.status NOT IN ('cancelled', 'returned', 'refunded')
-         GROUP BY clo.listing_id
-      `;
-      return [metrics, rows] as const;
+        excludedStatuses: ORDER_FACT_EXCLUDED_STATUSES,
+      });
+      const optionIds = [...new Set(orderLines.map((line) => line.listingOptionId))];
+      const optionListings = optionIds.length === 0 ? [] : await tx.channelListingOption.findMany({
+        where: { organizationId, id: { in: optionIds } },
+        select: { id: true, listingId: true },
+      });
+      return { facts, orderLines, optionListings };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
-    const orderMap = new Map<string, { total: number; count: number }>(
-      rows.map((r) => [r.listing_id, { total: Number(r.total_price), count: Number(r.order_count) }]),
-    );
 
-    // 2. Match live finance metrics with order aggregates by listingId.
-    let totalPlRevenue = 0;
-    let totalOrderRevenue = 0;
+    const listingByOption = new Map(optionListings.map((option) => [option.id, option.listingId]));
+    const orderSide = new Map<string, { total: number; orderIds: Set<string> }>();
+    for (const line of orderLines) {
+      const listingId = listingByOption.get(line.listingOptionId);
+      if (!listingId) continue;
+      const entry = orderSide.get(listingId) ?? { total: 0, orderIds: new Set<string>() };
+      entry.total += line.revenue;
+      entry.orderIds.add(line.orderId);
+      orderSide.set(listingId, entry);
+    }
+
+    const rows = perListingProfitRows(facts);
     let matchedCount = 0;
     let mismatchCount = 0;
-
-    const details = metrics.map((metric) => {
-      const od = orderMap.get(metric.listingId) ?? { total: 0, count: 0 };
-      const revenueDiff = metric.revenue - od.total;
+    const details = rows.map((metric) => {
+      // Both sides read the same collected orders, so a listing with no order
+      // lines has a measured order total of zero.
+      const order = orderSide.get(metric.listingId);
+      const orderTotal = order ? order.total : 0;
+      const orderCount = order ? order.orderIds.size : 0;
+      const revenueDiff = metric.revenue - orderTotal;
       const status = classifySettlementDifference(revenueDiff);
-
-      totalPlRevenue += metric.revenue;
-      totalOrderRevenue += od.total;
       if (status === 'matched') matchedCount++;
       else mismatchCount++;
 
@@ -125,18 +144,18 @@ export class SettlementsService {
         plCommission: metric.commission,
         plNetProfit: metric.netProfit,
         plOrderCount: metric.orderCount,
-        orderTotal: od.total,
-        orderCount: od.count,
+        orderTotal,
+        orderCount,
         revenueDiff,
         isMatched: status === 'matched',
         status,
       } satisfies SettlementReconcileDetail;
     });
 
+    const collected = isOrderWindowComplete(facts.orderWindow);
+    const totalPlRevenue = collected ? details.reduce((sum, detail) => sum + detail.plRevenue, 0) : null;
+    const totalOrderRevenue = collected ? details.reduce((sum, detail) => sum + detail.orderTotal, 0) : null;
     const productCount = details.length;
-    const matchRate = productCount > 0
-      ? Math.round((matchedCount / productCount) * 100)
-      : 0;
 
     return {
       success: true,
@@ -144,20 +163,23 @@ export class SettlementsService {
       summary: {
         totalPlRevenue,
         totalOrderRevenue,
-        totalCommission: metrics.reduce((sum, metric) => sum + metric.commission, 0),
-        totalShipping: metrics.reduce((sum, metric) => sum + metric.shippingCost, 0),
-        revenueDifference: totalPlRevenue - totalOrderRevenue,
+        totalCommission: collected ? totalOrUnavailable(rows.map((row) => row.commission)) : null,
+        totalShipping: collected ? rows.reduce((sum, row) => sum + row.shippingCost, 0) : null,
+        revenueDifference: totalPlRevenue === null || totalOrderRevenue === null
+          ? null
+          : totalPlRevenue - totalOrderRevenue,
         productCount,
-        orderCount: rows.reduce((s, r) => s + Number(r.order_count), 0),
+        orderCount: facts.orderWindow.orderCount,
         matchedCount,
         mismatchCount,
-        matchRate,
+        matchRate: productCount > 0 ? Math.round((matchedCount / productCount) * 100) : null,
       },
       details,
+      basis: profitWindowBasis(facts),
     } satisfies SettlementReconcileResponse;
   }
 
-  async update(id: string, organizationId: string, dto: UpdateSettlementDto) {
+  async update(id: string, organizationId: string, dto: UpdateSettlementDto): Promise<SettlementListItem> {
     const existing = await this.prisma.settlement.findFirst({
       where: { id, organizationId },
     });
@@ -165,7 +187,7 @@ export class SettlementsService {
       throw new BadRequestException('정산 내역을 찾을 수 없습니다');
     }
 
-    return this.prisma.settlement.update({
+    const row = await this.prisma.settlement.update({
       where: { id },
       data: {
         ...(dto.actualAmount !== undefined && { actualAmount: dto.actualAmount }),
@@ -173,5 +195,6 @@ export class SettlementsService {
         ...(dto.notes !== undefined && { notes: dto.notes }),
       },
     });
+    return toListItem(row);
   }
 }

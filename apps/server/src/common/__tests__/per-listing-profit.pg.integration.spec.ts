@@ -23,8 +23,10 @@ import {
   seedOrderWithLineItems,
   seedAd,
   seedCompletedAdSweepRun,
+  seedCompletedOrderCoverageRun,
 } from '../../test-helpers/finance-seeds';
 import { seedPublishedProductAbcGrades } from '../../products/__tests__/test-helpers/published-product-abc';
+import { kstMonthStart } from '../kst';
 
 /**
  * Plan F1 T1 — buildPerListingMetrics (PG integration).
@@ -66,9 +68,20 @@ describe('buildPerListingMetrics (PG integration)', () => {
     await seedBaseFixture(prisma);
   });
 
-  // April 2026 window: from 2026-04-01 to 2026-05-01
-  const FROM = new Date('2026-04-01T00:00:00Z');
-  const TO = new Date('2026-05-01T00:00:00Z');
+  // April 2026 KST window: [2026-04-01 00:00 KST, 2026-05-01 00:00 KST)
+  const FROM = kstMonthStart(2026, 4);
+  const TO = kstMonthStart(2026, 5);
+
+  /**
+   * The Orders collection declares it collected `[startDate, endDate]` and
+   * owns every order seeded inside it so far. Orders seeded afterwards stay
+   * outside any completed collection.
+   */
+  const coverOrders = (
+    startDate = '2026-04-01',
+    endDate = '2026-04-30',
+    organizationId = TEST_ORGANIZATION_ID,
+  ) => seedCompletedOrderCoverageRun(prisma, { organizationId, startDate, endDate });
 
   it('T1: single listing × 1 order × 1 lineItem → metrics math', async () => {
     const { id: masterId } = await setupMaster(prisma, {
@@ -96,6 +109,7 @@ describe('buildPerListingMetrics (PG integration)', () => {
       lineItems: [{ quantity: 1, totalPrice: 100_000, optionId, listingOptionId }],
     });
 
+    await coverOrders();
     const result = await buildPerListingMetrics(prisma as unknown as PrismaService, TEST_ORGANIZATION_ID, FROM, TO, accountEvidence('NOT_APPLIED'));
 
     expect(result).toHaveLength(1);
@@ -146,6 +160,7 @@ describe('buildPerListingMetrics (PG integration)', () => {
       lineItems: [{ quantity: 1, totalPrice: 1_000, optionId, listingOptionId }],
     });
 
+    await coverOrders();
     const result = await buildPerListingMetrics(prisma as unknown as PrismaService, TEST_ORGANIZATION_ID, FROM, TO, accountEvidence('NOT_APPLIED'));
 
     expect(result).toHaveLength(1);
@@ -178,6 +193,7 @@ describe('buildPerListingMetrics (PG integration)', () => {
     await seedAd(prisma, { organizationId: TEST_ORGANIZATION_ID, listingId, date: '2026-04-12', spend: 8_000 });
     await seedAd(prisma, { organizationId: TEST_ORGANIZATION_ID, listingId, date: '2026-04-22', spend: 12_000 });
 
+    await coverOrders();
     const result = await buildPerListingMetrics(prisma as unknown as PrismaService, TEST_ORGANIZATION_ID, FROM, TO, accountEvidence('OBSERVED'));
 
     expect(result).toHaveLength(1);
@@ -222,6 +238,7 @@ describe('buildPerListingMetrics (PG integration)', () => {
       spend: 20_000,
     });
 
+    await coverOrders('2026-07-01', '2026-07-31');
     const result = await buildPerListingMetrics(
       prisma as unknown as PrismaService,
       TEST_ORGANIZATION_ID,
@@ -266,6 +283,7 @@ describe('buildPerListingMetrics (PG integration)', () => {
       });
     }
 
+    await coverOrders();
     const result = await buildPerListingMetrics(prisma as unknown as PrismaService, TEST_ORGANIZATION_ID, FROM, TO, accountEvidence('NOT_APPLIED'));
     expect(result).toHaveLength(1);
     expect(result[0].revenue).toBe(1_000);                    // only the paid order
@@ -273,7 +291,7 @@ describe('buildPerListingMetrics (PG integration)', () => {
     expect(result[0].orderCount).toBe(1);                     // 3 excluded orders dropped
   });
 
-  it('T6: reports an imported listing without a component mapping', async () => {
+  it('T6: reports an imported listing without a component mapping, whose cost is unknown', async () => {
     const account = await prisma.channelAccount.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
@@ -342,7 +360,8 @@ describe('buildPerListingMetrics (PG integration)', () => {
       },
     });
 
-    const result = await buildPerListingMetrics(
+    await coverOrders();
+    const result = await buildPerListingProfit(
       prisma as unknown as PrismaService,
       TEST_ORGANIZATION_ID,
       FROM,
@@ -350,6 +369,8 @@ describe('buildPerListingMetrics (PG integration)', () => {
       accountEvidence('NOT_APPLIED'),
     );
 
+    // Neither a cost override nor a mapped Sellpia component exists, so the
+    // purchase cost was never measured: it is unavailable, not zero.
     expect(result).toEqual([
       expect.objectContaining({
         listingId: listing.id,
@@ -358,7 +379,9 @@ describe('buildPerListingMetrics (PG integration)', () => {
         masterCode: 'EXT-UNLINKED-T6',
         masterName: 'Wing import only',
         revenue: 10_000,
-        costOfGoods: 0,
+        costOfGoods: null,
+        netProfit: null,
+        profitRate: null,
       }),
     ]);
   });
@@ -405,6 +428,7 @@ describe('buildPerListingMetrics (PG integration)', () => {
       listingId: string,
       accountAdEvidence: AccountAdEvidence = accountEvidence('OBSERVED'),
     ) => {
+      await coverOrders();
       const rows = await buildPerListingProfit(
         prisma as unknown as PrismaService, TEST_ORGANIZATION_ID, FROM, TO,
         accountAdEvidence,
@@ -473,6 +497,7 @@ describe('buildPerListingMetrics (PG integration)', () => {
       // Counts and stored rollups cannot express "unavailable", so they withhold
       // instead — the same rule ABC applies to a product whose advertising
       // evidence is not ready. Coverage is account-level, so it withholds all.
+      await coverOrders();
       const partial = await buildPerListingMetricsCoverage(
         prisma as unknown as PrismaService, TEST_ORGANIZATION_ID, FROM, TO, accountEvidence('OBSERVED', false),
       );
@@ -501,6 +526,7 @@ describe('buildPerListingMetrics (PG integration)', () => {
           spend: 5_000,
           runId: null,
         });
+        await coverOrders();
         const from = new Date('2026-04-09T15:00:00Z');
         const to = new Date('2026-04-10T15:00:00Z');
         const evidence = await readAdEvidenceFromLedger(prisma, TEST_ORGANIZATION_ID, from, to);
@@ -557,6 +583,7 @@ describe('buildPerListingMetrics (PG integration)', () => {
           spend: 5_000,
           runId: run,
         });
+        await coverOrders();
         const from = new Date('2026-04-09T15:00:00Z');
         const to = new Date('2026-04-10T15:00:00Z');
         const evidence = await readAdEvidenceFromLedger(prisma, TEST_ORGANIZATION_ID, from, to);
@@ -628,6 +655,196 @@ describe('buildPerListingMetrics (PG integration)', () => {
     });
   });
 
+  /**
+   * KID-85 — the cost side carries the same gate as advertising. A purchase
+   * price, commission rate or other cost that was never recorded is not a
+   * cost of zero, so a listing with any such line has no measured profit.
+   */
+  describe('cost evidence (KID-85)', () => {
+    /** A listing with one fully priced option, sold on `orderedAt`. */
+    async function seedPricedListing(code: string) {
+      const { id: masterId } = await setupMaster(prisma, {
+        organizationId: TEST_ORGANIZATION_ID, code: `M-${code}`, name: `Master ${code}`,
+      });
+      const { id: optionId } = await setupProductOption(prisma, {
+        organizationId: TEST_ORGANIZATION_ID, masterId,
+        sku: `SKU-${code}`, costPrice: 5_000, commissionRate: 0.1, otherCost: 0,
+      });
+      const listing = await setupChannelListing(prisma, {
+        organizationId: TEST_ORGANIZATION_ID, masterId,
+        channel: 'naver', externalId: `EXT-${code}`,
+        optionId, externalOptionId: `VI-${code}`,
+      });
+      return { ...listing, optionId };
+    }
+
+    const rowFor = async (listingId: string, evidence = accountEvidence('NOT_APPLIED')) =>
+      (await buildPerListingProfit(
+        prisma as unknown as PrismaService, TEST_ORGANIZATION_ID, FROM, TO, evidence,
+      )).find((row) => row.listingId === listingId);
+
+    it('publishes no profit for a listing when one of its lines lacks a purchase price', async () => {
+      const priced = await seedPricedListing('COST-PRICE');
+      const unpricedSku = await prisma.sellpiaInventorySku.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          code: 'SKU-COST-PRICE-UNKNOWN',
+          name: 'Unpriced component',
+          purchasePrice: null,
+        },
+        select: { id: true },
+      });
+      const unpricedOption = await prisma.channelListingOption.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          listingId: priced.listingId,
+          externalOptionId: 'VI-COST-PRICE-UNKNOWN',
+          commissionRate: 0.1,
+          otherCost: 0,
+        },
+        select: { id: true },
+      });
+      await prisma.channelListingOptionInventoryComponent.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          channelListingOptionId: unpricedOption.id,
+          sellpiaInventorySkuId: unpricedSku.id,
+          quantity: 1,
+        },
+      });
+      await seedOrderWithLineItems(prisma, {
+        organizationId: TEST_ORGANIZATION_ID,
+        externalOrderId: 'PERLIST-COST-PRICE',
+        orderedAt: '2026-04-15T03:00:00Z',
+        shippingPrice: 0,
+        lineItems: [
+          { quantity: 1, totalPrice: 10_000, optionId: priced.optionId, listingOptionId: priced.listingOptionId },
+          { quantity: 1, totalPrice: 20_000, optionId: unpricedSku.id, listingOptionId: unpricedOption.id },
+        ],
+      });
+      await coverOrders();
+
+      expect(await rowFor(priced.listingId)).toMatchObject({
+        revenue: 30_000,
+        costOfGoods: null,
+        commission: 3_000,
+        otherCost: 0,
+        adCost: 0,
+        netProfit: null,
+        profitRate: null,
+      });
+      await expect(buildPerListingMetricsCoverage(
+        prisma as unknown as PrismaService, TEST_ORGANIZATION_ID, FROM, TO, accountEvidence('NOT_APPLIED'),
+      )).resolves.toEqual({ metrics: [], withheldListings: 1 });
+    });
+
+    it.each([
+      ['commissionRate', 'commission'],
+      ['otherCost', 'otherCost'],
+    ] as const)('publishes no profit when the option has no %s', async (optionField, rowField) => {
+      const listing = await seedPricedListing(`COST-${optionField}`);
+      await prisma.channelListingOption.update({
+        where: { id: listing.listingOptionId },
+        data: { [optionField]: null },
+      });
+      await seedOrderWithLineItems(prisma, {
+        organizationId: TEST_ORGANIZATION_ID,
+        externalOrderId: `PERLIST-COST-${optionField}`,
+        orderedAt: '2026-04-15T03:00:00Z',
+        shippingPrice: 0,
+        lineItems: [{ quantity: 1, totalPrice: 10_000, optionId: listing.optionId, listingOptionId: listing.listingOptionId }],
+      });
+      await coverOrders();
+
+      expect(await rowFor(listing.listingId)).toMatchObject({
+        revenue: 10_000,
+        costOfGoods: 5_000,
+        [rowField]: null,
+        netProfit: null,
+        profitRate: null,
+      });
+    });
+
+    it('leaves the profit rate unavailable for a listing that earned no revenue', async () => {
+      const listing = await seedPricedListing('COST-ZERO-REVENUE');
+      await seedOrderWithLineItems(prisma, {
+        organizationId: TEST_ORGANIZATION_ID,
+        externalOrderId: 'PERLIST-COST-ZERO-REVENUE',
+        orderedAt: '2026-04-15T03:00:00Z',
+        shippingPrice: 0,
+        lineItems: [{ quantity: 1, totalPrice: 0, optionId: listing.optionId, listingOptionId: listing.listingOptionId }],
+      });
+      await coverOrders();
+
+      // The loss is measured; a margin over zero revenue is not a number.
+      expect(await rowFor(listing.listingId)).toMatchObject({
+        revenue: 0,
+        costOfGoods: 5_000,
+        netProfit: -5_000,
+        profitRate: null,
+      });
+    });
+
+    it('reads only orders that a completed Orders collection published', async () => {
+      const listing = await seedPricedListing('COST-UNPUBLISHED');
+      await seedOrderWithLineItems(prisma, {
+        organizationId: TEST_ORGANIZATION_ID,
+        externalOrderId: 'PERLIST-PUBLISHED',
+        orderedAt: '2026-04-15T03:00:00Z',
+        shippingPrice: 0,
+        lineItems: [{ quantity: 1, totalPrice: 10_000, optionId: listing.optionId, listingOptionId: listing.listingOptionId }],
+      });
+      await coverOrders();
+      await seedOrderWithLineItems(prisma, {
+        organizationId: TEST_ORGANIZATION_ID,
+        externalOrderId: 'PERLIST-UNPUBLISHED',
+        orderedAt: '2026-04-16T03:00:00Z',
+        shippingPrice: 0,
+        lineItems: [{ quantity: 1, totalPrice: IDOR_SENTINEL, optionId: listing.optionId, listingOptionId: listing.listingOptionId }],
+      });
+
+      expect(await rowFor(listing.listingId)).toMatchObject({ revenue: 10_000, orderCount: 1 });
+    });
+
+    it('withholds profit while advertising applies and the orders cover only part of the window', async () => {
+      const listing = await seedPricedListing('COST-PARTIAL-ORDERS-ADS');
+      await seedOrderWithLineItems(prisma, {
+        organizationId: TEST_ORGANIZATION_ID,
+        externalOrderId: 'PERLIST-PARTIAL-ORDERS-ADS',
+        orderedAt: '2026-04-15T03:00:00Z',
+        shippingPrice: 0,
+        lineItems: [{ quantity: 1, totalPrice: 10_000, optionId: listing.optionId, listingOptionId: listing.listingOptionId }],
+      });
+      await coverOrders('2026-04-01', '2026-04-20');
+
+      // A whole-month ad cost against twenty days of orders is not a profit.
+      expect(await rowFor(listing.listingId, accountEvidence('CONFIRMED_ZERO'))).toMatchObject({
+        revenue: 10_000,
+        netProfit: null,
+        profitRate: null,
+      });
+    });
+
+    it('keeps the profit of the collected dates when advertising does not apply', async () => {
+      const listing = await seedPricedListing('COST-PARTIAL-ORDERS');
+      await seedOrderWithLineItems(prisma, {
+        organizationId: TEST_ORGANIZATION_ID,
+        externalOrderId: 'PERLIST-PARTIAL-ORDERS',
+        orderedAt: '2026-04-15T03:00:00Z',
+        shippingPrice: 0,
+        lineItems: [{ quantity: 1, totalPrice: 10_000, optionId: listing.optionId, listingOptionId: listing.listingOptionId }],
+      });
+      await coverOrders('2026-04-01', '2026-04-20');
+
+      // Revenue and every cost come from the same collected lines.
+      expect(await rowFor(listing.listingId)).toMatchObject({
+        revenue: 10_000,
+        netProfit: 4_000,
+        profitRate: 40,
+      });
+    });
+  });
+
   it('T4: cross-organization isolation — OTHER sentinel never leaks into TEST', async () => {
     // TEST: 1 small order
     const tMaster = await setupMaster(prisma, { organizationId: TEST_ORGANIZATION_ID, code: 'M-T4', name: 'Master T4' });
@@ -666,6 +883,8 @@ describe('buildPerListingMetrics (PG integration)', () => {
     });
     await seedAd(prisma, { organizationId: OTHER_ORGANIZATION_ID, listingId: oListing.listingId, date: '2026-04-15', spend: IDOR_SENTINEL });
 
+    await coverOrders();
+    await coverOrders(undefined, undefined, OTHER_ORGANIZATION_ID);
     const testResult = await buildPerListingMetrics(prisma as unknown as PrismaService, TEST_ORGANIZATION_ID, FROM, TO, accountEvidence('NOT_APPLIED'));
     expect(testResult).toHaveLength(1);
     expect(testResult[0].revenue).toBe(1_000);

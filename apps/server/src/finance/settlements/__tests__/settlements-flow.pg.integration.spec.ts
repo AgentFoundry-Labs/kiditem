@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { Test } from '@nestjs/testing';
 import { BadRequestException } from '@nestjs/common';
 import type { PrismaClient } from '@prisma/client';
+import { periodBasisStatus } from '@kiditem/shared/dashboard';
 import { SettlementsService } from '../settlements.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import {
@@ -18,6 +19,7 @@ import {
   seedOrderWithLineItems,
   seedAd,
   seedCompletedAdSweepRun,
+  seedCompletedOrderCoverageRun,
 } from '../../../test-helpers/finance-seeds';
 import { readSettlements } from '../read/settlement-facts';
 
@@ -56,6 +58,13 @@ describe('Settlements flow (PG integration)', () => {
     });
     return { master, option, listing };
   }
+
+  /** The Orders collection declares it collected these KST dates. */
+  const coverOrders = (
+    startDate = '2026-03-01',
+    endDate = '2026-03-31',
+    organizationId = TEST_ORGANIZATION_ID,
+  ) => seedCompletedOrderCoverageRun(prisma, { organizationId, startDate, endDate });
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
@@ -102,8 +111,6 @@ describe('Settlements flow (PG integration)', () => {
           listingOptionId: fixture.listing.listingOptionId,
         }],
       });
-      // The campaign sweep measured every March date, so the listing's own
-      // rows are its whole March ad cost and its profit is a measurement.
       const runId = await seedCompletedAdSweepRun(prisma, {
         organizationId: TEST_ORGANIZATION_ID,
         generation: 1,
@@ -116,6 +123,7 @@ describe('Settlements flow (PG integration)', () => {
         spend: 2_000,
         runId,
       });
+      await coverOrders();
 
       const result = await service.reconcile(TEST_ORGANIZATION_ID, '2026-03');
 
@@ -136,7 +144,7 @@ describe('Settlements flow (PG integration)', () => {
         isMatched: true,
         status: 'matched',
       }));
-      expect(result.summary).toEqual(expect.objectContaining({
+      expect(result.summary).toEqual({
         totalPlRevenue: 20_000,
         totalOrderRevenue: 20_000,
         totalCommission: 2_000,
@@ -147,7 +155,10 @@ describe('Settlements flow (PG integration)', () => {
         matchedCount: 1,
         mismatchCount: 0,
         matchRate: 100,
-      }));
+      });
+      for (const basis of [result.basis.revenue, result.basis.adCost, result.basis.profit]) {
+        expect(periodBasisStatus(basis)).toBe('complete');
+      }
     });
   });
 
@@ -173,6 +184,7 @@ describe('Settlements flow (PG integration)', () => {
           listingOptionId: fixture.listing.listingOptionId,
         }],
       });
+      await coverOrders('2026-03-01', '2026-04-30');
 
       const march = await service.reconcile(TEST_ORGANIZATION_ID, '2026-03');
       const april = await service.reconcile(TEST_ORGANIZATION_ID, '2026-04');
@@ -184,8 +196,14 @@ describe('Settlements flow (PG integration)', () => {
         orderTotal: 5_000,
       }));
       expect(april.details).toEqual([]);
-      expect(april.summary.totalPlRevenue).toBe(0);
-      expect(april.summary.totalOrderRevenue).toBe(0);
+      // A collected month without orders is a measured zero, and a match rate
+      // over no products is not a number.
+      expect(april.summary).toMatchObject({
+        totalPlRevenue: 0,
+        totalOrderRevenue: 0,
+        productCount: 0,
+        matchRate: null,
+      });
     });
 
     it('#3 2026-04-01 00:30 KST is included in April, not March', async () => {
@@ -209,6 +227,7 @@ describe('Settlements flow (PG integration)', () => {
           listingOptionId: fixture.listing.listingOptionId,
         }],
       });
+      await coverOrders('2026-03-01', '2026-04-30');
 
       const march = await service.reconcile(TEST_ORGANIZATION_ID, '2026-03');
       const april = await service.reconcile(TEST_ORGANIZATION_ID, '2026-04');
@@ -221,10 +240,49 @@ describe('Settlements flow (PG integration)', () => {
         orderTotal: 5_000,
       }));
     });
+
+    it('#3b a month no Orders collection covered publishes no totals and no match rate', async () => {
+      const fixture = await seedListingFixture({
+        organizationId: TEST_ORGANIZATION_ID,
+        suffix: 'UNCOVERED',
+        costPrice: 1_000,
+        commissionRate: 0.1,
+      });
+      await seedOrderWithLineItems(prisma, {
+        organizationId: TEST_ORGANIZATION_ID,
+        externalOrderId: 'SET-UNCOVERED',
+        orderedAt: '2026-03-15T03:00:00.000Z',
+        shippingPrice: 0,
+        status: 'paid',
+        lineItems: [{
+          quantity: 1,
+          totalPrice: 5_000,
+          optionId: fixture.option.id,
+          listingOptionId: fixture.listing.listingOptionId,
+        }],
+      });
+
+      const result = await service.reconcile(TEST_ORGANIZATION_ID, '2026-03');
+
+      expect(result.details).toEqual([]);
+      expect(result.summary).toEqual({
+        totalPlRevenue: null,
+        totalOrderRevenue: null,
+        totalCommission: null,
+        totalShipping: null,
+        revenueDifference: null,
+        productCount: 0,
+        orderCount: null,
+        matchedCount: 0,
+        mismatchCount: 0,
+        matchRate: null,
+      });
+      expect(result.basis.revenue.includedDates).toEqual([]);
+    });
   });
 
   describe('reconcile — excluded statuses and tenant isolation', () => {
-    it('#4 cancelled, returned, and refunded orders are excluded from both live and SQL sides', async () => {
+    it('#4 cancelled, returned, and refunded orders are excluded from both live and order sides', async () => {
       const fixture = await seedListingFixture({
         organizationId: TEST_ORGANIZATION_ID,
         suffix: 'FILTER',
@@ -245,45 +303,22 @@ describe('Settlements flow (PG integration)', () => {
           listingOptionId: fixture.listing.listingOptionId,
         }],
       });
-      await seedOrderWithLineItems(prisma, {
-        organizationId: TEST_ORGANIZATION_ID,
-        externalOrderId: 'SET-CANCELLED',
-        orderedAt: '2026-03-15T03:05:00.000Z',
-        shippingPrice: 0,
-        status: 'cancelled',
-        lineItems: [{
-          quantity: 1,
-          totalPrice: 50_000,
-          optionId: fixture.option.id,
-          listingOptionId: fixture.listing.listingOptionId,
-        }],
-      });
-      await seedOrderWithLineItems(prisma, {
-        organizationId: TEST_ORGANIZATION_ID,
-        externalOrderId: 'SET-RETURNED',
-        orderedAt: '2026-03-15T03:10:00.000Z',
-        shippingPrice: 0,
-        status: 'returned',
-        lineItems: [{
-          quantity: 1,
-          totalPrice: 40_000,
-          optionId: fixture.option.id,
-          listingOptionId: fixture.listing.listingOptionId,
-        }],
-      });
-      await seedOrderWithLineItems(prisma, {
-        organizationId: TEST_ORGANIZATION_ID,
-        externalOrderId: 'SET-REFUNDED',
-        orderedAt: '2026-03-15T03:15:00.000Z',
-        shippingPrice: 0,
-        status: 'refunded',
-        lineItems: [{
-          quantity: 1,
-          totalPrice: 30_000,
-          optionId: fixture.option.id,
-          listingOptionId: fixture.listing.listingOptionId,
-        }],
-      });
+      for (const [status, totalPrice] of [['cancelled', 50_000], ['returned', 40_000], ['refunded', 30_000]] as const) {
+        await seedOrderWithLineItems(prisma, {
+          organizationId: TEST_ORGANIZATION_ID,
+          externalOrderId: `SET-${status.toUpperCase()}`,
+          orderedAt: '2026-03-15T03:05:00.000Z',
+          shippingPrice: 0,
+          status,
+          lineItems: [{
+            quantity: 1,
+            totalPrice,
+            optionId: fixture.option.id,
+            listingOptionId: fixture.listing.listingOptionId,
+          }],
+        });
+      }
+      await coverOrders();
 
       const result = await service.reconcile(TEST_ORGANIZATION_ID, '2026-03');
 
@@ -341,6 +376,8 @@ describe('Settlements flow (PG integration)', () => {
           listingOptionId: foreign.listing.listingOptionId,
         }],
       });
+      await coverOrders();
+      await coverOrders(undefined, undefined, OTHER_ORGANIZATION_ID);
 
       const result = await service.reconcile(TEST_ORGANIZATION_ID, '2026-03');
 
@@ -350,7 +387,6 @@ describe('Settlements flow (PG integration)', () => {
         plRevenue: 5_000,
         orderTotal: 5_000,
       }));
-      expect(result.details[0].listingId).not.toBe(foreign.listing.listingId);
       expect(result.summary.totalPlRevenue).toBe(5_000);
       expect(result.summary.totalOrderRevenue).toBe(5_000);
     });
@@ -374,7 +410,7 @@ describe('Settlements flow (PG integration)', () => {
       expect(reread?.actualAmount).toBe(0);
     });
 
-    it('#7 same-organization update succeeds', async () => {
+    it('#7 same-organization confirmation publishes the actual amount and its difference', async () => {
       const settlement = await prisma.settlement.create({
         data: {
           organizationId: TEST_ORGANIZATION_ID,
@@ -388,9 +424,12 @@ describe('Settlements flow (PG integration)', () => {
         status: 'confirmed',
       });
 
-      expect(updated.actualAmount).toBe(980_000);
-      expect(updated.status).toBe('confirmed');
-      expect(updated.expectedAmount).toBe(1_000_000);
+      expect(updated).toMatchObject({
+        actualAmount: 980_000,
+        status: 'confirmed',
+        expectedAmount: 1_000_000,
+        difference: -20_000,
+      });
     });
 
     it('#8 missing settlement uses the same public not-found contract', async () => {
@@ -427,5 +466,19 @@ describe('Settlements flow (PG integration)', () => {
       expect.objectContaining({ period: '2026-03', expectedAmount: 1_000 }),
     ]);
     await expect(service.findAll(TEST_ORGANIZATION_ID, '')).resolves.toHaveLength(2);
+  });
+
+  it('publishes no actual amount or difference for a settlement nobody confirmed', async () => {
+    const created = await service.create(TEST_ORGANIZATION_ID, {
+      period: '2026-03', expectedAmount: 1_000, commission: 100,
+      shippingFee: 50, orderCount: 2, returnCount: 0,
+    });
+
+    // The stored actual column defaults to 0; an unconfirmed deposit is not
+    // a deposit of zero.
+    expect(created).toMatchObject({ status: 'pending', actualAmount: null, difference: null });
+    await expect(service.findAll(TEST_ORGANIZATION_ID, '2026-03')).resolves.toEqual([
+      expect.objectContaining({ actualAmount: null, difference: null }),
+    ]);
   });
 });

@@ -35,6 +35,7 @@ import {
   seedAd,
   seedCompletedAdSweepRun,
   seedCompletedInventorySnapshot,
+  seedCompletedOrderCoverageRun,
 } from '../../../test-helpers/finance-seeds';
 import type { PrismaClient } from '@prisma/client';
 
@@ -87,11 +88,23 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
     await seedBaseFixture(prisma);
   });
 
+  /**
+   * Publishes the inventory snapshot and declares the anchor month collected
+   * by the Orders collection, which owns every order seeded before the read.
+   * Per-listing profit reads only orders a completed collection published, so
+   * the warning cases decide on advertising and cost evidence alone.
+   */
   async function readSummary(
     ctx: ReturnType<typeof buildDashboardContext>,
     organizationId: string,
   ) {
     await seedCompletedInventorySnapshot(prisma, organizationId);
+    const month = businessDateText(new Date()).slice(0, 7);
+    await seedCompletedOrderCoverageRun(prisma, {
+      organizationId,
+      startDate: `${month}-01`,
+      endDate: kstMonthEnd(month),
+    });
     return service.getSummary(ctx, organizationId);
   }
 

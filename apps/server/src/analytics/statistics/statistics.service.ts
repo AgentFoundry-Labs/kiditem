@@ -1,57 +1,77 @@
 import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
+import type {
+  StatisticsCategoriesResponse,
+  StatisticsCategoryRow,
+  StatisticsGradeRow,
+  StatisticsGradesResponse,
+  StatisticsOverview,
+  StatisticsParetoItem,
+  StatisticsParetoResponse,
+  StatisticsProductRow,
+  StatisticsProductsResponse,
+  StatisticsRepurchaseResponse,
+} from '@kiditem/shared/statistics';
 import { PrismaService } from '../../prisma/prisma.service';
-import {
-  buildPerListingProfit,
-  readAdEvidenceFromLedger,
-} from '../../common/per-listing-profit';
 import { kstMonthStart } from '../../common/kst';
 import {
-  ORDER_FACT_EXCLUDED_STATUSES,
+  isOrderWindowComplete,
+  orderWindowBasis,
+  perListingProfitRows,
+  profitWindowBasis,
+  profitWindowTotals,
+  readProfitWindowFacts,
+  totalOrUnavailable,
+  type PerListingProfit,
+  type ProfitWindowFacts,
+} from '../../common/per-listing-profit';
+import {
   readListingOptionOrderFacts,
   readObservedOrderBounds,
   readOrderWindowFacts,
   readRepurchaseOrderFacts,
   type OrderWindowInput,
 } from '../../orders/read/order-facts.reader';
-import type {
-  StatisticsOverview,
-  StatisticsProductRow,
-  StatisticsCategoryRow,
-  StatisticsGradeRow,
-  StatisticsParetoResponse,
-  StatisticsRepurchaseResponse,
-} from '@kiditem/shared/statistics';
-import { Prisma } from '@prisma/client';
+
+const REPEATABLE_READ = { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead };
+
+/** A refunded order still shows the customer came back; cancelled and returned orders do not. */
+const REPURCHASE_EXCLUDED_STATUSES = ['cancelled', 'returned'] as const;
+
+/** A ratio with four decimals. No ratio over an unavailable or zero denominator (ADR-0006). */
+function ratio(numerator: number | null, denominator: number | null): number | null {
+  if (numerator === null || denominator === null || denominator <= 0) return null;
+  return Math.round((numerator / denominator) * 10000) / 10000;
+}
+
+/** A percent share with one decimal of a total that exists and is non-zero. */
+function share(part: number, total: number | null): number | null {
+  if (total === null || total <= 0) return null;
+  return Math.round((part / total) * 1000) / 10;
+}
+
+function paretoBand(cumulativePercent: number): 'top70' | 'next20' | 'tail10' {
+  if (cumulativePercent <= 70) return 'top70';
+  return cumulativePercent <= 90 ? 'next20' : 'tail10';
+}
 
 /**
- * Totals a profit column that may be unavailable.
+ * Statistics over the owner readers.
  *
- * A rollup over a set containing an unavailable member is itself unavailable
- * (ADR-0006) — summing only the measured members would silently report a
- * smaller total as if it were the whole. Revenue and order counts never depend
- * on ad coverage, so they keep totalling every listing.
+ * A window total or ratio is published only when the Orders collection covered
+ * every business date of the window and its denominator is non-zero; per-row
+ * values stay visible beside the basis that says which dates they rest on.
  */
-/** Margin of an possibly-unavailable profit over its revenue. */
-function ratio(netProfit: number | null, revenue: number): number | null {
-  if (netProfit === null) return null;
-  return revenue > 0 ? Math.round((netProfit / revenue) * 10000) / 10000 : 0;
-}
-
-function totalOrUnavailable(values: readonly (number | null)[]): number | null {
-  let total = 0;
-  for (const value of values) {
-    if (value === null) return null;
-    total += value;
-  }
-  return total;
-}
-
 @Injectable()
 export class StatisticsService {
   constructor(
     private readonly prisma: PrismaService,
   ) {}
 
+  /**
+   * An explicit period is its KST month. Without one the window spans the
+   * observed completed orders; with no completed order there is no window.
+   */
   private async resolveWindow(organizationId: string, period?: string) {
     if (period) {
       const [year, month] = period.split('-').map(Number);
@@ -61,54 +81,58 @@ export class StatisticsService {
     return this.prisma.$transaction((tx) => readObservedOrderBounds(tx, organizationId));
   }
 
-  /**
-   * Whether advertising applies to this window at all is Advertising's answer,
-   * not one this read model may infer from an empty listing calendar.
-   */
-  private async getListingMetrics(organizationId: string, period?: string) {
+  private async readFacts(organizationId: string, period?: string): Promise<ProfitWindowFacts | null> {
     const window = await this.resolveWindow(organizationId, period);
-    if (!window) return [];
-    return this.getListingMetricsForWindow(organizationId, window);
+    if (!window) return null;
+    return this.prisma.$transaction(
+      (tx) => readProfitWindowFacts(tx, organizationId, window.from, window.to),
+      REPEATABLE_READ,
+    );
   }
 
-  async overview(organizationId: string, period?: string) {
-    const window = await this.resolveWindow(organizationId, period);
-    const [metrics, totalProducts, orderFacts] = await Promise.all([
-      window ? this.getListingMetricsForWindow(organizationId, window) : Promise.resolve([]),
+  private async readListingRows(
+    organizationId: string,
+    period?: string,
+  ): Promise<{ facts: ProfitWindowFacts | null; rows: PerListingProfit[] }> {
+    const facts = await this.readFacts(organizationId, period);
+    const rows = facts ? perListingProfitRows(facts).sort((a, b) => b.revenue - a.revenue) : [];
+    return { facts, rows };
+  }
+
+  async overview(organizationId: string, period?: string): Promise<StatisticsOverview> {
+    const [facts, totalProducts] = await Promise.all([
+      this.readFacts(organizationId, period),
       this.prisma.channelListing.count({
         where: { organizationId, isActive: true },
       }),
-      window
-        ? this.prisma.$transaction((tx) => readOrderWindowFacts(tx, {
-          organizationId,
-          ...window,
-          excludedStatuses: ORDER_FACT_EXCLUDED_STATUSES,
-        }))
-        : Promise.resolve(null),
     ]);
-    const totalOrders = orderFacts?.orderCount ?? 0;
+    if (!facts) {
+      return {
+        totalRevenue: null,
+        totalOrders: null,
+        totalProfit: null,
+        avgMargin: null,
+        totalProducts,
+        basis: null,
+      } satisfies StatisticsOverview;
+    }
 
-    const totalRevenue = metrics.reduce((sum, metric) => sum + metric.revenue, 0);
-    const totalProfit = totalOrUnavailable(metrics.map((metric) => metric.netProfit));
-    const avgMargin = totalProfit === null
-      ? null
-      : totalRevenue > 0 ? totalProfit / totalRevenue : 0;
-
+    const totals = profitWindowTotals(facts);
     return {
-      totalRevenue,
-      totalOrders,
-      totalProfit,
-      avgMargin: avgMargin === null ? null : Math.round(avgMargin * 10000) / 10000,
+      totalRevenue: totals.revenue,
+      totalOrders: totals.orderCount,
+      totalProfit: totals.netProfit,
+      avgMargin: ratio(totals.netProfit, totals.revenue),
       totalProducts,
+      basis: profitWindowBasis(facts),
     } satisfies StatisticsOverview;
   }
 
-  async products(organizationId: string, period?: string) {
-    const metrics = await this.getListingMetrics(organizationId, period);
+  async products(organizationId: string, period?: string): Promise<StatisticsProductsResponse> {
+    const { facts, rows } = await this.readListingRows(organizationId, period);
 
-    return [...metrics]
-      .sort((a, b) => b.revenue - a.revenue)
-      .map((metric) => ({
+    return {
+      rows: rows.map((metric) => ({
         listingId: metric.listingId,
         externalId: metric.externalId,
         channelName: metric.channelName,
@@ -123,11 +147,13 @@ export class StatisticsService {
         orderCount: metric.orderCount,
         profitRate: ratio(metric.netProfit, metric.revenue),
         margin: ratio(metric.netProfit, metric.revenue),
-      } satisfies StatisticsProductRow));
+      } satisfies StatisticsProductRow)),
+      basis: facts ? profitWindowBasis(facts) : null,
+    } satisfies StatisticsProductsResponse;
   }
 
-  async categories(organizationId: string, period?: string) {
-    const metrics = await this.getListingMetrics(organizationId, period);
+  async categories(organizationId: string, period?: string): Promise<StatisticsCategoriesResponse> {
+    const { facts, rows } = await this.readListingRows(organizationId, period);
 
     const categoryMap = new Map<string, {
       revenue: number;
@@ -135,7 +161,7 @@ export class StatisticsService {
       profits: (number | null)[];
     }>();
 
-    for (const metric of metrics) {
+    for (const metric of rows) {
       const cat = metric.category ?? '미분류';
       const entry = categoryMap.get(cat) ?? { revenue: 0, orders: 0, profits: [] };
       entry.revenue += metric.revenue;
@@ -144,20 +170,23 @@ export class StatisticsService {
       categoryMap.set(cat, entry);
     }
 
-    return Array.from(categoryMap.entries())
-      .map(([category, data]) => ({
-        category,
-        name: category,
-        revenue: data.revenue,
-        orders: data.orders,
-        profit: totalOrUnavailable(data.profits),
-        count: data.orders,
-      } satisfies StatisticsCategoryRow))
-      .sort((a, b) => b.revenue - a.revenue);
+    return {
+      rows: Array.from(categoryMap.entries())
+        .map(([category, data]) => ({
+          category,
+          name: category,
+          revenue: data.revenue,
+          orders: data.orders,
+          profit: totalOrUnavailable(data.profits),
+          count: data.orders,
+        } satisfies StatisticsCategoryRow))
+        .sort((a, b) => b.revenue - a.revenue),
+      basis: facts ? profitWindowBasis(facts) : null,
+    } satisfies StatisticsCategoriesResponse;
   }
 
-  async grades(organizationId: string, period?: string) {
-    const metrics = await this.getListingMetrics(organizationId, period);
+  async grades(organizationId: string, period?: string): Promise<StatisticsGradesResponse> {
+    const { facts, rows } = await this.readListingRows(organizationId, period);
 
     const gradeMap = new Map<string, {
       revenue: number;
@@ -166,7 +195,7 @@ export class StatisticsService {
       adCosts: (number | null)[];
     }>();
 
-    for (const metric of metrics) {
+    for (const metric of rows) {
       const grade = metric.grade ?? 'N/A';
       const entry = gradeMap.get(grade)
         ?? { revenue: 0, profits: [], productCount: 0, adCosts: [] };
@@ -177,79 +206,81 @@ export class StatisticsService {
       gradeMap.set(grade, entry);
     }
 
-    return Array.from(gradeMap.entries())
-      .map(([grade, data]) => ({
-        grade,
-        revenue: data.revenue,
-        profit: totalOrUnavailable(data.profits),
-        count: data.productCount,
-        productCount: data.productCount,
-        adCost: totalOrUnavailable(data.adCosts),
-      } satisfies StatisticsGradeRow))
-      .sort((a, b) => b.revenue - a.revenue);
+    return {
+      rows: Array.from(gradeMap.entries())
+        .map(([grade, data]) => ({
+          grade,
+          revenue: data.revenue,
+          profit: totalOrUnavailable(data.profits),
+          count: data.productCount,
+          productCount: data.productCount,
+          adCost: totalOrUnavailable(data.adCosts),
+        } satisfies StatisticsGradeRow))
+        .sort((a, b) => b.revenue - a.revenue),
+      basis: facts ? profitWindowBasis(facts) : null,
+    } satisfies StatisticsGradesResponse;
   }
 
-  async pareto(organizationId: string, period?: string) {
-    const metrics = [...await this.getListingMetrics(organizationId, period)]
-      .sort((a, b) => b.revenue - a.revenue);
+  async pareto(organizationId: string, period?: string): Promise<StatisticsParetoResponse> {
+    const { facts, rows } = await this.readListingRows(organizationId, period);
 
-    const totalRevenue = metrics.reduce((sum, metric) => sum + metric.revenue, 0);
+    // Shares are cut from the whole window's listing revenue, so they exist
+    // only once the Orders collection covered every date of it.
+    const totalRevenue = facts && isOrderWindowComplete(facts.orderWindow)
+      ? rows.reduce((sum, metric) => sum + metric.revenue, 0)
+      : null;
 
     let cumulativeRevenue = 0;
-    const paretoItems = metrics.map((metric, index) => {
+    const data = rows.map((metric, index) => {
       cumulativeRevenue += metric.revenue;
-      const revenuePercent = totalRevenue > 0
-        ? Math.round((metric.revenue / totalRevenue) * 1000) / 10
-        : 0;
-      const cumulativePercent = totalRevenue > 0
-        ? Math.round((cumulativeRevenue / totalRevenue) * 1000) / 10
-        : 0;
-      const paretoBand = cumulativePercent <= 70
-        ? 'top70' as const
-        : cumulativePercent <= 90
-          ? 'next20' as const
-          : 'tail10' as const;
+      const cumulativePercent = share(cumulativeRevenue, totalRevenue);
       return {
         id: metric.listingId,
         rank: index + 1,
         name: metric.masterName,
-        paretoBand,
+        paretoBand: cumulativePercent === null ? null : paretoBand(cumulativePercent),
         revenue: metric.revenue,
-        revenuePercent,
+        revenuePercent: share(metric.revenue, totalRevenue),
         cumulativePercent,
-      };
+      } satisfies StatisticsParetoItem;
     });
 
-    const bandDistribution = { top70: 0, next20: 0, tail10: 0 };
-    for (const item of paretoItems) {
-      bandDistribution[item.paretoBand] += 1;
+    let bandDistribution: StatisticsParetoResponse['bandDistribution'] = null;
+    if (totalRevenue !== null && totalRevenue > 0) {
+      bandDistribution = { top70: 0, next20: 0, tail10: 0 };
+      for (const item of data) {
+        if (item.paretoBand) bandDistribution[item.paretoBand] += 1;
+      }
     }
 
     return {
       totalRevenue,
       bandDistribution,
-      data: paretoItems,
+      data,
+      basis: facts ? profitWindowBasis(facts) : null,
     } satisfies StatisticsParetoResponse;
   }
 
-  async repurchase(organizationId: string, period?: string) {
+  async repurchase(organizationId: string, period?: string): Promise<StatisticsRepurchaseResponse> {
     const window = await this.resolveWindow(organizationId, period);
     if (!window) {
       return {
-        totalCustomers: 0,
-        repeatCount: 0,
-        repurchaseRate: 0,
-        totalOrders: 0,
+        totalCustomers: null,
+        repeatCount: null,
+        repurchaseRate: null,
+        totalOrders: null,
         repeatProducts: [],
         repeatCustomers: [],
+        basis: null,
       } satisfies StatisticsRepurchaseResponse;
     }
     const input: OrderWindowInput = {
       organizationId,
       ...window,
-      excludedStatuses: ['cancelled', 'returned'],
+      excludedStatuses: REPURCHASE_EXCLUDED_STATUSES,
     };
-    const { orders, lines, optionDisplays } = await this.prisma.$transaction(async (tx) => {
+    const { orderWindow, orders, lines, optionDisplays } = await this.prisma.$transaction(async (tx) => {
+      const orderWindow = await readOrderWindowFacts(tx, input);
       const orders = await readRepurchaseOrderFacts(tx, input);
       const lines = await readListingOptionOrderFacts(tx, input);
       const optionIds = [...new Set(lines.map((line) => line.listingOptionId))];
@@ -268,8 +299,8 @@ export class StatisticsService {
           },
         },
       });
-      return { orders, lines, optionDisplays };
-    });
+      return { orderWindow, orders, lines, optionDisplays };
+    }, REPEATABLE_READ);
     const displayByOption = new Map(optionDisplays.map((option) => [option.id, option.listing]));
     const receiverByOrder = new Map(orders.map((order) => [order.orderId, order.receiverName]));
 
@@ -301,7 +332,6 @@ export class StatisticsService {
         orderCount: v.orderCount,
       }));
 
-    // customer-level (receiver) — 기존 로직 유지
     const receiverMap = new Map<string, { count: number; totalAmount: number; lastOrder: Date | null }>();
     for (const o of orders) {
       const name = o.receiverName ?? '';
@@ -315,12 +345,6 @@ export class StatisticsService {
       receiverMap.set(name, entry);
     }
 
-    const totalCustomers = receiverMap.size;
-    const repeatCustomerCount = Array.from(receiverMap.values()).filter((c) => c.count >= 2).length;
-    const repurchaseRate = totalCustomers > 0
-      ? Math.round((repeatCustomerCount / totalCustomers) * 10000) / 10000
-      : 0;
-
     const repeatCustomers = Array.from(receiverMap.entries())
       .filter(([, v]) => v.count >= 2)
       .sort((a, b) => b[1].count - a[1].count)
@@ -332,30 +356,22 @@ export class StatisticsService {
         lastOrder: v.lastOrder,
       }));
 
+    // Customer counts describe the whole window, so they exist only once the
+    // Orders collection covered every date of it.
+    const collected = isOrderWindowComplete(orderWindow);
+    const totalCustomers = collected ? receiverMap.size : null;
+    const repeatCount = collected
+      ? Array.from(receiverMap.values()).filter((c) => c.count >= 2).length
+      : null;
+
     return {
       totalCustomers,
-      repeatCount: repeatCustomerCount,
-      repurchaseRate,
-      totalOrders: orders.length,
+      repeatCount,
+      repurchaseRate: ratio(repeatCount, totalCustomers),
+      totalOrders: orderWindow.orderCount,
       repeatProducts,
       repeatCustomers,
+      basis: { orders: orderWindowBasis(orderWindow) },
     } satisfies StatisticsRepurchaseResponse;
-  }
-
-  private async getListingMetricsForWindow(
-    organizationId: string,
-    window: { from: Date; to: Date },
-  ) {
-    return this.prisma.$transaction(
-      async (tx) => {
-        const accountAdEvidence = await readAdEvidenceFromLedger(
-          tx, organizationId, window.from, window.to,
-        );
-        return buildPerListingProfit(
-          tx, organizationId, window.from, window.to, accountAdEvidence,
-        );
-      },
-      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
-    );
   }
 }

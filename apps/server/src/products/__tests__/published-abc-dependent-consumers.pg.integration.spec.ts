@@ -9,7 +9,7 @@ import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import { buildPerListingProfit } from '../../common/per-listing-profit';
 import { ReviewsService } from '../../orders/services/reviews.service';
 import { RulesService } from '../../rules/services/rules.service';
-import { seedOrderWithLineItems } from '../../test-helpers/finance-seeds';
+import { seedCompletedOrderCoverageRun, seedOrderWithLineItems } from '../../test-helpers/finance-seeds';
 import {
   makeTestPrisma,
   resetDb,
@@ -186,6 +186,12 @@ describe('published ABC dependent consumers (PostgreSQL)', () => {
         optionId: option.externalOptionId,
         listingOptionId: option.id,
       }],
+    });
+    // Per-listing profit reads only orders a completed Orders collection published.
+    await seedCompletedOrderCoverageRun(prisma, {
+      organizationId: ORG,
+      startDate: '2026-08-01',
+      endDate: '2026-08-31',
     });
     await prisma.businessRule.create({ data: {
       organizationId: ORG,

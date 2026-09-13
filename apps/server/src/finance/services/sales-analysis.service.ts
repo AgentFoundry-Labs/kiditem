@@ -3,10 +3,22 @@ import { Prisma } from '@prisma/client';
 import type { SalesAnalysisData, ChannelAnalysis } from '@kiditem/shared/finance';
 import { PrismaService } from '../../prisma/prisma.service';
 import { kstMonthStart } from '../../common/kst';
-import { readListingAdWindowFacts } from '../../common/ad-window-facts';
-import { resolvePricing } from '../../common/option-pricing-resolver';
-
-const EXCLUDED_ORDER_STATUSES = ['cancelled', 'returned', 'refunded'] as const;
+import {
+  addOrUnavailable,
+  isOrderWindowComplete,
+  profitRatePercent,
+  profitWindowBasis,
+  profitWindowTotals,
+  readProfitWindowFacts,
+  roundOrUnavailable,
+  totalOrUnavailable,
+  type AccountAdEvidence,
+} from '../../common/per-listing-profit';
+import {
+  ORDER_FACT_EXCLUDED_STATUSES,
+  readOrderReturnWindowFacts,
+  readReturnLinesOfOrderWindow,
+} from '../../orders/read/order-facts.reader';
 
 /**
  * Map ChannelAccount.channel (platform) → ChannelAnalysis.channelType.
@@ -25,21 +37,30 @@ function resolveChannelType(channel: string): 'marketplace' | 'direct' | 'other'
 }
 
 /**
- * Sales-analysis live aggregation with returnRate and orphan-return policy.
+ * A channel's ad cost for the window. Without an advertising account it is a
+ * satisfied zero. With one it exists only when the sweep measured every date
+ * of the window; then the sweep looked at every listing, so a channel whose
+ * listings carry no rows spent nothing. Unmeasured advertising is never added
+ * to a channel profit as zero.
+ */
+function channelAdCost(
+  ad: AccountAdEvidence,
+  adSpendByChannel: ReadonlyMap<string, number>,
+  channel: string,
+): number | null {
+  if (!ad.hasAdAccount) return 0;
+  if (!ad.coversWindow) return null;
+  return Math.round(adSpendByChannel.has(channel) ? adSpendByChannel.get(channel)! : 0);
+}
+
+/**
+ * Channel sales analysis for one KST month over the owner readers.
  *
- * Per-channel ad spend sources from `ChannelListingDailySnapshot.adSpend`
- * aggregated by listing over the requested KST month window. Daily facts
- * are the single source-of-truth for listing/day ad metrics; period totals
- * are SUMs over `businessDate`.
- *
- * Data flow:
- *   Order (+ shippingPrice) → OrderLineItem → ChannelListingOption.listing.channelAccount.channel
- *   + OrderReturnLineItem INNER JOIN Order (3-hop IDOR)
- *   + measured listing-day ad spend per listing (`common/ad-window-facts`)
- *     → listingId→channel map
- *
- * Group key: `ChannelListing.channel` (platform)
- * Orphan side metric: `totals.orphanReturnCount` (requestedAt ∈ period + orderId NULL).
+ * Channel rows group the collected order lines by the channel their listing
+ * sells on. A channel cost or profit is `null` when any of its lines lacks a
+ * recorded cost, or when advertising applies and either the sweep or the
+ * Orders collection did not cover the whole window. Ratios over zero are
+ * `null`. `totals` are the organization's window totals.
  */
 @Injectable()
 export class SalesAnalysisService {
@@ -57,258 +78,130 @@ export class SalesAnalysisService {
     const from = kstMonthStart(year, month);
     const to = kstMonthStart(year, month + 1);
 
-    const {
-      orders,
-      returnOrderIdRows,
-      adGroupRows,
-      orphanCount,
-      listings,
-    } = await this.prisma.$transaction(async (tx) => {
-      // 1) Orders with nested listingOption.listing.channel
-      const orders = await tx.order.findMany({
-        where: {
-          organizationId,
-          orderedAt: { gte: from, lt: to },
-          status: { notIn: [...EXCLUDED_ORDER_STATUSES] },
-        },
-        select: {
-          id: true,
-          shippingPrice: true,
-          lineItems: {
-            select: {
-              quantity: true,
-              totalPrice: true,
-              listingOption: {
-                select: {
-                  costPriceOverride: true,
-                  commissionRate: true,
-                  shippingCost: true,
-                  otherCost: true,
-                  inventoryComponents: {
-                    select: {
-                      quantity: true,
-                      sellpiaInventorySku: {
-                        select: { purchasePrice: true },
-                      },
-                    },
-                  },
-                  listing: {
-                    select: {
-                      id: true,
-                      channelAccount: { select: { channel: true } },
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
-      });
-      // 2) Return events — need (orderId, channel) per returned lineItem.
-      //    3-hop IDOR: OrderReturnLineItem.organizationId + return.organizationId + return.order.organizationId
-      //    Status filter mirror on return.order.
-      const returnOrderIdRows = await tx.orderReturnLineItem.findMany({
-        where: {
-          organizationId,
-          return: {
-            organizationId,
-            order: {
-              organizationId,
-              orderedAt: { gte: from, lt: to },
-              status: { notIn: [...EXCLUDED_ORDER_STATUSES] },
-            },
-          },
-        },
-        select: {
-          orderLineItem: {
-            select: {
-              order: { select: { id: true } },
-              listingOption: {
-                select: {
-                  listing: {
-                    select: { channelAccount: { select: { channel: true } } },
-                  },
-                },
-              },
-            },
-          },
-        },
-      });
-      // 3) Measured ad spend per listing over the window, through the one
-      // listing-day ad reader.
-      const adGroupRows = await readListingAdWindowFacts(tx, {
+    const { facts, returnedLines, orphanReturnCount, unsoldAdListings } = await this.prisma.$transaction(async (tx) => {
+      const facts = await readProfitWindowFacts(tx, organizationId, from, to);
+      const returnedLines = await readReturnLinesOfOrderWindow(tx, {
         organizationId,
         from,
         to,
+        excludedStatuses: ORDER_FACT_EXCLUDED_STATUSES,
       });
-      // 4) Orphan return count — orderId NULL, requestedAt in period
-      const orphanCount = await tx.orderReturn.count({
-        where: {
-          organizationId,
-          orderId: null,
-          requestedAt: { gte: from, lt: to },
-        },
-      });
-
-      const adListingIds = Array.from(
-        new Set(adGroupRows.map((row) => row.listingId)),
-      );
-      const listings = adListingIds.length > 0
-        ? await tx.channelListing.findMany({
-            where: { id: { in: adListingIds }, organizationId },
-            select: {
-              id: true,
-              channelAccount: { select: { channel: true } },
-            },
-          })
-        : [];
-      return { orders, returnOrderIdRows, adGroupRows, orphanCount, listings };
+      const { orphanReturnCount } = await readOrderReturnWindowFacts(tx, { organizationId, from, to });
+      const soldListingIds = new Set(facts.lines.map((line) => line.listing.listingId));
+      const unsoldAdListingIds = [...facts.listingAdSpend.keys()]
+        .filter((listingId) => !soldListingIds.has(listingId));
+      const unsoldAdListings = unsoldAdListingIds.length === 0
+        ? []
+        : await tx.channelListing.findMany({
+          where: { id: { in: unsoldAdListingIds }, organizationId },
+          select: { id: true, channelAccount: { select: { channel: true } } },
+        });
+      return { facts, returnedLines, orphanReturnCount, unsoldAdListings };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
 
-    // Resolve listingId → channel (for ad rows). `listingId` is non-nullable
-    // on `ChannelListingDailySnapshot` so the filter just dedupes.
-    const listingIdToChannel = new Map<string, string>(
-      listings.map((l) => [l.id, l.channelAccount.channel]),
-    );
+    const channelByListing = new Map<string, string>();
+    for (const line of facts.lines) channelByListing.set(line.listing.listingId, line.listing.channel);
+    for (const listing of unsoldAdListings) channelByListing.set(listing.id, listing.channelAccount.channel);
 
-    // Build returned order set per channel (distinct Order count).
-    const returnOrderSets = new Map<string, Set<string>>();
-    for (const rli of returnOrderIdRows) {
-      const channel =
-        rli.orderLineItem?.listingOption?.listing?.channelAccount.channel;
-      const orderId = rli.orderLineItem?.order?.id;
-      if (!channel || !orderId) continue;
-      if (!returnOrderSets.has(channel)) returnOrderSets.set(channel, new Set());
-      returnOrderSets.get(channel)!.add(orderId);
-    }
-
-    // Build ad cost per channel — daily-fact `adSpend` SUM grouped by listing,
-    // mapped to channel via the IDOR-scoped listing lookup above.
-    const adCostMap = new Map<string, number>();
-    for (const row of adGroupRows) {
-      const channel = listingIdToChannel.get(row.listingId);
+    const adSpendByChannel = new Map<string, number>();
+    for (const [listingId, spend] of facts.listingAdSpend) {
+      const channel = channelByListing.get(listingId);
       if (!channel) continue;
-      adCostMap.set(channel, (adCostMap.get(channel) ?? 0) + row.spend);
+      adSpendByChannel.set(channel, (adSpendByChannel.get(channel) ?? 0) + spend);
     }
 
-    // Aggregate orders per channel
-    type Agg = {
+    const returnedOrdersByChannel = new Map<string, Set<string>>();
+    for (const line of returnedLines) {
+      const channel = line.listingId ? channelByListing.get(line.listingId) : undefined;
+      if (!channel) continue;
+      const orders = returnedOrdersByChannel.get(channel) ?? new Set<string>();
+      orders.add(line.orderId);
+      returnedOrdersByChannel.set(channel, orders);
+    }
+
+    type Group = {
       channel: string;
       orderIds: Set<string>;
-      totalRevenue: number;
-      totalCogs: number;
-      totalCommission: number;
-      totalShipping: number;
-      totalOtherCost: number;
+      revenue: number;
+      shipping: number;
+      costOfGoods: number | null;
+      commission: number | null;
+      otherCost: number | null;
     };
-    const groups = new Map<string, Agg>();
-    const globalOrderIds = new Set<string>(); // totals.totalOrders — global distinct
-
-    for (const o of orders) {
-      globalOrderIds.add(o.id);
-      const orderTotalRevenue = o.lineItems.reduce(
-        (sum, li) => sum + (li.totalPrice || 0),
-        0,
-      );
-
-      for (const li of o.lineItems) {
-        const channel = li.listingOption?.listing?.channelAccount.channel;
-        if (!channel) continue;
-        let g = groups.get(channel);
-        if (!g) {
-          g = {
-            channel,
-            orderIds: new Set<string>(),
-            totalRevenue: 0,
-            totalCogs: 0,
-            totalCommission: 0,
-            totalShipping: 0,
-            totalOtherCost: 0,
-          };
-          groups.set(channel, g);
-        }
-
-        g.orderIds.add(o.id);
-        const componentCost =
-          li.listingOption?.inventoryComponents.reduce(
-            (sum, component) =>
-              sum +
-              (component.sellpiaInventorySku.purchasePrice ?? 0)
-                * component.quantity,
-            0,
-          ) ?? 0;
-        const resolved = resolvePricing({
-          option: {
-            costPrice:
-              li.listingOption?.costPriceOverride ?? componentCost,
-            commissionRate: li.listingOption?.commissionRate,
-            shippingCost: li.listingOption?.shippingCost,
-            otherCost: li.listingOption?.otherCost,
-          },
-        });
-        const lineRevenue = li.totalPrice || 0;
-        g.totalRevenue += lineRevenue;
-        g.totalCogs += Math.round(resolved.costPrice * li.quantity);
-        g.totalCommission += Math.round(lineRevenue * resolved.commissionRate);
-        g.totalOtherCost += Math.round(resolved.otherCost * li.quantity);
-
-        // Revenue-weighted shipping.
-        if (orderTotalRevenue > 0 && o.shippingPrice) {
-          g.totalShipping += Math.round(
-            o.shippingPrice * (lineRevenue / orderTotalRevenue),
-          );
-        }
-      }
+    const groups = new Map<string, Group>();
+    for (const line of facts.lines) {
+      const channel = line.listing.channel;
+      const group = groups.get(channel) ?? {
+        channel,
+        orderIds: new Set<string>(),
+        revenue: 0,
+        shipping: 0,
+        costOfGoods: 0,
+        commission: 0,
+        otherCost: 0,
+      };
+      group.orderIds.add(line.orderId);
+      group.revenue += line.revenue;
+      group.shipping += line.shippingCost;
+      group.costOfGoods = addOrUnavailable(group.costOfGoods, line.costOfGoods);
+      group.commission = addOrUnavailable(group.commission, line.commission);
+      group.otherCost = addOrUnavailable(group.otherCost, line.otherCost);
+      groups.set(channel, group);
     }
 
+    // Advertising is a whole-window sum, so when it applies the orders must
+    // cover the same whole window before a cost that includes it exists.
+    const datesAligned = !facts.ad.hasAdAccount || isOrderWindowComplete(facts.orderWindow);
     const channels: ChannelAnalysis[] = Array.from(groups.values())
-      .map((g) => {
-        const returnedOrderIds = returnOrderSets.get(g.channel) ?? new Set<string>();
-        const returnCount = returnedOrderIds.size;
-        const totalOrders = g.orderIds.size;
-        const adCost = adCostMap.get(g.channel) ?? 0;
-        const totalCost =
-          g.totalCogs +
-          g.totalCommission +
-          g.totalShipping +
-          adCost +
-          g.totalOtherCost;
-        const totalProfit = g.totalRevenue - totalCost;
-        const returnRate =
-          totalOrders === 0 ? 0 : Math.min(1, returnCount / totalOrders);
-        const avgOrderValue = totalOrders === 0 ? 0 : g.totalRevenue / totalOrders;
+      .map((group) => {
+        const costs = totalOrUnavailable([
+          roundOrUnavailable(group.costOfGoods),
+          roundOrUnavailable(group.commission),
+          roundOrUnavailable(group.otherCost),
+          channelAdCost(facts.ad, adSpendByChannel, group.channel),
+        ]);
+        const totalCost = !datesAligned || costs === null ? null : costs + group.shipping;
+        const totalProfit = totalCost === null ? null : group.revenue - totalCost;
+        const totalOrders = group.orderIds.size;
+        const returnCount = returnedOrdersByChannel.get(group.channel)?.size ?? 0;
         return {
-          channel: g.channel,
-          channelType: resolveChannelType(g.channel),
+          channel: group.channel,
+          channelType: resolveChannelType(group.channel),
           totalOrders,
-          totalRevenue: g.totalRevenue,
+          totalRevenue: group.revenue,
           totalCost,
           totalProfit,
+          profitRate: profitRatePercent(totalProfit, group.revenue),
           returnCount,
-          returnRate,
-          avgOrderValue,
+          returnRate: totalOrders === 0 ? null : Math.min(1, returnCount / totalOrders),
+          avgOrderValue: totalOrders === 0 ? null : group.revenue / totalOrders,
         } satisfies ChannelAnalysis;
       })
       .sort((a, b) => b.totalRevenue - a.totalRevenue);
 
-    const totals = {
-      totalRevenue: channels.reduce((s, c) => s + c.totalRevenue, 0),
-      totalProfit: channels.reduce((s, c) => s + c.totalProfit, 0),
-      totalOrders: globalOrderIds.size, // global distinct (NOT channels sum)
-      totalCost: channels.reduce((s, c) => s + c.totalCost, 0),
-      orphanReturnCount: orphanCount,
-    };
-
-    const result = { period: resolvedPeriod, channels, totals } satisfies SalesAnalysisData;
+    const windowTotals = profitWindowTotals(facts);
+    const result = {
+      period: resolvedPeriod,
+      channels,
+      totals: {
+        totalRevenue: windowTotals.revenue,
+        totalProfit: windowTotals.netProfit,
+        totalOrders: windowTotals.orderCount,
+        totalCost: windowTotals.cost,
+        profitRate: windowTotals.profitRate,
+        orphanReturnCount,
+      },
+      basis: profitWindowBasis(facts),
+    } satisfies SalesAnalysisData;
 
     this.logger.log({
       msg: 'sales-analysis.getAnalysis',
       organizationId,
       period: resolvedPeriod,
       channelCount: channels.length,
-      totalOrders: totals.totalOrders,
-      totalRevenue: totals.totalRevenue,
-      orphanReturnCount: totals.orphanReturnCount,
+      totalOrders: result.totals.totalOrders,
+      totalRevenue: result.totals.totalRevenue,
+      orphanReturnCount,
       latencyMs: Date.now() - startedAt,
     });
 

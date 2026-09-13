@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
+import { periodBasisStatus } from '@kiditem/shared/dashboard';
 import { SalesAnalysisService } from '../sales-analysis.service';
 import { makeTestPrisma, resetDb, seedBaseFixture, TEST_ORGANIZATION_ID, OTHER_ORGANIZATION_ID } from '../../../test-helpers/real-prisma';
 import {
@@ -8,6 +9,8 @@ import {
   seedOrderWithLineItems,
   seedReturn,
   seedAd,
+  seedCompletedAdSweepRun,
+  seedCompletedOrderCoverageRun,
 } from '../../../test-helpers/finance-seeds';
 
 const prisma = makeTestPrisma();
@@ -27,26 +30,38 @@ async function setupChannelFixture(organizationId: string, channel: string, suff
   return { masterId: master.id, optionId: option.id, listingId, listingOptionId };
 }
 
+/** The Orders collection declares it collected these KST dates. */
+const coverOrders = (
+  organizationId = TEST_ORGANIZATION_ID,
+  startDate = '2026-04-01',
+  endDate = '2026-04-30',
+) => seedCompletedOrderCoverageRun(prisma, { organizationId, startDate, endDate });
+
 describe('SalesAnalysisService.getAnalysis (PG integration)', () => {
   beforeEach(async () => {
     await resetDb(prisma);
     await seedBaseFixture(prisma);
   });
 
-  it('groups orders by channel (coupang + naver)', async () => {
-    const coup = await setupChannelFixture(TEST_ORGANIZATION_ID, 'coupang', 'GROUP-COUP');
-    const naver = await setupChannelFixture(TEST_ORGANIZATION_ID, 'naver', 'GROUP-NAVER');
-    await seedOrderWithLineItems(prisma, {
-      organizationId: TEST_ORGANIZATION_ID, externalOrderId: 'GROUP-1', orderedAt: '2026-04-10T00:00:00Z',
-      lineItems: [{ quantity: 1, totalPrice: 10000, optionId: coup.optionId, listingOptionId: coup.listingOptionId }],
-    });
-    await seedOrderWithLineItems(prisma, {
-      organizationId: TEST_ORGANIZATION_ID, externalOrderId: 'GROUP-2', orderedAt: '2026-04-15T00:00:00Z',
-      lineItems: [{ quantity: 1, totalPrice: 8000, optionId: naver.optionId, listingOptionId: naver.listingOptionId }],
-    });
+  it('groups orders by channel and derives the channel type', async () => {
+    const coup = await setupChannelFixture(TEST_ORGANIZATION_ID, 'naver', 'GROUP-NAVER');
+    const wing = await setupChannelFixture(TEST_ORGANIZATION_ID, 'wing', 'GROUP-WING');
+    const other = await setupChannelFixture(TEST_ORGANIZATION_ID, 'unknown-ch', 'GROUP-OTHER');
+    for (const [index, fixture] of [coup, wing, other].entries()) {
+      await seedOrderWithLineItems(prisma, {
+        organizationId: TEST_ORGANIZATION_ID, externalOrderId: `GROUP-${index}`, orderedAt: '2026-04-10T00:00:00Z',
+        lineItems: [{ quantity: 1, totalPrice: 10000 - index, optionId: fixture.optionId, listingOptionId: fixture.listingOptionId }],
+      });
+    }
+    await coverOrders();
+
     const result = await service.getAnalysis(TEST_ORGANIZATION_ID, '2026-04');
-    expect(result.channels).toHaveLength(2);
-    expect(result.channels.map((c) => c.channel).sort()).toEqual(['coupang', 'naver']);
+
+    expect(result.channels.map((c) => [c.channel, c.channelType])).toEqual([
+      ['naver', 'marketplace'],
+      ['wing', 'direct'],
+      ['unknown-ch', 'other'],
+    ]);
   });
 
   it('IDOR double-blind — TEST + OTHER organizations returns each own data', async () => {
@@ -60,13 +75,16 @@ describe('SalesAnalysisService.getAnalysis (PG integration)', () => {
       organizationId: OTHER_ORGANIZATION_ID, externalOrderId: 'IDOR-O1', orderedAt: '2026-04-10T00:00:00Z',
       lineItems: [{ quantity: 1, totalPrice: 20000, optionId: ocoup.optionId, listingOptionId: ocoup.listingOptionId }],
     });
+    await coverOrders(TEST_ORGANIZATION_ID);
+    await coverOrders(OTHER_ORGANIZATION_ID);
+
     const t = await service.getAnalysis(TEST_ORGANIZATION_ID, '2026-04');
     const o = await service.getAnalysis(OTHER_ORGANIZATION_ID, '2026-04');
     expect(t.totals.totalRevenue).toBe(10000);
     expect(o.totals.totalRevenue).toBe(20000);
   });
 
-  it('returnRate — past-period order excluded from current returnRate', async () => {
+  it('returnRate counts distinct returned orders of the period only', async () => {
     const coup = await setupChannelFixture(TEST_ORGANIZATION_ID, 'coupang', 'return-rate');
     const marchOrderId = await seedOrderWithLineItems(prisma, {
       organizationId: TEST_ORGANIZATION_ID, externalOrderId: 'MAR-1', orderedAt: '2026-03-15T00:00:00Z',
@@ -86,16 +104,18 @@ describe('SalesAnalysisService.getAnalysis (PG integration)', () => {
       organizationId: TEST_ORGANIZATION_ID, orderId: marchOrderId, requestedAt: '2026-04-07T00:00:00Z',
       lineItems: [{ orderLineItemId: marchLineItem!.id }],
     });
+    // Two returned lines of one order are one returned order, not two.
     await seedReturn(prisma, {
       organizationId: TEST_ORGANIZATION_ID, orderId: aprOrderId, requestedAt: '2026-04-25T00:00:00Z',
-      lineItems: [{ orderLineItemId: aprLineItem!.id }],
+      lineItems: [{ orderLineItemId: aprLineItem!.id }, { orderLineItemId: aprLineItem!.id }],
     });
+    await coverOrders(TEST_ORGANIZATION_ID, '2026-03-01', '2026-04-30');
 
     const result = await service.getAnalysis(TEST_ORGANIZATION_ID, '2026-04');
     const c = result.channels.find((x) => x.channel === 'coupang')!;
-    expect(c.totalOrders).toBe(1);          // only April order counted in denominator
-    expect(c.returnCount).toBe(1);          // only April order's return counted in numerator
-    expect(c.returnRate).toBeCloseTo(1, 6); // 1 / 1 = 1.0 ≤ 1
+    expect(c.totalOrders).toBe(1);
+    expect(c.returnCount).toBe(1);
+    expect(c.returnRate).toBeCloseTo(1, 6);
   });
 
   it('orphanReturnCount — orderId NULL returns go to totals.orphanReturnCount', async () => {
@@ -105,9 +125,11 @@ describe('SalesAnalysisService.getAnalysis (PG integration)', () => {
       lineItems: [{ quantity: 1, totalPrice: 10000, optionId: coup.optionId, listingOptionId: coup.listingOptionId }],
     });
     await seedReturn(prisma, { organizationId: TEST_ORGANIZATION_ID, orderId: null, requestedAt: '2026-04-15T00:00:00Z' });
+    await coverOrders();
 
     const result = await service.getAnalysis(TEST_ORGANIZATION_ID, '2026-04');
     expect(result.channels[0].returnCount).toBe(0);
+    expect(result.channels[0].returnRate).toBe(0);
     expect(result.totals.orphanReturnCount).toBe(1);
   });
 
@@ -117,9 +139,10 @@ describe('SalesAnalysisService.getAnalysis (PG integration)', () => {
       organizationId: TEST_ORGANIZATION_ID, externalOrderId: 'VAL-1', orderedAt: '2026-04-10T00:00:00Z',
       lineItems: [{ quantity: 1, totalPrice: 10000, optionId: coup.optionId, listingOptionId: coup.listingOptionId }],
     });
+    await coverOrders();
     const result = await service.getAnalysis(TEST_ORGANIZATION_ID, '2026-04');
     const { SalesAnalysisDataSchema } = await import('@kiditem/shared/finance');
-    expect(() => SalesAnalysisDataSchema.parse(result)).not.toThrow();
+    expect(() => SalesAnalysisDataSchema.parse(JSON.parse(JSON.stringify(result)))).not.toThrow();
   });
 
   it('KST boundary — 2026-04-30T14:59:59.999Z IN April, 15:00:00Z IN May', async () => {
@@ -132,6 +155,7 @@ describe('SalesAnalysisService.getAnalysis (PG integration)', () => {
       organizationId: TEST_ORGANIZATION_ID, externalOrderId: 'MAY-FIRST', orderedAt: '2026-04-30T15:00:00Z',
       lineItems: [{ quantity: 1, totalPrice: 8888, optionId: coup.optionId, listingOptionId: coup.listingOptionId }],
     });
+    await coverOrders(TEST_ORGANIZATION_ID, '2026-04-01', '2026-05-31');
     const april = await service.getAnalysis(TEST_ORGANIZATION_ID, '2026-04');
     const may = await service.getAnalysis(TEST_ORGANIZATION_ID, '2026-05');
     expect(april.totals.totalRevenue).toBe(7777);
@@ -182,6 +206,7 @@ describe('SalesAnalysisService.getAnalysis (PG integration)', () => {
       }];
     });
     await prisma.orderLineItem.createMany({ data: lineItemData });
+    await coverOrders();
 
     const start = Date.now();
     const result = await service.getAnalysis(TEST_ORGANIZATION_ID, '2026-04');
@@ -195,14 +220,127 @@ describe('SalesAnalysisService.getAnalysis (PG integration)', () => {
   it('empty-channel ad — spend on channel with 0 orders is dropped', async () => {
     const coup = await setupChannelFixture(TEST_ORGANIZATION_ID, 'coupang', 'EMPTY-C');
     const naver = await setupChannelFixture(TEST_ORGANIZATION_ID, 'naver', 'EMPTY-N');
-    // coupang has orders; naver only has ad spend (no orders)
     await seedOrderWithLineItems(prisma, {
       organizationId: TEST_ORGANIZATION_ID, externalOrderId: 'EMPTY-1', orderedAt: '2026-04-10T00:00:00Z',
       lineItems: [{ quantity: 1, totalPrice: 10000, optionId: coup.optionId, listingOptionId: coup.listingOptionId }],
     });
     await seedAd(prisma, { organizationId: TEST_ORGANIZATION_ID, listingId: naver.listingId, date: '2026-04-15', spend: 500 });
+    await coverOrders();
     const result = await service.getAnalysis(TEST_ORGANIZATION_ID, '2026-04');
     expect(result.channels).toHaveLength(1);
     expect(result.channels[0].channel).toBe('coupang');
+  });
+
+  /** KID-85 acceptance — unmeasured advertising is never added to a channel profit as zero. */
+  it('publishes no channel profit while the advertising sweep has not measured the month', async () => {
+    const coup = await setupChannelFixture(TEST_ORGANIZATION_ID, 'coupang', 'ADS-UNMEASURED-C');
+    const naver = await setupChannelFixture(TEST_ORGANIZATION_ID, 'naver', 'ADS-UNMEASURED-N');
+    await seedOrderWithLineItems(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, externalOrderId: 'ADS-UNMEASURED-1', orderedAt: '2026-04-10T00:00:00Z',
+      lineItems: [{ quantity: 1, totalPrice: 10000, optionId: coup.optionId, listingOptionId: coup.listingOptionId }],
+    });
+    await seedOrderWithLineItems(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, externalOrderId: 'ADS-UNMEASURED-2', orderedAt: '2026-04-11T00:00:00Z',
+      lineItems: [{ quantity: 1, totalPrice: 8000, optionId: naver.optionId, listingOptionId: naver.listingOptionId }],
+    });
+    await coverOrders();
+
+    const result = await service.getAnalysis(TEST_ORGANIZATION_ID, '2026-04');
+
+    for (const channel of result.channels) {
+      expect(channel, channel.channel).toMatchObject({
+        totalCost: null,
+        totalProfit: null,
+        profitRate: null,
+      });
+    }
+    expect(result.channels.map((c) => c.totalRevenue)).toEqual([10000, 8000]);
+    expect(result.totals).toMatchObject({
+      totalRevenue: 18000,
+      totalOrders: 2,
+      totalCost: null,
+      totalProfit: null,
+      profitRate: null,
+    });
+    expect(periodBasisStatus(result.basis.revenue)).toBe('complete');
+    expect(periodBasisStatus(result.basis.adCost)).toBe('empty');
+  });
+
+  it('subtracts each channel its measured ad spend once the sweep covers the month', async () => {
+    const coup = await setupChannelFixture(TEST_ORGANIZATION_ID, 'coupang', 'ADS-MEASURED-C');
+    const naver = await setupChannelFixture(TEST_ORGANIZATION_ID, 'naver', 'ADS-MEASURED-N');
+    await seedOrderWithLineItems(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, externalOrderId: 'ADS-MEASURED-1', orderedAt: '2026-04-10T00:00:00Z',
+      lineItems: [{ quantity: 1, totalPrice: 10000, optionId: coup.optionId, listingOptionId: coup.listingOptionId }],
+    });
+    await seedOrderWithLineItems(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, externalOrderId: 'ADS-MEASURED-2', orderedAt: '2026-04-11T00:00:00Z',
+      lineItems: [{ quantity: 1, totalPrice: 8000, optionId: naver.optionId, listingOptionId: naver.listingOptionId }],
+    });
+    const runId = await seedCompletedAdSweepRun(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      generation: 1,
+      window: { startDate: '2026-04-01', endDate: '2026-04-30' },
+    });
+    await seedAd(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, listingId: coup.listingId, date: '2026-04-15', spend: 2000, runId,
+    });
+    await coverOrders();
+
+    const result = await service.getAnalysis(TEST_ORGANIZATION_ID, '2026-04');
+
+    // cost = purchase 5000 + commission 10% + order shipping 3000 + ad spend.
+    expect(result.channels.find((c) => c.channel === 'coupang')).toMatchObject({
+      totalCost: 11000, totalProfit: -1000, profitRate: -10,
+    });
+    expect(result.channels.find((c) => c.channel === 'naver')).toMatchObject({
+      totalCost: 8800, totalProfit: -800, profitRate: -10,
+    });
+    expect(result.totals).toMatchObject({
+      totalRevenue: 18000, totalCost: 19800, totalProfit: -1800, profitRate: -10,
+    });
+    for (const basis of [result.basis.revenue, result.basis.adCost, result.basis.profit]) {
+      expect(periodBasisStatus(basis)).toBe('complete');
+    }
+  });
+
+  it('publishes no ratio over a zero denominator', async () => {
+    const naver = await setupChannelFixture(TEST_ORGANIZATION_ID, 'naver', 'ZERO-REVENUE');
+    await seedOrderWithLineItems(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, externalOrderId: 'ZERO-REVENUE-1', orderedAt: '2026-04-10T00:00:00Z',
+      shippingPrice: 0,
+      lineItems: [{ quantity: 1, totalPrice: 0, optionId: naver.optionId, listingOptionId: naver.listingOptionId }],
+    });
+    await coverOrders();
+
+    const result = await service.getAnalysis(TEST_ORGANIZATION_ID, '2026-04');
+
+    expect(result.channels[0]).toMatchObject({
+      totalRevenue: 0,
+      totalCost: 5000,
+      totalProfit: -5000,
+      profitRate: null,
+      avgOrderValue: 0,
+      returnRate: 0,
+    });
+    expect(result.totals).toMatchObject({ totalRevenue: 0, totalProfit: -5000, profitRate: null });
+  });
+
+  it('a month the Orders collection covered only in part publishes no window totals', async () => {
+    const naver = await setupChannelFixture(TEST_ORGANIZATION_ID, 'naver', 'PARTIAL');
+    await seedOrderWithLineItems(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, externalOrderId: 'PARTIAL-1', orderedAt: '2026-04-10T00:00:00Z',
+      lineItems: [{ quantity: 1, totalPrice: 10000, optionId: naver.optionId, listingOptionId: naver.listingOptionId }],
+    });
+    await coverOrders(TEST_ORGANIZATION_ID, '2026-04-01', '2026-04-15');
+
+    const result = await service.getAnalysis(TEST_ORGANIZATION_ID, '2026-04');
+
+    expect(result.channels[0].totalRevenue).toBe(10000);
+    expect(result.totals).toMatchObject({
+      totalRevenue: null, totalOrders: null, totalCost: null, totalProfit: null, profitRate: null,
+    });
+    expect(result.basis.revenue.includedDates).toHaveLength(15);
+    expect(periodBasisStatus(result.basis.revenue)).toBe('partial');
   });
 });

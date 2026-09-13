@@ -1,48 +1,44 @@
-import { addDays, datesInclusive, kstBusinessDate } from './kst';
-import { advertisingApplies, readAdWindowFacts, readListingAdWindowFacts } from './ad-window-facts';
 import type { Prisma } from '@prisma/client';
+import { buildPeriodBasis, type DashboardPeriodBasis } from '@kiditem/shared/dashboard';
+import type { FinanceWindowBasis, FinanceWindowTotals } from '@kiditem/shared/finance';
+import { addDays, businessDateKey, datesInclusive, kstBusinessDate } from './kst';
+import { advertisingApplies, readAdWindowFacts, readListingAdWindowFacts } from './ad-window-facts';
+import { resolvePricing } from './option-pricing-resolver';
+import {
+  COUPANG_ADS_SOURCE,
+  ORDERS_SOURCE,
+} from '../analytics/dashboard/domain/evidence/dashboard-source';
+import { readInventorySkuIdentities } from '../inventory/read/inventory-availability';
+import {
+  ORDER_FACT_EXCLUDED_STATUSES,
+  readOrderLineWindowFacts,
+  type OrderWindowFacts,
+} from '../orders/read/order-facts.reader';
 import { readPublishedProductAbcGrades } from '../products/read/product-abc-publication.reader';
 
 /**
- * Plan F1 T1 (extracted from `finance/services/profit-loss.service.ts:findAll`).
+ * Per-listing and window profit over live owner facts, shared by finance
+ * (profit/loss, settlements, sales plans, sales analysis), statistics, the
+ * dashboard and ad strategy.
  *
- * Per-listing profit aggregation shared by:
- *   - finance/profit-loss (PLData rows, plus returnCount + extra metadata)
- *   - dashboard/dashboard-inventory (warnings.minusProducts / lowProfitProducts / highAdProducts)
+ * Every input comes from its owner's reader: order lines from a completed
+ * Orders collection, purchase prices from Inventory, advertising from the
+ * target-day ledger and grades from the current Products publication. The
+ * reads run in the caller's transaction; this module owns no state.
  *
- * ADR-0006: the ad read is coverage-aware. Listing-day ad values come from the
- * advertising target-day ledger through `ad-window-facts`, where a day the
- * sweep never reported is absent rather than zero, so this module yields an
- * unavailable profit rather than a partial sum.
- *
- * The listing rows alone cannot say whether an organization runs no ads or
- * whether ad collection failed for the whole window: both leave them empty.
- * That fact is account-level: whether a Coupang account exists at all, and
- * which dates the sweep measured. Callers pass it in as `AccountAdEvidence`,
- * read with `readAdEvidenceFromLedger`. This module stays a pure helper — it
- * consumes those facts and never derives a word of its own.
- *
- * Pure function (no @Injectable). Uses live aggregation:
- *   - I3 canonical: revenue = SUM(OrderLineItem.totalPrice)
- *   - I7 multi-tenant: every Prisma call scoped by organizationId
- *   - I8 half-open: orderedAt: { gte: from, lt: to }
- *   - R-1 shipping: order-level Order.shippingPrice, revenue-weighted distribution
- *   - Tenant-scope compliance: both queries pass organizationId; no $queryRaw used
- *
- * Excludes returnCount (D.3b will add) — the OrderReturnLineItem fetch stays
- * in profit-loss.service.findAll because PLData.returnCount is finance-specific.
- *
- * Excluded order statuses: ['cancelled', 'returned', 'refunded'] — same as
- * profit-loss.service and profit-calculator.ts.
+ * ADR-0006 on both sides of a profit:
+ * - Cost. A purchase price, commission rate or other cost nobody recorded is
+ *   unavailable, not zero. A listing with any such line has no measured
+ *   profit, and a window containing one has no measured total.
+ * - Advertising. A date the campaign sweep never measured is absent, never a
+ *   cost of zero. Whether advertising applies at all is account-level
+ *   evidence passed in as `AccountAdEvidence`.
+ * - Dates. Revenue and every line cost share the collected order dates. The
+ *   ad reader only sums a whole window, so when advertising applies a profit
+ *   exists only when the orders cover that whole window too.
  */
-/**
- * One listing's settled profit over a window.
- *
- * `adCost`, `netProfit` and `profitRate` are **unavailable** (`null`) when the
- * listing's ad coverage is incomplete for the window — see ADR-0006. A partial
- * ad sum is not a smaller ad cost, and a profit computed from one is not a
- * smaller profit; it is a fabricated number.
- */
+
+/** One listing's order lines over a window. `null` is unavailable, never zero. */
 export interface PerListingProfit {
   listingId: string;
   externalId: string;
@@ -55,25 +51,26 @@ export interface PerListingProfit {
   grade: string | null;
   thumbnailUrl: string | null;
   revenue: number;
-  costOfGoods: number;
-  commission: number;
+  costOfGoods: number | null;
+  commission: number | null;
   shippingCost: number;
   adCost: number | null;
-  otherCost: number;
+  otherCost: number | null;
   netProfit: number | null;
+  /** Percent with one decimal; `null` over zero revenue. */
   profitRate: number | null;
   orderCount: number;
 }
 
-/** A `PerListingProfit` whose ad coverage was complete, so its profit is measured. */
+/** A `PerListingProfit` whose every input was measured, so its profit is too. */
 export interface PerListingMetrics extends PerListingProfit {
+  costOfGoods: number;
+  commission: number;
   adCost: number;
+  otherCost: number;
   netProfit: number;
   profitRate: number;
 }
-
-const EXCLUDED_ORDER_STATUSES = ['cancelled', 'returned', 'refunded'] as const;
-
 
 /**
  * The account-level answer for one window, as the ledger states it: whether
@@ -94,6 +91,78 @@ export interface AccountAdEvidence {
   coversWindow: boolean;
 }
 
+/** `AccountAdEvidence` with the business dates behind it, for a published basis. */
+export interface AdWindowEvidence extends AccountAdEvidence {
+  requestedDates: readonly string[];
+  measuredDates: readonly string[];
+}
+
+/** One collected order line, priced with what its listing option recorded. */
+export interface ProfitLineFact {
+  orderId: string;
+  listing: ProfitListingIdentity;
+  revenue: number;
+  /** The line's revenue-weighted share of its order's shipping price. */
+  shippingCost: number;
+  costOfGoods: number | null;
+  commission: number | null;
+  otherCost: number | null;
+}
+
+export interface ProfitListingIdentity {
+  listingId: string;
+  externalId: string;
+  channelName: string | null;
+  channel: string;
+  masterProductId: string | null;
+  masterCode: string;
+  masterName: string;
+  category: string | null;
+  thumbnailUrl: string | null;
+}
+
+/** The facts one finance window is computed from, read in one caller-owned transaction. */
+export interface ProfitWindowFacts {
+  orderWindow: OrderWindowFacts;
+  /** Shipping price summed over every collected order of the window. */
+  orderShipping: number;
+  lines: readonly ProfitLineFact[];
+  /** Collected lines sold under no listing option, so no recorded cost exists. */
+  unmappedLineCount: number;
+  ad: AdWindowEvidence;
+  listingAdSpend: ReadonlyMap<string, number>;
+  gradeByProductId: ReadonlyMap<string, string>;
+}
+
+type ProfitRowFacts = Pick<
+  ProfitWindowFacts,
+  'orderWindow' | 'lines' | 'listingAdSpend' | 'gradeByProductId'
+> & { ad: AccountAdEvidence };
+
+async function readAdWindowEvidence(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+  from: Date,
+  to: Date,
+): Promise<AdWindowEvidence> {
+  const businessDateFrom = kstBusinessDate(from);
+  const businessDateTo = kstBusinessDate(to);
+  const requestedDates = datesInclusive(businessDateFrom, addDays(businessDateTo, -1))
+    .map(businessDateKey);
+  const hasAdAccount = await advertisingApplies(tx, organizationId);
+  const days = requestedDates.length === 0
+    ? []
+    : (await readAdWindowFacts(tx, { organizationId, from: businessDateFrom, to: businessDateTo })).days;
+  return {
+    hasAdAccount,
+    publishedDates: days.length,
+    accountSpend: days.reduce((sum, day) => sum + day.spend, 0),
+    coversWindow: requestedDates.length > 0 && days.length === requestedDates.length,
+    requestedDates,
+    measuredDates: days.map((day) => day.businessDate),
+  };
+}
+
 /**
  * The window answer, read from the advertising ledger: whether advertising
  * applies (no Coupang account, nothing to collect), how many business dates
@@ -106,35 +175,395 @@ export async function readAdEvidenceFromLedger(
   from: Date,
   to: Date,
 ): Promise<AccountAdEvidence> {
-  const businessDateFrom = kstBusinessDate(from);
-  const businessDateTo = kstBusinessDate(to);
-  const windowDays = datesInclusive(businessDateFrom, addDays(businessDateTo, -1)).length;
-  const applies = await advertisingApplies(tx, organizationId);
-  const facts = windowDays === 0
-    ? { days: [] as const, observedAt: null }
-    : await readAdWindowFacts(tx, { organizationId, from: businessDateFrom, to: businessDateTo });
-  return {
-    hasAdAccount: applies,
-    publishedDates: facts.days.length,
-    accountSpend: facts.days.reduce((sum, day) => sum + day.spend, 0),
-    coversWindow: windowDays > 0 && facts.days.length === windowDays,
-  };
+  const { hasAdAccount, publishedDates, accountSpend, coversWindow } =
+    await readAdWindowEvidence(tx, organizationId, from, to);
+  return { hasAdAccount, publishedDates, accountSpend, coversWindow };
 }
 
-/** Narrows to the listings whose ad coverage was complete. */
+async function readProfitLines(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+  from: Date,
+  to: Date,
+): Promise<Pick<ProfitWindowFacts, 'orderWindow' | 'orderShipping' | 'lines' | 'unmappedLineCount'>> {
+  const facts = await readOrderLineWindowFacts(tx, {
+    organizationId,
+    from,
+    to,
+    excludedStatuses: ORDER_FACT_EXCLUDED_STATUSES,
+  });
+  const optionIds = [...new Set(facts.orders.flatMap((order) =>
+    order.lines.flatMap((line) => (line.listingOptionId ? [line.listingOptionId] : []))))];
+  const options = optionIds.length === 0 ? [] : await tx.channelListingOption.findMany({
+    where: { organizationId, id: { in: optionIds } },
+    select: {
+      id: true,
+      costPriceOverride: true,
+      commissionRate: true,
+      otherCost: true,
+      inventoryComponents: {
+        where: { organizationId },
+        select: { quantity: true, sellpiaInventorySkuId: true },
+      },
+      listing: {
+        select: {
+          id: true,
+          externalId: true,
+          channelName: true,
+          displayName: true,
+          category: true,
+          masterProduct: { select: { id: true, code: true, name: true, category: true } },
+          channelAccount: { select: { channel: true } },
+          thumbnails: {
+            where: { status: 'active' },
+            orderBy: { updatedAt: 'desc' },
+            take: 1,
+            select: { imageUrl: true },
+          },
+        },
+      },
+    },
+  });
+  const inventorySkuIds = [...new Set(options.flatMap((option) =>
+    option.inventoryComponents.map((component) => component.sellpiaInventorySkuId)))];
+  const inventorySkus = await readInventorySkuIdentities(tx, {
+    organizationId,
+    selector: { kind: 'ids', values: inventorySkuIds },
+  });
+  const purchasePriceBySkuId = new Map(inventorySkus.map((sku) => [
+    sku.sellpiaInventorySkuId,
+    sku.purchasePrice,
+  ]));
+  const optionById = new Map(options.map((option) => {
+    const listing = option.listing;
+    const identity: ProfitListingIdentity = {
+      listingId: listing.id,
+      externalId: listing.externalId,
+      channelName: listing.channelName ?? null,
+      channel: listing.channelAccount.channel,
+      masterProductId: listing.masterProduct?.id ?? null,
+      masterCode: listing.masterProduct?.code ?? listing.externalId,
+      masterName: listing.masterProduct?.name
+        ?? listing.displayName
+        ?? listing.channelName
+        ?? listing.externalId,
+      category: listing.masterProduct?.category ?? listing.category,
+      thumbnailUrl: listing.thumbnails[0]?.imageUrl ?? null,
+    };
+    const pricing = resolvePricing({
+      option: {
+        costPriceOverride: option.costPriceOverride,
+        commissionRate: option.commissionRate,
+        otherCost: option.otherCost,
+        inventoryComponents: option.inventoryComponents.map((component) => ({
+          quantity: component.quantity,
+          // A component whose Sellpia SKU the Inventory reader does not return
+          // has no recorded purchase price.
+          purchasePrice: purchasePriceBySkuId.get(component.sellpiaInventorySkuId) ?? null,
+        })),
+      },
+    });
+    return [option.id, { identity, pricing }] as const;
+  }));
+
+  const lines: ProfitLineFact[] = [];
+  let unmappedLineCount = 0;
+  let orderShipping = 0;
+  for (const order of facts.orders) {
+    orderShipping += order.shippingPrice;
+    const orderRevenue = order.lines.reduce((sum, line) => sum + line.revenue, 0);
+    for (const line of order.lines) {
+      const option = line.listingOptionId ? optionById.get(line.listingOptionId) : undefined;
+      if (!option) {
+        unmappedLineCount += 1;
+        continue;
+      }
+      const { unitCost, commissionRate, otherCost } = option.pricing;
+      lines.push({
+        orderId: order.orderId,
+        listing: option.identity,
+        revenue: line.revenue,
+        // Revenue-weighted shipping; a zero-revenue order has nothing to weigh by.
+        shippingCost: orderRevenue > 0 && order.shippingPrice > 0
+          ? Math.round(order.shippingPrice * (line.revenue / orderRevenue))
+          : 0,
+        costOfGoods: unitCost === null ? null : unitCost * line.quantity,
+        commission: commissionRate === null ? null : line.revenue * commissionRate,
+        otherCost: otherCost === null ? null : otherCost * line.quantity,
+      });
+    }
+  }
+  return { orderWindow: facts.window, orderShipping, lines, unmappedLineCount };
+}
+
+async function readListingAdSpend(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+  from: Date,
+  to: Date,
+): Promise<ReadonlyMap<string, number>> {
+  const rows = await readListingAdWindowFacts(tx, {
+    organizationId,
+    from: kstBusinessDate(from),
+    to: kstBusinessDate(to),
+  });
+  return new Map(rows.map((row) => [row.listingId, row.spend]));
+}
+
+async function readGrades(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+  lines: readonly ProfitLineFact[],
+): Promise<ReadonlyMap<string, string>> {
+  return readPublishedProductAbcGrades(tx, {
+    organizationId,
+    masterProductIds: [...new Set(lines.flatMap((line) =>
+      line.listing.masterProductId ? [line.listing.masterProductId] : []))],
+  });
+}
+
+/**
+ * Read every fact one finance window needs, in the caller's transaction:
+ * collected order lines priced from their options, the advertising evidence
+ * and per-listing spend for the same business dates, and current grades.
+ */
+export async function readProfitWindowFacts(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+  from: Date,
+  to: Date,
+): Promise<ProfitWindowFacts> {
+  const ad = await readAdWindowEvidence(tx, organizationId, from, to);
+  const lineFacts = await readProfitLines(tx, organizationId, from, to);
+  const listingAdSpend = await readListingAdSpend(tx, organizationId, from, to);
+  const gradeByProductId = await readGrades(tx, organizationId, lineFacts.lines);
+  return { ...lineFacts, ad, listingAdSpend, gradeByProductId };
+}
+
+/** Whether a completed Orders collection covered every business date of the window. */
+export function isOrderWindowComplete(orderWindow: OrderWindowFacts): boolean {
+  return orderWindow.revenue !== null;
+}
+
+/** A total over values that may be unavailable: any unavailable member makes it unavailable. */
+export function totalOrUnavailable(values: Iterable<number | null>): number | null {
+  let total = 0;
+  for (const value of values) {
+    if (value === null) return null;
+    total += value;
+  }
+  return total;
+}
+
+/** Profit as a percent of revenue with one decimal; no ratio over zero revenue. */
+export function profitRatePercent(netProfit: number | null, revenue: number | null): number | null {
+  if (netProfit === null || revenue === null || revenue <= 0) return null;
+  return Math.round((netProfit / revenue) * 1000) / 10;
+}
+
+export function roundOrUnavailable(value: number | null): number | null {
+  return value === null ? null : Math.round(value);
+}
+
+/** Accumulates a value that may be unavailable; once unavailable, the total stays so. */
+export function addOrUnavailable(total: number | null, value: number | null): number | null {
+  return total === null || value === null ? null : total + value;
+}
+
+/**
+ * A listing's ad cost, answered at account level first because only the
+ * account separates an organization that runs no ads from one whose ad
+ * collection failed:
+ *
+ * - No advertising account — no collection can exist either. Advertising is a
+ *   satisfied input at zero for every listing.
+ * - A window the sweep measured no date of, or only part of. A sum over 3 of
+ *   30 requested days proves nothing about the other 27, so the cost is
+ *   unavailable.
+ * - A fully measured window. The sweep looked at every listing on every
+ *   measured date, so a listing's cost is the sum of its rows and a listing
+ *   without a row spent nothing.
+ */
+function listingAdCost(
+  ad: AccountAdEvidence,
+  listingAdSpend: ReadonlyMap<string, number>,
+  listingId: string,
+): number | null {
+  if (!ad.hasAdAccount) return 0;
+  if (ad.publishedDates === 0 || !ad.coversWindow) return null;
+  return listingAdSpend.has(listingId) ? listingAdSpend.get(listingId)! : 0;
+}
+
+/**
+ * Whether profit inputs cover the same dates. Revenue and line costs share
+ * the collected order dates; advertising, when it applies, is a whole-window
+ * sum, so the orders must cover that whole window as well.
+ */
+function profitDatesAligned(ad: AccountAdEvidence, orderWindow: OrderWindowFacts): boolean {
+  return !ad.hasAdAccount || isOrderWindowComplete(orderWindow);
+}
+
+/** Per-listing rows over the collected lines of a window. */
+export function perListingProfitRows(facts: ProfitRowFacts): PerListingProfit[] {
+  type Group = {
+    identity: ProfitListingIdentity;
+    revenue: number;
+    shippingCost: number;
+    costOfGoods: number | null;
+    commission: number | null;
+    otherCost: number | null;
+    orderIds: Set<string>;
+  };
+  const groups = new Map<string, Group>();
+  for (const line of facts.lines) {
+    const group = groups.get(line.listing.listingId) ?? {
+      identity: line.listing,
+      revenue: 0,
+      shippingCost: 0,
+      costOfGoods: 0,
+      commission: 0,
+      otherCost: 0,
+      orderIds: new Set<string>(),
+    };
+    group.revenue += line.revenue;
+    group.shippingCost += line.shippingCost;
+    group.costOfGoods = addOrUnavailable(group.costOfGoods, line.costOfGoods);
+    group.commission = addOrUnavailable(group.commission, line.commission);
+    group.otherCost = addOrUnavailable(group.otherCost, line.otherCost);
+    group.orderIds.add(line.orderId);
+    groups.set(line.listing.listingId, group);
+  }
+
+  const datesAligned = profitDatesAligned(facts.ad, facts.orderWindow);
+  return Array.from(groups.values()).map((group) => {
+    const { identity } = group;
+    const costOfGoods = roundOrUnavailable(group.costOfGoods);
+    const commission = roundOrUnavailable(group.commission);
+    const otherCost = roundOrUnavailable(group.otherCost);
+    const adCost = listingAdCost(facts.ad, facts.listingAdSpend, identity.listingId);
+    const costs = totalOrUnavailable([costOfGoods, commission, otherCost, adCost]);
+    const netProfit = !datesAligned || costs === null
+      ? null
+      : group.revenue - group.shippingCost - costs;
+    return {
+      listingId: identity.listingId,
+      externalId: identity.externalId,
+      channelName: identity.channelName,
+      channel: identity.channel,
+      masterId: identity.masterProductId ?? identity.listingId,
+      masterCode: identity.masterCode,
+      masterName: identity.masterName,
+      category: identity.category,
+      grade: identity.masterProductId
+        ? facts.gradeByProductId.get(identity.masterProductId) ?? null
+        : null,
+      thumbnailUrl: identity.thumbnailUrl,
+      revenue: group.revenue,
+      costOfGoods,
+      commission,
+      shippingCost: group.shippingCost,
+      adCost,
+      otherCost,
+      netProfit,
+      profitRate: profitRatePercent(netProfit, group.revenue),
+      orderCount: group.orderIds.size,
+    } satisfies PerListingProfit;
+  });
+}
+
+function lineCostsComplete(facts: Pick<ProfitWindowFacts, 'lines' | 'unmappedLineCount'>): boolean {
+  return facts.unmappedLineCount === 0 && facts.lines.every((line) =>
+    line.costOfGoods !== null && line.commission !== null && line.otherCost !== null);
+}
+
+/**
+ * The organization's totals for the window. Each is published only when the
+ * Orders collection covered every date of the window and every input it
+ * depends on was measured; a line with no recorded cost, or advertising the
+ * sweep did not measure, leaves cost and profit unavailable.
+ */
+export function profitWindowTotals(facts: ProfitWindowFacts): FinanceWindowTotals {
+  const revenue = facts.orderWindow.revenue;
+  const adCost = !facts.ad.hasAdAccount
+    ? 0
+    : facts.ad.coversWindow ? Math.round(facts.ad.accountSpend) : null;
+  const lineCosts = lineCostsComplete(facts)
+    ? Math.round(facts.lines.reduce(
+      (sum, line) => sum + line.costOfGoods! + line.commission! + line.otherCost!,
+      0,
+    ))
+    : null;
+  const cost = revenue === null || lineCosts === null || adCost === null
+    ? null
+    : lineCosts + facts.orderShipping + adCost;
+  const netProfit = revenue === null || cost === null ? null : revenue - cost;
+  return {
+    revenue,
+    orderCount: facts.orderWindow.orderCount,
+    cost,
+    adCost,
+    netProfit,
+    profitRate: profitRatePercent(netProfit, revenue),
+  } satisfies FinanceWindowTotals;
+}
+
+function windowRange(requestedDates: readonly string[]): { from: string; to: string } {
+  const from = requestedDates[0];
+  const to = requestedDates[requestedDates.length - 1];
+  if (from === undefined || to === undefined) {
+    throw new Error('A finance window must select at least one business date');
+  }
+  return { from, to };
+}
+
+/** The basis of values counted from collected order lines alone. */
+export function orderWindowBasis(orderWindow: OrderWindowFacts): DashboardPeriodBasis {
+  return buildPeriodBasis({
+    ...windowRange(orderWindow.requestedDates),
+    includedDates: orderWindow.includedDates,
+    sources: [ORDERS_SOURCE],
+  });
+}
+
+/**
+ * The evidence behind a finance window, as measured facts. Profit is measured
+ * on the dates both the orders and, when it applies, advertising covered; a
+ * window with a line lacking a recorded cost refuses every date for profit.
+ */
+export function profitWindowBasis(facts: ProfitWindowFacts): FinanceWindowBasis {
+  const range = windowRange(facts.orderWindow.requestedDates);
+  const adDates = facts.ad.hasAdAccount ? facts.ad.measuredDates : facts.orderWindow.requestedDates;
+  const adDateSet = new Set(adDates);
+  return {
+    revenue: orderWindowBasis(facts.orderWindow),
+    adCost: buildPeriodBasis({ ...range, includedDates: adDates, sources: [COUPANG_ADS_SOURCE] }),
+    profit: buildPeriodBasis({
+      ...range,
+      includedDates: facts.orderWindow.includedDates.filter((date) => adDateSet.has(date)),
+      invalidDates: lineCostsComplete(facts) ? [] : facts.orderWindow.requestedDates,
+      sources: facts.ad.hasAdAccount ? [ORDERS_SOURCE, COUPANG_ADS_SOURCE] : [ORDERS_SOURCE],
+    }),
+  } satisfies FinanceWindowBasis;
+}
+
+/** Narrows to the listings whose every profit input was measured. */
 export function hasMeasuredProfit(
   row: PerListingProfit,
 ): row is PerListingMetrics {
-  return row.adCost !== null && row.netProfit !== null && row.profitRate !== null;
+  return row.costOfGoods !== null
+    && row.commission !== null
+    && row.otherCost !== null
+    && row.adCost !== null
+    && row.netProfit !== null
+    && row.profitRate !== null;
 }
 
 /**
  * @param accountAdEvidence how Advertising says this window's account-level
  *   coverage should be read — obtain it with `readAdEvidenceFromLedger` for
- *   the same `[from, to)` window — which is also what carries the date
- *   coverage the owner's evidence word deliberately leaves out. It is required
- *   because its absence is what made "this organization runs no ads" and "ad
- *   collection failed for the whole window" the same computed zero.
+ *   the same `[from, to)` window. It is required because its absence is what
+ *   made "this organization runs no ads" and "ad collection failed for the
+ *   whole window" the same computed zero.
  */
 export async function buildPerListingProfit(
   tx: Prisma.TransactionClient,
@@ -143,210 +572,15 @@ export async function buildPerListingProfit(
   to: Date,
   accountAdEvidence: AccountAdEvidence,
 ): Promise<PerListingProfit[]> {
-  const businessDateFrom = kstBusinessDate(from);
-  const businessDateTo = kstBusinessDate(to);
-  const orders = await tx.order.findMany({
-      where: {
-        organizationId,
-        orderedAt: { gte: from, lt: to },
-        status: { notIn: [...EXCLUDED_ORDER_STATUSES] },
-      },
-      select: {
-        id: true,
-        shippingPrice: true,
-        lineItems: {
-          select: {
-            quantity: true,
-            totalPrice: true,
-            listingOption: {
-              select: {
-                costPriceOverride: true,
-                commissionRate: true,
-                shippingCost: true,
-                otherCost: true,
-                inventoryComponents: {
-                  select: {
-                    quantity: true,
-                    sellpiaInventorySku: {
-                      select: { purchasePrice: true },
-                    },
-                  },
-                },
-                listing: {
-                  select: {
-                    id: true,
-                    externalId: true,
-                    channelName: true,
-                    displayName: true,
-                    category: true,
-                    masterProduct: {
-                      select: {
-                        id: true,
-                        code: true,
-                        name: true,
-                        category: true,
-                      },
-                    },
-                    channelAccount: { select: { channel: true } },
-                    thumbnails: {
-                      where: { status: 'active' },
-                      orderBy: { updatedAt: 'desc' },
-                      take: 1,
-                      select: { imageUrl: true },
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
-    });
-  const adByListing = await readListingAdWindowFacts(tx, {
-    organizationId,
-    from: businessDateFrom,
-    to: businessDateTo,
-  });
-  const gradeByProductId = await readPublishedProductAbcGrades(tx, {
-    organizationId,
-    masterProductIds: orders.flatMap((order) => order.lineItems.flatMap((line) =>
-      line.listingOption?.listing.masterProduct ? [line.listingOption.listing.masterProduct.id] : [])),
-  });
-
-  type Agg = {
-    listingId: string;
-    externalId: string;
-    channelName: string | null;
-    channel: string;
-    masterId: string;
-    masterCode: string;
-    masterName: string;
-    category: string | null;
-    grade: string | null;
-    thumbnailUrl: string | null;
-    revenue: number;
-    costOfGoods: number;
-    commission: number;
-    shippingCost: number;
-    otherCost: number;
-    orderIds: Set<string>;
-  };
-  const groups = new Map<string, Agg>();
-
-  for (const o of orders) {
-    const orderTotalRevenue = o.lineItems.reduce((s, li) => s + (li.totalPrice || 0), 0);
-
-    for (const li of o.lineItems) {
-      const listing = li.listingOption?.listing;
-      if (!listing || !li.listingOption) continue;
-      const key = listing.id;
-
-      let g = groups.get(key);
-      if (!g) {
-        g = {
-          listingId: listing.id,
-          externalId: listing.externalId,
-          channelName: listing.channelName ?? null,
-          channel: listing.channelAccount.channel,
-          masterId: listing.masterProduct?.id ?? listing.id,
-          masterCode: listing.masterProduct?.code ?? listing.externalId,
-          masterName: listing.masterProduct?.name
-            ?? listing.displayName
-            ?? listing.channelName
-            ?? listing.externalId,
-          category: listing.masterProduct?.category ?? listing.category,
-          grade: listing.masterProduct
-            ? gradeByProductId.get(listing.masterProduct.id) ?? null
-            : null,
-          thumbnailUrl: listing.thumbnails[0]?.imageUrl ?? null,
-          revenue: 0,
-          costOfGoods: 0,
-          commission: 0,
-          shippingCost: 0,
-          otherCost: 0,
-          orderIds: new Set<string>(),
-        };
-        groups.set(key, g);
-      }
-      g.orderIds.add(o.id);
-
-      const option = li.listingOption;
-      const componentCost = option.inventoryComponents.reduce(
-        (sum, component) => sum
-          + (component.sellpiaInventorySku.purchasePrice ?? 0)
-            * component.quantity,
-        0,
-      );
-      const costPrice = option.costPriceOverride ?? componentCost;
-      const commissionRate = Number(option.commissionRate ?? 0);
-      const lineRevenue = li.totalPrice || 0;
-      g.revenue += lineRevenue;
-      g.costOfGoods += costPrice * li.quantity;
-      g.commission += lineRevenue * commissionRate;
-      g.otherCost += (option.otherCost ?? 0) * li.quantity;
-      // Revenue-weighted shipping distribution (zero-revenue order → drop ship)
-      if (orderTotalRevenue > 0 && o.shippingPrice) {
-        g.shippingCost += Math.round(o.shippingPrice * (lineRevenue / orderTotalRevenue));
-      }
-    }
-  }
-
-  const adSpendByListing = new Map(adByListing.map((r) => [r.listingId, r.spend]));
-
-  /**
-   * The account answers first, because it is the only place that separates an
-   * organization that runs no ads from one whose ad collection failed:
-   *
-   * - No advertising account — no collection can exist either. Advertising
-   *   is a satisfied input at zero for every listing.
-   * - A window the sweep measured no date of. No listing has a measured ad
-   *   cost, so every profit here is unavailable. Absent evidence is never a
-   *   cost of zero.
-   * - A window the sweep measured only part of. A sum over 3 of 30 requested
-   *   days proves nothing about the other 27, so profit stays unavailable.
-   * - A fully measured window. Coverage is account-level — the sweep looked
-   *   at every listing on every measured date — so each listing's cost is the
-   *   sum of its rows, and a listing with no row at all spent nothing.
-   */
-  const resolveAdCost = (listingId: string): number | null => {
-    if (!accountAdEvidence.hasAdAccount) return 0;
-    if (accountAdEvidence.publishedDates === 0) return null;
-    if (!accountAdEvidence.coversWindow) return null;
-    return adSpendByListing.get(listingId) ?? 0;
-  };
-
-  return Array.from(groups.values()).map((g) => {
-    const adCost = resolveAdCost(g.listingId);
-    const costOfGoods = Math.round(g.costOfGoods);
-    const commission = Math.round(g.commission);
-    const otherCost = Math.round(g.otherCost);
-    const netProfit = adCost === null
-      ? null
-      : g.revenue - costOfGoods - commission - g.shippingCost - adCost - otherCost;
-    const profitRate = netProfit === null
-      ? null
-      : g.revenue > 0 ? Math.round((netProfit / g.revenue) * 1000) / 10 : 0;
-    return {
-      listingId: g.listingId,
-      externalId: g.externalId,
-      channelName: g.channelName,
-      channel: g.channel,
-      masterId: g.masterId,
-      masterCode: g.masterCode,
-      masterName: g.masterName,
-      category: g.category,
-      grade: g.grade,
-      thumbnailUrl: g.thumbnailUrl,
-      revenue: g.revenue,
-      costOfGoods,
-      commission,
-      shippingCost: g.shippingCost,
-      adCost,
-      otherCost,
-      netProfit,
-      profitRate,
-      orderCount: g.orderIds.size,
-    } satisfies PerListingProfit;
+  const lineFacts = await readProfitLines(tx, organizationId, from, to);
+  const listingAdSpend = await readListingAdSpend(tx, organizationId, from, to);
+  const gradeByProductId = await readGrades(tx, organizationId, lineFacts.lines);
+  return perListingProfitRows({
+    orderWindow: lineFacts.orderWindow,
+    lines: lineFacts.lines,
+    ad: accountAdEvidence,
+    listingAdSpend,
+    gradeByProductId,
   });
 }
 
@@ -356,28 +590,19 @@ export async function buildPerListingProfit(
  * it can compute, and the fact that it counted a subset.
  */
 export interface PerListingMetricsCoverage {
-  /** Listings whose ad coverage was complete, so their profit is measured. */
+  /** Listings whose every profit input was measured. */
   metrics: PerListingMetrics[];
-  /** Listings withheld because their ad coverage was incomplete. */
+  /** Listings withheld because an input was not measured. */
   withheldListings: number;
 }
 
 /**
  * Per-listing rows whose profit is measured, with the withheld population.
  *
- * A listing with incomplete ad coverage is **withheld** rather than published
- * with a partial sum — the same rule ABC applies when advertising evidence is
- * not ready. Withholding shrinks the population a rollup counts, so the size
- * of what was withheld is evidence about the rollup and travels with it;
- * `withheldListings > 0` with an empty `metrics` is an empty computable
- * subset, not a counted zero.
- *
- * Use `buildPerListingProfit` wherever a reader sees one listing's own profit
- * and can be shown that it is unavailable.
- *
- * An account-level `MISSING` withholds every listing, so a caller that
- * publishes a calculation basis reports an empty computable subset instead of
- * a counted zero.
+ * A listing with an unmeasured input is **withheld** rather than published
+ * with a partial figure. Withholding shrinks the population a rollup counts,
+ * so the size of what was withheld travels with it; `withheldListings > 0`
+ * with an empty `metrics` is an empty computable subset, not a counted zero.
  */
 export async function buildPerListingMetricsCoverage(
   tx: Prisma.TransactionClient,
@@ -386,13 +611,7 @@ export async function buildPerListingMetricsCoverage(
   to: Date,
   accountAdEvidence: AccountAdEvidence,
 ): Promise<PerListingMetricsCoverage> {
-  const rows = await buildPerListingProfit(
-    tx,
-    organizationId,
-    from,
-    to,
-    accountAdEvidence,
-  );
+  const rows = await buildPerListingProfit(tx, organizationId, from, to, accountAdEvidence);
   const metrics = rows.filter(hasMeasuredProfit);
   return { metrics, withheldListings: rows.length - metrics.length };
 }
@@ -408,12 +627,6 @@ export async function buildPerListingMetrics(
   to: Date,
   accountAdEvidence: AccountAdEvidence,
 ): Promise<PerListingMetrics[]> {
-  const coverage = await buildPerListingMetricsCoverage(
-    tx,
-    organizationId,
-    from,
-    to,
-    accountAdEvidence,
-  );
+  const coverage = await buildPerListingMetricsCoverage(tx, organizationId, from, to, accountAdEvidence);
   return coverage.metrics;
 }

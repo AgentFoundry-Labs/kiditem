@@ -164,24 +164,9 @@
       ],
       "legacyReaders": [
         {
-          "path": "apps/server/src/common/per-listing-profit.ts",
-          "removeWith": "KID-85",
-          "reason": "Profitability migration remains in its inventory slice."
-        },
-        {
           "path": "apps/server/src/analytics/supplier-stats/supplier-stats.service.ts",
           "removeWith": "KID-85",
           "reason": "Supplier reporting order joins move behind canonical finance and Orders readers."
-        },
-        {
-          "path": "apps/server/src/finance/settlements/settlements.service.ts",
-          "removeWith": "KID-85",
-          "reason": "Settlement order aggregation moves behind the canonical Orders reader in the finance rewrite."
-        },
-        {
-          "path": "apps/server/src/finance/services/sales-analysis.service.ts",
-          "removeWith": "KID-85",
-          "reason": "Finance sales analysis migration remains in its inventory slice."
         },
         {
           "path": "apps/server/src/finance/services/sales-analysis-scraper.service.ts",
@@ -209,29 +194,9 @@
       ],
       "legacyReaders": [
         {
-          "path": "apps/server/src/common/per-listing-profit.ts",
-          "removeWith": "KID-85",
-          "reason": "Profitability migration remains in its inventory slice."
-        },
-        {
           "path": "apps/server/src/analytics/supplier-stats/supplier-stats.service.ts",
           "removeWith": "KID-85",
           "reason": "Supplier statistics migration remains in its inventory slice."
-        },
-        {
-          "path": "apps/server/src/finance/settlements/settlements.service.ts",
-          "removeWith": "KID-85",
-          "reason": "Settlement line aggregation moves behind the canonical Orders reader in the finance rewrite."
-        },
-        {
-          "path": "apps/server/src/finance/services/profit-loss.service.ts",
-          "removeWith": "KID-85",
-          "reason": "Profit and loss line aggregation moves behind the canonical Orders reader in the finance rewrite."
-        },
-        {
-          "path": "apps/server/src/finance/services/sales-analysis.service.ts",
-          "removeWith": "KID-85",
-          "reason": "Finance sales analysis migration remains in its inventory slice."
         }
       ]
     },
@@ -247,18 +212,7 @@
       ],
       "reader": "apps/server/src/orders/read/order-facts.reader.ts",
       "ownerPublications": [],
-      "legacyReaders": [
-        {
-          "path": "apps/server/src/finance/services/profit-loss.service.ts",
-          "removeWith": "KID-85",
-          "reason": "Profit and loss return attribution moves behind the canonical Orders reader in the finance rewrite."
-        },
-        {
-          "path": "apps/server/src/finance/services/sales-analysis.service.ts",
-          "removeWith": "KID-85",
-          "reason": "Finance sales analysis migration remains in its inventory slice."
-        }
-      ]
+      "legacyReaders": []
     },
     {
       "name": "Orders current complete review",

@@ -1,5 +1,5 @@
 import { Pagination } from '@/components/ui/Pagination';
-import { formatDate, formatKRW, formatPercent } from '@/lib/utils';
+import { formatDate, formatKRW, formatNumber, formatPercent } from '@/lib/utils';
 import { PAGE_SIZE } from '../../lib/statistics-data';
 import { StatBox } from './StatBox';
 import type { StatisticsRepurchaseResponse } from '@kiditem/shared/statistics';
@@ -33,11 +33,11 @@ export function RepurchasePanel({
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-3 gap-3">
-        <StatBox label="전체 고객수" value={repurchase.totalCustomers} unit="명" />
-        <StatBox label="재구매 고객" value={repurchase.repeatCount} unit="명" />
+        <StatBox label="전체 고객수" value={formatNumber(repurchase.totalCustomers)} unit="명" />
+        <StatBox label="재구매 고객" value={formatNumber(repurchase.repeatCount)} unit="명" />
         <StatBox
           label="재구매율"
-          value={formatPercent(repurchase.repurchaseRate * 100)}
+          value={formatPercent(repurchase.repurchaseRate === null ? null : repurchase.repurchaseRate * 100)}
           unit=""
         />
       </div>

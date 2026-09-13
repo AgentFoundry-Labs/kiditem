@@ -101,7 +101,7 @@ export class FinanceReportExportService {
     query: ProfitLossExportQueryDto,
   ): Promise<FinanceReportExportResult> {
     const { year, month } = resolvePeriod(query.period);
-    const rows = await this.profitLoss.findAll(organizationId, year, month);
+    const { rows } = await this.profitLoss.findAll(organizationId, year, month);
     const filtered = filterAndSortProfitLoss(rows, query);
     const workbook = XLSX.utils.book_new();
     appendSheet(workbook, '손익표', filtered.map(toProfitLossPageRow));
@@ -212,7 +212,7 @@ export class FinanceReportExportService {
 
   private async listProfitLoss(organizationId: string, period?: string) {
     const { year, month } = resolvePeriod(period);
-    return this.profitLoss.findAll(organizationId, year, month);
+    return (await this.profitLoss.findAll(organizationId, year, month)).rows;
   }
 }
 

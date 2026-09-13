@@ -6,28 +6,24 @@ import {
   Users,
   type LucideIcon,
 } from 'lucide-react';
-import { z } from 'zod';
 import {
-  StatisticsCategoryRowSchema,
-  StatisticsGradeRowSchema,
+  StatisticsCategoriesResponseSchema,
+  StatisticsGradesResponseSchema,
   StatisticsOverviewSchema,
   StatisticsParetoResponseSchema,
-  StatisticsProductRowSchema,
+  StatisticsProductsResponseSchema,
   StatisticsRepurchaseResponseSchema,
 } from '@kiditem/shared/statistics';
 import { apiClient } from '@/lib/api-client';
 import type {
-  StatisticsCategoryRow,
-  StatisticsGradeRow,
+  StatisticsCategoriesResponse,
+  StatisticsGradesResponse,
   StatisticsOverview,
   StatisticsParetoResponse,
-  StatisticsProductRow,
+  StatisticsProductsResponse,
   StatisticsRepurchaseResponse,
 } from '@kiditem/shared/statistics';
-
-const ProductRowsSchema = z.array(StatisticsProductRowSchema);
-const CategoryRowsSchema = z.array(StatisticsCategoryRowSchema);
-const GradeRowsSchema = z.array(StatisticsGradeRowSchema);
+import type { FinanceBasisNoticeBasis } from '../../_shared/components/FinanceBasisNotice';
 
 export type StatisticsTab =
   | 'overview'
@@ -39,9 +35,9 @@ export type StatisticsTab =
 
 export type StatisticsData = {
   overview?: StatisticsOverview;
-  products?: StatisticsProductRow[];
-  categories?: StatisticsCategoryRow[];
-  grades?: StatisticsGradeRow[];
+  products?: StatisticsProductsResponse;
+  categories?: StatisticsCategoriesResponse;
+  grades?: StatisticsGradesResponse;
   pareto?: StatisticsParetoResponse;
   repurchase?: StatisticsRepurchaseResponse;
 };
@@ -77,21 +73,21 @@ export async function fetchStatisticsTab(
       return {
         products: await apiClient.getParsed(
           `/api/statistics?type=products&period=${period}`,
-          ProductRowsSchema,
+          StatisticsProductsResponseSchema,
         ),
       };
     case 'categories':
       return {
         categories: await apiClient.getParsed(
           `/api/statistics?type=categories&period=${period}`,
-          CategoryRowsSchema,
+          StatisticsCategoriesResponseSchema,
         ),
       };
     case 'grades':
       return {
         grades: await apiClient.getParsed(
           `/api/statistics?type=grades&period=${period}`,
-          GradeRowsSchema,
+          StatisticsGradesResponseSchema,
         ),
       };
     case 'pareto':
@@ -118,13 +114,13 @@ export async function fetchStatisticsTab(
 export function isTabEmpty(tab: StatisticsTab, data: StatisticsData): boolean {
   switch (tab) {
     case 'products':
-      return (data.products?.length ?? 0) === 0;
+      return !data.products || data.products.rows.length === 0;
     case 'categories':
-      return (data.categories?.length ?? 0) === 0;
+      return !data.categories || data.categories.rows.length === 0;
     case 'grades':
-      return (data.grades?.length ?? 0) === 0;
+      return !data.grades || data.grades.rows.length === 0;
     case 'pareto':
-      return (data.pareto?.data.length ?? 0) === 0;
+      return !data.pareto || data.pareto.data.length === 0;
     case 'repurchase': {
       const repurchase = data.repurchase;
       if (!repurchase) return true;
@@ -136,5 +132,27 @@ export function isTabEmpty(tab: StatisticsTab, data: StatisticsData): boolean {
     }
     default:
       return false;
+  }
+}
+
+/** The evidence the server published beside the open tab's values. */
+export function statisticsTabBasis(tab: StatisticsTab, data: StatisticsData): FinanceBasisNoticeBasis {
+  switch (tab) {
+    case 'overview':
+      return data.overview?.basis;
+    case 'products':
+      return data.products?.basis;
+    case 'categories':
+      return data.categories?.basis;
+    case 'grades':
+      return data.grades?.basis;
+    case 'pareto':
+      return data.pareto?.basis;
+    case 'repurchase':
+      return data.repurchase?.basis ? { revenue: data.repurchase.basis.orders } : null;
+    default: {
+      const unreachable: never = tab;
+      throw new Error(`Unknown statistics tab: ${unreachable}`);
+    }
   }
 }

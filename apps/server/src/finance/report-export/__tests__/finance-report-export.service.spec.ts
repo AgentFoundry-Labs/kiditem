@@ -36,7 +36,7 @@ function plRow(overrides: Partial<PLData> = {}): PLData {
 }
 
 function buildService() {
-  const profitLoss = { findAll: vi.fn().mockResolvedValue([plRow()]) };
+  const profitLoss = { findAll: vi.fn().mockResolvedValue({ rows: [plRow()] }) };
   const settlements = {
     reconcile: vi.fn().mockResolvedValue({
       success: true,
@@ -222,11 +222,13 @@ describe('FinanceReportExportService', () => {
 
   it('preserves the P&L page filter, grade, and sort query in the server workbook', async () => {
     const { service, profitLoss } = buildService();
-    profitLoss.findAll.mockResolvedValue([
-      plRow({ listingId: LISTING, masterCode: 'A-1', grade: 'A', profitRate: -1, revenue: 100 }),
-      plRow({ listingId: MASTER, masterCode: 'A-2', grade: 'A', profitRate: 1, revenue: 50 }),
-      plRow({ listingId: MASTER, masterCode: 'B-1', grade: 'B', profitRate: -2, revenue: 200 }),
-    ]);
+    profitLoss.findAll.mockResolvedValue({
+      rows: [
+        plRow({ listingId: LISTING, masterCode: 'A-1', grade: 'A', profitRate: -1, revenue: 100 }),
+        plRow({ listingId: MASTER, masterCode: 'A-2', grade: 'A', profitRate: 1, revenue: 50 }),
+        plRow({ listingId: MASTER, masterCode: 'B-1', grade: 'B', profitRate: -2, revenue: 200 }),
+      ],
+    });
 
     const result = await service.exportProfitLoss(ORG, {
       period: '2026-08',

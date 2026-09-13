@@ -1,6 +1,7 @@
 import { beforeAll, beforeEach, afterAll, describe, expect, it } from 'vitest';
 import { Test } from '@nestjs/testing';
 import type { PrismaClient } from '@prisma/client';
+import { periodBasisStatus } from '@kiditem/shared/dashboard';
 import { StatisticsService } from '../statistics.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import {
@@ -49,7 +50,15 @@ describe('Statistics flow (PG integration)', () => {
     await seedBaseFixture(prisma);
   });
 
-  async function seedStatisticsFixture(organizationId = TEST_ORGANIZATION_ID) {
+  /**
+   * Two graded products on Coupang, April orders, an April campaign sweep
+   * and an Orders collection declaring it collected April through
+   * `orderCoverageEnd`.
+   */
+  async function seedStatisticsFixture(
+    organizationId = TEST_ORGANIZATION_ID,
+    orderCoverageEnd = '2026-04-30',
+  ) {
     const prefix = organizationId === TEST_ORGANIZATION_ID ? 'TEST' : 'OTHER';
 
     const { id: masterM1 } = await setupMaster(prisma, {
@@ -113,6 +122,7 @@ describe('Statistics flow (PG integration)', () => {
         externalOptionId: `${prefix}-VI-L1B`,
         costPriceOverride: 4_000,
         commissionRate: 0.1,
+        otherCost: 0,
       },
       select: { id: true },
     });
@@ -204,8 +214,6 @@ describe('Statistics flow (PG integration)', () => {
     });
     await prisma.order.update({ where: { id: o5 }, data: { receiverName: 'D' } });
 
-    // The campaign sweep measured every April date, so each listing's rows
-    // are its whole April ad cost and every April profit is a measurement.
     const runId = await seedCompletedAdSweepRun(prisma, {
       organizationId,
       generation: 1,
@@ -228,7 +236,7 @@ describe('Statistics flow (PG integration)', () => {
 
     await seedCompletedOrderCollection(prisma, {
       organizationId,
-      startDate: '2026-04-01', endDate: '2026-04-30',
+      startDate: '2026-04-01', endDate: orderCoverageEnd,
       orderIds: [o1, o2, o3, o4, o5],
     });
 
@@ -240,18 +248,22 @@ describe('Statistics flow (PG integration)', () => {
     };
   }
 
-  it('overview uses live listing metrics plus distinct accepted-order count', async () => {
+  it('overview publishes the collected month totals with a complete basis', async () => {
     await seedStatisticsFixture();
 
     const result = await service.overview(TEST_ORGANIZATION_ID, '2026-04');
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       totalRevenue: 52_000,
       totalOrders: 3,
       totalProfit: 20_800,
       avgMargin: 0.4,
       totalProducts: 2,
     });
+    expect(result.basis).not.toBeNull();
+    for (const basis of [result.basis!.revenue, result.basis!.adCost, result.basis!.profit]) {
+      expect(periodBasisStatus(basis)).toBe('complete');
+    }
   });
 
   it('products hydrates master metadata and keeps ratio-based profitRate semantics', async () => {
@@ -259,7 +271,7 @@ describe('Statistics flow (PG integration)', () => {
 
     const result = await service.products(TEST_ORGANIZATION_ID, '2026-04');
 
-    expect(result).toEqual([
+    expect(result.rows).toEqual([
       {
         listingId: listingL1,
         externalId: 'TEST-EXT-L1',
@@ -293,6 +305,7 @@ describe('Statistics flow (PG integration)', () => {
         margin: 0.45,
       },
     ]);
+    expect(periodBasisStatus(result.basis!.profit)).toBe('complete');
   });
 
   it('categories and grades reduce live metrics instead of snapshot rows', async () => {
@@ -303,42 +316,16 @@ describe('Statistics flow (PG integration)', () => {
       service.grades(TEST_ORGANIZATION_ID, '2026-04'),
     ]);
 
-    expect(categories).toEqual([
-      {
-        category: '유아용품',
-        name: '유아용품',
-        revenue: 32_000,
-        orders: 1,
-        profit: 11_800,
-        count: 1,
-      },
-      {
-        category: '완구',
-        name: '완구',
-        revenue: 20_000,
-        orders: 2,
-        profit: 9_000,
-        count: 2,
-      },
+    expect(categories.rows).toEqual([
+      { category: '유아용품', name: '유아용품', revenue: 32_000, orders: 1, profit: 11_800, count: 1 },
+      { category: '완구', name: '완구', revenue: 20_000, orders: 2, profit: 9_000, count: 2 },
     ]);
-    expect(grades).toEqual([
-      {
-        grade: 'A',
-        revenue: 32_000,
-        profit: 11_800,
-        count: 1,
-        productCount: 1,
-        adCost: 3_000,
-      },
-      {
-        grade: 'B',
-        revenue: 20_000,
-        profit: 9_000,
-        count: 1,
-        productCount: 1,
-        adCost: 1_000,
-      },
+    expect(grades.rows).toEqual([
+      { grade: 'A', revenue: 32_000, profit: 11_800, count: 1, productCount: 1, adCost: 3_000 },
+      { grade: 'B', revenue: 20_000, profit: 9_000, count: 1, productCount: 1, adCost: 1_000 },
     ]);
+    expect(periodBasisStatus(categories.basis!.revenue)).toBe('complete');
+    expect(periodBasisStatus(grades.basis!.adCost)).toBe('complete');
   });
 
   it('pareto sorts by live revenue and exposes neutral revenue bands', async () => {
@@ -375,7 +362,7 @@ describe('Statistics flow (PG integration)', () => {
 
     const result = await service.repurchase(TEST_ORGANIZATION_ID, '2026-04');
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       totalCustomers: 2,
       repeatCount: 1,
       repurchaseRate: 0.5,
@@ -398,6 +385,7 @@ describe('Statistics flow (PG integration)', () => {
       ],
     });
     expect(result.repeatProducts.map((item) => item.masterId)).not.toContain(listingL1);
+    expect(periodBasisStatus(result.basis!.orders)).toBe('complete');
   });
 
   it('repurchase includes an imported listing without a component mapping', async () => {
@@ -502,33 +490,146 @@ describe('Statistics flow (PG integration)', () => {
       date: '2026-04-16',
       spend: IDOR_SENTINEL,
     });
+    const otherOptionId = await prisma.channelListingOption.findFirstOrThrow({
+      where: { organizationId: OTHER_ORGANIZATION_ID, listingId: other.listingL1 },
+      select: { id: true },
+    }).then((row) => row.id);
     await seedOrderWithLineItems(prisma, {
       organizationId: OTHER_ORGANIZATION_ID,
       externalOrderId: 'OTHER-SENTINEL',
       orderedAt: '2026-04-16T03:00:00Z',
       shippingPrice: 0,
       lineItems: [
-        {
-          quantity: 1,
-          totalPrice: IDOR_SENTINEL,
-          optionId: await prisma.channelListingOption.findFirstOrThrow({
-            where: { organizationId: OTHER_ORGANIZATION_ID, listingId: other.listingL1 },
-            select: { id: true },
-          }).then((row) => row.id),
-          listingOptionId: await prisma.channelListingOption.findFirstOrThrow({
-            where: { organizationId: OTHER_ORGANIZATION_ID, listingId: other.listingL1 },
-            select: { id: true },
-          }).then((row) => row.id),
-        },
+        { quantity: 1, totalPrice: IDOR_SENTINEL, optionId: otherOptionId, listingOptionId: otherOptionId },
       ],
     });
 
     const result = await service.products(TEST_ORGANIZATION_ID, '2026-04');
 
-    expect(result).toHaveLength(2);
-    for (const row of result) {
+    expect(result.rows).toHaveLength(2);
+    for (const row of result.rows) {
       expect(row.totalRevenue).not.toBe(IDOR_SENTINEL);
       expect(row.netProfit).not.toBe(IDOR_SENTINEL);
     }
+  });
+
+  /**
+   * KID-77 leftover — an explicit period must not publish totals counted from
+   * a partly collected Orders window.
+   */
+  it('publishes no window totals for an explicit period the Orders collection covered only in part', async () => {
+    await seedStatisticsFixture(TEST_ORGANIZATION_ID, '2026-04-14');
+
+    const [overview, products, pareto, repurchase] = await Promise.all([
+      service.overview(TEST_ORGANIZATION_ID, '2026-04'),
+      service.products(TEST_ORGANIZATION_ID, '2026-04'),
+      service.pareto(TEST_ORGANIZATION_ID, '2026-04'),
+      service.repurchase(TEST_ORGANIZATION_ID, '2026-04'),
+    ]);
+
+    expect(overview).toMatchObject({
+      totalRevenue: null,
+      totalOrders: null,
+      totalProfit: null,
+      avgMargin: null,
+      totalProducts: 2,
+    });
+    expect(overview.basis!.revenue.includedDates).toHaveLength(14);
+    expect(periodBasisStatus(overview.basis!.revenue)).toBe('partial');
+
+    // Collected lines stay visible with that basis; a profit that would pair
+    // a whole-month ad cost with fourteen days of orders does not.
+    expect(products.rows).toHaveLength(2);
+    for (const row of products.rows) {
+      expect(row).toMatchObject({ netProfit: null, profitRate: null, margin: null });
+    }
+
+    expect(pareto.totalRevenue).toBeNull();
+    expect(pareto.bandDistribution).toBeNull();
+    for (const item of pareto.data) {
+      expect(item).toMatchObject({ revenuePercent: null, cumulativePercent: null, paretoBand: null });
+    }
+
+    expect(repurchase).toMatchObject({
+      totalCustomers: null,
+      repeatCount: null,
+      repurchaseRate: null,
+      totalOrders: null,
+    });
+    expect(periodBasisStatus(repurchase.basis!.orders)).toBe('partial');
+  });
+
+  it('publishes no ratio over zero revenue', async () => {
+    const { id: masterId } = await setupMaster(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, code: 'ZERO-M', name: 'Zero revenue product',
+    });
+    const { id: optionId } = await setupProductOption(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, masterId, sku: 'ZERO-SKU', costPrice: 5_000, commissionRate: 0.1,
+    });
+    const listing = await setupChannelListing(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, masterId, channel: 'naver',
+      externalId: 'ZERO-EXT', optionId, externalOptionId: 'ZERO-VI',
+    });
+    const orderId = await seedOrderWithLineItems(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      externalOrderId: 'ZERO-ORD',
+      orderedAt: '2026-04-10T03:00:00Z',
+      shippingPrice: 0,
+      lineItems: [{ quantity: 1, totalPrice: 0, optionId, listingOptionId: listing.listingOptionId }],
+    });
+    await seedCompletedOrderCollection(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      startDate: '2026-04-01', endDate: '2026-04-30', orderIds: [orderId],
+    });
+
+    const [overview, products, pareto] = await Promise.all([
+      service.overview(TEST_ORGANIZATION_ID, '2026-04'),
+      service.products(TEST_ORGANIZATION_ID, '2026-04'),
+      service.pareto(TEST_ORGANIZATION_ID, '2026-04'),
+    ]);
+
+    expect(overview).toMatchObject({
+      totalRevenue: 0, totalOrders: 1, totalProfit: -5_000, avgMargin: null,
+    });
+    expect(products.rows[0]).toMatchObject({
+      totalRevenue: 0, netProfit: -5_000, profitRate: null, margin: null,
+    });
+    expect(pareto.totalRevenue).toBe(0);
+    expect(pareto.bandDistribution).toBeNull();
+    expect(pareto.data[0]).toMatchObject({
+      revenuePercent: null, cumulativePercent: null, paretoBand: null,
+    });
+  });
+
+  it('publishes no repurchase rate for a collected month without customers', async () => {
+    await seedCompletedOrderCollection(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      startDate: '2026-04-01', endDate: '2026-04-30', orderIds: [],
+    });
+
+    const result = await service.repurchase(TEST_ORGANIZATION_ID, '2026-04');
+
+    expect(result).toMatchObject({
+      totalCustomers: 0,
+      repeatCount: 0,
+      repurchaseRate: null,
+      totalOrders: 0,
+      repeatProducts: [],
+      repeatCustomers: [],
+    });
+    expect(periodBasisStatus(result.basis!.orders)).toBe('complete');
+  });
+
+  it('publishes no window and no totals when no period is asked and no order was ever collected', async () => {
+    const overview = await service.overview(TEST_ORGANIZATION_ID);
+
+    expect(overview).toEqual({
+      totalRevenue: null,
+      totalOrders: null,
+      totalProfit: null,
+      avgMargin: null,
+      totalProducts: 0,
+      basis: null,
+    });
   });
 });

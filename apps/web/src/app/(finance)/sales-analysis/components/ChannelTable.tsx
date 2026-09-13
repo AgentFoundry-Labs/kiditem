@@ -20,6 +20,17 @@ const CHANNEL_TYPE_LABEL: Record<ChannelAnalysis['channelType'], string> = {
   other: '기타',
 };
 
+function profitTone(profit: number | null): string {
+  if (profit === null) return 'text-slate-400';
+  return profit >= 0 ? 'text-green-600' : 'text-red-600';
+}
+
+function marginTone(rate: number | null): string {
+  if (rate === null) return 'text-slate-400';
+  if (rate >= 10) return 'text-green-600';
+  return rate >= 0 ? 'text-orange-500' : 'text-red-600';
+}
+
 export default function ChannelTable({ channels, sortField, sortDir, onToggleSort }: Props) {
   return (
     <div className="table-card">
@@ -40,31 +51,30 @@ export default function ChannelTable({ channels, sortField, sortDir, onToggleSor
             </tr>
           </thead>
           <tbody>
-            {channels.map((c) => {
-              const margin = c.totalRevenue > 0 ? (c.totalProfit / c.totalRevenue) * 100 : 0;
-              return (
-                <tr key={c.channel}>
-                  <td>
-                    <span className="px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800">
-                      {c.channel}
-                    </span>
-                  </td>
-                  <td className="text-sm text-slate-700">{CHANNEL_TYPE_LABEL[c.channelType]}</td>
-                  <td className="text-right tabular-nums">{formatNumber(c.totalOrders)}</td>
-                  <td className="text-right tabular-nums">{formatKRW(c.totalRevenue)}</td>
-                  <td className="text-right tabular-nums">{formatKRW(c.totalCost)}</td>
-                  <td className={cn('text-right tabular-nums font-medium', c.totalProfit >= 0 ? 'text-green-600' : 'text-red-600')}>
-                    {formatKRW(c.totalProfit)}
-                  </td>
-                  <td className={cn('text-right tabular-nums', margin >= 10 ? 'text-green-600' : margin >= 0 ? 'text-orange-500' : 'text-red-600')}>
-                    {formatPercent(margin)}
-                  </td>
-                  <td className="text-right tabular-nums">{formatNumber(c.returnCount)}</td>
-                  <td className="text-right tabular-nums">{formatPercent(c.returnRate * 100)}</td>
-                  <td className="text-right tabular-nums">{formatKRW(Math.round(c.avgOrderValue))}</td>
-                </tr>
-              );
-            })}
+            {channels.map((c) => (
+              <tr key={c.channel}>
+                <td>
+                  <span className="px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800">
+                    {c.channel}
+                  </span>
+                </td>
+                <td className="text-sm text-slate-700">{CHANNEL_TYPE_LABEL[c.channelType]}</td>
+                <td className="text-right tabular-nums">{formatNumber(c.totalOrders)}</td>
+                <td className="text-right tabular-nums">{formatKRW(c.totalRevenue)}</td>
+                <td className="text-right tabular-nums">{formatKRW(c.totalCost)}</td>
+                <td className={cn('text-right tabular-nums font-medium', profitTone(c.totalProfit))}>
+                  {formatKRW(c.totalProfit)}
+                </td>
+                <td className={cn('text-right tabular-nums', marginTone(c.profitRate))}>
+                  {formatPercent(c.profitRate)}
+                </td>
+                <td className="text-right tabular-nums">{formatNumber(c.returnCount)}</td>
+                <td className="text-right tabular-nums">
+                  {formatPercent(c.returnRate === null ? null : c.returnRate * 100)}
+                </td>
+                <td className="text-right tabular-nums">{formatKRW(c.avgOrderValue)}</td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>

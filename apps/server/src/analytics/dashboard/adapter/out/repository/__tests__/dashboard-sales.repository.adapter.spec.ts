@@ -24,16 +24,26 @@ vi.mock(
     readOrderLineWindowFacts: vi.fn(),
   }),
 );
+vi.mock(
+  "../../../../../../common/per-listing-profit",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("../../../../../../common/per-listing-profit")
+    >()),
+    buildPerListingProfit: vi.fn().mockResolvedValue([]),
+  }),
+);
 
 const mockedReadProductAbcPublication = vi.mocked(readProductAbcPublication);
 const mockedReadOrderLineWindowFacts = vi.mocked(readOrderLineWindowFacts);
 
 /**
- * The ranking settles profit through `buildPerListingProfit`, which reads
- * orders and the advertising ledger. These cases assert the SQL's own
- * mapping, so the fake answers the ranking query with the rows and every
- * other read with nothing; no Coupang account exists, so advertising is not
- * an input and the cases stay about the grade and the ranking.
+ * The ranking settles profit through `buildPerListingProfit`, whose own
+ * behavior is proved against PostgreSQL in its spec and in the dashboard sales
+ * PG spec. These cases assert the ranking's own mapping, so the helper answers
+ * nothing, the fake answers the ranking query with the rows and every other
+ * read with nothing; no Coupang account exists, so advertising is not an input
+ * and the cases stay about the grade and the ranking.
  */
 const prismaWith = (topProductRows: unknown[]) => {
   const rows = topProductRows as Array<Record<string, unknown>>;

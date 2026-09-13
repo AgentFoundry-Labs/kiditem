@@ -26,7 +26,7 @@ describe('statistics data contract', () => {
 
   it.each(SURVIVING_TABS)('loads the %s capability from its matching API type', async (tab) => {
     const payload = tab === 'products' || tab === 'categories' || tab === 'grades'
-      ? []
+      ? { rows: [], basis: null }
       : {};
     const getParsed = vi.spyOn(apiClient, 'getParsed').mockResolvedValue(payload);
 

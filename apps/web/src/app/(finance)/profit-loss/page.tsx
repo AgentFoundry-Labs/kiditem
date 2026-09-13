@@ -6,12 +6,11 @@ import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import { Download, Info, RefreshCw, TrendingUp } from "lucide-react";
 import { toast } from 'sonner';
 import { useQuery } from "@tanstack/react-query";
-import { z } from 'zod';
-import { PLDataSchema, SalesAnalysisDataSourcesSchema } from '@kiditem/shared/finance';
+import { ProfitLossResponseSchema, SalesAnalysisDataSourcesSchema } from '@kiditem/shared/finance';
 import { ChannelDashboardSummarySchema } from '@kiditem/shared/channel-dashboard';
 import { usePeriodSelector } from '@/hooks/usePeriodSelector';
 import PeriodSelector from '@/components/ui/PeriodSelector';
-import { cn, formatNumber, sumOrUnavailable, timeAgo } from "@/lib/utils";
+import { cn, formatNumber, timeAgo } from "@/lib/utils";
 import { apiClient } from "@/lib/api-client";
 import { friendlyError } from "@/lib/api-error";
 import {
@@ -22,6 +21,8 @@ import { queryKeys } from "@/lib/query-keys";
 import PageSkeleton from "@/components/ui/PageSkeleton";
 import { ErrorState } from "@/components/ui/EmptyState";
 import { Pagination } from "@/components/ui/Pagination";
+import { FinanceBasisNotice } from "../_shared/components/FinanceBasisNotice";
+import { compareNullableLast } from "../_shared/lib/nullable-sort";
 import ProfitLossSummaryCards from "./components/ProfitLossSummaryCards";
 import ProfitLossTable from "./components/ProfitLossTable";
 import type { SortField } from "./components/ProfitLossTable";
@@ -61,8 +62,6 @@ function ProfitLossContent() {
       try {
         // Server returns the canonical `lastModifiedAt` (Plan B2c.dashboard R-07
         // rename: ChannelListing.updatedAt is bumped on any edit, not only sync).
-        // The previous inline `lastSyncedAt` shape silently always evaluated to
-        // null because the server never sends that key.
         const raw = await apiClient.get<unknown>('/api/coupang-dashboard');
         const data = ChannelDashboardSummarySchema.parse(raw);
         const last = data.lastModifiedAt;
@@ -73,9 +72,9 @@ function ProfitLossContent() {
     },
   });
 
-  const { data = [], isLoading: loading, isFetching, error: queryError } = useQuery({
+  const { data, isLoading: loading, isFetching, error: queryError } = useQuery({
     queryKey: queryKeys.profitLoss.list(period),
-    queryFn: () => apiClient.getParsed(`/api/profit-loss?period=${period}`, z.array(PLDataSchema)),
+    queryFn: () => apiClient.getParsed(`/api/profit-loss?period=${period}`, ProfitLossResponseSchema),
     placeholderData: previousData => previousData,
   });
   const isRefreshing = isFetching && !loading;
@@ -91,7 +90,9 @@ function ProfitLossContent() {
   const error = friendlyError(queryError);
   const ordersEmpty = dataSources?.orders?.count === 0;
 
-  const filtered = useMemo(() => data.filter((d) => {
+  const rows = useMemo(() => data?.rows ?? [], [data]);
+
+  const filtered = useMemo(() => rows.filter((d) => {
     // An unavailable profit rate answers none of the three profit filters.
     const matchesProfitFilter =
       filter === "minus" ? d.profitRate !== null && d.profitRate < 0
@@ -101,19 +102,11 @@ function ProfitLossContent() {
     const matchesGrade =
       selectedGrades.length === 0 || selectedGrades.includes((d.grade || "").toUpperCase());
     return matchesProfitFilter && matchesGrade;
-  }), [data, filter, selectedGrades]);
+  }), [rows, filter, selectedGrades]);
 
   const sorted = useMemo(() => {
     if (!sortField || !sortDirection) return filtered;
-    return [...filtered].sort((a, b) => {
-      const left = a[sortField];
-      const right = b[sortField];
-      if (left === right) return 0;
-      // An unavailable value has no place on the scale — it sorts last either way.
-      if (left === null) return 1;
-      if (right === null) return -1;
-      return sortDirection === 'asc' ? (left > right ? 1 : -1) : (left < right ? 1 : -1);
-    });
+    return [...filtered].sort((a, b) => compareNullableLast(a[sortField], b[sortField], sortDirection));
   }, [filtered, sortField, sortDirection]);
 
   const [page, setPage] = useState(1);
@@ -137,15 +130,6 @@ function ProfitLossContent() {
     );
   };
 
-  // Revenue never depends on ad coverage. A profit or ad-cost total that would
-  // have to skip an unavailable row is itself unavailable, not a smaller number.
-  const totalRevenue = sorted.reduce((s, d) => s + d.revenue, 0);
-  const totalProfit = sumOrUnavailable(sorted.map((d) => d.netProfit));
-  const totalAdCost = sumOrUnavailable(sorted.map((d) => d.adCost));
-  const overallRate = totalProfit === null || totalRevenue <= 0
-    ? null
-    : (totalProfit / totalRevenue) * 100;
-
   const handleExcel = async () => {
     try {
       await downloadProfitLossReport({
@@ -167,7 +151,7 @@ function ProfitLossContent() {
           <h1 className="page-title">상품별 손익표</h1>
           <div className="flex gap-2">
             <PeriodSelector value={period} onChange={setPeriod} options={periodOptions} />
-            <button onClick={handleExcel} disabled={data.length === 0} className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-40 text-sm font-medium">
+            <button onClick={handleExcel} disabled={rows.length === 0} className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-40 text-sm font-medium">
               <Download size={16} /> 엑셀 다운로드
             </button>
           </div>
@@ -192,7 +176,7 @@ function ProfitLossContent() {
             <div className="text-amber-800 text-xs">
               이 화면은 <code className="px-1 bg-white/70 rounded">Order</code> +
               <code className="px-1 bg-white/70 rounded">OrderLineItem</code> +
-              <code className="px-1 bg-white/70 rounded">ChannelListingDailySnapshot.adSpend</code>
+              <code className="px-1 bg-white/70 rounded">ChannelAdTargetDailySnapshot</code>
               집계입니다. Drive replay 데이터에는 주문이 포함되지 않으므로 정상
               상태입니다.
               {dataSources && (
@@ -229,20 +213,16 @@ function ProfitLossContent() {
         </div>
       )}
 
-      {loading && data.length === 0 ? (
+      {loading && !data ? (
         <PageSkeleton variant="table" />
       ) : error ? (
         <ErrorState message={error} />
-      ) : (
+      ) : data ? (
         <div className="space-y-6" aria-busy={isRefreshing}>
-          <ProfitLossSummaryCards
-            totalRevenue={totalRevenue}
-            totalProfit={totalProfit}
-            totalAdCost={totalAdCost}
-            overallRate={overallRate}
-          />
+          <FinanceBasisNotice basis={data.basis} />
+          <ProfitLossSummaryCards totals={data.totals} />
           <ProfitLossTable
-            data={data}
+            data={rows}
             filtered={paginated}
             filter={filter}
             onFilter={(next) => {
@@ -264,7 +244,7 @@ function ProfitLossContent() {
             onPageChange={setPage}
           />
         </div>
-      )}
+      ) : null}
     </div>
   );
 }

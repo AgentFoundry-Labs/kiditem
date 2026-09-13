@@ -1,155 +1,66 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
+import { Prisma } from '@prisma/client';
 import { resolvePricing } from '../option-pricing-resolver';
 
-// Prisma Decimal stub: Number(decimal) calls valueOf()
-function decimal(n: number) {
-  return {
-    valueOf: () => n,
-    toNumber: () => n,
-    toString: () => String(n),
-  } as unknown as number;
-}
+/**
+ * The listing-option pricing policy: a price the operator recorded is used as
+ * recorded, and a price nobody recorded is unavailable — never zero, and never
+ * converted from another currency at an assumed rate.
+ */
+const option = (overrides: Partial<Parameters<typeof resolvePricing>[0]['option']> = {}) => ({
+  costPriceOverride: null,
+  commissionRate: new Prisma.Decimal('0.1'),
+  otherCost: 0,
+  inventoryComponents: [{ quantity: 2, purchasePrice: 1_000 }],
+  ...overrides,
+});
 
-describe('resolvePricing (option-pricing-resolver, v2 nested-only §4.4)', () => {
-  describe('costPrice', () => {
-    it('returns option.costPrice when present', () => {
-      const result = resolvePricing({ option: { costPrice: 5000 } });
-      expect(result.costPrice).toBe(5000);
-      expect(result.isCostMissing).toBe(false);
-    });
-
-    it('falls back to costCny * 190 when costPrice is null', () => {
-      const result = resolvePricing({
-        option: { costPrice: null, costCny: decimal(10) },
-      });
-      expect(result.costPrice).toBe(1900);
-      expect(result.isCostMissing).toBe(false);
-    });
-
-    it('returns 0 and isCostMissing=true when both costPrice and costCny are null', () => {
-      const result = resolvePricing({ option: {} });
-      expect(result.costPrice).toBe(0);
-      expect(result.isCostMissing).toBe(true);
-    });
-
-    it('returns costPrice=0 when explicitly 0 (not treated as nullish)', () => {
-      const result = resolvePricing({
-        option: { costPrice: 0, costCny: decimal(10) },
-      });
-      // `?? ` treats 0 as non-nullish → option.costPrice(0) wins
-      expect(result.costPrice).toBe(0);
-      expect(result.isCostMissing).toBe(false); // hasCost true because costPrice != null
-    });
-
-    it('treats undefined costPrice the same as null (fallback to costCny)', () => {
-      const result = resolvePricing({ option: { costCny: decimal(5) } });
-      expect(result.costPrice).toBe(950); // 5 * 190
-      expect(result.isCostMissing).toBe(false);
-    });
+describe('resolvePricing', () => {
+  it('prices a unit from its cost override before its mapped components', () => {
+    expect(resolvePricing({ option: option({ costPriceOverride: 4_500 }) }).unitCost).toBe(4_500);
   });
 
-  describe('sellPrice', () => {
-    it('returns option.sellPrice when present', () => {
-      const result = resolvePricing({ option: { sellPrice: 15000 } });
-      expect(result.sellPrice).toBe(15000);
-    });
-
-    it('returns 0 when sellPrice is null', () => {
-      const result = resolvePricing({ option: { sellPrice: null } });
-      expect(result.sellPrice).toBe(0);
-    });
-
-    it('returns 0 when sellPrice is omitted', () => {
-      const result = resolvePricing({ option: {} });
-      expect(result.sellPrice).toBe(0);
-    });
+  it('keeps a recorded zero override as a measured zero', () => {
+    expect(resolvePricing({ option: option({ costPriceOverride: 0 }) }).unitCost).toBe(0);
   });
 
-  describe('commissionRate', () => {
-    it('converts Prisma Decimal to number via Number()', () => {
-      const result = resolvePricing({
-        option: { commissionRate: decimal(0.108) },
-      });
-      expect(result.commissionRate).toBeCloseTo(0.108);
-    });
-
-    it('accepts raw number commissionRate', () => {
-      const result = resolvePricing({ option: { commissionRate: 0.15 } });
-      expect(result.commissionRate).toBeCloseTo(0.15);
-    });
-
-    it('returns 0 when commissionRate is null', () => {
-      const result = resolvePricing({ option: { commissionRate: null } });
-      expect(result.commissionRate).toBe(0);
-    });
-
-    it('returns 0 when commissionRate is omitted', () => {
-      const result = resolvePricing({ option: {} });
-      expect(result.commissionRate).toBe(0);
-    });
+  it('prices a unit from every mapped component and its quantity', () => {
+    expect(resolvePricing({
+      option: option({
+        inventoryComponents: [
+          { quantity: 2, purchasePrice: 1_000 },
+          { quantity: 1, purchasePrice: 700 },
+        ],
+      }),
+    }).unitCost).toBe(2_700);
   });
 
-  describe('shippingCost / otherCost (C-07 passthrough)', () => {
-    it('returns option.shippingCost when present', () => {
-      const result = resolvePricing({ option: { shippingCost: 2500 } });
-      expect(result.shippingCost).toBe(2500);
-    });
-
-    it('returns 0 when shippingCost is null', () => {
-      const result = resolvePricing({ option: { shippingCost: null } });
-      expect(result.shippingCost).toBe(0);
-    });
-
-    it('returns option.otherCost when present', () => {
-      const result = resolvePricing({ option: { otherCost: 300 } });
-      expect(result.otherCost).toBe(300);
-    });
-
-    it('returns 0 when otherCost is null', () => {
-      const result = resolvePricing({ option: { otherCost: null } });
-      expect(result.otherCost).toBe(0);
-    });
-
-    it('passes through shippingCost + otherCost alongside costPrice', () => {
-      const result = resolvePricing({
-        option: {
-          costPrice: 8000,
-          sellPrice: 20000,
-          commissionRate: decimal(0.108),
-          shippingCost: 2500,
-          otherCost: 300,
-        },
-      });
-      expect(result).toEqual({
-        costPrice: 8000,
-        sellPrice: 20000,
-        commissionRate: 0.108,
-        shippingCost: 2500,
-        otherCost: 300,
-        isCostMissing: false,
-      });
-    });
+  it('has no unit cost when nothing is mapped and no override was recorded', () => {
+    expect(resolvePricing({ option: option({ inventoryComponents: [] }) }).unitCost).toBeNull();
   });
 
-  describe('isCostMissing', () => {
-    it('is true only when BOTH costPrice and costCny are nullish', () => {
-      expect(resolvePricing({ option: {} }).isCostMissing).toBe(true);
-      expect(
-        resolvePricing({ option: { costPrice: null, costCny: null } })
-          .isCostMissing,
-      ).toBe(true);
-    });
+  it('has no unit cost when any mapped component lacks a purchase price', () => {
+    expect(resolvePricing({
+      option: option({
+        inventoryComponents: [
+          { quantity: 1, purchasePrice: 1_000 },
+          { quantity: 1, purchasePrice: null },
+        ],
+      }),
+    }).unitCost).toBeNull();
+  });
 
-    it('is false when costPrice is set', () => {
-      expect(
-        resolvePricing({ option: { costPrice: 100 } }).isCostMissing,
-      ).toBe(false);
-    });
+  it('reads a Decimal or numeric commission rate and keeps a recorded zero', () => {
+    expect(resolvePricing({ option: option() }).commissionRate).toBe(0.1);
+    expect(resolvePricing({ option: option({ commissionRate: 0 }) }).commissionRate).toBe(0);
+  });
 
-    it('is false when only costCny is set', () => {
-      expect(
-        resolvePricing({ option: { costCny: decimal(1) } }).isCostMissing,
-      ).toBe(false);
-    });
+  it.each([null, undefined, 'not-a-rate'])('has no commission rate for %s', (commissionRate) => {
+    expect(resolvePricing({ option: option({ commissionRate }) }).commissionRate).toBeNull();
+  });
+
+  it('keeps an unrecorded other cost unavailable and a recorded zero measured', () => {
+    expect(resolvePricing({ option: option({ otherCost: null }) }).otherCost).toBeNull();
+    expect(resolvePricing({ option: option({ otherCost: 0 }) }).otherCost).toBe(0);
   });
 });

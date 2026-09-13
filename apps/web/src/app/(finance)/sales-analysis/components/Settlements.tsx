@@ -20,63 +20,27 @@ import {
   Receipt,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import type {
+  SettlementListItem,
+  SettlementReconcileResponse,
+} from '@kiditem/shared/settlements';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatKRW } from '@/lib/utils';
 import { downloadSettlementReconcileReport } from '@/lib/finance-report-export';
 import { usePeriodSelector } from '@/hooks/usePeriodSelector';
 import PeriodSelector from '@/components/ui/PeriodSelector';
+import { FinanceBasisNotice } from '../../_shared/components/FinanceBasisNotice';
+import { compareNullableLast } from '../../_shared/lib/nullable-sort';
 
-interface Settlement {
-  id: string;
-  period: string;
-  expectedAmount: number;
-  actualAmount: number;
-  commission: number;
-  shippingFee: number;
-  adjustments: number;
-  difference: number;
-  orderCount: number;
-  returnCount: number;
-  status: string;
-  settledAt: string | null;
-  notes: string | null;
-  createdAt?: string;
-}
-
-interface ReconcileDetail {
-  productId: string;
-  productName: string;
-  sku: string;
-  plRevenue: number;
-  plCommission: number;
-  plNetProfit: number;
-  plOrderCount: number;
-  orderTotal: number;
-  orderCount: number;
-  revenueDiff: number;
-  isMatched: boolean;
-  status: string;
-}
-
-interface ReconcileResult {
-  period: string;
-  summary: {
-    totalPlRevenue: number;
-    totalOrderRevenue: number;
-    totalCommission: number;
-    totalShipping: number;
-    revenueDifference: number;
-    productCount: number;
-    orderCount: number;
-    matchedCount: number;
-    mismatchCount: number;
-    matchRate: number;
-  };
-  details: ReconcileDetail[];
-}
+type Settlement = SettlementListItem;
 
 type SortField = 'expectedAmount' | 'actualAmount' | 'difference';
+
+/** Sum of the values a population actually carries; unconfirmed rows are outside it. */
+function sumPublished(values: readonly (number | null)[]): number {
+  return values.reduce<number>((sum, value) => (value === null ? sum : sum + value), 0);
+}
 
 export default function Settlements() {
   const queryClient = useQueryClient();
@@ -112,7 +76,7 @@ export default function Settlements() {
 
   const reconcileMutation = useMutation({
     mutationFn: (p: string) =>
-      apiClient.post<ReconcileResult>('/api/settlements/reconcile', { period: p }),
+      apiClient.post<SettlementReconcileResponse>('/api/settlements/reconcile', { period: p }),
   });
   const reconcile = reconcileMutation.data ?? null;
 
@@ -141,20 +105,16 @@ export default function Settlements() {
 
   const sorted = useMemo(() => {
     if (!sortField || !sortDirection) return settlements;
-    return [...settlements].sort((a, b) => {
-      const av = a[sortField];
-      const bv = b[sortField];
-      return sortDirection === 'asc' ? av - bv : bv - av;
-    });
+    return [...settlements].sort((a, b) => compareNullableLast(a[sortField], b[sortField], sortDirection));
   }, [settlements, sortField, sortDirection]);
 
   const handleConfirm = (s: Settlement) => {
     confirmMutation.mutate({ id: s.id, actualAmount });
   };
 
-  const totalExpected = settlements.reduce((s, t) => s + t.expectedAmount, 0);
-  const totalActual = settlements.filter(s => s.status === 'confirmed').reduce((s, t) => s + t.actualAmount, 0);
-  const totalDiff = settlements.filter(s => s.status === 'confirmed').reduce((s, t) => s + t.difference, 0);
+  const totalExpected = sumPublished(settlements.map((s) => s.expectedAmount));
+  const totalActual = sumPublished(settlements.map((s) => s.actualAmount));
+  const totalDiff = sumPublished(settlements.map((s) => s.difference));
 
   const renderSortIcon = (field: SortField) => {
     if (sortField !== field || !sortDirection) {
@@ -201,7 +161,7 @@ export default function Settlements() {
       <div className="grid grid-cols-4 gap-4">
         <div className="card"><div className="card-label">총 예상 정산액</div><div className="card-value">{formatKRW(totalExpected)}</div></div>
         <div className="card"><div className="card-label">확인된 입금액</div><div className="card-value text-green-600">{formatKRW(totalActual)}</div></div>
-        <div className="card"><div className="card-label">차이 합계</div><div className={cn('card-value', totalDiff >= 0 ? 'text-green-600' : 'text-red-600')}>{totalDiff >= 0 ? '+' : ''}{formatKRW(totalDiff)}</div></div>
+        <div className="card"><div className="card-label">확인된 차이 합계</div><div className={cn('card-value', totalDiff >= 0 ? 'text-green-600' : 'text-red-600')}>{totalDiff >= 0 ? '+' : ''}{formatKRW(totalDiff)}</div></div>
         <div className="card"><div className="card-label">미확인 월</div><div className="card-value text-orange-600">{settlements.filter(s => s.status === 'pending').length}건</div></div>
       </div>
 
@@ -240,11 +200,11 @@ export default function Settlements() {
                     {editId === s.id ? (
                       <input type="number" value={actualAmount} onChange={e => setActualAmount(Number(e.target.value))} className="w-32 px-2 py-1 border rounded text-right text-sm" autoFocus />
                     ) : (
-                      <span className={s.status === 'confirmed' ? 'font-medium text-green-600' : 'text-slate-400'}>{s.status === 'confirmed' ? formatKRW(s.actualAmount) : '미입력'}</span>
+                      <span className={s.actualAmount === null ? 'text-slate-400' : 'font-medium text-green-600'}>{s.actualAmount === null ? '미입력' : formatKRW(s.actualAmount)}</span>
                     )}
                   </td>
                   <td className="px-4 py-3 text-right">
-                    {s.status === 'confirmed' && (
+                    {s.difference !== null && (
                       <span className={cn('flex items-center justify-end gap-0.5 font-medium', s.difference >= 0 ? 'text-green-600' : 'text-red-600')}>
                         {s.difference >= 0 ? <ArrowUpRight size={12} /> : <ArrowDownRight size={12} />}{s.difference >= 0 ? '+' : ''}{formatKRW(s.difference)}
                       </span>
@@ -304,11 +264,15 @@ export default function Settlements() {
 
         {reconcile && (
           <div className="space-y-4">
+            <FinanceBasisNotice basis={reconcile.basis} />
+
             {/* 매칭 요약 */}
             <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
               <div className="bg-indigo-50 rounded-lg p-3 text-center">
                 <div className="text-xs text-indigo-600">매칭률</div>
-                <div className="text-lg font-bold text-indigo-700">{reconcile.summary.matchRate}%</div>
+                <div className="text-lg font-bold text-indigo-700">
+                  {reconcile.summary.matchRate === null ? '-' : `${reconcile.summary.matchRate}%`}
+                </div>
               </div>
               <div className="bg-green-50 rounded-lg p-3 text-center">
                 <div className="text-xs text-green-600">매칭 완료</div>
@@ -344,8 +308,8 @@ export default function Settlements() {
                 </thead>
                 <tbody>
                   {reconcile.details.map((d) => (
-                    <tr key={d.productId} className={d.status === 'mismatch' ? 'bg-red-50/50' : d.status === 'minor_diff' ? 'bg-yellow-50/50' : ''}>
-                      <td className="px-3 py-2 font-medium text-slate-900 max-w-[200px] truncate">{d.productName}</td>
+                    <tr key={d.listingId} className={d.status === 'mismatch' ? 'bg-red-50/50' : d.status === 'minor_diff' ? 'bg-yellow-50/50' : ''}>
+                      <td className="px-3 py-2 font-medium text-slate-900 max-w-[200px] truncate">{d.masterName}</td>
                       <td className="px-3 py-2 text-right tabular-nums">{formatKRW(d.plRevenue)}</td>
                       <td className="px-3 py-2 text-right tabular-nums">{formatKRW(d.orderTotal)}</td>
                       <td className={cn('px-3 py-2 text-right tabular-nums font-medium', d.revenueDiff > 0 ? 'text-green-600' : d.revenueDiff < 0 ? 'text-red-600' : 'text-slate-400')}>

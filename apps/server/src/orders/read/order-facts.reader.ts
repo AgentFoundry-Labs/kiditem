@@ -554,6 +554,74 @@ export async function readOrderReturnWindowFacts(
   };
 }
 
+/** One returned order line and the listing its order line was sold under. */
+export interface OrderReturnLineFact {
+  returnId: string;
+  orderId: string;
+  listingId: string | null;
+}
+
+/**
+ * Returned order lines whose return was requested inside `[from, to)`, on
+ * orders a completed Orders collection published.
+ */
+export async function readReturnLinesRequestedInWindow(
+  tx: Prisma.TransactionClient,
+  input: Pick<OrderWindowInput, 'organizationId' | 'from' | 'to'>,
+): Promise<OrderReturnLineFact[]> {
+  return tx.$queryRaw<OrderReturnLineFact[]>(Prisma.sql`
+    SELECT r.id AS "returnId", o.id AS "orderId", clo.listing_id AS "listingId"
+    FROM order_return_line_items rli
+    INNER JOIN order_returns r
+      ON r.id = rli.return_id
+     AND r.organization_id = ${input.organizationId}::uuid
+    INNER JOIN order_line_items oli
+      ON oli.id = rli.order_line_item_id
+     AND oli.organization_id = ${input.organizationId}::uuid
+    INNER JOIN orders o
+      ON o.id = oli.order_id
+     AND o.organization_id = ${input.organizationId}::uuid
+    LEFT JOIN channel_listing_options clo
+      ON clo.id = oli.listing_option_id
+     AND clo.organization_id = ${input.organizationId}::uuid
+    WHERE rli.organization_id = ${input.organizationId}::uuid
+      AND r.requested_at >= ${input.from}
+      AND r.requested_at < ${input.to}
+      ${completeOrderFactSql(input.organizationId)}
+  `);
+}
+
+/**
+ * Returned order lines of orders placed inside `[from, to)` that a completed
+ * Orders collection published, whatever the return date.
+ */
+export async function readReturnLinesOfOrderWindow(
+  tx: Prisma.TransactionClient,
+  input: OrderWindowInput,
+): Promise<OrderReturnLineFact[]> {
+  return tx.$queryRaw<OrderReturnLineFact[]>(Prisma.sql`
+    SELECT r.id AS "returnId", o.id AS "orderId", clo.listing_id AS "listingId"
+    FROM order_return_line_items rli
+    INNER JOIN order_returns r
+      ON r.id = rli.return_id
+     AND r.organization_id = ${input.organizationId}::uuid
+    INNER JOIN order_line_items oli
+      ON oli.id = rli.order_line_item_id
+     AND oli.organization_id = ${input.organizationId}::uuid
+    INNER JOIN orders o
+      ON o.id = oli.order_id
+     AND o.organization_id = ${input.organizationId}::uuid
+    LEFT JOIN channel_listing_options clo
+      ON clo.id = oli.listing_option_id
+     AND clo.organization_id = ${input.organizationId}::uuid
+    WHERE rli.organization_id = ${input.organizationId}::uuid
+      AND o.ordered_at >= ${input.from}
+      AND o.ordered_at < ${input.to}
+      ${completeOrderFactSql(input.organizationId)}
+      ${excludedStatusesSql(input.excludedStatuses)}
+  `);
+}
+
 export async function readOrderReturnReasonFacts(
   tx: Prisma.TransactionClient,
   input: OrderWindowInput,

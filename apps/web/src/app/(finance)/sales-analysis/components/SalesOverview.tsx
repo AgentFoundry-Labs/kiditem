@@ -19,6 +19,8 @@ import { queryKeys } from '@/lib/query-keys';
 import PageSkeleton from '@/components/ui/PageSkeleton';
 import { ErrorState } from '@/components/ui/EmptyState';
 import { cn, formatKRW, formatNumber } from '@/lib/utils';
+import { FinanceBasisNotice } from '../../_shared/components/FinanceBasisNotice';
+import { compareNullableLast } from '../../_shared/lib/nullable-sort';
 import ChannelTable from './ChannelTable';
 import {
   SalesChannelAnalysis,
@@ -30,6 +32,11 @@ type SortDir = 'asc' | 'desc' | null;
 
 export function parseSalesChannelSelection(value: string | null): SalesChannelSelection {
   return value === 'rocket' || value === 'others' ? value : 'all';
+}
+
+/** A money card value; an unavailable amount is `-` and carries no unit. */
+function won(amount: number | null): string {
+  return amount === null ? '-' : `${formatKRW(amount)}원`;
 }
 
 export default function SalesOverview() {
@@ -82,12 +89,7 @@ export default function SalesOverview() {
   const sorted = useMemo(() => {
     if (!data?.channels) return [];
     if (!sortField || !sortDir) return data.channels;
-    return [...data.channels].sort((a, b) => {
-      const l = a[sortField];
-      const r = b[sortField];
-      if (l === r) return 0;
-      return sortDir === 'asc' ? (l > r ? 1 : -1) : (l < r ? 1 : -1);
-    });
+    return [...data.channels].sort((a, b) => compareNullableLast(a[sortField], b[sortField], sortDir));
   }, [data, sortField, sortDir]);
 
   const toggleSort = (field: SortField) => {
@@ -95,6 +97,8 @@ export default function SalesOverview() {
     if (sortDir === 'desc') { setSortDir('asc'); return; }
     setSortField(null); setSortDir(null);
   };
+
+  const totalProfit = data?.totals?.totalProfit ?? null;
 
   return (
     <div className="space-y-6">
@@ -132,6 +136,8 @@ export default function SalesOverview() {
           </p>
         </div>
 
+        {data && !error ? <FinanceBasisNotice basis={data.basis} /> : null}
+
         {isLoading && !data ? (
           <PageSkeleton variant="table" />
         ) : error ? (
@@ -152,26 +158,30 @@ export default function SalesOverview() {
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
               <div className="card">
                 <div className="card-label">총매출</div>
-                <div className="card-value">{formatKRW(data.totals.totalRevenue)}원</div>
+                <div className="card-value">{won(data.totals.totalRevenue)}</div>
               </div>
               <div className="card">
                 <div className="card-label">총비용</div>
-                <div className="card-value">{formatKRW(data.totals.totalCost)}원</div>
+                <div className="card-value">{won(data.totals.totalCost)}</div>
               </div>
               <div
                 className={cn(
                   'rounded-xl border p-4',
-                  data.totals.totalProfit >= 0
-                    ? 'border-green-200 bg-green-50'
-                    : 'border-red-200 bg-red-50',
+                  totalProfit === null
+                    ? 'border-slate-200 bg-white'
+                    : totalProfit >= 0
+                      ? 'border-green-200 bg-green-50'
+                      : 'border-red-200 bg-red-50',
                 )}
               >
                 <div className="card-label">총이익</div>
                 <div className={cn(
                   'card-value',
-                  data.totals.totalProfit >= 0 ? 'text-green-600' : 'text-red-600',
+                  totalProfit === null
+                    ? 'text-slate-400'
+                    : totalProfit >= 0 ? 'text-green-600' : 'text-red-600',
                 )}>
-                  {formatKRW(data.totals.totalProfit)}원
+                  {won(totalProfit)}
                 </div>
               </div>
               <div className="card">

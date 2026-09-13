@@ -1,10 +1,15 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { Test } from '@nestjs/testing';
 import type { PrismaClient } from '@prisma/client';
-import { PLDataSchema } from '@kiditem/shared/finance';
+import { ProfitLossResponseSchema } from '@kiditem/shared/finance';
+import { periodBasisStatus } from '@kiditem/shared/dashboard';
 import { ProfitLossService } from '../profit-loss.service';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { seedAd, seedCompletedAdSweepRun } from '../../../test-helpers/finance-seeds';
+import {
+  seedAd,
+  seedCompletedAdSweepRun,
+  seedCompletedOrderCoverageRun,
+} from '../../../test-helpers/finance-seeds';
 import {
   makeTestPrisma,
   resetDb,
@@ -14,21 +19,11 @@ import {
 } from '../../../test-helpers/real-prisma';
 
 /**
- * Plan D.1 T6 — ProfitLossService PG integration (live aggregation).
+ * ProfitLossService PG integration (live aggregation over the canonical
+ * Orders, Inventory, Advertising and Products readers).
  *
- * T5 が profit-loss.service.ts を persisted P&L read から
- * Order + OrderLineItem + ChannelListingOption + component costs + daily ad facts + OrderReturnLineItem
- * への live aggregation に書き換えた。
- *
- * 検証:
- *   1. IDOR: 2 organizations × 3 orders each — TEST organization query excludes OTHER organization rows.
- *   2. Shipping revenue-weighted split: 2 listings in 9000:3000 ratio, shipping 3000 → 2250 + 750.
- *   3. PLDataSchema.parse(row) — no shape drift vs shared schema.
- *   4. KST boundary: orderedAt UTC that falls in May KST is excluded from April query, included in May.
- *   5. No ad rows at all: an account that published nothing leaves adCost
- *      unavailable, while a confirmed-zero window measures it as 0 (KID-45).
- *   6. Null listingOption on ReturnLineItem → skipped, no count increment.
- *   7. CEO-C3 latency baseline: 1000 orders × 3 lineItems under 2s.
+ * The wire carries the month's rows, the month's totals and the basis those
+ * totals rest on. A value whose inputs were not all measured is `null`.
  */
 
 // ---------------------------------------------------------------------------
@@ -174,13 +169,12 @@ async function seedBulkOrders(
     month: number;
   },
 ) {
-  const { organizationId, listingOptionId, optionId, orderCount, lineItemsPerOrder, year, month } = opts;
+  const { organizationId, listingOptionId, orderCount, lineItemsPerOrder, year, month } = opts;
   const listingOption = await prisma.channelListingOption.findFirstOrThrow({
     where: { id: listingOptionId, organizationId },
     select: { listing: { select: { channelAccountId: true } } },
   });
 
-  // Build all order rows
   const orderRows: Array<{
     organizationId: string;
     channelAccountId: string;
@@ -208,13 +202,11 @@ async function seedBulkOrders(
 
   await prisma.order.createMany({ data: orderRows });
 
-  // Fetch back to get IDs
   const createdOrders = await prisma.order.findMany({
     where: { organizationId, externalOrderId: { startsWith: 'BULK-' } },
     select: { id: true },
   });
 
-  // Build all lineItem rows
   const lineItemRows: Array<{
     organizationId: string;
     orderId: string;
@@ -250,6 +242,23 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
   let prisma: PrismaClient;
   let service: ProfitLossService;
 
+  /** The Orders collection declares it collected these KST dates. */
+  const coverOrders = (
+    organizationId = TEST_ORGANIZATION_ID,
+    startDate = '2026-04-01',
+    endDate = '2026-04-30',
+  ) => seedCompletedOrderCoverageRun(prisma, { organizationId, startDate, endDate });
+
+  /** The campaign sweep declares it measured every April date. */
+  const coverAprilAds = (organizationId = TEST_ORGANIZATION_ID) => seedCompletedAdSweepRun(prisma, {
+    organizationId,
+    generation: 1,
+    window: { startDate: '2026-04-01', endDate: '2026-04-30' },
+  });
+
+  const rowsFor = async (organizationId: string, year: number, month: number) =>
+    (await service.findAll(organizationId, year, month)).rows;
+
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
@@ -272,11 +281,7 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
     await seedBaseFixture(prisma);
   });
 
-  // ---------------------------------------------------------------------------
-  // Test 1: IDOR — 2 organizations × 3 orders each
-  // ---------------------------------------------------------------------------
   it('IDOR: findAll(TEST_COMPANY) returns only TEST rows; OTHER rows never leak', async () => {
-    // TEST organization — 3 listings, 1 order each
     const listA = await setupListing(prisma, TEST_ORGANIZATION_ID, 'IDOR-A');
     const listB = await setupListing(prisma, TEST_ORGANIZATION_ID, 'IDOR-B');
     const listC = await setupListing(prisma, TEST_ORGANIZATION_ID, 'IDOR-C');
@@ -299,7 +304,6 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
       lineItems: [{ listingOptionId: listC.listingOption.id, optionId: listC.option.id, totalPrice: 30_000 }],
     });
 
-    // OTHER organization — 3 listings, 1 order each
     const otherListA = await setupListing(prisma, OTHER_ORGANIZATION_ID, 'IDOR-OA');
     const otherListB = await setupListing(prisma, OTHER_ORGANIZATION_ID, 'IDOR-OB');
     const otherListC = await setupListing(prisma, OTHER_ORGANIZATION_ID, 'IDOR-OC');
@@ -319,35 +323,26 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
       externalOrderId: 'IDOR-OTHER-3',
       lineItems: [{ listingOptionId: otherListC.listingOption.id, optionId: otherListC.option.id, totalPrice: 999_999 }],
     });
+    await coverOrders(TEST_ORGANIZATION_ID);
+    await coverOrders(OTHER_ORGANIZATION_ID);
 
     const result = await service.findAll(TEST_ORGANIZATION_ID, 2026, 4);
 
-    // TEST organization has 3 listings → 3 rows
-    expect(result).toHaveLength(3);
-
-    // None of the OTHER organization's external IDs in result
-    const externalIds = result.map((r) => r.externalId);
+    expect(result.rows).toHaveLength(3);
+    const externalIds = result.rows.map((r) => r.externalId);
     expect(externalIds.every((id) => id.startsWith('EXT-IDOR-') && !id.startsWith('EXT-IDOR-O'))).toBe(true);
-    expect(externalIds.some((id) => id.startsWith('EXT-IDOR-O'))).toBe(false);
+    expect(result.rows.every((r) => r.revenue < 999_999)).toBe(true);
+    expect(result.totals.revenue).toBe(60_000);
 
-    // No OTHER organization revenue (999_999 each) should appear
-    expect(result.every((r) => r.revenue < 999_999)).toBe(true);
-
-    // OTHER organization query should see only OTHER rows
-    const otherResult = await service.findAll(OTHER_ORGANIZATION_ID, 2026, 4);
+    const otherResult = await rowsFor(OTHER_ORGANIZATION_ID, 2026, 4);
     expect(otherResult).toHaveLength(3);
     expect(otherResult.every((r) => r.externalId.startsWith('EXT-IDOR-O'))).toBe(true);
-    expect(otherResult.some((r) => r.externalId.startsWith('EXT-IDOR-A') || r.externalId.startsWith('EXT-IDOR-B'))).toBe(false);
   });
 
-  // ---------------------------------------------------------------------------
-  // Test 2: Shipping revenue-weighted split
-  // ---------------------------------------------------------------------------
   it('Shipping splits revenue-weighted: 9000:3000 order → 2250+750 across 2 listings', async () => {
     const listA = await setupListing(prisma, TEST_ORGANIZATION_ID, 'SHIP-A');
     const listB = await setupListing(prisma, TEST_ORGANIZATION_ID, 'SHIP-B');
 
-    // One order with 2 lineItems across 2 listings: 9000 (A) + 3000 (B), shippingPrice=3000
     const orderedAt = new Date('2026-04-15T00:00:00.000Z');
     const order = await prisma.order.create({
       data: {
@@ -382,37 +377,25 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
         externalLineId: 'SHIP-LI-B',
       },
     });
+    await coverOrders();
 
-    const result = await service.findAll(TEST_ORGANIZATION_ID, 2026, 4);
+    const result = await rowsFor(TEST_ORGANIZATION_ID, 2026, 4);
 
     expect(result).toHaveLength(2);
-
     const rowA = result.find((r) => r.externalId === 'EXT-SHIP-A');
     const rowB = result.find((r) => r.externalId === 'EXT-SHIP-B');
-
-    expect(rowA).toBeDefined();
-    expect(rowB).toBeDefined();
-
     expect(rowA!.revenue).toBe(9000);
     expect(rowB!.revenue).toBe(3000);
-
-    // Shipping split: A = round(3000 * 9000/12000) = 2250, B = round(3000 * 3000/12000) = 750
     expect(rowA!.shippingCost).toBe(2250);
     expect(rowB!.shippingCost).toBe(750);
-
-    // Total shipping must reconcile
     expect(rowA!.shippingCost + rowB!.shippingCost).toBe(3000);
   });
 
-  // ---------------------------------------------------------------------------
-  // Test 3: PLDataSchema.parse(row) — shape drift guard
-  // ---------------------------------------------------------------------------
-  it('All rows pass PLDataSchema.parse() — no shape drift vs shared schema', async () => {
+  it('the response passes ProfitLossResponseSchema — no shape drift vs shared schema', async () => {
     const listA = await setupListing(prisma, TEST_ORGANIZATION_ID, 'SCHEMA-A');
     const listB = await setupListing(prisma, TEST_ORGANIZATION_ID, 'SCHEMA-B');
 
     const orderedAt = new Date('2026-04-15T00:00:00.000Z');
-
     await createOrder(prisma, TEST_ORGANIZATION_ID, {
       orderedAt,
       externalOrderId: 'SCHEMA-ORD-1',
@@ -423,81 +406,53 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
       externalOrderId: 'SCHEMA-ORD-2',
       lineItems: [{ listingOptionId: listB.listingOption.id, optionId: listB.option.id, totalPrice: 25_000 }],
     });
+    await coverOrders();
 
     const result = await service.findAll(TEST_ORGANIZATION_ID, 2026, 4);
-    expect(result.length).toBeGreaterThan(0);
+    expect(result.rows.length).toBeGreaterThan(0);
 
-    for (const row of result) {
-      const parsed = PLDataSchema.safeParse(row);
-      expect(parsed.success, `PLDataSchema.parse failed for row: ${JSON.stringify(parsed)}`).toBe(true);
-    }
+    const parsed = ProfitLossResponseSchema.safeParse(JSON.parse(JSON.stringify(result)));
+    expect(parsed.success, `ProfitLossResponseSchema.parse failed: ${JSON.stringify(parsed)}`).toBe(true);
   });
 
-  // ---------------------------------------------------------------------------
-  // Test 4: KST boundary — April end / May start split
-  // ---------------------------------------------------------------------------
   it('KST boundary: 2026-04-30T15:00:00Z (= 2026-05-01 00:00 KST) excluded from April, included in May', async () => {
-    // Two distinct listings so result rows are distinguishable by listingId/externalId
     const listApril = await setupListing(prisma, TEST_ORGANIZATION_ID, 'KST-APRIL');
     const listEarlyMay = await setupListing(prisma, TEST_ORGANIZATION_ID, 'KST-EARLY-MAY');
     const listLateApril = await setupListing(prisma, TEST_ORGANIZATION_ID, 'KST-LATE-APRIL');
 
-    // In-window April order (KST: 2026-04-15)
     await createOrder(prisma, TEST_ORGANIZATION_ID, {
       orderedAt: new Date('2026-04-15T00:00:00.000Z'),
       externalOrderId: 'KST-APRIL-ORD',
       lineItems: [{ listingOptionId: listApril.listingOption.id, optionId: listApril.option.id, totalPrice: 10_000 }],
     });
-
-    // Upper boundary: 2026-04-30T15:00:00.000Z = 2026-05-01 00:00 KST — EXCLUDED from April, INCLUDED in May
     await createOrder(prisma, TEST_ORGANIZATION_ID, {
       orderedAt: new Date('2026-04-30T15:00:00.000Z'),
       externalOrderId: 'KST-EARLY-MAY-ORD',
       lineItems: [{ listingOptionId: listEarlyMay.listingOption.id, optionId: listEarlyMay.option.id, totalPrice: 50_000 }],
     });
-
-    // Lower boundary: 2026-04-30T14:59:59.999Z = 2026-04-30 23:59:59.999 KST — last ms of April, INCLUDED in April
     await createOrder(prisma, TEST_ORGANIZATION_ID, {
       orderedAt: new Date('2026-04-30T14:59:59.999Z'),
       externalOrderId: 'KST-LATE-APRIL-ORD',
       lineItems: [{ listingOptionId: listLateApril.listingOption.id, optionId: listLateApril.option.id, totalPrice: 77_777 }],
     });
+    await coverOrders(TEST_ORGANIZATION_ID, '2026-04-01', '2026-05-31');
 
-    // April query: in-window + late-April orders (INCLUDED); early-May order (EXCLUDED)
-    const aprilResult = await service.findAll(TEST_ORGANIZATION_ID, 2026, 4);
-
-    // LATE-APRIL (sentinel revenue 77_777) MUST appear in April
+    const aprilResult = await rowsFor(TEST_ORGANIZATION_ID, 2026, 4);
     const lateAprilRow = aprilResult.find((r) => r.externalId === 'EXT-KST-LATE-APRIL');
     expect(lateAprilRow, 'LATE-APRIL row (last ms of April) should be included in April').toBeDefined();
     expect(lateAprilRow!.revenue).toBe(77_777);
-
-    // EARLY-MAY must NOT appear in April
-    const earlyMayInApril = aprilResult.find((r) => r.externalId === 'EXT-KST-EARLY-MAY');
-    expect(earlyMayInApril, 'EARLY-MAY row should NOT appear in April').toBeUndefined();
-
-    // Revenue 50_000 (EARLY-MAY sentinel) must not contaminate any April row
+    expect(aprilResult.find((r) => r.externalId === 'EXT-KST-EARLY-MAY')).toBeUndefined();
     expect(aprilResult.every((r) => r.revenue !== 50_000)).toBe(true);
 
-    // May query: EARLY-MAY (INCLUDED); LATE-APRIL (EXCLUDED)
-    const mayResult = await service.findAll(TEST_ORGANIZATION_ID, 2026, 5);
-
-    // EARLY-MAY MUST appear in May
+    const mayResult = await rowsFor(TEST_ORGANIZATION_ID, 2026, 5);
     const earlyMayRow = mayResult.find((r) => r.externalId === 'EXT-KST-EARLY-MAY');
     expect(earlyMayRow, 'EARLY-MAY row should be included in May').toBeDefined();
     expect(earlyMayRow!.revenue).toBe(50_000);
-
-    // LATE-APRIL must NOT appear in May
-    const lateAprilInMay = mayResult.find((r) => r.externalId === 'EXT-KST-LATE-APRIL');
-    expect(lateAprilInMay, 'LATE-APRIL row should NOT appear in May').toBeUndefined();
-
-    // Revenue 77_777 (LATE-APRIL sentinel) must not contaminate any May row
+    expect(mayResult.find((r) => r.externalId === 'EXT-KST-LATE-APRIL')).toBeUndefined();
     expect(mayResult.every((r) => r.revenue !== 77_777)).toBe(true);
   });
 
-  // ---------------------------------------------------------------------------
-  // Test 5: no ad rows at all — the advertising account decides (KID-45)
-  // ---------------------------------------------------------------------------
-  it('Empty returns + an advertising account that published nothing → adCost unavailable', async () => {
+  it('an advertising account that published nothing leaves ad cost and profit unavailable', async () => {
     const list = await setupListing(prisma, TEST_ORGANIZATION_ID, 'EMPTY-A');
 
     await createOrder(prisma, TEST_ORGANIZATION_ID, {
@@ -505,19 +460,21 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
       externalOrderId: 'EMPTY-ORD-1',
       lineItems: [{ listingOptionId: list.listingOption.id, optionId: list.option.id, totalPrice: 20_000 }],
     });
+    await coverOrders();
 
-    // No OrderReturnLineItem and no ad row of any kind. The organization has
-    // an active Coupang account that published nothing for April, which is
-    // absent evidence — not an advertising cost of zero.
     const result = await service.findAll(TEST_ORGANIZATION_ID, 2026, 4);
 
-    expect(result).toHaveLength(1);
-    const row = result[0];
-
-    expect(row.returnCount).toBe(0);
-    expect(row.adCost).toBeNull();
-    expect(row.netProfit).toBeNull();
-    expect(row.profitRate).toBeNull();
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0]).toMatchObject({
+      returnCount: 0,
+      adCost: null,
+      netProfit: null,
+      profitRate: null,
+    });
+    expect(result.totals).toMatchObject({ revenue: 20_000, adCost: null, netProfit: null, profitRate: null });
+    expect(result.basis.adCost.includedDates).toEqual([]);
+    expect(periodBasisStatus(result.basis.adCost)).toBe('empty');
+    expect(periodBasisStatus(result.basis.revenue)).toBe('complete');
   });
 
   it('A confirmed-zero advertising window → returnCount: 0, adCost: 0', async () => {
@@ -528,19 +485,14 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
       externalOrderId: 'ZERO-ORD-1',
       lineItems: [{ listingOptionId: list.listingOption.id, optionId: list.option.id, totalPrice: 20_000 }],
     });
-    // The campaign sweep measured every April date and the listing carries a
-    // confirmed-zero row, so this zero is a measurement, not absent evidence.
-    const runId = await seedCompletedAdSweepRun(prisma, {
-      organizationId: TEST_ORGANIZATION_ID,
-      generation: 1,
-      window: { startDate: '2026-04-01', endDate: '2026-04-30' },
-    });
+    const runId = await coverAprilAds();
     await seedAd(prisma, {
       organizationId: TEST_ORGANIZATION_ID, listingId: list.listing.id,
       date: '2026-04-15', spend: 0, runId,
     });
+    await coverOrders();
 
-    const result = await service.findAll(TEST_ORGANIZATION_ID, 2026, 4);
+    const result = await rowsFor(TEST_ORGANIZATION_ID, 2026, 4);
 
     expect(result).toHaveLength(1);
     expect(result[0].returnCount).toBe(0);
@@ -548,42 +500,29 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
     expect(result[0].netProfit).not.toBeNull();
   });
 
-  // ---------------------------------------------------------------------------
-  // Test 6: Null listingOption on ReturnLineItem → skipped; properly wired → counted
-  // ---------------------------------------------------------------------------
   it('ReturnLineItem with null orderLineItem.listingOption → skipped; properly wired → returnCount: 1', async () => {
     const list = await setupListing(prisma, TEST_ORGANIZATION_ID, 'NULL-LO');
-
     const orderedAt = new Date('2026-04-15T00:00:00.000Z');
 
-    // Create the order with a real line item that points to the listing
     const order = await createOrder(prisma, TEST_ORGANIZATION_ID, {
       orderedAt,
       externalOrderId: 'NULL-LO-ORD',
       lineItems: [{ listingOptionId: list.listingOption.id, optionId: list.option.id, totalPrice: 10_000 }],
     });
-
-    // Fetch the real line item id created by createOrder
     const realLineItem = await prisma.orderLineItem.findFirstOrThrow({
       where: { orderId: order.id, listingOptionId: list.listingOption.id },
     });
-
-    // Also create an orphaned order line item with NULL listingOptionId
     const orphanLineItem = await prisma.orderLineItem.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         orderId: order.id,
-        listingOptionId: null, // intentionally null — no listingOption
+        listingOptionId: null,
         quantity: 1,
         unitPrice: 5_000,
         totalPrice: 5_000,
         externalLineId: 'NULL-LO-LI-ORPHAN',
       },
     });
-
-    // Create one OrderReturn with 2 ReturnLineItems:
-    //   ReturnLineItem A: properly wired to real lineItem → should contribute
-    //   ReturnLineItem B: wired to orphan lineItem (null listingOptionId) → should be skipped
     const orderReturn = await prisma.orderReturn.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
@@ -598,42 +537,169 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
         requestedAt: orderedAt,
       },
     });
-
-    // ReturnLineItem A — properly wired (contributes to returnCount)
     await prisma.orderReturnLineItem.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         returnId: orderReturn.id,
-        orderLineItemId: realLineItem.id, // real lineItem with listingOptionId → listingId resolves
+        orderLineItemId: realLineItem.id,
         productName: 'real item',
         quantity: 1,
       },
     });
-
-    // ReturnLineItem B — orphaned (skipped by aggregation)
     await prisma.orderReturnLineItem.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         returnId: orderReturn.id,
-        orderLineItemId: orphanLineItem.id, // null listingOptionId → no listingId → skipped
+        orderLineItemId: orphanLineItem.id,
         productName: 'orphaned',
         quantity: 1,
       },
     });
+    await coverOrders();
 
-    const result = await service.findAll(TEST_ORGANIZATION_ID, 2026, 4);
+    const result = await rowsFor(TEST_ORGANIZATION_ID, 2026, 4);
 
-    // Only 1 row for the real listing
     const row = result.find((r) => r.externalId === 'EXT-NULL-LO');
     expect(row, 'L1 row for EXT-NULL-LO should exist').toBeDefined();
-
-    // ReturnLineItem A (properly wired) contributes → returnCount: 1
     expect(row!.returnCount).toBe(1);
   });
 
-  // ---------------------------------------------------------------------------
-  // Test 7: CEO-C3 latency baseline — 1000 orders × 3 lineItems under 2s
-  // ---------------------------------------------------------------------------
+  /**
+   * KID-85 acceptance — a product with any line lacking cost has no measured
+   * net profit, and a month containing it has no measured profit either.
+   */
+  it('publishes no net profit for a product with any line lacking cost, and none for the month', async () => {
+    const known = await setupListing(prisma, TEST_ORGANIZATION_ID, 'COST-KNOWN');
+    const unknown = await setupListing(prisma, TEST_ORGANIZATION_ID, 'COST-UNKNOWN');
+    const pricedOption = await prisma.channelListingOption.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        listingId: unknown.listing.id,
+        externalOptionId: 'VI-COST-UNKNOWN-PRICED',
+        costPriceOverride: 1000,
+        commissionRate: 0.1,
+        otherCost: 50,
+      },
+    });
+    // The second option of the same product has neither a cost override nor
+    // a purchase price on its mapped Sellpia component.
+    await prisma.channelListingOption.update({
+      where: { id: unknown.listingOption.id },
+      data: { costPriceOverride: null },
+    });
+    await prisma.sellpiaInventorySku.update({
+      where: { id: unknown.option.id },
+      data: { purchasePrice: null },
+    });
+
+    const orderedAt = new Date('2026-04-15T00:00:00.000Z');
+    await createOrder(prisma, TEST_ORGANIZATION_ID, {
+      orderedAt,
+      externalOrderId: 'COST-KNOWN-ORD',
+      lineItems: [{ listingOptionId: known.listingOption.id, optionId: known.option.id, totalPrice: 10_000 }],
+    });
+    await createOrder(prisma, TEST_ORGANIZATION_ID, {
+      orderedAt,
+      externalOrderId: 'COST-UNKNOWN-ORD',
+      lineItems: [
+        { listingOptionId: pricedOption.id, optionId: unknown.option.id, totalPrice: 10_000 },
+        { listingOptionId: unknown.listingOption.id, optionId: unknown.option.id, totalPrice: 10_000 },
+      ],
+    });
+    await coverAprilAds();
+    await coverOrders();
+
+    const result = await service.findAll(TEST_ORGANIZATION_ID, 2026, 4);
+
+    expect(result.rows.find((row) => row.listingId === known.listing.id)).toMatchObject({
+      revenue: 10_000,
+      cogs: 1_000,
+      commission: 1_000,
+      otherCost: 50,
+      adCost: 0,
+      netProfit: 7_950,
+      profitRate: 79.5,
+    });
+    expect(result.rows.find((row) => row.listingId === unknown.listing.id)).toMatchObject({
+      revenue: 20_000,
+      cogs: null,
+      netProfit: null,
+      profitRate: null,
+    });
+    expect(result.totals).toMatchObject({
+      revenue: 30_000,
+      orderCount: 2,
+      adCost: 0,
+      netProfit: null,
+      profitRate: null,
+    });
+    expect(periodBasisStatus(result.basis.revenue)).toBe('complete');
+    expect(result.basis.profit.invalidDates).toHaveLength(30);
+    expect(periodBasisStatus(result.basis.profit)).toBe('empty');
+  });
+
+  it('a fully measured month publishes its totals with a complete basis', async () => {
+    const list = await setupListing(prisma, TEST_ORGANIZATION_ID, 'MEASURED');
+    await createOrder(prisma, TEST_ORGANIZATION_ID, {
+      orderedAt: new Date('2026-04-15T00:00:00.000Z'),
+      externalOrderId: 'MEASURED-ORD',
+      shippingPrice: 3_000,
+      lineItems: [{ listingOptionId: list.listingOption.id, optionId: list.option.id, totalPrice: 20_000 }],
+    });
+    const runId = await coverAprilAds();
+    await seedAd(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, listingId: list.listing.id,
+      date: '2026-04-15', spend: 2_000, runId,
+    });
+    await coverOrders();
+
+    const result = await service.findAll(TEST_ORGANIZATION_ID, 2026, 4);
+
+    expect(result.period).toBe('2026-04');
+    expect(result.rows[0]).toMatchObject({
+      cogs: 1_000, commission: 2_000, otherCost: 50, shippingCost: 3_000,
+      adCost: 2_000, netProfit: 11_950, profitRate: 59.8,
+    });
+    expect(result.totals).toEqual({
+      revenue: 20_000,
+      orderCount: 1,
+      cost: 8_050,
+      adCost: 2_000,
+      netProfit: 11_950,
+      profitRate: 59.8,
+    });
+    expect(result.basis.revenue).toMatchObject({
+      from: '2026-04-01', to: '2026-04-30', targetDays: 30, sources: ['orders'],
+    });
+    expect(result.basis.adCost.sources).toEqual(['coupang_ads']);
+    expect(result.basis.profit.sources).toEqual(['orders', 'coupang_ads']);
+    for (const basis of [result.basis.revenue, result.basis.adCost, result.basis.profit]) {
+      expect(periodBasisStatus(basis)).toBe('complete');
+    }
+  });
+
+  it('a month the Orders collection covered only in part publishes no window totals', async () => {
+    const list = await setupListing(prisma, TEST_ORGANIZATION_ID, 'PARTIAL');
+    await createOrder(prisma, TEST_ORGANIZATION_ID, {
+      orderedAt: new Date('2026-04-15T00:00:00.000Z'),
+      externalOrderId: 'PARTIAL-ORD',
+      lineItems: [{ listingOptionId: list.listingOption.id, optionId: list.option.id, totalPrice: 20_000 }],
+    });
+    await coverAprilAds();
+    await coverOrders(TEST_ORGANIZATION_ID, '2026-04-01', '2026-04-20');
+
+    const result = await service.findAll(TEST_ORGANIZATION_ID, 2026, 4);
+
+    // The collected line stays visible with its basis; nothing derived from
+    // the whole month is published from twenty collected days.
+    expect(result.rows[0]).toMatchObject({ revenue: 20_000, netProfit: null, profitRate: null });
+    expect(result.totals).toMatchObject({
+      revenue: null, orderCount: null, cost: null, netProfit: null, profitRate: null,
+    });
+    expect(result.basis.revenue.includedDates).toHaveLength(20);
+    expect(periodBasisStatus(result.basis.revenue)).toBe('partial');
+  });
+
   it('handles 1000 orders with 3 lineItems each under 2s (CEO-C3 baseline)', async () => {
     const { listingOption, option, listing } = await setupListing(prisma, TEST_ORGANIZATION_ID, 'PERF-A');
 
@@ -646,17 +712,15 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
       year: 2026,
       month: 4,
     });
+    await coverOrders();
 
     const start = Date.now();
-    const result = await service.findAll(TEST_ORGANIZATION_ID, 2026, 4);
+    const result = await rowsFor(TEST_ORGANIZATION_ID, 2026, 4);
     const latencyMs = Date.now() - start;
 
     expect(result.length).toBeGreaterThan(0);
     expect(result.find((r) => r.listingId === listing.id)).toBeDefined();
-
     console.log(`[perf] profit-loss 1000 orders / 3 lineItems → ${latencyMs}ms`);
-
-    // CEO-C3: must complete under 2s. If this fails, it exposes a scale issue — do NOT skip.
     expect(latencyMs).toBeLessThan(2000);
   });
 });

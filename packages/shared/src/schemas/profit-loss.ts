@@ -1,14 +1,15 @@
 import { z } from 'zod';
+import { DashboardPeriodBasisSchema } from './dashboard.js';
+
+export const FinancePeriodSchema = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'YYYY-MM');
 
 /**
- * P&L row — listingId-primary (Plan B2c.orders T10).
+ * P&L row — listingId-primary.
  *
- * Source: `profit-loss.service.ts` + statistics `products()` return shape.
- * 3-layer schema 반영: `productId`/`sku`/`organization` 등 stale 필드 제거,
- * ChannelListing(`listingId`) + MasterProduct(`masterId`) + 채널/외부ID 를 1급 필드로.
- *
- * Frontend consumers (`apps/web/src/app/profit-loss/**`) 는 Plan D 에서 재배선한다.
- * 이 plan 은 backend `satisfies PLData` 로 drift 감지만 제공.
+ * Every cost is the sum of the listing's collected order lines. A line whose
+ * purchase price, commission rate or other cost was never recorded makes that
+ * cost `null`, and a profit built from an unavailable input is `null` too —
+ * not a zero, and not a smaller profit (ADR-0006).
  */
 export const PLDataSchema = z.object({
   listingId: z.string().uuid(),
@@ -21,17 +22,57 @@ export const PLDataSchema = z.object({
   grade: z.string().nullable(),
   thumbnailUrl: z.string().nullable(),
   revenue: z.number().int(),
-  cogs: z.number().int(),
-  commission: z.number().int(),
+  cogs: z.number().int().nullable(),
+  commission: z.number().int().nullable(),
   shippingCost: z.number().int(),
-  // Unavailable (`null`) when the listing's ad coverage is incomplete for the
-  // period — ADR-0003. Not a zero, and not a smaller profit.
   adCost: z.number().int().nullable(),
-  otherCost: z.number().int(),
+  otherCost: z.number().int().nullable(),
   netProfit: z.number().int().nullable(),
+  /** Percent with one decimal; `null` over zero revenue or an unavailable profit. */
   profitRate: z.number().nullable(),
   orderCount: z.number().int(),
   returnCount: z.number().int(),
 });
 
 export type PLData = z.infer<typeof PLDataSchema>;
+
+/**
+ * The evidence behind one finance window, as measured facts only: which
+ * business dates the Orders collection covered (`revenue`), which the
+ * advertising sweep covered (`adCost`), and the dates on which every profit
+ * input was measured (`profit`, whose `invalidDates` are the dates refused
+ * because a cost input was never recorded). Status words are derived with
+ * `periodBasisStatus` from `@kiditem/shared/dashboard`; none travels here.
+ */
+export const FinanceWindowBasisSchema = z.object({
+  revenue: DashboardPeriodBasisSchema,
+  adCost: DashboardPeriodBasisSchema,
+  profit: DashboardPeriodBasisSchema,
+}).strict();
+export type FinanceWindowBasis = z.infer<typeof FinanceWindowBasisSchema>;
+
+/**
+ * Organization totals for one finance window. A total is published only when
+ * every business date of the window was collected and every input it depends
+ * on was measured; otherwise it is `null`.
+ */
+export const FinanceWindowTotalsSchema = z.object({
+  revenue: z.number().int().nullable(),
+  orderCount: z.number().int().nonnegative().nullable(),
+  /** Purchase cost + commission + other cost + order shipping + advertising. */
+  cost: z.number().int().nullable(),
+  adCost: z.number().int().nullable(),
+  netProfit: z.number().int().nullable(),
+  /** Percent with one decimal; `null` over zero revenue or an unavailable profit. */
+  profitRate: z.number().nullable(),
+}).strict();
+export type FinanceWindowTotals = z.infer<typeof FinanceWindowTotalsSchema>;
+
+/** `/api/profit-loss?period=YYYY-MM`. */
+export const ProfitLossResponseSchema = z.object({
+  period: FinancePeriodSchema,
+  rows: z.array(PLDataSchema),
+  totals: FinanceWindowTotalsSchema,
+  basis: FinanceWindowBasisSchema,
+});
+export type ProfitLossResponse = z.infer<typeof ProfitLossResponseSchema>;

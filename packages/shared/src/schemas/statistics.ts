@@ -1,25 +1,30 @@
 import { z } from 'zod';
 import { zIsoDate } from './common.js';
+import { DashboardPeriodBasisSchema } from './dashboard.js';
+import { FinanceWindowBasisSchema } from './profit-loss.js';
 
 /**
- * Statistics domain response schemas — Plan B2c.orders T10.
+ * Statistics domain response schemas.
  *
- * Backend `StatisticsService` 의 6 메서드 (overview / products / categories / grades /
- * pareto / repurchase) return literal 에 `satisfies <Xxx>` 바인딩.
- * Live finance aggregation의 listingId-primary shape (canonical MasterProduct + channel-agnostic Order).
+ * Backend `StatisticsService` return literals close with `satisfies <Xxx>`.
+ * Every response carries the basis its values rest on. `basis` is `null` only
+ * when no period was asked and no order was ever collected, so no window
+ * exists to describe. A window total or ratio is `null` unless the whole
+ * window was collected and its denominator is non-zero (ADR-0006).
  */
+
+const StatisticsBasisSchema = FinanceWindowBasisSchema.nullable();
 
 // ───── Overview ─────
 
 export const StatisticsOverviewSchema = z.object({
-  totalRevenue: z.number().int(),
-  totalOrders: z.number().int(),
-  // A rollup over a listing whose ad coverage is incomplete is itself
-  // unavailable (ADR-0003). Revenue and order counts never depend on ad
-  // coverage, so they stay complete.
+  totalRevenue: z.number().int().nullable(),
+  totalOrders: z.number().int().nullable(),
   totalProfit: z.number().int().nullable(),
+  /** Profit over revenue as a ratio (0.4 = 40%). */
   avgMargin: z.number().nullable(),
   totalProducts: z.number().int(),
+  basis: StatisticsBasisSchema,
 });
 export type StatisticsOverview = z.infer<typeof StatisticsOverviewSchema>;
 
@@ -36,13 +41,19 @@ export const StatisticsProductRowSchema = z.object({
   grade: z.string().nullable(),
   thumbnailUrl: z.string().nullable(),
   totalRevenue: z.number().int(),
-  // Unavailable when the listing's ad coverage is incomplete (ADR-0003).
   netProfit: z.number().int().nullable(),
   orderCount: z.number().int(),
+  /** Ratio; `null` over zero revenue or an unavailable profit. */
   profitRate: z.number().nullable(),
   margin: z.number().nullable(),
 });
 export type StatisticsProductRow = z.infer<typeof StatisticsProductRowSchema>;
+
+export const StatisticsProductsResponseSchema = z.object({
+  rows: z.array(StatisticsProductRowSchema),
+  basis: StatisticsBasisSchema,
+});
+export type StatisticsProductsResponse = z.infer<typeof StatisticsProductsResponseSchema>;
 
 // ───── Categories ─────
 
@@ -56,6 +67,12 @@ export const StatisticsCategoryRowSchema = z.object({
 });
 export type StatisticsCategoryRow = z.infer<typeof StatisticsCategoryRowSchema>;
 
+export const StatisticsCategoriesResponseSchema = z.object({
+  rows: z.array(StatisticsCategoryRowSchema),
+  basis: StatisticsBasisSchema,
+});
+export type StatisticsCategoriesResponse = z.infer<typeof StatisticsCategoriesResponseSchema>;
+
 // ───── Grades ─────
 
 export const StatisticsGradeRowSchema = z.object({
@@ -67,6 +84,12 @@ export const StatisticsGradeRowSchema = z.object({
   adCost: z.number().int().nullable(),
 });
 export type StatisticsGradeRow = z.infer<typeof StatisticsGradeRowSchema>;
+
+export const StatisticsGradesResponseSchema = z.object({
+  rows: z.array(StatisticsGradeRowSchema),
+  basis: StatisticsBasisSchema,
+});
+export type StatisticsGradesResponse = z.infer<typeof StatisticsGradesResponseSchema>;
 
 // ───── Pareto ─────
 
@@ -80,21 +103,23 @@ export const StatisticsParetoItemSchema = z.object({
   id: z.string().uuid(),
   rank: z.number().int(),
   name: z.string(),
-  paretoBand: StatisticsParetoBandSchema,
+  /** `null` when the share it is cut from is unavailable. */
+  paretoBand: StatisticsParetoBandSchema.nullable(),
   revenue: z.number().int(),
-  revenuePercent: z.number(),
-  cumulativePercent: z.number(),
+  revenuePercent: z.number().nullable(),
+  cumulativePercent: z.number().nullable(),
 });
 export type StatisticsParetoItem = z.infer<typeof StatisticsParetoItemSchema>;
 
 export const StatisticsParetoResponseSchema = z.object({
-  totalRevenue: z.number().int(),
+  totalRevenue: z.number().int().nullable(),
   bandDistribution: z.object({
     top70: z.number().int(),
     next20: z.number().int(),
     tail10: z.number().int(),
-  }),
+  }).nullable(),
   data: z.array(StatisticsParetoItemSchema),
+  basis: StatisticsBasisSchema,
 });
 export type StatisticsParetoResponse = z.infer<typeof StatisticsParetoResponseSchema>;
 
@@ -117,11 +142,13 @@ export const StatisticsRepurchaseCustomerSchema = z.object({
 export type StatisticsRepurchaseCustomer = z.infer<typeof StatisticsRepurchaseCustomerSchema>;
 
 export const StatisticsRepurchaseResponseSchema = z.object({
-  totalCustomers: z.number().int(),
-  repeatCount: z.number().int(),
-  repurchaseRate: z.number(),
-  totalOrders: z.number().int(),
+  totalCustomers: z.number().int().nullable(),
+  repeatCount: z.number().int().nullable(),
+  /** Ratio; `null` over no customers or an incompletely collected window. */
+  repurchaseRate: z.number().nullable(),
+  totalOrders: z.number().int().nullable(),
   repeatProducts: z.array(StatisticsRepurchaseProductSchema),
   repeatCustomers: z.array(StatisticsRepurchaseCustomerSchema),
+  basis: z.object({ orders: DashboardPeriodBasisSchema }).strict().nullable(),
 });
 export type StatisticsRepurchaseResponse = z.infer<typeof StatisticsRepurchaseResponseSchema>;
