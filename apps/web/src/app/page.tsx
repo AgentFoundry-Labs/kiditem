@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { Bot, BarChart3, Zap, ArrowRight } from 'lucide-react';
+import { Bot, BarChart3, Zap, ArrowRight, Workflow } from 'lucide-react';
 
 export default function HubPage() {
   return (
@@ -33,8 +33,8 @@ export default function HubPage() {
           <p className="text-sm text-slate-500 font-mono tracking-wide">SELECT YOUR WORKSPACE</p>
         </div>
 
-        {/* Two cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 w-full max-w-2xl">
+        {/* Workspace cards — Agent OS · Agent Org · Dashboard */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 w-full max-w-4xl">
           {/* Agent OS */}
           <Link
             href="/agent-os"
@@ -49,6 +49,25 @@ export default function HubPage() {
               Agent 네트워크와 실행 도구, 실시간 작업 상태 확인
             </p>
             <div className="flex items-center gap-2 text-cyan-400 text-sm font-semibold">
+              <span>진입</span>
+              <ArrowRight size={16} className="transition-transform group-hover:translate-x-1" />
+            </div>
+          </Link>
+
+          {/* Agent Org */}
+          <Link
+            href="/agent-org"
+            className="group relative rounded-2xl border border-blue-500/20 bg-slate-900/80 backdrop-blur-xl p-8 text-left transition-all duration-300 hover:border-blue-400/40 hover:shadow-[0_0_40px_rgba(59,130,246,0.15)] hover:scale-[1.02]"
+          >
+            <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-blue-400 to-transparent opacity-0 group-hover:opacity-100 transition-opacity rounded-t-2xl" />
+            <div className="w-14 h-14 rounded-2xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center mb-5">
+              <Workflow size={28} className="text-blue-400" />
+            </div>
+            <h2 className="text-xl font-bold text-white mb-2">Agent Org</h2>
+            <p className="text-sm text-slate-400 leading-relaxed mb-6">
+              에이전트 조직과 소싱부터 마케팅 · CS 까지 파이프라인, 사장님 컨펌
+            </p>
+            <div className="flex items-center gap-2 text-blue-400 text-sm font-semibold">
               <span>진입</span>
               <ArrowRight size={16} className="transition-transform group-hover:translate-x-1" />
             </div>

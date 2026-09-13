@@ -1,5 +1,6 @@
 import {
   Bot,
+  Workflow,
   BrainCircuit,
   Boxes,
   Building2,
@@ -153,6 +154,7 @@ export const menuSections: MenuSection[] = [
     label: '',
     collapsible: false,
     items: [
+      { href: '/agent-org', label: 'Agent Org', icon: Workflow },
       { href: '/agent-os', label: 'Agent OS', icon: Bot },
       { href: '/settings', label: '설정', icon: Settings },
     ],

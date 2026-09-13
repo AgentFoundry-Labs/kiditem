@@ -318,6 +318,8 @@ export const queryKeys = {
         [...queryKeys.sourcing.workspace.root(organizationId), 'keyword-preferences'] as const,
       interests: (organizationId: string) =>
         [...queryKeys.sourcing.workspace.root(organizationId), 'interests'] as const,
+      confirmReport: (organizationId: string) =>
+        [...queryKeys.sourcing.workspace.root(organizationId), 'confirm-report'] as const,
     },
     intelligence: () => [...queryKeys.sourcing.all, 'intelligence'] as const,
     intelligenceSources: () =>

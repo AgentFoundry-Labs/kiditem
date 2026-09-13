@@ -83,6 +83,8 @@ export function useSourcingReviewSelections(
         recommendationRunId: recommendationRunId!,
       }),
     enabled: organizationId !== null && recommendationRunId !== null,
+    // 사장님 컨펌 텔레그램 답장도 같은 선택에 쓰인다. 화면을 열어 둔 채로 들어온 답장이 보이게 한다.
+    refetchInterval: 30_000,
   });
 }
 

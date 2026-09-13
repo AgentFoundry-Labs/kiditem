@@ -75,6 +75,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     pathname.startsWith('/login') ||
     pathname.startsWith('/detail-page-client-render');
   const isAgentWorkspace = pathname.startsWith('/agent-os');
+  // `/agent-org` 는 자체 헤더(홈 링크)를 가진 전체 화면 시각화다. 앱 사이드바를 씌우면
+  // 화면 왼쪽의 에이전트 목록을 덮는다. 틀만 벗기고, AI 채팅 표면 규칙은 Agent OS 것만 따른다.
+  const isFullscreenVisualization = pathname.startsWith('/agent-org');
 
   useEffect(() => {
     if (isPublicOrIsolatedSurface) return;
@@ -240,7 +243,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             auxiliaryVisible && '2xl:mr-[var(--right-auxiliary-width)]',
           )}
         >
-          {isAgentWorkspace ? children : content}
+          {isAgentWorkspace || isFullscreenVisualization ? children : content}
         </div>
       </RightSurfaceLauncherProvider>
       <PanelErrorBoundary>

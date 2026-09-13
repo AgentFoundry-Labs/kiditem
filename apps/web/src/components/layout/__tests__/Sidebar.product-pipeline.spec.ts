@@ -70,6 +70,7 @@ describe('Sidebar product pipeline navigation', () => {
         ['/sales-analysis', '매출 분석'],
       ]],
       ['', [
+        ['/agent-org', 'Agent Org'],
         ['/agent-os', 'Agent OS'],
         ['/settings', '설정'],
       ]],
