@@ -124,10 +124,6 @@ export interface WingDailyTrendRow {
 export interface CoupangAdsDailyRow {
   date: string;
   ad_cost: number;
-  ad_revenue: number;
-  clicks: number;
-  impressions: number;
-  observedAt: string | null;
 }
 
 export interface WingTrafficAggregationRepositoryPort {

@@ -1330,6 +1330,28 @@ test('retired Wing rank shell schedules are not installed', async () => {
     name.includes('keyword-rank-check') || name.includes('wing-sales-rank-resume') || name.includes('coupang-keyword-serp-rank')), false);
 });
 
+test('an update removes the retired write-only local copies and keeps every other key', async (t) => {
+  const retired = [
+    'kiditem_last_sync_traffic',
+    'kiditem_last_sync_itemwinner',
+    'kiditem_last_sync_ads',
+    'lastExtraction',
+    'lastExtractionEnvironmentId',
+  ];
+  const storage = {
+    ...Object.fromEntries(retired.map((key) => [key, { time: 1, count: 1 }])),
+    kiditem_unrelated_domain_state: { kept: true },
+  };
+  const { fake, close } = bootServiceWorker({ storage });
+  t.after(close);
+
+  for (const listener of fake.installedListeners) await listener({ reason: 'update' });
+  await new Promise(setImmediate);
+
+  for (const key of retired) assert.equal(key in fake.storage, false, key);
+  assert.deepEqual(fake.storage.kiditem_unrelated_domain_state, { kept: true });
+});
+
 test('Wing tab timeout keeps bounded target diagnostics and ignores unrelated tabs', async (t) => {
   const { fake, context, close } = bootServiceWorker();
   t.after(close);

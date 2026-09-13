@@ -3,7 +3,10 @@ import {
   type ProductAbcEvaluation,
   type ProductAbcGrade,
 } from '@kiditem/shared/product-abc';
-import { buildProductAbcReadModel } from '../../domain/product-abc-read-model';
+import {
+  buildProductAbcReadModel,
+  type ProductAbcSourceEvidence,
+} from '../../domain/product-abc-read-model';
 import type {
   ProductAbcReadPort,
   ProductAbcSnapshot,
@@ -42,8 +45,8 @@ export function stubProductAbcRead(
                 requiredCutoff: CUTOFF,
                 actualCutoff: CUTOFF,
                 mappingGeneration: '0',
-                sellpia: readySource(SELLPIA_RUN_ID),
-                advertising: readySource(ADVERTISING_RUN_ID),
+                sellpia: readySource(),
+                advertising: readySource(),
               },
               formulaState: {
                 formulaRevision: 1,
@@ -97,32 +100,12 @@ export function stubMissingProductAbcRead(): ProductAbcReadPort {
   };
 }
 
-function readySource(sourceImportRunId: string) {
-  return {
-    ready: true,
-    actualCutoff: CUTOFF,
-    latestAttemptState: 'COMPLETE' as const,
-    errorCode: null,
-    sourceImportRunId,
-    generation: '1',
-    coverageStartDate: '2026-01-01',
-    coverageEndDate: CUTOFF,
-    capturedAt: '2026-07-01T00:00:00.000Z',
-  };
+function readySource(): ProductAbcSourceEvidence {
+  return { actualCutoff: CUTOFF, latestAttemptState: 'COMPLETE' };
 }
 
-function missingSource() {
-  return {
-    ready: false,
-    actualCutoff: null,
-    latestAttemptState: null,
-    errorCode: null,
-    sourceImportRunId: null,
-    generation: null,
-    coverageStartDate: null,
-    coverageEndDate: null,
-    capturedAt: null,
-  };
+function missingSource(): ProductAbcSourceEvidence {
+  return { actualCutoff: null, latestAttemptState: null };
 }
 
 function publishedEvaluation(abcGrade: ProductAbcGrade): ProductAbcEvaluation {

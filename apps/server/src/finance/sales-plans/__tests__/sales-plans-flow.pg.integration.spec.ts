@@ -118,9 +118,8 @@ describe('Sales-plans flow (PG integration)', () => {
         data: { organizationId: TEST_ORGANIZATION_ID, period: '2026-04' },
       });
 
-      await expect(planView(plan.id, OTHER_ORGANIZATION_ID, AFTER_MONTHS)).rejects.toThrow(
-        NotFoundException,
-      );
+      const otherPlans = await service.findAll(OTHER_ORGANIZATION_ID, AFTER_MONTHS);
+      expect(otherPlans.map(({ id }) => id)).not.toContain(plan.id);
     });
 
     it('#3 delete: OTHER_COMPANY cannot delete TEST_COMPANY plan → NotFoundException; row still exists', async () => {

@@ -574,6 +574,29 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
       });
     });
 
+    it('publishes no period value to reconcile when the confirmed days do not cover the window', async () => {
+      const plan = range(2);
+      const confirmed = { ...plan, endDate: plan.startDate };
+      const started = await begin(plan);
+      await upload(started.attempt, 0, dailyReceipt(started.attempt, plan, plan.startDate, 1, 1, [row('1001', { visitors: 4 })], summary({ visitors: 4 }))).expect(200);
+      await upload(started.attempt, 200, periodReceipt(started.attempt, confirmed, summary({ visitors: 4 }))).expect(200);
+      await complete(started.attempt, 201);
+
+      const published = await request(httpUrl)
+        .get(`${base}/published`)
+        .set('x-test-org', ORG)
+        .query({ channelAccountId: accountId, from: plan.startDate, to: plan.endDate })
+        .expect(200);
+      expect(published.body.coverage).toMatchObject({ targetDays: 2, completedDays: 1 });
+      // The exact-range period summary still travels as provenance, but a sum
+      // over one of the two days is not comparable with it.
+      expect(published.body.periodSummary).toMatchObject({ sourceAttemptId: started.attempt.attemptId });
+      for (const metric of ['views', 'cartAdds', 'orders', 'salesQty', 'revenue']) {
+        expect(published.body.reconciliation[metric].dailySum, metric).not.toBeNull();
+        expect(published.body.reconciliation[metric].periodValue, metric).toBeNull();
+      }
+    });
+
     it('refuses a submission that confirms no date at all', async () => {
       const plan = range(2);
       const started = await begin(plan);

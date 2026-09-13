@@ -317,8 +317,8 @@ describe('ProcurementController purchase submission boundary', () => {
 
   it('routes Rocket workbook export and evidence-gated abandonment through the Supply action endpoint', async () => {
     const workbookExports = {
-      exportWorkbook: vi.fn().mockResolvedValue({ status: 'awaiting_coupang_confirmation' }),
-      abandonWorkbook: vi.fn().mockResolvedValue({ status: 'completed' }),
+      exportWorkbook: vi.fn().mockResolvedValue({ duplicate: false }),
+      abandonWorkbook: vi.fn().mockResolvedValue({ duplicate: false }),
     };
     const Controller = ProcurementController as unknown as new (
       procurement: Record<string, unknown>,

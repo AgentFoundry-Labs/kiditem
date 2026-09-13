@@ -271,22 +271,8 @@ describe('DashboardAdService detailed ad KPI period', () => {
   it('returns only observed owner daily rows, including explicit zeroes', async () => {
     const { service, wingTraffic } = buildService();
     wingTraffic.fetchDailyAds.mockResolvedValue([
-      {
-        date: '2026-09-05',
-        ad_cost: 12_000,
-        ad_revenue: 120_000,
-        clicks: 400,
-        impressions: 4_000,
-        observedAt: '2026-09-06T01:00:00.000Z',
-      },
-      {
-        date: '2026-09-06',
-        ad_cost: 0,
-        ad_revenue: 0,
-        clicks: 0,
-        impressions: 0,
-        observedAt: '2026-09-07T01:00:00.000Z',
-      },
+      { date: '2026-09-05', ad_cost: 12_000 },
+      { date: '2026-09-06', ad_cost: 0 },
     ]);
 
     const result = await service.getSummary(

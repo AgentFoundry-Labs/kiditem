@@ -454,23 +454,9 @@ export type RocketPurchasePreviewResponse = z.infer<
   typeof RocketPurchasePreviewResponseSchema
 >;
 
-export const RocketWorkbookWorkflowStatusSchema = z.enum([
-  'awaiting_coupang_confirmation',
-  'orders_collected',
-  'sellpia_transmitting',
-  'awaiting_inventory_sync',
-  'completed',
-  'failed',
-]);
-export type RocketWorkbookWorkflowStatus = z.infer<
-  typeof RocketWorkbookWorkflowStatusSchema
->;
-
 export const RocketWorkbookExportResponseSchema = z.object({
   exportId: z.string().uuid(),
-  status: RocketWorkbookWorkflowStatusSchema,
   duplicate: z.boolean(),
-  canAbandon: z.boolean(),
   inventoryGeneration: z.string().regex(/^\d+$/).nullable(),
   generatedAt: z.string().datetime(),
   artifact: z.object({

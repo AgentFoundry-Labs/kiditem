@@ -7,7 +7,6 @@ import {
   RocketWorkbookAbandonRequestSchema,
   RocketWorkbookDecisionRequestSchema,
   RocketWorkbookExportResponseSchema,
-  RocketWorkbookWorkflowStatusSchema,
   RocketPoCatalogPublicationSchema,
   RocketPurchasePreviewDecisionSchema,
   RocketPurchasePreviewReasonSchema,
@@ -563,12 +562,10 @@ describe('Rocket purchase preview contract', () => {
     });
   });
 
-  it('publishes workflow and immutable artifact metadata without raw workbook bytes', () => {
-    const response = RocketWorkbookExportResponseSchema.parse({
+  it('publishes immutable artifact metadata without workflow words or raw workbook bytes', () => {
+    const published = {
       exportId: CONFIRMATION_ID,
-      status: 'awaiting_coupang_confirmation',
       duplicate: false,
-      canAbandon: false,
       inventoryGeneration: '12',
       generatedAt: '2026-07-17T00:00:00.000Z',
       artifact: {
@@ -588,28 +585,28 @@ describe('Rocket purchase preview contract', () => {
         workbookQuantity: 2,
         shortageReason: '협력사 재고부족 - 수요예측 오류',
       }],
-    });
+    };
+    const response = RocketWorkbookExportResponseSchema.parse(published);
 
-    expect(response.status).toBe('awaiting_coupang_confirmation');
     expect(response).not.toHaveProperty('rawRows');
     expect(response.artifact).not.toHaveProperty('bytes');
+    // No client reads the workflow word or abandon eligibility; the Supply
+    // workflow keeps both on the server.
+    expect(RocketWorkbookExportResponseSchema.safeParse({
+      ...published,
+      status: 'awaiting_coupang_confirmation',
+    }).success).toBe(false);
+    expect(RocketWorkbookExportResponseSchema.safeParse({
+      ...published,
+      canAbandon: false,
+    }).success).toBe(false);
   });
 
-  it('recognizes every workflow state and requires a reason to abandon a workbook', () => {
+  it('recognizes the confirmation request statuses and requires a reason to abandon a workbook', () => {
     expect(ROCKET_CONFIRMATION_REQUEST_STATUSES).toEqual([
       '거래명세서확인요청',
       '거래처확인요청',
     ]);
-    for (const status of [
-      'awaiting_coupang_confirmation',
-      'orders_collected',
-      'sellpia_transmitting',
-      'awaiting_inventory_sync',
-      'completed',
-      'failed',
-    ] as const) {
-      expect(RocketWorkbookWorkflowStatusSchema.parse(status)).toBe(status);
-    }
     expect(RocketWorkbookAbandonRequestSchema.parse({
       exportId: CONFIRMATION_ID,
       reason: '쿠팡에 업로드하지 않음',

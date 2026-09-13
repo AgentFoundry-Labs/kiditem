@@ -147,7 +147,6 @@ describe('Rocket workbook export transaction (PG integration)', () => {
 
     expect(first).toMatchObject({
       duplicate: false,
-      status: 'awaiting_coupang_confirmation',
       artifact: {
         fileName: 'coupang-rocket.xlsx',
         byteLength: input.artifactBytes.byteLength,
@@ -156,9 +155,13 @@ describe('Rocket workbook export transaction (PG integration)', () => {
     expect(replay).toMatchObject({
       exportId: first.exportId,
       duplicate: true,
-      status: 'awaiting_coupang_confirmation',
     });
     expect(await prisma.rocketPurchaseConfirmation.count()).toBe(1);
+    // A positive workbook leaves its workflow open until Coupang confirms it.
+    await expect(prisma.rocketPurchaseConfirmation.findUniqueOrThrow({
+      where: { id: first.exportId },
+      select: { completedAt: true },
+    })).resolves.toEqual({ completedAt: null });
     expect(
       await prisma.rocketPurchaseConfirmationAllocation.aggregate({
         _sum: { quantity: true },
@@ -287,12 +290,15 @@ describe('Rocket workbook export transaction (PG integration)', () => {
       data: { completedAt: new Date() },
     });
 
-    await expect(
-      adapter.exportWorkbook(
-        confirmationInput('21000000-0000-4000-8000-000000000018', 2),
-      ),
-    ).resolves.toMatchObject({ status: 'awaiting_coupang_confirmation' });
+    const next = await adapter.exportWorkbook(
+      confirmationInput('21000000-0000-4000-8000-000000000018', 2),
+    );
+    expect(next).toMatchObject({ duplicate: false });
     expect(await prisma.rocketPurchaseConfirmation.count()).toBe(2);
+    await expect(prisma.rocketPurchaseConfirmation.findUniqueOrThrow({
+      where: { id: next.exportId },
+      select: { completedAt: true },
+    })).resolves.toEqual({ completedAt: null });
   });
 
   // 수집은 매번 전량 스냅샷이라 제출한 라인이 이후 수집본에도 계속 나온다.

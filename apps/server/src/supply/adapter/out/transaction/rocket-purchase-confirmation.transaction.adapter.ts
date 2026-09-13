@@ -11,7 +11,6 @@ import { Prisma, type RocketPurchaseConfirmationLine } from '@prisma/client';
 import {
   RocketWorkbookDecisionRequestSchema,
   type RocketWorkbookExportResponse,
-  type RocketWorkbookWorkflowStatus,
   type RocketPurchasePreviewRow,
 } from '@kiditem/shared/rocket-purchase-preview';
 import { SOURCE_IMPORT_RUN_COMPLETED_STATUS } from '@kiditem/shared/source-import';
@@ -19,6 +18,7 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import {
   ROCKET_WORKBOOK_PROGRESS_PORT,
   type RocketWorkbookProgressPort,
+  type RocketWorkbookWorkflowStatus,
 } from '../../../../inventory/application/port/in/stock/rocket-workbook-progress.port';
 import type { RocketWorkbookExportTransactionPort } from '../../../application/port/out/transaction/rocket-purchase-confirmation.transaction.port';
 import { readInventoryAvailability } from '../../../../inventory/read/inventory-availability';
@@ -102,7 +102,7 @@ export class RocketPurchaseConfirmationTransactionAdapter implements RocketWorkb
           input.organizationId,
           existing,
         );
-        return exportResponse(refreshed.record, refreshed.status, true);
+        return exportResponse(refreshed.record, true);
       }
 
       const active = await tx.rocketPurchaseConfirmation.findFirst({
@@ -229,11 +229,7 @@ export class RocketPurchaseConfirmationTransactionAdapter implements RocketWorkb
         },
         select: exportSelect,
       });
-      return exportResponse(
-        created,
-        hasPositiveQuantity ? 'awaiting_coupang_confirmation' : 'completed',
-        false,
-      );
+      return exportResponse(created, false);
     }, TRANSACTION_OPTIONS);
   }
 
@@ -261,7 +257,7 @@ export class RocketPurchaseConfirmationTransactionAdapter implements RocketWorkb
       );
       return refreshed.status === 'completed'
         ? null
-        : exportResponse(refreshed.record, refreshed.status, false);
+        : exportResponse(refreshed.record, false);
     }, TRANSACTION_OPTIONS);
   }
 
@@ -312,7 +308,7 @@ export class RocketPurchaseConfirmationTransactionAdapter implements RocketWorkb
         existing,
       );
       if (refreshed.status === 'completed') {
-        return exportResponse(refreshed.record, refreshed.status, true);
+        return exportResponse(refreshed.record, true);
       }
       if (!canAbandon(refreshed.record, refreshed.status)) {
         throw new ConflictException(
@@ -329,7 +325,7 @@ export class RocketPurchaseConfirmationTransactionAdapter implements RocketWorkb
         },
         select: exportSelect,
       });
-      return exportResponse(completed, 'completed', false);
+      return exportResponse(completed, false);
     }, TRANSACTION_OPTIONS);
   }
 
@@ -612,7 +608,6 @@ function findExport(
 
 function exportResponse(
   record: ExportRecord,
-  status: RocketWorkbookWorkflowStatus,
   duplicate: boolean,
 ): RocketWorkbookExportResponse {
   if (
@@ -628,9 +623,7 @@ function exportResponse(
   );
   return {
     exportId: record.id,
-    status,
     duplicate,
-    canAbandon: canAbandon(record, status),
     inventoryGeneration: record.freshnessGeneration?.toString() ?? null,
     generatedAt: record.confirmedAt.toISOString(),
     artifact: {

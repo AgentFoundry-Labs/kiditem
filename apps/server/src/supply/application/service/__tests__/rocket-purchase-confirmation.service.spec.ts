@@ -96,9 +96,7 @@ function dependencies() {
   const transactions = {
     exportWorkbook: vi.fn().mockResolvedValue({
       exportId: idempotencyKey,
-      status: 'awaiting_coupang_confirmation',
       duplicate: false,
-      canAbandon: false,
       inventoryGeneration: '12',
       generatedAt: '2026-07-17T00:00:00.000Z',
       artifact: {
@@ -238,7 +236,6 @@ describe('RocketWorkbookExportService', () => {
       artifactBytes,
     });
     expect(result).toMatchObject({
-      status: 'awaiting_coupang_confirmation',
       duplicate: false,
     });
   });

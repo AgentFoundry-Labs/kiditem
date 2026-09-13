@@ -372,7 +372,7 @@ export class WingTrafficAggregationRepositoryAdapter
       ? dateRangeOf(businessDatesInWindow(since, until))
       : { from: businessDateText(since) };
     if (!range) return [];
-    const { days, observedAt } = await this.prisma.$transaction(
+    const { days } = await this.prisma.$transaction(
       (tx) => readAdWindowFacts(tx, {
         organizationId,
         from: dayStart(range.from),
@@ -384,10 +384,6 @@ export class WingTrafficAggregationRepositoryAdapter
     return days.map((row) => ({
       date: row.businessDate,
       ad_cost: row.spend,
-      ad_revenue: row.revenue,
-      clicks: row.clicks,
-      impressions: row.impressions,
-      observedAt: observedAt?.toISOString() ?? null,
     } satisfies CoupangAdsDailyRow));
   }
 

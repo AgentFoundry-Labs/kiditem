@@ -13,8 +13,8 @@ settlement state, or catalog product editing.
 - Purchase-order counts and status filters
 - Coupang Rocket collection, current-stock preview, quantity review, and direct
   workbook download
-- Supply-owned Rocket preview components and action contracts composed into the
-  capacity-decision placeholder on the preserved `/rocket-orders` screen
+- Supply-owned Rocket preview hook (`useRocketPurchaseWorkflow`), API client and
+  workbook builder, composed by `RocketConfirmPanel` into `/rocket-orders`
 - `/purchase-orders` remains the general supplier purchase-order workspace;
   Rocket review is not duplicated there.
 
@@ -66,17 +66,13 @@ fresh preview -> browser workbook generation -> direct download
   returned effective quantities because multiple rows may share component
   stock. Any later edit marks the preview dirty and workbook export stays disabled
   until one whole-preview revalidation succeeds.
-- Changing the selected Rocket ChannelAccount remounts account-scoped errors,
+- Changing the selected Rocket ChannelAccount resets account-scoped errors,
   preview rows, and edits. The `/rocket-orders` calendar owns the date range,
   so that range remains unchanged while the selected account changes.
-- Rocket's deterministic matching panel is read-only. It displays the safe
-  recipes applied by the current completed collection and the remaining review
-  or blocked counts. Each product-level status deep-links to
-  `/product-hub/matching` with both `channelAccountId` and `status`; the product
-  matching center owns explicit reruns and focused corrections. A blocked
-  Rocket line deep-links with its `productNo` search and `focusOptionId`, then
-  re-previews the same saved collection after the operator fixes the mapping;
-  it does not collect from Coupang again.
+- Rocket review has no Supply-side matching panel. `RocketMatchStatusModal`
+  deep-links a blocked line to `/product-hub/matching` with `focusOptionId`;
+  after the mapping is fixed, re-preview the same saved collection without
+  recollecting from Coupang.
 - Workbook export stays disabled until the backend has published a complete
   catalog, all rows include authoritative workbook fields and confirmed active
   recipes, and the operator has reviewed every quantity/shortage reason.

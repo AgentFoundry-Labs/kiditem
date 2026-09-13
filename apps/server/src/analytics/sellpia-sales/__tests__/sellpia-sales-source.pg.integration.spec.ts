@@ -612,12 +612,5 @@ describe('Sellpia sales source owner HTTP + disposable PostgreSQL', () => {
 });
 
 function ads(date: string, adCost: number): CoupangAdsDailyRow {
-  return {
-    date,
-    ad_cost: adCost,
-    ad_revenue: 0,
-    clicks: 0,
-    impressions: 0,
-    observedAt: '2026-07-18T00:00:00.000Z',
-  };
+  return { date, ad_cost: adCost };
 }

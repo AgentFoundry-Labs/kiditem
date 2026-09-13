@@ -1,4 +1,14 @@
-import type { RocketWorkbookWorkflowStatus } from '@kiditem/shared/rocket-purchase-preview';
+/**
+ * Server-side state of one exported Rocket workbook workflow. Supply reads it
+ * to fence a new export and abandonment; no client receives it.
+ */
+export type RocketWorkbookWorkflowStatus =
+  | 'awaiting_coupang_confirmation'
+  | 'orders_collected'
+  | 'sellpia_transmitting'
+  | 'awaiting_inventory_sync'
+  | 'completed'
+  | 'failed';
 
 export interface RocketWorkbookProgressPort {
   read(input: {
