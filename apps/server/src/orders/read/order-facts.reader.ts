@@ -62,17 +62,6 @@ export interface OrderStatusCounts {
   byStatus: Record<string, number>;
 }
 
-export type OrderReturnFact = Prisma.OrderReturnGetPayload<{
-  include: { lineItems: true };
-}>;
-
-export interface OrderReturnListInput {
-  organizationId: string;
-  type: string;
-  from?: Date;
-  to?: Date;
-}
-
 export interface DailyOrderFacts {
   day: string;
   revenue: number;
@@ -119,17 +108,6 @@ export interface RepurchaseOrderFact {
   receiverName: string | null;
   orderedAt: Date;
   revenue: number;
-}
-
-export interface OrderReturnWindowFacts {
-  orderCount: number;
-  /**
-   * Returns of the window's orders, and returns with no order. `null` while
-   * returns have no owner publication: nothing collects them or declares a
-   * window of them observed, so the table's rows are not a count.
-   */
-  returnCount: number | null;
-  orphanReturnCount: number | null;
 }
 
 type WindowRow = {
@@ -211,55 +189,6 @@ export async function readOrderStatusCounts(
   const rows = await tx.order.groupBy({
     by: ['status'],
     where: completeOrderWhere(organizationId),
-    _count: true,
-  });
-  const byStatus = Object.fromEntries(
-    rows.map((row) => [row.status, row._count]),
-  );
-  return {
-    total: rows.reduce((sum, row) => sum + row._count, 0),
-    byStatus,
-  };
-}
-
-export async function readOrderReturns(
-  tx: Prisma.TransactionClient,
-  input: OrderReturnListInput,
-): Promise<OrderReturnFact[]> {
-  return tx.orderReturn.findMany({
-    where: {
-      organizationId: input.organizationId,
-      type: input.type,
-      ...((input.from || input.to) && {
-        requestedAt: {
-          ...(input.from && { gte: input.from }),
-          ...(input.to && { lte: input.to }),
-        },
-      }),
-    },
-    include: { lineItems: true },
-    orderBy: { requestedAt: 'desc' },
-  });
-}
-
-export async function readOrderReturnByIdFact(
-  tx: Prisma.TransactionClient,
-  organizationId: string,
-  id: string,
-): Promise<OrderReturnFact | null> {
-  return tx.orderReturn.findFirst({
-    where: { id, organizationId },
-    include: { lineItems: true },
-  });
-}
-
-export async function readOrderReturnStatusCounts(
-  tx: Prisma.TransactionClient,
-  organizationId: string,
-): Promise<OrderStatusCounts> {
-  const rows = await tx.orderReturn.groupBy({
-    by: ['status'],
-    where: { organizationId },
     _count: true,
   });
   const byStatus = Object.fromEntries(
@@ -599,59 +528,6 @@ export async function readPublishedOrderLines(
   }));
 }
 
-/**
- * The collected orders placed inside `[from, to)`, and the window's returns.
- * Returns have no owner publication (ADR-0009): no source attempt collects
- * them and no coverage declares a window of them observed, so neither an empty
- * nor a populated return table is a count. Both return counts stay `null`
- * until a return source publishes coverage (ADR-0006).
- */
-export async function readOrderReturnWindowFacts(
-  tx: Prisma.TransactionClient,
-  input: OrderWindowInput,
-): Promise<OrderReturnWindowFacts> {
-  const [row] = await tx.$queryRaw<Array<{ orderCount: bigint }>>(Prisma.sql`
-    SELECT COUNT(*)::bigint AS "orderCount"
-    FROM orders o
-    WHERE o.organization_id = ${input.organizationId}::uuid
-      ${completeOrderFactSql(input.organizationId)}
-      AND o.ordered_at >= ${input.from} AND o.ordered_at < ${input.to}
-  `);
-  return {
-    orderCount: Number(row.orderCount),
-    returnCount: null,
-    orphanReturnCount: null,
-  };
-}
-
-export async function readOrderReturnReasonFacts(
-  tx: Prisma.TransactionClient,
-  input: OrderWindowInput,
-): Promise<Array<{ reason: string; count: number }>> {
-  const rows = await tx.$queryRaw<Array<{ reason: string; count: bigint }>>(Prisma.sql`
-    SELECT reason, COUNT(*)::bigint AS count
-    FROM order_returns
-    WHERE organization_id = ${input.organizationId}::uuid
-      AND requested_at >= ${input.from} AND requested_at < ${input.to}
-    GROUP BY reason
-  `);
-  return rows.map((row) => ({ reason: row.reason, count: Number(row.count) }));
-}
-
-export async function readOrderReturnFaultFacts(
-  tx: Prisma.TransactionClient,
-  input: OrderWindowInput,
-): Promise<Array<{ faultBy: string; count: number }>> {
-  const rows = await tx.$queryRaw<Array<{ faultBy: string; count: bigint }>>(Prisma.sql`
-    SELECT fault_by AS "faultBy", COUNT(*)::bigint AS count
-    FROM order_returns
-    WHERE organization_id = ${input.organizationId}::uuid
-      AND requested_at >= ${input.from} AND requested_at < ${input.to}
-    GROUP BY fault_by
-  `);
-  return rows.map((row) => ({ faultBy: row.faultBy, count: Number(row.count) }));
-}
-
 export async function readOrderStatusCount(
   tx: Prisma.TransactionClient,
   organizationId: string,
@@ -667,19 +543,6 @@ export async function readOrderStatusCount(
           AND s.organization_id = ${organizationId}::uuid
           AND s.status = 'completed'
       )
-  `);
-  return Number(row?.count ?? 0n);
-}
-
-export async function readOrderReturnStatusCount(
-  tx: Prisma.TransactionClient,
-  organizationId: string,
-  status: string,
-): Promise<number> {
-  const [row] = await tx.$queryRaw<Array<{ count: bigint }>>(Prisma.sql`
-    SELECT COUNT(*)::bigint AS count
-    FROM order_returns
-    WHERE organization_id = ${organizationId}::uuid AND status = ${status}
   `);
   return Number(row?.count ?? 0n);
 }

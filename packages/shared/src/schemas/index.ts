@@ -31,10 +31,7 @@ export type {
 export {
   OrderSchema,
   OrderLineItemSchema,
-  OrderReturnSchema,
-  OrderReturnLineItemSchema,
   OrderPlatformSchema,
-  OrderReturnTypeSchema,
   OrderStatusSchema,
   OrderPipelineStatusSchema,
   OrderListLineItemSchema,
@@ -47,10 +44,7 @@ export {
 export type {
   Order,
   OrderLineItem,
-  OrderReturn,
-  OrderReturnLineItem,
   OrderPlatform,
-  OrderReturnType,
   OrderStatus,
   OrderPipelineStatus,
   OrderListLineItem,

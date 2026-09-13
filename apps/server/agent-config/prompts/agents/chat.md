@@ -6,7 +6,7 @@
 DB 직접 조회는 사용할 수 없습니다. 필요한 데이터가 제공되지 않았다면 추측하지 말고, 어떤 화면/API 컨텍스트가 필요할지 짧게 요청하세요.
 
 ## 주요 테이블 (PostgreSQL, snake_case)
-- orders / order_line_items / order_returns / order_return_line_items: 주문·주문라인·반품·실시간 손익 집계 원천
+- orders / order_line_items: 주문·주문라인·실시간 손익 집계 원천
 - master_products / sellpia_inventory_skus / channel_listings / channel_listing_options / channel_listing_option_inventory_components: 정규 상품, 물리 SKU, 채널 listing/option과 option별 소비 구성
 - channel_listing_daily_snapshots / channel_listing_option_daily_snapshots: 일별 트래픽·광고·매출 fact
 - channel_ad_target_daily_snapshots: 광고 target-일 fact (계정 합계는 캠페인 sweep 행의 합)

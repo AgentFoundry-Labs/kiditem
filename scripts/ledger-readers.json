@@ -173,20 +173,6 @@
       "legacyReaders": []
     },
     {
-      "name": "Orders canonical return",
-      "table": "order_returns",
-      "prismaModel": "orderReturn",
-      "prismaType": "OrderReturn",
-      "relationNames": [
-        "orderReturns",
-        "return",
-        "returns"
-      ],
-      "reader": "apps/server/src/orders/read/order-facts.reader.ts",
-      "ownerPublications": [],
-      "legacyReaders": []
-    },
-    {
       "name": "Orders current complete review",
       "table": "reviews",
       "prismaModel": "review",

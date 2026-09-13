@@ -4,8 +4,6 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { SupplyModule } from '../supply/supply.module';
 import { OrdersController } from './controllers/orders.controller';
 import { OrdersService } from './services/orders.service';
-import { ReturnsController } from './controllers/returns.controller';
-import { ReturnsService } from './services/returns.service';
 import { ReviewsController } from './controllers/reviews.controller';
 import { ReviewsService } from './services/reviews.service';
 import { ReviewIngestService } from './services/review-ingest.service';
@@ -43,7 +41,6 @@ import { ReviewCollectionSourceRepository } from './adapter/out/repository/revie
     OrderCollectionSourceController,
     SellpiaShipmentTrackingSourceController,
     OrderCollectionMallAccountController,
-    ReturnsController,
     ReviewsController,
     ReturnTransfersController,
     SellpiaOrderTransmissionController,
@@ -54,7 +51,6 @@ import { ReviewCollectionSourceRepository } from './adapter/out/repository/revie
     OrderCollectionMallAccountService,
     CoupangDirectPoSnapshotService,
     CoupangDirectshipService,
-    ReturnsService,
     ReviewsService,
     ReviewIngestService,
     ReturnTransfersService,
