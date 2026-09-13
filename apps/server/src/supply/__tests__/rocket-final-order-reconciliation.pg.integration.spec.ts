@@ -73,6 +73,7 @@ describe('Rocket final-order reconciliation transaction (PG)', () => {
     const input = reconciliationInput(finalOrderLineId, 3, '8801234567890');
 
     const first = await prisma.$transaction((tx) => adapter.reconcile({ ...input, transaction: tx }));
+    const linked = await prisma.rocketPurchaseConfirmationLine.findFirstOrThrow();
     const replay = await prisma.$transaction((tx) => adapter.reconcile({ ...input, transaction: tx }));
 
     const expectedIntentKey = `rocket-final-order:${finalImportRunId}:shipment`;
@@ -83,15 +84,17 @@ describe('Rocket final-order reconciliation transaction (PG)', () => {
       unmatchedLines: [],
     });
     expect(replay).toEqual(first);
-    expect(await prisma.rocketPurchaseConfirmationLine.findFirstOrThrow()).toMatchObject({
+    expect(linked).toMatchObject({
       collectedOrderLineItemId: finalOrderLineId,
       collectedAt: expect.any(Date),
     });
+    // The first link time is the orders-collected fact: a replay keeps it, and
+    // reconciliation leaves the export's own terminal state to Supply.
+    expect(await prisma.rocketPurchaseConfirmationLine.findFirstOrThrow()).toEqual(linked);
     expect(await prisma.rocketPurchaseConfirmation.findUniqueOrThrow({
       where: { id: exportId },
-    })).toMatchObject({
-      ordersCollectedAt: expect.any(Date),
-    });
+      select: { completedAt: true, releasedAt: true },
+    })).toEqual({ completedAt: null, releasedAt: null });
     expect(await prisma.rocketPurchaseConfirmationTransmission.findMany()).toEqual([
       expect.objectContaining({
         confirmationId: exportId,
@@ -100,6 +103,34 @@ describe('Rocket final-order reconciliation transaction (PG)', () => {
         intentKey: expectedIntentKey,
       }),
     ]);
+  });
+
+  it.each([
+    ['completed', { completedAt: new Date() }],
+    ['released', { releasedAt: new Date() }],
+  ] as const)('does not link a %s export or record a probe on it', async (_state, terminal) => {
+    const exportId = await seedRequest(4, '8801234567890');
+    await prisma.rocketPurchaseConfirmation.update({
+      where: { id: exportId },
+      data: terminal,
+    });
+
+    const result = await prisma.$transaction((tx) => adapter.reconcile({
+      ...reconciliationInput(randomUUID(), 3, '8801234567890'),
+      transaction: tx,
+    }));
+
+    expect(result).toEqual({
+      exportId: null,
+      transmissionIntentKey: `rocket-final-order:${finalImportRunId}:shipment`,
+      reconciledRows: 0,
+      unmatchedLines: [{ poNumber: 'PO-1', productNo: 'P-1' }],
+    });
+    expect(await prisma.rocketPurchaseConfirmationLine.findFirstOrThrow()).toMatchObject({
+      collectedOrderLineItemId: null,
+      collectedAt: null,
+    });
+    expect(await prisma.rocketPurchaseConfirmationTransmission.count()).toBe(0);
   });
 
   it('reports an unmatched line with a stable file intent instead of throwing 409', async () => {

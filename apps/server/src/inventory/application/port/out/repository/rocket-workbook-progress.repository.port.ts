@@ -1,7 +1,6 @@
 export type RocketWorkbookTransmissionIntentRecord = {
   intentKey: string;
   status: 'prepared' | 'finalized' | 'aborted';
-  finalizedGeneration: bigint | null;
 };
 
 export interface RocketWorkbookProgressRepositoryPort {

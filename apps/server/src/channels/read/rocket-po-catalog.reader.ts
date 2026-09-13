@@ -33,7 +33,6 @@ const savedLineSelect = {
   plannedDeliveryDate: true,
   poStatusCode: true,
   businessDateBasis: true,
-  hasConfirmation: true,
   center: true,
   inboundType: true,
   poStatus: true,
@@ -323,11 +322,35 @@ function collectionEvidence(snapshot: {
   });
 }
 
-function toCatalogRow(
-  line: Prisma.RocketPoCatalogLineGetPayload<{
-    select: typeof savedLineSelect;
-  }>,
-): RocketPoCatalogRow {
+type SavedLine = Prisma.RocketPoCatalogLineGetPayload<{
+  select: typeof savedLineSelect;
+}>;
+
+const SAVED_CONFIRMATION_FIELDS = [
+  "center",
+  "inboundType",
+  "poStatus",
+  "returnManager",
+  "returnContact",
+  "returnAddress",
+  "purchasePrice",
+  "supplyPrice",
+  "vat",
+  "totalPurchase",
+  "poRegisteredAt",
+  "xdock",
+] as const;
+
+/**
+ * A line has a provider confirmation when its confirmation columns were
+ * stored. Publication stores all of them or none, so a partial set fails
+ * closed in `requiredSavedValue` rather than reopening without a confirmation.
+ */
+function hasSavedConfirmation(line: SavedLine): boolean {
+  return SAVED_CONFIRMATION_FIELDS.some((field) => line[field] !== null);
+}
+
+function toCatalogRow(line: SavedLine): RocketPoCatalogRow {
   return {
     poLineId: line.poLineId,
     poNumber: line.poNumber,
@@ -342,7 +365,7 @@ function toCatalogRow(
       businessDateBasis: line.businessDateBasis as
         "ordered_at" | "expected_inbound",
     }),
-    ...(line.hasConfirmation && {
+    ...(hasSavedConfirmation(line) && {
       confirmation: {
         center: requiredSavedValue(line.center, "center"),
         inboundType: requiredSavedValue(line.inboundType, "inboundType"),

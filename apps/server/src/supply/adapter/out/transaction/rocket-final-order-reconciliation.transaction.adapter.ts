@@ -132,9 +132,10 @@ export class RocketFinalOrderReconciliationTransactionAdapter implements RocketF
       };
     }
 
-    // The probe records which run and transport observed the export. How many
-    // workbook lines it linked lives on the lines themselves
-    // (`collectedOrderLineItemId`), so readers count those.
+    // The probe records which run and transport observed the export. Which
+    // workbook lines it linked, and whether every positive line is collected,
+    // live on the lines themselves (`collectedOrderLineItemId` and the
+    // first-link `collectedAt`), so readers derive both.
     await tx.rocketPurchaseConfirmationTransmission.upsert({
       where: {
         confirmationId_transport: {
@@ -161,30 +162,6 @@ export class RocketFinalOrderReconciliationTransactionAdapter implements RocketF
               observedAt: new Date(),
             },
     });
-
-    const remainingPositiveLines =
-      await tx.rocketPurchaseConfirmationLine.count({
-        where: {
-          organizationId: input.organizationId,
-          confirmationId: exportId,
-          confirmedQuantity: { gt: 0 },
-          collectedOrderLineItemId: null,
-        },
-      });
-    if (remainingPositiveLines === 0) {
-      await tx.rocketPurchaseConfirmation.updateMany({
-        where: {
-          id: exportId,
-          organizationId: input.organizationId,
-          completedAt: null,
-          releasedAt: null,
-          ordersCollectedAt: null,
-        },
-        data: {
-          ordersCollectedAt: new Date(),
-        },
-      });
-    }
 
     return {
       exportId,
