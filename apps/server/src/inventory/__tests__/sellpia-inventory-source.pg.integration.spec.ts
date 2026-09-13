@@ -233,7 +233,6 @@ describe('Sellpia inventory source owner HTTP + disposable PostgreSQL', () => {
       status: 'failed',
       activeSync: null,
       lastAttempt: {
-        status: 'failed',
         errorCode: null,
         errorMessage: 'Sellpia inventory collection attempt expired.',
       },
@@ -252,7 +251,7 @@ describe('Sellpia inventory source owner HTTP + disposable PostgreSQL', () => {
     ]);
   });
 
-  it('derives the last attempt outcome from state facts across failure, the next begin, and completion', async () => {
+  it('publishes the last attempt error facts without an outcome word and clears them on completion', async () => {
     const readFreshness = () => freshness.getState({
       organizationId: TEST_ORGANIZATION_ID,
       userId: TEST_USER_ID,
@@ -260,25 +259,13 @@ describe('Sellpia inventory source owner HTTP + disposable PostgreSQL', () => {
 
     const failed = await begin('last-attempt-failed');
     await fail(failed, 'sellpia_network_failed').expect(201);
-    expect((await readFreshness()).lastAttempt).toMatchObject({
-      status: 'failed',
-      errorCode: 'sellpia_network_failed',
-    });
+    const failedAttempt = (await readFreshness()).lastAttempt;
+    expect(failedAttempt).toMatchObject({ errorCode: 'sellpia_network_failed' });
+    expect(failedAttempt).not.toHaveProperty('status');
 
-    // Beginning the next attempt clears the failed generation and error code;
-    // the earlier failure still reads as the last attempt.
     const next = await begin('last-attempt-next');
-    expect(await prisma.sellpiaInventoryState.findUniqueOrThrow({
-      where: { organizationId: TEST_ORGANIZATION_ID },
-    })).toMatchObject({ failedGeneration: null, lastErrorCode: null });
-    expect(await readFreshness()).toMatchObject({
-      status: 'syncing',
-      lastAttempt: { status: 'failed', errorCode: null },
-    });
-
     await complete(next, snapshot(4)).expect(201);
     expect((await readFreshness()).lastAttempt).toMatchObject({
-      status: 'completed',
       errorCode: null,
       errorMessage: null,
     });

@@ -90,29 +90,6 @@ export function deriveFreshnessStatus(
   });
 }
 
-/**
- * Outcome of the last attempt that ended, derived from the state's own facts.
- *
- * Completing an attempt verifies the snapshot at the attempt's own time, so
- * its attempt time never passes the verification time. A failure records its
- * generation and advances only the attempt time. Beginning the next attempt
- * clears the failed generation and error code but leaves both times, so the
- * earlier failure still reads as the last attempt until one completes.
- */
-export function deriveLastAttemptStatus(
-  state: Pick<
-    SellpiaInventoryFreshnessState,
-    'lastAttemptAt' | 'lastVerifiedAt' | 'failedGeneration'
-  >,
-): 'completed' | 'failed' | null {
-  if (state.lastAttemptAt === null) return null;
-  if (state.failedGeneration !== null) return 'failed';
-  return state.lastVerifiedAt !== null
-    && state.lastAttemptAt.getTime() <= state.lastVerifiedAt.getTime()
-    ? 'completed'
-    : 'failed';
-}
-
 export function toFreshnessView(
   state: SellpiaInventoryFreshnessState,
   now: Date,
@@ -134,20 +111,17 @@ export function toFreshnessView(
       canControl: userId !== null && state.activeSyncOwnerUserId === userId,
     }
     : null;
-  const lastAttemptOutcome = deriveLastAttemptStatus(state);
   const lastAttempt = expiredCurrentAttempt && state.activeSyncStartedAt
     ? {
       attemptedAt: state.activeSyncStartedAt.toISOString(),
-      status: 'failed' as const,
       trigger: state.refreshReason,
       scope: state.activeSyncScope ?? state.requestedSyncScope,
       errorCode: null,
       errorMessage: 'Sellpia inventory collection attempt expired.',
     }
-    : state.lastAttemptAt && lastAttemptOutcome
+    : state.lastAttemptAt
       ? {
         attemptedAt: state.lastAttemptAt.toISOString(),
-        status: lastAttemptOutcome,
         trigger: state.refreshReason,
         scope: state.lastAttemptSyncScope ?? 'inventory',
         errorCode: state.lastErrorCode,
