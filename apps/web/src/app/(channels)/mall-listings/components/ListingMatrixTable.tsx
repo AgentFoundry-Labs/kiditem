@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { AlertTriangle, Check, CircleSlash, MoreHorizontal, PauseCircle, X } from 'lucide-react';
 import type {
@@ -37,7 +37,9 @@ const STICKY = {
   check: { width: 'w-11', left: 'left-0' },
   product: { width: 'w-[300px]', left: 'left-11' },
   stock: { width: 'w-[76px]', left: 'left-[344px]' },
-  action: { width: 'w-[104px]', left: 'left-[420px]' },
+  // '상세보기'(약 48px) + 더보기 버튼(22px) + 좌우 여백 32px = 최소 104px 이라
+  // 104 로 두면 내용이 폭을 밀어내 헤더와 본문이 어긋난다. 여유를 주고 고정한다.
+  action: { width: 'w-[120px]', left: 'left-[420px]' },
 } as const;
 
 /** 고정 열 공통. 스크롤된 몰 칸이 뒤로 비쳐 보이지 않게 배경을 직접 칠한다. */
@@ -77,13 +79,33 @@ export function ListingMatrixTable({
   // 한 번에 하나만 열린다. 표 전체가 한 좌표를 들고 있어야 다른 칸을 누를 때
   // 이전 것이 저절로 닫힌다.
   const [openCell, setOpenCell] = useState<
-    { rowId: string; mallKey: string; rect: DOMRect } | null
+    { rowId: string; mallKey: string; anchor: HTMLElement } | null
   >(null);
-  const [openRowMenu, setOpenRowMenu] = useState<{ rowId: string; rect: DOMRect } | null>(null);
+  const [openRowMenu, setOpenRowMenu] = useState<{ rowId: string; anchor: HTMLElement } | null>(
+    null,
+  );
+  const { topRef, bodyRef, scrollWidth, overflowing } = useSyncedHorizontalScroll();
 
   return (
     <div className="table-card">
-      <div className="overflow-x-auto">
+      {/*
+        위쪽 가로 스크롤바.
+
+        몰이 스무 곳 넘어 표는 늘 가로로 넘치는데, 스크롤바는 표 맨 아래에만 있다.
+        오른쪽 끝 몰을 보려면 먼저 세로로 한참 내려가 스크롤바를 찾아야 했다.
+        같은 스크롤을 위에도 둔다 — 둘은 서로를 따라간다.
+      */}
+      <div
+        ref={topRef}
+        aria-hidden
+        className={cn(
+          'scrollbar-x-visible overflow-x-auto overflow-y-hidden border-b border-slate-100',
+          !overflowing && 'hidden',
+        )}
+      >
+        <div style={{ width: scrollWidth }} className="h-px" />
+      </div>
+      <div ref={bodyRef} className="overflow-x-auto">
         <table className="min-w-max">
           <thead>
             <tr>
@@ -140,21 +162,21 @@ export function ListingMatrixTable({
                   checked={selected.has(row.masterProductId)}
                   onToggle={() => onToggle(row.masterProductId)}
                   openCell={openCell?.rowId === row.masterProductId ? openCell : null}
-                  onOpenCell={(mallKey, rect) => {
+                  onOpenCell={(mallKey, anchor) => {
                     setOpenRowMenu(null);
                     setOpenCell((current) =>
                       current?.rowId === row.masterProductId && current.mallKey === mallKey
                         ? null
-                        : { rowId: row.masterProductId, mallKey, rect },
+                        : { rowId: row.masterProductId, mallKey, anchor },
                     );
                   }}
                   rowMenu={openRowMenu?.rowId === row.masterProductId ? openRowMenu : null}
-                  onToggleMenu={(rect) => {
+                  onToggleMenu={(anchor) => {
                     setOpenCell(null);
                     setOpenRowMenu((current) =>
                       current?.rowId === row.masterProductId
                         ? null
-                        : { rowId: row.masterProductId, rect },
+                        : { rowId: row.masterProductId, anchor },
                     );
                   }}
                   onCloseMenus={() => {
@@ -171,15 +193,72 @@ export function ListingMatrixTable({
   );
 }
 
+/**
+ * 표 위·아래 두 개의 가로 스크롤을 하나처럼 묶는다.
+ *
+ * 서로의 `scrollLeft` 를 대입하되 **값이 다를 때만** 쓴다. 같은 값을 쓰면 스크롤
+ * 이벤트가 나지 않으므로 되먹임이 저절로 멈춘다 — 따로 잠금 플래그를 두지 않아도 된다.
+ */
+function useSyncedHorizontalScroll() {
+  const topRef = useRef<HTMLDivElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const [scrollWidth, setScrollWidth] = useState(0);
+  const [overflowing, setOverflowing] = useState(false);
+
+  // 표 폭은 몰 수 · 상품명 길이 · 창 크기에 따라 바뀐다. 한 번 재고 끝내지 않는다.
+  useEffect(() => {
+    const body = bodyRef.current;
+    if (!body) return;
+    const measure = () => {
+      setScrollWidth(body.scrollWidth);
+      setOverflowing(body.scrollWidth > body.clientWidth + 1);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(body);
+    // 표가 넓어져도 감싼 div 크기는 그대로라, 표 자체도 함께 봐야 한다.
+    const table = body.firstElementChild;
+    if (table) observer.observe(table);
+    return () => observer.disconnect();
+  }, []);
+
+  const mirror = useCallback(
+    (from: React.RefObject<HTMLDivElement | null>, to: React.RefObject<HTMLDivElement | null>) =>
+      () => {
+        const source = from.current;
+        const target = to.current;
+        if (!source || !target) return;
+        if (target.scrollLeft !== source.scrollLeft) target.scrollLeft = source.scrollLeft;
+      },
+    [],
+  );
+
+  useEffect(() => {
+    const top = topRef.current;
+    const body = bodyRef.current;
+    if (!top || !body) return;
+    const fromTop = mirror(topRef, bodyRef);
+    const fromBody = mirror(bodyRef, topRef);
+    top.addEventListener('scroll', fromTop);
+    body.addEventListener('scroll', fromBody);
+    return () => {
+      top.removeEventListener('scroll', fromTop);
+      body.removeEventListener('scroll', fromBody);
+    };
+  }, [mirror]);
+
+  return { topRef, bodyRef, scrollWidth, overflowing };
+}
+
 function MallHeader({ column }: { column: MallListingMatrixColumn }) {
   return (
-    <th className="w-[104px] text-center">
-      <span className="flex w-[72px] flex-col items-center gap-1">
-        <span className="flex items-center gap-1.5">
-          <MallIcon mallKey={column.mallKey} mallName={column.mallName} />
-          <span className="min-w-0 truncate normal-case" title={column.mallName}>
-            {column.mallName}
-          </span>
+    <th className="w-[104px] align-bottom text-center">
+      {/* 아이콘과 이름이 한 줄을 나눠 쓰면 이름에 50px 밖에 안 남아 '카카오 톡스토어'
+          같은 이름이 두 글자에서 잘린다. 줄을 나눠 이름이 칸 폭을 다 쓰게 한다. */}
+      <span className="mx-auto flex w-[72px] flex-col items-center gap-0.5">
+        <MallIcon mallKey={column.mallKey} mallName={column.mallName} />
+        <span className="w-full truncate normal-case" title={column.mallName}>
+          {column.mallName}
         </span>
         {column.imported ? (
           <span className="text-[10px] font-normal normal-case tracking-normal text-slate-400">
@@ -246,10 +325,10 @@ function MatrixRow({
   columns: MallListingMatrixColumn[];
   checked: boolean;
   onToggle: () => void;
-  openCell: { mallKey: string; rect: DOMRect } | null;
-  onOpenCell: (mallKey: string, rect: DOMRect) => void;
-  rowMenu: { rect: DOMRect } | null;
-  onToggleMenu: (rect: DOMRect) => void;
+  openCell: { mallKey: string; anchor: HTMLElement } | null;
+  onOpenCell: (mallKey: string, anchor: HTMLElement) => void;
+  rowMenu: { anchor: HTMLElement } | null;
+  onToggleMenu: (anchor: HTMLElement) => void;
   onCloseMenus: () => void;
 }) {
   const cellByMall = new Map(row.cells.map((cell) => [cell.mallKey, cell]));
@@ -322,7 +401,7 @@ function MatrixRow({
           </Link>
           <button
             type="button"
-            onClick={(event) => onToggleMenu(event.currentTarget.getBoundingClientRect())}
+            onClick={(event) => onToggleMenu(event.currentTarget)}
             aria-haspopup="menu"
             aria-expanded={rowMenu !== null}
             aria-label={`${row.name} 작업 메뉴`}
@@ -337,7 +416,7 @@ function MatrixRow({
             <RowActionMenu
               masterProductId={row.masterProductId}
               columns={columns}
-              anchorRect={rowMenu.rect}
+              anchor={rowMenu.anchor}
               onClose={onCloseMenus}
             />
           ) : null}
@@ -351,9 +430,7 @@ function MatrixRow({
             <div className="relative inline-block">
               <button
                 type="button"
-                onClick={(event) =>
-                  onOpenCell(column.mallKey, event.currentTarget.getBoundingClientRect())
-                }
+                onClick={(event) => onOpenCell(column.mallKey, event.currentTarget)}
                 aria-haspopup="dialog"
                 aria-label={`${row.name} · ${column.mallName} 작업`}
                 className="rounded-full focus:outline-none focus:ring-2 focus:ring-purple-300"
@@ -373,7 +450,7 @@ function MatrixRow({
                   state={state}
                   rawStatus={cell?.rawStatus ?? null}
                   externalId={cell?.externalId ?? null}
-                  anchorRect={openCell.rect}
+                  anchor={openCell.anchor}
                   onClose={onCloseMenus}
                 />
               ) : null}

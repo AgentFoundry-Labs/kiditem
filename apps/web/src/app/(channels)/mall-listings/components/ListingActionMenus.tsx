@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
   ArrowUpFromLine,
@@ -42,6 +42,34 @@ function anchoredStyle(rect: DOMRect, width: number): React.CSSProperties {
   return openUpward
     ? { position: 'fixed', left, bottom: viewportHeight - rect.top + 4, width }
     : { position: 'fixed', left, top: rect.bottom + 4, width };
+}
+
+/**
+ * 누른 버튼에 계속 붙어 있게 한다.
+ *
+ * 열 때의 좌표를 한 번 재고 끝내면, 표를 가로로 밀거나 페이지를 세로로 굴리는 순간
+ * 메뉴만 제자리에 남아 누른 버튼과 어긋난다. 이 표는 몰이 스무 곳 넘어 **연 채로
+ * 스크롤하는 것이 예외가 아니라 기본**이라, 움직일 때마다 다시 잰다.
+ */
+function useAnchoredStyle(anchor: HTMLElement, width: number): React.CSSProperties {
+  const [style, setStyle] = useState<React.CSSProperties>(() =>
+    anchoredStyle(anchor.getBoundingClientRect(), width),
+  );
+
+  useLayoutEffect(() => {
+    const place = () => setStyle(anchoredStyle(anchor.getBoundingClientRect(), width));
+    place();
+    // capture 로 들어야 표 안쪽(overflow-x-auto) 스크롤까지 잡힌다. 그 스크롤은
+    // window 까지 올라오지 않는다.
+    window.addEventListener('scroll', place, true);
+    window.addEventListener('resize', place);
+    return () => {
+      window.removeEventListener('scroll', place, true);
+      window.removeEventListener('resize', place);
+    };
+  }, [anchor, width]);
+
+  return style;
 }
 
 interface ActionSpec {
@@ -103,7 +131,8 @@ interface CellActionPopoverProps {
   state: MallListingState;
   rawStatus: string | null;
   externalId: string | null;
-  anchorRect: DOMRect;
+  /** 이 메뉴를 연 버튼. 스크롤해도 계속 그 버튼에 붙어 있게 한다. */
+  anchor: HTMLElement;
   onClose: () => void;
 }
 
@@ -114,7 +143,7 @@ export function CellActionPopover({
   state,
   rawStatus,
   externalId,
-  anchorRect,
+  anchor,
   onClose,
 }: CellActionPopoverProps) {
   const ref = useRef<HTMLDivElement>(null);
@@ -134,6 +163,7 @@ export function CellActionPopover({
     };
   }, [onClose]);
 
+  const cellStyle = useAnchoredStyle(anchor, 256);
   const specs = mallActionSpecs(column);
   const presentation = MALL_LISTING_STATE_PRESENTATION[state];
 
@@ -142,7 +172,7 @@ export function CellActionPopover({
       ref={ref}
       role="dialog"
       aria-label={`${column.mallName} 작업`}
-      style={anchoredStyle(anchorRect, 256)}
+      style={cellStyle}
       className="z-40 rounded-xl border border-slate-200 bg-white p-3 text-left shadow-lg"
     >
       <div className="border-b border-slate-100 pb-2">
@@ -213,7 +243,8 @@ export function CellActionPopover({
 interface RowActionMenuProps {
   masterProductId: string;
   columns: MallListingMatrixColumn[];
-  anchorRect: DOMRect;
+  /** 이 메뉴를 연 버튼. */
+  anchor: HTMLElement;
   onClose: () => void;
 }
 
@@ -221,7 +252,7 @@ interface RowActionMenuProps {
 export function RowActionMenu({
   masterProductId,
   columns,
-  anchorRect,
+  anchor,
   onClose,
 }: RowActionMenuProps) {
   const ref = useRef<HTMLDivElement>(null);
@@ -240,6 +271,8 @@ export function RowActionMenu({
       document.removeEventListener('keydown', onKey);
     };
   }, [onClose]);
+
+  const menuStyle = useAnchoredStyle(anchor, 224);
 
   const count = (predicate: (column: MallListingMatrixColumn) => boolean) =>
     columns.filter(predicate).length;
@@ -275,7 +308,7 @@ export function RowActionMenu({
     <div
       ref={ref}
       role="menu"
-      style={anchoredStyle(anchorRect, 224)}
+      style={menuStyle}
       className="z-40 space-y-0.5 rounded-xl border border-slate-200 bg-white p-1.5 text-left shadow-lg"
     >
       <Link

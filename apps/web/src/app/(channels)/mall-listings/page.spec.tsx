@@ -412,6 +412,29 @@ describe('표 배치', () => {
     };
   }
 
+  /**
+   * 몰이 스무 곳 넘어 표는 늘 가로로 넘치는데 스크롤바가 맨 아래에만 있으면,
+   * 오른쪽 끝 몰을 보려고 먼저 세로로 한참 내려가야 한다. 같은 스크롤을 위에도 둔다.
+   */
+  it('⭐ 가로 스크롤을 표 위에도 둔다 — 아래 스크롤바를 찾아 내려가지 않게', () => {
+    withMalls(20);
+    const { container } = render(<MallListingsPage />);
+    const bars = container.querySelectorAll('.overflow-x-auto');
+    // 위쪽 한 줄 + 표 본체. 위쪽은 macOS 오버레이 스크롤바에 가려지지 않게 직접 그린다.
+    expect(bars.length).toBeGreaterThanOrEqual(2);
+    expect(container.querySelector('.scrollbar-x-visible')).not.toBeNull();
+  });
+
+  it('액션 열은 상세보기와 더보기가 들어갈 폭을 잡는다', () => {
+    withMalls(3);
+    render(<MallListingsPage />);
+    const action = screen
+      .getAllByRole('columnheader')
+      .find((cell) => (cell.textContent ?? '').includes('액션'));
+    // 104px 로 두면 '상세보기'(48) + 더보기(22) + 여백(32) 이 폭을 밀어내 헤더와 어긋난다.
+    expect(action?.className).toContain('w-[120px]');
+  });
+
   it('재고와 액션이 몰보다 앞에 온다', () => {
     withMalls(3);
     render(<MallListingsPage />);
