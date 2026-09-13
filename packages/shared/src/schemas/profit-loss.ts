@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { DashboardPeriodBasisSchema } from './dashboard.js';
+import { DashboardCalendarDateSchema, DashboardPeriodBasisSchema } from './dashboard.js';
 
 export const FinancePeriodSchema = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'YYYY-MM');
 
@@ -36,15 +36,31 @@ export const PLDataSchema = z.object({
 
 export type PLData = z.infer<typeof PLDataSchema>;
 
+/** An inclusive `YYYY-MM-DD` KST business-date range. */
+export const FinanceDateRangeSchema = z.object({
+  from: DashboardCalendarDateSchema,
+  to: DashboardCalendarDateSchema,
+}).strict();
+export type FinanceDateRange = z.infer<typeof FinanceDateRangeSchema>;
+
 /**
- * The evidence behind one finance window, as measured facts only: which
- * business dates the Orders collection covered (`revenue`), which the
- * advertising sweep covered (`adCost`), and the dates on which every profit
- * input was measured (`profit`, whose `invalidDates` are the dates refused
- * because a cost input was never recorded). Status words are derived with
- * `periodBasisStatus` from `@kiditem/shared/dashboard`; none travels here.
+ * The evidence behind one finance window, as measured facts only.
+ *
+ * `requestedWindow` is the range asked for. Each value basis's `from`/`to` is
+ * the window actually evaluated: the requested window clipped to the KST
+ * business days already closed when it was read (ADR-0001). A month that has
+ * ended keeps every day; the month containing today keeps the days through
+ * yesterday; with no closed day yet the basis's `to` is the day before its
+ * `from` and `targetDays` is 0.
+ *
+ * Within that window: which dates the Orders collection covered (`revenue`),
+ * which the advertising sweep covered (`adCost`), and the dates on which every
+ * profit input was measured (`profit`, whose `invalidDates` are the dates
+ * refused because a cost input was never recorded). Status words are derived
+ * with `periodBasisStatus` from `@kiditem/shared/dashboard`; none travels here.
  */
 export const FinanceWindowBasisSchema = z.object({
+  requestedWindow: FinanceDateRangeSchema,
   revenue: DashboardPeriodBasisSchema,
   adCost: DashboardPeriodBasisSchema,
   profit: DashboardPeriodBasisSchema,
@@ -52,9 +68,9 @@ export const FinanceWindowBasisSchema = z.object({
 export type FinanceWindowBasis = z.infer<typeof FinanceWindowBasisSchema>;
 
 /**
- * Organization totals for one finance window. A total is published only when
- * every business date of the window was collected and every input it depends
- * on was measured; otherwise it is `null`.
+ * Organization totals over the evaluated window. A total is published only when
+ * every closed business date of the window was collected and every input it
+ * depends on was measured; otherwise, and when no date has closed, it is `null`.
  */
 export const FinanceWindowTotalsSchema = z.object({
   revenue: z.number().int().nullable(),

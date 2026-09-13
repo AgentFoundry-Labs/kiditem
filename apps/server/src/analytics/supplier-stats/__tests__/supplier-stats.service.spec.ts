@@ -1,12 +1,31 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  readObservedOrderBounds,
+  readOrderLineWindowFacts,
+} from '../../../orders/read/order-facts.reader';
 import { SupplierStatsService } from '../supplier-stats.service';
 
+vi.mock('../../../orders/read/order-facts.reader', () => ({
+  readObservedOrderBounds: vi.fn(),
+  readOrderLineWindowFacts: vi.fn(),
+}));
+
+/**
+ * The projection policy — primary supplier, extended-cost revenue split and
+ * rounding — over order lines as the Orders reader answers them. Which order
+ * lines are published is the reader's rule and is proved against PostgreSQL in
+ * `supplier-stats-flow.pg.integration.spec.ts`.
+ */
 function makePrisma() {
-  return {
+  const prisma = {
     supplier: { findMany: vi.fn() },
-    orderLineItem: { findMany: vi.fn() },
+    channelListingOption: { findMany: vi.fn().mockResolvedValue([]) },
     purchaseOrder: { findMany: vi.fn() },
     supplierPayment: { findMany: vi.fn() },
+  };
+  return {
+    ...prisma,
+    $transaction: vi.fn(async (work: (tx: typeof prisma) => unknown) => work(prisma)),
   };
 }
 
@@ -32,20 +51,47 @@ function supplierProduct(params: {
   };
 }
 
-function orderLine(params: {
+type OrderLineInput = {
   id: string;
   quantity: number;
   totalPrice: number;
   components: Array<{ sellpiaInventorySkuId: string; quantity: number }>;
-}) {
-  return {
-    id: params.id,
-    quantity: params.quantity,
-    totalPrice: params.totalPrice,
-    listingOption: {
-      inventoryComponents: params.components,
-    },
-  };
+};
+
+/** The Orders reader publishes these lines, each sold under its own channel option. */
+function givenPublishedOrderLines(prisma: ReturnType<typeof makePrisma>, lines: OrderLineInput[]) {
+  const orderedAt = new Date('2026-07-01T00:00:00.000Z');
+  vi.mocked(readObservedOrderBounds).mockResolvedValue({
+    from: new Date('2026-06-30T15:00:00.000Z'),
+    to: new Date('2026-07-01T15:00:00.000Z'),
+  });
+  vi.mocked(readOrderLineWindowFacts).mockResolvedValue({
+    window: {} as never,
+    orders: [{
+      orderId: 'order-1',
+      channelAccountId: 'account-1',
+      orderedAt,
+      businessDate: '2026-07-01',
+      shippingPrice: 0,
+      lines: lines.map((line) => ({
+        orderId: 'order-1',
+        channelAccountId: 'account-1',
+        orderedAt,
+        businessDate: '2026-07-01',
+        shippingPrice: 0,
+        lineItemId: line.id,
+        listingOptionId: `option-${line.id}`,
+        sku: null,
+        productName: line.id,
+        revenue: line.totalPrice,
+        quantity: line.quantity,
+      })),
+    }],
+  });
+  prisma.channelListingOption.findMany.mockResolvedValue(lines.map((line) => ({
+    id: `option-${line.id}`,
+    inventoryComponents: line.components,
+  })));
 }
 
 describe('SupplierStatsService', () => {
@@ -53,6 +99,7 @@ describe('SupplierStatsService', () => {
   let prisma: ReturnType<typeof makePrisma>;
 
   beforeEach(() => {
+    vi.clearAllMocks();
     prisma = makePrisma();
     service = new SupplierStatsService(prisma as never);
   });
@@ -78,28 +125,22 @@ describe('SupplierStatsService', () => {
         })],
       },
     ]);
-    prisma.orderLineItem.findMany.mockResolvedValue([
-      orderLine({
-        id: 'line-1',
-        quantity: 2,
-        totalPrice: 10_000,
-        components: [
-          { sellpiaInventorySkuId: 'sku-1', quantity: 1 },
-          { sellpiaInventorySkuId: 'sku-2', quantity: 3 },
-        ],
-      }),
-    ]);
+    givenPublishedOrderLines(prisma, [{
+      id: 'line-1',
+      quantity: 2,
+      totalPrice: 10_000,
+      components: [
+        { sellpiaInventorySkuId: 'sku-1', quantity: 1 },
+        { sellpiaInventorySkuId: 'sku-2', quantity: 3 },
+      ],
+    }]);
 
     const report = await service.getSalesBySupplier('organization-1');
 
-    expect(prisma.orderLineItem.findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: {
-        organizationId: 'organization-1',
-        order: {
-          organizationId: 'organization-1',
-          status: { notIn: ['cancelled', 'returned'] },
-        },
-      },
+    // Cancelled and returned orders are not supplier sales.
+    expect(readOrderLineWindowFacts).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      organizationId: 'organization-1',
+      excludedStatuses: ['cancelled', 'returned'],
     }));
     expect(report).toEqual({
       summary: {
@@ -143,17 +184,15 @@ describe('SupplierStatsService', () => {
         })],
       },
     ]);
-    prisma.orderLineItem.findMany.mockResolvedValue([
-      orderLine({
-        id: 'line-1',
-        quantity: 4,
-        totalPrice: 12_345,
-        components: [
-          { sellpiaInventorySkuId: 'sku-1', quantity: 2 },
-          { sellpiaInventorySkuId: 'sku-without-primary-supplier', quantity: 1 },
-        ],
-      }),
-    ]);
+    givenPublishedOrderLines(prisma, [{
+      id: 'line-1',
+      quantity: 4,
+      totalPrice: 12_345,
+      components: [
+        { sellpiaInventorySkuId: 'sku-1', quantity: 2 },
+        { sellpiaInventorySkuId: 'sku-without-primary-supplier', quantity: 1 },
+      ],
+    }]);
 
     const report = await service.getSalesBySupplier('organization-1');
 
@@ -193,22 +232,30 @@ describe('SupplierStatsService', () => {
         })],
       },
     ]);
-    prisma.orderLineItem.findMany.mockResolvedValue([
-      orderLine({
-        id: 'line-1',
-        quantity: 1,
-        totalPrice: 101,
-        components: [
-          { sellpiaInventorySkuId: 'sku-z', quantity: 1 },
-          { sellpiaInventorySkuId: 'sku-a', quantity: 1 },
-        ],
-      }),
-    ]);
+    givenPublishedOrderLines(prisma, [{
+      id: 'line-1',
+      quantity: 1,
+      totalPrice: 101,
+      components: [
+        { sellpiaInventorySkuId: 'sku-z', quantity: 1 },
+        { sellpiaInventorySkuId: 'sku-a', quantity: 1 },
+      ],
+    }]);
 
     const report = await service.getSalesBySupplier('organization-1');
 
     expect(report.items.map((item) => item.totalRevenue)).toEqual([50, 51]);
     expect(report.summary.totalRevenue).toBe(101);
+  });
+
+  it('reads no order lines when no order was ever published', async () => {
+    prisma.supplier.findMany.mockResolvedValue([]);
+    vi.mocked(readObservedOrderBounds).mockResolvedValue(null);
+
+    const report = await service.getSalesBySupplier('organization-1');
+
+    expect(readOrderLineWindowFacts).not.toHaveBeenCalled();
+    expect(report.summary).toMatchObject({ totalRevenue: 0, unallocatedRevenue: 0 });
   });
 
   it('returns physical Sellpia inventory-SKU rows without channel-option identity', async () => {
@@ -224,14 +271,12 @@ describe('SupplierStatsService', () => {
         })],
       },
     ]);
-    prisma.orderLineItem.findMany.mockResolvedValue([
-      orderLine({
-        id: 'line-1',
-        quantity: 1,
-        totalPrice: 8_000,
-        components: [{ sellpiaInventorySkuId: 'sku-1', quantity: 8 }],
-      }),
-    ]);
+    givenPublishedOrderLines(prisma, [{
+      id: 'line-1',
+      quantity: 1,
+      totalPrice: 8_000,
+      components: [{ sellpiaInventorySkuId: 'sku-1', quantity: 8 }],
+    }]);
 
     const report = await service.getProductSales('organization-1', 'supplier-1');
 

@@ -149,7 +149,9 @@ export function statisticsTabBasis(tab: StatisticsTab, data: StatisticsData): Fi
     case 'pareto':
       return data.pareto?.basis;
     case 'repurchase':
-      return data.repurchase?.basis ? { revenue: data.repurchase.basis.orders } : null;
+      return data.repurchase?.basis
+        ? { requestedWindow: data.repurchase.basis.requestedWindow, revenue: data.repurchase.basis.orders }
+        : null;
     default: {
       const unreachable: never = tab;
       throw new Error(`Unknown statistics tab: ${unreachable}`);

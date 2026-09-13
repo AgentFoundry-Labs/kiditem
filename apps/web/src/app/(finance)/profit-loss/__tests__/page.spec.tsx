@@ -140,6 +140,49 @@ describe('<ProfitLossPage> 3-state', () => {
     expect(screen.getByText(/주문 수집 20\/30일/)).toBeTruthy();
   });
 
+  it('names the closed days an in-progress month was evaluated over', async () => {
+    const closedDays = basisOver(14);
+    mockProfitLossQuery({
+      period: '2026-04',
+      rows: [],
+      totals: { revenue: 0, orderCount: 0, cost: 0, adCost: 0, netProfit: 0, profitRate: null },
+      basis: {
+        requestedWindow: { from: '2026-04-01', to: '2026-04-30' },
+        revenue: buildPeriodBasis({ from: '2026-04-01', to: '2026-04-14', includedDates: closedDays.includedDates, sources: ['orders'] }),
+        adCost: buildPeriodBasis({ from: '2026-04-01', to: '2026-04-14', includedDates: closedDays.includedDates, sources: ['coupang_ads'] }),
+        profit: buildPeriodBasis({ from: '2026-04-01', to: '2026-04-14', includedDates: closedDays.includedDates, sources: ['orders'] }),
+      },
+    });
+    renderWithProvider();
+
+    await waitFor(() => {
+      expect(screen.getByText(/2026-04-01 ~ 2026-04-14 마감일 기준/)).toBeTruthy();
+    });
+    expect(screen.queryByText(/주문 수집/)).toBeNull();
+  });
+
+  it('says no day has closed yet on the 1st instead of counting an empty window', async () => {
+    const noClosedDay = buildPeriodBasis({ from: '2026-04-01', to: '2026-03-31', sources: ['orders'] });
+    mockProfitLossQuery({
+      period: '2026-04',
+      rows: [],
+      totals: unavailableTotals,
+      basis: {
+        requestedWindow: { from: '2026-04-01', to: '2026-04-30' },
+        revenue: noClosedDay,
+        adCost: noClosedDay,
+        profit: noClosedDay,
+      },
+    });
+    renderWithProvider();
+
+    await waitFor(() => {
+      expect(screen.getByText(/아직 마감된 날이 없습니다/)).toBeTruthy();
+    });
+    expect(screen.queryByText(/주문 수집 0\/0일/)).toBeNull();
+    expect(cardValue('총 매출')).toBe('-');
+  });
+
   it('renders error state on rejected promise', async () => {
     vi.spyOn(apiClient, 'getParsed').mockImplementation(async (url: string) => {
       if (url === '/api/sales-analysis/data-sources') return dataSources as any;

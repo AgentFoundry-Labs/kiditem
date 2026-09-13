@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import {
   AD_ACCOUNT_DAILY_KPI_READ_PORT,
   type AdAccountDailyKpiReadPort,
@@ -8,7 +9,16 @@ import {
   type AdTrafficReadPort,
 } from '../../advertising/application/port/in/ad-traffic-source.port';
 import { PrismaService } from '../../prisma/prisma.service';
-import { businessDateKey, datesInclusive, parseBusinessDate } from '../../common/kst';
+import {
+  businessDateKey,
+  datesInclusive,
+  kstWindowDateRange,
+  parseBusinessDate,
+} from '../../common/kst';
+import {
+  readObservedOrderBounds,
+  readObservedOrderCount,
+} from '../../orders/read/order-facts.reader';
 import type {
   AdTrafficSourceAccountDaily,
   AdTrafficSourceCoverage,
@@ -46,15 +56,10 @@ export class SalesAnalysisScraperService {
   ): Promise<SalesAnalysisDataSources> {
     const startedAt = Date.now();
 
-    const [wingPublished, adsPublished, ordersAgg] = await Promise.all([
+    const [wingPublished, adsPublished, orders] = await Promise.all([
       this.readTrafficPublished(organizationId),
       this.readAdsPublished(organizationId),
-      this.prisma.order.aggregate({
-        where: { organizationId },
-        _count: { _all: true },
-        _min: { orderedAt: true },
-        _max: { orderedAt: true },
-      }),
+      this.readPublishedOrders(organizationId),
     ]);
 
     const wingRows = accountDailyRows(wingPublished);
@@ -80,15 +85,7 @@ export class SalesAnalysisScraperService {
         lastSyncedAt: latestObservedAt(adsRows),
         missingDates: computeMissingAdsDates(wingDateSet, adsDateSet),
       },
-      orders: {
-        count: ordersAgg._count._all,
-        firstDate: ordersAgg._min.orderedAt
-          ? ordersAgg._min.orderedAt.toISOString().slice(0, 10)
-          : null,
-        lastDate: ordersAgg._max.orderedAt
-          ? ordersAgg._max.orderedAt.toISOString().slice(0, 10)
-          : null,
-      },
+      orders,
       generatedAt: new Date().toISOString(),
     };
 
@@ -103,6 +100,25 @@ export class SalesAnalysisScraperService {
     });
 
     return result;
+  }
+
+  /**
+   * Orders a completed Orders collection published and the KST business dates
+   * they span, through the same Orders reader fence as the P&L table.
+   */
+  private async readPublishedOrders(
+    organizationId: string,
+  ): Promise<SalesAnalysisDataSources['orders']> {
+    const { count, bounds } = await this.prisma.$transaction(async (tx) => ({
+      count: await readObservedOrderCount(tx, organizationId),
+      bounds: await readObservedOrderBounds(tx, organizationId),
+    }), { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
+    const range = bounds ? kstWindowDateRange(bounds) : null;
+    return {
+      count,
+      firstDate: range?.from ?? null,
+      lastDate: range?.to ?? null,
+    };
   }
 
   private async readAdsPublished(

@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { SalesAnalysisData, ChannelAnalysis } from '@kiditem/shared/finance';
 import { PrismaService } from '../../prisma/prisma.service';
-import { kstMonthStart } from '../../common/kst';
+import { businessDateKey, kstBusinessDate, kstMonthWindow } from '../../common/kst';
 import {
   addOrUnavailable,
   isOrderWindowComplete,
@@ -10,6 +10,7 @@ import {
   profitWindowBasis,
   profitWindowTotals,
   readProfitWindowFacts,
+  resolveFinanceWindow,
   roundOrUnavailable,
   totalOrUnavailable,
   type AccountAdEvidence,
@@ -56,11 +57,12 @@ function channelAdCost(
 /**
  * Channel sales analysis for one KST month over the owner readers.
  *
- * Channel rows group the collected order lines by the channel their listing
- * sells on. A channel cost or profit is `null` when any of its lines lacks a
- * recorded cost, or when advertising applies and either the sweep or the
- * Orders collection did not cover the whole window. Ratios over zero are
- * `null`. `totals` are the organization's window totals.
+ * The month is evaluated over its KST business days closed at `now`
+ * (ADR-0001). Channel rows group the collected order lines by the channel
+ * their listing sells on. A channel cost or profit is `null` when any of its
+ * lines lacks a recorded cost, or when advertising applies and either the
+ * sweep or the Orders collection did not cover the whole evaluated window.
+ * Ratios over zero are `null`. `totals` are the organization's window totals.
  */
 @Injectable()
 export class SalesAnalysisService {
@@ -70,23 +72,25 @@ export class SalesAnalysisService {
 
   async getAnalysis(
     organizationId: string,
-    period?: string,
+    period: string | undefined,
+    now: Date,
   ): Promise<SalesAnalysisData> {
     const startedAt = Date.now();
-    const resolvedPeriod = this.resolvePeriod(period);
+    const resolvedPeriod = this.resolvePeriod(period, now);
     const { year, month } = this.parsePeriod(resolvedPeriod);
-    const from = kstMonthStart(year, month);
-    const to = kstMonthStart(year, month + 1);
+    const window = resolveFinanceWindow(kstMonthWindow(year, month), now);
 
     const { facts, returnedLines, orphanReturnCount, unsoldAdListings } = await this.prisma.$transaction(async (tx) => {
-      const facts = await readProfitWindowFacts(tx, organizationId, from, to);
+      const facts = await readProfitWindowFacts(tx, organizationId, window);
       const returnedLines = await readReturnLinesOfOrderWindow(tx, {
         organizationId,
-        from,
-        to,
+        ...window.effective,
         excludedStatuses: ORDER_FACT_EXCLUDED_STATUSES,
       });
-      const { orphanReturnCount } = await readOrderReturnWindowFacts(tx, { organizationId, from, to });
+      const { orphanReturnCount } = await readOrderReturnWindowFacts(tx, {
+        organizationId,
+        ...window.effective,
+      });
       const soldListingIds = new Set(facts.lines.map((line) => line.listing.listingId));
       const unsoldAdListingIds = [...facts.listingAdSpend.keys()]
         .filter((listingId) => !soldListingIds.has(listingId));
@@ -208,10 +212,10 @@ export class SalesAnalysisService {
     return result;
   }
 
-  private resolvePeriod(period?: string): string {
+  /** A valid `YYYY-MM`, or the KST month containing `now`. */
+  private resolvePeriod(period: string | undefined, now: Date): string {
     if (period && /^\d{4}-(0[1-9]|1[0-2])$/.test(period)) return period;
-    const now = new Date();
-    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    return businessDateKey(kstBusinessDate(now)).slice(0, 7);
   }
 
   private parsePeriod(period: string): { year: number; month: number } {

@@ -55,7 +55,7 @@ describe('SalesAnalysisService.getAnalysis (PG integration)', () => {
     }
     await coverOrders();
 
-    const result = await service.getAnalysis(TEST_ORGANIZATION_ID, '2026-04');
+    const result = await service.getAnalysis(TEST_ORGANIZATION_ID, '2026-04', AFTER_MONTHS);
 
     expect(result.channels.map((c) => [c.channel, c.channelType])).toEqual([
       ['naver', 'marketplace'],
@@ -78,8 +78,8 @@ describe('SalesAnalysisService.getAnalysis (PG integration)', () => {
     await coverOrders(TEST_ORGANIZATION_ID);
     await coverOrders(OTHER_ORGANIZATION_ID);
 
-    const t = await service.getAnalysis(TEST_ORGANIZATION_ID, '2026-04');
-    const o = await service.getAnalysis(OTHER_ORGANIZATION_ID, '2026-04');
+    const t = await service.getAnalysis(TEST_ORGANIZATION_ID, '2026-04', AFTER_MONTHS);
+    const o = await service.getAnalysis(OTHER_ORGANIZATION_ID, '2026-04', AFTER_MONTHS);
     expect(t.totals.totalRevenue).toBe(10000);
     expect(o.totals.totalRevenue).toBe(20000);
   });
@@ -111,7 +111,7 @@ describe('SalesAnalysisService.getAnalysis (PG integration)', () => {
     });
     await coverOrders(TEST_ORGANIZATION_ID, '2026-03-01', '2026-04-30');
 
-    const result = await service.getAnalysis(TEST_ORGANIZATION_ID, '2026-04');
+    const result = await service.getAnalysis(TEST_ORGANIZATION_ID, '2026-04', AFTER_MONTHS);
     const c = result.channels.find((x) => x.channel === 'coupang')!;
     expect(c.totalOrders).toBe(1);
     expect(c.returnCount).toBe(1);
@@ -127,7 +127,7 @@ describe('SalesAnalysisService.getAnalysis (PG integration)', () => {
     await seedReturn(prisma, { organizationId: TEST_ORGANIZATION_ID, orderId: null, requestedAt: '2026-04-15T00:00:00Z' });
     await coverOrders();
 
-    const result = await service.getAnalysis(TEST_ORGANIZATION_ID, '2026-04');
+    const result = await service.getAnalysis(TEST_ORGANIZATION_ID, '2026-04', AFTER_MONTHS);
     expect(result.channels[0].returnCount).toBe(0);
     expect(result.channels[0].returnRate).toBe(0);
     expect(result.totals.orphanReturnCount).toBe(1);
@@ -140,7 +140,7 @@ describe('SalesAnalysisService.getAnalysis (PG integration)', () => {
       lineItems: [{ quantity: 1, totalPrice: 10000, optionId: coup.optionId, listingOptionId: coup.listingOptionId }],
     });
     await coverOrders();
-    const result = await service.getAnalysis(TEST_ORGANIZATION_ID, '2026-04');
+    const result = await service.getAnalysis(TEST_ORGANIZATION_ID, '2026-04', AFTER_MONTHS);
     const { SalesAnalysisDataSchema } = await import('@kiditem/shared/finance');
     expect(() => SalesAnalysisDataSchema.parse(JSON.parse(JSON.stringify(result)))).not.toThrow();
   });
@@ -156,8 +156,8 @@ describe('SalesAnalysisService.getAnalysis (PG integration)', () => {
       lineItems: [{ quantity: 1, totalPrice: 8888, optionId: coup.optionId, listingOptionId: coup.listingOptionId }],
     });
     await coverOrders(TEST_ORGANIZATION_ID, '2026-04-01', '2026-05-31');
-    const april = await service.getAnalysis(TEST_ORGANIZATION_ID, '2026-04');
-    const may = await service.getAnalysis(TEST_ORGANIZATION_ID, '2026-05');
+    const april = await service.getAnalysis(TEST_ORGANIZATION_ID, '2026-04', AFTER_MONTHS);
+    const may = await service.getAnalysis(TEST_ORGANIZATION_ID, '2026-05', AFTER_MONTHS);
     expect(april.totals.totalRevenue).toBe(7777);
     expect(may.totals.totalRevenue).toBe(8888);
   });
@@ -209,7 +209,7 @@ describe('SalesAnalysisService.getAnalysis (PG integration)', () => {
     await coverOrders();
 
     const start = Date.now();
-    const result = await service.getAnalysis(TEST_ORGANIZATION_ID, '2026-04');
+    const result = await service.getAnalysis(TEST_ORGANIZATION_ID, '2026-04', AFTER_MONTHS);
     const latencyMs = Date.now() - start;
     expect(result.totals.totalOrders).toBe(1000);
     expect(result.channels).toHaveLength(2);
@@ -226,7 +226,7 @@ describe('SalesAnalysisService.getAnalysis (PG integration)', () => {
     });
     await seedAd(prisma, { organizationId: TEST_ORGANIZATION_ID, listingId: naver.listingId, date: '2026-04-15', spend: 500 });
     await coverOrders();
-    const result = await service.getAnalysis(TEST_ORGANIZATION_ID, '2026-04');
+    const result = await service.getAnalysis(TEST_ORGANIZATION_ID, '2026-04', AFTER_MONTHS);
     expect(result.channels).toHaveLength(1);
     expect(result.channels[0].channel).toBe('coupang');
   });
@@ -245,7 +245,7 @@ describe('SalesAnalysisService.getAnalysis (PG integration)', () => {
     });
     await coverOrders();
 
-    const result = await service.getAnalysis(TEST_ORGANIZATION_ID, '2026-04');
+    const result = await service.getAnalysis(TEST_ORGANIZATION_ID, '2026-04', AFTER_MONTHS);
 
     for (const channel of result.channels) {
       expect(channel, channel.channel).toMatchObject({
@@ -287,7 +287,7 @@ describe('SalesAnalysisService.getAnalysis (PG integration)', () => {
     });
     await coverOrders();
 
-    const result = await service.getAnalysis(TEST_ORGANIZATION_ID, '2026-04');
+    const result = await service.getAnalysis(TEST_ORGANIZATION_ID, '2026-04', AFTER_MONTHS);
 
     // cost = purchase 5000 + commission 10% + order shipping 3000 + ad spend.
     expect(result.channels.find((c) => c.channel === 'coupang')).toMatchObject({
@@ -313,7 +313,7 @@ describe('SalesAnalysisService.getAnalysis (PG integration)', () => {
     });
     await coverOrders();
 
-    const result = await service.getAnalysis(TEST_ORGANIZATION_ID, '2026-04');
+    const result = await service.getAnalysis(TEST_ORGANIZATION_ID, '2026-04', AFTER_MONTHS);
 
     expect(result.channels[0]).toMatchObject({
       totalRevenue: 0,
@@ -334,7 +334,7 @@ describe('SalesAnalysisService.getAnalysis (PG integration)', () => {
     });
     await coverOrders(TEST_ORGANIZATION_ID, '2026-04-01', '2026-04-15');
 
-    const result = await service.getAnalysis(TEST_ORGANIZATION_ID, '2026-04');
+    const result = await service.getAnalysis(TEST_ORGANIZATION_ID, '2026-04', AFTER_MONTHS);
 
     expect(result.channels[0].totalRevenue).toBe(10000);
     expect(result.totals).toMatchObject({
@@ -342,5 +342,70 @@ describe('SalesAnalysisService.getAnalysis (PG integration)', () => {
     });
     expect(result.basis.revenue.includedDates).toHaveLength(15);
     expect(periodBasisStatus(result.basis.revenue)).toBe('partial');
+  });
+
+  /** A moment after every month these cases read has closed in KST. */
+  const AFTER_MONTHS = new Date('2026-07-01T00:00:00.000Z');
+  /** 12:00 KST on 15 April: 1–14 April are closed. */
+  const MID_APRIL = new Date('2026-04-15T03:00:00.000Z');
+
+  it('defaults to the month containing today and evaluates it over its closed days', async () => {
+    const naver = await setupChannelFixture(TEST_ORGANIZATION_ID, 'naver', 'MID-MONTH');
+    await seedOrderWithLineItems(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, externalOrderId: 'MID-MONTH-CLOSED', orderedAt: '2026-04-10T00:00:00Z',
+      lineItems: [{ quantity: 1, totalPrice: 10000, optionId: naver.optionId, listingOptionId: naver.listingOptionId }],
+    });
+    await seedOrderWithLineItems(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, externalOrderId: 'MID-MONTH-TODAY', orderedAt: '2026-04-15T01:00:00Z',
+      lineItems: [{ quantity: 1, totalPrice: 8000, optionId: naver.optionId, listingOptionId: naver.listingOptionId }],
+    });
+    await coverOrders(TEST_ORGANIZATION_ID, '2026-04-01', '2026-04-15');
+
+    const result = await service.getAnalysis(TEST_ORGANIZATION_ID, undefined, MID_APRIL);
+
+    expect(result.period).toBe('2026-04');
+    expect(result.channels).toEqual([
+      expect.objectContaining({ channel: 'naver', totalOrders: 1, totalRevenue: 10000 }),
+    ]);
+    expect(result.totals).toMatchObject({ totalRevenue: 10000, totalOrders: 1 });
+    expect(result.basis.requestedWindow).toEqual({ from: '2026-04-01', to: '2026-04-30' });
+    expect(result.basis.revenue).toMatchObject({ from: '2026-04-01', to: '2026-04-14', targetDays: 14 });
+    expect(periodBasisStatus(result.basis.revenue)).toBe('complete');
+  });
+
+  /** Policies the retired mock spec asserted: per-channel versus global order counts, and the shipping split. */
+  it('counts an order spanning two channels in each channel but once in the totals, splitting its shipping by line revenue', async () => {
+    const naver = await setupChannelFixture(TEST_ORGANIZATION_ID, 'naver', 'SPLIT-NAVER');
+    const wing = await setupChannelFixture(TEST_ORGANIZATION_ID, 'wing', 'SPLIT-WING');
+    await seedOrderWithLineItems(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, externalOrderId: 'SPLIT-BOTH', orderedAt: '2026-04-10T00:00:00Z',
+      shippingPrice: 3000,
+      lineItems: [
+        { quantity: 1, totalPrice: 6000, optionId: naver.optionId, listingOptionId: naver.listingOptionId },
+        { quantity: 1, totalPrice: 4000, optionId: wing.optionId, listingOptionId: wing.listingOptionId },
+      ],
+    });
+    await seedOrderWithLineItems(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, externalOrderId: 'SPLIT-NAVER-ONLY', orderedAt: '2026-04-11T00:00:00Z',
+      shippingPrice: 0,
+      lineItems: [{ quantity: 1, totalPrice: 2000, optionId: naver.optionId, listingOptionId: naver.listingOptionId }],
+    });
+    await coverOrders();
+
+    const result = await service.getAnalysis(TEST_ORGANIZATION_ID, '2026-04', AFTER_MONTHS);
+
+    // cost = purchase 5000 per unit + commission 10% + the line's share of its
+    // order's 3000 shipping: 6000/10000 → 1800 to naver, 4000/10000 → 1200 to wing.
+    expect(result.channels).toEqual([
+      expect.objectContaining({
+        channel: 'naver', totalOrders: 2, totalRevenue: 8000, totalCost: 12600, totalProfit: -4600, avgOrderValue: 4000,
+      }),
+      expect.objectContaining({
+        channel: 'wing', totalOrders: 1, totalRevenue: 4000, totalCost: 6600, totalProfit: -2600, avgOrderValue: 4000,
+      }),
+    ]);
+    expect(result.totals).toMatchObject({
+      totalRevenue: 12000, totalOrders: 2, totalCost: 19200, totalProfit: -7200,
+    });
   });
 });

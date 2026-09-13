@@ -6,8 +6,9 @@ import {
   profitWindowBasis,
   profitWindowTotals,
   readProfitWindowFacts,
+  resolveFinanceWindow,
 } from '../../common/per-listing-profit';
-import { kstMonthStart } from '../../common/kst';
+import { kstMonthWindow } from '../../common/kst';
 import { CreateSalesPlanDto, UpdateSalesPlanDto } from './dto';
 
 const PLAN_TARGET_SELECT = {
@@ -25,9 +26,10 @@ const MONTH_PERIOD = /^(\d{4})-(0[1-9]|1[0-2])$/;
 
 /**
  * Sales plans are operator targets; their actuals are the month's collected
- * order lines, read live with the observation time and basis behind them.
- * Actuals are never written back: a stored default of 0 cannot say whether a
- * month sold nothing or was never collected.
+ * order lines over its KST business days closed at `now` (ADR-0001), read live
+ * with the observation time and basis behind them. Actuals are never written
+ * back: a stored default of 0 cannot say whether a month sold nothing or was
+ * never collected.
  */
 @Injectable()
 export class SalesPlansService {
@@ -35,7 +37,7 @@ export class SalesPlansService {
     private readonly prisma: PrismaService,
   ) {}
 
-  async findAll(organizationId: string): Promise<SalesPlanView[]> {
+  async findAll(organizationId: string, now: Date): Promise<SalesPlanView[]> {
     const plans = await this.prisma.salesPlan.findMany({
       where: { organizationId },
       orderBy: { period: 'desc' },
@@ -44,11 +46,11 @@ export class SalesPlansService {
     // One snapshot per month, read one at a time so a long plan list does not
     // hold several interactive transactions open together.
     const views: SalesPlanView[] = [];
-    for (const plan of plans) views.push(await this.toView(organizationId, plan));
+    for (const plan of plans) views.push(await this.toView(organizationId, plan, now));
     return views;
   }
 
-  async create(organizationId: string, dto: CreateSalesPlanDto): Promise<SalesPlanView> {
+  async create(organizationId: string, dto: CreateSalesPlanDto, now: Date): Promise<SalesPlanView> {
     const existing = await this.prisma.salesPlan.findFirst({
       where: { organizationId, period: dto.period },
       select: { id: true },
@@ -69,10 +71,15 @@ export class SalesPlansService {
       },
       select: PLAN_TARGET_SELECT,
     });
-    return this.toView(organizationId, plan);
+    return this.toView(organizationId, plan, now);
   }
 
-  async update(id: string, organizationId: string, dto: UpdateSalesPlanDto): Promise<SalesPlanView> {
+  async update(
+    id: string,
+    organizationId: string,
+    dto: UpdateSalesPlanDto,
+    now: Date,
+  ): Promise<SalesPlanView> {
     const existing = await this.prisma.salesPlan.findFirst({
       where: { id, organizationId },
       select: { id: true },
@@ -92,11 +99,11 @@ export class SalesPlansService {
       },
       select: PLAN_TARGET_SELECT,
     });
-    return this.toView(organizationId, plan);
+    return this.toView(organizationId, plan, now);
   }
 
   /** Re-reads the plan's live actuals; nothing is stored. */
-  async syncActuals(id: string, organizationId: string): Promise<SalesPlanView> {
+  async syncActuals(id: string, organizationId: string, now: Date): Promise<SalesPlanView> {
     const plan = await this.prisma.salesPlan.findFirst({
       where: { id, organizationId },
       select: PLAN_TARGET_SELECT,
@@ -104,7 +111,7 @@ export class SalesPlansService {
     if (!plan) {
       throw new NotFoundException('판매 계획을 찾을 수 없습니다');
     }
-    return this.toView(organizationId, plan);
+    return this.toView(organizationId, plan, now);
   }
 
   async delete(id: string, organizationId: string) {
@@ -120,7 +127,7 @@ export class SalesPlansService {
     return { ok: true };
   }
 
-  private async toView(organizationId: string, plan: PlanTargets): Promise<SalesPlanView> {
+  private async toView(organizationId: string, plan: PlanTargets, now: Date): Promise<SalesPlanView> {
     return {
       id: plan.id,
       period: plan.period,
@@ -128,17 +135,20 @@ export class SalesPlansService {
       targetOrders: plan.targetOrders,
       targetProfit: plan.targetProfit,
       notes: plan.notes,
-      actuals: await this.readActuals(organizationId, plan.period),
+      actuals: await this.readActuals(organizationId, plan.period, now),
     } satisfies SalesPlanView;
   }
 
-  private async readActuals(organizationId: string, period: string): Promise<SalesPlanActuals | null> {
+  private async readActuals(
+    organizationId: string,
+    period: string,
+    now: Date,
+  ): Promise<SalesPlanActuals | null> {
     const match = MONTH_PERIOD.exec(period);
     if (!match) return null;
-    const year = Number(match[1]);
-    const month = Number(match[2]);
+    const window = resolveFinanceWindow(kstMonthWindow(Number(match[1]), Number(match[2])), now);
     const facts = await this.prisma.$transaction(
-      (tx) => readProfitWindowFacts(tx, organizationId, kstMonthStart(year, month), kstMonthStart(year, month + 1)),
+      (tx) => readProfitWindowFacts(tx, organizationId, window),
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
     );
     const totals = profitWindowTotals(facts);
@@ -146,7 +156,8 @@ export class SalesPlansService {
       revenue: totals.revenue,
       orderCount: totals.orderCount,
       netProfit: totals.netProfit,
-      observedAt: facts.orderWindow.observedAt,
+      // A month with no closed day was not observed at all.
+      observedAt: facts.orderWindow.requestedDates.length === 0 ? null : facts.orderWindow.observedAt,
       basis: profitWindowBasis(facts),
     } satisfies SalesPlanActuals;
   }

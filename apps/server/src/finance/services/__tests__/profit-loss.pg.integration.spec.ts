@@ -257,7 +257,7 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
   });
 
   const rowsFor = async (organizationId: string, year: number, month: number) =>
-    (await service.findAll(organizationId, year, month)).rows;
+    (await service.findAll(organizationId, year, month, AFTER_MONTHS)).rows;
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
@@ -326,7 +326,7 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
     await coverOrders(TEST_ORGANIZATION_ID);
     await coverOrders(OTHER_ORGANIZATION_ID);
 
-    const result = await service.findAll(TEST_ORGANIZATION_ID, 2026, 4);
+    const result = await service.findAll(TEST_ORGANIZATION_ID, 2026, 4, AFTER_MONTHS);
 
     expect(result.rows).toHaveLength(3);
     const externalIds = result.rows.map((r) => r.externalId);
@@ -408,7 +408,7 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
     });
     await coverOrders();
 
-    const result = await service.findAll(TEST_ORGANIZATION_ID, 2026, 4);
+    const result = await service.findAll(TEST_ORGANIZATION_ID, 2026, 4, AFTER_MONTHS);
     expect(result.rows.length).toBeGreaterThan(0);
 
     const parsed = ProfitLossResponseSchema.safeParse(JSON.parse(JSON.stringify(result)));
@@ -462,7 +462,7 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
     });
     await coverOrders();
 
-    const result = await service.findAll(TEST_ORGANIZATION_ID, 2026, 4);
+    const result = await service.findAll(TEST_ORGANIZATION_ID, 2026, 4, AFTER_MONTHS);
 
     expect(result.rows).toHaveLength(1);
     expect(result.rows[0]).toMatchObject({
@@ -609,7 +609,7 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
     await coverAprilAds();
     await coverOrders();
 
-    const result = await service.findAll(TEST_ORGANIZATION_ID, 2026, 4);
+    const result = await service.findAll(TEST_ORGANIZATION_ID, 2026, 4, AFTER_MONTHS);
 
     expect(result.rows.find((row) => row.listingId === known.listing.id)).toMatchObject({
       revenue: 10_000,
@@ -653,7 +653,7 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
     });
     await coverOrders();
 
-    const result = await service.findAll(TEST_ORGANIZATION_ID, 2026, 4);
+    const result = await service.findAll(TEST_ORGANIZATION_ID, 2026, 4, AFTER_MONTHS);
 
     expect(result.period).toBe('2026-04');
     expect(result.rows[0]).toMatchObject({
@@ -672,6 +672,7 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
       from: '2026-04-01', to: '2026-04-30', targetDays: 30, sources: ['orders'],
     });
     expect(result.basis.adCost.sources).toEqual(['coupang_ads']);
+    expect(result.basis.requestedWindow).toEqual({ from: '2026-04-01', to: '2026-04-30' });
     expect(result.basis.profit.sources).toEqual(['orders', 'coupang_ads']);
     for (const basis of [result.basis.revenue, result.basis.adCost, result.basis.profit]) {
       expect(periodBasisStatus(basis)).toBe('complete');
@@ -688,7 +689,7 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
     await coverAprilAds();
     await coverOrders(TEST_ORGANIZATION_ID, '2026-04-01', '2026-04-20');
 
-    const result = await service.findAll(TEST_ORGANIZATION_ID, 2026, 4);
+    const result = await service.findAll(TEST_ORGANIZATION_ID, 2026, 4, AFTER_MONTHS);
 
     // The collected line stays visible with its basis; nothing derived from
     // the whole month is published from twenty collected days.
@@ -698,6 +699,96 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
     });
     expect(result.basis.revenue.includedDates).toHaveLength(20);
     expect(periodBasisStatus(result.basis.revenue)).toBe('partial');
+  });
+
+  /** A moment after every month these cases read has closed in KST. */
+  const AFTER_MONTHS = new Date('2026-07-01T00:00:00.000Z');
+
+  /**
+   * The month containing today is evaluated over its closed KST days only,
+   * the anchor-clipped month of ADR-0001: its totals rest on the days through
+   * yesterday, and a line ordered today is not part of them.
+   */
+  describe('in-progress month window', () => {
+    /** 12:00 KST on 15 April: 1–14 April are closed. */
+    const MID_APRIL = new Date('2026-04-15T03:00:00.000Z');
+    /** 12:00 KST on 1 April: no April day is closed. */
+    const APRIL_FIRST = new Date('2026-04-01T03:00:00.000Z');
+    /** 12:00 KST on 15 May: April has ended. */
+    const MID_MAY = new Date('2026-05-15T03:00:00.000Z');
+
+    it('evaluates the month containing today over its closed days and leaves today out', async () => {
+      const list = await setupListing(prisma, TEST_ORGANIZATION_ID, 'MID-MONTH');
+      await createOrder(prisma, TEST_ORGANIZATION_ID, {
+        orderedAt: new Date('2026-04-10T00:00:00.000Z'),
+        externalOrderId: 'MID-MONTH-CLOSED',
+        lineItems: [{ listingOptionId: list.listingOption.id, optionId: list.option.id, totalPrice: 10_000 }],
+      });
+      await createOrder(prisma, TEST_ORGANIZATION_ID, {
+        orderedAt: new Date('2026-04-15T01:00:00.000Z'),
+        externalOrderId: 'MID-MONTH-TODAY',
+        lineItems: [{ listingOptionId: list.listingOption.id, optionId: list.option.id, totalPrice: 20_000 }],
+      });
+      await seedCompletedAdSweepRun(prisma, {
+        organizationId: TEST_ORGANIZATION_ID,
+        generation: 1,
+        window: { startDate: '2026-04-01', endDate: '2026-04-14' },
+      });
+      await coverOrders(TEST_ORGANIZATION_ID, '2026-04-01', '2026-04-15');
+
+      const result = await service.findAll(TEST_ORGANIZATION_ID, 2026, 4, MID_APRIL);
+
+      expect(result.rows).toEqual([
+        expect.objectContaining({ revenue: 10_000, orderCount: 1, netProfit: 7_950 }),
+      ]);
+      expect(result.totals).toMatchObject({ revenue: 10_000, orderCount: 1, adCost: 0, netProfit: 7_950 });
+      expect(result.basis.requestedWindow).toEqual({ from: '2026-04-01', to: '2026-04-30' });
+      expect(result.basis.revenue).toMatchObject({ from: '2026-04-01', to: '2026-04-14', targetDays: 14 });
+      for (const basis of [result.basis.revenue, result.basis.adCost, result.basis.profit]) {
+        expect(periodBasisStatus(basis)).toBe('complete');
+      }
+    });
+
+    it('publishes no totals on the 1st, when no day of the month has closed', async () => {
+      const list = await setupListing(prisma, TEST_ORGANIZATION_ID, 'FIRST-DAY');
+      await createOrder(prisma, TEST_ORGANIZATION_ID, {
+        orderedAt: new Date('2026-04-01T01:00:00.000Z'),
+        externalOrderId: 'FIRST-DAY-TODAY',
+        lineItems: [{ listingOptionId: list.listingOption.id, optionId: list.option.id, totalPrice: 10_000 }],
+      });
+      await coverOrders(TEST_ORGANIZATION_ID, '2026-04-01', '2026-04-01');
+
+      const result = await service.findAll(TEST_ORGANIZATION_ID, 2026, 4, APRIL_FIRST);
+
+      expect(result.rows).toEqual([]);
+      expect(result.totals).toEqual({
+        revenue: null, orderCount: null, cost: null, adCost: null, netProfit: null, profitRate: null,
+      });
+      expect(result.basis.requestedWindow).toEqual({ from: '2026-04-01', to: '2026-04-30' });
+      // The effective window ends the day before it starts: zero closed days.
+      expect(result.basis.revenue).toMatchObject({
+        from: '2026-04-01', to: '2026-03-31', targetDays: 0, includedDates: [],
+      });
+      expect(periodBasisStatus(result.basis.revenue)).toBe('empty');
+    });
+
+    it('evaluates a month that has already ended over every one of its days', async () => {
+      const list = await setupListing(prisma, TEST_ORGANIZATION_ID, 'ENDED-MONTH');
+      await createOrder(prisma, TEST_ORGANIZATION_ID, {
+        orderedAt: new Date('2026-04-30T14:00:00.000Z'),
+        externalOrderId: 'ENDED-MONTH-LAST-DAY',
+        lineItems: [{ listingOptionId: list.listingOption.id, optionId: list.option.id, totalPrice: 10_000 }],
+      });
+      await coverAprilAds();
+      await coverOrders();
+
+      const result = await service.findAll(TEST_ORGANIZATION_ID, 2026, 4, MID_MAY);
+
+      expect(result.totals).toMatchObject({ revenue: 10_000, orderCount: 1, netProfit: 7_950 });
+      expect(result.basis.requestedWindow).toEqual({ from: '2026-04-01', to: '2026-04-30' });
+      expect(result.basis.revenue).toMatchObject({ from: '2026-04-01', to: '2026-04-30', targetDays: 30 });
+      expect(periodBasisStatus(result.basis.profit)).toBe('complete');
+    });
   });
 
   it('handles 1000 orders with 3 lineItems each under 2s (CEO-C3 baseline)', async () => {

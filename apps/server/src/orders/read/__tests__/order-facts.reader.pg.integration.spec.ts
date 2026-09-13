@@ -14,6 +14,7 @@ import {
   readOrderReturnStatusCounts,
   readOrderStatusCounts,
   readObservedOrderBounds,
+  readObservedOrderCount,
   readOrderWindowFacts,
 } from '../order-facts.reader';
 import type { PrismaClient } from '@prisma/client';
@@ -315,6 +316,55 @@ describe('Order facts reader over disposable PostgreSQL', () => {
       missingDates: ['2026-05-01'],
       sourceCoverage: [],
     });
+  });
+
+  it('counts every order a completed source run published, and no other', async () => {
+    await seedOrder(TEST_ORGANIZATION_ID, ACCOUNT_ID, 'ORDER-COUNTED', 12_000, [
+      { totalPrice: 12_000, quantity: 1 },
+    ]);
+    // A published order counts whatever its status: the count says whether a
+    // collection published orders, not what they earned.
+    await seedOrder(TEST_ORGANIZATION_ID, ACCOUNT_ID, 'ORDER-COUNTED-CANCELLED', 8_000, [
+      { totalPrice: 8_000, quantity: 1 },
+    ]);
+    await prisma.order.updateMany({
+      where: { organizationId: TEST_ORGANIZATION_ID, externalOrderId: 'ORDER-COUNTED-CANCELLED' },
+      data: { status: 'cancelled' },
+    });
+    const running = await prisma.sourceImportRun.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceType: 'coupang_direct_order_capture',
+        status: 'running',
+      },
+    });
+    await seedOrder(TEST_ORGANIZATION_ID, ACCOUNT_ID, 'ORDER-RUNNING-UNCOUNTED', 5_000, [
+      { totalPrice: 5_000, quantity: 1 },
+    ]);
+    await prisma.order.updateMany({
+      where: { organizationId: TEST_ORGANIZATION_ID, externalOrderId: 'ORDER-RUNNING-UNCOUNTED' },
+      data: { sourceImportRunId: running.id },
+    });
+    await prisma.order.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: ACCOUNT_ID,
+        externalOrderId: 'ORDER-WITHOUT-SOURCE-UNCOUNTED',
+        orderedAt: new Date('2026-05-01T03:00:00.000Z'),
+        status: 'paid',
+        totalPrice: 1_000,
+      },
+    });
+    await seedOrder(OTHER_ORGANIZATION_ID, OTHER_ACCOUNT_ID, 'ORDER-FOREIGN', 7_000, [
+      { totalPrice: 7_000, quantity: 1 },
+    ]);
+
+    const counts = await prisma.$transaction(async (tx) => ({
+      test: await readObservedOrderCount(tx, TEST_ORGANIZATION_ID),
+      other: await readObservedOrderCount(tx, OTHER_ORGANIZATION_ID),
+    }));
+
+    expect(counts).toEqual({ test: 2, other: 1 });
   });
 
   it('does not publish legacy source-null orders through owner readers', async () => {

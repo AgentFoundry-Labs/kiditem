@@ -13,7 +13,8 @@ const basis = buildPeriodBasis({
   includedDates: ['2026-04-01'],
   sources: ['orders'],
 });
-const windowBasis = { revenue: basis, adCost: basis, profit: basis };
+const requestedWindow = { from: '2026-04-01', to: '2026-04-30' };
+const windowBasis = { requestedWindow, revenue: basis, adCost: basis, profit: basis };
 const unavailableTotals = {
   revenue: null,
   orderCount: null,

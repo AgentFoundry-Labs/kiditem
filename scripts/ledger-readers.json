@@ -162,18 +162,7 @@
           "reason": "Publishes canonical orders inside the Orders-owned direct-order collection transaction."
         }
       ],
-      "legacyReaders": [
-        {
-          "path": "apps/server/src/analytics/supplier-stats/supplier-stats.service.ts",
-          "removeWith": "KID-85",
-          "reason": "Supplier reporting order joins move behind canonical finance and Orders readers."
-        },
-        {
-          "path": "apps/server/src/finance/services/sales-analysis-scraper.service.ts",
-          "removeWith": "KID-85",
-          "reason": "Finance sales analysis scraper migration remains in its inventory slice."
-        }
-      ]
+      "legacyReaders": []
     },
     {
       "name": "Orders canonical line item",
@@ -192,13 +181,7 @@
           "reason": "Publishes canonical line-item amounts and quantity with their owning order."
         }
       ],
-      "legacyReaders": [
-        {
-          "path": "apps/server/src/analytics/supplier-stats/supplier-stats.service.ts",
-          "removeWith": "KID-85",
-          "reason": "Supplier statistics migration remains in its inventory slice."
-        }
-      ]
+      "legacyReaders": []
     },
     {
       "name": "Orders canonical return",

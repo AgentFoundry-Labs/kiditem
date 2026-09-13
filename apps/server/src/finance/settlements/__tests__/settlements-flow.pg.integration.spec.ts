@@ -125,7 +125,7 @@ describe('Settlements flow (PG integration)', () => {
       });
       await coverOrders();
 
-      const result = await service.reconcile(TEST_ORGANIZATION_ID, '2026-03');
+      const result = await service.reconcile(TEST_ORGANIZATION_ID, '2026-03', AFTER_MONTHS);
 
       expect(result.details).toHaveLength(1);
       expect(result.details[0]).toEqual(expect.objectContaining({
@@ -186,8 +186,8 @@ describe('Settlements flow (PG integration)', () => {
       });
       await coverOrders('2026-03-01', '2026-04-30');
 
-      const march = await service.reconcile(TEST_ORGANIZATION_ID, '2026-03');
-      const april = await service.reconcile(TEST_ORGANIZATION_ID, '2026-04');
+      const march = await service.reconcile(TEST_ORGANIZATION_ID, '2026-03', AFTER_MONTHS);
+      const april = await service.reconcile(TEST_ORGANIZATION_ID, '2026-04', AFTER_MONTHS);
 
       expect(march.details).toHaveLength(1);
       expect(march.details[0]).toEqual(expect.objectContaining({
@@ -229,8 +229,8 @@ describe('Settlements flow (PG integration)', () => {
       });
       await coverOrders('2026-03-01', '2026-04-30');
 
-      const march = await service.reconcile(TEST_ORGANIZATION_ID, '2026-03');
-      const april = await service.reconcile(TEST_ORGANIZATION_ID, '2026-04');
+      const march = await service.reconcile(TEST_ORGANIZATION_ID, '2026-03', AFTER_MONTHS);
+      const april = await service.reconcile(TEST_ORGANIZATION_ID, '2026-04', AFTER_MONTHS);
 
       expect(march.details).toEqual([]);
       expect(april.details).toHaveLength(1);
@@ -262,7 +262,7 @@ describe('Settlements flow (PG integration)', () => {
         }],
       });
 
-      const result = await service.reconcile(TEST_ORGANIZATION_ID, '2026-03');
+      const result = await service.reconcile(TEST_ORGANIZATION_ID, '2026-03', AFTER_MONTHS);
 
       expect(result.details).toEqual([]);
       expect(result.summary).toEqual({
@@ -279,7 +279,60 @@ describe('Settlements flow (PG integration)', () => {
       });
       expect(result.basis.revenue.includedDates).toEqual([]);
     });
+
+    it('#3c evaluates the month containing today over its closed days, and none on the 1st', async () => {
+      const fixture = await seedListingFixture({
+        organizationId: TEST_ORGANIZATION_ID,
+        suffix: 'CURRENT',
+        costPrice: 1_000,
+        commissionRate: 0.1,
+      });
+      for (const [externalOrderId, orderedAt] of [
+        ['SET-CURRENT-CLOSED', '2026-04-10T03:00:00.000Z'],
+        ['SET-CURRENT-TODAY', '2026-04-15T01:00:00.000Z'],
+      ] as const) {
+        await seedOrderWithLineItems(prisma, {
+          organizationId: TEST_ORGANIZATION_ID,
+          externalOrderId,
+          orderedAt,
+          shippingPrice: 0,
+          status: 'paid',
+          lineItems: [{
+            quantity: 1,
+            totalPrice: 5_000,
+            optionId: fixture.option.id,
+            listingOptionId: fixture.listing.listingOptionId,
+          }],
+        });
+      }
+      await coverOrders('2026-04-01', '2026-04-15');
+
+      const midMonth = await service.reconcile(TEST_ORGANIZATION_ID, '2026-04', MID_APRIL);
+      const firstDay = await service.reconcile(TEST_ORGANIZATION_ID, '2026-04', APRIL_FIRST);
+
+      expect(midMonth.details).toEqual([
+        expect.objectContaining({ plRevenue: 5_000, orderTotal: 5_000, orderCount: 1 }),
+      ]);
+      expect(midMonth.summary).toMatchObject({
+        totalPlRevenue: 5_000, totalOrderRevenue: 5_000, orderCount: 1, matchRate: 100,
+      });
+      expect(midMonth.basis.requestedWindow).toEqual({ from: '2026-04-01', to: '2026-04-30' });
+      expect(midMonth.basis.revenue).toMatchObject({ from: '2026-04-01', to: '2026-04-14', targetDays: 14 });
+
+      expect(firstDay.details).toEqual([]);
+      expect(firstDay.summary).toMatchObject({
+        totalPlRevenue: null, totalOrderRevenue: null, orderCount: null, matchRate: null,
+      });
+      expect(firstDay.basis.revenue).toMatchObject({ from: '2026-04-01', to: '2026-03-31', targetDays: 0 });
+    });
   });
+
+  /** A moment after every month these cases read has closed in KST. */
+  const AFTER_MONTHS = new Date('2026-07-01T00:00:00.000Z');
+  /** 12:00 KST on 15 April: 1–14 April are closed. */
+  const MID_APRIL = new Date('2026-04-15T03:00:00.000Z');
+  /** 12:00 KST on 1 April: no April day is closed. */
+  const APRIL_FIRST = new Date('2026-04-01T03:00:00.000Z');
 
   describe('reconcile — excluded statuses and tenant isolation', () => {
     it('#4 cancelled, returned, and refunded orders are excluded from both live and order sides', async () => {
@@ -320,7 +373,7 @@ describe('Settlements flow (PG integration)', () => {
       }
       await coverOrders();
 
-      const result = await service.reconcile(TEST_ORGANIZATION_ID, '2026-03');
+      const result = await service.reconcile(TEST_ORGANIZATION_ID, '2026-03', AFTER_MONTHS);
 
       expect(result.details).toHaveLength(1);
       expect(result.details[0]).toEqual(expect.objectContaining({
@@ -379,7 +432,7 @@ describe('Settlements flow (PG integration)', () => {
       await coverOrders();
       await coverOrders(undefined, undefined, OTHER_ORGANIZATION_ID);
 
-      const result = await service.reconcile(TEST_ORGANIZATION_ID, '2026-03');
+      const result = await service.reconcile(TEST_ORGANIZATION_ID, '2026-03', AFTER_MONTHS);
 
       expect(result.details).toHaveLength(1);
       expect(result.details[0]).toEqual(expect.objectContaining({
@@ -430,6 +483,30 @@ describe('Settlements flow (PG integration)', () => {
         expectedAmount: 1_000_000,
         difference: -20_000,
       });
+    });
+
+    it('#7b refuses to confirm a settlement without the deposited amount', async () => {
+      const settlement = await prisma.settlement.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          period: '2026-03',
+          expectedAmount: 1_000_000,
+        },
+      });
+
+      // The stored actual column defaults to 0; confirming it would publish a
+      // deposit nobody entered.
+      await expect(
+        service.update(settlement.id, TEST_ORGANIZATION_ID, { status: 'confirmed' }),
+      ).rejects.toThrow(BadRequestException);
+
+      await expect(service.findAll(TEST_ORGANIZATION_ID, '2026-03')).resolves.toEqual([
+        expect.objectContaining({ status: 'pending', actualAmount: null, difference: null }),
+      ]);
+      await expect(service.update(settlement.id, TEST_ORGANIZATION_ID, {
+        status: 'confirmed',
+        actualAmount: 0,
+      })).resolves.toMatchObject({ status: 'confirmed', actualAmount: 0, difference: -1_000_000 });
     });
 
     it('#8 missing settlement uses the same public not-found contract', async () => {

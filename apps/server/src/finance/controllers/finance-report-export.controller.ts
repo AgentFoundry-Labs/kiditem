@@ -18,7 +18,11 @@ import {
 } from '../report-export/finance-report-export.service';
 import type { Response } from 'express';
 
-/** Fixed Finance/Analytics XLSX download boundary. No workbook payloads cross HTTP. */
+/**
+ * Fixed Finance/Analytics XLSX download boundary. No workbook payloads cross
+ * HTTP. The request's instant decides the default month and which KST days of
+ * a month are closed.
+ */
 @Controller()
 export class FinanceReportExportController {
   constructor(private readonly exporter: FinanceReportExportService) {}
@@ -31,7 +35,7 @@ export class FinanceReportExportController {
     @Res({ passthrough: true }) response: Response,
   ): Promise<StreamableFile> {
     return this.toStream(
-      await this.exporter.exportReport(organizationId, query),
+      await this.exporter.exportReport(organizationId, query, new Date()),
       response,
     );
   }
@@ -44,7 +48,7 @@ export class FinanceReportExportController {
     @Res({ passthrough: true }) response: Response,
   ): Promise<StreamableFile> {
     return this.toStream(
-      await this.exporter.exportProfitLoss(organizationId, query),
+      await this.exporter.exportProfitLoss(organizationId, query, new Date()),
       response,
     );
   }
@@ -57,7 +61,7 @@ export class FinanceReportExportController {
     @Res({ passthrough: true }) response: Response,
   ): Promise<StreamableFile> {
     return this.toStream(
-      await this.exporter.exportSettlementReconcile(organizationId, query.period),
+      await this.exporter.exportSettlementReconcile(organizationId, query.period, new Date()),
       response,
     );
   }

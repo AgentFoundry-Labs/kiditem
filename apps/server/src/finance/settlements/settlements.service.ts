@@ -11,9 +11,10 @@ import {
   perListingProfitRows,
   profitWindowBasis,
   readProfitWindowFacts,
+  resolveFinanceWindow,
   totalOrUnavailable,
 } from '../../common/per-listing-profit';
-import { kstMonthStart } from '../../common/kst';
+import { kstMonthWindow } from '../../common/kst';
 import {
   ORDER_FACT_EXCLUDED_STATUSES,
   readListingOptionOrderFacts,
@@ -54,14 +55,6 @@ export class SettlementsService {
     private readonly prisma: PrismaService,
   ) {}
 
-  private resolveWindow(period: string) {
-    const [year, month] = period.split('-').map(Number);
-    return {
-      from: kstMonthStart(year, month),
-      to: kstMonthStart(year, month + 1),
-    };
-  }
-
   async findAll(organizationId: string, period?: string): Promise<SettlementListItem[]> {
     const rows = await this.prisma.$transaction((tx) => readSettlements(tx, {
       organizationId,
@@ -87,18 +80,23 @@ export class SettlementsService {
 
   /**
    * Compares the month's per-listing profit revenue with the same month's
-   * order-line totals, both read from the Orders collection. Month totals are
-   * published only when that collection covered every date of the month.
+   * order-line totals, both read from the Orders collection over the month's
+   * KST business days closed at `now` (ADR-0001). Month totals are published
+   * only when that collection covered every one of those days.
    */
-  async reconcile(organizationId: string, period: string): Promise<SettlementReconcileResponse> {
-    const { from, to } = this.resolveWindow(period);
+  async reconcile(
+    organizationId: string,
+    period: string,
+    now: Date,
+  ): Promise<SettlementReconcileResponse> {
+    const [year, month] = period.split('-').map(Number);
+    const window = resolveFinanceWindow(kstMonthWindow(year, month), now);
 
     const { facts, orderLines, optionListings } = await this.prisma.$transaction(async (tx) => {
-      const facts = await readProfitWindowFacts(tx, organizationId, from, to);
+      const facts = await readProfitWindowFacts(tx, organizationId, window);
       const orderLines = await readListingOptionOrderFacts(tx, {
         organizationId,
-        from,
-        to,
+        ...window.effective,
         excludedStatuses: ORDER_FACT_EXCLUDED_STATUSES,
       });
       const optionIds = [...new Set(orderLines.map((line) => line.listingOptionId))];
@@ -180,6 +178,12 @@ export class SettlementsService {
   }
 
   async update(id: string, organizationId: string, dto: UpdateSettlementDto): Promise<SettlementListItem> {
+    // A confirmed deposit is the amount entered with the confirmation. The
+    // stored column's default is not a deposit of zero, so confirming without
+    // an amount would publish one nobody entered.
+    if (dto.status === 'confirmed' && dto.actualAmount === undefined) {
+      throw new BadRequestException('정산을 확정하려면 실제 입금액을 입력해야 합니다');
+    }
     const existing = await this.prisma.settlement.findFirst({
       where: { id, organizationId },
     });

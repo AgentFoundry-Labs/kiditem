@@ -12,6 +12,7 @@ import {
   INVENTORY_SKU_SNAPSHOT_LIST_PORT,
   type InventorySkuSnapshotListPort,
 } from '../../inventory/application/port/in/stock/inventory-sku-snapshot-list.port';
+import { kstBusinessDate } from '../../common/kst';
 import { ProfitLossService } from '../services/profit-loss.service';
 import { SettlementsService } from '../settlements/settlements.service';
 import type { AdsHubData, AdsListItem } from '@kiditem/shared/advertising';
@@ -68,8 +69,9 @@ export class FinanceReportExportService {
   async exportReport(
     organizationId: string,
     query: Pick<ReportExportQueryDto, 'type' | 'period' | 'surface'>,
+    now: Date,
   ): Promise<FinanceReportExportResult> {
-    const data = await this.readReportData(organizationId, query.type, query.period);
+    const data = await this.readReportData(organizationId, query.type, query.period, now);
     const workbook = XLSX.utils.book_new();
 
     if (query.type === 'full' || query.type === 'products') {
@@ -99,9 +101,10 @@ export class FinanceReportExportService {
   async exportProfitLoss(
     organizationId: string,
     query: ProfitLossExportQueryDto,
+    now: Date,
   ): Promise<FinanceReportExportResult> {
-    const { year, month } = resolvePeriod(query.period);
-    const { rows } = await this.profitLoss.findAll(organizationId, year, month);
+    const { year, month } = resolvePeriod(query.period, now);
+    const { rows } = await this.profitLoss.findAll(organizationId, year, month, now);
     const filtered = filterAndSortProfitLoss(rows, query);
     const workbook = XLSX.utils.book_new();
     appendSheet(workbook, '손익표', filtered.map(toProfitLossPageRow));
@@ -116,8 +119,9 @@ export class FinanceReportExportService {
   async exportSettlementReconcile(
     organizationId: string,
     period: string,
+    now: Date,
   ): Promise<FinanceReportExportResult> {
-    const result = await this.settlements.reconcile(organizationId, period);
+    const result = await this.settlements.reconcile(organizationId, period, now);
     const workbook = XLSX.utils.book_new();
     appendSheet(workbook, '정산대사', result.details.map(toSettlementReportRow));
 
@@ -131,7 +135,8 @@ export class FinanceReportExportService {
   private async readReportData(
     organizationId: string,
     type: FinanceReportType,
-    period?: string,
+    period: string | undefined,
+    now: Date,
   ): Promise<ReportData> {
     const shouldRead = {
       products: type === 'full' || type === 'products',
@@ -144,7 +149,7 @@ export class FinanceReportExportService {
       ? this.listAllProducts(organizationId)
       : Promise.resolve([]);
     const profitLossPromise: Promise<PLData[]> = shouldRead.profitLoss
-      ? this.listProfitLoss(organizationId, period)
+      ? this.listProfitLoss(organizationId, period, now)
       : Promise.resolve([]);
     const inventoryPromise: Promise<InventorySkuSnapshotItem[]> = shouldRead.inventory
       ? this.listAllInventory(organizationId)
@@ -210,9 +215,9 @@ export class FinanceReportExportService {
     return items.slice(0, first.total);
   }
 
-  private async listProfitLoss(organizationId: string, period?: string) {
-    const { year, month } = resolvePeriod(period);
-    return (await this.profitLoss.findAll(organizationId, year, month)).rows;
+  private async listProfitLoss(organizationId: string, period: string | undefined, now: Date) {
+    const { year, month } = resolvePeriod(period, now);
+    return (await this.profitLoss.findAll(organizationId, year, month, now)).rows;
   }
 }
 
@@ -364,13 +369,14 @@ function filterAndSortProfitLoss(
   });
 }
 
-function resolvePeriod(period?: string): { year: number; month: number } {
+/** A `YYYY-MM` period, or the KST month containing `now`. */
+function resolvePeriod(period: string | undefined, now: Date): { year: number; month: number } {
   if (period) {
     const [year, month] = period.split('-').map(Number);
     return { year, month };
   }
-  const now = new Date();
-  return { year: now.getFullYear(), month: now.getMonth() + 1 };
+  const today = kstBusinessDate(now);
+  return { year: today.getUTCFullYear(), month: today.getUTCMonth() + 1 };
 }
 
 function formatPeriod(year: number, month: number): string {

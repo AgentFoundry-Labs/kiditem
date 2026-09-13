@@ -102,7 +102,7 @@ describe('Sales-plans flow (PG integration)', () => {
         service.update(plan.id, OTHER_ORGANIZATION_ID, {
           targetRevenue: 9_999_999,
           notes: 'pwned',
-        }),
+        }, AFTER_MONTHS),
       ).rejects.toThrow(NotFoundException);
 
       const reread = await prisma.salesPlan.findUnique({ where: { id: plan.id } });
@@ -115,7 +115,7 @@ describe('Sales-plans flow (PG integration)', () => {
         data: { organizationId: TEST_ORGANIZATION_ID, period: '2026-04' },
       });
 
-      await expect(service.syncActuals(plan.id, OTHER_ORGANIZATION_ID)).rejects.toThrow(
+      await expect(service.syncActuals(plan.id, OTHER_ORGANIZATION_ID, AFTER_MONTHS)).rejects.toThrow(
         NotFoundException,
       );
     });
@@ -149,7 +149,7 @@ describe('Sales-plans flow (PG integration)', () => {
       const other = await service.create(OTHER_ORGANIZATION_ID, {
         period: '2026-04',
         targetRevenue: 500_000,
-      });
+      }, AFTER_MONTHS);
 
       expect(other).toMatchObject({ period: '2026-04', targetRevenue: 500_000 });
       await expect(prisma.salesPlan.findUniqueOrThrow({ where: { id: other.id } }))
@@ -168,7 +168,7 @@ describe('Sales-plans flow (PG integration)', () => {
       const updated = await service.update(plan.id, TEST_ORGANIZATION_ID, {
         targetRevenue: 2_000_000,
         notes: 'bumped',
-      });
+      }, AFTER_MONTHS);
       expect(updated.targetRevenue).toBe(2_000_000);
       expect(updated.notes).toBe('bumped');
 
@@ -268,7 +268,7 @@ describe('Sales-plans flow (PG integration)', () => {
         orderIds: await allOrderIds(),
       });
 
-      const synced = await service.syncActuals(plan.id, TEST_ORGANIZATION_ID);
+      const synced = await service.syncActuals(plan.id, TEST_ORGANIZATION_ID, AFTER_MONTHS);
 
       expect(SalesPlanViewSchema.safeParse(JSON.parse(JSON.stringify(synced))).success).toBe(true);
       expect(synced.actuals).toMatchObject({
@@ -295,7 +295,7 @@ describe('Sales-plans flow (PG integration)', () => {
         },
       });
 
-      const synced = await service.syncActuals(plan.id, TEST_ORGANIZATION_ID);
+      const synced = await service.syncActuals(plan.id, TEST_ORGANIZATION_ID, AFTER_MONTHS);
 
       expect(synced.actuals).toMatchObject({
         revenue: null,
@@ -317,7 +317,7 @@ describe('Sales-plans flow (PG integration)', () => {
         startDate: '2026-04-01', endDate: '2026-04-30', orderIds: [],
       });
 
-      const synced = await service.syncActuals(plan.id, TEST_ORGANIZATION_ID);
+      const synced = await service.syncActuals(plan.id, TEST_ORGANIZATION_ID, AFTER_MONTHS);
 
       expect(synced.actuals).toMatchObject({ revenue: 0, orderCount: 0, netProfit: 0 });
       expect(periodBasisStatus(synced.actuals!.basis.profit)).toBe('complete');
@@ -384,10 +384,10 @@ describe('Sales-plans flow (PG integration)', () => {
         orderIds: await allOrderIds(),
       });
 
-      const april = await service.syncActuals(aprilPlan.id, TEST_ORGANIZATION_ID);
+      const april = await service.syncActuals(aprilPlan.id, TEST_ORGANIZATION_ID, AFTER_MONTHS);
       expect(april.actuals).toMatchObject({ revenue: 10_000, orderCount: 1, netProfit: 4_000 });
 
-      const may = await service.syncActuals(mayPlan.id, TEST_ORGANIZATION_ID);
+      const may = await service.syncActuals(mayPlan.id, TEST_ORGANIZATION_ID, AFTER_MONTHS);
       expect(may.actuals).toMatchObject({ revenue: 20_000, orderCount: 1, netProfit: 13_000 });
     });
 
@@ -466,7 +466,7 @@ describe('Sales-plans flow (PG integration)', () => {
         orderIds: await allOrderIds(),
       });
 
-      const synced = await service.syncActuals(plan.id, TEST_ORGANIZATION_ID);
+      const synced = await service.syncActuals(plan.id, TEST_ORGANIZATION_ID, AFTER_MONTHS);
       expect(synced.actuals).toMatchObject({ revenue: 50_000, orderCount: 1, netProfit: 40_000 });
     });
 
@@ -485,7 +485,7 @@ describe('Sales-plans flow (PG integration)', () => {
         startDate: '2026-04-01', endDate: '2026-04-30', orderIds: [],
       });
 
-      const plans = await service.findAll(TEST_ORGANIZATION_ID);
+      const plans = await service.findAll(TEST_ORGANIZATION_ID, AFTER_MONTHS);
 
       expect(plans.map((plan) => [plan.period, plan.targetRevenue])).toEqual([
         ['2026-04', 2],
@@ -494,5 +494,78 @@ describe('Sales-plans flow (PG integration)', () => {
       expect(plans[0].actuals).toMatchObject({ revenue: 0, orderCount: 0, netProfit: 0 });
       expect(plans[1].actuals).toMatchObject({ revenue: null, orderCount: null, netProfit: null });
     });
+
+    it('#10 reads the month containing today over its closed days only', async () => {
+      const plan = await prisma.salesPlan.create({
+        data: { organizationId: TEST_ORGANIZATION_ID, period: '2026-04' },
+      });
+      const fixture = await seedListingFixture({
+        organizationId: TEST_ORGANIZATION_ID,
+        suffix: 'MID',
+        costPrice: 5_000,
+        commissionRate: 0.1,
+        otherCost: 0,
+      });
+      for (const [externalOrderId, orderedAt, totalPrice] of [
+        ['SP-MID-CLOSED', '2026-04-10T03:00:00.000Z', 20_000],
+        ['SP-MID-TODAY', '2026-04-15T01:00:00.000Z', 30_000],
+      ] as const) {
+        await seedOrderWithLineItems(prisma, {
+          organizationId: TEST_ORGANIZATION_ID,
+          externalOrderId,
+          orderedAt,
+          shippingPrice: 0,
+          status: 'paid',
+          lineItems: [{
+            quantity: 1,
+            totalPrice,
+            optionId: fixture.option.id,
+            listingOptionId: fixture.listing.listingOptionId,
+          }],
+        });
+      }
+      await seedCompletedAdSweepRun(prisma, {
+        organizationId: TEST_ORGANIZATION_ID,
+        generation: 1,
+        window: { startDate: '2026-04-01', endDate: '2026-04-14' },
+      });
+      await seedCompletedOrderCollection(prisma, {
+        organizationId: TEST_ORGANIZATION_ID,
+        startDate: '2026-04-01', endDate: '2026-04-15',
+        orderIds: await allOrderIds(),
+      });
+
+      const synced = await service.syncActuals(plan.id, TEST_ORGANIZATION_ID, MID_APRIL);
+
+      expect(synced.actuals).toMatchObject({ revenue: 20_000, orderCount: 1, netProfit: 13_000 });
+      expect(synced.actuals!.basis.requestedWindow).toEqual({ from: '2026-04-01', to: '2026-04-30' });
+      expect(synced.actuals!.basis.revenue).toMatchObject({ from: '2026-04-01', to: '2026-04-14', targetDays: 14 });
+    });
+
+    it('#11 publishes no actuals on the 1st, when no day of the month has closed', async () => {
+      const plan = await prisma.salesPlan.create({
+        data: { organizationId: TEST_ORGANIZATION_ID, period: '2026-04' },
+      });
+      await seedCompletedOrderCollection(prisma, {
+        organizationId: TEST_ORGANIZATION_ID,
+        startDate: '2026-04-01', endDate: '2026-04-01', orderIds: [],
+      });
+
+      const synced = await service.syncActuals(plan.id, TEST_ORGANIZATION_ID, APRIL_FIRST);
+
+      expect(synced.actuals).toMatchObject({
+        revenue: null, orderCount: null, netProfit: null, observedAt: null,
+      });
+      expect(synced.actuals!.basis.revenue).toMatchObject({
+        from: '2026-04-01', to: '2026-03-31', targetDays: 0,
+      });
+    });
   });
+
+  /** A moment after every month these cases read has closed in KST. */
+  const AFTER_MONTHS = new Date('2026-07-01T00:00:00.000Z');
+  /** 12:00 KST on 15 April: 1–14 April are closed. */
+  const MID_APRIL = new Date('2026-04-15T03:00:00.000Z');
+  /** 12:00 KST on 1 April: no April day is closed. */
+  const APRIL_FIRST = new Date('2026-04-01T03:00:00.000Z');
 });

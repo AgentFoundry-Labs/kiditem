@@ -1,16 +1,18 @@
 import { z } from 'zod';
 import { zIsoDate } from './common.js';
 import { DashboardPeriodBasisSchema } from './dashboard.js';
-import { FinanceWindowBasisSchema } from './profit-loss.js';
+import { FinanceDateRangeSchema, FinanceWindowBasisSchema } from './profit-loss.js';
 
 /**
  * Statistics domain response schemas.
  *
  * Backend `StatisticsService` return literals close with `satisfies <Xxx>`.
- * Every response carries the basis its values rest on. `basis` is `null` only
- * when no period was asked and no order was ever collected, so no window
- * exists to describe. A window total or ratio is `null` unless the whole
- * window was collected and its denominator is non-zero (ADR-0006).
+ * Every response carries the basis its values rest on: the requested window
+ * and, per value, the closed KST days actually evaluated. `basis` is `null`
+ * only when no period was asked and no order was ever collected, so no window
+ * exists to describe. A window total or ratio — including a category or grade
+ * group total — is `null` unless the whole evaluated window was collected and
+ * its denominator is non-zero (ADR-0006).
  */
 
 const StatisticsBasisSchema = FinanceWindowBasisSchema.nullable();
@@ -57,13 +59,14 @@ export type StatisticsProductsResponse = z.infer<typeof StatisticsProductsRespon
 
 // ───── Categories ─────
 
+/** A category's totals over the evaluated window; `null` while that window is only partly collected. */
 export const StatisticsCategoryRowSchema = z.object({
   category: z.string(),
   name: z.string(),
-  revenue: z.number().int(),
-  orders: z.number().int(),
+  revenue: z.number().int().nullable(),
+  orders: z.number().int().nullable(),
   profit: z.number().int().nullable(),
-  count: z.number().int(),
+  count: z.number().int().nullable(),
 });
 export type StatisticsCategoryRow = z.infer<typeof StatisticsCategoryRowSchema>;
 
@@ -75,12 +78,13 @@ export type StatisticsCategoriesResponse = z.infer<typeof StatisticsCategoriesRe
 
 // ───── Grades ─────
 
+/** A grade's totals over the evaluated window; `null` while that window is only partly collected. */
 export const StatisticsGradeRowSchema = z.object({
   grade: z.string(),
-  revenue: z.number().int(),
+  revenue: z.number().int().nullable(),
   profit: z.number().int().nullable(),
-  count: z.number().int(),
-  productCount: z.number().int(),
+  count: z.number().int().nullable(),
+  productCount: z.number().int().nullable(),
   adCost: z.number().int().nullable(),
 });
 export type StatisticsGradeRow = z.infer<typeof StatisticsGradeRowSchema>;
@@ -149,6 +153,9 @@ export const StatisticsRepurchaseResponseSchema = z.object({
   totalOrders: z.number().int().nullable(),
   repeatProducts: z.array(StatisticsRepurchaseProductSchema),
   repeatCustomers: z.array(StatisticsRepurchaseCustomerSchema),
-  basis: z.object({ orders: DashboardPeriodBasisSchema }).strict().nullable(),
+  basis: z.object({
+    requestedWindow: FinanceDateRangeSchema,
+    orders: DashboardPeriodBasisSchema,
+  }).strict().nullable(),
 });
 export type StatisticsRepurchaseResponse = z.infer<typeof StatisticsRepurchaseResponseSchema>;

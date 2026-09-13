@@ -27,7 +27,8 @@ export class SettlementsController {
     @Body() dto: ReconcileSettlementDto,
     @CurrentOrganization() organizationId: string,
   ) {
-    return this.settlementsService.reconcile(organizationId, dto.period);
+    // The request's instant decides which KST days of the month are closed.
+    return this.settlementsService.reconcile(organizationId, dto.period, new Date());
   }
 
   @Patch(':id')

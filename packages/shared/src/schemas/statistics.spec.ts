@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { buildPeriodBasis } from './dashboard-basis.js';
 import {
+  StatisticsCategoriesResponseSchema,
+  StatisticsGradesResponseSchema,
   StatisticsOverviewSchema,
   StatisticsParetoResponseSchema,
   StatisticsProductsResponseSchema,
@@ -13,7 +15,8 @@ const ordersBasis = buildPeriodBasis({
   includedDates: ['2026-04-01'],
   sources: ['orders'],
 });
-const windowBasis = { revenue: ordersBasis, adCost: ordersBasis, profit: ordersBasis };
+const requestedWindow = { from: '2026-04-01', to: '2026-04-30' };
+const windowBasis = { requestedWindow, revenue: ordersBasis, adCost: ordersBasis, profit: ordersBasis };
 
 describe('StatisticsParetoResponseSchema', () => {
   it('models revenue bands without a second product ABC comparison', () => {
@@ -110,7 +113,7 @@ describe('StatisticsRepurchaseResponseSchema', () => {
         totalOrders: 2,
         repeatProducts: [],
         repeatCustomers: [customer],
-        basis: { orders: ordersBasis },
+        basis: { requestedWindow, orders: ordersBasis },
       }).success,
     ).toBe(true);
   });
@@ -124,7 +127,7 @@ describe('StatisticsRepurchaseResponseSchema', () => {
         totalOrders: 2,
         repeatProducts: [],
         repeatCustomers: [{ ...customer, lastOrder: new Date('2026-04-15T00:00:00.000Z') }],
-        basis: { orders: ordersBasis },
+        basis: { requestedWindow, orders: ordersBasis },
       }).success,
     ).toBe(true);
   });
@@ -137,7 +140,20 @@ describe('StatisticsRepurchaseResponseSchema', () => {
       totalOrders: 0,
       repeatProducts: [],
       repeatCustomers: [],
-      basis: { orders: ordersBasis },
+      basis: { requestedWindow, orders: ordersBasis },
     }).repurchaseRate).toBeNull();
+  });
+});
+
+describe('StatisticsCategoriesResponseSchema and StatisticsGradesResponseSchema', () => {
+  it('carry the group totals of a partly collected window as null, never as a partial sum', () => {
+    expect(StatisticsCategoriesResponseSchema.parse({
+      rows: [{ category: '완구', name: '완구', revenue: null, orders: null, profit: null, count: null }],
+      basis: windowBasis,
+    }).rows[0]).toMatchObject({ revenue: null, orders: null, count: null });
+    expect(StatisticsGradesResponseSchema.parse({
+      rows: [{ grade: 'A', revenue: null, profit: null, count: null, productCount: null, adCost: null }],
+      basis: windowBasis,
+    }).rows[0]).toMatchObject({ revenue: null, count: null, productCount: null });
   });
 });

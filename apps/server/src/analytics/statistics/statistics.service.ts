@@ -13,7 +13,7 @@ import type {
   StatisticsRepurchaseResponse,
 } from '@kiditem/shared/statistics';
 import { PrismaService } from '../../prisma/prisma.service';
-import { kstMonthStart } from '../../common/kst';
+import { kstMonthWindow, kstWindowDateRange } from '../../common/kst';
 import {
   isOrderWindowComplete,
   orderWindowBasis,
@@ -21,7 +21,9 @@ import {
   profitWindowBasis,
   profitWindowTotals,
   readProfitWindowFacts,
+  resolveFinanceWindow,
   totalOrUnavailable,
+  type FinanceWindow,
   type PerListingProfit,
   type ProfitWindowFacts,
 } from '../../common/per-listing-profit';
@@ -58,9 +60,11 @@ function paretoBand(cumulativePercent: number): 'top70' | 'next20' | 'tail10' {
 /**
  * Statistics over the owner readers.
  *
- * A window total or ratio is published only when the Orders collection covered
- * every business date of the window and its denominator is non-zero; per-row
- * values stay visible beside the basis that says which dates they rest on.
+ * The window is evaluated over its KST business days closed at `now`
+ * (ADR-0001). A window total or ratio is published only when the Orders
+ * collection covered every one of those days and its denominator is non-zero;
+ * per-row values stay visible beside the basis that says which dates they rest
+ * on.
  */
 @Injectable()
 export class StatisticsService {
@@ -71,37 +75,52 @@ export class StatisticsService {
   /**
    * An explicit period is its KST month. Without one the window spans the
    * observed completed orders; with no completed order there is no window.
+   * Either way it is clipped to the days closed at `now`.
    */
-  private async resolveWindow(organizationId: string, period?: string) {
+  private async resolveWindow(
+    organizationId: string,
+    period: string | undefined,
+    now: Date,
+  ): Promise<FinanceWindow | null> {
     if (period) {
       const [year, month] = period.split('-').map(Number);
-      return { from: kstMonthStart(year, month), to: kstMonthStart(year, month + 1) };
+      return resolveFinanceWindow(kstMonthWindow(year, month), now);
     }
 
-    return this.prisma.$transaction((tx) => readObservedOrderBounds(tx, organizationId));
+    const bounds = await this.prisma.$transaction((tx) => readObservedOrderBounds(tx, organizationId));
+    return bounds ? resolveFinanceWindow(bounds, now) : null;
   }
 
-  private async readFacts(organizationId: string, period?: string): Promise<ProfitWindowFacts | null> {
-    const window = await this.resolveWindow(organizationId, period);
+  private async readFacts(
+    organizationId: string,
+    period: string | undefined,
+    now: Date,
+  ): Promise<ProfitWindowFacts | null> {
+    const window = await this.resolveWindow(organizationId, period, now);
     if (!window) return null;
     return this.prisma.$transaction(
-      (tx) => readProfitWindowFacts(tx, organizationId, window.from, window.to),
+      (tx) => readProfitWindowFacts(tx, organizationId, window),
       REPEATABLE_READ,
     );
   }
 
   private async readListingRows(
     organizationId: string,
-    period?: string,
+    period: string | undefined,
+    now: Date,
   ): Promise<{ facts: ProfitWindowFacts | null; rows: PerListingProfit[] }> {
-    const facts = await this.readFacts(organizationId, period);
+    const facts = await this.readFacts(organizationId, period, now);
     const rows = facts ? perListingProfitRows(facts).sort((a, b) => b.revenue - a.revenue) : [];
     return { facts, rows };
   }
 
-  async overview(organizationId: string, period?: string): Promise<StatisticsOverview> {
+  async overview(
+    organizationId: string,
+    period: string | undefined,
+    now: Date,
+  ): Promise<StatisticsOverview> {
     const [facts, totalProducts] = await Promise.all([
-      this.readFacts(organizationId, period),
+      this.readFacts(organizationId, period, now),
       this.prisma.channelListing.count({
         where: { organizationId, isActive: true },
       }),
@@ -128,8 +147,12 @@ export class StatisticsService {
     } satisfies StatisticsOverview;
   }
 
-  async products(organizationId: string, period?: string): Promise<StatisticsProductsResponse> {
-    const { facts, rows } = await this.readListingRows(organizationId, period);
+  async products(
+    organizationId: string,
+    period: string | undefined,
+    now: Date,
+  ): Promise<StatisticsProductsResponse> {
+    const { facts, rows } = await this.readListingRows(organizationId, period, now);
 
     return {
       rows: rows.map((metric) => ({
@@ -152,8 +175,12 @@ export class StatisticsService {
     } satisfies StatisticsProductsResponse;
   }
 
-  async categories(organizationId: string, period?: string): Promise<StatisticsCategoriesResponse> {
-    const { facts, rows } = await this.readListingRows(organizationId, period);
+  async categories(
+    organizationId: string,
+    period: string | undefined,
+    now: Date,
+  ): Promise<StatisticsCategoriesResponse> {
+    const { facts, rows } = await this.readListingRows(organizationId, period, now);
 
     const categoryMap = new Map<string, {
       revenue: number;
@@ -170,23 +197,30 @@ export class StatisticsService {
       categoryMap.set(cat, entry);
     }
 
+    // A group total describes the whole evaluated window, so like the overview
+    // it exists only once the Orders collection covered every date of it.
+    const collected = facts !== null && isOrderWindowComplete(facts.orderWindow);
     return {
       rows: Array.from(categoryMap.entries())
+        .sort(([, left], [, right]) => right.revenue - left.revenue)
         .map(([category, data]) => ({
           category,
           name: category,
-          revenue: data.revenue,
-          orders: data.orders,
-          profit: totalOrUnavailable(data.profits),
-          count: data.orders,
-        } satisfies StatisticsCategoryRow))
-        .sort((a, b) => b.revenue - a.revenue),
+          revenue: collected ? data.revenue : null,
+          orders: collected ? data.orders : null,
+          profit: collected ? totalOrUnavailable(data.profits) : null,
+          count: collected ? data.orders : null,
+        } satisfies StatisticsCategoryRow)),
       basis: facts ? profitWindowBasis(facts) : null,
     } satisfies StatisticsCategoriesResponse;
   }
 
-  async grades(organizationId: string, period?: string): Promise<StatisticsGradesResponse> {
-    const { facts, rows } = await this.readListingRows(organizationId, period);
+  async grades(
+    organizationId: string,
+    period: string | undefined,
+    now: Date,
+  ): Promise<StatisticsGradesResponse> {
+    const { facts, rows } = await this.readListingRows(organizationId, period, now);
 
     const gradeMap = new Map<string, {
       revenue: number;
@@ -206,26 +240,32 @@ export class StatisticsService {
       gradeMap.set(grade, entry);
     }
 
+    // Same rule as categories: no group total over a partly collected window.
+    const collected = facts !== null && isOrderWindowComplete(facts.orderWindow);
     return {
       rows: Array.from(gradeMap.entries())
+        .sort(([, left], [, right]) => right.revenue - left.revenue)
         .map(([grade, data]) => ({
           grade,
-          revenue: data.revenue,
-          profit: totalOrUnavailable(data.profits),
-          count: data.productCount,
-          productCount: data.productCount,
-          adCost: totalOrUnavailable(data.adCosts),
-        } satisfies StatisticsGradeRow))
-        .sort((a, b) => b.revenue - a.revenue),
+          revenue: collected ? data.revenue : null,
+          profit: collected ? totalOrUnavailable(data.profits) : null,
+          count: collected ? data.productCount : null,
+          productCount: collected ? data.productCount : null,
+          adCost: collected ? totalOrUnavailable(data.adCosts) : null,
+        } satisfies StatisticsGradeRow)),
       basis: facts ? profitWindowBasis(facts) : null,
     } satisfies StatisticsGradesResponse;
   }
 
-  async pareto(organizationId: string, period?: string): Promise<StatisticsParetoResponse> {
-    const { facts, rows } = await this.readListingRows(organizationId, period);
+  async pareto(
+    organizationId: string,
+    period: string | undefined,
+    now: Date,
+  ): Promise<StatisticsParetoResponse> {
+    const { facts, rows } = await this.readListingRows(organizationId, period, now);
 
-    // Shares are cut from the whole window's listing revenue, so they exist
-    // only once the Orders collection covered every date of it.
+    // Shares are cut from the whole evaluated window's listing revenue, so they
+    // exist only once the Orders collection covered every date of it.
     const totalRevenue = facts && isOrderWindowComplete(facts.orderWindow)
       ? rows.reduce((sum, metric) => sum + metric.revenue, 0)
       : null;
@@ -261,8 +301,12 @@ export class StatisticsService {
     } satisfies StatisticsParetoResponse;
   }
 
-  async repurchase(organizationId: string, period?: string): Promise<StatisticsRepurchaseResponse> {
-    const window = await this.resolveWindow(organizationId, period);
+  async repurchase(
+    organizationId: string,
+    period: string | undefined,
+    now: Date,
+  ): Promise<StatisticsRepurchaseResponse> {
+    const window = await this.resolveWindow(organizationId, period, now);
     if (!window) {
       return {
         totalCustomers: null,
@@ -276,7 +320,7 @@ export class StatisticsService {
     }
     const input: OrderWindowInput = {
       organizationId,
-      ...window,
+      ...window.effective,
       excludedStatuses: REPURCHASE_EXCLUDED_STATUSES,
     };
     const { orderWindow, orders, lines, optionDisplays } = await this.prisma.$transaction(async (tx) => {
@@ -356,8 +400,8 @@ export class StatisticsService {
         lastOrder: v.lastOrder,
       }));
 
-    // Customer counts describe the whole window, so they exist only once the
-    // Orders collection covered every date of it.
+    // Customer counts describe the whole evaluated window, so they exist only
+    // once the Orders collection covered every date of it.
     const collected = isOrderWindowComplete(orderWindow);
     const totalCustomers = collected ? receiverMap.size : null;
     const repeatCount = collected
@@ -371,7 +415,10 @@ export class StatisticsService {
       totalOrders: orderWindow.orderCount,
       repeatProducts,
       repeatCustomers,
-      basis: { orders: orderWindowBasis(orderWindow) },
+      basis: {
+        requestedWindow: kstWindowDateRange(window.requested),
+        orders: orderWindowBasis(orderWindow, window),
+      },
     } satisfies StatisticsRepurchaseResponse;
   }
 }

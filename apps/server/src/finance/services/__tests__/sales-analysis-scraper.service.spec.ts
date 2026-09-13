@@ -1,8 +1,18 @@
 import { NotFoundException } from '@nestjs/common';
-import { describe, it, expect, vi } from 'vitest';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
+import {
+  readObservedOrderBounds,
+  readObservedOrderCount,
+} from '../../../orders/read/order-facts.reader';
 import { SalesAnalysisScraperService } from '../sales-analysis-scraper.service';
 
+vi.mock('../../../orders/read/order-facts.reader', () => ({
+  readObservedOrderBounds: vi.fn(),
+  readObservedOrderCount: vi.fn(),
+}));
+
 const ORG = '00000000-0000-0000-0000-000000000001';
+const TX = { snapshot: 'orders' };
 
 function asDate(iso: string): Date {
   return new Date(`${iso}T00:00:00.000Z`);
@@ -109,30 +119,23 @@ function makeAdRead(
   };
 }
 
-function makePrisma(overrides: {
-  ordersAgg?: {
-    _count: { _all: number };
-    _min: { orderedAt: Date | null };
-    _max: { orderedAt: Date | null };
-  };
-}) {
+function makePrisma() {
   return {
-    order: {
-      aggregate: vi.fn().mockResolvedValue(
-        overrides.ordersAgg ?? {
-          _count: { _all: 0 },
-          _min: { orderedAt: null },
-          _max: { orderedAt: null },
-        },
-      ),
-    },
+    $transaction: vi.fn((work: (tx: unknown) => unknown) => work(TX)),
   } as unknown as ConstructorParameters<typeof SalesAnalysisScraperService>[0];
 }
 
 describe('SalesAnalysisScraperService.getDataSources', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // No order published by a completed Orders collection.
+    vi.mocked(readObservedOrderCount).mockResolvedValue(0);
+    vi.mocked(readObservedOrderBounds).mockResolvedValue(null);
+  });
+
   it('reports empty ranges when nothing has been ingested', async () => {
     const adRead = makeAdRead([], new NotFoundException('COUPANG_ACCOUNT_NOT_FOUND'));
-    const prisma = makePrisma({});
+    const prisma = makePrisma();
     const trafficRead = makeTrafficRead();
     const service = new SalesAnalysisScraperService(prisma, adRead, trafficRead);
     const result = await service.getDataSources(ORG);
@@ -162,7 +165,7 @@ describe('SalesAnalysisScraperService.getDataSources', () => {
       )),
     );
     const service = new SalesAnalysisScraperService(
-      makePrisma({}),
+      makePrisma(),
       adRead,
       trafficRead,
     );
@@ -186,21 +189,32 @@ describe('SalesAnalysisScraperService.getDataSources', () => {
     expect(trafficRead.readPublished).toHaveBeenCalledWith({ organizationId: ORG });
   });
 
-  it('reports orders=0 with null range when DB has no orders', async () => {
+  it('reports orders=0 with null range when no completed collection published an order', async () => {
     const service = new SalesAnalysisScraperService(
-      makePrisma({
-        ordersAgg: {
-          _count: { _all: 0 },
-          _min: { orderedAt: null },
-          _max: { orderedAt: null },
-        },
-      }),
+      makePrisma(),
       makeAdRead(),
       makeTrafficRead(),
     );
     const result = await service.getDataSources(ORG);
-    expect(result.orders.count).toBe(0);
-    expect(result.orders.firstDate).toBeNull();
-    expect(result.orders.lastDate).toBeNull();
+    expect(result.orders).toEqual({ count: 0, firstDate: null, lastDate: null });
+  });
+
+  /** KID-85 review P2-4 — the P&L "0 orders" banner uses the same fence as the P&L table. */
+  it('counts orders and their KST date range through the Orders reader in one snapshot', async () => {
+    vi.mocked(readObservedOrderCount).mockResolvedValue(3);
+    vi.mocked(readObservedOrderBounds).mockResolvedValue({
+      from: new Date('2026-04-09T15:00:00.000Z'), // 2026-04-10 00:00 KST
+      to: new Date('2026-04-30T15:00:00.000Z'), // 2026-05-01 00:00 KST, exclusive
+    });
+    const prisma = makePrisma();
+    const service = new SalesAnalysisScraperService(prisma, makeAdRead(), makeTrafficRead());
+
+    const result = await service.getDataSources(ORG);
+
+    expect(result.orders).toEqual({ count: 3, firstDate: '2026-04-10', lastDate: '2026-04-30' });
+    expect(readObservedOrderCount).toHaveBeenCalledWith(TX, ORG);
+    expect(readObservedOrderBounds).toHaveBeenCalledWith(TX, ORG);
+    expect((prisma as unknown as { $transaction: ReturnType<typeof vi.fn> }).$transaction)
+      .toHaveBeenCalledTimes(1);
   });
 });

@@ -7,6 +7,7 @@ import type { InventorySkuSnapshotListPort } from '../../../inventory/applicatio
 import type { ChannelListingReportReadPort } from '../../../channels/application/port/in/channel-listing-report-read.port';
 
 const ORG = '00000000-0000-4000-8000-000000000001';
+const NOW = new Date('2026-09-13T03:00:00.000Z');
 const LISTING = '00000000-0000-4000-8000-000000000002';
 const MASTER = '00000000-0000-4000-8000-000000000003';
 
@@ -190,7 +191,7 @@ describe('FinanceReportExportService', () => {
       type: 'full',
       surface: 'reports',
       period: '2026-08',
-    });
+    }, NOW);
     const workbook = readWorkbook(result.buffer);
 
     expect(workbook.SheetNames).toEqual(['상품목록', '손익표', '재고현황', '광고현황']);
@@ -205,12 +206,12 @@ describe('FinanceReportExportService', () => {
     expect(listings.list).toHaveBeenCalledWith(ORG, expect.objectContaining({ tab: 'registered' }));
     expect(inventory.listSnapshot).toHaveBeenCalledWith(ORG, expect.objectContaining({ activeStatus: 'active' }));
     expect(advertising.getHubData).toHaveBeenCalledWith(ORG);
-    expect(profitLoss.findAll).toHaveBeenCalledWith(ORG, 2026, 8);
+    expect(profitLoss.findAll).toHaveBeenCalledWith(ORG, 2026, 8, NOW);
   });
 
   it('uses the settings filename and avoids unrelated owner reads for one report', async () => {
     const { service, profitLoss, inventory, advertising } = buildService();
-    const result = await service.exportReport(ORG, { type: 'products', surface: 'settings' });
+    const result = await service.exportReport(ORG, { type: 'products', surface: 'settings' }, NOW);
     const workbook = readWorkbook(result.buffer);
 
     expect(workbook.SheetNames).toEqual(['상품목록']);
@@ -236,7 +237,7 @@ describe('FinanceReportExportService', () => {
       grades: 'A',
       sortField: 'revenue',
       sortDirection: 'asc',
-    });
+    }, NOW);
     const workbook = readWorkbook(result.buffer);
     const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(workbook.Sheets['손익표']!);
 
@@ -248,11 +249,11 @@ describe('FinanceReportExportService', () => {
 
   it('converts reconciliation details from the canonical settlement owner response', async () => {
     const { service, settlements } = buildService();
-    const result = await service.exportSettlementReconcile(ORG, '2026-08');
+    const result = await service.exportSettlementReconcile(ORG, '2026-08', NOW);
     const workbook = readWorkbook(result.buffer);
     const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(workbook.Sheets['정산대사']!);
 
-    expect(settlements.reconcile).toHaveBeenCalledWith(ORG, '2026-08');
+    expect(settlements.reconcile).toHaveBeenCalledWith(ORG, '2026-08', NOW);
     expect(result.fileName).toBe('정산대사_2026-08.xlsx');
     expect(rows[0]).toMatchObject({ 상품명: '테스트 상품', SKU: 'SKU-1', 상태: '매칭' });
     expect(headerRow(workbook, '정산대사')).toEqual([

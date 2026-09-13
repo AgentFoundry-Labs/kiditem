@@ -1,13 +1,17 @@
 import type { Prisma } from '@prisma/client';
 import { buildPeriodBasis, type DashboardPeriodBasis } from '@kiditem/shared/dashboard';
 import type { FinanceWindowBasis, FinanceWindowTotals } from '@kiditem/shared/finance';
-import { addDays, businessDateKey, datesInclusive, kstBusinessDate } from './kst';
+import {
+  addDays,
+  businessDateKey,
+  clipToClosedKstDays,
+  datesInclusive,
+  kstBusinessDate,
+  kstWindowDateRange,
+  type KstQueryWindow,
+} from './kst';
 import { advertisingApplies, readAdWindowFacts, readListingAdWindowFacts } from './ad-window-facts';
 import { resolvePricing } from './option-pricing-resolver';
-import {
-  COUPANG_ADS_SOURCE,
-  ORDERS_SOURCE,
-} from '../analytics/dashboard/domain/evidence/dashboard-source';
 import { readInventorySkuIdentities } from '../inventory/read/inventory-availability';
 import {
   ORDER_FACT_EXCLUDED_STATUSES,
@@ -36,7 +40,16 @@ import { readPublishedProductAbcGrades } from '../products/read/product-abc-publ
  * - Dates. Revenue and every line cost share the collected order dates. The
  *   ad reader only sums a whole window, so when advertising applies a profit
  *   exists only when the orders cover that whole window too.
+ *
+ * A finance window read evaluates the requested window clipped to the KST
+ * business days closed at the read's `now` (ADR-0001): an ended month keeps
+ * every day, the month containing today keeps the days through yesterday, and
+ * a month with no closed day evaluates nothing.
  */
+
+/** Source names these bases publish — the same names dashboard evidence uses for them. */
+const ORDERS_SOURCE = 'orders';
+const COUPANG_ADS_SOURCE = 'coupang_ads';
 
 /** One listing's order lines over a window. `null` is unavailable, never zero. */
 export interface PerListingProfit {
@@ -97,6 +110,20 @@ export interface AdWindowEvidence extends AccountAdEvidence {
   measuredDates: readonly string[];
 }
 
+/** The window a finance read was asked for, and the closed days it evaluates. */
+export interface FinanceWindow {
+  requested: KstQueryWindow;
+  effective: KstQueryWindow;
+}
+
+/**
+ * Resolve the window a finance read evaluates: `requested` clipped to the KST
+ * business days already closed at `now`. The caller supplies `now`.
+ */
+export function resolveFinanceWindow(requested: KstQueryWindow, now: Date): FinanceWindow {
+  return { requested, effective: clipToClosedKstDays(now, requested) };
+}
+
 /** One collected order line, priced with what its listing option recorded. */
 export interface ProfitLineFact {
   orderId: string;
@@ -123,6 +150,8 @@ export interface ProfitListingIdentity {
 
 /** The facts one finance window is computed from, read in one caller-owned transaction. */
 export interface ProfitWindowFacts {
+  window: FinanceWindow;
+  /** Order facts over the evaluated window. */
   orderWindow: OrderWindowFacts;
   /** Shipping price summed over every collected order of the window. */
   orderShipping: number;
@@ -323,21 +352,22 @@ async function readGrades(
 }
 
 /**
- * Read every fact one finance window needs, in the caller's transaction:
- * collected order lines priced from their options, the advertising evidence
- * and per-listing spend for the same business dates, and current grades.
+ * Read every fact one finance window needs over its evaluated (closed-day)
+ * window, in the caller's transaction: collected order lines priced from their
+ * options, the advertising evidence and per-listing spend for the same
+ * business dates, and current grades.
  */
 export async function readProfitWindowFacts(
   tx: Prisma.TransactionClient,
   organizationId: string,
-  from: Date,
-  to: Date,
+  window: FinanceWindow,
 ): Promise<ProfitWindowFacts> {
+  const { from, to } = window.effective;
   const ad = await readAdWindowEvidence(tx, organizationId, from, to);
   const lineFacts = await readProfitLines(tx, organizationId, from, to);
   const listingAdSpend = await readListingAdSpend(tx, organizationId, from, to);
   const gradeByProductId = await readGrades(tx, organizationId, lineFacts.lines);
-  return { ...lineFacts, ad, listingAdSpend, gradeByProductId };
+  return { ...lineFacts, window, ad, listingAdSpend, gradeByProductId };
 }
 
 /** Whether a completed Orders collection covered every business date of the window. */
@@ -477,16 +507,20 @@ function lineCostsComplete(facts: Pick<ProfitWindowFacts, 'lines' | 'unmappedLin
 }
 
 /**
- * The organization's totals for the window. Each is published only when the
- * Orders collection covered every date of the window and every input it
- * depends on was measured; a line with no recorded cost, or advertising the
- * sweep did not measure, leaves cost and profit unavailable.
+ * The organization's totals for the evaluated window. Each is published only
+ * when the window has a closed date, the Orders collection covered every one
+ * of them, and every input it depends on was measured; a line with no recorded
+ * cost, or advertising the sweep did not measure, leaves cost and profit
+ * unavailable.
  */
 export function profitWindowTotals(facts: ProfitWindowFacts): FinanceWindowTotals {
   const revenue = facts.orderWindow.revenue;
-  const adCost = !facts.ad.hasAdAccount
-    ? 0
-    : facts.ad.coversWindow ? Math.round(facts.ad.accountSpend) : null;
+  const hasClosedDates = facts.orderWindow.requestedDates.length > 0;
+  const adCost = !hasClosedDates
+    ? null
+    : !facts.ad.hasAdAccount
+      ? 0
+      : facts.ad.coversWindow ? Math.round(facts.ad.accountSpend) : null;
   const lineCosts = lineCostsComplete(facts)
     ? Math.round(facts.lines.reduce(
       (sum, line) => sum + line.costOfGoods! + line.commission! + line.otherCost!,
@@ -507,35 +541,28 @@ export function profitWindowTotals(facts: ProfitWindowFacts): FinanceWindowTotal
   } satisfies FinanceWindowTotals;
 }
 
-function windowRange(requestedDates: readonly string[]): { from: string; to: string } {
-  const from = requestedDates[0];
-  const to = requestedDates[requestedDates.length - 1];
-  if (from === undefined || to === undefined) {
-    throw new Error('A finance window must select at least one business date');
-  }
-  return { from, to };
-}
-
-/** The basis of values counted from collected order lines alone. */
-export function orderWindowBasis(orderWindow: OrderWindowFacts): DashboardPeriodBasis {
+/** The basis of values counted from collected order lines alone, over the evaluated window. */
+export function orderWindowBasis(orderWindow: OrderWindowFacts, window: FinanceWindow): DashboardPeriodBasis {
   return buildPeriodBasis({
-    ...windowRange(orderWindow.requestedDates),
+    ...kstWindowDateRange(window.effective),
     includedDates: orderWindow.includedDates,
     sources: [ORDERS_SOURCE],
   });
 }
 
 /**
- * The evidence behind a finance window, as measured facts. Profit is measured
- * on the dates both the orders and, when it applies, advertising covered; a
- * window with a line lacking a recorded cost refuses every date for profit.
+ * The evidence behind a finance window, as measured facts: the requested
+ * window, and over the evaluated window the dates orders and advertising
+ * covered. Profit is measured on the dates both covered; a window with a line
+ * lacking a recorded cost refuses every date for profit.
  */
 export function profitWindowBasis(facts: ProfitWindowFacts): FinanceWindowBasis {
-  const range = windowRange(facts.orderWindow.requestedDates);
+  const range = kstWindowDateRange(facts.window.effective);
   const adDates = facts.ad.hasAdAccount ? facts.ad.measuredDates : facts.orderWindow.requestedDates;
   const adDateSet = new Set(adDates);
   return {
-    revenue: orderWindowBasis(facts.orderWindow),
+    requestedWindow: kstWindowDateRange(facts.window.requested),
+    revenue: orderWindowBasis(facts.orderWindow, facts.window),
     adCost: buildPeriodBasis({ ...range, includedDates: adDates, sources: [COUPANG_ADS_SOURCE] }),
     profit: buildPeriodBasis({
       ...range,

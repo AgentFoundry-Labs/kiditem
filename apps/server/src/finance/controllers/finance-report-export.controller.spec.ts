@@ -58,13 +58,13 @@ describe('FinanceReportExportController', () => {
       type: 'profitloss',
       period: '2026-08',
       surface: 'reports',
-    });
+    }, expect.any(Date));
     expect(exporter.exportProfitLoss).toHaveBeenCalledWith(ORG, expect.objectContaining({
       period: '2026-08',
       profitFilter: 'minus',
       grades: 'A',
-    }));
-    expect(exporter.exportSettlementReconcile).toHaveBeenCalledWith(ORG, '2026-08');
+    }), expect.any(Date));
+    expect(exporter.exportSettlementReconcile).toHaveBeenCalledWith(ORG, '2026-08', expect.any(Date));
     expect(response.setHeader).toHaveBeenCalledWith(
       'Content-Type',
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',

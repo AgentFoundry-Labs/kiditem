@@ -520,6 +520,29 @@ export async function readObservedOrderBounds(
   return row?.from && row.to ? { from: row.from, to: row.to } : null;
 }
 
+/**
+ * How many orders a completed source run published for the organization,
+ * whatever their status: whether a collection published orders at all, not
+ * what they earned.
+ */
+export async function readObservedOrderCount(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+): Promise<number> {
+  const [row] = await tx.$queryRaw<Array<{ count: bigint }>>(Prisma.sql`
+    SELECT COUNT(*)::bigint AS count
+    FROM orders
+    WHERE organization_id = ${organizationId}::uuid
+      AND EXISTS (
+        SELECT 1 FROM source_import_runs s
+        WHERE s.id = orders.source_import_run_id
+          AND s.organization_id = ${organizationId}::uuid
+          AND s.status = 'completed'
+      )
+  `);
+  return Number(row?.count ?? 0n);
+}
+
 export async function readOrderReturnWindowFacts(
   tx: Prisma.TransactionClient,
   input: OrderWindowInput,

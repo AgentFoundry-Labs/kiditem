@@ -34,9 +34,11 @@ export function CategoriesPanel({
                 <td className="font-medium text-[var(--text-primary)]">
                   {category.name}
                 </td>
-                <td className="text-right tabular-nums">{category.count}개</td>
                 <td className="text-right tabular-nums">
-                  {formatKRW(category.revenue)}원
+                  {category.count === null ? '-' : `${category.count}개`}
+                </td>
+                <td className="text-right tabular-nums">
+                  {category.revenue === null ? '-' : `${formatKRW(category.revenue)}원`}
                 </td>
                 <td
                   className={cn(

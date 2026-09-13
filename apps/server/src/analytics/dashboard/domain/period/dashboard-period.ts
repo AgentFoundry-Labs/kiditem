@@ -2,6 +2,7 @@ import { enumerateDashboardDates } from '@kiditem/shared/dashboard';
 import {
   addDays,
   businessDateKey,
+  clipToClosedKstDays,
   evidenceCutoffDate,
   kstBusinessDate,
   kstDayStart,
@@ -127,7 +128,7 @@ export function resolveWingMonthlyTrendPeriod(
   const anchorDate = kstBusinessDate(anchor);
   const window = periodStart.getUTCFullYear() === anchorDate.getUTCFullYear()
     && periodStart.getUTCMonth() === anchorDate.getUTCMonth()
-    ? clipToClosedDays(anchor, monthStart, monthEnd)
+    ? clipToClosedKstDays(anchor, { from: monthStart, to: monthEnd })
     : { from: monthStart, to: monthEnd };
   return resolveExactPeriod(window, anchor, 'closed_day_clipped');
 }
@@ -203,7 +204,7 @@ function closedDayClippedWindows(
     // The month is the anchor's calendar month under the same clip. Anchoring
     // it on yesterday instead would, on the 1st, answer a September question
     // with August's rows.
-    month: clipToClosedDays(anchor, selection.monthStart, selection.monthEnd),
+    month: clipToClosedKstDays(anchor, { from: selection.monthStart, to: selection.monthEnd }),
     // The previous calendar month is already closed; clipping it would be a
     // no-op, and leaving it exact keeps the owner coverage report honest.
     previousMonth: { from: selection.prevMonthDate, to: selection.monthStart },
@@ -232,7 +233,9 @@ function presetWindow(
     const todayStart = kstDayStart(anchor);
     return { from: addDays(todayStart, -1), to: todayStart };
   }
-  return clipToClosedDays(anchor, from, to);
+  // The anchor is the cutoff; provider latest-row dates must not shrink the
+  // requested range, and a window with no closed day yet stays empty.
+  return clipToClosedKstDays(anchor, { from, to });
 }
 
 function previousPresetWindow(
@@ -249,25 +252,6 @@ function previousPresetWindow(
   };
 }
 
-/**
- * Clip a window forward to the last completed KST business day. The explicit
- * dashboard anchor is the cutoff; provider latest-row dates must not shrink the
- * requested range.
- */
-function clipToClosedDays(anchor: Date, from: Date, to: Date): DashboardQueryWindow {
-  const todayStart = kstDayStart(anchor);
-  return {
-    from,
-    // A window with no completed day yet — the anchor's month on the 1st —
-    // stays empty so the owner adapter returns unavailable rather than
-    // accidentally admitting a same-day row or another month's rows.
-    to: todayStart.getTime() <= from.getTime()
-      ? from
-      : todayStart.getTime() < to.getTime()
-        ? todayStart
-        : to,
-  };
-}
 
 /** KST business date of an instant, `YYYY-MM-DD`. */
 export function businessDateText(value: Date): string {

@@ -251,7 +251,7 @@ describe('Statistics flow (PG integration)', () => {
   it('overview publishes the collected month totals with a complete basis', async () => {
     await seedStatisticsFixture();
 
-    const result = await service.overview(TEST_ORGANIZATION_ID, '2026-04');
+    const result = await service.overview(TEST_ORGANIZATION_ID, '2026-04', AFTER_APRIL);
 
     expect(result).toMatchObject({
       totalRevenue: 52_000,
@@ -269,7 +269,7 @@ describe('Statistics flow (PG integration)', () => {
   it('products hydrates master metadata and keeps ratio-based profitRate semantics', async () => {
     const { masterM1, masterM2, listingL1, listingL2 } = await seedStatisticsFixture();
 
-    const result = await service.products(TEST_ORGANIZATION_ID, '2026-04');
+    const result = await service.products(TEST_ORGANIZATION_ID, '2026-04', AFTER_APRIL);
 
     expect(result.rows).toEqual([
       {
@@ -312,8 +312,8 @@ describe('Statistics flow (PG integration)', () => {
     await seedStatisticsFixture();
 
     const [categories, grades] = await Promise.all([
-      service.categories(TEST_ORGANIZATION_ID, '2026-04'),
-      service.grades(TEST_ORGANIZATION_ID, '2026-04'),
+      service.categories(TEST_ORGANIZATION_ID, '2026-04', AFTER_APRIL),
+      service.grades(TEST_ORGANIZATION_ID, '2026-04', AFTER_APRIL),
     ]);
 
     expect(categories.rows).toEqual([
@@ -331,7 +331,7 @@ describe('Statistics flow (PG integration)', () => {
   it('pareto sorts by live revenue and exposes neutral revenue bands', async () => {
     const { listingL1, listingL2 } = await seedStatisticsFixture();
 
-    const result = await service.pareto(TEST_ORGANIZATION_ID, '2026-04');
+    const result = await service.pareto(TEST_ORGANIZATION_ID, '2026-04', AFTER_APRIL);
 
     expect(result.totalRevenue).toBe(52_000);
     expect(result.bandDistribution).toEqual({ top70: 1, next20: 0, tail10: 1 });
@@ -360,7 +360,7 @@ describe('Statistics flow (PG integration)', () => {
   it('repurchase keeps receiver-level and listing-level behavior on current schema', async () => {
     const { listingL1, listingL2 } = await seedStatisticsFixture();
 
-    const result = await service.repurchase(TEST_ORGANIZATION_ID, '2026-04');
+    const result = await service.repurchase(TEST_ORGANIZATION_ID, '2026-04', AFTER_APRIL);
 
     expect(result).toMatchObject({
       totalCustomers: 2,
@@ -469,7 +469,7 @@ describe('Statistics flow (PG integration)', () => {
       })).map((order) => order.id),
     });
 
-    const result = await service.repurchase(TEST_ORGANIZATION_ID, '2026-04');
+    const result = await service.repurchase(TEST_ORGANIZATION_ID, '2026-04', AFTER_APRIL);
 
     expect(result.repeatProducts).toEqual([
       {
@@ -504,7 +504,7 @@ describe('Statistics flow (PG integration)', () => {
       ],
     });
 
-    const result = await service.products(TEST_ORGANIZATION_ID, '2026-04');
+    const result = await service.products(TEST_ORGANIZATION_ID, '2026-04', AFTER_APRIL);
 
     expect(result.rows).toHaveLength(2);
     for (const row of result.rows) {
@@ -521,10 +521,10 @@ describe('Statistics flow (PG integration)', () => {
     await seedStatisticsFixture(TEST_ORGANIZATION_ID, '2026-04-14');
 
     const [overview, products, pareto, repurchase] = await Promise.all([
-      service.overview(TEST_ORGANIZATION_ID, '2026-04'),
-      service.products(TEST_ORGANIZATION_ID, '2026-04'),
-      service.pareto(TEST_ORGANIZATION_ID, '2026-04'),
-      service.repurchase(TEST_ORGANIZATION_ID, '2026-04'),
+      service.overview(TEST_ORGANIZATION_ID, '2026-04', AFTER_APRIL),
+      service.products(TEST_ORGANIZATION_ID, '2026-04', AFTER_APRIL),
+      service.pareto(TEST_ORGANIZATION_ID, '2026-04', AFTER_APRIL),
+      service.repurchase(TEST_ORGANIZATION_ID, '2026-04', AFTER_APRIL),
     ]);
 
     expect(overview).toMatchObject({
@@ -583,9 +583,9 @@ describe('Statistics flow (PG integration)', () => {
     });
 
     const [overview, products, pareto] = await Promise.all([
-      service.overview(TEST_ORGANIZATION_ID, '2026-04'),
-      service.products(TEST_ORGANIZATION_ID, '2026-04'),
-      service.pareto(TEST_ORGANIZATION_ID, '2026-04'),
+      service.overview(TEST_ORGANIZATION_ID, '2026-04', AFTER_APRIL),
+      service.products(TEST_ORGANIZATION_ID, '2026-04', AFTER_APRIL),
+      service.pareto(TEST_ORGANIZATION_ID, '2026-04', AFTER_APRIL),
     ]);
 
     expect(overview).toMatchObject({
@@ -607,7 +607,7 @@ describe('Statistics flow (PG integration)', () => {
       startDate: '2026-04-01', endDate: '2026-04-30', orderIds: [],
     });
 
-    const result = await service.repurchase(TEST_ORGANIZATION_ID, '2026-04');
+    const result = await service.repurchase(TEST_ORGANIZATION_ID, '2026-04', AFTER_APRIL);
 
     expect(result).toMatchObject({
       totalCustomers: 0,
@@ -621,7 +621,7 @@ describe('Statistics flow (PG integration)', () => {
   });
 
   it('publishes no window and no totals when no period is asked and no order was ever collected', async () => {
-    const overview = await service.overview(TEST_ORGANIZATION_ID);
+    const overview = await service.overview(TEST_ORGANIZATION_ID, undefined, AFTER_APRIL);
 
     expect(overview).toEqual({
       totalRevenue: null,
@@ -631,5 +631,120 @@ describe('Statistics flow (PG integration)', () => {
       totalProducts: 0,
       basis: null,
     });
+  });
+
+  /** A moment after April has closed in KST. */
+  const AFTER_APRIL = new Date('2026-06-01T00:00:00.000Z');
+  /** 12:00 KST on 15 April: 1–14 April are closed. */
+  const MID_APRIL = new Date('2026-04-15T03:00:00.000Z');
+  /** 12:00 KST on 1 April: no April day is closed. */
+  const APRIL_FIRST = new Date('2026-04-01T03:00:00.000Z');
+
+  it('evaluates the month containing today over its closed days only', async () => {
+    await seedStatisticsFixture();
+
+    const [overview, repurchase] = await Promise.all([
+      service.overview(TEST_ORGANIZATION_ID, '2026-04', MID_APRIL),
+      service.repurchase(TEST_ORGANIZATION_ID, '2026-04', MID_APRIL),
+    ]);
+
+    // Orders of 10 and 12 April are closed; the order of 15 April was placed today.
+    expect(overview).toMatchObject({
+      totalRevenue: 47_000,
+      totalOrders: 2,
+      totalProfit: 22_300,
+      avgMargin: 0.4745,
+    });
+    expect(overview.basis!.requestedWindow).toEqual({ from: '2026-04-01', to: '2026-04-30' });
+    expect(overview.basis!.revenue).toMatchObject({ from: '2026-04-01', to: '2026-04-14', targetDays: 14 });
+    expect(periodBasisStatus(overview.basis!.profit)).toBe('complete');
+
+    expect(repurchase).toMatchObject({
+      totalCustomers: 2,
+      repeatCount: 0,
+      repurchaseRate: 0,
+      totalOrders: 2,
+      repeatCustomers: [],
+    });
+    expect(repurchase.basis!.requestedWindow).toEqual({ from: '2026-04-01', to: '2026-04-30' });
+    expect(repurchase.basis!.orders).toMatchObject({ from: '2026-04-01', to: '2026-04-14', targetDays: 14 });
+  });
+
+  it('publishes no totals on the 1st, when no day of the month has closed', async () => {
+    await seedStatisticsFixture();
+
+    const [overview, products] = await Promise.all([
+      service.overview(TEST_ORGANIZATION_ID, '2026-04', APRIL_FIRST),
+      service.products(TEST_ORGANIZATION_ID, '2026-04', APRIL_FIRST),
+    ]);
+
+    expect(overview).toMatchObject({
+      totalRevenue: null, totalOrders: null, totalProfit: null, avgMargin: null,
+    });
+    expect(overview.basis!.requestedWindow).toEqual({ from: '2026-04-01', to: '2026-04-30' });
+    expect(overview.basis!.revenue).toMatchObject({
+      from: '2026-04-01', to: '2026-03-31', targetDays: 0, includedDates: [],
+    });
+    expect(products.rows).toEqual([]);
+  });
+
+  /** KID-85 review P2-3 — group totals follow the same coverage rule as the overview. */
+  it('categories and grades publish no group totals for an explicit period the Orders collection covered only in part', async () => {
+    await seedStatisticsFixture(TEST_ORGANIZATION_ID, '2026-04-14');
+
+    const [categories, grades] = await Promise.all([
+      service.categories(TEST_ORGANIZATION_ID, '2026-04', AFTER_APRIL),
+      service.grades(TEST_ORGANIZATION_ID, '2026-04', AFTER_APRIL),
+    ]);
+
+    expect(categories.rows).toEqual([
+      { category: '유아용품', name: '유아용품', revenue: null, orders: null, profit: null, count: null },
+      { category: '완구', name: '완구', revenue: null, orders: null, profit: null, count: null },
+    ]);
+    expect(grades.rows).toEqual([
+      { grade: 'A', revenue: null, profit: null, count: null, productCount: null, adCost: null },
+      { grade: 'B', revenue: null, profit: null, count: null, productCount: null, adCost: null },
+    ]);
+    expect(periodBasisStatus(categories.basis!.revenue)).toBe('partial');
+    expect(periodBasisStatus(grades.basis!.revenue)).toBe('partial');
+
+    // The same collection covers every closed day of the month containing today.
+    const [openCategories, openGrades] = await Promise.all([
+      service.categories(TEST_ORGANIZATION_ID, '2026-04', MID_APRIL),
+      service.grades(TEST_ORGANIZATION_ID, '2026-04', MID_APRIL),
+    ]);
+
+    expect(openCategories.rows).toEqual([
+      { category: '유아용품', name: '유아용품', revenue: 32_000, orders: 1, profit: 14_800, count: 1 },
+      { category: '완구', name: '완구', revenue: 15_000, orders: 1, profit: 7_500, count: 1 },
+    ]);
+    expect(openGrades.rows).toEqual([
+      { grade: 'A', revenue: 32_000, profit: 14_800, count: 1, productCount: 1, adCost: 0 },
+      { grade: 'B', revenue: 15_000, profit: 7_500, count: 1, productCount: 1, adCost: 0 },
+    ]);
+    expect(periodBasisStatus(openCategories.basis!.revenue)).toBe('complete');
+    expect(openGrades.basis!.revenue).toMatchObject({ from: '2026-04-01', to: '2026-04-14', targetDays: 14 });
+  });
+
+  it('defaults an omitted period to the observed completed orders, clipped to the closed days', async () => {
+    await seedStatisticsFixture(TEST_ORGANIZATION_ID, '2026-05-01');
+
+    // Orders run from 10 April to 1 May KST (the 30 April 15:30Z order); the
+    // cancelled order counts toward the range but not the totals, and the
+    // sweep never measured 1 May, so no profit exists.
+    const settled = await service.overview(TEST_ORGANIZATION_ID, undefined, AFTER_APRIL);
+
+    expect(settled).toMatchObject({ totalRevenue: 61_000, totalOrders: 4, totalProfit: null });
+    expect(settled.basis!.requestedWindow).toEqual({ from: '2026-04-10', to: '2026-05-01' });
+    expect(settled.basis!.revenue).toMatchObject({ from: '2026-04-10', to: '2026-05-01', targetDays: 22 });
+    expect(periodBasisStatus(settled.basis!.revenue)).toBe('complete');
+    expect(periodBasisStatus(settled.basis!.adCost)).toBe('partial');
+
+    const today = await service.overview(TEST_ORGANIZATION_ID, undefined, MID_APRIL);
+
+    expect(today).toMatchObject({ totalRevenue: 47_000, totalOrders: 2, totalProfit: 22_300 });
+    expect(today.basis!.requestedWindow).toEqual({ from: '2026-04-10', to: '2026-05-01' });
+    expect(today.basis!.revenue).toMatchObject({ from: '2026-04-10', to: '2026-04-14', targetDays: 5 });
+    expect(periodBasisStatus(today.basis!.profit)).toBe('complete');
   });
 });

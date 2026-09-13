@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import type {
   SupplierHistoryItem,
   SupplierHistoryReport,
@@ -8,6 +9,10 @@ import type {
   SupplierSalesRow,
 } from '@kiditem/shared/supplier-stats';
 import { PrismaService } from '../../prisma/prisma.service';
+import {
+  readObservedOrderBounds,
+  readOrderLineWindowFacts,
+} from '../../orders/read/order-facts.reader';
 
 const ORDER_STATUS_EXCLUDE = ['cancelled', 'returned'] as const;
 
@@ -240,9 +245,15 @@ export class SupplierStatsService {
     return { summary: summarizeSupplierHistory(items), items };
   }
 
+  /**
+   * Supplier policies and every order line a completed Orders collection
+   * published, read through the Orders reader in one snapshot: the observed
+   * order bounds give the all-time window, and the listing options' confirmed
+   * recipes map each line onto physical Sellpia SKUs.
+   */
   private async loadSalesProjection(organizationId: string): Promise<SalesProjection> {
-    const [suppliers, orderLines] = await Promise.all([
-      this.prisma.supplier.findMany({
+    const { suppliers, lines, options } = await this.prisma.$transaction(async (tx) => {
+      const suppliers = await tx.supplier.findMany({
         where: { organizationId },
         select: {
           id: true,
@@ -266,37 +277,42 @@ export class SupplierStatsService {
             },
           },
         },
-      }),
-      this.prisma.orderLineItem.findMany({
-        where: {
+      });
+      const bounds = await readObservedOrderBounds(tx, organizationId);
+      const lines = bounds
+        ? (await readOrderLineWindowFacts(tx, {
           organizationId,
-          order: {
-            organizationId,
-            status: { notIn: [...ORDER_STATUS_EXCLUDE] },
-          },
-        },
+          ...bounds,
+          excludedStatuses: ORDER_STATUS_EXCLUDE,
+        })).orders.flatMap((order) => order.lines)
+        : [];
+      const optionIds = [...new Set(lines.flatMap((line) =>
+        line.listingOptionId ? [line.listingOptionId] : []))];
+      const options = optionIds.length === 0 ? [] : await tx.channelListingOption.findMany({
+        where: { organizationId, id: { in: optionIds } },
         select: {
           id: true,
-          quantity: true,
-          totalPrice: true,
-          listingOption: {
-            select: {
-              inventoryComponents: {
-                select: {
-                  sellpiaInventorySkuId: true,
-                  quantity: true,
-                },
-              },
-            },
+          inventoryComponents: {
+            where: { organizationId },
+            select: { sellpiaInventorySkuId: true, quantity: true },
           },
         },
-      }),
-    ]);
+      });
+      return { suppliers, lines, options };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
 
-    return this.projectSales(
-      suppliers as SupplierProjection[],
-      orderLines as OrderLineProjection[],
-    );
+    const componentsByOption = new Map(options.map((option) => [option.id, option.inventoryComponents]));
+    const orderLines: OrderLineProjection[] = lines.map((line) => {
+      const components = line.listingOptionId ? componentsByOption.get(line.listingOptionId) : undefined;
+      return {
+        id: line.lineItemId,
+        quantity: line.quantity,
+        totalPrice: line.revenue,
+        listingOption: components ? { inventoryComponents: components } : null,
+      };
+    });
+
+    return this.projectSales(suppliers as SupplierProjection[], orderLines);
   }
 
   private projectSales(
