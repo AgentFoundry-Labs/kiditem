@@ -5,8 +5,10 @@
  * applies the same answer:
  *
  * - A Rocket direct-purchase account (`channel === 'rocket'`) sells to Coupang,
- *   which buys the goods outright. Neither a sales commission nor an other
- *   per-sale cost applies; both are 0 by this rule, not by a guessed input.
+ *   which buys the goods outright, so no sales commission applies. Its other
+ *   per-sale cost is treated as not applied too, but only as an unconfirmed
+ *   assumption: contract deductions (incentives, inbound logistics) may exist,
+ *   and profit reads high by their amount until KID-116 confirms them.
  * - Every other account carries both components. No measured source exists
  *   for them yet, so a consumer that needs them has an unknown cost and must
  *   not compute a margin from a value nobody set.

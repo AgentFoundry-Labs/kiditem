@@ -23,10 +23,11 @@ derived from it is unavailable, not zero.
 _Avoid_: missing, null, blank, no data
 
 **Not applied**:
-A property of the organization, not of a measurement: the source does not
-apply to it at all, so there was nothing to ask for. An organization with no
-advertising account has a not-applied ad cost, which downstream calculations
-treat as satisfied at zero.
+A property of the organization or one of its channel accounts, not of a
+measurement: the source or cost does not apply to it at all, so there was
+nothing to ask for. An organization with no advertising account has a
+not-applied ad cost; a Rocket direct-purchase account has a not-applied sales
+commission. Downstream calculations treat it as satisfied at zero.
 _Avoid_: N/A, none, not applicable
 
 **Unavailable**:
@@ -137,3 +138,16 @@ owner's own publication. It carries the ledger's evidence gate, returns facts
 (measured dates, sums, the latest observed moment) and never a word derived
 from them. A screen composes readers; it does not query a ledger.
 _Avoid_: repository, query service, read port, distributor
+
+**Published calculation**:
+A result computed from ledgers and stored with the generation and cutoff it
+used: an ABC evaluation, a monthly advertising allocation, a sourcing decision
+batch. It is published only through its own entrypoint and read only through
+its own reader; it is not a ledger.
+_Avoid_: cache, rollup, derived table
+
+**Mapping generation**:
+An organization's count of changes to how channel options map to products and
+Sellpia stock. A source collection or published calculation that began under
+an older generation cannot publish.
+_Avoid_: mapping version, formula state

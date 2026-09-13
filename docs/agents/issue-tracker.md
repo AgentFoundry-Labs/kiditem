@@ -23,15 +23,19 @@ item. Keep suspected vulnerabilities and secrets out of public issues.
 | Meaning | Status |
 | --- | --- |
 | Awaiting evaluation (`needs-triage`) | Triage |
-| Accepted work (`ready-for-agent`, `ready-for-human`) | Ready |
+| Accepted, not started: waiting on a start condition, a blocker, or its turn | Backlog |
+| Accepted and picked up next (`ready-for-agent`, `ready-for-human`) | Ready |
 | Implementation underway | In Progress |
 | Waiting for review | In Review |
 | Waiting for a human decision or information (`needs-info`) | Human Input |
-| Waiting for a dependency | Blocked |
+| Started work waiting for a dependency | Blocked |
 | Not proceeding (`wontfix`) | Canceled |
 | Completed with evidence | Done |
 
 `Human Input` is a started status; use it for work actually awaiting a human.
+`Blocked` is also a started status. Create accepted tickets in Backlog, record a
+not-started issue's blockers as blocked-by relations, and move an issue to Ready
+when it is picked up next.
 Use existing kind, area, and risk labels where useful. Status and priority use
 native fields rather than duplicate labels. `Agent:*` labels identify explicitly
 dispatched autonomous profiles; a direct Codex or Claude session does not need
