@@ -7,7 +7,6 @@ import {
   setupProductOption,
   setupChannelListing,
   seedOrderWithLineItems,
-  seedReturn,
   seedAd,
   seedCompletedAdSweepRun,
   seedCompletedOrderCoverageRun,
@@ -89,23 +88,17 @@ describe('SalesAnalysisService.getAnalysis (PG integration)', () => {
 
   /**
    * Returns have no owner publication: nothing collects them and no coverage
-   * declares a window of them observed, so an empty or populated return table
-   * is not a count. A fully collected order month still publishes no return
-   * count, return rate or orphan return count (ADR-0006, ADR-0009).
+   * declares a window of them observed. A fully collected order month still
+   * publishes no return count, return rate or orphan return count (ADR-0006,
+   * ADR-0009).
    */
   it('publishes no return count, return rate or orphan return count for a fully collected order month', async () => {
     const coup = await setupChannelFixture(TEST_ORGANIZATION_ID, 'coupang', 'RETURNS');
-    const orderId = await seedOrderWithLineItems(prisma, {
+    await seedOrderWithLineItems(prisma, {
       orderChannel: 'rocket',
       organizationId: TEST_ORGANIZATION_ID, externalOrderId: 'RETURNS-1', orderedAt: '2026-04-10T00:00:00Z',
       lineItems: [{ quantity: 1, totalPrice: 10000, optionId: coup.optionId, listingOptionId: coup.listingOptionId }],
     });
-    const lineItem = await prisma.orderLineItem.findFirstOrThrow({ where: { orderId }, select: { id: true } });
-    await seedReturn(prisma, {
-      organizationId: TEST_ORGANIZATION_ID, orderId, requestedAt: '2026-04-15T00:00:00Z',
-      lineItems: [{ orderLineItemId: lineItem.id }],
-    });
-    await seedReturn(prisma, { organizationId: TEST_ORGANIZATION_ID, orderId: null, requestedAt: '2026-04-16T00:00:00Z' });
     await coverOrders();
 
     const result = await service.getAnalysis(TEST_ORGANIZATION_ID, '2026-04', AFTER_MONTHS);

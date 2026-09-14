@@ -409,14 +409,9 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       { masterProductId: second.id, abcGrade: 'A' },
       { masterProductId: third.id, abcGrade: 'B' },
     ]);
-    await Promise.all([
-      prisma.masterProduct.update({ where: { id: first.id }, data: { abcGrade: 'C' } }),
-      prisma.masterProduct.update({ where: { id: second.id }, data: { abcGrade: null } }),
-      prisma.masterProduct.update({ where: { id: third.id }, data: { abcGrade: 'A' } }),
-    ]);
     // A later publication may carry an older official evaluation forward when
     // that product has insufficient new facts. Grade filtering follows the
-    // retained owner row, not the retired cache or an exact revision match.
+    // retained owner row, not an exact revision match.
     await prisma.masterProductAbcFormulaState.update({
       where: { organizationId: TEST_ORGANIZATION_ID },
       data: { publicationRevision: 2, publishedAt: new Date('2026-09-02T00:00:00.000Z') },
@@ -1124,7 +1119,6 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
         trafficOrders: 3,
         trafficSalesQty: 4,
         trafficRevenue: 40_000,
-        trafficCoverageStatus: 'OBSERVED',
         trafficObservedAt: now,
         lastObservedAt: now,
         metaJson: {

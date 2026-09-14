@@ -106,8 +106,6 @@ describe('MasterProductAbc publication cutoff (PostgreSQL)', () => {
         classifiedProductCount: 1,
         officialCutoff: collected.cutoff,
       });
-      await expect(prisma.masterProduct.findUniqueOrThrow({ where: { id: productId } }))
-        .resolves.toMatchObject({ abcGrade: null });
     },
   );
 
@@ -128,8 +126,6 @@ describe('MasterProductAbc publication cutoff (PostgreSQL)', () => {
       unclassifiedProductCount: 1,
       officialCutoff: collected.cutoff,
     });
-    await expect(prisma.masterProduct.findUniqueOrThrow({ where: { id: productId } }))
-      .resolves.toMatchObject({ abcGrade: null });
     await expect(prisma.masterProductAbcEvaluation.count({
       where: { organizationId: TEST_ORGANIZATION_ID },
     })).resolves.toBe(0);

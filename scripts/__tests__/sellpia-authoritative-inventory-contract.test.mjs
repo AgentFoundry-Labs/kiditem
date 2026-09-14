@@ -189,13 +189,14 @@ describe("Sellpia authoritative final-schema contract", () => {
       "verifiedGeneration",
       "failedGeneration",
       "lastAttemptAt",
-      "lastAttemptStatus",
       "lastErrorCode",
       "lastErrorMessage",
       "freshnessFence",
     ]) {
       assert.match(state, new RegExp(`^\\s*${field}\\s+`, "m"));
     }
+    // The last attempt outcome is derived, not stored (KID-90).
+    assert.doesNotMatch(state, /^\s*lastAttemptStatus\s+/m);
     assert.match(state, /^\s*organizationId\s+String\s+@id[^\n]*@db\.Uuid/m);
     assert.match(
       state,

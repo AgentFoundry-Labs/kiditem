@@ -10,33 +10,32 @@ model Organization {
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   // Core
-  memberships                     OrganizationMembership[]
-  legalEntities                   LegalEntity[]
-  channelAccounts                 ChannelAccount[]
-  sellpiaManualMatchSnapshots     SellpiaManualMatchSnapshot[]
-  sellpiaManualMatchAliases       SellpiaManualMatchAlias[]
-  sourceImportRuns                SourceImportRun[]
-  orderCollectionArtifacts        OrderCollectionArtifact[]
+  memberships                        OrganizationMembership[]
+  legalEntities                      LegalEntity[]
+  channelAccounts                    ChannelAccount[]
+  sellpiaManualMatchSnapshots        SellpiaManualMatchSnapshot[]
+  sellpiaManualMatchAliases          SellpiaManualMatchAlias[]
+  sourceImportRuns                   SourceImportRun[]
+  orderCollectionArtifacts           OrderCollectionArtifact[]
   coupangDirectTransportReceipts     CoupangDirectTransportReceipt[]
   coupangDirectTransportConsumptions CoupangDirectTransportConsumption[]
-  reviewCollectionChunks          ReviewCollectionChunk[]
-  rocketPoCatalogSnapshots        RocketPoCatalogSnapshot[]
-  rocketPoCatalogLines            RocketPoCatalogLine[]
-  orders                          Order[]
-  purchaseOrders                  PurchaseOrder[]
-  purchaseOrderSubmissionAttempts PurchaseOrderSubmissionAttempt[]
-  thumbnails                      Thumbnail[]
-  thumbnailAnalyses               ThumbnailAnalysis[]
-  thumbnailGenerations            ThumbnailGeneration[]
-  thumbnailGenerationCandidates   ThumbnailGenerationCandidate[]
-  thumbnailGenerationInputImages  ThumbnailGenerationInputImage[]
-  thumbnailGenerationEvents       ThumbnailGenerationEvent[]
-  thumbnailRegistrationAttempts   ThumbnailRegistrationAttempt[]
-  thumbnailTrackings              ThumbnailTracking[]
-  thumbnailTrackingDailySnapshots ThumbnailTrackingDailySnapshot[]
-  reviews                         Review[]
-  alerts                          Alert[]
-  rulesEvaluationApplications     RulesEvaluationApplication[]
+  reviewCollectionChunks             ReviewCollectionChunk[]
+  rocketPoCatalogSnapshots           RocketPoCatalogSnapshot[]
+  rocketPoCatalogLines               RocketPoCatalogLine[]
+  orders                             Order[]
+  purchaseOrders                     PurchaseOrder[]
+  purchaseOrderSubmissionAttempts    PurchaseOrderSubmissionAttempt[]
+  thumbnails                         Thumbnail[]
+  thumbnailAnalyses                  ThumbnailAnalysis[]
+  thumbnailGenerations               ThumbnailGeneration[]
+  thumbnailGenerationCandidates      ThumbnailGenerationCandidate[]
+  thumbnailGenerationInputImages     ThumbnailGenerationInputImage[]
+  thumbnailGenerationEvents          ThumbnailGenerationEvent[]
+  thumbnailRegistrationAttempts      ThumbnailRegistrationAttempt[]
+  thumbnailTrackings                 ThumbnailTracking[]
+  thumbnailTrackingDailySnapshots    ThumbnailTrackingDailySnapshot[]
+  reviews                            Review[]
+  alerts                             Alert[]
 
   // Sourcing & Content
   contentGenerations                  ContentGeneration[]
@@ -54,16 +53,11 @@ model Organization {
   detailPageImageRenderIntents        DetailPageImageRenderIntent[]
   aiDirectJobs                        AiDirectJob[]
 
-  // Durable domain activity
-  activityEvents ActivityEvent[]
-
   // Agent OS — exact capability mutation admission and replay receipts.
   capabilityInvocations CapabilityInvocation[]
 
   // Order domain (Plan A.5)
-  orderLineItems       OrderLineItem[]
-  orderReturns         OrderReturn[]
-  orderReturnLineItems OrderReturnLineItem[]
+  orderLineItems OrderLineItem[]
 
   // Supplier & Procurement
   suppliers                               Supplier[]
@@ -101,19 +95,11 @@ model Organization {
   sellpiaSalesDailySnapshots SellpiaSalesDailySnapshot[]
   sellpiaProductMonthlySales SellpiaProductMonthlySales[]
 
-  // Ontology
-  businessRules  BusinessRule[]
+  // Settings
   systemSettings SystemSetting[]
 
-  // Ad Scrape Targets
-  scrapeTargets ScrapeTarget[]
-
   // Ad Execution
-  adActions        AdAction[]
-  executionWorkers ExecutionWorker[]
-
-  // Action Board
-  actionTasks ActionTask[]
+  adActions AdAction[]
 
   // Product operations, Sellpia physical items, and channel catalogs
   masterProducts                              MasterProduct[]
@@ -137,7 +123,6 @@ model Organization {
 
   // Channels — daily fact extensions (Hard rewrite H1)
   channelAdTargetDailySnapshots       ChannelAdTargetDailySnapshot[]
-  channelAccountDailyKpiSnapshots     ChannelAccountDailyKpiSnapshot[]
   channelAdListingProductMonthlyFacts ChannelAdListingProductMonthlyFact[]
 
   // Channels — Coupang keyword and competitor rank tracking
@@ -230,15 +215,12 @@ model User {
   createdDetailPageImageArtifacts            DetailPageImageArtifact[]                      @relation("DetailPageImageArtifactCreatedBy")
   requestedDetailPageImageRenderIntents      DetailPageImageRenderIntent[]                  @relation("DetailPageImageRenderIntentRequestedBy")
   claimedDetailPageImageRenderIntents        DetailPageImageRenderIntent[]                  @relation("DetailPageImageRenderIntentClaimedBy")
-  actorAlerts                                Alert[]                                        @relation("AlertActor")
-  assignedActionTasks                        ActionTask[]                                   @relation("ActionTaskAssignee")
   activeSellpiaInventoryStates               SellpiaInventoryState[]                        @relation("SellpiaInventoryStateActiveSyncOwner")
   createdSellpiaOrderTransmissionIntents     SellpiaOrderTransmissionIntent[]               @relation("SellpiaOrderTransmissionIntentCreator")
   reconciledSellpiaOrderTransmissionIntents  SellpiaOrderTransmissionIntentReconciliation[] @relation("SellpiaOrderTransmissionIntentReconciler")
   confirmedSourceImportRuns                  SourceImportRun[]                              @relation("SourceImportRunManualFreshExportConfirmer")
   reconciledPurchaseOrderSubmissionAttempts  PurchaseOrderSubmissionAttempt[]               @relation("PurchaseOrderSubmissionAttemptReconciler")
   confirmedRocketPurchaseConfirmations       RocketPurchaseConfirmation[]                   @relation("RocketPurchaseConfirmationConfirmer")
-  releasedRocketPurchaseConfirmations        RocketPurchaseConfirmation[]                   @relation("RocketPurchaseConfirmationReleaser")
 
   // Agent OS — capability invocation actor relations
   initiatedCapabilityInvocations CapabilityInvocation[] @relation("CapabilityInvocationInitiator")
@@ -338,11 +320,9 @@ model ChannelAccount {
   productRegistrationExecutions       ProductRegistrationExecution[]       @relation("ChannelAccountProductRegistrationExecutions")
   channelListingDeletionOperations    ChannelListingDeletionOperation[]    @relation("ChannelAccountListingDeletionOperations")
   orders                              Order[]
-  orderReturns                        OrderReturn[]
   channelScrapeRuns                   ChannelScrapeRun[]
   channelAdTargetDailySnapshots       ChannelAdTargetDailySnapshot[]
   channelAdListingProductMonthlyFacts ChannelAdListingProductMonthlyFact[]
-  channelAccountDailyKpiSnapshots     ChannelAccountDailyKpiSnapshot[]
   rocketPurchaseConfirmations         RocketPurchaseConfirmation[]
   rocketPoCatalogSnapshots            RocketPoCatalogSnapshot[]
   sourcingLaunchCandidates            SourcingLaunchCandidate[]
@@ -417,13 +397,13 @@ model SourceImportRun {
   rocketPurchaseConfirmationTransmissions RocketPurchaseConfirmationTransmission[]
   rocketPoCatalogSnapshot                 RocketPoCatalogSnapshot?
   coupangShipmentDateSummaries            CoupangShipmentDateSummary[]
-  sellpiaSalesDailySnapshots               SellpiaSalesDailySnapshot[]    @relation("SellpiaSalesSource")
+  sellpiaSalesDailySnapshots              SellpiaSalesDailySnapshot[]              @relation("SellpiaSalesSource")
   orders                                  Order[]
   orderCollectionArtifact                 OrderCollectionArtifact?
-  coupangDirectTransportEffectReceipts    CoupangDirectTransportReceipt[]     @relation("CoupangDirectTransportReceiptEffectSource")
-  coupangDirectTransportConsumptions      CoupangDirectTransportConsumption[] @relation("CoupangDirectTransportConsumptionSource")
+  coupangDirectTransportEffectReceipts    CoupangDirectTransportReceipt[]          @relation("CoupangDirectTransportReceiptEffectSource")
+  coupangDirectTransportConsumptions      CoupangDirectTransportConsumption[]      @relation("CoupangDirectTransportConsumptionSource")
   reviewCollectionChunks                  ReviewCollectionChunk[]
-  reviewCollectionFacts                   Review[]                    @relation("ReviewCollectionFacts")
+  reviewCollectionFacts                   Review[]                                 @relation("ReviewCollectionFacts")
   publishedSellpiaAbcFormulaStates        MasterProductAbcFormulaState[]           @relation("MasterProductAbcFormulaStatePublishedSellpia")
   publishedAdvertisingAbcFormulaStates    MasterProductAbcFormulaState[]           @relation("MasterProductAbcFormulaStatePublishedAdvertising")
   sellpiaAbcEvaluations                   MasterProductAbcEvaluation[]             @relation("MasterProductAbcEvaluationSellpiaSourceImport")
@@ -486,23 +466,18 @@ model CategoryMapping {
 /// @namespace Core
 /// @describe Organization-owned canonical inventory product and sole official product ABC identity.
 model MasterProduct {
-  id                     String    @id @default(uuid()) @db.Uuid
-  organizationId         String    @map("organization_id") @db.Uuid
-  originChannelListingId String?   @map("origin_channel_listing_id") @db.Uuid
+  id                     String   @id @default(uuid()) @db.Uuid
+  organizationId         String   @map("organization_id") @db.Uuid
+  originChannelListingId String?  @map("origin_channel_listing_id") @db.Uuid
   code                   String
   name                   String
   description            String?
   category               String?
   brand                  String?
-  tags                   String[]  @default([])
-  imageUrls              String[]  @default([]) @map("image_urls")
-  abcGrade               String?   @map("abc_grade")
-  profitTag              String?   @map("profit_tag")
-  adTier                 String?   @map("ad_tier")
-  adBudgetLimit          Int?      @map("ad_budget_limit")
-  healthScore            Int?      @map("health_score")
-  healthUpdatedAt        DateTime? @map("health_updated_at") @db.Timestamptz
-  isActive               Boolean   @default(true) @map("is_active")
+  tags                   String[] @default([])
+  imageUrls              String[] @default([]) @map("image_urls")
+  adBudgetLimit          Int?     @map("ad_budget_limit")
+  isActive               Boolean  @default(true) @map("is_active")
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
@@ -579,36 +554,36 @@ model MasterProductAbcFormulaState {
 /// @namespace Core
 /// @describe Current Products-owned normal absolute ABC evaluation for one MasterProduct.
 model MasterProductAbcEvaluation {
-  id                           String   @id @default(uuid()) @db.Uuid
-  organizationId               String   @map("organization_id") @db.Uuid
-  masterProductId              String   @map("master_product_id") @db.Uuid
-  formulaVersionId             String   @map("formula_version_id") @db.Uuid
-  abcGrade                     String   @map("abc_grade")
-  weightedRevenue              Decimal  @map("weighted_revenue") @db.Decimal(20, 6)
-  weightedOrderTimeSupplyCost  Decimal  @map("weighted_order_time_supply_cost") @db.Decimal(20, 6)
-  weightedAdvertisingSpend     Decimal  @map("weighted_advertising_spend") @db.Decimal(20, 6)
-  weightedOperatingProfit      Decimal  @map("weighted_operating_profit") @db.Decimal(20, 6)
-  operatingProfitVelocity30    Decimal  @map("operating_profit_velocity_30") @db.Decimal(20, 6)
-  operatingMargin              Decimal? @map("operating_margin") @db.Decimal(12, 6)
-  lossPersistence              Decimal  @map("loss_persistence") @db.Decimal(12, 6)
-  profitScore                  Decimal  @map("profit_score") @db.Decimal(12, 6)
-  marginScore                  Decimal? @map("margin_score") @db.Decimal(12, 6)
-  consistencyScore             Decimal  @map("consistency_score") @db.Decimal(12, 6)
-  economicScore                Decimal  @map("economic_score") @db.Decimal(12, 6)
-  validObservationDays         Int      @map("valid_observation_days")
-  formulaRevision              Int      @map("formula_revision")
-  publicationRevision          Int      @map("publication_revision")
-  gradeBasisCutoffDate         DateTime @map("grade_basis_cutoff_date") @db.Date
+  id                           String    @id @default(uuid()) @db.Uuid
+  organizationId               String    @map("organization_id") @db.Uuid
+  masterProductId              String    @map("master_product_id") @db.Uuid
+  formulaVersionId             String    @map("formula_version_id") @db.Uuid
+  abcGrade                     String    @map("abc_grade")
+  weightedRevenue              Decimal   @map("weighted_revenue") @db.Decimal(20, 6)
+  weightedOrderTimeSupplyCost  Decimal   @map("weighted_order_time_supply_cost") @db.Decimal(20, 6)
+  weightedAdvertisingSpend     Decimal   @map("weighted_advertising_spend") @db.Decimal(20, 6)
+  weightedOperatingProfit      Decimal   @map("weighted_operating_profit") @db.Decimal(20, 6)
+  operatingProfitVelocity30    Decimal   @map("operating_profit_velocity_30") @db.Decimal(20, 6)
+  operatingMargin              Decimal?  @map("operating_margin") @db.Decimal(12, 6)
+  lossPersistence              Decimal   @map("loss_persistence") @db.Decimal(12, 6)
+  profitScore                  Decimal   @map("profit_score") @db.Decimal(12, 6)
+  marginScore                  Decimal?  @map("margin_score") @db.Decimal(12, 6)
+  consistencyScore             Decimal   @map("consistency_score") @db.Decimal(12, 6)
+  economicScore                Decimal   @map("economic_score") @db.Decimal(12, 6)
+  validObservationDays         Int       @map("valid_observation_days")
+  formulaRevision              Int       @map("formula_revision")
+  publicationRevision          Int       @map("publication_revision")
+  gradeBasisCutoffDate         DateTime  @map("grade_basis_cutoff_date") @db.Date
   /// Normalized verified sale-start provenance used by this evaluation. It is
   /// nullable only so pre-cutover rows remain readable; new publications must
   /// always provide it.
   saleStartDate                DateTime? @map("sale_start_date") @db.Date
-  sellpiaSourceImportRunId     String   @map("sellpia_source_import_run_id") @db.Uuid
-  advertisingSourceImportRunId String   @map("advertising_source_import_run_id") @db.Uuid
-  sellpiaGeneration            BigInt   @map("sellpia_generation") @db.BigInt
-  advertisingGeneration        BigInt   @map("advertising_generation") @db.BigInt
-  mappingGeneration            BigInt   @map("mapping_generation") @db.BigInt
-  calculatedAt                 DateTime @default(now()) @map("calculated_at") @db.Timestamptz
+  sellpiaSourceImportRunId     String    @map("sellpia_source_import_run_id") @db.Uuid
+  advertisingSourceImportRunId String    @map("advertising_source_import_run_id") @db.Uuid
+  sellpiaGeneration            BigInt    @map("sellpia_generation") @db.BigInt
+  advertisingGeneration        BigInt    @map("advertising_generation") @db.BigInt
+  mappingGeneration            BigInt    @map("mapping_generation") @db.BigInt
+  calculatedAt                 DateTime  @default(now()) @map("calculated_at") @db.Timestamptz
 
   organization               Organization                   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   masterProduct              MasterProduct                  @relation(fields: [masterProductId, organizationId], references: [id, organizationId], onDelete: Cascade)
@@ -748,20 +723,16 @@ model ChannelListingOption {
   listingId      String @map("listing_id") @db.Uuid
   organizationId String @map("organization_id") @db.Uuid
 
-  externalOptionId  String   @map("external_option_id") @db.VarChar(60)
-  itemName          String?  @map("item_name")
-  salePrice         Int?     @map("sale_price")
-  costPriceOverride Int?     @map("cost_price_override")
-  commissionRate    Decimal? @map("commission_rate") @db.Decimal(5, 4)
-  shippingCost      Int?     @map("shipping_cost")
-  otherCost         Int?     @map("other_cost")
-  sellerSku         String?  @map("seller_sku")
-  barcode           String?
-  modelNumber       String?  @map("model_number")
-  status            String?
-  attributesJson    Json?    @map("attributes_json")
-  rawJson           Json?    @map("raw_json")
-  lastImportRunId   String?  @map("last_import_run_id") @db.Uuid
+  externalOptionId String  @map("external_option_id") @db.VarChar(60)
+  itemName         String? @map("item_name")
+  salePrice        Int?    @map("sale_price")
+  sellerSku        String? @map("seller_sku")
+  barcode          String?
+  modelNumber      String? @map("model_number")
+  status           String?
+  attributesJson   Json?   @map("attributes_json")
+  rawJson          Json?   @map("raw_json")
+  lastImportRunId  String? @map("last_import_run_id") @db.Uuid
 
   isActive Boolean @default(true) @map("is_active")
 
@@ -773,7 +744,6 @@ model ChannelListingOption {
   inventoryComponents             ChannelListingOptionInventoryComponent[]
   lastImportRun                   SourceImportRun?                         @relation("ChannelSkuLastImport", fields: [lastImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
   orderLineItems                  OrderLineItem[]
-  orderReturnLineItems            OrderReturnLineItem[]
   rocketPurchaseConfirmationLines RocketPurchaseConfirmationLine[]
   adActions                       AdAction[]
 

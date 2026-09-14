@@ -6,7 +6,7 @@
  *
  * Usage:
  *   import { setupMaster, setupProductOption, setupChannelListing,
- *            seedOrderWithLineItems, seedReturn, seedAd } from '../test-helpers/finance-seeds';
+ *            seedOrderWithLineItems, seedAd } from '../test-helpers/finance-seeds';
  */
 import type { PrismaClient } from '@prisma/client';
 
@@ -25,7 +25,6 @@ export async function setupMaster(
     name: string;
     legacyCode?: string | null;
     category?: string | null;
-    abcGrade?: string | null;
     thumbnailUrl?: string | null;
   },
 ): Promise<{ id: string }> {
@@ -35,7 +34,6 @@ export async function setupMaster(
       code: opts.code,
       name: opts.name,
       category: opts.category ?? null,
-      abcGrade: opts.abcGrade ?? null,
       imageUrls: opts.thumbnailUrl ? [opts.thumbnailUrl] : [],
       tags: opts.legacyCode ? [`legacy:${opts.legacyCode}`] : [],
     },
@@ -137,7 +135,6 @@ export async function setupChannelListing(
     select: {
       name: true,
       category: true,
-      abcGrade: true,
       imageUrls: true,
     },
   });
@@ -433,69 +430,6 @@ export async function seedCompletedOrderCollection(
     });
     return run.id;
   });
-}
-
-// ---------------------------------------------------------------------------
-// seedReturn — OrderReturn (+ optional OrderReturnLineItem rows)
-// ---------------------------------------------------------------------------
-
-/**
- * Create an OrderReturn with optional ReturnLineItems.
- * `orderId: null` creates an orphan return.
- * Returns the created return ID.
- */
-export async function seedReturn(
-  prisma: PrismaClient,
-  opts: {
-    organizationId: string;
-    orderId: string | null;
-    requestedAt: string;       // ISO date string
-    lineItems?: Array<{ orderLineItemId: string | null }>;
-  },
-): Promise<string> {
-  const channelAccountId = opts.orderId
-    ? (
-        await prisma.order.findFirstOrThrow({
-          where: { id: opts.orderId, organizationId: opts.organizationId },
-          select: { channelAccountId: true },
-        })
-      ).channelAccountId
-    : (
-        await prisma.channelAccount.findFirstOrThrow({
-          where: { organizationId: opts.organizationId, channel: 'coupang' },
-          select: { id: true },
-        })
-      ).id;
-  const orderReturn = await prisma.orderReturn.create({
-    data: {
-      organizationId: opts.organizationId,
-      orderId: opts.orderId,
-      channelAccountId,
-      externalReturnId: `RET-${Date.now()}-${Math.random()}`,
-      requestedAt: new Date(opts.requestedAt),
-      status: 'requested',
-      reason: 'test',
-      type: 'RETURN',
-      faultBy: 'CUSTOMER',
-    },
-    select: { id: true },
-  });
-
-  if (opts.lineItems && opts.lineItems.length > 0) {
-    for (const li of opts.lineItems) {
-      await prisma.orderReturnLineItem.create({
-        data: {
-          organizationId: opts.organizationId,
-          returnId: orderReturn.id,
-          orderLineItemId: li.orderLineItemId,
-          productName: 'returned item',
-          quantity: 1,
-        },
-      });
-    }
-  }
-
-  return orderReturn.id;
 }
 
 // ---------------------------------------------------------------------------

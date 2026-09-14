@@ -156,7 +156,6 @@
       "prismaType": "OrderLineItem",
       "relationNames": [
         "lineItems",
-        "orderLineItem",
         "orderLineItems"
       ],
       "reader": "apps/server/src/orders/read/order-facts.reader.ts",

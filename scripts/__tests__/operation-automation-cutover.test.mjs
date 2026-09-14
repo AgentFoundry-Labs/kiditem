@@ -237,7 +237,7 @@ test("reports the retired generic advertising write ingress without banning its 
   );
 });
 
-test("checks retired Prisma models while tolerating the ActionTask declaration and commerce", async () => {
+test("checks retired Prisma models, including the dropped ActionTask, while tolerating commerce", async () => {
   await withFixture(
     {
       "prisma/models/system.prisma": [
@@ -256,6 +256,9 @@ test("checks retired Prisma models while tolerating the ActionTask declaration a
         "apps/server/src/tasks.ts:1:ActionTask",
         "prisma/models/system.prisma:1:OperationRun",
         "prisma/models/system.prisma:2:Marketplace",
+        "prisma/models/system.prisma:3:ActionTask",
+        "prisma/models/system.prisma:4:ActionTask",
+        "prisma/models/system.prisma:4:actionTasks",
       ]);
     },
   );

@@ -24,27 +24,24 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 
 | Domain | Models |
 |---|---:|
-| [Advertising](erd/advertising.md) | 5 |
+| [Advertising](erd/advertising.md) | 2 |
 | [AgentOS](erd/agentos.md) | 1 |
 | [AI](erd/ai.md) | 22 |
-| [Channels](erd/channels.md) | 23 |
+| [Channels](erd/channels.md) | 22 |
 | [Core](erd/core.md) | 16 |
 | [Finance](erd/finance.md) | 1 |
 | [Inventory](erd/inventory.md) | 6 |
-| [Orders](erd/orders.md) | 13 |
+| [Orders](erd/orders.md) | 11 |
 | [Sourcing](erd/sourcing.md) | 35 |
 | [Supply](erd/supply.md) | 13 |
-| [System](erd/system.md) | 8 |
+| [System](erd/system.md) | 4 |
 
 ## Model Index
 
 | Model | Domain | Table | Description |
 |---|---:|---|---|
-| AdAction | Advertising | `ad_actions` | 광고 자동 실행 큐. ChannelAdTargetDailySnapshot→AdAction→ExecutionTask→ExecutionLog 파이프라인. |
-| ExecutionLog | Advertising | `execution_logs` | - |
+| AdAction | Advertising | `ad_actions` | 광고 자동 실행 큐. ChannelAdTargetDailySnapshot→AdAction→ExecutionTask 파이프라인. 실행 상태는 최신 ExecutionTask에서 파생한다. |
 | ExecutionTask | Advertising | `execution_tasks` | - |
-| ExecutionWorker | Advertising | `execution_workers` | - |
-| ScrapeTarget | Advertising | `scrape_targets` | - |
 | CapabilityInvocation | AgentOS | `capability_invocations` | Exact request-driven mutation admission and replay receipt. |
 | AiDirectJob | AI | `ai_direct_jobs` | Durable queue and projection checkpoint for direct thumbnail, detail-page, and image-edit model work. |
 | ContentAsset | AI | `content_assets` | Organization-scoped managed media with optional generation-group provenance. |
@@ -68,7 +65,6 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | ThumbnailRegistrationAttempt | AI | `thumbnail_registration_attempts` | Wing 등 외부 채널 등록 시도 이력. 마지막 상태만 덮어쓰지 않고 재시도/실패 원인을 보존한다. |
 | ThumbnailTracking | AI | `thumbnail_trackings` | - |
 | ThumbnailTrackingDailySnapshot | AI | `thumbnail_tracking_daily_snapshots` | 적용된 썸네일의 30일 매출/판매량 시계열 — playwriter 로 Wing vendor-inventory 검색해서 매일 한 row 씩 적재. |
-| ChannelAccountDailyKpiSnapshot | Channels | `channel_account_daily_kpi_snapshots` | 채널 계정/스토어 단위 KPI 일별 정규화 fact (listing 에 귀속되지 않는 dashboard KPI 용). |
 | ChannelAdListingProductMonthlyFact | Channels | `channel_ad_listing_product_monthly_facts` | Immutable monthly recipe basis and integer-KRW allocation for one completed advertising source generation. |
 | ChannelAdTargetDailySnapshot | Channels | `channel_ad_target_daily_snapshots` | 채널 광고 타겟(캠페인/키워드/상품)의 일별 정규화 fact. 기간 view 는 SUM 으로 derive. |
 | ChannelListingDailySnapshot | Channels | `channel_listing_daily_snapshots` | 채널 listing 의 일별 정규화 상태. 반복 scrape 는 businessDate row 를 upsert. |
@@ -120,8 +116,6 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | Order | Orders | `orders` | 채널-agnostic 주문 aggregate. Coupang 등 채널별 raw payload 는 metadata Json. 라인 아이템은 OrderLineItem. |
 | OrderCollectionArtifact | Orders | `order_collection_artifacts` | Retained collection input evidence; converted downloads are not persisted and lifecycle belongs to SourceImportRun. |
 | OrderLineItem | Orders | `order_line_items` | 주문 라인 아이템 — 1 SKU 단위. listingOption → option 으로 SKU 해상도. order FK 는 organizationId 를 함께 참조해 cross-organization mismatch 를 DB 가 차단한다. |
-| OrderReturn | Orders | `order_returns` | 채널-agnostic 반품 aggregate. 반품 item 은 OrderReturnLineItem 으로 정규화. type=RETURN/EXCHANGE 구분 first-class. |
-| OrderReturnLineItem | Orders | `order_return_line_items` | 반품 라인 아이템 — 반품 건 내 SKU 단위 상세. return FK 는 organizationId 를 함께 참조해 cross-organization mismatch 를 DB 가 차단한다. |
 | Review | Orders | `reviews` | 채널 상품평 원본 1건. 쿠팡은 Wing 상품평 화면(`/tenants/cs/product/review`)을 |
 | ReviewCollectionChunk | Orders | `review_collection_chunks` | Fenced, organization-scoped review collection chunks. Chunks are staging evidence only and are deleted in the terminal publication transaction. |
 | SellpiaOrderTransmissionIntent | Orders | `sellpia_order_transmission_intents` | Organization-scoped idempotency fence for browser Sellpia order transmission. It does not represent or mutate inventory freshness. |
@@ -175,53 +169,15 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | SupplierOfferSkuSnapshot | Supply | `supplier_offer_sku_snapshots` | Immutable observed supplier-offer identity and commercial terms before a Sellpia inventory SKU exists. identityStatus is offer_only or exact_variant. |
 | SupplierPayment | Supply | `supplier_payments` | - |
 | SupplierProduct | Supply | `supplier_products` | 공급사별 Sellpia 물리 상품 단위 공급가/주공급처 정책. |
-| ActionTask | System | `action_tasks` | 액션 보드 (수동 할일 관리). |
-| ActivityEvent | System | `activity_events` | - |
 | Alert | System | `alerts` | - |
-| BusinessRule | System | `business_rules` | 온톨로지 룰 엔진 (조건→액션 자동화). |
 | DataMigrationRun | System | `data_migration_runs` | 운영 data migration ledger. Schema-only db push와 별도로 영속 데이터 보정 실행 여부를 기록한다. |
 | FeatureGate | System | `feature_gates` | 피처 플래그. allowedOrganizations: string[] 로 회사별 enable. |
-| RulesEvaluationApplication | System | `rules_evaluation_applications` | Exactly-once Rules result-application receipt for one organization-scoped request. |
 | SystemSetting | System | `system_settings` | - |
 
 ## Mermaid ER Diagram
 
 ```mermaid
 erDiagram
-  ActionTask {
-    String id PK
-    String organizationId FK
-    String taskKey
-    String type
-    String label
-    String detail
-    String where
-    String href
-    String priority
-    String status
-    String role
-    Json apiCall
-    Json result
-    Json notes
-    Json activityLog
-    DateTime date
-    String assigneeUserId FK
-    String targetType
-    String targetId
-    DateTime createdAt
-    DateTime updatedAt
-  }
-  ActivityEvent {
-    String id PK
-    String organizationId FK
-    String objectType
-    String objectId
-    String eventType
-    String source
-    String title
-    Json data
-    DateTime createdAt
-  }
   AdAction {
     String id PK
     String organizationId FK
@@ -238,12 +194,7 @@ erDiagram
     Int proposedValue
     Json payload
     String approvalStatus
-    String executeStatus
-    Json beforeJson
-    Json afterJson
-    String errorMessage
     DateTime approvedAt
-    DateTime executedAt
     DateTime createdAt
   }
   AiDirectJob {
@@ -273,19 +224,13 @@ erDiagram
     String attemptId
     String targetType
     String targetId
-    String kind
     String status
     String type
-    String severity
     String title
     String message
-    Boolean isRead
     DateTime readAt
     String sourceType
-    String sourceId
-    String actorUserId FK
     String href
-    Json metadata
     DateTime createdAt
     DateTime updatedAt
   }
@@ -296,26 +241,6 @@ erDiagram
     DateTime createdAt
     DateTime expiresAt
     DateTime revokedAt
-  }
-  BusinessRule {
-    String id PK
-    String organizationId FK
-    String name
-    String displayName
-    String description
-    String category
-    String severity
-    String field
-    String operator
-    Json threshold
-    String messageTemplate
-    String actionType
-    Json conditions
-    Boolean autoExecute
-    Boolean active
-    Int sortOrder
-    DateTime createdAt
-    DateTime updatedAt
   }
   CandidateImage {
     String id PK
@@ -382,25 +307,6 @@ erDiagram
     String status
     Boolean isPrimary
     Json config
-    DateTime createdAt
-    DateTime updatedAt
-  }
-  ChannelAccountDailyKpiSnapshot {
-    String id PK
-    String organizationId FK
-    String channelAccountId FK
-    String channel
-    String source
-    String kpiType
-    DateTime businessDate
-    DateTime periodStart
-    DateTime periodEnd
-    Json normalizedJson
-    Json rawJson
-    String rawSnapshotId FK
-    Int sampleCount
-    DateTime firstObservedAt
-    DateTime lastObservedAt
     DateTime createdAt
     DateTime updatedAt
   }
@@ -505,36 +411,12 @@ erDiagram
     Int winnerGapPrice
     Int productRank
     Int categoryRank
-    Int adSpend
-    Int adRevenue
-    Int adImpressions
-    Int adClicks
-    Int adConversions
-    Int adOrders
-    Int adDirectOrders1d
-    Int adIndirectOrders1d
-    Int adDirectQty1d
-    Int adIndirectQty1d
-    Int adDirectRevenue1d
-    Int adIndirectRevenue1d
-    Int adTotalOrders14d
-    Int adDirectOrders14d
-    Int adIndirectOrders14d
-    Int adTotalQty14d
-    Int adDirectQty14d
-    Int adIndirectQty14d
-    Int adTotalRevenue14d
-    Int adDirectRevenue14d
-    Int adIndirectRevenue14d
-    String adCoverageStatus
-    DateTime adObservedAt
     Int trafficVisitors
     Int trafficViews
     Int trafficCartAdds
     Int trafficOrders
     Int trafficSalesQty
     Int trafficRevenue
-    String trafficCoverageStatus
     DateTime trafficObservedAt
     Int sampleCount
     DateTime firstObservedAt
@@ -574,10 +456,6 @@ erDiagram
     String externalOptionId
     String itemName
     Int salePrice
-    Int costPriceOverride
-    Decimal commissionRate
-    Int shippingCost
-    Int otherCost
     String sellerSku
     String barcode
     String modelNumber
@@ -663,10 +541,6 @@ erDiagram
     String targetUrl
     String period
     String parserVersion
-    Int rowCount
-    Int matchedCount
-    Int unmatchedCount
-    Int errorCount
     DateTime startedAt
     DateTime finishedAt
     DateTime createdAt
@@ -1059,41 +933,15 @@ erDiagram
     String createdByUserId FK
     DateTime createdAt
   }
-  ExecutionLog {
-    String id PK
-    String taskId FK
-    String level
-    String step
-    String message
-    Json payloadJson
-    DateTime createdAt
-  }
   ExecutionTask {
     String id PK
     String actionId FK
-    String workerId FK
     String status
-    DateTime leasedAt
     DateTime startedAt
     DateTime finishedAt
-    Int attempt
     Json beforeJson
     Json afterJson
     String errorMessage
-    String screenshotPath
-    DateTime createdAt
-  }
-  ExecutionWorker {
-    String id PK
-    String organizationId FK
-    String workerKey UK
-    String label
-    String status
-    String currentTaskRef
-    String currentUrl
-    String currentPageType
-    Json metaJson
-    DateTime lastHeartbeatAt
     DateTime createdAt
   }
   FeatureGate {
@@ -1169,12 +1017,7 @@ erDiagram
     String brand
     StringArray tags
     StringArray imageUrls
-    String abcGrade
-    String profitTag
-    String adTier
     Int adBudgetLimit
-    Int healthScore
-    DateTime healthUpdatedAt
     Boolean isActive
     DateTime createdAt
     DateTime updatedAt
@@ -1336,39 +1179,6 @@ erDiagram
     Json metadata
     DateTime createdAt
     DateTime updatedAt
-  }
-  OrderReturn {
-    String id PK
-    String organizationId FK
-    String orderId FK
-    String channelAccountId FK
-    String externalReturnId
-    String type
-    String status
-    String reason
-    String reasonCategory1
-    String reasonCategory2
-    String faultBy
-    String requesterName
-    Int enclosePrice
-    DateTime requestedAt
-    DateTime completedAt
-    Json metadata
-    DateTime createdAt
-    DateTime updatedAt
-  }
-  OrderReturnLineItem {
-    String id PK
-    String organizationId FK
-    String returnId FK
-    String orderLineItemId FK
-    String listingOptionId FK
-    String productName
-    String optionName
-    String externalSku
-    Int quantity
-    Json metadata
-    DateTime createdAt
   }
   Organization {
     String id PK
@@ -1599,7 +1409,6 @@ erDiagram
     DateTime plannedDeliveryDate
     String poStatusCode
     String businessDateBasis
-    Boolean hasConfirmation
     String center
     String inboundType
     String poStatus
@@ -1636,21 +1445,14 @@ erDiagram
     String idempotencyKey
     String requestHash
     BigInt freshnessGeneration
-    String status
     String confirmedBy FK
     DateTime confirmedAt
     String artifactFileName
     String artifactContentType
     String artifactSha256
     Bytes artifactBytes
-    DateTime artifactStoredAt
-    DateTime ordersCollectedAt
     DateTime completedAt
-    String failureCode
-    String failureMessage
-    String releasedBy FK
     DateTime releasedAt
-    String releaseReason
     DateTime createdAt
     DateTime updatedAt
   }
@@ -1687,19 +1489,9 @@ erDiagram
     String sourceImportRunId FK
     String transport
     String intentKey
-    Int matchedLineCount
     DateTime observedAt
     DateTime createdAt
     DateTime updatedAt
-  }
-  RulesEvaluationApplication {
-    String id PK
-    String organizationId FK
-    String requestId
-    Int productCount
-    Int violationCount
-    Int criticalCount
-    DateTime appliedAt
   }
   SalesPlan {
     String id PK
@@ -1708,22 +1500,9 @@ erDiagram
     Int targetRevenue
     Int targetOrders
     Int targetProfit
-    Int actualRevenue
-    Int actualOrders
-    Int actualProfit
     String notes
     DateTime createdAt
     DateTime updatedAt
-  }
-  ScrapeTarget {
-    String id PK
-    String organizationId FK
-    String url
-    String label
-    String category
-    Boolean isActive
-    DateTime lastScrapedAt
-    DateTime createdAt
   }
   SellpiaInventorySku {
     String id PK
@@ -1762,7 +1541,6 @@ erDiagram
     BigInt verifiedGeneration
     BigInt failedGeneration
     DateTime lastAttemptAt
-    String lastAttemptStatus
     String lastAttemptSyncScope
     String lastErrorCode
     String lastErrorMessage
@@ -1805,7 +1583,6 @@ erDiagram
     DateTime preparedAt
     DateTime finalizedAt
     DateTime abortedAt
-    BigInt finalizedGeneration
     DateTime createdAt
     DateTime updatedAt
   }
@@ -2000,7 +1777,6 @@ erDiagram
     String requestedByUserId FK
     String idempotencyKey
     String requestHash
-    String decisionMode
     DateTime businessDate
     DateTime decisionAt
     DateTime evidenceCutoffAt
@@ -2013,10 +1789,6 @@ erDiagram
     String modelPipeline
     String modelGeneratorVersion
     DateTime expiresAt
-    String heuristicArtifactHash
-    Int capitalBudgetKrw
-    Int testSlotLimit
-    String constraintSetHash
     DateTime createdAt
   }
   SourcingDecisionBatchItem {
@@ -2033,7 +1805,6 @@ erDiagram
     String decision
     Boolean executionEligible
     String confidenceKind
-    Decimal policyProbability
     Int evidenceFamilyCount
     Int evidencePlatformCount
     Boolean hasCoupangEvidence
@@ -2041,12 +1812,9 @@ erDiagram
     String nextEvidenceAction
     Decimal heuristicScore
     Decimal decisionConfidence
-    Int expectedContributionProfit90dKrw
-    Int capitalAtRiskKrw
     StringArray reasonCodes
     StringArray riskCodes
     Json modelOutput
-    String featureManifestHash
     DateTime createdAt
   }
   SourcingDecisionEvidence {
@@ -2067,7 +1835,6 @@ erDiagram
     DateTime leaseExpiresAt
     DateTime sourceControlCheckedAt
     Int generation
-    DateTime cancelRequestedAt
     Int staleDiscardedCount
     String targetKey
     String idempotencyKey
@@ -2083,8 +1850,6 @@ erDiagram
     Boolean isCurrentComplete
     DateTime sourceWindowStartAt
     DateTime sourceWindowEndAt
-    String watermarkBefore
-    String watermarkAfter
     Int discoveredCount
     Int acceptedCount
     Int rejectedCount
@@ -2122,12 +1887,10 @@ erDiagram
     DateTime availableAt
     DateTime revisionAt
     DateTime businessDate
-    String sourceRevisionKey
     String sourceUrl
     String payloadHash
     String envelopeHash
     Json payload
-    String rawArtifactRef
     DateTime ingestedAt
     DateTime createdAt
   }
@@ -2304,7 +2067,6 @@ erDiagram
     String status
     DateTime requestedAt
     DateTime cancelledAt
-    String cancelReason
     DateTime createdAt
     DateTime updatedAt
   }
@@ -2339,7 +2101,6 @@ erDiagram
     Int score
     String summary
     Json details
-    DateTime evaluatedAt
     DateTime createdAt
   }
   SourcingValidationCheckEvidence {
@@ -2675,7 +2436,6 @@ erDiagram
     Int reviewCount
     Float ratingAvg
     Json rawCellTexts
-    String scrapeStatus
     String errorMessage
     DateTime createdAt
   }
@@ -2740,7 +2500,6 @@ erDiagram
   }
   AdAction ||--o{ ExecutionTask : "action"
   CandidateImage o|--o{ ThumbnailGenerationInputImage : "candidateImage"
-  ChannelAccount ||--o{ ChannelAccountDailyKpiSnapshot : "channelAccount"
   ChannelAccount ||--o{ ChannelAdListingProductMonthlyFact : "channelAccount"
   ChannelAccount ||--o{ ChannelAdTargetDailySnapshot : "channelAccount"
   ChannelAccount ||--o{ ChannelListing : "channelAccount"
@@ -2748,7 +2507,6 @@ erDiagram
   ChannelAccount ||--o{ ChannelScrapeRun : "channelAccount"
   ChannelAccount ||--o{ CoupangDirectTransportReceipt : "channelAccount"
   ChannelAccount ||--o{ Order : "channelAccount"
-  ChannelAccount ||--o{ OrderReturn : "channelAccount"
   ChannelAccount ||--o{ ProductPreparation : "channelAccount"
   ChannelAccount ||--o{ ProductRegistrationExecution : "channelAccount"
   ChannelAccount ||--o{ RocketPoCatalogSnapshot : "channelAccount"
@@ -2777,11 +2535,9 @@ erDiagram
   ChannelListingOption ||--o{ ChannelListingOptionInventoryComponent : "channelListingOption"
   ChannelListingOption o|--o{ ChannelScrapeSnapshot : "listingOption"
   ChannelListingOption o|--o{ OrderLineItem : "listingOption"
-  ChannelListingOption o|--o{ OrderReturnLineItem : "listingOption"
   ChannelListingOption o|--o{ RocketPurchaseConfirmationLine : "channelListingOption"
   ChannelScrapeRun ||--o{ ChannelScrapeChunk : "scrapeRun"
   ChannelScrapeRun o|--o{ ChannelScrapeSnapshot : "scrapeRun"
-  ChannelScrapeSnapshot o|--o{ ChannelAccountDailyKpiSnapshot : "rawSnapshot"
   ChannelScrapeSnapshot o|--o{ ChannelAdTargetDailySnapshot : "rawSnapshot"
   ChannelScrapeSnapshot o|--o{ ChannelListingDailySnapshot : "rawSnapshot"
   ChannelScrapeSnapshot o|--o{ ChannelListingOptionDailySnapshot : "rawSnapshot"
@@ -2819,8 +2575,6 @@ erDiagram
   DetailPageRevision ||--o{ DetailPageImageArtifact : "revision"
   DetailPageRevision ||--o{ DetailPageImageRenderIntent : "revision"
   DetailPageRevision o|--o{ ProductPreparation : "selectedDetailPageRevision"
-  ExecutionTask ||--o{ ExecutionLog : "task"
-  ExecutionWorker o|--o{ ExecutionTask : "worker"
   MasterProduct ||--o{ ChannelAdListingProductMonthlyFact : "masterProduct"
   MasterProduct o|--o{ ChannelListing : "masterProduct"
   MasterProduct ||--|| MasterProductAbcEvaluation : "masterProduct"
@@ -2832,20 +2586,13 @@ erDiagram
   MasterProductAbcFormulaVersion o|--o| MasterProductAbcFormulaState : "activeFormulaVersion"
   MasterProductAbcFormulaVersion ||--o{ MasterProductAbcGradeHistory : "formulaVersion"
   Order ||--o{ OrderLineItem : "order"
-  Order o|--o{ OrderReturn : "order"
-  OrderLineItem o|--o{ OrderReturnLineItem : "orderLineItem"
-  OrderReturn ||--o{ OrderReturnLineItem : "return"
-  Organization ||--o{ ActionTask : "organization"
-  Organization ||--o{ ActivityEvent : "organization"
   Organization ||--o{ AdAction : "organization"
   Organization ||--o{ AiDirectJob : "organization"
   Organization ||--o{ Alert : "organization"
-  Organization ||--o{ BusinessRule : "organization"
   Organization ||--o{ CandidateImage : "organization"
   Organization ||--o{ CapabilityInvocation : "organization"
   Organization ||--o{ CategoryMapping : "organization"
   Organization ||--o{ ChannelAccount : "organization"
-  Organization ||--o{ ChannelAccountDailyKpiSnapshot : "organization"
   Organization ||--o{ ChannelAdListingProductMonthlyFact : "organization"
   Organization ||--o{ ChannelAdTargetDailySnapshot : "organization"
   Organization ||--o{ ChannelListing : "organization"
@@ -2880,7 +2627,6 @@ erDiagram
   Organization ||--o{ DetailPageImageArtifact : "organization"
   Organization ||--o{ DetailPageImageRenderIntent : "organization"
   Organization ||--o{ DetailPageRevision : "organization"
-  Organization ||--o{ ExecutionWorker : "organization"
   Organization ||--o{ LegalEntity : "organization"
   Organization ||--o{ LiveCommerceBroadcastDailySnapshot : "organization"
   Organization ||--o{ LiveCommerceProductDailySnapshot : "organization"
@@ -2894,8 +2640,6 @@ erDiagram
   Organization ||--o{ Order : "organization"
   Organization ||--o{ OrderCollectionArtifact : "organization"
   Organization ||--o{ OrderLineItem : "organization"
-  Organization ||--o{ OrderReturn : "organization"
-  Organization ||--o{ OrderReturnLineItem : "organization"
   Organization ||--o{ OrganizationMembership : "organization"
   Organization ||--o{ ProcurementTestIntent : "organization"
   Organization ||--o{ ProductPreparation : "organization"
@@ -2912,9 +2656,7 @@ erDiagram
   Organization ||--o{ RocketPurchaseConfirmationAllocation : "organization"
   Organization ||--o{ RocketPurchaseConfirmationLine : "organization"
   Organization ||--o{ RocketPurchaseConfirmationTransmission : "organization"
-  Organization ||--o{ RulesEvaluationApplication : "organization"
   Organization ||--o{ SalesPlan : "organization"
-  Organization ||--o{ ScrapeTarget : "organization"
   Organization ||--o{ SellpiaInventorySku : "organization"
   Organization ||--o{ SellpiaInventoryState : "organization"
   Organization ||--o{ SellpiaManualMatchAlias : "organization"
@@ -3090,8 +2832,6 @@ erDiagram
   ThumbnailGenerationCandidate o|--o{ ProductPreparation : "selectedThumbnailGenerationCandidate"
   ThumbnailGenerationCandidate o|--o{ ThumbnailGenerationInputImage : "sourceThumbnailCandidate"
   ThumbnailTracking ||--o{ ThumbnailTrackingDailySnapshot : "tracking"
-  User o|--o{ ActionTask : "assigneeUser"
-  User o|--o{ Alert : "actorUser"
   User ||--o{ AuthSession : "user"
   User o|--o{ CapabilityInvocation : "approvalDecidedByUser"
   User ||--o{ CapabilityInvocation : "initiatingUser"
@@ -3114,7 +2854,6 @@ erDiagram
   User o|--o{ ProductRegistrationExecution : "requestedByUser"
   User o|--o{ PurchaseOrderSubmissionAttempt : "reconciler"
   User ||--o{ RocketPurchaseConfirmation : "confirmer"
-  User o|--o{ RocketPurchaseConfirmation : "releaser"
   User o|--o{ SellpiaInventoryState : "activeSyncOwner"
   User ||--o{ SellpiaOrderTransmissionIntent : "creator"
   User ||--o{ SellpiaOrderTransmissionIntentReconciliation : "reconciler"

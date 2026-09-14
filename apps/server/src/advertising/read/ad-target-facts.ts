@@ -45,10 +45,6 @@ import type { UpsertAdTargetDailyInput } from '../application/port/out/repositor
  *   sweep published any, else the sum of its product rows; the two are never
  *   added together. Keyword-grain rows describe a trailing window, not a day,
  *   and are never summed here.
- *
- * `channel_listing_daily_snapshots` still carries ad columns from the
- * pre-cutover writer. They are a rollup of this ledger, nobody writes them any
- * more, and no reader may touch them; their removal is a schema cutover.
  */
 
 /** The channel whose accounts the Coupang campaign sweep publishes target-day advertising for. */

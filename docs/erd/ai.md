@@ -426,7 +426,6 @@ erDiagram
     Int reviewCount
     Float ratingAvg
     Json rawCellTexts
-    String scrapeStatus
     String errorMessage
     DateTime createdAt
   }

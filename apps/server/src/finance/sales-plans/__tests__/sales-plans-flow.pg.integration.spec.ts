@@ -286,19 +286,11 @@ describe('Sales-plans flow (PG integration)', () => {
       for (const basis of [synced.actuals!.basis.revenue, synced.actuals!.basis.profit]) {
         expect(periodBasisStatus(basis)).toBe('complete');
       }
-      const reread = await prisma.salesPlan.findUniqueOrThrow({ where: { id: plan.id } });
-      expect(reread).toMatchObject({ actualRevenue: 0, actualOrders: 0, actualProfit: 0 });
     });
 
-    it('#6 an uncollected month publishes no actuals and never falls back to stored numbers', async () => {
+    it('#6 an uncollected month publishes no actuals', async () => {
       const plan = await prisma.salesPlan.create({
-        data: {
-          organizationId: TEST_ORGANIZATION_ID,
-          period: '2026-04',
-          actualRevenue: 91_000,
-          actualOrders: 9,
-          actualProfit: 21_000,
-        },
+        data: { organizationId: TEST_ORGANIZATION_ID, period: '2026-04' },
       });
 
       const synced = await planView(plan.id, TEST_ORGANIZATION_ID, AFTER_MONTHS);
@@ -310,8 +302,6 @@ describe('Sales-plans flow (PG integration)', () => {
         observedAt: null,
       });
       expect(periodBasisStatus(synced.actuals!.basis.revenue)).toBe('empty');
-      const reread = await prisma.salesPlan.findUniqueOrThrow({ where: { id: plan.id } });
-      expect(reread).toMatchObject({ actualRevenue: 91_000, actualOrders: 9, actualProfit: 21_000 });
     });
 
     it('#6b completed empty coverage publishes measured zero actuals', async () => {

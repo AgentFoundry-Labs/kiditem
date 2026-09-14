@@ -488,7 +488,7 @@ async function abcState(prisma: PrismaClient) {
     prisma.masterProductAbcEvaluation.findMany(),
     prisma.masterProductAbcGradeHistory.findMany(),
     prisma.masterProduct.findMany({
-      select: { id: true, organizationId: true, abcGrade: true },
+      select: { id: true, organizationId: true },
       orderBy: { id: 'asc' },
     }),
   ]);

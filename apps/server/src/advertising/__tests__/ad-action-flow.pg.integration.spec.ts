@@ -63,7 +63,6 @@ describe('AdAction flow (PG integration)', () => {
         organizationId: params.organizationId,
         code: `M-${unique}`,
         name: `Master ${unique}`,
-        abcGrade: null,
       },
     });
     if (params.abcGrade === 'A' || params.abcGrade === 'B' || params.abcGrade === 'C') {

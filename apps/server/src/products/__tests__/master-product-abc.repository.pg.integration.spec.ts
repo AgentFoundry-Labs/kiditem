@@ -112,8 +112,6 @@ describe('MasterProductAbcRepositoryAdapter (PostgreSQL)', () => {
     });
     // The evaluation table is the publication. The retired MasterProduct
     // cache is deliberately untouched until KID-90 removes the column.
-    await expect(prisma.masterProduct.findUniqueOrThrow({ where: { id: productId } }))
-      .resolves.toMatchObject({ abcGrade: null });
     await expect(prisma.masterProductAbcEvaluation.findUniqueOrThrow({
       where: { masterProductId_organizationId: { masterProductId: productId, organizationId: TEST_ORGANIZATION_ID } },
     })).resolves.toMatchObject({
@@ -203,14 +201,11 @@ describe('MasterProductAbcRepositoryAdapter (PostgreSQL)', () => {
     await expect(prisma.masterProductAbcEvaluation.count({
       where: { organizationId: TEST_ORGANIZATION_ID },
     })).resolves.toBe(0);
-    await expect(prisma.masterProduct.findUniqueOrThrow({ where: { id: productId } }))
-      .resolves.toMatchObject({ abcGrade: null });
   });
 
-  // The schema cutover drops the legacy product grade column. Publication
-  // compares, records history, and clears from the retained evaluations alone,
-  // so it publishes the same on a schema that no longer has the column.
-  it('publishes from retained evaluations on a schema without the legacy product grade column', async () => {
+  // Publication compares, records history, and clears from the retained
+  // evaluations alone; the product row has no grade column (KID-90).
+  it('publishes grade changes and clears from retained evaluations alone', async () => {
     const { productId, formulaVersionId, sources } = await fixture(prisma);
     await repository.publish(publication({
       formulaVersionId,
@@ -218,15 +213,14 @@ describe('MasterProductAbcRepositoryAdapter (PostgreSQL)', () => {
       targetProductIds: [productId],
       candidates: [candidate(productId, sources, 'B')],
     }));
-    const restore = 'restore master_products.abc_grade';
+    const restore = 'roll back both publications';
 
     await expect(prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`ALTER TABLE master_products DROP COLUMN IF EXISTS abc_grade`;
-      const withoutColumn = new MasterProductAbcRepositoryAdapter({
+      const inTransaction = new MasterProductAbcRepositoryAdapter({
         $transaction: (run: (client: Prisma.TransactionClient) => Promise<unknown>) => run(tx),
       } as never);
 
-      await expect(withoutColumn.publish(publication({
+      await expect(inTransaction.publish(publication({
         formulaVersionId,
         expectedPublicationRevision: 1,
         sourceFences: sources,
@@ -244,7 +238,7 @@ describe('MasterProductAbcRepositoryAdapter (PostgreSQL)', () => {
         where: { id: productId, organizationId: TEST_ORGANIZATION_ID },
         data: { isActive: false },
       });
-      await expect(withoutColumn.publish(publication({
+      await expect(inTransaction.publish(publication({
         formulaVersionId,
         expectedPublicationRevision: 2,
         sourceFences: sources,
@@ -293,8 +287,6 @@ describe('MasterProductAbcRepositoryAdapter (PostgreSQL)', () => {
     await expect(prisma.masterProductAbcGradeHistory.count({
       where: { organizationId: TEST_ORGANIZATION_ID },
     })).resolves.toBe(0);
-    await expect(prisma.masterProduct.findUniqueOrThrow({ where: { id: productId } }))
-      .resolves.toMatchObject({ abcGrade: null });
     await expect(repository.readPublication(TEST_ORGANIZATION_ID, [productId]))
       .resolves.toMatchObject({
         publication: { publicationRevision: 2 },
@@ -343,8 +335,6 @@ describe('MasterProductAbcRepositoryAdapter (PostgreSQL)', () => {
     await expect(prisma.masterProductAbcEvaluation.count({
       where: { organizationId: TEST_ORGANIZATION_ID },
     })).resolves.toBe(0);
-    await expect(prisma.masterProduct.findUniqueOrThrow({ where: { id: productId } }))
-      .resolves.toMatchObject({ abcGrade: null });
   });
 
   it('rejects candidate provenance that does not match the selected source IDs', async () => {
@@ -404,8 +394,6 @@ describe('MasterProductAbcRepositoryAdapter (PostgreSQL)', () => {
         targetProductIds: [productId],
         candidates: [candidate(productId, sources, 'A')],
       }))).resolves.toMatchObject({ outcome: 'PUBLISHED', publicationRevision: 1 });
-      await expect(prisma.masterProduct.findUniqueOrThrow({ where: { id: productId } }))
-        .resolves.toMatchObject({ abcGrade: null });
     },
   );
 
@@ -481,7 +469,6 @@ describe('MasterProductAbcRepositoryAdapter (PostgreSQL)', () => {
         organizationId: OTHER_ORGANIZATION_ID,
         code: `FOREIGN-${randomUUID()}`,
         name: 'Foreign ABC product',
-        abcGrade: 'C',
       },
     });
     const { productId, formulaVersionId, sources } = await fixture(prisma);
@@ -493,8 +480,9 @@ describe('MasterProductAbcRepositoryAdapter (PostgreSQL)', () => {
       candidates: [candidate(productId, sources, 'A')],
     }));
 
-    await expect(prisma.masterProduct.findUniqueOrThrow({ where: { id: foreign.id } }))
-      .resolves.toMatchObject({ abcGrade: 'C' });
+    await expect(prisma.masterProductAbcEvaluation.count({
+      where: { organizationId: OTHER_ORGANIZATION_ID, masterProductId: foreign.id },
+    })).resolves.toBe(0);
     await expect(prisma.masterProductAbcFormulaState.findUnique({
       where: { organizationId: OTHER_ORGANIZATION_ID },
     })).resolves.toBeNull();
@@ -524,8 +512,6 @@ describe('MasterProductAbcRepositoryAdapter (PostgreSQL)', () => {
     await expect(prisma.masterProductAbcEvaluation.count({
       where: { organizationId: TEST_ORGANIZATION_ID },
     })).resolves.toBe(0);
-    await expect(prisma.masterProduct.findUniqueOrThrow({ where: { id: productId } }))
-      .resolves.toMatchObject({ abcGrade: null });
   });
 });
 

@@ -1,7 +1,7 @@
 // advertising.prisma — Advertising domain
 
 /// @namespace Advertising
-/// @describe 광고 자동 실행 큐. ChannelAdTargetDailySnapshot→AdAction→ExecutionTask→ExecutionLog 파이프라인.
+/// @describe 광고 자동 실행 큐. ChannelAdTargetDailySnapshot→AdAction→ExecutionTask 파이프라인. 실행 상태는 최신 ExecutionTask에서 파생한다.
 model AdAction {
   id              String    @id @default(uuid()) @db.Uuid
   organizationId  String    @map("organization_id") @db.Uuid
@@ -18,12 +18,7 @@ model AdAction {
   proposedValue   Int?      @map("proposed_value")
   payload         Json?
   approvalStatus  String    @default("pending_review") @map("approval_status")
-  executeStatus   String    @default("queued") @map("execute_status")
-  beforeJson      Json?     @map("before_json")
-  afterJson       Json?     @map("after_json")
-  errorMessage    String?   @map("error_message")
   approvedAt      DateTime? @map("approved_at") @db.Timestamptz
-  executedAt      DateTime? @map("executed_at") @db.Timestamptz
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
   organization   Organization                  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -34,7 +29,6 @@ model AdAction {
 
   @@index([listingOptionId])
   @@index([organizationId, approvalStatus])
-  @@index([executeStatus])
   @@index([externalId])
   @@index([adTargetDailyId])
   @@index([listingId])
@@ -43,84 +37,20 @@ model AdAction {
 }
 
 /// @namespace Advertising
-model ScrapeTarget {
-  id             String    @id @default(uuid()) @db.Uuid
-  organizationId String    @map("organization_id") @db.Uuid
-  url            String
-  label          String
-  category       String    @default("advertising")
-  isActive       Boolean   @default(true) @map("is_active")
-  lastScrapedAt  DateTime? @map("last_scraped_at") @db.Timestamptz
-  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
-
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-
-  @@index([organizationId, isActive])
-  @@map("scrape_targets")
-}
-
-/// @namespace Advertising
 model ExecutionTask {
-  id             String    @id @default(uuid()) @db.Uuid
-  actionId       String    @map("action_id") @db.Uuid
-  workerId       String?   @map("worker_id") @db.Uuid
-  status         String    @default("queued")
-  leasedAt       DateTime? @map("leased_at") @db.Timestamptz
-  startedAt      DateTime? @map("started_at") @db.Timestamptz
-  finishedAt     DateTime? @map("finished_at") @db.Timestamptz
-  attempt        Int       @default(0)
-  beforeJson     Json?     @map("before_json")
-  afterJson      Json?     @map("after_json")
-  errorMessage   String?   @map("error_message")
-  screenshotPath String?   @map("screenshot_path")
-  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  id           String    @id @default(uuid()) @db.Uuid
+  actionId     String    @map("action_id") @db.Uuid
+  status       String    @default("queued")
+  startedAt    DateTime? @map("started_at") @db.Timestamptz
+  finishedAt   DateTime? @map("finished_at") @db.Timestamptz
+  beforeJson   Json?     @map("before_json")
+  afterJson    Json?     @map("after_json")
+  errorMessage String?   @map("error_message")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
-  action AdAction         @relation(fields: [actionId], references: [id], onDelete: Cascade)
-  worker ExecutionWorker? @relation(fields: [workerId], references: [id], onDelete: SetNull)
-  logs   ExecutionLog[]
+  action AdAction @relation(fields: [actionId], references: [id], onDelete: Cascade)
 
   @@index([actionId, status, createdAt])
-  @@index([workerId])
   @@index([status])
   @@map("execution_tasks")
-}
-
-/// @namespace Advertising
-model ExecutionLog {
-  id          String   @id @default(uuid()) @db.Uuid
-  taskId      String   @map("task_id") @db.Uuid
-  level       String   @default("info")
-  step        String
-  message     String
-  payloadJson Json?    @map("payload_json")
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
-
-  task ExecutionTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
-
-  @@index([taskId])
-  @@index([createdAt])
-  @@map("execution_logs")
-}
-
-/// @namespace Advertising
-model ExecutionWorker {
-  id              String   @id @default(uuid()) @db.Uuid
-  organizationId  String   @map("organization_id") @db.Uuid
-  workerKey       String   @unique @map("worker_key")
-  label           String?
-  status          String   @default("online")
-  currentTaskRef  String?  @map("current_task_ref")
-  currentUrl      String?  @map("current_url")
-  currentPageType String?  @map("current_page_type")
-  metaJson        Json?    @map("meta_json")
-  lastHeartbeatAt DateTime @default(now()) @map("last_heartbeat_at") @db.Timestamptz
-  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
-
-  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  tasks        ExecutionTask[]
-
-  @@index([organizationId])
-  @@index([status])
-  @@index([lastHeartbeatAt])
-  @@map("execution_workers")
 }

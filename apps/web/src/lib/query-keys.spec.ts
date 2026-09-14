@@ -12,6 +12,8 @@ describe('retired Automation declarations', () => {
     for (const family of ['workflows', 'marketplace', 'actionTasks', 'operations']) {
       expect(queryKeys).not.toHaveProperty(family);
     }
+    // ScrapeTarget was dropped with the KID-90 schema cleanup.
+    expect(queryKeys.ads).not.toHaveProperty('scrapeTargets');
   });
 });
 

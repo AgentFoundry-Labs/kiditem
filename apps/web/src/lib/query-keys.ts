@@ -150,7 +150,6 @@ export const queryKeys = {
     recommend: (period?: string | number) => [...queryKeys.ads.all, 'recommend', period] as const,
     benchmark: (period?: string | number) => [...queryKeys.ads.all, 'benchmark', period] as const,
     collectStatus: () => [...queryKeys.ads.all, 'collect', 'status'] as const,
-    scrapeTargets: () => [...queryKeys.ads.all, 'scrapeTargets'] as const,
     keywordRank: () => [...queryKeys.ads.all, 'keywordRank'] as const,
     keywordRankTrackers: () => [...queryKeys.ads.keywordRank(), 'trackers'] as const,
     keywordRankHistory: (keyword: string, days: number) =>

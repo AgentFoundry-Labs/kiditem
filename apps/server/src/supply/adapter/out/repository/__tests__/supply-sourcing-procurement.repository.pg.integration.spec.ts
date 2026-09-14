@@ -355,7 +355,6 @@ async function seedDecisionContext(
       requestedByUserId: TEST_USER_ID,
       idempotencyKey: randomUUID(),
       requestHash: sha256(randomUUID()),
-      decisionMode: 'active',
       businessDate: CAPTURED_AT,
       decisionAt: CAPTURED_AT,
       evidenceCutoffAt: CAPTURED_AT,

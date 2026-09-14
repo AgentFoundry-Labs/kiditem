@@ -664,7 +664,6 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
         organizationId: TEST_ORGANIZATION_ID,
         code: 'KI-PRESERVED',
         name: 'Preserved product link',
-        abcGrade: 'A',
         adBudgetLimit: 55_000,
       },
     });
@@ -835,7 +834,6 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
     });
     expect(contentAfter).toEqual(contentBefore);
     expect(linkedProductAfter).toMatchObject({
-      abcGrade: 'A',
       adBudgetLimit: 55_000,
     });
   });

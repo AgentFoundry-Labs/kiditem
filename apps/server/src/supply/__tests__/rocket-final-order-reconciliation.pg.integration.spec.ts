@@ -265,7 +265,6 @@ describe('Rocket final-order reconciliation transaction (PG)', () => {
         idempotencyKey: randomUUID(),
         requestHash: 'a'.repeat(64),
         freshnessGeneration: 1n,
-        status: 'awaiting_coupang_confirmation',
         confirmedBy: TEST_USER_ID,
       },
     });
@@ -314,7 +313,6 @@ describe('Rocket final-order reconciliation transaction (PG)', () => {
         idempotencyKey: randomUUID(),
         requestHash: 'a'.repeat(64),
         freshnessGeneration: 1n,
-        status: 'awaiting_coupang_confirmation',
         confirmedBy: TEST_USER_ID,
       },
     });

@@ -938,7 +938,6 @@ describe('Coupang direct final-order collection (PG integration)', () => {
         sourceImportRunId: confirmationSource.id,
         idempotencyKey: randomUUID(),
         requestHash: 'a'.repeat(64),
-        status: 'awaiting_coupang_confirmation',
         confirmedBy: TEST_USER_ID,
       },
     });
@@ -1036,7 +1035,6 @@ describe('Coupang direct final-order collection (PG integration)', () => {
         idempotencyKey: randomUUID(),
         requestHash: 'a'.repeat(64),
         freshnessGeneration: 1n,
-        status: 'awaiting_coupang_confirmation',
         confirmedBy: TEST_USER_ID,
       },
     });

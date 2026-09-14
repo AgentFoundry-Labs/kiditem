@@ -318,7 +318,6 @@ model ThumbnailTrackingDailySnapshot {
   rawCellTexts Json? @map("raw_cell_texts")
 
   // scrape 메타
-  scrapeStatus String  @default("ok") @map("scrape_status") // ok|not_found|error
   errorMessage String? @map("error_message")
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz

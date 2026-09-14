@@ -530,14 +530,10 @@ function collectLegacyReferences(root) {
       };
       maskPattern(parsed);
     }
-    // Prisma files may still declare ActionTask until the KID-90 schema step
-    // drops it. Runtime references stay forbidden; Channels' commerce model
-    // names are not matched.
+    // The KID-90 schema step dropped ActionTask, so Prisma files are held to
+    // every retired token. Channels' commerce model names are not matched.
     const patterns = filePath.endsWith(".prisma")
-      ? [
-        ...LEGACY_TOKEN_PATTERNS.filter((pattern) => !pattern.source.includes("ActionTask") && !pattern.source.includes("actionTasks")),
-        /\bMarketplace\b/g,
-      ]
+      ? [...LEGACY_TOKEN_PATTERNS, /\bMarketplace\b/g]
       : filePath.startsWith("apps/server/src/")
         ? [...LEGACY_TOKEN_PATTERNS, ...COUPANG_SERVER_OPENAPI_PATTERNS]
         : LEGACY_TOKEN_PATTERNS;

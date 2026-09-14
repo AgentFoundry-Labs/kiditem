@@ -185,13 +185,6 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
         channel: 'coupang',
         externalId: 'EXT-TRAFFIC',
         businessDate: new Date(`${closedDate()}T00:00:00.000Z`),
-        adSpend: 77,
-        adRevenue: 88,
-        adImpressions: 99,
-        adClicks: 11,
-        adConversions: 12,
-        adOrders: 13,
-        adCoverageStatus: 'OBSERVED',
       },
     });
   });
@@ -396,8 +389,6 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
         },
       },
     })).resolves.toMatchObject({
-      adSpend: 77,
-      adRevenue: 88,
       trafficVisitors: 10,
       trafficViews: 20,
       trafficRevenue: 200,
@@ -407,9 +398,6 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
     // The account summaries stay in the owner's receipts; the retired Wing
     // account KPI blob is no longer written.
     expect(run.qualityReport).not.toHaveProperty('dashboardSummaryPublished');
-    await expect(prisma.channelAccountDailyKpiSnapshot.count({
-      where: { organizationId: ORG },
-    })).resolves.toBe(0);
   });
 
   it('requires every daily date and preserves repeated option rows across days', async () => {
@@ -688,7 +676,7 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
     expect(exact.body.reconciliation.views.periodValue).toBeNull();
   });
 
-  it('lets a complete explicit-empty replacement reset disappeared Wing rows without touching ad facts', async () => {
+  it('lets a complete explicit-empty replacement reset disappeared Wing rows', async () => {
     const plan = range();
     await collectOne(plan, summary({ visitors: 8, views: 9, revenue: 99 }));
     const replacement = await begin(plan);
@@ -707,8 +695,6 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
       trafficVisitors: 0,
       trafficViews: 0,
       trafficRevenue: 0,
-      adSpend: 77,
-      adRevenue: 88,
       metaJson: { 'traffic.currentSource': 'wing.traffic' },
     });
     const published = await request(httpUrl)
@@ -933,8 +919,6 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
     expect(statements.filter((sql) => /INSERT INTO channel_listing_daily_snapshots/i.test(sql)))
       .toHaveLength(1);
     // The retired Wing account KPI blob is no longer written.
-    expect(statements.filter((sql) => /INSERT INTO channel_account_daily_kpi_snapshots/i.test(sql)))
-      .toHaveLength(0);
     expect(statements.filter((sql) => /UPDATE channel_listing_daily_snapshots/i.test(sql)))
       .toHaveLength(0);
 
@@ -952,8 +936,6 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
       trafficVisitors: 12,
       trafficViews: 24,
       trafficRevenue: 120,
-      adSpend: 77,
-      adRevenue: 88,
       metaJson: {
         'ad.campaign': { spend: 17 },
         'inventory.stock': { available: 4 },
@@ -976,7 +958,6 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
       trafficVisitors: 0,
       trafficViews: 0,
       trafficRevenue: 0,
-      adSpend: 0,
       metaJson: {
         'ad.campaign': { spend: 17 },
         'inventory.stock': { available: 4 },
@@ -1108,7 +1089,7 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
           businessDate: new Date(`${plan.startDate}T00:00:00.000Z`),
         },
       },
-    })).resolves.toMatchObject({ trafficVisitors: 8, trafficViews: 9, trafficRevenue: 99, adSpend: 77 });
+    })).resolves.toMatchObject({ trafficVisitors: 8, trafficViews: 9, trafficRevenue: 99 });
   });
 
   it('keeps a prior complete publication when a staged replacement fails', async () => {
@@ -1130,7 +1111,7 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
           businessDate: new Date(`${plan.startDate}T00:00:00.000Z`),
         },
       },
-    })).resolves.toMatchObject({ trafficVisitors: 5, adSpend: 77 });
+    })).resolves.toMatchObject({ trafficVisitors: 5 });
     await expect(prisma.alert.count({ where: { organizationId: ORG, sourceType: 'coupang_wing_traffic' } })).resolves.toBe(1);
   });
 

@@ -124,7 +124,6 @@ describe('AdStrategy flow (PG integration)', () => {
         organizationId: params.organizationId,
         code: `M-${params.suffix}`,
         name: `Master ${params.suffix}`,
-        abcGrade: null,
       },
     });
     await seedPublishedProductAbcGrades(prisma, {

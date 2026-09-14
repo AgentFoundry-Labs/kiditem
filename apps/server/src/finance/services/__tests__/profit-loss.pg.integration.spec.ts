@@ -48,7 +48,6 @@ async function setupListing(
       code: `M-${suffix}`,
       name: `Master ${suffix}`,
       category: '유아용품',
-      abcGrade: 'A',
     },
   });
   const inventorySku = await prisma.sellpiaInventorySku.create({
@@ -515,11 +514,10 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
   });
 
   /**
-   * Returns have no owner publication, so a return row naming a collected
-   * line is not a measured return: the row publishes no return count, not 1
-   * and not 0 (ADR-0006, ADR-0009).
+   * Returns have no owner publication: nothing collects them, so a row with
+   * collected lines publishes no return count, not 0 (ADR-0006, ADR-0009).
    */
-  it('publishes no return count for a row even when a return names its collected line', async () => {
+  it('publishes no return count for a row with collected lines', async () => {
     const list = await setupListing(prisma, TEST_ORGANIZATION_ID, 'NULL-LO');
     const orderedAt = new Date('2026-04-15T00:00:00.000Z');
 
@@ -528,10 +526,7 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
       externalOrderId: 'NULL-LO-ORD',
       lineItems: [{ listingOptionId: list.listingOption.id, optionId: list.option.id, totalPrice: 10_000 }],
     });
-    const realLineItem = await prisma.orderLineItem.findFirstOrThrow({
-      where: { orderId: order.id, listingOptionId: list.listingOption.id },
-    });
-    const orphanLineItem = await prisma.orderLineItem.create({
+    await prisma.orderLineItem.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         orderId: order.id,
@@ -540,38 +535,6 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
         unitPrice: 5_000,
         totalPrice: 5_000,
         externalLineId: 'NULL-LO-LI-ORPHAN',
-      },
-    });
-    const orderReturn = await prisma.orderReturn.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        orderId: order.id,
-        channelAccountId: list.listing.channelAccountId,
-        externalReturnId: 'RET-NULL-LO',
-        status: 'return_request',
-        type: 'RETURN',
-        reason: '단순변심',
-        faultBy: 'CUSTOMER',
-        requesterName: 'Test',
-        requestedAt: orderedAt,
-      },
-    });
-    await prisma.orderReturnLineItem.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        returnId: orderReturn.id,
-        orderLineItemId: realLineItem.id,
-        productName: 'real item',
-        quantity: 1,
-      },
-    });
-    await prisma.orderReturnLineItem.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        returnId: orderReturn.id,
-        orderLineItemId: orphanLineItem.id,
-        productName: 'orphaned',
-        quantity: 1,
       },
     });
     await coverOrders();

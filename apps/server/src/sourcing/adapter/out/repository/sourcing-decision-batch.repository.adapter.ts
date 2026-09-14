@@ -106,7 +106,6 @@ export class SourcingDecisionBatchRepositoryAdapter implements SourcingDecisionB
           requestedByUserId: command.createdByUserId,
           idempotencyKey: command.batchKey,
           requestHash: command.requestHash,
-          decisionMode: command.status,
           status: command.status,
           businessDate: kstBusinessDate(command.decisionAt),
           decisionAt: command.decisionAt,
