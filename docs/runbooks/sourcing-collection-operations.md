@@ -2,317 +2,168 @@
 
 ## Purpose
 
-Use this runbook for an explicit sourcing collection, its operation status,
-Chrome-backed browser claim, cancellation, retry, provider outage, and
-lifecycle diagnosis. It is not a procedure for direct provider calls, direct
-database edits, requeueing rows, or copying browser credentials.
+Use this runbook to start, watch, and recover one explicit sourcing collection:
+a browser source attempt the KidItem OS extension collects, or the 1688 keyword
+search the API drives over the Office Chrome CDP endpoint. It is not a procedure
+for direct provider calls, direct database edits, or reviving a terminal
+attempt.
 
 The ownership flow is exact:
 
 ```text
-sourcing screen -> Operations start/read -> owner operation handler
-v2 1688 keyword handler -> Office Chrome CDP -> fenced owner commit
-remaining browser handler -> KidItem OS claim -> fenced owner ingest
-owner snapshot -> sourcing screen
-Operations never owns sourcing or Ads canonical rows
+sourcing screen CTA -> source owner attempt (SourcingEvidenceIngestionRun)
+browser source -> KidItem OS collector -> token-fenced owner terminal + Alert
+server source  -> Office Chrome CDP    -> token-fenced owner terminal + Alert
+owner COMPLETE snapshot -> sourcing screen
 ```
 
-Operations owns only the run envelope, queue, resource class, lifecycle gate,
-and browser lease. Sourcing and Advertising owner handlers validate and ingest
-their canonical rows. A screen reads an owner snapshot; an OperationRun result
-is never a substitute canonical payload.
+The source owner is the only writer of its attempts, canonical facts, and
+terminal status. A screen reads the owner's latest COMPLETE snapshot; a running
+attempt is never a substitute payload, and completing a collection publishes no
+downstream calculation.
 
 ## Human Prerequisites
 
 - Sign in to the intended KidItem organization and use its normal web session.
-- Confirm exactly one API process/container is serving the environment. API
-  replicas, rolling overlap, and a second API during maintenance are
-  unsupported.
-- Confirm the API is healthy before starting any collection. The separate Agent
-  worker may run Agent OS only; it cannot import OperationsModule or
-  query/mutate OperationRun.
-- For a browser operation, load the unified KidItem OS extension in the same
-  Chrome profile as the authenticated provider tab. Human login, OTP, CAPTCHA,
-  and account selection stay in that profile.
-- For a version-2 1688 keyword run, confirm the Office-managed Chrome CDP
-  endpoint is reachable from the API and that its persistent Office profile is
-  authenticated. Chrome is a host process, started manually or by an Office
-  startup task; the profile may be a full clone of an authenticated operator
-  profile when all source Chrome processes were stopped for the copy.
+- For a browser source, load the KidItem OS extension in the same Chrome profile
+  as the authenticated provider tab. Login, OTP, CAPTCHA, and account selection
+  remain human work in that profile.
+- For 1688 keyword search, confirm the Office Chrome CDP endpoint is reachable
+  from the API container and its persistent profile is still signed in. Chrome is
+  a host process; the API connects to it and never launches, closes, or restarts
+  it.
 - Do not record credentials, cookies, tokens, raw provider rows, or extension
   payloads in tickets, logs, screenshots, or this runbook.
 
-If the provider session or authenticated web/API stack is not available, run
-the deterministic checks in Verification and report the missing prerequisite;
-do not fabricate a Chrome action or provider outcome.
+If the provider session or the authenticated stack is unavailable, run the
+deterministic checks in Verification and report the missing prerequisite instead
+of fabricating a browser action or a provider outcome.
 
-## Environment Validation
-
-Confirm the intended runtime settings before starting collection:
+## Environment
 
 | Setting | Check |
 | --- | --- |
-| SOURCING_PLAYWRIGHT_CDP_ENDPOINT | Required for the version-2 1688 keyword domain Operation. It accepts `http`, `https`, `ws`, or `wss`; the initial Office value is `http://kiditem-office:9444`. Image matching remains AlphaShop HTTP and opens no browser tab. |
+| `SOURCING_PLAYWRIGHT_CDP_ENDPOINT` | Required for 1688 keyword search. Accepts an `http`, `https`, `ws`, or `wss` URL carrying no credentials; the Office value is `http://kiditem-office:9444`. A missing or malformed value fails the attempt with `cdp_configuration_invalid`. |
 
-Read the value from the protected API environment without printing the full
-file or copying it to an Agent/MCP child.
-
-## Lifecycle And Process Ownership
-
-The API lifecycle is:
-
-```text
-BOOTSTRAPPING -> ACCEPTING -> STOPPING -> STOPPED
-```
-
-Only ACCEPTING admits a user/schedule start, retry, server/browser claim,
-composite resume, or child creation. Other states return
-operation_server_lifecycle_unavailable. Heartbeats and reports remain
-attempt-token fenced, so stale browser work cannot publish after intake closes.
-
-### Startup: fail closed
-
-Before the HTTP listener, scheduler, worker, browser claim, or composite resume
-opens, the API:
-
-1. Reads the database clock.
-2. Cancels every old queued, waiting_runtime, waiting_dependency, or running
-   OperationRun in batches.
-3. Advances missed schedules to the first future occurrence without creating a
-   run.
-4. Verifies no old active/waiting work remains, then transitions to ACCEPTING.
-
-This startup cleanup has a code-owned 30 second total limit. Old rows receive
-the startup code operation_server_lifecycle_expired. If cleanup, the database
-clock, or a lock cannot finish in time, the API remains BOOTSTRAPPING and does
-not listen. Diagnose the database/lock problem first; do not bypass cleanup,
-manually restore queued, or start another API replica.
-
-### Graceful shutdown
-
-Shutdown moves the gate to STOPPING before draining intake. It stops the
-scheduler and worker, clears/fences browser claims, runs a first cancellation
-sweep, aborts active work, then runs a final sweep for a boundary commit. Both
-sweeps use operation_server_shutdown. Provider/browser cleanup has a code-owned
-5 second total limit. A failed or incomplete sweep emits
-operation_server_lifecycle_cleanup_failed and the process must not claim a
-clean shutdown.
-
-A cancelled row is immutable audit history. Restart, maintenance, crash
-recovery, or lease expiry never reactivates, decrements attempts, restores
-queued, or creates a replacement run. After maintenance, an operator may make
-an explicit retry only once one API is ACCEPTING; that action creates a new
-OperationRun and preserves the old cancellation row.
-
-## Office 1688 Keyword CDP Runtime
-
-`sourcing.search_1688_keyword_batch` is a version-2 server domain Operation.
-It connects only to the configured Office Chrome CDP endpoint, creates one
-operation-owned page, and closes only that page when it finishes, fails, or is
-cancelled. Host Chrome, its login state, and unrelated pre-existing tabs must
-survive every run. The extension neither registers nor dispatches this operation.
-
-The endpoint accepts `http`, `https`, `ws`, and `wss`. The initial same-PC Office
-endpoint, `http://kiditem-office:9444`, reaches the host through the Compose host
-alias and needs no TLS, mTLS, or authentication proxy. A later HTTPS/WSS endpoint
-requires API-container reachability, a certificate the container trusts, and a
-proxy that preserves CDP discovery plus WebSocket upgrade traffic. That is Office
-configuration work, not an application-code change.
-
-The persistent Office profile may be prepared as a full clone of an authenticated
-operator profile: stop all source Chrome processes, copy the complete User Data
-parent, then start the selected profile with remote debugging. Operations never
-recopy, launch, terminate, or close host Chrome. Login/security challenges remain
-operator attention; there is no automatic extension, anonymous-browser, or
-fresh-profile fallback.
+Read the value from the protected API environment; do not print the whole file
+or copy it into an Agent/MCP child. The remaining sourcing runtime variables are
+inventoried in [environment-variables.md](environment-variables.md).
 
 ## Start And Inspect A Collection
 
-The normal operator path is the sourcing screen's explicit collection CTA. It
-starts:
+Every collection starts from an explicit screen control. Page mount, reload,
+route navigation, and filter changes must start zero external collection.
 
-```text
-POST /api/operations/:operationKey/runs
-```
+| Source | Start | Status or snapshot |
+| --- | --- | --- |
+| Naver and Shorts trends | `POST /api/sourcing/trend/collect` | `GET /api/sourcing/trend/status` |
+| 1688 hot products | `POST /api/sourcing/1688-trends/attempts` | `GET /api/sourcing/1688-trends/current` |
+| TikTok creative trends | `POST /api/sourcing/tiktok-creative/attempts` | `GET /api/sourcing/tiktok-creative/current` |
+| Live commerce | `POST /api/sourcing/live-commerce/browser/attempts` | `GET /api/sourcing/live-commerce/browser/current` |
+| Wing catalog | `POST /api/sourcing/workspace/wing-catalog/attempts` | `GET /api/sourcing/workspace/wing-catalog/current` |
+| Keyword suggestions | `POST /api/sourcing/workspace/keyword-suggestions/attempts` | `GET /api/sourcing/workspace/keyword-suggestions/current` |
+| Product page extraction | `POST /api/sourcing/extension/product-data/attempts` | `GET /api/sourcing/extension/product-data/status` |
+| 1688 keyword search (Office CDP) | `POST /api/sourcing/wholesale/1688/keyword-search` | `GET /api/sourcing/wholesale/1688/keyword-search/:attemptId` |
+| 1688 image match (tabless HTTP) | `POST /api/sourcing/wholesale/1688/image-matches` | `GET /api/sourcing/wholesale/1688/image-matches/:attemptId` |
+| Market shadow signal | `POST /api/sourcing/trend/shadow/collect` | `GET /api/sourcing/trend/shadow/status` |
+| Naver keyword analysis | `POST /api/sourcing/keyword-analysis/collect` | `GET /api/sourcing/keyword-analysis/status` |
 
-with a scoped authenticated session and receives 202 plus a run. Page mount,
-reload, route navigation, filter changes, and snapshot reads must start zero
-external collection. The screen shows the last owner snapshot while a separate
-run panel reports status.
+A start carries an `idempotency-key` header; replaying the same key returns the
+first attempt instead of opening a second one. The response omits the attempt
+token on every read: only the collector that received it at start may send the
+chunk, terminal, or failure write, and it sends that token as
+`x-source-attempt-token`.
 
-For read-only diagnosis in the authenticated application session, use the
-Operations endpoints rather than a database console:
-
-```text
-GET /api/operations/runs
-GET /api/operations/runs/:runId
-POST /api/operations/runs/:runId/cancel
-```
-
-Inspect these safe fields:
+Inspect these attempt fields:
 
 | Field | Meaning | Operator response |
 | --- | --- | --- |
-| status | queued, waiting_runtime, waiting_dependency, running, attention_required, succeeded, failed, cancelled, or skipped | Follow the state table below; do not mutate the row manually. |
-| stage and stageUpdatedAt | code-owned progress boundary and its freshness | A stale stage with fresh updatedAt can be a heartbeat; a stale stage and heartbeat needs provider/browser diagnosis. |
-| progress, progressCurrent, progressTotal | normalized and numeric progress when known | Treat absent counts as unknown, not zero accepted. |
-| updatedAt / heartbeat age | last fenced lease renewal or report | Past lease/deadline is a fence/cancellation concern, not a reason to resurrect a run. |
-| deadlineAt and attempts | run policy copied at start and durable audit count | Do not extend a deadline or decrement attempts manually. |
-| result.summary and result.sources | terminal safe counts/outcomes | Use for UI/operator summary only; read canonical rows through their owner API. |
+| `state` | `RUNNING`, `COMPLETE`, or `FAILED` | Follow the table below; never edit the row by hand. |
+| `expiresAt` | The attempt lease, fifteen minutes for a browser source | A passed lease is a fence concern, not a reason to revive the attempt. |
+| `plan` and `planChecksum` | The targets frozen at start | A terminal payload that does not match the frozen plan is rejected, not stored. |
+| `acceptedCount` and `warnings` | Canonical rows published by this attempt | Treat an absent count as unknown, never as an accepted zero. |
+| `errorCode` and `errorMessage` | Bounded failure code and operator text | Use for diagnosis; raw provider text never belongs here. |
 
-Extension browser operations move to waiting_runtime until KidItem OS claims the
-exact run. The browser handler creates/resumes the extension-local session with
-the same run ID, a verified environment, and the exact producer. It sends raw
-provider rows only to the owner ingest endpoint using the attempt token. Its
-terminal report includes safe counts and references, never raw rows. The v2 1688
-keyword domain Operation instead commits through its active-attempt fence after
-Office CDP provider work completes.
+And these source-status fields:
 
-## Cancel, Retry, Attention, And Provider Outage
+| Field | Meaning |
+| --- | --- |
+| `ready` | The latest COMPLETE attempt still matches the current frozen plan. |
+| `latestAttempt` | The newest attempt in any state, including a running one. |
+| `latestComplete` | The snapshot every reader uses. A failed attempt keeps the previous one. |
+| `actualCutoffAt` | The moment that snapshot actually covers, which may be older than the request. |
+
+## Office 1688 Keyword Search Runtime
+
+The 1688 keyword search connects to the configured CDP endpoint, takes the host
+browser's first context, and creates one page it owns. It closes only that page
+and detaches the client; host Chrome, its login state, and unrelated tabs
+survive every run. There is no extension, anonymous-browser, or fresh-profile
+fallback, and image matching stays tabless HTTP.
+
+| Code | Meaning | Operator response |
+| --- | --- | --- |
+| `cdp_configuration_invalid` | The endpoint is missing or malformed | Fix the protected API environment value, then retry from the screen. |
+| `cdp_unavailable` | Chrome is not reachable or did not accept the connection | Confirm host Chrome is running with remote debugging on the expected endpoint. |
+| `browser_context_unavailable` | The connected browser exposed no context | Open a normal window in the Office profile, then retry. |
+| `search_extraction_failed` | Navigation left the allowed 1688 hosts, or the result page never became readable in its bounded window | Preserve the previous snapshot and retry once the provider page loads normally for a human. |
+| `login` | The profile is signed out | Sign in inside the Office profile; it is human work, never an automatic retry. |
+| `security_challenge` | A CAPTCHA or verification page was served | Complete it in the profile, then start a new collection. |
+
+## Failure, Retry, And Attention
+
+A failed attempt commits its bounded code and a durable Alert in the owner's
+terminal transaction. The Alert is a human notification, not execution state.
 
 | Situation | Safe action | Never do |
 | --- | --- | --- |
-| queued, waiting, or running run is no longer wanted | Use the run panel cancel control or POST /api/operations/runs/:runId/cancel; confirm terminal cancelled state. | Delete/update OperationRun, clear its token yourself, or launch a second competing collection. |
-| browser requires login, OTP, CAPTCHA, or account selection | Keep the managed provider tab, complete the human action, then use the screen's attention retry after the API is ACCEPTING. Browser attention retry creates a new run. | Treat authentication/CAPTCHA as a transient automatic retry or bypass it with a copied session. |
-| retryable provider outage or timeout | Preserve the prior owner snapshot, record the bounded error code and source outcome, restore provider readiness, then use an explicit CTA/retry. | Replace the snapshot with empty data, claim a failed run succeeded, or replay client loops. |
-| partial source outcome | Keep accepted canonical observations and inspect result.sources for failed source codes. | Report all-source completion, erase accepted rows, or put raw provider errors in the UI stage. |
-| server-lifecycle cancellation | Wait for one API to complete BOOTSTRAPPING and reach ACCEPTING; then start a deliberate new run if still needed. | Reactivate/requeue the old row, decrement attempts, or let maintenance silently create a new run. |
-| fence/heartbeat lost | Stop browser work and close owned background tabs if still open; inspect the run and lifecycle state. | Send a late terminal report or continue provider collection with a stale attempt token. |
+| A running collection is no longer wanted | Let the lease expire, or complete the human step the collector is waiting on. | Delete or edit the attempt row, or start a second collection for the same source. |
+| The browser needs login, OTP, CAPTCHA, or account selection | Keep the provider tab, finish the human action, then use the screen CTA again. | Treat authentication as a transient error, or bypass it with a copied session. |
+| Provider outage or timeout | Keep the previous COMPLETE snapshot, record the bounded code, restore provider readiness, then start a new collection. | Replace the snapshot with empty data, or report a failed attempt as successful. |
+| The frozen plan no longer matches the targets | Start a new collection so the owner freezes the current plan. | Edit the stored plan or its checksum. |
+| Fence or token lost | Stop the collector, close the tabs it owns, and read the source status. | Send a late terminal report, or reuse a token from an earlier attempt. |
 
-The browser-specific attention retry endpoint is:
+A terminal attempt is immutable audit history. A retry is always a new attempt
+with a new identity; nothing reactivates, requeues, or rewrites the old row.
 
-```text
-POST /api/operation-runtime/browser/runs/:runId/retry
-```
+## Route Check
 
-It is valid only for an attention_required browser run while the API is
-ACCEPTING, and deliberately starts a new run. Non-browser failures use their
-explicit screen CTA and policy; there is no generic direct-database retry.
-
-## Safe Result Contract
-
-The terminal operation result stays below the safe-result size limit and
-contains only bounded operational information:
-
-```ts
-{
-  outcome: "complete" | "partial" | "no_change",
-  summary: {
-    discovered: number,
-    accepted: number,
-    duplicate: number,
-    unchanged: number,
-    failed: number
-  },
-  sources: [{
-    source: string,
-    outcome: "complete" | "partial" | "no_change" | "failed" | "skipped",
-    accepted: number,
-    failed: number,
-    errorCode?: string
-  }],
-  snapshotGeneratedAt?: string
-}
-```
-
-Do not add raw provider rows, responses, URLs containing secrets, payloads,
-files, cookies, credentials, or arbitrary error text. The UI maps code-owned
-stages to localized copy and reads detailed canonical data through the owner
-snapshot endpoint.
-
-## Chrome Regression Matrix
-
-Run this matrix only when all prerequisites are genuinely present: authenticated
-KidItem API and web session, the unified extension loaded from the intended
-build, and the relevant Coupang/1688 prepared provider session. For every row,
-record network requests, console errors, elapsed time, status/stage/progress,
-terminal text, cancellation, route navigation while active, and reload
-recovery. Every route must prove that mount itself starts zero external
-collection.
-
-| Route | Explicit interaction | Required evidence |
-| --- | --- | --- |
-| /sourcing-ai | Open dashboard, inspect rank/recommendation reads. | Snapshot renders; no automatic collection. |
-| /sourcing-ai/category-sourcing | Change category/filter and search UI. | Read/local interaction only; no implicit provider call. |
-| /sourcing-ai/competitor-analysis | Start competitor catalog collection. | advertising.collect_competitor_catalog run, persisted snapshot, cancel/reload behavior. |
-| /sourcing-ai/decision-center | Open and inspect entry recommendation/interest views. | Owner read model only; no collection on entry. |
-| /sourcing-ai/final-selection | Open final-selection workspace without sending an unapproved model request. | Route is stable and starts no sourcing collection. |
-| /sourcing-ai/keywords | Submit a keyword collection CTA. | sourcing.collect_keyword_suggestions run and persisted keyword snapshot. |
-| /sourcing-ai/market | Start daily trend collection. | sourcing.collect_daily_trends parent/child outcome and source-safe summary. |
-| /sourcing-ai/product-tracking | Refresh tracked metrics explicitly. | advertising.refresh_tracked_wing_products and one bulk history read, not N per-product calls. |
-| /sourcing-ai/recommendations | Start recommendation validation collection. | sourcing.collect_wing_catalog_batch with persisted recommendation snapshot. |
-| /sourcing-ai/rising-products | Click detect. | sourcing.detect_rising_products and persisted rising model; no synchronous detect endpoint. |
-| /sourcing-ai/settings | Open/edit then cancel settings interaction. | No external collection on mount or settings edit. |
-| /sourcing-ai/validation | Start validation collection. | explicit Wing-batch run, run panel, retained snapshot on failure. |
-| /sourcing-ai/wholesale-search | Explicitly run an Office CDP 1688 keyword batch, then a tabless AlphaShop image match for selected targets. | version-2 `sourcing.search_1688_keyword_batch` domain run and `sourcing.match_wholesale_images`, no route-entry batch. Only the CDP operation-owned tab closes; host Chrome, login, and unrelated tabs survive. |
-| /sourcing-ai/wing-catalog | Submit Wing catalog search/next page. | sourcing.collect_wing_catalog_batch browser claim, fenced ingest, persisted catalog snapshot. |
-
-Provider-unavailable is a required case when a real stack is available: confirm
-that it becomes attention_required, partial, or failed with safe code-level
-feedback; it must not display a false successful count. If the stack is absent,
-the substitute evidence is the focused UI/static tests plus an explicit list of
+When a real stack is available, walk the `/sourcing-ai` routes
+(`category-sourcing`, `competitor-analysis`, `decision-center`,
+`final-selection`, `keywords`, `market`, `product-tracking`, `recommendations`,
+`rising-products`, `settings`, `validation`, `wholesale-search`,
+`wing-catalog`) and the dashboard itself. For each one record that mount,
+reload, and navigation start no collection, that the explicit CTA opens exactly
+one attempt, and that a provider failure surfaces as a bounded code with the
+previous snapshot intact rather than a false success count. Without that stack,
+the substitute evidence is the focused tests below plus an exact list of the
 missing API session, extension, or provider-session prerequisites.
 
 ## Verification
 
-Run these checks from the repository root before relying on a deployment:
+Run from the repository root:
 
 ```bash
-rtk npm run check:sourcing-long-running-actions
-rtk npm run test:scripts
 rtk npm run check:conventions
-rtk npm run check:agents-hygiene
-rtk npm run check:web-db-boundary
-rtk npm run check:raw-snapshot-read-models
-rtk npm run check:idor
-rtk npm run check:tenant-scope
-```
-
-For a schema/boot check, use a fresh disposable PostgreSQL database only:
-
-```bash
-rtk npm run db:push
-rtk npx prisma generate
-rtk npm run build --workspace=packages/shared
-rtk npm run build --workspace=apps/server
+rtk npm exec --workspace=apps/server vitest -- run src/sourcing
 rtk npm run build --workspace=apps/web
 ```
 
-Do not use an accepted-data-loss flag, default local database, or production
-Office database for this verification. See deployment-architecture.md for the
-single-API Compose contract and environment-variables.md for the sourcing
-runtime variables.
+`check:conventions` includes the sourcing collection guard, which fails on a
+retired direct-extension collector, a collection started from a `useEffect`, and
+a non-persisted read. For a schema or boot check use a fresh disposable
+PostgreSQL database, never the default local or Office database; see
+[deployment-architecture.md](deployment-architecture.md).
 
 ## Blockers
 
-Stop and report rather than working around any of these conditions:
+Stop and report rather than working around any of these:
 
-- more than one API process/container, a planned rolling overlap, or an API
-  lifecycle not ACCEPTING;
-- startup cleanup timeout, operation_server_lifecycle_cleanup_failed, or
-  residual active/waiting run that would require manual requeue;
-- an unvalidated protected API environment;
-- missing authenticated KidItem/API session, the required extension capability
-  for an extension-owned operation, Office CDP reachability for a v2 1688
-  keyword run, or required provider login/CAPTCHA completion for a live test;
-- a mount/reload/navigation causes an external collection, or a terminal result
-  claims success without a persisted owner snapshot;
-- a request exposes raw provider data, credentials, tokens, cookies, or
-  arbitrary provider error text in result/stage/log evidence.
-
-## Final Report Format
-
-```text
-Environment: <isolated local|Office>
-Organization: <authenticated organization identifier, not a secret>
-API topology: one API=<yes|no>; Agent worker isolated=<yes|no>
-Lifecycle: <ACCEPTING|blocked code>
-Resource limits: <defaults|validated complete override>
-Run: <runId>; key=<operationKey>; status=<terminal status>
-Snapshot: <owner endpoint and generated time>
-Result: <safe counts/outcome/source codes only>
-Cancellation/retry/attention: <action and evidence>
-Chrome matrix: <14/14 evidence or exact unavailable prerequisites>
-Automated gates: <commands and result>
-Blockers/concerns: <none or exact condition>
-```
+- a missing authenticated KidItem session, extension capability, or provider
+  login for a live collection;
+- an unreachable or unvalidated Office Chrome CDP endpoint for 1688 keyword
+  search;
+- a mount, reload, or navigation that starts an external collection;
+- a terminal result that claims success without a persisted owner snapshot;
+- raw provider data, credentials, tokens, cookies, or arbitrary provider error
+  text appearing in an attempt result, an Alert, or log evidence.
