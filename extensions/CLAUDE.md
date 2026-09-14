@@ -1,3 +1,5 @@
+Before working in this directory, always read this document first rather than relying on memory.
+
 # extensions — Chrome Extension
 
 `extensions/` owns one loadable Manifest V3 extension,

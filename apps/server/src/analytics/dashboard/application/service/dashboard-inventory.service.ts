@@ -6,11 +6,29 @@ import {
 } from '@nestjs/common';
 import {
   DASHBOARD_INVENTORY_REPOSITORY_PORT,
-  type AbcEvaluationAsOf,
+  type DashboardAbcFacts,
   type DashboardInventoryRepositoryPort,
+  type DashboardInventoryAvailabilityFacts,
   type DashboardPerListingMetricsResult,
   type GradeChangeRow,
 } from '../port/out/repository/dashboard-inventory.repository.port';
+import {
+  metricBasisMap,
+  snapshotEvidence,
+  ALERTS_SOURCE,
+  CHANNEL_LISTINGS_SOURCE,
+  COUPANG_ADS_SOURCE,
+  ORDERS_SOURCE,
+  PRODUCTS_SOURCE,
+  PRODUCT_ABC_SOURCE,
+  SELLPIA_INVENTORY_SOURCE,
+  type DashboardSourceName,
+} from '../../domain/evidence';
+import {
+  businessDateText,
+  resolveDashboardPeriod,
+  type ResolvedDashboardPeriod,
+} from '../../domain/period/dashboard-period';
 import type {
   DashboardInventorySummary,
   DashboardMetricBasisMap,
@@ -18,20 +36,7 @@ import type {
   Warnings,
   GradeChanges,
 } from '@kiditem/shared/dashboard';
-import {
-  metricBasisMap,
-  snapshotEvidence,
-  ALERTS_SOURCE,
-  CHANNEL_LISTINGS_SOURCE,
-  ORDERS_SOURCE,
-  PRODUCTS_SOURCE,
-  PRODUCT_ABC_SOURCE,
-  SELLPIA_INVENTORY_SOURCE,
-  type DashboardSourceName,
-} from '../../domain/evidence';
-import { businessDateText } from '../../domain/period/dashboard-period';
 import type { DashboardContext } from '../../domain/context';
-import { addDays } from '../../../../common/kst';
 
 @Injectable()
 export class DashboardInventoryService {
@@ -47,46 +52,34 @@ export class DashboardInventoryService {
     organizationId: string,
   ): Promise<DashboardInventorySummary> {
     try {
-      const { now } = ctx;
-      const sevenDaysAgo = addDays(now, -7);
-
+      // The per-listing warnings count over the anchor's month clipped to
+      // closed KST days (ADR-0001): the dates an Orders collection and the ad
+      // sweep can have covered, and the window finance's profit screens
+      // evaluate. On the 1st it is empty.
+      const perListingPeriod = resolveDashboardPeriod(ctx, ctx.anchor, 'closed_day_clipped').month;
       const [
-        gradeRows,
-        abcStatusCounts,
-        abcContributionRows,
-        unclassifiedProductCount,
-        abcFormula,
+        abcFacts,
         unreadAlerts,
         totalActiveProducts,
         perListingMetrics,
-        outOfStockMasterProducts,
-        channelMappingSummary,
-        gradeChangesRows,
+        inventoryFacts,
         lowCtrProducts,
-        aGradeReviewRows,
       ] = await Promise.all([
-        this.repository.countActiveProductsByGrade(organizationId),
-        this.repository.countActiveProductsByAbcStatus(organizationId),
-        this.repository.findActiveAbcContributions(organizationId),
-        this.repository.countUnclassifiedActiveProducts(organizationId),
-        this.repository.findAbcFormula(organizationId),
+        this.repository.readProductAbcFacts(organizationId),
         this.repository.findUnreadAlerts(organizationId, 10),
         this.repository.countActiveProducts(organizationId),
-        this.repository.fetchPerListingMetrics(
-          organizationId,
-          ctx.monthStart,
-          ctx.monthEnd,
-        ),
-        this.repository.countOutOfStockMasterProducts(organizationId),
-        this.repository.getSellingChannelMappingSummary(organizationId),
-        this.repository.findGradeHistory(organizationId, sevenDaysAgo),
+        this.repository.fetchPerListingMetrics(organizationId, perListingPeriod),
+        this.repository.readInventoryAvailabilityFacts(organizationId),
         this.repository.countLowCtrThumbnails(organizationId),
-        this.repository.findAGradeReviewCounts(organizationId),
       ]);
+      const aGradeReviewRows = await this.repository.findReviewCountsForProducts(
+        organizationId,
+        abcFacts.aGradeMasterProductIds,
+      );
 
       const gradeCount = { A: 0, B: 0, C: 0 };
-      const { rows: abcStatusRows, evaluatedAsOf } = abcStatusCounts;
-      for (const row of gradeRows) {
+      const { statusRows: abcStatusRows } = abcFacts;
+      for (const row of abcFacts.gradeRows) {
         if (
           row.abcGrade === 'A' ||
           row.abcGrade === 'B' ||
@@ -109,8 +102,22 @@ export class DashboardInventoryService {
           abcStatusCount[row.displayStatus as keyof typeof abcStatusCount] += row.count;
         }
       }
-      const abcContributionProfit = { amountByGrade: { A: 0, B: 0, C: 0 }, shareByGrade: { A: 0, B: 0, C: 0 } };
-      for (const row of abcContributionRows) {
+      const abcContributionProfit = {
+        amountByGrade: { A: 0, B: 0, C: 0 },
+        shareByGrade: { A: null, B: null, C: null } as Record<'A' | 'B' | 'C', number | null>,
+        basis: {
+          publicationRevision: abcFacts.publication?.publicationRevision ?? null,
+          officialCutoffDate: abcFacts.publication?.officialCutoffDate ?? null,
+          publishedAt: abcFacts.publication?.publishedAt ?? null,
+          sellpiaSourceImportRunId: abcFacts.publication?.sellpiaSourceImportRunId ?? null,
+          advertisingSourceImportRunId: abcFacts.publication?.advertisingSourceImportRunId ?? null,
+          mappingGeneration: abcFacts.publication?.mappingGeneration ?? null,
+          includedProductCount: abcFacts.contributionRows.length,
+          withheldProductCount: abcFacts.withheldContributionProductCount,
+          denominator: null as number | null,
+        },
+      };
+      for (const row of abcFacts.contributionRows) {
         if ((row.abcGrade === 'A' || row.abcGrade === 'B' || row.abcGrade === 'C')
           && row.weightedOperatingProfit !== null) {
           abcContributionProfit.amountByGrade[row.abcGrade] += Math.round(row.weightedOperatingProfit);
@@ -119,6 +126,7 @@ export class DashboardInventoryService {
       const contributionTotal = Object.values(abcContributionProfit.amountByGrade)
         .reduce((sum, value) => sum + value, 0);
       if (contributionTotal !== 0) {
+        abcContributionProfit.basis.denominator = contributionTotal;
         for (const grade of ['A', 'B', 'C'] as const) {
           abcContributionProfit.shareByGrade[grade] = abcContributionProfit.amountByGrade[grade] / contributionTotal;
         }
@@ -149,16 +157,16 @@ export class DashboardInventoryService {
         (m) => m.revenue > 0 && m.adCost > 0 && (m.adCost / m.revenue) * 100 > 15,
       ).length;
       const mappingAttentionSkus = (
-        channelMappingSummary.mappingStatusRows.find((row) => row.mappingStatus === 'unmatched')?.count ?? 0
+        inventoryFacts.mappingStatusRows.find((row) => row.mappingStatus === 'unmatched')?.count ?? 0
       ) + (
-        channelMappingSummary.mappingStatusRows.find((row) => row.mappingStatus === 'needs_review')?.count ?? 0
+        inventoryFacts.mappingStatusRows.find((row) => row.mappingStatus === 'needs_review')?.count ?? 0
       );
 
       const warnings: Warnings = {
         minusProducts,
         lowProfitProducts,
         highAdProducts,
-        outOfStockSkus: outOfStockMasterProducts,
+        outOfStockSkus: inventoryFacts.outOfStockSkus,
         mappingAttentionSkus,
         lowCtrProducts,
         lowReviewProducts,
@@ -168,34 +176,34 @@ export class DashboardInventoryService {
         msg: 'dashboard-inventory.getSummary',
         organizationId,
         totalActiveProducts,
-        channelLinkedProducts: channelMappingSummary.linkedMasterProductCount,
+        channelLinkedProducts: inventoryFacts.linkedMasterProductCount,
         alertsCount: unreadAlerts.length,
-        gradeChangesCount: gradeChangesRows.length,
+        gradeChangesCount: abcFacts.gradeChanges.length,
       });
 
       return {
         totalProducts: totalActiveProducts,
-        channelLinkedProducts: channelMappingSummary.linkedMasterProductCount,
+        channelLinkedProducts: inventoryFacts.linkedMasterProductCount,
         channelUnlinkedProducts: Math.max(
-          totalActiveProducts - channelMappingSummary.linkedMasterProductCount,
+          totalActiveProducts - inventoryFacts.linkedMasterProductCount,
           0,
         ),
         classifiedProductCount,
-        unclassifiedProductCount,
+        unclassifiedProductCount: abcFacts.unclassifiedProductCount,
         gradeCount,
         abcStatusCount,
         abcContributionProfit,
-        abcFormula,
-        mappingStatusCounts: {
-          matched: channelMappingSummary.mappingStatusRows.find((row) => row.mappingStatus === 'matched')?.count ?? 0,
-          unmatched: channelMappingSummary.mappingStatusRows.find((row) => row.mappingStatus === 'unmatched')?.count ?? 0,
-          needsReview:
-            channelMappingSummary.mappingStatusRows.find((row) => row.mappingStatus === 'needs_review')?.count ?? 0,
-        },
+        abcFormula: abcFacts.formula,
         alerts: unreadAlerts,
         warnings,
-        gradeChanges: this.computeGradeChanges(gradeChangesRows),
-        metricBasis: this.buildMetricBasis(ctx, evaluatedAsOf, perListingMetrics),
+        gradeChanges: this.computeGradeChanges(abcFacts.gradeChanges),
+        metricBasis: this.buildMetricBasis(
+          ctx,
+          perListingPeriod,
+          abcFacts,
+          perListingMetrics,
+          inventoryFacts,
+        ),
       } satisfies DashboardInventorySummary;
     } catch (error) {
       this.logger.error('Failed to get inventory summary', error);
@@ -212,11 +220,11 @@ export class DashboardInventoryService {
    * period aggregation — and these values genuinely have no included/missing
    * date partition to publish. A warning count is a count of products
    * *currently* in a warning state: a missing day does not remove a day's
-   * worth of it, it silently changes which products cross the threshold. The
-   * only period-shaped thing available would be the selected month window,
-   * and publishing that as `includedDates` would assert continuous coverage
-   * this read model never verified — exactly the implied-continuous-range the
-   * amendment forbids.
+   * worth of it, it silently changes which products cross the threshold. So a
+   * count read over a window is published whole or not at all: publishing the
+   * dates it did cover as `includedDates` would present a different count as
+   * a partial one — exactly the implied-continuous-range the amendment
+   * forbids.
    *
    * A key is never omitted. An omitted key and a value with no evidence look
    * identical to a reader, so an absent basis is published as `unavailable`
@@ -224,8 +232,10 @@ export class DashboardInventoryService {
    */
   private buildMetricBasis(
     ctx: DashboardContext,
-    evaluatedAsOf: AbcEvaluationAsOf,
+    perListingPeriod: ResolvedDashboardPeriod,
+    abcFacts: DashboardAbcFacts,
     perListingMetrics: DashboardPerListingMetricsResult,
+    inventoryFacts: DashboardInventoryAvailabilityFacts,
   ): DashboardMetricBasisMap | undefined {
     // A live current-state read is its own snapshot: it is as-of the business
     // date it ran on, which is exactly the as-of the reader asked for.
@@ -243,68 +253,130 @@ export class DashboardInventoryService {
     // retained and stale ("latest data not applied"); with no cutoff at all
     // the counts stay real while their age is `unknown`. Grade and status
     // counts share this basis because they read the same owner snapshot.
+    const { evaluatedAsOf } = abcFacts;
+    const abcPopulation = abcFacts.gradeRows.reduce(
+      (total, row) => total + row.count,
+      0,
+    );
+    // A current publication is the normal proof. Retained evaluated rows are
+    // also a real owner result (their revision predates the richer publication
+    // envelope), so they remain displayable with unknown publication detail.
+    const hasAbcEvidence = abcFacts.publication !== null || abcPopulation > 0;
     const abc = snapshotEvidence({
       asOf: evaluatedAsOf.actualCutoff,
       requiredAsOf: evaluatedAsOf.targetCutoff,
       observedAt: evaluatedAsOf.capturedAt,
       sources: [PRODUCTS_SOURCE, PRODUCT_ABC_SOURCE],
+      measured: hasAbcEvidence,
+      withheldCount: abcFacts.unclassifiedProductCount,
+    });
+    const contributionPopulation = abcFacts.contributionRows.length
+      + abcFacts.withheldContributionProductCount;
+    const contribution = snapshotEvidence({
+      asOf: evaluatedAsOf.actualCutoff,
+      requiredAsOf: evaluatedAsOf.targetCutoff,
+      observedAt: evaluatedAsOf.capturedAt,
+      sources: [PRODUCTS_SOURCE, PRODUCT_ABC_SOURCE],
+      measured: abcFacts.publication !== null && (
+        abcFacts.contributionRows.length > 0
+        || (abcPopulation === 0 && contributionPopulation === 0)
+      ),
+      withheldCount: abcFacts.withheldContributionProductCount,
     });
 
-    // Per-listing profit warnings read order rows for revenue and settlement
-    // cost, and channel listing daily snapshots for listing-level ad spend —
-    // not Advertising's account KPI rows, so not `coupang_ads`.
+    // The three per-listing profit warnings count listings over the anchor's
+    // month clipped to closed KST days, from collected order lines, their
+    // recipe and channel-account costs, and — for an organization that
+    // advertises — the campaign sweep's target-day ledger. The basis names
+    // exactly the ledgers read, as finance's profit basis does. Each count is
+    // a measurement only when both of these hold:
     //
-    // A listing whose advertising evidence had a hole is withheld rather than
-    // counted from a partial ad sum, so these three counts can be drawn from
-    // fewer listings than the month actually sold. That is a real number over
-    // a smaller population, which the amendment displays with partial status
-    // — but only while some listing survived. A window whose every listing was
-    // withheld has an empty computable subset: its zero is not a counted zero,
-    // so the value is unavailable and the cards blank rather than claiming no
-    // product is loss-making.
+    // - The Orders collection covered every date of that window. Short of it
+    //   the rows are only the orders collected so far: reading no row is not
+    //   "no product is loss-making", and reading some is not a complete count.
+    //   An empty window, on the 1st, covers no date. Either way the value is
+    //   unavailable, whether rows exist or not.
+    // - Some listing survived. A listing with an unmeasured input — an
+    //   advertising date the sweep never measured, or a line with no recorded
+    //   cost — is withheld rather than counted from a partial sum, so a count
+    //   can be drawn from fewer listings than the window sold. That is a real
+    //   number over a smaller population, displayed with partial status. A
+    //   window whose every listing was withheld has an empty computable
+    //   subset: its zero is not a counted zero either.
+    //
+    // A count stands as of its window's last day, the anchor's last closed
+    // day, which is also the day it has to reach. On the 1st the window has no
+    // day and so no as-of, while the last closed day stays the requirement.
     const measuredListingCount = perListingMetrics.rows.length;
     const withheldListingCount = perListingMetrics.withheldListings;
     const perListing = snapshotEvidence({
+      asOf: perListingPeriod.selectedDates.at(-1) ?? null,
+      requiredAsOf: perListingPeriod.knownThrough,
+      observedAt: ctx.now,
+      sources: perListingMetrics.hasAdAccount
+        ? [ORDERS_SOURCE, CHANNEL_LISTINGS_SOURCE, COUPANG_ADS_SOURCE]
+        : [ORDERS_SOURCE, CHANNEL_LISTINGS_SOURCE],
+      measured: perListingMetrics.orderWindowComplete
+        && (measuredListingCount > 0 || withheldListingCount === 0),
+      withheldCount: withheldListingCount,
+    });
+    const inventoryAsOf = inventoryFacts.snapshot.verifiedAt
+      ? businessDateText(new Date(inventoryFacts.snapshot.verifiedAt))
+      : null;
+    const inventory = snapshotEvidence({
+      asOf: inventoryAsOf,
+      requiredAsOf: readAsOf,
+      observedAt: inventoryFacts.snapshot.verifiedAt,
+      sources: [SELLPIA_INVENTORY_SOURCE],
+      measured: inventoryFacts.outOfStockSkus !== null,
+    });
+    // Mapping attention counts listing options against their inventory identities.
+    const mapping = live(CHANNEL_LISTINGS_SOURCE, SELLPIA_INVENTORY_SOURCE);
+    const catalogLinkage = snapshotEvidence({
       asOf: readAsOf,
       requiredAsOf: readAsOf,
       observedAt: ctx.now,
-      sources: [ORDERS_SOURCE, CHANNEL_LISTINGS_SOURCE],
-      measured: measuredListingCount > 0 || withheldListingCount === 0,
-      withheldCount: withheldListingCount,
+      sources: [PRODUCTS_SOURCE, CHANNEL_LISTINGS_SOURCE],
+      measured: true,
     });
-    // Mapping attention counts listing options against their inventory SKUs.
-    const mapping = live(CHANNEL_LISTINGS_SOURCE, SELLPIA_INVENTORY_SOURCE);
-    // The linked/unlinked split walks that mapping through to the active
-    // master product, so it is only as valid as all three.
-    const catalogMapping = live(
-      PRODUCTS_SOURCE,
-      CHANNEL_LISTINGS_SOURCE,
-      SELLPIA_INVENTORY_SOURCE,
-    );
 
     return metricBasisMap({
       totalProducts: live(PRODUCTS_SOURCE),
-      channelLinkedProducts: catalogMapping,
-      channelUnlinkedProducts: catalogMapping,
+      channelLinkedProducts: catalogLinkage,
+      channelUnlinkedProducts: catalogLinkage,
       'gradeCount.A': abc,
       'gradeCount.B': abc,
       'gradeCount.C': abc,
+      classifiedProductCount: abc,
+      // Products' current active snapshot can say that a product is not yet
+      // classified even when there is no ABC publication to grade it from.
+      unclassifiedProductCount: live(PRODUCTS_SOURCE),
       'abcStatusCount.READY': abc,
       'abcStatusCount.INSUFFICIENT_EVIDENCE': abc,
       'abcStatusCount.SOURCE_UNMAPPED': abc,
       'abcStatusCount.SELLPIA_SOURCE_STALE': abc,
       'abcStatusCount.AD_SOURCE_STALE': abc,
+      'abcContributionProfit.amountByGrade.A': contribution,
+      'abcContributionProfit.amountByGrade.B': contribution,
+      'abcContributionProfit.amountByGrade.C': contribution,
+      'abcContributionProfit.shareByGrade.A': contribution,
+      'abcContributionProfit.shareByGrade.B': contribution,
+      'abcContributionProfit.shareByGrade.C': contribution,
+      'gradeChanges.upgraded': abc,
+      'gradeChanges.downgraded': abc,
+      'gradeChanges.total': abc,
       alerts: live(ALERTS_SOURCE),
       'warnings.minusProducts': perListing,
       'warnings.lowProfitProducts': perListing,
       'warnings.highAdProducts': perListing,
-      'warnings.outOfStockSkus': live(SELLPIA_INVENTORY_SOURCE),
+      'warnings.outOfStockSkus': inventory,
       'warnings.mappingAttentionSkus': mapping,
     });
   }
 
   /**
-   * Compute grade change counts from the last 7 days of grade history.
+   * Compute grade change counts from the automatic grade history recorded by
+   * the current ABC publication revision.
    * Always returns an object (upgraded=0, downgraded=0, total=0 when no rows),
    * matching legacy behavior (always assigns gradeChanges, never undefined).
    */

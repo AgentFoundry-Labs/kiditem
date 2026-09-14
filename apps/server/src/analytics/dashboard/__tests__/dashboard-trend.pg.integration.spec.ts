@@ -23,6 +23,7 @@ import {
   setupChannelListing,
   seedOrderWithLineItems,
   seedAd,
+  seedCompletedOrderCoverageRun,
 } from '../../../test-helpers/finance-seeds';
 import type { PrismaClient } from '@prisma/client';
 import { buildDashboardContext } from '../domain/context';
@@ -66,6 +67,21 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
     });
   });
 
+  function yesterdayBusinessDate(): string {
+    return new Date(Date.now() - 24 * 60 * 60 * 1000 + 9 * 60 * 60 * 1000)
+      .toISOString()
+      .slice(0, 10);
+  }
+
+  async function coverYesterday(organizationId: string): Promise<void> {
+    const date = yesterdayBusinessDate();
+    await seedCompletedOrderCoverageRun(prisma, {
+      organizationId,
+      startDate: date,
+      endDate: date,
+    });
+  }
+
   /**
    * Seed a TEST listing + a single yesterday order with given lineItem totalPrice
    * and optional ad spend on the same date.
@@ -84,24 +100,38 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
     });
     const { id: optionId } = await setupProductOption(prisma, {
       organizationId: TEST_ORGANIZATION_ID, masterId,
-      sku: `SKU-T-${opts.suffix}`, costPrice: opts.costPrice ?? 0, commissionRate: 0,
+      sku: `SKU-T-${opts.suffix}`, costPrice: opts.costPrice ?? 0,
     });
     const { listingId, listingOptionId } = await setupChannelListing(prisma, {
       organizationId: TEST_ORGANIZATION_ID, masterId,
       channel: 'coupang', externalId: `EXT-T-${opts.suffix}`,
       optionId, externalOptionId: `VI-T-${opts.suffix}`,
     });
-    const listing = await prisma.channelListing.findUniqueOrThrow({
-      where: { id: listingId },
-      select: { channelAccountId: true },
-    });
 
     if (opts.orderTotalPriceOverride !== undefined) {
       // Bypass helper to set Order.totalPrice independently of lineItem totals.
+      // A Rocket direct-purchase order: no commission or other cost applies.
+      const rocketAccount = await prisma.channelAccount.upsert({
+        where: {
+          organizationId_channel_externalAccountId: {
+            organizationId: TEST_ORGANIZATION_ID,
+            channel: 'rocket',
+            externalAccountId: 'test-rocket',
+          },
+        },
+        create: {
+          organizationId: TEST_ORGANIZATION_ID,
+          channel: 'rocket',
+          name: 'rocket test account',
+          externalAccountId: 'test-rocket',
+        },
+        update: {},
+        select: { id: true },
+      });
       const order = await prisma.order.create({
         data: {
           organizationId: TEST_ORGANIZATION_ID,
-          channelAccountId: listing.channelAccountId,
+          channelAccountId: rocketAccount.id,
           externalOrderId: `TREND-T-${opts.suffix}`,
           orderedAt: yesterday,
           status: 'paid',
@@ -122,6 +152,7 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
       });
     } else {
       await seedOrderWithLineItems(prisma, {
+        orderChannel: 'rocket',
         organizationId: TEST_ORGANIZATION_ID,
         externalOrderId: `TREND-T-${opts.suffix}`,
         orderedAt: yesterday.toISOString(),
@@ -149,6 +180,7 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
       channel: 'coupang', externalId: 'EXT-O-1', optionId: oO.id, externalOptionId: 'VI-O-1',
     });
     await seedOrderWithLineItems(prisma, {
+      orderChannel: 'rocket',
       organizationId: OTHER_ORGANIZATION_ID,
       externalOrderId: 'TREND-O-1',
       orderedAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
@@ -159,8 +191,9 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
       organizationId: OTHER_ORGANIZATION_ID, listingId: oL.listingId,
       date: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10), spend: IDOR_SENTINEL,
     });
+    await coverYesterday(TEST_ORGANIZATION_ID);
 
-    const result = await service.getTrend(buildDashboardContext(), TEST_ORGANIZATION_ID, '30d');
+    const result = await service.getTrend(buildDashboardContext('month'), TEST_ORGANIZATION_ID);
     for (const row of result) {
       expect(row.revenue).not.toBe(IDOR_SENTINEL);
       expect(row.adCost).not.toBe(IDOR_SENTINEL);
@@ -178,14 +211,16 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
       channel: 'coupang', externalId: 'EXT-O-2', optionId: oO.id, externalOptionId: 'VI-O-2',
     });
     await seedOrderWithLineItems(prisma, {
+      orderChannel: 'rocket',
       organizationId: OTHER_ORGANIZATION_ID,
       externalOrderId: 'TREND-O-2',
       orderedAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
       shippingPrice: 0,
       lineItems: [{ quantity: 1, totalPrice: IDOR_SENTINEL, optionId: oO.id, listingOptionId: oL.listingOptionId }],
     });
+    await coverYesterday(OTHER_ORGANIZATION_ID);
 
-    const result = await service.getTrend(buildDashboardContext(), OTHER_ORGANIZATION_ID, '30d');
+    const result = await service.getTrend(buildDashboardContext('month'), OTHER_ORGANIZATION_ID);
     for (const row of result) {
       expect(row.revenue).not.toBe(30_000);
     }
@@ -193,7 +228,7 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
   });
 
   it('T3: fresh organization → selected dates remain explicitly empty', async () => {
-    const result = await service.getTrend(buildDashboardContext(), TEST_ORGANIZATION_ID, '7d');
+    const result = await service.getTrend(buildDashboardContext('week'), TEST_ORGANIZATION_ID);
     expect(result).toHaveLength(7);
     expect(result.every((row) => row.revenue === null && row.adCost === null && row.profit === null)).toBe(true);
   });
@@ -202,16 +237,13 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
     // Sentinel: Order.totalPrice = 999_999_999 vs lineItem.totalPrice = 100_000.
     // Pre-fix would aggregate Order.totalPrice → revenue = 999M.
     // Post-fix aggregates lineItem.totalPrice → revenue = 100k.
-    // Every non-ad cost must be explicit, including confirmed zero shipping.
-    const { listingId, listingOptionId } = await seedTestListingWithYesterdayOrder({
+    // Shipping is the order's own shipping price (0 here); a Rocket order
+    // carries no commission or other cost.
+    const { listingId } = await seedTestListingWithYesterdayOrder({
       suffix: '4',
       lineItemTotalPrice: 100_000,
       orderTotalPriceOverride: 999_999_999,
       costPrice: 70_000,
-    });
-    await prisma.channelListingOption.update({
-      where: { id: listingOptionId, organizationId: TEST_ORGANIZATION_ID },
-      data: { shippingCost: 0 },
     });
     // The sweep visited yesterday and found no advertising: a measured zero.
     const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
@@ -221,8 +253,9 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
       date: new Date(yesterday.getTime() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10),
       spend: 0,
     });
+    await coverYesterday(TEST_ORGANIZATION_ID);
 
-    const result = await service.getTrend(buildDashboardContext(), TEST_ORGANIZATION_ID, '30d');
+    const result = await service.getTrend(buildDashboardContext('month'), TEST_ORGANIZATION_ID);
     const yesterdayRow = result.find((r) => r.revenue === 100_000);
     expect(yesterdayRow).toBeDefined();
     expect(yesterdayRow?.profit).toBe(30_000);
@@ -274,6 +307,7 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
         trafficOrders: 4,
         trafficSalesQty: 4,
         trafficRevenue: 120_000,
+        trafficObservedAt: new Date('2026-09-06T01:00:00.000Z'),
       },
     });
     const trafficPublication = {
@@ -318,7 +352,7 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
       },
       reconciliation: Object.fromEntries([
         'views', 'cartAdds', 'orders', 'salesQty', 'revenue',
-      ].map((metric) => [metric, { status: 'UNVERIFIED', dailySum: null, periodValue: null }])),
+      ].map((metric) => [metric, { dailySum: null, periodValue: null }])),
       legacyExactPeriodEvidence: null,
     };
     trafficRead.readPublished.mockImplementation(async (input: { from?: string; to?: string }) => {
@@ -339,7 +373,7 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
       orders: 3,
     });
 
-    const result = await service.getTrend(buildDashboardContext(), TEST_ORGANIZATION_ID, '30d');
+    const result = await service.getTrend(buildDashboardContext('month'), TEST_ORGANIZATION_ID);
     const wingRow = result.find((r) => r.date === dateKey);
 
     expect(wingRow).toMatchObject({

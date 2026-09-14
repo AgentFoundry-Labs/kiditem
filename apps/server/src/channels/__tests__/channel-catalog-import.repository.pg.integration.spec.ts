@@ -668,7 +668,6 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
         profitTag: 'operator-authored',
         adTier: 'scale',
         adBudgetLimit: 55_000,
-        healthScore: 91,
       },
     });
     await prisma.channelListing.update({
@@ -842,7 +841,6 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
       profitTag: 'operator-authored',
       adTier: 'scale',
       adBudgetLimit: 55_000,
-      healthScore: 91,
     });
   });
 

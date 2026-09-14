@@ -883,14 +883,6 @@
       if (ownerControl) {
         const result = await syncTrafficToSourceOwner(ownerControl, pagination, kpis, adSummary, summaryOverride);
         if (result?.success) {
-          const { startDate, endDate } = getDateRangeFromUrl();
-          chrome.storage.local.set({
-            kiditem_last_sync_traffic: {
-              time: Date.now(),
-              count: products.length,
-              period: startDate && endDate ? `${startDate} ~ ${endDate}` : "",
-            },
-          });
           showBadge(`✅ 매출분석 ${products.length}개 owner 수집 완료`, "#22c55e");
           return { success: true, type: "traffic", count: products.length, trafficReceipt: result.trafficReceipt };
         }
@@ -957,7 +949,6 @@
         identityAfter,
       );
       if (result?.success) {
-        chrome.storage.local.set({ kiditem_last_sync_itemwinner: { time: Date.now(), count: result.count } });
         showBadge(`✅ Wing 아이템위너 owner 수집 완료`, "#22c55e");
         return { success: true, type: "wing", count: result.count, itemwinnerReceipt: result.itemwinnerReceipt };
       }

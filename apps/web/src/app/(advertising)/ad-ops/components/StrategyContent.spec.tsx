@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiClient } from '@/lib/api-client';
 import StrategyContent from './StrategyContent';
 import type {
   AdStrategyAction,
+  AdTrendsData,
   AdWeeklyPlan,
 } from '@kiditem/shared/advertising';
 
@@ -51,7 +52,8 @@ const strategy: AdWeeklyPlan = {
   issues: { zeroConversion: [], lowRoas: [], highSpend: [] },
   tierAnalysis: [],
   top20: [],
-  accountSummary: null,
+  profitWithheldListings: 0,
+  orderWindowComplete: true,
 };
 
 function availabilityResponse(sellableStock: number | null) {
@@ -96,13 +98,13 @@ function availabilityResponse(sellableStock: number | null) {
   };
 }
 
-function Harness() {
+function Harness({ trends }: { trends: AdTrendsData | null }) {
   const [expandedProduct, setExpandedProduct] = useState<string | null>(null);
   return (
     <StrategyContent
       strategy={strategy}
       rules={[]}
-      trends={null}
+      trends={trends}
       period="14d"
       totalBudget={100_000}
       budgetInput="100,000"
@@ -122,13 +124,13 @@ function Harness() {
   );
 }
 
-function renderStrategy() {
+function renderStrategy(trends: AdTrendsData | null = null) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <Harness />
+      <Harness trends={trends} />
     </QueryClientProvider>,
   );
 }
@@ -160,5 +162,44 @@ describe('StrategyContent ChannelSku availability', () => {
       expect(apiClient.getParsed).toHaveBeenCalledWith('/api/ads/hub', expect.anything());
     });
     expect(apiClient.get).not.toHaveBeenCalledWith(expect.stringContaining('/api/products'));
+  });
+});
+
+describe('StrategyContent account totals', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(apiClient.get).mockResolvedValue({ items: [] });
+  });
+
+  it('reads account totals from the campaign-sweep trends summary and keeps unmeasured values unknown', async () => {
+    renderStrategy({
+      knownThrough: '2026-07-12',
+      from: '2026-06-29',
+      to: '2026-07-12',
+      daily: [],
+      summary: {
+        periodDayCount: 14,
+        latestBusinessDate: '2026-07-12',
+        observedAt: '2026-07-13T00:00:00.000Z',
+        metrics: {
+          spend: 1_000,
+          revenue: 0,
+          impressions: 0,
+          clicks: 0,
+          conversions: null,
+          roas: null,
+          ctr: null,
+          cvr: null,
+        },
+        orders: null,
+      },
+    });
+
+    const card = await screen.findByTestId('strategy-account-totals');
+    expect(card).toHaveTextContent('측정 14일 · 쿠팡 광고 캠페인 합산 · 2026-07-12까지');
+    expect(within(card).getByText('1,000원')).toBeInTheDocument();
+    expect(within(card).getByText('-')).toBeInTheDocument();
+    expect(within(card).getAllByText('- / -')).toHaveLength(2);
+    expect(card).not.toHaveTextContent('0.00%');
   });
 });

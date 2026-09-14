@@ -1,6 +1,11 @@
 import { AppException } from '@kiditem/shared/server-errors';
 import { ErrorCodes } from '@kiditem/shared/errors';
-import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
@@ -17,6 +22,10 @@ import type {
   ReconcilePurchaseOrderSubmissionTransactionInput,
 } from '../../../application/port/out/transaction/purchase-order-submission.transaction.port';
 import { isDeletablePurchaseOrderStatus } from '../../../domain/policy/purchase-order-status';
+import {
+  readInventoryAvailability as readInventoryAvailabilityFact,
+} from '../../../../inventory/read/inventory-availability';
+import type { InventoryAvailabilityBatch } from '@kiditem/shared/inventory-availability';
 
 const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;
 const PREPARED_RECONCILIATION_MS = 15 * 60_000;
@@ -125,12 +134,17 @@ implements PurchaseOrderSubmissionTransactionPort {
     return this.prisma.$transaction(async (tx) => {
       assertNormalizedIdempotencyKey(input.idempotencyKey);
       assertRequestHash(input.requestHash);
+      const availability = await readPurchaseInventoryAvailability(
+        tx,
+        input.organizationId,
+        input.sellpiaInventorySkuIds,
+      );
       const freshness = await lockFreshness(tx, input.organizationId);
       const order = await lockOrder(tx, input.organizationId, input.purchaseOrderId);
       if (!order) throw referenceInvalid();
       await assertActor(tx, input.organizationId, input.userId);
       assertFreshness(freshness, input);
-      await assertPurchaseItems(tx, input);
+      await assertPurchaseItems(tx, input, availability);
 
       if (order.status === 'ordered') {
         return {
@@ -476,6 +490,7 @@ function assertFreshness(
 async function assertPurchaseItems(
   tx: Prisma.TransactionClient,
   input: PreparePurchaseOrderSubmissionInput,
+  availability: InventoryAvailabilityBatch,
 ): Promise<void> {
   const expectedIds = [...new Set(input.sellpiaInventorySkuIds)].sort();
   if (expectedIds.length === 0) throw referenceInvalid();
@@ -494,21 +509,41 @@ async function assertPurchaseItems(
     throw referenceInvalid();
   }
 
-  const inventorySkus = await tx.sellpiaInventorySku.findMany({
-    where: {
-      organizationId: input.organizationId,
-      id: { in: expectedIds },
-    },
-    select: { id: true, isActive: true },
-  });
-  if (inventorySkus.length !== expectedIds.length) throw referenceInvalid();
-  if (inventorySkus.some((sku) => !sku.isActive)) {
+  if (!availability.snapshot.collected
+    || availability.items.length !== expectedIds.length) {
+    throw syncRequired();
+  }
+  if (availability.items.some((sku) => !sku.isActive)) {
     throw new AppException(
       422,
       ErrorCodes.PURCHASE.ITEM_INACTIVE,
       'A purchase item is inactive in the Sellpia inventory snapshot.',
     );
   }
+}
+
+async function readPurchaseInventoryAvailability(
+  transaction: Prisma.TransactionClient,
+  organizationId: string,
+  sellpiaInventorySkuIds: string[],
+): Promise<InventoryAvailabilityBatch> {
+  try {
+    return await readInventoryAvailabilityFact(transaction, {
+      organizationId,
+      sellpiaInventorySkuIds,
+    });
+  } catch (error) {
+    if (error instanceof NotFoundException) throw referenceInvalid();
+    throw error;
+  }
+}
+
+function syncRequired(): AppException {
+  return new AppException(
+    409,
+    ErrorCodes.INVENTORY.SELLPIA_SYNC_REQUIRED,
+    'A fresh Sellpia inventory snapshot is required before purchase.',
+  );
 }
 
 async function promoteExpiredPrepared(

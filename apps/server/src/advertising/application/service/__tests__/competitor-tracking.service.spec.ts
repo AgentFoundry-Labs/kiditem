@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { competitorCollectionStatus } from "@kiditem/shared/advertising";
 import type { KeywordRankRepositoryPort } from "../../port/out/repository/keyword-rank.repository.port";
 import type { KiditemStorefrontPort } from "../../port/out/provider/kiditem-storefront.port";
 import {
@@ -42,11 +43,39 @@ describe("CompetitorTrackingService", () => {
       "organization-1",
       14,
     );
-    expect(result.collection.status).toBe("not_configured");
+    // The overview publishes counts; the collection word is derived from them.
+    expect(result.collection).not.toHaveProperty("status");
+    expect(result.collection).not.toHaveProperty("storefrontStatus");
+    expect(result.collection).toMatchObject({
+      enabledTrackerCount: 0,
+      serpSnapshotCount: 0,
+      storefrontProductCount: 0,
+    });
+    expect(competitorCollectionStatus(result.collection)).toBe("not_configured");
     expect(result.collection.suggestedKeywords[0]).toBe(
       "노루잡화점 크런치 슬랑이",
     );
     expect(result.collection.suggestedKeywords).toContain("문구");
+  });
+
+  it("publishes the enabled tracker and SERP snapshot counts behind a ready collection", async () => {
+    repo.listTrackers.mockResolvedValue([
+      trackerRow("연필 문구", true),
+      trackerRow("주방 선반", false),
+    ]);
+    repo.findRecentSerpSnapshots.mockResolvedValue([
+      serpSnapshot("연필 문구", "2026-07-13"),
+      serpSnapshot("연필 문구", "2026-07-14"),
+    ]);
+
+    const result = await service.getOverview("organization-1", 30, 20);
+
+    expect(result.collection).toMatchObject({
+      trackerCount: 2,
+      enabledTrackerCount: 1,
+      serpSnapshotCount: 2,
+    });
+    expect(competitorCollectionStatus(result.collection)).toBe("ready");
   });
 
   it("auto-configures tenant-scoped trackers from own stationery/toy products", async () => {
@@ -343,3 +372,28 @@ describe("CompetitorTrackingService", () => {
     ]);
   });
 });
+
+function trackerRow(keyword: string, enabled: boolean) {
+  return {
+    id: `tracker-${keyword}`,
+    organizationId: "organization-1",
+    keyword,
+    vendorItemIds: [],
+    maxPages: 2,
+    enabled,
+    lastCapturedAt: null,
+    createdAt: new Date("2026-07-14T00:00:00.000Z"),
+    updatedAt: new Date("2026-07-14T00:00:00.000Z"),
+  };
+}
+
+function serpSnapshot(keyword: string, date: string) {
+  return {
+    keyword,
+    businessDate: new Date(`${date}T00:00:00.000Z`),
+    capturedAt: new Date(`${date}T03:00:00.000Z`),
+    pagesScanned: 1,
+    itemCount: 0,
+    items: { serpItems: [], sellerCatalogs: [] },
+  };
+}

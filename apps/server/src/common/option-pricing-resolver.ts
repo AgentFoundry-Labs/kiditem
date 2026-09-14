@@ -1,58 +1,57 @@
-const CNY_TO_KRW_RATE = 190;
+import { channelAccountSalesCosts } from '../channels/domain/channel-account-sales-costs';
 
 /**
- * Resolver 입력: pricing resolve 에 필요한 최소 필드 (nested-only, v2 spec §4.4).
+ * The cost of one sold order line, as the owners record it — nothing is
+ * assumed (KID-114, ADR-0006).
  *
- * 모든 caller 는 `{ option: { costPrice, costCny, sellPrice, commissionRate,
- * shippingCost, otherCost } }` 형태로 전달한다. flat legacy shape 은 제거됐으며
- * (A-10) missed caller 는 compile-time error 로 차단된다 (R-10 silent-zero 방지).
+ * - Purchase cost is the listing option's confirmed recipe priced at each
+ *   Sellpia SKU's purchase price. An option cost override is not an input.
+ * - Whether a sales commission and an other per-sale cost apply is decided by
+ *   the order's channel account through `channelAccountSalesCosts`: a
+ *   component that does not apply is Not applied (0); one that applies has no
+ *   measured source yet, so its value is unknown (`null`). Option commission
+ *   and other-cost columns are not inputs.
  */
-interface ResolvePricingInput {
-  option: {
-    costPrice?: number | null;
-    costCny?: unknown; // Decimal or number
-    sellPrice?: number | null;
-    commissionRate?: unknown; // Decimal or number
-    shippingCost?: number | null;
-    otherCost?: number | null;
-  };
+export interface ListingOptionCostInput {
+  inventoryComponents: ReadonlyArray<{ quantity: number; purchasePrice: number | null }>;
 }
 
-interface ResolvedPricing {
-  costPrice: number;
-  sellPrice: number;
-  commissionRate: number;
-  shippingCost: number;
-  otherCost: number;
-  /** costPrice 가 실제 데이터 없이 0 으로 fallback 된 경우 true */
-  isCostMissing: boolean;
+/** KRW purchase cost of one sold unit, or `null` without a recipe or with an unpriced component. */
+export function resolveUnitCost(option: ListingOptionCostInput): number | null {
+  if (option.inventoryComponents.length === 0) return null;
+  let unitCost = 0;
+  for (const component of option.inventoryComponents) {
+    if (component.purchasePrice === null) return null;
+    unitCost += component.purchasePrice * component.quantity;
+  }
+  return unitCost;
+}
+
+/** The per-sale cost components of an order's lines, by its channel account. */
+export interface OrderLineSalesCosts {
+  commissionApplies: boolean;
+  otherCostApplies: boolean;
+  /** 0 when the commission does not apply; `null` when it applies without a source. */
+  commission: 0 | null;
+  /** 0 when the other cost does not apply; `null` when it applies without a source. */
+  otherCost: 0 | null;
 }
 
 /**
- * Channel listing-option pricing resolve — nested-only (v2 §4.4).
- *
- * costPrice: option.costPrice ?? Math.round(costCny * 190) ?? 0 (KRW)
- * sellPrice: option.sellPrice ?? 0
- * commissionRate: Number(option.commissionRate) ?? 0
- * shippingCost: option.shippingCost ?? 0
- * otherCost: option.otherCost ?? 0
+ * The sales commission and other per-sale cost of an order's lines. An order
+ * whose channel account is unknown is treated like any account the rule
+ * applies both components to: its values have no source.
  */
-export function resolvePricing(p: ResolvePricingInput): ResolvedPricing {
-  const o = p.option;
-  const hasCost = o.costPrice != null || o.costCny != null;
-  const costPrice =
-    o.costPrice ??
-    (o.costCny != null ? Math.round(Number(o.costCny) * CNY_TO_KRW_RATE) : 0);
-  const sellPrice = o.sellPrice ?? 0;
-  const commissionRate = o.commissionRate != null ? Number(o.commissionRate) : 0;
-  const shippingCost = o.shippingCost ?? 0;
-  const otherCost = o.otherCost ?? 0;
+export function resolveOrderLineSalesCosts(
+  orderAccount: Readonly<{ channel: string }> | null,
+): OrderLineSalesCosts {
+  const costs = orderAccount
+    ? channelAccountSalesCosts(orderAccount)
+    : { salesCommissionApplies: true, otherCostApplies: true };
   return {
-    costPrice,
-    sellPrice,
-    commissionRate,
-    shippingCost,
-    otherCost,
-    isCostMissing: !hasCost,
+    commissionApplies: costs.salesCommissionApplies,
+    otherCostApplies: costs.otherCostApplies,
+    commission: costs.salesCommissionApplies ? null : 0,
+    otherCost: costs.otherCostApplies ? null : 0,
   };
 }

@@ -14,7 +14,6 @@ describe('RebuildReadinessBanner', () => {
     mockApiGet.mockResolvedValue({
       state: 'snapshot_required',
       target: 'office',
-      requiredImports: ['sellpia', 'wing'],
     });
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 

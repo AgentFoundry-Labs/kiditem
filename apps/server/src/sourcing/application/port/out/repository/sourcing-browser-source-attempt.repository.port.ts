@@ -98,6 +98,8 @@ export interface SourcingWingCatalogReceipt {
   keyword: string;
   checksum: string;
   count: number;
+  /** Exact number of immutable typed facts published for this keyword. */
+  acceptedCount?: number;
   duplicateCount: number;
 }
 

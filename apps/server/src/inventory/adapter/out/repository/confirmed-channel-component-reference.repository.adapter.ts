@@ -3,6 +3,7 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
   ConfirmedChannelComponentReferencePort,
 } from '../../../application/port/out/cross-domain/confirmed-channel-component-reference.port';
+import { readInventorySkuIdentities } from '../../../read/inventory-availability';
 
 @Injectable()
 export class ConfirmedChannelComponentReferenceRepositoryAdapter
@@ -12,20 +13,27 @@ implements ConfirmedChannelComponentReferencePort {
   async listReferencedSellpiaProductCodes(
     organizationId: string,
   ): Promise<string[]> {
-    const references = await this.prisma.channelListingOptionInventoryComponent.findMany({
-      where: {
-        organizationId,
-        channelListingOption: {
+    return this.prisma.$transaction(async (transaction) => {
+      const references = await transaction.channelListingOptionInventoryComponent.findMany({
+        where: {
           organizationId,
-          listing: { organizationId, masterProductId: { not: null } },
+          channelListingOption: {
+            organizationId,
+            listing: { organizationId, masterProductId: { not: null } },
+          },
         },
-        sellpiaInventorySku: { organizationId },
-      },
-      select: { sellpiaInventorySku: { select: { code: true } } },
-      orderBy: [{ sellpiaInventorySku: { code: 'asc' } }, { id: 'asc' }],
+        select: { sellpiaInventorySkuId: true },
+        orderBy: { id: 'asc' },
+      });
+      const identities = await readInventorySkuIdentities(transaction, {
+        organizationId,
+        selector: {
+          kind: 'ids',
+          values: references.map(({ sellpiaInventorySkuId }) =>
+            sellpiaInventorySkuId),
+        },
+      });
+      return [...new Set(identities.map(({ code }) => code))].sort();
     });
-    return [...new Set(
-      references.map(({ sellpiaInventorySku }) => sellpiaInventorySku.code),
-    )];
   }
 }

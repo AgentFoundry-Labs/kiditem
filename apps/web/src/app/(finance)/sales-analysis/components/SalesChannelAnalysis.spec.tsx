@@ -13,14 +13,16 @@ vi.mock('next/dynamic', () => ({
 }));
 
 const summary: SellpiaSalesSummary = {
+  knownThrough: '2026-07-25',
   range: { from: '2026-07-01', to: '2026-07-25' },
   rocket: {
     revenue: 80_000,
     qty: 8,
     cost: 30_000,
+    revenueShare: 80,
     daily: [
-      { date: '2026-07-02', revenue: 50_000, qty: 5 },
-      { date: '2026-07-01', revenue: 30_000, qty: 3 },
+      { date: '2026-07-02', revenue: 50_000, qty: 5, revenueShare: 63 },
+      { date: '2026-07-01', revenue: 30_000, qty: 3, revenueShare: 38 },
     ],
     malls: [],
   },
@@ -28,9 +30,10 @@ const summary: SellpiaSalesSummary = {
     revenue: 20_000,
     qty: 2,
     cost: 10_000,
+    revenueShare: 20,
     daily: [
-      { date: '2026-07-01', revenue: 10_000, qty: 1 },
-      { date: '2026-07-03', revenue: 10_000, qty: 1 },
+      { date: '2026-07-01', revenue: 10_000, qty: 1, revenueShare: 50 },
+      { date: '2026-07-03', revenue: 10_000, qty: 1, revenueShare: 50 },
     ],
     malls: [
       {
@@ -39,7 +42,8 @@ const summary: SellpiaSalesSummary = {
         revenue: 20_000,
         qty: 2,
         cost: 10_000,
-        daily: [{ date: '2026-07-01', revenue: 20_000, qty: 2 }],
+        revenueShare: 100,
+        daily: [{ date: '2026-07-01', revenue: 20_000, qty: 2, revenueShare: 100 }],
       },
     ],
   },
@@ -53,6 +57,58 @@ const summary: SellpiaSalesSummary = {
 };
 
 describe('SalesChannelAnalysis', () => {
+  const renderSummary = (
+    value: SellpiaSalesSummary,
+    selectedChannel: 'all' | 'rocket' | 'others',
+  ) => render(
+    <SalesChannelAnalysis
+      summary={value}
+      isLoading={false}
+      isError={false}
+      onRetry={vi.fn()}
+      onSync={vi.fn()}
+      syncing={false}
+      selectedChannel={selectedChannel}
+      onChannelChange={vi.fn()}
+    />,
+  );
+
+  it("renders the server's revenue shares rather than recomputing them", () => {
+    renderSummary({
+      ...summary,
+      rocket: { ...summary.rocket, revenueShare: 79 },
+      others: {
+        ...summary.others,
+        revenueShare: 21,
+        malls: [{ ...summary.others.malls[0]!, revenueShare: 99 }],
+      },
+    }, 'others');
+
+    // 80,000 / 100,000 would be 80%: the card shows the server's share.
+    expect(screen.getByText('79%')).toBeInTheDocument();
+    expect(screen.queryByText('80%')).toBeNull();
+    expect(screen.getByText('21%')).toBeInTheDocument();
+    expect(screen.getByText('99%')).toBeInTheDocument();
+  });
+
+  it('shows - for a share over a zero denominator, never 0%', () => {
+    renderSummary({
+      ...summary,
+      totalRevenue: 0,
+      rocket: {
+        ...summary.rocket,
+        revenue: 0,
+        revenueShare: null,
+        daily: [{ date: '2026-07-01', revenue: 0, qty: 0, revenueShare: null }],
+      },
+      others: { ...summary.others, revenue: 0, revenueShare: null, daily: [], malls: [] },
+    }, 'rocket');
+
+    expect(screen.queryByText('0%')).toBeNull();
+    // Both channel cards and the one Rocket day.
+    expect(screen.getAllByText('-')).toHaveLength(3);
+  });
+
   it('merges and sorts rocket and other-mall daily points', () => {
     expect(buildSalesChannelChartData(summary)).toEqual([
       { date: '2026-07-01', rocket: 30_000, others: 10_000 },

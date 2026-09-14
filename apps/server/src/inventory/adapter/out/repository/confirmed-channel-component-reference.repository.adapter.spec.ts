@@ -6,12 +6,21 @@ const ORGANIZATION_ID = '00000000-0000-4000-8000-000000000001';
 describe('ConfirmedChannelComponentReferenceRepositoryAdapter', () => {
   it('returns only organization-owned confirmed recipe references', async () => {
     const findMany = vi.fn().mockResolvedValue([
-      { sellpiaInventorySku: { code: 'SP-001' } },
-      { sellpiaInventorySku: { code: 'SP-001' } },
-      { sellpiaInventorySku: { code: 'SP-002' } },
+      { sellpiaInventorySkuId: 'sku-1' },
+      { sellpiaInventorySkuId: 'sku-1' },
+      { sellpiaInventorySkuId: 'sku-2' },
     ]);
-    const adapter = new ConfirmedChannelComponentReferenceRepositoryAdapter({
+    const identityFindMany = vi.fn().mockResolvedValue([
+      inventoryIdentity('sku-1', 'SP-001'),
+      inventoryIdentity('sku-2', 'SP-002'),
+    ]);
+    const transaction = {
       channelListingOptionInventoryComponent: { findMany },
+      sellpiaInventorySku: { findMany: identityFindMany },
+    };
+    const adapter = new ConfirmedChannelComponentReferenceRepositoryAdapter({
+      $transaction: (operation: (tx: typeof transaction) => unknown) =>
+        operation(transaction),
     } as never);
 
     await expect(adapter.listReferencedSellpiaProductCodes(ORGANIZATION_ID))
@@ -26,10 +35,23 @@ describe('ConfirmedChannelComponentReferenceRepositoryAdapter', () => {
             masterProductId: { not: null },
           },
         },
-        sellpiaInventorySku: { organizationId: ORGANIZATION_ID },
       },
-      select: { sellpiaInventorySku: { select: { code: true } } },
-      orderBy: [{ sellpiaInventorySku: { code: 'asc' } }, { id: 'asc' }],
+      select: { sellpiaInventorySkuId: true },
+      orderBy: { id: 'asc' },
     });
   });
 });
+
+function inventoryIdentity(id: string, code: string) {
+  return {
+    id,
+    code,
+    name: code,
+    optionName: null,
+    barcode: null,
+    purchasePrice: null,
+    salePrice: null,
+    isActive: true,
+    masterProductId: null,
+  };
+}

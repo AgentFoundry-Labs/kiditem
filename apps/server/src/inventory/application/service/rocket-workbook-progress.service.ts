@@ -1,6 +1,8 @@
 import { Inject, Injectable } from '@nestjs/common';
-import type { RocketWorkbookWorkflowStatus } from '@kiditem/shared/rocket-purchase-preview';
-import type { RocketWorkbookProgressPort } from '../port/in/stock/rocket-workbook-progress.port';
+import type {
+  RocketWorkbookProgressPort,
+  RocketWorkbookWorkflowStatus,
+} from '../port/in/stock/rocket-workbook-progress.port';
 import {
   ROCKET_WORKBOOK_PROGRESS_REPOSITORY_PORT,
   type RocketWorkbookProgressRepositoryPort,

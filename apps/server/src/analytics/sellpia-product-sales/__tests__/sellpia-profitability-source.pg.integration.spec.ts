@@ -12,6 +12,7 @@ import {
   SellpiaProfitabilitySourceService,
   buildSellpiaProfitabilityPlan,
 } from '../sellpia-profitability-source.service';
+import { readCurrentSellpiaProductMonthlyFacts } from '../read/sellpia-product-monthly-facts';
 
 const ATTEMPT_KEY = '11111111-1111-4111-8111-111111111111';
 
@@ -140,6 +141,12 @@ describe('Sellpia profitability source owner (PostgreSQL)', () => {
     await expect(service.readCanonicalGeneration(TEST_ORGANIZATION_ID)).resolves.toMatchObject({
       sourceImportRunId: first.attemptId,
       generation: '1',
+    });
+    await expect(prisma.$transaction((tx) => readCurrentSellpiaProductMonthlyFacts(tx, {
+      organizationId: TEST_ORGANIZATION_ID,
+    }))).resolves.toMatchObject({
+      generation: { id: first.attemptId, publicationSequence: 1n },
+      facts: [expect.objectContaining({ sourceImportRunId: first.attemptId })],
     });
     await expect(service.readSourceStatus(TEST_ORGANIZATION_ID)).resolves.toMatchObject({
       ready: true,

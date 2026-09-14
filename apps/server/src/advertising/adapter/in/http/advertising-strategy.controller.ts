@@ -26,9 +26,4 @@ export class AdvertisingStrategyController {
   getRecommendations(@CurrentOrganization() organizationId: string) {
     return this.adStrategyService.getRecommendations(organizationId);
   }
-
-  @Get('exposure-analysis')
-  getExposureAnalysis(@CurrentOrganization() organizationId: string) {
-    return this.adStrategyService.getExposureAnalysis(organizationId);
-  }
 }

@@ -16,8 +16,8 @@ export const COUPANG_SHIPMENT_RESPONSE_INVALID_CODE =
 const BASE = "/api/coupang-shipments/date-summary";
 const entrySchema = z.object({
   date: z.string(),
-  count: z.number().int().nonnegative(),
-  boxes: z.number().int().nonnegative(),
+  count: z.number().int().nonnegative().nullable(),
+  boxes: z.number().int().nonnegative().nullable(),
   capturedAt: z.string().datetime(),
   verified: z.boolean(),
 });
@@ -49,15 +49,20 @@ const sourceSchema = z.object({
 export type CoupangShipmentSummarySource = z.infer<typeof sourceSchema>;
 export interface CoupangShipmentDateSummaryItem {
   date: string;
-  count: number;
-  boxes: number;
+  count: number | null;
+  boxes: number | null;
 }
+type CollectedCoupangShipmentDateSummaryItem =
+  CoupangShipmentDateSummaryItem & {
+    count: number;
+    boxes: number;
+  };
 export type CoupangShipmentSummaryActionResult =
   | { status: "empty"; items: [] }
   | {
       status: "collected";
       items: CoupangShipmentDateSummaryItem[];
-      latest: CoupangShipmentDateSummaryItem;
+      latest: CollectedCoupangShipmentDateSummaryItem;
     };
 
 export class CoupangShipmentExtensionError extends Error {
@@ -153,9 +158,12 @@ export async function collectAndPersistCoupangShipmentSummary(): Promise<Coupang
   const latest = [...saved.capturedItems].sort((a, b) =>
     b.date.localeCompare(a.date),
   )[0]!;
+  if (latest.count === null || latest.boxes === null) {
+    throw new Error("검증된 쉽먼트 요약에 측정값이 없습니다.");
+  }
   return {
     status: "collected",
     items: saved.items.map(item),
-    latest: item(latest),
+    latest: { date: latest.date, count: latest.count, boxes: latest.boxes },
   };
 }

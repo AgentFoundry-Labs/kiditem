@@ -5,6 +5,7 @@ import { ReadinessService } from '../readiness.service';
 
 const ORGANIZATION_ID = '00000000-0000-0000-0000-0000000c0001';
 const ACTIVE_COUPANG_ACCOUNT_ID = '00000000-0000-4000-8000-0000000c0002';
+const SELLPIA_COMPLETE_RUN_ID = '00000000-0000-4000-8000-0000000c0003';
 
 /** One measured ad day as `readAdWindowFacts` reads it from the ledger. */
 function adPublishedRow(
@@ -23,9 +24,31 @@ function adPublishedRow(
   };
 }
 
-/** The ad ledger read, as the service reaches it through `$queryRaw`. */
-function adLedger(rows: ReturnType<typeof adPublishedRow>[] = []) {
-  return vi.fn(async () => rows);
+type RawQuery = { strings?: readonly string[]; values?: unknown[] };
+
+/** Whether a `$queryRaw` call is the ad target-day ledger read. */
+function isAdLedgerRead(sql: unknown): boolean {
+  return ((sql as RawQuery | undefined)?.strings ?? []).join('')
+    .includes('channel_ad_target_daily_snapshots');
+}
+
+/** An active account's newest complete sweep, as the evidence cutoff read returns it. */
+type SweepEnds = { requested_end: Date | null; confirmed_end: Date | null };
+
+/**
+ * The service's two `$queryRaw` reads: the ad ledger returns `rows`, and the
+ * sweep evidence cutoff returns `sweepEnds` (no complete sweep by default).
+ */
+function adLedger(
+  rows: ReturnType<typeof adPublishedRow>[] = [],
+  sweepEnds: SweepEnds[] = [],
+) {
+  return vi.fn(async (sql: unknown) => (isAdLedgerRead(sql) ? rows : sweepEnds));
+}
+
+/** The ad ledger `$queryRaw` call. */
+function ledgerQuery(queryRaw: ReturnType<typeof vi.fn>): RawQuery | undefined {
+  return queryRaw.mock.calls.find(([sql]) => isAdLedgerRead(sql))?.[0] as RawQuery | undefined;
 }
 
 /**
@@ -34,9 +57,7 @@ function adLedger(rows: ReturnType<typeof adPublishedRow>[] = []) {
  * repeat them; the bounds themselves are what the service chose.
  */
 function queriedDates(queryRaw: ReturnType<typeof vi.fn>): string[] {
-  const sql = queryRaw.mock.calls[0]?.[0] as
-    | { strings?: readonly string[]; values?: unknown[] }
-    | undefined;
+  const sql = ledgerQuery(queryRaw);
   // The ad ledger read, whatever CTE the reader opens with.
   expect((sql?.strings ?? []).join('')).toContain('channel_ad_target_daily_snapshots');
   const dates = (sql?.values ?? []).filter(
@@ -45,10 +66,47 @@ function queriedDates(queryRaw: ReturnType<typeof vi.fn>): string[] {
   return [...new Set(dates)];
 }
 
-/** The organization a `$queryRaw` call was scoped to. */
+/** The organization the ledger `$queryRaw` call was scoped to. */
 function queriedOrganization(queryRaw: ReturnType<typeof vi.fn>): string | undefined {
-  const sql = queryRaw.mock.calls[0]?.[0] as { values?: unknown[] } | undefined;
-  return sql?.values?.[0] as string | undefined;
+  return ledgerQuery(queryRaw)?.values?.[0] as string | undefined;
+}
+
+function withSellpiaReaderTransaction<T extends {
+  sourceImportRun: object;
+  sellpiaSalesDailySnapshot: { findMany: ReturnType<typeof vi.fn> };
+}>(prisma: T): T & { $transaction: ReturnType<typeof vi.fn> } {
+  const legacyFindMany = prisma.sellpiaSalesDailySnapshot.findMany;
+  const tx = {
+    ...prisma,
+    sourceImportRun: {
+      ...prisma.sourceImportRun,
+      findMany: vi.fn(async () => [{ id: SELLPIA_COMPLETE_RUN_ID }]),
+    },
+    sellpiaSalesDailySnapshot: {
+      findMany: vi.fn(async (query: unknown) => {
+        const rows = await legacyFindMany(query) as Array<{
+          businessDate: Date;
+          capturedAt?: Date;
+          lastObservedAt?: Date;
+        }>;
+        return rows.map((row) => ({
+          sourceImportRunId: SELLPIA_COMPLETE_RUN_ID,
+          businessDate: row.businessDate,
+          sellerId: '__kiditem_sellpia_sales_coverage__',
+          sellerName: 'KidItem 수집 완료',
+          channelGroup: 'others',
+          revenueKrw: 0,
+          qty: 0,
+          costKrw: 0,
+          capturedAt: row.capturedAt ?? row.lastObservedAt ?? row.businessDate,
+        }));
+      }),
+    },
+  };
+  return Object.assign(prisma, {
+    $transaction: vi.fn(async (callback: (client: typeof tx) => Promise<unknown>) =>
+      callback(tx)),
+  });
 }
 
 describe('ReadinessService', () => {
@@ -89,11 +147,6 @@ describe('ReadinessService', () => {
     const prisma = {
       channelAccount: {
         findFirst: vi.fn(async () => ({ id: ACTIVE_COUPANG_ACCOUNT_ID })),
-      },
-      channelAccountDailyKpiSnapshot: {
-        findMany: vi.fn(async (_args: unknown) =>
-          expectedDates.filter((d) => d !== '2026-04-18').map(row),
-        ),
       },
       coupangWingSalesRankDailySnapshot: {
         findFirst: vi.fn(async () => ({
@@ -137,35 +190,28 @@ describe('ReadinessService', () => {
         .map((d) => adPublishedRow(d)),
     );
     (prisma as { $queryRaw?: unknown }).$queryRaw = queryRaw;
-    const service = new ReadinessService(prisma as never);
+    const service = new ReadinessService(withSellpiaReaderTransaction(prisma) as never);
     const status = await service.getStatus(ORGANIZATION_ID);
 
     const sellpiaQuery = prisma.sellpiaSalesDailySnapshot.findMany.mock.calls[0]?.[0] as {
       where: { sellerId: string };
     };
     // Half-open `[from, to)` over KST business dates, fenced to the organization.
-    expect(queryRaw).toHaveBeenCalledTimes(1);
+    expect(queryRaw.mock.calls.filter(([sql]) => isAdLedgerRead(sql))).toHaveLength(1);
     expect(queriedOrganization(queryRaw)).toBe(ORGANIZATION_ID);
     expect(queriedDates(queryRaw)).toEqual(['2026-04-02', '2026-05-02']);
-    expect(sellpiaQuery.where.sellerId).toBe('__kiditem_sellpia_sales_coverage__');
+    expect(sellpiaQuery.where).toMatchObject({
+      organizationId: ORGANIZATION_ID,
+      sourceImportRunId: { in: [SELLPIA_COMPLETE_RUN_ID] },
+    });
+    // Which import runs count is proven over PostgreSQL in
+    // catalog-readiness.pg.integration.spec.ts; this pins the account fence.
     expect(prisma.channelListing.count).toHaveBeenCalledWith({
-      where: {
+      where: expect.objectContaining({
         organizationId: ORGANIZATION_ID,
         channelAccountId: ACTIVE_COUPANG_ACCOUNT_ID,
         isActive: true,
-        lastImportRun: {
-          is: {
-            organizationId: ORGANIZATION_ID,
-            sourceType: {
-              in: [
-                'coupang_wing_catalog',
-                'coupang_wing_catalog_basics',
-                'coupang_wing_catalog_details',
-              ],
-            },
-          },
-        },
-      },
+      }),
     });
     expect(prisma.sourceImportRun.findFirst).toHaveBeenCalledWith({
       where: {
@@ -188,6 +234,9 @@ describe('ReadinessService', () => {
     expect(readinessState(wingSales)).toBe('ok');
     expect(readinessState(coupangAds)).toBe('stale');
     expect(coupangAds?.missingDates).toEqual(['2026-04-02']);
+    // The row measures the campaign sweep's declared window, not a separate
+    // account-day KPI publication.
+    expect(coupangAds?.basis.sources).toEqual(['coupang_ads']);
     expect(coupangProducts).toMatchObject({
       count: 1752,
       lastSyncedAt: '2026-05-02T01:00:00.000Z',
@@ -218,9 +267,6 @@ describe('ReadinessService', () => {
       channelAccount: {
         findFirst: vi.fn(async () => ({ id: ACTIVE_COUPANG_ACCOUNT_ID })),
       },
-      channelAccountDailyKpiSnapshot: {
-        findMany: vi.fn(async () => []),
-      },
       coupangWingSalesRankDailySnapshot: {
         findFirst: vi.fn(async () => null),
         findMany: vi.fn(async () => []),
@@ -237,7 +283,9 @@ describe('ReadinessService', () => {
       },
     };
 
-    const status = await new ReadinessService(Object.assign(prisma, { $queryRaw: adLedger() }) as never).getStatus(
+    const status = await new ReadinessService(withSellpiaReaderTransaction(
+      Object.assign(prisma, { $queryRaw: adLedger() }),
+    ) as never).getStatus(
       ORGANIZATION_ID,
     );
     const sellpiaQuery =
@@ -267,7 +315,6 @@ describe('ReadinessService', () => {
       channelAccount: {
         findFirst: vi.fn(async () => ({ id: ACTIVE_COUPANG_ACCOUNT_ID })),
       },
-      channelAccountDailyKpiSnapshot: { findMany: vi.fn(async () => []) },
       coupangWingSalesRankDailySnapshot: {
         findFirst: vi.fn(async () => ({
           businessDate: latestBusinessDate,
@@ -293,7 +340,9 @@ describe('ReadinessService', () => {
       sellpiaSalesDailySnapshot: { findMany: vi.fn(async (_args: unknown) => []) },
     };
 
-    const status = await new ReadinessService(Object.assign(prisma, { $queryRaw: adLedger() }) as never).getStatus(
+    const status = await new ReadinessService(withSellpiaReaderTransaction(
+      Object.assign(prisma, { $queryRaw: adLedger() }),
+    ) as never).getStatus(
       ORGANIZATION_ID,
     );
     const wingRank = status.checks.find((check) => check.key === 'wing_kpi');
@@ -328,16 +377,6 @@ describe('ReadinessService', () => {
 
     const prisma = {
       channelAccount: { findFirst: vi.fn(async () => null) },
-      // These mocks represent stale rows that still exist in the database.
-      // They must not be queried when there is no active account.
-      channelAccountDailyKpiSnapshot: {
-        findMany: vi.fn(async () => [
-          {
-            businessDate: new Date('2026-07-17T00:00:00.000Z'),
-            lastObservedAt: new Date('2026-07-18T00:00:00.000Z'),
-          },
-        ]),
-      },
       channelListingOption: {
         findMany: vi.fn(async () => [{ externalOptionId: 'inactive-vendor' }]),
       },
@@ -358,11 +397,10 @@ describe('ReadinessService', () => {
 
     const queryRaw = adLedger();
     (prisma as { $queryRaw?: unknown }).$queryRaw = queryRaw;
-    const status = await new ReadinessService(prisma as never).getStatus(
+    const status = await new ReadinessService(withSellpiaReaderTransaction(prisma) as never).getStatus(
       ORGANIZATION_ID,
     );
 
-    expect(prisma.channelAccountDailyKpiSnapshot.findMany).not.toHaveBeenCalled();
     expect(queryRaw).not.toHaveBeenCalled();
     expect(prisma.channelListingOption.findMany).not.toHaveBeenCalled();
     expect(prisma.channelListing.count).not.toHaveBeenCalled();
@@ -396,7 +434,6 @@ describe('ReadinessService', () => {
       channelAccount: {
         findFirst: vi.fn(async () => ({ id: ACTIVE_COUPANG_ACCOUNT_ID })),
       },
-      channelAccountDailyKpiSnapshot: { findMany: vi.fn(async () => []) },
       coupangWingSalesRankDailySnapshot: {
         findFirst: vi.fn(async () => null),
         findMany: vi.fn(async () => []),
@@ -412,7 +449,7 @@ describe('ReadinessService', () => {
 
     const queryRaw = adLedger();
     (prisma as { $queryRaw?: unknown }).$queryRaw = queryRaw;
-    const status = await new ReadinessService(prisma as never).getStatus(
+    const status = await new ReadinessService(withSellpiaReaderTransaction(prisma) as never).getStatus(
       ORGANIZATION_ID,
     );
     const sellpiaQuery =
@@ -447,13 +484,6 @@ describe('ReadinessService', () => {
       channelAccount: {
         findFirst: vi.fn(async () => ({ id: ACTIVE_COUPANG_ACCOUNT_ID })),
       },
-      // A failed new attempt and legacy rows must not become a second read path.
-      channelAccountDailyKpiSnapshot: {
-        findMany: vi.fn(async () => expectedDates.map((businessDate) => ({
-          businessDate: new Date(`${businessDate}T00:00:00.000Z`),
-          lastObservedAt: new Date('2026-07-18T00:00:00.000Z'),
-        }))),
-      },
       coupangWingSalesRankDailySnapshot: {
         findFirst: vi.fn(async () => null),
         findMany: vi.fn(async () => []),
@@ -471,19 +501,90 @@ describe('ReadinessService', () => {
 
     (prisma as { $queryRaw?: unknown }).$queryRaw = queryRaw;
 
-    const status = await new ReadinessService(prisma as never).getStatus(
+    const status = await new ReadinessService(withSellpiaReaderTransaction(prisma) as never).getStatus(
       ORGANIZATION_ID,
     );
     const ads = status.checks.find((check) => check.key === 'coupang_ads');
 
     // Half-open `[from, to)` over KST business dates.
     expect(queriedDates(queryRaw)).toEqual(['2026-06-18', '2026-07-18']);
-    expect(prisma.channelAccountDailyKpiSnapshot.findMany).not.toHaveBeenCalled();
     expect(ads).toMatchObject({
       count: expectedDates.length,
       lastSyncedAt: previousCompleteObservedAt,
     });
     expect(readinessState(ads)).toBe('ok');
+  });
+
+  it('ends the ad check at the evidence cutoff when every account held yesterday as unreported', async () => {
+    vi.useFakeTimers();
+    // 2026-07-18 12:00 KST: yesterday is 2026-07-17.
+    vi.setSystemTime(new Date('2026-07-18T03:00:00.000Z'));
+    // 30 measured days through 2026-07-16.
+    const measuredDates = Array.from({ length: 30 }, (_, index) => {
+      const date = new Date('2026-06-17T00:00:00.000Z');
+      date.setUTCDate(date.getUTCDate() + index);
+      return date.toISOString().slice(0, 10);
+    });
+    const statusWith = async (sweepEnds: SweepEnds) => {
+      const prisma = {
+        channelAccount: {
+          findFirst: vi.fn(async () => ({ id: ACTIVE_COUPANG_ACCOUNT_ID })),
+        },
+        coupangWingSalesRankDailySnapshot: {
+          findFirst: vi.fn(async () => null),
+          findMany: vi.fn(async () => []),
+          count: vi.fn(async () => 0),
+        },
+        channelListingOption: { findMany: vi.fn(async () => []) },
+        channelListing: { count: vi.fn(async () => 0) },
+        sourceImportRun: { findFirst: vi.fn(async () => null) },
+        sellpiaSalesDailySnapshot: { findMany: vi.fn(async () => []) },
+      };
+      const queryRaw = adLedger(
+        measuredDates.map((businessDate) => adPublishedRow(businessDate, '2026-07-17T23:30:00.000Z')),
+        [sweepEnds],
+      );
+      (prisma as { $queryRaw?: unknown }).$queryRaw = queryRaw;
+      const status = await new ReadinessService(withSellpiaReaderTransaction(prisma) as never).getStatus(
+        ORGANIZATION_ID,
+      );
+      return {
+        queried: queriedDates(queryRaw),
+        ads: status.checks.find((check) => check.key === 'coupang_ads'),
+        sales: status.checks.find((check) => check.key === 'wing_sales'),
+      };
+    };
+
+    // The newest complete sweep requested 2026-07-17 and held it: nothing newer to collect yet.
+    const held = await statusWith({
+      requested_end: new Date('2026-07-17T00:00:00.000Z'),
+      confirmed_end: new Date('2026-07-16T00:00:00.000Z'),
+    });
+    expect(held.queried).toEqual(['2026-06-17', '2026-07-17']);
+    expect(held.ads).toMatchObject({
+      referenceDate: '2026-07-16',
+      expectedDates: measuredDates,
+      missingDates: [],
+      basis: { asOf: '2026-07-16', requiredAsOf: '2026-07-16' },
+      detail: '최근 30일치 (2026-06-17~2026-07-16) 모두 수집됨',
+    });
+    expect(readinessState(held.ads)).toBe('ok');
+    // Sellpia keeps the closed day.
+    expect(held.sales?.referenceDate).toBe('2026-07-17');
+
+    // A sweep that requested only 2026-07-16 has not looked at yesterday.
+    const stale = await statusWith({
+      requested_end: new Date('2026-07-16T00:00:00.000Z'),
+      confirmed_end: new Date('2026-07-16T00:00:00.000Z'),
+    });
+    expect(stale.queried).toEqual(['2026-06-18', '2026-07-18']);
+    expect(stale.ads).toMatchObject({
+      referenceDate: '2026-07-17',
+      missingDates: ['2026-07-17'],
+      basis: { requiredAsOf: '2026-07-17' },
+      detail: '최신(2026-07-17) 미수집 — 누락 1/30일',
+    });
+    expect(readinessState(stale.ads)).toBe('stale');
   });
 
   it('does not promote a nullable staged inventory identity into a Wing vendor target', async () => {
@@ -495,7 +596,6 @@ describe('ReadinessService', () => {
       channelAccount: {
         findFirst: vi.fn(async () => ({ id: ACTIVE_COUPANG_ACCOUNT_ID })),
       },
-      channelAccountDailyKpiSnapshot: { findMany: vi.fn(async () => []) },
       channelListingOption: {
         findMany: vi.fn(async () => [
           {
@@ -544,7 +644,9 @@ describe('ReadinessService', () => {
       sellpiaSalesDailySnapshot: { findMany: vi.fn(async () => []) },
     };
 
-    const status = await new ReadinessService(Object.assign(prisma, { $queryRaw: adLedger() }) as never).getStatus(
+    const status = await new ReadinessService(withSellpiaReaderTransaction(
+      Object.assign(prisma, { $queryRaw: adLedger() }),
+    ) as never).getStatus(
       ORGANIZATION_ID,
     );
 
@@ -573,7 +675,9 @@ describe('ReadinessService', () => {
       },
     });
 
-    const status = await new ReadinessService(Object.assign(prisma, { $queryRaw: adLedger() }) as never).getStatus(
+    const status = await new ReadinessService(withSellpiaReaderTransaction(
+      Object.assign(prisma, { $queryRaw: adLedger() }),
+    ) as never).getStatus(
       ORGANIZATION_ID,
     );
     const products = status.checks.find((check) => check.key === 'coupang_products');
@@ -583,20 +687,13 @@ describe('ReadinessService', () => {
       detail: '쿠팡 상품 1254건 수집됨',
     });
     expect(readinessState(products)).toBe('ok');
+    // Which import runs count is proven over PostgreSQL in
+    // catalog-readiness.pg.integration.spec.ts; this pins the account fence.
     expect(prisma.channelListing.count).toHaveBeenCalledWith({
       where: expect.objectContaining({
-        lastImportRun: {
-          is: {
-            organizationId: ORGANIZATION_ID,
-            sourceType: {
-              in: [
-                'coupang_wing_catalog',
-                'coupang_wing_catalog_basics',
-                'coupang_wing_catalog_details',
-              ],
-            },
-          },
-        },
+        organizationId: ORGANIZATION_ID,
+        channelAccountId: ACTIVE_COUPANG_ACCOUNT_ID,
+        isActive: true,
       }),
     });
     expect(prisma.sourceImportRun.findFirst).toHaveBeenCalledWith({
@@ -627,9 +724,9 @@ describe('ReadinessService', () => {
       },
     });
 
-    const status = await new ReadinessService(
-      Object.assign(prisma, { $queryRaw: adLedger() }) as never,
-    ).getStatus(ORGANIZATION_ID);
+    const status = await new ReadinessService(withSellpiaReaderTransaction(
+      Object.assign(prisma, { $queryRaw: adLedger() }),
+    ) as never).getStatus(ORGANIZATION_ID);
     const products = status.checks.find((check) => check.key === 'coupang_products');
 
     expect(products?.basis).toMatchObject({
@@ -646,7 +743,9 @@ describe('ReadinessService', () => {
       latestCatalogRun: null,
     });
 
-    const status = await new ReadinessService(Object.assign(prisma, { $queryRaw: adLedger() }) as never).getStatus(
+    const status = await new ReadinessService(withSellpiaReaderTransaction(
+      Object.assign(prisma, { $queryRaw: adLedger() }),
+    ) as never).getStatus(
       ORGANIZATION_ID,
     );
     const products = status.checks.find((check) => check.key === 'coupang_products');

@@ -2,7 +2,6 @@ import { Inject, Injectable } from '@nestjs/common';
 import type {
   SellpiaInventorySkuReadModel,
   SellpiaInventorySkuReadPort,
-  SellpiaInventorySkuSearchOptions,
 } from '../port/in/stock/sellpia-inventory-sku-read.port';
 import {
   SELLPIA_INVENTORY_SKU_READ_REPOSITORY_PORT,
@@ -69,7 +68,6 @@ export class SellpiaInventorySkuReadService implements SellpiaInventorySkuReadPo
     organizationId: string,
     query: string,
     limit: number,
-    options?: SellpiaInventorySkuSearchOptions,
   ): Promise<SellpiaInventorySkuReadModel[]> {
     const normalizedQuery = query.trim();
     if (!normalizedQuery) return Promise.resolve([]);
@@ -80,7 +78,6 @@ export class SellpiaInventorySkuReadService implements SellpiaInventorySkuReadPo
       organizationId,
       normalizedQuery,
       cappedLimit,
-      options,
     );
   }
 

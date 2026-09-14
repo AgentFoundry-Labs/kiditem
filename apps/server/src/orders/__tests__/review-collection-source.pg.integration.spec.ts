@@ -12,10 +12,15 @@ import {
   TEST_USER_ID as USER,
 } from '../../test-helpers/real-prisma';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
+import { allocatePublicationSequence } from '../../common/publication-sequence';
 import {
   REVIEW_COLLECTION_SOURCE_PORT,
 } from '../application/port/in/review-collection-source.port';
 import { ReviewCollectionSourceRepository } from '../adapter/out/repository/review-collection-source.repository';
+import {
+  readCurrentReviewListingStats,
+  readCurrentReviewRecentCounts,
+} from '../read/review-facts.reader';
 import { ReviewsController } from '../controllers/reviews.controller';
 import { ReviewIngestService } from '../services/review-ingest.service';
 import { ReviewsService } from '../services/reviews.service';
@@ -235,11 +240,7 @@ describe('Coupang review collection source owner over disposable PostgreSQL', ()
       },
     });
     await expect(
-      service.loadListingReviewStats({
-        organizationId: ORG,
-        listingIds: [listingId as string, foreignListing.id],
-        recentSince: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
-      }),
+      currentListingReviewStats([listingId as string, foreignListing.id]),
     ).resolves.toEqual({
       lifetime: [
         { listingId, totalReviews: 2, avgRating: 5 },
@@ -263,11 +264,7 @@ describe('Coupang review collection source owner over disposable PostgreSQL', ()
     await append(attempt, [review('review-failed', 'staged before failure')]);
 
     await expect(
-      service.loadListingReviewStats({
-        organizationId: ORG,
-        listingIds: [priorListingId as string],
-        recentSince: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
-      }),
+      currentListingReviewStats([priorListingId as string]),
     ).resolves.toEqual({
       lifetime: [{ listingId: priorListingId, totalReviews: 1, avgRating: 5 }],
       recent: [{ listingId: priorListingId, count: 1 }],
@@ -295,11 +292,7 @@ describe('Coupang review collection source owner over disposable PostgreSQL', ()
     const visible = await service.listItems(ORG, {});
     expect(visible.items.map((item) => item.content)).toEqual(['previous complete']);
     await expect(
-      service.loadListingReviewStats({
-        organizationId: ORG,
-        listingIds: [priorListingId as string],
-        recentSince: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
-      }),
+      currentListingReviewStats([priorListingId as string]),
     ).resolves.toEqual({
       lifetime: [{ listingId: priorListingId, totalReviews: 1, avgRating: 5 }],
       recent: [{ listingId: priorListingId, count: 1 }],
@@ -484,6 +477,64 @@ describe('Coupang review collection source owner over disposable PostgreSQL', ()
     expect(visible.items.map((item) => item.content)).toEqual(['newer publication']);
   });
 
+  it('serializes the review publication sequence with other publishers of the organization source', async () => {
+    const attempt = await begin(1);
+    await append(attempt, [review('review-serialized', 'serialized publication')]);
+    await completeWindow(attempt, 1);
+
+    let holderReady!: () => void;
+    const holding = new Promise<void>((resolve) => { holderReady = resolve; });
+    let releaseHolder!: () => void;
+    const released = new Promise<void>((resolve) => { releaseHolder = resolve; });
+    const otherPublication = prisma.$transaction(async (tx) => {
+      const publicationSequence = await allocatePublicationSequence(tx, ORG, 'coupang_reviews');
+      await tx.sourceImportRun.create({
+        data: {
+          organizationId: ORG,
+          sourceType: 'coupang_reviews',
+          status: 'completed',
+          importedAt: new Date(),
+          publicationSequence,
+        },
+      });
+      holderReady();
+      await released;
+      return publicationSequence;
+    }, { maxWait: 10_000, timeout: 30_000 });
+    await holding;
+
+    const completion = complete(attempt);
+    try {
+      await waitForBlockedSession(prisma);
+    } finally {
+      releaseHolder();
+    }
+
+    await expect(completion).resolves.toMatchObject({ state: 'COMPLETE', collected: 1 });
+    await expect(otherPublication).resolves.toBe(1n);
+    await expect(prisma.sourceImportRun.findUniqueOrThrow({
+      where: { id: attempt.attemptId },
+      select: { publicationSequence: true },
+    })).resolves.toEqual({ publicationSequence: 2n });
+
+    // The partial unique index still rejects a reused sequence and leaves
+    // unpublished runs unconstrained.
+    await expect(prisma.sourceImportRun.create({
+      data: {
+        organizationId: ORG,
+        sourceType: 'coupang_reviews',
+        status: 'failed',
+        publicationSequence: 2n,
+      },
+    })).rejects.toMatchObject({ code: 'P2002' });
+    await expect(prisma.sourceImportRun.createMany({
+      data: [
+        { organizationId: ORG, sourceType: 'coupang_reviews', status: 'failed' },
+        { organizationId: ORG, sourceType: 'coupang_reviews', status: 'failed' },
+      ],
+    })).resolves.toEqual({ count: 2 });
+  });
+
   async function begin(months: number) {
     const response = await request(httpUrl)
       .post(`${BASE}/attempts`)
@@ -564,6 +615,14 @@ describe('Coupang review collection source owner over disposable PostgreSQL', ()
         }>;
       });
   }
+
+  async function currentListingReviewStats(listingIds: string[]) {
+    const recentSince = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    return prisma.$transaction(async (tx) => ({
+      lifetime: await readCurrentReviewListingStats(tx, ORG, listingIds),
+      recent: await readCurrentReviewRecentCounts(tx, ORG, listingIds, recentSince),
+    }));
+  }
 });
 
 function review(externalReviewId: string, content: string) {
@@ -582,4 +641,22 @@ function review(externalReviewId: string, content: string) {
     isDeleted: false,
     isBlinded: false,
   };
+}
+
+async function waitForBlockedSession(prisma: PrismaClient): Promise<void> {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    const [activity] = await prisma.$queryRaw<Array<{ waiting: boolean }>>`
+      SELECT EXISTS (
+        SELECT 1
+        FROM pg_stat_activity
+        WHERE datname = current_database()
+          AND pid <> pg_backend_pid()
+          AND state = 'active'
+          AND wait_event_type = 'Lock'
+      ) AS waiting
+    `;
+    if (activity?.waiting) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error('Timed out waiting for the review publication to block.');
 }

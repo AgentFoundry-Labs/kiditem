@@ -57,6 +57,9 @@ describe('AdCampaignRepositoryAdapter account + stable campaign grain (PG)', () 
         organizationId, channelAccountId, sourceType: 'coupang_ad_campaign',
         parserVersion: 'ad-campaign-v1', status: 'completed', freshnessGeneration: 1,
         plan: { captureMode: 'campaign_sweep' },
+        // A completed campaign sweep declares the window it swept.
+        coverageStartDate: periodBounds('7d').from,
+        coverageEndDate: periodBounds('7d').to,
         qualityReport: { campaignDescriptors: [] },
       } });
       owners.set(channelAccountId, owner.id);
@@ -402,7 +405,10 @@ describe('AdCampaignRepositoryAdapter account + stable campaign grain (PG)', () 
       clicks: 70,
       conversions: 2,
       orders: 2,
-      conversionsObserved: true,
+      // The explicit campaign day came from the dashboard grid, which has no
+      // conversion column; a total that includes that day's stored 0 is not a
+      // measured conversion count.
+      conversionsObserved: false,
     });
   });
 

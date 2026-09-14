@@ -43,6 +43,7 @@ export const ChannelSkuAvailabilityMappingStatusSchema = z.enum([
 export const ChannelSkuAvailabilityWarningSchema = z.enum([
   'component_inactive',
   'configuration_required',
+  'inventory_unavailable',
 ]);
 
 export const ChannelSkuAvailabilityComponentSchema = z.object({
@@ -51,13 +52,13 @@ export const ChannelSkuAvailabilityComponentSchema = z.object({
   name: z.string().min(1),
   optionName: z.string().nullable(),
   barcode: z.string().nullable(),
-  currentStock: z.number().int().nonnegative(),
-  availableStock: z.number().int().nonnegative(),
+  currentStock: z.number().int().nonnegative().nullable(),
+  availableStock: z.number().int().nonnegative().nullable(),
   purchasePrice: z.number().int().nonnegative().nullable(),
-  isActive: z.boolean(),
+  isActive: z.boolean().nullable(),
   quantity: z.number().int().positive().max(2_147_483_647),
-  componentCapacity: z.number().int().nonnegative(),
-  isBottleneck: z.boolean(),
+  componentCapacity: z.number().int().nonnegative().nullable(),
+  isBottleneck: z.boolean().nullable(),
 }).strict().superRefine((component, ctx) => {
   if (component.availableStock !== component.currentStock) {
     ctx.addIssue({

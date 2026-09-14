@@ -9,8 +9,8 @@
   const OWNED_RESOURCE_REMOVAL_MAX_ATTEMPTS = 20;
   const OWNED_RESOURCE_REMOVAL_RETRY_MS = 100;
   const RESOURCE_RECOVERY_MAX_ATTEMPTS = 1;
-  const COLLECTION_OWNER_CONFLICT_MESSAGE =
-    "다른 데이터 수집 작업이 확인 대기 중입니다. 기존 작업을 완료하거나 중단한 뒤 다시 시도해주세요.";
+  const WINDOW_IN_USE_MESSAGE =
+    "수집이 이 창을 사용하고 있습니다. 끝난 뒤 다시 시도해 주세요.";
   const INACTIVE_COLLECTION_RUN_MESSAGE =
     "이미 중단되거나 종료된 데이터 수집 작업입니다.";
 
@@ -233,6 +233,71 @@
       }
     }
 
+    // A session whose attempt its source owner has already ended is a leftover:
+    // nothing is left to collect or attend to. Only a confirmed end clears it;
+    // an owner that cannot be read keeps protecting the window.
+    async function attemptEnded(session) {
+      if (!session || typeof options.attemptEnded !== "function") return false;
+      try {
+        return (await options.attemptEnded(session)) === true;
+      } catch {
+        return false;
+      }
+    }
+
+    function windowInUseError(runId, session) {
+      let name = null;
+      try {
+        const value = session && typeof options.collectionName === "function"
+          ? options.collectionName(session)
+          : null;
+        if (typeof value === "string" && value.trim()) name = value.trim();
+      } catch {
+        name = null;
+      }
+      return collectionWindowError(
+        "collection_window_owner_conflict",
+        `${name || "다른 데이터"} ${WINDOW_IN_USE_MESSAGE}`,
+        { runId, stage: "validate_owner" },
+      );
+    }
+
+    async function clearLeftover(record, runId) {
+      if (!(await closeOwnedRecord(record))) {
+        throw collectionWindowError(
+          "collection_window_recovery_failed",
+          "Collection tab cleanup failed",
+          { runId, stage: "clear_leftover", retryable: true },
+        );
+      }
+      if (typeof sessions?.remove === "function") await sessions.remove(record.runId);
+      await clearRecord();
+    }
+
+    // Ended sessions are leftovers whether or not they hold this window, and an
+    // attention session has nothing left to attend to once its attempt stopped
+    // running. A collection clears them when it takes its turn instead of
+    // leaving them to the session prune; a session whose attempt cannot be
+    // confirmed as ended is kept.
+    async function clearEndedSessions(environmentId) {
+      if (typeof sessions?.list !== "function" || typeof sessions.remove !== "function") return;
+      let listed;
+      try {
+        listed = await sessions.list(environmentId);
+      } catch {
+        return;
+      }
+      for (const session of Array.isArray(listed) ? listed : []) {
+        if (!(await attemptEnded(session))) continue;
+        try {
+          await close(session.attemptId);
+          await sessions.remove(session.attemptId);
+        } catch {
+          // A leftover that cannot be cleared now is tried again on the next turn.
+        }
+      }
+    }
+
     function reuseDecision(value) {
       if (value === true) return { reuse: true, closePrevious: false };
       if (value && typeof value === "object") {
@@ -253,10 +318,11 @@
       }
       const stored = await readRecord();
       const live = await validate(stored);
-      if (live) {
-        if (live.runId === runId) return live;
-
-        const previousSession = await readSession(live.runId);
+      if (live?.runId === runId) return live;
+      const previousSession = live ? await readSession(live.runId) : null;
+      if (live && (await attemptEnded(previousSession))) {
+        await clearLeftover(live, runId);
+      } else if (live) {
         const decision = reuseDecision(
           typeof reuseOptions.reuse === "function"
             ? await reuseOptions.reuse({
@@ -268,14 +334,10 @@
         );
 
         // An untracked resource record is safe to supersede only because the
-        // caller owns this storage key. A live owner session is protected until
-        // its source explicitly authorizes an attention retry.
+        // caller owns this storage key. A running owner session is protected
+        // until its source explicitly authorizes an attention retry.
         if (previousSession && !decision.reuse) {
-          throw collectionWindowError(
-            "collection_window_owner_conflict",
-            COLLECTION_OWNER_CONFLICT_MESSAGE,
-            { runId, stage: "validate_owner" },
-          );
+          throw windowInUseError(runId, previousSession);
         }
 
         if (previousSession && sessions && typeof sessions.detachTab === "function") {
@@ -327,17 +389,16 @@
     async function recoverOwnedWindow(runId, url) {
       const stored = await readRecord();
       const live = await validate(stored);
+      if (live?.runId === runId) return live;
       if (live) {
-        if (live.runId !== runId) {
-          throw collectionWindowError(
-            "collection_window_owner_conflict",
-            COLLECTION_OWNER_CONFLICT_MESSAGE,
-            { runId, stage: "validate_owner" },
-          );
+        const previousSession = await readSession(live.runId);
+        if (!(await attemptEnded(previousSession))) {
+          throw windowInUseError(runId, previousSession);
         }
-        return live;
+        await clearLeftover(live, runId);
+      } else if (stored) {
+        await clearRecord();
       }
-      if (stored) await clearRecord();
 
       const session = await readSession(runId);
       if (sessions && !session) {
@@ -651,6 +712,7 @@
 
     return Object.freeze({
       bindTab: bindOwnedTab,
+      clearEndedSessions,
       close,
       getOrCreate,
       getTab,

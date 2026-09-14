@@ -3,6 +3,8 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import {
   MasterProductOperationsListResponseSchema,
+  ProductInventoryStatusSchema,
+  ProductOperationsInventoryFocusSchema,
   type ProductInventoryStatus,
   type ProductOperationsActiveStatus,
   type ProductOperationsAdStatus,
@@ -20,18 +22,11 @@ type ProductInventoryFocusFilter = ProductOperationsInventoryFocus | 'all';
 
 const INVENTORY_STATUSES: readonly ProductInventoryStatusFilter[] = [
   'all',
-  'sellable',
-  'partial_out_of_stock',
-  'out_of_stock',
-  'configuration_required',
-  'review_required',
+  ...ProductInventoryStatusSchema.options,
 ];
 const INVENTORY_FOCUSES: readonly ProductInventoryFocusFilter[] = [
   'all',
-  'attention',
-  'out_of_stock',
-  'imminent',
-  'reorder',
+  ...ProductOperationsInventoryFocusSchema.options,
 ];
 const ACTIVE_STATUSES: readonly ProductOperationsActiveStatus[] = [
   'active',

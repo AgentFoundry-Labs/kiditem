@@ -73,7 +73,12 @@ export const SourceImportTypeSchema = z.enum([
 ]);
 export type SourceImportType = z.infer<typeof SourceImportTypeSchema>;
 
-export const SourceImportStatusSchema = z.enum(['running', 'completed', 'failed']);
+export const SOURCE_IMPORT_RUN_COMPLETED_STATUS = 'completed' as const;
+export const SourceImportStatusSchema = z.enum([
+  'running',
+  SOURCE_IMPORT_RUN_COMPLETED_STATUS,
+  'failed',
+]);
 export type SourceImportStatus = z.infer<typeof SourceImportStatusSchema>;
 
 const PositiveGenerationSchema = z.string().regex(/^[1-9]\d*$/);

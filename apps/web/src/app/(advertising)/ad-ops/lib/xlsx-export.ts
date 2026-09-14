@@ -5,8 +5,9 @@ import type { AdStrategyAction } from '@kiditem/shared/advertising';
 export interface AdTrendExportPoint {
   businessDate: string;
   axisLabel: string;
-  leftValue: number;
-  rightValue: number;
+  /** Null for a date the campaign sweep never measured; the cell stays empty. */
+  leftValue: number | null;
+  rightValue: number | null;
 }
 
 export interface AdTrendExportRequest {

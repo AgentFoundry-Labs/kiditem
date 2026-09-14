@@ -7,6 +7,10 @@ import { queryKeys } from '@/lib/query-keys';
 import { cn, formatNumber, formatDateTime } from '@/lib/utils';
 import { fetchSellpiaProductSales } from '@/lib/sellpia-product-sales-api';
 import { ProductAbcBadge } from '@/components/product-abc/ProductAbcBadge';
+import {
+  PRODUCT_ABC_DISPLAY_STATUS_LABELS,
+  productAbcDisplayStatus,
+} from '@kiditem/shared/product-abc';
 import { SellpiaSyncAction } from '../../_shared/SellpiaSyncAction';
 import { ProductOutflowDestinations, abcReadTitle } from './ProductOutflowDestinations';
 import type {
@@ -303,6 +307,7 @@ function ProductRow({ vm, monthsDesc, hasStock, sortKey }: { vm: RowVM; monthsDe
   const { row: p, monthMap, anomalySet, peakYm } = vm;
   const resolution = p.inventoryResolution;
   const abc = resolution.status === 'matched' ? resolution.inventoryProduct?.abc : null;
+  const abcStatus = abc ? productAbcDisplayStatus(abc) : null;
   const rowBg = p.deadStock ? 'bg-rose-50/40' : 'bg-white';
   return (
     <tr className={cn('border-t border-slate-50 group', rowBg)}>
@@ -310,10 +315,9 @@ function ProductRow({ vm, monthsDesc, hasStock, sortKey }: { vm: RowVM; monthsDe
         {resolution.status === 'matched'
           ? <>
               <ProductAbcBadge grade={abc?.abcGrade ?? null} evaluation={abc?.evaluation ?? null} compact />
-              {abc && abc.displayStatus !== 'READY' ? (
+              {abc && abcStatus && abcStatus !== 'READY' ? (
                 <span className="block text-[10px] text-amber-700" title={abcReadTitle(abc)}>
-                  {abc.displayStatus === 'INSUFFICIENT_EVIDENCE'
-                    ? '관찰 중' : abc.displayStatus === 'SOURCE_UNMAPPED' ? '매핑 필요' : '원천 확인'}
+                  {PRODUCT_ABC_DISPLAY_STATUS_LABELS[abcStatus]}
                 </span>
               ) : null}
             </>

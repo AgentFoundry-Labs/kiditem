@@ -111,6 +111,11 @@ export type AdvertisingProfitabilityGenerationSummary = Readonly<{
   publicationSequence: string;
   coverageStartDate: string;
   coveredThrough: string;
+  /**
+   * The last day the generation's plan requested: `coveredThrough`, or the
+   * closed day after it when the import held that day as unreported.
+   */
+  requestedThrough: string;
   capturedAt: string;
   mappingGeneration: string;
   adSourcePolicyHash: string;
@@ -120,22 +125,6 @@ export type AdvertisingProfitabilityGenerationSummary = Readonly<{
 
 export type AdvertisingProfitabilityGeneration = Readonly<{
   summary: AdvertisingProfitabilityGenerationSummary;
-  facts: readonly {
-    channelAccountId: string;
-    channelListingId: string | null;
-    channelListingOptionId: string | null;
-    businessDate: string;
-    externalId: string | null;
-    externalOptionId: string;
-    adSpend: number;
-    adRevenue: number;
-    impressions: number;
-    clicks: number;
-    orders: number;
-    conversions: number;
-    matched: boolean;
-    allocationStatus: 'ALLOCATABLE' | 'UNMATCHED' | 'UNALLOCATABLE';
-  }[];
   allocations: readonly {
     channelAccountId: string;
     channelListingId: string;

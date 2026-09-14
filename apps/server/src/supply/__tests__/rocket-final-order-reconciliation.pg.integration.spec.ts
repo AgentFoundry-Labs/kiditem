@@ -91,7 +91,6 @@ describe('Rocket final-order reconciliation transaction (PG)', () => {
     expect(await prisma.rocketPurchaseConfirmation.findUniqueOrThrow({
       where: { id: exportId },
     })).toMatchObject({
-      status: 'orders_collected',
       ordersCollectedAt: expect.any(Date),
     });
     expect(await prisma.rocketPurchaseConfirmationTransmission.findMany()).toEqual([

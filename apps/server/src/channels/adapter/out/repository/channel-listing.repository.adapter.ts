@@ -318,7 +318,6 @@ async function assertLockedListing(tx: Prisma.TransactionClient, organizationId:
     organizationId,
     channelListingId: listingId,
     activeOnly: false,
-    catalogMatchingEligibleOnly: false,
   });
   if (!listing) throw new NotFoundException('등록 상품을 찾을 수 없습니다.');
 }

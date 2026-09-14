@@ -24,6 +24,7 @@ import {
   effectiveSourceImportRunState as effectiveState,
   sourceImportRunDbState as sourceDbState,
 } from './source-import-run-state';
+import { readMonthlyAdAllocationPublication } from '../../../read/monthly-ad-allocation.reader';
 import type {
   AdvertisingProfitabilityGeneration,
   AdvertisingProfitabilityPlan,
@@ -34,6 +35,12 @@ import type {
 } from '../../../application/port/in/profitability-ad-import.port';
 import type { AttemptFence } from '../../../application/port/in/profitability-ad-import.port';
 import type { ProfitabilityAdImportRepositoryPort } from '../../../application/port/out/repository/profitability-ad-import.repository.port';
+import { clampProfitabilityMonthCoverage } from '../../../domain/profitability-month-coverage';
+import {
+  adReportEvidenceCutoff,
+  confirmedAdReportEnd,
+  type ObservedDaySpend,
+} from '../../../domain/ad-report-confirmation';
 
 export const PROFITABILITY_SOURCE_TYPE = 'coupang_ad_profitability';
 export const PROFITABILITY_PARSER_VERSION = 'profitability-report-v1';
@@ -46,7 +53,6 @@ export const PROFITABILITY_RECIPE_POLICY_VERSION = 'WHOLE_RECIPE_QUANTITY_V1';
 export const PROFITABILITY_ALLOCATION_POLICY = 'INTEGER_KRW_LARGEST_REMAINDER';
 export const PROFITABILITY_ALLOCATION_TIE_BREAK =
   'MASTER_PRODUCT_ID_ASC_LOWERCASE';
-export const MAX_GENERATION_FACT_ROWS = 100_000;
 const MAX_SNAPSHOT_GENERATIONS = 12;
 const PROFITABILITY_EVALUATION_MONTH_COUNT = 12;
 const MAX_REPORT_COUNT = 100_000;
@@ -563,8 +569,8 @@ export class ProfitabilityAdImportRepositoryAdapter
           || !validReceiptProof(payload, receipt.rowCount)
           || receipt.matchedCount + receipt.unmatchedCount !== receipt.rowCount
           || !sameStringList(payload.businessDates, expected.businessDates)
-          || (receipt.periodStart && isoDate(receipt.periodStart)) !== expected.from
-          || (receipt.periodEnd && isoDate(receipt.periodEnd)) !== expected.to) {
+          || (receipt.periodStart && businessDateKey(receipt.periodStart)) !== expected.from
+          || (receipt.periodEnd && businessDateKey(receipt.periodEnd)) !== expected.to) {
           throw incompleteImport();
         }
       }
@@ -603,7 +609,13 @@ export class ProfitabilityAdImportRepositoryAdapter
       if (facts.some((fact) => fact.mappingGeneration !== (attempt.mappingGeneration ?? 0n)
         || fact.observedTargetDayCount === null
         || fact.observedTargetDayCount <= 0)) throw incompleteImport();
-      const allocationSummary = await assertConservation(targets, facts, expectedSlices);
+      const uploadedAllocation = await assertConservation(targets, facts, expectedSlices);
+      const requestedEnd = businessDateKey(attempt.coverageEndDate!);
+      const confirmedEnd = confirmedImportEnd(plan, targets, requestedEnd);
+      const { facts: publishedFacts, allocationSummary } = confirmedEnd === requestedEnd
+        ? { facts, allocationSummary: uploadedAllocation }
+        : await withdrawUnconfirmedDays(tx, attempt, targets, expectedSlices, confirmedEnd);
+      const coveredMonths = attempt.coveredMonths.filter((month) => `${month}-01` <= confirmedEnd);
 
       const importedAt = new Date();
       const publication = await tx.sourceImportRun.findFirst({
@@ -621,10 +633,10 @@ export class ProfitabilityAdImportRepositoryAdapter
         .map((receipt) => receiptPayload(receipt.metaJson))
         .sort((left, right) => compareLowercase(left.sliceId ?? '', right.sliceId ?? '')));
       const qualityReport = completedQualityReport(
-        attempt,
+        { ...attempt, coveredMonths },
         plan,
         receipts,
-        facts,
+        publishedFacts,
         receiptDigest,
         allocationSummary,
       );
@@ -646,6 +658,8 @@ export class ProfitabilityAdImportRepositoryAdapter
           providerBackedEmptyProof: targets.length === 0 || targets.every((target) => target.adSpend === 0),
           publicationSequence,
           qualityReport,
+          coverageEndDate: dateOnly(confirmedEnd),
+          coveredMonths,
           errorCode: null,
           errorMessage: null,
         },
@@ -893,7 +907,7 @@ export class ProfitabilityAdImportRepositoryAdapter
       sourceType: PROFITABILITY_SOURCE_TYPE,
       attemptId: attempt.id,
       title: 'Coupang 광고 수익성 수집 만료',
-      message: 'ATTEMPT_EXPIRED: Advertising profitability collection expired before publication.',
+      message: '광고 수익성 수집이 결과를 저장하기 전에 만료되었습니다. 다시 수집해주세요.',
       href: '/ad-ops',
     });
   }
@@ -1013,13 +1027,12 @@ function sourceView(
       sourceImportRunId: latestComplete.id,
       publicationSequence: latestComplete.publicationSequence.toString(),
       mappingGeneration: latestComplete.mappingGeneration.toString(),
-      coveredThrough: isoDate(latestComplete.coverageEndDate),
+      coveredThrough: businessDateKey(latestComplete.coverageEndDate),
       capturedAt: (latestComplete.importedAt ?? latestComplete.updatedAt).toISOString(),
       qualitySummary: latestCompleteQuality,
     }
     : null;
   const coveredThrough = latestComplete?.coverageEndDate ?? null;
-  const expectedCutoff = dateOnly(kstYesterday(now));
   const latestAttemptView = latestAttempt ? {
     attemptId: latestAttempt.id,
     state: effectiveState(latestAttempt, now),
@@ -1037,7 +1050,15 @@ function sourceView(
     latestComplete: latestCompleteView
       ? { actualCutoff: latestCompleteView.coveredThrough }
       : null,
-    requiredCutoff: isoDate(expectedCutoff),
+    requiredCutoff: adReportEvidenceCutoff({
+      closedDay: businessDateKey(evidenceCutoffDate(now)),
+      collections: [latestCompleteView && latestComplete
+        ? {
+          requestedEnd: requestedCoverageEnd(latestComplete),
+          confirmedEnd: latestCompleteView.coveredThrough,
+        }
+        : null],
+    }),
   }).ready;
   return {
     latestAttempt: latestAttemptView,
@@ -1062,8 +1083,8 @@ function attemptSummary(attempt: SourceAttempt) {
     errorMessage: boundedErrorMessage(attempt.errorMessage),
     mappingGeneration: attempt.mappingGeneration?.toString() ?? stored.mappingGeneration,
     adSourcePolicyHash: attempt.adSourcePolicyHash ?? stored.adSourcePolicyHash,
-    coverageStartDate: attempt.coverageStartDate ? isoDate(attempt.coverageStartDate) : null,
-    coverageEndDate: attempt.coverageEndDate ? isoDate(attempt.coverageEndDate) : null,
+    coverageStartDate: attempt.coverageStartDate ? businessDateKey(attempt.coverageStartDate) : null,
+    coverageEndDate: attempt.coverageEndDate ? businessDateKey(attempt.coverageEndDate) : null,
   };
 }
 
@@ -1113,8 +1134,9 @@ function generationSummaryFromRun(
     sourceType: PROFITABILITY_SOURCE_TYPE,
     organizationId: run.organizationId,
     publicationSequence: run.publicationSequence.toString(),
-    coverageStartDate: isoDate(run.coverageStartDate),
-    coveredThrough: isoDate(run.coverageEndDate),
+    coverageStartDate: businessDateKey(run.coverageStartDate),
+    coveredThrough: businessDateKey(run.coverageEndDate),
+    requestedThrough: requestedCoverageEnd(run),
     capturedAt: run.importedAt.toISOString(),
     mappingGeneration: run.mappingGeneration.toString(),
     adSourcePolicyHash: run.adSourcePolicyHash,
@@ -1250,79 +1272,50 @@ async function generationFromRun(
     || !run.adSourcePolicyHash) {
     throw new UnprocessableEntityException('SOURCE_GENERATION_PROVENANCE_MISSING');
   }
-  const [targets, facts] = await Promise.all([
-    tx.channelAdTargetDailySnapshot.findMany({
-      where: { organizationId: run.organizationId, sourceImportRunId: run.id },
-      orderBy: [{ businessDate: 'asc' }, { channelAccountId: 'asc' }, { targetKey: 'asc' }],
-      take: MAX_GENERATION_FACT_ROWS + 1,
-      select: {
-        channelAccountId: true,
-        listingId: true,
-        listingOptionId: true,
-        businessDate: true,
-        externalId: true,
-        externalOptionId: true,
-        adSpend: true,
-        adRevenue: true,
-        impressions: true,
-        clicks: true,
-        orders: true,
-        conversions: true,
-      },
-    }),
-    tx.channelAdListingProductMonthlyFact.findMany({
-      where: { organizationId: run.organizationId, sourceImportRunId: run.id },
-      orderBy: [{ month: 'asc' }, { channelAccountId: 'asc' }, { channelListingId: 'asc' }, { masterProductId: 'asc' }],
-      take: MAX_GENERATION_FACT_ROWS + 1,
-      select: {
-        channelAccountId: true,
-        channelListingId: true,
-        masterProductId: true,
-        month: true,
-        coveredStartDate: true,
-        coveredEndDate: true,
-        wholeRecipeWeight: true,
-        allocatedSpend: true,
-        observedTargetDayCount: true,
-        mappingGeneration: true,
-      },
-    }),
-  ]);
-  if (targets.length > MAX_GENERATION_FACT_ROWS || facts.length > MAX_GENERATION_FACT_ROWS) {
-    throw new UnprocessableEntityException('SOURCE_FACTS_OVERFLOW');
+  const monthlyPublication = await readMonthlyAdAllocationPublication(tx, {
+    organizationId: run.organizationId,
+    sourceImportRunId: run.id,
+  });
+  if (!monthlyPublication) {
+    throw new UnprocessableEntityException('SOURCE_GENERATION_PROVENANCE_MISSING');
   }
+  const facts: GenerationMonthlyFact[] = monthlyPublication.allocations.map((fact) => ({
+    ...fact,
+    month: dateOnly(fact.month),
+    coveredStartDate: dateOnly(fact.coveredStartDate),
+    coveredEndDate: dateOnly(fact.coveredEndDate),
+    allocatedSpend: BigInt(fact.allocatedSpend),
+    mappingGeneration: BigInt(fact.mappingGeneration),
+  }));
   const summary = generationSummaryFromRun(run);
-  const factsByListingMonth = indexFactsByListingMonth(facts);
+  const slices = parseStoredPlan(run.plan).accounts.flatMap((account) => account.slices);
   return {
     summary,
-    facts: targets.map((target) => ({
-      channelAccountId: target.channelAccountId,
-      channelListingId: target.listingId,
-      channelListingOptionId: target.listingOptionId,
-      businessDate: isoDate(target.businessDate),
-      externalId: target.externalId,
-      externalOptionId: target.externalOptionId ?? '',
-      adSpend: target.adSpend,
-      adRevenue: target.adRevenue,
-      impressions: target.impressions,
-      clicks: target.clicks,
-      orders: target.orders,
-      conversions: target.conversions,
-      matched: target.listingId !== null,
-      allocationStatus: targetAllocationStatus(target, factsByListingMonth),
-    })),
-    allocations: facts.map((fact) => ({
-      channelAccountId: fact.channelAccountId,
-      channelListingId: fact.channelListingId,
-      masterProductId: fact.masterProductId,
-      month: isoDate(fact.month).slice(0, 7),
-      coveredStartDate: isoDate(fact.coveredStartDate),
-      coveredEndDate: isoDate(fact.coveredEndDate),
-      wholeRecipeWeight: fact.wholeRecipeWeight,
-      allocatedSpend: safeKrwNumber(fact.allocatedSpend),
-      observedTargetDayCount: fact.observedTargetDayCount,
-      mappingGeneration: fact.mappingGeneration.toString(),
-    })),
+    allocations: facts.map((fact) => {
+      const month = businessDateKey(fact.month).slice(0, 7);
+      const slice = slices.find((candidate) =>
+        candidate.channelAccountId === fact.channelAccountId
+        && candidate.from.slice(0, 7) === month);
+      const coverage = slice ? clampProfitabilityMonthCoverage({
+        factFrom: businessDateKey(fact.coveredStartDate),
+        factTo: businessDateKey(fact.coveredEndDate),
+        sliceFrom: slice.from,
+        sliceTo: slice.to,
+      }) : null;
+      if (!coverage) throw new UnprocessableEntityException('SOURCE_COVERAGE_MALFORMED');
+      return {
+        channelAccountId: fact.channelAccountId,
+        channelListingId: fact.channelListingId,
+        masterProductId: fact.masterProductId,
+        month,
+        coveredStartDate: coverage.from,
+        coveredEndDate: coverage.to,
+        wholeRecipeWeight: fact.wholeRecipeWeight,
+        allocatedSpend: safeKrwNumber(fact.allocatedSpend),
+        observedTargetDayCount: coverage.coveredDays,
+        mappingGeneration: fact.mappingGeneration.toString(),
+      };
+    }),
   };
 }
 
@@ -1702,7 +1695,7 @@ async function allocateSlice(
   ]);
   const byListingMonth = new Map<string, MonthlyFact[]>();
   for (const fact of facts) {
-    const key = `${fact.channelListingId}\u0000${isoDate(fact.month).slice(0, 7)}`;
+    const key = `${fact.channelListingId}\u0000${businessDateKey(fact.month).slice(0, 7)}`;
     const group = byListingMonth.get(key) ?? [];
     group.push(fact);
     byListingMonth.set(key, group);
@@ -1713,7 +1706,7 @@ async function allocateSlice(
     if (!Number.isSafeInteger(target.adSpend) || target.adSpend < 0) {
       throw new UnprocessableEntityException('ADVERTISING_SPEND_INVALID');
     }
-    const key = `${target.listingId}\u0000${isoDate(target.businessDate)}`;
+    const key = `${target.listingId}\u0000${businessDateKey(target.businessDate)}`;
     const previous = spendByListingDay.get(key) ?? 0n;
     const sum = previous + BigInt(target.adSpend);
     if (sum > MAX_SAFE_KRW_BIGINT) throw new UnprocessableEntityException('ADVERTISING_SPEND_OVERFLOW');
@@ -1724,8 +1717,8 @@ async function allocateSlice(
     const [listingId, businessDate] = listingDay.split('\u0000');
     const peers = byListingMonth.get(`${listingId}\u0000${businessDate!.slice(0, 7)}`) ?? [];
     if (peers.length === 0) continue;
-    if (peers.some((fact) => businessDate! < isoDate(fact.coveredStartDate)
-      || businessDate! > isoDate(fact.coveredEndDate))) continue;
+    if (peers.some((fact) => businessDate! < businessDateKey(fact.coveredStartDate)
+      || businessDate! > businessDateKey(fact.coveredEndDate))) continue;
     const shares = allocateIntegerKrw(safeKrwNumber(spend), peers.map((fact) => ({
       masterProductId: fact.masterProductId,
       weight: fact.wholeRecipeWeight,
@@ -1743,15 +1736,18 @@ async function allocateSlice(
   }
   const factUpdates: FactAllocationUpdate[] = [];
   for (const fact of facts) {
-    const coveredDays = businessDates(
-      isoDate(fact.coveredStartDate) > input.from ? isoDate(fact.coveredStartDate) : input.from,
-      isoDate(fact.coveredEndDate) < input.to ? isoDate(fact.coveredEndDate) : input.to,
-    ).length;
+    const coverage = clampProfitabilityMonthCoverage({
+      factFrom: businessDateKey(fact.coveredStartDate),
+      factTo: businessDateKey(fact.coveredEndDate),
+      sliceFrom: input.from,
+      sliceTo: input.to,
+    });
+    if (!coverage) throw incompleteImport();
     const result = allocated.get(fact.id) ?? { spend: 0n, days: 0 };
     factUpdates.push({
       id: fact.id,
       allocatedSpend: result.spend,
-      observedTargetDayCount: coveredDays,
+      observedTargetDayCount: coverage.coveredDays,
     });
   }
   await batchUpdateFactAllocations(tx, input, factUpdates);
@@ -1811,7 +1807,7 @@ function indexFactsByListingMonth(
 ): Map<string, GenerationMonthlyFact[]> {
   const factsByListingMonth = new Map<string, GenerationMonthlyFact[]>();
   for (const fact of facts) {
-    const key = `${fact.channelAccountId}\u0000${fact.channelListingId}\u0000${isoDate(fact.month).slice(0, 7)}`;
+    const key = `${fact.channelAccountId}\u0000${fact.channelListingId}\u0000${businessDateKey(fact.month).slice(0, 7)}`;
     const group = factsByListingMonth.get(key) ?? [];
     group.push(fact);
     factsByListingMonth.set(key, group);
@@ -1824,11 +1820,11 @@ function targetAllocationStatus(
   factsByListingMonth: ReadonlyMap<string, readonly GenerationMonthlyFact[]>,
 ): TargetAllocationStatus {
   if (!target.listingId) return 'UNMATCHED';
-  const key = `${target.channelAccountId}\u0000${target.listingId}\u0000${isoDate(target.businessDate).slice(0, 7)}`;
+  const key = `${target.channelAccountId}\u0000${target.listingId}\u0000${businessDateKey(target.businessDate).slice(0, 7)}`;
   const peers = factsByListingMonth.get(key) ?? [];
   if (peers.length === 0 || peers.some((fact) =>
-    isoDate(target.businessDate) < isoDate(fact.coveredStartDate)
-    || isoDate(target.businessDate) > isoDate(fact.coveredEndDate))) {
+    businessDateKey(target.businessDate) < businessDateKey(fact.coveredStartDate)
+    || businessDateKey(target.businessDate) > businessDateKey(fact.coveredEndDate))) {
     return 'UNALLOCATABLE';
   }
   return 'ALLOCATABLE';
@@ -1850,10 +1846,13 @@ async function assertConservation(
   for (const fact of facts) {
     const slice = slices.find((candidate) => candidate.channelAccountId === fact.channelAccountId
       && fact.month >= dateOnly(candidate.from) && fact.month <= dateOnly(candidate.to));
-    if (!slice || fact.observedTargetDayCount !== businessDates(
-      fact.coveredStartDate < dateOnly(slice.from) ? slice.from : isoDate(fact.coveredStartDate),
-      fact.coveredEndDate > dateOnly(slice.to) ? slice.to : isoDate(fact.coveredEndDate),
-    ).length) throw incompleteImport();
+    const coverage = slice ? clampProfitabilityMonthCoverage({
+      factFrom: businessDateKey(fact.coveredStartDate),
+      factTo: businessDateKey(fact.coveredEndDate),
+      sliceFrom: slice.from,
+      sliceTo: slice.to,
+    }) : null;
+    if (!coverage || fact.observedTargetDayCount !== coverage.coveredDays) throw incompleteImport();
   }
   const spendByListingDay = new Map<string, bigint>();
   const providerSpendByListingMonth = new Map<string, bigint>();
@@ -1876,10 +1875,10 @@ async function assertConservation(
       continue;
     }
     allocatableTargetCount += 1;
-    const key = `${target.channelAccountId}\u0000${target.listingId}\u0000${isoDate(target.businessDate)}`;
+    const key = `${target.channelAccountId}\u0000${target.listingId}\u0000${businessDateKey(target.businessDate)}`;
     const daySpend = (spendByListingDay.get(key) ?? 0n) + adSpend;
     spendByListingDay.set(key, daySpend);
-    const monthKey = `${target.channelAccountId}\u0000${target.listingId}\u0000${isoDate(target.businessDate).slice(0, 7)}`;
+    const monthKey = `${target.channelAccountId}\u0000${target.listingId}\u0000${businessDateKey(target.businessDate).slice(0, 7)}`;
     const monthSpend = (providerSpendByListingMonth.get(monthKey) ?? 0n) + adSpend;
     providerSpendByListingMonth.set(monthKey, monthSpend);
   }
@@ -1888,14 +1887,14 @@ async function assertConservation(
     if (typeof fact.allocatedSpend !== 'bigint' || fact.allocatedSpend < 0n) {
       throw incompleteImport();
     }
-    const key = `${fact.channelAccountId}\u0000${fact.channelListingId}\u0000${isoDate(fact.month).slice(0, 7)}`;
+    const key = `${fact.channelAccountId}\u0000${fact.channelListingId}\u0000${businessDateKey(fact.month).slice(0, 7)}`;
     const total = (allocatedSpendByListingMonth.get(key) ?? 0n) + fact.allocatedSpend;
     allocatedSpendByListingMonth.set(key, total);
   }
   for (const [key, spend] of spendByListingDay) {
     const [accountId, listingId, date] = key.split('\u0000');
     const peers = factsByListingMonth.get(`${accountId}\u0000${listingId}\u0000${date!.slice(0, 7)}`) ?? [];
-    if (peers.length === 0 || peers.some((fact) => date! < isoDate(fact.coveredStartDate) || date! > isoDate(fact.coveredEndDate))) {
+    if (peers.length === 0 || peers.some((fact) => date! < businessDateKey(fact.coveredStartDate) || date! > businessDateKey(fact.coveredEndDate))) {
       throw incompleteImport();
     }
     const expected = allocateIntegerKrw(safeKrwNumber(spend), peers.map((fact) => ({
@@ -2086,14 +2085,99 @@ function parseDate(value: string): Date | null {
   return parseBusinessDate(value);
 }
 
+/**
+ * The last day the import confirms. Each account confirms the closed day on
+ * its own report (`confirmedAdReportEnd`), so another account's spend never
+ * confirms a day an account has not reported, and an account idle on both
+ * days accepts it. The import publishes through the earliest account end; an
+ * import without accounts requested no report and keeps its window.
+ */
+function confirmedImportEnd(
+  plan: StoredPlan,
+  targets: readonly Target[],
+  requestedEnd: string,
+): string {
+  return plan.accounts.reduce((confirmedEnd, account) => {
+    const accountEnd = confirmedAdReportEnd({
+      requestedEnd,
+      closedDay: requestedEnd,
+      daySpend: accountDaySpend(account, targets),
+    });
+    return accountEnd < confirmedEnd ? accountEnd : confirmedEnd;
+  }, requestedEnd);
+}
+
+/** One account's spend on each business date its slices requested. */
+function accountDaySpend(
+  account: StoredPlan['accounts'][number],
+  targets: readonly Target[],
+): ObservedDaySpend {
+  const requested = new Set(account.slices.flatMap((slice) => slice.businessDates));
+  const spend = new Map<string, number>();
+  for (const target of targets) {
+    if (target.channelAccountId !== account.channelAccountId) continue;
+    const date = businessDateKey(target.businessDate);
+    spend.set(date, (spend.get(date) ?? 0) + target.adSpend);
+  }
+  return (date) => (requested.has(date) ? spend.get(date) ?? 0 : undefined);
+}
+
+/**
+ * Withdraw the days after `confirmedEnd` from the frozen monthly facts. A
+ * month left without a confirmed day is dropped. Every other month that loses
+ * days is re-allocated from its targets through `confirmedEnd`, because an
+ * account that reported a withdrawn day may have spent on it. Conservation is
+ * proven again over the published targets, facts and slices.
+ */
+async function withdrawUnconfirmedDays(
+  tx: Transaction,
+  attempt: SourceAttempt,
+  targets: readonly Target[],
+  slices: readonly StoredSlice[],
+  confirmedEnd: string,
+): Promise<{ facts: MonthlyFact[]; allocationSummary: TargetAllocationSummary }> {
+  const end = dateOnly(confirmedEnd);
+  const run = { organizationId: attempt.organizationId, sourceImportRunId: attempt.id };
+  await tx.channelAdListingProductMonthlyFact.deleteMany({
+    where: { ...run, coveredStartDate: { gt: end } },
+  });
+  await tx.channelAdListingProductMonthlyFact.updateMany({
+    where: { ...run, coveredEndDate: { gt: end } },
+    data: { coveredEndDate: end },
+  });
+  for (const slice of slices) {
+    if (slice.from > confirmedEnd || slice.to <= confirmedEnd) continue;
+    await allocateSlice(tx, {
+      ...run,
+      accountId: slice.channelAccountId,
+      from: slice.from,
+      to: confirmedEnd,
+      mappingGeneration: attempt.mappingGeneration ?? 0n,
+    });
+  }
+  const facts = await tx.channelAdListingProductMonthlyFact.findMany({ where: run });
+  const allocationSummary = await assertConservation(
+    targets.filter((target) => target.businessDate.getTime() <= end.getTime()),
+    facts,
+    slices
+      .filter((slice) => slice.from <= confirmedEnd)
+      .map((slice) => (slice.to > confirmedEnd ? { ...slice, to: confirmedEnd } : slice)),
+  );
+  return { facts, allocationSummary };
+}
+
+/** The last business date a generation's plan requested; its confirmed end when the plan has no slices. */
+function requestedCoverageEnd(run: SourceAttempt): string {
+  const ends = parseStoredPlan(run.plan).accounts
+    .flatMap((account) => account.slices.map((slice) => slice.to))
+    .sort();
+  return ends.at(-1) ?? businessDateKey(run.coverageEndDate!);
+}
+
 function dateOnly(value: string): Date {
   const parsed = parseDate(value);
   if (!parsed) throw new UnprocessableEntityException('ADVERTISING_DATE_INVALID');
   return parsed;
-}
-
-function isoDate(value: Date): string {
-  return businessDateKey(value);
 }
 
 function monthEnd(month: string): string {
@@ -2115,7 +2199,7 @@ function monthsBetween(from: string, to: string): string[] {
 export function profitabilityCoverageForKstYesterday(
   now: Date,
 ): ProfitabilityCoverage {
-  const to = kstYesterday(now);
+  const to = businessDateKey(evidenceCutoffDate(now));
   const months = calendarMonthsThrough(to, PROFITABILITY_EVALUATION_MONTH_COUNT);
   const periods = months.map((month) => ({
     month,
@@ -2134,10 +2218,6 @@ export function profitabilityCoverageForKstYesterday(
   };
 }
 
-function kstYesterday(now: Date): string {
-  return businessDateKey(evidenceCutoffDate(now));
-}
-
 function calendarMonthsThrough(to: string, count: number): string[] {
   return kstMonthRange(kstMonthEnd(to.slice(0, 7)), count);
 }
@@ -2145,7 +2225,7 @@ function calendarMonthsThrough(to: string, count: number): string[] {
 function businessDates(from: string, to: string): string[] {
   const start = dateOnly(from);
   const end = dateOnly(to);
-  return datesInclusive(start, end).map(isoDate);
+  return datesInclusive(start, end).map(businessDateKey);
 }
 
 function boundedPlanText(value: unknown): string {

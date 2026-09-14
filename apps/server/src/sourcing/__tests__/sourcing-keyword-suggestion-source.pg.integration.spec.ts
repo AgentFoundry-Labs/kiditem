@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import { makeTestPrisma, resetDb, seedBaseFixture, TEST_ORGANIZATION_ID, TEST_USER_ID } from '../../test-helpers/real-prisma';
@@ -51,7 +52,11 @@ describe('Keyword suggestion public source owner (disposable PostgreSQL)', () =>
     const retry = await begin('retry');
     await service.complete({ organizationId, attemptId: retry.attemptId, attemptToken: retry.attemptToken,
       batch: { ...batch, items: [], productNameTokens: [] } });
-    await expect(service.snapshot({ organizationId, keyword: 'A Pencil' })).resolves.toMatchObject({ items: [] });
+    await expect(service.snapshot({ organizationId, keyword: 'A Pencil' })).resolves.toMatchObject({
+      generatedAt: batch.capturedAt,
+      items: [],
+      productNameTokens: [],
+    });
     await expect(prisma.alert.findMany({ where: { organizationId, type: 'source_failure' } }))
       .resolves.toMatchObject([{ status: 'RESOLVED' }]);
     expect((await prisma.$queryRaw<Array<{ absent: boolean }>>`
@@ -59,6 +64,69 @@ describe('Keyword suggestion public source owner (disposable PostgreSQL)', () =>
     `)[0]?.absent).toBe(true);
     await expect(prisma.alert.count({ where: { kind: 'operation' } })).resolves.toBe(0);
     await expect(prisma.masterProductAbcEvaluation.count()).resolves.toEqual(abcBefore);
+  });
+
+  it('does not recover a historical COMPLETE suggestion from retained raw evidence', async () => {
+    const first = await begin('missing-typed-publication');
+    await service.complete({
+      organizationId,
+      attemptId: first.attemptId,
+      attemptToken: first.attemptToken,
+      batch,
+    });
+    expect(await prisma.sourcingEvidenceObservation.count()).toBe(1);
+    await prisma.sourcingKeywordSuggestionFact.deleteMany({ where: { organizationId } });
+
+    await expect(service.snapshot({ organizationId, keyword: 'A Pencil' })).resolves.toMatchObject({
+      generatedAt: null,
+      items: [],
+      productNameTokens: [],
+    });
+  });
+
+  it('organization-scopes typed facts and withholds a superseded observation revision', async () => {
+    const first = await begin('revision-fence');
+    await service.complete({
+      organizationId,
+      attemptId: first.attemptId,
+      attemptToken: first.attemptToken,
+      batch,
+    });
+    await expect(service.snapshot({ organizationId: randomUUID(), keyword: 'A Pencil' }))
+      .resolves.toMatchObject({ generatedAt: null, items: [] });
+    const original = await prisma.sourcingEvidenceObservation.findFirstOrThrow({
+      where: { organizationId, ingestionRunId: first.attemptId },
+    });
+    await prisma.sourcingEvidenceObservation.create({
+      data: {
+        organizationId,
+        ingestionRunId: original.ingestionRunId,
+        supersedesObservationId: original.id,
+        sourceKey: original.sourceKey,
+        platform: original.platform,
+        evidenceFamily: original.evidenceFamily,
+        signalRole: original.signalRole,
+        conceptKey: original.conceptKey,
+        supportsCandidate: original.supportsCandidate,
+        observationKey: original.observationKey,
+        revision: 2,
+        sourceEntityType: original.sourceEntityType,
+        sourceEntityKey: original.sourceEntityKey,
+        observationType: original.observationType,
+        schemaVersion: original.schemaVersion,
+        evidenceClass: original.evidenceClass,
+        eventAt: original.eventAt,
+        observedAt: original.observedAt,
+        availableAt: original.availableAt,
+        revisionAt: new Date(),
+        payloadHash: 'a'.repeat(64),
+        envelopeHash: 'b'.repeat(64),
+        ingestedAt: new Date(),
+      },
+    });
+
+    await expect(service.snapshot({ organizationId, keyword: 'A Pencil' }))
+      .resolves.toMatchObject({ generatedAt: null, items: [] });
   });
 
   function begin(idempotencyKey: string) {

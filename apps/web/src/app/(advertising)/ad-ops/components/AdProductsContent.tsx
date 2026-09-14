@@ -2,7 +2,8 @@
 
 import { useMemo, useState, type ReactNode } from 'react';
 import { Package, RefreshCw } from 'lucide-react';
-import { cn, formatKRW, formatNumber } from '@/lib/utils';
+import { cn, formatKRW, formatNumber, formatPercent } from '@/lib/utils';
+import { compareNullableLast } from '@/lib/nullable-sort';
 import { isApiError } from '@/lib/api-error';
 import { roasColor } from '../lib/status-colors';
 import { cardRaised } from '../lib/card-styles';
@@ -45,9 +46,10 @@ export default function AdProductsContent({ period }: Props) {
         return hay.includes(q);
       })
       .sort((a, b) => {
-        if (sortBy === 'revenue') return (b.adRevenue ?? 0) - (a.adRevenue ?? 0);
-        if (sortBy === 'spend') return (b.adSpend ?? 0) - (a.adSpend ?? 0);
-        return (b.roas ?? 0) - (a.roas ?? 0);
+        if (sortBy === 'revenue') return b.adRevenue - a.adRevenue;
+        if (sortBy === 'spend') return b.adSpend - a.adSpend;
+        // An unmeasured ROAS has no rank; it follows every measured row.
+        return compareNullableLast(a.roas, b.roas, 'desc');
       });
   }, [products, statusFilter, search, sortBy]);
 
@@ -56,18 +58,19 @@ export default function AdProductsContent({ period }: Props) {
   const paged = filtered.slice(safePage * pageSize, (safePage + 1) * pageSize);
 
   const totals = useMemo(() => {
+    // Product rows always carry measured spend, revenue and clicks, so the
+    // sums start from a true zero; ROAS needs a positive spend.
     const acc = filtered.reduce(
       (a, p) => ({
-        spend: a.spend + (p.adSpend ?? 0),
-        revenue: a.revenue + (p.adRevenue ?? 0),
-        impressions: a.impressions + (p.impressions ?? 0),
-        clicks: a.clicks + (p.clicks ?? 0),
+        spend: a.spend + p.adSpend,
+        revenue: a.revenue + p.adRevenue,
+        clicks: a.clicks + p.clicks,
       }),
-      { spend: 0, revenue: 0, impressions: 0, clicks: 0 },
+      { spend: 0, revenue: 0, clicks: 0 },
     );
     return {
       ...acc,
-      roas: acc.spend > 0 ? Math.round((acc.revenue / acc.spend) * 10000) / 100 : 0,
+      roas: acc.spend > 0 ? Math.round((acc.revenue / acc.spend) * 10000) / 100 : null,
       onCount: filtered.filter((p) => p.onOff === 'ON').length,
     };
   }, [filtered]);
@@ -122,7 +125,9 @@ export default function AdProductsContent({ period }: Props) {
           { label: '광고 상품', value: `${formatNumber(filtered.length)}개`, sub: `ON ${totals.onCount}` },
           { label: '광고비', value: `${formatKRW(totals.spend)}원` },
           { label: '광고매출', value: `${formatKRW(totals.revenue)}원` },
-          { label: 'ROAS', value: `${totals.roas}%`, colorClass: roasColor(totals.roas, roasT) },
+          totals.roas !== null
+            ? { label: 'ROAS', value: `${totals.roas}%`, colorClass: roasColor(totals.roas, roasT) }
+            : { label: 'ROAS', value: '-' },
           { label: '클릭', value: formatNumber(totals.clicks) },
         ].map((k) => (
           <div key={k.label} className="rounded-2xl px-5 py-4" style={cardRaised}>
@@ -272,17 +277,19 @@ export default function AdProductsContent({ period }: Props) {
                             {p.keyword ?? '-'}
                           </span>
                         </Td>
-                        <Td align="right" mono>{formatKRW(p.adSpend ?? 0)}</Td>
-                        <Td align="right" mono>{formatKRW(p.adRevenue ?? 0)}</Td>
-                        <Td align="right" mono>{formatNumber(p.impressions ?? 0)}</Td>
-                        <Td align="right" mono>{formatNumber(p.clicks ?? 0)}</Td>
-                        <Td align="right" mono>{(p.ctr ?? 0).toFixed(1)}%</Td>
-                        <Td align="right" mono>{p.adConversions ?? 0}</Td>
-                        <Td align="right" mono>{(p.conversionRate ?? 0).toFixed(1)}%</Td>
+                        <Td align="right" mono>{formatKRW(p.adSpend)}</Td>
+                        <Td align="right" mono>{formatKRW(p.adRevenue)}</Td>
+                        <Td align="right" mono>{formatNumber(p.impressions)}</Td>
+                        <Td align="right" mono>{formatNumber(p.clicks)}</Td>
+                        <Td align="right" mono>{formatPercent(p.ctr)}</Td>
+                        <Td align="right" mono>{formatNumber(p.adConversions)}</Td>
+                        <Td align="right" mono>{formatPercent(p.conversionRate)}</Td>
                         <Td align="right">
-                          <span className={cn('font-semibold tabular-nums', roasColor(p.roas ?? 0, roasT))}>
-                            {p.roas ?? 0}%
-                          </span>
+                          {p.roas !== null ? (
+                            <span className={cn('font-semibold tabular-nums', roasColor(p.roas, roasT))}>
+                              {p.roas}%
+                            </span>
+                          ) : '-'}
                         </Td>
                       </tr>
                     );

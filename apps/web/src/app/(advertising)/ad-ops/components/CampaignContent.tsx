@@ -10,8 +10,9 @@ import {
 } from "@kiditem/shared/advertising";
 import { apiClient } from "@/lib/api-client";
 import { queryKeys } from "@/lib/query-keys";
-import { cn, formatKRW } from "@/lib/utils";
+import { cn, formatKRW, formatNumber } from "@/lib/utils";
 import { roasColor } from "../lib/status-colors";
+import { adTrendsSourceLabel } from "../lib/trends-source";
 import { toCampaignsResponse } from "../hooks/useAdOpsData";
 import ManualCampaignReportPanel from "./ManualCampaignReportPanel";
 import { ProductDrilldown } from "./ProductDrilldown";
@@ -57,9 +58,8 @@ export default function CampaignContent({
         .get<AdCampaignSnapshot[]>(`/api/ads/campaigns?period=${period}`)
         .then(toCampaignsResponse),
   });
-  // Trends carries the account-level KPI summary from coupang_ads_daily —
-  // useful as a fallback KPI surface when campaign-grain rollups are sparse
-  // or fully campaign-attributed (no listing identity).
+  // Trends carries the campaign sweep's account totals over the measured days
+  // of the page period, beside the per-campaign rollups.
   const trendsQuery = useQuery({
     queryKey: queryKeys.ads.trends(period),
     queryFn: () => apiClient.get<AdTrendsData>(`/api/ads/campaigns/trends?period=${period}`),
@@ -87,8 +87,9 @@ export default function CampaignContent({
 
   const campaigns = campaignsQuery.data?.campaigns ?? [];
   const manualReports = manualReportsQuery.data?.reports ?? [];
-  const campaignKpi = campaignsQuery.data?.totalKpi ?? {};
-  const accountSummary = trendsQuery.data?.accountSummary ?? null;
+  const campaignKpi = campaignsQuery.data?.totalKpi ?? null;
+  const sweepSummary = trendsQuery.data?.summary ?? null;
+  const accountMetrics = sweepSummary?.metrics ?? null;
   const performanceCampaignCount = campaigns.filter(
     (campaign) => campaign.metricsAvailable !== false,
   ).length;
@@ -186,56 +187,44 @@ export default function CampaignContent({
       <ManualCampaignReportPanel reports={manualReports} />
 
       <div className="space-y-4" aria-busy={isRefreshing}>
-      {/* 캠페인 합산 KPI — 성과가 실제 수집된 캠페인만 합산한다. */}
-      {performanceCampaignCount > 0 && <div>
-        <div className="flex items-center gap-2 mb-2">
-          <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
-            캠페인 합산 (성과 수집 {performanceCampaignCount}개)
-          </span>
-        </div>
-        <div className="grid grid-cols-4 gap-3">
-          {[
-            { label: "총 광고비", value: `${formatKRW(campaignKpi.adSpend ?? 0)}원` },
-            { label: "광고 매출", value: `${formatKRW(campaignKpi.adRevenue ?? 0)}원` },
-            { label: "ROAS", value: `${campaignKpi.roas ?? 0}%`, colorClass: roasColor(campaignKpi.roas ?? 0, roasT) },
-            { label: "CTR", value: `${(campaignKpi.ctr ?? 0).toFixed(2)}%` },
-          ].map((k) => (
-            <div key={k.label} className="rounded-2xl px-5 py-4" style={{ background: "var(--card-bg)", boxShadow: "var(--shadow-sm)", border: "1px solid var(--border-subtle)" }}>
-              <div className="text-[11px] font-semibold uppercase tracking-wider mb-1" style={{ color: "var(--text-tertiary)" }}>{k.label}</div>
-              <div className={cn("text-[22px] font-black tabular-nums leading-tight", k.colorClass ?? "")} style={!k.colorClass ? { color: "var(--text-primary)" } : {}}>
-                {k.value}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>}
-
-      {/* 계정 합산 KPI — 쿠팡 광고센터 일별 집계 (coupang_ads_daily). 캠페인 합산과 별도 carded. */}
-      {accountSummary && (
-        <div>
+      {/* 캠페인 합산 KPI — 성과가 실제 수집된 캠페인만 합산한다. 비율은 합산한 원값으로 다시 계산하고 분모가 0이면 비운다. */}
+      {campaignKpi && (
+        <div data-testid="campaign-totals">
           <div className="flex items-center gap-2 mb-2">
             <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
-              계정 합산 (쿠팡 광고센터 일별 · {accountSummary.source})
+              캠페인 합산 (성과 수집 {performanceCampaignCount}개)
+            </span>
+          </div>
+          <TotalsGrid
+            items={[
+              { label: "총 광고비", value: `${formatKRW(campaignKpi.adSpend)}원` },
+              { label: "광고 매출", value: `${formatKRW(campaignKpi.adRevenue)}원` },
+              roasItem(campaignKpi.roas, roasT),
+              { label: "CTR", value: percentText(campaignKpi.ctr) },
+            ]}
+          />
+        </div>
+      )}
+
+      {/* 계정 합산 KPI — 광고 동기화 캠페인 순회가 측정한 날만 합산한 계정 값. */}
+      {sweepSummary && accountMetrics && (
+        <div data-testid="account-totals">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
+              계정 합산 (광고 동기화 캠페인 순회)
             </span>
             <span className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>
-              {accountSummary.periodDayCount}일 · 최근 {accountSummary.latestBusinessDate ?? "-"}
+              {`측정 ${formatNumber(sweepSummary.periodDayCount)}일 · ${adTrendsSourceLabel(sweepSummary)}`}
             </span>
           </div>
-          <div className="grid grid-cols-4 gap-3">
-            {[
-              { label: "총 광고비", value: `${formatKRW(accountSummary.metrics.spend)}원` },
-              { label: "광고 매출", value: `${formatKRW(accountSummary.metrics.revenue)}원` },
-              { label: "ROAS", value: `${accountSummary.metrics.roas ?? 0}%`, colorClass: roasColor(accountSummary.metrics.roas ?? 0, roasT) },
-              { label: "CTR", value: `${(accountSummary.metrics.ctr ?? 0).toFixed(2)}%` },
-            ].map((k) => (
-              <div key={k.label} className="rounded-2xl px-5 py-4" style={{ background: "var(--card-bg)", boxShadow: "var(--shadow-sm)", border: "1px solid var(--border-subtle)" }}>
-                <div className="text-[11px] font-semibold uppercase tracking-wider mb-1" style={{ color: "var(--text-tertiary)" }}>{k.label}</div>
-                <div className={cn("text-[22px] font-black tabular-nums leading-tight", k.colorClass ?? "")} style={!k.colorClass ? { color: "var(--text-primary)" } : {}}>
-                  {k.value}
-                </div>
-              </div>
-            ))}
-          </div>
+          <TotalsGrid
+            items={[
+              { label: "총 광고비", value: `${formatKRW(accountMetrics.spend)}원` },
+              { label: "광고 매출", value: `${formatKRW(accountMetrics.revenue)}원` },
+              roasItem(accountMetrics.roas, roasT),
+              { label: "CTR", value: percentText(accountMetrics.ctr) },
+            ]}
+          />
         </div>
       )}
 
@@ -264,6 +253,35 @@ export default function CampaignContent({
         <ProductDrilldown campaign={selectedCampaign} period={period} />
       )}
       </div>
+    </div>
+  );
+}
+
+type TotalsItem = { label: string; value: string; colorClass?: string };
+type RoasThresholds = { excellent: number; warning: number; poor: number };
+
+function percentText(value: number | null): string {
+  return value === null ? "-" : `${value.toFixed(2)}%`;
+}
+
+/** A ROAS color only describes a measured ROAS. */
+function roasItem(roas: number | null, thresholds: RoasThresholds): TotalsItem {
+  return roas === null
+    ? { label: "ROAS", value: "-" }
+    : { label: "ROAS", value: `${roas}%`, colorClass: roasColor(roas, thresholds) };
+}
+
+function TotalsGrid({ items }: { items: TotalsItem[] }) {
+  return (
+    <div className="grid grid-cols-4 gap-3">
+      {items.map((k) => (
+        <div key={k.label} className="rounded-2xl px-5 py-4" style={{ background: "var(--card-bg)", boxShadow: "var(--shadow-sm)", border: "1px solid var(--border-subtle)" }}>
+          <div className="text-[11px] font-semibold uppercase tracking-wider mb-1" style={{ color: "var(--text-tertiary)" }}>{k.label}</div>
+          <div className={cn("text-[22px] font-black tabular-nums leading-tight", k.colorClass ?? "")} style={!k.colorClass ? { color: "var(--text-primary)" } : {}}>
+            {k.value}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

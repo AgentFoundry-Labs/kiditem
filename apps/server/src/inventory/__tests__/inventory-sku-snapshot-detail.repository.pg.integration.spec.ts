@@ -1,6 +1,4 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import type { PrismaClient } from '@prisma/client';
-import type { PrismaService } from '../../prisma/prisma.service';
 import {
   makeTestPrisma,
   OTHER_ORGANIZATION_ID,
@@ -10,6 +8,8 @@ import {
 } from '../../test-helpers/real-prisma';
 import { InventorySkuSnapshotListRepositoryAdapter } from '../adapter/out/repository/inventory-sku-snapshot-list.repository.adapter';
 import { InventorySkuSnapshotListService } from '../application/service/inventory-sku-snapshot-list.service';
+import type { PrismaService } from '../../prisma/prisma.service';
+import type { PrismaClient } from '@prisma/client';
 
 describe('Sellpia snapshot detail tenant boundary (PG integration)', () => {
   let prisma: PrismaClient;
@@ -85,7 +85,7 @@ describe('Sellpia snapshot detail tenant boundary (PG integration)', () => {
       currentStock: 3,
       stockValue: 3_000,
       linkedProductCount: 0,
-      linkStatus: 'unlinked',
+      linkedChannelOptionCount: 0,
     });
     await expect(service.getSnapshot(TEST_ORGANIZATION_ID, other.id)).rejects.toMatchObject({
       status: 404,

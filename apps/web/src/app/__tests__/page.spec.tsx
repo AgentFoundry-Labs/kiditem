@@ -83,7 +83,6 @@ const successSales = {
   monthlyTrend: [],
   profitDetail: { revenue: 100000, costOfGoods: 50000, commission: 10000, shippingCost: 10000, adCost: 0, otherCost: 0, netProfit: 30000, orderCount: 1 },
   planAchievement: null,
-  trafficKpi: { visitors: 0, views: 0, orders: 1, salesQty: 0, revenue: 100000, cartAdds: 0, adSummary: null, source: 'wing', netProfit: 30000, profitRate: 30 },
   lastSyncAt: null,
 };
 const successAd = {
@@ -111,9 +110,9 @@ const successInv = {
   abcContributionProfit: {
     amountByGrade: { A: 30_000, B: 10_000, C: -1_000 },
     shareByGrade: { A: 0.77, B: 0.26, C: -0.03 },
+    basis: { publicationRevision: null, officialCutoffDate: null, publishedAt: null, sellpiaSourceImportRunId: null, advertisingSourceImportRunId: null, mappingGeneration: null, includedProductCount: 0, withheldProductCount: 0, denominator: 39_000 },
   },
   abcFormula: null,
-  mappingStatusCounts: { matched: 0, unmatched: 0, needsReview: 0 },
   alerts: [],
   warnings: {
     minusProducts: 0,
@@ -153,7 +152,7 @@ beforeEach(() => {
   getParsedMock.mockResolvedValue(null);
   getMock.mockImplementation((path: string) => {
     if (path === '/api/agent-os/instances') return Promise.resolve([]);
-    if (path === '/api/readiness') return Promise.resolve({ allOk: true, checks: [] });
+    if (path === '/api/readiness') return Promise.resolve({ checks: [] });
     return Promise.resolve([]);
   });
 });

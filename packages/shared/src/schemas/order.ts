@@ -177,6 +177,35 @@ export const OrderListResponseSchema = z.object({
 });
 export type OrderListResponse = z.infer<typeof OrderListResponseSchema>;
 
+const OrderStatsDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+const OrderStatsSourceCoverageSchema = z.object({
+  sourceType: z.string().min(1),
+  channelAccountId: z.string().uuid().nullable(),
+  mallKey: z.string().min(1).nullable(),
+  factDates: z.array(OrderStatsDateSchema),
+  includedDates: z.array(OrderStatsDateSchema),
+  missingDates: z.array(OrderStatsDateSchema),
+});
+const orderStatsWindowBasis = {
+  scope: z.literal('KNOWN_SOURCES'),
+  requestedDates: z.array(OrderStatsDateSchema),
+  includedDates: z.array(OrderStatsDateSchema),
+  missingDates: z.array(OrderStatsDateSchema),
+  sourceCoverage: z.array(OrderStatsSourceCoverageSchema),
+} as const;
+const OrderStatsWindowSchema = z.union([
+  z.object({
+    ...orderStatsWindowBasis,
+    orders: z.number().int().nonnegative(),
+    revenue: z.number().int(),
+  }),
+  z.object({
+    ...orderStatsWindowBasis,
+    orders: z.null(),
+    revenue: z.null(),
+  }),
+]);
+
 export const OrderStatsResponseSchema = z.object({
   stats: z.object({
     total: z.number().int().nonnegative(),
@@ -186,14 +215,8 @@ export const OrderStatsResponseSchema = z.object({
     delivering: z.number().int().nonnegative(),
     finalDelivery: z.number().int().nonnegative(),
   }),
-  today: z.object({
-    orders: z.number().int().nonnegative(),
-    revenue: z.number().int(),
-  }),
-  week: z.object({
-    orders: z.number().int().nonnegative(),
-    revenue: z.number().int(),
-  }),
+  today: OrderStatsWindowSchema,
+  week: OrderStatsWindowSchema,
 });
 export type OrderStatsResponse = z.infer<typeof OrderStatsResponseSchema>;
 

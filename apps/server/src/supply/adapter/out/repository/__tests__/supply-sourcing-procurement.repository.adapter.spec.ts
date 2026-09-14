@@ -153,7 +153,7 @@ function offerEvidence(overrides: Record<string, unknown> = {}) {
     ingestionRun: {
       sourceEntitlementVersionId: 'entitlement-1',
       targetKey: 'stationery',
-      status: 'complete',
+      status: 'COMPLETE',
       completedAt: NOW,
       coverageNumerator: 10,
       coverageDenominator: 10,
@@ -233,42 +233,11 @@ function intentRecord(
   };
 }
 
-function sourceContext(overrides: Record<string, unknown> = {}) {
-  return {
-    sourceKey: '1688-offer',
-    ingestionRun: {
-      sourceEntitlementVersionId: 'entitlement-1',
-      targetKey: 'stationery',
-      status: 'complete',
-      completedAt: NOW,
-      coverageNumerator: 10,
-      coverageDenominator: 10,
-    },
-    ...overrides,
-  };
-}
-
-function currentEntitlement(overrides: Record<string, unknown> = {}) {
-  return {
-    id: 'entitlement-1',
-    sourceLifecycle: 'qualified',
-    decisionImpact: 'enabled',
-    killSwitch: false,
-    permissionStartsAt: null,
-    permissionExpiresAt: new Date('2099-01-01T00:00:00.000Z'),
-    minimumCoverageBps: 8_000,
-    ...overrides,
-  };
-}
-
 function makePrisma() {
   const prisma = {
     supplier: { findFirst: vi.fn() },
     sourcingEvidenceObservation: {
-      findFirst: vi.fn().mockResolvedValue(sourceContext()),
-    },
-    sourcingSourceEntitlementVersion: {
-      findFirst: vi.fn().mockResolvedValue(currentEntitlement()),
+      findMany: vi.fn().mockResolvedValue([offerEvidence()]),
     },
     supplierOfferSkuSnapshot: {
       findUnique: vi.fn(),
@@ -279,6 +248,9 @@ function makePrisma() {
     },
     organizationMembership: { findFirst: vi.fn() },
     sourcingDecisionBatchItem: { findFirst: vi.fn() },
+    sourcingLaunchCandidate: {
+      findMany: vi.fn().mockResolvedValue([decisionItem().launchCandidate]),
+    },
     procurementTestIntent: {
       findUnique: vi.fn(),
       findFirst: vi.fn(),
@@ -327,14 +299,15 @@ describe('SupplySourcingProcurementRepositoryAdapter', () => {
       }),
     );
     expect(prisma.supplierOfferSkuSnapshot.create).not.toHaveBeenCalled();
+    expect(prisma.sourcingEvidenceObservation.findMany).not.toHaveBeenCalled();
   });
 
   it('creates nested tiers under the active organization and maps decimals', async () => {
     const prisma = makePrisma();
     prisma.supplierOfferSkuSnapshot.findUnique.mockResolvedValue(null);
-    prisma.sourcingEvidenceObservation.findFirst
-      .mockResolvedValueOnce(offerEvidence())
-      .mockResolvedValueOnce({ id: 'evidence-1' });
+    prisma.sourcingEvidenceObservation.findMany
+      .mockResolvedValueOnce([offerEvidence()])
+      .mockResolvedValueOnce([offerEvidence()]);
     prisma.supplierOfferSkuSnapshot.create.mockResolvedValue(rawOffer());
     const adapter = new SupplySourcingProcurementRepositoryAdapter(
       prisma as never,
@@ -350,34 +323,43 @@ describe('SupplySourcingProcurementRepositoryAdapter', () => {
       },
     });
     expect(
-      prisma.sourcingEvidenceObservation.findFirst,
+      prisma.sourcingEvidenceObservation.findMany,
     ).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
-        where: { id: 'evidence-1', organizationId: 'org-1' },
-        select: expect.objectContaining({
-          payload: true,
-          ingestionRun: expect.any(Object),
+        where: expect.objectContaining({
+          id: { in: ['evidence-1'] },
+          organizationId: 'org-1',
+          ingestionRun: expect.objectContaining({
+            organizationId: 'org-1',
+            status: 'COMPLETE',
+          }),
         }),
       }),
     );
     expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
-    expect(prisma.sourcingEvidenceObservation.findFirst.mock.invocationCallOrder[0]).toBeLessThan(
+    expect(prisma.sourcingEvidenceObservation.findMany.mock.invocationCallOrder[0]).toBeLessThan(
       prisma.supplierOfferSkuSnapshot.create.mock.invocationCallOrder[0],
     );
     expect(
-      prisma.sourcingEvidenceObservation.findFirst,
+      prisma.sourcingEvidenceObservation.findMany,
     ).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({
-        where: {
+        where: expect.objectContaining({
           organizationId: 'org-1',
-          observationKey: 'offer-observation-1',
+          sourceKey: '1688-offer',
+          observationKey: { in: ['offer-observation-1'] },
           availableAt: { lte: expect.any(Date) },
           ingestedAt: { lte: expect.any(Date) },
-        },
-        orderBy: [{ revision: 'desc' }, { id: 'desc' }],
+          ingestionRun: expect.objectContaining({
+            organizationId: 'org-1',
+            targetKey: 'stationery',
+            status: 'COMPLETE',
+            isCurrentComplete: true,
+          }),
+        }),
       }),
     );
     expect(prisma.supplierOfferSkuSnapshot.create).toHaveBeenCalledWith(
@@ -387,7 +369,6 @@ describe('SupplySourcingProcurementRepositoryAdapter', () => {
           priceTiers: {
             create: [
               {
-                organizationId: 'org-1',
                 minQuantity: 10,
                 maxQuantity: null,
                 unitPriceCny: '12.30',
@@ -402,14 +383,14 @@ describe('SupplySourcingProcurementRepositoryAdapter', () => {
   it('rejects a supplier offer bound to non-supply or cross-platform evidence', async () => {
     const prisma = makePrisma();
     prisma.supplierOfferSkuSnapshot.findUnique.mockResolvedValue(null);
-    prisma.sourcingEvidenceObservation.findFirst.mockResolvedValue(
+    prisma.sourcingEvidenceObservation.findMany.mockResolvedValue([
       offerEvidence({
         platform: 'naver',
         signalRole: 'demand',
         sourceEntityType: 'keyword',
         sourceEntityKey: '필통',
       }),
-    );
+    ]);
     const adapter = new SupplySourcingProcurementRepositoryAdapter(
       prisma as never,
     );
@@ -427,18 +408,9 @@ describe('SupplySourcingProcurementRepositoryAdapter', () => {
     nonTerminalPrisma.supplierOfferSkuSnapshot.findUnique.mockResolvedValue(
       null,
     );
-    nonTerminalPrisma.sourcingEvidenceObservation.findFirst.mockResolvedValue(
-      offerEvidence({
-        ingestionRun: {
-          sourceEntitlementVersionId: 'entitlement-1',
-          targetKey: 'stationery',
-          status: 'running',
-          completedAt: null,
-          coverageNumerator: null,
-          coverageDenominator: null,
-        },
-      }),
-    );
+    nonTerminalPrisma.sourcingEvidenceObservation.findMany
+      .mockResolvedValueOnce([offerEvidence()])
+      .mockResolvedValueOnce([]);
     const nonTerminal = new SupplySourcingProcurementRepositoryAdapter(
       nonTerminalPrisma as never,
     );
@@ -448,9 +420,9 @@ describe('SupplySourcingProcurementRepositoryAdapter', () => {
 
     const stalePrisma = makePrisma();
     stalePrisma.supplierOfferSkuSnapshot.findUnique.mockResolvedValue(null);
-    stalePrisma.sourcingEvidenceObservation.findFirst
-      .mockResolvedValueOnce(offerEvidence())
-      .mockResolvedValueOnce({ id: 'evidence-newer' });
+    stalePrisma.sourcingEvidenceObservation.findMany
+      .mockResolvedValueOnce([offerEvidence()])
+      .mockResolvedValueOnce([offerEvidence({ id: 'evidence-newer' })]);
     const stale = new SupplySourcingProcurementRepositoryAdapter(
       stalePrisma as never,
     );
@@ -460,7 +432,7 @@ describe('SupplySourcingProcurementRepositoryAdapter', () => {
 
     const payloadPrisma = makePrisma();
     payloadPrisma.supplierOfferSkuSnapshot.findUnique.mockResolvedValue(null);
-    payloadPrisma.sourcingEvidenceObservation.findFirst.mockResolvedValue(
+    payloadPrisma.sourcingEvidenceObservation.findMany.mockResolvedValue([
       offerEvidence({
         payload: {
           supplierOffer: {
@@ -470,7 +442,7 @@ describe('SupplySourcingProcurementRepositoryAdapter', () => {
           },
         },
       }),
-    );
+    ]);
     const payload = new SupplySourcingProcurementRepositoryAdapter(
       payloadPrisma as never,
     );
@@ -494,6 +466,7 @@ describe('SupplySourcingProcurementRepositoryAdapter', () => {
     });
     expect(prisma.organizationMembership.findFirst).not.toHaveBeenCalled();
     expect(prisma.procurementTestIntent.create).not.toHaveBeenCalled();
+    expect(prisma.sourcingEvidenceObservation.findMany).not.toHaveBeenCalled();
   });
 
   it('makes same key and different request hash a structural conflict', async () => {
@@ -610,11 +583,7 @@ describe('SupplySourcingProcurementRepositoryAdapter', () => {
     });
     expect(prisma.sourcingDecisionBatchItem.findFirst).toHaveBeenCalledWith({
       where: { id: 'decision-item-1', organizationId: 'org-1' },
-      select: expect.objectContaining({
-        decision: true,
-        executionEligible: true,
-        decisionBatch: { select: { status: true, expiresAt: true } },
-      }),
+      include: expect.objectContaining({ decisionBatch: expect.any(Object) }),
     });
     expect(prisma.procurementTestIntent.create).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -630,7 +599,7 @@ describe('SupplySourcingProcurementRepositoryAdapter', () => {
       }),
     );
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
-    expect(prisma.sourcingEvidenceObservation.findFirst.mock.invocationCallOrder[0]).toBeLessThan(
+    expect(prisma.sourcingEvidenceObservation.findMany.mock.invocationCallOrder[0]).toBeLessThan(
       prisma.procurementTestIntent.create.mock.invocationCallOrder[0],
     );
   });
@@ -651,6 +620,14 @@ describe('SupplySourcingProcurementRepositoryAdapter', () => {
         },
       }),
     );
+    prisma.sourcingLaunchCandidate.findMany.mockResolvedValue([
+      {
+        id: 'launch-1',
+        supplierOfferSkuSnapshotId: 'snapshot-1',
+        initialOrderQuantity: 12,
+        unitsPerSellableBundle: 6,
+      },
+    ]);
     const adapter = new SupplySourcingProcurementRepositoryAdapter(
       prisma as never,
     );

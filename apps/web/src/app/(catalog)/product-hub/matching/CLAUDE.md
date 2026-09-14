@@ -1,3 +1,5 @@
+Before working in this directory, always read this document first rather than relying on memory.
+
 # product-hub/matching — Channel Option Recipes
 
 `/product-hub/matching` imports account-scoped Wing/Rocket catalog evidence

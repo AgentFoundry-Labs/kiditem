@@ -9,7 +9,6 @@ import { buildDashboardContext } from '../context';
 import {
   businessDatesInWindow,
   resolveDashboardPeriod,
-  resolveTrendPeriod,
   resolveWingMonthlyTrendPeriod,
   type ResolvedDashboardPeriod,
 } from './dashboard-period';
@@ -210,6 +209,64 @@ describe('resolveDashboardPeriod — order_timestamps', () => {
   });
 });
 
+describe('resolveDashboardPeriod — closed_day_month', () => {
+  // 2026-09-20 12:00 KST: 1–19 September are closed, the 20th is still open.
+  const MID_MONTH = new Date('2026-09-20T03:00:00.000Z');
+  const CLOSED_SEPTEMBER: [string, string] = [
+    '2026-08-31T15:00:00.000Z',
+    '2026-09-19T15:00:00.000Z',
+  ];
+
+  it('clips a month selection and the anchor month to closed days, keeping previous windows exact', () => {
+    const ctx = buildDashboardContext('month', undefined, undefined, MID_MONTH);
+    const period = resolveDashboardPeriod(ctx, MID_MONTH, 'closed_day_month');
+
+    expect(isoWindow(period.month)).toEqual(CLOSED_SEPTEMBER);
+    expect(isoWindow(period.selected)).toEqual(CLOSED_SEPTEMBER);
+    expect(period.selected.selectedDates.at(-1)).toBe('2026-09-19');
+    expect(period.previousMonth.queryWindow).toEqual({
+      from: ctx.prevMonthDate,
+      to: ctx.monthStart,
+    });
+    expect(period.previousSelected.queryWindow).toEqual({
+      from: ctx.dateRange.prevStart,
+      to: ctx.dateRange.prevEnd,
+    });
+  });
+
+  it('keeps day, week and custom selections on their calendar windows', () => {
+    for (const ctx of [
+      buildDashboardContext('day', undefined, undefined, MID_MONTH),
+      buildDashboardContext('week', undefined, undefined, MID_MONTH),
+      buildDashboardContext('custom', '2026-09-01', '2026-09-30', MID_MONTH),
+    ]) {
+      const period = resolveDashboardPeriod(ctx, MID_MONTH, 'closed_day_month');
+      expect(period.selected.queryWindow, ctx.effectiveRange).toEqual({
+        from: ctx.dateRange.start,
+        to: ctx.dateRange.end,
+      });
+      expect(period.previousSelected.queryWindow, ctx.effectiveRange).toEqual({
+        from: ctx.dateRange.prevStart,
+        to: ctx.dateRange.prevEnd,
+      });
+      // The anchor's month is a month window whatever the selection.
+      expect(isoWindow(period.month), ctx.effectiveRange).toEqual(CLOSED_SEPTEMBER);
+    }
+  });
+
+  it('leaves a month empty on the 1st rather than reaching into the previous month', () => {
+    const anchor = new Date('2026-09-01T03:00:00.000Z');
+    const period = resolveDashboardPeriod(
+      buildDashboardContext('month', undefined, undefined, anchor),
+      anchor,
+      'closed_day_month',
+    );
+    expect(period.month.selectedDates).toEqual([]);
+    expect(period.selected.selectedDates).toEqual([]);
+    expect(period.previousMonth.selectedDates).toHaveLength(31);
+  });
+});
+
 describe('resolved date sets', () => {
   it('publishes contiguous, sorted, unique KST business dates for the window', () => {
     const anchor = new Date('2026-09-08T03:00:00.000Z');
@@ -237,26 +294,6 @@ describe('resolved date sets', () => {
     const instant = new Date('2026-07-01T00:00:00.000Z');
     expect(businessDatesInWindow(instant, instant)).toEqual([]);
     expect(businessDatesInWindow(new Date('2026-07-02T00:00:00.000Z'), instant)).toEqual([]);
-  });
-});
-
-describe('resolveTrendPeriod', () => {
-  it('reads the rolling closed KST days without shifting the window', () => {
-    const anchor = new Date('2026-09-10T16:30:00.000Z'); // 2026-09-11 01:30 KST
-    const period = resolveTrendPeriod('7d', anchor);
-    expect(isoWindow(period)).toEqual([
-      '2026-09-03T15:00:00.000Z',
-      '2026-09-10T15:00:00.000Z',
-    ]);
-    expect(period.selectedDates).toEqual([
-      '2026-09-04', '2026-09-05', '2026-09-06', '2026-09-07',
-      '2026-09-08', '2026-09-09', '2026-09-10',
-    ]);
-  });
-
-  it('defaults an unknown range token to 30 days', () => {
-    expect(resolveTrendPeriod('42d', ANCHOR).selectedDates).toHaveLength(30);
-    expect(resolveTrendPeriod('90d', ANCHOR).selectedDates).toHaveLength(90);
   });
 });
 

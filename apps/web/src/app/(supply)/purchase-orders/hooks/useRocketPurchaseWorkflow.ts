@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   isRocketWorkbookBlockingReason,
+  ROCKET_CONFIRMATION_REQUEST_STATUSES,
   ROCKET_SHORTAGE_REASONS,
 } from '@kiditem/shared/rocket-purchase-preview';
 import { friendlyError } from '@/lib/api-error';
@@ -68,7 +69,7 @@ export function rocketReviewedQuantity(
   editedQuantity?: number,
 ): number {
   if (row.reason === 'insufficient_capacity') return 0;
-  return editedQuantity ?? row.editedQuantity ?? row.recommendedQuantity;
+  return editedQuantity ?? row.editedQuantity ?? row.recommendedQuantity ?? 0;
 }
 
 export function rocketReviewedQuantityLimit(
@@ -76,7 +77,7 @@ export function rocketReviewedQuantityLimit(
 ): number {
   return row.reason === 'insufficient_capacity'
     ? 0
-    : Math.min(row.maxQuantity, row.orderQuantity);
+    : Math.min(row.maxQuantity ?? 0, row.orderQuantity);
 }
 
 function visibleReviewQuantities(
@@ -106,8 +107,8 @@ function confirmationRequestedRows(
 ): RocketPoCatalogRow[] {
   return rows.filter((row) => (
     ['RI', 'RP'].includes(row.poStatusCode?.toUpperCase() ?? '')
-    || ['거래명세서확인요청', '거래처확인요청'].includes(
-      row.confirmation?.poStatus.trim() ?? '',
+    || ROCKET_CONFIRMATION_REQUEST_STATUSES.some(
+      (status) => status === (row.confirmation?.poStatus.trim() ?? ''),
     )
   ));
 }
@@ -179,26 +180,16 @@ function collectionIsIncomplete(summary: CollectionRunSummary): boolean {
 
 function aggregateCollectionWarning(
   summary: CollectionRunSummary | null,
-  preview: RocketPurchasePreviewReadyResponse | null,
-  hasConfiguredVendorId: boolean,
 ): string | null {
   if (!summary) return null;
-  const previewReasons = new Set(preview?.rows.map(({ reason }) => reason) ?? []);
-  if (collectionIsIncomplete(summary) || previewReasons.has('collection_incomplete')) {
+  if (collectionIsIncomplete(summary)) {
     return '수집 범위가 불완전합니다. 누락된 PO를 확인한 뒤 다시 계산해 주세요. 공급사 식별 정보도 확인해 주세요.';
-  }
-  if (previewReasons.has('vendor_mismatch')) {
-    if (!hasConfiguredVendorId) {
-      return '선택한 로켓 채널 계정에 공급사 ID가 설정되지 않았습니다. 로켓 계정 설정을 확인해 주세요.';
-    }
-    return '선택한 로켓 채널 계정과 수집한 PO의 공급사가 일치하지 않습니다.';
   }
   return null;
 }
 
 export function useRocketPurchaseWorkflow({
   channelAccountId,
-  hasConfiguredVendorId,
   from,
   to,
   savedSourceImportRunId,
@@ -207,7 +198,6 @@ export function useRocketPurchaseWorkflow({
   onActivity,
 }: {
   channelAccountId: string;
-  hasConfiguredVendorId: boolean;
   from: string;
   to: string;
   savedSourceImportRunId: string | null;
@@ -656,11 +646,7 @@ export function useRocketPurchaseWorkflow({
     }
   };
 
-  const collectionWarning = aggregateCollectionWarning(
-    collectionRun,
-    preview,
-    hasConfiguredVendorId,
-  );
+  const collectionWarning = aggregateCollectionWarning(collectionRun);
   const reviewedQuantities = preview
     ? Object.fromEntries(preview.rows.map((row) => [
         row.poLineId,

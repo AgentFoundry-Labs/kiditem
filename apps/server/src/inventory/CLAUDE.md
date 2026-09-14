@@ -1,3 +1,5 @@
+Before working in this directory, always read this document first rather than relying on memory.
+
 # inventory — Sellpia Snapshot And Inventory Operations
 
 `src/inventory/` owns Sellpia imports and authoritative physical SKU snapshots,

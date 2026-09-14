@@ -41,6 +41,10 @@ function createFakeChrome({ storageState = {}, storageAdapter = null } = {}) {
   const externalMessageListeners = [];
   const connectExternalListeners = [];
   const installedListeners = [];
+  // Every worker shares one global scope, so the script that registered a
+  // listener is the only way a test can tell which domain owns it.
+  const installedListenerScripts = [];
+  let loadingScript = null;
   const createdAlarms = [];
   const internalMessageListeners = [];
   const noopEvent = () => ({ addListener() {}, removeListener() {} });
@@ -73,6 +77,8 @@ function createFakeChrome({ storageState = {}, storageAdapter = null } = {}) {
     externalMessageListeners,
     connectExternalListeners,
     installedListeners,
+    installedListenerScripts,
+    setLoadingScript: (script) => { loadingScript = script; },
     createdAlarms,
     internalMessageListeners,
     chrome: {
@@ -80,7 +86,12 @@ function createFakeChrome({ storageState = {}, storageAdapter = null } = {}) {
         id: 'kiditem-os-test',
         lastError: null,
         getManifest: () => manifest,
-        onInstalled: { addListener: (listener) => installedListeners.push(listener) },
+        onInstalled: {
+          addListener: (listener) => {
+            installedListeners.push(listener);
+            installedListenerScripts.push({ script: loadingScript, listener });
+          },
+        },
         onStartup: noopEvent(),
         onConnect: noopEvent(),
         onMessage: { addListener: listener => internalMessageListeners.push(listener) },
@@ -187,8 +198,14 @@ function bootServiceWorker({ fetch: fetchFn, storage, storageAdapter } = {}) {
     // 실제 서비스워커의 importScripts 와 같은 기준(서비스워커 위치)으로 푼다.
     importScripts(...files) {
       for (const file of files) {
-        const filename = path.join(backgroundRoot, file.split('?')[0]);
-        vm.runInContext(readFileSync(filename, 'utf8'), context, { filename });
+        const script = file.split('?')[0];
+        const filename = path.join(backgroundRoot, script);
+        fake.setLoadingScript(script);
+        try {
+          vm.runInContext(readFileSync(filename, 'utf8'), context, { filename });
+        } finally {
+          fake.setLoadingScript(null);
+        }
       }
     },
   };
@@ -1245,6 +1262,369 @@ test('campaign public worker runs the actual empty dashboard collector and waits
   } finally { completeAck.resolve(); dom?.window.close(); }
 });
 
+const coupangWindowAttemptToken = '22222222-2222-4222-8222-222222222222';
+const coupangWindowAccount = '33333333-3333-4333-8333-333333333333';
+const coupangWindowJson = (value, status = 200) => ({ ok: status < 400, status, json: async () => structuredClone(value) });
+
+function coupangCampaignAttempt(attemptId, state = 'RUNNING', expiresAt = '2030-01-02T00:00:00.000Z') {
+  return {
+    attemptId, attemptToken: coupangWindowAttemptToken, channelAccountId: coupangWindowAccount, state, expiresAt,
+    manifestChecksum: 'a'.repeat(64),
+    errorCode: state === 'FAILED' ? 'AD_CAMPAIGN_COLLECTION_FAILED' : null,
+    errorMessage: state === 'FAILED' ? 'fixture failure' : null,
+    plan: {
+      sourceType: 'coupang_ad_campaign', parserVersion: 'ad-campaign-v1', channelAccountId: coupangWindowAccount,
+      expectedAdvertiserId: 'A0001', captureMode: 'campaign_sweep', startDate: '2026-08-06', endDate: '2026-09-05',
+      businessDates: Array.from({ length: 31 }, (_, i) => new Date(Date.parse('2026-09-05') - i * 86400000).toISOString().slice(0, 10)),
+    },
+    receipts: [], pages: [], campaigns: [],
+  };
+}
+
+function coupangKeywordAttempt(attemptId, state = 'RUNNING') {
+  return {
+    attemptId, attemptToken: coupangWindowAttemptToken, state, channelAccountId: coupangWindowAccount,
+    expiresAt: '2030-01-02T00:00:00.000Z',
+    plan: {
+      sourceType: 'coupang_ad_keyword', parserVersion: 'ad-keyword-v1', channelAccountId: coupangWindowAccount,
+      expectedAdvertiserId: 'A0001', startDate: '2026-08-30', endDate: '2026-09-05', windowDays: 7,
+    },
+    roster: null, queue: [], receipts: [], groupCount: 0, completedGroupCount: 0, manifestChecksum: 'a'.repeat(64),
+    errorCode: state === 'FAILED' ? 'AD_KEYWORD_COLLECTION_FAILED' : null,
+    errorMessage: state === 'FAILED' ? 'fixture failure' : null,
+  };
+}
+
+function coupangTrafficAttempt(attemptId, state = 'RUNNING', parserVersion = 'wing-traffic-daily-v2') {
+  const dates = ['2026-09-05', '2026-09-06'];
+  return {
+    attemptId, attemptToken: coupangWindowAttemptToken, state, channelAccountId: coupangWindowAccount,
+    expiresAt: '2030-01-02T00:00:00.000Z', manifestChecksum: 'b'.repeat(64),
+    errorCode: state === 'FAILED' ? 'WING_TRAFFIC_COLLECTION_FAILED' : null,
+    errorMessage: state === 'FAILED' ? 'fixture failure' : null,
+    plan: {
+      sourceType: 'coupang_wing_traffic', parserVersion, channelAccountId: coupangWindowAccount,
+      expectedAdvertiserId: 'A0001', startDate: dates[0], endDate: dates[1], businessDate: dates[1], periodDays: 2,
+      targetUrl: `https://wing.coupang.com/tenants/business-insight/sales-analysis?start_date=${dates[0]}&end_date=${dates[1]}`,
+      ...(parserVersion === 'wing-traffic-daily-v2'
+        ? { providerVendorId: 'A0001', expectedDates: dates, filterScope: 'ALL_NORMAL_RFM' }
+        : {}),
+    },
+    receipts: [],
+  };
+}
+
+function coupangProfitabilityPlan(attemptId) {
+  return {
+    attemptId, attemptToken: coupangWindowAttemptToken, expiresAt: '2030-01-02T00:00:00.000Z',
+    accounts: [{
+      externalAccountId: 'acct-1', expectedAdvertiserId: 'A0001',
+      slices: [{ sliceId: 'slice-1', from: '2026-08-01', to: '2026-08-31', businessDates: ['2026-08-01'] }],
+    }],
+  };
+}
+
+test('Coupang collections take the shared window only after the previous collection reports and releases it', async () => {
+  const ids = {
+    campaign: '51111111-1111-4111-8111-111111111111',
+    keyword: '52222222-2222-4222-8222-222222222222',
+    traffic: '53333333-3333-4333-8333-333333333333',
+    itemwinner: '54444444-4444-4444-8444-444444444444',
+    profitability: '55555555-5555-4555-8555-555555555555',
+  };
+  const campaign = coupangCampaignAttempt(ids.campaign);
+  const campaignReporting = Promise.withResolvers();
+  const releaseCampaignReport = Promise.withResolvers();
+  const h = bootServiceWorker({ fetch: async (url, init = {}) => {
+    const href = String(url);
+    if (href.endsWith(`/api/ads/ad-campaigns/attempts/${ids.campaign}/control`)) return coupangWindowJson(campaign);
+    if (href.endsWith(`/api/ads/ad-campaigns/attempts/${ids.campaign}/fail`)) {
+      campaignReporting.resolve();
+      await releaseCampaignReport.promise;
+      const body = JSON.parse(init.body);
+      Object.assign(campaign, { state: 'FAILED', errorCode: body.code, errorMessage: body.message });
+      return coupangWindowJson(campaign);
+    }
+    if (href.endsWith(`/api/ads/ad-keywords/attempts/${ids.keyword}/control`)) {
+      return coupangWindowJson(coupangKeywordAttempt(ids.keyword));
+    }
+    if (href.endsWith(`/api/ads/traffic/attempts/${ids.traffic}/control`)) {
+      return coupangWindowJson(coupangTrafficAttempt(ids.traffic));
+    }
+    if (href.endsWith(`/api/ads/wing-itemwinner/attempts/${ids.itemwinner}`)) {
+      return coupangWindowJson(popupItemwinnerAttempt('RUNNING', popupItemwinnerUrl, ids.itemwinner));
+    }
+    if (href.endsWith('/api/ads/profitability-imports') && init.method === 'POST') {
+      return coupangWindowJson(coupangProfitabilityPlan(ids.profitability));
+    }
+    return coupangWindowJson({});
+  } });
+  h.fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'fixture' } };
+  const sessions = vm.runInContext('collectionSessions', h.context);
+  const started = [];
+  const follower = (name) => async () => {
+    const campaignReleased = (await sessions.get(ids.campaign)) === null;
+    started.push(`${name}:${campaignReleased ? 'after campaign release' : 'while campaign holds the window'}`);
+    return { success: false, errorCode: 'SOURCE_OWNER_UNAVAILABLE', error: 'fixture stop' };
+  };
+  h.context.coupangWindowCollectors = {
+    collectCampaigns: async () => {
+      started.push('campaign');
+      return { success: false, error: '광고 캠페인 상세 페이지를 열지 못했습니다.' };
+    },
+    collectKeywords: follower('keyword'),
+    collectTraffic: follower('traffic'),
+    collectItemwinner: follower('itemwinner'),
+    collectProfitabilitySlice: follower('profitability'),
+  };
+  vm.runInContext(`
+    adCenterCollectors.local = {
+      collectCampaigns: (input) => coupangWindowCollectors.collectCampaigns(input),
+      collectKeywords: (input) => coupangWindowCollectors.collectKeywords(input),
+      collectProfitabilitySlice: (input) => coupangWindowCollectors.collectProfitabilitySlice(input),
+    };
+    wingReportCollectors.local = {
+      collectTraffic: (input) => coupangWindowCollectors.collectTraffic(input),
+      collectItemwinner: (input) => coupangWindowCollectors.collectItemwinner(input),
+    };
+  `, h.context);
+  try {
+    const campaignRun = externalRequest(h.fake, { action: 'collectAdvertisingCampaigns', attemptId: ids.campaign });
+    await campaignReporting.promise;
+    const followers = [
+      externalRequest(h.fake, { action: 'collectAdvertisingKeywords', attemptId: ids.keyword }),
+      externalRequest(h.fake, { action: 'collectAdvertisingWingTraffic', attemptId: ids.traffic }),
+      externalRequest(h.fake, { action: 'collectAdvertisingWingItemwinner', attemptId: ids.itemwinner }),
+      externalRequest(h.fake, { action: 'collectAdvertisingProfitability', idempotencyKey: 'coupang-window-turn' }),
+    ];
+    for (let turn = 0; turn < 25; turn += 1) await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(started, ['campaign'], 'no collection starts while the campaign collection reports its outcome');
+
+    releaseCampaignReport.resolve();
+    const [campaignOutcome] = await Promise.all([campaignRun, ...followers]);
+
+    assert.equal(campaignOutcome.terminalState, 'FAILED');
+    assert.deepEqual(started, [
+      'campaign',
+      'keyword:after campaign release',
+      'traffic:after campaign release',
+      'itemwinner:after campaign release',
+      'profitability:after campaign release',
+    ]);
+  } finally {
+    releaseCampaignReport.resolve();
+    h.close();
+  }
+});
+
+test('a Wing traffic request refused while another attempt collects still answers the web app', async () => {
+  const runningId = '71111111-1111-4111-8111-111111111111';
+  const refusedId = '72222222-2222-4222-8222-222222222222';
+  const collecting = Promise.withResolvers();
+  const releaseCollect = Promise.withResolvers();
+  const h = bootServiceWorker({ fetch: async (url) => {
+    const href = String(url);
+    for (const id of [runningId, refusedId]) {
+      if (href.endsWith(`/api/ads/traffic/attempts/${id}/control`)) return coupangWindowJson(coupangTrafficAttempt(id));
+    }
+    return coupangWindowJson({});
+  } });
+  h.fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'fixture' } };
+  h.context.wingTrafficCollector = {
+    collectTraffic: async () => {
+      collecting.resolve();
+      await releaseCollect.promise;
+      return { success: false, errorCode: 'SOURCE_OWNER_UNAVAILABLE', error: 'fixture stop' };
+    },
+  };
+  vm.runInContext('wingReportCollectors.local = { collectTraffic: (input) => wingTrafficCollector.collectTraffic(input) };', h.context);
+  try {
+    const running = externalRequest(h.fake, { action: 'collectAdvertisingWingTraffic', attemptId: runningId });
+    await collecting.promise;
+
+    const refused = await externalRequest(h.fake, { action: 'collectAdvertisingWingTraffic', attemptId: refusedId });
+
+    assert.deepEqual(JSON.parse(JSON.stringify(refused)), {
+      success: false,
+      errorCode: 'SOURCE_COLLECTION_REQUEST_FAILED',
+      error: '다른 Wing 트래픽 수집이 진행 중입니다.',
+    });
+    releaseCollect.resolve();
+    assert.equal((await running).attemptId, runningId);
+  } finally {
+    releaseCollect.resolve();
+    h.close();
+  }
+});
+
+test('a Coupang collection taking the window clears ended sessions that hold no window and keeps the rest', async () => {
+  const ids = {
+    campaign: '81111111-1111-4111-8111-111111111111',
+    keyword: '82222222-2222-4222-8222-222222222222',
+    traffic: '83333333-3333-4333-8333-333333333333',
+    unreadable: '84444444-4444-4444-8444-444444444444',
+    itemwinner: '85555555-5555-4555-8555-555555555555',
+  };
+  const h = bootServiceWorker({ fetch: async (url) => {
+    const href = String(url);
+    if (href.endsWith(`/api/ads/ad-campaigns/attempts/${ids.campaign}/control`)) {
+      return coupangWindowJson(coupangCampaignAttempt(ids.campaign, 'FAILED'));
+    }
+    if (href.endsWith(`/api/ads/ad-keywords/attempts/${ids.keyword}/control`)) {
+      return coupangWindowJson({ message: 'not found' }, 404);
+    }
+    if (href.endsWith(`/api/ads/traffic/attempts/${ids.traffic}/control`)) {
+      return coupangWindowJson(coupangTrafficAttempt(ids.traffic, 'RUNNING'));
+    }
+    if (href.endsWith(`/api/ads/ad-campaigns/attempts/${ids.unreadable}/control`)) {
+      return coupangWindowJson({ message: 'forbidden' }, 403);
+    }
+    if (href.endsWith(`/api/ads/wing-itemwinner/attempts/${ids.itemwinner}`)) {
+      return coupangWindowJson(popupItemwinnerAttempt('RUNNING', popupItemwinnerUrl, ids.itemwinner));
+    }
+    return coupangWindowJson({});
+  } });
+  h.fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'fixture' } };
+  const sessions = vm.runInContext('collectionSessions', h.context);
+  // None of these sessions holds the collection window.
+  await sessions.start({ attemptId: ids.campaign, environmentId: 'local', producer: 'advertising.ad_sync' });
+  await sessions.requireAttention(ids.campaign, { reason: 'marketplace_login', message: '로그인이 필요합니다.' });
+  await sessions.start({ attemptId: ids.keyword, environmentId: 'local', producer: 'advertising.ad_keyword' });
+  await sessions.start({ attemptId: ids.traffic, environmentId: 'local', producer: 'dashboard.wing_sales' });
+  await sessions.start({ attemptId: ids.unreadable, environmentId: 'local', producer: 'advertising.ad_sync' });
+  let sessionsAtCollect = null;
+  h.context.itemwinnerCollector = {
+    collectItemwinner: async () => {
+      sessionsAtCollect = [...(await sessions.list('local'))].map((session) => session.attemptId).sort();
+      return { success: false, errorCode: 'SOURCE_OWNER_UNAVAILABLE', error: 'fixture stop' };
+    },
+  };
+  vm.runInContext('wingReportCollectors.local = { collectItemwinner: (input) => itemwinnerCollector.collectItemwinner(input) };', h.context);
+  try {
+    await externalRequest(h.fake, { action: 'collectAdvertisingWingItemwinner', attemptId: ids.itemwinner });
+
+    assert.deepEqual(
+      sessionsAtCollect,
+      [ids.traffic, ids.unreadable, ids.itemwinner].sort(),
+      'the failed attention session and the unknown attempt are cleared; running and unreadable ones stay',
+    );
+  } finally {
+    h.close();
+  }
+});
+
+test('the shared Coupang window clears a leftover whose attempt ended and names a collection that still runs', async (t) => {
+  const leftoverId = '61111111-1111-4111-8111-111111111111';
+  const incomingId = '62222222-2222-4222-8222-222222222222';
+  const campaignPath = `/api/ads/ad-campaigns/attempts/${leftoverId}/control`;
+  const trafficPath = `/api/ads/traffic/attempts/${leftoverId}/control`;
+  const scenarios = [
+    {
+      label: 'ad campaign', producer: 'advertising.ad_sync', name: '쿠팡 광고 캠페인', path: campaignPath,
+      reply: (ended) => coupangWindowJson(coupangCampaignAttempt(leftoverId, ended ? 'FAILED' : 'RUNNING')),
+    },
+    {
+      label: 'expired ad campaign', producer: 'advertising.ad_sync', name: '쿠팡 광고 캠페인', path: campaignPath, endedOnly: true,
+      reply: () => coupangWindowJson(coupangCampaignAttempt(leftoverId, 'RUNNING', '2026-01-01T00:00:00.000Z')),
+    },
+    {
+      label: 'ad keyword', producer: 'advertising.ad_keyword', name: '쿠팡 광고 키워드',
+      path: `/api/ads/ad-keywords/attempts/${leftoverId}/control`,
+      reply: (ended) => coupangWindowJson(coupangKeywordAttempt(leftoverId, ended ? 'FAILED' : 'RUNNING')),
+    },
+    {
+      label: 'Wing traffic', producer: 'dashboard.wing_sales', name: '쿠팡 Wing 트래픽', path: trafficPath,
+      reply: (ended) => coupangWindowJson(coupangTrafficAttempt(leftoverId, ended ? 'COMPLETE' : 'RUNNING')),
+    },
+    {
+      label: 'legacy Wing traffic', producer: 'dashboard.wing_sales', name: '쿠팡 Wing 트래픽', path: trafficPath,
+      reply: (ended) => coupangWindowJson(coupangTrafficAttempt(leftoverId, ended ? 'FAILED' : 'RUNNING', 'wing-traffic-v1')),
+    },
+    {
+      label: 'Wing itemwinner', producer: 'dashboard.wing_kpi', name: '쿠팡 Wing 아이템위너',
+      path: `/api/ads/wing-itemwinner/attempts/${leftoverId}`,
+      reply: (ended) => coupangWindowJson(popupItemwinnerAttempt(ended ? 'FAILED' : 'RUNNING', popupItemwinnerUrl, leftoverId)),
+    },
+    {
+      label: 'ad profitability', producer: 'advertising.profitability_import', name: '쿠팡 상품별 광고 보고서',
+      path: `/api/ads/profitability-imports/${leftoverId}`,
+      reply: (ended) => ended
+        ? coupangWindowJson({ message: 'ATTEMPT_TERMINAL' }, 409)
+        : coupangWindowJson(coupangProfitabilityPlan(leftoverId)),
+    },
+    // An owner that answers 404 no longer knows the attempt, so it has ended.
+    ...[
+      ['ad campaign', 'advertising.ad_sync', '쿠팡 광고 캠페인', campaignPath],
+      ['ad keyword', 'advertising.ad_keyword', '쿠팡 광고 키워드', `/api/ads/ad-keywords/attempts/${leftoverId}/control`],
+      ['Wing traffic', 'dashboard.wing_sales', '쿠팡 Wing 트래픽', trafficPath],
+      ['Wing itemwinner', 'dashboard.wing_kpi', '쿠팡 Wing 아이템위너', `/api/ads/wing-itemwinner/attempts/${leftoverId}`],
+    ].map(([label, producer, name, path]) => ({
+      label: `${label} the owner no longer knows`, producer, name, path, endedOnly: true,
+      reply: () => coupangWindowJson({ message: 'not found' }, 404),
+    })),
+    {
+      // Any other read failure leaves the attempt unknown, so the window stays refused.
+      label: 'ad campaign the owner forbids reading', producer: 'advertising.ad_sync', name: '쿠팡 광고 캠페인',
+      path: campaignPath, runningOnly: true,
+      reply: () => coupangWindowJson({ message: 'forbidden' }, 403),
+    },
+  ];
+  for (const scenario of scenarios) {
+    for (const ended of scenario.endedOnly ? [true] : scenario.runningOnly ? [false] : [true, false]) {
+      await t.test(`${scenario.label} ${ended ? 'ended' : 'still running'}`, async () => {
+        const h = bootServiceWorker({
+          fetch: async (url) => String(url).endsWith(scenario.path) ? scenario.reply(ended) : coupangWindowJson({}),
+        });
+        h.fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'fixture' } };
+        const windows = new Map([[7, { id: 7, type: 'normal', tabs: [
+          { id: 41, windowId: 7, status: 'complete', url: 'https://advertising.coupang.com/marketing/dashboard/sales' },
+        ] }]]);
+        const removedWindows = [];
+        h.fake.chrome.windows.get = (id, _options, callback) => {
+          const win = windows.get(id);
+          callback?.(win ? structuredClone(win) : undefined);
+        };
+        h.fake.chrome.windows.remove = (id, callback) => { removedWindows.push(id); windows.delete(id); callback?.(); };
+        h.fake.chrome.windows.create = (properties, callback) => {
+          const win = { id: 8, type: 'normal', tabs: [{ id: 42, windowId: 8, status: 'complete', url: properties.url }] };
+          windows.set(win.id, win);
+          callback?.(structuredClone(win));
+        };
+        h.fake.chrome.tabs.get = (id, callback) => {
+          const tab = [...windows.values()].flatMap((win) => win.tabs).find((entry) => entry.id === id);
+          callback?.(tab ? structuredClone(tab) : undefined);
+        };
+        try {
+          const sessions = vm.runInContext('collectionSessions', h.context);
+          await sessions.start({ attemptId: leftoverId, environmentId: 'local', producer: scenario.producer });
+          await sessions.requireAttention(leftoverId, { reason: 'marketplace_login', message: '로그인이 필요합니다.' });
+          const windowKey = vm.runInContext('coupangEnvironment.stateKey(COLLECTION_WINDOW_STORAGE_KEY, "local")', h.context);
+          h.fake.storage[windowKey] = { runId: leftoverId, windowId: 7, tabId: 41 };
+          const collectionWindow = vm.runInContext('collectionWindowFor("local")', h.context);
+          const targetUrl = 'https://advertising.coupang.com/marketing/dashboard/sales#kiditemAdSync=1';
+
+          if (ended) {
+            const owned = await collectionWindow.getOrCreate(incomingId, targetUrl);
+            assert.deepEqual(removedWindows, [7]);
+            assert.equal(await sessions.get(leftoverId), null);
+            assert.equal(owned.windowId, 8);
+          } else {
+            await assert.rejects(collectionWindow.getOrCreate(incomingId, targetUrl), (error) => {
+              assert.equal(error.code, 'collection_window_owner_conflict');
+              assert.equal(error.message, `${scenario.name} 수집이 이 창을 사용하고 있습니다. 끝난 뒤 다시 시도해 주세요.`);
+              return true;
+            });
+            assert.deepEqual(removedWindows, []);
+            assert.ok(await sessions.get(leftoverId));
+          }
+        } finally {
+          h.close();
+        }
+      });
+    }
+  }
+});
+
 test('catalog owner permit reaches the real worker/session and a committed receipt does not recollect', async () => {
   const requests = [];
   const { fake } = bootServiceWorker({ fetch: async (url, init) => {
@@ -1328,6 +1708,62 @@ test('retired Wing rank shell schedules are not installed', async () => {
   for (const listener of fake.installedListeners) await listener({ reason: 'update' });
   assert.equal(fake.createdAlarms.some((name) =>
     name.includes('keyword-rank-check') || name.includes('wing-sales-rank-resume') || name.includes('coupang-keyword-serp-rank')), false);
+});
+
+test('an update removes the retired write-only local copies and keeps every other key', async (t) => {
+  const retired = [
+    'kiditem_last_sync_traffic',
+    'kiditem_last_sync_itemwinner',
+    'kiditem_last_sync_ads',
+    'lastExtraction',
+    'lastExtractionEnvironmentId',
+  ];
+  const storage = {
+    ...Object.fromEntries(retired.map((key) => [key, { time: 1, count: 1 }])),
+    kiditem_unrelated_domain_state: { kept: true },
+  };
+  const { fake, close } = bootServiceWorker({ storage });
+  t.after(close);
+
+  for (const listener of fake.installedListeners) await listener({ reason: 'update' });
+  await new Promise(setImmediate);
+
+  for (const key of retired) assert.equal(key in fake.storage, false, key);
+  assert.deepEqual(fake.storage.kiditem_unrelated_domain_state, { kept: true });
+});
+
+test('each domain worker removes only its own retired local copies on update', async (t) => {
+  // Storage names are domain-unique, so the domain that wrote a key is the one
+  // that retires it: Coupang its Wing/Ads sync stamps, Sourcing its extraction mirror.
+  const retiredByWorker = {
+    'coupang/worker.js': [
+      'kiditem_last_sync_traffic',
+      'kiditem_last_sync_itemwinner',
+      'kiditem_last_sync_ads',
+    ],
+    'sourcing/worker.js': ['lastExtraction', 'lastExtractionEnvironmentId'],
+  };
+  const everyRetired = Object.values(retiredByWorker).flat();
+
+  for (const [script, own] of Object.entries(retiredByWorker)) {
+    const storage = {
+      ...Object.fromEntries(everyRetired.map((key) => [key, { time: 1, count: 1 }])),
+      kiditem_unrelated_domain_state: { kept: true },
+    };
+    const { fake, close } = bootServiceWorker({ storage });
+    t.after(close);
+    const listeners = fake.installedListenerScripts.filter((entry) => entry.script === script);
+    assert.ok(listeners.length > 0, `${script} registers an install listener`);
+
+    for (const { listener } of listeners) await listener({ reason: 'update' });
+    await new Promise(setImmediate);
+
+    for (const key of own) assert.equal(key in fake.storage, false, `${script} removes ${key}`);
+    for (const key of everyRetired.filter((name) => !own.includes(name))) {
+      assert.equal(key in fake.storage, true, `${script} keeps ${key}`);
+    }
+    assert.deepEqual(fake.storage.kiditem_unrelated_domain_state, { kept: true });
+  }
 });
 
 test('Wing tab timeout keeps bounded target diagnostics and ignores unrelated tabs', async (t) => {
@@ -2790,6 +3226,38 @@ test('수익성 광고비 수집은 공용 dispatch의 직접 source-owner actio
     'function',
   );
   assert.equal(context.KidItemDomains.forExternalAction('advertising.refresh_profitability_spend'), null);
+});
+
+test('retired advertising account-day KPI actions, content step and capability are not registered', () => {
+  const { fake, context } = bootServiceWorker();
+  for (const action of ['collectAdvertisingAccountDailyKpis', 'cancelAdvertisingAccountDailyKpis']) {
+    assert.equal(context.KidItemDomains.forExternalAction(action), null, action);
+  }
+  const capabilities = context.KidItemDomains.capabilities();
+  assert.equal(capabilities.advertisingAccountDailyKpiSourceOwnerV1, undefined);
+  assert.equal(capabilities.advertisingCampaignSourceOwnerV1, true);
+  assert.equal(typeof context.KidItemDomains.forExternalAction('collectAdvertisingCampaigns')?.handle, 'function');
+
+  // The sourcing worker's catch-all listener keeps every channel open, so the
+  // retired content step must be treated exactly like an action nobody owns:
+  // the same listeners stay open and none answers it.
+  const dispatch = (action) => {
+    let keptAlive = 0;
+    const responses = [];
+    for (const listener of fake.internalMessageListeners) {
+      const result = listener(
+        { action, attemptId: '11111111-1111-4111-8111-111111111111', step: 'resume' },
+        { tab: { id: 41 }, url: 'https://advertising.coupang.com/marketing/dashboard/sales', frameId: 0 },
+        (value) => responses.push(value),
+      );
+      if (result === true) keptAlive += 1;
+    }
+    return { keptAlive, responses };
+  };
+  const retired = dispatch('advertisingAccountDailyKpiSourceStep');
+  const unknown = dispatch('kiditemActionNobodyOwnsForTest');
+  assert.equal(retired.keptAlive, unknown.keptAlive, 'the retired step must not gain an owner listener');
+  assert.deepEqual(retired.responses, unknown.responses);
 });
 
 test('외부 장기 실행 포트를 공용 dispatch 하나가 소유 도메인으로 전달한다', () => {

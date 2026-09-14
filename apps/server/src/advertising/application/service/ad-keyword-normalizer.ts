@@ -1,4 +1,4 @@
-import { cleanString, toNumber, toNumberOrNull } from '../../domain/scrape-row-normalizers';
+import { cleanString, readProviderMetric, toNumberOrNull } from '../../domain/scrape-row-normalizers';
 import {
   buildAdTargetKey,
   campaignIdFromCanonicalIdentity,
@@ -7,6 +7,15 @@ import {
 import { normalizeAdKeywordOrigin, normalizeAdKeyword } from '../../domain/ad-keyword';
 import type { ListingMap } from '../../domain/listing-match';
 import type { UpsertAdTargetDailyInput } from '../port/out/repository/channel-target-daily.repository.port';
+
+const KEYWORD_OBSERVED_METRICS = [
+  'spend',
+  'revenue',
+  'impressions',
+  'clicks',
+  'conversions',
+  'orders',
+] as const;
 
 /** Existing keyword normalization shared by legacy characterization and fenced staging. */
 export function normalizeAdKeywordTarget(
@@ -44,8 +53,15 @@ export function normalizeAdKeywordTarget(
     adGroup,
     keyword,
   });
-  const spend = Math.round(toNumber(row.spend));
-  const revenue = Math.round(toNumber(row.revenue));
+  // The keyword table is untyped provider JSON. A present cell must parse; an
+  // absent one is stored as 0 and stamped unobserved in `observedMetrics`.
+  const observedMetrics = Object.fromEntries(
+    KEYWORD_OBSERVED_METRICS.map((key) => [key, Object.prototype.hasOwnProperty.call(row, key)]),
+  ) as Record<(typeof KEYWORD_OBSERVED_METRICS)[number], boolean>;
+  const metric = (key: (typeof KEYWORD_OBSERVED_METRICS)[number]) =>
+    readProviderMetric(row[key], observedMetrics[key], key);
+  const spend = metric('spend');
+  const revenue = metric('revenue');
   const input: UpsertAdTargetDailyInput = {
     organizationId,
     channelAccountId: map.channelAccountId,
@@ -77,14 +93,15 @@ export function normalizeAdKeywordTarget(
         productName: cleanString(row.productName),
         keywordType: cleanString(row.keywordType),
         bidSource: cleanString(row.bidSource),
+        observedMetrics,
       },
     },
     spend,
     revenue,
-    impressions: Math.round(toNumber(row.impressions)),
-    clicks: Math.round(toNumber(row.clicks)),
-    conversions: Math.round(toNumber(row.conversions)),
-    orders: Math.round(toNumber(row.orders)),
+    impressions: metric('impressions'),
+    clicks: metric('clicks'),
+    conversions: metric('conversions'),
+    orders: metric('orders'),
     adSpend: spend,
     adRevenue: revenue,
   };

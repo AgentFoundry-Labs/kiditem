@@ -33,14 +33,6 @@ describe('Rocket purchase decision boundary', () => {
       webRoot,
       'src/app/(supply)/purchase-orders/components/PurchaseOrdersWorkspace.tsx',
     ), 'utf8');
-    const previewSectionSource = readFileSync(resolve(
-      webRoot,
-      'src/app/(supply)/purchase-orders/components/RocketPurchasePreviewSection.tsx',
-    ), 'utf8');
-    const previewSource = readFileSync(resolve(
-      webRoot,
-      'src/app/(supply)/purchase-orders/components/RocketPurchaseWorkspace.tsx',
-    ), 'utf8');
     const previewWorkflowSource = readFileSync(resolve(
       webRoot,
       'src/app/(supply)/purchase-orders/hooks/useRocketPurchaseWorkflow.ts',
@@ -126,13 +118,20 @@ describe('Rocket purchase decision boundary', () => {
     );
     expect(confirmPanelSource).not.toContain('previewSavedRocketConfirm');
     expect(confirmPanelSource).not.toContain('commitRocketConfirmRows');
-    expect(previewSectionSource).toContain('<RocketPurchaseWorkspace');
-    expect(previewSectionSource).not.toContain('<RocketInventoryCommitmentList');
-    expect(previewSource).toContain('미리보기 다시 계산');
-    expect(previewSource).toContain('쿠팡 엑셀 다운로드');
-    expect(previewSource).not.toContain('동일 파일 다시 다운로드');
+    // The standalone Supply preview card was mounted by no page; Rocket review
+    // is RocketConfirmPanel on /rocket-orders only.
+    for (const retired of [
+      'RocketPurchasePreviewSection.tsx',
+      'RocketPurchaseWorkspace.tsx',
+      'RocketDeterministicMatchingPanel.tsx',
+    ]) {
+      expect(existsSync(resolve(
+        webRoot,
+        'src/app/(supply)/purchase-orders/components',
+        retired,
+      ))).toBe(false);
+    }
     expect(previewWorkflowSource).toContain('loadSavedRocketCollection');
-    expect(previewSource).not.toMatch(/providerSubmit|currentStock\s*=/);
     expect(previewApiSource).not.toMatch(
       /exportRocketWorkbook|getActiveRocketWorkbook|downloadRocketWorkbook|abandonRocketWorkbook/,
     );

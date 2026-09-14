@@ -35,17 +35,11 @@ describe('SourcingDecisionBatchRepositoryAdapter', () => {
             baselineScore: 82.25,
             confidence: 0.72,
             policyProbability: null,
-            evidence: [
-              {
-                id: 'evidence-1',
-                observationId: 'observation-1',
-                evidenceRole: 'context:supply',
-              },
-            ],
           },
         ],
       },
     });
+    expect(result.kind === 'created' && result.record.items[0]).not.toHaveProperty('evidence');
     expect(findFirst).toHaveBeenCalledWith(
       expect.objectContaining({
         where: {
@@ -109,7 +103,7 @@ describe('SourcingDecisionBatchRepositoryAdapter', () => {
         },
       },
     ]);
-    expect(createInput).toHaveProperty('include.items.include.evidence');
+    expect(createInput).not.toHaveProperty('include.items.include');
   });
 
   it.each([
@@ -178,42 +172,6 @@ describe('SourcingDecisionBatchRepositoryAdapter', () => {
     ).resolves.toEqual({
       kind: 'reference_not_found',
     });
-  });
-
-  it('rejects the batch when a supporting observation is no longer available', async () => {
-    const create = vi.fn();
-    const adapter = createAdapter({
-      batchFindFirst: vi.fn().mockResolvedValue(null),
-      batchCreate: create,
-      evidenceFindFirst: vi.fn().mockResolvedValue(null),
-    });
-
-    await expect(adapter.create(createCommand())).resolves.toEqual({
-      kind: 'source_evidence_changed',
-    });
-    expect(create).not.toHaveBeenCalled();
-  });
-
-  it('rejects the batch when supporting evidence is superseded before commit', async () => {
-    const create = vi.fn();
-    const evidenceFindFirst = vi
-      .fn()
-      .mockResolvedValueOnce({
-        id: 'observation-1',
-        eventAt: new Date('2026-07-31T16:00:00.000Z'),
-        ingestionRun: { coverageNumerator: 1, coverageDenominator: 1 },
-      })
-      .mockResolvedValueOnce({ id: 'observation-2' });
-    const adapter = createAdapter({
-      batchFindFirst: vi.fn().mockResolvedValue(null),
-      batchCreate: create,
-      evidenceFindFirst,
-    });
-
-    await expect(adapter.create(createCommand())).resolves.toEqual({
-      kind: 'source_evidence_changed',
-    });
-    expect(create).not.toHaveBeenCalled();
   });
 
   it('does not misclassify an unrelated P2002 when no idempotency winner exists', async () => {

@@ -1,3 +1,5 @@
+Before working in this directory, always read this document first rather than relying on memory.
+
 # supply — Suppliers And Procurement
 
 `src/supply/` owns private supplier identity, Sellpia-SKU supplier policy,

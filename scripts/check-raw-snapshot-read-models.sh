@@ -6,12 +6,17 @@ set -euo pipefail
 # normalized COMPLETE snapshots. Their HTTP/PostgreSQL tests cover visibility;
 # this guard covers the module boundary, not publication correctness.
 
+if ! command -v rg >/dev/null 2>&1; then
+  echo "ERROR: ripgrep (rg) is required. Install: brew install ripgrep" >&2
+  exit 2
+fi
+
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 TARGETS=(apps/server/src apps/web/src packages/shared/src)
 OWNER_GLOBS=()
-for owner in keyword-serp-source wing-rank-source seller-identity-source ad-account-daily-kpi-source wing-itemwinner-kpi-source ad-traffic-source; do
+for owner in keyword-serp-source wing-rank-source seller-identity-source wing-itemwinner-kpi-source ad-traffic-source; do
   OWNER_GLOBS+=(--glob "!apps/server/src/advertising/adapter/out/repository/${owner}.repository.ts")
 done
 

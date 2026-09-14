@@ -1,6 +1,9 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import type { InventoryAvailabilityBatch } from '@kiditem/shared/inventory-availability';
-import type { InventoryAvailabilityPort } from '../port/in/stock/inventory-availability.port';
+import type {
+  InventoryAvailabilityCandidate,
+  InventoryAvailabilityPort,
+} from '../port/in/stock/inventory-availability.port';
 import {
   INVENTORY_AVAILABILITY_REPOSITORY_PORT,
   type InventoryAvailabilityRepositoryPort,
@@ -17,16 +20,43 @@ export class InventoryAvailabilityService implements InventoryAvailabilityPort {
     organizationId: string;
     sellpiaInventorySkuIds: string[];
   }): Promise<InventoryAvailabilityBatch> {
-    assertUuid(input.organizationId, 'organizationId');
-    input.sellpiaInventorySkuIds.forEach((value) =>
-      assertUuid(value, 'sellpiaInventorySkuIds'));
-    const sellpiaInventorySkuIds = [...new Set(input.sellpiaInventorySkuIds)]
-      .sort((left, right) => left.localeCompare(right));
+    const sellpiaInventorySkuIds = normalizeInput(input);
     return this.repository.findAvailability({
       organizationId: input.organizationId,
       sellpiaInventorySkuIds,
     });
   }
+
+  searchCandidates(input: {
+    organizationId: string;
+    query: string;
+    limit: number;
+    stockStatus: 'in_stock' | 'all';
+  }): Promise<InventoryAvailabilityCandidate[]> {
+    assertUuid(input.organizationId, 'organizationId');
+    const query = input.query.trim();
+    if (!query) return Promise.resolve([]);
+    const limit = Number.isFinite(input.limit)
+      ? Math.min(50, Math.max(1, Math.trunc(input.limit)))
+      : 20;
+    return this.repository.searchAvailabilityCandidates({
+      ...input,
+      query,
+      limit,
+    });
+  }
+
+}
+
+function normalizeInput(input: {
+  organizationId: string;
+  sellpiaInventorySkuIds: string[];
+}): string[] {
+  assertUuid(input.organizationId, 'organizationId');
+  input.sellpiaInventorySkuIds.forEach((value) =>
+    assertUuid(value, 'sellpiaInventorySkuIds'));
+  return [...new Set(input.sellpiaInventorySkuIds)]
+    .sort((left, right) => left.localeCompare(right));
 }
 
 function assertUuid(value: string, field: string): void {

@@ -11,6 +11,7 @@ export async function seedActiveSellpiaInventorySku(
     organizationId: string;
     code: string;
     name: string;
+    optionName?: string | null;
     currentStock?: number;
   },
 ): Promise<void> {

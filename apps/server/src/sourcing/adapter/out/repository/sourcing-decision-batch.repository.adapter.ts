@@ -17,34 +17,25 @@ import type {
   SourcingBaselineDecision,
   SourcingRecommendationDecision,
 } from '../../../domain/recommendation-decision-policy';
+import { readCurrentSupportingObservation } from '../../../read/source-evidence.reader';
+import {
+  decisionBatchInclude,
+  decisionItemInclude,
+  readDecisionBatchByIdempotencyKey,
+  readExactDecisionBatch,
+  readExactDecisionBatchItem,
+  readLatestDecisionBatch,
+} from '../../../read/decision-publication.reader';
 
 const DECISION_POLICY_KEY = 'sourcing-recommendation';
-
-const decisionItemInclude = {
-  evidence: {
-    orderBy: [{ ordinal: 'asc' as const }, { createdAt: 'asc' as const }],
-  },
-} satisfies Prisma.SourcingDecisionBatchItemInclude;
-
-const decisionItemWithBatchInclude = {
-  ...decisionItemInclude,
-  decisionBatch: {
-    select: { status: true, expiresAt: true },
-  },
-} satisfies Prisma.SourcingDecisionBatchItemInclude;
-
-const decisionBatchInclude = {
-  items: {
-    orderBy: [{ rank: 'asc' as const }, { createdAt: 'asc' as const }],
-    include: decisionItemInclude,
-  },
-} satisfies Prisma.SourcingDecisionBatchInclude;
 
 type DecisionBatchRow = Prisma.SourcingDecisionBatchGetPayload<{
   include: typeof decisionBatchInclude;
 }>;
 
-type DecisionItemRow = Prisma.SourcingDecisionBatchItemGetPayload<{
+type DecisionItemRow = DecisionBatchRow['items'][number];
+
+type DecisionItemWithEvidenceRow = Prisma.SourcingDecisionBatchItemGetPayload<{
   include: typeof decisionItemInclude;
 }>;
 
@@ -62,14 +53,9 @@ export class SourcingDecisionBatchRepositoryAdapter implements SourcingDecisionB
     } catch (error) {
       if (prismaErrorCode(error) !== 'P2002') throw error;
 
-      const winner = await this.prisma.sourcingDecisionBatch.findUnique({
-        where: {
-          organizationId_idempotencyKey: {
-            organizationId: command.organizationId,
-            idempotencyKey: command.batchKey,
-          },
-        },
-        include: decisionBatchInclude,
+      const winner = await readDecisionBatchByIdempotencyKey(this.prisma, {
+        organizationId: command.organizationId,
+        idempotencyKey: command.batchKey,
       });
       if (winner) return duplicateResult(winner, command.requestHash);
       throw error;
@@ -100,54 +86,15 @@ export class SourcingDecisionBatchRepositoryAdapter implements SourcingDecisionB
     }
     const transactionAt = await databaseClock(tx);
     for (const evidence of supportingEvidence) {
-      const observation = await tx.sourcingEvidenceObservation.findFirst({
-        where: {
-          id: evidence.observationId,
-          organizationId: command.organizationId,
-          observationKey: evidence.observationKey,
-          sourceKey: evidence.sourceKey,
-          supportsCandidate: true,
-          signalRole: { in: ['demand', 'supply'] },
-          eventAt: { lte: transactionAt },
-          availableAt: { lte: transactionAt },
-          ingestedAt: { lte: transactionAt },
-          ingestionRun: {
-            targetKey: evidence.scopeKey,
-            status: 'COMPLETE',
-            isCurrentComplete: true,
-            completedAt: { lte: transactionAt },
-          },
-        },
-        select: {
-          id: true,
-          eventAt: true,
-          ingestionRun: {
-            select: {
-              coverageNumerator: true,
-              coverageDenominator: true,
-            },
-          },
-        },
+      const observation = await readCurrentSupportingObservation(tx, {
+        organizationId: command.organizationId,
+        observationId: evidence.observationId,
+        observationKey: evidence.observationKey,
+        sourceKey: evidence.sourceKey,
+        scopeKey: evidence.scopeKey,
+        cutoffAt: transactionAt,
       });
       if (!observation || !observation.eventAt || !evidenceIsFresh(observation.eventAt, transactionAt)) {
-        return { kind: 'source_evidence_changed' };
-      }
-      const latest = await tx.sourcingEvidenceObservation.findFirst({
-        where: {
-          organizationId: command.organizationId,
-          observationKey: evidence.observationKey,
-          availableAt: { lte: transactionAt },
-          ingestedAt: { lte: transactionAt },
-        },
-        orderBy: [
-          { revision: 'desc' },
-          { availableAt: 'desc' },
-          { ingestedAt: 'desc' },
-          { id: 'desc' },
-        ],
-        select: { id: true },
-      });
-      if (latest?.id !== evidence.observationId) {
         return { kind: 'source_evidence_changed' };
       }
     }
@@ -224,24 +171,14 @@ export class SourcingDecisionBatchRepositoryAdapter implements SourcingDecisionB
     organizationId: string;
     id: string;
   }): Promise<SourcingDecisionBatchRecord | null> {
-    const row = await this.prisma.sourcingDecisionBatch.findFirst({
-      where: {
-        id: input.id,
-        organizationId: input.organizationId,
-      },
-      include: decisionBatchInclude,
-    });
+    const row = await readExactDecisionBatch(this.prisma, input);
     return row ? toBatchRecord(row) : null;
   }
 
   async findLatest(input: {
     organizationId: string;
   }): Promise<SourcingDecisionBatchRecord | null> {
-    const row = await this.prisma.sourcingDecisionBatch.findFirst({
-      where: { organizationId: input.organizationId },
-      orderBy: [{ decisionAt: 'desc' }, { createdAt: 'desc' }],
-      include: decisionBatchInclude,
-    });
+    const row = await readLatestDecisionBatch(this.prisma, input);
     return row ? toBatchRecord(row) : null;
   }
 
@@ -249,18 +186,13 @@ export class SourcingDecisionBatchRepositoryAdapter implements SourcingDecisionB
     organizationId: string;
     id: string;
   }): Promise<SourcingDecisionBatchItemWithBatchRecord | null> {
-    const row = await this.prisma.sourcingDecisionBatchItem.findFirst({
-      where: {
-        id: input.id,
-        organizationId: input.organizationId,
-      },
-      include: decisionItemWithBatchInclude,
-    });
+    const row = await readExactDecisionBatchItem(this.prisma, input);
     return row
       ? {
           ...toItemRecord(row),
           decisionBatchStatus: row.decisionBatch.status,
           decisionBatchExpiresAt: row.decisionBatch.expiresAt,
+          evidence: toEvidenceRecords(row),
         }
       : null;
   }
@@ -380,7 +312,7 @@ function toBatchRecord(row: DecisionBatchRow): SourcingDecisionBatchRecord {
   };
 }
 
-function toItemRecord(row: DecisionItemRow): SourcingDecisionBatchItemRecord {
+function toItemRecord(row: DecisionItemRow | DecisionItemWithEvidenceRow): SourcingDecisionBatchItemRecord {
   return {
     id: row.id,
     organizationId: row.organizationId,
@@ -415,12 +347,15 @@ function toItemRecord(row: DecisionItemRow): SourcingDecisionBatchItemRecord {
     riskCodes: row.riskCodes,
     modelOutput: jsonRecord(row.modelOutput, row.id),
     createdAt: row.createdAt,
-    evidence: row.evidence.map((evidence) => ({
+  };
+}
+
+function toEvidenceRecords(row: DecisionItemWithEvidenceRow) {
+  return row.evidence.map((evidence) => ({
       id: evidence.id,
       observationId: evidence.evidenceObservationId,
       evidenceRole: evidence.role,
-    })),
-  };
+  }));
 }
 
 function hashModelCandidateId(modelCandidateId: string): string {

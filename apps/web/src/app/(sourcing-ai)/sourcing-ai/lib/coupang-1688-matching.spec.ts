@@ -4,6 +4,7 @@ import {
   buildCoupangImageSearchRows,
   buildImageSearchOffer,
   derive1688SearchQuery,
+  scoreImageSearchOffer,
 } from './coupang-1688-matching';
 import type { TodayRecommendationRow } from '../recommendations/lib/today-recommendations';
 
@@ -40,6 +41,19 @@ describe('Coupang to 1688 image search matching', () => {
     expect(offer.landedCostKrw).toBeGreaterThan(0);
     expect(offer.estimatedProfitKrw).toBeGreaterThan(0);
     expect(offer.estimatedMarginRate).toBeGreaterThan(0);
+  });
+
+  it('preserves a missing provider score instead of synthesizing zero', () => {
+    const offer = buildImageSearchOffer({
+      title: '儿童太阳镜 UV 防晒',
+      priceCny: 6.2,
+      sourceUrl: 'https://detail.1688.com/offer/1.html',
+      imageUrl: null,
+      score: null,
+    }, 12900);
+
+    expect(offer.matchScore).toBeNull();
+    expect(scoreImageSearchOffer(offer)).toBeNull();
   });
 });
 

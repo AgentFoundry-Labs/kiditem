@@ -2,13 +2,12 @@
 
 import { cn } from '@/lib/utils';
 import { DashboardBasisDisclosure } from './DashboardDataBasis';
-
 import type { DashboardMetricBasis } from '@kiditem/shared/dashboard';
 
 
 /**
- * These five numbers are one story — a visitor becoming a sale — and they all
- * come from the same owner (Wing traffic). Stacked inside the revenue card they
+ * These five numbers are one story — a visitor becoming a sale — composed from
+ * Wing traffic and canonical Orders. Stacked inside the revenue card they
  * made that one card twice the height of its neighbours while saying nothing
  * about revenue. As their own strip they read in the order they happen, and the
  * revenue card goes back to being about revenue.
@@ -25,18 +24,18 @@ export interface TrafficFunnelStep {
   display: string;
   /** Conversion from the previous step, when both steps are measured. */
   rate: string | null;
+  basis: DashboardMetricBasis | null;
+  rateBasis: DashboardMetricBasis | null;
 }
 
 export function DashboardTrafficFunnel({
   steps,
-  basis,
   sourceNote,
   partial,
   collected,
   onCollect,
 }: {
   steps: TrafficFunnelStep[];
-  basis: DashboardMetricBasis | null;
   /** The full provenance sentence, reached through the ⓘ rather than printed. */
   sourceNote: string;
   /** Some day in the window was not collected. */
@@ -72,13 +71,17 @@ export function DashboardTrafficFunnel({
               colour, and the provenance sentence is one click away inside it. */}
           <DashboardBasisDisclosure
             label="Wing 트래픽 퍼널 근거"
-            entries={[{ label: 'Wing 트래픽', basis }]}
+            entries={steps.flatMap((step) => [
+              { label: step.label, basis: step.basis },
+              ...(step.rate
+                ? [{ label: `${step.label} 비율`, basis: step.rateBasis }]
+                : []),
+            ])}
             meaning={(
               <p>
-                쿠팡 Wing이 계정 단위로 발행하는 일별 지표입니다. 방문자는 하루 순방문자의
-                평균이고 — 같은 사람이 이틀 오면 각 날 1명이라 기간 합계라는 것이 없습니다 —
-                조회부터 판매량까지는 수집된 날의 합계입니다. 상품별 수치의 합이 아니라
-                계정 원본이라, 상품 화면의 합과 일치하지 않을 수 있습니다.
+                방문자·조회·장바구니는 Wing 일별 지표이고, 주문·판매량은 같은 상품과 날짜가
+                확인된 Orders 사실입니다. 방문자는 하루 순방문자의 평균입니다. 각 전환율은
+                서버가 같은 상품·날짜 모집단으로 계산하며 화면은 받은 값을 그대로 표시합니다.
               </p>
             )}
             note={collected ? sourceNote : null}

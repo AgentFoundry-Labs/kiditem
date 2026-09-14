@@ -9,21 +9,19 @@ describe('AdStrategyService ChannelSku availability', () => {
       id: '11111111-1111-4111-8111-111111111111',
       externalId: 'EXT-1',
       channelName: '쿠팡 상품',
+      channel: 'coupang',
       masterProduct: {
         id: '22222222-2222-4222-8222-222222222222',
         code: 'M-1',
         name: '상품',
         abcGrade: 'A',
         adTier: '1차',
-        healthScore: 80,
       },
       primaryOption: {
         listingOptionId: '33333333-3333-4333-8333-333333333333',
         sellableStock: null,
         purchaseCost: null,
         salePrice: null,
-        commissionRate: 0.1,
-        shippingCost: 2500,
       },
     } as const;
     const strategyContextRepo = {
@@ -32,6 +30,8 @@ describe('AdStrategyService ChannelSku availability', () => {
         adIssuesAdGroups: [],
         listings: [listing],
         profitRateByListing: new Map(),
+        profitWithheldListings: 0,
+        orderWindowComplete: true,
         channelStateByListing: new Map(),
         gradeMap: new Map([[listing.id, 'A']]),
         trafficByListing: new Map(),
@@ -56,10 +56,8 @@ describe('AdStrategyService ChannelSku availability', () => {
       strategyContextRepo,
       {},
       {},
-      {},
       { getConfig: vi.fn().mockResolvedValue({}) },
       adGradeRules,
-      {},
       {},
       {},
       availabilityPort,
@@ -69,8 +67,7 @@ describe('AdStrategyService ChannelSku availability', () => {
 
     expect(strategyContextRepo.loadStrategyContext).toHaveBeenCalledWith(
       '44444444-4444-4444-8444-444444444444',
-      expect.any(Number),
-      expect.any(Number),
+      { from: expect.any(Date), to: expect.any(Date) },
       '14d',
       expect.anything(),
     );

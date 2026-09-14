@@ -381,7 +381,6 @@ const optionDailySchema = z
 
 const reconciliationMetricSchema = z
   .object({
-    status: z.enum(['MATCHED', 'MISMATCH', 'UNVERIFIED']),
     dailySum: metric.nullable(),
     periodValue: metric.nullable(),
   })
@@ -396,6 +395,20 @@ const reconciliationSchema = z
     revenue: reconciliationMetricSchema,
   })
   .strict();
+
+export type AdTrafficReconciliationStatus = 'MATCHED' | 'MISMATCH' | 'UNVERIFIED';
+
+/**
+ * The one derivation of a traffic reconciliation word: the summed daily rows
+ * against the provider's period value. Either side unmeasured is unverified.
+ */
+export function adTrafficReconciliationStatus(metric: {
+  dailySum: number | null;
+  periodValue: number | null;
+}): AdTrafficReconciliationStatus {
+  if (metric.dailySum === null || metric.periodValue === null) return 'UNVERIFIED';
+  return metric.dailySum === metric.periodValue ? 'MATCHED' : 'MISMATCH';
+}
 
 const coverageSchema = z
   .object({
@@ -442,7 +455,6 @@ const legacyPublishedSchema = z
     attemptId: z.string().uuid(),
     plan: legacyPlanSchema,
     rows: z.array(AdTrafficSourcePublishedRowSchema),
-    dashboard: payload.nullable(),
   })
   .strict();
 

@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD, PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH } from '@kiditem/shared/product-abc';
+import { PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD, PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH, productAbcDisplayStatus } from '@kiditem/shared/product-abc';
 import { SellpiaProductInventoryReader } from '../../sellpia-product-sales/sellpia-product-inventory-reader';
 import { InventoryAvailabilityRepositoryAdapter } from '../../../inventory/adapter/out/repository/inventory-availability.repository.adapter';
 import { InventoryAvailabilityService } from '../../../inventory/application/service/inventory-availability.service';
@@ -23,6 +23,7 @@ describe('Analytics inventory ABC reads (PostgreSQL)', () => {
   let sellpia: SellpiaProfitabilitySourceService;
   let advertising: ProfitabilityAdImportRepositoryAdapter;
   let evidence: MasterProductProfitabilityReadService;
+  let availability: InventoryAvailabilityService;
 
   beforeAll(async () => { prisma = makeTestPrisma(); await prisma.$connect(); });
   afterAll(async () => { await prisma.$disconnect(); });
@@ -33,6 +34,9 @@ describe('Analytics inventory ABC reads (PostgreSQL)', () => {
     sellpia = new SellpiaProfitabilitySourceService(prisma as never, alerts);
     advertising = new ProfitabilityAdImportRepositoryAdapter(prisma as never, alerts);
     evidence = new MasterProductProfitabilityReadService(sellpia, advertising, prisma as never);
+    availability = new InventoryAvailabilityService(
+      new InventoryAvailabilityRepositoryAdapter(prisma as never),
+    );
     const productAbc = new ProductAbcReadService(
       new MasterProductAbcRepositoryAdapter(prisma as never), evidence,
     );
@@ -43,7 +47,7 @@ describe('Analytics inventory ABC reads (PostgreSQL)', () => {
       alerts,
     ));
     inventory = new SellpiaProductInventoryReader(prisma as never,
-      new InventoryAvailabilityService(new InventoryAvailabilityRepositoryAdapter(prisma as never)),
+      availability,
       { findDisplayMedia: async () => new Map() }, productAbc);
   });
 
@@ -68,6 +72,10 @@ describe('Analytics inventory ABC reads (PostgreSQL)', () => {
 
   it('reads a complete source pair and the explicitly published absolute evaluation in Sellpia inventory', async () => {
     const cutoff = await publishProduct();
+    await expect(prisma.masterProduct.findFirstOrThrow({
+      where: { organizationId: TEST_ORGANIZATION_ID, code: 'MASTER-OWN' },
+      select: { abcGrade: true },
+    })).resolves.toEqual({ abcGrade: null });
     const result = await inventory.project(TEST_ORGANIZATION_ID, [{
       key: 'OWN', evidence: { productCode: 'SKU-OWN', optionCode: '', barcode: null }, completeMonthly: [],
     }]);
@@ -75,9 +83,10 @@ describe('Analytics inventory ABC reads (PostgreSQL)', () => {
       status: 'matched', currentStock: 10,
       inventoryProduct: {
         abc: { abcGrade: 'A', evaluation: { abcGrade: 'A', economicScore: 100, gradeBasisCutoffDate: cutoff },
-          displayStatus: 'READY', actualCutoffDate: cutoff, officialCutoffDate: cutoff },
+          actualCutoffDate: cutoff, officialCutoffDate: cutoff },
       },
     });
+    expect(ownAbcStatuses(result)).toMatchObject({ inventoryProduct: 'READY' });
     expect(result.projection.summary.abcStatusCounts).toEqual({
       READY: 1, INSUFFICIENT_EVIDENCE: 0, SOURCE_UNMAPPED: 0, SELLPIA_SOURCE_STALE: 0, AD_SOURCE_STALE: 0,
     });
@@ -87,6 +96,14 @@ describe('Analytics inventory ABC reads (PostgreSQL)', () => {
     expect(summary.abcFormula).toEqual(PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD);
     expect(summary.abcContributionProfit.amountByGrade.A).toBe(result.projection.summary.abcContributionProfitByGrade.A);
     expect(summary.abcContributionProfit.amountByGrade.A).toBeGreaterThan(0);
+    expect(summary.abcContributionProfit.basis).toMatchObject({
+      publicationRevision: 1,
+      officialCutoffDate: cutoff,
+      mappingGeneration: '0',
+      includedProductCount: 1,
+    });
+    expect(summary.abcContributionProfit.basis.denominator)
+      .toBe(summary.abcContributionProfit.amountByGrade.A);
     // The grade count is as-of the organization-level evidence cutoff the ABC
     // read validated these stored results against — a complete month end. That
     // is deliberately not the source collection's coverage end (`cutoff`,
@@ -121,7 +138,7 @@ describe('Analytics inventory ABC reads (PostgreSQL)', () => {
     }]);
     expect(result.projection.byProductKey.get('OWN')?.inventoryResolution).toMatchObject({
       inventoryProduct: { abc: { abcGrade: 'A', evaluation: { publicationRevision: 1 },
-        displayStatus: 'READY', actualCutoffDate: cutoff, officialCutoffDate: cutoff,
+        actualCutoffDate: cutoff, officialCutoffDate: cutoff,
         sources: { [source]: {
           ready: true,
           actualCutoff: cutoff,
@@ -130,11 +147,11 @@ describe('Analytics inventory ABC reads (PostgreSQL)', () => {
       } },
       destinations: [{ abc: {
         abcGrade: 'A',
-        displayStatus: 'READY',
         actualCutoffDate: cutoff,
         sources: { [source]: { ready: true, latestAttempt: { state: 'FAILED' } } },
       } }],
     });
+    expect(ownAbcStatuses(result)).toEqual({ inventoryProduct: 'READY', destinations: ['READY'] });
     const summary = await dashboard.getSummary(buildDashboardContext(), TEST_ORGANIZATION_ID);
     expect(summary.gradeCount).toEqual({ A: 1, B: 0, C: 0 });
     expect(summary.abcStatusCount.READY).toBe(1);
@@ -142,21 +159,83 @@ describe('Analytics inventory ABC reads (PostgreSQL)', () => {
     expect(summary.abcStatusCount.AD_SOURCE_STALE).toBe(0);
   });
 
-  it('retains the grade while mapping-incompatible complete sources expose no actual cutoff or READY', async () => {
-    await publishProduct();
-    await prisma.masterProductAbcFormulaState.update({ where: { organizationId: TEST_ORGANIZATION_ID }, data: { mappingGeneration: 1n } });
+  it('counts a carried official grade but withholds its contribution from a newer publication basis', async () => {
+    const cutoff = await publishProduct();
+    await prisma.masterProductAbcFormulaState.update({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+      data: { publicationRevision: 2, publishedAt: new Date('2026-09-08T00:00:00.000Z') },
+    });
+
     const result = await inventory.project(TEST_ORGANIZATION_ID, [{
       key: 'OWN', evidence: { productCode: 'SKU-OWN', optionCode: '', barcode: null }, completeMonthly: [],
     }]);
     expect(result.projection.byProductKey.get('OWN')?.inventoryResolution).toMatchObject({
-      inventoryProduct: { abc: { abcGrade: 'A', displayStatus: 'SELLPIA_SOURCE_STALE', actualCutoffDate: null } },
+      inventoryProduct: { abc: {
+        abcGrade: 'A',
+        evaluation: {
+          abcGrade: 'A',
+          publicationRevision: 1,
+          gradeBasisCutoffDate: cutoff,
+          formulaRevision: 1,
+          mappingGeneration: '0',
+        },
+      } },
     });
+
+    const summary = await dashboard.getSummary(buildDashboardContext(), TEST_ORGANIZATION_ID);
+    expect(summary.gradeCount).toEqual({ A: 1, B: 0, C: 0 });
+    expect(summary.classifiedProductCount).toBe(1);
+    expect(summary.unclassifiedProductCount).toBe(0);
+    expect(summary.abcContributionProfit).toMatchObject({
+      amountByGrade: { A: 0, B: 0, C: 0 },
+      shareByGrade: { A: null, B: null, C: null },
+      basis: {
+        publicationRevision: 2,
+        officialCutoffDate: cutoff,
+        includedProductCount: 0,
+        withheldProductCount: 1,
+        denominator: null,
+      },
+    });
+    expect(summary.abcFormula).toBeNull();
+  });
+
+  it('retains the published grade after formula and mapping configuration changes without republication', async () => {
+    await publishProduct();
+    const nextFormula = await prisma.masterProductAbcFormulaVersion.create({ data: {
+      organizationId: TEST_ORGANIZATION_ID,
+      formulaKey: 'PRODUCT_ABC_ABSOLUTE',
+      version: PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD.version + 1,
+      formulaChecksum: 'f'.repeat(64),
+      formulaJson: JSON.parse(JSON.stringify(PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD)),
+    } });
+    await prisma.masterProductAbcFormulaState.update({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+      data: { activeFormulaVersionId: nextFormula.id, formulaRevision: 2, mappingGeneration: 1n },
+    });
+    const result = await inventory.project(TEST_ORGANIZATION_ID, [{
+      key: 'OWN', evidence: { productCode: 'SKU-OWN', optionCode: '', barcode: null }, completeMonthly: [],
+    }]);
+    expect(result.projection.byProductKey.get('OWN')?.inventoryResolution).toMatchObject({
+      inventoryProduct: { abc: {
+        abcGrade: 'A',
+        evaluation: { abcGrade: 'A', formulaRevision: 1, publicationRevision: 1 },
+        actualCutoffDate: null,
+      } },
+    });
+    expect(ownAbcStatuses(result)).toMatchObject({ inventoryProduct: 'SELLPIA_SOURCE_STALE' });
     expect(result.projection.summary.abcStatusCounts.READY).toBe(0);
     expect(result.projection.summary.abcCounts).toEqual({ A: 1, B: 0, C: 0 });
     // No actual cutoff means the retained grade's age is unknown. `unknown`
     // and not `unavailable`, so the retained count stays on screen.
     const summary = await dashboard.getSummary(buildDashboardContext(), TEST_ORGANIZATION_ID);
     expect(summary.gradeCount).toEqual({ A: 1, B: 0, C: 0 });
+    expect(summary.abcFormula).toEqual(PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD);
+    expect(summary.abcContributionProfit.basis).toMatchObject({
+      publicationRevision: 1,
+      mappingGeneration: '0',
+      includedProductCount: 1,
+    });
     expect(summary.metricBasis?.['gradeCount.A']).toMatchObject({
       kind: 'snapshot', measured: true, asOf: null,
     });
@@ -242,3 +321,15 @@ describe('Analytics inventory ABC reads (PostgreSQL)', () => {
     return attempt.plan.to;
   }
 });
+
+/** The shared display word for the OWN product and its destinations, derived from the published facts. */
+function ownAbcStatuses(result: Awaited<ReturnType<SellpiaProductInventoryReader['project']>>) {
+  const resolution = result.projection.byProductKey.get('OWN')?.inventoryResolution;
+  if (resolution?.status !== 'matched') return null;
+  return {
+    inventoryProduct: resolution.inventoryProduct
+      ? productAbcDisplayStatus(resolution.inventoryProduct.abc)
+      : null,
+    destinations: resolution.destinations.map((destination) => productAbcDisplayStatus(destination.abc)),
+  };
+}

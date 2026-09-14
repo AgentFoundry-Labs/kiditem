@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { Prisma } from '@prisma/client';
+import { sourcingWingCatalogKeywordIdentity } from '@kiditem/shared/sourcing';
 import { sourcingCandidateIdentityLockKey } from '../../../domain/sourcing-candidate-identity';
 import type {
   AuthorizedCollectionOutput,
@@ -119,6 +120,34 @@ export async function persistBrowserSourceAttemptFacts(
   if (typedRecords.shorts.length > 0) {
     const created = await tx.shortsTrendDailySnapshot.createMany({ data: typedRecords.shorts, skipDuplicates: true });
     duplicateCount += typedRecords.shorts.length - created.count;
+  }
+  if (typedRecords.wingCatalog.length > 0) {
+    const created = await tx.sourcingWingCatalogProductFact.createMany({
+      data: typedRecords.wingCatalog,
+      skipDuplicates: true,
+    });
+    duplicateCount += typedRecords.wingCatalog.length - created.count;
+  }
+  if (typedRecords.keywordSuggestion.length > 0) {
+    const created = await tx.sourcingKeywordSuggestionFact.createMany({
+      data: typedRecords.keywordSuggestion,
+      skipDuplicates: true,
+    });
+    duplicateCount += typedRecords.keywordSuggestion.length - created.count;
+  }
+  if (typedRecords.naverKeywordAnalysis.length > 0) {
+    const created = await tx.sourcingNaverKeywordAnalysisFact.createMany({
+      data: typedRecords.naverKeywordAnalysis,
+      skipDuplicates: true,
+    });
+    duplicateCount += typedRecords.naverKeywordAnalysis.length - created.count;
+  }
+  if (typedRecords.marketShadow.length > 0) {
+    const created = await tx.sourcingMarketShadowFact.createMany({
+      data: typedRecords.marketShadow,
+      skipDuplicates: true,
+    });
+    duplicateCount += typedRecords.marketShadow.length - created.count;
   }
   return { duplicateCount, staleDiscardedCount: 0 };
 }
@@ -314,6 +343,10 @@ function toTypedCreateInputs(
   liveCommerceBroadcast: Prisma.LiveCommerceBroadcastDailySnapshotCreateManyInput[];
   liveCommerceProduct: Prisma.LiveCommerceProductDailySnapshotCreateManyInput[];
   tiktokCreative: Prisma.TiktokCreativeTrendDailySnapshotCreateManyInput[];
+  wingCatalog: Prisma.SourcingWingCatalogProductFactCreateManyInput[];
+  keywordSuggestion: Prisma.SourcingKeywordSuggestionFactCreateManyInput[];
+  naverKeywordAnalysis: Prisma.SourcingNaverKeywordAnalysisFactCreateManyInput[];
+  marketShadow: Prisma.SourcingMarketShadowFactCreateManyInput[];
 } {
   const naverKeyword: Prisma.NaverKeywordDailySnapshotCreateManyInput[] = [];
   const naverPopular: Prisma.NaverPopularKeywordDailySnapshotCreateManyInput[] = [];
@@ -322,6 +355,10 @@ function toTypedCreateInputs(
   const liveCommerceBroadcast: Prisma.LiveCommerceBroadcastDailySnapshotCreateManyInput[] = [];
   const liveCommerceProduct: Prisma.LiveCommerceProductDailySnapshotCreateManyInput[] = [];
   const tiktokCreative: Prisma.TiktokCreativeTrendDailySnapshotCreateManyInput[] = [];
+  const wingCatalog: Prisma.SourcingWingCatalogProductFactCreateManyInput[] = [];
+  const keywordSuggestion: Prisma.SourcingKeywordSuggestionFactCreateManyInput[] = [];
+  const naverKeywordAnalysis: Prisma.SourcingNaverKeywordAnalysisFactCreateManyInput[] = [];
+  const marketShadow: Prisma.SourcingMarketShadowFactCreateManyInput[] = [];
   for (const record of records) {
     if (record.kind === 'naver_keyword' || record.kind === 'naver_popular_keyword' || record.kind === 'shorts') {
       const allowed = record.kind === 'shorts' ? ['shortstrend.trend']
@@ -350,9 +387,124 @@ function toTypedCreateInputs(
       tiktokCreative.push(toTiktokCreativeCreateInput(record.row, permit));
       continue;
     }
+    if (record.kind === 'wing_catalog_product') {
+      if (permit.sourceKey !== 'coupang.wing_catalog') {
+        throw new Error('Wing catalog fact does not match its authorized source attempt.');
+      }
+      const evidence = resolveFactEvidence(record.row, permit, evidenceByIdentity);
+      wingCatalog.push({
+        organizationId: record.row.organizationId,
+        ingestionRunId: record.row.ingestionRunId,
+        evidenceObservationId: evidence.id,
+        schemaVersion: 'coupang-wing-catalog/v2',
+        sourceKeywordNormalized: sourcingWingCatalogKeywordIdentity(record.row.sourceKeyword),
+        sourceKeyword: record.row.sourceKeyword,
+        productId: record.row.productId,
+        itemId: record.row.itemId,
+        vendorItemId: record.row.vendorItemId,
+        productName: record.row.productName,
+        itemName: record.row.itemName,
+        brandName: record.row.brandName,
+        manufacture: record.row.manufacture,
+        categoryHierarchy: record.row.categoryHierarchy,
+        imagePath: record.row.imagePath,
+        salePriceKrw: record.row.salePriceKrw,
+        ratingAverage: record.row.ratingAverage,
+        ratingCount: record.row.ratingCount,
+        viewsLast28d: record.row.viewsLast28d,
+        salesLast28d: record.row.salesLast28d,
+        estimatedRevenue28d: record.row.estimatedRevenue28d,
+        conversionRate28d: record.row.conversionRate28d,
+        deliveryInfo: record.row.deliveryInfo,
+        capturedAt: new Date(record.row.capturedAt),
+      });
+      continue;
+    }
+    if (record.kind === 'keyword_suggestion_snapshot') {
+      if (permit.sourceKey !== 'coupang.keyword_suggestion') {
+        throw new Error('Keyword suggestion fact does not match its authorized source attempt.');
+      }
+      const evidence = resolveFactEvidence(record.row, permit, evidenceByIdentity);
+      keywordSuggestion.push({
+        organizationId: record.row.organizationId,
+        ingestionRunId: record.row.ingestionRunId,
+        evidenceObservationId: evidence.id,
+        schemaVersion: record.row.schemaVersion,
+        keywordNormalized: record.row.keywordNormalized,
+        document: toInputJson(record.row.document),
+        capturedAt: record.row.capturedAt,
+      });
+      continue;
+    }
+    if (record.kind === 'naver_keyword_analysis_snapshot') {
+      if (permit.sourceKey !== 'naver.keyword_analysis') {
+        throw new Error('Naver keyword analysis fact does not match its authorized source attempt.');
+      }
+      const evidence = resolveFactEvidence(record.row, permit, evidenceByIdentity);
+      naverKeywordAnalysis.push({
+        organizationId: record.row.organizationId,
+        ingestionRunId: record.row.ingestionRunId,
+        evidenceObservationId: evidence.id,
+        schemaVersion: record.row.schemaVersion,
+        inputHash: record.row.inputHash,
+        document: toInputJson(record.row.document),
+        capturedAt: record.row.capturedAt,
+      });
+      continue;
+    }
+    if (record.kind === 'market_shadow_snapshot') {
+      if (permit.sourceKey !== 'market_shadow_signals') {
+        throw new Error('Market shadow fact does not match its authorized source attempt.');
+      }
+      const evidence = resolveFactEvidence(record.row, permit, evidenceByIdentity);
+      marketShadow.push({
+        organizationId: record.row.organizationId,
+        ingestionRunId: record.row.ingestionRunId,
+        evidenceObservationId: evidence.id,
+        schemaVersion: record.row.schemaVersion,
+        businessDate: record.row.businessDate,
+        document: toInputJson(record.row.document),
+        capturedAt: record.row.capturedAt,
+      });
+      continue;
+    }
     throw new Error(`Unsupported browser source record kind: ${record.kind}`);
   }
-  return { offer1688, liveCommerceBroadcast, liveCommerceProduct, tiktokCreative, naverKeyword, naverPopular, shorts };
+  return {
+    offer1688,
+    liveCommerceBroadcast,
+    liveCommerceProduct,
+    tiktokCreative,
+    naverKeyword,
+    naverPopular,
+    shorts,
+    wingCatalog,
+    keywordSuggestion,
+    naverKeywordAnalysis,
+    marketShadow,
+  };
+}
+
+function resolveFactEvidence(
+  row: {
+    organizationId: string;
+    ingestionRunId: string;
+    evidenceObservationKey: string;
+    evidenceRevision: number;
+  },
+  permit: SourcingCollectionPermit,
+  evidenceByIdentity: ReadonlyMap<string, PersistedObservation>,
+): PersistedObservation {
+  if (row.organizationId !== permit.organizationId || row.ingestionRunId !== permit.runId) {
+    throw new Error('Typed source fact does not match its authorized permit.');
+  }
+  const evidence = evidenceByIdentity.get(observationIdentity({
+    organizationId: row.organizationId,
+    observationKey: row.evidenceObservationKey,
+    revision: row.evidenceRevision,
+  }));
+  if (!evidence) throw new Error('Typed source fact is missing its immutable evidence row.');
+  return evidence;
 }
 
 function toTiktokCreativeCreateInput(

@@ -9,7 +9,7 @@ DB 직접 조회는 사용할 수 없습니다. 필요한 데이터가 제공되
 - orders / order_line_items / order_returns / order_return_line_items: 주문·주문라인·반품·실시간 손익 집계 원천
 - master_products / sellpia_inventory_skus / channel_listings / channel_listing_options / channel_listing_option_inventory_components: 정규 상품, 물리 SKU, 채널 listing/option과 option별 소비 구성
 - channel_listing_daily_snapshots / channel_listing_option_daily_snapshots: 일별 트래픽·광고·매출 fact
-- channel_ad_target_daily_snapshots / channel_account_daily_kpi_snapshots: 광고 target/account KPI fact
+- channel_ad_target_daily_snapshots: 광고 target-일 fact (계정 합계는 캠페인 sweep 행의 합)
 - master_product_abc_evaluations / master_product_abc_grade_histories: 기여이익·ABC 평가·등급 이력
 - settlements / supplier_payments / sales_plans: 정산·공급처 지급·목표
 - sellpia_inventory_states / sellpia_inventory_skus / warehouses / stock_transfers / return_transfers: 물리 재고와 기록형 이관/반품 운영
@@ -31,7 +31,6 @@ DB 직접 조회는 사용할 수 없습니다. 필요한 데이터가 제공되
 - **실행 불가**: 광고 조정, 가격 변경 등 실행 기능 없음. 분석과 안내만 제공.
 - **액션이 필요한 경우**: 해당 페이지로 안내한다:
   - 광고 전략 → "/ads 페이지에서 광고 전략 실행 버튼을 눌러주세요"
-  - 건강도 평가 → "/rules 페이지에서 평가 실행 버튼을 눌러주세요"
   - 상품 수정 → "/products/{id} 페이지에서 직접 수정해주세요"
   - 재고 관리 → "/inventory 페이지에서 확인해주세요"
 
@@ -50,7 +49,7 @@ definition 목록을 기준으로 자연어로 정리하여 안내한다.
 "광고 성과가 전반적으로 하락하고 있습니다. 상세 분석을 위해 매니저 에이전트를 실행해보시겠어요?
 [ACTION:run_agent:manager:매니저 종합 분석 실행]"
 
-사용 가능한 에이전트 타입: manager, ad_strategy, rules_evaluation, rules_suggest
+사용 가능한 에이전트 타입: manager, ad_strategy
 
 ## 응답 형식
 

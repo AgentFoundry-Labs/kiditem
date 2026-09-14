@@ -1,3 +1,5 @@
+Before working in this directory, always read this document first rather than relying on memory.
+
 # web/collected-products — Collected Product Workspace
 
 `app/(product-pipeline)/product-pipeline/collected-products/` owns the collected

@@ -10,7 +10,15 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../../../prisma/prisma.service";
-import { addDays, businessDateKey, currentBusinessDate } from '../../../../common/kst';
+import { businessDateKey } from '../../../../common/kst';
+import {
+  readKeywordRankHistory,
+  readKeywordRankOverviewSnapshots,
+  readLatestSerpSnapshot,
+  readRecentSerpSnapshots,
+  readWingSalesRankSnapshots,
+} from '../../../read/keyword-rank-facts';
+import { readPublishedProductAbcGrades } from "../../../../products/read/product-abc-publication.reader";
 import {
   adIngestRepositoryClient,
   withAdIngestRepositoryTransaction,
@@ -138,9 +146,17 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
   }
 
   async listOwnVendorItems(organizationId: string): Promise<OwnVendorItem[]> {
-    const rows = await adIngestRepositoryClient(
-      this.prisma,
-    ).channelListingOption.findMany({
+    return this.prisma.$transaction(
+      (tx) => this.listOwnVendorItemsSnapshot(tx, organizationId),
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
+  }
+
+  private async listOwnVendorItemsSnapshot(
+    tx: Prisma.TransactionClient,
+    organizationId: string,
+  ): Promise<OwnVendorItem[]> {
+    const rows = await tx.channelListingOption.findMany({
       where: {
         organizationId,
         isActive: true,
@@ -160,10 +176,15 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
             channelName: true,
             displayName: true,
             category: true,
-            masterProduct: { select: { abcGrade: true } },
+            masterProduct: { select: { id: true } },
           },
         },
       },
+    });
+    const gradeByProductId = await readPublishedProductAbcGrades(tx, {
+      organizationId,
+      masterProductIds: rows.flatMap((row) =>
+        row.listing.masterProduct ? [row.listing.masterProduct.id] : []),
     });
     const byVendorItemId = new Map<string, OwnVendorItem>();
     for (const row of rows) {
@@ -180,7 +201,9 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
             row.listing.displayName ??
             row.listing.externalId,
           category: row.listing.category,
-          abcGrade: toAbcGrade(row.listing.masterProduct?.abcGrade ?? null),
+          abcGrade: row.listing.masterProduct
+            ? gradeByProductId.get(row.listing.masterProduct.id) ?? null
+            : null,
         });
       } else if (!previous.category && row.listing.category) {
         previous.category = row.listing.category;
@@ -468,71 +491,20 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
     keyword: string,
     days: number,
   ): Promise<RankHistoryRow[]> {
-    const since = addDays(currentBusinessDate(), -(days - 1));
-    return this.prisma.coupangKeywordRankDailySnapshot.findMany({
-      where: {
-        organizationId,
-        sourceImportRun: {
-          ...completeSerpSource(organizationId),
-          rankKeyword: keyword,
-          // One attempt captures one keyword/day; the daily SERP row is its current pointer.
-          keywordSerpDailyProjections: {
-            some: { organizationId, keyword, businessDate: { gte: since } },
-          },
-        },
-        keyword,
-        businessDate: { gte: since },
-      },
-      orderBy: [{ vendorItemId: "asc" }, { businessDate: "asc" }],
-      select: {
-        vendorItemId: true,
-        businessDate: true,
-        productName: true,
-        overallRank: true,
-        organicRank: true,
-        adRank: true,
-        page: true,
-      },
-    });
+    return this.prisma.$transaction(
+      (tx) => readKeywordRankHistory(tx, { organizationId, keyword, days }),
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
   }
 
   findRankOverviewSnapshots(
     organizationId: string,
     days: number,
   ): Promise<RankOverviewSnapshotRow[]> {
-    const since = addDays(currentBusinessDate(), -(days - 1));
-    return this.prisma.coupangKeywordRankDailySnapshot.findMany({
-      where: {
-        organizationId,
-        sourceImportRun: {
-          ...completeSerpSource(organizationId),
-          keywordSerpDailyProjections: {
-            some: { organizationId, businessDate: { gte: since } },
-          },
-        },
-        businessDate: { gte: since },
-      },
-      orderBy: [
-        { keyword: "asc" },
-        { vendorItemId: "asc" },
-        { businessDate: "asc" },
-        { capturedAt: "asc" },
-        { updatedAt: "asc" },
-        { id: "asc" },
-      ],
-      select: {
-        id: true,
-        keyword: true,
-        vendorItemId: true,
-        businessDate: true,
-        productName: true,
-        overallRank: true,
-        organicRank: true,
-        adRank: true,
-        capturedAt: true,
-        updatedAt: true,
-      },
-    });
+    return this.prisma.$transaction(
+      (tx) => readKeywordRankOverviewSnapshots(tx, { organizationId, days }),
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
   }
 
   async replaceWingSalesRankSnapshots(
@@ -608,109 +580,30 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
     organizationId: string,
     days: number,
   ): Promise<WingSalesRankSnapshotRow[]> {
-    const since = addDays(currentBusinessDate(), -(days - 1));
-    const rows = await adIngestRepositoryClient(
-      this.prisma,
-    ).coupangWingSalesRankDailySnapshot.findMany({
-      where: {
-        organizationId,
-        businessDate: { gte: since },
-        sourceImportRun: completeWingRankSource(organizationId),
-      },
-      orderBy: [
-        { keyword: "asc" },
-        { vendorItemId: "asc" },
-        { businessDate: "asc" },
-        { capturedAt: "asc" },
-        { updatedAt: "asc" },
-        { id: "asc" },
-      ],
-      select: {
-        id: true,
-        keyword: true,
-        vendorItemId: true,
-        businessDate: true,
-        productName: true,
-        categoryHierarchy: true,
-        salesRank: true,
-        salesLast28d: true,
-        viewsLast28d: true,
-        revenueLast28d: true,
-        conversionRate28d: true,
-        salePrice: true,
-        reviewCount: true,
-        keywordSalesLast28d: true,
-        keywordViewsLast28d: true,
-        keywordConversionRate28d: true,
-        collectedCount: true,
-        totalResults: true,
-        capturedAt: true,
-        updatedAt: true,
-      },
-    });
-    return rows.map((row) => ({
-      ...row,
-      conversionRate28d:
-        row.conversionRate28d === null ? null : Number(row.conversionRate28d),
-      keywordConversionRate28d:
-        row.keywordConversionRate28d === null
-          ? null
-          : Number(row.keywordConversionRate28d),
-    }));
+    return this.prisma.$transaction(
+      (tx) => readWingSalesRankSnapshots(tx, { organizationId, days }),
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
   }
 
   findLatestSerp(
     organizationId: string,
     keyword: string,
   ): Promise<SerpSnapshotRow | null> {
-    return this.prisma.coupangKeywordSerpDailySnapshot.findFirst({
-      where: {
-        organizationId,
-        sourceImportRun: completeSerpSource(organizationId),
-        keyword,
-      },
-      orderBy: [
-        { businessDate: "desc" },
-        { capturedAt: "desc" },
-        { updatedAt: "desc" },
-        { id: "desc" },
-      ],
-      select: {
-        keyword: true,
-        businessDate: true,
-        capturedAt: true,
-        pagesScanned: true,
-        itemCount: true,
-        items: true,
-      },
-    });
+    return this.prisma.$transaction(
+      (tx) => readLatestSerpSnapshot(tx, { organizationId, keyword }),
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
   }
 
   findRecentSerpSnapshots(
     organizationId: string,
     days: number,
   ): Promise<SerpSnapshotRow[]> {
-    const since = addDays(currentBusinessDate(), -(days - 1));
-    return this.prisma.coupangKeywordSerpDailySnapshot.findMany({
-      where: {
-        organizationId,
-        sourceImportRun: completeSerpSource(organizationId),
-        businessDate: { gte: since },
-      },
-      orderBy: [
-        { keyword: "asc" },
-        { businessDate: "asc" },
-        { capturedAt: "asc" },
-      ],
-      select: {
-        keyword: true,
-        businessDate: true,
-        capturedAt: true,
-        pagesScanned: true,
-        itemCount: true,
-        items: true,
-      },
-    });
+    return this.prisma.$transaction(
+      (tx) => readRecentSerpSnapshots(tx, { organizationId, days }),
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
   }
 
   private async getTrackerOrThrow(

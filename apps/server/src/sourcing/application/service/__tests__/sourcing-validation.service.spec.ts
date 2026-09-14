@@ -21,7 +21,7 @@ describe('SourcingValidationService', () => {
     const result = await service.refresh({ organizationId: ORGANIZATION_ID, limit: 50 });
 
     expect(result).toMatchObject({
-      status: 'ready',
+      ready: true,
       data: { recommendationRunId: RUN_ID, items: [expect.objectContaining({ status: 'blocked' })] },
     });
     const command = validations.replaceForRun.mock.calls[0][0];
@@ -49,7 +49,7 @@ describe('SourcingValidationService', () => {
     );
 
     await expect(service.latest({ organizationId: ORGANIZATION_ID, limit: 50 })).resolves.toMatchObject({
-      status: 'unavailable',
+      ready: false,
       data: null,
       error: expect.objectContaining({ code: 'RECOMMENDATION_RUN_MISSING' }),
     });
@@ -124,7 +124,7 @@ describe('SourcingValidationService', () => {
     );
 
     await expect(service.refresh({ organizationId: ORGANIZATION_ID, limit: 50 }))
-      .resolves.toMatchObject({ status: 'ready' });
+      .resolves.toMatchObject({ ready: true });
 
     const [episode] = validations.replaceForRun.mock.calls[0][0].episodes;
     expect(episode).toMatchObject({

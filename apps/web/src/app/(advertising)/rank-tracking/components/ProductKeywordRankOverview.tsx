@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { deriveRankChange } from '@kiditem/shared/advertising';
 import {
   ArrowDown,
   ArrowLeft,
@@ -57,7 +58,7 @@ export function AbcGradeBadges({
 }
 
 function RankValue({ row }: { row: ProductKeywordRankRow }) {
-  if (row.status === "not_collected") {
+  if (row.businessDate === null) {
     return (
       <span
         className="text-xs font-medium text-slate-400"
@@ -96,22 +97,30 @@ function RankValue({ row }: { row: ProductKeywordRankRow }) {
 }
 
 function RankMovement({ row }: { row: ProductKeywordRankRow }) {
-  if (row.status === "rising" && row.rankChange !== null) {
+  const movement = deriveRankChange(
+    row.currentSalesRank,
+    row.previousSalesRank,
+  );
+  if (movement.direction === "rising" && movement.change !== null) {
     return (
       <span className="inline-flex items-center gap-1 font-semibold text-green-600 tabular-nums">
-        <ArrowUp size={13} />+{row.rankChange}
+        <ArrowUp size={13} />+{movement.change}
       </span>
     );
   }
-  if (row.status === "falling" && row.rankChange !== null) {
+  if (movement.direction === "falling" && movement.change !== null) {
     return (
       <span className="inline-flex items-center gap-1 font-semibold text-red-600 tabular-nums">
         <ArrowDown size={13} />
-        {Math.abs(row.rankChange)}
+        {Math.abs(movement.change)}
       </span>
     );
   }
-  if (row.status === "out_of_range" && row.previousSalesRank !== null) {
+  if (
+    row.businessDate !== null &&
+    row.currentSalesRank === null &&
+    row.previousSalesRank !== null
+  ) {
     return (
       <span className="inline-flex items-center gap-1 text-xs font-semibold text-red-600 tabular-nums">
         <TrendingDown size={13} />
@@ -119,7 +128,7 @@ function RankMovement({ row }: { row: ProductKeywordRankRow }) {
       </span>
     );
   }
-  if (row.status === "not_collected" || row.previousSalesRank === null) {
+  if (row.businessDate === null || row.previousSalesRank === null) {
     return <span className="text-xs text-slate-400">비교 전</span>;
   }
   return (
@@ -149,10 +158,14 @@ function RankSparkline({ row }: { row: ProductKeywordRankRow }) {
       return `${index === 0 ? "M" : "L"} ${x.toFixed(1)} ${y.toFixed(1)}`;
     })
     .join(" ");
+  const direction = deriveRankChange(
+    row.currentSalesRank,
+    row.previousSalesRank,
+  ).direction;
   const stroke =
-    row.status === "rising"
+    direction === "rising"
       ? "#16a34a"
-      : row.status === "falling"
+      : direction === "falling"
         ? "#dc2626"
         : "#7c3aed";
   return (

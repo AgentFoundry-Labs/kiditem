@@ -1,3 +1,5 @@
+Before working in this directory, always read this document first rather than relying on memory.
+
 # web/detail-editor - Detail Page Editing Surface
 
 `_shared/components/detail-editor/` owns the large reusable detail page editing

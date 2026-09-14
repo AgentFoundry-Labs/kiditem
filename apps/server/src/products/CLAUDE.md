@@ -1,3 +1,5 @@
+Before working in this directory, always read this document first rather than relying on memory.
+
 # products — Product Operations + Categories Compatibility
 
 `src/products/` owns canonical inventory-product (`MasterProduct`) operations,
@@ -43,9 +45,10 @@ owns physical stock quantities.
 - Product-level inventory is the owned source SKU of the canonical
   MasterProduct. Channel options are consumers of that inventory product;
   Products never creates a second ledger.
-- Recipe candidate search enters Inventory only through the exported
-  `SELLPIA_INVENTORY_SKU_READ_PORT`, passes the session-owned `organizationId`,
-  and returns physical identities without a writer.
+- Stock-aware recipe candidate search uses `INVENTORY_AVAILABILITY_PORT` with
+  the session-owned `organizationId`; unavailable stock stays nullable, and
+  the published inventory fence applies before pagination. Identity-only
+  lookup uses `SELLPIA_INVENTORY_SKU_READ_PORT`. Neither port grants a writer.
 - Product list pagination returns summary counts over the complete filtered
   result before page slicing. Consumers do not rebuild counts from one page.
 - `MasterProduct.imageUrls` is operator-managed metadata. Read responses may
@@ -62,8 +65,9 @@ owns physical stock quantities.
   identifier/spec/option conflict, and a confirmed positive selling quantity.
   Ambiguous names, conflicting evidence, and unknown quantities require
   operator review. AI output and rank alone never confirm inventory identity.
-- `MasterProduct.abcGrade` is nullable automatic output, never operator input.
-  Products publishes ABC only through the explicit Product Hub grade-refresh
+- The current `MasterProductAbcEvaluation` is the nullable official ABC output;
+  `MasterProduct.abcGrade` is a legacy non-authoritative column pending schema
+  removal and is never operator input. Products publishes ABC only through the explicit Product Hub grade-refresh
   command. The service reads the latest compatible `COMPLETE` source snapshots,
   persists formula/evaluation provenance, and records only actual grade changes
   in history.
@@ -85,10 +89,27 @@ owns physical stock quantities.
 - Revenue and operating-profit contribution, rank, cumulative share, and loss
   impact are separate reporting metrics. They never alter `abcGrade`.
 - Validity and freshness are distinct. Publication uses the newest cutoff every
-  compatible complete source reaches, so evidence that lags the latest closed
-  day still publishes at its own actual cutoff, and a newer RUNNING or FAILED
-  collection alone does not invalidate a compatible complete source. Persist
-  and display that actual cutoff separately from the desired latest cutoff.
+  compatible complete source pair reaches, so evidence that lags the latest
+  closed day still publishes at its own actual cutoff, and a newer RUNNING or
+  FAILED collection alone does not invalidate a compatible complete source.
+  Persist and display that actual cutoff separately from the desired latest
+  cutoff.
+- A Sellpia and an advertising generation pair only when they end on the same
+  day or the earlier one ends on a month's last day: month totals cannot be cut
+  back to an earlier day inside a month. Whichever source is newer, publication
+  pairs the newest retained generations that end together; with none, the
+  refresh returns `SOURCE_NOT_READY` and nothing is written. An advertising
+  collection that held its closed day as unreported therefore delays a refresh
+  on a newer Sellpia generation by one day unless an older Sellpia generation
+  ends on the held end.
+- Source readiness is each source's own, not the selected pair's: `sources[x]`
+  judges the source's newest complete generation on the current mapping
+  generation. Sellpia is due through the latest closed KST day and advertising
+  through Advertising's derived evidence cutoff (`adReportEvidenceCutoff` over
+  the generation's `requestedThrough` and `coveredThrough`), so a held closed
+  day never reads stale. Without a pair, `SOURCE_NOT_READY` carries `pairing`
+  (the source that ends earlier and both ends) unless both sources are stale,
+  when `sources` already names them.
 - Evaluation/publication is organization-locked so an older snapshot cannot
   overwrite a newer completed publication.
 - Publication verifies the evaluated generation's identity as given; it does
@@ -98,15 +119,20 @@ owns physical stock quantities.
   cutoff come from the evaluated selection, and the transaction still refuses
   an input that disagrees with itself or with mutable state it re-reads.
 - Publication does not move the official cutoff backward because every
-  collection plan ends its coverage at KST-yesterday and `targetCutoff` is the
-  latest closed KST day, so the actual cutoff cannot precede a published one.
+  collection plan requests coverage through KST-yesterday (an advertising
+  collection may confirm one day less) and `targetCutoff` is the latest closed
+  KST day, so the actual cutoff cannot precede a published one.
   No guard enforces this. It rests on two things: a collection plan's coverage
   end, and a forward-moving clock. A remapping followed by a collection that
   ran while the host clock was behind produces an older actual cutoff over a
   settled grade.
 - Products owns the ABC evidence cutoff — the latest closed KST day — and
-  derives display status once. Consumers read the published per-product view
-  through `PRODUCT_ABC_READ_PORT`; no reader picks a cutoff of its own
-  ([ADR 0002](../../../../docs/adr/0002-products-owns-abc-display-status.md)).
+  publishes one per-product view of the facts that decide the display word
+  (retained evaluation, `sources.sellpia.ready`, `sources.advertising.ready`,
+  `sources.mapping.valid`) through `PRODUCT_ABC_READ_PORT`; no reader picks a
+  cutoff of its own. The view carries no display word: every consumer derives
+  it with `productAbcDisplayStatus` from `@kiditem/shared/product-abc`
+  ([ADR 0006](../../../../docs/adr/0006-a-displayed-number-is-a-measurement-or-nothing.md),
+  [ADR 0009](../../../../docs/adr/0009-one-ledger-one-reader.md)).
 - Thumbnail analysis quality grades remain AI registration evidence and are
   independent from automatic product ABC.

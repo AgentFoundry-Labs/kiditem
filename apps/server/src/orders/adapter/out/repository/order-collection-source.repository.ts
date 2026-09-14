@@ -10,6 +10,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { canonicalOwnerInputHash } from '../../../../common/owner-idempotency-key';
+import { businessDateKey } from '../../../../common/kst';
 import {
   ORDER_COLLECTION_MALLS,
   type OrderCollectionMallKey,
@@ -385,8 +386,8 @@ export class OrderCollectionSourceRepository implements OrderCollectionSourcePor
       plan,
       expiresAt: row.expiresAt?.toISOString() ?? null,
       artifactId: artifact?.id ?? null,
-      coverageStartDate: row.coverageStartDate ? isoDate(row.coverageStartDate) : null,
-      coverageEndDate: row.coverageEndDate ? isoDate(row.coverageEndDate) : null,
+      coverageStartDate: row.coverageStartDate ? businessDateKey(row.coverageStartDate) : null,
+      coverageEndDate: row.coverageEndDate ? businessDateKey(row.coverageEndDate) : null,
       errorCode: isExpired ? 'ATTEMPT_EXPIRED' : row.errorCode,
       errorMessage: isExpired ? 'Order collection expired.' : row.errorMessage,
     };
@@ -494,9 +495,9 @@ function sameConfirmedCoverage(
   coverage: OrderCollectionConfirmedCoverage | null,
 ): boolean {
   return (
-    (row.coverageStartDate ? isoDate(row.coverageStartDate) : null) ===
+    (row.coverageStartDate ? businessDateKey(row.coverageStartDate) : null) ===
       (coverage?.startDate ?? null) &&
-    (row.coverageEndDate ? isoDate(row.coverageEndDate) : null) ===
+    (row.coverageEndDate ? businessDateKey(row.coverageEndDate) : null) ===
       (coverage?.endDate ?? null)
   );
 }
@@ -504,15 +505,11 @@ function sameConfirmedCoverage(
 function isDateOnly(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const parsed = dateOnly(value);
-  return !Number.isNaN(parsed.getTime()) && isoDate(parsed) === value;
+  return !Number.isNaN(parsed.getTime()) && businessDateKey(parsed) === value;
 }
 
 function dateOnly(value: string): Date {
   return new Date(`${value}T00:00:00.000Z`);
-}
-
-function isoDate(value: Date): string {
-  return value.toISOString().slice(0, 10);
 }
 
 function expired(row: Pick<SourceRun, 'status' | 'expiresAt'>): boolean {

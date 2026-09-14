@@ -1,3 +1,5 @@
+Before working in this directory, always read this document first rather than relying on memory.
+
 # web/components - Shared Frontend Components
 
 `src/components/` owns shared React components used by multiple route groups:

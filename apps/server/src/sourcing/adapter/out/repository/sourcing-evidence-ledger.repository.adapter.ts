@@ -6,22 +6,13 @@ import type {
   SourcingEvidenceObservationRecord,
   SourcingEvidenceRunStatus,
 } from '../../../application/port/out/repository/sourcing-evidence-ledger.repository.port';
+import {
+  readCompleteObservationProvenanceByIds,
+  readCurrentObservationHeads,
+  type CurrentObservationHead,
+} from '../../../read/source-evidence.reader';
 
-const observationInclude = {
-  ingestionRun: {
-    select: {
-      status: true,
-      targetKey: true,
-      coverageNumerator: true,
-      coverageDenominator: true,
-      completedAt: true,
-    },
-  },
-} satisfies Prisma.SourcingEvidenceObservationInclude;
-
-type ObservationRow = Prisma.SourcingEvidenceObservationGetPayload<{
-  include: typeof observationInclude;
-}>;
+type ObservationRow = CurrentObservationHead;
 
 @Injectable()
 export class SourcingEvidenceLedgerRepositoryAdapter implements SourcingEvidenceLedgerRepositoryPort {
@@ -32,14 +23,7 @@ export class SourcingEvidenceLedgerRepositoryAdapter implements SourcingEvidence
     observationIds: string[];
   }): Promise<SourcingEvidenceObservationRecord[]> {
     if (input.observationIds.length === 0) return [];
-    const rows = await this.prisma.sourcingEvidenceObservation.findMany({
-      where: {
-        id: { in: input.observationIds },
-        organizationId: input.organizationId,
-        ingestionRun: { status: 'COMPLETE' },
-      },
-      include: observationInclude,
-    });
+    const rows = await readCompleteObservationProvenanceByIds(this.prisma, input);
     const byId = new Map(rows.map((row) => [row.id, row]));
     return input.observationIds.flatMap((id) => {
       const row = byId.get(id);
@@ -54,27 +38,16 @@ export class SourcingEvidenceLedgerRepositoryAdapter implements SourcingEvidence
     cutoffAt: Date;
   }): Promise<SourcingEvidenceObservationRecord[]> {
     if (input.sourceEntityIds.length === 0) return [];
-    const rows = await this.prisma.sourcingEvidenceObservation.findMany({
-      where: {
-        organizationId: input.organizationId,
-        platform: input.platform.toLowerCase(),
-        sourceEntityKey: { in: Array.from(new Set(input.sourceEntityIds)) },
-        supportsCandidate: true,
-        ingestionRun: { status: 'COMPLETE', isCurrentComplete: true, completedAt: { lte: input.cutoffAt } },
-        // 시점 고정: cutoff 이후에 도착한 관측치는 이 배치가 보지 못한 것으로 둔다.
-        availableAt: { lte: input.cutoffAt },
-        ingestedAt: { lte: input.cutoffAt },
-      },
-      include: observationInclude,
-      orderBy: [
-        { sourceEntityKey: 'asc' },
-        { revision: 'desc' },
-        { availableAt: 'desc' },
-        { ingestedAt: 'desc' },
-        { id: 'desc' },
-      ],
+    const rows = await readCurrentObservationHeads(this.prisma, {
+      organizationId: input.organizationId,
+      platform: input.platform.toLowerCase(),
+      sourceEntityKeys: Array.from(new Set(input.sourceEntityIds)),
+      supportsCandidate: true,
+      cutoffAt: input.cutoffAt,
     });
-    return rows.map(toObservationRecord);
+    return rows
+      .sort((left, right) => left.sourceEntityKey.localeCompare(right.sourceEntityKey))
+      .map(toObservationRecord);
   }
 
   async findLatestObservationRevisions(input: {
@@ -84,31 +57,12 @@ export class SourcingEvidenceLedgerRepositoryAdapter implements SourcingEvidence
   }) {
     if (input.observationKeys.length === 0) return [];
     const keys = Array.from(new Set(input.observationKeys));
-    const rows = await this.prisma.sourcingEvidenceObservation.findMany({
-      where: {
-        organizationId: input.organizationId,
-        observationKey: { in: keys },
-        ingestionRun: { status: 'COMPLETE', isCurrentComplete: true, completedAt: { lte: input.cutoffAt } },
-        availableAt: { lte: input.cutoffAt },
-        ingestedAt: { lte: input.cutoffAt },
-      },
-      select: {
-        id: true,
-        observationKey: true,
-        revision: true,
-      },
-      orderBy: [
-        { observationKey: 'asc' },
-        { revision: 'desc' },
-        { availableAt: 'desc' },
-        { ingestedAt: 'desc' },
-        { id: 'desc' },
-      ],
+    const rows = await readCurrentObservationHeads(this.prisma, {
+      organizationId: input.organizationId,
+      observationKeys: keys,
+      cutoffAt: input.cutoffAt,
     });
-    const latest = new Map<string, (typeof rows)[number]>();
-    for (const row of rows) {
-      if (!latest.has(row.observationKey)) latest.set(row.observationKey, row);
-    }
+    const latest = new Map(rows.map((row) => [row.observationKey, row]));
     return keys.flatMap((observationKey) => {
       const row = latest.get(observationKey);
       return row

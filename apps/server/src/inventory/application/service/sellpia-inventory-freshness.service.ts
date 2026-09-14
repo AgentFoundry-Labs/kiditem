@@ -5,6 +5,7 @@ import {
   BadRequestException,
   Inject,
   Injectable,
+  NotFoundException,
 } from '@nestjs/common';
 import {
   SELLPIA_INVENTORY_FRESHNESS_REPOSITORY_PORT,
@@ -33,6 +34,7 @@ import type {
   SellpiaFreshCapacityPreflightResult,
 } from '../port/in/stock/sellpia-inventory-freshness-gate.port';
 import type { SellpiaInventoryFreshnessPort } from '../port/in/stock/sellpia-inventory-freshness.port';
+import type { InventoryAvailabilityBatch } from '@kiditem/shared/inventory-availability';
 
 type ActorScope = { organizationId: string; userId: string };
 
@@ -88,7 +90,7 @@ implements
     sellpiaInventorySkuIds: string[];
   }): Promise<{ fence: string; lastVerifiedAt: string; expiresAt: string }> {
     const snapshot = await this.readFreshInventorySkus(input);
-    if (snapshot.inventorySkus.some((sku) => !sku.isActive)) {
+    if (snapshot.availability.items.some((sku) => !sku.isActive)) {
       throw new AppException(
         422,
         ErrorCodes.PURCHASE.ITEM_INACTIVE,
@@ -114,12 +116,10 @@ implements
     const sellpiaInventorySkuIds = [...new Set(input.sellpiaInventorySkuIds)];
     return this.withLockedState(input.organizationId, async (transaction) => {
       const state = await transaction.getState();
-      const inventorySkus = await transaction.findInventorySkus(
+      const availability = await readAvailability(
+        transaction,
         sellpiaInventorySkuIds,
       );
-      if (inventorySkus.length !== sellpiaInventorySkuIds.length) {
-        throw referenceInvalid();
-      }
 
       const now = new Date();
       const isFresh = isSourceBindingConfirmed(state)
@@ -129,10 +129,10 @@ implements
           state.refreshRequestedAt !== null
           && state.refreshRequestedAt > state.lastVerifiedAt
         );
-      if (isFresh) {
+      if (isFresh && hasCompleteAvailability(availability, sellpiaInventorySkuIds)) {
         return {
           status: 'fresh',
-          ...toFreshCapacity({ state, sellpiaInventorySkuIds, inventorySkus }),
+          ...toFreshCapacity({ state, sellpiaInventorySkuIds, availability }),
         };
       }
 
@@ -172,22 +172,16 @@ implements
   }): Promise<{
     state: SellpiaInventoryFreshnessState;
     sellpiaInventorySkuIds: string[];
-    inventorySkus: Array<{
-      id: string;
-      isActive: boolean;
-      currentStock: number;
-    }>;
+    availability: InventoryAvailabilityBatch;
   }> {
     validateInventorySkuIds(input.sellpiaInventorySkuIds);
     const sellpiaInventorySkuIds = [...new Set(input.sellpiaInventorySkuIds)];
     return this.withLockedState(input.organizationId, async (transaction) => {
       const state = await transaction.getState();
-      const inventorySkus = await transaction.findInventorySkus(
+      const availability = await readAvailability(
+        transaction,
         sellpiaInventorySkuIds,
       );
-      if (inventorySkus.length !== sellpiaInventorySkuIds.length) {
-        throw referenceInvalid();
-      }
 
       const now = new Date();
       if (
@@ -198,6 +192,7 @@ implements
           state.refreshRequestedAt !== null
           && state.refreshRequestedAt > state.lastVerifiedAt
         )
+        || !hasCompleteAvailability(availability, sellpiaInventorySkuIds)
       ) {
         throw syncRequired();
       }
@@ -205,7 +200,7 @@ implements
       return {
         state,
         sellpiaInventorySkuIds,
-        inventorySkus,
+        availability,
       };
     });
   }
@@ -233,11 +228,7 @@ implements
 type FreshCapacitySnapshot = {
   state: SellpiaInventoryFreshnessState;
   sellpiaInventorySkuIds: string[];
-  inventorySkus: Array<{
-    id: string;
-    isActive: boolean;
-    currentStock: number;
-  }>;
+  availability: InventoryAvailabilityBatch;
 };
 
 function validateInventorySkuIds(sellpiaInventorySkuIds: string[]): void {
@@ -251,20 +242,45 @@ function validateInventorySkuIds(sellpiaInventorySkuIds: string[]): void {
 
 function toFreshCapacity(snapshot: FreshCapacitySnapshot): SellpiaFreshCapacity {
   const metadata = freshnessMetadata(snapshot.state);
-  const byId = new Map(snapshot.inventorySkus.map((sku) => [sku.id, sku]));
+  const byId = new Map(snapshot.availability.items.map((sku) => [
+    sku.sellpiaInventorySkuId,
+    sku,
+  ]));
   return {
     ...metadata,
-    generation: snapshot.state.verifiedGeneration.toString(),
+    generation: snapshot.availability.snapshot.generation!,
     inventorySkus: snapshot.sellpiaInventorySkuIds.map((sellpiaInventorySkuId) => {
       const sku = byId.get(sellpiaInventorySkuId)!;
       return {
         sellpiaInventorySkuId,
         currentStock: sku.currentStock,
-        availableStock: sku.currentStock,
+        availableStock: sku.availableStock,
         isActive: sku.isActive,
       };
     }),
   };
+}
+
+async function readAvailability(
+  transaction: SellpiaInventoryFreshnessRepositoryTransaction,
+  sellpiaInventorySkuIds: string[],
+): Promise<InventoryAvailabilityBatch> {
+  try {
+    return await transaction.findInventoryAvailability(sellpiaInventorySkuIds);
+  } catch (error) {
+    if (error instanceof NotFoundException) throw referenceInvalid();
+    throw error;
+  }
+}
+
+function hasCompleteAvailability(
+  availability: InventoryAvailabilityBatch,
+  sellpiaInventorySkuIds: string[],
+): boolean {
+  if (!availability.snapshot.collected) return false;
+  const availableIds = new Set(availability.items.map((item) =>
+    item.sellpiaInventorySkuId));
+  return sellpiaInventorySkuIds.every((id) => availableIds.has(id));
 }
 
 function freshnessMetadata(state: SellpiaInventoryFreshnessState) {

@@ -1,3 +1,5 @@
+Before working in this directory, always read this document first rather than relying on memory.
+
 # web/hooks - Shared React Hooks
 
 `src/hooks/` owns hooks used by multiple frontend domains. Route-local hooks

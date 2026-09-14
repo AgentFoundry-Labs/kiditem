@@ -15,7 +15,6 @@ vi.mock('@/lib/browser-download', () => ({
 import {
   downloadFinanceReport,
   downloadProfitLossReport,
-  downloadSettlementReconcileReport,
 } from './finance-report-export';
 
 function response(fileName = '서버-리포트.xlsx') {
@@ -65,14 +64,5 @@ describe('finance report server download boundary', () => {
     expect(fetchRaw).toHaveBeenCalledWith(
       '/api/profit-loss/export?period=2026-08&profitFilter=minus&grades=A%2CC&sortField=netProfit&sortDirection=asc',
     );
-  });
-
-  it('uses the reconciliation owner route and does not generate a workbook in the browser', async () => {
-    fetchRaw.mockResolvedValue(response('정산대사_2026-08.xlsx'));
-
-    await downloadSettlementReconcileReport('2026-08');
-
-    expect(fetchRaw).toHaveBeenCalledWith('/api/settlements/reconcile/export?period=2026-08');
-    expect(downloadBlob).toHaveBeenCalledTimes(1);
   });
 });

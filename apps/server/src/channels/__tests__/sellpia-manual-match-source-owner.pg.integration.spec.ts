@@ -435,4 +435,175 @@ describe('Sellpia manual-match source owner (PostgreSQL)', () => {
       ],
     };
   }
+
+  it('accepts aliases from active listings published by a completed Rocket PO catalog run', async () => {
+      await prisma.channelListing.updateMany({
+        where: { organizationId: TEST_ORGANIZATION_ID },
+        data: { isActive: false },
+      });
+      const rocketAccount = await prisma.channelAccount.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          channel: 'rocket',
+          name: 'Rocket',
+        },
+      });
+      const rocketRun = await prisma.sourceImportRun.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          channelAccountId: rocketAccount.id,
+          sourceType: 'coupang_rocket_po_catalog',
+          parserVersion: 'rocket-po-v1',
+          status: 'completed',
+          importedAt: new Date(),
+        },
+      });
+      await prisma.channelListing.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          channelAccountId: rocketAccount.id,
+          externalId: 'ROCKET-ALIAS',
+          displayName: 'Rocket Alias',
+          lastImportRunId: rocketRun.id,
+          isActive: true,
+        },
+      });
+      const attempt = await owner.beginAttempt({
+        organizationId: TEST_ORGANIZATION_ID,
+        idempotencyKey: 'rocket-alias',
+      });
+
+      await owner.completeAttempt({
+        organizationId: TEST_ORGANIZATION_ID,
+        attemptId: attempt.attemptId,
+        attemptToken: attempt.attemptToken,
+        snapshot: {
+          source: SOURCE_TYPE,
+          version: 1,
+          targetCount: 2,
+          targetCodes: ['6402-1', '6402-2'],
+          rowCount: 1,
+          rows: [
+            {
+              productCode: '6402-1',
+              aliasTitle: 'Rocket Alias',
+              itemCount: 1,
+              matchedType: 'M',
+              evidenceCount: 1,
+            },
+          ],
+        },
+      });
+
+      await expect(
+        prisma.sellpiaManualMatchAlias.findMany({
+          where: { organizationId: TEST_ORGANIZATION_ID },
+          select: { aliasTitle: true, sellpiaInventorySkuId: true },
+        }),
+      ).resolves.toEqual([
+        {
+          aliasTitle: 'Rocket Alias',
+          sellpiaInventorySkuId: firstSkuId,
+        },
+      ]);
+    });
+
+  it('accepts Rocket matching CSV aliases and rejects an uncertified legacy Rocket PO catalog run', async () => {
+    await prisma.channelListing.updateMany({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+      data: { isActive: false },
+    });
+    const rocketAccount = await prisma.channelAccount.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channel: 'rocket',
+        name: 'Rocket',
+      },
+    });
+    const csvRun = await prisma.sourceImportRun.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: rocketAccount.id,
+        sourceType: 'coupang_rocket_matching_csv',
+        status: 'completed',
+        importedAt: new Date(),
+      },
+    });
+    const legacyRocketPoRun = await prisma.sourceImportRun.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: rocketAccount.id,
+        sourceType: 'coupang_rocket_po_catalog',
+        parserVersion: null,
+        status: 'completed',
+        importedAt: new Date(),
+      },
+    });
+    await prisma.channelListing.createMany({
+      data: [
+        {
+          organizationId: TEST_ORGANIZATION_ID,
+          channelAccountId: rocketAccount.id,
+          externalId: 'ROCKET-CSV-ALIAS',
+          displayName: 'Rocket CSV Alias',
+          lastImportRunId: csvRun.id,
+          isActive: true,
+        },
+        {
+          organizationId: TEST_ORGANIZATION_ID,
+          channelAccountId: rocketAccount.id,
+          externalId: 'LEGACY-ROCKET-ALIAS',
+          displayName: 'Legacy Rocket Alias',
+          lastImportRunId: legacyRocketPoRun.id,
+          isActive: true,
+        },
+      ],
+    });
+    const attempt = await owner.beginAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      idempotencyKey: 'rocket-csv-alias',
+    });
+
+    await owner.completeAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      attemptId: attempt.attemptId,
+      attemptToken: attempt.attemptToken,
+      snapshot: {
+        source: SOURCE_TYPE,
+        version: 1,
+        targetCount: 2,
+        targetCodes: ['6402-1', '6402-2'],
+        rowCount: 2,
+        rows: [
+          {
+            productCode: '6402-1',
+            aliasTitle: 'Rocket CSV Alias',
+            itemCount: 1,
+            matchedType: 'M',
+            evidenceCount: 1,
+          },
+          {
+            productCode: '6402-2',
+            aliasTitle: 'Legacy Rocket Alias',
+            itemCount: 1,
+            matchedType: 'M',
+            evidenceCount: 1,
+          },
+        ],
+      },
+    });
+
+    // Only runs the catalog owner certifies as complete publish alias candidates.
+    await expect(
+      prisma.sellpiaManualMatchAlias.findMany({
+        where: { organizationId: TEST_ORGANIZATION_ID },
+        select: { aliasTitle: true, sellpiaInventorySkuId: true },
+      }),
+    ).resolves.toEqual([
+      {
+        aliasTitle: 'Rocket CSV Alias',
+        sellpiaInventorySkuId: firstSkuId,
+      },
+    ]);
+  });
 });

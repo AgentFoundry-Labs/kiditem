@@ -4,7 +4,8 @@ import { matchListingFromRow, pickStringField, type ListingMap } from '../../dom
 import {
   cleanString,
   deriveAdTargetType,
-  toNumber,
+  parseProviderNumber,
+  readProviderMetric,
   toNumberOrNull,
 } from '../../domain/scrape-row-normalizers';
 import {
@@ -54,17 +55,21 @@ export function normalizeAdCampaignTarget(
   const rowStatus = cleanString(row.status);
   const rowOnOff = cleanString(row.onOff);
   const rowPageType = cleanString(row.pageType) || 'campaign';
-  const rowSpend = Math.round(toNumber(row.runningAdSpend ?? row.spend));
-  const rowRevenue = Math.round(toNumber(row.revenue));
-  const rowImpressions = Math.round(toNumber(row.impressions));
-  const rowClicks = Math.round(toNumber(row.clicks));
-  const rowConversions = Math.round(toNumber(row.conversions));
-  const rowOrders = Math.round(toNumber(row.orders));
+  // A column the provider grid carried must parse; one it did not carry is
+  // stored as 0 and stamped unobserved below, never read as a measured zero.
+  const observedMetrics = observedAdditiveMetrics(row);
+  const rowSpend = readProviderMetric(row.runningAdSpend ?? row.spend, observedMetrics.adSpend, 'spend');
+  const rowRevenue = readProviderMetric(row.revenue, observedMetrics.adRevenue, 'revenue');
+  const rowImpressions = readProviderMetric(row.impressions, observedMetrics.impressions, 'impressions');
+  const rowClicks = readProviderMetric(row.clicks, observedMetrics.clicks, 'clicks');
+  const rowConversions = readProviderMetric(row.conversions, observedMetrics.conversions, 'conversions');
+  const rowOrders = readProviderMetric(row.orders, observedMetrics.orders, 'orders');
   const rowDailyBudget = toNumberOrNull(row.dailyBudget);
   const rowCurrentBid = toNumberOrNull(row.currentBid);
-  const providerRoas = toNumber(row.roas || row.adEfficiencyTarget);
-  const providerCtr = toNumber(row.ctr);
-  const providerConversionRate = toNumber(row.conversionRate);
+  // Provider ratios are audit evidence only; an absent ratio stays null.
+  const providerRoas = parseProviderNumber(row.roas) ?? parseProviderNumber(row.adEfficiencyTarget);
+  const providerCtr = parseProviderNumber(row.ctr);
+  const providerConversionRate = parseProviderNumber(row.conversionRate);
 
   // Target-day fact: prefer the most specific grain available on the row.
   const targetType =
@@ -124,6 +129,7 @@ export function normalizeAdCampaignTarget(
         // the UI shows a fabricated 0 conversions on rows with real
         // revenue.
         conversionsObserved: hasObservedConversionColumn(row),
+        observedMetrics,
         providerRoas,
         providerCtr,
         providerConversionRate,
@@ -145,6 +151,27 @@ export function normalizeAdCampaignTarget(
   };
 
   return targetInput;
+}
+
+type ObservedAdditiveMetrics = Record<(typeof REQUIRED_ADDITIVE_METRICS)[number], boolean>;
+
+/**
+ * Which additive columns the provider grid carried for this row. The
+ * extension's `_observedMetrics` evidence is authoritative; server/test
+ * callers that predate it fall back to property presence.
+ */
+function observedAdditiveMetrics(row: Record<string, unknown>): ObservedAdditiveMetrics {
+  const evidence = row._observedMetrics;
+  const fromEvidence = evidence && typeof evidence === 'object' && !Array.isArray(evidence)
+    ? evidence as Record<string, unknown>
+    : null;
+  return Object.fromEntries(REQUIRED_ADDITIVE_METRICS.map((key) => [
+    key,
+    fromEvidence
+      ? fromEvidence[key] === true
+      : METRIC_PROPERTY_ALIASES[key].some((property) =>
+          Object.prototype.hasOwnProperty.call(row, property)),
+  ])) as ObservedAdditiveMetrics;
 }
 
 const REQUIRED_ADDITIVE_METRICS = [
@@ -278,6 +305,7 @@ export function mergeAuthoritativeTargetInputs(
     data: {
       ...(previousMeta?.data ?? {}),
       ...(nextMeta?.data ?? {}),
+      ...mergedObservation(previousMeta?.data, nextMeta?.data),
       collapsedRowCount: (Number.isFinite(previousCount) ? previousCount : 1) + 1,
       ...(descriptorConflicts.length > 0
         ? { descriptorConflicts: [...new Set(descriptorConflicts)] }
@@ -285,6 +313,28 @@ export function mergeAuthoritativeTargetInputs(
     },
   };
   return merged;
+}
+
+/**
+ * Summed duplicates are observed only where every contributing row observed
+ * the column; one unobserved zero makes the merged value unobserved.
+ */
+function mergedObservation(
+  previous: Record<string, unknown> | undefined,
+  next: Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  if (typeof previous?.conversionsObserved === 'boolean' || typeof next?.conversionsObserved === 'boolean') {
+    out.conversionsObserved = previous?.conversionsObserved !== false && next?.conversionsObserved !== false;
+  }
+  const left = previous?.observedMetrics as Record<string, unknown> | undefined;
+  const right = next?.observedMetrics as Record<string, unknown> | undefined;
+  if (left || right) {
+    out.observedMetrics = Object.fromEntries(
+      REQUIRED_ADDITIVE_METRICS.map((key) => [key, left?.[key] !== false && right?.[key] !== false]),
+    );
+  }
+  return out;
 }
 
 function namespacedMetaData(

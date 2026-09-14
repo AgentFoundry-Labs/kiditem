@@ -46,7 +46,7 @@ continuity.
 The private stateless MCP surface exposes exactly five tools:
 `capability_catalog_search`, `capability_invoke`, `invocation_status`,
 `operation_status`, and `readiness_probe`. The catalog contains five Agents,
-fourteen domains, seventeen owner-local CapabilityDefinitions, including ten
+nine domains, seventeen owner-local CapabilityDefinitions, including ten
 Sourcing definitions. Profiles guide provider-native delegation; they do not
 create grants. Every
 invocation is authorized by current user/organization context, the selected

@@ -25,6 +25,7 @@ npm run test:scripts
 | `scripts/check-agent-os-contraction.mjs` | Enforced Agent OS clean-contraction guard for legacy runtime, transcript, and retired model surfaces | `npm run check:agent-os-contraction -- --enforce` |
 | `scripts/check-agent-os-hexagonal.mjs` | AgentOS lane-first/capability-second dependency, input-port placement, and official module-size contract scanner; intentionally standalone until the KID-25 migration removes its live baseline violations | `npm run check:agent-os-hexagonal` |
 | `scripts/check-agents-hygiene.mjs` | CLAUDE instruction hygiene gate and legacy AGENTS detector | `npm run check:agents-hygiene` |
+| `scripts/check-business-date-arithmetic.mjs` | server business dates come from `apps/server/src/common/kst.ts`: millisecond-day arithmetic elsewhere in non-test server code fails unless the file records it as a non-business-date duration or a named follow-up, with a line ceiling that only ratchets down | `npm run check:business-date-arithmetic` |
 | `scripts/check-copilotkit-train.mjs` | exact CopilotKit v2 and AG-UI platform-train guard | `npm run check:copilotkit-train` |
 | `scripts/check-directory-architecture.mjs` | docs/ARCHITECTURE directory map drift gate | `npm run check:directory-architecture` |
 | `scripts/check-frontend-db-boundary.sh` | frontend must not import DB/Prisma clients | `npm run check:web-db-boundary` |

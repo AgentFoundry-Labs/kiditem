@@ -42,7 +42,6 @@ const makeAlert = (
   overrides: Partial<DashboardAlertItem> = {},
 ): DashboardAlertItem => ({
   id: 'alert-1',
-  kind: 'signal',
   status: 'OPEN',
   type: 'stock_low',
   severity: 'warning',

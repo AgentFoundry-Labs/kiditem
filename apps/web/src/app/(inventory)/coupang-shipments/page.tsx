@@ -11,6 +11,11 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useQuery } from "@tanstack/react-query";
+import {
+  COLLECTION_SOURCE_STATUS_RECHECKING_MESSAGE,
+  collectionSourceStatusQueryOptions,
+  collectionSourceStatusRead,
+} from "@/lib/collection-source-status-query";
 import { queryKeys } from "@/lib/query-keys";
 import { downloadBlob } from "@/lib/browser-download";
 import { formatNumber } from "@/lib/utils";
@@ -93,13 +98,13 @@ export default function CoupangShipmentsPage() {
   const [serverHistoryLoading, setServerHistoryLoading] = useState(false);
   const [extensionBusy, setExtensionBusy] = useState(false);
   const [summaryLoading, setSummaryLoading] = useState(false);
-  const source = useQuery({
+  const source = useQuery(collectionSourceStatusQueryOptions({
     queryKey: queryKeys.inventory.coupangShipmentSummary(),
     queryFn: loadCoupangShipmentSummarySource,
     refetchInterval: (query) => (
       query.state.data?.latestAttempt?.state === "RUNNING" ? 1_000 : false
     ),
-  });
+  }));
   const dateSummary = source.data?.items ?? [];
   const [notifications, setNotifications] = useState<ShipmentNotification[]>(
     [],
@@ -394,7 +399,7 @@ export default function CoupangShipmentsPage() {
         <div className="min-w-0 xl:col-span-3">
           <div role="status" className="mb-2 text-sm text-slate-600">
             <p>
-              {source.isError
+              {collectionSourceStatusRead(source) === "unavailable"
                 ? "쉽먼트 조회 상태를 불러오지 못했습니다."
                 : source.data?.latestAttempt?.state === "RUNNING"
                   ? "쉽먼트 조회 진행 중 · 이전 달력 이력 표시"
@@ -404,6 +409,9 @@ export default function CoupangShipmentsPage() {
                       ? `최근 조회 결과 ${source.data.capturedItems.length}일 · 달력 이력 유지`
                       : "수집 미확인 · 저장된 이력은 최신 수집 증거가 아닙니다."}
             </p>
+            {collectionSourceStatusRead(source) === "rechecking" && (
+              <p className="text-slate-500">{COLLECTION_SOURCE_STATUS_RECHECKING_MESSAGE}</p>
+            )}
             {source.data?.latestComplete?.actualCutoffAt && (
               <p>
                 마지막 완료:{" "}

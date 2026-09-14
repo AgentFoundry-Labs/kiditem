@@ -1,48 +1,47 @@
 import { z } from 'zod';
+import { zIsoDate } from './common.js';
 
 /**
- * Settlements reconcile response — Plan B2c.orders T10.
- *
- * Backend `SettlementsService.reconcile()` return literal 에 `satisfies SettlementReconcileResponse`.
- * listingId-primary + $queryRaw aggregation (`oli.total_price ::bigint` → `Number()`).
- * 3-layer product schema + channel-agnostic Order.
+ * Settlement ledger row as the screen reads it. The stored actual amount
+ * defaults to 0 before anyone confirms a deposit, so an unconfirmed
+ * settlement publishes `actualAmount` and `difference` as `null`.
  */
-
-export const SettlementReconcileDetailSchema = z.object({
-  listingId: z.string().uuid(),
-  externalId: z.string(),
-  channelName: z.string().nullable(),
-  masterCode: z.string(),
-  masterName: z.string(),
-  plRevenue: z.number().int(),
-  plCommission: z.number().int(),
-  // Unavailable when the listing's ad coverage is incomplete (ADR-0003).
-  // Reconciliation matches on revenue, which is unaffected.
-  plNetProfit: z.number().int().nullable(),
-  plOrderCount: z.number().int(),
-  orderTotal: z.number().int(),
-  orderCount: z.number().int(),
-  revenueDiff: z.number().int(),
-  isMatched: z.boolean(),
-  status: z.enum(['matched', 'minor_diff', 'mismatch']),
-});
-export type SettlementReconcileDetail = z.infer<typeof SettlementReconcileDetailSchema>;
-
-export const SettlementReconcileResponseSchema = z.object({
-  success: z.boolean(),
+export const SettlementListItemSchema = z.object({
+  id: z.string().uuid(),
   period: z.string(),
-  summary: z.object({
-    totalPlRevenue: z.number().int(),
-    totalOrderRevenue: z.number().int(),
-    totalCommission: z.number().int(),
-    totalShipping: z.number().int(),
-    revenueDifference: z.number().int(),
-    productCount: z.number().int(),
-    orderCount: z.number().int(),
-    matchedCount: z.number().int(),
-    mismatchCount: z.number().int(),
-    matchRate: z.number().int(),
-  }),
-  details: z.array(SettlementReconcileDetailSchema),
+  expectedAmount: z.number().int(),
+  actualAmount: z.number().int().nullable(),
+  commission: z.number().int(),
+  shippingFee: z.number().int(),
+  adjustments: z.number().int(),
+  /** Confirmed actual amount minus expected amount. */
+  difference: z.number().int().nullable(),
+  orderCount: z.number().int(),
+  returnCount: z.number().int(),
+  status: z.string(),
+  settledAt: zIsoDate.nullable(),
+  notes: z.string().nullable(),
+  createdAt: zIsoDate,
+  updatedAt: zIsoDate,
 });
-export type SettlementReconcileResponse = z.infer<typeof SettlementReconcileResponseSchema>;
+export type SettlementListItem = z.infer<typeof SettlementListItemSchema>;
+
+/**
+ * The settlement card totals, summed on the server over the listed rows: the
+ * expected amount of every row, and the deposit and difference of the
+ * confirmed rows only — an unconfirmed deposit is not a deposit of zero.
+ */
+export const SettlementListSummarySchema = z.object({
+  totalExpected: z.number().int(),
+  totalConfirmedActual: z.number().int(),
+  totalConfirmedDifference: z.number().int(),
+  pendingCount: z.number().int().nonnegative(),
+}).strict();
+export type SettlementListSummary = z.infer<typeof SettlementListSummarySchema>;
+
+/** `GET /api/settlements`: the rows and the totals the cards show. */
+export const SettlementListResponseSchema = z.object({
+  items: z.array(SettlementListItemSchema),
+  summary: SettlementListSummarySchema,
+}).strict();
+export type SettlementListResponse = z.infer<typeof SettlementListResponseSchema>;

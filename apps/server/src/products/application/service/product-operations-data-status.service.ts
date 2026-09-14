@@ -42,6 +42,7 @@ export class ProductOperationsDataStatusService {
       actualCutoff: facts.actualCutoff,
       sources: {
         traffic: facts.traffic,
+        orders: facts.orders,
         sellpia: facts.sellpia,
         advertising: facts.advertising,
         mapping: {
@@ -58,6 +59,6 @@ export class ProductOperationsDataStatusService {
           unclassifiedProductCount - mappingRequiredProductCount,
         ),
       },
-    });
+    } satisfies ProductOperationsDataStatus);
   }
 }

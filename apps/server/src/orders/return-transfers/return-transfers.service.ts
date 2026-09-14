@@ -1,5 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { readInventorySkuIdentities } from '../../inventory/read/inventory-availability';
+import { readOrderIdentityFact } from '../read/order-facts.reader';
 import { CreateReturnTransferDto, UpdateReturnTransferDto } from './dto';
 
 @Injectable()
@@ -18,64 +20,119 @@ export class ReturnTransfersService {
     const where: Record<string, unknown> = { organizationId };
     if (query.status) where.status = query.status;
 
-    return this.prisma.returnTransfer.findMany({
-      where,
-      include: { sellpiaInventorySku: true },
-      orderBy: { createdAt: 'desc' },
-    });
+    return this.prisma.$transaction(async (tx) =>
+      hydrateInventorySkus(
+        tx,
+        organizationId,
+        await tx.returnTransfer.findMany({
+          where,
+          orderBy: { createdAt: 'desc' },
+        }),
+      ),
+    );
   }
 
   async create(organizationId: string, dto: CreateReturnTransferDto) {
-    const sellpiaInventorySku = await this.prisma.sellpiaInventorySku.findFirst({
-      where: {
-        id: dto.sellpiaInventorySkuId,
+    return this.prisma.$transaction(async (tx) => {
+      const [sellpiaInventorySku] = await readInventorySkuIdentities(tx, {
         organizationId,
-        isActive: true,
-      },
-      select: { optionName: true },
-    });
-    if (!sellpiaInventorySku) throw new NotFoundException('Sellpia inventory SKU not found');
-    if (dto.orderId) {
-      const order = await this.prisma.order.findFirst({
-        where: { id: dto.orderId, organizationId },
-        select: { id: true },
+        selector: { kind: 'ids', values: [dto.sellpiaInventorySkuId] },
       });
-      if (!order) throw new NotFoundException('Order not found');
-    }
+      if (!sellpiaInventorySku?.isActive) {
+        throw new NotFoundException('Sellpia inventory SKU not found');
+      }
+      if (dto.orderId) {
+        const order = await readOrderIdentityFact(
+          tx,
+          organizationId,
+          dto.orderId,
+        );
+        if (!order) throw new NotFoundException('Order not found');
+      }
 
-    const rtNumber = this.generateRtNumber();
+      const rtNumber = this.generateRtNumber();
 
-    return this.prisma.returnTransfer.create({
-      data: {
-        organizationId,
-        rtNumber,
-        orderId: dto.orderId,
-        sellpiaInventorySkuId: dto.sellpiaInventorySkuId,
-        optionName: sellpiaInventorySku.optionName,
-        quantity: dto.quantity,
-        condition: dto.condition ?? 'good',
-        notes: dto.notes,
-      },
-      include: { sellpiaInventorySku: true },
+      const created = await tx.returnTransfer.create({
+        data: {
+          organizationId,
+          rtNumber,
+          orderId: dto.orderId,
+          sellpiaInventorySkuId: dto.sellpiaInventorySkuId,
+          optionName: sellpiaInventorySku.optionName,
+          quantity: dto.quantity,
+          condition: dto.condition ?? 'good',
+          notes: dto.notes,
+        },
+      });
+      return (await hydrateInventorySkus(tx, organizationId, [created]))[0]!;
     });
   }
 
-  async update(id: string, dto: UpdateReturnTransferDto, organizationId: string) {
-    const existing = await this.prisma.returnTransfer.findFirst({
-      where: { id, organizationId },
-    });
-    if (!existing) throw new NotFoundException('반품을 찾을 수 없습니다');
-
-    return this.prisma.returnTransfer.update({
-      where: { id },
-      data: {
-        ...(dto.status !== undefined && { status: dto.status }),
-        ...(dto.condition !== undefined && { condition: dto.condition }),
-        ...(dto.restockedQty !== undefined && { restockedQty: dto.restockedQty }),
-        ...(dto.disposedQty !== undefined && { disposedQty: dto.disposedQty }),
-        ...(dto.processedBy !== undefined && { processedBy: dto.processedBy }),
-      },
-      include: { sellpiaInventorySku: true },
+  async update(
+    id: string,
+    dto: UpdateReturnTransferDto,
+    organizationId: string,
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      const existing = await tx.returnTransfer.findFirst({
+        where: { id, organizationId },
+      });
+      if (!existing) throw new NotFoundException('반품을 찾을 수 없습니다');
+      const updated = await tx.returnTransfer.update({
+        where: { id },
+        data: {
+          ...(dto.status !== undefined && { status: dto.status }),
+          ...(dto.condition !== undefined && { condition: dto.condition }),
+          ...(dto.restockedQty !== undefined && {
+            restockedQty: dto.restockedQty,
+          }),
+          ...(dto.disposedQty !== undefined && {
+            disposedQty: dto.disposedQty,
+          }),
+          ...(dto.processedBy !== undefined && {
+            processedBy: dto.processedBy,
+          }),
+        },
+      });
+      return (await hydrateInventorySkus(tx, organizationId, [updated]))[0]!;
     });
   }
+}
+
+async function hydrateInventorySkus<
+  T extends { sellpiaInventorySkuId: string },
+>(
+  tx: Parameters<typeof readInventorySkuIdentities>[0],
+  organizationId: string,
+  rows: T[],
+) {
+  const identities = await readInventorySkuIdentities(tx, {
+    organizationId,
+    selector: {
+      kind: 'ids',
+      values: [
+        ...new Set(
+          rows.map(({ sellpiaInventorySkuId }) => sellpiaInventorySkuId),
+        ),
+      ],
+    },
+  });
+  const byId = new Map(
+    identities.map((identity) => [identity.sellpiaInventorySkuId, identity]),
+  );
+  return rows.map((row) => {
+    const identity = byId.get(row.sellpiaInventorySkuId);
+    return {
+      ...row,
+      sellpiaInventorySku: identity
+        ? {
+            id: identity.sellpiaInventorySkuId,
+            code: identity.code,
+            name: identity.name,
+            optionName: identity.optionName,
+            barcode: identity.barcode,
+          }
+        : null,
+    };
+  });
 }

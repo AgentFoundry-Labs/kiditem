@@ -144,7 +144,6 @@ it('stops a completed basics root locally before expiry and retries with a fresh
     attention: null,
     currentAttemptId: ATTEMPT_ID,
     currentStage: 'basics',
-    overallState: 'RUNNING',
     rootAttemptId: ATTEMPT_ID,
   });
   const { result, client } = setup(null, 'basics');
@@ -185,7 +184,6 @@ it('keeps status reads passive and preflights an extension-only close after remo
     attention: null,
     currentAttemptId: ATTEMPT_ID,
     currentStage: 'basics',
-    overallState: 'RUNNING',
     rootAttemptId: ATTEMPT_ID,
   });
 

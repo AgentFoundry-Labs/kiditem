@@ -17,15 +17,19 @@ describe('SellpiaProductInventoryReader display-media enrichment', () => {
       quantity: 1,
       channelListingOption: channelOption(),
     }]);
-    const reader = new SellpiaProductInventoryReader({
+    const prisma = {
       masterProductAbcFormulaState: { findUnique: vi.fn(async () => null) },
       sellpiaInventorySku: {
         findMany: vi.fn(async () => [inventoryCandidate(skuId)]),
       },
+      masterProduct: { findMany: vi.fn(async () => [masterProduct()]) },
       channelListingOptionInventoryComponent: {
         findMany: destinationFindMany,
       },
-    } as never, {
+      $transaction: vi.fn(),
+    };
+    prisma.$transaction.mockImplementation(async (callback) => callback(prisma));
+    const reader = new SellpiaProductInventoryReader(prisma as never, {
       findBySkuIds: vi.fn(async () => ({
         snapshot: { collected: true, generation: '1', verifiedAt: '2026-07-17T00:00:00.000Z' },
         items: [{ sellpiaInventorySkuId: skuId, currentStock: 10, availableStock: 10, isActive: true, generation: '1' }],
@@ -66,9 +70,10 @@ describe('SellpiaProductInventoryReader display-media enrichment', () => {
 
   it('logs media failure and preserves the inventory projection with null images', async () => {
     const skuId = '11111111-1111-4111-8111-111111111111';
-    const reader = new SellpiaProductInventoryReader({
+    const prisma = {
       masterProductAbcFormulaState: { findUnique: vi.fn(async () => null) },
       sellpiaInventorySku: { findMany: vi.fn(async () => [inventoryCandidate(skuId)]) },
+      masterProduct: { findMany: vi.fn(async () => [masterProduct()]) },
       channelListingOptionInventoryComponent: {
         findMany: vi.fn(async () => [{
           sellpiaInventorySkuId: skuId,
@@ -76,7 +81,10 @@ describe('SellpiaProductInventoryReader display-media enrichment', () => {
           channelListingOption: channelOption(),
         }]),
       },
-    } as never, {
+      $transaction: vi.fn(),
+    };
+    prisma.$transaction.mockImplementation(async (callback) => callback(prisma));
+    const reader = new SellpiaProductInventoryReader(prisma as never, {
       findBySkuIds: vi.fn(async () => ({
         snapshot: { collected: true, generation: '1', verifiedAt: '2026-07-17T00:00:00.000Z' },
         items: [{ sellpiaInventorySkuId: skuId, currentStock: 10, availableStock: 10, isActive: true, generation: '1' }],
@@ -101,15 +109,22 @@ function inventoryCandidate(skuId: string) {
   return {
     id: skuId,
     code: 'SKU-1',
+    name: 'Inventory SKU',
+    optionName: null,
     barcode: null,
+    purchasePrice: null,
+    salePrice: null,
     isActive: true,
-    masterProduct: {
-      id: 'master-1',
-      code: 'MASTER-1',
-      name: 'Master',
-      abcGrade: 'B',
-      abcEvaluation: null,
-    },
+    masterProductId: 'master-1',
+  };
+}
+
+function masterProduct() {
+  return {
+    id: 'master-1',
+    code: 'MASTER-1',
+    name: 'Master',
+    createdAt: new Date('2026-01-01T00:00:00.000Z'),
   };
 }
 

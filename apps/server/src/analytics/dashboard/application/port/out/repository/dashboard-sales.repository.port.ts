@@ -1,7 +1,5 @@
-// Outgoing port for sales-side raw SQL reads. Tagged-template `$queryRaw`
-// reads hydrate the today KPI tile, the top-N product ranking, and the
-// per-day revenue series. Tenant predicate is `${organizationId}::uuid`
-// on every tenant-owned table (orders, listings, products).
+// Sales projections composed from Orders' canonical reader plus listing and
+// product identity/configuration reads.
 
 import type { TopProduct } from '@kiditem/shared/dashboard';
 
@@ -10,8 +8,12 @@ export const DASHBOARD_SALES_REPOSITORY_PORT = Symbol(
 );
 
 export interface TodayKpiRow {
-  revenue: number;
-  orders: number;
+  revenue: number | null;
+  orders: number | null;
+  requestedDates: string[];
+  includedDates: string[];
+  missingDates: string[];
+  observedAt: Date | null;
 }
 
 export interface DashboardSalesRepositoryPort {

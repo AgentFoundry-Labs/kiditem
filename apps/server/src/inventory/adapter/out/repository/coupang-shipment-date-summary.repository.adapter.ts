@@ -6,20 +6,25 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { Prisma, type SourceImportRun } from "@prisma/client";
+import { SOURCE_IMPORT_RUN_COMPLETED_STATUS } from "@kiditem/shared/source-import";
 import { PrismaService } from "../../../../prisma/prisma.service";
 import { SourceFailureAlerts } from "../../../../alerts/alerts.service";
 import type { CoupangShipmentDateSummaryRepositoryPort } from "../../../application/port/out/repository/coupang-shipment-date-summary.repository.port";
 import type {
-  CoupangShipmentDateSummaryEntry,
-  ShipmentSummaryAttempt,
   ShipmentSummaryPlan,
-  ShipmentSummarySource,
   ShipmentSummarySubmission,
 } from "../../../application/port/in/fulfillment";
+import {
+  COUPANG_SHIPMENT_SUMMARY_PARSER_VERSION,
+  COUPANG_SHIPMENT_SUMMARY_SOURCE_TYPE,
+  readCoupangShipmentSummaryAttempt,
+  readCoupangShipmentSummarySource,
+  shipmentSummaryAttempt,
+} from "../../../read/coupang-shipment-date-summary.reader";
 
-const SOURCE = "coupang_shipment_summary";
+const SOURCE = COUPANG_SHIPMENT_SUMMARY_SOURCE_TYPE;
 const ALERT = "inventory:coupang_shipment_summary";
-const PARSER = "shipment-summary-v1";
+const PARSER = COUPANG_SHIPMENT_SUMMARY_PARSER_VERSION;
 // Existing 10s preparation + 90s injection and terminal transport; never extended.
 const LEASE_MS = 180_000;
 type Tx = Prisma.TransactionClient;
@@ -47,12 +52,22 @@ export class CoupangShipmentDateSummaryRepositoryAdapter implements CoupangShipm
     return this.prisma.$transaction(async (tx) => {
       await lock(tx, organizationId);
       const prior = await tx.sourceImportRun.findFirst({
-        where: { organizationId, sourceType: SOURCE, idempotencyKey },
+        where: {
+          organizationId,
+          sourceType: SOURCE,
+          parserVersion: PARSER,
+          idempotencyKey,
+        },
       });
       if (prior && prior.requestFingerprint !== fingerprint)
         throw new ConflictException("SOURCE_IDEMPOTENCY_KEY_REUSED");
       const running = await tx.sourceImportRun.findFirst({
-        where: { organizationId, sourceType: SOURCE, status: "running" },
+        where: {
+          organizationId,
+          sourceType: SOURCE,
+          parserVersion: PARSER,
+          status: "running",
+        },
       });
       if (running && expired(running))
         await this.fail(
@@ -68,7 +83,7 @@ export class CoupangShipmentDateSummaryRepositoryAdapter implements CoupangShipm
           attemptId: running.id,
         });
       const last = await tx.sourceImportRun.aggregate({
-        where: { organizationId, sourceType: SOURCE },
+        where: { organizationId, sourceType: SOURCE, parserVersion: PARSER },
         _max: { freshnessGeneration: true },
       });
       const run = await tx.sourceImportRun.create({
@@ -88,33 +103,13 @@ export class CoupangShipmentDateSummaryRepositoryAdapter implements CoupangShipm
     });
   }
 
-  async readSummarySource(
-    organizationId: string,
-    maxPages?: number,
-  ): Promise<ShipmentSummarySource> {
+  async readSummarySource(organizationId: string, maxPages?: number) {
     return this.prisma.$transaction(
-      async (tx) => {
-        const latest = await tx.sourceImportRun.findFirst({
-          where: { organizationId, sourceType: SOURCE },
-          orderBy: { freshnessGeneration: "desc" },
-        });
-        const complete = await latestComplete(tx, organizationId);
-        const latestView = latest ? publicControl(latest) : null;
-        return {
-          ready: !!complete
-            && checksum(makePlan(maxPages)) === complete.requestFingerprint,
-          latestAttempt: latestView,
-          latestComplete: complete ? publicControl(complete) : null,
-          capturedItems: complete
-            ? await captured(tx, organizationId, complete.id)
-            : [],
-          items: await calendar(
-            tx,
-            organizationId,
-            complete?.freshnessGeneration ?? null,
-          ),
-        };
-      },
+      (tx) =>
+        readCoupangShipmentSummarySource(tx, {
+          organizationId,
+          requestFingerprint: checksum(makePlan(maxPages)),
+        }),
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
     );
   }
@@ -122,24 +117,13 @@ export class CoupangShipmentDateSummaryRepositoryAdapter implements CoupangShipm
   async readSummaryAttempt(organizationId: string, attemptId: string) {
     return this.prisma.$transaction(
       async (tx) => {
-        const run = await find(tx, organizationId, attemptId);
-        const complete = await latestComplete(
-          tx,
+        const attempt = await readCoupangShipmentSummaryAttempt(tx, {
           organizationId,
-          run.freshnessGeneration,
-        );
-        return {
-          ...control(run),
-          capturedItems:
-            run.status === "complete"
-              ? await captured(tx, organizationId, run.id)
-              : [],
-          items: await calendar(
-            tx,
-            organizationId,
-            complete?.freshnessGeneration ?? null,
-          ),
-        };
+          attemptId,
+        });
+        if (!attempt)
+          throw new NotFoundException("SHIPMENT_SUMMARY_ATTEMPT_NOT_FOUND");
+        return attempt;
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
     );
@@ -171,7 +155,10 @@ export class CoupangShipmentDateSummaryRepositoryAdapter implements CoupangShipm
         totalRows: input.totalRows,
         proof,
       });
-      if (run.status === "complete" && run.contentChecksum === hash)
+      if (
+        run.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS &&
+        run.contentChecksum === hash
+      )
         return control(run);
       writable(run);
       const now = new Date();
@@ -189,7 +176,7 @@ export class CoupangShipmentDateSummaryRepositoryAdapter implements CoupangShipm
       const complete = await tx.sourceImportRun.update({
         where: { id: run.id, organizationId },
         data: {
-          status: "complete",
+          status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
           rowCount: items.length,
           importedAt: now,
           contentChecksum: hash,
@@ -274,7 +261,7 @@ async function lock(tx: Tx, organizationId: string) {
 }
 async function find(tx: Tx, organizationId: string, id: string) {
   const run = await tx.sourceImportRun.findFirst({
-    where: { id, organizationId, sourceType: SOURCE },
+    where: { id, organizationId, sourceType: SOURCE, parserVersion: PARSER },
   });
   if (!run) throw new NotFoundException("SHIPMENT_SUMMARY_ATTEMPT_NOT_FOUND");
   return run;
@@ -291,100 +278,8 @@ function writable(run: SourceImportRun) {
     throw new ConflictException("ATTEMPT_TERMINAL_CONFLICT");
   if (expired(run)) throw new ConflictException("ATTEMPT_EXPIRED");
 }
-function control(run: SourceImportRun): ShipmentSummaryAttempt {
-  const isExpired = run.status === "running" && expired(run);
-  return {
-    attemptId: run.id,
-    attemptToken: run.attemptToken,
-    generation: String(run.freshnessGeneration),
-    state:
-      isExpired || run.status === "failed"
-        ? "FAILED"
-        : run.status === "complete"
-          ? "COMPLETE"
-          : "RUNNING",
-    plan: run.plan as unknown as ShipmentSummaryPlan,
-    expiresAt: run.expiresAt!.toISOString(),
-    actualCutoffAt: run.importedAt?.toISOString() ?? null,
-    errorCode: isExpired ? "ATTEMPT_EXPIRED" : run.errorCode,
-    errorMessage: isExpired
-      ? "쉽먼트 조회 시간이 만료되었습니다. 다시 조회해주세요."
-      : run.errorMessage,
-  };
-}
-function publicControl(run: SourceImportRun) {
-  const { attemptToken: _token, ...view } = control(run);
-  return view;
-}
-function latestComplete(
-  tx: Tx,
-  organizationId: string,
-  through?: bigint | null,
-) {
-  return tx.sourceImportRun.findFirst({
-    where: {
-      organizationId,
-      sourceType: SOURCE,
-      status: "complete",
-      ...(through != null ? { freshnessGeneration: { lte: through } } : {}),
-    },
-    orderBy: { freshnessGeneration: "desc" },
-  });
-}
-async function captured(
-  tx: Tx,
-  organizationId: string,
-  sourceImportRunId: string,
-): Promise<CoupangShipmentDateSummaryEntry[]> {
-  const rows = await tx.coupangShipmentDateSummary.findMany({
-    where: {
-      organizationId,
-      sourceImportRunId,
-      sourceImportRun: {
-        organizationId,
-        sourceType: SOURCE,
-        status: "complete",
-      },
-    },
-    orderBy: { shipmentDate: "desc" },
-  });
-  return rows.map((row) => ({
-    date: row.shipmentDate,
-    count: row.count,
-    boxes: row.boxes,
-    capturedAt: row.capturedAt.toISOString(),
-    verified: true,
-  }));
-}
-async function calendar(
-  tx: Tx,
-  organizationId: string,
-  through: bigint | null,
-): Promise<CoupangShipmentDateSummaryEntry[]> {
-  const rows = await tx.$queryRaw<
-    Array<{
-      shipment_date: string;
-      count: number;
-      boxes: number;
-      captured_at: Date;
-      source_import_run_id: string | null;
-    }>
-  >`
-    SELECT DISTINCT ON (d.shipment_date) d.shipment_date, d.count, d.boxes, d.captured_at, d.source_import_run_id
-    FROM coupang_shipment_date_summaries d
-    LEFT JOIN source_import_runs r ON r.id = d.source_import_run_id AND r.organization_id = d.organization_id
-    WHERE d.organization_id = ${organizationId}::uuid AND
-      (d.source_import_run_id IS NULL OR
-       (r.source_type = ${SOURCE} AND r.status = 'complete' AND r.freshness_generation <= ${through}::bigint))
-    ORDER BY d.shipment_date DESC, r.freshness_generation DESC NULLS LAST
-  `;
-  return rows.map((row) => ({
-    date: row.shipment_date,
-    count: row.count,
-    boxes: row.boxes,
-    capturedAt: row.captured_at.toISOString(),
-    verified: row.source_import_run_id !== null,
-  }));
+function control(run: SourceImportRun) {
+  return shipmentSummaryAttempt(run);
 }
 function validateSubmission(
   plan: ShipmentSummaryPlan,

@@ -12,10 +12,14 @@ import {
   TEST_ORGANIZATION_ID,
   OTHER_ORGANIZATION_ID,
 } from '../../../../test-helpers/real-prisma';
+import { kstBusinessDate } from '../../../../common/kst';
 
 const PRIMARY_ACCOUNT_ID = '10000000-0000-4000-8000-000000000001';
 const SECONDARY_ACCOUNT_ID = '10000000-0000-4000-8000-000000000002';
+const ORDER_COLLECTION_ACCOUNT_ID = '10000000-0000-4000-8000-000000000003';
 const OTHER_ACCOUNT_ID = '20000000-0000-4000-8000-000000000001';
+const ORDER_FACT_RUN_ID = '10000000-0000-4000-8000-000000000004';
+const OTHER_ORDER_FACT_RUN_ID = '20000000-0000-4000-8000-000000000002';
 
 /**
  * Plan B2c.dashboard T15 — channel-dashboard.pg integration spec.
@@ -68,6 +72,14 @@ describe('Channel dashboard (PG integration)', () => {
     await prisma.channelAccount.createMany({
       data: [
         {
+          id: ORDER_COLLECTION_ACCOUNT_ID,
+          organizationId: TEST_ORGANIZATION_ID,
+          channel: 'order_collection',
+          name: 'Dashboard order source',
+          externalAccountId: 'haebub-mall',
+          status: 'active',
+        },
+        {
           id: PRIMARY_ACCOUNT_ID,
           organizationId: TEST_ORGANIZATION_ID,
           channel: 'coupang',
@@ -84,6 +96,22 @@ describe('Channel dashboard (PG integration)', () => {
           externalAccountId: 'DASHBOARD-OTHER',
           isPrimary: true,
           status: 'active',
+        },
+      ],
+    });
+    await prisma.sourceImportRun.createMany({
+      data: [
+        {
+          id: ORDER_FACT_RUN_ID,
+          organizationId: TEST_ORGANIZATION_ID,
+          sourceType: 'test_order_facts',
+          status: 'completed',
+        },
+        {
+          id: OTHER_ORDER_FACT_RUN_ID,
+          organizationId: OTHER_ORGANIZATION_ID,
+          sourceType: 'test_order_facts',
+          status: 'completed',
         },
       ],
     });
@@ -152,6 +180,7 @@ describe('Channel dashboard (PG integration)', () => {
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         channelAccountId: PRIMARY_ACCOUNT_ID,
+        sourceImportRunId: ORDER_FACT_RUN_ID,
         externalOrderId: 'ORD-1',
         orderedAt: new Date('2026-04-14T15:00:00.000Z'), // KST 2026-04-15 00:00
         status: 'paid',
@@ -186,6 +215,7 @@ describe('Channel dashboard (PG integration)', () => {
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         channelAccountId: PRIMARY_ACCOUNT_ID,
+        sourceImportRunId: ORDER_FACT_RUN_ID,
         externalOrderId: 'ORD-2',
         orderedAt: new Date('2026-04-15T15:00:00.000Z'), // KST 2026-04-16 00:00
         status: 'paid',
@@ -210,6 +240,7 @@ describe('Channel dashboard (PG integration)', () => {
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         channelAccountId: PRIMARY_ACCOUNT_ID,
+        sourceImportRunId: ORDER_FACT_RUN_ID,
         externalOrderId: 'ORD-3',
         orderedAt: new Date('2026-04-16T15:00:00.000Z'), // KST 2026-04-17 00:00 — boundary
         status: 'paid',
@@ -294,6 +325,7 @@ describe('Channel dashboard (PG integration)', () => {
       data: {
         organizationId: OTHER_ORGANIZATION_ID,
         channelAccountId: OTHER_ACCOUNT_ID,
+        sourceImportRunId: OTHER_ORDER_FACT_RUN_ID,
         externalOrderId: 'ORD-OTHER',
         orderedAt: new Date('2026-04-14T15:30:00.000Z'),
         status: 'paid',
@@ -358,9 +390,28 @@ describe('Channel dashboard (PG integration)', () => {
       expect(result.pendingReturns).toBe(3); // RET-1 + RET-2 + RET-3 (COURIER still counts as a pending return)
     });
 
-    it('returns null lastModifiedAt when no ChannelListing exists for the organization', async () => {
+    it('returns null order metrics when today has not been observed', async () => {
       const result = await service.getSummary(TEST_ORGANIZATION_ID);
       expect(result.lastModifiedAt).toBeNull();
+      expect(result.todayOrders).toEqual({ count: null, revenue: null });
+    });
+
+    it('returns measured zero after a completed run confirms empty coverage today', async () => {
+      const today = kstBusinessDate(new Date());
+      await prisma.sourceImportRun.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          channelAccountId: ORDER_COLLECTION_ACCOUNT_ID,
+          sourceType: 'order_collection_mall',
+          status: 'completed',
+          importedAt: new Date(),
+          coverageStartDate: today,
+          coverageEndDate: today,
+        },
+      });
+
+      const result = await service.getSummary(TEST_ORGANIZATION_ID);
+
       expect(result.todayOrders).toEqual({ count: 0, revenue: 0 });
     });
   });
@@ -458,6 +509,7 @@ describe('Channel dashboard (PG integration)', () => {
         data: {
           organizationId: TEST_ORGANIZATION_ID,
           channelAccountId: SECONDARY_ACCOUNT_ID,
+          sourceImportRunId: ORDER_FACT_RUN_ID,
           externalOrderId: 'ORD-SECONDARY',
           orderedAt: new Date('2026-04-15T16:00:00.000Z'),
           status: 'paid',
@@ -494,6 +546,7 @@ describe('Channel dashboard (PG integration)', () => {
         data: {
           organizationId: TEST_ORGANIZATION_ID,
           channelAccountId: PRIMARY_ACCOUNT_ID,
+          sourceImportRunId: ORDER_FACT_RUN_ID,
           externalOrderId: 'ORD-MISMATCHED-ACCOUNT',
           orderedAt: new Date('2026-04-15T16:00:00.000Z'),
           status: 'paid',
@@ -531,44 +584,44 @@ describe('Channel dashboard (PG integration)', () => {
   });
 
   // ---------------------------------------------------------------------------
-  // #4 getReturnSummary — returnRate semantic: INNER JOIN order.orderedAt.
-  //    returnRate = returnCount / orderCount (must be ≤ 1 per Zod contract).
+  // #4 getReturnSummary — counts the window's collected orders. Returns have no
+  //    owner publication, so no return count, rate or orphan count is published.
   // ---------------------------------------------------------------------------
   describe('getReturnSummary', () => {
-    it('returnCount counts returns whose ORDER was placed in window (INNER JOIN)', async () => {
+    it('counts the orders placed in the window and publishes no return count', async () => {
       await seedFixture();
 
-      // Narrow window: only O1 (orderedAt 2026-04-14T15:00Z) is in-range.
-      // O2 (orderedAt 2026-04-15T15:00Z) is excluded by `lt to`.
-      // RET-1 links to O1 (in-range) → counted.
-      // RET-2, RET-3 link to O2 (out-of-range) → excluded by INNER JOIN.
-      // No orphan returns in fixture → orphanReturnCount = 0.
+      // Narrow window: only O1 (orderedAt 2026-04-14T15:00Z) is in range; O2 is
+      // excluded by `lt to`. RET-1..RET-3 exist, but nothing collects returns,
+      // so none of them is a measured return.
       const from = new Date('2026-04-14T15:00:00.000Z');
       const to = new Date('2026-04-15T15:00:00.000Z'); // excludes O2
       const result = await service.getReturnSummary(TEST_ORGANIZATION_ID, from, to);
 
       expect(result).toEqual({
-        orderCount: 1,   // O1 only
-        returnCount: 1,  // RET-1 only (INNER JOIN: O2 out-of-range drops RET-2+RET-3)
-        returnRate: 1,
-        orphanReturnCount: 0,
+        orderCount: 1,
+        returnCount: null,
+        returnRate: null,
+        orphanReturnCount: null,
       });
     });
 
-    it('returnRate = 0 when orderCount = 0 (edge)', async () => {
+    it('publishes no return rate for a window without orders', async () => {
       await seedFixture();
       const from = new Date('2030-01-01T00:00:00.000Z');
       const to = new Date('2030-01-02T00:00:00.000Z');
       const result = await service.getReturnSummary(TEST_ORGANIZATION_ID, from, to);
-      expect(result.orderCount).toBe(0);
-      expect(result.returnRate).toBe(0);
-      expect(Number.isFinite(result.returnRate)).toBe(true);
-      expect(result.orphanReturnCount).toBe(0);
+      expect(result).toEqual({
+        orderCount: 0,
+        returnCount: null,
+        returnRate: null,
+        orphanReturnCount: null,
+      });
     });
   });
 
   // ---------------------------------------------------------------------------
-  // #4b R-2 returnRate semantic edge cases (inline helpers, isolated beforeEach).
+  // #4b return summary edge cases (inline helpers, isolated beforeEach).
   // ---------------------------------------------------------------------------
 
   /**
@@ -586,6 +639,9 @@ describe('Channel dashboard (PG integration)', () => {
       data: {
         organizationId: opts.organizationId,
         channelAccountId: accountIdFor(opts.organizationId),
+        sourceImportRunId: opts.organizationId === TEST_ORGANIZATION_ID
+          ? ORDER_FACT_RUN_ID
+          : OTHER_ORDER_FACT_RUN_ID,
         externalOrderId: opts.externalOrderId,
         orderedAt: new Date(opts.orderedAt),
         status: 'accepted',
@@ -629,14 +685,14 @@ describe('Channel dashboard (PG integration)', () => {
       : OTHER_ACCOUNT_ID;
   }
 
-  describe('returnRate semantic edge cases', () => {
+  describe('return summary edge cases', () => {
     beforeEach(async () => {
       await resetDb(prisma);
       await seedBaseFixture(prisma);
       await seedDashboardAccounts();
     });
 
-    it('past-period order with current-period return is EXCLUDED from current returnRate', async () => {
+    it('publishes no return count or rate even when returns name orders of the window', async () => {
       // March order — outside April range
       const marchOrderId = await seedOrderInline({
         organizationId: TEST_ORGANIZATION_ID,
@@ -680,15 +736,17 @@ describe('Channel dashboard (PG integration)', () => {
         new Date('2026-04-01'),
         new Date('2026-05-01'),
       );
-      // orderCount: NEW-1 + NEW-2 + NEW-3 = 3 (all April orders)
-      expect(result.orderCount).toBe(3);
-      // returnCount: only NEW-1's return qualifies (INNER JOIN: march order excluded)
-      expect(result.returnCount).toBe(1);
-      expect(result.returnRate).toBeCloseTo(1 / 3, 6);
-      expect(result.orphanReturnCount).toBe(0);
+      // orderCount: NEW-1 + NEW-2 + NEW-3 = 3 (all April orders). The return
+      // rows are not measured returns, so no count or rate exists.
+      expect(result).toEqual({
+        orderCount: 3,
+        returnCount: null,
+        returnRate: null,
+        orphanReturnCount: null,
+      });
     });
 
-    it('orphan return (orderId NULL) goes to orphanReturnCount only', async () => {
+    it('publishes no orphan return count for a return without an order', async () => {
       await seedOrderInline({
         organizationId: TEST_ORGANIZATION_ID,
         orderedAt: '2026-04-05T00:00:00Z',
@@ -708,9 +766,9 @@ describe('Channel dashboard (PG integration)', () => {
       );
       expect(result).toEqual({
         orderCount: 1,
-        returnCount: 0,
-        returnRate: 0,
-        orphanReturnCount: 1,
+        returnCount: null,
+        returnRate: null,
+        orphanReturnCount: null,
       });
     });
 
@@ -734,18 +792,18 @@ describe('Channel dashboard (PG integration)', () => {
       );
       expect(result).toEqual({
         orderCount: 0,
-        returnCount: 0,
-        returnRate: 0,
-        orphanReturnCount: 0,
+        returnCount: null,
+        returnRate: null,
+        orphanReturnCount: null,
       });
 
       // Double-blind: verify OTHER_COMPANY actually returns the data (service isn't universally broken)
       const otherResult = await service.getReturnSummary(OTHER_ORGANIZATION_ID, new Date('2026-04-01'), new Date('2026-05-01'));
       expect(otherResult).toEqual({
         orderCount: 1,
-        returnCount: 1,
-        returnRate: 1,
-        orphanReturnCount: 0,
+        returnCount: null,
+        returnRate: null,
+        orphanReturnCount: null,
       });
     });
 
@@ -754,6 +812,7 @@ describe('Channel dashboard (PG integration)', () => {
       const orderData = Array.from({ length: 1000 }, (_, i) => ({
         organizationId: TEST_ORGANIZATION_ID,
         channelAccountId: PRIMARY_ACCOUNT_ID,
+        sourceImportRunId: ORDER_FACT_RUN_ID,
         externalOrderId: `PERF-${i}`,
         orderedAt: new Date(
           `2026-04-${String((i % 28) + 1).padStart(2, '0')}T00:00:00Z`,
@@ -810,8 +869,8 @@ describe('Channel dashboard (PG integration)', () => {
       const latencyMs = Date.now() - start;
 
       expect(result.orderCount).toBe(1000);
-      expect(result.returnCount).toBe(150);
-      expect(result.orphanReturnCount).toBe(50);
+      expect(result.returnCount).toBeNull();
+      expect(result.orphanReturnCount).toBeNull();
       expect(latencyMs).toBeLessThan(2000);
       console.log(`[perf] getReturnSummary 1000 orders + 200 returns → ${latencyMs}ms`);
     });
@@ -956,6 +1015,7 @@ describe('Channel dashboard (PG integration)', () => {
         data: {
           organizationId: TEST_ORGANIZATION_ID,
           channelAccountId: PRIMARY_ACCOUNT_ID,
+          sourceImportRunId: ORDER_FACT_RUN_ID,
           externalOrderId: 'UNRESOLVED-PROVIDER-1',
           orderedAt: new Date('2026-04-14T15:00:00.000Z'),
           status: 'paid',

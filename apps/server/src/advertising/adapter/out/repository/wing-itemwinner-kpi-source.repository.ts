@@ -8,7 +8,7 @@ import {
 import { Prisma } from '@prisma/client';
 import { deriveSourceReadiness } from '@kiditem/shared/source-readiness';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
-import { businessDateKey, parseBusinessDate } from '../../../../common/kst';
+import { businessDateKey, evidenceCutoffDate, parseBusinessDate } from '../../../../common/kst';
 import { canonicalOwnerInputHash as hash } from '../../../../common/owner-idempotency-key';
 import { resolveCoupangVendorId } from '../../../../channels/domain/coupang-account-identity';
 import { currentBusinessDate, toBusinessDate } from '../../../domain/business-date';
@@ -49,10 +49,6 @@ type SourceRun = Prisma.SourceImportRunGetPayload<{}>;
 
 function json(value: unknown): Prisma.InputJsonValue {
   return value as Prisma.InputJsonValue;
-}
-
-function dateText(value: Date): string {
-  return businessDateKey(value);
 }
 
 function dateAtUtc(value: string): Date {
@@ -187,7 +183,7 @@ export class WingItemwinnerKpiSourceRepository
         parserVersion: WING_ITEMWINNER_PARSER,
         channelAccountId: account.id,
         expectedVendorId,
-        businessDate: dateText(businessDate),
+        businessDate: businessDateKey(businessDate),
         pageType: PAGE_TYPE,
         targetUrl: input.targetUrl,
       };
@@ -278,7 +274,7 @@ export class WingItemwinnerKpiSourceRepository
 
         const plan = this.planOf(row);
         const observedBusinessDate = toBusinessDate(input.capture.observedAt);
-        if (!observedBusinessDate || dateText(observedBusinessDate) !== plan.businessDate) {
+        if (!observedBusinessDate || businessDateKey(observedBusinessDate) !== plan.businessDate) {
           const failed = await this.failIn(
             tx,
             row,
@@ -550,7 +546,7 @@ export class WingItemwinnerKpiSourceRepository
           channelAccountId: account.id,
           attemptId: row.id,
           generation: String(row.freshnessGeneration ?? 0n),
-          businessDate: dateText(snapshot.businessDate),
+          businessDate: businessDateKey(snapshot.businessDate),
           observedAt: snapshot.observedAt.toISOString(),
           normalizedJson,
           listingObservations: listingObservationsFromJson(
@@ -602,16 +598,15 @@ export class WingItemwinnerKpiSourceRepository
         actualCutoffAt: null,
       };
     }
+    const actualCutoffDate = toBusinessDate(latestComplete.actualCutoffAt);
     return {
       channelAccountId: account.id,
       ready: deriveSourceReadiness({
         latestAttempt,
         latestComplete: {
-          actualCutoff: toBusinessDate(latestComplete.actualCutoffAt)
-            ?.toISOString()
-            .slice(0, 10) ?? null,
+          actualCutoff: actualCutoffDate ? businessDateKey(actualCutoffDate) : null,
         },
-        requiredCutoff: dateText(new Date(currentBusinessDate().getTime() - 86_400_000)),
+        requiredCutoff: businessDateKey(evidenceCutoffDate()),
       }).ready,
       latestAttempt,
       latestComplete,

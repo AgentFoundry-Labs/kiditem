@@ -22,6 +22,12 @@ export const ProductAbcRecalculationResponseSchema = z.discriminatedUnion('outco
       sellpia: SourceReadinessSchema,
       advertising: SourceReadinessSchema,
     }).strict(),
+    // Present when no source pair exists while a source reads ready.
+    pairing: z.object({
+      lateSource: z.enum(['sellpia', 'advertising']),
+      sellpiaEndDate: CalendarDateSchema,
+      advertisingEndDate: CalendarDateSchema,
+    }).strict().optional(),
   }).strict(),
 ]);
 

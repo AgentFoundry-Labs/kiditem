@@ -1,8 +1,8 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import type { MasterProductOperationsMetadata } from '@kiditem/shared/product-operations';
 import { productAbcEvaluation } from '@/test/fixtures/product-abc';
 import { ProductAbcDetailDialog } from './ProductAbcDetailDialog';
+import type { MasterProductOperationsMetadata } from '@kiditem/shared/product-operations';
 
 describe('ProductAbcDetailDialog', () => {
   it('shows the retained official evaluation beside live source and contribution data', () => {
@@ -17,6 +17,9 @@ describe('ProductAbcDetailDialog', () => {
     expect(screen.getByText('공식 등급 기준일')).toBeInTheDocument();
     expect(screen.getByText('표시 데이터 기준일')).toBeInTheDocument();
     expect(screen.getByText('수익 데이터 관찰')).toBeInTheDocument();
+    expect(screen.getByText('계산 완료')).toBeInTheDocument();
+    expect(screen.getByText('매핑 최신 · 현재 세대 7 · 근거 세대 7')).toBeInTheDocument();
+    expect(screen.queryByText(/\bREADY\b/)).not.toBeInTheDocument();
     expect(screen.queryByText('주문 원천')).not.toBeInTheDocument();
     expect(screen.getByText(/PRODUCT_ABC_ABSOLUTE · v2 · 반감기 90일/)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: '상품 상세 보기' })).toHaveAttribute('href', '/product-hub/11111111-1111-4111-8111-111111111111');
@@ -61,7 +64,6 @@ function product(): MasterProductOperationsMetadata {
     abc: {
       abcGrade: 'A',
       evaluation,
-      displayStatus: 'READY',
       formulaRevision: 2,
       publicationRevision: 4,
       officialCutoffDate: '2026-07-31',
@@ -70,7 +72,11 @@ function product(): MasterProductOperationsMetadata {
       sources: {
         sellpia: source(),
         advertising: source(),
-        mapping: { status: 'READY', mappingGeneration: '7' },
+        mapping: {
+          valid: true,
+          currentMappingGeneration: '7',
+          evidenceMappingGeneration: '7',
+        },
       },
     },
     contribution: {
@@ -91,8 +97,6 @@ function product(): MasterProductOperationsMetadata {
     profitTag: null,
     adTier: null,
     adBudgetLimit: null,
-    healthScore: null,
-    healthUpdatedAt: null,
     isActive: true,
   };
 }

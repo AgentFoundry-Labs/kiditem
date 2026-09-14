@@ -26,6 +26,7 @@ const ALERT = { sourceType: SOURCE, dedupeKey: 'source:coupang-wing-catalog',
 const ReceiptSchema = z.object({
   sequence: z.number().int().min(0).max(11), keyword: SourcingWingCatalogKeywordSchema,
   checksum: z.string().regex(/^[a-f0-9]{64}$/), count: z.number().int().min(0).max(100),
+  acceptedCount: z.number().int().min(0).max(100).optional(),
   duplicateCount: z.number().int().min(0).max(100),
 }).strict();
 const FinalizeSchema = SourcingWingCatalogFinalizeSchema.extend({ receipts: z.array(ReceiptSchema).max(12) });
@@ -108,8 +109,9 @@ export class SourcingWingCatalogIngestService {
     }
     if (finalization.receipts.some((receipt, index) => {
       const result = finalization.keywords[index];
+      const acceptedCount = receipt.acceptedCount ?? receipt.count - receipt.duplicateCount;
       return !result || receipt.count !== result.discovered || receipt.count !== result.accepted + result.duplicate
-        || receipt.duplicateCount !== result.duplicate;
+        || acceptedCount !== result.accepted || receipt.duplicateCount !== result.duplicate;
     })) throw new ConflictException('SOURCE_RECEIPTS_MISMATCH');
     return this.attempts.completeWingCatalogAttempt({
       organizationId: input.organizationId, attemptId: input.attemptId, attemptToken: input.attemptToken,
@@ -129,7 +131,9 @@ export class SourcingWingCatalogIngestService {
 
   async ingest(input: SourcingWingCatalogIngestInput) {
     const command = SourcingCoupangObservationCommandSchema.parse({ idempotencyKey: input.idempotencyKey, items: input.items });
-    const items = command.items.map(toCurrentObservation);
+    const items = deduplicateExactManualObservations(
+      command.items.map(toCurrentObservation),
+    );
     const keywords = [...new Set(items.map((item) => sourcingWingCatalogKeywordIdentity(item.sourceKeyword)))];
     const plan = { source: SOURCE, kind: 'manual', keywords };
     const { attempt } = await this.attempts.beginAttempt({
@@ -142,7 +146,15 @@ export class SourcingWingCatalogIngestService {
       organizationId: input.organizationId, attemptId: attempt.attemptId, attemptToken: attempt.attemptToken,
       planChecksum: attempt.planChecksum, contentChecksum: hashCollectionRequest(command),
       output: { ...buildBatchOutput({ organizationId: input.organizationId, permit: toPermit(attempt, input.organizationId), items }),
-        qualityReport: { source: SOURCE, snapshots: keywords.map((keyword) => ({ keyword })) } },
+        qualityReport: {
+          source: SOURCE,
+          snapshots: keywords.map((keyword) => ({ keyword })),
+          wingReceipts: keywords.map((keyword) => {
+            const count = items.filter((item) =>
+              sourcingWingCatalogKeywordIdentity(item.sourceKeyword) === keyword).length;
+            return { count, acceptedCount: count, duplicateCount: 0 };
+          }),
+        } },
     });
   }
 
@@ -154,6 +166,17 @@ export class SourcingWingCatalogIngestService {
     return SourcingWingCatalogSnapshotSchema.parse({ keyword,
       generatedAt: result.generatedAt?.toISOString() ?? null, items: result.items, rejectedCount: result.rejectedCount });
   }
+}
+
+function deduplicateExactManualObservations(
+  items: SourcingWingCatalogObservation[],
+): SourcingWingCatalogObservation[] {
+  const byPayload = new Map<string, SourcingWingCatalogObservation>();
+  for (const item of items) {
+    const identity = hashCollectionRequest(item);
+    if (!byPayload.has(identity)) byPayload.set(identity, item);
+  }
+  return [...byPayload.values()];
 }
 
 function buildBatchOutput(input: {
@@ -199,7 +222,16 @@ function buildBatchOutput(input: {
   });
   return {
     observations,
-    typedRecords: [],
+    typedRecords: input.items.map((item, index) => ({
+      kind: 'wing_catalog_product' as const,
+      row: {
+        organizationId: input.organizationId,
+        ingestionRunId: input.permit.runId,
+        evidenceObservationKey: observations[index]!.observationKey,
+        evidenceRevision: 1,
+        ...item,
+      },
+    })),
     discoveredCount: observations.length,
     rejectedCount: 0,
     qualityReport: {

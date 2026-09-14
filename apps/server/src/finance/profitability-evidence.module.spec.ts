@@ -105,6 +105,8 @@ function advertisingSummary(overrides: Record<string, unknown> = {}) {
     publicationSequence: '9',
     coverageStartDate: '2025-09-01',
     coveredThrough: '2026-08-31',
+    // A generation confirms the day it requested unless a test holds one back.
+    requestedThrough: overrides.coveredThrough ?? '2026-08-31',
     capturedAt: '2026-09-02T00:00:00.000Z',
     mappingGeneration: '3',
     adSourcePolicyHash: PRODUCT_ABC_ABSOLUTE_V1_AD_SOURCE_POLICY_HASH,
@@ -169,7 +171,6 @@ function advertisingGeneration(overrides: Record<string, unknown> = {}) {
   const summary = advertisingSummary();
   return {
     summary,
-    facts: [],
     allocations: MONTHS.map((month) => ({
       channelAccountId: '00000000-0000-4000-8000-000000000030',
       channelListingId: '00000000-0000-4000-8000-000000000031',
@@ -416,9 +417,12 @@ describe('ProfitabilityEvidence', () => {
           ? { ...fact, coverageEndDate: '2026-08-14' }
           : fact),
       }),
+      // The advertising generation the snapshot lists is the one read back.
       advertisingSnapshot: {
         ...advertisingSnapshot(),
         latestAttempt: { ...advertisingSnapshot().latestAttempt, coverageEndDate: '2026-08-15' },
+        latestComplete: advertisingSummary({ coveredThrough: '2026-08-15' }),
+        completeGenerations: [advertisingSummary({ coveredThrough: '2026-08-15' })],
       },
       advertisingGeneration: advertisingGeneration({
         summary: advertisingSummary({ coveredThrough: '2026-08-15' }),

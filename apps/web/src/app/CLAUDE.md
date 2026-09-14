@@ -1,3 +1,5 @@
+Before working in this directory, always read this document first rather than relying on memory.
+
 # web/app — App Router Routes
 
 `src/app/` owns App Router pages, layouts, route groups, and route-local

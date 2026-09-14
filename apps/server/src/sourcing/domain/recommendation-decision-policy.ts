@@ -20,7 +20,11 @@ export type RecommendationConfidenceKind =
   | 'coverage'
   | 'calibrated_probability';
 
-export type RecommendationGateStatus = 'passed' | 'unknown' | 'blocked';
+export type RecommendationGateStatus =
+  | 'not_evaluated'
+  | 'passed'
+  | 'unknown'
+  | 'blocked';
 
 export type RecommendationNextEvidenceAction =
   | 'verify_compliance'
@@ -102,11 +106,20 @@ export function decideSourcingRecommendation(
   if (input.gates.compliance === 'unknown') {
     addHold('compliance_unknown', 'verify_compliance');
   }
+  if (input.gates.compliance === 'not_evaluated') {
+    addHold('compliance_not_evaluated', 'verify_compliance');
+  }
   if (input.gates.ip === 'unknown') {
     addHold('ip_unknown', 'verify_ip');
   }
+  if (input.gates.ip === 'not_evaluated') {
+    addHold('ip_not_evaluated', 'verify_ip');
+  }
   if (input.gates.qc === 'unknown') {
     addHold('qc_unknown', 'verify_qc');
+  }
+  if (input.gates.qc === 'not_evaluated') {
+    addHold('qc_not_evaluated', 'verify_qc');
   }
   for (const code of unknownRiskCodes) {
     addHold(`unknown_risk:${code}`, 'resolve_unknown_risk');

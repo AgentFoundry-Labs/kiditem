@@ -1,3 +1,5 @@
+Before working in this directory, always read this document first rather than relying on memory.
+
 # web/analytics - Dashboard Read Models
 
 `app/(analytics)/` owns dashboard read-model UI: sales, ad, inventory, trends,

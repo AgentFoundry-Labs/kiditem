@@ -8,7 +8,6 @@ const formerConsumers = [
   'components/providers/SellpiaInventorySyncProvider.tsx',
   'app/(inventory)/inventory-hub/page.tsx',
   'app/(catalog)/product-hub/matching/page.tsx',
-  'app/(supply)/purchase-orders/components/RocketPurchasePreviewSection.tsx',
   'app/(orders)/order-collection/components/OrderCollectionWorkspace.tsx',
 ];
 

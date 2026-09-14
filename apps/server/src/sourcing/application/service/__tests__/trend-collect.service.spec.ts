@@ -620,4 +620,40 @@ describe('TrendCollectService', () => {
     expect(shorts).toMatchObject({ source: 'shorts', ok: true, collected: 1 });
     expect(typedRows(ports, 'shorts')).toHaveLength(1);
   });
+
+  // Before 09:00 KST, UTC midnight of the KST business date is later than the
+  // capture, so a window starting there is reversed and declares no day.
+  it.each([
+    ['03:30 KST', '2026-09-06T18:30:00.000Z'],
+    ['12:00 KST', '2026-09-07T03:00:00.000Z'],
+  ])('declares the KST day containing a capture at %s as the source window', async (_label, capturedAt) => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(capturedAt));
+    try {
+      ports.shortstrend.fetchTrending = vi.fn(async () => ({
+        source: 'shortstrend' as const,
+        generatedAt: capturedAt,
+        items: [{ videoKey: 'vid-1', title: null, channelName: null, viewCount: null, likeCount: null,
+          commentCount: null, keyword: '문구', publishedAt: null, thumbnailUrl: null, videoUrl: null, rank: 1 }],
+      }));
+
+      const result = await ports.service.collect(ORGANIZATION_ID, ['naver', 'shorts'], null, 'window');
+
+      expect(result).toMatchObject({ businessDate: '2026-09-07',
+        results: [{ source: 'naver', ok: true }, { source: 'shorts', ok: true }] });
+      const sourceWindow = {
+        sourceWindowStartAt: new Date('2026-09-06T15:00:00.000Z'),
+        sourceWindowEndAt: new Date(capturedAt),
+      };
+      expect(ports.attempts.completeAttempt.mock.calls.map(([input]) => ({
+        sourceWindowStartAt: input.sourceWindowStartAt,
+        sourceWindowEndAt: input.sourceWindowEndAt,
+      }))).toEqual([sourceWindow, sourceWindow]);
+      expect(typedRows(ports, 'shorts')).toMatchObject([
+        { videoKey: 'vid-1', businessDate: new Date('2026-09-07T00:00:00.000Z') },
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

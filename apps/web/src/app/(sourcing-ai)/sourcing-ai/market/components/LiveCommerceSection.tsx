@@ -11,6 +11,7 @@ import {
   PackageSearch,
   Radio,
 } from 'lucide-react';
+import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatDateTime, formatNumber } from '@/lib/utils';
 import {
@@ -46,14 +47,14 @@ export function LiveCommerceSection() {
   const snapshotsQueryKey = queryKeys.sourcing.liveCommerceSnapshots(HISTORY_DAYS);
   const snapshotQueryKeys = [statusQueryKey, snapshotsQueryKey, queryKeys.sourcing.liveCommerceKeywords(HISTORY_DAYS)] as const;
 
-  const statusQuery = useQuery({
+  const statusQuery = useQuery(collectionSourceStatusQueryOptions({
     queryKey: statusQueryKey,
     queryFn: () => fetchLiveCommerceStatus(taobaoInput),
     refetchInterval: (query) => query.state.data?.sources.some(
       (source) => source.sourceStatus?.latestAttempt?.state === 'RUNNING',
     ) ? 5_000 : false,
     staleTime: 60 * 1000,
-  });
+  }));
   const snapshotsQuery = useQuery({
     queryKey: snapshotsQueryKey,
     queryFn: () => fetchLiveCommerceSnapshots(HISTORY_DAYS),
@@ -97,14 +98,14 @@ export function LiveCommerceSection() {
     ...queryKeys.sourcing.liveCommerceExtensionStatus(),
     browserStatusUrl,
   ] as const;
-  const browserSourceStatusQuery = useQuery({
+  const browserSourceStatusQuery = useQuery(collectionSourceStatusQueryOptions({
     queryKey: browserSourceStatusQueryKey,
     queryFn: () => fetchSourcingLiveCommerceSourceStatus(browserStatusUrl ?? ''),
     enabled: browserStatusUrl !== null,
     refetchInterval: (query) => (
       query.state.data?.latestAttempt?.state === 'RUNNING' ? 5_000 : false
     ),
-  });
+  }));
   const browserCollectionMutation = useMutation({
     mutationFn: async (url: string) => {
       const idempotencyKey = retryKeysByUrl.current.get(url) ?? crypto.randomUUID();

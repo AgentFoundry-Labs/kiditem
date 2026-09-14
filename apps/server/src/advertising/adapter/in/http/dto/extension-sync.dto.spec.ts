@@ -15,7 +15,7 @@ it.each(['ad_keyword', 'keyword_rank', 'wing_sales_rank', 'competitor_seller_ide
   },
 );
 
-it.each(['ad_campaign', 'raw_scrape', 'traffic', 'coupang_ads_daily'])(
+it.each(['ad_campaign', 'raw_scrape', 'traffic'])(
   'preserves the retained %s extension sync ingress',
   async (type) => {
     const pipe = new ValidationPipe({ whitelist: true, transform: true });

@@ -1,16 +1,21 @@
-import { Injectable } from '@nestjs/common';
-import { ProductAbcEvaluationSchema } from '@kiditem/shared/product-abc';
-import { PrismaService } from '../../../../../prisma/prisma.service';
+import { Injectable } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
+import { PrismaService } from "../../../../../prisma/prisma.service";
+import {
+  ORDER_FACT_EXCLUDED_STATUSES,
+  readOrderLineWindowFacts,
+} from "../../../../../orders/read/order-facts.reader";
+import { readProductAbcPublication } from "../../../../../products/read/product-abc-publication.reader";
 import {
   buildPerListingProfit,
   readAdEvidenceFromLedger,
   type PerListingProfit,
-} from '../../../../../common/per-listing-profit';
-import type { TopProduct } from '@kiditem/shared/dashboard';
+} from "../../../../../common/per-listing-profit";
+import type { TopProduct } from "@kiditem/shared/dashboard";
 import type {
   DashboardSalesRepositoryPort,
   TodayKpiRow,
-} from '../../../application/port/out/repository/dashboard-sales.repository.port';
+} from "../../../application/port/out/repository/dashboard-sales.repository.port";
 
 interface TopProductRawRow {
   id: string;
@@ -19,52 +24,48 @@ interface TopProductRawRow {
    * has to name rows that have no listing. Null is how a Rocket line says so.
    */
   listingId: string | null;
+  masterProductId: string | null;
   name: string;
   organization: string | null;
-  abcEvaluation: unknown;
   revenue: number;
   quantity: number;
 }
 
 /**
- * Sales-side raw SQL for the dashboard read model. Owns the tagged-template
- * `$queryRaw` reads that hydrate today KPI, top-N product ranking, and the
- * current-month per-day revenue series.
- *
- * Tenant predicate: every read binds `${organizationId}::uuid` against the
- * appropriate tenant column (orders, channel listings, master products).
- * 2-hop joins assert the predicate on each tenant-owned table.
+ * Sales projection over Orders' canonical line-fact reader. Listing, account,
+ * and product lookups below are identity/configuration joins only; revenue and
+ * quantity always come from the owner reader.
  */
 @Injectable()
-export class DashboardSalesRepositoryAdapter
-  implements DashboardSalesRepositoryPort
-{
-  constructor(
-    private readonly prisma: PrismaService,
-  ) {}
+export class DashboardSalesRepositoryAdapter implements DashboardSalesRepositoryPort {
+  constructor(private readonly prisma: PrismaService) {}
 
   /**
-   * KST today KPI — `SUM(oli.total_price)` is the I3 canonical revenue source
-   * (per-line-item, not per-order) for the channel-agnostic order schema.
+   * KST today KPI with the owner's completeness verdict intact.
    */
   async fetchTodayKpis(
     organizationId: string,
     todayStart: Date,
     todayEnd: Date,
   ): Promise<TodayKpiRow> {
-    const rows = await this.prisma.$queryRaw<TodayKpiRow[]>`
-      SELECT
-        COALESCE(SUM(oli.total_price), 0)::int AS revenue,
-        COUNT(DISTINCT o.id)::int AS orders
-      FROM orders o
-      JOIN order_line_items oli ON oli.order_id = o.id
-      WHERE o.organization_id = ${organizationId}::uuid
-        AND o.ordered_at >= ${todayStart}
-        AND o.ordered_at < ${todayEnd}
-        AND o.status NOT IN ('cancelled', 'returned', 'refunded')
-    `;
-    const r = rows[0];
-    return { revenue: Number(r?.revenue ?? 0), orders: Number(r?.orders ?? 0) };
+    const facts = await this.prisma.$transaction(
+      (tx) =>
+        readOrderLineWindowFacts(tx, {
+          organizationId,
+          from: todayStart,
+          to: todayEnd,
+          excludedStatuses: ORDER_FACT_EXCLUDED_STATUSES,
+        }),
+      { isolationLevel: "RepeatableRead" },
+    );
+    return {
+      revenue: facts.window.revenue,
+      orders: facts.window.orderCount,
+      requestedDates: facts.window.requestedDates,
+      includedDates: facts.window.includedDates,
+      missingDates: facts.window.missingDates,
+      observedAt: facts.window.observedAt,
+    };
   }
 
   /**
@@ -73,7 +74,7 @@ export class DashboardSalesRepositoryAdapter
    * how many Sellpia components its option consumes. Product labels and grade
    * come from the listing's direct operational-product link.
    *
-   * Revenue comes from this SQL, which is the only read that can see a Rocket
+   * Revenue comes from the canonical Orders reader, which is the only read that can see a Rocket
    * line. Profit comes from `buildPerListingProfit` — the same helper
    * `/api/profit-loss` uses, for the same window — so the two screens cannot
    * disagree about one listing's margin. A row the helper has no answer for
@@ -84,82 +85,94 @@ export class DashboardSalesRepositoryAdapter
     monthStart: Date,
     monthEnd: Date,
   ): Promise<TopProduct[]> {
-    const rows = await this.prisma.$queryRaw<TopProductRawRow[]>`
-      WITH scoped_orders AS (
-        SELECT *
-        FROM orders
-        WHERE organization_id = ${organizationId}::uuid
+    return this.prisma.$transaction(
+      (tx) => this.fetchTopProductsSnapshot(tx, organizationId, monthStart, monthEnd),
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
+  }
+
+  private async fetchTopProductsSnapshot(
+    tx: Prisma.TransactionClient,
+    organizationId: string,
+    monthStart: Date,
+    monthEnd: Date,
+  ): Promise<TopProduct[]> {
+    const facts = await readOrderLineWindowFacts(tx, {
+      organizationId,
+      from: monthStart,
+      to: monthEnd,
+      excludedStatuses: ORDER_FACT_EXCLUDED_STATUSES,
+    });
+    if (facts.window.revenue === null) return [];
+
+    const lines = facts.orders.flatMap((order) => order.lines);
+    const optionIds = [
+      ...new Set(
+        lines.flatMap((line) =>
+          line.listingOptionId ? [line.listingOptionId] : [],
+        ),
+      ),
+    ];
+    const accountIds = [
+      ...new Set(facts.orders.map((order) => order.channelAccountId)),
+    ];
+    const options = await tx.channelListingOption.findMany({
+        where: { organizationId, id: { in: optionIds } },
+        select: {
+          id: true,
+          listing: {
+            select: {
+              id: true,
+              externalId: true,
+              channelName: true,
+              displayName: true,
+              masterProduct: {
+                select: { id: true, name: true },
+              },
+            },
+          },
+        },
+      });
+    const accounts = await tx.channelAccount.findMany({
+        where: { organizationId, id: { in: accountIds } },
+        select: { id: true, name: true, channel: true },
+      });
+    const optionById = new Map(options.map((option) => [option.id, option]));
+    const accountById = new Map(
+      accounts.map((account) => [account.id, account]),
+    );
+    const grouped = new Map<string, TopProductRawRow>();
+    for (const line of lines) {
+      const listing = line.listingOptionId
+        ? (optionById.get(line.listingOptionId)?.listing ?? null)
+        : null;
+      const account = accountById.get(line.channelAccountId);
+      const id = listing?.id ?? `line-sku:${line.sku ?? line.lineItemId}`;
+      const current = grouped.get(id) ?? {
+        id,
+        listingId: listing?.id ?? null,
+        masterProductId: listing?.masterProduct?.id ?? null,
+        name:
+          listing?.masterProduct?.name ??
+          listing?.displayName ??
+          listing?.channelName ??
+          listing?.externalId ??
+          line.productName,
+        organization:
+          listing?.channelName ?? account?.name ?? account?.channel ?? null,
+        revenue: 0,
+        quantity: 0,
+      };
+      current.revenue += line.revenue;
+      current.quantity += line.quantity;
+      grouped.set(id, current);
+    }
+    const rows = [...grouped.values()]
+      .sort(
+        (left, right) =>
+          right.revenue - left.revenue || left.id.localeCompare(right.id),
       )
-      SELECT
-        COALESCE(cl.id::text, 'line-sku:' || oli.sku) AS id,
-        cl.id::text AS "listingId",
-        COALESCE(mp.name, cl.display_name, cl.channel_name, cl.external_id, oli.product_name) AS name,
-        COALESCE(cl.channel_name, ca.name, ca.channel) AS organization,
-        CASE WHEN abce.id IS NULL THEN NULL ELSE jsonb_build_object(
-          'abcGrade', abce.abc_grade,
-          'weightedRevenue', abce.weighted_revenue,
-          'weightedOrderTimeSupplyCost', abce.weighted_order_time_supply_cost,
-          'weightedAdvertisingSpend', abce.weighted_advertising_spend,
-          'weightedOperatingProfit', abce.weighted_operating_profit,
-          'operatingProfitVelocity30', abce.operating_profit_velocity_30,
-          'operatingMargin', abce.operating_margin,
-          'lossPersistence', abce.loss_persistence,
-          'profitScore', abce.profit_score,
-          'marginScore', abce.margin_score,
-          'consistencyScore', abce.consistency_score,
-          'economicScore', abce.economic_score,
-          'validObservationDays', abce.valid_observation_days,
-          'formula', abcf.formula_json,
-          'formulaRevision', abce.formula_revision,
-          'publicationRevision', abce.publication_revision,
-          'gradeBasisCutoffDate', abce.grade_basis_cutoff_date,
-          'saleStartDate', abce.sale_start_date,
-          'sellpiaSourceImportRunId', abce.sellpia_source_import_run_id,
-          'advertisingSourceImportRunId', abce.advertising_source_import_run_id,
-          'sellpiaGeneration', abce.sellpia_generation::text,
-          'advertisingGeneration', abce.advertising_generation::text,
-          'mappingGeneration', abce.mapping_generation::text,
-          'calculatedAt', abce.calculated_at
-        ) END AS "abcEvaluation",
-        SUM(oli.total_price)::int AS revenue,
-        SUM(oli.quantity)::int AS quantity
-      FROM scoped_orders o
-      JOIN order_line_items oli ON oli.order_id = o.id
-      -- Rocket purchase orders are channel revenue too, and their lines never
-      -- carry a listing option: the Coupang direct importer resolves product
-      -- identity through Supply's confirmation, not through a listing. An
-      -- inner join here hid that revenue entirely — a July of 18,945,520원
-      -- rendered as "no product revenue". The line's own product identity
-      -- stands in when no listing resolves; the grade and the evidence stay
-      -- absent rather than being guessed at.
-      LEFT JOIN channel_listing_options clo
-        ON clo.id = oli.listing_option_id
-        AND clo.organization_id = ${organizationId}::uuid
-      LEFT JOIN channel_listings cl
-        ON cl.id = clo.listing_id
-        AND cl.organization_id = ${organizationId}::uuid
-      LEFT JOIN channel_accounts ca
-        ON ca.id = o.channel_account_id
-        AND ca.organization_id = ${organizationId}::uuid
-      LEFT JOIN master_products mp ON mp.id = cl.master_product_id
-        AND mp.organization_id = ${organizationId}::uuid
-      LEFT JOIN master_product_abc_evaluations abce
-        ON abce.master_product_id = mp.id
-        AND abce.organization_id = ${organizationId}::uuid
-      LEFT JOIN master_product_abc_formula_versions abcf
-        ON abcf.id = abce.formula_version_id
-        AND abcf.organization_id = ${organizationId}::uuid
-      WHERE o.organization_id = ${organizationId}::uuid
-        AND oli.organization_id = ${organizationId}::uuid
-        AND o.ordered_at >= ${monthStart}
-        AND o.ordered_at < ${monthEnd}
-        AND o.status NOT IN ('cancelled', 'returned', 'refunded')
-      GROUP BY COALESCE(cl.id::text, 'line-sku:' || oli.sku),
-               cl.id, cl.display_name, cl.channel_name, cl.external_id,
-               ca.name, ca.channel, oli.product_name, mp.name, abce.id, abcf.id
-      ORDER BY revenue DESC
-      LIMIT 10
-    `;
+      .slice(0, 10);
 
     // The ranking used to publish `revenue * 0.3` here. A flat margin reads on
     // screen exactly like a settled figure, and the Rocket rows above — which
@@ -173,21 +186,42 @@ export class DashboardSalesRepositoryAdapter
     // Nothing in the ranking settles against a listing — an empty month, or a
     // month of Rocket lines only — so the per-listing read has no consumer and
     // is not worth its four queries.
-    const profitByListing = rankedListingIds.size === 0
-      ? new Map<string, PerListingProfit>()
-      : await this.readProfitByRankedListing(organizationId, monthStart, monthEnd);
+    const profitByListing =
+      rankedListingIds.size === 0
+        ? new Map<string, PerListingProfit>()
+        : await this.readProfitByRankedListing(
+            tx,
+            organizationId,
+            monthStart,
+            monthEnd,
+          );
+    const abc = await readProductAbcPublication(tx, {
+      organizationId,
+      masterProductIds: rows.flatMap((row) =>
+        row.masterProductId ? [row.masterProductId] : [],
+      ),
+    });
+    const evaluationByProductId = new Map(
+      abc.products.map((product) => [
+        product.masterProductId,
+        product.evaluation,
+      ]),
+    );
 
     return rows.map((r) => {
-      const revenue = Number(r.revenue ?? 0);
+      const revenue = r.revenue;
       // A row with no listing has nothing to look up, and a listing the helper
       // withheld (incomplete ad coverage, per ADR-0006) answers `null` itself.
-      const measured = r.listingId ? profitByListing.get(r.listingId) ?? null : null;
-      const parsedEvaluation = ProductAbcEvaluationSchema.safeParse(r.abcEvaluation);
-      const abcEvaluation = parsedEvaluation.success ? parsedEvaluation.data : null;
+      const measured = r.listingId
+        ? (profitByListing.get(r.listingId) ?? null)
+        : null;
+      const abcEvaluation = r.masterProductId
+        ? (evaluationByProductId.get(r.masterProductId) ?? null)
+        : null;
       return {
         id: r.id,
         name: r.name,
-        organization: r.organization ?? '미지정',
+        organization: r.organization ?? "미지정",
         grade: abcEvaluation?.abcGrade ?? null,
         abcEvaluation,
         revenue,
@@ -204,18 +238,19 @@ export class DashboardSalesRepositoryAdapter
    * what made "runs no ads" and "ad collection failed" the same zero.
    */
   private async readProfitByRankedListing(
+    tx: Prisma.TransactionClient,
     organizationId: string,
     from: Date,
     to: Date,
   ): Promise<Map<string, PerListingProfit>> {
     const adEvidence = await readAdEvidenceFromLedger(
-      this.prisma,
+      tx,
       organizationId,
       from,
       to,
     );
     const rows = await buildPerListingProfit(
-      this.prisma,
+      tx,
       organizationId,
       from,
       to,

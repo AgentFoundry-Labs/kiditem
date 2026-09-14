@@ -1,3 +1,5 @@
+Before working in this directory, always read this document first rather than relying on memory.
+
 # web/product-pipeline/_shared - Pipeline Shared UI and Helpers
 
 `product-pipeline/_shared/` owns code reused by multiple product-pipeline

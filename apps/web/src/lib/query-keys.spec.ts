@@ -53,7 +53,7 @@ describe('retired order route query keys', () => {
     expect(queryKeys).not.toHaveProperty('returns');
     expect(queryKeys).not.toHaveProperty('picking');
     expect(queryKeys.orders).not.toHaveProperty('list');
-    expect(queryKeys.orders).not.toHaveProperty('stats');
+    expect(queryKeys.orders.stats()).toEqual(['orders', 'stats']);
     expect(queryKeys.orders).not.toHaveProperty('search');
     expect(queryKeys.orders).not.toHaveProperty('compare');
     expect(queryKeys.orders).not.toHaveProperty('sync');

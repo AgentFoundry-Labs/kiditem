@@ -17,7 +17,7 @@ vi.mock('sonner', () => ({
   toast: { info: vi.fn(), success: vi.fn(), error: vi.fn(), warning: vi.fn() },
 }));
 
-const check = { key: 'wing_kpi', collector: 'extension' } as ReadinessCheck;
+const check = { key: 'wing_kpi' } as ReadinessCheck;
 const ids = [
   '11111111-1111-4111-8111-111111111111',
   '22222222-2222-4222-8222-222222222222',
@@ -85,6 +85,17 @@ function setup(
   const messages: Array<Record<string, unknown>> = [];
   const requests: Array<{ url: string; init: RequestInit }> = [];
   vi.stubGlobal('fetch', async (url: string, init: RequestInit = {}) => {
+    // Readiness also observes the campaign sweep owner. That read is not Wing
+    // IO, so it answers idle and stays out of the recorded Wing requests.
+    if (String(url).endsWith('/api/ads/ad-campaigns/source')) {
+      return Response.json({
+        channelAccountId: null,
+        ready: false,
+        latestAttempt: null,
+        latestComplete: null,
+        actualCutoffAt: null,
+      });
+    }
     requests.push({ url: String(url), init });
     events.push(`${init.method ?? 'GET'} ${url}`);
     if (String(url).endsWith('/extension-handoff'))
@@ -126,8 +137,10 @@ function setup(
           },
         },
   );
+  // Wing batch reads follow the shared source-status rule, which retries the
+  // 503 case below; a zero default delay keeps those retries immediate.
   const client = new QueryClient({
-    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    defaultOptions: { queries: { retry: false, retryDelay: 0 }, mutations: { retry: false } },
   });
   const refetchReadiness = vi.fn().mockResolvedValue(undefined);
   const view = renderHook(() => useReadinessCollection({ refetchReadiness }), {

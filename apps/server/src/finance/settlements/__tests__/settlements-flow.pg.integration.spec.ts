@@ -11,50 +11,12 @@ import {
   TEST_ORGANIZATION_ID,
   OTHER_ORGANIZATION_ID,
 } from '../../../test-helpers/real-prisma';
-import {
-  setupMaster,
-  setupProductOption,
-  setupChannelListing,
-  seedOrderWithLineItems,
-  seedAd,
-  seedCompletedAdSweepRun,
-} from '../../../test-helpers/finance-seeds';
+import { readSettlements } from '../read/settlement-facts';
+import type { UpdateSettlementDto } from '../dto';
 
 describe('Settlements flow (PG integration)', () => {
   let prisma: PrismaClient;
   let service: SettlementsService;
-
-  async function seedListingFixture(opts: {
-    organizationId: string;
-    suffix: string;
-    costPrice?: number;
-    commissionRate?: number;
-    otherCost?: number;
-  }) {
-    const master = await setupMaster(prisma, {
-      organizationId: opts.organizationId,
-      code: `SET-${opts.suffix}`,
-      name: `Settlement ${opts.suffix}`,
-    });
-    const option = await setupProductOption(prisma, {
-      organizationId: opts.organizationId,
-      masterId: master.id,
-      sku: `SET-${opts.suffix}-SKU`,
-      costPrice: opts.costPrice,
-      commissionRate: opts.commissionRate,
-      otherCost: opts.otherCost,
-    });
-    const listing = await setupChannelListing(prisma, {
-      organizationId: opts.organizationId,
-      masterId: master.id,
-      channel: 'coupang',
-      externalId: `SET-${opts.suffix}-EXT`,
-      channelName: `SET ${opts.suffix}`,
-      optionId: option.id,
-      externalOptionId: `SET-${opts.suffix}-VI`,
-    });
-    return { master, option, listing };
-  }
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
@@ -78,283 +40,6 @@ describe('Settlements flow (PG integration)', () => {
     await seedBaseFixture(prisma);
   });
 
-  describe('reconcile — live matched path', () => {
-    it('#1 builds the PL-side fields from live revenue/cost inputs', async () => {
-      const fixture = await seedListingFixture({
-        organizationId: TEST_ORGANIZATION_ID,
-        suffix: 'LIVE',
-        costPrice: 5_000,
-        commissionRate: 0.1,
-        otherCost: 500,
-      });
-
-      await seedOrderWithLineItems(prisma, {
-        organizationId: TEST_ORGANIZATION_ID,
-        externalOrderId: 'SET-ORD-1',
-        orderedAt: '2026-03-15T00:00:00.000Z',
-        shippingPrice: 3_000,
-        status: 'paid',
-        lineItems: [{
-          quantity: 1,
-          totalPrice: 20_000,
-          optionId: fixture.option.id,
-          listingOptionId: fixture.listing.listingOptionId,
-        }],
-      });
-      // The campaign sweep measured every March date, so the listing's own
-      // rows are its whole March ad cost and its profit is a measurement.
-      const runId = await seedCompletedAdSweepRun(prisma, {
-        organizationId: TEST_ORGANIZATION_ID,
-        generation: 1,
-        window: { startDate: '2026-03-01', endDate: '2026-03-31' },
-      });
-      await seedAd(prisma, {
-        organizationId: TEST_ORGANIZATION_ID,
-        listingId: fixture.listing.listingId,
-        date: '2026-03-15',
-        spend: 2_000,
-        runId,
-      });
-
-      const result = await service.reconcile(TEST_ORGANIZATION_ID, '2026-03');
-
-      expect(result.details).toHaveLength(1);
-      expect(result.details[0]).toEqual(expect.objectContaining({
-        listingId: fixture.listing.listingId,
-        externalId: 'SET-LIVE-EXT',
-        channelName: 'SET LIVE',
-        masterCode: 'SET-LIVE',
-        masterName: 'Settlement LIVE',
-        plRevenue: 20_000,
-        plCommission: 2_000,
-        plNetProfit: 7_500,
-        plOrderCount: 1,
-        orderTotal: 20_000,
-        orderCount: 1,
-        revenueDiff: 0,
-        isMatched: true,
-        status: 'matched',
-      }));
-      expect(result.summary).toEqual(expect.objectContaining({
-        totalPlRevenue: 20_000,
-        totalOrderRevenue: 20_000,
-        totalCommission: 2_000,
-        totalShipping: 3_000,
-        revenueDifference: 0,
-        productCount: 1,
-        orderCount: 1,
-        matchedCount: 1,
-        mismatchCount: 0,
-        matchRate: 100,
-      }));
-    });
-  });
-
-  describe('reconcile — KST month boundary', () => {
-    it('#2 2026-03-31 23:30 KST is included in March, not April', async () => {
-      const fixture = await seedListingFixture({
-        organizationId: TEST_ORGANIZATION_ID,
-        suffix: 'MARCH',
-        costPrice: 1_000,
-        commissionRate: 0.1,
-      });
-
-      await seedOrderWithLineItems(prisma, {
-        organizationId: TEST_ORGANIZATION_ID,
-        externalOrderId: 'SET-KST-MARCH',
-        orderedAt: '2026-03-31T14:30:00.000Z',
-        shippingPrice: 0,
-        status: 'paid',
-        lineItems: [{
-          quantity: 1,
-          totalPrice: 5_000,
-          optionId: fixture.option.id,
-          listingOptionId: fixture.listing.listingOptionId,
-        }],
-      });
-
-      const march = await service.reconcile(TEST_ORGANIZATION_ID, '2026-03');
-      const april = await service.reconcile(TEST_ORGANIZATION_ID, '2026-04');
-
-      expect(march.details).toHaveLength(1);
-      expect(march.details[0]).toEqual(expect.objectContaining({
-        listingId: fixture.listing.listingId,
-        plRevenue: 5_000,
-        orderTotal: 5_000,
-      }));
-      expect(april.details).toEqual([]);
-      expect(april.summary.totalPlRevenue).toBe(0);
-      expect(april.summary.totalOrderRevenue).toBe(0);
-    });
-
-    it('#3 2026-04-01 00:30 KST is included in April, not March', async () => {
-      const fixture = await seedListingFixture({
-        organizationId: TEST_ORGANIZATION_ID,
-        suffix: 'APRIL',
-        costPrice: 1_000,
-        commissionRate: 0.1,
-      });
-
-      await seedOrderWithLineItems(prisma, {
-        organizationId: TEST_ORGANIZATION_ID,
-        externalOrderId: 'SET-KST-APRIL',
-        orderedAt: '2026-03-31T15:30:00.000Z',
-        shippingPrice: 0,
-        status: 'paid',
-        lineItems: [{
-          quantity: 1,
-          totalPrice: 5_000,
-          optionId: fixture.option.id,
-          listingOptionId: fixture.listing.listingOptionId,
-        }],
-      });
-
-      const march = await service.reconcile(TEST_ORGANIZATION_ID, '2026-03');
-      const april = await service.reconcile(TEST_ORGANIZATION_ID, '2026-04');
-
-      expect(march.details).toEqual([]);
-      expect(april.details).toHaveLength(1);
-      expect(april.details[0]).toEqual(expect.objectContaining({
-        listingId: fixture.listing.listingId,
-        plRevenue: 5_000,
-        orderTotal: 5_000,
-      }));
-    });
-  });
-
-  describe('reconcile — excluded statuses and tenant isolation', () => {
-    it('#4 cancelled, returned, and refunded orders are excluded from both live and SQL sides', async () => {
-      const fixture = await seedListingFixture({
-        organizationId: TEST_ORGANIZATION_ID,
-        suffix: 'FILTER',
-        costPrice: 2_000,
-        commissionRate: 0.1,
-      });
-
-      await seedOrderWithLineItems(prisma, {
-        organizationId: TEST_ORGANIZATION_ID,
-        externalOrderId: 'SET-KEEP',
-        orderedAt: '2026-03-15T03:00:00.000Z',
-        shippingPrice: 0,
-        status: 'paid',
-        lineItems: [{
-          quantity: 1,
-          totalPrice: 10_000,
-          optionId: fixture.option.id,
-          listingOptionId: fixture.listing.listingOptionId,
-        }],
-      });
-      await seedOrderWithLineItems(prisma, {
-        organizationId: TEST_ORGANIZATION_ID,
-        externalOrderId: 'SET-CANCELLED',
-        orderedAt: '2026-03-15T03:05:00.000Z',
-        shippingPrice: 0,
-        status: 'cancelled',
-        lineItems: [{
-          quantity: 1,
-          totalPrice: 50_000,
-          optionId: fixture.option.id,
-          listingOptionId: fixture.listing.listingOptionId,
-        }],
-      });
-      await seedOrderWithLineItems(prisma, {
-        organizationId: TEST_ORGANIZATION_ID,
-        externalOrderId: 'SET-RETURNED',
-        orderedAt: '2026-03-15T03:10:00.000Z',
-        shippingPrice: 0,
-        status: 'returned',
-        lineItems: [{
-          quantity: 1,
-          totalPrice: 40_000,
-          optionId: fixture.option.id,
-          listingOptionId: fixture.listing.listingOptionId,
-        }],
-      });
-      await seedOrderWithLineItems(prisma, {
-        organizationId: TEST_ORGANIZATION_ID,
-        externalOrderId: 'SET-REFUNDED',
-        orderedAt: '2026-03-15T03:15:00.000Z',
-        shippingPrice: 0,
-        status: 'refunded',
-        lineItems: [{
-          quantity: 1,
-          totalPrice: 30_000,
-          optionId: fixture.option.id,
-          listingOptionId: fixture.listing.listingOptionId,
-        }],
-      });
-
-      const result = await service.reconcile(TEST_ORGANIZATION_ID, '2026-03');
-
-      expect(result.details).toHaveLength(1);
-      expect(result.details[0]).toEqual(expect.objectContaining({
-        listingId: fixture.listing.listingId,
-        plRevenue: 10_000,
-        plOrderCount: 1,
-        orderTotal: 10_000,
-        orderCount: 1,
-        status: 'matched',
-      }));
-      expect(result.summary.totalPlRevenue).toBe(10_000);
-      expect(result.summary.totalOrderRevenue).toBe(10_000);
-      expect(result.summary.orderCount).toBe(1);
-    });
-
-    it('#5 other-organization rows do not appear in the TEST organization reconcile', async () => {
-      const own = await seedListingFixture({
-        organizationId: TEST_ORGANIZATION_ID,
-        suffix: 'OWN',
-        costPrice: 1_000,
-        commissionRate: 0.1,
-      });
-      const foreign = await seedListingFixture({
-        organizationId: OTHER_ORGANIZATION_ID,
-        suffix: 'FOREIGN',
-        costPrice: 1_000,
-        commissionRate: 0.1,
-      });
-
-      await seedOrderWithLineItems(prisma, {
-        organizationId: TEST_ORGANIZATION_ID,
-        externalOrderId: 'SET-OWN-1',
-        orderedAt: '2026-03-15T03:00:00.000Z',
-        shippingPrice: 0,
-        status: 'paid',
-        lineItems: [{
-          quantity: 1,
-          totalPrice: 5_000,
-          optionId: own.option.id,
-          listingOptionId: own.listing.listingOptionId,
-        }],
-      });
-      await seedOrderWithLineItems(prisma, {
-        organizationId: OTHER_ORGANIZATION_ID,
-        externalOrderId: 'SET-FOREIGN-1',
-        orderedAt: '2026-03-15T03:00:00.000Z',
-        shippingPrice: 0,
-        status: 'paid',
-        lineItems: [{
-          quantity: 1,
-          totalPrice: 999_999,
-          optionId: foreign.option.id,
-          listingOptionId: foreign.listing.listingOptionId,
-        }],
-      });
-
-      const result = await service.reconcile(TEST_ORGANIZATION_ID, '2026-03');
-
-      expect(result.details).toHaveLength(1);
-      expect(result.details[0]).toEqual(expect.objectContaining({
-        listingId: own.listing.listingId,
-        plRevenue: 5_000,
-        orderTotal: 5_000,
-      }));
-      expect(result.details[0].listingId).not.toBe(foreign.listing.listingId);
-      expect(result.summary.totalPlRevenue).toBe(5_000);
-      expect(result.summary.totalOrderRevenue).toBe(5_000);
-    });
-  });
-
   describe('update — IDOR protection', () => {
     it('#6 cross-organization update throws BadRequestException', async () => {
       const settlement = await prisma.settlement.create({
@@ -373,7 +58,7 @@ describe('Settlements flow (PG integration)', () => {
       expect(reread?.actualAmount).toBe(0);
     });
 
-    it('#7 same-organization update succeeds', async () => {
+    it('#7 same-organization confirmation publishes the actual amount and its difference', async () => {
       const settlement = await prisma.settlement.create({
         data: {
           organizationId: TEST_ORGANIZATION_ID,
@@ -387,8 +72,114 @@ describe('Settlements flow (PG integration)', () => {
         status: 'confirmed',
       });
 
-      expect(updated.actualAmount).toBe(980_000);
-      expect(updated.status).toBe('confirmed');
+      expect(updated).toMatchObject({
+        actualAmount: 980_000,
+        status: 'confirmed',
+        expectedAmount: 1_000_000,
+        difference: -20_000,
+      });
     });
+
+    it('#7b refuses to confirm a settlement without the deposited amount', async () => {
+      const settlement = await prisma.settlement.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          period: '2026-03',
+          expectedAmount: 1_000_000,
+        },
+      });
+
+      // The stored actual column defaults to 0; confirming it would publish a
+      // deposit nobody entered.
+      await expect(
+        service.update(settlement.id, TEST_ORGANIZATION_ID, { status: 'confirmed' }),
+      ).rejects.toThrow(BadRequestException);
+      // An explicit null is no amount either, and must not reach the non-null column.
+      await expect(service.update(settlement.id, TEST_ORGANIZATION_ID, {
+        status: 'confirmed',
+        actualAmount: null,
+      } as unknown as UpdateSettlementDto)).rejects.toThrow(BadRequestException);
+
+      await expect(service.findAll(TEST_ORGANIZATION_ID, '2026-03').then((list) => list.items)).resolves.toEqual([
+        expect.objectContaining({ status: 'pending', actualAmount: null, difference: null }),
+      ]);
+      await expect(service.update(settlement.id, TEST_ORGANIZATION_ID, {
+        status: 'confirmed',
+        actualAmount: 0,
+      })).resolves.toMatchObject({ status: 'confirmed', actualAmount: 0, difference: -1_000_000 });
+    });
+
+    it('#8 missing settlement uses the same public not-found contract', async () => {
+      await expect(service.update(
+        '00000000-0000-4000-8000-000000000099',
+        TEST_ORGANIZATION_ID,
+        { actualAmount: 1 },
+      )).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  it('reads the Finance-owned settlement ledger with period and organization scope', async () => {
+    await service.create(TEST_ORGANIZATION_ID, {
+      period: '2026-03', expectedAmount: 1_000, commission: 100,
+      shippingFee: 50, orderCount: 2, returnCount: 0,
+    });
+    await service.create(TEST_ORGANIZATION_ID, {
+      period: '2026-04', expectedAmount: 2_000, commission: 200,
+      shippingFee: 75, orderCount: 3, returnCount: 1,
+    });
+    await service.create(OTHER_ORGANIZATION_ID, {
+      period: '2026-03', expectedAmount: 999_999, commission: 0,
+      shippingFee: 0, orderCount: 1, returnCount: 0,
+    });
+
+    await expect(prisma.$transaction((tx) => readSettlements(tx, {
+      organizationId: TEST_ORGANIZATION_ID,
+      period: '2026',
+    }))).resolves.toEqual([
+      expect.objectContaining({ period: '2026-04', expectedAmount: 2_000 }),
+      expect.objectContaining({ period: '2026-03', expectedAmount: 1_000 }),
+    ]);
+    await expect(service.findAll(TEST_ORGANIZATION_ID, '2026-03').then((list) => list.items)).resolves.toEqual([
+      expect.objectContaining({ period: '2026-03', expectedAmount: 1_000 }),
+    ]);
+    await expect(service.findAll(TEST_ORGANIZATION_ID, '').then((list) => list.items)).resolves.toHaveLength(2);
+  });
+
+  /** KID-85 follow-up P3-13 — the settlement cards read server totals, not browser sums. */
+  it('sums the listed settlements on the server: expected over every row, deposits over confirmed rows only', async () => {
+    await service.create(TEST_ORGANIZATION_ID, {
+      period: '2026-03', expectedAmount: 1_000, commission: 0, shippingFee: 0, orderCount: 0, returnCount: 0,
+    });
+    const confirmed = await service.create(TEST_ORGANIZATION_ID, {
+      period: '2026-04', expectedAmount: 2_000, commission: 0, shippingFee: 0, orderCount: 0, returnCount: 0,
+    });
+    await service.update(confirmed.id, TEST_ORGANIZATION_ID, { status: 'confirmed', actualAmount: 1_500 });
+
+    await expect(service.findAll(TEST_ORGANIZATION_ID, '')).resolves.toEqual({
+      items: [
+        expect.objectContaining({ period: '2026-04', actualAmount: 1_500, difference: -500 }),
+        expect.objectContaining({ period: '2026-03', actualAmount: null, difference: null }),
+      ],
+      summary: {
+        totalExpected: 3_000,
+        totalConfirmedActual: 1_500,
+        totalConfirmedDifference: -500,
+        pendingCount: 1,
+      },
+    });
+  });
+
+  it('publishes no actual amount or difference for a settlement nobody confirmed', async () => {
+    const created = await service.create(TEST_ORGANIZATION_ID, {
+      period: '2026-03', expectedAmount: 1_000, commission: 100,
+      shippingFee: 50, orderCount: 2, returnCount: 0,
+    });
+
+    // The stored actual column defaults to 0; an unconfirmed deposit is not
+    // a deposit of zero.
+    expect(created).toMatchObject({ status: 'pending', actualAmount: null, difference: null });
+    await expect(service.findAll(TEST_ORGANIZATION_ID, '2026-03').then((list) => list.items)).resolves.toEqual([
+      expect.objectContaining({ actualAmount: null, difference: null }),
+    ]);
   });
 });

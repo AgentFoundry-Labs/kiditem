@@ -172,6 +172,7 @@ describe('Sourcing workspace normalized read model (PG integration)', () => {
       sourceKeyword: '유아 우산',
       rawOffer: { minOrderQuantity: 2 },
       status: 'COMPLETE',
+      sourceKey: '1688.image_search',
     });
     const run = await seedRun(prisma, {
       id: '00000000-0000-4000-8000-000000000030',
@@ -185,6 +186,14 @@ describe('Sourcing workspace normalized read model (PG integration)', () => {
         externalOfferId: observation.externalOfferId,
         sourceSnapshot: { offerObservationIds: [observation.id] },
       }],
+    });
+    const validation = await prisma.sourcingValidationEpisode.create({
+      data: validationEpisode({
+        id: randomUUID(),
+        organizationId: TEST_ORGANIZATION_ID,
+        recommendationRunId: run.id,
+        recommendationItemId: '00000000-0000-4000-8000-000000000031',
+      }),
     });
     const before = await sideEffectCounts(prisma);
 
@@ -215,8 +224,138 @@ describe('Sourcing workspace normalized read model (PG integration)', () => {
     await expect(prisma.sourcingReviewBatchItem.count({
       where: { organizationId: TEST_ORGANIZATION_ID, reviewBatchId: batch.id },
     })).resolves.toBe(1);
+    await expect(prisma.sourcingReviewBatchItem.findFirstOrThrow({
+      where: { organizationId: TEST_ORGANIZATION_ID, reviewBatchId: batch.id },
+      select: { validationEpisodeId: true, offerKeywordObservationId: true },
+    })).resolves.toEqual({
+      validationEpisodeId: validation.id,
+      offerKeywordObservationId: observation.id,
+    });
     await expect(prisma.sourcingReviewBatch.count({
       where: { organizationId: TEST_ORGANIZATION_ID, idempotencyKey },
+    })).resolves.toBe(1);
+  });
+
+  it.each([
+    { label: 'failed', status: 'FAILED' as const, isCurrentComplete: false },
+    { label: 'non-complete', status: 'RUNNING' as const, isCurrentComplete: false },
+    { label: 'stale', status: 'COMPLETE' as const, isCurrentComplete: false },
+    {
+      label: 'cross-organization',
+      status: 'COMPLETE' as const,
+      isCurrentComplete: true,
+      organizationId: OTHER_ORGANIZATION_ID,
+    },
+  ])('rejects $label typed source references before publishing a review batch', async (source) => {
+    const observation = await seedOfferObservation(prisma, {
+      organizationId: source.organizationId ?? TEST_ORGANIZATION_ID,
+      externalOfferId: `review-${source.label}`,
+      sourceKeyword: '리뷰 원천',
+      rawOffer: { minOrderQuantity: 2 },
+      status: source.status,
+      isCurrentComplete: source.isCurrentComplete,
+    });
+    const run = await seedRun(prisma, {
+      id: randomUUID(),
+      organizationId: TEST_ORGANIZATION_ID,
+      completedAt: BUSINESS_DATE,
+      manifest: `review-${source.label}`,
+      items: [{
+        id: randomUUID(),
+        itemKey: ITEM_KEY_A,
+        rank: 1,
+        externalOfferId: observation.externalOfferId,
+        sourceSnapshot: { offerObservationIds: [observation.id] },
+      }],
+    });
+
+    await expect(reviewService.createBatch({
+      organizationId: TEST_ORGANIZATION_ID,
+      requestedByUserId: TEST_USER_ID,
+      recommendationRunId: run.id,
+      itemKeys: [ITEM_KEY_A],
+      idempotencyKey: randomUUID(),
+    })).rejects.toMatchObject({
+      response: { code: 'REVIEW_BATCH_INVALID_ITEMS', itemKeys: [ITEM_KEY_A] },
+    });
+    await expect(prisma.sourcingReviewBatch.count({
+      where: { organizationId: TEST_ORGANIZATION_ID, recommendationRunId: run.id },
+    })).resolves.toBe(0);
+  });
+
+  it.each([
+    { label: 'failed', status: 'FAILED' as const, isCurrentComplete: false },
+    { label: 'non-complete', status: 'RUNNING' as const, isCurrentComplete: false },
+    { label: 'stale', status: 'COMPLETE' as const, isCurrentComplete: false },
+    {
+      label: 'cross-organization',
+      status: 'COMPLETE' as const,
+      isCurrentComplete: true,
+      organizationId: OTHER_ORGANIZATION_ID,
+    },
+  ])('rejects $label source evidence before publishing validation episodes', async (source) => {
+    const observation = await seedOfferObservation(prisma, {
+      organizationId: source.organizationId ?? TEST_ORGANIZATION_ID,
+      externalOfferId: `validation-${source.label}`,
+      sourceKeyword: '검증 원천',
+      rawOffer: { minOrderQuantity: 2 },
+      status: source.status,
+      isCurrentComplete: source.isCurrentComplete,
+    });
+    const run = await seedRun(prisma, {
+      id: randomUUID(),
+      organizationId: TEST_ORGANIZATION_ID,
+      completedAt: BUSINESS_DATE,
+      manifest: `validation-${source.label}`,
+      items: [{ id: randomUUID(), itemKey: ITEM_KEY_A, rank: 1 }],
+    });
+    const item = await prisma.sourcingRecommendationItem.findFirstOrThrow({
+      where: { organizationId: TEST_ORGANIZATION_ID, recommendationRunId: run.id },
+    });
+
+    await expect(validations.replaceForRun({
+      organizationId: TEST_ORGANIZATION_ID,
+      recommendationRunId: run.id,
+      idempotencyKey: `validation-${source.label}`,
+      episodes: [validationWrite(item.id, observation.evidenceObservationId)],
+    })).rejects.toThrow('Validation evidence must reference current complete source observations');
+    await expect(prisma.sourcingValidationEpisode.count({
+      where: { organizationId: TEST_ORGANIZATION_ID, recommendationRunId: run.id },
+    })).resolves.toBe(0);
+  });
+
+  it('publishes validation references from current complete evidence and preserves replay', async () => {
+    const observation = await seedOfferObservation(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      externalOfferId: 'validation-current',
+      sourceKeyword: '검증 원천',
+      rawOffer: { minOrderQuantity: 2 },
+      status: 'COMPLETE',
+    });
+    const run = await seedRun(prisma, {
+      id: randomUUID(),
+      organizationId: TEST_ORGANIZATION_ID,
+      completedAt: BUSINESS_DATE,
+      manifest: 'validation-current',
+      items: [{ id: randomUUID(), itemKey: ITEM_KEY_A, rank: 1 }],
+    });
+    const item = await prisma.sourcingRecommendationItem.findFirstOrThrow({
+      where: { organizationId: TEST_ORGANIZATION_ID, recommendationRunId: run.id },
+    });
+    const command = {
+      organizationId: TEST_ORGANIZATION_ID,
+      recommendationRunId: run.id,
+      idempotencyKey: 'validation-current',
+      episodes: [validationWrite(item.id, observation.evidenceObservationId)],
+    };
+
+    const first = await validations.replaceForRun(command);
+    const replay = await validations.replaceForRun(command);
+
+    expect(first).toHaveLength(1);
+    expect(replay).toEqual(first);
+    await expect(prisma.sourcingValidationEpisode.count({
+      where: { organizationId: TEST_ORGANIZATION_ID, recommendationRunId: run.id },
     })).resolves.toBe(1);
   });
 
@@ -338,7 +477,9 @@ async function seedOfferObservation(
     externalOfferId: string;
     sourceKeyword: string;
     rawOffer: object | unknown[];
-    status: 'COMPLETE' | 'FAILED';
+    status: 'RUNNING' | 'COMPLETE' | 'FAILED';
+    isCurrentComplete?: boolean;
+    sourceKey?: '1688.hot_product' | '1688.image_search';
   },
 ) {
   const idempotencyKey = randomUUID();
@@ -349,7 +490,7 @@ async function seedOfferObservation(
     data: {
       id: randomUUID(),
       organizationId: input.organizationId,
-      sourceKey: '1688.hot_product',
+      sourceKey: input.sourceKey ?? '1688.hot_product',
       scopeKey: 'workspace-read-model-test',
       targetKey: `${input.sourceKeyword}:${input.externalOfferId}:${idempotencyKey}`,
       idempotencyKey,
@@ -359,8 +500,8 @@ async function seedOfferObservation(
       triggerKind: 'manual',
       triggeredByUserId: actorUserId,
       status: input.status,
-      isCurrentComplete: input.status === 'COMPLETE',
-      completedAt: CUTOFF_AT,
+      isCurrentComplete: input.isCurrentComplete ?? input.status === 'COMPLETE',
+      completedAt: input.status === 'RUNNING' ? null : CUTOFF_AT,
     },
   });
   const evidenceId = randomUUID();
@@ -369,7 +510,7 @@ async function seedOfferObservation(
       id: evidenceId,
       organizationId: input.organizationId,
       ingestionRunId: ingestionRun.id,
-      sourceKey: '1688.hot_product',
+      sourceKey: input.sourceKey ?? '1688.hot_product',
       platform: '1688',
       evidenceFamily: 'hot_product',
       signalRole: 'supply',
@@ -414,6 +555,28 @@ async function seedOfferObservation(
       capturedAt: BUSINESS_DATE,
     },
   });
+}
+
+function validationWrite(recommendationItemId: string, evidenceObservationId: string) {
+  return {
+    recommendationItemId,
+    status: 'ready_for_review' as const,
+    policyKey: 'sourcing_validation' as const,
+    policyVersion: 'test-v1',
+    evidenceCutoffAt: BUSINESS_DATE,
+    completedAt: BUSINESS_DATE,
+    validUntil: null,
+    summary: { score: 80 },
+    checks: [{
+      checkKey: 'source-evidence',
+      status: 'pass' as const,
+      severity: null,
+      score: 80,
+      summary: 'current source evidence',
+      details: {},
+      evidenceObservationIds: [evidenceObservationId],
+    }],
+  };
 }
 
 function validationEpisode(input: {

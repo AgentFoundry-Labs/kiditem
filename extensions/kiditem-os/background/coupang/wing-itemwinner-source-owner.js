@@ -296,10 +296,12 @@
       if (Date.now() >= Date.parse(control.expiresAt)) return finish(environmentId, control);
       for (const previous of await options.sessions.list(environmentId)) {
         if (previous.producer !== PRODUCER || previous.attemptId === attemptId) continue;
-        let owner;
-        try { owner = await read(environmentId, previous.attemptId); } catch { continue; }
-        if (owner.state === "RUNNING") throw new Error("다른 Wing 아이템위너 수집이 진행 중입니다.");
-        await finish(environmentId, owner);
+        let ended;
+        try { ended = await attemptEnded(environmentId, previous.attemptId); } catch { continue; }
+        if (!ended) throw new Error("다른 Wing 아이템위너 수집이 진행 중입니다.");
+        // An ended attempt's session is a leftover, attention or not.
+        await options.closeAttempt(environmentId, previous.attemptId);
+        await options.sessions.remove(previous.attemptId);
       }
       const work = active.get(environmentId);
       work.control = control;
@@ -347,10 +349,14 @@
         if (running.promise) return running.promise;
       }
       const work = running || { attemptId };
-      work.promise = Promise.resolve().then(() => execute(environmentId, attemptId))
+      work.promise = Promise.resolve().then(() => takeWindowTurn(environmentId, () => execute(environmentId, attemptId)))
         .finally(() => {
           work.promise = null;
-          if (active.get(environmentId) === work && !work.terminal) active.delete(environmentId);
+          // A settled run releases the environment even when its terminal report
+          // was not acknowledged. Only a terminal report still in flight keeps
+          // it; a server attempt that is still running is refused by the next
+          // run's previous-session check.
+          if (active.get(environmentId) === work && !work.terminalPromise) active.delete(environmentId);
         });
       active.set(environmentId, work);
       return work.promise;
@@ -367,7 +373,7 @@
           message: "사용자가 Wing 아이템위너 수집을 중단했습니다.",
         });
       } finally {
-        if (!work.promise && !work.terminal && active.get(environmentId) === work) active.delete(environmentId);
+        if (!work.promise && !work.terminalPromise && active.get(environmentId) === work) active.delete(environmentId);
       }
     }
 
@@ -382,7 +388,29 @@
       }
     }
 
-    return Object.freeze({ run, recover, handleMessage, cancel });
+    // A run holds the environment's collection window from its first read until
+    // its outcome is reported and its window and session are released.
+    function takeWindowTurn(environmentId, operation) {
+      return typeof options.takeWindowTurn === "function"
+        ? options.takeWindowTurn(environmentId, operation)
+        : operation();
+    }
+
+    // Completed, failed and expired attempts have ended, and so has one the owner
+    // no longer knows (404); a session left behind by any of them is a leftover
+    // for the next collection to clear. Any other read failure stays unknown.
+    async function attemptEnded(environmentId, attemptId) {
+      let control;
+      try {
+        control = await read(environmentId, attemptId);
+      } catch (error) {
+        if (error?.status === 404) return true;
+        throw error;
+      }
+      return control.state !== "RUNNING" || Date.now() >= Date.parse(control.expiresAt);
+    }
+
+    return Object.freeze({ run, recover, handleMessage, cancel, attemptEnded });
   }
 
   root.KidItemWingItemwinnerSourceOwner = Object.freeze({ create, parseAction });

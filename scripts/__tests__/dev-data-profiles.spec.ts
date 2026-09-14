@@ -105,7 +105,7 @@ describe('profile-based dev data workflow', () => {
     const bundleDir = join(domainRoot, datasetId);
     const trafficPayloadPath = join(bundleDir, 'payloads', 'wing-traffic.json');
     const itemWinnerPayloadPath = join(bundleDir, 'payloads', 'itemwinner.json');
-    const adsPayloadPath = join(bundleDir, 'payloads', 'coupang-ads-daily.json');
+    const adsPayloadPath = join(bundleDir, 'payloads', 'coupang-ad-campaign.json');
     const kiditemListPath = join(bundleDir, 'references', 'kiditem_list.xlsx');
     const wingInventoryMatchedPath = join(bundleDir, 'references', 'wing-inventory-matched.xlsx');
     const archiveFileName = 'kiditem-coupang-2026-04-28-real-v1.zip';
@@ -123,8 +123,8 @@ describe('profile-based dev data workflow', () => {
       data: [{ externalId: '123456', productName: '테스트 상품', isWinner: true }],
     }));
     writeFileSync(adsPayloadPath, JSON.stringify({
-      type: 'coupang_ads_daily',
-      source: 'coupang_ads',
+      type: 'ad_campaign',
+      source: 'advertising',
       data: [{ businessDate: '2026-04-28', campaignName: '테스트 광고', spend: 1200 }],
     }));
     writeFileSync(kiditemListPath, 'kiditem inventory reference');
@@ -152,9 +152,9 @@ describe('profile-based dev data workflow', () => {
           source: 'wing',
         },
         {
-          path: 'payloads/coupang-ads-daily.json',
-          type: 'coupang_ads_daily',
-          source: 'coupang_ads',
+          path: 'payloads/coupang-ad-campaign.json',
+          type: 'ad_campaign',
+          source: 'advertising',
         },
       ],
       references: [

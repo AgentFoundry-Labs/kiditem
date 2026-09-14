@@ -21,17 +21,12 @@ const AGENT_KEYS = [
 
 const DOMAIN_KEYS = [
   "advertising",
-  "agent_os",
   "ai",
   "analytics",
-  "automation",
   "channels",
-  "finance",
   "inventory",
   "orders",
-  "operations",
   "products",
-  "rules",
   "sourcing",
   "supply",
 ];
@@ -319,7 +314,7 @@ test("enforces final Agent, domain, capability, and MCP cardinalities", () => {
 
   const findings = collectAgentOsContractionFindings(files);
   expectFinding(findings, "exactly five Agents");
-  expectFinding(findings, "exactly fourteen domains");
+  expectFinding(findings, "exactly nine domains");
   expectFinding(findings, "exactly four MCP tools");
   expectFinding(findings, "MCP protocol must be 2026-07-28");
 });

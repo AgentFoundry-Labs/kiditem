@@ -1,3 +1,5 @@
+Before working in this directory, always read this document first rather than relying on memory.
+
 # sourcing — Alibaba/1688 Sourcing Domain
 
 `background/sourcing/` owns supplier-product, trend, and live-commerce capture.

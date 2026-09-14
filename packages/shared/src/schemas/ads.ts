@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { zIsoDate } from './common.js';
 
 export const AdExtensionReplayIdempotencyKeySchema = z.string()
   .max(160)
@@ -179,7 +180,16 @@ export const AdKeywordSnapshotSchema = z.object({
   externalOptionId: z.string().nullable(),
   productName: z.string().nullable(),
   listing: AdListingSummarySchema.nullable(),
-  period: z.string(),
+  /** Source-declared non-additive observation window. */
+  period: z.literal('7d'),
+  windowDays: z.literal(7),
+  businessDate: zIsoDate,
+  /**
+   * Whether `metrics.conversions` is a collected count. The keyword table can
+   * lack the conversion column; ingest then stores 0, so render unknown (`-`)
+   * and treat `metrics.cvr` as unavailable when this is false.
+   */
+  conversionsAvailable: z.boolean(),
   metrics: AdMetricsSchema,
   relevance: AdKeywordRelevanceSchema.nullable(),
   relevanceReason: z.string().nullable(),
@@ -200,6 +210,8 @@ export const AdKeywordProductSummarySchema = z.object({
   servingCount: z.number().int(),
   irrelevantCount: z.number().int(),
   unjudgedCount: z.number().int(),
+  /** True only when every rolled-up keyword's conversion count was collected. */
+  conversionsAvailable: z.boolean(),
   metrics: AdMetricsSchema,
 });
 export type AdKeywordProductSummary = z.infer<
@@ -207,47 +219,57 @@ export type AdKeywordProductSummary = z.infer<
 >;
 
 export const AdKeywordsDataSchema = z.object({
-  period: z.string(),
+  period: z.literal('7d'),
+  windowDays: z.literal(7),
   collectedAt: z.string().nullable(),
   products: z.array(AdKeywordProductSummarySchema),
   keywords: z.array(AdKeywordSnapshotSchema),
 });
 export type AdKeywordsData = z.infer<typeof AdKeywordsDataSchema>;
 
-// Account-level period summary derived from `ChannelAccountDailyKpiSnapshot`
-// (`source='coupang_ads'`, `kpiType='coupang_ads_daily'`). Surfaces real ad
-// totals from the Coupang ads dashboard when per-listing ad attribution is
-// unavailable (campaign source provides only campaign-level identity).
-export const AdAccountKpiSchema = z.object({
-  metrics: AdMetricsSchema,
-  orders: z.number().int(),
-  periodDayCount: z.number().int(),
-  latestBusinessDate: z.string().nullable(),
-  source: z.literal('coupang_ads_daily'),
-});
-export type AdAccountKpi = z.infer<typeof AdAccountKpiSchema>;
+// ───── Measured ad metrics over the campaign sweep's ledger ─────
+//
+// The advertising target-day ledger stores 0 in a conversion column the
+// provider grid did not carry. A reader publishes that count as `null`, so a
+// consumer never renders or reasons over a conversion count nobody observed.
+const AdBusinessDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
-export const AdAccountKpiDayPointSchema = z.object({
-  date: z.string(),
-  metrics: AdMetricsSchema,
-  orders: z.number().int(),
+export const AdMeasuredMetricsSchema = AdMetricsSchema.extend({
+  conversions: z.number().int().nullable(),
 });
-export type AdAccountKpiDayPoint = z.infer<typeof AdAccountKpiDayPointSchema>;
+export type AdMeasuredMetrics = z.infer<typeof AdMeasuredMetricsSchema>;
+
+/** One requested business date; `metrics: null` when the sweep never measured it. */
+export const AdTrendsDaySchema = z.object({
+  date: AdBusinessDateSchema,
+  metrics: AdMeasuredMetricsSchema.nullable(),
+  orders: z.number().int().nullable(),
+});
+export type AdTrendsDay = z.infer<typeof AdTrendsDaySchema>;
+
+/**
+ * Account totals over the measured days of the requested window. Ratios
+ * recompute from the summed raw values; `periodDayCount` is the number of
+ * measured days behind every value, and 0 when the sweep measured none. No
+ * source word travels here (ADR-0006); a screen names the source from the count.
+ */
+export const AdTrendsSummarySchema = z.object({
+  periodDayCount: z.number().int().nonnegative(),
+  latestBusinessDate: AdBusinessDateSchema.nullable(),
+  observedAt: z.string().nullable(),
+  metrics: AdMeasuredMetricsSchema.nullable(),
+  orders: z.number().int().nullable(),
+});
+export type AdTrendsSummary = z.infer<typeof AdTrendsSummarySchema>;
 
 export const AdTrendsDataSchema = z.object({
-  knownThrough: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  daily: z.array(z.object({
-    date: z.string(),
-    metrics: AdMetricsSchema,
-  })),
-  firstHalf: AdMetricsSchema,
-  secondHalf: AdMetricsSchema,
-  gradeBudget: z.record(z.enum(['A', 'B', 'C']), z.number().int()),
-  // Optional account-level series + summary derived from `coupang_ads_daily`.
-  // When per-listing ad metrics are absent, the account series carries the
-  // real spend/revenue surface for the period.
-  accountDaily: z.array(AdAccountKpiDayPointSchema),
-  accountSummary: AdAccountKpiSchema.nullable(),
+  knownThrough: AdBusinessDateSchema,
+  /** Inclusive requested window. */
+  from: AdBusinessDateSchema,
+  to: AdBusinessDateSchema,
+  /** Every date of the requested window, ascending. */
+  daily: z.array(AdTrendsDaySchema),
+  summary: AdTrendsSummarySchema,
 });
 export type AdTrendsData = z.infer<typeof AdTrendsDataSchema>;
 
@@ -323,7 +345,7 @@ export const AdTop20ItemSchema = z.object({
   listing: AdListingSummarySchema,
   grade: z.enum(['A', 'B', 'C']).nullable(),
   rank: z.number().int(),
-  metrics: AdMetricsSchema,
+  metrics: AdMeasuredMetricsSchema,
   // Wing traffic for the same window (revenue + orders). Null when no
   // traffic snapshot landed for the listing in the period.
   traffic: AdListingTrafficSchema.nullable(),
@@ -360,14 +382,25 @@ export const AdStrategyPlanSchema = z.object({
   issues: AdIssuesSchema,
   tierAnalysis: z.array(AdTierAnalysisSchema),
   top20: z.array(AdTop20ItemSchema),
-  // Account-level ad summary (`coupang_ads_daily`) for the same period —
-  // separate from per-listing data, never substituted into per-listing fields.
-  accountSummary: AdAccountKpiSchema.nullable(),
 });
 export type AdStrategyPlan = z.infer<typeof AdStrategyPlanSchema>;
 
 export const AdWeeklyPlanSchema = AdStrategyPlanSchema.extend({
   week: z.object({ start: z.string(), end: z.string() }),
+  /**
+   * Listings of the plan whose profit over the current month's closed KST days
+   * was withheld because a cost input was not measured (KID-85 P3-14). They
+   * carry no profit rate, so the actions reason over the rest; this count says
+   * how large that gap is.
+   */
+  profitWithheldListings: z.number().int().nonnegative(),
+  /**
+   * Whether a completed Orders collection covered every closed KST day of the
+   * current month, the window profit rates are evaluated over (ADR-0001). When
+   * it did not, no action carries a profit rate and `profitWithheldListings`
+   * counts only the orders collected so far; on the 1st no day has closed.
+   */
+  orderWindowComplete: z.boolean(),
 });
 export type AdWeeklyPlan = z.infer<typeof AdWeeklyPlanSchema>;
 
@@ -402,8 +435,8 @@ export type AdBenchmarkData = z.infer<typeof AdBenchmarkDataSchema>;
  * come from latest `ChannelListingDailySnapshot` per listing
  * (orderBy businessDate desc, lastObservedAt desc, updatedAt desc, id desc),
  * `ChannelScrapeRun` / `ChannelScrapeSnapshot` for raw collection metadata,
- * and `ChannelAccountDailyKpiSnapshot(source='wing', kpiType='wing_itemwinner_kpi')`
- * for Wing KPI sidebar. Legacy `ItemWinner` / `AdSnapshot` are NOT consulted.
+ * and the Wing item-winner source owner's COMPLETE publication for the Wing KPI
+ * sidebar. Legacy `ItemWinner` / `AdSnapshot` are NOT consulted.
  *
  * Field semantics:
  *  - `currentWinnerCount`: latest daily snapshot per listing where
@@ -452,35 +485,3 @@ export const AdCollectStatusSchema = z.object({
   productSnapshotCount: z.number().int(),
 });
 export type AdCollectStatus = z.infer<typeof AdCollectStatusSchema>;
-
-// ───── Exposure Analysis ─────
-
-export const ExposureFactorScoreSchema = z.object({
-  factor: z.string(),
-  score: z.number(),
-  weight: z.number(),
-});
-export type ExposureFactorScore = z.infer<typeof ExposureFactorScoreSchema>;
-
-export const ExposureProductScoreSchema = z.object({
-  listing: AdListingSummarySchema,
-  grade: z.enum(['A', 'B', 'C']).nullable(),
-  factors: z.array(ExposureFactorScoreSchema),
-  totalScore: z.number(),
-  topIssue: z.string().nullable(),
-});
-export type ExposureProductScore = z.infer<typeof ExposureProductScoreSchema>;
-
-export const ExposureUrgentActionSchema = z.object({
-  listing: AdListingSummarySchema,
-  grade: z.enum(['A', 'B', 'C']).nullable(),
-  issue: z.string(),
-  suggestedAction: z.string(),
-});
-export type ExposureUrgentAction = z.infer<typeof ExposureUrgentActionSchema>;
-
-export const ExposureAnalysisDataSchema = z.object({
-  scores: z.array(ExposureProductScoreSchema),
-  urgentActions: z.array(ExposureUrgentActionSchema),
-});
-export type ExposureAnalysisData = z.infer<typeof ExposureAnalysisDataSchema>;

@@ -65,7 +65,7 @@ function ownerCompositions() {
     readOverview: vi.fn(async () => ({
       sales: { revenue: 1, orders: 2 },
       inventory: { outOfStockSkus: 3, mappingAttentionSkus: 4 },
-      freshness: { lastSync: '2026-08-25T00:00:00.000Z', confirmedUntil: null },
+      freshness: { lastSync: '2026-08-25T00:00:00.000Z' },
     })),
   };
   const channels: ChannelsFinalCapabilityPort = {

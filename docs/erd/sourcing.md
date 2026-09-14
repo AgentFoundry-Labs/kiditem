@@ -26,7 +26,10 @@
 | SourcingEvidenceObservation | `sourcing_evidence_observations` | Append-only, revision-aware source fact. Feature and decision reads must apply both availableAt and ingestedAt point-in-time cutoffs. |
 | SourcingInterestTarget | `sourcing_interest_targets` | 서버가 소유하는 관심 키워드. 화면의 전체 JSON snapshot 대체를 금지하고 낙관적 버전으로 개별 변경을 보장한다. |
 | SourcingKeywordPreference | `sourcing_keyword_preferences` | 조직별 키워드 제외 설정. 전체 JSON snapshot 대신 키 하나를 낙관적으로 갱신한다. |
+| SourcingKeywordSuggestionFact | `sourcing_keyword_suggestion_facts` | 쿠팡 키워드 제안 source owner가 발행하는 schema-validated immutable snapshot. Header가 존재하고 item이 비어 있으면 confirmed-empty이다. |
 | SourcingLaunchCandidate | `sourcing_launch_candidates` | Immutable launch and outcome identity that freezes an exact supplier variant, Korean bundle, launch plan, compliance/IP/quality versions, target account, price, and initial quantity. |
+| SourcingMarketShadowFact | `sourcing_market_shadow_facts` | 시장 shadow source owner가 발행하는 schema-validated immutable experiment document. Provider raw payload는 포함하지 않는다. |
+| SourcingNaverKeywordAnalysisFact | `sourcing_naver_keyword_analysis_facts` | 네이버 키워드 분석 source owner가 발행하는 schema-validated immutable snapshot. input hash와 COMPLETE current run으로 화면 가시성을 결정한다. |
 | SourcingOwnerIdempotencyReceipt | `sourcing_owner_idempotency_receipts` | 최종 소싱 capability의 불변 owner idempotency 결과. 후보 수명주기와 독립적으로 replay 결과를 보존한다. |
 | SourcingRecommendationItem | `sourcing_recommendation_items` | 한 추천 실행 안의 stable offer/variant 후보. 점수와 근거는 이 행을 기준으로 추적한다. |
 | SourcingRecommendationItemEvidence | `sourcing_recommendation_item_evidence` | 추천 후보가 사용한 immutable evidence 링크. retention과 재현성의 기준이다. |
@@ -37,6 +40,7 @@
 | SourcingValidationCheck | `sourcing_validation_checks` | 하나의 검증 episode를 구성하는 데이터 기반 check 결과. |
 | SourcingValidationCheckEvidence | `sourcing_validation_check_evidence` | 검증 check가 참조한 immutable evidence link. |
 | SourcingValidationEpisode | `sourcing_validation_episodes` | 추천 후보의 실데이터 검증 life-cycle. fixture 점수는 이 record로 대체된다. |
+| SourcingWingCatalogProductFact | `sourcing_wing_catalog_product_facts` | Wing 카탈로그 source owner가 evidence와 같은 transaction에서 발행하는 immutable typed product fact. 화면과 추천은 COMPLETE run coverage를 통과한 이 행만 읽는다. |
 | SourcingWorkspaceSnapshot | `sourcing_workspace_snapshots` | 조직/KST 날짜/scope 단위의 소싱 AI 결과 캐시. 오늘의 추천/키워드 분석 결과를 최신 1개로 재사용한다. |
 | TiktokCreativeTrendDailySnapshot | `tiktok_creative_trend_daily_snapshots` | 틱톡 크리에이티브 센터(Creative Center)에서 확장이 스크랩한 인기 트렌드 일별 스냅샷. trendType(hashtag\|keyword\|product\|song)으로 종류를, region(국가코드)으로 시장을 구분하고 (region,trendType,entityKey)가 외부 식별자를 이룬다. viewCount 는 int4 를 초과할 수 있어 BigInt. ⚠️ 라이브 틱톡 원본은 봇/리전 차단이라 무료로는 확장 스크랩 경로로만 적재한다([[reference_market_trend_research_tools]]). |
 | TrendSeedKeyword | `trend_seed_keywords` | 문구·완구 시장 트렌드 정기 수집의 시드 키워드. sources 로 몰별(naver/shorts/1688) 수집 대상을 제어. keywordCn 은 1688 中文 검색어(null이면 keyword 사용). |
@@ -407,6 +411,17 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  SourcingKeywordSuggestionFact {
+    String id PK
+    String organizationId FK
+    String evidenceObservationId FK
+    String ingestionRunId FK
+    String schemaVersion
+    String keywordNormalized
+    Json document
+    DateTime capturedAt
+    DateTime createdAt
+  }
   SourcingLaunchCandidate {
     String id PK
     String organizationId FK
@@ -449,6 +464,28 @@ erDiagram
     Json ipSnapshot
     DateTime validUntil
     String createdByUserId FK
+    DateTime createdAt
+  }
+  SourcingMarketShadowFact {
+    String id PK
+    String organizationId FK
+    String evidenceObservationId FK
+    String ingestionRunId FK
+    String schemaVersion
+    DateTime businessDate
+    Json document
+    DateTime capturedAt
+    DateTime createdAt
+  }
+  SourcingNaverKeywordAnalysisFact {
+    String id PK
+    String organizationId FK
+    String evidenceObservationId FK
+    String ingestionRunId FK
+    String schemaVersion
+    String inputHash
+    Json document
+    DateTime capturedAt
     DateTime createdAt
   }
   SourcingOwnerIdempotencyReceipt {
@@ -582,6 +619,34 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  SourcingWingCatalogProductFact {
+    String id PK
+    String organizationId FK
+    String evidenceObservationId FK
+    String ingestionRunId FK
+    String schemaVersion
+    String sourceKeywordNormalized
+    String sourceKeyword
+    String productId
+    String itemId
+    String vendorItemId
+    String productName
+    String itemName
+    String brandName
+    String manufacture
+    String categoryHierarchy
+    String imagePath
+    Int salePriceKrw
+    Decimal ratingAverage
+    Int ratingCount
+    Int viewsLast28d
+    Int salesLast28d
+    Decimal estimatedRevenue28d
+    Decimal conversionRate28d
+    String deliveryInfo
+    DateTime capturedAt
+    DateTime createdAt
+  }
   SourcingWorkspaceSnapshot {
     String id PK
     String organizationId FK
@@ -639,12 +704,20 @@ erDiagram
   SourcingEvidenceIngestionRun ||--o{ ShortsTrendDailySnapshot : "ingestionRun"
   SourcingEvidenceIngestionRun ||--o{ Sourcing1688OfferKeywordObservation : "ingestionRun"
   SourcingEvidenceIngestionRun ||--o{ SourcingEvidenceObservation : "ingestionRun"
+  SourcingEvidenceIngestionRun ||--o{ SourcingKeywordSuggestionFact : "ingestionRun"
+  SourcingEvidenceIngestionRun ||--o{ SourcingMarketShadowFact : "ingestionRun"
+  SourcingEvidenceIngestionRun ||--o{ SourcingNaverKeywordAnalysisFact : "ingestionRun"
+  SourcingEvidenceIngestionRun ||--o{ SourcingWingCatalogProductFact : "ingestionRun"
   SourcingEvidenceIngestionRun ||--o{ TiktokCreativeTrendDailySnapshot : "ingestionRun"
   SourcingEvidenceObservation ||--|| Sourcing1688OfferKeywordObservation : "evidenceObservation"
   SourcingEvidenceObservation ||--o{ SourcingDecisionEvidence : "evidenceObservation"
   SourcingEvidenceObservation o|--o| SourcingEvidenceObservation : "supersedesObservation"
+  SourcingEvidenceObservation ||--|| SourcingKeywordSuggestionFact : "evidenceObservation"
+  SourcingEvidenceObservation ||--|| SourcingMarketShadowFact : "evidenceObservation"
+  SourcingEvidenceObservation ||--|| SourcingNaverKeywordAnalysisFact : "evidenceObservation"
   SourcingEvidenceObservation ||--o{ SourcingRecommendationItemEvidence : "evidenceObservation"
   SourcingEvidenceObservation ||--o{ SourcingValidationCheckEvidence : "evidenceObservation"
+  SourcingEvidenceObservation ||--|| SourcingWingCatalogProductFact : "evidenceObservation"
   SourcingLaunchCandidate o|--o{ SourcingDecisionBatchItem : "launchCandidate"
   SourcingLaunchCandidate o|--o| SourcingLaunchCandidate : "supersedesLaunchCandidate"
   SourcingRecommendationItem ||--o{ SourcingRecommendationItemEvidence : "recommendationItem"
@@ -701,11 +774,14 @@ erDiagram
 | SourcingEvidenceObservation | organization | references external | Core | Organization |
 | SourcingInterestTarget | organization | references external | Core | Organization |
 | SourcingKeywordPreference | organization | references external | Core | Organization |
+| SourcingKeywordSuggestionFact | organization | references external | Core | Organization |
 | SourcingLaunchCandidate | createdByUser | references external | Core | User |
 | SourcingLaunchCandidate | launchCandidate | referenced by external | Supply | ProcurementTestIntent |
 | SourcingLaunchCandidate | organization | references external | Core | Organization |
 | SourcingLaunchCandidate | supplierOfferSkuSnapshot | references external | Supply | SupplierOfferSkuSnapshot |
 | SourcingLaunchCandidate | targetChannelAccount | references external | Core | ChannelAccount |
+| SourcingMarketShadowFact | organization | references external | Core | Organization |
+| SourcingNaverKeywordAnalysisFact | organization | references external | Core | Organization |
 | SourcingOwnerIdempotencyReceipt | organization | references external | Core | Organization |
 | SourcingRecommendationItem | organization | references external | Core | Organization |
 | SourcingRecommendationItemEvidence | organization | references external | Core | Organization |
@@ -717,6 +793,7 @@ erDiagram
 | SourcingValidationCheck | organization | references external | Core | Organization |
 | SourcingValidationCheckEvidence | organization | references external | Core | Organization |
 | SourcingValidationEpisode | organization | references external | Core | Organization |
+| SourcingWingCatalogProductFact | organization | references external | Core | Organization |
 | SourcingWorkspaceSnapshot | organization | references external | Core | Organization |
 | TiktokCreativeTrendDailySnapshot | organization | references external | Core | Organization |
 | TrendSeedKeyword | organization | references external | Core | Organization |

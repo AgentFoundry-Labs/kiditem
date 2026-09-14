@@ -81,7 +81,6 @@ export {
   DailyAdItemSchema,
   GradeChangesSchema,
   WarningsSchema,
-  WingAdSummarySchema,
 } from './schemas/dashboard.js';
 export type {
   DashboardSalesSummary,
@@ -100,7 +99,6 @@ export type {
   DailyAdItem,
   GradeChanges,
   Warnings,
-  WingAdSummary,
 } from './schemas/dashboard.js';
 
 // Reviews
@@ -183,10 +181,6 @@ export {
   AdWeeklyPlanSchema,
   AdStrategyRecommendationSchema,
   AdBenchmarkDataSchema,
-  ExposureFactorScoreSchema,
-  ExposureProductScoreSchema,
-  ExposureUrgentActionSchema,
-  ExposureAnalysisDataSchema,
   ChannelStateSignalSchema,
   ChannelOptionStateSignalSchema,
   AdExtensionStatusSchema,
@@ -212,10 +206,6 @@ export type {
   AdWeeklyPlan,
   AdStrategyRecommendation,
   AdBenchmarkData,
-  ExposureFactorScore,
-  ExposureProductScore,
-  ExposureUrgentAction,
-  ExposureAnalysisData,
   ChannelStateSignal,
   ChannelOptionStateSignal,
   AdExtensionStatus,

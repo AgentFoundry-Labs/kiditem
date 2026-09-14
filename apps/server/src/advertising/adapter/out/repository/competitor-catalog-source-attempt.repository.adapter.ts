@@ -9,7 +9,7 @@ import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { deriveSourceReadiness } from '@kiditem/shared/source-readiness';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
-import { businessDateKey } from '../../../../common/kst';
+import { businessDateKey, evidenceCutoffDate } from '../../../../common/kst';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import {
   currentBusinessDate,
@@ -367,7 +367,7 @@ export class CompetitorCatalogSourceAttemptRepositoryAdapter
       sourceType: COMPETITOR_CATALOG_SOURCE_TYPE,
       attemptId: attempt.id,
       title: '쿠팡 경쟁 판매자 수집 만료',
-      message: 'ATTEMPT_EXPIRED: Competitor catalog collection expired before publication.',
+      message: '경쟁 판매자 수집이 결과를 저장하기 전에 만료되었습니다. 다시 수집해주세요.',
       href: '/sourcing-ai/competitor-analysis',
     });
   }
@@ -528,7 +528,7 @@ function sourceView(
   now: Date,
 ): CompetitorCatalogSourceView {
   const quality = complete ? readQualityReport(complete.qualityReport) : null;
-  const coveredThrough = complete?.coverageEndDate ? isoDate(complete.coverageEndDate) : null;
+  const coveredThrough = complete?.coverageEndDate ? businessDateKey(complete.coverageEndDate) : null;
   const latestComplete = complete && quality && coveredThrough
     ? {
       sourceImportRunId: complete.id,
@@ -540,7 +540,7 @@ function sourceView(
     }
     : null;
   const latestState = latest ? effectiveState(latest, now) : null;
-  const requiredCutoff = isoDate(new Date(currentBusinessDate(now).getTime() - 86_400_000));
+  const requiredCutoff = businessDateKey(evidenceCutoffDate(now));
   const ready = deriveSourceReadiness({
     latestAttempt: latest ? { state: latestState! } : null,
     latestComplete: latestComplete
@@ -774,8 +774,4 @@ function snapshotTransactionOptions() {
     maxWait: 10_000,
     isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead,
   } as const;
-}
-
-function isoDate(value: Date): string {
-  return businessDateKey(value);
 }

@@ -1,15 +1,16 @@
+Before working in this directory, always read this document first rather than relying on memory.
+
 # finance — P&L, Payments, Plans, Settlements
 
 `src/finance/` owns live financial aggregation, supplier payments, sales plans,
-settlement reconciliation, and the profitability evidence port consumed by
+the manual settlement ledger, and the profitability evidence port consumed by
 Products.
 `Settlement` still lives in the Orders Prisma namespace and `SupplierPayment`
 in Supply, but the backend capability owner is finance.
 
 ## Data Boundaries
 
-- Live P&L reads aggregate orders, line items, returns, listing/options, and ad
-  spend.
+- Live P&L reads aggregate orders, line items, listing/options, and ad spend.
 - Sales plans, settlements, and supplier payments back finance-owned
   operational views.
 - Keep P&L, manual-ledger, and processing-cost reporting as live aggregation;
@@ -17,10 +18,36 @@ in Supply, but the backend capability owner is finance.
 
 ## Aggregation Rules
 
-- Period input is `YYYY-MM`; default is the current month.
-- Monetary values are integer KRW.
-- Shipping is allocated by line-item revenue share.
-- Return/orphan semantics stay aligned with channel dashboard.
+- Period queries and stored plan/settlement periods are `YYYY-MM` naming a
+  real month (`2026-00`/`2026-13` answer 400); the settlement list filter also
+  accepts a year prefix. The default is the KST month containing the request,
+  statistics included. A month is evaluated over its closed KST days.
+- Monetary values are integer KRW. Line costs stay exact; each published
+  aggregate (listing row, channel row, window total) rounds its own sum once,
+  so rows can differ from a total by a won.
+- Shipping is allocated by line-item revenue share and rounded per line, so
+  the rows can miss an order's shipping by up to a won.
+- Window totals publish what no product row carries by cause, each rounded
+  once from exact values: listing-grain spend on listings that sold nothing,
+  the campaign-grain account spend minus listing-grain spend, and shipping no
+  mapped line's revenue weighs. Rounding residue is never published as a part.
+  `Order.shippingPrice` defaults to 0, so a collector that never fills it reads
+  as measured zero shipping; a nullable column or collector provenance belongs
+  to a schema cutover.
+- Profit cost inputs (KID-114): purchase cost is the option recipe × mapped
+  `SellpiaInventorySku.purchasePrice`. A sales commission and other per-sale
+  cost apply by the order's channel account through `channelAccountSalesCosts`:
+  Rocket direct purchase applies neither (Not applied, 0); any other account
+  applies both, and without a source their value stays unknown, never 0. The
+  finance basis publishes, per component, the lines each does not apply to and
+  the lines nobody measured.
+- Advertising applies by Advertising's rule (`advertisingAppliesToSale`):
+  measured spend for a listing or channel always applies; otherwise it applies
+  to a listing sold on an account the Coupang target-day sweep covers.
+  Elsewhere it is Not applied (0), never unmeasured.
+- Returns have no owner publication, so return counts, rates, and orphan
+  counts publish `null` here and on the channel dashboard until a return source
+  declares coverage.
 - Profit and return rates derive from raw values, not persisted rates.
 - `common/option-pricing-resolver.ts`, `common/kst`, and
   `common/per-listing-profit` are shared finance helpers.
@@ -29,8 +56,10 @@ in Supply, but the backend capability owner is finance.
 
 - Supplier-payment capability lives here even though supplier identity is owned
   by supply.
-- Settlement reconciliation reads order-owned settlement tables through finance
-  services.
+- The manual settlement ledger (list, create, deposit confirmation) reads and
+  writes the Orders-namespace `Settlement` table through finance services.
+  Reconciliation against order facts was removed (KID-113) until a settlement
+  source exists (KID-115).
 - Product profitability evidence is assembled here from Analytics' exact-period
   Sellpia facts and Advertising's listing-daily spend facts for identical dates.
   Keep partial-period totals intact rather than allocating monthly sums to days.
@@ -42,8 +71,9 @@ in Supply, but the backend capability owner is finance.
 ## Boundary Rules
 
 - Keep `/api/profit-loss` as live aggregation; do not add persisted P&L writes.
-- Live channel-SKU pricing comes from `ChannelListingOption` and the shared
-  pricing resolver. Component purchase cost comes from the mapped physical
+- Never read option `costPriceOverride`, `commissionRate`, `otherCost` or
+  `shippingCost` in finance, the dashboard or `common`; shipping is the order's
+  `shippingPrice`. Component purchase cost comes from the mapped physical
   `SellpiaInventorySku.purchasePrice`; do not restore removed `ProductOption`
   reads.
 - Add date-range support only as one coordinated DTO, service, test, and

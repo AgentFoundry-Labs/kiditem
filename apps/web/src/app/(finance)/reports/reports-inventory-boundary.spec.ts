@@ -54,7 +54,6 @@ describe('server-owned Finance report boundary', () => {
     expect(profitLossSource).toContain('selectedGrades');
     expect(profitLossSource).toContain('sortDirection');
     expect(profitLossSource).not.toContain('import("xlsx")');
-    expect(settlementsSource).toContain('downloadSettlementReconcileReport');
     expect(settlementsSource).not.toContain('import("xlsx")');
   });
 

@@ -93,10 +93,10 @@ export default function ChannelOptionInventoryPanel({
                   ) : option.inventoryComponents.map((component) => (
                     <div key={component.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface)] px-3 py-2 text-xs">
                       <span className="flex min-w-0 items-center gap-2 font-semibold text-[var(--text-secondary)]">
-                        {component.isActive ? <PackageCheck size={14} className="text-emerald-600" /> : <AlertTriangle size={14} className="text-amber-600" />}
+                        {component.isActive === true ? <PackageCheck size={14} className="text-emerald-600" /> : <AlertTriangle size={14} className="text-amber-600" />}
                         <span className="truncate">{component.code} · {component.name}{component.optionName ? ` / ${component.optionName}` : ''}</span>
                       </span>
-                      <span className="font-bold tabular-nums text-[var(--text-primary)]">가용 {formatNumber(component.availableStock)} · 차감 {formatNumber(component.quantity)}</span>
+                      <span className="font-bold tabular-nums text-[var(--text-primary)]">가용 {component.availableStock === null ? '미수집' : formatNumber(component.availableStock)} · 차감 {formatNumber(component.quantity)}</span>
                     </div>
                   ))}
                 </div>
@@ -133,9 +133,13 @@ export default function ChannelOptionInventoryPanel({
 }
 
 function findBottleneck(option: ProductChannelListingSummary['options'][number]) {
+  type AvailableComponent = ProductChannelListingSummary['options'][number]['inventoryComponents'][number] & {
+    availableStock: number;
+  };
+
   return option.inventoryComponents
-    .filter((component) => component.isActive)
-    .reduce<ProductChannelListingSummary['options'][number]['inventoryComponents'][number] | null>((lowest, component) => {
+    .filter((component): component is AvailableComponent => component.isActive === true && component.availableStock !== null)
+    .reduce<AvailableComponent | null>((lowest, component) => {
       if (!lowest) return component;
       return Math.floor(component.availableStock / component.quantity)
         < Math.floor(lowest.availableStock / lowest.quantity)

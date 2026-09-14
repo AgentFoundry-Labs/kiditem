@@ -1,14 +1,25 @@
 // apps/server/src/orders/services/reviews.service.ts
 import { Injectable } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { readPublishedProductAbcGrades } from '../../products/read/product-abc-publication.reader';
 import { ListReviewsQueryDto, type ReviewFilter } from '../dto/list-reviews.dto';
 import { ListReviewItemsQueryDto } from '../dto/list-review-items.dto';
-import type {
-  OrdersReviewListingStatsReadPort,
-  ReviewListingStatsReadRequest,
-  ReviewListingStatsReadResult,
-} from '../application/port/in/review-listing-stats-read.port';
+import {
+  readCurrentReviewContentCount,
+  readCurrentReviewItemCount,
+  readCurrentReviewItems,
+  readCurrentReviewListingAggregates,
+  readCurrentReviewRatingCounts,
+  readCurrentReviewRecentCounts,
+  type CurrentReviewListingAggregate,
+  type CurrentReviewItemFilter,
+} from '../read/review-facts.reader';
+import {
+  ORDER_FACT_EXCLUDED_STATUSES,
+  readListingOptionOrderFacts,
+  readObservedOrderBounds,
+  readOrderWindowFacts,
+} from '../read/order-facts.reader';
 import type {
   ReviewItem,
   ReviewItemListResponse,
@@ -16,8 +27,7 @@ import type {
   ReviewListResponse,
   ReviewSummary,
 } from '@kiditem/shared/reviews';
-
-const COUPANG_REVIEW_SOURCE_TYPE = 'coupang_reviews';
+import type { Prisma } from '@prisma/client';
 
 const RECENT_DAYS = 30;
 const RECENT_WINDOW_MS = RECENT_DAYS * 24 * 60 * 60 * 1000;
@@ -32,99 +42,9 @@ const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 50;
 const DEFAULT_FILTER: ReviewFilter = 'all';
 
-interface ListingAggregate {
-  listingId: string;
-  totalReviews: number;
-  avgRating: number;
-  lastReviewAt: Date | null;
-}
-
-type ReviewReadRow = {
-  id: string;
-  listingId: string | null;
-  itemName: string | null;
-  externalOptionId: string | null;
-  externalProductId: string | null;
-  rating: number;
-  title: string | null;
-  content: string | null;
-  reviewerName: string | null;
-  reviewedAt: Date;
-  imageCount: number;
-  videoCount: number;
-};
-
-type RawAggregateRow = {
-  listingId: string;
-  totalReviews: number;
-  avgRating: number | null;
-  lastReviewAt: Date | null;
-};
-
-type RawRecentRow = { listingId: string; count: number };
-
-type RawListingStatsRow = {
-  listingId: string;
-  totalReviews: number;
-  avgRating: number | null;
-};
-
 @Injectable()
-export class ReviewsService implements OrdersReviewListingStatsReadPort {
+export class ReviewsService {
   constructor(private readonly prisma: PrismaService) {}
-
-  /**
-   * Listing review metrics for another owner domain.
-   *
-   * This is intentionally the only cross-domain review aggregate surface:
-   * `currentReviewsCte` applies the COMPLETE/latest-per-review policy before
-   * the requested listing-level counts are computed.
-   */
-  async loadListingReviewStats(
-    request: ReviewListingStatsReadRequest,
-  ): Promise<ReviewListingStatsReadResult> {
-    const listingIds = [...new Set(request.listingIds.filter(Boolean))];
-    if (listingIds.length === 0) {
-      return { lifetime: [], recent: [] };
-    }
-    const listingIdSql = Prisma.join(
-      listingIds.map((listingId) => Prisma.sql`${listingId}::uuid`),
-    );
-    const [lifetimeRows, recentRows] = await Promise.all([
-      this.prisma.$queryRaw<RawListingStatsRow[]>(Prisma.sql`
-        ${currentReviewsCte(request.organizationId)}
-        SELECT listing_id AS "listingId", COUNT(*)::int AS "totalReviews",
-               AVG(rating)::float8 AS "avgRating"
-        FROM current_reviews
-        WHERE organization_id = ${request.organizationId}::uuid
-          AND listing_id IN (${listingIdSql})
-          AND is_deleted = FALSE AND is_blinded = FALSE
-        GROUP BY listing_id
-      `),
-      this.prisma.$queryRaw<RawRecentRow[]>(Prisma.sql`
-        ${currentReviewsCte(request.organizationId)}
-        SELECT listing_id AS "listingId", COUNT(*)::int AS count
-        FROM current_reviews
-        WHERE organization_id = ${request.organizationId}::uuid
-          AND listing_id IN (${listingIdSql})
-          AND reviewed_at >= ${request.recentSince}
-          AND is_deleted = FALSE AND is_blinded = FALSE
-        GROUP BY listing_id
-      `),
-    ]);
-
-    return {
-      lifetime: lifetimeRows.map((row) => ({
-        listingId: row.listingId,
-        totalReviews: Number(row.totalReviews),
-        avgRating: Number(row.avgRating ?? 0),
-      })),
-      recent: recentRows.map((row) => ({
-        listingId: row.listingId,
-        count: Number(row.count),
-      })),
-    };
-  }
 
   /**
    * Per-listing aggregate review rows for `/reviews` UI.
@@ -137,10 +57,9 @@ export class ReviewsService implements OrdersReviewListingStatsReadPort {
    * - One row per listing. `productId` is the listing ID; Sellpia physical
    *   Master rows are not registered-product identity.
    * - `recentReviews` counts reviews in the last 30 days.
-   * - `orderCount` is intentionally 0 in R3. Real per-listing order counts
-   *   require a `ChannelListingOption ↔ OrderLineItem` join across the order
-   *   history, which is too expensive for the first revival. Documented as
-   *   unavailable (acceptance criteria #8: "no fake metrics").
+   * - `orderCount` comes from canonical OrderLineItem facts. It is null until
+   *   every known source that contributed to the observed order window has
+   *   declared complete coverage for that window.
    * - `lastReviewAt` is the latest `reviewedAt` for the listing, ISO string.
    *
    * Pagination is over the aggregate rows (not raw reviews) sorted by
@@ -154,52 +73,54 @@ export class ReviewsService implements OrdersReviewListingStatsReadPort {
     const limit = query.limit ?? DEFAULT_LIMIT;
     const filter = query.filter ?? DEFAULT_FILTER;
 
-    const allAggregates = await this.aggregateListings(organizationId);
-    const listingDisplays = await this.loadListingDisplays(
-      organizationId,
-      allAggregates.map((a) => a.listingId),
-    );
-    const aggregates = allAggregates.filter((a) => listingDisplays.has(a.listingId));
-    const recentByListing = await this.recentReviewsByListing(
-      organizationId,
-      aggregates.map((a) => a.listingId),
-    );
-    const summary = computeSummary(aggregates);
-    const filteredAggregates = applyReviewFilter(aggregates, filter);
+    return this.prisma.$transaction(async (tx) => {
+      const allAggregates = await readCurrentReviewListingAggregates(tx, organizationId);
+      const listingDisplays = await this.loadListingDisplays(
+        tx,
+        organizationId,
+        allAggregates.map((a) => a.listingId),
+      );
+      const aggregates = allAggregates.filter((a) => listingDisplays.has(a.listingId));
+      const listingIds = aggregates.map((a) => a.listingId);
+      const since = new Date(Date.now() - RECENT_WINDOW_MS);
+      const recentRows = await readCurrentReviewRecentCounts(
+        tx,
+        organizationId,
+        listingIds,
+        since,
+      );
+      const orderCounts = await this.readOrderCountsByListing(tx, organizationId, listingIds);
+      const recentByListing = new Map(recentRows.map((row) => [row.listingId, row.count]));
+      const summary = computeSummary(aggregates);
+      const filteredAggregates = applyReviewFilter(aggregates, filter);
 
-    filteredAggregates.sort((a, b) => {
-      if (a.totalReviews !== b.totalReviews) return b.totalReviews - a.totalReviews;
-      return a.listingId.localeCompare(b.listingId);
+      filteredAggregates.sort((a, b) => {
+        if (a.totalReviews !== b.totalReviews) return b.totalReviews - a.totalReviews;
+        return a.listingId.localeCompare(b.listingId);
+      });
+      const total = filteredAggregates.length;
+      const skip = (page - 1) * limit;
+      const slice = filteredAggregates.slice(skip, skip + limit);
+
+      const items: ReviewListItem[] = slice.map((agg) => {
+        const display = listingDisplays.get(agg.listingId);
+        return {
+          listingId: agg.listingId,
+          productId: display?.masterId ?? agg.listingId,
+          productName: display?.productName ?? '-',
+          sku: display?.sku ?? null,
+          organization: display?.companyName ?? '-',
+          grade: display?.grade ?? '-',
+          totalReviews: agg.totalReviews,
+          avgRating: round2(agg.avgRating),
+          recentReviews: recentByListing.get(agg.listingId) ?? 0,
+          orderCount: orderCounts?.get(agg.listingId) ?? (orderCounts ? 0 : null),
+          lastReviewAt: agg.lastReviewAt?.toISOString() ?? null,
+        } satisfies ReviewListItem;
+      });
+
+      return { items, total, page, limit, summary } satisfies ReviewListResponse;
     });
-    const total = filteredAggregates.length;
-    const skip = (page - 1) * limit;
-    const slice = filteredAggregates.slice(skip, skip + limit);
-
-    const items: ReviewListItem[] = slice.map((agg) => {
-      const display = listingDisplays.get(agg.listingId);
-      return {
-        listingId: agg.listingId,
-        productId: display?.masterId ?? agg.listingId,
-        productName: display?.productName ?? '-',
-        sku: display?.sku ?? null,
-        organization: display?.companyName ?? '-',
-        grade: display?.grade ?? '-',
-        totalReviews: agg.totalReviews,
-        avgRating: round2(agg.avgRating),
-        recentReviews: recentByListing.get(agg.listingId) ?? 0,
-        // Documented unavailable — see method docstring.
-        orderCount: 0,
-        lastReviewAt: agg.lastReviewAt?.toISOString() ?? null,
-      } satisfies ReviewListItem;
-    });
-
-    return {
-      items,
-      total,
-      page,
-      limit,
-      summary,
-    } satisfies ReviewListResponse;
   }
 
   /**
@@ -213,25 +134,25 @@ export class ReviewsService implements OrdersReviewListingStatsReadPort {
   ): Promise<ReviewItemListResponse> {
     const page = query.page ?? DEFAULT_PAGE;
     const limit = query.limit ?? DEFAULT_LIMIT;
-    const [totalRows, rows, ratingGroups, contentRows] = await Promise.all([
-      this.queryReviewItemCount(organizationId, query),
-      this.queryReviewItems(organizationId, query, page, limit),
-      this.queryReviewRatingCounts(organizationId, query),
-      this.queryReviewContentCount(organizationId, query),
-    ]);
-    const total = Number(totalRows[0]?.count ?? 0);
-    const withContentCount = Number(contentRows[0]?.count ?? 0);
+    const filter = toCurrentReviewItemFilter(query);
+    return this.prisma.$transaction(async (tx) => {
+      const total = await readCurrentReviewItemCount(tx, organizationId, filter);
+      const rows = await readCurrentReviewItems(tx, organizationId, filter, page, limit);
+      const ratingGroups = await readCurrentReviewRatingCounts(tx, organizationId, filter);
+      const withContentCount = await readCurrentReviewContentCount(tx, organizationId, filter);
 
-    const optionNames = await this.loadOptionNames(
-      organizationId,
-      rows.map((row) => row.externalOptionId),
-    );
-    const listingDisplays = await this.loadListingDisplays(
-      organizationId,
-      rows.map((row) => row.listingId).filter((value): value is string => !!value),
-    );
+      const optionNames = await this.loadOptionNames(
+        tx,
+        organizationId,
+        rows.map((row) => row.externalOptionId),
+      );
+      const listingDisplays = await this.loadListingDisplays(
+        tx,
+        organizationId,
+        rows.map((row) => row.listingId).filter((value): value is string => !!value),
+      );
 
-    const items: ReviewItem[] = rows.map((row) => ({
+      const items: ReviewItem[] = rows.map((row) => ({
       id: row.id,
       listingId: row.listingId,
       productName:
@@ -251,83 +172,24 @@ export class ReviewsService implements OrdersReviewListingStatsReadPort {
       externalProductId: row.externalProductId,
     } satisfies ReviewItem));
 
-    const ratingCounts: Record<string, number> = {};
-    for (const group of ratingGroups) {
-      ratingCounts[String(group.rating)] = Number(group.count);
-    }
+      const ratingCounts: Record<string, number> = {};
+      for (const group of ratingGroups) {
+        ratingCounts[String(group.rating)] = group.count;
+      }
 
-    return {
-      items,
-      total,
-      page,
-      limit,
-      ratingCounts,
-      withContentCount,
-    } satisfies ReviewItemListResponse;
-  }
-
-  private queryReviewItemCount(
-    organizationId: string,
-    query: ListReviewItemsQueryDto,
-  ): Promise<Array<{ count: number }>> {
-    return this.prisma.$queryRaw<Array<{ count: number }>>(Prisma.sql`
-      ${currentReviewsCte(organizationId)}
-      SELECT COUNT(*)::int AS count
-      FROM current_reviews
-      WHERE organization_id = ${organizationId}::uuid
-        AND ${reviewItemPredicatesSql(query)}
-    `);
-  }
-
-  private queryReviewContentCount(
-    organizationId: string,
-    query: ListReviewItemsQueryDto,
-  ): Promise<Array<{ count: number }>> {
-    return this.prisma.$queryRaw<Array<{ count: number }>>(Prisma.sql`
-      ${currentReviewsCte(organizationId)}
-      SELECT COUNT(*)::int AS count
-      FROM current_reviews
-      WHERE organization_id = ${organizationId}::uuid
-        AND ${reviewItemPredicatesSql(query, { includeContent: true })}
-    `);
-  }
-
-  private queryReviewRatingCounts(
-    organizationId: string,
-    query: ListReviewItemsQueryDto,
-  ): Promise<Array<{ rating: number; count: number }>> {
-    return this.prisma.$queryRaw<Array<{ rating: number; count: number }>>(Prisma.sql`
-      ${currentReviewsCte(organizationId)}
-      SELECT rating, COUNT(*)::int AS count
-      FROM current_reviews
-      WHERE organization_id = ${organizationId}::uuid
-        AND ${reviewItemPredicatesSql(query, { omitRating: true })}
-      GROUP BY rating
-      ORDER BY rating ASC
-    `);
-  }
-
-  private queryReviewItems(
-    organizationId: string,
-    query: ListReviewItemsQueryDto,
-    page: number,
-    limit: number,
-  ): Promise<ReviewReadRow[]> {
-    return this.prisma.$queryRaw<ReviewReadRow[]>(Prisma.sql`
-      ${currentReviewsCte(organizationId)}
-      SELECT id, listing_id AS "listingId", item_name AS "itemName",
-             external_option_id AS "externalOptionId", external_product_id AS "externalProductId",
-             rating, title, content, reviewer_name AS "reviewerName", reviewed_at AS "reviewedAt",
-             image_count AS "imageCount", video_count AS "videoCount"
-      FROM current_reviews
-      WHERE organization_id = ${organizationId}::uuid
-        AND ${reviewItemPredicatesSql(query)}
-      ORDER BY reviewed_at DESC, id ASC
-      LIMIT ${limit} OFFSET ${(page - 1) * limit}
-    `);
+      return {
+        items,
+        total,
+        page,
+        limit,
+        ratingCounts,
+        withContentCount,
+      } satisfies ReviewItemListResponse;
+    });
   }
 
   private async loadOptionNames(
+    tx: Prisma.TransactionClient,
     organizationId: string,
     externalOptionIds: ReadonlyArray<string | null>,
   ): Promise<Map<string, string>> {
@@ -335,7 +197,7 @@ export class ReviewsService implements OrdersReviewListingStatsReadPort {
       ...new Set(externalOptionIds.filter((value): value is string => !!value)),
     ];
     if (ids.length === 0) return new Map();
-    const rows = await this.prisma.channelListingOption.findMany({
+    const rows = await tx.channelListingOption.findMany({
       where: { organizationId, externalOptionId: { in: ids } },
       select: { externalOptionId: true, itemName: true },
       orderBy: { createdAt: 'asc' },
@@ -348,64 +210,20 @@ export class ReviewsService implements OrdersReviewListingStatsReadPort {
     return map;
   }
 
-  private async aggregateListings(organizationId: string): Promise<ListingAggregate[]> {
-    const rows = await this.prisma.$queryRaw<RawAggregateRow[]>(Prisma.sql`
-      ${currentReviewsCte(organizationId)}
-      SELECT listing_id AS "listingId", COUNT(*)::int AS "totalReviews",
-             AVG(rating)::float8 AS "avgRating", MAX(reviewed_at) AS "lastReviewAt"
-      FROM current_reviews
-      WHERE organization_id = ${organizationId}::uuid
-        AND listing_id IS NOT NULL AND is_deleted = FALSE AND is_blinded = FALSE
-      GROUP BY listing_id
-    `);
-    const out: ListingAggregate[] = [];
-    for (const r of rows) {
-      out.push({
-        listingId: r.listingId,
-        totalReviews: Number(r.totalReviews),
-        avgRating: Number(r.avgRating ?? 0),
-        lastReviewAt: r.lastReviewAt,
-      });
-    }
-    return out;
-  }
-
-  private async recentReviewsByListing(
-    organizationId: string,
-    listingIds: string[],
-  ): Promise<Map<string, number>> {
-    if (listingIds.length === 0) return new Map();
-    const since = new Date(Date.now() - RECENT_WINDOW_MS);
-    const rows = await this.prisma.$queryRaw<RawRecentRow[]>(Prisma.sql`
-      ${currentReviewsCte(organizationId)}
-      SELECT listing_id AS "listingId", COUNT(*)::int AS count
-      FROM current_reviews
-      WHERE organization_id = ${organizationId}::uuid
-        AND listing_id IN (${Prisma.join(listingIds.map((id) => Prisma.sql`${id}::uuid`))})
-        AND reviewed_at >= ${since}
-        AND is_deleted = FALSE AND is_blinded = FALSE
-      GROUP BY listing_id
-    `);
-    const map = new Map<string, number>();
-    for (const r of rows) {
-      map.set(r.listingId, Number(r.count));
-    }
-    return map;
-  }
-
   private async loadListingDisplays(
+    tx: Prisma.TransactionClient,
     organizationId: string,
     listingIds: string[],
   ): Promise<Map<string, ListingDisplay>> {
     if (listingIds.length === 0) return new Map();
-    const rows = await this.prisma.channelListing.findMany({
+    const rows = await tx.channelListing.findMany({
       where: { id: { in: listingIds }, organizationId, isActive: true },
       select: {
         id: true,
         channelName: true,
         displayName: true,
         masterProduct: {
-          select: { id: true, name: true, abcGrade: true },
+          select: { id: true, name: true },
         },
         options: {
           select: { sellerSku: true },
@@ -415,6 +233,11 @@ export class ReviewsService implements OrdersReviewListingStatsReadPort {
         },
         organization: { select: { name: true } },
       },
+    });
+    const gradeByProductId = await readPublishedProductAbcGrades(tx, {
+      organizationId,
+      masterProductIds: rows.flatMap((row) =>
+        row.masterProduct ? [row.masterProduct.id] : []),
     });
     const map = new Map<string, ListingDisplay>();
     for (const row of rows) {
@@ -426,11 +249,57 @@ export class ReviewsService implements OrdersReviewListingStatsReadPort {
           ?? null,
         sku: row.options[0]?.sellerSku ?? null,
         companyName: row.organization?.name ?? null,
-        grade: row.masterProduct?.abcGrade ?? null,
+        grade: row.masterProduct
+          ? gradeByProductId.get(row.masterProduct.id) ?? null
+          : null,
       });
     }
     return map;
   }
+
+  private async readOrderCountsByListing(
+    tx: Prisma.TransactionClient,
+    organizationId: string,
+    listingIds: string[],
+  ): Promise<Map<string, number> | null> {
+    if (listingIds.length === 0) return new Map();
+    const bounds = await readObservedOrderBounds(tx, organizationId);
+    if (!bounds) return null;
+    const window = {
+      organizationId,
+      ...bounds,
+      excludedStatuses: ORDER_FACT_EXCLUDED_STATUSES,
+    };
+    const observation = await readOrderWindowFacts(tx, window);
+    if (observation.orderCount === null) return null;
+
+    const options = await tx.channelListingOption.findMany({
+      where: { organizationId, listingId: { in: listingIds } },
+      select: { id: true, listingId: true },
+    });
+    const facts = await readListingOptionOrderFacts(tx, window);
+    const listingByOption = new Map(options.map((option) => [option.id, option.listingId]));
+    const orderIdsByListing = new Map<string, Set<string>>();
+    for (const fact of facts) {
+      const listingId = listingByOption.get(fact.listingOptionId);
+      if (!listingId) continue;
+      const orderIds = orderIdsByListing.get(listingId) ?? new Set<string>();
+      orderIds.add(fact.orderId);
+      orderIdsByListing.set(listingId, orderIds);
+    }
+    return new Map(
+      listingIds.map((listingId) => [listingId, orderIdsByListing.get(listingId)?.size ?? 0]),
+    );
+  }
+}
+
+function toCurrentReviewItemFilter(query: ListReviewItemsQueryDto): CurrentReviewItemFilter {
+  return {
+    listingId: query.listingId,
+    rating: query.rating,
+    hasContent: query.hasContent === 'true',
+    search: query.search,
+  };
 }
 
 interface ListingDisplay {
@@ -441,7 +310,9 @@ interface ListingDisplay {
   grade: string | null;
 }
 
-export function computeSummary(aggregates: ReadonlyArray<ListingAggregate>): ReviewSummary {
+export function computeSummary(
+  aggregates: ReadonlyArray<CurrentReviewListingAggregate>,
+): ReviewSummary {
   let totalReviews = 0;
   let weightedSum = 0;
   let newListings = 0;
@@ -455,8 +326,7 @@ export function computeSummary(aggregates: ReadonlyArray<ListingAggregate>): Rev
       needsResponse += 1;
     }
   }
-  const weightedAvgRating =
-    totalReviews > 0 ? round2(weightedSum / totalReviews) : 0;
+  const weightedAvgRating = totalReviews > 0 ? round2(weightedSum / totalReviews) : null;
   return {
     listingCount: aggregates.length,
     totalReviewCount: totalReviews,
@@ -468,9 +338,9 @@ export function computeSummary(aggregates: ReadonlyArray<ListingAggregate>): Rev
 }
 
 function applyReviewFilter(
-  aggregates: ListingAggregate[],
+  aggregates: CurrentReviewListingAggregate[],
   filter: ReviewFilter,
-): ListingAggregate[] {
+): CurrentReviewListingAggregate[] {
   if (filter === 'new') {
     return aggregates.filter((a) => a.totalReviews < NEEDS_ATTENTION_MIN_REVIEWS);
   }
@@ -486,94 +356,4 @@ function applyReviewFilter(
 
 function round2(value: number): number {
   return Math.round(value * 100) / 100;
-}
-
-/**
- * Coupang review collection is cumulative: a new recent-month run must update
- * matching review ids without making older complete facts disappear. The
- * selector therefore chooses the newest COMPLETE fact per external id while
- * retaining facts from older COMPLETE generations outside the new window.
- * Unowned legacy Coupang rows are intentionally excluded; other platforms
- * keep their existing rows.
- */
-function currentReviewsCte(organizationId: string): Prisma.Sql {
-  return Prisma.sql`
-    WITH ranked_coupang AS (
-      SELECT
-        r.id,
-        r.organization_id,
-        r.source_import_run_id,
-        r.listing_id,
-        r.platform,
-        r.rating,
-        r.title,
-        r.content,
-        r.reviewer_name,
-        r.external_review_id,
-        r.external_option_id,
-        r.external_product_id,
-        r.item_name,
-        r.image_count,
-        r.video_count,
-        r.is_deleted,
-        r.is_blinded,
-        r.reviewed_at,
-        ROW_NUMBER() OVER (
-          PARTITION BY r.external_review_id
-          ORDER BY s.publication_sequence DESC NULLS LAST,
-                   COALESCE(s.imported_at, s.created_at) DESC,
-                   s.id DESC,
-                   r.id DESC
-        ) AS generation_rank
-      FROM reviews r
-      INNER JOIN source_import_runs s
-        ON s.id = r.source_import_run_id
-       AND s.organization_id = r.organization_id
-      WHERE r.organization_id = ${organizationId}::uuid
-        AND r.platform = 'coupang'
-        AND r.source_import_run_id IS NOT NULL
-        AND s.source_type = ${COUPANG_REVIEW_SOURCE_TYPE}
-        AND s.status = 'completed'
-    ), current_reviews AS (
-      SELECT id, organization_id, source_import_run_id, listing_id, platform, rating,
-             title, content, reviewer_name, external_review_id, external_option_id,
-             external_product_id, item_name, image_count, video_count, is_deleted,
-             is_blinded, reviewed_at
-      FROM ranked_coupang
-      WHERE generation_rank = 1
-      UNION ALL
-      SELECT r.id, r.organization_id, r.source_import_run_id, r.listing_id, r.platform,
-             r.rating, r.title, r.content, r.reviewer_name, r.external_review_id,
-             r.external_option_id, r.external_product_id, r.item_name, r.image_count,
-             r.video_count, r.is_deleted, r.is_blinded, r.reviewed_at
-      FROM reviews r
-      WHERE r.organization_id = ${organizationId}::uuid
-        AND r.platform <> 'coupang'
-    )
-  `;
-}
-
-function reviewItemPredicatesSql(
-  query: ListReviewItemsQueryDto,
-  options: { omitRating?: boolean; includeContent?: boolean } = {},
-): Prisma.Sql {
-  const predicates: Prisma.Sql[] = [
-    Prisma.sql`is_deleted = FALSE`,
-    Prisma.sql`is_blinded = FALSE`,
-  ];
-  if (query.listingId) predicates.push(Prisma.sql`listing_id = ${query.listingId}::uuid`);
-  if (!options.omitRating && query.rating) predicates.push(Prisma.sql`rating = ${query.rating}`);
-  if (query.hasContent === 'true' || options.includeContent) {
-    predicates.push(Prisma.sql`(content IS NOT NULL OR title IS NOT NULL)`);
-  }
-  const search = query.search?.trim();
-  if (search) {
-    predicates.push(Prisma.sql`(
-      content ILIKE '%' || ${search} || '%' OR
-      title ILIKE '%' || ${search} || '%' OR
-      item_name ILIKE '%' || ${search} || '%' OR
-      reviewer_name ILIKE '%' || ${search} || '%'
-    )`);
-  }
-  return Prisma.sql`${Prisma.join(predicates, ' AND ')}`;
 }

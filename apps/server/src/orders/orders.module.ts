@@ -34,7 +34,6 @@ import { SellpiaShipmentTrackingSourceRepository } from './adapter/out/repositor
 import { SELLPIA_SHIPMENT_TRACKING_SOURCE_PORT } from './application/port/in/sellpia-shipment-tracking-source.port';
 import { REVIEW_COLLECTION_SOURCE_PORT } from './application/port/in/review-collection-source.port';
 import { ReviewCollectionSourceRepository } from './adapter/out/repository/review-collection-source.repository';
-import { ORDERS_REVIEW_LISTING_STATS_READ_PORT } from './application/port/in/review-listing-stats-read.port';
 
 @Module({
   imports: [AlertsModule, PrismaModule, SupplyModule],
@@ -94,11 +93,6 @@ import { ORDERS_REVIEW_LISTING_STATS_READ_PORT } from './application/port/in/rev
       provide: REVIEW_COLLECTION_SOURCE_PORT,
       useExisting: ReviewCollectionSourceRepository,
     },
-    {
-      provide: ORDERS_REVIEW_LISTING_STATS_READ_PORT,
-      useExisting: ReviewsService,
-    },
   ],
-  exports: [ORDERS_REVIEW_LISTING_STATS_READ_PORT],
 })
 export class OrdersModule {}

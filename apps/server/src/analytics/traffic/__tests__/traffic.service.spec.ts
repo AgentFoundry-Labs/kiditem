@@ -126,7 +126,6 @@ function reconciliation(overrides: Record<string, unknown> = {}) {
   const base = {
     dailySum: 620,
     periodValue: 620,
-    status: 'MATCHED',
   };
   return {
     views: { ...base },
@@ -250,8 +249,8 @@ describe('TrafficService — scrape-run tenant-scoped writes', () => {
   it('nulls only a mismatched additive metric and preserves reconciliation provenance', async () => {
     const { prisma } = makePrisma();
     const publishedReconciliation = reconciliation({
-      views: { dailySum: 620, periodValue: 999, status: 'MISMATCH' },
-      orders: { dailySum: 62, periodValue: null, status: 'UNVERIFIED' },
+      views: { dailySum: 620, periodValue: 999 },
+      orders: { dailySum: 62, periodValue: null },
     });
     const trafficRead = makeTrafficRead(completeMayRows(), publishedReconciliation);
     const service = new TrafficService(prisma as never, trafficRead as never);

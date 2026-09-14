@@ -31,9 +31,7 @@ describe('<ProductEditorDialog>', () => {
       tags: [],
       imageUrls: [],
       profitTag: null,
-      adTier: null,
       adBudgetLimit: null,
-      healthScore: null,
       isActive: true,
     }));
     expect(onSaved).toHaveBeenCalledWith('product-1');
@@ -68,8 +66,6 @@ describe('<ProductEditorDialog>', () => {
         profitTag: null,
         adTier: null,
         adBudgetLimit: null,
-        healthScore: null,
-        healthUpdatedAt: null,
         isActive: true,
       },
     });
@@ -141,8 +137,6 @@ function sellpiaInternalProduct(): MasterProductOperationsMetadata {
     profitTag: null,
     adTier: null,
     adBudgetLimit: null,
-    healthScore: null,
-    healthUpdatedAt: null,
     isActive: true,
   };
 }

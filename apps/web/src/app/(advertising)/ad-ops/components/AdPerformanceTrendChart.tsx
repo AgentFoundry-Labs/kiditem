@@ -7,9 +7,9 @@
  * - X축은 `07/01(수)` 처럼 요일까지 붙인다.
  * - 각 포인트는 사각 마커.
  *
- * 데이터는 `/api/ads/campaigns/trends` 의 응답을 그대로 쓴다. 실제 광고
- * 성과 수집 원본인 계정 일별을 우선하고, 계정 데이터가 전혀 없는 기존
- * 조직에서만 유효한 listing 일별 팩트를 보조로 사용한다.
+ * 데이터는 `/api/ads/campaigns/trends` 의 응답을 그대로 쓴다. 서버는 요청
+ * 기간의 모든 날짜를 캠페인 순회 기준으로 주고, 측정하지 않은 날은 null
+ * 포인트로 남겨 선이 끊기게 한다. 0으로 채우거나 X축에서 빼지 않는다.
  */
 
 import { useMemo, useState } from "react";
@@ -25,6 +25,7 @@ import {
 import { ChevronDown, ChevronUp, Download } from "lucide-react";
 import { formatKRW, formatNumber, formatPercent } from "@/lib/utils";
 import { exportTrendXlsx } from "../lib/xlsx-export";
+import { adTrendsSourceLabel } from "../lib/trends-source";
 import type { AdTrendsData } from "@kiditem/shared/advertising";
 
 type MetricKey =
@@ -89,7 +90,8 @@ function SquareDot({
   cy?: number;
   fill: string;
 }) {
-  if (cx === undefined || cy === undefined) return null;
+  // An unmeasured date has no y position; recharts leaves the gap.
+  if (cx == null || cy == null) return null;
   const size = 7;
   return (
     <rect
@@ -104,45 +106,33 @@ function SquareDot({
   );
 }
 
-interface ChartPoint {
+export type PerformancePoint = {
   label: string;
   businessDate: string;
-  spend: number;
-  revenue: number;
-  impressions: number;
-  clicks: number;
-  conversions: number;
-  roas: number;
-  ctr: number;
-  cvr: number;
-}
+} & Record<MetricKey, number | null>;
 
 interface AdPerformanceTrendChartProps {
   trends: AdTrendsData | null;
   period: string;
 }
 
-function selectPerformanceRows(trends: AdTrendsData | null) {
-  const accountDaily = trends?.accountDaily ?? [];
-  if (accountDaily.length > 0) {
-    return {
-      rows: accountDaily,
-      sourceLabel: "쿠팡 광고센터 계정 일별",
-    };
-  }
-
-  const listingDaily = trends?.daily ?? [];
-  const listingHasSignal = listingDaily.some(
-    (row) =>
-      row.metrics.spend > 0 ||
-      row.metrics.revenue > 0 ||
-      (row.metrics.roas ?? 0) > 0,
-  );
-  if (listingHasSignal) {
-    return { rows: listingDaily, sourceLabel: "listing daily fact" };
-  }
-
-  return { rows: [], sourceLabel: "광고비/전환매출 수집 필요" };
+/**
+ * One point per requested date. A date the campaign sweep never measured is a
+ * null point, and an unobserved conversion count keeps conversions/CVR null.
+ */
+export function buildPerformancePoints(trends: AdTrendsData | null): PerformancePoint[] {
+  return (trends?.daily ?? []).map((day) => ({
+    label: toAxisLabel(day.date),
+    businessDate: day.date,
+    spend: day.metrics?.spend ?? null,
+    revenue: day.metrics?.revenue ?? null,
+    impressions: day.metrics?.impressions ?? null,
+    clicks: day.metrics?.clicks ?? null,
+    conversions: day.metrics?.conversions ?? null,
+    roas: day.metrics?.roas ?? null,
+    ctr: day.metrics?.ctr ?? null,
+    cvr: day.metrics?.cvr ?? null,
+  }));
 }
 
 export default function AdPerformanceTrendChart({
@@ -153,25 +143,8 @@ export default function AdPerformanceTrendChart({
   const [rightMetric, setRightMetric] = useState<MetricKey>("revenue");
   const [open, setOpen] = useState(true);
 
-  const { points, sourceLabel } = useMemo(() => {
-    const source = selectPerformanceRows(trends);
-
-    return {
-      sourceLabel: source.sourceLabel,
-      points: source.rows.map<ChartPoint>((row) => ({
-        label: toAxisLabel(row.date),
-        businessDate: row.date,
-        spend: row.metrics.spend,
-        revenue: row.metrics.revenue,
-        impressions: row.metrics.impressions,
-        clicks: row.metrics.clicks,
-        conversions: row.metrics.conversions,
-        roas: row.metrics.roas ?? 0,
-        ctr: row.metrics.ctr ?? 0,
-        cvr: row.metrics.cvr ?? 0,
-      })),
-    };
-  }, [trends]);
+  const points = useMemo(() => buildPerformancePoints(trends), [trends]);
+  const sourceLabel = adTrendsSourceLabel(trends?.summary);
 
   const left = METRIC_BY_KEY.get(leftMetric) ?? METRICS[0];
   const right = METRIC_BY_KEY.get(rightMetric) ?? METRICS[1];
@@ -289,7 +262,7 @@ export default function AdPerformanceTrendChart({
                   contentStyle={{ borderRadius: 12, fontSize: 12, fontWeight: 700 }}
                   formatter={(value, name) => {
                     const metric = name === left.label ? left : right;
-                    return [metric.format(Number(value)), metric.label];
+                    return [value == null ? "-" : metric.format(Number(value)), metric.label];
                   }}
                 />
                 <Line

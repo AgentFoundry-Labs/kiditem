@@ -9,14 +9,16 @@ import type {
 } from '../../../application/port/in/analytics-overview-capability.port';
 
 const OutputSchema = z.object({
-  sales: z.object({ revenue: z.number(), orders: z.number().int().nonnegative() }).strict(),
+  sales: z.object({
+    revenue: z.number().nullable(),
+    orders: z.number().int().nonnegative().nullable(),
+  }).strict(),
   inventory: z.object({
-    outOfStockSkus: z.number().int().nonnegative(),
+    outOfStockSkus: z.number().int().nonnegative().nullable(),
     mappingAttentionSkus: z.number().int().nonnegative(),
   }).strict(),
   freshness: z.object({
     lastSync: z.string().datetime().nullable(),
-    confirmedUntil: z.string().nullable(),
   }).strict(),
 }).strict();
 
@@ -34,14 +36,19 @@ implements AnalyticsOverviewCapabilityPort {
     period?: 'today' | 'month';
   }): Promise<AnalyticsOverview> {
     const period = input.period ?? 'month';
-    const context = buildDashboardContext(period);
+    const context = buildDashboardContext(
+      period === 'today' ? 'day' : 'month',
+      undefined,
+      undefined,
+      input.now,
+    );
     const [sales, inventory] = await Promise.all([
       this.sales.getSummary(context, input.organizationId),
       this.inventory.getSummary(context, input.organizationId),
     ]);
     const selectedSales = period === 'today'
       ? { revenue: sales.today.revenue, orders: sales.today.orders }
-      : { revenue: sales.monthly.revenue, orders: sales.profitDetail?.orderCount ?? 0 };
+      : { revenue: sales.monthly.revenue, orders: sales.profitDetail?.orderCount ?? null };
     return OutputSchema.parse({
       sales: selectedSales,
       inventory: {
@@ -50,7 +57,6 @@ implements AnalyticsOverviewCapabilityPort {
       },
       freshness: {
         lastSync: sales.lastSyncAt,
-        confirmedUntil: null,
       },
     });
   }

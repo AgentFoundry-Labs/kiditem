@@ -21,6 +21,8 @@ import {
   AD_TRAFFIC_SOURCE_PORT,
 } from '../application/port/in/ad-traffic-source.port';
 import { currentBusinessDate } from '../domain/business-date';
+import { readListingTrafficWindowFacts } from '../../channels/read/channel-listing-daily-facts';
+import { WingTrafficAggregationRepositoryAdapter } from '../../analytics/dashboard/adapter/out/repository/wing-traffic-aggregation.repository.adapter';
 import type { INestApplication } from '@nestjs/common';
 
 const base = '/api/ads/traffic';
@@ -375,8 +377,8 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
       accountDaily: [{ businessDate: plan.startDate, visitors: 10, views: 20, revenue: 200 }],
       periodSummary: { startDate: plan.startDate, endDate: plan.endDate },
       reconciliation: {
-        views: { status: 'MATCHED', dailySum: 20, periodValue: 20 },
-        revenue: { status: 'MATCHED', dailySum: 200, periodValue: 200 },
+        views: { dailySum: 20, periodValue: 20 },
+        revenue: { dailySum: 200, periodValue: 200 },
       },
     });
     expect(published.body.optionDaily).toHaveLength(3);
@@ -401,12 +403,14 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
       trafficRevenue: 200,
       trafficCoverageStatus: 'OBSERVED',
     });
-    await expect(prisma.channelAccountDailyKpiSnapshot.findMany({
-      where: { organizationId: ORG, channelAccountId: accountId },
-      orderBy: { kpiType: 'asc' },
-    })).resolves.toHaveLength(2);
     const run = await prisma.sourceImportRun.findUniqueOrThrow({ where: { id: started.attempt.attemptId } });
-    expect(run.qualityReport).toMatchObject({ rowCount: 3, matchedCount: 2, unmatchedCount: 1, dashboardSummaryPublished: true });
+    expect(run.qualityReport).toMatchObject({ rowCount: 3, matchedCount: 2, unmatchedCount: 1 });
+    // The account summaries stay in the owner's receipts; the retired Wing
+    // account KPI blob is no longer written.
+    expect(run.qualityReport).not.toHaveProperty('dashboardSummaryPublished');
+    await expect(prisma.channelAccountDailyKpiSnapshot.count({
+      where: { organizationId: ORG },
+    })).resolves.toBe(0);
   });
 
   it('requires every daily date and preserves repeated option rows across days', async () => {
@@ -424,6 +428,98 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
     expect(published.body.coverage).toMatchObject({ targetDays: 2, completedDays: 2, missingDates: [] });
     expect(published.body.accountDaily).toHaveLength(2);
     expect(published.body.optionDaily.filter((value: any) => value.externalOptionId === '1001')).toHaveLength(2);
+  });
+
+  it('keeps an explicit-empty date measured when another confirmed date has rows', async () => {
+    const plan = range(2);
+    const populatedDate = plan.endDate;
+    const populated = summary({
+      visitors: 6,
+      views: 12,
+      cartAdds: 2,
+      orders: 1,
+      salesQty: 2,
+      revenue: 180,
+      providerConversionRate: 5,
+    });
+    const zero = summary({
+      visitors: 0,
+      views: 0,
+      cartAdds: 0,
+      orders: 0,
+      salesQty: 0,
+      revenue: 0,
+      providerConversionRate: null,
+    });
+    const startedRecord = await begin(plan);
+
+    await upload(
+      startedRecord.attempt,
+      0,
+      dailyReceipt(startedRecord.attempt, plan, plan.startDate, 1, 1, [], zero),
+    ).expect(200);
+    await upload(
+      startedRecord.attempt,
+      100,
+      dailyReceipt(
+        startedRecord.attempt,
+        plan,
+        populatedDate,
+        1,
+        1,
+        [row('1001', populated)],
+        populated,
+      ),
+    ).expect(200);
+    await upload(
+      startedRecord.attempt,
+      200,
+      periodReceipt(startedRecord.attempt, plan, populated),
+    ).expect(200);
+    await complete(startedRecord.attempt, 201);
+
+    const facts = await readListingTrafficWindowFacts(prisma, {
+      organizationId: ORG,
+      listingIds: [listingId],
+      from: new Date(`${plan.startDate}T00:00:00.000Z`),
+      to: new Date(`${dateShift(plan.endDate, 1)}T00:00:00.000Z`),
+    });
+    expect(facts.observedDates).toEqual([populatedDate]);
+    expect(facts.coverage).toEqual({
+      includedDates: [plan.startDate, populatedDate],
+      invalidDates: [],
+      missingDates: [],
+    });
+    expect(facts.totals).toEqual({
+      visitors: 6,
+      views: 12,
+      cartAdds: 2,
+      orders: 1,
+      salesQty: 2,
+      revenue: 180,
+    });
+
+    const dashboard = new WingTrafficAggregationRepositoryAdapter(prisma as never);
+    await expect(dashboard.aggregateTraffic(ORG, {
+      sourceClass: 'closed_day_clipped',
+      selectedDates: [plan.startDate, populatedDate],
+      queryWindow: {
+        from: new Date(`${plan.startDate}T00:00:00.000Z`),
+        to: new Date(`${dateShift(plan.endDate, 1)}T00:00:00.000Z`),
+      },
+      knownThrough: populatedDate,
+    })).resolves.toMatchObject({
+      revenue: 180,
+      orders: 1,
+      visitors: 3,
+      isCollected: true,
+      hasData: true,
+      coverage: {
+        targetDays: 2,
+        completedDays: 2,
+        missingDates: [],
+      },
+    });
   });
 
   /**
@@ -466,6 +562,39 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
         missingDates: [plan.endDate],
       });
       expect(published.body.accountDaily).toHaveLength(1);
+
+      const status = await request(httpUrl)
+        .get(`${base}/source`)
+        .set('x-test-org', ORG)
+        .query({ channelAccountId: accountId })
+        .expect(200);
+      expect(status.body).toMatchObject({
+        ready: false,
+        latestComplete: { attemptId: started.attempt.attemptId },
+      });
+    });
+
+    it('publishes no period value to reconcile when the confirmed days do not cover the window', async () => {
+      const plan = range(2);
+      const confirmed = { ...plan, endDate: plan.startDate };
+      const started = await begin(plan);
+      await upload(started.attempt, 0, dailyReceipt(started.attempt, plan, plan.startDate, 1, 1, [row('1001', { visitors: 4 })], summary({ visitors: 4 }))).expect(200);
+      await upload(started.attempt, 200, periodReceipt(started.attempt, confirmed, summary({ visitors: 4 }))).expect(200);
+      await complete(started.attempt, 201);
+
+      const published = await request(httpUrl)
+        .get(`${base}/published`)
+        .set('x-test-org', ORG)
+        .query({ channelAccountId: accountId, from: plan.startDate, to: plan.endDate })
+        .expect(200);
+      expect(published.body.coverage).toMatchObject({ targetDays: 2, completedDays: 1 });
+      // The exact-range period summary still travels as provenance, but a sum
+      // over one of the two days is not comparable with it.
+      expect(published.body.periodSummary).toMatchObject({ sourceAttemptId: started.attempt.attemptId });
+      for (const metric of ['views', 'cartAdds', 'orders', 'salesQty', 'revenue']) {
+        expect(published.body.reconciliation[metric].dailySum, metric).not.toBeNull();
+        expect(published.body.reconciliation[metric].periodValue, metric).toBeNull();
+      }
     });
 
     it('refuses a submission that confirms no date at all', async () => {
@@ -557,7 +686,7 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
       startDate: oldPlan.startDate,
       endDate: oldPlan.endDate,
     });
-    expect(exact.body.reconciliation.views.status).toBe('UNVERIFIED');
+    expect(exact.body.reconciliation.views.periodValue).toBeNull();
   });
 
   it('lets a complete explicit-empty replacement reset disappeared Wing rows without touching ad facts', async () => {
@@ -591,6 +720,61 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
       .expect(200);
     expect(published.body.accountDaily[0]).toMatchObject({ visitors: 0, views: 0, revenue: 0 });
     expect(published.body.optionDaily).toHaveLength(0);
+  });
+
+  it('publishes provider-backed empty coverage for the canonical reader when no listing row exists', async () => {
+    await prisma.channelListing.update({
+      where: { id: listingId },
+      data: { isActive: false },
+    });
+    const plan = range();
+    const started = await begin(plan);
+    const zero = summary({
+      visitors: 0,
+      views: 0,
+      cartAdds: 0,
+      orders: 0,
+      salesQty: 0,
+      revenue: 0,
+      providerConversionRate: null,
+    });
+    await upload(
+      started.attempt,
+      0,
+      dailyReceipt(started.attempt, plan, plan.startDate, 1, 1, [], zero),
+    ).expect(200);
+    await upload(
+      started.attempt,
+      100,
+      periodReceipt(started.attempt, plan, zero),
+    ).expect(200);
+    await complete(started.attempt, 201);
+
+    await expect(prisma.channelListingDailySnapshot.count({
+      where: { organizationId: ORG, trafficObservedAt: { not: null } },
+    })).resolves.toBe(0);
+    const facts = await readListingTrafficWindowFacts(prisma, {
+      organizationId: ORG,
+      from: new Date(`${plan.startDate}T00:00:00.000Z`),
+      to: new Date(`${dateShift(plan.startDate, 1)}T00:00:00.000Z`),
+    });
+    expect(facts).toMatchObject({
+      rows: [],
+      observedDates: [],
+      coverage: {
+        includedDates: [plan.startDate],
+        invalidDates: [],
+        missingDates: [],
+      },
+      totals: {
+        visitors: 0,
+        views: 0,
+        cartAdds: 0,
+        orders: 0,
+        salesQty: 0,
+        revenue: 0,
+      },
+    });
   });
 
   it('re-publishes a 534-option day with bounded statements and preserves shared fact namespaces', async () => {
@@ -752,8 +936,9 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
 
     expect(statements.filter((sql) => /INSERT INTO channel_listing_daily_snapshots/i.test(sql)))
       .toHaveLength(1);
+    // The retired Wing account KPI blob is no longer written.
     expect(statements.filter((sql) => /INSERT INTO channel_account_daily_kpi_snapshots/i.test(sql)))
-      .toHaveLength(1);
+      .toHaveLength(0);
     expect(statements.filter((sql) => /UPDATE channel_listing_daily_snapshots/i.test(sql)))
       .toHaveLength(0);
 
@@ -833,10 +1018,6 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
         },
       },
     });
-    const baselineKpis = await prisma.channelAccountDailyKpiSnapshot.findMany({
-      where: { organizationId: ORG, channelAccountId: accountId },
-      orderBy: { kpiType: 'asc' },
-    });
     const replacement = await begin(plan);
     const replacementValues = summary({ visitors: 99, views: 100, revenue: 990 });
     await upload(
@@ -874,10 +1055,6 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
         },
       },
     })).resolves.toEqual(baselineListing);
-    await expect(prisma.channelAccountDailyKpiSnapshot.findMany({
-      where: { organizationId: ORG, channelAccountId: accountId },
-      orderBy: { kpiType: 'asc' },
-    })).resolves.toEqual(baselineKpis);
 
     await complete(replacement.attempt, 201);
     await complete(replacement.attempt, 201);
@@ -892,19 +1069,6 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
         },
       },
     })).resolves.toMatchObject({ trafficVisitors: 99, trafficViews: 100, trafficRevenue: 990 });
-    const publishedKpis = await prisma.channelAccountDailyKpiSnapshot.findMany({
-      where: { organizationId: ORG, channelAccountId: accountId },
-    });
-    expect(publishedKpis).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        kpiType: 'wing_traffic_daily',
-        normalizedJson: expect.objectContaining({ visitors: 99 }),
-      }),
-      expect.objectContaining({
-        kpiType: 'wing_traffic_period',
-        normalizedJson: expect.objectContaining({ visitors: 99 }),
-      }),
-    ]));
   });
 
   it('fails closed when a shared Wing/CSV row is explicitly marked CSV-current', async () => {
@@ -1175,20 +1339,40 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
         trafficObservedAt: observedAt,
       },
     });
-    await prisma.channelAccountDailyKpiSnapshot.create({
+    // A second captured listing whose daily row never recorded a traffic
+    // observation: the legacy read must drop it rather than borrow the row's
+    // unrelated `lastObservedAt`.
+    const unobservedListing = await prisma.channelListing.create({
+      data: { organizationId: ORG, channelAccountId: accountId, externalId: 'EXT-TRAFFIC-UNOBSERVED' },
+    });
+    await prisma.channelScrapeSnapshot.create({
       data: {
         organizationId: ORG,
-        channelAccountId: accountId,
+        sourceImportRunId: sourceRun.id,
+        scrapeRunId: scrapeRun.id,
         channel: 'coupang',
         source: 'wing',
-        kpiType: 'wing_dashboard',
+        pageType: 'traffic',
         businessDate: new Date(`${plan.endDate}T00:00:00.000Z`),
-        periodStart: new Date(`${plan.startDate}T00:00:00.000Z`),
-        periodEnd: new Date(`${plan.endDate}T00:00:00.000Z`),
-        normalizedJson: { kpis: legacyPayload.kpis, summary: legacyPayload.summary, adSummary: legacyPayload.adSummary },
-        rawJson: { source: 'legacy-wing-summary' },
-        firstObservedAt: observedAt,
+        observedAt,
+        externalId: 'EXT-TRAFFIC-UNOBSERVED',
+        externalOptionId: '1002',
+        listingId: unobservedListing.id,
+        matchStatus: 'matched',
+        rawJson: legacyPayload.data[0],
+        normalizedJson: legacyPayload.data[0],
+      },
+    });
+    await prisma.channelListingDailySnapshot.create({
+      data: {
+        organizationId: ORG,
+        listingId: unobservedListing.id,
+        channel: 'coupang',
+        externalId: 'EXT-TRAFFIC-UNOBSERVED',
+        businessDate: new Date(`${plan.endDate}T00:00:00.000Z`),
+        trafficVisitors: 3,
         lastObservedAt: observedAt,
+        trafficObservedAt: null,
       },
     });
     const published = await request(httpUrl)
@@ -1200,8 +1384,10 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
       attemptId: sourceRun.id,
       plan: { parserVersion: 'wing-traffic-v1', startDate: plan.startDate, endDate: plan.endDate },
       rows: [{ listingId, businessDate: plan.endDate, traffic: { visitors: 7, views: 8, revenue: 70 } }],
-      dashboard: { kpis: legacyPayload.kpis, summary: legacyPayload.summary },
     });
+    expect(published.body.rows).toHaveLength(1);
+    // The Wing dashboard blob is retired; the legacy read no longer carries it.
+    expect(published.body).not.toHaveProperty('dashboard');
     const status = await request(httpUrl)
       .get(`${base}/source`)
       .set('x-test-org', ORG)
@@ -1230,16 +1416,15 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
     await upload(started.attempt, 0, valid).expect(200);
     await upload(started.attempt, 100, periodReceipt(started.attempt, plan, summary({ views: 0, orders: 0, providerConversionRate: null }))).expect(200);
     await complete(started.attempt, 201);
-    const dailyKpi = await prisma.channelAccountDailyKpiSnapshot.findFirstOrThrow({
-      where: { organizationId: ORG, channelAccountId: accountId, kpiType: 'wing_traffic_daily' },
-    });
-    expect(dailyKpi.rawJson).toMatchObject({ source: 'wing.summary.body' });
     const published = await request(httpUrl)
       .get(`${base}/published`)
       .set('x-test-org', ORG)
       .query({ channelAccountId: accountId })
       .expect(200);
     expect(published.body.accountDaily[0].providerConversionRate).toBeNull();
-    expect(published.body.reconciliation.views.status).toBe('MATCHED');
+    // The raw provider summary is retained with the owner's period evidence.
+    expect(published.body.periodSummary.accountSummaryRaw).toMatchObject({ source: 'wing.summary.body' });
+    expect(published.body.reconciliation.views.periodValue).not.toBeNull();
+    expect(published.body.reconciliation.views.dailySum).toBe(published.body.reconciliation.views.periodValue);
   });
 });

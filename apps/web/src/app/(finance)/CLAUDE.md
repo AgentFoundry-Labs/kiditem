@@ -1,3 +1,5 @@
+Before working in this directory, always read this document first rather than relying on memory.
+
 # web/finance - P&L, Sales Analysis, and Reports
 
 `app/(finance)/` owns the active `/profit-loss`, `/reports`, and
@@ -10,7 +12,7 @@ accounting logic in the browser.
 - Profit/loss period views
 - Sales analysis, overview/product/category/grade/Pareto/repurchase statistics,
   sales-plan, Sellpia-backed channel analysis, and Wing daily-sales tabs
-- Settlement list, reconciliation, and confirmation inside `/sales-analysis`
+- Settlement list and deposit confirmation inside `/sales-analysis`
 - Downloadable product, P&L, inventory, and advertising reports
 
 ## Data Flow
@@ -33,8 +35,7 @@ confirmation; it is not a Finance revenue endpoint.
   for their active cache boundaries.
 - Prefer `apiClient.getParsed()` for financial summary shapes when schemas
   exist.
-- Period selection is UI state; totals, allocation, and reconciliation remain
-  backend-owned.
+- Period selection is UI state; totals and allocation remain backend-owned.
 - Keep types local when only one active Finance component consumes them.
 
 ## Boundary Rules

@@ -1,3 +1,5 @@
+Before working in this directory, always read this document first rather than relying on memory.
+
 # web/components/providers - Global React Providers
 
 `components/providers/` owns app-wide provider composition for React Query,

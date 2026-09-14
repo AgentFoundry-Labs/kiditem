@@ -20,12 +20,10 @@ import {
   DashboardAdSummarySchema,
   DashboardInventorySummarySchema,
   DashboardTrendItemSchema,
-  type DashboardSalesSummary,
-  type DashboardAdSummary,
-  type DashboardInventorySummary,
   type TrafficKpi,
   periodBasisStatus,
 } from '@kiditem/shared/dashboard';
+import { adTrafficReconciliationStatus } from '@kiditem/shared/advertising';
 import { z } from 'zod';
 import {
   businessDateKey,
@@ -73,8 +71,13 @@ const trafficMetricLabels: ReadonlyArray<readonly [TrafficMetric, string]> = [
   ['revenue', '매출'],
 ];
 
+function trafficReconciliation(kpi: TrafficKpi | undefined, metric: TrafficMetric) {
+  const reconciled = kpi?.reconciliation?.[metric];
+  return reconciled ? adTrafficReconciliationStatus(reconciled) : null;
+}
+
 function trafficMetricValue(kpi: TrafficKpi | undefined, metric: TrafficMetric): number | null {
-  if (!kpi || kpi.reconciliation?.[metric]?.status === 'MISMATCH') return null;
+  if (!kpi || trafficReconciliation(kpi, metric) === 'MISMATCH') return null;
   return kpi[metric] ?? null;
 }
 
@@ -121,60 +124,6 @@ function rangeMetricBasis(
   }
   return readMetricBasis(value, `rangeKpi.${rangeKey}`);
 }
-
-const EMPTY_SALES_SUMMARY: DashboardSalesSummary = {
-  today: { revenue: 0, orders: 0 },
-  monthly: {
-    revenue: null,
-    wingRevenue: null,
-    profit: null,
-    adRate: null,
-    prevRevenue: null,
-    prevProfit: null,
-    revenueChange: null,
-    profitChange: null,
-    prevAdRate: null,
-    available: false,
-    previousAvailable: false,
-  },
-  topProducts: [],
-};
-
-const EMPTY_AD_SUMMARY: DashboardAdSummary = {
-  monthly: {
-    roas: null,
-    ctr: null,
-    adRevenue: null,
-    totalAdSpend: null,
-    prevRoas: null,
-    prevCtr: null,
-    prevAdRevenue: null,
-    prevTotalAdSpend: null,
-    coverage: null,
-  },
-};
-
-const EMPTY_INVENTORY_SUMMARY: DashboardInventorySummary = {
-  totalProducts: 0,
-  channelLinkedProducts: 0,
-  channelUnlinkedProducts: 0,
-  gradeCount: { A: 0, B: 0, C: 0 },
-  abcStatusCount: {
-    READY: 0,
-    INSUFFICIENT_EVIDENCE: 0,
-    SOURCE_UNMAPPED: 0,
-    SELLPIA_SOURCE_STALE: 0,
-    AD_SOURCE_STALE: 0,
-  },
-  abcContributionProfit: { amountByGrade: { A: 0, B: 0, C: 0 }, shareByGrade: { A: 0, B: 0, C: 0 } },
-  abcFormula: null,
-  classifiedProductCount: 0,
-  unclassifiedProductCount: 0,
-  mappingStatusCounts: { matched: 0, unmatched: 0, needsReview: 0 },
-  alerts: [],
-  warnings: { minusProducts: 0, lowProfitProducts: 0, highAdProducts: 0, outOfStockSkus: 0, mappingAttentionSkus: 0 },
-};
-
 
 function DashboardSectionEmpty({ label }: { label: string }) {
   return <div className="flex items-center justify-center gap-2 py-6 text-sm text-slate-400">{label} 데이터가 없습니다.</div>;
@@ -333,13 +282,11 @@ export default function Dashboard() {
     error: trendError,
     refetch: refetchTrend,
   } = useQuery({
-    queryKey: queryKeys.dashboard.trend(kpiRange === 'custom' ? 'custom' : '30d', dateFrom, dateTo),
+    queryKey: queryKeys.dashboard.trend(kpiRange, dateFrom, dateTo),
     queryFn: () => {
-      // The chart is inside the period column, so it asks for the selected
-      // window. Every other range keeps the rolling 30 days it always used.
       const params = kpiRange === 'custom' && dateFrom && dateTo
         ? `?range=custom&from=${dateFrom}&to=${dateTo}`
-        : '?range=30d';
+        : `?range=${kpiRange}`;
       return apiClient.getParsed(`/api/dashboard/trend${params}`, z.array(DashboardTrendItemSchema));
     },
     refetchInterval: 60_000,
@@ -396,9 +343,8 @@ export default function Dashboard() {
   // not silently fall back to the baseline month.
   const effectiveSales = kpiRange === 'month' ? salesBaseline : salesRange;
   const effectiveAd = kpiRange === 'month' ? adBaseline : adRange;
-  const baselineSales = salesBaseline ?? EMPTY_SALES_SUMMARY;
-  const baselineAd = adBaseline ?? EMPTY_AD_SUMMARY;
-  const inventory = inventoryData ?? EMPTY_INVENTORY_SUMMARY;
+  const baselineSales = salesBaseline;
+  const baselineAd = adBaseline;
 
   // Keep the dashboard shell visible while individual read models load or
   // fail. Only the all-three initial request state uses the page skeleton.
@@ -420,37 +366,37 @@ export default function Dashboard() {
   // rangeKpi 우선, baseline 폴백.
   const rk = effectiveSales?.rangeKpi;
   const rkAd = effectiveAd?.rangeKpi;
-  const salesMonthly = effectiveSales?.monthly ?? (kpiRange === 'month' ? baselineSales.monthly : EMPTY_SALES_SUMMARY.monthly);
+  const salesMonthly = effectiveSales?.monthly ?? (kpiRange === 'month' ? baselineSales?.monthly : undefined);
   // A range payload is authoritative even when one of its nullable fields is
   // null. Only fall back when that range field is absent, never when it says
   // the metric is unavailable.
-  const kpiRevenue = rk ? rk.revenue : salesMonthly.revenue;
-  const kpiProfit = rk ? rk.profit : salesMonthly.profit;
-  const revenueChange = rk ? rk.revenueChange : salesMonthly.revenueChange;
-  const profitChange = rk ? rk.profitChange : salesMonthly.profitChange;
+  const kpiRevenue = rk ? rk.revenue : salesMonthly?.revenue ?? null;
+  const kpiProfit = rk ? rk.profit : salesMonthly?.profit ?? null;
+  const revenueChange = rk ? rk.revenueChange : salesMonthly?.revenueChange ?? null;
+  const profitChange = rk ? rk.profitChange : salesMonthly?.profitChange ?? null;
   const profitRate = rk && rk.profitRate !== undefined
     ? rk.profitRate
-    : percentage(salesMonthly.profit, salesMonthly.revenue);
+    : percentage(salesMonthly?.profit ?? null, salesMonthly?.revenue ?? null);
   const prevProfitRate = rk && rk.prevProfitRate !== undefined
     ? rk.prevProfitRate
-    : percentage(salesMonthly.prevProfit, salesMonthly.prevRevenue);
+    : percentage(salesMonthly?.prevProfit ?? null, salesMonthly?.prevRevenue ?? null);
   const profitRateChange = rk && rk.profitRateChange !== undefined
     ? rk.profitRateChange
     : profitRate !== null && prevProfitRate !== null ? profitRate - prevProfitRate : null;
-  const adMonthly = effectiveAd?.monthly ?? (kpiRange === 'month' ? baselineAd.monthly : EMPTY_AD_SUMMARY.monthly);
+  const adMonthly = effectiveAd?.monthly ?? (kpiRange === 'month' ? baselineAd?.monthly : undefined);
   const adKpi = effectiveAd?.adKpi;
   const rawAdConvRevenue = rkAd
     ? rkAd.adConvRevenue
-    : nullableValue(adKpi?.convRevenue, adMonthly.adRevenue);
+    : nullableValue(adKpi?.convRevenue, adMonthly?.adRevenue);
   const rawAdRoas = rkAd
     ? rkAd.adRoas
-    : nullableValue(adKpi?.roas, adMonthly.roas);
+    : nullableValue(adKpi?.roas, adMonthly?.roas);
   const rawAdPrevRoas = rkAd
     ? rkAd.prevAdRoas ?? null
-    : nullableValue(adKpi?.prevRoas, adMonthly.prevRoas);
+    : nullableValue(adKpi?.prevRoas, adMonthly?.prevRoas);
   const adCoverage = rkAd
     ? rkAd.coverage ?? null
-    : nullableValue(adKpi?.coverage, adMonthly.coverage);
+    : nullableValue(adKpi?.coverage, adMonthly?.coverage);
   // Partial evidence still supports the values that were actually measured.
   // Coverage is disclosed beside the metric; it must not turn non-null partial
   // values into an unavailable card.
@@ -465,15 +411,17 @@ export default function Dashboard() {
   const adCtr = adKpi?.ctr ?? null;
   const adConversions = adKpi?.conversions ?? null;
   const adCvr = adKpi?.cvr ?? null;
+  const adPerformanceBasis = (key: string) => readMetricBasis(effectiveAd, `adKpi.${key}`);
   const adPerformanceRows = [
-    { key: 'convRevenue', label: '광고전환매출', sublabel: '쿠팡', display: formatNullableKRW(adConvRevenue) },
-    { key: 'impressions', label: '노출', display: adImpressions === null ? '—' : `${formatNumber(adImpressions)}회` },
+    { key: 'convRevenue', label: '광고전환매출', sublabel: '쿠팡', display: formatNullableKRW(adConvRevenue), basis: adPerformanceBasis('convRevenue') },
+    { key: 'impressions', label: '노출', display: adImpressions === null ? '—' : `${formatNumber(adImpressions)}회`, basis: adPerformanceBasis('impressions') },
     {
       key: 'clicks',
       label: '클릭 · CTR',
       display: adClicks === null
         ? '—'
         : `${formatNumber(adClicks)}회${adCtr === null ? '' : ` · ${adCtr.toFixed(2)}%`}`,
+      basis: adPerformanceBasis('ctr'),
     },
     {
       key: 'conversions',
@@ -481,11 +429,12 @@ export default function Dashboard() {
       display: adConversions === null
         ? '—'
         : `${formatNumber(adConversions)}건${adCvr === null || adCvr === undefined ? '' : ` · ${adCvr.toFixed(2)}%`}`,
+      basis: adPerformanceBasis('cvr'),
     },
   ];
 
-  const rawAdRate = rkAd ? rkAd.adRate ?? null : salesMonthly.adRate;
-  const rawAdPrevRate = rkAd ? rkAd.prevAdRate ?? null : salesMonthly.prevAdRate;
+  const rawAdRate = rkAd ? rkAd.adRate ?? null : salesMonthly?.adRate ?? null;
+  const rawAdPrevRate = rkAd ? rkAd.prevAdRate ?? null : salesMonthly?.prevAdRate ?? null;
   const kpiAdRate = rawAdRate;
   const kpiPrevAdRate = rawAdPrevRate;
   const adRateChange = rkAd && rkAd.adRateChange !== undefined
@@ -496,7 +445,7 @@ export default function Dashboard() {
       : adRoas !== null && adPrevRoas !== null ? adRoas - adPrevRoas : null;
   // Dashboard revenue is selected Order/Wing revenue. Channel splits come
   // only from Sellpia daily facts when that coverage is ready.
-  const wingRevenue = nullableValue(salesMonthly.wingRevenue, kpiRevenue);
+  const wingRevenue = nullableValue(salesMonthly?.wingRevenue, kpiRevenue);
 
   // 트렌드 차트용 데이터
   const dailyTrend = fillTrendDateGaps(trendData.map((d) => ({
@@ -521,7 +470,7 @@ export default function Dashboard() {
   }));
 
   // 데이터 출처 라벨 — Drive replay / Wing / 쿠팡 광고 / 주문 기준 등을 한 곳에서 결정
-  const effectivePeriod = effectiveSales?.effectivePeriod ?? (kpiRange === 'month' ? baselineSales.effectivePeriod : undefined);
+  const effectivePeriod = effectiveSales?.effectivePeriod ?? (kpiRange === 'month' ? baselineSales?.effectivePeriod : undefined);
   const trafficKpi = effectiveSales?.trafficKpi;
   const periodLabel = effectivePeriod
     ? `${effectivePeriod.year}년 ${effectivePeriod.month}월`
@@ -547,8 +496,8 @@ export default function Dashboard() {
   const profitMetricsAvailable = orderProfitInputsAvailable && kpiProfit !== null;
   // 광고비/매출 비율은 명시적인 0도 유효하지만 null은 미수집이다.
   const adRateAvailable = kpiAdRate !== null;
-  const channelLinkedProducts = inventory?.channelLinkedProducts ?? 0;
-  const channelUnlinkedProducts = inventory?.channelUnlinkedProducts ?? Math.max(inventory?.totalProducts - channelLinkedProducts, 0);
+  const channelLinkedProducts = inventoryData?.channelLinkedProducts ?? null;
+  const channelUnlinkedProducts = inventoryData?.channelUnlinkedProducts ?? null;
   const trafficAvailable = trafficKpi?.trafficAvailable
     ?? Boolean(
       trafficKpi
@@ -563,12 +512,14 @@ export default function Dashboard() {
     );
   const trafficViews = trafficMetricValue(trafficKpi, 'views');
   const trafficCartAdds = trafficMetricValue(trafficKpi, 'cartAdds');
+  const trafficCartRate = trafficKpi?.cartRate ?? null;
   const trafficOrders = trafficMetricValue(trafficKpi, 'orders');
+  const trafficOrderCartRate = trafficKpi?.orderCartRate ?? null;
   const trafficSalesQty = trafficMetricValue(trafficKpi, 'salesQty');
   const trafficRevenue = trafficMetricValue(trafficKpi, 'revenue');
   const trafficDailyAverageVisitors = trafficKpi?.dailyAverageVisitors ?? null;
-  const trafficConversionRate = trafficKpi?.reconciliation?.orders?.status === 'MISMATCH'
-    || trafficKpi?.reconciliation?.views?.status === 'MISMATCH'
+  const trafficConversionRate = trafficReconciliation(trafficKpi, 'orders') === 'MISMATCH'
+    || trafficReconciliation(trafficKpi, 'views') === 'MISMATCH'
     ? null
     : trafficKpi?.conversionRate ?? null;
   const trafficProviderConversionRate = trafficKpi?.providerConversionRate ?? null;
@@ -577,38 +528,35 @@ export default function Dashboard() {
     && trafficCoverage.targetDays > 0
     && trafficCoverage.completedDays === trafficCoverage.targetDays;
   const trafficMismatchLabels = trafficMetricLabels
-    .filter(([metric]) => trafficKpi?.reconciliation?.[metric]?.status === 'MISMATCH')
+    .filter(([metric]) => trafficReconciliation(trafficKpi, metric) === 'MISMATCH')
     .map(([, label]) => label);
   const trafficUnverifiedLabels = trafficMetricLabels
-    .filter(([metric]) => trafficKpi?.reconciliation?.[metric]?.status === 'UNVERIFIED')
+    .filter(([metric]) => trafficReconciliation(trafficKpi, metric) === 'UNVERIFIED')
     .map(([, label]) => label);
   const trafficFilterScope = trafficKpi?.exactPeriodEvidence?.filterScope === 'ALL_NORMAL_RFM'
     ? 'ALL_NORMAL_RFM'
     : null;
   const trafficObservedAt = trafficKpi?.trafficObservedAt ?? null;
 
-  // The funnel reads in the order it happens. Each step's rate is the share of
-  // the step before it, and it is shown only when both steps are measured —
-  // a rate against a withheld denominator would be an invented number.
-  const funnelRate = (value: number | null, base: number | null): string | null =>
-    value === null || base === null || base === 0 ? null : `${((value / base) * 100).toFixed(1)}%`;
+  // The server owns each rate because it can restrict both operands to the
+  // same owner-confirmed listing/date population. The screen only formats it.
+  const formatFunnelRate = (value: number | null): string | null =>
+    value === null ? null : `${value.toFixed(1)}%`;
   const trafficFunnelSteps = [
-    { key: 'visitors', label: '일평균 방문자', display: formatTrafficMetric(trafficDailyAverageVisitors, '명'), rate: null },
+    { key: 'visitors', label: '일평균 방문자', display: formatTrafficMetric(trafficDailyAverageVisitors, '명'), rate: null, basis: readMetricBasis(effectiveSales, 'trafficKpi.visitors'), rateBasis: null },
     // No rate against visitors. The first step is a daily average of account
     // unique visitors and every later step is a period sum, so the quotient is
     // not a share of anything — with ten days collected it read 1256.1%. Wing
     // publishes UV per day and a visitor returning on two days is one visitor
     // on each, so there is no period UV to divide by either.
-    { key: 'views', label: '조회', display: formatTrafficMetric(trafficViews, '회'), rate: null },
-    { key: 'cartAdds', label: '장바구니', display: formatTrafficMetric(trafficCartAdds, '회'), rate: funnelRate(trafficCartAdds, trafficViews) },
-    { key: 'orders', label: '주문', display: formatTrafficMetric(trafficOrders, '건'), rate: funnelRate(trafficOrders, trafficCartAdds) },
-    { key: 'salesQty', label: '판매량', display: formatTrafficMetric(trafficSalesQty, '개'), rate: null },
+    { key: 'views', label: '조회', display: formatTrafficMetric(trafficViews, '회'), rate: null, basis: readMetricBasis(effectiveSales, 'trafficKpi.views'), rateBasis: null },
+    { key: 'cartAdds', label: '장바구니', display: formatTrafficMetric(trafficCartAdds, '회'), rate: formatFunnelRate(trafficCartRate), basis: readMetricBasis(effectiveSales, 'trafficKpi.cartAdds'), rateBasis: readMetricBasis(effectiveSales, 'trafficKpi.cartRate') },
+    { key: 'orders', label: '주문', display: formatTrafficMetric(trafficOrders, '건'), rate: formatFunnelRate(trafficOrderCartRate), basis: readMetricBasis(effectiveSales, 'trafficKpi.orders'), rateBasis: readMetricBasis(effectiveSales, 'trafficKpi.orderCartRate') },
+    { key: 'salesQty', label: '판매량', display: formatTrafficMetric(trafficSalesQty, '개'), rate: null, basis: readMetricBasis(effectiveSales, 'trafficKpi.salesQty'), rateBasis: null },
   ];
   // "부분 N/M일" is the one phrase for partially collected, the same one the
-  // ad lane uses. These five numbers sum only the days the provider has
-  // published, and Wing publishes traffic a day behind its sales, so the last
-  // day of a month-to-date window is routinely absent. Without this the strip
-  // would read as a total for the whole window.
+  // ad lane uses. Values carry their own date basis because Orders-owned steps
+  // use the exact Orders × Wing listing/date intersection.
   const trafficCoverageLabel = trafficCoverage
     ? trafficCoverageComplete
       ? `${trafficCoverage.targetDays}/${trafficCoverage.targetDays}일`
@@ -619,6 +567,8 @@ export default function Dashboard() {
     trafficCoverageLabel,
     trafficKpi?.source === 'wing'
       ? `${trafficFilterScope ? `계정 원본 · ${trafficFilterScope}` : 'Wing 계정 원본'} · 상품 매칭 합산 아님`
+      : trafficKpi?.source === 'mixed'
+        ? 'Wing 트래픽 + Orders 상품·날짜 교집합'
       : null,
     trafficProviderConversionRate !== null ? `Wing 제공 전환율 ${trafficProviderConversionRate.toFixed(1)}%` : null,
     trafficObservedAt && (Date.now() - new Date(trafficObservedAt).getTime()) > 86400000
@@ -692,6 +642,8 @@ export default function Dashboard() {
         : '');
   const salesAnalysisHref = `/sales-analysis?tab=overview&period=${encodeURIComponent(salesAnalysisPeriod)}`;
   const revenueBasis = rangeMetricBasis(effectiveSales, kpiRange, 'revenue');
+  const todayBasis = readFirstMetricBasis(baselineSales, ['today.revenue', 'today.orders']);
+  const today = baselineSales?.today ?? null;
   const profitBasis = rangeMetricBasis(effectiveSales, kpiRange, 'profit');
   // Rates and their changes are range-owned metrics. Do not substitute a
   // monthly profit or ROAS period basis when the selected range lacks its
@@ -712,6 +664,13 @@ export default function Dashboard() {
     'abcStatusCount.READY',
     'alerts',
   ]);
+  const contributionBasis = readFirstMetricBasis(inventoryData, [
+    'abcContributionProfit.amountByGrade.A',
+    'abcContributionProfit.amountByGrade.B',
+    'abcContributionProfit.amountByGrade.C',
+  ]);
+  const unclassifiedBasis = readMetricBasis(inventoryData, 'unclassifiedProductCount');
+  const downgradedBasis = readMetricBasis(inventoryData, 'gradeChanges.downgraded');
   const inventoryHeaderBasis = readFirstMetricBasis(inventoryData, [
     'totalProducts',
     'channelLinkedProducts',
@@ -827,10 +786,12 @@ export default function Dashboard() {
           <div>
             <h1 className="text-xl font-bold tracking-tight text-slate-900">Kiditem Foundry</h1>
             <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5">
-              <span className="text-[13px] font-mono text-slate-500">운영 상품 {inventoryData ? formatNumber(inventory.totalProducts) : '—'}</span>
+              <span className="text-[13px] font-mono text-slate-500">운영 상품 {inventoryData ? formatNumber(inventoryData.totalProducts) : '—'}</span>
               <span className="text-[13px] font-mono text-slate-400">·</span>
-              <span className="text-[13px] font-mono text-slate-500">채널 연결 {inventoryData ? formatNumber(channelLinkedProducts) : '—'}</span>
-              {inventoryData && channelUnlinkedProducts > 0 && (
+              <span className="text-[13px] font-mono text-slate-500">
+                채널 연결 {channelLinkedProducts === null ? '—' : formatNumber(channelLinkedProducts)}
+              </span>
+              {channelUnlinkedProducts !== null && channelUnlinkedProducts > 0 && (
                 <>
                   <span className="text-[13px] font-mono text-slate-400">·</span>
                   <span className="text-[13px] font-mono text-amber-700">미연결 {formatNumber(channelUnlinkedProducts)}</span>
@@ -888,7 +849,7 @@ export default function Dashboard() {
             title="기간 지표"
             controls={(
               <div className="flex shrink-0 items-center gap-2 whitespace-nowrap">
-                {/* One ⓘ for the six cells, broken down per value: two cards in
+                {/* One ⓘ for the seven cells, broken down per value: two cards in
                     this row can report different windows and different sources,
                     so the panel never states one shared basis. */}
                 <DashboardBasisDisclosure
@@ -898,7 +859,7 @@ export default function Dashboard() {
                       위 선택한 기간의 합계입니다. 매출은 주문 품목 금액의 합이고, 순이익은
                       원가·수수료·배송비 근거가 갖춰진 주문만 계산합니다. 광고비율은
                       광고비÷매출, 광고수익률은 광고전환매출÷광고비이며, 분모가 없으면
-                      비율도 내지 않습니다. 여섯 칸의 원천과 기간이 서로 다를 수 있어
+                      비율도 내지 않습니다. 일곱 칸의 원천과 기간이 서로 다를 수 있어
                       아래에 값마다 따로 적습니다.
                     </p>
                   )}
@@ -909,6 +870,7 @@ export default function Dashboard() {
                     { label: '광고비율', basis: adRateBasis },
                     { label: '구매전환율', basis: trafficBasis },
                     { label: '광고수익률', basis: adRoasBasis },
+                    { label: '오늘 주문', basis: todayBasis },
                   ]}
                 />
                 {kpiRange === 'custom' && (
@@ -970,8 +932,8 @@ export default function Dashboard() {
             )}
           />
 
-        {/* KPI 카드 — 월 매출 + 월 순이익 + 이익률 + 광고비율 */}
-        <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-slate-200 bg-slate-200 lg:grid-cols-6" style={{ alignItems: 'stretch' }}>
+        {/* KPI 카드 — 기간 지표 여섯 개 + 오늘 주문 */}
+        <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-slate-200 bg-slate-200 lg:grid-cols-7" style={{ alignItems: 'stretch' }}>
           {/* 기간 매출 — 채널 분해는 매출 분석 화면이 owner라 셀 전체가 그리로 간다. */}
         <Link
           href={salesAnalysisHref}
@@ -1094,11 +1056,30 @@ export default function Dashboard() {
               label="광고수익률"
             />
           )}
+
+          <div className="flex flex-col bg-white px-4 py-3" data-testid="dashboard-today-orders">
+            <p className="font-mono text-[11px] uppercase tracking-wider text-slate-500">오늘 주문</p>
+            {today?.orders !== null && today?.orders !== undefined
+              && today.revenue !== null ? (
+              <>
+                <p className="whitespace-nowrap text-xl font-bold leading-tight tracking-tight tabular-nums text-slate-900">
+                  {formatNumber(today.orders)}<span className="ml-0.5 text-[13px] font-semibold text-slate-500">건</span>
+                </p>
+                <p className="mt-0.5 text-xs leading-snug text-slate-500">
+                  {formatKRW(today.revenue)}원 · 주문 품목 합계
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="text-xl font-bold text-slate-400">—</p>
+                <p className="mt-0.5 text-xs text-slate-500">미측정</p>
+              </>
+            )}
+          </div>
         </div>
 
         <DashboardTrafficFunnel
           steps={trafficFunnelSteps}
-          basis={trafficBasis}
           sourceNote={trafficSourceNote}
           partial={trafficCoverage !== null && !trafficCoverageComplete}
           collected={trafficAvailable}
@@ -1114,7 +1095,13 @@ export default function Dashboard() {
               dailyTrend={dailyTrend}
               industryBenchmark={benchmark}
               benchmarkBases={benchmarkBases}
-              rangeLabel={kpiRange === 'custom' && dateFrom && dateTo ? `${dateFrom} ~ ${dateTo}` : '최근 30일'}
+              rangeLabel={kpiRange === 'custom' && dateFrom && dateTo
+                ? `${dateFrom} ~ ${dateTo}`
+                : kpiRange === 'month'
+                  ? '이번 달'
+                  : kpiRange === 'week'
+                    ? '최근 7일'
+                    : '오늘'}
             />
           )}
 
@@ -1142,13 +1129,29 @@ export default function Dashboard() {
             <DashboardSectionEmpty label="경고" />
           ) : (
             <DashboardWarningTable
-              rows={buildWarningRows(inventory.warnings, warningBasis, inventory.unclassifiedProductCount, inventoryHeaderBasis, inventory.gradeChanges?.downgraded)}
+              rows={buildWarningRows(
+                inventoryData.warnings,
+                warningBasis,
+                inventoryData.unclassifiedProductCount,
+                unclassifiedBasis,
+                inventoryData.gradeChanges?.downgraded,
+                downgradedBasis,
+              )}
             />
           )}
 
           <DashboardAdPerformance
             rows={adPerformanceRows}
-            basis={adRoasBasis}
+            rangeLabel={kpiRange === 'custom' && dateFrom && dateTo
+              ? `${dateFrom} ~ ${dateTo}`
+              : kpiRange === 'month'
+                ? '이번 달'
+                : kpiRange === 'week'
+                  ? '최근 7일'
+                  : '어제'}
+            source={adKpi?.source ?? rkAd?.source ?? null}
+            knownThrough={adKpi?.coverage?.knownThrough ?? rkAd?.coverage?.knownThrough ?? null}
+            effectiveAdSource={effectiveAd?.effectivePeriod?.adSource ?? null}
           />
 
           {inventoryHasErr ? (
@@ -1157,12 +1160,13 @@ export default function Dashboard() {
             <DashboardSectionEmpty label="수익성 ABC" />
           ) : (
             <DashboardGradeCards
-              gradeCount={inventory.gradeCount}
-              classifiedProductCount={inventory.classifiedProductCount}
-              abcStatusCount={inventory.abcStatusCount}
-              abcContributionProfit={inventory.abcContributionProfit}
-              abcFormula={inventory.abcFormula}
+              gradeCount={inventoryData.gradeCount}
+              classifiedProductCount={inventoryData.classifiedProductCount}
+              abcStatusCount={inventoryData.abcStatusCount}
+              abcContributionProfit={inventoryData.abcContributionProfit}
+              abcFormula={inventoryData.abcFormula}
               basis={inventoryBasis}
+              contributionBasis={contributionBasis}
               refetchReads={async () => { await refetchInventory(); }}
             />
           )}
@@ -1177,10 +1181,10 @@ export default function Dashboard() {
       </div>
 
       {/* 순이익 상세 모달 */}
-      {showProfitDetail && (
+      {showProfitDetail && effectiveSales && effectiveAd && (
         <DashboardProfitDetailModal
-          salesBaseline={effectiveSales ?? (kpiRange === 'month' ? baselineSales : EMPTY_SALES_SUMMARY)}
-          adBaseline={effectiveAd ?? (kpiRange === 'month' ? baselineAd : EMPTY_AD_SUMMARY)}
+          salesBaseline={effectiveSales}
+          adBaseline={effectiveAd}
           selectedRange={kpiRange}
           inputs={profitDetailInputs}
           onClose={() => setShowProfitDetail(false)}

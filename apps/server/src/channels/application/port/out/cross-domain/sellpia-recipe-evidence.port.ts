@@ -6,7 +6,7 @@ export type SellpiaRecipeEvidenceSku = {
   name: string;
   optionName: string | null;
   barcode: string | null;
-  currentStock: number;
+  currentStock: number | null;
 };
 
 export interface SellpiaRecipeEvidencePort {

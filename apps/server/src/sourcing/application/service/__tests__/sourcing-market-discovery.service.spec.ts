@@ -176,7 +176,7 @@ function recommendationService(input: { unavailable?: boolean; supplierOnly?: bo
   return {
     latest: vi.fn(async () => input.unavailable
       ? {
-          status: 'unavailable',
+          ready: false,
           generatedAt: CAPTURED_AT.toISOString(),
           lastSuccessfulAt: null,
           freshUntil: null,
@@ -186,7 +186,7 @@ function recommendationService(input: { unavailable?: boolean; supplierOnly?: bo
           data: null,
         }
       : {
-          status: 'ready',
+          ready: true,
           generatedAt: CAPTURED_AT.toISOString(),
           lastSuccessfulAt: CAPTURED_AT.toISOString(),
           freshUntil: null,

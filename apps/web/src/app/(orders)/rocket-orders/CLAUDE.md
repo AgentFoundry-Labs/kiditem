@@ -1,3 +1,5 @@
+Before working in this directory, always read this document first rather than relying on memory.
+
 # web/rocket-orders — Rocket Review Workspace
 
 `/rocket-orders` is the only operator-facing Rocket review route. Preserve

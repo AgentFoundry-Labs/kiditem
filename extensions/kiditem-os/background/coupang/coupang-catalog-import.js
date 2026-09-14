@@ -35,13 +35,6 @@
     return state?.currentStage || state?.stage || state?.permit?.plan?.stage || "full";
   }
 
-  function chainOverallState(state) {
-    if (state?.overallState && ["RUNNING", "COMPLETE", "FAILED"].includes(state.overallState)) {
-      return state.overallState;
-    }
-    return state?.status === "done" ? "COMPLETE" : state?.status === "error" ? "FAILED" : "RUNNING";
-  }
-
   function chainIsStopped(state) {
     return Boolean(state?.chainStopRequested || stoppedChains.has(rootAttemptId(state)));
   }
@@ -98,7 +91,6 @@
       ? current.nextAllowedAt
       : null;
     const nextAllowedAt = ownerRateLimit?.nextAllowedAt || localRateLimit;
-    const childCompleted = ownerPermit.plan.stage === "details" && server.state === "COMPLETE";
     const rootNeedsDetails = ownerPermit.plan.stage === "basics" &&
       typeof ownerPermit.plan.detailsIdempotencyKey === "string" &&
       server.state === "COMPLETE";
@@ -109,7 +101,6 @@
           stage: ownerPermit.plan.stage || current.stage || "full",
           currentAttemptId: ownerAttemptId,
           currentStage: ownerPermit.plan.stage || current.currentStage || current.stage || "full",
-          overallState: rootNeedsDetails ? "RUNNING" : childCompleted ? "COMPLETE" : server.state,
           status: server.state === "COMPLETE" && !rootNeedsDetails ? "done" : "running",
           error: null,
           nextAllowedAt,
@@ -123,7 +114,6 @@
           stage: ownerPermit.plan.stage || "full",
           currentAttemptId: ownerAttemptId,
           currentStage: ownerPermit.plan.stage || "full",
-          overallState: rootNeedsDetails ? "RUNNING" : server.state,
           status: server.state === "COMPLETE" && !rootNeedsDetails ? "done" : "running",
           phase: "discovery",
           currentPage: 0,
@@ -1443,7 +1433,6 @@
           status: "running",
           phase: "handoff",
           pendingTerminal: null,
-          overallState: "RUNNING",
           updatedAt: Date.now(),
         };
       });
@@ -1456,7 +1445,6 @@
       return { ...current, status: server.state === "COMPLETE" ? "done" : "error",
         phase: "finished", pendingTerminal: null,
         chainPhase: stopped ? "stopped" : "finished",
-        overallState: stopped ? "FAILED" : server.state,
         currentAttemptId: current.attemptId,
         currentStage: catalogStage(current),
         hydratedProducts: server.progress?.hydratedProducts ?? current.hydratedProducts,
@@ -1526,7 +1514,6 @@
         status: "done",
         phase: "finished",
         chainPhase: "stopped",
-        overallState: "FAILED",
         pendingTerminal: null,
         endedAt: Date.now(),
         updatedAt: Date.now(),
@@ -1554,9 +1541,7 @@
         phase: "finished",
         chainPhase: "handoff_rejected",
         // The server's completed basics owner still carries its pending
-        // projection until expiry. Keep that canonical whole-flow state in
-        // the browser status; only local activity is settled here.
-        overallState: "RUNNING",
+        // whole-flow projection until expiry; only local activity settles here.
         pendingTerminal: null,
         pendingChildAdmission: null,
         error: String(state.error || "상세 수집 기준이 더 이상 유효하지 않습니다"),
@@ -1587,7 +1572,6 @@
         status: "running",
         chainStopRequested: true,
         chainPhase: "cancelling_details",
-        overallState: "RUNNING",
         pendingChildCancellation: {
           attemptId: childPermit.attemptId,
           rootAttemptId: rootId,
@@ -1804,7 +1788,6 @@
           idempotencyKey: childKey,
           expectedBasicAttemptId: rootId,
         },
-        overallState: "RUNNING",
         currentAttemptId: current.attemptId,
         currentStage: "basics",
         updatedAt: Date.now(),
@@ -1849,7 +1832,6 @@
         detailsIdempotencyKey: childKey,
         currentAttemptId: childPermit.attemptId,
         currentStage: "details",
-        overallState: childServer.state,
         chainPhase: "details",
         phase: childServer.phase || "discovery",
         currentPage: childServer.manifest?.expectedPages ? 0 : handoffState.currentPage,
@@ -1912,7 +1894,6 @@
           status: "error",
           phase: "finished",
           chainPhase: "handoff_failed",
-          overallState: "FAILED",
           error: String(error?.message || error || "상세 수집을 시작하지 못했습니다"),
           endedAt: Date.now(),
           updatedAt: Date.now(),
@@ -1938,7 +1919,6 @@
         "channels.coupang_catalog",
       );
     const currentStage = chainCurrentStage(state);
-    const overallState = chainOverallState(state);
     return {
       // The bridge is queried with the stable root ID even while the owner
       // token has moved to the details child.
@@ -1955,7 +1935,6 @@
       rootAttemptId: ownerId,
       currentAttemptId: state.attemptId,
       currentStage,
-      overallState,
       ...(state.error ? { error: state.error } : {}),
     };
   }
@@ -2061,7 +2040,6 @@
 
   function statusPhase(phase) {
     if (phase === "hydration") return "hydration";
-    if (phase === "publishing") return "publishing";
     if (phase === "ready_to_finalize") return "ready_to_finalize";
     return "discovery";
   }

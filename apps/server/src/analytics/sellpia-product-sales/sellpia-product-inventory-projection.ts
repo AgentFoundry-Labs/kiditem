@@ -9,6 +9,7 @@ import type {
   SellpiaProductDestination,
   SellpiaProductInventoryResolution,
 } from '@kiditem/shared/dashboard';
+import { productAbcDisplayStatus } from '@kiditem/shared/product-abc';
 import type {
   InventoryAvailabilityBatch,
 } from '@kiditem/shared/inventory-availability';
@@ -311,7 +312,7 @@ function summarizeInventoryProductAbc(
       summary.unclassifiedProductCount += 1;
     }
     const evaluation = product.abc.evaluation;
-    summary.abcStatusCounts[product.abc.displayStatus] += 1;
+    summary.abcStatusCounts[productAbcDisplayStatus(product.abc)] += 1;
     if (product.abc.abcGrade && evaluation) {
       summary.abcContributionProfitByGrade[product.abc.abcGrade] += Math.round(
         evaluation.weightedOperatingProfit,

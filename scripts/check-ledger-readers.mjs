@@ -76,7 +76,7 @@ const RETIRED_LISTING_AD_WRITERS = new Set([
   'apps/server/src/advertising/adapter/out/repository/ad-traffic-source.repository.ts',
   'apps/server/src/analytics/traffic/traffic-upload.ts',
 ]);
-const RETIRED_LISTING_AD_READER = 'apps/server/src/common/ad-window-facts.ts';
+const RETIRED_LISTING_AD_READER = 'apps/server/src/advertising/read/ad-target-facts.ts';
 
 function slash(relativePath) {
   return relativePath.split(path.sep).join('/');

@@ -4,10 +4,9 @@ import type { DataMigration, MigrationResult } from '../types';
 type CountRow = { retired_alert_rows: bigint | number | string };
 
 /**
- * The surviving alert kind at this release. `ALERT_KINDS` in
- * `@kiditem/shared/alerts` is the live contract; it is restated here rather than
- * imported because a migration is a record of one moment and must not drift when
- * that contract later gains a kind.
+ * The surviving alert kind at v0.1.31, when `ALERT_KINDS` in
+ * `@kiditem/shared/alerts` admitted only this value. It is restated because a
+ * migration records one moment; the shared enum was later removed.
  */
 const SURVIVING_KIND = 'signal';
 
@@ -17,8 +16,8 @@ const SURVIVING_KIND = 'signal';
  *
  * These rows belong to the generic Operation/Automation concept this cutover
  * removes. They are keyed by `alerts.operation_key`, a column the schema step
- * drops, and they carry `kind = 'operation'`, which `ALERT_KINDS` no longer
- * admits: after the schema step the alert read cannot parse them at all.
+ * drops, and they carry `kind = 'operation'`, which the v0.1.31 contract no
+ * longer admitted: after the schema step the alert read cannot parse them at all.
  *
  * They also block the schema step outright. `Alert.dedupeKey` arrives as
  * `@default(uuid())`, which Prisma generates client-side and so leaves no

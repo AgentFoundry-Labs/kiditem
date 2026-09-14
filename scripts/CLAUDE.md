@@ -1,3 +1,5 @@
+Before working in this directory, always read this document first rather than relying on memory.
+
 # scripts — Durable Repo Automation
 
 `scripts/` owns durable repo automation. Human-facing inventory lives in

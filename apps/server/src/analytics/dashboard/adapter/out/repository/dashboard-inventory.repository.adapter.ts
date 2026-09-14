@@ -1,45 +1,48 @@
 // Inventory-side read model for the dashboard. Encapsulates the Prisma
 // reads behind the inventory tile: grade counts, unread alerts, active
 // product counts, per-listing profit metrics (shared helper), inventory
-// Sellpia zero-stock and channel-SKU mapping-attention counts, last-7d grade history,
+// Sellpia zero-stock and channel-SKU mapping-attention counts, current grade history,
 // low-CTR thumbnail count, and A-grade master products with their
 // channel-listing review counts.
 //
 // 2-hop joins (A-grade review fetch) bind organization on both
 // MasterProduct and ChannelListing both bind organizationId.
 
-import { Inject, Injectable } from '@nestjs/common';
-import { ProductAbcFormulaPayloadSchema } from '@kiditem/shared/product-abc';
+import { Inject, Injectable } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 import {
   isChannelListingOnSale,
   resolveChannelListingSaleStatus,
-} from '@kiditem/shared/channel-listing';
-import { PrismaService } from '../../../../../prisma/prisma.service';
+} from "@kiditem/shared/channel-listing";
+import { productAbcDisplayStatus } from "@kiditem/shared/product-abc";
+import { PrismaService } from "../../../../../prisma/prisma.service";
+import { readLatestListingSaleStatusFacts } from "../../../../../channels/read/channel-listing-daily-facts";
+import {
+  readInventoryAvailability,
+  readInventorySkuIdentities,
+} from "../../../../../inventory/read/inventory-availability";
+import { readCurrentProductAbcGradeChanges } from "../../../../../products/read/product-abc-publication.reader";
+import { readCurrentReviewListingStats } from "../../../../../orders/read/review-facts.reader";
 import {
   buildPerListingMetricsCoverage,
   readAdEvidenceFromLedger,
-} from '../../../../../common/per-listing-profit';
+} from "../../../../../common/per-listing-profit";
 import {
   PRODUCT_ABC_READ_PORT,
   type ProductAbcReadPort,
-} from '../../../../../products/application/port/in/product-abc-read.port';
-import { SourceFailureAlerts } from '../../../../../alerts/alerts.service';
-import type { DashboardAlertItem } from '@kiditem/shared/dashboard';
+} from "../../../../../products/application/port/in/product-abc-read.port";
+import { SourceFailureAlerts } from "../../../../../alerts/alerts.service";
+import type { DashboardAlertItem } from "@kiditem/shared/dashboard";
 import type {
   DashboardInventoryRepositoryPort,
-  AbcContributionRow,
-  AbcStatusCountRow,
-  AbcStatusCounts,
+  DashboardAbcFacts,
   DashboardPerListingMetricsResult,
-  GradeCountRow,
-  GradeChangeRow,
   AGradeReviewRow,
-} from '../../../application/port/out/repository/dashboard-inventory.repository.port';
+} from "../../../application/port/out/repository/dashboard-inventory.repository.port";
+import type { ResolvedDashboardPeriod } from "../../../domain/period/dashboard-period";
 
 @Injectable()
-export class DashboardInventoryRepositoryAdapter
-  implements DashboardInventoryRepositoryPort
-{
+export class DashboardInventoryRepositoryAdapter implements DashboardInventoryRepositoryPort {
   constructor(
     private readonly prisma: PrismaService,
     @Inject(PRODUCT_ABC_READ_PORT)
@@ -47,27 +50,9 @@ export class DashboardInventoryRepositoryAdapter
     private readonly alerts: SourceFailureAlerts,
   ) {}
 
-  async countActiveProductsByGrade(
+  async readProductAbcFacts(
     organizationId: string,
-  ): Promise<GradeCountRow[]> {
-    const rows = await this.prisma.masterProduct.groupBy({
-      by: ['abcGrade'],
-      _count: { id: true },
-      where: {
-        organizationId,
-        isActive: true,
-        abcGrade: { in: ['A', 'B', 'C'] },
-      },
-    });
-    return rows.map((r) => ({
-      abcGrade: r.abcGrade,
-      count: r._count.id,
-    } satisfies GradeCountRow));
-  }
-
-  async countActiveProductsByAbcStatus(
-    organizationId: string,
-  ): Promise<AbcStatusCounts> {
+  ): Promise<DashboardAbcFacts> {
     // Which products are active is this read model's question; what ABC status
     // each of them carries is Products'. The dashboard names the population and
     // counts the published answer — it does not choose an evidence cutoff of
@@ -80,60 +65,81 @@ export class DashboardInventoryRepositoryAdapter
       organizationId,
       masterProductIds: active.map((row) => row.id),
     });
-    const counts = new Map<AbcStatusCountRow['displayStatus'], number>();
+    const gradeChanges = await this.prisma.$transaction(
+      (tx) =>
+        readCurrentProductAbcGradeChanges(tx, {
+          organizationId,
+          publicationRevision:
+            snapshot.publication?.publicationRevision ?? null,
+        }),
+      { isolationLevel: "RepeatableRead" },
+    );
+    const statusCounts = new Map<
+      DashboardAbcFacts["statusRows"][number]["displayStatus"],
+      number
+    >();
+    const gradeCounts = new Map<"A" | "B" | "C", number>();
+    const contributionRows: DashboardAbcFacts["contributionRows"] = [];
+    const aGradeMasterProductIds: string[] = [];
+    let classifiedProductCount = 0;
+    let withheldContributionProductCount = 0;
     for (const product of snapshot.products) {
-      const displayStatus = product.abc.displayStatus;
-      counts.set(displayStatus, (counts.get(displayStatus) ?? 0) + 1);
+      const displayStatus = productAbcDisplayStatus(product.abc);
+      statusCounts.set(
+        displayStatus,
+        (statusCounts.get(displayStatus) ?? 0) + 1,
+      );
+      const evaluation = product.abc.evaluation;
+      if (evaluation) {
+        classifiedProductCount += 1;
+        gradeCounts.set(
+          evaluation.abcGrade,
+          (gradeCounts.get(evaluation.abcGrade) ?? 0) + 1,
+        );
+        if (evaluation.abcGrade === "A") {
+          aGradeMasterProductIds.push(product.masterProductId);
+        }
+        if (product.contributionEligible) {
+          contributionRows.push({
+            abcGrade: evaluation.abcGrade,
+            weightedOperatingProfit: evaluation.weightedOperatingProfit,
+          });
+        } else {
+          withheldContributionProductCount += 1;
+        }
+      }
     }
     return {
-      rows: [...counts].map(([displayStatus, count]) => ({ displayStatus, count })),
-      // The evaluation's own as-of, published beside the counts so the read
-      // model never has to guess how old a stored grade is.
+      gradeRows: [...gradeCounts].map(([abcGrade, count]) => ({
+        abcGrade,
+        count,
+      })),
+      statusRows: [...statusCounts].map(([displayStatus, count]) => ({
+        displayStatus,
+        count,
+      })),
+      contributionRows,
+      withheldContributionProductCount,
+      unclassifiedProductCount:
+        snapshot.products.length - classifiedProductCount,
+      formula: snapshot.publication?.formula ?? null,
       evaluatedAsOf: {
         targetCutoff: snapshot.targetCutoff,
         actualCutoff: snapshot.actualCutoff,
         capturedAt: snapshot.capturedAt,
       },
-    } satisfies AbcStatusCounts;
-  }
-
-  async findActiveAbcContributions(
-    organizationId: string,
-  ): Promise<AbcContributionRow[]> {
-    const rows = await this.prisma.masterProductAbcEvaluation.findMany({
-      where: { organizationId, masterProduct: { is: { organizationId, isActive: true } } },
-      select: {
-        weightedOperatingProfit: true,
-        masterProduct: { select: { abcGrade: true } },
+      publication: snapshot.publication && {
+        publicationRevision: snapshot.publication.publicationRevision,
+        officialCutoffDate: snapshot.publication.officialCutoffDate,
+        publishedAt: snapshot.publication.publishedAt,
+        sellpiaSourceImportRunId: snapshot.publication.sellpiaSourceImportRunId,
+        advertisingSourceImportRunId:
+          snapshot.publication.advertisingSourceImportRunId,
+        mappingGeneration: snapshot.publication.mappingGeneration,
       },
-    });
-    return rows.map((row) => ({
-      abcGrade: row.masterProduct.abcGrade,
-      weightedOperatingProfit: row.weightedOperatingProfit.toNumber(),
-    } satisfies AbcContributionRow));
-  }
-
-  countUnclassifiedActiveProducts(organizationId: string): Promise<number> {
-    return this.prisma.masterProduct.count({
-      where: {
-        organizationId,
-        isActive: true,
-        abcGrade: null,
-      },
-    });
-  }
-
-  async findAbcFormula(
-    organizationId: string,
-  ) {
-    const state = await this.prisma.masterProductAbcFormulaState.findUnique({
-      where: { organizationId },
-      include: { activeFormulaVersion: { select: { formulaJson: true } }, },
-    });
-    const formula = state?.activeFormulaVersion
-      ? ProductAbcFormulaPayloadSchema.safeParse(state.activeFormulaVersion.formulaJson)
-      : null;
-    return formula?.success ? formula.data : null;
+      gradeChanges: [...gradeChanges],
+      aGradeMasterProductIds,
+    } satisfies DashboardAbcFacts;
   }
 
   async findUnreadAlerts(
@@ -145,25 +151,27 @@ export class DashboardInventoryRepositoryAdapter
     // opinion about filter, order, or limit.
     const rows = await this.alerts.list(organizationId, {
       isRead: false,
-      status: 'OPEN',
+      status: "OPEN",
       limit,
     });
-    return rows.map((a) => ({
-      id: a.id,
-      kind: a.kind as DashboardAlertItem['kind'],
-      status: a.status as DashboardAlertItem['status'],
-      type: a.type,
-      severity: a.severity,
-      title: a.title,
-      message: a.message,
-      sourceType: a.sourceType,
-      href: a.href,
-      targetType: a.targetType,
-      targetId: a.targetId,
-      isRead: a.isRead,
-      createdAt: new Date(a.createdAt),
-      updatedAt: a.updatedAt ? new Date(a.updatedAt) : undefined,
-    } satisfies DashboardAlertItem));
+    return rows.map(
+      (a) =>
+        ({
+          id: a.id,
+          status: a.status as DashboardAlertItem["status"],
+          type: a.type,
+          severity: a.severity,
+          title: a.title,
+          message: a.message,
+          sourceType: a.sourceType,
+          href: a.href,
+          targetType: a.targetType,
+          targetId: a.targetId,
+          isRead: a.isRead,
+          createdAt: new Date(a.createdAt),
+          updatedAt: a.updatedAt ? new Date(a.updatedAt) : undefined,
+        }) satisfies DashboardAlertItem,
+    );
   }
 
   async countActiveProducts(organizationId: string): Promise<number> {
@@ -174,139 +182,194 @@ export class DashboardInventoryRepositoryAdapter
 
   async fetchPerListingMetrics(
     organizationId: string,
-    monthStart: Date,
-    monthEnd: Date,
+    period: ResolvedDashboardPeriod,
   ): Promise<DashboardPerListingMetricsResult> {
     // Which listings the ad source actually covered is the helper's rule
-    // (ADR-0006); this adapter only carries its answer, including how many
-    // listings it withheld, across the port. Whether advertising applies to
-    // the organization at all, and which dates the sweep measured, is read
-    // from the advertising ledger for the same window.
-    const accountAdEvidence = await readAdEvidenceFromLedger(
-      this.prisma,
-      organizationId,
-      monthStart,
-      monthEnd,
-    );
-    const { metrics, withheldListings } = await buildPerListingMetricsCoverage(
-      this.prisma,
-      organizationId,
-      monthStart,
-      monthEnd,
-      accountAdEvidence,
-    );
-    return { rows: metrics, withheldListings };
-  }
-
-  countOutOfStockMasterProducts(organizationId: string): Promise<number> {
-    return this.prisma.sellpiaInventorySku.count({
-      where: {
-        organizationId,
-        isActive: true,
-        currentStock: 0,
+    // (ADR-0006); this adapter only carries its answer across the port: the
+    // measured rows, how many listings it withheld, whether the Orders
+    // collection covered the window, and whether advertising applies to the
+    // organization at all. That last fact, and which dates the sweep measured,
+    // come from the one advertising ledger read for the same resolved window.
+    const { from, to } = period.queryWindow;
+    return this.prisma.$transaction(
+      async (tx) => {
+        const accountAdEvidence = await readAdEvidenceFromLedger(
+          tx,
+          organizationId,
+          from,
+          to,
+        );
+        const { metrics, withheldListings, orderWindowComplete } = await buildPerListingMetricsCoverage(
+          tx,
+          organizationId,
+          from,
+          to,
+          accountAdEvidence,
+        );
+        return {
+          rows: metrics,
+          withheldListings,
+          orderWindowComplete,
+          hasAdAccount: accountAdEvidence.hasAdAccount,
+        } satisfies DashboardPerListingMetricsResult;
       },
-    });
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
   }
 
-  async getSellingChannelMappingSummary(
-    organizationId: string,
-  ) {
-    const listings = await this.prisma.channelListing.findMany({
-      where: {
-        organizationId,
-        channelAccount: {
-          is: {
+  async readInventoryAvailabilityFacts(organizationId: string) {
+    return this.prisma.$transaction(
+      async (tx) => {
+        const listings = await tx.channelListing.findMany({
+          where: {
             organizationId,
-            status: 'active',
-            channel: { in: ['coupang', 'rocket'] },
+            channelAccount: {
+              is: {
+                organizationId,
+                status: "active",
+                channel: { in: ["coupang", "rocket"] },
+              },
+            },
           },
-        },
-      },
-      select: {
-        isActive: true,
-        status: true,
-        rawJson: true,
-        channelListingDailySnapshots: {
-          where: { organizationId },
-          orderBy: [{ businessDate: 'desc' }, { lastObservedAt: 'desc' }],
-          take: 1,
-          select: { saleStatus: true },
-        },
-        options: {
-          where: { organizationId },
           select: {
+            id: true,
+            masterProductId: true,
+            isActive: true,
             status: true,
-            inventoryComponents: {
+            rawJson: true,
+            options: {
               where: { organizationId },
               select: {
-                sellpiaInventorySku: {
+                status: true,
+                inventoryComponents: {
+                  where: { organizationId },
                   select: {
-                    isActive: true,
-                    currentStock: true,
-                    masterProductId: true,
-                    masterProduct: { select: { isActive: true } },
+                    sellpiaInventorySkuId: true,
                   },
                 },
               },
             },
           },
-        },
-      },
-    });
-    let unmatched = 0;
-    let needsReview = 0;
-    let matched = 0;
-    const linkedMasterProductIds = new Set<string>();
-    for (const listing of listings) {
-      const saleStatus = resolveChannelListingSaleStatus({
-        latestSnapshotStatus: listing.channelListingDailySnapshots[0]?.saleStatus,
-        rawStatus: rawSaleStatus(listing.rawJson),
-        optionStatuses: listing.options.map((option) => option.status),
-        listingStatus: listing.status,
-        isActive: listing.isActive,
-      });
-      if (!isChannelListingOnSale(saleStatus)) continue;
-      for (const option of listing.options) {
-        if (option.inventoryComponents.length === 0) {
-          unmatched += 1;
-        } else if (option.inventoryComponents.some(
-          (component) => component.sellpiaInventorySku.isActive === false,
-        )) {
-          needsReview += 1;
-        } else {
-          matched += 1;
-        }
-        for (const component of option.inventoryComponents) {
-          const sku = component.sellpiaInventorySku;
+        });
+        const componentSkuIds = [
+          ...new Set(
+            listings.flatMap((listing) =>
+              listing.options.flatMap((option) =>
+                option.inventoryComponents.map(
+                  (component) => component.sellpiaInventorySkuId,
+                ),
+              ),
+            ),
+          ),
+        ];
+        const [statusFacts, identities, activeIdentities] = await Promise.all([
+          readLatestListingSaleStatusFacts(tx, {
+            organizationId,
+            listingIds: listings.map((listing) => listing.id),
+          }),
+          readInventorySkuIdentities(tx, {
+            organizationId,
+            selector: { kind: "ids", values: componentSkuIds },
+          }),
+          readInventorySkuIdentities(tx, {
+            organizationId,
+            selector: { kind: "active" },
+          }),
+        ]);
+        const availability = await readInventoryAvailability(tx, {
+          organizationId,
+          sellpiaInventorySkuIds: activeIdentities.map(
+            (sku) => sku.sellpiaInventorySkuId,
+          ),
+        });
+        const masterProductIds = [...new Set(
+          listings.flatMap((listing) =>
+            listing.masterProductId ? [listing.masterProductId] : []),
+        )];
+        const activeProducts = await tx.masterProduct.findMany({
+          where: {
+            organizationId,
+            id: { in: masterProductIds },
+            isActive: true,
+          },
+          select: { id: true },
+        });
+        const activeProductIds = new Set(
+          activeProducts.map((product) => product.id),
+        );
+        const identityBySkuId = new Map(
+          identities.map((sku) => [sku.sellpiaInventorySkuId, sku]),
+        );
+        const availabilityBySkuId = new Map(
+          availability.items.map((item) => [item.sellpiaInventorySkuId, item]),
+        );
+        const stockMeasured =
+          availability.snapshot.collected &&
+          activeIdentities.every((sku) =>
+            availabilityBySkuId.has(sku.sellpiaInventorySkuId),
+          );
+        const saleStatusByListing = new Map(
+          statusFacts.map((fact) => [fact.listingId, fact.saleStatus]),
+        );
+        let unmatched = 0;
+        let needsReview = 0;
+        let matched = 0;
+        const linkedMasterProductIds = new Set<string>();
+        for (const listing of listings) {
+          const saleStatus = resolveChannelListingSaleStatus({
+            latestSnapshotStatus: saleStatusByListing.get(listing.id) ?? null,
+            rawStatus: rawSaleStatus(listing.rawJson),
+            optionStatuses: listing.options.map((option) => option.status),
+            listingStatus: listing.status,
+            isActive: listing.isActive,
+          });
+          if (!isChannelListingOnSale(saleStatus)) continue;
+          for (const option of listing.options) {
+            if (option.inventoryComponents.length === 0) {
+              unmatched += 1;
+            } else if (
+              option.inventoryComponents.some(
+                (component) =>
+                  identityBySkuId.get(component.sellpiaInventorySkuId)
+                    ?.isActive !== true,
+              )
+            ) {
+              needsReview += 1;
+            } else {
+              matched += 1;
+            }
+          }
           if (
-            sku.isActive
-            && sku.currentStock > 0
-            && sku.masterProduct?.isActive
-            && sku.masterProductId
+            listing.masterProductId &&
+            activeProductIds.has(listing.masterProductId)
           ) {
-            linkedMasterProductIds.add(sku.masterProductId);
+            linkedMasterProductIds.add(listing.masterProductId);
           }
         }
-      }
-    }
-    return {
-      linkedMasterProductCount: linkedMasterProductIds.size,
-      mappingStatusRows: [
-        { mappingStatus: 'unmatched', count: unmatched },
-        { mappingStatus: 'needs_review', count: needsReview },
-        { mappingStatus: 'matched', count: matched },
-      ],
-    };
-  }
-
-  async findGradeHistory(
-    organizationId: string,
-    since: Date,
-  ): Promise<GradeChangeRow[]> {
-    return this.prisma.masterProductAbcGradeHistory.findMany({
-      where: { organizationId, calculatedAt: { gte: since } },
-      select: { oldGrade: true, newGrade: true },
-    });
+        return {
+          outOfStockSkus: stockMeasured
+            ? activeIdentities.filter(
+                (sku) =>
+                  availabilityBySkuId.get(sku.sellpiaInventorySkuId)
+                    ?.currentStock === 0,
+              ).length
+            : null,
+          linkedMasterProductCount: linkedMasterProductIds.size,
+          mappingStatusRows: [
+            { mappingStatus: "unmatched", count: unmatched },
+            { mappingStatus: "needs_review", count: needsReview },
+            { mappingStatus: "matched", count: matched },
+          ],
+          snapshot: {
+            ...availability.snapshot,
+            verifiedAt: availability.snapshot.verifiedAt
+              ? new Date(availability.snapshot.verifiedAt).toISOString()
+              : null,
+          },
+        };
+      },
+      { isolationLevel: "RepeatableRead" },
+    );
   }
 
   async countLowCtrThumbnails(organizationId: string): Promise<number> {
@@ -315,39 +378,62 @@ export class DashboardInventoryRepositoryAdapter
     });
   }
 
-  async findAGradeReviewCounts(
+  async findReviewCountsForProducts(
     organizationId: string,
+    masterProductIds: readonly string[],
   ): Promise<AGradeReviewRow[]> {
-    // 2-hop tenant scope: master.organizationId +
-    // listings.organizationId on the nested filter.
-    const products = await this.prisma.masterProduct.findMany({
-      where: {
-        organizationId,
-        isActive: true,
-        abcGrade: 'A',
+    if (masterProductIds.length === 0) return [];
+    // Grade selection comes from Products' current publication above. This
+    // query only joins those identities to review counts; the mutable
+    // MasterProduct.abcGrade cache is not publication authority.
+    return this.prisma.$transaction(
+      async (tx) => {
+        const products = await tx.masterProduct.findMany({
+          where: {
+            organizationId,
+            id: { in: [...masterProductIds] },
+            isActive: true,
+          },
+          select: {
+            channelListings: {
+              where: { organizationId, isActive: true },
+              select: { id: true },
+            },
+          },
+        });
+        const listingIds = products.flatMap((product) =>
+          product.channelListings.map((listing) => listing.id),
+        );
+        const stats = await readCurrentReviewListingStats(
+          tx,
+          organizationId,
+          listingIds,
+        );
+        const countByListingId = new Map(
+          stats.map((row) => [row.listingId, row.totalReviews]),
+        );
+        return products.map(
+          (product) =>
+            ({
+              reviewCount: product.channelListings.reduce(
+                (sum, listing) => sum + (countByListingId.get(listing.id) ?? 0),
+                0,
+              ),
+            }) satisfies AGradeReviewRow,
+        );
       },
-      select: {
-        channelListings: {
-          where: { organizationId, isActive: true },
-          select: { _count: { select: { reviews: true } } },
-        },
-      },
-    });
-    return products.map((product) => ({
-      reviewCount: product.channelListings.reduce(
-        (sum, listing) => sum + listing._count.reviews,
-        0,
-      ),
-    } satisfies AGradeReviewRow));
+      { isolationLevel: "RepeatableRead" },
+    );
   }
 }
 
 function rawSaleStatus(value: unknown): string | null {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const record = value as Record<string, unknown>;
-  for (const key of ['saleStatus', 'salesStatus', 'sale_status', '판매상태']) {
+  for (const key of ["saleStatus", "salesStatus", "sale_status", "판매상태"]) {
     const candidate = record[key];
-    if (typeof candidate === 'string' && candidate.trim()) return candidate.trim();
+    if (typeof candidate === "string" && candidate.trim())
+      return candidate.trim();
   }
   return null;
 }

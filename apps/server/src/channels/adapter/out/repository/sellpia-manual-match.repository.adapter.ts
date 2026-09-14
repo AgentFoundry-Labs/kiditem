@@ -19,12 +19,14 @@ import {
   type SellpiaManualMatchSourceStatus,
   type SellpiaManualMatchRow,
 } from '@kiditem/shared/sellpia-manual-match';
-import {
-  COUPANG_CATALOG_BASIC_SOURCE_TYPE,
-  COUPANG_CATALOG_DETAILS_SOURCE_TYPE,
-} from '@kiditem/shared/coupang-catalog-snapshot';
+import { SOURCE_IMPORT_RUN_COMPLETED_STATUS } from '@kiditem/shared/source-import';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import {
+  completedCatalogRunWhere,
+  publishedCatalogOptionWhere,
+} from '../../../read/completed-catalog-run';
+import { readInventorySkuIdentities } from '../../../../inventory/read/inventory-availability';
 import { normalizeSellpiaManualMatchAlias } from '../../../domain/sellpia-manual-match-alias';
 import type {
   SellpiaManualMatchAliasRecord,
@@ -35,23 +37,10 @@ import type {
 const CREATE_BATCH_SIZE = 5_000;
 const ATTEMPT_TTL_MS = 30 * 60_000;
 const DB_RUNNING = 'running';
-const DB_COMPLETE = 'completed';
+const DB_COMPLETE = SOURCE_IMPORT_RUN_COMPLETED_STATUS;
 const DB_FAILED = 'failed';
 const ALERT_DEDUPE_KEY = 'source:sellpia-manual-match';
 const ALERT_HREF = '/product-hub/matching';
-const COMPLETED_CATALOG_SOURCE_TYPES = [
-  'coupang_wing_catalog',
-  'coupang_rocket_catalog_seed',
-  'coupang_rocket_po_catalog',
-  'coupang_rocket_matching_csv',
-] as const;
-const PUBLISHED_BROWSER_CATALOG_SOURCE = 'coupang_catalog_browser';
-const PUBLISHED_CATALOG_IDENTITY_SOURCES = [
-  PUBLISHED_BROWSER_CATALOG_SOURCE,
-  'coupang_catalog_basics',
-  'coupang_catalog_details',
-] as const;
-const CATALOG_OWNER_PARSER_VERSION = 'coupang-catalog-owner-v1';
 const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;
 
 type Transaction = Prisma.TransactionClient;
@@ -427,36 +416,10 @@ async function listCurrentChannelAliasCandidates(
       organizationId,
       isActive: true,
       OR: [
-        {
-          lastImportRun: {
-            is: {
-              organizationId,
-              OR: [
-                {
-                  status: DB_COMPLETE,
-                  sourceType: { in: [...COMPLETED_CATALOG_SOURCE_TYPES] },
-                },
-                {
-                  status: DB_COMPLETE,
-                  sourceType: {
-                    in: [COUPANG_CATALOG_BASIC_SOURCE_TYPE, COUPANG_CATALOG_DETAILS_SOURCE_TYPE],
-                  },
-                  parserVersion: CATALOG_OWNER_PARSER_VERSION,
-                  importedAt: { not: null },
-                },
-              ],
-            },
-          },
-        },
+        { lastImportRun: { is: completedCatalogRunWhere(organizationId) } },
         {
           options: {
-            some: {
-              organizationId,
-              isActive: true,
-              OR: PUBLISHED_CATALOG_IDENTITY_SOURCES.map((source) => ({
-                rawJson: { path: ['source'], equals: source },
-              })),
-            },
+            some: publishedCatalogOptionWhere(organizationId),
           },
         },
       ],
@@ -494,11 +457,14 @@ async function listCurrentChannelAliasCandidates(
 }
 
 async function listActiveSkus(tx: Transaction, organizationId: string): Promise<ActiveSku[]> {
-  return tx.sellpiaInventorySku.findMany({
-    where: { organizationId, isActive: true },
-    select: { id: true, code: true },
-    orderBy: [{ code: 'asc' }, { id: 'asc' }],
+  const identities = await readInventorySkuIdentities(tx, {
+    organizationId,
+    selector: { kind: 'active' },
   });
+  return identities.map(({ sellpiaInventorySkuId, code }) => ({
+    id: sellpiaInventorySkuId,
+    code,
+  }));
 }
 
 async function currentStatusIn(

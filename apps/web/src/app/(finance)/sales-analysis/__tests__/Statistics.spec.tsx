@@ -2,6 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { buildPeriodBasis } from '@kiditem/shared/dashboard';
 import Statistics from '../components/Statistics';
 import { apiClient } from '@/lib/api-client';
 
@@ -19,6 +20,23 @@ function renderWithProvider() {
     </QueryClientProvider>,
   );
 }
+
+const aprilBasis = (days: number) => buildPeriodBasis({
+  from: '2026-04-01',
+  to: '2026-04-30',
+  includedDates: Array.from({ length: days }, (_, index) => `2026-04-${String(index + 1).padStart(2, '0')}`),
+  sources: ['orders'],
+});
+const windowBasis = (days = 30) => ({ revenue: aprilBasis(days), adCost: aprilBasis(30), profit: aprilBasis(days) });
+
+const measuredOverview = {
+  totalRevenue: 0,
+  totalOrders: 0,
+  totalProfit: 0,
+  avgMargin: null,
+  totalProducts: 0,
+  basis: windowBasis(),
+};
 
 describe('<Statistics> (Plan B1)', () => {
   beforeEach(() => {
@@ -40,37 +58,54 @@ describe('<Statistics> (Plan B1)', () => {
     });
   });
 
+  it("renders unmeasured overview totals as '-' with the order coverage behind them", async () => {
+    vi.spyOn(apiClient, 'getParsed').mockResolvedValue({
+      totalRevenue: null,
+      totalOrders: null,
+      totalProfit: null,
+      avgMargin: null,
+      totalProducts: 2,
+      basis: windowBasis(14),
+    });
+
+    renderWithProvider();
+
+    await waitFor(() => {
+      expect(screen.getByText(/주문 수집 14\/30일/)).toBeTruthy();
+    });
+    for (const label of ['총 매출', '전체 주문', '총 이익', '평균 마진']) {
+      expect(screen.getByText(label).nextElementSibling?.textContent, label).toBe('-');
+    }
+  });
+
   it('renders product rows after switching tabs', async () => {
     vi.spyOn(apiClient, 'getParsed').mockImplementation((path: string) => {
       if (path.includes('type=overview')) {
-        return Promise.resolve({
-          totalRevenue: 0,
-          totalOrders: 0,
-          totalProfit: 0,
-          avgMargin: 0,
-          totalProducts: 0,
-        });
+        return Promise.resolve(measuredOverview);
       }
 
       if (path.includes('type=products')) {
-        return Promise.resolve([
-          {
-            listingId: '11111111-1111-1111-1111-111111111111',
-            externalId: 'EXT-1',
-            channelName: '쿠팡 상품',
-            masterId: '22222222-2222-2222-2222-222222222222',
-            masterCode: 'M-001',
-            productName: 'Master A',
-            category: '유아용품',
-            grade: 'A',
-            thumbnailUrl: null,
-            totalRevenue: 100000,
-            netProfit: 20000,
-            orderCount: 3,
-            profitRate: 0.2,
-            margin: 0.2,
-          },
-        ]);
+        return Promise.resolve({
+          rows: [
+            {
+              listingId: '11111111-1111-1111-1111-111111111111',
+              externalId: 'EXT-1',
+              channelName: '쿠팡 상품',
+              masterId: '22222222-2222-2222-2222-222222222222',
+              masterCode: 'M-001',
+              productName: 'Master A',
+              category: '유아용품',
+              grade: 'A',
+              thumbnailUrl: null,
+              totalRevenue: 100000,
+              netProfit: 20000,
+              orderCount: 3,
+              profitRate: 0.2,
+              margin: 0.2,
+            },
+          ],
+          basis: windowBasis(),
+        });
       }
 
       throw new Error(`unexpected path: ${path}`);
@@ -85,23 +120,17 @@ describe('<Statistics> (Plan B1)', () => {
     expect(screen.getByText(/20.0%/)).toBeTruthy();
   });
 
-  it('renders repurchase lastOrder ISO strings without crashing', async () => {
+  it('renders repurchase lastOrder ISO strings and an unavailable rate without crashing', async () => {
     vi.spyOn(apiClient, 'getParsed').mockImplementation((path: string) => {
       if (path.includes('type=overview')) {
-        return Promise.resolve({
-          totalRevenue: 0,
-          totalOrders: 0,
-          totalProfit: 0,
-          avgMargin: 0,
-          totalProducts: 0,
-        });
+        return Promise.resolve(measuredOverview);
       }
 
       if (path.includes('type=repurchase')) {
         return Promise.resolve({
           totalCustomers: 2,
           repeatCount: 1,
-          repurchaseRate: 0.5,
+          repurchaseRate: null,
           totalOrders: 3,
           repeatProducts: [
             {
@@ -119,6 +148,7 @@ describe('<Statistics> (Plan B1)', () => {
               lastOrder: '2026-04-15T00:00:00.000Z',
             },
           ],
+          basis: { orders: aprilBasis(30) },
         });
       }
 
@@ -132,5 +162,7 @@ describe('<Statistics> (Plan B1)', () => {
       expect(screen.getByText('홍길동')).toBeTruthy();
     });
     expect(screen.getByText('2026. 04. 15.')).toBeTruthy();
+    const rateLabel = screen.getAllByText('재구매율').find((element) => element.classList.contains('card-label'));
+    expect(rateLabel?.nextElementSibling?.textContent).toBe('-');
   });
 });

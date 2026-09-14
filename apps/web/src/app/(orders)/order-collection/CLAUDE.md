@@ -1,3 +1,5 @@
+Before working in this directory, always read this document first rather than relying on memory.
+
 # web/order-collection — Marketplace Collection
 
 This route collects marketplace evidence through the unified extension or

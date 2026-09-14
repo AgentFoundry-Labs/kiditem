@@ -2,6 +2,11 @@ import { randomUUID } from 'node:crypto';
 import { ConflictException, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { readCurrentCompleteObservationReferencesByIds } from '../../../read/source-evidence.reader';
+import {
+  readValidationEpisodePage,
+  validationEpisodeViewInclude,
+} from '../../../read/validation-publication.reader';
 import type {
   SourcingValidationEpisodeWrite,
   SourcingValidationItemRecord,
@@ -49,20 +54,11 @@ export class SourcingValidationRepositoryAdapter
   }): Promise<{ items: SourcingValidationItemRecord[]; nextCursor: string | null }> {
     const limit = Math.max(1, Math.min(MAX_PAGE_SIZE, Math.floor(input.limit)));
     const cursor = input.cursor ? decodeCursor(input.cursor) : null;
-    const rows = await this.prisma.sourcingValidationEpisode.findMany({
-      where: {
-        organizationId: input.organizationId,
-        recommendationRunId: input.recommendationRunId,
-        ...(cursor && {
-          OR: [
-            { updatedAt: { lt: cursor.updatedAt } },
-            { updatedAt: cursor.updatedAt, id: { lt: cursor.id } },
-          ],
-        }),
-      },
-      orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
-      take: limit + 1,
-      include: viewInclude,
+    const rows = await readValidationEpisodePage(this.prisma, {
+      organizationId: input.organizationId,
+      recommendationRunId: input.recommendationRunId,
+      limit,
+      cursor,
     });
     const hasMore = rows.length > limit;
     const page = rows.slice(0, limit);
@@ -158,15 +154,14 @@ export class SourcingValidationRepositoryAdapter
         ),
       );
       if (evidenceObservationIds.length > 0) {
-        const evidenceRows = await tx.sourcingEvidenceObservation.findMany({
-          where: {
-            organizationId: command.organizationId,
-            id: { in: evidenceObservationIds },
-          },
-          select: { id: true },
+        const evidenceRows = await readCurrentCompleteObservationReferencesByIds(tx, {
+          organizationId: command.organizationId,
+          observationIds: evidenceObservationIds,
         });
         if (evidenceRows.length !== evidenceObservationIds.length) {
-          throw new TypeError('Validation evidence does not belong to this organization');
+          throw new TypeError(
+            'Validation evidence must reference current complete source observations',
+          );
         }
       }
 
@@ -280,26 +275,8 @@ async function advisoryLock(tx: Prisma.TransactionClient, key: string): Promise<
   );
 }
 
-const viewInclude = {
-  recommendationItem: {
-    select: {
-      itemKey: true,
-      displayName: true,
-      sourceSnapshot: true,
-    },
-  },
-  checks: {
-    orderBy: [{ checkKey: 'asc' }, { id: 'asc' }],
-    select: {
-      checkKey: true,
-      status: true,
-      summary: true,
-    },
-  },
-} satisfies Prisma.SourcingValidationEpisodeInclude;
-
 function toView(
-  row: Prisma.SourcingValidationEpisodeGetPayload<{ include: typeof viewInclude }>,
+  row: Prisma.SourcingValidationEpisodeGetPayload<{ include: typeof validationEpisodeViewInclude }>,
 ): SourcingValidationItemRecord {
   const summary = jsonRecord(row.summary);
   const source = jsonRecord(row.recommendationItem.sourceSnapshot);

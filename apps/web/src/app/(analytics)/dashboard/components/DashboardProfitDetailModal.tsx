@@ -36,6 +36,10 @@ function positiveScale(value: number | null | undefined): number | null {
   return value !== null && value !== undefined && value > 0 ? value : null;
 }
 
+function negateMeasured(value: number | null): number | null {
+  return value === null ? null : -value;
+}
+
 function formatNullable(value: number | null, digits = 0): string {
   return value === null ? '—' : value.toFixed(digits);
 }
@@ -76,14 +80,15 @@ export function DashboardProfitDetailModal({
   // baseline month's cached values never stand in for a missing range value,
   // and the basis label always describes the values actually rendered.
   const isMonthSelection = selectedRange === 'month';
-  // `profitDetail` is built from the calendar month, not from the selected
-  // range, so it may only describe a month selection. Week, day, and custom
-  // selections fall through instead of relabelling this month's structure.
+  // `profitDetail` is built from the anchor's month through its last closed
+  // KST day, not from the selected range, so it may only describe a month
+  // selection. Week, day, and custom selections fall through instead of
+  // relabelling this month's structure.
   const monthProfitDetail = isMonthSelection ? salesBaseline.profitDetail ?? null : null;
   const selectedProfitBasis = readMetricBasis(salesBaseline, 'rangeKpi.profit');
   const selectedNetProfit = monthProfitDetail?.netProfit ?? salesBaseline.rangeKpi?.profit ?? null;
   // The caller said its source published no structure. Every remaining branch
-  // reads a different source — the calendar month's order structure, or the ad
+  // reads a different source — the month's order structure, or the ad
   // account — so any of them would put one source's numbers under another
   // source's card. The rows stay named and withheld instead.
   const sourcePublishedNothing = inputs === null;
@@ -108,11 +113,11 @@ export function DashboardProfitDetailModal({
   } : monthProfitDetail ? {
     items: [
       { label: '매출', value: monthProfitDetail.revenue, negative: false },
-      { label: '집행광고비', value: -monthProfitDetail.adCost, negative: true },
-      { label: '수수료', value: -monthProfitDetail.commission, negative: true },
-      { label: '배송비', value: -monthProfitDetail.shippingCost, negative: true },
-      { label: '매입원가', value: -monthProfitDetail.costOfGoods, negative: true },
-      { label: '기타비용', value: -monthProfitDetail.otherCost, negative: true },
+      { label: '집행광고비', value: negateMeasured(monthProfitDetail.adCost), negative: true },
+      { label: '수수료', value: negateMeasured(monthProfitDetail.commission), negative: true },
+      { label: '배송비', value: negateMeasured(monthProfitDetail.shippingCost), negative: true },
+      { label: '매입원가', value: negateMeasured(monthProfitDetail.costOfGoods), negative: true },
+      { label: '기타비용', value: negateMeasured(monthProfitDetail.otherCost), negative: true },
     ],
     scale: positiveScale(monthProfitDetail.revenue),
     basis: null,

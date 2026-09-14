@@ -1,9 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import type { PrismaClient } from '@prisma/client';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD } from '@kiditem/shared/product-abc';
+import { PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD, productAbcDisplayStatus } from '@kiditem/shared/product-abc';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
-import { ProfitabilityAdImportRepositoryAdapter } from '../../advertising/adapter/out/repository/profitability-ad-import.repository.adapter';
+import {
+  canonicalProviderRowsChecksum,
+  ProfitabilityAdImportRepositoryAdapter,
+} from '../../advertising/adapter/out/repository/profitability-ad-import.repository.adapter';
 import { SellpiaProfitabilitySourceService } from '../../analytics/sellpia-product-sales/sellpia-profitability-source.service';
 import { MasterProductProfitabilityReadService } from '../../finance/application/service/master-product-profitability-read.service';
 import {
@@ -13,8 +16,10 @@ import {
   TEST_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
 import { MasterProductAbcRepositoryAdapter } from '../adapter/out/repository/master-product-abc.repository.adapter';
+import { ProductOperationsDataStatusRepositoryAdapter } from '../adapter/out/repository/product-operations-data-status.repository.adapter';
 import { MasterProductAbcService } from '../application/service/master-product-abc.service';
 import { ProductAbcReadService } from '../application/service/product-abc-read.service';
+import { ProductOperationsDataStatusService } from '../application/service/product-operations-data-status.service';
 
 /**
  * KID-46 — which cutoff ABC may publish is a database question: it depends on
@@ -79,8 +84,8 @@ describe('MasterProductAbc publication cutoff (PostgreSQL)', () => {
       abcGrade: 'A',
       officialCutoffDate: collected.cutoff,
       actualCutoffDate: collected.cutoff,
-      displayStatus: 'SELLPIA_SOURCE_STALE',
     });
+    expect(productAbcDisplayStatus(view.products[0]!.abc)).toBe('SELLPIA_SOURCE_STALE');
   });
 
   it.each(['RUNNING', 'FAILED'] as const)(
@@ -107,7 +112,7 @@ describe('MasterProductAbc publication cutoff (PostgreSQL)', () => {
         officialCutoff: collected.cutoff,
       });
       await expect(prisma.masterProduct.findUniqueOrThrow({ where: { id: productId } }))
-        .resolves.toMatchObject({ abcGrade: 'A' });
+        .resolves.toMatchObject({ abcGrade: null });
     },
   );
 
@@ -139,7 +144,232 @@ describe('MasterProductAbc publication cutoff (PostgreSQL)', () => {
     expect(view.products[0]?.abc).toMatchObject({
       abcGrade: null,
       evaluation: null,
-      displayStatus: 'INSUFFICIENT_EVIDENCE',
+    });
+    expect(productAbcDisplayStatus(view.products[0]!.abc)).toBe('INSUFFICIENT_EVIDENCE');
+  });
+  describe('when the two sources end on different days', () => {
+    const recalculateAt = (at: string) => {
+      vi.setSystemTime(new Date(at));
+      return abcService(prisma).recalculate({ organizationId: TEST_ORGANIZATION_ID });
+    };
+    // Products' ABC view and Product Operations' data status report the same readiness and display word.
+    const expectReadiness = async (
+      productId: string,
+      ready: { sellpia: boolean; advertising: boolean },
+      displayStatus: ReturnType<typeof productAbcDisplayStatus>,
+    ) => {
+      const view = await readAbc(prisma, [productId]);
+      expect(view.products[0]?.abc.sources).toMatchObject({
+        sellpia: { ready: ready.sellpia },
+        advertising: { ready: ready.advertising },
+      });
+      expect(productAbcDisplayStatus(view.products[0]!.abc)).toBe(displayStatus);
+      await expect(productOperationsDataStatus(prisma).getStatus(TEST_ORGANIZATION_ID, 30)).resolves.toMatchObject({
+        sources: { sellpia: { ready: ready.sellpia }, advertising: { ready: ready.advertising } },
+      });
+    };
+    const expectNothingPublished = async () => {
+      await expect(prisma.masterProductAbcFormulaState.findUniqueOrThrow({
+        where: { organizationId: TEST_ORGANIZATION_ID },
+      })).resolves.toMatchObject({ publicationRevision: 0, officialCutoffDate: null });
+      await expect(prisma.masterProductAbcEvaluation.count({
+        where: { organizationId: TEST_ORGANIZATION_ID },
+      })).resolves.toBe(0);
+    };
+
+    it('publishes at the advertising end with the Sellpia generation that ends on it', async () => {
+      const { productId, skuCode } = await seedSellingProduct(prisma);
+      await seedFormulaState(prisma);
+      vi.useFakeTimers({ toFake: ['Date'] });
+      // Noon KST collections: Sellpia through 2026-09-05 and then 2026-09-06, advertising through 2026-09-05.
+      const matchingSellpia = await collectAt(prisma, 'sellpia', { skuCode, at: '2026-09-06T03:00:00.000Z' });
+      await collectAt(prisma, 'sellpia', { skuCode, at: '2026-09-07T03:00:00.000Z' });
+      const advertisingEnd = await collectAt(prisma, 'advertising', { skuCode, at: '2026-09-06T03:00:00.000Z' });
+      expect([matchingSellpia, advertisingEnd]).toEqual(['2026-09-05', '2026-09-05']);
+
+      await expect(recalculateAt('2026-09-07T03:00:00.000Z')).resolves.toMatchObject({
+        outcome: 'PUBLISHED',
+        officialCutoff: '2026-09-05',
+        classifiedProductCount: 1,
+      });
+      await expect(prisma.masterProductAbcEvaluation.findFirstOrThrow({
+        where: { organizationId: TEST_ORGANIZATION_ID, masterProductId: productId },
+      })).resolves.toMatchObject({
+        gradeBasisCutoffDate: new Date('2026-09-05T00:00:00.000Z'),
+      });
+      // Sellpia reached the closed day; the advertising collection ran before it closed.
+      await expectReadiness(productId, { sellpia: true, advertising: false }, 'AD_SOURCE_STALE');
+    });
+
+    it('publishes at a held advertising end and reads both sources ready', async () => {
+      const { productId, skuCode, advertisedOptionId } = await seedSellingProduct(prisma, { advertised: true });
+      await seedFormulaState(prisma);
+      vi.useFakeTimers({ toFake: ['Date'] });
+      // Sellpia through 2026-09-05 and then 2026-09-06. Advertising at noon on 2026-09-07 sees spend on
+      // 2026-09-05 and none yet on 2026-09-06, so it holds the 6th and confirms 2026-09-05.
+      await collectAt(prisma, 'sellpia', { skuCode, at: '2026-09-06T03:00:00.000Z' });
+      await collectAt(prisma, 'sellpia', { skuCode, at: '2026-09-07T03:00:00.000Z' });
+      const heldAdvertising = await collectAt(prisma, 'advertising', {
+        skuCode,
+        at: '2026-09-07T03:00:00.000Z',
+        advertisedOptionId: advertisedOptionId!,
+        unreportedDay: '2026-09-06',
+      });
+      expect(heldAdvertising).toBe('2026-09-05');
+
+      await expect(recalculateAt('2026-09-07T03:00:00.000Z')).resolves.toMatchObject({
+        outcome: 'PUBLISHED',
+        officialCutoff: '2026-09-05',
+        classifiedProductCount: 1,
+      });
+      // Sellpia reached the closed day and advertising every day Coupang has reported.
+      await expectReadiness(productId, { sellpia: true, advertising: true }, 'READY');
+    });
+
+    it('publishes at the month end when advertising holds the first day of the month', async () => {
+      const { skuCode, advertisedOptionId } = await seedSellingProduct(prisma, { advertised: true });
+      await seedFormulaState(prisma);
+      vi.useFakeTimers({ toFake: ['Date'] });
+      // Noon KST on 2026-09-02: advertising sees spend on 2026-08-31 and none on 2026-09-01, so it confirms 2026-08-31.
+      const advertisingEnd = await collectAt(prisma, 'advertising', {
+        skuCode,
+        at: '2026-09-02T03:00:00.000Z',
+        advertisedOptionId: advertisedOptionId!,
+        unreportedDay: '2026-09-01',
+      });
+      const sellpiaEnd = await collectAt(prisma, 'sellpia', { skuCode, at: '2026-09-02T03:00:00.000Z' });
+      expect([sellpiaEnd, advertisingEnd]).toEqual(['2026-09-01', '2026-08-31']);
+
+      await expect(recalculateAt('2026-09-02T03:00:00.000Z')).resolves.toMatchObject({
+        outcome: 'PUBLISHED',
+        officialCutoff: '2026-08-31',
+        classifiedProductCount: 1,
+      });
+    });
+
+    it('refuses without writing when Sellpia runs past the advertising end and no generation ends on it', async () => {
+      const { skuCode } = await seedSellingProduct(prisma);
+      await seedFormulaState(prisma);
+      vi.useFakeTimers({ toFake: ['Date'] });
+      await collectAt(prisma, 'sellpia', { skuCode, at: '2026-09-07T03:00:00.000Z' });
+      await collectAt(prisma, 'advertising', { skuCode, at: '2026-09-06T03:00:00.000Z' });
+
+      await expect(recalculateAt('2026-09-07T03:00:00.000Z')).resolves.toMatchObject({
+        outcome: 'SOURCE_NOT_READY',
+        officialCutoff: null,
+        sources: { sellpia: { ready: true }, advertising: { ready: false, requiredCutoff: '2026-09-06' } },
+        pairing: { lateSource: 'advertising', sellpiaEndDate: '2026-09-06', advertisingEndDate: '2026-09-05' },
+      });
+      await expectNothingPublished();
+    });
+
+    it('refuses and names advertising late when no Sellpia generation ends on its held end', async () => {
+      const { skuCode, advertisedOptionId } = await seedSellingProduct(prisma, { advertised: true });
+      await seedFormulaState(prisma);
+      vi.useFakeTimers({ toFake: ['Date'] });
+      // Noon KST on 2026-09-07: Sellpia reaches 2026-09-06, and advertising holds the 6th and confirms 2026-09-05.
+      await collectAt(prisma, 'sellpia', { skuCode, at: '2026-09-07T03:00:00.000Z' });
+      await collectAt(prisma, 'advertising', {
+        skuCode,
+        at: '2026-09-07T03:00:00.000Z',
+        advertisedOptionId: advertisedOptionId!,
+        unreportedDay: '2026-09-06',
+      });
+
+      // Both sources read ready, so only the pairing detail says why nothing was published.
+      await expect(recalculateAt('2026-09-07T03:00:00.000Z')).resolves.toMatchObject({
+        outcome: 'SOURCE_NOT_READY',
+        officialCutoff: null,
+        sources: { sellpia: { ready: true }, advertising: { ready: true, requiredCutoff: '2026-09-05' } },
+        pairing: { lateSource: 'advertising', sellpiaEndDate: '2026-09-06', advertisingEndDate: '2026-09-05' },
+      });
+      await expectNothingPublished();
+    });
+
+    it('refuses when the only Sellpia generation ending on the advertising end has another mapping generation', async () => {
+      const { skuCode } = await seedSellingProduct(prisma);
+      await seedFormulaState(prisma);
+      vi.useFakeTimers({ toFake: ['Date'] });
+      await collectAt(prisma, 'sellpia', { skuCode, at: '2026-09-06T03:00:00.000Z' });
+      await prisma.masterProductAbcFormulaState.update({
+        where: { organizationId: TEST_ORGANIZATION_ID },
+        data: { mappingGeneration: 1n },
+      });
+      await collectAt(prisma, 'sellpia', { skuCode, at: '2026-09-07T03:00:00.000Z' });
+      await collectAt(prisma, 'advertising', { skuCode, at: '2026-09-06T03:00:00.000Z' });
+
+      await expect(recalculateAt('2026-09-07T03:00:00.000Z')).resolves.toMatchObject({
+        outcome: 'SOURCE_NOT_READY',
+        sources: { advertising: { ready: false } },
+      });
+      await expectNothingPublished();
+    });
+
+    it('no longer publishes an unclassified revision when Sellpia runs past the advertising end', async () => {
+      const { skuCode } = await seedSellingProduct(prisma);
+      await seedFormulaState(prisma);
+      vi.useFakeTimers({ toFake: ['Date'] });
+      // The older Sellpia generation ends before the advertising end, so it cannot pair either.
+      await collectAt(prisma, 'sellpia', { skuCode, at: '2026-09-04T03:00:00.000Z' });
+      await collectAt(prisma, 'sellpia', { skuCode, at: '2026-09-07T03:00:00.000Z' });
+      await collectAt(prisma, 'advertising', { skuCode, at: '2026-09-06T03:00:00.000Z' });
+
+      await expect(recalculateAt('2026-09-07T03:00:00.000Z')).resolves.toMatchObject({
+        outcome: 'SOURCE_NOT_READY',
+      });
+      await expectNothingPublished();
+    });
+
+    it('publishes an advertised product at the Sellpia end with the advertising generation that ends on it', async () => {
+      const { productId, skuCode, advertisedOptionId } = await seedSellingProduct(prisma, { advertised: true });
+      await seedFormulaState(prisma);
+      vi.useFakeTimers({ toFake: ['Date'] });
+      // Every selling product is advertised. Sellpia through 2026-09-05; advertising through 2026-09-05 and then 2026-09-06.
+      await collectAt(prisma, 'sellpia', { skuCode, at: '2026-09-06T03:00:00.000Z' });
+      const matchingAdvertising = await collectAt(prisma, 'advertising', {
+        skuCode,
+        at: '2026-09-06T03:00:00.000Z',
+        advertisedOptionId: advertisedOptionId!,
+      });
+      const newerAdvertising = await collectAt(prisma, 'advertising', {
+        skuCode,
+        at: '2026-09-07T03:00:00.000Z',
+        advertisedOptionId: advertisedOptionId!,
+      });
+      expect([matchingAdvertising, newerAdvertising]).toEqual(['2026-09-05', '2026-09-06']);
+
+      await expect(recalculateAt('2026-09-07T03:00:00.000Z')).resolves.toMatchObject({
+        outcome: 'PUBLISHED',
+        officialCutoff: '2026-09-05',
+        classifiedProductCount: 1,
+      });
+      await expect(prisma.masterProductAbcEvaluation.findFirstOrThrow({
+        where: { organizationId: TEST_ORGANIZATION_ID, masterProductId: productId },
+      })).resolves.toMatchObject({
+        gradeBasisCutoffDate: new Date('2026-09-05T00:00:00.000Z'),
+      });
+      // Advertising reached the closed day; Sellpia ran before it closed.
+      await expectReadiness(productId, { sellpia: false, advertising: true }, 'SELLPIA_SOURCE_STALE');
+    });
+
+    it('refuses without writing when advertising runs past the Sellpia end and no generation ends on it', async () => {
+      const { skuCode, advertisedOptionId } = await seedSellingProduct(prisma, { advertised: true });
+      await seedFormulaState(prisma);
+      vi.useFakeTimers({ toFake: ['Date'] });
+      await collectAt(prisma, 'sellpia', { skuCode, at: '2026-09-06T03:00:00.000Z' });
+      await collectAt(prisma, 'advertising', {
+        skuCode,
+        at: '2026-09-07T03:00:00.000Z',
+        advertisedOptionId: advertisedOptionId!,
+      });
+
+      await expect(recalculateAt('2026-09-07T03:00:00.000Z')).resolves.toMatchObject({
+        outcome: 'SOURCE_NOT_READY',
+        officialCutoff: null,
+        sources: { sellpia: { ready: false }, advertising: { ready: true } },
+        pairing: { lateSource: 'sellpia', sellpiaEndDate: '2026-09-05', advertisingEndDate: '2026-09-06' },
+      });
+      await expectNothingPublished();
     });
   });
 });
@@ -156,6 +386,12 @@ function readAbc(prisma: PrismaClient, masterProductIds: readonly string[]) {
     new MasterProductAbcRepositoryAdapter(prisma as never),
     profitabilityEvidence(prisma),
   ).readAbc({ organizationId: TEST_ORGANIZATION_ID, masterProductIds });
+}
+
+function productOperationsDataStatus(prisma: PrismaClient): ProductOperationsDataStatusService {
+  return new ProductOperationsDataStatusService(
+    new ProductOperationsDataStatusRepositoryAdapter(prisma as never, profitabilityEvidence(prisma)),
+  );
 }
 
 function profitabilityEvidence(prisma: PrismaClient): MasterProductProfitabilityReadService {
@@ -194,9 +430,19 @@ async function seedFormulaState(prisma: PrismaClient): Promise<string> {
   return version.id;
 }
 
+/**
+ * Every seeded listing's sale start, fixed rather than counted back from the
+ * real date. Tests that fake the clock after seeding evaluate cutoffs in
+ * 2026-09, and a start derived from a later real date would leave the product
+ * under the 30-day minimum sale age there. It precedes every evaluation window
+ * these tests reach.
+ */
+const SALE_STARTED_AT = '2025-01-01';
+
 async function seedSellingProduct(
   prisma: PrismaClient,
-): Promise<{ productId: string; skuCode: string }> {
+  options: { advertised?: boolean } = {},
+): Promise<{ productId: string; skuCode: string; advertisedOptionId: string | null }> {
   const product = await prisma.masterProduct.create({
     data: { organizationId: TEST_ORGANIZATION_ID, code: `ABC-${randomUUID()}`, name: 'ABC product' },
   });
@@ -217,7 +463,7 @@ async function seedSellingProduct(
       masterProductId: product.id,
       externalId: `LISTING-${randomUUID()}`,
       status: 'active',
-      rawJson: { source: 'wing_app_data', saleStartedAt: daysBefore(latestClosedKstDate(), 500) },
+      rawJson: { source: 'wing_app_data', saleStartedAt: SALE_STARTED_AT },
     },
   });
   const option = await prisma.channelListingOption.create({
@@ -229,6 +475,38 @@ async function seedSellingProduct(
     },
   });
   const skuCode = `SKU-${randomUUID()}`;
+  const inventoryVerifiedAt = new Date();
+  const inventoryRun = await prisma.sourceImportRun.create({
+    data: {
+      organizationId: TEST_ORGANIZATION_ID,
+      sourceType: 'sellpia_inventory',
+      channelAccountId: null,
+      fileName: 'abc-publication-inventory.json',
+      fileHash: randomUUID(),
+      status: 'completed',
+      rowCount: 1,
+      importedAt: inventoryVerifiedAt,
+      lastVerifiedAt: inventoryVerifiedAt,
+      verificationCount: 1,
+      freshnessGeneration: 1n,
+    },
+  });
+  await prisma.sellpiaInventoryState.upsert({
+    where: { organizationId: TEST_ORGANIZATION_ID },
+    create: {
+      organizationId: TEST_ORGANIZATION_ID,
+      requestedGeneration: 1n,
+      verifiedGeneration: 1n,
+      lastVerifiedAt: inventoryVerifiedAt,
+      lastCompletedImportRunId: inventoryRun.id,
+    },
+    update: {
+      requestedGeneration: 1n,
+      verifiedGeneration: 1n,
+      lastVerifiedAt: inventoryVerifiedAt,
+      lastCompletedImportRunId: inventoryRun.id,
+    },
+  });
   const sku = await prisma.sellpiaInventorySku.create({
     data: {
       organizationId: TEST_ORGANIZATION_ID,
@@ -237,6 +515,7 @@ async function seedSellingProduct(
       name: 'ABC SKU',
       currentStock: 10,
       isActive: true,
+      lastImportRunId: inventoryRun.id,
     },
   });
   await prisma.channelListingOptionInventoryComponent.create({
@@ -247,7 +526,46 @@ async function seedSellingProduct(
       quantity: 1,
     },
   });
-  return { productId: product.id, skuCode };
+  if (!options.advertised) return { productId: product.id, skuCode, advertisedOptionId: null };
+  // The same product also sells on a Coupang listing that advertises.
+  const adAccount = await prisma.channelAccount.create({
+    data: {
+      organizationId: TEST_ORGANIZATION_ID,
+      channel: 'coupang',
+      name: 'ABC advertising account',
+      externalAccountId: `abc-ad-account-${randomUUID()}`,
+      vendorId: `abc-ad-vendor-${randomUUID()}`,
+      status: 'active',
+    },
+  });
+  const adListing = await prisma.channelListing.create({
+    data: {
+      organizationId: TEST_ORGANIZATION_ID,
+      channelAccountId: adAccount.id,
+      masterProductId: product.id,
+      externalId: `AD-LISTING-${randomUUID()}`,
+      status: 'active',
+      rawJson: { source: 'wing_app_data', saleStartedAt: SALE_STARTED_AT },
+    },
+  });
+  const advertisedOptionId = `AD-OPTION-${randomUUID()}`;
+  const adOption = await prisma.channelListingOption.create({
+    data: {
+      organizationId: TEST_ORGANIZATION_ID,
+      listingId: adListing.id,
+      externalOptionId: advertisedOptionId,
+      status: '판매중',
+    },
+  });
+  await prisma.channelListingOptionInventoryComponent.create({
+    data: {
+      organizationId: TEST_ORGANIZATION_ID,
+      channelListingOptionId: adOption.id,
+      sellpiaInventorySkuId: sku.id,
+      quantity: 1,
+    },
+  });
+  return { productId: product.id, skuCode, advertisedOptionId };
 }
 
 /**
@@ -322,6 +640,104 @@ async function collectSources(
 }
 
 /**
+ * One real `source` collection as of the fixed instant `at`, returning the
+ * business date its coverage ends on. The caller owns the fake clock.
+ * `unreportedDay` is a day Coupang has not reported yet: the advertised
+ * option's spend on it shows on the day before, inside the same slice.
+ */
+async function collectAt(
+  prisma: PrismaClient,
+  source: 'sellpia' | 'advertising',
+  options: { skuCode: string; at: string; advertisedOptionId?: string; unreportedDay?: string },
+): Promise<string> {
+  const alerts = new SourceFailureAlerts(prisma as never);
+  vi.setSystemTime(new Date(options.at));
+  if (source === 'advertising') {
+    // A Rocket-only fixture has no retained Coupang account, so its plan is empty.
+    const advertising = new ProfitabilityAdImportRepositoryAdapter(prisma as never, alerts);
+    const attempt = await advertising.beginAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      idempotencyKey: `abc-ad-${randomUUID()}`,
+    });
+    // The advertised option spends on every slice's last day, so the closed day is reported.
+    let sequence = 0;
+    for (const account of attempt.accounts) {
+      for (const slice of account.slices) {
+        const spendDate = slice.businessDates.at(-1) === options.unreportedDay
+          ? slice.businessDates.at(-2)
+          : slice.businessDates.at(-1);
+        const rows = options.advertisedOptionId && spendDate
+          ? [{
+            businessDate: spendDate,
+            externalOptionId: options.advertisedOptionId,
+            adSpend: 7,
+            impressions: 10,
+            clicks: 2,
+            orders: 1,
+            conversions: 1,
+            adRevenue: 70,
+          }]
+          : [];
+        await advertising.uploadSlice({
+          organizationId: TEST_ORGANIZATION_ID,
+          attemptId: attempt.attemptId,
+          attemptToken: attempt.attemptToken,
+          sliceId: slice.sliceId,
+          sequence: sequence++,
+          checksum: canonicalProviderRowsChecksum(rows),
+          providerAdvertiserId: account.expectedAdvertiserId,
+          reportId: `REPORT-${slice.sliceId}-${randomUUID()}`,
+          campaignCount: rows.length,
+          expectedRowCount: rows.length,
+          collectedRowCount: rows.length,
+          responseBytes: rows.length === 0 ? 1 : 128,
+          rows,
+        });
+      }
+    }
+    const status = await advertising.finalizeAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      attemptId: attempt.attemptId,
+      attemptToken: attempt.attemptToken,
+    });
+    return status.latestComplete!.coveredThrough;
+  }
+  const sellpia = new SellpiaProfitabilitySourceService(prisma as never, alerts);
+  const attempt = await sellpia.beginAttempt(TEST_ORGANIZATION_ID, `abc-${randomUUID()}`);
+  const months = attempt.plan.coveredMonths.map((yearMonth) => ({
+    yearMonth,
+    orderQty: 10,
+    orderAmount: 1_000_000,
+    inQty: 10,
+    inAmount: 200_000,
+  }));
+  await sellpia.submitAttempt(TEST_ORGANIZATION_ID, attempt.attemptId, {
+    attemptToken: attempt.attemptToken,
+    parserVersion: 'sellpia-profitability-v2',
+    providerBackedEmptyProof: true,
+    coveredMonths: attempt.plan.coveredMonths,
+    provenance: {
+      source: 'sellpia_stat_prd_profit',
+      costBasis: 'ORDER_TIME_SUPPLY_COST',
+      vatIncluded: true,
+    },
+    products: [{
+      productCode: options.skuCode,
+      optionCode: '',
+      productName: 'ABC product',
+      salePrice: 100_000,
+      buyPrice: 20_000,
+      totalOrderAmount: months.length * 1_000_000,
+      totalOrderQty: months.length * 10,
+      totalInAmount: months.length * 200_000,
+      totalInQty: months.length * 10,
+      months,
+    }],
+  });
+  return attempt.plan.to;
+}
+
+/**
  * A newer Sellpia attempt through the real source owner, left RUNNING or
  * terminalized as FAILED. Either way it publishes no generation.
  */
@@ -350,12 +766,6 @@ function latestClosedKstDate(now = new Date()): string {
     kst.getUTCMonth(),
     kst.getUTCDate() - 1,
   )).toISOString().slice(0, 10);
-}
-
-function daysBefore(date: string, days: number): string {
-  return new Date(new Date(`${date}T00:00:00.000Z`).getTime() - days * 86_400_000)
-    .toISOString()
-    .slice(0, 10);
 }
 
 function monthsBefore(yearMonth: string, months: number): string {

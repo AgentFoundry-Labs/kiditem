@@ -24,9 +24,9 @@ export async function collectWingCatalog(input: SourcingWingCatalogBatchInput & 
       '/api/sourcing/workspace/recommendations/refresh', { sourceAttemptId: reply.attemptId });
     if (!recommendations.data?.runId) throw new Error(recommendations.error?.message || '추천 새로고침에 실패했습니다.');
     if (input.purpose === 'recommendation_validation') {
-      const validation = await apiClient.post<{ status: string; error?: { message: string } | null }>(
+      const validation = await apiClient.post<{ ready: boolean; error?: { message: string } | null }>(
         '/api/sourcing/workspace/validation/refresh', { recommendationRunId: recommendations.data.runId });
-      if (validation.status !== 'ready') throw new Error(validation.error?.message || '검증 새로고침에 실패했습니다.');
+      if (!validation.ready) throw new Error(validation.error?.message || '검증 새로고침에 실패했습니다.');
     }
   }
   return reply;

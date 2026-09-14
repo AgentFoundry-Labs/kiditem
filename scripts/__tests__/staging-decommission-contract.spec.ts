@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -41,6 +41,29 @@ describe('retired hosted deployment environments', () => {
     expect(packageJson.scripts).not.toHaveProperty('storage:cache-control');
     expect(packageJson.dependencies).not.toHaveProperty('@supabase/supabase-js');
     expect(packageJson.devDependencies).not.toHaveProperty('@supabase/supabase-js');
+  });
+
+  it('keeps the retired staging deploy skill out of the repo-owned skill sources', () => {
+    const skillSources = join(repoRoot, 'skills');
+    // `npm run skills:update` links every skills/*/SKILL.md into agent discovery.
+    // If that source root moves, move this guard with it.
+    const skills = readdirSync(skillSources)
+      .filter((entry) => existsSync(join(skillSources, entry, 'SKILL.md')))
+      .map((entry) => {
+        const content = readFileSync(join(skillSources, entry, 'SKILL.md'), 'utf8');
+        const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---/.exec(content)?.[1] ?? '';
+        return { dir: `skills/${entry}`, name: /^name:[ \t]*(.*?)[ \t]*$/m.exec(frontmatter)?.[1] };
+      });
+
+    expect(skills.length).toBeGreaterThan(0);
+    for (const { dir, name } of skills) expect(name, `${dir}/SKILL.md name`).toBeTruthy();
+    expect(
+      existsSync(join(skillSources, 'staging-deploy-operator')),
+      'skills/staging-deploy-operator',
+    ).toBe(false);
+    expect(
+      skills.filter(({ name }) => name?.includes('staging-deploy-operator')).map(({ dir }) => dir),
+    ).toEqual([]);
   });
 
   it('keeps Office as the only deployable runtime surface', () => {

@@ -310,8 +310,13 @@ describe('WingTrackedProductSourceAttemptRepositoryAdapter', () => {
     }));
     expect(alerts.recordTerminalOutcome).toHaveBeenCalledWith(tx, expect.objectContaining({
       attemptId: attempt.id,
+      code: 'ATTEMPT_EXPIRED',
       href: '/sourcing-ai/product-tracking',
+      message: 'Wing 추적상품 수집이 결과를 저장하기 전에 만료되었습니다. 다시 수집해주세요.',
     }));
+    // The code travels in `code`; the line the operator reads is a sentence.
+    const [, alert] = alerts.recordTerminalOutcome.mock.calls[0]!;
+    expect(alert.message).not.toMatch(/^[A-Z][A-Z0-9_]+:/);
   });
 
   it('publishes facts and resolves the source alert in the same owner transaction', async () => {

@@ -68,6 +68,8 @@ describe('buildKeywordProductBatches', () => {
       source({ keyword: '공유 키워드', externalOptionId: null }),
       // Already converted; it has proven itself however it reads.
       source({ keyword: '전환됨', conversions: 2 }),
+      // The conversion column was not observed, so it may have converted.
+      source({ keyword: '전환 미관측', conversions: null }),
       source({ keyword: '판정 대상' }),
     ]);
 
@@ -194,6 +196,20 @@ describe('toKeywordPauseCandidates', () => {
 
     expect(candidates).toEqual([]);
     expect(rejected).toEqual([{ ref, reason: 'converted_keyword' }]);
+  });
+
+  it('refuses to pause a keyword whose conversion column was not observed', () => {
+    const { batches, sourceByRef } = buildKeywordProductBatches([source()]);
+    const ref = batches[0].items[0].ref;
+    sourceByRef.get(ref)!.conversions = null;
+
+    const { candidates, rejected } = toKeywordPauseCandidates(
+      [{ ref, verdict: 'irrelevant', reason: '무관해 보임' }],
+      sourceByRef,
+    );
+
+    expect(candidates).toEqual([]);
+    expect(rejected).toEqual([{ ref, reason: 'conversions_unobserved' }]);
   });
 
   it('keeps the first verdict when the model repeats a ref', () => {

@@ -1,9 +1,9 @@
 'use client';
 
 import Link from 'next/link';
-import type { DashboardInventorySummary, DashboardMetricBasis } from '@kiditem/shared/dashboard';
 import { cn } from '@/lib/utils';
 import { basisHasValues, DashboardBasisDisclosure } from './DashboardDataBasis';
+import type { DashboardInventorySummary, DashboardMetricBasis } from '@kiditem/shared/dashboard';
 
 /**
  * Each warning used to own a card, so five counts never lined up against one
@@ -25,12 +25,6 @@ export interface DashboardWarningRow {
   unit: string;
   value: number | null | undefined;
   basis: DashboardMetricBasis | null;
-  /**
-   * A count that is published with the rows it counts and has no separate
-   * evidence to verify — how many products carry no classification is not a
-   * measurement of the business, it is a fact about the table itself.
-   */
-  countsItself?: boolean;
   /** Lower is more urgent; ties keep the declared order. */
   severity: number;
 }
@@ -39,8 +33,9 @@ export function buildWarningRows(
   warnings: DashboardInventorySummary['warnings'],
   basisOf: (key: string) => DashboardMetricBasis | null,
   unclassifiedProductCount?: number,
-  abcBasis?: DashboardMetricBasis | null,
+  unclassifiedBasis?: DashboardMetricBasis | null,
   downgradedProductCount?: number,
+  downgradedBasis?: DashboardMetricBasis | null,
 ): DashboardWarningRow[] {
   return [
     {
@@ -111,8 +106,7 @@ export function buildWarningRows(
       href: '/product-hub?abcGrade=unclassified',
       unit: '개',
       value: unclassifiedProductCount,
-      basis: abcBasis ?? null,
-      countsItself: true,
+      basis: unclassifiedBasis ?? null,
       severity: 5,
     },
     // A grade that fell is something to go look at; a grade that rose is not.
@@ -128,8 +122,7 @@ export function buildWarningRows(
       href: '/product-hub?abcGrade=C',
       unit: '개',
       value: downgradedProductCount,
-      basis: abcBasis ?? null,
-      countsItself: true,
+      basis: downgradedBasis ?? null,
       severity: 4,
     },
   ];
@@ -141,7 +134,7 @@ export function buildWarningRows(
  */
 function rowState(row: DashboardWarningRow): 'withheld' | 'clear' | 'attention' {
   if (row.value === null || row.value === undefined) return 'withheld';
-  if (!row.countsItself && !basisHasValues(row.basis)) return 'withheld';
+  if (!basisHasValues(row.basis)) return 'withheld';
   return row.value > 0 ? 'attention' : 'clear';
 }
 

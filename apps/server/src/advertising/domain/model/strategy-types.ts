@@ -1,6 +1,4 @@
-import type { AdMetrics, AdStrategyAction, ChannelStateSignal } from '@kiditem/shared/advertising';
-
-export type DecimalLike = number | { toString(): string };
+import type { AdStrategyAction, ChannelStateSignal } from '@kiditem/shared/advertising';
 
 // AdAction targetType 값 union (AdActionCommandDto 는 dto/).
 export const AD_ACTION_TARGET_TYPES = ['campaign', 'keyword'] as const;
@@ -36,25 +34,23 @@ export interface GradeBudgetAllocation {
   delta: number;
 }
 
-// listingId → 요약 lookup (sync / strategy 공통).
-export interface ListingMetricsRow {
-  listingId: string;
-  metrics: AdMetrics;
-}
-
 // ───── Hydrated data shapes (orchestrator → sub-service input) ─────
 
 export interface HydratedListing {
   id: string;
   externalId: string;
   channelName: string | null;
+  /**
+   * The listing's channel account channel. It decides whether a sales
+   * commission and other per-sale cost apply (`channelAccountSalesCosts`).
+   */
+  channel: string | null;
   masterProduct: {
     id: string;
     code: string;
     name: string;
     abcGrade: 'A' | 'B' | 'C' | null;
     adTier: string | null;
-    healthScore: number | null;
   };
   /**
    * B2b rules 평가용 primary option metadata. calcActions 는 primary option 의
@@ -70,15 +66,10 @@ export interface HydratedListing {
      */
     listingOptionId: string;
     sellableStock: number | null;
+    /** Confirmed recipe × Sellpia purchase price; `null` when unknown. */
     purchaseCost: number | null;
     salePrice: number | null;
-    commissionRate: DecimalLike | null;
-    shippingCost: number | null;
   } | null;
-}
-
-export interface ChannelSkuAvailabilityEvidence {
-  sellableStock: number | null;
 }
 
 export interface AdAggregateRow {
@@ -86,7 +77,11 @@ export interface AdAggregateRow {
   spend: number;
   impressions: number;
   clicks: number;
-  conversions: number;
+  /**
+   * `null` when a contributing ledger row's provider grid had no conversion
+   * column. The ledger stores 0 there, which is not a measured zero.
+   */
+  conversions: number | null;
   revenue: number;
 }
 
@@ -114,17 +109,6 @@ export interface AdIssuesInput {
   gradeMap: Map<string, 'A' | 'B' | 'C' | null>;
 }
 
-export interface KeyMetricsInput {
-  snapshots: Array<{ listingId: string | null; spend: number; revenue: number; clicks: number; impressions: number; conversions: number }>;
-  listings: HydratedListing[];
-}
-
-export interface KeyMetricsResult {
-  totals: { spend: number; revenue: number; clicks: number; impressions: number; conversions: number };
-  perListing: Map<string, ListingMetricsRow>;
-  gradeMap: Map<string, 'A' | 'B' | 'C'>;
-}
-
 export interface BudgetAllocatorInput {
   config: AdsConfig;
   adGroups: AdAggregateRow[];
@@ -148,23 +132,6 @@ export interface Top20Input {
    * into the ad-metric columns.
    */
   trafficByListing: Map<string, { revenue: number; orders: number }>;
-}
-
-export interface ExposureScoreInput {
-  listing: HydratedListing;
-  metrics: ListingMetricsRow;
-  availability: ChannelSkuAvailabilityEvidence | null;
-  reviewStats: { totalReviews: number; recentReviews: number; avgRating: number } | null;
-  // 기존 ad-strategy.service.ts:1218-1306 공식 보존용 추가 컨텍스트.
-  // Replenishment lead time is intentionally unknown in the Sellpia snapshot model.
-  // Exact ChannelSku capacity and price/cost evidence are supplied separately.
-  trafficContext: { maxT14: number; t14Rev: number; t14PrevRev: number; t14Orders: number };
-  fulfillmentContext: { leadTime: null; profitRate: number };
-}
-
-export interface TopIssueInput {
-  listing: HydratedListing;
-  scores: { sales: number; review: number; ad: number; fulfillment: number; info: number };
 }
 
 export type RecommendInput = AdStrategyAction[];

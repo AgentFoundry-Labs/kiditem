@@ -8,6 +8,7 @@ import {
 } from './sellpia-product-sales.metrics';
 import { SellpiaProductInventoryReader } from './sellpia-product-inventory-reader';
 import { buildProductDepletionProjections } from './sellpia-product-depletion-projection';
+import { readCurrentSellpiaProductMonthlyFacts } from './read/sellpia-product-monthly-facts';
 import type { SellpiaProductDepletionReadPort } from './sellpia-product-depletion-read.port';
 import type {
   SellpiaProductSalesSummary,
@@ -40,40 +41,11 @@ export class SellpiaProductSalesService implements SellpiaProductDepletionReadPo
     const currentYm = currentKstYearMonth();
     const cutoffYm = addMonths(currentYm, -(monthsWindow - 1));
 
-    const latestComplete = await this.prisma.sourceImportRun.findFirst({
-      where: {
+    const { facts: rows } = await this.prisma.$transaction((tx) =>
+      readCurrentSellpiaProductMonthlyFacts(tx, {
         organizationId,
-        sourceType: 'sellpia_product_profitability',
-        status: 'completed',
-        publicationSequence: { not: null },
-      },
-      orderBy: { publicationSequence: 'desc' },
-      select: { id: true },
-    });
-    const rows = latestComplete
-      ? await this.prisma.sellpiaProductMonthlySales.findMany({
-      where: {
-        organizationId,
-        sourceImportRunId: latestComplete.id,
-        yearMonth: { gte: cutoffYm },
-      },
-      select: {
-        productCode: true,
-        optionCode: true,
-        yearMonth: true,
-        orderQty: true,
-        productName: true,
-        optionName: true,
-        providerName: true,
-        salePrice: true,
-        buyPrice: true,
-        barcode: true,
-        capturedAt: true,
-        coverageStartDate: true,
-        coverageEndDate: true,
-      },
-      })
-      : [];
+        scope: { fromYearMonth: cutoffYm },
+      }));
 
     const months = [...new Set(rows.map((r) => r.yearMonth))].sort();
     const fullMonthCoverage = new Map<string, boolean>();

@@ -1,10 +1,15 @@
-import type { ProductAbcReadModel } from '@kiditem/shared/product-abc';
+import type {
+  ProductAbcFormulaPayload,
+  ProductAbcReadModel,
+} from '@kiditem/shared/product-abc';
 
 export const PRODUCT_ABC_READ_PORT = Symbol('PRODUCT_ABC_READ_PORT');
 
 export type ProductAbcView = Readonly<{
   masterProductId: string;
   abc: ProductAbcReadModel;
+  /** The evaluation matches every fact fence of the current publication. */
+  contributionEligible: boolean;
 }>;
 
 /**
@@ -18,6 +23,16 @@ export type ProductAbcSnapshot = Readonly<{
   actualCutoff: string | null;
   /** Latest capture time across the sources behind that evidence. */
   capturedAt: string | null;
+  publication: Readonly<{
+    publicationRevision: number;
+    officialCutoffDate: string;
+    publishedAt: string;
+    sellpiaSourceImportRunId: string;
+    advertisingSourceImportRunId: string;
+    mappingGeneration: string;
+    formulaRevision: number | null;
+    formula: ProductAbcFormulaPayload | null;
+  }> | null;
   products: readonly ProductAbcView[];
 }>;
 

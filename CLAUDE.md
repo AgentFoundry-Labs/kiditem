@@ -1,3 +1,5 @@
+Before working in this directory, always read this document first rather than relying on memory.
+
 # KidItem
 
 KidItem automates kids-product e-commerce operations from sourcing through AI
@@ -22,13 +24,24 @@ processing, listing, and operations.
 - Keep one primary business responsibility per change. Cross-domain edits are
   allowed only when required by a named interface, migration, shared guard, or
   incident fix; identify the affected owners and exclude unrelated cleanup.
-- Record a settled decision as an ADR in `docs/adr/`; keep in-flight design in
+- Before creating or editing any ADR, read Matt Pocock's
+  [ADR-FORMAT.md](https://github.com/mattpocock/skills/blob/main/skills/engineering/domain-modeling/ADR-FORMAT.md)
+  in the current task and follow its eligibility, format, and numbering rules.
+  If the source cannot be read, defer the ADR edit until it is available.
+  Start with a short decision title and 1–3 sentences covering context,
+  decision, and reason; add optional sections only when they add value.
+  Before committing, check the resulting ADR against that source and report
+  format compliance in the task or Linear issue.
+- Before creating an ADR or adding a decision to one, check all three with
+  concrete reasons: meaningful reversal cost, surprising without context, and
+  a real trade-off between viable alternatives. Summarize the check in the
+  task or Linear issue before writing; if any condition is missing or unproven,
+  keep the material in the spec, implementation docs, or tests. Passing this
+  check does not require a separate user approval or settle an unresolved choice.
+- Record qualifying settled decisions in `docs/adr/`; keep in-flight design in
   its Linear spec issue and generated agent output out of git. An ADR wins
   over a spec on conflict. `docs/superpowers/` is a frozen archive: read it,
   never add to it. Research existing OSS before introducing architecture.
-- Use the [AI collaboration runbook](docs/runbooks/ai-collaboration.md) for
-  issue intake, external-agent coordination, PR handoff, merge, and checkout
-  cleanup.
 
 ## Core Contracts
 
@@ -113,33 +126,28 @@ contract.
 - Never delete, prune, or classify `release/office` as stale. Every checkout
   keeps a local branch tracking `origin/release/office`; the live checkout is
   an operational anchor, not the source or admission gate for local deployment.
-- Use the repository branch/commit naming in the
-  [AI collaboration runbook](docs/runbooks/ai-collaboration.md). Squash normal
-  PRs; use merge commits for `develop`/`main` sync and promotion. Never
-  rebase a shared branch.
+- Squash normal PRs; use merge commits for `develop`/`main` sync and promotion.
+  Never rebase a shared branch.
+- Group changes into PRs that can be reviewed and verified together. A PR may
+  cover multiple Linear issues; identify its scope and dependencies in the body.
 - Before opening or merging, stop on an unexpected base, commit count,
   duplicated messages, or unrelated diff.
 - Use [the PR template](.github/PULL_REQUEST_TEMPLATE.md), including DB and
   backfill decisions, and read the live body back after editing.
 - Before waiting for checks, run the reconstruction and release-contract guards
   against the intended base.
+- Before merging, verify the live head, required checks, conflict status, and
+  required reviews and approvals. An independent review must come from someone
+  other than the implementer.
+- Before deleting a topic branch or worktree, confirm its merge and that the
+  checkout is clean and inactive. Preserve other collaborators' changes.
 
-## Agent skills
+## Project Records
 
-### Issue tracker
-
-Linear (team `Kiditem`); GitHub Issues are not a task ledger.
-See `docs/agents/issue-tracker.md`.
-
-### Triage labels
-
-The five canonical triage roles map to Linear statuses, not new labels.
-See `docs/agents/triage-labels.md`.
-
-### Domain docs
-
-Multi-context: `CONTEXT-MAP.md` points at one `CONTEXT.md` per workspace.
-See `docs/agents/domain.md`.
+- Internal work and in-flight specs live in Linear, team `Kiditem`. When reading
+  or updating issues, use [the tracker conventions](docs/agents/issue-tracker.md).
+- For domain terminology and context-specific decisions, use
+  [CONTEXT-MAP.md](CONTEXT-MAP.md).
 
 ## Task Routing
 
@@ -149,5 +157,5 @@ See `docs/agents/domain.md`.
 | Testing | [docs/TESTING.md](docs/TESTING.md) |
 | Design system | [DESIGN.md](DESIGN.md) |
 | Environment | [environment-variables.md](docs/runbooks/environment-variables.md) |
-| Codex skill profiles | [codex-skill-profiles.md](docs/runbooks/codex-skill-profiles.md) |
+| Skill installation or troubleshooting | [codex-skill-profiles.md](docs/runbooks/codex-skill-profiles.md) |
 | Prisma models | [prisma/models/](prisma/models/) |

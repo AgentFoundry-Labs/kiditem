@@ -20,6 +20,7 @@ import { useAdKeywordCollect } from '@/app/(advertising)/ad-ops/hooks/useAdKeywo
 import { useAdSync } from '@/app/(advertising)/ad-ops/hooks/useAdSync';
 import { useSellpiaInventorySourceOwner } from '@/app/(inventory)/_shared/sellpia-inventory-source-owner';
 import { cn, formatNumber, timeAgo } from '@/lib/utils';
+import { COLLECTION_SOURCE_STATUS_RECHECKING_MESSAGE, collectionSourceStatusRead } from '@/lib/collection-source-status-query';
 import { InfoDisclosure } from '@/components/ui/InfoDisclosure';
 import {
   buildCoupangCatalogProgress,
@@ -27,6 +28,7 @@ import {
 } from '@/app/(product-pipeline)/product-pipeline/registered-products/lib/coupang-catalog-progress';
 import type { LucideIcon } from 'lucide-react';
 import type { ReadinessCheck } from '@kiditem/shared/readiness';
+import { businessDateKey, toBusinessDate } from '@kiditem/shared/common';
 import { snapshotBasisPartial, snapshotBasisStatus } from '@kiditem/shared/dashboard';
 import {
   SOURCE_READINESS_LABELS,
@@ -133,6 +135,43 @@ function statusMeta(status: SourceReadinessStatus) {
     Icon: XCircle,
     iconClass: 'text-rose-500',
   };
+}
+
+function SourceReadinessChip({ status }: { status: SourceReadinessStatus }) {
+  const meta = statusMeta(status);
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium',
+        meta.chipClass,
+      )}
+    >
+      <meta.Icon className={cn('h-3 w-3', meta.iconClass)} />
+      {meta.text}
+    </span>
+  );
+}
+
+/** Campaign and keyword owners cover through the end date of their latest completed plan. */
+function ownerSourceReadiness(source: {
+  ready: boolean;
+  latestComplete: { plan: { endDate: string } } | null;
+}): SourceReadinessStatus {
+  return sourceReadinessStatus({
+    ready: source.ready,
+    latestComplete: source.latestComplete
+      ? { actualCutoff: source.latestComplete.plan.endDate }
+      : null,
+  });
+}
+
+/** Sellpia inventory is ready only when fresh; it covers through the KST date of its last verification. */
+function sellpiaReadiness(state: { status: string; lastVerifiedAt: string | null }): SourceReadinessStatus {
+  const verifiedDate = toBusinessDate(state.lastVerifiedAt);
+  return sourceReadinessStatus({
+    ready: state.status === 'fresh',
+    latestComplete: verifiedDate ? { actualCutoff: businessDateKey(verifiedDate) } : null,
+  });
 }
 
 function formatRelative(iso: string | null): string {
@@ -255,8 +294,6 @@ function catalogPhaseLabel(catalog: CatalogReadinessState): string | null {
       return stage === 'details' ? '전체 상세 수집 중' : '상품 상세 수집 중';
     case 'ready_to_finalize':
       return '전체 상품 반영 준비';
-    case 'publishing':
-      return 'DB 반영 중';
     default:
       return '상품 받기 진행 중';
   }
@@ -531,9 +568,7 @@ export function ActionCheckCard({
             <h3 className="text-sm font-semibold text-[var(--text-primary)]">{meta.title}</h3>
             <InfoDisclosure label={meta.title}>
               <p>{meta.hint}</p>
-              {check.collector === 'extension' && (
-                <p className="mt-1">브라우저 익스텐션에서 최신 데이터를 받아옵니다.</p>
-              )}
+              <p className="mt-1">브라우저 익스텐션에서 최신 데이터를 받아옵니다.</p>
             </InfoDisclosure>
             <span
               className={cn(
@@ -598,8 +633,9 @@ export function ActionCheckCard({
 
 export function AdSyncRow({ onComplete }: { onComplete: () => void }) {
   const { source, status, loading, cancelling, run, cancel } = useAdSync({ onComplete });
-  const isFresh = source.data?.ready === true;
+  const readiness = source.data ? ownerSourceReadiness(source.data) : null;
   const isRunning = status?.state === 'RUNNING';
+  const statusRead = collectionSourceStatusRead(source);
 
   return (
     <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface)] transition-all">
@@ -614,19 +650,18 @@ export function AdSyncRow({ onComplete }: { onComplete: () => void }) {
             <InfoDisclosure label="광고 동기화">
               <p>최근 31일 캠페인과 광고상품을 전체 순회해요. 기존 완료본은 수집 중에도 유지됩니다.</p>
             </InfoDisclosure>
-            {isFresh && (
-              <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
-                최신
-              </span>
-            )}
+            {readiness && <SourceReadinessChip status={readiness} />}
           </div>
           <p className="mt-0.5 text-[11px] text-[var(--text-muted)]">
             {source.data?.latestComplete
-              ? `사용 중인 데이터: ${source.data.latestComplete.plan.startDate} ~ ${source.data.latestComplete.plan.endDate}${isFresh ? '' : ' · 갱신 필요'}`
+              ? `사용 중인 데이터: ${source.data.latestComplete.plan.startDate} ~ ${source.data.latestComplete.plan.endDate}`
               : '완료된 데이터가 없습니다. 전체 순회 완료 후 결과를 표시합니다.'}
           </p>
-          {source.isError && (
+          {statusRead === 'unavailable' && (
             <p className="mt-1 text-xs text-[var(--danger)]">수집 상태를 확인하지 못했습니다.</p>
+          )}
+          {statusRead === 'rechecking' && (
+            <p className="mt-1 text-xs text-[var(--text-muted)]">{COLLECTION_SOURCE_STATUS_RECHECKING_MESSAGE}</p>
           )}
           {status && (
             <p className="mt-1 text-xs text-[var(--text-secondary)]">
@@ -641,7 +676,7 @@ export function AdSyncRow({ onComplete }: { onComplete: () => void }) {
 
         <button
           onClick={() => void run()}
-          disabled={loading || cancelling || source.isPending || source.isError}
+          disabled={loading || cancelling || statusRead === 'loading' || statusRead === 'unavailable'}
           className={cn(
             'inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3.5 py-2 text-xs font-semibold transition',
             'bg-[var(--primary)] text-[var(--primary-contrast)] hover:bg-[var(--primary-hover)]',
@@ -681,7 +716,9 @@ export function AdSyncRow({ onComplete }: { onComplete: () => void }) {
  */
 export function AdKeywordRow({ onComplete }: { onComplete: () => void }) {
   const { source, status, loading, cancelling, run, cancel } = useAdKeywordCollect({ onComplete });
+  const readiness = source.data ? ownerSourceReadiness(source.data) : null;
   const canContinue = status?.state === 'RUNNING';
+  const statusRead = collectionSourceStatusRead(source);
 
   return (
     <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface)] transition-all">
@@ -696,14 +733,18 @@ export function AdKeywordRow({ onComplete }: { onComplete: () => void }) {
             <InfoDisclosure label="광고 키워드 수집">
               <p>전체 캠페인의 광고상품별 노출 키워드를 수집해요. 완료 전에는 이전 완료본을 사용합니다.</p>
             </InfoDisclosure>
+            {readiness && <SourceReadinessChip status={readiness} />}
           </div>
           <p className="mt-0.5 text-[11px] text-[var(--text-muted)]">
             완료본 유지 · 필요하면 명시적으로 다시 실행
           </p>
-          {source.isError && (
+          {statusRead === 'unavailable' && (
             <p className="mt-1 text-xs text-[var(--danger)]">
               수집 상태를 확인하지 못했습니다. 잠시 후 다시 확인해 주세요.
             </p>
+          )}
+          {statusRead === 'rechecking' && (
+            <p className="mt-1 text-xs text-[var(--text-muted)]">{COLLECTION_SOURCE_STATUS_RECHECKING_MESSAGE}</p>
           )}
           {status && (
             <p className="mt-1 text-xs text-[var(--text-secondary)]">
@@ -718,14 +759,13 @@ export function AdKeywordRow({ onComplete }: { onComplete: () => void }) {
             <p className="mt-1 text-[11px] text-[var(--text-muted)]">
               사용 중인 데이터: {source.data.latestComplete.plan.startDate} ~{' '}
               {source.data.latestComplete.plan.endDate}
-              {source.data.ready ? '' : ' · 갱신 필요'}
             </p>
           )}
         </div>
 
         <button
           onClick={() => void run()}
-          disabled={loading || cancelling || source.isPending || source.isError}
+          disabled={loading || cancelling || statusRead === 'loading' || statusRead === 'unavailable'}
           className={cn(
             'inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3.5 py-2 text-xs font-semibold transition',
             'bg-[var(--primary)] text-[var(--primary-contrast)] hover:bg-[var(--primary-hover)]',
@@ -759,13 +799,6 @@ export function AdKeywordRow({ onComplete }: { onComplete: () => void }) {
   );
 }
 
-const STOCK_SYNC_STATUS: Record<string, { text: string; chipClass: string }> = {
-  fresh: { text: '최신', chipClass: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
-  refresh_required: { text: '갱신 필요', chipClass: 'bg-amber-50 text-amber-700 border-amber-200' },
-  syncing: { text: '갱신 중', chipClass: 'bg-blue-50 text-blue-700 border-blue-200' },
-  failed: { text: '실패', chipClass: 'bg-rose-50 text-rose-700 border-rose-200' },
-};
-
 /**
  * 셀피아 동기화 행. AdSyncRow 와 마찬가지로 readiness check 가 아닌 별도 행이라
  * 진행바 분모(N/5)를 바꾸지 않는다. 공유 freshness 상태를 읽고 source-owner attempt 만
@@ -774,8 +807,10 @@ const STOCK_SYNC_STATUS: Record<string, { text: string; chipClass: string }> = {
 export function StockSyncRow() {
   const { state, start, isStarting } = useSellpiaInventorySourceOwner({ enabled: true });
   const [requesting, setRequesting] = useState(false);
+  // Syncing shows through the busy button and a failure through the owner's
+  // message; the chip only carries the shared readiness words.
   const busy = requesting || isStarting || state?.status === 'syncing';
-  const meta = state ? STOCK_SYNC_STATUS[state.status] : null;
+  const readiness = state ? sellpiaReadiness(state) : null;
 
   const run = async () => {
     setRequesting(true);
@@ -802,15 +837,14 @@ export function StockSyncRow() {
             <InfoDisclosure label="셀피아 데이터">
               <p>현재고만 받아 재고분석과 발주 판단을 최신으로 맞춰요.</p>
             </InfoDisclosure>
-            {meta && (
-              <span className={cn('rounded-full border px-2 py-0.5 text-[11px] font-semibold', meta.chipClass)}>
-                {meta.text}
-              </span>
-            )}
+            {readiness && <SourceReadinessChip status={readiness} />}
           </div>
           <p className="mt-0.5 text-[11px] text-[var(--text-muted)]">
             마지막 검증 {formatRelative(state?.lastVerifiedAt ?? null)}
           </p>
+          {state?.status === 'failed' && state.errorMessage && (
+            <p className="mt-1 text-xs text-[var(--danger)]">{state.errorMessage}</p>
+          )}
         </div>
 
         <button

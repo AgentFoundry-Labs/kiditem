@@ -209,6 +209,38 @@ describe('MasterProductAbcService', () => {
     expect(products.publish).not.toHaveBeenCalled();
   });
 
+  it('names the source that ends earlier when no pair exists, unless both sources are stale', async () => {
+    const readiness = (ready: boolean, requiredCutoff: string, actualCutoff: string) => ({
+      ready,
+      requiredCutoff,
+      actualCutoff,
+      latestAttempt: { state: 'COMPLETE' as const },
+      latestComplete: { actualCutoff },
+    });
+    const unpaired = (sources: ProfitabilityEvidenceSnapshot['sources']) => serviceWith(
+      repository(),
+      snapshot([{ masterProductId: productA, revenue: 1_000_000, cost: 200_000 }], {
+        actualCutoff: null,
+        mappingGeneration: null,
+        sources,
+      }),
+    ).service;
+
+    // Advertising held its closed day: both sources read ready, yet their ends never meet.
+    await expect(unpaired({
+      sellpia: readiness(true, '2026-08-31', '2026-08-31'),
+      advertising: readiness(true, '2026-08-30', '2026-08-30'),
+    }).recalculate({ organizationId })).resolves.toMatchObject({
+      outcome: 'SOURCE_NOT_READY',
+      pairing: { lateSource: 'advertising', sellpiaEndDate: '2026-08-31', advertisingEndDate: '2026-08-30' },
+    });
+    // Both sources are stale against their own cutoffs, so `sources` already names them.
+    await expect(unpaired({
+      sellpia: readiness(false, '2026-08-31', '2026-08-29'),
+      advertising: readiness(false, '2026-08-31', '2026-08-28'),
+    }).recalculate({ organizationId })).resolves.not.toHaveProperty('pairing');
+  });
+
   it('evaluates each eligible product independently and attempts one publication', async () => {
     const products = repository({
       listCurrentAbcTargetIds: vi.fn().mockResolvedValue([productA, productB]),

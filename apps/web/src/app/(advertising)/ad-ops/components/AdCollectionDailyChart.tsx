@@ -26,25 +26,10 @@ import {
 import { apiClient } from "@/lib/api-client";
 import { queryKeys } from "@/lib/query-keys";
 import { formatKRW } from "@/lib/utils";
+import { adTrendsSourceLabel } from "../lib/trends-source";
 
 export type AdCollectionPeriod = "7d" | "14d" | "month";
 type RangePreset = AdCollectionPeriod | "custom";
-
-type TrendMetrics = {
-  spend: number;
-  revenue: number;
-  impressions: number;
-  clicks: number;
-  conversions: number;
-  roas: number | null;
-  ctr: number | null;
-  cvr: number | null;
-};
-
-type TrendRow = {
-  date: string;
-  metrics: TrendMetrics;
-};
 
 export type AdCollectionChartPoint = {
   date: string;
@@ -101,23 +86,9 @@ export function isCustomRangeInvalid(
 }
 
 /**
- * 광고 성과 수집은 accountDaily가 원본이다. listing daily는 상품 귀속이
- * 완료된 날만 생길 수 있어 한 건의 양수 신호만으로 우선하면 수집된 14일이
- * 한 점으로 축소된다.
+ * 광고 성과 수집의 원본은 캠페인 순회다. 서버는 요청 기간의 모든 날짜를 주고
+ * 측정하지 않은 날은 `metrics: null` 로 비워 둔다. 그 날은 0이 아니라 빈 칸이다.
  */
-export function selectCollectionRows(trends: AdTrendsData | null): {
-  rows: TrendRow[];
-  sourceLabel: string;
-} {
-  if ((trends?.accountDaily.length ?? 0) > 0) {
-    return {
-      rows: trends!.accountDaily,
-      sourceLabel: "쿠팡 광고센터 계정 일별",
-    };
-  }
-  return { rows: [], sourceLabel: "광고 성과 수집 필요" };
-}
-
 export function buildCollectionChartPoints(
   trends: AdTrendsData | null,
   expectedDates: string[],
@@ -126,22 +97,21 @@ export function buildCollectionChartPoints(
   collectedCount: number;
   sourceLabel: string;
 } {
-  const source = selectCollectionRows(trends);
-  const rowsByDate = new Map(source.rows.map((row) => [row.date, row]));
+  const daysByDate = new Map((trends?.daily ?? []).map((day) => [day.date, day]));
   let collectedCount = 0;
   const points = expectedDates.map((date) => {
-    const row = rowsByDate.get(date);
-    if (row) collectedCount += 1;
+    const metrics = daysByDate.get(date)?.metrics ?? null;
+    if (metrics) collectedCount += 1;
     return {
       date,
       label: date.slice(5),
-      spend: row?.metrics.spend ?? null,
-      revenue: row?.metrics.revenue ?? null,
-      roas: row?.metrics.roas ?? null,
-      collected: row != null,
+      spend: metrics?.spend ?? null,
+      revenue: metrics?.revenue ?? null,
+      roas: metrics?.roas ?? null,
+      collected: metrics !== null,
     };
   });
-  return { points, collectedCount, sourceLabel: source.sourceLabel };
+  return { points, collectedCount, sourceLabel: adTrendsSourceLabel(trends?.summary) };
 }
 
 export default function AdCollectionDailyChart({

@@ -1,3 +1,5 @@
+Before working in this directory, always read this document first rather than relying on memory.
+
 # apps/server — NestJS Backend
 
 `apps/server/` owns HTTP entrypoints, organization-scoped application

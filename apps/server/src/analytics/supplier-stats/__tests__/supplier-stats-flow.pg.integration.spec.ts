@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Test } from '@nestjs/testing';
 import type { PrismaClient } from '@prisma/client';
 import { SupplierStatsService } from '../supplier-stats.service';
@@ -10,6 +10,7 @@ import {
   seedBaseFixture,
   TEST_ORGANIZATION_ID,
 } from '../../../test-helpers/real-prisma';
+import { seedCompletedOrderCoverageRun } from '../../../test-helpers/finance-seeds';
 
 describe('SupplierStatsService physical Sellpia SKU projection (PG)', () => {
   let prisma: PrismaClient;
@@ -135,6 +136,11 @@ describe('SupplierStatsService physical Sellpia SKU projection (PG)', () => {
     return listingOption;
   }
 
+  /**
+   * One order line. By default a completed Orders collection publishes every
+   * order seeded so far; `published: false` leaves this one outside any
+   * completed collection.
+   */
   async function seedOrderLine(params: {
     organizationId: string;
     suffix: string;
@@ -142,6 +148,7 @@ describe('SupplierStatsService physical Sellpia SKU projection (PG)', () => {
     quantity: number;
     totalPrice: number;
     status?: string;
+    published?: boolean;
   }) {
     const channelAccountId = params.listingOptionId
       ? await prisma.channelListingOption.findFirstOrThrow({
@@ -175,6 +182,13 @@ describe('SupplierStatsService physical Sellpia SKU projection (PG)', () => {
         totalPrice: params.totalPrice,
       },
     });
+    if (params.published ?? true) {
+      await seedCompletedOrderCoverageRun(prisma, {
+        organizationId: params.organizationId,
+        startDate: '2026-07-01',
+        endDate: '2026-07-01',
+      });
+    }
   }
 
   it('allocates one bundle line by extended component cost and preserves physical quantities', async () => {
@@ -253,6 +267,81 @@ describe('SupplierStatsService physical Sellpia SKU projection (PG)', () => {
       totalRevenue: 0,
       unallocatedRevenue: 12_000,
     });
+  });
+
+  it('counts only order lines a completed Orders collection published', async () => {
+    const physical = await seedPhysicalProduct(TEST_ORGANIZATION_ID, 'PUBLISHED', 'Published');
+    await seedSupplierPolicy({
+      organizationId: TEST_ORGANIZATION_ID,
+      supplierName: 'Published Supplier',
+      sellpiaInventorySkuId: physical.id,
+      supplyPrice: 100,
+    });
+    const listingOption = await seedListingOption(TEST_ORGANIZATION_ID, 'PUBLISHED', [{
+      sellpiaInventorySkuId: physical.id,
+      quantity: 1,
+    }]);
+    await seedOrderLine({
+      organizationId: TEST_ORGANIZATION_ID,
+      suffix: 'PUBLISHED',
+      listingOptionId: listingOption.id,
+      quantity: 1,
+      totalPrice: 1_000,
+    });
+    await seedOrderLine({
+      organizationId: TEST_ORGANIZATION_ID,
+      suffix: 'UNPUBLISHED',
+      listingOptionId: listingOption.id,
+      quantity: 5,
+      totalPrice: 999_999,
+      published: false,
+    });
+
+    const report = await service.getSalesBySupplier(TEST_ORGANIZATION_ID);
+
+    expect(report.summary).toMatchObject({
+      totalOrders: 1,
+      totalQuantity: 1,
+      totalRevenue: 1_000,
+      unallocatedRevenue: 0,
+    });
+  });
+
+  /** KID-85 follow-up F-1 — an all-time read must not run inside Prisma's 5 s interactive transaction. */
+  it('reads its projection without an interactive transaction', async () => {
+    const physical = await seedPhysicalProduct(TEST_ORGANIZATION_ID, 'NO-TX', 'No transaction');
+    await seedSupplierPolicy({
+      organizationId: TEST_ORGANIZATION_ID,
+      supplierName: 'No Transaction Supplier',
+      sellpiaInventorySkuId: physical.id,
+      supplyPrice: 100,
+    });
+    const listingOption = await seedListingOption(TEST_ORGANIZATION_ID, 'NO-TX', [{
+      sellpiaInventorySkuId: physical.id,
+      quantity: 2,
+    }]);
+    await seedOrderLine({
+      organizationId: TEST_ORGANIZATION_ID,
+      suffix: 'NO-TX',
+      listingOptionId: listingOption.id,
+      quantity: 3,
+      totalPrice: 4_500,
+    });
+
+    const transaction = vi.spyOn(prisma, '$transaction');
+    try {
+      const report = await service.getSalesBySupplier(TEST_ORGANIZATION_ID);
+
+      expect(report.summary).toMatchObject({
+        totalOrders: 1,
+        totalQuantity: 6,
+        totalRevenue: 4_500,
+        unallocatedRevenue: 0,
+      });
+      expect(transaction).not.toHaveBeenCalled();
+    } finally {
+      transaction.mockRestore();
+    }
   });
 
   it('scopes suppliers and order lines by organization', async () => {

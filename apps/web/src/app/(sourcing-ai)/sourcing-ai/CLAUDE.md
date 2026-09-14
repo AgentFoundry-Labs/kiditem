@@ -1,3 +1,5 @@
+Before working in this directory, always read this document first rather than relying on memory.
+
 # web/sourcing-ai/routes - Sourcing Research Routes
 
 `sourcing-ai/` is the nested route surface for sourcing research and candidate

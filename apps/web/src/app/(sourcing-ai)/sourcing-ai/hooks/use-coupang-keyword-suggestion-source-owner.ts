@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
+import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
 import { queryKeys } from '@/lib/query-keys';
 import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
 import {
@@ -78,17 +79,16 @@ export function useCoupangKeywordSuggestionSourceOwner({
   const statusKey = normalizedKeyword
     ? sourceStatusQueryKey(normalizedKeyword)
     : [...queryKeys.sourcing.keywordSuggestions(''), 'source-status', 'none'] as const;
-  const statusQuery = useQuery({
+  const statusQuery = useQuery(collectionSourceStatusQueryOptions({
     queryKey: statusKey,
     queryFn: () => fetchCoupangKeywordSuggestionSourceStatus(normalizedKeyword!),
     enabled: Boolean(organizationId && normalizedKeyword),
-    retry: false,
     refetchInterval: (query) => (
       query.state.data?.latestAttempt?.state === 'RUNNING' ? 2_000 : false
     ),
     refetchIntervalInBackground: false,
     meta: { suppressGlobalErrorToast: true },
-  });
+  }));
 
   const collect = useCallback(async (requestedKeyword?: string) => {
     if (!organizationId) {

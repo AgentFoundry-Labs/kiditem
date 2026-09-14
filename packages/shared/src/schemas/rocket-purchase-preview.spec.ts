@@ -1,19 +1,21 @@
 import { describe, expect, it } from 'vitest';
 import {
   isRocketWorkbookBlockingReason,
+  ROCKET_CONFIRMATION_REQUEST_STATUSES,
   ROCKET_WORKBOOK_BLOCKING_REASONS,
   RocketPurchasePreviewComponentSchema,
   RocketWorkbookAbandonRequestSchema,
   RocketWorkbookDecisionRequestSchema,
   RocketWorkbookExportResponseSchema,
-  RocketWorkbookWorkflowStatusSchema,
   RocketPoCatalogPublicationSchema,
   RocketPurchasePreviewDecisionSchema,
+  RocketPurchasePreviewReasonSchema,
   RocketPurchasePreviewResponseSchema,
   RocketSavedPoCollectionSchema,
   RocketSavedPoListRequestSchema,
   RocketSavedPoSummarySchema,
 } from './rocket-purchase-preview';
+import { ROCKET_PURCHASE_PREVIEW_REASON_LABELS } from '../rocket-purchase-preview';
 
 const ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
 const RUN_ID = '22222222-2222-4222-8222-222222222222';
@@ -75,10 +77,12 @@ describe('Rocket purchase preview contract', () => {
       'mapping_required',
       'configuration_required',
       'review_required',
+      'inventory_unavailable',
     ]);
     expect(isRocketWorkbookBlockingReason('mapping_required')).toBe(true);
     expect(isRocketWorkbookBlockingReason('configuration_required')).toBe(true);
     expect(isRocketWorkbookBlockingReason('review_required')).toBe(true);
+    expect(isRocketWorkbookBlockingReason('inventory_unavailable')).toBe(true);
     expect(isRocketWorkbookBlockingReason('insufficient_capacity')).toBe(false);
     expect(isRocketWorkbookBlockingReason(null)).toBe(false);
   });
@@ -88,6 +92,26 @@ describe('Rocket purchase preview contract', () => {
 
     expect(published).toMatchObject({ sourceImportRunId: RUN_ID, rowCount: 1 });
     expect(published).not.toHaveProperty('recipeAutomation');
+  });
+
+  it('keeps a saved PO amount unknown when a listed line has no confirmed total', () => {
+    const summary = RocketSavedPoSummarySchema.parse({
+      sourceImportRunId: RUN_ID,
+      poNumber: '10000002',
+      orderedAt: '',
+      plannedDeliveryDate: '2026-07-20',
+      status: '',
+      vendorId: 'A00123',
+      centerName: '',
+      inboundType: '',
+      firstProductName: '키즈 식판',
+      skuCount: 2,
+      orderQuantity: 8,
+      orderAmount: null,
+      collectedAt: '2026-07-18T01:00:00.000Z',
+    });
+
+    expect(summary.orderAmount).toBeNull();
   });
 
   it('parses account-scoped saved PO summaries and exact saved collection evidence', () => {
@@ -260,7 +284,7 @@ describe('Rocket purchase preview contract', () => {
         recommendedQuantity: 0,
         maxQuantity: 0,
         editedQuantity: null,
-        reason: 'collection_incomplete',
+        reason: 'inventory_unavailable',
         channelListingOptionId: null,
         masterProductId: null,
         components: [],
@@ -269,7 +293,7 @@ describe('Rocket purchase preview contract', () => {
 
     expect(response.status).toBe('ready');
     if (response.status !== 'ready') throw new Error('Expected ready preview');
-    expect(response.rows[0]?.reason).toBe('collection_incomplete');
+    expect(response.rows[0]?.reason).toBe('inventory_unavailable');
     expect(response).not.toHaveProperty('confirmationFile');
     expect(response).not.toHaveProperty('submissionAttempt');
   });
@@ -359,7 +383,7 @@ describe('Rocket purchase preview contract', () => {
         recommendedQuantity: 0,
         maxQuantity: 0,
         editedQuantity: null,
-        reason: 'collection_incomplete',
+        reason: 'inventory_unavailable',
         channelListingOptionId: null,
         masterProductId: null,
         components: [],
@@ -538,12 +562,10 @@ describe('Rocket purchase preview contract', () => {
     });
   });
 
-  it('publishes workflow and immutable artifact metadata without raw workbook bytes', () => {
-    const response = RocketWorkbookExportResponseSchema.parse({
+  it('publishes immutable artifact metadata without workflow words or raw workbook bytes', () => {
+    const published = {
       exportId: CONFIRMATION_ID,
-      status: 'awaiting_coupang_confirmation',
       duplicate: false,
-      canAbandon: false,
       inventoryGeneration: '12',
       generatedAt: '2026-07-17T00:00:00.000Z',
       artifact: {
@@ -563,24 +585,28 @@ describe('Rocket purchase preview contract', () => {
         workbookQuantity: 2,
         shortageReason: '협력사 재고부족 - 수요예측 오류',
       }],
-    });
+    };
+    const response = RocketWorkbookExportResponseSchema.parse(published);
 
-    expect(response.status).toBe('awaiting_coupang_confirmation');
     expect(response).not.toHaveProperty('rawRows');
     expect(response.artifact).not.toHaveProperty('bytes');
+    // No client reads the workflow word or abandon eligibility; the Supply
+    // workflow keeps both on the server.
+    expect(RocketWorkbookExportResponseSchema.safeParse({
+      ...published,
+      status: 'awaiting_coupang_confirmation',
+    }).success).toBe(false);
+    expect(RocketWorkbookExportResponseSchema.safeParse({
+      ...published,
+      canAbandon: false,
+    }).success).toBe(false);
   });
 
-  it('recognizes every workflow state and requires a reason to abandon a workbook', () => {
-    for (const status of [
-      'awaiting_coupang_confirmation',
-      'orders_collected',
-      'sellpia_transmitting',
-      'awaiting_inventory_sync',
-      'completed',
-      'failed',
-    ] as const) {
-      expect(RocketWorkbookWorkflowStatusSchema.parse(status)).toBe(status);
-    }
+  it('recognizes the confirmation request statuses and requires a reason to abandon a workbook', () => {
+    expect(ROCKET_CONFIRMATION_REQUEST_STATUSES).toEqual([
+      '거래명세서확인요청',
+      '거래처확인요청',
+    ]);
     expect(RocketWorkbookAbandonRequestSchema.parse({
       exportId: CONFIRMATION_ID,
       reason: '쿠팡에 업로드하지 않음',
@@ -592,5 +618,19 @@ describe('Rocket purchase preview contract', () => {
       exportId: CONFIRMATION_ID,
       reason: ' ',
     })).toThrow();
+  });
+});
+
+describe('ROCKET_PURCHASE_PREVIEW_REASON_LABELS', () => {
+  it('labels every preview reason once with the Rocket review wording', () => {
+    expect(Object.keys(ROCKET_PURCHASE_PREVIEW_REASON_LABELS).sort())
+      .toEqual([...RocketPurchasePreviewReasonSchema.options].sort());
+    expect(ROCKET_PURCHASE_PREVIEW_REASON_LABELS).toEqual({
+      mapping_required: '상품 연결 필요',
+      configuration_required: '재고 구성 필요',
+      review_required: '레시피 검토 필요',
+      inventory_unavailable: 'Sellpia 재고 미수집',
+      insufficient_capacity: 'Sellpia 재고 부족',
+    });
   });
 });

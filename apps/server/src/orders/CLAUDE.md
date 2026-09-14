@@ -1,3 +1,5 @@
+Before working in this directory, always read this document first rather than relying on memory.
+
 # orders — Orders, Returns, And Reviews
 
 `src/orders/` owns the channel-agnostic Order aggregate, returns, reviews,

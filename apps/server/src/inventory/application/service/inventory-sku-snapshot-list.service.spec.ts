@@ -98,7 +98,6 @@ describe('InventorySkuSnapshotListService', () => {
           { id: firstOptionId, masterProductId: productId, channelListingId: runId, channel: 'coupang', externalOptionId: 'KI-001-A', itemName: '파랑' },
           { id: secondOptionId, masterProductId: productId, channelListingId: runId, channel: 'coupang', externalOptionId: 'KI-001-B', itemName: '빨강' },
         ],
-        linkStatus: 'linked',
       }],
       total: 1,
       page: 2,
@@ -268,7 +267,6 @@ describe('InventorySkuSnapshotListService', () => {
         { id: firstOptionId, masterProductId: productId, channelListingId: runId, channel: 'coupang', externalOptionId: 'KI-001-A', itemName: '파랑' },
         { id: secondOptionId, masterProductId: productId, channelListingId: runId, channel: 'coupang', externalOptionId: 'KI-001-B', itemName: '빨강' },
       ],
-      linkStatus: 'linked',
     });
     expect(repository.getSnapshot).toHaveBeenCalledWith(
       organizationId,

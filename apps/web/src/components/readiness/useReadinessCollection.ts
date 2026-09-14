@@ -15,6 +15,7 @@ import {
   runWingSalesRankCheck,
 } from '@/app/(advertising)/rank-tracking/lib/rank-extension';
 import { apiClient } from '@/lib/api-client';
+import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
 import { transferExtensionAuthTo } from '@/lib/extension-auth';
 import { queryKeys } from '@/lib/query-keys';
 import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
@@ -28,18 +29,8 @@ import {
 } from '@/app/(product-pipeline)/product-pipeline/registered-products/lib/channel-listings-api';
 import { useCoupangCatalogImport } from '@/app/(product-pipeline)/product-pipeline/registered-products/hooks/useCoupangCatalogImport';
 import { sellpiaSalesErrorMessage } from '@/lib/sellpia-sales-api';
-import {
-  beginAdAccountDailyKpiAttempt,
-  prepareAdAccountDailyKpiExtension,
-  readActiveAdAccountDailyKpiAttempt,
-  readAdAccountDailyKpiAttempt,
-  readAdAccountDailyKpiSource,
-  rememberAdAccountDailyKpiAttempt,
-  startAdAccountDailyKpiBrowser,
-  type ActiveAdAccountDailyKpiAttempt,
-} from './ad-account-daily-kpi-owner';
+import { useAdSync } from '@/app/(advertising)/ad-ops/hooks/useAdSync';
 import type { ReadinessCheck } from '@kiditem/shared/readiness';
-import type { AdAccountDailyKpiSourceAttempt } from '@kiditem/shared/advertising';
 
 interface UseReadinessCollectionOptions {
   refetchReadiness: () => Promise<unknown>;
@@ -132,11 +123,6 @@ export function useReadinessCollection({
       readActiveCoupangCatalogAttemptForStage('basics')?.channelAccountId ??
       readActiveCoupangCatalogAttempt()?.channelAccountId ?? null,
   );
-  const [adKpiAttempt, setAdKpiAttempt] =
-    useState<ActiveAdAccountDailyKpiAttempt | null>(() => readActiveAdAccountDailyKpiAttempt());
-  const adKpiAttemptRef = useRef(adKpiAttempt);
-  const settledAdKpiAttemptIdRef = useRef<string | null>(null);
-  const explicitlyStartedAdKpiAttemptsRef = useRef(new Set<string>());
   const [wingBatchKey, setWingBatchKey] = useState<string | null>(null);
   const [wingStarting, setWingStarting] = useState(false);
   const observedWingTerminals = useRef('');
@@ -224,7 +210,7 @@ export function useReadinessCollection({
     catalogImport.serverStatus?.overallState,
     catalogImport.serverStatus?.state,
   ]);
-  const wingOwner = useQuery({
+  const wingOwner = useQuery(collectionSourceStatusQueryOptions({
     queryKey: [...queryKeys.ads.keywordRank(), 'batch', wingBatchKey],
     queryFn: () => fetchWingRankBatch(wingBatchKey!),
     enabled: !!wingBatchKey && !wingStarting,
@@ -232,28 +218,12 @@ export function useReadinessCollection({
       !query.state.data || query.state.data.attempts.some((attempt) => attempt.state === 'RUNNING')
         ? 2000
         : false,
-  });
-  const adKpiSourceQuery = useQuery({
-    queryKey: queryKeys.ads.accountDailyKpiSource(),
-    queryFn: readAdAccountDailyKpiSource,
-    enabled: !!adKpiAttempt?.attemptId,
-    retry: false,
-    refetchInterval: (query) =>
-      query.state.data?.latestAttempt?.state === 'RUNNING' ? 2_000 : false,
-    meta: { suppressGlobalErrorToast: true },
-  });
-  const adKpiAttemptQuery = useQuery({
-    queryKey: queryKeys.ads.accountDailyKpiAttempt(adKpiAttempt?.attemptId ?? ''),
-    queryFn: () => readAdAccountDailyKpiAttempt(adKpiAttempt!.attemptId!),
-    enabled: !!adKpiAttempt?.attemptId,
-    retry: false,
-    refetchInterval: (query) =>
-      query.state.data?.state === 'RUNNING' ? 2_000 : false,
-    meta: { suppressGlobalErrorToast: true },
-  });
-  const adKpiLatestAttempt = adKpiSourceQuery.data?.latestAttempt ?? null;
-  const adKpiOwnerAttempt: AdAccountDailyKpiSourceAttempt | null =
-    adKpiLatestAttempt ?? adKpiAttemptQuery.data ?? null;
+  }));
+  // The coupang_ads check collects through the campaign sweep owner. Its
+  // persisted latest attempt, not browser storage, says a sweep is running.
+  const adSync = useAdSync();
+  const adSyncBusy = adSync.loading || adSync.status?.state === 'RUNNING';
+  const adSyncWasBusy = useRef(false);
 
   const invalidateCollectedData = async () => {
     await Promise.all([
@@ -261,21 +231,6 @@ export function useReadinessCollection({
       queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all }),
       queryClient.invalidateQueries({ queryKey: ['traffic'] }),
     ]);
-  };
-
-  const handleServerCollect = async (check: ReadinessCheck) => {
-    if (!check.collectEndpoint) return;
-    setPendingKey(check.key);
-    try {
-      await apiClient.post(check.collectEndpoint, {});
-      toast.success('수집 완료');
-      await invalidateCollectedData();
-      await refetchReadiness();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : '수집 실패');
-    } finally {
-      setPendingKey(null);
-    }
   };
 
   useEffect(() => {
@@ -319,46 +274,24 @@ export function useReadinessCollection({
   }, [catalogImport.readError]);
 
   useEffect(() => {
-    if (!adKpiOwnerAttempt) return;
-    if (adKpiOwnerAttempt.state === 'RUNNING') {
+    if (adSyncBusy) {
+      adSyncWasBusy.current = true;
       setPendingKey((current) =>
         current === null || current === 'coupang_ads' ? 'coupang_ads' : current,
       );
       return;
     }
-    if (settledAdKpiAttemptIdRef.current === adKpiOwnerAttempt.attemptId) return;
-    settledAdKpiAttemptIdRef.current = adKpiOwnerAttempt.attemptId;
-    setPendingKey((current) =>
-      current === 'coupang_ads' ? null : current,
-    );
-    const explicitlyStarted = explicitlyStartedAdKpiAttemptsRef.current.delete(
-      adKpiOwnerAttempt.attemptId,
-    );
-    if (explicitlyStarted) {
-      if (adKpiOwnerAttempt.state === 'FAILED') {
-        toast.error(
-          `${adKpiOwnerAttempt.errorMessage ?? '광고 계정 일별 KPI 수집에 실패했습니다.'} · 이전 정상 데이터는 유지됩니다.`,
-        );
-      } else {
-        toast.success('쿠팡 광고 데이터 수집 완료');
-      }
-    }
-    void invalidateCollectedData().then(() => refetchReadiness());
-  }, [adKpiOwnerAttempt, queryClient, refetchReadiness]);
-
-  useEffect(() => {
-    if (!adKpiSourceQuery.isError && !adKpiAttemptQuery.isError) return;
-    toast.error('서버의 쿠팡 광고 수집 결과를 확인하지 못했습니다.');
-  }, [adKpiAttemptQuery.isError, adKpiSourceQuery.isError]);
+    setPendingKey((current) => (current === 'coupang_ads' ? null : current));
+    if (!adSyncWasBusy.current) return;
+    // The sweep settled (explicit run or a reloaded RUNNING attempt): the
+    // readiness check reads the campaign ledger it just published.
+    adSyncWasBusy.current = false;
+    void refetchReadiness();
+  }, [adSyncBusy, refetchReadiness]);
 
   const handleCollect = async (
     check: ReadinessCheck,
   ) => {
-    if (check.collector === 'server') {
-      await handleServerCollect(check);
-      return;
-    }
-
     // 일별 매출(wing_sales) 수집은 셀피아 판매현황 수집으로 대체한다.
     // (원래 Wing 브라우저 수집 로직은 코드에 그대로 남겨두고 여기서만 우회.)
     // 셀피아 몰별 일별 매출을 수집·적재해 비어있는 날짜를 채운다.
@@ -384,72 +317,8 @@ export function useReadinessCollection({
     }
 
     if (check.key === 'coupang_ads') {
-      setPendingKey(check.key);
-      settledAdKpiAttemptIdRef.current = null;
-      try {
-        const extensionId = await prepareAdAccountDailyKpiExtension();
-        const source = await readAdAccountDailyKpiSource();
-        const latest = source.latestAttempt;
-        let attempt: AdAccountDailyKpiSourceAttempt;
-        let next = adKpiAttemptRef.current;
-
-        if (latest?.state === 'RUNNING') {
-          attempt = latest;
-          next = {
-            attemptId: latest.attemptId,
-            idempotencyKey:
-              next?.attemptId === latest.attemptId
-                ? next.idempotencyKey
-                : null,
-          };
-        } else {
-          // A persisted terminal/foreign attempt is never reused for this
-          // organization; only an uncertain begin keeps its idempotency key.
-          const idempotencyKey =
-            next?.attemptId === null && next.idempotencyKey
-              ? next.idempotencyKey
-              : makeClientRunKey();
-          next = { attemptId: null, idempotencyKey };
-          // Persist the begin identity before the network call so a lost
-          // response can be retried with the same owner idempotency key.
-          adKpiAttemptRef.current = next;
-          setAdKpiAttempt(next);
-          rememberAdAccountDailyKpiAttempt(next);
-          attempt = await beginAdAccountDailyKpiAttempt(idempotencyKey);
-        }
-
-        const admitted: ActiveAdAccountDailyKpiAttempt = {
-          attemptId: attempt.attemptId,
-          idempotencyKey: next?.idempotencyKey ?? null,
-        };
-        adKpiAttemptRef.current = admitted;
-        setAdKpiAttempt(admitted);
-        rememberAdAccountDailyKpiAttempt(admitted);
-        explicitlyStartedAdKpiAttemptsRef.current.add(attempt.attemptId);
-
-        if (attempt.state === 'RUNNING') {
-          try {
-            await startAdAccountDailyKpiBrowser(
-              extensionId,
-              attempt.attemptId,
-            );
-          } catch {
-            // A lost extension ACK is not an owner failure. The persisted
-            // attempt remains the only source of truth for reload/retry.
-          }
-        }
-        await queryClient.invalidateQueries({
-          queryKey: queryKeys.ads.accountDailyKpiAttempt(attempt.attemptId),
-        });
-        toast.info('쿠팡 광고 일별 KPI 수집을 백그라운드에서 시작했습니다.');
-      } catch (error) {
-        toast.error(
-          error instanceof Error
-            ? error.message
-            : '쿠팡 광고 일별 KPI 수집 시작 실패',
-        );
-        setPendingKey(null);
-      }
+      // The owner flow reports its own start, failure and completion.
+      await adSync.run();
       return;
     }
 

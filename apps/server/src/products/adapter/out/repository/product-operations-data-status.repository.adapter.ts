@@ -1,17 +1,23 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import {
   MASTER_PRODUCT_PROFITABILITY_READ_PORT,
   type ProfitabilityEvidence,
   type SourceGenerationView,
 } from '../../../../finance/application/port/in/master-product-profitability-read.port';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import {
+  readListingTrafficWindowFacts,
+} from '../../../../channels/read/channel-listing-daily-facts';
+import { readOrderWindowFacts } from '../../../../orders/read/order-facts.reader';
 import { productAbcEvidenceCutoff } from '../../../domain/product-abc-display-status';
 import {
   businessDateKey,
-  datesInclusive,
+  kstDayStart,
   parseBusinessDate,
   shiftBusinessDateKey,
 } from '../../../../common/kst';
+import { readProductAbcPublication } from '../../../read/product-abc-publication.reader';
 import { listSellingMasterProductIds } from './selling-master-product.query';
 import type {
   ProductOperationsDataStatusFacts,
@@ -22,11 +28,6 @@ import type {
   ProductOperationsPeriodDays,
 } from '@kiditem/shared/product-operations';
 import { deriveSourceReadiness } from '@kiditem/shared/source-readiness';
-
-type TrafficFact = {
-  businessDate: Date;
-  trafficObservedAt: Date | null;
-};
 
 @Injectable()
 export class ProductOperationsDataStatusRepositoryAdapter
@@ -47,87 +48,85 @@ implements ProductOperationsDataStatusRepositoryPort {
     // The latter fans out to repeatable-read source transactions; keeping it
     // out of this batch prevents one list request from occupying every pool
     // connection with independent read snapshots.
-    const [traffic, formulaState, sellingMasterProductIds] = await Promise.all([
-      this.prisma.channelListingDailySnapshot.findMany({
-        where: {
+    const [traffic, orders, published, sellingMasterProductIds] = await this.prisma.$transaction(
+      async (tx) => Promise.all([
+        readListingTrafficWindowFacts(tx, {
           organizationId,
-          businessDate: {
-            gte: periodStart,
-            lte: utcCalendarDate(cutoffDate),
-          },
-          listing: { is: { organizationId, masterProductId: { not: null } } },
-          // A traffic row is a measurement only on a day the source reported.
-          trafficObservedAt: { not: null },
-        },
-        select: {
-          businessDate: true,
-          trafficObservedAt: true,
-        },
-      }),
-      this.prisma.masterProductAbcFormulaState.findUnique({
-        where: { organizationId },
-        select: {
-          formulaRevision: true,
-          publicationRevision: true,
-          officialCutoffDate: true,
-          publishedAt: true,
-          mappingGeneration: true,
-        },
-      }),
-      listSellingMasterProductIds(this.prisma, organizationId),
-    ]);
+          from: periodStart,
+          to: utcCalendarDate(addCalendarDays(cutoffDate, 1)),
+          requireMasterProductLink: true,
+        }),
+        readOrderWindowFacts(tx, {
+          organizationId,
+          from: kstDayStart(periodStart),
+          to: kstDayStart(utcCalendarDate(addCalendarDays(cutoffDate, 1))),
+        }),
+        readProductAbcPublication(tx, { organizationId }),
+        listSellingMasterProductIds(tx, organizationId),
+      ]),
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
     const evidence = await this.evidence.load({ organizationId, targetCutoff: cutoffDate });
-    const trafficStatus = sourceStatus(traffic, calendarDate(periodStart), cutoffDate);
-    const mappingGeneration = formulaState?.mappingGeneration ?? 0n;
-    const products = await this.prisma.masterProduct.findMany({
-      where: { organizationId, id: { in: sellingMasterProductIds } },
-      orderBy: { id: 'asc' },
-      select: { id: true, abcGrade: true },
-    });
+    const trafficStatus = sourceStatus({
+      includedDates: traffic.coverage.includedDates,
+      complete: traffic.coverage.invalidDates.length === 0
+        && traffic.coverage.missingDates.length === 0,
+      observedAt: traffic.latestObservedAt,
+    }, cutoffDate);
+    const ordersStatus = sourceStatus({
+      includedDates: orders.includedDates,
+      complete: orders.orderCount !== null,
+      observedAt: orders.observedAt,
+    }, cutoffDate);
+    const publication = published.publication;
+    const sellingMasterProductIdSet = new Set(sellingMasterProductIds);
     const productEvidence = new Map(evidence.products.map((product) => [product.masterProductId, product]));
     const actualCutoff = evidence.actualCutoff;
     return {
-      displayDataAsOf: minimumCutoff(trafficStatus.actualCutoff, actualCutoff),
+      displayDataAsOf: minimumCutoff(
+        minimumCutoff(
+          trafficStatus.latestComplete?.actualCutoff ?? null,
+          ordersStatus.latestComplete?.actualCutoff ?? null,
+        ),
+        actualCutoff,
+      ),
       traffic: trafficStatus,
+      orders: ordersStatus,
       actualCutoff,
-      sellpia: profitabilitySourceStatus(evidence, 'sellpia', cutoffDate),
-      advertising: profitabilitySourceStatus(evidence, 'advertising', cutoffDate),
+      sellpia: profitabilitySourceStatus(evidence, 'sellpia'),
+      advertising: profitabilitySourceStatus(evidence, 'advertising'),
       sourceVector: {
         sellpia: sourceManifest(evidence.sourceVector.sellpia),
         advertising: sourceManifest(evidence.sourceVector.advertising),
       },
-      mappingReady: evidence.mappingGeneration === mappingGeneration.toString(),
+      mappingReady: evidence.mappingGeneration === published.currentMappingGeneration,
       contributionBasis: evidence.contributionBasis,
       formulaState: {
-        formulaRevision: formulaState?.formulaRevision ?? 0,
-        publicationRevision: formulaState?.publicationRevision ?? 0,
-        officialCutoff: formulaState?.officialCutoffDate
-          ? calendarDate(formulaState.officialCutoffDate)
-          : null,
-        publishedAt: formulaState?.publishedAt?.toISOString() ?? null,
-        mappingGeneration: mappingGeneration.toString(),
+        formulaRevision: publication?.formulaRevision ?? published.currentFormulaRevision,
+        publicationRevision: publication?.publicationRevision ?? 0,
+        officialCutoff: publication?.officialCutoffDate ?? null,
+        publishedAt: publication?.publishedAt ?? null,
+        mappingGeneration: published.currentMappingGeneration,
       },
-      products: products.map((product) => ({
-        masterProductId: product.id,
-        abcGrade: isAbcGrade(product.abcGrade) ? product.abcGrade : null,
-        mappingValid: productEvidence.get(product.id)?.mappingValid ?? false,
-        saleStartDate: productEvidence.get(product.id)?.saleStartDate ?? null,
+      products: published.products.map((product) => ({
+        masterProductId: product.masterProductId,
+        abcGrade: product.evaluation?.abcGrade ?? null,
+        evaluation: product.evaluation,
+        mappingValid: sellingMasterProductIdSet.has(product.masterProductId)
+          ? productEvidence.get(product.masterProductId)?.mappingValid ?? false
+          : true,
+        saleStartDate: productEvidence.get(product.masterProductId)?.saleStartDate ?? null,
       })),
     };
   }
 }
 
 function sourceStatus(
-  rows: readonly TrafficFact[],
-  periodStart: string,
+  facts: { includedDates: readonly string[]; complete: boolean; observedAt: Date | null },
   cutoffDate: string,
 ): ProductOperationsDataSourceStatus {
-  const validRows = rows.filter((row) =>
-    calendarDate(row.businessDate) >= periodStart
-      && calendarDate(row.businessDate) <= cutoffDate
-      && row.trafficObservedAt !== null,
-  );
-  if (validRows.length === 0) {
+  const includedDates = facts.includedDates;
+  if (includedDates.length === 0) {
     return {
       ready: false,
       requiredCutoff: cutoffDate,
@@ -136,44 +135,27 @@ function sourceStatus(
       latestComplete: null,
     };
   }
-  const latestDate = validRows.reduce(
-    (latest, row) => row.businessDate > latest ? row.businessDate : latest,
-    validRows[0]!.businessDate,
-  );
-  const actualCutoff = calendarDate(latestDate);
-  const targetDates = enumerateDates(periodStart, cutoffDate);
-  const validDates = new Set(validRows.map((row) => calendarDate(row.businessDate)));
-  const completeCoverage = targetDates.every((date) => validDates.has(date));
-  const latestComplete = completeCoverage ? { actualCutoff } : null;
+  const actualCutoff = includedDates[includedDates.length - 1]!;
+  const latestComplete = facts.complete && facts.observedAt
+    ? { actualCutoff, capturedAt: facts.observedAt.toISOString() }
+    : null;
   return {
-    ...deriveSourceReadiness({
-      latestAttempt: null,
-      latestComplete,
-      requiredCutoff: cutoffDate,
-    }),
+    ...deriveSourceReadiness({ latestAttempt: null, latestComplete, requiredCutoff: cutoffDate }),
     actualCutoff,
-    latestAttempt: null,
-    latestComplete,
   };
 }
 
+/** The evidence owner's readiness for one source, against the cutoff it requires of that source. */
 function profitabilitySourceStatus(
   evidence: Awaited<ReturnType<ProfitabilityEvidence['load']>>,
   source: 'sellpia' | 'advertising',
-  requiredCutoff: string,
 ): ProductOperationsDataSourceStatus {
   const status = evidence.sources[source];
   return deriveSourceReadiness({
     latestAttempt: status.latestAttempt,
     latestComplete: status.latestComplete,
-    requiredCutoff,
+    requiredCutoff: status.requiredCutoff,
   });
-}
-
-function enumerateDates(from: string, to: string): string[] {
-  const cursor = utcCalendarDate(from);
-  const end = utcCalendarDate(to);
-  return datesInclusive(cursor, end).map(businessDateKey);
 }
 
 function sourceManifest(source: SourceGenerationView) {
@@ -193,10 +175,6 @@ function sourceManifest(source: SourceGenerationView) {
 function minimumCutoff(left: string | null, right: string | null): string | null {
   if (!left || !right) return null;
   return left < right ? left : right;
-}
-
-function isAbcGrade(value: string | null): value is 'A' | 'B' | 'C' {
-  return value === 'A' || value === 'B' || value === 'C';
 }
 
 function addCalendarDays(date: string, days: number): string {

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
 import { isApiError } from '@/lib/api-error';
+import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
 import { sendToExtension, type ExtensionRuntimeStatus } from '@/lib/extension-bridge';
 import {
   beginOrderCollectionSourceAttempt,
@@ -118,15 +119,14 @@ export function useOrderCollectionSessionControls(
   const ownerQueryKey = scopedAttempt?.attemptId && organizationId
     ? attemptQueryKey(organizationId, environmentKey, scopedAttempt.attemptId)
     : ['orders', 'collection-source-attempt', organizationId ?? '', environmentKey, 'none'] as const;
-  const ownerQuery = useQuery({
+  const ownerQuery = useQuery(collectionSourceStatusQueryOptions({
     queryKey: ownerQueryKey,
     queryFn: () => readOrderCollectionSourceAttempt(scopedAttempt!.attemptId!),
     enabled: Boolean(organizationId && scopedAttempt?.attemptId),
-    retry: false,
     refetchInterval: (query) => query.state.data?.state === 'RUNNING' ? 2_000 : false,
     refetchIntervalInBackground: false,
     meta: { suppressGlobalErrorToast: true },
-  });
+  }));
   const attempt = ownerQuery.data ?? null;
   const restartAccount = useMemo(() => {
     const mallKey = attempt?.plan.mallKey;

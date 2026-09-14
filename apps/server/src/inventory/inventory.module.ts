@@ -13,7 +13,6 @@ import { ConfirmedChannelComponentReferenceRepositoryAdapter } from './adapter/o
 import { SellpiaImportRunRepositoryAdapter } from './adapter/out/repository/sellpia-import-run.repository.adapter';
 import { SellpiaSnapshotPublicationRepositoryAdapter } from './adapter/out/repository/sellpia-snapshot-publication.repository.adapter';
 import { InventorySkuSnapshotListRepositoryAdapter } from './adapter/out/repository/inventory-sku-snapshot-list.repository.adapter';
-import { InventoryAvailabilityRepositoryAdapter } from './adapter/out/repository/inventory-availability.repository.adapter';
 import { RocketWorkbookProgressRepositoryAdapter } from './adapter/out/repository/rocket-workbook-progress.repository.adapter';
 import { SellpiaInventorySkuReadRepositoryAdapter } from './adapter/out/repository/sellpia-inventory-sku-read.repository.adapter';
 import { TransfersRepositoryAdapter } from './adapter/out/repository/transfers.repository.adapter';
@@ -24,7 +23,6 @@ import { COUPANG_SHIPMENTS_PORT } from './application/port/in/fulfillment';
 import {
   INVENTORY_SKU_SNAPSHOT_LIST_PORT,
   INVENTORY_SKU_EXPORT_PORT,
-  INVENTORY_AVAILABILITY_PORT,
   ROCKET_WORKBOOK_PROGRESS_PORT,
   SELLPIA_INVENTORY_IMPORT_PORT,
   SELLPIA_INVENTORY_SKU_READ_PORT,
@@ -34,7 +32,6 @@ import { CONFIRMED_CHANNEL_COMPONENT_REFERENCE_PORT } from './application/port/o
 import { SELLPIA_IMPORT_RUN_REPOSITORY_PORT } from './application/port/out/repository/sellpia-import-run.repository.port';
 import { SELLPIA_SNAPSHOT_PUBLICATION_REPOSITORY_PORT } from './application/port/out/repository/sellpia-snapshot-publication.repository.port';
 import { INVENTORY_SKU_SNAPSHOT_LIST_REPOSITORY_PORT } from './application/port/out/repository/inventory-sku-snapshot-list.repository.port';
-import { INVENTORY_AVAILABILITY_REPOSITORY_PORT } from './application/port/out/repository/inventory-availability.repository.port';
 import { ROCKET_WORKBOOK_PROGRESS_REPOSITORY_PORT } from './application/port/out/repository/rocket-workbook-progress.repository.port';
 import { SELLPIA_INVENTORY_SKU_READ_REPOSITORY_PORT } from './application/port/out/repository/sellpia-inventory-sku-read.repository.port';
 import { TRANSFERS_REPOSITORY_PORT } from './application/port/out/repository/transfers.repository.port';
@@ -44,7 +41,6 @@ import { COUPANG_SHIPMENT_FILE_STORAGE_PORT } from './application/port/out/stora
 import { CoupangShipmentsService } from './application/service/coupang-shipments.service';
 import { InventorySkuSnapshotListService } from './application/service/inventory-sku-snapshot-list.service';
 import { InventorySkuExportService } from './application/service/inventory-sku-export.service';
-import { InventoryAvailabilityService } from './application/service/inventory-availability.service';
 import { RocketWorkbookProgressService } from './application/service/rocket-workbook-progress.service';
 import { SellpiaInventoryImportService } from './application/service/sellpia-inventory-import.service';
 import { SellpiaInventoryFileValidator } from './application/service/sellpia-inventory-file.validator';
@@ -74,10 +70,6 @@ const REPOSITORY_PORT_BINDINGS = [
     useExisting: InventorySkuSnapshotListRepositoryAdapter,
   },
   {
-    provide: INVENTORY_AVAILABILITY_REPOSITORY_PORT,
-    useExisting: InventoryAvailabilityRepositoryAdapter,
-  },
-  {
     provide: ROCKET_WORKBOOK_PROGRESS_REPOSITORY_PORT,
     useExisting: RocketWorkbookProgressRepositoryAdapter,
   },
@@ -95,7 +87,6 @@ const APPLICATION_PORT_BINDINGS = [
   { provide: INVENTORY_SKU_SNAPSHOT_LIST_PORT, useExisting: InventorySkuSnapshotListService },
   { provide: INVENTORY_SKU_EXPORT_PORT, useExisting: InventorySkuExportService },
   { provide: SELLPIA_INVENTORY_IMPORT_PORT, useExisting: SellpiaInventoryImportService },
-  { provide: INVENTORY_AVAILABILITY_PORT, useExisting: InventoryAvailabilityService },
   { provide: ROCKET_WORKBOOK_PROGRESS_PORT, useExisting: RocketWorkbookProgressService },
   { provide: WAREHOUSES_PORT, useExisting: WarehousesService },
   { provide: TRANSFERS_PORT, useExisting: TransfersService },
@@ -118,7 +109,6 @@ const APPLICATION_PORT_BINDINGS = [
     SellpiaSnapshotPublicationRepositoryAdapter,
     ConfirmedChannelComponentReferenceRepositoryAdapter,
     InventorySkuSnapshotListRepositoryAdapter,
-    InventoryAvailabilityRepositoryAdapter,
     RocketWorkbookProgressRepositoryAdapter,
     SellpiaInventorySkuReadRepositoryAdapter,
     WarehousesRepositoryAdapter,
@@ -127,7 +117,6 @@ const APPLICATION_PORT_BINDINGS = [
     CoupangShipmentDateSummaryRepositoryAdapter,
     InventorySkuSnapshotListService,
     InventorySkuExportService,
-    InventoryAvailabilityService,
     RocketWorkbookProgressService,
     SellpiaInventorySkuReadService,
     SellpiaInventoryImportService,
@@ -142,7 +131,6 @@ const APPLICATION_PORT_BINDINGS = [
     INVENTORY_SKU_SNAPSHOT_LIST_PORT,
     SELLPIA_INVENTORY_SKU_READ_PORT,
     InventoryFreshnessRuntimeModule,
-    INVENTORY_AVAILABILITY_PORT,
     ROCKET_WORKBOOK_PROGRESS_PORT,
   ],
 })

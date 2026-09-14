@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
 import { isApiError } from '@/lib/api-error';
+import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
 import { todayYmd } from '../lib/order-collection-page-model';
 import {
   beginSellpiaShipmentTrackingSourceAttempt,
@@ -70,17 +71,16 @@ export function useSellpiaShipmentTrackingSourceOwner() {
     && activeScope.environmentKey === environmentKey
     ? activeScope.attempt
     : null;
-  const ownerQuery = useQuery({
+  const ownerQuery = useQuery(collectionSourceStatusQueryOptions({
     queryKey: scopedAttempt?.attemptId && organizationId
       ? attemptQueryKey(organizationId, environmentKey, scopedAttempt.attemptId)
       : ['orders', 'sellpia-shipment-tracking-source-attempt', organizationId ?? '', environmentKey, 'none'] as const,
     queryFn: () => readSellpiaShipmentTrackingSourceAttempt(scopedAttempt!.attemptId!),
     enabled: Boolean(organizationId && scopedAttempt?.attemptId),
-    retry: false,
     refetchInterval: (query) => query.state.data?.state === 'RUNNING' ? 2_000 : false,
     refetchIntervalInBackground: false,
     meta: { suppressGlobalErrorToast: true },
-  });
+  }));
 
   const setScopedAttempt = useCallback((attempt: ActiveSellpiaShipmentTrackingAttempt) => {
     if (!organizationId) return;

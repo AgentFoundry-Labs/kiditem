@@ -1,3 +1,5 @@
+Before working in this directory, always read this document first rather than relying on memory.
+
 # apps/web — Next.js Frontend
 
 `apps/web/` owns UI routes, browser integrations, client UI state, and React
@@ -22,6 +24,10 @@ the nearest scoped guide owns route-specific composition.
 - Inherit the root database and organization-scope prohibitions.
 - Server state uses React Query, domain hooks, and `queryKeys`. Poll with
   `refetchInterval` and invalidate only affected families after mutation.
+- Collection source-status queries wrap their options in
+  `collectionSourceStatusQueryOptions` and gate collection actions through
+  `collectionSourceStatusRead`: block only until a first status read, then act
+  on the last known status.
 - Notifications use the shared Alert query: foreground polling every ten
   seconds, refetch on focus, and invalidation after dismissal. Keep progress
   and source status in their owner screens. A new realtime domain requires a

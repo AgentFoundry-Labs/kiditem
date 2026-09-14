@@ -68,7 +68,7 @@ const scenarios: readonly InvocationScenario[] = [
   scenario('analytics.readOverview', 'analytics.readOverview', 'none', { period: 'today' }, {
     sales: { revenue: 1, orders: 1 },
     inventory: { outOfStockSkus: 0, mappingAttentionSkus: 0 },
-    freshness: { lastSync: null, confirmedUntil: null },
+    freshness: { lastSync: null },
   }),
   scenario('channels.register_confirmed_listing', 'channels.registerConfirmedListing', 'medium', {
     registrationExecutionId: OPERATION_ID,
@@ -379,7 +379,7 @@ function realCompositionProviders(typedOwnerPortCalls: TypedOwnerPortCalls) {
       {
         sales: { revenue: 1, orders: 1 },
         inventory: { outOfStockSkus: 0, mappingAttentionSkus: 0 },
-        freshness: { lastSync: null, confirmedUntil: null },
+        freshness: { lastSync: null },
       },
     ),
   };

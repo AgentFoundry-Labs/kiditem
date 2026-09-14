@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
 
 import { Test } from '@nestjs/testing';
 import { EventEmitterModule } from '@nestjs/event-emitter';
@@ -15,8 +15,13 @@ import {
   TEST_ORGANIZATION_ID,
   OTHER_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
-import { kstBusinessDate, kstMonthStart } from '../../common/kst';
-import { seedAd as seedAdTargetDay, seedCompletedAdSweepRun } from '../../test-helpers/finance-seeds';
+import type { AdWeeklyPlan } from '@kiditem/shared/advertising';
+import {
+  seedAd as seedAdTargetDay,
+  seedCompletedAdSweepRun,
+  seedCompletedOrderCoverageRun,
+} from '../../test-helpers/finance-seeds';
+import { seedPublishedProductAbcGrades } from '../../products/__tests__/test-helpers/published-product-abc';
 
 describe('AdStrategy flow (PG integration)', () => {
   let prisma: PrismaClient;
@@ -36,16 +41,39 @@ describe('AdStrategy flow (PG integration)', () => {
         listingOptionId: string;
         optionId?: string;
       }>;
+      /**
+       * Channel of the account the order came through. Defaults to the
+       * organization's Coupang account; `'rocket'` is a Rocket direct-purchase
+       * order, whose sales carry no commission or other per-sale cost.
+       */
+      orderChannel?: string;
     },
   ) {
-    const account = await client.channelAccount.findFirstOrThrow({
-      where: {
-        organizationId: opts.organizationId,
-        channel: 'coupang',
-        status: 'active',
-      },
-      orderBy: { isPrimary: 'desc' },
-    });
+    const account = opts.orderChannel
+      ? await client.channelAccount.upsert({
+          where: {
+            organizationId_channel_externalAccountId: {
+              organizationId: opts.organizationId,
+              channel: opts.orderChannel,
+              externalAccountId: `advertising-strategy-${opts.orderChannel}`,
+            },
+          },
+          create: {
+            organizationId: opts.organizationId,
+            channel: opts.orderChannel,
+            name: `Advertising Strategy PG ${opts.orderChannel}`,
+            externalAccountId: `advertising-strategy-${opts.orderChannel}`,
+          },
+          update: {},
+        })
+      : await client.channelAccount.findFirstOrThrow({
+          where: {
+            organizationId: opts.organizationId,
+            channel: 'coupang',
+            status: 'active',
+          },
+          orderBy: { isPrimary: 'desc' },
+        });
     const order = await client.order.create({
       data: {
         organizationId: opts.organizationId,
@@ -79,12 +107,9 @@ describe('AdStrategy flow (PG integration)', () => {
     organizationId: string;
     abcGrade: 'A' | 'B' | 'C';
     adTier?: string | null;
-    healthScore?: number | null;
     sellableStock?: number | null;
     costPrice?: number | null;
     sellPrice?: number | null;
-    commissionRate?: number | null;
-    shippingCost?: number | null;
     suffix: string;
   }) {
     const channelAccount =
@@ -122,10 +147,13 @@ describe('AdStrategy flow (PG integration)', () => {
         organizationId: params.organizationId,
         code: `M-${params.suffix}`,
         name: `Master ${params.suffix}`,
-        abcGrade: params.abcGrade,
+        abcGrade: null,
         adTier: params.adTier ?? null,
-        healthScore: params.healthScore ?? null,
       },
+    });
+    await seedPublishedProductAbcGrades(prisma, {
+      organizationId: params.organizationId,
+      grades: [{ masterProductId: master.id, abcGrade: params.abcGrade }],
     });
     const inventorySku = await prisma.sellpiaInventorySku.create({
       data: {
@@ -153,9 +181,6 @@ describe('AdStrategy flow (PG integration)', () => {
         listingId: listing.id,
         externalOptionId: `VI-${params.suffix}`,
         salePrice: params.sellPrice ?? 20000,
-        costPriceOverride: params.costPrice ?? 5000,
-        commissionRate: params.commissionRate ?? 0.1,
-        shippingCost: params.shippingCost ?? 2500,
         lastImportRunId: importRun.id,
         isActive: true,
       },
@@ -172,7 +197,12 @@ describe('AdStrategy flow (PG integration)', () => {
     return { master, option, listing, listingOption };
   }
 
-  /** A measured listing-day ad fact in the advertising target-day ledger. */
+  /**
+   * A measured listing-day ad fact in the advertising target-day ledger, on the
+   * clock's last closed KST day or `daysAgo` days before it. The date is a KST
+   * business date written out, never the machine's local midnight, which on a
+   * UTC host would land on the still-open 20th outside every ad window.
+   */
   async function seedAd(params: {
     organizationId: string;
     listingId: string;
@@ -184,43 +214,65 @@ describe('AdStrategy flow (PG integration)', () => {
     clicks?: number;
     impressions?: number;
     conversions?: number;
+    conversionsObserved?: boolean;
   }) {
-    const date = new Date();
-    date.setDate(date.getDate() - (params.daysAgo ?? 0));
-    date.setHours(0, 0, 0, 0);
     await seedAdTargetDay(prisma, {
       organizationId: params.organizationId,
       listingId: params.listingId,
-      date: date.toISOString().slice(0, 10),
+      date: septemberDay(19 - (params.daysAgo ?? 0)),
       spend: params.spend,
       revenue: params.revenue,
       clicks: params.clicks ?? 0,
       impressions: params.impressions ?? 0,
       conversions: params.conversions ?? 0,
+      conversionsObserved: params.conversionsObserved,
     });
   }
 
   /**
-   * The campaign sweep measured every business date of the current KST month —
-   * the window the strategy context reads per-listing profit over. Per-listing
-   * profit is withheld for the whole window unless every date in it was
-   * measured (ADR-0006), so a test that expects a measured profit rate has to
-   * declare the sweep's coverage.
+   * The clock every case reads at. Profit rates evaluate the current KST month
+   * clipped to its closed days (ADR-0001), so on the wall clock that window
+   * would move under the fixtures and be empty on the 1st. 12:00 KST on
+   * 20 September 2026 closes 1–19 September.
    */
-  async function measureCurrentMonth(organizationId: string) {
-    const now = new Date();
-    const year = kstBusinessDate(now).getUTCFullYear();
-    const month = kstBusinessDate(now).getUTCMonth() + 1;
-    const startDate = kstBusinessDate(kstMonthStart(year, month));
-    const nextMonth = kstBusinessDate(kstMonthStart(year, month + 1));
-    const endDate = new Date(nextMonth.getTime() - 86_400_000);
+  const STRATEGY_NOW = new Date('2026-09-20T03:00:00.000Z');
+
+  /** A `YYYY-MM-DD` business date in the clock's month. */
+  function septemberDay(dayOfMonth: number): string {
+    return `2026-09-${String(dayOfMonth).padStart(2, '0')}`;
+  }
+
+  /** Noon KST on a day of the clock's month, as an ISO instant. */
+  function saleAt(dayOfMonth: number): string {
+    return new Date(`${septemberDay(dayOfMonth)}T12:00:00+09:00`).toISOString();
+  }
+
+  /**
+   * The campaign sweep measured the clock's month from the 1st through its
+   * last closed day, the most a real sweep can have reached — the window the
+   * strategy context reads per-listing profit over. Per-listing profit is
+   * withheld for the whole window unless every date in it was measured
+   * (ADR-0006), so a test that expects a measured profit rate has to declare
+   * the sweep's coverage.
+   */
+  async function measureClosedDays(organizationId: string) {
     await seedCompletedAdSweepRun(prisma, {
       organizationId,
       generation: 1,
-      window: {
-        startDate: startDate.toISOString().slice(0, 10),
-        endDate: endDate.toISOString().slice(0, 10),
-      },
+      window: { startDate: septemberDay(1), endDate: septemberDay(19) },
+    });
+  }
+
+  /**
+   * The Orders collection covered the clock's month from the 1st through
+   * `throughDay`. Seed the orders first: the run adopts the orders already in
+   * its window.
+   */
+  async function collectOrders(organizationId: string, throughDay = 19) {
+    await seedCompletedOrderCoverageRun(prisma, {
+      organizationId,
+      startDate: septemberDay(1),
+      endDate: septemberDay(throughDay),
     });
   }
 
@@ -242,6 +294,8 @@ describe('AdStrategy flow (PG integration)', () => {
   });
 
   beforeEach(async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(STRATEGY_NOW);
     await resetDb(prisma);
     await seedBaseFixture(prisma);
     inventoryImportRunByOrganization = new Map();
@@ -275,20 +329,23 @@ describe('AdStrategy flow (PG integration)', () => {
     }
   });
 
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   describe('getRules / getWeeklyPlan — 3-grade listing scenario', () => {
     it('#1 A 등급 ROAS 480+ → recommendations 에 포함 + summary 집계', async () => {
       const a = await seedGradedListing({
         organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'A',
         adTier: '1차',
-        healthScore: 80,
         costPrice: 10_000,
         suffix: 'A-EXPAND',
       });
       await seedOrderWithLineItems(prisma, {
         organizationId: TEST_ORGANIZATION_ID,
         externalOrderId: 'ORD-A-EXPAND',
-        orderedAt: new Date().toISOString(),
+        orderedAt: saleAt(15),
         shippingPrice: 2_000,
         lineItems: [
           {
@@ -309,7 +366,8 @@ describe('AdStrategy flow (PG integration)', () => {
         impressions: 10000,
         conversions: 10,
       });
-      await measureCurrentMonth(TEST_ORGANIZATION_ID);
+      await measureClosedDays(TEST_ORGANIZATION_ID);
+      await collectOrders(TEST_ORGANIZATION_ID);
 
       const rules = await service.getRules('14d', TEST_ORGANIZATION_ID);
 
@@ -317,11 +375,61 @@ describe('AdStrategy flow (PG integration)', () => {
       const aAction = rules.recommendations.find((row) => row.listing.listingId === a.listing.id);
       expect(aAction?.grade).toBe('A');
       expect(aAction?.priority).toBe('high');
-      expect(aAction?.proposedValue).toBe(20);
+      // The listing is on a Coupang Wing account, whose sales commission has no
+      // measured source (KID-114): its profit rate is unknown, so no rate is
+      // proposed.
+      expect(aAction?.proposedValue).toBeNull();
       expect(rules.summary.totalActions).toBe(rules.recommendations.length);
       expect(rules.summary.urgentCount).toBe(
         rules.recommendations.filter((r) => r.priority === 'urgent').length,
       );
+    });
+
+    /**
+     * KID-85 follow-up P3-14 — a listing whose profit is withheld for an
+     * unmeasured cost is absent from the profit rates, so the plan says how
+     * many of its listings that is instead of reasoning over a silent subset.
+     */
+    it('reports how many of its listings had their profit withheld for an unmeasured cost', async () => {
+      const a = await seedGradedListing({
+        organizationId: TEST_ORGANIZATION_ID,
+        abcGrade: 'A',
+        adTier: '1차',
+        costPrice: 10_000,
+        suffix: 'WITHHELD',
+      });
+      await seedOrderWithLineItems(prisma, {
+        organizationId: TEST_ORGANIZATION_ID,
+        externalOrderId: 'ORD-WITHHELD',
+        orderedAt: saleAt(15),
+        shippingPrice: 0,
+        lineItems: [{
+          quantity: 1,
+          totalPrice: 20_000,
+          optionId: a.option.id,
+          listingOptionId: a.listingOption.id,
+        }],
+      });
+      await seedAd({
+        organizationId: TEST_ORGANIZATION_ID,
+        listingId: a.listing.id,
+        optionId: a.option.id,
+        spend: 1_000,
+        revenue: 5_000,
+        clicks: 10,
+        impressions: 1_000,
+        conversions: 1,
+      });
+      await measureClosedDays(TEST_ORGANIZATION_ID);
+      await collectOrders(TEST_ORGANIZATION_ID);
+
+      const plan = await service.getWeeklyPlan('14d', TEST_ORGANIZATION_ID);
+
+      // The order came through a Coupang account, whose sales commission has
+      // no measured source: the listing's profit is withheld over a window the
+      // Orders collection did cover.
+      expect(plan.orderWindowComplete).toBe(true);
+      expect(plan.profitWithheldListings).toBe(1);
     });
 
     it('#2 3-grade listing 동시 평가 + priority 정렬', async () => {
@@ -425,6 +533,31 @@ describe('AdStrategy flow (PG integration)', () => {
           },
         ],
       });
+      const trafficDate = periodBounds('14d').to;
+      await prisma.channelListingDailySnapshot.createMany({
+        data: [
+          {
+            organizationId: TEST_ORGANIZATION_ID,
+            listingId: a.listing.id,
+            channel: 'coupang',
+            externalId: a.listing.externalId,
+            businessDate: trafficDate,
+            trafficRevenue: 123_456,
+            trafficOrders: 7,
+            trafficObservedAt: new Date('2026-09-01T03:00:00.000Z'),
+          },
+          {
+            organizationId: TEST_ORGANIZATION_ID,
+            listingId: a.listing.id,
+            channel: 'coupang',
+            externalId: a.listing.externalId,
+            businessDate: new Date(trafficDate.getTime() - 86_400_000),
+            trafficRevenue: 900_000,
+            trafficOrders: 90,
+            trafficObservedAt: null,
+          },
+        ],
+      });
 
       const plan = await service.getWeeklyPlan('14d', TEST_ORGANIZATION_ID);
 
@@ -445,6 +578,195 @@ describe('AdStrategy flow (PG integration)', () => {
       expect(plan.top20.length).toBe(1);
       expect(plan.top20[0].rank).toBe(1);
       expect(plan.top20[0].listing.listingId).toBe(a.listing.id);
+      expect(plan.top20[0].traffic).toEqual({ revenue: 123_456, orders: 7 });
+    });
+
+    it('전환 컬럼 미관측이면 C-5 안 냄 — an unobserved conversion column raises no zero-conversion action or issue', async () => {
+      const unobserved = await seedGradedListing({
+        organizationId: TEST_ORGANIZATION_ID,
+        abcGrade: 'B',
+        suffix: 'C5-UNOBSERVED',
+      });
+      const observed = await seedGradedListing({
+        organizationId: TEST_ORGANIZATION_ID,
+        abcGrade: 'B',
+        suffix: 'C5-OBSERVED',
+      });
+      await seedAd({
+        organizationId: TEST_ORGANIZATION_ID,
+        listingId: unobserved.listing.id,
+        spend: 8_000,
+        revenue: 20_000,
+        clicks: 80,
+        impressions: 8_000,
+        conversions: 0,
+        conversionsObserved: false,
+      });
+      await seedAd({
+        organizationId: TEST_ORGANIZATION_ID,
+        listingId: observed.listing.id,
+        spend: 8_000,
+        revenue: 20_000,
+        clicks: 80,
+        impressions: 8_000,
+        conversions: 0,
+      });
+
+      const plan = await service.getWeeklyPlan('14d', TEST_ORGANIZATION_ID);
+
+      const actionFor = (listingId: string) =>
+        plan.actions.find((action) => action.listing.listingId === listingId);
+      expect(actionFor(unobserved.listing.id)?.reason ?? '').not.toContain('전환 0');
+      expect(actionFor(observed.listing.id)).toMatchObject({ priority: 'urgent' });
+      expect(actionFor(observed.listing.id)?.reason).toContain('전환 0');
+      expect(plan.issues.zeroConversion.map((issue) => issue.listing.listingId)).toEqual([
+        observed.listing.id,
+      ]);
+      const top = plan.top20.find((item) => item.listing.listingId === unobserved.listing.id);
+      expect(top?.metrics).toMatchObject({ conversions: null, cvr: null });
+    });
+
+    it('withholds traffic rows outside the owner-declared population coverage', async () => {
+      const measured = await seedGradedListing({
+        organizationId: TEST_ORGANIZATION_ID,
+        abcGrade: 'A',
+        adTier: '1차',
+        suffix: 'TRAFFIC-COVERAGE-MEASURED',
+      });
+      const missing = await seedGradedListing({
+        organizationId: TEST_ORGANIZATION_ID,
+        abcGrade: 'B',
+        adTier: '2차',
+        suffix: 'TRAFFIC-COVERAGE-MISSING',
+      });
+      for (const listing of [measured, missing]) {
+        await seedAd({
+          organizationId: TEST_ORGANIZATION_ID,
+          listingId: listing.listing.id,
+          optionId: listing.option.id,
+          spend: 10_000,
+          revenue: 20_000,
+        });
+      }
+      const trafficDate = periodBounds('14d').to;
+      await prisma.channelListingDailySnapshot.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          listingId: measured.listing.id,
+          channel: 'coupang',
+          externalId: measured.listing.externalId,
+          businessDate: trafficDate,
+          trafficRevenue: 123_456,
+          trafficOrders: 7,
+          trafficObservedAt: new Date('2026-09-01T03:00:00.000Z'),
+        },
+      });
+
+      const plan = await service.getWeeklyPlan('14d', TEST_ORGANIZATION_ID);
+      const measuredTopRow = plan.top20.find(
+        (row) => row.listing.listingId === measured.listing.id,
+      );
+      expect(measuredTopRow?.traffic).toBeNull();
+    });
+  });
+
+  /**
+   * KID-136 — profit rates evaluate the current KST month clipped to its closed
+   * days (ADR-0001): the only dates an Orders collection and the campaign sweep
+   * can have covered. A Rocket direct-purchase sale carries no commission or
+   * other per-sale cost, so its listing's profit is measurable once both
+   * sources cover that window.
+   */
+  describe('profit rates over the closed days of the current KST month', () => {
+    /**
+     * An A-grade listing sold once at noon KST on `businessDate` through a
+     * Rocket account and advertised that day: 20,000 revenue − 10,000 purchase
+     * cost − 2,000 shipping − 2,000 ad spend = 6,000, a 30% profit rate.
+     */
+    async function seedRocketSale(suffix: string, businessDate: string): Promise<string> {
+      const listing = await seedGradedListing({
+        organizationId: TEST_ORGANIZATION_ID,
+        abcGrade: 'A',
+        adTier: '1차',
+        costPrice: 10_000,
+        suffix,
+      });
+      await seedOrderWithLineItems(prisma, {
+        organizationId: TEST_ORGANIZATION_ID,
+        externalOrderId: `ORD-${suffix}`,
+        orderedAt: new Date(`${businessDate}T12:00:00+09:00`).toISOString(),
+        shippingPrice: 2_000,
+        orderChannel: 'rocket',
+        lineItems: [{
+          quantity: 1,
+          totalPrice: 20_000,
+          listingOptionId: listing.listingOption.id,
+        }],
+      });
+      await seedAdTargetDay(prisma, {
+        organizationId: TEST_ORGANIZATION_ID,
+        listingId: listing.listing.id,
+        date: businessDate,
+        spend: 2_000,
+        revenue: 10_000,
+        clicks: 100,
+        impressions: 10_000,
+        conversions: 10,
+      });
+      return listing.listing.id;
+    }
+
+    function proposedRate(plan: AdWeeklyPlan, listingId: string): number | null {
+      return plan.actions.find((action) => action.listing.listingId === listingId)?.proposedValue ?? null;
+    }
+
+    it('proposes a rate from the closed days once orders and the sweep cover them', async () => {
+      const listingId = await seedRocketSale('ROCKET-COVERED', septemberDay(15));
+      await measureClosedDays(TEST_ORGANIZATION_ID);
+      await collectOrders(TEST_ORGANIZATION_ID);
+
+      const plan = await service.getWeeklyPlan('14d', TEST_ORGANIZATION_ID);
+
+      // Both sources stop at the 19th; the open 20th is not asked for.
+      expect(proposedRate(plan, listingId)).toBe(30);
+      expect(plan.profitWithheldListings).toBe(0);
+      expect(plan.orderWindowComplete).toBe(true);
+    });
+
+    it('proposes no rate while the Orders collection stops short of the last closed day', async () => {
+      const listingId = await seedRocketSale('ROCKET-ORDERS-SHORT', septemberDay(15));
+      await measureClosedDays(TEST_ORGANIZATION_ID);
+      await collectOrders(TEST_ORGANIZATION_ID, 18);
+
+      const plan = await service.getWeeklyPlan('14d', TEST_ORGANIZATION_ID);
+
+      // The 19th was not collected, so the rows are only the orders collected
+      // so far and no rate over them is the window's.
+      expect(plan.orderWindowComplete).toBe(false);
+      expect(proposedRate(plan, listingId)).toBeNull();
+    });
+
+    it('proposes no rate on the 1st rather than borrowing the closed previous month', async () => {
+      // 12:00 KST on 1 September: August has closed, September has no closed
+      // day. August is collected, swept and holds a measurable 30% sale.
+      vi.setSystemTime(new Date('2026-09-01T03:00:00.000Z'));
+      const listingId = await seedRocketSale('ROCKET-FIRST', '2026-08-25');
+      await seedCompletedAdSweepRun(prisma, {
+        organizationId: TEST_ORGANIZATION_ID,
+        generation: 1,
+        window: { startDate: '2026-08-01', endDate: '2026-08-31' },
+      });
+      await seedCompletedOrderCoverageRun(prisma, {
+        organizationId: TEST_ORGANIZATION_ID,
+        startDate: '2026-08-01',
+        endDate: '2026-08-31',
+      });
+
+      const plan = await service.getWeeklyPlan('14d', TEST_ORGANIZATION_ID);
+
+      expect(plan.orderWindowComplete).toBe(false);
+      expect(plan.profitWithheldListings).toBe(0);
+      expect(proposedRate(plan, listingId)).toBeNull();
     });
   });
 
@@ -517,113 +839,6 @@ describe('AdStrategy flow (PG integration)', () => {
       expect(recs[0]).toHaveProperty('listing');
       expect(recs[0]).toHaveProperty('title');
       expect(recs[0]).toHaveProperty('body');
-    });
-  });
-
-  describe('getExposureAnalysis', () => {
-    it('#5 점수 집계 + factor shape', async () => {
-      const listing = await seedGradedListing({
-        organizationId: TEST_ORGANIZATION_ID,
-        abcGrade: 'A',
-        adTier: '1차',
-        healthScore: 80,
-        costPrice: 5000,
-        sellPrice: 20000,
-        commissionRate: 0.1,
-        shippingCost: 2500,
-        suffix: 'EXP-A',
-      });
-
-      await seedAd({
-        organizationId: TEST_ORGANIZATION_ID,
-        listingId: listing.listing.id,
-        optionId: listing.option.id,
-        spend: 10000,
-        revenue: 60000,
-        clicks: 100,
-        impressions: 10000,
-        conversions: 10,
-      });
-
-      // Review seed (listingId 필수)
-      await prisma.review.createMany({
-        data: Array.from({ length: 25 }, (_, i) => ({
-          organizationId: TEST_ORGANIZATION_ID,
-          listingId: listing.listing.id,
-          platform: 'coupang',
-          rating: 5,
-          reviewedAt: new Date(Date.now() - i * 24 * 3600 * 1000),
-        })),
-      });
-
-      // Traffic is its own ledger row on `ChannelListingDailySnapshot`; the ad
-      // facts seeded above live in the target-day ledger.
-      const todayUpdate = new Date();
-      todayUpdate.setHours(0, 0, 0, 0);
-      await prisma.channelListingDailySnapshot.create({
-        data: {
-          organizationId: TEST_ORGANIZATION_ID,
-          listingId: listing.listing.id,
-          channel: 'coupang',
-          externalId: listing.listing.externalId,
-          businessDate: todayUpdate,
-          trafficRevenue: 500000,
-          trafficOrders: 30,
-          trafficVisitors: 1000,
-          trafficViews: 3000,
-        },
-      });
-
-      const result = await service.getExposureAnalysis(TEST_ORGANIZATION_ID);
-
-      expect(result.scores.length).toBe(1);
-      const score = result.scores[0];
-      expect(score.listing.listingId).toBe(listing.listing.id);
-      expect(score.grade).toBe('A');
-      expect(score.factors).toHaveLength(5);
-      // factor keys
-      const factorKeys = score.factors.map((f) => f.factor).sort();
-      expect(factorKeys).toEqual(['ad', 'fulfillment', 'info', 'review', 'sales']);
-      // weight 합 1.0
-      const weightSum = score.factors.reduce((s, f) => s + f.weight, 0);
-      expect(weightSum).toBeCloseTo(1.0, 2);
-      expect(score.totalScore).toBeGreaterThan(0);
-      expect(score.totalScore).toBeLessThanOrEqual(100);
-    });
-
-    it('#6 urgentActions: factor score <30 listing 만 추출', async () => {
-      // 점수 낮은 listing: 리뷰 0, 광고 있으나 ROAS 낮음
-      const weak = await seedGradedListing({
-        organizationId: TEST_ORGANIZATION_ID,
-        abcGrade: 'C',
-        healthScore: 10,
-        sellableStock: 0,
-        costPrice: 10000,
-        sellPrice: 12000,
-        commissionRate: 0.1,
-        shippingCost: 3000,
-        suffix: 'EXP-WEAK',
-      });
-
-      await seedAd({
-        organizationId: TEST_ORGANIZATION_ID,
-        listingId: weak.listing.id,
-        optionId: weak.option.id,
-        spend: 100000,
-        revenue: 10000,
-        clicks: 500,
-        impressions: 100000,
-        conversions: 2,
-      });
-
-      const result = await service.getExposureAnalysis(TEST_ORGANIZATION_ID);
-
-      expect(result.urgentActions.length).toBeGreaterThanOrEqual(1);
-      const urgent = result.urgentActions.find(
-        (u) => u.listing.listingId === weak.listing.id,
-      );
-      expect(urgent).toBeDefined();
-      expect(urgent?.suggestedAction).toBeTruthy();
     });
   });
 
@@ -800,10 +1015,6 @@ describe('AdStrategy flow (PG integration)', () => {
 
       expect(plan.actions).toHaveLength(1);
       expect(plan.actions[0].listing.listingId).toBe(own.listing.id);
-
-      const exposure = await service.getExposureAnalysis(TEST_ORGANIZATION_ID);
-      expect(exposure.scores).toHaveLength(1);
-      expect(exposure.scores[0].listing.listingId).toBe(own.listing.id);
     });
   });
 
@@ -963,9 +1174,6 @@ describe('AdStrategy flow (PG integration)', () => {
           listingId: a.listing.id,
           externalOptionId: 'VI-C4-MULTI-EARLY',
           salePrice: 20000,
-          costPriceOverride: 5000,
-          commissionRate: 0.1,
-          shippingCost: 2500,
           lastImportRunId: a.listing.lastImportRunId,
           isActive: true,
           createdAt: new Date('2026-04-01T00:00:00.000Z'),

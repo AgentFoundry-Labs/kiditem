@@ -96,9 +96,7 @@ function dependencies() {
   const transactions = {
     exportWorkbook: vi.fn().mockResolvedValue({
       exportId: idempotencyKey,
-      status: 'awaiting_coupang_confirmation',
       duplicate: false,
-      canAbandon: false,
       inventoryGeneration: '12',
       generatedAt: '2026-07-17T00:00:00.000Z',
       artifact: {
@@ -238,7 +236,6 @@ describe('RocketWorkbookExportService', () => {
       artifactBytes,
     });
     expect(result).toMatchObject({
-      status: 'awaiting_coupang_confirmation',
       duplicate: false,
     });
   });
@@ -306,7 +303,7 @@ describe('RocketWorkbookExportService', () => {
     );
   });
 
-  it('rejects an incomplete or vendor-mismatched collection before persistence', async () => {
+  it('rejects a preview without a published catalog before persistence', async () => {
     const deps = dependencies();
     deps.preview.preview.mockResolvedValue({
       ...previewResult(),
@@ -317,7 +314,7 @@ describe('RocketWorkbookExportService', () => {
         editedQuantity: 0,
         recommendedQuantity: 0,
         maxQuantity: 0,
-        reason: 'collection_incomplete',
+        reason: 'inventory_unavailable',
         channelListingOptionId: null,
         masterProductId: null,
         components: [],

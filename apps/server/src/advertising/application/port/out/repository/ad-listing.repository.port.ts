@@ -16,7 +16,6 @@ export interface ScopedAdListingReadModel {
     name: string;
     abcGrade: string | null;
     adTier: string | null;
-    healthScore: number | null;
   };
 }
 
@@ -24,7 +23,6 @@ export interface ScopedAdListingSummary extends AdListingSummary {
   masterProduct: AdListingSummary['masterProduct'] & {
     abcGrade: string | null;
     adTier: string | null;
-    healthScore: number | null;
   };
 }
 

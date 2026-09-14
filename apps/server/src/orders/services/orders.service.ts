@@ -1,6 +1,13 @@
 import { Injectable, NotFoundException, BadRequestException, NotImplementedException } from '@nestjs/common';
-import { PrismaService } from '../../prisma/prisma.service';
 import { OrderStatusSchema } from '@kiditem/shared/order';
+import { PrismaService } from '../../prisma/prisma.service';
+import {
+  readOrderByIdFact,
+  readOrderListFacts,
+  readOrderStatusCounts,
+  readOrderWindowFacts,
+  type OrderWindowFacts,
+} from '../read/order-facts.reader';
 import type { OrderActionResponse, OrderListItem, OrderListResponse, OrderStatsResponse } from '@kiditem/shared/order';
 import { addDays, kstBusinessDate, kstDayStart } from '../../common/kst';
 
@@ -116,23 +123,14 @@ export class OrdersService {
         ? { in: ['DEPARTURE', 'NONE_TRACKING'] }
         : dbStatus;
 
-    const orders = await this.prisma.order.findMany({
-      where: {
+    const orders = await this.prisma.$transaction((tx) =>
+      readOrderListFacts(tx, {
         organizationId,
         status: statusFilter,
-        ...(Object.keys(orderedAtFilter).length > 0 && {
-          orderedAt: orderedAtFilter,
-        }),
-      },
-      include: {
-        channelAccount: { select: { channel: true } },
-        lineItems: {
-          where: { organizationId },
-          orderBy: { createdAt: 'asc' },
-        },
-      },
-      orderBy: { orderedAt: 'desc' },
-    });
+        from: orderedAtFilter.gte,
+        to: orderedAtFilter.lte,
+      }),
+    );
 
     return {
       items: orders.map((order) => this.toListItem(order)),
@@ -142,14 +140,9 @@ export class OrdersService {
 
   async findOne(id: string, organizationId: string) {
     // findUnique({ where: { id } }) 금지 — organizationId 필수
-    const order = await this.prisma.order.findFirst({
-      where: { id, organizationId },
-      include: {
-        lineItems: {
-          where: { organizationId },
-        },
-      },
-    });
+    const order = await this.prisma.$transaction((tx) =>
+      readOrderByIdFact(tx, organizationId, id),
+    );
     if (!order) throw new NotFoundException('Order not found');
     return order;
   }
@@ -157,39 +150,34 @@ export class OrdersService {
   async getStats(organizationId: string): Promise<OrderStatsResponse> {
     const now = new Date();
     const todayStart = kstDayStart(now);
+    const tomorrowStart = addDays(todayStart, 1);
     const dayOfWeek = kstBusinessDate(now).getUTCDay();
     const weekStart = addDays(todayStart, -(dayOfWeek === 0 ? 6 : dayOfWeek - 1));
-
-    const [total, accept, instruct, departure, delivering, finalDelivery, todayAgg, weekAgg] =
-      await Promise.all([
-        this.prisma.order.count({ where: { organizationId } }),
-        this.prisma.order.count({ where: { organizationId, status: 'ACCEPT' } }),
-        this.prisma.order.count({ where: { organizationId, status: 'INSTRUCT' } }),
-        this.prisma.order.count({ where: { organizationId, status: 'DEPARTURE' } }),
-        this.prisma.order.count({ where: { organizationId, status: 'DELIVERING' } }),
-        this.prisma.order.count({ where: { organizationId, status: 'FINAL_DELIVERY' } }),
-        this.prisma.order.aggregate({
-          where: { organizationId, orderedAt: { gte: todayStart } },
-          _count: true,
-          _sum: { totalPrice: true },
-        }),
-        this.prisma.order.aggregate({
-          where: { organizationId, orderedAt: { gte: weekStart } },
-          _count: true,
-          _sum: { totalPrice: true },
-        }),
-      ]);
+    const { statuses, today, week } = await this.prisma.$transaction(async (tx) => ({
+      statuses: await readOrderStatusCounts(tx, organizationId),
+      today: await readOrderWindowFacts(tx, {
+        organizationId,
+        from: todayStart,
+        to: tomorrowStart,
+      }),
+      week: await readOrderWindowFacts(tx, {
+        organizationId,
+        from: weekStart,
+        to: tomorrowStart,
+      }),
+    }));
 
     return {
-      stats: { total, accept, instruct, departure, delivering, finalDelivery },
-      today: {
-        orders: todayAgg._count,
-        revenue: todayAgg._sum.totalPrice ?? 0,
+      stats: {
+        total: statuses.total,
+        accept: statuses.byStatus.ACCEPT ?? 0,
+        instruct: statuses.byStatus.INSTRUCT ?? 0,
+        departure: statuses.byStatus.DEPARTURE ?? 0,
+        delivering: statuses.byStatus.DELIVERING ?? 0,
+        finalDelivery: statuses.byStatus.FINAL_DELIVERY ?? 0,
       },
-      week: {
-        orders: weekAgg._count,
-        revenue: weekAgg._sum.totalPrice ?? 0,
-      },
+      today: toOrderStatsWindow(today),
+      week: toOrderStatsWindow(week),
     } satisfies OrderStatsResponse;
   }
 
@@ -208,4 +196,36 @@ export class OrdersService {
   ): Promise<OrderActionResponse> {
     throw new NotImplementedException('쿠팡 송장 전송은 지원하지 않습니다. 쿠팡 Wing에서 처리해 주세요.');
   }
+}
+
+function toOrderStatsWindow(facts: OrderWindowFacts): OrderStatsResponse['today'] {
+  const basis = {
+    scope: 'KNOWN_SOURCES' as const,
+    requestedDates: facts.requestedDates,
+    includedDates: facts.includedDates,
+    missingDates: facts.missingDates,
+    sourceCoverage: facts.sourceCoverage.map(toOrderStatsSourceCoverage),
+  };
+  if (facts.orderCount === null || facts.revenue === null) {
+    return { ...basis, orders: null, revenue: null };
+  }
+  return { ...basis, orders: facts.orderCount, revenue: facts.revenue };
+}
+
+function toOrderStatsSourceCoverage(source: {
+  sourceType: string;
+  channelAccountId: string | null;
+  mallKey: string | null;
+  factDates: string[];
+  includedDates: string[];
+  missingDates: string[];
+}) {
+  return {
+    sourceType: source.sourceType,
+    channelAccountId: source.channelAccountId,
+    mallKey: source.mallKey,
+    factDates: source.factDates,
+    includedDates: source.includedDates,
+    missingDates: source.missingDates,
+  };
 }

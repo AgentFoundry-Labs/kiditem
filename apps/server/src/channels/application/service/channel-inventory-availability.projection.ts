@@ -14,9 +14,9 @@ export function projectChannelInventoryComponents<T extends ChannelRecipeCompone
     const inventory = inventoryBySkuId.get(component.sellpiaInventorySkuId);
     return {
       ...component,
-      currentStock: inventory?.currentStock ?? 0,
-      availableStock: inventory?.availableStock ?? 0,
-      isActive: inventory?.isActive ?? false,
+      currentStock: inventory?.currentStock ?? null,
+      availableStock: inventory?.availableStock ?? null,
+      isActive: inventory?.isActive ?? null,
     };
   });
   return {

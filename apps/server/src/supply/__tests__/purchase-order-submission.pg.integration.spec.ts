@@ -36,6 +36,22 @@ describe('purchase-order submission transaction (PG integration)', () => {
   beforeEach(async () => {
     await resetDb(prisma);
     await seedBaseFixture(prisma);
+    verifiedAt = new Date();
+    const inventoryRun = await prisma.sourceImportRun.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceType: 'sellpia_inventory',
+        channelAccountId: null,
+        fileName: 'purchase-submission-inventory.json',
+        fileHash: 'c'.repeat(64),
+        status: 'completed',
+        rowCount: 1,
+        importedAt: verifiedAt,
+        lastVerifiedAt: verifiedAt,
+        verificationCount: 1,
+        freshnessGeneration: 4n,
+      },
+    });
     await prisma.sellpiaInventorySku.create({
       data: {
         id: SELLPIA_SKU_ID,
@@ -44,6 +60,7 @@ describe('purchase-order submission transaction (PG integration)', () => {
         name: 'Submission SKU',
         currentStock: 10,
         isActive: true,
+        lastImportRunId: inventoryRun.id,
       },
     });
     await prisma.purchaseOrder.create({
@@ -65,7 +82,6 @@ describe('purchase-order submission transaction (PG integration)', () => {
         unitPriceCny: 10,
       },
     });
-    verifiedAt = new Date();
     await prisma.sellpiaInventoryState.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
@@ -74,6 +90,7 @@ describe('purchase-order submission transaction (PG integration)', () => {
         requestedGeneration: 4n,
         verifiedGeneration: 4n,
         freshnessFence: FENCE,
+        lastCompletedImportRunId: inventoryRun.id,
       },
     });
   });

@@ -38,7 +38,9 @@ function baseRow(overrides: Partial<LatestTargetRow> = {}): LatestTargetRow {
     clicks: 10,
     conversions: 2,
     abcGrade: 'B',
-    optionCommissionRate: 0.1,
+    // The listing's channel account decides whether a sales commission and an
+    // other per-sale cost apply (KID-114); Rocket direct purchase applies neither.
+    listingChannel: 'rocket',
     productName: '상품1',
     ...overrides,
   };
@@ -137,6 +139,18 @@ describe('createActionCandidate — 5 rules', () => {
       });
     });
 
+    it('an unobserved conversion count (null) is never a zero-conversion pause', () => {
+      const row = baseRow({
+        targetType: 'keyword',
+        keyword: 'K1',
+        conversions: null,
+        spend: 8000,
+        revenue: 0,
+      });
+
+      expect(createActionCandidate(row, new Map())).toBeNull();
+    });
+
     it('keyword roas in (0,100) + grade=A → pause_keyword high', () => {
       const row = baseRow({
         targetType: 'keyword',
@@ -177,7 +191,6 @@ describe('createActionCandidate — 5 rules', () => {
         spend: 10000,
         revenue: 15000,
         currentBid: 1000,
-        optionCommissionRate: 0.1,
       });
       const evidence = new Map([['LO1', {
         sellableStock: 5,
@@ -196,11 +209,29 @@ describe('createActionCandidate — 5 rules', () => {
         spend: 10000,
         revenue: 15000,
         currentBid: 1000,
-        optionCommissionRate: 0.1,
       });
       const evidence = new Map([['LO1', {
         sellableStock: 5,
         purchaseCost: null,
+        salePrice: 10000,
+      }]]) as Map<string, ChannelSkuAdEvidence>;
+
+      expect(createActionCandidate(row, evidence)?.priority).toBe('medium');
+    });
+
+    it('keeps priority neutral when the account sales commission has no source even if cost exceeds price', () => {
+      const row = baseRow({
+        targetType: 'keyword',
+        keyword: 'K1',
+        conversions: 5,
+        spend: 10000,
+        revenue: 15000,
+        currentBid: 1000,
+        listingChannel: 'coupang',
+      });
+      const evidence = new Map([['LO1', {
+        sellableStock: 5,
+        purchaseCost: 12000,
         salePrice: 10000,
       }]]) as Map<string, ChannelSkuAdEvidence>;
 
@@ -235,8 +266,6 @@ describe('createActionCandidate — 5 rules', () => {
         spend: 10000,
         revenue: 15000, // ROAS = 150
         currentBid: 1000,
-        // commission 100% with cost > sell → negative margin
-        optionCommissionRate: 0.1,
       });
 
       const candidate = createActionCandidate(row, new Map([['LO1', {
@@ -350,25 +379,26 @@ describe('createActionCandidate — 5 rules', () => {
 
 describe('calcProfitRate', () => {
   it('returns null when sellPrice is missing or non-positive', () => {
-    expect(
-      calcProfitRate({ costPrice: 1000, sellPrice: 0, commissionRate: 0.1 }),
-    ).toBeNull();
-    expect(
-      calcProfitRate({ costPrice: 1000, sellPrice: null, commissionRate: 0.1 }),
-    ).toBeNull();
+    expect(calcProfitRate({ costPrice: 1000, sellPrice: 0, channel: 'rocket' })).toBeNull();
+    expect(calcProfitRate({ costPrice: 1000, sellPrice: null, channel: 'rocket' })).toBeNull();
   });
 
-  it('returns positive percentage when sell exceeds cost + commission', () => {
-    // sell=10000, cost=3000, commission=10% (1000) → profit=6000 → 60.00%
-    expect(
-      calcProfitRate({ costPrice: 3000, sellPrice: 10000, commissionRate: 0.1 }),
-    ).toBe(60);
+  it('computes a Rocket direct-purchase margin with commission and other cost not applied', () => {
+    // sell=10000, recipe cost=3000, no commission/other cost by rule → 70.00%
+    expect(calcProfitRate({ costPrice: 3000, sellPrice: 10000, channel: 'rocket' })).toBe(70);
+    // cost above price stays a measured negative margin
+    expect(calcProfitRate({ costPrice: 12000, sellPrice: 10000, channel: 'rocket' })).toBe(-20);
   });
 
-  it('returns negative percentage when costs exceed sell', () => {
-    // sell=10000, cost=12000, commission=10% (1000) → profit=-3000 → -30.00%
-    expect(
-      calcProfitRate({ costPrice: 12000, sellPrice: 10000, commissionRate: 0.1 }),
-    ).toBe(-30);
+  it('returns null when the recipe purchase cost is unknown, never counting it as 0', () => {
+    expect(calcProfitRate({ costPrice: null, sellPrice: 10000, channel: 'rocket' })).toBeNull();
+  });
+
+  it('returns null when the account carries a sales commission with no measured source', () => {
+    expect(calcProfitRate({ costPrice: 3000, sellPrice: 10000, channel: 'coupang' })).toBeNull();
+  });
+
+  it('returns null when the listing has no channel account', () => {
+    expect(calcProfitRate({ costPrice: 3000, sellPrice: 10000, channel: null })).toBeNull();
   });
 });

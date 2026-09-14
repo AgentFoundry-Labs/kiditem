@@ -3,25 +3,29 @@ import { buildDashboardContext } from '../../domain/context';
 import {
   buildMockDashboardInventoryRepo,
   buildMockDashboardSalesRepo,
+  buildTodayKpiRow,
   buildMockProfitCalculationRepo,
-  buildMockWingAdSummaryRepo,
   buildMockWingTrafficAggregationRepo,
 } from '../../__tests__/test-helpers/build-mock-ports';
+import {
+  missingDatesOf,
+  periodStatusOf,
+  snapshotStatusOf,
+} from '../../../../test-helpers/dashboard-basis-assertions';
+import { DashboardSalesService } from './dashboard-sales.service';
+import { DashboardAdService } from './dashboard-ad.service';
+import { DashboardInventoryService } from './dashboard-inventory.service';
 import type { RangeProfitMetrics } from '../port/out/repository/profit-calculation.repository.port';
 import type {
   CoupangAdsMetrics,
   WingTrafficMetrics,
 } from '../port/out/repository/wing-traffic-aggregation.repository.port';
 import type { ResolvedDashboardPeriod } from '../../domain/period/dashboard-period';
-import { DashboardSalesService } from './dashboard-sales.service';
-import { DashboardAdService } from './dashboard-ad.service';
-import { DashboardInventoryService } from './dashboard-inventory.service';
-import type { AbcEvaluationAsOf } from '../port/out/repository/dashboard-inventory.repository.port';
-import {
-  missingDatesOf,
-  periodStatusOf,
-  snapshotStatusOf,
-} from '../../../../test-helpers/dashboard-basis-assertions';
+import type {
+  AbcEvaluationAsOf,
+  DashboardAbcFacts,
+  DashboardPerListingMetricsResult,
+} from '../port/out/repository/dashboard-inventory.repository.port';
 
 /**
  * Published calculation bases for `/api/dashboard/sales` and `/api/dashboard/ad`.
@@ -136,21 +140,41 @@ function salesService(options: {
   const profit = buildMockProfitCalculationRepo();
   profit.calculateForRange.mockImplementation(async (_org, period) => options.profitFor(period));
   profit.calculateDailyForRange.mockResolvedValue([]);
-  const wingAds = buildMockWingAdSummaryRepo();
-  wingAds.fetchCurrentMonthSummary.mockResolvedValue(null);
   const sales = buildMockDashboardSalesRepo();
-  sales.fetchTodayKpis.mockResolvedValue({ revenue: 0, orders: 0 });
+  sales.fetchTodayKpis.mockResolvedValue(buildTodayKpiRow());
   sales.fetchTopProducts.mockResolvedValue([]);
   const wing = buildMockWingTrafficAggregationRepo();
   wing.aggregateTraffic.mockResolvedValue(options.wing ?? wingTraffic());
   wing.aggregateCoupangAds.mockResolvedValue(options.ads ?? coupangAds());
+  wing.readAdRateFacts.mockImplementation(async (_org, period) => {
+    const metrics = options.profitFor(period);
+    const ads = options.ads ?? coupangAds();
+    const adDates = ads.hasData ? period.selectedDates : [];
+    const orderDates = new Set(metrics.sourceCoverage.orderDates);
+    const includedDates = adDates.filter((date) => orderDates.has(date));
+    return {
+      adSpend: includedDates.length > 0 ? ads.spend : null,
+      revenue: includedDates.length > 0 ? metrics.revenue : null,
+      revenueSource: includedDates.length > 0 ? 'orders' : 'unavailable',
+      includedDates,
+      adCoverageComplete: ads.hasData,
+    };
+  });
   wing.fetchDailyAds.mockResolvedValue([]);
   wing.fetchDailyTrend.mockResolvedValue([]);
   wing.findLatestDataDate.mockResolvedValue(null);
   return {
-    sales: new DashboardSalesService(profit, wingAds, sales, wing),
-    ad: new DashboardAdService(profit, wingAds, wing),
+    sales: new DashboardSalesService(profit, sales, wing),
+    ad: new DashboardAdService(profit, wing),
+    profit,
   };
+}
+
+/** The `[from, to)` windows the profit port was asked for, as sorted ISO pairs. */
+function profitWindowsRead(profit: ReturnType<typeof buildMockProfitCalculationRepo>): string[] {
+  return profit.calculateForRange.mock.calls
+    .map(([, period]) => `${period.queryWindow.from.toISOString()}/${period.queryWindow.to.toISOString()}`)
+    .sort();
 }
 
 /** Selected-range aggregates only; other windows report no evidence. */
@@ -169,6 +193,99 @@ function selectedOnly(
 }
 
 describe('dashboard sales metricBasis', () => {
+  /**
+   * KID-144 — a month's profit reads the anchor's month clipped to its closed
+   * KST days, the only dates orders and the ad sweep can both have covered
+   * (ADR-0001). For a month selection the profit card, its rate, change and
+   * inputs follow it; revenue and the ranking keep the calendar month.
+   */
+  it('reads the profit, rate and inputs of a month selection over its closed days while revenue keeps the calendar month', async () => {
+    // 12:00 KST on 20 September: 1–19 September are closed.
+    const anchor = new Date('2026-09-20T03:00:00.000Z');
+    const { sales, profit } = salesService({
+      profitFor: (period) => {
+        const lastDate = period.selectedDates.at(-1);
+        // Orders and the sweep cover every closed day: a measured profit.
+        if (lastDate === '2026-09-19') return profitMetrics(period, { revenue: 100_000, netProfit: 40_000 });
+        // The calendar month also asks for the open 20th onward, which no
+        // sweep can have covered, so it has revenue but no profit.
+        if (lastDate === '2026-09-30') {
+          return profitMetrics(period, { revenue: 120_000, netProfit: null, adDates: [] });
+        }
+        if (lastDate === '2026-08-31') return profitMetrics(period, { revenue: 80_000, netProfit: 20_000 });
+        return profitMetrics(period, { revenue: 0, orderCount: 0, orderDates: [], netProfit: null });
+      },
+    });
+
+    const result = await sales.getSummary(
+      buildDashboardContext('month', undefined, undefined, anchor),
+      ORGANIZATION_ID,
+    );
+
+    expect(result.monthly).toMatchObject({ revenue: 120_000, profit: 40_000, prevProfit: 20_000 });
+    expect(result.rangeKpi).toMatchObject({
+      revenue: 120_000,
+      profit: 40_000,
+      profitRate: 40,
+      prevProfit: 20_000,
+    });
+    expect(result.rangeKpi?.profitChange).not.toBeNull();
+    expect(result.monthly.profitChange).toBe(result.rangeKpi?.profitChange);
+    // Ad cost over the same closed days' revenue.
+    expect(result.monthly.adRate).toBe(10);
+    expect(result.profitDetail).toMatchObject({ revenue: 100_000, netProfit: 40_000 });
+    expect(result.profitInputs).toMatchObject({ revenue: 100_000, adCost: 10_000 });
+    for (const key of ['monthly.profit', 'rangeKpi.profit', 'rangeKpi.profitRate', 'profitInputs'] as const) {
+      expect(result.metricBasis?.[key], key).toMatchObject({
+        from: '2026-09-01',
+        to: '2026-09-19',
+        targetDays: 19,
+      });
+      expect(periodStatusOf(result.metricBasis?.[key]), key).toBe('complete');
+    }
+    for (const key of ['monthly.revenue', 'rangeKpi.revenue', 'topProducts.netProfit'] as const) {
+      expect(result.metricBasis?.[key], key).toMatchObject({ from: '2026-09-01', to: '2026-09-30' });
+    }
+    // Each distinct window is read once: August, September's closed days and
+    // calendar September. The month selection's own calendar and profit
+    // windows are the month's, so they share those reads.
+    expect(profitWindowsRead(profit)).toEqual([
+      '2026-07-31T15:00:00.000Z/2026-08-31T15:00:00.000Z',
+      '2026-08-31T15:00:00.000Z/2026-09-19T15:00:00.000Z',
+      '2026-08-31T15:00:00.000Z/2026-09-30T15:00:00.000Z',
+    ]);
+  });
+
+  it("shares a week selection's calendar read for its profit, whose window is the same", async () => {
+    // 12:00 KST on 20 September: the week is 13–19 September.
+    const anchor = new Date('2026-09-20T03:00:00.000Z');
+    const { sales, profit } = salesService({
+      profitFor: (period) => period.selectedDates[0] === '2026-09-13' && period.selectedDates.length === 7
+        ? profitMetrics(period, { revenue: 50_000, netProfit: 10_000 })
+        : profitMetrics(period, { revenue: 0, orderCount: 0, orderDates: [], netProfit: null }),
+    });
+
+    const result = await sales.getSummary(
+      buildDashboardContext('week', undefined, undefined, anchor),
+      ORGANIZATION_ID,
+    );
+
+    expect(result.rangeKpi).toMatchObject({ revenue: 50_000, profit: 10_000, profitRate: 20 });
+    expect(result.profitInputs).toMatchObject({ revenue: 50_000 });
+    for (const key of ['rangeKpi.revenue', 'rangeKpi.profit', 'profitInputs'] as const) {
+      expect(result.metricBasis?.[key], key).toMatchObject({ from: '2026-09-13', to: '2026-09-19' });
+    }
+    // August, September's closed days, calendar September, the week before
+    // and the week: five windows, five reads.
+    expect(profitWindowsRead(profit)).toEqual([
+      '2026-07-31T15:00:00.000Z/2026-08-31T15:00:00.000Z',
+      '2026-08-31T15:00:00.000Z/2026-09-19T15:00:00.000Z',
+      '2026-08-31T15:00:00.000Z/2026-09-30T15:00:00.000Z',
+      '2026-09-05T15:00:00.000Z/2026-09-12T15:00:00.000Z',
+      '2026-09-12T15:00:00.000Z/2026-09-19T15:00:00.000Z',
+    ]);
+  });
+
   it('publishes a partial revenue basis that keeps an internal hole visible', async () => {
     const { sales } = salesService({
       profitFor: selectedOnly({ orderDates: ['2026-09-01', '2026-09-03', '2026-09-05'] }),
@@ -448,6 +565,54 @@ describe('dashboard ad metricBasis', () => {
     });
   });
 
+  it('refuses the conversion dates of a covered window whose grid carried no conversion columns', async () => {
+    const { ad } = salesService({
+      profitFor: selectedOnly({}),
+      ads: coupangAds({
+        spend: 10_000,
+        revenue: 40_000,
+        impressions: 1_000,
+        clicks: 50,
+        // Every date was swept, but one day's grid had no conversion columns.
+        conversions: null,
+        orders: null,
+        isCollected: true,
+        hasData: true,
+        coverage: {
+          from: '2026-09-01',
+          to: '2026-09-05',
+          knownThrough: '2026-09-05',
+          targetDays: 5,
+          completedDays: 5,
+          missingDates: [],
+        },
+        lastObservedAt: new Date('2026-09-06T01:00:00.000Z'),
+      }),
+    });
+
+    const result = await ad.getSummary(customContext(), ORGANIZATION_ID);
+
+    expect(result.adKpi?.conversions).toBeNull();
+    expect(result.adKpi?.cvr).toBeNull();
+    expect(result.industryBenchmark?.myCvr).toBeNull();
+    for (const key of ['adKpi.conversions', 'adKpi.cvr'] as const) {
+      expect(result.metricBasis?.[key]).toMatchObject({
+        sources: ['coupang_ads'],
+        includedDates: [],
+        invalidDates: SELECTED,
+      });
+      expect(periodStatusOf(result.metricBasis?.[key])).toBe('empty');
+    }
+    const myCvrBasis = result.industryBenchmark?.metricBasis?.myCvr;
+    expect(myCvrBasis).toMatchObject({ sources: ['coupang_ads'], includedDates: [] });
+    expect(myCvrBasis?.kind === 'period' ? myCvrBasis.invalidDates.length : 0).toBeGreaterThan(0);
+    expect(periodStatusOf(myCvrBasis)).toBe('empty');
+    // The rest of the account KPIs were measured and keep their complete basis.
+    expect(result.adKpi?.clicks).toBe(50);
+    expect(periodStatusOf(result.metricBasis?.['adKpi.clicks'])).toBe('complete');
+    expect(periodStatusOf(result.industryBenchmark?.metricBasis?.myCtr)).toBe('complete');
+  });
+
   it('leaves our CVR unavailable rather than zero when clicks are unmeasured', async () => {
     const { ad } = salesService({ profitFor: selectedOnly({}) });
 
@@ -472,35 +637,51 @@ describe('dashboard ad metricBasis', () => {
  */
 describe('dashboard inventory metricBasis', () => {
   /** The counts a warning card displays, and the ABC as-of behind a grade. */
-  function inventoryService(evaluatedAsOf: Partial<AbcEvaluationAsOf> = {}) {
+  function inventoryService(
+    evaluatedAsOf: Partial<AbcEvaluationAsOf> = {},
+    abcOverrides: Partial<DashboardAbcFacts> = {},
+    perListing: Partial<DashboardPerListingMetricsResult> = {},
+  ) {
     const repository = buildMockDashboardInventoryRepo();
-    repository.countActiveProductsByGrade.mockResolvedValue([{ abcGrade: 'A', count: 2 }]);
-    repository.countActiveProductsByAbcStatus.mockResolvedValue({
-      rows: [{ displayStatus: 'READY', count: 2 }],
+    repository.readProductAbcFacts.mockResolvedValue({
+      gradeRows: [{ abcGrade: 'A', count: 2 }],
+      statusRows: [{ displayStatus: 'READY', count: 2 }],
+      contributionRows: [],
+      withheldContributionProductCount: 0,
+      unclassifiedProductCount: 0,
+      formula: null,
       evaluatedAsOf: {
         targetCutoff: '2026-08-31',
         actualCutoff: '2026-08-31',
         capturedAt: '2026-09-02T00:00:00.000Z',
         ...evaluatedAsOf,
       },
+      publication: null,
+      gradeChanges: [],
+      aGradeMasterProductIds: [],
+      ...abcOverrides,
     });
-    repository.findActiveAbcContributions.mockResolvedValue([]);
-    repository.countUnclassifiedActiveProducts.mockResolvedValue(0);
-    repository.findAbcFormula.mockResolvedValue(null);
     repository.findUnreadAlerts.mockResolvedValue([]);
     repository.countActiveProducts.mockResolvedValue(5);
     repository.fetchPerListingMetrics.mockResolvedValue({
       rows: [{ revenue: 1_000, adCost: 300, netProfit: -200, profitRate: -20 }],
       withheldListings: 0,
+      orderWindowComplete: true,
+      hasAdAccount: true,
+      ...perListing,
     });
-    repository.countOutOfStockMasterProducts.mockResolvedValue(3);
-    repository.getSellingChannelMappingSummary.mockResolvedValue({
+    repository.readInventoryAvailabilityFacts.mockResolvedValue({
+      outOfStockSkus: 3,
       linkedMasterProductCount: 4,
       mappingStatusRows: [{ mappingStatus: 'unmatched', count: 2 }],
+      snapshot: {
+        collected: true,
+        generation: '1',
+        verifiedAt: '2026-09-08T00:00:00.000Z',
+      },
     });
-    repository.findGradeHistory.mockResolvedValue([]);
     repository.countLowCtrThumbnails.mockResolvedValue(0);
-    repository.findAGradeReviewCounts.mockResolvedValue([]);
+    repository.findReviewCountsForProducts.mockResolvedValue([]);
     return new DashboardInventoryService(repository);
   }
 
@@ -512,11 +693,22 @@ describe('dashboard inventory metricBasis', () => {
     'gradeCount.A',
     'gradeCount.B',
     'gradeCount.C',
+    'classifiedProductCount',
+    'unclassifiedProductCount',
     'abcStatusCount.READY',
     'abcStatusCount.INSUFFICIENT_EVIDENCE',
     'abcStatusCount.SOURCE_UNMAPPED',
     'abcStatusCount.SELLPIA_SOURCE_STALE',
     'abcStatusCount.AD_SOURCE_STALE',
+    'abcContributionProfit.amountByGrade.A',
+    'abcContributionProfit.amountByGrade.B',
+    'abcContributionProfit.amountByGrade.C',
+    'abcContributionProfit.shareByGrade.A',
+    'abcContributionProfit.shareByGrade.B',
+    'abcContributionProfit.shareByGrade.C',
+    'gradeChanges.upgraded',
+    'gradeChanges.downgraded',
+    'gradeChanges.total',
     'alerts',
     'warnings.minusProducts',
     'warnings.lowProfitProducts',
@@ -539,13 +731,16 @@ describe('dashboard inventory metricBasis', () => {
 
     // A warning basis that is `unavailable` is what makes the card render the
     // unavailable marker, so every one of these must be a real owner as-of.
+    // The per-listing counts evaluate the anchor's month through its last
+    // closed day, 7 September, so that day is their as-of, and they name the
+    // advertising ledger they read beside orders and listings.
     expect(result.metricBasis?.['warnings.minusProducts']).toEqual({
       kind: 'snapshot',
       measured: true,
-      asOf: '2026-09-08',
-      requiredAsOf: '2026-09-08',
+      asOf: '2026-09-07',
+      requiredAsOf: '2026-09-07',
       observedAt: expect.any(String),
-      sources: ['orders', 'channel_listings'],
+      sources: ['orders', 'channel_listings', 'coupang_ads'],
       withheldCount: 0,
     });
     expect(snapshotStatusOf(result.metricBasis?.['warnings.minusProducts'])).toBe('current');
@@ -555,10 +750,10 @@ describe('dashboard inventory metricBasis', () => {
       sources: ['channel_listings', 'sellpia_inventory'],
     });
     expect(snapshotStatusOf(result.metricBasis?.['warnings.mappingAttentionSkus'])).toBe('current');
-    // The linked/unlinked split additionally resolves the active master
-    // product, so it names Products too.
+    // The linked/unlinked split is direct Products + Channels CONFIG; an
+    // inventory recipe or stock publication is not required.
     expect(result.metricBasis?.channelLinkedProducts).toMatchObject({
-      sources: ['products', 'channel_listings', 'sellpia_inventory'],
+      sources: ['products', 'channel_listings'],
     });
     for (const key of ['warnings.lowProfitProducts', 'warnings.highAdProducts'] as const) {
       expect(snapshotStatusOf(result.metricBasis?.[key]), key).toBe('current');
@@ -574,7 +769,103 @@ describe('dashboard inventory metricBasis', () => {
       Object.entries(result.metricBasis ?? {})
         .filter(([, basis]) => basis.kind === 'snapshot' && !basis.measured)
         .map(([key]) => key),
-    ).toEqual([]);
+    ).toEqual([
+      'abcContributionProfit.amountByGrade.A',
+      'abcContributionProfit.amountByGrade.B',
+      'abcContributionProfit.amountByGrade.C',
+      'abcContributionProfit.shareByGrade.A',
+      'abcContributionProfit.shareByGrade.B',
+      'abcContributionProfit.shareByGrade.C',
+    ]);
+  });
+
+  /** The three warning counts drawn from per-listing profit over an order window. */
+  const PER_LISTING_WARNING_KEYS = [
+    'warnings.minusProducts',
+    'warnings.lowProfitProducts',
+    'warnings.highAdProducts',
+  ] as const;
+
+  /**
+   * D2 — the per-listing warnings count listings over collected order rows.
+   * Until the Orders collection covers every date of their window those rows
+   * are only what it has collected so far, so no count over them is a
+   * measurement: an empty read is not "no loss-making listing", and a read
+   * with rows is not a complete count.
+   */
+  it('publishes the per-listing warnings unavailable while orders did not cover their window', async () => {
+    const lossRow = { revenue: 1_000, adCost: 300, netProfit: -200, profitRate: -20 };
+    const shortReads: DashboardPerListingMetricsResult['rows'][] = [[], [lossRow]];
+    for (const rows of shortReads) {
+      const result = await inventoryService({}, {}, { rows, orderWindowComplete: false })
+        .getSummary(customContext(), ORGANIZATION_ID);
+
+      for (const key of PER_LISTING_WARNING_KEYS) {
+        expect(result.metricBasis?.[key], `${key} over ${rows.length} row(s)`).toMatchObject({
+          kind: 'snapshot',
+          measured: false,
+          asOf: null,
+          withheldCount: 0,
+        });
+        expect(snapshotStatusOf(result.metricBasis?.[key]), key).toBe('unavailable');
+      }
+      // Stock and mapping read no order window and keep their own evidence.
+      expect(snapshotStatusOf(result.metricBasis?.['warnings.outOfStockSkus'])).toBe('current');
+      expect(snapshotStatusOf(result.metricBasis?.['warnings.mappingAttentionSkus'])).toBe('current');
+    }
+
+    // Once orders covered every date, an empty population is a counted zero.
+    const covered = await inventoryService({}, {}, { rows: [], orderWindowComplete: true })
+      .getSummary(customContext(), ORGANIZATION_ID);
+    expect(covered.warnings.minusProducts).toBe(0);
+    for (const key of PER_LISTING_WARNING_KEYS) {
+      expect(snapshotStatusOf(covered.metricBasis?.[key]), key).toBe('current');
+    }
+  });
+
+  /**
+   * KID-137 — a basis names every ledger its value was read from. The per-listing
+   * warnings read the advertising ledger only for an organization that
+   * advertises; without a Coupang account advertising is Not applied to every
+   * listing and the counts rest on orders and listings alone.
+   */
+  it('names the advertising ledger among the per-listing warning sources only where advertising applies', async () => {
+    const advertised = await inventoryService({}, {}, { hasAdAccount: true })
+      .getSummary(customContext(), ORGANIZATION_ID);
+    const notApplied = await inventoryService({}, {}, { hasAdAccount: false })
+      .getSummary(customContext(), ORGANIZATION_ID);
+
+    for (const key of PER_LISTING_WARNING_KEYS) {
+      expect(advertised.metricBasis?.[key], key).toMatchObject({
+        sources: ['orders', 'channel_listings', 'coupang_ads'],
+      });
+      expect(notApplied.metricBasis?.[key], key).toMatchObject({
+        sources: ['orders', 'channel_listings'],
+      });
+    }
+  });
+
+  /**
+   * On the 1st the evaluated window has no day, so the count is as-of nothing.
+   * The as-of it needed is still the anchor's last closed day, which keeps the
+   * basis honest about what a measurement would have had to reach.
+   */
+  it('publishes the per-listing warnings with no as-of on the 1st while naming the last closed day', async () => {
+    const firstOfMonth = buildDashboardContext(
+      undefined, undefined, undefined, new Date('2026-09-01T00:30:00.000Z'),
+    );
+    const result = await inventoryService({}, {}, { rows: [], orderWindowComplete: false })
+      .getSummary(firstOfMonth, ORGANIZATION_ID);
+
+    for (const key of PER_LISTING_WARNING_KEYS) {
+      expect(result.metricBasis?.[key], key).toMatchObject({
+        kind: 'snapshot',
+        measured: false,
+        asOf: null,
+        requiredAsOf: '2026-08-31',
+      });
+      expect(snapshotStatusOf(result.metricBasis?.[key]), key).toBe('unavailable');
+    }
   });
 
   it('names the ABC evaluation as-of rather than the read clock for a stored grade', async () => {
@@ -591,6 +882,24 @@ describe('dashboard inventory metricBasis', () => {
     expect(snapshotStatusOf(result.metricBasis?.['gradeCount.A'])).toBe('current');
     expect(result.metricBasis?.['abcStatusCount.READY'])
       .toEqual(result.metricBasis?.['gradeCount.A']);
+  });
+
+  it('keeps the active Products unclassified count actionable without an ABC publication', async () => {
+    const result = await inventoryService({}, {
+      gradeRows: [],
+      statusRows: [],
+      contributionRows: [],
+      unclassifiedProductCount: 5,
+      publication: null,
+    }).getSummary(customContext(), ORGANIZATION_ID);
+
+    expect(result.unclassifiedProductCount).toBe(5);
+    expect(result.metricBasis?.unclassifiedProductCount).toMatchObject({
+      kind: 'snapshot',
+      measured: true,
+      sources: ['products'],
+    });
+    expect(result.metricBasis?.['gradeCount.A']).toMatchObject({ measured: false });
   });
 
   it('retains a grade whose evidence stopped short of the asked-for cutoff as stale', async () => {

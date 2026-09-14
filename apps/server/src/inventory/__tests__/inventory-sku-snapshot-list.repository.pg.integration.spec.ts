@@ -208,7 +208,6 @@ describe('InventorySkuSnapshotListRepositoryAdapter (PG integration)', () => {
         { id: listings[1].option.id, masterProductId: productA.id, channelListingId: listings[1].listing.id, channel: 'coupang', externalOptionId: 'OPTION-A2', itemName: '옵션 A2' },
         { id: listings[2].option.id, masterProductId: productB.id, channelListingId: listings[2].listing.id, channel: 'coupang', externalOptionId: 'OPTION-B1', itemName: '옵션 B1' },
       ],
-      linkStatus: 'linked',
     });
 
     const firstPage = await service.listSnapshot(TEST_ORGANIZATION_ID, {
@@ -314,7 +313,6 @@ describe('InventorySkuSnapshotListRepositoryAdapter (PG integration)', () => {
         linkedProductCount: 0,
         linkedProducts: [],
         linkedChannelOptions: [],
-        linkStatus: 'unlinked',
       }),
     ]);
     expect(result.summary).toMatchObject({

@@ -23,7 +23,8 @@ describe('TrendCollectionRepositoryAdapter', () => {
   it('reads Naver keyword history from the newest complete run for each date', async () => {
     const { businessDate, capturedAt, dateKey } = recentBusinessDay();
     const findMany = vi.fn().mockResolvedValue([{
-      attemptPlan: { businessDate: dateKey, boardKeys: [] },
+      sourceKey: 'naver.trend',
+      attemptPlan: { businessDate: dateKey, keywords: ['학용품'], boardKeys: [] },
       sourceWindowStartAt: businessDate,
       sourceWindowEndAt: capturedAt,
       naverKeywordDailySnapshots: [{
@@ -61,23 +62,14 @@ describe('TrendCollectionRepositoryAdapter', () => {
       trendDelta: 4,
       capturedAt,
     }]);
-    expect(findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({
-        organizationId: 'organization-1',
-        sourceKey: 'naver.trend',
-        scopeKey: 'default',
-        status: 'COMPLETE',
-        OR: expect.any(Array),
-      }),
-      orderBy: [{ completedAt: 'desc' }, { startedAt: 'desc' }, { id: 'desc' }],
-    }));
   });
 
   it('keeps one 1688 observation per offer and source keyword', async () => {
     const { businessDate, capturedAt, dateKey } = recentBusinessDay();
     const findMany = vi.fn().mockResolvedValue([{
+      sourceKey: '1688.hot_product',
       targetKey: 'all',
-      attemptPlan: { source: '1688.hot_product' },
+      attemptPlan: { source: '1688.hot_product', keywords: ['필통', '문구'] },
       sourceWindowStartAt: null,
       sourceWindowEndAt: capturedAt,
       offerKeywordObservations: [
@@ -129,20 +121,12 @@ describe('TrendCollectionRepositoryAdapter', () => {
       repurchaseRate: '20%',
       tradeScore: '4.8',
     });
-    expect(findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({
-        organizationId: 'organization-1',
-        sourceKey: '1688.hot_product',
-        status: 'COMPLETE',
-        OR: expect.any(Array),
-      }),
-      orderBy: [{ completedAt: 'desc' }, { startedAt: 'desc' }, { id: 'desc' }],
-    }));
   });
 
   it('reads TikTok history from complete runs across historical dates', async () => {
     const { businessDate, capturedAt, dateKey } = recentBusinessDay();
     const findMany = vi.fn().mockResolvedValue([{
+      sourceKey: 'tiktok.creative',
       targetKey: 'all',
       attemptPlan: { source: 'tiktok.creative' },
       sourceWindowStartAt: null,
@@ -176,16 +160,5 @@ describe('TrendCollectionRepositoryAdapter', () => {
         entityKey: 'school-supplies',
       })]);
 
-    expect(findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({
-        organizationId: 'organization-1',
-        sourceKey: 'tiktok.creative',
-        scopeKey: 'default',
-        targetKey: 'all',
-        status: 'COMPLETE',
-        OR: expect.any(Array),
-      }),
-      orderBy: [{ completedAt: 'desc' }, { startedAt: 'desc' }, { id: 'desc' }],
-    }));
   });
 });

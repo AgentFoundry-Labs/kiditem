@@ -1,4 +1,3 @@
-export * from './ad-account-kpi.repository.port';
 export * from './ad-action.repository.port';
 export * from './ad-benchmark.repository.port';
 export * from './ad-campaign.repository.port';

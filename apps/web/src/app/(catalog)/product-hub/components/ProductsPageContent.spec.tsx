@@ -26,7 +26,6 @@ const state = vi.hoisted(() => ({
       abc: {
         abcGrade: null,
         evaluation: null,
-        displayStatus: 'INSUFFICIENT_EVIDENCE' as const,
         formulaRevision: 2,
         publicationRevision: 4,
         officialCutoffDate: null,
@@ -47,15 +46,13 @@ const state = vi.hoisted(() => ({
             latestAttempt: null,
             latestComplete: null,
           },
-          mapping: { status: 'UNMAPPED' as const, mappingGeneration: null },
+          mapping: { valid: false, currentMappingGeneration: '0', evidenceMappingGeneration: null },
         },
       },
       contribution: null,
       profitTag: null,
       adTier: null,
       adBudgetLimit: null,
-      healthScore: 82,
-      healthUpdatedAt: null,
       isActive: true,
       updatedAt: '2026-07-16T01:00:00.000Z',
       depletion: {
@@ -66,7 +63,7 @@ const state = vi.hoisted(() => ({
       },
       channelOptionSummary: { total: 2, active: 2, configured: 1, warning: 1 },
       inventoryUnits: 17,
-      inventoryStatus: 'configuration_required' as const,
+      inventory: { skuCount: 0, measuredSkuCount: 0, inactiveSkuCount: 0 },
       channelCount: 1,
       channelStatus: 'partial' as const,
       activeChannels: [{
@@ -84,6 +81,7 @@ const state = vi.hoisted(() => ({
       adSpend: null,
       adSpendRate: null,
       metricsFreshness: {
+        orders: { ready: false, coverageStartDate: null, coverageEndDate: null, capturedAt: null },
         traffic: { ready: false, coverageStartDate: null, coverageEndDate: null, capturedAt: null },
         advertising: { ready: false, coverageStartDate: null, coverageEndDate: null, capturedAt: null },
       },
@@ -93,13 +91,6 @@ const state = vi.hoisted(() => ({
     limit: 50,
     summary: {
       abcGradeCounts: { A: 37, B: 29, C: 50, unclassified: 10 },
-      abcStatusCounts: {
-        READY: 104,
-        INSUFFICIENT_EVIDENCE: 4,
-        SOURCE_UNMAPPED: 0,
-        SELLPIA_SOURCE_STALE: 0,
-        AD_SOURCE_STALE: 0,
-      },
       contributionOverview: null,
       abcFormula: null,
       displayDataAsOf: '2026-07-31',
@@ -116,7 +107,6 @@ const state = vi.hoisted(() => ({
       }],
       inventoryStatusCounts: {
         sellable: 81,
-        partial_out_of_stock: 7,
         out_of_stock: 9,
         configuration_required: 15,
         review_required: 14,
@@ -125,7 +115,6 @@ const state = vi.hoisted(() => ({
       imminentProductCount: 5,
       reorderProductCount: 12,
       depletionCoveredProductCount: 54,
-      sharedDepletionProductCount: 7,
     },
   } as unknown as MasterProductOperationsListResponse,
   overviewData: undefined as MasterProductOperationsListResponse | undefined,

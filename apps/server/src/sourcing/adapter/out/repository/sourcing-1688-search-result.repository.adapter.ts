@@ -1,8 +1,8 @@
 import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import {
   Sourcing1688SearchItemSchema,
   Sourcing1688BatchUnitResultSchema,
-  SourcingWingCatalogObservationSchema,
   buildSourcing1688TargetId,
   deriveSourcing1688SearchQuery,
   sourcingWingCatalogKeywordIdentity,
@@ -17,8 +17,14 @@ import {
   type Sourcing1688StoredSearchObservation,
   type Sourcing1688StoredSearchSnapshot,
 } from '../../../application/port/out/repository/sourcing-1688-search-result.repository.port';
+import {
+  readCompleteSourcingRunsByIds,
+  readCurrentCompleteRuns,
+  readExactSourcingRun,
+  readLatestWingCatalogPublicationFacts,
+} from '../../../read/source-evidence.reader';
+import { read1688OfferSnapshotsForRuns } from '../../../read/source-evidence.reader';
 
-const TERMINAL_COLLECTION_STATUSES = ['COMPLETE'] as const;
 const MAX_LATEST_RUN_CANDIDATES = 120;
 const MAX_TARGET_OBSERVATION_CANDIDATES = 500;
 const MAX_LATEST_IDENTITIES = 30;
@@ -31,14 +37,17 @@ implements Sourcing1688SearchResultRepositoryPort {
   async findUnitResult(input: { organizationId: string; attemptId: string; sourceKey: '1688.hot_product' | '1688.image_search' }) {
     const image = input.sourceKey === '1688.image_search';
     const maxResults = image ? 18 : 6;
-    const run = await this.prisma.sourcingEvidenceIngestionRun.findFirst({
-      where: { id: input.attemptId, organizationId: input.organizationId, sourceKey: input.sourceKey,
-        scopeKey: 'default', collectorKey: image ? SOURCING_1688_IMAGE_COLLECTOR_KEY : SOURCING_1688_KEYWORD_COLLECTOR_KEY,
-        status: { in: ['COMPLETE', 'FAILED'] }, collectorVersion: SOURCING_1688_SEARCH_RESULT_SCHEMA_VERSION },
-      select: { qualityReport: true, attemptPlan: true },
+    const run = await readExactSourcingRun(this.prisma, {
+      id: input.attemptId,
+      organizationId: input.organizationId,
+      sourceKey: input.sourceKey,
+      scopeKey: 'default',
+      statuses: ['COMPLETE', 'FAILED'],
     });
     const parsed = Sourcing1688BatchUnitResultSchema.safeParse(isRecord(run?.qualityReport) ? run.qualityReport.unitResult : null);
     if (!parsed.success || !isRecord(run?.attemptPlan) || !isRecord(run?.qualityReport)
+      || run.collectorKey !== (image ? SOURCING_1688_IMAGE_COLLECTOR_KEY : SOURCING_1688_KEYWORD_COLLECTOR_KEY)
+      || run.collectorVersion !== SOURCING_1688_SEARCH_RESULT_SCHEMA_VERSION
       || run.qualityReport.resultSchemaVersion !== SOURCING_1688_SEARCH_RESULT_SCHEMA_VERSION
       || run.attemptPlan.maxResults !== maxResults) return null;
     const unit = parsed.data;
@@ -55,56 +64,35 @@ implements Sourcing1688SearchResultRepositoryPort {
     const requested = new Set(input.targetIds);
     const productIds = [...new Set(input.targetIds.map((targetId) =>
       targetId.slice(0, targetId.indexOf(':'))))];
-    const complete = await this.prisma.sourcingEvidenceIngestionRun.findMany({
-      where: { organizationId: input.organizationId, sourceKey: 'coupang.wing_catalog',
-        scopeKey: 'default', targetKey: 'catalog', status: 'COMPLETE', completedAt: { not: null } },
-      select: { id: true, qualityReport: true },
-      orderBy: [{ completedAt: 'desc' }, { id: 'desc' }],
-    });
-    const currentByKeyword = new Map<string, string>();
-    for (const run of complete) {
-      const snapshots = isRecord(run.qualityReport) ? run.qualityReport.snapshots : null;
-      for (const snapshot of Array.isArray(snapshots) ? snapshots : []) {
-        if (isRecord(snapshot) && typeof snapshot.keyword === 'string' && !currentByKeyword.has(snapshot.keyword)) {
-          currentByKeyword.set(snapshot.keyword, run.id);
-        }
-      }
-    }
-    if (currentByKeyword.size === 0) return { targets: [], missingTargetIds: input.targetIds };
-    const rows = await this.prisma.sourcingEvidenceObservation.findMany({
-      where: {
+    const publication = await this.prisma.$transaction(
+      (tx) => readLatestWingCatalogPublicationFacts(tx, {
         organizationId: input.organizationId,
-        sourceKey: 'coupang.wing_catalog',
-        sourceEntityType: 'coupang_product',
-        sourceEntityKey: { in: productIds },
-        schemaVersion: 'coupang-wing-catalog/v2',
-        supersededByObservation: null,
-        ingestionRun: { status: { in: [...TERMINAL_COLLECTION_STATUSES] } },
-        OR: [...currentByKeyword].map(([conceptKey, ingestionRunId]) => ({ conceptKey, ingestionRunId })),
-      },
-      select: { payload: true },
-      orderBy: [{ observedAt: 'desc' }, { id: 'desc' }],
-      take: MAX_TARGET_OBSERVATION_CANDIDATES,
-    });
+        productIds,
+      }),
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
     const targetsById = new Map<string, {
       targetId: string;
       imageUrl: string;
       searchQuery: string;
     }>();
-    for (const row of rows) {
-      const observation = SourcingWingCatalogObservationSchema.safeParse(row.payload);
-      if (!observation.success) continue;
-      const targetId = buildSourcing1688TargetId(observation.data);
+    for (const row of publication.rows.slice(0, MAX_TARGET_OBSERVATION_CANDIDATES)) {
+      const observation = {
+        productId: row.productId,
+        itemId: row.itemId,
+        vendorItemId: row.vendorItemId,
+      };
+      const targetId = buildSourcing1688TargetId(observation);
       if (!requested.has(targetId) || targetsById.has(targetId)) continue;
-      const imageUrl = resolveCoupangImageUrl(observation.data.imagePath);
+      const imageUrl = resolveCoupangImageUrl(row.imagePath);
       if (!imageUrl) continue;
       targetsById.set(targetId, {
         targetId,
         imageUrl,
         searchQuery: deriveSourcing1688SearchQuery({
-          productName: observation.data.productName,
-          primaryKeyword: observation.data.sourceKeyword,
-          keywords: [observation.data.sourceKeyword],
+          productName: row.productName,
+          primaryKeyword: row.sourceKeyword,
+          keywords: [row.sourceKeyword],
         }),
       });
     }
@@ -123,29 +111,24 @@ implements Sourcing1688SearchResultRepositoryPort {
     targetIds?: string[];
     completeAttemptIds?: string[];
   }): Promise<Sourcing1688StoredSearchSnapshot> {
-    const runs = await this.prisma.sourcingEvidenceIngestionRun.findMany({
-      where: {
-        organizationId: input.organizationId,
-        status: { in: [...TERMINAL_COLLECTION_STATUSES] },
-        ...(input.completeAttemptIds
-          ? { id: { in: input.completeAttemptIds } }
-          : { isCurrentComplete: true }),
-        OR: [
-          { sourceKey: '1688.hot_product', collectorKey: SOURCING_1688_KEYWORD_COLLECTOR_KEY },
-          { sourceKey: '1688.image_search', collectorKey: SOURCING_1688_IMAGE_COLLECTOR_KEY },
-        ],
-      },
-      select: {
-        id: true,
-        sourceKey: true,
-        collectorKey: true,
-        status: true,
-        completedAt: true,
-        qualityReport: true,
-      },
-      orderBy: [{ completedAt: 'desc' }, { id: 'desc' }],
-      take: MAX_LATEST_RUN_CANDIDATES,
-    });
+    const sourceKeys = ['1688.hot_product', '1688.image_search'];
+    const collectorKeys = [
+      SOURCING_1688_KEYWORD_COLLECTOR_KEY,
+      SOURCING_1688_IMAGE_COLLECTOR_KEY,
+    ];
+    const runs = (input.completeAttemptIds
+      ? await readCompleteSourcingRunsByIds(this.prisma, {
+          organizationId: input.organizationId,
+          ids: input.completeAttemptIds,
+          sourceKeys,
+          collectorKeys,
+        })
+      : await readCurrentCompleteRuns(this.prisma, {
+          organizationId: input.organizationId,
+          sourceKey: sourceKeys,
+          collectorKey: collectorKeys,
+        }))
+      .slice(0, MAX_LATEST_RUN_CANDIDATES);
     const keywordFilter = input.keywords
       ? new Set(input.keywords.map(sourcingWingCatalogKeywordIdentity))
       : null;
@@ -180,26 +163,9 @@ implements Sourcing1688SearchResultRepositoryPort {
     if (selectedRuns.length === 0) {
       return { generatedAt: null, observations: [] };
     }
-    const rows = await this.prisma.sourcing1688OfferKeywordObservation.findMany({
-      where: {
-        organizationId: input.organizationId,
-        ingestionRunId: { in: selectedRuns.map((run) => run.id) },
-      },
-      select: {
-        ingestionRunId: true,
-        sourceKeywordNormalized: true,
-        externalOfferId: true,
-        title: true,
-        priceCny: true,
-        sourceUrl: true,
-        imageUrl: true,
-        rank: true,
-        monthlySales: true,
-        supplierName: true,
-        capturedAt: true,
-        rawOffer: true,
-      },
-      orderBy: [{ capturedAt: 'desc' }, { rank: 'asc' }, { id: 'asc' }],
+    const rows = await read1688OfferSnapshotsForRuns(this.prisma, {
+      organizationId: input.organizationId,
+      ingestionRunIds: selectedRuns.map((run) => run.id),
     });
     const itemsByRun = new Map<string, Array<{
       capturedAt: Date;
@@ -268,7 +234,7 @@ function parseSearchItem(row: {
     priceCny: finiteNumber(row.priceCny),
     sourceUrl: row.sourceUrl,
     imageUrl: row.imageUrl,
-    score: finiteNumber(raw.score) ?? 0,
+    score: finiteNumber(raw.score),
     monthlySales: row.monthlySales,
     tradeScore: finiteNumber(raw.tradeScore),
     repurchaseRate: nullableString(raw.repurchaseRate),

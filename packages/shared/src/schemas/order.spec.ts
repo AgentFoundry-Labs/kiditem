@@ -96,13 +96,62 @@ describe('order response schemas', () => {
           delivering: 0,
           finalDelivery: 0,
         },
-        today: { orders: 1, revenue: 35000 },
-        week: { orders: 1, revenue: 35000 },
+        today: {
+          scope: 'KNOWN_SOURCES',
+          orders: 1,
+          revenue: 35000,
+          requestedDates: ['2026-04-25'],
+          includedDates: ['2026-04-25'],
+          missingDates: [],
+          sourceCoverage: [],
+        },
+        week: {
+          scope: 'KNOWN_SOURCES',
+          orders: null,
+          revenue: null,
+          requestedDates: ['2026-04-20', '2026-04-21'],
+          includedDates: ['2026-04-20'],
+          missingDates: ['2026-04-21'],
+          sourceCoverage: [],
+        },
       }).stats.accept,
     ).toBe(1);
 
     expect(
       OrderActionResponseSchema.parse({ message: '1건 승인 완료', data: { ok: true } }).message,
     ).toContain('승인');
+  });
+
+  it('rejects mixed measured and unavailable order window totals', () => {
+    const result = OrderStatsResponseSchema.safeParse({
+      stats: {
+        total: 0,
+        accept: 0,
+        instruct: 0,
+        departure: 0,
+        delivering: 0,
+        finalDelivery: 0,
+      },
+      today: {
+        scope: 'KNOWN_SOURCES',
+        orders: 0,
+        revenue: null,
+        requestedDates: ['2026-04-25'],
+        includedDates: [],
+        missingDates: ['2026-04-25'],
+        sourceCoverage: [],
+      },
+      week: {
+        scope: 'KNOWN_SOURCES',
+        orders: null,
+        revenue: null,
+        requestedDates: ['2026-04-25'],
+        includedDates: [],
+        missingDates: ['2026-04-25'],
+        sourceCoverage: [],
+      },
+    });
+
+    expect(result.success).toBe(false);
   });
 });

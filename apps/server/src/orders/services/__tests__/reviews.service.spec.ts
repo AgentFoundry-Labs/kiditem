@@ -1,363 +1,146 @@
-import { describe, expect, it, vi } from 'vitest';
-import { ReviewsService, computeSummary } from '../reviews.service';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { computeSummary, ReviewsService } from '../reviews.service';
+import {
+  readCurrentReviewListingAggregates,
+  readCurrentReviewRecentCounts,
+} from '../../read/review-facts.reader';
+import {
+  readListingOptionOrderFacts,
+  readObservedOrderBounds,
+  readOrderWindowFacts,
+} from '../../read/order-facts.reader';
 
-const ORGANIZATION_ID = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d';
-const OTHER_ORGANIZATION_ID = 'b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e';
-const LISTING_HEALTHY = '11111111-1111-4111-8111-111111111111';
-const LISTING_NEEDS_RATING = '22222222-2222-4222-8222-222222222222';
-const LISTING_NEEDS_VOLUME = '33333333-3333-4333-8333-333333333333';
+vi.mock('../../read/review-facts.reader', () => ({
+  readCurrentReviewContentCount: vi.fn(),
+  readCurrentReviewItemCount: vi.fn(),
+  readCurrentReviewItems: vi.fn(),
+  readCurrentReviewListingAggregates: vi.fn(),
+  readCurrentReviewListingStats: vi.fn(),
+  readCurrentReviewRatingCounts: vi.fn(),
+  readCurrentReviewRecentCounts: vi.fn(),
+}));
+vi.mock('../../read/order-facts.reader', () => ({
+  ORDER_FACT_EXCLUDED_STATUSES: ['cancelled', 'returned', 'refunded'],
+  readListingOptionOrderFacts: vi.fn(),
+  readObservedOrderBounds: vi.fn(),
+  readOrderWindowFacts: vi.fn(),
+}));
+vi.mock('../../../products/read/product-abc-publication.reader', () => ({
+  readPublishedProductAbcGrades: vi.fn().mockResolvedValue(new Map()),
+}));
 
-interface PrismaMock {
-  review: {
-    groupBy: ReturnType<typeof vi.fn>;
-  };
-  $queryRaw: ReturnType<typeof vi.fn>;
-  channelListing: {
-    findMany: ReturnType<typeof vi.fn>;
-  };
-}
 
-function makePrismaMock(): PrismaMock {
-  return {
-    review: { groupBy: vi.fn() },
-    $queryRaw: vi.fn().mockResolvedValue([]),
+describe('ReviewsService', () => {
+  const tx = {
     channelListing: { findMany: vi.fn() },
+    channelListingOption: { findMany: vi.fn() },
   };
-}
+  const prisma = {
+    $transaction: vi.fn((callback: (client: typeof tx) => unknown) => callback(tx)),
+  };
 
-describe('ReviewsService.list', () => {
-  it('returns stable empty envelope when DB has no reviews', async () => {
-    const prisma = makePrismaMock();
-    prisma.review.groupBy.mockResolvedValue([]);
-    prisma.channelListing.findMany.mockResolvedValue([]);
-    const svc = new ReviewsService(prisma as never);
+  beforeEach(() => {
+    vi.clearAllMocks();
+    prisma.$transaction.mockImplementation((callback) => callback(tx));
+    vi.mocked(readObservedOrderBounds).mockResolvedValue({
+      from: new Date('2026-04-01T00:00:00.000Z'),
+      to: new Date('2026-05-01T00:00:00.000Z'),
+    });
+  });
 
-    const res = await svc.list(ORGANIZATION_ID, {});
+  it('sorts and paginates current complete listing aggregates', async () => {
+    vi.mocked(readCurrentReviewListingAggregates).mockResolvedValue([
+      { listingId: 'listing-low', totalReviews: 2, avgRating: 5, lastReviewAt: null },
+      { listingId: 'listing-top', totalReviews: 8, avgRating: 4.5, lastReviewAt: null },
+    ]);
+    vi.mocked(readCurrentReviewRecentCounts).mockResolvedValue([
+      { listingId: 'listing-top', count: 3 },
+    ]);
+    vi.mocked(readOrderWindowFacts).mockResolvedValue({
+      revenue: 20_000,
+      orderCount: 1,
+      quantity: 1,
+      observedAt: new Date(),
+      observedTotals: { revenue: 20_000, orderCount: 1, quantity: 1 },
+      requestedDates: ['2026-04-01'],
+      includedDates: ['2026-04-01'],
+      missingDates: [],
+      sourceCoverage: [],
+    });
+    vi.mocked(readListingOptionOrderFacts).mockResolvedValue([{
+      orderId: 'order-1',
+      channelAccountId: 'account-1',
+      listingOptionId: 'option-top',
+      revenue: 20_000,
+      quantity: 1,
+    }]);
+    tx.channelListing.findMany.mockResolvedValue([
+      display('listing-low', '낮은 리뷰 상품'),
+      display('listing-top', '상위 리뷰 상품'),
+    ]);
+    tx.channelListingOption.findMany.mockResolvedValue([
+      { id: 'option-top', listingId: 'listing-top' },
+    ]);
 
-    expect(res).toEqual({
-      items: [],
-      total: 0,
+    const result = await new ReviewsService(prisma as never).list('organization-1', {
       page: 1,
-      limit: 50,
-      summary: {
-        listingCount: 0,
-        totalReviewCount: 0,
-        weightedAvgRating: 0,
-        newListingCount: 0,
-        needsResponseCount: 0,
-        needsAttentionCount: 0,
-      },
+      limit: 1,
+      filter: 'all',
+    });
+
+    expect(result.total).toBe(2);
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0]).toMatchObject({
+      listingId: 'listing-top',
+      recentReviews: 3,
+      orderCount: 1,
     });
   });
 
-  it('aggregates per listing with listing-owned display + 30-day recent count', async () => {
-    const prisma = makePrismaMock();
-    // 1st raw query = full aggregates; 2nd raw query = recent (30d) aggregates.
-    prisma.$queryRaw
-      .mockResolvedValueOnce([
-        {
-          listingId: LISTING_HEALTHY,
-          totalReviews: 12,
-          avgRating: 4.5,
-          lastReviewAt: new Date('2026-04-20T00:00:00.000Z'),
-        },
-        {
-          listingId: LISTING_NEEDS_RATING,
-          totalReviews: 8,
-          avgRating: 2.4,
-          lastReviewAt: new Date('2026-04-22T00:00:00.000Z'),
-        },
-      ])
-      .mockResolvedValueOnce([
-        { listingId: LISTING_HEALTHY, count: 3 },
-      ]);
-
-    prisma.channelListing.findMany.mockResolvedValue([
-      {
-        id: LISTING_HEALTHY,
-        channelName: 'Healthy Listing',
-        displayName: 'Healthy Toy',
-        abcGrade: 'A',
-        options: [{ sellerSku: 'M-00000001-01' }],
-        organization: { name: 'KidItem Co' },
-      },
-      {
-        id: LISTING_NEEDS_RATING,
-        channelName: 'Needs Rating',
-        displayName: 'Low Rated Toy',
-        abcGrade: 'C',
-        options: [{ sellerSku: 'M-00000002-01' }],
-        organization: { name: 'KidItem Co' },
-      },
+  it('keeps listing order counts null before any order observation', async () => {
+    vi.mocked(readCurrentReviewListingAggregates).mockResolvedValue([
+      { listingId: 'listing-1', totalReviews: 1, avgRating: 4, lastReviewAt: null },
     ]);
-
-    const svc = new ReviewsService(prisma as never);
-    const res = await svc.list(ORGANIZATION_ID, {});
-
-    expect(res.total).toBe(2);
-    expect(res.items).toHaveLength(2);
-    expect(res.items.map((i) => i.productId)).toEqual([
-      LISTING_HEALTHY,
-      LISTING_NEEDS_RATING,
-    ]);
-    const healthy = res.items[0];
-    expect(healthy.listingId).toBe(LISTING_HEALTHY);
-    expect(healthy.productName).toBe('Healthy Toy');
-    expect(healthy.totalReviews).toBe(12);
-    expect(healthy.avgRating).toBe(4.5);
-    expect(healthy.recentReviews).toBe(3);
-    expect(healthy.lastReviewAt).toBe('2026-04-20T00:00:00.000Z');
-    // R3 documents orderCount as not-yet-available — it must be 0.
-    expect(healthy.orderCount).toBe(0);
-    expect(res.items[1].recentReviews).toBe(0);
-  });
-
-  it('forwards organizationId to every Prisma call (tenant isolation)', async () => {
-    const prisma = makePrismaMock();
-    prisma.review.groupBy.mockResolvedValue([]);
-    prisma.channelListing.findMany.mockResolvedValue([]);
-    const svc = new ReviewsService(prisma as never);
-
-    await svc.list(ORGANIZATION_ID, {});
-
-    expect(prisma.$queryRaw).toHaveBeenCalled();
-    expect(JSON.stringify(prisma.$queryRaw.mock.calls)).not.toContain(OTHER_ORGANIZATION_ID);
-  });
-
-  it('paginates over aggregates sorted by totalReviews DESC', async () => {
-    const prisma = makePrismaMock();
-    const aggregates = Array.from({ length: 5 }, (_, i) => ({
-      listingId: `0000000${i}-1111-4111-8111-111111111111`,
-      totalReviews: i + 1,
-      avgRating: 5,
-      lastReviewAt: new Date(),
-    }));
-    prisma.$queryRaw.mockResolvedValueOnce(aggregates).mockResolvedValueOnce([]);
-    prisma.channelListing.findMany.mockResolvedValue(
-      aggregates.map((agg) => ({
-        id: agg.listingId,
-        channelName: `Listing ${agg.listingId}`,
-        master: null,
-        options: [],
-        organization: { name: 'KidItem Co' },
-      })),
-    );
-
-    const svc = new ReviewsService(prisma as never);
-    const page1 = await svc.list(ORGANIZATION_ID, { page: 1, limit: 2 });
-    expect(page1.total).toBe(5);
-    expect(page1.items).toHaveLength(2);
-    // Highest totalReviews first.
-    expect(page1.items[0].totalReviews).toBe(5);
-    expect(page1.items[1].totalReviews).toBe(4);
-
-    prisma.$queryRaw.mockResolvedValueOnce(aggregates).mockResolvedValueOnce([]);
-    const page2 = await svc.list(ORGANIZATION_ID, { page: 2, limit: 2 });
-    expect(page2.items).toHaveLength(2);
-    expect(page2.items[0].totalReviews).toBe(3);
-    expect(page2.items[1].totalReviews).toBe(2);
-  });
-
-  it('applies review-status filters before pagination', async () => {
-    const prisma = makePrismaMock();
-    const aggregates = [
-      {
-        listingId: LISTING_HEALTHY,
-        totalReviews: 20,
-        avgRating: 4.8,
-        lastReviewAt: new Date('2026-04-20T00:00:00.000Z'),
-      },
-      {
-        listingId: LISTING_NEEDS_RATING,
-        totalReviews: 10,
-        avgRating: 2.9,
-        lastReviewAt: new Date('2026-04-21T00:00:00.000Z'),
-      },
-      {
-        listingId: LISTING_NEEDS_VOLUME,
-        totalReviews: 4,
-        avgRating: 4.7,
-        lastReviewAt: new Date('2026-04-22T00:00:00.000Z'),
-      },
-      {
-        listingId: '44444444-4444-4444-8444-444444444444',
-        totalReviews: 3,
-        avgRating: 4.9,
-        lastReviewAt: new Date('2026-04-23T00:00:00.000Z'),
-      },
-    ];
-    prisma.$queryRaw.mockResolvedValueOnce(aggregates).mockResolvedValueOnce([]);
-    prisma.channelListing.findMany.mockResolvedValue(
-      aggregates.map((agg) => ({
-        id: agg.listingId,
-        channelName: `Listing ${agg.listingId}`,
-        master: null,
-        options: [],
-        organization: { name: 'KidItem Co' },
-      })),
-    );
-
-    const svc = new ReviewsService(prisma as never);
-    const res = await svc.list(ORGANIZATION_ID, { filter: 'new', page: 1, limit: 1 } as any);
-
-    expect(res.total).toBe(2);
-    expect(res.items).toHaveLength(1);
-    expect(res.items[0].listingId).toBe(LISTING_NEEDS_VOLUME);
-    expect(res.summary).toMatchObject({
-      listingCount: 4,
-      newListingCount: 2,
-      needsResponseCount: 1,
-      needsAttentionCount: 3,
+    vi.mocked(readCurrentReviewRecentCounts).mockResolvedValue([]);
+    vi.mocked(readOrderWindowFacts).mockResolvedValue({
+      revenue: null,
+      orderCount: null,
+      quantity: null,
+      observedAt: null,
+      observedTotals: null,
+      requestedDates: ['2026-04-01'],
+      includedDates: [],
+      missingDates: ['2026-04-01'],
+      sourceCoverage: [],
     });
-  });
+    tx.channelListing.findMany.mockResolvedValue([display('listing-1', '상품')]);
 
-  it('excludes soft-deleted listings from rows and summary', async () => {
-    const prisma = makePrismaMock();
-    prisma.$queryRaw
-      .mockResolvedValueOnce([
-        {
-          listingId: LISTING_HEALTHY,
-          totalReviews: 12,
-          avgRating: 4.5,
-          lastReviewAt: new Date('2026-04-20T00:00:00.000Z'),
-        },
-        {
-          listingId: LISTING_NEEDS_RATING,
-          totalReviews: 8,
-          avgRating: 2.4,
-          lastReviewAt: new Date('2026-04-22T00:00:00.000Z'),
-        },
-      ])
-      .mockResolvedValueOnce([]);
-    prisma.channelListing.findMany.mockResolvedValue([
-      {
-        id: LISTING_HEALTHY,
-        channelName: 'Healthy Listing',
-        displayName: 'Healthy Toy',
-        abcGrade: 'A',
-        options: [{ sellerSku: 'M-00000001-01' }],
-        organization: { name: 'KidItem Co' },
-      },
-    ]);
+    const result = await new ReviewsService(prisma as never).list('organization-1', {});
 
-    const svc = new ReviewsService(prisma as never);
-    const res = await svc.list(ORGANIZATION_ID, {});
-
-    expect(res.total).toBe(1);
-    expect(res.items.map((item) => item.listingId)).toEqual([LISTING_HEALTHY]);
-    expect(res.summary).toMatchObject({
-      listingCount: 1,
-      totalReviewCount: 12,
-      weightedAvgRating: 4.5,
-      needsAttentionCount: 0,
-    });
-  });
-
-  it('asks Prisma for reviews from the last 30 days only', async () => {
-    const prisma = makePrismaMock();
-    prisma.$queryRaw.mockResolvedValueOnce([
-      {
-        listingId: LISTING_HEALTHY,
-        totalReviews: 12,
-        avgRating: 4.5,
-        lastReviewAt: new Date('2026-04-20T00:00:00.000Z'),
-      },
-    ]).mockResolvedValueOnce([]);
-    prisma.channelListing.findMany.mockResolvedValue([
-      {
-        id: LISTING_HEALTHY,
-        channelName: 'Healthy Listing',
-        displayName: 'Healthy Toy',
-        abcGrade: 'A',
-        options: [{ sellerSku: 'M-00000001-01' }],
-        organization: { name: 'KidItem Co' },
-      },
-    ]);
-    const svc = new ReviewsService(prisma as never);
-
-    const before = Date.now();
-    await svc.list(ORGANIZATION_ID, {});
-    const after = Date.now();
-
-    expect(prisma.$queryRaw).toHaveBeenCalledTimes(2);
-    expect(after).toBeGreaterThanOrEqual(before);
-  });
-});
-
-describe('ReviewsService.loadListingReviewStats', () => {
-  it('returns the Orders-owned lifetime and recent rows for requested listings', async () => {
-    const prisma = makePrismaMock();
-    prisma.$queryRaw
-      .mockResolvedValueOnce([
-        {
-          listingId: LISTING_HEALTHY,
-          totalReviews: 4,
-          avgRating: 4.25,
-        },
-      ])
-      .mockResolvedValueOnce([
-        { listingId: LISTING_HEALTHY, count: 2 },
-      ]);
-    const svc = new ReviewsService(prisma as never);
-    const recentSince = new Date('2026-05-01T00:00:00.000Z');
-
-    await expect(
-      svc.loadListingReviewStats({
-        organizationId: ORGANIZATION_ID,
-        listingIds: [LISTING_HEALTHY, LISTING_HEALTHY],
-        recentSince,
-      }),
-    ).resolves.toEqual({
-      lifetime: [
-        { listingId: LISTING_HEALTHY, totalReviews: 4, avgRating: 4.25 },
-      ],
-      recent: [{ listingId: LISTING_HEALTHY, count: 2 }],
-    });
-    expect(prisma.$queryRaw).toHaveBeenCalledTimes(2);
-    expect(JSON.stringify(prisma.$queryRaw.mock.calls)).toContain(
-      ORGANIZATION_ID,
-    );
-  });
-
-  it('does not query when no listing ids are requested', async () => {
-    const prisma = makePrismaMock();
-    const svc = new ReviewsService(prisma as never);
-
-    await expect(
-      svc.loadListingReviewStats({
-        organizationId: ORGANIZATION_ID,
-        listingIds: [],
-        recentSince: new Date('2026-05-01T00:00:00.000Z'),
-      }),
-    ).resolves.toEqual({ lifetime: [], recent: [] });
-    expect(prisma.$queryRaw).not.toHaveBeenCalled();
+    expect(result.items[0]?.orderCount).toBeNull();
   });
 });
 
 describe('computeSummary', () => {
-  it('marks listings with avgRating < 3.5 OR totalReviews < 5 as needing attention', () => {
-    const summary = computeSummary([
-      { listingId: 'h', totalReviews: 12, avgRating: 4.5, lastReviewAt: null },
-      { listingId: 'r', totalReviews: 8, avgRating: 2.4, lastReviewAt: null },
-      { listingId: 'v', totalReviews: 4, avgRating: 4.8, lastReviewAt: null },
-    ]);
-    expect(summary.needsAttentionCount).toBe(2);
-    expect(summary.listingCount).toBe(3);
-    expect(summary.newListingCount).toBe(1);
-    expect(summary.needsResponseCount).toBe(1);
-    expect(summary.totalReviewCount).toBe(24);
-    // weighted avg = (12*4.5 + 8*2.4 + 4*4.8) / 24 = (54 + 19.2 + 19.2) / 24 = 3.85
-    expect(summary.weightedAvgRating).toBe(3.85);
+  it('returns null average when no review facts exist', () => {
+    expect(computeSummary([]).weightedAvgRating).toBeNull();
   });
 
-  it('returns zero weighted average when there are no reviews', () => {
-    expect(computeSummary([])).toEqual({
-      listingCount: 0,
-      totalReviewCount: 0,
-      weightedAvgRating: 0,
-      newListingCount: 0,
-      needsResponseCount: 0,
-      needsAttentionCount: 0,
-    });
+  it('weights each listing rating by its review count', () => {
+    expect(computeSummary([
+      { listingId: 'a', totalReviews: 3, avgRating: 5, lastReviewAt: null },
+      { listingId: 'b', totalReviews: 1, avgRating: 1, lastReviewAt: null },
+    ]).weightedAvgRating).toBe(4);
   });
 });
+
+function display(id: string, productName: string) {
+  return {
+    id,
+    channelName: productName,
+    displayName: null,
+    masterProduct: null,
+    options: [],
+    organization: { name: '회사' },
+  };
+}

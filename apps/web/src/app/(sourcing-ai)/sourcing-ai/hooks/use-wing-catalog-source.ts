@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient, type QueryKey } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
 import { queryKeys } from '@/lib/query-keys';
 import { cancelWingSourceAttempt, collectWingCatalog, readWingSourceAttempt } from '../lib/sourcing-wing-source-owner';
 import type { SourcingWingCatalogBatchInput } from '@kiditem/shared/sourcing';
@@ -15,11 +16,11 @@ export function useWingCatalogSource(options: { input: SourcingWingCatalogBatchI
   const request = useRef<{ fingerprint: string; key: string } | null>(null);
   const invalidated = useRef<string | null>(null);
   const collection = useMutation({ mutationFn: collectWingCatalog });
-  const current = useQuery({
+  const current = useQuery(collectionSourceStatusQueryOptions({
     queryKey: [...queryKeys.sourcing.all, 'wing-source-attempt', attemptId ?? 'current'],
     queryFn: () => readWingSourceAttempt(attemptId),
     refetchInterval: (query) => collection.isPending || query.state.data?.state === 'RUNNING' ? 1000 : false,
-  });
+  }));
   const attempt = current.data ?? null;
   useEffect(() => {
     if (attempt?.state === 'COMPLETE' && invalidated.current !== attempt.attemptId) {

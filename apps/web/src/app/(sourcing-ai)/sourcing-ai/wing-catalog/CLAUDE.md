@@ -1,3 +1,5 @@
+Before working in this directory, always read this document first rather than relying on memory.
+
 # web/sourcing-ai/wing-catalog - Wing Catalog Collection
 
 `wing-catalog/` owns Wing catalog collection helpers, extension capability

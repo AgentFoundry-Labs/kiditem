@@ -1,16 +1,12 @@
 import { Boxes, ChartNoAxesCombined, History, Tags } from 'lucide-react';
+import {
+  deriveProductInventoryStatus,
+  PRODUCT_INVENTORY_LABELS,
+  type MasterProductOperationsDetail,
+} from '@kiditem/shared/product-operations';
 import { formatDateTime, formatKRW, formatNumber } from '@/lib/utils';
 import { isInternalProductCode } from '@/lib/operator-product-reference';
 import { ProductAbcBadge } from '@/components/product-abc/ProductAbcBadge';
-import type { MasterProductOperationsDetail } from '@kiditem/shared/product-operations';
-
-const INVENTORY_LABELS = {
-  sellable: '판매 가능',
-  partial_out_of_stock: '일부 품절',
-  out_of_stock: '품절',
-  configuration_required: '재고 연결 필요',
-  review_required: '검토 필요',
-} as const;
 
 export default function ProductInfoCards({
   product,
@@ -45,19 +41,19 @@ export default function ProductInfoCards({
       </InfoCard>
 
       <InfoCard title="재고 요약" icon={<Boxes size={16} />}>
-        <InfoRow label="물리 재고 합계" value={`${formatNumber(product.inventoryUnits)}개`} />
-        <InfoRow label="재고 상태" value={INVENTORY_LABELS[product.inventoryStatus]} />
+        <InfoRow label="물리 재고 합계" value={product.inventoryUnits === null
+          ? '미수집'
+          : `${formatNumber(product.inventoryUnits)}개`} />
+        <InfoRow label="재고 상태" value={PRODUCT_INVENTORY_LABELS[deriveProductInventoryStatus(product)]} />
         <InfoRow label="채널 판매 옵션" value={`${formatNumber(product.channelListings.reduce((sum, listing) => sum + listing.options.length, 0))}개`} />
         <p className="pt-2 text-xs leading-5 text-[var(--text-tertiary)]">
-          재고 수량은 확인된 옵션 레시피의 Sellpia SKU를 중복 없이 합산합니다.
+          재고 수량은 이 상품에 속한 Sellpia SKU의 확인된 물리 재고입니다.
         </p>
       </InfoCard>
 
       <InfoCard title="광고 · 수익 설정" icon={<ChartNoAxesCombined size={16} />}>
-        <InfoRow label="광고 등급" value={product.adTier ?? '미설정'} />
         <InfoRow label="광고 예산 한도" value={product.adBudgetLimit === null ? '미설정' : `${formatKRW(product.adBudgetLimit)}원`} />
         <InfoRow label="손익 태그" value={product.profitTag ?? '미설정'} />
-        <InfoRow label="상품 건강도" value={product.healthScore === null ? '미수집' : `${formatNumber(product.healthScore)}점`} />
       </InfoCard>
 
       <InfoCard title="변경 기록" icon={<History size={16} />}>

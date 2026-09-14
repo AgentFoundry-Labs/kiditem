@@ -16,19 +16,18 @@ import { DashboardTrafficFunnel } from './components/DashboardTrafficFunnel';
  * the same shape either way.
  */
 const STEPS = [
-  { key: 'visitors', label: '일평균 방문자', display: '185.1명', rate: null },
-  { key: 'views', label: '조회', display: '2,325회', rate: null },
-  { key: 'cartAdds', label: '장바구니', display: '261회', rate: '11.2%' },
-  { key: 'orders', label: '주문', display: '92건', rate: '35.2%' },
-  { key: 'salesQty', label: '판매량', display: '537개', rate: null },
+  { key: 'visitors', label: '일평균 방문자', display: '185.1명', rate: null, basis: null, rateBasis: null },
+  { key: 'views', label: '조회', display: '2,325회', rate: null, basis: null, rateBasis: null },
+  { key: 'cartAdds', label: '장바구니', display: '261회', rate: '11.2%', basis: null, rateBasis: null },
+  { key: 'orders', label: '주문', display: '92건', rate: '35.2%', basis: null, rateBasis: null },
+  { key: 'salesQty', label: '판매량', display: '537개', rate: null, basis: null, rateBasis: null },
 ];
 
 function funnel(collected: boolean) {
   return (
     <DashboardTrafficFunnel
       steps={STEPS}
-      basis={null}
-      coverageLabel={collected ? '부분 10/11일' : null}
+      partial={collected}
       sourceNote="2026. 09. 12. · 부분 10/11일"
       collected={collected}
       onCollect={() => {}}

@@ -32,13 +32,13 @@ export function GradesPanel({ grades }: GradesPanelProps) {
               {grade.grade}등급
             </div>
             <div className="mt-1 text-xs text-[var(--text-muted)]">
-              {grade.count}개 상품
+              {grade.count === null ? '-' : `${grade.count}개 상품`}
             </div>
             <div className="mt-3 space-y-1 text-sm">
               <div className="flex justify-between">
                 <span className="text-[var(--text-secondary)]">매출</span>
                 <span className="font-semibold tabular-nums">
-                  {formatKRW(grade.revenue)}원
+                  {grade.revenue === null ? '-' : `${formatKRW(grade.revenue)}원`}
                 </span>
               </div>
               <div className="flex justify-between">

@@ -4,13 +4,16 @@
 
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import {
+  deriveRankChange,
+  type ProductKeywordRankOverviewResponse,
+  type ProductKeywordRankRow as SharedProductKeywordRankRow,
+} from '@kiditem/shared/advertising';
+import {
   buildRepresentativeKeywordAssignments,
   buildRepresentativeKeywordSearchAssignments,
-  type RepresentativeKeywordCandidate,
-  type RepresentativeKeywordSource,
 } from "../../domain/representative-keyword";
 import { currentBusinessDate } from "../../domain/business-date";
-import { businessDateKey } from '../../../common/kst';
+import { addDays, businessDateKey } from '../../../common/kst';
 import { isNewerAttempt } from '../../../common/current-row';
 import {
   KEYWORD_RANK_REPOSITORY_PORT,
@@ -21,45 +24,13 @@ import {
 } from "../port/out/repository/keyword-rank.repository.port";
 import type { ProductAbcGrade } from "@kiditem/shared/product-abc";
 
-export type ProductKeywordRankStatus =
+type ProductKeywordRankPresentation =
   "rising" | "falling" | "steady" | "out_of_range" | "not_collected";
 
-export interface ProductKeywordRankRow {
-  keyword: string;
-  keywordSource: RepresentativeKeywordSource;
-  keywordScore: number | null;
-  recommendationReason: string;
-  automaticKeyword: string;
-  category: string | null;
-  candidates: RepresentativeKeywordCandidate[];
-  vendorItemId: string;
-  /** 같은 쿠팡 상품명으로 묶인 전체 옵션ID. 화면 검색과 중복 표시용. */
-  groupedVendorItemIds: string[];
-  groupedOptionCount: number;
-  skuId: string | null;
-  productName: string | null;
-  /** 연결된 운영 상품의 저장된 자동 ABC 등급. 미분류는 빈 배열. */
-  abcGrades: ProductAbcGrade[];
-  currentSalesRank: number | null;
-  previousSalesRank: number | null;
-  rankChange: number | null;
-  salesLast28d: number | null;
-  viewsLast28d: number | null;
-  revenueLast28d: number | null;
-  conversionRate28d: number | null;
-  salePrice: number | null;
-  reviewCount: number | null;
-  collectedCount: number | null;
-  totalResults: number | null;
-  businessDate: string | null;
-  capturedAt: Date | null;
-  status: ProductKeywordRankStatus;
-  history: Array<{
-    businessDate: string;
-    salesRank: number | null;
-    salesLast28d: number | null;
-  }>;
-}
+type ProductKeywordRankRow = Omit<
+  SharedProductKeywordRankRow,
+  'capturedAt'
+> & { capturedAt: Date | null };
 
 export interface KeywordRankHistoryPoint {
   businessDate: string;
@@ -151,7 +122,10 @@ export class KeywordRankService {
   }
 
   /** 자사 카탈로그 전체의 대표 키워드별 Wing 최근 28일 판매량순 현황. */
-  async getProductRankOverview(days: number, organizationId: string) {
+  async getProductRankOverview(
+    days: number,
+    organizationId: string,
+  ): Promise<ProductKeywordRankOverviewResponse> {
     const [overrides, ownItems, snapshots] = await Promise.all([
       this.keywordRankRepo.listRepresentativeKeywordOverrides(organizationId),
       this.keywordRankRepo.listOwnVendorItems(organizationId),
@@ -195,22 +169,16 @@ export class KeywordRankService {
           targetKey(assignment.keyword, assignment.vendorItemId),
         ) ?? [];
       const latest = historyRows.at(-1) ?? null;
-      const previous = historyRows.at(-2) ?? null;
+      const previousDate = latest
+        ? addDays(latest.businessDate, -1)
+        : null;
+      const previous = previousDate
+        ? historyRows.find(
+            (row) => row.businessDate.getTime() === previousDate.getTime(),
+          ) ?? null
+        : null;
       const currentSalesRank = latest?.salesRank ?? null;
       const previousSalesRank = previous?.salesRank ?? null;
-      const rankChange =
-        currentSalesRank !== null && previousSalesRank !== null
-          ? previousSalesRank - currentSalesRank
-          : null;
-      const status: ProductKeywordRankStatus = !latest
-        ? "not_collected"
-        : currentSalesRank === null
-          ? "out_of_range"
-          : rankChange === null || rankChange === 0
-            ? "steady"
-            : rankChange > 0
-              ? "rising"
-              : "falling";
       const ownItem = ownByVendorItemId.get(assignment.vendorItemId);
 
       rows.push({
@@ -232,7 +200,6 @@ export class KeywordRankService {
         abcGrades: ownItem?.abcGrade ? [ownItem.abcGrade] : [],
         currentSalesRank,
         previousSalesRank,
-        rankChange,
         salesLast28d: latest?.salesLast28d ?? null,
         viewsLast28d: latest?.viewsLast28d ?? null,
         revenueLast28d: latest?.revenueLast28d ?? null,
@@ -245,19 +212,19 @@ export class KeywordRankService {
           ? businessDateKey(latest.businessDate)
           : null,
         capturedAt: latest?.capturedAt ?? null,
-        status,
         history: historyRows.map((row) => ({
           businessDate: businessDateKey(row.businessDate),
           salesRank: row.salesRank,
           salesLast28d: row.salesLast28d,
         })),
-      });
+      } satisfies ProductKeywordRankRow);
     }
 
     const visibleRows = collapseDuplicateProductNames(rows, ownByVendorItemId);
     visibleRows.sort(
       (a, b) =>
-        rankStatusPriority(a.status) - rankStatusPriority(b.status) ||
+        rankStatusPriority(rankPresentation(a)) -
+          rankStatusPriority(rankPresentation(b)) ||
         (a.currentSalesRank ?? Number.MAX_SAFE_INTEGER) -
           (b.currentSalesRank ?? Number.MAX_SAFE_INTEGER) ||
         (b.salesLast28d ?? -1) - (a.salesLast28d ?? -1) ||
@@ -279,19 +246,21 @@ export class KeywordRankService {
         top20Count: visibleRows.filter(
           (row) => row.currentSalesRank !== null && row.currentSalesRank <= 20,
         ).length,
-        risingCount: visibleRows.filter((row) => row.status === "rising")
-          .length,
-        fallingCount: visibleRows.filter((row) => row.status === "falling")
-          .length,
+        risingCount: visibleRows.filter(
+          (row) => rankPresentation(row) === 'rising',
+        ).length,
+        fallingCount: visibleRows.filter(
+          (row) => rankPresentation(row) === 'falling',
+        ).length,
         outOfRangeCount: visibleRows.filter(
-          (row) => row.status === "out_of_range",
+          (row) => rankPresentation(row) === "out_of_range",
         ).length,
         notCollectedCount: visibleRows.filter(
-          (row) => row.status === "not_collected",
+          (row) => rankPresentation(row) === "not_collected",
         ).length,
       },
       rows: visibleRows,
-    };
+    } satisfies ProductKeywordRankOverviewResponse;
   }
 
   /** 확장이 한 번의 Wing 조회로 같은 대표 키워드 상품을 함께 처리하도록 그룹화. */
@@ -568,7 +537,8 @@ function compareGroupRepresentatives(
     Number(b.keywordSource === "manual_override") -
       Number(a.keywordSource === "manual_override") ||
     Number(b.currentSalesRank !== null) - Number(a.currentSalesRank !== null) ||
-    rankStatusPriority(a.status) - rankStatusPriority(b.status) ||
+    rankStatusPriority(rankPresentation(a)) -
+      rankStatusPriority(rankPresentation(b)) ||
     (a.currentSalesRank ?? Number.MAX_SAFE_INTEGER) -
       (b.currentSalesRank ?? Number.MAX_SAFE_INTEGER) ||
     (b.salesLast28d ?? -1) - (a.salesLast28d ?? -1) ||
@@ -577,8 +547,20 @@ function compareGroupRepresentatives(
   );
 }
 
-function rankStatusPriority(status: ProductKeywordRankStatus): number {
-  const priorities: Record<ProductKeywordRankStatus, number> = {
+function rankPresentation(
+  row: Pick<
+    ProductKeywordRankRow,
+    'businessDate' | 'currentSalesRank' | 'previousSalesRank'
+  >,
+): ProductKeywordRankPresentation {
+  if (row.businessDate === null) return 'not_collected';
+  if (row.currentSalesRank === null) return 'out_of_range';
+  return deriveRankChange(row.currentSalesRank, row.previousSalesRank)
+    .direction ?? 'steady';
+}
+
+function rankStatusPriority(status: ProductKeywordRankPresentation): number {
+  const priorities: Record<ProductKeywordRankPresentation, number> = {
     rising: 0,
     steady: 1,
     falling: 2,

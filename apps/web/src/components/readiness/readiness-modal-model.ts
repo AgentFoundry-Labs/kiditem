@@ -44,7 +44,7 @@ export function shouldAutoOpen(data: ReadinessResponse, mode: AutoOpenWhen): boo
 
   return checks.some((check) => {
     const missingDateCount = check.missingDates?.length ?? 0;
-    return check.collector === 'extension' && (!isReady(check) || missingDateCount > 0);
+    return !isReady(check) || missingDateCount > 0;
   });
 }
 

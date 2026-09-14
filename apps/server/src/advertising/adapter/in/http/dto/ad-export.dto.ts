@@ -5,6 +5,7 @@ import {
   IsObject,
   IsString,
   Min,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -46,13 +47,16 @@ export class AdTrendExportPointDto {
   @IsString()
   axisLabel!: string;
 
+  /** `null` for a date the campaign sweep never measured; the cell stays empty. */
+  @ValidateIf((_, value) => value !== null)
   @Type(() => Number)
   @IsNumber()
-  leftValue!: number;
+  leftValue!: number | null;
 
+  @ValidateIf((_, value) => value !== null)
   @Type(() => Number)
   @IsNumber()
-  rightValue!: number;
+  rightValue!: number | null;
 }
 
 export class AdTrendExportDto {

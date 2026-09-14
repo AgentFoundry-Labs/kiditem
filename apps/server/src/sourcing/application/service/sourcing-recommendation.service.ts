@@ -43,7 +43,7 @@ const LOOKBACK_DAYS = 30;
 export type SourcingRecommendationSurface = 'home' | 'today' | 'entry' | 'final';
 
 export interface SourcingRecommendationEnvelope {
-  status: 'ready' | 'collecting' | 'stale' | 'unavailable';
+  ready: boolean;
   generatedAt: string;
   lastSuccessfulAt: string | null;
   freshUntil: string | null;
@@ -417,7 +417,7 @@ function readyEnvelope(
 ): SourcingRecommendationEnvelope {
   const items = presentItems(run, surface).slice(0, limit);
   return {
-    status: 'ready',
+    ready: true,
     generatedAt: run.generatedAt.toISOString(),
     lastSuccessfulAt: run.completedAt?.toISOString() ?? run.generatedAt.toISOString(),
     freshUntil: run.expiresAt?.toISOString() ?? null,
@@ -430,7 +430,7 @@ function readyEnvelope(
 
 function unavailableEnvelope(now: Date, code: string): SourcingRecommendationEnvelope {
   return {
-    status: 'unavailable',
+    ready: false,
     generatedAt: now.toISOString(),
     lastSuccessfulAt: null,
     freshUntil: null,

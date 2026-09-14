@@ -29,6 +29,7 @@ import {
   inclusiveDayCount,
   kstDayStart,
   parseBusinessDate,
+  shiftBusinessDateKey,
 } from '../../../../common/kst';
 import {
   normalizeAdCampaignTarget,
@@ -40,7 +41,13 @@ import {
   mergeKeywordTargets,
 } from '../../../application/service/ad-keyword-normalizer';
 import { resolveCampaignReportAuthority } from '../../../domain/campaign-report-authority';
-import { pairScrapeRows, cleanString } from '../../../domain/scrape-row-normalizers';
+import { adReportEvidenceCutoff, confirmedAdReportEnd } from '../../../domain/ad-report-confirmation';
+import {
+  AdMetricUnparseableError,
+  pairScrapeRows,
+  cleanString,
+  parseProviderNumber,
+} from '../../../domain/scrape-row-normalizers';
 import {
   matchListingFromRow,
   matchStatusOf,
@@ -213,6 +220,9 @@ export class AdCampaignSourceRepository {
             parsed.data.endDate !== endDate
           )
             continue;
+          // A report that held its day back as unreported is not authoritative.
+          if (!row.coverageEndDate || businessDateKey(row.coverageEndDate) < parsed.data.endDate)
+            continue;
           const entries = (await this.receiptsIn(tx, row)).entries;
           const report = entries.find((entry) => entry.report)?.report;
           if (!report) continue;
@@ -222,10 +232,10 @@ export class AdCampaignSourceRepository {
             plan: parsed.data,
             payload: report,
           });
-          // A completed empty report is still authoritative for this exact
-          // displayed range. Do not fall through to an older manual report;
-          // failed attempts are absent from `rows` and therefore keep the
-          // previous completed report visible.
+          // A completed report that confirmed its whole range, even an empty
+          // one, is authoritative for this exact displayed range. Do not fall
+          // through to an older manual report; failed attempts are absent from
+          // `rows` and therefore keep the previous completed report visible.
           break;
         }
         return { channelAccountId: account.id, reports };
@@ -268,10 +278,18 @@ export class AdCampaignSourceRepository {
             ? latestAttempt
             : await this.viewIn(tx, complete)
           : null;
-        const expectedEnd = businessDateKey(evidenceCutoffDate());
+        const confirmedEnd = complete?.coverageEndDate
+          ? businessDateKey(complete.coverageEndDate)
+          : null;
+        const expectedEnd = adReportEvidenceCutoff({
+          closedDay: businessDateKey(evidenceCutoffDate()),
+          collections: [latestComplete && confirmedEnd
+            ? { requestedEnd: latestComplete.plan.endDate, confirmedEnd }
+            : null],
+        });
         const eligibleComplete = latestComplete !== null
           && latestComplete.plan.expectedAdvertiserId === resolveCoupangVendorId(account)
-          ? { actualCutoff: latestComplete.plan.endDate }
+          ? { actualCutoff: confirmedEnd ?? latestComplete.plan.endDate }
           : null;
         return {
           channelAccountId: account.id,
@@ -453,27 +471,40 @@ export class AdCampaignSourceRepository {
           )!.campaign!;
           const map = await this.listingMap(tx, row);
           const merged = new Map<string, UpsertAdTargetDailyInput>();
+          let unreadableMetric = false;
           for (const raw of payload.groupResult.rows) {
-            const target = normalizeAdKeywordTarget(raw, {
-              organizationId: org,
-              map,
-              businessDate: new Date(plan.endDate),
-              windowDays: 7,
-              campaignName: data.entries
-                .flatMap((e) => e.page?.campaigns ?? [])
-                .find((c) => c.key === payload.campaignKey)!.name,
-            });
+            let target: UpsertAdTargetDailyInput | null;
+            try {
+              target = normalizeAdKeywordTarget(raw, {
+                organizationId: org,
+                map,
+                businessDate: new Date(plan.endDate),
+                windowDays: 7,
+                campaignName: data.entries
+                  .flatMap((e) => e.page?.campaigns ?? [])
+                  .find((c) => c.key === payload.campaignKey)!.name,
+              });
+            } catch (error) {
+              // Optional keyword evidence with an unreadable observed cell is
+              // a warning like any other invalid keyword receipt.
+              if (!(error instanceof AdMetricUnparseableError)) throw error;
+              unreadableMetric = true;
+              break;
+            }
             if (!target) continue;
             const previous = merged.get(target.targetKey);
             merged.set(target.targetKey, previous ? mergeKeywordTargets(previous, target) : target);
           }
-          targets = [...merged.values()];
-          entry.keywordCoverage = {
-            campaignIdentity: `campaign:${campaign.campaignId}`,
-            adGroupId: payload.adGroupId,
-            capturedAt: payload.groupResult.capturedAt,
-            businessDate: plan.endDate,
-          };
+          if (unreadableMetric) entry.warning = true;
+          else {
+            targets = [...merged.values()];
+            entry.keywordCoverage = {
+              campaignIdentity: `campaign:${campaign.campaignId}`,
+              adGroupId: payload.adGroupId,
+              capturedAt: payload.groupResult.capturedAt,
+              businessDate: plan.endDate,
+            };
+          }
         }
       }
       if (targets.length)
@@ -682,6 +713,7 @@ export class AdCampaignSourceRepository {
         );
       if (!completeCoverage(view.plan, entries))
         throw new ConflictException('INCOMPLETE_CAMPAIGN_COVERAGE');
+      const confirmedEnd = await this.confirmedEndIn(tx, row, view.plan, entries);
       const completedAt = new Date();
       const completed = await tx.sourceImportRun.update({
         where: { id, organizationId: org },
@@ -692,7 +724,7 @@ export class AdCampaignSourceRepository {
           lastVerifiedAt: completedAt,
           verificationCount: 1,
           coverageStartDate: new Date(view.plan.startDate),
-          coverageEndDate: new Date(view.plan.endDate),
+          coverageEndDate: new Date(confirmedEnd),
           providerBackedEmptyProof: view.campaignCount === 0,
           qualityReport: {
             rawOnlyCampaignCount: view.rawOnlyCampaignCount,
@@ -728,6 +760,52 @@ export class AdCampaignSourceRepository {
         attemptId: id,
       });
       return attemptView(completed, entries);
+    });
+  }
+
+  /**
+   * The end a completed collection confirms: its requested end, unless Coupang
+   * had not reported the closed day yet. A sweep observed every requested date
+   * through its staged target rows; a one-day manual report observed only its
+   * day, and a seven-day report only its range total.
+   */
+  private async confirmedEndIn(
+    tx: Tx,
+    row: Attempt,
+    plan: AdCampaignSourceAttempt['plan'],
+    entries: ReceiptEntry[],
+  ): Promise<string> {
+    if (plan.captureMode === 'manual_report') {
+      const report = entries.find((entry) => entry.report)?.report;
+      return confirmedAdReportEnd({
+        requestedEnd: plan.endDate,
+        closedDay: businessDateKey(evidenceCutoffDate(row.createdAt)),
+        daySpend: plan.period === '1d'
+          ? (date) => (date === plan.endDate && report ? manualReportSpend(report) : undefined)
+          : null,
+      });
+    }
+    const totals = await tx.channelAdTargetDailySnapshot.groupBy({
+      by: ['businessDate'],
+      where: {
+        organizationId: row.organizationId,
+        sourceImportRunId: row.id,
+        targetType: { not: 'keyword' },
+        businessDate: {
+          in: [plan.endDate, shiftBusinessDateKey(plan.endDate, -1)].map((date) => new Date(date)),
+        },
+      },
+      _sum: { spend: true },
+    });
+    const spend = new Map(totals.map((total) => [
+      businessDateKey(total.businessDate),
+      total._sum.spend ?? 0,
+    ]));
+    const requested = new Set<string>(plan.businessDates);
+    return confirmedAdReportEnd({
+      requestedEnd: plan.endDate,
+      closedDay: plan.endDate,
+      daySpend: (date) => (requested.has(date) ? spend.get(date) ?? 0 : undefined),
     });
   }
 
@@ -1312,6 +1390,14 @@ function completeCoverage(plan: AdCampaignSourceAttempt['plan'], entries: Receip
           ))
       );
     });
+}
+
+/** A displayed manual report's spend: the sum of its rows' positive spend cells. */
+function manualReportSpend(report: NonNullable<ReceiptEntry['report']>): number {
+  return report.normalizedRows.reduce<number>((total, row) => {
+    const spend = parseProviderNumber(row.runningAdSpend ?? row.spend);
+    return total + (spend !== null && spend > 0 ? spend : 0);
+  }, 0);
 }
 
 function manualPlan(

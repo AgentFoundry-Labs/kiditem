@@ -148,6 +148,73 @@ describe('SourceFailureAlerts (PostgreSQL)', () => {
     await expect(prisma.alert.count({ where: { organizationId: TEST_ORGANIZATION_ID } })).resolves.toBe(1);
   });
 
+  it('lists only source failures, so a retired rule-violation row never reaches a reader', async () => {
+    await inTransaction(async (tx) => {
+      await tx.sourceImportRun.update({
+        where: { id: ATTEMPT_ID_1 },
+        data: { status: 'failed' },
+      });
+      await alerts.recordTerminalOutcome(tx, failure(ATTEMPT_ID_1));
+    });
+    // The shape the retired Rules evaluation left behind: open, unread, and a
+    // machine key where the popover shows a sentence. Rows stay until the schema
+    // cutover; readers stop seeing them. The read admits source failures only,
+    // so the exact type another writer used does not matter.
+    await prisma.alert.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        dedupeKey: 'rules.violation:product:rule',
+        type: 'retired_rules_signal',
+        severity: 'critical',
+        title: '광고비율 위험',
+        message: 'stop_ads',
+        status: 'OPEN',
+      },
+    });
+
+    const listed = await alerts.list(TEST_ORGANIZATION_ID);
+    const unreadOpen = await alerts.list(TEST_ORGANIZATION_ID, {
+      isRead: false,
+      status: 'OPEN',
+      limit: 10,
+    });
+
+    expect(listed.map((alert) => alert.type)).toEqual(['source_failure']);
+    expect(unreadOpen.map((alert) => alert.type)).toEqual(['source_failure']);
+    expect(listed.map((alert) => alert.message)).not.toContain('stop_ads');
+  });
+
+  it('reads an alert as read exactly when readAt is set', async () => {
+    await inTransaction(async (tx) => {
+      await tx.sourceImportRun.update({
+        where: { id: ATTEMPT_ID_1 },
+        data: { status: 'failed' },
+      });
+      await alerts.recordTerminalOutcome(tx, failure(ATTEMPT_ID_1));
+    });
+    const [opened] = await alerts.list(TEST_ORGANIZATION_ID);
+    expect(opened).toMatchObject({ isRead: false });
+
+    await alerts.dismiss(opened!.id, TEST_ORGANIZATION_ID);
+    await expect(alerts.list(TEST_ORGANIZATION_ID)).resolves.toMatchObject([
+      { id: opened!.id, isRead: true },
+    ]);
+    await expect(alerts.list(TEST_ORGANIZATION_ID, { isRead: false })).resolves.toEqual([]);
+
+    // The retiring column says otherwise; the timestamp is the fact.
+    await prisma.alert.update({
+      where: { id: opened!.id },
+      data: { isRead: true, readAt: null },
+    });
+    await expect(alerts.list(TEST_ORGANIZATION_ID)).resolves.toMatchObject([
+      { id: opened!.id, isRead: false },
+    ]);
+    await expect(alerts.list(TEST_ORGANIZATION_ID, { isRead: false })).resolves.toMatchObject([
+      { id: opened!.id },
+    ]);
+    await expect(alerts.list(TEST_ORGANIZATION_ID, { isRead: true })).resolves.toEqual([]);
+  });
+
   it('rolls the source terminal state back when the alert mutation fails', async () => {
     const upsert = vi.spyOn(alerts, 'recordTerminalOutcome').mockRejectedValueOnce(
       new Error('alert mutation failed'),

@@ -4,32 +4,21 @@ import {
   NotFoundException,
   ConflictException,
 } from '@nestjs/common';
-import { addDays, kstInclusiveDaysStart } from '../../../common/kst';
 import { AdConfigService } from './ad-config.service';
 import { AdGradeRulesService } from './ad-grade-rules.service';
 import { AdBudgetAllocatorService } from './ad-budget-allocator.service';
-import { AdExposureService } from './ad-exposure.service';
 import { AdRecommendService } from './ad-recommend.service';
 import type { RegisterCampaignDto } from '../../adapter/in/http/dto/register-campaign.dto';
 import {
-  adAggregatesToMetricSnapshots,
   applyChannelSkuAvailability,
-  computeListingProfitRate,
-  emptyMetrics,
-  getCurrentPeriod,
+  getProfitRateWindow,
   getWeekRange,
   toGradeMapStrict,
 } from '../../domain/strategy-context';
-import type { AdAggregateRow } from '../../domain/model/strategy-types';
 import {
   AD_STRATEGY_CONTEXT_REPOSITORY_PORT,
   type AdStrategyContextRepositoryPort,
-  type AllTimeAdAggregateRow,
 } from '../port/out/repository/ad-strategy-context.repository.port';
-import {
-  AD_ACCOUNT_KPI_REPOSITORY_PORT,
-  type AdAccountKpiRepositoryPort,
-} from '../port/out/repository/ad-account-kpi.repository.port';
 import {
   AD_LISTING_REPOSITORY_PORT,
   type AdListingRepositoryPort,
@@ -42,14 +31,11 @@ import {
   toAdRulesData,
   toRecommendationCards,
 } from '../../mapper/ad-strategy.mapper';
-import { toAdAccountKpi } from '../../mapper/ad-campaign.mapper';
 import type {
   AdRulesData,
   AdStrategyAction,
   AdStrategyRecommendation,
   AdWeeklyPlan,
-  ExposureAnalysisData,
-  ExposureProductScore,
 } from '@kiditem/shared/advertising';
 import {
   CHANNEL_SKU_AVAILABILITY_PORT,
@@ -63,8 +49,8 @@ type Priority = 'urgent' | 'high' | 'medium' | 'low';
  *
  * Heavy lifting (raw SQL latest-state reads, multi-step hydration, pure rule
  * evaluation, mapping) lives in `domain/`, `adapter/out/repository/`, `mapper/`,
- * and the four sub-service calculators (`AdGradeRulesService`,
- * `AdBudgetAllocatorService`, `AdExposureService`, `AdRecommendService`).
+ * and the three sub-service calculators (`AdGradeRulesService`,
+ * `AdBudgetAllocatorService`, `AdRecommendService`).
  *
  * This service only:
  *   - composes the per-endpoint Promise.all batches,
@@ -78,8 +64,6 @@ export class AdStrategyService {
   constructor(
     @Inject(AD_STRATEGY_CONTEXT_REPOSITORY_PORT)
     private readonly strategyContextRepo: AdStrategyContextRepositoryPort,
-    @Inject(AD_ACCOUNT_KPI_REPOSITORY_PORT)
-    private readonly accountKpiRepo: AdAccountKpiRepositoryPort,
     @Inject(AD_LISTING_REPOSITORY_PORT)
     private readonly listingRepo: AdListingRepositoryPort,
     @Inject(AD_ACTION_REPOSITORY_PORT)
@@ -87,13 +71,12 @@ export class AdStrategyService {
     private readonly adConfigService: AdConfigService,
     private readonly adGradeRules: AdGradeRulesService,
     private readonly adBudgetAllocator: AdBudgetAllocatorService,
-    private readonly adExposure: AdExposureService,
     private readonly adRecommend: AdRecommendService,
     @Inject(CHANNEL_SKU_AVAILABILITY_PORT)
     private readonly channelSkuAvailability: ChannelSkuAvailabilityPort,
   ) {}
 
-  // ───── PUBLIC API (6 endpoints) ─────
+  // ───── PUBLIC API (5 endpoints) ─────
 
   /** ABC 등급 규칙 기반 recommendations + 요약. */
   async getRules(
@@ -104,23 +87,18 @@ export class AdStrategyService {
     return toAdRulesData(recommendations);
   }
 
-  /** 주간 액션 플랜 — strategy context 한 번 hydrate 후 4 sub-service 조립. */
+  /** 주간 액션 플랜 — strategy context 한 번 hydrate 후 sub-service 조립. */
   async getWeeklyPlan(
     period: '7d' | '14d' | 'month',
     organizationId: string,
   ): Promise<AdWeeklyPlan> {
-    const { year, month } = getCurrentPeriod();
     const config = await this.adConfigService.getConfig(organizationId);
-    const [ctx, accountKpiRows] = await Promise.all([
-      this.strategyContextRepo.loadStrategyContext(
-        organizationId,
-        year,
-        month,
-        period,
-        config,
-      ),
-      this.accountKpiRepo.findCoupangAdsDaily(organizationId, period),
-    ]);
+    const ctx = await this.strategyContextRepo.loadStrategyContext(
+      organizationId,
+      getProfitRateWindow(),
+      period,
+      config,
+    );
     const listings = await this.loadExactAvailability(
       organizationId,
       ctx.listings,
@@ -140,7 +118,6 @@ export class AdStrategyService {
       adGroups: ctx.adGroups,
       trafficByListing: ctx.trafficByListing,
     });
-    const account = toAdAccountKpi(accountKpiRows);
 
     return {
       actions: this.adGradeRules.calcActions({
@@ -160,8 +137,9 @@ export class AdStrategyService {
         adGroups: ctx.adGroups,
       }),
       top20,
-      accountSummary: account.summary,
       week: getWeekRange(period),
+      profitWithheldListings: ctx.profitWithheldListings,
+      orderWindowComplete: ctx.orderWindowComplete,
     } satisfies AdWeeklyPlan;
   }
 
@@ -185,114 +163,6 @@ export class AdStrategyService {
   async getRecommendations(organizationId: string): Promise<AdStrategyRecommendation[]> {
     const actions = await this.buildActions(organizationId, '14d');
     return toRecommendationCards(actions);
-  }
-
-  /** Exposure analysis — ad aggregate + review + traffic + leadTime hydrate 후 ad-exposure 위임. */
-  async getExposureAnalysis(organizationId: string): Promise<ExposureAnalysisData> {
-    const thirtyDaysAgo = addDays(new Date(), -30);
-
-    const adAggAll =
-      await this.strategyContextRepo.loadAllTimeAdAggregates(organizationId);
-
-    const listingIds = adAggAll
-      .map((a) => a.listingId)
-      .filter((id): id is string => id != null);
-
-    if (listingIds.length === 0) {
-      return { scores: [], urgentActions: [] } satisfies ExposureAnalysisData;
-    }
-
-    // Inclusive KST window: 14 businessDates split at the 7-day cutoff into
-    // current (last 7d) vs prior (8..14d) windows for delta computation.
-    const since14d = kstInclusiveDaysStart(14);
-    const cutoff7d = kstInclusiveDaysStart(7);
-
-    const [exposureCtx, baseListings, availability] =
-      await Promise.all([
-        this.strategyContextRepo.loadExposureAnalysisContext(
-          organizationId,
-          listingIds,
-          { recentReviewSince: thirtyDaysAgo, trafficSince: since14d },
-        ),
-        this.strategyContextRepo.hydrateListings(organizationId, listingIds),
-        this.channelSkuAvailability.findByListingIds(organizationId, listingIds),
-      ]);
-    const listings = applyChannelSkuAvailability(baseListings, availability);
-
-    const adGroups = toAdAggregateRowsFromPort(adAggAll);
-    const metricsResult = this.adBudgetAllocator.calcSnapshotKeyMetrics({
-      snapshots: adAggregatesToMetricSnapshots(adGroups),
-      listings,
-    });
-
-    const reviewMap = new Map(
-      exposureCtx.reviewStats.map((r) => [
-        r.listingId,
-        {
-          totalReviews: r.totalReviews,
-          avgRating: r.avgRating,
-        },
-      ]),
-    );
-    const recentReviewMap = new Map(
-      exposureCtx.recentReviewCounts.map((r) => [r.listingId, r.count]),
-    );
-
-    const trafficByListing = new Map<
-      string,
-      { rev: number; prevRev: number; orders: number }
-    >();
-    for (const row of exposureCtx.trafficDailyRows) {
-      const isCurrent = row.businessDate >= cutoff7d;
-      const slot = trafficByListing.get(row.listingId) ?? {
-        rev: 0,
-        prevRev: 0,
-        orders: 0,
-      };
-      if (isCurrent) {
-        slot.rev += row.trafficRevenue;
-        slot.orders += row.trafficOrders;
-      } else {
-        slot.prevRev += row.trafficRevenue;
-      }
-      trafficByListing.set(row.listingId, slot);
-    }
-    const maxT14 = Math.max(
-      1,
-      ...[...trafficByListing.values()].map((t) => t.rev),
-    );
-
-    const scores: ExposureProductScore[] = [];
-    for (const listing of listings) {
-      const primaryOption = listing.primaryOption;
-      const profitRate = computeListingProfitRate(primaryOption);
-      const traffic = trafficByListing.get(listing.id) ?? { rev: 0, prevRev: 0, orders: 0 };
-      const metrics = metricsResult.perListing.get(listing.id) ?? emptyMetrics(listing.id);
-
-      scores.push(
-        this.adExposure.calculateScores({
-          listing,
-          metrics,
-          availability: primaryOption
-            ? { sellableStock: primaryOption.sellableStock }
-            : null,
-          reviewStats: {
-            totalReviews: reviewMap.get(listing.id)?.totalReviews ?? 0,
-            recentReviews: recentReviewMap.get(listing.id) ?? 0,
-            avgRating: reviewMap.get(listing.id)?.avgRating ?? 0,
-          },
-          trafficContext: {
-            maxT14,
-            t14Rev: traffic.rev,
-            t14PrevRev: traffic.prevRev,
-            t14Orders: traffic.orders,
-          },
-          fulfillmentContext: { leadTime: null, profitRate },
-        }),
-      );
-    }
-
-    return this.adExposure.assembleExposureData(scores);
   }
 
   /**
@@ -373,12 +243,10 @@ export class AdStrategyService {
     organizationId: string,
     period: '7d' | '14d' | 'month',
   ): Promise<AdStrategyAction[]> {
-    const { year, month } = getCurrentPeriod();
     const config = await this.adConfigService.getConfig(organizationId);
     const ctx = await this.strategyContextRepo.loadStrategyContext(
       organizationId,
-      year,
-      month,
+      getProfitRateWindow(),
       period,
       config,
     );
@@ -406,28 +274,4 @@ export class AdStrategyService {
     );
     return applyChannelSkuAvailability(listings, availability);
   }
-}
-
-/**
- * Map the port's all-time aggregate shape into the domain `AdAggregateRow`
- * shape used by metric snapshot/budget allocator inputs. The port already
- * normalizes the Prisma `_sum` envelope away; this helper drops null
- * `listingId` rows and forwards the additive metrics 1:1.
- */
-function toAdAggregateRowsFromPort(
-  rows: AllTimeAdAggregateRow[],
-): AdAggregateRow[] {
-  const out: AdAggregateRow[] = [];
-  for (const r of rows) {
-    if (!r.listingId) continue;
-    out.push({
-      listingId: r.listingId,
-      spend: r.spend,
-      revenue: r.revenue,
-      clicks: r.clicks,
-      impressions: r.impressions,
-      conversions: r.conversions,
-    });
-  }
-  return out;
 }
