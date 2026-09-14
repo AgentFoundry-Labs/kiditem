@@ -2482,11 +2482,25 @@
   }
 
   async function reportAction(action, type, payload) {
-    await kiditemApiRequest("/api/ads/actions", {
+    const result = await kiditemApiRequest("/api/ads/actions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: type, id: action.id, ...payload }),
     });
+    // The worker answers every HTTP status with success:true. The server refuses
+    // a report for a cancelled or superseded execution with 409, and that must
+    // stop the action before it touches Coupang.
+    if (!result.ok) {
+      throw new Error(`실행 보고 거절 (${type}): ${result.status}`);
+    }
+  }
+
+  async function reportActionFailure(action, payload) {
+    try {
+      await reportAction(action, "markFailed", payload);
+    } catch (error) {
+      console.warn("[KidItem] 실행 실패 보고 거절:", error instanceof Error ? error.message : error);
+    }
   }
 
   async function fetchApprovedQueuedActions(limit = 20) {
@@ -2749,18 +2763,19 @@
         showBadge(`⚙️ ${action.targetLabel} 실행 중...`, "#60a5fa");
         const result = await executeSingleAction(action);
         if (result.success) {
-          executed++;
           await reportAction(action, "markDone", { afterJson: result.afterJson || {} });
+          executed++;
         } else {
           skipped++;
-          await reportAction(action, "markFailed", {
+          await reportActionFailure(action, {
             errorMessage: result.errorMessage || "실행 실패",
             afterJson: result.afterJson || {},
           });
         }
       } catch (error) {
+        // A refused report lands here too: count the action once and move on.
         skipped++;
-        await reportAction(action, "markFailed", {
+        await reportActionFailure(action, {
           errorMessage: error instanceof Error ? error.message : "실행 실패",
         });
       }

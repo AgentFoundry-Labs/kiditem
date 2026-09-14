@@ -3347,3 +3347,66 @@ test("pollUntil still gives up once the budget and the attempt floor are both sp
   assert.equal(result, null);
   assert.equal(attempts, 6);
 });
+
+test("a rejected running report stops the approved action before any Coupang write", async () => {
+  const labels = { rejected: "거절된 캠페인", accepted: "승인된 캠페인" };
+  const clicks = { rejected: 0, accepted: 0 };
+  const row = (key) => {
+    const editButton = { innerText: "수정", click: () => { clicks[key] += 1; } };
+    return {
+      innerText: labels[key],
+      querySelectorAll: () => [editButton],
+      click: () => { clicks[key] += 1; },
+    };
+  };
+  const rows = [row("rejected"), row("accepted")];
+  const reports = [];
+  const { messageListeners } = loadContract({
+    exposeRuntime: true,
+    document: {
+      body: { querySelector: () => null, querySelectorAll: () => [] },
+      title: "광고센터",
+      querySelector: () => null,
+      querySelectorAll: (selector) => (selector === "table tbody tr" ? rows : []),
+    },
+    sendMessage: async (message, callback) => {
+      if (message?.action === "waitForAdCollectorDelay") {
+        callback?.();
+        return undefined;
+      }
+      assert.equal(message?.action, "kiditemApiRequest");
+      const report = JSON.parse(message.init.body);
+      reports.push(`${report.id}:${report.action}`);
+      // The server refuses every report for the cancelled execution with 409;
+      // the worker still answers success:true because the request completed.
+      return report.id === "action-rejected"
+        ? { success: true, ok: false, status: 409, body: { message: "실행 보고를 반영할 수 없습니다." } }
+        : { success: true, ok: true, status: 201, body: {} };
+    },
+  });
+
+  const response = await new Promise((resolve, reject) => {
+    const message = {
+      action: "executeApprovedAdActions",
+      payload: {
+        actions: [
+          { id: "action-rejected", actionType: "change_daily_budget", targetLabel: labels.rejected, proposedValue: 20000 },
+          { id: "action-accepted", actionType: "change_daily_budget", targetLabel: labels.accepted, proposedValue: 30000 },
+        ],
+      },
+    };
+    if (!messageListeners.some((listener) => listener(message, {}, resolve) === true)) {
+      reject(new Error("executeApprovedAdActions has no listener"));
+    }
+  });
+
+  assert.equal(clicks.rejected, 0, "a refused running report must keep the action off Coupang");
+  assert.ok(clicks.accepted > 0, "the next approved action still opens its Coupang editor");
+  assert.deepEqual(reports, [
+    "action-rejected:markRunning",
+    "action-rejected:markFailed",
+    "action-accepted:markRunning",
+    "action-accepted:markFailed",
+  ]);
+  assert.deepEqual({ ...response }, { success: true, executed: 0, skipped: 2 });
+});
