@@ -4,8 +4,10 @@
 import {
   ProductKeywordRankOverviewResponseSchema,
   WingRankBatchSchema,
+  WingRankCurrentBatchSchema,
   type ProductKeywordRankOverviewResponse as SharedProductKeywordRankOverviewResponse,
   type WingRankBatch,
+  type WingRankCurrentBatch,
 } from '@kiditem/shared/advertising';
 import { apiClient } from '@/lib/api-client';
 
@@ -23,10 +25,17 @@ export async function beginWingRankBatch(idempotencyKey: string): Promise<WingRa
   }));
 }
 
-export async function fetchWingRankBatch(idempotencyKey: string): Promise<WingRankBatch> {
-  return WingRankBatchSchema.parse(await apiClient.get(WING_BATCH_PATH, {
-    headers: { 'Idempotency-Key': idempotencyKey },
-  }));
+/** The organization's newest Wing rank batch, running or finished; null before the first. */
+export async function readCurrentWingRankBatch(): Promise<WingRankCurrentBatch | null> {
+  const current = await apiClient.getNullable<unknown>(`${WING_BATCH_PATH}/current`);
+  return current === null ? null : WingRankCurrentBatchSchema.parse(current);
+}
+
+/** The owner's operator stop for every running attempt of the batch admitted under this key. */
+export async function cancelWingRankBatchOnServer(batchKey: string): Promise<void> {
+  await apiClient.post(`${WING_BATCH_PATH}/cancel`, undefined, {
+    headers: { 'Idempotency-Key': batchKey },
+  });
 }
 
 export interface KeywordTracker {

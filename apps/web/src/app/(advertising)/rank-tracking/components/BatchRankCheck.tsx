@@ -1,35 +1,17 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { BrowserCollectionAttemptIdSchema } from "@kiditem/shared/browser-collection-session";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Radar } from "lucide-react";
-import { toast } from "sonner";
-import { transferExtensionAuthTo } from "@/lib/extension-auth";
-import {
-  COLLECTION_SOURCE_STATUS_RECHECKING_MESSAGE,
-  collectionSourceStatusQueryOptions,
-  collectionSourceStatusRead,
-} from "@/lib/collection-source-status-query";
+import { useQuery } from "@tanstack/react-query";
+import { CollectionStartControl } from "@/components/collection/CollectionStartControl";
+import { useCollectionSourceControl } from "@/hooks/use-collection-source-control";
 import { queryKeys } from "@/lib/query-keys";
-import { cn } from "@/lib/utils";
-import { beginWingRankBatch, fetchWingRankBatch } from "../lib/rank-api";
-import {
-  cancelWingRankBatch,
-  listWingRankSessions,
-  openWingRankAttention,
-  runWingSalesRankCheck,
-} from "../lib/rank-extension";
+import { listWingRankSessions, openWingRankAttention } from "../lib/rank-extension";
+import { wingRankBatchCollection } from "../lib/wing-rank-batch-collection";
 
-function readBatchKey(): string | null {
-  if (typeof window === "undefined") return null;
-  const parsed = BrowserCollectionAttemptIdSchema.safeParse(
-    new URLSearchParams(window.location.search).get("rankBatch"),
-  );
-  return parsed.success ? parsed.data : null;
-}
-
-/** The URL retains only the receipt key. Results always come from the owner. */
+/**
+ * The organization's current Wing rank batch: the shared collection control,
+ * with per-keyword progress and failures read from the owner.
+ */
 export default function BatchRankCheck({
   extensionId,
   disabledReason,
@@ -39,39 +21,22 @@ export default function BatchRankCheck({
   disabledReason: string | null;
   onCompleted: () => void;
 }) {
-  const client = useQueryClient();
-  const [batchKey, setBatchKey] = useState(readBatchKey);
-  const [starting, setStarting] = useState(false);
-  const [cancelling, setCancelling] = useState(false);
-  const [dispatchError, setDispatchError] = useState<string | null>(null);
-  const [cancelError, setCancelError] = useState<string | null>(null);
+  const control = useCollectionSourceControl(wingRankBatchCollection);
+  const [attentionError, setAttentionError] = useState<string | null>(null);
   const observed = useRef("");
-  const queryKey = [...queryKeys.ads.keywordRank(), "batch", batchKey];
-  const owner = useQuery(collectionSourceStatusQueryOptions({
-    queryKey,
-    queryFn: () => fetchWingRankBatch(batchKey!),
-    enabled: !!batchKey && !starting,
-    refetchInterval: (query) =>
-      query.state.data?.attempts.some((attempt) => attempt.state === "RUNNING")
-        ? 2000
-        : false,
-  }));
-  const attempts = owner.data?.attempts ?? [];
-  const complete = attempts.filter(
-    (attempt) => attempt.state === "COMPLETE",
-  ).length;
+  const attempts = control.status?.attempts ?? [];
+  const complete = attempts.filter((attempt) => attempt.state === "COMPLETE").length;
   const failures = attempts.filter((attempt) => attempt.state === "FAILED");
-  const running =
-    starting || attempts.some((attempt) => attempt.state === "RUNNING");
+  const runningAttempt = attempts.find((attempt) => attempt.state === "RUNNING");
   const signature = attempts
     .filter((attempt) => attempt.state !== "RUNNING")
     .map((attempt) => `${attempt.attemptId}:${attempt.state}`)
     .join(",");
   const sessions = useQuery({
-    queryKey: [...queryKey, "extension-progress", extensionId],
+    queryKey: [...queryKeys.ads.wingRankCurrentBatch(), "extension-progress", extensionId],
     queryFn: () => listWingRankSessions(extensionId!),
     enabled: !!extensionId && attempts.length > 0,
-    refetchInterval: running ? 2000 : false,
+    refetchInterval: runningAttempt ? 2000 : false,
   });
   const attention =
     sessions.data?.filter(
@@ -87,84 +52,14 @@ export default function BatchRankCheck({
     }
   }, [signature, onCompleted]);
 
-  useEffect(() => {
-    if (
-      cancelError &&
-      attempts.length > 0 &&
-      !attempts.some((attempt) => attempt.state === "RUNNING")
-    ) {
-      setCancelError(null);
-    }
-  }, [attempts, cancelError]);
-
-  const start = async () => {
-    if (!extensionId || starting) return;
-    setStarting(true);
-    setDispatchError(null);
-    try {
-      await transferExtensionAuthTo(extensionId);
-      const key = crypto.randomUUID();
-      const url = new URL(window.location.href);
-      url.searchParams.set("rankBatch", key);
-      window.history.replaceState(null, "", url);
-      setBatchKey(key);
-      const batch = await beginWingRankBatch(key);
-      client.setQueryData(
-        [...queryKeys.ads.keywordRank(), "batch", key],
-        batch,
-      );
-      if (!batch.attempts.length) {
-        url.searchParams.delete("rankBatch");
-        window.history.replaceState(null, "", url);
-        setBatchKey(null);
-        toast.info("순위를 확인할 자사 상품이 없습니다.");
-        return;
-      }
-      await runWingSalesRankCheck(extensionId, key);
-    } catch (error) {
-      setDispatchError(
-        error instanceof Error
-          ? error.message
-          : "수집 요청을 전달하지 못했습니다.",
-      );
-    } finally {
-      setStarting(false);
-    }
-  };
-
-  const cancel = async () => {
-    if (!extensionId || !batchKey || cancelling) return;
-    setCancelling(true);
-    setCancelError(null);
-    try {
-      await cancelWingRankBatch(extensionId, batchKey);
-      await owner.refetch();
-    } catch (error) {
-      setCancelError(
-        error instanceof Error
-          ? error.message
-          : "중단 결과를 확인하지 못했습니다.",
-      );
-    } finally {
-      setCancelling(false);
-    }
-  };
-
   return (
     <div className="flex flex-wrap items-center gap-3">
       {attempts.length > 0 && (
-        <div
-          className="text-xs text-[var(--text-secondary)]"
-          aria-live="polite"
-        >
+        <div className="text-xs text-[var(--text-secondary)]" aria-live="polite">
           <span>
             처리 {complete + failures.length} / 전체 {attempts.length}
           </span>
-          {running && (
-            <span className="ml-2">
-              {attempts.find((attempt) => attempt.state === "RUNNING")?.keyword}
-            </span>
-          )}
+          {runningAttempt && <span className="ml-2">{runningAttempt.keyword}</span>}
           {failures.length > 0 && (
             <details open className="mt-1 min-w-0 max-w-full">
               <summary className="cursor-pointer">
@@ -182,36 +77,14 @@ export default function BatchRankCheck({
           )}
         </div>
       )}
-      <button
-        type="button"
-        onClick={() => void start()}
-        disabled={running || (!!batchKey && owner.isPending) || !extensionId}
-        title={!extensionId ? (disabledReason ?? undefined) : undefined}
-        className={cn(
-          "flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-sm font-bold text-white hover:bg-purple-700",
-          "disabled:cursor-not-allowed disabled:opacity-40",
-        )}
-      >
-        {running ? (
-          <>
-            <Loader2 size={15} className="animate-spin" /> Wing 수집 중…
-          </>
-        ) : (
-          <>
-            <Radar size={15} /> 전체 상품 순위 수집
-          </>
-        )}
-      </button>
-      {running && extensionId && batchKey && (
-        <button
-          type="button"
-          onClick={() => void cancel()}
-          disabled={cancelling}
-          className="text-sm underline"
-        >
-          수집 중단
-        </button>
-      )}
+      <CollectionStartControl
+        control={control}
+        startLabel="전체 상품 순위 수집"
+        startTitle="자사 상품 전체의 Wing 판매순위를 수집합니다."
+        startBlockedReason={extensionId ? null : disabledReason}
+        onStart={() => control.start()}
+        onStop={control.stop}
+      />
       {attention.map((session) => (
         <button
           key={session.attemptId}
@@ -220,49 +93,20 @@ export default function BatchRankCheck({
           onClick={() =>
             void openWingRankAttention(extensionId!, session.attemptId).catch(
               (error: unknown) => {
-                setDispatchError(
-                  error instanceof Error
-                    ? error.message
-                    : "확인 탭을 열지 못했습니다.",
+                setAttentionError(
+                  error instanceof Error ? error.message : "확인 탭을 열지 못했습니다.",
                 );
               },
             )
           }
         >
-          {
-            attempts.find((attempt) => attempt.attemptId === session.attemptId)
-              ?.keyword
-          }{" "}
+          {attempts.find((attempt) => attempt.attemptId === session.attemptId)?.keyword}{" "}
           확인 탭 열기
         </button>
       ))}
-      {collectionSourceStatusRead(owner) === "rechecking" && (
-        <p className="text-sm text-slate-500">
-          {COLLECTION_SOURCE_STATUS_RECHECKING_MESSAGE}
-        </p>
-      )}
-      {(dispatchError || collectionSourceStatusRead(owner) === "unavailable") && (
+      {attentionError && (
         <p role="alert" className="text-sm text-amber-700">
-          {dispatchError || "서버의 수집 결과를 확인하지 못했습니다."}
-          <button
-            type="button"
-            onClick={() => void owner.refetch()}
-            className="ml-2 underline"
-          >
-            결과 다시 확인
-          </button>
-        </p>
-      )}
-      {cancelError && (
-        <p role="alert" className="text-sm text-amber-700">
-          {cancelError}
-          <button
-            type="button"
-            onClick={() => void owner.refetch()}
-            className="ml-2 underline"
-          >
-            결과 다시 확인
-          </button>
+          {attentionError}
         </p>
       )}
     </div>

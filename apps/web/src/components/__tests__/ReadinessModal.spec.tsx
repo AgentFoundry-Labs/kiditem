@@ -13,6 +13,8 @@ const mockCatalog = vi.hoisted(() => ({ value: null as unknown }));
 vi.mock('@/lib/api-client', () => ({
   apiClient: {
     get: mockApiGet,
+    // The Wing rank card reads the current batch; none is running.
+    getNullable: vi.fn(async () => null),
     post: vi.fn(),
   },
 }));
@@ -792,7 +794,7 @@ describe('ReadinessModal', () => {
     await waitFor(() => expect(screen.queryByText('최신')).not.toBeInTheDocument());
   });
 
-  it('labels the Wing rank action as Wing sales ranking and keeps its handler', async () => {
+  it('labels the Wing rank action as Wing sales ranking and starts it from the shared control', async () => {
     const response = makeReadinessResponse();
     const wingRank: ReadinessResponse['checks'][number] = {
       key: 'wing_kpi',
@@ -820,7 +822,7 @@ describe('ReadinessModal', () => {
     expect(screen.getByText('자사 상품 판매순위')).toBeInTheDocument();
     expect(screen.queryByText('아이템위너 순위')).not.toBeInTheDocument();
     expect(screen.queryByText('경쟁 현황')).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '순위 받기' }));
-    expect(mockHandleCollect).toHaveBeenCalledWith(wingRank);
+    expect(await screen.findByRole('button', { name: '순위 받기' })).toBeEnabled();
+    expect(mockHandleCollect).not.toHaveBeenCalled();
   });
 });

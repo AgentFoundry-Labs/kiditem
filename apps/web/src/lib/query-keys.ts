@@ -158,6 +158,8 @@ export const queryKeys = {
     collectStatus: () => [...queryKeys.ads.all, 'collect', 'status'] as const,
     scrapeTargets: () => [...queryKeys.ads.all, 'scrapeTargets'] as const,
     keywordRank: () => [...queryKeys.ads.all, 'keywordRank'] as const,
+    // The organization's newest Wing rank batch, read by its shared collection control.
+    wingRankCurrentBatch: () => [...queryKeys.ads.keywordRank(), 'batch', 'current'] as const,
     keywordRankTrackers: () => [...queryKeys.ads.keywordRank(), 'trackers'] as const,
     keywordRankHistory: (keyword: string, days: number) =>
       [...queryKeys.ads.keywordRank(), 'history', keyword, days] as const,

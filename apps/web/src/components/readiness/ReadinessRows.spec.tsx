@@ -4,6 +4,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { SOURCE_READINESS_LABELS } from '@kiditem/shared/source-readiness';
 import { SellpiaSyncAction } from '@/app/(inventory)/_shared/SellpiaSyncAction';
+import { runWingSalesRankCheck } from '@/app/(advertising)/rank-tracking/lib/rank-extension';
 import { apiClient } from '@/lib/api-client';
 import { ApiError } from '@/lib/api-error';
 import {
@@ -18,7 +19,19 @@ import { ActionCheckCard, AdKeywordRow, AdSyncRow, StockSyncRow } from './Readin
 import type { ReadinessCheck } from '@kiditem/shared/readiness';
 
 vi.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ user: { organizationId: 'org-1' } }) }));
-vi.mock('@/lib/api-client', () => ({ apiClient: { get: vi.fn(), getParsed: vi.fn(), post: vi.fn() } }));
+vi.mock('@/lib/api-client', () => ({
+  apiClient: { get: vi.fn(), getNullable: vi.fn(), getParsed: vi.fn(), post: vi.fn() },
+}));
+vi.mock('@/app/(advertising)/rank-tracking/lib/rank-extension', () => ({
+  detectRankExtensionGate: vi.fn(async () => ({
+    status: 'ready',
+    extensionId: 'kiditem-extension',
+    version: '1.2.102',
+  })),
+  rankExtensionGateMessage: () => null,
+  runWingSalesRankCheck: vi.fn(async () => ({ success: true, started: true })),
+  cancelWingRankBatch: vi.fn(),
+}));
 vi.mock('@/lib/extension-bridge', () => ({
   detectExtensionId: vi.fn(),
   detectBrowserCollectionExtensionIds: vi.fn(),
@@ -512,6 +525,91 @@ describe('readiness Sellpia sales card', () => {
       { range: SALES_RANGE },
       { headers: { 'Idempotency-Key': expect.stringMatching(UUID) } },
     ]]);
+    expect(onCollect).not.toHaveBeenCalled();
+  });
+});
+
+describe('readiness Wing rank card', () => {
+  const RANK_BATCH_PATH = '/api/ads/keyword-rank/wing/batch-attempts';
+  const rankBatch = {
+    attempts: [{
+      attemptId: NEXT_ATTEMPT_ID,
+      keyword: '연필',
+      generation: '1',
+      state: 'RUNNING',
+      expiresAt: '2099-01-01T00:00:00.000Z',
+      actualCutoffAt: null,
+      itemCount: 0,
+      errorCode: null,
+      errorMessage: null,
+      plan: {
+        sourceType: 'coupang_wing_rank',
+        parserVersion: 'wing-rank-v1',
+        keyword: '연필',
+        maxPages: 5,
+        targets: [{ vendorItemId: 'V1', productName: '연필', category: null, keyword: '연필', candidateIndex: 0 }],
+      },
+    }],
+    selection: {
+      productCount: 1,
+      candidateCount: 1,
+      keywordCount: 1,
+      targetKeywordCount: 1,
+      resumed: false,
+      pendingProductCount: 1,
+      targets: [{
+        keyword: '연필',
+        vendorItemIds: ['V1'],
+        productCount: 1,
+        primaryProductCount: 1,
+        pendingProductCount: 1,
+        pendingPrimaryProductCount: 1,
+        phase: 'primary',
+        maxPages: 5,
+      }],
+    },
+  };
+  const rankCheck = {
+    key: 'wing_kpi',
+    label: 'Wing 판매순위',
+    basis: {
+      asOf: null,
+      requiredAsOf: '2026-09-05',
+      observedAt: null,
+      sources: ['wing_rank'],
+      measured: false,
+      withheldCount: 0,
+    },
+    detail: 'Wing 판매순위 수집 이력 없음',
+    lastSyncedAt: null,
+    count: null,
+    referenceDate: '2026-09-05',
+    expectedDates: [],
+    missingDates: [],
+  } as unknown as ReadinessCheck;
+
+  it('starts the Wing rank batch through the shared control, not the readiness handler', async () => {
+    let rankOwner: unknown = null;
+    vi.mocked(apiClient.getNullable).mockImplementation(async (path: string) => {
+      if (path === `${RANK_BATCH_PATH}/current`) return rankOwner;
+      throw new Error(`unexpected GET ${path}`);
+    });
+    vi.mocked(apiClient.post).mockImplementation(async (path: string, _body?: unknown, options?: unknown) => {
+      if (path === '/api/auth/extension-handoff') return { token: 'a'.repeat(43) };
+      if (path !== RANK_BATCH_PATH) throw new Error(`unexpected POST ${path}`);
+      const key = (options as { headers: Record<string, string> }).headers['Idempotency-Key'];
+      rankOwner = { batchKey: key, ...rankBatch };
+      return rankBatch;
+    });
+    const onCollect = vi.fn();
+    renderRow(<ActionCheckCard check={rankCheck} onCollect={onCollect} pending={false} />);
+    const start = await screen.findByRole('button', { name: '순위 받기' });
+    await waitFor(() => expect(start).toBeEnabled());
+
+    fireEvent.click(start);
+
+    expect(await screen.findByText('수집 중 · 0/1개 키워드')).toBeInTheDocument();
+    expect(runWingSalesRankCheck).toHaveBeenCalledWith(EXTENSION_ID, expect.stringMatching(UUID));
     expect(onCollect).not.toHaveBeenCalled();
   });
 });

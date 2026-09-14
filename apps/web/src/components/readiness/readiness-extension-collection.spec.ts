@@ -296,12 +296,7 @@ describe('readiness extension collection', () => {
     expect(result.current.pendingKey).toBeNull();
   });
 
-  it('rejects the stale Wing rank worker before starting its batch', async () => {
-    mocks.detectRankExtensionGate.mockResolvedValueOnce({
-      status: 'outdated',
-      extensionId: 'coupang-extension',
-      version: '1.2.38',
-    });
+  it("leaves Wing rank to the card's shared control and admits no batch from the readiness hook", async () => {
     const { result } = renderHook(
       () => useReadinessCollection({ refetchReadiness: vi.fn() }),
       { wrapper: wrapper() },
@@ -311,10 +306,9 @@ describe('readiness extension collection', () => {
       await result.current.handleCollect(check('wing_kpi'));
     });
 
+    expect(requestedApiPaths().filter((path) => path.startsWith(WING_BATCH_PATH))).toEqual([]);
+    expect(mocks.detectRankExtensionGate).not.toHaveBeenCalled();
     expect(runWingSalesRankCheck).not.toHaveBeenCalled();
-    expect(toast.error).toHaveBeenCalledWith(
-      expect.stringMatching(/1\.2\.42|새로고침/),
-    );
   });
 
   it('routes each readiness key to its owned collection flow', async () => {
@@ -326,7 +320,6 @@ describe('readiness extension collection', () => {
 
     await act(async () => {
       await result.current.handleCollect(check('coupang_products'));
-      await result.current.handleCollect(check('wing_kpi'));
     });
 
     // Readiness keys use their concrete owner, never the retired generic
@@ -335,10 +328,6 @@ describe('readiness extension collection', () => {
       requestedApiPaths().filter((path) => path.startsWith(RETIRED_AD_ACCOUNT_DAY_PATH)),
     ).toEqual([]);
     expect(startCoupangCatalogBrowser).toHaveBeenCalledWith({ permit: catalogPermit });
-    expect(runWingSalesRankCheck).toHaveBeenCalledWith(
-      'coupang-extension',
-      expect.stringMatching(/^[0-9a-f-]{36}$/i),
-    );
     expect(sendToExtension).not.toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ action: 'scrapeTargets' }),
@@ -912,48 +901,6 @@ describe('readiness extension collection', () => {
       saved.idempotencyKey,
     );
     expect(startCoupangCatalogBrowser).toHaveBeenCalledWith({ permit: catalogPermit });
-  });
-
-  it('shows missing Wing guidance without dispatching provider IO or opening a tab', async () => {
-    mocks.detectRankExtensionGate.mockResolvedValue({ status: 'missing' });
-    const open = vi.spyOn(window, 'open');
-    const { result } = renderHook(
-      () => useReadinessCollection({ refetchReadiness: vi.fn() }),
-      { wrapper: wrapper() },
-    );
-
-    await act(async () => {
-      await result.current.handleCollect(check('wing_kpi'));
-    });
-
-    expect(mocks.detectRankExtensionGate).toHaveBeenCalledTimes(1);
-    expect(toast.warning).toHaveBeenCalled();
-    expect(sendToExtension).not.toHaveBeenCalled();
-    expect(open).not.toHaveBeenCalled();
-  });
-
-  it('keeps Wing pending until the owner receipt settles, ignoring legacy session state', async () => {
-    const refetchReadiness = vi.fn().mockResolvedValue(undefined);
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    const view = renderHook(
-      () => useReadinessCollection({ refetchReadiness }),
-      { wrapper: wrapper(client) },
-    );
-
-    await act(async () => {
-      await view.result.current.handleCollect(check('wing_kpi'));
-    });
-
-    expect(view.result.current.pendingKey).toBe('wing_kpi');
-    expect(runWingSalesRankCheck).toHaveBeenCalledWith(
-      'coupang-extension',
-      expect.stringMatching(/^[0-9a-f-]{36}$/i),
-    );
-
-    vi.mocked(apiClient.get).mockResolvedValue(wingBatch('COMPLETE'));
-    await act(async () => { await client.invalidateQueries(); });
-    await waitFor(() => expect(view.result.current.pendingKey).toBeNull());
-    expect(refetchReadiness).toHaveBeenCalledTimes(1);
   });
 
   it('keeps automatic readiness and dashboard traffic sources free of focus fallbacks', () => {

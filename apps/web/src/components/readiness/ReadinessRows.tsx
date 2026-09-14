@@ -25,6 +25,7 @@ import {
 } from '@kiditem/shared/source-readiness';
 import { adCampaignSweepCollection } from '@/app/(advertising)/ad-ops/lib/ad-campaign-collection';
 import { adKeywordCollection } from '@/app/(advertising)/ad-ops/lib/ad-keyword-collection';
+import { wingRankBatchCollection } from '@/app/(advertising)/rank-tracking/lib/wing-rank-batch-collection';
 import { SELLPIA_INVENTORY_START_TITLE } from '@/app/(inventory)/_shared/SellpiaSyncAction';
 import { useSellpiaInventoryCollection } from '@/app/(inventory)/_shared/sellpia-inventory-source-owner';
 import { CollectionStartControl } from '@/components/collection/CollectionStartControl';
@@ -58,7 +59,6 @@ function getDisplay(check: ReadinessCheck): DisplayMeta {
 
 function collectLabel(check: ReadinessCheck, catalog?: CatalogReadinessState): string {
   const overallState = catalog ? catalogOverallState(catalog) : null;
-  if (check.key === 'wing_kpi') return '순위 받기';
   if (check.key === 'coupang_products' && catalog && catalogWholeFlowPending(catalog)) {
     return '상태 확인 중';
   }
@@ -527,6 +527,21 @@ function SellpiaSalesCardControl({ check }: { check: ReadinessCheck }) {
   );
 }
 
+/** The readiness card's Wing rank control: the same batch as the rank tracking screen. */
+function WingRankCardControl() {
+  const control = useCollectionSourceControl(wingRankBatchCollection);
+  return (
+    <CollectionStartControl
+      control={control}
+      startLabel="순위 받기"
+      startTitle="자사 상품 전체의 Wing 판매순위를 수집합니다."
+      onStart={() => control.start()}
+      onStop={control.stop}
+      className="self-center"
+    />
+  );
+}
+
 export function ActionCheckCard({
   check,
   onCollect,
@@ -558,6 +573,7 @@ export function ActionCheckCard({
   const collectsThroughAdSync = check.key === 'coupang_ads';
   // Sellpia sales keeps one shared control across readiness and the sales screens.
   const collectsThroughSalesControl = check.key === 'wing_sales';
+  const collectsThroughRankControl = check.key === 'wing_kpi';
 
   const subline = (() => {
     if (missingCount > 0) {
@@ -624,6 +640,8 @@ export function ActionCheckCard({
           </p>
         ) : collectsThroughSalesControl ? (
           <SellpiaSalesCardControl check={check} />
+        ) : collectsThroughRankControl ? (
+          <WingRankCardControl />
         ) : (
           <button
             onClick={() => onCollect(check)}
