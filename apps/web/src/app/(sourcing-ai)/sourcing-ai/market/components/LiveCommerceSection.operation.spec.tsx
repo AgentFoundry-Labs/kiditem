@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   fetchSnapshots: vi.fn(),
   collectBrowser: vi.fn(),
   fetchBrowserStatus: vi.fn(),
+  cancelBrowser: vi.fn(),
 }));
 
 vi.mock('../lib/live-commerce-api', () => ({
@@ -20,6 +21,14 @@ vi.mock('../lib/live-commerce-api', () => ({
 vi.mock('../../lib/sourcing-live-commerce-source-owner', () => ({
   collectSourcingLiveCommerceFromExtension: mocks.collectBrowser,
   fetchSourcingLiveCommerceSourceStatus: mocks.fetchBrowserStatus,
+  cancelSourcingLiveCommerceAttempt: mocks.cancelBrowser,
+}));
+
+vi.mock('@/lib/browser-collection-session', () => ({
+  // This browser holds no session for the attempt, so a stop reaches the owner route.
+  sendBrowserCollectionControl: vi.fn(async () => {
+    throw new Error('no extension session');
+  }),
 }));
 
 function renderSection() {
@@ -240,6 +249,44 @@ describe('LiveCommerceSection direct source-owner migration', () => {
     expect(first[0].url).toBe(url);
     expect(second[0].url).toBe(url);
     expect(second[0].idempotencyKey).toBe(first[0].idempotencyKey);
+  });
+
+  it("shows the submitted room's running collection with a stop that ends it through its owner, then shows it stopped", async () => {
+    const attemptId = '00000000-0000-4000-8000-000000000780';
+    const status = (state: 'RUNNING' | 'FAILED') => ({
+      ready: true,
+      latestAttempt: {
+        attemptId,
+        state,
+        expiresAt: '2099-01-01T00:00:00.000Z',
+        errorCode: state === 'FAILED' ? 'USER_CANCELLED' : null,
+        errorMessage: state === 'FAILED' ? '운영자가 수집을 중단했습니다.' : null,
+      },
+      latestComplete: { attemptId: '00000000-0000-4000-8000-000000000770', completedAt: '2026-09-03T00:00:00.000Z' },
+      actualCutoffAt: '2026-09-03T00:00:00.000Z',
+      errorCode: null,
+      errorMessage: null,
+    });
+    // The extension answers only when the collection ends.
+    mocks.collectBrowser.mockImplementation(() => new Promise(() => undefined));
+    mocks.fetchBrowserStatus.mockResolvedValue(status('RUNNING'));
+    mocks.cancelBrowser.mockImplementation(async () => {
+      mocks.fetchBrowserStatus.mockResolvedValue(status('FAILED'));
+    });
+    renderSection();
+    await screen.findByRole('button', { name: '방송 수집' });
+    const url = 'https://live.douyin.com/123';
+    fireEvent.change(screen.getByPlaceholderText(/https:\/\/live\.douyin\.com/), {
+      target: { value: url },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '방송 수집' }));
+
+    fireEvent.click(await screen.findByRole('button', { name: '수집 중단' }));
+
+    expect(await screen.findByText(/수집을 중단했습니다\. 저장된 완료본은 유지됩니다\./)).toBeInTheDocument();
+    expect(mocks.cancelBrowser).toHaveBeenCalledWith(attemptId);
+    expect(mocks.fetchBrowserStatus).toHaveBeenCalledWith(url);
+    expect(screen.getByText('보존된 라이브 스냅샷')).toBeInTheDocument();
   });
 
   it('shows stale source status and actual cutoff without replacing a persisted snapshot after a failed refresh', async () => {

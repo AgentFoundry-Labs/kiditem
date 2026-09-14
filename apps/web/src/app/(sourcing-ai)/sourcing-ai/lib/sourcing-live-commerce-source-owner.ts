@@ -60,6 +60,11 @@ export function fetchSourcingLiveCommerceSourceStatus(
   );
 }
 
+/** The owner's operator stop for a running browser live-commerce attempt; it needs no attempt token. */
+export function cancelSourcingLiveCommerceAttempt(attemptId: string): Promise<unknown> {
+  return apiClient.post(`${BASE}/attempts/${encodeURIComponent(attemptId)}/cancel`);
+}
+
 function parseCollectionReply(value: unknown): SourcingLiveCommerceCollectionReply {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('KidItem OS 익스텐션이 라이브 수집 결과를 올바르게 반환하지 않았습니다.');

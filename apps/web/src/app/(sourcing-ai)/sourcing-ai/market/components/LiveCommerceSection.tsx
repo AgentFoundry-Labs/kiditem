@@ -12,6 +12,9 @@ import {
   Radio,
 } from 'lucide-react';
 import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
+import { CollectionStartControl } from '@/components/collection/CollectionStartControl';
+import { useCollectionSourceControl, type CollectionControlView } from '@/hooks/use-collection-source-control';
+import { COLLECTION_STOPPED_MESSAGE, stoppedAttempt } from '@/lib/collection-source-status-query';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatDateTime, formatNumber } from '@/lib/utils';
 import {
@@ -21,9 +24,9 @@ import {
   type LiveCommerceSource,
   type LiveCommerceSourceStatus,
 } from '../lib/live-commerce-api';
+import { sourcingLiveCommerceBrowserCollection } from '../../lib/sourcing-live-commerce-collection';
 import {
   collectSourcingLiveCommerceFromExtension,
-  fetchSourcingLiveCommerceSourceStatus,
   type SourcingLiveCommerceSourceStatus,
 } from '../../lib/sourcing-live-commerce-source-owner';
 
@@ -94,18 +97,13 @@ export function LiveCommerceSection() {
       void queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.liveCommerceKeywords(HISTORY_DAYS) });
     }
   }, [completeAttemptId, queryClient]);
-  const browserSourceStatusQueryKey = [
-    ...queryKeys.sourcing.liveCommerceExtensionStatus(),
-    browserStatusUrl,
-  ] as const;
-  const browserSourceStatusQuery = useQuery(collectionSourceStatusQueryOptions({
-    queryKey: browserSourceStatusQueryKey,
-    queryFn: () => fetchSourcingLiveCommerceSourceStatus(browserStatusUrl ?? ''),
-    enabled: browserStatusUrl !== null,
-    refetchInterval: (query) => (
-      query.state.data?.latestAttempt?.state === 'RUNNING' ? 5_000 : false
-    ),
-  }));
+  // The room CTA starts the collection; the shared control shows it running and stops it.
+  const browserCollection = useMemo(
+    () => sourcingLiveCommerceBrowserCollection(browserStatusUrl),
+    [browserStatusUrl],
+  );
+  const browserSourceStatusQueryKey = browserCollection.statusQuery.queryKey;
+  const browserSource = useCollectionSourceControl(browserCollection);
   const browserCollectionMutation = useMutation({
     mutationFn: async (url: string) => {
       const idempotencyKey = retryKeysByUrl.current.get(url) ?? crypto.randomUUID();
@@ -143,8 +141,7 @@ export function LiveCommerceSection() {
   });
   const taobaoRunning = taobaoCollection.isPending
     || taobaoStatus?.sourceStatus?.latestAttempt?.state === 'RUNNING';
-  const browserRunning = browserCollectionMutation.isPending
-    || browserSourceStatusQuery.data?.latestAttempt?.state === 'RUNNING';
+  const browserRunning = browserCollectionMutation.isPending || browserSource.running !== null;
 
   const productCountByBroadcast = useMemo(() => {
     const counts = new Map<string, number>();
@@ -257,7 +254,8 @@ export function LiveCommerceSection() {
             </button>
           </div>
           <BrowserLiveCommerceSourceStatus
-            source={browserSourceStatusQuery.data}
+            source={browserSource.status}
+            control={browserSource}
             collectionError={browserCollectionMutation.error}
           />
         </div>
@@ -361,40 +359,58 @@ export function LiveCommerceSection() {
 
 function BrowserLiveCommerceSourceStatus({
   source,
+  control,
   collectionError,
 }: {
   source: SourcingLiveCommerceSourceStatus | undefined;
+  /** The browser collection's shared control; the server-run Taobao collection has no operator stop. */
+  control?: CollectionControlView & Readonly<{ stop: () => void }>;
   collectionError: Error | null;
 }) {
   if (!source && !collectionError) return null;
 
   const refreshing = source?.latestAttempt?.state === 'RUNNING';
+  const stopped = stoppedAttempt(source?.latestAttempt);
   const unhealthy = source?.ready === false;
   const message = refreshing
     ? '라이브 방송을 수집 중입니다. 마지막 완료 데이터는 계속 표시됩니다.'
-    : unhealthy
-      ? `원천 상태 이상 · ${source?.errorMessage ?? collectionError?.message ?? '최신 완료 데이터를 확인할 수 없습니다.'}`
-      : collectionError?.message ?? '라이브 방송 원천 데이터가 최신 상태입니다.';
+    : stopped
+      ? COLLECTION_STOPPED_MESSAGE
+      : unhealthy
+        ? `원천 상태 이상 · ${source?.errorMessage ?? collectionError?.message ?? '최신 완료 데이터를 확인할 수 없습니다.'}`
+        : collectionError?.message ?? '라이브 방송 원천 데이터가 최신 상태입니다.';
 
   return (
-    <p
+    <div
       role="status"
       className={cn(
-        'mt-3 rounded-lg border px-3 py-2 text-xs font-semibold',
+        'mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-xs font-semibold',
         refreshing
           ? 'border-sky-200 bg-sky-50 text-sky-700'
-          : unhealthy || collectionError
-            ? 'border-amber-200 bg-amber-50 text-amber-800'
-            : 'border-emerald-200 bg-emerald-50 text-emerald-700',
+          : stopped
+            ? 'border-[var(--border-subtle)] bg-[var(--surface-sunken)] text-[var(--text-secondary)]'
+            : unhealthy || collectionError
+              ? 'border-amber-200 bg-amber-50 text-amber-800'
+              : 'border-emerald-200 bg-emerald-50 text-emerald-700',
       )}
     >
-      {message}
-      {source?.actualCutoffAt && (
-        <span className="ml-1.5 font-medium opacity-80">
-          기준 {formatDateTime(source.actualCutoffAt, { month: '2-digit', day: '2-digit' })}
-        </span>
+      <span>
+        {message}
+        {source?.actualCutoffAt && (
+          <span className="ml-1.5 font-medium opacity-80">
+            기준 {formatDateTime(source.actualCutoffAt, { month: '2-digit', day: '2-digit' })}
+          </span>
+        )}
+      </span>
+      {refreshing && control && (
+        <CollectionStartControl
+          control={control}
+          startLabel="방송 수집"
+          onStart={() => undefined}
+          onStop={control.stop}
+        />
       )}
-    </p>
+    </div>
   );
 }
 
