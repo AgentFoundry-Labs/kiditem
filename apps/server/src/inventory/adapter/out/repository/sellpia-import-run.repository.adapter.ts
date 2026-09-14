@@ -15,6 +15,7 @@ import {
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { canonicalOwnerInputHash } from '../../../../common/owner-idempotency-key';
+import { OPERATOR_CANCEL_CODE, OPERATOR_CANCEL_MESSAGE } from '../../../../common/operator-cancel';
 import { lockSellpiaInventoryTransaction } from './sellpia-inventory-transaction-lock';
 import { sellpiaInventorySourceFailureAlert } from './sellpia-inventory-source-failure-alert';
 import type {
@@ -256,6 +257,42 @@ implements SellpiaImportRunRepositoryPort {
             errorCode,
             errorMessage,
             input,
+          );
+      return ownerAttemptView(failed);
+    }, TRANSACTION_OPTIONS);
+  }
+
+  /**
+   * Operator stop without the attempt token. The failure goes through the same
+   * terminal path as an extension-reported one, which also releases the
+   * browser lease on the inventory state; a terminal attempt is returned as is.
+   */
+  async cancelAttempt(input: {
+    organizationId: string;
+    attemptId: string;
+  }): Promise<SellpiaInventorySourceAttempt> {
+    return this.prisma.$transaction(async (tx) => {
+      await lockSellpiaInventoryTransaction(tx, input.organizationId);
+      const run = await findOwnerAttempt(tx, input.organizationId, { id: input.attemptId });
+      if (!run) throw new NotFoundException('SELLPIA_INVENTORY_ATTEMPT_NOT_FOUND');
+      if (run.status !== 'running') return ownerAttemptView(run);
+      const state = await lockedState(tx, input.organizationId);
+      const failed = isExpired(run)
+        ? await failOwnerIn(
+            tx,
+            this.alerts,
+            state,
+            run,
+            'ATTEMPT_EXPIRED',
+            'Sellpia inventory collection expired.',
+          )
+        : await failOwnerIn(
+            tx,
+            this.alerts,
+            state,
+            run,
+            OPERATOR_CANCEL_CODE,
+            OPERATOR_CANCEL_MESSAGE,
           );
       return ownerAttemptView(failed);
     }, TRANSACTION_OPTIONS);

@@ -79,4 +79,10 @@ export interface SellpiaInventoryImportPort {
     errorCode: string;
     errorMessage: string;
   }): Promise<SellpiaInventorySourceAttempt>;
+
+  /** Operator stop without the attempt token; a terminal attempt is returned unchanged. */
+  cancelAttempt(input: {
+    organizationId: string;
+    attemptId: string;
+  }): Promise<SellpiaInventorySourceAttempt>;
 }

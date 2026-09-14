@@ -291,6 +291,7 @@ function makeService() {
     failAttempt: vi
       .fn<SellpiaImportRunRepositoryPort['failAttempt']>()
       .mockResolvedValue({} as never),
+    cancelAttempt: vi.fn<SellpiaImportRunRepositoryPort['cancelAttempt']>(),
     claimFileRun: vi.fn<SellpiaImportRunRepositoryPort['claimFileRun']>(),
     markRunFailed: vi
       .fn<SellpiaImportRunRepositoryPort['markRunFailed']>()

@@ -4,6 +4,7 @@ import {
   Controller,
   Get,
   Headers,
+  HttpCode,
   Inject,
   Param,
   ParseUUIDPipe,
@@ -116,5 +117,14 @@ export class SellpiaInventorySourceController {
       errorCode: dto.errorCode,
       errorMessage: dto.errorMessage,
     });
+  }
+
+  @Post('attempts/:attemptId/cancel')
+  @HttpCode(200)
+  cancel(
+    @CurrentOrganization() organizationId: string,
+    @Param('attemptId', ParseUUIDPipe) attemptId: string,
+  ) {
+    return this.owner.cancelAttempt({ organizationId, attemptId });
   }
 }

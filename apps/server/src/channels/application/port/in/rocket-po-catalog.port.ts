@@ -35,6 +35,8 @@ export interface RocketPoCatalogPort {
     code: string;
     message: string;
   }): Promise<RocketPoSourceControl>;
+  /** Operator stop without the attempt token; a terminal attempt is returned unchanged. */
+  cancel(input: { organizationId: string; attemptId: string }): Promise<RocketPoSourceControl>;
   readComplete(input: {
     organizationId: string;
     channelAccountId: string;

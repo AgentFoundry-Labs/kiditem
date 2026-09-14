@@ -14,6 +14,7 @@ import {
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { businessDateKey } from '../../common/kst';
+import { OPERATOR_CANCEL_CODE, OPERATOR_CANCEL_MESSAGE } from '../../common/operator-cancel';
 import { readInventorySkuIdentities } from '../../inventory/read/inventory-availability';
 import {
   ALERT_DEDUPE_KEY,
@@ -324,35 +325,63 @@ export class SellpiaProfitabilitySourceService
       assertAttemptToken(attempt, body.attemptToken);
       if (attempt.status === 'failed') return toAttemptView(attempt);
       assertAttemptWritable(attempt, body.attemptToken);
-      const updated = await tx.sourceImportRun.updateMany({
-        where: {
-          id: attemptId,
-          organizationId,
-          sourceType: SOURCE_TYPE,
-          status: 'running',
-          attemptToken: body.attemptToken,
-        },
-        data: {
-          status: 'failed',
-          errorCode: body.errorCode,
-          errorMessage: body.errorMessage,
-        },
-      });
-      if (updated.count !== 1) throw new ConflictException('ATTEMPT_TERMINAL');
-      await this.alerts.recordTerminalOutcome(tx, failureAlert(
-        organizationId,
-        attemptId,
-        body.errorCode,
-        body.errorMessage,
-      ));
-      return toAttemptView({
-        ...attempt,
-        status: 'failed',
-        errorCode: body.errorCode,
-        errorMessage: body.errorMessage,
-        updatedAt: new Date(),
-      });
+      return toAttemptView(await this.failIn(tx, attempt, body.errorCode, body.errorMessage));
     }, { timeout: TRANSACTION_TIMEOUT_MS });
+  }
+
+  /**
+   * Operator stop without the attempt token. The token-free status view is
+   * returned; a terminal attempt is left as it is.
+   */
+  async cancelAttempt(
+    organizationId: string,
+    attemptId: string,
+  ): Promise<SellpiaProfitabilityAttemptSummary> {
+    return this.prisma.$transaction(async (tx) => {
+      await lockSource(tx, organizationId);
+      const attempt = await findAttempt(tx, organizationId, attemptId);
+      if (attempt.status !== 'running') return toAttemptSummary(attempt, new Date());
+      const settled = isExpiredRunning(attempt, new Date())
+        ? await this.expireAttempt(tx, attempt)
+        : await this.failIn(tx, attempt, OPERATOR_CANCEL_CODE, OPERATOR_CANCEL_MESSAGE);
+      return toAttemptSummary(settled, new Date());
+    }, { timeout: TRANSACTION_TIMEOUT_MS });
+  }
+
+  private async failIn(
+    tx: Prisma.TransactionClient,
+    attempt: SourceAttemptRecord,
+    errorCode: string,
+    errorMessage: string,
+  ): Promise<SourceAttemptRecord> {
+    const updated = await tx.sourceImportRun.updateMany({
+      where: {
+        id: attempt.id,
+        organizationId: attempt.organizationId,
+        sourceType: SOURCE_TYPE,
+        status: 'running',
+        attemptToken: attempt.attemptToken,
+      },
+      data: {
+        status: 'failed',
+        errorCode,
+        errorMessage,
+      },
+    });
+    if (updated.count !== 1) throw new ConflictException('ATTEMPT_TERMINAL');
+    await this.alerts.recordTerminalOutcome(tx, failureAlert(
+      attempt.organizationId,
+      attempt.id,
+      errorCode,
+      errorMessage,
+    ));
+    return {
+      ...attempt,
+      status: 'failed',
+      errorCode,
+      errorMessage,
+      updatedAt: new Date(),
+    };
   }
 
   /**

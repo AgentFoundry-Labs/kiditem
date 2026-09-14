@@ -16,6 +16,7 @@ import {
 } from '@kiditem/shared/rocket-purchase-preview';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { OPERATOR_CANCEL_CODE, OPERATOR_CANCEL_MESSAGE } from '../../../../common/operator-cancel';
 import type { RocketPoCatalogRepositoryPort } from '../../../application/port/out/repository/rocket-po-catalog.repository.port';
 import {
   advanceProductMappingGeneration,
@@ -395,6 +396,31 @@ export class RocketPoCatalogRepositoryAdapter implements RocketPoCatalogReposito
         return control(run);
       writable(run);
       return control(await this.failRun(tx, run, input.code, input.message));
+    }, TRANSACTION_OPTIONS);
+  }
+
+  cancel(input: Parameters<RocketPoCatalogRepositoryPort['cancel']>[0]) {
+    return this.prisma.$transaction(async (tx) => {
+      const original = await findAttempt(
+        tx,
+        input.organizationId,
+        input.attemptId,
+      );
+      await lockSource(tx, input.organizationId, original.channelAccountId!);
+      const run = await findAttempt(tx, input.organizationId, input.attemptId);
+      if (run.status !== 'running') return control(run);
+      if (expired(run))
+        return control(
+          await this.failRun(
+            tx,
+            run,
+            'ATTEMPT_EXPIRED',
+            '로켓 PO 수집 시간이 만료되었습니다. 다시 수집해주세요.',
+          ),
+        );
+      return control(
+        await this.failRun(tx, run, OPERATOR_CANCEL_CODE, OPERATOR_CANCEL_MESSAGE),
+      );
     }, TRANSACTION_OPTIONS);
   }
 

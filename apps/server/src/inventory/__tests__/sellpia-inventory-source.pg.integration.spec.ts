@@ -252,6 +252,53 @@ describe('Sellpia inventory source owner HTTP + disposable PostgreSQL', () => {
     ]);
   });
 
+  it('stops a running attempt for an operator without its token or an Alert, releases the browser lease and admits the next begin at once', async () => {
+    const attempt = await begin('operator-stop');
+    await cancel(attempt.attemptId, OTHER_ORGANIZATION_ID).expect(404);
+    const stopped = (await cancel(attempt.attemptId).expect(200)).body;
+    expect(stopped).toMatchObject({
+      attemptId: attempt.attemptId,
+      state: 'FAILED',
+      errorCode: 'USER_CANCELLED',
+      errorMessage: '운영자가 수집을 중단했습니다.',
+    });
+    expect(await alerts.list(TEST_ORGANIZATION_ID)).toEqual([]);
+    expect(
+      await prisma.sellpiaInventoryState.findUniqueOrThrow({
+        where: { organizationId: TEST_ORGANIZATION_ID },
+      }),
+    ).toMatchObject({ activeSyncToken: null, activeSyncLeaseExpiresAt: null });
+    await expectComplete(attempt, snapshot(3), 409);
+    expect((await cancel(attempt.attemptId).expect(200)).body).toEqual(stopped);
+    const next = await begin('after-operator-stop');
+    expect(next.state).toBe('RUNNING');
+    expect(next.attemptId).not.toBe(attempt.attemptId);
+  });
+
+  it('settles an operator stop after the lease passed as expiry with its Alert and leaves a COMPLETE attempt unchanged', async () => {
+    const expired = await begin('operator-expired');
+    await prisma.sourceImportRun.update({
+      where: { id: expired.attemptId },
+      data: { expiresAt: new Date(0) },
+    });
+    expect((await cancel(expired.attemptId).expect(200)).body).toMatchObject({
+      state: 'FAILED',
+      errorCode: 'ATTEMPT_EXPIRED',
+    });
+    expect(
+      await prisma.sourceImportRun.findUniqueOrThrow({ where: { id: expired.attemptId } }),
+    ).toMatchObject({ status: 'failed', errorCode: 'ATTEMPT_EXPIRED' });
+    expect(await alerts.list(TEST_ORGANIZATION_ID)).toMatchObject([
+      { attemptId: expired.attemptId, status: 'OPEN' },
+    ]);
+
+    const completed = await begin('operator-complete');
+    await complete(completed, snapshot(4)).expect(201);
+    const view = (await get(`/attempts/${completed.attemptId}`).expect(200)).body;
+    expect(view.state).toBe('COMPLETE');
+    expect((await cancel(completed.attemptId).expect(200)).body).toEqual(view);
+  });
+
   it('keeps an uncollected canonical identity visibly unverified in ordinary reads', async () => {
     const identity = await prisma.sellpiaInventorySku.create({
       data: {
@@ -539,6 +586,12 @@ describe('Sellpia inventory source owner HTTP + disposable PostgreSQL', () => {
     return request(app.getHttpServer())
       .get(base + path)
       .set('x-test-organization', TEST_ORGANIZATION_ID);
+  }
+
+  function cancel(attemptId: string, organizationId = TEST_ORGANIZATION_ID) {
+    return request(app.getHttpServer())
+      .post(base + `/attempts/${attemptId}/cancel`)
+      .set('x-test-organization', organizationId);
   }
 
   function complete(
