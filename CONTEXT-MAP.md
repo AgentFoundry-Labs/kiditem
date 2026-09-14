@@ -29,5 +29,5 @@ sourcing, …). Treat the nearest one as the context for work inside it.
 System-wide decisions live in `docs/adr/`.
 
 `CONTEXT.md` files are created **lazily**, one term at a time, when a domain
-concept actually needs pinning down. Do not scaffold them empty. So far only
-`apps/server/CONTEXT.md` exists.
+concept actually needs pinning down. Do not scaffold them empty. So far
+`apps/server/CONTEXT.md` and `extensions/CONTEXT.md` exist.
