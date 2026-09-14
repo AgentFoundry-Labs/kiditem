@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AD_COST_TEXT_COLOR, getProfitAmountColor, getProfitColor } from '../utils';
+import { AD_COST_TEXT_COLOR, getAdCostColor, getProfitAmountColor, getProfitColor } from '../utils';
 
 describe('getProfitColor', () => {
   it('reads a margin rate: loss first, then the thin-margin band, then positive', () => {
@@ -38,6 +38,19 @@ describe('getProfitAmountColor', () => {
     expect(getProfitColor(100).split(' ')).toContain(getProfitAmountColor(100));
     expect(getProfitAmountColor(-1)).not.toMatch(/font-/);
     expect(getProfitAmountColor(1)).not.toMatch(/font-/);
+  });
+});
+
+describe('getAdCostColor', () => {
+  it('carries the spend tone only for a measured amount', () => {
+    for (const amount of [0, 1_000, 1_000_000]) {
+      expect(getAdCostColor(amount)).toBe(AD_COST_TEXT_COLOR);
+    }
+  });
+
+  it('keeps an unmeasured spend on the same neutral tone as an unmeasured profit', () => {
+    expect(getAdCostColor(null)).toBe(getProfitAmountColor(null));
+    expect(getAdCostColor(undefined)).toBe(getProfitAmountColor(null));
   });
 });
 

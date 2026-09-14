@@ -16,6 +16,19 @@ describe('GradesPanel', () => {
     expect(screen.getAllByText('-')).toHaveLength(4);
   });
 
+  it('keeps an unmeasured ad cost on the same neutral tone as an unmeasured profit', () => {
+    // Not measured is a state, not a figure, so it may not read as spend.
+    render(
+      <GradesPanel
+        grades={[{ grade: 'A', revenue: null, profit: null, count: null, productCount: null, adCost: null }]}
+      />,
+    );
+
+    const toneOf = (label: string) => screen.getByText(label).nextElementSibling?.className;
+
+    expect(toneOf('광고비')).toBe(toneOf('순이익'));
+  });
+
   it('shows measured grade totals with their units', () => {
     render(
       <GradesPanel
