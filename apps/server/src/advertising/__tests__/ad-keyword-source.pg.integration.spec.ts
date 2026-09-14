@@ -11,6 +11,7 @@ import {
   TEST_USER_ID as USER,
 } from '../../test-helpers/real-prisma';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
+import { GlobalExceptionFilter } from '../../common/filters/global-exception.filter';
 import { AdKeywordSourceController } from '../adapter/in/http/ad-keyword-source.controller';
 import { AdKeywordSourceRepository } from '../adapter/out/repository/ad-keyword-source.repository';
 import type { Prisma, PrismaClient } from '@prisma/client';
@@ -904,6 +905,58 @@ describe('Ad keyword source incoming HTTP + disposable PostgreSQL', () => {
     expect((await get('/source')).body).toMatchObject({
       ready: true,
       latestComplete: { state: 'COMPLETE' },
+    });
+  });
+
+  describe('through the global exception filter', () => {
+    let filtered: INestApplication;
+    let filteredUrl: string;
+    beforeAll(async () => {
+      const module = await Test.createTestingModule({
+        controllers: [AdKeywordSourceController],
+        providers: [{ provide: AdKeywordSourceRepository, useValue: owner }],
+      }).compile();
+      filtered = module.createNestApplication({ logger: false, bodyParser: false });
+      filtered.use(json({ limit: '25mb' }));
+      filtered.setGlobalPrefix('api');
+      filtered.use((req: { authUser?: unknown }, _res: unknown, next: () => void) => {
+        req.authUser = { id: USER, organizationId: ORG };
+        next();
+      });
+      filtered.useGlobalFilters(new GlobalExceptionFilter());
+      await filtered.init();
+      await filtered.listen(0, '127.0.0.1');
+      filteredUrl = await filtered.getUrl();
+    });
+    afterAll(async () => {
+      await filtered?.close();
+    });
+
+    it('keeps the in-progress code and attempt id in a 409 begin body', async () => {
+      const key = randomUUID();
+      const running = (await admit(key)).body;
+      const conflict = await request(filteredUrl)
+        .post(`${base}/attempts`)
+        .set('Idempotency-Key', randomUUID())
+        .send({})
+        .expect(409);
+      expect(conflict.body).toMatchObject({
+        statusCode: 409,
+        code: 'ATTEMPT_IN_PROGRESS',
+        attemptId: running.attemptId,
+        path: `${base}/attempts`,
+      });
+      const reused = await request(filteredUrl)
+        .post(`${base}/attempts`)
+        .set('Idempotency-Key', key)
+        .send({ channelAccountId: accountId })
+        .expect(409);
+      expect(reused.body).toMatchObject({
+        statusCode: 409,
+        error: 'Conflict',
+        message: 'SOURCE_IDEMPOTENCY_KEY_REUSED',
+      });
+      expect(reused.body).not.toHaveProperty('attemptId');
     });
   });
 });
