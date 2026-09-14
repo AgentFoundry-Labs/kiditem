@@ -431,6 +431,61 @@ describe('Sellpia inventory source owner HTTP + disposable PostgreSQL', () => {
       .toBe(false);
   });
 
+  it('publishes a stop after a real failure as a stopped last attempt, keeping the previous snapshot current', async () => {
+    const readFreshness = () => freshness.getState({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+    });
+    await complete(await begin('failure-then-stop-basis'), snapshot(5)).expect(201);
+    const verified = await readFreshness();
+
+    await fail(await begin('failure-then-stop-failure'), 'sellpia_network_failed').expect(201);
+    const afterFailure = await readFreshness();
+    expect(afterFailure).toMatchObject({
+      status: 'failed',
+      lastVerifiedAt: verified.lastVerifiedAt,
+      lastAttempt: { errorCode: 'sellpia_network_failed' },
+    });
+    expect(isSellpiaInventoryLastAttemptStopped(afterFailure)).toBe(false);
+
+    await cancel((await begin('failure-then-stop-stop')).attemptId).expect(200);
+    const afterStop = await readFreshness();
+    expect(afterStop).toMatchObject({
+      status: 'refresh_required',
+      verifiedGeneration: verified.verifiedGeneration,
+      lastVerifiedAt: verified.lastVerifiedAt,
+      activeSync: null,
+      lastAttempt: { errorCode: null, errorMessage: null },
+    });
+    expect(Date.parse(afterStop.lastAttempt?.attemptedAt ?? 'missing'))
+      .toBeGreaterThan(Date.parse(afterStop.lastVerifiedAt ?? 'missing'));
+    expect(isSellpiaInventoryLastAttemptStopped(afterStop)).toBe(true);
+  });
+
+  it('publishes a stop before any snapshot exists as a stopped last attempt with nothing verified', async () => {
+    const readFreshness = () => freshness.getState({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+    });
+    expect(await readFreshness()).toMatchObject({
+      status: 'refresh_required',
+      lastVerifiedAt: null,
+      lastAttempt: null,
+    });
+
+    await cancel((await begin('stop-before-snapshot')).attemptId).expect(200);
+    const afterStop = await readFreshness();
+    expect(afterStop).toMatchObject({
+      status: 'refresh_required',
+      verifiedGeneration: '0',
+      lastVerifiedAt: null,
+      activeSync: null,
+      lastAttempt: { errorCode: null, errorMessage: null },
+    });
+    expect(isSellpiaInventoryLastAttemptStopped(afterStop)).toBe(true);
+    expect(await alerts.list(TEST_ORGANIZATION_ID)).toEqual([]);
+  });
+
   it('keeps an uncollected canonical identity visibly unverified in ordinary reads', async () => {
     const identity = await prisma.sellpiaInventorySku.create({
       data: {
