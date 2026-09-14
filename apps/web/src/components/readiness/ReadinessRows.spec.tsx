@@ -182,7 +182,6 @@ function sellpiaFreshness(
     lastAttempt: status === 'failed'
       ? {
           attemptedAt: '2026-09-05T16:30:00.000Z',
-          status: 'failed',
           trigger: 'manual_request',
           scope: 'inventory',
           errorCode: null,
