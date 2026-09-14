@@ -185,6 +185,61 @@ function selectedOnly(
 }
 
 describe('dashboard sales metricBasis', () => {
+  /**
+   * KID-144 — a month's profit reads the anchor's month clipped to its closed
+   * KST days, the only dates orders and the ad sweep can both have covered
+   * (ADR-0001). For a month selection the profit card, its rate, change and
+   * inputs follow it; revenue and the ranking keep the calendar month.
+   */
+  it('reads the profit, rate and inputs of a month selection over its closed days while revenue keeps the calendar month', async () => {
+    // 12:00 KST on 20 September: 1–19 September are closed.
+    const anchor = new Date('2026-09-20T03:00:00.000Z');
+    const { sales } = salesService({
+      profitFor: (period) => {
+        const lastDate = period.selectedDates.at(-1);
+        // Orders and the sweep cover every closed day: a measured profit.
+        if (lastDate === '2026-09-19') return profitMetrics(period, { revenue: 100_000, netProfit: 40_000 });
+        // The calendar month also asks for the open 20th onward, which no
+        // sweep can have covered, so it has revenue but no profit.
+        if (lastDate === '2026-09-30') {
+          return profitMetrics(period, { revenue: 120_000, netProfit: null, adDates: [] });
+        }
+        if (lastDate === '2026-08-31') return profitMetrics(period, { revenue: 80_000, netProfit: 20_000 });
+        return profitMetrics(period, { revenue: 0, orderCount: 0, orderDates: [], netProfit: null });
+      },
+    });
+
+    const result = await sales.getSummary(
+      buildDashboardContext('month', undefined, undefined, anchor),
+      ORGANIZATION_ID,
+    );
+
+    expect(result.monthly).toMatchObject({ revenue: 120_000, profit: 40_000, prevProfit: 20_000 });
+    expect(result.rangeKpi).toMatchObject({
+      revenue: 120_000,
+      profit: 40_000,
+      profitRate: 40,
+      prevProfit: 20_000,
+    });
+    expect(result.rangeKpi?.profitChange).not.toBeNull();
+    expect(result.monthly.profitChange).toBe(result.rangeKpi?.profitChange);
+    // Ad cost over the same closed days' revenue.
+    expect(result.monthly.adRate).toBe(10);
+    expect(result.profitDetail).toMatchObject({ revenue: 100_000, netProfit: 40_000 });
+    expect(result.profitInputs).toMatchObject({ revenue: 100_000, adCost: 10_000 });
+    for (const key of ['monthly.profit', 'rangeKpi.profit', 'rangeKpi.profitRate', 'profitInputs'] as const) {
+      expect(result.metricBasis?.[key], key).toMatchObject({
+        from: '2026-09-01',
+        to: '2026-09-19',
+        targetDays: 19,
+      });
+      expect(periodStatusOf(result.metricBasis?.[key]), key).toBe('complete');
+    }
+    for (const key of ['monthly.revenue', 'rangeKpi.revenue', 'topProducts.netProfit'] as const) {
+      expect(result.metricBasis?.[key], key).toMatchObject({ from: '2026-09-01', to: '2026-09-30' });
+    }
+  });
+
   it('publishes a partial revenue basis that keeps an internal hole visible', async () => {
     const { sales } = salesService({
       profitFor: selectedOnly({ orderDates: ['2026-09-01', '2026-09-03', '2026-09-05'] }),

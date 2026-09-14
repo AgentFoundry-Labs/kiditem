@@ -17,7 +17,8 @@ boundary with HTTP and persistence adapters around Prisma-free orchestration.
   Services and adapters read a resolved period; they do not re-derive
   business-date keys, enumerate dates, or clip a window of their own.
 - `DashboardSourceClass` enumerates the closure rules — `order_timestamps`,
-  `closed_day_clipped`. Add a class there rather than a switch in a service.
+  `closed_day_clipped`, `closed_day_month`. Add a class there rather than a
+  switch in a service.
 - Every month window is the anchor's calendar month. `closed_day_clipped` clips
   it forward to the last closed KST business day, so on the 1st it is empty and
   the affected cards publish an unavailable value. Do not widen that window,

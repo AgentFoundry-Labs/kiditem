@@ -5,6 +5,7 @@ import {
   PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
   PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH,
 } from '@kiditem/shared/product-abc';
+import { periodBasisStatus } from '@kiditem/shared/dashboard';
 import { DashboardSalesService } from '../application/service/dashboard-sales.service';
 import { buildDashboardContext } from '../domain/context';
 import { DashboardSalesRepositoryAdapter } from '../adapter/out/repository/dashboard-sales.repository.adapter';
@@ -135,28 +136,71 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
     return service.getSummary(ctx, organizationId);
   }
 
-  it('T1: baseline monthly — single order, math verified', async () => {
+  /**
+   * KID-144 — a month's profit, and the rate, change and inputs built on it,
+   * read the anchor's month clipped to its closed KST days (ADR-0001). Orders
+   * and the campaign sweep can only ever have covered those days, so a profit
+   * read over the whole calendar month was unavailable all month. The anchor is
+   * fixed after 06:00 KST, so the closed days do not move with the wall clock.
+   */
+  it('T1: publishes the month profit over its closed days — single order, math verified', async () => {
+    // 12:00 KST on 20 September: 1–19 September are closed, the 20th is open.
+    const anchor = new Date('2026-09-20T03:00:00.000Z');
     const { optionId, listingOptionId } = await seedTestListing('1');
+    // This case owns its coverage. It replaces the helper's calendar-month
+    // sweep with what real collections reach: the sweep and the Orders
+    // collection both stop at the 19th.
+    await prisma.channelAdTargetDailySnapshot.deleteMany({ where: { organizationId: TEST_ORGANIZATION_ID } });
+    await prisma.sourceImportRun.deleteMany({
+      where: { organizationId: TEST_ORGANIZATION_ID, sourceType: 'coupang_ad_campaign' },
+    });
     await seedOrderWithLineItems(prisma, {
       orderChannel: 'rocket',
       organizationId: TEST_ORGANIZATION_ID,
       externalOrderId: 'SALES-T-1',
-      orderedAt: midMonth().toISOString(),
+      orderedAt: '2026-09-15T12:00:00+09:00',
       shippingPrice: 10_000,
       lineItems: [{ quantity: 1, totalPrice: 100_000, optionId, listingOptionId }],
     });
+    await seedCompletedAdSweepRun(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      generation: ++sweepGeneration,
+      window: { startDate: '2026-09-01', endDate: '2026-09-19' },
+    });
+    await seedCompletedOrderCoverageRun(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      startDate: '2026-09-01',
+      endDate: '2026-09-19',
+    });
 
-    const ctx = buildDashboardContext();
-    const result = await readMeasuredSummary(ctx);
+    const result = await service.getSummary(
+      buildDashboardContext(undefined, undefined, undefined, anchor),
+      TEST_ORGANIZATION_ID,
+    );
 
-    expect(result.monthly.revenue).toBe(100_000);
-    expect(result.monthly.profit).toBe(40_000);             // 100k - 50k - 10k shipping; a Rocket order carries no commission
-    // No advertising on any day of the period: the collector published an
-    // explicit zero for each one, which is evidence, so profit is computable.
+    // 100k − 50k purchase cost − 10k shipping; a Rocket order carries no
+    // commission. The sweep measured every closed day and found no
+    // advertising, which is evidence, so profit is computable.
+    expect(result.monthly.profit).toBe(40_000);
     expect(result.monthly.adRate).toBe(0);
-    expect(result.profitDetail?.netProfit).toBe(40_000);
-    expect(result.profitDetail?.commission).toBe(0);
-    expect(result.profitDetail?.shippingCost).toBe(10_000);
+    expect(result.rangeKpi).toMatchObject({ profit: 40_000, profitRate: 40 });
+    expect(result.profitInputs).toMatchObject({ revenue: 100_000, cost: 60_000, adCost: 0 });
+    expect(result.profitDetail).toMatchObject({
+      revenue: 100_000,
+      netProfit: 40_000,
+      commission: 0,
+      shippingCost: 10_000,
+    });
+    for (const key of ['monthly.profit', 'rangeKpi.profit', 'rangeKpi.profitRate', 'profitInputs'] as const) {
+      const basis = result.metricBasis?.[key];
+      expect(basis, key).toMatchObject({
+        kind: 'period',
+        from: '2026-09-01',
+        to: '2026-09-19',
+        targetDays: 19,
+      });
+      expect(basis?.kind === 'period' ? periodBasisStatus(basis) : null, key).toBe('complete');
+    }
     expect(result.planAchievement).toBeNull();
   });
 
